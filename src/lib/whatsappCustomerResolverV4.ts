@@ -1,3 +1,5 @@
+// CLASSIFICATION: legacy comparison / manual search helper. WhatsApp ingestion identity is decided
+// ONLY by src/lib/customers/canonicalCustomerIdentityResolver.ts (display names never resolve).
 import { normalizeArabicText, normalizePhone, searchCustomers, type CustomerSearchResult } from '@/lib/customerSearch';
 
 export type WhatsAppResolvedCustomer = {

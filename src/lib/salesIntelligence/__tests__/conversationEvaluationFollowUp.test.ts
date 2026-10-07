@@ -70,7 +70,7 @@ describe('conversation evaluation follow-up 9D', () => {
     });
   });
 
-  it('uses the canonical unresolved follow-up to prove a promise was never completed', () => {
+  it('an unresolved promise at the end of the export is pending — no penalty, no forgotten customer', () => {
     const view = baseView([
       { id: 'c1', role: 'customer', sender: 'Customer', at: '2026-09-28T09:00:00.000Z', text: 'الصنف موجود؟', meaningful: true },
       { id: 's1', role: 'staff', sender: 'You', at: '2026-09-28T09:00:10.000Z', text: 'هراجع وأرجع لحضرتك', meaningful: true },
@@ -106,11 +106,102 @@ describe('conversation evaluation follow-up 9D', () => {
       }],
     } as any;
 
-    expect(analyzeConversationEvaluationFollowUp(view).item).toMatchObject({
+    const item = analyzeConversationEvaluationFollowUp(view).item;
+    expect(item).toMatchObject({
+      status: 'insufficient_evidence',
+      selectedOption: null,
+      pointsEarned: null,
+    });
+    expect(item.lifecycle?.status).toBe('pending');
+    expect(item.lifecycle?.penaltyEligible).toBe(false);
+  });
+
+  it('uses the canonical unresolved follow-up to prove a MATURE promise was never completed', () => {
+    const view = baseView([
+      { id: 'c1', role: 'customer', sender: 'Customer', at: '2026-09-28T09:00:00.000Z', text: 'الصنف موجود؟', meaningful: true },
+      { id: 's1', role: 'staff', sender: 'You', at: '2026-09-28T09:00:10.000Z', text: 'هراجع وأرجع لحضرتك', meaningful: true },
+      { id: 'c2', role: 'customer', sender: 'Customer', at: '2026-09-28T12:30:00.000Z', text: 'يا دكتور', meaningful: true },
+    ]);
+    view.followUp = {
+      caseId: 'follow-case',
+      decision: 'actionable',
+      notNeededReason: null,
+      opportunities: [{
+        followUpKey: 'f1',
+        caseId: 'follow-case',
+        customerId: 'cust',
+        status: 'actionable',
+        reason: 'staff_promised_check',
+        priority: 'high',
+        productKey: null,
+        productId: null,
+        productRaw: null,
+        quantity: null,
+        demandKey: null,
+        duePolicy: 'same_shift',
+        requestedDelayDays: null,
+        dueAt: null,
+        assignedRole: 'pharmacist',
+        assignedStaffId: 'staff',
+        assignedStaffName: null,
+        goal: 'complete_promised_check',
+        nextBestAction: 'complete_promised_check',
+        blocker: null,
+        suppressedBy: null,
+        evidenceMessageIds: ['s1'],
+        confidence: { level: 'strongly_inferred', score: 0.85, evidence: [], ruleIds: [] },
+      }],
+    } as any;
+
+    const item = analyzeConversationEvaluationFollowUp(view).item;
+    expect(item).toMatchObject({
       status: 'assessed',
       selectedOption: 'never',
       pointsEarned: 0,
     });
+  });
+
+  it('past the SLA but not yet mature is overdue for human review, still without penalty', () => {
+    const view = baseView([
+      { id: 'c1', role: 'customer', sender: 'Customer', at: '2026-09-28T09:00:00.000Z', text: 'الصنف موجود؟', meaningful: true },
+      { id: 's1', role: 'staff', sender: 'You', at: '2026-09-28T09:00:10.000Z', text: 'هراجع وأرجع لحضرتك', meaningful: true },
+      { id: 'c2', role: 'customer', sender: 'Customer', at: '2026-09-28T09:45:00.000Z', text: 'يا دكتور', meaningful: true },
+    ]);
+    view.followUp = {
+      caseId: 'follow-case',
+      decision: 'actionable',
+      notNeededReason: null,
+      opportunities: [{
+        followUpKey: 'f1',
+        caseId: 'follow-case',
+        customerId: 'cust',
+        status: 'actionable',
+        reason: 'staff_promised_check',
+        priority: 'high',
+        productKey: null,
+        productId: null,
+        productRaw: null,
+        quantity: null,
+        demandKey: null,
+        duePolicy: 'same_shift',
+        requestedDelayDays: null,
+        dueAt: null,
+        assignedRole: 'pharmacist',
+        assignedStaffId: 'staff',
+        assignedStaffName: null,
+        goal: 'complete_promised_check',
+        nextBestAction: 'complete_promised_check',
+        blocker: null,
+        suppressedBy: null,
+        evidenceMessageIds: ['s1'],
+        confidence: { level: 'strongly_inferred', score: 0.85, evidence: [], ruleIds: [] },
+      }],
+    } as any;
+
+    const item = analyzeConversationEvaluationFollowUp(view).item;
+    expect(item.status).toBe('insufficient_evidence');
+    expect(item.pointsEarned).toBeNull();
+    expect(item.lifecycle?.status).toBe('overdue');
   });
 
   it('does not attach a later staff reply to the old promise after the customer opened a new substantive request', () => {

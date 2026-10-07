@@ -66,8 +66,20 @@ function deepEqual(a, b) {
   return false;
 }
 
+function matchesObject(actual, expected) {
+  if (expected === null || typeof expected !== 'object') return deepEqual(actual, expected);
+  if (Array.isArray(expected)) {
+    return Array.isArray(actual) && actual.length === expected.length && expected.every((item, i) => matchesObject(actual[i], item));
+  }
+  if (actual === null || typeof actual !== 'object') return false;
+  return Object.keys(expected).every((key) => matchesObject(actual[key], expected[key]));
+}
+
 function expect(actual) {
   const api = {
+    toMatchObject(expected) {
+      if (!matchesObject(actual, expected)) throw new Error(`Expected ${JSON.stringify(actual)} to match object ${JSON.stringify(expected)}`);
+    },
     toBe(expected) {
       if (!Object.is(actual, expected)) throw new Error(`Expected ${actual} to be ${expected}`);
     },
@@ -279,6 +291,15 @@ const testFiles = [
   'src/lib/__tests__/whatsappUnderstandingEvidenceV32GoldenExpansion.test.ts',
   'src/lib/__tests__/whatsappOrderConfirmationEvidenceV32GoldenExpansion.test.ts',
   'src/lib/__tests__/whatsappSemanticSignalsV32.test.ts',
+  // WhatsApp canonical pipeline closure (Source -> V22 -> one SI refresh), reanalysis, review
+  // draft lifecycle, follow-up promise lifecycle, and the A1-A3 Product/Need regressions.
+  'src/lib/__tests__/whatsappCanonicalFilePipeline.test.ts',
+  'src/lib/__tests__/whatsappReviewReanalysis.test.ts',
+  'src/lib/__tests__/reviewDraftLifecycle.test.ts',
+  'src/lib/__tests__/followUpPromiseLifecycle.test.ts',
+  'src/lib/salesIntelligence/__tests__/conversationEvaluationFollowUp.test.ts',
+  'src/lib/salesIntelligence/__tests__/productNeedResolutionE2E.test.ts',
+  'src/lib/salesIntelligence/__tests__/whatsappA1CanonicalChainE2E.test.ts',
 ];
 for (const relativePath of testFiles) {
   const testFile = path.join(root, relativePath);

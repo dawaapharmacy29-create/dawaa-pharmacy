@@ -1,20 +1,12 @@
 import { supabase } from '@/lib/supabase';
-import { getStaffSessionToken } from '@/lib/auth/staffSession';
 import type { WhatsAppCustomerCaseEngineV22 } from './whatsappCustomerCaseEngineV22';
 import type { JourneySessionSourceV15 } from './whatsappCustomerJourneyPersistenceV15';
 import { deriveProposedCaseLostReasonV23 } from './whatsappCaseLostReasonV23';
-import { requestCanonicalSalesIntelligenceRefresh } from './salesIntelligence/refresh/refreshClient';
 
 export interface SyncWhatsAppCustomerCasesV22Context {
   branch?: string | null;
   createdBy?: string | null;
   sessionSources: JourneySessionSourceV15[];
-  /**
-   * Set only when the caller already owns the canonical Sales Intelligence refresh.
-   * Direct Smart Review persistence leaves this false/undefined so the freshly saved V22 cases
-   * cannot remain on an older persisted Sales Intelligence pipeline version.
-   */
-  skipCanonicalSalesIntelligenceRefresh?: boolean;
 }
 
 export interface SyncWhatsAppCustomerCasesV22Result {
@@ -22,6 +14,8 @@ export interface SyncWhatsAppCustomerCasesV22Result {
   skipped: number;
   failed: number;
   failures: Array<{ caseId: string; message: string }>;
+  /** Source ids owned by a successfully saved V22 case (the only sources Sales Intelligence may admit). */
+  savedSourceIds: string[];
 }
 
 type ParticipantStaff = {
@@ -201,7 +195,7 @@ export async function syncWhatsAppCustomerCasesV22(
   context: SyncWhatsAppCustomerCasesV22Context,
 ): Promise<SyncWhatsAppCustomerCasesV22Result> {
   const sourceBySession = new Map(context.sessionSources.map((x) => [x.sessionId, x.sourceId]));
-  const result: SyncWhatsAppCustomerCasesV22Result = { saved: 0, skipped: 0, failed: 0, failures: [] };
+  const result: SyncWhatsAppCustomerCasesV22Result = { saved: 0, skipped: 0, failed: 0, failures: [], savedSourceIds: [] };
   const allSourceIds = [...new Set(context.sessionSources.map((x) => x.sourceId).filter(Boolean))];
 
   const sourceMap = new Map<string, SourceRow>();
@@ -359,6 +353,9 @@ export async function syncWhatsAppCustomerCasesV22(
       }
 
       result.saved += 1;
+      for (const sourceId of sourceIds) {
+        if (!result.savedSourceIds.includes(sourceId)) result.savedSourceIds.push(sourceId);
+      }
     } catch (error) {
       console.warn('[whatsapp-case-v22] failed to persist case', caseItem.id, error);
       result.failed += 1;
@@ -371,32 +368,7 @@ export async function syncWhatsAppCustomerCasesV22(
     }
   }
 
-  if (!context.skipCanonicalSalesIntelligenceRefresh && allSourceIds.length && result.saved > 0) {
-    try {
-      const accessToken = getStaffSessionToken();
-      if (!accessToken) {
-        console.warn(
-          '[whatsapp-case-v22] canonical Sales Intelligence refresh skipped: official staff session token unavailable'
-        );
-      } else {
-        const refresh = await requestCanonicalSalesIntelligenceRefresh({
-          sourceIds: allSourceIds,
-          accessToken,
-        });
-        if (refresh.authInvalid || refresh.errors.length) {
-          console.warn('[whatsapp-case-v22] canonical Sales Intelligence refresh incomplete', {
-            authInvalid: refresh.authInvalid,
-            errors: refresh.errors,
-          });
-        }
-      }
-    } catch (refreshError) {
-      console.warn(
-        '[whatsapp-case-v22] canonical Sales Intelligence refresh failed after V22 persistence',
-        refreshError
-      );
-    }
-  }
-
+  // Sales Intelligence is NOT refreshed here. The file orchestrator owns exactly one canonical
+  // refresh after the whole case graph is written (see whatsappWatcherCaseGraphSync.ts).
   return result;
 }

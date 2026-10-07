@@ -28,6 +28,15 @@ export interface SmartIntelligenceCustomerPurchaseHistory {
   lastPurchaseAt: string | null;
 }
 
+export interface SmartCustomerIdentityDisplay {
+  status: 'resolved' | 'unresolved' | 'ambiguous' | 'contradicted';
+  officialName: string | null;
+  officialCode: string | null;
+  /** Name from the export filename / WhatsApp label. Informational only. */
+  fileNameHint: string | null;
+  reason: string;
+}
+
 export interface SmartIntelligenceSnapshotV1 {
   version: 'smart-intelligence-snapshot-v1';
   generatedAt: string;
@@ -36,6 +45,11 @@ export interface SmartIntelligenceSnapshotV1 {
   invoiceVerification: UnifiedInvoiceVerification;
   /** مش متربط بعد — customer resolution wiring في صفحة الـWatcher لسه مش جزء من الخطوات المنفذة. */
   customer: WhatsAppResolvedCustomer | null;
+  /**
+   * Canonical identity for display: the official customer (Canonical Customer Identity) shown next
+   * to the WhatsApp/export-filename name so a different display name never looks like a wrong match.
+   */
+  customerIdentityDisplay?: SmartCustomerIdentityDisplay | null;
   /** مش متربط بعد — نفس السبب. */
   purchaseHistory: SmartIntelligenceCustomerPurchaseHistory | null;
   /** الـhierarchy جاهزة (whatsappConversationBranchHint.ts) بس مش متربطة بالـsnapshot لسه. */
@@ -60,6 +74,7 @@ export function buildSmartIntelligenceSnapshotV1(args: {
   staffEffort: StaffMessageEffort[];
   invoiceVerification: UnifiedInvoiceVerification;
   customer?: WhatsAppResolvedCustomer | null;
+  customerIdentityDisplay?: SmartCustomerIdentityDisplay | null;
   purchaseHistory?: SmartIntelligenceCustomerPurchaseHistory | null;
   branchHint?: BranchHintResult | null;
   bestMessageSignals?: BestMessageAggregate[];
@@ -75,6 +90,7 @@ export function buildSmartIntelligenceSnapshotV1(args: {
     staffEffort: args.staffEffort,
     invoiceVerification: args.invoiceVerification,
     customer: args.customer ?? null,
+    customerIdentityDisplay: args.customerIdentityDisplay ?? null,
     purchaseHistory: args.purchaseHistory ?? null,
     branchHint: args.branchHint ?? null,
     bestMessageSignals: args.bestMessageSignals ?? [],

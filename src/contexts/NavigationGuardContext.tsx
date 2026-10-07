@@ -15,6 +15,11 @@ export type UnsavedChangesGuardHandlers = {
   isDirty: () => boolean;
   isSaving: () => boolean;
   onSave: () => Promise<boolean>;
+  /**
+   * "الانتقال بدون حفظ": the page clears its draft/transfer and resets its dirty state BEFORE the
+   * navigation happens, so the discarded work can never resurrect and the guard is inactive.
+   */
+  onDiscard?: () => void;
 };
 
 type NavigationGuardContextValue = {
@@ -124,6 +129,14 @@ export function NavigationGuardProvider({ children }: { children: ReactNode }) {
 
   const handleDiscard = useCallback(() => {
     if (!pendingTarget) return;
+    // Every dirty guard discards (not only the first), then navigation completes unconditionally.
+    for (const guard of guardsRef.current.values()) {
+      try {
+        if (guard.isDirty()) guard.onDiscard?.();
+      } catch (error) {
+        if (import.meta.env.DEV) console.warn('[navigation-guard] onDiscard failed', error);
+      }
+    }
     completeNavigation(pendingTarget);
   }, [completeNavigation, pendingTarget]);
 

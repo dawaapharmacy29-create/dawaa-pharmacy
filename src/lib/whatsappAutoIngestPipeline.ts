@@ -40,7 +40,12 @@ import {
   type CanonicalCustomerIdentityStatus,
 } from '@/lib/customers/canonicalCustomerIdentityResolver';
 import { segmentWhatsAppExportCanonical } from '@/lib/whatsappCanonicalSegmentation';
-import { syncCanonicalCaseGraphForFile, type WatcherCaseGraphSyncResult } from '@/lib/whatsappWatcherCaseGraphSync';
+import {
+  deriveWhatsAppFileProcessingState,
+  runCanonicalWhatsAppFilePipeline,
+  type WatcherCaseGraphSyncResult,
+  type WhatsAppFileProcessingState,
+} from '@/lib/whatsappWatcherCaseGraphSync';
 import type { JourneySessionSourceV15 } from '@/lib/whatsappCustomerJourneyPersistenceV15';
 import {
   buildFollowupIdentity,
@@ -48,10 +53,7 @@ import {
   followupCustomerAnchor,
   normalizeFollowupKeyPart,
 } from '@/lib/whatsappFollowupIdentity';
-import {
-  requestCanonicalSalesIntelligenceRefresh,
-  type SalesIntelligenceStageStatus,
-} from '@/lib/salesIntelligence/refresh/refreshClient';
+import type { SalesIntelligenceStageStatus } from '@/lib/salesIntelligence/refresh/refreshClient';
 
 type CustomerIdentity = {
   customerId: string | null;
@@ -85,6 +87,8 @@ export interface IngestOneFileResult {
   /** Canonical chain status: case units persisted, Journey V15 + Customer Case V22, Sales Intelligence. */
   caseGraph: WatcherCaseGraphSyncResult | null;
   salesIntelligence: Record<string, SalesIntelligenceStageStatus>;
+  /** Explicit stage ledger; the file is recorded as processed only when outcome === 'complete'. */
+  processing: WhatsAppFileProcessingState | null;
   errors: string[];
 }
 
@@ -498,6 +502,7 @@ export async function ingestWhatsAppExportFile(
     autoReviewsPointsFailed: 0,
     caseGraph: null,
     salesIntelligence: {},
+    processing: null,
     errors: [],
   };
 
@@ -507,6 +512,15 @@ export async function ingestWhatsAppExportFile(
   const messages = mediaAttachment.messages;
   if (!messages.length) {
     result.errors.push('لم يتم التعرف على رسائل WhatsApp داخل الملف.');
+    result.processing = deriveWhatsAppFileProcessingState({
+      parsed: false,
+      expectedSourceCount: 0,
+      savedSourceCount: 0,
+      sourceErrors: [],
+      identityErrors: [],
+      caseGraph: null,
+      salesIntelligence: null,
+    });
     return result;
   }
 
@@ -516,6 +530,8 @@ export async function ingestWhatsAppExportFile(
   const caseContexts = segmentation.caseContexts;
   result.sessionsFound = caseContexts.contexts.length;
   const sessionSources: JourneySessionSourceV15[] = [];
+  const sourceErrors: string[] = [];
+  const sideWarnings: string[] = [];
   let firstBranch: string | null = null;
   // Canonical Customer Identity: one bounded batch for every case unit (same resolver as the
   // Smart Watcher and Sales Intelligence). A lookup failure fails the file visibly.
@@ -607,18 +623,27 @@ export async function ingestWhatsAppExportFile(
       result.followupsCreated += followups.created;
       result.followupsDuplicate += followups.duplicate;
     } catch (e) {
-      result.errors.push(e instanceof Error ? e.message : 'خطأ غير معروف أثناء معالجة جلسة محادثة');
+      const message = e instanceof Error ? e.message : 'خطأ غير معروف أثناء معالجة جلسة محادثة';
+      result.errors.push(message);
+      // A case unit whose durable source was never written is a critical failure; anything after
+      // the source write (invoice/operational/follow-up side writes) is a side warning.
+      if (!sessionSources.some((row) => row.sessionId === session.id)) sourceErrors.push(message);
+      else sideWarnings.push(message);
     }
   }
 
-  // Customer Case V22 (+ Journey V15) through the same implementation as the Smart Watcher.
-  result.caseGraph = await syncCanonicalCaseGraphForFile({
+  // Canonical chain through the SAME orchestrator as the Smart Folder:
+  // Case Graph (Journey side projection + V22) -> exactly one Sales Intelligence refresh.
+  const pipeline = await runCanonicalWhatsAppFilePipeline({
     sourceFileName: source.sourceFileName,
     caseContexts,
     sessionSources,
     branch: firstBranch,
     createdBy: options.createdBy ?? null,
+    accessToken: options.accessToken ?? null,
   });
+  result.caseGraph = pipeline.caseGraph;
+  result.salesIntelligence = pipeline.salesIntelligence.bySource;
   if (result.caseGraph.journey.status === 'failed') {
     result.errors.push(`Journey sync failed — ${result.caseGraph.journey.error}`);
   }
@@ -628,46 +653,45 @@ export async function ingestWhatsAppExportFile(
     );
   }
 
-  // Automatic conversation analysis is no longer persisted here.
-  // It is now a Case-level follower inside the canonical Sales Intelligence refresh, after
-  // Sales Intelligence persistence + canonical proof reconciliation. This prevents a legacy
-  // Source-level review and a new Case-level review from being created for the same interaction.
-  // Sales Intelligence through the same transport and Canonical Source Gate as the Smart Watcher.
-  const sourceIds = Array.from(new Set(sessionSources.map((row) => row.sourceId)));
-  if (sourceIds.length) {
-    if (!options.accessToken) {
-      result.errors.push('Sales Intelligence: جلسة الإدارة غير متاحة — لم يتم تحديث التحليل الرسمي لهذه المصادر');
-    } else {
-      const refresh = await requestCanonicalSalesIntelligenceRefresh({ sourceIds, accessToken: options.accessToken });
-      result.salesIntelligence = refresh.bySource;
-
-      for (const evaluation of refresh.conversationEvaluations) {
-        if (evaluation.status === 'saved') {
-          result.autoReviewsCreated += 1;
-        } else if (evaluation.status === 'skipped_existing') {
-          result.autoReviewsSkipped += 1;
-        } else if (
-          evaluation.status === 'skipped_non_current_case' ||
-          evaluation.status === 'skipped_source_mismatch'
-        ) {
-          result.autoReviewsSkippedNonCanonical += 1;
-        } else if (evaluation.status.startsWith('skipped_')) {
-          result.autoReviewsSkipped += 1;
-        } else if (evaluation.status === 'failed') {
-          result.errors.push(
-            `تحليل المحادثة [${evaluation.caseId || evaluation.sourceId}]: ${evaluation.error || 'فشل حفظ التقييم الآلي'}`
-          );
-        }
-      }
-
-      // This phase deliberately never writes doctor/incentive points.
-      result.autoReviewsPointsFailed = 0;
-
-      for (const failure of refresh.errors) {
-        result.errors.push(`Sales Intelligence [${failure.sourceId}]: ${failure.message}`);
-      }
+  // Automatic conversation analysis is a Case-level follower inside the canonical Sales
+  // Intelligence refresh (after SI persistence + canonical proof reconciliation). It never
+  // writes doctor/incentive points: AI evaluates, a human approves.
+  if (pipeline.salesIntelligence.reason === 'staff_session_unavailable') {
+    result.errors.push('Sales Intelligence: جلسة الإدارة غير متاحة — لم يتم تحديث التحليل الرسمي لهذه المصادر');
+  }
+  for (const evaluation of pipeline.salesIntelligence.conversationEvaluations) {
+    if (evaluation.status === 'saved') {
+      result.autoReviewsCreated += 1;
+    } else if (evaluation.status === 'skipped_existing') {
+      result.autoReviewsSkipped += 1;
+    } else if (
+      evaluation.status === 'skipped_non_current_case' ||
+      evaluation.status === 'skipped_source_mismatch'
+    ) {
+      result.autoReviewsSkippedNonCanonical += 1;
+    } else if (evaluation.status.startsWith('skipped_')) {
+      result.autoReviewsSkipped += 1;
+    } else if (evaluation.status === 'failed') {
+      result.errors.push(
+        `تحليل المحادثة [${evaluation.caseId || evaluation.sourceId}]: ${evaluation.error || 'فشل حفظ التقييم الآلي'}`
+      );
     }
   }
+  result.autoReviewsPointsFailed = 0;
+  for (const failure of pipeline.salesIntelligence.errors) {
+    result.errors.push(`Sales Intelligence [${failure}]`);
+  }
+
+  result.processing = deriveWhatsAppFileProcessingState({
+    parsed: true,
+    expectedSourceCount: caseContexts.contexts.length,
+    savedSourceCount: sessionSources.length,
+    sourceErrors,
+    identityErrors: [],
+    caseGraph: pipeline.caseGraph,
+    salesIntelligence: pipeline.salesIntelligence,
+    sideWarnings,
+  });
 
   revokeWhatsAppMediaObjectUrlsV21(messages);
   return result;

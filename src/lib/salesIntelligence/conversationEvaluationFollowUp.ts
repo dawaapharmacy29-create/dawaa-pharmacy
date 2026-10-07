@@ -2,6 +2,10 @@ import { REVIEW_CRITERIA } from '@/lib/conversationReviews';
 import { isStaffFollowUpPromiseV32 } from '../whatsappSemanticSignalsV32';
 import type { CaseIntelligenceView } from './types';
 import { buildConversationEvaluationEvidence } from './conversationEvaluationEvidence';
+import {
+  evaluateFollowUpPromiseLifecycle,
+  type FollowUpPromiseLifecycle,
+} from '../followUpPromiseLifecycle';
 
 export interface FollowUpAfterWaitAssessment {
   key: 'followup_after_wait';
@@ -16,10 +20,15 @@ export interface FollowUpAfterWaitAssessment {
   evidenceMessageIds: string[];
   waitSeconds: number | null;
   promiseCount: number;
+  /**
+   * Lifecycle of the weakest unfulfilled promise (pending/overdue/violated), so the reviewer sees
+   * the promise time, SLA due time and how long the conversation was actually observed.
+   */
+  lifecycle: FollowUpPromiseLifecycle | null;
 }
 
 export interface ConversationEvaluationFollowUp {
-  version: 'conversation-evaluation-followup-v1';
+  version: 'conversation-evaluation-followup-v2';
   caseId: string;
   item: FollowUpAfterWaitAssessment;
 }
@@ -37,7 +46,9 @@ function make(
   reason: string,
   evidenceMessageIds: string[],
   waitSeconds: number | null,
-  promiseCount: number
+  promiseCount: number,
+  lifecycle: FollowUpPromiseLifecycle | null = null,
+  labelOverride: string | null = null
 ): FollowUpAfterWaitAssessment {
   const choice = option ? criterion!.choices.find((item) => item.value === option) ?? null : null;
   return {
@@ -45,12 +56,12 @@ function make(
     label: criterion!.label,
     status,
     selectedOption: option,
-    selectedLabel:
-      status === 'not_applicable'
+    selectedLabel: labelOverride ||
+      (status === 'not_applicable'
         ? 'غير منطبق على المحادثة'
         : status === 'insufficient_evidence'
           ? 'الدليل غير كافٍ للحكم'
-          : choice?.label || 'تم التقييم',
+          : choice?.label || 'تم التقييم'),
     pointsEarned: status === 'assessed' ? choice?.pointsEarned ?? null : null,
     maxPoints: criterion!.maxPoints,
     confidence,
@@ -58,6 +69,7 @@ function make(
     evidenceMessageIds: Array.from(new Set(evidenceMessageIds.filter(Boolean))),
     waitSeconds,
     promiseCount,
+    lifecycle,
   };
 }
 
@@ -79,7 +91,7 @@ export function analyzeConversationEvaluationFollowUp(
   const gate = contract.criteria.find((item) => item.key === 'followup_after_wait');
   if (gate?.readiness === 'not_applicable') {
     return {
-      version: 'conversation-evaluation-followup-v1',
+      version: 'conversation-evaluation-followup-v2',
       caseId: view.caseId,
       item: make(null, 'not_applicable', 100, 'لم يتم رصد وعد من الموظف بالرجوع/المراجعة داخل هذا التفاعل.', [], null, 0),
     };
@@ -94,7 +106,7 @@ export function analyzeConversationEvaluationFollowUp(
 
   if (!promises.length) {
     return {
-      version: 'conversation-evaluation-followup-v1',
+      version: 'conversation-evaluation-followup-v2',
       caseId: view.caseId,
       item: make(null, 'not_applicable', 100, 'لم يتم رصد وعد من الموظف بالرجوع/المراجعة داخل هذا التفاعل.', [], null, 0),
     };
@@ -108,6 +120,9 @@ export function analyzeConversationEvaluationFollowUp(
     evidence: string[];
   }> = [];
   const ambiguousEvidence: string[] = [];
+  const unfulfilled: Array<{ lifecycle: FollowUpPromiseLifecycle; evidence: string[] }> = [];
+  // The latest observed message bounds what we actually know; the export end is not a failure.
+  const observedUntil = ordered.length ? ordered[ordered.length - 1].at : null;
 
   for (const promise of promises) {
     const promiseIndex = ordered.findIndex((message) => message.id === promise.id);
@@ -159,21 +174,51 @@ export function analyzeConversationEvaluationFollowUp(
         opportunity.evidenceMessageIds.includes(promise.id)
     );
     if (unresolvedPromise) {
-      assessed.push({
-        option: 'never',
-        seconds: null,
-        confidence: 99,
-        reason: 'تم رصد وعد صريح بالرجوع، ومحرك المتابعة الكانوني أكد أنه لم يظهر رد موظف لاحق ينفذ هذا الوعد داخل التفاعل.',
-        evidence: [promise.id, ...unresolvedPromise.evidenceMessageIds],
-      });
+      const lifecycle = evaluateFollowUpPromiseLifecycle({ promiseAt: promise.at, observedUntil });
+      const evidence = [promise.id, ...unresolvedPromise.evidenceMessageIds];
+      if (lifecycle?.status === 'violated') {
+        assessed.push({
+          option: 'never',
+          seconds: null,
+          confidence: 99,
+          reason: `تم رصد وعد صريح بالرجوع، ومحرك المتابعة الكانوني أكد أنه لم يظهر رد موظف لاحق ينفذ هذا الوعد. ${lifecycle.reason}`,
+          evidence,
+        });
+      } else if (lifecycle) {
+        unfulfilled.push({ lifecycle, evidence });
+      } else {
+        ambiguousEvidence.push(promise.id);
+      }
     } else {
       ambiguousEvidence.push(promise.id);
     }
   }
 
+  if (!assessed.length && unfulfilled.length) {
+    const weakest =
+      unfulfilled.find((row) => row.lifecycle.status === 'overdue') || unfulfilled[0];
+    return {
+      version: 'conversation-evaluation-followup-v2',
+      caseId: view.caseId,
+      item: make(
+        null,
+        'insufficient_evidence',
+        weakest.lifecycle.status === 'overdue' ? 70 : 90,
+        weakest.lifecycle.reason,
+        [...weakest.evidence, ...ambiguousEvidence],
+        null,
+        promises.length,
+        weakest.lifecycle,
+        weakest.lifecycle.status === 'overdue'
+          ? 'وعد متابعة متأخر — يحتاج مراجعة بشرية (بدون خصم تلقائي)'
+          : 'وعد متابعة قيد الانتظار — لا خصم'
+      ),
+    };
+  }
+
   if (!assessed.length) {
     return {
-      version: 'conversation-evaluation-followup-v1',
+      version: 'conversation-evaluation-followup-v2',
       caseId: view.caseId,
       item: make(
         null,
@@ -194,7 +239,7 @@ export function analyzeConversationEvaluationFollowUp(
     .sort((a, b) => pointsFor(a.option) - pointsFor(b.option) || (b.seconds ?? Number.MAX_SAFE_INTEGER) - (a.seconds ?? Number.MAX_SAFE_INTEGER))[0];
 
   return {
-    version: 'conversation-evaluation-followup-v1',
+    version: 'conversation-evaluation-followup-v2',
     caseId: view.caseId,
     item: make(
       worst.option,

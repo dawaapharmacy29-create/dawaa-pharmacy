@@ -46,6 +46,9 @@ import {
 import { toast } from 'sonner';
 import { useSupabaseQuery, logActivity } from '@/hooks/useSupabaseQuery';
 import { getStaffSessionToken } from '@/lib/auth/staffSession';
+// Manager-edit adjustments (saveEdit) still post through the canonical points writer; the reviewer
+// save path uses the staff-session command record_conversation_review_points_v1.
+import { persistPointsTransaction } from '@/lib/pointsPersistence';
 import { getCycleForDate } from '@/lib/pharmacy-cycle';
 import type { Customer } from '@/types/database';
 import type { CustomerMetric } from '@/lib/api/customers';
@@ -56,6 +59,12 @@ import { mergeStaffChoices } from '@/lib/staffFallback';
 import { TABLES } from '@/lib/supabaseTables';
 import { notifyEmployee } from '@/lib/notificationService';
 import { usePendingFormNavigationGuard } from '@/hooks/useUnsavedChangesGuard';
+import {
+  discardReviewDraft,
+  isReviewDraftDirty,
+  persistReviewDraft,
+  reviewMeaningfulFingerprint,
+} from '@/lib/reviews/reviewDraftLifecycle';
 import { useDebounce } from '@/hooks/useDebounce';
 import {
   clearPendingConversationReviewTransfer,
@@ -211,6 +220,15 @@ function asUuid(value?: string | null) {
     : null;
 }
 
+function buildEmptyReviewEditableState(reviewerId: string) {
+  return {
+    form: { ...emptyReviewForm, reviewerId, conversationDate: isoInputNow() },
+    reviewState: defaultReviewState(),
+    severeErrors: defaultSevereErrors(),
+    custSearch: '',
+  };
+}
+
 function isoInputNow() {
   const d = new Date();
   d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
@@ -236,7 +254,9 @@ function responseChoice(minutes: number | null) {
 
 function followupChoice(minutes: number | null, promised: boolean) {
   if (!promised) return null;
-  if (minutes == null) return 'never';
+  // No return time recorded = the promise is still pending (followUpPromiseLifecycle), not
+  // "لم يرجع نهائيًا". Only the reviewer may choose "never" explicitly after checking.
+  if (minutes == null) return null;
   if (minutes <= 5) return 'within_5';
   if (minutes <= 10) return 'five_to_10';
   if (minutes <= 20) return 'over_10';
@@ -427,9 +447,18 @@ export default function Reviews() {
   // فقط لحساب humanModifiedCriteriaCount وقت الحفظ (كام بند غيّره المراجع عن اقتراح النظام)،
   // مش لأي غرض آخر.
   const smartPrefillBaselineRef = useRef<Partial<Record<ReviewCriterionKey, string>>>({});
-  const [reviewState, setReviewState] = useState<ConversationReviewState>(defaultReviewState());
-  const [severeErrors, setSevereErrors] = useState<SevereErrorsState>(defaultSevereErrors());
+  // One initial (untouched) state shared by the form and its dirty-tracking baseline.
+  const initialReviewEditableRef = useRef<ReturnType<typeof buildEmptyReviewEditableState> | null>(null);
+  if (!initialReviewEditableRef.current) initialReviewEditableRef.current = buildEmptyReviewEditableState(user?.id || '');
+  const [reviewState, setReviewState] = useState<ConversationReviewState>(() => initialReviewEditableRef.current!.reviewState);
+  const [severeErrors, setSevereErrors] = useState<SevereErrorsState>(() => initialReviewEditableRef.current!.severeErrors);
   const [custSearch, setCustSearch] = useState('');
+  // Baseline of the review as opened: defaults never make the page dirty; only real edits (or an
+  // explicit Smart transfer / restored unsaved draft) do.
+  const [reviewBaseline, setReviewBaseline] = useState(() =>
+    reviewMeaningfulFingerprint(initialReviewEditableRef.current!)
+  );
+  const autosaveTimerRef = useRef<number | null>(null);
   const [custHits, setCustHits] = useState<CustomerMetric[]>([]);
   const [repeatInfo, setRepeatInfo] = useState<{ count: number; multiplier: number } | null>(null);
   const [smartSnapshot, setSmartSnapshot] = useState<ConversationReviewSnapshot | null>(null);
@@ -560,11 +589,7 @@ export default function Reviews() {
     training_recommendation: '',
     manager_note: '',
   });
-  const [form, setForm] = useState(() => ({
-    ...emptyReviewForm,
-    reviewerId: user?.id || '',
-    conversationDate: isoInputNow(),
-  }));
+  const [form, setForm] = useState(() => initialReviewEditableRef.current!.form);
 
   const { data: staff } = useSupabaseQuery<StaffOpt>({
     table: 'staff',
@@ -732,6 +757,14 @@ export default function Reviews() {
         })()
       : isoInputNow();
 
+    // An explicit Smart transfer starts a NEW review from a clean form: a stale local draft must not
+    // be merged into it. The transferred review is dirty against this clean baseline (discardable).
+    const freshEditable = buildEmptyReviewEditableState(user?.id || '');
+    setReviewState(freshEditable.reviewState);
+    setSevereErrors(freshEditable.severeErrors);
+    setCustSearch('');
+    setReviewBaseline(reviewMeaningfulFingerprint(freshEditable));
+
     const draft = snapshot.officialReviewDraft;
     setSmartSnapshot(
       draft
@@ -808,8 +841,8 @@ export default function Reviews() {
     // إعادة تخمين بالاسم خالص.
     if (identity && identity.staffId && !identity.ambiguous) {
       if (identity.branch) setTargetBranch(normalizeBranchName(identity.branch));
-      setForm((current) => ({
-        ...current,
+      setForm(() => ({
+        ...freshEditable.form,
         staffId: identity.staffId!,
         ...customerFields,
         ...saleTransferFields,
@@ -825,8 +858,8 @@ export default function Reviews() {
 
     // هوية غامضة (أكتر من مرشح) — ما نختارش تلقائيًا، نعرض القائمة ونستنى اختيار بشري.
     if (identity && identity.ambiguous) {
-      setForm((current) => ({
-        ...current,
+      setForm(() => ({
+        ...freshEditable.form,
         ...customerFields,
         ...saleTransferFields,
         evaluationKind: 'واتساب',
@@ -841,9 +874,9 @@ export default function Reviews() {
 
     // legacy fallback (بالاسم فقط) — نفس السلوك القديم بالظبط.
     if (matchedStaff?.branch) setTargetBranch(normalizeBranchName(matchedStaff.branch));
-    setForm((current) => ({
-      ...current,
-      staffId: matchedStaff?.id || current.staffId,
+    setForm(() => ({
+      ...freshEditable.form,
+      staffId: matchedStaff?.id || '',
       ...customerFields,
       evaluationKind: 'واتساب',
       evaluationReason: 'متابعة جودة',
@@ -864,6 +897,7 @@ export default function Reviews() {
     searchParams,
     smartTransferApplied,
     staffOptions,
+    user?.id,
   ]);
 
   const canEditReviews = checkPermission('edit_reviews');
@@ -1149,16 +1183,34 @@ export default function Reviews() {
     }
   }, [draftRestored, user?.id]);
 
+  const newReviewDirty = useMemo(
+    () => isReviewDraftDirty({ form, reviewState, severeErrors, custSearch }, reviewBaseline),
+    [custSearch, form, reviewBaseline, reviewState, severeErrors]
+  );
+
   useEffect(() => {
     if (!draftRestored) return;
+    // Autosave only real (meaningful) modifications; an untouched form never creates a draft and a
+    // form edited back to its baseline removes the stored one.
     const timer = window.setTimeout(() => {
-      const savedAt = new Date().toISOString();
-      const draft: ReviewDraftPayload = { form, reviewState, severeErrors, custSearch, savedAt };
-      window.localStorage.setItem(REVIEW_DRAFT_KEY, JSON.stringify(draft));
-      setDraftSavedAt(savedAt);
+      autosaveTimerRef.current = null;
+      try {
+        const savedAt = new Date().toISOString();
+        const outcome = persistReviewDraft(
+          window.localStorage,
+          REVIEW_DRAFT_KEY,
+          { form, reviewState, severeErrors, custSearch } satisfies Omit<ReviewDraftPayload, 'savedAt'>,
+          newReviewDirty,
+          savedAt
+        );
+        setDraftSavedAt(outcome === 'saved' ? savedAt : null);
+      } catch {
+        // storage unavailable — the in-memory review is unaffected
+      }
     }, 350);
+    autosaveTimerRef.current = timer;
     return () => window.clearTimeout(timer);
-  }, [custSearch, draftRestored, form, reviewState, severeErrors]);
+  }, [custSearch, draftRestored, form, newReviewDirty, reviewState, severeErrors]);
 
   const setCriterionApplies = (key: ReviewCriterionKey, applies: boolean) => {
     setReviewState((current) => ({ ...current, [key]: { ...current[key], applies } }));
@@ -1188,6 +1240,7 @@ export default function Reviews() {
   const applyTiming = () => {
     const firstChoice = responseChoice(responseMinutes);
     const waitChoice = followupChoice(followupDelayMinutes, form.followUpPromised);
+    const followupPending = form.followUpPromised && followupDelayMinutes == null;
     setReviewState((current) => ({
       ...current,
       first_response_speed: firstChoice
@@ -1203,14 +1256,19 @@ export default function Reviews() {
             ...current.followup_after_wait,
             applies: true,
             choice: waitChoice,
-            notes:
-              waitChoice === 'never'
-                ? 'تم وعد العميل بالمتابعة ولم يتم الرجوع له'
-                : `مدة الرجوع بعد الوعد: ${followupDelayMinutes} دقيقة`,
+            notes: `مدة الرجوع بعد الوعد: ${followupDelayMinutes} دقيقة`,
           }
-        : { ...current.followup_after_wait, applies: false },
+        : followupPending
+          ? current.followup_after_wait
+          : { ...current.followup_after_wait, applies: false },
     }));
-    toast.success('تم تطبيق توقيت الرد والمتابعة على بنود التقييم');
+    if (followupPending) {
+      toast.message(
+        'وعد المتابعة بدون وقت رجوع = قيد الانتظار (pending)، لا يُحسب "لم يرجع نهائيًا" تلقائيًا. اختره يدويًا فقط بعد التأكد من انتهاء المهلة.'
+      );
+    } else {
+      toast.success('تم تطبيق توقيت الرد والمتابعة على بنود التقييم');
+    }
   };
 
   const [custSearched, setCustSearched] = useState(false);
@@ -1594,6 +1652,8 @@ export default function Reviews() {
         window.localStorage.removeItem(REVIEW_DRAFT_KEY);
         setDraftSavedAt(null);
       } catch {}
+      // The saved review is the new clean baseline: leaving the page no longer prompts.
+      setReviewBaseline(reviewMeaningfulFingerprint({ form, reviewState, severeErrors, custSearch }));
 
       toast.success(
         reusedExistingReview
@@ -1611,10 +1671,12 @@ export default function Reviews() {
   };
 
   const startNewReview = () => {
-    setForm({ ...emptyReviewForm, reviewerId: user?.id || '', conversationDate: isoInputNow() });
-    setReviewState(defaultReviewState());
-    setSevereErrors(defaultSevereErrors());
+    const fresh = buildEmptyReviewEditableState(user?.id || '');
+    setForm(fresh.form);
+    setReviewState(fresh.reviewState);
+    setSevereErrors(fresh.severeErrors);
     setCustSearch('');
+    setReviewBaseline(reviewMeaningfulFingerprint(fresh));
     setCustHits([]);
     setCustSearched(false);
     setRepeatInfo(null);
@@ -2002,21 +2064,44 @@ export default function Reviews() {
       );
     }
     if (editingReview) return true;
-    const defaultState = defaultReviewState();
-    const defaultSevere = defaultSevereErrors();
-    const criteriaChanged = JSON.stringify(reviewState) !== JSON.stringify(defaultState);
-    const severeChanged = JSON.stringify(severeErrors) !== JSON.stringify(defaultSevere);
-    const formTouched = Boolean(
-      form.staffId ||
-      form.customerName.trim() ||
-      form.customerCode.trim() ||
-      form.customerPhone.trim() ||
-      form.reviewerNotes.trim() ||
-      form.evaluationReason.trim() ||
-      form.invoiceNo.trim()
-    );
-    return criteriaChanged || severeChanged || formTouched;
-  }, [editingReview, form, managerForm, managerReviewTarget, reviewState, severeErrors]);
+    // Baseline comparison (not "any field has a value"): defaults such as
+    // evaluationReason = "مراجعة عشوائية" never make an untouched review dirty.
+    return newReviewDirty;
+  }, [editingReview, managerForm, managerReviewTarget, newReviewDirty]);
+
+  // "الانتقال بدون حفظ": clear the draft and any pending Smart transfer, reset the page state and
+  // deactivate the guard; the navigation guard then navigates. Nothing can resurrect the review.
+  const discardCurrentReview = useCallback(() => {
+    if (autosaveTimerRef.current != null) {
+      window.clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+    }
+    try {
+      discardReviewDraft({
+        storage: window.localStorage,
+        draftKey: REVIEW_DRAFT_KEY,
+        clearPendingTransfer: clearPendingConversationReviewTransfer,
+      });
+    } catch {
+      // storage unavailable — state reset below still deactivates the guard
+    }
+    const fresh = buildEmptyReviewEditableState(user?.id || '');
+    setForm(fresh.form);
+    setReviewState(fresh.reviewState);
+    setSevereErrors(fresh.severeErrors);
+    setCustSearch('');
+    setReviewBaseline(reviewMeaningfulFingerprint(fresh));
+    setSmartSnapshot(null);
+    setSmartTransferApplied(true);
+    setHumanDecision(null);
+    setFocusedEvidenceIds([]);
+    setAmbiguousStaffIdentity(null);
+    setAmbiguousCustomerCandidates(null);
+    setDraftSavedAt(null);
+    smartPrefillBaselineRef.current = {};
+    setEditingReview(null);
+    setManagerReviewTarget(null);
+  }, [user?.id]);
 
   const saveForNavigation = useCallback(async () => {
     if (managerReviewTarget) return saveManagerReview();
@@ -2028,6 +2113,7 @@ export default function Reviews() {
     isDirty: reviewIsDirty,
     isSaving: saving || managerSaving,
     onSave: saveForNavigation,
+    onDiscard: discardCurrentReview,
   });
 
   return (
@@ -2176,7 +2262,10 @@ export default function Reviews() {
               </div>
               {smartSnapshot.smartIntelligence?.evaluationV2 ? (
                 <>
-                  <div className="mt-2 grid gap-2 sm:grid-cols-4">
+                  <div className="mt-2 text-[10px] font-black text-slate-500">
+                    مؤشرات تشخيصية — ليست الدرجة الرسمية (الدرجة الرسمية المقترحة تظهر في ملخص التقييم أدناه)
+                  </div>
+                  <div className="mt-1 grid gap-2 sm:grid-cols-4">
                     <div className="rounded-xl bg-black/15 p-2.5 text-xs"><div className="text-slate-500">جودة المحادثة</div><div className="mt-1 text-lg font-black text-white">{smartSnapshot.smartIntelligence.evaluationV2.qualityScore ?? '-'}</div></div>
                     <div className="rounded-xl bg-black/15 p-2.5 text-xs"><div className="text-slate-500">تغطية الأدلة</div><div className="mt-1 text-lg font-black text-cyan-200">{smartSnapshot.smartIntelligence.evaluationV2.evidenceCoverage}%</div></div>
                     <div className="rounded-xl bg-black/15 p-2.5 text-xs"><div className="text-slate-500">ثقة التحليل</div><div className="mt-1 text-lg font-black text-emerald-200">{smartSnapshot.smartIntelligence.evaluationV2.confidence}%</div></div>
@@ -2646,12 +2735,12 @@ export default function Reviews() {
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Metric
-              label={salesJourneyResult ? 'تقييم رحلة البيع' : 'تقييم المحادثة'}
+              label="الدرجة الرسمية المقترحة"
               value={`${result.finalScore}/100`}
               tone={result.finalScore >= 90 ? 'teal' : result.finalScore >= 70 ? 'amber' : 'red'}
             />
             <Metric
-              label="تأثير النقاط"
+              label="تأثير النقاط المقترح (بعد الاعتماد فقط)"
               value={result.impactLabel}
               tone={result.doctorPointsImpact >= 0 ? 'teal' : 'red'}
             />
@@ -2680,8 +2769,11 @@ export default function Reviews() {
                       {salesJourneyResult.saleOutcomeLabel}
                     </span>
                   ) : null}
-                  <span className="rounded-full bg-slate-800 px-3 py-1.5 font-black text-slate-300">
-                    Legacy: {salesJourneyResult.legacyScore}/100
+                  <span
+                    className="rounded-full border border-slate-700/60 px-2 py-1 text-[10px] font-normal text-slate-500"
+                    title="الدرجة القديمة للمقارنة الفنية فقط — ليست الدرجة الرسمية"
+                  >
+                    مقارنة فنية (Legacy): {salesJourneyResult.legacyScore}/100
                   </span>
                 </div>
               </div>
@@ -3272,7 +3364,7 @@ export default function Reviews() {
               <Metric label="المكتسبة" value={`${result.earnedPoints}`} tone="teal" />
               <Metric label="الممكنة" value={`${result.totalApplicablePoints}`} tone="blue" />
               <Metric
-                label="النتيجة"
+                label="الدرجة الرسمية المقترحة"
                 value={`${result.finalScore}/100`}
                 tone={result.finalScore >= 90 ? 'teal' : result.finalScore >= 70 ? 'amber' : 'red'}
               />
@@ -3280,7 +3372,10 @@ export default function Reviews() {
 
             <div className="grid md:grid-cols-2 gap-3">
               <div className="rounded-2xl bg-[#16253f] border border-[#2d4063] p-5 text-center">
-                <div className="text-slate-300 text-sm">{salesJourneyResult ? 'تقييم رحلة البيع' : 'تقييم المحادثة'}</div>
+                <div className="text-slate-300 text-sm">الدرجة الرسمية المقترحة</div>
+                <div className="text-[10px] text-slate-500">
+                  {salesJourneyResult ? 'محسوبة بمعيار رحلة البيع' : 'محسوبة من بنود التقييم'} — تصبح رسمية بعد حفظك
+                </div>
                 <div
                   className={`num text-5xl font-black mt-2 ${result.finalScore >= 90 ? 'text-teal-400' : result.finalScore >= 70 ? 'text-amber-400' : 'text-red-400'}`}
                 >
@@ -3289,7 +3384,10 @@ export default function Reviews() {
                 <div className="text-slate-300 text-xs mt-1">من 100 - {result.level}</div>
               </div>
               <div className="rounded-2xl bg-[#16253f] border border-[#2d4063] p-5 text-center">
-                <div className="text-slate-300 text-sm">تأثيرها على نقاط الدكتور</div>
+                <div className="text-slate-300 text-sm">تأثير النقاط المقترح</div>
+                <div className="text-[10px] font-black text-amber-300">
+                  لا يتم تطبيقه إلا بعد الاعتماد البشري (Human Approval) بالحفظ
+                </div>
                 <div
                   className={`num text-5xl font-black mt-2 ${result.doctorPointsImpact >= 0 ? 'text-teal-400' : 'text-red-400'}`}
                 >

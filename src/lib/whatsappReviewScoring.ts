@@ -1,6 +1,7 @@
 import { REVIEW_CRITERIA, type ReviewCriterionKey } from '@/lib/conversationReviews';
 import { extractIntroducedStaffName, type WhatsAppConversationSession } from '@/lib/whatsappConversationParser';
 import { extractConversationSignals } from '@/lib/whatsappConversationSignals';
+import { evaluateFollowUpPromiseLifecycle } from '@/lib/followUpPromiseLifecycle';
 
 export type ReviewSuggestionStatus = 'assessed' | 'not_applicable' | 'review_required';
 
@@ -77,8 +78,7 @@ function firstResponseOption(seconds: number | null) {
   return 'over_30';
 }
 
-function followupOption(seconds: number | null) {
-  if (seconds == null) return 'never';
+function followupOption(seconds: number) {
   if (seconds <= 300) return 'within_5';
   if (seconds <= 600) return 'five_to_10';
   if (seconds <= 1200) return 'over_10';
@@ -178,8 +178,22 @@ export function buildOfficialReviewSuggestion(
     const nextOutbound = session.messages
       .filter((message) => message.direction === 'outbound' && message.timestamp > promise.timestamp)
       .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())[0] || null;
-    const seconds = nextOutbound ? Math.round((nextOutbound.timestamp.getTime() - promise.timestamp.getTime()) / 1000) : null;
-    items.push(suggestion('followup_after_wait', 'assessed', followupOption(seconds), 88, nextOutbound ? `تم قياس الرجوع بعد الوعد خلال ${seconds} ثانية.` : 'تم رصد وعد بالرجوع ولم يتم رصد رجوع نصي لاحق في نفس الجلسة.', [promise.id, nextOutbound?.id].filter(Boolean) as string[]));
+    if (nextOutbound) {
+      const seconds = Math.round((nextOutbound.timestamp.getTime() - promise.timestamp.getTime()) / 1000);
+      items.push(suggestion('followup_after_wait', 'assessed', followupOption(seconds), 88, `تم قياس الرجوع بعد الوعد خلال ${seconds} ثانية.`, [promise.id, nextOutbound.id]));
+    } else {
+      // No later staff reply: judge through the shared lifecycle. The export end is not proof of a
+      // forgotten customer — only a violated (mature, past-SLA) promise may propose "never".
+      const lastObserved = session.messages
+        .map((message) => message.timestamp)
+        .reduce<Date | null>((latest, at) => (!latest || at > latest ? at : latest), null);
+      const lifecycle = evaluateFollowUpPromiseLifecycle({ promiseAt: promise.timestamp, observedUntil: lastObserved });
+      if (lifecycle?.status === 'violated') {
+        items.push(suggestion('followup_after_wait', 'assessed', 'never', 88, lifecycle.reason, [promise.id]));
+      } else {
+        items.push(suggestion('followup_after_wait', 'review_required', null, 60, lifecycle?.reason || 'تم رصد وعد بالرجوع ولم يكتمل بعد — لا خصم تلقائي.', [promise.id]));
+      }
+    }
   } else {
     items.push(suggestion('followup_after_wait', 'not_applicable', null, 90, 'لم يتم رصد وعد واضح بالمراجعة أو الرجوع.'));
   }

@@ -13,6 +13,7 @@ import {
   type LocalInboxCandidate,
 } from '@/lib/localWhatsAppInbox';
 import { ingestWhatsAppExportFile, type IngestOneFileResult } from '@/lib/whatsappAutoIngestPipeline';
+import { shouldMarkWhatsAppFileProcessed } from '@/lib/whatsappWatcherCaseGraphSync';
 import { getStaffSessionToken } from '@/lib/auth/staffSession';
 
 const SCAN_INTERVAL_MS = 60_000;
@@ -38,9 +39,22 @@ export default function WhatsAppFolderWatcher() {
       for (const candidate of candidates) {
         try {
           const result = await ingestWhatsAppExportFile(candidate.file, { accessToken });
-          markLocalWhatsAppFileProcessed(candidate.key);
+          // Processed only after the full canonical chain (Source -> V22 -> Sales Intelligence).
+          // A partial file stays retryable and is never recorded as a full success.
+          if (result.processing && shouldMarkWhatsAppFileProcessed(result.processing)) {
+            markLocalWhatsAppFileProcessed(candidate.key);
+          } else {
+            markLocalWhatsAppFileFailed(
+              candidate.key,
+              result.processing?.blockingErrors.join(' | ') || 'canonical_pipeline_incomplete'
+            );
+          }
           setLog((prev) => [{ ...result, at: new Date().toLocaleTimeString('ar-EG') }, ...prev].slice(0, 50));
-          if (result.errors.length) {
+          if (result.processing && !shouldMarkWhatsAppFileProcessed(result.processing)) {
+            toast.error(
+              `${candidate.name}: المعالجة غير مكتملة (${result.processing.outcome}) — ${result.processing.blockingErrors[0] || 'سيُعاد المحاولة'}`
+            );
+          } else if (result.errors.length) {
             toast.warning(`${candidate.name}: ${result.errors[0]}`);
           } else {
             const autoReviewNote = result.autoReviewsCreated

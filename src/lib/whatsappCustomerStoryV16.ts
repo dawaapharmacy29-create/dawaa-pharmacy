@@ -265,8 +265,9 @@ export async function syncPersistentCustomerStoryV16(params: {
     if (eventError) throw eventError;
   }
 
-  const { error: refreshError } = await supabase.rpc('dawaa_refresh_whatsapp_customer_story_v16', { p_story_id: story.id });
-  if (refreshError) throw refreshError;
-
+  // Story aggregates (dawaa_refresh_whatsapp_customer_story_v16) are SECURITY DEFINER and are not
+  // executable with the browser's anon key. They are refreshed server-side, behind the verified staff
+  // session, by the canonical Sales Intelligence refresh endpoint after the V22 case graph exists
+  // (src/lib/salesIntelligence/refresh/storyProjectionRefresh.ts). The browser never calls that RPC.
   return { storyId: String(story.id), storyKey, status: story.status, events: eventRows.length };
 }

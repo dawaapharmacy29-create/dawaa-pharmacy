@@ -1,11 +1,12 @@
 import { supabase } from '@/lib/supabase';
-import { getStaffSessionToken } from '@/lib/auth/staffSession';
 import type { WhatsAppCustomerJourneyIntelligenceV15 } from './whatsappCustomerJourneyIntelligenceV15';
 import { syncPersistentCustomerStoryV16 } from './whatsappCustomerStoryV16';
-import {
-  requestCanonicalSalesIntelligenceRefresh,
-  requestCanonicalSalesIntelligenceRefreshForFile,
-} from './salesIntelligence/refresh/refreshClient';
+
+// Journey V15 (+ Story V16, evidence links) is a SIDE PROJECTION of the canonical chain
+//   Source -> Customer Case V22 -> Sales Intelligence.
+// It never triggers Sales Intelligence itself: the single canonical refresh is owned by the file
+// orchestrator (whatsappWatcherCaseGraphSync.runCanonicalWhatsAppFilePipeline) and runs only after
+// the V22 case graph exists, because the Canonical Source Gate refuses sources without V22 ownership.
 
 export interface JourneySessionSourceV15 {
   sessionId: string;
@@ -18,12 +19,24 @@ export interface JourneyPersistenceContextV15 {
   branch?: string | null;
   createdBy?: string | null;
   sessionSources: JourneySessionSourceV15[];
-  /**
-   * Automatic ingestion already owns one canonical refresh after the full case graph is written.
-   * Direct Smart Review leaves this false/undefined so every persisted source reaches the current
-   * Sales Intelligence pipeline even if a later journey/story/V22 projection fails or skips.
-   */
-  skipCanonicalSalesIntelligenceRefresh?: boolean;
+}
+
+export interface JourneySyncResultV15 {
+  journeyId: string;
+  rootSourceId: string;
+  linkedSessions: number;
+  storyId: string | null;
+  storyKey: string | null;
+  /** Story V16 is best-effort; its failure is reported here, never thrown. */
+  story: { status: 'synced' | 'skipped' | 'failed'; error: string | null };
+  /** Non-blocking projection warnings (story, evidence links). */
+  warnings: string[];
+}
+
+function errorText(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === 'object' && 'message' in error) return String((error as { message: unknown }).message);
+  return String(error);
 }
 
 function dueInHours(hours: number | null) {
@@ -34,7 +47,7 @@ function dueInHours(hours: number | null) {
 export async function syncWhatsAppCustomerJourneyV15(
   model: WhatsAppCustomerJourneyIntelligenceV15,
   context: JourneyPersistenceContextV15,
-) {
+): Promise<JourneySyncResultV15 | null> {
   if (!context.sessionSources.length) return null;
 
   const bySession = new Map(context.sessionSources.map((row) => [row.sessionId, row]));
@@ -52,37 +65,6 @@ export async function syncWhatsAppCustomerJourneyV15(
   const sourceRows = sources || [];
   const root = sourceRows.find((row: any) => String(row.id) === rootMapping.sourceId) || sourceRows[0];
   if (!root) return null;
-
-  // Canonical Sales Intelligence is source-level truth. Launch it as soon as the durable source
-  // rows are confirmed readable, before Journey/Story/Actions/V22 side projections. Smart Review
-  // refreshes by export filename so the Canonical Source Gate can pick the finer V22-owned rows
-  // when the newly persisted row is only a coarse snapshot of an already segmented conversation.
-  if (!context.skipCanonicalSalesIntelligenceRefresh && sourceIds.length) {
-    try {
-      const accessToken = getStaffSessionToken();
-      if (!accessToken) {
-        console.warn(
-          '[whatsapp-journey-v15] canonical Sales Intelligence refresh skipped: official staff session token unavailable'
-        );
-      } else {
-        const sourceFileName = String(context.sourceFileName || root.source_filename || '').trim();
-        const refresh = sourceFileName
-          ? await requestCanonicalSalesIntelligenceRefreshForFile({ sourceFileName, accessToken })
-          : await requestCanonicalSalesIntelligenceRefresh({ sourceIds, accessToken });
-        if (refresh.authInvalid || refresh.errors.length) {
-          console.warn('[whatsapp-journey-v15] canonical Sales Intelligence refresh incomplete', {
-            authInvalid: refresh.authInvalid,
-            errors: refresh.errors,
-          });
-        }
-      }
-    } catch (refreshError) {
-      console.warn(
-        '[whatsapp-journey-v15] canonical Sales Intelligence refresh failed after source persistence',
-        refreshError
-      );
-    }
-  }
 
   const started = sourceRows.map((row: any) => row.conversation_started_at).filter(Boolean).sort()[0] || null;
   const ended = sourceRows.map((row: any) => row.conversation_ended_at).filter(Boolean).sort().at(-1) || null;
@@ -178,14 +160,23 @@ export async function syncWhatsAppCustomerJourneyV15(
     if (actionError) throw actionError;
   }
 
-  const story = await syncPersistentCustomerStoryV16({
-    journeyId: String(journey.id),
-    model,
-    sources: sourceRows,
-    sessionSources: context.sessionSources,
-    branch: context.branch || root.branch || null,
-    createdBy: context.createdBy || null,
-  });
+  const warnings: string[] = [];
+  let story: Awaited<ReturnType<typeof syncPersistentCustomerStoryV16>> = null;
+  let storyStatus: JourneySyncResultV15['story'] = { status: 'skipped', error: null };
+  try {
+    story = await syncPersistentCustomerStoryV16({
+      journeyId: String(journey.id),
+      model,
+      sources: sourceRows,
+      sessionSources: context.sessionSources,
+      branch: context.branch || root.branch || null,
+      createdBy: context.createdBy || null,
+    });
+    storyStatus = story ? { status: 'synced', error: null } : { status: 'skipped', error: null };
+  } catch (storyError) {
+    storyStatus = { status: 'failed', error: errorText(storyError) };
+    warnings.push(`Story V16: ${storyStatus.error}`);
+  }
 
   try {
     const { error: evidenceLinkError } = await supabase.rpc('dawaa_link_whatsapp_evidence_journey_v17', {
@@ -195,7 +186,7 @@ export async function syncWhatsAppCustomerJourneyV15(
     });
     if (evidenceLinkError) throw evidenceLinkError;
   } catch (evidenceLinkError) {
-    console.warn('[whatsapp-evidence-v17] journey/story link failed; evidence rows remain source-linked', evidenceLinkError);
+    warnings.push(`Evidence V17 link: ${errorText(evidenceLinkError)}`);
   }
 
   return {
@@ -204,5 +195,7 @@ export async function syncWhatsAppCustomerJourneyV15(
     linkedSessions: linkRows.length,
     storyId: story?.storyId || null,
     storyKey: story?.storyKey || null,
+    story: storyStatus,
+    warnings,
   };
 }

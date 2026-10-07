@@ -9,6 +9,7 @@ import {
   CANONICAL_REFRESH_SOURCE_COLUMNS,
   runCanonicalSalesIntelligenceRefresh,
 } from '../src/lib/salesIntelligence/refresh/canonicalRefreshService';
+import { refreshCustomerStoryProjectionsForSources } from '../src/lib/salesIntelligence/refresh/storyProjectionRefresh';
 
 const ALLOWED_ROLES = new Set([
   'general_manager',
@@ -187,6 +188,20 @@ export default async function handler(req: any, res: any) {
     });
   }
 
+  // Side projection AFTER the canonical refresh: Story V16 aggregates for the admitted (V22-owned)
+  // sources. Best-effort and reported separately — it never changes the canonical status below.
+  const storyProjection = await refreshCustomerStoryProjectionsForSources(
+    service,
+    refresh.admittedSourceIds || []
+  );
+  if (storyProjection.errors.length) {
+    console.warn('[sales-intelligence-refresh-source] story projection refresh incomplete', {
+      ...page,
+      errors: storyProjection.errors,
+    });
+  }
+  const sideProjections = { story: storyProjection };
+
   // A single-source request that the Canonical Source Gate refused is an explicit 409.
   if (!sourceFileName && refresh.blockedSources.length) {
     return json(res, 409, { ...refresh.blockedSources[0], sourceId });
@@ -210,6 +225,7 @@ export default async function handler(req: any, res: any) {
       failures: refresh.persistenceFailures,
       caseSetReconciliation: refresh.caseSetReconciliation,
       canonicalReconciliation: refresh.canonicalReconciliation,
+      sideProjections,
     });
   }
 
@@ -224,6 +240,7 @@ export default async function handler(req: any, res: any) {
     actionReconciliation: refresh.actionReconciliation,
     complaintEnrichment: refresh.complaintEnrichment,
     conversationEvaluations: refresh.conversationEvaluations,
+    sideProjections,
     derivedCases: (batch?.caseAnalyses || []).map((row: any) => ({
       conversationId: row.conversationId,
       caseId: row.caseId,

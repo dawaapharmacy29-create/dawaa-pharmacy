@@ -15,6 +15,25 @@ export interface PersistSessionContext {
   staffId?: string | null;
   staffName?: string | null;
   createdBy?: string | null;
+  /**
+   * Version of the full derived analysis written into analysis_version. Defaults to the
+   * intelligence engine version. Callers that persist a composite analysis (Smart Folder) pass
+   * their composite version so a reanalysis is observable in the database.
+   */
+  analysisVersion?: string | null;
+}
+
+/**
+ * ingest:     a source with the same hash is never duplicated; the existing row is returned as is.
+ * reanalyze:  the same durable source is kept and only its derived analysis fields are rebuilt with
+ *             the current engines. Human/reviewer/invoice-confirmation fields are never touched.
+ */
+export type PersistSessionMode = 'ingest' | 'reanalyze';
+
+export interface PersistSessionOptions {
+  mode?: PersistSessionMode;
+  /** Injected for tests; defaults to the browser Supabase client. */
+  client?: any;
 }
 
 export interface PersistSessionResult {
@@ -22,7 +41,52 @@ export interface PersistSessionResult {
   duplicate: boolean;
   sourceHash: string;
   reviewStatus: ReviewQueueStatus;
+  /** Only for mode=reanalyze on an existing source. */
+  reanalysis?: {
+    status: 'updated' | 'unchanged';
+    fromVersion: string | null;
+    toVersion: string;
+  };
 }
+
+/**
+ * Derived-analysis columns a reanalysis may rewrite. Everything else on whatsapp_review_sources is
+ * either durable source identity (hash, raw text, timestamps), human workflow (review_status,
+ * official_review_id, reviewer_*), manual invoice confirmation (invoice_link_confirmed*) or a
+ * manual correction (staff_id/staff_name/customer identity once set) and is preserved.
+ */
+export const REANALYSIS_DERIVED_COLUMNS = [
+  'analysis_version',
+  'analysis_status',
+  'priority',
+  'analysis_confidence',
+  'service_score',
+  'commercial_score',
+  'commercial_eligible',
+  'chat_suggested_sold',
+  'followup_required',
+  'suggested_followup_reason',
+  'analysis_json',
+] as const;
+
+/** Fields a reanalysis may only fill when they are still empty (never overwrite a correction). */
+const REANALYSIS_FILL_ONLY_COLUMNS = [
+  'branch',
+  'customer_id',
+  'customer_code',
+  'customer_name',
+  'customer_phone',
+  'staff_id',
+  'staff_name',
+] as const;
+
+const EXISTING_SOURCE_COLUMNS = [
+  'id',
+  'source_hash',
+  'review_status',
+  ...REANALYSIS_DERIVED_COLUMNS,
+  ...REANALYSIS_FILL_ONLY_COLUMNS,
+].join(',');
 
 function sessionRawText(session: WhatsAppConversationSession) {
   return session.messages.map((m) => m.raw || `${m.rawTimestamp} ${m.sender}: ${m.text}`).join('\n');
@@ -62,28 +126,138 @@ function serializeIntelligence(value: UnifiedConversationIntelligence) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function stableJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value ?? null);
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, item]) => item !== undefined)
+    .sort(([a], [b]) => a.localeCompare(b));
+  return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`).join(',')}}`;
+}
+
+function blank(value: unknown) {
+  return value == null || String(value).trim() === '';
+}
+
+function derivedAnalysisPatch(
+  intelligence: UnifiedConversationIntelligence,
+  analysisVersion: string,
+  existingAnalysisJson: unknown
+) {
+  // Keys written by other derived writers on the same source (e.g. automatic ingest's
+  // `operational`, `customerIdentity`) stay; keys this engine produces are replaced.
+  const previous =
+    existingAnalysisJson && typeof existingAnalysisJson === 'object' && !Array.isArray(existingAnalysisJson)
+      ? (existingAnalysisJson as Record<string, unknown>)
+      : {};
+  return {
+    analysis_version: analysisVersion,
+    analysis_status: intelligence.requiresHumanApproval ? 'needs_review' : 'analyzed',
+    priority: intelligence.priority,
+    analysis_confidence: intelligence.confidence,
+    service_score: intelligence.serviceScore,
+    commercial_score: intelligence.commercialScore,
+    commercial_eligible: intelligence.commercialEligible,
+    chat_suggested_sold: intelligence.chatSuggestedSold,
+    followup_required: intelligence.followupRequired,
+    suggested_followup_reason: intelligence.suggestedFollowupReason,
+    analysis_json: { ...previous, ...serializeIntelligence(intelligence) },
+  };
+}
+
+async function reanalyzeExistingSource(
+  client: any,
+  existing: Record<string, any>,
+  intelligence: UnifiedConversationIntelligence,
+  context: PersistSessionContext,
+  sourceHash: string,
+  fallbackReviewStatus: ReviewQueueStatus
+): Promise<PersistSessionResult> {
+  const id = String(existing.id);
+  const reviewStatus = (existing.review_status || fallbackReviewStatus) as ReviewQueueStatus;
+  const toVersion = String(context.analysisVersion || intelligence.version);
+  const fromVersion = existing.analysis_version == null ? null : String(existing.analysis_version);
+  const derived = derivedAnalysisPatch(intelligence, toVersion, existing.analysis_json);
+
+  const fillValues: Record<string, unknown> = {
+    branch: context.branch,
+    customer_id: context.customerId,
+    customer_code: context.customerCode,
+    customer_name: context.customerName,
+    customer_phone: context.customerPhone,
+    staff_id: context.staffId,
+    staff_name: context.staffName,
+  };
+  const patch: Record<string, unknown> = {};
+  for (const column of REANALYSIS_DERIVED_COLUMNS) {
+    const next = (derived as Record<string, unknown>)[column];
+    if (stableJson(next) !== stableJson(existing[column])) patch[column] = next;
+  }
+  for (const column of REANALYSIS_FILL_ONLY_COLUMNS) {
+    if (blank(existing[column]) && !blank(fillValues[column])) patch[column] = fillValues[column];
+  }
+
+  if (!Object.keys(patch).length) {
+    return { id, duplicate: true, sourceHash, reviewStatus, reanalysis: { status: 'unchanged', fromVersion, toVersion } };
+  }
+
+  const { error } = await client
+    .from('whatsapp_review_sources')
+    .update({ ...patch, updated_at: new Date().toISOString() })
+    .eq('id', id);
+  if (error) throw error;
+
+  const before: Record<string, unknown> = {};
+  for (const column of Object.keys(patch)) {
+    before[column] = column === 'analysis_json' ? { version: existing.analysis_json?.version ?? null } : existing[column];
+  }
+  const after: Record<string, unknown> = {};
+  for (const column of Object.keys(patch)) {
+    after[column] = column === 'analysis_json' ? { version: (patch.analysis_json as any)?.version ?? null } : patch[column];
+  }
+  await appendWhatsAppReviewAudit(
+    id,
+    'analysis_reanalyzed',
+    { from_version: fromVersion, ...before },
+    { to_version: toVersion, changed_columns: Object.keys(patch), ...after },
+    null,
+    context.createdBy || null,
+    null,
+    null,
+    client
+  );
+  return { id, duplicate: true, sourceHash, reviewStatus, reanalysis: { status: 'updated', fromVersion, toVersion } };
+}
+
 export async function persistAnalyzedWhatsAppSession(
   session: WhatsAppConversationSession,
   intelligence: UnifiedConversationIntelligence,
   context: PersistSessionContext = {},
+  options: PersistSessionOptions = {},
 ): Promise<PersistSessionResult> {
+  const client = options.client ?? supabase;
+  const mode: PersistSessionMode = options.mode ?? 'ingest';
   const sourceHash = await hashWhatsAppSession(session);
   const reviewStatus = inferQueueStatus(intelligence);
   const rawText = sessionRawText(session);
+  const analysisVersion = String(context.analysisVersion || intelligence.version);
 
-  const { data: existing, error: existingError } = await supabase
+  const { data: existing, error: existingError } = await client
     .from('whatsapp_review_sources')
-    .select('id, source_hash, review_status')
+    .select(EXISTING_SOURCE_COLUMNS)
     .eq('source_hash', sourceHash)
     .maybeSingle();
   if (existingError && existingError.code !== 'PGRST116') throw existingError;
   if (existing?.id) {
+    if (mode === 'reanalyze') {
+      return reanalyzeExistingSource(client, existing, intelligence, context, sourceHash, reviewStatus);
+    }
     return { id: String(existing.id), duplicate: true, sourceHash, reviewStatus: (existing.review_status || reviewStatus) as ReviewQueueStatus };
   }
 
   const staffName = context.staffName || session.outboundStaffNames[0] || null;
   const customerName = context.customerName || session.customerName || null;
-  const { data, error } = await supabase
+  const { data, error } = await client
     .from('whatsapp_review_sources')
     .insert({
       source_hash: sourceHash,
@@ -101,18 +275,8 @@ export async function persistAnalyzedWhatsAppSession(
       conversation_ended_at: session.endedAt.toISOString(),
       message_count: session.messages.length,
       parser_version: 'whatsapp-review-v4',
-      analysis_version: intelligence.version,
-      analysis_status: intelligence.requiresHumanApproval ? 'needs_review' : 'analyzed',
       review_status: reviewStatus,
-      priority: intelligence.priority,
-      analysis_confidence: intelligence.confidence,
-      service_score: intelligence.serviceScore,
-      commercial_score: intelligence.commercialScore,
-      commercial_eligible: intelligence.commercialEligible,
-      chat_suggested_sold: intelligence.chatSuggestedSold,
-      followup_required: intelligence.followupRequired,
-      suggested_followup_reason: intelligence.suggestedFollowupReason,
-      analysis_json: serializeIntelligence(intelligence),
+      ...derivedAnalysisPatch(intelligence, analysisVersion, null),
       raw_text: rawText,
       created_by: context.createdBy || null,
     })
@@ -120,14 +284,17 @@ export async function persistAnalyzedWhatsAppSession(
     .single();
   if (error) {
     if (error.code === '23505') {
-      const { data: dupe, error: dupeError } = await supabase.from('whatsapp_review_sources').select('id, review_status').eq('source_hash', sourceHash).single();
+      const { data: dupe, error: dupeError } = await client.from('whatsapp_review_sources').select(EXISTING_SOURCE_COLUMNS).eq('source_hash', sourceHash).single();
       if (dupeError) throw dupeError;
+      if (mode === 'reanalyze') {
+        return reanalyzeExistingSource(client, dupe, intelligence, context, sourceHash, reviewStatus);
+      }
       return { id: String(dupe.id), duplicate: true, sourceHash, reviewStatus: (dupe.review_status || reviewStatus) as ReviewQueueStatus };
     }
     throw error;
   }
 
-  await appendWhatsAppReviewAudit(String(data.id), 'analysis_created', null, serializeIntelligence(intelligence), context.createdBy || null, null);
+  await appendWhatsAppReviewAudit(String(data.id), 'analysis_created', null, serializeIntelligence(intelligence), context.createdBy || null, null, null, null, client);
   return { id: String(data.id), duplicate: false, sourceHash, reviewStatus };
 }
 
@@ -136,24 +303,33 @@ export async function attachInvoiceVerificationToQueue(
   verification: UnifiedInvoiceVerification,
   actorId?: string | null,
   actorName?: string | null,
+  client: any = supabase,
 ) {
   const best = verification.bestCandidate;
-  const { data: before } = await supabase.from('whatsapp_review_sources').select('*').eq('id', sourceId).maybeSingle();
-  const { error } = await supabase
+  const next = {
+    invoice_match_status: verification.status,
+    matched_invoice_id: best?.invoiceId || null,
+    matched_invoice_number: best?.invoiceNumber || null,
+    matched_invoice_date: best?.invoiceDate || null,
+    matched_invoice_value: verification.revenue,
+    invoice_match_confidence: verification.verificationConfidence,
+    invoice_match_reason: verification.reason,
+  };
+  const { data: before } = await client.from('whatsapp_review_sources').select('*').eq('id', sourceId).maybeSingle();
+  // Idempotent: a re-scan or reanalysis that reaches the same machine verification must not write
+  // a new audit row. Manual invoice confirmation lives in invoice_link_confirmed* and is never touched.
+  if (
+    before &&
+    Object.entries(next).every(([column, value]) => String(before[column] ?? '') === String(value ?? ''))
+  ) {
+    return;
+  }
+  const { error } = await client
     .from('whatsapp_review_sources')
-    .update({
-      invoice_match_status: verification.status,
-      matched_invoice_id: best?.invoiceId || null,
-      matched_invoice_number: best?.invoiceNumber || null,
-      matched_invoice_date: best?.invoiceDate || null,
-      matched_invoice_value: verification.revenue,
-      invoice_match_confidence: verification.verificationConfidence,
-      invoice_match_reason: verification.reason,
-      updated_at: new Date().toISOString(),
-    })
+    .update({ ...next, updated_at: new Date().toISOString() })
     .eq('id', sourceId);
   if (error) throw error;
-  await appendWhatsAppReviewAudit(sourceId, 'invoice_verification', before, verification, actorId || null, actorName || null);
+  await appendWhatsAppReviewAudit(sourceId, 'invoice_verification', before, verification, actorId || null, actorName || null, null, null, client);
 }
 
 export async function confirmWhatsAppReviewQueueItem(
@@ -186,8 +362,9 @@ export async function appendWhatsAppReviewAudit(
   actorName: string | null,
   actorRole?: string | null,
   note?: string | null,
+  client: any = supabase,
 ) {
-  const { error } = await supabase.from('whatsapp_review_audit').insert({
+  const { error } = await client.from('whatsapp_review_audit').insert({
     source_id: sourceId,
     action,
     actor_id: actorId,

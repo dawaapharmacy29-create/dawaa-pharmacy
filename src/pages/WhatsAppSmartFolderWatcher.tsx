@@ -16,7 +16,8 @@ import {
   saveLocalWhatsAppAnalysisHistory,
 } from '@/lib/localWhatsAppInbox';
 import { readWhatsAppExportFile } from '@/lib/whatsappExportFileReader';
-import { parseWhatsAppExport, splitWhatsAppSessions } from '@/lib/whatsappConversationParser';
+import { parseWhatsAppExport } from '@/lib/whatsappConversationParser';
+import { segmentWhatsAppExportCanonical } from '@/lib/whatsappCanonicalSegmentation';
 import { buildSmartConversationReviewResult } from '@/lib/whatsappSmartReviewResult';
 import { runSmartReviewPipeline, type SmartReviewPipelineResult } from '@/lib/whatsappSmartReviewPipeline';
 import type { SmartStaffRole } from '@/lib/whatsappSmartReviewOwnership';
@@ -28,18 +29,23 @@ import { resolveConversationBranchHint, type BranchHintResult } from '@/lib/what
 import { resolveStaffIdentity, type ResolvedStaffIdentity } from '@/lib/whatsappStaffIdentityResolver';
 import { buildSmartOfficialReviewDraftV1 } from '@/lib/whatsappSmartOfficialReviewDraft';
 import { buildSmartConversationEvaluationV2 } from '@/lib/whatsappConversationEvaluationV2';
-import { extractPhoneCandidate, resolveCustomerContext } from '@/lib/whatsappCustomerContextResolver';
-import { extractCustomerHintFromExportFileName } from '@/lib/whatsappExportCustomerHint';
-import { buildWhatsAppCaseContextsV27 } from '@/lib/whatsappCaseContextV27';
+import { resolveCanonicalCustomerContexts } from '@/lib/whatsappCustomerContextResolver';
 import { buildConversationTimingV28 } from '@/lib/whatsappConversationTimingV28';
 import { buildDelayAttributionV29 } from '@/lib/whatsappDelayAttributionV29';
 import { buildConversationFocusV30 } from '@/lib/whatsappConversationFocusV30';
 import { buildEvaluationConversationV31 } from '@/lib/whatsappEvaluationConversationV31';
 import { syncWhatsAppResponseTurnsV18 } from '@/lib/whatsappResponseTurnsV18';
-import { persistAnalyzedWhatsAppSession, attachInvoiceVerificationToQueue } from '@/lib/whatsappReviewPersistenceV4';
-import { buildWhatsAppCustomerJourneyIntelligenceV15 } from '@/lib/whatsappCustomerJourneyIntelligenceV15';
-import { syncWhatsAppCustomerJourneyV15, type JourneySessionSourceV15 } from '@/lib/whatsappCustomerJourneyPersistenceV15';
-import { syncWhatsAppCustomerCasesV22 } from '@/lib/whatsappCustomerCasePersistenceV22';
+import { persistAnalyzedWhatsAppSession, attachInvoiceVerificationToQueue, type PersistSessionMode } from '@/lib/whatsappReviewPersistenceV4';
+import type { JourneySessionSourceV15 } from '@/lib/whatsappCustomerJourneyPersistenceV15';
+import {
+  deriveWhatsAppFileProcessingState,
+  runCanonicalWhatsAppFilePipeline,
+  shouldMarkWhatsAppFileProcessed,
+  type CanonicalSalesIntelligenceStageStatus,
+  type WhatsAppFilePipelineStage,
+  type WhatsAppFileProcessingState,
+} from '@/lib/whatsappWatcherCaseGraphSync';
+import { getStaffSessionToken } from '@/lib/auth/staffSession';
 import type { SmartQuickDecisionResult } from '@/lib/whatsappSmartReviewDecision';
 import {
   buildConversationReviewSnapshot,
@@ -83,6 +89,27 @@ type FileRun = {
   cases: number;
   staffRuns: StaffRun[];
   errors: string[];
+  /** Explicit stage ledger of the canonical chain. Missing on history saved before V2. */
+  processing?: WhatsAppFileProcessingState | null;
+  /** Canonical Sales Intelligence stage (the analytical truth lives in /sales-intelligence/qa). */
+  salesIntelligence?: {
+    status: CanonicalSalesIntelligenceStageStatus;
+    reason: string | null;
+    sourceIds: string[];
+  } | null;
+  mode?: PersistSessionMode;
+};
+
+/** Composite version of the Smart Folder's persisted (non-canonical, derived) analysis. */
+const SMART_FOLDER_ANALYSIS_VERSION = 'whatsapp-smart-folder-v5';
+
+const STAGE_LABELS: Record<WhatsAppFilePipelineStage, string> = {
+  parsed: 'قراءة الملف',
+  source_saved: 'حفظ المصدر',
+  identity_resolved: 'هوية العميل',
+  case_graph_saved: 'Customer Case V22',
+  sales_intelligence_refreshed: 'Sales Intelligence',
+  review_ready: 'جاهز للمراجعة',
 };
 
 const INTERVAL_MS = 60_000;
@@ -206,43 +233,30 @@ export default function WhatsAppSmartFolderWatcher() {
   const [runQuery, setRunQuery] = useState('');
 
 
-  const analyzeFile = useCallback(async (file: File): Promise<FileRun> => {
+  const analyzeFile = useCallback(async (file: File, mode: PersistSessionMode = 'ingest'): Promise<FileRun> => {
     const read = await readWhatsAppExportFile(file);
     const messages = parseWhatsAppExport(read.text);
     if (!messages.length) throw new Error('لم يتم التعرف على رسائل WhatsApp داخل الملف');
-    const fileCustomerHint = extractCustomerHintFromExportFileName(file.name);
-    const rawSessions = splitWhatsAppSessions(messages, 120).map((session) => ({
-      ...session,
-      // اسم الملف عندنا جزء من workflow التصدير وبيحمل اسم العميل. بنستخدمه كـhint
-      // وليس كـID مؤكد؛ الـresolver يظل هو اللي يحسم العميل الحقيقي من الهاتف/الكود/الاسم/الفرع.
-      customerName: fileCustomerHint.nameHint || session.customerName,
-    }));
 
-    // مهم: الـ120 دقيقة بقت Boundary للـraw sessions فقط، وليست Boundary لرحلة العميل.
-    // Case Context V27 يجمع الجلسات المرتبطة بنفس الطلب/الشكوى/recovery قبل تقييم الأفراد.
-    // مثال إبراهيم الصياد: رد دكتور أولًا ثم دكتور آخر بعد ساعة بسبب تأخير الأوردر = Case واحدة.
-    const caseContexts = buildWhatsAppCaseContextsV27(rawSessions);
+    // Canonical Segmentation Contract — the SAME case units (and therefore the same source hashes
+    // and ids) as automatic ingest. 120 minutes is a raw-session boundary only; Case Context V27
+    // joins the sessions of one order/complaint/recovery before anything is persisted.
+    const segmentation = segmentWhatsAppExportCanonical(messages, file.name);
+    const caseContexts = segmentation.caseContexts;
     const analysisUnits = caseContexts.contexts;
     const staffRuns: StaffRun[] = [];
     const persistedSessionSources: JourneySessionSourceV15[] = [];
     const persistedBranchHints: string[] = [];
+    const sourceErrors: string[] = [];
+    const sideWarnings: string[] = [];
 
-    // نفس ملف التصدير غالبًا يحتوي أكثر من Session لنفس العميل. قبل التحسين كنا بنكرر
-    // customer search + purchase-history query لكل Session. الكاش هنا محلي للتحليل فقط
-    // (لا يغيّر أي مصدر حقيقة) ويعيد استخدام نفس Promise حتى لو جلستين شغالين بالتوازي.
-    const customerContextCache = new Map<string, ReturnType<typeof resolveCustomerContext>>();
-    const getCustomerContext = (session: (typeof analysisUnits)[number]['mergedSession'], branch: string | null) => {
-      const identity = extractPhoneCandidate(session) || session.customerName || 'unknown';
-      const key = `${identity.trim().toLowerCase()}|${String(branch || '').trim().toLowerCase()}`;
-      const existing = customerContextCache.get(key);
-      if (existing) return existing;
-      const request = resolveCustomerContext(session, branch, {
-        customerNameHint: fileCustomerHint.nameHint,
-        customerCodeHint: fileCustomerHint.codeHint,
-      });
-      customerContextCache.set(key, request);
-      return request;
-    };
+    // Canonical Customer Identity for every case unit in one bounded batch (same resolver as
+    // automatic ingest and Sales Intelligence). A lookup outage fails the file visibly.
+    const customerContexts = await resolveCanonicalCustomerContexts(
+      analysisUnits.map((context) => context.mergedSession),
+      file.name
+    );
+    const contextIndex = new Map(analysisUnits.map((context, index) => [context, index]));
 
     const analyzeCase = async (caseContext: (typeof analysisUnits)[number]): Promise<StaffRun[]> => {
       const session = caseContext.mergedSession;
@@ -253,7 +267,8 @@ export default function WhatsAppSmartFolderWatcher() {
       const roles = await resolveWhatsAppParticipantRolesV15(session);
       const outboundBurstMetrics = computeStaffBurstEffort(groupOutboundBursts(session, roles));
       const branchHint = await resolveConversationBranchHint(session, roles, null);
-      const customerContext = await getCustomerContext(session, branchHint.value);
+      const customerContext = customerContexts[contextIndex.get(caseContext) ?? 0];
+      const canonicalIdentity = customerContext.canonical;
       const resolvedCustomer = customerContext.resolution.customer;
 
       // التحقق من الفاتورة يظل per-session لأن التوقيت وسياق الجلسة جزء من المطابقة؛
@@ -343,6 +358,13 @@ export default function WhatsAppSmartFolderWatcher() {
             invoiceVerification,
             branchHint,
             customer: customerContext.resolution,
+            customerIdentityDisplay: {
+              status: canonicalIdentity.status,
+              officialName: canonicalIdentity.customerName,
+              officialCode: canonicalIdentity.customerCode,
+              fileNameHint: customerContext.displayNameHint,
+              reason: canonicalIdentity.reason,
+            },
             purchaseHistory: customerContext.purchaseHistory,
             evaluationV2,
             timingV28: caseTimingV28,
@@ -400,21 +422,44 @@ export default function WhatsAppSmartFolderWatcher() {
             rawSessionCount: caseContext.caseItem.sessionIds.length,
             staffNames: caseContext.caseItem.staffNames,
           },
+          canonicalCustomerIdentity: canonicalIdentity,
+          segmentationVersion: segmentation.version,
           timingV28: caseTimingV28,
           delayAttributionV29,
         } as any;
-        const persisted = await persistAnalyzedWhatsAppSession(session, persistenceIntelligence, {
-          sourceFileName: file.name,
-          branch: resolvedCustomer?.branch || branchHint.value || null,
-          customerId: resolvedCustomer?.id || null,
-          customerCode: resolvedCustomer?.code || fileCustomerHint.codeHint || null,
-          customerName: resolvedCustomer?.name || fileCustomerHint.nameHint || session.customerName || null,
-          customerPhone: resolvedCustomer?.phone || customerContext.phoneCandidate || null,
-          staffId: singleResolvedStaff?.staffId || null,
-          staffName: singleResolvedStaff?.canonicalStaffName || null,
-          createdBy: actorName,
+        const identityResolved = canonicalIdentity.status === 'resolved';
+        const persisted = await persistAnalyzedWhatsAppSession(
+          session,
+          persistenceIntelligence,
+          {
+            sourceFileName: file.name,
+            branch: resolvedCustomer?.branch || branchHint.value || null,
+            // Only a canonically resolved identity is written as customer_id; a code/name hint is
+            // kept for human review but never promoted to identity.
+            customerId: identityResolved ? canonicalIdentity.customerId : null,
+            customerCode: canonicalIdentity.customerCode || segmentation.fileCustomerHint.codeHint || null,
+            customerName: canonicalIdentity.customerName || customerContext.displayNameHint || session.customerName || null,
+            customerPhone: canonicalIdentity.normalizedPhone || null,
+            staffId: singleResolvedStaff?.staffId || null,
+            staffName: singleResolvedStaff?.canonicalStaffName || null,
+            createdBy: actorName,
+            analysisVersion: SMART_FOLDER_ANALYSIS_VERSION,
+          },
+          { mode }
+        );
+        persistedSessionSources.push({
+          sessionId: session.id,
+          sourceId: persisted.id,
+          contextOnly: false,
         });
-        await attachInvoiceVerificationToQueue(persisted.id, invoiceVerification, String(user?.id || '') || null, actorName);
+        if (resolvedCustomer?.branch || branchHint.value) persistedBranchHints.push(String(resolvedCustomer?.branch || branchHint.value));
+
+        // Side writes after the durable source: visible warnings, never silent, never blocking.
+        try {
+          await attachInvoiceVerificationToQueue(persisted.id, invoiceVerification, String(user?.id || '') || null, actorName);
+        } catch (invoiceError) {
+          sideWarnings.push(`ربط التحقق من الفاتورة: ${invoiceError instanceof Error ? invoiceError.message : String(invoiceError)}`);
+        }
         try {
           await syncWhatsAppResponseTurnsV18(session, {
             sourceId: persisted.id,
@@ -422,16 +467,12 @@ export default function WhatsAppSmartFolderWatcher() {
             contextOnly: false,
           });
         } catch (timingPersistError) {
-          console.warn('[whatsapp-watcher] response timing sync failed; source preserved', timingPersistError);
+          sideWarnings.push(`توقيت الردود V18: ${timingPersistError instanceof Error ? timingPersistError.message : String(timingPersistError)}`);
         }
-        persistedSessionSources.push({
-          sessionId: session.id,
-          sourceId: persisted.id,
-          contextOnly: false,
-        });
-        if (resolvedCustomer?.branch || branchHint.value) persistedBranchHints.push(String(resolvedCustomer?.branch || branchHint.value));
       } catch (persistError) {
-        console.warn('[whatsapp-watcher] persistent case source sync failed; local analysis preserved', persistError);
+        sourceErrors.push(
+          `حفظ المصدر (${caseContext.caseItem.id}): ${persistError instanceof Error ? persistError.message : String((persistError as any)?.message ?? persistError)}`
+        );
       }
 
       return keptRuns;
@@ -450,48 +491,47 @@ export default function WhatsAppSmartFolderWatcher() {
       }
     }
 
-    if (persistedSessionSources.length) {
-      try {
-        const mergedSessions = analysisUnits.map((context) => context.mergedSession);
-        const journeyModel = buildWhatsAppCustomerJourneyIntelligenceV15(mergedSessions);
-        const branch = persistedBranchHints.find(Boolean) || null;
-        await syncWhatsAppCustomerJourneyV15(journeyModel, {
-          sourceFileName: file.name,
-          branch,
-          createdBy: actorName,
-          sessionSources: persistedSessionSources,
-        });
+    // Canonical chain through the SAME orchestrator as automatic ingest:
+    //   Case Graph (Journey/Story side projection + Customer Case V22) -> ONE Sales Intelligence refresh.
+    // Journey/Story failures are warnings; V22 or Sales Intelligence failures keep the file retryable.
+    const pipeline = await runCanonicalWhatsAppFilePipeline({
+      sourceFileName: file.name,
+      caseContexts,
+      sessionSources: persistedSessionSources,
+      branch: persistedBranchHints.find(Boolean) || null,
+      createdBy: actorName,
+      accessToken: getStaffSessionToken(),
+    });
+    const processing = deriveWhatsAppFileProcessingState({
+      parsed: true,
+      expectedSourceCount: analysisUnits.length,
+      savedSourceCount: persistedSessionSources.length,
+      sourceErrors,
+      identityErrors: [],
+      caseGraph: pipeline.caseGraph,
+      salesIntelligence: pipeline.salesIntelligence,
+      sideWarnings,
+    });
 
-        const sourceByMergedSession = new Map(persistedSessionSources.map((row) => [row.sessionId, row.sourceId]));
-        const persistedCaseModel = {
-          ...caseContexts.caseEngine,
-          cases: caseContexts.contexts.map((context) => ({
-            ...context.caseItem,
-            sessionIds: [context.mergedSession.id],
-          })),
-        };
-        await syncWhatsAppCustomerCasesV22(persistedCaseModel, {
-          branch,
-          createdBy: actorName,
-          sessionSources: persistedSessionSources.filter((row) => sourceByMergedSession.has(row.sessionId)),
-        });
-      } catch (syncError) {
-        console.warn('[whatsapp-watcher] journey/case persistence failed; local capture remains available', syncError);
-      }
-    }
-
-        return {
+    return {
       fileName: file.name,
       at: new Date().toLocaleString('ar-EG'),
       messages: messages.length,
-      sessions: rawSessions.length,
+      sessions: segmentation.rawSessionCount,
       cases: caseContexts.caseEngine.caseCount,
       staffRuns,
-      errors: [],
+      errors: processing.blockingErrors,
+      processing,
+      salesIntelligence: {
+        status: pipeline.salesIntelligence.status,
+        reason: pipeline.salesIntelligence.reason,
+        sourceIds: pipeline.salesIntelligence.requestedSourceIds,
+      },
+      mode,
     };
   }, [actorName, user?.id]);
 
-  const scanOnce = useCallback(async () => {
+  const scanOnce = useCallback(async (mode: PersistSessionMode = 'ingest') => {
     if (!handleRef.current || scanningRef.current) return;
     scanningRef.current = true;
     setScanning(true);
@@ -504,10 +544,25 @@ export default function WhatsAppSmartFolderWatcher() {
 
       const processCandidate = async (candidate: (typeof candidates)[number]): Promise<FileRun> => {
         try {
-          const result = await analyzeFile(candidate.file);
+          const result = await analyzeFile(candidate.file, mode);
           await saveLocalWhatsAppAnalysisHistory<FileRun>(candidate.key, candidate.name, result);
-          markLocalWhatsAppFileProcessed(candidate.key);
-          toast.success(`تم تحليل ${candidate.name}: ${result.sessions} جلسة → ${result.cases} حالة / ${result.staffRuns.length} مسؤول`);
+          // "Processed" is recorded only after Source -> V22 -> Sales Intelligence all succeeded.
+          // Anything less stays retryable (failed ledger with backoff) and is shown as needs-attention.
+          if (result.processing && shouldMarkWhatsAppFileProcessed(result.processing)) {
+            markLocalWhatsAppFileProcessed(candidate.key);
+            toast.success(`تم تحليل ${candidate.name}: ${result.sessions} جلسة → ${result.cases} حالة / ${result.staffRuns.length} مسؤول`);
+            if (result.processing.warnings.length) {
+              toast.warning(`${candidate.name}: اكتمل المسار الرسمي مع ملاحظات جانبية — ${result.processing.warnings[0]}`);
+            }
+          } else {
+            markLocalWhatsAppFileFailed(
+              candidate.key,
+              result.processing?.blockingErrors.join(' | ') || 'canonical_pipeline_incomplete'
+            );
+            toast.error(
+              `${candidate.name}: التحليل غير مكتمل (${result.processing?.outcome || 'unknown'}) — ${result.processing?.blockingErrors[0] || 'سيُعاد المحاولة تلقائيًا'}`
+            );
+          }
           return result;
         } catch (error) {
           const reason = error instanceof Error ? error.message : 'خطأ غير معروف';
@@ -567,10 +622,14 @@ export default function WhatsAppSmartFolderWatcher() {
   }, [connected, scanOnce]);
 
   async function reanalyzeExisting() {
+    // Real reanalysis: the same durable sources are kept (no duplicates), their derived analysis is
+    // rebuilt with the current engines (audited as analysis_reanalyzed), then V22 and the single
+    // canonical Sales Intelligence refresh run again. Human approvals, reviewer fields, manual
+    // invoice confirmations and corrections are never touched, and no points are applied.
     resetLocalWhatsAppProcessedLedger();
     setRuns([]);
-    toast.success('تمت إعادة تهيئة سجل الملفات — هنعيد تحليل الملفات الموجودة في الفولدر');
-    await scanOnce();
+    toast.success('إعادة تحليل حقيقية: نفس المصادر، تحليل مشتق محدث، بدون تكرار وبدون لمس الاعتماد البشري');
+    await scanOnce('reanalyze');
   }
 
   async function connect() {
@@ -688,7 +747,7 @@ export default function WhatsAppSmartFolderWatcher() {
             </button>
           ) : (
             <div className="flex flex-wrap gap-2">
-              <button type="button" disabled={scanning} onClick={() => void scanOnce()} className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-black text-white disabled:opacity-50">
+              <button type="button" disabled={scanning} onClick={() => void scanOnce('ingest')} className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-black text-white disabled:opacity-50">
                 <span className="inline-flex items-center gap-2">{scanning ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />} فحص الآن</span>
               </button>
               <button type="button" disabled={scanning} onClick={() => void reanalyzeExisting()} className="rounded-xl border border-cyan-700/60 bg-cyan-950/20 px-3 py-2 text-xs font-black text-cyan-100 disabled:opacity-50">
@@ -751,6 +810,27 @@ export default function WhatsAppSmartFolderWatcher() {
                       <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500">
                         <span>{run.at}</span><span>{run.messages} رسالة</span><span>{run.sessions} جلسة خام</span><span>{run.cases ?? run.sessions} حالة/رحلة</span><span>{run.staffRuns.length} مسؤول</span>
                       </div>
+                      {run.processing ? (
+                        <div className="mt-1.5 flex flex-wrap gap-1">
+                          {(Object.keys(STAGE_LABELS) as WhatsAppFilePipelineStage[]).map((stage) => {
+                            const status = run.processing!.stages[stage];
+                            return (
+                              <span
+                                key={stage}
+                                className={`rounded-full px-2 py-0.5 text-[10px] font-black ${
+                                  status === 'done'
+                                    ? 'bg-emerald-500/10 text-emerald-300'
+                                    : status === 'failed'
+                                      ? 'bg-rose-500/15 text-rose-300'
+                                      : 'bg-slate-800 text-slate-500'
+                                }`}
+                              >
+                                {status === 'done' ? '✓' : status === 'failed' ? '✕' : '…'} {STAGE_LABELS[stage]}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      ) : null}
                     </div>
                     <div className="hidden flex-wrap items-center gap-1.5 sm:flex">
                       {clearCount ? <span className="rounded-full bg-emerald-500/10 px-2 py-1 text-[10px] font-black text-emerald-300">{clearCount} سليمة</span> : null}
@@ -762,7 +842,25 @@ export default function WhatsAppSmartFolderWatcher() {
 
                   {expanded ? (
                     <div className="border-t border-slate-800 bg-slate-950/15 p-3">
-                      {run.errors.length ? (
+                      {run.processing && run.processing.outcome !== 'complete' ? (
+                        <div className="mb-3 rounded-xl border border-rose-800/40 bg-rose-950/20 p-3 text-xs leading-6 text-rose-100">
+                          <div className="font-black">يحتاج متابعة — المسار الرسمي غير مكتمل ({run.processing.outcome})، والملف سيُعاد محاولته تلقائيًا.</div>
+                          {run.processing.blockingErrors.map((error) => <div key={error}>• {error}</div>)}
+                        </div>
+                      ) : null}
+                      {run.processing?.warnings.length ? (
+                        <div className="mb-3 rounded-xl border border-amber-800/40 bg-amber-950/15 p-3 text-xs leading-6 text-amber-100">
+                          <div className="font-black">ملاحظات جانبية (لا تمنع V22 ولا Sales Intelligence)</div>
+                          {run.processing.warnings.map((warning) => <div key={warning}>• {warning}</div>)}
+                        </div>
+                      ) : null}
+                      {run.salesIntelligence?.status === 'refreshed' ? (
+                        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-cyan-800/40 bg-cyan-950/15 p-3 text-xs text-cyan-100">
+                          <span>Product / Need / Basket / إثبات البيع الرسمي يُعرض من Sales Intelligence فقط.</span>
+                          <button type="button" onClick={() => navigate('/sales-intelligence/qa')} className="rounded-lg border border-cyan-700/60 px-2 py-1 font-black">فتح مراجعة الحالات</button>
+                        </div>
+                      ) : null}
+                      {run.errors.length && !run.staffRuns.length && !run.processing ? (
                         <div className="rounded-xl border border-rose-800/40 bg-rose-950/20 p-3 text-sm text-rose-200">{run.errors.map((error) => <div key={error}>• {error}</div>)}</div>
                       ) : (
                         <div className="space-y-3">
@@ -958,6 +1056,19 @@ export default function WhatsAppSmartFolderWatcher() {
 
                     <div className="rounded-2xl border border-slate-800 bg-slate-950/20 p-4">
                       <div className="text-[10px] font-black text-slate-500">هوية العميل</div>
+                      {selected.snapshot.smartIntelligence?.customerIdentityDisplay ? (
+                        <div className="mt-1 text-[11px] leading-5 text-slate-400">
+                          <div>
+                            العميل الرسمي:{' '}
+                            <b className="text-cyan-100">
+                              {selected.snapshot.smartIntelligence.customerIdentityDisplay.status === 'resolved'
+                                ? `${selected.snapshot.smartIntelligence.customerIdentityDisplay.officialName || '-'} (كود ${selected.snapshot.smartIntelligence.customerIdentityDisplay.officialCode || '-'})`
+                                : 'غير محسوم'}
+                            </b>
+                          </div>
+                          <div>اسم الملف/واتساب: <span className="text-slate-300">{selected.snapshot.smartIntelligence.customerIdentityDisplay.fileNameHint || '-'}</span> (للعرض فقط — لا يحدد الهوية)</div>
+                        </div>
+                      ) : null}
                       {selected.snapshot.smartIntelligence?.customer?.customer ? (
                         <div className="mt-2 text-sm text-cyan-100">
                           <b>{selected.snapshot.smartIntelligence.customer.customer.name}</b>
@@ -979,7 +1090,7 @@ export default function WhatsAppSmartFolderWatcher() {
 
                   <section className="grid grid-cols-2 gap-2 md:grid-cols-4">
                     <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-3"><div className="text-[10px] text-slate-500">النية</div><div className="mt-1 text-sm font-black text-white">{caseLabel(selected)}</div></div>
-                    <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-3"><div className="text-[10px] text-slate-500">فرص البيع</div><div className="mt-1 text-sm font-black text-white">{selected.intelligence?.salesOpportunities.length || 0}</div></div>
+                    <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-3"><div className="text-[10px] text-slate-500">فرص البيع (قراءة أولية)</div><div className="mt-1 text-sm font-black text-white">{selected.intelligence?.salesOpportunities.length || 0}</div></div>
                     <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-3"><div className="text-[10px] text-slate-500">الاستشارة</div><div className="mt-1 text-sm font-black text-white">{consultationLabel(selected.intelligence?.consultationCommunication)}</div></div>
                     <div className="rounded-xl border border-slate-800 bg-slate-950/30 p-3"><div className="text-[10px] text-slate-500">الاعتماد السريع</div><div className="mt-1 text-sm font-black text-white">{selected.safe ? 'ممكن بعد مراجعة' : 'غير مسموح'}</div></div>
                   </section>
@@ -1015,7 +1126,10 @@ export default function WhatsAppSmartFolderWatcher() {
                         </div>
                       </div>
                       <div className="rounded-2xl border border-violet-800/30 bg-violet-950/10 p-4">
-                        <div className="font-black text-violet-100">فرص البيع</div>
+                        <div className="font-black text-violet-100">فرص البيع — قراءة أولية</div>
+                        <div className="mt-1 text-[10px] leading-5 text-slate-500">
+                          مؤشر تشغيلي لمساعدة المراجع فقط. المنتج/الاحتياج/السلة والفاتورة الرسمية من Sales Intelligence (مراجعة الحالات).
+                        </div>
                         <div className="mt-2 space-y-2">
                           {selected.intelligence?.salesOpportunities.length ? selected.intelligence.salesOpportunities.slice(0, 4).map((opportunity, index) => (
                             <div key={`${opportunity.triggerMessageId}-${index}`} className="text-xs leading-6 text-slate-300">

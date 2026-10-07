@@ -1506,11 +1506,19 @@ function buildConversationUnderstandingV32(session) {
 
 // src/lib/salesIntelligence/paymentSettlementSignals.ts
 var PAYMENT_CONTEXT_RX = /(?:رقم\s*التحويل|تحويل\s*(?:بنكي|فودافون|انستا|insta)?|فودافون\s*كاش|انستا\s*باي|instapay)/i;
+var PAYMENT_PROOF_REQUEST_RX = /(?:صورة|سكرين|إثبات|اثبات)\s*(?:التحويل|الدفع)|(?:ابعت|ابعتي|ابعتلي|ابعتيلي|ارسل|ارسلي|استأذن|استاذن).{0,24}(?:صورة|سكرين).{0,20}(?:التحويل|الدفع)/i;
 var TOTAL_QUESTION_RX = /(?:الحساب|الإجمالي|الاجمالي|المجموع).{0,18}(?:كام|قد\s*ايه|قد\s*إيه)|(?:كدا|كده)?\s*(?:هيبقا|هيبقى|يبقا|يبقى)\s*كام/i;
 var COMPACT_AMOUNT_RX = /^\s*([0-9٠-٩۰-۹]+(?:[.,٫][0-9٠-٩۰-۹]+)?)\s*(?:جنيه|جنيها|ج(?:\.?م\.?)?)?\s*(?:ان\s*شاء\s*الله)?[.!، ]*$/i;
-var PAYMENT_PROOF_RX = /(?:image omitted|photo omitted|document omitted|صورة\s*التحويل|سكرين\s*(?:التحويل)?|تم\s*التحويل|حولت|حوّلت|اتحول|تم\s*الدفع)/i;
-var RECEIPT_ACK_RX = /^\s*(?:وصل(?:ت)?|تم\s*(?:الاستلام|استلام\s*التحويل|وصول\s*التحويل)|استلمنا)(?:\b|[ .،!])/i;
-var PAYMENT_CONTINUATION_RX = /(?:الحساب|الإجمالي|الاجمالي|المجموع).{0,18}(?:كام|قد\s*ايه|قد\s*إيه)|(?:اسف|آسف|اسفه|آسفه).{0,12}نسيت\s*(?:خالص)?|نسيت\s*خالص|تم\s*التحويل|حولت|حوّلت|اتحول|صورة\s*التحويل/i;
+var PAYMENT_TEXT_PROOF_RX = /(?:صورة\s*التحويل|سكرين\s*(?:التحويل|الدفع)?|تم\s*التحويل|حولت|حوّلت|اتحول|تم\s*الدفع|دفعت)/i;
+var PAYMENT_MEDIA_RX = /(?:image omitted|photo omitted|document omitted)/i;
+var EXPLICIT_RECEIPT_ACK_RX = /^\s*(?:وصل(?:ت)?\s*(?:التحويل|الدفع|المبلغ)|تم\s*(?:الاستلام|استلام\s*(?:التحويل|الدفع|المبلغ)|وصول\s*(?:التحويل|الدفع|المبلغ))|استلمنا(?:\s*(?:التحويل|الدفع|المبلغ))?)(?:\b|[ .،!])/i;
+var BARE_RECEIPT_ACK_RX = /^\s*وصل(?:ت)?(?:\b|[ .،!])/i;
+var PAYMENT_CONTINUATION_RX = /(?:الحساب|الإجمالي|الاجمالي|المجموع).{0,18}(?:كام|قد\s*ايه|قد\s*إيه)|(?:اسف|آسف|اسفه|آسفه).{0,12}نسيت\s*(?:خالص)?|نسيت\s*خالص|تم\s*التحويل|حولت|حوّلت|اتحول|صورة\s*التحويل|سكرين\s*(?:التحويل|الدفع)?|تم\s*الدفع|دفعت/i;
+var CONTEXT_TO_TOTAL_MAX_MS = 2 * 60 * 60 * 1e3;
+var TOTAL_TO_AMOUNT_MAX_MS = 45 * 60 * 1e3;
+var AMOUNT_TO_PROOF_MAX_MS = 45 * 60 * 1e3;
+var PROOF_TO_RECEIPT_MAX_MS = 20 * 60 * 1e3;
+var PAYMENT_CONTINUATION_MAX_MS = 24 * 60 * 60 * 1e3;
 function asciiDigits(value) {
   return value.replace(/[٠-٩]/g, (digit) => String(digit.charCodeAt(0) - 1632)).replace(/[۰-۹]/g, (digit) => String(digit.charCodeAt(0) - 1776)).replace("\u066B", ".").replace(",", ".");
 }
@@ -1519,6 +1527,10 @@ function parseCompactAmount(text2) {
   if (!match) return null;
   const value = Number(match[1]);
   return Number.isFinite(value) ? value : null;
+}
+function withinGap(earlier, later, maxMs) {
+  const delta = later.timestamp.getTime() - earlier.timestamp.getTime();
+  return delta >= 0 && delta <= maxMs;
 }
 function detectPaymentSettlementSignals(messages) {
   const ordered4 = [...messages].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
@@ -1536,17 +1548,20 @@ function detectPaymentSettlementSignals(messages) {
   for (let start = 0; start < ordered4.length; start += 1) {
     const context = ordered4[start];
     if (context.role !== "staff" || !context.isMeaningful || !PAYMENT_CONTEXT_RX.test(context.text)) continue;
+    const proofWasRequested = PAYMENT_PROOF_REQUEST_RX.test(context.text);
     const totalQuestionIndex = ordered4.findIndex(
-      (m, i) => i > start && m.role === "customer" && m.isMeaningful && TOTAL_QUESTION_RX.test(m.text)
+      (m, i) => i > start && m.role === "customer" && m.isMeaningful && TOTAL_QUESTION_RX.test(m.text) && withinGap(context, m, CONTEXT_TO_TOTAL_MAX_MS)
     );
     if (totalQuestionIndex < 0) {
       best = { ...best, paymentContextMessageId: context.id, primaryMessageIds: [context.id] };
       continue;
     }
+    const totalQuestion = ordered4[totalQuestionIndex];
     let amountIndex = -1;
     let amount = null;
     for (let i = totalQuestionIndex + 1; i < ordered4.length; i += 1) {
       const message = ordered4[i];
+      if (!withinGap(totalQuestion, message, TOTAL_TO_AMOUNT_MAX_MS)) break;
       if (message.role !== "staff" || !message.isMeaningful) continue;
       const parsed = parseCompactAmount(message.text);
       if (parsed != null) {
@@ -1559,32 +1574,58 @@ function detectPaymentSettlementSignals(messages) {
       best = {
         ...best,
         paymentContextMessageId: context.id,
-        totalQuestionMessageId: ordered4[totalQuestionIndex].id,
-        primaryMessageIds: [context.id, ordered4[totalQuestionIndex].id]
+        totalQuestionMessageId: totalQuestion.id,
+        primaryMessageIds: [context.id, totalQuestion.id]
       };
       continue;
     }
-    const proofIndex = ordered4.findIndex(
-      (m, i) => i > amountIndex && m.role === "customer" && PAYMENT_PROOF_RX.test(m.text)
-    );
-    const receiptIndex = proofIndex < 0 ? -1 : ordered4.findIndex(
-      (m, i) => i > proofIndex && m.role === "staff" && m.isMeaningful && RECEIPT_ACK_RX.test(m.text)
-    );
+    const amountMessage = ordered4[amountIndex];
+    let proofIndex = -1;
+    let proofKind = "none";
+    for (let i = amountIndex + 1; i < ordered4.length; i += 1) {
+      const message = ordered4[i];
+      if (!withinGap(amountMessage, message, AMOUNT_TO_PROOF_MAX_MS)) break;
+      if (message.role !== "customer") continue;
+      if (PAYMENT_TEXT_PROOF_RX.test(message.text)) {
+        proofIndex = i;
+        proofKind = PAYMENT_MEDIA_RX.test(message.text) ? "customer_media" : "customer_text";
+        break;
+      }
+      if (proofWasRequested && PAYMENT_MEDIA_RX.test(message.text)) {
+        proofIndex = i;
+        proofKind = "customer_media";
+        break;
+      }
+    }
     const proof = proofIndex >= 0 ? ordered4[proofIndex] : null;
-    const ids = [context.id, ordered4[totalQuestionIndex].id, ordered4[amountIndex].id, proof?.id, receiptIndex >= 0 ? ordered4[receiptIndex].id : null].filter((value) => Boolean(value));
+    let receiptIndex = -1;
+    if (proof) {
+      for (let i = proofIndex + 1; i < ordered4.length; i += 1) {
+        const message = ordered4[i];
+        if (!withinGap(proof, message, PROOF_TO_RECEIPT_MAX_MS)) break;
+        if (message.role !== "staff" || !message.isMeaningful) continue;
+        const explicitAck = EXPLICIT_RECEIPT_ACK_RX.test(message.text);
+        const contextBoundBareAck = BARE_RECEIPT_ACK_RX.test(message.text) && (proofKind === "customer_text" || proofWasRequested);
+        if (explicitAck || contextBoundBareAck) {
+          receiptIndex = i;
+          break;
+        }
+      }
+    }
+    const ids = [context.id, totalQuestion.id, amountMessage.id, proof?.id, receiptIndex >= 0 ? ordered4[receiptIndex].id : null].filter((value) => Boolean(value));
     const result = {
       paymentContextMessageId: context.id,
-      totalQuestionMessageId: ordered4[totalQuestionIndex].id,
-      amountMessageId: ordered4[amountIndex].id,
+      totalQuestionMessageId: totalQuestion.id,
+      amountMessageId: amountMessage.id,
       announcedPaymentAmount: amount,
       paymentProofMessageId: proof?.id ?? null,
-      paymentProofKind: proof ? /image omitted|photo omitted|document omitted/i.test(proof.text) ? "customer_media" : "customer_text" : "none",
+      paymentProofKind: proofKind,
       receiptAcknowledgementMessageId: receiptIndex >= 0 ? ordered4[receiptIndex].id : null,
       completeSequence: Boolean(proof && receiptIndex >= 0),
       primaryMessageIds: ids
     };
     if (result.completeSequence) return result;
-    best = result;
+    if (result.primaryMessageIds.length >= best.primaryMessageIds.length) best = result;
   }
   return best;
 }
@@ -1595,10 +1636,11 @@ function isCustomerPaymentSettlementContinuation(messages, messageId2) {
   const message = ordered4[index];
   if (message.role !== "customer") return false;
   const priorPaymentContext = [...ordered4.slice(0, index)].reverse().find(
-    (m) => m.role === "staff" && m.isMeaningful && PAYMENT_CONTEXT_RX.test(m.text) && message.timestamp.getTime() - m.timestamp.getTime() <= 24 * 60 * 60 * 1e3
+    (m) => m.role === "staff" && m.isMeaningful && PAYMENT_CONTEXT_RX.test(m.text) && withinGap(m, message, PAYMENT_CONTINUATION_MAX_MS)
   );
   if (!priorPaymentContext) return false;
-  return PAYMENT_CONTINUATION_RX.test(message.text) || PAYMENT_PROOF_RX.test(message.text);
+  if (PAYMENT_CONTINUATION_RX.test(message.text)) return true;
+  return PAYMENT_MEDIA_RX.test(message.text) && PAYMENT_PROOF_REQUEST_RX.test(priorPaymentContext.text);
 }
 
 // src/lib/salesIntelligence/conversationCaseEngine.ts
@@ -1671,11 +1713,18 @@ function deriveCaseForInteraction(understanding, interaction, input) {
     ruleIds.push("case.classification.explicit_commercial_journey");
   }
   if (hasUnresolvedMultipleRequests(messages, requestMessages)) {
+    caseType = "mixed";
     needsHumanReview = true;
-    humanReviewReasons.push("possible_unsegmented_multiple_requests");
+    humanReviewReasons.push(
+      "possible_unsegmented_multiple_requests",
+      "independent_multiple_requests_require_review"
+    );
     level = "weakly_inferred";
     score = Math.min(score, 0.4);
-    ruleIds.push("case.ambiguity.unresolved_multiple_requests_no_staff_reply_between");
+    ruleIds.push(
+      "case.ambiguity.unresolved_multiple_requests_no_staff_reply_between",
+      "case.safety.independent_multiple_requests_require_review"
+    );
   }
   if (rejectionSignals.length > 0 && acceptanceSignals.length > 0 && confirmationSignals.length === 0) {
     needsHumanReview = true;
@@ -1719,6 +1768,516 @@ function deriveCaseForInteraction(understanding, interaction, input) {
 }
 function deriveConversationCases(input) {
   return input.understanding.interactions.map((interaction) => deriveCaseForInteraction(input.understanding, interaction, input));
+}
+
+// src/lib/salesIntelligence/pharmacyProducts/pharmacyNormalization.ts
+var ARABIC_INDIC_DIGITS = {
+  "\u0660": "0",
+  "\u0661": "1",
+  "\u0662": "2",
+  "\u0663": "3",
+  "\u0664": "4",
+  "\u0665": "5",
+  "\u0666": "6",
+  "\u0667": "7",
+  "\u0668": "8",
+  "\u0669": "9"
+};
+var ARABIC_LETTER_VARIANTS = [
+  [/[إأآا]/g, "\u0627"],
+  [/ى/g, "\u064A"],
+  [/ة/g, "\u0647"],
+  [/ؤ/g, "\u0648"],
+  [/ئ/g, "\u064A"],
+  [/[ً-ْٰـ]/g, ""]
+  // tashkeel + tatweel
+];
+function convertArabicDigits(text2) {
+  return text2.replace(/[٠-٩]/g, (d) => ARABIC_INDIC_DIGITS[d] ?? d);
+}
+function unifyArabicLetters(text2) {
+  let result = text2;
+  for (const [pattern, replacement] of ARABIC_LETTER_VARIANTS) {
+    result = result.replace(pattern, replacement);
+  }
+  return result;
+}
+var UNIT_SYNONYMS = {
+  mg: "mg",
+  "\u0645\u062C\u0645": "mg",
+  "\u0645\u062C": "mg",
+  "\u0645\u0644\u063A": "mg",
+  "\u0645\u0644\u062C\u0645": "mg",
+  ml: "ml",
+  "\u0645\u0644": "ml",
+  "\u0633\u0645": "ml",
+  gm: "gm",
+  g: "gm",
+  "\u062C\u0645": "gm",
+  "\u062C\u0631\u0627\u0645": "gm",
+  "\u062C\u0631\u0627": "gm",
+  mcg: "mcg",
+  "\u0645\u064A\u0643\u0631\u0648\u062C\u0631\u0627\u0645": "mcg",
+  "\u0645\u0643\u062C\u0645": "mcg",
+  iu: "iu",
+  "\u0648\u062D\u062F\u0647": "iu",
+  "\u0648\u062D\u062F\u0629": "iu"
+};
+var PACK_UNIT_WORDS = [
+  "tab",
+  "tabs",
+  "tablet",
+  "tablets",
+  "cap",
+  "caps",
+  "capsule",
+  "capsules",
+  "pcs",
+  "piece",
+  "pieces",
+  "sachet",
+  "sachets",
+  "amp",
+  "amps",
+  "ampoule",
+  "ampoules",
+  "\u0642\u0631\u0635",
+  "\u0627\u0642\u0631\u0627\u0635",
+  "\u0623\u0642\u0631\u0627\u0635",
+  "\u0643\u0628\u0633\u0648\u0644\u0647",
+  "\u0643\u0628\u0633\u0648\u0644\u0629",
+  "\u0643\u0628\u0633\u0648\u0644",
+  "\u0643\u0628\u0633\u0648\u0644\u0627\u062A",
+  "\u0643\u064A\u0633",
+  "\u0627\u0643\u064A\u0627\u0633",
+  "\u0623\u0643\u064A\u0627\u0633",
+  "\u0639\u0644\u0628\u0647",
+  "\u0639\u0644\u0628\u0629",
+  "\u0639\u0644\u0628",
+  "\u0634\u0631\u064A\u0637",
+  "\u0634\u0631\u0627\u064A\u0637",
+  "\u0627\u0645\u0628\u0648\u0644",
+  "\u0623\u0645\u0628\u0648\u0644",
+  "\u0627\u0645\u0628\u0648\u0644\u0627\u062A"
+];
+var DOSAGE_FORM_KEYWORDS = [
+  [/\b(tab|tabs|tablet|tablets)\b|قرص|اقراص|أقراص|برشام|حبوب|حبه|حبوه/g, "tablet"],
+  [/\b(cap|caps|capsule|capsules)\b|كبسول|كبسوله|كبسولة|كبسولات/g, "capsule"],
+  [/\b(syrup)\b|شراب/g, "syrup"],
+  [/\b(susp|suspension)\b/g, "suspension"],
+  [/\b(cream)\b|كريم/g, "cream"],
+  [/\b(gel)\b|جل/g, "gel"],
+  [/\b(oint|ointment)\b|مرهم/g, "ointment"],
+  [/\b(lotion)\b|لوشن/g, "lotion"],
+  [/\b(drop|drops)\b|نقط|قطره|قطرة/g, "drops"],
+  [/\b(spray)\b|بخاخ|سبراي/g, "spray"],
+  [/\b(amp|amps|ampoule|ampoules)\b|امبول|أمبول/g, "ampoule"],
+  [/\b(vial)\b/g, "vial"],
+  [/\b(syringe|syringes)\b|سرنج|سرنجه|سرنجة/g, "syringe"],
+  [/\b(sachet|sachets)\b|كيس|اكياس|أكياس/g, "sachet"],
+  [/\b(soap)\b|صابون|صابونه/g, "soap"],
+  [/\b(shampoo)\b|شامبو/g, "shampoo"],
+  [/\b(suppository|suppositories)\b|لبوس/g, "suppository"]
+];
+function normalizeBaseText(text2) {
+  let result = text2;
+  result = convertArabicDigits(result);
+  result = unifyArabicLetters(result);
+  result = result.toLowerCase();
+  result = result.replace(/[.,;:_\-/\\()<>\x5B\x5D{}!؟?"'`~*#+=|]/g, " ");
+  result = result.replace(/([a-zA-Zء-ي])([0-9])/g, "$1 $2").replace(/([0-9])([a-zA-Zء-ي])/g, "$1 $2");
+  result = result.replace(/\s+/g, " ").trim();
+  return result;
+}
+var SCRIPT_AWARE_RIGHT_BOUNDARY = "(?![a-zA-Z\u0621-\u064A])";
+function extractStrengths(normalized) {
+  const strengths = [];
+  const unitAlternation = Object.keys(UNIT_SYNONYMS).sort((a, b) => b.length - a.length).join("|");
+  const rx = new RegExp(`([0-9]+(?:\\.[0-9]+)?)\\s*(${unitAlternation})${SCRIPT_AWARE_RIGHT_BOUNDARY}`, "g");
+  let match;
+  while ((match = rx.exec(normalized)) !== null) {
+    const unit = UNIT_SYNONYMS[match[2]];
+    if (unit) strengths.push({ value: Number(match[1]), unit });
+  }
+  return strengths;
+}
+function extractPackSizes(normalized) {
+  const packs = [];
+  const wordAlternation = PACK_UNIT_WORDS.slice().sort((a, b) => b.length - a.length).join("|");
+  const rx = new RegExp(`([0-9]+)\\s*(${wordAlternation})${SCRIPT_AWARE_RIGHT_BOUNDARY}`, "g");
+  let match;
+  while ((match = rx.exec(normalized)) !== null) {
+    packs.push({ count: Number(match[1]), unitWord: match[2] });
+  }
+  return packs;
+}
+function extractDosageForms(normalized) {
+  const forms = /* @__PURE__ */ new Set();
+  for (const [pattern, form] of DOSAGE_FORM_KEYWORDS) {
+    pattern.lastIndex = 0;
+    if (pattern.test(normalized)) forms.add(form);
+  }
+  return Array.from(forms);
+}
+function normalizePharmacyText(raw) {
+  const normalized = normalizeBaseText(raw);
+  return {
+    normalized,
+    raw,
+    strengths: extractStrengths(normalized),
+    dosageForms: extractDosageForms(normalized),
+    packSizes: extractPackSizes(normalized)
+  };
+}
+
+// src/lib/salesIntelligence/pharmacyProducts/pharmacyProductResolverV2.ts
+var FUZZY_MAX_CONFIDENCE_LEVEL = "weakly_inferred";
+function buildPharmacyProductIndex(catalog) {
+  const byCode = /* @__PURE__ */ new Map();
+  const byNormalizedName = /* @__PURE__ */ new Map();
+  for (const product of catalog) {
+    byCode.set(product.productCode.trim().toLowerCase(), product);
+    for (const normalizedName of product.normalizedNames) {
+      const bucket = byNormalizedName.get(normalizedName);
+      if (bucket) bucket.push(product);
+      else byNormalizedName.set(normalizedName, [product]);
+    }
+  }
+  return { catalog, byCode, byNormalizedName };
+}
+var CROSS_SCRIPT_SEED = /* @__PURE__ */ new Map([
+  ["\u0632\u0648\u0631\u0643\u0627\u0644", "zurcal"],
+  ["\u0627\u0646\u062A\u064A\u0646\u0627\u0644", "antinal"],
+  ["\u0628\u0627\u0645\u0628\u0631\u0632", "pampers"],
+  ["\u0643\u0648\u0631\u064A\u063A\u0627", "corega"],
+  ["\u0643\u0648\u0631\u064A\u062C\u0627", "corega"],
+  ["\u0643\u0648\u0644\u0634\u064A\u0633\u064A\u0646", "colchicine"],
+  ["\u0643\u0648\u0644\u0634\u064A\u0633\u0646", "colchicine"],
+  ["\u0641\u0644\u064A\u0643\u0633\u064A\u0644\u0627\u0643\u0633", "flexilax"],
+  ["\u0641\u0644\u064A\u0643\u0633 \u0644\u064A\u0643\u0633", "flexilax"],
+  ["\u0641\u0644\u064A\u0643\u0633 \u0644\u0627\u064A\u0643\u0633", "flexilax"],
+  ["\u062C\u0627\u0633\u062A \u0631\u064A\u062C", "gast reg"],
+  ["\u062C\u0627\u0633\u062A \u0631\u064A\u062C \u0627\u0645\u0628\u0648\u0644", "gast reg"],
+  ["\u0633\u0648\u0644\u0648 \u0641\u0631\u064A\u0634", "solofresh"],
+  ["\u0633\u0648\u0644\u0648\u0641\u0631\u064A\u0634", "solofresh"],
+  ["\u0643\u0648\u062C\u064A \u0633\u0627\u0646", "koji san"],
+  ["\u0645\u064A\u0646\u0648\u0643\u0633\u062F\u064A\u0644", "minoxidil"],
+  ["\u0627\u0644\u0645\u064A\u0646\u0648\u0643\u0633\u062F\u064A\u0644", "minoxidil"],
+  ["\u0641\u064A\u062A\u0634\u064A", "vichy"],
+  ["\u0633\u0646\u062A\u0631\u0645", "centrum"],
+  ["\u0627\u0644\u0633\u0646\u062A\u0631\u0645", "centrum"],
+  ["\u0641\u0648\u0644\u064A\u0643", "folic"],
+  ["\u0646\u064A\u0631\u0648\u0641\u064A\u062A", "neurovit"],
+  ["\u0646\u064A\u0648\u0631\u0641\u064A\u062A", "neurovit"],
+  ["\u062F\u0648\u0644\u064A\u0628\u0631\u0627\u0646", "doliprane"],
+  ["\u062F\u0644\u064A\u0628\u0631\u0627\u0646", "doliprane"],
+  ["\u062F\u064A\u0641\u0627\u0631\u0648\u0644", "devarol"],
+  ["\u0645\u0627\u0631\u0646\u064A\u0632", "marnys"],
+  ["\u0627\u0648\u0631\u0644\u064A", "orly"],
+  ["\u0623\u0648\u0631\u0644\u064A", "orly"],
+  ["\u062D\u064A\u0627\u0629", "hayah"],
+  ["\u062D\u064A\u0627\u0647", "hayah"],
+  ["\u062F\u064A\u0631\u0645\u0627 \u0631\u0648\u0644", "derma roller"],
+  ["\u0627\u0644\u062F\u064A\u0631\u0645\u0627 \u0631\u0648\u0644", "derma roller"],
+  ["\u0644\u0628\u0646 \u0647\u064A\u0631\u0648 \u0628\u064A\u0628\u064A", "hero baby milk"],
+  ["\u0647\u064A\u0631\u0648 \u0628\u064A\u0628\u064A", "hero baby"],
+  ["\u0646\u064A\u0648\u062A\u0631\u0648\u0646\u064A \u062F\u0641\u0646\u0633", "nutradefense"],
+  ["\u0646\u064A\u0648\u062A\u0631\u0627 \u062F\u0641\u0646\u0633", "nutradefense"],
+  ["\u0643\u0648\u0644\u0648\u0646\u0627", "colona"],
+  ["\u062C\u0627\u0633\u062A\u0631\u0648 \u0628\u064A\u0648\u062A\u064A\u0643", "gastrobiotic"],
+  ["\u062C\u0627\u0633\u062A\u0631\u0648\u0628\u064A\u0648\u062A\u0643", "gastrobiotic"]
+]);
+function confidenceForBasis(basis) {
+  switch (basis) {
+    case "exact_code":
+    case "exact_barcode":
+      return "proven";
+    case "exact_canonical_name":
+      return "strongly_inferred";
+    case "approved_alias":
+      return "strongly_inferred";
+    // gated on human approval already having happened — see productAliasCandidate.ts
+    case "cross_script_composite":
+      return "strongly_inferred";
+    // >=2 explicit seed clues + exact numeric discriminator in canonical name
+    case "dominant_name_token_match":
+      return "strongly_inferred";
+    case "cross_script_equivalent":
+      return "weakly_inferred";
+    // one seed clue alone is unvetted heuristic evidence
+    case "cross_script_equivalent_with_form":
+      return "strongly_inferred";
+    case "strength_form_token_match":
+      return "weakly_inferred";
+    case "cautious_fuzzy":
+      return FUZZY_MAX_CONFIDENCE_LEVEL;
+    case "unresolved":
+      return "unknown";
+  }
+}
+function isSafeSelection(candidates) {
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0];
+  const topLevel = candidates[0].confidence;
+  const tiedAtTop = candidates.filter((c) => c.confidence === topLevel);
+  return tiedAtTop.length === 1 ? candidates[0] : null;
+}
+function strengthsCompatible(a, b) {
+  if (a.length === 0 || b.length === 0) return true;
+  return a.some((sa) => b.some((sb) => sa.unit === sb.unit && Math.abs(sa.value - sb.value) < 1e-3));
+}
+function dosageFormsCompatible(a, b) {
+  if (a.length === 0 || b.length === 0) return true;
+  return a.some((fa) => b.includes(fa));
+}
+function extractBareNumbers(normalized) {
+  const numbers = [];
+  const rx = /[0-9]+(?:\.[0-9]+)?/g;
+  let match;
+  while ((match = rx.exec(normalized)) !== null) numbers.push(Number(match[0]));
+  return numbers;
+}
+function productNumericTokens(product) {
+  return [...product.strengths.map((s) => s.value), ...product.packSizes.map((p) => p.count)];
+}
+function productNameBareNumbers(product) {
+  return Array.from(new Set(product.normalizedNames.flatMap((name) => extractBareNumbers(name))));
+}
+function bareNumbersCompatible(phraseNumbers, product) {
+  if (phraseNumbers.length === 0) return true;
+  const productNumbers = productNumericTokens(product);
+  if (productNumbers.length === 0) return true;
+  return phraseNumbers.some((n) => productNumbers.includes(n));
+}
+function tokenOverlapScore(a, b) {
+  const tokensA = new Set(a.split(" ").filter((t) => t.length > 1));
+  const tokensB = new Set(b.split(" ").filter((t) => t.length > 1));
+  if (tokensA.size === 0 || tokensB.size === 0) return 0;
+  let overlap = 0;
+  for (const token of tokensA) if (tokensB.has(token)) overlap += 1;
+  return overlap / Math.max(tokensA.size, tokensB.size);
+}
+var NAME_MATCH_STOPWORDS = /* @__PURE__ */ new Set([
+  "a",
+  "an",
+  "the",
+  "for",
+  "of",
+  "with",
+  "to",
+  "by",
+  "and",
+  "forwarded",
+  "\u0645\u0646",
+  "\u0641\u064A",
+  "\u0645\u0639",
+  "\u0639\u0644\u0649",
+  "\u0627\u0644\u064A",
+  "\u0627\u0644\u0649",
+  "\u0628\u062F\u064A\u0644",
+  "\u063A\u0633\u0648\u0644",
+  "\u0627\u0644\u063A\u0633\u0648\u0644"
+]);
+var NAME_QUANTITY_TOKENS = /* @__PURE__ */ new Set([
+  "mg",
+  "ml",
+  "gm",
+  "g",
+  "mcg",
+  "iu",
+  "tab",
+  "tabs",
+  "tablet",
+  "tablets",
+  "cap",
+  "caps",
+  "capsule",
+  "capsules",
+  "pcs",
+  "piece",
+  "pieces"
+]);
+function meaningfulNameTokens(normalized) {
+  return normalized.split(" ").map((token) => token.trim()).filter(
+    (token) => token.length > 1 && !/^[0-9]+(?:\.[0-9]+)?$/.test(token) && !NAME_MATCH_STOPWORDS.has(token) && !NAME_QUANTITY_TOKENS.has(token)
+  );
+}
+function expandJoinedPhraseTokens(phraseTokens, productTokens) {
+  const productSet = new Set(productTokens);
+  const expanded = [];
+  for (const token of phraseTokens) {
+    if (productSet.has(token)) {
+      expanded.push(token);
+      continue;
+    }
+    let split = null;
+    for (let i = 0; i < productTokens.length - 1; i += 1) {
+      const left = productTokens[i];
+      const right = productTokens[i + 1];
+      if (left.length < 3 || right.length < 3) continue;
+      if (left + right === token) {
+        split = [left, right];
+        break;
+      }
+    }
+    if (split) expanded.push(...split);
+    else expanded.push(token);
+  }
+  return expanded;
+}
+function dominantNameTokenScore(phraseNormalized, productNormalized) {
+  const productTokens = meaningfulNameTokens(productNormalized);
+  if (productTokens.length < 3) return 0;
+  const phraseTokens = expandJoinedPhraseTokens(
+    meaningfulNameTokens(phraseNormalized),
+    productTokens
+  );
+  if (phraseTokens.length < 3) return 0;
+  const productSet = new Set(productTokens);
+  const phraseUnique = Array.from(new Set(phraseTokens));
+  const productUnique = Array.from(new Set(productTokens));
+  const matched = phraseUnique.filter((token) => productSet.has(token)).length;
+  if (matched < 3) return 0;
+  const phraseCoverage = matched / phraseUnique.length;
+  const productCoverage = matched / productUnique.length;
+  if (phraseCoverage < 0.75 || productCoverage < 0.8) return 0;
+  return Math.min(phraseCoverage, productCoverage);
+}
+function resolveProductMention(phrase, index, options = {}) {
+  const normalized = normalizePharmacyText(phrase);
+  const reasons = [];
+  const candidateMap = /* @__PURE__ */ new Map();
+  const restrictTo = options.knownCandidateProductIds ? new Set(options.knownCandidateProductIds) : null;
+  const allowed = (product) => !restrictTo || restrictTo.has(product.productId);
+  function addCandidate(product, basis, score, reason) {
+    if (!allowed(product)) return;
+    const existing = candidateMap.get(product.productId);
+    if (existing && confidenceRank(existing.confidence) >= confidenceRank(confidenceForBasis(basis))) {
+      existing.reasons.push(reason);
+      return;
+    }
+    candidateMap.set(product.productId, { product, basis, confidence: confidenceForBasis(basis), score, reasons: [reason] });
+  }
+  const codeMatch = index.byCode.get(normalized.raw.trim().toLowerCase());
+  if (codeMatch) addCandidate(codeMatch, "exact_code", 1, `\u0627\u0644\u0645\u062F\u062E\u0644 \u064A\u0637\u0627\u0628\u0642 \u0643\u0648\u062F \u0627\u0644\u0645\u0646\u062A\u062C ${codeMatch.productCode} \u062A\u0645\u0627\u0645\u064B\u0627`);
+  const nameMatches = index.byNormalizedName.get(normalized.normalized) ?? [];
+  for (const product of nameMatches) {
+    addCandidate(product, "exact_canonical_name", 1, `\u0627\u0644\u0627\u0633\u0645 \u0627\u0644\u0645\u064F\u0637\u0628\u064E\u0651\u0639 "${normalized.normalized}" \u064A\u0637\u0627\u0628\u0642 \u0627\u0633\u0645 \u0627\u0644\u0645\u0646\u062A\u062C \u062A\u0645\u0627\u0645\u064B\u0627`);
+  }
+  const aliasProductId = options.approvedAliases?.get(normalized.raw.trim().toLowerCase());
+  if (aliasProductId) {
+    const product = index.catalog.find((p) => p.productId === aliasProductId);
+    if (product) addCandidate(product, "approved_alias", 0.9, `\u0645\u0631\u0627\u062F\u0641 \u0645\u0639\u062A\u0645\u062F \u064A\u0634\u064A\u0631 \u0625\u0644\u0649 \u0647\u0630\u0627 \u0627\u0644\u0645\u0646\u062A\u062C`);
+  }
+  const phraseBareNumbers = extractBareNumbers(normalized.normalized);
+  const seed = options.crossScriptSeed ?? CROSS_SCRIPT_SEED;
+  const crossScriptCluesByProduct = /* @__PURE__ */ new Map();
+  for (const [arabicKey, latinToken] of seed) {
+    if (!normalized.normalized.includes(arabicKey) && !normalized.raw.includes(arabicKey)) continue;
+    const latinNormalized = normalizePharmacyText(latinToken).normalized;
+    const sameTokenProducts = [];
+    for (const [candidateNormalizedName, products] of index.byNormalizedName) {
+      if (candidateNormalizedName.includes(latinNormalized)) sameTokenProducts.push(...products);
+    }
+    const compatible = sameTokenProducts.filter(
+      (product) => strengthsCompatible(normalized.strengths, product.strengths) && dosageFormsCompatible(normalized.dosageForms, product.dosageForms) && bareNumbersCompatible(phraseBareNumbers, product)
+    );
+    const disambiguatedByForm = normalized.dosageForms.length > 0 && sameTokenProducts.length > 1 && compatible.length === 1;
+    for (const product of compatible) {
+      const clues = crossScriptCluesByProduct.get(product.productId) ?? /* @__PURE__ */ new Set();
+      clues.add(arabicKey);
+      crossScriptCluesByProduct.set(product.productId, clues);
+      if (disambiguatedByForm) {
+        addCandidate(
+          product,
+          "cross_script_equivalent_with_form",
+          0.75,
+          `"${arabicKey}" \u0645\u0631\u062A\u0628\u0637 \u0628\u0640 "${latinToken}" \u0648\u062A\u0645 \u062A\u0631\u062C\u064A\u062D\u0647 \u0628\u0623\u0645\u0627\u0646 \u0639\u0628\u0631 \u0627\u0644\u0634\u0643\u0644 \u0627\u0644\u0635\u064A\u062F\u0644\u0627\u0646\u064A \u0627\u0644\u0635\u0631\u064A\u062D \u0641\u064A \u0627\u0644\u062C\u0645\u0644\u0629 (${normalized.dosageForms.join(", ")}) \u0645\u0646 \u0628\u064A\u0646 ${sameTokenProducts.length} \u0623\u0634\u0643\u0627\u0644 \u0644\u0646\u0641\u0633 \u0627\u0644\u0639\u0644\u0627\u0645\u0629`
+        );
+      } else {
+        addCandidate(product, "cross_script_equivalent", 0.6, `"${arabicKey}" \u0645\u0631\u062A\u0628\u0637 \u0641\u064A \u062C\u062F\u0648\u0644 \u0627\u0644\u0645\u0631\u0627\u062F\u0641\u0627\u062A \u0627\u0644\u0644\u063A\u0648\u064A\u0629 \u0628\u0640 "${latinToken}"`);
+      }
+    }
+  }
+  if (phraseBareNumbers.length > 0) {
+    for (const [productId, clues] of crossScriptCluesByProduct) {
+      if (clues.size < 2) continue;
+      const product = index.catalog.find((candidate) => candidate.productId === productId);
+      if (!product) continue;
+      const canonicalBareNumbers = productNameBareNumbers(product);
+      const matchingNumbers = phraseBareNumbers.filter((value) => canonicalBareNumbers.includes(value));
+      if (matchingNumbers.length === 0) continue;
+      addCandidate(
+        product,
+        "cross_script_composite",
+        0.88,
+        `\u0623\u062F\u0644\u0629 \u0644\u063A\u0648\u064A\u0629 \u0645\u0633\u062A\u0642\u0644\u0629 (${Array.from(clues).join(" + ")}) \u0645\u0639 \u0631\u0642\u0645 \u0645\u0637\u0627\u0628\u0642 \u0644\u0644\u0627\u0633\u0645 \u0627\u0644\u0642\u064A\u0627\u0633\u064A (${matchingNumbers.join(", ")})`
+      );
+    }
+  }
+  for (const product of index.catalog) {
+    if (!allowed(product)) continue;
+    if (!strengthsCompatible(normalized.strengths, product.strengths)) continue;
+    if (!dosageFormsCompatible(normalized.dosageForms, product.dosageForms)) continue;
+    if (!bareNumbersCompatible(phraseBareNumbers, product)) continue;
+    const score = Math.max(
+      0,
+      ...product.normalizedNames.map((name) => dominantNameTokenScore(normalized.normalized, name))
+    );
+    if (score >= 0.75) {
+      addCandidate(
+        product,
+        "dominant_name_token_match",
+        score,
+        `\u062A\u063A\u0637\u064A\u0629 \u0642\u0648\u064A\u0629 \u0644\u0627\u0633\u0645 \u0627\u0644\u0645\u0646\u062A\u062C (${(score * 100).toFixed(0)}%) \u0645\u0639 \u062A\u0648\u0627\u0641\u0642 \u0627\u0644\u0634\u0643\u0644/\u0627\u0644\u0642\u0648\u0629/\u0627\u0644\u0623\u0631\u0642\u0627\u0645`
+      );
+    }
+  }
+  if (normalized.strengths.length > 0 || normalized.dosageForms.length > 0 || phraseBareNumbers.length > 0) {
+    const phraseTokens = normalized.normalized.split(" ").filter((t) => t.length > 2 && !/^[0-9.]+$/.test(t));
+    for (const product of index.catalog) {
+      if (!allowed(product)) continue;
+      if (candidateMap.has(product.productId)) continue;
+      const sharesToken = product.normalizedNames.some((n) => phraseTokens.some((t) => n.includes(t)));
+      if (!sharesToken) continue;
+      if (!strengthsCompatible(normalized.strengths, product.strengths)) continue;
+      if (!dosageFormsCompatible(normalized.dosageForms, product.dosageForms)) continue;
+      if (!bareNumbersCompatible(phraseBareNumbers, product)) continue;
+      addCandidate(product, "strength_form_token_match", 0.5, "\u062A\u0637\u0627\u0628\u0642 \u0641\u064A \u0627\u0644\u0642\u0648\u0629/\u0627\u0644\u0634\u0643\u0644 \u0627\u0644\u0635\u064A\u062F\u0644\u0627\u0646\u064A/\u0627\u0644\u0631\u0642\u0645 \u0645\u0639 \u0631\u0645\u0632 \u0645\u0634\u062A\u0631\u0643 \u0641\u064A \u0627\u0644\u0627\u0633\u0645");
+    }
+  }
+  if (candidateMap.size === 0) {
+    for (const product of index.catalog) {
+      if (!allowed(product)) continue;
+      if (!strengthsCompatible(normalized.strengths, product.strengths)) continue;
+      if (!dosageFormsCompatible(normalized.dosageForms, product.dosageForms)) continue;
+      if (!bareNumbersCompatible(phraseBareNumbers, product)) continue;
+      const bestOverlap = Math.max(0, ...product.normalizedNames.map((n) => tokenOverlapScore(normalized.normalized, n)));
+      if (bestOverlap >= 0.4) {
+        addCandidate(product, "cautious_fuzzy", bestOverlap, `\u062A\u062F\u0627\u062E\u0644 \u062C\u0632\u0626\u064A \u0641\u064A \u0627\u0644\u0643\u0644\u0645\u0627\u062A (\u0646\u0633\u0628\u0629 ${(bestOverlap * 100).toFixed(0)}%)`);
+      }
+    }
+  }
+  const candidates = Array.from(candidateMap.values()).sort(
+    (a, b) => confidenceRank(b.confidence) - confidenceRank(a.confidence) || b.score - a.score
+  );
+  if (candidates.length === 0) reasons.push("unresolved: \u0644\u0627 \u064A\u0648\u062C\u062F \u0623\u064A \u0645\u0631\u0634\u062D \u0645\u0646 \u0623\u064A \u0645\u0633\u062A\u0648\u0649 \u0641\u064A \u0627\u0644\u062A\u0633\u0644\u0633\u0644 \u0627\u0644\u0647\u0631\u0645\u064A");
+  const selected2 = isSafeSelection(candidates);
+  const ambiguous = candidates.length > 1 && !selected2;
+  if (ambiguous) reasons.push(`ambiguous: ${candidates.length} \u0645\u0631\u0634\u062D\u064A\u0646 \u0628\u062F\u0648\u0646 \u062A\u0631\u062C\u064A\u062D \u0622\u0645\u0646`);
+  return { phrase, normalized, candidates, selected: selected2, ambiguous, reasons };
+}
+function confidenceRank(level) {
+  switch (level) {
+    case "proven":
+      return 3;
+    case "strongly_inferred":
+      return 2;
+    case "weakly_inferred":
+      return 1;
+    case "unknown":
+      return 0;
+  }
 }
 
 // src/lib/salesIntelligence/caseBasketEngine.ts
@@ -1958,6 +2517,26 @@ function extractDraftItemsFromScope(allMessages, restrictToIds) {
   });
   return items;
 }
+function directCatalogMentionItem(message, productIndex) {
+  if (!message.isMeaningful || message.role !== "customer") return null;
+  const resolution = resolveProductMention(message.text, productIndex);
+  const selected2 = resolution.selected;
+  if (resolution.ambiguous || !selected2 || !["proven", "strongly_inferred"].includes(selected2.confidence)) return null;
+  return {
+    productNameRaw: message.text.trim(),
+    productId: selected2.product.productId,
+    quantity: null,
+    unit: null,
+    sourceMessageId: message.id,
+    confidence: assessment(
+      selected2.confidence,
+      selected2.score,
+      "basket.item.direct_catalog_mention",
+      [refFor(message, `\u062A\u0637\u0627\u0628\u0642 \u0645\u0628\u0627\u0634\u0631 \u0648\u0622\u0645\u0646 \u0645\u0639 \u0643\u062A\u0627\u0644\u0648\u062C \u0627\u0644\u0645\u0646\u062A\u062C\u0627\u062A (${selected2.basis}): "${message.text.slice(0, 80)}".`)]
+    ),
+    resolutionStatus: selected2.confidence === "proven" ? "proven" : "partially_proven"
+  };
+}
 function itemsNamedIn(text2, keys) {
   const phraseTokens = normalizeProductKey(stripRequestPrefix(text2.replace(ONLY_THIS_RX, ""))).split(" ").map((token) => token.replace(/^ال/, "")).filter((token) => token.length >= 3);
   return keys.filter((key) => {
@@ -2035,7 +2614,7 @@ function isLinkedToSummary(scopedMessages, candidateMessageId, summaryMessageId)
   const { before } = contextWindowV32(scopedMessages, index, 5, 0);
   return before.some((m) => m.id === summaryMessageId) || scopedMessages[index - 1]?.id === summaryMessageId;
 }
-function buildCaseBaskets(caseId, scopedMessages) {
+function buildCaseBaskets(caseId, scopedMessages, productIndex) {
   const messages = scopedMessages.slice().sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
   const baskets = [];
   const itemsByBasketId = {};
@@ -2274,6 +2853,13 @@ function buildCaseBaskets(caseId, scopedMessages) {
           items.set(normalizeProductKey(item.productNameRaw), item);
           sourceMessageIds.push(message.id);
         });
+        if (newItems.length === 0 && productIndex) {
+          const direct = directCatalogMentionItem(message, productIndex);
+          if (direct) {
+            items.set(normalizeProductKey(direct.productNameRaw), direct);
+            sourceMessageIds.push(message.id);
+          }
+        }
       }
       return;
     }
@@ -4005,6 +4591,16 @@ function ref(messageId2, description) {
 function confidence(level, score, ruleIds, evidence) {
   return { level, score, ruleIds, evidence };
 }
+function clean(value) {
+  return value == null ? "" : String(value).trim();
+}
+function invoiceRowIdentity(row) {
+  if (!row) return { id: null, number: null };
+  const raw = row;
+  const number = clean(raw.invoice_number ?? raw.invoice_no) || null;
+  const id = clean(raw.id ?? number) || null;
+  return { id, number };
+}
 function deriveFinancialSettlementAssessment(input) {
   const signals = detectPaymentSettlementSignals(input.messages);
   const invoiceAmountRaw = input.selectedInvoiceRow ? getInvoiceAmount(input.selectedInvoiceRow) : 0;
@@ -4012,14 +4608,22 @@ function deriveFinancialSettlementAssessment(input) {
   const announced = signals.announcedPaymentAmount;
   const delta = announced != null && invoiceAmount != null ? Math.abs(announced - invoiceAmount) : null;
   const amountMatch = delta == null ? "not_available" : delta <= 0.5 ? "exact" : delta <= Math.max(2, invoiceAmount * 0.01) ? "near_match" : "different";
+  const selectedRow = invoiceRowIdentity(input.selectedInvoiceRow);
+  const selectedInvoiceMatchesRow = Boolean(
+    input.selectedInvoiceRow && input.attribution.selectedInvoiceId && selectedRow.id === input.attribution.selectedInvoiceId && (!input.attribution.selectedInvoiceNumber || !selectedRow.number || selectedRow.number === input.attribution.selectedInvoiceNumber)
+  );
   const identitySafe = input.customerIdentityStatus === void 0 || input.customerIdentityStatus === "resolved";
-  const attributionStrong = Boolean(input.attribution.selectedInvoiceId) && ["proven", "strongly_inferred"].includes(input.attribution.attributionLevel) && input.attribution.isOfficialForStaffEvaluation && input.attribution.contradictions.length === 0;
+  const attributionStrong = Boolean(input.attribution.selectedInvoiceId) && ["proven", "strongly_inferred"].includes(input.attribution.attributionLevel) && input.attribution.isOfficialForStaffEvaluation && input.attribution.contradictions.length === 0 && !input.attribution.needsHumanReview && selectedInvoiceMatchesRow;
   const completePaymentEvidence = signals.completeSequence && signals.paymentProofMessageId !== null && signals.receiptAcknowledgementMessageId !== null;
   let status = "not_detected";
   let needsHumanReview = false;
   const ruleIds = [];
   if (!signals.paymentContextMessageId) {
     ruleIds.push("financial_settlement.no_payment_context");
+  } else if (!selectedInvoiceMatchesRow && input.attribution.selectedInvoiceId) {
+    status = "pending";
+    needsHumanReview = true;
+    ruleIds.push("financial_settlement.selected_invoice_row_mismatch");
   } else if (amountMatch === "different" && completePaymentEvidence && attributionStrong) {
     status = "contradicted";
     needsHumanReview = true;
@@ -4030,7 +4634,8 @@ function deriveFinancialSettlementAssessment(input) {
       "financial_settlement.exact_invoice_amount",
       "financial_settlement.customer_payment_proof_present",
       "financial_settlement.staff_receipt_acknowledged",
-      "financial_settlement.strong_clean_invoice_attribution"
+      "financial_settlement.strong_clean_invoice_attribution",
+      "financial_settlement.selected_invoice_row_identity_confirmed"
     );
   } else {
     status = "pending";
@@ -4043,7 +4648,7 @@ function deriveFinancialSettlementAssessment(input) {
       needsHumanReview = true;
       ruleIds.push("financial_settlement.near_amount_requires_review");
     }
-    if (amountMatch === "different" && attributionStrong) {
+    if (amountMatch === "different" && selectedInvoiceMatchesRow) {
       needsHumanReview = true;
       ruleIds.push("financial_settlement.payment_amount_conflicts_with_selected_invoice");
     }
@@ -4055,13 +4660,13 @@ function deriveFinancialSettlementAssessment(input) {
   if (signals.paymentContextMessageId) evidence.push(ref(signals.paymentContextMessageId, "\u0627\u0644\u0645\u0648\u0638\u0641 \u0623\u0631\u0633\u0644 \u0633\u064A\u0627\u0642/\u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u062A\u062D\u0648\u064A\u0644."));
   if (signals.totalQuestionMessageId) evidence.push(ref(signals.totalQuestionMessageId, "\u0627\u0644\u0639\u0645\u064A\u0644 \u0633\u0623\u0644 \u0639\u0646 \u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u062D\u0633\u0627\u0628 \u0641\u064A \u0633\u064A\u0627\u0642 \u0627\u0644\u062A\u0633\u0648\u064A\u0629."));
   if (signals.amountMessageId && announced != null) evidence.push(ref(signals.amountMessageId, `\u0627\u0644\u0645\u0648\u0638\u0641 \u0623\u0639\u0644\u0646 \u0645\u0628\u0644\u063A \u0627\u0644\u062A\u0633\u0648\u064A\u0629: ${announced} \u062C\u0646\u064A\u0647.`));
-  if (signals.paymentProofMessageId) evidence.push(ref(signals.paymentProofMessageId, `\u0627\u0644\u0639\u0645\u064A\u0644 \u0623\u0631\u0633\u0644 \u0625\u062B\u0628\u0627\u062A \u062F\u0641\u0639 (${signals.paymentProofKind}).`));
-  if (signals.receiptAcknowledgementMessageId) evidence.push(ref(signals.receiptAcknowledgementMessageId, "\u0627\u0644\u0635\u064A\u062F\u0644\u064A\u0629 \u0623\u0642\u0631\u062A \u0635\u0631\u0627\u062D\u0629 \u0628\u0627\u0633\u062A\u0644\u0627\u0645 \u0627\u0644\u062F\u0641\u0639."));
+  if (signals.paymentProofMessageId) evidence.push(ref(signals.paymentProofMessageId, `\u0627\u0644\u0639\u0645\u064A\u0644 \u0623\u0631\u0633\u0644 \u0625\u062B\u0628\u0627\u062A \u062F\u0641\u0639 \u0645\u0631\u062A\u0628\u0637 \u0628\u0633\u064A\u0627\u0642 \u0627\u0644\u062A\u062D\u0648\u064A\u0644 (${signals.paymentProofKind}).`));
+  if (signals.receiptAcknowledgementMessageId) evidence.push(ref(signals.receiptAcknowledgementMessageId, "\u0627\u0644\u0635\u064A\u062F\u0644\u064A\u0629 \u0623\u0642\u0631\u062A \u0628\u0627\u0633\u062A\u0644\u0627\u0645 \u0627\u0644\u062F\u0641\u0639 \u062F\u0627\u062E\u0644 \u0646\u0641\u0633 \u062A\u0633\u0644\u0633\u0644 \u0627\u0644\u062A\u0633\u0648\u064A\u0629."));
   if (input.attribution.selectedInvoiceId) {
     evidence.push({
       sourceTable: "sales_invoices",
       sourceId: input.attribution.selectedInvoiceId,
-      description: invoiceAmount != null ? `\u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0627\u0644\u0645\u062E\u062A\u0627\u0631\u0629 ${input.attribution.selectedInvoiceNumber ?? ""} \u0628\u0642\u064A\u0645\u0629 ${invoiceAmount} \u062C\u0646\u064A\u0647.` : `\u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0627\u0644\u0645\u062E\u062A\u0627\u0631\u0629 ${input.attribution.selectedInvoiceNumber ?? ""}.`
+      description: invoiceAmount != null ? `\u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0627\u0644\u0645\u062E\u062A\u0627\u0631\u0629 ${input.attribution.selectedInvoiceNumber ?? ""} \u0628\u0642\u064A\u0645\u0629 ${invoiceAmount} \u062C\u0646\u064A\u0647\u060C \u0648\u062A\u0645 \u0627\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u0647\u0648\u064A\u0629 \u0635\u0641 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0627\u0644\u0645\u062E\u062A\u0627\u0631.` : `\u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0627\u0644\u0645\u062E\u062A\u0627\u0631\u0629 ${input.attribution.selectedInvoiceNumber ?? ""}.`
     });
   }
   const level = status === "settled" ? "strongly_inferred" : status === "contradicted" ? "unknown" : status === "pending" ? "weakly_inferred" : "unknown";
@@ -4082,7 +4687,7 @@ function deriveFinancialSettlementAssessment(input) {
     selectedInvoiceId: input.attribution.selectedInvoiceId,
     selectedInvoiceNumber: input.attribution.selectedInvoiceNumber,
     attributionLevel: input.attribution.attributionLevel,
-    isOfficialInvoiceAttribution: input.attribution.isOfficialForStaffEvaluation,
+    isOfficialInvoiceAttribution: input.attribution.isOfficialForStaffEvaluation && selectedInvoiceMatchesRow,
     primaryMessageIds: signals.primaryMessageIds,
     confidence: confidence(level, score, ruleIds, evidence),
     needsHumanReview,
@@ -4244,6 +4849,17 @@ function deriveCanonicalSalesOutcome(input) {
       reasonCodes: ["outcome.information_only"]
     };
   }
+  if (caseType === "mixed") {
+    return {
+      ...base,
+      needsHumanReview: true,
+      outcome: "needs_review",
+      isSaleCountable: false,
+      isRevenueCountable: false,
+      isOrderConfirmed: false,
+      reasonCodes: ["outcome.independent_multiple_requests_require_review"]
+    };
+  }
   if (saleProof.state === "proven") {
     return {
       ...base,
@@ -4362,7 +4978,7 @@ function evidenceRef2(messageId2, description) {
 function assessment6(level, score, ruleIds, evidence) {
   return { level, score, ruleIds, evidence };
 }
-function confidenceRank(level) {
+function confidenceRank2(level) {
   switch (level) {
     case "proven":
       return 4;
@@ -4376,8 +4992,8 @@ function confidenceRank(level) {
 }
 function strongestConfidence(current, next) {
   if (!current) return next;
-  if (confidenceRank(next.level) > confidenceRank(current.level)) return next;
-  if (confidenceRank(next.level) < confidenceRank(current.level)) return current;
+  if (confidenceRank2(next.level) > confidenceRank2(current.level)) return next;
+  if (confidenceRank2(next.level) < confidenceRank2(current.level)) return current;
   return next.score > current.score ? next : current;
 }
 var STOCK_QUESTION_WORDS_RX = /(?<![\p{L}\p{N}])(?:هو|هي|هل|طيب|مش|مو|غير|عندكم|عندكو|عندك|موجود[ةه]?|متوفر[ةه]?|متاح[ةه]?|فيه|في|لو\s*سمحت|من\s*فضلك|ممكن|يا\s*(?:دكتور[ةه]?|فندم))(?![\p{L}\p{N}])/giu;
@@ -4741,6 +5357,37 @@ function deriveCustomerNeedModel(input) {
   };
   for (const product of products.values()) {
     if (product.roles.has("rejected") && currentAvailability(product) === "unavailable") product.roles.delete("rejected");
+  }
+  if (input.productIndex) {
+    const unresolved = Array.from(products.values()).filter((product) => !product.productId);
+    if (unresolved.length === 1) {
+      const [target] = unresolved;
+      const targetLastIndex = Math.max(
+        -1,
+        ...Array.from(target.evidenceMessageIds).map((id) => indexById.get(id) ?? -1)
+      );
+      const next = targetLastIndex >= 0 ? messages.slice(targetLastIndex + 1).find((message) => message.isMeaningful) : void 0;
+      const isShortDosageFormQualifier = next && next.role === "customer" && next.text.trim().split(/\s+/).filter(Boolean).length <= 4 && extractDosageForms(normalizeBaseText(next.text)).length > 0;
+      const alreadyEvidenceElsewhere = next && Array.from(products.values()).some((product) => product.evidenceMessageIds.has(next.id));
+      if (next && isShortDosageFormQualifier && !alreadyEvidenceElsewhere) {
+        target.evidenceMessageIds.add(next.id);
+        const combined = `${target.productNameRaw} ${next.text}`.trim();
+        const resolution = resolveProductMention(combined, input.productIndex);
+        const selected2 = resolution.selected;
+        if (!resolution.ambiguous && selected2 && ["proven", "strongly_inferred"].includes(selected2.confidence)) {
+          target.productId = selected2.product.productId;
+          target.confidence = strongestConfidence(
+            target.confidence,
+            assessment6(
+              selected2.confidence,
+              selected2.score,
+              ["need.product.qualifier_stitched_resolution"],
+              [evidenceRef2(next.id, `\u062F\u0644\u064A\u0644 \u0625\u0636\u0627\u0641\u064A \u0645\u0646 \u0631\u0633\u0627\u0644\u0629 \u0644\u0627\u062D\u0642\u0629 \u0623\u0639\u0627\u062F \u062A\u0634\u063A\u064A\u0644 \u062A\u062D\u062F\u064A\u062F \u0627\u0644\u0645\u0646\u062A\u062C \u0628\u062B\u0642\u0629 ${selected2.confidence}: "${next.text.slice(0, 60)}".`)]
+            )
+          );
+        }
+      }
+    }
   }
   const rejectionIds = new Set(rejectionSignals.map((signal) => signal.messageId));
   const correctionIds = new Set(correctionSignals.map((signal) => signal.messageId));
@@ -5344,6 +5991,7 @@ var PROFILE = {
   prescription_incomplete: { priority: "medium", duePolicy: "next_day", role: "pharmacist", nextBestAction: "request_missing_prescription_details", goal: "complete_prescription_details", needsCustomerIdentity: true },
   customer_no_response: { priority: "low", duePolicy: "next_day", role: "customer_service", nextBestAction: "send_single_recovery_followup", goal: "single_recovery_attempt", needsCustomerIdentity: true }
 };
+var EXPLICIT_OBLIGATIONS = /* @__PURE__ */ new Set(["customer_asked_to_wait", "callback_requested", "staff_promised_check", "delivery_unresolved"]);
 var DAY_MS = 24 * 60 * 60 * 1e3;
 function deriveFollowUpOpportunities(input) {
   const { conversationCase, customerNeed, unavailableDemand, lostOpportunity, salesOutcome } = input;
@@ -5353,12 +6001,14 @@ function deriveFollowUpOpportunities(input) {
   const lastAt = meaningful.length ? meaningful[meaningful.length - 1].timestamp : new Date(conversationCase.endedAt ?? conversationCase.startedAt);
   const identityResolved = input.customerIdentityStatus === "resolved" && Boolean(conversationCase.customerId);
   const customerId = identityResolved ? conversationCase.customerId : null;
-  if (salesOutcome.outcome === "information_only" || lostOpportunity.state === "no_commercial_opportunity" || lostOpportunity.state === "closed_order_unproven") {
+  const operationallyClosed = lostOpportunity.state === "closed_order_unproven";
+  const operationalClosureSuppression = operationallyClosed ? salesOutcome.reasonCodes.includes("outcome.invoice_backed_order_closed_sale_not_proven") ? "invoiced_unproven" : "financially_settled" : null;
+  if (salesOutcome.outcome === "information_only" || lostOpportunity.state === "no_commercial_opportunity") {
     return {
       caseId,
       decision: "not_needed",
       opportunities: [],
-      notNeededReason: salesOutcome.outcome === "information_only" ? "information_only" : lostOpportunity.state === "closed_order_unproven" ? salesOutcome.reasonCodes.includes("outcome.invoice_backed_order_closed_sale_not_proven") ? "invoiced_unproven" : "financially_settled" : "no_customer_need"
+      notNeededReason: salesOutcome.outcome === "information_only" ? "information_only" : "no_customer_need"
     };
   }
   const candidates = [];
@@ -5489,6 +6139,10 @@ function deriveFollowUpOpportunities(input) {
     const profile = PROFILE[candidate.reason];
     const demand = candidate.demand;
     let suppressedBy = interactionSuppression;
+    const survivesOperationalClosure = Boolean(demand) || candidate.explicit || EXPLICIT_OBLIGATIONS.has(candidate.reason);
+    if (!suppressedBy && operationallyClosed && !survivesOperationalClosure) {
+      suppressedBy = operationalClosureSuppression;
+    }
     if (!suppressedBy && saleProven && !candidate.explicit) suppressedBy = "sale_proven";
     if (!suppressedBy && (candidate.evidence.length === 0 || candidate.level === "unknown")) suppressedBy = "weak_evidence";
     const blocked = !suppressedBy && profile.needsCustomerIdentity && !customerId;
@@ -5548,7 +6202,7 @@ function deriveFollowUpOpportunities(input) {
     caseId,
     decision,
     opportunities,
-    notNeededReason: decision === "not_needed" ? saleProven ? "sale_proven" : interactionSuppression : null
+    notNeededReason: decision === "not_needed" ? saleProven ? "sale_proven" : operationallyClosed ? operationalClosureSuppression : interactionSuppression : null
   };
 }
 function dueAtFor(policy, days, lastAt) {
@@ -5790,505 +6444,6 @@ function dedupeFacts(facts) {
   });
 }
 
-// src/lib/salesIntelligence/pharmacyProducts/pharmacyNormalization.ts
-var ARABIC_INDIC_DIGITS = {
-  "\u0660": "0",
-  "\u0661": "1",
-  "\u0662": "2",
-  "\u0663": "3",
-  "\u0664": "4",
-  "\u0665": "5",
-  "\u0666": "6",
-  "\u0667": "7",
-  "\u0668": "8",
-  "\u0669": "9"
-};
-var ARABIC_LETTER_VARIANTS = [
-  [/[إأآا]/g, "\u0627"],
-  [/ى/g, "\u064A"],
-  [/ة/g, "\u0647"],
-  [/ؤ/g, "\u0648"],
-  [/ئ/g, "\u064A"],
-  [/[ً-ْٰـ]/g, ""]
-  // tashkeel + tatweel
-];
-function convertArabicDigits(text2) {
-  return text2.replace(/[٠-٩]/g, (d) => ARABIC_INDIC_DIGITS[d] ?? d);
-}
-function unifyArabicLetters(text2) {
-  let result = text2;
-  for (const [pattern, replacement] of ARABIC_LETTER_VARIANTS) {
-    result = result.replace(pattern, replacement);
-  }
-  return result;
-}
-var UNIT_SYNONYMS = {
-  mg: "mg",
-  "\u0645\u062C\u0645": "mg",
-  "\u0645\u062C": "mg",
-  "\u0645\u0644\u063A": "mg",
-  "\u0645\u0644\u062C\u0645": "mg",
-  ml: "ml",
-  "\u0645\u0644": "ml",
-  "\u0633\u0645": "ml",
-  gm: "gm",
-  g: "gm",
-  "\u062C\u0645": "gm",
-  "\u062C\u0631\u0627\u0645": "gm",
-  "\u062C\u0631\u0627": "gm",
-  mcg: "mcg",
-  "\u0645\u064A\u0643\u0631\u0648\u062C\u0631\u0627\u0645": "mcg",
-  "\u0645\u0643\u062C\u0645": "mcg",
-  iu: "iu",
-  "\u0648\u062D\u062F\u0647": "iu",
-  "\u0648\u062D\u062F\u0629": "iu"
-};
-var PACK_UNIT_WORDS = [
-  "tab",
-  "tabs",
-  "tablet",
-  "tablets",
-  "cap",
-  "caps",
-  "capsule",
-  "capsules",
-  "pcs",
-  "piece",
-  "pieces",
-  "sachet",
-  "sachets",
-  "amp",
-  "amps",
-  "ampoule",
-  "ampoules",
-  "\u0642\u0631\u0635",
-  "\u0627\u0642\u0631\u0627\u0635",
-  "\u0623\u0642\u0631\u0627\u0635",
-  "\u0643\u0628\u0633\u0648\u0644\u0647",
-  "\u0643\u0628\u0633\u0648\u0644\u0629",
-  "\u0643\u0628\u0633\u0648\u0644",
-  "\u0643\u0628\u0633\u0648\u0644\u0627\u062A",
-  "\u0643\u064A\u0633",
-  "\u0627\u0643\u064A\u0627\u0633",
-  "\u0623\u0643\u064A\u0627\u0633",
-  "\u0639\u0644\u0628\u0647",
-  "\u0639\u0644\u0628\u0629",
-  "\u0639\u0644\u0628",
-  "\u0634\u0631\u064A\u0637",
-  "\u0634\u0631\u0627\u064A\u0637",
-  "\u0627\u0645\u0628\u0648\u0644",
-  "\u0623\u0645\u0628\u0648\u0644",
-  "\u0627\u0645\u0628\u0648\u0644\u0627\u062A"
-];
-var DOSAGE_FORM_KEYWORDS = [
-  [/\b(tab|tabs|tablet|tablets)\b|قرص|اقراص|أقراص|برشام|حبوب|حبه|حبوه/g, "tablet"],
-  [/\b(cap|caps|capsule|capsules)\b|كبسول|كبسوله|كبسولة|كبسولات/g, "capsule"],
-  [/\b(syrup)\b|شراب/g, "syrup"],
-  [/\b(susp|suspension)\b/g, "suspension"],
-  [/\b(cream)\b|كريم/g, "cream"],
-  [/\b(gel)\b|جل/g, "gel"],
-  [/\b(oint|ointment)\b|مرهم/g, "ointment"],
-  [/\b(lotion)\b|لوشن/g, "lotion"],
-  [/\b(drop|drops)\b|نقط|قطره|قطرة/g, "drops"],
-  [/\b(spray)\b|بخاخ|سبراي/g, "spray"],
-  [/\b(amp|amps|ampoule|ampoules)\b|امبول|أمبول/g, "ampoule"],
-  [/\b(vial)\b/g, "vial"],
-  [/\b(syringe|syringes)\b|سرنج|سرنجه|سرنجة/g, "syringe"],
-  [/\b(sachet|sachets)\b|كيس|اكياس|أكياس/g, "sachet"],
-  [/\b(soap)\b|صابون|صابونه/g, "soap"],
-  [/\b(shampoo)\b|شامبو/g, "shampoo"],
-  [/\b(suppository|suppositories)\b|لبوس/g, "suppository"]
-];
-function normalizeBaseText(text2) {
-  let result = text2;
-  result = convertArabicDigits(result);
-  result = unifyArabicLetters(result);
-  result = result.toLowerCase();
-  result = result.replace(/[.,;:_\-/\\()<>\x5B\x5D{}!؟?"'`~*#+=|]/g, " ");
-  result = result.replace(/([a-zA-Zء-ي])([0-9])/g, "$1 $2").replace(/([0-9])([a-zA-Zء-ي])/g, "$1 $2");
-  result = result.replace(/\s+/g, " ").trim();
-  return result;
-}
-var SCRIPT_AWARE_RIGHT_BOUNDARY = "(?![a-zA-Z\u0621-\u064A])";
-function extractStrengths(normalized) {
-  const strengths = [];
-  const unitAlternation = Object.keys(UNIT_SYNONYMS).sort((a, b) => b.length - a.length).join("|");
-  const rx = new RegExp(`([0-9]+(?:\\.[0-9]+)?)\\s*(${unitAlternation})${SCRIPT_AWARE_RIGHT_BOUNDARY}`, "g");
-  let match;
-  while ((match = rx.exec(normalized)) !== null) {
-    const unit = UNIT_SYNONYMS[match[2]];
-    if (unit) strengths.push({ value: Number(match[1]), unit });
-  }
-  return strengths;
-}
-function extractPackSizes(normalized) {
-  const packs = [];
-  const wordAlternation = PACK_UNIT_WORDS.slice().sort((a, b) => b.length - a.length).join("|");
-  const rx = new RegExp(`([0-9]+)\\s*(${wordAlternation})${SCRIPT_AWARE_RIGHT_BOUNDARY}`, "g");
-  let match;
-  while ((match = rx.exec(normalized)) !== null) {
-    packs.push({ count: Number(match[1]), unitWord: match[2] });
-  }
-  return packs;
-}
-function extractDosageForms(normalized) {
-  const forms = /* @__PURE__ */ new Set();
-  for (const [pattern, form] of DOSAGE_FORM_KEYWORDS) {
-    pattern.lastIndex = 0;
-    if (pattern.test(normalized)) forms.add(form);
-  }
-  return Array.from(forms);
-}
-function normalizePharmacyText(raw) {
-  const normalized = normalizeBaseText(raw);
-  return {
-    normalized,
-    raw,
-    strengths: extractStrengths(normalized),
-    dosageForms: extractDosageForms(normalized),
-    packSizes: extractPackSizes(normalized)
-  };
-}
-
-// src/lib/salesIntelligence/pharmacyProducts/pharmacyProductResolverV2.ts
-var FUZZY_MAX_CONFIDENCE_LEVEL = "weakly_inferred";
-function buildPharmacyProductIndex(catalog) {
-  const byCode = /* @__PURE__ */ new Map();
-  const byNormalizedName = /* @__PURE__ */ new Map();
-  for (const product of catalog) {
-    byCode.set(product.productCode.trim().toLowerCase(), product);
-    for (const normalizedName of product.normalizedNames) {
-      const bucket = byNormalizedName.get(normalizedName);
-      if (bucket) bucket.push(product);
-      else byNormalizedName.set(normalizedName, [product]);
-    }
-  }
-  return { catalog, byCode, byNormalizedName };
-}
-var CROSS_SCRIPT_SEED = /* @__PURE__ */ new Map([
-  ["\u0632\u0648\u0631\u0643\u0627\u0644", "zurcal"],
-  ["\u0627\u0646\u062A\u064A\u0646\u0627\u0644", "antinal"],
-  ["\u0628\u0627\u0645\u0628\u0631\u0632", "pampers"],
-  ["\u0643\u0648\u0631\u064A\u063A\u0627", "corega"],
-  ["\u0643\u0648\u0631\u064A\u062C\u0627", "corega"],
-  ["\u0643\u0648\u0644\u0634\u064A\u0633\u064A\u0646", "colchicine"],
-  ["\u0643\u0648\u0644\u0634\u064A\u0633\u0646", "colchicine"],
-  ["\u0641\u0644\u064A\u0643\u0633\u064A\u0644\u0627\u0643\u0633", "flexilax"],
-  ["\u0641\u0644\u064A\u0643\u0633 \u0644\u064A\u0643\u0633", "flexilax"],
-  ["\u0641\u0644\u064A\u0643\u0633 \u0644\u0627\u064A\u0643\u0633", "flexilax"],
-  ["\u062C\u0627\u0633\u062A \u0631\u064A\u062C", "gast reg"],
-  ["\u062C\u0627\u0633\u062A \u0631\u064A\u062C \u0627\u0645\u0628\u0648\u0644", "gast reg"],
-  ["\u0633\u0648\u0644\u0648 \u0641\u0631\u064A\u0634", "solofresh"],
-  ["\u0633\u0648\u0644\u0648\u0641\u0631\u064A\u0634", "solofresh"],
-  ["\u0643\u0648\u062C\u064A \u0633\u0627\u0646", "koji san"],
-  ["\u0645\u064A\u0646\u0648\u0643\u0633\u062F\u064A\u0644", "minoxidil"],
-  ["\u0627\u0644\u0645\u064A\u0646\u0648\u0643\u0633\u062F\u064A\u0644", "minoxidil"],
-  ["\u0641\u064A\u062A\u0634\u064A", "vichy"],
-  ["\u0633\u0646\u062A\u0631\u0645", "centrum"],
-  ["\u0627\u0644\u0633\u0646\u062A\u0631\u0645", "centrum"],
-  ["\u0641\u0648\u0644\u064A\u0643", "folic"],
-  ["\u0646\u064A\u0631\u0648\u0641\u064A\u062A", "neurovit"],
-  ["\u0646\u064A\u0648\u0631\u0641\u064A\u062A", "neurovit"],
-  ["\u062F\u0648\u0644\u064A\u0628\u0631\u0627\u0646", "doliprane"],
-  ["\u062F\u0644\u064A\u0628\u0631\u0627\u0646", "doliprane"],
-  ["\u062F\u064A\u0641\u0627\u0631\u0648\u0644", "devarol"],
-  ["\u0645\u0627\u0631\u0646\u064A\u0632", "marnys"],
-  ["\u0627\u0648\u0631\u0644\u064A", "orly"],
-  ["\u0623\u0648\u0631\u0644\u064A", "orly"],
-  ["\u062D\u064A\u0627\u0629", "hayah"],
-  ["\u062D\u064A\u0627\u0647", "hayah"],
-  ["\u062F\u064A\u0631\u0645\u0627 \u0631\u0648\u0644", "derma roller"],
-  ["\u0627\u0644\u062F\u064A\u0631\u0645\u0627 \u0631\u0648\u0644", "derma roller"],
-  ["\u0644\u0628\u0646 \u0647\u064A\u0631\u0648 \u0628\u064A\u0628\u064A", "hero baby milk"],
-  ["\u0647\u064A\u0631\u0648 \u0628\u064A\u0628\u064A", "hero baby"],
-  ["\u0646\u064A\u0648\u062A\u0631\u0648\u0646\u064A \u062F\u0641\u0646\u0633", "nutradefense"],
-  ["\u0646\u064A\u0648\u062A\u0631\u0627 \u062F\u0641\u0646\u0633", "nutradefense"],
-  ["\u0643\u0648\u0644\u0648\u0646\u0627", "colona"],
-  ["\u062C\u0627\u0633\u062A\u0631\u0648 \u0628\u064A\u0648\u062A\u064A\u0643", "gastrobiotic"],
-  ["\u062C\u0627\u0633\u062A\u0631\u0648\u0628\u064A\u0648\u062A\u0643", "gastrobiotic"]
-]);
-function confidenceForBasis(basis) {
-  switch (basis) {
-    case "exact_code":
-    case "exact_barcode":
-      return "proven";
-    case "exact_canonical_name":
-      return "strongly_inferred";
-    case "approved_alias":
-      return "strongly_inferred";
-    // gated on human approval already having happened — see productAliasCandidate.ts
-    case "cross_script_composite":
-      return "strongly_inferred";
-    // >=2 explicit seed clues + exact numeric discriminator in canonical name
-    case "dominant_name_token_match":
-      return "strongly_inferred";
-    case "cross_script_equivalent":
-      return "weakly_inferred";
-    // one seed clue alone is unvetted heuristic evidence
-    case "strength_form_token_match":
-      return "weakly_inferred";
-    case "cautious_fuzzy":
-      return FUZZY_MAX_CONFIDENCE_LEVEL;
-    case "unresolved":
-      return "unknown";
-  }
-}
-function isSafeSelection(candidates) {
-  if (candidates.length === 0) return null;
-  if (candidates.length === 1) return candidates[0];
-  const topLevel = candidates[0].confidence;
-  const tiedAtTop = candidates.filter((c) => c.confidence === topLevel);
-  return tiedAtTop.length === 1 ? candidates[0] : null;
-}
-function strengthsCompatible(a, b) {
-  if (a.length === 0 || b.length === 0) return true;
-  return a.some((sa) => b.some((sb) => sa.unit === sb.unit && Math.abs(sa.value - sb.value) < 1e-3));
-}
-function dosageFormsCompatible(a, b) {
-  if (a.length === 0 || b.length === 0) return true;
-  return a.some((fa) => b.includes(fa));
-}
-function extractBareNumbers(normalized) {
-  const numbers = [];
-  const rx = /[0-9]+(?:\.[0-9]+)?/g;
-  let match;
-  while ((match = rx.exec(normalized)) !== null) numbers.push(Number(match[0]));
-  return numbers;
-}
-function productNumericTokens(product) {
-  return [...product.strengths.map((s) => s.value), ...product.packSizes.map((p) => p.count)];
-}
-function productNameBareNumbers(product) {
-  return Array.from(new Set(product.normalizedNames.flatMap((name) => extractBareNumbers(name))));
-}
-function bareNumbersCompatible(phraseNumbers, product) {
-  if (phraseNumbers.length === 0) return true;
-  const productNumbers = productNumericTokens(product);
-  if (productNumbers.length === 0) return true;
-  return phraseNumbers.some((n) => productNumbers.includes(n));
-}
-function tokenOverlapScore(a, b) {
-  const tokensA = new Set(a.split(" ").filter((t) => t.length > 1));
-  const tokensB = new Set(b.split(" ").filter((t) => t.length > 1));
-  if (tokensA.size === 0 || tokensB.size === 0) return 0;
-  let overlap = 0;
-  for (const token of tokensA) if (tokensB.has(token)) overlap += 1;
-  return overlap / Math.max(tokensA.size, tokensB.size);
-}
-var NAME_MATCH_STOPWORDS = /* @__PURE__ */ new Set([
-  "a",
-  "an",
-  "the",
-  "for",
-  "of",
-  "with",
-  "to",
-  "by",
-  "and",
-  "forwarded",
-  "\u0645\u0646",
-  "\u0641\u064A",
-  "\u0645\u0639",
-  "\u0639\u0644\u0649",
-  "\u0627\u0644\u064A",
-  "\u0627\u0644\u0649",
-  "\u0628\u062F\u064A\u0644",
-  "\u063A\u0633\u0648\u0644",
-  "\u0627\u0644\u063A\u0633\u0648\u0644"
-]);
-var NAME_QUANTITY_TOKENS = /* @__PURE__ */ new Set([
-  "mg",
-  "ml",
-  "gm",
-  "g",
-  "mcg",
-  "iu",
-  "tab",
-  "tabs",
-  "tablet",
-  "tablets",
-  "cap",
-  "caps",
-  "capsule",
-  "capsules",
-  "pcs",
-  "piece",
-  "pieces"
-]);
-function meaningfulNameTokens(normalized) {
-  return normalized.split(" ").map((token) => token.trim()).filter(
-    (token) => token.length > 1 && !/^[0-9]+(?:\.[0-9]+)?$/.test(token) && !NAME_MATCH_STOPWORDS.has(token) && !NAME_QUANTITY_TOKENS.has(token)
-  );
-}
-function expandJoinedPhraseTokens(phraseTokens, productTokens) {
-  const productSet = new Set(productTokens);
-  const expanded = [];
-  for (const token of phraseTokens) {
-    if (productSet.has(token)) {
-      expanded.push(token);
-      continue;
-    }
-    let split = null;
-    for (let i = 0; i < productTokens.length - 1; i += 1) {
-      const left = productTokens[i];
-      const right = productTokens[i + 1];
-      if (left.length < 3 || right.length < 3) continue;
-      if (left + right === token) {
-        split = [left, right];
-        break;
-      }
-    }
-    if (split) expanded.push(...split);
-    else expanded.push(token);
-  }
-  return expanded;
-}
-function dominantNameTokenScore(phraseNormalized, productNormalized) {
-  const productTokens = meaningfulNameTokens(productNormalized);
-  if (productTokens.length < 3) return 0;
-  const phraseTokens = expandJoinedPhraseTokens(
-    meaningfulNameTokens(phraseNormalized),
-    productTokens
-  );
-  if (phraseTokens.length < 3) return 0;
-  const productSet = new Set(productTokens);
-  const phraseUnique = Array.from(new Set(phraseTokens));
-  const productUnique = Array.from(new Set(productTokens));
-  const matched = phraseUnique.filter((token) => productSet.has(token)).length;
-  if (matched < 3) return 0;
-  const phraseCoverage = matched / phraseUnique.length;
-  const productCoverage = matched / productUnique.length;
-  if (phraseCoverage < 0.75 || productCoverage < 0.8) return 0;
-  return Math.min(phraseCoverage, productCoverage);
-}
-function resolveProductMention(phrase, index, options = {}) {
-  const normalized = normalizePharmacyText(phrase);
-  const reasons = [];
-  const candidateMap = /* @__PURE__ */ new Map();
-  const restrictTo = options.knownCandidateProductIds ? new Set(options.knownCandidateProductIds) : null;
-  const allowed = (product) => !restrictTo || restrictTo.has(product.productId);
-  function addCandidate(product, basis, score, reason) {
-    if (!allowed(product)) return;
-    const existing = candidateMap.get(product.productId);
-    if (existing && confidenceRank2(existing.confidence) >= confidenceRank2(confidenceForBasis(basis))) {
-      existing.reasons.push(reason);
-      return;
-    }
-    candidateMap.set(product.productId, { product, basis, confidence: confidenceForBasis(basis), score, reasons: [reason] });
-  }
-  const codeMatch = index.byCode.get(normalized.raw.trim().toLowerCase());
-  if (codeMatch) addCandidate(codeMatch, "exact_code", 1, `\u0627\u0644\u0645\u062F\u062E\u0644 \u064A\u0637\u0627\u0628\u0642 \u0643\u0648\u062F \u0627\u0644\u0645\u0646\u062A\u062C ${codeMatch.productCode} \u062A\u0645\u0627\u0645\u064B\u0627`);
-  const nameMatches = index.byNormalizedName.get(normalized.normalized) ?? [];
-  for (const product of nameMatches) {
-    addCandidate(product, "exact_canonical_name", 1, `\u0627\u0644\u0627\u0633\u0645 \u0627\u0644\u0645\u064F\u0637\u0628\u064E\u0651\u0639 "${normalized.normalized}" \u064A\u0637\u0627\u0628\u0642 \u0627\u0633\u0645 \u0627\u0644\u0645\u0646\u062A\u062C \u062A\u0645\u0627\u0645\u064B\u0627`);
-  }
-  const aliasProductId = options.approvedAliases?.get(normalized.raw.trim().toLowerCase());
-  if (aliasProductId) {
-    const product = index.catalog.find((p) => p.productId === aliasProductId);
-    if (product) addCandidate(product, "approved_alias", 0.9, `\u0645\u0631\u0627\u062F\u0641 \u0645\u0639\u062A\u0645\u062F \u064A\u0634\u064A\u0631 \u0625\u0644\u0649 \u0647\u0630\u0627 \u0627\u0644\u0645\u0646\u062A\u062C`);
-  }
-  const phraseBareNumbers = extractBareNumbers(normalized.normalized);
-  const seed = options.crossScriptSeed ?? CROSS_SCRIPT_SEED;
-  const crossScriptCluesByProduct = /* @__PURE__ */ new Map();
-  for (const [arabicKey, latinToken] of seed) {
-    if (normalized.normalized.includes(arabicKey) || normalized.raw.includes(arabicKey)) {
-      const latinNormalized = normalizePharmacyText(latinToken).normalized;
-      for (const [candidateNormalizedName, products] of index.byNormalizedName) {
-        if (candidateNormalizedName.includes(latinNormalized)) {
-          for (const product of products) {
-            if (!strengthsCompatible(normalized.strengths, product.strengths)) continue;
-            if (!dosageFormsCompatible(normalized.dosageForms, product.dosageForms)) continue;
-            if (!bareNumbersCompatible(phraseBareNumbers, product)) continue;
-            const clues = crossScriptCluesByProduct.get(product.productId) ?? /* @__PURE__ */ new Set();
-            clues.add(arabicKey);
-            crossScriptCluesByProduct.set(product.productId, clues);
-            addCandidate(product, "cross_script_equivalent", 0.6, `"${arabicKey}" \u0645\u0631\u062A\u0628\u0637 \u0641\u064A \u062C\u062F\u0648\u0644 \u0627\u0644\u0645\u0631\u0627\u062F\u0641\u0627\u062A \u0627\u0644\u0644\u063A\u0648\u064A\u0629 \u0628\u0640 "${latinToken}"`);
-          }
-        }
-      }
-    }
-  }
-  if (phraseBareNumbers.length > 0) {
-    for (const [productId, clues] of crossScriptCluesByProduct) {
-      if (clues.size < 2) continue;
-      const product = index.catalog.find((candidate) => candidate.productId === productId);
-      if (!product) continue;
-      const canonicalBareNumbers = productNameBareNumbers(product);
-      const matchingNumbers = phraseBareNumbers.filter((value) => canonicalBareNumbers.includes(value));
-      if (matchingNumbers.length === 0) continue;
-      addCandidate(
-        product,
-        "cross_script_composite",
-        0.88,
-        `\u0623\u062F\u0644\u0629 \u0644\u063A\u0648\u064A\u0629 \u0645\u0633\u062A\u0642\u0644\u0629 (${Array.from(clues).join(" + ")}) \u0645\u0639 \u0631\u0642\u0645 \u0645\u0637\u0627\u0628\u0642 \u0644\u0644\u0627\u0633\u0645 \u0627\u0644\u0642\u064A\u0627\u0633\u064A (${matchingNumbers.join(", ")})`
-      );
-    }
-  }
-  for (const product of index.catalog) {
-    if (!allowed(product)) continue;
-    if (!strengthsCompatible(normalized.strengths, product.strengths)) continue;
-    if (!dosageFormsCompatible(normalized.dosageForms, product.dosageForms)) continue;
-    if (!bareNumbersCompatible(phraseBareNumbers, product)) continue;
-    const score = Math.max(
-      0,
-      ...product.normalizedNames.map((name) => dominantNameTokenScore(normalized.normalized, name))
-    );
-    if (score >= 0.75) {
-      addCandidate(
-        product,
-        "dominant_name_token_match",
-        score,
-        `\u062A\u063A\u0637\u064A\u0629 \u0642\u0648\u064A\u0629 \u0644\u0627\u0633\u0645 \u0627\u0644\u0645\u0646\u062A\u062C (${(score * 100).toFixed(0)}%) \u0645\u0639 \u062A\u0648\u0627\u0641\u0642 \u0627\u0644\u0634\u0643\u0644/\u0627\u0644\u0642\u0648\u0629/\u0627\u0644\u0623\u0631\u0642\u0627\u0645`
-      );
-    }
-  }
-  if (normalized.strengths.length > 0 || normalized.dosageForms.length > 0 || phraseBareNumbers.length > 0) {
-    const phraseTokens = normalized.normalized.split(" ").filter((t) => t.length > 2 && !/^[0-9.]+$/.test(t));
-    for (const product of index.catalog) {
-      if (!allowed(product)) continue;
-      if (candidateMap.has(product.productId)) continue;
-      const sharesToken = product.normalizedNames.some((n) => phraseTokens.some((t) => n.includes(t)));
-      if (!sharesToken) continue;
-      if (!strengthsCompatible(normalized.strengths, product.strengths)) continue;
-      if (!dosageFormsCompatible(normalized.dosageForms, product.dosageForms)) continue;
-      if (!bareNumbersCompatible(phraseBareNumbers, product)) continue;
-      addCandidate(product, "strength_form_token_match", 0.5, "\u062A\u0637\u0627\u0628\u0642 \u0641\u064A \u0627\u0644\u0642\u0648\u0629/\u0627\u0644\u0634\u0643\u0644 \u0627\u0644\u0635\u064A\u062F\u0644\u0627\u0646\u064A/\u0627\u0644\u0631\u0642\u0645 \u0645\u0639 \u0631\u0645\u0632 \u0645\u0634\u062A\u0631\u0643 \u0641\u064A \u0627\u0644\u0627\u0633\u0645");
-    }
-  }
-  if (candidateMap.size === 0) {
-    for (const product of index.catalog) {
-      if (!allowed(product)) continue;
-      if (!strengthsCompatible(normalized.strengths, product.strengths)) continue;
-      if (!dosageFormsCompatible(normalized.dosageForms, product.dosageForms)) continue;
-      if (!bareNumbersCompatible(phraseBareNumbers, product)) continue;
-      const bestOverlap = Math.max(0, ...product.normalizedNames.map((n) => tokenOverlapScore(normalized.normalized, n)));
-      if (bestOverlap >= 0.4) {
-        addCandidate(product, "cautious_fuzzy", bestOverlap, `\u062A\u062F\u0627\u062E\u0644 \u062C\u0632\u0626\u064A \u0641\u064A \u0627\u0644\u0643\u0644\u0645\u0627\u062A (\u0646\u0633\u0628\u0629 ${(bestOverlap * 100).toFixed(0)}%)`);
-      }
-    }
-  }
-  const candidates = Array.from(candidateMap.values()).sort(
-    (a, b) => confidenceRank2(b.confidence) - confidenceRank2(a.confidence) || b.score - a.score
-  );
-  if (candidates.length === 0) reasons.push("unresolved: \u0644\u0627 \u064A\u0648\u062C\u062F \u0623\u064A \u0645\u0631\u0634\u062D \u0645\u0646 \u0623\u064A \u0645\u0633\u062A\u0648\u0649 \u0641\u064A \u0627\u0644\u062A\u0633\u0644\u0633\u0644 \u0627\u0644\u0647\u0631\u0645\u064A");
-  const selected2 = isSafeSelection(candidates);
-  const ambiguous = candidates.length > 1 && !selected2;
-  if (ambiguous) reasons.push(`ambiguous: ${candidates.length} \u0645\u0631\u0634\u062D\u064A\u0646 \u0628\u062F\u0648\u0646 \u062A\u0631\u062C\u064A\u062D \u0622\u0645\u0646`);
-  return { phrase, normalized, candidates, selected: selected2, ambiguous, reasons };
-}
-function confidenceRank2(level) {
-  switch (level) {
-    case "proven":
-      return 3;
-    case "strongly_inferred":
-      return 2;
-    case "weakly_inferred":
-      return 1;
-    case "unknown":
-      return 0;
-  }
-}
-
 // src/lib/salesIntelligence/salesIntelligencePipeline.ts
 function messagesForMessageIds(understanding, messageIds) {
   const ids = new Set(messageIds);
@@ -6363,7 +6518,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     summaryEvents,
     customerConfirmationEvents,
     staffFinalConfirmationEvents
-  } = buildCaseBaskets(conversationCase.caseId, scopedMessages);
+  } = buildCaseBaskets(conversationCase.caseId, scopedMessages, input.productIndex);
   const itemsByBasketId = enrichBasketProductIdentities(rawItemsByBasketId, input.productIndex);
   const activeBasketResolution = resolveActiveBasket(baskets);
   const activeBasket = activeBasketResolution.outcome === "selected" ? activeBasketResolution.basket : null;
@@ -6385,7 +6540,8 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     baskets,
     itemsByBasketId,
     activeBasket,
-    staffIdBySender: input.staffIdBySender
+    staffIdBySender: input.staffIdBySender,
+    productIndex: input.productIndex
   });
   const unavailableDemand = deriveUnavailableDemand({
     conversationCase,
@@ -7734,7 +7890,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v19";
+var PIPELINE_VERSION = "sales-intelligence-v20";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v10-payment-continuation-ambiguity-safe",
   historicalClosure: "historical-closure-v1",
@@ -8130,7 +8286,7 @@ function mergeDeniedInvoiceMaps(target, incoming) {
 }
 
 // src/lib/salesIntelligence/invoiceItemEvidenceRepository.ts
-function clean(value) {
+function clean2(value) {
   return String(value ?? "").trim();
 }
 function numberOrNull(value) {
@@ -8139,10 +8295,10 @@ function numberOrNull(value) {
   return Number.isFinite(n) ? n : null;
 }
 function invoiceId(row) {
-  return clean(row.id ?? row.invoice_number ?? row.invoice_no);
+  return clean2(row.id ?? row.invoice_number ?? row.invoice_no);
 }
 function invoiceNumber(row) {
-  return clean(row.invoice_number ?? row.invoice_no);
+  return clean2(row.invoice_number ?? row.invoice_no);
 }
 function candidateKey(number, branch) {
   return `${number}|${normalizeBranchName(branch || "")}`;
@@ -8208,30 +8364,30 @@ function buildInvoiceItemEvidenceProvider(invoiceRows, itemRows) {
   }
   const itemsByInvoiceId = /* @__PURE__ */ new Map();
   for (const row of itemRows) {
-    const directId = clean(row.invoice_id);
+    const directId = clean2(row.invoice_id);
     let resolvedId = directId && candidateIds.has(directId) ? directId : "";
     if (!resolvedId) {
-      const number = clean(row.invoice_number);
+      const number = clean2(row.invoice_number);
       if (!number) continue;
       const ids = candidateIdsByNumberBranch.get(candidateKey(number, row.branch)) ?? [];
       if (ids.length !== 1) continue;
       resolvedId = ids[0];
     }
-    const productName = clean(row.product_name);
+    const productName = clean2(row.product_name);
     if (!productName) continue;
     const bucket = itemsByInvoiceId.get(resolvedId) ?? [];
     const meta = row.raw_data?.__dawaa_commercial ?? {};
     bucket.push({
       productNameRaw: productName,
-      productId: clean(row.product_id) || null,
-      productCode: clean(row.product_code) || null,
+      productId: clean2(row.product_id) || null,
+      productCode: clean2(row.product_code) || null,
       quantity: numberOrNull(meta.effective_quantity) ?? (() => {
         const quantity = numberOrNull(row.quantity);
         const returned = numberOrNull(meta.returned_quantity) ?? 0;
         return quantity == null ? null : Math.max(0, quantity - Math.max(0, returned));
       })(),
-      unitName: clean(meta.unit_name) || null,
-      expiryRaw: clean(meta.expiry_raw) || null,
+      unitName: clean2(meta.unit_name) || null,
+      expiryRaw: clean2(meta.expiry_raw) || null,
       returnedQuantity: numberOrNull(meta.returned_quantity),
       unitPrice: numberOrNull(row.unit_price),
       itemDiscountAmount: numberOrNull(meta.item_discount_amount),
@@ -8244,7 +8400,7 @@ function buildInvoiceItemEvidenceProvider(invoiceRows, itemRows) {
   }
   return {
     getItemsForInvoice(id) {
-      const rows = itemsByInvoiceId.get(clean(id));
+      const rows = itemsByInvoiceId.get(clean2(id));
       return rows && rows.length ? aggregateInvoiceItems(rows) : "unavailable";
     }
   };
@@ -10585,25 +10741,99 @@ function analyzeConversationEvaluationCore(view) {
   return { version: "conversation-evaluation-core-v1", caseId: view.caseId, items };
 }
 
+// src/lib/followUpPromiseLifecycle.ts
+var FOLLOWUP_PROMISE_LIFECYCLE_VERSION = "followup-promise-lifecycle-v1";
+var FOLLOWUP_PROMISE_SLA = {
+  /** Same boundary as the slowest scored band ("رجع بعد أكثر من 20 دقيقة"). */
+  dueAfterMinutes: 20,
+  /** Same boundary as a raw WhatsApp session gap: the conversation is mature for judgement. */
+  violationAfterMinutes: 120
+};
+function toTime(value) {
+  if (value == null || value === "") return null;
+  const time2 = value instanceof Date ? value.getTime() : new Date(value).getTime();
+  return Number.isFinite(time2) ? time2 : null;
+}
+var MINUTE = 6e4;
+function evaluateFollowUpPromiseLifecycle(input) {
+  const promise = toTime(input.promiseAt);
+  if (promise == null) return null;
+  const sla = input.sla ?? FOLLOWUP_PROMISE_SLA;
+  const due = promise + sla.dueAfterMinutes * MINUTE;
+  const violation = promise + sla.violationAfterMinutes * MINUTE;
+  const returned = toTime(input.returnedAt);
+  const observedRaw = toTime(input.observedUntil);
+  const observed = observedRaw != null && observedRaw > promise ? observedRaw : null;
+  const observedMinutes = observed == null ? 0 : Math.floor((observed - promise) / MINUTE);
+  const base = {
+    version: FOLLOWUP_PROMISE_LIFECYCLE_VERSION,
+    promiseAt: new Date(promise).toISOString(),
+    dueAt: new Date(due).toISOString(),
+    violationAt: new Date(violation).toISOString(),
+    observedUntil: observed == null ? null : new Date(observed).toISOString(),
+    observedMinutes
+  };
+  if (returned != null && returned >= promise) {
+    const waitMinutes = Math.round((returned - promise) / MINUTE);
+    return {
+      ...base,
+      status: "completed",
+      returnedAt: new Date(returned).toISOString(),
+      waitMinutes,
+      penaltyEligible: false,
+      reason: `\u062A\u0645 \u062A\u0646\u0641\u064A\u0630 \u0648\u0639\u062F \u0627\u0644\u0645\u062A\u0627\u0628\u0639\u0629 \u0628\u0639\u062F ${waitMinutes} \u062F\u0642\u064A\u0642\u0629.`
+    };
+  }
+  if (observed == null || observed < due) {
+    return {
+      ...base,
+      status: "pending",
+      returnedAt: null,
+      waitMinutes: null,
+      penaltyEligible: false,
+      reason: `\u0648\u0639\u062F \u0627\u0644\u0645\u062A\u0627\u0628\u0639\u0629 \u0645\u0627 \u0632\u0627\u0644 \u062F\u0627\u062E\u0644 \u0627\u0644\u0645\u0647\u0644\u0629 (${sla.dueAfterMinutes} \u062F\u0642\u064A\u0642\u0629) \u2014 \u0627\u0644\u0645\u0631\u0627\u0642\u0628 \u0628\u0639\u062F \u0627\u0644\u0648\u0639\u062F ${observedMinutes} \u062F\u0642\u064A\u0642\u0629 \u0641\u0642\u0637. \u0646\u0647\u0627\u064A\u0629 \u0645\u0644\u0641 \u0627\u0644\u062A\u0635\u062F\u064A\u0631 \u0644\u064A\u0633\u062A \u062F\u0644\u064A\u0644 \u0646\u0633\u064A\u0627\u0646\u061B \u0644\u0627 \u062E\u0635\u0645.`
+    };
+  }
+  if (observed < violation) {
+    return {
+      ...base,
+      status: "overdue",
+      returnedAt: null,
+      waitMinutes: null,
+      penaltyEligible: false,
+      reason: `\u062A\u062C\u0627\u0648\u0632 \u0648\u0639\u062F \u0627\u0644\u0645\u062A\u0627\u0628\u0639\u0629 \u0627\u0644\u0645\u0647\u0644\u0629 (${sla.dueAfterMinutes} \u062F\u0642\u064A\u0642\u0629) \u062F\u0648\u0646 \u0631\u062C\u0648\u0639 \u0638\u0627\u0647\u0631\u060C \u0644\u0643\u0646 \u0627\u0644\u0623\u062F\u0644\u0629 \u063A\u064A\u0631 \u0646\u0627\u0636\u062C\u0629 \u0628\u0639\u062F (\u0645\u0631\u0627\u0642\u0628\u0629 ${observedMinutes} \u0645\u0646 ${sla.violationAfterMinutes} \u062F\u0642\u064A\u0642\u0629) \u2014 \u064A\u062D\u062A\u0627\u062C \u0645\u0631\u0627\u062C\u0639\u0629 \u0628\u0634\u0631\u064A\u0629\u060C \u0628\u062F\u0648\u0646 \u062E\u0635\u0645 \u062A\u0644\u0642\u0627\u0626\u064A.`
+    };
+  }
+  return {
+    ...base,
+    status: "violated",
+    returnedAt: null,
+    waitMinutes: null,
+    penaltyEligible: true,
+    reason: `\u0644\u0645 \u064A\u0631\u062C\u0639 \u0627\u0644\u0645\u0648\u0638\u0641 \u0644\u0644\u0639\u0645\u064A\u0644 \u0631\u063A\u0645 \u0645\u0631\u0648\u0631 ${observedMinutes} \u062F\u0642\u064A\u0642\u0629 \u0645\u0631\u0627\u0642\u0628\u0629 \u0628\u0639\u062F \u0627\u0644\u0648\u0639\u062F (\u0627\u0644\u0645\u0647\u0644\u0629 ${sla.dueAfterMinutes} \u062F\u0642\u064A\u0642\u0629\u060C \u0627\u0644\u0646\u0636\u062C ${sla.violationAfterMinutes} \u062F\u0642\u064A\u0642\u0629).`
+  };
+}
+
 // src/lib/salesIntelligence/conversationEvaluationFollowUp.ts
 var criterion = REVIEW_CRITERIA.find((item) => item.key === "followup_after_wait");
 if (!criterion) throw new Error("Missing followup_after_wait review criterion");
 var NUDGE_RX = /^(?:[؟?]+|يا\s*دكتور|دكتور|لسه|تمام|طيب|اوك|أوك|اوكي|ok|حضرتك|معلش)$/i;
-function make2(option, status, confidence3, reason, evidenceMessageIds, waitSeconds, promiseCount) {
+function make2(option, status, confidence3, reason, evidenceMessageIds, waitSeconds, promiseCount, lifecycle = null, labelOverride = null) {
   const choice = option ? criterion.choices.find((item) => item.value === option) ?? null : null;
   return {
     key: "followup_after_wait",
     label: criterion.label,
     status,
     selectedOption: option,
-    selectedLabel: status === "not_applicable" ? "\u063A\u064A\u0631 \u0645\u0646\u0637\u0628\u0642 \u0639\u0644\u0649 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629" : status === "insufficient_evidence" ? "\u0627\u0644\u062F\u0644\u064A\u0644 \u063A\u064A\u0631 \u0643\u0627\u0641\u064D \u0644\u0644\u062D\u0643\u0645" : choice?.label || "\u062A\u0645 \u0627\u0644\u062A\u0642\u064A\u064A\u0645",
+    selectedLabel: labelOverride || (status === "not_applicable" ? "\u063A\u064A\u0631 \u0645\u0646\u0637\u0628\u0642 \u0639\u0644\u0649 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629" : status === "insufficient_evidence" ? "\u0627\u0644\u062F\u0644\u064A\u0644 \u063A\u064A\u0631 \u0643\u0627\u0641\u064D \u0644\u0644\u062D\u0643\u0645" : choice?.label || "\u062A\u0645 \u0627\u0644\u062A\u0642\u064A\u064A\u0645"),
     pointsEarned: status === "assessed" ? choice?.pointsEarned ?? null : null,
     maxPoints: criterion.maxPoints,
     confidence: confidence3,
     reason,
     evidenceMessageIds: Array.from(new Set(evidenceMessageIds.filter(Boolean))),
     waitSeconds,
-    promiseCount
+    promiseCount,
+    lifecycle
   };
 }
 function waitOption(seconds) {
@@ -10620,7 +10850,7 @@ function analyzeConversationEvaluationFollowUp(view) {
   const gate = contract.criteria.find((item) => item.key === "followup_after_wait");
   if (gate?.readiness === "not_applicable") {
     return {
-      version: "conversation-evaluation-followup-v1",
+      version: "conversation-evaluation-followup-v2",
       caseId: view.caseId,
       item: make2(null, "not_applicable", 100, "\u0644\u0645 \u064A\u062A\u0645 \u0631\u0635\u062F \u0648\u0639\u062F \u0645\u0646 \u0627\u0644\u0645\u0648\u0638\u0641 \u0628\u0627\u0644\u0631\u062C\u0648\u0639/\u0627\u0644\u0645\u0631\u0627\u062C\u0639\u0629 \u062F\u0627\u062E\u0644 \u0647\u0630\u0627 \u0627\u0644\u062A\u0641\u0627\u0639\u0644.", [], null, 0)
     };
@@ -10631,13 +10861,15 @@ function analyzeConversationEvaluationFollowUp(view) {
   );
   if (!promises.length) {
     return {
-      version: "conversation-evaluation-followup-v1",
+      version: "conversation-evaluation-followup-v2",
       caseId: view.caseId,
       item: make2(null, "not_applicable", 100, "\u0644\u0645 \u064A\u062A\u0645 \u0631\u0635\u062F \u0648\u0639\u062F \u0645\u0646 \u0627\u0644\u0645\u0648\u0638\u0641 \u0628\u0627\u0644\u0631\u062C\u0648\u0639/\u0627\u0644\u0645\u0631\u0627\u062C\u0639\u0629 \u062F\u0627\u062E\u0644 \u0647\u0630\u0627 \u0627\u0644\u062A\u0641\u0627\u0639\u0644.", [], null, 0)
     };
   }
   const assessed = [];
   const ambiguousEvidence = [];
+  const unfulfilled = [];
+  const observedUntil = ordered4.length ? ordered4[ordered4.length - 1].at : null;
   for (const promise of promises) {
     const promiseIndex = ordered4.findIndex((message) => message.id === promise.id);
     const after = ordered4.slice(promiseIndex + 1);
@@ -10674,20 +10906,46 @@ function analyzeConversationEvaluationFollowUp(view) {
       (opportunity) => opportunity.reason === "staff_promised_check" && opportunity.evidenceMessageIds.includes(promise.id)
     );
     if (unresolvedPromise) {
-      assessed.push({
-        option: "never",
-        seconds: null,
-        confidence: 99,
-        reason: "\u062A\u0645 \u0631\u0635\u062F \u0648\u0639\u062F \u0635\u0631\u064A\u062D \u0628\u0627\u0644\u0631\u062C\u0648\u0639\u060C \u0648\u0645\u062D\u0631\u0643 \u0627\u0644\u0645\u062A\u0627\u0628\u0639\u0629 \u0627\u0644\u0643\u0627\u0646\u0648\u0646\u064A \u0623\u0643\u062F \u0623\u0646\u0647 \u0644\u0645 \u064A\u0638\u0647\u0631 \u0631\u062F \u0645\u0648\u0638\u0641 \u0644\u0627\u062D\u0642 \u064A\u0646\u0641\u0630 \u0647\u0630\u0627 \u0627\u0644\u0648\u0639\u062F \u062F\u0627\u062E\u0644 \u0627\u0644\u062A\u0641\u0627\u0639\u0644.",
-        evidence: [promise.id, ...unresolvedPromise.evidenceMessageIds]
-      });
+      const lifecycle = evaluateFollowUpPromiseLifecycle({ promiseAt: promise.at, observedUntil });
+      const evidence = [promise.id, ...unresolvedPromise.evidenceMessageIds];
+      if (lifecycle?.status === "violated") {
+        assessed.push({
+          option: "never",
+          seconds: null,
+          confidence: 99,
+          reason: `\u062A\u0645 \u0631\u0635\u062F \u0648\u0639\u062F \u0635\u0631\u064A\u062D \u0628\u0627\u0644\u0631\u062C\u0648\u0639\u060C \u0648\u0645\u062D\u0631\u0643 \u0627\u0644\u0645\u062A\u0627\u0628\u0639\u0629 \u0627\u0644\u0643\u0627\u0646\u0648\u0646\u064A \u0623\u0643\u062F \u0623\u0646\u0647 \u0644\u0645 \u064A\u0638\u0647\u0631 \u0631\u062F \u0645\u0648\u0638\u0641 \u0644\u0627\u062D\u0642 \u064A\u0646\u0641\u0630 \u0647\u0630\u0627 \u0627\u0644\u0648\u0639\u062F. ${lifecycle.reason}`,
+          evidence
+        });
+      } else if (lifecycle) {
+        unfulfilled.push({ lifecycle, evidence });
+      } else {
+        ambiguousEvidence.push(promise.id);
+      }
     } else {
       ambiguousEvidence.push(promise.id);
     }
   }
+  if (!assessed.length && unfulfilled.length) {
+    const weakest = unfulfilled.find((row) => row.lifecycle.status === "overdue") || unfulfilled[0];
+    return {
+      version: "conversation-evaluation-followup-v2",
+      caseId: view.caseId,
+      item: make2(
+        null,
+        "insufficient_evidence",
+        weakest.lifecycle.status === "overdue" ? 70 : 90,
+        weakest.lifecycle.reason,
+        [...weakest.evidence, ...ambiguousEvidence],
+        null,
+        promises.length,
+        weakest.lifecycle,
+        weakest.lifecycle.status === "overdue" ? "\u0648\u0639\u062F \u0645\u062A\u0627\u0628\u0639\u0629 \u0645\u062A\u0623\u062E\u0631 \u2014 \u064A\u062D\u062A\u0627\u062C \u0645\u0631\u0627\u062C\u0639\u0629 \u0628\u0634\u0631\u064A\u0629 (\u0628\u062F\u0648\u0646 \u062E\u0635\u0645 \u062A\u0644\u0642\u0627\u0626\u064A)" : "\u0648\u0639\u062F \u0645\u062A\u0627\u0628\u0639\u0629 \u0642\u064A\u062F \u0627\u0644\u0627\u0646\u062A\u0638\u0627\u0631 \u2014 \u0644\u0627 \u062E\u0635\u0645"
+      )
+    };
+  }
   if (!assessed.length) {
     return {
-      version: "conversation-evaluation-followup-v1",
+      version: "conversation-evaluation-followup-v2",
       caseId: view.caseId,
       item: make2(
         null,
@@ -10702,7 +10960,7 @@ function analyzeConversationEvaluationFollowUp(view) {
   }
   const worst = assessed.slice().sort((a, b) => pointsFor(a.option) - pointsFor(b.option) || (b.seconds ?? Number.MAX_SAFE_INTEGER) - (a.seconds ?? Number.MAX_SAFE_INTEGER))[0];
   return {
-    version: "conversation-evaluation-followup-v1",
+    version: "conversation-evaluation-followup-v2",
     caseId: view.caseId,
     item: make2(
       worst.option,
@@ -11933,11 +12191,11 @@ function analyzeConversationEvaluation(view, systemEvidence = null) {
 }
 
 // src/lib/salesIntelligence/conversationEvaluationSystemEvidence.ts
-function clean2(value) {
+function clean3(value) {
   return String(value ?? "").trim();
 }
 function normalizePhone(value) {
-  return clean2(value).replace(/\D/g, "");
+  return clean3(value).replace(/\D/g, "");
 }
 function toMs(value) {
   const ms = Date.parse(String(value ?? ""));
@@ -11945,15 +12203,15 @@ function toMs(value) {
 }
 function staffIds(view) {
   return new Set(
-    view.staff.participants.map((participant) => clean2(participant.staffId)).filter(Boolean)
+    view.staff.participants.map((participant) => clean3(participant.staffId)).filter(Boolean)
   );
 }
 function systemIdentityMatches(view, row) {
-  const viewId = clean2(view.customer.customerId);
-  const rowId = clean2(row.customer_id);
+  const viewId = clean3(view.customer.customerId);
+  const rowId = clean3(row.customer_id);
   if (viewId && rowId) return viewId === rowId;
-  const viewCode = clean2(view.customer.customerCode);
-  const rowCode = clean2(row.customer_code);
+  const viewCode = clean3(view.customer.customerCode);
+  const rowCode = clean3(row.customer_code);
   if (viewCode && rowCode) return viewCode === rowCode;
   const viewPhone = normalizePhone(view.customer.customerPhone);
   const rowPhone = normalizePhone(row.customer_phone);
@@ -11962,7 +12220,7 @@ function systemIdentityMatches(view, row) {
 function systemStaffMatches(view, rowStaffIds) {
   const expected = staffIds(view);
   if (!expected.size) return null;
-  const candidates = rowStaffIds.map(clean2).filter(Boolean);
+  const candidates = rowStaffIds.map(clean3).filter(Boolean);
   if (!candidates.length) return null;
   return candidates.some((id) => expected.has(id));
 }
@@ -11980,7 +12238,7 @@ function buildConversationEvaluationSystemEvidenceSnapshot(view, input) {
     minutesFromInteractionEnd: minutesFromInteractionEnd(view, row.requested_at || row.created_at)
   })).filter((match) => match.minutesFromInteractionEnd == null || match.minutesFromInteractionEnd >= -15 && match.minutesFromInteractionEnd <= 120);
   const exceptionalFollowups = (input.exceptionalFollowups ?? []).filter((row) => systemIdentityMatches(view, row)).filter(
-    (row) => clean2(row.request_type).toLowerCase() === "exceptional_followup" || clean2(row.followup_type).toLowerCase().includes("exceptional") || clean2(row.request_source).toLowerCase().includes("exceptional")
+    (row) => clean3(row.request_type).toLowerCase() === "exceptional_followup" || clean3(row.followup_type).toLowerCase().includes("exceptional") || clean3(row.request_source).toLowerCase().includes("exceptional")
   ).map((row) => ({
     row,
     identityMatched: true,
@@ -12024,9 +12282,9 @@ async function loadConversationEvaluationSystemEvidenceWithClient(client, view) 
     (async () => {
       const beforeInteraction = new Date(Math.max(0, startMs - 1)).toISOString();
       const identities = [
-        { column: "customer_id", value: clean2(view.customer.customerId) },
-        { column: "customer_code", value: clean2(view.customer.customerCode) },
-        { column: "customer_phone", value: clean2(view.customer.customerPhone) }
+        { column: "customer_id", value: clean3(view.customer.customerId) },
+        { column: "customer_code", value: clean3(view.customer.customerCode) },
+        { column: "customer_phone", value: clean3(view.customer.customerPhone) }
       ].filter((identity) => Boolean(identity.value));
       const batches = await Promise.all(
         identities.map(
@@ -12042,18 +12300,18 @@ async function loadConversationEvaluationSystemEvidenceWithClient(client, view) 
       );
       const byId = /* @__PURE__ */ new Map();
       for (const row of batches.flat()) {
-        const id = clean2(row.id);
+        const id = clean3(row.id);
         if (!id) continue;
         const rawTotal = row.net_total;
         const parsedTotal = rawTotal == null ? null : Number(rawTotal);
         byId.set(id, {
           id,
-          invoice_number: clean2(row.invoice_number) || null,
-          customer_id: clean2(row.customer_id) || null,
-          customer_code: clean2(row.customer_code) || null,
-          customer_phone: clean2(row.customer_phone) || null,
-          invoice_datetime: clean2(row.invoice_datetime) || null,
-          branch_name: clean2(row.branch_name) || null,
+          invoice_number: clean3(row.invoice_number) || null,
+          customer_id: clean3(row.customer_id) || null,
+          customer_code: clean3(row.customer_code) || null,
+          customer_phone: clean3(row.customer_phone) || null,
+          invoice_datetime: clean3(row.invoice_datetime) || null,
+          branch_name: clean3(row.branch_name) || null,
           net_total: parsedTotal != null && Number.isFinite(parsedTotal) ? parsedTotal : null
         });
       }
@@ -12855,6 +13113,47 @@ async function enrichComplaintFollowupContext(service, source, caseAnalyses) {
   return { enrichedComplaintActions: updated };
 }
 
+// src/lib/salesIntelligence/refresh/storyProjectionRefresh.ts
+var MAX_SOURCES = 50;
+var MAX_STORIES = 20;
+function storyErrorMessage(error) {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object" && "message" in error) return String(error.message);
+  return String(error);
+}
+async function refreshCustomerStoryProjectionsForSources(client, sourceIds) {
+  const ids = Array.from(new Set(sourceIds.filter(Boolean))).slice(0, MAX_SOURCES);
+  const result = { status: "skipped", storyIds: [], refreshed: 0, errors: [] };
+  if (!ids.length) return result;
+  try {
+    const { data: links, error: linkError } = await client.from("whatsapp_customer_journey_sessions").select("journey_id").in("source_id", ids).limit(200);
+    if (linkError) throw linkError;
+    const journeyIds = Array.from(
+      new Set((links || []).map((row) => String(row?.journey_id || "")).filter(Boolean))
+    );
+    if (!journeyIds.length) return result;
+    const { data: journeys, error: journeyError } = await client.from("whatsapp_customer_journeys").select("story_id").in("id", journeyIds).limit(200);
+    if (journeyError) throw journeyError;
+    result.storyIds = Array.from(
+      new Set((journeys || []).map((row) => String(row?.story_id || "")).filter(Boolean))
+    ).slice(0, MAX_STORIES);
+  } catch (error) {
+    return { ...result, status: "failed", errors: [`story_lookup_failed: ${storyErrorMessage(error)}`] };
+  }
+  if (!result.storyIds.length) return result;
+  for (const storyId of result.storyIds) {
+    try {
+      const { error } = await client.rpc("dawaa_refresh_whatsapp_customer_story_v16", { p_story_id: storyId });
+      if (error) throw error;
+      result.refreshed += 1;
+    } catch (error) {
+      result.errors.push(`${storyId}: ${storyErrorMessage(error)}`);
+    }
+  }
+  result.status = !result.errors.length ? "refreshed" : result.refreshed > 0 ? "partial" : "failed";
+  return result;
+}
+
 // server/sales-intelligence-refresh-source.ts
 var ALLOWED_ROLES = /* @__PURE__ */ new Set([
   "general_manager",
@@ -12972,6 +13271,17 @@ async function handler(req, res) {
       detail: message
     });
   }
+  const storyProjection = await refreshCustomerStoryProjectionsForSources(
+    service,
+    refresh.admittedSourceIds || []
+  );
+  if (storyProjection.errors.length) {
+    console.warn("[sales-intelligence-refresh-source] story projection refresh incomplete", {
+      ...page,
+      errors: storyProjection.errors
+    });
+  }
+  const sideProjections = { story: storyProjection };
   if (!sourceFileName && refresh.blockedSources.length) {
     return json(res, 409, { ...refresh.blockedSources[0], sourceId });
   }
@@ -12984,7 +13294,8 @@ async function handler(req, res) {
       blockedSources: refresh.blockedSources,
       failures: refresh.persistenceFailures,
       caseSetReconciliation: refresh.caseSetReconciliation,
-      canonicalReconciliation: refresh.canonicalReconciliation
+      canonicalReconciliation: refresh.canonicalReconciliation,
+      sideProjections
     });
   }
   const batch = refresh.batch;
@@ -12998,6 +13309,7 @@ async function handler(req, res) {
     actionReconciliation: refresh.actionReconciliation,
     complaintEnrichment: refresh.complaintEnrichment,
     conversationEvaluations: refresh.conversationEvaluations,
+    sideProjections,
     derivedCases: (batch?.caseAnalyses || []).map((row) => ({
       conversationId: row.conversationId,
       caseId: row.caseId,

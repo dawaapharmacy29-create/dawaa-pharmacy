@@ -13,6 +13,7 @@ export function useUnsavedChangesGuard(handlers: UnsavedChangesGuardHandlers) {
       isDirty: () => handlersRef.current.isDirty(),
       isSaving: () => handlersRef.current.isSaving(),
       onSave: () => handlersRef.current.onSave(),
+      onDiscard: () => handlersRef.current.onDiscard?.(),
     });
     return () => unregisterGuard(id);
   }, [id, registerGuard, unregisterGuard]);
@@ -22,10 +23,12 @@ export function usePendingFormNavigationGuard(options: {
   isDirty: boolean;
   isSaving: boolean;
   onSave: () => Promise<boolean>;
+  onDiscard?: () => void;
 }) {
   useUnsavedChangesGuard({
     isDirty: () => options.isDirty,
     isSaving: () => options.isSaving,
     onSave: options.onSave,
+    onDiscard: options.onDiscard,
   });
 }
