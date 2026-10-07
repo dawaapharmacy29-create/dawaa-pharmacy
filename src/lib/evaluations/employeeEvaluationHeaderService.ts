@@ -54,8 +54,9 @@ export function evaluationRoleGroup(role:unknown):EvaluationRoleGroup{
  return'other';
 }
 
-export async function loadEmployeeEvaluationHeader(args:{staffId:string;staffName:string;role:unknown;branch:string;start:string;end:string;evidence:EmployeeMonthlyEvidence}):Promise<EvaluationHeaderSummary>{
- const cacheKey=`${args.staffId}:${args.start}:${args.end}:${args.branch}:${evaluationRoleGroup(args.role)}`;
+// `end` is the inclusive last cycle day (attendance/time-off readers); `endExclusive` bounds the sales RPC.
+export async function loadEmployeeEvaluationHeader(args:{staffId:string;staffName:string;role:unknown;branch:string;start:string;end:string;endExclusive:string;evidence:EmployeeMonthlyEvidence}):Promise<EvaluationHeaderSummary>{
+ const cacheKey=`${args.staffId}:${args.start}:${args.endExclusive}:${args.branch}:${evaluationRoleGroup(args.role)}`;
  const cached=HEADER_CACHE.get(cacheKey);
  if(cached&&Date.now()-cached.at<HEADER_CACHE_TTL_MS)return cached.value;
  const warnings:string[]=[];
@@ -63,7 +64,7 @@ export async function loadEmployeeEvaluationHeader(args:{staffId:string;staffNam
  const needsPersonalAttendance=['doctor','assistant','warehouse','delivery','customer_service'].includes(roleGroup);
  const [salesR,attendanceR,permissionR,requestsR,annualR]=await Promise.allSettled([
   roleGroup==='doctor'
-   ? getEvaluationHeaderSales(args.staffId,args.start,args.end)
+   ? getEvaluationHeaderSales(args.staffId,args.start,args.endExclusive)
    : Promise.resolve(null),
   needsPersonalAttendance ? getStaffAttendanceDetail(args.staffId,args.start,args.end) : Promise.resolve(null),
   needsPersonalAttendance ? getPermissionPolicyStatusV2(args.staffId,args.start,args.end) : Promise.resolve(null),
