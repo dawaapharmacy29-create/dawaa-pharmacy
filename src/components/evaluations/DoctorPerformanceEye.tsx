@@ -189,7 +189,7 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
             </div> : null}
 
             {verdict ? <section className="mt-3 rounded-2xl border p-3 sm:mt-4 sm:p-4" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-soft)' }}>
-              <Chip tone={verdict.signal === 'improving' ? 'success' : verdict.signal === 'declining' ? 'danger' : verdict.signal === 'stable' ? 'info' : 'neutral'}>{verdict.signalLabel}</Chip>
+              <Chip tone={verdictTone(verdict.badge.tone)}>{verdict.badge.label}</Chip>
               <p className="mt-2 text-base font-black leading-7" style={{ color: 'var(--dawaa-theme-heading)' }}>{verdict.headline}</p>
               <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
                 {verdict.metrics.map(metric => <div key={metric.key} className="flex min-w-0 items-center justify-between gap-3 rounded-xl border px-2.5 py-1.5 sm:block sm:p-2.5" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}>
