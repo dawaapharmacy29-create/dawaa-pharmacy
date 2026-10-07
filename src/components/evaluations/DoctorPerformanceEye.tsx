@@ -58,7 +58,7 @@ function Kpi({ label, value, deltaValue, deltaNote, unavailableReason }: { label
     <div className="mt-1 truncate text-lg font-black tabular-nums" style={{ color: isUnavailable ? 'var(--dawaa-theme-muted)' : 'var(--dawaa-theme-heading)' }} title={isUnavailable && unavailableReason ? unavailableReason : undefined}>{value}</div>
     <div className="mt-1 flex min-h-[16px] items-center gap-1 text-[11px] font-bold" style={{ color: deltaValue === null ? 'var(--dawaa-theme-muted)' : deltaValue >= 0 ? 'var(--dawaa-status-success-text)' : 'var(--dawaa-status-danger-text)' }}>
       {deltaValue === null ? null : deltaValue >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-      <span className="truncate">{deltaValue !== null ? `${deltaValue >= 0 ? '+' : ''}${fmt(deltaValue, 1)}%` : isUnavailable ? 'المصدر لم يُحمّل — ليس صفرًا' : deltaNote || '—'}</span>
+      <span className="truncate" title={isUnavailable ? unavailableReason || 'المصدر لم يُحمّل' : deltaNote || undefined}>{deltaValue !== null ? `${deltaValue >= 0 ? '+' : ''}${fmt(deltaValue, 1)}%` : isUnavailable ? 'ليس صفرًا' : deltaNote || '—'}</span>
     </div>
   </div>;
 }
