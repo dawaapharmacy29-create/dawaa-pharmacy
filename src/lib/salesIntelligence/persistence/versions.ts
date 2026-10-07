@@ -7,6 +7,11 @@
 // REPROCESSING_MATRIX assigns it (see persistence/types.ts).
 // IMPORTANT: after changing semantic versions here, regenerate the committed serverless transport
 // with scripts/build-sales-intelligence-refresh-api.cjs so Preview/Production runs the same versions.
+// v20 (2026-10-07): Product/Need resolution now recognizes a safe bare catalog product+form mention,
+// stitches only an immediately-adjacent dosage-form qualifier onto exactly one unresolved product,
+// and can use an explicit form to disambiguate a cross-script brand only when one real SKU survives.
+// This semantic change must reprocess existing V19 analyses. Test/build entry points now regenerate
+// the canonical serverless transport from source first, then verify it, so stale committed output cannot ship.
 // v19 (2026-10-04): a complete confirmed order with clean official invoice attribution and an exact
 // announced-total match projects as invoiced_unproven/closed_order_unproven. Media-only product
 // identity remains an evidence limitation and never reopens an otherwise closed invoiced order.
@@ -34,7 +39,7 @@
 // changed materially: V32 now keeps payment settlement inside the original order interaction,
 // and commercial confirmation/basket parsing recognizes natural Egyptian recap/compact totals
 // without manufacturing product identity from unresolved media deictics.
-export const PIPELINE_VERSION = 'sales-intelligence-v19';
+export const PIPELINE_VERSION = 'sales-intelligence-v20';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v10-payment-continuation-ambiguity-safe',
