@@ -32,7 +32,10 @@ describe('doctor performance verdict', () => {
   it('reads growing sales with frequent lateness as improving with lateness as the main problem', () => {
     const v = buildDoctorPerformanceVerdict({ data: data(401791.81, 326588.14), header: header(15, 10), conversation: conv() });
     expect(v.signal).toBe('improving');
-    expect(v.headline).toContain('التأخير');
+    expect(v.lead).toBe('problem');
+    expect(v.headline.startsWith('الأولوية: تأخير')).toBe(true);
+    expect(v.headline).toContain('رغم تحسن المبيعات');
+    expect(v.badge.tone).toBe('danger');
     expect(v.problem?.text).toContain('١٠');
     expect(v.strength?.text).toContain('نمو المبيعات');
     expect(v.action?.owner).toBe('doctor');
@@ -41,13 +44,24 @@ describe('doctor performance verdict', () => {
   it('ranks patient-safety errors above lateness and sales', () => {
     const v = buildDoctorPerformanceVerdict({ data: data(50, 100), header: header(15, 10), conversation: conv({ flags: { ...conv().flags, medicalErrors: 2 } }) });
     expect(v.signal).toBe('declining');
+    expect(v.lead).toBe('problem');
+    expect(v.headline).toContain('أخطاء طبية');
     expect(v.problem?.text).toContain('أخطاء طبية');
     expect(v.action?.owner).toBe('manager');
+  });
+
+  it('keeps the sales trend as the headline when no priority problem is documented', () => {
+    const v = buildDoctorPerformanceVerdict({ data: data(80, 100), header: header(20, 1), conversation: conv() });
+    expect(v.lead).toBe('trend');
+    expect(v.headline.startsWith('المبيعات تتراجع')).toBe(true);
+    expect(v.badge.label).toBe('المبيعات تتراجع ↓');
   });
 
   it('never invents a problem or a strength without crossing a threshold', () => {
     const v = buildDoctorPerformanceVerdict({ data: data(102, 100), header: header(20, 1), conversation: conv() });
     expect(v.signal).toBe('stable');
+    expect(v.lead).toBe('trend');
+    expect(v.headline.startsWith('المبيعات مستقرة')).toBe(true);
     expect(v.problem).toBe(null);
     expect(v.strength).toBe(null);
     expect(v.action).toBe(null);

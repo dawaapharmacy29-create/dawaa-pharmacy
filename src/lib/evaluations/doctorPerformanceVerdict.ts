@@ -22,6 +22,9 @@ export type VerdictAction = { text: string; owner: 'doctor' | 'manager' };
 export type DoctorPerformanceVerdict = {
   signal: VerdictSignal;
   signalLabel: string;
+  /** What the headline leads with: a priority problem (safety, customer harm, discipline) outranks the sales trend. */
+  lead: 'problem' | 'trend';
+  badge: { label: string; tone: VerdictTone };
   headline: string;
   metrics: VerdictMetric[];
   strength: VerdictLine | null;
@@ -99,16 +102,17 @@ export function buildDoctorPerformanceVerdict(args: {
   ];
 
   // Problems in risk order: patient safety > customer harm > discipline > sales > conversation skill > open opportunities.
-  const problems: { line: VerdictLine; action: VerdictAction; short: string }[] = [];
+  // `priority` problems lead the headline ahead of any sales trend.
+  const problems: { line: VerdictLine; action: VerdictAction; short: string; priority?: boolean }[] = [];
   if (flags && (flags.medicalErrors > 0 || flags.criticalErrors > 0)) {
     const n = Math.max(flags.medicalErrors, flags.criticalErrors);
-    problems.push({ short: 'أخطاء حرجة في المحادثات', line: { text: `أخطاء طبية/حرجة موثقة في ${num(n)} محادثة`, evidence: 'تقييم المحادثات' }, action: { owner: 'manager', text: 'مراجعة هذه المحادثات مع الدكتور قبل اعتماد التقييم.' } });
+    problems.push({ priority: true, short: 'أخطاء حرجة في المحادثات', line: { text: `أخطاء طبية/حرجة موثقة في ${num(n)} محادثة`, evidence: 'تقييم المحادثات' }, action: { owner: 'manager', text: 'مراجعة هذه المحادثات مع الدكتور قبل اعتماد التقييم.' } });
   }
   if (flags && (flags.complaints > 0 || flags.severeBadTone > 0)) {
-    problems.push({ short: 'شكاوى العملاء', line: { text: `${num(flags.complaints)} شكوى و${num(flags.severeBadTone)} حالة أسلوب غير مناسب`, evidence: 'تقييم المحادثات' }, action: { owner: 'manager', text: 'جلسة مراجعة لأسلوب التعامل على حالات الشكاوى الموثقة.' } });
+    problems.push({ priority: true, short: 'شكاوى العملاء', line: { text: `${num(flags.complaints)} شكوى و${num(flags.severeBadTone)} حالة أسلوب غير مناسب`, evidence: 'تقييم المحادثات' }, action: { owner: 'manager', text: 'جلسة مراجعة لأسلوب التعامل على حالات الشكاوى الموثقة.' } });
   }
   if (late !== null && worked !== null && late >= VERDICT_RULES.lateMinDays && late / Math.max(worked, 1) >= VERDICT_RULES.lateMinShare) {
-    problems.push({ short: 'التأخير', line: { text: `تأخير في ${num(late)} من ${num(worked)} يوم حضور`, evidence: 'الحضور الرسمي للدورة' }, action: { owner: 'doctor', text: `خفض التأخير إلى ${num(Math.floor(late / 2))} أيام أو أقل في الدورة القادمة.` } });
+    problems.push({ priority: true, short: 'التأخير', line: { text: `تأخير في ${num(late)} من ${num(worked)} يوم حضور`, evidence: 'الحضور الرسمي للدورة' }, action: { owner: 'doctor', text: `خفض التأخير إلى ${num(Math.floor(late / 2))} أيام أو أقل في الدورة القادمة.` } });
   }
   if (salesAvailable && sales.pct !== null && sales.pct <= VERDICT_RULES.salesDeclinePct) {
     problems.push({ short: 'تراجع المبيعات', line: { text: `المبيعات أقل ${num(Math.abs(sales.pct), 1)}% ${sales.basis}`, evidence: 'فواتير الدكتور الموثقة' }, action: { owner: 'manager', text: 'مراجعة أسباب التراجع مع الدكتور (الساعات، العملاء، متوسط الفاتورة) من التفاصيل.' } });
@@ -135,11 +139,18 @@ export function buildDoctorPerformanceVerdict(args: {
   const signalLabel = signal === 'improving' ? 'المبيعات تتحسن ↑' : signal === 'declining' ? 'المبيعات تتراجع ↓' : signal === 'stable' ? 'المبيعات مستقرة →' : salesAvailable ? 'لا مقارنة عادلة بعد' : 'المبيعات غير متاحة الآن';
   const problem = problems[0] || null;
   const salesClause = !salesAvailable ? 'لا يمكن قراءة المبيعات الآن' : signal === 'insufficient' ? 'لا توجد مقارنة مبيعات عادلة بعد' : signal === 'improving' ? 'المبيعات تتحسن' : signal === 'declining' ? 'المبيعات تتراجع' : 'المبيعات مستقرة';
-  const headline = problem
-    ? `${salesClause}، والمشكلة الأساسية: ${problem.short}.`
-    : `${salesClause}، ولا توجد مشكلة موثقة تتجاوز حدود المتابعة.`;
+  const lead: DoctorPerformanceVerdict['lead'] = problem?.priority ? 'problem' : 'trend';
+  const trendAfterProblem = !salesAvailable ? 'والمبيعات غير متاحة الآن' : signal === 'improving' ? 'رغم تحسن المبيعات' : signal === 'declining' ? 'والمبيعات تتراجع أيضًا' : signal === 'stable' ? 'والمبيعات مستقرة' : 'ولا توجد مقارنة مبيعات عادلة بعد';
+  const headline = lead === 'problem'
+    ? `الأولوية: ${problem!.line.text} — ${trendAfterProblem}.`
+    : problem
+      ? `${salesClause}، والمشكلة الأساسية: ${problem.short}.`
+      : `${salesClause}، ولا توجد مشكلة موثقة تتجاوز حدود المتابعة.`;
+  const badge: DoctorPerformanceVerdict['badge'] = lead === 'problem'
+    ? { label: `أولوية: ${problem!.short}`, tone: 'danger' }
+    : { label: signalLabel, tone: signal === 'improving' ? 'success' : signal === 'declining' ? 'danger' : 'neutral' };
   const action: VerdictAction | null = problem?.action
     || (!salesAvailable ? { owner: 'manager', text: 'إعادة تحميل مصدر المبيعات قبل الحكم على الأداء.' } : null);
 
-  return { signal, signalLabel, headline, metrics, strength: strengths[0] || null, problem: problem?.line || null, action };
+  return { signal, signalLabel, lead, badge, headline, metrics, strength: strengths[0] || null, problem: problem?.line || null, action };
 }
