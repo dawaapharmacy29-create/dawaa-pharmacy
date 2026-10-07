@@ -17,6 +17,7 @@ import {
   isSubstantiveConfirmationSignal,
   resolveReference,
 } from '../whatsappSemanticSignalsV32';
+import { resolveProductMention, type PharmacyProductIndex } from './pharmacyProducts/pharmacyProductResolverV2';
 import type {
   AnnouncedTotal,
   CaseBasket,
@@ -38,6 +39,10 @@ import type {
 // ---------------------------------------------------------------------------
 
 const FINAL_BASKET_SUMMARY_MARKER_RX = /تأمر\s*ب|إجمالي\s*الحساب|هل\s*الطلب\s*كده\s*كامل|حضرتك\s*تأمر/i;
+// Natural Egyptian recap used in real order closing: "يعني كدا 4 علب ...". Requiring both a
+// recap opener AND a quantity/unit keeps this narrower than a generic "يعني كدا" sentence.
+const NATURAL_FINAL_RECAP_RX =
+  /^(?:يعني\s*)?(?:كدا|كده)\s+.*(?:\d+\s*(?:علب|علبة|علبه|شريط|شراب|عبوة|عبوه|كيس|حبة|حبه|نوع)|علبتين|شريطين|عبوتين|كيسين|حبتين)/i;
 // Phase C: broadened past the two original "تم تأكيد/تسجيل" phrases to cover the natural-language
 // fulfillment variants the spec explicitly requires ("جاري الإرسال/التجهيز", "الطلب اتأكد") — still
 // deliberately narrow (no bare "حاضر"/"تمام" alone) since this only ever fires once a customer
@@ -72,6 +77,12 @@ const QUANTITY_UNIT_ITEM_RX =
  */
 const ANNOUNCED_TOTAL_RX =
   /(?:كده\s*)?(?:إجمالي\s*الحساب|الحساب\s*كل?ه|الإجمالي|المجموع|الحساب)\s*(?:كده\s*)?(\d+(?:\.\d+)?)\s*(?:جنيه|جنيها|ج\.?م\.?)?/i;
+// A compact amount is accepted only as a contextual answer to the customer's own total question.
+// This intentionally does NOT turn every bare "90 جنيه" into an order total.
+const COMPACT_ANNOUNCED_TOTAL_RX =
+  /^\s*(\d+(?:\.\d+)?)\s*(?:جنيه|جنيها|ج(?:\.?م\.?)?)\s*(?:ان\s*شاء\s*الله)?[.!، ]*$/i;
+const TOTAL_QUESTION_RX =
+  /(?:الحساب|الإجمالي|الاجمالي|المجموع).{0,16}كام|(?:كدا|كده)?\s*(?:هيبقا|هيبقى|يبقا|يبقى)\s*كام/i;
 
 const ARABIC_NUMBER_WORDS: Record<string, number> = {
   واحد: 1, واحده: 1, واحدة: 1,
@@ -124,7 +135,8 @@ export function stripRequestPrefix(text: string): string {
 
 const NON_PRODUCT_PHRASE_RX = /^(?:مش|لا|لأ|اه|آه|تمام|حاجة|حاجه|ده|دي|دا|دول|منه|منها|بس)?$/;
 const GENERIC_DEICTIC_PRODUCT_PHRASE_RX =
-  /^(?:(?:الحاجات|الحاجه|الحاجة|الأشياء|الاشياء)\s*(?:دي|دول|ده|دا)?|(?:دول|دي|ده|دا)(?:\s*كلهم)?|اللي\s*(?:في|ف)\s*(?:الصوره|الصورة|الصور|الفويس|الصوت)|اللي\s*(?:بعت(?:ه|ها|هم)|مبعت(?:ه|ها|هم)))$/i;
+  /^(?:(?:العلب[هة]|العبو[هة]|الشريط|الصنف)\s*(?:دي|ده|دا)|(?:الحاجات|الحاجه|الحاجة|الأشياء|الاشياء)\s*(?:دي|دول|ده|دا)?|(?:دول|دي|ده|دا)(?:\s*كلهم)?|اللي\s*(?:في|ف)\s*(?:الصوره|الصورة|الصور|الفويس|الصوت)|اللي\s*(?:بعت(?:ه|ها|هم)|مبعت(?:ه|ها|هم)))$/i;
+const NON_IDENTIFYING_RECAP_ITEM_RX = /مع\s+\d+\s+نوع|اللي\s+الدكتور|في\s+(?:الريكورد|الفويس|الصوت)/i;
 
 export function isGenericDeicticProductPhrase(value: string): boolean {
   return GENERIC_DEICTIC_PRODUCT_PHRASE_RX.test(String(value || '').trim());
@@ -214,7 +226,7 @@ const NATURAL_UNIT_QTY: Record<string, { quantity: number; unit: string }> = {
   حبه: { quantity: 1, unit: 'حبة' },
 };
 const PRICE_INQUIRY_RX = /بكام|عامل\s*كام|سعر(?:ه|ها)?|كام\s*(?:جنيه|العلبة|العلبه)|فيها\s*كام/i;
-const STAFF_RECAP_CONTEXT_RX = /يعني\s*حضرتك|حضرتك\s*محتاج|تكرر|كرر|تأمر|تحت\s*امر/i;
+const STAFF_RECAP_CONTEXT_RX = /يعني\s*(?:كدا|كده|حضرتك)|حضرتك\s*محتاج|تكرر|كرر|تأمر|تحت\s*امر/i;
 
 function extractNaturalUnitItems(message: NormalizedConversationMessageV32): DraftItem[] {
   if (!message.isMeaningful || /<(?:image|audio|voice message) omitted>/i.test(message.text)) return [];
@@ -230,7 +242,14 @@ function extractNaturalUnitItems(message: NormalizedConversationMessageV32): Dra
       .replace(/^(?:من\s+فضلك|لو\s*سمحت|ان\s*شاء\s*الله)\s*/i, '')
       .replace(/\s+(?:صح|مظبوط|ان\s*شاء\s*الله)\??$/i, '')
       .trim();
-    if (!productNameRaw || productNameRaw.length < 2 || PRICE_INQUIRY_RX.test(productNameRaw)) continue;
+    if (
+      !productNameRaw ||
+      productNameRaw.length < 2 ||
+      PRICE_INQUIRY_RX.test(productNameRaw) ||
+      NON_PRODUCT_PHRASE_RX.test(productNameRaw) ||
+      isGenericDeicticProductPhrase(productNameRaw) ||
+      NON_IDENTIFYING_RECAP_ITEM_RX.test(productNameRaw)
+    ) continue;
     items.push({
       productNameRaw,
       productId: null,
@@ -254,6 +273,12 @@ function parseSummaryItems(message: NormalizedConversationMessageV32): DraftItem
     const quantity = parseNumberToken(m[1]);
     const unit = m[2];
     const productNameRaw = m[3].trim();
+    if (
+      !productNameRaw ||
+      NON_PRODUCT_PHRASE_RX.test(productNameRaw) ||
+      isGenericDeicticProductPhrase(productNameRaw) ||
+      NON_IDENTIFYING_RECAP_ITEM_RX.test(productNameRaw)
+    ) continue;
     items.push({
       productNameRaw,
       productId: null,
@@ -310,6 +335,7 @@ function extractDraftItemsFromScope(
       const quantity = parseNumberToken(numToken);
       const unit = unitParts.join(' ') || null;
       const productNameRaw = stripRequestPrefix(message.text.replace(phrase, ' ')) || message.text.trim();
+      if (NON_PRODUCT_PHRASE_RX.test(productNameRaw) || isGenericDeicticProductPhrase(productNameRaw)) return;
       items.push({
         productNameRaw,
         productId: null,
@@ -404,6 +430,38 @@ function extractDraftItemsFromScope(
   return items;
 }
 
+/**
+ * Direct product-name intake: a customer message naming a product WITHOUT any request verb
+ * ("جاست ريج أمبول", said as if naming an order item directly, instead of "عايز جاست ريج أمبول")
+ * still becomes a real basket line -- but ONLY when the real catalog resolver independently finds
+ * one safe, non-ambiguous, strong (proven/strongly_inferred) match for the message's own text.
+ * Deliberately narrow: no request-verb heuristic is broadened here, and a message that does not
+ * resolve this strongly stays exactly as before (no item, no guess).
+ */
+function directCatalogMentionItem(
+  message: NormalizedConversationMessageV32,
+  productIndex: PharmacyProductIndex
+): DraftItem | null {
+  if (!message.isMeaningful || message.role !== 'customer') return null;
+  const resolution = resolveProductMention(message.text, productIndex);
+  const selected = resolution.selected;
+  if (resolution.ambiguous || !selected || !['proven', 'strongly_inferred'].includes(selected.confidence)) return null;
+  return {
+    productNameRaw: message.text.trim(),
+    productId: selected.product.productId,
+    quantity: null,
+    unit: null,
+    sourceMessageId: message.id,
+    confidence: assessment(
+      selected.confidence,
+      selected.score,
+      'basket.item.direct_catalog_mention',
+      [refFor(message, `تطابق مباشر وآمن مع كتالوج المنتجات (${selected.basis}): "${message.text.slice(0, 80)}".`)]
+    ),
+    resolutionStatus: selected.confidence === 'proven' ? 'proven' : 'partially_proven',
+  };
+}
+
 /** Keys of current draft items the customer's "only X" message names (ال-prefix tolerant, whole tokens). */
 function itemsNamedIn(text: string, keys: string[]): string[] {
   const phraseTokens = normalizeProductKey(stripRequestPrefix(text.replace(ONLY_THIS_RX, '')))
@@ -422,6 +480,41 @@ function draftItemsToMap(items: DraftItem[]): Map<string, DraftItem> {
   return map;
 }
 
+function contextualCompactTotal(
+  scopedMessages: NormalizedConversationMessageV32[],
+  summaryMessage: NormalizedConversationMessageV32,
+  candidate: NormalizedConversationMessageV32
+): number | null {
+  if (candidate.role !== 'staff' || !candidate.isMeaningful) return null;
+  const amountMatch = candidate.text.match(COMPACT_ANNOUNCED_TOTAL_RX);
+  if (!amountMatch) return null;
+  const summaryIndex = scopedMessages.findIndex((m) => m.id === summaryMessage.id);
+  const candidateIndex = scopedMessages.findIndex((m) => m.id === candidate.id);
+  if (summaryIndex < 0 || candidateIndex <= summaryIndex) return null;
+  const prior = scopedMessages
+    .slice(summaryIndex + 1, candidateIndex)
+    .filter((m) => m.isMeaningful);
+  const totalQuestion = [...prior].reverse().find(
+    (m) => m.role === 'customer' && TOTAL_QUESTION_RX.test(m.text)
+  );
+  if (!totalQuestion) return null;
+
+  // Real chats often contain a short acknowledgement while the staff member calculates the total:
+  // customer asks "كدا هيبقا كام" -> staff says "حالا هبلغ حضرتك" -> customer says "تمام"
+  // -> staff answers "1579ج". Keep that chain intact, but fail closed if the customer introduces
+  // any new commercial content before the compact amount.
+  if (candidate.timestamp.getTime() - totalQuestion.timestamp.getTime() > 10 * 60_000) return null;
+  const totalQuestionIndex = scopedMessages.findIndex((m) => m.id === totalQuestion.id);
+  if (totalQuestionIndex < 0) return null;
+  const SAFE_WAITING_ACK_RX = /^(?:تمام|ماشي|حاضر|اوكي|أوكي|اوك|ok|شكرا|شكرًا|تسلم)(?:\s+يا\s+فندم)?[.!، ]*$/i;
+  const laterCustomerMessages = scopedMessages
+    .slice(totalQuestionIndex + 1, candidateIndex)
+    .filter((m) => m.isMeaningful && m.role === 'customer');
+  if (laterCustomerMessages.some((m) => !SAFE_WAITING_ACK_RX.test(m.text.trim()))) return null;
+
+  return Number(amountMatch[1]);
+}
+
 function extractAnnouncedTotal(
   scopedMessages: NormalizedConversationMessageV32[],
   summaryMessage: NormalizedConversationMessageV32,
@@ -431,10 +524,11 @@ function extractAnnouncedTotal(
     .filter((m) => m.timestamp.getTime() >= summaryMessage.timestamp.getTime())
     .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
   for (const m of candidates) {
-    const match = m.text.match(ANNOUNCED_TOTAL_RX);
-    if (!match) continue;
+    const explicitMatch = m.text.match(ANNOUNCED_TOTAL_RX);
+    const amount = explicitMatch ? Number(explicitMatch[1]) : contextualCompactTotal(scopedMessages, summaryMessage, m);
+    if (amount == null || !Number.isFinite(amount)) continue;
     return {
-      amount: Number(match[1]),
+      amount,
       currency: 'EGP',
       messageId: m.id,
       staffId: null,
@@ -447,7 +541,8 @@ function extractAnnouncedTotal(
 }
 
 function isFinalBasketSummary(message: NormalizedConversationMessageV32): boolean {
-  return message.role === 'staff' && message.isMeaningful && FINAL_BASKET_SUMMARY_MARKER_RX.test(message.text);
+  return message.role === 'staff' && message.isMeaningful &&
+    (FINAL_BASKET_SUMMARY_MARKER_RX.test(message.text) || NATURAL_FINAL_RECAP_RX.test(message.text));
 }
 
 function isStaffFinalConfirmation(message: NormalizedConversationMessageV32): boolean {
@@ -507,7 +602,11 @@ interface BuildCaseBasketsResult {
  * versions are never mutated — each is pushed once final and only ever gains a
  * `supersededByBasketId` pointer afterward.
  */
-export function buildCaseBaskets(caseId: string, scopedMessages: NormalizedConversationMessageV32[]): BuildCaseBasketsResult {
+export function buildCaseBaskets(
+  caseId: string,
+  scopedMessages: NormalizedConversationMessageV32[],
+  productIndex?: PharmacyProductIndex
+): BuildCaseBasketsResult {
   const messages = scopedMessages.slice().sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
   const baskets: CaseBasket[] = [];
   const itemsByBasketId: Record<string, CaseBasketItem[]> = {};
@@ -782,6 +881,13 @@ export function buildCaseBaskets(caseId: string, scopedMessages: NormalizedConve
           items.set(normalizeProductKey(item.productNameRaw), item);
           sourceMessageIds.push(message.id);
         });
+        if (newItems.length === 0 && productIndex) {
+          const direct = directCatalogMentionItem(message, productIndex);
+          if (direct) {
+            items.set(normalizeProductKey(direct.productNameRaw), direct);
+            sourceMessageIds.push(message.id);
+          }
+        }
       }
       return;
     }

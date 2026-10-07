@@ -163,6 +163,7 @@ export function buildCaseIntelligenceView(
     ...analysis.unavailableDemand.flatMap((d) => d.evidenceMessageIds),
     ...analysis.lostOpportunity.evidenceMessageIds,
     ...analysis.followUp.opportunities.flatMap((o) => o.evidenceMessageIds),
+    ...(analysis.financialSettlement?.primaryMessageIds ?? []),
   ]);
 
   return {
@@ -223,6 +224,7 @@ export function buildCaseIntelligenceView(
       isSaleCountable: salesOutcome.isSaleCountable,
       reasonCodes: salesOutcome.reasonCodes,
       contradictions: attribution.contradictions,
+      financialSettlement: analysis.financialSettlement ?? null,
     },
     unavailableDemand: analysis.unavailableDemand,
     lostOpportunity: analysis.lostOpportunity,

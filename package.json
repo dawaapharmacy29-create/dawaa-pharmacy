@@ -6,7 +6,7 @@
   "packageManager": "npm@10.9.2",
   "scripts": {
     "dev": "node scripts/patch-customer-followup-excel-pro.cjs && node scripts/run-customer-monthly-tabs.cjs && vite --configLoader runner",
-    "prebuild": "node scripts/patch-customer-followup-excel-pro.cjs && node scripts/run-customer-monthly-tabs.cjs && node scripts/enforce-invoice-branch-guard.cjs && node scripts/check-sales-truth-separation.cjs && node scripts/check-customer-cashback-safe-advanced.cjs && node scripts/check-points-v3-migration-order.cjs && node scripts/check-cleaning-governance-architecture.cjs && node scripts/check-attendance-payroll-readiness.cjs && node scripts/check-attendance-resolution-architecture.cjs && node scripts/check-payroll-attendance-eligibility.cjs && node scripts/check-payroll-adjustment-ledger.cjs && node scripts/check-payroll-atomic-settlement.cjs && node scripts/check-hr-canonical-hardening-v1.cjs && node scripts/check-payroll-transparency-v1.cjs && node scripts/check-hr-domain-boundary-v1.cjs && node scripts/check-monthly-evaluation-v5-architecture.cjs",
+    "prebuild": "node scripts/patch-customer-followup-excel-pro.cjs && node scripts/run-customer-monthly-tabs.cjs && node scripts/enforce-invoice-branch-guard.cjs && node scripts/check-sales-truth-separation.cjs && node scripts/check-customer-cashback-safe-advanced.cjs && node scripts/check-points-v3-migration-order.cjs && node scripts/check-cleaning-governance-architecture.cjs && node scripts/check-attendance-payroll-readiness.cjs && node scripts/check-attendance-resolution-architecture.cjs && node scripts/check-payroll-attendance-eligibility.cjs && node scripts/check-payroll-adjustment-ledger.cjs && node scripts/check-payroll-atomic-settlement.cjs && node scripts/check-hr-canonical-hardening-v1.cjs && node scripts/check-payroll-transparency-v1.cjs && node scripts/check-hr-domain-boundary-v1.cjs && node scripts/check-monthly-evaluation-v5-architecture.cjs && node scripts/build-sales-intelligence-refresh-api.cjs && node scripts/build-sales-intelligence-refresh-api.cjs --check",
     "build": "vite build --configLoader runner",
     "perf:budget": "node scripts/check-runtime-performance-budget.cjs",
     "analyze": "ANALYZE=true vite build --configLoader runner",
@@ -17,7 +17,7 @@
     "format": "prettier --write .",
     "doctor": "node scripts/doctor.cjs",
     "predeploy": "node scripts/doctor.cjs",
-    "test": "node scripts/run-tests.cjs",
+    "test": "node scripts/build-sales-intelligence-refresh-api.cjs && node scripts/build-sales-intelligence-refresh-api.cjs --check && node scripts/run-tests.cjs",
     "check": "npm run doctor && npm run typecheck && npm run build && npm run perf:budget",
     "test:integration": "vitest run src/lib/staff/__tests__/staffPerformanceProfileService.integration.ts",
     "vercel:install": "npm ci --legacy-peer-deps --no-audit --no-fund",

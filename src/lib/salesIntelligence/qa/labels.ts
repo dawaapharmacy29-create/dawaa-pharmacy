@@ -29,6 +29,11 @@ export const caseStatusLabels: Record<string, string> = {
   basket_building: 'جارٍ تكوين السلة',
   awaiting_customer_confirmation: 'بانتظار تأكيد العميل',
   customer_confirmed: 'تأكيد العميل تم',
+  sent_for_fulfillment: 'تم الإرسال للتنفيذ',
+  invoiced: 'تمت الفوترة / التسوية المالية',
+  delivered: 'تم التسليم',
+  lost: 'فرصة ضائعة',
+  cancelled: 'ملغى',
 };
 
 export const pipelineStatusLabels: Record<string, string> = {
@@ -151,6 +156,9 @@ export const reviewReasonLabels: Record<string, string> = {
   no_basket_state_for_case: 'لا توجد سلة لهذه الحالة',
   confirmation_protocol_incomplete: 'خطوات ناقصة في بروتوكول التأكيد (دلالة إجرائية فقط)',
   final_total_missing: 'لم يُعلن الموظف إجمالي حساب صريح (دلالة إجرائية فقط)',
+  'financial_settlement.payment_amount_conflicts_with_selected_invoice': 'مبلغ التسوية لا يطابق قيمة الفاتورة المختارة — يحتاج مراجعة مالية',
+  'financial_settlement.near_amount_requires_review': 'مبلغ التسوية قريب من قيمة الفاتورة لكنه غير مطابق تمامًا — يحتاج مراجعة مالية',
+  'financial_settlement.customer_identity_not_resolved': 'هوية العميل غير محسومة بما يكفي لاعتماد التسوية المالية',
   staff_final_confirmation_missing: 'لا يوجد تأكيد نهائي موثّق من الموظف (دلالة إجرائية فقط)',
   insufficient_evidence: 'أدلة غير كافية لاتخاذ قرار',
   invoice_candidates_ambiguous: 'مرشحو الفواتير غير حاسمين',

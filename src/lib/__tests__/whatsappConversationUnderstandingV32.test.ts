@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { parseWhatsAppExport, splitWhatsAppSessions } from '@/lib/whatsappConversationParser';
 import { buildConversationUnderstandingV32 } from '@/lib/whatsappConversationUnderstandingV32';
 
-function oneSession(raw: string) {
-  const sessions = splitWhatsAppSessions(parseWhatsAppExport(raw), 120);
+function oneSession(raw: string, gapMinutes = 120) {
+  const sessions = splitWhatsAppSessions(parseWhatsAppExport(raw), gapMinutes);
   expect(sessions.length).toBeGreaterThan(0);
   return sessions[0];
 }
@@ -99,6 +99,32 @@ describe('ConversationUnderstandingV32 (Shadow Mode, read-only, facts-only)', ()
     const understanding = buildConversationUnderstandingV32(session);
 
     expect(understanding.interactions).toHaveLength(1);
+  });
+
+  it('V8: keeps a delayed payment settlement handoff inside the fulfilled order interaction', () => {
+    const raw = `[9/27/26, 9:03:34 PM] Customer: لوسمحت كنت محتاجه علبتين لبن هيرو بيبي نيوتروني دفنس 3
+[9/27/26, 9:06:00 PM] You: جاري الارسال
+[9/28/26, 2:52:09 AM] You: اتفضل رقم التحويل يا فندم 01028308235 واستاذن حضرتك في صورة التحويل
+[9/28/26, 3:08:09 AM] Customer: الحساب كام من فضلك
+[9/28/26, 3:08:36 AM] You: 778 ان شاء الله
+[9/28/26, 3:09:45 AM] Customer: [Forwarded] <image omitted>
+[9/28/26, 3:10:40 AM] You: وصل شكرا جزيلا`;
+    const session = oneSession(raw, Number.MAX_SAFE_INTEGER);
+    const understanding = buildConversationUnderstandingV32(session);
+
+    expect(understanding.interactions).toHaveLength(1);
+    expect(understanding.interactions[0].messageIds).toHaveLength(7);
+  });
+
+  it('V8: does not use prior order commitment to absorb unrelated staff outreach after a long gap', () => {
+    const raw = `[9/27/26, 8:00:00 PM] Customer: عايز فيتامين د
+[9/27/26, 8:02:00 PM] You: جاري الإرسال
+[9/28/26, 2:52:00 AM] You: مساء الخير يا فندم، نتشرف بخدمة حضرتك`;
+    const session = oneSession(raw, Number.MAX_SAFE_INTEGER);
+    const understanding = buildConversationUnderstandingV32(session);
+
+    expect(understanding.interactions).toHaveLength(2);
+    expect(understanding.interactions[1].segmentationReason).toBe('time_gap');
   });
 
   it('V8: opens a new case only for an explicit non-additive commercial request after fulfillment', () => {

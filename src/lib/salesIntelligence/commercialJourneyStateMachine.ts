@@ -13,6 +13,7 @@ import type {
   ConfidenceLevel,
   CustomerNeedModel,
   EvidenceRef,
+  FinancialSettlementAssessment,
 } from './types';
 
 export interface DeriveCommercialJourneyStateInput {
@@ -21,6 +22,7 @@ export interface DeriveCommercialJourneyStateInput {
   customerNeed: CustomerNeedModel;
   commercialConfirmation: CommercialConfirmationAssessment;
   salesOutcome: CanonicalSalesOutcomeAssessment;
+  financialSettlement?: FinancialSettlementAssessment | null;
 }
 
 function ref(messageId: string, description: string): EvidenceRef {
@@ -38,6 +40,8 @@ const PROGRESSION: CommercialJourneyState[] = [
   'awaiting_customer_confirmation',
   'customer_confirmed',
   'awaiting_invoice',
+  'invoiced_unproven',
+  'financially_settled',
   'sale_proven',
 ];
 
@@ -47,6 +51,14 @@ export function deriveCommercialJourneyState(input: DeriveCommercialJourneyState
   const basketBuilt = input.customerNeed.products.some((p) => p.roles.includes('final_basket') || p.roles.includes('requested'));
   // Need decline is owned by the Customer Need model: rejecting an alternative is not declining the need.
   const declined = input.salesOutcome.outcome === 'customer_rejected' || input.customerNeed.needDeclined;
+  const financiallySettled =
+    input.financialSettlement?.status === 'settled' &&
+    input.salesOutcome.outcome === 'order_confirmed_unproven' &&
+    input.salesOutcome.reasonCodes.includes('outcome.financial_settlement_closed_sale_not_proven');
+  const invoiceBackedClosed =
+    input.salesOutcome.outcome === 'order_confirmed_unproven' &&
+    input.salesOutcome.reasonCodes.includes('outcome.invoice_backed_order_closed_sale_not_proven');
+  const operationallyClosed = financiallySettled || invoiceBackedClosed;
 
   const reached = new Set<CommercialJourneyState>();
   const evidenceIds = new Set<string>();
@@ -69,7 +81,12 @@ export function deriveCommercialJourneyState(input: DeriveCommercialJourneyState
   }
   if (input.commercialConfirmation.summaryPresented) reached.add('awaiting_customer_confirmation');
   if (input.commercialConfirmation.customerConfirmed) reached.add('customer_confirmed');
-  if (input.commercialConfirmation.staffConfirmed || input.salesOutcome.outcome === 'order_confirmed_unproven') {
+  if (financiallySettled) {
+    reached.add('financially_settled');
+    input.financialSettlement?.primaryMessageIds.forEach((id) => evidenceIds.add(id));
+  } else if (invoiceBackedClosed) {
+    reached.add('invoiced_unproven');
+  } else if (input.commercialConfirmation.staffConfirmed || input.salesOutcome.outcome === 'order_confirmed_unproven') {
     reached.add('awaiting_invoice');
   }
   input.commercialConfirmation.primaryMessageIds.forEach((id) => evidenceIds.add(id));
@@ -87,6 +104,19 @@ export function deriveCommercialJourneyState(input: DeriveCommercialJourneyState
     currentState = 'sale_proven';
     reasonCodes.push('journey.sale_proven_only_from_canonical_outcome');
     confidence = assess('proven', 1, reasonCodes[0]);
+  } else if (financiallySettled) {
+    currentState = 'financially_settled';
+    reasonCodes.push('journey.financial_settlement_closed_order_sale_proof_pending');
+    confidence = {
+      level: 'strongly_inferred',
+      score: Math.max(0.95, input.financialSettlement?.confidence.score ?? 0),
+      ruleIds: [reasonCodes[0]],
+      evidence: input.financialSettlement?.confidence.evidence ?? [],
+    };
+  } else if (invoiceBackedClosed) {
+    currentState = 'invoiced_unproven';
+    reasonCodes.push('journey.invoice_backed_order_closed_sale_proof_pending');
+    confidence = assess('strongly_inferred', 0.95, reasonCodes[0]);
   } else if (declined) {
     currentState = 'customer_declined';
     reasonCodes.push('journey.customer_declined_from_customer_evidence');
@@ -101,7 +131,13 @@ export function deriveCommercialJourneyState(input: DeriveCommercialJourneyState
   } else {
     for (const state of PROGRESSION) if (reached.has(state)) currentState = state;
     const states: Partial<Record<CommercialJourneyState, [string, ConfidenceLevel, number]>> = {
-      awaiting_invoice: ['journey.order_confirmed_sale_not_yet_proven', 'strongly_inferred', 0.9],
+      awaiting_invoice: [
+        input.salesOutcome.reasonCodes.includes('outcome.financial_settlement_closed_sale_not_proven')
+          ? 'journey.financial_settlement_closed_canonical_sale_proof_pending'
+          : 'journey.order_confirmed_sale_not_yet_proven',
+        'strongly_inferred',
+        0.9,
+      ],
       customer_confirmed: ['journey.customer_confirmed_waiting_staff_or_invoice', 'strongly_inferred', 0.85],
       awaiting_customer_confirmation: ['journey.final_basket_presented_waiting_customer', 'strongly_inferred', 0.8],
       basket_building: ['journey.basket_evidence_present', 'strongly_inferred', 0.75],
@@ -131,7 +167,7 @@ export function deriveCommercialJourneyState(input: DeriveCommercialJourneyState
     confidence,
     reviewRequired:
       input.salesOutcome.needsHumanReview ||
-      (input.salesOutcome.outcome !== 'sale_proven' && input.customerNeed.needsHumanReview) ||
+      (!operationallyClosed && input.salesOutcome.outcome !== 'sale_proven' && input.customerNeed.needsHumanReview) ||
       input.salesOutcome.outcome === 'needs_review',
   };
 }

@@ -153,6 +153,25 @@ export function deriveLostOpportunity(input: DeriveLostOpportunityInput): LostOp
   if (salesOutcome.outcome === 'sale_proven') {
     // Rule 1: Sale Proof is the only route to `won`; product-level losses are still reported below.
     v = verdict('won', null, 'none', null, 'proven', 1, 'won.canonical_sale_proven', []);
+  } else if (
+    salesOutcome.outcome === 'order_confirmed_unproven' &&
+    (journeyState.currentState === 'financially_settled' || journeyState.currentState === 'invoiced_unproven')
+  ) {
+    // The order is operationally closed by either exact invoice-backed payment settlement OR a
+    // clean official invoice whose amount exactly matches the completed confirmed order. This is
+    // NOT `won`: official sale/revenue counting still belongs exclusively to canonical Sale Proof.
+    v = verdict(
+      'closed_order_unproven',
+      null,
+      'none',
+      null,
+      'strongly_inferred',
+      0.95,
+      journeyState.currentState === 'financially_settled'
+        ? 'closed.financial_settlement_sale_proof_pending'
+        : 'closed.invoice_backed_order_sale_proof_pending',
+      journeyState.evidenceMessageIds
+    );
   } else if (!hasCommercialNeed) {
     v = verdict('no_commercial_opportunity', null, 'none', null, 'strongly_inferred', 0.85, 'no_commercial_opportunity.no_customer_need', []);
   } else if (has('bought_elsewhere').length) {

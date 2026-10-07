@@ -28,6 +28,7 @@ import type {
   UnavailableDemand,
   LostOpportunityAssessment,
   FollowUpAssessment,
+  FinancialSettlementAssessment,
   CaseIntelligenceView,
   CommercialJourneyStateAssessment,
   ConfidenceLevel,
@@ -218,6 +219,8 @@ export interface SalesIntelligenceCaseAnalysisRow extends CaseAnalysisProvenance
     protocolApplicabilityRuleIds: string[];
     /** Durable canonical commercial verdict produced by the same analysis run; never re-derived by readers. */
     canonicalSalesOutcome: CanonicalSalesOutcomeAssessment;
+    /** Invoice-backed payment reconciliation from this exact analysis run; optional for older rows. */
+    financialSettlement?: FinancialSettlementAssessment;
   };
 }
 

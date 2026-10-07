@@ -70,7 +70,7 @@ function ordered(view:CaseIntelligenceView){
 }
 
 function completed(view:CaseIntelligenceView):boolean{
-  if(['sale_proven','awaiting_invoice','customer_declined','information_only'].includes(view.journey.currentState)) return true;
+  if(['sale_proven','financially_settled','awaiting_invoice','customer_declined','information_only'].includes(view.journey.currentState)) return true;
   return view.lostOpportunity.state==='lost' && view.lostOpportunity.recoverability==='none';
 }
 

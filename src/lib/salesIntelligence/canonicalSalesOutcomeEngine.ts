@@ -2,6 +2,7 @@ import type {
   CanonicalSalesOutcomeAssessment,
   CaseType,
   CommercialConfirmationState,
+  FinancialSettlementAssessment,
 } from './types';
 import type { SaleProofAssessment } from './saleProofState';
 
@@ -13,6 +14,9 @@ export interface CanonicalSalesOutcomeInput {
     customerConfirmed: boolean;
   };
   saleProof: SaleProofAssessment;
+  financialSettlement?: FinancialSettlementAssessment;
+  /** Exact, clean, official invoice attribution + exact announced-total match after complete order confirmation. */
+  invoiceBackedOrderClosure?: boolean;
   hasMeaningfulBasketItems: boolean;
   needsHumanReview: boolean;
 }
@@ -32,6 +36,8 @@ export function deriveCanonicalSalesOutcome(
     caseType,
     commercialConfirmation,
     saleProof,
+    financialSettlement,
+    invoiceBackedOrderClosure,
     hasMeaningfulBasketItems,
     needsHumanReview,
   } = input;
@@ -50,6 +56,21 @@ export function deriveCanonicalSalesOutcome(
       isRevenueCountable: false,
       isOrderConfirmed: false,
       reasonCodes: ['outcome.information_only'],
+    };
+  }
+
+  // `mixed` is reserved by the Conversation Case Engine for unresolved independent requests that
+  // still occupy one analytical interaction. Payment or one invoice may belong to ONE of those
+  // requests, but cannot safely close/count the whole mixed case. Resolve/split first, then rerun.
+  if (caseType === 'mixed') {
+    return {
+      ...base,
+      needsHumanReview: true,
+      outcome: 'needs_review',
+      isSaleCountable: false,
+      isRevenueCountable: false,
+      isOrderConfirmed: false,
+      reasonCodes: ['outcome.independent_multiple_requests_require_review'],
     };
   }
 
@@ -85,6 +106,28 @@ export function deriveCanonicalSalesOutcome(
       isRevenueCountable: false,
       isOrderConfirmed: false,
       reasonCodes: ['outcome.customer_rejected'],
+    };
+  }
+
+  if (financialSettlement?.status === 'settled') {
+    return {
+      ...base,
+      outcome: 'order_confirmed_unproven',
+      isSaleCountable: false,
+      isRevenueCountable: false,
+      isOrderConfirmed: true,
+      reasonCodes: ['outcome.financial_settlement_closed_sale_not_proven'],
+    };
+  }
+
+  if (invoiceBackedOrderClosure) {
+    return {
+      ...base,
+      outcome: 'order_confirmed_unproven',
+      isSaleCountable: false,
+      isRevenueCountable: false,
+      isOrderConfirmed: true,
+      reasonCodes: ['outcome.invoice_backed_order_closed_sale_not_proven'],
     };
   }
 
