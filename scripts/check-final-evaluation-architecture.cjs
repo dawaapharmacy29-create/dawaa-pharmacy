@@ -12,6 +12,7 @@ const salesBundleCache=read('src/lib/evaluations/performanceSalesBundleCache.ts'
 const headerSalesV3Migration=read('supabase/migrations/20261006033000_staff_evaluation_sales_summary_v3.sql');
 const performanceService=read('src/lib/evaluations/doctorPerformanceIntelligenceService.ts');
 const performanceEye=read('src/components/evaluations/DoctorPerformanceEye.tsx');
+const performanceVerdict=read('src/lib/evaluations/doctorPerformanceVerdict.ts');
 const performanceBundleFreshnessMigration=read('supabase/migrations/20261007090000_performance_sales_bundle_v1_freshness_index.sql');
 const performanceScope=read('src/lib/performance/performanceScope.ts');
 const report=read('src/lib/reports/monthlyPerformance360Service.ts');
@@ -72,6 +73,10 @@ const required=[
  [headerService,'getEvaluationHeaderSales(args.staffId,args.start,args.endExclusive)','header sales RPC must receive the exclusive cycle end, not the inclusive last day'],
  [performanceService,'describeSourceError','performance eye must surface the real source failure instead of a vague unavailable state'],
  [performanceService,'loadDoctorPerformanceEvidence','performance eye drill-down must read through the service boundary'],
+ [performanceEye,'buildDoctorPerformanceVerdict','performance eye must open on the decision summary, not the full report'],
+ [performanceEye,'hidden={!detailsOpen}','performance eye details must stay collapsed until requested'],
+ [evalPage,'conversation={coaching?.conversation ?? null}','performance eye must reuse the page conversation evidence instead of a parallel reader'],
+ [performanceVerdict,"header?.attendance.state === 'available'",'performance eye discipline must come from the canonical evaluation header attendance'],
  [performanceEye,'hasSourceFailure','performance eye must retry a result with failed sources instead of pinning it'],
  [performanceEye,'invalidatePerformanceSalesBundleCache','performance eye reload must bypass the shared sales bundle cache'],
  [performanceBundleFreshnessMigration,"(select max(si.invoice_date) from public.sales_invoices si",'performance sales bundle freshness must stay an index-friendly scalar max'],
@@ -93,6 +98,7 @@ const required=[
  [evalPage,'role: selected.job_title || selected.role','monthly evidence must receive canonical employee role scope'],
 ];
 for(const [body,token,msg] of required)if(!body.includes(token))failures.push(msg);
+if(/ممتاز|يحتاج تدخل|\bscore\s*:/.test(performanceVerdict.replace(/\/\*[\s\S]*?\*\//g,'')))failures.push('performance eye verdict must stay an evidence reading, never a parallel evaluation grade');
 if(performanceEye.includes("supabase.from("))failures.push('performance eye UI must not query tables directly; use the performance service boundary');
 if(/range\.(start|endExclusive)\.toISOString\(\)/.test(performanceEye+performanceService))failures.push('cycle date keys must come from evaluationCycleDateKeys, not Date#toISOString (Cairo day shift)');
 if(headerService.includes('getStaffCycleSales'))failures.push('evaluation header must not fall back to legacy heavy staff cycle sales truth');
