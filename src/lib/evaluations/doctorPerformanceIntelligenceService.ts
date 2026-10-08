@@ -130,7 +130,7 @@ async function customerImpactWindow(staffId:string,start:string,endExclusive:str
   return {rows:(data||[]) as DoctorCycleImpactRow[],available:!error,error:describeSourceError(error,'أثر العملاء')};
 }
 
-function aggregateImpact(rows:DoctorCycleImpactRow[],available:boolean):DoctorCustomerImpact{
+export function aggregateImpactEvidence(rows:DoctorCycleImpactRow[],available:boolean):DoctorCustomerImpact{
   // A successful read with no cycle rows is not evidence of zero customer impact.
   // Keep all derived metrics unknown until a canonical staff/cycle row exists.
   if(!available || rows.length===0) return {available:false,commercialConversations:null,verifiedSaleConversations:null,verifiedRevenue:null,verifiedConversionRate:null,followupsNeeded:null,complaints:null,saleLeakage:null,unavailableProducts:null,acceptedProducts:null};
@@ -322,7 +322,7 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
     const hours=coverage==='not_applicable'||attendance.error?null:attendanceRows.reduce((s,r)=>s+n(r.payroll_eligible_hours ?? r.total_hours),0);
     const conv=coverage==='not_applicable'||conversations.error?null:conversationRows.length;
     const converted=coverage==='not_applicable'||conversations.error?null:conversationRows.filter(r=>r.converted_to_sale===true).length;
-    const customerImpact=aggregateImpact(impact.rows,impact.available);
+    const customerImpact=aggregateImpactEvidence(impact.rows,impact.available);
 
     const comparisonReady=coverage==='available'&&confidence!=='low'&&hasCoreEvidence;
     const comparisonMode:DoctorPerformanceMonth['comparisonMode']=comparisonReady?(cycleClosed?'full_cycle':'same_period'):'blocked';
