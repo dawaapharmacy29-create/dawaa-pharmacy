@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   deriveDoctorPerformanceActions,
   describeSourceError,
+  aggregateImpactEvidence,
   type DoctorPerformanceDiagnosis,
   type DoctorPerformanceMonth,
 } from '@/lib/evaluations/doctorPerformanceIntelligenceService';
@@ -60,5 +61,23 @@ describe('doctor performance eye actions', () => {
     const actions = deriveDoctorPerformanceActions(month([{ kind: 'data_quality', severity: 'watch', title: 'x', detail: '', evidence: [] }]));
     expect(actions.length).toBe(1);
     expect(actions[0].owner).toBe('manager');
+  });
+});
+
+
+describe('customer impact evidence is not fabricated from missing cycle rows', () => {
+  it('does not turn a successful empty lookup into zero sales or zero complaints', () => {
+    const result = aggregateImpactEvidence([], true);
+    expect(result.available).toBe(false);
+    expect(result.commercialConversations).toBeNull();
+    expect(result.verifiedSaleConversations).toBeNull();
+    expect(result.complaints).toBeNull();
+  });
+
+  it('preserves genuine zero counts when a canonical cycle row exists', () => {
+    const result = aggregateImpactEvidence([{ commercial_conversations: 0, verified_sale_conversations: 0, complaint_conversations: 0 }], true);
+    expect(result.available).toBe(true);
+    expect(result.commercialConversations).toBe(0);
+    expect(result.complaints).toBe(0);
   });
 });
