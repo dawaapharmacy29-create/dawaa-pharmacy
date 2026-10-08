@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import type { WhatsAppCustomerJourneyIntelligenceV15 } from './whatsappCustomerJourneyIntelligenceV15';
 import { syncPersistentCustomerStoryV16 } from './whatsappCustomerStoryV16';
+import { linkWhatsAppEvidenceJourneyV17 } from './whatsappEvidenceJourneyLinkV17';
 
 // Journey V15 (+ Story V16, evidence links) is a SIDE PROJECTION of the canonical chain
 //   Source -> Customer Case V22 -> Sales Intelligence.
@@ -178,16 +179,13 @@ export async function syncWhatsAppCustomerJourneyV15(
     warnings.push(`Story V16: ${storyStatus.error}`);
   }
 
-  try {
-    const { error: evidenceLinkError } = await supabase.rpc('dawaa_link_whatsapp_evidence_journey_v17', {
-      p_journey_id: journey.id,
-      p_story_id: story?.storyId || null,
-      p_source_ids: sourceIds,
-    });
-    if (evidenceLinkError) throw evidenceLinkError;
-  } catch (evidenceLinkError) {
-    warnings.push(`Evidence V17 link: ${errorText(evidenceLinkError)}`);
-  }
+  // Only sources that are sessions of this journey are linked; the command re-checks membership.
+  const evidenceLink = await linkWhatsAppEvidenceJourneyV17({
+    journeyId: String(journey.id),
+    storyId: story?.storyId || null,
+    sourceIds: [String(journey.root_source_id), ...linkRows.map((row) => row.source_id)],
+  });
+  if (evidenceLink.status === 'failed') warnings.push(`Evidence V17 link: ${evidenceLink.error}`);
 
   return {
     journeyId: String(journey.id),

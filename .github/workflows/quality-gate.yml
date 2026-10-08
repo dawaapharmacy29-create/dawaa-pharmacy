@@ -70,6 +70,9 @@ jobs:
       - name: Database authorization architecture boundary
         run: node scripts/check-db-authorization-architecture.cjs
 
+      - name: WhatsApp Evidence link staff-session boundary
+        run: node scripts/check-whatsapp-evidence-link-session.cjs
+
       - name: Customer Request shortage command boundary
         run: node scripts/check-customer-request-shortage-command.cjs
 
