@@ -6,6 +6,8 @@ import {
   sourceProblem,
   type DecisionSourceDiagnostic,
   type DiagnosticSink,
+  UserFacingError,
+  userFacingMessage,
 } from '@/lib/evaluations/decisionSourceState';
 import {
   buildDoctorDecision,
@@ -188,5 +190,46 @@ describe('decision source state — end to end through the Eye decision builder'
     expect(decision.availability).toBe('failed');
     expect(decision.decision).toBe(null);
     expectPlain(JSON.stringify(decision));
+  });
+});
+
+describe('doctor eye — no technical text can reach the screen', () => {
+  const TECHNICAL_ERRORS: unknown[] = [
+    PGRST202,
+    { code: 'PGRST205', message: "Could not find the table 'public.whatsapp_doctor_cycle_intelligence_v1' in the schema cache" },
+    { code: '42883', message: 'function public.helper(uuid) does not exist', hint: 'No function matches the given name and argument types.' },
+    { code: '42P01', message: 'relation "public.attendance_logs" does not exist' },
+    { code: '57014', message: 'canceling statement due to statement timeout' },
+    { code: '42501', message: 'permission denied for function get_staff_performance_sales_bundle_v1' },
+    { code: 'XX000', message: 'internal error: could not open relation with OID 16384' },
+    { message: 'staff_sales_branch_scope_denied' },
+    { message: 'column sales_invoices.net_total does not exist' },
+    new TypeError('Failed to fetch'),
+    'canceling statement due to statement timeout',
+  ];
+  const quiet = { warn: () => undefined, error: () => undefined };
+  const RAW = [/PGRST\d/, /\b[0-9A-Z]{5}\b/, /schema cache/i, /does not exist/i, /relation|column|function public\./i, /permission denied/i, /statement timeout/i, /OID/, /_v\d\b/, /scope_denied/, /Failed to fetch/];
+
+  it('maps every technical error to a plain reason while keeping the original in the diagnostic', () => {
+    for (const error of TECHNICAL_ERRORS) {
+      const result = sourceProblem(error, 'المبيعات', 'sales', quiet);
+      expect(['not_enabled', 'failed'].includes(result.status)).toBe(true);
+      for (const pattern of RAW) expect(pattern.test(String(result.reason))).toBe(false);
+      expect(result.diagnostic === null).toBe(false);
+    }
+  });
+
+  it('shows a thrown UserFacingError as-is', () => {
+    expect(userFacingMessage(new UserFacingError('تعذر تحميل مصدر «رحلات الأصناف» حاليًا.'), 'بديل', 'evidence', quiet)).toBe('تعذر تحميل مصدر «رحلات الأصناف» حاليًا.');
+  });
+
+  it('replaces any other exception with generic text and logs the original', () => {
+    const { sink, errors } = recordingSink();
+    const shown = userFacingMessage(new Error('PGRST202: Could not find the function public.x'), 'تعذر بناء التحليل الآن.', 'load', sink);
+    expect(shown).toBe('تعذر بناء التحليل الآن.');
+    expect(errors.length).toBe(1);
+    expect(errors[0].source).toBe('doctor-eye:load');
+    expect(errors[0].error.message).toContain('PGRST202');
+    expect(userFacingMessage('plain string failure', 'بديل', 'load', quiet)).toBe('بديل');
   });
 });

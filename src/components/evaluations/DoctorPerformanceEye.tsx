@@ -16,7 +16,7 @@ import type { EvaluationHeaderSummary } from '@/lib/evaluations/employeeEvaluati
 import type { MonthlyConversationCoaching } from '@/lib/staff/employeeMonthlyEvidenceService';
 import { buildDoctorDecision, invalidateDoctorDecisionData, loadDoctorDecisionSources, type DoctorDecisionSources } from '@/lib/evaluations/doctorDecisionDataService';
 import { SCOPE_LABEL, TREND_LABEL, type DecisionIntelligence, type Severity } from '@/lib/evaluations/doctorDecisionIntelligence';
-import { SOURCE_STATUS_LABEL } from '@/lib/evaluations/decisionSourceState';
+import { SOURCE_STATUS_LABEL, userFacingMessage } from '@/lib/evaluations/decisionSourceState';
 
 const DoctorDecisionChart = lazy(() => import('@/components/evaluations/DoctorDecisionChart'));
 const SEVERITY_LABEL: Record<Severity, string> = { critical: 'حرجة', high: 'عالية', medium: 'متوسطة', low: 'منخفضة' };
@@ -32,20 +32,21 @@ const pct = (v: number | null) => v === null ? UNAVAILABLE : `${fmt(v, 1)}%`;
 const delta = (a: number | null | undefined, b: number | null | undefined) => a === null || a === undefined || b === null || b === undefined || b === 0 ? null : ((a - b) / Math.abs(b)) * 100;
 const coverageLabel = (c: DoctorPerformanceMonth['coverage']) => c === 'available' ? 'تغطية كاملة' : c === 'partial' ? 'تغطية جزئية' : c === 'not_applicable' ? 'قبل أول دليل' : 'غير متاح';
 const confidenceLabel = (c: DoctorPerformanceMonth['confidence']) => c === 'high' ? 'ثقة عالية' : c === 'medium' ? 'ثقة متوسطة' : 'ثقة منخفضة';
-const sourceStatusLabel = (s: PerformanceSourceHealth['status']) => s === 'available' ? 'متاح' : s === 'partial' ? 'جزئي' : 'غير متاح';
+const SOURCE_STATE_LABEL: Record<PerformanceSourceHealth['state'], string> = { available: 'متاح', partial: 'جزئي', insufficient: 'بيانات غير كافية', not_enabled: 'لم يُفعَّل بعد', failed: 'تعذر التحميل' };
 const severityRank = { attention: 0, watch: 1, positive: 2 } as const;
 
 type Tone = 'success' | 'warning' | 'danger' | 'info' | 'neutral';
 const toneStyle = (tone: Tone) => tone === 'neutral'
   ? { color: 'var(--dawaa-theme-muted)', background: 'var(--dawaa-theme-soft)', borderColor: 'var(--dawaa-theme-border)' }
   : { color: `var(--dawaa-status-${tone}-text)`, background: `var(--dawaa-status-${tone}-bg)`, borderColor: `var(--dawaa-status-${tone}-border)` };
-const statusTone = (s: PerformanceSourceHealth['status']): Tone => s === 'available' ? 'success' : s === 'partial' ? 'warning' : 'danger';
+const stateTone = (s: PerformanceSourceHealth['state']): Tone => s === 'available' ? 'success' : s === 'failed' ? 'danger' : s === 'not_enabled' ? 'info' : 'warning';
 const severityTone = (s: DoctorPerformanceDiagnosis['severity']): Tone => s === 'attention' ? 'danger' : s === 'positive' ? 'success' : 'warning';
 const severityLabel = (s: DoctorPerformanceDiagnosis['severity']) => s === 'attention' ? 'مشكلة' : s === 'positive' ? 'نقطة قوة' : 'للمراجعة';
 const focusForDiagnosis = (d: DoctorPerformanceDiagnosis): EvidenceFocus => d.kind === 'conversion' ? 'conversion' : d.kind === 'opportunity' ? 'opportunity' : d.kind === 'customer_impact' && d.severity === 'watch' ? 'availability' : 'all';
 
+/** Only a real (or partial) read failure is worth re-requesting; "not enabled" and "insufficient" are stable answers. */
 function hasSourceFailure(data: DoctorPerformanceIntelligence) {
-  return Object.values(data.sources).some(source => source.status !== 'available');
+  return Object.values(data.sources).some(source => source.state === 'failed' || source.state === 'partial');
 }
 
 function Chip({ tone = 'neutral', children, title }: { tone?: Tone; children: ReactNode; title?: string }) {
@@ -122,7 +123,7 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
       const value = await loadDoctorPerformanceIntelligence({ staffId, staffName, cycleLabel });
       if (requestRef.current === requestId) setData(value);
     } catch (e) {
-      if (requestRef.current === requestId) { setData(null); setError(e instanceof Error ? e.message : 'تعذر تحميل أداء الدكتور'); }
+      if (requestRef.current === requestId) { setData(null); setError(userFacingMessage(e, 'تعذر بناء التحليل الآن؛ أعد المحاولة بعد قليل.', 'load')); }
     } finally {
       if (requestRef.current === requestId) setLoading(false);
     }
@@ -144,7 +145,7 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
       const value = await loadDoctorPerformanceEvidence({ staffId, cycleLabel });
       if (requestRef.current === requestId) setEvidence(value);
     } catch (e) {
-      if (requestRef.current === requestId) setEvidenceError(e instanceof Error ? e.message : 'تعذر تحميل الأدلة التفصيلية');
+      if (requestRef.current === requestId) setEvidenceError(userFacingMessage(e, 'تعذر تحميل الأدلة التفصيلية الآن؛ أعد المحاولة.', 'evidence'));
     } finally {
       if (requestRef.current === requestId) setEvidenceLoading(false);
     }
@@ -160,9 +161,10 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
     snap ? delta(sameCurrent, samePrevious) : fullCycleFair ? delta(fullCurrent, fullPrevious) : null;
   const otherDelta = (a: number | null, b: number | null | undefined) => fullCycleFair ? delta(a, b) : null;
   const otherNote = snap ? 'لا مقارنة عادلة أثناء الدورة' : null;
-  const salesReason = data?.sources.sales.error || null;
+  const salesReason = data?.sources.sales.reason || null;
   const insights = cur ? [...cur.diagnoses].sort((a, b) => severityRank[a.severity] - severityRank[b.severity]).slice(0, 5) : [];
-  const failedSources = data ? ([['المبيعات', data.sources.sales], ['الحضور', data.sources.attendance], ['المحادثات', data.sources.conversations], ['أثر العملاء', data.sources.customerImpact]] as const).filter(([, s]) => s.status !== 'available') : [];
+  const failedSources = data ? ([['المبيعات', data.sources.sales], ['الحضور', data.sources.attendance], ['المحادثات', data.sources.conversations], ['أثر العملاء', data.sources.customerImpact]] as const).filter(([, s]) => s.state !== 'available') : [];
+  const sourcesRetryable = failedSources.some(([, s]) => s.state === 'failed' || s.state === 'partial');
   const conversations = evidence?.conversations || [], products = evidence?.products || [];
   const visibleConversations = evidenceFocus === 'opportunity' ? conversations.filter(item => item.followup_required || item.invoice_match_status !== 'verified') : evidenceFocus === 'conversion' ? conversations : evidenceFocus === 'availability' ? [] : conversations;
   const visibleProducts = evidenceFocus === 'opportunity' ? products.filter(item => Boolean(item.leakage_reason) || Boolean(item.next_action)) : evidenceFocus === 'availability' ? products.filter(item => String(item.current_stage || '').toLowerCase().includes('unavailable') || String(item.leakage_reason || '').toLowerCase().includes('unavailable') || String(item.leakage_reason || '').includes('غير متاح')) : products;
@@ -177,6 +179,9 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
   const ready = decision && decision.availability === 'ready' && decision.decision ? decision : null;
   const decisionSourceIssues = decisionSources ? ([['مقارنة الفرع', decisionSources.branch], ['مراجعات الفرع', decisionSources.reviews], ['التقييم السابق', decisionSources.previousEvaluation]] as const).filter(([, x]) => x.status !== 'available') : [];
   const anyDecisionFailure = decisionSourceIssues.some(([, x]) => x.status === 'failed');
+  // A recommendation comes only from a ready comparison or a documented problem; the routine default is shown
+  // only when every individual source is complete.
+  const suggestedAction = ready?.decision.action || verdict?.action?.text || (verdict?.evidenceComplete ? 'استمرار المتابعة المعتادة' : null);
   const indicatorTone = (state: string): Tone => ['improving', 'above', 'consistent'].includes(state) ? 'success' : ['declining', 'below', 'gaps'].includes(state) ? 'warning' : 'neutral';
 
   return <>
@@ -210,12 +215,12 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
               <button type="button" onClick={() => void load(true)} className="mt-3 inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-black" style={{ borderColor: 'currentColor' }}><RefreshCw size={14} /> إعادة المحاولة</button>
             </div>
           : cur && prev && data ? <>
-            {failedSources.length ? <div className="mt-4 rounded-xl border p-3 text-[12px] font-bold" style={toneStyle(failedSources.some(([, s]) => s.status === 'unavailable') ? 'danger' : 'warning')}>
+            {failedSources.length ? <div className="mt-4 rounded-xl border p-3 text-[12px] font-bold" style={toneStyle(failedSources.some(([, s]) => s.state === 'failed') ? 'danger' : failedSources.some(([, s]) => s.state === 'partial' || s.state === 'insufficient') ? 'warning' : 'info')} data-testid="eye-source-status">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2 font-black"><AlertTriangle size={16} /> مصادر لم تكتمل — الأرقام المرتبطة بها محجوبة وليست صفرًا</div>
-                <button type="button" onClick={() => void load(true)} disabled={loading} className="inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] font-black disabled:opacity-50" style={{ borderColor: 'currentColor' }}><RefreshCw size={13} className={loading ? 'animate-spin' : undefined} /> إعادة تحميل</button>
+                {sourcesRetryable ? <button type="button" onClick={() => void load(true)} disabled={loading} className="inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] font-black disabled:opacity-50" style={{ borderColor: 'currentColor' }}><RefreshCw size={13} className={loading ? 'animate-spin' : undefined} /> إعادة تحميل</button> : null}
               </div>
-              <ul className="mt-2 space-y-1">{failedSources.map(([name, s]) => <li key={name} className="break-words">• {name} ({sourceStatusLabel(s.status)}): {s.error || 'سبب غير معروف'}</li>)}</ul>
+              <ul className="mt-2 space-y-1">{failedSources.map(([name, s]) => <li key={name} className="break-words">• {name} ({SOURCE_STATE_LABEL[s.state]}): {s.reason || 'المصدر غير متاح حاليًا.'}</li>)}</ul>
             </div> : null}
 
             {decisionSourceIssues.length || decision?.availability === 'insufficient' ? <div className="mt-3 rounded-xl border p-3 text-[12px] font-bold" style={toneStyle(anyDecisionFailure ? 'warning' : 'info')} data-testid="decision-source-status">
@@ -248,7 +253,7 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
                   <div className="mt-1 text-[13px] font-bold leading-6" style={{ color: 'var(--dawaa-theme-heading)' }}>{ready ? (ready.summary.problem || <span style={{ color: 'var(--dawaa-theme-muted)' }}>لا توجد مشكلة موثقة تتجاوز الحدود.</span>) : verdict?.problem?.text || <span style={{ color: 'var(--dawaa-theme-muted)' }}>لا توجد مشكلة موثقة.</span>}</div>
                 </div>
               </div>
-              <div className="mt-3 flex items-start gap-2 text-[13px] font-bold leading-6"><Target size={16} className="mt-1 shrink-0" style={{ color: 'var(--dawaa-theme-primary-strong)' }} /><span><span className="font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>القرار المقترح: </span><span style={{ color: 'var(--dawaa-theme-heading)' }}>{ready?.decision.action || verdict?.action?.text || 'استمرار المتابعة المعتادة'}</span></span></div>
+              <div className="mt-3 flex items-start gap-2 text-[13px] font-bold leading-6"><Target size={16} className="mt-1 shrink-0" style={{ color: 'var(--dawaa-theme-primary-strong)' }} /><span><span className="font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>القرار المقترح: </span><span style={{ color: 'var(--dawaa-theme-heading)' }}>{suggestedAction || <span style={{ color: 'var(--dawaa-theme-muted)' }}>لا توجد توصية قبل اكتمال المصادر؛ لا يُبنى قرار على مصدر ناقص.</span>}</span></span></div>
             </section>
 
             {/* 2. Three smart indicators */}
@@ -338,9 +343,9 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
                 <Kpi label="الفواتير" value={fmt(cur.invoices)} deltaValue={salesDelta(cur.invoices, prev.invoices, snap?.invoices, snap?.previousInvoices)} deltaNote={null} unavailableReason={salesReason} />
                 <Kpi label="العملاء" value={fmt(cur.customers)} deltaValue={salesDelta(cur.customers, prev.customers, snap?.customers, snap?.previousCustomers)} deltaNote={null} unavailableReason={salesReason} />
                 <Kpi label="متوسط الفاتورة" value={money(cur.averageInvoice === null ? null : Math.round(cur.averageInvoice))} deltaValue={salesDelta(cur.averageInvoice, prev.averageInvoice, snap?.averageInvoice, snap?.previousAverageInvoice)} deltaNote={null} unavailableReason={salesReason} />
-                <Kpi label="ساعات العمل" value={cur.workedHours === null ? UNAVAILABLE : `${fmt(cur.workedHours, 1)} س`} deltaValue={otherDelta(cur.workedHours, prev.workedHours)} deltaNote={otherNote} unavailableReason={data.sources.attendance.error} />
-                <Kpi label="مبيعات/ساعة" value={cur.salesPerHour === null ? UNAVAILABLE : `${fmt(cur.salesPerHour)} ج`} deltaValue={otherDelta(cur.salesPerHour, prev.salesPerHour)} deltaNote={otherNote} unavailableReason={salesReason || data.sources.attendance.error} />
-                <Kpi label="Conversion" value={pct(cur.conversionRate)} deltaValue={otherDelta(cur.conversionRate, prev.conversionRate)} deltaNote={otherNote} unavailableReason={data.sources.conversations.error} />
+                <Kpi label="ساعات العمل" value={cur.workedHours === null ? UNAVAILABLE : `${fmt(cur.workedHours, 1)} س`} deltaValue={otherDelta(cur.workedHours, prev.workedHours)} deltaNote={otherNote} unavailableReason={data.sources.attendance.reason} />
+                <Kpi label="مبيعات/ساعة" value={cur.salesPerHour === null ? UNAVAILABLE : `${fmt(cur.salesPerHour)} ج`} deltaValue={otherDelta(cur.salesPerHour, prev.salesPerHour)} deltaNote={otherNote} unavailableReason={salesReason || data.sources.attendance.reason} />
+                <Kpi label="Conversion" value={pct(cur.conversionRate)} deltaValue={otherDelta(cur.conversionRate, prev.conversionRate)} deltaNote={otherNote} unavailableReason={data.sources.conversations.reason} />
               </div>
             </Section>
 
@@ -433,7 +438,7 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
               <div className="overflow-hidden rounded-xl border" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
                 {([['المبيعات', data.sources.sales], ['الحضور', data.sources.attendance], ['المحادثات', data.sources.conversations]] as const).map(([name, s], index) => <div key={name} className={`grid grid-cols-2 gap-x-3 gap-y-1 p-2 text-[11px] font-bold sm:grid-cols-[minmax(0,1fr)_auto_auto_auto_auto] sm:items-center ${index ? 'border-t' : ''}`} style={{ borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-theme-muted)' }}>
                   <span className="flex items-center gap-1 font-black" style={{ color: 'var(--dawaa-theme-heading)' }}><ShieldCheck size={13} /> {name}</span>
-                  <span className="justify-self-end sm:justify-self-auto"><Chip tone={statusTone(s.status)} title={s.error || undefined}>{sourceStatusLabel(s.status)}</Chip></span>
+                  <span className="justify-self-end sm:justify-self-auto"><Chip tone={stateTone(s.state)} title={s.reason || undefined}>{SOURCE_STATE_LABEL[s.state]}</Chip></span>
                   <span>دليل: {fmt(s.evidenceCount)}</span>
                   <span>أول دليل: {s.firstEvidenceDate || UNAVAILABLE}</span>
                   <span>حتى: {s.dataAsOf || UNAVAILABLE}</span>

@@ -1,14 +1,15 @@
 import { logRuntimeError } from '@/lib/appRecovery';
 
 /**
- * Source-state contract for the Doctor Performance Eye decision layer.
+ * Source-state contract for every source shown in the Doctor Performance Eye (the doctor's own sources and
+ * the branch decision layer).
  *
  * - `not_enabled`: the backend endpoint does not exist yet (PostgREST cannot find the RPC/table, e.g. a
  *   migration that has not been applied). An expected rollout state, not a crash.
  * - `failed`: the endpoint exists but the read did not complete (timeout, permission, network, invalid
  *   payload, or any error raised inside the database). A real fault.
  *
- * The user-facing `reason` is always plain Arabic without PostgREST codes or messages. The technical detail
+ * The user-facing `reason` is always plain Arabic without PostgREST/SQL codes or messages. The technical detail
  * is kept in `diagnostic` and always written to the diagnostic log, so hiding it from the UI never hides it
  * from support.
  */
@@ -128,6 +129,38 @@ export function sourceProblem<T>(
     { status: c.status, value: null, reason: c.reason, diagnostic: c.diagnostic },
     sink
   );
+}
+
+/** Classifies and logs a failed read in one step; returns only what the UI may show plus the kept diagnostic. */
+export function describeSourceProblem(error: unknown, label: string, source: string, sink?: DiagnosticSink) {
+  const r = sourceProblem<never>(error, label, source, sink);
+  return {
+    status: r.status as 'not_enabled' | 'failed',
+    reason: r.reason as string,
+    diagnostic: r.diagnostic as DecisionSourceDiagnostic,
+  };
+}
+
+/**
+ * A message that is safe to show as-is. Any other thrown error is shown with generic text and logged, so a
+ * raw PostgREST/SQL/JS message can never reach the screen through a catch block.
+ */
+export class UserFacingError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'UserFacingError';
+  }
+}
+
+export function userFacingMessage(
+  error: unknown,
+  fallback: string,
+  source: string,
+  sink: DiagnosticSink = defaultSink
+): string {
+  if (error instanceof UserFacingError) return error.message;
+  sink.error(`doctor-eye:${source}`, error instanceof Error ? error : new Error(String(error)));
+  return fallback;
 }
 
 export const SOURCE_STATUS_LABEL: Record<DecisionSourceStatus, string> = {

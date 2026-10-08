@@ -29,7 +29,10 @@ export type DoctorPerformanceVerdict = {
   metrics: VerdictMetric[];
   strength: VerdictLine | null;
   problem: VerdictLine | null;
+  /** Only an action tied to a documented problem; never a recommendation derived from a missing source. */
   action: VerdictAction | null;
+  /** True only when every source loaded and the evidence is sufficient to say "no problem". */
+  evidenceComplete: boolean;
 };
 
 export const VERDICT_RULES = {
@@ -84,7 +87,7 @@ export function buildDoctorPerformanceVerdict(args: {
     {
       key: 'sales', label: 'المبيعات',
       value: salesAvailable ? `${num(cur!.sales!)} ج` : 'غير متاح',
-      note: !salesAvailable ? (data.sources.sales.error || 'مصدر المبيعات لم يُحمّل — ليس صفرًا') : sales.pct !== null ? `${signed(sales.pct)} ${sales.basis}` : 'لا مقارنة عادلة بعد',
+      note: !salesAvailable ? (data.sources.sales.reason || 'مصدر المبيعات لم يُحمّل — ليس صفرًا') : sales.pct !== null ? `${signed(sales.pct)} ${sales.basis}` : 'لا مقارنة عادلة بعد',
       tone: !salesAvailable ? 'neutral' : sales.pct === null ? 'neutral' : sales.pct <= VERDICT_RULES.salesDeclinePct ? 'danger' : sales.pct >= VERDICT_RULES.trendPct ? 'success' : 'neutral',
     },
     {
@@ -141,7 +144,7 @@ export function buildDoctorPerformanceVerdict(args: {
   const salesClause = !salesAvailable ? 'لا يمكن قراءة المبيعات الآن' : signal === 'insufficient' ? 'لا توجد مقارنة مبيعات عادلة بعد' : signal === 'improving' ? 'المبيعات تتحسن' : signal === 'declining' ? 'المبيعات تتراجع' : 'المبيعات مستقرة';
   const lead: DoctorPerformanceVerdict['lead'] = problem?.priority ? 'problem' : 'trend';
   const trendAfterProblem = !salesAvailable ? 'والمبيعات غير متاحة الآن' : signal === 'improving' ? 'رغم تحسن المبيعات' : signal === 'declining' ? 'والمبيعات تتراجع أيضًا' : signal === 'stable' ? 'والمبيعات مستقرة' : 'ولا توجد مقارنة مبيعات عادلة بعد';
-  const evidenceIncomplete = data.sources.conversations.status !== 'available' || data.sources.customerImpact.status !== 'available' || !conversationReady || !attendanceReady;
+  const evidenceIncomplete = !salesAvailable || data.sources.conversations.status !== 'available' || data.sources.customerImpact.status !== 'available' || !conversationReady || !attendanceReady;
   const headline = lead === 'problem'
     ? `الأولوية: ${problem!.line.text} — ${trendAfterProblem}.`
     : problem
@@ -152,8 +155,8 @@ export function buildDoctorPerformanceVerdict(args: {
   const badge: DoctorPerformanceVerdict['badge'] = lead === 'problem'
     ? { label: `أولوية: ${problem!.short}`, tone: 'danger' }
     : { label: signalLabel, tone: signal === 'improving' ? 'success' : signal === 'declining' ? 'danger' : 'neutral' };
-  const action: VerdictAction | null = problem?.action
-    || (!salesAvailable ? { owner: 'manager', text: 'إعادة تحميل مصدر المبيعات قبل الحكم على الأداء.' } : null);
+  // A recommendation exists only for a documented problem; a missing source yields no action at all.
+  const action: VerdictAction | null = problem?.action || null;
 
-  return { signal, signalLabel, lead, badge, headline, metrics, strength: strengths[0] || null, problem: problem?.line || null, action };
+  return { signal, signalLabel, lead, badge, headline, metrics, strength: strengths[0] || null, problem: problem?.line || null, action, evidenceComplete: !evidenceIncomplete };
 }

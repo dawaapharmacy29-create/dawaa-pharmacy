@@ -13,9 +13,10 @@ function month(sales: number | null, eligible = true): DoctorPerformanceMonth {
     attendanceSourceAvailable: true, conversationSourceAvailable: true, salesEvidenceCount: 1, attendanceEvidenceCount: 1, conversationEvidenceCount: 1, customerImpact: impact, diagnoses: [],
   };
 }
-const ok = { status: 'available' as const, error: null, evidenceCount: 1, firstEvidenceDate: null, dataAsOf: null };
+const ok = { status: 'available' as const, state: 'available' as const, reason: null, diagnostic: null, evidenceCount: 1, firstEvidenceDate: null, dataAsOf: null };
+const TIMEOUT_REASON = 'انتهت مهلة تحميل مصدر «المبيعات»؛ أعد المحاولة بعد قليل.';
 function data(cur: number | null, prev: number | null, salesStatus: 'available' | 'unavailable' = 'available'): DoctorPerformanceIntelligence {
-  return { months: [month(cur), month(prev), month(prev)], sources: { sales: { ...ok, status: salesStatus, error: salesStatus === 'available' ? null : 'انتهت مهلة مصدر المبيعات (57014).' }, attendance: ok, conversations: ok, customerImpact: ok },
+  return { months: [month(cur), month(prev), month(prev)], sources: { sales: salesStatus === 'available' ? ok : { ...ok, status: salesStatus, state: 'failed', reason: TIMEOUT_REASON, diagnostic: { source: 'sales', code: '57014', message: 'canceling statement due to statement timeout', details: null, hint: null } }, attendance: ok, conversations: ok, customerImpact: ok },
     actions: [], generatedAt: '', firstEvidenceDate: null, firstSalesEvidenceDate: null, firstAttendanceEvidenceDate: null, firstConversationEvidenceDate: null };
 }
 function header(worked: number | null, late: number | null): EvaluationHeaderSummary {
@@ -67,12 +68,33 @@ describe('doctor performance verdict', () => {
     expect(v.action).toBe(null);
   });
 
-  it('treats an unavailable sales source as insufficient, not zero, and asks for a reload', () => {
+  it('treats an unavailable sales source as insufficient, not zero, with a plain reason and no recommendation', () => {
     const v = buildDoctorPerformanceVerdict({ data: data(null, null, 'unavailable'), header: header(15, 0), conversation: conv() });
     expect(v.signal).toBe('insufficient');
     expect(v.metrics[0].value).toBe('غير متاح');
-    expect(v.metrics[0].note).toContain('57014');
-    expect(v.action?.text).toContain('إعادة تحميل');
+    expect(v.metrics[0].note).toBe(TIMEOUT_REASON);
+    expect(v.metrics[0].note.includes('57014')).toBe(false);
+    expect(v.action).toBe(null);
+    expect(v.evidenceComplete).toBe(false);
+    expect(v.headline).toContain('غير مكتملة');
+  });
+
+  it('keeps sound individual metrics while the sales source is missing', () => {
+    const v = buildDoctorPerformanceVerdict({ data: data(null, null, 'unavailable'), header: header(20, 0), conversation: conv() });
+    expect(v.metrics[1].value).toContain('تأخير');
+    expect(v.metrics[2].value).toContain('/10');
+    expect(v.strength?.text).toContain('انضباط كامل');
+  });
+
+  it('still recommends action on a documented problem even when another source is missing', () => {
+    const v = buildDoctorPerformanceVerdict({ data: data(null, null, 'unavailable'), header: header(20, 8), conversation: conv() });
+    expect(v.lead).toBe('problem');
+    expect(v.action?.owner).toBe('doctor');
+  });
+
+  it('marks evidence complete only when every source loaded with sufficient samples', () => {
+    expect(buildDoctorPerformanceVerdict({ data: data(102, 100), header: header(20, 1), conversation: conv() }).evidenceComplete).toBe(true);
+    expect(buildDoctorPerformanceVerdict({ data: data(102, 100), header: header(null, null), conversation: conv() }).evidenceComplete).toBe(false);
   });
 
   it('does not announce no documented problems when customer impact is missing', () => {
