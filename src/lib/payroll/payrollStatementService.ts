@@ -45,19 +45,34 @@ export type EmployeePayrollStatementV1 = Omit<EmployeePayrollTransparencyV1, 'sc
   generated_at: string;
 };
 
+const statementInFlight = new Map<string, Promise<EmployeePayrollStatementV1>>();
+
 export async function getEmployeePayrollStatementV1(
   staffId: string,
   monthCycle: string
 ): Promise<EmployeePayrollStatementV1> {
-  const { data, error } = await supabase.rpc('employee_payroll_statement_current_v1', {
-    p_staff_id: staffId,
-    p_month_cycle: monthCycle,
-  });
+  const key = `${staffId}:${monthCycle}`;
+  const existing = statementInFlight.get(key);
+  if (existing) return existing;
 
-  if (error) throw new Error(error.message);
-  if (!data || typeof data !== 'object' || Array.isArray(data)) {
-    throw new Error('employee_payroll_statement_unavailable');
+  const request = (async () => {
+    const { data, error } = await supabase.rpc('employee_payroll_statement_current_v1', {
+      p_staff_id: staffId,
+      p_month_cycle: monthCycle,
+    });
+
+    if (error) throw new Error(error.message);
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      throw new Error('employee_payroll_statement_unavailable');
+    }
+
+    return data as EmployeePayrollStatementV1;
+  })();
+
+  statementInFlight.set(key, request);
+  try {
+    return await request;
+  } finally {
+    if (statementInFlight.get(key) === request) statementInFlight.delete(key);
   }
-
-  return data as EmployeePayrollStatementV1;
 }
