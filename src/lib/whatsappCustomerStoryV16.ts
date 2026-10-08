@@ -92,6 +92,20 @@ function actionTitle(action: ActionRow) {
   return 'إجراء تشغيلي';
 }
 
+/**
+ * An RLS denial on the event refresh is reported explicitly (it is a side-projection warning and
+ * never blocks V22 / Sales Intelligence). Nothing is swallowed and nothing is retried as delete/insert.
+ */
+export function storyEventWriteError(error: { code?: string; message?: string } | null | undefined): Error {
+  const message = String(error?.message || 'unknown story event write error');
+  if (error?.code === '42501' || /row-level security/i.test(message)) {
+    return new Error(
+      `story_events_update_not_permitted: existing Story events could not be refreshed (RLS) — ${message}`
+    );
+  }
+  return new Error(message);
+}
+
 export async function syncPersistentCustomerStoryV16(params: {
   journeyId: string;
   model: WhatsAppCustomerJourneyIntelligenceV15;
@@ -99,8 +113,11 @@ export async function syncPersistentCustomerStoryV16(params: {
   sessionSources: JourneySessionSourceV15[];
   branch?: string | null;
   createdBy?: string | null;
+  /** Injected for tests; defaults to the browser client (staff-session RLS). */
+  client?: any;
 }) {
   const { journeyId, model, sources, sessionSources } = params;
+  const db = params.client ?? supabase;
   const root = sources.find((row) => row.customer_id || row.customer_code || row.customer_phone) || sources[0];
   if (!root) return null;
   const storyKey = buildCustomerStoryKeyV16({ ...root, branch: params.branch || root.branch });
@@ -110,7 +127,7 @@ export async function syncPersistentCustomerStoryV16(params: {
   const endedAt = sources.map((s) => s.conversation_ended_at).filter(Boolean).sort().at(-1) || startedAt;
   const needsRecovery = model.unresolvedOrder || model.unresolvedComplaint || model.customerState === 'silent_after_problem' || model.customerState === 'silent_after_recovery';
 
-  const { data: existing, error: existingError } = await supabase
+  const { data: existing, error: existingError } = await db
     .from('whatsapp_customer_stories')
     .select('*')
     .eq('story_key', storyKey)
@@ -144,14 +161,14 @@ export async function syncPersistentCustomerStoryV16(params: {
     updated_at: new Date().toISOString(),
   };
 
-  const { data: story, error: storyError } = await supabase
+  const { data: story, error: storyError } = await db
     .from('whatsapp_customer_stories')
     .upsert(storyPayload, { onConflict: 'story_key', ignoreDuplicates: false })
     .select('id,status,story_key')
     .single();
   if (storyError) throw storyError;
 
-  const { error: journeyLinkError } = await supabase
+  const { error: journeyLinkError } = await db
     .from('whatsapp_customer_journeys')
     .update({ story_id: story.id, lifecycle_status: needsRecovery ? 'recovery' : 'open', updated_at: new Date().toISOString() })
     .eq('id', journeyId);
@@ -161,7 +178,7 @@ export async function syncPersistentCustomerStoryV16(params: {
   const sourceById = new Map(sources.map((x) => [String(x.id), x]));
   const sourceIds = sources.map((x) => String(x.id));
   const { data: actions, error: actionsError } = sourceIds.length
-    ? await supabase
+    ? await db
       .from('whatsapp_conversation_actions')
       .select('id,source_id,action_key,action_type,status,product_id,product_code,product_name,quantity,confidence,reason,due_at,created_at,staff_id,staff_name,payload')
       .in('source_id', sourceIds)
@@ -259,10 +276,12 @@ export async function syncPersistentCustomerStoryV16(params: {
   });
 
   if (eventRows.length) {
-    const { error: eventError } = await supabase
+    // Same (story_id, event_key) -> the derived event is refreshed in place (ON CONFLICT DO UPDATE):
+    // no duplicate, no stale payload, idempotent. Requires whatsapp_customer_story_events_update_v16.
+    const { error: eventError } = await db
       .from('whatsapp_customer_story_events')
       .upsert(eventRows, { onConflict: 'story_id,event_key', ignoreDuplicates: false });
-    if (eventError) throw eventError;
+    if (eventError) throw storyEventWriteError(eventError);
   }
 
   // Story aggregates (dawaa_refresh_whatsapp_customer_story_v16) are SECURITY DEFINER and are not
