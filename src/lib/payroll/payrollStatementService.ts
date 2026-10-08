@@ -15,8 +15,12 @@ export type AnnualLeaveBalanceStatement = {
 };
 
 export type EmployeePayrollStatementV1 = Omit<EmployeePayrollTransparencyV1, 'schema' | 'generated_at' | 'finalization'> & {
-  schema: 'employee_payroll_statement_v1';
+  schema: 'employee_payroll_statement_v1' | 'employee_payroll_statement_v2' | 'employee_payroll_statement_current_v1';
   statement_mode?: 'live_preview' | 'finalized_snapshot_v2';
+  route?: 'delivery_v3_compat' | 'standard_v1' | 'frozen_existing_snapshot' | string;
+  delivery_mode?: boolean;
+  delivery_preview?: Record<string, unknown>;
+  delivery_classification?: Record<string, unknown>;
   finalization: EmployeePayrollTransparencyV1['finalization'] & {
     finalized?: boolean;
     snapshot_id?: string | null;
@@ -45,7 +49,7 @@ export async function getEmployeePayrollStatementV1(
   staffId: string,
   monthCycle: string
 ): Promise<EmployeePayrollStatementV1> {
-  const { data, error } = await supabase.rpc('employee_payroll_statement_v1', {
+  const { data, error } = await supabase.rpc('employee_payroll_statement_current_v1', {
     p_staff_id: staffId,
     p_month_cycle: monthCycle,
   });
