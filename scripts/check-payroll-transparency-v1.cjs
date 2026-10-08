@@ -6,8 +6,15 @@ const service = fs.readFileSync(path.join(root, 'src/lib/payroll/payrollTranspar
 const panel = fs.readFileSync(path.join(root, 'src/components/payroll/PayrollTransparencyPanel.tsx'), 'utf8');
 const deliveryPanel = fs.readFileSync(path.join(root, 'src/components/payroll/DeliveryPayrollBreakdownPanel.tsx'), 'utf8');
 const page = fs.readFileSync(path.join(root, 'src/pages/PayrollManagement.tsx'), 'utf8');
+const workspaceV2 = fs.readFileSync(path.join(root, 'src/pages/PayrollManagementV2.tsx'), 'utf8');
+const staffPayrollRoute = fs.readFileSync(path.join(root, 'src/pages/StaffPayroll.tsx'), 'utf8');
 assertContains(page, 'buildEmployeePayrollStatementPdf', 'finalized V2 employee statement PDF export');
 assertContains(page, "source === 'finalized_v2'", 'source-aware finalized V2 PDF export');
+assertContains(staffPayrollRoute, "./PayrollManagementV2", 'Payroll Workspace V2 route');
+assertContains(workspaceV2, 'scopeRef.current !== requestScope', 'stale-response protection');
+assertContains(workspaceV2, "workspaceTab === 'adjustments' ? <PayrollManualEntriesPanel", 'lazy adjustment tab mount');
+assertContains(workspaceV2, 'showFinalizationTools', 'on-demand finalization tools');
+assertContains(workspaceV2, 'showCycleOverview', 'on-demand cycle preflight');
 const financialService = fs.readFileSync(path.join(root, 'src/lib/payroll/payrollFinancialCompositionService.ts'), 'utf8');
 const kpiService = fs.readFileSync(path.join(root, 'src/lib/payroll/payrollKpiContextService.ts'), 'utf8');
 const statementService = fs.readFileSync(path.join(root, 'src/lib/payroll/payrollStatementService.ts'), 'utf8');
@@ -38,6 +45,8 @@ assertContains(deliveryPanel, 'Payroll canonical', 'attendance source disclosure
 assertContains(deliveryPanel, 'الأوردرات المحتسبة', 'countable order disclosure');
 assertContains(deliveryPanel, 'المشاوير المعتمدة', 'approved trip disclosure');
 assertContains(page, '<PayrollTransparencyPanel', 'payroll page integration');
+assertContains(workspaceV2, 'PayrollTransparencyPanelLegacy', 'standard payroll transparency preservation');
+assertContains(workspaceV2, 'PayrollTransparencyPanel', 'delivery-aware payroll transparency route');
 assertContains(financialService, 'employee_payroll_financial_composition_current_v1', 'current financial composition RPC');
 if (financialService.includes("supabase.rpc('employee_payroll_financial_composition_v1'")) {
   console.error('[payroll-transparency] frontend must not depend on financial composition V1 compatibility');
@@ -52,10 +61,11 @@ if (finalizedSnapshotService.includes('list_payroll_finalized_snapshots_v2')) {
 }
 const readinessUi = fs.readFileSync(path.join(root, 'src/components/attendance/PayrollCycleReadinessOverview.tsx'), 'utf8');
 assertContains(readinessUi, 'خطة إغلاق الـBlockers', 'actionable payroll readiness plan');
-assertContains(readinessUi, 'row.blockers.slice', 'per-employee blocker reasons');
+assertContains(readinessUi, 'row.issueCodes.slice', 'per-employee preflight issue reasons');
 assertContains(readinessUi, 'onOpenStaffCompensation', 'compensation remediation action');
 assertContains(readinessUi, 'Payroll Identity Queue', 'missing/disabled payroll identity disclosure');
 assertContains(readinessUi, '/staff-accounts', 'payroll identity remediation route');
+assertContains(readinessUi, 'Delivery Coverage', 'delivery payroll cycle coverage');
 assertContains(statementMigration, 'deterministic_without_generated_at_v1', 'deterministic snapshot fingerprint schema');
 assertContains(statementMigration, 'dawaa_jsonb_strip_generated_at_v1', 'volatile timestamp stripping');
 assertContains(statementMigration, "'employee_statement',v_statement", 'employee statement frozen into snapshot');
@@ -75,6 +85,10 @@ assertContains(statementPdf, 'buildLegacyEmployeePayrollStatementPdf', 'legacy P
 assertContains(page, '{ requireFinalized: true }', 'finalized history PDF must require frozen statement');
 if (page.includes('listFinalizedPayrollSnapshots(person.staffId, 24).catch(() => [])')) {
   console.error('[payroll-transparency] finalized payroll history errors must not be swallowed silently.');
+  process.exit(1);
+}
+if (workspaceV2.includes('.catch(() => null)') || workspaceV2.includes('.catch(() => [])')) {
+  console.error('[payroll-transparency] Workspace V2 must not silently convert payroll load failures into zero/empty truth.');
   process.exit(1);
 }
 assertContains(legacyStatementPdf, 'مرجع الاعتماد:', 'employee statement transparency: مرجع الاعتماد:');
