@@ -64,6 +64,24 @@ create view public.t_state as select
  (select count(*) from public.whatsapp_sales_opportunities_v17) opp_total,
  (select count(*) from public.whatsapp_sales_opportunities_v17 where journey_id is not null) opp_linked;
 
+-- Fail-closed account-state fixtures: general_manager role + permissions, so ONLY the NULL/blank state can deny.
+insert into public.staff_accounts(id,staff_id,username,role,branch,active,is_active,can_login,status,permissions) values
+ ('a0000000-0000-4000-8000-000000000011','s-n1','n1','general_manager',null,null,true,true,'active','{"add_reviews":true}'),
+ ('a0000000-0000-4000-8000-000000000012','s-n2','n2','general_manager',null,true,null,true,'active','{"add_reviews":true}'),
+ ('a0000000-0000-4000-8000-000000000013','s-n3','n3','general_manager',null,true,true,null,'active','{"add_reviews":true}'),
+ ('a0000000-0000-4000-8000-000000000014','s-n4','n4','general_manager',null,true,true,true,null,'{"add_reviews":true}'),
+ ('a0000000-0000-4000-8000-000000000015','s-n5','n5','general_manager',null,true,true,true,'   ','{"add_reviews":true}'),
+ ('a0000000-0000-4000-8000-000000000016','s-n6','n6','general_manager',null,true,false,true,'active','{"add_reviews":true}'),
+ ('a0000000-0000-4000-8000-000000000017','s-n7','n7','general_manager',null,true,true,true,'suspended','{"add_reviews":true}');
+insert into public.staff_login_sessions(staff_account_id,token_hash,expires_at) values
+ ('a0000000-0000-4000-8000-000000000011',public.t_hash('tok-null-active-00000000000000000000'),now()+interval '1 hour'),
+ ('a0000000-0000-4000-8000-000000000012',public.t_hash('tok-null-isactive-000000000000000000'),now()+interval '1 hour'),
+ ('a0000000-0000-4000-8000-000000000013',public.t_hash('tok-null-canlogin-000000000000000000'),now()+interval '1 hour'),
+ ('a0000000-0000-4000-8000-000000000014',public.t_hash('tok-null-status-00000000000000000000'),now()+interval '1 hour'),
+ ('a0000000-0000-4000-8000-000000000015',public.t_hash('tok-blank-status-0000000000000000000'),now()+interval '1 hour'),
+ ('a0000000-0000-4000-8000-000000000016',public.t_hash('tok-false-isactive-00000000000000000'),now()+interval '1 hour'),
+ ('a0000000-0000-4000-8000-000000000017',public.t_hash('tok-suspended-status-000000000000000'),now()+interval '1 hour');
+
 \set J '''10000000-0000-4000-8000-000000000001'''
 \set ST '''57000000-0000-4000-8000-000000000001'''
 \set SRC '''{50000000-0000-4000-8000-000000000001,50000000-0000-4000-8000-000000000002}'''
@@ -95,6 +113,24 @@ select set_config('t.f2', public.t_call('tok-off-valid-000000000000000000000', :
 reset role;
 select public.t_assert(current_setting('t.f') like 'err:42501:not_authorized%', 'F valid session without permission denied');
 select public.t_assert(current_setting('t.f2') like 'err:42501:invalid_or_expired_staff_session%', 'F account with can_login=false denied');
+
+-- Fail-closed account state: NULL/blank/false/non-active in any state column denies.
+set role anon;
+select set_config('t.n1', public.t_call('tok-null-active-00000000000000000000', :J, :ST, :SRC), false);
+select set_config('t.n2', public.t_call('tok-null-isactive-000000000000000000', :J, :ST, :SRC), false);
+select set_config('t.n3', public.t_call('tok-null-canlogin-000000000000000000', :J, :ST, :SRC), false);
+select set_config('t.n4', public.t_call('tok-null-status-00000000000000000000', :J, :ST, :SRC), false);
+select set_config('t.n5', public.t_call('tok-blank-status-0000000000000000000', :J, :ST, :SRC), false);
+select set_config('t.n6', public.t_call('tok-false-isactive-00000000000000000', :J, :ST, :SRC), false);
+select set_config('t.n7', public.t_call('tok-suspended-status-000000000000000', :J, :ST, :SRC), false);
+reset role;
+select public.t_assert(current_setting('t.n1') like 'err:42501:invalid_or_expired_staff_session%', 'NULL active denied');
+select public.t_assert(current_setting('t.n2') like 'err:42501:invalid_or_expired_staff_session%', 'NULL is_active denied');
+select public.t_assert(current_setting('t.n3') like 'err:42501:invalid_or_expired_staff_session%', 'NULL can_login denied');
+select public.t_assert(current_setting('t.n4') like 'err:42501:invalid_or_expired_staff_session%', 'NULL status denied');
+select public.t_assert(current_setting('t.n5') like 'err:42501:invalid_or_expired_staff_session%', 'blank status denied');
+select public.t_assert(current_setting('t.n6') like 'err:42501:invalid_or_expired_staff_session%', 'is_active=false denied');
+select public.t_assert(current_setting('t.n7') like 'err:42501:invalid_or_expired_staff_session%', 'non-active status denied');
 
 -- G: branch-B manager on branch-A journey; branch-A manager smuggling a branch-B source; foreign story.
 set role anon;
@@ -142,7 +178,15 @@ select public.t_assert((select count(*)=2 from public.whatsapp_evidence_facts_v1
 select public.t_assert((select facts_total=4 from public.t_state), 'Backfill created no facts');
 
 -- ---------- Grants / retirement ----------
-select public.t_assert(to_regprocedure('public.dawaa_link_whatsapp_evidence_journey_v17(uuid,uuid,uuid[])') is null, 'legacy V17 RPC dropped');
+-- Phase A: the production-compatible legacy V17 RPC is still present and completely untouched.
+select public.t_assert(to_regprocedure('public.dawaa_link_whatsapp_evidence_journey_v17(uuid,uuid,uuid[])') is not null, 'legacy V17 RPC still present (Production compatibility)');
+select public.t_assert((select p.oid = s.fn_oid from pg_proc p, public.t_legacy_snapshot s where p.oid='public.dawaa_link_whatsapp_evidence_journey_v17(uuid,uuid,uuid[])'::regprocedure), 'legacy V17 same function OID (not dropped/recreated)');
+select public.t_assert((select md5(pg_get_functiondef(p.oid)) = s.def_md5 and p.proowner = s.proowner and p.prosecdef = s.prosecdef
+  and p.proconfig is not distinct from s.proconfig and p.proacl::text = s.acl
+  from pg_proc p, public.t_legacy_snapshot s where p.oid = s.fn_oid), 'legacy V17 definition, owner, SECURITY DEFINER, search_path and ACL unchanged');
+select public.t_assert(has_function_privilege('anon','public.dawaa_link_whatsapp_evidence_journey_v17(uuid,uuid,uuid[])','execute')
+  and has_function_privilege('authenticated','public.dawaa_link_whatsapp_evidence_journey_v17(uuid,uuid,uuid[])','execute')
+  and has_function_privilege('service_role','public.dawaa_link_whatsapp_evidence_journey_v17(uuid,uuid,uuid[])','execute'), 'legacy V17 EXECUTE grants unchanged for anon/authenticated/service_role');
 select public.t_assert(has_function_privilege('anon','public.dawaa_link_whatsapp_evidence_journey_session_v1(text,uuid,uuid,uuid[])','execute'), 'anon EXECUTE');
 select public.t_assert(has_function_privilege('authenticated','public.dawaa_link_whatsapp_evidence_journey_session_v1(text,uuid,uuid,uuid[])','execute'), 'authenticated EXECUTE');
 select public.t_assert(not has_function_privilege('service_role','public.dawaa_link_whatsapp_evidence_journey_session_v1(text,uuid,uuid,uuid[])','execute'), 'service_role no EXECUTE');

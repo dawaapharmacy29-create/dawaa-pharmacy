@@ -1,4 +1,4 @@
--- Evidence V17 journey/story link: staff-session command (replaces dawaa_link_whatsapp_evidence_journey_v17).
+-- Evidence V17 journey/story link: staff-session command (Phase A successor to dawaa_link_whatsapp_evidence_journey_v17).
 --
 -- Root cause: the V17 link RPC started with `if auth.uid() is null then raise 'authentication required'`,
 -- but Dawaa browser users authenticate through staff_account_login_v2 / staff_login_sessions, not
@@ -13,6 +13,9 @@
 --
 -- Side projection: callers treat any error here as a warning; it never gates
 -- Source -> V22 -> Sales Intelligence -> review_ready.
+--
+-- Cutover: Phase A (this file) only adds the session command; the legacy V17 RPC stays as-is for
+-- deployment compatibility with the current Production bundle. No new caller may use it.
 --
 -- Idempotency: only journey_id/story_id are written, in place, and only when they differ. No evidence
 -- fact or opportunity row is inserted or deleted, so repeated reanalysis converges, and reanalysing an
@@ -49,10 +52,11 @@ begin
   where s.token_hash=encode(extensions.digest(btrim(p_session_token),'sha256'),'hex')
     and s.revoked_at is null
     and s.expires_at>now()
-    and coalesce(a.active,true)=true
-    and coalesce(a.is_active,true)=true
-    and coalesce(a.can_login,true)=true
-    and coalesce(a.status,'active')='active'
+    -- Fail closed: NULL in any account-state column denies (all four columns are nullable).
+    and a.active is true
+    and a.is_active is true
+    and a.can_login is true
+    and lower(btrim(coalesce(a.status,'')))='active'
   limit 1;
 
   if not found then
@@ -156,6 +160,7 @@ grant execute on function public.dawaa_link_whatsapp_evidence_journey_session_v1
 comment on function public.dawaa_link_whatsapp_evidence_journey_session_v1(text,uuid,uuid,uuid[]) is
   'Staff-session-authenticated, journey-bound, source-scoped and idempotent Evidence V17 journey/story link. Side projection only.';
 
--- Retire the V17 RPC: it had no DB callers, its only repo caller now uses the session command, and
--- a SECURITY DEFINER path that is either broken (auth.uid()) or header-trusting must not stay executable.
-drop function if exists public.dawaa_link_whatsapp_evidence_journey_v17(uuid,uuid,uuid[]);
+-- Phase A: the legacy dawaa_link_whatsapp_evidence_journey_v17 is intentionally NOT altered,
+-- replaced, revoked or dropped here. Production (0b9bead) still calls it through the shared DB, so
+-- its contract must stay byte-for-byte as today. Retirement is a separate Phase B cleanup migration,
+-- created only after this application code is promoted and all deployed callers are re-audited.

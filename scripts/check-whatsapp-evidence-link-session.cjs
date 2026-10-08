@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 // Evidence V17 journey/story link must authenticate the Dawaa staff session, never auth.uid() or the
-// client-controlled x-dawaa-user-id header, and the retired V17 RPC must not come back.
+// client-controlled x-dawaa-user-id header.
+// Phase A cutover: the session command is added, every app caller uses it, and the legacy
+// dawaa_link_whatsapp_evidence_journey_v17 RPC stays untouched for the current Production bundle.
+// Its revoke/drop belongs to a separate, later Phase B migration.
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -25,8 +28,10 @@ const required = [
   [/extensions\.digest\(btrim\(p_session_token\),'sha256'\)/, 'sha256 token hash'],
   [/s\.revoked_at is null/, 'revoked_at IS NULL'],
   [/s\.expires_at>now\(\)/, 'expires_at > now()'],
-  [/coalesce\(a\.can_login,true\)=true/, 'can_login check'],
-  [/coalesce\(a\.status,'active'\)='active'/, 'status check'],
+  [/a\.active is true/, 'fail-closed active check'],
+  [/a\.is_active is true/, 'fail-closed is_active check'],
+  [/a\.can_login is true/, 'fail-closed can_login check'],
+  [/lower\(btrim\(coalesce\(a\.status,''\)\)\)='active'/, 'fail-closed status check'],
   [/get_user_permissions\(v_account\.id\)/, 'permission resolved for the session account'],
   [/whatsapp_customer_journey_sessions/, 'journey membership check'],
   [/story_journey_mismatch/, 'story/journey binding'],
@@ -46,6 +51,10 @@ for (const [re, label] of [
     'header-resolved actor helpers',
   ],
   [/\binsert\s+into\b|\bdelete\s+from\b/i, 'row creation/deletion'],
+  [
+    /coalesce\(a\.(active|is_active|can_login),\s*true\)|coalesce\(a\.status,\s*'active'\)/i,
+    'fail-open account-state defaults',
+  ],
 ])
   if (re.test(body)) failures.push(`${MIGRATION}: command must not use ${label}.`);
 if (
@@ -64,15 +73,15 @@ if (
 ) {
   failures.push(`${MIGRATION}: must grant EXECUTE only to anon, authenticated.`);
 }
-if (
-  !/drop function if exists public\.dawaa_link_whatsapp_evidence_journey_v17\(uuid,uuid,uuid\[\]\);/.test(
-    sql
-  )
-) {
-  failures.push(`${MIGRATION}: must retire dawaa_link_whatsapp_evidence_journey_v17.`);
+// Phase A must not touch the legacy RPC at all: outside comments, the migration may not name it.
+const sqlWithoutComments = sql.replace(/--[^\n]*/g, '');
+if (/dawaa_link_whatsapp_evidence_journey_v17/i.test(sqlWithoutComments)) {
+  failures.push(
+    `${MIGRATION}: Phase A must not alter, replace, revoke or drop dawaa_link_whatsapp_evidence_journey_v17 (Production still calls it).`
+  );
 }
 
-// No later migration may resurrect the header/auth.uid() V17 RPC.
+// No later migration may create/replace the legacy RPC (Phase B may only revoke/drop it).
 for (const name of fs.readdirSync(path.join(ROOT, 'supabase/migrations'))) {
   if (name <= path.basename(MIGRATION)) continue;
   if (
@@ -81,7 +90,7 @@ for (const name of fs.readdirSync(path.join(ROOT, 'supabase/migrations'))) {
     )
   ) {
     failures.push(
-      `${name}: must not recreate the retired dawaa_link_whatsapp_evidence_journey_v17.`
+      `${name}: must not create or replace the legacy dawaa_link_whatsapp_evidence_journey_v17.`
     );
   }
 }
@@ -100,8 +109,8 @@ for (const file of walk(path.join(ROOT, 'src'))) {
   if (!/\.(ts|tsx)$/.test(file) || file.includes('__tests__')) continue;
   const text = fs.readFileSync(file, 'utf8');
   const rel = path.relative(ROOT, file);
-  if (text.includes("'dawaa_link_whatsapp_evidence_journey_v17'"))
-    failures.push(`${rel}: calls the retired V17 RPC.`);
+  if (text.includes('dawaa_link_whatsapp_evidence_journey_v17'))
+    failures.push(`${rel}: must not call the legacy V17 RPC; use whatsappEvidenceJourneyLinkV17.`);
   if (text.includes(COMMAND) && rel !== 'src/lib/whatsappEvidenceJourneyLinkV17.ts')
     failures.push(`${rel}: call ${COMMAND} only through whatsappEvidenceJourneyLinkV17.`);
 }

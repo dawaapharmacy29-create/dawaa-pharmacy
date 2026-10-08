@@ -144,6 +144,42 @@ describe('Evidence V17 link — staff session command', () => {
     expect(shouldMarkWhatsAppFileProcessed(state)).toBe(true);
   });
 
+  it('Phase A: branch source has zero calls to the legacy V17 RPC', () => {
+    const root = path.join(process.cwd(), 'src');
+    const walk = (dir: string): string[] =>
+      fs
+        .readdirSync(dir, { withFileTypes: true })
+        .flatMap((e) =>
+          e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]
+        );
+    const offenders = walk(root)
+      .filter((file) => /\.(ts|tsx)$/.test(file) && !file.includes('__tests__'))
+      .filter((file) =>
+        fs.readFileSync(file, 'utf8').includes('dawaa_link_whatsapp_evidence_journey_v17')
+      );
+    expect(offenders).toEqual([]);
+  });
+
+  it('Phase A migration does not touch the legacy V17 RPC and authenticates fail-closed', () => {
+    const sql = fs.readFileSync(
+      path.join(
+        process.cwd(),
+        'supabase/migrations/20261008100000_whatsapp_evidence_journey_link_staff_session_v1.sql'
+      ),
+      'utf8'
+    );
+    const code = sql.replace(/--[^\n]*/g, '');
+    expect(code.includes('dawaa_link_whatsapp_evidence_journey_v17')).toBe(false);
+    for (const clause of [
+      'a.active is true',
+      'a.is_active is true',
+      'a.can_login is true',
+      "lower(btrim(coalesce(a.status,'')))='active'",
+    ])
+      expect(code.includes(clause)).toBe(true);
+    expect(/coalesce\(a\.(active|is_active|can_login),\s*true\)/.test(code)).toBe(false);
+  });
+
   it('the journey projection uses the session command and reports failures as warnings', () => {
     const root = process.cwd();
     const persistence = fs.readFileSync(

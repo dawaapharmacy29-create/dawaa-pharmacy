@@ -59,15 +59,34 @@ returns boolean language sql stable security definer set search_path to 'public'
           and public.dawaa_customer_request_branch_key(me.branch)=public.dawaa_customer_request_branch_key(p_branch)))
 $$;
 
--- The legacy V17 RPC exactly as live (header-resolved actor), with its live grants, so the migration's
--- retirement is exercised. dawaa_current_actor_can is reduced to its header path.
+-- The legacy V17 RPC with its live body and live grants (PUBLIC/anon/authenticated/service_role), so the
+-- tests can prove the Phase A migration leaves it byte-for-byte and grant-for-grant untouched.
+-- dawaa_current_actor_can / _strict are reduced to their header path (plpgsql resolves them lazily).
 create function public.dawaa_current_actor_can(required_permissions text[]) returns boolean language sql stable security definer set search_path to 'public' as $$
   select coalesce((select public.dawaa_jsonb_has_true_any(permissions, required_permissions) from public.staff_accounts
     where id::text = nullif(current_setting('request.headers', true),'')::jsonb ->> 'x-dawaa-user-id'), false)
 $$;
-create function public.dawaa_link_whatsapp_evidence_journey_v17(p_journey_id uuid, p_story_id uuid, p_source_ids uuid[])
-returns void language plpgsql security definer set search_path to 'public' as $function$
+CREATE OR REPLACE FUNCTION public.dawaa_link_whatsapp_evidence_journey_v17(p_journey_id uuid, p_story_id uuid, p_source_ids uuid[])
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
 begin
   if auth.uid() is null then raise exception 'authentication required'; end if;
+  if not public.dawaa_current_actor_can(array['add_reviews','reviews.action.create','edit_reviews','approve_reviews','manage_conversation_evaluations']) then raise exception 'not authorized'; end if;
+  if p_journey_id is null or coalesce(array_length(p_source_ids,1),0)=0 then return; end if;
+  if exists (
+    select 1 from unnest(p_source_ids) sid
+    left join public.whatsapp_review_sources s on s.id=sid
+    where s.id is null or not public.dawaa_can_read_conversation_review_row_v2(public.dawaa_current_staff_account_id_strict(),s.staff_id,null::uuid,s.branch,null::uuid)
+  ) then raise exception 'source access denied'; end if;
+  update public.whatsapp_evidence_facts_v17 set journey_id=p_journey_id,story_id=coalesce(p_story_id,story_id),updated_at=now() where source_id=any(p_source_ids);
+  update public.whatsapp_sales_opportunities_v17 set journey_id=p_journey_id,story_id=coalesce(p_story_id,story_id),updated_at=now() where root_source_id=any(p_source_ids);
 end $function$;
 grant execute on function public.dawaa_link_whatsapp_evidence_journey_v17(uuid,uuid,uuid[]) to public, anon, authenticated, service_role;
+
+-- Pre-migration snapshot of the legacy RPC (definition, owner, security, config, ACL).
+create table public.t_legacy_snapshot as
+select p.oid as fn_oid, md5(pg_get_functiondef(p.oid)) as def_md5, p.proowner, p.prosecdef, p.proconfig, p.proacl::text as acl
+from pg_proc p where p.oid = 'public.dawaa_link_whatsapp_evidence_journey_v17(uuid,uuid,uuid[])'::regprocedure;
