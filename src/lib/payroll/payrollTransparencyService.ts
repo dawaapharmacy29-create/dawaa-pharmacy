@@ -62,6 +62,8 @@ export type PayrollTransparencyOvertime = {
   overtime_hours: number;
   hourly_rate: number | null;
   overtime_amount: number | null;
+  stored_overtime_amount?: number | null;
+  multiplier?: number | null;
   decided_at: string | null;
   decided_by_name: string | null;
   decision_note: string | null;
@@ -88,7 +90,7 @@ export type PayrollTransparencyTransaction = {
 };
 
 export type EmployeePayrollTransparencyV1 = {
-  schema: 'employee_payroll_transparency_v1';
+  schema: 'employee_payroll_transparency_v1' | 'employee_payroll_transparency_v2';
   staff: {
     id: string;
     username: string;
@@ -130,13 +132,17 @@ export type EmployeePayrollTransparencyV1 = {
   };
   incentives: Record<string, unknown>;
   generated_at: string;
+  delivery_mode?: boolean;
+  current_route?: 'delivery_v2' | 'standard_v1' | string;
+  delivery_preview?: Record<string, unknown>;
+  delivery_classification?: Record<string, unknown>;
 };
 
 export async function getEmployeePayrollTransparencyV1(
   staffId: string,
   monthCycle: string
 ): Promise<EmployeePayrollTransparencyV1> {
-  const { data, error } = await supabase.rpc('employee_payroll_transparency_v1', {
+  const { data, error } = await supabase.rpc('employee_payroll_transparency_current_v1', {
     p_staff_id: staffId,
     p_month_cycle: monthCycle,
   });

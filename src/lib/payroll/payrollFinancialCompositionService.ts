@@ -48,17 +48,33 @@ export type EmployeePayrollFinancialCompositionV2 = {
   double_count_guard: {
     monthly_incentive_component_reference_only: number;
     rule: string;
+    generic_automated_incentives_excluded?: boolean;
+    delivery_app_compensation_rates_ignored?: boolean;
   };
   blockers: Array<Record<string, unknown>>;
   warnings: Array<Record<string, unknown>>;
   generated_at: string;
+  delivery_mode?: boolean;
+  current_route?: 'delivery_v3_compat' | 'standard_v2' | string;
+  delivery_breakdown?: {
+    base_salary?: number;
+    order_pay?: number;
+    trip_pay?: number;
+    monthly_incentive?: number;
+    quarterly_incentive?: number;
+    approved_overtime?: number;
+    operational_and_incentive_total?: number;
+    classification?: Record<string, unknown>;
+    activity?: Record<string, unknown>;
+    preview?: Record<string, unknown>;
+  };
 };
 
 export async function getEmployeePayrollFinancialComposition(
   staffId: string,
   monthCycle: string
 ): Promise<EmployeePayrollFinancialCompositionV2> {
-  const { data, error } = await supabase.rpc('employee_payroll_financial_composition_v2', {
+  const { data, error } = await supabase.rpc('employee_payroll_financial_composition_current_v1', {
     p_staff_id: staffId,
     p_month_cycle: monthCycle,
   });
