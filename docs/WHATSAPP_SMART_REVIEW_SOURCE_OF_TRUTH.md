@@ -26,7 +26,7 @@ Side projections — never block V22 or Sales Intelligence; failures are visible
 | Projection | Where | Failure behaviour |
 | --- | --- | --- |
 | Journey V15 | `whatsappCustomerJourneyPersistenceV15.ts` | warning; V22 still written |
-| Story V16 rows/events | `whatsappCustomerStoryV16.ts` (upsert on `story_id,event_key`; reanalysis needs `whatsapp_customer_story_events_update_v16`, migration `20261008120000`) | warning (`story_events_update_not_permitted` on RLS denial); V22 still written |
+| Story V16 rows/events | `whatsappCustomerStoryV16.ts` (upsert on `story_id,event_key`; reanalysis needs `whatsapp_customer_story_events_update_v16`, migration `20261008073930`) | warning (`story_events_update_not_permitted` on RLS denial); V22 still written |
 | Story V16 aggregates (SECURITY DEFINER RPC) | server only: `salesIntelligence/refresh/storyProjectionRefresh.ts` | reported as `sideProjections.story`; canonical status unchanged |
 | Evidence V17 links, response timing V18, invoice-verification attach | client | warning |
 

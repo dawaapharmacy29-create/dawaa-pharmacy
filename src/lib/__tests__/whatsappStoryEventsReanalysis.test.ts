@@ -199,7 +199,7 @@ describe('Story V16 events — authorization', () => {
 });
 
 describe('Story V16 events — migration contract (prepared, not applied)', () => {
-  const sql = fs.readFileSync(path.join(process.cwd(), 'supabase/migrations/20261008120000_whatsapp_story_events_update_policy_v16.sql'), 'utf8');
+  const sql = fs.readFileSync(path.join(process.cwd(), 'supabase/migrations/20261008073930_whatsapp_story_events_update_policy_v16.sql'), 'utf8');
   const body = sql.split('\n').filter((line) => !line.trim().startsWith('--')).join('\n');
 
   it('adds exactly one UPDATE policy with both USING and WITH CHECK', () => {
