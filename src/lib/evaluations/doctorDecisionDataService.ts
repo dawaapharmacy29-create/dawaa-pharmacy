@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { describeSourceError } from '@/lib/evaluations/doctorPerformanceIntelligenceService';
+import { sourceAvailable, sourceProblem, type DecisionSourceResult } from '@/lib/evaluations/decisionSourceState';
 import { evaluationCycleDateKeys, isEvaluationCycleClosed, previousEvaluationCycleLabel } from '@/lib/evaluations/monthlyEvaluationCycle';
 import { buildConversationCoaching, loadBranchConversationReviewRows } from '@/lib/staff/employeeMonthlyEvidenceService';
 import { buildDecisionIntelligence, groupReviewRowsByDoctorCycle, type DecisionIntelligence, type QualityIndex } from '@/lib/evaluations/doctorDecisionIntelligence';
@@ -9,7 +9,8 @@ import { buildDecisionIntelligence, groupReviewRowsByDoctorCycle, type DecisionI
  * - one branch-scoped aggregate RPC (no invoice rows reach the browser),
  * - branch conversation reviews through the canonical monthly-evidence reader,
  * - the previous cycle's evaluation through the canonical v5 evaluation RPC.
- * Each source fails independently and reports its error; nothing failed is returned as an empty success.
+ * Each source fails independently with an explicit state (`not_enabled` / `failed`), a plain-language reason and a
+ * logged technical diagnostic; nothing missing is returned as an empty success.
  */
 
 export type ShiftKey = 'morning' | 'evening' | 'night' | 'unknown';
@@ -42,9 +43,12 @@ export type PreviousEvaluation = {
   managerNotes: string;
 };
 
-export type DecisionSourceResult<T> = { status: 'available' | 'unavailable'; value: T | null; error: string | null };
+export type { DecisionSourceResult } from '@/lib/evaluations/decisionSourceState';
 
 const WINDOW_CYCLES = 4;
+const BRANCH_LABEL = 'مقارنة الفرع';
+const REVIEWS_LABEL = 'مراجعات محادثات الفرع';
+const PREVIOUS_EVALUATION_LABEL = 'تقييم الدورة السابقة';
 const CACHE_TTL_MS = 5 * 60_000;
 const windowCache = new Map<string, { at: number; promise: Promise<DecisionSourceResult<BranchPerformanceWindow>> }>();
 const reviewCache = new Map<string, { at: number; promise: Promise<DecisionSourceResult<Record<string, unknown>[]>> }>();
@@ -112,9 +116,10 @@ export function loadBranchPerformanceWindow(args: { branch: string; cycleLabel: 
   if (!args.force && cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.promise;
   const promise = (async (): Promise<DecisionSourceResult<BranchPerformanceWindow>> => {
     const { data, error } = await supabase.rpc('get_branch_doctor_performance_window_v1', { p_branch: args.branch, p_window_start: windowStart, p_window_end: windowEnd });
-    if (error) return { status: 'unavailable', value: null, error: describeSourceError(error, 'مقارنة الفرع') };
+    if (error) return sourceProblem<BranchPerformanceWindow>(error, BRANCH_LABEL, 'branch_window');
     const parsed = parseBranchPerformanceWindow(data);
-    return parsed ? { status: 'available', value: parsed, error: null } : { status: 'unavailable', value: null, error: 'استجابة مقارنة الفرع غير صالحة؛ تم حجبها بدل تفسيرها كأصفار.' };
+    // A payload that does not match the contract is a failure, never zeros.
+    return parsed ? sourceAvailable(parsed) : sourceProblem<BranchPerformanceWindow>({ code: 'invalid_payload', message: 'branch window payload failed the shape check' }, BRANCH_LABEL, 'branch_window');
   })();
   windowCache.set(key, { at: Date.now(), promise });
   void promise.then(r => { if (r.status !== 'available' && windowCache.get(key)?.promise === promise) windowCache.delete(key); });
@@ -128,8 +133,8 @@ export function loadBranchReviewRows(args: { branch: string; cycleLabel: string;
   if (!args.force && cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.promise;
   const promise = loadBranchConversationReviewRows({ branch: args.branch, startDate: windowStart, endDateExclusive: windowEnd })
     .then(({ rows, error }) => error
-      ? { status: 'unavailable' as const, value: null, error: describeSourceError({ message: error }, 'مراجعات محادثات الفرع') }
-      : { status: 'available' as const, value: rows, error: null });
+      ? sourceProblem<Record<string, unknown>[]>({ message: error }, REVIEWS_LABEL, 'branch_reviews')
+      : sourceAvailable(rows));
   reviewCache.set(key, { at: Date.now(), promise });
   void promise.then(r => { if (r.status !== 'available' && reviewCache.get(key)?.promise === promise) reviewCache.delete(key); });
   return promise;
@@ -139,24 +144,22 @@ export function loadBranchReviewRows(args: { branch: string; cycleLabel: string;
 export async function loadPreviousEvaluation(args: { actorId: string; staffId: string; cycleLabel: string }): Promise<DecisionSourceResult<PreviousEvaluation>> {
   const previousLabel = previousEvaluationCycleLabel(args.cycleLabel);
   const { data, error } = await supabase.rpc('get_staff_monthly_evaluation_v5', { p_actor_id: args.actorId, p_staff_id: args.staffId, p_month: `${previousLabel}-01` });
-  if (error) return { status: 'unavailable', value: null, error: describeSourceError(error, 'تقييم الدورة السابقة') };
-  if (!data || typeof data !== 'object') return { status: 'available', value: null, error: null };
+  if (error) return sourceProblem<PreviousEvaluation>(error, PREVIOUS_EVALUATION_LABEL, 'previous_evaluation');
+  // No evaluation saved for that cycle is a valid, available answer (not a failure).
+  if (!data || typeof data !== 'object') return { status: 'available', value: null, reason: null, diagnostic: null };
   const row = data as Record<string, unknown>;
   const status = String(row.status || 'draft');
   const metrics = row.metrics_snapshot as Record<string, unknown> | null;
   const snapshot = metrics?.final_approval_snapshot && typeof metrics.final_approval_snapshot === 'object' ? metrics.final_approval_snapshot as Record<string, unknown> : null;
   const published = ['sent', 'approved'].includes(status) && snapshot;
   const content = (published || row) as Record<string, unknown>;
-  return {
-    status: 'available', error: null,
-    value: {
+  return sourceAvailable<PreviousEvaluation>({
       cycleLabel: previousLabel,
       status: published ? status : 'draft',
       sections: (Array.isArray(content.sections) ? content.sections as Record<string, unknown>[] : []).map(s => ({ key: String(s.key || ''), title: String(s.title || ''), score: num(s.score) })),
       developmentPoints: Array.isArray(content.development_points) ? (content.development_points as unknown[]).map(String).filter(Boolean) : [],
       managerNotes: String(content.manager_notes || ''),
-    },
-  };
+  });
 }
 
 export function invalidateDoctorDecisionData() {
@@ -200,7 +203,7 @@ export async function loadDoctorDecisionSources(args: { staffId: string; branch:
     loadBranchReviewRows({ branch: args.branch, cycleLabel: args.cycleLabel, force: args.force }),
     args.actorId
       ? loadPreviousEvaluation({ actorId: args.actorId, staffId: args.staffId, cycleLabel: args.cycleLabel })
-      : Promise.resolve<DecisionSourceResult<PreviousEvaluation>>({ status: 'unavailable', value: null, error: 'هوية المستخدم غير متاحة لقراءة التقييم السابق' }),
+      : Promise.resolve(sourceProblem<PreviousEvaluation>({ code: 'missing_actor', message: 'no verified actor id for the previous evaluation read' }, PREVIOUS_EVALUATION_LABEL, 'previous_evaluation')),
   ]);
   return { branch, reviews, previousEvaluation };
 }
@@ -214,7 +217,7 @@ export function buildDoctorDecision(sources: DoctorDecisionSources, args: { staf
   return buildDecisionIntelligence({
     staffId: args.staffId,
     window: sources.branch.value,
-    windowError: sources.branch.error,
+    windowSource: { status: sources.branch.status, reason: sources.branch.reason },
     quality: sources.reviews.status === 'available' ? qualityIndexFromRows(sources.reviews.value, cycles) : { available: false, byDoctor: {} },
     sections: args.sections,
     previousEvaluation: sources.previousEvaluation.value,

@@ -131,11 +131,21 @@ export type EvaluationGap = {
   evidence: string;
 };
 
+/**
+ * `ready`: the branch comparison loaded and the doctor has evidence in it. Any other state carries no verdict
+ * and no recommendation: `not_enabled` (source not deployed yet), `failed` (source could not be read),
+ * `insufficient` (source loaded but holds no comparable evidence for this doctor).
+ */
+export type DecisionAvailability = 'ready' | 'not_enabled' | 'failed' | 'insufficient';
+
 export type DecisionIntelligence = {
+  availability: DecisionAvailability;
+  /** Plain-language reason when not ready; never a PostgREST code or message. */
+  availabilityReason: string | null;
   analysisCycleStart: string | null;
   analysisNote: string | null;
   confidence: { level: Confidence; reasons: string[] };
-  summary: { headline: string; strength: string | null; problem: string | null; decision: string };
+  summary: { headline: string; strength: string | null; problem: string | null; decision: string | null };
   indicators: {
     self: { state: 'improving' | 'stable' | 'declining' | 'insufficient'; value: number | null; label: string; detail: string };
     peers: { state: 'above' | 'within' | 'below' | 'insufficient'; value: number | null; label: string; detail: string; peerCount: number };
@@ -143,7 +153,8 @@ export type DecisionIntelligence = {
   };
   changeDrivers: null | { salesChange: number; hoursChange: number; conditionsChange: number; productivityChange: number; comparable: boolean; note: string };
   problems: ProblemSummary[];
-  decision: { action: string; why: string; owner: 'doctor' | 'manager'; successMetric: string; reviewBy: string; previousDecision: string | null };
+  /** Null whenever `availability !== 'ready'`: no recommendation is ever built on a missing source. */
+  decision: { action: string; why: string; owner: 'doctor' | 'manager'; successMetric: string; reviewBy: string; previousDecision: string | null } | null;
   branchPriorities: BranchPriority[];
   charts: {
     trend: { cycleStart: string; index: number | null; salesPerHour: number | null; hours: number; invoices: number; eligible: boolean; note: string | null }[];
@@ -412,10 +423,32 @@ function evaluationGaps(sections: { key: string; title: string; score: number }[
 export const TREND_LABEL: Record<ProblemTrend, string> = { new: 'جديدة', recurring: 'متكررة', improving: 'تتحسن', worsening: 'تتفاقم', resolved: 'تم حلها بدليل', insufficient: 'بيانات غير كافية' };
 export const SCOPE_LABEL: Record<ProblemScope, string> = { individual: 'فردية', multi_doctor: 'متكررة عند عدة دكاترة', shift_linked: 'مرتبطة بشيفت', branch_operational: 'تشغيلية محتملة على مستوى الفرع' };
 
+const UNAVAILABLE_COPY: Record<Exclude<DecisionAvailability, 'ready'>, { headline: string; label: string; fallback: string }> = {
+  not_enabled: { headline: 'المقارنة بالفرع لم تُفعَّل بعد؛ لا يوجد حكم مقارن لهذه الدورة.', label: 'لم يُفعَّل بعد', fallback: 'مصدر مقارنة الفرع لم يُفعَّل بعد.' },
+  failed: { headline: 'تعذر تحميل المقارنة بالفرع؛ لا يوجد حكم مقارن حتى يكتمل التحميل.', label: 'تعذر التحميل', fallback: 'تعذر تحميل مقارنة الفرع.' },
+  insufficient: { headline: 'بيانات غير كافية للمقارنة بالفرع في نطاق التحليل.', label: 'غير كافٍ', fallback: 'لا توجد بيانات حضور أو مبيعات لهذا الدكتور في الفرع خلال نطاق التحليل.' },
+};
+
+/** A neutral result: states why there is no comparison, carries no verdict, problem, recommendation or chart. */
+export function unavailableDecision(state: Exclude<DecisionAvailability, 'ready'>, reason: string | null): DecisionIntelligence {
+  const copy = UNAVAILABLE_COPY[state];
+  const why = reason || copy.fallback;
+  const indicator = { state: 'insufficient' as const, value: null, label: copy.label, detail: why };
+  return {
+    availability: state, availabilityReason: why,
+    analysisCycleStart: null, analysisNote: null,
+    confidence: { level: 'low', reasons: [why] },
+    summary: { headline: copy.headline, strength: null, problem: null, decision: null },
+    indicators: { self: indicator, peers: { ...indicator, peerCount: 0 }, evaluation: { state: 'insufficient', label: copy.label, detail: 'لا توجد أدلة مقارنة لمطابقة التقييم', gaps: [] } },
+    changeDrivers: null, problems: [], decision: null, branchPriorities: [],
+    charts: { trend: [], peers: [], peerBand: null, shifts: [], quality: [] }, dataWarnings: [],
+  };
+}
+
 export function buildDecisionIntelligence(args: {
   staffId: string;
   window: BranchPerformanceWindow | null;
-  windowError: string | null;
+  windowSource: { status: 'available' | 'not_enabled' | 'failed'; reason: string | null };
   quality: QualityIndex;
   sections: { key: string; title: string; score: number }[];
   previousEvaluation: PreviousEvaluation | null;
@@ -423,27 +456,12 @@ export function buildDecisionIntelligence(args: {
   nextReviewDate: string;
 }): DecisionIntelligence {
   const warnings: string[] = [];
-  const empty: DecisionIntelligence = {
-    analysisCycleStart: null, analysisNote: null,
-    confidence: { level: 'low', reasons: [args.windowError || 'بيانات الفرع غير متاحة'] },
-    summary: { headline: 'لا يمكن بناء تحليل عادل الآن', strength: null, problem: null, decision: 'إعادة تحميل البيانات قبل اتخاذ قرار' },
-    indicators: {
-      self: { state: 'insufficient', value: null, label: 'غير متاح', detail: args.windowError || 'بيانات الفرع غير متاحة' },
-      peers: { state: 'insufficient', value: null, label: 'غير متاح', detail: args.windowError || 'بيانات الفرع غير متاحة', peerCount: 0 },
-      evaluation: { state: 'insufficient', label: 'غير متاح', detail: 'لا توجد أدلة كافية للمطابقة', gaps: [] },
-    },
-    changeDrivers: null, problems: [],
-    decision: { action: 'إعادة تحميل البيانات قبل اتخاذ قرار', why: args.windowError || 'بيانات الفرع غير متاحة', owner: 'manager', successMetric: 'تحميل كل المصادر بنجاح', reviewBy: args.nextReviewDate, previousDecision: null },
-    branchPriorities: [], charts: { trend: [], peers: [], peerBand: null, shifts: [], quality: [] }, dataWarnings: warnings,
-  };
   const window = args.window;
-  if (!window) return empty;
-  const target = window.doctors.find(d => d.staffId === args.staffId);
-  if (!target) {
-    empty.summary.headline = 'لا توجد بيانات حضور أو مبيعات لهذا الدكتور في الفرع خلال نطاق التحليل';
-    empty.indicators.self.detail = empty.summary.headline;
-    return empty;
+  if (args.windowSource.status !== 'available' || !window) {
+    return unavailableDecision(args.windowSource.status === 'not_enabled' ? 'not_enabled' : 'failed', args.windowSource.reason);
   }
+  const target = window.doctors.find(d => d.staffId === args.staffId);
+  if (!target || !target.cycles.length) return unavailableDecision('insufficient', null);
   if (!args.quality.available) warnings.push('مراجعات محادثات الفرع غير متاحة؛ لم يُحكم على الجودة والأخطاء الطبية من غياب البيانات.');
   if (window.ambiguousNames.length) warnings.push(`أسماء بائع مشتركة بين أكثر من موظف نشط (${window.ambiguousNames.join('، ')}): فواتيرها مستبعدة من المقارنة حتى يُحسم نسبها.`);
 
@@ -626,6 +644,8 @@ export function buildDecisionIntelligence(args: {
   }));
 
   return {
+    availability: 'ready',
+    availabilityReason: null,
     analysisCycleStart: analysis.cycleStart,
     analysisNote,
     confidence: { level, reasons },
