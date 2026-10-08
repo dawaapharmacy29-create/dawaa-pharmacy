@@ -305,6 +305,7 @@ const testFiles = [
   'src/lib/salesIntelligence/__tests__/operationalDispositionInverse.test.ts',
   'src/lib/salesIntelligence/__tests__/v22SemanticProjection.test.ts',
   'src/lib/salesIntelligence/__tests__/productLossCheckPending.test.ts',
+  'src/lib/__tests__/v22EnvelopeWriteStrategy.test.ts',
   'src/lib/salesIntelligence/__tests__/lostOpportunityEngine.test.ts',
 ];
 for (const relativePath of testFiles) {

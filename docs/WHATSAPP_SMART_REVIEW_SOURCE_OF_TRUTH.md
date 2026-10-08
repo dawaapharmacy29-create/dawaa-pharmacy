@@ -64,6 +64,11 @@ V32 semantic facts (whatsappSemanticSignalsV32)
 * Multi SI cases -> one V22: one -> direct; agreeing -> aggregate; conflicting open states ->
   `open` + `needs_human_review` + `v22_projection.mixed_operational_states`; any active case without a
   disposition (older analysis) -> skipped, never guessed.
+* Envelope write strategy (`planV22EnvelopeWrite` / `writeV22Envelope`): a NEW envelope is an
+  INSERT of the complete preliminary payload; an EXISTING envelope is a guarded UPDATE of
+  envelope-owned columns only (never an UPSERT — Postgres checks NOT NULL case_type/case_state on the
+  INSERT tuple before ON CONFLICT). The UPDATE is conditional on the updated_at just read; on a lost
+  race it re-reads, re-merges and retries at most 3 times. case_key/created_by are never rewritten.
 * The envelope sync preserves server-owned case_json keys and, once projected, refreshes only the
   preliminary snapshot; analysis inputs read envelope values (`v22EnvelopeValue`) so SI never consumes
   its own projection (no feedback loop). Reanalysis converges to the same final state.

@@ -847,18 +847,23 @@ export default function WhatsAppSmartFolderWatcher() {
                         <div className="mt-1.5 flex flex-wrap gap-1">
                           {(Object.keys(STAGE_LABELS) as WhatsAppFilePipelineStage[]).map((stage) => {
                             const status = run.processing!.stages[stage];
+                            const detail = run.processing!.stageDetails?.[stage];
                             return (
                               <span
                                 key={stage}
+                                title={status === 'partial' ? 'جزئي: بعض الحالات نجحت وبعضها فشل — الملف لم يكتمل وسيُعاد محاولته' : undefined}
                                 className={`rounded-full px-2 py-0.5 text-[10px] font-black ${
                                   status === 'done'
                                     ? 'bg-emerald-500/10 text-emerald-300'
-                                    : status === 'failed'
-                                      ? 'bg-rose-500/15 text-rose-300'
-                                      : 'bg-slate-800 text-slate-500'
+                                    : status === 'partial'
+                                      ? 'bg-amber-500/15 text-amber-300'
+                                      : status === 'failed'
+                                        ? 'bg-rose-500/15 text-rose-300'
+                                        : 'bg-slate-800 text-slate-500'
                                 }`}
                               >
-                                {status === 'done' ? '✓' : status === 'failed' ? '✕' : '…'} {STAGE_LABELS[stage]}
+                                {status === 'done' ? '✓' : status === 'partial' ? '◐ جزئي' : status === 'failed' ? '✕' : '…'} {STAGE_LABELS[stage]}
+                                {detail && status !== 'done' ? ` (${detail})` : ''}
                               </span>
                             );
                           })}

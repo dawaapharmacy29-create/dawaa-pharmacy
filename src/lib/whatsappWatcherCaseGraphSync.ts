@@ -203,10 +203,13 @@ export const WHATSAPP_FILE_PIPELINE_STAGES = [
   'review_ready',
 ] as const;
 export type WhatsAppFilePipelineStage = (typeof WHATSAPP_FILE_PIPELINE_STAGES)[number];
-export type WhatsAppFilePipelineStageStatus = 'done' | 'failed' | 'skipped';
+/** partial = some critical units succeeded (usable, no duplicates) while others failed; never "done". */
+export type WhatsAppFilePipelineStageStatus = 'done' | 'partial' | 'failed' | 'skipped';
 
 export interface WhatsAppFileProcessingState {
   stages: Record<WhatsAppFilePipelineStage, WhatsAppFilePipelineStageStatus>;
+  /** Human-readable counts per stage, e.g. case_graph_saved: "1/2" (explains partial vs failed). */
+  stageDetails?: Partial<Record<WhatsAppFilePipelineStage, string>>;
   /** complete = every critical stage done; partial = something durable exists but the chain is incomplete. */
   outcome: 'complete' | 'partial' | 'failed';
   /** Incomplete files stay retryable; they are never recorded as a full success. */
@@ -266,7 +269,9 @@ export function deriveWhatsAppFileProcessingState(input: {
     ? 'skipped'
     : caseGraphDone
       ? 'done'
-      : 'failed';
+      : customerCase!.status === 'partial'
+        ? 'partial'
+        : 'failed';
   if (input.caseGraph && !caseGraphDone) {
     blockingErrors.push(
       `Customer Case V22 ${customerCase!.status} (${customerCase!.saved}/${customerCase!.expected})${
@@ -290,7 +295,9 @@ export function deriveWhatsAppFileProcessingState(input: {
       ? 'done'
       : si.status === 'skipped'
         ? 'skipped'
-        : 'failed';
+        : si.status === 'partial'
+          ? 'partial'
+          : 'failed';
   if (input.parsed && !siDone) {
     blockingErrors.push(
       `Sales Intelligence ${si?.status || 'not_run'}${si?.reason ? ` — ${si.reason}` : ''}${
@@ -307,7 +314,16 @@ export function deriveWhatsAppFileProcessingState(input: {
     salesIntelligence === 'done';
   const anythingDurable = input.savedSourceCount > 0;
 
+  const stageDetails: Partial<Record<WhatsAppFilePipelineStage, string>> = {};
+  if (input.parsed) stageDetails.source_saved = `${input.savedSourceCount}/${input.expectedSourceCount}`;
+  if (customerCase) stageDetails.case_graph_saved = `${customerCase.saved}/${customerCase.expected}`;
+  if (si && si.requestedSourceIds.length) {
+    const allowed = si.requestedSourceIds.filter((id) => si.bySource[id]?.status === 'allowed').length;
+    stageDetails.sales_intelligence_refreshed = `${allowed}/${si.requestedSourceIds.length}`;
+  }
+
   return {
+    stageDetails,
     stages: {
       parsed,
       source_saved: sourceSaved,

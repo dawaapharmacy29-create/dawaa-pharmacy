@@ -44,6 +44,95 @@ export function mergeV22EnvelopePayload(
   return merged;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Envelope write strategy — INSERT for a new envelope, guarded UPDATE for an existing one.
+//
+// Why not one UPSERT: Postgres builds the full INSERT tuple (and checks NOT NULL on case_type /
+// case_state) BEFORE ON CONFLICT resolves to the existing row. An existing projected envelope must
+// omit the SI-owned columns, so an upsert of that payload fails with 23502 even though the row
+// exists. Ownership contract:
+//   * new envelope      -> INSERT the complete preliminary payload (all NOT NULL columns present);
+//   * existing envelope -> UPDATE only envelope-owned columns. Columns the merge omits (SI-projected
+//                          columns, proof-owned proposed_outcome/outcome_confidence) and every column
+//                          the envelope never writes (confirmed_*/reviewed_*/verified_*/
+//                          responsibility_*/confirmed_lost_reason) stay untouched by the UPDATE;
+//                          server-owned case_json keys are carried over from the row just read.
+//   * identity columns (case_key) and authorship (created_by) are never rewritten on UPDATE.
+// Concurrency: the UPDATE is conditional on the updated_at just read; a concurrent server writer
+// (SI projection / proof writer) makes it update zero rows, so the row is re-read, re-merged and
+// retried — at most V22_ENVELOPE_MAX_WRITE_ATTEMPTS times, never forever.
+// ---------------------------------------------------------------------------------------------
+
+export const V22_ENVELOPE_MAX_WRITE_ATTEMPTS = 3;
+const ENVELOPE_COLUMNS_IMMUTABLE_ON_UPDATE = ['case_key', 'created_by'] as const;
+const ENVELOPE_EXISTING_COLUMNS = 'id,updated_at,case_json,proposed_outcome';
+
+export interface V22EnvelopeExistingRow {
+  id: string;
+  updated_at: string;
+  case_json: Record<string, any> | null;
+  proposed_outcome: string | null;
+}
+
+export type V22EnvelopeWritePlan =
+  | { op: 'insert'; row: Record<string, any> }
+  | { op: 'update'; id: string; expectedUpdatedAt: string; patch: Record<string, any> };
+
+/** Pure: decides INSERT vs guarded UPDATE and the exact columns each may write. */
+export function planV22EnvelopeWrite(
+  existing: V22EnvelopeExistingRow | null,
+  freshEnvelope: Record<string, any>
+): V22EnvelopeWritePlan {
+  if (!existing) return { op: 'insert', row: freshEnvelope };
+  const patch = mergeV22EnvelopePayload(freshEnvelope, existing);
+  for (const column of ENVELOPE_COLUMNS_IMMUTABLE_ON_UPDATE) delete patch[column];
+  return { op: 'update', id: existing.id, expectedUpdatedAt: existing.updated_at, patch };
+}
+
+export interface V22EnvelopeWriteResult {
+  id: string;
+  op: 'insert' | 'update';
+  attempts: number;
+}
+
+/** Persists one envelope through the planner with optimistic concurrency. Throws when it cannot. */
+export async function writeV22Envelope(
+  client: any,
+  freshEnvelope: Record<string, any>,
+  maxAttempts: number = V22_ENVELOPE_MAX_WRITE_ATTEMPTS
+): Promise<V22EnvelopeWriteResult> {
+  const caseKey = String(freshEnvelope.case_key || '');
+  if (!caseKey) throw new Error('v22_envelope_case_key_required');
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const { data: existing, error: readError } = await client
+      .from('whatsapp_customer_cases_v22')
+      .select(ENVELOPE_EXISTING_COLUMNS)
+      .eq('case_key', caseKey)
+      .maybeSingle();
+    if (readError) throw readError;
+    const plan = planV22EnvelopeWrite((existing as V22EnvelopeExistingRow | null) ?? null, freshEnvelope);
+
+    if (plan.op === 'insert') {
+      const { data, error } = await client.from('whatsapp_customer_cases_v22').insert(plan.row).select('id').single();
+      if (!error && data?.id) return { id: String(data.id), op: 'insert', attempts: attempt };
+      // Another writer created the envelope between our read and insert: next attempt updates it.
+      if (error?.code === '23505') continue;
+      throw error || new Error('v22_envelope_insert_returned_no_row');
+    }
+
+    const { data: updated, error } = await client
+      .from('whatsapp_customer_cases_v22')
+      .update(plan.patch)
+      .eq('id', plan.id)
+      .eq('updated_at', plan.expectedUpdatedAt)
+      .select('id');
+    if (error) throw error;
+    if ((updated || []).length) return { id: plan.id, op: 'update', attempts: attempt };
+    // Zero rows: the row changed after our read (server projection/proof writer). Re-read, re-merge.
+  }
+  throw new Error(`v22_envelope_concurrent_update_retry_exhausted:${caseKey}`);
+}
+
 export interface SyncWhatsAppCustomerCasesV22Context {
   branch?: string | null;
   createdBy?: string | null;
@@ -271,23 +360,6 @@ export async function syncWhatsAppCustomerCasesV22(
     }
   }
 
-  // Existing envelopes (bounded: one row per case of this file) so server-owned truth survives re-scans.
-  const caseKeys = model.cases
-    .map((caseItem) => {
-      const rootSourceId = caseItem.sessionIds.map((id) => sourceBySession.get(id)).find(Boolean);
-      return rootSourceId ? `v22:${rootSourceId}:${caseItem.startedAt}` : null;
-    })
-    .filter((key): key is string => Boolean(key));
-  const existingByKey = new Map<string, { case_json: Record<string, any> | null; proposed_outcome: string | null }>();
-  if (caseKeys.length) {
-    const { data: existingRows, error: existingError } = await supabase
-      .from('whatsapp_customer_cases_v22')
-      .select('case_key,case_json,proposed_outcome')
-      .in('case_key', caseKeys);
-    if (existingError) throw existingError;
-    for (const row of existingRows || []) existingByKey.set(String((row as any).case_key), row as any);
-  }
-
   for (const caseItem of model.cases) {
     const sourceIds = caseItem.sessionIds.map((id) => sourceBySession.get(id)).filter((id): id is string => Boolean(id));
     const rootSourceId = sourceIds[0];
@@ -373,12 +445,8 @@ export async function syncWhatsAppCustomerCasesV22(
         updated_at: new Date().toISOString(),
       };
 
-      const { data: savedCase, error } = await supabase
-        .from('whatsapp_customer_cases_v22')
-        .upsert(mergeV22EnvelopePayload(payload, existingByKey.get(caseKey) || null), { onConflict: 'case_key' })
-        .select('id')
-        .single();
-      if (error) throw error;
+      // INSERT a new envelope / guarded UPDATE of an existing one (see writeV22Envelope).
+      const savedCase = await writeV22Envelope(supabase, payload);
 
       const ownershipRows = stageCandidates(caseItem, caseSources)
         .map(({ stage, source, preferred, evidenceMessageIds }) => {
