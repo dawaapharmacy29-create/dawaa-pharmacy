@@ -141,11 +141,14 @@ export function buildDoctorPerformanceVerdict(args: {
   const salesClause = !salesAvailable ? 'لا يمكن قراءة المبيعات الآن' : signal === 'insufficient' ? 'لا توجد مقارنة مبيعات عادلة بعد' : signal === 'improving' ? 'المبيعات تتحسن' : signal === 'declining' ? 'المبيعات تتراجع' : 'المبيعات مستقرة';
   const lead: DoctorPerformanceVerdict['lead'] = problem?.priority ? 'problem' : 'trend';
   const trendAfterProblem = !salesAvailable ? 'والمبيعات غير متاحة الآن' : signal === 'improving' ? 'رغم تحسن المبيعات' : signal === 'declining' ? 'والمبيعات تتراجع أيضًا' : signal === 'stable' ? 'والمبيعات مستقرة' : 'ولا توجد مقارنة مبيعات عادلة بعد';
+  const evidenceIncomplete = data.sources.conversations.status !== 'available' || data.sources.customerImpact.status !== 'available' || !conversationReady || !attendanceReady;
   const headline = lead === 'problem'
     ? `الأولوية: ${problem!.line.text} — ${trendAfterProblem}.`
     : problem
       ? `${salesClause}، والمشكلة الأساسية: ${problem.short}.`
-      : `${salesClause}، ولا توجد مشكلة موثقة تتجاوز حدود المتابعة.`;
+      : evidenceIncomplete
+        ? `${salesClause}، والأدلة غير مكتملة؛ لا يمكن تأكيد خلو الدورة من مشكلات.`
+        : `${salesClause}، ولا توجد مشكلة موثقة تتجاوز حدود المتابعة.`;
   const badge: DoctorPerformanceVerdict['badge'] = lead === 'problem'
     ? { label: `أولوية: ${problem!.short}`, tone: 'danger' }
     : { label: signalLabel, tone: signal === 'improving' ? 'success' : signal === 'declining' ? 'danger' : 'neutral' };
