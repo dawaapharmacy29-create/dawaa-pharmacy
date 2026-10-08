@@ -396,7 +396,8 @@ function rowConversationCoreAverage(row: Record<string, unknown>) {
   return columns.reduce((sum, value) => sum + value, 0) / columns.length;
 }
 
-function buildConversationCoaching(rows: Record<string, unknown>[]): MonthlyConversationCoaching {
+/** Canonical conversation rubric; exported so peer comparisons score reviews exactly like the evaluation page. */
+export function buildConversationCoaching(rows: Record<string, unknown>[]): MonthlyConversationCoaching {
   const minSamples = 3;
   const sampleSufficient = rows.length >= minSamples;
   const dimensions = sampleSufficient ? dimensionEvidence(rows, minSamples) : [];
@@ -1453,6 +1454,32 @@ async function loadConversationReviews(args: {
       ? 'conversation_reviews_truncated: more than 500 review rows matched one identity path; monthly evidence is incomplete'
       : byStaff.error?.message || byDoctor.error?.message || '',
   };
+}
+
+/**
+ * Branch-wide conversation review rows for peer comparison, read through the same canonical view and
+ * select list as the monthly evidence. Bounded by branch, date window and an explicit limit; a truncated
+ * or failed read is reported, never returned as a complete empty set.
+ */
+export async function loadBranchConversationReviewRows(args: {
+  branch: string;
+  startDate: string;
+  endDateExclusive: string;
+}): Promise<{ rows: Record<string, unknown>[]; error: string }> {
+  const startAt = cairoDateBoundaryIso(args.startDate);
+  const endAt = cairoDateBoundaryIso(args.endDateExclusive);
+  const limit = 3000;
+  const { data, error } = await supabase
+    .from('conversation_sales_reviews_canonical_v2')
+    .select(REVIEW_SELECT)
+    .eq('branch', args.branch)
+    .or(`and(conversation_date.gte.${startAt},conversation_date.lt.${endAt}),and(conversation_date.is.null,created_at.gte.${startAt},created_at.lt.${endAt})`)
+    .order('created_at', { ascending: false })
+    .limit(limit + 1);
+  if (error) return { rows: [], error: error.message || 'branch_conversation_reviews_unavailable' };
+  const rows = (data || []) as unknown as Record<string, unknown>[];
+  if (rows.length > limit) return { rows: [], error: 'branch_conversation_reviews_truncated' };
+  return { rows, error: '' };
 }
 
 /**
