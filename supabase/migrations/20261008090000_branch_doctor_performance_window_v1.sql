@@ -118,6 +118,8 @@ begin
            (si.invoice_date at time zone 'Africa/Cairo')::date d,
            coalesce(nullif(btrim(si.customer_id::text), ''), nullif(btrim(si.customer_code), ''), nullif(btrim(si.customer_phone), '')) customer_key,
            coalesce(nullif(si.net_total, 0), nullif(si.net_amount, 0), nullif(si.discounted_amount, 0), nullif(si.total_amount, 0), nullif(si.amount, 0), nullif(si.gross_total, 0), nullif(si.gross_amount, 0), 0)::numeric amount,
+           -- Imports that carry only a date are stored at 00:00 UTC; their time of day is unknown.
+           (si.invoice_date at time zone 'UTC')::time = time '00:00' date_only,
            nullif(btrim(si.staff_id), '') staff_text,
            case when coalesce(btrim(si.staff_id), '') = '' then public.normalize_cs_identity_name(coalesce(nullif(btrim(si.normalized_seller_name), ''), nullif(btrim(si.seller_name), ''), nullif(btrim(si.staff_name), ''))) end norm
     from public.sales_invoices si
@@ -155,13 +157,15 @@ begin
   placed as materialized (
     -- Each attributed invoice is placed in the doctor's own attendance window that contains it (+-60 min).
     -- Candidate shift dates are the invoice day and the previous day, so night shifts crossing midnight
-    -- stay one shift on the shift's own date. Invoices outside every window keep shift = null (unmatched).
+    -- stay one shift on the shift's own date. A date-only invoice (no time of day) belongs to the doctor's
+    -- attendance on that same date. Invoices outside every window keep shift = null (unmatched).
     select distinct on (t.id) t.id, t.staff_id, t.d, t.amount, t.customer_key, t.via, p.attendance_date shift_date, p.shift
     from attributed t
     left join productive_days p
       on p.staff_id = t.staff_id and p.attendance_date in (t.d, t.d - 1)
-     and t.ts >= p.win_start - interval '60 minutes' and t.ts < p.win_end + interval '60 minutes'
-    order by t.id, (p.attendance_date is null), abs(extract(epoch from (t.ts - p.win_start)))
+     and ((t.ts >= p.win_start - interval '60 minutes' and t.ts < p.win_end + interval '60 minutes')
+          or (t.date_only and p.attendance_date = t.d))
+    order by t.id, (p.attendance_date is null), (p.attendance_date is distinct from t.d and t.date_only), abs(extract(epoch from (t.ts - p.win_start)))
   ),
   sales_agg as (
     select t.staff_id, c.s cycle_start, sum(t.amount) sales, count(*) invoices,

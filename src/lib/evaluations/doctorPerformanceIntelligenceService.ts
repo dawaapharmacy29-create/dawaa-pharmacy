@@ -38,15 +38,23 @@ export type DoctorPerformanceMonth = {
   cycleLabel: string; displayLabel: string;
   sales: number | null; invoices: number | null; customers: number | null; averageInvoice: number | null;
   workedHours: number | null; salesPerHour: number | null; invoicesPerHour: number | null; customersPerHour: number | null;
-  /** Reviewed conversations; conversion uses only those whose sale outcome was recorded (null outcome = unknown). */
+  /**
+   * Reviewed conversations. A verified sale is a review marked converted that carries the sale invoice number.
+   * `conversionRecorded` = verified sales + reviews recorded as no sale; a missing outcome, or a "converted" mark
+   * with no invoice, is unknown and stays out of both sides. `conversionRate` = verified ÷ recorded.
+   */
   conversations: number | null; convertedConversations: number | null; conversionRate: number | null; conversionRecorded: number | null;
+  /** Reviews marked converted without an invoice number: claimed, not verified. */
+  unverifiedConversions: number | null;
   /** Canonical attendance for the cycle (same truth as the evaluation header); null when unavailable. */
-  attendanceDetail: null | { workedDays: number; lateDays: number; lateMinutes: number; pendingDays: number; approvedHours: number; pendingHours: number };
-  /** Per-hour productivity is computed only when every attendance day of the cycle is settled. */
+  attendanceDetail: AttendanceFacts | null;
+  /** Per-hour productivity is computed only for a closed cycle whose attendance days are all settled. */
   hoursComplete: boolean;
   hoursNote: string | null;
-  /** Days of sales data behind the totals: the full cycle when closed, the loaded days when running. */
+  /** Calendar days behind the sales totals: the full cycle when closed, the loaded days when running. Context only. */
   salesDays: number | null;
+  /** Days the doctor punched in or out within the sales window (closed cycle: whole cycle; running: up to the sales date). */
+  salesPresentDays: number | null;
   coverage: PerformanceCoverage;
   confidence: PerformanceConfidence;
   coverageReason: string;
@@ -55,6 +63,8 @@ export type DoctorPerformanceMonth = {
   comparisonReason: string;
   comparisonSnapshot: null | {
     days: number | null; dataAsOf: string | null;
+    /** Attendance days inside each same-period window, so the totals are read against the days actually worked. */
+    presentDays: number | null; previousPresentDays: number | null;
     sales: number | null; previousSales: number | null;
     invoices: number | null; previousInvoices: number | null;
     customers: number | null; previousCustomers: number | null;
@@ -66,6 +76,46 @@ export type DoctorPerformanceMonth = {
   customerImpact: DoctorCustomerImpact;
   diagnoses: DoctorPerformanceDiagnosis[];
 };
+
+/**
+ * Attendance facts from the canonical per-day rows. A present day has at least one punch; it is settled when
+ * approved. Lateness and hours are final only on settled days: a pending day's lateness and hours are not known yet.
+ */
+export type AttendanceFacts = {
+  presentDays: number;
+  settledDays: number;
+  unsettledDays: number;
+  absenceReviewDays: number;
+  lateDays: number;
+  lateMinutes: number;
+  approvedHours: number;
+  pendingHours: number;
+  presentDates: string[];
+};
+
+type AttendanceDayInput = { attendance_date?: string | null; first_in?: string | null; last_out?: string | null; approval_state?: string | null };
+type AttendanceSummaryInput = { actual_worked_days?: unknown; late_days?: unknown; total_late_minutes?: unknown; absence_review_days?: unknown; total_worked_hours?: unknown; pending_worked_hours?: unknown };
+
+export function attendanceFacts(days: AttendanceDayInput[] | null | undefined, summary: AttendanceSummaryInput): AttendanceFacts {
+  const num = (v: unknown) => { const x = Number(v); return Number.isFinite(x) ? x : 0; };
+  const present = (days || []).filter(d => Boolean(d.first_in || d.last_out) && d.attendance_date);
+  const settled = present.filter(d => d.approval_state === 'approved').length;
+  return {
+    presentDays: present.length,
+    settledDays: days ? settled : num(summary.actual_worked_days),
+    unsettledDays: present.length - settled,
+    absenceReviewDays: num(summary.absence_review_days),
+    lateDays: num(summary.late_days),
+    lateMinutes: num(summary.total_late_minutes),
+    approvedHours: num(summary.total_worked_hours),
+    pendingHours: num(summary.pending_worked_hours),
+    presentDates: present.map(d => String(d.attendance_date).slice(0, 10)).sort(),
+  };
+}
+
+/** Present days up to and including `lastDay` (the last loaded sales day), never counting days without sales data. */
+export const presentDaysThrough = (facts: AttendanceFacts | null, firstDay: string, lastDay: string | null) =>
+  facts && lastDay ? facts.presentDates.filter(d => d >= firstDay && d <= lastDay).length : null;
 
 export type PerformanceSourceStatus = 'available' | 'partial' | 'unavailable';
 /**
@@ -263,20 +313,27 @@ function coverageText(coverage:PerformanceCoverage, salesAvailable:boolean, atte
 /**
  * Per-hour productivity and conversion for one cycle.
  * - Sales cover every day worked, so dividing by approved hours alone overstates the rate while days are pending
- *   review: per-hour figures exist only when every attendance day of the cycle is settled.
- * - A review whose sale outcome was never recorded is unknown, not "not converted": conversion is converted ÷
- *   recorded outcomes, and null when no outcome was recorded.
+ *   review, and a running cycle's hours run past its loaded sales: per-hour figures exist only for a closed cycle
+ *   whose attendance days are all settled.
+ * - Conversion counts a sale only when it is verified (marked converted and carrying the invoice number). A missing
+ *   outcome, or a "converted" mark without an invoice, is unknown, not "not converted": it stays out of both sides.
  */
-export function cycleRates(a:{salesTotal:number|null;invoices:number|null;customers:number|null;hours:number|null;detail:DoctorPerformanceMonth['attendanceDetail'];outcomes:(boolean|null|undefined)[]|null}){
-  const recorded=a.outcomes===null?null:a.outcomes.filter(v=>v===true||v===false).length;
-  const converted=a.outcomes===null?null:a.outcomes.filter(v=>v===true).length;
-  const hoursComplete=a.hours!==null&&a.hours>0&&a.detail!==null&&a.detail.pendingDays===0;
-  const hoursNote=a.hours===null?null:!a.detail?'تفاصيل الحضور غير متاحة؛ إنتاجية الساعة غير محسوبة.':a.detail.pendingDays>0?`${a.detail.pendingDays} يوم حضور بانتظار المراجعة؛ إنتاجية الساعة لا تُحسب على ساعات ناقصة.`:null;
+export type ConversationOutcome = { converted: boolean | null | undefined; invoiceNumber: string | null | undefined };
+export function cycleRates(a:{salesTotal:number|null;invoices:number|null;customers:number|null;hours:number|null;detail:AttendanceFacts|null;cycleClosed:boolean;outcomes:ConversationOutcome[]|null}){
+  const hasInvoice=(o:ConversationOutcome)=>Boolean(o.invoiceNumber&&String(o.invoiceNumber).trim());
+  const verified=a.outcomes===null?null:a.outcomes.filter(o=>o.converted===true&&hasInvoice(o)).length;
+  const unverified=a.outcomes===null?null:a.outcomes.filter(o=>o.converted===true&&!hasInvoice(o)).length;
+  const noSale=a.outcomes===null?null:a.outcomes.filter(o=>o.converted===false).length;
+  const recorded=verified===null||noSale===null?null:verified+noSale;
+  const hoursComplete=a.cycleClosed&&a.hours!==null&&a.hours>0&&a.detail!==null&&a.detail.unsettledDays===0;
+  const hoursNote=a.hours===null?null:!a.detail?'تفاصيل الحضور غير متاحة؛ إنتاجية الساعة غير محسوبة.'
+    :a.detail.unsettledDays>0?`${a.detail.unsettledDays} يوم حضور بانتظار المراجعة؛ إنتاجية الساعة لا تُحسب على ساعات ناقصة.`
+    :!a.cycleClosed?'الدورة جارية؛ إنتاجية الساعة تُحسب بعد اكتمالها.':null;
   const perHour=(v:number|null)=>hoursComplete&&v!==null?v/(a.hours as number):null;
   return {
-    recorded,converted,hoursComplete,hoursNote,
+    recorded,converted:verified,unverified,hoursComplete,hoursNote,
     salesPerHour:perHour(a.salesTotal),invoicesPerHour:perHour(a.invoices),customersPerHour:perHour(a.customers),
-    conversionRate:recorded&&converted!==null?converted/recorded*100:null,
+    conversionRate:recorded&&verified!==null?verified/recorded*100:null,
   };
 }
 
@@ -305,7 +362,7 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
   const [salesTruth,attendanceWindow,conversationWindow,impactWindow]=await Promise.all([
     salesBundle(args.staffId,windowStart,windowEnd,currentSpec.start,requestedElapsedDays),
     readAttendanceRange({staffId:args.staffId,startDate:windowStart,endDateExclusive:windowEnd,limit:400}),
-    supabase.from('conversation_sales_reviews_canonical_v2').select('id,converted_to_sale,conversation_date,created_at').or(`doctor_id.eq.${args.staffId},staff_id.eq.${args.staffId}`).or(`and(conversation_date.gte.${windowStartAt},conversation_date.lt.${windowEndAt}),and(conversation_date.is.null,created_at.gte.${windowStartAt},created_at.lt.${windowEndAt})`).limit(3000),
+    supabase.from('conversation_sales_reviews_canonical_v2').select('id,converted_to_sale,invoice_number,conversation_date,created_at').or(`doctor_id.eq.${args.staffId},staff_id.eq.${args.staffId}`).or(`and(conversation_date.gte.${windowStartAt},conversation_date.lt.${windowEndAt}),and(conversation_date.is.null,created_at.gte.${windowStartAt},created_at.lt.${windowEndAt})`).limit(3000),
     customerImpactWindow(args.staffId,windowStart,windowEnd),
   ]);
   const attendanceDetails=await canonicalAttendance;
@@ -323,7 +380,7 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
     const detail=attendanceDetails[specIndex];
     const summary=detail.status==='fulfilled'?detail.value?.summary:null;
     const canonicalHours=summary&&Number.isFinite(Number(summary.total_worked_hours))?Number(summary.total_worked_hours):null;
-    const attendanceDetail=summary?{workedDays:n(summary.actual_worked_days),lateDays:n(summary.late_days),lateMinutes:n(summary.total_late_minutes),pendingDays:n(summary.pending_review_days),approvedHours:n(summary.total_worked_hours),pendingHours:n(summary.pending_worked_hours)}:null;
+    const attendanceDetail=summary?attendanceFacts(detail.status==='fulfilled'?detail.value?.days:null,summary):null;
     const salesSummary=salesTruth.rows.find(r=>String(r.cycle_start||'').slice(0,10)===start);
     const sales={
       summary:salesSummary||null,
@@ -385,9 +442,11 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
     const hours=coverage==='not_applicable'||attendance.error?null:attendance.hours;
     const conv=coverage==='not_applicable'||conversations.error?null:conversationRows.length;
     const detail=attendance.detail;
-    const rates=cycleRates({salesTotal,invoices,customers,hours,detail,outcomes:conv===null?null:conversationRows.map(r=>r.converted_to_sale)});
+    const rates=cycleRates({salesTotal,invoices,customers,hours,detail,cycleClosed,outcomes:conv===null?null:conversationRows.map(r=>({converted:r.converted_to_sale,invoiceNumber:r.invoice_number}))});
     const {recorded,converted,hoursComplete,hoursNote}=rates;
     const salesDays=!salesUsable?null:cycleClosed?Math.round((Date.parse(`${endExclusive}T00:00:00Z`)-Date.parse(`${start}T00:00:00Z`))/86400000):(elapsedDays>0?elapsedDays:null);
+    // Attendance days matched to the same window as the sales totals (a running cycle stops at the last loaded sales day).
+    const salesPresentDays=!salesUsable||!detail?null:cycleClosed?detail.presentDays:presentDaysThrough(detail,start,salesDataAsOf);
     const customerImpact=aggregateImpactEvidence(impact.rows,impact.available);
 
     // A cycle the doctor joined mid-way, or a closed cycle whose sales are not loaded to its last day, is not a
@@ -417,8 +476,8 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
       cycleLabel,displayLabel:range.displayLabel,
       sales:salesTotal,invoices,customers,averageInvoice:avg,
       workedHours:hours,salesPerHour:rates.salesPerHour,invoicesPerHour:rates.invoicesPerHour,customersPerHour:rates.customersPerHour,
-      conversations:conv,convertedConversations:converted,conversionRate:rates.conversionRate,conversionRecorded:recorded,
-      attendanceDetail:coverage==='not_applicable'?null:detail,hoursComplete,hoursNote,salesDays,
+      conversations:conv,convertedConversations:converted,conversionRate:rates.conversionRate,conversionRecorded:recorded,unverifiedConversions:rates.unverified,
+      attendanceDetail:coverage==='not_applicable'?null:detail,hoursComplete,hoursNote,salesDays,salesPresentDays:coverage==='not_applicable'?null:salesPresentDays,
       coverage,confidence,
       coverageReason:coverageText(coverage,sales.available,attendanceAvailable,hasCoreEvidence),
       comparisonEligible,comparisonMode,comparisonReason,comparisonSnapshot:null,
@@ -476,7 +535,10 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
       const cs=currentSummary.summary,ps=previousSummary.summary;
       const ci=n(cs?.invoices),pi=n(ps?.invoices),cSales=n(cs?.sales),pSales=n(ps?.sales);
       months[0].comparisonSnapshot={
-        days:elapsedDays,dataAsOf:salesDataAsOf,sales:cSales,previousSales:pSales,invoices:ci,previousInvoices:pi,
+        days:elapsedDays,dataAsOf:salesDataAsOf,
+        presentDays:presentDaysThrough(months[0].attendanceDetail,cycleSpecs[0].start,addDays(cycleSpecs[0].start,elapsedDays-1)),
+        previousPresentDays:presentDaysThrough(months[1].attendanceDetail,cycleSpecs[1].start,addDays(cycleSpecs[1].start,elapsedDays-1)),
+        sales:cSales,previousSales:pSales,invoices:ci,previousInvoices:pi,
         customers:n(cs?.customers),previousCustomers:n(ps?.customers),
         averageInvoice:ci?cSales/ci:null,previousAverageInvoice:pi?pSales/pi:null,
       };

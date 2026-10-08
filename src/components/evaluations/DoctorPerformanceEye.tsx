@@ -156,7 +156,7 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
   const snap = cur?.comparisonMode === 'same_period' ? cur.comparisonSnapshot : null;
   const fullCycleFair = Boolean(cur && prev && cur.comparisonMode === 'full_cycle' && cur.comparisonEligible && prev.comparisonEligible && prev.coverage !== 'not_applicable');
   const comparisonBasis = !cur ? '' : snap
-    ? `المقارنة: أول ${fmt(snap.days)} يوم من الدورة الحالية مقابل نفس الفترة من السابقة${snap.dataAsOf ? ` · المبيعات حتى ${snap.dataAsOf}` : ''}`
+    ? `المقارنة: أول ${fmt(snap.days)} يوم تقويمي من الدورة الحالية مقابل نفس الأيام من السابقة${snap.presentDays !== null && snap.previousPresentDays !== null ? `، أيام الحضور فيها ${fmt(snap.presentDays)} مقابل ${fmt(snap.previousPresentDays)}` : ''}${snap.dataAsOf ? `، المبيعات حتى ${snap.dataAsOf}` : ''}`
     : fullCycleFair ? 'المقارنة: الدورة كاملة مقابل الدورة السابقة كاملة' : `بدون نسب تغير: ${cur.comparisonReason}`;
   const salesDelta = (fullCurrent: number | null, fullPrevious: number | null | undefined, sameCurrent?: number | null, samePrevious?: number | null) =>
     snap ? delta(sameCurrent, samePrevious) : fullCycleFair ? delta(fullCurrent, fullPrevious) : null;
@@ -191,7 +191,8 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
     : { headline: verdict?.headline || '', strength: verdict?.strength?.text || null, problem: verdict?.problem?.text || null, action: verdict?.action?.text || (verdict?.evidenceComplete ? 'استمرار المتابعة المعتادة' : null) };
   const chartModel = useMemo(() => data ? buildEyeChartModel({ data, decision, decisionLoading, hasBranch: Boolean(branch) }) : null, [data, decision, decisionLoading, branch]);
   const hoursFair = Boolean(cur?.hoursComplete && prev?.hoursComplete);
-  const conversionReason = cur && cur.conversations && !cur.conversionRecorded ? `${fmt(cur.conversations)} مراجعة بدون نتيجة بيع مسجلة؛ التحويل غير معروف وليس صفرًا.` : data?.sources.conversations.reason || null;
+  const conversionReason = cur && cur.conversations && !cur.conversionRecorded ? `${fmt(cur.conversations)} مراجعة بدون نتيجة بيع موثقة مسجلة؛ التحويل غير معروف وليس صفرًا.` : data?.sources.conversations.reason || null;
+  const conversionNote = cur && cur.conversionRecorded ? `${fmt(cur.convertedConversations)} بيع موثق من ${fmt(cur.conversionRecorded)} نتيجة${cur.conversations && cur.conversionRecorded < cur.conversations ? `، التغطية ${fmt(cur.conversionRecorded)}/${fmt(cur.conversations)} (مؤقت)` : ''}` : null;
   const readyMissing = ready ? decisionSourceIssues.filter(([name]) => name !== 'مقارنة الفرع') : [];
   const indicatorTone = (state: string): Tone => ['improving', 'above', 'consistent'].includes(state) ? 'success' : ['declining', 'below', 'gaps'].includes(state) ? 'warning' : 'neutral';
 
@@ -362,7 +363,7 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
                 <Kpi label="متوسط الفاتورة" value={money(cur.averageInvoice === null ? null : Math.round(cur.averageInvoice))} deltaValue={salesDelta(cur.averageInvoice, prev.averageInvoice, snap?.averageInvoice, snap?.previousAverageInvoice)} deltaNote={null} unavailableReason={salesReason} />
                 <Kpi label="ساعات معتمدة" value={cur.workedHours === null ? UNAVAILABLE : `${fmt(cur.workedHours, 1)} س`} deltaValue={hoursFair ? otherDelta(cur.workedHours, prev.workedHours) : null} deltaNote={cur.hoursNote || otherNote} unavailableReason={data.sources.attendance.reason} />
                 <Kpi label="مبيعات/ساعة" value={cur.salesPerHour === null ? UNAVAILABLE : `${fmt(cur.salesPerHour)} ج`} deltaValue={otherDelta(cur.salesPerHour, prev.salesPerHour)} deltaNote={otherNote} unavailableReason={salesReason || cur.hoursNote || data.sources.attendance.reason} />
-                <Kpi label="Conversion" value={pct(cur.conversionRate)} deltaValue={otherDelta(cur.conversionRate, prev.conversionRate)} deltaNote={cur.conversionRecorded ? `${fmt(cur.convertedConversations)} من ${fmt(cur.conversionRecorded)} نتيجة مسجلة` : otherNote} unavailableReason={conversionReason} />
+                <Kpi label="التحويل الموثق" value={pct(cur.conversionRate)} deltaValue={otherDelta(cur.conversionRate, prev.conversionRate)} deltaNote={conversionNote || otherNote} unavailableReason={conversionReason} />
               </div>
             </Section>
 
@@ -410,13 +411,14 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
                       {m.sales !== null && maxSales > 0 ? <div className="mt-1 h-1.5 rounded-full" style={{ background: 'var(--dawaa-theme-soft)' }}><div className="h-1.5 rounded-full" style={{ width: `${Math.max(2, (m.sales / maxSales) * 100)}%`, background: 'var(--dawaa-theme-primary)' }} /></div> : null}
                     </td>)}</tr>
                     <tr className="border-t" style={{ borderColor: 'var(--dawaa-theme-border)' }}><td className="p-2">الفواتير</td>{data.months.map(m => <td key={m.cycleLabel} className="p-2 tabular-nums">{fmt(m.invoices)}</td>)}</tr>
-                    <tr className="border-t" style={{ borderColor: 'var(--dawaa-theme-border)' }}><td className="p-2">ساعات العمل</td>{data.months.map(m => <td key={m.cycleLabel} className="p-2 tabular-nums">{m.workedHours === null ? UNAVAILABLE : `${fmt(m.workedHours, 1)} س`}</td>)}</tr>
+                    <tr className="border-t" style={{ borderColor: 'var(--dawaa-theme-border)' }}><td className="p-2">أيام الحضور</td>{data.months.map(m => <td key={m.cycleLabel} className="p-2 tabular-nums" title={m.attendanceDetail?.unsettledDays ? `${fmt(m.attendanceDetail.unsettledDays)} يوم بانتظار المراجعة` : undefined}>{m.attendanceDetail ? `${fmt(m.attendanceDetail.presentDays)}${m.attendanceDetail.unsettledDays ? ` (${fmt(m.attendanceDetail.unsettledDays)} معلق)` : ''}` : UNAVAILABLE}</td>)}</tr>
+                    <tr className="border-t" style={{ borderColor: 'var(--dawaa-theme-border)' }}><td className="p-2">ساعات معتمدة</td>{data.months.map(m => <td key={m.cycleLabel} className="p-2 tabular-nums">{m.workedHours === null ? UNAVAILABLE : `${fmt(m.workedHours, 1)} س`}</td>)}</tr>
                     {comparisonDetails ? <>
                       <tr className="border-t" style={{ borderColor: 'var(--dawaa-theme-border)' }}><td className="p-2">العملاء</td>{data.months.map(m => <td key={m.cycleLabel} className="p-2 tabular-nums">{fmt(m.customers)}</td>)}</tr>
                       <tr className="border-t" style={{ borderColor: 'var(--dawaa-theme-border)' }}><td className="p-2">متوسط الفاتورة</td>{data.months.map(m => <td key={m.cycleLabel} className="p-2 tabular-nums">{money(m.averageInvoice === null ? null : Math.round(m.averageInvoice))}</td>)}</tr>
                       <tr className="border-t" style={{ borderColor: 'var(--dawaa-theme-border)' }}><td className="p-2">مبيعات/ساعة</td>{data.months.map(m => <td key={m.cycleLabel} className="p-2 tabular-nums">{money(m.salesPerHour === null ? null : Math.round(m.salesPerHour))}</td>)}</tr>
                       <tr className="border-t" style={{ borderColor: 'var(--dawaa-theme-border)' }}><td className="p-2">المحادثات</td>{data.months.map(m => <td key={m.cycleLabel} className="p-2 tabular-nums">{fmt(m.conversations)}</td>)}</tr>
-                      <tr className="border-t" style={{ borderColor: 'var(--dawaa-theme-border)' }}><td className="p-2">Conversion</td>{data.months.map(m => <td key={m.cycleLabel} className="p-2 tabular-nums">{pct(m.conversionRate)}</td>)}</tr>
+                      <tr className="border-t" style={{ borderColor: 'var(--dawaa-theme-border)' }}><td className="p-2">التحويل الموثق</td>{data.months.map(m => <td key={m.cycleLabel} className="p-2 tabular-nums">{pct(m.conversionRate)}</td>)}</tr>
                       <tr className="border-t" style={{ borderColor: 'var(--dawaa-theme-border)' }}><td className="p-2">التغطية</td>{data.months.map(m => <td key={m.cycleLabel} className="p-2"><Chip tone={m.coverage === 'available' ? 'success' : m.coverage === 'partial' ? 'warning' : m.coverage === 'not_applicable' ? 'neutral' : 'danger'} title={m.coverageReason}>{coverageLabel(m.coverage)}</Chip></td>)}</tr>
                     </> : null}
                   </tbody>
@@ -461,7 +463,7 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
                   <span>حتى: {s.dataAsOf || UNAVAILABLE}</span>
                 </div>)}
               </div>
-              <div className="mt-2 text-[11px] font-bold leading-5" style={{ color: 'var(--dawaa-theme-muted)' }}>هوية المبيعات: {cur.salesIdentity === 'canonical' ? 'فواتير الموظف الموثقة (canonical)' : 'المصدر غير متاح'}. الانضباط وجودة التعامل من نفس دليل صفحة التقييم. Conversion = المحادثات المراجعة التي تحولت لبيع ÷ المحادثات المراجعة. نطاق الأدلة: آخر 3 دورات.</div>
+              <div className="mt-2 text-[11px] font-bold leading-5" style={{ color: 'var(--dawaa-theme-muted)' }}>هوية المبيعات: {cur.salesIdentity === 'canonical' ? 'فواتير الموظف الموثقة (canonical)' : 'المصدر غير متاح'}. الانضباط وجودة التعامل من نفس دليل صفحة التقييم. هوية الربط: رقم الموظف على الفاتورة، أو اسم البائع المطابق لاسم موظف واحد فقط. التحويل الموثق = مراجعات «تم البيع» برقم فاتورة ÷ المراجعات المسجل لها نتيجة؛ غير المسجل غير معروف. الإنتاجية تُقسم على أيام الحضور لا الأيام التقويمية، وتُعد مؤقتة طالما توجد أيام بانتظار المراجعة. نطاق الأدلة: آخر 3 دورات.</div>
             </Section>
             </div>
           </> : null}

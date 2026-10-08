@@ -66,11 +66,11 @@ export default function DoctorPerformanceChart({ model }: { model: EyeChartModel
   const axis = { fontSize: 11, fill: c.muted };
   const active = model.tabs.find(t => t.key === tab) || model.tabs[0];
   const metric = model.trend.metrics.find(m => m.key === metricKey) || null;
-  const trendRows = useMemo(() => (metric ? metric.points.map(p => ({ ...p, solid: p.running ? null : p.value, open: p.running ? p.value : null })) : []), [metric]);
+  const trendRows = useMemo(() => (metric ? metric.points.map(p => ({ ...p, solid: p.status === 'final' ? p.value : null, open: p.status === 'provisional' ? p.value : null })) : []), [metric]);
   const peers = useMemo(() => model.peers.points.map(p => ({ ...p, pct: Math.round(p.index * 100), y: 1 })), [model]);
   const band = model.peers.band;
   const shifts = useMemo(() => model.shifts.map(s => ({ ...s, bandStart: s.p25 ?? 0, bandSize: s.p25 !== null && s.p75 !== null ? s.p75 - s.p25 : 0 })), [model]);
-  const notes = metric ? metric.points.filter(p => p.note && (p.value === null || p.running)) : [];
+  const notes = metric ? metric.points.filter(p => p.note) : [];
 
   return <section className="rounded-2xl border p-3 sm:p-4" style={{ borderColor: 'var(--dawaa-theme-border)' }} data-testid="doctor-performance-chart">
     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -91,21 +91,21 @@ export default function DoctorPerformanceChart({ model }: { model: EyeChartModel
 
     {tab === 'trend' && active.available && metric ? <div className="mt-2">
       <div className="mb-2 flex flex-wrap gap-1" role="radiogroup" aria-label="المؤشر">
-        {model.trend.metrics.map(m => <button key={m.key} type="button" role="radio" aria-checked={metricKey === m.key} disabled={!m.available} title={m.reason || m.definition} onClick={() => setMetricKey(m.key)} className="rounded-full border px-2.5 py-1 text-[11px] font-black disabled:cursor-not-allowed disabled:opacity-45" style={metricKey === m.key ? { borderColor: 'var(--dawaa-theme-primary)', color: 'var(--dawaa-theme-primary-strong)', background: 'var(--dawaa-theme-soft)' } : { borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-theme-muted)' }}>{m.label}</button>)}
+        {model.trend.metrics.map(m => <button key={m.key} type="button" role="radio" aria-checked={metricKey === m.key} disabled={!m.available} title={m.reason || m.definition} onClick={() => setMetricKey(m.key)} className="rounded-full border px-2.5 py-1 text-[11px] font-black disabled:cursor-not-allowed disabled:opacity-45" style={metricKey === m.key ? { borderColor: 'var(--dawaa-theme-primary)', color: 'var(--dawaa-theme-primary-strong)', background: 'var(--dawaa-theme-soft)' } : { borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-theme-muted)' }}>{m.label}{m.context ? ' (سياق)' : ''}</button>)}
       </div>
-      {asTable ? <Table head={['المؤشر', ...model.cycles.map(cy => `${cy.name}${cy.running ? ' (جارية)' : ''}`)]} rows={model.trend.metrics.map(m => [m.label, ...m.points.map(p => <span key={p.cycleLabel} title={p.note || undefined} style={p.value === null ? { color: 'var(--dawaa-theme-muted)' } : undefined}>{formatValue(m.unit, p.value)}</span>)])} />
+      {asTable ? <Table head={['المؤشر', ...model.cycles.map(cy => `${cy.name}${cy.running ? ' (جارية)' : ''}`)]} rows={model.trend.metrics.map(m => [`${m.label}${m.context ? ' (سياق)' : ''}`, ...m.points.map(p => <span key={p.cycleLabel} title={p.note || undefined} style={p.value === null ? { color: 'var(--dawaa-theme-muted)' } : undefined}>{formatValue(m.unit, p.value)}{p.status === 'provisional' ? ' (مؤقت)' : ''}</span>)])} />
       : <div dir="ltr"><ResponsiveContainer width="100%" height={210}>
           <LineChart data={trendRows} margin={{ top: 12, right: 8, bottom: 4, left: 8 }}>
             <CartesianGrid stroke={c.grid} vertical={false} />
             <XAxis dataKey="name" reversed tick={axis} tickLine={false} axisLine={{ stroke: c.grid }} />
             <YAxis orientation="right" tick={axis} tickLine={false} axisLine={false} width={48} tickFormatter={(v: number) => metric.unit === 'pct' ? `${n0(v)}%` : n0(v)} domain={metric.unit === 'pct' ? [0, (max: number) => Math.min(100, Math.max(20, Math.ceil(max / 10) * 10))] : [0, 'auto']} />
-            <Tooltip cursor={{ stroke: c.grid }} content={({ active: on, payload }) => on && payload?.[0] ? (() => { const p = payload[0].payload as typeof trendRows[number]; return <TipBox title={`دورة ${p.name}${p.running ? ' (جارية)' : ''}`} lines={[`${metric.label}: ${formatValue(metric.unit, p.value)}`, p.note]} />; })() : null} />
+            <Tooltip cursor={{ stroke: c.grid }} content={({ active: on, payload }) => on && payload?.[0] ? (() => { const p = payload[0].payload as typeof trendRows[number]; return <TipBox title={`دورة ${p.name}${p.running ? ' (جارية)' : ''}`} lines={[`${metric.label}: ${formatValue(metric.unit, p.value)}${p.status === 'provisional' ? ' — مؤقت' : p.status === 'final' ? ' — نهائي' : ''}`, p.note]} />; })() : null} />
             <Line type="linear" dataKey="value" stroke={c.primary} strokeWidth={2} dot={false} activeDot={false} connectNulls={false} isAnimationActive={false} />
             <Line type="linear" dataKey="solid" stroke="transparent" dot={{ r: 4, fill: c.primary, stroke: c.surface, strokeWidth: 2 }} activeDot={{ r: 6 }} isAnimationActive={false} />
             <Line type="linear" dataKey="open" stroke="transparent" dot={{ r: 4, fill: c.surface, stroke: c.primary, strokeWidth: 2 }} activeDot={{ r: 6 }} isAnimationActive={false} />
           </LineChart>
         </ResponsiveContainer>
-        <Legend items={[{ color: c.primary, label: 'دورة مكتملة' }, { color: c.primary, label: 'دورة جارية (حتى آخر يوم محمّل)', swatch: 'ring' }]} />
+        <Legend items={[{ color: c.primary, label: 'نهائي' }, { color: c.primary, label: 'مؤقت — قد يتغير (دورة جارية أو أيام بانتظار المراجعة أو نتائج غير مسجلة)', swatch: 'ring' }]} />
       </div>}
       <div className="mt-1 text-[11px] font-bold leading-5" style={{ color: 'var(--dawaa-theme-muted)' }}>
         <div>طريقة الحساب: {metric.definition}</div>
