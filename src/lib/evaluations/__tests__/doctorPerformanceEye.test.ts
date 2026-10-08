@@ -18,7 +18,7 @@ const impact = {
 function month(diagnoses: DoctorPerformanceDiagnosis[]): DoctorPerformanceMonth {
   return {
     cycleLabel: '2026-10', displayLabel: '', sales: 1, invoices: 1, customers: 1, averageInvoice: 1,
-    workedHours: 1, salesPerHour: 1, invoicesPerHour: 1, customersPerHour: 1, conversations: 1, convertedConversations: 1, conversionRate: 100,
+    workedHours: 1, salesPerHour: 1, invoicesPerHour: 1, customersPerHour: 1, conversations: 1, convertedConversations: 1, conversionRate: 100, conversionRecorded: 1, attendanceDetail: null, hoursComplete: true, hoursNote: null, salesDays: 30,
     coverage: 'available', confidence: 'high', coverageReason: '', comparisonEligible: true, comparisonMode: 'full_cycle', comparisonReason: '',
     comparisonSnapshot: null, salesIdentity: 'canonical', salesSourceAvailable: true, attendanceSourceAvailable: true, conversationSourceAvailable: true,
     salesEvidenceCount: 1, attendanceEvidenceCount: 1, conversationEvidenceCount: 1, customerImpact: impact, diagnoses,

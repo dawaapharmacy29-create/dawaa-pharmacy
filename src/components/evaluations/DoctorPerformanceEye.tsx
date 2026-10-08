@@ -17,8 +17,9 @@ import type { MonthlyConversationCoaching } from '@/lib/staff/employeeMonthlyEvi
 import { buildDoctorDecision, invalidateDoctorDecisionData, loadDoctorDecisionSources, type DoctorDecisionSources } from '@/lib/evaluations/doctorDecisionDataService';
 import { SCOPE_LABEL, TREND_LABEL, type DecisionIntelligence, type Severity } from '@/lib/evaluations/doctorDecisionIntelligence';
 import { userFacingMessage } from '@/lib/evaluations/decisionSourceState';
+import { buildEyeChartModel } from '@/lib/evaluations/doctorEyeChartModel';
 
-const DoctorDecisionChart = lazy(() => import('@/components/evaluations/DoctorDecisionChart'));
+const DoctorPerformanceChart = lazy(() => import('@/components/evaluations/DoctorPerformanceChart'));
 const SEVERITY_LABEL: Record<Severity, string> = { critical: 'حرجة', high: 'عالية', medium: 'متوسطة', low: 'منخفضة' };
 const severityChipTone = (s: Severity) => (s === 'critical' || s === 'high' ? 'danger' : s === 'medium' ? 'warning' : 'neutral') as 'danger' | 'warning' | 'neutral';
 const fmtDate = (iso: string) => { const d = new Date(`${iso}T12:00:00Z`); return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('ar-EG', { day: 'numeric', month: 'long', year: 'numeric' }); };
@@ -188,6 +189,9 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
   const summary = summaryFromReady
     ? { headline: ready!.summary.headline, strength: ready!.summary.strength, problem: ready!.summary.problem, action: ready!.decision?.action || null }
     : { headline: verdict?.headline || '', strength: verdict?.strength?.text || null, problem: verdict?.problem?.text || null, action: verdict?.action?.text || (verdict?.evidenceComplete ? 'استمرار المتابعة المعتادة' : null) };
+  const chartModel = useMemo(() => data ? buildEyeChartModel({ data, decision, decisionLoading, hasBranch: Boolean(branch) }) : null, [data, decision, decisionLoading, branch]);
+  const hoursFair = Boolean(cur?.hoursComplete && prev?.hoursComplete);
+  const conversionReason = cur && cur.conversations && !cur.conversionRecorded ? `${fmt(cur.conversations)} مراجعة بدون نتيجة بيع مسجلة؛ التحويل غير معروف وليس صفرًا.` : data?.sources.conversations.reason || null;
   const readyMissing = ready ? decisionSourceIssues.filter(([name]) => name !== 'مقارنة الفرع') : [];
   const indicatorTone = (state: string): Tone => ['improving', 'above', 'consistent'].includes(state) ? 'success' : ['declining', 'below', 'gaps'].includes(state) ? 'warning' : 'neutral';
 
@@ -279,7 +283,10 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
 
             </Section>
 
-            {/* 2. Three smart indicators */}
+            {/* 2. One interactive chart: the doctor's own tabs never wait for, or disappear with, the branch comparison */}
+            {chartModel ? <div className="mt-3"><Suspense fallback={<div className="h-[260px] animate-pulse rounded-2xl" style={{ background: 'var(--dawaa-theme-soft)' }} />}><DoctorPerformanceChart key={`${staffId}:${cycleLabel}:${chartModel.defaultTab}`} model={chartModel} /></Suspense></div> : null}
+
+            {/* 3. Three smart indicators */}
             {ready ? <div className="mt-3 grid gap-2 sm:grid-cols-3">
               {([
                 { icon: <TrendingUp size={15} />, title: 'تطوره مقارنة بنفسه', ind: ready.indicators.self },
@@ -298,8 +305,6 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
               {ready.dataWarnings.map(w => <div key={w}>• {w}</div>)}
             </div> : null}
 
-            {/* 3. One interactive chart */}
-            {ready?.analysisCycleStart ? <div className="mt-3"><Suspense fallback={<div className="h-[260px] animate-pulse rounded-2xl" style={{ background: 'var(--dawaa-theme-soft)' }} />}><DoctorDecisionChart data={ready} /></Suspense></div> : null}
 
             {/* 4. Top three problems */}
             {ready && ready.problems.length ? <Section title="أهم المشكلات" hint="الأخطر أولًا">
@@ -355,9 +360,9 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
                 <Kpi label="الفواتير" value={fmt(cur.invoices)} deltaValue={salesDelta(cur.invoices, prev.invoices, snap?.invoices, snap?.previousInvoices)} deltaNote={null} unavailableReason={salesReason} />
                 <Kpi label="العملاء" value={fmt(cur.customers)} deltaValue={salesDelta(cur.customers, prev.customers, snap?.customers, snap?.previousCustomers)} deltaNote={null} unavailableReason={salesReason} />
                 <Kpi label="متوسط الفاتورة" value={money(cur.averageInvoice === null ? null : Math.round(cur.averageInvoice))} deltaValue={salesDelta(cur.averageInvoice, prev.averageInvoice, snap?.averageInvoice, snap?.previousAverageInvoice)} deltaNote={null} unavailableReason={salesReason} />
-                <Kpi label="ساعات العمل" value={cur.workedHours === null ? UNAVAILABLE : `${fmt(cur.workedHours, 1)} س`} deltaValue={otherDelta(cur.workedHours, prev.workedHours)} deltaNote={otherNote} unavailableReason={data.sources.attendance.reason} />
-                <Kpi label="مبيعات/ساعة" value={cur.salesPerHour === null ? UNAVAILABLE : `${fmt(cur.salesPerHour)} ج`} deltaValue={otherDelta(cur.salesPerHour, prev.salesPerHour)} deltaNote={otherNote} unavailableReason={salesReason || data.sources.attendance.reason} />
-                <Kpi label="Conversion" value={pct(cur.conversionRate)} deltaValue={otherDelta(cur.conversionRate, prev.conversionRate)} deltaNote={otherNote} unavailableReason={data.sources.conversations.reason} />
+                <Kpi label="ساعات معتمدة" value={cur.workedHours === null ? UNAVAILABLE : `${fmt(cur.workedHours, 1)} س`} deltaValue={hoursFair ? otherDelta(cur.workedHours, prev.workedHours) : null} deltaNote={cur.hoursNote || otherNote} unavailableReason={data.sources.attendance.reason} />
+                <Kpi label="مبيعات/ساعة" value={cur.salesPerHour === null ? UNAVAILABLE : `${fmt(cur.salesPerHour)} ج`} deltaValue={otherDelta(cur.salesPerHour, prev.salesPerHour)} deltaNote={otherNote} unavailableReason={salesReason || cur.hoursNote || data.sources.attendance.reason} />
+                <Kpi label="Conversion" value={pct(cur.conversionRate)} deltaValue={otherDelta(cur.conversionRate, prev.conversionRate)} deltaNote={cur.conversionRecorded ? `${fmt(cur.convertedConversations)} من ${fmt(cur.conversionRecorded)} نتيجة مسجلة` : otherNote} unavailableReason={conversionReason} />
               </div>
             </Section>
 

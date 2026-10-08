@@ -38,7 +38,15 @@ export type DoctorPerformanceMonth = {
   cycleLabel: string; displayLabel: string;
   sales: number | null; invoices: number | null; customers: number | null; averageInvoice: number | null;
   workedHours: number | null; salesPerHour: number | null; invoicesPerHour: number | null; customersPerHour: number | null;
-  conversations: number | null; convertedConversations: number | null; conversionRate: number | null;
+  /** Reviewed conversations; conversion uses only those whose sale outcome was recorded (null outcome = unknown). */
+  conversations: number | null; convertedConversations: number | null; conversionRate: number | null; conversionRecorded: number | null;
+  /** Canonical attendance for the cycle (same truth as the evaluation header); null when unavailable. */
+  attendanceDetail: null | { workedDays: number; lateDays: number; lateMinutes: number; pendingDays: number; approvedHours: number; pendingHours: number };
+  /** Per-hour productivity is computed only when every attendance day of the cycle is settled. */
+  hoursComplete: boolean;
+  hoursNote: string | null;
+  /** Days of sales data behind the totals: the full cycle when closed, the loaded days when running. */
+  salesDays: number | null;
   coverage: PerformanceCoverage;
   confidence: PerformanceConfidence;
   coverageReason: string;
@@ -176,7 +184,8 @@ export function diagnoseMonth(current:DoctorPerformanceMonth,previous:DoctorPerf
     const change=(now:number|null,before:number|null)=>before&&now!==null?((now-before)/Math.abs(before))*100:null;
     const salesDelta=change(current.sales,previous.sales);
     const efficiencyDelta=change(current.salesPerHour,previous.salesPerHour);
-    const hoursDelta=change(current.workedHours,previous.workedHours);
+    // Approved hours alone shrink while days are pending review; they are compared only when both cycles are settled.
+    const hoursDelta=current.hoursComplete&&previous.hoursComplete?change(current.workedHours,previous.workedHours):null;
     const customersDelta=change(current.customers,previous.customers);
     const avgInvoiceDelta=change(current.averageInvoice,previous.averageInvoice);
     const conversationConversionDelta=change(current.conversionRate,previous.conversionRate);
@@ -251,6 +260,26 @@ function coverageText(coverage:PerformanceCoverage, salesAvailable:boolean, atte
   return 'مصادر البيع والحضور الأساسية متاحة ويوجد دليل فعلي داخل الدورة.';
 }
 
+/**
+ * Per-hour productivity and conversion for one cycle.
+ * - Sales cover every day worked, so dividing by approved hours alone overstates the rate while days are pending
+ *   review: per-hour figures exist only when every attendance day of the cycle is settled.
+ * - A review whose sale outcome was never recorded is unknown, not "not converted": conversion is converted ÷
+ *   recorded outcomes, and null when no outcome was recorded.
+ */
+export function cycleRates(a:{salesTotal:number|null;invoices:number|null;customers:number|null;hours:number|null;detail:DoctorPerformanceMonth['attendanceDetail'];outcomes:(boolean|null|undefined)[]|null}){
+  const recorded=a.outcomes===null?null:a.outcomes.filter(v=>v===true||v===false).length;
+  const converted=a.outcomes===null?null:a.outcomes.filter(v=>v===true).length;
+  const hoursComplete=a.hours!==null&&a.hours>0&&a.detail!==null&&a.detail.pendingDays===0;
+  const hoursNote=a.hours===null?null:!a.detail?'تفاصيل الحضور غير متاحة؛ إنتاجية الساعة غير محسوبة.':a.detail.pendingDays>0?`${a.detail.pendingDays} يوم حضور بانتظار المراجعة؛ إنتاجية الساعة لا تُحسب على ساعات ناقصة.`:null;
+  const perHour=(v:number|null)=>hoursComplete&&v!==null?v/(a.hours as number):null;
+  return {
+    recorded,converted,hoursComplete,hoursNote,
+    salesPerHour:perHour(a.salesTotal),invoicesPerHour:perHour(a.invoices),customersPerHour:perHour(a.customers),
+    conversionRate:recorded&&converted!==null?converted/recorded*100:null,
+  };
+}
+
 export async function loadDoctorPerformanceIntelligence(args:{staffId:string;staffName:string;cycleLabel:string}):Promise<DoctorPerformanceIntelligence>{
   const cycleSpecs=Array.from({length:3},(_,back)=>{
     const cycleLabel=previousCycle(args.cycleLabel,back);
@@ -292,7 +321,9 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
   const rawMonths=cycleSpecs.map((spec,specIndex)=>{
     const {cycleLabel,range,start,endExclusive}=spec;
     const detail=attendanceDetails[specIndex];
-    const canonicalHours=detail.status==='fulfilled'&&detail.value?.summary&&Number.isFinite(Number(detail.value.summary.total_worked_hours))?Number(detail.value.summary.total_worked_hours):null;
+    const summary=detail.status==='fulfilled'?detail.value?.summary:null;
+    const canonicalHours=summary&&Number.isFinite(Number(summary.total_worked_hours))?Number(summary.total_worked_hours):null;
+    const attendanceDetail=summary?{workedDays:n(summary.actual_worked_days),lateDays:n(summary.late_days),lateMinutes:n(summary.total_late_minutes),pendingDays:n(summary.pending_review_days),approvedHours:n(summary.total_worked_hours),pendingHours:n(summary.pending_worked_hours)}:null;
     const salesSummary=salesTruth.rows.find(r=>String(r.cycle_start||'').slice(0,10)===start);
     const sales={
       summary:salesSummary||null,
@@ -307,6 +338,7 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
       // A partial attendance read (one of two sources failed) understates hours; it is never treated as complete.
       error:attendanceWindow.status==='available'?null:(attendanceWindow.error||'attendance partially unavailable'),
       hours:canonicalHours,
+      detail:attendanceDetail,
     };
     const conversations={
       data:(conversationWindow.data||[]).filter(r=>{
@@ -352,7 +384,10 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
     // Unknown hours stay null (never 0): canonical detail failed, attendance incomplete, or before first evidence.
     const hours=coverage==='not_applicable'||attendance.error?null:attendance.hours;
     const conv=coverage==='not_applicable'||conversations.error?null:conversationRows.length;
-    const converted=coverage==='not_applicable'||conversations.error?null:conversationRows.filter(r=>r.converted_to_sale===true).length;
+    const detail=attendance.detail;
+    const rates=cycleRates({salesTotal,invoices,customers,hours,detail,outcomes:conv===null?null:conversationRows.map(r=>r.converted_to_sale)});
+    const {recorded,converted,hoursComplete,hoursNote}=rates;
+    const salesDays=!salesUsable?null:cycleClosed?Math.round((Date.parse(`${endExclusive}T00:00:00Z`)-Date.parse(`${start}T00:00:00Z`))/86400000):(elapsedDays>0?elapsedDays:null);
     const customerImpact=aggregateImpactEvidence(impact.rows,impact.available);
 
     // A cycle the doctor joined mid-way, or a closed cycle whose sales are not loaded to its last day, is not a
@@ -381,9 +416,9 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
     return {
       cycleLabel,displayLabel:range.displayLabel,
       sales:salesTotal,invoices,customers,averageInvoice:avg,
-      workedHours:hours,salesPerHour:hours&&salesTotal!==null?salesTotal/hours:null,
-      invoicesPerHour:hours&&invoices!==null?invoices/hours:null,customersPerHour:hours&&customers!==null?customers/hours:null,
-      conversations:conv,convertedConversations:converted,conversionRate:conv&&converted!==null?converted/conv*100:null,
+      workedHours:hours,salesPerHour:rates.salesPerHour,invoicesPerHour:rates.invoicesPerHour,customersPerHour:rates.customersPerHour,
+      conversations:conv,convertedConversations:converted,conversionRate:rates.conversionRate,conversionRecorded:recorded,
+      attendanceDetail:coverage==='not_applicable'?null:detail,hoursComplete,hoursNote,salesDays,
       coverage,confidence,
       coverageReason:coverageText(coverage,sales.available,attendanceAvailable,hasCoreEvidence),
       comparisonEligible,comparisonMode,comparisonReason,comparisonSnapshot:null,
