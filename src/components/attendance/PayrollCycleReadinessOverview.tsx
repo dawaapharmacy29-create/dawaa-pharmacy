@@ -63,10 +63,6 @@ export default function PayrollCycleReadinessOverview({
     return 80;
   };
 
-  const blockerGroups = data.top_blockers
-    .map((item) => ({ ...item, action: blockerAction(item.code) }))
-    .sort((a, b) => blockerPriority(a.code) - blockerPriority(b.code) || b.affected_staff - a.affected_staff);
-
   const primaryBlockerFor = (row: PayrollCycleFinalizationOverview['rows'][number]) =>
     [...row.blockers].sort((a, b) => blockerPriority(a.code) - blockerPriority(b.code))[0] || null;
 
@@ -82,6 +78,10 @@ export default function PayrollCycleReadinessOverview({
       </section>
     );
   }
+
+  const blockerGroups = data.top_blockers
+    .map((item) => ({ ...item, action: blockerAction(item.code) }))
+    .sort((a, b) => blockerPriority(a.code) - blockerPriority(b.code) || b.affected_staff - a.affected_staff);
 
   return (
     <section className="rounded-3xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4" dir="rtl">
