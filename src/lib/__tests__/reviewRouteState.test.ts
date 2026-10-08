@@ -131,17 +131,17 @@ describe('reviews route wiring (source contract)', () => {
     }
     // closing the editor returns to the same review, not to /reviews
     const closeEditor = reviews.slice(
-      reviews.indexOf('const closeEditor'),
+      reviews.indexOf('const editorCloseTarget'),
       reviews.indexOf('const editIsVersioned')
     );
     // S: still the same review's details, never /reviews. After a successful manager correction the
     // target is the NEW current version id (correctedReviewIdRef), which defaults to editRouteId.
     expect(closeEditor).toMatch(
-      /const currentReviewId = correctedReviewIdRef\.current \?\? editRouteId;/
+      /reviewEditorCloseTarget\(\{ correctedReviewId: correctedReviewIdRef\.current, editRouteId \}\)/
     );
-    expect(closeEditor).toMatch(
-      /navigate\(reviewDetailsPath\(currentReviewId\), \{ replace: true \}\)/
-    );
+    expect(closeEditor).toMatch(/if \(target\) navigate\(target, \{ replace: true \}\)/);
+    expect(closeEditor).toMatch(/requestNavigation\(editorCloseTarget, \{ replace: true \}\)/);
+    expect(closeEditor).not.toMatch(/navigate\('\/reviews'/);
   });
 
   it('I: the Smart Folder handoff still keys on mode=new&fromSmart=1', () => {

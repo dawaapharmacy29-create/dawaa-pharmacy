@@ -69,6 +69,12 @@ import { mergeStaffChoices } from '@/lib/staffFallback';
 import { TABLES } from '@/lib/supabaseTables';
 import { notifyEmployee } from '@/lib/notificationService';
 import { usePendingFormNavigationGuard } from '@/hooks/useUnsavedChangesGuard';
+import { useNavigationGuard } from '@/contexts/NavigationGuardContext';
+import {
+  isReviewEditDirty,
+  reviewEditFingerprint,
+  reviewEditorCloseTarget,
+} from '@/lib/reviews/reviewEditorDirty';
 import {
   discardReviewDraft,
   isReviewDraftDirty,
@@ -80,7 +86,6 @@ import {
   editRouteReviewId,
   parseReviewsRoute,
   reselectReviewById,
-  reviewDetailsPath,
   reviewEditPath,
 } from '@/lib/reviews/reviewRouteState';
 import { deriveConversationReviewEvaluationFlags } from '@/lib/reviews/conversationReviewEvaluationColumns';
@@ -618,6 +623,9 @@ export default function Reviews() {
     training_recommendation: '',
     manager_note: '',
   });
+  // Fingerprint of the editor state exactly as openEdit() loaded it; the editor is dirty only when
+  // its current state differs from this baseline (an open editor alone is never dirty).
+  const [editBaseline, setEditBaseline] = useState<string | null>(null);
   const [form, setForm] = useState(() => initialReviewEditableRef.current!.form);
 
   const { data: staff } = useSupabaseQuery<StaffOpt>({
@@ -1723,12 +1731,9 @@ export default function Reviews() {
       if (!error && data) fullRow = data as ConversationReviewHistoryRow;
     }
 
-    correctionAttemptRef.current = null;
-    correctedReviewIdRef.current = null;
-    setEditingReview(fullRow);
-    setEditReviewState(reviewStateFromRow(fullRow));
-    setEditSevereErrors(severeErrorsFromRow(fullRow));
-    setEditForm({
+    const nextReviewState = reviewStateFromRow(fullRow);
+    const nextSevereErrors = severeErrorsFromRow(fullRow);
+    const nextForm = {
       reviewer_id: fullRow.reviewer_id || '',
       reviewer_name: fullRow.reviewer_name || '',
       reviewer_role: fullRow.reviewer_role || '',
@@ -1748,7 +1753,20 @@ export default function Reviews() {
       reviewer_notes: fullRow.reviewer_notes || '',
       training_recommendation: fullRow.training_recommendation || '',
       manager_note: fullRow.manager_review_notes || '',
-    });
+    };
+    correctionAttemptRef.current = null;
+    correctedReviewIdRef.current = null;
+    setEditingReview(fullRow);
+    setEditReviewState(nextReviewState);
+    setEditSevereErrors(nextSevereErrors);
+    setEditForm(nextForm);
+    setEditBaseline(
+      reviewEditFingerprint({
+        form: nextForm,
+        reviewState: nextReviewState,
+        severeErrors: nextSevereErrors,
+      })
+    );
   };
 
   // Edit route: open the editor for exactly the review named by the URL. Keyed on the id string
@@ -1783,16 +1801,51 @@ export default function Reviews() {
     };
   }, [editRouteId]);
 
-  // Explicit close of the editor (close button / Escape / after a successful in-editor save). On the
-  // edit route it returns to the review's details, never to the Reviews root: the same review, or —
-  // only after a versioned correction SUCCEEDED — the new current version that replaced it.
-  const closeEditor = useCallback(() => {
+  const editDirty = useMemo(
+    () =>
+      Boolean(editingReview) &&
+      isReviewEditDirty(
+        { form: editForm, reviewState: editReviewState, severeErrors: editSevereErrors },
+        editBaseline
+      ),
+    [editBaseline, editForm, editReviewState, editSevereErrors, editingReview]
+  );
+
+  const { requestNavigation } = useNavigationGuard();
+
+  // Where closing the editor goes. Resolved lazily (at the moment the navigation completes) so that
+  // after "حفظ ثم الانتقال" a succeeded versioned correction lands on the NEW current version; on
+  // the edit route it is never the Reviews root. null = editor opened off-route, just close it.
+  const editorCloseTarget = useCallback(
+    () => reviewEditorCloseTarget({ correctedReviewId: correctedReviewIdRef.current, editRouteId }),
+    [editRouteId]
+  );
+
+  // Drops the edit state only — no review, points or ledger write ever happens here.
+  const discardEditor = useCallback(() => {
     setEditingReview(null);
-    const currentReviewId = correctedReviewIdRef.current ?? editRouteId;
+    setEditBaseline(null);
+    correctionAttemptRef.current = null;
     correctedReviewIdRef.current = null;
-    if (editRouteId && currentReviewId)
-      navigate(reviewDetailsPath(currentReviewId), { replace: true });
-  }, [editRouteId, navigate]);
+  }, []);
+
+  // Unguarded close: only after the decision is made (clean editor, or a save that succeeded).
+  const finishEditorClose = useCallback(() => {
+    const target = editorCloseTarget();
+    discardEditor();
+    if (target) navigate(target, { replace: true });
+  }, [discardEditor, editorCloseTarget, navigate]);
+
+  // Every editor-close action (X / Escape / backdrop). A clean editor closes straight to the same
+  // review's details; a dirty one goes through the SAME navigation guard as the sidebar, and nothing
+  // is cleared before the user decides (cancel keeps the editor and draft exactly as-is).
+  const closeEditor = useCallback(() => {
+    if (!editDirty) {
+      finishEditorClose();
+      return;
+    }
+    requestNavigation(editorCloseTarget, { replace: true });
+  }, [editDirty, editorCloseTarget, finishEditorClose, requestNavigation]);
 
   const editIsVersioned = isVersionedConversationReview(editingReview);
 
@@ -2209,15 +2262,22 @@ export default function Reviews() {
         managerForm.score !== '100'
       );
     }
-    if (editingReview) return true;
+    // An open editor is dirty only when it differs from its openEdit() baseline.
+    if (editDirty) return true;
     // Baseline comparison (not "any field has a value"): defaults such as
     // evaluationReason = "مراجعة عشوائية" never make an untouched review dirty.
     return newReviewDirty;
-  }, [editingReview, managerForm, managerReviewTarget, newReviewDirty]);
+  }, [editDirty, managerForm, managerReviewTarget, newReviewDirty]);
 
   // "الانتقال بدون حفظ": clear the draft and any pending Smart transfer, reset the page state and
   // deactivate the guard; the navigation guard then navigates. Nothing can resurrect the review.
   const discardCurrentReview = useCallback(() => {
+    // A dirty editor is what the prompt was about: drop only the edit state (no write, the new-review
+    // draft underneath is not touched). Returning to the review reloads it from the database.
+    if (!managerReviewTarget && editDirty) {
+      discardEditor();
+      return;
+    }
     if (autosaveTimerRef.current != null) {
       window.clearTimeout(autosaveTimerRef.current);
       autosaveTimerRef.current = null;
@@ -2245,15 +2305,15 @@ export default function Reviews() {
     setAmbiguousCustomerCandidates(null);
     setDraftSavedAt(null);
     smartPrefillBaselineRef.current = {};
-    setEditingReview(null);
+    discardEditor();
     setManagerReviewTarget(null);
-  }, [user?.id]);
+  }, [discardEditor, editDirty, managerReviewTarget, user?.id]);
 
   const saveForNavigation = useCallback(async () => {
     if (managerReviewTarget) return saveManagerReview();
-    if (editingReview) return saveEdit();
+    if (editDirty) return saveEdit();
     return save();
-  }, [editingReview, managerReviewTarget, saveEdit, saveManagerReview, save]);
+  }, [editDirty, managerReviewTarget, saveEdit, saveManagerReview, save]);
 
   usePendingFormNavigationGuard({
     isDirty: reviewIsDirty,
@@ -3820,7 +3880,7 @@ export default function Reviews() {
           <button
             type="button"
             onClick={async () => {
-              if (await saveEdit()) closeEditor();
+              if (await saveEdit()) finishEditorClose();
             }}
             disabled={saving}
             className="btn-primary w-full justify-center flex items-center gap-2"

@@ -226,12 +226,12 @@ describe('manager correction = versioning, not overwrite (A/B/E/F/O/P/R/S)', () 
   it('P: only a succeeded correction moves the editor to the new current review id', () => {
     expect(reviews).toMatch(/correctedReviewIdRef\.current = corrected\.currentReviewId;/);
     const closeEditor = reviews.slice(
-      reviews.indexOf('const closeEditor'),
+      reviews.indexOf('const editorCloseTarget'),
       reviews.indexOf('const editIsVersioned')
     );
-    expect(closeEditor).toMatch(/correctedReviewIdRef\.current \?\? editRouteId/);
-    expect(closeEditor).toMatch(
-      /navigate\(reviewDetailsPath\(currentReviewId\), \{ replace: true \}\)/
+    expect(closeEditor).toMatch(/correctedReviewId: correctedReviewIdRef\.current, editRouteId/);
+    expect(read('src/lib/reviews/reviewEditorDirty.ts')).toMatch(
+      /const currentReviewId = input\.correctedReviewId \?\? input\.editRouteId;/
     );
     // the correction id is cleared on every editor open, so a later close cannot reuse it
     expect(reviews).toMatch(/correctedReviewIdRef\.current = null;\s*setEditingReview\(fullRow\);/);

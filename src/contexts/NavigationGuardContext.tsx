@@ -10,6 +10,10 @@ import {
 } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Loader2, Save, X } from 'lucide-react';
+import { resolveNavigationTarget, type NavigationTarget } from '@/lib/navigationGuardTarget';
+
+export type { NavigationTarget } from '@/lib/navigationGuardTarget';
+export type NavigationRequestOptions = { replace?: boolean };
 
 export type UnsavedChangesGuardHandlers = {
   isDirty: () => boolean;
@@ -25,7 +29,7 @@ export type UnsavedChangesGuardHandlers = {
 type NavigationGuardContextValue = {
   registerGuard: (id: string, handlers: UnsavedChangesGuardHandlers) => void;
   unregisterGuard: (id: string) => void;
-  requestNavigation: (target: string) => void;
+  requestNavigation: (target: NavigationTarget, options?: NavigationRequestOptions) => void;
   hasActiveDirtyGuard: () => boolean;
 };
 
@@ -47,7 +51,9 @@ function activeGuard(
 export function NavigationGuardProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const guardsRef = useRef(new Map<string, UnsavedChangesGuardHandlers>());
-  const [pendingTarget, setPendingTarget] = useState<string | null>(null);
+  // Kept in a ref: a function target must not be treated as a React state updater, and it is
+  // resolved only when the navigation completes (after a save created a new version).
+  const pendingRef = useRef<{ target: NavigationTarget; replace: boolean } | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
@@ -63,35 +69,47 @@ export function NavigationGuardProvider({ children }: { children: ReactNode }) {
 
   const hasActiveDirtyGuard = useCallback(() => Boolean(activeGuard(guardsRef.current)), []);
 
-  const completeNavigation = useCallback(
-    (target: string) => {
-      setModalOpen(false);
-      setPendingTarget(null);
-      setModalError(null);
-      proceedRef.current?.();
-      proceedRef.current = null;
-      navigate(target.startsWith('/') ? target : '/operations-center');
+  const navigateTo = useCallback(
+    (target: NavigationTarget, replace: boolean) => {
+      const path = resolveNavigationTarget(target);
+      if (path) navigate(path, replace ? { replace: true } : undefined);
     },
     [navigate]
   );
 
-  const openModal = useCallback((target: string, onProceed?: () => void) => {
-    setPendingTarget(target);
-    setModalError(null);
-    setModalOpen(true);
-    proceedRef.current = onProceed || null;
-  }, []);
+  const completeNavigation = useCallback(
+    (pending: { target: NavigationTarget; replace: boolean }) => {
+      setModalOpen(false);
+      pendingRef.current = null;
+      setModalError(null);
+      proceedRef.current?.();
+      proceedRef.current = null;
+      navigateTo(pending.target, pending.replace);
+    },
+    [navigateTo]
+  );
+
+  const openModal = useCallback(
+    (target: NavigationTarget, replace: boolean, onProceed?: () => void) => {
+      pendingRef.current = { target, replace };
+      setModalError(null);
+      setModalOpen(true);
+      proceedRef.current = onProceed || null;
+    },
+    []
+  );
 
   const requestNavigation = useCallback(
-    (target: string) => {
+    (target: NavigationTarget, options?: NavigationRequestOptions) => {
+      const replace = Boolean(options?.replace);
       const guard = activeGuard(guardsRef.current);
       if (!guard) {
-        navigate(target.startsWith('/') ? target : '/operations-center');
+        navigateTo(target, replace);
         return;
       }
-      openModal(target);
+      openModal(target, replace);
     },
-    [navigate, openModal]
+    [navigateTo, openModal]
   );
 
   useEffect(() => {
@@ -105,6 +123,7 @@ export function NavigationGuardProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const handleSaveAndNavigate = useCallback(async () => {
+    const pendingTarget = pendingRef.current;
     if (!pendingTarget) return;
     const guard = activeGuard(guardsRef.current);
     if (!guard) {
@@ -125,9 +144,10 @@ export function NavigationGuardProvider({ children }: { children: ReactNode }) {
     } finally {
       setSaving(false);
     }
-  }, [completeNavigation, pendingTarget]);
+  }, [completeNavigation]);
 
   const handleDiscard = useCallback(() => {
+    const pendingTarget = pendingRef.current;
     if (!pendingTarget) return;
     // Every dirty guard discards (not only the first), then navigation completes unconditionally.
     for (const guard of guardsRef.current.values()) {
@@ -138,11 +158,12 @@ export function NavigationGuardProvider({ children }: { children: ReactNode }) {
       }
     }
     completeNavigation(pendingTarget);
-  }, [completeNavigation, pendingTarget]);
+  }, [completeNavigation]);
 
+  // "إلغاء والبقاء": nothing is discarded or navigated; the page (and an open editor) stay as-is.
   const handleCancel = useCallback(() => {
     setModalOpen(false);
-    setPendingTarget(null);
+    pendingRef.current = null;
     setModalError(null);
     proceedRef.current = null;
   }, []);
@@ -197,7 +218,12 @@ export function NavigationGuardProvider({ children }: { children: ReactNode }) {
               >
                 الانتقال بدون حفظ
               </button>
-              <button type="button" disabled={saving} onClick={handleCancel} className="btn-secondary flex-1">
+              <button
+                type="button"
+                disabled={saving}
+                onClick={handleCancel}
+                className="btn-secondary flex-1"
+              >
                 إلغاء والبقاء
               </button>
             </div>
@@ -214,8 +240,9 @@ export function useNavigationGuard() {
     return {
       registerGuard: () => undefined,
       unregisterGuard: () => undefined,
-      requestNavigation: (target: string) => {
-        window.location.href = target.startsWith('/') ? target : '/operations-center';
+      requestNavigation: (target: NavigationTarget) => {
+        const path = resolveNavigationTarget(target);
+        if (path) window.location.href = path;
       },
       hasActiveDirtyGuard: () => false,
     } satisfies NavigationGuardContextValue;
