@@ -131,7 +131,9 @@ async function customerImpactWindow(staffId:string,start:string,endExclusive:str
 }
 
 function aggregateImpact(rows:DoctorCycleImpactRow[],available:boolean):DoctorCustomerImpact{
-  if(!available) return {available:false,commercialConversations:null,verifiedSaleConversations:null,verifiedRevenue:null,verifiedConversionRate:null,followupsNeeded:null,complaints:null,saleLeakage:null,unavailableProducts:null,acceptedProducts:null};
+  // A successful read with no cycle rows is not evidence of zero customer impact.
+  // Keep all derived metrics unknown until a canonical staff/cycle row exists.
+  if(!available || rows.length===0) return {available:false,commercialConversations:null,verifiedSaleConversations:null,verifiedRevenue:null,verifiedConversionRate:null,followupsNeeded:null,complaints:null,saleLeakage:null,unavailableProducts:null,acceptedProducts:null};
   const commercial=rows.reduce((s,r)=>s+n(r.commercial_conversations),0);
   const verified=rows.reduce((s,r)=>s+n(r.verified_sale_conversations),0);
   return {
@@ -371,7 +373,7 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
       dataAsOf:conversationWindow.error?null:maxDate(windowConversationRows.map(r=>String(r.conversation_date||r.created_at||'').slice(0,10)||null)),
     },
     customerImpact:{
-      status:impactWindow.available?'available':'unavailable',error:impactWindow.error,
+      status:!impactWindow.available?'unavailable':impactWindow.rows.length?'available':'partial',error:impactWindow.error,
       evidenceCount:impactWindow.rows.length,firstEvidenceDate:null,dataAsOf:null,
     },
   };
