@@ -75,6 +75,15 @@ describe('doctor performance verdict', () => {
     expect(v.action?.text).toContain('إعادة تحميل');
   });
 
+  it('does not announce no documented problems when customer impact is missing', () => {
+    const d = data(102, 100);
+    d.sources.customerImpact = { ...ok, status: 'partial', evidenceCount: 0 };
+    d.months[0].customerImpact = { ...impact, available: false };
+    const v = buildDoctorPerformanceVerdict({ data: d, header: header(20, 1), conversation: conv() });
+    expect(v.headline).toContain('الأدلة غير مكتملة');
+    expect(v.headline).not.toContain('ولا توجد مشكلة موثقة');
+  });
+
   it('does not judge discipline or quality while their evidence is missing', () => {
     const v = buildDoctorPerformanceVerdict({ data: data(100, 100), header: null, conversation: conv({ sampleSufficient: false, coreAverage: null, reviewCount: 1 }) });
     expect(v.metrics[1].value).toBe('غير متاح');
