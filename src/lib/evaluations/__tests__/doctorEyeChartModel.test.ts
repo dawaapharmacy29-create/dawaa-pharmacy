@@ -1,18 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { buildEyeChartModel, eyeCycleName, type EyeChartModel } from '@/lib/evaluations/doctorEyeChartModel';
-import { cycleRates, type DoctorPerformanceIntelligence, type DoctorPerformanceMonth, type PerformanceSourceHealth } from '@/lib/evaluations/doctorPerformanceIntelligenceService';
+import { attendanceFacts, cycleRates, presentDaysThrough, type AttendanceFacts, type DoctorPerformanceIntelligence, type DoctorPerformanceMonth, type PerformanceSourceHealth } from '@/lib/evaluations/doctorPerformanceIntelligenceService';
 import { unavailableDecision, type DecisionIntelligence } from '@/lib/evaluations/doctorDecisionIntelligence';
 
 const NOW = new Date('2026-10-08T10:00:00Z'); // cycle 2026-10 (26 Sep → 25 Oct) is running
 const impact = { available: false, commercialConversations: null, verifiedSaleConversations: null, verifiedRevenue: null, verifiedConversionRate: null, followupsNeeded: null, complaints: null, saleLeakage: null, unavailableProducts: null, acceptedProducts: null };
-const detail = (pendingDays = 0) => ({ workedDays: 20, lateDays: 4, lateMinutes: 80, pendingDays, approvedHours: 160, pendingHours: pendingDays * 8 });
+const detail = (unsettledDays = 0, settledDays = 20, lateDays = 4): AttendanceFacts => ({ presentDays: settledDays + unsettledDays, settledDays, unsettledDays, absenceReviewDays: 0, lateDays, lateMinutes: 80, approvedHours: 160, pendingHours: unsettledDays * 8, presentDates: [] });
 
 function month(label: string, o: Partial<DoctorPerformanceMonth> = {}): DoctorPerformanceMonth {
   return {
     cycleLabel: label, displayLabel: label, sales: 300000, invoices: 1500, customers: 900, averageInvoice: 200,
     workedHours: 160, salesPerHour: 1875, invoicesPerHour: 9.4, customersPerHour: 5.6,
     conversations: 40, convertedConversations: 10, conversionRate: 25, conversionRecorded: 40,
-    attendanceDetail: detail(), hoursComplete: true, hoursNote: null, salesDays: 30,
+    unverifiedConversions: 0, attendanceDetail: detail(), hoursComplete: true, hoursNote: null, salesDays: 30, salesPresentDays: 20,
     coverage: 'available', confidence: 'high', coverageReason: '', comparisonEligible: true, comparisonMode: 'full_cycle', comparisonReason: '',
     comparisonSnapshot: null, salesIdentity: 'canonical', salesSourceAvailable: true, attendanceSourceAvailable: true, conversationSourceAvailable: true,
     salesEvidenceCount: 1500, attendanceEvidenceCount: 20, conversationEvidenceCount: 40, customerImpact: impact, diagnoses: [], ...o,
@@ -24,7 +24,7 @@ const down = (state: 'failed' | 'not_enabled', reason: string): PerformanceSourc
 function data(months: DoctorPerformanceMonth[], sources: Partial<DoctorPerformanceIntelligence['sources']> = {}): DoctorPerformanceIntelligence {
   return { months, sources: { sales: ok, attendance: ok, conversations: ok, customerImpact: ok, ...sources }, actions: [], generatedAt: '', firstEvidenceDate: null, firstSalesEvidenceDate: null, firstAttendanceEvidenceDate: null, firstConversationEvidenceDate: null };
 }
-const full = () => data([month('2026-10', { salesDays: 12, sales: 120000, invoices: 600, hoursComplete: false, salesPerHour: null, hoursNote: '9 يوم حضور بانتظار المراجعة؛ إنتاجية الساعة لا تُحسب على ساعات ناقصة.', attendanceDetail: detail(9) }), month('2026-09'), month('2026-08')]);
+const full = () => data([month('2026-10', { salesDays: 12, salesPresentDays: 8, sales: 80000, invoices: 600, hoursComplete: false, salesPerHour: null, hoursNote: '9 يوم حضور بانتظار المراجعة؛ إنتاجية الساعة لا تُحسب على ساعات ناقصة.', attendanceDetail: detail(9) }), month('2026-09'), month('2026-08')]);
 
 function readyDecision(o: Partial<DecisionIntelligence['charts']> = {}): DecisionIntelligence {
   return {
@@ -121,8 +121,9 @@ describe('doctor eye chart — unknown values stay unknown', () => {
     expect(m.cycles.map(c => c.cycleLabel)).toEqual(['2026-08', '2026-09', '2026-10']);
     expect(m.cycles.map(c => c.running)).toEqual([false, false, true]);
     expect(eyeCycleName('2026-10')).toBe('أكتوبر');
-    const perDay = m.trend.metrics.find(x => x.key === 'salesPerDay')!;
-    expect(perDay.points.map(p => p.value)).toEqual([10000, 10000, 10000]);
+    const perDay = m.trend.metrics.find(x => x.key === 'salesPerPresentDay')!;
+    expect(perDay.points.map(p => p.value)).toEqual([15000, 15000, 10000]);
+    expect(perDay.points.map(p => p.status)).toEqual(['final', 'final', 'provisional']);
   });
 
   it('shows conversion as unknown, not 0%, when no sale outcome was recorded', () => {
@@ -143,7 +144,7 @@ describe('doctor eye chart — unknown values stay unknown', () => {
   });
 
   it('does not read a clean lateness record from fewer than five settled days', () => {
-    const oct = month('2026-10', { attendanceDetail: { workedDays: 4, lateDays: 0, lateMinutes: 0, pendingDays: 6, approvedHours: 39.2, pendingHours: 0 } });
+    const oct = month('2026-10', { attendanceDetail: detail(4, 4, 0) });
     const m = buildEyeChartModel({ data: data([oct, month('2026-09'), month('2026-08')]), decision: null, decisionLoading: false, hasBranch: true, now: NOW });
     const p = m.trend.metrics.find(x => x.key === 'lateShare')!.points[2];
     expect(p.value).toBe(null);
@@ -157,25 +158,109 @@ describe('doctor eye chart — unknown values stay unknown', () => {
   });
 });
 
-describe('doctor eye — hours and conversion rules', () => {
-  it('computes per-hour productivity only when every attendance day is settled', () => {
-    const settled = cycleRates({ salesTotal: 160000, invoices: 800, customers: 500, hours: 160, detail: detail(0), outcomes: [] });
+describe('doctor eye — hours, attendance and conversion rules', () => {
+  it('computes per-hour productivity only for a closed cycle with every attendance day settled', () => {
+    const settled = cycleRates({ salesTotal: 160000, invoices: 800, customers: 500, hours: 160, detail: detail(0), cycleClosed: true, outcomes: [] });
     expect(settled.salesPerHour).toBe(1000);
     expect(settled.hoursComplete).toBe(true);
-    const pending = cycleRates({ salesTotal: 160000, invoices: 800, customers: 500, hours: 100, detail: detail(6), outcomes: [] });
+    const pending = cycleRates({ salesTotal: 160000, invoices: 800, customers: 500, hours: 100, detail: detail(6), cycleClosed: true, outcomes: [] });
     expect(pending.salesPerHour).toBe(null);
     expect(pending.invoicesPerHour).toBe(null);
     expect(String(pending.hoursNote)).toContain('6 يوم');
-    expect(cycleRates({ salesTotal: 1, invoices: 1, customers: 1, hours: 10, detail: null, outcomes: [] }).salesPerHour).toBe(null);
+    const running = cycleRates({ salesTotal: 160000, invoices: 800, customers: 500, hours: 100, detail: detail(0), cycleClosed: false, outcomes: [] });
+    expect(running.salesPerHour).toBe(null);
+    expect(String(running.hoursNote)).toContain('جارية');
+    expect(cycleRates({ salesTotal: 1, invoices: 1, customers: 1, hours: 10, detail: null, cycleClosed: true, outcomes: [] }).salesPerHour).toBe(null);
   });
 
-  it('divides conversion by recorded outcomes only', () => {
-    const r = cycleRates({ salesTotal: null, invoices: null, customers: null, hours: null, detail: null, outcomes: [true, false, null, undefined, true, false] });
-    expect(r.recorded).toBe(4);
+  it('counts only verified sales (converted with an invoice) over recorded outcomes', () => {
+    const o = (converted: boolean | null, invoiceNumber: string | null = null) => ({ converted, invoiceNumber });
+    const r = cycleRates({ salesTotal: null, invoices: null, customers: null, hours: null, detail: null, cycleClosed: true, outcomes: [o(true, '101'), o(false), o(null), o(true, '102'), o(false), o(true, null), o(true, '  ')] });
     expect(r.converted).toBe(2);
+    expect(r.unverified).toBe(2);
+    expect(r.recorded).toBe(4);
     expect(r.conversionRate).toBe(50);
-    const none = cycleRates({ salesTotal: null, invoices: null, customers: null, hours: null, detail: null, outcomes: Array(57).fill(null) });
+    const none = cycleRates({ salesTotal: null, invoices: null, customers: null, hours: null, detail: null, cycleClosed: true, outcomes: Array(57).fill(o(null)) });
     expect(none.conversionRate).toBe(null);
-    expect(cycleRates({ salesTotal: null, invoices: null, customers: null, hours: null, detail: null, outcomes: null }).recorded).toBe(null);
+    expect(none.recorded).toBe(0);
+    expect(cycleRates({ salesTotal: null, invoices: null, customers: null, hours: null, detail: null, cycleClosed: true, outcomes: null }).recorded).toBe(null);
+  });
+
+  it('derives present, settled and pending days from the daily rows, not from the summary pending count', () => {
+    const day = (attendance_date: string, approval_state: string, first_in: string | null, last_out: string | null = null) => ({ attendance_date, approval_state, first_in, last_out });
+    const facts = attendanceFacts([
+      day('2026-09-26', 'approved', 'x'), day('2026-09-27', 'approved', 'x'), day('2026-09-28', 'pending_review', null, 'y'),
+      day('2026-09-29', 'pending_review', null), day('2026-09-30', 'not_materialized', null), day('2026-10-09', 'pending_review', 'x'),
+    ], { actual_worked_days: 2, late_days: 1, total_late_minutes: 20, absence_review_days: 1, total_worked_hours: 20, pending_worked_hours: 5 });
+    expect(facts.presentDays).toBe(4);
+    expect(facts.settledDays).toBe(2);
+    expect(facts.unsettledDays).toBe(2);
+    expect(facts.lateDays).toBe(1);
+    // A running cycle only counts attendance up to the last loaded sales day.
+    expect(presentDaysThrough(facts, '2026-09-26', '2026-10-07')).toBe(3);
+    expect(presentDaysThrough(facts, '2026-09-26', null)).toBe(null);
+  });
+});
+
+describe('doctor eye — real cycles of د/ أحمد حافظ (database facts, 2026-10-08)', () => {
+  // Sales: canonical bundle (staff_id + exact seller-name match). Attendance: get_staff_attendance_detail_v3 daily rows.
+  // Conversations: conversation_sales_reviews_canonical_v2 (Sep: 17 converted, all 17 with an invoice that exists).
+  const att = (presentDays: number, settledDays: number, lateDays: number): AttendanceFacts => ({ presentDays, settledDays, unsettledDays: presentDays - settledDays, absenceReviewDays: 0, lateDays, lateMinutes: 0, approvedHours: 0, pendingHours: 0, presentDates: [] });
+  const ahmed = () => data([
+    month('2026-10', { sales: 85373.51, invoices: 336, salesDays: 12, salesPresentDays: 8, workedHours: 39.2, salesPerHour: null, hoursComplete: false, hoursNote: 'الدورة جارية', conversations: 0, convertedConversations: 0, conversionRecorded: 0, conversionRate: null, attendanceDetail: att(8, 4, 0), comparisonMode: 'same_period' }),
+    month('2026-09', { sales: 401791.81, invoices: 908, salesDays: 31, salesPresentDays: 24, workedHours: 171.36, salesPerHour: null, hoursComplete: false, hoursNote: '9 يوم حضور بانتظار المراجعة', conversations: 24, convertedConversations: 17, conversionRecorded: 24, conversionRate: (17 / 24) * 100, attendanceDetail: att(24, 15, 10) }),
+    month('2026-08', { sales: 326588.14, invoices: 942, salesDays: 31, salesPresentDays: 25, workedHours: 178.25, salesPerHour: null, hoursComplete: false, hoursNote: '9 يوم حضور بانتظار المراجعة', conversations: 57, convertedConversations: 0, conversionRecorded: 0, conversionRate: null, attendanceDetail: att(25, 16, 9) }),
+  ]);
+  const model = () => buildEyeChartModel({ data: ahmed(), decision: unavailableDecision('not_enabled', NOT_ENABLED), decisionLoading: false, hasBranch: true, now: NOW });
+  const metric = (key: string) => model().trend.metrics.find(x => x.key === key)!;
+  const round = (v: number | null) => (v === null ? null : Math.round(v * 10) / 10);
+
+  it('divides sales by attendance days, not calendar days, and keeps the result provisional while days are pending', () => {
+    expect(metric('salesPerPresentDay').points.map(p => round(p.value))).toEqual([13063.5, 16741.3, 10671.7]);
+    expect(metric('salesPerPresentDay').points.map(p => p.status)).toEqual(['provisional', 'provisional', 'provisional']);
+    expect(metric('salesPerCalendarDay').points.map(p => round(p.value))).toEqual([10535.1, 12961, 7114.5]);
+    expect(metric('salesPerCalendarDay').context).toBe(true);
+    expect(model().trend.defaultMetric).toBe('salesPerPresentDay');
+  });
+
+  it('never falls back to calendar days when attendance days are unknown', () => {
+    const d = ahmed();
+    d.months[1] = { ...d.months[1], attendanceDetail: null, salesPresentDays: null };
+    const m = buildEyeChartModel({ data: d, decision: null, decisionLoading: false, hasBranch: true, now: NOW });
+    const p = m.trend.metrics.find(x => x.key === 'salesPerPresentDay')!.points[1];
+    expect(p.value).toBe(null);
+    expect(String(p.note)).toContain('لا يُقسم على أيام تقويمية');
+  });
+
+  it('reads conversion only where outcomes were recorded and verified', () => {
+    const c = metric('conversion').points;
+    expect(c[0].value).toBe(null);
+    expect(String(c[0].note)).toContain('٥٧ مراجعة بدون نتيجة');
+    expect(round(c[1].value)).toBe(70.8);
+    expect(c[1].status).toBe('final');
+    expect(c[2].value).toBe(null);
+  });
+
+  it('marks partial outcome coverage as provisional and hides very low coverage', () => {
+    const d = ahmed();
+    d.months[1] = { ...d.months[1], conversations: 24, conversionRecorded: 14, convertedConversations: 10, conversionRate: (10 / 14) * 100 };
+    const p = buildEyeChartModel({ data: d, decision: null, decisionLoading: false, hasBranch: true, now: NOW }).trend.metrics.find(x => x.key === 'conversion')!.points[1];
+    expect(p.status).toBe('provisional');
+    d.months[1] = { ...d.months[1], conversionRecorded: 6, convertedConversations: 5, conversionRate: (5 / 6) * 100 };
+    expect(buildEyeChartModel({ data: d, decision: null, decisionLoading: false, hasBranch: true, now: NOW }).trend.metrics.find(x => x.key === 'conversion')!.points[1].value).toBe(null);
+  });
+
+  it('reads lateness on settled days only, provisional while days are pending, unknown below five settled days', () => {
+    const l = metric('lateShare').points;
+    expect(l.map(p => round(p.value))).toEqual([56.3, 66.7, null]);
+    expect(l[0].status).toBe('provisional');
+    expect(String(l[0].note)).toContain('لم يُحسم');
+  });
+
+  it('keeps every individual tab working while the branch comparison is not enabled', () => {
+    const m = model();
+    expect(m.tabs.map(t => [t.key, t.available])).toEqual([['trend', true], ['shifts', false], ['peers', false], ['sources', true]]);
+    expect(metric('salesPerHour').available).toBe(false);
+    expect(m.sources.find(r => r.key === 'attendance')!.cells!.map(c => c.text)).toEqual(['٢٥ يوم حضور، ٩ بانتظار المراجعة', '٢٤ يوم حضور، ٩ بانتظار المراجعة', '٨ يوم حضور، ٤ بانتظار المراجعة']);
   });
 });

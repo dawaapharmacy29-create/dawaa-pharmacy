@@ -132,6 +132,8 @@ if(!performanceEye.includes('{x.reason}'))failures.push('decision source status 
  if(/\bready\b|availability/.test(chartLine))failures.push('performance eye chart must not be gated on the branch comparison being ready');
  if(!performanceEye.includes('buildEyeChartModel('))failures.push('performance eye chart must be built by the pure chart model');
  for(const key of ["'trend'","'shifts'","'peers'","'sources'"])if(!eyeChartModel.includes(key))failures.push('performance eye chart must keep the '+key+' tab');
+ if(!/defaultMetric = metrics\.find\(m => m\.available && !m\.context\)/.test(eyeChartModel)||!/key: 'salesPerCalendarDay'[^\n]*context: true/.test(eyeChartModel))failures.push('doctor productivity must be per attendance day; the calendar-day average is context only and never the default');
+ if(!/converted===true&&hasInvoice\(o\)/.test(performanceService))failures.push('doctor conversion must count only verified sales (converted with an invoice number)');
  if(/\?\?\s*0\b|\|\|\s*0\)\s*\/|value:\s*0\b/.test(eyeChartModel))failures.push('performance eye chart model must keep unknown values null, never zero');
 }
 if(/describeSourceError/.test(performanceService+performanceEye+decisionData))failures.push('doctor eye must not format raw PostgREST/SQL errors for the screen; use the source-state contract');
