@@ -67,6 +67,9 @@ V32 semantic facts (whatsappSemanticSignalsV32)
 * The envelope sync preserves server-owned case_json keys and, once projected, refreshes only the
   preliminary snapshot; analysis inputs read envelope values (`v22EnvelopeValue`) so SI never consumes
   its own projection (no feedback loop). Reanalysis converges to the same final state.
+* Product loss != operational demand: `lostOpportunity.productLosses` is produced only from a
+  canonical UNAVAILABLE fact (recoverable / lost / replaced_by_alternative). A `check_pending`
+  demand stays in Unavailable Demand + Follow-up + Operational Disposition and is never a loss.
 * Operational obligation != scoring maturity: an unresolved stock check is actionable now while
   its follow-up scoring lifecycle stays `pending` with zero penalty until violated.
 

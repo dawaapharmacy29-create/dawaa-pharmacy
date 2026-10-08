@@ -304,6 +304,8 @@ const testFiles = [
   'src/lib/__tests__/staffCommitmentClassifierV32.test.ts',
   'src/lib/salesIntelligence/__tests__/operationalDispositionInverse.test.ts',
   'src/lib/salesIntelligence/__tests__/v22SemanticProjection.test.ts',
+  'src/lib/salesIntelligence/__tests__/productLossCheckPending.test.ts',
+  'src/lib/salesIntelligence/__tests__/lostOpportunityEngine.test.ts',
 ];
 for (const relativePath of testFiles) {
   const testFile = path.join(root, relativePath);

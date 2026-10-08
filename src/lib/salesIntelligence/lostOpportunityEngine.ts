@@ -303,10 +303,14 @@ function deriveProductLosses(
   const losses: ProductLossEvidence[] = [];
   for (const product of customerNeed.products) {
     if (!product.roles.includes('requested')) continue;
-    const demand = demands.find((d) => d.productKey === product.key) ?? null;
-    // A product in the active basket is not a loss — unless staff said it is unavailable and no
-    // alternative was accepted (a draft basket can still hold the customer's original request line).
-    if (product.roles.includes('final_basket') && !(demand && demand.alternativeResponse !== 'accepted')) continue;
+    // Only a canonical UNAVAILABLE fact is loss evidence. A check_pending demand is unresolved
+    // operational demand (owned by Unavailable Demand / Follow-up / Operational Disposition), never a
+    // product loss: until staff state the result, nothing has been lost or replaced.
+    const demand = demands.find((d) => d.productKey === product.key && d.availabilityState === 'unavailable') ?? null;
+    // A product in the active basket is not a loss — unless staff said it is unavailable (a draft
+    // basket can still hold the customer's original request line). With an accepted alternative that
+    // original line is reported as replaced_by_alternative, backed by the real unavailable fact.
+    if (product.roles.includes('final_basket') && !demand) continue;
     let outcome: ProductLossEvidence['outcome'] = 'unknown';
     let reason: LostOpportunityReason | null = null;
     if (demand) {

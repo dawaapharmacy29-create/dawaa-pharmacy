@@ -5968,8 +5968,8 @@ function deriveProductLosses(customerNeed, demands, state) {
   const losses = [];
   for (const product of customerNeed.products) {
     if (!product.roles.includes("requested")) continue;
-    const demand = demands.find((d) => d.productKey === product.key) ?? null;
-    if (product.roles.includes("final_basket") && !(demand && demand.alternativeResponse !== "accepted")) continue;
+    const demand = demands.find((d) => d.productKey === product.key && d.availabilityState === "unavailable") ?? null;
+    if (product.roles.includes("final_basket") && !demand) continue;
     let outcome = "unknown";
     let reason = null;
     if (demand) {
@@ -8069,7 +8069,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v21";
+var PIPELINE_VERSION = "sales-intelligence-v22";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v10-payment-continuation-ambiguity-safe",
   historicalClosure: "historical-closure-v1",

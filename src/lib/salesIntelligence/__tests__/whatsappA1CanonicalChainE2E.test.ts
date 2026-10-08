@@ -57,7 +57,7 @@ describe('A1 canonical chain — "جاست ريج أمبول"', () => {
   });
 
   it('runs on the canonical pipeline and resolves GAST-REG 50MG 3AMP / 40049', () => {
-    expect(PIPELINE_VERSION).toBe('sales-intelligence-v21');
+    expect(PIPELINE_VERSION).toBe('sales-intelligence-v22');
     const result = runSalesIntelligencePipeline({
       conversationId: SOURCE_ID,
       rawWhatsAppExportText: A1_RAW_TEXT,
@@ -96,9 +96,11 @@ describe('A1 canonical chain — "جاست ريج أمبول"', () => {
     });
     expect(analysis.followUp.opportunities.some((o) => o.reason === 'staff_promised_check')).toBe(false);
 
-    // Lost Opportunity agrees: open, waiting on staff.
+    // Lost Opportunity agrees: open, waiting on staff — and a pending check is not a product loss.
     expect(analysis.lostOpportunity.state).toBe('open');
     expect(analysis.lostOpportunity.waitingOn).toBe('staff');
+    expect(analysis.lostOpportunity.reason).toBeNull();
+    expect(analysis.lostOpportunity.productLosses).toEqual([]);
 
     // Canonical operational disposition (single owner), projected unchanged into the view.
     const disposition = analysis.caseIntelligence.operationalDisposition!;

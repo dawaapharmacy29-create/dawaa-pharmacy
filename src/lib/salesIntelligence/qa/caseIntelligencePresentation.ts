@@ -279,6 +279,8 @@ export function productStatus(product: CaseIntelligenceView['products'][number],
   if (product.lossOutcome === 'lost') return { label: 'ضاع', tone: 'bad' };
   if (product.lossOutcome === 'recoverable') return { label: 'غير متوفر — قابل للاسترداد', tone: 'warn' };
   if (product.lossOutcome === 'replaced_by_alternative') return { label: 'استُبدل ببديل', tone: 'neutral' };
+  // Stated by the view (canonical Need availability): a pending stock check is not a loss and not yet a basket line outcome.
+  if (product.availability === 'check_pending') return { label: 'جاري مراجعة التوفر', tone: 'warn' };
   if (product.inFinalBasket) return { label: saleOutcome === 'sale_proven' ? 'ضمن بيع مثبت' : 'في الطلب النهائي', tone: 'good' };
   if (product.availability === 'unavailable') return { label: 'غير متوفر', tone: 'warn' };
   return { label: UNKNOWN_LABEL, tone: 'neutral' };
