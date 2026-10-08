@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { describeSourceProblem } from '@/lib/evaluations/decisionSourceState';
 import {
   deriveDoctorPerformanceActions,
-  describeSourceError,
+  sourceStateOf,
   aggregateImpactEvidence,
   type DoctorPerformanceDiagnosis,
   type DoctorPerformanceMonth,
@@ -22,18 +23,30 @@ function month(diagnoses: DoctorPerformanceDiagnosis[]): DoctorPerformanceMonth 
   };
 }
 
-describe('doctor performance eye source errors', () => {
-  it('keeps no error as null so available sources are not flagged', () => {
-    expect(describeSourceError(null, 'المبيعات')).toBe(null);
+describe('doctor performance eye source states', () => {
+  const quiet = { warn: () => undefined, error: () => undefined };
+  it('keeps an available source free of any reason or diagnostic', () => {
+    expect(sourceStateOf(null)).toEqual({ state: 'available', reason: null, diagnostic: null });
   });
 
-  it('names a statement timeout explicitly instead of a vague unavailable label', () => {
-    expect(describeSourceError({ code: '57014', message: 'canceling statement due to statement timeout' }, 'المبيعات')).toContain('57014');
-    expect(describeSourceError({ code: '57014', message: 'canceling statement due to statement timeout' }, 'المبيعات')).toContain('انتهت مهلة');
+  it('names a statement timeout in plain language and keeps the code only in the diagnostic', () => {
+    const s = sourceStateOf(describeSourceProblem({ code: '57014', message: 'canceling statement due to statement timeout' }, 'المبيعات', 'sales', quiet));
+    expect(s.state).toBe('failed');
+    expect(s.reason).toContain('انتهت مهلة');
+    expect(s.reason.includes('57014')).toBe(false);
+    expect(s.diagnostic.code).toBe('57014');
   });
 
-  it('distinguishes a scope denial from an outage', () => {
-    expect(describeSourceError({ code: '42501', message: 'staff_sales_branch_scope_denied' }, 'المبيعات')).toContain('staff_sales_branch_scope_denied');
+  it('distinguishes a scope denial from an outage without echoing the SQL message', () => {
+    const s = sourceStateOf(describeSourceProblem({ code: '42501', message: 'staff_sales_branch_scope_denied' }, 'المبيعات', 'sales', quiet));
+    expect(s.reason).toContain('صلاحية');
+    expect(s.reason.includes('staff_sales_branch_scope_denied')).toBe(false);
+    expect(s.diagnostic.message).toBe('staff_sales_branch_scope_denied');
+  });
+
+  it('separates a not-yet-enabled endpoint and a loaded source with too little evidence', () => {
+    expect(sourceStateOf(describeSourceProblem({ code: 'PGRST202', message: 'Could not find the function' }, 'المحادثات', 'conversations', quiet)).state).toBe('not_enabled');
+    expect(sourceStateOf(null, 'لا توجد بيانات أثر عملاء لهذه الفترة بعد.').state).toBe('insufficient');
   });
 });
 

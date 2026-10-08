@@ -1,3 +1,4 @@
+import { describeSourceProblem, UserFacingError, type DecisionSourceDiagnostic } from '@/lib/evaluations/decisionSourceState';
 import { supabase } from '@/lib/supabase';
 import { loadPerformanceSalesBundle, type PerformanceSalesBundlePayload } from '@/lib/evaluations/performanceSalesBundleCache';
 import { evaluationCycleRangeFromLabel, evaluationCycleDateKeys, isEvaluationCycleClosed, previousEvaluationCycleLabel } from '@/lib/evaluations/monthlyEvaluationCycle';
@@ -53,11 +54,21 @@ export type DoctorPerformanceMonth = {
 };
 
 export type PerformanceSourceStatus = 'available' | 'partial' | 'unavailable';
+/**
+ * What the UI says about a source: `partial` (some reads failed), `insufficient` (loaded, too little evidence),
+ * `not_enabled` (endpoint not deployed yet) or `failed` (read did not complete). Never a technical message.
+ */
+export type PerformanceSourceState = 'available' | 'partial' | 'insufficient' | 'not_enabled' | 'failed';
 
-/** Health of one evidence source across the 3-cycle window; `error` is the real failure, never hidden as zero. */
+/**
+ * Health of one evidence source across the 3-cycle window. `reason` is plain language for the screen; the
+ * technical failure lives in `diagnostic` and is already written to the diagnostic log. Missing is never zero.
+ */
 export type PerformanceSourceHealth = {
   status: PerformanceSourceStatus;
-  error: string | null;
+  state: PerformanceSourceState;
+  reason: string | null;
+  diagnostic: DecisionSourceDiagnostic | null;
   evidenceCount: number;
   firstEvidenceDate: string | null;
   dataAsOf: string | null;
@@ -89,22 +100,21 @@ type SalesCycleSummaryRow = {
 
 type SalesPeriodSummaryRow = { sales?: number; invoices?: number; customers?: number; first_sale_date?: string | null };
 /** Maps a Supabase/PostgREST failure to a readable reason that keeps the real code visible. */
-export function describeSourceError(error:unknown,source:string):string|null{
-  if(!error)return null;
-  const e=error as {code?:string;message?:string};
-  const code=String(e.code||'');
-  const message=String(e.message||(error instanceof Error?error.message:'')||'').trim();
-  if(code==='57014'||/statement timeout/i.test(message))return `انتهت مهلة مصدر ${source} قبل اكتمال القراءة (57014).`;
-  if(code==='42501'||/permission denied|scope_denied/i.test(message))return `لا توجد صلاحية لقراءة ${source} لهذا الموظف (${message||code}).`;
-  if(/Failed to fetch|NetworkError|network/i.test(message))return `تعذر الاتصال بمصدر ${source}؛ تحقق من الشبكة ثم أعد التحميل.`;
-  return `تعذر تحميل ${source}${message?`: ${message}`:''}${code?` (${code})`:''}.`;
+type SourceProblem = ReturnType<typeof describeSourceProblem>;
+const problemOf = (error: unknown, label: string, source: string): SourceProblem | null => (error ? describeSourceProblem(error, label, source) : null);
+
+/** Maps a read outcome to what the screen may say. `insufficientReason` marks a loaded source with too little evidence. */
+export function sourceStateOf(problem:SourceProblem|null,insufficientReason:string|null=null):{state:PerformanceSourceState;reason:string|null;diagnostic:DecisionSourceDiagnostic|null}{
+  if(problem)return {state:problem.status,reason:problem.reason,diagnostic:problem.diagnostic};
+  if(insufficientReason)return {state:'insufficient',reason:insufficientReason,diagnostic:null};
+  return {state:'available',reason:null,diagnostic:null};
 }
 
 async function salesBundle(staffId:string,windowStart:string,windowEnd:string,currentStart:string,elapsedDays:number){
   const {payload,error}=await loadPerformanceSalesBundle({
     staffId,windowStart,windowEnd,currentStart,elapsedDays,
   });
-  return {rows:Array.isArray(payload.cycles)?payload.cycles:[],samePeriod:payload.samePeriod||{},dataAsOf:payload.dataAsOf||null,effectiveDays:Math.max(0,n(payload.effectiveDays)),available:!error,identity:error?'unavailable' as const:'canonical' as const,error:describeSourceError(error,'المبيعات')};
+  return {rows:Array.isArray(payload.cycles)?payload.cycles:[],samePeriod:payload.samePeriod||{},dataAsOf:payload.dataAsOf||null,effectiveDays:Math.max(0,n(payload.effectiveDays)),available:!error,identity:error?'unavailable' as const:'canonical' as const,problem:problemOf(error,'المبيعات','sales')};
 }
 
 function minDate(values:(string|null)[]){
@@ -127,7 +137,7 @@ async function customerImpactWindow(staffId:string,start:string,endExclusive:str
   const {data,error}=await supabase.from('whatsapp_doctor_cycle_intelligence_v1')
     .select('cycle_start,cycle_end,commercial_conversations,verified_sale_conversations,verified_revenue,verified_conversion_rate,conversations_needing_followup,complaint_conversations,sale_leakage_count,unavailable_product_count,accepted_product_count')
     .eq('staff_id',staffId).gte('cycle_start',start).lt('cycle_start',endExclusive);
-  return {rows:(data||[]) as DoctorCycleImpactRow[],available:!error,error:describeSourceError(error,'أثر العملاء')};
+  return {rows:(data||[]) as DoctorCycleImpactRow[],available:!error,problem:problemOf(error,'أثر العملاء','customer_impact')};
 }
 
 export function aggregateImpactEvidence(rows:DoctorCycleImpactRow[],available:boolean):DoctorCustomerImpact{
@@ -356,24 +366,31 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
 
   months.forEach((month,index)=>{month.diagnoses=diagnoseMonth(month,months[index+1]||null)});
   const windowConversationRows=rawMonths.flatMap(m=>m.conversations.data||[]);
+  const conversationProblem=problemOf(conversationWindow.error,'المحادثات','conversations');
+  // Attendance reports failures as text; a partial read is still a real failure for the diagnostic log.
+  const attendanceProblem=attendanceWindow.status==='available'?null:describeSourceProblem({message:attendanceWindow.error||'attendance read failed'},'الحضور','attendance');
   const sources:DoctorPerformanceIntelligence['sources']={
     sales:{
-      status:salesTruth.available?'available':'unavailable',error:salesTruth.error,
+      status:salesTruth.available?'available':'unavailable',...sourceStateOf(salesTruth.problem),
       evidenceCount:salesTruth.available?rawMonths.reduce((sum,m)=>sum+n(m.sales.summary?.invoices),0):0,
       firstEvidenceDate:firstSalesDate,dataAsOf:salesDataAsOf,
     },
     attendance:{
-      status:attendanceWindow.status,error:attendanceWindow.status==='available'?null:attendanceWindow.error||null,
+      status:attendanceWindow.status,
+      ...(attendanceWindow.status==='partial'
+        ?{state:'partial' as const,reason:'أحد مصدري الحضور لم يُحمّل؛ أرقام الحضور قد تكون ناقصة وليست صفرًا.',diagnostic:attendanceProblem?.diagnostic||null}
+        :sourceStateOf(attendanceProblem)),
       evidenceCount:attendanceWindowRows.length,firstEvidenceDate:firstAttendanceDate,
       dataAsOf:maxDate(attendanceWindowRows.map(r=>String(r.attendance_date||r.date||'').slice(0,10)||null)),
     },
     conversations:{
-      status:conversationWindow.error?'unavailable':'available',error:describeSourceError(conversationWindow.error,'المحادثات'),
+      status:conversationWindow.error?'unavailable':'available',...sourceStateOf(conversationProblem),
       evidenceCount:conversationWindow.error?0:windowConversationRows.length,firstEvidenceDate:firstConversationDate,
       dataAsOf:conversationWindow.error?null:maxDate(windowConversationRows.map(r=>String(r.conversation_date||r.created_at||'').slice(0,10)||null)),
     },
     customerImpact:{
-      status:!impactWindow.available?'unavailable':impactWindow.rows.length?'available':'partial',error:impactWindow.error,
+      status:!impactWindow.available?'unavailable':impactWindow.rows.length?'available':'partial',
+      ...sourceStateOf(impactWindow.problem,impactWindow.available&&!impactWindow.rows.length?'لا توجد بيانات أثر عملاء لهذه الفترة بعد.':null),
       evidenceCount:impactWindow.rows.length,firstEvidenceDate:null,dataAsOf:null,
     },
   };
@@ -442,7 +459,7 @@ export async function loadDoctorPerformanceEvidence(args:{staffId:string;cycleLa
       .select('source_id,customer_name,customer_code,product_name,current_stage,leakage_reason,next_action,invoice_match_status,matched_invoice_number,matched_invoice_value,confidence')
       .eq('staff_id',args.staffId).eq('cycle_start',startDate).eq('cycle_end',endDate).limit(120),
   ]);
-  if(sources.error)throw new Error(describeSourceError(sources.error,'محادثات الدليل')||'تعذر تحميل محادثات الدليل.');
-  if(products.error)throw new Error(describeSourceError(products.error,'رحلات الأصناف')||'تعذر تحميل رحلات الأصناف.');
+  if(sources.error)throw new UserFacingError(describeSourceProblem(sources.error,'محادثات الدليل','evidence_conversations').reason);
+  if(products.error)throw new UserFacingError(describeSourceProblem(products.error,'رحلات الأصناف','evidence_products').reason);
   return {conversations:(sources.data||[]) as DoctorEvidenceConversation[],products:(products.data||[]) as DoctorEvidenceProduct[]};
 }

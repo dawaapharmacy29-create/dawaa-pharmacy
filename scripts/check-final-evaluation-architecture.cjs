@@ -75,7 +75,7 @@ const required=[
  [performanceService,'loadPerformanceSalesBundle','performance eye must use shared canonical performance sales bundle'],
  [evalPage,'endExclusive: endDateExclusive','header sales must include the full last cycle day through an exclusive bound'],
  [headerService,'getEvaluationHeaderSales(args.staffId,args.start,args.endExclusive)','header sales RPC must receive the exclusive cycle end, not the inclusive last day'],
- [performanceService,'describeSourceError','performance eye must surface the real source failure instead of a vague unavailable state'],
+ [performanceService,'describeSourceProblem','performance eye must state the specific failure kind (timeout, permission, network, not enabled) instead of a vague unavailable state'],
  [performanceService,'loadDoctorPerformanceEvidence','performance eye drill-down must read through the service boundary'],
  [performanceEye,'buildDoctorPerformanceVerdict','performance eye must open on the decision summary, not the full report'],
  [performanceEye,'hidden={!detailsOpen}','performance eye details must stay collapsed until requested'],
@@ -123,6 +123,13 @@ if(/(^|[^_\w])score\s*:(?!\s*number)/.test(decisionEngine.replace(/\/\*[\s\S]*?\
 if(performanceEye.includes("supabase.from("))failures.push('performance eye UI must not query tables directly; use the performance service boundary');
 if(decisionData.includes('describeSourceError'))failures.push('decision sources must not surface raw PostgREST error text; use the source-state contract');
 if(!performanceEye.includes('{x.reason}'))failures.push('decision source status must show the plain-language reason');
+// Every Eye error path shows plain language; technical detail goes to the diagnostic log only.
+if(/describeSourceError/.test(performanceService+performanceEye+decisionData))failures.push('doctor eye must not format raw PostgREST/SQL errors for the screen; use the source-state contract');
+if(/\be\.message\b|\.error\s*\|\||\.error\}|sources\.\w+\.error/.test(performanceEye))failures.push('doctor eye must not render raw error messages; use source reasons or userFacingMessage');
+if(!performanceEye.includes('userFacingMessage('))failures.push('doctor eye catch blocks must go through userFacingMessage (logs the original, shows plain text)');
+if(!performanceService.includes('sourceStateOf('))failures.push('doctor eye sources must expose state + plain reason + diagnostic');
+if(/إعادة تحميل مصدر المبيعات/.test(performanceVerdict))failures.push('verdict must not recommend actions derived from a missing source');
+if(!performanceVerdict.includes('evidenceComplete'))failures.push('verdict must say whether its evidence is complete before a routine recommendation is shown');
 if(/range\.(start|endExclusive)\.toISOString\(\)/.test(performanceEye+performanceService))failures.push('cycle date keys must come from evaluationCycleDateKeys, not Date#toISOString (Cairo day shift)');
 if(headerService.includes('getStaffCycleSales'))failures.push('evaluation header must not fall back to legacy heavy staff cycle sales truth');
 if(headerService.includes('loadPerformanceSalesBundle')||headerService.includes('get_staff_performance_sales_bundle_v1'))failures.push('evaluation header must stay on focused summary and not load the detailed performance bundle');
