@@ -91,6 +91,10 @@ const required=[
  [branchWindowMigration,'attributable','branch window must refuse ambiguous name attribution'],
  [performanceEye,'hasSourceFailure','performance eye must retry a result with failed sources instead of pinning it'],
  [performanceEye,'invalidatePerformanceSalesBundleCache','performance eye reload must bypass the shared sales bundle cache'],
+ [decisionData,'sourceProblem','decision sources must classify failures through the source-state contract (not_enabled / failed + logged diagnostic)'],
+ [decisionEngine,"availability: 'ready'",'decision engine must mark when a comparison is actually ready'],
+ [decisionEngine,'unavailableDecision','a missing or insufficient branch source must produce a neutral result with no decision'],
+ [performanceEye,"availability === 'ready'",'performance eye must render verdicts and decisions only from a ready comparison'],
  [performanceBundleFreshnessMigration,"(select max(si.invoice_date) from public.sales_invoices si",'performance sales bundle freshness must stay an index-friendly scalar max'],
  [performanceBundleFreshnessMigration,'dawaa_assert_staff_sales_scope_v1','performance sales bundle must keep actor scope authorization'],
  [headerService,"sourceTableUsed!=='none'",'unavailable sales source must never render as zero'],
@@ -117,6 +121,8 @@ for(const [label,body] of [['decision engine',decisionEngine],['decision chart',
 }
 if(/(^|[^_\w])score\s*:(?!\s*number)/.test(decisionEngine.replace(/\/\*[\s\S]*?\*\//g,'').replace(/\/\/.*$/gm,'').replace(/_score/g,'')))failures.push('decision engine must not emit a score that competes with the monthly evaluation');
 if(performanceEye.includes("supabase.from("))failures.push('performance eye UI must not query tables directly; use the performance service boundary');
+if(decisionData.includes('describeSourceError'))failures.push('decision sources must not surface raw PostgREST error text; use the source-state contract');
+if(!performanceEye.includes('{x.reason}'))failures.push('decision source status must show the plain-language reason');
 if(/range\.(start|endExclusive)\.toISOString\(\)/.test(performanceEye+performanceService))failures.push('cycle date keys must come from evaluationCycleDateKeys, not Date#toISOString (Cairo day shift)');
 if(headerService.includes('getStaffCycleSales'))failures.push('evaluation header must not fall back to legacy heavy staff cycle sales truth');
 if(headerService.includes('loadPerformanceSalesBundle')||headerService.includes('get_staff_performance_sales_bundle_v1'))failures.push('evaluation header must stay on focused summary and not load the detailed performance bundle');

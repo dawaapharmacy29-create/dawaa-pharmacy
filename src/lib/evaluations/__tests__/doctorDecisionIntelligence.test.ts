@@ -56,7 +56,7 @@ const allQ = (ids: string[], f: (QualityFacts | null)[] = [q(), q(), q(), q()]) 
 
 function run(w: BranchPerformanceWindow | null, opts: Partial<Parameters<typeof buildDecisionIntelligence>[0]> = {}) {
   return buildDecisionIntelligence({
-    staffId: 'T', window: w, windowError: w ? null : 'انتهت مهلة مصدر مقارنة الفرع (57014).',
+    staffId: 'T', window: w, windowSource: w ? { status: 'available', reason: null } : { status: 'failed', reason: 'انتهت مهلة تحميل مصدر «مقارنة الفرع»؛ أعد المحاولة بعد قليل.' },
     quality: allQ(['T', 'A', 'B', 'C', 'D']), sections: [], previousEvaluation: null, openCycleStart: null, nextReviewDate: '2026-11-25', ...opts,
   });
 }
@@ -188,11 +188,14 @@ describe('doctor decision intelligence — history and evidence safety', () => {
     expect(r.dataWarnings.some(x => x.includes('غير متاحة'))).toBe(true);
   });
 
-  it('reports a failed branch source instead of returning an empty success', () => {
+  it('reports a failed branch source as failed, with no verdict and no recommendation', () => {
     const r = run(null);
+    expect(r.availability).toBe('failed');
     expect(r.confidence.level).toBe('low');
-    expect(r.decision.action).toContain('إعادة تحميل');
-    expect(r.indicators.peers.detail).toContain('57014');
+    expect(r.decision).toBe(null);
+    expect(r.summary.decision).toBe(null);
+    expect(r.problems.length).toBe(0);
+    expect(r.indicators.peers.detail).toContain('انتهت مهلة');
   });
 });
 
@@ -258,5 +261,57 @@ describe('doctor decision intelligence — running cycle and grouping', () => {
     const w = window({ T: steady(2000), A: steady(1000), B: steady(1000) });
     const p = cycleProductivity(w, 'T', w.doctors[0].cycles[2], false);
     expect(Math.abs((p.index || 0) - 2) < 0.01).toBe(true);
+  });
+});
+
+describe('doctor decision intelligence — unavailable sources never produce a decision', () => {
+  const VERDICT_WORDS = ['أداء قوي', 'أداء يتحسن', 'تراجع في', 'أداء مستقر', 'تقدير الأداء', 'استمرار المتابعة', 'إعادة تحميل البيانات قبل اتخاذ قرار'];
+  const notEnabledReason = 'مصدر «مقارنة الفرع» لم يُفعَّل بعد على قاعدة البيانات.';
+
+  it('marks a source that is not deployed yet as not_enabled, distinct from a failure', () => {
+    const r = run(null, { windowSource: { status: 'not_enabled', reason: notEnabledReason } });
+    expect(r.availability).toBe('not_enabled');
+    expect(r.availabilityReason).toBe(notEnabledReason);
+    expect(r.summary.headline).toContain('لم تُفعَّل بعد');
+    expect(r.indicators.self.label).toBe('لم يُفعَّل بعد');
+  });
+
+  it('builds no verdict, problem, recommendation, chart or branch priority on a missing source', () => {
+    for (const status of ['not_enabled', 'failed'] as const) {
+      const r = run(null, { windowSource: { status, reason: null } });
+      expect(r.decision).toBe(null);
+      expect(r.summary.decision).toBe(null);
+      expect(r.summary.strength).toBe(null);
+      expect(r.summary.problem).toBe(null);
+      expect(r.problems.length).toBe(0);
+      expect(r.branchPriorities.length).toBe(0);
+      expect(r.charts.trend.length + r.charts.peers.length + r.charts.shifts.length + r.charts.quality.length).toBe(0);
+      expect(r.analysisCycleStart).toBe(null);
+      const text = JSON.stringify(r);
+      for (const word of VERDICT_WORDS) expect(text.includes(word)).toBe(false);
+    }
+  });
+
+  it('ignores a payload that arrives together with a non-available status', () => {
+    const w = window({ T: steady(1000), A: steady(1000), B: steady(1000), C: steady(1000), D: steady(1000) });
+    const r = run(w, { windowSource: { status: 'failed', reason: null } });
+    expect(r.availability).toBe('failed');
+    expect(r.decision).toBe(null);
+  });
+
+  it('reports insufficient data separately when the doctor has no evidence in a loaded window', () => {
+    const w = window({ A: steady(1000), B: steady(1000), C: steady(1000), D: steady(1000) });
+    const r = run(w);
+    expect(r.availability).toBe('insufficient');
+    expect(r.decision).toBe(null);
+    expect(r.summary.headline).toContain('غير كافية');
+  });
+
+  it('is ready, with a decision, only when the comparison actually loaded', () => {
+    const w = window({ T: steady(1000), A: steady(1000), B: steady(1000), C: steady(1000), D: steady(1000) });
+    const r = run(w);
+    expect(r.availability).toBe('ready');
+    expect(r.availabilityReason).toBe(null);
+    expect(r.decision === null).toBe(false);
   });
 });

@@ -16,6 +16,7 @@ import type { EvaluationHeaderSummary } from '@/lib/evaluations/employeeEvaluati
 import type { MonthlyConversationCoaching } from '@/lib/staff/employeeMonthlyEvidenceService';
 import { buildDoctorDecision, invalidateDoctorDecisionData, loadDoctorDecisionSources, type DoctorDecisionSources } from '@/lib/evaluations/doctorDecisionDataService';
 import { SCOPE_LABEL, TREND_LABEL, type DecisionIntelligence, type Severity } from '@/lib/evaluations/doctorDecisionIntelligence';
+import { SOURCE_STATUS_LABEL } from '@/lib/evaluations/decisionSourceState';
 
 const DoctorDecisionChart = lazy(() => import('@/components/evaluations/DoctorDecisionChart'));
 const SEVERITY_LABEL: Record<Severity, string> = { critical: 'حرجة', high: 'عالية', medium: 'متوسطة', low: 'منخفضة' };
@@ -129,7 +130,7 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
   function show() {
     setOpen(true);
     // A complete result is reused; a result with any failed source is retried instead of pinned.
-    const decisionFailed = Boolean(decisionSources && Object.values(decisionSources).some(x => x.status !== 'available'));
+    const decisionFailed = Boolean(decisionSources && Object.values(decisionSources).some(x => x.status === 'failed'));
     if (loading || (data && !hasSourceFailure(data) && !decisionFailed && (decisionSources || !branch))) return;
     void load(Boolean(data));
   }
@@ -171,7 +172,11 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
   const sectionsKey = sections.map(x => `${x.key}:${x.score}`).join('|');
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const decision: DecisionIntelligence | null = useMemo(() => decisionSources ? buildDoctorDecision(decisionSources, { staffId, cycleLabel, sections }) : null, [decisionSources, staffId, cycleLabel, sectionsKey]);
-  const decisionErrors = decisionSources ? ([['مقارنة الفرع', decisionSources.branch], ['مراجعات الفرع', decisionSources.reviews], ['التقييم السابق', decisionSources.previousEvaluation]] as const).filter(([, x]) => x.status !== 'available') : [];
+  // The comparative layer speaks only when the branch comparison is ready; otherwise the doctor's own
+  // (already verified) summary stays in place and no verdict or recommendation is derived from a missing source.
+  const ready = decision && decision.availability === 'ready' && decision.decision ? decision : null;
+  const decisionSourceIssues = decisionSources ? ([['مقارنة الفرع', decisionSources.branch], ['مراجعات الفرع', decisionSources.reviews], ['التقييم السابق', decisionSources.previousEvaluation]] as const).filter(([, x]) => x.status !== 'available') : [];
+  const anyDecisionFailure = decisionSourceIssues.some(([, x]) => x.status === 'failed');
   const indicatorTone = (state: string): Tone => ['improving', 'above', 'consistent'].includes(state) ? 'success' : ['declining', 'below', 'gaps'].includes(state) ? 'warning' : 'neutral';
 
   return <>
@@ -213,38 +218,45 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
               <ul className="mt-2 space-y-1">{failedSources.map(([name, s]) => <li key={name} className="break-words">• {name} ({sourceStatusLabel(s.status)}): {s.error || 'سبب غير معروف'}</li>)}</ul>
             </div> : null}
 
-            {decisionErrors.length ? <div className="mt-3 rounded-xl border p-3 text-[12px] font-bold" style={toneStyle('warning')}>
-              <div className="flex items-center gap-2 font-black"><AlertTriangle size={15} /> مصادر التحليل المقارن لم تكتمل — الأجزاء المرتبطة بها محجوبة</div>
-              <ul className="mt-1 space-y-0.5">{decisionErrors.map(([name, x]) => <li key={name} className="break-words">• {name}: {x.error || 'غير متاح'}</li>)}</ul>
+            {decisionSourceIssues.length || decision?.availability === 'insufficient' ? <div className="mt-3 rounded-xl border p-3 text-[12px] font-bold" style={toneStyle(anyDecisionFailure ? 'warning' : 'info')} data-testid="decision-source-status">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 font-black"><AlertTriangle size={15} /> التحليل المقارن غير مكتمل — لا يُبنى عليه حكم أو قرار</div>
+                {anyDecisionFailure ? <button type="button" onClick={() => void load(true)} disabled={loading || decisionLoading} className="inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] font-black disabled:opacity-50" style={{ borderColor: 'currentColor' }}><RefreshCw size={13} className={decisionLoading ? 'animate-spin' : undefined} /> إعادة المحاولة</button> : null}
+              </div>
+              <ul className="mt-1 space-y-0.5">
+                {decisionSourceIssues.map(([name, x]) => <li key={name} className="break-words">• {name} ({SOURCE_STATUS_LABEL[x.status]}): {x.reason}</li>)}
+                {decision?.availability === 'insufficient' ? <li className="break-words">• مقارنة الفرع (بيانات غير كافية): {decision.availabilityReason}</li> : null}
+              </ul>
+              <div className="mt-1 text-[11px]" style={{ color: 'var(--dawaa-theme-muted)' }}>الملخص أدناه مبني على مصادر الدكتور المكتملة فقط.</div>
             </div> : null}
 
             {/* 1. Executive Intelligence Summary */}
             <section className="mt-3 rounded-2xl border p-4 sm:mt-4 sm:p-5" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-soft)' }}>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-[11px] font-black tracking-wide" style={{ color: 'var(--dawaa-theme-muted)' }}>الخلاصة التحليلية</span>
-                {decision ? <Chip tone={decision.confidence.level === 'high' ? 'success' : decision.confidence.level === 'medium' ? 'info' : 'warning'} title={decision.confidence.reasons.join(' · ') || undefined}>ثقة التحليل: {decision.confidence.level === 'high' ? 'عالية' : decision.confidence.level === 'medium' ? 'متوسطة' : 'منخفضة'}</Chip> : decisionLoading ? <Chip><Loader2 size={11} className="animate-spin" /> جاري المقارنة بالفرع</Chip> : null}
+                {ready ? <Chip tone={ready.confidence.level === 'high' ? 'success' : ready.confidence.level === 'medium' ? 'info' : 'warning'} title={ready.confidence.reasons.join(' · ') || undefined}>ثقة التحليل: {ready.confidence.level === 'high' ? 'عالية' : ready.confidence.level === 'medium' ? 'متوسطة' : 'منخفضة'}</Chip> : decisionLoading ? <Chip><Loader2 size={11} className="animate-spin" /> جاري المقارنة بالفرع</Chip> : decision ? <Chip tone={decision.availability === 'failed' ? 'warning' : 'neutral'} title={decision.availabilityReason || undefined}>المقارنة بالفرع: {decision.availability === 'insufficient' ? 'بيانات غير كافية' : SOURCE_STATUS_LABEL[decision.availability === 'not_enabled' ? 'not_enabled' : 'failed']}</Chip> : null}
               </div>
-              <p className="mt-2 text-[17px] font-black leading-8" style={{ color: 'var(--dawaa-theme-heading)' }}>{decision?.summary.headline || verdict?.headline}</p>
-              {decision?.analysisNote ? <p className="mt-1 text-[11px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>{decision.analysisNote}</p> : null}
+              <p className="mt-2 text-[17px] font-black leading-8" style={{ color: 'var(--dawaa-theme-heading)' }}>{ready?.summary.headline || verdict?.headline}</p>
+              {ready?.analysisNote ? <p className="mt-1 text-[11px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>{ready.analysisNote}</p> : null}
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 <div className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}>
                   <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-status-success-text)' }}>✓ أهم نقطة قوة</div>
-                  <div className="mt-1 text-[13px] font-bold leading-6" style={{ color: 'var(--dawaa-theme-heading)' }}>{decision?.summary.strength || verdict?.strength?.text || <span style={{ color: 'var(--dawaa-theme-muted)' }}>لا توجد نقطة قوة موثقة تتجاوز الحدود بعد.</span>}</div>
+                  <div className="mt-1 text-[13px] font-bold leading-6" style={{ color: 'var(--dawaa-theme-heading)' }}>{ready?.summary.strength || verdict?.strength?.text || <span style={{ color: 'var(--dawaa-theme-muted)' }}>لا توجد نقطة قوة موثقة تتجاوز الحدود بعد.</span>}</div>
                 </div>
                 <div className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}>
                   <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-status-danger-text)' }}>✗ أهم مشكلة تستحق التدخل</div>
-                  <div className="mt-1 text-[13px] font-bold leading-6" style={{ color: 'var(--dawaa-theme-heading)' }}>{decision ? (decision.summary.problem || <span style={{ color: 'var(--dawaa-theme-muted)' }}>{decision.analysisCycleStart ? 'لا توجد مشكلة موثقة تتجاوز الحدود.' : 'لا يمكن الحكم: بيانات المقارنة غير متاحة — غياب البيانات ليس دليلًا على عدم وجود مشكلة.'}</span>) : verdict?.problem?.text || <span style={{ color: 'var(--dawaa-theme-muted)' }}>لا توجد مشكلة موثقة.</span>}</div>
+                  <div className="mt-1 text-[13px] font-bold leading-6" style={{ color: 'var(--dawaa-theme-heading)' }}>{ready ? (ready.summary.problem || <span style={{ color: 'var(--dawaa-theme-muted)' }}>لا توجد مشكلة موثقة تتجاوز الحدود.</span>) : verdict?.problem?.text || <span style={{ color: 'var(--dawaa-theme-muted)' }}>لا توجد مشكلة موثقة.</span>}</div>
                 </div>
               </div>
-              <div className="mt-3 flex items-start gap-2 text-[13px] font-bold leading-6"><Target size={16} className="mt-1 shrink-0" style={{ color: 'var(--dawaa-theme-primary-strong)' }} /><span><span className="font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>القرار المقترح: </span><span style={{ color: 'var(--dawaa-theme-heading)' }}>{decision?.decision.action || verdict?.action?.text || 'استمرار المتابعة المعتادة'}</span></span></div>
+              <div className="mt-3 flex items-start gap-2 text-[13px] font-bold leading-6"><Target size={16} className="mt-1 shrink-0" style={{ color: 'var(--dawaa-theme-primary-strong)' }} /><span><span className="font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>القرار المقترح: </span><span style={{ color: 'var(--dawaa-theme-heading)' }}>{ready?.decision.action || verdict?.action?.text || 'استمرار المتابعة المعتادة'}</span></span></div>
             </section>
 
             {/* 2. Three smart indicators */}
-            {decision ? <div className="mt-3 grid gap-2 sm:grid-cols-3">
+            {ready ? <div className="mt-3 grid gap-2 sm:grid-cols-3">
               {([
-                { icon: <TrendingUp size={15} />, title: 'تطوره مقارنة بنفسه', ind: decision.indicators.self },
-                { icon: <Users size={15} />, title: 'موقعه العادل بين زملائه', ind: decision.indicators.peers },
-                { icon: <Gauge size={15} />, title: 'اتساق تقييمه مع الأدلة', ind: decision.indicators.evaluation },
+                { icon: <TrendingUp size={15} />, title: 'تطوره مقارنة بنفسه', ind: ready.indicators.self },
+                { icon: <Users size={15} />, title: 'موقعه العادل بين زملائه', ind: ready.indicators.peers },
+                { icon: <Gauge size={15} />, title: 'اتساق تقييمه مع الأدلة', ind: ready.indicators.evaluation },
               ]).map(x => <div key={x.title} className="min-w-0 rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
                 <div className="flex items-center gap-1.5 text-[11px] font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>{x.icon}{x.title}</div>
                 <div className="mt-1"><Chip tone={indicatorTone(x.ind.state)}>{x.ind.label}</Chip></div>
@@ -253,12 +265,12 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
             </div> : decisionLoading ? <div className="mt-3 grid gap-2 sm:grid-cols-3">{[0, 1, 2].map(i => <div key={i} className="h-[92px] animate-pulse rounded-xl" style={{ background: 'var(--dawaa-theme-soft)' }} />)}</div> : null}
 
             {/* 3. One interactive chart */}
-            {decision?.analysisCycleStart ? <div className="mt-3"><Suspense fallback={<div className="h-[260px] animate-pulse rounded-2xl" style={{ background: 'var(--dawaa-theme-soft)' }} />}><DoctorDecisionChart data={decision} /></Suspense></div> : null}
+            {ready?.analysisCycleStart ? <div className="mt-3"><Suspense fallback={<div className="h-[260px] animate-pulse rounded-2xl" style={{ background: 'var(--dawaa-theme-soft)' }} />}><DoctorDecisionChart data={ready} /></Suspense></div> : null}
 
             {/* 4. Top three problems */}
-            {decision && decision.problems.length ? <Section title="أهم المشكلات" hint="الأخطر أولًا">
+            {ready && ready.problems.length ? <Section title="أهم المشكلات" hint="الأخطر أولًا">
               <div className="space-y-2">
-                {decision.problems.map(p => <div key={p.key} className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', borderInlineStartWidth: 4, borderInlineStartColor: `var(--dawaa-status-${severityChipTone(p.severity) === 'neutral' ? 'info' : severityChipTone(p.severity)}-text)` }}>
+                {ready.problems.map(p => <div key={p.key} className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', borderInlineStartWidth: 4, borderInlineStartColor: `var(--dawaa-status-${severityChipTone(p.severity) === 'neutral' ? 'info' : severityChipTone(p.severity)}-text)` }}>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span className="text-[13px] font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{p.title}</span>
                     <Chip tone={severityChipTone(p.severity)}>{SEVERITY_LABEL[p.severity]}</Chip>
@@ -274,28 +286,28 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
             </Section> : null}
 
             {/* 5. Management decision */}
-            {decision ? <Section title="القرار الإداري">
+            {ready ? <Section title="القرار الإداري">
               <div className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
                 <dl className="grid gap-x-4 gap-y-2 text-[12px] font-bold leading-6 sm:grid-cols-[max-content_1fr]">
-                  <dt className="font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>ماذا أفعل؟</dt><dd style={{ color: 'var(--dawaa-theme-heading)' }}>{decision.decision.action}</dd>
-                  <dt className="font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>لماذا؟</dt><dd style={{ color: 'var(--dawaa-theme-text)' }}>{decision.decision.why}</dd>
-                  <dt className="font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>المسؤول</dt><dd><Chip>{decision.decision.owner === 'doctor' ? 'الدكتور' : 'المدير'}</Chip></dd>
-                  <dt className="font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>مؤشر النجاح</dt><dd style={{ color: 'var(--dawaa-theme-text)' }}>{decision.decision.successMetric}</dd>
-                  <dt className="font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>موعد المراجعة</dt><dd style={{ color: 'var(--dawaa-theme-text)' }}>نهاية الدورة القادمة — {fmtDate(decision.decision.reviewBy)}</dd>
+                  <dt className="font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>ماذا أفعل؟</dt><dd style={{ color: 'var(--dawaa-theme-heading)' }}>{ready.decision.action}</dd>
+                  <dt className="font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>لماذا؟</dt><dd style={{ color: 'var(--dawaa-theme-text)' }}>{ready.decision.why}</dd>
+                  <dt className="font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>المسؤول</dt><dd><Chip>{ready.decision.owner === 'doctor' ? 'الدكتور' : 'المدير'}</Chip></dd>
+                  <dt className="font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>مؤشر النجاح</dt><dd style={{ color: 'var(--dawaa-theme-text)' }}>{ready.decision.successMetric}</dd>
+                  <dt className="font-black" style={{ color: 'var(--dawaa-theme-muted)' }}>موعد المراجعة</dt><dd style={{ color: 'var(--dawaa-theme-text)' }}>نهاية الدورة القادمة — {fmtDate(ready.decision.reviewBy)}</dd>
                 </dl>
-                {decision.decision.previousDecision ? <div className="mt-2 border-t pt-2 text-[12px] font-bold" style={{ borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-theme-muted)' }}>متابعة القرار السابق: <span style={{ color: 'var(--dawaa-theme-heading)' }}>{decision.decision.previousDecision}</span></div> : null}
-                {decision.dataWarnings.length ? <ul className="mt-2 space-y-0.5 border-t pt-2 text-[11px] font-bold" style={{ borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-theme-muted)' }}>{decision.dataWarnings.map(w => <li key={w}>• {w}</li>)}</ul> : null}
+                {ready.decision.previousDecision ? <div className="mt-2 border-t pt-2 text-[12px] font-bold" style={{ borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-theme-muted)' }}>متابعة القرار السابق: <span style={{ color: 'var(--dawaa-theme-heading)' }}>{ready.decision.previousDecision}</span></div> : null}
+                {ready.dataWarnings.length ? <ul className="mt-2 space-y-0.5 border-t pt-2 text-[11px] font-bold" style={{ borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-theme-muted)' }}>{ready.dataWarnings.map(w => <li key={w}>• {w}</li>)}</ul> : null}
               </div>
             </Section> : null}
 
             {/* Branch-level recurring problems (collapsed) */}
-            {decision && decision.branchPriorities.length ? <div className="mt-3 rounded-xl border" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
+            {ready && ready.branchPriorities.length ? <div className="mt-3 rounded-xl border" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
               <button type="button" onClick={() => setBranchOpen(v => !v)} aria-expanded={branchOpen} className="flex w-full items-center justify-between gap-2 p-3 text-right">
-                <span className="text-[12px] font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>أولويات الفرع لهذه الدورة ({decision.branchPriorities.length.toLocaleString('ar-EG')})</span>
+                <span className="text-[12px] font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>أولويات الفرع لهذه الدورة ({ready.branchPriorities.length.toLocaleString('ar-EG')})</span>
                 <ChevronDown size={15} className={branchOpen ? 'rotate-180 transition-transform' : 'transition-transform'} />
               </button>
               {branchOpen ? <ol className="space-y-2 border-t p-3" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
-                {decision.branchPriorities.map((b, i) => <li key={b.key} className="text-[12px] font-bold leading-6">
+                {ready.branchPriorities.map((b, i) => <li key={b.key} className="text-[12px] font-bold leading-6">
                   <div className="flex flex-wrap items-center gap-1.5"><span className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{(i + 1).toLocaleString('ar-EG')}. {b.title}</span>{b.standalone ? <Chip tone="danger">أولوية مستقلة</Chip> : null}<Chip>{b.affected.toLocaleString('ar-EG')} من {b.covered.toLocaleString('ar-EG')} دكاترة</Chip><Chip>{SCOPE_LABEL[b.scope]}</Chip>{b.direction !== 'unknown' ? <Chip tone={b.direction === 'worsening' || b.direction === 'new' ? 'warning' : b.direction === 'improving' ? 'success' : 'neutral'}>{b.direction === 'worsening' ? 'تتفاقم' : b.direction === 'improving' ? 'تتحسن' : b.direction === 'new' ? 'جديدة' : 'مستقرة'}</Chip> : null}</div>
                   <div style={{ color: 'var(--dawaa-theme-muted)' }}>{b.action}</div>
                 </li>)}
