@@ -6,6 +6,8 @@ import {
   clearStaffSessionToken,
   revokeStoredStaffSession,
   setStaffSessionToken,
+  verifyStoredStaffSession,
+  type StaffSessionStatus,
 } from '@/lib/auth/staffSession';
 import type { User } from '@/types';
 import {
@@ -45,6 +47,8 @@ const STORAGE_KEY = 'dawaa_auth_user_v2';
 const listeners = new Set<() => void>();
 const ACCOUNT_REFRESH_TTL_MS = 5 * 60 * 1000;
 const ACCOUNT_REFRESH_TIMEOUT_MS = 3500;
+// The server session slides 12h on each refresh; renew well inside that window.
+const STAFF_SESSION_RENEW_INTERVAL_MS = 30 * 60 * 1000;
 let lastAccountRefreshAt = 0;
 let accountRefreshPromise: Promise<User | null> | null = null;
 
@@ -269,8 +273,20 @@ async function loadEffectivePermissions(
   return effectivePermissions;
 }
 
+function checkStaffSession(): Promise<StaffSessionStatus> {
+  return withTimeout(
+    verifyStoredStaffSession(),
+    ACCOUNT_REFRESH_TIMEOUT_MS,
+    'refresh_staff_login_session_v1'
+  ).catch((): StaffSessionStatus => 'unavailable');
+}
+
 async function resolveCurrentStaffAccount(user: User): Promise<User | null> {
   if (!isSupabaseConfigured) return sanitizeUser(user);
+
+  // The database identifies the caller only by the verified session token, so a stored profile
+  // without a live server session is signed out instead of silently losing every permission.
+  if ((await checkStaffSession()) === 'invalid') return null;
 
   const identifiers = Array.from(
     new Set([user.id, user.staffId, user.username].map((value) => safeText(value)).filter(Boolean))
@@ -461,6 +477,21 @@ export function useAuth() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!user || !isSupabaseConfigured) return;
+    let cancelled = false;
+    const renew = () => {
+      void checkStaffSession().then((status) => {
+        if (!cancelled && status === 'invalid') setCurrentUser(null);
+      });
+    };
+    const intervalId = window.setInterval(renew, STAFF_SESSION_RENEW_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     if (!user) return;
