@@ -3,6 +3,12 @@ import { supabase } from '@/lib/supabase';
 import { loadPerformanceSalesBundle, type PerformanceSalesBundlePayload } from '@/lib/evaluations/performanceSalesBundleCache';
 import { evaluationCycleRangeFromLabel, evaluationCycleDateKeys, isEvaluationCycleClosed, previousEvaluationCycleLabel } from '@/lib/evaluations/monthlyEvaluationCycle';
 import { readAttendanceRange } from '@/lib/readModels/attendanceReadModel';
+import { getStaffAttendanceDetail } from '@/lib/attendance/attendanceBreakdownService';
+import { cairoDateBoundaryIso, cairoDayOf } from '@/lib/time/cairoDateBoundary';
+import { addDays } from '@/lib/attendance/period';
+
+/** First evidence later than this many days into a cycle means the doctor joined mid-cycle. */
+const JOIN_TOLERANCE_DAYS=3;
 
 export type PerformanceCoverage = 'available' | 'partial' | 'not_applicable' | 'unavailable';
 export type PerformanceConfidence = 'high' | 'medium' | 'low';
@@ -160,7 +166,7 @@ export function aggregateImpactEvidence(rows:DoctorCycleImpactRow[],available:bo
   };
 }
 
-function diagnoseMonth(current:DoctorPerformanceMonth,previous:DoctorPerformanceMonth|null):DoctorPerformanceDiagnosis[]{
+export function diagnoseMonth(current:DoctorPerformanceMonth,previous:DoctorPerformanceMonth|null):DoctorPerformanceDiagnosis[]{
   const out:DoctorPerformanceDiagnosis[]=[];
   if(!current.comparisonEligible){
     out.push({kind:'data_quality',severity:'watch',title:'لا يوجد حكم أداء تلقائي',detail:current.comparisonReason,evidence:[current.coverageReason]});
@@ -209,7 +215,8 @@ function diagnoseMonth(current:DoctorPerformanceMonth,previous:DoctorPerformance
     if((impact.unavailableProducts||0)>0) out.push({kind:'customer_impact',severity:'watch',title:'التوافر يؤثر على تجربة العميل',detail:'جزء من الفرص تأثر بأصناف غير متاحة؛ لا يُنسب السبب تلقائيًا للدكتور.',evidence:[`أصناف/فرص غير متاحة ${impact.unavailableProducts}`]});
     if((impact.acceptedProducts||0)>0) out.push({kind:'customer_impact',severity:'positive',title:'ترشيحات مقبولة من العملاء',detail:'يوجد Evidence على قبول العميل لترشيحات أو بدائل داخل المحادثات.',evidence:[`ترشيحات مقبولة ${impact.acceptedProducts}`]});
   }
-  if(!out.length) out.push({kind:'data_quality',severity:'positive',title:'لا توجد إشارة سلبية قوية',detail:'البيانات الحالية لا تُظهر تراجعًا موثقًا يتجاوز قواعد التشخيص.',evidence:[`Coverage ${current.coverage}`,`Confidence ${current.confidence}`]});
+  // "No negative signal" is a claim: it needs a fair comparison with the previous cycle and the customer-impact evidence.
+  if(!out.length&&previous?.comparisonEligible&&impact.available) out.push({kind:'data_quality',severity:'positive',title:'لا توجد إشارة سلبية قوية',detail:'البيانات الحالية لا تُظهر تراجعًا موثقًا يتجاوز قواعد التشخيص.',evidence:['تغطية كاملة للدورة','مقارنة عادلة بالدورة السابقة']});
   return out;
 }
 
@@ -249,10 +256,13 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
     const cycleLabel=previousCycle(args.cycleLabel,back);
     const range=evaluationCycleRangeFromLabel(cycleLabel);
     const keys=evaluationCycleDateKeys(cycleLabel);
-    return {cycleLabel,range,start:keys.startDate,endExclusive:keys.endDateExclusive};
+    return {cycleLabel,range,start:keys.startDate,endInclusive:keys.endDate,endExclusive:keys.endDateExclusive};
   });
   const windowStart=cycleSpecs[2].start;
   const windowEnd=cycleSpecs[0].endExclusive;
+  // Conversation timestamps are timestamptz: bound and bucket them on Cairo calendar days, never UTC.
+  const windowStartAt=cairoDateBoundaryIso(windowStart);
+  const windowEndAt=cairoDateBoundaryIso(windowEnd);
 
   const currentSpec=cycleSpecs[0];
   const now=new Date();
@@ -260,12 +270,18 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
   const cycleDays=Math.round((localDayUtc(currentSpec.range.endExclusive)-localDayUtc(currentSpec.range.start))/86400000);
   const requestedElapsedDays=Math.max(1,Math.min(Math.round((Date.UTC(now.getFullYear(),now.getMonth(),now.getDate())-localDayUtc(currentSpec.range.start))/86400000)+1,cycleDays));
 
+  // Worked hours come from the canonical attendance detail (same truth as the evaluation header); the raw
+  // attendance read model carries no hours and is used only for evidence dates/counts.
+  const canonicalAttendance=Promise.allSettled(cycleSpecs.map(spec=>getStaffAttendanceDetail(args.staffId,spec.start,spec.endInclusive)));
   const [salesTruth,attendanceWindow,conversationWindow,impactWindow]=await Promise.all([
     salesBundle(args.staffId,windowStart,windowEnd,currentSpec.start,requestedElapsedDays),
     readAttendanceRange({staffId:args.staffId,startDate:windowStart,endDateExclusive:windowEnd,limit:400}),
-    supabase.from('conversation_sales_reviews_canonical_v2').select('id,converted_to_sale,conversation_date,created_at').or(`doctor_id.eq.${args.staffId},staff_id.eq.${args.staffId}`).or(`and(conversation_date.gte.${windowStart},conversation_date.lt.${windowEnd}),and(conversation_date.is.null,created_at.gte.${windowStart},created_at.lt.${windowEnd})`).limit(3000),
+    supabase.from('conversation_sales_reviews_canonical_v2').select('id,converted_to_sale,conversation_date,created_at').or(`doctor_id.eq.${args.staffId},staff_id.eq.${args.staffId}`).or(`and(conversation_date.gte.${windowStartAt},conversation_date.lt.${windowEndAt}),and(conversation_date.is.null,created_at.gte.${windowStartAt},created_at.lt.${windowEndAt})`).limit(3000),
     customerImpactWindow(args.staffId,windowStart,windowEnd),
   ]);
+  const attendanceDetails=await canonicalAttendance;
+  const failedDetail=attendanceDetails.find((r):r is PromiseRejectedResult=>r.status==='rejected');
+  const attendanceDetailProblem=failedDetail?describeSourceProblem(failedDetail.reason,'ساعات الحضور','attendance_hours'):null;
   const attendanceWindowRows=attendanceWindow.status==='unavailable'?[]:attendanceWindow.rows;
   const firstAttendanceDate=attendanceWindow.status!=='unavailable'
     ?minDate(attendanceWindowRows.map(r=>String(r.attendance_date||r.date||'').slice(0,10)||null))
@@ -273,8 +289,10 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
   const elapsedDays=salesTruth.effectiveDays;
   const salesDataAsOf=salesTruth.dataAsOf;
 
-  const rawMonths=cycleSpecs.map(spec=>{
+  const rawMonths=cycleSpecs.map((spec,specIndex)=>{
     const {cycleLabel,range,start,endExclusive}=spec;
+    const detail=attendanceDetails[specIndex];
+    const canonicalHours=detail.status==='fulfilled'&&detail.value?.summary&&Number.isFinite(Number(detail.value.summary.total_worked_hours))?Number(detail.value.summary.total_worked_hours):null;
     const salesSummary=salesTruth.rows.find(r=>String(r.cycle_start||'').slice(0,10)===start);
     const sales={
       summary:salesSummary||null,
@@ -286,11 +304,13 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
         const date=String(r.attendance_date||r.date||'').slice(0,10);
         return date>=start&&date<endExclusive;
       }),
-      error:attendanceWindow.status==='unavailable'?attendanceWindow.error:null,
+      // A partial attendance read (one of two sources failed) understates hours; it is never treated as complete.
+      error:attendanceWindow.status==='available'?null:(attendanceWindow.error||'attendance partially unavailable'),
+      hours:canonicalHours,
     };
     const conversations={
       data:(conversationWindow.data||[]).filter(r=>{
-        const date=String(r.conversation_date||r.created_at||'').slice(0,10);
+        const date=cairoDayOf(r.conversation_date||r.created_at)||'';
         return date>=start&&date<endExclusive;
       }),
       error:conversationWindow.error,
@@ -304,10 +324,10 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
     return {cycleLabel,range,start,endExclusive,sales,attendance,conversations,impact};
   });
   const firstSalesDate=minDate(rawMonths.map(m=>String(m.sales.summary?.first_sale_date||'').slice(0,10)||null));
-  const firstConversationDate=minDate(rawMonths.flatMap(m=>(m.conversations.data||[]).map(r=>String(r.conversation_date||'').slice(0,10)||null)));
+  const firstConversationDate=minDate(rawMonths.flatMap(m=>(m.conversations.data||[]).map(r=>cairoDayOf(r.conversation_date||r.created_at))));
   const firstEvidenceDate=minDate([firstAttendanceDate,firstSalesDate,firstConversationDate]);
 
-  const months:DoctorPerformanceMonth[]=rawMonths.map(({cycleLabel,range,endExclusive,sales,attendance,conversations,impact})=>{
+  const months:DoctorPerformanceMonth[]=rawMonths.map(({cycleLabel,range,start,endExclusive,sales,attendance,conversations,impact})=>{
     const cycleClosed=isEvaluationCycleClosed(cycleLabel);
     const attendanceAvailable=!attendance.error;
     const conversationAvailable=!conversations.error;
@@ -329,15 +349,24 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
     const invoices=salesUsable?n(sales.summary?.invoices):null;
     const customers=salesUsable?n(sales.summary?.customers):null;
     const avg=salesUsable&&invoices? salesTotal!/invoices:null;
-    const hours=coverage==='not_applicable'||attendance.error?null:attendanceRows.reduce((s,r)=>s+n(r.payroll_eligible_hours ?? r.total_hours),0);
+    // Unknown hours stay null (never 0): canonical detail failed, attendance incomplete, or before first evidence.
+    const hours=coverage==='not_applicable'||attendance.error?null:attendance.hours;
     const conv=coverage==='not_applicable'||conversations.error?null:conversationRows.length;
     const converted=coverage==='not_applicable'||conversations.error?null:conversationRows.filter(r=>r.converted_to_sale===true).length;
     const customerImpact=aggregateImpactEvidence(impact.rows,impact.available);
 
-    const comparisonReady=coverage==='available'&&confidence!=='low'&&hasCoreEvidence;
+    // A cycle the doctor joined mid-way, or a closed cycle whose sales are not loaded to its last day, is not a
+    // fair full cycle: comparing it would show a false growth or decline.
+    const joinedMidCycle=Boolean(firstEvidenceDate&&firstEvidenceDate>addDays(start,JOIN_TOLERANCE_DAYS)&&firstEvidenceDate<endExclusive);
+    const salesLoadedToEnd=!cycleClosed||Boolean(salesDataAsOf&&salesDataAsOf>=addDays(endExclusive,-1));
+    const comparisonReady=coverage==='available'&&confidence!=='low'&&hasCoreEvidence&&!joinedMidCycle&&salesLoadedToEnd;
     const comparisonMode:DoctorPerformanceMonth['comparisonMode']=comparisonReady?(cycleClosed?'full_cycle':'same_period'):'blocked';
     const comparisonEligible=comparisonMode!=='blocked';
-    const comparisonReason=comparisonMode==='same_period'
+    const comparisonReason=joinedMidCycle&&coverage==='available'
+      ?'بدأ الدكتور العمل خلال هذه الدورة؛ لا تُقارن دورة جزئية بدورة كاملة.'
+      :!salesLoadedToEnd&&coverage==='available'
+        ?'مبيعات آخر أيام الدورة لم تُحمّل بعد؛ المقارنة محجوبة بدل اعتبار الأيام الناقصة صفرًا.'
+      :comparisonMode==='same_period'
       ?`الدورة جارية؛ المقارنة تستخدم أول ${elapsedDays} يوم من كل دورة${salesDataAsOf?`، وبيانات المبيعات محمّلة حتى ${salesDataAsOf}`:''}.`
       :!cycleClosed
         ?'الدورة ما زالت جارية، لكن التغطية الحالية لا تكفي لمقارنة عادلة.'
@@ -379,14 +408,16 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
       status:attendanceWindow.status,
       ...(attendanceWindow.status==='partial'
         ?{state:'partial' as const,reason:'أحد مصدري الحضور لم يُحمّل؛ أرقام الحضور قد تكون ناقصة وليست صفرًا.',diagnostic:attendanceProblem?.diagnostic||null}
-        :sourceStateOf(attendanceProblem)),
+        :attendanceWindow.status==='available'&&attendanceDetailProblem
+          ?{state:'partial' as const,reason:'ساعات الحضور لم تُحمّل؛ مؤشرات الساعة محجوبة وليست صفرًا.',diagnostic:attendanceDetailProblem.diagnostic}
+          :sourceStateOf(attendanceProblem)),
       evidenceCount:attendanceWindowRows.length,firstEvidenceDate:firstAttendanceDate,
       dataAsOf:maxDate(attendanceWindowRows.map(r=>String(r.attendance_date||r.date||'').slice(0,10)||null)),
     },
     conversations:{
       status:conversationWindow.error?'unavailable':'available',...sourceStateOf(conversationProblem),
       evidenceCount:conversationWindow.error?0:windowConversationRows.length,firstEvidenceDate:firstConversationDate,
-      dataAsOf:conversationWindow.error?null:maxDate(windowConversationRows.map(r=>String(r.conversation_date||r.created_at||'').slice(0,10)||null)),
+      dataAsOf:conversationWindow.error?null:maxDate(windowConversationRows.map(r=>cairoDayOf(r.conversation_date||r.created_at))),
     },
     customerImpact:{
       status:!impactWindow.available?'unavailable':impactWindow.rows.length?'available':'partial',
@@ -400,9 +431,13 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
     const previousSamePeriodEnd=(()=>{
       const d=new Date(cycleSpecs[1].start+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+elapsedDays);return d.toISOString().slice(0,10);
     })();
-    const previousSalesEvidenceDate=salesTruth.rows.find(row=>row.cycle_start===cycleSpecs[1].start)?.first_sale_date||null;
-    const previousWindowHasSalesEvidence=Boolean(previousSalesEvidenceDate&&previousSalesEvidenceDate<previousSamePeriodEnd);
-    if(currentSummary?.available&&previousSummary?.available&&months[1]?.coverage==='available'&&previousWindowHasSalesEvidence){
+    const previousSalesEvidenceDate=salesTruth.rows.find(row=>String(row.cycle_start||'').slice(0,10)===cycleSpecs[1].start)?.first_sale_date||null;
+    // The previous window must cover the same days: the doctor sold from (almost) its first day, and it cannot
+    // run past the previous cycle into the current one (a 31-day cycle after a 30-day one, or after February).
+    const previousWindowHasSalesEvidence=Boolean(previousSalesEvidenceDate&&String(previousSalesEvidenceDate).slice(0,10)<=addDays(cycleSpecs[1].start,JOIN_TOLERANCE_DAYS)&&String(previousSalesEvidenceDate).slice(0,10)<previousSamePeriodEnd);
+    const previousCycleDays=Math.round((Date.parse(`${cycleSpecs[0].start}T00:00:00Z`)-Date.parse(`${cycleSpecs[1].start}T00:00:00Z`))/86400000);
+    const windowFitsPreviousCycle=elapsedDays<=previousCycleDays;
+    if(currentSummary?.available&&previousSummary?.available&&months[1]?.coverage==='available'&&previousWindowHasSalesEvidence&&windowFitsPreviousCycle){
       const cs=currentSummary.summary,ps=previousSummary.summary;
       const ci=n(cs?.invoices),pi=n(ps?.invoices),cSales=n(cs?.sales),pSales=n(ps?.sales);
       months[0].comparisonSnapshot={
@@ -411,16 +446,18 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
         averageInvoice:ci?cSales/ci:null,previousAverageInvoice:pi?pSales/pi:null,
       };
       const current={...months[0],sales:cSales,invoices:ci,customers:n(cs?.customers),averageInvoice:ci?cSales/ci:null,
-        salesPerHour:null,invoicesPerHour:null,customersPerHour:null,conversionRate:null,
+        workedHours:null,salesPerHour:null,invoicesPerHour:null,customersPerHour:null,conversionRate:null,
         customerImpact:{...months[0].customerImpact,available:false}};
       const previous={...months[1],comparisonEligible:true,sales:pSales,invoices:pi,customers:n(ps?.customers),averageInvoice:pi?pSales/pi:null,
-        salesPerHour:null,invoicesPerHour:null,customersPerHour:null,conversionRate:null,
+        workedHours:null,salesPerHour:null,invoicesPerHour:null,customersPerHour:null,conversionRate:null,
         customerImpact:{...months[1].customerImpact,available:false}};
-      months[0].diagnoses=diagnoseMonth(current,previous).map(d=>({...d,evidence:[`Same-period: أول ${elapsedDays} يوم${salesDataAsOf?` — البيانات حتى ${salesDataAsOf}`:''}`,...d.evidence]}));
+      months[0].diagnoses=diagnoseMonth(current,previous).map(d=>({...d,evidence:[`نفس الفترة: أول ${elapsedDays} يوم${salesDataAsOf?` — البيانات حتى ${salesDataAsOf}`:''}`,...d.evidence]}));
     }else{
       months[0].comparisonEligible=false;
       months[0].comparisonMode='blocked';
-      months[0].comparisonReason=previousWindowHasSalesEvidence?'تعذر بناء نافذة Same-period موثوقة من المصدر البيعي؛ المقارنة محجوبة بدل عرض Delta مضلل.':'نافذة Same-period السابقة تسبق أول مبيعات موثقة للموظف؛ لا تتم مقارنة المبيعات بصفر غير عادل.';
+      months[0].comparisonReason=!windowFitsPreviousCycle
+        ?'الأيام المنقضية من الدورة الحالية أكثر من أيام الدورة السابقة؛ لا توجد نافذة مماثلة عادلة للمقارنة.'
+        :previousWindowHasSalesEvidence?'تعذر بناء نافذة مقارنة مماثلة موثوقة من مصدر المبيعات؛ المقارنة محجوبة بدل عرض نسبة مضللة.':'الدكتور لم يبدأ البيع من أول الدورة السابقة؛ لا تُقارن فترة جزئية بفترة كاملة.';
       months[0].diagnoses=diagnoseMonth(months[0],null);
     }
   }

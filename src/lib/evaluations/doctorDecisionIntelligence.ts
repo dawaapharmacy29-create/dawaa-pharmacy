@@ -29,6 +29,8 @@ export const DECISION_RULES = {
   meaningfulChange: 0.1,
   lateMinDays: 3,
   lateMinShare: 0.2,
+  /** Fewer worked days than this cannot prove the absence of lateness (a "no problem" or "resolved" claim). */
+  minWorkedDaysForAbsence: 5,
   conversationWeak: 7,
   conversationStrong: 8.5,
   shiftConcentration: 0.7,
@@ -143,6 +145,8 @@ export type DecisionIntelligence = {
   /** Plain-language reason when not ready; never a PostgREST code or message. */
   availabilityReason: string | null;
   analysisCycleStart: string | null;
+  /** False when the evidence comes from an earlier cycle than the one being evaluated (running cycle too young). */
+  analysisIsEvaluatedCycle: boolean;
   analysisNote: string | null;
   confidence: { level: Confidence; reasons: string[] };
   summary: { headline: string; strength: string | null; problem: string | null; decision: string | null };
@@ -161,7 +165,8 @@ export type DecisionIntelligence = {
     peers: { id: string; isTarget: boolean; index: number; hours: number; label: string }[];
     peerBand: { p25: number; median: number; p75: number } | null;
     shifts: { shift: ShiftKey; label: string; actual: number; expected: number | null; p25: number | null; p75: number | null; hours: number; invoices: number; peers: number; confidence: Confidence }[];
-    quality: { cycleStart: string; lateShare: number | null; lateDays: number | null; workedDays: number | null; coreAverage: number | null; reviews: number; medicalErrors: number }[];
+    /** reviews / medicalErrors are null when the review source is unavailable (unknown, never zero). */
+    quality: { cycleStart: string; lateShare: number | null; lateDays: number | null; workedDays: number | null; coreAverage: number | null; reviews: number | null; medicalErrors: number | null }[];
   };
   dataWarnings: string[];
 };
@@ -267,13 +272,20 @@ export function detectProblems(args: { productivity: CycleProductivity; quality:
   const out: ProblemInstance[] = [];
   const reviewsKnown = qualityAvailable;
   const reviews = q?.reviewCount || 0;
-  const med = (q?.medicalErrors || 0) + (q?.criticalErrors || 0);
-  out.push({ key: 'medical_error', present: !reviewsKnown ? null : med > 0 ? true : reviews > 0 ? false : null, magnitude: med || null, detail: med ? `${fmt(med)} حالة موثقة في مراجعات المحادثات` : '' });
+  // A conversation can carry both flags; counting the larger flag avoids reporting one incident twice.
+  const med = Math.max(q?.medicalErrors || 0, q?.criticalErrors || 0);
+  // Absence is proven only by a sufficient review sample; a thin sample is unknown, never "no problem".
+  const absenceProven = reviews > 0 && Boolean(q?.sampleSufficient);
+  out.push({ key: 'medical_error', present: !reviewsKnown ? null : med > 0 ? true : absenceProven ? false : null, magnitude: med || null, detail: med ? `${fmt(med)} حالة موثقة في مراجعات المحادثات` : '' });
   const harm = (q?.complaints || 0) + (q?.severeBadTone || 0);
-  out.push({ key: 'customer_harm', present: !reviewsKnown ? null : harm > 0 ? true : reviews > 0 ? false : null, magnitude: harm || null, detail: harm ? `${fmt(q?.complaints || 0)} شكوى و${fmt(q?.severeBadTone || 0)} حالة أسلوب حاد` : '' });
-  if (a?.available && a.workedDays !== undefined && a.lateDays !== undefined) {
+  out.push({ key: 'customer_harm', present: !reviewsKnown ? null : harm > 0 ? true : absenceProven ? false : null, magnitude: harm || null, detail: harm ? `${fmt(q?.complaints || 0)} شكوى و${fmt(q?.severeBadTone || 0)} حالة أسلوب حاد` : '' });
+  if (a?.available && a.workedDays !== undefined && a.lateDays !== undefined && (a.pendingReviewDays || 0) > 0 && a.lateDays < DECISION_RULES.lateMinDays) {
+    // Days still under attendance review may hide lateness; only an already-proven problem survives them.
+    out.push({ key: 'lateness', present: null, magnitude: null, detail: `${fmt(a.pendingReviewDays || 0)} يوم حضور بانتظار المراجعة؛ لا يُحكم على التأخير قبل اعتمادها` });
+  } else if (a?.available && a.workedDays !== undefined && a.lateDays !== undefined) {
     const share = a.workedDays > 0 ? a.lateDays / a.workedDays : 0;
-    const present = a.lateDays >= DECISION_RULES.lateMinDays && share >= DECISION_RULES.lateMinShare;
+    const proven = a.lateDays >= DECISION_RULES.lateMinDays && share >= DECISION_RULES.lateMinShare;
+    const present = proven ? true : a.workedDays >= DECISION_RULES.minWorkedDaysForAbsence && !(a.pendingReviewDays || 0) ? false : null;
     const totalLate = Object.values(args.lateByShift).reduce((s, v) => s + (v || 0), 0);
     const top = (Object.entries(args.lateByShift) as [ShiftKey, number][]).sort((x, y) => y[1] - x[1])[0];
     const lateShift = top && totalLate >= DECISION_RULES.lateMinDays && top[1] / totalLate >= DECISION_RULES.shiftConcentration ? top[0] : null;
@@ -436,7 +448,7 @@ export function unavailableDecision(state: Exclude<DecisionAvailability, 'ready'
   const indicator = { state: 'insufficient' as const, value: null, label: copy.label, detail: why };
   return {
     availability: state, availabilityReason: why,
-    analysisCycleStart: null, analysisNote: null,
+    analysisCycleStart: null, analysisIsEvaluatedCycle: false, analysisNote: null,
     confidence: { level: 'low', reasons: [why] },
     summary: { headline: copy.headline, strength: null, problem: null, decision: null },
     indicators: { self: indicator, peers: { ...indicator, peerCount: 0 }, evaluation: { state: 'insufficient', label: copy.label, detail: 'لا توجد أدلة مقارنة لمطابقة التقييم', gaps: [] } },
@@ -453,6 +465,8 @@ export function buildDecisionIntelligence(args: {
   sections: { key: string; title: string; score: number }[];
   previousEvaluation: PreviousEvaluation | null;
   openCycleStart: string | null;
+  /** Start of the cycle whose evaluation is being written; manager scores belong to this cycle. */
+  evaluatedCycleStart: string;
   nextReviewDate: string;
 }): DecisionIntelligence {
   const warnings: string[] = [];
@@ -462,7 +476,6 @@ export function buildDecisionIntelligence(args: {
   }
   const target = window.doctors.find(d => d.staffId === args.staffId);
   if (!target || !target.cycles.length) return unavailableDecision('insufficient', null);
-  if (!args.quality.available) warnings.push('مراجعات محادثات الفرع غير متاحة؛ لم يُحكم على الجودة والأخطاء الطبية من غياب البيانات.');
   if (window.ambiguousNames.length) warnings.push(`أسماء بائع مشتركة بين أكثر من موظف نشط (${window.ambiguousNames.join('، ')}): فواتيرها مستبعدة من المقارنة حتى يُحسم نسبها.`);
 
   const cyclesDesc = [...window.cycles].map(c => c.start).sort().reverse();
@@ -545,26 +558,31 @@ export function buildDecisionIntelligence(args: {
   if (peers.state === 'above' && peers.value !== null) strengths.push(`إنتاجية أعلى من نطاق الزملاء (${pct(peers.value)} عن الوسيط) لنفس ظروف الشيفت`);
   if (self.state === 'improving' && self.value !== null) strengths.push(`تحسن الإنتاجية المعدلة بالشيفت ${pct(self.value)} عن نفسه`);
   if (analysis.quality?.sampleSufficient && analysis.quality.coreAverage !== null && analysis.quality.coreAverage >= DECISION_RULES.conversationStrong) strengths.push(`جودة محادثات قوية ${fmt(analysis.quality.coreAverage, 1)}/10 على ${fmt(analysis.quality.reviewCount)} محادثة`);
-  if (analysis.attendance?.available && analysis.attendance.lateDays === 0 && (analysis.attendance.workedDays || 0) >= 10) strengths.push(`انضباط كامل: بدون تأخير في ${fmt(analysis.attendance.workedDays || 0)} يوم`);
+  if (analysis.attendance?.available && analysis.attendance.lateDays === 0 && !(analysis.attendance.pendingReviewDays || 0) && (analysis.attendance.workedDays || 0) >= 10) strengths.push(`انضباط كامل: بدون تأخير في ${fmt(analysis.attendance.workedDays || 0)} يوم`);
   if (resolved.length) strengths.push(`لم تعد مشكلة "${PROBLEM_META[resolved[0]].title}" ظاهرة مقارنة بالدورة السابقة`);
 
   // Evaluation consistency against the manager's own axes (no alternative score).
   const prevAnalysis = me.cycles[analysisIdx + 1];
   const previousTrends = prevAnalysis ? keys.filter(k => prevAnalysis.problems.find(p => p.key === k)?.present).map(k => trendOf(histOf(k))) : [];
-  const ev = evaluationGaps(args.sections, { lateDays: analysis.attendance?.available ? analysis.attendance.lateDays ?? null : null, workedDays: analysis.attendance?.available ? analysis.attendance.workedDays ?? null : null, quality: analysis.quality, previousTrends });
-  const evaluation: DecisionIntelligence['indicators']['evaluation'] = !ev.rated
+  // Manager scores belong to the evaluated cycle; evidence from another cycle can never prove a gap.
+  const analysisIsEvaluatedCycle = analysis.cycleStart === args.evaluatedCycleStart;
+  const attendanceSettled = analysis.attendance?.available && !(analysis.attendance.pendingReviewDays || 0);
+  const ev = evaluationGaps(args.sections, { lateDays: attendanceSettled ? analysis.attendance!.lateDays ?? null : null, workedDays: attendanceSettled ? analysis.attendance!.workedDays ?? null : null, quality: analysis.quality, previousTrends });
+  const evaluation: DecisionIntelligence['indicators']['evaluation'] = !analysisIsEvaluatedCycle
+    ? { state: 'insufficient', label: 'غير قابل للمطابقة', detail: 'الأدلة من دورة سابقة؛ لا تُطابق عليها درجات الدورة الحالية', gaps: [] }
+    : !ev.rated
     ? { state: 'not_rated', label: 'لم يُقيّم بعد', detail: 'لا توجد درجات محاور مسجلة لهذه الدورة', gaps: [] }
     : ev.inferable === 0 ? { state: 'insufficient', label: 'غير قابل للمطابقة', detail: 'لا توجد أدلة كافية لمطابقة محاور التقييم', gaps: [] }
     : ev.gaps.length ? { state: 'gaps', label: `فجوة في ${fmt(ev.gaps.length)} محور`, detail: ev.gaps.map(g => `${g.axisTitle}: ${fmt(g.given)}★ بينما الدليل يشير إلى ${fmt(g.expected[0])}–${fmt(g.expected[1])}★`).join(' · '), gaps: ev.gaps }
     : { state: 'consistent', label: 'متسق مع الأدلة', detail: `${fmt(ev.inferable)} محور قابل للمطابقة بدون فجوة`, gaps: [] };
   // Recurring problems that the previous evaluation never documented.
   const prevEval = args.previousEvaluation;
-  const undocumented = prevEval && prevEval.status !== 'draft' && !prevEval.developmentPoints.length ? problems.filter(p => p.trend === 'recurring' || p.trend === 'worsening') : [];
+  const undocumented = analysisIsEvaluatedCycle && prevEval && prevEval.status !== 'draft' && !prevEval.developmentPoints.length ? problems.filter(p => p.trend === 'recurring' || p.trend === 'worsening') : [];
   if (undocumented.length) warnings.push(`مشكلة متكررة لم تُوثق في خطة تطوير الدورة السابقة: ${undocumented.map(p => p.title).join('، ')}.`);
 
   // Previous decision follow-up.
   let previousDecision: string | null = null;
-  if (prevEval && prevEval.status !== 'draft' && prevEval.developmentPoints.length && prevAnalysis) {
+  if (analysisIsEvaluatedCycle && prevEval && prevEval.status !== 'draft' && prevEval.developmentPoints.length && prevAnalysis) {
     const prevKeys = keys.filter(k => prevAnalysis.problems.find(p => p.key === k)?.present);
     const states = prevKeys.map(k => trendOf(histOf(k)));
     previousDecision = !prevKeys.length ? 'خطة التطوير السابقة موثقة، ولم تكن هناك مشكلة قابلة للقياس لمتابعتها.'
@@ -590,8 +608,11 @@ export function buildDecisionIntelligence(args: {
 
   // Decision.
   const top = problems[0];
+  // Incomplete evidence can still surface a documented problem, but never a "no problem, carry on" decision.
+  const incomplete = !args.quality.available || !analysis.quality?.sampleSufficient || !analysis.attendance?.available || !cur.eligible;
   const decision: DecisionIntelligence['decision'] = top
     ? { action: top.action, why: `${top.detail} — ${TREND_LABEL[top.trend]}، ${SCOPE_LABEL[top.scope]}${top.causeCertainty === 'hypothesis' ? ' (السبب فرضية تحتاج تحقق)' : ''}`, owner: top.owner, successMetric: top.successMetric, reviewBy: args.nextReviewDate, previousDecision }
+    : incomplete ? null
     : { action: strengths.length ? 'تقدير الأداء الموثق والاستمرار بنفس المتابعة' : 'استمرار المتابعة المعتادة', why: strengths[0] || 'لا توجد مشكلة موثقة تتجاوز الحدود في الأدلة المتاحة', owner: 'manager', successMetric: 'الحفاظ على نفس المستوى في الدورة القادمة', reviewBy: args.nextReviewDate, previousDecision };
 
   // Confidence: explicit reasons, lowered by every missing or thin source.
@@ -605,7 +626,6 @@ export function buildDecisionIntelligence(args: {
   if (cur.usedPooledFallback) reasons.push('مرجع بعض الشيفتات محسوب من نطاق أطول لقلة البيانات');
   const level: Confidence = !cur.eligible || !analysis.attendance?.available ? 'low' : reasons.length >= 2 ? 'medium' : reasons.length === 1 ? 'medium' : 'high';
 
-  const incomplete = !args.quality.available || !analysis.quality?.sampleSufficient || !analysis.attendance?.available || !cur.eligible;
   const headline = top
     ? `${top.severity === 'critical' ? 'أولوية مستقلة: ' : ''}${top.title} (${TREND_LABEL[top.trend]}، ${SCOPE_LABEL[top.scope]})${self.state === 'improving' ? ' رغم تحسن إنتاجيته' : self.state === 'declining' ? ' مع تراجع إنتاجيته' : ''}.`
     : incomplete ? 'لا توجد مشكلة موثقة، لكن الأدلة غير مكتملة؛ لا يمكن تأكيد خلو الدورة من مشكلات.'
@@ -639,17 +659,18 @@ export function buildDecisionIntelligence(args: {
     lateDays: c.attendance?.available ? c.attendance.lateDays ?? null : null,
     workedDays: c.attendance?.available ? c.attendance.workedDays ?? null : null,
     coreAverage: c.quality?.sampleSufficient ? c.quality.coreAverage : null,
-    reviews: c.quality?.reviewCount || 0,
-    medicalErrors: (c.quality?.medicalErrors || 0) + (c.quality?.criticalErrors || 0),
+    reviews: c.qualityAvailable ? c.quality?.reviewCount || 0 : null,
+    medicalErrors: c.qualityAvailable ? Math.max(c.quality?.medicalErrors || 0, c.quality?.criticalErrors || 0) : null,
   }));
 
   return {
     availability: 'ready',
     availabilityReason: null,
     analysisCycleStart: analysis.cycleStart,
+    analysisIsEvaluatedCycle,
     analysisNote,
     confidence: { level, reasons },
-    summary: { headline, strength: strengths[0] || null, problem: top ? `${top.title}: ${top.detail}` : null, decision: decision.action },
+    summary: { headline, strength: strengths[0] || null, problem: top ? `${top.title}: ${top.detail}` : null, decision: decision?.action ?? null },
     indicators: { self, peers, evaluation },
     changeDrivers,
     problems: problems.slice(0, 3),
