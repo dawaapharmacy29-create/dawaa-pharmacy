@@ -15,7 +15,8 @@ const performanceEye=read('src/components/evaluations/DoctorPerformanceEye.tsx')
 const performanceVerdict=read('src/lib/evaluations/doctorPerformanceVerdict.ts');
 const decisionEngine=read('src/lib/evaluations/doctorDecisionIntelligence.ts');
 const decisionData=read('src/lib/evaluations/doctorDecisionDataService.ts');
-const decisionChart=read('src/components/evaluations/DoctorDecisionChart.tsx');
+const decisionChart=read('src/components/evaluations/DoctorPerformanceChart.tsx');
+const eyeChartModel=read('src/lib/evaluations/doctorEyeChartModel.ts');
 const branchWindowMigration=read('supabase/migrations/20261008090000_branch_doctor_performance_window_v1.sql');
 const performanceBundleFreshnessMigration=read('supabase/migrations/20261007090000_performance_sales_bundle_v1_freshness_index.sql');
 const performanceScope=read('src/lib/performance/performanceScope.ts');
@@ -124,6 +125,15 @@ if(performanceEye.includes("supabase.from("))failures.push('performance eye UI m
 if(decisionData.includes('describeSourceError'))failures.push('decision sources must not surface raw PostgREST error text; use the source-state contract');
 if(!performanceEye.includes('{x.reason}'))failures.push('decision source status must show the plain-language reason');
 // Every Eye error path shows plain language; technical detail goes to the diagnostic log only.
+{
+ // The doctor's own chart tabs must never disappear with the branch comparison (the Preview bug: chart gated on `ready`).
+ const chartLine=performanceEye.split('\n').find(l=>l.includes('<DoctorPerformanceChart'))||'';
+ if(!chartLine)failures.push('performance eye must render the four-tab performance chart');
+ if(/\bready\b|availability/.test(chartLine))failures.push('performance eye chart must not be gated on the branch comparison being ready');
+ if(!performanceEye.includes('buildEyeChartModel('))failures.push('performance eye chart must be built by the pure chart model');
+ for(const key of ["'trend'","'shifts'","'peers'","'sources'"])if(!eyeChartModel.includes(key))failures.push('performance eye chart must keep the '+key+' tab');
+ if(/\?\?\s*0\b|\|\|\s*0\)\s*\/|value:\s*0\b/.test(eyeChartModel))failures.push('performance eye chart model must keep unknown values null, never zero');
+}
 if(/describeSourceError/.test(performanceService+performanceEye+decisionData))failures.push('doctor eye must not format raw PostgREST/SQL errors for the screen; use the source-state contract');
 if(/\be\.message\b|\.error\s*\|\||\.error\}|sources\.\w+\.error/.test(performanceEye))failures.push('doctor eye must not render raw error messages; use source reasons or userFacingMessage');
 if(!performanceEye.includes('userFacingMessage('))failures.push('doctor eye catch blocks must go through userFacingMessage (logs the original, shows plain text)');
