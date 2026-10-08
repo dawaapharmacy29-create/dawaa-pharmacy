@@ -12735,6 +12735,24 @@ async function persistAutomaticCaseConversationReviewWithClient(client, input) {
       error: "multiple_staff_ids_in_case"
     };
   }
+  const { data: correction, error: correctionError } = await client.from("conversation_sales_reviews").select("id").eq("whatsapp_review_source_id", sourceId).eq("sales_intelligence_case_id", view.caseId).eq("evaluation_kind", "manager_correction").limit(1).maybeSingle();
+  if (correctionError) {
+    logSupabaseError("case conversation review correction gate", correctionError);
+    return {
+      status: "failed",
+      reviewId: null,
+      finalScore: evaluation.summary.autoScore,
+      error: correctionError.message
+    };
+  }
+  if (correction?.id) {
+    return {
+      status: "skipped_manager_corrected",
+      reviewId: String(correction.id),
+      finalScore: evaluation.summary.autoScore,
+      error: null
+    };
+  }
   const { data: existing, error: existingError } = await client.from("conversation_sales_reviews").select("id, evaluation_kind").eq("whatsapp_review_source_id", sourceId).eq("sales_intelligence_case_id", view.caseId).maybeSingle();
   if (existingError && existingError.code !== "PGRST116") {
     logSupabaseError("case conversation review existing gate", existingError);

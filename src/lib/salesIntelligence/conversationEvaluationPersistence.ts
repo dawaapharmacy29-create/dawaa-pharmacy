@@ -15,6 +15,7 @@ export type CaseConversationReviewPersistStatus =
   | 'skipped_ambiguous_staff'
   | 'skipped_non_current_case'
   | 'skipped_source_mismatch'
+  | 'skipped_manager_corrected'
   | 'failed';
 
 export interface CaseConversationReviewPersistOutcome {
@@ -335,6 +336,36 @@ export async function persistAutomaticCaseConversationReviewWithClient(
       reviewId: null,
       finalScore: evaluation.summary.autoScore,
       error: 'multiple_staff_ids_in_case',
+    };
+  }
+
+  // A manager correction replaced this case's automatic review with a new version. The superseded
+  // automatic evidence is frozen (DB-enforced) and the correction is the current truth, so a
+  // re-analysis must not rewrite or re-activate the automatic row.
+  const { data: correction, error: correctionError } = await client
+    .from('conversation_sales_reviews')
+    .select('id')
+    .eq('whatsapp_review_source_id', sourceId)
+    .eq('sales_intelligence_case_id', view.caseId)
+    .eq('evaluation_kind', 'manager_correction')
+    .limit(1)
+    .maybeSingle();
+
+  if (correctionError) {
+    logSupabaseError('case conversation review correction gate', correctionError);
+    return {
+      status: 'failed',
+      reviewId: null,
+      finalScore: evaluation.summary.autoScore,
+      error: correctionError.message,
+    };
+  }
+  if (correction?.id) {
+    return {
+      status: 'skipped_manager_corrected',
+      reviewId: String(correction.id),
+      finalScore: evaluation.summary.autoScore,
+      error: null,
     };
   }
 

@@ -46,9 +46,19 @@ import {
 import { toast } from 'sonner';
 import { useSupabaseQuery, logActivity } from '@/hooks/useSupabaseQuery';
 import { getStaffSessionToken } from '@/lib/auth/staffSession';
-// Manager-edit adjustments (saveEdit) still post through the canonical points writer; the reviewer
-// save path uses the staff-session command record_conversation_review_points_v1.
+// Human (non-versioned) review edits still post manager adjustments through the canonical points
+// writer; the reviewer save path uses the staff-session command record_conversation_review_points_v1.
+// Automatic reviews and manager corrections are corrected only through the versioning command in
+// conversationReviewCorrection (points are reversed/applied server-side in the same transaction).
 import { persistPointsTransaction } from '@/lib/pointsPersistence';
+import {
+  buildConversationReviewCorrection,
+  conversationReviewKindLabel,
+  correctConversationReviewVersion,
+  correctionErrorMessage,
+  isVersionedConversationReview,
+  newCorrectionIdempotencyKey,
+} from '@/lib/reviews/conversationReviewCorrection';
 import { getCycleForDate } from '@/lib/pharmacy-cycle';
 import type { Customer } from '@/types/database';
 import type { CustomerMetric } from '@/lib/api/customers';
@@ -495,6 +505,10 @@ export default function Reviews() {
   const [selectedReview, setSelectedReview] = useState<ConversationReviewHistoryRow | null>(null);
   const [selectedReviewId, setSelectedReviewId] = useState<string | null>(null);
   const [editingReview, setEditingReview] = useState<ConversationReviewHistoryRow | null>(null);
+  // Versioned correction: one idempotency key per editor open (kept across retries of a failed
+  // save), and the id of the NEW current version once the command has succeeded.
+  const correctionAttemptRef = useRef<{ reviewId: string; key: string } | null>(null);
+  const correctedReviewIdRef = useRef<string | null>(null);
   const [managerReviewTarget, setManagerReviewTarget] =
     useState<ConversationReviewHistoryRow | null>(null);
 
@@ -1708,6 +1722,8 @@ export default function Reviews() {
       if (!error && data) fullRow = data as ConversationReviewHistoryRow;
     }
 
+    correctionAttemptRef.current = null;
+    correctedReviewIdRef.current = null;
     setEditingReview(fullRow);
     setEditReviewState(reviewStateFromRow(fullRow));
     setEditSevereErrors(severeErrorsFromRow(fullRow));
@@ -1767,11 +1783,17 @@ export default function Reviews() {
   }, [editRouteId]);
 
   // Explicit close of the editor (close button / Escape / after a successful in-editor save). On the
-  // edit route it returns to the same review's details, never to the Reviews root.
+  // edit route it returns to the review's details, never to the Reviews root: the same review, or —
+  // only after a versioned correction SUCCEEDED — the new current version that replaced it.
   const closeEditor = useCallback(() => {
     setEditingReview(null);
-    if (editRouteId) navigate(reviewDetailsPath(editRouteId), { replace: true });
+    const currentReviewId = correctedReviewIdRef.current ?? editRouteId;
+    correctedReviewIdRef.current = null;
+    if (editRouteId && currentReviewId)
+      navigate(reviewDetailsPath(currentReviewId), { replace: true });
   }, [editRouteId, navigate]);
+
+  const editIsVersioned = isVersionedConversationReview(editingReview);
 
   const saveEdit = async (): Promise<boolean> => {
     if (!editingReview?.id) return false;
@@ -1908,6 +1930,67 @@ export default function Reviews() {
         manager_reviewed_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
+
+      if (isVersionedConversationReview(editingReview)) {
+        // Automatic evidence (and earlier corrections) are immutable: the manager correction becomes
+        // a NEW version through one staff-session command. On failure nothing was written, the
+        // editor stays open on the same route and the draft is kept; the same key is reused on retry.
+        const staffId = asUuid(editForm.staff_id);
+        if (!staffId) {
+          toast.error('اختر الموظف المسؤول عن المحادثة قبل حفظ التصحيح');
+          return false;
+        }
+        if (correctionAttemptRef.current?.reviewId !== editingReview.id) {
+          correctionAttemptRef.current = {
+            reviewId: editingReview.id,
+            key: newCorrectionIdempotencyKey(),
+          };
+        }
+        const corrected = await correctConversationReviewVersion({
+          reviewId: editingReview.id,
+          idempotencyKey: correctionAttemptRef.current.key,
+          reason: editForm.manager_note.trim(),
+          correction: buildConversationReviewCorrection(payload, staffId),
+        });
+        if (!corrected.ok) {
+          toast.error(correctionErrorMessage(corrected.error));
+          return false;
+        }
+        correctionAttemptRef.current = null;
+        correctedReviewIdRef.current = corrected.currentReviewId;
+
+        const correctionActor = getCurrentUserProfile();
+        await logActivity(
+          correctionActor.id,
+          correctionActor.name,
+          'تصحيح تقييم محادثة (نسخة جديدة)',
+          'تقييم المحادثات',
+          `${editForm.staff_name || editingReview.staff_name || 'موظف'}: ${oldScore}/100 ← ${recalculated.finalScore}/100`,
+          editingReview.branch || '',
+          {
+            user_role: correctionActor.role,
+            target_type: 'conversation_review',
+            target_id: corrected.currentReviewId,
+            superseded_review_id: corrected.supersededReviewId,
+            reason: editForm.manager_note.trim(),
+            previous_score: oldScore,
+            new_score: recalculated.finalScore,
+            previous_points_impact: oldImpact,
+            new_points_impact: impact,
+          }
+        );
+        try {
+          window.sessionStorage.removeItem(`${REVIEW_HISTORY_CACHE_KEY}:${user?.id || 'anonymous'}`);
+        } catch {}
+        await loadReviewHistory();
+        setEditingReview(null);
+        toast.success(
+          corrected.status === 'already_applied'
+            ? 'هذا التصحيح محفوظ بالفعل من محاولة سابقة. تم فتح النسخة الحالية.'
+            : 'تم حفظ نسخة تصحيح جديدة. التقييم الآلي الأصلي محفوظ كسجل ونقاط الموظف اتسوّت مرة واحدة.'
+        );
+        return true;
+      }
 
       await updateSafe('conversation_sales_reviews', editingReview.id, payload);
 
@@ -2714,10 +2797,10 @@ export default function Reviews() {
                     <td className="hidden p-2 text-slate-300 xl:table-cell min-[1500px]:p-3">
                       <div
                         className="line-clamp-2"
-                        title={`${row.invoice_number || '-'} · ${row.evaluation_kind || row.conversation_type || '-'}`}
+                        title={`${row.invoice_number || '-'} · ${conversationReviewKindLabel(row)}`}
                       >
                         {row.invoice_number || '-'} ·{' '}
-                        {row.evaluation_kind || row.conversation_type || '-'}
+                        {conversationReviewKindLabel(row)}
                       </div>
                     </td>
                     <td className="p-2 min-[1500px]:p-3">
@@ -3537,12 +3620,18 @@ export default function Reviews() {
           <div className="rounded-xl border border-amber-400/25 bg-amber-500/10 p-3 text-sm text-amber-100">
             أي تعديل هنا يعيد احتساب الدرجة وتأثير النقاط من البنود نفسها، ويتم تسجيل سبب التعديل وسجل المراجعة.
           </div>
+          {editIsVersioned ? (
+            <div className="rounded-xl border border-sky-400/25 bg-sky-500/10 p-3 text-sm text-sky-100">
+              هذا تقييم آلي أو نسخة تصحيح سابقة: الحفظ ينشئ نسخة تصحيح جديدة باسمك وتصبح هي التقييم الحالي، والتقييم
+              الأصلي يبقى محفوظًا كسجل. بيانات المحادثة والعميل والفرع تُنقل من الدليل الأصلي ولا تُعدَّل هنا.
+            </div>
+          ) : null}
 
           <div className="grid gap-3 md:grid-cols-3">
             <Field label="المراجع / من قام بالتقييم">
               <select
                 className="input-dark"
-                value={editForm.reviewer_id}
+                value={editForm.reviewer_id} disabled={editIsVersioned}
                 onChange={(e) => {
                   const selected = mergeStaffChoices(staff).find((item) => item.id === e.target.value);
                   setEditForm((f) => ({
@@ -3560,10 +3649,10 @@ export default function Reviews() {
               </select>
             </Field>
             <Field label="اسم المراجع الظاهر">
-              <input className="input-dark" value={editForm.reviewer_name} onChange={(e) => setEditForm((f) => ({ ...f, reviewer_name: e.target.value }))} />
+              <input className="input-dark" value={editForm.reviewer_name} disabled={editIsVersioned} onChange={(e) => setEditForm((f) => ({ ...f, reviewer_name: e.target.value }))} />
             </Field>
             <Field label="دور المراجع">
-              <input className="input-dark" value={editForm.reviewer_role} onChange={(e) => setEditForm((f) => ({ ...f, reviewer_role: e.target.value }))} />
+              <input className="input-dark" value={editForm.reviewer_role} disabled={editIsVersioned} onChange={(e) => setEditForm((f) => ({ ...f, reviewer_role: e.target.value }))} />
             </Field>
 
             <Field label="الدكتور / الموظف">
@@ -3588,22 +3677,22 @@ export default function Reviews() {
               </select>
             </Field>
             <Field label="اسم الدكتور الظاهر">
-              <input className="input-dark" value={editForm.staff_name} onChange={(e) => setEditForm((f) => ({ ...f, staff_name: e.target.value }))} />
+              <input className="input-dark" value={editForm.staff_name} disabled={editIsVersioned} onChange={(e) => setEditForm((f) => ({ ...f, staff_name: e.target.value }))} />
             </Field>
             <Field label="الفرع">
-              <input className="input-dark" value={editForm.branch} onChange={(e) => setEditForm((f) => ({ ...f, branch: e.target.value }))} />
+              <input className="input-dark" value={editForm.branch} disabled={editIsVersioned} onChange={(e) => setEditForm((f) => ({ ...f, branch: e.target.value }))} />
             </Field>
             <Field label="اسم العميل">
-              <input className="input-dark" value={editForm.customer_name} onChange={(e) => setEditForm((f) => ({ ...f, customer_name: e.target.value }))} />
+              <input className="input-dark" value={editForm.customer_name} disabled={editIsVersioned} onChange={(e) => setEditForm((f) => ({ ...f, customer_name: e.target.value }))} />
             </Field>
             <Field label="كود العميل">
-              <input className="input-dark" value={editForm.customer_code} onChange={(e) => setEditForm((f) => ({ ...f, customer_code: e.target.value }))} />
+              <input className="input-dark" value={editForm.customer_code} disabled={editIsVersioned} onChange={(e) => setEditForm((f) => ({ ...f, customer_code: e.target.value }))} />
             </Field>
             <Field label="هاتف العميل">
-              <input className="input-dark" value={editForm.customer_phone} onChange={(e) => setEditForm((f) => ({ ...f, customer_phone: e.target.value }))} />
+              <input className="input-dark" value={editForm.customer_phone} disabled={editIsVersioned} onChange={(e) => setEditForm((f) => ({ ...f, customer_phone: e.target.value }))} />
             </Field>
             <Field label="نوع المحادثة">
-              <select className="input-dark" value={editForm.evaluation_kind} onChange={(e) => setEditForm((f) => ({ ...f, evaluation_kind: e.target.value }))}>
+              <select className="input-dark" value={editForm.evaluation_kind} disabled={editIsVersioned} onChange={(e) => setEditForm((f) => ({ ...f, evaluation_kind: e.target.value }))}>
                 {EVAL_KINDS.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
               </select>
             </Field>
@@ -3613,10 +3702,10 @@ export default function Reviews() {
               </select>
             </Field>
             <Field label="تاريخ المحادثة">
-              <input type="datetime-local" className="input-dark" value={editForm.conversation_date} onChange={(e) => setEditForm((f) => ({ ...f, conversation_date: e.target.value }))} />
+              <input type="datetime-local" className="input-dark" value={editForm.conversation_date} disabled={editIsVersioned} onChange={(e) => setEditForm((f) => ({ ...f, conversation_date: e.target.value }))} />
             </Field>
             <Field label="رقم الفاتورة">
-              <input className="input-dark" value={editForm.invoice_number} onChange={(e) => setEditForm((f) => ({ ...f, invoice_number: e.target.value }))} />
+              <input className="input-dark" value={editForm.invoice_number} disabled={editIsVersioned} onChange={(e) => setEditForm((f) => ({ ...f, invoice_number: e.target.value }))} />
             </Field>
           </div>
 
@@ -3811,7 +3900,7 @@ function ReviewDetailsModal({
         <Info label="الفرع" value={row.branch || '-'} />
         <Info label="رقم الفاتورة" value={row.invoice_number || '-'} />
         <Info label="التاريخ" value={formatDateTime(row.conversation_date || row.created_at)} />
-        <Info label="النوع" value={row.evaluation_kind || row.conversation_type || '-'} />
+        <Info label="النوع" value={conversationReviewKindLabel(row)} />
         <Info label="النتيجة" value={`${scoreOf(row)}/100`} />
         <Info label="تأثير النقاط" value={`${impactOf(row)}`} />
       </div>

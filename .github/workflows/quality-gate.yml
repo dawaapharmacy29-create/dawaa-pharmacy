@@ -73,6 +73,9 @@ jobs:
       - name: WhatsApp Evidence link staff-session boundary
         run: node scripts/check-whatsapp-evidence-link-session.cjs
 
+      - name: Conversation review manager-correction boundary
+        run: node scripts/check-conversation-review-correction-command.cjs
+
       - name: Customer Request shortage command boundary
         run: node scripts/check-customer-request-shortage-command.cjs
 

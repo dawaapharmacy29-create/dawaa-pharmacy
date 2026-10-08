@@ -132,10 +132,15 @@ describe('reviews route wiring (source contract)', () => {
     // closing the editor returns to the same review, not to /reviews
     const closeEditor = reviews.slice(
       reviews.indexOf('const closeEditor'),
-      reviews.indexOf('const saveEdit = async')
+      reviews.indexOf('const editIsVersioned')
+    );
+    // S: still the same review's details, never /reviews. After a successful manager correction the
+    // target is the NEW current version id (correctedReviewIdRef), which defaults to editRouteId.
+    expect(closeEditor).toMatch(
+      /const currentReviewId = correctedReviewIdRef\.current \?\? editRouteId;/
     );
     expect(closeEditor).toMatch(
-      /navigate\(reviewDetailsPath\(editRouteId\), \{ replace: true \}\)/
+      /navigate\(reviewDetailsPath\(currentReviewId\), \{ replace: true \}\)/
     );
   });
 
