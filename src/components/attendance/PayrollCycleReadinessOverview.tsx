@@ -1,10 +1,20 @@
-import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, CalendarClock, CheckCircle2, ChevronLeft, RefreshCw, Settings2, ShieldCheck, TimerReset, UserCog } from 'lucide-react';
-import { toast } from 'sonner';
-import {
-  getPayrollCycleFinalizationOverview,
-  type PayrollCycleFinalizationOverview,
-} from '@/lib/hr/workforceService';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, Bike, CheckCircle2, RefreshCw, ShieldCheck, Users } from 'lucide-react';
+import { fetchPayrollCyclePreflight, type PayrollCyclePreflight } from '@/lib/payroll/payrollCyclePreflightService';
+
+const surface = { background: 'var(--dawaa-theme-surface)', borderColor: 'var(--dawaa-theme-border)' };
+const surfaceSoft = { background: 'var(--dawaa-theme-bg-soft)', borderColor: 'var(--dawaa-theme-border)' };
+const muted = { color: 'var(--dawaa-theme-muted)' };
+
+function Stat({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
+  return (
+    <div className="rounded-2xl border p-3" style={surfaceSoft}>
+      <div className="text-[10px] font-black" style={muted}>{label}</div>
+      <div className="mt-1 text-xl font-black text-white">{value}</div>
+      {hint ? <div className="mt-1 text-[10px] font-bold" style={muted}>{hint}</div> : null}
+    </div>
+  );
+}
 
 export default function PayrollCycleReadinessOverview({
   monthCycle,
@@ -15,323 +25,135 @@ export default function PayrollCycleReadinessOverview({
   branch?: string | null;
   onOpenStaffCompensation?: (staffId: string) => void;
 }) {
-  const [data, setData] = useState<PayrollCycleFinalizationOverview | null>(null);
+  const [data, setData] = useState<PayrollCyclePreflight | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const load = useCallback(async () => {
-    if (!monthCycle) return;
     setLoading(true);
+    setError('');
     try {
-      setData(await getPayrollCycleFinalizationOverview({
-        monthCycle,
-        branch: branch || null,
-        limit: 100,
-      }));
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'تعذر تحميل جاهزية دورة الرواتب');
+      const result = await fetchPayrollCyclePreflight({ monthCycle, branch: branch || null });
+      setData(result);
+    } catch (err) {
       setData(null);
+      setError(err instanceof Error ? err.message : 'تعذر تحميل Preflight دورة الرواتب');
     } finally {
       setLoading(false);
     }
-  }, [branch, monthCycle]);
+  }, [monthCycle, branch]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError('');
+    void fetchPayrollCyclePreflight({ monthCycle, branch: branch || null })
+      .then((result) => { if (active) setData(result); })
+      .catch((err) => {
+        if (!active) return;
+        setData(null);
+        setError(err instanceof Error ? err.message : 'تعذر تحميل Preflight دورة الرواتب');
+      })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [monthCycle, branch]);
 
-  const blockerAction = (code: string) => {
-    if (code === 'cycle_open') return { label: 'الدورة ما زالت مفتوحة', href: null, kind: 'time' as const };
-    if (code === 'overtime_pending') return { label: 'راجع الأوفر تايم', href: '/attendance-report?tab=overtime', kind: 'overtime' as const };
-    if (code === 'attendance_pending') return { label: 'افتح صندوق المراجعة', href: '/attendance-report?tab=resolution', kind: 'attendance' as const };
-    if (code === 'attendance_eligibility') return { label: 'راجع جاهزية الحضور', href: '/attendance-report?tab=resolution', kind: 'attendance' as const };
-    if (code === 'financial_drift') return { label: 'راجع اختلاف Attendance Truth', href: '/hr-data-quality', kind: 'drift' as const };
-    if (code === 'policy_validation') return { label: 'راجع سياسة الحضور', href: '/hr-data-quality', kind: 'drift' as const };
-    if (code === 'schedule_not_ready' || code === 'schedule_gap') return { label: 'راجع الجداول والمناوبات', href: '/schedule', kind: 'schedule' as const };
-    if (code === 'no_hourly_rate_configured' || code === 'compensation_not_ready') {
-      return { label: 'أكمل ملف التعويضات', href: null, kind: 'compensation' as const };
-    }
-    return { label: 'راجع سبب الحجب', href: '/hr-data-quality', kind: 'other' as const };
-  };
+  const attentionRows = useMemo(
+    () => (data?.rows || []).filter((row) => !row.preflightClear),
+    [data]
+  );
 
-  const blockerPriority = (code: string) => {
-    if (code === 'no_hourly_rate_configured' || code === 'compensation_not_ready') return 10;
-    if (code === 'attendance_pending') return 20;
-    if (code === 'overtime_pending') return 30;
-    if (code === 'financial_drift') return 40;
-    if (code === 'schedule_not_ready' || code === 'schedule_gap') return 50;
-    if (code === 'attendance_eligibility') return 60;
-    if (code === 'policy_validation') return 70;
-    if (code === 'cycle_open') return 100;
-    return 80;
-  };
+  if (loading && !data) {
+    return <div className="flex items-center justify-center rounded-3xl border p-8" style={surface}><RefreshCw className="animate-spin text-teal-300" /></div>;
+  }
 
-  const primaryBlockerFor = (row: PayrollCycleFinalizationOverview['rows'][number]) =>
-    [...row.blockers].sort((a, b) => blockerPriority(a.code) - blockerPriority(b.code))[0] || null;
-
-  if (!data) {
+  if (error) {
     return (
-      <section className="rounded-3xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4">
-        <div className="flex items-center justify-between gap-2">
-          <div className="font-black text-[var(--dawaa-theme-heading)]">جاهزية إقفال دورة الرواتب</div>
-          <button onClick={() => void load()} className="btn-secondary !px-2">
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-          </button>
-        </div>
-      </section>
+      <div className="rounded-3xl border border-red-400/30 bg-red-400/5 p-4 text-sm text-red-200">
+        تعذر تحميل Preflight دورة الرواتب: {error}
+        <button type="button" className="btn-secondary ms-3 !py-1 text-xs" onClick={() => void load()}>إعادة المحاولة</button>
+      </div>
     );
   }
 
-  const blockerGroups = data.top_blockers
-    .map((item) => ({ ...item, action: blockerAction(item.code) }))
-    .sort((a, b) => blockerPriority(a.code) - blockerPriority(b.code) || b.affected_staff - a.affected_staff);
+  if (!data) return null;
 
   return (
-    <section className="rounded-3xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4" dir="rtl">
+    <section className="rounded-3xl border p-5" style={surface} dir="rtl">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]">
-            <ShieldCheck size={18} /> Cycle Finalization Readiness
+          <div className="flex items-center gap-2 text-sm font-black text-teal-200"><ShieldCheck size={18} /> Payroll Cycle Preflight V3</div>
+          <div className="mt-1 text-xs font-bold" style={muted}>
+            {data.cycleStart} → {data.cycleEnd} · {data.branch || 'كل الفروع'}
           </div>
-          <div className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">
-            دورة {data.month_cycle}{data.branch ? ` · ${data.branch}` : ' · كل الفروع المتاحة لحسابك'} — قراءة فقط، بدون Finalize أو دفع.
+          <div className="mt-1 text-[10px] font-bold text-amber-200">
+            فحص سريع تشغيلي فقط؛ لا يساوي اعتماد الراتب. الإقفال النهائي يحتاج Full Gate + Snapshot + Review لكل موظف.
           </div>
         </div>
-        <button onClick={() => void load()} className="btn-secondary">
+        <button type="button" onClick={() => void load()} disabled={loading} className="btn-secondary !py-1.5 text-xs">
           <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> تحديث
         </button>
       </div>
 
-      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
-        <Summary label="نطاق الرواتب" value={data.scope_staff_count ?? data.staff_count} />
-        <Summary label="Profiles موجودة" value={data.configured_staff_count ?? data.staff_count} good={(data.unconfigured_priority_count ?? 0) === 0} />
-        <Summary
-          label="هوية Payroll تحتاج مراجعة"
-          value={data.identity_priority_count ?? 0}
-          warn={(data.identity_priority_count ?? 0) > 0}
-        />
-        <Summary label="تحتاج مراجعة تعويضات" value={data.unconfigured_priority_count ?? 0} warn={(data.unconfigured_priority_count ?? 0) > 0} />
-        <Summary label="جاهز للإقفال" value={data.ready_count} good />
-        <Summary label="Blocked" value={data.blocked_count} warn={data.blocked_count > 0} />
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+        <Stat label="إجمالي نطاق الرواتب" value={data.scopeStaffCount.toLocaleString('ar-EG')} />
+        <Stat label="Standard" value={data.standardStaffCount.toLocaleString('ar-EG')} hint={`${data.standardPreflightClearCount.toLocaleString('ar-EG')} بدون مانع Preflight واضح`} />
+        <Stat label="Delivery Payroll" value={data.deliveryStaffCount.toLocaleString('ar-EG')} hint={`${data.deliveryMappedCount.toLocaleString('ar-EG')}/${data.deliveryStaffCount.toLocaleString('ar-EG')} مربوطين`} />
+        <Stat label="Preflight واضح" value={data.preflightClearCount.toLocaleString('ar-EG')} />
+        <Stat label="يحتاج متابعة" value={data.preflightAttentionCount.toLocaleString('ar-EG')} hint="قد يحتوي على أكثر من سبب للموظف نفسه" />
       </div>
 
-      <div className={`mt-3 rounded-2xl border p-3 text-xs font-black ${
-        data.ready_count === data.staff_count
-          && (data.unconfigured_priority_count ?? 0) === 0
-          && (data.identity_priority_count ?? 0) === 0
-          ? 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] text-[var(--dawaa-status-success-text)]'
-          : 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]'
-      }`}>
-        {data.ready_count === data.staff_count
-          && (data.unconfigured_priority_count ?? 0) === 0
-          && (data.identity_priority_count ?? 0) === 0
-          ? 'الدورة جاهزة للمراجعة النهائية قبل الإقفال.'
-          : `لا يتم Finalize قبل إغلاق الـBlockers. الجاهز حاليًا: ${data.ready_count.toLocaleString('ar-EG')} من ${data.staff_count.toLocaleString('ar-EG')} ملف مهيأ.`}
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-2xl border border-teal-400/20 bg-teal-400/5 p-3">
+          <div className="flex items-center gap-2 text-xs font-black text-teal-200"><Bike size={15} /> Delivery Coverage</div>
+          <div className="mt-2 text-lg font-black text-white">{data.deliverySnapshotCoveredCount.toLocaleString('ar-EG')} / {data.deliveryStaffCount.toLocaleString('ar-EG')}</div>
+          <div className="mt-1 text-[10px]" style={muted}>Snapshots حديثة/موجودة للمسار المالي</div>
+        </div>
+        <div className="rounded-2xl border p-3" style={surfaceSoft}>
+          <div className="text-[10px] font-black" style={muted}>Delivery Snapshots قديمة</div>
+          <div className="mt-1 text-lg font-black text-white">{data.deliveryStaleSnapshotCount.toLocaleString('ar-EG')}</div>
+        </div>
+        <div className="rounded-2xl border p-3" style={surfaceSoft}>
+          <div className="text-[10px] font-black" style={muted}>Delivery بدون Policy</div>
+          <div className="mt-1 text-lg font-black text-white">{data.deliveryCandidateWithoutPolicyCount.toLocaleString('ar-EG')}</div>
+        </div>
+        <div className="rounded-2xl border p-3" style={surfaceSoft}>
+          <div className="text-[10px] font-black" style={muted}>Delivery Preflight واضح</div>
+          <div className="mt-1 text-lg font-black text-white">{data.deliveryPreflightClearCount.toLocaleString('ar-EG')}</div>
+        </div>
       </div>
 
-      {!!data.identity_queue?.length && (
-        <div className="mt-3 rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-3">
-          <div className="flex items-center gap-2 text-xs font-black text-[var(--dawaa-status-warning-text)]">
-            <UserCog size={14} /> Payroll Identity Queue
-          </div>
-          <p className="mt-1 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">
-            الموظف النشط لا يختفي من الجاهزية لو حسابه ناقص أو Disabled. لا يتم إنشاء أو تفعيل أي حساب تلقائيًا.
-          </p>
-          <div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-            {data.identity_queue.slice(0, 24).map((row) => (
-              <div key={row.staff_id} className="rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <div className="text-[11px] font-black text-[var(--dawaa-theme-heading)]">{row.staff_name}</div>
-                    <div className="mt-0.5 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{row.branch || '-'} · {row.role || '-'}</div>
-                  </div>
-                  {row.priority_review && (
-                    <span className="rounded-full border border-[var(--dawaa-status-warning-border)] px-2 py-0.5 text-[9px] font-black text-[var(--dawaa-status-warning-text)]">Priority</span>
-                  )}
-                </div>
-                <div className="mt-2 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">
-                  {row.identity_state === 'missing_account' ? 'لا يوجد Staff Account' : 'الحساب موجود لكنه غير نشط/غير مسموح له بالدخول'}
-                </div>
-                {(row.incentive_transactions > 0 || row.payroll_history_rows > 0 || row.has_profile) && (
-                  <div className="mt-1 text-[9px] font-bold text-[var(--dawaa-status-warning-text)]">
-                    {row.has_profile ? 'Compensation Profile موجود' : ''}
-                    {row.incentive_transactions > 0 ? ` · حركات مالية: ${row.incentive_transactions.toLocaleString('ar-EG')}` : ''}
-                    {row.payroll_history_rows > 0 ? ` · تاريخ Payroll: ${row.payroll_history_rows.toLocaleString('ar-EG')}` : ''}
-                  </div>
-                )}
-                <a href="/staff-accounts" className="mt-2 inline-flex items-center gap-1 text-[10px] font-black text-[var(--dawaa-status-info-text)]">
-                  مراجعة حساب الموظف <ChevronLeft size={11} />
-                </a>
+      {data.topIssues.length ? (
+        <div className="mt-4 rounded-2xl border border-amber-400/25 bg-amber-400/5 p-4">
+          <div className="flex items-center gap-2 text-xs font-black text-amber-200"><AlertTriangle size={15} /> أهم أسباب المتابعة</div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {data.topIssues.map((issue) => (
+              <div key={issue.code} className="rounded-xl border border-amber-400/15 p-3 text-xs">
+                <div className="font-black text-white">{issue.label}</div>
+                <div className="mt-1 text-amber-200">{issue.affectedStaff.toLocaleString('ar-EG')} موظف</div>
               </div>
             ))}
           </div>
         </div>
+      ) : (
+        <div className="mt-4 flex items-center gap-2 rounded-2xl border border-emerald-400/20 bg-emerald-400/5 p-4 text-xs font-black text-emerald-200"><CheckCircle2 size={16} /> لا توجد موانع Preflight واضحة.</div>
       )}
 
-      {!!data.configuration_queue?.length && (
-        <div className="mt-3 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-3">
-          <div className="text-xs font-black text-[var(--dawaa-theme-heading)]">Configuration Queue — ملفات التعويضات غير المهيأة</div>
-          <p className="mt-1 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">
-            عدم وجود Profile ليس خصمًا ولا خطأ تلقائيًا. الأولوية للحالات التي لديها نشاط حوافز أو تاريخ Payroll.
-          </p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {data.configuration_queue.slice(0, 20).map((row) => (
-              <button
-                type="button"
-                key={row.staff_id}
-                onClick={() => onOpenStaffCompensation?.(row.staff_id)}
-                className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-bold transition ${row.priority_review
-                  ? 'border-[var(--dawaa-status-warning-border)] text-[var(--dawaa-status-warning-text)]'
-                  : 'border-[var(--dawaa-theme-border)] text-[var(--dawaa-theme-muted)]'}`}
-                title={row.priority_review ? 'فتح ملف التعويضات' : 'عرض الموظف'}
-              >
-                <UserCog size={11} />
-                {row.staff_name} · {row.role || '-'}{row.priority_review ? ' · يحتاج إعداد' : ''}
-              </button>
+      {attentionRows.length ? (
+        <div className="mt-4">
+          <div className="flex items-center gap-2 text-xs font-black text-teal-200"><Users size={15} /> ملفات تحتاج متابعة</div>
+          <div className="mt-2 max-h-[360px] space-y-2 overflow-y-auto">
+            {attentionRows.map((row) => (
+              <div key={row.staffId} className="flex flex-wrap items-center gap-3 rounded-xl border p-3 text-xs" style={surfaceSoft}>
+                <div className="min-w-[180px] flex-1"><div className="font-black text-white">{row.staffName}</div><div className="mt-0.5" style={muted}>{row.branch} · {row.route === 'delivery' ? 'Delivery Payroll' : 'Standard Payroll'}</div></div>
+                <div className="text-amber-200">{row.issueCodes.length.toLocaleString('ar-EG')} سبب</div>
+                {row.route === 'delivery' ? <div style={muted}>Orders pending: {row.ordersPending.toLocaleString('ar-EG')} · Trips pending: {row.tripsPending.toLocaleString('ar-EG')}</div> : null}
+                {onOpenStaffCompensation ? <button type="button" className="btn-secondary !py-1 text-[10px]" onClick={() => onOpenStaffCompensation(row.staffId)}>فتح الملف</button> : null}
+              </div>
             ))}
           </div>
         </div>
-      )}
-
-      {!!blockerGroups.length && (
-        <div className="mt-3 rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-3">
-          <div className="flex items-center gap-2 text-xs font-black text-[var(--dawaa-status-warning-text)]">
-            <AlertTriangle size={14} /> خطة إغلاق الـBlockers قبل الـFinalization
-          </div>
-          <p className="mt-1 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">
-            الأسباب مرتبة من نفس Payroll Gate؛ افتح مكان الحل بدل البحث داخل النظام يدويًا.
-          </p>
-          <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-            {blockerGroups.slice(0, 9).map((item) => {
-              const Icon = item.action.kind === 'time'
-                ? CalendarClock
-                : item.action.kind === 'overtime'
-                  ? TimerReset
-                  : item.action.kind === 'compensation'
-                    ? UserCog
-                    : item.action.kind === 'schedule'
-                      ? Settings2
-                      : AlertTriangle;
-              return (
-                <div key={item.code} className="rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-theme-surface)] p-3">
-                  <div className="flex items-start gap-2">
-                    <Icon size={15} className="mt-0.5 shrink-0 text-[var(--dawaa-status-warning-text)]" />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-[11px] font-black text-[var(--dawaa-theme-heading)]">{item.label}</div>
-                      <div className="mt-1 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">
-                        {item.affected_staff.toLocaleString('ar-EG')} موظف متأثر
-                      </div>
-                    </div>
-                  </div>
-                  {item.action.href ? (
-                    <a href={item.action.href} className="mt-2 inline-flex items-center gap-1 text-[10px] font-black text-[var(--dawaa-status-info-text)]">
-                      {item.action.label} <ChevronLeft size={11} />
-                    </a>
-                  ) : (
-                    <div className="mt-2 text-[10px] font-black text-[var(--dawaa-status-warning-text)]">{item.action.label}</div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      <div className="mt-3 max-h-72 overflow-y-auto rounded-2xl border border-[var(--dawaa-theme-border)]">
-        <table className="w-full min-w-[980px] text-right text-xs">
-          <thead className="sticky top-0 bg-[var(--dawaa-theme-surface-2)]">
-            <tr>
-              <th className="p-2">الموظف</th>
-              <th className="p-2">الفرع</th>
-              <th className="p-2">الحالة</th>
-              <th className="p-2">سبب عدم الجاهزية</th>
-              <th className="p-2">Warnings</th>
-              <th className="p-2">V2/V3</th>
-              <th className="p-2">الإجراء</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.rows.map((row) => (
-              <tr key={row.staff_id} className="border-t border-[var(--dawaa-theme-border)]">
-                <td className="p-2 font-black text-[var(--dawaa-theme-heading)]">{row.staff_name}</td>
-                <td className="p-2 text-[var(--dawaa-theme-muted)]">{row.branch || '-'}</td>
-                <td className="p-2">
-                  <span className={row.ready
-                    ? 'inline-flex items-center gap-1 font-black text-[var(--dawaa-status-success-text)]'
-                    : 'inline-flex items-center gap-1 font-black text-[var(--dawaa-status-warning-text)]'}>
-                    {row.ready ? <CheckCircle2 size={13} /> : <AlertTriangle size={13} />}
-                    {row.ready ? 'Ready' : 'Blocked'}
-                  </span>
-                </td>
-                <td className="p-2">
-                  {row.blockers.length ? (
-                    <div className="flex max-w-[360px] flex-wrap gap-1">
-                      {row.blockers.slice(0, 4).map((blocker) => (
-                        <span key={blocker.code} className="rounded-lg border border-[var(--dawaa-status-warning-border)] px-2 py-1 text-[10px] font-bold text-[var(--dawaa-status-warning-text)]">
-                          {blocker.label}{blocker.count != null ? ` · ${blocker.count.toLocaleString('ar-EG')}` : ''}{blocker.hours != null ? ` · ${blocker.hours.toLocaleString('ar-EG')} س` : ''}
-                        </span>
-                      ))}
-                      {row.blockers.length > 4 && (
-                        <span className="px-1 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">+{row.blockers.length - 4}</span>
-                      )}
-                    </div>
-                  ) : <span className="text-[var(--dawaa-status-success-text)]">لا يوجد</span>}
-                </td>
-                <td className="p-2">{row.warning_count.toLocaleString('ar-EG')}</td>
-                <td className="p-2">{row.policy_validation.effective_status_changes.toLocaleString('ar-EG')}</td>
-                <td className="p-2">
-                  {!row.ready && (() => {
-                    const primary = primaryBlockerFor(row);
-                    if (!primary) return null;
-                    const action = blockerAction(primary.code);
-                    if (action.kind === 'compensation') {
-                      return (
-                        <button
-                          type="button"
-                          onClick={() => onOpenStaffCompensation?.(row.staff_id)}
-                          className="inline-flex items-center gap-1 text-[10px] font-black text-[var(--dawaa-status-info-text)]"
-                        >
-                          {action.label} <ChevronLeft size={11} />
-                        </button>
-                      );
-                    }
-                    if (action.href) {
-                      return (
-                        <a href={action.href} className="inline-flex items-center gap-1 text-[10px] font-black text-[var(--dawaa-status-info-text)]">
-                          {action.label} <ChevronLeft size={11} />
-                        </a>
-                      );
-                    }
-                    return <span className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{action.label}</span>;
-                  })()}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      ) : null}
     </section>
-  );
-}
-
-function Summary({
-  label,
-  value,
-  warn = false,
-  good = false,
-}: {
-  label: string;
-  value: number;
-  warn?: boolean;
-  good?: boolean;
-}) {
-  const cls = warn
-    ? 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)]'
-    : good
-      ? 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)]'
-      : 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)]';
-
-  return (
-    <div className={`rounded-2xl border p-3 ${cls}`}>
-      <div className="text-[10px] font-black text-[var(--dawaa-theme-muted)]">{label}</div>
-      <div className="mt-1 text-2xl font-black text-[var(--dawaa-theme-heading)]">{value.toLocaleString('ar-EG')}</div>
-    </div>
   );
 }
