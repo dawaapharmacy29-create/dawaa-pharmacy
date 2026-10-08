@@ -13,6 +13,10 @@ const headerSalesV3Migration=read('supabase/migrations/20261006033000_staff_eval
 const performanceService=read('src/lib/evaluations/doctorPerformanceIntelligenceService.ts');
 const performanceEye=read('src/components/evaluations/DoctorPerformanceEye.tsx');
 const performanceVerdict=read('src/lib/evaluations/doctorPerformanceVerdict.ts');
+const decisionEngine=read('src/lib/evaluations/doctorDecisionIntelligence.ts');
+const decisionData=read('src/lib/evaluations/doctorDecisionDataService.ts');
+const decisionChart=read('src/components/evaluations/DoctorDecisionChart.tsx');
+const branchWindowMigration=read('supabase/migrations/20261008090000_branch_doctor_performance_window_v1.sql');
 const performanceBundleFreshnessMigration=read('supabase/migrations/20261007090000_performance_sales_bundle_v1_freshness_index.sql');
 const performanceScope=read('src/lib/performance/performanceScope.ts');
 const report=read('src/lib/reports/monthlyPerformance360Service.ts');
@@ -77,6 +81,14 @@ const required=[
  [performanceEye,'hidden={!detailsOpen}','performance eye details must stay collapsed until requested'],
  [evalPage,'conversation={coaching?.conversation ?? null}','performance eye must reuse the page conversation evidence instead of a parallel reader'],
  [performanceVerdict,"header?.attendance.state === 'available'",'performance eye discipline must come from the canonical evaluation header attendance'],
+ [performanceEye,'loadDoctorDecisionSources','performance eye must load branch decision evidence through the decision data boundary'],
+ [decisionData,"get_branch_doctor_performance_window_v1",'branch comparisons must use the branch-scoped aggregate RPC, not invoice rows'],
+ [decisionData,'buildConversationCoaching','peer conversation quality must use the canonical evaluation rubric'],
+ [decisionEngine,'leave-one-out','fair productivity must use leave-one-out branch shift rates'],
+ [decisionEngine,"present: null",'missing evidence must stay unknown, never become "no problem"'],
+ [branchWindowMigration,'dawaa_current_sales_invoice_scope_v1','branch window must keep actor sales scope authorization'],
+ [branchWindowMigration,'get_staff_attendance_detail_v2','branch window attendance counts must come from the canonical attendance projection'],
+ [branchWindowMigration,'attributable','branch window must refuse ambiguous name attribution'],
  [performanceEye,'hasSourceFailure','performance eye must retry a result with failed sources instead of pinning it'],
  [performanceEye,'invalidatePerformanceSalesBundleCache','performance eye reload must bypass the shared sales bundle cache'],
  [performanceBundleFreshnessMigration,"(select max(si.invoice_date) from public.sales_invoices si",'performance sales bundle freshness must stay an index-friendly scalar max'],
@@ -99,6 +111,11 @@ const required=[
 ];
 for(const [body,token,msg] of required)if(!body.includes(token))failures.push(msg);
 if(/ممتاز|يحتاج تدخل|\bscore\s*:/.test(performanceVerdict.replace(/\/\*[\s\S]*?\*\//g,'')))failures.push('performance eye verdict must stay an evidence reading, never a parallel evaluation grade');
+for(const [label,body] of [['decision engine',decisionEngine],['decision chart',decisionChart],['performance eye',performanceEye]]){
+ if(/(^|[\s'"`(])(خصم|الخصم|عقوبة|العقوبة|عقوبات|جزاء|الجزاء|جزاءات)(?=[\s'"`.,،)]|$)|penalt/i.test(body.replace(/\/\*[\s\S]*?\*\//g,'')))failures.push(label+' must never recommend deductions or penalties');
+ if(body.includes('supabase.from(')||body.includes('supabase.rpc('))failures.push(label+' must not query Supabase directly');
+}
+if(/(^|[^_\w])score\s*:(?!\s*number)/.test(decisionEngine.replace(/\/\*[\s\S]*?\*\//g,'').replace(/\/\/.*$/gm,'').replace(/_score/g,'')))failures.push('decision engine must not emit a score that competes with the monthly evaluation');
 if(performanceEye.includes("supabase.from("))failures.push('performance eye UI must not query tables directly; use the performance service boundary');
 if(/range\.(start|endExclusive)\.toISOString\(\)/.test(performanceEye+performanceService))failures.push('cycle date keys must come from evaluationCycleDateKeys, not Date#toISOString (Cairo day shift)');
 if(headerService.includes('getStaffCycleSales'))failures.push('evaluation header must not fall back to legacy heavy staff cycle sales truth');

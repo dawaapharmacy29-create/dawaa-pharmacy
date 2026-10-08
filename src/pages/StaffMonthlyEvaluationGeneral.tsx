@@ -2524,7 +2524,7 @@ export default function StaffMonthlyEvaluation() {
 
               {!employeeView && selected && canonicalStaffRole(selected.job_title || selected.role) === 'doctor' ? (
                 <div className="flex justify-end">
-                  <DoctorPerformanceEye staffId={selected.id} staffName={selected.name} cycleLabel={cycleLabel} branch={selected.branch} header={employeeHeader} conversation={coaching?.conversation ?? null} />
+                  <DoctorPerformanceEye staffId={selected.id} staffName={selected.name} cycleLabel={cycleLabel} branch={selected.branch} header={employeeHeader} conversation={coaching?.conversation ?? null} actorId={user?.id ?? null} sections={sections} />
                 </div>
               ) : null}
 
