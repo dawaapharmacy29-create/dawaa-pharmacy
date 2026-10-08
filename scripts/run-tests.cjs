@@ -216,6 +216,7 @@ const testFiles = [
   'src/lib/evaluations/__tests__/doctorPerformanceEye.test.ts',
   'src/lib/evaluations/__tests__/doctorPerformanceVerdict.test.ts',
   'src/lib/evaluations/__tests__/doctorDecisionIntelligence.test.ts',
+  'src/lib/auth/__tests__/requestIdentityHeaders.test.ts',
   'src/lib/__tests__/incentiveEligibility.test.ts',
   'src/lib/__tests__/customerCohortIntelligence.test.ts',
   'src/lib/staff/__tests__/staffPerformanceProfileService.test.ts',
