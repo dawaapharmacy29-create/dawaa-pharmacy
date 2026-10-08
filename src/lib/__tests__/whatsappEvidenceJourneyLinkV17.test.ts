@@ -164,7 +164,7 @@ describe('Evidence V17 link — staff session command', () => {
     const sql = fs.readFileSync(
       path.join(
         process.cwd(),
-        'supabase/migrations/20261008100000_whatsapp_evidence_journey_link_staff_session_v1.sql'
+        'supabase/migrations/20261008104059_whatsapp_evidence_journey_link_staff_session_v1.sql'
       ),
       'utf8'
     );

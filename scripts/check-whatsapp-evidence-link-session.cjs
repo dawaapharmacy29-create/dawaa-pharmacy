@@ -12,7 +12,7 @@ const failures = [];
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 
 const MIGRATION =
-  'supabase/migrations/20261008100000_whatsapp_evidence_journey_link_staff_session_v1.sql';
+  'supabase/migrations/20261008104059_whatsapp_evidence_journey_link_staff_session_v1.sql';
 const COMMAND = 'dawaa_link_whatsapp_evidence_journey_session_v1';
 
 const sql = read(MIGRATION);

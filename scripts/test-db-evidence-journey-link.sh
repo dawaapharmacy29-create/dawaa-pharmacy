@@ -14,5 +14,5 @@ trap cleanup EXIT
 "${RUN[@]}" "$PGBIN/pg_ctl" -D "$WORK/data" -o "-p $PORT -k $WORK -c listen_addresses=''" -l "$WORK/log" -w start >/dev/null
 PSQL=("${RUN[@]}" "$PGBIN/psql" -h "$WORK" -p "$PORT" -U postgres -d postgres -v ON_ERROR_STOP=1 -q)
 "${PSQL[@]}" -f "$ROOT/supabase/tests/whatsapp_evidence_journey_link_session_v1.fixture.sql"
-"${PSQL[@]}" -f "$ROOT/supabase/migrations/20261008100000_whatsapp_evidence_journey_link_staff_session_v1.sql"
+"${PSQL[@]}" -f "$ROOT/supabase/migrations/20261008104059_whatsapp_evidence_journey_link_staff_session_v1.sql"
 "${PSQL[@]}" -f "$ROOT/supabase/tests/whatsapp_evidence_journey_link_session_v1.test.sql"
