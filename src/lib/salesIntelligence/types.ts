@@ -424,6 +424,51 @@ export interface FollowUpAssessment {
   notNeededReason: FollowUpSuppression | null;
 }
 
+/**
+ * Canonical Operational Disposition — owner: salesIntelligence/caseOperationalDispositionEngine.ts.
+ * The single answer to "what is this case waiting on right now, who owns the next move, and what is
+ * it?". Composed from canonical outputs only (Need, Unavailable Demand, Commercial Confirmation,
+ * Sales Outcome, Journey, Lost Opportunity, Follow-up); it never parses message text. V22, Reviews,
+ * the Smart Folder and every UI read it — none of them derive it again.
+ *
+ * Operational obligation != scoring maturity: an explicit unresolved staff check is actionable now
+ * (state action_required_pharmacy) while its scoring lifecycle can still be `pending` with zero penalty.
+ */
+export type OperationalDispositionState =
+  | 'action_required_pharmacy'
+  | 'awaiting_customer'
+  | 'awaiting_stock'
+  | 'awaiting_delivery'
+  | 'awaiting_invoice'
+  | 'closed'
+  | 'open_unknown';
+
+export type OperationalActionOwner = 'pharmacy' | 'customer' | 'stock' | 'delivery' | 'invoice' | 'none' | 'unknown';
+
+export interface CaseOperationalDisposition {
+  version: 'case-operational-disposition-v1';
+  caseId: string;
+  state: OperationalDispositionState;
+  /** Who/what the case is waiting on (pharmacy = the pharmacy must act now). */
+  waitingOn: Exclude<OperationalActionOwner, 'none' | 'unknown'> | null;
+  actionOwner: OperationalActionOwner;
+  assignedRole: FollowUpAssignedRole | null;
+  assignedStaffId: string | null;
+  assignedStaffName: string | null;
+  nextBestAction: NextBestAction | null;
+  /** The follow-up opportunity that decided the disposition, when one did. */
+  decisiveFollowUpKey: string | null;
+  decisiveFollowUpReason: FollowUpReason | null;
+  productKeys: string[];
+  productIds: string[];
+  /** Commercial verdict kept separate: a closed sale can coexist with an open obligation. */
+  commercialState: LostOpportunityState;
+  reasonCodes: string[];
+  evidenceMessageIds: string[];
+  /** Section-level confidence of the decisive evidence (never the overall pipeline score). */
+  confidence: ConfidenceAssessment;
+}
+
 export type CaseIntelligenceStaffFactKind =
   | 'stated_available'
   | 'stated_unavailable'
@@ -548,6 +593,8 @@ export interface CaseIntelligenceView {
   unavailableDemand: UnavailableDemand[];
   lostOpportunity: LostOpportunityAssessment;
   followUp: FollowUpAssessment;
+  /** Canonical operational disposition (projected as-is; the view never re-derives it). */
+  operationalDisposition?: CaseOperationalDisposition;
   /** Pointers into canonical evidence for a later coaching engine; no judgement is made here. */
   coachingEvidence: {
     staffReplied: boolean;
@@ -1486,6 +1533,12 @@ export interface SalesIntelligenceCaseAnalysis {
   lostOpportunity: LostOpportunityAssessment;
   /** Canonical Follow-up Opportunities for this interaction (followUpOpportunityEngine). */
   followUp: FollowUpAssessment;
+  /**
+   * Canonical Operational Disposition (caseOperationalDispositionEngine) — the single owner of
+   * "what is this case waiting on now". Always produced by the pipeline; optional only for
+   * analyses persisted before it existed.
+   */
+  operationalDisposition?: CaseOperationalDisposition;
   /** Unified read model composed from all of the above (caseIntelligenceView). Built once, never re-derived. */
   caseIntelligence: CaseIntelligenceView;
   basketHistory: CaseBasket[];

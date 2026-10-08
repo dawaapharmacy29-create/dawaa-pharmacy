@@ -8,6 +8,9 @@
 //   -> canonical proof bridge (V44 RPC, the only Canonical Sale Proof writer)
 //   -> followers of proven truth (request-action closure) and context-only enrichment
 //
+//   -> canonical semantic projection onto the V22 envelope (v22SemanticProjection: automatic
+//      columns only, never human/proof fields)
+//
 // No code path here writes verified_* / canonicalSaleProof on whatsapp_customer_cases_v22
 // directly; dawaa_reconcile_sales_intelligence_case_v22_v1 is the only proof writer for active
 // cases, while sales_intelligence_reconcile_case_set_v1 may only revoke proof owned by a case that
@@ -30,6 +33,7 @@ import { analyzeConversationEvaluation } from '../conversationEvaluation';
 import { loadConversationEvaluationSystemEvidenceWithClient } from '../conversationEvaluationSystemEvidence';
 import { persistAutomaticCaseConversationReviewWithClient } from '../conversationEvaluationPersistence';
 import { hasPaymentSettlementHandoffText } from '../../whatsappConversationUnderstandingV32';
+import { projectCanonicalSemanticsToV22, v22EnvelopeValue } from './v22SemanticProjection';
 
 export const CASE_SET_RECONCILE_RPC = 'sales_intelligence_reconcile_case_set_v1';
 export const CANONICAL_PROOF_WRITER_RPC = 'dawaa_reconcile_sales_intelligence_case_v22_v1';
@@ -85,6 +89,8 @@ export interface CanonicalRefreshResult {
   canonicalReconciliation: CanonicalProofReconciliation[];
   actionReconciliation: { reconciledActions: number };
   complaintEnrichment: { enrichedComplaintActions: number };
+  /** Follower: canonical meaning projected onto each touched V22 envelope (never fatal). */
+  semanticProjection: Array<{ v22CaseId: string; status: string; reason: string | null; error?: string }>;
   conversationEvaluations: Array<{
     caseId: string;
     sourceId: string;
@@ -224,7 +230,7 @@ async function loadV22AnalysisContexts(
   for (let index = 0; index < ids.length; index += V22_ANALYSIS_CONTEXT_CHUNK) {
     const { data, error } = await service
       .from('whatsapp_customer_cases_v22')
-      .select('id,journey_id,customer_id,case_type,order_intent,order_confirmed')
+      .select('id,journey_id,customer_id,case_type,order_intent,order_confirmed,case_json')
       .in('id', ids.slice(index, index + V22_ANALYSIS_CONTEXT_CHUNK));
     if (error) throw new Error(`canonical_refresh_v22_context_lookup_failed: ${error.message}`);
     for (const row of data || []) {
@@ -232,8 +238,10 @@ async function loadV22AnalysisContexts(
         id: String(row.id),
         journeyId: row.journey_id ? String(row.journey_id) : null,
         customerId: row.customer_id ? String(row.customer_id) : null,
-        caseType: row.case_type ? String(row.case_type) : null,
-        orderIntent: Boolean(row.order_intent),
+        // Envelope (preliminary) values only: once SI projected its meaning onto these columns, the
+        // preliminary snapshot is read instead, so SI never consumes its own output (no feedback loop).
+        caseType: v22EnvelopeValue(row, 'case_type') ? String(v22EnvelopeValue(row, 'case_type')) : null,
+        orderIntent: Boolean(v22EnvelopeValue(row, 'order_intent')),
         orderConfirmed: Boolean(row.order_confirmed),
       });
     }
@@ -260,6 +268,7 @@ export async function runCanonicalSalesIntelligenceRefresh(
     canonicalReconciliation: [],
     actionReconciliation: { reconciledActions: 0 },
     complaintEnrichment: { enrichedComplaintActions: 0 },
+    semanticProjection: [],
     conversationEvaluations: [],
   };
 
@@ -383,6 +392,22 @@ export async function runCanonicalSalesIntelligenceRefresh(
     };
   }
 
+  // 4b. Canonical semantic projection onto the V22 envelopes touched by this batch. Aggregates all
+  // ACTIVE SI cases of each envelope (deterministic multi-case rule). Visible, never fatal.
+  const touchedV22 = Array.from(
+    new Set(
+      reconcileCandidates
+        .map((row: any) => String(row.conversationCase?.sourceCaseIdV22 || v22CaseIdBySource.get(String(row.conversationId || '')) || ''))
+        .filter(Boolean)
+    )
+  );
+  const semanticProjection = (await projectCanonicalSemanticsToV22(service, touchedV22)).map((row) => ({
+    v22CaseId: row.v22CaseId,
+    status: row.status,
+    reason: row.reason,
+    ...(row.error ? { error: row.error } : {}),
+  }));
+
   // 5. Conversation evaluation follower — only after Sales Intelligence persistence, case-set
   // reconciliation, and canonical proof reconciliation completed. This follower NEVER writes
   // doctor points/incentives. A failure here must not corrupt or roll back canonical sale truth.
@@ -479,6 +504,7 @@ export async function runCanonicalSalesIntelligenceRefresh(
     canonicalReconciliation,
     actionReconciliation: { reconciledActions },
     complaintEnrichment: { enrichedComplaintActions },
+    semanticProjection,
     conversationEvaluations,
   };
 }

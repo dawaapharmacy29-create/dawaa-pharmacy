@@ -38,6 +38,7 @@ import { deriveUnavailableDemand } from './unavailableDemandEngine';
 import { deriveLostOpportunity } from './lostOpportunityEngine';
 import { deriveFollowUpOpportunities } from './followUpOpportunityEngine';
 import { buildCaseIntelligenceView } from './caseIntelligenceView';
+import { deriveCaseOperationalDisposition } from './caseOperationalDispositionEngine';
 import {
   resolveProductMention,
   type PharmacyProductIndex,
@@ -594,6 +595,13 @@ function analyzeOneCase(
     customerIdentityStatus: input.customerIdentityStatus,
     staffIdBySender: input.staffIdBySender,
   });
+  // Last canonical decision: consumes Lost Opportunity + Follow-up + Journey outputs only.
+  const operationalDisposition = deriveCaseOperationalDisposition({
+    caseId: conversationCase.caseId,
+    lostOpportunity,
+    followUp,
+    journeyState,
+  });
 
   let status: PipelineStatus;
   if (isGenuinelyInformationOnly) {
@@ -638,6 +646,7 @@ function analyzeOneCase(
     journeyState,
     lostOpportunity,
     followUp,
+    operationalDisposition,
     evidenceCompleteness,
     status,
     pipelineWarnings,

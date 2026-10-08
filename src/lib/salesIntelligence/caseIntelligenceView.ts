@@ -229,6 +229,8 @@ export function buildCaseIntelligenceView(
     unavailableDemand: analysis.unavailableDemand,
     lostOpportunity: analysis.lostOpportunity,
     followUp: analysis.followUp,
+    // Projected as-is from the canonical disposition engine; the view decides nothing itself.
+    ...(analysis.operationalDisposition ? { operationalDisposition: analysis.operationalDisposition } : {}),
     coachingEvidence: {
       staffReplied: participants.size > 0,
       unansweredRequestMessageIds: analysis.lostOpportunity.reason === 'staff_no_response' ? analysis.lostOpportunity.evidenceMessageIds : [],

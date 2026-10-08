@@ -239,6 +239,7 @@ export default async function handler(req: any, res: any) {
     canonicalReconciliation: refresh.canonicalReconciliation,
     actionReconciliation: refresh.actionReconciliation,
     complaintEnrichment: refresh.complaintEnrichment,
+    semanticProjection: refresh.semanticProjection,
     conversationEvaluations: refresh.conversationEvaluations,
     sideProjections,
     derivedCases: (batch?.caseAnalyses || []).map((row: any) => ({
@@ -252,6 +253,24 @@ export default async function handler(req: any, res: any) {
       attributionLevel: row.attribution.attributionLevel,
       salesOutcome: row.salesOutcome?.outcome ?? null,
       saleProofState: row.salesOutcome?.saleProofState ?? null,
+      // Canonical read-only summary for ingestion UIs (Smart Folder): Product/Need and the
+      // canonical Operational Disposition, straight from this analysis — never re-derived client-side.
+      primaryNeed: row.customerNeed?.primaryNeed ?? null,
+      products: (row.customerNeed?.products || []).map((product: any) => ({
+        name: product.productNameRaw ?? product.key ?? null,
+        productId: product.productId ?? null,
+        availability: product.availability ?? null,
+      })),
+      operationalDisposition: row.operationalDisposition
+        ? {
+            state: row.operationalDisposition.state,
+            waitingOn: row.operationalDisposition.waitingOn,
+            actionOwner: row.operationalDisposition.actionOwner,
+            nextBestAction: row.operationalDisposition.nextBestAction,
+            assignedStaffName: row.operationalDisposition.assignedStaffName,
+            decisiveFollowUpReason: row.operationalDisposition.decisiveFollowUpReason,
+          }
+        : null,
       failureReasons: row.failureReasons,
     })),
     plan: batch

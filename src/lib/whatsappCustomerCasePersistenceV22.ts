@@ -2,6 +2,47 @@ import { supabase } from '@/lib/supabase';
 import type { WhatsAppCustomerCaseEngineV22 } from './whatsappCustomerCaseEngineV22';
 import type { JourneySessionSourceV15 } from './whatsappCustomerJourneyPersistenceV15';
 import { deriveProposedCaseLostReasonV23 } from './whatsappCaseLostReasonV23';
+import { V22_PROJECTED_COLUMNS } from './salesIntelligence/refresh/v22SemanticProjection';
+
+/**
+ * case_json keys owned by server-side canonical writers. The envelope sync never drops them:
+ * canonicalSaleProof (V44/V46 proof writer) and canonicalSemanticProjection (SI projection).
+ */
+const SERVER_OWNED_CASE_JSON_KEYS = ['canonicalSaleProof', 'canonicalSemanticProjection'] as const;
+
+/**
+ * Pure merge of a fresh envelope payload with the existing row. Before Sales Intelligence, V22
+ * semantic columns are preliminary. Once SI has projected its canonical meaning, a re-scan only
+ * refreshes the preliminary snapshot and keeps the projected columns, so reanalysis converges to
+ * the same final state instead of flickering back to the regex view.
+ */
+export function mergeV22EnvelopePayload(
+  payload: Record<string, any>,
+  existing: { case_json?: Record<string, any> | null; proposed_outcome?: string | null } | null
+): Record<string, any> {
+  if (!existing) return payload;
+  const existingJson = existing.case_json && typeof existing.case_json === 'object' ? existing.case_json : {};
+  const caseJson: Record<string, any> = { ...(payload.case_json || {}) };
+  for (const key of SERVER_OWNED_CASE_JSON_KEYS) {
+    if (existingJson[key] !== undefined) caseJson[key] = existingJson[key];
+  }
+  const merged: Record<string, any> = { ...payload, case_json: caseJson };
+  const projection = existingJson.canonicalSemanticProjection;
+  if (projection && typeof projection === 'object') {
+    const preliminary: Record<string, unknown> = {};
+    for (const column of V22_PROJECTED_COLUMNS) {
+      preliminary[column] = payload[column] ?? null;
+      delete merged[column];
+    }
+    caseJson.canonicalSemanticProjection = { ...projection, preliminary };
+  }
+  // A proven canonical sale owns proposed_outcome/outcome_confidence (proof writer only).
+  if (String(existingJson.canonicalSaleProof?.state || '') === 'proven' || existing.proposed_outcome === 'verified_sale') {
+    delete merged.proposed_outcome;
+    delete merged.outcome_confidence;
+  }
+  return merged;
+}
 
 export interface SyncWhatsAppCustomerCasesV22Context {
   branch?: string | null;
@@ -230,6 +271,23 @@ export async function syncWhatsAppCustomerCasesV22(
     }
   }
 
+  // Existing envelopes (bounded: one row per case of this file) so server-owned truth survives re-scans.
+  const caseKeys = model.cases
+    .map((caseItem) => {
+      const rootSourceId = caseItem.sessionIds.map((id) => sourceBySession.get(id)).find(Boolean);
+      return rootSourceId ? `v22:${rootSourceId}:${caseItem.startedAt}` : null;
+    })
+    .filter((key): key is string => Boolean(key));
+  const existingByKey = new Map<string, { case_json: Record<string, any> | null; proposed_outcome: string | null }>();
+  if (caseKeys.length) {
+    const { data: existingRows, error: existingError } = await supabase
+      .from('whatsapp_customer_cases_v22')
+      .select('case_key,case_json,proposed_outcome')
+      .in('case_key', caseKeys);
+    if (existingError) throw existingError;
+    for (const row of existingRows || []) existingByKey.set(String((row as any).case_key), row as any);
+  }
+
   for (const caseItem of model.cases) {
     const sourceIds = caseItem.sessionIds.map((id) => sourceBySession.get(id)).filter((id): id is string => Boolean(id));
     const rootSourceId = sourceIds[0];
@@ -317,7 +375,7 @@ export async function syncWhatsAppCustomerCasesV22(
 
       const { data: savedCase, error } = await supabase
         .from('whatsapp_customer_cases_v22')
-        .upsert(payload, { onConflict: 'case_key' })
+        .upsert(mergeV22EnvelopePayload(payload, existingByKey.get(caseKey) || null), { onConflict: 'case_key' })
         .select('id')
         .single();
       if (error) throw error;

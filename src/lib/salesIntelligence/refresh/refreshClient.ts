@@ -23,8 +23,26 @@ export interface ConversationEvaluationRefreshResult {
   error: string | null;
 }
 
+/** Canonical per-case summary returned by the refresh (read-only; for display, never re-derived). */
+export interface CanonicalCaseSummary {
+  caseId: string;
+  sourceId: string;
+  salesOutcome: string | null;
+  primaryNeed: string | null;
+  products: Array<{ name: string | null; productId: string | null; availability: string | null }>;
+  operationalDisposition: {
+    state: string;
+    waitingOn: string | null;
+    actionOwner: string;
+    nextBestAction: string | null;
+    assignedStaffName: string | null;
+    decisiveFollowUpReason: string | null;
+  } | null;
+}
+
 export interface CanonicalRefreshClientResult {
   bySource: Record<string, SalesIntelligenceStageStatus>;
+  canonicalCases: CanonicalCaseSummary[];
   conversationEvaluations: ConversationEvaluationRefreshResult[];
   /** Failures that leave the canonical chain incomplete (never includes legitimate non-canonical skips). */
   errors: Array<{ sourceId: string; message: string }>;
@@ -36,6 +54,7 @@ const AUTH_INVALID_CODES = new Set(['invalid_or_expired_staff_session', 'missing
 function createResult(): CanonicalRefreshClientResult {
   return {
     bySource: {},
+    canonicalCases: [],
     conversationEvaluations: [],
     errors: [],
     authInvalid: false,
@@ -88,6 +107,16 @@ function appendSuccessfulPage(
   }
 
   const derived = Array.isArray(payload?.derivedCases) ? payload.derivedCases : [];
+  for (const row of derived) {
+    result.canonicalCases.push({
+      caseId: String(row?.caseId || ''),
+      sourceId: String(row?.conversationId || fallbackSourceId || ''),
+      salesOutcome: row?.salesOutcome == null ? null : String(row.salesOutcome),
+      primaryNeed: row?.primaryNeed == null ? null : String(row.primaryNeed),
+      products: Array.isArray(row?.products) ? row.products : [],
+      operationalDisposition: row?.operationalDisposition ?? null,
+    });
+  }
   const derivedBySource = new Map<string, any[]>();
   for (const row of derived) {
     const sourceId = String(row?.conversationId || fallbackSourceId || '');

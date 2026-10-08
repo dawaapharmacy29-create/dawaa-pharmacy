@@ -36,6 +36,8 @@ export interface ConversationEvaluationFollowUp {
 const criterion = REVIEW_CRITERIA.find((item) => item.key === 'followup_after_wait');
 if (!criterion) throw new Error('Missing followup_after_wait review criterion');
 
+const PROMISE_OBLIGATION_REASONS = new Set(['staff_promised_check', 'stock_check_pending']);
+
 const NUDGE_RX =
   /^(?:[؟?]+|يا\s*دكتور|دكتور|لسه|تمام|طيب|اوك|أوك|اوكي|ok|حضرتك|معلش)$/i;
 
@@ -168,9 +170,12 @@ export function analyzeConversationEvaluationFollowUp(
       continue;
     }
 
+    // The canonical Follow-up owner records an unresolved staff commitment either as a generic
+    // promise or — when it is tied to one product's stock check — as stock_check_pending (the
+    // generic duplicate is deduped there). Both are the same promise obligation for scoring.
     const unresolvedPromise = view.followUp.opportunities.find(
       (opportunity) =>
-        opportunity.reason === 'staff_promised_check' &&
+        PROMISE_OBLIGATION_REASONS.has(opportunity.reason) &&
         opportunity.evidenceMessageIds.includes(promise.id)
     );
     if (unresolvedPromise) {

@@ -20,6 +20,7 @@ function refreshOk(sourceIds: string[]): CanonicalRefreshClientResult {
     bySource: Object.fromEntries(
       sourceIds.map((id) => [id, { status: 'allowed', reason: null, saleProofState: 'not_proven' }])
     ),
+    canonicalCases: [],
     conversationEvaluations: [],
     errors: [],
     authInvalid: false,
@@ -210,6 +211,7 @@ describe('canonical file pipeline — processed ledger only on full success', ()
         reason: null,
         requestedSourceIds: [SOURCE_ID],
         bySource: {},
+        canonicalCases: [],
         conversationEvaluations: [],
         errors: [`${SOURCE_ID}: canonical_refresh_failed`],
         authInvalid: false,
@@ -229,7 +231,7 @@ describe('canonical file pipeline — processed ledger only on full success', ()
       identityErrors: [],
       caseGraph: savedGraph,
       salesIntelligence: {
-        status: 'refreshed', reason: null, requestedSourceIds: [SOURCE_ID], bySource: {}, conversationEvaluations: [], errors: [], authInvalid: false,
+        status: 'refreshed', reason: null, requestedSourceIds: [SOURCE_ID], bySource: {}, canonicalCases: [], conversationEvaluations: [], errors: [], authInvalid: false,
       },
     });
     expect(state.stages.source_saved).toBe('failed');
@@ -246,7 +248,7 @@ describe('canonical file pipeline — processed ledger only on full success', ()
       identityErrors: [],
       caseGraph: savedGraph,
       salesIntelligence: {
-        status: 'refreshed', reason: null, requestedSourceIds: [SOURCE_ID], bySource: {}, conversationEvaluations: [], errors: [], authInvalid: false,
+        status: 'refreshed', reason: null, requestedSourceIds: [SOURCE_ID], bySource: {}, canonicalCases: [], conversationEvaluations: [], errors: [], authInvalid: false,
       },
     });
     expect(state.outcome).toBe('complete');

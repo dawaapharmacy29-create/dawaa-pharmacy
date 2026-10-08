@@ -39,6 +39,37 @@ Rules:
   `case_graph_saved` and `sales_intelligence_refreshed` are all done. Otherwise it stays retryable.
 * `dawaa_refresh_whatsapp_customer_story_v16` is never granted to `anon`; the browser never calls it.
 
+### 1b. Semantic ownership inside Sales Intelligence (acyclic)
+
+```
+V32 semantic facts (whatsappSemanticSignalsV32)
+  - classifyStaffCommitmentsV32: ONE staff-commitment grammar -> availability check_pending + follow-up promises
+  -> Customer Need (availability per product, linked only when unambiguous) / Basket
+  -> Unavailable Demand (check_pending | unavailable)
+  -> Commercial Confirmation -> Sales Outcome -> Journey State -> Lost Opportunity (commercial verdict)
+  -> Follow-up Opportunities (obligations; stock_check_pending preferred over a generic promise)
+  -> Operational Disposition (caseOperationalDispositionEngine): what the case waits on NOW
+  -> CaseIntelligenceView (read projection; never re-derives)
+  -> persisted analysis -> V22 semantic projection (v22SemanticProjection, follower)
+```
+
+* V22 before SI = case envelope (grouping / ownership / Canonical Source Gate). Its regex
+  semantics are preliminary and are never extended to fix SI cases.
+* After persistence, `v22SemanticProjection` projects order_intent / commercial_opportunity /
+  case_type (only `order` when canonical) / case_state / proposed_outcome / outcome_confidence /
+  next_action / summary / needs_human_review with provenance in
+  `case_json.canonicalSemanticProjection` (analysis ids, pipeline version, reason codes, evidence,
+  confidence, preliminary values). It never writes confirmed_*/reviewed_*/verified_*/
+  canonicalSaleProof; a proven sale keeps proposed_outcome; a human-confirmed outcome outranks it.
+* Multi SI cases -> one V22: one -> direct; agreeing -> aggregate; conflicting open states ->
+  `open` + `needs_human_review` + `v22_projection.mixed_operational_states`; any active case without a
+  disposition (older analysis) -> skipped, never guessed.
+* The envelope sync preserves server-owned case_json keys and, once projected, refreshes only the
+  preliminary snapshot; analysis inputs read envelope values (`v22EnvelopeValue`) so SI never consumes
+  its own projection (no feedback loop). Reanalysis converges to the same final state.
+* Operational obligation != scoring maturity: an unresolved stock check is actionable now while
+  its follow-up scoring lifecycle stays `pending` with zero penalty until violated.
+
 ## 2. Reanalysis contract
 
 `persistAnalyzedWhatsAppSession(..., { mode: 'reanalyze' })`:
@@ -58,6 +89,11 @@ Rules:
 | Customer Case V22 (`whatsappCustomerCasePersistenceV22.ts`) | **Canonical truth** (case graph / ownership) | case identity, source ownership, stage ownership V23 |
 | Canonical Customer Identity (`customers/canonicalCustomerIdentityResolver.ts`) | **Canonical truth** | customer identity for every WhatsApp path (display names are informational only) |
 | Follow-up Promise Lifecycle (`followUpPromiseLifecycle.ts`) | **Canonical rule** | pending / overdue / violated / completed; only `violated` may propose "never" |
+| Staff commitment grammar (`classifyStaffCommitmentsV32`) | **Canonical semantic fact** | stock-check / reply-back commitments; feeds availability, follow-up and scoring |
+| Operational Disposition (`caseOperationalDispositionEngine.ts`) | **Canonical truth** | state / waitingOn / action owner / next best action / staff / product |
+| V22 semantic projection (`refresh/v22SemanticProjection.ts`) | **Projection** (compatibility) | materializes canonical meaning on V22 columns |
+| V22 regex semantics (`whatsappCustomerCaseEngineV22.ts`) | **Preliminary envelope** | grouping/ownership only; kept as `preliminary` |
+| Evaluation V2 `FOLLOWUP_PROMISE_RX` | **Derived diagnostic (legacy)** | stock-out follow-up hint in the diagnostic panel only |
 | SI conversation evaluation (`salesIntelligence/conversationEvaluation*.ts`) | **Derived diagnostic** (proposal) | automatic review proposal; zero points impact |
 | Timing V28 / Delay attribution V29 | **Derived diagnostic** | response timing evidence |
 | Evaluation V2 (`whatsappConversationEvaluationV2.ts`) | **Derived diagnostic** | quality score, evidence coverage, analysis confidence shown as diagnostics |

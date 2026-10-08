@@ -2,6 +2,7 @@ import { REVIEW_CRITERIA, type ReviewCriterionKey } from '@/lib/conversationRevi
 import { extractIntroducedStaffName, type WhatsAppConversationSession } from '@/lib/whatsappConversationParser';
 import { extractConversationSignals } from '@/lib/whatsappConversationSignals';
 import { evaluateFollowUpPromiseLifecycle } from '@/lib/followUpPromiseLifecycle';
+import { isStaffFollowUpPromiseV32 } from '@/lib/whatsappSemanticSignalsV32';
 
 export type ReviewSuggestionStatus = 'assessed' | 'not_applicable' | 'review_required';
 
@@ -173,7 +174,8 @@ export function buildOfficialReviewSuggestion(
   items.push(suggestion('tone', 'review_required', null, 35, 'جودة النبرة والاحتراف تحتاج تحليل لغوي دلالي، ولا يجب استنتاجها من الكلمات المفتاحية وحدها.'));
   items.push(suggestion('understanding', 'review_required', null, 35, 'فهم الطلب يحتاج مقارنة سؤال العميل برد الدكتور وتسلسل الاستيضاح.'));
 
-  const promise = outbound.find((message) => /هكلمه|هرجع|هتابع|هطلب|هجيب مندوب|حالا|لحظات|هراجع/i.test(message.text));
+  // Same staff-commitment grammar as Sales Intelligence (single semantic owner; no local promise regex).
+  const promise = outbound.find((message) => isStaffFollowUpPromiseV32(message.text));
   if (promise) {
     const nextOutbound = session.messages
       .filter((message) => message.direction === 'outbound' && message.timestamp > promise.timestamp)

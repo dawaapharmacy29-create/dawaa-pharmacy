@@ -15,6 +15,7 @@ import { analyzeConversationEvaluationFollowUp } from '../conversationEvaluation
 
 const SOURCE_ID = '4b2f3e27-6847-48f8-b2ef-dea4b319df0b';
 const V22_CASE_ID = 'v22-case-a1';
+const NOOR_STAFF_ID = '82b9c2a1-6139-4b07-9937-ef80a6e926d8';
 const A1_RAW_TEXT =
   '10/06/2026, 9:00 AM - معاذ مزروع: جاست ريج أمبول\n' +
   '10/06/2026, 9:01 AM - نور: أهلًا وسهلًا بحضرتك 🌷 مع حضرتك د/ نور من صيدليات دواء. تحت أمر حضرتك، هراجع لحضرتك التوفر.\n';
@@ -55,8 +56,8 @@ describe('A1 canonical chain — "جاست ريج أمبول"', () => {
     expect(decision).toEqual({ allowed: true, sourceId: SOURCE_ID, v22CaseId: V22_CASE_ID });
   });
 
-  it('runs on the V20 canonical pipeline and resolves GAST-REG 50MG 3AMP / 40049', () => {
-    expect(PIPELINE_VERSION).toBe('sales-intelligence-v20');
+  it('runs on the canonical pipeline and resolves GAST-REG 50MG 3AMP / 40049', () => {
+    expect(PIPELINE_VERSION).toBe('sales-intelligence-v21');
     const result = runSalesIntelligencePipeline({
       conversationId: SOURCE_ID,
       rawWhatsAppExportText: A1_RAW_TEXT,
@@ -64,6 +65,7 @@ describe('A1 canonical chain — "جاست ريج أمبول"', () => {
       customerCodeHint: '17',
       customerNameHint: 'معاذ مزروع',
       customerIdentityStatus: 'resolved',
+      staffIdBySender: { نور: NOOR_STAFF_ID },
       resolveInvoiceCandidates: () => [],
       productIndex: INDEX,
     });
@@ -74,9 +76,50 @@ describe('A1 canonical chain — "جاست ريج أمبول"', () => {
     expect(product.productId).toBe('65ccef56-825a-4c31-93c8-a3bdaffd0488');
     expect(['proven', 'strongly_inferred']).toContain(product.confidence.level);
 
-    // "هراجع لحضرتك التوفر." then end of export: pending promise, never a forgotten customer.
+    expect(analysis.customerNeed.primaryNeed).toBe('جاست ريج أمبول');
+
+    // Availability: the staff commitment is a pending stock check tied to the one open need.
+    expect(product.availability).toBe('check_pending');
+    expect(analysis.unavailableDemand).toHaveLength(1);
+    expect(analysis.unavailableDemand[0].availabilityState).toBe('check_pending');
+
+    // Follow-up: one specific, actionable obligation; no duplicate generic promise.
+    expect(analysis.followUp.decision).toBe('actionable');
+    const active = analysis.followUp.opportunities.filter((o) => o.status !== 'suppressed');
+    expect(active.map((o) => o.reason)).toEqual(['stock_check_pending']);
+    expect(active[0]).toMatchObject({
+      status: 'actionable',
+      productId: '65ccef56-825a-4c31-93c8-a3bdaffd0488',
+      assignedStaffName: 'نور',
+      assignedStaffId: NOOR_STAFF_ID,
+      nextBestAction: 'complete_stock_check_and_reply',
+    });
+    expect(analysis.followUp.opportunities.some((o) => o.reason === 'staff_promised_check')).toBe(false);
+
+    // Lost Opportunity agrees: open, waiting on staff.
+    expect(analysis.lostOpportunity.state).toBe('open');
+    expect(analysis.lostOpportunity.waitingOn).toBe('staff');
+
+    // Canonical operational disposition (single owner), projected unchanged into the view.
+    const disposition = analysis.caseIntelligence.operationalDisposition!;
+    expect(disposition).toMatchObject({
+      state: 'action_required_pharmacy',
+      actionOwner: 'pharmacy',
+      waitingOn: 'pharmacy',
+      nextBestAction: 'complete_stock_check_and_reply',
+      decisiveFollowUpReason: 'stock_check_pending',
+      assignedStaffName: 'نور',
+      assignedStaffId: NOOR_STAFF_ID,
+      productIds: ['65ccef56-825a-4c31-93c8-a3bdaffd0488'],
+      commercialState: 'open',
+    });
+    expect(disposition).toEqual(analysis.operationalDisposition);
+
+    // Scoring maturity is separate: operationally actionable, but the promise is still pending.
     const followUp = analyzeConversationEvaluationFollowUp(analysis.caseIntelligence).item;
     expect(followUp.selectedOption).not.toBe('never');
-    expect(followUp.pointsEarned === null || followUp.pointsEarned > 0).toBe(true);
+    expect(followUp.pointsEarned).toBeNull();
+    expect(followUp.lifecycle?.status).toBe('pending');
+    expect(followUp.lifecycle?.penaltyEligible).toBe(false);
   });
 });

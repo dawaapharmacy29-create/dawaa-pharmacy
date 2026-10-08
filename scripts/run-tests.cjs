@@ -300,6 +300,10 @@ const testFiles = [
   'src/lib/salesIntelligence/__tests__/conversationEvaluationFollowUp.test.ts',
   'src/lib/salesIntelligence/__tests__/productNeedResolutionE2E.test.ts',
   'src/lib/salesIntelligence/__tests__/whatsappA1CanonicalChainE2E.test.ts',
+  // One staff-commitment grammar, canonical Operational Disposition, SI -> V22 semantic projection.
+  'src/lib/__tests__/staffCommitmentClassifierV32.test.ts',
+  'src/lib/salesIntelligence/__tests__/operationalDispositionInverse.test.ts',
+  'src/lib/salesIntelligence/__tests__/v22SemanticProjection.test.ts',
 ];
 for (const relativePath of testFiles) {
   const testFile = path.join(root, relativePath);

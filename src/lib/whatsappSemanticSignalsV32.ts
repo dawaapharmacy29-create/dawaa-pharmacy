@@ -146,8 +146,88 @@ const AVAILABLE_RX =
 // "خدمة التوصيل متاحة" and similar service/payment statements are not product stock facts.
 const NON_STOCK_AVAILABILITY_CONTEXT_RX =
   /(?:خدمة\s*)?(?:التوصيل|الدليفري|delivery)|(?:الدفع|التحويل|فودافون\s*كاش|انستا\s*باي|instapay|visa|فيزا|mastercard|ماستر\s*كارد)/i;
-const CHECK_PENDING_RX =
-  /(?:ثواني|ثانية|لحظ[ةه]|دقيق[ةه]|دقايق)\s*(?:و\s*)?(?:أ|ا)?(?:شوف|تأكد|اتأكد|سأل|راجع)|هشوف(?:لك|لحضرتك)?|هتأكد|هاتأكد|هسأل\s*(?:الفرع|المخزن|عن\s*(?:التوفر|توفره|توفرها))|هنشوف(?:ه|ها)?|(?:أ|ا)تأكد\s*من\s*(?:توفر|التوفر|المخزن)|هراجع\s*(?:المخزن|التوفر)/i;
+// ---- Staff commitments (single owner: classifyStaffCommitmentsV32 below) ----
+// One structured grammar for "the staff member commits to do something and come back", consumed by
+// availability (check_pending), follow-up promises and scoring. It replaced two independent regex
+// families (CHECK_PENDING_RX / STAFF_FOLLOWUP_PROMISE_RX) that disagreed on the same sentence and
+// both missed an inserted recipient ("هراجع لحضرتك التوفر"). Grammar, not phrases:
+//   FUTURE(ه|ها|هن|ح|حن) + VERB + {recipient | filler}* + [preposition] + OBJECT
+// with no product vocabulary. Past tense ("راجعت"), nouns ("مراجعة"), negation ("مش هراجع") and
+// questions never match; callers apply it to STAFF messages only.
+const COMMIT_RECIPIENT = String.raw`(?:لك|ليك|ليكي|لكي|لكم|لحضرتك|لحضرتكم|لحضرتكو|حضرتك|معاك|معاكي|مع\s*حضرتك|عليك|عليكي|على\s*حضرتك)`;
+const COMMIT_FILLER = String.raw`(?:يا\s*(?:ا)?فندم|يا\s*دكتور[ةه]?|حالا|حالًا|دلوقتي|دلوقت|فورا|فورًا|بنفسي|تاني|كده|بس|ان\s*شاء\s*الله|إن\s*شاء\s*الله)`;
+const COMMIT_GAP = String.raw`(?:\s+(?:${COMMIT_RECIPIENT}|${COMMIT_FILLER}))*`;
+// Future marker at a word start; a preceding negation ("مش هراجع") is not a commitment.
+// An attached conjunction ("وهراجع", "فهشوف") is part of the same word.
+const COMMIT_FUTURE = String.raw`(?<![\p{L}\p{N}])(?<!(?:مش|مو|لن|ماش)\s+)(?:و|ف)?(?:ه|ها|هن|ح|حن)`;
+const CHECK_VERB = String.raw`(?:راجع|شوف|بص|تأكد|اتأكد|أتأكد|سأل|اسأل|أسأل|كشف)`;
+const REPLY_VERB = String.raw`(?:تابع|كلم|رد|بلغ|عرف|قول|رجع)`;
+const COMMIT_PREPOSITION = String.raw`(?:\s+(?:من|عن|على|ع|في|إذا|اذا|لو)\s*)?`;
+// Stock/availability objects only (generic store words, never a product name).
+const AVAILABILITY_OBJECT = String.raw`(?:(?:ال)?(?:توفر|توافر)\S*|(?:ال)?مخزن|(?:ال)?مخزون|(?:ال)?ستوك|stock|(?:ال)?فرع(?:\s*(?:التاني|الثاني|التانى))?|(?:ال)?كمي[ةه]|(?:هو|هي|ده|دي)?\s*(?:موجود|متوفر|متاح)[ةه]?\s*(?:ولا\s*(?:لا|لأ|لاء)|او\s*لا|أو\s*لا)|عند(?:نا|ه|ها)\s*(?:ولا\s*(?:لا|لأ)))`;
+const WAIT_THEN_CHECK = String.raw`(?:ثواني|ثانية|لحظ[ةه]|لحظات|دقيق[ةه]|دقايق)\s*(?:و\s*)?(?:أ|ا)?(?:شوف|تأكد|اتأكد|سأل|راجع)`;
+
+const COMMIT_CHECK_WITH_OBJECT_RX = new RegExp(
+  `${COMMIT_FUTURE}${CHECK_VERB}(?:ه|ها|هم)?${COMMIT_GAP}${COMMIT_PREPOSITION}${COMMIT_GAP}\\s*${AVAILABILITY_OBJECT}`,
+  'iu'
+);
+// Bare check verbs keep their established meaning ("هشوف لحضرتك" / "هتأكد" / "هنشوفه").
+const COMMIT_BARE_CHECK_RX = new RegExp(
+  `${COMMIT_FUTURE}(?:شوف|تأكد|اتأكد)(?:ه|ها|هم)?(?![\\p{L}])|${COMMIT_FUTURE}(?:سأل|اسأل)\\s*${COMMIT_RECIPIENT}|${WAIT_THEN_CHECK}|(?<![\\p{L}])(?:أ|ا)تأكد\\s*(?:من|عن)\\s*${AVAILABILITY_OBJECT}`,
+  'iu'
+);
+// "هراجع وأرد لحضرتك" — a check followed by an explicit reply commitment.
+const COMMIT_CHECK_THEN_REPLY_RX = new RegExp(
+  `${COMMIT_FUTURE}${CHECK_VERB}${COMMIT_GAP}\\s*و\\s*(?:أ|ا|ه|هن)?${REPLY_VERB}`,
+  'iu'
+);
+// Reply-back commitments; verbs that are also everyday words require an explicit recipient.
+const COMMIT_REPLY_RX = new RegExp(
+  `${COMMIT_FUTURE}تابع(?![\\p{L}])|${COMMIT_FUTURE}تابع\\s*${COMMIT_RECIPIENT}|${COMMIT_FUTURE}${REPLY_VERB}(?:ك|كي|كم)(?![\\p{L}])|${COMMIT_FUTURE}${REPLY_VERB}${COMMIT_GAP}\\s*(?:على\\s*|ل)?${COMMIT_RECIPIENT}`,
+  'iu'
+);
+
+export type StaffCommitmentKindV32 = 'availability_check' | 'reply_back';
+
+export interface StaffCommitmentV32 {
+  kind: StaffCommitmentKindV32;
+  /** Exact matched span (for evidence display and for separating it from other clause content). */
+  matchedText: string;
+  ruleId: string;
+  confidence: number;
+}
+
+/**
+ * Structured staff-commitment classifier (text level; callers restrict to STAFF messages).
+ * Returns every commitment kind the statement carries; a question is never a commitment.
+ */
+export function classifyStaffCommitmentsV32(text: string): StaffCommitmentV32[] {
+  const out: StaffCommitmentV32[] = [];
+  for (const clause of statementClauses(text)) {
+    const withObject = clause.match(COMMIT_CHECK_WITH_OBJECT_RX);
+    const bare = withObject ? null : clause.match(COMMIT_BARE_CHECK_RX);
+    if (withObject || bare) {
+      out.push({
+        kind: 'availability_check',
+        matchedText: (withObject || bare)![0].trim(),
+        ruleId: withObject ? 'commitment.check_availability_object' : 'commitment.check_bare',
+        confidence: withObject ? 0.8 : 0.75,
+      });
+    }
+    const checkThenReply = clause.match(COMMIT_CHECK_THEN_REPLY_RX);
+    const reply = checkThenReply ? null : clause.match(COMMIT_REPLY_RX);
+    if (checkThenReply || reply) {
+      out.push({
+        kind: 'reply_back',
+        matchedText: (checkThenReply || reply)![0].trim(),
+        ruleId: checkThenReply ? 'commitment.check_then_reply' : 'commitment.reply_back',
+        confidence: 0.8,
+      });
+    }
+  }
+  return out;
+}
+
 // Explicit alternative markers always count; a generic offer phrase only counts right after a staff
 // "unavailable" statement or a customer rejection (otherwise it is an ordinary offer, not a substitute).
 const ALTERNATIVE_MARKER_RX =
@@ -587,8 +667,12 @@ function statementClauses(text: string): string[] {
 function clauseAvailabilityState(clause: string): AvailabilityStateV32 | null {
   if (NON_STOCK_AVAILABILITY_CONTEXT_RX.test(clause)) return null;
   if (UNAVAILABLE_RX.test(clause)) return 'unavailable';
-  if (AVAILABLE_RX.test(clause)) return 'available';
-  if (CHECK_PENDING_RX.test(clause)) return 'check_pending';
+  const check = classifyStaffCommitmentsV32(clause).find((row) => row.kind === 'availability_check');
+  // "هشوف موجود ولا لا": the availability word belongs to the commitment's object, so it is a
+  // pending check, not an availability assertion. Anything outside the commitment span still counts.
+  const outsideCommitment = check ? clause.replace(check.matchedText, ' ') : clause;
+  if (AVAILABLE_RX.test(outsideCommitment)) return 'available';
+  if (check) return 'check_pending';
   return null;
 }
 
@@ -726,9 +810,6 @@ export function classifyCustomerIntentStatementV32(text: string): CustomerIntent
 }
 
 // ---- Follow-up evidence (facts only; the Follow-up engine decides) ----
-// Staff promising to come back to the customer ("هتابع مع حضرتك", "هبلغ حضرتك", "هشوفلك وأرد").
-const STAFF_FOLLOWUP_PROMISE_RX =
-  /هتابع|هنتابع|ه(?:ن)?كلم\s*(?:ك|حضرتك)|ه(?:ن)?رد\s*على\s*(?:حضرتك|ك)|ه(?:ن)?بلغ\s*(?:ك|حضرتك)|ه(?:ن)?عرف\s*(?:ك|حضرتك)|هقول\s*(?:لك|لحضرتك)|هشوف\s*(?:لك|لحضرتك)|هسأل\s*(?:لك|لحضرتك)|هراجع\s*و\s*(?:أرد|ارد|أكلم|اكلم|أبلغ|ابلغ|أرجع|ارجع|هرجع)(?:\s*(?:لك|لحضرتك|معاك|معاكي|مع\s*حضرتك))?/i;
 // Customer asking to be contacted / to wait, with optional timing.
 const CUSTOMER_CALLBACK_RX =
   /كلمني|كلميني|كلمنى|اتصل(?:\s*(?:بي|بيا|عليا))?|رن\s*عليا|تابع\s*معايا|ابقى\s*(?:كلمني|تابع|بلغني|عرفني)|بلغني|عرفني|ابعتلي\s*لما/i;
@@ -745,9 +826,9 @@ export interface CustomerTimingRequestV32 {
   days: number | null;
 }
 
-/** Staff message promising to come back to the customer later. */
+/** Staff message carrying any commitment to come back (stock check or reply-back). Same grammar as check_pending. */
 export function isStaffFollowUpPromiseV32(text: string): boolean {
-  return STAFF_FOLLOWUP_PROMISE_RX.test(text);
+  return classifyStaffCommitmentsV32(text).length > 0;
 }
 
 /** A message that mentions the prescription itself (e.g. the customer sending/describing it). */

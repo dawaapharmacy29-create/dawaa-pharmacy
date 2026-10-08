@@ -11,6 +11,7 @@ import {
 } from './whatsappCustomerJourneyPersistenceV15';
 import {
   requestCanonicalSalesIntelligenceRefresh,
+  type CanonicalCaseSummary,
   type CanonicalRefreshClientResult,
   type ConversationEvaluationRefreshResult,
   type SalesIntelligenceStageStatus,
@@ -186,6 +187,8 @@ export interface CanonicalSalesIntelligenceStageResult {
   /** Sources sent in the single refresh request (empty when the stage did not run). */
   requestedSourceIds: string[];
   bySource: Record<string, SalesIntelligenceStageStatus>;
+  /** Canonical Product/Need + Operational Disposition per SI case (display truth for ingestion UIs). */
+  canonicalCases: CanonicalCaseSummary[];
   conversationEvaluations: ConversationEvaluationRefreshResult[];
   errors: string[];
   authInvalid: boolean;
@@ -347,6 +350,7 @@ function emptySalesIntelligence(
     reason,
     requestedSourceIds: [],
     bySource: {},
+    canonicalCases: [],
     conversationEvaluations: [],
     errors: [],
     authInvalid: false,
@@ -413,6 +417,7 @@ export async function runCanonicalCaseGraphAndSalesIntelligence(
       reason: refresh.authInvalid ? 'invalid_or_expired_staff_session' : null,
       requestedSourceIds: sourceIds,
       bySource: refresh.bySource,
+      canonicalCases: refresh.canonicalCases || [],
       conversationEvaluations: refresh.conversationEvaluations,
       errors,
       authInvalid: refresh.authInvalid,

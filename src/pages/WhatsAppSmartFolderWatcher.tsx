@@ -46,6 +46,36 @@ import {
   type WhatsAppFileProcessingState,
 } from '@/lib/whatsappWatcherCaseGraphSync';
 import { getStaffSessionToken } from '@/lib/auth/staffSession';
+import type { CanonicalCaseSummary } from '@/lib/salesIntelligence/refresh/refreshClient';
+
+const OPERATIONAL_STATE_LABEL: Record<string, string> = {
+  action_required_pharmacy: 'مطلوب إجراء من الصيدلية',
+  awaiting_customer: 'في انتظار العميل',
+  awaiting_stock: 'في انتظار توفر الصنف',
+  awaiting_delivery: 'في انتظار التوصيل',
+  awaiting_invoice: 'في انتظار الفاتورة',
+  closed: 'مغلقة',
+  open_unknown: 'مفتوحة / غير محددة',
+};
+const NEXT_ACTION_LABEL: Record<string, string> = {
+  respond_to_customer_request: 'الرد على طلب العميل',
+  complete_stock_check_and_reply: 'إكمال مراجعة التوفر والرد على العميل',
+  complete_promised_check: 'تنفيذ ما وعد به الموظف والرجوع للعميل',
+  contact_customer_when_product_available: 'التواصل عند توفر الصنف',
+  confirm_alternative_decision: 'متابعة قرار العميل في البديل',
+  check_customer_decision: 'متابعة قرار العميل',
+  follow_up_with_value_or_allowed_offer: 'متابعة اعتراض السعر',
+  request_missing_prescription_details: 'طلب بيانات الروشتة الناقصة',
+  resolve_delivery_status: 'حل حالة التوصيل',
+  contact_customer_at_requested_time: 'التواصل في الوقت الذي طلبه العميل',
+  send_single_recovery_followup: 'رسالة متابعة واحدة',
+};
+const AVAILABILITY_LABEL: Record<string, string> = {
+  available: 'متوفر',
+  unavailable: 'غير متوفر',
+  check_pending: 'جاري مراجعة التوفر',
+  unknown: 'غير معروف',
+};
 import type { SmartQuickDecisionResult } from '@/lib/whatsappSmartReviewDecision';
 import {
   buildConversationReviewSnapshot,
@@ -96,6 +126,8 @@ type FileRun = {
     status: CanonicalSalesIntelligenceStageStatus;
     reason: string | null;
     sourceIds: string[];
+    /** Canonical per-case Product/Need + Operational Disposition (display only; never re-derived here). */
+    cases?: CanonicalCaseSummary[];
   } | null;
   mode?: PersistSessionMode;
 };
@@ -107,7 +139,7 @@ const STAGE_LABELS: Record<WhatsAppFilePipelineStage, string> = {
   parsed: 'قراءة الملف',
   source_saved: 'حفظ المصدر',
   identity_resolved: 'هوية العميل',
-  case_graph_saved: 'Customer Case V22',
+  case_graph_saved: 'Case Graph / Ownership',
   sales_intelligence_refreshed: 'Sales Intelligence',
   review_ready: 'جاهز للمراجعة',
 };
@@ -526,6 +558,7 @@ export default function WhatsAppSmartFolderWatcher() {
         status: pipeline.salesIntelligence.status,
         reason: pipeline.salesIntelligence.reason,
         sourceIds: pipeline.salesIntelligence.requestedSourceIds,
+        cases: pipeline.salesIntelligence.canonicalCases,
       },
       mode,
     };
@@ -855,9 +888,34 @@ export default function WhatsAppSmartFolderWatcher() {
                         </div>
                       ) : null}
                       {run.salesIntelligence?.status === 'refreshed' ? (
-                        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-cyan-800/40 bg-cyan-950/15 p-3 text-xs text-cyan-100">
-                          <span>Product / Need / Basket / إثبات البيع الرسمي يُعرض من Sales Intelligence فقط.</span>
-                          <button type="button" onClick={() => navigate('/sales-intelligence/qa')} className="rounded-lg border border-cyan-700/60 px-2 py-1 font-black">فتح مراجعة الحالات</button>
+                        <div className="mb-3 space-y-2 rounded-xl border border-cyan-800/40 bg-cyan-950/15 p-3 text-xs text-cyan-100">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="font-black">Sales Intelligence (المصدر الرسمي) — الاحتياج والحالة التشغيلية</span>
+                            <button type="button" onClick={() => navigate('/sales-intelligence/qa')} className="rounded-lg border border-cyan-700/60 px-2 py-1 font-black">فتح مراجعة الحالات</button>
+                          </div>
+                          {(run.salesIntelligence.cases || []).map((canonicalCase) => (
+                            <div key={canonicalCase.caseId} className="rounded-lg border border-cyan-900/50 bg-slate-950/30 p-2 leading-6">
+                              <div>الاحتياج: <b>{canonicalCase.primaryNeed || '—'}</b></div>
+                              {canonicalCase.products.length ? (
+                                <div>
+                                  الأصناف:{' '}
+                                  {canonicalCase.products
+                                    .map((product) => `${product.name || '—'}${product.productId ? '' : ' (غير محسوم)'} · ${AVAILABILITY_LABEL[String(product.availability)] || product.availability || '—'}`)
+                                    .join(' | ')}
+                                </div>
+                              ) : null}
+                              {canonicalCase.operationalDisposition ? (
+                                <div>
+                                  الحالة التشغيلية:{' '}
+                                  <b>{OPERATIONAL_STATE_LABEL[canonicalCase.operationalDisposition.state] || canonicalCase.operationalDisposition.state}</b>
+                                  {canonicalCase.operationalDisposition.nextBestAction
+                                    ? ` · الإجراء التالي: ${NEXT_ACTION_LABEL[canonicalCase.operationalDisposition.nextBestAction] || canonicalCase.operationalDisposition.nextBestAction}`
+                                    : ''}
+                                  {canonicalCase.operationalDisposition.assignedStaffName ? ` · المسؤول: ${canonicalCase.operationalDisposition.assignedStaffName}` : ''}
+                                </div>
+                              ) : null}
+                            </div>
+                          ))}
                         </div>
                       ) : null}
                       {run.errors.length && !run.staffRuns.length && !run.processing ? (
@@ -868,7 +926,7 @@ export default function WhatsAppSmartFolderWatcher() {
                             <section key={caseGroup.caseId} className="overflow-hidden rounded-2xl border border-cyan-900/40 bg-cyan-950/5">
                               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 px-3 py-2.5">
                                 <div>
-                                  <div className="text-xs font-black text-cyan-200">حالة/رحلة {caseIndex + 1}: {caseGroup.summary}</div>
+                                  <div className="text-xs font-black text-cyan-200">Case Graph {caseIndex + 1} (تجميع/ملكية — قراءة أولية): {caseGroup.summary}</div>
                                   <div className="mt-1 text-[10px] text-slate-500">
                                     {caseGroup.sessionCount} جلسة خام مرتبطة · {caseGroup.items.length} مسؤول · {caseGroup.customerName || 'عميل غير محدد'}
                                   </div>

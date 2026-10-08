@@ -837,7 +837,57 @@ var PROMISE_RX = /هبعت(?:لك|لحضرتك)?|هيوصل|هجهز(?:لك|لح
 var UNAVAILABLE_RX = /(?:مش|مو|غير)\s*(?:موجود|متوفر|متاح)[ةه]?|مفيش\s*(?:منه|منها|حاليا|حاليًا|عندنا)|مش\s*عندنا|(?:الصنف|المنتج|ده|دي|هو|هي)\s*(?:خلص|خلصان[ةه]?|نفذ|ناقص[ةه]?)|(?:خلص|نفذ|ناقص[ةه]?)\s*(?:من\s*(?:عندنا|السوق|الشركة)|حاليا|حاليًا)|ناقص\s*في\s*السوق/i;
 var AVAILABLE_RX = /(?:^|[\s،,])(?:موجود|متوفر|متاح)[ةه]?(?:$|[\s،,!.])|عندنا\s*(?:منه|منها)|(?:اه|أه|آه|ايوه|أيوه|ايوا)\s*(?:موجود|متوفر)/i;
 var NON_STOCK_AVAILABILITY_CONTEXT_RX = /(?:خدمة\s*)?(?:التوصيل|الدليفري|delivery)|(?:الدفع|التحويل|فودافون\s*كاش|انستا\s*باي|instapay|visa|فيزا|mastercard|ماستر\s*كارد)/i;
-var CHECK_PENDING_RX = /(?:ثواني|ثانية|لحظ[ةه]|دقيق[ةه]|دقايق)\s*(?:و\s*)?(?:أ|ا)?(?:شوف|تأكد|اتأكد|سأل|راجع)|هشوف(?:لك|لحضرتك)?|هتأكد|هاتأكد|هسأل\s*(?:الفرع|المخزن|عن\s*(?:التوفر|توفره|توفرها))|هنشوف(?:ه|ها)?|(?:أ|ا)تأكد\s*من\s*(?:توفر|التوفر|المخزن)|هراجع\s*(?:المخزن|التوفر)/i;
+var COMMIT_RECIPIENT = String.raw`(?:لك|ليك|ليكي|لكي|لكم|لحضرتك|لحضرتكم|لحضرتكو|حضرتك|معاك|معاكي|مع\s*حضرتك|عليك|عليكي|على\s*حضرتك)`;
+var COMMIT_FILLER = String.raw`(?:يا\s*(?:ا)?فندم|يا\s*دكتور[ةه]?|حالا|حالًا|دلوقتي|دلوقت|فورا|فورًا|بنفسي|تاني|كده|بس|ان\s*شاء\s*الله|إن\s*شاء\s*الله)`;
+var COMMIT_GAP = String.raw`(?:\s+(?:${COMMIT_RECIPIENT}|${COMMIT_FILLER}))*`;
+var COMMIT_FUTURE = String.raw`(?<![\p{L}\p{N}])(?<!(?:مش|مو|لن|ماش)\s+)(?:و|ف)?(?:ه|ها|هن|ح|حن)`;
+var CHECK_VERB = String.raw`(?:راجع|شوف|بص|تأكد|اتأكد|أتأكد|سأل|اسأل|أسأل|كشف)`;
+var REPLY_VERB = String.raw`(?:تابع|كلم|رد|بلغ|عرف|قول|رجع)`;
+var COMMIT_PREPOSITION = String.raw`(?:\s+(?:من|عن|على|ع|في|إذا|اذا|لو)\s*)?`;
+var AVAILABILITY_OBJECT = String.raw`(?:(?:ال)?(?:توفر|توافر)\S*|(?:ال)?مخزن|(?:ال)?مخزون|(?:ال)?ستوك|stock|(?:ال)?فرع(?:\s*(?:التاني|الثاني|التانى))?|(?:ال)?كمي[ةه]|(?:هو|هي|ده|دي)?\s*(?:موجود|متوفر|متاح)[ةه]?\s*(?:ولا\s*(?:لا|لأ|لاء)|او\s*لا|أو\s*لا)|عند(?:نا|ه|ها)\s*(?:ولا\s*(?:لا|لأ)))`;
+var WAIT_THEN_CHECK = String.raw`(?:ثواني|ثانية|لحظ[ةه]|لحظات|دقيق[ةه]|دقايق)\s*(?:و\s*)?(?:أ|ا)?(?:شوف|تأكد|اتأكد|سأل|راجع)`;
+var COMMIT_CHECK_WITH_OBJECT_RX = new RegExp(
+  `${COMMIT_FUTURE}${CHECK_VERB}(?:\u0647|\u0647\u0627|\u0647\u0645)?${COMMIT_GAP}${COMMIT_PREPOSITION}${COMMIT_GAP}\\s*${AVAILABILITY_OBJECT}`,
+  "iu"
+);
+var COMMIT_BARE_CHECK_RX = new RegExp(
+  `${COMMIT_FUTURE}(?:\u0634\u0648\u0641|\u062A\u0623\u0643\u062F|\u0627\u062A\u0623\u0643\u062F)(?:\u0647|\u0647\u0627|\u0647\u0645)?(?![\\p{L}])|${COMMIT_FUTURE}(?:\u0633\u0623\u0644|\u0627\u0633\u0623\u0644)\\s*${COMMIT_RECIPIENT}|${WAIT_THEN_CHECK}|(?<![\\p{L}])(?:\u0623|\u0627)\u062A\u0623\u0643\u062F\\s*(?:\u0645\u0646|\u0639\u0646)\\s*${AVAILABILITY_OBJECT}`,
+  "iu"
+);
+var COMMIT_CHECK_THEN_REPLY_RX = new RegExp(
+  `${COMMIT_FUTURE}${CHECK_VERB}${COMMIT_GAP}\\s*\u0648\\s*(?:\u0623|\u0627|\u0647|\u0647\u0646)?${REPLY_VERB}`,
+  "iu"
+);
+var COMMIT_REPLY_RX = new RegExp(
+  `${COMMIT_FUTURE}\u062A\u0627\u0628\u0639(?![\\p{L}])|${COMMIT_FUTURE}\u062A\u0627\u0628\u0639\\s*${COMMIT_RECIPIENT}|${COMMIT_FUTURE}${REPLY_VERB}(?:\u0643|\u0643\u064A|\u0643\u0645)(?![\\p{L}])|${COMMIT_FUTURE}${REPLY_VERB}${COMMIT_GAP}\\s*(?:\u0639\u0644\u0649\\s*|\u0644)?${COMMIT_RECIPIENT}`,
+  "iu"
+);
+function classifyStaffCommitmentsV32(text2) {
+  const out = [];
+  for (const clause of statementClauses(text2)) {
+    const withObject = clause.match(COMMIT_CHECK_WITH_OBJECT_RX);
+    const bare = withObject ? null : clause.match(COMMIT_BARE_CHECK_RX);
+    if (withObject || bare) {
+      out.push({
+        kind: "availability_check",
+        matchedText: (withObject || bare)[0].trim(),
+        ruleId: withObject ? "commitment.check_availability_object" : "commitment.check_bare",
+        confidence: withObject ? 0.8 : 0.75
+      });
+    }
+    const checkThenReply = clause.match(COMMIT_CHECK_THEN_REPLY_RX);
+    const reply = checkThenReply ? null : clause.match(COMMIT_REPLY_RX);
+    if (checkThenReply || reply) {
+      out.push({
+        kind: "reply_back",
+        matchedText: (checkThenReply || reply)[0].trim(),
+        ruleId: checkThenReply ? "commitment.check_then_reply" : "commitment.reply_back",
+        confidence: 0.8
+      });
+    }
+  }
+  return out;
+}
 var ALTERNATIVE_MARKER_RX = /بديل|بدل\s*(?:منه|منها|منهم|ده|دي|ال\S+)|المتاح\s*بدل|(?:فيه|في|عندنا)\s*نفس\s*(?:المادة|التركيب[ةه]?)|نفس\s*المادة\s*الفعال[ةه]|يقوم\s*بنفس|نبدل(?:ه|ها|هم)?\s/i;
 var GENERIC_OFFER_RX = /(?:ممكن|ينفع|نقدر)\s*(?:نجيب|أجيب|اجيب|نديلك|أقدم|اقدم|نقدم|أقترح|اقترح|أرشح|ارشح)(?:لك|لحضرتك)?|(?:أرشح|ارشح|أقترح|اقترح)(?:لك|لحضرتك)/i;
 var ALTERNATIVE_PHRASE_FILLER_RX = /^(?:(?:ممكن|ينفع|نقدر|نجيب|أجيب|اجيب|هنجيب|هجيب|نديلك|نديك|نقدم|أقدم|اقدم|أرشح|ارشح|نرشح|لحضرتك|ليك|لك|له|لها|منه|منها|هو|هي|وهو|اسمه|اسمها|يا\s*فندم|بـ)(?=\s|$)|[\s:\-،])+/i;
@@ -1116,8 +1166,10 @@ function statementClauses(text2) {
 function clauseAvailabilityState(clause) {
   if (NON_STOCK_AVAILABILITY_CONTEXT_RX.test(clause)) return null;
   if (UNAVAILABLE_RX.test(clause)) return "unavailable";
-  if (AVAILABLE_RX.test(clause)) return "available";
-  if (CHECK_PENDING_RX.test(clause)) return "check_pending";
+  const check = classifyStaffCommitmentsV32(clause).find((row) => row.kind === "availability_check");
+  const outsideCommitment = check ? clause.replace(check.matchedText, " ") : clause;
+  if (AVAILABLE_RX.test(outsideCommitment)) return "available";
+  if (check) return "check_pending";
   return null;
 }
 function availabilityStatementClausesV32(text2) {
@@ -1196,7 +1248,6 @@ function classifyCustomerIntentStatementV32(text2) {
   if (CONSIDERING_RX.test(text2)) return "considering";
   return null;
 }
-var STAFF_FOLLOWUP_PROMISE_RX = /هتابع|هنتابع|ه(?:ن)?كلم\s*(?:ك|حضرتك)|ه(?:ن)?رد\s*على\s*(?:حضرتك|ك)|ه(?:ن)?بلغ\s*(?:ك|حضرتك)|ه(?:ن)?عرف\s*(?:ك|حضرتك)|هقول\s*(?:لك|لحضرتك)|هشوف\s*(?:لك|لحضرتك)|هسأل\s*(?:لك|لحضرتك)|هراجع\s*و\s*(?:أرد|ارد|أكلم|اكلم|أبلغ|ابلغ|أرجع|ارجع|هرجع)(?:\s*(?:لك|لحضرتك|معاك|معاكي|مع\s*حضرتك))?/i;
 var CUSTOMER_CALLBACK_RX = /كلمني|كلميني|كلمنى|اتصل(?:\s*(?:بي|بيا|عليا))?|رن\s*عليا|تابع\s*معايا|ابقى\s*(?:كلمني|تابع|بلغني|عرفني)|بلغني|عرفني|ابعتلي\s*لما/i;
 var WHEN_IN_STOCK_RX = /لما\s*(?:\S+\s+){0,3}?(?:يوصل|يتوفر|ييجي|ينزل|تجيبه|تجيبوه|يبقى\s*موجود)/i;
 var TOMORROW_RX = /بكر[ةه]|بكرا/i;
@@ -1204,7 +1255,7 @@ var AFTER_DAYS_RX = /بعد\s*(?:(يومين)|(\d+)\s*(?:يوم|أيام|ايا�
 var SAME_DAY_RX = /النهارد[ةه]|بالليل|كمان\s*ساع[ةه]|بعد\s*ساع[ةه]|آخر\s*النهار|اخر\s*النهار/i;
 var PRESCRIPTION_REQUEST_RX = /(?:ابعت|ابعتي|ابعتلنا|محتاج(?:ين)?|لازم|ممكن)\s*(?:\S+\s*){0,2}(?:صور[ةه]\s*)?(?:ال)?(?:روشت[ةه]|وصف[ةه]\s*طبي[ةه])/i;
 function isStaffFollowUpPromiseV32(text2) {
-  return STAFF_FOLLOWUP_PROMISE_RX.test(text2);
+  return classifyStaffCommitmentsV32(text2).length > 0;
 }
 function mentionsPrescriptionV32(text2) {
   return /روشت[ةه]|وصف[ةه]\s*طبي[ةه]/i.test(text2);
@@ -6410,6 +6461,8 @@ function buildCaseIntelligenceView(analysis, context) {
     unavailableDemand: analysis.unavailableDemand,
     lostOpportunity: analysis.lostOpportunity,
     followUp: analysis.followUp,
+    // Projected as-is from the canonical disposition engine; the view decides nothing itself.
+    ...analysis.operationalDisposition ? { operationalDisposition: analysis.operationalDisposition } : {},
     coachingEvidence: {
       staffReplied: participants.size > 0,
       unansweredRequestMessageIds: analysis.lostOpportunity.reason === "staff_no_response" ? analysis.lostOpportunity.evidenceMessageIds : [],
@@ -6442,6 +6495,125 @@ function dedupeFacts(facts) {
     seen.add(key);
     return true;
   });
+}
+
+// src/lib/salesIntelligence/caseOperationalDispositionEngine.ts
+var OPERATIONAL_DISPOSITION_VERSION = "case-operational-disposition-v1";
+var REASON_BUCKET = {
+  staff_no_response: "pharmacy",
+  stock_check_pending: "pharmacy",
+  staff_promised_check: "pharmacy",
+  callback_requested: "pharmacy",
+  delivery_unresolved: "delivery",
+  stock_unavailable: "stock",
+  customer_asked_to_wait: "stock",
+  alternative_open: "customer",
+  customer_considering: "customer",
+  price_objection: "customer",
+  prescription_incomplete: "customer",
+  customer_no_response: "customer"
+};
+var BUCKET_RANK = { pharmacy: 0, delivery: 1, stock: 2, invoice: 3, customer: 4 };
+var PRIORITY_RANK = { high: 0, medium: 1, low: 2 };
+var STATE_BY_BUCKET = {
+  pharmacy: "action_required_pharmacy",
+  delivery: "awaiting_delivery",
+  stock: "awaiting_stock",
+  invoice: "awaiting_invoice",
+  customer: "awaiting_customer"
+};
+var LOST_WAITING_BUCKET = {
+  staff: "pharmacy",
+  customer: "customer",
+  stock: "stock",
+  invoice: "invoice"
+};
+var LOST_WAITING_ACTION = {
+  pharmacy: "respond_to_customer_request",
+  delivery: "resolve_delivery_status",
+  stock: "contact_customer_when_product_available",
+  invoice: null,
+  customer: null
+};
+var TERMINAL_COMMERCIAL = /* @__PURE__ */ new Set([
+  "won",
+  "closed_order_unproven",
+  "lost",
+  "no_commercial_opportunity"
+]);
+function pickOpportunity(opportunities) {
+  return opportunities.filter((o) => o.status === "actionable" || o.status === "blocked").slice().sort(
+    (a, b) => BUCKET_RANK[REASON_BUCKET[a.reason]] - BUCKET_RANK[REASON_BUCKET[b.reason]] || (a.status === "actionable" ? 0 : 1) - (b.status === "actionable" ? 0 : 1) || PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || a.followUpKey.localeCompare(b.followUpKey)
+  )[0] ?? null;
+}
+function deriveCaseOperationalDisposition(input) {
+  const { lostOpportunity, followUp, journeyState } = input;
+  const opportunity = pickOpportunity(followUp.opportunities);
+  const lostBucket = (lostOpportunity.state === "open" || lostOpportunity.state === "recoverable") && lostOpportunity.waitingOn ? LOST_WAITING_BUCKET[lostOpportunity.waitingOn] : journeyState.currentState === "awaiting_invoice" ? "invoice" : null;
+  let decision;
+  const fromOpportunity = (o) => ({
+    bucket: REASON_BUCKET[o.reason],
+    opportunity: o,
+    reasonCodes: [
+      `disposition.follow_up.${o.reason}`,
+      ...o.status === "blocked" && o.blocker ? [`disposition.blocked.${o.blocker}`] : []
+    ],
+    evidenceMessageIds: o.evidenceMessageIds,
+    confidence: o.confidence,
+    nextBestAction: o.nextBestAction
+  });
+  if (opportunity && (!lostBucket || BUCKET_RANK[REASON_BUCKET[opportunity.reason]] <= BUCKET_RANK[lostBucket])) {
+    decision = fromOpportunity(opportunity);
+  } else if (lostBucket) {
+    decision = {
+      bucket: lostBucket,
+      opportunity: null,
+      reasonCodes: [`disposition.lost_opportunity.waiting_on_${lostOpportunity.waitingOn ?? "invoice"}`, lostOpportunity.explanation],
+      evidenceMessageIds: lostOpportunity.evidenceMessageIds,
+      confidence: lostOpportunity.confidence,
+      nextBestAction: LOST_WAITING_ACTION[lostBucket]
+    };
+  } else if (TERMINAL_COMMERCIAL.has(lostOpportunity.state)) {
+    decision = {
+      bucket: "closed",
+      opportunity: null,
+      reasonCodes: [`disposition.closed.${lostOpportunity.state}`, lostOpportunity.explanation],
+      evidenceMessageIds: lostOpportunity.evidenceMessageIds,
+      confidence: lostOpportunity.confidence,
+      nextBestAction: null
+    };
+  } else {
+    decision = {
+      bucket: "unknown",
+      opportunity: null,
+      reasonCodes: ["disposition.open_unknown", lostOpportunity.explanation],
+      evidenceMessageIds: lostOpportunity.evidenceMessageIds,
+      confidence: lostOpportunity.confidence,
+      nextBestAction: null
+    };
+  }
+  const state = decision.bucket === "closed" ? "closed" : decision.bucket === "unknown" ? "open_unknown" : STATE_BY_BUCKET[decision.bucket];
+  const actionOwner = decision.bucket === "closed" ? "none" : decision.bucket === "unknown" ? "unknown" : decision.bucket;
+  const productScoped = decision.opportunity ? [decision.opportunity] : followUp.opportunities.filter((o) => o.status !== "suppressed" && REASON_BUCKET[o.reason] === decision.bucket);
+  return {
+    version: OPERATIONAL_DISPOSITION_VERSION,
+    caseId: input.caseId,
+    state,
+    waitingOn: actionOwner === "none" || actionOwner === "unknown" ? null : actionOwner,
+    actionOwner,
+    assignedRole: decision.opportunity?.assignedRole ?? null,
+    assignedStaffId: decision.opportunity?.assignedStaffId ?? null,
+    assignedStaffName: decision.opportunity?.assignedStaffName ?? null,
+    nextBestAction: decision.nextBestAction,
+    decisiveFollowUpKey: decision.opportunity?.followUpKey ?? null,
+    decisiveFollowUpReason: decision.opportunity?.reason ?? null,
+    productKeys: [...new Set(productScoped.map((o) => o.productKey).filter((v) => Boolean(v)))],
+    productIds: [...new Set(productScoped.map((o) => o.productId).filter((v) => Boolean(v)))],
+    commercialState: lostOpportunity.state,
+    reasonCodes: [...new Set(decision.reasonCodes.filter(Boolean))],
+    evidenceMessageIds: [...new Set(decision.evidenceMessageIds)],
+    confidence: decision.confidence
+  };
 }
 
 // src/lib/salesIntelligence/salesIntelligencePipeline.ts
@@ -6783,6 +6955,12 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     customerIdentityStatus: input.customerIdentityStatus,
     staffIdBySender: input.staffIdBySender
   });
+  const operationalDisposition = deriveCaseOperationalDisposition({
+    caseId: conversationCase.caseId,
+    lostOpportunity,
+    followUp,
+    journeyState
+  });
   let status;
   if (isGenuinelyInformationOnly) {
     status = "analyzed";
@@ -6820,6 +6998,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     journeyState,
     lostOpportunity,
     followUp,
+    operationalDisposition,
     evidenceCompleteness,
     status,
     pipelineWarnings,
@@ -7890,7 +8069,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v20";
+var PIPELINE_VERSION = "sales-intelligence-v21";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v10-payment-continuation-ambiguity-safe",
   historicalClosure: "historical-closure-v1",
@@ -10817,6 +10996,7 @@ function evaluateFollowUpPromiseLifecycle(input) {
 // src/lib/salesIntelligence/conversationEvaluationFollowUp.ts
 var criterion = REVIEW_CRITERIA.find((item) => item.key === "followup_after_wait");
 if (!criterion) throw new Error("Missing followup_after_wait review criterion");
+var PROMISE_OBLIGATION_REASONS = /* @__PURE__ */ new Set(["staff_promised_check", "stock_check_pending"]);
 var NUDGE_RX = /^(?:[؟?]+|يا\s*دكتور|دكتور|لسه|تمام|طيب|اوك|أوك|اوكي|ok|حضرتك|معلش)$/i;
 function make2(option, status, confidence3, reason, evidenceMessageIds, waitSeconds, promiseCount, lifecycle = null, labelOverride = null) {
   const choice = option ? criterion.choices.find((item) => item.value === option) ?? null : null;
@@ -10903,7 +11083,7 @@ function analyzeConversationEvaluationFollowUp(view) {
       continue;
     }
     const unresolvedPromise = view.followUp.opportunities.find(
-      (opportunity) => opportunity.reason === "staff_promised_check" && opportunity.evidenceMessageIds.includes(promise.id)
+      (opportunity) => PROMISE_OBLIGATION_REASONS.has(opportunity.reason) && opportunity.evidenceMessageIds.includes(promise.id)
     );
     if (unresolvedPromise) {
       const lifecycle = evaluateFollowUpPromiseLifecycle({ promiseAt: promise.at, observedUntil });
@@ -12664,6 +12844,260 @@ async function persistAutomaticCaseConversationReviewWithClient(client, input) {
   };
 }
 
+// src/lib/salesIntelligence/refresh/v22SemanticProjection.ts
+var V22_SEMANTIC_PROJECTION_VERSION = "v22-semantic-projection-v1";
+var V22_PROJECTED_COLUMNS = [
+  "order_intent",
+  "commercial_opportunity",
+  "case_type",
+  "case_state",
+  "proposed_outcome",
+  "outcome_confidence",
+  "next_action",
+  "summary",
+  "needs_human_review"
+];
+var NEXT_ACTION_LABEL = {
+  respond_to_customer_request: "\u0627\u0644\u0631\u062F \u0639\u0644\u0649 \u0637\u0644\u0628 \u0627\u0644\u0639\u0645\u064A\u0644 \u0627\u0644\u0645\u0641\u062A\u0648\u062D.",
+  complete_stock_check_and_reply: "\u0625\u0643\u0645\u0627\u0644 \u0645\u0631\u0627\u062C\u0639\u0629 \u0627\u0644\u062A\u0648\u0641\u0631 \u0648\u0627\u0644\u0631\u062F \u0639\u0644\u0649 \u0627\u0644\u0639\u0645\u064A\u0644.",
+  complete_promised_check: "\u062A\u0646\u0641\u064A\u0630 \u0645\u0627 \u0648\u0639\u062F \u0628\u0647 \u0627\u0644\u0645\u0648\u0638\u0641 \u0648\u0627\u0644\u0631\u062C\u0648\u0639 \u0644\u0644\u0639\u0645\u064A\u0644.",
+  contact_customer_when_product_available: "\u0627\u0644\u062A\u0648\u0627\u0635\u0644 \u0645\u0639 \u0627\u0644\u0639\u0645\u064A\u0644 \u0639\u0646\u062F \u062A\u0648\u0641\u0631 \u0627\u0644\u0635\u0646\u0641.",
+  confirm_alternative_decision: "\u0645\u062A\u0627\u0628\u0639\u0629 \u0642\u0631\u0627\u0631 \u0627\u0644\u0639\u0645\u064A\u0644 \u0641\u064A \u0627\u0644\u0628\u062F\u064A\u0644 \u0627\u0644\u0645\u0642\u062A\u0631\u062D.",
+  check_customer_decision: "\u0645\u062A\u0627\u0628\u0639\u0629 \u0642\u0631\u0627\u0631 \u0627\u0644\u0639\u0645\u064A\u0644.",
+  follow_up_with_value_or_allowed_offer: "\u0645\u062A\u0627\u0628\u0639\u0629 \u0627\u0639\u062A\u0631\u0627\u0636 \u0627\u0644\u0633\u0639\u0631 \u0628\u0642\u064A\u0645\u0629 \u0623\u0648 \u0639\u0631\u0636 \u0645\u0633\u0645\u0648\u062D.",
+  request_missing_prescription_details: "\u0637\u0644\u0628 \u0628\u064A\u0627\u0646\u0627\u062A/\u0635\u0648\u0631\u0629 \u0627\u0644\u0631\u0648\u0634\u062A\u0629 \u0627\u0644\u0646\u0627\u0642\u0635\u0629.",
+  resolve_delivery_status: "\u062D\u0644 \u0645\u0634\u0643\u0644\u0629 \u0627\u0644\u062A\u0648\u0635\u064A\u0644 \u0648\u062A\u0623\u0643\u064A\u062F\u0647\u0627 \u0645\u0639 \u0627\u0644\u0639\u0645\u064A\u0644.",
+  contact_customer_at_requested_time: "\u0627\u0644\u062A\u0648\u0627\u0635\u0644 \u0645\u0639 \u0627\u0644\u0639\u0645\u064A\u0644 \u0641\u064A \u0627\u0644\u0648\u0642\u062A \u0627\u0644\u0630\u064A \u0637\u0644\u0628\u0647.",
+  send_single_recovery_followup: "\u0631\u0633\u0627\u0644\u0629 \u0645\u062A\u0627\u0628\u0639\u0629 \u0648\u0627\u062D\u062F\u0629 \u0644\u0627\u0633\u062A\u0639\u0627\u062F\u0629 \u0627\u0644\u0639\u0645\u064A\u0644."
+};
+var STATE_LABEL = {
+  action_required_pharmacy: "\u0645\u0637\u0644\u0648\u0628 \u0625\u062C\u0631\u0627\u0621 \u0645\u0646 \u0627\u0644\u0635\u064A\u062F\u0644\u064A\u0629",
+  awaiting_customer: "\u0641\u064A \u0627\u0646\u062A\u0638\u0627\u0631 \u0627\u0644\u0639\u0645\u064A\u0644",
+  awaiting_stock: "\u0641\u064A \u0627\u0646\u062A\u0638\u0627\u0631 \u062A\u0648\u0641\u0631 \u0627\u0644\u0635\u0646\u0641",
+  awaiting_delivery: "\u0641\u064A \u0627\u0646\u062A\u0638\u0627\u0631 \u0627\u0644\u062A\u0648\u0635\u064A\u0644",
+  awaiting_invoice: "\u0641\u064A \u0627\u0646\u062A\u0638\u0627\u0631 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629",
+  closed: "\u0645\u063A\u0644\u0642\u0629",
+  open_unknown: "\u0645\u0641\u062A\u0648\u062D\u0629"
+};
+function projectSingleCase(fact) {
+  const view = fact.view;
+  const disposition = view.operationalDisposition;
+  const outcome = view.sale.outcome;
+  const requested = view.need.products.some((p) => p.roles.includes("requested"));
+  const orderIntent = requested || outcome === "order_confirmed_unproven" || outcome === "customer_confirmed_unproven" || outcome === "sale_proven";
+  const commercial = view.lostOpportunity.state !== "no_commercial_opportunity" && outcome !== "information_only";
+  let caseState;
+  switch (disposition.state) {
+    case "action_required_pharmacy":
+    case "awaiting_stock":
+      caseState = "awaiting_pharmacy";
+      break;
+    case "awaiting_customer":
+      caseState = "awaiting_customer";
+      break;
+    case "awaiting_delivery":
+    case "awaiting_invoice":
+      caseState = view.sale.customerConfirmed || outcome === "order_confirmed_unproven" || outcome === "sale_proven" ? "confirmed_order" : "awaiting_pharmacy";
+      break;
+    case "closed":
+      caseState = "closed";
+      break;
+    default:
+      caseState = "open";
+  }
+  let proposedOutcome;
+  if (disposition.state === "action_required_pharmacy" || disposition.state === "awaiting_stock") proposedOutcome = "awaiting_pharmacy";
+  else if (disposition.state === "awaiting_customer") proposedOutcome = "awaiting_customer";
+  else if (disposition.state === "awaiting_delivery") proposedOutcome = "followup_needed";
+  else if (disposition.state === "awaiting_invoice" || disposition.commercialState === "closed_order_unproven") proposedOutcome = "order_confirmed_waiting_invoice";
+  else if (disposition.state === "open_unknown") proposedOutcome = "open";
+  const need = view.need.primaryNeed ? `\u0627\u0644\u0627\u062D\u062A\u064A\u0627\u062C: ${view.need.primaryNeed}` : null;
+  const values = {
+    order_intent: orderIntent,
+    commercial_opportunity: commercial,
+    case_state: caseState,
+    outcome_confidence: Math.round((disposition.confidence.score || 0) * 100),
+    next_action: disposition.nextBestAction ? NEXT_ACTION_LABEL[disposition.nextBestAction] : null,
+    summary: [need, `\u0627\u0644\u062D\u0627\u0644\u0629 \u0627\u0644\u062A\u0634\u063A\u064A\u0644\u064A\u0629: ${STATE_LABEL[disposition.state]}`].filter(Boolean).join(" \xB7 "),
+    _state: disposition.state,
+    _nba: disposition.nextBestAction
+  };
+  if (orderIntent) values.case_type = "order";
+  if (proposedOutcome) values.proposed_outcome = proposedOutcome;
+  return values;
+}
+function aggregateV22Projection(facts) {
+  if (!facts.length) return { status: "skipped", reason: "no_active_sales_intelligence_case" };
+  if (facts.some((fact) => !fact.view?.operationalDisposition)) {
+    return { status: "skipped", reason: "incomplete_canonical_analyses" };
+  }
+  const sorted = facts.slice().sort((a, b) => a.salesCaseId.localeCompare(b.salesCaseId));
+  const projected = sorted.map(projectSingleCase);
+  const evidenceMessageIds = [...new Set(sorted.flatMap((f) => f.view.operationalDisposition.evidenceMessageIds))];
+  const reasonCodes = [...new Set(sorted.flatMap((f) => f.view.operationalDisposition.reasonCodes))];
+  const confidence3 = Math.min(...sorted.map((f) => f.view.operationalDisposition.confidence.score || 0));
+  if (projected.length === 1) {
+    const { _state, _nba, ...values } = projected[0];
+    return { status: "ok", values: { ...values, needs_human_review: false }, reasonCodes, evidenceMessageIds, confidence: confidence3, mode: "direct" };
+  }
+  const states = new Set(projected.map((p) => p._state));
+  const openStates = [...states].filter((s) => s !== "closed");
+  const orderIntent = projected.some((p) => p.order_intent === true);
+  const commercial = projected.some((p) => p.commercial_opportunity === true);
+  const base = {
+    order_intent: orderIntent,
+    commercial_opportunity: commercial,
+    ...orderIntent ? { case_type: "order" } : {},
+    outcome_confidence: Math.round(confidence3 * 100)
+  };
+  if (openStates.length <= 1) {
+    const leader = projected.find((p) => p._state === (openStates[0] ?? "closed"));
+    const { _state, _nba, ...values } = leader;
+    return {
+      status: "ok",
+      values: { ...values, ...base, needs_human_review: false },
+      reasonCodes: [...reasonCodes, "v22_projection.aggregate_agreeing_cases"],
+      evidenceMessageIds,
+      confidence: confidence3,
+      mode: "aggregate"
+    };
+  }
+  const actions = [...new Set(projected.map((p) => p.next_action).filter(Boolean))];
+  return {
+    status: "ok",
+    values: {
+      ...base,
+      case_state: "open",
+      proposed_outcome: "followup_needed",
+      next_action: actions.join(" / ") || null,
+      summary: `\u062D\u0627\u0644\u0627\u062A \u0645\u062A\u0639\u062F\u062F\u0629 \u0628\u062D\u0627\u0644\u0627\u062A \u062A\u0634\u063A\u064A\u0644\u064A\u0629 \u0645\u062E\u062A\u0644\u0641\u0629: ${openStates.map((s) => STATE_LABEL[s]).join("\u060C ")}`,
+      needs_human_review: true
+    },
+    reasonCodes: [...reasonCodes, "v22_projection.mixed_operational_states"],
+    evidenceMessageIds,
+    confidence: confidence3,
+    mode: "mixed"
+  };
+}
+function same(a, b) {
+  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+}
+function decideV22Projection(row, facts, nowIso) {
+  const aggregate = aggregateV22Projection(facts);
+  if (aggregate.status === "skipped") {
+    return { v22CaseId: row.id, status: "skipped", reason: aggregate.reason, patch: null };
+  }
+  const caseJson = row.case_json && typeof row.case_json === "object" ? row.case_json : {};
+  const previous = caseJson.canonicalSemanticProjection || null;
+  const preliminary = previous?.preliminary ?? Object.fromEntries(V22_PROJECTED_COLUMNS.map((column) => [column, row[column] ?? null]));
+  const guards = [];
+  const values = { ...aggregate.values };
+  if (String(caseJson.canonicalSaleProof?.state || "") === "proven") {
+    delete values.proposed_outcome;
+    delete values.outcome_confidence;
+    guards.push("v22_projection.sale_proof_owned_by_proof_writer");
+  }
+  if (row.confirmed_outcome) {
+    delete values.proposed_outcome;
+    delete values.case_state;
+    guards.push("v22_projection.human_confirmed_outcome_outranks");
+  }
+  const columnPatch = {};
+  for (const [column, value] of Object.entries(values)) {
+    if (!same(row[column], value)) columnPatch[column] = value;
+  }
+  const sorted = facts.slice().sort((a, b) => a.salesCaseId.localeCompare(b.salesCaseId));
+  const projectionCore = {
+    source: "sales_intelligence",
+    version: V22_SEMANTIC_PROJECTION_VERSION,
+    mode: aggregate.mode,
+    salesCaseIds: sorted.map((f) => f.salesCaseId),
+    analysisIds: sorted.map((f) => f.analysisId),
+    pipelineVersions: [...new Set(sorted.map((f) => f.pipelineVersion))],
+    reasonCodes: [...aggregate.reasonCodes, ...guards],
+    evidenceMessageIds: aggregate.evidenceMessageIds,
+    confidence: aggregate.confidence,
+    projectedValues: values,
+    preliminary
+  };
+  const previousCore = previous ? { ...previous } : null;
+  if (previousCore) delete previousCore.projectedAt;
+  if (!Object.keys(columnPatch).length && same(previousCore, projectionCore)) {
+    return { v22CaseId: row.id, status: "unchanged", reason: null, patch: null };
+  }
+  return {
+    v22CaseId: row.id,
+    status: "projected",
+    reason: null,
+    patch: {
+      ...columnPatch,
+      case_json: { ...caseJson, canonicalSemanticProjection: { ...projectionCore, projectedAt: nowIso } }
+    }
+  };
+}
+function v22EnvelopeValue(row, column) {
+  const preliminary = row.case_json?.canonicalSemanticProjection?.preliminary;
+  return preliminary && Object.prototype.hasOwnProperty.call(preliminary, column) ? preliminary[column] : row[column];
+}
+var V22_CHUNK = 40;
+async function projectCanonicalSemanticsToV22(service, v22CaseIds, nowIso = (/* @__PURE__ */ new Date()).toISOString()) {
+  const ids = [...new Set(v22CaseIds.filter(Boolean))];
+  const out = [];
+  for (let index = 0; index < ids.length; index += V22_CHUNK) {
+    const chunk = ids.slice(index, index + V22_CHUNK);
+    try {
+      const { data: cases, error: caseError } = await service.from("sales_intelligence_cases").select("case_id,source_case_id_v22").in("source_case_id_v22", chunk).eq("is_active", true).limit(500);
+      if (caseError) throw caseError;
+      const salesCaseIds = (cases || []).map((row) => String(row.case_id));
+      const factsByV22 = /* @__PURE__ */ new Map();
+      if (salesCaseIds.length) {
+        const { data: analyses, error: analysisError } = await service.from("sales_intelligence_case_analyses").select("analysis_id,case_id,pipeline_version,case_intelligence:evidence_snapshot->caseIntelligence").in("case_id", salesCaseIds).eq("is_current", true).limit(500);
+        if (analysisError) throw analysisError;
+        const v22ByCase = new Map((cases || []).map((row) => [String(row.case_id), String(row.source_case_id_v22)]));
+        for (const row of analyses || []) {
+          const v22Id = v22ByCase.get(String(row.case_id));
+          if (!v22Id) continue;
+          const list = factsByV22.get(v22Id) || [];
+          list.push({
+            salesCaseId: String(row.case_id),
+            analysisId: String(row.analysis_id),
+            pipelineVersion: String(row.pipeline_version || ""),
+            view: row.case_intelligence
+          });
+          factsByV22.set(v22Id, list);
+        }
+      }
+      for (const v22Id of chunk) {
+        out.push(await projectOne(service, v22Id, factsByV22.get(v22Id) || [], nowIso));
+      }
+    } catch (error) {
+      for (const v22Id of chunk) {
+        out.push({ v22CaseId: v22Id, status: "skipped", reason: "projection_lookup_failed", patch: null, error: errorText(error) });
+      }
+    }
+  }
+  return out;
+}
+var ROW_COLUMNS = ["id", "case_json", "confirmed_outcome", "updated_at", ...V22_PROJECTED_COLUMNS].join(",");
+async function projectOne(service, v22Id, facts, nowIso) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const { data: row, error } = await service.from("whatsapp_customer_cases_v22").select(ROW_COLUMNS).eq("id", v22Id).maybeSingle();
+    if (error) return { v22CaseId: v22Id, status: "skipped", reason: "v22_lookup_failed", patch: null, error: errorText(error) };
+    if (!row) return { v22CaseId: v22Id, status: "skipped", reason: "v22_case_not_found", patch: null };
+    const decision = decideV22Projection(row, facts, nowIso);
+    if (decision.status !== "projected") return decision;
+    const { data: updated, error: updateError } = await service.from("whatsapp_customer_cases_v22").update({ ...decision.patch, updated_at: nowIso }).eq("id", v22Id).eq("updated_at", row.updated_at).select("id");
+    if (updateError) return { ...decision, status: "skipped", reason: "v22_update_failed", error: errorText(updateError) };
+    if ((updated || []).length) return decision;
+  }
+  return { v22CaseId: v22Id, status: "skipped", reason: "concurrent_update_retry_exhausted", patch: null };
+}
+function errorText(error) {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object" && "message" in error) return String(error.message);
+  return String(error);
+}
+
 // src/lib/salesIntelligence/refresh/canonicalRefreshService.ts
 var CASE_SET_RECONCILE_RPC = "sales_intelligence_reconcile_case_set_v1";
 var CANONICAL_PROOF_WRITER_RPC = "dawaa_reconcile_sales_intelligence_case_v22_v1";
@@ -12752,15 +13186,17 @@ async function loadV22AnalysisContexts(service, caseIds) {
   const out = /* @__PURE__ */ new Map();
   const ids = Array.from(new Set(caseIds.map(String).filter(Boolean)));
   for (let index = 0; index < ids.length; index += V22_ANALYSIS_CONTEXT_CHUNK) {
-    const { data, error } = await service.from("whatsapp_customer_cases_v22").select("id,journey_id,customer_id,case_type,order_intent,order_confirmed").in("id", ids.slice(index, index + V22_ANALYSIS_CONTEXT_CHUNK));
+    const { data, error } = await service.from("whatsapp_customer_cases_v22").select("id,journey_id,customer_id,case_type,order_intent,order_confirmed,case_json").in("id", ids.slice(index, index + V22_ANALYSIS_CONTEXT_CHUNK));
     if (error) throw new Error(`canonical_refresh_v22_context_lookup_failed: ${error.message}`);
     for (const row of data || []) {
       out.set(String(row.id), {
         id: String(row.id),
         journeyId: row.journey_id ? String(row.journey_id) : null,
         customerId: row.customer_id ? String(row.customer_id) : null,
-        caseType: row.case_type ? String(row.case_type) : null,
-        orderIntent: Boolean(row.order_intent),
+        // Envelope (preliminary) values only: once SI projected its meaning onto these columns, the
+        // preliminary snapshot is read instead, so SI never consumes its own output (no feedback loop).
+        caseType: v22EnvelopeValue(row, "case_type") ? String(v22EnvelopeValue(row, "case_type")) : null,
+        orderIntent: Boolean(v22EnvelopeValue(row, "order_intent")),
         orderConfirmed: Boolean(row.order_confirmed)
       });
     }
@@ -12779,6 +13215,7 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
     canonicalReconciliation: [],
     actionReconciliation: { reconciledActions: 0 },
     complaintEnrichment: { enrichedComplaintActions: 0 },
+    semanticProjection: [],
     conversationEvaluations: []
   };
   const gateContext = await loadCanonicalSourceGateContext(service, sources);
@@ -12872,6 +13309,17 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
       canonicalReconciliation
     };
   }
+  const touchedV22 = Array.from(
+    new Set(
+      reconcileCandidates.map((row) => String(row.conversationCase?.sourceCaseIdV22 || v22CaseIdBySource.get(String(row.conversationId || "")) || "")).filter(Boolean)
+    )
+  );
+  const semanticProjection = (await projectCanonicalSemanticsToV22(service, touchedV22)).map((row) => ({
+    v22CaseId: row.v22CaseId,
+    status: row.status,
+    reason: row.reason,
+    ...row.error ? { error: row.error } : {}
+  }));
   const conversationEvaluations = [];
   for (const analysis of reconcileCandidates) {
     const view = analysis.caseIntelligence;
@@ -12953,6 +13401,7 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
     canonicalReconciliation,
     actionReconciliation: { reconciledActions },
     complaintEnrichment: { enrichedComplaintActions },
+    semanticProjection,
     conversationEvaluations
   };
 }
@@ -13308,6 +13757,7 @@ async function handler(req, res) {
     canonicalReconciliation: refresh.canonicalReconciliation,
     actionReconciliation: refresh.actionReconciliation,
     complaintEnrichment: refresh.complaintEnrichment,
+    semanticProjection: refresh.semanticProjection,
     conversationEvaluations: refresh.conversationEvaluations,
     sideProjections,
     derivedCases: (batch?.caseAnalyses || []).map((row) => ({
@@ -13321,6 +13771,22 @@ async function handler(req, res) {
       attributionLevel: row.attribution.attributionLevel,
       salesOutcome: row.salesOutcome?.outcome ?? null,
       saleProofState: row.salesOutcome?.saleProofState ?? null,
+      // Canonical read-only summary for ingestion UIs (Smart Folder): Product/Need and the
+      // canonical Operational Disposition, straight from this analysis — never re-derived client-side.
+      primaryNeed: row.customerNeed?.primaryNeed ?? null,
+      products: (row.customerNeed?.products || []).map((product) => ({
+        name: product.productNameRaw ?? product.key ?? null,
+        productId: product.productId ?? null,
+        availability: product.availability ?? null
+      })),
+      operationalDisposition: row.operationalDisposition ? {
+        state: row.operationalDisposition.state,
+        waitingOn: row.operationalDisposition.waitingOn,
+        actionOwner: row.operationalDisposition.actionOwner,
+        nextBestAction: row.operationalDisposition.nextBestAction,
+        assignedStaffName: row.operationalDisposition.assignedStaffName,
+        decisiveFollowUpReason: row.operationalDisposition.decisiveFollowUpReason
+      } : null,
       failureReasons: row.failureReasons
     })),
     plan: batch ? {
