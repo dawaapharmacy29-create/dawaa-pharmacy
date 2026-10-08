@@ -65,6 +65,14 @@ import {
   persistReviewDraft,
   reviewMeaningfulFingerprint,
 } from '@/lib/reviews/reviewDraftLifecycle';
+import {
+  detailsDeepLinkReviewId,
+  editRouteReviewId,
+  parseReviewsRoute,
+  reselectReviewById,
+  reviewDetailsPath,
+  reviewEditPath,
+} from '@/lib/reviews/reviewRouteState';
 import { useDebounce } from '@/hooks/useDebounce';
 import {
   clearPendingConversationReviewTransfer,
@@ -441,6 +449,11 @@ export default function Reviews() {
   const [searchParams, setSearchParams] = useSearchParams();
   const newOnlyMode = searchParams.get('mode') === 'new';
   const historyOnlyMode = searchParams.get('section') === 'history';
+  const reviewsRoute = useMemo(() => parseReviewsRoute(searchParams), [searchParams]);
+  // mode=edit&id=<id>: the stable identity of the review being edited. Only the URL selects it, so no
+  // field edit, save, refetch or details-modal close can drop it.
+  const editRouteId = editRouteReviewId(reviewsRoute);
+  const detailsDeepLinkId = detailsDeepLinkReviewId(reviewsRoute);
   const [saving, setSaving] = useState(false);
   const saveInFlightRef = useRef(false);
   // نسخة "المقترح وقت التعبئة" لبنود الـconfident اللي اتعمل لها prefill تلقائي — تُستخدم
@@ -518,9 +531,10 @@ export default function Reviews() {
   }, []);
 
   // Notification deep-link: /reviews?section=history&id=<review-id>
-  // Load the exact row directly so the full details modal opens immediately.
+  // Load the exact row directly so the full details modal opens immediately. The edit route
+  // (mode=edit&id=) opens the editor instead and never re-opens a details modal.
   useEffect(() => {
-    const reviewId = String(searchParams.get('id') || '').trim();
+    const reviewId = detailsDeepLinkId;
     if (!reviewId || selectedReviewId === reviewId) return;
 
     let cancelled = false;
@@ -554,7 +568,7 @@ export default function Reviews() {
     return () => {
       cancelled = true;
     };
-  }, [searchParams, selectedReviewId]);
+  }, [detailsDeepLinkId, selectedReviewId]);
 
   // Do not mutate the reviews URL during unmount. ReviewsEnhanced intentionally
   // unmounts this component when ?section=history is selected; changing search
@@ -1097,17 +1111,12 @@ export default function Reviews() {
         }
       }
 
-      const params = new URLSearchParams(window.location.search);
-      const id = params.get('id');
-      if (id) {
-        const found = rows.find((row) => row.id === id);
-        if (found) {
-          setSelectedReview(found);
-          setSelectedReviewId(found.id ?? null);
-        } else {
-          setSelectedReview(null);
-          setSelectedReviewId(null);
-        }
+      // Re-select by stable review id only — never on the edit route, where a refetch must not
+      // replace the open editor with a details modal.
+      const reselection = reselectReviewById(rows, parseReviewsRoute(window.location.search));
+      if (reselection.apply) {
+        setSelectedReview(reselection.row);
+        setSelectedReviewId(reselection.row?.id ?? null);
       }
     } catch (error) {
       if (requestId !== historyLoadSeq.current) return;
@@ -1724,6 +1733,45 @@ export default function Reviews() {
       manager_note: fullRow.manager_review_notes || '',
     });
   };
+
+  // Edit route: open the editor for exactly the review named by the URL. Keyed on the id string
+  // only — editing, saving or refetching never re-runs it, so the editor state is never reset.
+  const openEditRef = useRef(openEdit);
+  openEditRef.current = openEdit;
+  const editRouteOpenedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!editRouteId || editRouteOpenedRef.current === editRouteId) return;
+    editRouteOpenedRef.current = editRouteId;
+    let cancelled = false;
+    supabase
+      .from('conversation_sales_reviews')
+      .select('*')
+      .eq('id', editRouteId)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error || !data) {
+          toast.error('تعذر تحميل التقييم المطلوب للتعديل.');
+          return;
+        }
+        void openEditRef.current(data as ConversationReviewHistoryRow);
+      })
+      .catch(() => {
+        if (!cancelled) toast.error('تعذر تحميل التقييم المطلوب للتعديل.');
+      });
+    return () => {
+      cancelled = true;
+      // An interrupted load (e.g. StrictMode re-run) must be allowed to load again.
+      if (editRouteOpenedRef.current === editRouteId) editRouteOpenedRef.current = null;
+    };
+  }, [editRouteId]);
+
+  // Explicit close of the editor (close button / Escape / after a successful in-editor save). On the
+  // edit route it returns to the same review's details, never to the Reviews root.
+  const closeEditor = useCallback(() => {
+    setEditingReview(null);
+    if (editRouteId) navigate(reviewDetailsPath(editRouteId), { replace: true });
+  }, [editRouteId, navigate]);
 
   const saveEdit = async (): Promise<boolean> => {
     if (!editingReview?.id) return false;
@@ -3462,8 +3510,18 @@ export default function Reviews() {
           row={selectedReview}
           onClose={closeSelectedReview}
           onEdit={() => {
-            openEdit(selectedReview);
-            closeSelectedReview();
+            // Opening the editor is never "close current review": it moves to the canonical edit
+            // route for the same id instead of stripping ?id= (which remounted the form).
+            const reviewId = selectedReview.id;
+            if (!reviewId) {
+              openEdit(selectedReview);
+              closeSelectedReview();
+              return;
+            }
+            setSelectedReview(null);
+            setSelectedReviewId(null);
+            if (editRouteId !== reviewId) navigate(reviewEditPath(reviewId));
+            else openEdit(selectedReview);
           }}
           onManagerReview={() => {
             openManagerReview(selectedReview);
@@ -3475,7 +3533,7 @@ export default function Reviews() {
       )}
 
       {editingReview && (
-        <Modal title="تعديل تقييم المحادثة بالكامل - المدير العام" onClose={() => setEditingReview(null)}>
+        <Modal title="تعديل تقييم المحادثة بالكامل - المدير العام" onClose={closeEditor}>
           <div className="rounded-xl border border-amber-400/25 bg-amber-500/10 p-3 text-sm text-amber-100">
             أي تعديل هنا يعيد احتساب الدرجة وتأثير النقاط من البنود نفسها، ويتم تسجيل سبب التعديل وسجل المراجعة.
           </div>
@@ -3648,7 +3706,14 @@ export default function Reviews() {
               placeholder="مثال: بعد مراجعة المحادثة تم تصحيح بند فهم طلب العميل واسم المراجع"
             />
           </Field>
-          <button type="button" onClick={saveEdit} disabled={saving} className="btn-primary w-full justify-center flex items-center gap-2">
+          <button
+            type="button"
+            onClick={async () => {
+              if (await saveEdit()) closeEditor();
+            }}
+            disabled={saving}
+            className="btn-primary w-full justify-center flex items-center gap-2"
+          >
             <ShieldCheck size={18} />
             {saving ? 'جاري حفظ وإعادة احتساب التقييم...' : 'حفظ التعديل الكامل'}
           </button>

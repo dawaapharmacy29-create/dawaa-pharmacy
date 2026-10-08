@@ -296,6 +296,7 @@ const testFiles = [
   'src/lib/__tests__/whatsappCanonicalFilePipeline.test.ts',
   'src/lib/__tests__/whatsappReviewReanalysis.test.ts',
   'src/lib/__tests__/reviewDraftLifecycle.test.ts',
+  'src/lib/__tests__/reviewRouteState.test.ts',
   'src/lib/__tests__/followUpPromiseLifecycle.test.ts',
   'src/lib/salesIntelligence/__tests__/conversationEvaluationFollowUp.test.ts',
   'src/lib/salesIntelligence/__tests__/productNeedResolutionE2E.test.ts',

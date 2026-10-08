@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { parseReviewsRoute, reviewsFormKey } from '@/lib/reviews/reviewRouteState';
 
 const Reviews = lazy(() => import('@/pages/Reviews'));
 const ConversationReviewEvidence = lazy(() => import('@/pages/ConversationReviewEvidence'));
@@ -20,15 +21,12 @@ function ReviewModeLoader({ label = 'جاري تحميل الصفحة...' }: { l
 export default function ReviewsEnhanced() {
   const location = useLocation();
   const navigate = useNavigate();
-  const params = new URLSearchParams(location.search);
-  const mode = params.get('mode') || '';
-  const evidenceMode = mode === 'evidence';
-  const editMode = mode === 'edit';
-  const newMode = mode === 'new';
-  const historyMode = params.get('section') === 'history';
-  const selectedReviewId = String(params.get('id') || '').trim();
+  const route = parseReviewsRoute(location.search);
+  const editMode = route.kind === 'edit';
+  const newMode = route.kind === 'new';
+  const selectedReviewId = route.reviewId;
 
-  if (evidenceMode) {
+  if (route.kind === 'evidence') {
     return (
       <div dir="rtl" className="space-y-4">
         <button
@@ -45,7 +43,7 @@ export default function ReviewsEnhanced() {
     );
   }
 
-  if (historyMode && selectedReviewId && !editMode) {
+  if (route.kind === 'history-detail') {
     return (
       <Suspense fallback={<ReviewModeLoader label="جاري تحميل تفاصيل التقييم..." />}>
         <ConversationReviewDetailsFast key={`review-detail-${selectedReviewId}`} />
@@ -53,7 +51,7 @@ export default function ReviewsEnhanced() {
     );
   }
 
-  if (historyMode && !selectedReviewId) {
+  if (route.kind === 'history') {
     return (
       <Suspense fallback={<ReviewModeLoader label="جاري تحميل سجل التقييمات..." />}>
         <ConversationReviewsHistoryAdvanced key="conversation-reviews-history" />
@@ -83,7 +81,8 @@ export default function ReviewsEnhanced() {
         </div>
       ) : null}
       <Suspense fallback={<ReviewModeLoader label={editMode ? 'جاري تحميل تعديل التقييم...' : 'جاري تحميل نموذج التقييم...'} />}>
-        <Reviews key={editMode && selectedReviewId ? `reviews-edit-${selectedReviewId}` : 'reviews-main'} />
+        {/* The key depends only on route kind + review id: edits, autosave and refetches never remount. */}
+        <Reviews key={reviewsFormKey(route)} />
       </Suspense>
     </div>
   );
