@@ -40,6 +40,23 @@ if (!migrations.includes(HARDENING)) {
   }
 }
 
+// Machine callers must not need a forged staff identity once the header stops being trusted.
+const BASE44 = '20261008115000_base44_purchase_sync_service_actor_v1.sql';
+if (!migrations.includes(BASE44) || BASE44 > HARDENING) {
+  failures.push(`${BASE44} must exist and sort before ${HARDENING} (Base44 sync service path)`);
+}
+const functionsDir = path.join(ROOT, 'supabase/functions');
+if (fs.existsSync(functionsDir)) {
+  for (const name of fs.readdirSync(functionsDir)) {
+    const entry = path.join(functionsDir, name, 'index.ts');
+    if (!fs.existsSync(entry)) continue;
+    const code = fs.readFileSync(entry, 'utf8').replace(/\/\/[^\n]*/g, '');
+    if (/['"]x-dawaa-user-id['"]/i.test(code)) {
+      failures.push(`supabase/functions/${name} sends or reads x-dawaa-user-id; use service_role or a verified session token`);
+    }
+  }
+}
+
 for (const rel of [
   'supabase/sql/TEST_20261008_verified_staff_session_identity_v1.sql',
   'supabase/sql/ROLLBACK_20261008_verified_staff_session_identity_v1.sql',
