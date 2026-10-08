@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { runPayrollHeavyRequest } from '@/lib/hr/payrollRequestCoordinator';
 import type {
   PayrollFinalizationGate,
   PayrollFinalSnapshotPreview,
@@ -19,24 +20,28 @@ export async function getPayrollFinalizationGate(
   staffId: string,
   monthCycle: string
 ): Promise<PayrollFinalizationGate> {
-  const { data, error } = await supabase.rpc('payroll_finalization_gate_current_v1', {
-    p_staff_id: staffId,
-    p_month_cycle: monthCycle,
+  return runPayrollHeavyRequest(`gate:${staffId}:${monthCycle}`, async () => {
+    const { data, error } = await supabase.rpc('payroll_finalization_gate_current_v1', {
+      p_staff_id: staffId,
+      p_month_cycle: monthCycle,
+    });
+    if (error) throw new Error(error.message);
+    return data as PayrollFinalizationGate;
   });
-  if (error) throw new Error(error.message);
-  return data as PayrollFinalizationGate;
 }
 
 export async function getPayrollFinalSnapshotPreview(
   staffId: string,
   monthCycle: string
 ): Promise<PayrollFinalSnapshotPreview> {
-  const { data, error } = await supabase.rpc('payroll_final_snapshot_preview_v2', {
-    p_staff_id: staffId,
-    p_month_cycle: monthCycle,
+  return runPayrollHeavyRequest(`preview:${staffId}:${monthCycle}`, async () => {
+    const { data, error } = await supabase.rpc('payroll_final_snapshot_preview_v2', {
+      p_staff_id: staffId,
+      p_month_cycle: monthCycle,
+    });
+    if (error) throw new Error(error.message);
+    return data as PayrollFinalSnapshotPreview;
   });
-  if (error) throw new Error(error.message);
-  return data as PayrollFinalSnapshotPreview;
 }
 
 export async function stagePayrollFinalSnapshot(args: {
