@@ -83,6 +83,7 @@ import {
   reviewDetailsPath,
   reviewEditPath,
 } from '@/lib/reviews/reviewRouteState';
+import { deriveConversationReviewEvaluationFlags } from '@/lib/reviews/conversationReviewEvaluationColumns';
 import { useDebounce } from '@/hooks/useDebounce';
 import {
   clearPendingConversationReviewTransfer,
@@ -1833,6 +1834,21 @@ export default function Reviews() {
         : new Date(editingReview.conversation_date || editingReview.created_at || Date.now());
       const cycle = getCycleForDate(conversationDate);
       const cycleLabel = monthCycleFromDate(conversationDate);
+      const derivedFlags = deriveConversationReviewEvaluationFlags(
+        editReviewState,
+        editSevereErrors,
+        recalculated.reviewItems
+      );
+      // A human review keeps a follow-up promise recorded outside the criteria; a versioned correction
+      // derives every flag strictly from its own evaluation (the command re-checks it).
+      const evaluationFlags = editIsVersioned
+        ? derivedFlags
+        : {
+            ...derivedFlags,
+            follow_up_promised:
+              derivedFlags.follow_up_promised ||
+              Boolean((editingReview as { follow_up_promised?: boolean }).follow_up_promised),
+          };
 
       const payload = {
         reviewer_id: asUuid(editForm.reviewer_id),
@@ -1909,9 +1925,8 @@ export default function Reviews() {
           editReviewState.customer_name.applies && editReviewState.customer_name.choice === 'used',
         customer_name_score: getScore('customer_name', editReviewState),
         tone_language_score: getScore('tone', editReviewState),
-        bad_tone_flag:
-          editReviewState.tone.applies &&
-          ['dry', 'bad', 'very_bad', 'insult'].includes(editReviewState.tone.choice),
+        // every derived flag comes from the same recalculation as raw_scores/score/points
+        ...evaluationFlags,
         understanding_score: getScore('understanding', editReviewState),
         follow_up_score: getScore('followup_after_wait', editReviewState),
         consultation_quality_score: getScore('consultation_quality', editReviewState),
@@ -3666,7 +3681,9 @@ export default function Reviews() {
                     staff_id: e.target.value,
                     staff_name: selected?.name || f.staff_name,
                     staff_role: selected?.role || f.staff_role,
-                    branch: selected?.branch || f.branch,
+                    // A versioned correction keeps the conversation's source branch: reassigning the
+                    // responsible staff never moves the review (or its points) to the staff's branch.
+                    branch: editIsVersioned ? f.branch : selected?.branch || f.branch,
                   }));
                 }}
               >
@@ -3679,8 +3696,13 @@ export default function Reviews() {
             <Field label="اسم الدكتور الظاهر">
               <input className="input-dark" value={editForm.staff_name} disabled={editIsVersioned} onChange={(e) => setEditForm((f) => ({ ...f, staff_name: e.target.value }))} />
             </Field>
-            <Field label="الفرع">
+            <Field label={editIsVersioned ? 'فرع المحادثة (ثابت)' : 'الفرع'}>
               <input className="input-dark" value={editForm.branch} disabled={editIsVersioned} onChange={(e) => setEditForm((f) => ({ ...f, branch: e.target.value }))} />
+              {editIsVersioned && (
+                <div className="mt-1 text-xs text-gray-400">
+                  فرع المحادثة يبقى كما هو حتى لو تم تغيير الموظف المسؤول لموظف من فرع آخر.
+                </div>
+              )}
             </Field>
             <Field label="اسم العميل">
               <input className="input-dark" value={editForm.customer_name} disabled={editIsVersioned} onChange={(e) => setEditForm((f) => ({ ...f, customer_name: e.target.value }))} />

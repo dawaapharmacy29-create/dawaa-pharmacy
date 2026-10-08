@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { getStaffSessionToken } from '@/lib/auth/staffSession';
+import { DERIVED_EVALUATION_FLAG_COLUMNS } from '@/lib/reviews/conversationReviewEvaluationColumns';
 
 // Manager "full correction" of a versioned conversation review (an automatic review, or an
 // earlier manager correction) is VERSIONING, never an overwrite: automatic evidence is immutable
@@ -11,7 +12,10 @@ import { getStaffSessionToken } from '@/lib/auth/staffSession';
 export const CONVERSATION_REVIEW_CORRECTION_COMMAND =
   'dawaa_correct_conversation_review_session_v1';
 
-/** Evaluation keys the command accepts (it rejects any other key). Provenance is server-owned. */
+/**
+ * Evaluation keys the command accepts. Every key is REQUIRED (a missing key is rejected, never
+ * inherited from the superseded version) and any other key is rejected. Provenance is server-owned.
+ */
 export const CORRECTION_EVALUATION_KEYS = [
   'level',
   'conversation_level',
@@ -50,7 +54,6 @@ export const CORRECTION_EVALUATION_KEYS = [
   'customer_name_used',
   'customer_name_score',
   'tone_language_score',
-  'bad_tone_flag',
   'understanding_score',
   'follow_up_score',
   'consultation_quality_score',
@@ -64,6 +67,8 @@ export const CORRECTION_EVALUATION_KEYS = [
   'reviewer_notes',
   'training_recommendation',
   'evaluation_reason',
+  // flag columns derived from the same criteria/severe errors as raw_scores (re-checked server-side)
+  ...DERIVED_EVALUATION_FLAG_COLUMNS,
 ] as const;
 
 const VERSIONED_KINDS = new Set(['automatic', 'manager_correction']);
@@ -89,8 +94,8 @@ export function conversationReviewKindLabel(row: {
 }
 
 /**
- * Picks exactly the whitelisted evaluation keys from the editor's recalculated payload and adds the
- * responsible staff id. Identity, customer, conversation, branch and provenance fields are dropped:
+ * Picks exactly the whitelisted evaluation keys (all of them) from the editor's recalculated payload
+ * and adds the responsible staff id. Identity, customer, conversation, branch and provenance fields are dropped:
  * the command copies them from the version being corrected.
  */
 export function buildConversationReviewCorrection(
@@ -98,9 +103,9 @@ export function buildConversationReviewCorrection(
   staffId: string
 ): Record<string, unknown> {
   const correction: Record<string, unknown> = { staff_id: staffId };
-  for (const key of CORRECTION_EVALUATION_KEYS) {
-    if (Object.prototype.hasOwnProperty.call(payload, key)) correction[key] = payload[key];
-  }
+  // Every key is sent (undefined -> null, which JSON would otherwise drop): the command rejects a
+  // missing key instead of inheriting the superseded version's value.
+  for (const key of CORRECTION_EVALUATION_KEYS) correction[key] = payload[key] ?? null;
   return correction;
 }
 
@@ -199,18 +204,27 @@ export async function correctConversationReviewVersion(
 
 const ERROR_MESSAGES: Array<[string, string]> = [
   ['staff_session_required', 'جلسة الموظف غير متاحة أو انتهت. سجّل الدخول مرة أخرى ثم أعد الحفظ.'],
-  ['invalid_or_expired_staff_session', 'جلسة الموظف غير متاحة أو انتهت. سجّل الدخول مرة أخرى ثم أعد الحفظ.'],
+  [
+    'invalid_or_expired_staff_session',
+    'جلسة الموظف غير متاحة أو انتهت. سجّل الدخول مرة أخرى ثم أعد الحفظ.',
+  ],
   ['not_authorized', 'لا توجد صلاحية لتصحيح التقييم.'],
   ['review_scope_denied', 'هذا التقييم خارج نطاق فرعك.'],
   ['review_source_scope_denied', 'مصدر المحادثة خارج نطاق فرعك.'],
   ['correction_staff_scope_denied', 'الموظف المختار خارج نطاق فرعك.'],
   ['self_correction_forbidden', 'لا يمكنك تصحيح تقييم محادثة تخصك.'],
   ['correction_reason_required', 'اكتب سبب التعديل لحفظ نسخة التصحيح.'],
-  ['review_version_not_current', 'هذا التقييم تم استبداله بنسخة أحدث. افتح النسخة الحالية ثم عدّلها.'],
+  [
+    'review_version_not_current',
+    'هذا التقييم تم استبداله بنسخة أحدث. افتح النسخة الحالية ثم عدّلها.',
+  ],
   ['review_not_versioned', 'هذا التقييم ليس تقييمًا آليًا أو نسخة تصحيح.'],
   ['correction_staff', 'اختر الموظف المسؤول عن المحادثة.'],
   ['correction_payload', 'بيانات التقييم غير مكتملة أو خارج الحدود المسموحة.'],
-  ['conversation_review_points_require_official_review', 'تعذر ربط النقاط لأن مصدر المحادثة لم يعد رسميًا. لم يتم حفظ أي تغيير.'],
+  [
+    'conversation_review_points_require_official_review',
+    'تعذر ربط النقاط لأن مصدر المحادثة لم يعد رسميًا. لم يتم حفظ أي تغيير.',
+  ],
   ['not_authorized_for_branch', 'لا توجد صلاحية نقاط لهذا الفرع. لم يتم حفظ أي تغيير.'],
 ];
 

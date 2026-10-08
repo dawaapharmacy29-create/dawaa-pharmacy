@@ -25,6 +25,29 @@
 --   5. Idempotency: a retry with the same key returns the same correction and converges points
 --      (never a second version). One correction per superseded row is enforced by a unique index.
 --
+-- Branch contract (two meanings, never mixed):
+--   * conversation_sales_reviews.branch / branch_id of a correction = the canonical conversation/
+--     source branch, copied from the superseded version and bound server-side. Reassigning the
+--     responsible staff NEVER changes it, and the correction's points row is posted with that same
+--     source branch (record_conversation_review_points_v1 passes p_branch = review.branch).
+--   * the replacement staff member's own branch (staff.branch) is used ONLY as an authorization
+--     scope check: the actor must be able to see that branch too. Cross-branch reassignment is
+--     therefore supported for global roles and rejected (correction_staff_scope_denied) for a
+--     branch-scoped manager whose scope does not include the new staff's branch.
+--
+-- No stale derived fields: every evaluation-derived top-level column (scores, totals, level, impact,
+-- outcome flags, has_* / *_flag columns, review_items) is REQUIRED in the payload (a missing key is
+-- rejected, never inherited from the superseded version) and must agree with the payload's own
+-- raw_scores.criteria / severe_errors / result (correction_payload_inconsistent:<column>).
+-- Columns copied from the superseded version are provenance/timing facts only (customer, invoice,
+-- conversation date/type, branch, month cycle, first message/reply timings, follow-up delay,
+-- repeat count/multiplier, base score, converted_to_sale, source/case ids, automatic evaluation
+-- snapshot, evidence coverage/reliability, manual clinical review flag).
+--
+-- record_conversation_review_points_v1 (the existing Production review-points caller) is hardened
+-- in place: its account-state check becomes fail-closed (NULL active/is_active/can_login/status
+-- deny). Its signature, return contract, owner and grants are unchanged (create or replace).
+--
 -- Authentication follows record_conversation_review_points_v1 / Evidence V17 session command:
 -- opaque staff session token -> sha256 -> live staff_login_sessions row -> fail-closed active
 -- account. auth.uid(), request headers and x-dawaa-user-id never participate in the decision.
@@ -392,6 +415,70 @@ revoke all on function public.dawaa_apply_conversation_review_correction_points_
   from public, anon, authenticated, service_role;
 
 -- ---------------------------------------------------------------------------------------------
+-- 5a. Harden the existing Production review-points caller: fail-closed account state.
+--     Exact live body (pg_get_functiondef, 2026-10-08) with ONLY the account-state predicate
+--     changed from coalesce(...,true)/coalesce(status,'active') to IS TRUE / lower(btrim(...)).
+--     create or replace keeps the signature, return contract, owner and live grants
+--     (anon, authenticated, service_role); nothing is re-granted or revoked here.
+-- ---------------------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.record_conversation_review_points_v1(p_session_token text, p_review_id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'extensions', 'pg_catalog'
+AS $function$
+declare
+  v_account public.staff_accounts%rowtype;
+  v_review public.conversation_sales_reviews%rowtype;
+  v_points numeric; v_status text; v_actor_role text; v_actor_branch text;
+  v_is_global boolean; v_is_branch_manager boolean; v_result jsonb;
+begin
+  if nullif(btrim(coalesce(p_session_token,'')),'') is null then raise exception 'staff_session_required' using errcode='42501'; end if;
+  select a.* into v_account from public.staff_login_sessions s join public.staff_accounts a on a.id=s.staff_account_id
+  where s.token_hash=encode(extensions.digest(btrim(p_session_token),'sha256'),'hex') and s.revoked_at is null and s.expires_at>now()
+    -- Fail closed: NULL in any account-state column denies (all four columns are nullable).
+    and a.active is true and a.is_active is true and a.can_login is true and lower(btrim(coalesce(a.status,'')))='active' limit 1;
+  if not found then raise exception 'invalid_or_expired_staff_session' using errcode='42501'; end if;
+  select * into v_review from public.conversation_sales_reviews where id=p_review_id for update;
+  if not found then raise exception 'conversation_review_not_found' using errcode='P0002'; end if;
+  if v_review.reviewer_id is null or (v_review.reviewer_id::text is distinct from v_account.id::text and v_review.reviewer_id::text is distinct from coalesce(v_account.staff_id::text,'')) then
+    raise exception 'review_author_session_mismatch' using errcode='42501'; end if;
+  if v_review.staff_id is null then raise exception 'conversation_review_staff_missing' using errcode='23514'; end if;
+  v_actor_role:=lower(btrim(coalesce(v_account.role,''))); v_actor_branch:=nullif(btrim(coalesce(v_account.branch,'')),'');
+  v_is_global:=v_actor_role in ('general_manager','admin','executive_manager','branches_manager','manager','مدير عام','مدير تنفيذي','مديرة الفروع','مدير الفروع');
+  v_is_branch_manager:=v_actor_role in ('branch_manager','customer_service_manager','مدير فرع','مديرة فرع','مسؤولة خدمة العملاء','مسؤول خدمة العملاء');
+  if not v_is_global and not v_is_branch_manager then null;
+  elsif v_is_branch_manager and not v_is_global and coalesce(btrim(v_review.branch),'') is distinct from coalesce(v_actor_branch,'') then
+    raise exception 'not_authorized_for_branch' using errcode='42501'; end if;
+  v_points:=coalesce(v_review.doctor_points_impact,v_review.point_impact,0);
+  if v_points=0 then return jsonb_build_object('review_id',v_review.id,'status','no_points','points_delta',0); end if;
+  v_status:=case when lower(coalesce(v_review.impact_status,''))='approved' then 'approved' else 'pending' end;
+  perform set_config('request.headers',jsonb_build_object('x-dawaa-user-id',v_account.id::text)::text,true);
+  v_result:=public.record_employee_points_transaction_v4(v_review.staff_id,v_points,
+    format('تقييم محادثة عميل - النتيجة %s/100',coalesce(v_review.final_score,v_review.total_score,0)),
+    coalesce(nullif(btrim(coalesce(v_review.reviewer_notes,'')),''),nullif(btrim(coalesce(v_review.training_recommendation,'')),'')),
+    'conversation_evaluation',v_review.id,null,v_review.month_cycle,v_review.branch,v_status,null,
+    jsonb_build_object('source_module','conversation_evaluation','review_id',v_review.id,'reviewer_account_id',v_account.id,'session_command','record_conversation_review_points_v1'),false);
+  update public.staff_login_sessions set last_used_at=now(),expires_at=now()+interval '12 hours'
+   where staff_account_id=v_account.id and token_hash=encode(extensions.digest(btrim(p_session_token),'sha256'),'hex') and revoked_at is null;
+  return coalesce(v_result,'{}'::jsonb)||jsonb_build_object('review_id',v_review.id,'session_authorized',true);
+end;$function$;
+
+-- ---------------------------------------------------------------------------------------------
+-- 5b. Criterion predicate used by the correction consistency checks (pure, internal).
+-- ---------------------------------------------------------------------------------------------
+create or replace function public.dawaa_conversation_review_chose_v1(p_criteria jsonb, p_key text, p_choices text[])
+returns boolean
+language sql
+immutable
+set search_path to 'pg_catalog'
+as $function$
+  select coalesce(lower(p_criteria->p_key->>'applies'),'')='true'
+     and (p_choices is null or coalesce(p_criteria->p_key->>'choice','') = any(p_choices))
+$function$;
+revoke all on function public.dawaa_conversation_review_chose_v1(jsonb,text,text[]) from public, anon, authenticated, service_role;
+
+-- ---------------------------------------------------------------------------------------------
 -- 6. The staff-session correction command.
 -- ---------------------------------------------------------------------------------------------
 create or replace function public.dawaa_correct_conversation_review_session_v1(
@@ -426,9 +513,19 @@ declare
     'customer_name_score','tone_language_score','bad_tone_flag','understanding_score','follow_up_score',
     'consultation_quality_score','dosage_explanation_score','alternative_handling_score',
     'sales_quality_score','upsell_cross_sell_score','complaint_handling_score','order_confirmation_score',
-    'closing_message_score','reviewer_notes','training_recommendation','evaluation_reason'
+    'closing_message_score','reviewer_notes','training_recommendation','evaluation_reason',
+    -- derived flag columns (same rules as src/lib/reviews/conversationReviewEvaluationColumns.ts)
+    'has_complaint','has_medical_error','has_invoice_error','has_delivery_issue',
+    'severe_bad_tone_flag','rushed_response_flag','misunderstood_customer_flag',
+    'bad_alternative_flag','closing_message_used','follow_up_promised'
   ];
   v_unknown text;
+  v_missing text;
+  v_inconsistent text;
+  v_crit jsonb;
+  v_sev jsonb;
+  v_res jsonb;
+  v_item_points jsonb;
   v_staff_id uuid;
   v_score numeric;
   v_impact numeric;
@@ -499,6 +596,15 @@ begin
   limit 1;
   if v_unknown is not null then
     raise exception 'correction_payload_unknown_field:%', v_unknown using errcode='22023';
+  end if;
+  -- Strict whitelist: every evaluation key must be present (JSON null allowed only where the
+  -- consistency checks below accept it), so nothing is silently inherited from the old version.
+  select k into v_missing
+  from unnest(v_eval_keys) k
+  where not (v_c ? k)
+  limit 1;
+  if v_missing is not null then
+    raise exception 'correction_payload_missing_field:%', v_missing using errcode='22023';
   end if;
 
   -- 4. Lock the target version, then scope it to the session account (branch/source access).
@@ -615,6 +721,98 @@ begin
     raise exception 'correction_payload_invalid' using errcode='22023';
   end if;
 
+  -- 8b. One evaluation, one truth: every evaluation-derived column must equal what the payload's own
+  --     raw_scores (criteria, severe_errors, result) and review_items say. Comparison is jsonb
+  --     equality (numbers compare numerically; booleans must be JSON booleans).
+  v_crit := v_c->'raw_scores'->'criteria';
+  v_sev := v_c->'raw_scores'->'severe_errors';
+  v_res := v_c->'raw_scores'->'result';
+  if jsonb_typeof(v_crit) is distinct from 'object' then
+    raise exception 'correction_payload_inconsistent:raw_scores.criteria' using errcode='22023';
+  end if;
+  if jsonb_typeof(v_sev) is distinct from 'object' then
+    raise exception 'correction_payload_inconsistent:raw_scores.severe_errors' using errcode='22023';
+  end if;
+  if jsonb_typeof(v_res) is distinct from 'object' then
+    raise exception 'correction_payload_inconsistent:raw_scores.result' using errcode='22023';
+  end if;
+  -- per-criterion score columns = pointsEarned of that applying review item, else null
+  select coalesce(jsonb_object_agg(i->>'key',
+           case when lower(coalesce(i->>'applies',''))='true' then coalesce(i->'pointsEarned','null'::jsonb) else 'null'::jsonb end),
+         '{}'::jsonb)
+  into v_item_points
+  from jsonb_array_elements(v_c->'review_items') i
+  where jsonb_typeof(i)='object' and nullif(i->>'key','') is not null;
+
+  select e.col into v_inconsistent
+  from (values
+    ('final_score', v_res->'finalScore'),
+    ('doctor_points_impact', v_res->'doctorPointsImpact'),
+    ('base_points_impact', v_res->'baseDoctorImpact'),
+    ('extra_penalty_points', v_res->'extraPenaltyPoints'),
+    ('impact_status', v_res->'impactStatus'),
+    ('total_applicable_items', v_res->'totalApplicableItems'),
+    ('total_not_applicable_items', v_res->'totalNotApplicableItems'),
+    ('total_applicable_points', v_res->'totalApplicablePoints'),
+    ('earned_points', v_res->'earnedPoints'),
+    ('positive_points', v_res->'earnedPoints'),
+    ('negative_points', to_jsonb(greatest(0::numeric, v_applicable_points - v_earned))),
+    ('severe_error_points', to_jsonb(abs(v_extra))),
+    ('level', v_res->'level'),
+    ('conversation_level', v_res->'level'),
+    ('main_positive_reason', v_res->'mainPositiveReason'),
+    ('main_negative_reason', v_res->'mainNegativeReason'),
+    ('top_positive_reason', v_res->'mainPositiveReason'),
+    ('top_deduction_reason', v_res->'mainNegativeReason'),
+    ('forgotten_customer', v_res->'forgottenCustomer'),
+    ('missed_sales_opportunity', v_res->'missedSalesOpportunity'),
+    ('missed_sale_opportunity', v_res->'missedSalesOpportunity'),
+    ('successful_cross_sell', v_res->'successfulCrossSell'),
+    ('handled_angry_customer_well', v_res->'handledAngryCustomerWell'),
+    ('excellent_case', v_res->'excellentCase'),
+    ('has_critical_error', v_res->'hasSevereError'),
+    ('repeated_error_type', v_res->'repeatErrorType'),
+    ('review_items', v_res->'reviewItems'),
+    ('response_speed_score', v_item_points->'first_response_speed'),
+    ('greeting_score', v_item_points->'greeting'),
+    ('doctor_name_score', v_item_points->'doctor_name'),
+    ('customer_name_score', v_item_points->'customer_name'),
+    ('tone_language_score', v_item_points->'tone'),
+    ('understanding_score', v_item_points->'understanding'),
+    ('follow_up_score', v_item_points->'followup_after_wait'),
+    ('consultation_quality_score', v_item_points->'consultation_quality'),
+    ('dosage_explanation_score', v_item_points->'dosage_explanation'),
+    ('alternative_handling_score', v_item_points->'unavailable_items'),
+    ('sales_quality_score', v_item_points->'sales_closing'),
+    ('upsell_cross_sell_score', v_item_points->'cross_sell_upsell'),
+    ('complaint_handling_score', v_item_points->'angry_customer'),
+    ('order_confirmation_score', v_item_points->'order_confirmation'),
+    ('closing_message_score', v_item_points->'closing_message'),
+    ('doctor_name_used_in_greeting', to_jsonb(public.dawaa_conversation_review_chose_v1(v_crit,'greeting',array['official_full','close_with_name']))),
+    ('doctor_name_used', to_jsonb(public.dawaa_conversation_review_chose_v1(v_crit,'doctor_name',null)
+                                  and coalesce(v_crit->'doctor_name'->>'choice','') <> 'none')),
+    ('customer_name_used', to_jsonb(public.dawaa_conversation_review_chose_v1(v_crit,'customer_name',array['used']))),
+    ('has_complaint', to_jsonb(public.dawaa_conversation_review_chose_v1(v_crit,'angry_customer',null)
+                               or lower(coalesce(v_sev->>'insult',''))='true')),
+    ('has_medical_error', to_jsonb(lower(coalesce(v_sev->>'medical_error',''))='true'
+                                   or exists (select 1 from jsonb_array_elements(v_c->'review_items') i
+                                              where jsonb_typeof(i)='object' and i->>'errorType'='medical_error'))),
+    ('has_invoice_error', to_jsonb(lower(coalesce(v_sev->>'invoice_error',''))='true')),
+    ('has_delivery_issue', to_jsonb(lower(coalesce(v_sev->>'delivery_error',''))='true')),
+    ('bad_tone_flag', to_jsonb(public.dawaa_conversation_review_chose_v1(v_crit,'tone',array['dry','bad','very_bad','insult']))),
+    ('severe_bad_tone_flag', to_jsonb(public.dawaa_conversation_review_chose_v1(v_crit,'tone',array['very_bad','insult']))),
+    ('rushed_response_flag', to_jsonb(public.dawaa_conversation_review_chose_v1(v_crit,'understanding',array['rushed']))),
+    ('misunderstood_customer_flag', to_jsonb(public.dawaa_conversation_review_chose_v1(v_crit,'understanding',array['wrong','caused_error']))),
+    ('bad_alternative_flag', to_jsonb(public.dawaa_conversation_review_chose_v1(v_crit,'unavailable_items',array['bad_alternative']))),
+    ('closing_message_used', to_jsonb(public.dawaa_conversation_review_chose_v1(v_crit,'closing_message',array['official','respectful']))),
+    ('follow_up_promised', to_jsonb(public.dawaa_conversation_review_chose_v1(v_crit,'followup_after_wait',null)))
+  ) e(col, expected)
+  where coalesce(v_c->e.col,'null'::jsonb) is distinct from coalesce(e.expected,'null'::jsonb)
+  limit 1;
+  if v_inconsistent is not null then
+    raise exception 'correction_payload_inconsistent:%', v_inconsistent using errcode='22023';
+  end if;
+
   -- 9. Version switch, part 1: the old version leaves current truth. Only is_current/superseded_*
   --    (and updated_at) change; the evidence itself is untouched and then frozen.
   update public.conversation_sales_reviews
@@ -643,6 +841,9 @@ begin
       'reviewer_name', coalesce(nullif(btrim(coalesce(v_account.name,'')),''),nullif(btrim(coalesce(v_account.staff_name,'')),''),v_account.username),
       'reviewer_role', v_account.role,
       'reviewer_message', null,
+      -- the conversation/source branch, never the (possibly different) branch of the new staff
+      'branch', v_old.branch,
+      'branch_id', v_old.branch_id,
       'staff_id', v_staff.id,
       'doctor_id', v_staff.id,
       'staff_name', v_staff.name,

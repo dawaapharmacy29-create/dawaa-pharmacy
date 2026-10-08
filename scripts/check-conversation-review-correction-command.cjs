@@ -108,6 +108,46 @@ for (const other of [
     failures.push(`${MIGRATION}: must not touch ${other} (separate canonical domain).`);
 }
 
+// Fix A: the correction keeps the conversation/source branch; the staff branch is a scope input only.
+if (!/'branch', v_old\.branch,\s*'branch_id', v_old\.branch_id,/.test(body))
+  failures.push(`${MIGRATION}: the correction must bind branch/branch_id to the superseded version.`);
+if (/'branch',\s*v_staff\.branch/.test(body))
+  failures.push(`${MIGRATION}: the correction must never take the reassigned staff member's branch.`);
+
+// Fix B: strict, complete, self-consistent evaluation payload (no stale derived fields).
+for (const [re, label] of [
+  [/correction_payload_missing_field/, 'required presence of every whitelisted key'],
+  [/correction_payload_inconsistent/, 'raw_scores consistency checks'],
+]) {
+  if (!re.test(body)) failures.push(`${MIGRATION}: missing ${label}.`);
+}
+for (const flag of [
+  'has_complaint', 'has_medical_error', 'has_invoice_error', 'has_delivery_issue', 'bad_tone_flag',
+  'severe_bad_tone_flag', 'rushed_response_flag', 'misunderstood_customer_flag', 'bad_alternative_flag',
+  'closing_message_used', 'follow_up_promised', 'has_critical_error', 'final_score', 'doctor_points_impact', 'review_items',
+]) {
+  if (!new RegExp(`\\('${flag}', `).test(body))
+    failures.push(`${MIGRATION}: ${flag} must be re-checked against raw_scores.`);
+}
+
+// Fix C: the Production review-points caller is fail-closed, contract and grants untouched.
+const pointsStart = sqlNoComments.indexOf('CREATE OR REPLACE FUNCTION public.record_conversation_review_points_v1(p_session_token text, p_review_id uuid)');
+if (pointsStart < 0) {
+  failures.push(`${MIGRATION}: must harden record_conversation_review_points_v1 in place.`);
+} else {
+  const points = sqlNoComments.slice(pointsStart, sqlNoComments.indexOf('end;$function$;', pointsStart));
+  if (!points.includes("and a.active is true and a.is_active is true and a.can_login is true and lower(btrim(coalesce(a.status,'')))='active'"))
+    failures.push(`${MIGRATION}: record_conversation_review_points_v1 must use fail-closed account state.`);
+  if (/coalesce\(a\.(active|is_active|can_login),true\)|coalesce\(a\.status,'active'\)/.test(points))
+    failures.push(`${MIGRATION}: record_conversation_review_points_v1 still has a fail-open account check.`);
+}
+if (/(grant|revoke)[^;]*record_conversation_review_points_v1/i.test(sqlNoComments))
+  failures.push(`${MIGRATION}: must not change record_conversation_review_points_v1 grants.`);
+
+const ui = read('src/pages/Reviews.tsx');
+if (!/branch: editIsVersioned \? f\.branch : selected\?\.branch \|\| f\.branch,/.test(ui))
+  failures.push('src/pages/Reviews.tsx: staff selection must not change the branch of a versioned review.');
+
 // Application side: one boundary, no parallel writer.
 const service = read(SERVICE);
 if (!service.includes(`'${COMMAND}'`)) failures.push(`${SERVICE}: must call ${COMMAND}.`);

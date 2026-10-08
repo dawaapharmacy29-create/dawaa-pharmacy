@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Runs the conversation-review manager correction migration against a throwaway local Postgres
-# (never Supabase): live-mirrored fixture -> committed guard/points migrations -> this migration -> tests.
+# (never Supabase): live-mirrored fixture (with the EXACT live record_conversation_review_points_v1,
+# v4 and overlap function, and their live ACLs) -> committed guard migrations -> this migration -> tests.
 # Usage: scripts/test-db-conversation-review-correction.sh   (needs Postgres server binaries; run as root or postgres)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -17,6 +18,5 @@ PSQL=("${RUN[@]}" "$PGBIN/psql" -h "$WORK" -p "$PORT" -U postgres -d postgres -v
 "${PSQL[@]}" -f "$ROOT/supabase/tests/conversation_review_correction_session_v1.fixture.sql"
 "${PSQL[@]}" -f "$ROOT/supabase/migrations/20261005124500_automatic_review_writer_guard_v2.sql"
 "${PSQL[@]}" -f "$ROOT/supabase/migrations/20261005135500_automatic_review_guard_order_v2.sql"
-"${PSQL[@]}" -f "$ROOT/supabase/migrations/20261005170000_conversation_review_points_staff_session_v1.sql"
 "${PSQL[@]}" -f "$ROOT/supabase/migrations/20261008160000_conversation_review_manager_correction_versioning_v1.sql"
 "${PSQL[@]}" -f "$ROOT/supabase/tests/conversation_review_correction_session_v1.test.sql"

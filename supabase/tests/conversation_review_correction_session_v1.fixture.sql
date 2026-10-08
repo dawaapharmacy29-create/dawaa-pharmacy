@@ -311,7 +311,41 @@ $function$;
 CREATE FUNCTION public.employee_operating_actor_branch() RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public', 'pg_catalog' AS $function$
   select nullif(trim(coalesce(sa.branch, '')), '') from public.staff_accounts sa where sa.id::text = public.employee_operating_actor_id() and coalesce(sa.active, true) = true and coalesce(sa.can_login, true) = true limit 1;
 $function$;
-create function public.dawaa_points_same_event_conflicts_v1(p_incoming_rule text, p_existing_rules text[]) returns text[] language sql as $$ select array[]::text[] $$;
+-- Exact live definition (pg_get_functiondef, 2026-10-08).
+CREATE OR REPLACE FUNCTION public.dawaa_points_same_event_conflicts_v1(p_incoming_rule text, p_existing_rules text[])
+ RETURNS text[]
+ LANGUAGE plpgsql
+ IMMUTABLE
+ SET search_path TO 'public', 'pg_catalog'
+AS $function$
+declare
+  v_group text[];
+  v_conflicts text[];
+  v_incoming text:=upper(trim(coalesce(p_incoming_rule,'')));
+begin
+  if v_incoming='' then return array[]::text[]; end if;
+
+  if v_incoming=any(array['CHAT-009','CHAT-010']) then
+    v_group:=array['CHAT-009','CHAT-010'];
+  elsif v_incoming=any(array['CLASS-001','CLASS-002','CLASS-003']) then
+    v_group:=array['CLASS-001','CLASS-002','CLASS-003'];
+  elsif v_incoming=any(array['SALE-002A','SALE-002B','SALE-003','SALE-004']) then
+    v_group:=array['SALE-002A','SALE-002B','SALE-003','SALE-004'];
+  elsif v_incoming=any(array['APP-006','APP-007']) then
+    v_group:=array['APP-006','APP-007'];
+  else
+    return array[]::text[];
+  end if;
+
+  select coalesce(array_agg(distinct upper(trim(x))),array[]::text[])
+  into v_conflicts
+  from unnest(coalesce(p_existing_rules,array[]::text[])) x
+  where upper(trim(x))=any(v_group)
+    and upper(trim(x))<>v_incoming;
+
+  return v_conflicts;
+end;
+$function$;
 CREATE FUNCTION public.record_employee_points_transaction_v3(p_staff_id uuid, p_signed_points numeric, p_reason text, p_description text DEFAULT NULL::text, p_source text DEFAULT 'manual_admin'::text, p_source_id uuid DEFAULT NULL::uuid, p_rule_code text DEFAULT NULL::text, p_month_cycle text DEFAULT NULL::text, p_branch text DEFAULT NULL::text, p_status text DEFAULT 'active'::text, p_category text DEFAULT NULL::text, p_metadata jsonb DEFAULT '{}'::jsonb)
  RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public', 'pg_catalog' AS $function$
 declare
@@ -362,18 +396,126 @@ begin
   return jsonb_build_object('id',v_saved.id,'staff_id',v_saved.staff_id,'source',v_saved.source,'source_id',v_saved.source_id,'rule_code',v_rule,'points_delta',v_saved.points_delta,'status',v_saved.status,'month_cycle',v_saved.month_cycle);
 end;
 $function$;
-CREATE FUNCTION public.record_employee_points_transaction_v4(p_staff_id uuid, p_signed_points numeric, p_reason text, p_description text DEFAULT NULL::text, p_source text DEFAULT 'manual_admin'::text, p_source_id uuid DEFAULT NULL::uuid, p_rule_code text DEFAULT NULL::text, p_month_cycle text DEFAULT NULL::text, p_branch text DEFAULT NULL::text, p_status text DEFAULT 'active'::text, p_category text DEFAULT NULL::text, p_metadata jsonb DEFAULT '{}'::jsonb, p_manager_override boolean DEFAULT false)
- RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public', 'pg_catalog' AS $function$
+-- Exact live definition (pg_get_functiondef, 2026-10-08) and live ACL.
+CREATE OR REPLACE FUNCTION public.record_employee_points_transaction_v4(p_staff_id uuid, p_signed_points numeric, p_reason text, p_description text DEFAULT NULL::text, p_source text DEFAULT 'manual_admin'::text, p_source_id uuid DEFAULT NULL::uuid, p_rule_code text DEFAULT NULL::text, p_month_cycle text DEFAULT NULL::text, p_branch text DEFAULT NULL::text, p_status text DEFAULT 'active'::text, p_category text DEFAULT NULL::text, p_metadata jsonb DEFAULT '{}'::jsonb, p_manager_override boolean DEFAULT false)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_catalog'
+AS $function$
 declare
   v_cycle text:=coalesce(nullif(trim(coalesce(p_month_cycle,'')),''),public.dawaa_current_points_cycle_label_v1());
   v_rule text:=upper(coalesce(nullif(trim(coalesce(p_rule_code,'')),''),'__EVENT__'));
+  v_existing_rules text[]:=array[]::text[];
   v_conflicts text[]:=array[]::text[];
+  v_can_override boolean:=false;
 begin
-  if p_manager_override and not public.dawaa_current_actor_can(array['manage_points','manage_payroll']) then
-    raise exception 'not_authorized_for_points_overlap_override' using errcode='42501';
+  if p_manager_override then
+    v_can_override:=public.dawaa_current_actor_can(array['manage_points','manage_payroll']);
+    if not v_can_override then
+      raise exception 'not_authorized_for_points_overlap_override' using errcode='42501';
+    end if;
   end if;
-  return public.record_employee_points_transaction_v3(p_staff_id,p_signed_points,p_reason,p_description,p_source,p_source_id,v_rule,v_cycle,p_branch,p_status,p_category,
-    coalesce(p_metadata,'{}'::jsonb)||jsonb_build_object('command_version',4,'same_event_overlap_checked',true,'manager_overlap_override',coalesce(p_manager_override,false),'overlap_conflicts',to_jsonb(v_conflicts)));
+
+  if coalesce(p_signed_points,0)<0 and p_source_id is not null and v_rule<>'__EVENT__' then
+    select coalesce(array_agg(distinct existing_code),array[]::text[])
+    into v_existing_rules
+    from (
+      select coalesce(
+        nullif(upper(trim(et.metadata->>'rule_code')),''),
+        nullif(upper((regexp_match(coalesce(et.description,et.reason,''),'__RULE__:([A-Za-z0-9_-]+)','i'))[1]),'')
+      ) existing_code
+      from public.employee_transactions et
+      where et.staff_id=p_staff_id
+        and et.source_id=p_source_id
+        and et.month_cycle=v_cycle
+        and et.type='penalty'
+        and coalesce(et.status,'active') in ('active','approved','pending')
+    ) q
+    where existing_code is not null;
+
+    v_conflicts:=public.dawaa_points_same_event_conflicts_v1(v_rule,v_existing_rules);
+
+    if coalesce(array_length(v_conflicts,1),0)>0 and not p_manager_override then
+      raise exception 'overlapping_points_deduction:%',array_to_string(v_conflicts,',')
+        using errcode='23514';
+    end if;
+  end if;
+
+  return public.record_employee_points_transaction_v3(
+    p_staff_id,
+    p_signed_points,
+    p_reason,
+    p_description,
+    p_source,
+    p_source_id,
+    v_rule,
+    v_cycle,
+    p_branch,
+    p_status,
+    p_category,
+    coalesce(p_metadata,'{}'::jsonb)||jsonb_build_object(
+      'command_version',4,
+      'same_event_overlap_checked',true,
+      'manager_overlap_override',coalesce(p_manager_override,false),
+      'overlap_conflicts',to_jsonb(v_conflicts)
+    )
+  );
 end;
 $function$;
--- (record_conversation_review_points_v1 comes from its committed migration.)
+revoke all on function public.record_employee_points_transaction_v4(uuid,numeric,text,text,text,uuid,text,text,text,text,text,jsonb,boolean) from public, anon;
+grant execute on function public.record_employee_points_transaction_v4(uuid,numeric,text,text,text,uuid,text,text,text,text,text,jsonb,boolean) to authenticated, service_role;
+
+-- Exact live PRE-MIGRATION definition of the Production review-points caller (pg_get_functiondef,
+-- 2026-10-08), including its fail-open account-state line, and its live ACL. The migration under
+-- test must harden it in place without changing its contract or grants.
+CREATE OR REPLACE FUNCTION public.record_conversation_review_points_v1(p_session_token text, p_review_id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'extensions', 'pg_catalog'
+AS $function$
+declare
+  v_account public.staff_accounts%rowtype;
+  v_review public.conversation_sales_reviews%rowtype;
+  v_points numeric; v_status text; v_actor_role text; v_actor_branch text;
+  v_is_global boolean; v_is_branch_manager boolean; v_result jsonb;
+begin
+  if nullif(btrim(coalesce(p_session_token,'')),'') is null then raise exception 'staff_session_required' using errcode='42501'; end if;
+  select a.* into v_account from public.staff_login_sessions s join public.staff_accounts a on a.id=s.staff_account_id
+  where s.token_hash=encode(extensions.digest(btrim(p_session_token),'sha256'),'hex') and s.revoked_at is null and s.expires_at>now()
+    and coalesce(a.active,true)=true and coalesce(a.is_active,true)=true and coalesce(a.can_login,true)=true and coalesce(a.status,'active')='active' limit 1;
+  if not found then raise exception 'invalid_or_expired_staff_session' using errcode='42501'; end if;
+  select * into v_review from public.conversation_sales_reviews where id=p_review_id for update;
+  if not found then raise exception 'conversation_review_not_found' using errcode='P0002'; end if;
+  if v_review.reviewer_id is null or (v_review.reviewer_id::text is distinct from v_account.id::text and v_review.reviewer_id::text is distinct from coalesce(v_account.staff_id::text,'')) then
+    raise exception 'review_author_session_mismatch' using errcode='42501'; end if;
+  if v_review.staff_id is null then raise exception 'conversation_review_staff_missing' using errcode='23514'; end if;
+  v_actor_role:=lower(btrim(coalesce(v_account.role,''))); v_actor_branch:=nullif(btrim(coalesce(v_account.branch,'')),'');
+  v_is_global:=v_actor_role in ('general_manager','admin','executive_manager','branches_manager','manager','مدير عام','مدير تنفيذي','مديرة الفروع','مدير الفروع');
+  v_is_branch_manager:=v_actor_role in ('branch_manager','customer_service_manager','مدير فرع','مديرة فرع','مسؤولة خدمة العملاء','مسؤول خدمة العملاء');
+  if not v_is_global and not v_is_branch_manager then null;
+  elsif v_is_branch_manager and not v_is_global and coalesce(btrim(v_review.branch),'') is distinct from coalesce(v_actor_branch,'') then
+    raise exception 'not_authorized_for_branch' using errcode='42501'; end if;
+  v_points:=coalesce(v_review.doctor_points_impact,v_review.point_impact,0);
+  if v_points=0 then return jsonb_build_object('review_id',v_review.id,'status','no_points','points_delta',0); end if;
+  v_status:=case when lower(coalesce(v_review.impact_status,''))='approved' then 'approved' else 'pending' end;
+  perform set_config('request.headers',jsonb_build_object('x-dawaa-user-id',v_account.id::text)::text,true);
+  v_result:=public.record_employee_points_transaction_v4(v_review.staff_id,v_points,
+    format('تقييم محادثة عميل - النتيجة %s/100',coalesce(v_review.final_score,v_review.total_score,0)),
+    coalesce(nullif(btrim(coalesce(v_review.reviewer_notes,'')),''),nullif(btrim(coalesce(v_review.training_recommendation,'')),'')),
+    'conversation_evaluation',v_review.id,null,v_review.month_cycle,v_review.branch,v_status,null,
+    jsonb_build_object('source_module','conversation_evaluation','review_id',v_review.id,'reviewer_account_id',v_account.id,'session_command','record_conversation_review_points_v1'),false);
+  update public.staff_login_sessions set last_used_at=now(),expires_at=now()+interval '12 hours'
+   where staff_account_id=v_account.id and token_hash=encode(extensions.digest(btrim(p_session_token),'sha256'),'hex') and revoked_at is null;
+  return coalesce(v_result,'{}'::jsonb)||jsonb_build_object('review_id',v_review.id,'session_authorized',true);
+end;$function$;
+revoke all on function public.record_conversation_review_points_v1(text,uuid) from public;
+grant execute on function public.record_conversation_review_points_v1(text,uuid) to anon, authenticated, service_role;
+
+-- Pre-migration snapshot of the Production caller, so the tests can prove the migration changed
+-- only its account-state predicate (same signature, result, owner, security, config and ACL).
+create table public.t_points_v1_before as
+select p.prosrc, p.proacl::text as acl, p.proowner, p.prosecdef, p.proconfig::text as cfg,
+       pg_get_function_result(p.oid) as res, pg_get_function_identity_arguments(p.oid) as args
+from pg_proc p where p.oid = 'public.record_conversation_review_points_v1(text,uuid)'::regprocedure;
