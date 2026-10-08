@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { runPayrollHeavyRequest } from '@/lib/hr/payrollRequestCoordinator';
 import type { EmployeePayrollTransparencyV1 } from '@/lib/payroll/payrollTransparencyService';
 import type { EmployeePayrollFinancialCompositionV2 } from '@/lib/payroll/payrollFinancialCompositionService';
 import type { EmployeePayrollKpiContextV1 } from '@/lib/payroll/payrollKpiContextService';
@@ -45,17 +46,11 @@ export type EmployeePayrollStatementV1 = Omit<EmployeePayrollTransparencyV1, 'sc
   generated_at: string;
 };
 
-const statementInFlight = new Map<string, Promise<EmployeePayrollStatementV1>>();
-
 export async function getEmployeePayrollStatementV1(
   staffId: string,
   monthCycle: string
 ): Promise<EmployeePayrollStatementV1> {
-  const key = `${staffId}:${monthCycle}`;
-  const existing = statementInFlight.get(key);
-  if (existing) return existing;
-
-  const request = (async () => {
+  return runPayrollHeavyRequest(`statement:${staffId}:${monthCycle}`, async () => {
     const { data, error } = await supabase.rpc('employee_payroll_statement_current_v1', {
       p_staff_id: staffId,
       p_month_cycle: monthCycle,
@@ -67,12 +62,5 @@ export async function getEmployeePayrollStatementV1(
     }
 
     return data as EmployeePayrollStatementV1;
-  })();
-
-  statementInFlight.set(key, request);
-  try {
-    return await request;
-  } finally {
-    if (statementInFlight.get(key) === request) statementInFlight.delete(key);
-  }
+  });
 }
