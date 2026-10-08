@@ -222,6 +222,7 @@ export function buildDoctorDecision(sources: DoctorDecisionSources, args: { staf
     sections: args.sections,
     previousEvaluation: sources.previousEvaluation.value,
     openCycleStart: isEvaluationCycleClosed(args.cycleLabel) ? null : evaluationCycleDateKeys(args.cycleLabel).startDate,
+    evaluatedCycleStart: evaluationCycleDateKeys(args.cycleLabel).startDate,
     nextReviewDate: evaluationCycleDateKeys(nextCycleLabel(args.cycleLabel)).endDate,
   });
 }

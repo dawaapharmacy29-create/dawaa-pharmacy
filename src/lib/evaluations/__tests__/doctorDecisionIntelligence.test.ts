@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildDecisionIntelligence,
   cycleProductivity,
+  detectProblems,
   groupReviewRowsByDoctorCycle,
   trendOf,
   type QualityFacts,
@@ -57,7 +58,7 @@ const allQ = (ids: string[], f: (QualityFacts | null)[] = [q(), q(), q(), q()]) 
 function run(w: BranchPerformanceWindow | null, opts: Partial<Parameters<typeof buildDecisionIntelligence>[0]> = {}) {
   return buildDecisionIntelligence({
     staffId: 'T', window: w, windowSource: w ? { status: 'available', reason: null } : { status: 'failed', reason: 'انتهت مهلة تحميل مصدر «مقارنة الفرع»؛ أعد المحاولة بعد قليل.' },
-    quality: allQ(['T', 'A', 'B', 'C', 'D']), sections: [], previousEvaluation: null, openCycleStart: null, nextReviewDate: '2026-11-25', ...opts,
+    quality: allQ(['T', 'A', 'B', 'C', 'D']), sections: [], previousEvaluation: null, openCycleStart: null, evaluatedCycleStart: CYCLES[CYCLES.length - 1], nextReviewDate: '2026-11-25', ...opts,
   });
 }
 
@@ -185,7 +186,12 @@ describe('doctor decision intelligence — history and evidence safety', () => {
     const r = run(w, { quality: { available: false, byDoctor: {} } });
     expect(r.problems.length).toBe(0);
     expect(r.summary.headline).toContain('الأدلة غير مكتملة');
-    expect(r.dataWarnings.some(x => x.includes('غير متاحة'))).toBe(true);
+    // Stated once (confidence + the Eye's source note), not repeated as a data warning.
+    expect(r.confidence.reasons.some(x => x.includes('غير متاحة'))).toBe(true);
+    expect(r.dataWarnings.some(x => x.includes('مراجعات'))).toBe(false);
+    // No "carry on" recommendation on incomplete evidence.
+    expect(r.decision).toBe(null);
+    expect(r.summary.decision).toBe(null);
   });
 
   it('reports a failed branch source as failed, with no verdict and no recommendation', () => {
@@ -313,5 +319,68 @@ describe('doctor decision intelligence — unavailable sources never produce a d
     expect(r.availability).toBe('ready');
     expect(r.availabilityReason).toBe(null);
     expect(r.decision === null).toBe(false);
+  });
+});
+
+describe('doctor decision intelligence — evidence integrity (final review)', () => {
+  const published = (points: string[]) => ({ cycleLabel: '2026-08', status: 'approved', sections: [], developmentPoints: points, managerNotes: '' });
+  const peers = { A: steady(1000), B: steady(1000), C: steady(1000), D: steady(1000) };
+
+  it('never calls a problem resolved from a review sample too thin to prove its absence', () => {
+    const w = window({ T: steady(1000), ...peers });
+    const r = run(w, {
+      quality: quality({ T: [q(), q(), q({ medicalErrors: 2 }), q({ reviewCount: 1, sampleSufficient: false, coreAverage: null })], A: [q(), q(), q(), q()], B: [q(), q(), q(), q()], C: [q(), q(), q(), q()], D: [q(), q(), q(), q()] }),
+      previousEvaluation: published(['مراجعة الأخطاء الطبية']),
+    });
+    expect(r.summary.strength?.includes('لم تعد مشكلة') ?? false).toBe(false);
+    expect(String(r.decision?.previousDecision ?? '').includes('نجح')).toBe(false);
+  });
+
+  it('counts a conversation flagged both medical and critical once', () => {
+    const w = window({ T: steady(1000), ...peers });
+    const r = run(w, { quality: quality({ T: [q(), q(), q(), q({ medicalErrors: 1, criticalErrors: 1 })], A: [q(), q(), q(), q()], B: [q(), q(), q(), q()], C: [q(), q(), q(), q()], D: [q(), q(), q(), q()] }) });
+    const medical = r.problems.find(p => p.key === 'medical_error');
+    expect(medical?.detail.includes('١ حالة')).toBe(true);
+    expect(r.charts.quality[r.charts.quality.length - 1].medicalErrors).toBe(1);
+  });
+
+  it('does not judge discipline while attendance days are still pending review', () => {
+    const w = window({ T: steady(1000, { worked: 12, late: 0 }), ...peers });
+    const t = w.doctors.find(d => d.staffId === 'T')!;
+    t.cycles[3].attendance = { ...t.cycles[3].attendance!, pendingReviewDays: 8 };
+    const r = run(w, { sections: [{ key: 'discipline', title: 'الانضباط', score: 2 }] });
+    expect(r.summary.strength?.includes('انضباط كامل') ?? false).toBe(false);
+    expect(r.indicators.evaluation.gaps.some(g => g.axisKey === 'discipline')).toBe(false);
+  });
+
+  it('never matches the running cycle scores against an earlier analysis cycle', () => {
+    const w = window({ T: [{ rate: 1000 }, { rate: 1000 }, { rate: 1000 }, { rate: 1000, hours: 20 }], ...peers });
+    const r = run(w, { openCycleStart: CYCLES[3], evaluatedCycleStart: CYCLES[3], sections: [{ key: 'discipline', title: 'الانضباط', score: 2 }], previousEvaluation: published(['خطة']) });
+    expect(r.analysisCycleStart).toBe(CYCLES[2]);
+    expect(r.analysisIsEvaluatedCycle).toBe(false);
+    expect(r.indicators.evaluation.state).toBe('insufficient');
+    expect(r.indicators.evaluation.gaps.length).toBe(0);
+    expect(r.decision?.previousDecision ?? null).toBe(null);
+  });
+
+  it('shows unknown, not zero, review counts when the review source is unavailable', () => {
+    const w = window({ T: steady(1000), ...peers });
+    const r = run(w, { quality: { available: false, byDoctor: {} } });
+    expect(r.charts.quality.every(c => c.reviews === null && c.medicalErrors === null)).toBe(true);
+  });
+});
+
+describe('doctor decision intelligence — lateness evidence thresholds', () => {
+  const p = { eligible: false, index: null, blockedReason: 'x', attributedInvoices: 0, unplacedShare: null } as unknown as Parameters<typeof detectProblems>[0]['productivity'];
+  const lateness = (attendance: Parameters<typeof detectProblems>[0]['attendance']) => detectProblems({ productivity: p, quality: null, qualityAvailable: true, attendance, lateByShift: {}, peerP25: null }).find(x => x.key === 'lateness')!.present;
+
+  it('needs enough worked days before saying there is no lateness problem', () => {
+    expect(lateness({ available: true, workedDays: 3, lateDays: 0, pendingReviewDays: 0 })).toBe(null);
+    expect(lateness({ available: true, workedDays: 10, lateDays: 0, pendingReviewDays: 0 })).toBe(false);
+  });
+
+  it('keeps a proven lateness problem even with pending days, but never clears one', () => {
+    expect(lateness({ available: true, workedDays: 10, lateDays: 5, pendingReviewDays: 4 })).toBe(true);
+    expect(lateness({ available: true, workedDays: 10, lateDays: 1, pendingReviewDays: 4 })).toBe(null);
   });
 });

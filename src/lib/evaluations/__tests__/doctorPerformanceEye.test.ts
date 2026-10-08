@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { describeSourceProblem } from '@/lib/evaluations/decisionSourceState';
+import { cairoDayOf } from '@/lib/time/cairoDateBoundary';
 import {
   deriveDoctorPerformanceActions,
   sourceStateOf,
+  diagnoseMonth,
   aggregateImpactEvidence,
   type DoctorPerformanceDiagnosis,
   type DoctorPerformanceMonth,
@@ -92,5 +94,26 @@ describe('customer impact evidence is not fabricated from missing cycle rows', (
     expect(result.available).toBe(true);
     expect(result.commercialConversations).toBe(0);
     expect(result.complaints).toBe(0);
+  });
+});
+
+describe('doctor performance eye — Cairo days and fair claims (final review)', () => {
+  it('buckets conversation timestamps on the Cairo calendar day, not UTC', () => {
+    // 01:30 Cairo on 26 Oct is still 25 Oct in UTC; it belongs to the cycle starting 26 Oct.
+    expect(cairoDayOf('2026-10-25T22:30:00Z')).toBe('2026-10-26');
+    expect(cairoDayOf('2026-10-25T20:30:00Z')).toBe('2026-10-25');
+    expect(cairoDayOf('2026-10-26')).toBe('2026-10-26');
+    expect(cairoDayOf(null)).toBe(null);
+    expect(cairoDayOf('not a date')).toBe(null);
+  });
+
+  it('claims "no negative signal" only after a fair comparison with complete customer-impact evidence', () => {
+    const calm = { ...impact, commercialConversations: 2, verifiedConversionRate: 60, saleLeakage: 0, unavailableProducts: 0, acceptedProducts: 0 };
+    const cur = { ...month([]), customerImpact: calm };
+    const NO_SIGNAL = 'لا توجد إشارة سلبية قوية';
+    expect(diagnoseMonth(cur, null).some(d => d.title === NO_SIGNAL)).toBe(false);
+    expect(diagnoseMonth(cur, { ...month([]), comparisonEligible: false }).some(d => d.title === NO_SIGNAL)).toBe(false);
+    expect(diagnoseMonth({ ...cur, customerImpact: { ...calm, available: false } }, month([])).some(d => d.title === NO_SIGNAL)).toBe(false);
+    expect(diagnoseMonth(cur, { ...month([]), customerImpact: calm }).some(d => d.title === NO_SIGNAL)).toBe(true);
   });
 });
