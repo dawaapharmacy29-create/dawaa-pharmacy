@@ -1,0 +1,41 @@
+name: Attendance Command Center Contract Wiring
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/*attendance*.sql'
+      - 'scripts/check-attendance-command-center-contract-wiring.cjs'
+      - 'src/pages/Reviews.tsx'
+      - '.github/workflows/attendance-command-center-contract-wiring.yml'
+  push:
+    branches:
+      - main
+      - 'feat/**'
+    paths:
+      - 'supabase/migrations/*attendance*.sql'
+      - 'scripts/check-attendance-command-center-contract-wiring.cjs'
+      - 'src/pages/Reviews.tsx'
+      - '.github/workflows/attendance-command-center-contract-wiring.yml'
+
+concurrency:
+  group: attendance-command-center-contract-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract-wiring:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Command center contract guard
+        run: node scripts/check-attendance-command-center-contract-wiring.cjs
+      - name: TypeScript
+        run: npm run typecheck
+      - name: Vite production bundle
+        run: npx vite build --configLoader runner
