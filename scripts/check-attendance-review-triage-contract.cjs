@@ -4,8 +4,8 @@ const fs = require('node:fs');
 const files = {
   contract: 'supabase/migrations/20261009104500_attendance_review_triage_contract_v1.sql',
   diagnostic: 'supabase/migrations/20261009105500_attendance_diagnostic_use_canonical_triage_v1.sql',
-  inbox: 'supabase/migrations/20261009110500_attendance_inbox_use_canonical_triage_v1.sql',
-  summary: 'supabase/migrations/20261009111500_attendance_summary_use_canonical_triage_v1.sql',
+  inbox: 'supabase/migrations/20261009110501_attendance_inbox_use_canonical_triage_v1.sql',
+  summary: 'supabase/migrations/20261009111501_attendance_summary_use_canonical_triage_v1.sql',
   health: 'supabase/migrations/20261009112500_attendance_health_use_canonical_triage_v1.sql',
 };
 
