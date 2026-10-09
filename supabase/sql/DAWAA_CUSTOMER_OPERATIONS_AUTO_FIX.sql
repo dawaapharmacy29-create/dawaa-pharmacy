@@ -226,7 +226,9 @@ end;
 $$;
 
 -- 5) View مرحلة الدلع من العملاء الأعلى قيمة
-create or replace view public.dawaa_incubation_candidates_v1 as
+create or replace view public.dawaa_incubation_candidates_v1
+with (security_invoker = true)
+as
 select
   coalesce(c.customer_code::text, c.code::text, c.id::text) as customer_key,
   coalesce(c.customer_code::text, c.code::text) as customer_code,
@@ -258,7 +260,9 @@ left join public.customer_incubation_cases ic
 where coalesce(c.total_spent, c.total_purchases, 0) >= 1500;
 
 -- 6) Views مراجعة الفروع إذا لم تكن موجودة بنفس المنطق
-create or replace view public.dawaa_customer_branch_review_queue_v14 as
+create or replace view public.dawaa_customer_branch_review_queue_v14
+with (security_invoker = true)
+as
 with inv as (
   select customer_code::text customer_code, branch::text suggested_branch, count(*) invoices_count, sum(coalesce(net_amount, discounted_amount, amount, gross_amount, total_amount, 0)) total_spent, max(invoice_date) last_invoice_date
   from public.sales_invoices
@@ -284,7 +288,9 @@ from public.customers c
 join best b on b.customer_code = coalesce(c.customer_code::text, c.code::text) and b.rn = 1
 where coalesce(c.branch::text,'') is distinct from coalesce(b.suggested_branch,'');
 
-create or replace view public.dawaa_customer_branch_review_summary_v14 as
+create or replace view public.dawaa_customer_branch_review_summary_v14
+with (security_invoker = true)
+as
 select confidence_level, repair_status, count(*) customers_count, sum(total_spent) total_spent, sum(invoices_count) invoices_count
 from public.dawaa_customer_branch_review_queue_v14
 group by confidence_level, repair_status;
@@ -319,14 +325,139 @@ begin
 end;
 $$;
 
-grant select on public.dawaa_incubation_candidates_v1 to authenticated, anon;
-grant select on public.dawaa_customer_branch_review_queue_v14 to authenticated, anon;
-grant select on public.dawaa_customer_branch_review_summary_v14 to authenticated, anon;
-grant select, insert, update on public.crm_requests to authenticated, anon;
-grant select, insert, update on public.crm_timeline to authenticated, anon;
-grant select, insert, update on public.customer_incubation_cases to authenticated, anon;
-grant select, insert, update on public.customer_incubation_steps to authenticated, anon;
-grant execute on function public.approve_customer_branch_repair_v14(text,text) to authenticated, anon;
-grant execute on function public.ignore_customer_branch_repair_v14(text,text,text) to authenticated, anon;
-grant execute on function public.update_customer_phone_v14_6(text,text,text) to authenticated, anon;
-grant execute on function public.dawaa_run_customer_operations_autofix(text) to authenticated, anon;
+do $incubation_scope_guard$
+begin
+  if to_regprocedure('public.dawaa_current_customer_core_scope_v2(text[])') is null
+     or to_regprocedure('public.dawaa_customer_request_branch_key(text)') is null then
+    raise exception 'customer_core_branch_scope_contract_missing';
+  end if;
+end;
+$incubation_scope_guard$;
+
+alter table public.customer_incubation_cases enable row level security;
+alter table public.customer_incubation_steps enable row level security;
+
+drop policy if exists customer_incubation_cases_branch_read_v1 on public.customer_incubation_cases;
+create policy customer_incubation_cases_branch_read_v1
+  on public.customer_incubation_cases
+  for select to authenticated
+  using (
+    (select public.dawaa_current_customer_core_scope_v2(array['view_customer_incubation'])) = 'ALL'
+    or (
+      (select public.dawaa_current_customer_core_scope_v2(array['view_customer_incubation'])) <> 'NONE'
+      and public.dawaa_customer_request_branch_key(branch)
+        = public.dawaa_customer_request_branch_key(
+          (select public.dawaa_current_customer_core_scope_v2(array['view_customer_incubation']))
+        )
+    )
+  );
+
+drop policy if exists customer_incubation_cases_branch_insert_v1 on public.customer_incubation_cases;
+create policy customer_incubation_cases_branch_insert_v1
+  on public.customer_incubation_cases
+  for insert to authenticated
+  with check (
+    (select public.dawaa_current_customer_core_scope_v2(array['manage_customer_incubation'])) = 'ALL'
+    or (
+      (select public.dawaa_current_customer_core_scope_v2(array['manage_customer_incubation'])) <> 'NONE'
+      and public.dawaa_customer_request_branch_key(branch)
+        = public.dawaa_customer_request_branch_key(
+          (select public.dawaa_current_customer_core_scope_v2(array['manage_customer_incubation']))
+        )
+    )
+  );
+
+drop policy if exists customer_incubation_cases_branch_update_v1 on public.customer_incubation_cases;
+create policy customer_incubation_cases_branch_update_v1
+  on public.customer_incubation_cases
+  for update to authenticated
+  using (
+    (select public.dawaa_current_customer_core_scope_v2(array['manage_customer_incubation'])) = 'ALL'
+    or (
+      (select public.dawaa_current_customer_core_scope_v2(array['manage_customer_incubation'])) <> 'NONE'
+      and public.dawaa_customer_request_branch_key(branch)
+        = public.dawaa_customer_request_branch_key(
+          (select public.dawaa_current_customer_core_scope_v2(array['manage_customer_incubation']))
+        )
+    )
+  )
+  with check (
+    (select public.dawaa_current_customer_core_scope_v2(array['manage_customer_incubation'])) = 'ALL'
+    or (
+      (select public.dawaa_current_customer_core_scope_v2(array['manage_customer_incubation'])) <> 'NONE'
+      and public.dawaa_customer_request_branch_key(branch)
+        = public.dawaa_customer_request_branch_key(
+          (select public.dawaa_current_customer_core_scope_v2(array['manage_customer_incubation']))
+        )
+    )
+  );
+
+drop policy if exists customer_incubation_steps_branch_read_v1 on public.customer_incubation_steps;
+create policy customer_incubation_steps_branch_read_v1
+  on public.customer_incubation_steps
+  for select to authenticated
+  using (
+    exists (
+      select 1
+      from public.customer_incubation_cases c
+      where c.id = customer_incubation_steps.case_id
+        and (
+          (select public.dawaa_current_customer_core_scope_v2(array['view_customer_incubation'])) = 'ALL'
+          or (
+            (select public.dawaa_current_customer_core_scope_v2(array['view_customer_incubation'])) <> 'NONE'
+            and public.dawaa_customer_request_branch_key(c.branch)
+              = public.dawaa_customer_request_branch_key(
+                (select public.dawaa_current_customer_core_scope_v2(array['view_customer_incubation']))
+              )
+          )
+        )
+    )
+  );
+
+drop policy if exists customer_incubation_steps_branch_insert_v1 on public.customer_incubation_steps;
+create policy customer_incubation_steps_branch_insert_v1
+  on public.customer_incubation_steps
+  for insert to authenticated
+  with check (
+    exists (
+      select 1
+      from public.customer_incubation_cases c
+      where c.id = customer_incubation_steps.case_id
+        and (
+          (select public.dawaa_current_customer_core_scope_v2(array['manage_customer_incubation'])) = 'ALL'
+          or (
+            (select public.dawaa_current_customer_core_scope_v2(array['manage_customer_incubation'])) <> 'NONE'
+            and public.dawaa_customer_request_branch_key(c.branch)
+              = public.dawaa_customer_request_branch_key(
+                (select public.dawaa_current_customer_core_scope_v2(array['manage_customer_incubation']))
+              )
+          )
+        )
+    )
+  );
+
+-- Keep browser reads/writes only for the active CRM and incubation screens.
+-- No anonymous access is required by those authenticated application routes.
+revoke all on table public.crm_requests from public, anon, authenticated;
+revoke all on table public.crm_timeline from public, anon, authenticated;
+revoke all on table public.customer_incubation_cases from public, anon, authenticated;
+revoke all on table public.customer_incubation_steps from public, anon, authenticated;
+revoke all on table public.dawaa_customer_repair_log from public, anon, authenticated;
+
+grant select, update on table public.crm_requests to authenticated;
+grant select, insert on table public.crm_timeline to authenticated;
+grant select, insert, update on table public.customer_incubation_cases to authenticated;
+grant select, insert on table public.customer_incubation_steps to authenticated;
+
+revoke all on table public.dawaa_incubation_candidates_v1 from public, anon, authenticated;
+grant select on table public.dawaa_incubation_candidates_v1 to authenticated;
+revoke all on table public.dawaa_customer_branch_review_queue_v14 from public, anon, authenticated;
+revoke all on table public.dawaa_customer_branch_review_summary_v14 from public, anon, authenticated;
+
+-- These repair functions have no legitimate browser caller. Explicitly revoke
+-- PostgreSQL's default PUBLIC EXECUTE as well as the PostgREST browser roles.
+revoke all on function public.dawaa_best_customer_branch(text) from public, anon, authenticated;
+revoke all on function public.approve_customer_branch_repair_v14(text,text) from public, anon, authenticated;
+revoke all on function public.ignore_customer_branch_repair_v14(text,text,text) from public, anon, authenticated;
+revoke all on function public.update_customer_phone_v14_6(text,text,text) from public, anon, authenticated;
+revoke all on function public.dawaa_run_customer_operations_autofix(text) from public, anon, authenticated;

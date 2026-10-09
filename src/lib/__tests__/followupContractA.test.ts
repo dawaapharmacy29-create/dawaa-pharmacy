@@ -27,12 +27,12 @@ describe('contract A migration', () => {
     const core = body('find_or_create_open_customer_followup');
     expect(core).toContain("'followup-open-case:' || v_identity || '|' || v_branch, 0");
     expect(core).not.toMatch(/request_type\), ''\), 'general'\) = v_case_type/);
-    expect(core).toContain("'request_type', v_case_type,\n      'case_request_type'");
+    expect(core).toMatch(/'request_type',\s*v_case_type,\s*'case_request_type'/);
     const exceptional = body('dawaa_create_exceptional_followup_v2');
     expect(exceptional).toContain("'followup-open-case:'||v_identity||'|'||v_branch,0");
     expect(exceptional).toContain("'request_linked'");
-    expect(body('list_open_followup_duplicate_groups_v1')).toContain(
-      "partition by d.identity_key, coalesce(d.branch, '')\n"
+    expect(body('list_open_followup_duplicate_groups_v1')).toMatch(
+      /partition by d\.identity_key, coalesce\(d\.branch, ''\)\s/
     );
   });
 

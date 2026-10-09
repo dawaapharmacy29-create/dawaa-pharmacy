@@ -1,6 +1,8 @@
 
 نسخة تفعيل صفحات العملاء والعمليات - Dawaa Pharmacy 2027
 
+ملاحظة أمنية: هذا ملف تأسيس يدوي وليس migration. شاشتا CRM ومرحلة الدلع تستخدمان بعض الجداول والـview مباشرة عبر جلسة authenticated، لذلك يحتفظ الملف بالحد الأدنى من صلاحيات هذه المسارات ويمنع anon. دوال تصحيح الفروع والهاتف والإصلاح الجماعي لا يملكها أي Browser caller ويُمنع تنفيذها من PUBLIC وanon وauthenticated. لا تشغّل الملف في Production أو Staging قبل مراجعة سياسات RLS الفعلية؛ تعريف جداول مرحلة الدلع هنا لا يثبت وحده عزل الفروع أو صلاحيات الأدوار.
+
 ما تم تعديله داخل النسخة:
 1) CRM يعمل حتى لو VITE_DAWAA_COMPANY_ID غير موجود، مع fallback آمن.
 2) مرحلة الدلع تستخدم view daw aa_incubation_candidates_v1، ولو فشل ترجع تلقائيا لأعلى العملاء من customers.
@@ -11,9 +13,7 @@
 طريقة التشغيل:
 1) انسخ ملفات النسخة فوق المشروع الحالي.
 2) ارفع GitHub.
-3) افتح Supabase SQL Editor وشغّل DAWAA_CUSTOMER_OPERATIONS_AUTO_FIX.sql مرة واحدة.
-4) شغّل في Supabase بعده:
-   select * from public.dawaa_run_customer_operations_autofix('د معاذ');
-5) في Vercel أضف Environment Variable:
-   VITE_DAWAA_COMPANY_ID = 00000000-0000-0000-0000-000000000000
-6) اعمل Redeploy without cache.
+3) افتح Supabase SQL Editor داخل بيئة الإدارة الموثوقة وشغّل DAWAA_CUSTOMER_OPERATIONS_AUTO_FIX.sql مرة واحدة بعد مراجعة سياسات RLS.
+4) لا تستدعِ دوال approve/ignore/update/autofix من الواجهة. نفّذ صيانة الإدارة يدويًا من قناة موثوقة فقط بعد اعتمادها.
+5) إذا كان المشروع يحتاج إلى متغيرات بيئة، تأكد أن VITE_ أو NEXT_PUBLIC_ لا تحتوي أي secret أو service_role.
+6) احرص على عدم إرفاق هذه العمليات بأي route أو UI يفتح الوصول المباشر.
