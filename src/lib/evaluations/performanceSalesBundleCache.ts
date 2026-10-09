@@ -8,6 +8,8 @@ export type PerformanceSalesBundlePayload={
  cycles?:PerformanceSalesCycleRow[];
  samePeriod?:{current?:PerformanceSalesPeriodRow;previous?:PerformanceSalesPeriodRow};
  dataAsOf?:string|null;effectiveDays?:number|null;
+ /** Set when the caller may read only one branch: every figure is limited to that branch. */
+ scopeBranch?:string|null;
 };
 type Cached={at:number;promise:Promise<{payload:PerformanceSalesBundlePayload;error:unknown}>};
 const cache=new Map<string,Cached>();

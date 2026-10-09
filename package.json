@@ -25,7 +25,8 @@
     "check:hr-canonical-hardening": "node scripts/check-hr-canonical-hardening-v1.cjs",
     "check:payroll-transparency": "node scripts/check-payroll-transparency-v1.cjs",
     "check:hr-domain-boundary": "node scripts/check-hr-domain-boundary-v1.cjs",
-    "check:verified-session-identity": "node scripts/check-verified-session-identity.cjs"
+    "check:verified-session-identity": "node scripts/check-verified-session-identity.cjs",
+    "test:db-rehearsal": "bash scripts/run-isolated-db-rehearsal.sh"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",

@@ -14,7 +14,7 @@ export const RECONCILIATION_CATEGORIES: ReconciliationCategory[] = ['attendance_
 
 /**
  * Review classes from get_doctor_sales_reconciliation_v1. The cited invoice must carry the number, belong to the
- * same customer and fall between 1h before and 48h after the conversation (customer + time disambiguate numbers
+ * same customer and fall from the customer's first message to 48h after it (customer + time disambiguate numbers
  * that repeat across branches; the review's branch label is not trusted).
  * - verified: exactly one such invoice, not claimed by another review, rung up by the doctor.
  * - served_other_seller: the customer bought as cited, but a colleague rang up the invoice (service proven,
@@ -28,7 +28,7 @@ export type CycleReconciliation = {
   start: string;
   endExclusive: string;
   categories: Record<ReconciliationCategory, { invoices: number; sales: number }>;
-  attendance: { presentDays: number; settledDays: number; pendingDays: number; approvedHours: number; approvedDaysWithHours: number; pendingHours: number; daysWithoutHours: number; unprovenBranchDays: number; otherBranchDays: number; lastDay: string | null };
+  attendance: { presentDays: number; provenDays: number; settledDays: number; pendingDays: number; approvedHours: number; approvedDaysWithHours: number; pendingHours: number; daysWithoutHours: number; unprovenBranchDays: number; otherBranchDays: number; lastDay: string | null };
   /** Verified sales placed on the shift day they belong to (a night shift owns its tail after midnight). */
   productivity: { verifiedSales: number; verifiedInvoices: number; verifiedSalesSettledDays: number; daysWithVerifiedSales: number };
   conversion: Partial<Record<ConversionClass, number>>;
@@ -48,7 +48,7 @@ export function parseSalesReconciliation(payload: unknown): CycleReconciliation[
       endExclusive: String(c.endExclusive || '').slice(0, 10),
       categories,
       attendance: {
-        presentDays: num(att.presentDays), settledDays: num(att.settledDays), pendingDays: num(att.pendingDays),
+        presentDays: num(att.presentDays), provenDays: att.provenDays === undefined ? num(att.presentDays) : num(att.provenDays), settledDays: num(att.settledDays), pendingDays: num(att.pendingDays),
         approvedHours: num(att.approvedHours), approvedDaysWithHours: num(att.approvedDaysWithHours), pendingHours: num(att.pendingHours), daysWithoutHours: num(att.daysWithoutHours), unprovenBranchDays: num(att.unprovenBranchDays),
         otherBranchDays: num(att.otherBranchDays), lastDay: att.lastDay ? String(att.lastDay).slice(0, 10) : null,
       },
@@ -76,14 +76,14 @@ export function verifiedCoverage(c: CycleReconciliation) {
 
 /**
  * Comparable productivity: only attendance-verified sales, divided only by the days and hours they come from.
- * - per attendance day: verified sales ÷ punched days (provisional while any day is pending review);
+ * - per attendance day: verified sales ÷ punched days whose branch is proven (provisional while any day is pending);
  * - per hour: verified sales of approved days with known hours ÷ those hours.
  * Sales of days without a punch are never divided by other days.
  */
 export function comparableProductivity(c: CycleReconciliation) {
   const a = c.attendance, p = c.productivity;
   return {
-    perAttendanceDay: a.presentDays > 0 ? p.verifiedSales / a.presentDays : null,
+    perAttendanceDay: a.provenDays > 0 ? p.verifiedSales / a.provenDays : null,
     perAttendanceDayFinal: a.pendingDays === 0,
     perApprovedHour: a.approvedHours > 0 && a.approvedDaysWithHours >= MIN_APPROVED_DAYS_FOR_RATE ? p.verifiedSalesSettledDays / a.approvedHours : null,
   };

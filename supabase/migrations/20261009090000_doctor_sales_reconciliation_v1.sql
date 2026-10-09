@@ -256,7 +256,8 @@ begin
   ),
   reviews as materialized (
     select r.id, btrim(r.invoice_number) num, r.branch, r.customer_code, r.customer_phone, r.customer_id::text cid,
-           r.converted_to_sale, coalesce(r.conversation_date, r.created_at) at_ts,
+           -- Conversion clock starts at the customer's first message (fallback: conversation date).
+           r.converted_to_sale, coalesce(r.first_customer_message_at, r.conversation_date, r.created_at) at_ts,
            (coalesce(r.conversation_date, r.created_at) at time zone 'Africa/Cairo')::date d
     from public.conversation_sales_reviews_canonical_v2 r
     where v_reviews
@@ -266,7 +267,7 @@ begin
       and coalesce(r.conversation_date, r.created_at) < (p_window_end::timestamp at time zone 'Africa/Cairo')
   ),
   candidates as (
-    -- Invoices carrying the cited number for the same customer, from 1h before to 48h after the conversation.
+    -- Invoices carrying the cited number for the same customer, from the first message to 48h after it.
     -- Customer + time disambiguate numbers that repeat across branches; the review's branch label is not trusted.
     select rv.id review_id, si.id::text invoice_id, coalesce(nullif(btrim(si.branch_name), ''), nullif(btrim(si.branch), '')) branch,
            exists (select 1 from rec x where x.invoice_id = si.id::text and x.attribution <> 'ambiguous_name') sold_by_doctor
@@ -274,7 +275,8 @@ begin
     join public.sales_invoices si on si.invoice_number = rv.num
     where rv.converted_to_sale and rv.num is not null and rv.num <> ''
       and (v_branch is null or coalesce(nullif(btrim(si.branch_name), ''), nullif(btrim(si.branch), '')) = v_branch)
-      and si.invoice_date >= rv.at_ts - interval '1 hour' and si.invoice_date <= rv.at_ts + interval '48 hours'
+      -- An invoice before the customer's first message is an earlier purchase, not a conversion (evidence in docs).
+      and si.invoice_date >= rv.at_ts and si.invoice_date <= rv.at_ts + interval '48 hours'
       and coalesce(nullif(si.net_total, 0), nullif(si.net_amount, 0), nullif(si.amount, 0), 0) > 0
       and (coalesce(nullif(btrim(si.customer_code), ''), '#') = coalesce(nullif(btrim(rv.customer_code), ''), '§')
            or (si.customer_id is not null and si.customer_id::text = rv.cid)
@@ -287,7 +289,9 @@ begin
            when rv.converted_to_sale is null then 'unknown'
            when rv.num is null or rv.num = '' then 'claimed_without_invoice'
            when (select count(*) from candidates c where c.review_id = rv.id) = 0 then
-             case when not exists (select 1 from public.sales_invoices si where si.invoice_number = rv.num) then 'invoice_missing'
+             -- Existence is checked only inside the caller's readable branch: no hint about other branches.
+             case when not exists (select 1 from public.sales_invoices si where si.invoice_number = rv.num
+                                     and (v_branch is null or coalesce(nullif(btrim(si.branch_name), ''), nullif(btrim(si.branch), '')) = v_branch)) then 'invoice_missing'
                   else 'invoice_not_matching_customer_or_time' end
            when (select count(*) from candidates c where c.review_id = rv.id) > 1 then 'invoice_ambiguous'
            -- The same invoice proven for another review of the same customer: neither review owns it.
@@ -310,20 +314,23 @@ begin
                     from (select r.reason, count(*) n from rec r where r.sale_day >= c.s and r.sale_day < c.e group by r.reason) x),
         'attendance', (select jsonb_build_object(
             'presentDays', count(*),
+            -- Productivity denominators use only days whose branch is proven (device or per-punch mixed): sales of an
+            -- unproven day can never be verified, so its days and hours must not dilute the rate either.
+            'provenDays', count(*) filter (where d.branch_source <> 'unproven'),
             'settledDays', count(*) filter (where d.status = 'approved'),
             'pendingDays', count(*) filter (where d.status <> 'approved'),
-            'approvedHours', coalesce(sum(d.hours) filter (where d.status = 'approved' and coalesce(d.hours, 0) > 0), 0),
-            'approvedDaysWithHours', count(*) filter (where d.status = 'approved' and coalesce(d.hours, 0) > 0),
+            'approvedHours', coalesce(sum(d.hours) filter (where d.status = 'approved' and coalesce(d.hours, 0) > 0 and d.branch_source <> 'unproven'), 0),
+            'approvedDaysWithHours', count(*) filter (where d.status = 'approved' and coalesce(d.hours, 0) > 0 and d.branch_source <> 'unproven'),
             'pendingHours', coalesce(sum(d.hours) filter (where d.status <> 'approved'), 0),
             'daysWithoutHours', count(*) filter (where coalesce(d.hours, 0) = 0),
             'unprovenBranchDays', count(*) filter (where d.branch_source <> 'device'),
-            'otherBranchDays', count(*) filter (where d.branch is distinct from d.stored_branch),
+            'otherBranchDays', count(*) filter (where d.branch is not null and d.branch <> d.stored_branch),
             'lastDay', max(d.attendance_date))
           from days d where d.attendance_date >= c.s and d.attendance_date < c.e),
         'productivity', (select jsonb_build_object(
             'verifiedSales', coalesce(sum(ds.sales), 0),
             'verifiedInvoices', coalesce(sum(ds.invoices), 0),
-            'verifiedSalesSettledDays', coalesce(sum(ds.sales) filter (where d.status = 'approved' and coalesce(d.hours, 0) > 0), 0),
+            'verifiedSalesSettledDays', coalesce(sum(ds.sales) filter (where d.status = 'approved' and coalesce(d.hours, 0) > 0 and d.branch_source <> 'unproven'), 0),
             'daysWithVerifiedSales', count(ds.shift_date))
           from days d left join day_sales ds on ds.shift_date = d.attendance_date
           where d.attendance_date >= c.s and d.attendance_date < c.e),
@@ -338,7 +345,7 @@ $function$;
 revoke all on function public.get_doctor_sales_reconciliation_v1(uuid, date, date) from public;
 grant execute on function public.get_doctor_sales_reconciliation_v1(uuid, date, date) to anon, authenticated, service_role;
 
--- 5. Peer comparison on the same reconciliation (supersedes the body from 20261008090000; same signature,
+-- 5. Peer comparison on the same reconciliation (self-contained: the never-applied 20261008090000 is retired; same signature,
 --    payload shape and authorization). Invoices are attributed and placed exactly as the Eye sees them; a
 --    shift punched at another branch belongs to that branch.
 create or replace function public.get_branch_doctor_performance_window_v1(p_branch text, p_window_start date, p_window_end date)
