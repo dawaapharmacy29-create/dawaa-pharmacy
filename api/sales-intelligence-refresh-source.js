@@ -13735,6 +13735,76 @@ async function refreshCustomerStoryProjectionsForSources(client, sourceIds) {
   return result;
 }
 
+// src/lib/deployEnvironmentGuard.ts
+var PRODUCTION_SUPABASE_PROJECT_REF = "jkjqeqkshllustwlzzbf";
+var URL_VARS = ["VITE_SUPABASE_URL", "SUPABASE_URL"];
+var KEY_VARS = ["VITE_SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY"];
+function supabaseProjectRefFromUrl(value) {
+  const match = /^https:\/\/([a-z0-9]{20})\.supabase\.co\/?$/i.exec(String(value || "").trim());
+  return match ? match[1].toLowerCase() : null;
+}
+function supabaseProjectRefFromKey(value) {
+  const parts = String(value || "").trim().split(".");
+  if (parts.length !== 3) return null;
+  try {
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const payload = JSON.parse(atob(base64 + "=".repeat((4 - base64.length % 4) % 4)));
+    return typeof payload?.ref === "string" ? payload.ref.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+function environmentOf(env) {
+  const vercel = String(env.VERCEL_ENV || "").trim().toLowerCase();
+  if (vercel === "production" || vercel === "preview" || vercel === "development") return { environment: vercel, enforced: true };
+  const declared = String(env.DAWAA_DEPLOY_ENV || "").trim().toLowerCase();
+  if (declared === "production" || declared === "preview" || declared === "development" || declared === "local") {
+    return { environment: declared, enforced: true };
+  }
+  return { environment: "local", enforced: false };
+}
+function evaluateDeployEnvironment(env) {
+  const { environment, enforced } = environmentOf(env);
+  const errors = [];
+  const warnings = [];
+  const projectRefs = {};
+  for (const name of URL_VARS) if (env[name]) projectRefs[name] = supabaseProjectRefFromUrl(env[name]);
+  for (const name of KEY_VARS) if (env[name]) projectRefs[name] = supabaseProjectRefFromKey(env[name]);
+  const production = PRODUCTION_SUPABASE_PROJECT_REF;
+  const pointsAtProduction = Object.entries(projectRefs).filter(([, ref3]) => ref3 === production).map(([name]) => name);
+  for (const name of URL_VARS) {
+    if (env[name] && String(env[name]).includes(production) && !pointsAtProduction.includes(name)) pointsAtProduction.push(name);
+  }
+  if (environment === "production") {
+    if (!env.VITE_SUPABASE_URL) warnings.push("VITE_SUPABASE_URL is not set for production");
+    for (const [name, ref3] of Object.entries(projectRefs)) {
+      if (ref3 && ref3 !== production) warnings.push(`${name} points to project ${ref3}, not the production project`);
+    }
+  } else if (environment === "preview" || environment === "development") {
+    const expected = String(env.DAWAA_STAGING_SUPABASE_REF || "").trim().toLowerCase();
+    if (!env.VITE_SUPABASE_URL) errors.push("VITE_SUPABASE_URL is missing: a preview must use the staging Supabase project");
+    if (!env.VITE_SUPABASE_ANON_KEY) errors.push("VITE_SUPABASE_ANON_KEY is missing: a preview must use the staging Supabase project");
+    if (!expected) errors.push("DAWAA_STAGING_SUPABASE_REF is missing: declare the staging project ref this preview must use");
+    if (expected === production) errors.push("DAWAA_STAGING_SUPABASE_REF is the production project");
+    for (const name of pointsAtProduction) errors.push(`${name} points to the production project`);
+    for (const name of URL_VARS) {
+      if (!env[name]) continue;
+      const ref3 = projectRefs[name];
+      if (!ref3) errors.push(`${name} is not a https://<ref>.supabase.co project URL`);
+      else if (expected && ref3 !== expected) errors.push(`${name} points to project ${ref3}, expected staging ${expected}`);
+    }
+    for (const name of KEY_VARS) {
+      const ref3 = projectRefs[name];
+      if (ref3 && expected && ref3 !== expected) errors.push(`${name} belongs to project ${ref3}, expected staging ${expected}`);
+    }
+  } else if (enforced) {
+    for (const name of pointsAtProduction) errors.push(`${name} points to the production project; local must use a local or test database`);
+  } else if (pointsAtProduction.length) {
+    warnings.push(`local run points to the production project (${pointsAtProduction.join(", ")}); set DAWAA_DEPLOY_ENV=local to enforce isolation`);
+  }
+  return { environment, enforced, ok: errors.length === 0, errors, warnings, projectRefs };
+}
+
 // server/sales-intelligence-refresh-source.ts
 var ALLOWED_ROLES = /* @__PURE__ */ new Set([
   "general_manager",
@@ -13751,7 +13821,10 @@ async function handler(req, res) {
     res.setHeader("Allow", "POST");
     return json(res, 405, { error: "method_not_allowed" });
   }
-  const supabaseUrl2 = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "https://jkjqeqkshllustwlzzbf.supabase.co";
+  const supabaseUrl2 = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  if (!supabaseUrl2) return json(res, 503, { error: "missing_supabase_url" });
+  const deployEnvironment = evaluateDeployEnvironment(process.env);
+  if (!deployEnvironment.ok) return json(res, 503, { error: "deploy_environment_isolation_failed" });
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!serviceRoleKey) {
     return json(res, 503, { error: "missing_service_role_key" });

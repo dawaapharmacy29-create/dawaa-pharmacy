@@ -10,6 +10,7 @@ import {
   runCanonicalSalesIntelligenceRefresh,
 } from '../src/lib/salesIntelligence/refresh/canonicalRefreshService';
 import { refreshCustomerStoryProjectionsForSources } from '../src/lib/salesIntelligence/refresh/storyProjectionRefresh';
+import { evaluateDeployEnvironment } from '../src/lib/deployEnvironmentGuard';
 
 const ALLOWED_ROLES = new Set([
   'general_manager',
@@ -29,10 +30,11 @@ export default async function handler(req: any, res: any) {
     return json(res, 405, { error: 'method_not_allowed' });
   }
 
-  const supabaseUrl =
-    process.env.SUPABASE_URL ||
-    process.env.VITE_SUPABASE_URL ||
-    'https://jkjqeqkshllustwlzzbf.supabase.co';
+  // Fail closed: no default project. A preview must prove it uses the staging project only.
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  if (!supabaseUrl) return json(res, 503, { error: 'missing_supabase_url' });
+  const deployEnvironment = evaluateDeployEnvironment(process.env);
+  if (!deployEnvironment.ok) return json(res, 503, { error: 'deploy_environment_isolation_failed' });
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!serviceRoleKey) {
     return json(res, 503, { error: 'missing_service_role_key' });
