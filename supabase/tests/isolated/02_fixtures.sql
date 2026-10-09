@@ -8,17 +8,29 @@ insert into public.staff (id, name, branch, active, role) values
   ('11111111-0000-0000-0000-000000000001', 'د تامر سليم', 'فرع الشامي', true, 'صيدلي'),   -- D1 target doctor
   ('11111111-0000-0000-0000-000000000002', 'د منى عادل', 'فرع شكري', true, 'صيدلي'),     -- D2 colleague
   ('11111111-0000-0000-0000-000000000003', 'د سامي نور', 'فرع الشامي', true, 'صيدلي'),    -- D3 and D4 share a name
-  ('11111111-0000-0000-0000-000000000004', 'د سامي نور', 'فرع شكري', true, 'صيدلي');
+  ('11111111-0000-0000-0000-000000000004', 'د سامي نور', 'فرع شكري', true, 'صيدلي'),
+  ('11111111-0000-0000-0000-000000000005', 'د ليلى صبري', 'فرع الشامي', true, 'صيدلي'),
+  ('11111111-0000-0000-0000-000000000006', 'د هاني مجهول', 'فرع غير محدد', true, 'صيدلي');
+
+insert into public.staff_identity_aliases (staff_id, alias_name, active) values
+  ('11111111-0000-0000-0000-000000000002', 'د منى بديل', true),
+  ('11111111-0000-0000-0000-000000000005', 'د ليلى مختصر', true),
+  ('11111111-0000-0000-0000-000000000005', 'د ليلى سابق', false);
 
 insert into public.staff_accounts (id, role, branch, active, can_login, staff_id) values
   ('aaaaaaaa-0000-0000-0000-000000000001', 'general_manager', 'فرع الشامي', true, true, null), -- GM: all branches
   ('aaaaaaaa-0000-0000-0000-000000000002', 'branch_manager', 'فرع الشامي', true, true, null),  -- SM: الشامي, sales + reviews
   ('aaaaaaaa-0000-0000-0000-000000000003', 'branch_manager', 'فرع شكري', true, true, null),    -- KM: شكري, sales
   ('aaaaaaaa-0000-0000-0000-000000000004', 'assistant', 'فرع الشامي', true, true, null),       -- AS: no permissions
-  ('aaaaaaaa-0000-0000-0000-000000000005', 'branch_manager', 'فرع الشامي', true, true, null);  -- SM2: sales, no reviews
+  ('aaaaaaaa-0000-0000-0000-000000000005', 'branch_manager', 'فرع الشامي', true, true, null),  -- SM2: sales, no reviews
+  ('aaaaaaaa-0000-0000-0000-000000000006', 'branch_manager', 'المخزن', true, true, null),       -- WH: not a sales branch
+  ('aaaaaaaa-0000-0000-0000-000000000007', 'branches_manager', 'كل الفروع', true, true, null),  -- BM: all-scope role
+  ('aaaaaaaa-0000-0000-0000-000000000008', 'branch_manager', 'فرع غير محدد', true, true, null); -- UM: unknown branch
 insert into public.test_actor_permissions values
   ('aaaaaaaa-0000-0000-0000-000000000002', 'view_sales'), ('aaaaaaaa-0000-0000-0000-000000000002', 'view_reviews'),
-  ('aaaaaaaa-0000-0000-0000-000000000003', 'view_sales'), ('aaaaaaaa-0000-0000-0000-000000000005', 'view_sales');
+  ('aaaaaaaa-0000-0000-0000-000000000003', 'view_sales'), ('aaaaaaaa-0000-0000-0000-000000000005', 'view_sales'),
+  ('aaaaaaaa-0000-0000-0000-000000000006', 'view_sales'), ('aaaaaaaa-0000-0000-0000-000000000007', 'view_sales'),
+  ('aaaaaaaa-0000-0000-0000-000000000008', 'view_sales');
 
 -- D1 attendance, stored with the home branch (the legacy ingest behaviour) whatever device took the punches.
 insert into public.attendance_daily_summary (staff_id, attendance_date, branch, first_in, last_out, status, payroll_eligible_hours, candidate_hours) values
@@ -41,7 +53,7 @@ insert into public.biometric_attendance_logs (staff_id, punch_time, device_id, r
   ('11111111-0000-0000-0000-000000000001', test_ts('2026-09-06 18:00'), null, '{"external_device_id":"GED7242701315"}');
 
 insert into public.sales_invoices (id, branch, invoice_number, invoice_date, staff_id, seller_name, customer_code, net_total) values
-  ('i1', 'فرع الشامي', 'S1', test_ts('2026-09-01 15:00'), '11111111-0000-0000-0000-000000000001', null, 'K0', 100),          -- inside shift A
+  ('i1', 'فرع الشامي', 'S1', test_ts('2026-09-01 15:00'), '11111111-0000-0000-0000-000000000001', 'شامي فقط', 'K0', 100),  -- inside shift A
   ('i2', 'فرع الشامي', 'S2', test_ts('2026-09-03 01:30'), null, 'د تامر سليم', 'K0', 200),                                   -- night tail of B, by name
   ('i3', 'فرع شكري', 'S3', test_ts('2026-09-03 15:00'), '11111111-0000-0000-0000-000000000001', null, 'K0', 300),            -- C after شكري check-in
   ('i4', 'فرع الشامي', 'S4', test_ts('2026-09-03 16:00'), '11111111-0000-0000-0000-000000000001', null, 'K0', 400),          -- C while still at شكري
@@ -55,6 +67,15 @@ insert into public.sales_invoices (id, branch, invoice_number, invoice_date, sta
   ('i11b', 'فرع الشامي', 'DUP1', test_ts('2026-09-01 17:05'), '11111111-0000-0000-0000-000000000001', null, 'K0', 50),
   ('i12', 'فرع شكري', 'S12', test_ts('2026-09-06 12:00'), '11111111-0000-0000-0000-000000000001', null, 'K0', 120),          -- F at شكري (stored الشامي)
   ('i13', 'فرع الشامي', 'S13', test_ts('2026-09-01 18:00'), null, 'د سامي نور', 'K0', 70),                                  -- shared seller name
+  ('scope-freshness', 'فرع شكري', 'FRESHNESS', test_ts('2026-10-10 12:00'), '11111111-0000-0000-0000-000000000001', null, 'K0', 1), -- all-branch freshness only
+  ('i14', 'فرع شكري', 'D2-DIRECT', test_ts('2026-09-19 12:00'), '11111111-0000-0000-0000-000000000002', 'منى مباشرة', 'K14', 140),
+  ('i15', 'فرع شكري', 'D2-ALIAS', test_ts('2026-09-19 13:00'), null, 'د منى بديل', 'K15', 150),
+  ('i16', 'فرع الشامي', 'D2-ALIAS-CROSS', test_ts('2026-09-19 14:00'), null, 'د منى بديل', 'K16', 160),
+  ('i17', 'فرع الشامي', 'D5-DIRECT-SHAMY', test_ts('2026-09-19 12:00'), '11111111-0000-0000-0000-000000000005', 'ليلى مباشرة', 'K17', 170),
+  ('i18', 'فرع شكري', 'D5-DIRECT-SHOKRY', test_ts('2026-09-19 13:00'), '11111111-0000-0000-0000-000000000005', 'ليلى مباشرة', 'K18', 180),
+  ('i19', 'فرع الشامي', 'D5-ALIAS-SHAMY', test_ts('2026-09-19 14:00'), null, 'د ليلى مختصر', 'K19', 190),
+  ('i20', 'فرع شكري', 'D5-ALIAS-SHOKRY', test_ts('2026-09-19 15:00'), null, 'د ليلى مختصر', 'K20', 200),
+  ('i21', 'فرع الشامي', 'D5-INACTIVE-ALIAS', test_ts('2026-09-19 16:00'), null, 'د ليلى سابق', 'K21', 210),
   -- Conversion invoices (no shift that day; they are identity_only for productivity).
   ('c1', 'فرع الشامي', 'C1', test_ts('2026-09-20 10:30'), '11111111-0000-0000-0000-000000000001', null, 'K1', 10),
   ('c2', 'فرع الشامي', 'C2', test_ts('2026-09-20 09:10'), '11111111-0000-0000-0000-000000000001', null, 'K2', 10),
@@ -64,6 +85,15 @@ insert into public.sales_invoices (id, branch, invoice_number, invoice_date, sta
   ('c7', 'فرع شكري', 'C7', test_ts('2026-09-20 13:30'), '11111111-0000-0000-0000-000000000001', null, 'K7', 10),
   ('c12a', 'فرع الشامي', 'C12', test_ts('2026-09-20 14:30'), '11111111-0000-0000-0000-000000000001', null, 'K12', 10),
   ('c12b', 'فرع شكري', 'C12', test_ts('2026-09-20 14:40'), '11111111-0000-0000-0000-000000000001', null, 'K12', 10);
+
+  insert into public.sales_invoices
+    (id,branch,invoice_number,invoice_date,staff_id,seller_name,customer_code,net_total,created_at,updated_at)
+  values
+    ('i22','فرع الشامي','D5-SYSTEM',test_ts('2026-09-19 17:00'),'11111111-0000-0000-0000-000000000005','ليلى مباشرة','5',25,test_ts('2026-09-19 17:01'),null),
+    ('i23','فرع الشامي','D5-DUP',test_ts('2026-09-19 18:00'),'11111111-0000-0000-0000-000000000005','ليلى مباشرة','K23',40,test_ts('2026-09-19 18:01'),test_ts('2026-09-19 18:01')),
+    ('i24','فرع الشامي','D5-DUP',test_ts('2026-09-19 18:00'),'11111111-0000-0000-0000-000000000005','ليلى مباشرة','K23',60,test_ts('2026-09-19 18:02'),test_ts('2026-09-19 18:02')),
+    ('i25','فرع الشامي','D5-PENDING',test_ts('2026-09-19 19:00'),'11111111-0000-0000-0000-000000000005','ليلى مباشرة','K25',80,test_ts('2026-09-19 19:01'),null);
+  update public.sales_invoices set save_status='pending' where id='i25';
 
 -- Twelve reviews of D1 (all labelled الشامي), one per conversion class.
 insert into public.conversation_sales_reviews_canonical_v2 (id, doctor_id, branch, invoice_number, converted_to_sale, conversation_date, first_customer_message_at, customer_code) values

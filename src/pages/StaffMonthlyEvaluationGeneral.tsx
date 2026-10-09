@@ -53,6 +53,7 @@ import FinalEvaluationReviewV1 from '@/components/evaluations/FinalEvaluationRev
 import EmployeeEvaluationHeaderV1 from '@/components/evaluations/EmployeeEvaluationHeaderV1';
 import { invalidateEmployeeEvaluationHeaderCache, loadEmployeeEvaluationHeader, type EvaluationHeaderSummary } from '@/lib/evaluations/employeeEvaluationHeaderService';
 import DoctorPerformanceEye from '@/components/evaluations/DoctorPerformanceEye';
+import { authorizationCacheScopeKey } from '@/lib/auth/authorizationCacheScope';
 
 type StaffRow = {
   id: string;
@@ -978,6 +979,7 @@ export default function StaffMonthlyEvaluation() {
         if (evidenceResult) {
           const headerRequestId = ++employeeHeaderRequestRef.current;
           void loadEmployeeEvaluationHeader({
+            viewerScopeKey: authorizationCacheScopeKey(user),
             staffId: selectedId,
             staffName: selected.name,
             role: selected.job_title || selected.role,
@@ -2539,7 +2541,7 @@ export default function StaffMonthlyEvaluation() {
 
               {!employeeView && selected && canonicalStaffRole(selected.job_title || selected.role) === 'doctor' ? (
                 <div className="flex justify-end">
-                  <DoctorPerformanceEye staffId={selected.id} staffName={selected.name} cycleLabel={cycleLabel} branch={selected.branch || branch} header={employeeHeader} conversation={coaching?.conversation ?? null} actorId={user?.id ?? null} sections={sections} />
+                  <DoctorPerformanceEye staffId={selected.id} staffName={selected.name} cycleLabel={cycleLabel} branch={selected.branch || branch} header={employeeHeader} conversation={coaching?.conversation ?? null} actorId={user?.id ?? null} viewerScopeKey={authorizationCacheScopeKey(user)} sections={sections} />
                 </div>
               ) : null}
 

@@ -1,12 +1,13 @@
 import { getStaffAttendanceDetail } from '@/lib/attendance/attendanceBreakdownService';
 import { getAnnualLeaveBalanceV1, getPermissionPolicyStatusV2, listStaffTimeOffRequests } from '@/lib/timeOffService';
 import { supabase } from '@/lib/supabase';
+import { authorizationScopedCacheKey } from '@/lib/auth/authorizationCacheScope';
 
-const HEADER_CACHE=new Map<string,{value:EvaluationHeaderSummary;at:number}>();
+const HEADER_CACHE=new Map<string,{staffId:string;value:EvaluationHeaderSummary;at:number}>();
 const HEADER_CACHE_TTL_MS=5*60*1000;
 export function invalidateEmployeeEvaluationHeaderCache(staffId?:string){
  if(!staffId){HEADER_CACHE.clear();return;}
- for(const key of HEADER_CACHE.keys())if(key.startsWith(`${staffId}:`))HEADER_CACHE.delete(key);
+ for(const [key,value] of HEADER_CACHE)if(value.staffId===staffId)HEADER_CACHE.delete(key);
 }
 import type { EmployeeMonthlyEvidence } from '@/lib/staff/employeeMonthlyEvidenceService';
 import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
@@ -55,9 +56,9 @@ export function evaluationRoleGroup(role:unknown):EvaluationRoleGroup{
 }
 
 // `end` is the inclusive last cycle day (attendance/time-off readers); `endExclusive` bounds the sales RPC.
-export async function loadEmployeeEvaluationHeader(args:{staffId:string;staffName:string;role:unknown;branch:string;start:string;end:string;endExclusive:string;evidence:EmployeeMonthlyEvidence}):Promise<EvaluationHeaderSummary>{
- const cacheKey=`${args.staffId}:${args.start}:${args.endExclusive}:${args.branch}:${evaluationRoleGroup(args.role)}`;
- const cached=HEADER_CACHE.get(cacheKey);
+export async function loadEmployeeEvaluationHeader(args:{viewerScopeKey:string|null;staffId:string;staffName:string;role:unknown;branch:string;start:string;end:string;endExclusive:string;evidence:EmployeeMonthlyEvidence}):Promise<EvaluationHeaderSummary>{
+ const cacheKey=args.viewerScopeKey?authorizationScopedCacheKey(args.viewerScopeKey,[args.staffId,args.start,args.end,args.endExclusive,args.branch,evaluationRoleGroup(args.role)]):null;
+ const cached=cacheKey?HEADER_CACHE.get(cacheKey):undefined;
  if(cached&&Date.now()-cached.at<HEADER_CACHE_TTL_MS)return cached.value;
  const warnings:string[]=[];
  const roleGroup=evaluationRoleGroup(args.role);
@@ -100,7 +101,7 @@ export async function loadEmployeeEvaluationHeader(args:{staffId:string;staffNam
   && (roleGroup!=='doctor'||value.sales.state==='available')
   && value.conversations.state==='available'
   && (!needsPersonalAttendance||(value.attendance.state==='available'&&value.timeOff.state==='available'&&annualR.status==='fulfilled'));
- if(complete)HEADER_CACHE.set(cacheKey,{value,at:Date.now()});
- else HEADER_CACHE.delete(cacheKey);
+ if(complete&&cacheKey)HEADER_CACHE.set(cacheKey,{staffId:args.staffId,value,at:Date.now()});
+ else if(cacheKey)HEADER_CACHE.delete(cacheKey);
  return value;
 }
