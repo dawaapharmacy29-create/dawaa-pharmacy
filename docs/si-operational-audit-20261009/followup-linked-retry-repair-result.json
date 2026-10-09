@@ -1,0 +1,86 @@
+{
+  "engine": "PGlite in-memory PostgreSQL",
+  "scope": "actual captured follow-up core, action materializer core, and identity helpers; synthetic tables and stub actor/access wrappers",
+  "checks": [
+    {
+      "name": "migration reapplication preserves restricted core execute ACL",
+      "holds": true
+    },
+    {
+      "name": "same creation key retry",
+      "holds": true
+    },
+    {
+      "name": "distinct obligation links existing open case",
+      "holds": true
+    },
+    {
+      "name": "linked obligation retry has one lineage event",
+      "holds": true,
+      "actualEventCount": 1
+    },
+    {
+      "name": "linked obligation retry after completion reuses original work",
+      "holds": true,
+      "actual": "reuses target recorded in linked-request event"
+    },
+    {
+      "name": "replayed key checks customer and branch scope",
+      "holds": true,
+      "actual": "rejects mismatched creation and linked-replay scope"
+    },
+    {
+      "name": "missing actor",
+      "holds": true
+    },
+    {
+      "name": "inactive or unknown actor",
+      "holds": true
+    },
+    {
+      "name": "missing branch",
+      "holds": true
+    },
+    {
+      "name": "existing action materializer links distinct obligations to one open case",
+      "holds": true
+    },
+    {
+      "name": "persisted created action retains linked target after completion and retry",
+      "holds": true
+    },
+    {
+      "name": "queue semantic identity unique constraint rejects duplicate proposal",
+      "holds": true,
+      "limit": "fixture copies the inspected live index; durable semantic key itself is not proved"
+    },
+    {
+      "name": "failed materialization rolls back target creation and action status together",
+      "holds": true
+    },
+    {
+      "name": "different key preserves independent branch case creation",
+      "holds": true
+    },
+    {
+      "name": "ambiguous historical key fails without choosing a target",
+      "holds": true
+    },
+    {
+      "name": "missing historical target fails without creating replacement",
+      "holds": true,
+      "limit": "synthetic fixture permits orphan event; live FK may already prevent this condition"
+    }
+  ],
+  "passedExistingProperties": 16,
+  "reproducedContractGaps": 0,
+  "limitations": [
+    "single embedded backend; no multi-connection concurrency proof",
+    "no live table triggers, RLS, grants, real public wrapper, or full schema parity proof",
+    "actor/access checks and follow-up wrapper are fixture stubs; no Production authorization claim",
+    "repair migration applied only in synthetic fixture; protected migration not applied"
+  ],
+  "productionMutations": 0,
+  "applicationMigrationsApplied": 2,
+  "migrationScope": "new repair migration applied only inside synthetic in-memory fixture"
+}

@@ -1,6 +1,6 @@
 # SI operational consolidation — Phase 1 audit, 2026-10-09
 
-**Decision: BLOCKED for implementation/cutover. Phase 1 has produced a conservative writer inventory and verified live findings; it has not proved an executable single-writer cutover.** No behavior was changed. The four classifications below are future proposals, not claims that paths have been disabled.
+**Decision: full SI cutover remains BLOCKED.** Phase 1 has not proved an executable single-writer cutover. After the user's explicit request to start repairs, a bounded [linked-retry repair](linked-retry-repair.md) is now prepared and tested locally. It is not applied live and does not activate the new projector. The original audit sections below describe the baseline; classifications remain proposals, not claims that legacy paths have been disabled.
 
 Repository: `dawaapharmacy29-create/dawaa-pharmacy`.
 Branch: `chatgpt/si-operational-consolidation-20261009`.

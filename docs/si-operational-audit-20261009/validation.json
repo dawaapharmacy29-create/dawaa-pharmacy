@@ -6,7 +6,7 @@
   "tests_passed": 643,
   "tests_failed": 0,
   "initial_js_gzip_kib": 92.2,
-  "implementation_started": false,
+  "implementation_started": true,
   "live_mutations": 0,
   "migrations_applied": 0,
   "preview_created": false,
@@ -20,7 +20,7 @@
   "app_write_call_sites": 66,
   "nonliteral_db_candidates": 116,
   "review_correction_rpc_live_present": false,
-  "continuation_scope": "isolated audit reproduction of existing SQL cores; no application changes or migrations",
+  "continuation_scope": "explicit user request starts bounded existing-core repair; full SI cutover remains blocked",
   "database_writer_functions": 98,
   "nonliteral_targets_resolved_via_types": 58,
   "nonliteral_targets_resolved_via_static_callers_or_types": 96,
@@ -41,5 +41,18 @@
   "isolated_db_harness_properties_holding": 9,
   "isolated_db_harness_contract_gaps_reproduced": 3,
   "isolated_db_harness_concurrency_proven": false,
-  "isolated_db_harness_authorization_proven": false
+  "isolated_db_harness_authorization_proven": false,
+  "application_source_changed": false,
+  "full_si_cutover_activated": false,
+  "migrations_prepared": 1,
+  "repair_1": {
+    "status": "PREPARED_LOCALLY",
+    "migration": "20261009100000_customer_followup_linked_retry_lineage_v1.sql",
+    "fixture_properties_holding": 16,
+    "fixture_contract_gaps": 0,
+    "fixture_migration_applications": 2,
+    "native_concurrency_proven": false,
+    "live_applied": false,
+    "verify_exit_code": 0
+  }
 }

@@ -1,6 +1,7 @@
 // Read-only audit reproduction in an in-memory PostgreSQL WASM engine.
 // Usage: node followup-core-harness.mjs /absolute/path/to/pglite/dist/index.js
-// No network client, environment database URL, or application migration is used.
+// Optional --repair applies only the new repair migration inside the synthetic fixture.
+// No network client or environment database URL is used.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -9,6 +10,7 @@ import assert from 'node:assert/strict';
 if (!process.argv[2] || !path.isAbsolute(process.argv[2])) throw Error('absolute_pglite_module_path_required');
 const { PGlite } = await import(pathToFileURL(process.argv[2]).href);
 const root = path.dirname(fileURLToPath(import.meta.url));
+const repairMode = process.argv[3] === '--repair';
 const db = new PGlite();
 const checks = [];
 try {
@@ -62,6 +64,20 @@ try {
   for (const row of JSON.parse(fs.readFileSync(path.join(root,'followup-core-live-definitions.json'),'utf8'))) {
     await db.exec(row.definition);
   }
+  if (repairMode) {
+    await db.exec(`create role anon; create role authenticated; create role service_role;
+      revoke all on function find_or_create_open_customer_followup(text,text,text,text,text,text,text,text,text,date,text,text,text,text) from public;
+      grant execute on function find_or_create_open_customer_followup(text,text,text,text,text,text,text,text,text,date,text,text,text,text) to service_role;`);
+    await db.exec(fs.readFileSync(path.resolve(root,'../../supabase/migrations/20261009100000_customer_followup_linked_retry_lineage_v1.sql'),'utf8'));
+    // Reapplication must preserve ACLs and remain schema-idempotent.
+    await db.exec(fs.readFileSync(path.resolve(root,'../../supabase/migrations/20261009100000_customer_followup_linked_retry_lineage_v1.sql'),'utf8'));
+    const acl=await db.query(`select
+      has_function_privilege('anon','find_or_create_open_customer_followup(text,text,text,text,text,text,text,text,text,date,text,text,text,text)','execute') as anon,
+      has_function_privilege('authenticated','find_or_create_open_customer_followup(text,text,text,text,text,text,text,text,text,date,text,text,text,text)','execute') as authenticated,
+      has_function_privilege('service_role','find_or_create_open_customer_followup(text,text,text,text,text,text,text,text,text,date,text,text,text,text)','execute') as service`);
+    assert.equal(acl.rows[0].anon,false); assert.equal(acl.rows[0].authenticated,false); assert.equal(acl.rows[0].service,true);
+    checks.push({name:'migration reapplication preserves restricted core execute ACL',holds:true});
+  }
   async function run({key, customer='fixture-customer', branch='فرع الشامي', actor='fixture-actor'}) {
     const {rows} = await db.query(`select find_or_create_open_customer_followup(
       $1,null,'Synthetic customer',null,$2,'general','Synthetic obligation',
@@ -84,20 +100,31 @@ try {
   await run({key:'obligation:B'});
   const events = await db.query(`select count(*)::int as count
     from customer_service_followup_events where metadata->>'client_request_id'='obligation:B'`);
-  assert.equal(events.rows[0].count,2);
-  checks.push({name:'linked obligation retry has one lineage event',holds:false,actualEventCount:2});
+  assert.equal(events.rows[0].count,repairMode ? 1 : 2);
+  checks.push({name:'linked obligation retry has one lineage event',holds:repairMode,actualEventCount:events.rows[0].count});
 
   await db.query('update daily_followups set completed_at=now() where id=$1',[a.followup_id]);
   const replayB = await run({key:'obligation:B'});
-  assert.notEqual(replayB.followup_id,a.followup_id);
-  assert.equal(replayB.created,true);
-  checks.push({name:'linked obligation retry after completion reuses original work',holds:false,
-    actual:'creates a second follow-up because the first case stores A, not B, in client_request_id'});
+  if (repairMode) {
+    assert.equal(replayB.followup_id,a.followup_id);
+    assert.equal(replayB.idempotent_replay,true);
+    assert.equal(replayB.created,false);
+  } else {
+    assert.notEqual(replayB.followup_id,a.followup_id);
+    assert.equal(replayB.created,true);
+  }
+  checks.push({name:'linked obligation retry after completion reuses original work',holds:repairMode,
+    actual:repairMode ? 'reuses target recorded in linked-request event' : 'creates a second follow-up because the first case stores A, not B, in client_request_id'});
 
-  const collision = await run({key:'obligation:A',customer:'different-fixture-customer',branch:'فرع شكري'});
-  assert.equal(collision.followup_id,a.followup_id);
-  checks.push({name:'replayed key checks customer and branch scope',holds:false,
-    actual:'returns original ID without comparing supplied customer or branch'});
+  if (repairMode) {
+    await assert.rejects(()=>run({key:'obligation:A',customer:'different-fixture-customer',branch:'فرع شكري'}),/followup_client_request_scope_conflict/);
+    await assert.rejects(()=>run({key:'obligation:B',branch:'فرع شكري'}),/followup_client_request_scope_conflict/);
+  } else {
+    const collision = await run({key:'obligation:A',customer:'different-fixture-customer',branch:'فرع شكري'});
+    assert.equal(collision.followup_id,a.followup_id);
+  }
+  checks.push({name:'replayed key checks customer and branch scope',holds:repairMode,
+    actual:repairMode ? 'rejects mismatched creation and linked-replay scope' : 'returns original ID without comparing supplied customer or branch'});
 
   for (const [name,args,error] of [
     ['missing actor',{key:'missing-actor',actor:null},/actor_staff_id_required/],
@@ -146,12 +173,29 @@ try {
   assert.equal(rollback.rows[0].followup_count,0);
   checks.push({name:'failed materialization rolls back target creation and action status together',holds:true});
 
+  if (repairMode) {
+    const other = await run({key:'other-branch',branch:'فرع شكري'});
+    assert.notEqual(other.followup_id,a.followup_id);
+    checks.push({name:'different key preserves independent branch case creation',holds:true});
+    await db.query(`insert into customer_service_followup_events(followup_id,event_type,metadata)
+      values($1,'request_linked','{"client_request_id":"ambiguous-legacy"}'),
+      ($2,'request_linked','{"client_request_id":"ambiguous-legacy"}')`,[a.followup_id,other.followup_id]);
+    await assert.rejects(()=>run({key:'ambiguous-legacy'}),/followup_client_request_lineage_conflict/);
+    checks.push({name:'ambiguous historical key fails without choosing a target',holds:true});
+    await db.query(`insert into customer_service_followup_events(followup_id,event_type,metadata)
+      values('00000000-0000-4000-8000-000000000099','request_linked','{"client_request_id":"missing-target"}')`);
+    await assert.rejects(()=>run({key:'missing-target'}),/followup_client_request_target_missing/);
+    checks.push({name:'missing historical target fails without creating replacement',holds:true,
+      limit:'synthetic fixture permits orphan event; live FK may already prevent this condition'});
+  }
+
   const report={engine:'PGlite in-memory PostgreSQL',scope:'actual captured follow-up core, action materializer core, and identity helpers; synthetic tables and stub actor/access wrappers',checks,
     passedExistingProperties:checks.filter(x=>x.holds).length,
     reproducedContractGaps:checks.filter(x=>!x.holds).length,
-    limitations:['single embedded backend; no multi-connection concurrency proof','no live table triggers, RLS, grants, real public wrapper, or full schema parity proof','actor/access checks and follow-up wrapper are fixture stubs; no Production authorization claim','no application or protected migration applied'],
-    productionMutations:0,applicationMigrationsApplied:0};
-  fs.writeFileSync(path.join(root,'followup-core-harness-result.json'),JSON.stringify(report,null,2)+'\n');
+    limitations:['single embedded backend; no multi-connection concurrency proof','no live table triggers, RLS, grants, real public wrapper, or full schema parity proof','actor/access checks and follow-up wrapper are fixture stubs; no Production authorization claim',repairMode ? 'repair migration applied only in synthetic fixture; protected migration not applied' : 'no application or protected migration applied'],
+    productionMutations:0,applicationMigrationsApplied:repairMode ? 2 : 0,
+    migrationScope:repairMode ? 'new repair migration applied only inside synthetic in-memory fixture' : 'captured definitions only'};
+  fs.writeFileSync(path.join(root,repairMode ? 'followup-linked-retry-repair-result.json' : 'followup-core-harness-result.json'),JSON.stringify(report,null,2)+'\n');
   process.stdout.write(JSON.stringify(report,null,2)+'\n');
 } catch (error) {
   process.stderr.write(JSON.stringify({error:error.message,code:error.code})+'\n');
