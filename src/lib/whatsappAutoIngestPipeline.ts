@@ -127,11 +127,13 @@ async function saveSessionReview(
   const sourceHash = await hashWhatsAppSession(session);
   const { data: existing, error: existingError } = await supabase
     .from('whatsapp_review_sources')
-    .select('id')
+    .select('id,branch')
     .eq('source_hash', sourceHash)
     .maybeSingle();
   if (existingError && existingError.code !== 'PGRST116') throw existingError;
-  if (existing?.id) return { sourceId: String(existing.id), duplicate: true as const };
+  // The branch decided when the source was first saved is its provenance; a re-import never re-decides it.
+  if (existing?.id)
+    return { sourceId: String(existing.id), duplicate: true as const, branch: (existing.branch as string | null) ?? null };
 
   const summary = buildSmartConversationReviewSummary(session);
   const staffName =
@@ -190,15 +192,15 @@ async function saveSessionReview(
     if (error.code === '23505') {
       const { data: duplicate, error: duplicateError } = await supabase
         .from('whatsapp_review_sources')
-        .select('id')
+        .select('id,branch')
         .eq('source_hash', sourceHash)
         .single();
       if (duplicateError) throw duplicateError;
-      return { sourceId: String(duplicate.id), duplicate: true as const };
+      return { sourceId: String(duplicate.id), duplicate: true as const, branch: (duplicate.branch as string | null) ?? null };
     }
     throw error;
   }
-  return { sourceId: String(data.id), duplicate: false as const, summary };
+  return { sourceId: String(data.id), duplicate: false as const, summary, branch: conversationBranch };
 }
 
 async function verifySessionSale(
@@ -465,10 +467,12 @@ async function persistOperationalJourneyIntelligence(
 
   const { data: sourceRow, error: sourceReadError } = await supabase
     .from('whatsapp_review_sources')
-    .select('analysis_json,analysis_version,staff_id,staff_name,created_by')
+    .select('analysis_json,analysis_version,staff_id,staff_name,created_by,branch')
     .eq('id', sourceId)
     .single();
   if (sourceReadError) throw sourceReadError;
+  // Source branch is provenance: re-analysis may fill a missing branch, never replace a stored one.
+  const sourceBranch: string | null = sourceRow?.branch ?? conversationBranch;
 
   const nextAnalysis = {
     ...(sourceRow?.analysis_json || {}),
@@ -480,7 +484,7 @@ async function persistOperationalJourneyIntelligence(
   const { error: sourceUpdateError } = await supabase
     .from('whatsapp_review_sources')
     .update({
-      branch: conversationBranch,
+      ...(sourceRow?.branch == null && conversationBranch ? { branch: conversationBranch } : {}),
       analysis_version: operational.version,
       analysis_status: operational.officialScoringEligible ? 'analyzed' : 'needs_review',
       priority: operational.followupPlan.priority,
@@ -496,7 +500,7 @@ async function persistOperationalJourneyIntelligence(
 
   await syncWhatsAppOperationalActionsV6(operational, {
     sourceId,
-    branch: conversationBranch,
+    branch: sourceBranch,
     customerId: identity.customerId,
     customerCode: identity.customerCode,
     customerName: identity.customerName,
@@ -656,10 +660,12 @@ export async function ingestWhatsAppExportFile(
         conversationBranch,
         branchHint
       );
+      // Downstream writers use the source's stored branch, not a re-decided hint.
+      const sourceBranch = saved.branch ?? conversationBranch;
       if (saved.duplicate) result.sessionsDuplicate += 1;
       else result.sessionsSaved += 1;
       sessionSources.push({ sessionId: session.id, sourceId: saved.sourceId, contextOnly: false });
-      if (!firstBranch && conversationBranch) firstBranch = conversationBranch;
+      if (!firstBranch && sourceBranch) firstBranch = sourceBranch;
 
       if (source.mediaFiles?.length) {
         try {
@@ -683,7 +689,7 @@ export async function ingestWhatsAppExportFile(
         }
       }
 
-      const invoiceStatus = await verifySessionSale(session, saved.sourceId, identity, conversationBranch);
+      const invoiceStatus = await verifySessionSale(session, saved.sourceId, identity, sourceBranch);
       if (invoiceStatus === 'verified') result.invoicesVerified += 1;
       else if (invoiceStatus === 'probable' || invoiceStatus === 'needs_review')
         result.invoicesProbable += 1;
@@ -695,7 +701,7 @@ export async function ingestWhatsAppExportFile(
           session,
           saved.sourceId,
           identity,
-          conversationBranch,
+          sourceBranch,
           participantRoles,
           branchHint,
           context.caseItem.startedAt
@@ -712,7 +718,7 @@ export async function ingestWhatsAppExportFile(
         session,
         source.sourceFileName,
         identity,
-        conversationBranch
+        sourceBranch
       );
       result.followupsCreated += followups.created;
       result.followupsDuplicate += followups.duplicate;
