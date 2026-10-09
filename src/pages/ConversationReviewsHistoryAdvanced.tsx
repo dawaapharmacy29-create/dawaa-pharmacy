@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { RefreshCw, Search, SlidersHorizontal, X } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
@@ -141,7 +141,10 @@ export default function ConversationReviewsHistoryAdvanced() {
 
   const [visibleCount, setVisibleCount] = useState(150);
 
+  // The paged loop re-enables Refresh after its first page; a newer load supersedes an older one.
+  const loadSeqRef = useRef(0);
   const load = useCallback(async () => {
+    const seq = ++loadSeqRef.current;
     setLoading(true);
     setError('');
     try {
@@ -157,6 +160,7 @@ export default function ConversationReviewsHistoryAdvanced() {
           .eq('is_current', true)
           .order('created_at', { ascending: false })
           .range(from, from + PAGE - 1);
+        if (seq !== loadSeqRef.current) return;
         if (queryError) throw queryError;
         const batch = (data || []) as ReviewRow[];
         all.push(...batch);
@@ -166,6 +170,7 @@ export default function ConversationReviewsHistoryAdvanced() {
         if (batch.length < PAGE) break;
       }
     } catch (err) {
+      if (seq !== loadSeqRef.current) return;
       const message =
         err && typeof err === 'object' && 'message' in err && typeof (err as { message?: unknown }).message === 'string'
           ? (err as { message: string }).message
@@ -175,11 +180,13 @@ export default function ConversationReviewsHistoryAdvanced() {
       setError(message);
       setRows([]);
     } finally {
-      setLoading(false);
+      if (seq === loadSeqRef.current) setLoading(false);
     }
   }, [user]);
 
   useEffect(() => { void load(); }, [load]);
+  // Leaving the page stops the remaining pages of an in-flight load.
+  useEffect(() => () => { loadSeqRef.current += 1; }, []);
 
   const doctors = useMemo(() => {
     const map = new Map<string, string>();

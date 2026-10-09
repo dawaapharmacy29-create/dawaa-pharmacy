@@ -86,6 +86,7 @@ import {
   editRouteReviewId,
   parseReviewsRoute,
   reselectReviewById,
+  reviewDetailsPath,
   reviewEditPath,
 } from '@/lib/reviews/reviewRouteState';
 import { deriveConversationReviewEvaluationFlags } from '@/lib/reviews/conversationReviewEvaluationColumns';
@@ -113,6 +114,7 @@ interface StaffOpt {
 
 interface ConversationReviewHistoryRow {
   id?: string;
+  is_current?: boolean | null;
   created_at?: string | null;
   updated_at?: string | null;
   reviewer_id?: string | null;
@@ -1141,8 +1143,10 @@ export default function Reviews() {
 
       // Re-select by stable review id only — never on the edit route, where a refetch must not
       // replace the open editor with a details modal.
+      // A row the current-only list does not contain (e.g. a superseded version opened by its id)
+      // stays as loaded by the deep link instead of being cleared and re-fetched.
       const reselection = reselectReviewById(rows, parseReviewsRoute(window.location.search));
-      if (reselection.apply) {
+      if (reselection.apply && reselection.row) {
         setSelectedReview(reselection.row);
         setSelectedReviewId(reselection.row?.id ?? null);
       }
@@ -1778,6 +1782,8 @@ export default function Reviews() {
   // only — editing, saving or refetching never re-runs it, so the editor state is never reset.
   const openEditRef = useRef(openEdit);
   openEditRef.current = openEdit;
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
   const editRouteOpenedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!editRouteId || editRouteOpenedRef.current === editRouteId) return;
@@ -1792,6 +1798,12 @@ export default function Reviews() {
         if (cancelled) return;
         if (error || !data) {
           toast.error('تعذر تحميل التقييم المطلوب للتعديل.');
+          return;
+        }
+        // A superseded version is frozen lineage: show it read-only instead of editing it.
+        if ((data as ConversationReviewHistoryRow).is_current === false) {
+          toast.error('هذه نسخة سابقة من التقييم تم استبدالها، ولا يمكن تعديلها.');
+          navigateRef.current(reviewDetailsPath(editRouteId), { replace: true });
           return;
         }
         void openEditRef.current(data as ConversationReviewHistoryRow);
@@ -3978,8 +3990,18 @@ function ReviewDetailsModal({
   const severe = raw?.severe_errors || {};
   const activeSevere = (Object.entries(SEVERE_ERRORS) as Array<[SevereErrorKey, (typeof SEVERE_ERRORS)[SevereErrorKey]]>)
     .filter(([key]) => Boolean(severe[key]));
+  // A superseded/reconciled version opened by its id is lineage, never the official review:
+  // it is labelled as such and offers no edit or approval.
+  const superseded = row.is_current === false;
+  const showEdit = canEdit && !superseded;
+  const showApprove = canApprove && !superseded;
   return (
     <Modal title="تفاصيل تقييم المحادثة كاملة" onClose={onClose}>
+      {superseded ? (
+        <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-3 text-sm font-bold text-amber-100">
+          هذه نسخة سابقة غير معتمدة من التقييم (تم استبدالها)، ولا تدخل في النتائج أو النقاط.
+        </div>
+      ) : null}
       <div className="grid md:grid-cols-3 gap-3">
         <Info label="الدكتور / الموظف" value={row.staff_name || row.doctor_name || 'غير محدد'} />
         <Info label="المراجع" value={reviewerDisplayName(row)} />
@@ -4027,9 +4049,9 @@ function ReviewDetailsModal({
           </div>
         </div>
       ) : null}
-      {canEdit || canApprove ? (
+      {showEdit || showApprove ? (
         <div className="grid md:grid-cols-2 gap-2">
-          {canEdit ? (
+          {showEdit ? (
             <button
               type="button"
               onClick={onEdit}
@@ -4039,7 +4061,7 @@ function ReviewDetailsModal({
               تعديل تقييم المحادثة
             </button>
           ) : null}
-          {canApprove ? (
+          {showApprove ? (
             <button
               type="button"
               onClick={onManagerReview}

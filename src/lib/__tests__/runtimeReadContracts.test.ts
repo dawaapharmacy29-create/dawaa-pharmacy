@@ -182,3 +182,65 @@ describe('V22 ownership lookup (SI QA canonical source gate)', () => {
     expect(message).toMatch(/canonical_source_gate_case_lookup_failed/);
   });
 });
+
+describe('stale responses never overwrite newer state', () => {
+  it('SI case detail cancels the previous case load when the case changes', () => {
+    const page = read('src/pages/SalesIntelligenceQACaseDetail.tsx');
+    const effect = page.slice(page.indexOf('async function load()') - 200, page.indexOf('}, [caseId]);') + 14);
+    expect(effect).toMatch(/let cancelled = false;/);
+    expect(effect).not.toMatch(/const cancelled = false;/);
+    expect(effect).toMatch(/return \(\) => \{\s*cancelled = true;\s*\};\s*\}, \[caseId\]\);/);
+  });
+
+  it('advanced review history: a newer (or unmounted) load stops the older paged loop', () => {
+    const page = read('src/pages/ConversationReviewsHistoryAdvanced.tsx');
+    expect(page).toMatch(/const seq = \+\+loadSeqRef\.current;/);
+    expect(page).toMatch(/if \(seq !== loadSeqRef\.current\) return;\s*if \(queryError\) throw queryError;/);
+    expect(page).toMatch(/if \(seq === loadSeqRef\.current\) setLoading\(false\);/);
+    expect(page).toMatch(/useEffect\(\(\) => \(\) => \{ loadSeqRef\.current \+= 1; \}, \[\]\);/);
+  });
+
+  it('Smart Folder reanalysis refuses while a scan runs instead of wiping the ledger under it', () => {
+    const page = read('src/pages/WhatsAppSmartFolderWatcher.tsx');
+    const fn = page.slice(page.indexOf('async function reanalyzeExisting()'), page.indexOf('async function connect()'));
+    const guard = fn.indexOf('if (scanningRef.current)');
+    expect(guard).toBeGreaterThan(0);
+    expect(guard).toBeLessThan(fn.indexOf('resetLocalWhatsAppProcessedLedger();'));
+  });
+});
+
+describe('a superseded version opened by id is never presented as the official review', () => {
+  const reviews = read('src/pages/Reviews.tsx');
+
+  it('details modal labels it and offers no edit/approval', () => {
+    const modal = reviews.slice(reviews.indexOf('function ReviewDetailsModal('), reviews.indexOf('function ReviewItemsTable('));
+    expect(modal).toMatch(/const superseded = row\.is_current === false;/);
+    expect(modal).toMatch(/const showEdit = canEdit && !superseded;/);
+    expect(modal).toMatch(/const showApprove = canApprove && !superseded;/);
+    expect(modal).toMatch(/\{showEdit \? \(/);
+    expect(modal).toMatch(/\{showApprove \? \(/);
+    expect(modal).not.toMatch(/\{canEdit \? \(|\{canApprove \? \(/);
+  });
+
+  it('the edit route sends a superseded version to its read-only details instead of the editor', () => {
+    const effect = reviews.slice(reviews.indexOf('const editRouteOpenedRef'), reviews.indexOf('const editDirty = useMemo('));
+    const guard = effect.indexOf('.is_current === false');
+    expect(guard).toBeGreaterThan(0);
+    expect(guard).toBeLessThan(effect.indexOf('void openEditRef.current('));
+    expect(effect).toMatch(/navigateRef\.current\(reviewDetailsPath\(editRouteId\), \{ replace: true \}\)/);
+  });
+
+  it('a list refetch keeps a deep-linked row the current-only list does not contain', () => {
+    expect(reviews).toMatch(/if \(reselection\.apply && reselection\.row\) \{/);
+  });
+});
+
+describe('history details page (section=history&id=) labels superseded versions', () => {
+  it('reads is_current, shows the banner and hides the edit action', () => {
+    const page = read('src/pages/ConversationReviewDetailsFast.tsx');
+    expect(page).toMatch(/'id','is_current',/);
+    expect(page).toMatch(/const superseded = row\?\.is_current === false;/);
+    expect(page).toMatch(/const canEdit = !superseded && /);
+    expect(page).toMatch(/\{superseded \? <p /);
+  });
+});

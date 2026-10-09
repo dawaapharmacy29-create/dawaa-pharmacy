@@ -11,7 +11,7 @@ import ConversationReviewTranscriptCard from '@/components/reviews/ConversationR
 type ReviewRow = Record<string, any>;
 
 const DETAIL_SELECT = [
-  'id','created_at','updated_at','reviewer_id','reviewer_name','reviewer_role',
+  'id','is_current','created_at','updated_at','reviewer_id','reviewer_name','reviewer_role',
   'staff_id','doctor_id','staff_name','doctor_name','staff_role','branch',
   'customer_name','customer_code','customer_phone','invoice_number','evaluation_kind','conversation_type','evaluation_reason',
   'conversation_date','final_score','total_score','doctor_points_impact','point_impact','level',
@@ -97,7 +97,9 @@ export default function ConversationReviewDetailsFast() {
   const score = toNumber(row?.final_score ?? row?.total_score ?? 0);
   const impact = toNumber(row?.doctor_points_impact ?? row?.point_impact ?? 0);
   const role = normalizeRole(user?.role);
-  const canEdit = Boolean(checkPermission('edit_reviews') || role === 'general_manager' || role === 'branches_manager' || role === 'executive_manager');
+  // A superseded/reconciled version opened by its id is lineage, never the official review.
+  const superseded = row?.is_current === false;
+  const canEdit = !superseded && Boolean(checkPermission('edit_reviews') || role === 'general_manager' || role === 'branches_manager' || role === 'executive_manager');
 
   if (loading) {
     return <div dir="rtl" className="dawaa-card p-6"><div className="flex items-center gap-3 font-black"><RefreshCw className="animate-spin" size={18}/>جاري تحميل تفاصيل التقييم...</div></div>;
@@ -113,6 +115,7 @@ export default function ConversationReviewDetailsFast() {
         <div>
           <h1 className="dawaa-title text-xl font-black">تفاصيل تقييم المحادثة كاملة</h1>
           <p className="dawaa-caption mt-1 text-sm">يتم تحميل تقييم واحد فقط لضمان فتح سريع بدون إعادة تحميل سجل التقييمات.</p>
+          {superseded ? <p className="mt-2 rounded-xl border border-amber-400/30 bg-amber-500/10 p-2 text-sm font-bold text-amber-200">هذه نسخة سابقة غير معتمدة من التقييم (تم استبدالها)، ولا تدخل في النتائج أو النقاط.</p> : null}
         </div>
         <div className="flex flex-wrap gap-2">
           {canEdit && <button className="dawaa-button dawaa-button--primary flex items-center gap-2" onClick={() => navigate(`/reviews?mode=edit&id=${encodeURIComponent(reviewId)}`)}><Pencil size={16}/>تعديل التقييم بالكامل</button>}

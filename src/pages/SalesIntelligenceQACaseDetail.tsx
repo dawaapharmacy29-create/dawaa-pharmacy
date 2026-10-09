@@ -138,7 +138,8 @@ export default function SalesIntelligenceQACaseDetail() {
   const [conversationEvaluationWarning, setConversationEvaluationWarning] = useState<string | null>(null);
 
   useEffect(() => {
-    const cancelled = false;
+    // Moving to a sibling case must not let the previous case's slower response overwrite this one.
+    let cancelled = false;
     async function load() {
       setBundle(undefined);
       setError(null);
@@ -150,6 +151,9 @@ export default function SalesIntelligenceQACaseDetail() {
       }
     }
     if (caseId) void load();
+    return () => {
+      cancelled = true;
+    };
   }, [caseId]);
 
   useEffect(() => {

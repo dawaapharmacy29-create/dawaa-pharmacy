@@ -659,6 +659,12 @@ export default function WhatsAppSmartFolderWatcher() {
     // rebuilt with the current engines (audited as analysis_reanalyzed), then V22 and the single
     // canonical Sales Intelligence refresh run again. Human approvals, reviewer fields, manual
     // invoice confirmations and corrections are never touched, and no points are applied.
+    // While a scan is running, scanOnce('reanalyze') would be a no-op: resetting the ledger first
+    // would only make the running ingest scan re-process files. Refuse instead.
+    if (scanningRef.current) {
+      toast.message('يوجد فحص جارٍ الآن، أعد التحليل بعد انتهائه');
+      return;
+    }
     resetLocalWhatsAppProcessedLedger();
     setRuns([]);
     toast.success('إعادة تحليل حقيقية: نفس المصادر، تحليل مشتق محدث، بدون تكرار وبدون لمس الاعتماد البشري');
