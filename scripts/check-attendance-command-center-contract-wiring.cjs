@@ -6,6 +6,7 @@ const files = {
   priority: 'supabase/migrations/20261009113500_attendance_manager_review_priority_v1.sql',
   wiring: 'supabase/migrations/20261009114500_attendance_command_center_contract_wiring_v1.sql',
   service: 'src/lib/attendance/attendanceResolutionService.ts',
+  center: 'src/components/attendance/AttendanceResolutionCenter.tsx',
   reviews: 'src/pages/Reviews.tsx',
 };
 
@@ -25,6 +26,7 @@ if (!failures.length) {
   const priority = fs.readFileSync(files.priority, 'utf8');
   const wiring = fs.readFileSync(files.wiring, 'utf8');
   const service = fs.readFileSync(files.service, 'utf8');
+  const center = fs.readFileSync(files.center, 'utf8');
   const reviews = fs.readFileSync(files.reviews, 'utf8');
 
   requireTokens('triage contract', triage, [
@@ -71,6 +73,18 @@ if (!failures.length) {
     '.sort(compareAttendanceReviewPriority)',
   ]);
 
+  requireTokens('attendance UI canonical priority consumption', center, [
+    'isFormerAttendanceReviewRow',
+    'row.priority_code',
+    'row.age_days',
+    'row.staff_branch || row.branch',
+    'const [showFormer, setShowFormer] = useState(false);',
+  ]);
+
+  if (center.includes('useStaffDirectory') || center.includes('formerIds') || center.includes('directoryLoading') || center.includes('directoryError')) {
+    failures.push('AttendanceResolutionCenter must use bundle staff_active/priority metadata, not staff-directory authority');
+  }
+
   if (/when\s+coalesce\(\(b\.preview->>'finalizable'\)::boolean,false\)=false\s+then\s+'system'/i.test(wiring)) {
     failures.push('command-center wiring must not reimplement triage from preview flags');
   }
@@ -88,4 +102,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('[attendance-command-center-contract] PASS: command center consumes canonical triage + priority contracts; service preserves contract metadata and sorts from contract ranks only; Reviews has explicit points persistence wiring.');
+console.log('[attendance-command-center-contract] PASS: command center consumes canonical triage + priority contracts; service preserves/sorts contract metadata; UI uses bundle former-staff + priority metadata without directory reclassification; Reviews points persistence is wired.');
