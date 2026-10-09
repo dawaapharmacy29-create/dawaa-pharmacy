@@ -11,7 +11,6 @@ import { listActiveHRStaffDirectory } from '@/lib/hr/staffDirectoryService';
 import PayrollAttendanceSafetyGate from '@/components/attendance/PayrollAttendanceSafetyGate';
 import PayrollCycleReadinessOverview from '@/components/attendance/PayrollCycleReadinessOverview';
 import PayrollTransparencyPanel from '@/components/payroll/PayrollTransparencyPanel';
-import PayrollTransparencyPanelLegacy from '@/components/payroll/PayrollTransparencyPanelLegacy';
 import PayrollManualEntriesPanel from '@/components/payroll/PayrollManualEntriesPanel';
 import { fetchAttendancePayrollReadiness, type AttendancePayrollReadiness } from '@/lib/payroll/attendancePayrollReadinessService';
 import {
@@ -69,12 +68,6 @@ function emptyProfile(): CompensationProfileState {
   };
 }
 
-function isDeliveryRole(role: string) {
-  const raw = String(role || '').trim();
-  const lower = raw.toLowerCase();
-  return lower.includes('delivery') || raw.includes('دليفري') || raw.includes('توصيل');
-}
-
 function errorText(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback;
 }
@@ -106,6 +99,7 @@ export default function PayrollManagementV2() {
   const [compensationError, setCompensationError] = useState('');
   const [compensationReason, setCompensationReason] = useState('');
   const [compensationEffective, setCompensationEffective] = useState(cairoToday());
+  const [compensationReloadKey, setCompensationReloadKey] = useState(0);
   const [saving, setSaving] = useState(false);
 
   const [components, setComponents] = useState<PayrollComponents | null>(null);
@@ -231,7 +225,7 @@ export default function PayrollManagementV2() {
         setProfileState('loaded');
       }
     });
-  }, [selected?.staffId, workspaceTab, scopeKey]);
+  }, [selected?.staffId, workspaceTab, scopeKey, compensationReloadKey]);
 
   useEffect(() => {
     if (!selected?.staffId || workspaceTab !== 'incentives') return;
@@ -301,6 +295,10 @@ export default function PayrollManagementV2() {
 
   async function saveProfile() {
     if (!selected) return;
+    if (profileState !== 'loaded') {
+      toast.error(profileState === 'loading' ? 'انتظر اكتمال تحميل ملف التعويضات.' : 'أعد تحميل ملف التعويضات قبل طلب أي تعديل.');
+      return;
+    }
     if (compensationReason.trim().length < 5 || !compensationEffective) {
       toast.warning('حدد تاريخ السريان وسبب التغيير (٥ أحرف على الأقل).');
       return;
@@ -374,7 +372,6 @@ export default function PayrollManagementV2() {
     () => staff.filter((row) => !search.trim() || row.name.includes(search.trim()) || row.username.includes(search.trim())),
     [staff, search]
   );
-  const deliverySelected = selected ? isDeliveryRole(selected.role) : false;
   const biometricReadyForReview = attendanceReadiness?.status === 'ready';
 
   return (
@@ -446,7 +443,7 @@ export default function PayrollManagementV2() {
               <div className="flex flex-wrap items-center gap-2">
                 <div className="me-auto">
                   <div className="text-sm font-black text-white">{selected.name}</div>
-                  <div className="text-[10px]" style={mutedText}>{selected.branch} · {selected.role || 'موظف'}{deliverySelected ? ' · مسار الدليفري' : ''}</div>
+                  <div className="text-[10px]" style={mutedText}>{selected.branch} · {selected.role || 'موظف'}</div>
                 </div>
                 <label className="text-[10px] font-bold" style={mutedText}>دورة الراتب
                   <input
@@ -503,9 +500,7 @@ export default function PayrollManagementV2() {
                 </div>
                 {showFinalizationTools ? <PayrollAttendanceSafetyGate key={`gate-tools:${scopeKey}`} staffId={selected.staffId} monthCycle={monthCycle} /> : null}
 
-                {deliverySelected
-                  ? <PayrollTransparencyPanel key={`transparency-delivery:${scopeKey}`} staffId={selected.staffId} monthCycle={monthCycle} />
-                  : <PayrollTransparencyPanelLegacy key={`transparency-standard:${scopeKey}`} staffId={selected.staffId} monthCycle={monthCycle} />}
+                <PayrollTransparencyPanel key={`transparency-current:${scopeKey}`} staffId={selected.staffId} monthCycle={monthCycle} />
               </div>
             ) : null}
 
@@ -513,7 +508,8 @@ export default function PayrollManagementV2() {
               <div className="rounded-3xl border p-5" style={surface}>
                 <div className="flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2 font-black text-teal-200"><WalletCards size={18} /> ملف التعويضات الموحد — {selected.name}</div>{profileState === 'loading' ? <RefreshCw size={15} className="animate-spin text-teal-300" /> : null}</div>
                 {compensationError ? <div className="mt-3 rounded-xl border border-red-400/30 bg-red-400/5 p-3 text-xs text-red-200">{compensationError}</div> : null}
-                {profileState !== 'loading' ? (
+                {profileState === 'error' ? <button type="button" className="btn-secondary mt-3" onClick={() => setCompensationReloadKey((value) => value + 1)}><RefreshCw size={14} /> إعادة تحميل ملف التعويضات</button> : null}
+                {profileState === 'loaded' ? (
                   <>
                     <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                       <label className="text-xs font-bold" style={mutedText}>طريقة حساب الأساسي
@@ -530,7 +526,7 @@ export default function PayrollManagementV2() {
                       <label className="text-xs font-bold" style={mutedText}>سعر ساعة الإضافي<input type="number" className="input mt-1 w-full" value={profile.overtimeHourRate} onChange={(event) => setProfile((current) => ({ ...current, overtimeHourRate: num(event.target.value) }))} /></label>
                     </div>
                     <div className="mt-3 grid gap-2 sm:grid-cols-2"><label className="text-xs">تاريخ سريان التعديل<input type="date" className="input mt-1 w-full" value={compensationEffective} onChange={(event) => setCompensationEffective(event.target.value)} /></label><label className="text-xs">سبب التغيير<input className="input mt-1 w-full" maxLength={500} value={compensationReason} onChange={(event) => setCompensationReason(event.target.value)} /></label></div>
-                    <button className="btn-primary mt-4 flex items-center gap-2" disabled={saving} onClick={() => void saveProfile()}><Save size={16} /> طلب اعتماد تعديل التعويضات</button>
+                    <button className="btn-primary mt-4 flex items-center gap-2" disabled={saving || profileState !== 'loaded'} onClick={() => void saveProfile()}><Save size={16} /> طلب اعتماد تعديل التعويضات</button>
                     <div className="mt-4"><h3 className="font-bold">طلبات التعويضات وسجل الاعتماد</h3>{compensationChanges.map((change) => <div key={change.id} className="mt-2 rounded-xl border p-3 text-xs" style={surfaceSoft}><div>{change.state === 'pending' ? 'قيد الاعتماد' : change.state === 'approved' ? 'معتمد' : 'مرفوض'} · يسري من {change.effective_from} · {change.reason}</div>{change.state === 'pending' && user?.role === 'general_manager' && change.requested_by !== user.id ? <div className="mt-2 flex gap-2"><button className="btn-primary" disabled={saving} onClick={() => void decideChange(change.id, true)}>اعتماد وتطبيق</button><button className="btn-secondary" disabled={saving} onClick={() => void decideChange(change.id, false)}>رفض</button></div> : null}</div>)}</div>
                   </>
                 ) : null}
