@@ -14,6 +14,7 @@ const required = {
   compatibility: 'supabase/migrations/20261009101500_attendance_canonical_compatibility_cutover_v1.sql',
   healthLanes: 'supabase/migrations/20261009104000_attendance_health_review_lanes_v2.sql',
   commandCenterBundle: 'supabase/migrations/20261009110500_attendance_command_center_bundle_v1.sql',
+  queueScope: 'supabase/migrations/20261009111500_attendance_queue_v4_staff_scope_v1.sql',
   service: 'src/lib/attendance/attendanceResolutionService.ts',
   center: 'src/components/attendance/AttendanceResolutionCenter.tsx',
 };
@@ -50,6 +51,7 @@ if (!failures.length) {
   const compatibility = read(required.compatibility);
   const healthLanes = read(required.healthLanes);
   const commandCenterBundle = read(required.commandCenterBundle);
+  const queueScope = read(required.queueScope);
   const service = read(required.service);
   const center = read(required.center);
 
@@ -147,6 +149,17 @@ if (!failures.length) {
     "'waiting_cases'",
   ]);
 
+  mustContain('Queue V4 staff-scope migration', queueScope, [
+    'get_attendance_resolution_queue_v4',
+    'join public.staff s on s.id=a.staff_id',
+    "trim(s.branch)=trim(p_branch)",
+    'dawaa_can_read_staff_attendance_log(a.staff_id,s.branch)',
+    's.branch as staff_branch',
+  ]);
+  if (/or\s+a\.branch\s*=\s*p_branch/i.test(queueScope)) {
+    failures.push('Canonical Queue V4 branch membership must come from staff.branch, not summary.branch.');
+  }
+
   mustContain('Attendance service bundle wiring', service, [
     'AttendanceCommandCenterBundleV1',
     'attendanceCommandCenterInFlight',
@@ -198,6 +211,7 @@ if (!failures.length) {
     required.compatibility,
     required.healthLanes,
     required.commandCenterBundle,
+    required.queueScope,
   ];
   for (const rel of ordered) {
     const base = path.basename(rel);
@@ -213,4 +227,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('[attendance-canonical] PASS: one routing contract, route-safe materialization, canonical review triage, guarded compatibility entrypoints, accurate review lanes, single-pass command-center read model, bundled service reads, V4-only frontend queue routing, and no raw attendance reads in financial/payroll frontend modules.');
+console.log('[attendance-canonical] PASS: one routing contract, route-safe materialization, canonical review triage, guarded compatibility entrypoints, accurate review lanes, single-pass command-center read model, staff-scoped V4 queue filtering, bundled service reads, V4-only frontend queue routing, and no raw attendance reads in financial/payroll frontend modules.');
