@@ -58,7 +58,7 @@ export async function listAttendanceResolutionQueue(args: {
   triage?: 'all' | 'manager' | 'system';
   limit?: number;
 }): Promise<AttendanceResolutionRow[]> {
-  const { data, error } = await supabase.rpc('get_attendance_resolution_queue_v3', {
+  const { data, error } = await supabase.rpc('get_attendance_resolution_queue_v4', {
     p_start: args.start,
     p_end: args.end,
     p_branch: args.branch && args.branch !== 'الكل' ? args.branch : null,
