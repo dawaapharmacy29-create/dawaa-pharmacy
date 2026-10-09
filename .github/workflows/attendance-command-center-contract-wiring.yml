@@ -5,6 +5,7 @@ on:
     paths:
       - 'supabase/migrations/*attendance*.sql'
       - 'scripts/check-attendance-command-center-contract-wiring.cjs'
+      - 'src/lib/attendance/attendanceResolutionService.ts'
       - 'src/pages/Reviews.tsx'
       - '.github/workflows/attendance-command-center-contract-wiring.yml'
   push:
@@ -14,6 +15,7 @@ on:
     paths:
       - 'supabase/migrations/*attendance*.sql'
       - 'scripts/check-attendance-command-center-contract-wiring.cjs'
+      - 'src/lib/attendance/attendanceResolutionService.ts'
       - 'src/pages/Reviews.tsx'
       - '.github/workflows/attendance-command-center-contract-wiring.yml'
 
