@@ -24,6 +24,9 @@
     "test:db:followup-contract-a": "bash scripts/test-db-followup-contract-a.sh",
     "check:deploy-env": "node scripts/check-deploy-environment.cjs",
     "test:db:fresh-staging": "bash scripts/test-db-fresh-staging.sh",
+    "test:db:fresh-staging:pglite": "node scripts/staging/run-fresh-staging.mjs --pglite",
+    "test:db:sql-security:pglite": "node scripts/staging/run-sql-security.mjs",
+    "check:canonical-si-dependencies": "node scripts/check-canonical-si-dependencies.cjs",
     "vercel:install": "npm ci --legacy-peer-deps --no-audit --no-fund",
     "verify": "npm run doctor && npm run test && npm run typecheck && npm run build && npm run perf:budget",
     "check:hr-canonical-hardening": "node scripts/check-hr-canonical-hardening-v1.cjs",
@@ -31,6 +34,7 @@
     "check:hr-domain-boundary": "node scripts/check-hr-domain-boundary-v1.cjs"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
     "@hookform/resolvers": "^3.10.0",
     "@radix-ui/react-accordion": "^1.2.4",
     "@radix-ui/react-alert-dialog": "^1.1.7",

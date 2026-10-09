@@ -103,7 +103,7 @@ create table public.whatsapp_customer_cases_v22 (id uuid primary key default gen
 -- Sales Intelligence and reviews (L + M) -------------------------------------------------------
 create table public.sales_intelligence_cases (
   case_id text primary key, conversation_id uuid, is_active boolean default false, retired_at timestamptz, retire_reason text);
-create table public.sales_intelligence_current_case_analyses (case_id text primary key);
+-- Canonical current-case publication view is loaded from 20261003193000 by bootstrap.
 create table public.sales_invoice_items_v21 (
   id uuid primary key default gen_random_uuid(), invoice_id text, invoice_number text, branch text, invoice_date timestamptz,
   customer_id uuid, customer_code text, product_id uuid, product_code text, product_name text, quantity numeric, line_total numeric);

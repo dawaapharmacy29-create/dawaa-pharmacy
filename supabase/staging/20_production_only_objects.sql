@@ -7,16 +7,16 @@
 -- index | Production-only | daily_followups_one_open_case_per_customer_branch_uidx | Production has it on
 -- (identity_key, branch) for open rows; the exact predicate is not in the repo (schema-drift.csv). The
 -- broadest plausible open predicate is used, so staging is at least as strict as Production.
-create unique index daily_followups_one_open_case_per_customer_branch_uidx
+create unique index if not exists daily_followups_one_open_case_per_customer_branch_uidx
   on public.daily_followups (identity_key, branch)
   where identity_key is not null and completed_at is null and cancelled_at is null and archived_at is null;
 -- index | repo 20260720_customer_followup_find_or_create_open_case.sql (also live)
-create unique index daily_followups_client_request_id_uidx
+create unique index if not exists daily_followups_client_request_id_uidx
   on public.daily_followups (client_request_id)
   where client_request_id is not null and btrim(client_request_id) <> '';
 -- index | Production-only | the stable operation identity keys (names from schema-drift.csv; column is the key's name)
-create unique index whatsapp_conversation_actions_followup_identity_uk on public.whatsapp_conversation_actions (followup_identity);
-create unique index whatsapp_auto_followup_requests_followup_identity_uk on public.whatsapp_auto_followup_requests (followup_identity);
+create unique index if not exists whatsapp_conversation_actions_followup_identity_uk on public.whatsapp_conversation_actions (followup_identity);
+create unique index if not exists whatsapp_auto_followup_requests_followup_identity_uk on public.whatsapp_auto_followup_requests (followup_identity);
 -- NOT reproduced (definition unknown, cannot be inferred safely): daily_followups_unique_customer_per_day_v14,
 -- daily_followups_one_visible_open_case_uidx, daily_followups_import_fingerprint_uidx and the Production-only
 -- daily_followups triggers (trg_daily_followups_identity_key, _dedupe, _guard_insert, validate_daily_followup_write).

@@ -12,9 +12,9 @@ insert into public.customers (id, customer_code, name, phone, mobile, branch) va
   ('00000000-0000-4000-8000-0000000000c1', 'SYN-C1', 'Synthetic Customer One', '01000000001', '01000000001', 'فرع شكري'),
   ('00000000-0000-4000-8000-0000000000c2', 'SYN-C2', 'Synthetic Customer Two', '01000000002', '01000000002', 'فرع الشامي');
 
-insert into public.whatsapp_review_sources (id, staff_id, branch, source_filename, customer_id) values
-  ('00000000-0000-4000-8000-000000000051', '00000000-0000-4000-8000-0000000000a1', 'فرع شكري', 'synthetic-chat-1.txt', '00000000-0000-4000-8000-0000000000c1'),
-  ('00000000-0000-4000-8000-000000000052', '00000000-0000-4000-8000-0000000000a3', 'فرع الشامي', 'synthetic-chat-2.txt', '00000000-0000-4000-8000-0000000000c2');
+insert into public.whatsapp_review_sources (id, staff_id, branch, source_filename, customer_id, source_hash) values
+  ('00000000-0000-4000-8000-000000000051', '00000000-0000-4000-8000-0000000000a1', 'فرع شكري', 'synthetic-chat-1.txt', '00000000-0000-4000-8000-0000000000c1', 'synthetic-source-1'),
+  ('00000000-0000-4000-8000-000000000052', '00000000-0000-4000-8000-0000000000a3', 'فرع الشامي', 'synthetic-chat-2.txt', '00000000-0000-4000-8000-0000000000c2', 'synthetic-source-2');
 insert into public.whatsapp_operational_canonical_sources_v1 (source_id) values
   ('00000000-0000-4000-8000-000000000051'), ('00000000-0000-4000-8000-000000000052');
 
@@ -34,8 +34,19 @@ values ('syn-f-conv', 'created', 'open', '{"client_request_id":"whatsapp-action:
 
 -- Reviews: a legacy source review superseded by a current case review, and a case review whose case is
 -- no longer current. The two 20261005133000 one-time UPDATEs would flip both is_current flags.
-insert into public.sales_intelligence_cases (case_id, is_active) values ('syn-case-1', true), ('syn-case-2', false);
-insert into public.sales_intelligence_current_case_analyses (case_id) values ('syn-case-1');
+insert into public.sales_intelligence_cases (case_id, is_active, conversation_id, case_started_at) values
+  ('syn-case-1', true, '00000000-0000-4000-8000-000000000051', '2026-09-15T06:00:00Z'),
+  ('syn-case-2', false, '00000000-0000-4000-8000-000000000052', '2026-09-16T06:00:00Z');
+insert into public.sales_intelligence_case_analyses (
+  analysis_id, case_id, analysis_version, pipeline_version, engine_version_case_segmentation,
+  engine_version_historical_closure, engine_version_commercial_confirmation, engine_version_protocol_applicability,
+  semantic_source_hash, case_type, case_status, pipeline_status, overall_evidence_level, case_started_at,
+  historical_closure_level, commercial_confirmation_state, protocol_applicability, attribution_level, integrity_evaluation_scope)
+values ('00000000-0000-4000-8000-000000000081','syn-case-1',1,'synthetic','synthetic','synthetic','synthetic','synthetic',
+  'synthetic','sales_opportunity','sales_opportunity','analyzed','high','2026-09-15T06:00:00Z',
+  'not_closed','unknown','unknown','unknown','insufficient');
+update public.sales_intelligence_cases set published_analysis_id='00000000-0000-4000-8000-000000000081',
+  source_case_id_v22='00000000-0000-4000-8000-000000000082' where case_id='syn-case-1';
 insert into public.conversation_sales_reviews (id, staff_name, customer_name, whatsapp_review_source_id, sales_intelligence_case_id, is_current, updated_at) values
   ('00000000-0000-4000-8000-0000000000d1', 'Synthetic Agent Shokry', 'Synthetic Customer One', '00000000-0000-4000-8000-000000000051', null, true, '2026-09-15T08:00:00Z'),
   ('00000000-0000-4000-8000-0000000000d2', 'Synthetic Agent Shokry', 'Synthetic Customer One', '00000000-0000-4000-8000-000000000051', 'syn-case-1', true, '2026-09-15T08:00:00Z'),
