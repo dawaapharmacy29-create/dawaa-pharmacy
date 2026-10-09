@@ -51,6 +51,7 @@ import type { Customer } from '@/types/database';
 import type { CustomerMetric } from '@/lib/api/customers';
 import { getCustomers } from '@/lib/api/customers';
 import { toNumber } from '@/lib/utils';
+import { persistPointsTransaction } from '@/lib/pointsPersistence';
 import { isActiveStaffFilter } from '@/lib/staffActiveFilter';
 import { mergeStaffChoices } from '@/lib/staffFallback';
 import { TABLES } from '@/lib/supabaseTables';

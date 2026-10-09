@@ -4,6 +4,8 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const hasSupabaseConfig = Boolean(supabaseUrl && supabaseAnonKey);
 const AUTH_STORAGE_KEY = 'dawaa_auth_user_v2';
+// Owned here (not in auth/staffSession) so the fetch wrapper has no circular import.
+export const STAFF_SESSION_STORAGE_KEY = 'dawaa_staff_session_token_v1';
 
 function readStoredUserId(): string | null {
   if (typeof window === 'undefined' || typeof localStorage === 'undefined') return null;
@@ -12,8 +14,9 @@ function readStoredUserId(): string | null {
     const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as { id?: unknown; username?: unknown; staff_id?: unknown };
-    const candidate = [parsed.id, parsed.staff_id, parsed.username]
-      .find((value) => typeof value === 'string' && value.trim().length > 0);
+    const candidate = [parsed.id, parsed.staff_id, parsed.username].find(
+      (value) => typeof value === 'string' && value.trim().length > 0
+    );
     if (typeof candidate !== 'string') return null;
     const normalized = candidate.trim();
     return normalized.length <= 160 ? normalized : null;
@@ -22,12 +25,33 @@ function readStoredUserId(): string | null {
   }
 }
 
-const supabaseFetch: typeof fetch = (input, init?: RequestInit) => {
-  const headers = new Headers(init?.headers as HeadersInit | undefined);
+export function readStoredStaffSessionToken(): string | null {
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return null;
+  try {
+    const token = (window.localStorage.getItem(STAFF_SESSION_STORAGE_KEY) || '').trim();
+    return token.length >= 32 && token.length <= 512 ? token : null;
+  } catch {
+    return null;
+  }
+}
+
+// Identity contract: the database trusts only `x-dawaa-session-token` (verified against
+// staff_login_sessions). `x-dawaa-user-id` is a non-authoritative hint kept for the rollout window
+// before migration 20261009081000; the server no longer reads it after that migration.
+export function buildDawaaRequestHeaders(initHeaders?: HeadersInit): Headers {
+  const headers = new Headers(initHeaders);
+  const sessionToken = readStoredStaffSessionToken();
+  if (sessionToken) headers.set('x-dawaa-session-token', sessionToken);
   const userId = readStoredUserId();
   if (userId) headers.set('x-dawaa-user-id', userId);
-  return fetch(input, { ...init, headers });
-};
+  return headers;
+}
+
+const supabaseFetch: typeof fetch = (input, init?: RequestInit) =>
+  fetch(input, {
+    ...init,
+    headers: buildDawaaRequestHeaders(init?.headers as HeadersInit | undefined),
+  });
 
 // When Supabase is not configured, export a lightweight stub client to avoid noisy network failures in dev.
 function createStubClient() {
@@ -66,11 +90,15 @@ function createStubClient() {
 }
 
 export const supabase = hasSupabaseConfig
-  ? createClient(hasSupabaseConfig ? supabaseUrl : 'https://placeholder.supabase.co', hasSupabaseConfig ? supabaseAnonKey : 'placeholder-anon-key', {
-      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
-      realtime: { params: { eventsPerSecond: 10 } },
-      global: { fetch: supabaseFetch },
-    })
+  ? createClient(
+      hasSupabaseConfig ? supabaseUrl : 'https://placeholder.supabase.co',
+      hasSupabaseConfig ? supabaseAnonKey : 'placeholder-anon-key',
+      {
+        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+        realtime: { params: { eventsPerSecond: 10 } },
+        global: { fetch: supabaseFetch },
+      }
+    )
   : createStubClient();
 
 export const isSupabaseConfigured = hasSupabaseConfig;

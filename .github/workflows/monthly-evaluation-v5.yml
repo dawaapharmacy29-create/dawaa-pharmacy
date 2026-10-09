@@ -13,6 +13,7 @@ on:
   push:
     branches:
       - 'feat/monthly-evaluation-command-center-v5-*'
+      - 'performance-shadow-v1-20261004'
     paths:
       - 'src/pages/StaffMonthlyEvaluationGeneral.tsx'
       - 'src/components/evaluations/**'

@@ -235,6 +235,66 @@ if (fs.existsSync(coachingNotesRlsPath)) {
   if (/\busing\s*\(\s*true\s*\)/i.test(source) || /\bwith\s+check\s*\(\s*true\s*\)/i.test(source)) failures.push('Coaching-note policies must not use unconditional true authorization.');
 }
 
+const definerActorGuardPath = path.join(ROOT, 'supabase/migrations/20261005145000_security_definer_actor_identity_guard_v5.sql');
+if (!fs.existsSync(definerActorGuardPath)) failures.push('SECURITY DEFINER actor identity guard V5 is missing.');
+else {
+  const definerActorGuard = fs.readFileSync(definerActorGuardPath, 'utf8');
+  for (const token of [
+    'dawaa_can_manage_branch_targets',
+    'dawaa_shortage_permission_allowed_v1',
+    'dawaa_can_access_review_coverage_branch_v1',
+    'p_actor_id is distinct from v_session_id',
+    'dawaa_current_staff_account_id_strict()',
+  ]) if (!definerActorGuard.includes(token)) failures.push(`SECURITY DEFINER actor guard missing: ${token}`);
+}
+
+const weeklyActorGuardPaths = [
+  'supabase/migrations/20261005150000_weekly_manager_actor_identity_guard_v5.sql',
+  'supabase/migrations/20261005151000_weekly_manager_fast_metrics_actor_guard_v5.sql',
+];
+for (const relativePath of weeklyActorGuardPaths) {
+  const fullPath = path.join(ROOT, relativePath);
+  if (!fs.existsSync(fullPath)) failures.push(`Weekly manager actor guard missing: ${relativePath}`);
+  else {
+    const source = fs.readFileSync(fullPath, 'utf8');
+    if (!source.includes('dawaa_current_staff_account_id_strict()')) failures.push(`Weekly manager actor guard is not session-bound: ${relativePath}`);
+    if (!source.includes('actor_mismatch')) failures.push(`Weekly manager actor guard lacks mismatch rejection: ${relativePath}`);
+  }
+}
+
+const managerObjectivePath = path.join(ROOT, 'supabase/migrations/20261005153000_manager_evaluation_server_objective_v5.sql');
+if (!fs.existsSync(managerObjectivePath)) failures.push('Server-authoritative manager objective scorer is missing.');
+else {
+  const managerObjective = fs.readFileSync(managerObjectivePath, 'utf8');
+  for (const token of [
+    'dawaa_manager_evaluation_objective_v5',
+    'calculate_weekly_manager_metrics_v5',
+    'calculate_weekly_checklist_completion_v4',
+    "'criterion_system_scores'",
+    "'criterion_weights'",
+  ]) if (!managerObjective.includes(token)) failures.push(`Manager objective scorer guard missing: ${token}`);
+}
+
+const managerEvalCommandPath = path.join(ROOT, 'supabase/migrations/20261005152000_manager_evaluation_canonical_save_v5.sql');
+if (!fs.existsSync(managerEvalCommandPath)) failures.push('Canonical manager evaluation save command is missing.');
+else {
+  const managerEvalCommand = fs.readFileSync(managerEvalCommandPath, 'utf8');
+  for (const token of [
+    'save_manager_weekly_evaluation_v5',
+    'dawaa_current_staff_account_id_strict()',
+    'self evaluation not allowed',
+    'subject role mismatch',
+    'dawaa_manager_evaluation_objective_v5',
+    "'__server_validated_at'",
+    'v_total:=case when v_manual_count=v_combined_count',
+    'revoke insert,update,delete on public.manager_weekly_evaluations from anon,authenticated',
+  ]) if (!managerEvalCommand.includes(token)) failures.push(`Manager evaluation command guard missing: ${token}`);
+}
+const managerEvalServicePath = path.join(ROOT, 'src/lib/evaluations/managerEvaluationService.ts');
+const managerEvalService = fs.readFileSync(managerEvalServicePath, 'utf8');
+if (!managerEvalService.includes("supabase.rpc('save_manager_weekly_evaluation_v5'")) failures.push('Manager evaluation client must save through canonical RPC.');
+if (managerEvalService.includes('.from(TABLES.managerWeeklyEvaluations)\n    .upsert(')) failures.push('Direct browser upsert to manager_weekly_evaluations must stay retired.');
+
 if (failures.length) {
   console.error('\nDB authorization architecture check failed:');
   failures.forEach((failure) => console.error(`- ${failure}`));

@@ -150,6 +150,14 @@ Existing dot-notation keys are migration-only legacy debt tracked by the archite
 
 Permission checks must use the central permission system rather than page-specific role conditions whenever possible.
 
+### Caller identity (database)
+
+Staff sign in through the custom `staff_account_login_v2` RPC (not Supabase Auth); every PostgREST request runs as `anon`. The only trusted caller identity is the opaque login session token sent as `x-dawaa-session-token`, verified by `public.dawaa_session_account_id_v1()` against `staff_login_sessions` (sha256, not expired, not revoked, account active). `public.dawaa_current_staff_account_id_strict()` remains the single identity function for RLS and RPCs.
+
+- `x-dawaa-user-id` is never an identity source; no database code may read it.
+- Client-supplied actor arguments (`p_actor_id`) are bound to the verified caller with `public.dawaa_bind_actor_v1(...)` in client requests; server contexts (cron, `service_role`) keep explicit actors.
+- The client renews the 12-hour sliding session (`verifyStoredStaffSession`) and signs out when the server rejects it.
+
 ## 8. Dashboard UI primitives
 
 Canonical source: `src/components/dashboard/DashboardPrimitives.tsx` — `Panel`, `SectionTitle`, `KpiCard`, `MiniBox`, `EmptyState`.
@@ -244,5 +252,7 @@ A migration that only adds another wrapper while leaving all previous paths acti
 - legacy permission-key register must shrink when keys are migrated.
 
 `scripts/check-dashboard-primitives-architecture.cjs` enforces section 8: no new local `Panel`/`SectionTitle`/`KpiCard`/`MiniBox`/`EmptyState` definitions outside the fixed, shrink-only legacy baseline.
+
+`scripts/check-verified-session-identity.cjs` enforces the caller-identity contract in section 7: no migration after `20261009081000` may read `x-dawaa-user-id`, the shared client must send `x-dawaa-session-token`, and no other client code may set identity headers.
 
 These gates should become stricter as migration debt is removed.

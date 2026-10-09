@@ -96,6 +96,7 @@ const IncentiveGovernance = lazy(() => import('@/pages/IncentiveGovernance'));
 const PenaltyIncentiveManagement = lazy(() => import('@/pages/PenaltyIncentiveManagement'));
 const PointAppeals = lazy(() => import('@/pages/PointAppeals'));
 const DoctorPerformancePillars = lazy(() => import('@/pages/DoctorPerformancePillars'));
+const PerformanceShadowV1 = lazy(() => import('@/pages/PerformanceShadowV1'));
 const DoctorQualitySummary = lazy(() => import('@/pages/DoctorQualitySummary'));
 const WeeklyManagerEvaluation = lazy(() => import('@/pages/WeeklyManagerEvaluation'));
 const DailyManagerChecklist = lazy(() => import('@/pages/DailyManagerChecklist'));
@@ -385,6 +386,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             {routeSuspense(<DoctorPerformancePillars />, 'الدرجة المركّبة للأداء')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/performance-shadow-v1"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<PerformanceShadowV1 />, 'Performance Shadow V1')}
           </ProtectedRoute>
         }
       />

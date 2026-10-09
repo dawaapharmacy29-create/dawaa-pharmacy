@@ -9,7 +9,8 @@ import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 export type AttendanceReadRow = NormalizedAttendanceRow;
 
 export type AttendanceReadResult =
-  | { status: 'available'; rows: AttendanceReadRow[] }
+  | { status: 'available'; rows: AttendanceReadRow[]; error?: '' }
+  | { status: 'partial'; rows: AttendanceReadRow[]; error: string }
   | { status: 'unavailable'; rows: []; error: string };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -19,8 +20,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
  *
  * Reads the historical daily attendance table and the modern punch-level attendance log,
  * normalizes accepted modern punches into one row per day, and lets modern data win on
- * overlapping dates. Any source failure is surfaced as unavailable instead of being
- * mistaken for zero attendance.
+ * overlapping dates. One healthy source is enough to preserve verified attendance as
+ * partial; only a failure of both sources makes attendance unavailable.
  */
 export async function readAttendanceRange(args: {
   staffId: string;
@@ -60,7 +61,9 @@ export async function readAttendanceRange(args: {
 
   const [legacyResult, modernResult] = await Promise.all([legacyPromise, modernPromise]);
 
-  if (legacyResult.error || modernResult.error) {
+  const legacyFailed = Boolean(legacyResult.error);
+  const modernFailed = Boolean(modernResult.error);
+  if (legacyFailed && modernFailed) {
     const messages = [legacyResult.error?.message, modernResult.error?.message].filter(Boolean);
     return {
       status: 'unavailable',
@@ -69,14 +72,20 @@ export async function readAttendanceRange(args: {
     };
   }
 
-  const legacyRows = ((legacyResult.data || []) as AttendanceReadRow[]).map((row) => ({
+  const legacyRows = legacyFailed ? [] : ((legacyResult.data || []) as AttendanceReadRow[]).map((row) => ({
     ...row,
     source: 'legacy' as const,
   }));
-  const modernRows = normalizeAcceptedAttendanceLogs(
+  const modernRows = modernFailed ? [] : normalizeAcceptedAttendanceLogs(
     (modernResult.data || []) as ModernAttendanceLogRow[]
   );
   const rows = mergeAttendanceRowsForSubject(legacyRows, modernRows).slice(0, limit);
+
+  if (legacyFailed || modernFailed) {
+    const failedSource = legacyFailed ? 'المصدر التاريخي' : 'المصدر الحديث';
+    const message = legacyResult.error?.message || modernResult.error?.message || 'تعذر تحميل أحد مصدري الحضور.';
+    return { status: 'partial', rows, error: `${failedSource} غير متاح: ${message}` };
+  }
 
   return { status: 'available', rows };
 }

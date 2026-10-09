@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { buildEmployeeFinancialProjection, type FinancialComponent, type FinancialComponentState } from './employeeFinancialProjection';
 
 export type EmployeePayrollFinancialCompositionV2 = {
   schema: 'employee_payroll_financial_composition_v2';
@@ -48,17 +49,33 @@ export type EmployeePayrollFinancialCompositionV2 = {
   double_count_guard: {
     monthly_incentive_component_reference_only: number;
     rule: string;
+    generic_automated_incentives_excluded?: boolean;
+    delivery_app_compensation_rates_ignored?: boolean;
   };
   blockers: Array<Record<string, unknown>>;
   warnings: Array<Record<string, unknown>>;
   generated_at: string;
+  delivery_mode?: boolean;
+  current_route?: 'delivery_v3_compat' | 'standard_v2' | string;
+  delivery_breakdown?: {
+    base_salary?: number;
+    order_pay?: number;
+    trip_pay?: number;
+    monthly_incentive?: number;
+    quarterly_incentive?: number;
+    approved_overtime?: number;
+    operational_and_incentive_total?: number;
+    classification?: Record<string, unknown>;
+    activity?: Record<string, unknown>;
+    preview?: Record<string, unknown>;
+  };
 };
 
 export async function getEmployeePayrollFinancialComposition(
   staffId: string,
   monthCycle: string
 ): Promise<EmployeePayrollFinancialCompositionV2> {
-  const { data, error } = await supabase.rpc('employee_payroll_financial_composition_v2', {
+  const { data, error } = await supabase.rpc('employee_payroll_financial_composition_current_v1', {
     p_staff_id: staffId,
     p_month_cycle: monthCycle,
   });
@@ -72,3 +89,34 @@ export async function getEmployeePayrollFinancialComposition(
 }
 
 export const getEmployeePayrollFinancialCompositionV2 = getEmployeePayrollFinancialComposition;
+
+
+function componentState(row:EmployeePayrollFinancialCompositionV2):FinancialComponentState{
+  if(row.frozen||row.source_mode==='finalized_snapshot_v2')return 'settled';
+  return row.ready_for_finalization?'pending':'unavailable';
+}
+
+/**
+ * Normalized employee financial read model. It never settles or writes money.
+ * Preview values stay pending; only a frozen/finalized payroll snapshot is payable.
+ */
+export function toEmployeeFinancialProjection(row:EmployeePayrollFinancialCompositionV2){
+  const state=componentState(row);
+  const e=row.earnings,a=row.adjustments;
+  const otherAutomated=e.followup_bonus_included_in_automated_total+e.customer_request_bonus_included_in_automated_total+e.branch_star_bonus_included_in_automated_total;
+  const other=otherAutomated+e.manual_other_incentives+a.manual_adjustment-a.deductions_total;
+  const components:FinancialComponent[]=[
+    {key:'base_salary',label:'الراتب الأساسي',state,amountEgp:e.base_salary,source:row.source_mode},
+    {key:'performance_incentive',label:'حافز الأداء',state,amountEgp:e.performance_incentive_included_in_automated_total,source:'get_payroll_incentive_truth_v2'},
+    {key:'target_incentive',label:'حافز التارجت',state,amountEgp:e.target_bonus_included_in_automated_total,source:'get_payroll_incentive_truth_v2'},
+    {key:'product_incentive',label:'حافز اللستة والرواكد',state,amountEgp:e.list_incentive,source:'get_payroll_components_v17'},
+    {key:'near_expiry_incentive',label:'حافز قرب الصلاحية',state:'not_applicable',amountEgp:0,source:'policy_not_activated',note:'لا يوجد settlement مالي مستقل معتمد لقرب الصلاحية في المسار الحالي.'},
+    {key:'overtime',label:'الأوفر تايم',state,amountEgp:e.approved_overtime,source:'attendance_gate'},
+    {key:'other_adjustments',label:'حوافز وتسويات وخصومات أخرى',state,amountEgp:other,source:'canonical_financial_composition_v2'},
+  ];
+  return buildEmployeeFinancialProjection(components);
+}
+
+export async function getEmployeeFinancialProjection(staffId:string,monthCycle:string){
+  return toEmployeeFinancialProjection(await getEmployeePayrollFinancialComposition(staffId,monthCycle));
+}

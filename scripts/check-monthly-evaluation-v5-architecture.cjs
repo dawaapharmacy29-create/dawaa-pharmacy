@@ -1,4 +1,6 @@
 const fs = require('fs');
+const path = require('path');
+const ROOT = path.resolve(__dirname, '..');
 
 const failures = [];
 
@@ -11,9 +13,19 @@ function read(path) {
 }
 
 const page = read('src/pages/StaffMonthlyEvaluationGeneral.tsx');
+const routeAdapter = read('src/pages/StaffMonthlyEvaluation.tsx');
 const workflow = read('src/components/evaluations/MonthlyEvaluationWorkflowV5.tsx');
 const audit = read('src/components/evaluations/MonthlyEvaluationAuditTrailV5.tsx');
 const profiles = read('src/lib/evaluations/staffEvaluationProfilesV3.ts');
+const inventoryEvidence = read('src/lib/evaluations/monthlyInventoryEvidence.ts');
+const salesEvidence = read('src/lib/evaluations/monthlySalesQualityEvidence.ts');
+const leadershipEvidence = read('src/lib/evaluations/monthlyLeadershipEvidence.ts');
+const evidenceService = read('src/lib/staff/employeeMonthlyEvidenceService.ts');
+const finalSnapshotEvidenceClosure = read('supabase/migrations/20261005113000_monthly_evaluation_final_snapshot_evidence_closure.sql');
+const roleAwareServerEvidence = read('supabase/migrations/20261005125500_monthly_evaluation_role_aware_server_evidence_v5.sql');
+const optimisticConcurrency = read('supabase/migrations/20261005130500_monthly_evaluation_optimistic_concurrency_v5.sql');
+const cairoCycleBoundary = read('supabase/migrations/20261005132000_monthly_evaluation_cairo_cycle_boundary_v5.sql');
+const rpcOnlyTableAccess = read('supabase/migrations/20261005133000_monthly_evaluation_rpc_only_table_access_v5.sql');
 const backend = [
   read('supabase/migrations/20260929153000_monthly_evaluation_command_center_v5.sql'),
   read('supabase/migrations/20260929154500_monthly_evaluation_v5_hardening.sql'),
@@ -23,7 +35,16 @@ const backend = [
   read('supabase/migrations/20260930123000_monthly_evaluation_role_coverage_v5.sql'),
   read('supabase/migrations/20260930154000_monthly_evaluation_trigger_execute_hardening_v5.sql'),
   read('supabase/migrations/20260930155500_monthly_evaluation_server_evidence_type_compat_v5.sql'),
+  read('supabase/migrations/20261005121500_monthly_evaluation_manual_evidence_rationale_v5.sql'),
+  read('supabase/migrations/20261005124500_monthly_evaluation_critical_gate_evidence_v5.sql'),
 ].join('\n');
+
+if (!routeAdapter.includes("export { default } from '@/pages/StaffMonthlyEvaluationGeneral'")) {
+  failures.push('Monthly evaluation route adapter must point only to StaffMonthlyEvaluationGeneral.');
+}
+for (const forbidden of ['CustomerServiceDoctorEvaluation', 'TEAM_DAWAA_CS_EVALUATOR_IDS', 'save_staff_monthly_evaluation', 'supabase.rpc']) {
+  if (routeAdapter.includes(forbidden)) failures.push(`Monthly evaluation route adapter must stay logic-free; found: ${forbidden}`);
+}
 
 for (const rpc of [
   'list_staff_for_monthly_evaluation_v5',
@@ -46,6 +67,56 @@ if (!page.includes('MonthlyEvaluationAuditTrailV5')) failures.push('V5 audit tra
 if (!page.includes("type: 'monthly_evaluation_ready'")) failures.push('Final approval must notify the employee through the canonical notification domain.');
 if (!page.includes('weakSectionsMissingNotes')) failures.push('Weak-score rationale guard is missing from the client.');
 if (!page.includes('criticalGateMissingReason')) failures.push('Critical-gate rationale guard is missing from the client.');
+if (!page.includes('getInventoryEvidenceSufficiency')) failures.push('Inventory scoring must use the evidence-sufficiency contract.');
+if (!page.includes('getSalesQualityEvidenceSufficiency')) failures.push('Sales-quality scoring must use the evidence-sufficiency contract.');
+if (!page.includes('leadershipEvidenceRequirement')) failures.push('Leadership axes must use role-aware evidence requirements.');
+if (!page.includes('axis_evidence_snapshot')) failures.push('Per-axis evidence state must be persisted with the evaluation snapshot.');
+if (!page.includes('leadershipSectionsMissingNotes')) failures.push('Leadership manual evidence must require documented axis notes before approval.');
+if (!page.includes('manualEvidenceSectionsMissingNotes')) failures.push('All manually-evidenced axes must require documented rationale before approval.');
+if (!page.includes('criticalGateMissingRationales')) failures.push('Critical gates must require a separate documented rationale per gate.');
+if (!inventoryEvidence.includes('getInventoryEvidenceSufficiency')) failures.push('Inventory evidence sufficiency helper is missing.');
+if (!salesEvidence.includes('getSalesQualityEvidenceSufficiency')) failures.push('Sales-quality evidence sufficiency helper is missing.');
+if (!leadershipEvidence.includes('leadershipEvidenceRequirement')) failures.push('Leadership evidence contract is missing.');
+if (!finalSnapshotEvidenceClosure.includes("'axis_evidence_snapshot'")) failures.push('Final approved snapshot must freeze per-axis evidence.');
+if (!finalSnapshotEvidenceClosure.includes("'points_truth'")) failures.push('Final approved snapshot must freeze canonical points truth.');
+for (const token of [
+  'monthly_evaluation_stale_write_reload_required',
+  "old.updated_at is distinct from v_expected",
+  "new.metrics_snapshot := coalesce(new.metrics_snapshot,'{}'::jsonb) - 'expected_updated_at'",
+]) {
+  if (!optimisticConcurrency.includes(token)) failures.push(`Optimistic concurrency guard missing: ${token}`);
+}
+if (!page.includes('expected_updated_at: evaluationUpdatedAt')) failures.push('Evaluation page must send the loaded row version on save.');
+if (!page.includes('setEvaluationUpdatedAt(String(canonicalSaved.updated_at')) failures.push('Evaluation page must refresh the canonical row version after save.');
+if (!page.includes('pointsForSave = await getStaffPointsDashboardV3(savingStaffId, cycleLabel)')) failures.push('Final approval must refresh canonical points truth immediately before save.');
+if (!page.includes('points_truth: pointsForSave ?')) failures.push('Final approval snapshot must use the freshly loaded points truth.');
+if (!page.includes('Date.now() - evidenceLoadedAt > 5 * 60_000')) failures.push('Final approval must reject stale client evidence state.');
+if (!page.includes('Promise.resolve({ value: cachedEvidence.value, loadedAt: cachedEvidence.at })')) failures.push('Evidence cache hits must preserve the original freshness timestamp.');
+if (!page.includes('setEvidenceLoadedAt(evidenceEnvelope.loadedAt)')) failures.push('Approval freshness must use the actual evidence load timestamp, not revisit time.');
+if (!page.includes('const approvalTimeIncentive = publishedPointsTruth?.final_incentive_egp')) failures.push('Published evaluation view must preserve approval-time incentive truth separately from settlement.');
+if (!page.includes('const settledIncentive = settledStatement ? Number(settledStatement.incentive_amount) : null')) failures.push('Final payroll settlement must be explicitly separated from approval-time incentive truth.');
+if (!cairoCycleBoundary.includes("(e.sent_at at time zone 'Africa/Cairo')::date <= v_cycle_end")) failures.push('Reapproval cycle classification must use Cairo-local sent_at dates.');
+for (const token of [
+  'drop policy if exists "staff evaluations authenticated read"',
+  'drop policy if exists "staff evaluations authenticated write"',
+  'revoke all on table public.staff_monthly_manager_evaluations from anon, authenticated',
+  'revoke all on table public.staff_monthly_evaluation_audit from anon, authenticated',
+]) {
+  if (!rpcOnlyTableAccess.includes(token)) failures.push(`Monthly evaluation direct-table boundary missing: ${token}`);
+}
+if (!page.includes('invalidateEmployeeEvaluationHeaderCache(savingStaffId)')) failures.push('Evaluation save must invalidate the selected employee header cache.');
+if (!page.includes("key.startsWith(\`\${savingStaffId}:\`)")) failures.push('Evaluation save must invalidate the selected employee evidence cache.');
+if (!evidenceService.includes("const taskEvidenceRoles = new Set([")) failures.push('Monthly evidence loader must gate task evidence by consuming roles.');
+if (!evidenceService.includes(".limit(201);\n  const modulesTruncated")) failures.push('Training module evidence must detect query truncation.');
+
+for (const token of [
+  "v_needs_reviews := v_role in ('doctor','delivery','customer_service')",
+  "v_needs_followups := v_role in ('doctor','customer_service','purchasing')",
+  "v_needs_attendance := v_role in ('doctor','assistant','inventory_assistant','delivery','customer_service','shift_supervisor')",
+  "'not_required'",
+]) {
+  if (!roleAwareServerEvidence.includes(token)) failures.push(`Role-aware server evidence missing: ${token}`);
+}
 
 if (/points_incentive_egp\s*\*\s*effectiveEvaluationMultiplierPct/.test(page)) {
   failures.push('Client-side final incentive recomputation is forbidden; read the canonical server financial truth.');
@@ -66,8 +137,8 @@ if (!page.includes('finalSnapshotHash: refreshedHash')) {
   failures.push('Employee notification must be traceable to the server final snapshot hash.');
 }
 
-for (const step of ['بيانات الدورة', 'تقييم المحاور', 'النقاط والمخالفات', 'الخلاصة والتطوير', 'المراجعة والاعتماد']) {
-  if (!workflow.includes(step)) failures.push(`Workflow is missing step: ${step}`);
+for (const step of ['الموظف والأدلة', 'التقييم بالأدلة', 'المحاور', 'النقاط والمخالفات', 'الخلاصة والتطوير', 'المراجعة والاعتماد']) {
+  if (!workflow.includes(step)) failures.push(`Workflow is missing decision stage: ${step}`);
 }
 
 if (!audit.includes('get_staff_monthly_evaluation_audit_v5')) failures.push('Audit component must read the V5 audit API.');
@@ -95,8 +166,20 @@ for (const token of [
   'f.requested_by_staff_id=p_staff_id::text',
   'a.staff_id=p_staff_id::text',
   'dawaa_monthly_evaluation_branch_manager_subject_allowed_v5',
+  'monthly_evaluation_manual_evidence_rationale_required',
+  'monthly_evaluation_critical_gate_rationale_required',
+  "'critical_gate_rationales'",
 ]) {
   if (!backend.includes(token)) failures.push(`V5 backend contract is missing: ${token}`);
+}
+
+const cairoCyclePath = path.join(ROOT, 'supabase/migrations/20261005144000_monthly_evaluation_cairo_cycle_boundary_v5.sql');
+if (!fs.existsSync(cairoCyclePath)) failures.push('Monthly evaluation Cairo cycle-boundary migration is missing.');
+else {
+  const cairoCycle = fs.readFileSync(cairoCyclePath, 'utf8');
+  const cairoToken = "(e.sent_at at time zone 'Africa/Cairo')::date";
+  if (!cairoCycle.includes(cairoToken)) failures.push('Monthly evaluation sent_at cycle status must use Africa/Cairo.');
+  if (cairoCycle.includes('e.sent_at::date')) failures.push('Monthly evaluation cycle status must not use session-timezone sent_at::date.');
 }
 
 if (failures.length) {

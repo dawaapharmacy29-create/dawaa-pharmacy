@@ -183,7 +183,7 @@ export async function loadMonthlyPerformance360(args: {
       .gte('created_at', startDate)
       .lt('created_at', endDateExclusive)
       .limit(2000),
-    supabase.rpc('get_staff_monthly_evaluation_safe', {
+    supabase.rpc('get_staff_monthly_evaluation_v5', {
       p_actor_id: actorId,
       p_staff_id: staffId,
       p_month: `${cycleLabel}-01`,
@@ -344,12 +344,14 @@ export async function loadMonthlyPerformance360(args: {
     },
   ];
 
+  // This legacy 360 view is descriptive only. The canonical final employee evaluation is V5.
   const available = pillars.filter((pillar) => pillar.score != null);
   const availableWeight = available.reduce((sum, pillar) => sum + pillar.weight, 0);
   const coveragePct = Math.round(availableWeight);
   const weighted = available.reduce((sum, pillar) => sum + (pillar.score as number) * pillar.weight, 0);
-  const overallScore = availableWeight >= 35 ? Math.round((weighted / availableWeight) * 10) / 10 : null;
-  if (availableWeight < 100) warnings.push(`تغطية الدرجة المركبة ${coveragePct}% فقط؛ الأقسام غير المتاحة لم تحصل على درجات افتراضية.`);
+  // Fail closed: a management-facing final score must never be reweighted from a partial subset.
+  const overallScore = availableWeight === 100 ? Math.round((weighted / 100) * 10) / 10 : null;
+  if (availableWeight < 100) warnings.push(`تغطية الدرجة المركبة ${coveragePct}% فقط؛ التقرير غير مكتمل ولا يصدر درجة نهائية من عينة جزئية.`);
 
   return {
     employee: {

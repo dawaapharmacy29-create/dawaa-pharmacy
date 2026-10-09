@@ -1,0 +1,2 @@
+revoke all on function public.list_payroll_finalized_snapshots_v2(uuid,text,integer) from public, anon, authenticated;
+grant execute on function public.list_payroll_finalized_snapshots_v2(uuid,text,integer) to anon, authenticated, service_role;

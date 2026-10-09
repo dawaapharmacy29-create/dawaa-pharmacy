@@ -6,7 +6,7 @@
   "packageManager": "npm@10.9.2",
   "scripts": {
     "dev": "node scripts/patch-customer-followup-excel-pro.cjs && node scripts/run-customer-monthly-tabs.cjs && vite --configLoader runner",
-    "prebuild": "node scripts/patch-customer-followup-excel-pro.cjs && node scripts/run-customer-monthly-tabs.cjs && node scripts/enforce-invoice-branch-guard.cjs && node scripts/check-sales-truth-separation.cjs && node scripts/check-customer-cashback-safe-advanced.cjs && node scripts/check-points-v3-migration-order.cjs && node scripts/check-cleaning-governance-architecture.cjs && node scripts/check-attendance-payroll-readiness.cjs && node scripts/check-attendance-resolution-architecture.cjs && node scripts/check-payroll-attendance-eligibility.cjs && node scripts/check-payroll-adjustment-ledger.cjs && node scripts/check-payroll-atomic-settlement.cjs && node scripts/check-hr-canonical-hardening-v1.cjs && node scripts/check-payroll-transparency-v1.cjs && node scripts/check-hr-domain-boundary-v1.cjs && node scripts/check-monthly-evaluation-v5-architecture.cjs",
+    "prebuild": "node scripts/patch-customer-followup-excel-pro.cjs && node scripts/run-customer-monthly-tabs.cjs && node scripts/enforce-invoice-branch-guard.cjs && node scripts/check-sales-truth-separation.cjs && node scripts/check-customer-cashback-safe-advanced.cjs && node scripts/check-points-v3-migration-order.cjs && node scripts/check-cleaning-governance-architecture.cjs && node scripts/check-attendance-payroll-readiness.cjs && node scripts/check-attendance-resolution-architecture.cjs && node scripts/check-payroll-attendance-eligibility.cjs && node scripts/check-payroll-adjustment-ledger.cjs && node scripts/check-payroll-atomic-settlement.cjs && node scripts/check-hr-canonical-hardening-v1.cjs && node scripts/check-payroll-transparency-v1.cjs && node scripts/check-hr-domain-boundary-v1.cjs && node scripts/check-monthly-evaluation-v5-architecture.cjs && node scripts/check-final-evaluation-architecture.cjs && node scripts/check-db-authorization-architecture.cjs && node scripts/check-verified-session-identity.cjs && node scripts/check-manager-evaluation-finality.cjs",
     "build": "vite build --configLoader runner",
     "perf:budget": "node scripts/check-runtime-performance-budget.cjs",
     "analyze": "ANALYZE=true vite build --configLoader runner",
@@ -24,7 +24,9 @@
     "verify": "npm run doctor && npm run test && npm run typecheck && npm run build && npm run perf:budget",
     "check:hr-canonical-hardening": "node scripts/check-hr-canonical-hardening-v1.cjs",
     "check:payroll-transparency": "node scripts/check-payroll-transparency-v1.cjs",
-    "check:hr-domain-boundary": "node scripts/check-hr-domain-boundary-v1.cjs"
+    "check:hr-domain-boundary": "node scripts/check-hr-domain-boundary-v1.cjs",
+    "check:verified-session-identity": "node scripts/check-verified-session-identity.cjs",
+    "test:db-rehearsal": "bash scripts/run-isolated-db-rehearsal.sh"
   },
   "devDependencies": {
     "@hookform/resolvers": "^3.10.0",

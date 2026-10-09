@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckCircle2, ChevronDown, Clock3, FileDown, Loader2, Save, Search, Send, Star, UserCheck,
 } from 'lucide-react';
@@ -32,12 +32,13 @@ import {
 } from '@/lib/evaluations/incentiveTiers';
 import { buildStaffMonthlyEvaluationPdf } from '@/lib/evaluations/staffMonthlyEvaluationPdf';
 import { hasStrongDispensingEvidence } from '@/lib/evaluations/monthlyDispensingEvidence';
-import { hasStrongSalesQualityEvidence } from '@/lib/evaluations/monthlySalesQualityEvidence';
+import { getSalesQualityEvidenceSufficiency, hasStrongSalesQualityEvidence } from '@/lib/evaluations/monthlySalesQualityEvidence';
 import { hasStrongFollowupEvidence } from '@/lib/evaluations/monthlyFollowupEvidence';
-import { hasStrongInventoryEvidence } from '@/lib/evaluations/monthlyInventoryEvidence';
+import { getInventoryEvidenceSufficiency, hasStrongInventoryEvidence } from '@/lib/evaluations/monthlyInventoryEvidence';
 import { hasStrongDevelopmentEvidence } from '@/lib/evaluations/monthlyDevelopmentEvidence';
 import { hasStrongAttendanceEvidence } from '@/lib/evaluations/monthlyAttendanceEvidence';
 import { hasStrongConversationEvidence } from '@/lib/evaluations/monthlyConversationEvidence';
+import { isLeadershipEvaluationRole, leadershipEvidenceRequirement } from '@/lib/evaluations/monthlyLeadershipEvidence';
 import { isMonthlyEvaluationDevelopmentEligible } from '@/lib/evaluations/monthlyEvaluationDevelopmentEligibility';
 import {
   hasEvidenceSupportedStrongPerformance,
@@ -47,6 +48,12 @@ import { createStaffNotification } from '@/lib/staffNotificationService';
 import { Panel, MiniBox, EmptyState } from '@/components/dashboard/DashboardPrimitives';
 import MonthlyEvaluationWorkflowV5, { type MonthlyEvaluationStep } from '@/components/evaluations/MonthlyEvaluationWorkflowV5';
 import MonthlyEvaluationAuditTrailV5 from '@/components/evaluations/MonthlyEvaluationAuditTrailV5';
+import EvaluationDecisionHeaderV1 from '@/components/evaluations/EvaluationDecisionHeaderV1';
+import EvaluationAxisCardV1 from '@/components/evaluations/EvaluationAxisCardV1';
+import FinalEvaluationReviewV1 from '@/components/evaluations/FinalEvaluationReviewV1';
+import EmployeeEvaluationHeaderV1 from '@/components/evaluations/EmployeeEvaluationHeaderV1';
+import { invalidateEmployeeEvaluationHeaderCache, loadEmployeeEvaluationHeader, type EvaluationHeaderSummary } from '@/lib/evaluations/employeeEvaluationHeaderService';
+import DoctorPerformanceEye from '@/components/evaluations/DoctorPerformanceEye';
 
 type StaffRow = {
   id: string;
@@ -170,19 +177,45 @@ function attendanceCaseLine(item: NonNullable<EmployeeMonthlyEvidence['coaching'
   return parts.join(' · ');
 }
 
+function evidenceSourceRequirement(role: unknown, source: 'reviews' | 'followups' | 'attendance') {
+  const canonicalRole = canonicalStaffRole(role);
+  if (source === 'reviews') return ['doctor', 'delivery', 'customer_service'].includes(canonicalRole);
+  if (source === 'followups') return ['doctor', 'customer_service', 'purchasing'].includes(canonicalRole);
+  return ['doctor', 'assistant', 'inventory_assistant', 'delivery', 'customer_service', 'shift_supervisor'].includes(canonicalRole);
+}
+
 function sectionEvidenceFor(
   sectionKey: string,
+  role: unknown,
   metrics: Metrics,
   health: EmployeeMonthlyEvidence['health'],
   pointsTruth: StaffPointsDashboardV3 | null,
-  coaching: EmployeeMonthlyEvidence['coaching'] | null
+  coaching: EmployeeMonthlyEvidence['coaching'] | null,
+  taskEvaluation: EmployeeMonthlyEvidence['taskEvaluation'] = null
 ) {
   const key = sectionKey.toLowerCase();
+  const canonicalRole = canonicalStaffRole(role);
+  const personalEvidenceRoles = new Set(['doctor','assistant','inventory_assistant','cleaning','delivery','customer_service','purchasing']);
+  if (isLeadershipEvaluationRole(canonicalRole) && !['shift_discipline','development'].includes(key)) {
+    const requirement = leadershipEvidenceRequirement(canonicalRole, key);
+    return {
+      status: 'manual' as const,
+      summary: requirement
+        ? `هذا محور قيادي يحتاج دليل ${requirement.scope === 'branch' ? 'على مستوى الفرع' : requirement.scope === 'multi_branch' ? 'عبر الفروع' : requirement.scope === 'customer_service_team' ? 'لفريق خدمة العملاء' : requirement.scope === 'team' ? 'على مستوى الفريق/الشيفت' : 'على مستوى المنظومة'} قبل إعطاء الدرجة`
+        : 'هذا محور قيادي يحتاج Evidence مناسب لمسؤولية الدور وليس بيانات الموظف الشخصية',
+      details: [
+        requirement ? `المطلوب: ${requirement.summary}` : '',
+        requirement ? `مصادر القياس المطلوبة: ${requirement.requiredSignals.join(' · ')}` : '',
+        'لا تُستخدم محادثات المدير الشخصية أو أرقام حضوره كبديل عن نتيجة الفريق أو الفرع.',
+        'حتى ربط المصدر القيادي الآلي، يجب توثيق الواقعة/النتيجة في ملاحظة المحور قبل الاعتماد؛ غياب المصدر لا يساوي صفرًا.',
+      ].filter(Boolean),
+    };
+  }
   const attendanceKeys = ['discipline', 'attendance', 'shift_discipline'];
   const conversationKeys = ['conversations', 'conversation', 'customer', 'customers', 'team_quality', 'customer_outcomes'];
   const followupKeys = ['followups_requests', 'followups', 'followups_sla', 'customer_requests', 'requests'];
 
-  if (attendanceKeys.includes(key)) {
+  if (attendanceKeys.includes(key) && (personalEvidenceRoles.has(canonicalRole) || canonicalRole === 'shift_supervisor')) {
     if (health.attendance !== 'available') {
       return {
         status: 'unavailable' as const,
@@ -220,13 +253,16 @@ function sectionEvidenceFor(
         ...(attendance?.cases?.length
           ? ['تفاصيل الحالات:', ...attendance.cases.map((item) => attendanceCaseLine(item))]
           : []),
-        'المصدر: مصدر الحضور اليومي للبصمات + سجل تصنيف الحضور (Attendance Resolution / Impact Ledger).',
-        'تغطية هذا الدليل جزئية: الزي والتعليمات وتسليم الشيفت والسلوك المهني تحتاج واقعة أو ملاحظة موثقة إذا أثرت على الدرجة.',
+        'مصدر الدليل: البصمات اليومية + سجل قرارات الحضور المعتمدة.',
+        'حدود الدليل: الزي والتعليمات وتسليم الشيفت والسلوك المهني لا تُفترض من البصمة؛ تحتاج واقعة موثقة منفصلة إذا أثرت على الدرجة.',
       ].filter(Boolean),
     };
   }
 
   if (conversationKeys.includes(key)) {
+    if (!['doctor', 'delivery', 'customer_service'].includes(canonicalRole)) {
+      return { status: 'insufficient' as const, summary: 'هذا المحور يحتاج دليل عميل مناسب للدور وليس مراجعات محادثات شخصية', details: ['لا تستخدم بيانات شخصية كبديل عن دليل مسؤولية الدور.', 'يبقى المحور غير قابل للدرجة حتى يتوفر مصدر canonical مناسب.'] };
+    }
     if (health.reviews !== 'available') {
       return {
         status: 'unavailable' as const,
@@ -255,8 +291,10 @@ function sectionEvidenceFor(
         conversation?.weaknesses.length
           ? `أضعف أبعاد خدمة العميل: ${conversation.weaknesses.map((item) => `${item.label} ${item.average}/10`).join('، ')}`
           : '',
-        'المتابعة هنا تعني متابعة العميل داخل سياق المحادثة؛ تنفيذ المتابعات المسجلة له محور مستقل.',
-        'أبعاد الجرعة والاستشارة والبدائل والبيع مستبعدة من متوسط هذا المحور لأنها مملوكة لمحوري الصرف والبيع.',
+        conversation?.flags.complaints ? `شكاوى موثقة داخل العينة: ${conversation.flags.complaints}` : '',
+        conversation?.flags.badTone ? `ملاحظات نبرة/أسلوب: ${conversation.flags.badTone}` : '',
+        conversation?.flags.excellentCases ? `حالات ممتازة موثقة: ${conversation.flags.excellentCases}` : '',
+        'حدود الدليل: المتابعة المسجلة لها محور مستقل، والجرعة والاستشارة والبدائل والبيع لا تدخل في متوسط خدمة العميل هنا.',
       ].filter(Boolean),
     };
   }
@@ -300,13 +338,17 @@ function sectionEvidenceFor(
         guidanceSamples > 0 && guidanceSamples < 3
           ? `العينة الحالية للإرشاد الدوائي أقل من 3 مراجعات؛ لا تكفي لحكم شهري قوي.`
           : '',
-        'هذه البيانات تقيس الإرشاد والاستشارة داخل المحادثات.',
-        'صحة الصنف والتركيز والكمية في الصرف الفعلي لا تُستنتج من المحادثات وحدها؛ تحتاج واقعة صرف موثقة عند وجود خطأ.',
+        guidanceSamples ? `تغطية الإرشاد الدوائي: ${guidanceSamples} مراجعة قابلة للقياس` : '',
+        'مصدر الدليل: مراجعات المحادثات المرتبطة بالجرعة والاستشارة والبدائل.',
+        'حدود الدليل: صحة الصنف والتركيز والكمية في الصرف الفعلي تحتاج واقعة صرف موثقة ولا تُفترض من المحادثة.',
       ].filter(Boolean),
     };
   }
 
   if (followupKeys.includes(key)) {
+    if (!['doctor', 'customer_service', 'purchasing'].includes(canonicalRole)) {
+      return { status: 'insufficient' as const, summary: 'هذا المحور يحتاج سجل متابعة أو طلبات مناسبًا لمسؤولية الدور', details: ['لا تستخدم سجلات غير منسوبة لمسؤولية الموظف كبديل عن دليل المحور.', 'يبقى المحور غير قابل للدرجة حتى يتوفر مصدر canonical مناسب.'] };
+    }
     if (health.followups !== 'available') {
       return {
         status: 'unavailable' as const,
@@ -329,13 +371,16 @@ function sectionEvidenceFor(
         followups?.needsNextFollowup
           ? `تحتاج متابعة لاحقة: ${followups.needsNextFollowup} حالة · موعد تالٍ مسجل ${followups.nextFollowupScheduled} · بدون موعد ${followups.missingNextFollowupSchedule}`
           : '',
-        'هذا المحور يعتمد على المتابعات/الطلبات المسجلة فعليًا، وليس درجة follow_up داخل تقييم المحادثة.',
+        followups?.total ? `نسبة الإكمال: ${followups.completionPct}% · نسبة التوثيق: ${followups.documentedPct}%` : '',
+        'مصدر الدليل: سجلات المتابعة/الطلبات المنسوبة للموظف داخل نفس الدورة.',
+        'حدود الدليل: درجة follow-up داخل تقييم المحادثة لا تُحسب بدل تنفيذ المتابعة الفعلي.',
       ].filter(Boolean),
     };
   }
 
   if (key === 'development') {
     const development = coaching?.development;
+    const usesConversationTrend = ['doctor', 'delivery', 'customer_service'].includes(canonicalRole);
     if (!development) {
       return {
         status: 'manual' as const,
@@ -348,7 +393,7 @@ function sectionEvidenceFor(
     const trend = development.reviewTrend;
     const summaryParts = [
       training.assigned > 0 ? `التدريب: ${training.completed}/${training.assigned} مكتمل` : '',
-      trend.measurable && trend.delta !== null
+      usesConversationTrend && trend.measurable && trend.delta !== null
         ? `اتجاه المراجعات: ${trend.delta > 0 ? '+' : ''}${trend.delta} نقطة`
         : '',
       development.repeatedIssues.length
@@ -366,16 +411,18 @@ function sectionEvidenceFor(
         training.overdueOpen > 0 ? `كان مستحقًا بنهاية الدورة بدون إكمال موثق داخلها: ${training.overdueOpen}` : '',
         training.averageScore !== null ? `متوسط درجات التدريب: ${training.averageScore}` : '',
         training.titles.length ? `التدريبات: ${training.titles.join(' · ')}` : '',
-        trend.measurable
+        usesConversationTrend && trend.measurable
           ? `بداية عينة المراجعات: ${trend.earlyAverage}/100 (${trend.earlyCount}) · آخر العينة: ${trend.recentAverage}/100 (${trend.recentCount})`
           : '',
-        trend.measurable && trend.delta !== null
+        usesConversationTrend && trend.measurable && trend.delta !== null
           ? `التغير داخل العينة: ${trend.delta > 0 ? '+' : ''}${trend.delta} نقطة · ${trend.direction === 'improving' ? 'تحسن' : trend.direction === 'declining' ? 'انخفاض' : 'مستقر تقريبًا'}`
           : '',
         ...development.repeatedIssues.map((item) => `ملاحظة متكررة: ${item.label} — ${item.count} مرات`),
         ...development.repeatedRecommendations.map((item) => `توصية تدريبية متكررة: ${item.label} — ${item.count} مرات`),
         ...development.notes,
-        'لا يُعتمد اتجاه المراجعات وحده كدرجة تلقائية؛ هو دليل مساعد للمدير.',
+        usesConversationTrend ? 'مصدر الدليل: التدريبات المسندة لنفس الموظف + اتجاه مراجعات المحادثات داخل نفس الدورة + تكرار الملاحظات الموثقة.' : 'مصدر الدليل: التدريبات المسندة لنفس الموظف + الوقائع والملاحظات التطويرية الموثقة لنفس الدورة.',
+        'حدود الدليل: اتجاه المراجعات أو إكمال تدريب وحده لا يثبت التحسن؛ يلزم ربط قرار المدير بسلوك أو نتيجة موثقة، ولا يتحول نقص القياس إلى صفر.',
+        usesConversationTrend ? 'لا يُعتمد اتجاه المراجعات وحده كدرجة تلقائية؛ هو دليل مساعد للمدير.' : '',
       ].filter(Boolean),
     };
   }
@@ -395,6 +442,24 @@ function sectionEvidenceFor(
 
     const weekly = inventory.weekly;
     const stagnant = inventory.stagnant;
+    const sufficiency = getInventoryEvidenceSufficiency({
+      sourceStatus: inventory.sourceStatus,
+      measuredWeeks: weekly.measuredWeeks,
+      onTrackWeeks: weekly.onTrackWeeks,
+      aheadWeeks: weekly.aheadWeeks,
+      behindWeeks: weekly.behindWeeks,
+      unresolvedDiscrepancies: weekly.unresolvedDiscrepancies,
+      assignedItems: stagnant.assignedItems,
+      configuredTargets: stagnant.configuredTargets,
+      targetAchievementPct: stagnant.targetAchievementPct,
+    });
+    const inventorySufficiencyLabels: Record<string, string> = {
+      inventory_source_unavailable: 'مصدر المخزون غير متاح.',
+      inventory_source_partial: 'تغطية مصدر المخزون جزئية.',
+      insufficient_measured_weeks: 'عدد أسابيع الجرد القابلة للقياس أقل من الحد المطلوب للحكم الشهري.',
+      stagnant_targets_incomplete: 'بعض أصناف الرواكد المسندة بلا Target قابل للقياس.',
+      stagnant_achievement_not_measurable: 'تحقيق Target الرواكد غير قابل للقياس حاليًا.',
+    };
     const summaryParts = [
       weekly.measuredWeeks > 0
         ? `الجرد: ${weekly.completedWeeks} أسبوع مكتمل من ${weekly.measuredWeeks} قابل للقياس`
@@ -405,9 +470,12 @@ function sectionEvidenceFor(
     ].filter(Boolean);
 
     return {
-      status: 'manual' as const,
-      summary: summaryParts.join(' · ') || 'لا توجد مسؤوليات مخزون أو رواكد قابلة للقياس لهذه الدورة',
+      status: sufficiency.sufficient ? 'manual' as const : 'insufficient' as const,
+      summary: sufficiency.sufficient
+        ? (summaryParts.join(' · ') || 'لا توجد مسؤوليات مخزون أو رواكد قابلة للقياس لهذه الدورة')
+        : 'بيانات المخزون موجودة لكن التغطية لا تكفي لإصدار درجة شهرية عادلة',
       details: [
+        ...sufficiency.reasons.map((reason) => inventorySufficiencyLabels[reason] || reason),
         weekly.totalItems > 0 ? `أصناف الجرد: ${weekly.countedItems}/${weekly.totalItems} تم عدّها` : '',
         weekly.behindWeeks > 0 ? `أسابيع متأخرة عن الخطة: ${weekly.behindWeeks}` : '',
         weekly.aheadWeeks > 0 ? `أسابيع سابقة للخطة: ${weekly.aheadWeeks}` : '',
@@ -423,10 +491,36 @@ function sectionEvidenceFor(
           ? `أهداف رواكد مهيأة: ${stagnant.achievedTargets}/${stagnant.configuredTargets}${stagnant.targetAchievementPct !== null ? ` (${stagnant.targetAchievementPct}%)` : ''}`
           : '',
         ...inventory.notes,
-        'المصدر: Inventory Weekly Progress + سجلات صرف الرواكد المرتبطة بالموظف نفسه.',
-        'راكد الفرع غير المسند لهذا الموظف لا يُستخدم ضده في التقييم.',
-        'تغطية هذا الدليل جزئية: التبليغ المبكر عن النواقص ومراجعة الصلاحية يحتاجان واقعة تشغيلية موثقة إذا أثرا على الدرجة.',
+        'مصدر الدليل: تقدم الجرد الأسبوعي + سجلات صرف الرواكد المسندة لنفس الموظف.',
+        'حدود الدليل: رواكد الفرع غير المسندة للموظف لا تُستخدم ضده، والنواقص/الصلاحية تحتاج واقعة تشغيلية موثقة إذا أثرت على الدرجة.',
       ].filter(Boolean),
+    };
+  }
+
+  if (key === 'daily_stars' && canonicalRole === 'cleaning') {
+    const cleaning = pointsTruth?.cleaning_rating;
+    if (!cleaning || cleaning.rated_days <= 0) {
+      return {
+        status: 'manual' as const,
+        summary: 'لا توجد تقييمات نظافة يومية موثقة لهذه الدورة',
+        details: [
+          'غياب التقييم اليومي لا يساوي صفرًا.',
+          'إذا وُجدت واقعة تشغيلية موثقة، اكتبها في ملاحظة المحور قبل إعطاء الدرجة.',
+        ],
+      };
+    }
+    return {
+      status: 'available' as const,
+      summary: `${cleaning.rated_days} يوم مقيم · متوسط ${cleaning.avg_stars}/5 · ${cleaning.avg_score_pct}%`,
+      details: [
+        `أيام التقييم: ${cleaning.rated_days}`,
+        `أيام 5 نجوم: ${cleaning.five_star_days}`,
+        `متوسط النجوم: ${cleaning.avg_stars}/5`,
+        `متوسط الأداء اليومي: ${cleaning.avg_score_pct}%`,
+        `نقاط النجوم المسجلة: ${cleaning.total_star_points}`,
+        `تصنيف الأداء: ${cleaning.performance_band}`,
+        'مصدر الدليل: تقييمات النظافة اليومية المجمعة في Points Truth لنفس الدورة.',
+      ],
     };
   }
 
@@ -441,6 +535,16 @@ function sectionEvidenceFor(
         details: ['استخدم مراجعة محادثة أو واقعة فاتورة موثقة بدل الانطباع العام.'],
       };
     }
+
+    const salesSufficiency = getSalesQualityEvidenceSufficiency({
+      salesQuality: sales.conversation.salesQuality !== null
+        ? { average: sales.conversation.salesQuality, samples: sales.conversation.samples }
+        : null,
+    });
+    const salesSufficiencyLabels: Record<string, string> = {
+      sales_quality_not_measured: 'بُعد جودة البيع غير مقاس في العينة الحالية.',
+      insufficient_sales_quality_samples: 'عينة جودة البيع أقل من الحد المطلوب للحكم الشهري.',
+    };
 
     const conversationBits = [
       sales.conversation.salesQuality !== null ? `جودة البيع ${sales.conversation.salesQuality}/10` : '',
@@ -460,9 +564,14 @@ function sectionEvidenceFor(
     ].filter(Boolean);
 
     return {
-      status: sales.sourceStatus === 'available' ? 'available' as const : 'manual' as const,
-      summary: summaryParts.join(' · ') || 'لا يوجد دليل آلي كافٍ؛ استخدم واقعة موثقة',
+      status: salesSufficiency.sufficient
+        ? (sales.sourceStatus === 'available' ? 'available' as const : 'manual' as const)
+        : 'insufficient' as const,
+      summary: salesSufficiency.sufficient
+        ? (summaryParts.join(' · ') || 'لا يوجد دليل آلي كافٍ؛ استخدم واقعة موثقة')
+        : 'بيانات البيع موجودة لكن العينة لا تكفي لإصدار درجة شهرية عادلة',
       details: [
+        ...salesSufficiency.reasons.map((reason) => salesSufficiencyLabels[reason] || reason),
         sales.conversation.samples > 0 ? `عينة مراجعات البيع: ${sales.conversation.samples}` : '',
         sales.conversation.salesQuality !== null ? `جودة البيع: ${sales.conversation.salesQuality}/10` : '',
         sales.conversation.upsellCrossSell !== null ? `البيع التكميلي: ${sales.conversation.upsellCrossSell}/10` : '',
@@ -473,17 +582,40 @@ function sectionEvidenceFor(
         performance.available && performance.weightedPctVsBaseline !== null
           ? `الفرق المرجح في متوسط قيمة الفاتورة وعدد الأصناف مقابل خط الأساس: ${performance.weightedPctVsBaseline > 0 ? '+' : ''}${performance.weightedPctVsBaseline}%`
           : '',
-        performance.points !== null ? `تأثير Points Truth لهذا المؤشر: ${formatSignedPoints(performance.points)} نقطة` : '',
-        invoiceSource ? `Points Truth: ${invoiceSource.events} حدث · ${formatSignedPoints(invoiceSource.points)} نقطة` : '',
+        performance.points !== null ? `تأثير مؤشر الفاتورة المعتمد: ${formatSignedPoints(performance.points)} نقطة` : '',
+        invoiceSource ? `سجل المؤشر: ${invoiceSource.events} حدث · ${formatSignedPoints(invoiceSource.points)} نقطة` : '',
         ...sales.notes,
+        'مصدر الدليل: مراجعات جودة البيع + مؤشر الفاتورة المعتمد لنفس الدورة.',
+        'حدود الدليل: قيمة المبيعات وحدها لا تثبت جودة البيع ولا تُستخدم وحدها لرفع أو خفض الدرجة.',
+      ].filter(Boolean),
+    };
+  }
+
+  if (personalEvidenceRoles.has(canonicalRole) || canonicalRole === 'other') {
+    const taskSummary = taskEvaluation?.isTaskEvidenceReady
+      ? `دليل مهام مساعد: ${taskEvaluation.taskCompletedCount}/${taskEvaluation.taskResolvedCount} مهمة مكتملة${taskEvaluation.taskOnTimeCompletionRate !== null ? ` · في الموعد ${taskEvaluation.taskOnTimeCompletionRate}%` : ''}`
+      : 'لا يوجد قياس آلي مباشر كافٍ لهذا المحور';
+    return {
+      status: 'manual' as const,
+      summary: `${taskSummary} · يلزم توثيق واقعة/نتيجة تخص المحور قبل الدرجة`,
+      details: [
+        taskEvaluation?.sourceCoverageRate !== null && taskEvaluation?.sourceCoverageRate !== undefined
+          ? `تغطية مصادر المهام: ${taskEvaluation.sourceCoverageRate}% · الثقة: ${taskEvaluation.dataConfidence}`
+          : '',
+        taskEvaluation?.taskMissedCount ? `مهام فائتة موثقة: ${taskEvaluation.taskMissedCount}` : '',
+        'دليل المهام دليل مساعد فقط ولا يثبت وحده جودة هذا المحور.',
+        'اكتب في ملاحظة المحور الواقعة أو النتيجة التي تبرر الدرجة؛ غياب القياس الآلي لا يساوي صفرًا.',
       ].filter(Boolean),
     };
   }
 
   return {
-    status: 'manual' as const,
-    summary: 'لا يوجد قياس آلي مباشر لهذا المحور في مصادر V5 الحالية',
-    details: ['قيّم هذا المحور من واقعة موثقة أو ملاحظة تشغيلية واضحة، وليس من الانطباع العام فقط.'],
+    status: 'insufficient' as const,
+    summary: 'لا يوجد مصدر Evidence canonical مربوط بهذا المحور حتى الآن',
+    details: [
+      'هذا المحور يظل غير قابل للدرجة إلى أن يُربط بمصدر دليل فعلي أو Evidence ID موثق.',
+      'عدم وجود القياس لا يعني أداءً ضعيفًا ولا يساوي صفرًا.',
+    ],
   };
 }
 
@@ -596,17 +728,28 @@ export default function StaffMonthlyEvaluation() {
   const [auditRefreshKey, setAuditRefreshKey] = useState(0);
   const [sections, setSections] = useState<StaffEvaluationSectionV3[]>([]);
   const [metrics, setMetrics] = useState<Metrics>(EMPTY_METRICS);
-  const [evidenceReady, setEvidenceReady] = useState(false);
   const [evidenceHealth, setEvidenceHealth] = useState<EmployeeMonthlyEvidence['health']>({
     reviews: 'unavailable',
     followups: 'unavailable',
     attendance: 'unavailable',
   });
   const [evidenceErrors, setEvidenceErrors] = useState<Record<string, string>>({});
+  const [evidenceLoadedAt, setEvidenceLoadedAt] = useState<number | null>(null);
   const [coaching, setCoaching] = useState<EmployeeMonthlyEvidence['coaching'] | null>(null);
+  const [taskEvaluation, setTaskEvaluation] = useState<EmployeeMonthlyEvidence['taskEvaluation']>(null);
+  const [employeeHeader, setEmployeeHeader] = useState<EvaluationHeaderSummary | null>(null);
+  const [employeeHeaderLoading, setEmployeeHeaderLoading] = useState(false);
+  const employeeHeaderRequestRef = useRef(0);
+  const evaluationRequestRef = useRef(0);
+  const staffRequestRef = useRef(0);
+  const saveInFlightRef = useRef(false);
+  const selectedIdRef = useRef('');
+  selectedIdRef.current = selectedId;
+  const evidenceCacheRef = useRef(new Map<string, { at: number; value: EmployeeMonthlyEvidence }>());
   const [pointsTruth, setPointsTruth] = useState<StaffPointsDashboardV3 | null>(null);
   const [settledStatement, setSettledStatement] = useState<{ points_closing: number; incentive_amount: number } | null>(null);
   const [activeGates, setActiveGates] = useState<CriticalGateType[]>([]);
+  const [criticalGateRationales, setCriticalGateRationales] = useState<Partial<Record<CriticalGateType, string>>>({});
   const [strengthsText, setStrengthsText] = useState('');
   const [developmentText, setDevelopmentText] = useState('');
   const [managerNotes, setManagerNotes] = useState('');
@@ -614,6 +757,7 @@ export default function StaffMonthlyEvaluation() {
   const [previouslySent, setPreviouslySent] = useState(false);
   const [sentAtIso, setSentAtIso] = useState('');
   const [evaluationId, setEvaluationId] = useState<string | null>(null);
+  const [evaluationUpdatedAt, setEvaluationUpdatedAt] = useState<string | null>(null);
   const [publishedSnapshot, setPublishedSnapshot] = useState<Record<string, unknown> | null>(null);
   const [publishedSnapshotHash, setPublishedSnapshotHash] = useState('');
   const [employeeResponse, setEmployeeResponse] = useState<{
@@ -624,7 +768,9 @@ export default function StaffMonthlyEvaluation() {
   } | null>(null);
   const [employeeCommentDraft, setEmployeeCommentDraft] = useState('');
   const [employeeResponseSaving, setEmployeeResponseSaving] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [staffLoading, setStaffLoading] = useState(false);
+  const [evaluationLoading, setEvaluationLoading] = useState(false);
+  const [evaluationLoadError, setEvaluationLoadError] = useState('');
   const [saving, setSaving] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
 
@@ -639,7 +785,7 @@ export default function StaffMonthlyEvaluation() {
   const isEditingSelf = Boolean(
     selected && (selected.id === user?.staffId || selected.id === user?.id)
   );
-  const canEdit = managerMode && !isEditingSelf;
+  const canEdit = managerMode && !isEditingSelf && !evaluationLoading && !evaluationLoadError;
   const employeeView = !managerMode;
   const employeeEvaluationPublished = employeeView && ['sent', 'approved'].includes(status) && Boolean(evaluationId);
   const overallScore = useMemo(
@@ -670,9 +816,10 @@ export default function StaffMonthlyEvaluation() {
     : null;
 
   useEffect(() => {
+    const requestId = ++staffRequestRef.current;
     const loadStaff = async () => {
       if (!user?.id) return;
-      setLoading(true);
+      setStaffLoading(true);
       try {
         const [staffResult, responseStatusResult] = await Promise.all([
           supabase.rpc('list_staff_for_monthly_evaluation_v5', {
@@ -708,18 +855,22 @@ export default function StaffMonthlyEvaluation() {
             evaluation_commented_at: response?.commented_at || null,
           };
         });
+        if (staffRequestRef.current !== requestId) return;
         setStaff(rows);
         const own = rows.find((row) => row.id === user?.staffId || row.id === user?.id || row.name === user?.name);
-        if (!managerMode && own) setSelectedId(own.id);
-        else if (!selectedId && rows[0]) setSelectedId(rows[0].id);
+        setSelectedId((current) => {
+          if (!managerMode && own) return own.id;
+          if (current && rows.some((row) => row.id === current)) return current;
+          return rows[0]?.id || '';
+        });
       } catch (cause) {
-        toast.error(cause instanceof Error ? cause.message : 'تعذر تحميل الموظفين');
+        if (staffRequestRef.current === requestId) toast.error(cause instanceof Error ? cause.message : 'تعذر تحميل الموظفين');
       } finally {
-        setLoading(false);
+        if (staffRequestRef.current === requestId) setStaffLoading(false);
       }
     };
     void loadStaff();
-  }, [branch, cycleLabel, globalScope, managerMode, selectedId, user?.id, user?.name, user?.staffId]);
+  }, [branch, cycleLabel, globalScope, managerMode, user?.id, user?.name, user?.staffId]);
 
   useEffect(() => {
     setActiveStep(1);
@@ -731,43 +882,132 @@ export default function StaffMonthlyEvaluation() {
 
   useEffect(() => {
     if (!selectedId || !user?.id || !selected) return;
+    const requestId = ++evaluationRequestRef.current;
     const loadEvaluation = async () => {
-      setLoading(true);
+      setEvaluationLoading(true);
+      setEvaluationLoadError('');
+      // Invalidate any slower header request from the previously selected employee immediately.
+      employeeHeaderRequestRef.current += 1;
+      setEmployeeHeader(null);
+      setEmployeeHeaderLoading(true);
+      setPointsTruth(null);
+      setSettledStatement(null);
+      setMetrics(EMPTY_METRICS);
+      setEvidenceHealth({ reviews: 'unavailable', followups: 'unavailable', attendance: 'unavailable' });
+      setEvidenceErrors({});
+      setEvidenceLoadedAt(null);
+      setCoaching(null);
+      setTaskEvaluation(null);
+      setSections(evaluationProfileForRole(selected.job_title || selected.role).sections);
+      setEvaluationId(null);
+      setEvaluationUpdatedAt(null);
+      setPublishedSnapshot(null);
+      setPublishedSnapshotHash('');
+      setStrengthsText('');
+      setDevelopmentText('');
+      setManagerNotes('');
+      setStatus('draft');
+      setSentAtIso('');
+      setPreviouslySent(false);
+      setActiveGates([]);
+      setCriticalGateRationales({});
       try {
         const { startDate, endDate, endDateExclusive } = evaluationCycleDateKeys(cycleLabel);
         const cycleKeyDate = `${cycleLabel}-01`;
-        const [savedResult, evidenceResult, pointsResult, statementResult] = await Promise.all([
-          supabase.rpc('get_staff_monthly_evaluation_v5', {
-            p_actor_id: user.id,
-            p_staff_id: selectedId,
-            p_month: cycleKeyDate,
-          }),
-          loadEmployeeMonthlyEvidence({ staffId: selectedId, startDate, endDateExclusive }),
-          getStaffPointsDashboardV3(selectedId, cycleLabel).catch(() => null),
-          // Historical closed statements remain the frozen source if one exists.
-          supabase
-            .from('employee_monthly_statements')
-            .select('points_closing,incentive_amount')
-            .eq('staff_id', selectedId)
-            .eq('cycle_start', startDate)
-            .eq('cycle_end', endDate)
-            .maybeSingle(),
-        ]);
+        const pointsPromise = getStaffPointsDashboardV3(selectedId, cycleLabel).catch(() => null);
+        const statementPromise = supabase
+          .from('employee_monthly_statements')
+          .select('points_closing,incentive_amount')
+          .eq('staff_id', selectedId)
+          .eq('cycle_start', startDate)
+          .eq('cycle_end', endDate)
+          .maybeSingle();
+
+        const evidenceCacheKey = [
+          selectedId,
+          startDate,
+          endDateExclusive,
+          canonicalStaffRole(selected.job_title || selected.role),
+          normalizeBranchName(selected.branch || branch),
+        ].join(':');
+        const cachedEvidence = evidenceCacheRef.current.get(evidenceCacheKey);
+        const evidencePromise = cachedEvidence && Date.now() - cachedEvidence.at < 60_000
+          ? Promise.resolve({ value: cachedEvidence.value, loadedAt: cachedEvidence.at })
+          : loadEmployeeMonthlyEvidence({
+              staffId: selectedId,
+              startDate,
+              endDateExclusive,
+              role: selected.job_title || selected.role,
+              branch: selected.branch || branch,
+            }).then((value) => {
+              const loadedAt = Date.now();
+              evidenceCacheRef.current.set(evidenceCacheKey, { at: loadedAt, value });
+              return { value, loadedAt };
+            });
+
+        const savedResult = await supabase.rpc('get_staff_monthly_evaluation_v5', {
+          p_actor_id: user.id,
+          p_staff_id: selectedId,
+          p_month: cycleKeyDate,
+        });
 
         if (savedResult.error) throw savedResult.error;
+        if (evaluationRequestRef.current !== requestId) return;
 
-        setMetrics(evidenceResult.metrics);
-        setEvidenceReady(evidenceResult.ready);
-        setEvidenceHealth(evidenceResult.health);
-        setEvidenceErrors(evidenceResult.errors);
-        setCoaching(evidenceResult.coaching);
-        setPointsTruth(pointsResult);
-        setSettledStatement(statementResult.data || null);
+        const savedForEvidenceFallback = savedResult.data as EvaluationRow | null;
+        const savedForEvidenceStatus = String(savedForEvidenceFallback?.status || 'draft');
+        let evidenceResult: Awaited<ReturnType<typeof loadEmployeeMonthlyEvidence>> | null = null;
+        try {
+          const evidenceEnvelope = await evidencePromise;
+          if (evaluationRequestRef.current !== requestId) return;
+          evidenceResult = evidenceEnvelope.value;
+          setMetrics(evidenceResult.metrics);
+          setEvidenceHealth(evidenceResult.health);
+          setEvidenceErrors(evidenceResult.errors);
+          setEvidenceLoadedAt(evidenceEnvelope.loadedAt);
+          setCoaching(evidenceResult.coaching);
+          setTaskEvaluation(evidenceResult.taskEvaluation);
+        } catch (evidenceCause) {
+          if (evaluationRequestRef.current !== requestId) return;
+          if (!['sent', 'approved'].includes(savedForEvidenceStatus)) throw evidenceCause;
+          setEvidenceHealth({ reviews: 'unavailable', followups: 'unavailable', attendance: 'unavailable' });
+          setEvidenceErrors({ live: evidenceCause instanceof Error ? evidenceCause.message : 'live_evidence_unavailable' });
+          setEvidenceLoadedAt(null);
+          setEmployeeHeaderLoading(false);
+        }
+
+        if (evidenceResult) {
+          const headerRequestId = ++employeeHeaderRequestRef.current;
+          void loadEmployeeEvaluationHeader({
+            staffId: selectedId,
+            staffName: selected.name,
+            role: selected.job_title || selected.role,
+            branch: selected.branch || branch,
+            start: startDate,
+            end: endDate,
+            endExclusive: endDateExclusive,
+            evidence: evidenceResult,
+          }).then((value) => {
+            if (employeeHeaderRequestRef.current === headerRequestId) setEmployeeHeader(value);
+          }).catch(() => {
+            if (employeeHeaderRequestRef.current === headerRequestId) setEmployeeHeader(null);
+          }).finally(() => {
+            if (employeeHeaderRequestRef.current === headerRequestId) setEmployeeHeaderLoading(false);
+          });
+        }
+
+        void pointsPromise.then((pointsResult) => {
+          if (evaluationRequestRef.current === requestId) setPointsTruth(pointsResult);
+        });
+        void statementPromise.then((statementResult) => {
+          if (evaluationRequestRef.current === requestId) setSettledStatement(statementResult.data || null);
+        });
 
         const saved = savedResult.data as EvaluationRow | null;
         const freshSections = evaluationProfileForRole(selected.job_title || selected.role).sections;
         if (saved) {
           setEvaluationId(String(saved.id || ''));
+          setEvaluationUpdatedAt(String(saved.updated_at || '') || null);
           const savedStatus = String(saved.status || 'draft');
           const savedSentAt = String(saved.sent_at || '');
           const metricsSnapshot = saved.metrics_snapshot as Record<string, unknown> | null;
@@ -779,8 +1019,8 @@ export default function StaffMonthlyEvaluation() {
           const published = ['sent', 'approved'].includes(savedStatus) && finalSnapshot;
           const content = published || saved;
 
-          setPublishedSnapshot(finalSnapshot);
-          setPublishedSnapshotHash(String(metricsSnapshot?.final_approval_hash || ''));
+          setPublishedSnapshot(published ? finalSnapshot : null);
+          setPublishedSnapshotHash(published ? String(metricsSnapshot?.final_approval_hash || '') : '');
           setSections(normalizeSavedSections(content.sections, freshSections));
           setStrengthsText(Array.isArray(content.strengths) ? content.strengths.map(String).join('\n') : '');
           setDevelopmentText(Array.isArray(content.development_points) ? content.development_points.map(String).join('\n') : '');
@@ -795,8 +1035,18 @@ export default function StaffMonthlyEvaluation() {
           const savedGates = metricsSnapshot && Array.isArray(metricsSnapshot.active_critical_gates) ? (metricsSnapshot.active_critical_gates as string[]) : [];
           const validSavedGates = savedGates.filter((gate): gate is CriticalGateType => gate in CRITICAL_GATE_CAPS);
           setActiveGates(validSavedGates);
+          const savedGateRationalesRaw = metricsSnapshot?.critical_gate_rationales;
+          const savedGateRationales = savedGateRationalesRaw && typeof savedGateRationalesRaw === 'object' && !Array.isArray(savedGateRationalesRaw)
+            ? savedGateRationalesRaw as Record<string, unknown>
+            : {};
+          setCriticalGateRationales(Object.fromEntries(
+            validSavedGates
+              .map((gate) => [gate, String(savedGateRationales[gate] || '')])
+              .filter(([, rationale]) => rationale.trim())
+          ) as Partial<Record<CriticalGateType, string>>);
         } else {
           setEvaluationId(null);
+          setEvaluationUpdatedAt(null);
           setPublishedSnapshot(null);
           setPublishedSnapshotHash('');
           setSections(freshSections);
@@ -807,15 +1057,30 @@ export default function StaffMonthlyEvaluation() {
           setSentAtIso('');
           setPreviouslySent(false);
           setActiveGates([]);
+      setCriticalGateRationales({});
         }
       } catch (cause) {
-        toast.error(cause instanceof Error ? cause.message : 'تعذر تحميل التقييم');
+        if (evaluationRequestRef.current !== requestId) return;
+        setEmployeeHeader(null);
+        setEmployeeHeaderLoading(false);
+        const message = cause instanceof Error ? cause.message : 'تعذر تحميل التقييم';
+        setEvaluationLoadError(message);
+        toast.error(message);
       } finally {
-        setLoading(false);
+        if (evaluationRequestRef.current === requestId) setEvaluationLoading(false);
       }
     };
     void loadEvaluation();
-  }, [cycleLabel, selected, selectedId, user?.id]);
+  }, [
+    cycleLabel,
+    selectedId,
+    selected?.name,
+    selected?.job_title,
+    selected?.role,
+    selected?.branch,
+    branch,
+    user?.id,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -929,10 +1194,20 @@ export default function StaffMonthlyEvaluation() {
 
   function toggleGate(gate: CriticalGateType) {
     setActiveGates((current) => current.includes(gate) ? current.filter((item) => item !== gate) : [...current, gate]);
+    setCriticalGateRationales((current) => {
+      if (!activeGates.includes(gate)) return current;
+      const next = { ...current };
+      delete next[gate];
+      return next;
+    });
   }
 
   async function handleExportPdf() {
     if (!selected) return;
+    if (!publishedSnapshot || !publishedSnapshotHash) {
+      toast.error('الـPDF النهائي متاح فقط بعد اعتماد التقييم وحفظ بصمة النسخة المعتمدة.');
+      return;
+    }
     setExportingPdf(true);
     try {
       const persistedSections = publishedSnapshot
@@ -953,6 +1228,14 @@ export default function StaffMonthlyEvaluation() {
       const persistedManagerNotes = publishedSnapshot
         ? String(publishedSnapshot.manager_notes || '')
         : managerNotes;
+      const publishedPointsRaw = publishedSnapshot?.points_truth;
+      const publishedPoints = publishedPointsRaw && typeof publishedPointsRaw === 'object' && !Array.isArray(publishedPointsRaw)
+        ? publishedPointsRaw as Record<string, unknown>
+        : null;
+      const pdfPoints = publishedSnapshot ? publishedPoints : pointsTruth;
+      const pdfSourceBreakdown = Array.isArray(pdfPoints?.source_breakdown)
+        ? pdfPoints.source_breakdown as Array<{ source?: unknown; points?: unknown; events?: unknown }>
+        : [];
 
       const { pdf, fileName } = await buildStaffMonthlyEvaluationPdf({
         staffName: selected.name,
@@ -968,9 +1251,35 @@ export default function StaffMonthlyEvaluation() {
         strengths: persistedStrengths,
         developmentPoints: persistedDevelopment,
         managerNotes: persistedManagerNotes,
-        pointsFinal: pointsTruth?.final_points ?? null,
-        pointsTarget: pointsTruth?.target_points ?? null,
-        incentiveEgp: canonicalIncentive ?? null,
+        pointsFinal: pdfPoints ? safeNumber(pdfPoints.final_points) : null,
+        pointsTarget: pdfPoints && pdfPoints.target_points != null ? safeNumber(pdfPoints.target_points) : null,
+        incentiveEgp: pdfPoints && pdfPoints.final_incentive_egp != null
+          ? safeNumber(pdfPoints.final_incentive_egp)
+          : null,
+        evidenceByAxis: publishedSnapshot && Array.isArray(publishedSnapshot.axis_evidence_snapshot)
+          ? publishedSnapshot.axis_evidence_snapshot as Array<{ key: string; title: string; status: string; summary: string }>
+          : axisEvidenceSnapshot,
+        pointsBreakdown: pdfSourceBreakdown.map((item) => ({
+          source: pointSourceLabel(String(item.source || 'unknown')),
+          points: safeNumber(item.points),
+          events: safeNumber(item.events),
+        })),
+        startingPoints: pdfPoints && pdfPoints.starting_points != null ? safeNumber(pdfPoints.starting_points) : null,
+        rewardPoints: pdfPoints && pdfPoints.reward_points != null ? safeNumber(pdfPoints.reward_points) : null,
+        deductionPoints: pdfPoints && pdfPoints.deduction_points != null ? safeNumber(pdfPoints.deduction_points) : null,
+        criticalGates: (() => {
+          const snapshotGates = publishedSnapshot && Array.isArray(publishedSnapshot.active_critical_gates)
+            ? publishedSnapshot.active_critical_gates.map(String).filter((gate): gate is CriticalGateType => gate in CRITICAL_GATE_CAPS)
+            : activeGates;
+          const rationaleRaw = publishedSnapshot?.critical_gate_rationales;
+          const rationales = rationaleRaw && typeof rationaleRaw === 'object' && !Array.isArray(rationaleRaw)
+            ? rationaleRaw as Record<string, unknown>
+            : criticalGateRationales;
+          return snapshotGates.map((gate) => ({
+            label: CRITICAL_GATE_CAPS[gate].label,
+            rationale: String(rationales[gate] || 'سبب القرار محفوظ في سجل الاعتماد.'),
+          }));
+        })(),
       });
       pdf.save(fileName);
     } catch (cause) {
@@ -982,21 +1291,34 @@ export default function StaffMonthlyEvaluation() {
 
   async function save(nextStatus = status) {
     if (!selected || !user?.id) return;
+    if (saveInFlightRef.current) {
+      toast.info('جاري حفظ التقييم الحالي بالفعل.');
+      return;
+    }
+    const savingStaffId = selected.id;
+    if (evaluationLoading || evaluationLoadError) {
+      toast.error(evaluationLoading ? 'انتظر اكتمال تحميل تقييم الموظف الحالي.' : 'أعد تحميل تقييم الموظف قبل الحفظ أو الاعتماد.');
+      return;
+    }
     if (isEditingSelf) {
       toast.error('لا يمكنك اعتماد أو تعديل تقييمك الشهري لنفسك.');
       return;
     }
-    if (nextStatus === 'sent' && !evidenceReady) {
-      const missing = [
-        evidenceHealth.reviews === 'unavailable' ? 'مراجعات المحادثات' : '',
-        evidenceHealth.followups === 'unavailable' ? 'المتابعات' : '',
-        evidenceHealth.attendance === 'unavailable' ? 'الحضور' : '',
-      ].filter(Boolean).join('، ');
-      toast.error(`لا يمكن الاعتماد النهائي لأن مصادر الأدلة غير مكتملة: ${missing || 'مصدر غير متاح'}.`);
+    if (nextStatus === 'sent' && !roleEvidenceReady) {
+      const missingAxes = blockedAxisEvidence.map((item) => item.title).join('، ');
+      toast.error(`لا يمكن الاعتماد النهائي لأن أدلة محاور الدور غير مكتملة: ${missingAxes || 'يوجد محور يحتاج توثيقًا صالحًا'}.`);
       return;
     }
     if (nextStatus === 'sent' && !cycleClosed) {
       toast.error(`الدورة ما زالت جارية حتى ${cycleRange.displayLabel.split('–')[1]?.trim() || 'يوم 25'}. يمكنك حفظ مسودة فقط ثم الاعتماد بعد إقفال الدورة.`);
+      return;
+    }
+    if (nextStatus === 'sent' && leadershipSectionsMissingNotes.length > 0) {
+      toast.error(`المحاور القيادية تحتاج واقعة/نتيجة موثقة قبل الاعتماد: ${leadershipSectionsMissingNotes.map((item) => item.title).join('، ')}`);
+      return;
+    }
+    if (nextStatus === 'sent' && manualEvidenceSectionsMissingNotes.length > 0) {
+      toast.error(`المحاور التي تعتمد على دليل يدوي تحتاج واقعة/نتيجة موثقة قبل الاعتماد: ${manualEvidenceSectionsMissingNotes.map((item) => item.title).join('، ')}`);
       return;
     }
     if (nextStatus === 'sent' && managerMode && sections.some((item) => item.score === 0)) {
@@ -1015,13 +1337,32 @@ export default function StaffMonthlyEvaluation() {
       toast.error('اكتب خطة تطوير واضحة للمحاور التي تحتاج تحسين قبل الاعتماد.');
       return;
     }
-    if (nextStatus === 'sent' && activeGates.length > 0 && !managerNotes.trim()) {
-      toast.error('المخالفة الحرجة تحتاج ملاحظة مدير توضح سبب القرار قبل الاعتماد.');
+    if (nextStatus === 'sent' && criticalGateMissingRationales.length > 0) {
+      toast.error(`كل مخالفة حرجة تحتاج واقعة/سببًا مستقلًا قبل الاعتماد: ${criticalGateMissingRationales.map((gate) => CRITICAL_GATE_CAPS[gate].label).join('، ')}`);
+      return;
+    }
+    if (nextStatus === 'sent' && criticalGateGeneralNoteMissing) {
+      toast.error('اكتب خلاصة قرار المخالفة الحرجة في ملاحظات المدير قبل الاعتماد.');
+      return;
+    }
+    if (nextStatus === 'sent' && (!evidenceLoadedAt || Date.now() - evidenceLoadedAt > 5 * 60_000)) {
+      toast.error('أدلة التقييم المفتوحة قديمة لأكثر من 5 دقائق. أعد فتح الموظف أو حدّث الصفحة لمراجعة أحدث الأدلة قبل الاعتماد.');
       return;
     }
 
+    saveInFlightRef.current = true;
     setSaving(true);
     try {
+      let pointsForSave = pointsTruth;
+      if (nextStatus === 'sent') {
+        try {
+          pointsForSave = await getStaffPointsDashboardV3(savingStaffId, cycleLabel);
+          if (selectedIdRef.current !== savingStaffId) return;
+          setPointsTruth(pointsForSave);
+        } catch (cause) {
+          throw new Error(`تعذر تحديث حقيقة النقاط لحظة الاعتماد: ${cause instanceof Error ? cause.message : String(cause)}. أعد المحاولة قبل الاعتماد.`);
+        }
+      }
       const strengths = strengthsText.split('\n').map((item) => item.trim()).filter(Boolean);
       const developmentPoints = developmentText.split('\n').map((item) => item.trim()).filter(Boolean);
       const payload = {
@@ -1036,22 +1377,29 @@ export default function StaffMonthlyEvaluation() {
         sections,
         metrics_snapshot: {
           ...metrics,
+          expected_updated_at: evaluationUpdatedAt,
           evaluation_engine_version: 5,
-          evidence_ready: evidenceReady,
+          evidence_ready: roleEvidenceReady,
           evidence_health: evidenceHealth,
+          axis_evidence_snapshot: axisEvidenceSnapshot,
           canonical_role: profile.role,
           evaluation_cycle_label: cycleLabel,
           active_critical_gates: activeGates,
+          critical_gate_rationales: Object.fromEntries(activeGates.map((gate) => [gate, (criticalGateRationales[gate] || '').trim()])),
           coaching_snapshot: coaching,
           employee_feedback_draft: employeeFeedbackDraft,
-          points_truth: pointsTruth ? {
-            month_cycle: pointsTruth.month_cycle,
-            starting_points: pointsTruth.starting_points,
-            final_points: pointsTruth.final_points,
-            reward_points: pointsTruth.reward_points,
-            deduction_points: pointsTruth.deduction_points,
-            profile_configured: pointsTruth.profile_configured,
-            final_incentive_egp: pointsTruth.final_incentive_egp,
+          points_truth: pointsForSave ? {
+            month_cycle: pointsForSave.month_cycle,
+            starting_points: pointsForSave.starting_points,
+            final_points: pointsForSave.final_points,
+            reward_points: pointsForSave.reward_points,
+            deduction_points: pointsForSave.deduction_points,
+            target_points: pointsForSave.target_points,
+            source_breakdown: pointsForSave.source_breakdown,
+            profile_configured: pointsForSave.profile_configured,
+            points_incentive_egp: pointsForSave.points_incentive_egp,
+            competition_bonus_egp: pointsForSave.competition_bonus_egp,
+            final_incentive_egp: pointsForSave.final_incentive_egp,
           } : null,
         },
         strengths,
@@ -1073,10 +1421,28 @@ export default function StaffMonthlyEvaluation() {
       });
       if (error) throw error;
       const saveResult = (data || {}) as Record<string, unknown>;
+      if (selectedIdRef.current !== savingStaffId) {
+        toast.info('تم حفظ التقييم على الخادم، وتم تجاهل تحديث الشاشة لأنك انتقلت لموظف آخر.');
+        return;
+      }
       const savedEvaluationId = String(saveResult.evaluation_id || evaluationId || '');
       setEvaluationId(savedEvaluationId);
       setStatus(nextStatus);
       setAuditRefreshKey((value) => value + 1);
+      for (const key of evidenceCacheRef.current.keys()) {
+        if (key.startsWith(`${savingStaffId}:`)) evidenceCacheRef.current.delete(key);
+      }
+      invalidateEmployeeEvaluationHeaderCache(savingStaffId);
+
+      const versionRefresh = await supabase.rpc('get_staff_monthly_evaluation_v5', {
+        p_actor_id: user.id,
+        p_staff_id: savingStaffId,
+        p_month: `${cycleLabel}-01`,
+      });
+      if (!versionRefresh.error && versionRefresh.data) {
+        const canonicalSaved = versionRefresh.data as EvaluationRow;
+        setEvaluationUpdatedAt(String(canonicalSaved.updated_at || '') || null);
+      }
 
       const serverSentAt = String(saveResult.sent_at || '');
       if (nextStatus === 'sent') {
@@ -1143,15 +1509,25 @@ export default function StaffMonthlyEvaluation() {
             evaluation_status: nextStatus === 'sent' ? 'sent' : 'draft',
             evaluation_score: Number(saveResult.overall_score ?? overallScore),
             sent_at: nextStatus === 'sent' ? (serverSentAt || new Date().toISOString()) : item.sent_at,
-            evidence_ready: nextStatus === 'sent' ? true : evidenceReady,
+            evidence_ready: nextStatus === 'sent' ? true : roleEvidenceReady,
           }
         : item));
 
       toast.success(nextStatus === 'sent' ? 'تم اعتماد التقييم' : 'تم حفظ المسودة');
     } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : 'فشل حفظ التقييم');
+      const rawMessage = cause instanceof Error ? cause.message : String(cause || '');
+      if (rawMessage.includes('monthly_evaluation_stale_write_reload_required')) {
+        toast.error('التقييم اتعدل من جلسة أخرى؛ تم إيقاف الحفظ لحماية النسخة الأحدث. أعد تحميل تقييم الموظف قبل أي تعديل جديد.');
+      } else if (rawMessage.includes('monthly_evaluation_final_decision_immutable')) {
+        toast.error('التقييم معتمد ومقفول ولا يمكن تعديله بصمت. أي تصحيح لاحق يجب أن يتم من مسار إعادة فتح/تسوية موثّق.');
+      } else if (rawMessage.includes('monthly_evaluation_server_evidence_unavailable')) {
+        toast.error('تعذر التحقق من أحد مصادر الأدلة على الخادم؛ لم يتم اعتماد التقييم. أعد المحاولة بعد التأكد من توفر البيانات.');
+      } else {
+        toast.error(rawMessage || 'فشل حفظ التقييم');
+      }
     } finally {
-      setSaving(false);
+      saveInFlightRef.current = false;
+      if (selectedIdRef.current === savingStaffId) setSaving(false);
     }
   }
 
@@ -1171,6 +1547,19 @@ export default function StaffMonthlyEvaluation() {
     commented: publishedStaff.filter((item) => Boolean(item.evaluation_commented_at)).length,
   };
 
+  const roleGroupLabel = (item: StaffRow) => {
+    const role = canonicalStaffRole(item.job_title || item.role);
+    if (role === 'doctor') return 'دكاترة';
+    if (role === 'assistant') return 'مساعدون';
+    if (role === 'inventory_assistant') return 'المخزن';
+    if (role === 'delivery') return 'الدليفري';
+    if (role === 'customer_service') return 'خدمة العملاء';
+    if (role === 'cleaning') return 'النظافة';
+    if (role === 'purchasing') return 'المشتريات';
+    if (['branch_manager','branches_manager','shift_supervisor','customer_service_manager','executive','admin'].includes(role)) return 'الإدارة';
+    return 'وظائف أخرى';
+  };
+
   const filteredStaff = staff.filter((item) => {
     const matchesSearch = item.name.includes(search);
     const matchesStatus = staffStatusFilter === 'all'
@@ -1187,9 +1576,19 @@ export default function StaffMonthlyEvaluation() {
 
     return matchesSearch && matchesStatus && matchesReceipt;
   });
+  const orderedFilteredStaff = [...filteredStaff].sort((a,b) => {
+    const branchCompare = String(a.branch || '').localeCompare(String(b.branch || ''), 'ar');
+    if (branchCompare) return branchCompare;
+    const order = ['دكاترة', 'مساعدون', 'الدليفري', 'المخزن', 'خدمة العملاء', 'النظافة', 'المشتريات', 'الإدارة', 'وظائف أخرى'];
+    const groupCompare = order.indexOf(roleGroupLabel(a)) - order.indexOf(roleGroupLabel(b));
+    if (groupCompare) return groupCompare;
+    return a.name.localeCompare(b.name, 'ar');
+  });
   const completedSections = sections.filter((item) => item.score > 0).length;
   const weakSectionsMissingNotes = sections.filter((item) => item.score > 0 && item.score <= 2 && !item.notes.trim());
-  const criticalGateMissingReason = activeGates.length > 0 && !managerNotes.trim();
+  const criticalGateMissingRationales = activeGates.filter((gate) => (criticalGateRationales[gate] || '').trim().length < 12);
+  const criticalGateMissingReason = criticalGateMissingRationales.length > 0;
+  const criticalGateGeneralNoteMissing = activeGates.length > 0 && !managerNotes.trim();
   const ratedSections = sections.filter((item) => item.score > 0);
   const ratedWeight = ratedSections.reduce((sum, item) => sum + item.weight, 0);
   const ratedEarnedPoints = Math.round(ratedSections.reduce((sum, item) => sum + sectionPoints(item), 0) * 10) / 10;
@@ -1291,24 +1690,93 @@ export default function StaffMonthlyEvaluation() {
   const hasDevelopmentNeed = developmentSections.length > 0;
   const feedbackMissingStrength = evaluationComplete && hasStrongPerformance && !strengthsText.trim();
   const feedbackMissingDevelopment = evaluationComplete && hasDevelopmentNeed && !developmentText.trim();
+  const blockedAxisEvidence = sections
+    .map((item) => ({
+      title: item.title,
+      evidence: sectionEvidenceFor(
+        item.key,
+        selected?.job_title || selected?.role,
+        metrics,
+        evidenceHealth,
+        pointsTruth,
+        coaching,
+        taskEvaluation
+      ),
+    }))
+    .filter(({ evidence }) => ['unavailable', 'pending', 'insufficient', 'partial'].includes(evidence.status));
+  const leadershipSectionsMissingNotes = sections.filter((item) =>
+    isLeadershipEvaluationRole(selected?.job_title || selected?.role)
+      && !['shift_discipline', 'development'].includes(item.key)
+      && Boolean(leadershipEvidenceRequirement(selected?.job_title || selected?.role, item.key))
+      && item.score > 0
+      && item.notes.trim().length < 12
+  );
+  const manualEvidenceSectionsMissingNotes = sections.filter((item) => {
+    if (item.score <= 0 || item.notes.trim().length >= 12) return false;
+    const evidence = sectionEvidenceFor(
+      item.key,
+      selected?.job_title || selected?.role,
+      metrics,
+      evidenceHealth,
+      pointsTruth,
+      coaching,
+      taskEvaluation
+    );
+    return evidence.status === 'manual';
+  });
+  // Approval readiness is axis-driven. A source that is irrelevant to this role
+  // (for example attendance on a profile with no attendance/discipline axis) must not
+  // block the whole employee. Every required axis is still guarded below.
+  const roleEvidenceReady =
+    blockedAxisEvidence.length === 0
+    && leadershipSectionsMissingNotes.length === 0
+    && manualEvidenceSectionsMissingNotes.length === 0;
+  const axisEvidenceSnapshot = sections.map((item) => {
+    const evidence = sectionEvidenceFor(
+      item.key,
+      selected?.job_title || selected?.role,
+      metrics,
+      evidenceHealth,
+      pointsTruth,
+      coaching,
+      taskEvaluation
+    );
+    return {
+      key: item.key,
+      title: item.title,
+      status: evidence.status,
+      summary: evidence.summary,
+    };
+  });
+
   const approvalBlockers = [
     !cycleClosed ? 'الدورة لم تُقفل بعد' : '',
-    !evidenceReady ? 'مصدر أو أكثر من أدلة الدورة غير متاح' : '',
+    !roleEvidenceReady
+      ? blockedAxisEvidence.length
+        ? `${blockedAxisEvidence.length} محور يحتاج دليل صالح: ${blockedAxisEvidence.map((item) => item.title).join('، ')}`
+        : 'مصدر أو أكثر من أدلة الدورة غير متاح'
+      : '',
     completedSections !== sections.length ? `باقي ${Math.max(0, sections.length - completedSections)} محور بدون تقييم` : '',
+    leadershipSectionsMissingNotes.length ? `${leadershipSectionsMissingNotes.length} محور قيادي يحتاج واقعة/نتيجة موثقة في الملاحظة` : '',
+    manualEvidenceSectionsMissingNotes.length ? `${manualEvidenceSectionsMissingNotes.length} محور يدوي يحتاج واقعة/نتيجة موثقة في الملاحظة` : '',
     weakSectionsMissingNotes.length ? `${weakSectionsMissingNotes.length} محور بدرجة ضعيفة يحتاج سبب مكتوب` : '',
     feedbackMissingStrength ? 'يوجد أداء قوي موثق لكن نقاط القوة لم تُكتب بعد' : '',
     feedbackMissingDevelopment ? 'يوجد محور يحتاج تطوير لكن خطة التطوير لم تُكتب بعد' : '',
-    criticalGateMissingReason ? 'المخالفة الحرجة تحتاج سببًا مكتوبًا في ملاحظات المدير' : '',
+    criticalGateMissingReason ? `${criticalGateMissingRationales.length} مخالفة حرجة تحتاج واقعة/سببًا مستقلًا موثقًا` : '',
+    criticalGateGeneralNoteMissing ? 'المخالفة الحرجة تحتاج أيضًا خلاصة قرار في ملاحظات المدير' : '',
   ].filter(Boolean);
   const approvalReady =
     cycleClosed
-    && evidenceReady
+    && roleEvidenceReady
     && sections.length > 0
     && completedSections === sections.length
+    && leadershipSectionsMissingNotes.length === 0
+    && manualEvidenceSectionsMissingNotes.length === 0
     && weakSectionsMissingNotes.length === 0
     && !feedbackMissingStrength
     && !feedbackMissingDevelopment
-    && !criticalGateMissingReason;
+    && !criticalGateMissingReason
+    && !criticalGateGeneralNoteMissing;
 
   const strongestSections = evaluationComplete
     ? [...ratedSections]
@@ -1380,7 +1848,7 @@ export default function StaffMonthlyEvaluation() {
       strong('sales_quality') ? coaching.salesQuality.drafts.strength : '',
       strong('inventory') ? coaching.inventory.drafts.strength : '',
       strong('development') ? coaching.development.drafts.strength : '',
-    ], 3);
+    ]);
 
     const weakSectionNotes = developmentSections
       .map((item) => item.notes.trim() ? `${item.title}: ${item.notes.trim()}` : '');
@@ -1394,7 +1862,7 @@ export default function StaffMonthlyEvaluation() {
       hasObjectiveDevelopment('inventory') ? coaching.inventory.drafts.development : '',
       hasObjectiveDevelopment('development') ? coaching.development.drafts.development : '',
       ...weakSectionNotes,
-    ], 2);
+    ]);
 
     const examples = uniqueFeedbackLines([
       ...coaching.conversation.examples.slice(0, 2).map((example) =>
@@ -1415,7 +1883,7 @@ export default function StaffMonthlyEvaluation() {
       coaching.development.repeatedIssues[0]
         ? `التعلم: الملاحظة «${coaching.development.repeatedIssues[0].label}» تكررت ${coaching.development.repeatedIssues[0].count} مرات.`
         : '',
-    ], 3);
+    ]);
 
     const actions = uniqueFeedbackLines([
       hasObjectiveDevelopment('discipline') ? coaching.attendance.drafts.actionPlan : '',
@@ -1427,7 +1895,7 @@ export default function StaffMonthlyEvaluation() {
       hasObjectiveDevelopment('sales_quality') ? coaching.salesQuality.drafts.actionPlan : '',
       hasObjectiveDevelopment('inventory') ? coaching.inventory.drafts.actionPlan : '',
       hasObjectiveDevelopment('development') ? coaching.development.drafts.actionPlan : '',
-    ], 3);
+    ]);
 
     const measurements = uniqueFeedbackLines([
       hasObjectiveDevelopment('conversations') && coaching.conversation.weaknesses.length
@@ -1449,23 +1917,23 @@ export default function StaffMonthlyEvaluation() {
         ? 'نقيس التحسن على عينة جديدة من الإرشاد الدوائي مع متابعة أي خطأ طبي/بديل غير مناسب ومتوسط شرح الجرعة والاستشارة.'
         : '',
       hasObjectiveDevelopment('development') ? coaching.development.drafts.measurement : '',
-    ], 2);
+    ]);
 
     return { strengths, developments, examples, actions, measurements };
   }, [coaching, developmentSections, evaluationComplete, sections, strengthEvidenceGates]);
 
   const incompleteActionLabel = !cycleClosed
     ? 'راجع حالة الدورة'
-    : !evidenceReady
-      ? 'راجع مصادر البيانات'
+    : !roleEvidenceReady
+      ? 'راجع أدلة المحاور'
       : completedSections !== sections.length || weakSectionsMissingNotes.length
         ? 'أكمل التقييم'
-        : feedbackMissingStrength || feedbackMissingDevelopment || criticalGateMissingReason
+        : feedbackMissingStrength || feedbackMissingDevelopment || criticalGateMissingReason || criticalGateGeneralNoteMissing
           ? 'أكمل الخلاصة'
           : 'راجع التقييم';
 
   function continueIncompleteEvaluation() {
-    if (!cycleClosed || !evidenceReady) {
+    if (!cycleClosed || !roleEvidenceReady) {
       setActiveStep(1);
       return;
     }
@@ -1479,20 +1947,25 @@ export default function StaffMonthlyEvaluation() {
       }
       return;
     }
-    if (feedbackMissingStrength || feedbackMissingDevelopment || criticalGateMissingReason) {
+    if (feedbackMissingStrength || feedbackMissingDevelopment || criticalGateMissingReason || criticalGateGeneralNoteMissing) {
       setActiveStep(4);
       return;
     }
     setActiveStep(5);
   }
 
-  // الرقم المالي المعروض يأتي فقط من الحقيقة المالية على الخادم أو من كشف مقفول.
-  // لا نحسب مبلغًا نهائيًا داخل صفحة التقييم.
-  const canonicalIncentive = settledStatement
-    ? Number(settledStatement.incentive_amount)
-    : pointsTruth?.final_incentive_egp == null
-      ? null
-      : Number(pointsTruth.final_incentive_egp);
+  // Keep approval-time financial evidence separate from the later payroll settlement.
+  // A closed statement is the final settlement, while the published snapshot remains
+  // the immutable truth that was visible when the evaluation was approved.
+  const publishedPointsTruthRaw = publishedSnapshot?.points_truth;
+  const publishedPointsTruth = publishedPointsTruthRaw && typeof publishedPointsTruthRaw === 'object' && !Array.isArray(publishedPointsTruthRaw)
+    ? publishedPointsTruthRaw as Record<string, unknown>
+    : null;
+  const approvalTimeIncentive = publishedPointsTruth?.final_incentive_egp == null
+    ? pointsTruth?.final_incentive_egp == null ? null : Number(pointsTruth.final_incentive_egp)
+    : Number(publishedPointsTruth.final_incentive_egp);
+  const settledIncentive = settledStatement ? Number(settledStatement.incentive_amount) : null;
+  const canonicalIncentive = settledIncentive ?? approvalTimeIncentive;
 
   return (
     <div className="min-h-screen space-y-4 p-4" dir="rtl" style={{ background: 'var(--dawaa-theme-bg)' }}>
@@ -1687,7 +2160,11 @@ export default function StaffMonthlyEvaluation() {
             </div>
 
             <div className="mt-2 max-h-[72vh] space-y-1.5 overflow-y-auto">
-              {filteredStaff.map((item) => {
+              {orderedFilteredStaff.map((item, index) => {
+                const previous = orderedFilteredStaff[index - 1];
+                const groupKey = `${item.branch || 'بدون فرع'} · ${roleGroupLabel(item)}`;
+                const previousGroupKey = previous ? `${previous.branch || 'بدون فرع'} · ${roleGroupLabel(previous)}` : '';
+                const showGroup = groupKey !== previousGroupKey;
                 const statusLabel = item.evaluation_status === 'needs_reapproval'
                   ? 'إعادة اعتماد'
                   : ['sent', 'approved'].includes(String(item.evaluation_status || ''))
@@ -1717,6 +2194,8 @@ export default function StaffMonthlyEvaluation() {
                     : { borderColor: 'var(--dawaa-status-warning-border)', color: 'var(--dawaa-status-warning-text)', background: 'var(--dawaa-status-warning-bg)' };
 
                 return (
+                  <div key={item.id}>
+                  {showGroup ? <div className="px-1 pb-1 pt-2 text-[10px] font-black" style={{color:'var(--dawaa-theme-muted)'}}>{groupKey}</div> : null}
                   <button
                     key={item.id}
                     onClick={() => { setSelectedId(item.id); setSidebarOpen(false); }}
@@ -1754,9 +2233,10 @@ export default function StaffMonthlyEvaluation() {
                       </div>
                     </div>
                   </button>
+                  </div>
                 );
               })}
-              {!filteredStaff.length ? (
+              {!orderedFilteredStaff.length ? (
                 <div className="rounded-xl border border-dashed p-4 text-center text-xs font-bold" style={{ borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-theme-muted)' }}>
                   {receiptFilter === 'all' ? 'لا يوجد موظف مطابق للبحث.' : 'لا يوجد موظف في حالة الاستلام المختارة.'}
                 </div>
@@ -1766,10 +2246,17 @@ export default function StaffMonthlyEvaluation() {
         </aside>
 
         <main className="space-y-4">
-          {loading ? (
-            <Panel className="p-10 text-center"><Loader2 className="mx-auto animate-spin" style={{ color: 'var(--dawaa-theme-muted)' }} /> <span style={{ color: 'var(--dawaa-theme-muted)' }}>جاري التحميل...</span></Panel>
+          {staffLoading && !staff.length ? (
+            <Panel className="p-10 text-center"><Loader2 className="mx-auto animate-spin" style={{ color: 'var(--dawaa-theme-muted)' }} /> <span style={{ color: 'var(--dawaa-theme-muted)' }}>جاري تحميل الموظفين...</span></Panel>
+          ) : evaluationLoadError && selected ? (
+            <Panel className="p-5">
+              <div className="text-sm font-black" style={{color:'var(--dawaa-status-danger-text)'}}>تعذر تحميل تفاصيل التقييم</div>
+              <div className="mt-1 text-xs font-bold" style={{color:'var(--dawaa-theme-muted)'}}>{evaluationLoadError}</div>
+              <div className="mt-2 text-xs font-bold" style={{color:'var(--dawaa-theme-muted)'}}>اختيار الموظف مرة أخرى يعيد المحاولة بدون فقد قائمة الموظفين.</div>
+            </Panel>
           ) : selected ? (
             <>
+              {evaluationLoading ? <div className="flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold" style={{borderColor:'var(--dawaa-theme-border)',background:'var(--dawaa-theme-soft)',color:'var(--dawaa-theme-muted)'}}><Loader2 size={14} className="animate-spin"/> جاري تحديث تفاصيل الموظف…</div> : null}
               <div
                 className="flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold"
                 style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-muted)' }}
@@ -1884,6 +2371,23 @@ export default function StaffMonthlyEvaluation() {
                       </div>
                     </Panel>
 
+                    {publishedSnapshot && Array.isArray(publishedSnapshot.active_critical_gates) && publishedSnapshot.active_critical_gates.length ? (
+                      <Panel className="p-4" style={{borderColor:'var(--dawaa-status-danger-border)',background:'var(--dawaa-status-danger-bg)'}}>
+                        <div className="text-sm font-black" style={{color:'var(--dawaa-status-danger-text)'}}>مخالفات حرجة أثرت على قرار الحافز</div>
+                        <div className="mt-1 text-xs font-bold leading-6" style={{color:'var(--dawaa-theme-muted)'}}>هذه المخالفات لا تغيّر درجة التقييم نفسها، لكنها قد تضع سقفًا على معامل الحافز.</div>
+                        <div className="mt-3 space-y-2">
+                          {publishedSnapshot.active_critical_gates.map(String).filter((gate): gate is CriticalGateType => gate in CRITICAL_GATE_CAPS).map((gate) => {
+                            const raw = publishedSnapshot.critical_gate_rationales;
+                            const rationales = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+                            return <div key={gate} className="rounded-xl border p-3" style={{borderColor:'var(--dawaa-status-danger-border)',background:'var(--dawaa-theme-surface)'}}>
+                              <div className="text-xs font-black" style={{color:'var(--dawaa-status-danger-text)'}}>{CRITICAL_GATE_CAPS[gate].label}</div>
+                              <div className="mt-1 text-xs font-bold leading-6" style={{color:'var(--dawaa-theme-text)'}}>{String(rationales[gate] || 'سبب القرار محفوظ في سجل الاعتماد.')}</div>
+                            </div>;
+                          })}
+                        </div>
+                      </Panel>
+                    ) : null}
+
                     <Panel className="p-4">
                       <div className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>النقاط والحافز</div>
                       <div className="mt-1 text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-muted)' }}>
@@ -1906,7 +2410,11 @@ export default function StaffMonthlyEvaluation() {
                           tone={canonicalIncentive == null ? 'amber' : 'green'}
                         />
                       </div>
-                      {!settledStatement && pointsTruth ? (
+                      {settledStatement ? (
+                        <div className="mt-2 text-[11px] font-bold leading-5" style={{ color: 'var(--dawaa-theme-muted)' }}>
+                          المبلغ المعروض هنا هو التسوية النهائية المقفولة. مبلغ وقت اعتماد التقييم محفوظ مستقلًا داخل Snapshot الاعتماد ولا يتم استبداله تاريخيًا.
+                        </div>
+                      ) : pointsTruth ? (
                         <div className="mt-2 text-[11px] font-bold leading-5" style={{ color: 'var(--dawaa-theme-muted)' }}>
                           المبلغ المعروض قراءة من Points Truth، وقد يظل غير نهائي حتى إقفال كشف الحافز.
                         </div>
@@ -2014,11 +2522,45 @@ export default function StaffMonthlyEvaluation() {
                 )
               ) : null}
 
+              {!employeeView && selected && canonicalStaffRole(selected.job_title || selected.role) === 'doctor' ? (
+                <div className="flex justify-end">
+                  <DoctorPerformanceEye staffId={selected.id} staffName={selected.name} cycleLabel={cycleLabel} branch={selected.branch} header={employeeHeader} conversation={coaching?.conversation ?? null} actorId={user?.id ?? null} sections={sections} />
+                </div>
+              ) : null}
+
+              {!employeeView && selected ? (
+                <EmployeeEvaluationHeaderV1
+                  name={selected.name}
+                  role={selected.job_title || selected.role || 'غير محدد'}
+                  branch={selected.branch || branch}
+                  cycle={cycleRange.displayLabel}
+                  summary={employeeHeader}
+                  loading={employeeHeaderLoading}
+                />
+              ) : null}
+
+              {!employeeView && selected ? (
+                <EvaluationDecisionHeaderV1
+                  employeeName={selected.name}
+                  role={selected.job_title || selected.role || 'غير محدد'}
+                  branch={selected.branch || branch}
+                  cycle={cycleRange.displayLabel}
+                  score={evaluationComplete ? overallScore : null}
+                  completed={completedSections}
+                  total={sections.length}
+                  evidenceReady={roleEvidenceReady}
+                  status={status}
+                  blockers={approvalBlockers}
+                  incentive={canonicalIncentive}
+                  settled={Boolean(settledStatement)}
+                />
+              ) : null}
+
               {!employeeView ? (
               <MonthlyEvaluationWorkflowV5
                 activeStep={activeStep}
                 onStepChange={setActiveStep}
-                evidenceReady={evidenceReady}
+                evidenceReady={roleEvidenceReady}
                 cycleClosed={cycleClosed}
                 completedSections={completedSections}
                 totalSections={sections.length}
@@ -2026,6 +2568,7 @@ export default function StaffMonthlyEvaluation() {
                 approvalReady={approvalReady}
                 status={status}
                 requiresPostCycleReapproval={requiresPostCycleReapproval}
+                blockers={approvalBlockers}
               />
               ) : null}
 
@@ -2036,36 +2579,37 @@ export default function StaffMonthlyEvaluation() {
                       <div>
                         <div className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>جاهزية بيانات الدورة</div>
                         <div className="mt-1 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
-                          {evidenceReady ? 'كل مصادر التقييم الأساسية متاحة.' : 'يوجد مصدر ناقص ويجب مراجعته قبل الاعتماد.'}
+                          {roleEvidenceReady ? 'كل مصادر ومحاور التقييم المطلوبة جاهزة.' : 'يوجد محور أو مصدر يحتاج دليلًا صالحًا قبل الاعتماد.'}
                         </div>
                       </div>
                       <span
                         className="rounded-full border px-3 py-1 text-xs font-black"
-                        style={evidenceReady
+                        style={roleEvidenceReady
                           ? { borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-status-success-bg)', color: 'var(--dawaa-status-success-text)' }
                           : { borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)', color: 'var(--dawaa-status-danger-text)' }}
                       >
-                        {evidenceReady ? 'جاهزة' : 'تحتاج مراجعة'}
+                        {roleEvidenceReady ? 'جاهزة' : 'تحتاج مراجعة'}
                       </span>
                     </div>
 
                     <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                      <MiniBox
-                        label="النقاط الفعلية"
-                        value={settledStatement ? `${settledStatement.points_closing} نقطة` : pointsTruth ? `${pointsTruth.final_points} نقطة` : '—'}
-                        tone="cyan"
-                      />
-                      <MiniBox
-                        label="هدف النقاط المسجل"
-                        value={pointsTruth?.target_points ? `${pointsTruth.target_points} نقطة` : 'غير محدد'}
-                        tone="amber"
-                      />
-                      <MiniBox
-                        label="حافز الأداء المركزي"
-                        value={canonicalIncentive == null ? 'غير محدد' : `${canonicalIncentive.toLocaleString('ar-EG')} جنيه`}
-                        tone={canonicalIncentive == null ? 'amber' : 'green'}
-                      />
+                      <MiniBox label="المحاور الجاهزة" value={`${Math.max(0, sections.length - blockedAxisEvidence.length)}/${sections.length}`} tone={roleEvidenceReady ? "green" : "amber"} />
+                      <MiniBox label="المحاور المقيمة" value={`${completedSections}/${sections.length}`} tone={completedSections === sections.length && sections.length > 0 ? "green" : "cyan"} />
+                      <MiniBox label="قبل الاعتماد" value={approvalBlockers.length ? `${approvalBlockers.length} ملاحظة` : "لا توجد موانع"} tone={approvalBlockers.length ? "amber" : "green"} />
                     </div>
+
+                    {blockedAxisEvidence.length ? (
+                      <div className="mt-3 rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-status-warning-bg)' }}>
+                        <div className="text-xs font-black" style={{ color: 'var(--dawaa-status-warning-text)' }}>المحاور التي تحتاج دليلًا صالحًا</div>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {blockedAxisEvidence.map(({ title, evidence }) => (
+                            <span key={title} className="rounded-full border px-2 py-1 text-[10px] font-black" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-status-warning-text)' }}>
+                              {title} · {evidence.status === 'unavailable' ? 'المصدر غير متاح' : 'الدليل غير مكتمل'}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
                   </Panel>
 
                   {!settledStatement && pointsTruth && cycleLabel !== currentEvaluationCycleLabel() ? (
@@ -2126,6 +2670,24 @@ export default function StaffMonthlyEvaluation() {
                     })}
                   </div>
 
+                  {activeGates.length ? (
+                    <div className="mt-3 space-y-2">
+                      {activeGates.map((gate) => (
+                        <label key={gate} className="block rounded-xl border p-3" style={{borderColor:'var(--dawaa-status-danger-border)',background:'var(--dawaa-theme-surface)'}}>
+                          <span className="text-xs font-black" style={{color:'var(--dawaa-status-danger-text)'}}>{CRITICAL_GATE_CAPS[gate].label} — الواقعة/سبب القرار</span>
+                          <textarea
+                            value={criticalGateRationales[gate] || ''}
+                            disabled={!canEdit}
+                            onChange={(event) => setCriticalGateRationales((current) => ({...current,[gate]:event.target.value}))}
+                            placeholder="اكتب الواقعة المؤكدة أو المرجع الذي يبرر تفعيل هذه المخالفة (12 حرفًا على الأقل)"
+                            className="mt-2 min-h-20 w-full rounded-lg border px-3 py-2 text-xs font-bold disabled:opacity-60"
+                            style={{borderColor:(criticalGateRationales[gate] || '').trim().length>=12?'var(--dawaa-theme-border)':'var(--dawaa-status-danger-border)',background:'var(--dawaa-theme-surface)',color:'var(--dawaa-theme-text)'}}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  ) : null}
+
                   {isGatedByCriticalViolation ? (
                     <div className="mt-3 rounded-xl border px-3 py-2 text-xs font-black" style={{ borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)', color: 'var(--dawaa-status-danger-text)' }}>
                       {effectiveEvaluationMultiplierPct == null
@@ -2140,41 +2702,49 @@ export default function StaffMonthlyEvaluation() {
                 <Panel className="p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <div className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>مصادر التقييم</div>
+                      <div className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>جاهزية أدلة المحاور</div>
                       <div className="mt-1 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
-                        راجع فقط إن المصادر الأساسية جاهزة قبل بدء التقييم.
+                        الحكم النهائي مبني على دليل كل محور في دور الموظف؛ البطاقات التالية مصادر مساعدة فقط وليست قائمة الأدلة كاملة.
                       </div>
                     </div>
-                    <span className="text-xs font-black" style={{ color: evidenceReady ? 'var(--dawaa-status-success-text)' : 'var(--dawaa-status-danger-text)' }}>
-                      {evidenceReady ? '3/3 جاهزة' : 'يوجد مصدر ناقص'}
+                    <span className="text-xs font-black" style={{ color: roleEvidenceReady ? 'var(--dawaa-status-success-text)' : 'var(--dawaa-status-danger-text)' }}>
+                      {roleEvidenceReady ? 'المصادر والمحاور جاهزة' : 'يوجد دليل ناقص'}
                     </span>
+                  </div>
+
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <MiniBox label="محاور الدور" value={String(sections.length)} tone="cyan" />
+                    <MiniBox label="محاور بدليل ناقص" value={String(blockedAxisEvidence.length)} tone={blockedAxisEvidence.length ? 'red' : 'green'} />
                   </div>
 
                   <div className="mt-3 grid gap-2 sm:grid-cols-3">
                     {([
-                      ['المحادثات', evidenceHealth.reviews],
-                      ['المتابعات', evidenceHealth.followups],
-                      ['الحضور', evidenceHealth.attendance],
-                    ] as const).map(([label, sourceStatus]) => {
+                      ['المحادثات', 'reviews', evidenceHealth.reviews],
+                      ['المتابعات', 'followups', evidenceHealth.followups],
+                      ['الحضور', 'attendance', evidenceHealth.attendance],
+                    ] as const).map(([label, sourceKey, sourceStatus]) => {
+                      const required = evidenceSourceRequirement(selected?.job_title || selected?.role, sourceKey);
                       const available = sourceStatus === 'available';
                       return (
                         <div
                           key={label}
                           className="flex items-center justify-between rounded-xl border px-3 py-2.5"
-                          style={available
-                            ? { borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-status-success-bg)' }
-                            : { borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)' }}
+                          style={!required
+                            ? { borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-soft)' }
+                            : available
+                              ? { borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-status-success-bg)' }
+                              : { borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)' }}
                         >
                           <span className="text-xs font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{label}</span>
-                          <span className="text-[11px] font-black" style={{ color: available ? 'var(--dawaa-status-success-text)' : 'var(--dawaa-status-danger-text)' }}>
-                            {available ? 'جاهز' : 'غير متاح'}
+                          <span className="text-[11px] font-black" style={{ color: !required ? 'var(--dawaa-theme-muted)' : available ? 'var(--dawaa-status-success-text)' : 'var(--dawaa-status-danger-text)' }}>
+                            {!required ? 'غير مطلوب لهذا الدور' : available ? 'جاهز' : 'غير متاح'}
                           </span>
                         </div>
                       );
                     })}
                   </div>
 
-                  {!evidenceReady && Object.keys(evidenceErrors).length ? (
+                  {!roleEvidenceReady && Object.keys(evidenceErrors).length ? (
                     <div className="mt-3 rounded-xl border p-2.5 text-xs font-bold" style={{ borderColor: 'var(--dawaa-status-danger-border)', background: 'var(--dawaa-status-danger-bg)', color: 'var(--dawaa-status-danger-text)' }}>
                       الاعتماد النهائي متوقف حتى يعود المصدر الناقص.
                     </div>
@@ -2236,120 +2806,24 @@ export default function StaffMonthlyEvaluation() {
               {!employeeView && activeStep === 2 ? (
                 <section className="space-y-2">
                   {sections.map((item) => {
-                    const earned = sectionPoints(item);
-                    const selectedRubric = item.score > 0 && item.rubric ? item.rubric[item.score - 1] : null;
-                    const weakNeedsNote = item.score > 0 && item.score <= 2 && !item.notes.trim();
-                    const sectionEvidence = sectionEvidenceFor(item.key, metrics, evidenceHealth, pointsTruth, coaching);
+                    const sectionEvidence = sectionEvidenceFor(item.key, selected?.job_title || selected?.role, metrics, evidenceHealth, pointsTruth, coaching, taskEvaluation);
                     const conversationEvidence = isConversationSectionKey(item.key) ? coaching?.conversation : null;
-
                     return (
-                      <Panel id={`evaluation-section-${item.key}`} key={item.key} className="p-3">
-                        <div className="flex flex-wrap items-start gap-3">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <h3 className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{item.title}</h3>
-                              <span className="text-[10px] font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>{item.weight} نقطة</span>
-                            </div>
-                            <p className="mt-1 text-[11px] leading-5" style={{ color: 'var(--dawaa-theme-muted)' }}>{item.description}</p>
-                            <details
-                              className="mt-2 rounded-lg border px-2.5 py-2"
-                              style={{
-                                borderColor: sectionEvidence.status === 'unavailable'
-                                  ? 'var(--dawaa-status-danger-border)'
-                                  : 'var(--dawaa-theme-border)',
-                                background: sectionEvidence.status === 'unavailable'
-                                  ? 'var(--dawaa-status-danger-bg)'
-                                  : 'var(--dawaa-theme-soft)',
-                              }}
-                            >
-                              <summary
-                                className="cursor-pointer text-[11px] font-black"
-                                style={{ color: sectionEvidence.status === 'unavailable' ? 'var(--dawaa-status-danger-text)' : 'var(--dawaa-theme-text)' }}
-                              >
-                                الدليل المتاح: {sectionEvidence.summary}
-                                <span className="ms-1" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>· عرض الدليل</span>
-                              </summary>
-                              <div className="mt-2 space-y-1 text-[11px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
-                                {sectionEvidence.details.map((detail) => <div key={detail}>• {detail}</div>)}
-                                <div>• الدليل الآلي مساعد للقرار وليس درجة تلقائية.</div>
-                                {conversationEvidence?.examples.length ? (
-                                  <div className="mt-2 border-t pt-2" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
-                                    <div className="mb-1 font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>أمثلة موثقة تحتاج مراجعة</div>
-                                    <div className="space-y-1.5">
-                                      {conversationEvidence.examples.map((example) => (
-                                        <a
-                                          key={example.id}
-                                          href={`/reviews?section=history&id=${encodeURIComponent(example.id)}`}
-                                          target="_blank"
-                                          rel="noreferrer"
-                                          className="block rounded-md border px-2 py-1.5 transition hover:opacity-90"
-                                          style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }}
-                                        >
-                                          <span className="font-black">{example.date || 'بدون تاريخ'} · {example.score}/100</span>
-                                          {example.negativeReason ? <span> · {example.negativeReason}</span> : null}
-                                          <span className="ms-1" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>فتح التقييم ↗</span>
-                                        </a>
-                                      ))}
-                                    </div>
-                                  </div>
-                                ) : null}
-                              </div>
-                            </details>
-                          </div>
-
-                          <div className="shrink-0">
-                            <div className="flex gap-0.5">
-                              {[1, 2, 3, 4, 5].map((score) => (
-                                <button
-                                  type="button"
-                                  aria-label={`اختيار ${score} نجوم`}
-                                  disabled={!canEdit}
-                                  key={score}
-                                  onClick={() => updateSection(item.key, { score })}
-                                  className="rounded-md p-0.5 transition disabled:cursor-default"
-                                >
-                                  <Star
-                                    className={score <= item.score ? 'fill-current' : ''}
-                                    style={{ color: score <= item.score ? 'var(--dawaa-status-warning-text)' : 'var(--dawaa-theme-border)' }}
-                                    size={22}
-                                  />
-                                </button>
-                              ))}
-                            </div>
-                            <div className="mt-1 text-left text-[10px] font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>
-                              {item.score ? `${earned}/${item.weight}` : 'بدون تقييم'}
-                            </div>
-                          </div>
-                        </div>
-
-                        {item.score ? (
-                          <div
-                            className="mt-2 rounded-lg border px-2.5 py-2 text-xs font-bold"
-                            style={{
-                              borderColor: weakNeedsNote ? 'var(--dawaa-status-danger-border)' : 'var(--dawaa-theme-border)',
-                              background: weakNeedsNote ? 'var(--dawaa-status-danger-bg)' : 'var(--dawaa-theme-soft)',
-                              color: weakNeedsNote ? 'var(--dawaa-status-danger-text)' : 'var(--dawaa-theme-text)',
-                            }}
-                          >
-                            <span className="font-black">{item.score}/5 — {starMeaning(item.score)}</span>
-                            {selectedRubric ? <span> · {selectedRubric}</span> : null}
-                          </div>
-                        ) : null}
-
-                        <textarea
-                          disabled={!canEdit}
-                          value={item.notes}
-                          onChange={(event) => updateSection(item.key, { notes: event.target.value })}
-                          rows={1}
-                          placeholder={item.score > 0 && item.score <= 2 ? 'مطلوب سبب واضح للدرجة الضعيفة' : 'ملاحظة اختيارية'}
-                          className="mt-2 w-full rounded-lg border px-2.5 py-2 text-xs disabled:opacity-70"
-                          style={{
-                            borderColor: weakNeedsNote ? 'var(--dawaa-status-danger-border)' : 'var(--dawaa-theme-border)',
-                            background: weakNeedsNote ? 'var(--dawaa-status-danger-bg)' : 'var(--dawaa-theme-surface)',
-                            color: 'var(--dawaa-theme-text)',
-                          }}
-                        />
-                      </Panel>
+                      <EvaluationAxisCardV1
+                        key={item.key}
+                        axisKey={item.key}
+                        title={item.title}
+                        description={item.description}
+                        weight={item.weight}
+                        score={item.score}
+                        earned={sectionPoints(item)}
+                        rubricText={item.score > 0 && item.rubric ? item.rubric[item.score - 1] : null}
+                        evidence={{ ...sectionEvidence, examples: conversationEvidence?.examples }}
+                        note={item.notes}
+                        canEdit={canEdit}
+                        onScore={(score) => updateSection(item.key, { score })}
+                        onNote={(notes) => updateSection(item.key, { notes })}
+                      />
                     );
                   })}
                 </section>
@@ -2392,8 +2866,16 @@ export default function StaffMonthlyEvaluation() {
                         <div className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-theme-soft)' }}>
                           <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-status-success-text)' }}>أبرز المميزات المثبتة</div>
                           {employeeFeedbackDraft.strengths.length ? (
-                            <div className="mt-2 space-y-1.5 text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-text)' }}>
-                              {employeeFeedbackDraft.strengths.map((item) => <div key={item}>• {item}</div>)}
+                            <div className="mt-2 flex flex-wrap gap-1.5 text-xs font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>
+                              {employeeFeedbackDraft.strengths.slice(0,3).map((item) => <span key={item} className="rounded-lg border px-2 py-1.5" style={{borderColor:'var(--dawaa-status-success-border)'}}>{item}</span>)}
+                              {employeeFeedbackDraft.strengths.length > 3 ? (
+                                <details className="w-full rounded-lg border px-2 py-1.5" style={{borderColor:'var(--dawaa-theme-border)'}}>
+                                  <summary className="cursor-pointer list-none font-black" style={{color:'var(--dawaa-status-success-text)'}}>+ {employeeFeedbackDraft.strengths.length - 3} نقاط قوة إضافية</summary>
+                                  <div className="mt-2 flex flex-wrap gap-1.5">
+                                    {employeeFeedbackDraft.strengths.slice(3).map((item) => <span key={item} className="rounded-lg border px-2 py-1.5" style={{borderColor:'var(--dawaa-status-success-border)'}}>{item}</span>)}
+                                  </div>
+                                </details>
+                              ) : null}
                             </div>
                           ) : (
                             <div className="mt-2 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
@@ -2405,8 +2887,16 @@ export default function StaffMonthlyEvaluation() {
                         <div className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-theme-soft)' }}>
                           <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-status-warning-text)' }}>أهم فرص التطوير</div>
                           {employeeFeedbackDraft.developments.length ? (
-                            <div className="mt-2 space-y-1.5 text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-text)' }}>
-                              {employeeFeedbackDraft.developments.map((item) => <div key={item}>• {item}</div>)}
+                            <div className="mt-2 flex flex-wrap gap-1.5 text-xs font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>
+                              {employeeFeedbackDraft.developments.slice(0,3).map((item) => <span key={item} className="rounded-lg border px-2 py-1.5" style={{borderColor:'var(--dawaa-status-warning-border)'}}>{item}</span>)}
+                              {employeeFeedbackDraft.developments.length > 3 ? (
+                                <details className="w-full rounded-lg border px-2 py-1.5" style={{borderColor:'var(--dawaa-theme-border)'}}>
+                                  <summary className="cursor-pointer list-none font-black" style={{color:'var(--dawaa-status-warning-text)'}}>+ {employeeFeedbackDraft.developments.length - 3} فرص تطوير إضافية</summary>
+                                  <div className="mt-2 flex flex-wrap gap-1.5">
+                                    {employeeFeedbackDraft.developments.slice(3).map((item) => <span key={item} className="rounded-lg border px-2 py-1.5" style={{borderColor:'var(--dawaa-status-warning-border)'}}>{item}</span>)}
+                                  </div>
+                                </details>
+                              ) : null}
                             </div>
                           ) : (
                             <div className="mt-2 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
@@ -2418,8 +2908,16 @@ export default function StaffMonthlyEvaluation() {
                         <div className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-soft)' }}>
                           <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>أمثلة وأدلة للمراجعة</div>
                           {employeeFeedbackDraft.examples.length ? (
-                            <div className="mt-2 space-y-1.5 text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-text)' }}>
-                              {employeeFeedbackDraft.examples.map((item) => <div key={item}>• {item}</div>)}
+                            <div className="mt-2 grid gap-1.5 sm:grid-cols-2 text-xs font-bold" style={{ color: 'var(--dawaa-theme-text)' }}>
+                              {employeeFeedbackDraft.examples.slice(0,4).map((item) => <div key={item} className="rounded-lg border px-2 py-1.5" style={{borderColor:'var(--dawaa-theme-border)'}}>{item}</div>)}
+                              {employeeFeedbackDraft.examples.length > 4 ? (
+                                <details className="sm:col-span-2 rounded-lg border px-2 py-1.5" style={{borderColor:'var(--dawaa-theme-border)'}}>
+                                  <summary className="cursor-pointer list-none font-black" style={{color:'var(--dawaa-theme-primary-strong)'}}>+ {employeeFeedbackDraft.examples.length - 4} أمثلة إضافية</summary>
+                                  <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                                    {employeeFeedbackDraft.examples.slice(4).map((item) => <div key={item} className="rounded-lg border px-2 py-1.5" style={{borderColor:'var(--dawaa-theme-border)'}}>{item}</div>)}
+                                  </div>
+                                </details>
+                              ) : null}
                             </div>
                           ) : (
                             <div className="mt-2 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>لا يوجد مثال إضافي يحتاج إبرازه في الملخص.</div>
@@ -2428,9 +2926,18 @@ export default function StaffMonthlyEvaluation() {
 
                         <div className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-status-info-border)', background: 'var(--dawaa-theme-soft)' }}>
                           <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-status-info-text)' }}>خطة الشهر القادم وقياس التحسن</div>
-                          <div className="mt-2 space-y-1.5 text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-text)' }}>
-                            {employeeFeedbackDraft.actions.map((item) => <div key={item}>• {item}</div>)}
-                            {employeeFeedbackDraft.measurements.map((item) => <div key={item}>• قياس: {item}</div>)}
+                          <div className="mt-2 grid gap-1.5 sm:grid-cols-2 text-xs font-bold leading-5" style={{ color: 'var(--dawaa-theme-text)' }}>
+                            {employeeFeedbackDraft.actions.slice(0,3).map((item) => <div key={item} className="rounded-lg border px-2 py-1.5" style={{borderColor:'var(--dawaa-status-info-border)'}}>{item}</div>)}
+                            {employeeFeedbackDraft.measurements.slice(0,3).map((item) => <div key={item} className="rounded-lg border px-2 py-1.5" style={{borderColor:'var(--dawaa-theme-border)'}}>قياس: {item}</div>)}
+                            {employeeFeedbackDraft.actions.length > 3 || employeeFeedbackDraft.measurements.length > 3 ? (
+                              <details className="sm:col-span-2 rounded-lg border px-2 py-1.5" style={{borderColor:'var(--dawaa-status-info-border)'}}>
+                                <summary className="cursor-pointer list-none font-black" style={{color:'var(--dawaa-status-info-text)'}}>+ {Math.max(0, employeeFeedbackDraft.actions.length - 3) + Math.max(0, employeeFeedbackDraft.measurements.length - 3)} تفاصيل إضافية للخطة والقياس</summary>
+                                <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                                  {employeeFeedbackDraft.actions.slice(3).map((item) => <div key={item} className="rounded-lg border px-2 py-1.5" style={{borderColor:'var(--dawaa-status-info-border)'}}>{item}</div>)}
+                                  {employeeFeedbackDraft.measurements.slice(3).map((item) => <div key={item} className="rounded-lg border px-2 py-1.5" style={{borderColor:'var(--dawaa-theme-border)'}}>قياس: {item}</div>)}
+                                </div>
+                              </details>
+                            ) : null}
                             {!employeeFeedbackDraft.actions.length && !employeeFeedbackDraft.measurements.length ? (
                               <div style={{ color: 'var(--dawaa-theme-muted)' }}>لا توجد خطة آلية؛ اكتب خطة يدوية إذا كان هناك هدف تطوير خاص.</div>
                             ) : null}
@@ -2470,7 +2977,9 @@ export default function StaffMonthlyEvaluation() {
                   ) : null}
 
                   {coaching?.conversation.reviewCount ? (
-                    <div className="mt-3 rounded-2xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-soft)' }}>
+                    <details className="mt-3 rounded-2xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-soft)' }}>
+                      <summary className="cursor-pointer list-none text-xs font-black" style={{color:'var(--dawaa-theme-heading)'}}>Coaching المحادثات · {coaching.conversation.reviewCount} مراجعة <span className="ms-1 text-[10px]" style={{color:'var(--dawaa-theme-muted)'}}>عرض التفاصيل</span></summary>
+                      <div className="mt-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
                           <div className="text-xs font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>Coaching مبني على أدلة المحادثات</div>
@@ -2553,7 +3062,8 @@ export default function StaffMonthlyEvaluation() {
                           لن نستنتج مميزات أو عيوب من {coaching.conversation.reviewCount} مراجعة فقط. يمكن للمدير قراءة الحالات، لكن لا تُستخدم كحكم شهري قوي.
                         </div>
                       )}
-                    </div>
+                      </div>
+                    </details>
                   ) : null}
 
                   {(coaching?.attendance.activeLedgerEvents || coaching?.followups.total) ? (
@@ -2937,111 +3447,26 @@ export default function StaffMonthlyEvaluation() {
 
               {!employeeView && activeStep === 5 ? (
                 <section className="space-y-3">
-                  <Panel className="p-4" style={approvalReady
-                    ? { background: 'var(--dawaa-status-success-bg)', borderColor: 'var(--dawaa-status-success-border)' }
-                    : { background: 'var(--dawaa-status-warning-bg)', borderColor: 'var(--dawaa-status-warning-border)' }}>
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <h3 className="text-base font-black" style={{ color: approvalReady ? 'var(--dawaa-status-success-text)' : 'var(--dawaa-status-warning-text)' }}>
-                          {approvalReady ? 'جاهز للاعتماد' : 'غير جاهز للاعتماد'}
-                        </h3>
-                        <div className="mt-1 text-xs font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
-                          {requiresPostCycleReapproval ? 'اعتماد سابق يحتاج مراجعة بعد إقفال الدورة' : status === 'sent' ? 'التقييم معتمد ومُرسل' : 'التقييم ما زال مسودة'}
-                        </div>
-                      </div>
-                      <span
-                        className="rounded-full border px-3 py-1 text-xs font-black"
-                        style={approvalReady
-                          ? { borderColor: 'var(--dawaa-status-success-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-status-success-text)' }
-                          : { borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-status-warning-text)' }}
-                      >
-                        {approvalReady ? 'جاهز' : `${approvalBlockers.length} ملاحظة`}
-                      </span>
-                    </div>
+                  <FinalEvaluationReviewV1
+                    ready={approvalReady}
+                    blockers={approvalBlockers}
+                    score={evaluationComplete ? overallScore : null}
+                    completed={completedSections}
+                    total={sections.length}
+                    criticalCount={activeGates.length}
+                    incentive={canonicalIncentive}
+                    incentiveSettled={Boolean(settledStatement)}
+                    strengths={strengthsText}
+                    development={developmentText}
+                    managerNotes={managerNotes}
+                  />
 
-                    {approvalBlockers.length ? (
-                      <div className="mt-3 rounded-xl border px-3 py-2 text-xs font-bold" style={{ borderColor: 'var(--dawaa-status-warning-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }}>
-                        {approvalBlockers.map((item) => <div key={item}>• {item}</div>)}
-                      </div>
-                    ) : null}
-
-                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                      <MiniBox
-                        label="الدرجة"
-                        value={evaluationComplete ? `${overallScore}/100` : `غير مكتمل · ${completedSections}/${sections.length}`}
-                        tone={evaluationComplete ? (overallScore >= 80 ? 'green' : overallScore >= 60 ? 'amber' : 'red') : 'amber'}
-                      />
-                      <MiniBox label="مخالفات حرجة" value={activeGates.length ? String(activeGates.length) : '0'} tone={activeGates.length ? 'red' : 'green'} />
-                      <MiniBox label="الحافز المركزي" value={canonicalIncentive == null ? 'غير محدد' : `${canonicalIncentive.toLocaleString('ar-EG')} ج`} tone={canonicalIncentive == null ? 'amber' : 'green'} />
-                    </div>
-
-                    {!evaluationComplete && ratedSections.length ? (
-                      <div className="mt-2 rounded-xl border px-3 py-2 text-xs font-bold" style={{ borderColor: 'var(--dawaa-status-info-border)', background: 'var(--dawaa-status-info-bg)', color: 'var(--dawaa-status-info-text)' }}>
-                        المحاور المقيمة حاليًا: {ratedEarnedPoints}/{ratedWeight} نقطة. لن تظهر درجة نهائية من 100 قبل اكتمال كل المحاور.
-                      </div>
-                    ) : null}
-
-                    {evaluationComplete ? (
-                      <div className="mt-3 rounded-2xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}>
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div>
-                            <div className="text-xs font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>معاينة ما سيصل للموظف</div>
-                            <div className="mt-1 text-[11px] font-bold" style={{ color: 'var(--dawaa-theme-muted)' }}>
-                              راجع الرسالة قبل الاعتماد؛ المطلوب أن يعرف الموظف مميزاته وما يحتاج تطويره وما الخطوة التالية.
-                            </div>
-                          </div>
-                          <span
-                            className="rounded-full border px-2.5 py-1 text-[10px] font-black"
-                            style={!feedbackMissingStrength && !feedbackMissingDevelopment
-                              ? { borderColor: 'var(--dawaa-status-success-border)', color: 'var(--dawaa-status-success-text)' }
-                              : { borderColor: 'var(--dawaa-status-warning-border)', color: 'var(--dawaa-status-warning-text)' }}
-                          >
-                            {!feedbackMissingStrength && !feedbackMissingDevelopment ? 'الرسالة مكتملة' : 'الرسالة تحتاج استكمال'}
-                          </span>
-                        </div>
-
-                        <div className="mt-3 grid gap-2 lg:grid-cols-2">
-                          <div
-                            className="rounded-xl border p-3"
-                            style={{
-                              borderColor: feedbackMissingStrength ? 'var(--dawaa-status-warning-border)' : 'var(--dawaa-status-success-border)',
-                              background: 'var(--dawaa-theme-soft)',
-                            }}
-                          >
-                            <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-status-success-text)' }}>نقاط القوة</div>
-                            <div className="mt-1 whitespace-pre-wrap text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-text)' }}>
-                              {strengthsText.trim() || 'لم تُكتب نقاط قوة بعد.'}
-                            </div>
-                          </div>
-
-                          <div
-                            className="rounded-xl border p-3"
-                            style={{
-                              borderColor: feedbackMissingDevelopment ? 'var(--dawaa-status-warning-border)' : 'var(--dawaa-theme-border)',
-                              background: 'var(--dawaa-theme-soft)',
-                            }}
-                          >
-                            <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-status-warning-text)' }}>خطة التطوير</div>
-                            <div className="mt-1 whitespace-pre-wrap text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-text)' }}>
-                              {developmentText.trim() || 'لا توجد خطة تطوير مكتوبة بعد.'}
-                            </div>
-                          </div>
-                        </div>
-
-                        {managerNotes.trim() ? (
-                          <div className="mt-2 rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-soft)' }}>
-                            <div className="text-[11px] font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>ملاحظة المدير</div>
-                            <div className="mt-1 whitespace-pre-wrap text-xs font-bold leading-6" style={{ color: 'var(--dawaa-theme-text)' }}>{managerNotes}</div>
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : null}
-
+                  <Panel className="p-4">
                     {canEdit ? (
                       <div className="mt-4 flex flex-wrap justify-end gap-2 border-t pt-3" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
-                        <button type="button" disabled={exportingPdf || !evaluationComplete} onClick={() => void handleExportPdf()} className="btn-secondary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-45">
+                        <button type="button" disabled={exportingPdf || !publishedSnapshot || !publishedSnapshotHash} onClick={() => void handleExportPdf()} className="btn-secondary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-45">
                           {exportingPdf ? <Loader2 size={16} className="animate-spin" /> : <FileDown size={16} />}
-                          {evaluationComplete ? 'PDF' : 'PDF بعد اكتمال التقييم'}
+                          {publishedSnapshot && publishedSnapshotHash ? 'PDF النهائي' : 'PDF بعد الاعتماد'}
                         </button>
                         {!['sent', 'approved'].includes(status) ? (
                           <button type="button" disabled={saving} onClick={() => void save('draft')} className="btn-secondary inline-flex items-center gap-2">
@@ -3061,7 +3486,7 @@ export default function StaffMonthlyEvaluation() {
                     ) : null}
                   </Panel>
 
-                  {user?.id && selected ? (
+                                    {user?.id && selected ? (
                     <details className="rounded-2xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }}>
                       <summary className="cursor-pointer text-xs font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>
                         سجل المراجعة والاعتمادات
