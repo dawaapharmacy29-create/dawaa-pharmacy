@@ -48,10 +48,9 @@ import {
 } from '@/lib/whatsappWatcherCaseGraphSync';
 import type { JourneySessionSourceV15 } from '@/lib/whatsappCustomerJourneyPersistenceV15';
 import {
-  buildFollowupIdentity,
   episodeStartedAt,
-  followupCustomerAnchor,
   normalizeFollowupKeyPart,
+  stableOperationIdentity,
 } from '@/lib/whatsappFollowupIdentity';
 import type { SalesIntelligenceStageStatus } from '@/lib/salesIntelligence/refresh/refreshClient';
 
@@ -225,22 +224,24 @@ export async function saveFollowupSignals(
   const signals = detectFollowupSignals(session);
   if (!signals.length) return { created: 0, duplicate: 0 };
 
-  // Stable Follow-up Identity: same customer + episode + signal + reason -> same follow-up,
-  // regardless of session/source instance, segmentation or ingestion path.
-  const customerAnchor = followupCustomerAnchor(identity.canonical, session.id);
-  const identityOf = (signal: DetectedFollowupSignal) =>
-    buildFollowupIdentity({
-      customerAnchor,
-      episodeStartedAt: episodeStartedAt(session.messages, new Date(signal.evidenceTimestamp)),
-      followupType: `signal:${signal.signalType}`,
+  // Stable Operation Identity: same customer/conversation + episode + signal + reason -> same
+  // follow-up, regardless of session/source instance, segmentation, order or ingestion path.
+  const stableOf = (signal: DetectedFollowupSignal) =>
+    stableOperationIdentity({
+      customer: identity.canonical,
+      timeline: session.messages,
+      evidenceAt: new Date(signal.evidenceTimestamp),
+      operationType: `signal:${signal.signalType}`,
       reasonKey: signal.requestedProductName || null,
+      legacyCaseAnchor: session.id,
     });
-  const identities = signals.map(identityOf);
+  const stable = signals.map(stableOf);
+  const identities = stable.map((row) => row.identity);
 
   const exactLookup = supabase
     .from('whatsapp_auto_followup_requests')
     .select('followup_identity')
-    .in('followup_identity', Array.from(new Set(identities)));
+    .in('followup_identity', Array.from(new Set(stable.flatMap((row) => [row.identity, ...row.aliases]))));
   const legacyLookup =
     identity.resolutionStatus === 'resolved' && identity.customerId
       ? supabase
@@ -268,7 +269,7 @@ export async function saveFollowupSignals(
   for (let index = 0; index < signals.length; index += 1) {
     const signal = signals[index];
     const key = identities[index];
-    if (existingKeys.has(key)) {
+    if ([key, ...stable[index].aliases].some((candidate) => existingKeys.has(candidate))) {
       duplicate += 1;
       continue;
     }
@@ -417,9 +418,10 @@ async function persistOperationalJourneyIntelligence(
       (session.outboundStaffNames.length === 1 ? session.outboundStaffNames[0] : null),
     createdBy: sourceRow?.created_by || null,
     followupIdentity: {
-      customerAnchor: followupCustomerAnchor(identity.canonical, session.id),
+      customer: identity.canonical,
       session,
       caseStartedAt: canonicalCaseStartedAt,
+      legacyCaseAnchor: session.id,
     },
   });
 

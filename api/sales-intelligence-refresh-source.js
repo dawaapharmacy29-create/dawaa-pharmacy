@@ -6001,18 +6001,48 @@ function deriveProductLosses(customerNeed, demands, state) {
 
 // src/lib/whatsappFollowupIdentity.ts
 var FOLLOWUP_IDENTITY_VERSION = "fu1";
+var EPISODE_GAP_MINUTES = 120;
+function sortedTimeline(messages) {
+  const content = (message) => {
+    const row = message;
+    return [row.direction ?? "", row.sender ?? "", row.text ?? ""].join("");
+  };
+  return [...messages].sort(
+    (a, b) => a.timestamp.getTime() - b.timestamp.getTime() || content(a).localeCompare(content(b))
+  );
+}
+function stableDigest(value) {
+  const pass = (seed) => {
+    let hash = seed;
+    for (let index = 0; index < value.length; index += 1) {
+      hash ^= value.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(36).padStart(7, "0");
+  };
+  return pass(2166136261) + pass(2166136261 ^ 1540483477);
+}
 function normalizeFollowupKeyPart(value) {
   return String(value ?? "").replace(/[٠-٩]/g, (digit) => String("\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669".indexOf(digit))).replace(/[أإآ]/g, "\u0627").replace(/ة/g, "\u0647").replace(/ى/g, "\u064A").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim().replace(/\s+/g, "-");
 }
-function followupCustomerAnchor(identity, canonicalCaseAnchor) {
-  if (identity?.status === "resolved") {
-    if (identity.customerId) return `customer:${identity.customerId}`;
-    if (identity.normalizedPhone) return `phone:${identity.normalizedPhone}`;
-    if (identity.customerCode) return `code:${normalizeFollowupKeyPart(identity.customerCode)}`;
+function resolvedCustomerAnchor(identity) {
+  if (identity.customerId) return `customer:${identity.customerId}`;
+  if (identity.normalizedPhone) return `phone:${identity.normalizedPhone}`;
+  if (identity.customerCode) return `code:${normalizeFollowupKeyPart(identity.customerCode)}`;
+  return null;
+}
+function episodeStartedAt(messages, at) {
+  const sorted = sortedTimeline(messages);
+  const target = at.getTime();
+  let start = sorted[0]?.timestamp ?? at;
+  for (let index = 0; index < sorted.length; index += 1) {
+    const current = sorted[index].timestamp;
+    if (current.getTime() > target) break;
+    const previous = sorted[index - 1]?.timestamp;
+    if (!previous || current.getTime() - previous.getTime() > EPISODE_GAP_MINUTES * 6e4)
+      start = current;
   }
-  const caseAnchor = normalizeFollowupKeyPart(canonicalCaseAnchor || "");
-  if (caseAnchor) return `case:${caseAnchor}`;
-  throw new Error("followup_customer_anchor_unresolved");
+  return start;
 }
 function buildFollowupIdentity(input) {
   const episode = new Date(
@@ -6025,6 +6055,55 @@ function buildFollowupIdentity(input) {
     normalizeFollowupKeyPart(input.followupType),
     normalizeFollowupKeyPart(input.reasonKey) || "-"
   ].join("|");
+}
+function episodeMessages(messages, at) {
+  const sorted = sortedTimeline(messages);
+  if (!sorted.length) return [];
+  const start = episodeStartedAt(sorted, at).getTime();
+  const rows = [];
+  for (let index = 0; index < sorted.length; index += 1) {
+    const current = sorted[index];
+    if (current.timestamp.getTime() < start) continue;
+    const previous = rows[rows.length - 1];
+    if (previous && current.timestamp.getTime() - previous.timestamp.getTime() > EPISODE_GAP_MINUTES * 6e4)
+      break;
+    rows.push(current);
+  }
+  return rows;
+}
+function conversationEpisodeAnchor(timeline, at) {
+  const episode = episodeMessages(timeline, at);
+  const opener = episode[0];
+  if (!opener) return null;
+  const contact = episode.find((message) => message.direction === "inbound")?.sender ?? "";
+  const evidence = [
+    normalizeFollowupKeyPart(contact) || "-",
+    String(opener.timestamp.getTime()),
+    normalizeFollowupKeyPart(opener.direction) || "-",
+    normalizeFollowupKeyPart(opener.sender) || "-",
+    normalizeFollowupKeyPart(opener.text) || "-"
+  ].join("|");
+  return `chat:${stableDigest(evidence)}`;
+}
+function stableOperationIdentity(input) {
+  const conversationAnchor = conversationEpisodeAnchor(input.timeline, input.evidenceAt);
+  const customerAnchor = input.customer?.status === "resolved" ? resolvedCustomerAnchor(input.customer) : null;
+  const primary = customerAnchor || conversationAnchor;
+  if (!primary) throw new Error("followup_customer_anchor_unresolved");
+  const episode = episodeStartedAt(input.timeline, input.evidenceAt);
+  const keyFor = (anchor) => buildFollowupIdentity({
+    customerAnchor: anchor,
+    episodeStartedAt: episode,
+    followupType: input.operationType,
+    reasonKey: input.reasonKey ?? null
+  });
+  const identity = keyFor(primary);
+  const legacyCase = normalizeFollowupKeyPart(input.legacyCaseAnchor || "");
+  const aliases = [
+    conversationAnchor,
+    legacyCase ? `case:${legacyCase}` : null
+  ].filter((anchor) => Boolean(anchor) && anchor !== primary).map(keyFor).filter((key, index, rows) => key !== identity && rows.indexOf(key) === index);
+  return { identity, aliases };
 }
 
 // src/lib/salesIntelligence/followUpOpportunityEngine.ts
@@ -6181,10 +6260,14 @@ function deriveFollowUpOpportunities(input) {
   }
   const interactionSuppression = lostOpportunity.state === "lost" && lostOpportunity.recoverability === "none" ? lostOpportunity.reason === "competitor" ? "bought_elsewhere" : "customer_final_decline" : null;
   const saleProven = salesOutcome.outcome === "sale_proven";
-  const anchor = followupCustomerAnchor(
-    { status: identityResolved ? "resolved" : "unresolved", customerId, normalizedPhone: null, customerCode: null },
-    caseId
-  );
+  const identityCustomer = customerId ? { status: "resolved", customerId, normalizedPhone: null, customerCode: null } : null;
+  const timeline = input.conversationTimeline?.length ? input.conversationTimeline : messages;
+  const messageAt = new Map(messages.map((m) => [m.id, m.timestamp.getTime()]));
+  const caseStartedAt = new Date(conversationCase.startedAt);
+  const evidenceAt = (evidence) => {
+    const times = evidence.map((id) => messageAt.get(id)).filter((t) => typeof t === "number");
+    return times.length ? new Date(Math.min(...times)) : caseStartedAt;
+  };
   const byKey = /* @__PURE__ */ new Map();
   for (const candidate of candidates) {
     const profile = PROFILE[candidate.reason];
@@ -6200,12 +6283,13 @@ function deriveFollowUpOpportunities(input) {
     const duePolicy = candidate.duePolicy ?? profile.duePolicy;
     const requestedDelayDays = candidate.requestedDelayDays ?? null;
     const productScopeKey = demand ? demand.resolvedProductId ?? demand.productKey : null;
-    const followUpKey = buildFollowupIdentity({
-      customerAnchor: anchor,
-      episodeStartedAt: new Date(conversationCase.startedAt),
-      followupType: candidate.reason,
+    const followUpKey = stableOperationIdentity({
+      customer: identityCustomer,
+      timeline,
+      evidenceAt: evidenceAt(candidate.evidence),
+      operationType: candidate.reason,
       reasonKey: productScopeKey
-    });
+    }).identity;
     const opportunity = {
       followUpKey,
       caseId,
@@ -6682,7 +6766,7 @@ function enrichBasketProductIdentities(itemsByBasketId, productIndex) {
     ])
   );
 }
-function analyzeOneCase(conversationCase, scopedMessages, input, interaction = null) {
+function analyzeOneCase(conversationCase, scopedMessages, input, interaction = null, conversationTimeline = scopedMessages) {
   const pipelineWarnings = [];
   const {
     baskets,
@@ -6953,7 +7037,8 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     lostOpportunity,
     salesOutcome,
     customerIdentityStatus: input.customerIdentityStatus,
-    staffIdBySender: input.staffIdBySender
+    staffIdBySender: input.staffIdBySender,
+    conversationTimeline
   });
   const operationalDisposition = deriveCaseOperationalDisposition({
     caseId: conversationCase.caseId,
@@ -7075,7 +7160,7 @@ function deriveSegmentedCases(input) {
       caseId: `${input.conversationId}:interaction:${localInteractionIndex}:session:${anchorSessionIndex}`
     } : rawCase;
     const scopedMessages = messagesForMessageIds(understanding, interaction.messageIds);
-    cases.push({ conversationCase, scopedMessages, interaction });
+    cases.push({ conversationCase, scopedMessages, conversationTimeline: understanding.messages, interaction });
   });
   if (crossedCoarseBoundary) {
     pipelineWarnings.push("semantic_interaction_crossed_coarse_session_boundary");
@@ -7107,7 +7192,7 @@ function deriveCasesOnly(input) {
 function runSalesIntelligencePipeline(input) {
   const segmented = deriveSegmentedCases(segmentationInputFromPipelineInput(input));
   const caseAnalyses = segmented.cases.map(
-    ({ conversationCase, scopedMessages, interaction }) => analyzeOneCase(conversationCase, scopedMessages, input, interaction)
+    ({ conversationCase, scopedMessages, conversationTimeline, interaction }) => analyzeOneCase(conversationCase, scopedMessages, input, interaction, conversationTimeline)
   );
   return {
     conversationId: input.conversationId,

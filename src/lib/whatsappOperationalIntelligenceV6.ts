@@ -1299,6 +1299,16 @@ export async function syncWhatsAppOperationalActionsV6(model: WhatsAppOperationa
 
 const ACTION_RETURN_COLUMNS = 'id,action_key,action_type,status,target_table,target_id';
 
+/** Deterministic action_key suffix from the stable identity (never from position or a UUID). */
+function stableActionKeySuffix(followupIdentity: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < followupIdentity.length; index += 1) {
+    hash ^= followupIdentity.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 /**
  * Idempotent action write keyed by the Stable Follow-up Identity:
  *   - same source + action_key (re-analysis of the same source): refreshed as before;
@@ -1308,13 +1318,15 @@ const ACTION_RETURN_COLUMNS = 'id,action_key,action_type,status,target_table,tar
  *   - new identity: inserted.
  * Bounded: two lookups and at most three writes per call, whatever the number of actions.
  */
-async function syncActionsWithStableIdentity(rows: any[], context: WhatsAppOperationalContext) {
+async function syncActionsWithStableIdentity(rows: any[], context: WhatsAppOperationalContext, convergeRetry = false): Promise<any[]> {
   const identityContext = context.followupIdentity as FollowupIdentityContext;
   const byIdentity = new Map<string, any>();
+  const aliasesByIdentity = new Map<string, string[]>();
   const unresolvedIdentityRows: any[] = [];
   for (const row of rows) {
-    const followupIdentity = operationalActionFollowupIdentity(identityContext, row);
-    if (!followupIdentity) {
+    const stable = operationalActionFollowupIdentity(identityContext, row);
+    const followupIdentity = stable?.identity ?? null;
+    if (!stable || !followupIdentity) {
       // Fail closed: evidence-free manual review without a stable canonical case anchor is not
       // persisted under a session/source-derived identity.
       unresolvedIdentityRows.push({
@@ -1327,12 +1339,15 @@ async function syncActionsWithStableIdentity(rows: any[], context: WhatsAppOpera
       });
       continue;
     }
-    if (!byIdentity.has(followupIdentity))
+    if (!byIdentity.has(followupIdentity)) {
       byIdentity.set(followupIdentity, { ...row, followup_identity: followupIdentity });
+      aliasesByIdentity.set(followupIdentity, stable.aliases);
+    }
   }
   const candidates = [...byIdentity.values()];
   if (!candidates.length) return unresolvedIdentityRows;
-  const identities = candidates.map((row) => row.followup_identity);
+  const keysOf = (row: any) => [row.followup_identity, ...(aliasesByIdentity.get(row.followup_identity) || [])];
+  const identities = Array.from(new Set(candidates.flatMap(keysOf)));
 
   const legacyLookup =
     context.customerId
@@ -1358,7 +1373,13 @@ async function syncActionsWithStableIdentity(rows: any[], context: WhatsAppOpera
       .from('whatsapp_conversation_actions')
       .select('id,source_id,action_key,action_type,followup_identity')
       .eq('source_id', context.sourceId)
-      .in('action_key', candidates.map((row) => row.action_key)),
+      .in(
+        'action_key',
+        candidates.flatMap((row) => [
+          row.action_key,
+          `${row.action_key}~${stableActionKeySuffix(row.followup_identity)}`,
+        ])
+      ),
     legacyLookup,
   ]);
   if (identityError) throw identityError;
@@ -1396,13 +1417,47 @@ async function syncActionsWithStableIdentity(rows: any[], context: WhatsAppOpera
   const ambiguousLegacy: any[] = [];
 
   for (const row of candidates) {
-    const owner = ownerByIdentity.get(row.followup_identity);
-    const sameSource = sameSourceByKey.get(row.action_key);
+    const keys = keysOf(row);
+    // The current key first; otherwise exactly one row stored under an alias (resolved-later
+    // customer, pre-contract case anchor). Several alias owners are not merged (fail closed).
+    const aliasOwners = Array.from(
+      new Map(
+        keys
+          .slice(1)
+          .map((key) => ownerByIdentity.get(key))
+          .filter(Boolean)
+          .map((found: any) => [String(found.id), found])
+      ).values()
+    );
+    const owner = ownerByIdentity.get(row.followup_identity) ?? (aliasOwners.length === 1 ? aliasOwners[0] : null);
+    if (!ownerByIdentity.has(row.followup_identity) && aliasOwners.length > 1) {
+      ambiguousLegacy.push({
+        id: null,
+        action_key: row.action_key,
+        action_type: row.action_type,
+        status: 'followup_identity_alias_ambiguous',
+        target_table: null,
+        target_id: null,
+      });
+      continue;
+    }
+    let sameSource = sameSourceByKey.get(row.action_key);
+    if (sameSource?.followup_identity && !keys.includes(String(sameSource.followup_identity))) {
+      // The positional action_key (e.g. request:<index>:<product>) now names a DIFFERENT real
+      // operation of this source. Never overwrite it: this operation gets a key derived from its
+      // own stable identity instead, so both operations stay separate and re-runs converge.
+      row.action_key = `${row.action_key}~${stableActionKeySuffix(row.followup_identity)}`;
+      sameSource = sameSourceByKey.get(row.action_key);
+    }
     if (sameSource) {
       // Same source + action_key is deterministic: adopt the stable identity while preserving
       // the existing row/workflow through the normal source-key upsert.
+      // An identity already stored on that row (current key or an alias) is never rewritten.
+      const keepStoredIdentity =
+        (owner && owner.id !== sameSource.id) ||
+        (sameSource.followup_identity && sameSource.followup_identity !== row.followup_identity);
       refreshSameSource.push(
-        owner && owner.id !== sameSource.id
+        keepStoredIdentity
           ? { ...row, followup_identity: sameSource.followup_identity ?? null }
           : row
       );
@@ -1511,7 +1566,12 @@ async function syncActionsWithStableIdentity(rows: any[], context: WhatsAppOpera
   }
   if (inserts.length) {
     const { data, error } = await supabase.from('whatsapp_conversation_actions').insert(inserts).select(ACTION_RETURN_COLUMNS);
-    if (error) throw error;
+    if (error) {
+      // A concurrent writer (retry, the other ingestion path) created the same identity between
+      // the lookup and this insert. Re-run once: the lookup now finds that owner and reuses it.
+      if (error.code === '23505' && !convergeRetry) return syncActionsWithStableIdentity(rows, context, true);
+      throw error;
+    }
     results.push(...(data || []));
   }
   return results;

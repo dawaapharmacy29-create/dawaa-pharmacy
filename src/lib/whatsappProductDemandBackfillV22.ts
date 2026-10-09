@@ -285,6 +285,15 @@ async function processProductDemandSourceV22(
         staffId: source.staff_id,
         staffName: source.staff_name,
         createdBy: source.created_by,
+        // Same Stable Operation Identity as automatic ingest: a backfill re-run, a re-import or a
+        // different segmentation reuses the operation instead of writing positional duplicates.
+        followupIdentity: {
+          customer: source.customer_id
+            ? { status: 'resolved', customerId: source.customer_id, normalizedPhone: null, customerCode: null }
+            : null,
+          session,
+          caseStartedAt: source.conversation_started_at,
+        },
       });
 
       await syncWhatsAppEvidenceLedgerV17(session, {

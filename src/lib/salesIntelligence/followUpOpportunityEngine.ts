@@ -17,7 +17,7 @@ import {
   mentionsPrescriptionV32,
 } from '../whatsappSemanticSignalsV32';
 import { normalizeProductKey } from './caseBasketEngine';
-import { buildFollowupIdentity, followupCustomerAnchor } from '../whatsappFollowupIdentity';
+import { stableOperationIdentity, type OperationTimelineMessage } from '../whatsappFollowupIdentity';
 import type {
   CanonicalSalesOutcomeAssessment,
   ConfidenceAssessment,
@@ -38,6 +38,12 @@ import type {
 export interface DeriveFollowUpInput {
   conversationCase: ConversationCase;
   messages: NormalizedConversationMessageV32[];
+  /**
+   * The whole source timeline (all messages, not only this case's). The Stable Operation Identity
+   * reads the raw episode around the evidence from it, so a case that starts mid-episode after a
+   * different segmentation keeps the same follow-up identity. Defaults to `messages`.
+   */
+  conversationTimeline?: OperationTimelineMessage[];
   customerNeed: CustomerNeedModel;
   unavailableDemand: UnavailableDemand[];
   lostOpportunity: LostOpportunityAssessment;
@@ -262,10 +268,17 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
       ? lostOpportunity.reason === 'competitor' ? 'bought_elsewhere' : 'customer_final_decline'
       : null;
   const saleProven = salesOutcome.outcome === 'sale_proven';
-  const anchor = followupCustomerAnchor(
-    { status: identityResolved ? 'resolved' : 'unresolved', customerId, normalizedPhone: null, customerCode: null },
-    caseId
-  );
+  const identityCustomer = customerId
+    ? { status: 'resolved' as const, customerId, normalizedPhone: null, customerCode: null }
+    : null;
+  const timeline = input.conversationTimeline?.length ? input.conversationTimeline : messages;
+  const messageAt = new Map(messages.map((m) => [m.id, m.timestamp.getTime()]));
+  const caseStartedAt = new Date(conversationCase.startedAt);
+  // Evidence time = earliest cited message; a candidate without a dated message uses the case start.
+  const evidenceAt = (evidence: string[]) => {
+    const times = evidence.map((id) => messageAt.get(id)).filter((t): t is number => typeof t === 'number');
+    return times.length ? new Date(Math.min(...times)) : caseStartedAt;
+  };
 
   const byKey = new Map<string, FollowUpOpportunity>();
   for (const candidate of candidates) {
@@ -284,12 +297,13 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
     const duePolicy = candidate.duePolicy ?? profile.duePolicy;
     const requestedDelayDays = candidate.requestedDelayDays ?? null;
     const productScopeKey = demand ? (demand.resolvedProductId ?? demand.productKey) : null;
-    const followUpKey = buildFollowupIdentity({
-      customerAnchor: anchor,
-      episodeStartedAt: new Date(conversationCase.startedAt),
-      followupType: candidate.reason,
+    const followUpKey = stableOperationIdentity({
+      customer: identityCustomer,
+      timeline,
+      evidenceAt: evidenceAt(candidate.evidence),
+      operationType: candidate.reason,
       reasonKey: productScopeKey,
-    });
+    }).identity;
     const opportunity: FollowUpOpportunity = {
       followUpKey,
       caseId,

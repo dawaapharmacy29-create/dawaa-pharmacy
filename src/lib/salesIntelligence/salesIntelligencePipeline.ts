@@ -230,7 +230,8 @@ function analyzeOneCase(
   conversationCase: ConversationCase,
   scopedMessages: NormalizedConversationMessageV32[],
   input: SalesIntelligencePipelineInput,
-  interaction: ConversationInteractionV32 | null = null
+  interaction: ConversationInteractionV32 | null = null,
+  conversationTimeline: NormalizedConversationMessageV32[] = scopedMessages
 ): SalesIntelligenceCaseAnalysis {
   const pipelineWarnings: string[] = [];
 
@@ -594,6 +595,7 @@ function analyzeOneCase(
     salesOutcome,
     customerIdentityStatus: input.customerIdentityStatus,
     staffIdBySender: input.staffIdBySender,
+    conversationTimeline,
   });
   // Last canonical decision: consumes Lost Opportunity + Follow-up + Journey outputs only.
   const operationalDisposition = deriveCaseOperationalDisposition({
@@ -670,6 +672,8 @@ function analyzeOneCase(
 export interface SegmentedCase {
   conversationCase: ConversationCase;
   scopedMessages: NormalizedConversationMessageV32[];
+  /** Every message of the source, for the Stable Operation Identity episode (never for evidence). */
+  conversationTimeline: NormalizedConversationMessageV32[];
   /** The V32 interaction this case reads (segmentation owner) — carried for the read model only. */
   interaction: ConversationInteractionV32 | null;
 }
@@ -785,7 +789,7 @@ export function deriveSegmentedCases(input: DeriveSegmentedCasesInput): DeriveSe
           }
         : rawCase;
     const scopedMessages = messagesForMessageIds(understanding, interaction.messageIds);
-    cases.push({ conversationCase, scopedMessages, interaction });
+    cases.push({ conversationCase, scopedMessages, conversationTimeline: understanding.messages, interaction });
   });
 
   if (crossedCoarseBoundary) {
@@ -864,8 +868,8 @@ export function deriveCasesOnly(input: DeriveSegmentedCasesInput): {
  */
 export function runSalesIntelligencePipeline(input: SalesIntelligencePipelineInput): SalesIntelligencePipelineResult {
   const segmented = deriveSegmentedCases(segmentationInputFromPipelineInput(input));
-  const caseAnalyses = segmented.cases.map(({ conversationCase, scopedMessages, interaction }) =>
-    analyzeOneCase(conversationCase, scopedMessages, input, interaction)
+  const caseAnalyses = segmented.cases.map(({ conversationCase, scopedMessages, conversationTimeline, interaction }) =>
+    analyzeOneCase(conversationCase, scopedMessages, input, interaction, conversationTimeline)
   );
 
   return {
