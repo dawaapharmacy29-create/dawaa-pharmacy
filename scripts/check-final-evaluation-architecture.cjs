@@ -139,6 +139,27 @@ if(!performanceEye.includes('{x.reason}'))failures.push('decision source status 
  if(!/get_branch_doctor_performance_window_v1[\s\S]*dawaa_doctor_sales_reconciliation_v1/.test(reconciliationMigration))failures.push('peer comparison must be built on the same sales reconciliation as the doctor eye');
  if(/\?\?\s*0\b|\|\|\s*0\)\s*\/|value:\s*0\b/.test(eyeChartModel))failures.push('performance eye chart model must keep unknown values null, never zero');
 }
+{
+ // Reconciliation migration safety: read-only over existing data, proven devices only, no stored-branch fallback,
+ // conversion strictly after the conversation, branch-scoped callers, internal functions not exposed.
+ const m=reconciliationMigration.replace(/--.*$/gm,'');
+ const writes=[...m.matchAll(/\b(insert\s+into|update|delete\s+from|truncate|alter\s+table|drop\s+\w+)\s+(public\.)?(\w+)/gi)].map(x=>x[3].toLowerCase()).filter(t=>t!=='biometric_device_branches'&&t!=='if');
+ if(writes.length)failures.push('reconciliation migration must not write to existing tables: '+[...new Set(writes)].join(', '));
+ const seeded=[...m.matchAll(/\('([^']+)',\s*'فرع/g)].map(x=>x[1]).sort().join(',');
+ if(seeded!=='101,102,GED7242701315,GED7242701324')failures.push('device registry must hold only devices with proven branches (got '+seeded+')');
+ if(/coalesce\(\(\s*select db\.branch[\s\S]{0,400}?\),\s*a\.branch\)/.test(m)||!m.includes("'unproven'"))failures.push('attendance branch must come from the punching device, never from the stored home branch');
+ if(/abs\(extract\(epoch from \(si\.invoice_date/.test(m)||!m.includes("si.invoice_date >= rv.at_ts - interval '1 hour'"))failures.push('a converted review must match an invoice after the conversation, not one before it');
+ if(!/v_branch := case when v_scope = 'ALL' then null else v_scope end/.test(m))failures.push('branch-scoped callers must only read their own branch in the reconciliation');
+ for(const fn of ['dawaa_doctor_attendance_days_v1','dawaa_doctor_sales_reconciliation_v1']){
+  if(!new RegExp('revoke all on function public\\.'+fn+'\\([^)]*\\) from public, anon, authenticated').test(m)||new RegExp('grant execute on function public\\.'+fn).test(m))failures.push(fn+' must not be callable by API roles');
+ }
+ const definers=(m.match(/security definer/gi)||[]).length,paths=(m.match(/set search_path to 'public', 'pg_catalog'/g)||[]).length;
+ if(definers!==paths)failures.push('every SECURITY DEFINER function in the reconciliation migration must pin search_path');
+ const rb=read('supabase/sql/ROLLBACK_20261009_doctor_sales_reconciliation_v1.sql');
+ if(rb.indexOf('create or replace function public.get_branch_doctor_performance_window_v1')<0||rb.indexOf('create or replace function public.get_branch_doctor_performance_window_v1')>rb.indexOf('drop function'))failures.push('reconciliation rollback must restore the previous peer comparison before removing functions');
+ const rbDrops=[...rb.matchAll(/drop\s+(function|table)\s+if exists\s+public\.(\w+)/gi)].map(x=>x[2]).sort().join(',');
+ if(rbDrops!=='biometric_device_branches,dawaa_doctor_attendance_days_v1,dawaa_doctor_sales_reconciliation_v1,get_doctor_sales_reconciliation_v1')failures.push('reconciliation rollback must drop only the objects the migration created');
+}
 if(/describeSourceError/.test(performanceService+performanceEye+decisionData))failures.push('doctor eye must not format raw PostgREST/SQL errors for the screen; use the source-state contract');
 if(/\be\.message\b|\.error\s*\|\||\.error\}|sources\.\w+\.error/.test(performanceEye))failures.push('doctor eye must not render raw error messages; use source reasons or userFacingMessage');
 if(!performanceEye.includes('userFacingMessage('))failures.push('doctor eye catch blocks must go through userFacingMessage (logs the original, shows plain text)');

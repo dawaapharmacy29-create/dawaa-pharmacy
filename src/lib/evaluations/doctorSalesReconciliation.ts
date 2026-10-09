@@ -12,15 +12,23 @@
 export type ReconciliationCategory = 'attendance_verified' | 'identity_only' | 'uncertain' | 'zero_value';
 export const RECONCILIATION_CATEGORIES: ReconciliationCategory[] = ['attendance_verified', 'identity_only', 'uncertain', 'zero_value'];
 
+/**
+ * Review classes from get_doctor_sales_reconciliation_v1. The cited invoice must carry the number, belong to the
+ * same customer and fall between 1h before and 48h after the conversation (customer + time disambiguate numbers
+ * that repeat across branches; the review's branch label is not trusted).
+ * - verified: exactly one such invoice, not claimed by another review, rung up by the doctor.
+ * - served_other_seller: the customer bought as cited, but a colleague rang up the invoice (service proven,
+ *   issuance not). Not counted under the current policy; see docs/DOCTOR_SALES_RECONCILIATION.md.
+ */
 export type ConversionClass =
-  | 'verified' | 'no_sale' | 'unknown' | 'claimed_without_invoice' | 'invoice_missing'
-  | 'invoice_ambiguous_or_reused' | 'invoice_out_of_window' | 'other_customer' | 'sold_by_other_staff';
+  | 'verified' | 'served_other_seller' | 'no_sale' | 'unknown' | 'claimed_without_invoice' | 'invoice_missing'
+  | 'invoice_not_matching_customer_or_time' | 'invoice_ambiguous' | 'invoice_reused';
 
 export type CycleReconciliation = {
   start: string;
   endExclusive: string;
   categories: Record<ReconciliationCategory, { invoices: number; sales: number }>;
-  attendance: { presentDays: number; settledDays: number; pendingDays: number; approvedHours: number; approvedDaysWithHours: number; pendingHours: number; daysWithoutHours: number; otherBranchDays: number; lastDay: string | null };
+  attendance: { presentDays: number; settledDays: number; pendingDays: number; approvedHours: number; approvedDaysWithHours: number; pendingHours: number; daysWithoutHours: number; unprovenBranchDays: number; otherBranchDays: number; lastDay: string | null };
   /** Verified sales placed on the shift day they belong to (a night shift owns its tail after midnight). */
   productivity: { verifiedSales: number; verifiedInvoices: number; verifiedSalesSettledDays: number; daysWithVerifiedSales: number };
   conversion: Partial<Record<ConversionClass, number>>;
@@ -41,7 +49,7 @@ export function parseSalesReconciliation(payload: unknown): CycleReconciliation[
       categories,
       attendance: {
         presentDays: num(att.presentDays), settledDays: num(att.settledDays), pendingDays: num(att.pendingDays),
-        approvedHours: num(att.approvedHours), approvedDaysWithHours: num(att.approvedDaysWithHours), pendingHours: num(att.pendingHours), daysWithoutHours: num(att.daysWithoutHours),
+        approvedHours: num(att.approvedHours), approvedDaysWithHours: num(att.approvedDaysWithHours), pendingHours: num(att.pendingHours), daysWithoutHours: num(att.daysWithoutHours), unprovenBranchDays: num(att.unprovenBranchDays),
         otherBranchDays: num(att.otherBranchDays), lastDay: att.lastDay ? String(att.lastDay).slice(0, 10) : null,
       },
       productivity: {
@@ -83,14 +91,15 @@ export function comparableProductivity(c: CycleReconciliation) {
 
 /**
  * Conversion verified at invoice, customer and seller level: verified ÷ (verified + recorded no-sale).
- * Every other "converted" claim (missing / reused invoice, other customer, sold by other staff, outside 48h) is
- * unverified and stays out of both sides; it is reported, not counted as a sale or as a loss.
+ * A sale rung up by a colleague for the same customer (served_other_seller) and every unverified claim stay out
+ * of both sides; they are reported, not counted as a sale or as a loss.
  */
 export function verifiedConversion(c: CycleReconciliation) {
   const v = c.conversion;
   const verified = num(v.verified), noSale = num(v.no_sale);
   const reviews = Object.values(v).reduce((s, n) => s + num(n), 0);
-  const unverifiedClaims = num(v.claimed_without_invoice) + num(v.invoice_missing) + num(v.invoice_ambiguous_or_reused) + num(v.invoice_out_of_window) + num(v.other_customer) + num(v.sold_by_other_staff);
+  const servedByColleague = num(v.served_other_seller);
+  const unverifiedClaims = num(v.claimed_without_invoice) + num(v.invoice_missing) + num(v.invoice_not_matching_customer_or_time) + num(v.invoice_ambiguous) + num(v.invoice_reused);
   const recorded = verified + noSale;
-  return { reviews, verified, noSale, recorded, unverifiedClaims, unknown: num(v.unknown), rate: recorded > 0 ? (verified / recorded) * 100 : null, coverage: reviews > 0 ? recorded / reviews : null };
+  return { reviews, verified, noSale, recorded, servedByColleague, unverifiedClaims, unknown: num(v.unknown), rate: recorded > 0 ? (verified / recorded) * 100 : null, coverage: reviews > 0 ? recorded / reviews : null };
 }

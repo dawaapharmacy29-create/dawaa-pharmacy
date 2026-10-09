@@ -65,10 +65,90 @@ Every other "converted" claim is reported as unverified and stays out of both si
 - **Backfill:** an idempotent, audited update of invoices since 2026-08-26 with blank `staff_id`, using the same rule. Write each change to an audit table so it can be rolled back.
 - Name matching stays as a read-time fallback only, flagged as `unique_name`. It never overrides a resolved `staff_id`.
 
-## Results for د/ أحمد حافظ (fixed definitions)
+## Device → branch proof (independent review, 2026-10-09)
 
-| Cycle | Total sales | Attendance-verified | Identity-only | Uncertain | Zero | Verified coverage |
+| Device | Channel | Evidence | Same-shift sales by the punching staff | Registry |
+|---|---|---|---|---|
+| GED7242701324 | `zk_shami_direct_bridge` only (`allowed_branches` = الشامي) | payload `branch` = فرع الشامي | 79/79 الشامي | الشامي |
+| GED7242701315 | `zk_shokry_direct_bridge` only (`allowed_branches` = شكري) | payload `branch` = فرع شكري | 44/45 شكري | شكري |
+| 102 | vendor | `device_location` «الشامى» | 62/62 الشامي | الشامي |
+| 101 | vendor | `device_location` «شكرى القواتلى» | 46/52 شكري | شكري |
+| 105 | vendor | «بسيسه»: not a branch in the system, 3 punches | none | **absent (unproven)** |
+| no device id | vendor | 121 punches, 2 staff | 8/8 شكري (not proof) | **absent (unproven)** |
+
+Shifts are rated per punch:
+- 1,986 punched days (26 Jul – 8 Oct): 1,811 proven at one branch, **143 move between branches inside one shift**, and 32 have no proven device.
+- **258 days** carry a stored branch that the device contradicts.
+- A timed invoice takes the branch of the doctor's latest proven punch before it.
+- A shift with no proven punch proves nothing.
+
+## Date-only imports
+
+An invoice stored at 00:00 UTC has no time of day. It never gets a shift class. It is attendance-verified only when
+**every** punched shift touching that calendar day is proven at the invoice branch (`evidence = day`).
+Otherwise it is `identity_only` (no shift that day) or `uncertain` (another or unproven branch).
+
+## Conversion classes and the credit policy (proposal, not applied)
+
+A cited invoice must:
+- carry the cited number;
+- belong to the **same customer**;
+- fall from **1 h before to 48 h after** the conversation;
+- have a positive value.
+
+Customer + time disambiguate numbers that repeat across branches. The review's branch label is not trusted: case
+a2fed23a was labelled الشامي, but the sale was at شكري.
+
+| Class | Meaning | Current policy |
+|---|---|---|
+| `verified` | Exactly one such invoice, not claimed by another review of the same customer, rung up by the doctor | Counts as a sale |
+| `served_other_seller` | The customer bought as cited, but a colleague rang up the invoice | Excluded from both sides |
+| `invoice_not_matching_customer_or_time` | The number exists but for another customer or outside the window | Excluded |
+| `invoice_missing` / `invoice_ambiguous` / `invoice_reused` / `claimed_without_invoice` | Unverifiable | Excluded |
+| `no_sale` | Reviewer recorded no sale | Counts as a loss |
+| `unknown` | No outcome recorded | Excluded |
+
+Proposed fair split (needs approval). It separates **service proof** (the doctor held the reviewed conversation and
+the customer bought) from **issuance proof** (who rang up the invoice):
+1. Sales value and productivity always belong to the invoice seller. Never double-count revenue.
+2. The conversation owner gets a separate **service conversion** for `served_other_seller` cases. It is shown next to the strict rate, never merged into it.
+3. Any shared incentive credit (for example 50/50) is a business decision for incentives, not part of this read model.
+
+September for د/ أحمد: strict 7 ÷ (7 + 7) = **50%** (coverage 58%, provisional). Service conversion under the proposal: 12 ÷ 19 = **63.2%**.
+
+## Security model
+
+- The internal functions (`dawaa_doctor_*`) are `SECURITY DEFINER`, pin `search_path`, and are revoked from `public`, `anon` and `authenticated`.
+- The registry table has RLS enabled with no policy and is revoked from the API roles.
+- `get_doctor_sales_reconciliation_v1` asserts the caller's sales scope.
+  - A branch-scoped caller reads **only its branch** (invoices, attendance days, reviews), even for a doctor who also worked elsewhere.
+  - Conversion requires `view_reviews`.
+- The functions read identity through the canonical chain (`dawaa_current_staff_account_id_strict`). They inherit the verified session identity once `20261008120000` is applied, which must happen first.
+
+## Safe execution order (each step needs approval)
+
+1. Confirm the device registry (4 devices) and that 105 / no-device events stay unproven.
+2. Apply identity hardening `20261008115000` + `20261008120000` (+ the Base44 Edge Function).
+3. On an isolated database branch, run the permission and rollback tests:
+   - anon denied on the internal functions and the registry;
+   - a الشامي manager scoped to الشامي, and an assistant denied;
+   - table checksums unchanged;
+   - the rollback restores the previous peer comparison.
+4. Apply `20261008090000` then `20261009090000` on production (the latter supersedes the peer-comparison body).
+5. Publish a Preview of this branch and compare the Eye for د/ أحمد with the figures below.
+6. Separately: the BConnect `staff_id` source fix and the repair of the 258 wrong stored attendance branches (data changes).
+
+## Results for د/ أحمد حافظ (proven devices, per-punch branch, strict date-only rule)
+
+| Cycle | Total | Attendance-verified | Identity-only | Uncertain | Zero | Verified share |
 |---|---|---|---|---|---|---|
-| Aug (26 Jul–25 Aug) | 326,588 (942 inv.) | 715 / 272,166 | 207 / 51,191 | 11 / 3,231 | 9 | 83.3% |
-| Sep (26 Aug–25 Sep) | 401,792 (908) | 833 / 379,635 | 59 / 21,875 | 2 / 282 | 14 | 94.5% |
-| Oct (running, to 7 Oct) | 85,374 (336) | 240 / 57,495 | 92 / 27,879 | 0 | 4 | 67.3% |
+| Aug (26 Jul–25 Aug) | 942 / 326,588 | 582 / 222,261 | 207 / 51,191 | 144 / 53,136 | 9 | 68.1% |
+| Sep (26 Aug–25 Sep) | 908 / 401,792 | 832 / 379,570 | 59 / 21,875 | 3 / 347 | 14 | 94.5% |
+| Oct (running) | 336 / 85,374 | 224 / 54,762 | 92 / 27,879 | 16 / 2,733 | 4 | 64.1% |
+
+August date-only imports (418):
+- 237 day-verified;
+- 34 with no shift that day;
+- 66 at another proven branch;
+- 78 on days touching an unproven or mixed shift;
+- 3 zero-value.

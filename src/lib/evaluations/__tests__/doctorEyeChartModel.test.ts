@@ -179,13 +179,16 @@ describe('doctor eye — productivity uses verified sales only', () => {
 });
 
 describe('doctor eye — conversion verified at invoice, customer and seller level', () => {
-  it('counts only verified sales against recorded no-sales; unverified claims sit outside both sides', () => {
-    const c = verifiedConversion(rec('2026-08-26', { conversion: { verified: 6, no_sale: 7, other_customer: 3, invoice_missing: 1, sold_by_other_staff: 5, invoice_ambiguous_or_reused: 2 } }));
+  it('counts only verified sales against recorded no-sales; colleague sales and unverified claims sit outside both sides', () => {
+    // September of د/ أحمد حافظ, review by review: 7 verified, 5 bought from a colleague, 5 invoice not matching the
+    // customer or not after the conversation, 7 recorded no-sale.
+    const c = verifiedConversion(rec('2026-08-26', { conversion: { verified: 7, served_other_seller: 5, invoice_not_matching_customer_or_time: 5, no_sale: 7 } }));
     expect(c.reviews).toBe(24);
-    expect(c.recorded).toBe(13);
-    expect(c.unverifiedClaims).toBe(11);
-    expect(Math.round(c.rate! * 10) / 10).toBe(46.2);
-    expect(Math.round(c.coverage! * 100)).toBe(54);
+    expect(c.recorded).toBe(14);
+    expect(c.servedByColleague).toBe(5);
+    expect(c.unverifiedClaims).toBe(5);
+    expect(c.rate).toBe(50);
+    expect(Math.round(c.coverage! * 100)).toBe(58);
   });
 
   it('keeps unknown outcomes unknown', () => {
@@ -215,25 +218,27 @@ describe('doctor eye — hours and attendance rules', () => {
   });
 });
 
-describe('doctor eye — real cycles of د/ أحمد حافظ (read-only database reconciliation, 2026-10-09)', () => {
-  // Numbers from get_doctor_sales_reconciliation_v1 run inside a rolled-back transaction (device-branch corrected).
-  const aug = rec('2026-07-26', { verified: [715, 272166.19], identityOnly: [207, 51191.15], uncertain: [11, 3230.8], zero: 9, present: 25, settled: 16, approvedHours: 178.25, verifiedSales: 277845.19, verifiedInvoices: 729, settledSales: 182372.31, conversion: { unknown: 57 } });
-  const sep = rec('2026-08-26', { verified: [833, 379634.51], identityOnly: [59, 21875.3], uncertain: [2, 282], zero: 14, present: 24, settled: 15, approvedHours: 171.36, verifiedSales: 377926.84, verifiedInvoices: 850, settledSales: 296478.04, conversion: { no_sale: 7, verified: 6, other_customer: 3, invoice_missing: 1, sold_by_other_staff: 5, invoice_ambiguous_or_reused: 2 } });
-  const oct = rec('2026-09-26', { verified: [240, 57494.56], identityOnly: [92, 27878.95], zero: 4, present: 8, settled: 4, approvedHours: 10.33, approvedDaysWithHours: 1, verifiedSales: 53523.23, verifiedInvoices: 209, settledSales: 3623.72, conversion: {} });
+describe('doctor eye — real cycles of د/ أحمد حافظ (read-only reconciliation with proven device branches, 2026-10-09)', () => {
+  // From the reconciliation functions run against production data with temporary copies only.
+  // Date-only imports count only with day-level evidence; a shift moving between branches follows each punch.
+  const aug = rec('2026-07-26', { verified: [582, 222261], identityOnly: [207, 51191], uncertain: [144, 53136], zero: 9, present: 25, settled: 16, approvedHours: 178.25, verifiedSales: 227940, settledSales: 187796, conversion: { unknown: 57 } });
+  const sep = rec('2026-08-26', { verified: [832, 379570], identityOnly: [59, 21875], uncertain: [3, 347], zero: 14, present: 24, settled: 15, approvedHours: 171.36, verifiedSales: 377862, settledSales: 296413, conversion: { verified: 7, served_other_seller: 5, invoice_not_matching_customer_or_time: 5, no_sale: 7 } });
+  const oct = rec('2026-09-26', { verified: [224, 54762], identityOnly: [92, 27879], uncertain: [16, 2733], zero: 4, present: 8, settled: 4, approvedHours: 10.33, approvedDaysWithHours: 1, verifiedSales: 50790, settledSales: 3624, conversion: {} });
   const round = (v: number | null, d = 1) => (v === null ? null : Math.round(v * 10 ** d) / 10 ** d);
 
   it('reconciles every invoice into exactly one category with nothing dropped', () => {
-    expect([aug, sep, oct].map(r => round(totalSales(r), 2))).toEqual([326588.14, 401791.81, 85373.51]);
-    expect([aug, sep, oct].map(r => round(verifiedCoverage(r)! * 100))).toEqual([83.3, 94.5, 67.3]);
+    expect([aug, sep, oct].map(r => totalSales(r))).toEqual([326588, 401792, 85374]);
+    expect([aug, sep, oct].map(r => r.categories.attendance_verified.invoices + r.categories.identity_only.invoices + r.categories.uncertain.invoices + r.categories.zero_value.invoices)).toEqual([942, 908, 336]);
+    expect([aug, sep, oct].map(r => round(verifiedCoverage(r)! * 100))).toEqual([68.1, 94.5, 64.1]);
   });
 
   it('computes comparable productivity from verified sales only', () => {
-    expect([aug, sep, oct].map(r => round(comparableProductivity(r).perAttendanceDay))).toEqual([11113.8, 15747, 6690.4]);
-    expect([aug, sep, oct].map(r => round(comparableProductivity(r).perApprovedHour))).toEqual([1023.1, 1730.1, null]);
+    expect([aug, sep, oct].map(r => round(comparableProductivity(r).perAttendanceDay))).toEqual([9117.6, 15744.3, 6348.8]);
+    expect([aug, sep, oct].map(r => round(comparableProductivity(r).perApprovedHour))).toEqual([1053.6, 1729.8, null]);
   });
 
-  it('shows the inflated old figure is gone: September conversion is 46.2% verified, not 70.8%', () => {
-    expect(round(verifiedConversion(sep).rate)).toBe(46.2);
+  it('replaces the inflated 70.8% with a verified 50% for September', () => {
+    expect(verifiedConversion(sep).rate).toBe(50);
     expect(verifiedConversion(aug).rate).toBe(null);
   });
 });
