@@ -255,11 +255,10 @@ describe('RC closure — Production-only canonical writers', () => {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { evaluateCanonicalWriterInventory } = require('../../../../scripts/check-canonical-writer-source-control.cjs');
 
-  it('24. every source-controlled writer has a CREATE; every Production-only canonical writer is emitted as a blocker', () => {
+  it('24. every source-controlled writer has a CREATE and no canonical writer is left Production-only', () => {
     const result = evaluateCanonicalWriterInventory();
     expect(result.errors).toEqual([]);
-    expect(result.blockers).toContain('sales_intelligence_write_case_analysis');
-    expect(result.blockers).toContain('dawaa_reconcile_sales_intelligence_case_v22_v1');
+    expect(result.blockers).toEqual([]);
   });
 
   it('25. one canonical writer per truth target', () => {
