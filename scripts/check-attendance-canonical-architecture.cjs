@@ -15,6 +15,7 @@ const required = {
   healthLanes: 'supabase/migrations/20261009104000_attendance_health_review_lanes_v2.sql',
   commandCenterBundle: 'supabase/migrations/20261009110500_attendance_command_center_bundle_v1.sql',
   queueScope: 'supabase/migrations/20261009111500_attendance_queue_v4_staff_scope_v1.sql',
+  healthSources: 'supabase/migrations/20261009113000_attendance_health_dirty_source_triggers_v1.sql',
   service: 'src/lib/attendance/attendanceResolutionService.ts',
   center: 'src/components/attendance/AttendanceResolutionCenter.tsx',
 };
@@ -52,6 +53,7 @@ if (!failures.length) {
   const healthLanes = read(required.healthLanes);
   const commandCenterBundle = read(required.commandCenterBundle);
   const queueScope = read(required.queueScope);
+  const healthSources = read(required.healthSources);
   const service = read(required.service);
   const center = read(required.center);
 
@@ -160,6 +162,17 @@ if (!failures.length) {
     failures.push('Canonical Queue V4 branch membership must come from staff.branch, not summary.branch.');
   }
 
+  mustContain('Dirty-source health migration', healthSources, [
+    'get_attendance_system_health_core_v1',
+    'trg_dawaa_mark_attendance_dirty_v1',
+    'trg_dawaa_mark_attendance_dirty_schedule_v1',
+    'trg_dawaa_mark_attendance_dirty_timeoff_v1',
+    "'dirty_source_triggers_present'",
+    "'dirty_source_triggers_expected'",
+    "'dirty_source_triggers_ok'",
+    "'ingestion_sources'",
+  ]);
+
   mustContain('Attendance service bundle wiring', service, [
     'AttendanceCommandCenterBundleV1',
     'attendanceCommandCenterInFlight',
@@ -212,6 +225,7 @@ if (!failures.length) {
     required.healthLanes,
     required.commandCenterBundle,
     required.queueScope,
+    required.healthSources,
   ];
   for (const rel of ordered) {
     const base = path.basename(rel);
@@ -227,4 +241,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('[attendance-canonical] PASS: one routing contract, route-safe materialization, canonical review triage, guarded compatibility entrypoints, accurate review lanes, single-pass command-center read model, staff-scoped V4 queue filtering, bundled service reads, V4-only frontend queue routing, and no raw attendance reads in financial/payroll frontend modules.');
+console.log('[attendance-canonical] PASS: one routing contract, route-safe materialization, canonical review triage, guarded compatibility entrypoints, accurate review lanes, single-pass command-center read model, staff-scoped V4 queue filtering, dirty-source trigger health, bundled service reads, V4-only frontend queue routing, and no raw attendance reads in financial/payroll frontend modules.');
