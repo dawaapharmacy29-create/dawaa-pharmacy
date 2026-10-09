@@ -5,6 +5,7 @@ const files = {
   triage: 'supabase/migrations/20261009104500_attendance_review_triage_contract_v1.sql',
   priority: 'supabase/migrations/20261009113500_attendance_manager_review_priority_v1.sql',
   wiring: 'supabase/migrations/20261009114500_attendance_command_center_contract_wiring_v1.sql',
+  service: 'src/lib/attendance/attendanceResolutionService.ts',
   reviews: 'src/pages/Reviews.tsx',
 };
 
@@ -23,6 +24,7 @@ if (!failures.length) {
   const triage = fs.readFileSync(files.triage, 'utf8');
   const priority = fs.readFileSync(files.priority, 'utf8');
   const wiring = fs.readFileSync(files.wiring, 'utf8');
+  const service = fs.readFileSync(files.service, 'utf8');
   const reviews = fs.readFileSync(files.reviews, 'utf8');
 
   requireTokens('triage contract', triage, [
@@ -58,8 +60,22 @@ if (!failures.length) {
     "'manager_required_former_staff'",
   ]);
 
+  requireTokens('attendance service priority metadata', service, [
+    'staff_active: boolean',
+    'priority_code: AttendanceReviewPriorityCode | null',
+    'sort_rank: number | null',
+    'age_days: number | null',
+    'priority_reason: string | null',
+    'isFormerAttendanceReviewRow',
+    'compareAttendanceReviewPriority',
+    '.sort(compareAttendanceReviewPriority)',
+  ]);
+
   if (/when\s+coalesce\(\(b\.preview->>'finalizable'\)::boolean,false\)=false\s+then\s+'system'/i.test(wiring)) {
     failures.push('command-center wiring must not reimplement triage from preview flags');
+  }
+  if (/resolution_status\s*===?\s*['"]missing_checkin['"][\s\S]{0,300}priority_code/i.test(service)) {
+    failures.push('frontend service must not reclassify priority from resolution_status');
   }
   if (!reviews.includes("import { persistPointsTransaction } from '@/lib/pointsPersistence';")) {
     failures.push('Reviews.tsx must import persistPointsTransaction explicitly');
@@ -72,4 +88,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('[attendance-command-center-contract] PASS: command center consumes canonical triage + priority contracts, preserves former-staff lane metadata, orders oldest manager cases first within priority, and Reviews has explicit points persistence wiring.');
+console.log('[attendance-command-center-contract] PASS: command center consumes canonical triage + priority contracts; service preserves contract metadata and sorts from contract ranks only; Reviews has explicit points persistence wiring.');
