@@ -1,6 +1,8 @@
 /* eslint-disable no-misleading-character-class */
 import { supabase } from '@/lib/supabase';
 import type { WhatsAppConversationSession, WhatsAppParsedMessage } from './whatsappConversationParser';
+import { parseWhatsAppExport } from './whatsappConversationParser';
+import { correctOperationAttribution, OPERATION_ATTRIBUTION_COLUMNS } from './whatsappOperationAttribution';
 import type { UnifiedConversationIntelligence } from './whatsappUnifiedIntelligenceV4';
 import { buildCanonicalProduct, countNormalizedNames, type RawProductRow } from './salesIntelligence/pharmacyProducts/canonicalProduct';
 import { normalizePharmacyText } from './salesIntelligence/pharmacyProducts/pharmacyNormalization';
@@ -8,10 +10,12 @@ import { buildPharmacyProductIndex, resolveProductMention, CROSS_SCRIPT_SEED } f
 import { isDirectCommercialProductMessageV22 } from './whatsappDirectProductIntentV22';
 import {
   followupEvidenceTimestampKeys,
+  followupEvidenceAt,
   legacyAliasMatches,
   normalizeFollowupKeyPart,
   operationalActionFollowupIdentity,
   resolveOperationOwner,
+  stableOperationIdentity,
   type FollowupIdentityContext,
   type LegacyAliasKind,
   type StableOperationIdentity,
@@ -1326,10 +1330,11 @@ function stableActionKeySuffix(followupIdentity: string): string {
  * Idempotent action write keyed by the Stable Follow-up Identity:
  *   - same source + action_key (re-analysis of the same source): refreshed as before;
  *   - same identity on another source (re-import / other segmentation / other ingestion path):
- *     the existing task is reused — only its evidence is refreshed, its workflow state
+ *     the existing task is reused — only its mutable customer attribution is refreshed, its source evidence and workflow state
  *     (status, work_status, assignment, outcome, due dates) is never reset;
  *   - new identity: inserted.
- * Bounded: two lookups and at most three writes per call, whatever the number of actions.
+ * Legacy discovery is limited to candidate episode/type/reason keys or exact message ids;
+ * every historical read is capped at 101 rows and fails closed on overflow.
  */
 async function syncActionsWithStableIdentity(rows: any[], context: WhatsAppOperationalContext, convergeRetry = false): Promise<any[]> {
   const identityContext = context.followupIdentity as FollowupIdentityContext;
@@ -1369,7 +1374,7 @@ async function syncActionsWithStableIdentity(rows: any[], context: WhatsAppOpera
     context.customerId
       ? supabase
           .from('whatsapp_conversation_actions')
-          .select('id,source_id,action_key,action_type,followup_identity,customer_id,reason,evidence,payload,status')
+          .select('id,source_id,action_key,action_type,followup_identity,customer_id,customer_code,customer_name,customer_phone,reason,evidence,payload,status,target_table,target_id,work_status')
           .eq('customer_id', context.customerId)
           .is('followup_identity', null)
           .in('action_type', Array.from(new Set(candidates.map((row) => row.action_type))))
@@ -1383,11 +1388,11 @@ async function syncActionsWithStableIdentity(rows: any[], context: WhatsAppOpera
   ] = await Promise.all([
     supabase
       .from('whatsapp_conversation_actions')
-      .select('id,source_id,action_key,action_type,followup_identity,evidence')
+      .select(`id,source_id,action_key,action_type,followup_identity,evidence,payload,status,target_table,target_id,work_status,${OPERATION_ATTRIBUTION_COLUMNS}`)
       .in('followup_identity', identities),
     supabase
       .from('whatsapp_conversation_actions')
-      .select('id,source_id,action_key,action_type,followup_identity,evidence')
+      .select(`id,source_id,action_key,action_type,followup_identity,evidence,payload,status,target_table,target_id,work_status,${OPERATION_ATTRIBUTION_COLUMNS}`)
       .eq('source_id', context.sourceId)
       .in(
         'action_key',
@@ -1401,6 +1406,70 @@ async function syncActionsWithStableIdentity(rows: any[], context: WhatsAppOpera
   if (identityError) throw identityError;
   if (sourceError) throw sourceError;
   if (legacyError) throw legacyError;
+  // NULL-key history of a corrected customer can only be discovered by exact message
+  // evidence; a shared minute/customer is not a cross-customer discovery rule.
+  const legacyCandidates = candidates.filter((row) => !(byIdentityRows || []).some((stored: any) => stored.followup_identity === row.followup_identity));
+  for (const row of legacyCandidates) {
+    const evidenceId = Array.isArray(row.evidence) ? row.evidence[0] : null;
+    if (!evidenceId) continue;
+    const { data: oldRows, error: oldError } = await supabase.from('whatsapp_conversation_actions')
+      .select('id,source_id,action_key,action_type,followup_identity,customer_id,customer_code,customer_name,customer_phone,reason,evidence,payload,status,target_table,target_id,work_status')
+      .is('followup_identity', null).eq('action_type', row.action_type)
+      .contains('evidence', [evidenceId]).limit(101);
+    if (oldError) throw oldError;
+    if ((oldRows || []).length > 100) throw new Error('operation_legacy_lookup_overflow');
+    for (const stored of oldRows || [])
+      if (!legacyRows?.some((entry: any) => entry.id === stored.id)) (legacyRows as any[]).push(stored);
+  }
+
+  // A pre-contract customer key may refer to the OLD attribution, not the current one.
+  // Retrieve only the candidate episode/type/reason suffixes (never scan customer history).
+  // These are discovery patterns, not aliases or proof; every returned key is reconstructed
+  // through the existing identity contract and verified below before owner resolution.
+  const historicalPatterns = Array.from(new Set(legacyCandidates.flatMap((row) =>
+    [stableOf(row).identity, ...stableOf(row).aliases.map((alias) => alias.key)]
+      .map((key) => `fu1|customer:%|${key.split('|').slice(2).join('|')}`)
+  )));
+  const { data: historicalRows, error: historicalError } = historicalPatterns.length ? await supabase
+    .from('whatsapp_conversation_actions')
+    .select(`id,source_id,action_key,action_type,followup_identity,evidence,payload,status,target_table,target_id,work_status,${OPERATION_ATTRIBUTION_COLUMNS}`)
+    .or(historicalPatterns.map((pattern) => `followup_identity.like.${pattern}`).join(','))
+    .limit(101) : { data: [], error: null };
+  if (historicalError) throw historicalError;
+  if ((historicalRows || []).length > 100) throw new Error('operation_legacy_lookup_overflow');
+  const historicalSourceIds = Array.from(new Set((historicalRows || []).map((row: any) => row.source_id).filter(Boolean)));
+  const { data: historicalSources, error: historicalSourceError } = historicalSourceIds.length
+    ? await supabase.from('whatsapp_review_sources').select('id,raw_text').in('id', historicalSourceIds)
+    : { data: [], error: null };
+  if (historicalSourceError) throw historicalSourceError;
+  const sourceTimeline = new Map<string, WhatsAppParsedMessage[]>((historicalSources || []).map((source: any) => [String(source.id), parseWhatsAppExport(String(source.raw_text || ''))]));
+  const confirmedHistorical = new Map<string, Set<string>>();
+  for (const row of candidates) {
+    const stable = stableOf(row);
+    const confirmed = new Set<string>();
+    for (const stored of historicalRows || []) {
+      const legacyCustomerId = /^fu1\|customer:([^|]+)\|/.exec(String(stored.followup_identity || ''))?.[1];
+      if (!legacyCustomerId || stored.action_type !== row.action_type) continue;
+      const old = operationalActionFollowupIdentity({ ...identityContext, legacy: {
+        ...identityContext.legacy,
+        customer: { status: 'resolved', customerId: legacyCustomerId, normalizedPhone: null, customerCode: null },
+      } }, row);
+      const alias = old?.aliases.find((entry) => entry.kind === 'legacy_customer' && entry.key === stored.followup_identity);
+      if (!alias) continue;
+      const exactEvidence = legacyAliasMatches('legacy_case', { evidenceIds: row.evidence }, stored);
+      const timeline = sourceTimeline.get(String(stored.source_id));
+      const evidenceAt = followupEvidenceAt(identityContext.session, row.evidence, identityContext.caseStartedAt);
+      const sameConversation = Boolean(timeline?.some((message) => message.direction !== 'system' && message.kind !== 'system') && evidenceAt && stableOperationIdentity({
+        timeline: timeline!, evidenceAt: evidenceAt!, operationType: row.action_type, reasonKey: row.product_name,
+      }).identity === stable.identity);
+      if (!exactEvidence && !sameConversation) continue;
+      if (!legacyAliasMatches(alias.kind, { evidenceIds: row.evidence }, stored)) continue;
+      // Reproduced existing legacy key only; never written or used in the new fingerprint.
+      if (!stable.aliases.some((entry) => entry.key === alias.key)) stable.aliases.push(alias);
+      confirmed.add(String(stored.id));
+    }
+    confirmedHistorical.set(row.followup_identity, confirmed);
+  }
 
   const legacySourceIds = Array.from(
     new Set(
@@ -1423,11 +1492,12 @@ async function syncActionsWithStableIdentity(rows: any[], context: WhatsAppOpera
   const ownerByIdentity = new Map<string, any>(
     ((byIdentityRows || []) as any[]).map((row: any) => [String(row.followup_identity), row])
   );
-  const identityRows = (byIdentityRows || []) as any[];
+  const identityRows = Array.from(new Map([...(byIdentityRows || []), ...(historicalRows || [])].map((row: any) => [String(row.id), row])).values()) as any[];
   const sameSourceByKey = new Map<string, any>(
     ((sameSourceRows || []) as any[]).map((row: any) => [String(row.action_key), row])
   );
 
+  const preservedOwners: any[] = [];
   const refreshSameSource: any[] = [];
   const refreshEvidenceOnly: any[] = [];
   const inserts: any[] = [];
@@ -1436,7 +1506,10 @@ async function syncActionsWithStableIdentity(rows: any[], context: WhatsAppOpera
   for (const row of candidates) {
     const stable = stableOf(row);
     const sameEvidence = (kind: LegacyAliasKind, stored: any) =>
-      legacyAliasMatches(kind, { evidenceIds: row.evidence }, stored);
+      legacyAliasMatches(kind, { evidenceIds: row.evidence }, stored) &&
+      (!historicalRows?.some((entry: any) => entry.id === stored.id) ||
+        (byIdentityRows || []).some((entry: any) => entry.id === stored.id) ||
+        confirmedHistorical.get(row.followup_identity)?.has(String(stored.id)) === true);
     // The row under the immutable key; otherwise exactly one legacy row its own evidence confirms.
     // Two confirmed legacy rows are an ambiguity: nothing is picked, merged or inserted.
     const resolved = resolveOperationOwner(stable, identityRows, (alias, stored) => sameEvidence(alias.kind, stored));
@@ -1469,6 +1542,22 @@ async function syncActionsWithStableIdentity(rows: any[], context: WhatsAppOpera
       sameSource = sameSourceByKey.get(row.action_key);
     }
     if (sameSource) {
+      if (!sameSource.followup_identity) {
+        const { data: adopted, error } = await supabase.from('whatsapp_conversation_actions')
+          .update({ followup_identity: row.followup_identity }).eq('id', sameSource.id)
+          .is('followup_identity', null).select(`id,source_id,action_key,action_type,followup_identity,evidence,payload,status,target_table,target_id,work_status,${OPERATION_ATTRIBUTION_COLUMNS}`);
+        if (error) throw error;
+        if (!adopted?.length) throw new Error('operation_identity_adoption_conflict');
+        sameSource = adopted[0];
+      }
+      const corrected = await correctOperationAttribution('action', sameSource, row, String(sameSource.source_id));
+      if (corrected || sameSource.target_id || sameSource.payload?.approvalSource === 'human_review_v2') {
+        // Attribution correction is not reanalysis or reapproval. Keep the source's evidence,
+        // approval payload and execution state; the checked command has already updated the row.
+        preservedOwners.push(sameSource);
+        continue;
+      }
+      row.payload = { ...(sameSource.payload || {}), ...(row.payload || {}) };
       // Same source + action_key is deterministic: adopt the stable identity while preserving
       // the existing row/workflow through the normal source-key upsert.
       // An identity already stored on that row (current key or an alias) is never rewritten.
@@ -1483,18 +1572,10 @@ async function syncActionsWithStableIdentity(rows: any[], context: WhatsAppOpera
       continue;
     }
     if (owner) {
-      refreshEvidenceOnly.push({
-        id: owner.id,
-        source_id: owner.source_id,
-        action_key: owner.action_key,
-        action_type: owner.action_type,
-        followup_identity: owner.followup_identity,
-        evidence: row.evidence,
-        payload: row.payload,
-        reason: row.reason,
-        confidence: row.confidence,
-        updated_at: row.updated_at,
-      });
+      await correctOperationAttribution('action', owner, row, String(owner.source_id));
+      // Re-imports keep the owner's original source/evidence/approval/workflow. Incoming export
+      // message ids belong to its new source and must not replace this source's evidence.
+      preservedOwners.push(owner);
       continue;
     }
 
@@ -1541,6 +1622,12 @@ async function syncActionsWithStableIdentity(rows: any[], context: WhatsAppOpera
       }
       const adoptedOwner = (adopted || [])[0];
       if (adoptedOwner) {
+        const adoptedRow = { ...legacy, ...adoptedOwner };
+        const corrected = await correctOperationAttribution('action', adoptedRow, row, String(adoptedOwner.source_id));
+        if (corrected || adoptedRow.target_id || adoptedRow.payload?.approvalSource === 'human_review_v2') {
+          preservedOwners.push(adoptedRow);
+          continue;
+        }
         ownerByIdentity.set(row.followup_identity, adoptedOwner);
         refreshEvidenceOnly.push({
           id: adoptedOwner.id,
@@ -1572,7 +1659,7 @@ async function syncActionsWithStableIdentity(rows: any[], context: WhatsAppOpera
     inserts.push(row);
   }
 
-  const results: any[] = [...unresolvedIdentityRows, ...ambiguousLegacy];
+  const results: any[] = [...unresolvedIdentityRows, ...ambiguousLegacy, ...preservedOwners];
   if (refreshSameSource.length) {
     const { data, error } = await supabase.from('whatsapp_conversation_actions').upsert(refreshSameSource, { onConflict: 'source_id,action_key', ignoreDuplicates: false }).select(ACTION_RETURN_COLUMNS);
     if (error) throw error;

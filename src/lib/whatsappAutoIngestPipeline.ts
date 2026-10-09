@@ -55,6 +55,7 @@ import {
   stableOperationIdentity,
 } from '@/lib/whatsappFollowupIdentity';
 import type { SalesIntelligenceStageStatus } from '@/lib/salesIntelligence/refresh/refreshClient';
+import { correctOperationAttribution, OPERATION_ATTRIBUTION_COLUMNS } from '@/lib/whatsappOperationAttribution';
 
 type CustomerIdentity = {
   customerId: string | null;
@@ -239,10 +240,17 @@ export async function saveFollowupSignals(
     });
   const stable = signals.map(stableOf);
   const identities = stable.map((row) => row.identity);
+  const attribution = {
+    customer_id: identity.resolutionStatus === 'resolved' ? identity.customerId : null,
+    customer_code: identity.resolutionStatus === 'resolved' ? identity.customerCode : null,
+    customer_name: identity.customerName || session.customerName || 'غير معروف',
+    customer_phone: identity.customerPhone,
+    customer_identity_status: identity.resolutionStatus,
+  };
 
   const exactLookup = supabase
     .from('whatsapp_auto_followup_requests')
-    .select('id,followup_identity,evidence_timestamp,evidence_quote')
+    .select(`id,followup_identity,evidence_timestamp,evidence_quote,customer_identity_status,${OPERATION_ATTRIBUTION_COLUMNS}`)
     .in(
       'followup_identity',
       Array.from(new Set(stable.flatMap((row) => [row.identity, ...row.aliases.map((alias) => alias.key)])))
@@ -265,7 +273,61 @@ export async function saveFollowupSignals(
   if (existingError) throw existingError;
   if (legacyError) throw legacyError;
 
-  const existingRows = (existing || []) as Array<{
+  const historyStable = stable.filter((row) => !(existing || []).some((stored: any) => stored.followup_identity === row.identity));
+  const patterns = Array.from(new Set(historyStable.flatMap((row) => [row.identity, ...row.aliases.map((alias) => alias.key)])
+    .map((key) => `fu1|customer:%|${key.split('|').slice(2).join('|')}`)));
+  const { data: historicalRows, error: historicalError } = patterns.length ? await supabase.from('whatsapp_auto_followup_requests')
+    .select(`id,followup_identity,evidence_timestamp,evidence_quote,source_file_name,signal_type,requested_product_name,customer_identity_status,${OPERATION_ATTRIBUTION_COLUMNS}`)
+    .or([...patterns.map((pattern) => `followup_identity.like.${pattern}`), 'followup_identity.is.null'].join(','))
+    .in('signal_type', Array.from(new Set(signals.map((signal) => signal.signalType))))
+    .in('evidence_timestamp', signals.map((signal) => signal.evidenceTimestamp.toISOString()))
+    .limit(101) : { data: [], error: null };
+  if (historicalError) throw historicalError;
+  if ((historicalRows || []).length > 100) throw new Error('operation_legacy_lookup_overflow');
+  const sourceFiles = Array.from(new Set((historicalRows || []).map((row: any) => row.source_file_name).filter(Boolean)));
+  const times = signals.map((signal) => signal.evidenceTimestamp.toISOString()).sort();
+  const { data: historicalSources, error: historySourceError } = sourceFiles.length
+    ? await supabase.from('whatsapp_review_sources').select('id,source_filename,raw_text,conversation_started_at,conversation_ended_at')
+        .in('source_filename', sourceFiles).lte('conversation_started_at', times[times.length - 1])
+        .gte('conversation_ended_at', times[0]).limit(101)
+    : { data: [], error: null };
+  if (historySourceError) throw historySourceError;
+  if ((historicalSources || []).length > 100) throw new Error('operation_legacy_source_lookup_overflow');
+  const confirmedHistorical = new Set<string>();
+  for (let index = 0; index < signals.length; index += 1) {
+    const signal = signals[index];
+    for (const stored of historicalRows || []) {
+      const legacyCustomerId = /^fu1\|customer:([^|]+)\|/.exec(String(stored.followup_identity || ''))?.[1];
+      if ((!legacyCustomerId && stored.followup_identity) || stored.signal_type !== signal.signalType ||
+        normalizeFollowupKeyPart(stored.requested_product_name || '') !== normalizeFollowupKeyPart(signal.requestedProductName || '') ||
+        !legacyAliasMatches('legacy_case',
+        { evidenceAt: signal.evidenceTimestamp, evidenceQuote: signal.evidenceQuote }, stored)) continue;
+      const old = stableOperationIdentity({ timeline: session.messages, evidenceAt: signal.evidenceTimestamp,
+        operationType: `signal:${signal.signalType}`, reasonKey: signal.requestedProductName || null,
+        legacy: { customer: { status: 'resolved', customerId: legacyCustomerId || null, normalizedPhone: null, customerCode: null } },
+      });
+      const alias = old.aliases.find((entry) => entry.key === stored.followup_identity && entry.kind === 'legacy_customer');
+      if (!alias && stored.followup_identity) continue;
+      const matchingSources = (historicalSources || []).filter((source: any) => {
+        if (source.source_filename !== stored.source_file_name) return false;
+        const timeline = parseWhatsAppExport(String(source.raw_text || ''));
+        if (!timeline.some((message) => message.direction !== 'system')) return false;
+        return stableOperationIdentity({ timeline, evidenceAt: signal.evidenceTimestamp,
+          operationType: `signal:${signal.signalType}`, reasonKey: signal.requestedProductName || null,
+        }).identity === stable[index].identity;
+      });
+      if (matchingSources.length !== 1) continue;
+      if (alias) {
+        if (!stable[index].aliases.some((entry) => entry.key === alias.key)) stable[index].aliases.push(alias);
+        confirmedHistorical.add(String(stored.id));
+      } else if (!legacyRows?.some((row: any) => row.id === stored.id)) {
+        (legacyRows as any[]).push(stored);
+      }
+    }
+  }
+
+  const existingRows = Array.from(new Map([...(existing || []), ...(historicalRows || []).filter((row: any) => confirmedHistorical.has(String(row.id)))]
+    .map((row: any) => [String(row.id), row])).values()) as Array<{
     id: string;
     followup_identity: string | null;
     evidence_timestamp: string | null;
@@ -280,10 +342,6 @@ export async function saveFollowupSignals(
   for (let index = 0; index < signals.length; index += 1) {
     const signal = signals[index];
     const key = identities[index];
-    if (existingKeys.has(key)) {
-      duplicate += 1;
-      continue;
-    }
     const owner = resolveOperationOwner(stable[index], existingRows, (alias, row) =>
       legacyAliasMatches(
         alias.kind,
@@ -296,11 +354,13 @@ export async function saveFollowupSignals(
       legacyAmbiguous += 1;
       continue;
     }
-    if (owner.status === 'legacy') {
+    if (owner.status === 'legacy' || owner.status === 'current') {
+      await correctOperationAttribution('signal', owner.row, attribution);
       duplicate += 1;
       existingKeys.add(key);
       continue;
     }
+    if (existingKeys.has(key)) { duplicate += 1; continue; }
 
     const signalAt = new Date(signal.evidenceTimestamp);
     const episodeStart = episodeStartedAt(session.messages, signalAt).getTime();
@@ -326,7 +386,7 @@ export async function saveFollowupSignals(
         .update({ followup_identity: key })
         .eq('id', legacyId)
         .is('followup_identity', null)
-        .select('id');
+        .select(`id,followup_identity,customer_identity_status,${OPERATION_ATTRIBUTION_COLUMNS}`);
       if (adoptError) {
         if (adoptError.code === '23505') {
           duplicate += 1;
@@ -336,6 +396,7 @@ export async function saveFollowupSignals(
         throw adoptError;
       }
       if ((adopted || []).length) {
+        await correctOperationAttribution('signal', adopted[0], attribution);
         legacyAdopted += 1;
         duplicate += 1;
         existingKeys.add(key);

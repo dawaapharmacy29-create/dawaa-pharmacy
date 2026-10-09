@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { supabase } from '@/lib/supabase';
+import { saveFollowupSignals } from '@/lib/whatsappAutoIngestPipeline';
+import { OPERATION_ATTRIBUTION_COMMAND } from '@/lib/whatsappOperationAttribution';
 
 // In-memory whatsapp_conversation_actions with the live unique keys (followup_identity and
 // source_id+action_key), covering only the query shapes the action writer uses. Installed on the
@@ -75,6 +77,20 @@ function fakeFrom(table: string) {
     eq: (column: string, value: unknown) => (filters.push((row) => row[column] === value), builder),
     is: (column: string, value: unknown) => (filters.push((row) => (row[column] ?? null) === value), builder),
     in: (column: string, values: unknown[]) => (filters.push((row) => values.includes(row[column])), builder),
+    contains: (column: string, values: unknown[]) => (filters.push((row) => Array.isArray(row[column]) && values.every((value) => row[column].includes(value))), builder),
+    gte: (column: string, value: any) => (filters.push((row) => row[column] >= value), builder),
+    lte: (column: string, value: any) => (filters.push((row) => row[column] <= value), builder),
+    or: (expression: string) => {
+      const patterns = expression.split(',').map((part) => {
+        const [column, op, ...rest] = part.split('.');
+        const escaped = rest.join('.').replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*');
+        if (op === 'is' && rest.join('.') === 'null') return { column, pattern: /^$/ };
+        if (op !== 'like') throw new Error('Unsupported fake query');
+        return { column, pattern: new RegExp(`^${escaped}$`) };
+      });
+      filters.push((row) => patterns.some(({column, pattern}) => pattern.test(String(row[column] || ''))));
+      return builder;
+    },
     limit: (value: number) => ((limit = value), builder),
     order: () => builder,
     single: () => ((single = true), builder),
@@ -386,6 +402,9 @@ describe('operational action writer: one row per real operation', () => {
 
   const client = supabase as any;
   let originalFrom: any;
+  let originalRpc: any;
+  let oldWindow: any;
+  let oldStorage: any;
   beforeEach(() => {
     db.tables = {};
     db.writes = [];
@@ -393,9 +412,29 @@ describe('operational action writer: one row per real operation', () => {
     db.seq = 0;
     originalFrom = client.from;
     client.from = fakeFrom;
+    originalRpc = client.rpc;
+    oldWindow = (globalThis as any).window;
+    oldStorage = (globalThis as any).localStorage;
+    (globalThis as any).window = {};
+    (globalThis as any).localStorage = { getItem: () => 'synthetic-staff-session-token-000000000000' };
+    client.rpc = async (fn: string, args: any) => {
+      if (fn !== OPERATION_ATTRIBUTION_COMMAND) return { data: null, error: null };
+      const table = args.p_kind === 'action' ? ACTIONS : 'whatsapp_auto_followup_requests';
+      const row = (db.tables[table] || []).find((entry) => entry.id === args.p_row_id);
+      if (!row || row.followup_identity !== args.p_expected_identity)
+        return { data: null, error: { code: '40001', message: 'operation_identity_changed' } };
+      if ((row.customer_id || null) !== args.p_expected_customer_id)
+        return { data: null, error: { code: '40001', message: 'operation_attribution_changed' } };
+      db.writes.push({ table, op: 'rpc', payload: args });
+      Object.assign(row, args.p_attribution);
+      return { data: { id: row.id, followup_identity: row.followup_identity }, error: null };
+    };
   });
   afterEach(() => {
     client.from = originalFrom;
+    client.rpc = originalRpc;
+    (globalThis as any).window = oldWindow;
+    (globalThis as any).localStorage = oldStorage;
   });
 
   it('import twice / retry / re-processing on a new source id reuse the first row', async () => {
@@ -416,11 +455,11 @@ describe('operational action writer: one row per real operation', () => {
       target_table: 'customer_requests',
       target_id: 'request-fixture-1',
     });
-    // Re-import on another source only refreshes evidence: workflow state and lineage stay owned
-    // by the existing task. (Same-source re-analysis keeps its pre-existing full refresh.)
+    // Re-import on another source keeps source evidence: workflow state and lineage stay owned
+    // by the existing task. Attribution correction never discards that provenance.
     for (const write of db.writes.filter((w) => w.op === 'upsert' && w.payload.some((row: any) => row.id)))
       for (const row of write.payload)
-        for (const owned of ['status', 'work_status', 'target_table', 'target_id', 'customer_id']) expect(Object.keys(row).includes(owned)).toBe(false);
+        for (const owned of ['status', 'work_status', 'target_table', 'target_id']) expect(Object.keys(row).includes(owned)).toBe(false);
   });
 
   it('reordered requests (positional action_key shift) keep one row per operation', async () => {
@@ -445,7 +484,166 @@ describe('operational action writer: one row per real operation', () => {
     await sync(session, 'source-fixture-c', [REQUEST], UNRESOLVED);
     await sync(session, 'source-fixture-d', [REQUEST], RESOLVED_B);
     expect(rows()).toHaveLength(1);
-    expect(rows()[0]).toMatchObject({ id: original.id, followup_identity: original.followup_identity, customer_id: null });
+    expect(rows()[0]).toMatchObject({ id: original.id, followup_identity: original.followup_identity, customer_id: RESOLVED_B.customerId });
+  });
+
+  it('A -> unresolved -> B -> A, with repeated imports, updates attribution on one row', async () => {
+    const session = unitOf(EXPORT);
+    await sync(session, 'source-a', [REQUEST], RESOLVED);
+    const original = { ...rows()[0] };
+    Object.assign(rows()[0], { work_status: 'assigned', target_table: 'customer_requests', target_id: 'request-one' });
+    for (const [index, customer] of [UNRESOLVED, RESOLVED_B, RESOLVED, RESOLVED].entries()) {
+      await sync(session, `source-correction-${index}`, [REQUEST], customer);
+      expect(rows()).toHaveLength(1);
+      expect(rows()[0]).toMatchObject({ id: original.id, followup_identity: original.followup_identity,
+        customer_id: customer.customerId, work_status: 'assigned', target_id: 'request-one' });
+    }
+    expect(db.writes.filter((write) => write.op === 'rpc')).toHaveLength(3);
+  });
+
+  it('unresolved -> A updates the persisted attribution, not only the generated key', async () => {
+    const session = unitOf(EXPORT);
+    await sync(session, 'source-a');
+    const original = { ...rows()[0] };
+    await sync(session, 'source-b', [REQUEST], RESOLVED);
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0]).toMatchObject({ id: original.id, followup_identity: original.followup_identity, customer_id: RESOLVED.customerId });
+  });
+
+  it('legacy A -> B -> unresolved -> A preserves the immutable legacy key', async () => {
+    const session = unitOf(EXPORT);
+    const key = requestIdentity(session, RESOLVED).aliases[0].key;
+    db.tables[ACTIONS] = [legacyRow('old-a', key, [messageAt(session, REQUEST.text).id], { customer_id: RESOLVED.customerId })];
+    for (const [index, customer] of [RESOLVED_B, UNRESOLVED, RESOLVED].entries()) {
+      await sync(session, `source-${index}`, [REQUEST], customer);
+      expect(rows()).toHaveLength(1);
+      expect(rows()[0]).toMatchObject({ id: 'old-a', followup_identity: key, customer_id: customer.customerId });
+    }
+  });
+
+  it('two historical customer keys confirmed by evidence are ambiguous after correction', async () => {
+    const session = unitOf(EXPORT);
+    const evidence = [messageAt(session, REQUEST.text).id];
+    db.tables[ACTIONS] = [
+      legacyRow('old-a', requestIdentity(session, RESOLVED).aliases[0].key, evidence, { customer_id: RESOLVED.customerId }),
+      legacyRow('old-b', requestIdentity(session, RESOLVED_B).aliases[0].key, evidence, { customer_id: RESOLVED_B.customerId }),
+    ];
+    const result = await sync(session, 'source-new');
+    expect(result[0].status).toBe('followup_identity_alias_ambiguous');
+    expect(rows()).toHaveLength(2);
+    expect(db.writes).toHaveLength(0);
+  });
+
+  it('a NULL-key historical action is adopted by exact evidence after customer correction', async () => {
+    const session = unitOf(EXPORT);
+    db.tables[ACTIONS] = [legacyRow('old-null', null as any, [messageAt(session, REQUEST.text).id],
+      { customer_id: RESOLVED.customerId, payload: { productName: REQUEST.product }, status: 'proposed' })];
+    await sync(session, 'source-new', [REQUEST], RESOLVED_B);
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0]).toMatchObject({ id: 'old-null', followup_identity: requestIdentity(session).identity, customer_id: RESOLVED_B.customerId });
+  });
+
+  it('changed export positions reuse historical A through its saved conversation evidence', async () => {
+    const session = unitOf(LONGER_EXPORT);
+    const oldSession = unitOf(EXPORT);
+    const key = requestIdentity(oldSession, RESOLVED).aliases[0].key;
+    db.tables[ACTIONS] = [legacyRow('old-source-evidence', key, [messageAt(oldSession, REQUEST.text).id], { customer_id: RESOLVED.customerId })];
+    db.tables.whatsapp_review_sources = [{ id: 'source-old-source-evidence', raw_text: EXPORT }];
+    await sync(session, 'source-new', [REQUEST], RESOLVED_B);
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0]).toMatchObject({ id: 'old-source-evidence', followup_identity: key, customer_id: RESOLVED_B.customerId });
+  });
+
+  it('same-minute evidence in another saved chat does not identify a historical operation', async () => {
+    const session = unitOf(EXPORT);
+    const key = requestIdentity(session, RESOLVED).aliases[0].key;
+    db.tables[ACTIONS] = [legacyRow('other-customer', key, [messageAt(whole(relabel(EXPORT, 'Someone Else')), REQUEST.text).id], { customer_id: RESOLVED.customerId })];
+    db.tables.whatsapp_review_sources = [{ id: 'source-other-customer', raw_text: relabel(EXPORT, 'Someone Else') }];
+    await sync(session, 'source-new', [REQUEST], RESOLVED_B);
+    expect(rows()).toHaveLength(2);
+    expect(rows()[0].customer_id).toBe(RESOLVED.customerId);
+  });
+
+  it('an attribution RPC rejection never falls back to an insert or direct customer update', async () => {
+    const session = unitOf(EXPORT);
+    await sync(session, 'source-a', [REQUEST], RESOLVED);
+    client.rpc = async () => ({ data: null, error: { code: '42501', message: 'not_authorized' } });
+    let code = '';
+    try { await sync(session, 'source-b', [REQUEST], RESOLVED_B); } catch (e: any) { code = e.code; }
+    expect(code).toBe('42501');
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0].customer_id).toBe(RESOLVED.customerId);
+  });
+
+  it('a correction without a staff session fails closed without an insert or attribution write', async () => {
+    const session = unitOf(EXPORT);
+    await sync(session, 'source-a', [REQUEST], RESOLVED);
+    (globalThis as any).localStorage = { getItem: () => null };
+    let error = '';
+    try { await sync(session, 'source-b', [REQUEST], RESOLVED_B); } catch (e) { error = String(e); }
+    expect(error).toContain('operation_attribution_staff_session_required');
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0].customer_id).toBe(RESOLVED.customerId);
+  });
+
+  it('saved contact and bare number stay separate in persistence after resolution changes', async () => {
+    await sync(whole(relabel(EPISODE_ONE, 'Ahmed Mohamed')), 'source-name', [REQUEST], RESOLVED);
+    await sync(whole(relabel(EPISODE_ONE, '+201012345678')), 'source-number', [REQUEST], RESOLVED);
+    expect(rows()).toHaveLength(2);
+  });
+
+  it('signals update attribution in place through the same command and preserve task evidence/status', async () => {
+    const session = unitOf(EXPORT);
+    const identity = (customer: Customer) => ({ customerId: customer.customerId, customerCode: null,
+      customerName: 'Customer', customerPhone: null, branch: null, matchedBy: 'none',
+      resolutionStatus: customer.status, resolutionReason: 'synthetic', canonical: customer }) as any;
+    await saveFollowupSignals(session, 'chat.txt', identity(UNRESOLVED), null);
+    const originals = (db.tables.whatsapp_auto_followup_requests || []).map((row) => ({ ...row }));
+    expect(originals.length).toBeGreaterThan(0);
+    for (const row of db.tables.whatsapp_auto_followup_requests) row.status = 'قيد المتابعة';
+    for (const customer of [RESOLVED, RESOLVED_B, UNRESOLVED, RESOLVED]) {
+      await saveFollowupSignals(session, 'chat-new.txt', identity(customer), null);
+      expect(db.tables.whatsapp_auto_followup_requests).toHaveLength(originals.length);
+      for (let i = 0; i < originals.length; i++)
+        expect(db.tables.whatsapp_auto_followup_requests[i]).toMatchObject({ id: originals[i].id,
+          followup_identity: originals[i].followup_identity, evidence_quote: originals[i].evidence_quote,
+          status: 'قيد المتابعة', customer_id: customer.customerId, customer_identity_status: customer.status });
+    }
+  });
+
+  it('historical customer-key signals survive A -> B -> unresolved -> A using source evidence', async () => {
+    const session = unitOf(EXPORT);
+    const identity = (customer: Customer) => ({ customerId: customer.customerId, customerCode: null,
+      customerName: 'Customer', customerPhone: null, branch: null, matchedBy: 'none',
+      resolutionStatus: customer.status, resolutionReason: 'synthetic', canonical: customer }) as any;
+    await saveFollowupSignals(session, 'chat.txt', identity(RESOLVED), null);
+    const originals = db.tables.whatsapp_auto_followup_requests;
+    for (const row of originals) row.followup_identity = stableOperationIdentity({ timeline: session.messages,
+      evidenceAt: new Date(row.evidence_timestamp), operationType: `signal:${row.signal_type}`,
+      reasonKey: row.requested_product_name, legacy: { customer: RESOLVED }, }).aliases[0].key;
+    const keys = originals.map((row) => `${row.id}=${row.followup_identity}`);
+    db.tables.whatsapp_review_sources = [{ id: 'old-signal-source', source_filename: 'chat.txt', raw_text: EXPORT,
+      conversation_started_at: session.startedAt.toISOString(), conversation_ended_at: session.endedAt.toISOString() }];
+    for (const customer of [RESOLVED_B, UNRESOLVED, RESOLVED]) {
+      await saveFollowupSignals(session, 'new-chat.txt', identity(customer), null);
+      expect(db.tables.whatsapp_auto_followup_requests.map((row) => `${row.id}=${row.followup_identity}`)).toEqual(keys);
+      for (const row of db.tables.whatsapp_auto_followup_requests) expect(row.customer_id).toBe(customer.customerId);
+    }
+  });
+
+  it('NULL-key historical signals use saved conversation evidence before correcting customer', async () => {
+    const session = unitOf(EXPORT);
+    const identity = (customer: Customer) => ({ customerId: customer.customerId, customerCode: null,
+      customerName: 'Customer', customerPhone: null, branch: null, matchedBy: 'none',
+      resolutionStatus: customer.status, resolutionReason: 'synthetic', canonical: customer }) as any;
+    await saveFollowupSignals(session, 'chat.txt', identity(RESOLVED), null);
+    const ids = db.tables.whatsapp_auto_followup_requests.map((row) => row.id);
+    for (const row of db.tables.whatsapp_auto_followup_requests) row.followup_identity = null;
+    db.tables.whatsapp_review_sources = [{ id: 'old-signal-source', source_filename: 'chat.txt', raw_text: EXPORT,
+      conversation_started_at: session.startedAt.toISOString(), conversation_ended_at: session.endedAt.toISOString() }];
+    await saveFollowupSignals(session, 'new-chat.txt', identity(RESOLVED_B), null);
+    expect(db.tables.whatsapp_auto_followup_requests.map((row) => row.id)).toEqual(ids);
+    for (const row of db.tables.whatsapp_auto_followup_requests) expect(row.customer_id).toBe(RESOLVED_B.customerId);
   });
 
   it('pre-contract rows: unresolved and resolved legacy keys are reused when evidence confirms', async () => {
@@ -461,16 +659,15 @@ describe('operational action writer: one row per real operation', () => {
     expect(rows()[0].followup_identity).toBe(stable.aliases[0].key); // never re-keyed
   });
 
-  it('a customer correction never attaches the operation to the other customer\'s legacy history', async () => {
+  it('a confirmed historical operation preserves its row and old identity across customer correction', async () => {
     const session = unitOf(EXPORT);
     const evidence = [messageAt(session, 'عايز 2 علبة').id];
     const keyForA = requestIdentity(session, RESOLVED).aliases[0].key;
     db.tables[ACTIONS] = [legacyRow('legacy-a', keyForA, evidence, { customer_id: 'customer-fixture-1' })];
-    // Now resolved to B: B's legacy key is looked up, A's legacy row is not reused or rewritten.
+    // Evidence proves this is the same operation despite the old customer-dependent key.
     await sync(session, 'source-fixture-a', [REQUEST], RESOLVED_B);
-    expect(rows()).toHaveLength(2);
-    expect(rows()[0]).toMatchObject({ id: 'legacy-a', followup_identity: keyForA, customer_id: 'customer-fixture-1' });
-    expect(rows()[1].followup_identity).toBe(requestIdentity(session).identity);
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0]).toMatchObject({ id: 'legacy-a', followup_identity: keyForA, customer_id: RESOLVED_B.customerId });
   });
 
   it('a legacy case key from another chat (same position, other evidence) is not reused', async () => {
@@ -524,13 +721,28 @@ describe('operational action writer: one row per real operation', () => {
     const recovery = journeyModel.actions.find((action) => action.key === 'journey-recovery-followup')!;
     expect(recovery).toBeTruthy();
     db.tables.whatsapp_review_sources = [{ id: 'source-fixture-a', branch: 'branch-fixture', customer_id: null }];
+    let sourceId = 'source-fixture-a';
     const run = () =>
       syncWhatsAppCustomerJourneyV15(journeyModel, {
-        sessionSources: sessions.map((session) => ({ sessionId: session.id, sourceId: 'source-fixture-a', contextOnly: false })),
+        sessionSources: sessions.map((session) => ({ sessionId: session.id, sourceId, contextOnly: false })),
         sessions,
       });
     await run();
     await run();
+    const firstRecovery = { ...rows()[0] };
+    for (const customer of [RESOLVED_B, UNRESOLVED, RESOLVED]) {
+      db.tables.whatsapp_review_sources[0].customer_id = customer.customerId;
+      await run();
+      expect(rows()).toHaveLength(1);
+      expect(rows()[0]).toMatchObject({ id: firstRecovery.id, followup_identity: firstRecovery.followup_identity, customer_id: customer.customerId });
+    }
+    for (const [index, customer] of [RESOLVED, RESOLVED_B, UNRESOLVED, RESOLVED].entries()) {
+      sourceId = `source-journey-${index}`;
+      db.tables.whatsapp_review_sources.push({ id: sourceId, branch: 'branch-fixture', customer_id: customer.customerId });
+      await run();
+      expect(rows()).toHaveLength(1);
+      expect(rows()[0]).toMatchObject({ id: firstRecovery.id, followup_identity: firstRecovery.followup_identity, customer_id: customer.customerId });
+    }
     const actions = rows();
     expect(actions).toHaveLength(1);
     const evidenceSession = sessions.find((session) => recovery.evidenceSessionIds.includes(session.id))!;
