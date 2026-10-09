@@ -292,6 +292,15 @@ for (const relativePath of testFiles) {
   require(testFile);
 }
 
+// A test awaiting a promise that never settles empties the event loop and Node would exit 0 without a
+// result line (a false green). Treat an unfinished run as a failure.
+let runFinished = false;
+process.on('beforeExit', () => {
+  if (runFinished) return;
+  console.error('\nTest run ended before completion: a test never settled (pending promise).');
+  process.exit(1);
+});
+
 (async () => {
   let passed = 0;
   let failed = 0;
@@ -313,6 +322,7 @@ for (const relativePath of testFiles) {
     }
   }
 
+  runFinished = true;
   console.log(`\nTest result: ${passed} passed, ${failed} failed`);
   if (failed > 0) process.exit(1);
 })();

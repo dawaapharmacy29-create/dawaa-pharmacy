@@ -39,10 +39,12 @@ describe('attendance command center in-flight sharing', () => {
       const args = { start: '2026-09-26', end: '2026-10-25', branch: 'فرع شكري' };
       const before = getAttendanceCommandCenterBundleV1(args);
       await approveAttendanceResolution({ staffId: 's1', date: '2026-10-01', note: 'ok' });
-      const after = await getAttendanceCommandCenterBundleV1(args);
-      expect(bundleCalls).toBe(2);
-      expect(after.summary.total_cases).toBe(0);
+      const after = getAttendanceCommandCenterBundleV1(args);
+      // Checked before awaiting: a read that joined the pre-mutation request would otherwise wait on it.
+      const callsAfterMutation = bundleCalls;
       release({ data: bundle(1), error: null });
+      expect(callsAfterMutation).toBe(2);
+      expect((await after).summary.total_cases).toBe(0);
       expect((await before).summary.total_cases).toBe(1);
     } finally {
       client.rpc = original;
