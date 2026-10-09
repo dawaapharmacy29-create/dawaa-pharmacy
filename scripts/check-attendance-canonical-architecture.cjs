@@ -147,6 +147,21 @@ if (!failures.length) {
     "'waiting_cases'",
   ]);
 
+  mustContain('Attendance service bundle wiring', service, [
+    'AttendanceCommandCenterBundleV1',
+    'attendanceCommandCenterInFlight',
+    'getAttendanceCommandCenterBundleV1',
+    "supabase.rpc('get_attendance_command_center_bundle_v1'",
+    'const bundle = await getAttendanceCommandCenterBundleV1(args)',
+    'return bundle.summary',
+  ]);
+  if (service.includes("supabase.rpc('get_attendance_exception_inbox_v2'")) {
+    failures.push('Attendance service must not issue a separate inbox RPC; use the single-pass command-center bundle.');
+  }
+  if (service.includes("supabase.rpc('attendance_diagnostic_summary_v1'")) {
+    failures.push('Attendance service must not issue a separate summary RPC; use the single-pass command-center bundle.');
+  }
+
   // The browser command center must stay behind RPC/service boundaries.
   if (/\.from\(['"]attendance_daily_summary['"]\)|\.from\(['"]attendance_impact_ledger['"]\)/.test(center)) {
     failures.push('AttendanceResolutionCenter must not read attendance truth/ledger tables directly.');
@@ -194,4 +209,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('[attendance-canonical] PASS: one routing contract, route-safe materialization, canonical review triage, guarded compatibility entrypoints, accurate review lanes, single-pass command-center read model, and no raw attendance reads in financial/payroll frontend modules.');
+console.log('[attendance-canonical] PASS: one routing contract, route-safe materialization, canonical review triage, guarded compatibility entrypoints, accurate review lanes, single-pass command-center read model, bundled service reads, and no raw attendance reads in financial/payroll frontend modules.');
