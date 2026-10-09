@@ -4,6 +4,8 @@
 
 **Release Candidate gate (2026-10-09):** see [release-candidate-gate.md](release-candidate-gate.md) — decision `READY_FOR_PREVIEW`, three blockers before main/Production.
 
+**Staging / Preview gate (2026-10-09):** see [staging-preview-gate.md](staging-preview-gate.md) — contract A, fail-closed staging guard, from-zero staging run; decision `BLOCKED_BEFORE_PREVIEW` (no staging project yet).
+
 Repository: `dawaapharmacy29-create/dawaa-pharmacy`.
 Branch: `chatgpt/si-operational-consolidation-20261009`.
 Audited HEAD: `2a8e85fce639a04d5562c42e054797584f496a63`.
