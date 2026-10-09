@@ -96,7 +96,7 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
     setEvidence(null); setEvidenceOpen(false); setEvidenceError(''); setEvidenceFocus('all');
     setExpandedInsight(null); setComparisonDetails(false); setDetailsOpen(false);
     setDecisionSources(null); setDecisionLoading(false); setBranchOpen(false);
-  }, [staffId, cycleLabel]);
+  }, [staffId, cycleLabel, branch]);
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false); };
