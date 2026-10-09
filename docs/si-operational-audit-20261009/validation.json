@@ -14,13 +14,13 @@
   "single_writer_executable_proof": false,
   "dynamic_sql_exhaustiveness_proven": false,
   "deployed_bundle_verified": false,
-  "isolated_db_harness_run": false,
+  "isolated_db_harness_run": true,
   "classifications": "proposed, not activated",
   "source_integration_contracts_specified": true,
   "app_write_call_sites": 66,
   "nonliteral_db_candidates": 116,
   "review_correction_rpc_live_present": false,
-  "continuation_scope": "documentation, TypeScript static caller resolution, and read-only public dynamic-SQL catalog audit; implementation remains blocked",
+  "continuation_scope": "isolated audit reproduction of existing SQL cores; no application changes or migrations",
   "database_writer_functions": 98,
   "nonliteral_targets_resolved_via_types": 58,
   "nonliteral_targets_resolved_via_static_callers_or_types": 96,
@@ -35,5 +35,11 @@
   "identity_helper_audit_cases": 4,
   "identity_helper_cases_holding_invariant": 3,
   "identity_resegmentation_counterexample_reproduced": true,
-  "identity_counterexample_scope": "helper arguments and SI argument wiring; not full end-to-end import/materialization"
+  "identity_counterexample_scope": "helper arguments and SI argument wiring; not full end-to-end import/materialization",
+  "isolated_db_harness_scope": "actual captured follow-up core, action materializer core, and identity helpers; synthetic tables and stub actor/access wrappers",
+  "isolated_db_harness_engine": "PGlite 0.5.8",
+  "isolated_db_harness_properties_holding": 9,
+  "isolated_db_harness_contract_gaps_reproduced": 3,
+  "isolated_db_harness_concurrency_proven": false,
+  "isolated_db_harness_authorization_proven": false
 }

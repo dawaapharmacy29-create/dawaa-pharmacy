@@ -10,6 +10,8 @@ The application was cloned successfully from GitHub after the team Git endpoint 
 
 ## Phase 1 continuation
 
+[Isolated follow-up proof](isolated-followup-proof.md) now reproduces the existing SQL cores in a synthetic in-memory PostgreSQL fixture: 9 properties hold and 3 contract gaps are reproduced. Persistent action materialization retains a linked target on retry after closure; calling the follow-up core directly does not provide the same guarantee for every linked obligation. This is infrastructure reuse evidence, not a full RLS/concurrency or cutover proof.
+
 [Source integration contracts](source-integration-contracts.md) specify the complaint/request decisions, projection lifecycle, quality retry, and atomic cutover acceptance. [Dynamic caller follow-up](dynamic-caller-followup.md) adds the constant-target review correction command and records its verified absence from the live public catalog. [Writer boundary continuation](writer-boundary-continuation.md) resolves 96/116 nonliteral targets and records the additional offline replay and dynamic customer branch repair paths. The implementation gate remains BLOCKED pending caller coverage, isolated schema/authorization tests, and durable identity proof.
 
 ## 1. Architecture discovered

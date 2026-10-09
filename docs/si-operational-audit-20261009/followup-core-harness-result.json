@@ -1,0 +1,68 @@
+{
+  "engine": "PGlite in-memory PostgreSQL",
+  "scope": "actual captured follow-up core, action materializer core, and identity helpers; synthetic tables and stub actor/access wrappers",
+  "checks": [
+    {
+      "name": "same creation key retry",
+      "holds": true
+    },
+    {
+      "name": "distinct obligation links existing open case",
+      "holds": true
+    },
+    {
+      "name": "linked obligation retry has one lineage event",
+      "holds": false,
+      "actualEventCount": 2
+    },
+    {
+      "name": "linked obligation retry after completion reuses original work",
+      "holds": false,
+      "actual": "creates a second follow-up because the first case stores A, not B, in client_request_id"
+    },
+    {
+      "name": "replayed key checks customer and branch scope",
+      "holds": false,
+      "actual": "returns original ID without comparing supplied customer or branch"
+    },
+    {
+      "name": "missing actor",
+      "holds": true
+    },
+    {
+      "name": "inactive or unknown actor",
+      "holds": true
+    },
+    {
+      "name": "missing branch",
+      "holds": true
+    },
+    {
+      "name": "existing action materializer links distinct obligations to one open case",
+      "holds": true
+    },
+    {
+      "name": "persisted created action retains linked target after completion and retry",
+      "holds": true
+    },
+    {
+      "name": "queue semantic identity unique constraint rejects duplicate proposal",
+      "holds": true,
+      "limit": "fixture copies the inspected live index; durable semantic key itself is not proved"
+    },
+    {
+      "name": "failed materialization rolls back target creation and action status together",
+      "holds": true
+    }
+  ],
+  "passedExistingProperties": 9,
+  "reproducedContractGaps": 3,
+  "limitations": [
+    "single embedded backend; no multi-connection concurrency proof",
+    "no live table triggers, RLS, grants, real public wrapper, or full schema parity proof",
+    "actor/access checks and follow-up wrapper are fixture stubs; no Production authorization claim",
+    "no application or protected migration applied"
+  ],
+  "productionMutations": 0,
+  "applicationMigrationsApplied": 0
+}
