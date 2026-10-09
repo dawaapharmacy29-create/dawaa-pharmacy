@@ -152,9 +152,13 @@ if (!failures.length) {
     'attendanceCommandCenterInFlight',
     'getAttendanceCommandCenterBundleV1',
     "supabase.rpc('get_attendance_command_center_bundle_v1'",
+    "supabase.rpc('get_attendance_resolution_queue_v4'",
     'const bundle = await getAttendanceCommandCenterBundleV1(args)',
     'return bundle.summary',
   ]);
+  if (service.includes("supabase.rpc('get_attendance_resolution_queue_v3'")) {
+    failures.push('Attendance service must not call legacy resolution queue V3; use canonical V4.');
+  }
   if (service.includes("supabase.rpc('get_attendance_exception_inbox_v2'")) {
     failures.push('Attendance service must not issue a separate inbox RPC; use the single-pass command-center bundle.');
   }
@@ -209,4 +213,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('[attendance-canonical] PASS: one routing contract, route-safe materialization, canonical review triage, guarded compatibility entrypoints, accurate review lanes, single-pass command-center read model, bundled service reads, and no raw attendance reads in financial/payroll frontend modules.');
+console.log('[attendance-canonical] PASS: one routing contract, route-safe materialization, canonical review triage, guarded compatibility entrypoints, accurate review lanes, single-pass command-center read model, bundled service reads, V4-only frontend queue routing, and no raw attendance reads in financial/payroll frontend modules.');
