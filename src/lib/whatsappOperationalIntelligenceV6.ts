@@ -8,9 +8,13 @@ import { buildPharmacyProductIndex, resolveProductMention, CROSS_SCRIPT_SEED } f
 import { isDirectCommercialProductMessageV22 } from './whatsappDirectProductIntentV22';
 import {
   followupEvidenceTimestampKeys,
+  legacyAliasMatches,
   normalizeFollowupKeyPart,
   operationalActionFollowupIdentity,
+  resolveOperationOwner,
   type FollowupIdentityContext,
+  type LegacyAliasKind,
+  type StableOperationIdentity,
 } from './whatsappFollowupIdentity';
 
 export type WhatsAppPrimaryIntent =
@@ -1274,6 +1278,15 @@ export async function syncWhatsAppOperationalActionsV6(model: WhatsAppOperationa
   if (!model.officialScoringEligible) {
     actions.push({ action_key: 'manual-review', action_type: 'manual_review', status: 'proposed', confidence: Math.min(model.intentConfidence, model.outcomeConfidence), auto_eligible: false, due_at: null, reason: 'السياق أو هوية الدكتور لا يكفيان لاعتماد تقييم رسمي آليًا.', evidence: [], payload: { primaryIntent: model.primaryIntent, operationalOutcome: model.operationalOutcome } });
   }
+  return writeWhatsAppOperationalActionsV6(actions, context);
+}
+
+/**
+ * The one writer of whatsapp_conversation_actions rows built from an analysis (V6/V22 actions and
+ * the Journey V15 recovery action). With a followupIdentity context every row goes through the
+ * Stable Operation Identity; without one, the legacy positional upsert is kept for old callers.
+ */
+export async function writeWhatsAppOperationalActionsV6(actions: any[], context: WhatsAppOperationalContext) {
   if (!actions.length) return [];
   const rows = actions.map((a) => ({
     ...a,
@@ -1321,7 +1334,7 @@ function stableActionKeySuffix(followupIdentity: string): string {
 async function syncActionsWithStableIdentity(rows: any[], context: WhatsAppOperationalContext, convergeRetry = false): Promise<any[]> {
   const identityContext = context.followupIdentity as FollowupIdentityContext;
   const byIdentity = new Map<string, any>();
-  const aliasesByIdentity = new Map<string, string[]>();
+  const stableByIdentity = new Map<string, StableOperationIdentity>();
   const unresolvedIdentityRows: any[] = [];
   for (const row of rows) {
     const stable = operationalActionFollowupIdentity(identityContext, row);
@@ -1341,13 +1354,16 @@ async function syncActionsWithStableIdentity(rows: any[], context: WhatsAppOpera
     }
     if (!byIdentity.has(followupIdentity)) {
       byIdentity.set(followupIdentity, { ...row, followup_identity: followupIdentity });
-      aliasesByIdentity.set(followupIdentity, stable.aliases);
+      stableByIdentity.set(followupIdentity, stable);
     }
   }
   const candidates = [...byIdentity.values()];
   if (!candidates.length) return unresolvedIdentityRows;
-  const keysOf = (row: any) => [row.followup_identity, ...(aliasesByIdentity.get(row.followup_identity) || [])];
-  const identities = Array.from(new Set(candidates.flatMap(keysOf)));
+  const stableOf = (row: any) => stableByIdentity.get(row.followup_identity) as StableOperationIdentity;
+  // Bounded: the immutable key plus at most two legacy aliases per operation.
+  const identities = Array.from(
+    new Set(candidates.flatMap((row) => [row.followup_identity, ...stableOf(row).aliases.map((alias) => alias.key)]))
+  );
 
   const legacyLookup =
     context.customerId
@@ -1367,11 +1383,11 @@ async function syncActionsWithStableIdentity(rows: any[], context: WhatsAppOpera
   ] = await Promise.all([
     supabase
       .from('whatsapp_conversation_actions')
-      .select('id,source_id,action_key,action_type,followup_identity')
+      .select('id,source_id,action_key,action_type,followup_identity,evidence')
       .in('followup_identity', identities),
     supabase
       .from('whatsapp_conversation_actions')
-      .select('id,source_id,action_key,action_type,followup_identity')
+      .select('id,source_id,action_key,action_type,followup_identity,evidence')
       .eq('source_id', context.sourceId)
       .in(
         'action_key',
@@ -1407,6 +1423,7 @@ async function syncActionsWithStableIdentity(rows: any[], context: WhatsAppOpera
   const ownerByIdentity = new Map<string, any>(
     ((byIdentityRows || []) as any[]).map((row: any) => [String(row.followup_identity), row])
   );
+  const identityRows = (byIdentityRows || []) as any[];
   const sameSourceByKey = new Map<string, any>(
     ((sameSourceRows || []) as any[]).map((row: any) => [String(row.action_key), row])
   );
@@ -1417,20 +1434,13 @@ async function syncActionsWithStableIdentity(rows: any[], context: WhatsAppOpera
   const ambiguousLegacy: any[] = [];
 
   for (const row of candidates) {
-    const keys = keysOf(row);
-    // The current key first; otherwise exactly one row stored under an alias (resolved-later
-    // customer, pre-contract case anchor). Several alias owners are not merged (fail closed).
-    const aliasOwners = Array.from(
-      new Map(
-        keys
-          .slice(1)
-          .map((key) => ownerByIdentity.get(key))
-          .filter(Boolean)
-          .map((found: any) => [String(found.id), found])
-      ).values()
-    );
-    const owner = ownerByIdentity.get(row.followup_identity) ?? (aliasOwners.length === 1 ? aliasOwners[0] : null);
-    if (!ownerByIdentity.has(row.followup_identity) && aliasOwners.length > 1) {
+    const stable = stableOf(row);
+    const sameEvidence = (kind: LegacyAliasKind, stored: any) =>
+      legacyAliasMatches(kind, { evidenceIds: row.evidence }, stored);
+    // The row under the immutable key; otherwise exactly one legacy row its own evidence confirms.
+    // Two confirmed legacy rows are an ambiguity: nothing is picked, merged or inserted.
+    const resolved = resolveOperationOwner(stable, identityRows, (alias, stored) => sameEvidence(alias.kind, stored));
+    if (resolved.status === 'ambiguous') {
       ambiguousLegacy.push({
         id: null,
         action_key: row.action_key,
@@ -1441,11 +1451,20 @@ async function syncActionsWithStableIdentity(rows: any[], context: WhatsAppOpera
       });
       continue;
     }
+    const owner = resolved.status === 'none' ? null : resolved.row;
+    // A row of THIS source under the same positional action_key (request:<index>:<product>) is the
+    // same operation only when it carries this identity, or carries none / a legacy key and its
+    // evidence confirms it. Otherwise the key now names a different real operation: it is never
+    // overwritten, and this operation gets a key derived from its own immutable identity.
+    const sameSourceIsThisOperation = (candidate: any) => {
+      const stored = candidate.followup_identity ? String(candidate.followup_identity) : null;
+      if (stored === row.followup_identity) return true;
+      if (!stored) return sameEvidence('legacy_customer', candidate);
+      const alias = stable.aliases.find((entry) => entry.key === stored);
+      return Boolean(alias && sameEvidence(alias.kind, candidate));
+    };
     let sameSource = sameSourceByKey.get(row.action_key);
-    if (sameSource?.followup_identity && !keys.includes(String(sameSource.followup_identity))) {
-      // The positional action_key (e.g. request:<index>:<product>) now names a DIFFERENT real
-      // operation of this source. Never overwrite it: this operation gets a key derived from its
-      // own stable identity instead, so both operations stay separate and re-runs converge.
+    if (sameSource && !sameSourceIsThisOperation(sameSource)) {
       row.action_key = `${row.action_key}~${stableActionKeySuffix(row.followup_identity)}`;
       sameSource = sameSourceByKey.get(row.action_key);
     }

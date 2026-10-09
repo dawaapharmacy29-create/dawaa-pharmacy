@@ -6002,13 +6002,23 @@ function deriveProductLosses(customerNeed, demands, state) {
 // src/lib/whatsappFollowupIdentity.ts
 var FOLLOWUP_IDENTITY_VERSION = "fu1";
 var EPISODE_GAP_MINUTES = 120;
+var MEDIA_KINDS = /* @__PURE__ */ new Set(["image", "voice", "video", "document"]);
+var MEDIA_LINE = /omitted>|\(file attached\)|<attached:/i;
+function compareText(a, b) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
 function sortedTimeline(messages) {
   const content = (message) => {
     const row = message;
     return [row.direction ?? "", row.sender ?? "", row.text ?? ""].join("");
   };
-  return [...messages].sort(
-    (a, b) => a.timestamp.getTime() - b.timestamp.getTime() || content(a).localeCompare(content(b))
+  return messages.filter((message) => Number.isFinite(message.timestamp?.getTime?.())).sort(
+    (a, b) => a.timestamp.getTime() - b.timestamp.getTime() || compareText(content(a), content(b))
+  );
+}
+function conversationEvidence(messages) {
+  return messages.filter(
+    (message) => message.direction !== "system" && message.kind !== "system" && !message.isSystemGenerated
   );
 }
 function stableDigest(value) {
@@ -6061,8 +6071,7 @@ function episodeMessages(messages, at) {
   if (!sorted.length) return [];
   const start = episodeStartedAt(sorted, at).getTime();
   const rows = [];
-  for (let index = 0; index < sorted.length; index += 1) {
-    const current = sorted[index];
+  for (const current of sorted) {
     if (current.timestamp.getTime() < start) continue;
     const previous = rows[rows.length - 1];
     if (previous && current.timestamp.getTime() - previous.timestamp.getTime() > EPISODE_GAP_MINUTES * 6e4)
@@ -6071,38 +6080,50 @@ function episodeMessages(messages, at) {
   }
   return rows;
 }
+function contactToken(label) {
+  const raw = String(label ?? "").trim();
+  if (/^[+\d\s\-().\u0660-\u0669\u200e\u200f\u202a-\u202e]+$/.test(raw) && isValidEgyptianCustomerMobile(raw))
+    return `tel:${normalizeEgyptianCustomerPhone(raw)}`;
+  return normalizeFollowupKeyPart(raw) || "-";
+}
+function messageToken(message) {
+  const media = message.isMediaPlaceholder || message.mediaPlaceholder || MEDIA_KINDS.has(String(message.kind || "")) || MEDIA_LINE.test(String(message.text || ""));
+  const content = media ? "media" : normalizeFollowupKeyPart(message.text) || "-";
+  return [String(message.timestamp.getTime()), normalizeFollowupKeyPart(message.direction) || "-", content].join(":");
+}
 function conversationEpisodeAnchor(timeline, at) {
-  const episode = episodeMessages(timeline, at);
+  const episode = episodeMessages(conversationEvidence(timeline), at);
   const opener = episode[0];
   if (!opener) return null;
-  const contact = episode.find((message) => message.direction === "inbound")?.sender ?? "";
+  const firstInbound = episode.find((message) => message.direction === "inbound") ?? null;
   const evidence = [
-    normalizeFollowupKeyPart(contact) || "-",
-    String(opener.timestamp.getTime()),
-    normalizeFollowupKeyPart(opener.direction) || "-",
-    normalizeFollowupKeyPart(opener.sender) || "-",
-    normalizeFollowupKeyPart(opener.text) || "-"
+    contactToken(firstInbound?.sender),
+    messageToken(opener),
+    firstInbound ? messageToken(firstInbound) : "-"
   ].join("|");
   return `chat:${stableDigest(evidence)}`;
 }
 function stableOperationIdentity(input) {
-  const conversationAnchor = conversationEpisodeAnchor(input.timeline, input.evidenceAt);
-  const customerAnchor = input.customer?.status === "resolved" ? resolvedCustomerAnchor(input.customer) : null;
-  const primary = customerAnchor || conversationAnchor;
-  if (!primary) throw new Error("followup_customer_anchor_unresolved");
-  const episode = episodeStartedAt(input.timeline, input.evidenceAt);
-  const keyFor = (anchor) => buildFollowupIdentity({
-    customerAnchor: anchor,
+  const anchor = conversationEpisodeAnchor(input.timeline, input.evidenceAt);
+  if (!anchor) throw new Error("followup_customer_anchor_unresolved");
+  const evidence = sortedTimeline(conversationEvidence(input.timeline));
+  const keyFor = (customerAnchor2, episode) => buildFollowupIdentity({
+    customerAnchor: customerAnchor2,
     episodeStartedAt: episode,
     followupType: input.operationType,
     reasonKey: input.reasonKey ?? null
   });
-  const identity = keyFor(primary);
-  const legacyCase = normalizeFollowupKeyPart(input.legacyCaseAnchor || "");
-  const aliases = [
-    conversationAnchor,
-    legacyCase ? `case:${legacyCase}` : null
-  ].filter((anchor) => Boolean(anchor) && anchor !== primary).map(keyFor).filter((key, index, rows) => key !== identity && rows.indexOf(key) === index);
+  const identity = keyFor(anchor, episodeStartedAt(evidence, input.evidenceAt));
+  const legacyEpisode = episodeStartedAt(input.timeline, input.evidenceAt);
+  const legacyCustomer = input.legacy?.customer;
+  const customerAnchor = legacyCustomer?.status === "resolved" ? resolvedCustomerAnchor(legacyCustomer) : null;
+  const caseAnchor = normalizeFollowupKeyPart(input.legacy?.caseAnchor || "");
+  const aliases = [];
+  const add = (key, kind) => {
+    if (key !== identity && !aliases.some((alias) => alias.key === key)) aliases.push({ key, kind });
+  };
+  if (customerAnchor) add(keyFor(customerAnchor, legacyEpisode), "legacy_customer");
+  if (caseAnchor) add(keyFor(`case:${caseAnchor}`, legacyEpisode), "legacy_case");
   return { identity, aliases };
 }
 
@@ -6260,7 +6281,6 @@ function deriveFollowUpOpportunities(input) {
   }
   const interactionSuppression = lostOpportunity.state === "lost" && lostOpportunity.recoverability === "none" ? lostOpportunity.reason === "competitor" ? "bought_elsewhere" : "customer_final_decline" : null;
   const saleProven = salesOutcome.outcome === "sale_proven";
-  const identityCustomer = customerId ? { status: "resolved", customerId, normalizedPhone: null, customerCode: null } : null;
   const timeline = input.conversationTimeline?.length ? input.conversationTimeline : messages;
   const messageAt = new Map(messages.map((m) => [m.id, m.timestamp.getTime()]));
   const caseStartedAt = new Date(conversationCase.startedAt);
@@ -6284,7 +6304,6 @@ function deriveFollowUpOpportunities(input) {
     const requestedDelayDays = candidate.requestedDelayDays ?? null;
     const productScopeKey = demand ? demand.resolvedProductId ?? demand.productKey : null;
     const followUpKey = stableOperationIdentity({
-      customer: identityCustomer,
       timeline,
       evidenceAt: evidenceAt(candidate.evidence),
       operationType: candidate.reason,

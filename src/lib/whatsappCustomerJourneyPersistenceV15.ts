@@ -2,6 +2,8 @@ import { supabase } from '@/lib/supabase';
 import type { WhatsAppCustomerJourneyIntelligenceV15 } from './whatsappCustomerJourneyIntelligenceV15';
 import { syncPersistentCustomerStoryV16 } from './whatsappCustomerStoryV16';
 import { linkWhatsAppEvidenceJourneyV17 } from './whatsappEvidenceJourneyLinkV17';
+import type { WhatsAppConversationSession } from './whatsappConversationParser';
+import { writeWhatsAppOperationalActionsV6 } from './whatsappOperationalIntelligenceV6';
 
 // Journey V15 (+ Story V16, evidence links) is a SIDE PROJECTION of the canonical chain
 //   Source -> Customer Case V22 -> Sales Intelligence.
@@ -20,6 +22,8 @@ export interface JourneyPersistenceContextV15 {
   branch?: string | null;
   createdBy?: string | null;
   sessionSources: JourneySessionSourceV15[];
+  /** The case-unit sessions the model was built from (the recovery action's identity evidence). */
+  sessions?: WhatsAppConversationSession[];
 }
 
 export interface JourneySyncResultV15 {
@@ -124,44 +128,71 @@ export async function syncWhatsAppCustomerJourneyV15(
     if (linkError) throw linkError;
   }
 
+  const warnings: string[] = [];
   const recoveryAction = model.actions.find((action) => action.key === 'journey-recovery-followup');
   if (recoveryAction) {
-    const actionKey = model.unresolvedComplaint ? 'complaint-followup' : 'customer-followup';
-    const { error: actionError } = await supabase
-      .from('whatsapp_conversation_actions')
-      .upsert({
-        source_id: journey.root_source_id,
-        action_key: actionKey,
-        action_type: recoveryAction.type,
-        status: journey.customer_code ? 'ready' : 'proposed',
-        confidence: model.customerRisk === 'critical' ? 96 : model.customerRisk === 'high' ? 90 : 80,
-        auto_eligible: Boolean(journey.customer_code),
-        branch: context.branch || root.branch || null,
-        customer_id: root.customer_id || null,
-        customer_code: root.customer_code || null,
-        customer_name: root.customer_name || null,
-        customer_phone: root.customer_phone || null,
-        staff_id: root.staff_id || null,
-        staff_name: root.staff_name || null,
-        due_at: dueInHours(recoveryAction.dueInHours),
-        reason: recoveryAction.reason,
-        evidence: recoveryAction.evidenceSessionIds,
-        payload: {
-          journey_id: journey.id,
-          journey_key: journeyKey,
-          journey_version: model.version,
-          keep_open_until: recoveryAction.keepOpenUntil,
-          recovery_attempts: model.recoveryAttempts,
-          customer_state: model.customerState,
-          summary: model.summary,
-        },
-        created_by: context.createdBy || null,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'source_id,action_key', ignoreDuplicates: false });
-    if (actionError) throw actionError;
+    // The recovery follow-up is an operation like any other: written through the same writer and
+    // the same Stable Operation Identity (evidence episode of the problem session), never through
+    // a separate source+key upsert that could duplicate or overwrite another operation.
+    const sessionById = new Map((context.sessions || []).map((session) => [session.id, session]));
+    const evidenceSession =
+      recoveryAction.evidenceSessionIds.map((id) => sessionById.get(id)).find(Boolean) ||
+      sessionById.get(rootMapping.sessionId) ||
+      null;
+    if (!evidenceSession) {
+      // Fail closed: without the conversation messages there is no stable identity to write under.
+      warnings.push('journey_recovery_followup_identity_unresolved');
+    } else {
+      const timelineSession = {
+        ...evidenceSession,
+        messages: (context.sessions || []).flatMap((session) => session.messages),
+      };
+      await writeWhatsAppOperationalActionsV6(
+        [
+          {
+            action_key: model.unresolvedComplaint ? 'complaint-followup' : 'customer-followup',
+            action_type: recoveryAction.type,
+            status: journey.customer_code ? 'ready' : 'proposed',
+            confidence: model.customerRisk === 'critical' ? 96 : model.customerRisk === 'high' ? 90 : 80,
+            auto_eligible: Boolean(journey.customer_code),
+            due_at: dueInHours(recoveryAction.dueInHours),
+            reason: recoveryAction.reason,
+            evidence: recoveryAction.evidenceSessionIds,
+            payload: {
+              journey_id: journey.id,
+              journey_key: journeyKey,
+              journey_version: model.version,
+              keep_open_until: recoveryAction.keepOpenUntil,
+              recovery_attempts: model.recoveryAttempts,
+              customer_state: model.customerState,
+              summary: model.summary,
+            },
+          },
+        ],
+        {
+          sourceId: String(journey.root_source_id),
+          branch: context.branch || root.branch || null,
+          customerId: root.customer_id || null,
+          customerCode: root.customer_code || null,
+          customerName: root.customer_name || null,
+          customerPhone: root.customer_phone || null,
+          staffId: root.staff_id || null,
+          staffName: root.staff_name || null,
+          createdBy: context.createdBy || null,
+          followupIdentity: {
+            session: timelineSession,
+            caseStartedAt: evidenceSession.startedAt,
+            legacy: {
+              customer: root.customer_id
+                ? { status: 'resolved', customerId: String(root.customer_id), normalizedPhone: null, customerCode: null }
+                : null,
+            },
+          },
+        }
+      );
+    }
   }
 
-  const warnings: string[] = [];
   let story: Awaited<ReturnType<typeof syncPersistentCustomerStoryV16>> = null;
   let storyStatus: JourneySyncResultV15['story'] = { status: 'skipped', error: null };
   try {

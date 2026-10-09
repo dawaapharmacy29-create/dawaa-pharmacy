@@ -24,10 +24,14 @@ function fakeFrom(table: string) {
   const filters: Array<(row: Row) => boolean> = [];
   let action: { op: string; payload?: any; options?: any } = { op: 'select' };
   let limit = Infinity;
+  let single = false;
   const run = () => {
     const rows = (db.tables[table] ||= []);
     const matched = () => rows.filter((row) => filters.every((f) => f(row))).slice(0, limit);
-    if (action.op === 'select') return { data: matched().map((row) => ({ ...row })), error: null };
+    if (action.op === 'select') {
+      const data = matched().map((row) => ({ ...row }));
+      return { data: single ? data[0] ?? null : data, error: null };
+    }
     db.writes.push({ table, op: action.op, payload: action.payload });
     if (action.op === 'update') {
       const hits = matched();
@@ -64,7 +68,7 @@ function fakeFrom(table: string) {
         out.push({ ...created });
       }
     }
-    return { data: out, error: null };
+    return { data: single ? out[0] ?? null : out, error: null };
   };
   const builder: any = {
     select: () => builder,
@@ -72,6 +76,9 @@ function fakeFrom(table: string) {
     is: (column: string, value: unknown) => (filters.push((row) => (row[column] ?? null) === value), builder),
     in: (column: string, values: unknown[]) => (filters.push((row) => values.includes(row[column])), builder),
     limit: (value: number) => ((limit = value), builder),
+    order: () => builder,
+    single: () => ((single = true), builder),
+    maybeSingle: () => ((single = true), builder),
     insert: (payload: any) => ((action = { op: 'insert', payload }), builder),
     upsert: (payload: any, options: any) => ((action = { op: 'upsert', payload, options }), builder),
     update: (payload: any) => ((action = { op: 'update', payload }), builder),
@@ -84,6 +91,7 @@ import {
   parseWhatsAppExport,
   splitWhatsAppSessions,
   type WhatsAppConversationSession,
+  type WhatsAppParsedMessage,
 } from '@/lib/whatsappConversationParser';
 import { segmentWhatsAppExportCanonical } from '@/lib/whatsappCanonicalSegmentation';
 import {
@@ -91,13 +99,17 @@ import {
   conversationEpisodeAnchor,
   episodeStartedAt,
   followupCustomerAnchor,
+  legacyAliasMatches,
   operationalActionFollowupIdentity,
+  resolveOperationOwner,
   stableOperationIdentity,
 } from '@/lib/whatsappFollowupIdentity';
 import { syncWhatsAppOperationalActionsV6 } from '@/lib/whatsappOperationalIntelligenceV6';
 import { runSalesIntelligencePipeline } from '@/lib/salesIntelligence/salesIntelligencePipeline';
 import { deriveFollowUpOpportunities } from '@/lib/salesIntelligence/followUpOpportunityEngine';
 import { buildConversationUnderstandingV32 } from '@/lib/whatsappConversationUnderstandingV32';
+import { buildWhatsAppCustomerJourneyIntelligenceV15 } from '@/lib/whatsappCustomerJourneyIntelligenceV15';
+import { syncWhatsAppCustomerJourneyV15 } from '@/lib/whatsappCustomerJourneyPersistenceV15';
 
 // Synthetic fixtures only: no customer data, no real UUIDs.
 const EPISODE_ONE = `[9/15/26, 6:00:00 AM] Customer: صباح الخير
@@ -114,20 +126,28 @@ const EARLIER_HISTORY = `[9/14/26, 8:00:00 PM] Customer: شكرا
 const EXPORT = `${EPISODE_ONE}\n${EPISODE_TWO}`;
 const LONGER_EXPORT = `${EARLIER_HISTORY}\n${EXPORT}`;
 const RESOLVED = { status: 'resolved' as const, customerId: 'customer-fixture-1', normalizedPhone: null, customerCode: null };
+const RESOLVED_B = { ...RESOLVED, customerId: 'customer-fixture-2' };
 const UNRESOLVED = { status: 'unresolved' as const, customerId: null, normalizedPhone: null, customerCode: null };
+type Customer = typeof RESOLVED | typeof UNRESOLVED;
 
 const parse = (raw: string) => parseWhatsAppExport(raw);
+const whole = (raw: string) => splitWhatsAppSessions(parse(raw), Number.MAX_SAFE_INTEGER)[0];
 const at = (iso: string) => new Date(iso);
 const messageAt = (session: WhatsAppConversationSession, text: string) =>
   session.messages.find((message) => message.text.includes(text))!;
+/** Same chat, other device: rename the customer's contact label (and optionally the staff label). */
+const relabel = (raw: string, contact: string, staff = 'You') =>
+  raw.replace(/\] Customer:/g, `] ${contact}:`).replace(/\] You:/g, `] ${staff}:`);
 
-/** Identity of the "عايز 2 علبة كونجستال" request inside a given session (any segmentation). */
-function requestIdentity(session: WhatsAppConversationSession, customer = UNRESOLVED, text = 'عايز 2 علبة كونجستال') {
+/** Identity of a request inside a given session (any segmentation). */
+function requestIdentity(session: WhatsAppConversationSession, customer: Customer = UNRESOLVED, text = 'عايز 2 علبة كونجستال') {
   return operationalActionFollowupIdentity(
-    { customer, session, legacyCaseAnchor: session.id },
+    { session, legacy: { customer, caseAnchor: session.id } },
     { action_type: 'customer_request', product_name: 'كونجستال', evidence: [messageAt(session, text).id] }
   )!;
 }
+const keyOf = (timeline: WhatsAppParsedMessage[], evidenceAt: Date, reasonKey = 'كونجستال') =>
+  stableOperationIdentity({ timeline, evidenceAt, operationType: 'customer_request', reasonKey }).identity;
 
 describe('Stable Operation Identity contract', () => {
   it('import twice, retry and re-processing produce the same operation identity', () => {
@@ -138,19 +158,14 @@ describe('Stable Operation Identity contract', () => {
   });
 
   it('different segmentation boundaries and export ranges keep the same identity', () => {
-    const whole = splitWhatsAppSessions(parse(EXPORT), Number.MAX_SAFE_INTEGER)[0];
-    const raw = splitWhatsAppSessions(parse(EXPORT), 120)[0];
-    const canonical = segmentWhatsAppExportCanonical(parse(EXPORT), 'chat.txt').caseContexts.contexts;
-    const canonicalUnit = canonical.find((context) =>
-      context.mergedSession.messages.some((message) => message.text.includes('عايز 2 علبة'))
-    )!.mergedSession;
-    const longer = segmentWhatsAppExportCanonical(parse(LONGER_EXPORT), 'chat (1).txt').caseContexts.contexts;
-    const longerUnit = longer.find((context) =>
-      context.mergedSession.messages.some((message) => message.text.includes('عايز 2 علبة'))
-    )!.mergedSession;
-
-    const expected = requestIdentity(whole).identity;
-    expect(requestIdentity(raw).identity).toBe(expected);
+    const unitOf = (raw: string, name: string) =>
+      segmentWhatsAppExportCanonical(parse(raw), name).caseContexts.contexts.find((context) =>
+        context.mergedSession.messages.some((message) => message.text.includes('عايز 2 علبة'))
+      )!.mergedSession;
+    const canonicalUnit = unitOf(EXPORT, 'chat.txt');
+    const longerUnit = unitOf(LONGER_EXPORT, 'chat (1).txt');
+    const expected = requestIdentity(whole(EXPORT)).identity;
+    expect(requestIdentity(splitWhatsAppSessions(parse(EXPORT), 120)[0]).identity).toBe(expected);
     expect(requestIdentity(canonicalUnit).identity).toBe(expected);
     expect(requestIdentity(longerUnit).identity).toBe(expected);
     // The pre-contract unresolved anchor was the positional case/session id: it moved with the
@@ -159,96 +174,154 @@ describe('Stable Operation Identity contract', () => {
     expect(followupCustomerAnchor(null, longerUnit.id)).not.toBe(followupCustomerAnchor(null, canonicalUnit.id));
   });
 
-  it('message and processing order do not change the identity', () => {
+  it('is pure: message order, repeated calls and the input array never change the identity', () => {
     const messages = parse(EXPORT);
     const evidenceAt = messages[1].timestamp;
-    const forward = stableOperationIdentity({ customer: null, timeline: messages, evidenceAt, operationType: 'customer_request', reasonKey: 'كونجستال' });
-    const reversed = stableOperationIdentity({ customer: null, timeline: [...messages].reverse(), evidenceAt, operationType: 'customer_request', reasonKey: 'كونجستال' });
-    const shuffled = stableOperationIdentity({ customer: null, timeline: [messages[3], messages[0], messages[5], messages[1], messages[4], messages[2]], evidenceAt, operationType: 'customer_request', reasonKey: 'كونجستال' });
-    expect(reversed).toEqual(forward);
-    expect(shuffled).toEqual(forward);
+    const snapshot = messages.map((message) => message.id);
+    const forward = keyOf(messages, evidenceAt);
+    expect(keyOf([...messages].reverse(), evidenceAt)).toBe(forward);
+    expect(keyOf([messages[3], messages[0], messages[5], messages[1], messages[4], messages[2]], evidenceAt)).toBe(forward);
+    expect(keyOf(messages, evidenceAt)).toBe(forward);
+    expect(messages.map((message) => message.id)).toEqual(snapshot);
   });
 
   it('two real operations in the same conversation stay two identities', () => {
-    const session = splitWhatsAppSessions(parse(EXPORT), Number.MAX_SAFE_INTEGER)[0];
-    const firstEpisode = requestIdentity(session, RESOLVED).identity;
-    const secondEpisode = requestIdentity(session, RESOLVED, 'لسه محتاج كونجستال').identity;
+    const session = whole(EXPORT);
+    const firstEpisode = requestIdentity(session).identity;
+    const secondEpisode = requestIdentity(session, UNRESOLVED, 'لسه محتاج كونجستال').identity;
     expect(secondEpisode).not.toBe(firstEpisode);
-    const otherProduct = operationalActionFollowupIdentity(
-      { customer: RESOLVED, session },
-      { action_type: 'customer_request', product_name: 'بنادول', evidence: [messageAt(session, 'عايز 2 علبة').id] }
-    )!.identity;
-    const otherType = operationalActionFollowupIdentity(
-      { customer: RESOLVED, session },
-      { action_type: 'customer_followup', product_name: 'كونجستال', evidence: [messageAt(session, 'عايز 2 علبة').id] }
-    )!.identity;
+    const evidence = [messageAt(session, 'عايز 2 علبة').id];
+    const otherProduct = operationalActionFollowupIdentity({ session }, { action_type: 'customer_request', product_name: 'بنادول', evidence })!.identity;
+    const otherType = operationalActionFollowupIdentity({ session }, { action_type: 'customer_followup', product_name: 'كونجستال', evidence })!.identity;
     expect(new Set([firstEpisode, otherProduct, otherType]).size).toBe(3);
   });
 
-  it('no collision across customers or conversations, even for a same-minute broadcast', () => {
-    const broadcast = (contact: string) =>
-      parse(`[9/15/26, 6:00:00 AM] You: عروض اليوم على الفيتامينات\n[9/15/26, 6:05:00 AM] ${contact}: عايز كونجستال`);
-    const chatA = broadcast('Customer A');
-    const chatB = broadcast('Customer B');
-    const evidenceAt = chatA[1].timestamp;
-    const key = (timeline: ReturnType<typeof parse>, customer: typeof RESOLVED | null) =>
-      stableOperationIdentity({ customer, timeline, evidenceAt, operationType: 'customer_request', reasonKey: 'كونجستال' }).identity;
-    expect(conversationEpisodeAnchor(chatA, evidenceAt)).not.toBe(conversationEpisodeAnchor(chatB, evidenceAt));
-    expect(key(chatA, null)).not.toBe(key(chatB, null));
-    expect(key(chatA, RESOLVED)).not.toBe(key(chatA, { ...RESOLVED, customerId: 'customer-fixture-2' }));
+  it('two customers answering the same broadcast in the same minute never collide', () => {
+    const chat = (contact: string, reply = 'عايز كونجستال') =>
+      parse(`[9/15/26, 6:00:00 AM] You: عروض اليوم على الفيتامينات\n[9/15/26, 6:05:00 AM] ${contact}: ${reply}`);
+    const evidenceAt = chat('A')[1].timestamp;
+    // Same words, same minute, different customers: only the contact label tells them apart.
+    expect(conversationEpisodeAnchor(chat('Customer A'), evidenceAt)).not.toBe(conversationEpisodeAnchor(chat('Customer B'), evidenceAt));
+    expect(keyOf(chat('Customer A'), evidenceAt)).not.toBe(keyOf(chat('Customer B'), evidenceAt));
   });
 
-  it('a customer resolved after the first import still matches the earlier operation', () => {
-    const session = splitWhatsAppSessions(parse(EXPORT), Number.MAX_SAFE_INTEGER)[0];
-    const before = requestIdentity(session, UNRESOLVED);
-    const after = requestIdentity(session, RESOLVED);
-    expect(after.identity).toMatch(/^fu1\|customer:customer-fixture-1\|/);
-    expect(after.aliases).toContain(before.identity);
-    // The pre-contract case-anchored key is matched too, so existing rows are reused, not duplicated.
-    expect(before.aliases).toEqual([
+  it('two conversations with the same contact name and the same first text never collide', () => {
+    const chat = (time: string, reply: string) =>
+      parse(`[9/15/26, ${time}] You: السلام عليكم\n[9/15/26, 6:05:00 AM] Ahmed: ${reply}`);
+    const evidenceAt = chat('6:00:00 AM', 'x')[1].timestamp;
+    // Different opening minute.
+    expect(keyOf(chat('6:00:00 AM', 'عايز كونجستال'), evidenceAt)).not.toBe(keyOf(chat('6:02:00 AM', 'عايز كونجستال'), evidenceAt));
+    // Same opening minute and text, different first customer message.
+    expect(keyOf(chat('6:00:00 AM', 'عايز كونجستال'), evidenceAt)).not.toBe(keyOf(chat('6:00:00 AM', 'محتاج كونجستال ضروري'), evidenceAt));
+  });
+
+  it('same chat from two devices: phone format and staff label do not matter; a saved name vs a number stays separate', () => {
+    const evidenceAt = parse(EXPORT)[1].timestamp;
+    const base = keyOf(parse(relabel(EXPORT, '+20 100 123 4567')), evidenceAt);
+    expect(keyOf(parse(relabel(EXPORT, '01001234567')), evidenceAt)).toBe(base);
+    expect(keyOf(parse(relabel(EXPORT, '+20 100 123 4567', 'Pharmacy Desk')), evidenceAt)).toBe(base);
+    // Conservative by design: nothing in the export proves "Ahmed" is +20 100 123 4567.
+    expect(keyOf(parse(relabel(EXPORT, 'Ahmed')), evidenceAt)).not.toBe(base);
+  });
+
+  it('a WhatsApp system/metadata line added before the real evidence does not move the identity', () => {
+    const withNotice = `[9/15/26, 5:59:00 AM] Messages and calls are end-to-end encrypted.\n${EXPORT}`;
+    const evidenceAt = parse(EXPORT)[1].timestamp;
+    expect(parse(withNotice)[0].direction).toBe('system');
+    expect(keyOf(parse(withNotice), evidenceAt)).toBe(keyOf(parse(EXPORT), evidenceAt));
+  });
+
+  it('media lines count by kind, so exports with and without attachments agree', () => {
+    const opened = (line: string) => parse(`[9/15/26, 6:00:00 AM] Customer: ${line}\n[9/15/26, 6:01:00 AM] Customer: عايز كونجستال`);
+    const evidenceAt = opened('x')[1].timestamp;
+    expect(keyOf(opened('<Media omitted>'), evidenceAt)).toBe(keyOf(opened('IMG-20260915-WA0001.jpg (file attached)'), evidenceAt));
+  });
+
+  it('partial export: a missing evidence message inside the episode keeps the identity; a missing episode opener does not (conservative)', () => {
+    const full = parse(EPISODE_ONE);
+    const withoutRequest = parse(EPISODE_ONE.split('\n').filter((line) => !line.includes('عايز 2 علبة')).join('\n'));
+    const laterEvidence = withoutRequest.find((message) => message.text.includes('لما يتوفر'))!.timestamp;
+    expect(keyOf(withoutRequest, laterEvidence)).toBe(keyOf(full, full[1].timestamp));
+    const withoutOpener = parse(EPISODE_ONE.split('\n').slice(1).join('\n'));
+    // The opening message is evidence of WHICH conversation this is; without it the export cannot
+    // prove it is the same one, so it becomes a separate operation instead of a guessed merge.
+    expect(keyOf(withoutOpener, withoutOpener[0].timestamp)).not.toBe(keyOf(full, full[1].timestamp));
+  });
+
+  it('the identity is immutable across customer resolution: unresolved, resolved, re-linked', () => {
+    const session = whole(EXPORT);
+    const unresolved = requestIdentity(session, UNRESOLVED);
+    const resolvedA = requestIdentity(session, RESOLVED);
+    const resolvedB = requestIdentity(session, RESOLVED_B);
+    expect(resolvedA.identity).toBe(unresolved.identity);
+    expect(resolvedB.identity).toBe(unresolved.identity);
+    expect(unresolved.identity).toMatch(/^fu1\|chat:/);
+    // Resolution only selects which pre-contract key could hold a legacy row.
+    expect(resolvedA.aliases.map((alias) => alias.kind)).toEqual(['legacy_customer', 'legacy_case']);
+    expect(resolvedA.aliases[0].key).toBe(
       buildFollowupIdentity({
-        customerAnchor: followupCustomerAnchor(null, session.id),
+        customerAnchor: 'customer:customer-fixture-1',
         episodeStartedAt: episodeStartedAt(session.messages, messageAt(session, 'عايز 2 علبة').timestamp),
         followupType: 'customer_request',
         reasonKey: 'كونجستال',
-      }),
-    ]);
+      })
+    );
+    expect(unresolved.aliases.map((alias) => alias.kind)).toEqual(['legacy_case']);
   });
 
-  it('fails closed without a customer or any conversation evidence', () => {
-    expect(() =>
-      stableOperationIdentity({ customer: UNRESOLVED, timeline: [], evidenceAt: at('2026-09-15T06:00:00Z'), operationType: 'customer_request' })
-    ).toThrow('followup_customer_anchor_unresolved');
+  it('fails closed without any conversation evidence', () => {
+    expect(() => stableOperationIdentity({ timeline: [], evidenceAt: at('2026-09-15T06:00:00Z'), operationType: 'customer_request' })).toThrow(
+      'followup_customer_anchor_unresolved'
+    );
+  });
+
+  it('legacy aliases are reused only with confirming evidence, and two confirmed rows are ambiguous', () => {
+    const ids = ['1789452060000-1-Customer'];
+    expect(legacyAliasMatches('legacy_case', { evidenceIds: ids }, { evidence: ids })).toBe(true);
+    // Same minute, different chat (different message id): a positional case key is not proof.
+    expect(legacyAliasMatches('legacy_case', { evidenceIds: ids }, { evidence: ['1789452060000-4-Other'] })).toBe(false);
+    expect(legacyAliasMatches('legacy_case', { evidenceIds: [] }, { evidence: [] })).toBe(false);
+    expect(legacyAliasMatches('legacy_customer', { evidenceIds: ids }, { evidence: ['1789452060000-4-Other'] })).toBe(true);
+    expect(legacyAliasMatches('legacy_customer', { evidenceIds: ids }, { evidence: ['1789452999000-1-Customer'] })).toBe(false);
+    const evidenceAt = new Date(1789452060000);
+    expect(legacyAliasMatches('legacy_case', { evidenceAt, evidenceQuote: 'عايز كونجستال' }, { evidence_timestamp: evidenceAt.toISOString(), evidence_quote: 'عايز  كونجستال' })).toBe(true);
+    expect(legacyAliasMatches('legacy_case', { evidenceAt, evidenceQuote: 'عايز كونجستال' }, { evidence_timestamp: evidenceAt.toISOString(), evidence_quote: 'شكرا' })).toBe(false);
+
+    const stable = { identity: 'current', aliases: [{ key: 'old-customer', kind: 'legacy_customer' as const }, { key: 'old-case', kind: 'legacy_case' as const }] };
+    const confirm = () => true;
+    expect(resolveOperationOwner(stable, [{ id: 'a', followup_identity: 'old-case' }, { id: 'b', followup_identity: 'current' }], confirm)).toEqual({ status: 'current', row: { id: 'b', followup_identity: 'current' } });
+    expect(resolveOperationOwner(stable, [{ id: 'a', followup_identity: 'old-customer' }, { id: 'b', followup_identity: 'old-case' }], confirm).status).toBe('ambiguous');
+    expect(resolveOperationOwner(stable, [{ id: 'a', followup_identity: 'old-case' }], () => false).status).toBe('none');
   });
 });
 
 describe('Sales Intelligence follow-up keys use the same contract', () => {
-  const analyze = (conversationId: string, raw: string, resolved: boolean) =>
+  const analyze = (conversationId: string, raw: string, resolved: boolean, customerId = 'customer-fixture-1') =>
     runSalesIntelligencePipeline({
       conversationId,
       rawWhatsAppExportText: raw,
       resolveInvoiceCandidates: () => [],
-      customerIdHint: resolved ? 'customer-fixture-1' : null,
+      customerIdHint: resolved ? customerId : null,
       customerIdentityStatus: resolved ? 'resolved' : 'unresolved',
     });
-  const keys = (conversationId: string, raw: string, resolved: boolean) =>
-    analyze(conversationId, raw, resolved)
+  const keys = (conversationId: string, raw: string, resolved: boolean, customerId?: string) =>
+    analyze(conversationId, raw, resolved, customerId)
       .caseAnalyses.flatMap((row) => row.followUp.opportunities.map((o) => o.followUpKey))
       .sort();
 
-  it('re-import under a new source id and re-processing keep the same follow-up keys', () => {
+  it('re-import under a new source id, re-processing and any resolution keep the same follow-up keys', () => {
     const first = keys('source-fixture-a', EPISODE_ONE, false);
     expect(first.length).toBeGreaterThan(0);
     expect(keys('source-fixture-b', EPISODE_ONE, false)).toEqual(first);
     expect(keys('source-fixture-a', EPISODE_ONE, false)).toEqual(first);
-    expect(first.every((key) => !key.includes('source-fixture'))).toBe(true);
+    expect(keys('source-fixture-a', EPISODE_ONE, true)).toEqual(first);
+    expect(keys('source-fixture-a', EPISODE_ONE, true, 'customer-fixture-2')).toEqual(first);
+    expect(first.every((key) => !key.includes('source-fixture') && !key.includes('customer-fixture'))).toBe(true);
   });
 
   it('a case that starts mid-episode after resegmentation keeps the key (06:00 vs 06:01)', () => {
     const analysis = analyze('source-fixture-a', EPISODE_ONE, true).caseAnalyses[0];
-    const all = buildConversationUnderstandingV32(
-      splitWhatsAppSessions(parse(EPISODE_ONE), Number.MAX_SAFE_INTEGER)[0]
-    ).messages;
+    const all = buildConversationUnderstandingV32(whole(EPISODE_ONE)).messages;
     const late = all.slice(1); // the resegmented case starts one minute later (06:01)
     const derive = (messages: typeof all, conversationTimeline?: typeof all) =>
       deriveFollowUpOpportunities({
@@ -272,7 +345,7 @@ describe('Sales Intelligence follow-up keys use the same contract', () => {
 
 describe('operational action writer: one row per real operation', () => {
   const ACTIONS = 'whatsapp_conversation_actions';
-  const exportSession = (raw: string) =>
+  const unitOf = (raw: string) =>
     segmentWhatsAppExportCanonical(parse(raw), 'chat.txt').caseContexts.contexts.find((context) =>
       context.mergedSession.messages.some((message) => message.text.includes('عايز 2 علبة'))
     )!.mergedSession;
@@ -293,13 +366,23 @@ describe('operational action writer: one row per real operation', () => {
       officialScoringEligible: true,
       evidence: { complaint: { messageIds: [] } },
     }) as any;
-  const sync = (session: WhatsAppConversationSession, sourceId: string, requests: Array<{ product: string; text: string }>, customer: any = UNRESOLVED) =>
+  const REQUEST = { product: 'كونجستال', text: 'عايز 2 علبة' };
+  const sync = (session: WhatsAppConversationSession, sourceId: string, requests = [REQUEST], customer: Customer = UNRESOLVED) =>
     syncWhatsAppOperationalActionsV6(model(session, requests), {
       sourceId,
       customerId: customer.customerId,
-      followupIdentity: { customer, session, caseStartedAt: session.startedAt, legacyCaseAnchor: session.id },
+      followupIdentity: { session, caseStartedAt: session.startedAt, legacy: { customer, caseAnchor: session.id } },
     });
   const rows = () => db.tables[ACTIONS] || [];
+  const legacyRow = (id: string, key: string, evidence: string[], extra: Row = {}) => ({
+    id,
+    source_id: `source-${id}`,
+    action_key: 'request:0:x',
+    action_type: 'customer_request',
+    followup_identity: key,
+    evidence,
+    ...extra,
+  });
 
   const client = supabase as any;
   let originalFrom: any;
@@ -316,13 +399,13 @@ describe('operational action writer: one row per real operation', () => {
   });
 
   it('import twice / retry / re-processing on a new source id reuse the first row', async () => {
-    const session = exportSession(EXPORT);
-    await sync(session, 'source-fixture-a', [{ product: 'كونجستال', text: 'عايز 2 علبة' }]);
+    const session = unitOf(EXPORT);
+    await sync(session, 'source-fixture-a');
     const first = { ...rows()[0] };
-    Object.assign(rows()[0], { status: 'in_progress', work_status: 'assigned', target_table: 'customer_requests', target_id: 'request-fixture-1' });
-    await sync(session, 'source-fixture-a', [{ product: 'كونجستال', text: 'عايز 2 علبة' }]);
-    await sync(exportSession(EXPORT), 'source-fixture-b', [{ product: 'كونجستال', text: 'عايز 2 علبة' }]);
-    await sync(exportSession(LONGER_EXPORT), 'source-fixture-c', [{ product: 'كونجستال', text: 'عايز 2 علبة' }]);
+    Object.assign(rows()[0], { work_status: 'assigned', target_table: 'customer_requests', target_id: 'request-fixture-1' });
+    await sync(session, 'source-fixture-a');
+    await sync(unitOf(EXPORT), 'source-fixture-b');
+    await sync(unitOf(LONGER_EXPORT), 'source-fixture-c');
     expect(rows()).toHaveLength(1);
     // Same row id => the materialization client key whatsapp-action:<id> and its lineage hold.
     expect(rows()[0]).toMatchObject({
@@ -335,55 +418,89 @@ describe('operational action writer: one row per real operation', () => {
     });
     // Re-import on another source only refreshes evidence: workflow state and lineage stay owned
     // by the existing task. (Same-source re-analysis keeps its pre-existing full refresh.)
-    const evidenceRefreshes = db.writes.filter((w) => w.op === 'upsert' && w.payload.some((row: any) => row.source_id === 'source-fixture-a' && row.id));
-    for (const write of evidenceRefreshes)
+    for (const write of db.writes.filter((w) => w.op === 'upsert' && w.payload.some((row: any) => row.id)))
       for (const row of write.payload)
-        for (const owned of ['status', 'work_status', 'target_table', 'target_id']) expect(Object.keys(row).includes(owned)).toBe(false);
+        for (const owned of ['status', 'work_status', 'target_table', 'target_id', 'customer_id']) expect(Object.keys(row).includes(owned)).toBe(false);
   });
 
   it('reordered requests (positional action_key shift) keep one row per operation', async () => {
-    const session = splitWhatsAppSessions(parse(EXPORT), Number.MAX_SAFE_INTEGER)[0];
-    const first = { product: 'كونجستال', text: 'عايز 2 علبة' };
+    const session = whole(EXPORT);
     const second = { product: 'كونجستال', text: 'لسه محتاج كونجستال' };
-    await sync(session, 'source-fixture-a', [first, second]);
+    await sync(session, 'source-fixture-a', [REQUEST, second]);
     expect(rows()).toHaveLength(2);
     const pairs = () => rows().map((row) => `${row.followup_identity}=${row.id}`).sort();
     const before = pairs();
     // Re-analysis drops the first request: request:0:<product> now names the SECOND operation.
     await sync(session, 'source-fixture-a', [second]);
-    await sync(session, 'source-fixture-a', [second, first]);
+    await sync(session, 'source-fixture-a', [second, REQUEST]);
     expect(rows()).toHaveLength(2);
     expect(pairs()).toEqual(before);
-    for (const row of rows()) {
-      const evidenceText = session.messages.find((message) => row.evidence.includes(message.id))!.text;
-      const expected = requestIdentity(session, UNRESOLVED, evidenceText.includes('لسه') ? 'لسه محتاج كونجستال' : 'عايز 2 علبة').identity;
-      expect(row.followup_identity).toBe(expected);
-    }
   });
 
-  it('a row stored under a legacy or unresolved alias is reused, never duplicated or re-keyed', async () => {
-    const session = exportSession(EXPORT);
-    const unresolved = requestIdentity(session, UNRESOLVED);
-    db.tables[ACTIONS] = [
-      { id: 'row-legacy', source_id: 'source-fixture-old', action_key: 'request:0:x', action_type: 'customer_request', followup_identity: unresolved.aliases[0], evidence: [] },
-    ];
-    await sync(session, 'source-fixture-a', [{ product: 'كونجستال', text: 'عايز 2 علبة' }]);
+  it('unresolved -> resolved -> unresolved -> re-linked keeps one row under one identity', async () => {
+    const session = unitOf(EXPORT);
+    await sync(session, 'source-fixture-a', [REQUEST], UNRESOLVED);
+    const original = { ...rows()[0] };
+    await sync(session, 'source-fixture-b', [REQUEST], RESOLVED);
+    await sync(session, 'source-fixture-c', [REQUEST], UNRESOLVED);
+    await sync(session, 'source-fixture-d', [REQUEST], RESOLVED_B);
     expect(rows()).toHaveLength(1);
-    // Customer resolved later: the conversation-anchored row is the same operation.
+    expect(rows()[0]).toMatchObject({ id: original.id, followup_identity: original.followup_identity, customer_id: null });
+  });
+
+  it('pre-contract rows: unresolved and resolved legacy keys are reused when evidence confirms', async () => {
+    const session = unitOf(EXPORT);
+    const stable = requestIdentity(session, RESOLVED);
+    const evidence = [messageAt(session, 'عايز 2 علبة').id];
+    db.tables[ACTIONS] = [legacyRow('legacy-case', stable.aliases[1].key, evidence)];
+    await sync(session, 'source-fixture-a', [REQUEST], RESOLVED); // resolved after an unresolved legacy write
+    expect(rows().map((row) => row.id)).toEqual(['legacy-case']);
+    db.tables[ACTIONS] = [legacyRow('legacy-customer', stable.aliases[0].key, evidence, { customer_id: 'customer-fixture-1' })];
+    await sync(session, 'source-fixture-a', [REQUEST], RESOLVED);
+    expect(rows().map((row) => row.id)).toEqual(['legacy-customer']);
+    expect(rows()[0].followup_identity).toBe(stable.aliases[0].key); // never re-keyed
+  });
+
+  it('a customer correction never attaches the operation to the other customer\'s legacy history', async () => {
+    const session = unitOf(EXPORT);
+    const evidence = [messageAt(session, 'عايز 2 علبة').id];
+    const keyForA = requestIdentity(session, RESOLVED).aliases[0].key;
+    db.tables[ACTIONS] = [legacyRow('legacy-a', keyForA, evidence, { customer_id: 'customer-fixture-1' })];
+    // Now resolved to B: B's legacy key is looked up, A's legacy row is not reused or rewritten.
+    await sync(session, 'source-fixture-a', [REQUEST], RESOLVED_B);
+    expect(rows()).toHaveLength(2);
+    expect(rows()[0]).toMatchObject({ id: 'legacy-a', followup_identity: keyForA, customer_id: 'customer-fixture-1' });
+    expect(rows()[1].followup_identity).toBe(requestIdentity(session).identity);
+  });
+
+  it('a legacy case key from another chat (same position, other evidence) is not reused', async () => {
+    const session = unitOf(EXPORT);
+    const caseKey = requestIdentity(session).aliases[0].key;
+    db.tables[ACTIONS] = [legacyRow('other-chat', caseKey, ['1789452060000-1-Someone Else'])];
+    await sync(session, 'source-fixture-a');
+    expect(rows()).toHaveLength(2);
+    expect(rows()[0]).toMatchObject({ id: 'other-chat', followup_identity: caseKey });
+  });
+
+  it('two legacy aliases confirming two different rows fail safe: nothing picked, merged or inserted', async () => {
+    const session = unitOf(EXPORT);
+    const stable = requestIdentity(session, RESOLVED);
+    const evidence = [messageAt(session, 'عايز 2 علبة').id];
     db.tables[ACTIONS] = [
-      { id: 'row-unresolved', source_id: 'source-fixture-old', action_key: 'request:0:x', action_type: 'customer_request', followup_identity: unresolved.identity, evidence: [] },
+      legacyRow('legacy-customer', stable.aliases[0].key, evidence),
+      legacyRow('legacy-case', stable.aliases[1].key, evidence),
     ];
-    await sync(session, 'source-fixture-a', [{ product: 'كونجستال', text: 'عايز 2 علبة' }], RESOLVED);
-    expect(rows()).toHaveLength(1);
-    expect(rows()[0]).toMatchObject({ id: 'row-unresolved', followup_identity: unresolved.identity });
+    const result = await sync(session, 'source-fixture-a', [REQUEST], RESOLVED);
+    expect(rows()).toHaveLength(2);
+    expect(result.map((row: any) => row.status)).toEqual(['followup_identity_alias_ambiguous']);
+    expect(db.writes).toHaveLength(0);
   });
 
   it('a concurrent writer of the same identity converges instead of failing or duplicating', async () => {
-    const session = exportSession(EXPORT);
+    const session = unitOf(EXPORT);
     const identity = requestIdentity(session).identity;
-    db.beforeInsert = () =>
-      rows().push({ id: 'row-concurrent', source_id: 'source-fixture-b', action_key: 'request:0:x', action_type: 'customer_request', followup_identity: identity, evidence: [] });
-    await sync(session, 'source-fixture-a', [{ product: 'كونجستال', text: 'عايز 2 علبة' }]);
+    db.beforeInsert = () => rows().push(legacyRow('row-concurrent', identity, []));
+    await sync(session, 'source-fixture-a');
     expect(rows()).toHaveLength(1);
     expect(rows()[0].id).toBe('row-concurrent');
   });
@@ -391,9 +508,44 @@ describe('operational action writer: one row per real operation', () => {
   it('two customers with the same request at the same minute keep separate rows', async () => {
     const chat = (contact: string) =>
       splitWhatsAppSessions(parse(`[9/15/26, 6:00:00 AM] You: عروض اليوم\n[9/15/26, 6:01:00 AM] ${contact}: عايز 2 علبة كونجستال`), 120)[0];
-    await sync(chat('Customer A'), 'source-fixture-a', [{ product: 'كونجستال', text: 'عايز 2 علبة' }]);
-    await sync(chat('Customer B'), 'source-fixture-b', [{ product: 'كونجستال', text: 'عايز 2 علبة' }]);
+    await sync(chat('Customer A'), 'source-fixture-a');
+    await sync(chat('Customer B'), 'source-fixture-b');
     expect(rows()).toHaveLength(2);
     expect(new Set(rows().map((row) => row.followup_identity)).size).toBe(2);
+  });
+
+  it('Journey V15 (reachable from every file ingest) writes its recovery follow-up through the same identity', async () => {
+    const raw = `[9/15/26, 6:00:00 AM] Customer: عايز اوردر كونجستال
+[9/15/26, 6:05:00 AM] You: تمام
+[9/15/26, 9:30:00 AM] Customer: الاوردر ماوصلش ومحدش رد`;
+    const contexts = segmentWhatsAppExportCanonical(parse(raw), 'chat.txt').caseContexts.contexts;
+    const sessions = contexts.map((context) => context.mergedSession);
+    const journeyModel = buildWhatsAppCustomerJourneyIntelligenceV15(sessions);
+    const recovery = journeyModel.actions.find((action) => action.key === 'journey-recovery-followup')!;
+    expect(recovery).toBeTruthy();
+    db.tables.whatsapp_review_sources = [{ id: 'source-fixture-a', branch: 'branch-fixture', customer_id: null }];
+    const run = () =>
+      syncWhatsAppCustomerJourneyV15(journeyModel, {
+        sessionSources: sessions.map((session) => ({ sessionId: session.id, sourceId: 'source-fixture-a', contextOnly: false })),
+        sessions,
+      });
+    await run();
+    await run();
+    const actions = rows();
+    expect(actions).toHaveLength(1);
+    const evidenceSession = sessions.find((session) => recovery.evidenceSessionIds.includes(session.id))!;
+    const expected = stableOperationIdentity({
+      timeline: sessions.flatMap((session) => session.messages),
+      evidenceAt: evidenceSession.startedAt,
+      operationType: recovery.type,
+    }).identity;
+    expect(actions[0]).toMatchObject({ source_id: 'source-fixture-a', action_type: recovery.type, followup_identity: expected });
+    // Without the conversation messages it fails closed: no identity-less row is written.
+    db.tables[ACTIONS] = [];
+    const result = await syncWhatsAppCustomerJourneyV15(journeyModel, {
+      sessionSources: sessions.map((session) => ({ sessionId: session.id, sourceId: 'source-fixture-a', contextOnly: false })),
+    });
+    expect(rows()).toHaveLength(0);
+    expect(result?.warnings).toContain('journey_recovery_followup_identity_unresolved');
   });
 });

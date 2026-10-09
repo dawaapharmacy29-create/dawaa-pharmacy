@@ -268,9 +268,6 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
       ? lostOpportunity.reason === 'competitor' ? 'bought_elsewhere' : 'customer_final_decline'
       : null;
   const saleProven = salesOutcome.outcome === 'sale_proven';
-  const identityCustomer = customerId
-    ? { status: 'resolved' as const, customerId, normalizedPhone: null, customerCode: null }
-    : null;
   const timeline = input.conversationTimeline?.length ? input.conversationTimeline : messages;
   const messageAt = new Map(messages.map((m) => [m.id, m.timestamp.getTime()]));
   const caseStartedAt = new Date(conversationCase.startedAt);
@@ -297,8 +294,9 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
     const duePolicy = candidate.duePolicy ?? profile.duePolicy;
     const requestedDelayDays = candidate.requestedDelayDays ?? null;
     const productScopeKey = demand ? (demand.resolvedProductId ?? demand.productKey) : null;
+    // Immutable operation identity: the customer's resolution (customerId below) is a separate,
+    // mutable attribute and never part of the key.
     const followUpKey = stableOperationIdentity({
-      customer: identityCustomer,
       timeline,
       evidenceAt: evidenceAt(candidate.evidence),
       operationType: candidate.reason,

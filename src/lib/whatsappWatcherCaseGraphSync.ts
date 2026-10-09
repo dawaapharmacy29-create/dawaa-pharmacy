@@ -162,6 +162,7 @@ export async function syncCanonicalCaseGraphForFile(input: {
             branch: input.branch,
             createdBy: input.createdBy,
             sessionSources: input.sessionSources,
+            sessions: contexts.map((context) => context.mergedSession),
           }
         ),
       syncCustomerCases: () =>

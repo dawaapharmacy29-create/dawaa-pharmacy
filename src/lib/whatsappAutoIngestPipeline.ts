@@ -49,7 +49,9 @@ import {
 import type { JourneySessionSourceV15 } from '@/lib/whatsappCustomerJourneyPersistenceV15';
 import {
   episodeStartedAt,
+  legacyAliasMatches,
   normalizeFollowupKeyPart,
+  resolveOperationOwner,
   stableOperationIdentity,
 } from '@/lib/whatsappFollowupIdentity';
 import type { SalesIntelligenceStageStatus } from '@/lib/salesIntelligence/refresh/refreshClient';
@@ -224,24 +226,27 @@ export async function saveFollowupSignals(
   const signals = detectFollowupSignals(session);
   if (!signals.length) return { created: 0, duplicate: 0 };
 
-  // Stable Operation Identity: same customer/conversation + episode + signal + reason -> same
-  // follow-up, regardless of session/source instance, segmentation, order or ingestion path.
+  // Stable Operation Identity: same conversation episode + signal + reason -> same follow-up,
+  // regardless of session/source instance, segmentation, order, ingestion path or the customer's
+  // current resolution. Pre-contract keys are legacy aliases, reused only when evidence confirms.
   const stableOf = (signal: DetectedFollowupSignal) =>
     stableOperationIdentity({
-      customer: identity.canonical,
       timeline: session.messages,
       evidenceAt: new Date(signal.evidenceTimestamp),
       operationType: `signal:${signal.signalType}`,
       reasonKey: signal.requestedProductName || null,
-      legacyCaseAnchor: session.id,
+      legacy: { customer: identity.canonical, caseAnchor: session.id },
     });
   const stable = signals.map(stableOf);
   const identities = stable.map((row) => row.identity);
 
   const exactLookup = supabase
     .from('whatsapp_auto_followup_requests')
-    .select('followup_identity')
-    .in('followup_identity', Array.from(new Set(stable.flatMap((row) => [row.identity, ...row.aliases]))));
+    .select('id,followup_identity,evidence_timestamp,evidence_quote')
+    .in(
+      'followup_identity',
+      Array.from(new Set(stable.flatMap((row) => [row.identity, ...row.aliases.map((alias) => alias.key)])))
+    );
   const legacyLookup =
     identity.resolutionStatus === 'resolved' && identity.customerId
       ? supabase
@@ -260,7 +265,13 @@ export async function saveFollowupSignals(
   if (existingError) throw existingError;
   if (legacyError) throw legacyError;
 
-  const existingKeys = new Set((existing || []).map((row) => String(row.followup_identity || '')));
+  const existingRows = (existing || []) as Array<{
+    id: string;
+    followup_identity: string | null;
+    evidence_timestamp: string | null;
+    evidence_quote: string | null;
+  }>;
+  const existingKeys = new Set(existingRows.map((row) => String(row.followup_identity || '')));
   const freshSignals: Array<{ signal: DetectedFollowupSignal; followupIdentity: string }> = [];
   let duplicate = 0;
   let legacyAdopted = 0;
@@ -269,8 +280,25 @@ export async function saveFollowupSignals(
   for (let index = 0; index < signals.length; index += 1) {
     const signal = signals[index];
     const key = identities[index];
-    if ([key, ...stable[index].aliases].some((candidate) => existingKeys.has(candidate))) {
+    if (existingKeys.has(key)) {
       duplicate += 1;
+      continue;
+    }
+    const owner = resolveOperationOwner(stable[index], existingRows, (alias, row) =>
+      legacyAliasMatches(
+        alias.kind,
+        { evidenceAt: new Date(signal.evidenceTimestamp), evidenceQuote: signal.evidenceQuote },
+        row
+      )
+    );
+    if (owner.status === 'ambiguous') {
+      // Fail closed: two pre-contract rows both look like this signal; neither is picked.
+      legacyAmbiguous += 1;
+      continue;
+    }
+    if (owner.status === 'legacy') {
+      duplicate += 1;
+      existingKeys.add(key);
       continue;
     }
 
@@ -418,10 +446,9 @@ async function persistOperationalJourneyIntelligence(
       (session.outboundStaffNames.length === 1 ? session.outboundStaffNames[0] : null),
     createdBy: sourceRow?.created_by || null,
     followupIdentity: {
-      customer: identity.canonical,
       session,
       caseStartedAt: canonicalCaseStartedAt,
-      legacyCaseAnchor: session.id,
+      legacy: { customer: identity.canonical, caseAnchor: session.id },
     },
   });
 
