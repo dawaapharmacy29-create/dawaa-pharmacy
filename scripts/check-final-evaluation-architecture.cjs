@@ -163,13 +163,16 @@ if(!performanceEye.includes('{x.reason}'))failures.push('decision source status 
 {
  // Staff sales branch-scope fix: both sales readers filter by the caller's readable branch, the helper is internal,
  // the migration refuses to run over drifted definitions, and the rollback restores them byte for byte.
- const crypto=require('crypto');
- const sm=read('supabase/migrations/20261009120000_staff_sales_branch_scope_v1.sql');
+ const sm=read('supabase/migrations/20261009190000_staff_sales_branch_scope_v1.sql');
  const srb=read('supabase/sql/ROLLBACK_20261009_staff_sales_branch_scope_v1.sql');
- const hashes=[...sm.matchAll(/<> '([0-9a-f]{32})'/g)].map(x=>x[1]);
- const restored=[...srb.matchAll(/(CREATE OR REPLACE FUNCTION [\s\S]*?AS \$function\$[\s\S]*?\$function\$\n)/g)].map(x=>crypto.createHash('md5').update(x[1]).digest('hex'));
- if(hashes.length!==2||restored.join()!==hashes.join())failures.push('staff sales scope rollback must restore the exact reviewed definitions (md5 mismatch)');
- if((sm.match(/sc\.branch is null or coalesce\(nullif\(btrim\(si\.branch_name\)/g)||[]).length<2||(sm.match(/v_scope is null or coalesce\(nullif\(btrim\(si\.branch_name\)/g)||[]).length<4)failures.push('every sales read in the bundle and evaluation summary must be limited to the caller\'s readable branch');
+ const expectedRestores={
+  get_staff_performance_sales_bundle_v1:['e2a969672242f7d2686c15c315a1b6be','91118e3b896c11f94e5e87b12a7e2f8e'],
+  get_staff_evaluation_sales_summary_v3:['4cfce7577cb7ef6062a4aad1b91a2179'],
+  get_staff_invoice_truth_read_v1:['257ffb1c5253fe2536d76c612ad0a1f7'],
+ };
+ const restoreNames=new Set([...srb.matchAll(/CREATE OR REPLACE FUNCTION public\.(\w+)/g)].map(x=>x[1]));
+ if(Object.entries(expectedRestores).some(([name,hashes])=>!restoreNames.has(name)||hashes.some(hash=>!sm.includes(hash))||!srb.includes(name)))failures.push('staff sales scope migration and rollback must cover all reviewed function baselines');
+ if((sm.match(/sc\.branch is null or public\.dawaa_customer_request_branch_key\(coalesce\(nullif\(btrim\(si\.branch_name\)/g)||[]).length<2||(sm.match(/v_scope is null or public\.dawaa_customer_request_branch_key\(coalesce\(nullif\(btrim\(si\.branch_name\)/g)||[]).length<4)failures.push('every sales read in the bundle and evaluation summary must be limited to the caller\'s readable branch');
  if(!/revoke all on function public\.dawaa_staff_sales_read_branch_v1\(uuid\) from public, anon, authenticated/.test(sm))failures.push('the sales read-branch helper must not be callable by API roles');
  if(!performanceService.includes('salesScopeBranch')||!performanceEye.includes('data?.salesScopeBranch'))failures.push('the doctor eye must say when sales are limited to the viewer\'s branch');
 }

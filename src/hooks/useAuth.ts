@@ -11,6 +11,7 @@ import {
   type StaffSessionStatus,
 } from '@/lib/auth/staffSession';
 import type { User } from '@/types';
+import { hasAuthorizationScopeChanged } from '@/lib/auth/authorizationCacheScope';
 import {
   ALL_PERMISSION_KEYS,
   getDefaultPermissionsForRole,
@@ -213,7 +214,7 @@ function readStoredUser(): User | null {
 let currentUser: User | null = readStoredUser();
 
 function setCurrentUser(user: User | null) {
-  const previousAccountId = currentUser?.id ?? null;
+  const previousUser = currentUser;
   currentUser = sanitizeUser(user);
   if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
     try {
@@ -227,8 +228,7 @@ function setCurrentUser(user: User | null) {
     }
   }
   listeners.forEach((listener) => listener());
-  const nextAccountId = currentUser?.id ?? null;
-  if (previousAccountId && previousAccountId !== nextAccountId) discardPreviousAccountMemory(nextAccountId);
+  if (hasAuthorizationScopeChanged(previousUser, currentUser)) discardPreviousAccountMemory(currentUser?.id ?? null);
 }
 
 /**

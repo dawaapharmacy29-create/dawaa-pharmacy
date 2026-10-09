@@ -165,6 +165,27 @@ Target structure:
 
 The profile service should combine section results, data freshness, and health states only. It should not contain direct shared-table queries or its own identity/matching algorithms.
 
+### Sales evidence contract
+
+Doctor Performance, the monthly evaluation sales summary, and Invoice Truth use
+`dawaa_sales_invoices_dashboard_v1` for the same final analytics population:
+pending/draft rows and the six configured system customer codes are excluded,
+and duplicate branch + invoice + day versions resolve to the newest row.
+Invoice amount priority is `net_amount`, `discounted_amount`, `amount`,
+`gross_amount`, `net_total`, `total_amount`, then `gross_total`; an explicit
+zero is retained. Customer identity priority is customer code, phone, then
+name. Name/alias attribution is compatibility-only, applies only when
+`staff_id` is empty, and is suppressed when the normalized identity is
+ambiguous.
+
+The database caller scope controls every sales row and freshness value:
+authorized all-scope roles read all branches; Shamy/Shokry branch users read
+only their own branch. Warehouse and unknown branch accounts fail closed.
+`branchAverage`, `branchInvoicesCount`, and seller diagnostics describe the
+positive-invoice population in that same authorized scope; `globalSellerNames`
+means all seller names visible within the requested period and caller scope,
+not names from every branch for a branch-scoped caller.
+
 ## 9. Payroll boundary
 
 Payroll must consume settled, auditable projections only.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Isolated database rehearsal for 20261009090000 (reconciliation) and 20261009120000 (sales branch scope).
+# Isolated database rehearsal for 20261009090000 (reconciliation) and 20261009190000 (sales branch scope).
 # Runs on a throwaway local PostgreSQL 16 cluster in a temp directory; never connects to Supabase or production.
 # Steps: platform + verbatim production functions + synthetic fixtures → data checksum → failure injections
 # (must leave nothing behind) → apply → role/scope assertions → idempotent re-apply → rollbacks (exact restore,
@@ -29,12 +29,15 @@ CHECKSUM="select md5(string_agg(t, '|' order by t)) from (
 OBJECTS="select coalesce(string_agg(n, ',' order by n), '') from (
   select proname n from pg_proc where proname in ('dawaa_doctor_attendance_days_v1','dawaa_doctor_sales_reconciliation_v1','get_doctor_sales_reconciliation_v1','get_branch_doctor_performance_window_v1','dawaa_staff_sales_read_branch_v1')
   union all select relname from pg_class where relname = 'biometric_device_branches') q"
-SALES_MD5="select md5(pg_get_functiondef('public.get_staff_performance_sales_bundle_v1(uuid,date,date,date,integer)'::regprocedure))||','||md5(pg_get_functiondef('public.get_staff_evaluation_sales_summary_v3(uuid,date,date)'::regprocedure))"
-EXPECTED_SALES_MD5="91118e3b896c11f94e5e87b12a7e2f8e,4cfce7577cb7ef6062a4aad1b91a2179"
+SALES_MD5="select md5(pg_get_functiondef('public.get_staff_performance_sales_bundle_v1(uuid,date,date,date,integer)'::regprocedure))||','||md5(pg_get_functiondef('public.get_staff_evaluation_sales_summary_v3(uuid,date,date)'::regprocedure))||','||md5(pg_get_functiondef('public.get_staff_invoice_truth_read_v1(uuid,date,date)'::regprocedure))"
+EXPECTED_SALES_MD5="e2a969672242f7d2686c15c315a1b6be,4cfce7577cb7ef6062a4aad1b91a2179,257ffb1c5253fe2536d76c612ad0a1f7"
 check() { if [ "$2" = "$3" ]; then echo "PASS: $1"; else echo "FAIL: $1 (got '$2', expected '$3')"; exit 1; fi; }
 
-step "baseline: platform, verbatim production functions, synthetic fixtures"
+step "baseline: platform, source functions, synthetic fixtures, and deployed alias-only bundle"
 PSQL -f "$S/tests/isolated/00_platform.sql" -f "$S/tests/isolated/01_production_functions.sql" -f "$S/tests/isolated/02_fixtures.sql"
+PSQL -1 -f "$S/migrations/20260822170000_staff_invoice_truth_read_v1.sql"
+PSQL -1 -f "$S/migrations/20260822171000_staff_invoice_truth_fast_identity_v2.sql"
+PSQL -1 -f "$S/migrations/20261009_fix_staff_performance_sales_bundle_alias_branch_scope_v1.sql"
 BASE=$(PSQL -At -c "$CHECKSUM")
 check "baseline sales functions equal the production definitions" "$(PSQL -At -c "$SALES_MD5")" "$EXPECTED_SALES_MD5"
 
@@ -42,13 +45,13 @@ step "failure injection 1: reconciliation migration aborted mid-way leaves nothi
 if (cat "$S/migrations/20261009090000_doctor_sales_reconciliation_v1.sql"; echo "select 1/0;") | PSQL -1 >/dev/null 2>&1; then echo "FAIL: injected failure did not abort"; exit 1; fi
 check "no object survives an aborted migration" "$(PSQL -At -c "$OBJECTS")" ""
 step "failure injection 2: scope fix refuses to run over a drifted definition"
-if (echo "create or replace function public.get_staff_evaluation_sales_summary_v3(p_staff_id uuid, p_start date, p_end_exclusive date) returns table(sales numeric, invoices bigint, customers bigint, avg_invoice numeric, data_as_of date) language sql as \$\$ select 0::numeric,0::bigint,0::bigint,0::numeric,null::date \$\$;"; cat "$S/migrations/20261009120000_staff_sales_branch_scope_v1.sql") | PSQL -1 >/dev/null 2>&1; then echo "FAIL: drift guard did not abort"; exit 1; fi
+if (echo "create or replace function public.get_staff_evaluation_sales_summary_v3(p_staff_id uuid, p_start date, p_end_exclusive date) returns table(sales numeric, invoices bigint, customers bigint, avg_invoice numeric, data_as_of date) language sql as \$\$ select 0::numeric,0::bigint,0::bigint,0::numeric,null::date \$\$;"; cat "$S/migrations/20261009190000_staff_sales_branch_scope_v1.sql") | PSQL -1 >/dev/null 2>&1; then echo "FAIL: drift guard did not abort"; exit 1; fi
 check "drift abort left both sales functions untouched" "$(PSQL -At -c "$SALES_MD5")" "$EXPECTED_SALES_MD5"
 check "drift abort created no helper" "$(PSQL -At -c "$OBJECTS")" ""
 
 step "apply both migrations (each in one transaction)"
 PSQL -1 -f "$S/migrations/20261009090000_doctor_sales_reconciliation_v1.sql"
-PSQL -1 -f "$S/migrations/20261009120000_staff_sales_branch_scope_v1.sql"
+PSQL -1 -f "$S/migrations/20261009190000_staff_sales_branch_scope_v1.sql"
 check "applying writes no existing data" "$(PSQL -At -c "$CHECKSUM")" "$BASE"
 
 step "assertions: categories, conversion, roles, branch scope, peer comparison"
@@ -69,6 +72,6 @@ echo "PASS: rollback is safe to run twice"
 
 step "forward re-apply after rollback"
 PSQL -1 -f "$S/migrations/20261009090000_doctor_sales_reconciliation_v1.sql"
-PSQL -1 -f "$S/migrations/20261009120000_staff_sales_branch_scope_v1.sql"
+PSQL -1 -f "$S/migrations/20261009190000_staff_sales_branch_scope_v1.sql"
 PSQL -f "$S/tests/isolated/03_assert_applied.sql" 2>&1 | grep -cE "PASS" | xargs -I{} echo "PASS: {} assertions pass again after re-apply"
 echo; echo "ISOLATED REHEARSAL: ALL STEPS PASSED"

@@ -183,9 +183,9 @@ export function sourceStateOf(problem:SourceProblem|null,insufficientReason:stri
   return {state:'available',reason:null,diagnostic:null};
 }
 
-async function salesBundle(staffId:string,windowStart:string,windowEnd:string,currentStart:string,elapsedDays:number){
+async function salesBundle(viewerScopeKey:string|null,staffId:string,windowStart:string,windowEnd:string,currentStart:string,elapsedDays:number){
   const {payload,error}=await loadPerformanceSalesBundle({
-    staffId,windowStart,windowEnd,currentStart,elapsedDays,
+    viewerScopeKey,staffId,windowStart,windowEnd,currentStart,elapsedDays,
   });
   return {rows:Array.isArray(payload.cycles)?payload.cycles:[],samePeriod:payload.samePeriod||{},dataAsOf:payload.dataAsOf||null,effectiveDays:Math.max(0,n(payload.effectiveDays)),scopeBranch:payload.scopeBranch||null,available:!error,identity:error?'unavailable' as const:'canonical' as const,problem:problemOf(error,'المبيعات','sales')};
 }
@@ -337,7 +337,7 @@ async function salesReconciliationWindow(staffId:string,start:string,endExclusiv
   return {cycles:error?[]:parseSalesReconciliation(data),available:!error,problem:problemOf(error,'مطابقة المبيعات بالحضور','sales_reconciliation')};
 }
 
-export async function loadDoctorPerformanceIntelligence(args:{staffId:string;staffName:string;cycleLabel:string}):Promise<DoctorPerformanceIntelligence>{
+export async function loadDoctorPerformanceIntelligence(args:{viewerScopeKey:string|null;staffId:string;staffName:string;cycleLabel:string}):Promise<DoctorPerformanceIntelligence>{
   const cycleSpecs=Array.from({length:3},(_,back)=>{
     const cycleLabel=previousCycle(args.cycleLabel,back);
     const range=evaluationCycleRangeFromLabel(cycleLabel);
@@ -360,7 +360,7 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
   // attendance read model carries no hours and is used only for evidence dates/counts.
   const canonicalAttendance=Promise.allSettled(cycleSpecs.map(spec=>getStaffAttendanceDetail(args.staffId,spec.start,spec.endInclusive)));
   const [salesTruth,attendanceWindow,conversationWindow,impactWindow,reconciliationWindow]=await Promise.all([
-    salesBundle(args.staffId,windowStart,windowEnd,currentSpec.start,requestedElapsedDays),
+    salesBundle(args.viewerScopeKey,args.staffId,windowStart,windowEnd,currentSpec.start,requestedElapsedDays),
     readAttendanceRange({staffId:args.staffId,startDate:windowStart,endDateExclusive:windowEnd,limit:400}),
     supabase.from('conversation_sales_reviews_canonical_v2').select('id,converted_to_sale,conversation_date,created_at').or(`doctor_id.eq.${args.staffId},staff_id.eq.${args.staffId}`).or(`and(conversation_date.gte.${windowStartAt},conversation_date.lt.${windowEndAt}),and(conversation_date.is.null,created_at.gte.${windowStartAt},created_at.lt.${windowEndAt})`).limit(3000),
     customerImpactWindow(args.staffId,windowStart,windowEnd),

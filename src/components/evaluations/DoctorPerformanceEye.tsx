@@ -80,7 +80,7 @@ function Kpi({ label, value, deltaValue, deltaNote, unavailableReason }: { label
  * header/conversation are the evidence the evaluation page already loaded for this employee and cycle,
  * so the Eye's decision summary reads the same attendance and conversation truth as the page.
  */
-export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, branch, header = null, conversation = null, actorId = null, sections = [] }: { staffId: string; staffName: string; cycleLabel: string; branch?: string | null; header?: EvaluationHeaderSummary | null; conversation?: MonthlyConversationCoaching | null; actorId?: string | null; sections?: { key: string; title: string; score: number }[] }) {
+export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, branch, header = null, conversation = null, actorId = null, viewerScopeKey = null, sections = [] }: { staffId: string; staffName: string; cycleLabel: string; branch?: string | null; header?: EvaluationHeaderSummary | null; conversation?: MonthlyConversationCoaching | null; actorId?: string | null; viewerScopeKey?: string | null; sections?: { key: string; title: string; score: number }[] }) {
   const [open, setOpen] = useState(false), [loading, setLoading] = useState(false), [data, setData] = useState<DoctorPerformanceIntelligence | null>(null), [error, setError] = useState('');
   const [expandedInsight, setExpandedInsight] = useState<number | null>(null), [comparisonDetails, setComparisonDetails] = useState(false), [detailsOpen, setDetailsOpen] = useState(false);
   const [evidenceOpen, setEvidenceOpen] = useState(false), [evidenceLoading, setEvidenceLoading] = useState(false), [evidenceError, setEvidenceError] = useState('');
@@ -96,7 +96,7 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
     setEvidence(null); setEvidenceOpen(false); setEvidenceError(''); setEvidenceFocus('all');
     setExpandedInsight(null); setComparisonDetails(false); setDetailsOpen(false);
     setDecisionSources(null); setDecisionLoading(false); setBranchOpen(false);
-  }, [staffId, cycleLabel, branch]);
+  }, [staffId, cycleLabel, branch, viewerScopeKey]);
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false); };
@@ -119,7 +119,7 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
     if (force) { invalidatePerformanceSalesBundleCache(staffId); invalidateDoctorDecisionData(); setEvidence(null); setEvidenceError(''); }
     setLoading(true); setError('');
     try {
-      const value = await loadDoctorPerformanceIntelligence({ staffId, staffName, cycleLabel });
+      const value = await loadDoctorPerformanceIntelligence({ viewerScopeKey, staffId, staffName, cycleLabel });
       if (requestRef.current === requestId) setData(value);
     } catch (e) {
       if (requestRef.current === requestId) { setData(null); setError(userFacingMessage(e, 'تعذر بناء التحليل الآن؛ أعد المحاولة بعد قليل.', 'load')); }

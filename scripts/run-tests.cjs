@@ -222,6 +222,7 @@ const testFiles = [
   'src/lib/hr/__tests__/payrollRequestCoordinator.test.ts',
   'src/lib/evaluations/__tests__/doctorEyeChartModel.test.ts',
   'src/lib/auth/__tests__/requestIdentityHeaders.test.ts',
+  'src/lib/auth/__tests__/authorizationCacheScope.test.ts',
   'src/lib/__tests__/incentiveEligibility.test.ts',
   'src/lib/__tests__/customerCohortIntelligence.test.ts',
   'src/lib/staff/__tests__/staffPerformanceProfileService.test.ts',

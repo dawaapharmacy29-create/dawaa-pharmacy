@@ -20,10 +20,39 @@ create table public.staff_accounts (id uuid primary key, role text, branch text,
 create table public.staff_identity_aliases (id uuid primary key default gen_random_uuid(), staff_id uuid, alias_name text, normalized_alias text, active boolean default true);
 create table public.sales_invoices (
   id text primary key, branch text, branch_name text, invoice_number text, invoice_date timestamptz,
-  staff_id text, seller_name text, normalized_seller_name text, staff_name text,
+  sale_date date, invoice_no text, staff_id text, seller_name text, normalized_seller_name text, staff_name text,
   customer_id uuid, customer_code text, customer_phone text,
-  net_total numeric, net_amount numeric, discounted_amount numeric, total_amount numeric, amount numeric, gross_total numeric, gross_amount numeric
+  customer_name text, phone text, customer_address text, customer_segment text,
+  invoice_type text, invoice_category text, shift text, save_status text,
+  net_total numeric, net_amount numeric, discounted_amount numeric, total_amount numeric, amount numeric, gross_total numeric, gross_amount numeric,
+  created_at timestamptz default now(), updated_at timestamptz
 );
+create view public.dawaa_sales_invoices_dashboard_v1 as
+with eligible as (
+  select si.*,
+         row_number() over (
+           partition by coalesce(nullif(btrim(si.branch),''),nullif(btrim(si.branch_name),''),'غير محدد'),
+             coalesce(nullif(btrim(coalesce(si.invoice_number,si.invoice_no)),''),concat('__row__',si.id)),
+             coalesce(si.invoice_date::date,si.sale_date,si.created_at::date)
+           order by coalesce(si.updated_at,si.created_at) desc nulls last,si.created_at desc nulls last,si.id desc
+         ) truth_rank
+  from public.sales_invoices si
+  where coalesce(btrim(si.customer_code),'') not in ('5','10','54','170','4902','12820')
+    and not (
+      lower(coalesce(si.save_status,'')) ~ '(معلق|قيد|pending|draft|غير محفوظ)'
+      or lower(coalesce(si.invoice_type,'')) ~ '(معلق|pending|draft)'
+    )
+)
+select * from eligible where truth_rank=1;
+create view public.staff_sales_summary as
+select invoice_date::date sale_date,
+       coalesce(nullif(btrim(normalized_seller_name),''),nullif(btrim(seller_name),''),nullif(btrim(staff_name),'')) seller_name,
+       coalesce(nullif(btrim(branch_name),''),nullif(btrim(branch),'')) branch,
+       count(*)::bigint invoices_count,
+       sum(coalesce(net_total,net_amount,discounted_amount,total_amount,amount,gross_total,gross_amount,0))::numeric net_total
+from public.sales_invoices
+group by 1,2,3;
+grant select on public.dawaa_sales_invoices_dashboard_v1, public.staff_sales_summary to anon, authenticated;
 create table public.attendance_daily_summary (
   id uuid primary key default gen_random_uuid(), staff_id uuid, attendance_date date, branch text,
   first_in timestamptz, last_out timestamptz, status text, payroll_eligible_hours numeric, candidate_hours numeric,

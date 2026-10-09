@@ -1,7 +1,7 @@
 -- Production definitions copied verbatim (captured 2026-10-09 with pg_get_functiondef) for the functions the
 -- migrations depend on (dawaa_monthly_evaluation_canonical_role_v5 is reduced to its doctor mapping, the only
--- branch it needs here). The two sales readers are the exact bodies whose md5 the scope fix checks
--- (91118e3b896c11f94e5e87b12a7e2f8e / 4cfce7577cb7ef6062a4aad1b91a2179).
+-- branch it needs here). The sales readers start from the pre-alias bundle and evaluation definition;
+-- run-isolated-db-rehearsal applies the deployed alias-only bundle migration before taking its baseline.
 CREATE OR REPLACE FUNCTION public.normalize_cs_name(v text)
  RETURNS text
  LANGUAGE sql
