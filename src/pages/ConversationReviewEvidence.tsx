@@ -40,6 +40,7 @@ export default function ConversationReviewEvidence() {
       const { data, error } = await supabase
         .from('conversation_sales_reviews')
         .select('id,staff_id,staff_name,branch,final_score,total_score,created_at,customer_name,reviewer_message')
+        .eq('is_current', true)
         .order('created_at', { ascending: false })
         .limit(150);
       if (error) toast.error(error.message);

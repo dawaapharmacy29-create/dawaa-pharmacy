@@ -49,8 +49,8 @@ export default function DoctorReviewDetails() {
     if (!staffId) return;
     setLoading(true);
     const [byStaff, byDoctor] = await Promise.all([
-      supabase.from('conversation_sales_reviews').select('*').eq('staff_id', staffId).order('created_at', { ascending: false }).limit(500),
-      supabase.from('conversation_sales_reviews').select('*').eq('doctor_id', staffId).order('created_at', { ascending: false }).limit(500),
+      supabase.from('conversation_sales_reviews').select('*').eq('staff_id', staffId).eq('is_current', true).order('created_at', { ascending: false }).limit(500),
+      supabase.from('conversation_sales_reviews').select('*').eq('doctor_id', staffId).eq('is_current', true).order('created_at', { ascending: false }).limit(500),
     ]);
     const unique = new Map<string, Row>();
     [...(byStaff.data || []), ...(byDoctor.data || [])].forEach((row: Row) => unique.set(text(row.id), row));

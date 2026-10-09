@@ -298,6 +298,7 @@ const testFiles = [
   'src/lib/__tests__/reviewDraftLifecycle.test.ts',
   'src/lib/__tests__/reviewRouteState.test.ts',
   'src/lib/__tests__/reviewEditorNavigationGuard.test.ts',
+  'src/lib/__tests__/runtimeReadContracts.test.ts',
   'src/lib/__tests__/conversationReviewCorrection.test.ts',
   'src/lib/salesIntelligence/__tests__/conversationEvaluationPersistence.test.ts',
   'src/lib/__tests__/followUpPromiseLifecycle.test.ts',

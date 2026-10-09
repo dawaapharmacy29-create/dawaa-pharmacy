@@ -353,13 +353,13 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
     setPart('reviews', 'loading');
     const queries: Promise<Row[]>[] = [];
     if (staffId) {
-      queries.push(safeRows(supabase.from('conversation_sales_reviews').select('*').eq('staff_id', staffId).order('created_at', { ascending: false }).limit(100)));
-      queries.push(safeRows(supabase.from('conversation_sales_reviews').select('*').eq('doctor_id', staffId).order('created_at', { ascending: false }).limit(100)));
+      queries.push(safeRows(supabase.from('conversation_sales_reviews').select('*').eq('staff_id', staffId).eq('is_current', true).order('created_at', { ascending: false }).limit(100)));
+      queries.push(safeRows(supabase.from('conversation_sales_reviews').select('*').eq('doctor_id', staffId).eq('is_current', true).order('created_at', { ascending: false }).limit(100)));
     }
     // بعض التقييمات (خصوصًا القديمة) اتسجلت بالاسم بس من غير staff_id/doctor_id،
     // فمينفعش نعتمد على المطابقة بالـ ID لوحدها — لازم fallback بالاسم زي الرواكد واللستة.
     if (doctorName) {
-      queries.push(safeRows(supabase.from('conversation_sales_reviews').select('*').eq('doctor_name', doctorName).order('created_at', { ascending: false }).limit(100)));
+      queries.push(safeRows(supabase.from('conversation_sales_reviews').select('*').eq('doctor_name', doctorName).eq('is_current', true).order('created_at', { ascending: false }).limit(100)));
     }
     const rows = (await Promise.all(queries)).flat();
     const mine = staffId

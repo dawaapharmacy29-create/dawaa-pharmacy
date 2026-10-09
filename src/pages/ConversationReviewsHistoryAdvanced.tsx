@@ -154,6 +154,7 @@ export default function ConversationReviewsHistoryAdvanced() {
         const { data, error: queryError } = await supabase
           .from('conversation_sales_reviews')
           .select(SELECT)
+          .eq('is_current', true)
           .order('created_at', { ascending: false })
           .range(from, from + PAGE - 1);
         if (queryError) throw queryError;

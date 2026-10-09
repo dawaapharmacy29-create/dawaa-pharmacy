@@ -9211,6 +9211,7 @@ var CANONICAL_SOURCE_GATE_CODES = {
   ambiguousCase: "blocked_ambiguous_canonical_case"
 };
 var SIBLING_LIMIT = 1e3;
+var V22_LOOKUP_CONCURRENCY = 4;
 var V22_ID_CHUNK = 40;
 function time(value) {
   const parsed = value ? Date.parse(value) : NaN;
@@ -9311,25 +9312,34 @@ async function loadCanonicalSourceGateContext(service, sources) {
 async function loadV22CaseOwnership(service, sourceIds) {
   const v22CaseIdsBySource = /* @__PURE__ */ new Map();
   const ids = Array.from(new Set(sourceIds.map(String).filter(Boolean)));
-  for (let index = 0; index < ids.length; index += V22_ID_CHUNK) {
-    const chunk = ids.slice(index, index + V22_ID_CHUNK);
+  const chunks3 = [];
+  for (let index = 0; index < ids.length; index += V22_ID_CHUNK)
+    chunks3.push(ids.slice(index, index + V22_ID_CHUNK));
+  const lookup = async (chunk) => {
     const { data, error } = await service.from("whatsapp_customer_cases_v22").select("id,root_source_id,source_ids").or(
       `root_source_id.in.(${chunk.join(",")}),source_ids.ov.{${chunk.join(",")}}`
     );
     if (error) throw new Error(`canonical_source_gate_case_lookup_failed: ${error.message}`);
-    const wanted = new Set(chunk);
-    for (const row of data || []) {
-      const owners = /* @__PURE__ */ new Set([
-        String(row.root_source_id || ""),
-        ...(row.source_ids || []).map(String)
-      ]);
-      for (const owner of owners) {
-        if (!wanted.has(owner)) continue;
-        const current = v22CaseIdsBySource.get(owner) || [];
-        if (!current.includes(String(row.id)))
-          v22CaseIdsBySource.set(owner, [...current, String(row.id)]);
+    return data || [];
+  };
+  for (let wave = 0; wave < chunks3.length; wave += V22_LOOKUP_CONCURRENCY) {
+    const waveChunks = chunks3.slice(wave, wave + V22_LOOKUP_CONCURRENCY);
+    const results = await Promise.all(waveChunks.map(lookup));
+    results.forEach((rows, offset) => {
+      const wanted = new Set(waveChunks[offset]);
+      for (const row of rows) {
+        const owners = /* @__PURE__ */ new Set([
+          String(row.root_source_id || ""),
+          ...(row.source_ids || []).map(String)
+        ]);
+        for (const owner of owners) {
+          if (!wanted.has(owner)) continue;
+          const current = v22CaseIdsBySource.get(owner) || [];
+          if (!current.includes(String(row.id)))
+            v22CaseIdsBySource.set(owner, [...current, String(row.id)]);
+        }
       }
-    }
+    });
   }
   return v22CaseIdsBySource;
 }

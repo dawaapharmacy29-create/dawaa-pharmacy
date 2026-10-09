@@ -1398,6 +1398,7 @@ async function loadConversationReviews(args: {
       .from('conversation_sales_reviews')
       .select(REVIEW_SELECT)
       .eq(column, args.staffId)
+      .eq('is_current', true)
       .or(dateFilter)
       .order('created_at', { ascending: false })
       .limit(500);

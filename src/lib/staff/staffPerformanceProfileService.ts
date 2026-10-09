@@ -1571,6 +1571,7 @@ async function loadStaffCustomerServiceMetrics(
       .from('conversation_sales_reviews')
       .select('*')
       .eq('staff_id', staffId)
+      .eq('is_current', true)
       .gte('created_at', cycleStart)
       .lte('created_at', cycleEnd)
       .limit(200);

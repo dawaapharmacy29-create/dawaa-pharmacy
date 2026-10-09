@@ -310,6 +310,7 @@ export default function DoctorCompetition() {
       let reviewQuery = supabase
         .from('conversation_sales_reviews')
         .select('staff_id,doctor_id,staff_name,doctor_name,branch,final_score,total_score')
+        .eq('is_current', true)
         .gte('conversation_date', competitionRange.start)
         .lte('conversation_date', `${competitionRange.end}T23:59:59`)
         .limit(10000);

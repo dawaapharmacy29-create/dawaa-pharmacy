@@ -52,6 +52,7 @@ export interface CanonicalSourceGateContext {
 }
 
 const SIBLING_LIMIT = 1000;
+const V22_LOOKUP_CONCURRENCY = 4;
 const V22_ID_CHUNK = 40;
 
 function time(value: string | null | undefined) {
@@ -195,32 +196,41 @@ export async function loadV22CaseOwnership(
 ): Promise<Map<string, string[]>> {
   const v22CaseIdsBySource = new Map<string, string[]>();
   const ids = Array.from(new Set(sourceIds.map(String).filter(Boolean)));
-  for (let index = 0; index < ids.length; index += V22_ID_CHUNK) {
-    const chunk = ids.slice(index, index + V22_ID_CHUNK);
+  const chunks: string[][] = [];
+  for (let index = 0; index < ids.length; index += V22_ID_CHUNK)
+    chunks.push(ids.slice(index, index + V22_ID_CHUNK));
+  type OwnershipRow = { id: string; root_source_id: string | null; source_ids: string[] | null };
+  const lookup = async (chunk: string[]) => {
     const { data, error } = (await service
       .from('whatsapp_customer_cases_v22')
       .select('id,root_source_id,source_ids')
       .or(
         `root_source_id.in.(${chunk.join(',')}),source_ids.ov.{${chunk.join(',')}}`
-      )) as QueryResult<{
-      id: string;
-      root_source_id: string | null;
-      source_ids: string[] | null;
-    }>;
+      )) as QueryResult<OwnershipRow>;
     if (error) throw new Error(`canonical_source_gate_case_lookup_failed: ${error.message}`);
-    const wanted = new Set(chunk);
-    for (const row of data || []) {
-      const owners = new Set([
-        String(row.root_source_id || ''),
-        ...(row.source_ids || []).map(String),
-      ]);
-      for (const owner of owners) {
-        if (!wanted.has(owner)) continue;
-        const current = v22CaseIdsBySource.get(owner) || [];
-        if (!current.includes(String(row.id)))
-          v22CaseIdsBySource.set(owner, [...current, String(row.id)]);
+    return data || [];
+  };
+  // The chunks are independent reads: run them in bounded parallel waves instead of one round
+  // trip per chunk. Any failed chunk still fails the whole lookup (fail closed), and results are
+  // merged in chunk order, so the ownership map is identical to the sequential version.
+  for (let wave = 0; wave < chunks.length; wave += V22_LOOKUP_CONCURRENCY) {
+    const waveChunks = chunks.slice(wave, wave + V22_LOOKUP_CONCURRENCY);
+    const results = await Promise.all(waveChunks.map(lookup));
+    results.forEach((rows, offset) => {
+      const wanted = new Set(waveChunks[offset]);
+      for (const row of rows) {
+        const owners = new Set([
+          String(row.root_source_id || ''),
+          ...(row.source_ids || []).map(String),
+        ]);
+        for (const owner of owners) {
+          if (!wanted.has(owner)) continue;
+          const current = v22CaseIdsBySource.get(owner) || [];
+          if (!current.includes(String(row.id)))
+            v22CaseIdsBySource.set(owner, [...current, String(row.id)]);
+        }
       }
-    }
+    });
   }
   return v22CaseIdsBySource;
 }

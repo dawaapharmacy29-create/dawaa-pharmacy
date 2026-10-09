@@ -181,7 +181,8 @@ const EVAL_REASONS = [
   'مراجعة أداء شهرية',
 ];
 const REVIEW_DRAFT_KEY = 'dawaa_conversation_review_draft_v3';
-const REVIEW_HISTORY_CACHE_KEY = 'dawaa_conversation_review_history_v1';
+// v2: rows are current versions only; v1 caches could still hold superseded/reconciled rows.
+const REVIEW_HISTORY_CACHE_KEY = 'dawaa_conversation_review_history_v2';
 const REVIEW_HISTORY_SELECT =
   'id,created_at,updated_at,reviewer_id,reviewer_name,reviewer_role,staff_id,doctor_id,staff_name,staff_role,doctor_name,branch,customer_id,customer_name,customer_code,customer_phone,invoice_number,evaluation_kind,conversation_type,evaluation_reason,conversation_date,total_score,final_score,level,point_impact,doctor_points_impact,main_positive_reason,main_negative_reason,reviewer_notes,training_recommendation,month_cycle,manager_review_score,manager_review_notes,manager_reviewed_by,manager_reviewed_at';
 
@@ -465,6 +466,9 @@ export default function Reviews() {
   const [searchParams, setSearchParams] = useSearchParams();
   const newOnlyMode = searchParams.get('mode') === 'new';
   const historyOnlyMode = searchParams.get('section') === 'history';
+  // The in-page history list is only shown on section=history (outside mode=new). On the main,
+  // new and edit routes it is never visible, so it is neither fetched nor rendered there.
+  const historyVisible = historyOnlyMode && !newOnlyMode;
   const reviewsRoute = useMemo(() => parseReviewsRoute(searchParams), [searchParams]);
   // mode=edit&id=<id>: the stable identity of the review being edited. Only the URL selects it, so no
   // field edit, save, refetch or details-modal close can drop it.
@@ -1088,6 +1092,7 @@ export default function Reviews() {
         let q = supabase
           .from('conversation_sales_reviews')
           .select(REVIEW_HISTORY_SELECT)
+          .eq('is_current', true)
           .order('created_at', { ascending: false });
 
         if (historyFilterStaffId) {
@@ -1158,8 +1163,8 @@ export default function Reviews() {
   ]);
 
   useEffect(() => {
-    loadReviewHistory();
-  }, [loadReviewHistory]);
+    if (historyVisible) void loadReviewHistory();
+  }, [historyVisible, loadReviewHistory]);
 
   useEffect(() => {
     const id = selectedReviewId;
@@ -1673,7 +1678,7 @@ export default function Reviews() {
         );
       }
 
-      if (!newOnlyMode) postSaveTasks.push(loadReviewHistory());
+      if (historyVisible) postSaveTasks.push(loadReviewHistory());
 
       void Promise.allSettled(postSaveTasks).then((results) => {
         const failed = results.filter((item) => item.status === 'rejected');
@@ -2050,7 +2055,7 @@ export default function Reviews() {
         try {
           window.sessionStorage.removeItem(`${REVIEW_HISTORY_CACHE_KEY}:${user?.id || 'anonymous'}`);
         } catch {}
-        await loadReviewHistory();
+        if (historyVisible) await loadReviewHistory();
         setEditingReview(null);
         toast.success(
           corrected.status === 'already_applied'
@@ -2173,7 +2178,7 @@ export default function Reviews() {
       try {
         window.sessionStorage.removeItem(`${REVIEW_HISTORY_CACHE_KEY}:${user?.id || 'anonymous'}`);
       } catch {}
-      await loadReviewHistory();
+      if (historyVisible) await loadReviewHistory();
       setEditingReview(null);
       toast.success('تم تعديل التقييم بالكامل وإعادة احتساب الدرجة والنقاط');
       return true;
@@ -2234,7 +2239,7 @@ export default function Reviews() {
           manager_reviewed_at: new Date().toISOString(),
         });
       }
-      await loadReviewHistory();
+      if (historyVisible) await loadReviewHistory();
       setManagerReviewTarget(null);
       toast.success('تم حفظ تقييم مدير خدمة العملاء/المراجع');
       return true;
@@ -2609,9 +2614,8 @@ export default function Reviews() {
         </section>
       ) : null}
 
-      <section
-        className={`${newOnlyMode || !historyOnlyMode ? 'hidden' : ''} stat-card border border-teal-500/20 bg-teal-500/5 space-y-4`}
-      >
+      {historyVisible ? (
+      <section className="stat-card border border-teal-500/20 bg-teal-500/5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <ListChecks className="text-teal-400" size={20} />
@@ -2936,6 +2940,7 @@ export default function Reviews() {
           </table>
         </div>
       </section>
+      ) : null}
 
       {newOnlyMode ? (
         <>

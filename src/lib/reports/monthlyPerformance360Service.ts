@@ -171,8 +171,10 @@ export async function loadMonthlyPerformance360(args: {
     readAttendanceRange({ staffId, startDate, endDateExclusive, limit: 400 }),
     supabase
       .from('conversation_sales_reviews')
-      .select('total_score,final_score,score,created_at')
+      // `score` is not a column of this table: selecting it failed the whole query (42703).
+      .select('total_score,final_score,created_at')
       .eq('staff_id', staffId)
+      .eq('is_current', true)
       .gte('created_at', startDate)
       .lt('created_at', endDateExclusive)
       .limit(1000),

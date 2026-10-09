@@ -195,6 +195,10 @@ function isUnknownDoctorName(value: unknown) {
   return !comparable || comparable === 'غير محدد' || comparable === 'غير محدد دكتور';
 }
 
+/** Every conversation_sales_reviews column the competition score loop reads (rowStaffId,
+ * invoiceDoctor via staff_name/doctor_name, branch, final_score). */
+export const COMPETITION_REVIEW_COLUMNS = 'id,staff_id,doctor_id,staff_name,doctor_name,branch,final_score,conversation_date';
+
 function rowStaffId(row: Row) {
   return text(row.staff_id || row.doctor_id || row.seller_id || row.employee_id || row.responsible_staff_id || row.reviewed_staff_id || row.assigned_staff_id);
 }
@@ -496,7 +500,9 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
   const salesErrors: string[] = [];
   const [salesRows, reviewResult, followupResult, stagnantResult, listResult] = await Promise.all([
     salesSource === 'invoice_fallback' ? fetchDoctorSalesRows(range, selectedBranch, salesErrors).catch(() => [] as Row[]) : Promise.resolve([] as Row[]),
-    safeSelect('conversation_sales_reviews', (query) => query.select('*').gte('conversation_date', range.start).lte('conversation_date', `${range.end}T23:59:59`).limit(5000)),
+    // Only the columns the score loop reads (identity, branch, score): select('*') pulled the
+    // evidence JSON (~15 KB/row, ~9 MB per full cycle) into every dashboard load.
+    safeSelect('conversation_sales_reviews', (query) => query.select(COMPETITION_REVIEW_COLUMNS).eq('is_current', true).gte('conversation_date', range.start).lte('conversation_date', `${range.end}T23:59:59`).limit(5000)),
     safeSelect('daily_followups', (query) => query.select('*').gte('created_at', range.start).lte('created_at', `${range.end}T23:59:59`).limit(5000)),
     safeSelect('stagnant_medicine_dispenses', (query) => query.select('*').limit(5000)),
     safeSelect('incentive_medicine_sales', (query) => query.select('*').limit(5000)),

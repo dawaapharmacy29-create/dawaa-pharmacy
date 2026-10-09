@@ -459,6 +459,7 @@ async function fetchConversationReviewRows(
   const { data, error } = await supabase
     .from('conversation_sales_reviews')
     .select('*')
+    .eq('is_current', true)
     .gte('review_date', startDate)
     .lte('review_date', endDate)
     .order('review_date', { ascending: false })

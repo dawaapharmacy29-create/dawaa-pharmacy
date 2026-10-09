@@ -335,6 +335,7 @@ export async function loadStaffDetailSections(args: {
         .from('conversation_sales_reviews')
         .select('*')
         .or(`staff_id.eq.${args.staffId},doctor_id.eq.${args.staffId}`)
+        .eq('is_current', true)
         .order('created_at', { ascending: false })
         .limit(150);
       if (!byId.error) return (byId.data || []) as Record<string, unknown>[];
@@ -342,6 +343,7 @@ export async function loadStaffDetailSections(args: {
         .from('conversation_sales_reviews')
         .select('*')
         .eq('staff_name', args.staffName)
+        .eq('is_current', true)
         .order('created_at', { ascending: false })
         .limit(150);
       if (fallback.error) throw fallback.error;

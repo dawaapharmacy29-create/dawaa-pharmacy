@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BarChart3, ClipboardCheck, FileSpreadsheet, Filter, MessageSquareText, RefreshCw, Star, Users } from 'lucide-react';
-import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -204,10 +203,40 @@ export default function ReviewsInsightsHub() {
     setLoading(true);
     try {
       const [monthStart, monthEnd] = monthRange(month);
+      // The follow-ups read is independent of the reviews/directory reads: start it in the same
+      // wave instead of after them (it used to add one full round trip to the Hub).
+      // Promise.resolve() starts the lazy query builder now; a transport failure becomes an
+      // error result (never an unhandled rejection if the reviews read throws first).
+      // 'customer_followups' و'customer_service_followups' مش موجودين في السكيمة
+      // الفعلية خالص، فالكويري كانت دايمًا بترجع فاضية بصمت (كل الاستعلامات فشلت
+      // فـ loaded فضلت []) بغض النظر عن الشهر أو الفلتر. الجدول الحقيقي اللي فيه
+      // كل بيانات المتابعات هو daily_followups. وبرضو بنفلتر بالشهر جوه الاستعلام
+      // بنفس ترتيب الأولوية اللي كانت متحسوبة بعدين في serviceSummary
+      // (completed_at ثم updated_at ثم created_at).
+      const followupRequest = showService
+        ? Promise.resolve(
+            supabase
+              .from('daily_followups')
+              .select(FOLLOWUP_COLUMNS)
+              .eq('is_hidden', false)
+              .eq('is_duplicate', false)
+              .or(
+                `and(completed_at.gte.${monthStart},completed_at.lt.${monthEnd}),` +
+                `and(completed_at.is.null,updated_at.gte.${monthStart},updated_at.lt.${monthEnd}),` +
+                `and(completed_at.is.null,updated_at.is.null,created_at.gte.${monthStart},created_at.lt.${monthEnd})`
+              )
+              .order('created_at', { ascending: false })
+              .limit(2500)
+          ).catch((error: unknown) => ({
+            data: null,
+            error: { message: error instanceof Error ? error.message : String(error) },
+          }))
+        : null;
       const [reviewResult, staffResult] = await Promise.all([
         supabase
           .from('conversation_sales_reviews')
           .select(REVIEW_COLUMNS)
+          .eq('is_current', true)
           // بنفلتر بالشهر المختار جوه الاستعلام نفسه بدل ما نجيب كل التاريخ
           // ونفلتر بعدين في المتصفح. conversation_date لو موجود، وإلا created_at
           // كبديل - بنفس منطق monthKey القديم بالظبط.
@@ -229,25 +258,8 @@ export default function ReviewsInsightsHub() {
         is_active: row.active,
       })) as StaffRow[]);
 
-      if (showService) {
-        // 'customer_followups' و'customer_service_followups' مش موجودين في السكيمة
-        // الفعلية خالص، فالكويري كانت دايمًا بترجع فاضية بصمت (كل الاستعلامات فشلت
-        // فـ loaded فضلت []) بغض النظر عن الشهر أو الفلتر. الجدول الحقيقي اللي فيه
-        // كل بيانات المتابعات هو daily_followups. وبرضو بنفلتر بالشهر جوه الاستعلام
-        // بنفس ترتيب الأولوية اللي كانت متحسوبة بعدين في serviceSummary
-        // (completed_at ثم updated_at ثم created_at).
-        const result = await supabase
-          .from('daily_followups')
-          .select(FOLLOWUP_COLUMNS)
-          .eq('is_hidden', false)
-          .eq('is_duplicate', false)
-          .or(
-            `and(completed_at.gte.${monthStart},completed_at.lt.${monthEnd}),` +
-            `and(completed_at.is.null,updated_at.gte.${monthStart},updated_at.lt.${monthEnd}),` +
-            `and(completed_at.is.null,updated_at.is.null,created_at.gte.${monthStart},created_at.lt.${monthEnd})`
-          )
-          .order('created_at', { ascending: false })
-          .limit(2500);
+      if (followupRequest) {
+        const result = await followupRequest;
         if (result.error) toast.error(`تعذر تحميل بيانات متابعات خدمة العملاء: ${result.error.message}`);
         setFollowups((result.data || []) as FollowupRow[]);
       } else {
@@ -348,8 +360,10 @@ export default function ReviewsInsightsHub() {
     }).sort((a, b) => b.quality - a.quality || b.completed - a.completed);
   }, [followups]);
 
-  const exportReport = () => {
+  const exportReport = async () => {
     if (!filtered.length) { toast.error('لا توجد بيانات في الفلاتر الحالية'); return; }
+    // xlsx (~400 KB gzip) loads only when a report is exported, not with every /reviews visit.
+    const XLSX = await import('xlsx');
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(doctorSummaries.map((row, index) => ({
       الترتيب: index + 1, الدكتور: row.name, الفرع: row.branch, 'عدد التقييمات': row.reviews, المتوسط: row.average,
@@ -398,7 +412,7 @@ export default function ReviewsInsightsHub() {
           <div className="flex items-center gap-2 font-black text-white"><Filter className="h-4 w-4 text-cyan-300" /> فلاتر وتحكم التقارير</div>
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => void load(true)} disabled={loading} className="btn-secondary inline-flex items-center gap-2"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> تحديث</button>
-            <button type="button" onClick={exportReport} className="btn-primary inline-flex items-center gap-2"><FileSpreadsheet className="h-4 w-4" /> تصدير التقرير الكامل</button>
+            <button type="button" onClick={() => void exportReport()} className="btn-primary inline-flex items-center gap-2"><FileSpreadsheet className="h-4 w-4" /> تصدير التقرير الكامل</button>
           </div>
         </div>
         <div className="mt-3 grid gap-3 md:grid-cols-3">

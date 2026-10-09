@@ -19,6 +19,14 @@ type SourceRow = {
   analysis_json: Record<string, any> | null;
   review_status?: string | null;
 };
+const PRODUCT_DEMAND_TRUTH_VERSION_ALIAS = 'product_demand_truth_version';
+type ProjectedSourceRow = Omit<SourceRow, 'analysis_json'> & { product_demand_truth_version: string | null };
+
+/** Rebuilds the one analysis_json key this panel reads from the projected column. */
+function sourceRowFromProjection(row: ProjectedSourceRow): SourceRow {
+  const { product_demand_truth_version: version, ...rest } = row;
+  return { ...rest, analysis_json: version == null ? null : { productDemandTruthVersion: version } };
+}
 type CaseRow = { conversation_id: string; branch_name_raw: string | null };
 type BranchCoverage = {
   branch: string;
@@ -40,7 +48,9 @@ export default function SalesIntelligenceCoveragePanelV1() {
     async function load() {
       setLoading(true);
       const [sourceResult, caseResult, policyResult] = await Promise.all([
-        supabase.from('whatsapp_review_sources').select('id,branch,source_filename,customer_id,customer_code,customer_phone,customer_name,conversation_started_at,conversation_ended_at,message_count,created_at,raw_text,analysis_json,review_status').limit(2000),
+        // Only analysis_json.productDemandTruthVersion is read here: project that one key instead of
+        // downloading every source's full analysis JSON (~5 MB across 114 sources in production).
+        supabase.from('whatsapp_review_sources').select(`id,branch,source_filename,customer_id,customer_code,customer_phone,customer_name,conversation_started_at,conversation_ended_at,message_count,created_at,raw_text,${PRODUCT_DEMAND_TRUTH_VERSION_ALIAS}:analysis_json->>productDemandTruthVersion,review_status`).limit(2000),
         supabase.from('sales_intelligence_cases').select('conversation_id,branch_name_raw').limit(5000),
         supabase.from('sales_intelligence_policy_config').select('policy_config_id').eq('is_current', true).eq('enabled', true).limit(1),
       ]);
@@ -50,7 +60,7 @@ export default function SalesIntelligenceCoveragePanelV1() {
         setSources([]);
         setCases([]);
       } else {
-        const rows = (sourceResult.data || []) as SourceRow[];
+        const rows = ((sourceResult.data || []) as ProjectedSourceRow[]).map(sourceRowFromProjection);
         try {
           // Single Canonical Analytical Source definition (same rule as the Sales Intelligence gate).
           const resolution = await loadCanonicalAnalyticalSources(supabase, rows);
