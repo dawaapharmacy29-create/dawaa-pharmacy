@@ -23,6 +23,7 @@
     "test:db:followup-branch": "bash scripts/test-db-followup-branch-provenance.sh",
     "test:db:followup-contract-a": "bash scripts/test-db-followup-contract-a.sh",
     "check:deploy-env": "node scripts/check-deploy-environment.cjs",
+    "test:db:fresh-staging": "bash scripts/test-db-fresh-staging.sh",
     "vercel:install": "npm ci --legacy-peer-deps --no-audit --no-fund",
     "verify": "npm run doctor && npm run test && npm run typecheck && npm run build && npm run perf:budget",
     "check:hr-canonical-hardening": "node scripts/check-hr-canonical-hardening-v1.cjs",

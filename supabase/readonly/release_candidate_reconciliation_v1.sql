@@ -115,7 +115,7 @@ select
   (select count(*) from public.customer_service_daily_queue_items q
      where q.completed_at is null and exists (select 1 from rc_lineage l where l.followup_id = q.linked_followup_id::text)) as open_queue_items_linked_to_conversation;
 
-\echo '== 8. Open follow-up uniqueness: customer+branch vs customer+branch+request_type (unique-index decision input)'
+\echo '== 8. Open follow-up uniqueness under contract A (one open case per customer + branch): both counts must be 0'
 with rc_lineage as (:rc_lineage), rc_actions as (:rc_actions)
 select count(*) filter (where open_cases > 1) as customer_branch_groups_with_multiple_open,
        count(*) filter (where open_types > 1) as customer_branch_groups_with_multiple_request_types
