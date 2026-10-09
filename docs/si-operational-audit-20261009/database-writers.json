@@ -1850,5 +1850,29 @@
     ],
     "stableIdentity": "not established from this function",
     "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "approve_customer_branch_repair_v14(text,text)",
+    "destinations": [
+      "daily_followups",
+      "customer_service_daily_queue_items"
+    ],
+    "directDestinations": [],
+    "classification": "RETAIN",
+    "when": [
+      "explicit customer branch repair RPC -> customers AFTER UPDATE branch trigger"
+    ],
+    "production": "live function and enabled trigger verified; no mutation or invocation-frequency test performed",
+    "liveCallers": [],
+    "definitionHash": "489301d3e1ea3df7d4c64611ec4d0e59",
+    "closestRepoFiles": [],
+    "stableIdentity": "customer code/repair log; not an operational semantic dedupe key",
+    "indirectPath": [
+      "customers.branch",
+      "trg_sync_customer_branch_to_followups",
+      "sync_customer_branch_to_open_followups_and_daily_queue()"
+    ],
+    "authorizationFinding": "SECURITY DEFINER; anon/authenticated/service_role execute; wrapper has no explicit session check; isolated dependent-guard review required",
+    "futureRestriction": "retain customer repair only with proved authorization and immutable conversation provenance exclusion in downstream branch sync"
   }
 ]

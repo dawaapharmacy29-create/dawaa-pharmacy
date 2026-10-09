@@ -1,0 +1,3695 @@
+[
+  {
+    "file": "src/components/customerService/CustomerServicePersonalDashboard.tsx",
+    "line": 135,
+    "method": "rpc",
+    "targetExpression": "rpc",
+    "call": "supabase.rpc(rpc, args)",
+    "function": "loadPart",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "get_cs_dashboard_followups",
+        "get_cs_dashboard_reviews",
+        "get_cs_dashboard_ops"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/components/customerService/CustomerServicePersonalDashboard.tsx",
+        "line": 133,
+        "text": "rpc: string"
+      }
+    ],
+    "operations": [
+      "rpc_requires_body_audit"
+    ],
+    "chain": "withTimeout(supabase.rpc(rpc, args), 25000, rpc)",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/components/reviews/WhatsAppCycleEvidenceDashboardV17.tsx",
+    "line": 47,
+    "method": "from",
+    "targetExpression": "view",
+    "call": "supabase.from(view)",
+    "function": "load",
+    "targetType": "\"whatsapp_doctor_cycle_performance_v17\" | \"whatsapp_customer_cycle_performance_v17\" | \"whatsapp_customer_service_cycle_performance_v17\"",
+    "literalTargets": [
+      "whatsapp_doctor_cycle_performance_v17",
+      "whatsapp_customer_cycle_performance_v17",
+      "whatsapp_customer_service_cycle_performance_v17"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "whatsapp_doctor_cycle_performance_v17",
+        "whatsapp_customer_cycle_performance_v17",
+        "whatsapp_customer_service_cycle_performance_v17"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/components/reviews/WhatsAppCycleEvidenceDashboardV17.tsx",
+        "line": 42,
+        "text": "view = mode === 'doctors'\n        ? 'whatsapp_doctor_cycle_performance_v17'\n        : mode === 'customers'\n          ? 'whatsapp_customer_cycle_performance_v17'\n          : 'whatsapp_customer_service_cycle_performance_v17'"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase.from(view).select('*').eq('cycle_start', cycle.start).limit(500)",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/components/system/OperationalReadinessPanel.tsx",
+    "line": 19,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "countRows",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "daily_followups",
+        "notifications",
+        "staff_assignments",
+        "employee_monthly_statements",
+        "offers"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/components/system/OperationalReadinessPanel.tsx",
+        "line": 17,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase.from(table).select('*', { count: 'exact', head: true })",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/hooks/useQueryStaff.ts",
+    "line": 22,
+    "method": "from",
+    "targetExpression": "TABLES.staff",
+    "call": "supabase\n    .from(TABLES.staff)",
+    "function": "fetchActiveStaff",
+    "targetType": "\"staff\"",
+    "literalTargets": [
+      "staff"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "staff"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/supabaseTables.ts",
+        "line": 5,
+        "text": "staff: 'staff'"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase\n    .from(TABLES.staff)\n    .select('id,name,username,role,branch,phone,active,created_at,updated_at')\n    .order('name', { ascending: true })",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/hooks/useSupabaseQuery.ts",
+    "line": 127,
+    "method": "from",
+    "targetExpression": "options.table",
+    "call": "supabase.from(options.table)",
+    "function": "buildQuery",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [],
+      "unresolved": [
+        "options.table"
+      ]
+    },
+    "declarations": [
+      {
+        "file": "src/hooks/useSupabaseQuery.ts",
+        "line": 12,
+        "text": "table: string;"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase.from(options.table).select(options.select || '*')",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution",
+    "manualReview": "Inspected query builder selects and filters; runtime table names vary. No mutation in this body."
+  },
+  {
+    "file": "src/hooks/useSupabaseQuery.ts",
+    "line": 228,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase\n      .from(table)",
+    "function": "supabaseInsert",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "evaluation_rules",
+        "tasks"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/hooks/useSupabaseQuery.ts",
+        "line": 223,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "insert"
+    ],
+    "chain": "withTimeout<SupabaseResultLike<T>>(\n    supabase\n      .from(table)\n      .insert(record as Record<string, unknown>)\n      .select()\n      .single(),\n    9000,\n    `${table} insert`\n  )",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/hooks/useSupabaseQuery.ts",
+    "line": 250,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase\n      .from(table)",
+    "function": "supabaseUpdate",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "tasks"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/hooks/useSupabaseQuery.ts",
+        "line": 244,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "update"
+    ],
+    "chain": "withTimeout<SupabaseResultLike>(\n    supabase\n      .from(table)\n      .update({ ...updates, updated_at: new Date().toISOString() })\n      .eq('id', id),\n    9000,\n    `${table} update`\n  )",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/hooks/useSupabaseQuery.ts",
+    "line": 267,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "supabaseDelete",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "evaluation_rules"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/hooks/useSupabaseQuery.ts",
+        "line": 264,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "delete"
+    ],
+    "chain": "withTimeout<SupabaseResultLike>(\n    supabase.from(table).delete().eq('id', id),\n    9000,\n    `${table} delete`\n  )",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/activityLog.ts",
+    "line": 65,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "insertWithColumnFallback",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "employee_events",
+        "activity_log"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/activityLog.ts",
+        "line": 61,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "insert"
+    ],
+    "chain": "supabase.from(table).insert(next)",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/api/customers.ts",
+    "line": 444,
+    "method": "from",
+    "targetExpression": "SUMMARY_TABLE",
+    "call": "supabase\n    .from(SUMMARY_TABLE)",
+    "function": "getCustomers",
+    "targetType": "\"dawaa_customer_metrics_app_view\"",
+    "literalTargets": [
+      "dawaa_customer_metrics_app_view"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "dawaa_customer_metrics_app_view"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/api/customers.ts",
+        "line": 19,
+        "text": "SUMMARY_TABLE = 'dawaa_customer_metrics_app_view'"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase\n    .from(SUMMARY_TABLE)\n    .select(\n      'final_customer_key,customer_id,customer_code,customer_name,customer_phone,branch,invoices_count,total_spent,avg_invoice,first_purchase,last_purchase,active_months,avg_monthly,segment,customer_status,customer_flags',\n      { count: 'exact' }\n    )",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/api/customers.ts",
+    "line": 466,
+    "method": "from",
+    "targetExpression": "SUMMARY_TABLE",
+    "call": "supabase\n    .from(SUMMARY_TABLE)",
+    "function": "countRows",
+    "targetType": "\"dawaa_customer_metrics_app_view\"",
+    "literalTargets": [
+      "dawaa_customer_metrics_app_view"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "dawaa_customer_metrics_app_view"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/api/customers.ts",
+        "line": 19,
+        "text": "SUMMARY_TABLE = 'dawaa_customer_metrics_app_view'"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase\n    .from(SUMMARY_TABLE)\n    .select('final_customer_key', { count: 'exact', head: true })",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/api/customers.ts",
+    "line": 484,
+    "method": "from",
+    "targetExpression": "SUMMARY_TABLE",
+    "call": "supabase\n    .from(SUMMARY_TABLE)",
+    "function": "countLoyalCustomers",
+    "targetType": "\"dawaa_customer_metrics_app_view\"",
+    "literalTargets": [
+      "dawaa_customer_metrics_app_view"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "dawaa_customer_metrics_app_view"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/api/customers.ts",
+        "line": 19,
+        "text": "SUMMARY_TABLE = 'dawaa_customer_metrics_app_view'"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase\n    .from(SUMMARY_TABLE)\n    .select('final_customer_key', { count: 'exact', head: true })\n    .gte('active_months', 6)",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/api/shiftPerformanceReviewService.ts",
+    "line": 54,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "insertOneWithColumnFallback",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "shift_performance_reviews"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/api/shiftPerformanceReviewService.ts",
+        "line": 49,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "insert"
+    ],
+    "chain": "supabase.from(table).insert(next).select('id').single()",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/api/shiftPerformanceReviewService.ts",
+    "line": 72,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "insertManyWithColumnFallback",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "shift_performance_review_members"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/api/shiftPerformanceReviewService.ts",
+        "line": 66,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "insert"
+    ],
+    "chain": "supabase.from(table).insert(next)",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/api/shiftPerformanceReviewService.ts",
+    "line": 95,
+    "method": "from",
+    "targetExpression": "TABLES.employeeTransactions",
+    "call": "supabase\n    .from(TABLES.employeeTransactions)",
+    "function": "countPreviousLeaderRepeats",
+    "targetType": "\"employee_transactions\"",
+    "literalTargets": [
+      "employee_transactions"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "employee_transactions"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/supabaseTables.ts",
+        "line": 25,
+        "text": "employeeTransactions: 'employee_transactions'"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase\n    .from(TABLES.employeeTransactions)\n    .select('id,description,staff_id,source,created_at')\n    .eq('staff_id', input.staffId)\n    .eq('source', 'shift_review')\n    .gte('created_at', `${input.cycleStart}T00:00:00`)\n    .lte('created_at', `${input.cycleEnd}T23:59:59`)\n    .limit(50)",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/api/staffing.ts",
+    "line": 61,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "detectTable",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [],
+      "unresolved": [
+        "table"
+      ]
+    },
+    "declarations": [
+      {
+        "file": "src/lib/api/staffing.ts",
+        "line": 60,
+        "text": "table"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase.from(table).select('*').limit(1)",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution",
+    "manualReview": "Staff import compatibility helpers. STAFF_TABLES contains only staff; current entrypoint selects matched staff and publishes schedule drafts. Legacy generic helper callers remain a separate HR compatibility surface, not a WhatsApp operational owner."
+  },
+  {
+    "file": "src/lib/api/staffing.ts",
+    "line": 74,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "insertFlexible",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [],
+      "unresolved": [
+        "no_static_callers:table: string"
+      ]
+    },
+    "declarations": [
+      {
+        "file": "src/lib/api/staffing.ts",
+        "line": 68,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "insert"
+    ],
+    "chain": "supabase.from(table).insert(payload).select('*')",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution",
+    "manualReview": "Staff import compatibility helpers. STAFF_TABLES contains only staff; current entrypoint selects matched staff and publishes schedule drafts. Legacy generic helper callers remain a separate HR compatibility surface, not a WhatsApp operational owner."
+  },
+  {
+    "file": "src/lib/api/staffing.ts",
+    "line": 92,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "updateFlexible",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [],
+      "unresolved": [
+        "no_static_callers:table: string",
+        "no_static_callers:staffTable: string"
+      ]
+    },
+    "declarations": [
+      {
+        "file": "src/lib/api/staffing.ts",
+        "line": 87,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "update"
+    ],
+    "chain": "supabase.from(table).update(payload).eq('id', id)",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution",
+    "manualReview": "Staff import compatibility helpers. STAFF_TABLES contains only staff; current entrypoint selects matched staff and publishes schedule drafts. Legacy generic helper callers remain a separate HR compatibility surface, not a WhatsApp operational owner."
+  },
+  {
+    "file": "src/lib/api/staffing.ts",
+    "line": 188,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase\n    .from(table)",
+    "function": "loadExistingStaff",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [],
+      "unresolved": [
+        "await detectTable(STAFF_TABLES)"
+      ]
+    },
+    "declarations": [
+      {
+        "file": "src/lib/api/staffing.ts",
+        "line": 187,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase\n    .from(table)\n    .select('id,name,branch,role')\n    .order('name', { ascending: true })",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution",
+    "manualReview": "Staff import compatibility helpers. STAFF_TABLES contains only staff; current entrypoint selects matched staff and publishes schedule drafts. Legacy generic helper callers remain a separate HR compatibility surface, not a WhatsApp operational owner."
+  },
+  {
+    "file": "src/lib/api/staffing.ts",
+    "line": 376,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "deleteExceptionRowsByNameBranch",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [],
+      "unresolved": [
+        "no_static_callers:exceptionTable: string | null"
+      ]
+    },
+    "declarations": [
+      {
+        "file": "src/lib/api/staffing.ts",
+        "line": 372,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "delete"
+    ],
+    "chain": "supabase.from(table).delete().eq('staff_name', name).eq('branch', branch)",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution",
+    "manualReview": "Staff import compatibility helpers. STAFF_TABLES contains only staff; current entrypoint selects matched staff and publishes schedule drafts. Legacy generic helper callers remain a separate HR compatibility surface, not a WhatsApp operational owner."
+  },
+  {
+    "file": "src/lib/attendance/currentShiftPresenceService.ts",
+    "line": 160,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "safeSelect",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "shift_schedules",
+        "staff",
+        "attendance"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/attendance/currentShiftPresenceService.ts",
+        "line": 158,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "apply(supabase.from(table).select(select))",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/coachingNotes.ts",
+    "line": 58,
+    "method": "from",
+    "targetExpression": "TABLES.staffCoachingNotes",
+    "call": "supabase.from(TABLES.staffCoachingNotes)",
+    "function": "addCoachingNote",
+    "targetType": "\"staff_coaching_notes\"",
+    "literalTargets": [
+      "staff_coaching_notes"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "staff_coaching_notes"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/supabaseTables.ts",
+        "line": 3,
+        "text": "staffCoachingNotes: 'staff_coaching_notes'"
+      }
+    ],
+    "operations": [
+      "insert"
+    ],
+    "chain": "supabase.from(TABLES.staffCoachingNotes).insert({\n    from_staff_id: input.from_staff_id ?? null,\n    from_staff_name: input.from_staff_name,\n    from_role: input.from_role,\n    to_staff_id: input.to_staff_id,\n    to_staff_name: input.to_staff_name,\n    to_role: input.to_role,\n    branch: input.branch ?? null,\n    category: input.category ?? 'general',\n    tone: input.tone ?? 'coaching',\n    note: input.note.trim(),\n    linked_table: input.linked_table ?? null,\n    linked_record_id: input.linked_record_id ?? null,\n  })",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/coachingNotes.ts",
+    "line": 77,
+    "method": "from",
+    "targetExpression": "TABLES.staffCoachingNotes",
+    "call": "supabase\n    .from(TABLES.staffCoachingNotes)",
+    "function": "fetchNotesForStaff",
+    "targetType": "\"staff_coaching_notes\"",
+    "literalTargets": [
+      "staff_coaching_notes"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "staff_coaching_notes"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/supabaseTables.ts",
+        "line": 3,
+        "text": "staffCoachingNotes: 'staff_coaching_notes'"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase\n    .from(TABLES.staffCoachingNotes)\n    .select('*')\n    .eq('to_staff_id', staffId)\n    .order('created_at', { ascending: false })\n    .limit(limit)",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/coachingNotes.ts",
+    "line": 89,
+    "method": "from",
+    "targetExpression": "TABLES.staffCoachingNotes",
+    "call": "supabase\n    .from(TABLES.staffCoachingNotes)",
+    "function": "fetchNotesForBranch",
+    "targetType": "\"staff_coaching_notes\"",
+    "literalTargets": [
+      "staff_coaching_notes"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "staff_coaching_notes"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/supabaseTables.ts",
+        "line": 3,
+        "text": "staffCoachingNotes: 'staff_coaching_notes'"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase\n    .from(TABLES.staffCoachingNotes)\n    .select('*')\n    .eq('branch', branch)\n    .order('created_at', { ascending: false })\n    .limit(limit)",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/coachingNotes.ts",
+    "line": 101,
+    "method": "from",
+    "targetExpression": "TABLES.staffCoachingNotes",
+    "call": "supabase\n    .from(TABLES.staffCoachingNotes)",
+    "function": "fetchAllNotes",
+    "targetType": "\"staff_coaching_notes\"",
+    "literalTargets": [
+      "staff_coaching_notes"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "staff_coaching_notes"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/supabaseTables.ts",
+        "line": 3,
+        "text": "staffCoachingNotes: 'staff_coaching_notes'"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase\n    .from(TABLES.staffCoachingNotes)\n    .select('*')\n    .order('created_at', { ascending: false })\n    .limit(limit)",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/coachingNotes.ts",
+    "line": 111,
+    "method": "from",
+    "targetExpression": "TABLES.staffCoachingNotes",
+    "call": "supabase\n    .from(TABLES.staffCoachingNotes)",
+    "function": "acknowledgeCoachingNote",
+    "targetType": "\"staff_coaching_notes\"",
+    "literalTargets": [
+      "staff_coaching_notes"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "staff_coaching_notes"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/supabaseTables.ts",
+        "line": 3,
+        "text": "staffCoachingNotes: 'staff_coaching_notes'"
+      }
+    ],
+    "operations": [
+      "update"
+    ],
+    "chain": "supabase\n    .from(TABLES.staffCoachingNotes)\n    .update({ acknowledged_at: new Date().toISOString() })\n    .eq('id', id)",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/core/supabasePagination.ts",
+    "line": 113,
+    "method": "from",
+    "targetExpression": "tableName",
+    "call": "supabase.from(tableName)",
+    "function": "countQuery",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [],
+      "unresolved": [
+        "no_static_callers:tableName: string"
+      ]
+    },
+    "declarations": [
+      {
+        "file": "src/lib/core/supabasePagination.ts",
+        "line": 110,
+        "text": "tableName: string"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase.from(tableName).select('*', { count: 'exact', head: true })",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution",
+    "manualReview": "countQuery is a SELECT head/count query; arbitrary table parameter is not a write."
+  },
+  {
+    "file": "src/lib/customerAnalyticsService.ts",
+    "line": 189,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "fetchPaged",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "customers"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/customerAnalyticsService.ts",
+        "line": 185,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase.from(table).select(select).range(from, to)",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/customers/loyaltyTiersService.ts",
+    "line": 102,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "fetchAll",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "customers",
+        "customer_analysis",
+        "sales_invoices"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/customers/loyaltyTiersService.ts",
+        "line": 95,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase.from(table).select(select)",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/dashboard/dashboardTruthService.ts",
+    "line": 117,
+    "method": "rpc",
+    "targetExpression": "name",
+    "call": "(supabase as any).rpc(name, params)",
+    "function": "rpcRows",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "get_dashboard_sales_summary_v171"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/dashboard/dashboardTruthService.ts",
+        "line": 116,
+        "text": "name: string"
+      }
+    ],
+    "operations": [
+      "rpc_requires_body_audit"
+    ],
+    "chain": "(supabase as any).rpc(name, params)",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/dashboardSummaryService.ts",
+    "line": 366,
+    "method": "from",
+    "targetExpression": "args.table",
+    "call": "supabase\n      .from(args.table)",
+    "function": "fetchSummaryRows",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [],
+      "unresolved": [
+        "args.table"
+      ]
+    },
+    "declarations": [
+      {
+        "file": "src/lib/dashboardSummaryService.ts",
+        "line": 351,
+        "text": "table: string;"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase\n      .from(args.table)\n      .select('*')\n      .gte(args.dateColumn, args.startDate)\n      .lt(args.dateColumn, dayAfter(args.endDate))\n      .order(args.dateColumn, { ascending: true })\n      .range(from, to)",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution",
+    "manualReview": "fetchSummaryRows performs bounded SELECT/date filters; no mutation in the inspected body."
+  },
+  {
+    "file": "src/lib/dashboardSummaryService.ts",
+    "line": 395,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "fetchOrderedRows",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "notifications",
+        "activity_log"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/dashboardSummaryService.ts",
+        "line": 388,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase.from(table).select('*').order(orderColumn, { ascending: false }).limit(limit)",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/dashboardSummaryService.ts",
+    "line": 405,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "countRows",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "customer_metrics_summary",
+        "daily_followups"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/dashboardSummaryService.ts",
+        "line": 404,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase.from(table).select('*', { count: 'exact', head: true })",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/doctorCompetitionMetrics.ts",
+    "line": 305,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "safeSelect",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "conversation_sales_reviews",
+        "daily_followups",
+        "stagnant_medicine_dispenses",
+        "incentive_medicine_sales"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/doctorCompetitionMetrics.ts",
+        "line": 303,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "query_passed_or_assigned_requires_caller_audit"
+    ],
+    "chain": "build(supabase.from(table))",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/doctorCompetitionMetrics.ts",
+    "line": 315,
+    "method": "rpc",
+    "targetExpression": "fn",
+    "call": "supabase.rpc(fn)",
+    "function": "safeSelectRpc",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "get_eligible_doctor_accounts"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/doctorCompetitionMetrics.ts",
+        "line": 313,
+        "text": "fn: string"
+      }
+    ],
+    "operations": [
+      "rpc_requires_body_audit"
+    ],
+    "chain": "supabase.rpc(fn)",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/employeeEventService.ts",
+    "line": 56,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "insertWithFallback",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "employee_events"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/employeeEventService.ts",
+        "line": 52,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "insert"
+    ],
+    "chain": "supabase.from(table).insert(next).select('id').single()",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/evaluations/evaluationMetricsGateway.ts",
+    "line": 60,
+    "method": "rpc",
+    "targetExpression": "source",
+    "call": "supabase.rpc(source, rpcArgs)",
+    "function": "readWeeklyEvaluationMetrics",
+    "targetType": "EvaluationMetricsSource",
+    "literalTargets": [
+      "calculate_weekly_manager_metrics_v5",
+      "calculate_weekly_manager_metrics_v4",
+      "calculate_weekly_manager_metrics_v3",
+      "calculate_weekly_manager_metrics_v2",
+      "calculate_weekly_manager_metrics"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "calculate_weekly_manager_metrics_v5",
+        "calculate_weekly_manager_metrics_v4",
+        "calculate_weekly_manager_metrics_v3",
+        "calculate_weekly_manager_metrics_v2",
+        "calculate_weekly_manager_metrics"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/evaluations/evaluationMetricsGateway.ts",
+        "line": 59,
+        "text": "source"
+      }
+    ],
+    "operations": [
+      "rpc_requires_body_audit"
+    ],
+    "chain": "supabase.rpc(source, rpcArgs)",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/evaluations/managerEvaluationService.ts",
+    "line": 192,
+    "method": "from",
+    "targetExpression": "TABLES.managerWeeklyEvaluations",
+    "call": "supabase\n    .from(TABLES.managerWeeklyEvaluations)",
+    "function": "saveWeeklyEvaluation",
+    "targetType": "\"manager_weekly_evaluations\"",
+    "literalTargets": [
+      "manager_weekly_evaluations"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "manager_weekly_evaluations"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/supabaseTables.ts",
+        "line": 30,
+        "text": "managerWeeklyEvaluations: 'manager_weekly_evaluations'"
+      }
+    ],
+    "operations": [
+      "upsert"
+    ],
+    "chain": "supabase\n    .from(TABLES.managerWeeklyEvaluations)\n    .upsert(\n      {\n        ...evaluation,\n        submitted_at: evaluation.status === 'submitted' ? new Date().toISOString() : null,\n      },\n      { onConflict: 'evaluation_type,subject_staff_id,week_start,branch' }\n    )\n    .select('*')\n    .maybeSingle()",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/evaluations/managerEvaluationService.ts",
+    "line": 212,
+    "method": "from",
+    "targetExpression": "TABLES.managerWeeklyEvaluations",
+    "call": "supabase\n    .from(TABLES.managerWeeklyEvaluations)",
+    "function": "fetchEvaluationHistory",
+    "targetType": "\"manager_weekly_evaluations\"",
+    "literalTargets": [
+      "manager_weekly_evaluations"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "manager_weekly_evaluations"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/supabaseTables.ts",
+        "line": 30,
+        "text": "managerWeeklyEvaluations: 'manager_weekly_evaluations'"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase\n    .from(TABLES.managerWeeklyEvaluations)\n    .select('id,evaluation_type,subject_staff_id,subject_name,branch,evaluator_staff_id,evaluator_name,week_start,week_end,auto_metrics,manual_scores,manual_note,total_score,status,submitted_at,created_at,updated_at')\n    .eq('evaluation_type', evaluationType)\n    .eq('subject_staff_id', subjectStaffId)",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/executiveDashboardDataService.ts",
+    "line": 375,
+    "method": "from",
+    "targetExpression": "args.table",
+    "call": "supabase.from(args.table)",
+    "function": "fetchTrackingTable",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [],
+      "unresolved": [
+        "args.table"
+      ]
+    },
+    "declarations": [
+      {
+        "file": "src/lib/executiveDashboardDataService.ts",
+        "line": 364,
+        "text": "table: string;"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase.from(args.table).select(args.select).limit(60)",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution",
+    "manualReview": "Operational tracking reader selects at most 60 rows; no mutation in the inspected body."
+  },
+  {
+    "file": "src/lib/incentives/compositeScoreService.ts",
+    "line": 90,
+    "method": "from",
+    "targetExpression": "TABLES.employeeTransactions",
+    "call": "supabase\n      .from(TABLES.employeeTransactions)",
+    "function": "calculateCompositeScore",
+    "targetType": "\"employee_transactions\"",
+    "literalTargets": [
+      "employee_transactions"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "employee_transactions"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/supabaseTables.ts",
+        "line": 25,
+        "text": "employeeTransactions: 'employee_transactions'"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase\n      .from(TABLES.employeeTransactions)\n      .select('points_delta, description, reason, status, source, category')\n      .eq('staff_id', staffId)\n      .eq('month_cycle', monthCycle)\n      .eq('status', 'active')",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/incentives/compositeScoreService.ts",
+    "line": 96,
+    "method": "from",
+    "targetExpression": "TABLES.staff",
+    "call": "supabase\n      .from(TABLES.staff)",
+    "function": "calculateCompositeScore",
+    "targetType": "\"staff\"",
+    "literalTargets": [
+      "staff"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "staff"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/supabaseTables.ts",
+        "line": 5,
+        "text": "staff: 'staff'"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase\n      .from(TABLES.staff)\n      .select('role')\n      .eq('id', staffId)\n      .maybeSingle()",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/invoiceImporter.ts",
+    "line": 999,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "insertRowsWithOptionalColumns",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "sales_invoices"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/invoiceImporter.ts",
+        "line": 994,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "insert"
+    ],
+    "chain": "supabase.from(table).insert(nextRows)",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/invoiceImporter.ts",
+    "line": 1037,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "updateRowWithOptionalColumns",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "sales_invoices"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/invoiceImporter.ts",
+        "line": 1027,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "update"
+    ],
+    "chain": "supabase.from(table).update(nextRow).eq('id', id)",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/invoices/invoiceManagementService.ts",
+    "line": 163,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "deleteTableRowsInChunks",
+    "targetType": "\"customer_analysis\" | \"sales_invoices\"",
+    "literalTargets": [
+      "customer_analysis",
+      "sales_invoices"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "customer_analysis",
+        "sales_invoices"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/invoices/invoiceManagementService.ts",
+        "line": 160,
+        "text": "table: 'sales_invoices' | 'customer_analysis'"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase.from(table).select('id').limit(batchSize)",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/invoices/invoiceManagementService.ts",
+    "line": 170,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "deleteTableRowsInChunks",
+    "targetType": "\"customer_analysis\" | \"sales_invoices\"",
+    "literalTargets": [
+      "customer_analysis",
+      "sales_invoices"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "customer_analysis",
+        "sales_invoices"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/invoices/invoiceManagementService.ts",
+        "line": 160,
+        "text": "table: 'sales_invoices' | 'customer_analysis'"
+      }
+    ],
+    "operations": [
+      "delete"
+    ],
+    "chain": "supabase.from(table).delete().in('id', ids)",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/notificationService.ts",
+    "line": 130,
+    "method": "from",
+    "targetExpression": "CANONICAL_NOTIFICATION_READ_MODEL",
+    "call": "supabase\n    .from(CANONICAL_NOTIFICATION_READ_MODEL)",
+    "function": "getNotificationById",
+    "targetType": "\"notification_events_v2\"",
+    "literalTargets": [
+      "notification_events_v2"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "notification_events_v2"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/notificationService.ts",
+        "line": 86,
+        "text": "CANONICAL_NOTIFICATION_READ_MODEL = 'notification_events_v2'"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase\n    .from(CANONICAL_NOTIFICATION_READ_MODEL)\n    .select('*')\n    .eq('id', id)\n    .maybeSingle()",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/notificationService.ts",
+    "line": 251,
+    "method": "from",
+    "targetExpression": "CANONICAL_NOTIFICATION_READ_MODEL",
+    "call": "supabase\n    .from(CANONICAL_NOTIFICATION_READ_MODEL)",
+    "function": "buildCanonicalQuery",
+    "targetType": "\"notification_events_v2\"",
+    "literalTargets": [
+      "notification_events_v2"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "notification_events_v2"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/notificationService.ts",
+        "line": 86,
+        "text": "CANONICAL_NOTIFICATION_READ_MODEL = 'notification_events_v2'"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase\n    .from(CANONICAL_NOTIFICATION_READ_MODEL)\n    .select('*')\n    .order('created_at', { ascending: false })\n    .range(from, to)",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/notificationService.ts",
+    "line": 289,
+    "method": "from",
+    "targetExpression": "CANONICAL_NOTIFICATION_READ_MODEL",
+    "call": "supabase\n    .from(CANONICAL_NOTIFICATION_READ_MODEL)",
+    "function": "getUnreadNotificationCount",
+    "targetType": "\"notification_events_v2\"",
+    "literalTargets": [
+      "notification_events_v2"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "notification_events_v2"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/notificationService.ts",
+        "line": 86,
+        "text": "CANONICAL_NOTIFICATION_READ_MODEL = 'notification_events_v2'"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase\n    .from(CANONICAL_NOTIFICATION_READ_MODEL)\n    .select('id', { count: 'exact', head: true })",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/offlineQueue.ts",
+    "line": 82,
+    "method": "rpc",
+    "targetExpression": "item.rpcName",
+    "call": "supabase.rpc(item.rpcName, item.payload as any)",
+    "function": "runItem",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [],
+      "unresolved": [
+        "item.rpcName"
+      ]
+    },
+    "declarations": [
+      {
+        "file": "src/lib/offlineQueue.ts",
+        "line": 18,
+        "text": "rpcName?: string;"
+      }
+    ],
+    "operations": [
+      "rpc_requires_body_audit"
+    ],
+    "chain": "supabase.rpc(item.rpcName, item.payload as any)",
+    "classification": "PROJECT ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution",
+    "manualReview": "Intentionally runtime-selected persisted RPC/table. Current producers absent in source search; historical browser storage unknown. Conditional writer classified; server enforcement required."
+  },
+  {
+    "file": "src/lib/offlineQueue.ts",
+    "line": 89,
+    "method": "from",
+    "targetExpression": "item.table",
+    "call": "supabase.from(item.table)",
+    "function": "runItem",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [],
+      "unresolved": [
+        "item.table"
+      ]
+    },
+    "declarations": [
+      {
+        "file": "src/lib/offlineQueue.ts",
+        "line": 14,
+        "text": "table?: string;"
+      }
+    ],
+    "operations": [
+      "update"
+    ],
+    "chain": "supabase.from(item.table).update(item.payload)",
+    "classification": "PROJECT ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution",
+    "manualReview": "Intentionally runtime-selected persisted RPC/table. Current producers absent in source search; historical browser storage unknown. Conditional writer classified; server enforcement required."
+  },
+  {
+    "file": "src/lib/offlineQueue.ts",
+    "line": 98,
+    "method": "from",
+    "targetExpression": "item.table",
+    "call": "supabase.from(item.table)",
+    "function": "runItem",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [],
+      "unresolved": [
+        "item.table"
+      ]
+    },
+    "declarations": [
+      {
+        "file": "src/lib/offlineQueue.ts",
+        "line": 14,
+        "text": "table?: string;"
+      }
+    ],
+    "operations": [
+      "upsert"
+    ],
+    "chain": "supabase.from(item.table).upsert(item.payload)",
+    "classification": "PROJECT ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution",
+    "manualReview": "Intentionally runtime-selected persisted RPC/table. Current producers absent in source search; historical browser storage unknown. Conditional writer classified; server enforcement required."
+  },
+  {
+    "file": "src/lib/offlineQueue.ts",
+    "line": 103,
+    "method": "from",
+    "targetExpression": "item.table",
+    "call": "supabase.from(item.table)",
+    "function": "runItem",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [],
+      "unresolved": [
+        "item.table"
+      ]
+    },
+    "declarations": [
+      {
+        "file": "src/lib/offlineQueue.ts",
+        "line": 14,
+        "text": "table?: string;"
+      }
+    ],
+    "operations": [
+      "insert"
+    ],
+    "chain": "supabase.from(item.table).insert(item.payload)",
+    "classification": "PROJECT ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution",
+    "manualReview": "Intentionally runtime-selected persisted RPC/table. Current producers absent in source search; historical browser storage unknown. Conditional writer classified; server enforcement required."
+  },
+  {
+    "file": "src/lib/reviews/conversationReviewCorrection.ts",
+    "line": 172,
+    "method": "rpc",
+    "targetExpression": "CONVERSATION_REVIEW_CORRECTION_COMMAND",
+    "call": "client.rpc(CONVERSATION_REVIEW_CORRECTION_COMMAND, {\n      p_session_token: token,\n      p_review_id: params.reviewId,\n      p_idempotency_key: params.idempotencyKey,\n      p_reason: params.reason.trim(),\n      p_correction: params.correction,\n    })",
+    "function": "correctConversationReviewVersion",
+    "targetType": "\"dawaa_correct_conversation_review_session_v1\"",
+    "literalTargets": [
+      "dawaa_correct_conversation_review_session_v1"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "dawaa_correct_conversation_review_session_v1"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/reviews/conversationReviewCorrection.ts",
+        "line": 12,
+        "text": "CONVERSATION_REVIEW_CORRECTION_COMMAND =\n  'dawaa_correct_conversation_review_session_v1'"
+      }
+    ],
+    "operations": [
+      "rpc_requires_body_audit"
+    ],
+    "chain": "client.rpc(CONVERSATION_REVIEW_CORRECTION_COMMAND, {\n      p_session_token: token,\n      p_review_id: params.reviewId,\n      p_idempotency_key: params.idempotencyKey,\n      p_reason: params.reason.trim(),\n      p_correction: params.correction,\n    })",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/safeSupabase.ts",
+    "line": 13,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "safeRows",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "conversation_sales_reviews",
+        "customer_requests",
+        "shortages",
+        "employee_transactions",
+        "time_off_requests",
+        "branch_sales_targets",
+        "customer_medication_cycles",
+        "customers",
+        "customer_health_profiles",
+        "employee_kpi_30d_summary",
+        "purchases",
+        "delivery_orders",
+        "expiry_discount_items"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/safeSupabase.ts",
+        "line": 6,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase.from(table).select('*').limit(limit)",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/salesInvoiceQueries.ts",
+    "line": 191,
+    "method": "from",
+    "targetExpression": "SALES_TRUTH_VIEW",
+    "call": "supabase\n      .from(SALES_TRUTH_VIEW)",
+    "function": "fetchOnePageOnce",
+    "targetType": "\"dawaa_sales_invoices_dashboard_v1\"",
+    "literalTargets": [
+      "dawaa_sales_invoices_dashboard_v1"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "dawaa_sales_invoices_dashboard_v1"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/salesInvoiceQueries.ts",
+        "line": 46,
+        "text": "SALES_TRUTH_VIEW = 'dawaa_sales_invoices_dashboard_v1'"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "withTimeout<{ data: unknown[] | null; error: unknown }>(\n    supabase\n      .from(SALES_TRUTH_VIEW)\n      .select(selectField)\n      .gte('invoice_date', startDate)\n      .lt('invoice_date', endExclusive)\n      .order('invoice_date', { ascending: true })\n      .order('id', { ascending: true })\n      .range(from, to),\n    PAGE_TIMEOUT_MS,\n    `${SALES_TRUTH_VIEW} page ${page}`,\n  )",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/staff/staffAccountsApi.ts",
+    "line": 63,
+    "method": "from",
+    "targetExpression": "TABLES.staffAccounts",
+    "call": "supabase.from(TABLES.staffAccounts)",
+    "function": "listStaffAccountsDirect",
+    "targetType": "\"staff_accounts\"",
+    "literalTargets": [
+      "staff_accounts"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "staff_accounts"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/supabaseTables.ts",
+        "line": 6,
+        "text": "staffAccounts: 'staff_accounts'"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase.from(TABLES.staffAccounts).select(select)",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/staff/staffAccountsApi.ts",
+    "line": 97,
+    "method": "from",
+    "targetExpression": "TABLES.staffAccounts",
+    "call": "supabase.from(TABLES.staffAccounts)",
+    "function": "resolveStaffAccountSafe",
+    "targetType": "\"staff_accounts\"",
+    "literalTargets": [
+      "staff_accounts"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "staff_accounts"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/supabaseTables.ts",
+        "line": 6,
+        "text": "staffAccounts: 'staff_accounts'"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase.from(TABLES.staffAccounts).select('*').or(`username.ilike.%${term}%,name.ilike.%${term}%,staff_name.ilike.%${term}%`).limit(20)",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/staff/staffAccountsApi.ts",
+    "line": 108,
+    "method": "from",
+    "targetExpression": "TABLES.staffAccounts",
+    "call": "supabase.from(TABLES.staffAccounts)",
+    "function": "countStaffAccountsWithoutStaffSafe",
+    "targetType": "\"staff_accounts\"",
+    "literalTargets": [
+      "staff_accounts"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "staff_accounts"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/supabaseTables.ts",
+        "line": 6,
+        "text": "staffAccounts: 'staff_accounts'"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase.from(TABLES.staffAccounts).select('id', { count: 'exact', head: true }).is('staff_id', null)",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/staff/staffDirectoryReadModel.ts",
+    "line": 18,
+    "method": "from",
+    "targetExpression": "TABLES.staff",
+    "call": "supabase\n    .from(TABLES.staff)",
+    "function": "readStaffDirectory",
+    "targetType": "\"staff\"",
+    "literalTargets": [
+      "staff"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "staff"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/supabaseTables.ts",
+        "line": 5,
+        "text": "staff: 'staff'"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase\n    .from(TABLES.staff)\n    .select('id,name,role,branch,is_active,active,status')\n    .limit(limit)",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/staff/staffPerformanceProfileService.ts",
+    "line": 1226,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "loadOptionalTableRows",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [],
+      "unresolved": [
+        "no_static_callers:table"
+      ]
+    },
+    "declarations": [
+      {
+        "file": "src/lib/staff/staffPerformanceProfileService.ts",
+        "line": 1224,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase.from(table).select('*').limit(limit)",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution",
+    "manualReview": "Optional table reader SELECT/limit. Callers map schedule, attendance, permission, and leave table lists; no mutation in this body."
+  },
+  {
+    "file": "src/lib/staffDuplicateAudit.ts",
+    "line": 45,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "safeCount",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "sales_invoices",
+        "staff_sales_summary",
+        "employee_transactions",
+        "points_transactions",
+        "point_records",
+        "conversation_sales_reviews",
+        "daily_followups",
+        "shift_schedules",
+        "attendance",
+        "time_off",
+        "stagnant_medicine_dispenses"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/staffDuplicateAudit.ts",
+        "line": 44,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase.from(table).select('*', { count: 'exact', head: true }).eq(column, staffId)",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/staffNotificationService.ts",
+    "line": 65,
+    "method": "from",
+    "targetExpression": "CANONICAL_NOTIFICATION_READ_MODEL",
+    "call": "supabase\n    .from(CANONICAL_NOTIFICATION_READ_MODEL)",
+    "function": "readStaffNotificationById",
+    "targetType": "\"notification_events_v2\"",
+    "literalTargets": [
+      "notification_events_v2"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "notification_events_v2"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/notificationService.ts",
+        "line": 86,
+        "text": "CANONICAL_NOTIFICATION_READ_MODEL = 'notification_events_v2'"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase\n    .from(CANONICAL_NOTIFICATION_READ_MODEL)\n    .select('*')\n    .eq('id', id)\n    .maybeSingle()",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/staffNotificationService.ts",
+    "line": 151,
+    "method": "from",
+    "targetExpression": "CANONICAL_NOTIFICATION_READ_MODEL",
+    "call": "supabase.from(CANONICAL_NOTIFICATION_READ_MODEL)",
+    "function": "listStaffNotifications",
+    "targetType": "\"notification_events_v2\"",
+    "literalTargets": [
+      "notification_events_v2"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "notification_events_v2"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/notificationService.ts",
+        "line": 86,
+        "text": "CANONICAL_NOTIFICATION_READ_MODEL = 'notification_events_v2'"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase.from(CANONICAL_NOTIFICATION_READ_MODEL).select('*').eq('recipient_staff_id', staffId).order('created_at', { ascending: false }).limit(limit)",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/staffNotificationService.ts",
+    "line": 152,
+    "method": "from",
+    "targetExpression": "CANONICAL_NOTIFICATION_READ_MODEL",
+    "call": "supabase.from(CANONICAL_NOTIFICATION_READ_MODEL)",
+    "function": "listStaffNotifications",
+    "targetType": "\"notification_events_v2\"",
+    "literalTargets": [
+      "notification_events_v2"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "notification_events_v2"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/notificationService.ts",
+        "line": 86,
+        "text": "CANONICAL_NOTIFICATION_READ_MODEL = 'notification_events_v2'"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase.from(CANONICAL_NOTIFICATION_READ_MODEL).select('*').eq('is_global', true).order('created_at', { ascending: false }).limit(Math.min(limit, 30))",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/storageUpload.ts",
+    "line": 36,
+    "method": "from",
+    "targetExpression": "bucket",
+    "call": "supabase.storage.from(bucket)",
+    "function": "uploadImageToStorage",
+    "targetType": "ImageBucket",
+    "literalTargets": [
+      "offer-assets",
+      "story-assets",
+      "customer-request-images",
+      "checklist-evidence"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "offer-assets",
+        "story-assets",
+        "customer-request-images",
+        "checklist-evidence"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/storageUpload.ts",
+        "line": 19,
+        "text": "bucket: ImageBucket"
+      }
+    ],
+    "operations": [
+      "storage"
+    ],
+    "chain": "supabase.storage.from(bucket).upload(path, file, {\n    cacheControl: '3600',\n    contentType: file.type,\n    upsert: false,\n  })",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "storage; outside audited operational tables"
+  },
+  {
+    "file": "src/lib/storageUpload.ts",
+    "line": 43,
+    "method": "from",
+    "targetExpression": "bucket",
+    "call": "supabase.storage.from(bucket)",
+    "function": "uploadImageToStorage",
+    "targetType": "ImageBucket",
+    "literalTargets": [
+      "offer-assets",
+      "story-assets",
+      "customer-request-images",
+      "checklist-evidence"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "offer-assets",
+        "story-assets",
+        "customer-request-images",
+        "checklist-evidence"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/storageUpload.ts",
+        "line": 19,
+        "text": "bucket: ImageBucket"
+      }
+    ],
+    "operations": [
+      "storage"
+    ],
+    "chain": "supabase.storage.from(bucket).getPublicUrl(path)",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "storage; outside audited operational tables"
+  },
+  {
+    "file": "src/lib/supabasePaged.ts",
+    "line": 33,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "selectAllPaged",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [],
+      "unresolved": [
+        "table"
+      ]
+    },
+    "declarations": [
+      {
+        "file": "src/lib/supabasePaged.ts",
+        "line": 14,
+        "text": "table"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase.from(table).select(select)",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution",
+    "manualReview": "SELECT pagination adapter with caller filters callback. No built-in mutation; callback/alias proof remains limited to inspected source."
+  },
+  {
+    "file": "src/lib/whatsappEvidenceJourneyLinkV17.ts",
+    "line": 57,
+    "method": "rpc",
+    "targetExpression": "EVIDENCE_JOURNEY_LINK_COMMAND",
+    "call": "client.rpc(EVIDENCE_JOURNEY_LINK_COMMAND, {\n      p_session_token: token,\n      p_journey_id: params.journeyId,\n      p_story_id: params.storyId,\n      p_source_ids: sourceIds,\n    })",
+    "function": "linkWhatsAppEvidenceJourneyV17",
+    "targetType": "\"dawaa_link_whatsapp_evidence_journey_session_v1\"",
+    "literalTargets": [
+      "dawaa_link_whatsapp_evidence_journey_session_v1"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "dawaa_link_whatsapp_evidence_journey_session_v1"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/whatsappEvidenceJourneyLinkV17.ts",
+        "line": 8,
+        "text": "EVIDENCE_JOURNEY_LINK_COMMAND = 'dawaa_link_whatsapp_evidence_journey_session_v1'"
+      }
+    ],
+    "operations": [
+      "rpc_requires_body_audit"
+    ],
+    "chain": "client.rpc(EVIDENCE_JOURNEY_LINK_COMMAND, {\n      p_session_token: token,\n      p_journey_id: params.journeyId,\n      p_story_id: params.storyId,\n      p_source_ids: sourceIds,\n    })",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/lib/whatsappOperationalSourceOwner.ts",
+    "line": 18,
+    "method": "from",
+    "targetExpression": "WHATSAPP_OPERATIONAL_SOURCE_OWNER",
+    "call": "client\n      .from(WHATSAPP_OPERATIONAL_SOURCE_OWNER)",
+    "function": "loadOperationalSourceIds",
+    "targetType": "\"whatsapp_operational_canonical_sources_v1\"",
+    "literalTargets": [
+      "whatsapp_operational_canonical_sources_v1"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "whatsapp_operational_canonical_sources_v1"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/whatsappOperationalSourceOwner.ts",
+        "line": 6,
+        "text": "WHATSAPP_OPERATIONAL_SOURCE_OWNER = 'whatsapp_operational_canonical_sources_v1'"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "client\n      .from(WHATSAPP_OPERATIONAL_SOURCE_OWNER)\n      .select('source_id')\n      .in('source_id', ids.slice(index, index + CHUNK))",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/pages/CRMPage.tsx",
+    "line": 295,
+    "method": "from",
+    "targetExpression": "REQUESTS_TABLE",
+    "call": "supabase\n        .from(REQUESTS_TABLE)",
+    "function": "<callback>",
+    "targetType": "\"crm_requests\"",
+    "literalTargets": [
+      "crm_requests"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "crm_requests"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/pages/CRMPage.tsx",
+        "line": 17,
+        "text": "REQUESTS_TABLE = 'crm_requests'"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase\n        .from(REQUESTS_TABLE)\n        .select(selectColumns)\n        .order('updated_at', { ascending: false })\n        .limit(100)",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/pages/CRMPage.tsx",
+    "line": 328,
+    "method": "from",
+    "targetExpression": "TIMELINE_TABLE",
+    "call": "supabase\n          .from(TIMELINE_TABLE)",
+    "function": "<callback>",
+    "targetType": "\"crm_timeline\"",
+    "literalTargets": [
+      "crm_timeline"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "crm_timeline"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/pages/CRMPage.tsx",
+        "line": 18,
+        "text": "TIMELINE_TABLE = 'crm_timeline'"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase\n          .from(TIMELINE_TABLE)\n          .select(\n            'id,company_id,request_id,event_type,note,old_status,new_status,created_by,created_by_name,metadata,created_at'\n          )\n          .eq('company_id', userContext.companyId)\n          .eq('request_id', requestId)\n          .order('created_at', { ascending: true })",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/pages/CRMPage.tsx",
+    "line": 386,
+    "method": "from",
+    "targetExpression": "TIMELINE_TABLE",
+    "call": "supabase\n        .from(TIMELINE_TABLE)",
+    "function": "handleSubmitNote",
+    "targetType": "\"crm_timeline\"",
+    "literalTargets": [
+      "crm_timeline"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "crm_timeline"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/pages/CRMPage.tsx",
+        "line": 18,
+        "text": "TIMELINE_TABLE = 'crm_timeline'"
+      }
+    ],
+    "operations": [
+      "insert"
+    ],
+    "chain": "supabase\n        .from(TIMELINE_TABLE)\n        .insert(payload)\n        .select(\n          'id,company_id,request_id,event_type,note,old_status,new_status,created_by,created_by_name,metadata,created_at'\n        )\n        .single()",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/pages/CRMPage.tsx",
+    "line": 397,
+    "method": "from",
+    "targetExpression": "REQUESTS_TABLE",
+    "call": "supabase\n        .from(REQUESTS_TABLE)",
+    "function": "handleSubmitNote",
+    "targetType": "\"crm_requests\"",
+    "literalTargets": [
+      "crm_requests"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "crm_requests"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/pages/CRMPage.tsx",
+        "line": 17,
+        "text": "REQUESTS_TABLE = 'crm_requests'"
+      }
+    ],
+    "operations": [
+      "update"
+    ],
+    "chain": "supabase\n        .from(REQUESTS_TABLE)\n        .update({ status: nextStatus, last_interaction_at: now, updated_at: now })\n        .eq('company_id', userContext.companyId)\n        .eq('id', selectedRequest.id)",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/pages/ConversationReviewEvidence.tsx",
+    "line": 88,
+    "method": "from",
+    "targetExpression": "BUCKET",
+    "call": "supabase.storage.from(BUCKET)",
+    "function": "save",
+    "targetType": "\"conversation-review-evidence\"",
+    "literalTargets": [
+      "conversation-review-evidence"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "conversation-review-evidence"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/pages/ConversationReviewEvidence.tsx",
+        "line": 7,
+        "text": "BUCKET = 'conversation-review-evidence'"
+      }
+    ],
+    "operations": [
+      "storage"
+    ],
+    "chain": "supabase.storage.from(BUCKET).upload(path, file, { upsert: false, contentType: file.type })",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "storage; outside audited operational tables"
+  },
+  {
+    "file": "src/pages/DailyManagerChecklist.tsx",
+    "line": 84,
+    "method": "from",
+    "targetExpression": "TABLES.managerDailyChecklist",
+    "call": "supabase\n      .from(TABLES.managerDailyChecklist)",
+    "function": "<callback>",
+    "targetType": "\"manager_daily_checklist\"",
+    "literalTargets": [
+      "manager_daily_checklist"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "manager_daily_checklist"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/supabaseTables.ts",
+        "line": 31,
+        "text": "managerDailyChecklist: 'manager_daily_checklist'"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase\n      .from(TABLES.managerDailyChecklist)\n      .select('id, task_key, task_date, completed, note, branch')\n      .eq('staff_id', staffId)\n      .gte('task_date', getPharmacyCycleRange(taskDate).start)\n      .lte('task_date', getPharmacyCycleRange(taskDate).end)\n      .then(({ data, error: err }) => {\n        if (cancelled) return;\n        if (err) {\n          setError(err.message);\n          return;\n        }\n        const map: Record<string, ChecklistRow> = {};\n        const selectedWeek = weekBoundsOf(new Date(`${taskDate}T12:00:00`));\n        (data || []).forEach((rawRow) => {\n          const row = rawRow as ChecklistRow;\n          if (role === 'branches_manager' && row.branch !== selectedBranch) return;\n          const cadence = isAssistant ? 'daily' : getManagerTaskCadence(row.task_key);\n          const rowDate = String(row.task_date || '').slice(0, 10);\n          const isRelevant =\n            cadence === 'daily'\n              ? rowDate === taskDate\n              : cadence === 'weekly'\n                ? rowDate >= selectedWeek.start && rowDate <= selectedWeek.end\n                : true;\n          if (!isRelevant) return;\n          const current = map[row.task_key];\n",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/pages/DailyManagerChecklist.tsx",
+    "line": 170,
+    "method": "from",
+    "targetExpression": "TABLES.managerDailyChecklist",
+    "call": "supabase.from(TABLES.managerDailyChecklist)",
+    "function": "toggleTask",
+    "targetType": "\"manager_daily_checklist\"",
+    "literalTargets": [
+      "manager_daily_checklist"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "manager_daily_checklist"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/supabaseTables.ts",
+        "line": 31,
+        "text": "managerDailyChecklist: 'manager_daily_checklist'"
+      }
+    ],
+    "operations": [
+      "update"
+    ],
+    "chain": "supabase.from(TABLES.managerDailyChecklist).update(payload).eq('id', current.id)",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/pages/DailyManagerChecklist.tsx",
+    "line": 171,
+    "method": "from",
+    "targetExpression": "TABLES.managerDailyChecklist",
+    "call": "supabase.from(TABLES.managerDailyChecklist)",
+    "function": "toggleTask",
+    "targetType": "\"manager_daily_checklist\"",
+    "literalTargets": [
+      "manager_daily_checklist"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "manager_daily_checklist"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/supabaseTables.ts",
+        "line": 31,
+        "text": "managerDailyChecklist: 'manager_daily_checklist'"
+      }
+    ],
+    "operations": [
+      "upsert"
+    ],
+    "chain": "supabase.from(TABLES.managerDailyChecklist).upsert(payload, {\n              onConflict: 'staff_id,task_date,task_key,branch',\n            })",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/pages/DailyManagerChecklist.tsx",
+    "line": 208,
+    "method": "from",
+    "targetExpression": "TABLES.managerDailyChecklist",
+    "call": "supabase.from(TABLES.managerDailyChecklist)",
+    "function": "saveNote",
+    "targetType": "\"manager_daily_checklist\"",
+    "literalTargets": [
+      "manager_daily_checklist"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "manager_daily_checklist"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/supabaseTables.ts",
+        "line": 31,
+        "text": "managerDailyChecklist: 'manager_daily_checklist'"
+      }
+    ],
+    "operations": [
+      "update"
+    ],
+    "chain": "supabase.from(TABLES.managerDailyChecklist).update(payload).eq('id', current.id)",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/pages/DailyManagerChecklist.tsx",
+    "line": 211,
+    "method": "from",
+    "targetExpression": "TABLES.managerDailyChecklist",
+    "call": "supabase.from(TABLES.managerDailyChecklist)",
+    "function": "saveNote",
+    "targetType": "\"manager_daily_checklist\"",
+    "literalTargets": [
+      "manager_daily_checklist"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "manager_daily_checklist"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/supabaseTables.ts",
+        "line": 31,
+        "text": "managerDailyChecklist: 'manager_daily_checklist'"
+      }
+    ],
+    "operations": [
+      "upsert"
+    ],
+    "chain": "supabase.from(TABLES.managerDailyChecklist).upsert(payload, {\n      onConflict: 'staff_id,task_date,task_key,branch',\n    })",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/pages/DoctorDashboardStable.tsx",
+    "line": 437,
+    "method": "from",
+    "targetExpression": "TABLES.employeeTransactions",
+    "call": "supabase\n            .from(TABLES.employeeTransactions)",
+    "function": "<callback>",
+    "targetType": "\"employee_transactions\"",
+    "literalTargets": [
+      "employee_transactions"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "employee_transactions"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/supabaseTables.ts",
+        "line": 25,
+        "text": "employeeTransactions: 'employee_transactions'"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase\n            .from(TABLES.employeeTransactions)\n            .select('points_delta, status')\n            .eq('staff_id', staffId)\n            .eq('month_cycle', cycle)\n            .eq('status', 'active')",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/pages/ExecutiveDashboard2027.tsx",
+    "line": 456,
+    "method": "rpc",
+    "targetExpression": "name",
+    "call": "supabase.rpc(name, params)",
+    "function": "rpcRows",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [],
+      "unresolved": [
+        "name"
+      ]
+    },
+    "declarations": [
+      {
+        "file": "src/pages/ExecutiveDashboard2027.tsx",
+        "line": 451,
+        "text": "name"
+      }
+    ],
+    "operations": [
+      "rpc_requires_body_audit"
+    ],
+    "chain": "supabase.rpc(name, params)",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution",
+    "manualReview": "rpcRows declaration has no found direct call in this source file. Unused getter fallback helper; cannot claim external/runtime call impossibility."
+  },
+  {
+    "file": "src/pages/IncentiveMedicines.tsx",
+    "line": 132,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "saveWithMissingColumnRetry",
+    "targetType": "\"incentive_medicines\"",
+    "literalTargets": [
+      "incentive_medicines"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "incentive_medicines"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/pages/IncentiveMedicines.tsx",
+        "line": 125,
+        "text": "table: 'incentive_medicines'"
+      }
+    ],
+    "operations": [
+      "update"
+    ],
+    "chain": "supabase.from(table).update(next).eq('id', id)",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/pages/IncentiveMedicines.tsx",
+    "line": 133,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "saveWithMissingColumnRetry",
+    "targetType": "\"incentive_medicines\"",
+    "literalTargets": [
+      "incentive_medicines"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "incentive_medicines"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/pages/IncentiveMedicines.tsx",
+        "line": 125,
+        "text": "table: 'incentive_medicines'"
+      }
+    ],
+    "operations": [
+      "insert"
+    ],
+    "chain": "supabase.from(table).insert(next)",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/pages/Offers.tsx",
+    "line": 50,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "insertResilient",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "offers"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/pages/Offers.tsx",
+        "line": 46,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "insert"
+    ],
+    "chain": "supabase.from(table).insert(next).select('*').single()",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/pages/OperationalModule.tsx",
+    "line": 658,
+    "method": "from",
+    "targetExpression": "config.table",
+    "call": "supabase\n      .from(config.table)",
+    "function": "<callback>",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [],
+      "unresolved": [
+        "config.table"
+      ]
+    },
+    "declarations": [
+      {
+        "file": "src/pages/OperationalModule.tsx",
+        "line": 48,
+        "text": "table: string;"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase\n      .from(config.table)\n      .select('*')\n      .order('created_at', { ascending: false })\n      .limit(500)",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution",
+    "manualReview": "Six current configurations: shelf_tasks, inventory_count_sessions, shortage_items, offers, training_modules, staff. Generic writes outside audited operational tables."
+  },
+  {
+    "file": "src/pages/OperationalModule.tsx",
+    "line": 751,
+    "method": "from",
+    "targetExpression": "config.table",
+    "call": "supabase.from(config.table)",
+    "function": "submit",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [],
+      "unresolved": [
+        "config.table"
+      ]
+    },
+    "declarations": [
+      {
+        "file": "src/pages/OperationalModule.tsx",
+        "line": 48,
+        "text": "table: string;"
+      }
+    ],
+    "operations": [
+      "insert"
+    ],
+    "chain": "supabase.from(config.table).insert(payload).select('id').single()",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution",
+    "manualReview": "Six current configurations: shelf_tasks, inventory_count_sessions, shortage_items, offers, training_modules, staff. Generic writes outside audited operational tables."
+  },
+  {
+    "file": "src/pages/OperationalModule.tsx",
+    "line": 782,
+    "method": "from",
+    "targetExpression": "config.table",
+    "call": "supabase\n      .from(config.table)",
+    "function": "updateStatus",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [],
+      "unresolved": [
+        "config.table"
+      ]
+    },
+    "declarations": [
+      {
+        "file": "src/pages/OperationalModule.tsx",
+        "line": 48,
+        "text": "table: string;"
+      }
+    ],
+    "operations": [
+      "update"
+    ],
+    "chain": "supabase\n      .from(config.table)\n      .update({\n        [config.statusField]: module === 'training' ? status === 'true' : status,\n        updated_at: new Date().toISOString(),\n        ...(status === 'completed' ? { completed_at: new Date().toISOString() } : {}),\n      })\n      .eq('id', row.id)",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution",
+    "manualReview": "Six current configurations: shelf_tasks, inventory_count_sessions, shortage_items, offers, training_modules, staff. Generic writes outside audited operational tables."
+  },
+  {
+    "file": "src/pages/PointAppeals.tsx",
+    "line": 127,
+    "method": "from",
+    "targetExpression": "TABLES.pointAppeals",
+    "call": "supabase.from(TABLES.pointAppeals)",
+    "function": "submitAppeal",
+    "targetType": "\"point_appeals\"",
+    "literalTargets": [
+      "point_appeals"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "point_appeals"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/supabaseTables.ts",
+        "line": 29,
+        "text": "pointAppeals: 'point_appeals'"
+      }
+    ],
+    "operations": [
+      "insert"
+    ],
+    "chain": "supabase.from(TABLES.pointAppeals).insert({\n        point_record_id: penalty.id,\n        subject_staff_id: staffId,\n        subject_name: user?.name || null,\n        branch: user?.branch || null,\n        rule_code: (penalty.description || penalty.reason || '').match(/[A-Z]+(?:-[A-Z]+)*-\\d+[A-Z]?/)?.[0] || null,\n        original_points_delta: Math.abs(penalty.points_delta ?? penalty.points ?? 0) * -1,\n        reason: appealReason.trim(),\n        status: 'pending',\n        raised_by_staff_id: staffId,\n        raised_by_name: user?.name || null,\n        appeal_deadline: deadline.toISOString(),\n      })",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/pages/QuickReplies.tsx",
+    "line": 71,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "load",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [],
+      "unresolved": [
+        "table"
+      ]
+    },
+    "declarations": [
+      {
+        "file": "src/pages/QuickReplies.tsx",
+        "line": 70,
+        "text": "table"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase.from(table).select('*', { count: 'exact', head: true })",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution",
+    "manualReview": "Iterates two fixed quick-reply backup tables with SELECT head/count only."
+  },
+  {
+    "file": "src/pages/Reviews.tsx",
+    "line": 364,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "insertSafe",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "conversation_sales_reviews",
+        "followups",
+        "customer_service_manager_reviews"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/pages/Reviews.tsx",
+        "line": 360,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "insert"
+    ],
+    "chain": "supabase.from(table).insert(currentPayload).select('id').single()",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/pages/Reviews.tsx",
+    "line": 380,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase\n        .from(table)",
+    "function": "insertSafe",
+    "targetType": "\"conversation_sales_reviews\"",
+    "literalTargets": [
+      "conversation_sales_reviews"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "conversation_sales_reviews"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/pages/Reviews.tsx",
+        "line": 360,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase\n        .from(table)\n        .select('id')\n        .eq('staff_name', staffName)\n        .eq('reviewer_name', reviewerName)\n        .eq('conversation_date', conversationDate || '')",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/pages/Reviews.tsx",
+    "line": 408,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase\n      .from(table)",
+    "function": "updateSafe",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "conversation_sales_reviews"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/pages/Reviews.tsx",
+        "line": 404,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "update"
+    ],
+    "chain": "supabase\n      .from(table)\n      .update(currentPayload)\n      .eq('id', id)\n      .select('id')\n      .single()",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/pages/Reviews.tsx",
+    "line": 1389,
+    "method": "from",
+    "targetExpression": "TABLES.employeeTransactions",
+    "call": "supabase\n        .from(TABLES.employeeTransactions)",
+    "function": "countPreviousReviewErrors",
+    "targetType": "\"employee_transactions\"",
+    "literalTargets": [
+      "employee_transactions"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "employee_transactions"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/supabaseTables.ts",
+        "line": 25,
+        "text": "employeeTransactions: 'employee_transactions'"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase\n        .from(TABLES.employeeTransactions)\n        .select('id,description,month_cycle')\n        .eq('staff_id', selectedStaff.id)\n        .eq('month_cycle', monthCycle)\n        .ilike('description', `%review_error:${result.repeatErrorType}%`)",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/pages/Reviews.tsx",
+    "line": 1400,
+    "method": "from",
+    "targetExpression": "TABLES.employeeTransactions",
+    "call": "supabase\n      .from(TABLES.employeeTransactions)",
+    "function": "countPreviousReviewErrors",
+    "targetType": "\"employee_transactions\"",
+    "literalTargets": [
+      "employee_transactions"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "employee_transactions"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/supabaseTables.ts",
+        "line": 25,
+        "text": "employeeTransactions: 'employee_transactions'"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase\n      .from(TABLES.employeeTransactions)\n      .select('id,description,created_at')\n      .eq('staff_id', selectedStaff.id)\n      .gte('created_at', `${reviewCycle.start.toISOString().slice(0, 10)}T00:00:00`)\n      .lte('created_at', `${reviewCycle.end.toISOString().slice(0, 10)}T23:59:59`)\n      .ilike('description', `%review_error:${result.repeatErrorType}%`)",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/pages/RolesPermissions.tsx",
+    "line": 59,
+    "method": "from",
+    "targetExpression": "TABLES.activityLog",
+    "call": "supabase\n        .from(TABLES.activityLog)",
+    "function": "<callback>",
+    "targetType": "\"activity_log\"",
+    "literalTargets": [
+      "activity_log"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "activity_log"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/supabaseTables.ts",
+        "line": 78,
+        "text": "activityLog: 'activity_log'"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase\n        .from(TABLES.activityLog)\n        .select('id,action,user_name,details,target_id,old_value,new_value,created_at')\n        .eq('module', 'الصلاحيات')\n        .order('created_at', { ascending: false })\n        .limit(100)",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/pages/RolesPermissions.tsx",
+    "line": 213,
+    "method": "from",
+    "targetExpression": "TABLES.staffAccounts",
+    "call": "supabase.from(TABLES.staffAccounts)",
+    "function": "applyRoleTemplatesToSelected",
+    "targetType": "\"staff_accounts\"",
+    "literalTargets": [
+      "staff_accounts"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "staff_accounts"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/supabaseTables.ts",
+        "line": 6,
+        "text": "staffAccounts: 'staff_accounts'"
+      }
+    ],
+    "operations": [
+      "update"
+    ],
+    "chain": "supabase.from(TABLES.staffAccounts).update({ permissions }).eq('id', account.id)",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/pages/RolesPermissions.tsx",
+    "line": 266,
+    "method": "from",
+    "targetExpression": "TABLES.staffAccounts",
+    "call": "supabase\n        .from(TABLES.staffAccounts)",
+    "function": "handleSave",
+    "targetType": "\"staff_accounts\"",
+    "literalTargets": [
+      "staff_accounts"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "staff_accounts"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/supabaseTables.ts",
+        "line": 6,
+        "text": "staffAccounts: 'staff_accounts'"
+      }
+    ],
+    "operations": [
+      "update"
+    ],
+    "chain": "supabase\n        .from(TABLES.staffAccounts)\n        .update({ permissions: merged })\n        .eq('id', selectedAccount.id)",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/pages/StaffAccounts.tsx",
+    "line": 54,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "updateFlexible",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "staff",
+        "staff_accounts"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/pages/StaffAccounts.tsx",
+        "line": 51,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "update"
+    ],
+    "chain": "supabase.from(table).update(next).eq('id', id)",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/pages/StaffAccounts.tsx",
+    "line": 60,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "updateFlexible",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "staff",
+        "staff_accounts"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/pages/StaffAccounts.tsx",
+        "line": 51,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "update"
+    ],
+    "chain": "supabase.from(table).update(next).eq('id', id)",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/pages/StaffAccounts.tsx",
+    "line": 66,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "insertFlexible",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "staff_accounts"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/pages/StaffAccounts.tsx",
+        "line": 63,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "insert"
+    ],
+    "chain": "supabase.from(table).insert(next)",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/pages/StaffAccounts.tsx",
+    "line": 72,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "insertFlexible",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "staff_accounts"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/pages/StaffAccounts.tsx",
+        "line": 63,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "insert"
+    ],
+    "chain": "supabase.from(table).insert(next)",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/pages/StagnantMedicines.tsx",
+    "line": 317,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "saveWithMissingColumnRetry",
+    "targetType": "\"stagnant_medicines\" | \"stagnant_medicine_dispenses\"",
+    "literalTargets": [
+      "stagnant_medicines",
+      "stagnant_medicine_dispenses"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "stagnant_medicines",
+        "stagnant_medicine_dispenses"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/pages/StagnantMedicines.tsx",
+        "line": 310,
+        "text": "table: 'stagnant_medicines' | 'stagnant_medicine_dispenses'"
+      }
+    ],
+    "operations": [
+      "update"
+    ],
+    "chain": "supabase.from(table).update(next).eq('id', id).select('id').single()",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/pages/StagnantMedicines.tsx",
+    "line": 318,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "saveWithMissingColumnRetry",
+    "targetType": "\"stagnant_medicines\" | \"stagnant_medicine_dispenses\"",
+    "literalTargets": [
+      "stagnant_medicines",
+      "stagnant_medicine_dispenses"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "stagnant_medicines",
+        "stagnant_medicine_dispenses"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/pages/StagnantMedicines.tsx",
+        "line": 310,
+        "text": "table: 'stagnant_medicines' | 'stagnant_medicine_dispenses'"
+      }
+    ],
+    "operations": [
+      "insert"
+    ],
+    "chain": "supabase.from(table).insert(next).select('id').single()",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/pages/StagnantMedicines.tsx",
+    "line": 524,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase\n            .from(table)",
+    "function": "searchTable",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "customers"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/pages/StagnantMedicines.tsx",
+        "line": 511,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "select"
+    ],
+    "chain": "supabase\n            .from(table)\n            .select('*')\n            .ilike(column, `%${term}%`)\n            .limit(40)",
+    "classification": "LEGACY READ ONLY",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/pages/Stories.tsx",
+    "line": 48,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "insertResilient",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "whatsapp_stories",
+        "story_performance_reports"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/pages/Stories.tsx",
+        "line": 44,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "insert"
+    ],
+    "chain": "supabase.from(table).insert(next).select('*').single()",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/services/staffService.ts",
+    "line": 68,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "insertFlexible",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "staff"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/services/staffService.ts",
+        "line": 65,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "insert"
+    ],
+    "chain": "supabase.from(table).insert(next).select().single()",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/services/staffService.ts",
+    "line": 75,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "insertFlexible",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "staff"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/services/staffService.ts",
+        "line": 65,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "insert"
+    ],
+    "chain": "supabase.from(table).insert(next).select().single()",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/services/staffService.ts",
+    "line": 87,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "updateFlexible",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "staff"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/services/staffService.ts",
+        "line": 81,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "update"
+    ],
+    "chain": "supabase.from(table).update(next).eq('id', id).select().single()",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/services/staffService.ts",
+    "line": 94,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "updateFlexible",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "staff"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/services/staffService.ts",
+        "line": 81,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "update"
+    ],
+    "chain": "supabase.from(table).update(next).eq('id', id).select().single()",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/services/staffService.ts",
+    "line": 129,
+    "method": "from",
+    "targetExpression": "TABLES.staffAccounts",
+    "call": "supabase.from(TABLES.staffAccounts)",
+    "function": "updateStaffAccountByStaffId",
+    "targetType": "\"staff_accounts\"",
+    "literalTargets": [
+      "staff_accounts"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "staff_accounts"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/supabaseTables.ts",
+        "line": 6,
+        "text": "staffAccounts: 'staff_accounts'"
+      }
+    ],
+    "operations": [
+      "update"
+    ],
+    "chain": "supabase.from(TABLES.staffAccounts).update(next).eq('staff_id', staffId)",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/services/staffService.ts",
+    "line": 136,
+    "method": "from",
+    "targetExpression": "TABLES.staffAccounts",
+    "call": "supabase.from(TABLES.staffAccounts)",
+    "function": "updateStaffAccountByStaffId",
+    "targetType": "\"staff_accounts\"",
+    "literalTargets": [
+      "staff_accounts"
+    ],
+    "completeTypeResolution": true,
+    "callerResolution": {
+      "targets": [
+        "staff_accounts"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/lib/supabaseTables.ts",
+        "line": 6,
+        "text": "staffAccounts: 'staff_accounts'"
+      }
+    ],
+    "operations": [
+      "update"
+    ],
+    "chain": "supabase.from(TABLES.staffAccounts).update(next).eq('staff_id', staffId)",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/services/staffService.ts",
+    "line": 144,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "insertFlexibleNoSelect",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "staff_accounts"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/services/staffService.ts",
+        "line": 141,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "insert"
+    ],
+    "chain": "supabase.from(table).insert(next)",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/services/staffService.ts",
+    "line": 151,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "insertFlexibleNoSelect",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "staff_accounts"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/services/staffService.ts",
+        "line": 141,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "insert"
+    ],
+    "chain": "supabase.from(table).insert(next)",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/services/staffService.ts",
+    "line": 163,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "updateFlexibleNoSelect",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "staff_accounts"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/services/staffService.ts",
+        "line": 157,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "update"
+    ],
+    "chain": "supabase.from(table).update(next).eq('id', id)",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  },
+  {
+    "file": "src/services/staffService.ts",
+    "line": 170,
+    "method": "from",
+    "targetExpression": "table",
+    "call": "supabase.from(table)",
+    "function": "updateFlexibleNoSelect",
+    "targetType": "string",
+    "literalTargets": [],
+    "completeTypeResolution": false,
+    "callerResolution": {
+      "targets": [
+        "staff_accounts"
+      ],
+      "unresolved": []
+    },
+    "declarations": [
+      {
+        "file": "src/services/staffService.ts",
+        "line": 157,
+        "text": "table: string"
+      }
+    ],
+    "operations": [
+      "update"
+    ],
+    "chain": "supabase.from(table).update(next).eq('id', id)",
+    "classification": "RETAIN",
+    "classificationMeaning": "audit-path classification; not a claim of runtime retirement or exhaustive alias resolution"
+  }
+]

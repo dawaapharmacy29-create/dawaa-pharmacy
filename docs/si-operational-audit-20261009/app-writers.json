@@ -866,5 +866,61 @@
     "evidence": "client.rpc(CONVERSATION_REVIEW_CORRECTION_COMMAND, { p_session_token, p_review_id, p_idempotency_key, p_reason, p_correction })",
     "decision": "retain authorized correction/versioning; protected migration remains unapplied",
     "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "file": "src/lib/offlineQueue.ts",
+    "line": 82,
+    "function": "runItem",
+    "operation": "RPC dynamic",
+    "destination": "runtime-selected RPC/table; may target audited operational records",
+    "classification": "PROJECT ONLY",
+    "when": "browser startup/online/manual offline synchronization; stored items",
+    "stableIdentity": "queue item UUID; canonical semantic dedupe not established",
+    "production": "runtime replay initialized in source; persisted items and invocation counts unknown",
+    "evidence": "supabase.rpc(item.rpcName)",
+    "decision": "retain execution adapter only with server enforcement of authorized canonical commands; reject competing legacy proposals visibly",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "file": "src/lib/offlineQueue.ts",
+    "line": 89,
+    "function": "runItem",
+    "operation": "update",
+    "destination": "runtime-selected RPC/table; may target audited operational records",
+    "classification": "PROJECT ONLY",
+    "when": "browser startup/online/manual offline synchronization; stored items",
+    "stableIdentity": "queue item UUID; canonical semantic dedupe not established",
+    "production": "runtime replay initialized in source; persisted items and invocation counts unknown",
+    "evidence": "supabase.from(item.table)",
+    "decision": "retain execution adapter only with server enforcement of authorized canonical commands; reject competing legacy proposals visibly",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "file": "src/lib/offlineQueue.ts",
+    "line": 98,
+    "function": "runItem",
+    "operation": "upsert",
+    "destination": "runtime-selected RPC/table; may target audited operational records",
+    "classification": "PROJECT ONLY",
+    "when": "browser startup/online/manual offline synchronization; stored items",
+    "stableIdentity": "queue item UUID; canonical semantic dedupe not established",
+    "production": "runtime replay initialized in source; persisted items and invocation counts unknown",
+    "evidence": "supabase.from(item.table)",
+    "decision": "retain execution adapter only with server enforcement of authorized canonical commands; reject competing legacy proposals visibly",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "file": "src/lib/offlineQueue.ts",
+    "line": 103,
+    "function": "runItem",
+    "operation": "insert",
+    "destination": "runtime-selected RPC/table; may target audited operational records",
+    "classification": "PROJECT ONLY",
+    "when": "browser startup/online/manual offline synchronization; stored items",
+    "stableIdentity": "queue item UUID; canonical semantic dedupe not established",
+    "production": "runtime replay initialized in source; persisted items and invocation counts unknown",
+    "evidence": "supabase.from(item.table)",
+    "decision": "retain execution adapter only with server enforcement of authorized canonical commands; reject competing legacy proposals visibly",
+    "classificationStatus": "audit proposal, not activated"
   }
 ]

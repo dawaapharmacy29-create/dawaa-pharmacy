@@ -1,0 +1,30 @@
+{
+  "kind": "pure audit counterexample; no database",
+  "cases": [
+    {
+      "scenario": "identical retry",
+      "invariantHolds": true
+    },
+    {
+      "scenario": "source UUID omitted from key",
+      "invariantHolds": true,
+      "limit": "key helper only; not full source reimport test"
+    },
+    {
+      "scenario": "raw timeline reordered",
+      "invariantHolds": true
+    },
+    {
+      "scenario": "same obligation with changed SI case start after resegmentation",
+      "invariantHolds": false,
+      "originalKey": "fu1|customer:audit-fixture|2026-10-09T06:00:00.000Z|callback-requested|-",
+      "resegmentedKey": "fu1|customer:audit-fixture|2026-10-09T06:01:00.000Z|callback-requested|-"
+    }
+  ],
+  "engineEvidence": {
+    "file": "src/lib/salesIntelligence/followUpOpportunityEngine.ts",
+    "line": 289,
+    "argument": "episodeStartedAt: new Date(conversationCase.startedAt)"
+  },
+  "conclusion": "existing key is deterministic but not invariant to changed SI case starts; block blind reuse for resegmentation contract"
+}

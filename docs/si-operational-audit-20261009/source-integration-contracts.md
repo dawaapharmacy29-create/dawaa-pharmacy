@@ -127,6 +127,8 @@ During inert expansion, SI projections may be calculated in isolated fixtures bu
 
 DB guards must cover direct INSERT/UPDATE, callable RPCs, security-definer trigger paths, and actual service-role/server entry points. Payload fields such as `origin: si` are not authorization. Define trusted roles/wrapper grants and prove stale legacy clients cannot spoof canonical origin. If the transaction/authorization mechanism cannot be demonstrated, stay BLOCKED.
 
+The follow-up caller pass also identified persisted `offlineQueue.runItem` replay and the dynamic customer branch repair RPC. Include stored legacy browser operations and the indirect customer-update trigger edge in the isolated proof. A lack of current queue producers does not establish empty historical browser queues. See `writer-boundary-continuation.md` for the verified scope and authorization findings.
+
 ## Acceptance status
 
 Design specifications now exist for complaint state, request qualification, projection/reanalysis, source-aware materialization, and quality retry. Remaining proofs are concrete:

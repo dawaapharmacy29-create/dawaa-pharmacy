@@ -10,7 +10,7 @@ The application was cloned successfully from GitHub after the team Git endpoint 
 
 ## Phase 1 continuation
 
-[Source integration contracts](source-integration-contracts.md) specify the complaint/request decisions, projection lifecycle, quality retry, and atomic cutover acceptance. [Dynamic caller follow-up](dynamic-caller-followup.md) adds the constant-target review correction command and records its verified absence from the live public catalog. The implementation gate remains BLOCKED pending caller coverage, isolated schema/authorization tests, and durable identity proof.
+[Source integration contracts](source-integration-contracts.md) specify the complaint/request decisions, projection lifecycle, quality retry, and atomic cutover acceptance. [Dynamic caller follow-up](dynamic-caller-followup.md) adds the constant-target review correction command and records its verified absence from the live public catalog. [Writer boundary continuation](writer-boundary-continuation.md) resolves 96/116 nonliteral targets and records the additional offline replay and dynamic customer branch repair paths. The implementation gate remains BLOCKED pending caller coverage, isolated schema/authorization tests, and durable identity proof.
 
 ## 1. Architecture discovered
 
@@ -62,8 +62,8 @@ These blockers do not request deployment approval. They prevent claiming READY o
 
 Machine-readable inventories accompany this report:
 
-* `app-writers.json`: 62 direct write/RPC call sites (61 initial literal-target sites plus one constant-target correction RPC), including review writes and command/lifecycle adapters. This is not 61 independent engines.
-* `database-writers.json`: 97 live functions with direct or transitively detected writes to the audited tables, including guards, triggers and command wrappers. This is a conservative catalog closure, not a runtime execution count.
+* `app-writers.json`: 66 direct write/RPC call sites (61 initial literal-target sites, one constant-target correction RPC, and four conditional offline replay paths), including review writes and command/lifecycle adapters. This is not 61 independent engines.
+* `database-writers.json`: 98 live functions with direct or transitively detected writes to the audited tables, including guards, triggers and command wrappers. This is a conservative catalog closure, not a runtime execution count.
 * `historical-migration-writes.json`: mutation occurrences in historical SQL definitions. Historical definitions are LEGACY READ ONLY for this analysis; do not execute them to reproduce current behavior blindly.
 * `schema-drift.json`: 218 catalog functions and 181 catalog objects (including four relevant triggers attached outside the initial table set), hashes and closest migration-name candidates.
 
