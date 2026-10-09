@@ -164,7 +164,10 @@ export type DecisionIntelligence = {
     trend: { cycleStart: string; index: number | null; salesPerHour: number | null; hours: number; invoices: number; eligible: boolean; note: string | null }[];
     peers: { id: string; isTarget: boolean; index: number; hours: number; label: string }[];
     peerBand: { p25: number; median: number; p75: number } | null;
-    shifts: { shift: ShiftKey; label: string; actual: number; expected: number | null; p25: number | null; p75: number | null; hours: number; invoices: number; peers: number; confidence: Confidence }[];
+    /** pendingDays: the doctor's days in this shift still pending review (their candidate hours are provisional). */
+    shifts: { shift: ShiftKey; label: string; actual: number; expected: number | null; p25: number | null; p75: number | null; hours: number; invoices: number; peers: number; confidence: Confidence; pendingDays: number }[];
+    /** Days of the analysed cycle still pending review for the doctor: the peer position is provisional while > 0. */
+    targetPendingDays: number;
     /** reviews / medicalErrors are null when the review source is unavailable (unknown, never zero). */
     quality: { cycleStart: string; lateShare: number | null; lateDays: number | null; workedDays: number | null; coreAverage: number | null; reviews: number | null; medicalErrors: number | null }[];
   };
@@ -453,7 +456,7 @@ export function unavailableDecision(state: Exclude<DecisionAvailability, 'ready'
     summary: { headline: copy.headline, strength: null, problem: null, decision: null },
     indicators: { self: indicator, peers: { ...indicator, peerCount: 0 }, evaluation: { state: 'insufficient', label: copy.label, detail: 'لا توجد أدلة مقارنة لمطابقة التقييم', gaps: [] } },
     changeDrivers: null, problems: [], decision: null, branchPriorities: [],
-    charts: { trend: [], peers: [], peerBand: null, shifts: [], quality: [] }, dataWarnings: [],
+    charts: { trend: [], peers: [], peerBand: null, shifts: [], quality: [], targetPendingDays: 0 }, dataWarnings: [],
   };
 }
 
@@ -640,9 +643,9 @@ export function buildDecisionIntelligence(args: {
   const peersChart = peerRows.map(x => ({ id: x.t.staffId, isTarget: x.t.staffId === args.staffId, index: x.c.productivity.index!, hours: x.c.productivity.hours, label: x.t.staffId === args.staffId ? target.name : 'زميل' }));
   const shiftsChart: DecisionIntelligence['charts']['shifts'] = [];
   for (const s of SHIFTS) {
-    let hours = 0, sales = 0, invoices = 0;
+    let hours = 0, sales = 0, invoices = 0, pendingDays = 0;
     const rates = branchShiftRates(window, args.staffId);
-    for (const c of target.cycles) { if (!rates.attributionOk.has(c.start) || !timingReliable(c)) continue; const cell = c.shifts[s]; if (cell) { hours += cell.hours; sales += cell.sales; invoices += cell.invoices; } }
+    for (const c of target.cycles) { if (!rates.attributionOk.has(c.start) || !timingReliable(c)) continue; const cell = c.shifts[s]; if (cell) { hours += cell.hours; sales += cell.sales; invoices += cell.invoices; pendingDays += cell.pendingDays || 0; } }
     if (hours < DECISION_RULES.minShiftHours) continue;
     const pooled = rates.pooledRate(s);
     const peerRates = window.doctors.filter(d => d.staffId !== args.staffId).map(d => {
@@ -651,7 +654,7 @@ export function buildDecisionIntelligence(args: {
       return h >= DECISION_RULES.minShiftHours ? v / h : null;
     }).filter((v): v is number => v !== null).sort((a, b) => a - b);
     const enough = peerRates.length >= DECISION_RULES.minShiftPeers;
-    shiftsChart.push({ shift: s, label: SHIFT_LABELS[s], actual: sales / hours, expected: pooled ? pooled.rate : null, p25: enough ? quantile(peerRates, 0.25) : null, p75: enough ? quantile(peerRates, 0.75) : null, hours, invoices, peers: peerRates.length, confidence: enough && hours >= 40 ? 'high' : enough ? 'medium' : 'low' });
+    shiftsChart.push({ shift: s, label: SHIFT_LABELS[s], actual: sales / hours, expected: pooled ? pooled.rate : null, p25: enough ? quantile(peerRates, 0.25) : null, p75: enough ? quantile(peerRates, 0.75) : null, hours, invoices, peers: peerRates.length, confidence: enough && hours >= 40 ? 'high' : enough ? 'medium' : 'low', pendingDays });
   }
   const qualityChart = [...me.cycles].reverse().map(c => ({
     cycleStart: c.cycleStart,
@@ -676,7 +679,7 @@ export function buildDecisionIntelligence(args: {
     problems: problems.slice(0, 3),
     decision,
     branchPriorities,
-    charts: { trend, peers: peersChart, peerBand, shifts: shiftsChart, quality: qualityChart },
+    charts: { trend, peers: peersChart, peerBand, shifts: shiftsChart, quality: qualityChart, targetPendingDays: analysis.attendance?.pendingReviewDays || 0 },
     dataWarnings: warnings,
   };
 }

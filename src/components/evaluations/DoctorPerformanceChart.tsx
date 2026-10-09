@@ -52,8 +52,8 @@ const toneStyle = (tone: string) => tone === 'neutral'
 
 const CAPTION: Record<EyeChartTabKey, string> = {
   trend: 'أداء الدكتور نفسه عبر آخر الدورات — من مصادره الموثقة فقط، ولا يعتمد على مقارنة الفرع',
-  shifts: 'مبيعات الساعة في كل شيفت مقابل النطاق المعتاد للزملاء في نفس الشيفت',
-  peers: 'موقعه بين زملاء الفرع المؤهلين بعد معادلة الشيفتات — المنطقة المظللة = النطاق الأوسط (25%–75%)',
+  shifts: 'مبيعات الساعة في كل شيفت مقابل النطاق المعتاد للزملاء — داخل هذا الفرع وأيام البصمة المثبتة فقط، لذا قد يختلف عن تطور الأداء الذي يشمل كل الفروع',
+  peers: 'موقعه بين زملاء الفرع المؤهلين بعد معادلة الشيفتات — داخل هذا الفرع فقط؛ المنطقة المظللة = النطاق الأوسط (25%–75%)',
   sources: 'ما الذي بُنيت عليه الأرقام في كل دورة — غير متاح لا يعني صفرًا',
 };
 
@@ -82,6 +82,7 @@ export default function DoctorPerformanceChart({ model }: { model: EyeChartModel
       {active.available && tab !== 'sources' ? <button type="button" onClick={() => setAsTable(v => !v)} className="text-[11px] font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>{asTable ? 'عرض كرسم' : 'عرض كجدول'}</button> : null}
     </div>
     <p className="mt-2 text-[11px] font-bold leading-5" style={{ color: 'var(--dawaa-theme-muted)' }}>{CAPTION[tab]}</p>
+    {active.available && active.provisionalNote ? <p className="mt-1 inline-flex rounded-full border px-2 py-0.5 text-[11px] font-black" style={toneStyle('warning')} data-testid="chart-tab-provisional">{active.provisionalNote}</p> : null}
 
     {!active.available ? <div className="mt-2 flex min-h-[140px] flex-col items-center justify-center gap-1 rounded-xl border border-dashed px-6 text-center text-[12px] font-bold leading-6" style={{ borderColor: 'var(--dawaa-theme-border)', color: 'var(--dawaa-theme-muted)' }} data-testid={`chart-tab-unavailable-${tab}`}>
       <span className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{active.state === 'loading' ? 'جاري التحميل' : active.state === 'not_enabled' ? 'لم يُفعَّل بعد' : active.state === 'failed' ? 'تعذر التحميل' : 'بيانات غير كافية'}</span>

@@ -18,7 +18,7 @@ const decisionData=read('src/lib/evaluations/doctorDecisionDataService.ts');
 const decisionChart=read('src/components/evaluations/DoctorPerformanceChart.tsx');
 const eyeChartModel=read('src/lib/evaluations/doctorEyeChartModel.ts');
 const reconciliationMigration=read('supabase/migrations/20261009090000_doctor_sales_reconciliation_v1.sql');
-const branchWindowMigration=read('supabase/migrations/20261008090000_branch_doctor_performance_window_v1.sql');
+const branchWindowMigration=read('supabase/migrations/20261009090000_doctor_sales_reconciliation_v1.sql');
 const performanceBundleFreshnessMigration=read('supabase/migrations/20261007090000_performance_sales_bundle_v1_freshness_index.sql');
 const performanceScope=read('src/lib/performance/performanceScope.ts');
 const report=read('src/lib/reports/monthlyPerformance360Service.ts');
@@ -90,7 +90,7 @@ const required=[
  [decisionEngine,"present: null",'missing evidence must stay unknown, never become "no problem"'],
  [branchWindowMigration,'dawaa_current_sales_invoice_scope_v1','branch window must keep actor sales scope authorization'],
  [branchWindowMigration,'get_staff_attendance_detail_v2','branch window attendance counts must come from the canonical attendance projection'],
- [branchWindowMigration,'attributable','branch window must refuse ambiguous name attribution'],
+ [branchWindowMigration,"o.owners = 1 then 'unique_name' else 'ambiguous_name'",'branch window must refuse ambiguous name attribution'],
  [performanceEye,'hasSourceFailure','performance eye must retry a result with failed sources instead of pinning it'],
  [performanceEye,'invalidatePerformanceSalesBundleCache','performance eye reload must bypass the shared sales bundle cache'],
  [decisionData,'sourceProblem','decision sources must classify failures through the source-state contract (not_enabled / failed + logged diagnostic)'],
@@ -148,7 +148,7 @@ if(!performanceEye.includes('{x.reason}'))failures.push('decision source status 
  const seeded=[...m.matchAll(/\('([^']+)',\s*'فرع/g)].map(x=>x[1]).sort().join(',');
  if(seeded!=='101,102,GED7242701315,GED7242701324')failures.push('device registry must hold only devices with proven branches (got '+seeded+')');
  if(/coalesce\(\(\s*select db\.branch[\s\S]{0,400}?\),\s*a\.branch\)/.test(m)||!m.includes("'unproven'"))failures.push('attendance branch must come from the punching device, never from the stored home branch');
- if(/abs\(extract\(epoch from \(si\.invoice_date/.test(m)||!m.includes("si.invoice_date >= rv.at_ts - interval '1 hour'"))failures.push('a converted review must match an invoice after the conversation, not one before it');
+ if(/abs\(extract\(epoch from \(si\.invoice_date/.test(m)||!m.includes("si.invoice_date >= rv.at_ts and si.invoice_date <= rv.at_ts + interval '48 hours'")||!m.includes('coalesce(r.first_customer_message_at, r.conversation_date, r.created_at) at_ts'))failures.push('a converted review must match an invoice from the customer\'s first message to 48h after it');
  if(!/v_branch := case when v_scope = 'ALL' then null else v_scope end/.test(m))failures.push('branch-scoped callers must only read their own branch in the reconciliation');
  for(const fn of ['dawaa_doctor_attendance_days_v1','dawaa_doctor_sales_reconciliation_v1']){
   if(!new RegExp('revoke all on function public\\.'+fn+'\\([^)]*\\) from public, anon, authenticated').test(m)||new RegExp('grant execute on function public\\.'+fn).test(m))failures.push(fn+' must not be callable by API roles');
@@ -156,9 +156,22 @@ if(!performanceEye.includes('{x.reason}'))failures.push('decision source status 
  const definers=(m.match(/security definer/gi)||[]).length,paths=(m.match(/set search_path to 'public', 'pg_catalog'/g)||[]).length;
  if(definers!==paths)failures.push('every SECURITY DEFINER function in the reconciliation migration must pin search_path');
  const rb=read('supabase/sql/ROLLBACK_20261009_doctor_sales_reconciliation_v1.sql');
- if(rb.indexOf('create or replace function public.get_branch_doctor_performance_window_v1')<0||rb.indexOf('create or replace function public.get_branch_doctor_performance_window_v1')>rb.indexOf('drop function'))failures.push('reconciliation rollback must restore the previous peer comparison before removing functions');
+ if(require('fs').existsSync(require('path').join(__dirname,'..','supabase/migrations/20261008090000_branch_doctor_performance_window_v1.sql')))failures.push('the superseded peer-comparison migration 20261008090000 must not be applied');
  const rbDrops=[...rb.matchAll(/drop\s+(function|table)\s+if exists\s+public\.(\w+)/gi)].map(x=>x[2]).sort().join(',');
- if(rbDrops!=='biometric_device_branches,dawaa_doctor_attendance_days_v1,dawaa_doctor_sales_reconciliation_v1,get_doctor_sales_reconciliation_v1')failures.push('reconciliation rollback must drop only the objects the migration created');
+ if(rbDrops!=='biometric_device_branches,dawaa_doctor_attendance_days_v1,dawaa_doctor_sales_reconciliation_v1,get_branch_doctor_performance_window_v1,get_doctor_sales_reconciliation_v1')failures.push('reconciliation rollback must drop only the objects the migration created');
+}
+{
+ // Staff sales branch-scope fix: both sales readers filter by the caller's readable branch, the helper is internal,
+ // the migration refuses to run over drifted definitions, and the rollback restores them byte for byte.
+ const crypto=require('crypto');
+ const sm=read('supabase/migrations/20261009120000_staff_sales_branch_scope_v1.sql');
+ const srb=read('supabase/sql/ROLLBACK_20261009_staff_sales_branch_scope_v1.sql');
+ const hashes=[...sm.matchAll(/<> '([0-9a-f]{32})'/g)].map(x=>x[1]);
+ const restored=[...srb.matchAll(/(CREATE OR REPLACE FUNCTION [\s\S]*?AS \$function\$[\s\S]*?\$function\$\n)/g)].map(x=>crypto.createHash('md5').update(x[1]).digest('hex'));
+ if(hashes.length!==2||restored.join()!==hashes.join())failures.push('staff sales scope rollback must restore the exact reviewed definitions (md5 mismatch)');
+ if((sm.match(/sc\.branch is null or coalesce\(nullif\(btrim\(si\.branch_name\)/g)||[]).length<2||(sm.match(/v_scope is null or coalesce\(nullif\(btrim\(si\.branch_name\)/g)||[]).length<4)failures.push('every sales read in the bundle and evaluation summary must be limited to the caller\'s readable branch');
+ if(!/revoke all on function public\.dawaa_staff_sales_read_branch_v1\(uuid\) from public, anon, authenticated/.test(sm))failures.push('the sales read-branch helper must not be callable by API roles');
+ if(!performanceService.includes('salesScopeBranch')||!performanceEye.includes('data?.salesScopeBranch'))failures.push('the doctor eye must say when sales are limited to the viewer\'s branch');
 }
 if(/describeSourceError/.test(performanceService+performanceEye+decisionData))failures.push('doctor eye must not format raw PostgREST/SQL errors for the screen; use the source-state contract');
 if(/\be\.message\b|\.error\s*\|\||\.error\}|sources\.\w+\.error/.test(performanceEye))failures.push('doctor eye must not render raw error messages; use source reasons or userFacingMessage');

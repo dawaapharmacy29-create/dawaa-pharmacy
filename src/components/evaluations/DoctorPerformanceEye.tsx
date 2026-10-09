@@ -216,6 +216,7 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
             {branch ? <Chip>{branch}</Chip> : null}
             {cur ? <Chip>{cur.displayLabel}{cur.comparisonMode === 'same_period' ? ' · جارية' : ''}</Chip> : null}
             {data ? <Chip title={`تم البناء ${new Date(data.generatedAt).toLocaleString('ar-EG')}`}>المبيعات حتى {data.sources.sales.dataAsOf || UNAVAILABLE}</Chip> : null}
+            {data?.salesScopeBranch ? <Chip tone="info" title="صلاحيتك تقتصر على هذا الفرع؛ مبيعات الدكتور في الفروع الأخرى غير معروضة">المبيعات داخل {data.salesScopeBranch} فقط</Chip> : null}
           </div>
         </header>
 

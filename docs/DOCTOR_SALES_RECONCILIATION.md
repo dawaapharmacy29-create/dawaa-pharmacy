@@ -93,7 +93,7 @@ Otherwise it is `identity_only` (no shift that day) or `uncertain` (another or u
 A cited invoice must:
 - carry the cited number;
 - belong to the **same customer**;
-- fall from **1 h before to 48 h after** the conversation;
+- fall from the **customer's first message to 48 h after** it (evidence: 401 claimed conversions system-wide, 78% within 0–2 h; the 8 invoices in the hour before were all 15–54 min before any staff reply, i.e. earlier purchases);
 - have a positive value.
 
 Customer + time disambiguate numbers that repeat across branches. The review's branch label is not trusted: case
@@ -125,18 +125,9 @@ September for د/ أحمد: strict 7 ÷ (7 + 7) = **50%** (coverage 58%, provisi
   - Conversion requires `view_reviews`.
 - The functions read identity through the canonical chain (`dawaa_current_staff_account_id_strict`). They inherit the verified session identity once `20261008120000` is applied, which must happen first.
 
-## Safe execution order (each step needs approval)
+## Safe execution order
 
-1. Confirm the device registry (4 devices) and that 105 / no-device events stay unproven.
-2. Apply identity hardening `20261008115000` + `20261008120000` (+ the Base44 Edge Function).
-3. On an isolated database branch, run the permission and rollback tests:
-   - anon denied on the internal functions and the registry;
-   - a الشامي manager scoped to الشامي, and an assistant denied;
-   - table checksums unchanged;
-   - the rollback restores the previous peer comparison.
-4. Apply `20261008090000` then `20261009090000` on production (the latter supersedes the peer-comparison body).
-5. Publish a Preview of this branch and compare the Eye for د/ أحمد with the figures below.
-6. Separately: the BConnect `staff_id` source fix and the repair of the 258 wrong stored attendance branches (data changes).
+See `docs/RELEASE_READINESS_DOCTOR_EYE.md`. `20261008090000` is superseded and must not be applied; the cross-branch read in the existing sales readers is fixed separately by `20261009120000`.
 
 ## Results for د/ أحمد حافظ (proven devices, per-punch branch, strict date-only rule)
 

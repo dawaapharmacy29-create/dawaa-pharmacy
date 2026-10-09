@@ -102,6 +102,17 @@ describe('doctor eye chart — the individual tabs never depend on the branch co
     expect(tab(thin, 'trend').available).toBe(true);
   });
 
+  it('flags the shift and peer tabs as provisional while their days are pending review', () => {
+    const base = readyDecision();
+    const settled = buildEyeChartModel({ data: full(), decision: { ...base, charts: { ...base.charts, targetPendingDays: 0, shifts: base.charts.shifts.map(x => ({ ...x, pendingDays: 0 })) } }, decisionLoading: false, hasBranch: true, now: NOW });
+    expect(tab(settled, 'shifts').provisionalNote).toBe(null);
+    expect(tab(settled, 'peers').provisionalNote).toBe(null);
+    const pending = buildEyeChartModel({ data: full(), decision: { ...base, charts: { ...base.charts, targetPendingDays: 9, shifts: base.charts.shifts.map(x => ({ ...x, pendingDays: 3 })) } }, decisionLoading: false, hasBranch: true, now: NOW });
+    expect(String(tab(pending, 'shifts').provisionalNote)).toContain('٣ يوم');
+    expect(String(tab(pending, 'peers').provisionalNote)).toContain('٩ يوم');
+    expect(tab(pending, 'shifts').available).toBe(true);
+  });
+
   it('never removes a tab because one source is missing, in any combination', () => {
     const decisions = [null, unavailableDecision('not_enabled', NOT_ENABLED), unavailableDecision('failed', 'تعذر'), unavailableDecision('insufficient', null), readyDecision()];
     const sourceSets: Partial<DoctorPerformanceIntelligence['sources']>[] = [{}, { sales: down('failed', 'م') }, { attendance: down('failed', 'ح') }, { conversations: down('not_enabled', 'ك') }, { customerImpact: down('failed', 'أ') }, { reconciliation: down('not_enabled', 'م') }];

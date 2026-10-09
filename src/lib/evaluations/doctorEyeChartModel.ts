@@ -13,7 +13,8 @@ import { comparableProductivity, totalSales, verifiedCoverage } from '@/lib/eval
  */
 export type EyeChartTabKey = 'trend' | 'shifts' | 'peers' | 'sources';
 export type EyeChartTabState = 'ready' | 'loading' | 'not_enabled' | 'failed' | 'insufficient';
-export type EyeChartTab = { key: EyeChartTabKey; label: string; available: boolean; state: EyeChartTabState; reason: string | null };
+/** provisionalNote: set when the tab's figures still include days pending review, so they can change. */
+export type EyeChartTab = { key: EyeChartTabKey; label: string; available: boolean; state: EyeChartTabState; reason: string | null; provisionalNote?: string | null };
 
 export type EyeTrendMetricKey = 'verifiedSalesPerDay' | 'verifiedInvoicesPerDay' | 'salesPerHour' | 'conversion' | 'lateShare' | 'salesPerCalendarDay';
 /**
@@ -81,11 +82,11 @@ function trendPoint(m: DoctorPerformanceMonth, running: boolean, key: EyeTrendMe
       // Only attendance-verified sales, divided only by the days they come from. No fallback to all sales.
       if (!r) return unknown(NO_RECONCILIATION);
       const p = comparableProductivity(r);
-      if (!r.attendance.presentDays || p.perAttendanceDay === null) return unknown('لا توجد أيام حضور مسجلة لهذه الدورة');
-      const value = key === 'verifiedSalesPerDay' ? p.perAttendanceDay : r.productivity.verifiedInvoices / r.attendance.presentDays;
+      if (!r.attendance.provenDays || p.perAttendanceDay === null) return unknown(r.attendance.presentDays ? 'أيام الحضور بلا جهاز بصمة مثبت الفرع؛ لا تُحسب إنتاجية منها' : 'لا توجد أيام حضور مسجلة لهذه الدورة');
+      const value = key === 'verifiedSalesPerDay' ? p.perAttendanceDay : r.productivity.verifiedInvoices / r.attendance.provenDays;
       const coverage = verifiedCoverage(r);
       const final = !running && p.perAttendanceDayFinal;
-      return { value, status: final ? 'final' : 'provisional', note: [`${ar(r.attendance.presentDays)} يوم حضور`, coverage === null ? null : `${ar(coverage * 100)}% من المبيعات موثقة بالحضور`, running ? 'دورة جارية' : null, r.attendance.pendingDays ? `${ar(r.attendance.pendingDays)} يوم بانتظار المراجعة` : null].filter(Boolean).join('، ') };
+      return { value, status: final ? 'final' : 'provisional', note: [`${ar(r.attendance.provenDays)} يوم حضور مثبت الفرع`, r.attendance.presentDays > r.attendance.provenDays ? `${ar(r.attendance.presentDays - r.attendance.provenDays)} يوم بلا جهاز مثبت خارج الحساب` : null, coverage === null ? null : `${ar(coverage * 100)}% من المبيعات موثقة بالحضور`, running ? 'دورة جارية' : null, r.attendance.pendingDays ? `${ar(r.attendance.pendingDays)} يوم بانتظار المراجعة` : null].filter(Boolean).join('، ') };
     }
     case 'salesPerCalendarDay': {
       if (m.sales === null || !m.salesDays) return unknown('المبيعات غير متاحة لهذه الدورة');
@@ -141,7 +142,8 @@ function comparativeTab(key: 'shifts' | 'peers', decision: DecisionIntelligence 
   if (decision.availability !== 'ready') return { key, label, available: false, state: decision.availability, reason: `${needs}: ${decision.availabilityReason || 'غير متاحة حاليًا.'}` };
   if (key === 'shifts' && !decision.charts.shifts.length) return { key, label, available: false, state: 'insufficient', reason: 'لا يوجد شيفت بساعات كافية لهذا الدكتور في نطاق التحليل.' };
   if (key === 'peers' && (!decision.charts.peerBand || decision.charts.peers.length < 2)) return { key, label, available: false, state: 'insufficient', reason: decision.indicators.peers.detail || 'عدد الزملاء المؤهلين غير كافٍ لمقارنة عادلة.' };
-  return { key, label, available: true, state: 'ready', reason: null };
+  const pending = key === 'shifts' ? decision.charts.shifts.reduce((sum, s) => sum + (s.pendingDays || 0), 0) : decision.charts.targetPendingDays || 0;
+  return { key, label, available: true, state: 'ready', reason: null, provisionalNote: pending > 0 ? `مؤقت: يشمل ${ar(pending)} يوم حضور بانتظار المراجعة؛ ساعاتها مرشحة وقد تتغير بعد الاعتماد.` : null };
 }
 
 export function buildEyeChartModel(args: { data: DoctorPerformanceIntelligence; decision: DecisionIntelligence | null; decisionLoading: boolean; hasBranch: boolean; now?: Date }): EyeChartModel {

@@ -157,6 +157,8 @@ export type DoctorPerformanceIntelligence = {
   sources: { sales: PerformanceSourceHealth; attendance: PerformanceSourceHealth; conversations: PerformanceSourceHealth; customerImpact: PerformanceSourceHealth; reconciliation: PerformanceSourceHealth };
   actions: DoctorPerformanceAction[];
   generatedAt: string;
+  /** Branch the viewer may read when not all-branches; sales figures then cover that branch only. */
+  salesScopeBranch?: string | null;
   firstEvidenceDate: string | null;
   firstSalesEvidenceDate: string | null;
   firstAttendanceEvidenceDate: string | null;
@@ -185,7 +187,7 @@ async function salesBundle(staffId:string,windowStart:string,windowEnd:string,cu
   const {payload,error}=await loadPerformanceSalesBundle({
     staffId,windowStart,windowEnd,currentStart,elapsedDays,
   });
-  return {rows:Array.isArray(payload.cycles)?payload.cycles:[],samePeriod:payload.samePeriod||{},dataAsOf:payload.dataAsOf||null,effectiveDays:Math.max(0,n(payload.effectiveDays)),available:!error,identity:error?'unavailable' as const:'canonical' as const,problem:problemOf(error,'المبيعات','sales')};
+  return {rows:Array.isArray(payload.cycles)?payload.cycles:[],samePeriod:payload.samePeriod||{},dataAsOf:payload.dataAsOf||null,effectiveDays:Math.max(0,n(payload.effectiveDays)),scopeBranch:payload.scopeBranch||null,available:!error,identity:error?'unavailable' as const:'canonical' as const,problem:problemOf(error,'المبيعات','sales')};
 }
 
 function minDate(values:(string|null)[]){
@@ -572,7 +574,7 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
     months[0].comparisonReason='لا يوجد تاريخ تحميل مبيعات موثوق داخل الدورة الحالية؛ المقارنة محجوبة بدل اعتبار الأيام غير المحملة صفراً.';
     months[0].diagnoses=diagnoseMonth(months[0],null);
   }
-  return {months,sources,actions:months[0]?deriveDoctorPerformanceActions(months[0]):[],generatedAt:new Date().toISOString(),firstEvidenceDate,firstSalesEvidenceDate:firstSalesDate,firstAttendanceEvidenceDate:firstAttendanceDate,firstConversationEvidenceDate:firstConversationDate};
+  return {months,sources,actions:months[0]?deriveDoctorPerformanceActions(months[0]):[],generatedAt:new Date().toISOString(),salesScopeBranch:salesTruth.scopeBranch,firstEvidenceDate,firstSalesEvidenceDate:firstSalesDate,firstAttendanceEvidenceDate:firstAttendanceDate,firstConversationEvidenceDate:firstConversationDate};
 }
 
 export type DoctorEvidenceConversation = {
