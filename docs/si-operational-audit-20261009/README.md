@@ -2,6 +2,8 @@
 
 **Decision: full SI cutover remains BLOCKED.** Phase 1 has not proved an executable single-writer cutover. After the user's explicit request to start repairs, a bounded [linked-retry repair](linked-retry-repair.md) is now prepared and tested locally. It is not applied live and does not activate the new projector. The original audit sections below describe the baseline; classifications remain proposals, not claims that legacy paths have been disabled.
 
+**Release Candidate gate (2026-10-09):** see [release-candidate-gate.md](release-candidate-gate.md) — decision `READY_FOR_PREVIEW`, three blockers before main/Production.
+
 Repository: `dawaapharmacy29-create/dawaa-pharmacy`.
 Branch: `chatgpt/si-operational-consolidation-20261009`.
 Audited HEAD: `2a8e85fce639a04d5562c42e054797584f496a63`.
