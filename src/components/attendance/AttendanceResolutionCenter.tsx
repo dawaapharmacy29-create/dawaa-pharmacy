@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Clock3, RefreshCw, ShieldCheck, Wrench } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -204,7 +204,10 @@ export default function AttendanceResolutionCenter({
     setEnd(initialDate);
   }, [initialDate, initialTriage]);
 
+  // Only the latest load may write: a slower response for previous dates or branch never overwrites a newer one.
+  const loadGeneration = useRef(0);
   const load = useCallback(async () => {
+    const generation = ++loadGeneration.current;
     setLoading(true);
     try {
       const [queue, summary] = await Promise.all([
@@ -217,12 +220,14 @@ export default function AttendanceResolutionCenter({
         }),
         getAttendanceDiagnosticSummaryV1({ start, end, branch }),
       ]);
+      if (generation !== loadGeneration.current) return;
       setRows(queue);
       setDiagnosticSummary(summary);
     } catch (error) {
+      if (generation !== loadGeneration.current) return;
       toast.error(error instanceof Error ? error.message : 'تعذر تحميل صندوق مراجعة الحضور');
     } finally {
-      setLoading(false);
+      if (generation === loadGeneration.current) setLoading(false);
     }
   }, [branch, end, start]);
 

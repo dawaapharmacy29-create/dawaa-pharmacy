@@ -80,6 +80,7 @@ export async function materializeAttendanceRange(args: {
     p_end: args.end,
     p_branch: args.branch && args.branch !== 'الكل' ? args.branch : null,
   });
+  markAttendanceTruthChanged();
   if (error) throw new Error(error.message);
   return (data || {}) as Record<string, unknown>;
 }
@@ -96,6 +97,7 @@ export async function approveAttendanceResolution(args: {
     p_payroll_eligible_hours: args.payrollEligibleHours ?? null,
     p_note: args.note || null,
   });
+  markAttendanceTruthChanged();
   if (error) throw new Error(error.message);
   return data as AttendanceResolutionRow;
 }
@@ -126,6 +128,7 @@ export async function reopenAttendanceResolution(args: {
     p_attendance_date: args.date,
     p_note: args.note,
   });
+  markAttendanceTruthChanged();
   if (error) throw new Error(error.message);
   return data as AttendanceResolutionRow;
 }
@@ -198,6 +201,12 @@ export type AttendanceCommandCenterBundleV1 = {
 };
 
 const attendanceCommandCenterInFlight = new Map<string, Promise<AttendanceCommandCenterBundleV1>>();
+// Bumped by every attendance mutation in this service: a read issued after a change must never join a request
+// that started before it (it would show the pre-change queue). In-flight sharing only; nothing is cached.
+let attendanceTruthEpoch = 0;
+function markAttendanceTruthChanged() {
+  attendanceTruthEpoch += 1;
+}
 
 function mapNullableNumber(value: unknown): number | null {
   if (value == null || value === '') return null;
@@ -278,7 +287,7 @@ export async function getAttendanceCommandCenterBundleV1(args: {
   branch?: string | null;
 }): Promise<AttendanceCommandCenterBundleV1> {
   const branch = args.branch && args.branch !== 'الكل' ? args.branch : null;
-  const key = `${args.start}:${args.end}:${branch || 'all'}`;
+  const key = `${args.start}:${args.end}:${branch || 'all'}:${attendanceTruthEpoch}`;
   const existing = attendanceCommandCenterInFlight.get(key);
   if (existing) return existing;
 
@@ -449,6 +458,7 @@ export async function resolveMissingPunchIncidentV1(args: {
     p_reason: args.reason || null,
     p_apply_deduction: Boolean(args.applyDeduction),
   });
+  markAttendanceTruthChanged();
   if (error) throw new Error(error.message);
   return (data || {}) as Record<string, unknown>;
 }
@@ -513,6 +523,7 @@ export async function decideAttendanceDeductionV2(
     p_decision: decision,
     p_note: note || null,
   });
+  markAttendanceTruthChanged();
   if (error) throw new Error(error.message);
   return (data || {}) as Record<string, unknown>;
 }
@@ -529,6 +540,7 @@ export async function adjustAttendanceDeductionV2(args: {
     p_multiplier: args.multiplier ?? null,
     p_reason: args.reason,
   });
+  markAttendanceTruthChanged();
   if (error) throw new Error(error.message);
   return (data || {}) as Record<string, unknown>;
 }
