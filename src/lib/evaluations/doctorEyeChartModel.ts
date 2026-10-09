@@ -106,8 +106,9 @@ function trendPoint(m: DoctorPerformanceMonth, running: boolean, key: EyeTrendMe
       if (m.conversionRecorded === 0) return unknown(`${ar(m.conversations)} مراجعة بدون نتيجة بيع موثقة — غير معروف وليس صفرًا`);
       if (m.conversionRecorded < MIN_CONVERSION_OUTCOMES) return unknown(`${coverageText}؛ أقل من ${ar(MIN_CONVERSION_OUTCOMES)} نتائج`);
       if (coverage < MIN_CONVERSION_COVERAGE) return unknown(`${coverageText}؛ التغطية أقل من ${ar(MIN_CONVERSION_COVERAGE * 100)}% فلا تمثل أداء الدكتور`);
+      const served = m.reconciliation ? Number(m.reconciliation.conversion.served_other_seller || 0) : 0;
       const final = !running && coverage === 1 && !m.unverifiedConversions;
-      return { value: m.conversionRate, status: final ? 'final' : 'provisional', note: [`${ar(m.convertedConversations || 0)} بيع موثق من ${ar(m.conversionRecorded)} نتيجة`, coverage < 1 ? coverageText : null, m.unverifiedConversions ? `${ar(m.unverifiedConversions)} «تم البيع» لم يثبت (فاتورة/عميل/بائع) ولم تُحسب` : null].filter(Boolean).join('، ') };
+      return { value: m.conversionRate, status: final ? 'final' : 'provisional', note: [`${ar(m.convertedConversations || 0)} بيع موثق من ${ar(m.conversionRecorded)} نتيجة`, coverage < 1 ? coverageText : null, m.unverifiedConversions ? `${ar(m.unverifiedConversions)} «تم البيع» لم يثبت (فاتورة/عميل/وقت) ولم تُحسب` : null, served ? `${ar(served)} اشترى فيها العميل من زميل ولم تُحسب للدكتور` : null].filter(Boolean).join('، ') };
     }
     case 'lateShare': {
       if (!d) return unknown('تفاصيل الحضور غير متاحة');
