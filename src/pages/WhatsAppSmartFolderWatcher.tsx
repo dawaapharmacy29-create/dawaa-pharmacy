@@ -36,7 +36,7 @@ import { buildDelayAttributionV29 } from '@/lib/whatsappDelayAttributionV29';
 import { buildConversationFocusV30 } from '@/lib/whatsappConversationFocusV30';
 import { buildEvaluationConversationV31 } from '@/lib/whatsappEvaluationConversationV31';
 import { syncWhatsAppResponseTurnsV18 } from '@/lib/whatsappResponseTurnsV18';
-import { persistAnalyzedWhatsAppSession, attachInvoiceVerificationToQueue, type PersistSessionMode } from '@/lib/whatsappReviewPersistenceV4';
+import { persistAnalyzedWhatsAppSession, attachInvoiceVerificationToQueue, readStoredSourceBranch, type PersistSessionMode } from '@/lib/whatsappReviewPersistenceV4';
 import type { JourneySessionSourceV15 } from '@/lib/whatsappCustomerJourneyPersistenceV15';
 import {
   deriveWhatsAppFileProcessingState,
@@ -304,7 +304,8 @@ export default function WhatsAppSmartFolderWatcher() {
       // مئات سجلات الموظفين والـaliases من Supabase كل مرة.
       const roles = await resolveWhatsAppParticipantRolesV15(session);
       const outboundBurstMetrics = computeStaffBurstEffort(groupOutboundBursts(session, roles));
-      const branchHint = await resolveConversationBranchHint(session, roles, null);
+      // Branch provenance: the stored source branch wins; the staff branch is only a fallback.
+      const branchHint = await resolveConversationBranchHint(session, roles, await readStoredSourceBranch(session));
       const customerContext = customerContexts[contextIndex.get(caseContext) ?? 0];
       const canonicalIdentity = customerContext.canonical;
       const resolvedCustomer = customerContext.resolution.customer;
@@ -316,7 +317,8 @@ export default function WhatsAppSmartFolderWatcher() {
         customerCode: resolvedCustomer?.code || null,
         customerPhone: resolvedCustomer?.phone || customerContext.phoneCandidate || null,
         customerName: resolvedCustomer?.name || session.customerName,
-        branch: resolvedCustomer?.branch || branchHint.value,
+        // The conversation's branch, never the customer's home branch, scopes the invoice match.
+        branch: branchHint.value || resolvedCustomer?.branch || null,
       });
 
       const caseTimingV28 = buildConversationTimingV28(session, roles, invoiceVerification);

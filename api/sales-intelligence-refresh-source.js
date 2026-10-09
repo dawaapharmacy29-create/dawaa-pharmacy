@@ -44,7 +44,16 @@ function isCustomerIdentityUuid(value) {
 function normalizeDawaaCustomerCode(value) {
   return normalizeCustomerCode(value).replace(/\.0+$/, "");
 }
+function hasPhoneLikeTrailingDigits(value) {
+  const raw = customerIdentityText(value).replace(/[٠-٩]/g, (digit) => String("\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669".indexOf(digit)));
+  const tail = raw.match(/[\d\s+().-]+$/)?.[0]?.trim() ?? "";
+  if (!/\d/.test(tail)) return false;
+  const digits = tail.replace(/\D/g, "");
+  const groups = tail.match(/\d+/g) ?? [];
+  return tail.startsWith("+") || groups.length >= 3 || digits.length >= 10 || isValidEgyptianCustomerMobile(digits);
+}
 function extractTrailingCustomerCodeFromDisplayName(value) {
+  if (hasPhoneLikeTrailingDigits(value)) return "";
   const raw = customerIdentityText(value).replace(/[٠-٩]/g, (digit) => String("\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669".indexOf(digit))).trim();
   const match = raw.match(/(?:^|[^0-9])(\d{2,9})\s*\)?\s*$/);
   if (!match) return "";
@@ -3276,7 +3285,7 @@ function classifyProductEvidence(ctx, row, provider) {
     (item) => !item.resolutionStatus || item.resolutionStatus === "proven" || item.resolutionStatus === "partially_proven"
   );
   if (items === "unavailable" || resolvableBasketItems.length === 0) {
-    return { productMatch: "unavailable", quantityMatch: "unavailable" };
+    return { productMatch: "unavailable", quantityMatch: "unavailable", productCoverage: "unavailable" };
   }
   const sellableItems = items.filter(
     (item) => item.quantity != null && Number(item.quantity) > 0
@@ -3300,7 +3309,8 @@ function classifyProductEvidence(ctx, row, provider) {
     );
     quantityMatch = allQuantitiesAgree ? "available_match" : "available_mismatch";
   }
-  return { productMatch, quantityMatch };
+  const productCoverage = matchedPairs.length === 0 ? "none" : matchedPairs.length === resolvableBasketItems.length ? "full" : "partial";
+  return { productMatch, quantityMatch, productCoverage };
 }
 function classifyLegacyMatch(ctx, row) {
   const invoiceId2 = getInvoiceRowId(row);
@@ -3322,15 +3332,18 @@ function qualifiesForAutomaticInvoiceLink(ctx, row, provider) {
   const time2 = classifyTime(ctx, row);
   if (time2.temporalInversion || time2.timeMatchStrength !== "very_strong") return false;
   if (!getInvoiceRowNumber(row) || isDraftLikeZeroInvoice(row)) return false;
-  const items = provider.getItemsForInvoice(getInvoiceRowId(row), getInvoiceRowNumber(row));
-  if (items === "unavailable") return false;
-  return items.some((item) => item.quantity != null && Number(item.quantity) > 0);
+  if (!hasStableInvoiceRowId(row)) return false;
+  return classifyProductEvidence(ctx, row, provider).productCoverage === "full";
+}
+function hasStableInvoiceRowId(row) {
+  return cleanText2(row.id) !== "";
 }
 function classifyDirectLinks(ctx, row) {
   const invoiceId2 = getInvoiceRowId(row);
   const invoiceNumber2 = getInvoiceRowNumber(row);
+  const stableId = hasStableInvoiceRowId(row);
   const directInvoiceLink = Boolean(
-    ctx.trustedInvoiceId && ctx.trustedInvoiceId === invoiceId2 || ctx.trustedInvoiceNumber && invoiceNumber2 && ctx.trustedInvoiceNumber === invoiceNumber2
+    stableId && (ctx.trustedInvoiceId && ctx.trustedInvoiceId === invoiceId2 || !ctx.trustedInvoiceId && ctx.trustedInvoiceNumber && invoiceNumber2 && ctx.trustedInvoiceNumber === invoiceNumber2 && (classifyBranch(ctx, row) === "exact_canonical" || classifyBranch(ctx, row) === "normalized_alias_match"))
   );
   return { directOrderLink: false, directInvoiceLink };
 }
@@ -3534,7 +3547,7 @@ function buildAttributionCandidate(ctx, row, itemEvidenceProvider = unavailableI
   const announcedTotalMatch = classifyAmountMatch(ctx.activeAnnouncedTotal?.amount ?? null, invoiceAmount);
   const basketValueMatch = classifyAmountMatch(ctx.activeBasketValue, invoiceAmount);
   const staffMatch = classifyStaff(ctx, row);
-  const { productMatch, quantityMatch } = classifyProductEvidence(ctx, row, itemEvidenceProvider);
+  const { productMatch, quantityMatch, productCoverage } = classifyProductEvidence(ctx, row, itemEvidenceProvider);
   const legacyEvidenceMatch = classifyLegacyMatch(ctx, row);
   const directLinks = classifyDirectLinks(ctx, row);
   const automaticDirectInvoiceLink = Boolean(automaticTrustedInvoiceId && automaticTrustedInvoiceId === invoiceId2);
@@ -3561,7 +3574,8 @@ function buildAttributionCandidate(ctx, row, itemEvidenceProvider = unavailableI
   const ruleIds = [
     `attribution.level.${level}`,
     ...factors.map((f) => `attribution.factor.${f}`),
-    ...automaticDirectInvoiceLink ? ["attribution.trusted.automatic_customer_code_name_time_items_unique"] : []
+    ...automaticDirectInvoiceLink ? ["attribution.trusted.automatic_customer_code_name_time_items_unique"] : [],
+    ...productCoverage === "partial" ? ["attribution.product.partial_basket_coverage"] : []
   ];
   const evidence = buildEvidenceItems({
     identity,
@@ -8134,11 +8148,22 @@ async function hashCanonical(value) {
 function normalizeRawExportTextForHashing(rawWhatsAppExportText) {
   return rawWhatsAppExportText.replace(/\r\n?/g, "\n").replace(/^\n+/, "").replace(/\n+$/, "");
 }
+function saleProofFingerprint(analysis) {
+  const { salesOutcome, attribution } = analysis;
+  if (salesOutcome.saleProofState === "unknown" && !attribution.selectedInvoiceId) return null;
+  return JSON.stringify([
+    salesOutcome.outcome,
+    salesOutcome.saleProofState,
+    attribution.selectedInvoiceId,
+    attribution.selectedCandidate?.directInvoiceLink === true
+  ]);
+}
 async function computeSemanticSourceHash(input) {
   return hashCanonical({
     rawWhatsAppExportText: normalizeRawExportTextForHashing(input.rawWhatsAppExportText),
     trustedConversationStartedAt: input.trustedConversationStartedAt ?? null,
-    branchIdentityMappingVersion: input.branchIdentityMappingVersion
+    branchIdentityMappingVersion: input.branchIdentityMappingVersion,
+    ...input.saleProofFingerprint ? { saleProofFingerprint: input.saleProofFingerprint } : {}
   });
 }
 async function computeAttributionInputHash(input) {
@@ -8186,11 +8211,12 @@ var ENGINE_VERSIONS = {
 var BRANCH_IDENTITY_MAPPING_VERSION = "branch-identity-mapping-v2";
 
 // src/lib/salesIntelligence/persistence/analysisWriter.ts
-async function persistCaseAnalysis(supabaseClient, caseId, rawWhatsAppExportText, content, trustedConversationStartedAt) {
+async function persistCaseAnalysis(supabaseClient, caseId, rawWhatsAppExportText, content, trustedConversationStartedAt, saleProofFingerprint2) {
   const semanticSourceHash = await computeSemanticSourceHash({
     rawWhatsAppExportText,
     trustedConversationStartedAt: trustedConversationStartedAt ?? null,
-    branchIdentityMappingVersion: BRANCH_IDENTITY_MAPPING_VERSION
+    branchIdentityMappingVersion: BRANCH_IDENTITY_MAPPING_VERSION,
+    saleProofFingerprint: saleProofFingerprint2 ?? null
   });
   const { data, error } = await supabaseClient.rpc("sales_intelligence_write_case_analysis", {
     p_case_id: caseId,
@@ -8957,7 +8983,8 @@ async function runBatchPersistence(supabaseClient, input) {
     const semanticSourceHash = await computeSemanticSourceHash({
       rawWhatsAppExportText: conversationInput?.rawWhatsAppExportText ?? "",
       trustedConversationStartedAt: conversationInput?.trustedConversationStartedAt ?? null,
-      branchIdentityMappingVersion: BRANCH_IDENTITY_MAPPING_VERSION
+      branchIdentityMappingVersion: BRANCH_IDENTITY_MAPPING_VERSION,
+      saleProofFingerprint: saleProofFingerprint(analysis)
     });
     const casePlan = await planCase(supabaseClient, analysis.caseId);
     const planCaseEntry = { caseId: analysis.caseId, conversationId: analysis.conversationId, customerGroupKey: groupKey };
@@ -9095,7 +9122,8 @@ async function runBatchPersistence(supabaseClient, input) {
           analysis.caseId,
           conversationInput?.rawWhatsAppExportText ?? "",
           caseAnalysisContent,
-          conversationInput?.trustedConversationStartedAt ?? null
+          conversationInput?.trustedConversationStartedAt ?? null,
+          saleProofFingerprint(analysis)
         );
         outcome.attribution = await persistAttribution(
           supabaseClient,

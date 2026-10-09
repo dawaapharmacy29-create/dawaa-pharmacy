@@ -120,6 +120,23 @@ export async function hashWhatsAppSession(session: WhatsAppConversationSession) 
   return `fallback-${fallbackHash(payload)}`;
 }
 
+/**
+ * The branch already stored on this conversation's source row (same source_hash), or null for a
+ * conversation never saved before. It is the conversation's branch provenance: a re-import or the
+ * Smart Folder must pass it to resolveConversationBranchHint so a staff home branch never replaces it.
+ */
+export async function readStoredSourceBranch(session: WhatsAppConversationSession, client: any = supabase): Promise<string | null> {
+  const sourceHash = await hashWhatsAppSession(session);
+  const { data, error } = await client
+    .from('whatsapp_review_sources')
+    .select('branch')
+    .eq('source_hash', sourceHash)
+    .maybeSingle();
+  if (error && error.code !== 'PGRST116') throw error;
+  const branch = typeof data?.branch === 'string' ? data.branch.trim() : '';
+  return branch || null;
+}
+
 export function inferQueueStatus(intelligence: UnifiedConversationIntelligence): ReviewQueueStatus {
   if (intelligence.confidence < 60) return 'needs_context';
   if (intelligence.requiresHumanApproval || intelligence.priority === 'urgent') return 'ready_detailed';
@@ -340,6 +357,9 @@ export async function attachInvoiceVerificationToQueue(
     invoice_match_reason: verification.reason,
   };
   const { data: before } = await client.from('whatsapp_review_sources').select('*').eq('id', sourceId).maybeSingle();
+  // A human-confirmed invoice link is the stronger truth: a re-import's machine match never
+  // overwrites matched_invoice_* under it (the trusted bridge would otherwise drop the proof).
+  if (before?.invoice_link_confirmed === true) return;
   // Idempotent: a re-scan or reanalysis that reaches the same machine verification must not write
   // a new audit row. Manual invoice confirmation lives in invoice_link_confirmed* and is never touched.
   if (

@@ -90,6 +90,31 @@ export interface SemanticSourceHashInput {
   trustedConversationStartedAt?: string | null;
   /** Design doc H.0.2: future-proofing only, see versions.ts's own comment — pass ENGINE_VERSIONS-adjacent BRANCH_IDENTITY_MAPPING_VERSION. */
   branchIdentityMappingVersion: string;
+  /**
+   * Sale Proof outcome derived from invoice evidence (see saleProofFingerprint). Raw text alone
+   * cannot tell a refresh that a newer or better invoice changed the proof, so without it the
+   * analysis (and the canonicalSalesOutcome inside its evidence_snapshot) would stay stale. Left
+   * out of the hash when there is no proof signal, so unchanged no-invoice cases keep their hash.
+   */
+  saleProofFingerprint?: string | null;
+}
+
+/**
+ * Deterministic fingerprint of the Sale Proof decision for one case, or null when there is no
+ * invoice signal at all. Retries and re-imports that reach the same decision produce the same value.
+ */
+export function saleProofFingerprint(analysis: {
+  salesOutcome: { outcome: string; saleProofState: string };
+  attribution: { selectedInvoiceId: string | null; selectedCandidate?: { directInvoiceLink: boolean } | null };
+}): string | null {
+  const { salesOutcome, attribution } = analysis;
+  if (salesOutcome.saleProofState === 'unknown' && !attribution.selectedInvoiceId) return null;
+  return JSON.stringify([
+    salesOutcome.outcome,
+    salesOutcome.saleProofState,
+    attribution.selectedInvoiceId,
+    attribution.selectedCandidate?.directInvoiceLink === true,
+  ]);
 }
 
 /**
@@ -107,6 +132,7 @@ export async function computeSemanticSourceHash(input: SemanticSourceHashInput):
     rawWhatsAppExportText: normalizeRawExportTextForHashing(input.rawWhatsAppExportText),
     trustedConversationStartedAt: input.trustedConversationStartedAt ?? null,
     branchIdentityMappingVersion: input.branchIdentityMappingVersion,
+    ...(input.saleProofFingerprint ? { saleProofFingerprint: input.saleProofFingerprint } : {}),
   });
 }
 

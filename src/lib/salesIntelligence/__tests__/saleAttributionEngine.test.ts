@@ -69,7 +69,7 @@ describe('Sale Attribution Engine (Sales Intelligence Phase D) — Golden Cases'
       expect(assess.isOfficialForStaffEvaluation).toBe(true);
     });
 
-    it('1b. unique code + name + same-time invoice with real items is automatically proven', () => {
+    it('1b. unique code + name + same-time invoice carrying the requested items is automatically proven', () => {
       const provider: InvoiceItemEvidenceProvider = {
         getItemsForInvoice: (invoiceId) =>
           invoiceId === 'inv-auto'
@@ -83,6 +83,7 @@ describe('Sale Attribution Engine (Sales Intelligence Phase D) — Golden Cases'
         branchNameRaw: 'فرع شكري',
         caseStartedAt: '2026-09-28T03:51:56.000Z',
         caseEndedAt: '2026-09-28T03:58:45.000Z',
+        activeBasketItems: [{ productNameRaw: 'Bon Care', quantity: 2, resolutionStatus: 'proven' }],
       });
       const assess = deriveSaleAttributionAssessment(ctx, [{
         id: 'inv-auto',

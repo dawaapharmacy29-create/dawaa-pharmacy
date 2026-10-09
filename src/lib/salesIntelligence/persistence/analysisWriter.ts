@@ -28,12 +28,14 @@ export async function persistCaseAnalysis(
   caseId: string,
   rawWhatsAppExportText: string,
   content: CaseAnalysisRowContent,
-  trustedConversationStartedAt?: string | null
+  trustedConversationStartedAt?: string | null,
+  saleProofFingerprint?: string | null
 ): Promise<PersistCaseAnalysisResult> {
   const semanticSourceHash = await computeSemanticSourceHash({
     rawWhatsAppExportText,
     trustedConversationStartedAt: trustedConversationStartedAt ?? null,
     branchIdentityMappingVersion: BRANCH_IDENTITY_MAPPING_VERSION,
+    saleProofFingerprint: saleProofFingerprint ?? null,
   });
 
   const { data, error } = await supabaseClient.rpc('sales_intelligence_write_case_analysis', {

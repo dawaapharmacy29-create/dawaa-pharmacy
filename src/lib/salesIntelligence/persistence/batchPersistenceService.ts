@@ -39,7 +39,7 @@ import { persistCaseAnalysis, type PersistCaseAnalysisResult } from './analysisW
 import { fetchCurrentPolicyConfig, persistPolicyEvaluation, type PersistPolicyEvaluationResult } from './policyEvaluationWriter';
 import { persistAttribution, type PersistAttributionResult } from './attributionWriter';
 import { persistBasketInvoiceMatch, type PersistBasketInvoiceMatchResult } from './basketInvoiceMatchWriter';
-import { computeAttributionInputHash, computeMatchingInputHash, computePolicyInputHash, computeSemanticSourceHash } from './hashing';
+import { computeAttributionInputHash, computeMatchingInputHash, computePolicyInputHash, computeSemanticSourceHash, saleProofFingerprint } from './hashing';
 import {
   invoiceRowLookupId,
   mapAttributionRowContent,
@@ -534,6 +534,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
       rawWhatsAppExportText: conversationInput?.rawWhatsAppExportText ?? '',
       trustedConversationStartedAt: conversationInput?.trustedConversationStartedAt ?? null,
       branchIdentityMappingVersion: BRANCH_IDENTITY_MAPPING_VERSION,
+      saleProofFingerprint: saleProofFingerprint(analysis),
     });
 
     const casePlan = await planCase(supabaseClient, analysis.caseId);
@@ -719,7 +720,8 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
           analysis.caseId,
           conversationInput?.rawWhatsAppExportText ?? '',
           caseAnalysisContent,
-          conversationInput?.trustedConversationStartedAt ?? null
+          conversationInput?.trustedConversationStartedAt ?? null,
+          saleProofFingerprint(analysis)
         );
         outcome.attribution = await persistAttribution(
           supabaseClient,

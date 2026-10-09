@@ -398,11 +398,18 @@ function classifyStaff(ctx: CaseAttributionContext, row: InvoiceLike): StaffComp
   return ctx.knownStaffIds.length > 1 ? 'compatible' : 'different';
 }
 
+type ProductCoverage = 'full' | 'partial' | 'none' | 'unavailable';
+
 function classifyProductEvidence(
   ctx: CaseAttributionContext,
   row: InvoiceLike,
   provider: InvoiceItemEvidenceProvider
-): { productMatch: ProductEvidenceAvailability; quantityMatch: ProductEvidenceAvailability } {
+): {
+  productMatch: ProductEvidenceAvailability;
+  quantityMatch: ProductEvidenceAvailability;
+  /** How much of the conversation's resolved basket the invoice lines cover: all, some, none, or no evidence. */
+  productCoverage: ProductCoverage;
+} {
   const items = provider.getItemsForInvoice(getInvoiceRowId(row), getInvoiceRowNumber(row));
   const resolvableBasketItems = ctx.activeBasketItems.filter(
     (item) => !item.resolutionStatus || item.resolutionStatus === 'proven' || item.resolutionStatus === 'partially_proven'
@@ -410,7 +417,7 @@ function classifyProductEvidence(
   // A media/deictic basket item whose identity is still unknown cannot contradict invoice lines.
   // It is an evidence gap: only resolved product identity is eligible for positive/negative item evidence.
   if (items === 'unavailable' || resolvableBasketItems.length === 0) {
-    return { productMatch: 'unavailable', quantityMatch: 'unavailable' };
+    return { productMatch: 'unavailable', quantityMatch: 'unavailable', productCoverage: 'unavailable' };
   }
 
   const sellableItems = items.filter(
@@ -447,7 +454,10 @@ function classifyProductEvidence(
     quantityMatch = allQuantitiesAgree ? 'available_match' : 'available_mismatch';
   }
 
-  return { productMatch, quantityMatch };
+  const productCoverage: ProductCoverage =
+    matchedPairs.length === 0 ? 'none' : matchedPairs.length === resolvableBasketItems.length ? 'full' : 'partial';
+
+  return { productMatch, quantityMatch, productCoverage };
 }
 
 function classifyLegacyMatch(ctx: CaseAttributionContext, row: InvoiceLike): boolean {
@@ -485,17 +495,33 @@ function qualifiesForAutomaticInvoiceLink(
   if (time.temporalInversion || time.timeMatchStrength !== 'very_strong') return false;
   if (!getInvoiceRowNumber(row) || isDraftLikeZeroInvoice(row)) return false;
 
-  const items = provider.getItemsForInvoice(getInvoiceRowId(row), getInvoiceRowNumber(row));
-  if (items === 'unavailable') return false;
-  return items.some((item) => item.quantity != null && Number(item.quantity) > 0);
+  if (!hasStableInvoiceRowId(row)) return false;
+  // Same customer + same window is not enough: the invoice must carry EVERY resolved product the
+  // conversation asked for. A subset stays statistical (qualified evidence, never `proven`); no
+  // overlap is a product mismatch; an unresolved basket or missing invoice lines is an evidence gap.
+  return classifyProductEvidence(ctx, row, provider).productCoverage === 'full';
+}
+
+/** A real sales_invoices.id. getInvoiceRowId falls back to invoice_number for display rows, which is never proof identity. */
+function hasStableInvoiceRowId(row: InvoiceLike): boolean {
+  return cleanText(row.id) !== '';
 }
 
 function classifyDirectLinks(ctx: CaseAttributionContext, row: InvoiceLike): { directOrderLink: boolean; directInvoiceLink: boolean } {
   const invoiceId = getInvoiceRowId(row);
   const invoiceNumber = getInvoiceRowNumber(row);
+  // Proof binds to the invoice entity (sales_invoices.id). An invoice number repeats across
+  // branches, so a number-only trusted link counts only when the row has a real id AND the
+  // invoice's branch is the case's branch (branch + number is unique); never across branches.
+  const stableId = hasStableInvoiceRowId(row);
   const directInvoiceLink = Boolean(
-    (ctx.trustedInvoiceId && ctx.trustedInvoiceId === invoiceId) ||
-      (ctx.trustedInvoiceNumber && invoiceNumber && ctx.trustedInvoiceNumber === invoiceNumber)
+    stableId &&
+      ((ctx.trustedInvoiceId && ctx.trustedInvoiceId === invoiceId) ||
+        (!ctx.trustedInvoiceId &&
+          ctx.trustedInvoiceNumber &&
+          invoiceNumber &&
+          ctx.trustedInvoiceNumber === invoiceNumber &&
+          (classifyBranch(ctx, row) === 'exact_canonical' || classifyBranch(ctx, row) === 'normalized_alias_match')))
   );
   // No `orders` table exists in the live schema (see the Phase D schema investigation) — kept as
   // a real field for forward compatibility, never fabricated.
@@ -797,7 +823,7 @@ export function buildAttributionCandidate(
   const announcedTotalMatch = classifyAmountMatch(ctx.activeAnnouncedTotal?.amount ?? null, invoiceAmount);
   const basketValueMatch = classifyAmountMatch(ctx.activeBasketValue, invoiceAmount);
   const staffMatch = classifyStaff(ctx, row);
-  const { productMatch, quantityMatch } = classifyProductEvidence(ctx, row, itemEvidenceProvider);
+  const { productMatch, quantityMatch, productCoverage } = classifyProductEvidence(ctx, row, itemEvidenceProvider);
   const legacyEvidenceMatch = classifyLegacyMatch(ctx, row);
   const directLinks = classifyDirectLinks(ctx, row);
   const automaticDirectInvoiceLink = Boolean(automaticTrustedInvoiceId && automaticTrustedInvoiceId === invoiceId);
@@ -833,6 +859,7 @@ export function buildAttributionCandidate(
     ...(automaticDirectInvoiceLink
       ? ['attribution.trusted.automatic_customer_code_name_time_items_unique']
       : []),
+    ...(productCoverage === 'partial' ? ['attribution.product.partial_basket_coverage'] : []),
   ];
   const evidence = buildEvidenceItems({
     identity,

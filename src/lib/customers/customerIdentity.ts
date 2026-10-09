@@ -106,8 +106,30 @@ export function normalizeDawaaCustomerCode(value: unknown) {
   return normalizeCustomerCode(value).replace(/\.0+$/, '');
 }
 
+/**
+ * True when a label ends in a phone number rather than a customer code: an unsaved WhatsApp contact
+ * shows as "+20 100 123 4567", and its last digit group must never be read as a customer code.
+ * The trailing digit run (with its spaces, dashes, dots, brackets and "+") is phone-like when it
+ * starts with "+", has three or more digit groups, or holds ten or more digits / a valid mobile.
+ * A real code after a name ("أحمد علي 17765", "Name - 2490") is not phone-like.
+ */
+export function hasPhoneLikeTrailingDigits(value: unknown): boolean {
+  const raw = customerIdentityText(value).replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)));
+  const tail = raw.match(/[\d\s+().-]+$/)?.[0]?.trim() ?? '';
+  if (!/\d/.test(tail)) return false;
+  const digits = tail.replace(/\D/g, '');
+  const groups = tail.match(/\d+/g) ?? [];
+  return (
+    tail.startsWith('+') ||
+    groups.length >= 3 ||
+    digits.length >= 10 ||
+    isValidEgyptianCustomerMobile(digits)
+  );
+}
+
 /** Extract a trailing Dawaa customer code from WhatsApp contact labels; phone-like suffixes are rejected. */
 export function extractTrailingCustomerCodeFromDisplayName(value: unknown): string {
+  if (hasPhoneLikeTrailingDigits(value)) return '';
   const raw = customerIdentityText(value)
     .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
     .trim();

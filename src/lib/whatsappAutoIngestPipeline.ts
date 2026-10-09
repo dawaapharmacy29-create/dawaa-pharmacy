@@ -13,6 +13,7 @@ import {
 import {
   attachInvoiceVerificationToQueue,
   hashWhatsAppSession,
+  readStoredSourceBranch,
 } from '@/lib/whatsappReviewPersistenceV4';
 import { buildUnifiedConversationIntelligence, verifySessionAgainstInvoices } from '@/lib/whatsappUnifiedIntelligenceV4';
 import {
@@ -649,7 +650,8 @@ export async function ingestWhatsAppExportFile(
       if (identity.matchedBy !== 'none') result.customersMatched += 1;
 
       const participantRoles = await resolveWhatsAppParticipantRolesV15(session);
-      const branchHint = await resolveConversationBranchHint(session, participantRoles, null);
+      // Branch provenance: the stored source branch wins; the staff branch is only a fallback.
+      const branchHint = await resolveConversationBranchHint(session, participantRoles, await readStoredSourceBranch(session));
       const conversationBranch = branchHint.value;
 
       const saved = await saveSessionReview(

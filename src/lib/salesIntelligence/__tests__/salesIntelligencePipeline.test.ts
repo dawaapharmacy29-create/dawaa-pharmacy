@@ -61,7 +61,7 @@ describe('Sales Intelligence Pipeline (Phase G) — Golden Cases', () => {
     expect(a.basketInvoiceMatch.overallMatch).not.toBe('mismatch');
   });
 
-  it('1b. media-only product request auto-links the unique same-customer same-time invoice and uses its real invoice number', () => {
+  it('1b. media-only product request is NOT auto-proven: same customer and time without product evidence stays qualified', () => {
     const raw = `[9/28/26, 3:51:56 AM] Customer: السلام عليكم لو سمحت يادكتور عايزه الحاجات دي
 [9/28/26, 3:51:59 AM] Customer: <image omitted>
 [9/28/26, 3:52:06 AM] You: أهلًا وسهلًا بحضرتك
@@ -113,16 +113,13 @@ describe('Sales Intelligence Pipeline (Phase G) — Golden Cases', () => {
     expect(a.customerNeed.products).toHaveLength(0);
     expect(a.attribution.selectedInvoiceId).toBe('inv-74966');
     expect(a.attribution.selectedInvoiceNumber).toBe('74966');
-    expect(a.attribution.selectedCandidate?.directInvoiceLink).toBe(true);
-    expect(a.attribution.attributionLevel).toBe('proven');
-    expect(a.salesOutcome.outcome).toBe('sale_proven');
-    expect(a.humanReviewReasons).not.toContain('no_basket_state_for_case');
-    expect(a.needsHumanReview).toBe(false);
-    expect(a.journeyState.reviewRequired).toBe(false);
-    expect(a.lostOpportunity.state).toBe('won');
-    expect(a.followUp.decision).toBe('not_needed');
-    expect(a.caseIntelligence.review.required).toBe(false);
-    expect(a.status).toBe('analyzed');
+    // Same customer + same window is not Sale Proof: the image's products cannot be matched to the
+    // invoice lines, so the link stays statistical and a reviewer confirms it.
+    expect(a.attribution.selectedCandidate?.directInvoiceLink).toBe(false);
+    expect(a.attribution.attributionLevel).toBe('strongly_inferred');
+    expect(a.salesOutcome.outcome).not.toBe('sale_proven');
+    expect(a.salesOutcome.isSaleCountable).toBe(false);
+    expect(a.followUp.decision).toBe('review_required');
   });
 
   it('2. information-only conversation is a valid, complete output — never forced into a commercial case', () => {

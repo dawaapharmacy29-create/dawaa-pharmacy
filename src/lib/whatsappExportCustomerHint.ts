@@ -1,3 +1,5 @@
+import { hasPhoneLikeTrailingDigits } from '@/lib/customers/customerIdentity';
+
 export interface WhatsAppExportCustomerHint {
   nameHint: string | null;
   codeHint: string | null;
@@ -30,7 +32,10 @@ export function extractCustomerHintFromExportFileName(fileName: string): WhatsAp
     .trim();
 
   const normalizedDigits = toLatinDigits(value);
-  const codeMatch = normalizedDigits.match(/(?:^|\s|[-–—])(\d{2,8})\s*$/);
+  // An unsaved contact's file is named after its phone number; that number is never a customer code.
+  const codeMatch = hasPhoneLikeTrailingDigits(normalizedDigits)
+    ? null
+    : normalizedDigits.match(/(?:^|\s|[-–—])(\d{2,8})\s*$/);
   const codeHint = codeMatch?.[1] || null;
 
   if (codeMatch) {
