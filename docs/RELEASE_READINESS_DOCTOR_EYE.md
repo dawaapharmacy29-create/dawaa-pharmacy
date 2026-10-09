@@ -9,8 +9,8 @@ Nothing below has been applied to production. Every verdict is backed by a comma
 | 1 | Cross-branch read in `get_staff_performance_sales_bundle_v1` and `get_staff_evaluation_sales_summary_v3` | **Confirmed vulnerability; fix ready, rehearsed, not applied** | See "1. Cross-branch read" below |
 | 2 | One conversion time rule | **Decided by evidence, rehearsed** (credit split unchanged, pending approval) | See "2. Conversion time rule" below |
 | 3 | Dependency on `20261008090000` | **Removed** | See "3. Old peer-comparison migration" below |
-| 4 | Identity hardening + Base44 ordering, impersonation and cross-branch | **Pre-checks passed; production behaviour not tested** | See "4. Identity hardening and Base44" below |
-| 5 | Isolated rehearsal (roles, failure, rollback, no data loss) | **Passed locally** for 20261009090000 + 20261009120000; **not tested** on a full production copy | See "5. Isolated rehearsal" below |
+| 4 | Identity hardening + Base44 ordering, impersonation and cross-branch | **Passed in the combined isolated rehearsal** (real production identity chain); not tested on a production copy | See "Combined isolated rehearsal" below |
+| 5 | Isolated rehearsal (roles, failure, rollback, no data loss) | **Passed locally** for all 6 unapplied migrations together; **not tested** on a full production copy | See "Combined isolated rehearsal" below |
 | 6 | Eye vs peer comparison; provisional values in the chart | **Explained and fixed** | See "6. Eye vs peer comparison" below |
 
 ### 1. Cross-branch read
@@ -45,15 +45,15 @@ Across 401 claimed conversions system-wide (120 days), invoice time relative to 
 ### 4. Identity hardening and Base44
 
 **Passed pre-checks:**
-- All 52 bind targets of `20261008120000` still exist.
+- All 52 bind targets of `20261009081000` still exist.
 - 18 newer client-reachable `p_actor_id` functions were audited:
   - 15 resolve the actor through `monthly_eval_actor()`, which ignores the argument and reads the verified session.
   - `dawaa_can_read_conversation_review_row_v2` is an RLS predicate that returns only a boolean (low risk; execute must stay for RLS).
 - Base44 import md5 = `db806d85…` (runbook step 0); 95 runs in 24 h, 0 failures.
 
-**Live evidence of today's risk:** a call carrying only `x-dawaa-user-id` of the general manager succeeded with no session. That is what `20261008120000` closes.
+**Live evidence of today's risk:** a call carrying only `x-dawaa-user-id` of the general manager succeeded with no session. That is what `20261009081000` closes.
 
-**Not tested:** the hardened identity itself, because it needs the full identity schema (sessions, auth) on an isolated copy.
+**Tested since:** the hardened identity runs in the combined isolated rehearsal through the verbatim production chain (sessions, expiry, revocation, disabled accounts, forged headers, actor binding, notifications, review points, Base44).
 
 ### 5. Isolated rehearsal
 
@@ -93,7 +93,7 @@ Changes:
 
 ## Full-copy rehearsal (needs approval; covers what the local rehearsal cannot)
 
-**Environment:** an isolated Postgres built from a production schema dump, not from repository migrations. Production has 38 migrations since 2026-10-08 that are not in `main` or this branch.
+**Environment:** an isolated Postgres built from a production schema dump, not from repository migrations. The repository now carries the exact production migrations up to `20261009065014` (md5-locked).
 
 **Data, masked copy:**
 - Staff, accounts, aliases, attendance, biometric logs and reviews for الشامي/شكري, 26 Jul – 8 Oct.
@@ -102,7 +102,7 @@ Changes:
 
 **Order:**
 1. Schema snapshot.
-2. Apply `20261008115000`, then `20261008120000` (run its `TEST_…` file).
+2. Apply `20261009080000`, then `20261009081000` (run its `TEST_…` file).
 3. Apply `20261009090000` and `20261009120000`.
 
 **Roles:**
@@ -123,13 +123,45 @@ Changes:
 - Row checksums of `sales_invoices`, `biometric_attendance_logs`, `attendance_daily_summary`, conversation reviews and staff tables unchanged.
 - The Eye and the Base44 sync still work.
 
+## Integration review of `integration/performance-attendance-20261009` (merged here)
+
+Findings verified against production (read-only) and fixed in unapplied migrations, each rehearsed:
+
+| # | Finding | Status |
+|---|---|---|
+| 1 | `materialize_attendance_range_v2` lost its authorization check in production migration `20261009053258` and is executable by `anon`: anyone with the public key could re-materialize all attendance for 46 days | **Live in production.** Fixed by `20261009070000` (verified top-management actor; the cron path calls the internal function and is unaffected) |
+| 2 | Standard (non-delivery) payroll can never be finalized: staging fingerprints `preview_v2` (has `preview_route`), finalization compares with `preview_v1` | No snapshot affected yet (0 standard staged). Fixed by `20261009070500` (compare with the preview that staged the snapshot) |
+| 3 | Repository migrations did not match production: different versions, 3 non-standard names sharing version `20261008`, 17 production migrations missing, consolidated files; `db push` and fresh rebuilds would fail | **Fixed.** The 58 applied migrations are now the exact production text (md5 = `statements[1]`), locked in `supabase/applied-migrations.lock.json` and guarded by `scripts/check-applied-migrations-immutable.cjs` (quality gate) |
+| 4 | `check-attendance-resolution-v2-architecture` required queue v3, which the canonical gate bans | Fixed (requires v4) |
+| 5 | Identity rollback dropped `dawaa_request_context_is_client_v1`, which the Base44 import calls | Fixed (kept while referenced); identity migration is now idempotent |
+| 6 | Identity migrations sorted before already-applied versions | Renumbered to `20261009080000` / `20261009081000` |
+
+Known, not changed in this round: the dirty-queue log trigger re-queues on any update (queue healthy: 59 rows, none overdue);
+the backlog sweep can stall on former-staff rows; the hidden delivery→standard fallback when delivery classification fails;
+three payroll scope rules; `PayrollManagementV2` is not routed; heavy health/bundle reads. Migrations before 2026-10-08 still
+contain historical non-standard names and duplicate versions.
+
+## Combined isolated rehearsal
+
+`bash scripts/run-isolated-db-rehearsal.sh` applies all unapplied migrations in version order on a throwaway PostgreSQL 16
+with the production identity chain and 6 production functions verbatim (md5-checked). It reproduces the production defects first
+(forged header acts as GM, Base44 needs the forged header, anon materializes attendance, standard payroll cannot finalize),
+then proves: 30 identity/session/notification/actor-binding/review-points/Base44 assertions, 12 materialize/payroll assertions,
+27 reconciliation/scope/peer assertions, 4 failure injections, idempotent re-apply, reverse rollbacks restoring all 6 definitions
+byte for byte with Base44 working between steps, no data change, and forward re-apply.
+
+Peer comparison numerator/denominator: a date-only sale joins its shift when exactly one shift touches that day; otherwise that
+day's hours and sales leave the per-shift ratio together. Pending days stay in peer shifts and are flagged provisional; the Eye's
+per-hour rate uses approved days only.
+
 ## Safe execution order (each step needs separate approval)
 
-1. Confirm the device registry (101, 102, GED…315, GED…324); 105 and device-less events stay unproven.
-2. Approve the business choices: the strict branch scope for branch managers in the evaluation header, and the credit split proposal.
-3. Full-copy rehearsal above.
-4. Identity runbook (`docs/IDENTITY_HARDENING_ROLLOUT.md`): step 0 md5 check → Preview → `20261008115000` → Base44 Edge Function → client → wait 30 min → `20261008120000`.
-5. `20261009120000` (sales branch scope). Its md5 guard aborts if the functions drifted.
-6. `20261009090000` (reconciliation + peer comparison). `20261008090000` is not applied.
+0. **Urgent, independent:** `20261009070000` (close the live materialize hole).
+1. `20261009070500` (standard payroll finalization) before the 2026-10-25 cycle close.
+2. Confirm the device registry (101, 102, GED…315, GED…324); 105 and device-less events stay unproven.
+3. Approve the business choices: strict branch scope for branch managers, and the credit split proposal.
+4. Identity runbook (`docs/IDENTITY_HARDENING_ROLLOUT.md`): step 0 md5 check → Preview → `20261009080000` → Base44 Edge Function → client → wait 30 min → `20261009081000`.
+5. `20261009090000` (reconciliation + peer comparison), then `20261009120000` (sales branch scope; its md5 guard aborts on drift).
+6. `20261009114500` (attendance command-center contract wiring, from the integration branch; not yet in production).
 7. Preview this branch; compare the Eye for د/ أحمد حافظ with the documented figures.
 8. Later and separately: the BConnect `staff_id` source fix, and the repair of 258 wrong stored attendance branches.

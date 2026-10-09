@@ -1,5 +1,5 @@
 -- Identity security test suite (reference, not a migration).
--- Run as: begin; <migration 20261008120000 if not applied>; <this file>; rollback;
+-- Run as: begin; <migration 20261009081000 if not applied>; <this file>; rollback;
 -- Everything, including the test session rows, exists only inside that transaction.
 -- Batching: select set_config('idt.only', '01,02,03', true); limits the scenarios run (15 = server context).
 -- Output: one row per scenario with passed/failed counts and the failing probes.

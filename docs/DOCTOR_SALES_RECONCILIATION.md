@@ -123,7 +123,7 @@ September for د/ أحمد: strict 7 ÷ (7 + 7) = **50%** (coverage 58%, provisi
 - `get_doctor_sales_reconciliation_v1` asserts the caller's sales scope.
   - A branch-scoped caller reads **only its branch** (invoices, attendance days, reviews), even for a doctor who also worked elsewhere.
   - Conversion requires `view_reviews`.
-- The functions read identity through the canonical chain (`dawaa_current_staff_account_id_strict`). They inherit the verified session identity once `20261008120000` is applied, which must happen first.
+- The functions read identity through the canonical chain (`dawaa_current_staff_account_id_strict`). They inherit the verified session identity once `20261009081000` is applied, which must happen first.
 
 ## Safe execution order
 

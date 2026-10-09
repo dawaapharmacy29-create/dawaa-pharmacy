@@ -6,25 +6,27 @@ const ROOT = process.cwd();
 const failures = [];
 
 const required = {
-  foundationCore: 'supabase/migrations/20261008201358_attendance_dirty_queue_core_v1.sql',
+  foundationCore: 'supabase/migrations/20261008201358_attendance_dirty_queue_and_stale_auto_reconcile_v1.sql',
   foundationTrigger: 'supabase/migrations/20261008201852_attendance_dirty_queue_trigger_v1.sql',
   foundationFlexible: 'supabase/migrations/20261008205324_attendance_dirty_queue_flexible_v3_route.sql',
   foundationSources: 'supabase/migrations/20261008205748_attendance_dirty_queue_schedule_timeoff_sources_v1.sql',
   foundationCron: 'supabase/migrations/20261008205956_attendance_dirty_worker_cron_cutover_stage1.sql',
   foundationFairness: 'supabase/migrations/20261008210056_attendance_dirty_worker_fairness_v1.sql',
-  routeAwareSafety: 'supabase/migrations/20261009072100_attendance_route_aware_safety_v1.sql',
-  flexibleSupersede: 'supabase/migrations/20261009072200_attendance_flexible_v3_supersede_old_classification_v1.sql',
-  retryByShiftEnd: 'supabase/migrations/20261009072300_attendance_dirty_retry_schedule_by_shift_end_v1.sql',
-  canonical: 'supabase/migrations/20261009083500_attendance_canonical_architecture_v1.sql',
-  historicalScope: 'supabase/migrations/20261009085000_attendance_route_historical_scope_v1.sql',
-  healthScope: 'supabase/migrations/20261009090500_attendance_health_staff_scope_v1.sql',
-  runtime: 'supabase/migrations/20261009092500_attendance_runtime_canonical_router_v1.sql',
-  commandCenter: 'supabase/migrations/20261009095500_attendance_command_center_canonical_v1.sql',
-  compatibility: 'supabase/migrations/20261009101500_attendance_canonical_compatibility_cutover_v1.sql',
-  healthLanes: 'supabase/migrations/20261009104000_attendance_health_review_lanes_v2.sql',
-  commandCenterBundle: 'supabase/migrations/20261009110500_attendance_command_center_bundle_v1.sql',
-  queueScope: 'supabase/migrations/20261009111500_attendance_queue_v4_staff_scope_v1.sql',
-  healthSources: 'supabase/migrations/20261009113000_attendance_health_dirty_source_triggers_v1.sql',
+  routeAwareSafetyRange: 'supabase/migrations/20261009041958_attendance_route_aware_safety_range_v1.sql',
+  routeAwareSafety: 'supabase/migrations/20261009042104_attendance_route_aware_fast_safety_materializer_v1.sql',
+  routeAwareSafetyCron: 'supabase/migrations/20261009042130_attendance_route_aware_safety_cron_v1.sql',
+  flexibleSupersede: 'supabase/migrations/20261009042421_attendance_flexible_v3_supersede_old_classification_v1.sql',
+  retryByShiftEnd: 'supabase/migrations/20261009042703_attendance_dirty_retry_schedule_by_shift_end_v1.sql',
+  canonical: 'supabase/migrations/20261009052303_attendance_canonical_architecture_v1.sql',
+  historicalScope: 'supabase/migrations/20261009052352_attendance_route_historical_scope_v1.sql',
+  healthScope: 'supabase/migrations/20261009052539_attendance_health_staff_scope_v1.sql',
+  runtime: 'supabase/migrations/20261009052715_attendance_runtime_canonical_router_v1.sql',
+  commandCenter: 'supabase/migrations/20261009053101_attendance_command_center_canonical_v1.sql',
+  compatibility: 'supabase/migrations/20261009053258_attendance_canonical_compatibility_cutover_v1.sql',
+  healthLanes: 'supabase/migrations/20261009053710_attendance_health_review_lanes_v2.sql',
+  commandCenterBundle: 'supabase/migrations/20261009054248_attendance_command_center_bundle_v1.sql',
+  queueScope: 'supabase/migrations/20261009060429_attendance_queue_v4_staff_scope_v1.sql',
+  healthSources: 'supabase/migrations/20261009060732_attendance_health_dirty_source_triggers_v1.sql',
   service: 'src/lib/attendance/attendanceResolutionService.ts',
   center: 'src/components/attendance/AttendanceResolutionCenter.tsx',
 };
@@ -71,7 +73,8 @@ if (!failures.length) {
   const foundationSources = read(required.foundationSources);
   const foundationCron = read(required.foundationCron);
   const foundationFairness = read(required.foundationFairness);
-  const routeAwareSafety = read(required.routeAwareSafety);
+  // Production applied the route-aware safety layer as three migrations (range, fast materializer, cron).
+  const routeAwareSafety = [required.routeAwareSafetyRange, required.routeAwareSafety, required.routeAwareSafetyCron].map(read).join('\n');
   const flexibleSupersede = read(required.flexibleSupersede);
   const retryByShiftEnd = read(required.retryByShiftEnd);
   const canonical = read(required.canonical);
@@ -202,6 +205,21 @@ if (!failures.length) {
     failures.push('Legacy materialize_attendance_range_v2 must never materialize V2 directly.');
   }
 
+  // The browser-callable materializer rewrites attendance truth for every staff member: its final
+  // definition (last migration that defines it) must authorize a verified top-management actor.
+  const migrationsDir = path.join(ROOT, 'supabase/migrations');
+  const lastMaterializer = fs.readdirSync(migrationsDir).filter((f) => f.endsWith('.sql')).sort()
+    .filter((f) => /create\s+or\s+replace\s+function\s+public\.materialize_attendance_range_v2\s*\(/i.test(read(`supabase/migrations/${f}`)))
+    .pop();
+  if (!lastMaterializer) {
+    failures.push('No migration defines materialize_attendance_range_v2.');
+  } else {
+    const def = read(`supabase/migrations/${lastMaterializer}`);
+    for (const token of ['dawaa_current_staff_account_id_strict()', 'dawaa_actor_is_top_management_v1()', 'not_authorized_for_attendance_materialization', 'dawaa_materialize_attendance_range_route_aware_v1']) {
+      if (!def.includes(token)) failures.push(`Final materialize_attendance_range_v2 (${lastMaterializer}) must guard with ${token}.`);
+    }
+  }
+
   mustContain('Health lane migration', healthLanes, [
     "'attendance_review_lanes_v2'",
     "'auto_resolvable'",
@@ -297,7 +315,9 @@ if (!failures.length) {
     required.foundationSources,
     required.foundationCron,
     required.foundationFairness,
+    required.routeAwareSafetyRange,
     required.routeAwareSafety,
+    required.routeAwareSafetyCron,
     required.flexibleSupersede,
     required.retryByShiftEnd,
     required.canonical,

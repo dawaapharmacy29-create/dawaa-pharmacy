@@ -1,25 +1,7 @@
--- Assertions after applying 20261009090000 + 20261009120000. Every API call runs as role anon with the verified
--- session account simulated by test.actor, exactly like a browser request after the identity hardening.
+-- Assertions after applying 20261009080000 + 20261009081000 (verified session identity), 20261009090000 and
+-- 20261009120000. Every API call runs as role anon carrying the fixture account's x-dawaa-session-token
+-- (02b_sessions.sql), exactly like a browser request: identity is resolved by the real production chain.
 \set ON_ERROR_STOP on
-create or replace function public.test_assert(ok boolean, what text) returns void language plpgsql as $$
-begin if ok is not true then raise exception 'ASSERT FAILED: %', what; end if; raise notice 'PASS: %', what; end $$;
-grant execute on function public.test_assert(boolean, text) to anon;
-
--- Calls a function as anon with an actor and returns the result, or the SQLSTATE and message when refused.
-create or replace function public.test_call(p_actor uuid, p_sql text) returns jsonb language plpgsql as $$
-declare v jsonb;
-begin
-  perform set_config('test.actor', coalesce(p_actor::text, ''), true);
-  execute 'set local role anon';
-  begin
-    execute p_sql into v;
-  exception when others then
-    execute 'reset role';
-    return jsonb_build_object('error', sqlstate, 'message', sqlerrm);
-  end;
-  execute 'reset role';
-  return v;
-end $$;
 
 \set D1 '''11111111-0000-0000-0000-000000000001'''
 \set GM '''aaaaaaaa-0000-0000-0000-000000000001'''
@@ -77,6 +59,9 @@ select test_assert((select test_call(:KM, $q$select to_jsonb(invoices) from get_
 -- 6. Peer comparison on the shared core.
 create temp table bw as select test_call(:SM, $q$select get_branch_doctor_performance_window_v1('فرع الشامي', '2026-08-26', '2026-09-26')$q$) j;
 select test_assert((select j->'ambiguousNames' from bw) ? 'سامي نور', 'a seller name shared by two employees is reported, never attributed');
-select test_assert((select c->'shifts'->'evening' from bw, jsonb_array_elements(j->'doctors') d, jsonb_array_elements(d->'cycles') c where d->>'staffId' = '11111111-0000-0000-0000-000000000001') @> '{"hours":21,"sales":300,"invoices":2}'::jsonb,
-  'peer shift productivity uses only shifts proven at the branch with known hours (mixed, unknown-device and other-branch days excluded)');
+select test_assert((select c->'shifts'->'evening' from bw, jsonb_array_elements(j->'doctors') d, jsonb_array_elements(d->'cycles') c where d->>'staffId' = '11111111-0000-0000-0000-000000000001') @> '{"hours":21,"sales":900,"invoices":3}'::jsonb,
+  'peer shift productivity uses only shifts proven at the branch with known hours; a date-only sale on a one-shift day joins that shift (numerator matches denominator)');
+select test_assert((select c->'shifts' from bw, jsonb_array_elements(j->'doctors') d, jsonb_array_elements(d->'cycles') c where d->>'staffId' = '11111111-0000-0000-0000-000000000003')
+  = '{"night":{"hours":8,"days":1,"pendingDays":0,"lateDays":0,"sales":50,"invoices":1}}'::jsonb,
+  'a day touched by two shifts with an unplaceable date-only sale leaves the ratio with its hours and its sales');
 select test_assert((select test_call(:KM, $q$select get_branch_doctor_performance_window_v1('فرع الشامي', '2026-08-26', '2026-09-26')$q$)->>'error') = '42501', 'شكري manager is refused on the الشامي peer comparison');

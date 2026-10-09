@@ -10,7 +10,7 @@
 -- Fix: one helper resolves the branch the caller may read (NULL = all branches for ALL-scope roles); both
 -- functions filter invoices by it and the bundle reports it as scopeBranch so the UI can say "inside your branch".
 -- Signatures, grants, SECURITY DEFINER and the identity chain (dawaa_current_staff_account_id_strict, hardened by
--- 20261008120000) are unchanged. Applies only if both functions still match the reviewed definitions.
+-- 20261009081000) are unchanged. Applies only if both functions still match the reviewed definitions.
 
 do $$
 begin

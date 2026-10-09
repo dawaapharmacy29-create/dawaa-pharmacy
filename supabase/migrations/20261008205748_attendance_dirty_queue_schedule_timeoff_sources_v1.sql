@@ -54,7 +54,7 @@ begin
   v_reason:=case tg_op when 'INSERT' then 'shift_schedule_insert' when 'UPDATE' then 'shift_schedule_update' else 'shift_schedule_delete' end;
 
   for v_pass in 1..2 loop
-    if (tg_op='INSERT' and v_pass=1) or (tg_op='DELETE' and v_pass=2) then continue; end if;
+    if (tg_op='INSERT' and v_pass=2) or (tg_op='DELETE' and v_pass=1) then continue; end if;
 
     if v_pass=1 then
       v_staff:=old.staff_id;
@@ -100,8 +100,7 @@ grant execute on function public.dawaa_mark_attendance_dirty_from_schedule_v1() 
 
 drop trigger if exists trg_dawaa_mark_attendance_dirty_schedule_v1 on public.shift_schedules;
 create trigger trg_dawaa_mark_attendance_dirty_schedule_v1
-after insert or delete or update of staff_id,shift_date,date,day_of_week,day_name,shift_start,shift_end,start_time,end_time,is_off,is_day_off,status,effective_from,effective_to,has_custom_time
-on public.shift_schedules
+after insert or update or delete on public.shift_schedules
 for each row execute function public.dawaa_mark_attendance_dirty_from_schedule_v1();
 
 create or replace function public.dawaa_mark_attendance_dirty_from_timeoff_v1()
@@ -143,6 +142,5 @@ grant execute on function public.dawaa_mark_attendance_dirty_from_timeoff_v1() t
 
 drop trigger if exists trg_dawaa_mark_attendance_dirty_timeoff_v1 on public.staff_time_off_requests;
 create trigger trg_dawaa_mark_attendance_dirty_timeoff_v1
-after insert or delete or update of staff_id,status,start_date,end_date,start_time,end_time,duration_minutes,request_kind,decided_at,cancelled_at
-on public.staff_time_off_requests
+after insert or update or delete on public.staff_time_off_requests
 for each row execute function public.dawaa_mark_attendance_dirty_from_timeoff_v1();

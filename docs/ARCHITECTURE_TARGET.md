@@ -253,6 +253,6 @@ A migration that only adds another wrapper while leaving all previous paths acti
 
 `scripts/check-dashboard-primitives-architecture.cjs` enforces section 8: no new local `Panel`/`SectionTitle`/`KpiCard`/`MiniBox`/`EmptyState` definitions outside the fixed, shrink-only legacy baseline.
 
-`scripts/check-verified-session-identity.cjs` enforces the caller-identity contract in section 7: no migration after `20261008120000` may read `x-dawaa-user-id`, the shared client must send `x-dawaa-session-token`, and no other client code may set identity headers.
+`scripts/check-verified-session-identity.cjs` enforces the caller-identity contract in section 7: no migration after `20261009081000` may read `x-dawaa-user-id`, the shared client must send `x-dawaa-session-token`, and no other client code may set identity headers.
 
 These gates should become stricter as migration debt is removed.

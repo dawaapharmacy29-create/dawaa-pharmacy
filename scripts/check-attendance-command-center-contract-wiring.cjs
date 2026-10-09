@@ -2,8 +2,8 @@
 const fs = require('node:fs');
 
 const files = {
-  triage: 'supabase/migrations/20261009104500_attendance_review_triage_contract_v1.sql',
-  priority: 'supabase/migrations/20261009113500_attendance_manager_review_priority_v1.sql',
+  triage: 'supabase/migrations/20261009064147_attendance_review_triage_contract_v1.sql',
+  priority: 'supabase/migrations/20261009065014_attendance_manager_review_priority_v1.sql',
   wiring: 'supabase/migrations/20261009114500_attendance_command_center_contract_wiring_v1.sql',
   service: 'src/lib/attendance/attendanceResolutionService.ts',
   center: 'src/components/attendance/AttendanceResolutionCenter.tsx',

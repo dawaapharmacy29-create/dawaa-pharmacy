@@ -73,6 +73,9 @@ jobs:
       - name: Verified staff session identity boundary
         run: node scripts/check-verified-session-identity.cjs
 
+      - name: Applied migrations are immutable
+        run: node scripts/check-applied-migrations-immutable.cjs
+
       - name: Customer Request shortage command boundary
         run: node scripts/check-customer-request-shortage-command.cjs
 

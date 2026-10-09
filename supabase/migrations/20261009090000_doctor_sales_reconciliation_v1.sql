@@ -13,7 +13,8 @@
 -- * A timed invoice belongs to the branch of the doctor's latest proven punch at or before it inside the shift
 --   (+-60 min), so a doctor who moves branch mid-shift is followed punch by punch.
 -- * A date-only import (00:00 UTC, no time of day) is verified only at day level: every punched shift touching
---   that date is proven at the invoice branch. It never gets a shift class.
+--   that date is proven at the invoice branch. It gets a shift class only when exactly one punched shift
+--   touches that date; otherwise the peer comparison drops that day's hours and sales together.
 -- * Categories: attendance_verified (time or day evidence), identity_only, uncertain, zero_value. Nothing is
 --   dropped; only attendance_verified feeds comparable productivity.
 -- * Authorization: the caller's sales scope; a branch-scoped caller only ever reads that branch's invoices,
@@ -161,7 +162,9 @@ as $function$
            count(*) filter (where d.branch_source = 'device' and d.branch = a.branch) proven_same,
            count(*) filter (where d.branch_source = 'device' and d.branch <> a.branch) proven_other,
            max(d.attendance_date) filter (where d.attendance_date = a.sale_day) same_day,
-           max(d.attendance_date) shift_date, max(d.status) status
+           max(d.attendance_date) shift_date, max(d.status) status,
+           -- A date-only sale belongs to a shift class only when exactly one punched shift touches its day.
+           case when count(*) = 1 then max(d.shift) end shift
     from attributed a
     join days d on d.staff_id = a.staff_id and d.attendance_date in (a.sale_day, a.sale_day - 1)
      and d.win_start < ((a.sale_day + 1)::timestamp at time zone 'Africa/Cairo')
@@ -171,7 +174,7 @@ as $function$
   ),
   placed as (
     select a.*, t.shift_date t_day, t.shift t_shift, t.status t_status, t.punch_branch,
-           dd.shifts d_shifts, dd.proven_same, dd.proven_other, coalesce(dd.same_day, dd.shift_date) d_day, dd.status d_status,
+           dd.shifts d_shifts, dd.proven_same, dd.proven_other, coalesce(dd.same_day, dd.shift_date) d_day, dd.status d_status, dd.shift d_shift,
            (select count(*) from public.sales_invoices x
              where x.invoice_number = a.invoice_number
                and coalesce(nullif(btrim(x.branch_name), ''), nullif(btrim(x.branch), '')) = a.branch) number_rows
@@ -205,7 +208,7 @@ as $function$
          j.reason,
          case when j.reason = 'inside_punched_shift' then 'time' when j.reason = 'date_only_day_evidence' then 'day' end,
          case when j.reason = 'inside_punched_shift' then j.t_day when j.reason = 'date_only_day_evidence' then j.d_day end,
-         case when j.reason = 'inside_punched_shift' then j.t_shift end,
+         case when j.reason = 'inside_punched_shift' then j.t_shift when j.reason = 'date_only_day_evidence' then j.d_shift end,
          case when j.date_only then j.d_status else j.t_status end,
          case when j.date_only then null else j.punch_branch end,
          j.norm
@@ -439,8 +442,15 @@ begin
     -- Only shifts proven at this branch by the punching device count toward its hours.
     where d.branch_source = 'device' and d.branch = p_branch and d.attendance_date >= p_window_start
   ),
+  unplaced_days as (
+    -- Days holding a verified sale with no shift class (a date-only import on a day touched by two shifts):
+    -- their hours and sales leave the per-shift ratio together, so numerator and denominator always match.
+    select distinct staff_id, shift_date from placed where shift_date is not null and shift is null
+  ),
   productive_days as (
-    select * from att where hours > 0 and win_start is not null and win_end is not null and win_end > win_start
+    select a.* from att a
+    where a.hours > 0 and a.win_start is not null and a.win_end is not null and a.win_end > a.win_start
+      and not exists (select 1 from unplaced_days u where u.staff_id = a.staff_id and u.shift_date = a.attendance_date)
   ),
   sales_agg as (
     select t.staff_id, c.s cycle_start, sum(t.amount) sales, count(*) invoices,

@@ -7,7 +7,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 // والوجهة، المبلغ الكاش، طريقة الدفع، الملاحظات، رقم إذن التحويل) بدل ما
 // تجيب ٨ حقول أساسية بس زي قبل كده.
 // v4 (identity hardening): الاستيراد بيتم بمفتاح service_role كعملية نظام، من غير
-// انتحال هوية موظف عن طريق x-dawaa-user-id (يتطلب migration 20261008115000).
+// انتحال هوية موظف عن طريق x-dawaa-user-id (يتطلب migration 20261009080000).
 const BASE44_APP_ID = "6a11bdb86cda73e6c2a7fde4";
 const BASE44_API_BASE = "https://app.base44.com/api/apps";
 

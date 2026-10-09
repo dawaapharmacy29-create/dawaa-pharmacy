@@ -37,7 +37,7 @@ export function readStoredStaffSessionToken(): string | null {
 
 // Identity contract: the database trusts only `x-dawaa-session-token` (verified against
 // staff_login_sessions). `x-dawaa-user-id` is a non-authoritative hint kept for the rollout window
-// before migration 20261008120000; the server no longer reads it after that migration.
+// before migration 20261009081000; the server no longer reads it after that migration.
 export function buildDawaaRequestHeaders(initHeaders?: HeadersInit): Headers {
   const headers = new Headers(initHeaders);
   const sessionToken = readStoredStaffSessionToken();

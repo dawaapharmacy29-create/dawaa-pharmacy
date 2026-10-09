@@ -1,0 +1,1 @@
+drop trigger if exists trg_dawaa_enqueue_attendance_materialization_v1 on public.staff_attendance_logs;

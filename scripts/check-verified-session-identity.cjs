@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Guards the verified staff session identity contract (migration 20261008120000):
+// Guards the verified staff session identity contract (migration 20261009081000):
 // the database must identify callers only from the opaque `x-dawaa-session-token`, never from the
 // client-chosen `x-dawaa-user-id` header, and client-supplied p_actor_id values must stay bound.
 const fs = require('node:fs');
@@ -7,7 +7,7 @@ const path = require('node:path');
 
 const ROOT = process.cwd();
 const failures = [];
-const HARDENING = '20261008120000_verified_staff_session_identity_v1.sql';
+const HARDENING = '20261009081000_verified_staff_session_identity_v1.sql';
 const migrationsDir = path.join(ROOT, 'supabase/migrations');
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const stripSqlComments = (sql) => sql.replace(/--[^\n]*/g, '');
@@ -41,7 +41,7 @@ if (!migrations.includes(HARDENING)) {
 }
 
 // Machine callers must not need a forged staff identity once the header stops being trusted.
-const BASE44 = '20261008115000_base44_purchase_sync_service_actor_v1.sql';
+const BASE44 = '20261009080000_base44_purchase_sync_service_actor_v1.sql';
 if (!migrations.includes(BASE44) || BASE44 > HARDENING) {
   failures.push(`${BASE44} must exist and sort before ${HARDENING} (Base44 sync service path)`);
 }

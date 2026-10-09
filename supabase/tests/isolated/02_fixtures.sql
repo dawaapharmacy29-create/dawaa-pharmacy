@@ -79,3 +79,19 @@ insert into public.conversation_sales_reviews_canonical_v2 (id, doctor_id, branc
   ('cccccccc-0000-0000-0000-000000000010', '11111111-0000-0000-0000-000000000001', 'فرع الشامي', null, true, test_ts('2026-09-20 15:20'), test_ts('2026-09-20 15:20'), 'K10'),  -- converted without invoice
   ('cccccccc-0000-0000-0000-000000000011', '11111111-0000-0000-0000-000000000001', 'فرع الشامي', 'C11', true, test_ts('2026-09-20 15:30'), test_ts('2026-09-20 15:30'), 'K11'), -- invoice does not exist
   ('cccccccc-0000-0000-0000-000000000012', '11111111-0000-0000-0000-000000000001', 'فرع الشامي', 'C12', true, test_ts('2026-09-20 14:00'), test_ts('2026-09-20 14:00'), 'K12'); -- number in two branches, same customer
+
+-- D3 (الشامي): a date-only sale on a calendar day touched by two proven shifts (night of 09-07 and day of 09-08).
+-- It is day-verified but has no single shift class, so day 09-08 leaves the per-shift ratio with its hours AND
+-- its timed sales; the night shift of 09-07 stays (8 h, 50).
+insert into public.attendance_daily_summary (staff_id, attendance_date, branch, first_in, last_out, status, payroll_eligible_hours, candidate_hours) values
+  ('11111111-0000-0000-0000-000000000003', '2026-09-07', 'فرع الشامي', test_ts('2026-09-07 22:00'), test_ts('2026-09-08 06:00'), 'approved', 8, 8),
+  ('11111111-0000-0000-0000-000000000003', '2026-09-08', 'فرع الشامي', test_ts('2026-09-08 14:00'), test_ts('2026-09-08 22:00'), 'approved', 8, 8);
+insert into public.biometric_attendance_logs (staff_id, punch_time, device_id, raw_payload) values
+  ('11111111-0000-0000-0000-000000000003', test_ts('2026-09-07 22:00'), null, '{"external_device_id":"GED7242701324"}'),
+  ('11111111-0000-0000-0000-000000000003', test_ts('2026-09-08 06:00'), null, '{"external_device_id":"GED7242701324"}'),
+  ('11111111-0000-0000-0000-000000000003', test_ts('2026-09-08 14:00'), null, '{"external_device_id":"GED7242701324"}'),
+  ('11111111-0000-0000-0000-000000000003', test_ts('2026-09-08 22:00'), null, '{"external_device_id":"GED7242701324"}');
+insert into public.sales_invoices (id, branch, invoice_number, invoice_date, staff_id, seller_name, customer_code, net_total) values
+  ('d3a', 'فرع الشامي', 'D3A', test_ts('2026-09-07 23:00'), '11111111-0000-0000-0000-000000000003', null, 'K9', 50),   -- night of 09-07
+  ('d3b', 'فرع الشامي', 'D3B', test_ts('2026-09-08 15:00'), '11111111-0000-0000-0000-000000000003', null, 'K9', 100),  -- day of 09-08
+  ('d3c', 'فرع الشامي', 'D3C', test_date_only('2026-09-08'), '11111111-0000-0000-0000-000000000003', null, 'K9', 400); -- date-only, two shifts touch 09-08

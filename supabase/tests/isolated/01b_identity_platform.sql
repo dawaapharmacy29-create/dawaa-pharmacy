@@ -1,9 +1,9 @@
--- Isolated rehearsal — identity layer as it is in production BEFORE 20261008115000 / 20261008120000.
+-- Isolated rehearsal — identity layer as it is in production BEFORE 20261009080000 / 20261009081000.
 -- Replaces the test.actor stub of 00_platform.sql with the real chain, copied verbatim from production on 2026-10-09:
 --   dawaa_current_staff_account_id_strict → dawaa_request_staff_identifier (reads x-dawaa-user-id today).
 -- Also verbatim: the 6 sibling header readers, record_conversation_review_points_v1 (md5 8d119972…) and
 -- import_base44_purchase_invoices_v1 (md5 db806d85…) with its permission helpers.
--- The 52 functions that 20261008120000 binds are placeholders with the production signature, language and
+-- The 52 functions that 20261009081000 binds are placeholders with the production signature, language and
 -- argument names; each returns the p_actor_id it ends up using, so the binding can be observed.
 -- Stubs (not production code): auth.uid(), record_employee_points_transaction_v4 (records the identity it sees),
 -- match_base44_entered_by_v1 and dawaa_map_base44_branch_v1.
@@ -370,7 +370,7 @@ begin
 end;
 $function$;
 
--- ---- the 52 functions bound by 20261008120000 (production signature, language and argument names) ----
+-- ---- the 52 functions bound by 20261009081000 (production signature, language and argument names) ----
 create function public.app_actor_is_team_dawaa(p_actor_id text) returns jsonb language sql stable security definer set search_path to 'public', 'pg_catalog' as $$ select to_jsonb(p_actor_id) $$;
 create function public.app_role_allowed(p_actor_id text, p_allowed text[]) returns jsonb language sql stable security definer set search_path to 'public', 'pg_catalog' as $$ select to_jsonb(p_actor_id) $$;
 create function public.app_staff_role(p_actor_id text) returns jsonb language sql stable security definer set search_path to 'public', 'pg_catalog' as $$ select to_jsonb(p_actor_id) $$;
