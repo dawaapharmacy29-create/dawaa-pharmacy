@@ -4,6 +4,13 @@ export { STAFF_SESSION_STORAGE_KEY };
 
 export type StaffSessionStatus = 'valid' | 'invalid' | 'unavailable';
 
+type StaffSessionVerificationInFlight = {
+  token: string;
+  promise: Promise<StaffSessionStatus>;
+};
+
+let verificationInFlight: StaffSessionVerificationInFlight | null = null;
+
 function normalizeToken(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const token = value.trim();
@@ -38,25 +45,39 @@ export function clearStaffSessionToken(): void {
 
 /**
  * Extends the server session (sliding 12h) and reports whether it is still valid.
+ * Concurrent callers sharing one token reuse the same request so mounting many useAuth consumers
+ * (or returning a tab to the foreground) cannot fan out identical refresh RPCs.
  * 'invalid'     → the server rejected the token (expired, revoked, account disabled): log out.
  * 'unavailable' → network/transport failure: keep the user signed in and retry later.
  */
-export async function verifyStoredStaffSession(): Promise<StaffSessionStatus> {
+export function verifyStoredStaffSession(): Promise<StaffSessionStatus> {
   const token = getStaffSessionToken();
-  if (!token) return 'invalid';
-  try {
-    const { data, error } = await supabase.rpc('refresh_staff_login_session_v1', {
-      p_session_token: token,
-    });
-    if (error) return 'unavailable';
-    if (data !== true) {
-      clearStaffSessionToken();
-      return 'invalid';
+  if (!token) return Promise.resolve('invalid');
+
+  if (verificationInFlight?.token === token) return verificationInFlight.promise;
+
+  const promise = (async (): Promise<StaffSessionStatus> => {
+    try {
+      const { data, error } = await supabase.rpc('refresh_staff_login_session_v1', {
+        p_session_token: token,
+      });
+      if (error) return 'unavailable';
+      if (data !== true) {
+        // Do not let an older in-flight verification erase a newer login token.
+        if (getStaffSessionToken() === token) clearStaffSessionToken();
+        return 'invalid';
+      }
+      return 'valid';
+    } catch {
+      return 'unavailable';
     }
-    return 'valid';
-  } catch {
-    return 'unavailable';
-  }
+  })();
+
+  verificationInFlight = { token, promise };
+  void promise.finally(() => {
+    if (verificationInFlight?.promise === promise) verificationInFlight = null;
+  });
+  return promise;
 }
 
 export async function refreshStoredStaffSession(): Promise<boolean> {
