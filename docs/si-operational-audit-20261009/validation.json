@@ -15,5 +15,10 @@
   "dynamic_sql_exhaustiveness_proven": false,
   "deployed_bundle_verified": false,
   "isolated_db_harness_run": false,
-  "classifications": "proposed, not activated"
+  "classifications": "proposed, not activated",
+  "source_integration_contracts_specified": true,
+  "app_write_call_sites": 62,
+  "nonliteral_db_candidates": 116,
+  "review_correction_rpc_live_present": false,
+  "continuation_scope": "documentation and read-only caller audit; implementation remains blocked"
 }

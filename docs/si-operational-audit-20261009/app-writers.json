@@ -852,5 +852,19 @@
     "evidence": "supabase.rpc('whatsapp_auto_followup_confirm_sale_v1', {\n        p_id: row.id,\n        p_invoice_id: candidate.invoiceId,\n        p_invoice_number: candidate.invoiceNumber,\n        p_invoice_date: invoiceDateOnly(candidate.invoiceDate),\n        p_invoice_value: candidate.amount,\n        p_confidence: candidate.confidence,\n        p_notes: draft?.notes.trim() || null,\n      })",
     "decision": "legacy operational or identity decision: remove after canonical activation",
     "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "file": "src/lib/reviews/conversationReviewCorrection.ts",
+    "line": 172,
+    "function": "correctConversationReviewVersion",
+    "operation": "RPC dawaa_correct_conversation_review_session_v1 (constant target)",
+    "destination": "conversation_sales_reviews",
+    "classification": "RETAIN",
+    "when": "explicit manager correction/version save",
+    "stableIdentity": "p_idempotency_key plus review/version lineage",
+    "production": "source present; exact live catalog lookup returned no matching public function on 2026-10-09",
+    "evidence": "client.rpc(CONVERSATION_REVIEW_CORRECTION_COMMAND, { p_session_token, p_review_id, p_idempotency_key, p_reason, p_correction })",
+    "decision": "retain authorized correction/versioning; protected migration remains unapplied",
+    "classificationStatus": "audit proposal, not activated"
   }
 ]

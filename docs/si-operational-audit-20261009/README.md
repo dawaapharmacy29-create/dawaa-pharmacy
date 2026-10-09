@@ -8,6 +8,10 @@ Audited HEAD: `2a8e85fce639a04d5562c42e054797584f496a63`.
 Database inspected: `dawaa-pharmacy-os`, `jkjqeqkshllustwlzzbf`, SELECT/catalog reads only.
 The application was cloned successfully from GitHub after the team Git endpoint required unavailable credentials. No older branch was checked out.
 
+## Phase 1 continuation
+
+[Source integration contracts](source-integration-contracts.md) specify the complaint/request decisions, projection lifecycle, quality retry, and atomic cutover acceptance. [Dynamic caller follow-up](dynamic-caller-followup.md) adds the constant-target review correction command and records its verified absence from the live public catalog. The implementation gate remains BLOCKED pending caller coverage, isolated schema/authorization tests, and durable identity proof.
+
 ## 1. Architecture discovered
 
 SI already owns CustomerNeedModel, product resolution, UnavailableDemand, LostOpportunity, FollowUpOpportunity, OperationalDisposition and CanonicalSalesOutcome. Its pipeline is pure, composes existing owners, and uses bounded runtime/persistence boundaries. This work must be preserved.
@@ -58,7 +62,7 @@ These blockers do not request deployment approval. They prevent claiming READY o
 
 Machine-readable inventories accompany this report:
 
-* `app-writers.json`: 61 direct write/RPC call sites, including review writes and command/lifecycle adapters. This is not 61 independent engines.
+* `app-writers.json`: 62 direct write/RPC call sites (61 initial literal-target sites plus one constant-target correction RPC), including review writes and command/lifecycle adapters. This is not 61 independent engines.
 * `database-writers.json`: 97 live functions with direct or transitively detected writes to the audited tables, including guards, triggers and command wrappers. This is a conservative catalog closure, not a runtime execution count.
 * `historical-migration-writes.json`: mutation occurrences in historical SQL definitions. Historical definitions are LEGACY READ ONLY for this analysis; do not execute them to reproduce current behavior blindly.
 * `schema-drift.json`: 218 catalog functions and 181 catalog objects (including four relevant triggers attached outside the initial table set), hashes and closest migration-name candidates.

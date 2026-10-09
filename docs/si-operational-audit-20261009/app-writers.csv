@@ -346,3 +346,4 @@ src/pages/WhatsAppAutoFollowupRequests.tsx,220,confirmSale,RPC whatsapp_auto_fol
         p_confidence: candidate.confidence,
         p_notes: draft?.notes.trim() || null,
       })",legacy operational or identity decision: remove after canonical activation,"audit proposal, not activated"
+src/lib/reviews/conversationReviewCorrection.ts,172,correctConversationReviewVersion,RPC dawaa_correct_conversation_review_session_v1 (constant target),conversation_sales_reviews,RETAIN,explicit manager correction/version save,p_idempotency_key plus review/version lineage,source present; exact live catalog lookup returned no matching public function on 2026-10-09,"client.rpc(CONVERSATION_REVIEW_CORRECTION_COMMAND, { p_session_token, p_review_id, p_idempotency_key, p_reason, p_correction })",retain authorized correction/versioning; protected migration remains unapplied,"audit proposal, not activated"
