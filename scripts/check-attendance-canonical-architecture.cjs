@@ -6,6 +6,15 @@ const ROOT = process.cwd();
 const failures = [];
 
 const required = {
+  foundationCore: 'supabase/migrations/20261008201358_attendance_dirty_queue_core_v1.sql',
+  foundationTrigger: 'supabase/migrations/20261008201852_attendance_dirty_queue_trigger_v1.sql',
+  foundationFlexible: 'supabase/migrations/20261008205324_attendance_dirty_queue_flexible_v3_route.sql',
+  foundationSources: 'supabase/migrations/20261008205748_attendance_dirty_queue_schedule_timeoff_sources_v1.sql',
+  foundationCron: 'supabase/migrations/20261008205956_attendance_dirty_worker_cron_cutover_stage1.sql',
+  foundationFairness: 'supabase/migrations/20261008210056_attendance_dirty_worker_fairness_v1.sql',
+  routeAwareSafety: 'supabase/migrations/20261009072100_attendance_route_aware_safety_v1.sql',
+  flexibleSupersede: 'supabase/migrations/20261009072200_attendance_flexible_v3_supersede_old_classification_v1.sql',
+  retryByShiftEnd: 'supabase/migrations/20261009072300_attendance_dirty_retry_schedule_by_shift_end_v1.sql',
   canonical: 'supabase/migrations/20261009083500_attendance_canonical_architecture_v1.sql',
   historicalScope: 'supabase/migrations/20261009085000_attendance_route_historical_scope_v1.sql',
   healthScope: 'supabase/migrations/20261009090500_attendance_health_staff_scope_v1.sql',
@@ -20,8 +29,20 @@ const required = {
   center: 'src/components/attendance/AttendanceResolutionCenter.tsx',
 };
 
+const legacyDuplicateVersionPaths = [
+  'supabase/migrations/20261008_attendance_dirty_queue_core_v1.sql',
+  'supabase/migrations/20261008_attendance_dirty_queue_trigger_v1.sql',
+  'supabase/migrations/20261008_attendance_dirty_queue_flexible_v3_route.sql',
+  'supabase/migrations/20261008_attendance_dirty_queue_schedule_timeoff_sources_v1.sql',
+  'supabase/migrations/20261008_attendance_dirty_worker_cron_cutover_stage1.sql',
+  'supabase/migrations/20261008_attendance_dirty_worker_fairness_v1.sql',
+];
+
 for (const [name, rel] of Object.entries(required)) {
   if (!fs.existsSync(path.join(ROOT, rel))) failures.push(`Missing ${name}: ${rel}`);
+}
+for (const rel of legacyDuplicateVersionPaths) {
+  if (fs.existsSync(path.join(ROOT, rel))) failures.push(`Legacy duplicate-version migration path must not exist: ${rel}`);
 }
 
 function read(rel) {
@@ -44,6 +65,15 @@ function walk(dir) {
 }
 
 if (!failures.length) {
+  const foundationCore = read(required.foundationCore);
+  const foundationTrigger = read(required.foundationTrigger);
+  const foundationFlexible = read(required.foundationFlexible);
+  const foundationSources = read(required.foundationSources);
+  const foundationCron = read(required.foundationCron);
+  const foundationFairness = read(required.foundationFairness);
+  const routeAwareSafety = read(required.routeAwareSafety);
+  const flexibleSupersede = read(required.flexibleSupersede);
+  const retryByShiftEnd = read(required.retryByShiftEnd);
   const canonical = read(required.canonical);
   const historical = read(required.historicalScope);
   const health = read(required.healthScope);
@@ -56,6 +86,51 @@ if (!failures.length) {
   const healthSources = read(required.healthSources);
   const service = read(required.service);
   const center = read(required.center);
+
+  mustContain('Dirty queue foundation core', foundationCore, [
+    'attendance_materialization_dirty_queue_v1',
+    'dawaa_reconcile_attendance_dirty_day_v1',
+    'dawaa_process_attendance_dirty_queue_v1',
+  ]);
+  mustContain('Attendance-log dirty trigger foundation', foundationTrigger, [
+    'dawaa_mark_attendance_dirty_from_log_v1',
+    'trg_dawaa_mark_attendance_dirty_v1',
+  ]);
+  mustContain('Flexible V3 dirty route foundation', foundationFlexible, [
+    'dawaa_reconcile_flexible_attendance_dirty_day_v1',
+    'dawaa_materialize_attendance_day_internal_v3',
+    "'system:auto-attendance-v3'",
+  ]);
+  mustContain('Schedule/time-off dirty source foundation', foundationSources, [
+    'dawaa_mark_attendance_dirty_v1',
+    'trg_dawaa_mark_attendance_dirty_schedule_v1',
+    'trg_dawaa_mark_attendance_dirty_timeoff_v1',
+  ]);
+  mustContain('Dirty worker cron foundation', foundationCron, [
+    "'attendance-dirty-queue-v1'",
+    'dawaa_process_attendance_dirty_queue_v1(3)',
+    "'44 * * * *'",
+  ]);
+  mustContain('Dirty worker fairness foundation', foundationFairness, [
+    'dawaa_process_attendance_dirty_queue_v1',
+    'case when q.attempts=0 then 0 else 1 end',
+  ]);
+  mustContain('Route-aware safety migration', routeAwareSafety, [
+    'dawaa_reconcile_attendance_range_route_aware_v1',
+    'dawaa_materialize_attendance_range_route_aware_v1',
+    'dawaa_reconcile_flexible_attendance_dirty_day_v1',
+    'dawaa_materialize_attendance_day_internal_v3',
+  ]);
+  mustContain('Flexible V3 supersede migration', flexibleSupersede, [
+    'dawaa_reconcile_flexible_attendance_dirty_day_v1',
+    'coalesce(v_saved.resolution_version,0)<>3',
+    "impact_status='superseded'",
+  ]);
+  mustContain('Shift-end retry migration', retryByShiftEnd, [
+    'dawaa_process_attendance_dirty_queue_v1',
+    'v_scheduled_end',
+    "v_scheduled_end+interval '10 minutes'",
+  ]);
 
   mustContain('Canonical attendance migration', canonical, [
     'dawaa_attendance_engine_route_v1',
@@ -214,8 +289,17 @@ if (!failures.length) {
     }
   }
 
-  // New canonical migrations use full timestamps and are dependency ordered.
+  // Fresh-rebuild chain: all migration versions must be full, unique, and dependency ordered.
   const ordered = [
+    required.foundationCore,
+    required.foundationTrigger,
+    required.foundationFlexible,
+    required.foundationSources,
+    required.foundationCron,
+    required.foundationFairness,
+    required.routeAwareSafety,
+    required.flexibleSupersede,
+    required.retryByShiftEnd,
     required.canonical,
     required.historicalScope,
     required.healthScope,
@@ -227,12 +311,23 @@ if (!failures.length) {
     required.queueScope,
     required.healthSources,
   ];
+  const versions = [];
   for (const rel of ordered) {
     const base = path.basename(rel);
-    if (!/^\d{14}_/.test(base)) failures.push(`Canonical migration must use 14-digit timestamp: ${base}`);
+    const match = base.match(/^(\d{14})_/);
+    if (!match) {
+      failures.push(`Attendance migration must use a 14-digit timestamp: ${base}`);
+      continue;
+    }
+    versions.push(match[1]);
+  }
+  if (new Set(versions).size !== versions.length) {
+    failures.push('Attendance fresh-rebuild migration versions must be unique.');
   }
   const sorted = [...ordered].sort();
-  if (ordered.join('\n') !== sorted.join('\n')) failures.push('Canonical attendance migrations are not lexicographically dependency ordered.');
+  if (ordered.join('\n') !== sorted.join('\n')) {
+    failures.push('Attendance migrations are not lexicographically dependency ordered.');
+  }
 }
 
 if (failures.length) {
@@ -241,4 +336,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('[attendance-canonical] PASS: one routing contract, route-safe materialization, canonical review triage, guarded compatibility entrypoints, accurate review lanes, single-pass command-center read model, staff-scoped V4 queue filtering, dirty-source trigger health, bundled service reads, V4-only frontend queue routing, and no raw attendance reads in financial/payroll frontend modules.');
+console.log('[attendance-canonical] PASS: unique ordered fresh-rebuild foundation, one routing contract, route-safe materialization, canonical review triage, guarded compatibility entrypoints, accurate review lanes, single-pass command-center read model, staff-scoped V4 queue filtering, dirty-source trigger health, bundled service reads, V4-only frontend queue routing, and no raw attendance reads in financial/payroll frontend modules.');
