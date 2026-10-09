@@ -50,9 +50,9 @@ export function clearStaffSessionToken(): void {
  * 'invalid'     → the server rejected the token (expired, revoked, account disabled): log out.
  * 'unavailable' → network/transport failure: keep the user signed in and retry later.
  */
-export function verifyStoredStaffSession(): Promise<StaffSessionStatus> {
+export async function verifyStoredStaffSession(): Promise<StaffSessionStatus> {
   const token = getStaffSessionToken();
-  if (!token) return Promise.resolve('invalid');
+  if (!token) return 'invalid';
 
   if (verificationInFlight?.token === token) return verificationInFlight.promise;
 
