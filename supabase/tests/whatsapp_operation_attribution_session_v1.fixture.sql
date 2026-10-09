@@ -14,7 +14,7 @@ create table public.customers(id uuid primary key,customer_code text,effective_c
  name text,display_name text,customer_name text,branch text,effective_branch text,is_duplicate boolean,
  normalized_phone text,phone text,customer_phone text,mobile text,whatsapp_phone text,whatsapp text,phone_alt text);
 create table public.whatsapp_review_sources(id uuid primary key,staff_id uuid,branch text,source_filename text,
- conversation_started_at timestamptz,conversation_ended_at timestamptz,raw_text text);
+ conversation_started_at timestamptz,conversation_ended_at timestamptz,raw_text text,customer_id uuid);
 create table public.whatsapp_conversation_actions(
   id uuid primary key,
   source_id uuid references public.whatsapp_review_sources(id),

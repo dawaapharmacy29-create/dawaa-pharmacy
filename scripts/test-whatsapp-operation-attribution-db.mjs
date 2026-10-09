@@ -94,6 +94,7 @@ async function verifyCanonicalWriter(db) {
     const original = (await db.query('select * from public.whatsapp_conversation_actions')).rows[0];
     await db.query("update public.whatsapp_conversation_actions set target_id='retained-target',target_table='customer_requests',work_status='assigned',payload=payload || '{\"unrelated\":\"preserved\"}'::jsonb where id=$1", [original.id]);
     for (const customer of [customerB, null, customerB, customerA, customerA]) {
+      await db.query('update public.whatsapp_review_sources set customer_id=$1 where id=$2', [customer, sourceA]);
       await db.exec('set local role anon');
       await run(customer, sourceB);
       await db.exec('reset role');
@@ -108,6 +109,7 @@ async function verifyCanonicalWriter(db) {
       { action_type:'customer_request',product_name:'كونجستال',evidence }).aliases[0].key;
     await db.query('update public.whatsapp_conversation_actions set followup_identity=$1 where id=$2', [oldKey, original.id]);
     for (const customer of [customerB, null, customerA]) {
+      await db.query('update public.whatsapp_review_sources set customer_id=$1 where id=$2', [customer, sourceA]);
       await db.exec('set local role anon'); await run(customer, sourceB); await db.exec('reset role');
       const rows = (await db.query('select * from public.whatsapp_conversation_actions')).rows;
       if (rows.length !== 1 || rows[0].id !== original.id || rows[0].followup_identity !== oldKey || rows[0].customer_id !== customer)

@@ -62,3 +62,25 @@ This is a repository preparation, not a production closure or activation. The ch
 A future read-only reconciliation report should show each row ID and candidate duplicate ID, stable/legacy evidence, timestamps/source, old/current customer attribution, deterministic reason, confidence/ambiguity and proposed action. This round neither runs that report nor executes its proposals.
 
 Reversal before activation: revert this focused commit. Any future database activation/reversal requires a separate review, including restoring the original trigger condition and removing the new command; it is not part of this round.
+
+## Follow-up review above e7a3f07: fresh-read stale imports
+
+The remote branch advanced to `e7a3f074d497d3891cf9178ee08e0e2659f55201` during review.
+That implementation is retained. An additional native PostgreSQL regression exposed a gap in
+customer-only CAS: an old import can first read corrected B, pass expected B, then request old A
+or NULL. The former command accepted this fresh-read stale request. The new regression failed
+without the guard, and passed after the narrow guard was restored.
+
+The prepared command now takes a SHARE lock on the original durable source and requires its
+current customer_id to equal the requested association before mutation. Incoming import
+snapshots are not correction authority. This covers actions and signals; SQL tests assert both
+stale A and stale NULL after a fresh B read and confirm neither changes association nor audit.
+Authorized source corrections still allow A -> NULL -> B -> A on the original operation.
+The isolated canonical-writer harness explicitly corrects the original source before each
+intended association transition. A missing/unresolved source cannot authorize a resolved
+association overwrite; the command fails closed. Correcting the original source itself remains
+outside this command and outside this delivery.
+
+This modifies the already prepared migration definition only; nothing has been applied to a
+live database. No alternate server endpoint, additional correction helper, tables or columns
+are added to the implementation. The SQL fixture merely models the existing source customer_id.

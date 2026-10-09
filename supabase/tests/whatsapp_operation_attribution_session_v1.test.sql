@@ -17,7 +17,7 @@ insert into public.customers(id,customer_code,name,branch,is_duplicate) values
  ('00000000-0000-4000-8000-00000000000a','A','Customer A','A',false),
  ('00000000-0000-4000-8000-00000000000b','B','Customer B','B',false),
  ('00000000-0000-4000-8000-00000000000d','D','Duplicate','A',true);
-insert into public.whatsapp_review_sources values
+insert into public.whatsapp_review_sources(id,staff_id,branch,source_filename,conversation_started_at,conversation_ended_at,raw_text) values
  ('00000000-0000-4000-8000-000000000010',null,'A','chat.txt','2026-09-15 06:00Z','2026-09-15 07:00Z','synthetic chat'),
  ('00000000-0000-4000-8000-000000000011',null,'B','other.txt','2026-09-15 06:00Z','2026-09-15 07:00Z','other chat');
 insert into public.whatsapp_conversation_actions(id,source_id,action_key,action_type,followup_identity,customer_id,
@@ -60,6 +60,9 @@ select public.dawaa_correct_whatsapp_operation_attribution_session_v1('synthetic
  '00000000-0000-4000-8000-00000000000a','{"customer_id":null,"customer_code":null,"customer_name":"Customer","customer_phone":null}',
  '00000000-0000-4000-8000-000000000010');
 select test.assert((select customer_id is null from public.whatsapp_conversation_actions),'A to NULL');
+reset role;
+update public.whatsapp_review_sources set customer_id='00000000-0000-4000-8000-00000000000b' where id='00000000-0000-4000-8000-000000000010';
+set local role anon;
 select public.dawaa_correct_whatsapp_operation_attribution_session_v1('synthetic-manager-session-token-000001','action',
  '00000000-0000-4000-8000-000000000020','fu1|customer:old-A|episode|customer-request|product',null,
  '{"customer_id":"00000000-0000-4000-8000-00000000000b","customer_code":"B","customer_name":"Customer B","customer_phone":null}',
@@ -69,6 +72,26 @@ select public.dawaa_correct_whatsapp_operation_attribution_session_v1('synthetic
  '00000000-0000-4000-8000-000000000020','fu1|customer:old-A|episode|customer-request|product',null,
  '{"customer_id":"00000000-0000-4000-8000-00000000000b","customer_code":"B","customer_name":"Customer B","customer_phone":null}',
  '00000000-0000-4000-8000-000000000010');
+-- Regression: a stale import re-reads B and supplies expected B, then tries A/NULL.
+-- This bypassed the old customer-only CAS even though the authorized source still says B.
+do $$ declare desired jsonb; begin
+ foreach desired in array array[
+  '{"customer_id":"00000000-0000-4000-8000-00000000000a","customer_code":"A","customer_name":"Customer A","customer_phone":null}'::jsonb,
+  '{"customer_id":null,"customer_code":null,"customer_name":"Customer","customer_phone":null}'::jsonb
+ ] loop
+  begin
+   perform public.dawaa_correct_whatsapp_operation_attribution_session_v1('synthetic-manager-session-token-000001','action',
+    '00000000-0000-4000-8000-000000000020','fu1|customer:old-A|episode|customer-request|product',
+    '00000000-0000-4000-8000-00000000000b',desired,'00000000-0000-4000-8000-000000000010');
+   raise exception 'fresh-read stale import unexpectedly succeeded';
+  exception when sqlstate '40001' then null; end;
+ end loop;
+ perform test.assert((select customer_id='00000000-0000-4000-8000-00000000000b' from public.whatsapp_conversation_actions),
+  'fresh-read stale imports preserve corrected B');
+end $$;
+reset role;
+update public.whatsapp_review_sources set customer_id='00000000-0000-4000-8000-00000000000a' where id='00000000-0000-4000-8000-000000000010';
+set local role anon;
 select public.dawaa_correct_whatsapp_operation_attribution_session_v1('synthetic-manager-session-token-000001','action',
  '00000000-0000-4000-8000-000000000020','fu1|customer:old-A|episode|customer-request|product',
  '00000000-0000-4000-8000-00000000000b',
@@ -129,10 +152,35 @@ do $$ begin
   raise exception 'duplicate customer accepted';
  exception when sqlstate '22023' then null; end;
 end $$;
--- Clearing a signal must not be undone by the existing legacy guessing trigger.
+reset role;
+update public.whatsapp_review_sources set customer_id='00000000-0000-4000-8000-00000000000b' where id='00000000-0000-4000-8000-000000000010';
+set local role anon;
 select public.dawaa_correct_whatsapp_operation_attribution_session_v1('synthetic-manager-session-token-000001','signal',
  '00000000-0000-4000-8000-000000000021','fu1|chat:signal|episode|signal|product',
  '00000000-0000-4000-8000-00000000000a',
+ '{"customer_id":"00000000-0000-4000-8000-00000000000b","customer_code":"B","customer_name":"Customer B","customer_phone":null,"customer_identity_status":"resolved"}',null);
+do $$ declare desired jsonb; begin
+ foreach desired in array array[
+  '{"customer_id":"00000000-0000-4000-8000-00000000000a","customer_code":"A","customer_identity_status":"resolved"}'::jsonb,
+  '{"customer_id":null,"customer_code":null,"customer_identity_status":"unresolved"}'::jsonb
+ ] loop
+  begin
+   perform public.dawaa_correct_whatsapp_operation_attribution_session_v1('synthetic-manager-session-token-000001','signal',
+    '00000000-0000-4000-8000-000000000021','fu1|chat:signal|episode|signal|product',
+    '00000000-0000-4000-8000-00000000000b',desired,null);
+   raise exception 'fresh-read stale signal import unexpectedly succeeded';
+  exception when sqlstate '40001' then null; end;
+ end loop;
+ perform test.assert((select customer_id='00000000-0000-4000-8000-00000000000b' from public.whatsapp_auto_followup_requests),
+  'fresh-read stale signal imports preserve corrected B');
+end $$;
+reset role;
+update public.whatsapp_review_sources set customer_id=null where id='00000000-0000-4000-8000-000000000010';
+set local role anon;
+-- Clearing a signal must not be undone by the existing legacy guessing trigger.
+select public.dawaa_correct_whatsapp_operation_attribution_session_v1('synthetic-manager-session-token-000001','signal',
+ '00000000-0000-4000-8000-000000000021','fu1|chat:signal|episode|signal|product',
+ '00000000-0000-4000-8000-00000000000b',
  '{"customer_id":null,"customer_code":null,"customer_name":"Customer A","customer_phone":null,"customer_identity_status":"unresolved"}',null);
 select test.assert((select customer_id is null and customer_code is null and customer_identity_status='unresolved'
  and status='قيد المتابعة' and evidence_quote='original evidence' from public.whatsapp_auto_followup_requests),'signal clear preserves evidence/workflow');
@@ -142,6 +190,6 @@ select test.assert((select followup_identity='fu1|customer:old-A|episode|custome
  and target_id='request-one' and payload->>'unrelated'='preserved' and evidence='["synthetic-message"]'::jsonb
  from public.whatsapp_conversation_actions),'immutable identity and lineage');
 reset role;
-select test.assert((select count(*)=4 from public.whatsapp_review_audit),'three action corrections and one signal correction; retry/denials unaudited');
+select test.assert((select count(*)=5 from public.whatsapp_review_audit),'three action corrections and two signal corrections; retry/denials unaudited');
 select test.assert(coalesce(current_setting('dawaa.operation_attribution_command',true),'')='','privileged trigger marker reset');
 rollback;

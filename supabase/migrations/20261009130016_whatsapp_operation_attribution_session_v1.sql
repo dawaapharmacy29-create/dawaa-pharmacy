@@ -53,7 +53,7 @@ begin
     select * into v_action from public.whatsapp_conversation_actions where id=p_row_id for update;
     if not found then raise exception 'operation_not_found' using errcode='P0002'; end if;
     v_before:=to_jsonb(v_action);
-    select * into v_source from public.whatsapp_review_sources where id=v_action.source_id;
+    select * into v_source from public.whatsapp_review_sources where id=v_action.source_id for share;
     if not found or p_source_id is distinct from v_action.source_id then
       raise exception 'operation_source_mismatch' using errcode='42501';
     end if;
@@ -72,7 +72,7 @@ begin
     select * into v_source from public.whatsapp_review_sources s
       where s.source_filename=v_signal.source_file_name
         and s.conversation_started_at<=v_signal.evidence_timestamp
-        and s.conversation_ended_at>=v_signal.evidence_timestamp;
+        and s.conversation_ended_at>=v_signal.evidence_timestamp for share;
     if v_signal.branch is distinct from v_source.branch then
       raise exception 'operation_source_branch_mismatch' using errcode='42501';
     end if;
@@ -108,7 +108,8 @@ begin
       raise exception 'customer_attribution_access_denied' using errcode='42501';
     end if;
   end if;
-  -- Compare-and-set: an old import cannot overwrite a different customer correction.
+  -- Compare-and-set rejects a write based on an outdated row snapshot. The source guard
+  -- below also rejects stale attribution when an old import re-reads the corrected row.
   -- A retry already at the requested attribution is safe and creates no extra audit entry.
   if v_before->>'customer_id' is distinct from p_expected_customer_id::text then
     if v_before->>'customer_id' is not distinct from v_customer_id::text
@@ -119,6 +120,13 @@ begin
       return jsonb_build_object('id',p_row_id,'followup_identity',p_expected_identity,'unchanged',true);
     end if;
     raise exception 'operation_attribution_changed' using errcode='40001';
+  end if;
+  -- CAS alone does not stop an old import that READS the newly corrected row first.
+  -- The original durable source is correction authority, not the incoming import snapshot.
+  -- Its SHARE lock prevents a concurrent source correction while this mutation commits.
+  -- Missing/uncertain authority fails closed; no freshness/confidence framework is invented.
+  if v_source.customer_id is distinct from v_customer_id then
+    raise exception 'operation_attribution_source_changed' using errcode='40001';
   end if;
   v_previous_setting:=current_setting('dawaa.operation_attribution_command',true);
   perform set_config('dawaa.operation_attribution_command','v1',true);
