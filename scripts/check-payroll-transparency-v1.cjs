@@ -60,6 +60,20 @@ if (workspaceV2.includes('.catch(() => null)') || workspaceV2.includes('.catch((
   process.exit(1);
 }
 
+// Compensation writes are scope-bound too: changing staff/cycle invalidates older mutations,
+// and every awaited refresh re-checks both scope and operation generation before writing UI state.
+assertContains(workspaceV2, 'const saveOperationRef = useRef(0);', 'compensation mutation generation guard');
+assertContains(workspaceV2, 'saveOperationRef.current += 1;', 'scope change invalidates older compensation mutations');
+assertContains(workspaceV2, 'const operationId = ++saveOperationRef.current;', 'per-mutation generation token');
+assertContains(workspaceV2, 'scopeRef.current !== requestScope || saveOperationRef.current !== operationId', 'combined scope and mutation stale-write guard');
+assertContains(workspaceV2, 'if (saveOperationRef.current === operationId) setSaving(false);', 'older mutations cannot unlock a newer mutation');
+const guardedMutationWrites = (workspaceV2.match(/scopeRef\.current !== requestScope \|\| saveOperationRef\.current !== operationId/g) || []).length;
+if (guardedMutationWrites < 4) {
+  console.error('[payroll-transparency] compensation save/approval must re-check scope after every awaited mutation/refresh before writing UI state.');
+  process.exit(1);
+}
+assertContains(workspaceV2, 'ساعات البصمة هنا للمراجعة فقط', 'operator disclosure that biometric readiness is not payroll base truth');
+
 // Finalized history remains source-aware and frozen-only for final PDF exports.
 assertContains(workspaceV2, 'buildEmployeePayrollStatementPdf', 'finalized V2 employee statement PDF export');
 assertContains(workspaceV2, "source === 'finalized_v2'", 'source-aware finalized V2 PDF export');
