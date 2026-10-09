@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Bike, CheckCircle2, ExternalLink, RefreshCw, ShieldCheck, Users } from 'lucide-react';
 import { fetchPayrollCyclePreflight, type PayrollCyclePreflight } from '@/lib/payroll/payrollCyclePreflightService';
 
@@ -29,33 +29,29 @@ export default function PayrollCycleReadinessOverview({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // One request generation for the effect and the manual refresh: a slower response for a previous month or
+  // branch can never overwrite the current one.
+  const generationRef = useRef(0);
   const load = useCallback(async () => {
+    const generation = ++generationRef.current;
     setLoading(true);
     setError('');
     try {
-      setData(await fetchPayrollCyclePreflight({ monthCycle, branch: branch || null }));
+      const result = await fetchPayrollCyclePreflight({ monthCycle, branch: branch || null });
+      if (generation === generationRef.current) setData(result);
     } catch (err) {
+      if (generation !== generationRef.current) return;
       setData(null);
       setError(err instanceof Error ? err.message : 'تعذر تحميل Preflight دورة الرواتب');
     } finally {
-      setLoading(false);
+      if (generation === generationRef.current) setLoading(false);
     }
   }, [monthCycle, branch]);
 
   useEffect(() => {
-    let active = true;
-    setLoading(true);
-    setError('');
-    void fetchPayrollCyclePreflight({ monthCycle, branch: branch || null })
-      .then((result) => { if (active) setData(result); })
-      .catch((err) => {
-        if (!active) return;
-        setData(null);
-        setError(err instanceof Error ? err.message : 'تعذر تحميل Preflight دورة الرواتب');
-      })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [monthCycle, branch]);
+    void load();
+    return () => { generationRef.current += 1; };
+  }, [load]);
 
   const attentionRows = useMemo(() => (data?.rows || []).filter((row) => !row.preflightClear), [data]);
   const identityRows = useMemo(

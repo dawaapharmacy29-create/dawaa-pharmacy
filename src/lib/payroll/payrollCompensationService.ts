@@ -1,3 +1,4 @@
+import { markPayrollTruthChanged } from '@/lib/hr/payrollRequestCoordinator';
 import { supabase } from '@/lib/supabase';
 
 export type PayrollListItem = {
@@ -55,6 +56,7 @@ export async function listCompensationChanges(staffId?: string): Promise<Compens
 
 export async function decideCompensationChange(id: string, approve: boolean, note: string) {
   const { error } = await supabase.rpc('hr_compensation_change_v1',{p_action:approve?'approve':'reject',p_change_id:id,p_payload:{note}});
+  markPayrollTruthChanged(); // a write: later reads must not join requests started before it
   if(error) throw new Error(error.message);
 }
 

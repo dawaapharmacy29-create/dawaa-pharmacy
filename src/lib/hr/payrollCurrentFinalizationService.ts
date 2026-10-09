@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { runPayrollHeavyRequest } from '@/lib/hr/payrollRequestCoordinator';
+import { markPayrollTruthChanged, runPayrollHeavyRequest } from '@/lib/hr/payrollRequestCoordinator';
 import type {
   PayrollFinalizationGate,
   PayrollFinalSnapshotPreview,
@@ -54,6 +54,7 @@ export async function stagePayrollFinalSnapshot(args: {
     p_month_cycle: args.monthCycle,
     p_note: args.note || null,
   });
+  markPayrollTruthChanged(); // a write: later reads must not join requests started before it
   if (error) throw new Error(error.message);
   return data as { success: boolean; existing: boolean; snapshot: PayrollStagedSnapshot };
 }
@@ -122,6 +123,7 @@ export async function reviewPayrollStagedSnapshot(args: {
     p_decision: args.decision,
     p_note: args.note || null,
   });
+  markPayrollTruthChanged(); // a write: later reads must not join requests started before it
   if (error) throw new Error(error.message);
   return (data || {}) as Record<string, unknown>;
 }
