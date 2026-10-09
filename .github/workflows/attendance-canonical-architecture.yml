@@ -27,12 +27,40 @@ on:
       - 'scripts/check-attendance-canonical-architecture.cjs'
       - '.github/workflows/attendance-canonical-architecture.yml'
 
+concurrency:
+  group: attendance-canonical-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   canonical-attendance:
-    runs-on: ubuntu-latest
+    name: architecture-typecheck-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: node scripts/check-attendance-canonical-architecture.cjs
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Canonical attendance architecture guard
+        run: node scripts/check-attendance-canonical-architecture.cjs
+      - name: TypeScript — reject new errors
+        shell: bash
+        run: |
+          set +e
+          npm run typecheck 2>&1 | tee /tmp/attendance-tsc.log
+          code=${PIPESTATUS[0]}
+          set -e
+          if [ "$code" -ne 0 ]; then
+            grep "error TS" /tmp/attendance-tsc.log | grep -v "src/components/attendance/AttendanceResolutionCenter.tsx" > /tmp/attendance-new-errors.log || true
+            if [ -s /tmp/attendance-new-errors.log ]; then
+              echo "New TypeScript errors detected:"
+              cat /tmp/attendance-new-errors.log
+              exit 1
+            fi
+            echo "::warning::TypeScript has inherited AttendanceResolutionCenter errors on the parent branch; no new errors were found outside that known file."
+          fi
+      - name: Vite production bundle
+        run: npx vite build --configLoader runner
