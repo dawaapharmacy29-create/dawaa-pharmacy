@@ -9,6 +9,7 @@ const failures = [];
 const attendanceRel = 'supabase/migrations/20261009120500_attendance_materialize_verified_actor_guard_v2.sql';
 const payrollRel = 'supabase/migrations/20261009121000_payroll_finalize_preview_route_alignment_v1.sql';
 const classificationRel = 'supabase/migrations/20261009121500_payroll_delivery_classification_fail_closed_v1.sql';
+const driftRel = 'supabase/migrations/20261009122000_payroll_attendance_drift_fail_closed_v1.sql';
 
 function read(rel) {
   const full = path.join(ROOT, rel);
@@ -28,6 +29,7 @@ function mustContain(label, text, tokens) {
 const attendance = read(attendanceRel);
 const payroll = read(payrollRel);
 const classification = read(classificationRel);
+const drift = read(driftRel);
 
 mustContain('Attendance materialization authorization guard', attendance, [
   'dawaa_current_staff_account_id_strict()',
@@ -73,6 +75,16 @@ if (!classification.includes("dawaa_delivery_payroll_classification_strict_v1(v_
   failures.push('Payroll finalization must route staged snapshot decisions through the strict classification boundary.');
 }
 
+mustContain('Payroll attendance financial-drift fail-closed boundary', drift, [
+  "pg_get_functiondef('public.payroll_finalization_gate_v2(uuid,text)'::regprocedure)",
+  'attendance_resolution_financial_drift_count_v1(p_staff_id,v_start,v_end)',
+  "raise exception ''attendance_financial_drift_check_unavailable''",
+  'expected one zero-on-error fallback',
+]);
+if (!drift.includes('v_financial_drift:=0')) {
+  failures.push('Payroll drift migration must explicitly identify and replace the legacy zero-on-error fallback.');
+}
+
 const migrationNames = fs.existsSync(MIGRATIONS)
   ? fs.readdirSync(MIGRATIONS).filter((name) => name.endsWith('.sql')).sort()
   : [];
@@ -113,6 +125,12 @@ for (const [signatureNeedle, label] of [
 ]) {
   rejectLaterRedefinition(path.basename(classificationRel), signatureNeedle, label);
 }
+
+rejectLaterRedefinition(
+  path.basename(driftRel),
+  'create or replace function public.payroll_finalization_gate_v2(',
+  'payroll_finalization_gate_v2 drift safety'
+);
 
 if (failures.length) {
   console.error('[runtime-sensitive-finalization-guards] FAILED');
