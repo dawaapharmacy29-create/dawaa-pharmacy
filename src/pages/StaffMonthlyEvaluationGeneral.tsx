@@ -30,7 +30,6 @@ import {
   CRITICAL_GATE_CAPS,
   type CriticalGateType,
 } from '@/lib/evaluations/incentiveTiers';
-import { buildStaffMonthlyEvaluationPdf } from '@/lib/evaluations/staffMonthlyEvaluationPdf';
 import { hasStrongDispensingEvidence } from '@/lib/evaluations/monthlyDispensingEvidence';
 import { getSalesQualityEvidenceSufficiency, hasStrongSalesQualityEvidence } from '@/lib/evaluations/monthlySalesQualityEvidence';
 import { hasStrongFollowupEvidence } from '@/lib/evaluations/monthlyFollowupEvidence';
@@ -1128,6 +1127,7 @@ export default function StaffMonthlyEvaluation() {
   async function acknowledgeEmployeeEvaluation() {
     if (!employeeView || !employeeEvaluationPublished || !selectedId || !user?.id) return;
     setEmployeeResponseSaving(true);
+    const responseGeneration = evaluationRequestRef.current;
     try {
       const { data, error } = await supabase.rpc('respond_staff_monthly_evaluation_v5', {
         p_actor_id: user.id,
@@ -1137,6 +1137,8 @@ export default function StaffMonthlyEvaluation() {
         p_comment: null,
       });
       if (error) throw error;
+      // Recorded on the server; the screen moved to another month meanwhile, so it must not show it as acknowledged.
+      if (evaluationRequestRef.current !== responseGeneration) return;
       const result = (data || {}) as Record<string, unknown>;
       setEmployeeResponse((current) => ({
         acknowledged: true,
@@ -1161,6 +1163,7 @@ export default function StaffMonthlyEvaluation() {
       return;
     }
     setEmployeeResponseSaving(true);
+    const responseGeneration = evaluationRequestRef.current;
     try {
       const { data, error } = await supabase.rpc('respond_staff_monthly_evaluation_v5', {
         p_actor_id: user.id,
@@ -1170,6 +1173,7 @@ export default function StaffMonthlyEvaluation() {
         p_comment: comment,
       });
       if (error) throw error;
+      if (evaluationRequestRef.current !== responseGeneration) return;
       const result = (data || {}) as Record<string, unknown>;
       setEmployeeResponse((current) => ({
         acknowledged: Boolean(current?.acknowledged),
@@ -1237,6 +1241,8 @@ export default function StaffMonthlyEvaluation() {
         ? pdfPoints.source_breakdown as Array<{ source?: unknown; points?: unknown; events?: unknown }>
         : [];
 
+      // jspdf + html2canvas load only when a PDF is requested, never with the page.
+      const { buildStaffMonthlyEvaluationPdf } = await import('@/lib/evaluations/staffMonthlyEvaluationPdf');
       const { pdf, fileName } = await buildStaffMonthlyEvaluationPdf({
         staffName: selected.name,
         staffRole: selected.job_title || selected.role || profile.label,
@@ -1296,6 +1302,10 @@ export default function StaffMonthlyEvaluation() {
       return;
     }
     const savingStaffId = selected.id;
+    // Every employee or month switch starts a new load (evaluationRequestRef); a save response must only write
+    // into the screen it was issued from, never into another month of the same employee.
+    const saveLoadGeneration = evaluationRequestRef.current;
+    const onSavedTarget = () => selectedIdRef.current === savingStaffId && evaluationRequestRef.current === saveLoadGeneration;
     if (evaluationLoading || evaluationLoadError) {
       toast.error(evaluationLoading ? 'انتظر اكتمال تحميل تقييم الموظف الحالي.' : 'أعد تحميل تقييم الموظف قبل الحفظ أو الاعتماد.');
       return;
@@ -1357,7 +1367,7 @@ export default function StaffMonthlyEvaluation() {
       if (nextStatus === 'sent') {
         try {
           pointsForSave = await getStaffPointsDashboardV3(savingStaffId, cycleLabel);
-          if (selectedIdRef.current !== savingStaffId) return;
+          if (!onSavedTarget()) return;
           setPointsTruth(pointsForSave);
         } catch (cause) {
           throw new Error(`تعذر تحديث حقيقة النقاط لحظة الاعتماد: ${cause instanceof Error ? cause.message : String(cause)}. أعد المحاولة قبل الاعتماد.`);
@@ -1421,8 +1431,8 @@ export default function StaffMonthlyEvaluation() {
       });
       if (error) throw error;
       const saveResult = (data || {}) as Record<string, unknown>;
-      if (selectedIdRef.current !== savingStaffId) {
-        toast.info('تم حفظ التقييم على الخادم، وتم تجاهل تحديث الشاشة لأنك انتقلت لموظف آخر.');
+      if (!onSavedTarget()) {
+        toast.info('تم حفظ التقييم على الخادم، وتم تجاهل تحديث الشاشة لأنك انتقلت لموظف أو دورة أخرى.');
         return;
       }
       const savedEvaluationId = String(saveResult.evaluation_id || evaluationId || '');
@@ -1439,15 +1449,17 @@ export default function StaffMonthlyEvaluation() {
         p_staff_id: savingStaffId,
         p_month: `${cycleLabel}-01`,
       });
-      if (!versionRefresh.error && versionRefresh.data) {
+      if (onSavedTarget() && !versionRefresh.error && versionRefresh.data) {
         const canonicalSaved = versionRefresh.data as EvaluationRow;
         setEvaluationUpdatedAt(String(canonicalSaved.updated_at || '') || null);
       }
 
       const serverSentAt = String(saveResult.sent_at || '');
       if (nextStatus === 'sent') {
-        setPreviouslySent(true);
-        setSentAtIso(serverSentAt || new Date().toISOString());
+        if (onSavedTarget()) {
+          setPreviouslySent(true);
+          setSentAtIso(serverSentAt || new Date().toISOString());
+        }
         const [refreshedPoints, refreshedEvaluationResult] = await Promise.all([
           getStaffPointsDashboardV3(selected.id, cycleLabel).catch(() => null),
           supabase.rpc('get_staff_monthly_evaluation_v5', {
@@ -1456,7 +1468,7 @@ export default function StaffMonthlyEvaluation() {
             p_month: `${cycleLabel}-01`,
           }),
         ]);
-        if (refreshedPoints) setPointsTruth(refreshedPoints);
+        if (refreshedPoints && onSavedTarget()) setPointsTruth(refreshedPoints);
 
         const refreshedEvaluation = refreshedEvaluationResult.error
           ? null
@@ -1470,8 +1482,10 @@ export default function StaffMonthlyEvaluation() {
         const refreshedHash = String(refreshedMetrics?.final_approval_hash || '');
 
         if (refreshedSnapshot && refreshedHash) {
-          setPublishedSnapshot(refreshedSnapshot);
-          setPublishedSnapshotHash(refreshedHash);
+          if (onSavedTarget()) {
+            setPublishedSnapshot(refreshedSnapshot);
+            setPublishedSnapshotHash(refreshedHash);
+          }
 
           try {
             await createStaffNotification({
@@ -1503,7 +1517,8 @@ export default function StaffMonthlyEvaluation() {
         toast.success(`تم اعتماد التقييم على الخادم بنسبة أثر ${Number(saveResult.multiplier_pct ?? effectiveEvaluationMultiplierPct)}%.`);
       }
 
-      setStaff((current) => current.map((item) => item.id === selected.id
+      // The staff list belongs to the month on screen; a save of another month must not mark it.
+      if (onSavedTarget()) setStaff((current) => current.map((item) => item.id === selected.id
         ? {
             ...item,
             evaluation_status: nextStatus === 'sent' ? 'sent' : 'draft',
@@ -2524,7 +2539,7 @@ export default function StaffMonthlyEvaluation() {
 
               {!employeeView && selected && canonicalStaffRole(selected.job_title || selected.role) === 'doctor' ? (
                 <div className="flex justify-end">
-                  <DoctorPerformanceEye staffId={selected.id} staffName={selected.name} cycleLabel={cycleLabel} branch={selected.branch} header={employeeHeader} conversation={coaching?.conversation ?? null} actorId={user?.id ?? null} sections={sections} />
+                  <DoctorPerformanceEye staffId={selected.id} staffName={selected.name} cycleLabel={cycleLabel} branch={selected.branch || branch} header={employeeHeader} conversation={coaching?.conversation ?? null} actorId={user?.id ?? null} sections={sections} />
                 </div>
               ) : null}
 

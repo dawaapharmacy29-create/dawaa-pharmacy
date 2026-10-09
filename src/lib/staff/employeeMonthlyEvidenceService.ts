@@ -1591,7 +1591,8 @@ export async function loadEmployeeMonthlyEvidence(args: {
 
   const attendanceRows = attendanceResult.status === 'unavailable' ? [] : attendanceResult.rows;
   if (attendanceResult.status !== 'available') errors.attendance = attendanceResult.error;
-  if (attendanceImpactResult.error && attendanceResult.status === 'unavailable') {
+  // The impact ledger carries the lateness/absence cases: losing it while daily rows load must not read as a clean month.
+  if (attendanceImpactResult.error) {
     errors.attendance = [errors.attendance, attendanceImpactResult.error].filter(Boolean).join(' | ');
   }
 
@@ -1625,9 +1626,11 @@ export async function loadEmployeeMonthlyEvidence(args: {
       ? (reviewAvailable ? 'available' as const : 'unavailable' as const)
       : 'available' as const,
     followups: needsFollowupEvidence
-      ? (followupResult.error ? 'unavailable' as const : 'available' as const)
+      ? (followupResult.error || followupTruncated ? 'unavailable' as const : 'available' as const)
       : 'available' as const,
-    attendance: needsAttendanceEvidence ? (attendanceResult.status === 'partial' ? 'partial' as const : attendanceResult.status) : 'available' as const,
+    attendance: needsAttendanceEvidence
+      ? (attendanceResult.status === 'available' && attendanceImpactResult.error ? 'partial' as const : attendanceResult.status)
+      : 'available' as const,
   };
 
   const conversationCoaching = buildConversationCoaching(reviewRows);

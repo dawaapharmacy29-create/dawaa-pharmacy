@@ -98,7 +98,8 @@ export async function loadEmployeeEvaluationHeader(args:{staffId:string;staffNam
  const complete=
   warnings.length===0
   && (roleGroup!=='doctor'||value.sales.state==='available')
-  && (!needsPersonalAttendance||(value.attendance.state==='available'&&value.timeOff.state==='available'));
+  && value.conversations.state==='available'
+  && (!needsPersonalAttendance||(value.attendance.state==='available'&&value.timeOff.state==='available'&&annualR.status==='fulfilled'));
  if(complete)HEADER_CACHE.set(cacheKey,{value,at:Date.now()});
  else HEADER_CACHE.delete(cacheKey);
  return value;
