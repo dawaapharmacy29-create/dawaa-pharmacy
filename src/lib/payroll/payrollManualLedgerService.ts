@@ -1,3 +1,4 @@
+import { markPayrollTruthChanged } from '@/lib/hr/payrollRequestCoordinator';
 import { supabase } from '@/lib/supabase';
 
 export type PayrollManualEntryKind = 'earning' | 'deduction' | 'adjustment';
@@ -48,6 +49,7 @@ export async function createPayrollManualEntry(input: {
     p_reason: input.reason,
     p_reference_note: input.referenceNote || null,
   });
+  markPayrollTruthChanged(); // a write: later reads must not join requests started before it
   if (error) throw new Error(error.message);
   return data as PayrollManualEntry;
 }
@@ -57,6 +59,7 @@ export async function reversePayrollManualEntry(entryId: string, reason: string)
     p_entry_id: entryId,
     p_reason: reason,
   });
+  markPayrollTruthChanged(); // a write: later reads must not join requests started before it
   if (error) throw new Error(error.message);
   return data as PayrollManualEntry;
 }

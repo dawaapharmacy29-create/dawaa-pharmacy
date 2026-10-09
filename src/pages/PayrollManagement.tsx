@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
   Activity, AlertTriangle, Banknote, CalendarClock, ClipboardList,
@@ -108,6 +108,15 @@ export default function PayrollManagement() {
   const [compensationEffective,setCompensationEffective] = useState(cairoToday());
   const [compensationChanges,setCompensationChanges] = useState<CompensationChange[]>([]);
   const [compensationError,setCompensationError] = useState('');
+  // Sources of the selected employee that failed to load: shown as unavailable, never as zeros or empty lists.
+  const [personSourceFailures, setPersonSourceFailures] = useState<string[]>([]);
+  const profileLoadFailed = personSourceFailures.includes('compensation');
+  const componentsLoadFailed = personSourceFailures.includes('components');
+  const readinessLoadFailed = personSourceFailures.includes('readiness');
+  // Only the latest employee/month load may write; a slower response for another employee never overwrites it.
+  const personLoadGeneration = useRef(0);
+  const selectedStaffIdRef = useRef<string | null>(null);
+  selectedStaffIdRef.current = selected?.staffId ?? null;
   useEffect(()=>{let active=true;setCompensationChanges([]);setCompensationError('');if(selected?.staffId)listCompensationChanges(selected.staffId).then(r=>{if(active)setCompensationChanges(r)}).catch(e=>{if(active)setCompensationError(e.message)});return()=>{active=false}},[selected?.staffId]);
 
   const loadStaff = useCallback(async () => {
@@ -133,11 +142,14 @@ export default function PayrollManagement() {
   useEffect(() => { void loadStaff(); }, [loadStaff]);
 
   const loadPerson = useCallback(async (person: StaffRow, payrollMonth: string) => {
+    const generation = ++personLoadGeneration.current;
     setLoading(true);
     try {
       const cycleLabel = payrollMonth.slice(0, 7);
+      const failures: string[] = [];
+      const failed = <T,>(source: string, fallback: T) => () => { failures.push(source); return fallback; };
       const [canonicalProfile, finalizedHistory, legacyHistory, truth, readiness, canonicalComponents] = await Promise.all([
-        fetchCompensationProfile(person.staffId).catch(() => null),
+        fetchCompensationProfile(person.staffId).catch(failed('compensation', null)),
         person.staffId
           ? listFinalizedPayrollSnapshots(person.staffId, 24)
               .then((rows) => ({ rows, error: null as string | null }))
@@ -146,11 +158,16 @@ export default function PayrollManagement() {
                 error: error instanceof Error ? error.message : 'تعذر تحميل سجل الرواتب النهائي',
               }))
           : Promise.resolve({ rows: [] as FinalizedPayrollSnapshotHistoryRow[], error: null as string | null }),
-        listLegacyPaidPayrollHistory(person.username, 24).catch(() => []),
-        person.staffId ? fetchPayrollIncentiveTruth(person.staffId, cycleLabel).catch(() => []) : Promise.resolve([]),
-        person.staffId ? fetchAttendancePayrollReadiness(person.staffId, cycleLabel).catch(() => null) : Promise.resolve(null),
-        person.staffId ? fetchPayrollComponents(person.staffId, cycleLabel).catch(() => null) : Promise.resolve(null),
+        listLegacyPaidPayrollHistory(person.username, 24).catch(failed('legacy_history', [])),
+        person.staffId ? fetchPayrollIncentiveTruth(person.staffId, cycleLabel).catch(failed('incentive_truth', [])) : Promise.resolve([]),
+        person.staffId ? fetchAttendancePayrollReadiness(person.staffId, cycleLabel).catch(failed('readiness', null)) : Promise.resolve(null),
+        person.staffId ? fetchPayrollComponents(person.staffId, cycleLabel).catch(failed('components', null)) : Promise.resolve(null),
       ]);
+      if (generation !== personLoadGeneration.current) return;
+      setPersonSourceFailures(failures);
+      if (failures.includes('legacy_history') || failures.includes('incentive_truth')) {
+        toast.warning('تعذر تحميل جزء من بيانات الموظف (سجل الرواتب القديم أو الحوافز الآلية)؛ القيم الناقصة غير معروضة كأصفار.');
+      }
 
       setProfile(canonicalProfile ? {
         salaryCalculationMode: canonicalProfile.salary_calculation_mode === 'attendance_hours_v1'
@@ -183,8 +200,9 @@ export default function PayrollManagement() {
           id: row.id,
           staff_username: row.staff_username,
           payroll_month: row.month_cycle,
-          deductions_total: num(row.deductions_total),
-          net_salary: num(row.net_salary),
+          // Unknown amounts stay null and render as "—", never as 0.
+          deductions_total: row.deductions_total == null ? null : num(row.deductions_total),
+          net_salary: row.net_salary == null ? null : num(row.net_salary),
           status: 'finalized_v2',
           approved_by_name: row.finalized_by_name,
           freeze_version: 2,
@@ -198,7 +216,7 @@ export default function PayrollManagement() {
       setAttendanceReadiness(readiness);
       setComponents(canonicalComponents);
     } finally {
-      setLoading(false);
+      if (generation === personLoadGeneration.current) setLoading(false);
     }
   }, []);
 
@@ -206,12 +224,9 @@ export default function PayrollManagement() {
     if (selected) void loadPerson(selected, month);
   }, [selected, month, loadPerson]);
 
-  useEffect(() => {
-    setWorkspaceTab('overview');
-  }, [selected?.staffId]);
-
   const saveProfile = async () => {
     if (!selected) return;
+    if (profileLoadFailed) { toast.error('تعذر تحميل ملف التعويضات الحالي؛ أعد تحميل الموظف قبل طلب أي تعديل.'); return; }
     if (compensationReason.trim().length<5 || !compensationEffective) { toast.warning('حدد تاريخ السريان وسبب التغيير (٥ أحرف على الأقل).'); return; }
     if (profile.salaryCalculationMode === 'attendance_hours_v1' && profile.attendanceMonthlyReferenceRate <= 0) {
       toast.error('أدخل القيمة الشهرية المرجعية قبل تفعيل حساب الساعات الفعلية.');
@@ -235,7 +250,9 @@ export default function PayrollManagement() {
       });
       toast.success('تم إرسال التعديل للاعتماد؛ القيم الحالية لم تتغير');
       setCompensationReason('');
-      setCompensationChanges(await listCompensationChanges(selected.staffId));
+      const savedStaffId = selected.staffId;
+      const changes = await listCompensationChanges(savedStaffId);
+      if (selectedStaffIdRef.current === savedStaffId) setCompensationChanges(changes);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'تعذر حفظ ملف التعويضات');
     } finally {
@@ -243,7 +260,7 @@ export default function PayrollManagement() {
     }
   };
 
-  async function decideChange(id:string,approve:boolean){if(!selected)return;setSaving(true);try{await decideCompensationChange(id,approve,'');setCompensationChanges(await listCompensationChanges(selected.staffId));await loadPerson(selected,month);toast.success(approve?'تم اعتماد التعديل وتطبيقه':'تم رفض الطلب')}catch(e){toast.error(e instanceof Error?e.message:'تعذر اتخاذ القرار')}finally{setSaving(false)}}
+  async function decideChange(id:string,approve:boolean){if(!selected)return;setSaving(true);try{await decideCompensationChange(id,approve,'');const decidedStaffId=selected.staffId;const changes=await listCompensationChanges(decidedStaffId);if(selectedStaffIdRef.current!==decidedStaffId)return;setCompensationChanges(changes);await loadPerson(selected,month);toast.success(approve?'تم اعتماد التعديل وتطبيقه':'تم رفض الطلب')}catch(e){toast.error(e instanceof Error?e.message:'تعذر اتخاذ القرار')}finally{setSaving(false)}}
 
   async function exportFinalStatement(payrollMonth: string, source: 'finalized_v2' | 'legacy_v13' = 'legacy_v13') {
     if (!selected?.staffId) return;
@@ -293,7 +310,7 @@ export default function PayrollManagement() {
           </div>
           <div className="mt-3 max-h-[70vh] space-y-1.5 overflow-y-auto">
             {filteredStaff.map((s) => (
-              <button key={s.id} onClick={() => setSelected(s)} className={`flex w-full items-center gap-2 rounded-xl border p-2.5 text-right text-sm transition ${selected?.id === s.id ? 'border-teal-400/50 bg-teal-400/10' : ''}`} style={selected?.id === s.id ? undefined : surfaceSoft}>
+              <button key={s.id} onClick={() => { setSelected(s); setWorkspaceTab('overview'); }} className={`flex w-full items-center gap-2 rounded-xl border p-2.5 text-right text-sm transition ${selected?.id === s.id ? 'border-teal-400/50 bg-teal-400/10' : ''}`} style={selected?.id === s.id ? undefined : surfaceSoft}>
                 <User size={15} className="text-teal-300" />
                 <div><div className="font-black text-white">{s.name}</div><div className="text-[11px]" style={mutedText}>{s.branch}</div></div>
               </button>
@@ -385,7 +402,7 @@ export default function PayrollManagement() {
                   </>
                 ) : (
                   <div className="mt-3 text-xs font-bold" style={mutedText}>
-                    لا توجد بيانات جاهزية بصمة متاحة لهذه الدورة.
+                    {readinessLoadFailed ? 'تعذر تحميل جاهزية البصمة لهذه الدورة؛ أعد المحاولة.' : 'لا توجد بيانات جاهزية بصمة متاحة لهذه الدورة.'}
                   </div>
                 )}
               </div>
@@ -425,11 +442,12 @@ export default function PayrollManagement() {
                 <label className="text-xs font-bold" style={mutedText}>سعر ساعة الإضافي<input type="number" className="input mt-1 w-full" value={profile.overtimeHourRate} onChange={(e) => setProfile((p) => ({ ...p, overtimeHourRate: num(e.target.value) }))} /></label>
                 <div className="rounded-xl border p-3 text-xs" style={surfaceSoft}>
                   <div style={mutedText}>الأساسي المتوقع</div>
-                  <div className="mt-1 text-lg font-black text-teal-200">{formatCurrency(profile.salaryCalculationMode === 'attendance_hours_v1' ? num(components?.baseSalaryComponent) : profile.salaryCalculationMode === 'monthly_hour_unit' ? profile.monthlyHourUnitValue * profile.contractedDailyHours : profile.monthlyBaseSalary)}</div>
+                  <div className="mt-1 text-lg font-black text-teal-200">{profile.salaryCalculationMode === 'attendance_hours_v1' && componentsLoadFailed ? 'غير متاح' : formatCurrency(profile.salaryCalculationMode === 'attendance_hours_v1' ? num(components?.baseSalaryComponent) : profile.salaryCalculationMode === 'monthly_hour_unit' ? profile.monthlyHourUnitValue * profile.contractedDailyHours : profile.monthlyBaseSalary)}</div>
                 </div>
               </div>
               <div className="mt-3 grid gap-2 sm:grid-cols-2"><label className="text-xs">تاريخ سريان التعديل<input type="date" className="input mt-1 w-full" value={compensationEffective} onChange={e=>setCompensationEffective(e.target.value)}/></label><label className="text-xs">سبب التغيير<input className="input mt-1 w-full" maxLength={500} value={compensationReason} onChange={e=>setCompensationReason(e.target.value)}/></label></div>
-              <button className="btn-primary mt-4 flex items-center gap-2" disabled={saving} onClick={() => void saveProfile()}><Save size={16} /> طلب اعتماد تعديل التعويضات</button>
+              {profileLoadFailed ? <p role="alert" className="mt-4 text-xs font-bold text-red-400">تعذر تحميل ملف التعويضات الحالي؛ القيم المعروضة ليست بيانات الموظف ولا يمكن طلب تعديل قبل إعادة التحميل.</p> : null}
+              <button className="btn-primary mt-4 flex items-center gap-2" disabled={saving || profileLoadFailed} onClick={() => void saveProfile()}><Save size={16} /> طلب اعتماد تعديل التعويضات</button>
               <div className="mt-4"><h3 className="font-bold">طلبات التعويضات وسجل الاعتماد</h3>{compensationError&&<p role="alert" className="text-red-400">{compensationError}</p>}{compensationChanges.map(change=><div key={change.id} className="mt-2 rounded-xl border p-3 text-xs" style={surfaceSoft}><div>{change.state==='pending'?'قيد الاعتماد':change.state==='approved'?'معتمد':'مرفوض'} · يسري من {change.effective_from} · {change.reason}</div><div className="mt-1">طريقة الحساب: {String(change.proposed.salary_calculation_mode)} · الأساسي الثابت: {String(change.proposed.monthly_base_salary)} · قيمة الساعة الشهرية: {String(change.proposed.monthly_hour_unit_value)} · ساعات اليوم: {String(change.proposed.contracted_daily_hours)} · الحافز الشهري: {String(change.proposed.monthly_incentive_base)} · سعر الإضافي: {String(change.proposed.overtime_hour_rate)}</div>{change.state==='pending'&&user?.role==='general_manager'&&change.requested_by!==user.id&&<div className="mt-2 flex gap-2"><button className="btn-primary" disabled={saving} onClick={()=>void decideChange(change.id,true)}>اعتماد وتطبيق</button><button className="btn-secondary" disabled={saving} onClick={()=>void decideChange(change.id,false)}>رفض</button></div>}</div>)}</div>
             </div>
 
@@ -441,7 +459,7 @@ export default function PayrollManagement() {
               <div className="flex items-center gap-2 font-black text-teal-200"><PackageCheck size={18} /> تفاصيل لستة أصناف الحوافز</div>
               <p className="mt-1 text-xs" style={mutedText}>كل صنف يظهر بالكمية المباعة وقيمة الحافز للوحدة وإجمالي استحقاق الدكتور. الإجمالي يدخل الراتب آليًا.</p>
               <div className="mt-3 overflow-x-auto">
-                <table className="w-full min-w-[640px] text-right text-xs"><thead><tr className="border-b" style={mutedText}><th className="p-2">الصنف</th><th className="p-2">الكمية</th><th className="p-2">حافز الوحدة</th><th className="p-2">الإجمالي</th></tr></thead><tbody>{components?.listItems.length ? components.listItems.map((item) => <tr key={`${item.medicineId}-${item.productName}`} className="border-b"><td className="p-2 font-bold text-white">{item.productName}</td><td className="p-2">{item.quantity}</td><td className="p-2">{formatCurrency(item.incentivePerUnit)}</td><td className="p-2 font-black text-emerald-300">{formatCurrency(item.incentiveTotal)}</td></tr>) : <tr><td colSpan={4} className="p-5 text-center" style={mutedText}>لا توجد مبيعات مسجلة على لستة الحوافز لهذه الدورة.</td></tr>}</tbody></table>
+                <table className="w-full min-w-[640px] text-right text-xs"><thead><tr className="border-b" style={mutedText}><th className="p-2">الصنف</th><th className="p-2">الكمية</th><th className="p-2">حافز الوحدة</th><th className="p-2">الإجمالي</th></tr></thead><tbody>{components?.listItems.length ? components.listItems.map((item) => <tr key={`${item.medicineId}-${item.productName}`} className="border-b"><td className="p-2 font-bold text-white">{item.productName}</td><td className="p-2">{item.quantity}</td><td className="p-2">{formatCurrency(item.incentivePerUnit)}</td><td className="p-2 font-black text-emerald-300">{formatCurrency(item.incentiveTotal)}</td></tr>) : <tr><td colSpan={4} className="p-5 text-center" style={mutedText}>{componentsLoadFailed ? 'تعذر تحميل حوافز اللستة لهذه الدورة؛ أعد المحاولة.' : 'لا توجد مبيعات مسجلة على لستة الحوافز لهذه الدورة.'}</td></tr>}</tbody></table>
               </div>
             </div>
 
@@ -453,7 +471,7 @@ export default function PayrollManagement() {
             {history.length ? <div className={workspaceTab === 'history' ? 'rounded-3xl border p-5' : 'hidden'} style={surface}>
               <div className="flex items-center gap-2 font-black text-teal-200"><ClipboardList size={18} /> آخر الدورات</div>
               <p className="mt-2 text-xs" style={mutedText}>Final Snapshot V2 يستخدم كشف الشفافية الجديد الكامل. الدورات القديمة المدفوعة تظل متاحة من أرشيف V13.</p>
-              <div className="mt-3 space-y-2">{history.map((h) => <div key={`${h.history_source || 'legacy_v13'}-${h.payroll_month}`} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-sm" style={surfaceSoft}><div><span className="font-black text-white">{h.payroll_month?.slice(0, 7)}</span><div className="mt-1 text-[10px]" style={mutedText}>{h.history_source === 'finalized_v2' ? 'Final Snapshot V2' : 'Legacy Payroll Archive'}</div></div><span className="flex items-center gap-1 text-emerald-300"><Trophy size={13} /> {formatCurrency(num(h.net_salary))}</span><span className="flex items-center gap-1 text-rose-300"><TrendingDown size={13} /> {formatCurrency(num(h.deductions_total))}</span><span className="rounded-full px-3 py-1 text-xs font-black text-teal-200" style={surface}>{STATUS_OPTIONS.find((s) => s.key === h.status)?.label || h.status}</span>{(h.history_source === 'finalized_v2' || h.status === 'paid')&&<button className="btn-secondary" disabled={exportingStatement} onClick={()=>void exportFinalStatement(h.payroll_month,h.history_source === 'finalized_v2' ? 'finalized_v2' : 'legacy_v13')}>كشف PDF النهائي</button>}</div>)}</div>
+              <div className="mt-3 space-y-2">{history.map((h) => <div key={`${h.history_source || 'legacy_v13'}-${h.payroll_month}`} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-sm" style={surfaceSoft}><div><span className="font-black text-white">{h.payroll_month?.slice(0, 7)}</span><div className="mt-1 text-[10px]" style={mutedText}>{h.history_source === 'finalized_v2' ? 'Final Snapshot V2' : 'Legacy Payroll Archive'}</div></div><span className="flex items-center gap-1 text-emerald-300"><Trophy size={13} /> {h.net_salary == null ? '—' : formatCurrency(num(h.net_salary))}</span><span className="flex items-center gap-1 text-rose-300"><TrendingDown size={13} /> {h.deductions_total == null ? '—' : formatCurrency(num(h.deductions_total))}</span><span className="rounded-full px-3 py-1 text-xs font-black text-teal-200" style={surface}>{STATUS_OPTIONS.find((s) => s.key === h.status)?.label || h.status}</span>{(h.history_source === 'finalized_v2' || h.status === 'paid')&&<button className="btn-secondary" disabled={exportingStatement} onClick={()=>void exportFinalStatement(h.payroll_month,h.history_source === 'finalized_v2' ? 'finalized_v2' : 'legacy_v13')}>كشف PDF النهائي</button>}</div>)}</div>
             </div> : null}
           </div>
         )}
