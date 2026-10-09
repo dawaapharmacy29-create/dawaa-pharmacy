@@ -1,0 +1,4123 @@
+[
+  {
+    "type": "function",
+    "name": "get_cs_dashboard_followups(text,text,date,date)",
+    "liveNormalizedHash": "7e559f13526b0254ab8b7e166e23b62d",
+    "liveSha256": "0ad916a8c3a02c19f291df0cc99640f033fc45703f643b312a983e8a5490bd2b",
+    "repoDefinitions": [
+      "supabase/migrations/20260817052000_optimize_cs_dashboard_followups_v2.sql",
+      "supabase/migrations/20260817060500_cs_identity_truth_v5.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_execute_customer_followup_command_v1(text,text,text,timestamp with time zone,text,text,numeric,text,text,boolean,text,text)",
+    "liveNormalizedHash": "04b07723edbed765d53f89ad141d52d2",
+    "liveSha256": "960d2e1d0f44031776fc39d6e1b577e5aa198c4a1faacef6eec7d652bef91049",
+    "repoDefinitions": [
+      "supabase/migrations/20260824170000_customer_followup_atomic_command_v1.sql",
+      "supabase/migrations/20260824173000_customer_followup_atomic_command_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "get_customer_request_events_v2(uuid)",
+    "liveNormalizedHash": "64be76fb2cdd254455b7efe5da87f894",
+    "liveSha256": "ba61da8828548a9121f5fbd4875b20d9e6517358f5154c205047f328cbbd0934",
+    "repoDefinitions": [
+      "supabase/migrations/20260824183500_customer_request_events_read_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_executive_dashboard_payload_v16(date,date,text)",
+    "liveNormalizedHash": "d41a84ad4a0f79327fba4d2c50c87dd4",
+    "liveSha256": "53065ff4bd68c3afc0c7447bf29e49267da5b8180d4091d591f1f3dbf3e6e3b2",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_cs_manager_followup_summary_v1(text,date,date,text,text)",
+    "liveNormalizedHash": "2e5ca61f99e2757d00360b5ca9f75c4c",
+    "liveSha256": "bc061122a57add41162b8b7f1c5ccf73046cf1fb807762fc94283490861fb564",
+    "repoDefinitions": [
+      "supabase/migrations/20260817062000_cs_manager_followup_period_truth_v1.sql",
+      "supabase/migrations/20260823034500_cs_manager_followup_summary_fast_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "process_dawaawael_customer_order(uuid,text)",
+    "liveNormalizedHash": "fc29fb52985f3a971177763d308b2501",
+    "liveSha256": "c0efd28d8dca4faba0137605f79b1f9c5de33957de7f971068ae3f09bd6ee209",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_cs_dashboard_ops(text,text,date,date)",
+    "liveNormalizedHash": "d00821b86093659429983a3043fca791",
+    "liveSha256": "89d6de1a2a85ead0684cc25ce30ed789e75a03ae7035dc469adb3f5f6d6d4ded",
+    "repoDefinitions": [
+      "supabase/migrations/20260817054500_fix_cs_dashboard_review_identity_and_ops_truth_v1.sql",
+      "supabase/migrations/20260817060500_cs_identity_truth_v5.sql",
+      "supabase/migrations/20260822_optimize_cs_dashboard_ops_runtime.sql",
+      "supabase/migrations/20260823042500_cs_dashboard_ops_fast_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "calculate_weekly_manager_metrics_v2(text,text,date,date)",
+    "liveNormalizedHash": "68aa06a67426da944af0f4aa11b4c9df",
+    "liveSha256": "466b0259e17d3097e58070aa3c7f78679f1c17cf0f37ef0e98c561933555c0a3",
+    "repoDefinitions": [
+      "supabase/migrations/20260811120000_manager_incentive_data_engine_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_get_customer_details_fast_v1(text,text,text,integer)",
+    "liveNormalizedHash": "f496f921dac43aa04b4854095ffc59f1",
+    "liveSha256": "8dfacb41f082f72759e3ba42f8ee90cd5695cb465fd2be9ffba6327922b98556",
+    "repoDefinitions": [
+      "supabase/migrations/20260822115800_optimize_customer_details_fast_rpc.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "compute_app_data_health_v2()",
+    "liveNormalizedHash": "8b03179f61bbe70eeb04a86c0fabd18c",
+    "liveSha256": "29dfb5c8ba4dba58d0ea5763cc3c6b83e1443f44a1375323f7c9eea8e5bfa6c4",
+    "repoDefinitions": [
+      "supabase/migrations/20260817140626_data_health_branchless_customer_requests_v1.sql",
+      "supabase/migrations/20260817142859_align_data_health_customer_phone_operational_truth_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "create_customer_request_canonical_v1(uuid,uuid,uuid,text,numeric,text,text,text,date,integer,text,text,text,text)",
+    "liveNormalizedHash": "efa90457ea927f3dc9b3d0e68a9c4d9b",
+    "liveSha256": "58349390e1abba9f3eae1402aa69d65538a885356e3b0851f8dfd17f860917a0",
+    "repoDefinitions": [
+      "supabase/migrations/20260824140000_create_customer_request_canonical_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_current_customer_read_scope_v4()",
+    "liveNormalizedHash": "4a037b376b500d1870fb561f126dc6fd",
+    "liveSha256": "eabd1f61ed6cbe1d42ef385b4e4afaf881e6630badee51505e0dca9d6c961bb6",
+    "repoDefinitions": [
+      "supabase/migrations/20260826006000_index_customer_core_rls_scope_v4.sql",
+      "supabase/migrations/20260826007000_reduce_customer_core_definer_surface_v5.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_doctor_incentive_breakdown(uuid)",
+    "liveNormalizedHash": "24120309325fda4936ca178ba9c5b02d",
+    "liveSha256": "d24cfd8e27c5a3baf16ee6275552faf08424944bda061b33c093fa6b89099562",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "apply_customer_request_staff_attribution_v1(text,text,uuid,text)",
+    "liveNormalizedHash": "e6d8cf6507218c916204083ca82e700f",
+    "liveSha256": "2fbcbcd01c00abdadabb9401b83bf22b424d5544fa31c88caaca51cb2f071cd4",
+    "repoDefinitions": [
+      "supabase/migrations/20260824134500_customer_request_staff_attribution_approval_v1.sql",
+      "supabase/migrations/20260824135500_customer_request_staff_attribution_branch_scope.sql",
+      "supabase/migrations/20260824193000_customer_request_registrar_attribution_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "attach_review_staff_id()",
+    "liveNormalizedHash": "b2b20e613a03997062b88b1b27090029",
+    "liveSha256": "e02b330b8cab084bee8c01db4a64db4b259f043b1c8ad531572f045b5804673c",
+    "repoDefinitions": [
+      "supabase/migrations/20260716_fix_doctor_reviews_and_header_notifications.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETIRE AFTER CUTOVER"
+  },
+  {
+    "type": "function",
+    "name": "get_customer_request_source_audit_v5(text)",
+    "liveNormalizedHash": "05d7556d2b5988e9001f11a1d1cc056c",
+    "liveSha256": "c23b4a01583dec80be35ce68384b123145255abf8e995f7ae105e24c574ef166",
+    "repoDefinitions": [
+      "supabase/migrations/20260824200500_customer_request_source_contract_audit_v5.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "create_customer_request_canonical_v2(uuid,uuid,uuid,text,numeric,text,text,text,date,integer,text,text,text,text)",
+    "liveNormalizedHash": "9c741c8c745da89da683a42f01198ae5",
+    "liveSha256": "3cb104efb6df3d032e787d501f0f8f46b5154482b823b556dbf0745e5dfc2820",
+    "repoDefinitions": [
+      "supabase/migrations/20260824164500_create_customer_request_canonical_v2.sql",
+      "supabase/migrations/20260824201500_harden_customer_request_create_authorization_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "auto_link_customer_request_products()",
+    "liveNormalizedHash": "abd3dcf586a78393ff0e45a00737f4cc",
+    "liveSha256": "07070df937e73ffd149268b63f29f1a4d782ee95a0026c42bc1788e3ecfeb307",
+    "repoDefinitions": [
+      "supabase/migrations/20260811040000_simple_product_catalog.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_dashboard_customer_service_summary_v18(text)",
+    "liveNormalizedHash": "8f5bf68767d87966b4c17a072f26d52f",
+    "liveSha256": "bea7d121c0cf127b9061c7094a45b25345472308b37a4ac9e9dbfe32d6b7fbd0",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_customer_request_product_candidates_v2(uuid,integer)",
+    "liveNormalizedHash": "d5f57cca8ecc82f1aa6056e29fa92b85",
+    "liveSha256": "d3804505712fa2c69a0520f5c2471285168b540598890fc1b2e7f2e8020bbc19",
+    "repoDefinitions": [
+      "supabase/migrations/20260815044500_customer_request_product_intelligence_v2.sql",
+      "supabase/migrations/20260824131500_customer_request_product_intelligence_guards.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_customer_service_cycle_cohorts(text,date,integer)",
+    "liveNormalizedHash": "9c0d5e8f22bded03f6a7bb52f0406c64",
+    "liveSha256": "ad6ab007f074d6f4412a02b872d1b83e86a8c5bc9342b2ff77a5da0b4e07fb41",
+    "repoDefinitions": [
+      "supabase/migrations/20260811220000_customer_service_cohort_intelligence.sql",
+      "supabase/migrations/20260811221500_customer_service_cohort_performance.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_dashboard_customer_service_summary_v171(text)",
+    "liveNormalizedHash": "3d9ee5148084300d6e7d145d4f67b6eb",
+    "liveSha256": "f44461a58144e9a3880be64548a527fafa04f64b222479bb8c1b0a9657bbfe06",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_doctor_conversation_review_coverage(uuid)",
+    "liveNormalizedHash": "167251997479b80fec181766869edf8a",
+    "liveSha256": "aaaf5e24f3bf7b5285b19b150d3b7c6e392be8572cb65adf836315b2a2443f78",
+    "repoDefinitions": [
+      "supabase/migrations/20260906140000_authorize_doctor_dashboard_rpc_functions_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_customer_request_action_queue(text,integer)",
+    "liveNormalizedHash": "75411fad0ddbe28c7f43814fae24393e",
+    "liveSha256": "273bcb3be1749cc0e27c5ae67ed03c5c5dad23c02edfed3debfa381f22941e00",
+    "repoDefinitions": [
+      "supabase/migrations/20260811054800_customer_request_smart_action_queue.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_customer_request_supplier_export_v1(text)",
+    "liveNormalizedHash": "231826f7440815cc5e19ea8d7b6c678d",
+    "liveSha256": "2df5bef424863a4fbc0640f154764e19be0f7b38464b0a5430741091dbb4f3c2",
+    "repoDefinitions": [
+      "supabase/migrations/20260815041800_customer_request_product_staff_linkage_export_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_staff_dashboard_actions_v1(text,text,text,text,text)",
+    "liveNormalizedHash": "76f80733f753561a2ebca79f369bcbf9",
+    "liveSha256": "ce0b70318bdcfd37d1b89e3d8d7723f063169dba3f27b7644cdc63d041c08f48",
+    "repoDefinitions": [
+      "supabase/migrations/20260823013500_staff_dashboard_actions_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "calculate_weekly_checklist_completion_v3(text,date,date,jsonb)",
+    "liveNormalizedHash": "da6edb8eddc668320cffb15615837ce1",
+    "liveSha256": "677b1b353b91cf743cb6b40d9cab1da3ced8e1aaab2baddb3caad619e2429854",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "auto_link_customer_request_products_v2(boolean,text)",
+    "liveNormalizedHash": "30f0ecc1782ca4350e209d1696ca0f21",
+    "liveSha256": "e615066372c7cd7d984ceecce563920ce20e232110feef4a8189d42e64803488",
+    "repoDefinitions": [
+      "supabase/migrations/20260815044500_customer_request_product_intelligence_v2.sql",
+      "supabase/migrations/20260824131500_customer_request_product_intelligence_guards.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_customer_request_sync_health_v1()",
+    "liveNormalizedHash": "fc9934c72d6dd5dc5896a98c32f09efc",
+    "liveSha256": "0038c5a20a61bade80af9242dbb1692b3a6adae3773848c19c26f241993a6110",
+    "repoDefinitions": [
+      "supabase/migrations/20260813184500_customer_request_sync_health_v1.sql",
+      "supabase/migrations/20260814025000_customer_request_sync_health_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_customer_service_watchlist_performance(text,date,integer)",
+    "liveNormalizedHash": "62376a475ccb6e43602366b752f85e75",
+    "liveSha256": "5d543b5379810cd2f19c6a44c1c1fe4433ae16f63953b43f7e8404ffc6c1c190",
+    "repoDefinitions": [
+      "supabase/migrations/20260811220000_customer_service_cohort_intelligence.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_doctor_conversation_reviews_list(uuid,integer)",
+    "liveNormalizedHash": "a6b8d21881f0b9a139b9a3d693df8cee",
+    "liveSha256": "b025f8b920acfe4ee54fcf97bea0567b0697979cdf1966662279d09a456ade2a",
+    "repoDefinitions": [
+      "supabase/migrations/20260906140000_authorize_doctor_dashboard_rpc_functions_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "import_historical_followup_v1(jsonb)",
+    "liveNormalizedHash": "77649dd054709bd3360ae5f4b9dd9638",
+    "liveSha256": "d280b0b697410780ac404de6d8e660701e57f12f5e366547364f1c35b58f5cc6",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "rollback_historical_followup_import_v1(text)",
+    "liveNormalizedHash": "cf90599d371f7fb17168b8e6087fc2da",
+    "liveSha256": "a339d6344c85983757a8bb0ddede30784a406cd15088dc2ec419b38ecc3814ba",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "reconcile_followup_purchases()",
+    "liveNormalizedHash": "a073a2a6a7562a78d739ec60046d3cc4",
+    "liveSha256": "22379a1b7657748b0c14103696471446b6d5887bc352d17569204e88944b35ad",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "import_customer_service_queue_results_v2(uuid,text,text,jsonb)",
+    "liveNormalizedHash": "6538977a27bce93be1a72f0e20e191ed",
+    "liveSha256": "c75bbf83c6b02bfd9c342739399e63cd2334be5df229e3e92000f54cebfd9565",
+    "repoDefinitions": [
+      "supabase/migrations/20260813023000_customer_service_smart_queues_v2.sql",
+      "supabase/migrations/20260813024500_extend_smart_queue_import_to_branch_staff.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "link_customer_request_product(uuid,uuid)",
+    "liveNormalizedHash": "90305f4d532754cde841c6f6c84106ad",
+    "liveSha256": "14553a6ec95a9a6def7dd7312bc2ad837c13accaaa32310918a32bbb96679493",
+    "repoDefinitions": [
+      "supabase/migrations/20260811044700_customer_request_product_codes_and_catalog_entry.sql",
+      "supabase/migrations/20260824125000_customer_request_product_link_branch_guard.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "get_customer_service_daily_queue_completion_core(date,text)",
+    "liveNormalizedHash": "b0a087c84a2eacdef0ab9a0ed2db8258",
+    "liveSha256": "548221f931bd93dab6bc23310a9b17dd61f2b994f5a9687b908c8a79cd63abae",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "advance_customer_request_v2(uuid,text,text,date)",
+    "liveNormalizedHash": "1c072d8d430e4856bc241b229a06eba7",
+    "liveSha256": "e9922115cb7b030a9360fb7dcf574bfab63efb73684943052fa5233ea184d659",
+    "repoDefinitions": [
+      "supabase/migrations/20260824182000_customer_request_transition_matrix_complete_v2.sql",
+      "supabase/migrations/20260824182500_customer_request_atomic_transition_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_sync_whatsapp_recovery_invoice_v11()",
+    "liveNormalizedHash": "1365ed3f7c4d7a59100e290a0deae781",
+    "liveSha256": "94a3407800a4b380c91ea1bca1e86484a4ac2d79c15e2696358a25509ff57bf6",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETIRE AFTER CUTOVER"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_compute_customer_service_cycle_cohorts(text,date,integer)",
+    "liveNormalizedHash": "e22a108eda97b9e3df8e252f94ffd3f9",
+    "liveSha256": "19e1b23d3b0f8a4bcc9cd909a1ee0e9345ce5c1cd3979810250465c80ede901a",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "notify_doctor_on_conversation_review()",
+    "liveNormalizedHash": "bc3b58839f379b28a605216b8393d64b",
+    "liveSha256": "cef77516cda9b7ee17e47a70f2f07b28c60be5ffaf1589c45d9d207808e1efe6",
+    "repoDefinitions": [
+      "supabase/migrations/20260716_doctor_personal_workspace_notifications_payroll.sql",
+      "supabase/migrations/20260716_fix_doctor_reviews_and_header_notifications.sql",
+      "supabase/migrations/20260907032500_dedupe_conversation_review_notifications_v1.sql",
+      "supabase/migrations/20260918024614_automatic_review_notification_identity_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "notify_branch_manager_operational_digest()",
+    "liveNormalizedHash": "59fe9e930871c726b6b65e31f9387efb",
+    "liveSha256": "969954a6169e3d488aff256fe69fbc9489e5c91770f5c396b31d31e58b2f0728",
+    "repoDefinitions": [
+      "supabase/migrations/20260823175500_branch_manager_operational_digest_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_customer_service_weekly_queue_completion_v1(text,date,date)",
+    "liveNormalizedHash": "ecd0bd01364af7ebbacbe1da2c60e5c3",
+    "liveSha256": "43106d55b87a445e82efd9cdeb25aa29760d9b9f1abe68ff6962ad36958db0a3",
+    "repoDefinitions": [
+      "supabase/migrations/20260823035500_customer_service_weekly_queue_set_based_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "import_customer_service_queue_results_v3(uuid,text,text,jsonb)",
+    "liveNormalizedHash": "8ee78cfd211a056b168083aa538c148c",
+    "liveSha256": "82db165731540c94995aef1b69db0acdf745806a46fc54f4f6fddd1d5d02cf7e",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "settle_customer_request_doctor_points(uuid,text,timestamp with time zone)",
+    "liveNormalizedHash": "3901ee4ffff6de630c2310014b2ceac2",
+    "liveSha256": "f0094ebfb8c627ad3d64e0efe32749041a6b0f3a0b385402357fd8fbdb871111",
+    "repoDefinitions": [
+      "supabase/migrations/20260824013000_customer_request_doctor_points_v1.sql",
+      "supabase/migrations/20260824120000_customer_request_points_single_owner_guard.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "penalize_followup_fraud(text,text,text)",
+    "liveNormalizedHash": "479dbef00a28aca4087bb09cecfbe650",
+    "liveSha256": "6619ac989192b4195b23c69b1c5118c9a31e3770a64b4158ff564a315fc6f629",
+    "repoDefinitions": [
+      "supabase/migrations/20260906140300_authorize_penalize_followup_fraud_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "trg_followup_dedupe_same_day()",
+    "liveNormalizedHash": "9cca378785a1ef0729f26f0898495f26",
+    "liveSha256": "5cecac67ef46309c04e35ce321527b198c7e9f4973174d632d3f866b61f987f4",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_require_customer_service_actor_v1(boolean)",
+    "liveNormalizedHash": "d0283d9c9e3b8a685cfad70db960dd73",
+    "liveSha256": "11f1ac20f96dd6cbe48d1bc8ad36f5a4312128eae10d914383ee8d499d1643e0",
+    "repoDefinitions": [
+      "supabase/migrations/20260719_customer_service_secure_command_center.sql",
+      "supabase/migrations/20260823184000_harden_db_authorization_permission_truth_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "prepare_conversation_review_attachment()",
+    "liveNormalizedHash": "03a22f6f358063ce049321136dd5f070",
+    "liveSha256": "7687bb1bec0457a23e23d98848f2c85af1c8807df96bf3a6fe31c907c6b496c5",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_materialize_whatsapp_action_core_v2(uuid)",
+    "liveNormalizedHash": "8c394c96a5820098981e8b808c70b374",
+    "liveSha256": "6cb0dad737f0265842482ef063f87baa5aa50fc5cce0554781793c1a8f00555e",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "import_customer_service_queue_results_legacy_v4(uuid,text,text,jsonb)",
+    "liveNormalizedHash": "0c69b396fb91df4145a9df3331dbceed",
+    "liveSha256": "8b616fc00c8be74aca84f3426b2caafbaa98a26a7572e39dd83c38ca050f50f6",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "get_customer_request_source_audit_v4(text)",
+    "liveNormalizedHash": "465154654c3410704d465148fefd2849",
+    "liveSha256": "25ceb24c682f7838449a52ee24742012b0509a86c0c69ebaaaf908d5d232bf8b",
+    "repoDefinitions": [
+      "supabase/migrations/20260815042000_customer_request_source_audit_v4.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_restore_customer_followup_v1(text,text)",
+    "liveNormalizedHash": "ba682613f68191ed8dd594d2db73f374",
+    "liveSha256": "39138ae58a1b01a823ef7925cbb417432b300ec5c54a591011f639989aa18d15",
+    "repoDefinitions": [
+      "supabase/migrations/20260719_customer_service_secure_command_center.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "calculate_weekly_manager_metrics_v4(text,text,date,date)",
+    "liveNormalizedHash": "daa68e2cf070cc60fd48b32b28fa9f77",
+    "liveSha256": "67f883881c4fef4a27c8f62287f2799dadf40686bb6e5da21b53ebf8c26cb45f",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "daily_followups_guard_insert()",
+    "liveNormalizedHash": "b4d7086e78e797b1e48109b02659bb26",
+    "liveSha256": "69bcf2048e585001fe9caff2cee5367d986641f466664728c5e63a1711126179",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "import_customer_followup_results_legacy_v1(uuid,text,text,jsonb)",
+    "liveNormalizedHash": "f1b8abe72d6d407360feec943d0bd8d9",
+    "liveSha256": "427933a7d61a0478aa7586d803a3d5b2bf72f48e0e3c0096502d87ed098f6cd9",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "customer_followup_daily_performance_v1(text,date)",
+    "liveNormalizedHash": "ef52d815d770ccdc6d28194af1d3c67b",
+    "liveSha256": "1d591647ed8cc28196c48ccbed2690d7f00dd11c495234766b1a4472fa8d65f7",
+    "repoDefinitions": [
+      "supabase/migrations/20260720_customer_followup_daily_performance.sql",
+      "supabase/migrations/20260820_followup_status_normalization.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "list_open_followup_duplicate_groups_v1(text)",
+    "liveNormalizedHash": "2d095670966a7699c9ea328f77cf8aab",
+    "liveSha256": "1cce50a773cdec0cb3b61e1b4590d8b0c22744ba4384b3d0cf3e4a7660f8d98f",
+    "repoDefinitions": [
+      "supabase/migrations/20260720_customer_followup_duplicate_management.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_customer_request_product_staff_audit_v1(text)",
+    "liveNormalizedHash": "3cefcd13a6e4803dedbba09c7625c549",
+    "liveSha256": "633cfcd80d77351c7a91c96bf9152f6c39fce54c75bf18cfb105d723e86dc0b5",
+    "repoDefinitions": [
+      "supabase/migrations/20260815041800_customer_request_product_staff_linkage_export_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "compute_followup_points(text)",
+    "liveNormalizedHash": "585496b0d9fb941daa631f82796a3a40",
+    "liveSha256": "2b96f1bf7be9cef223206409bf97f884339d06fd6bbe3aa3d2cb5cc62d78e7d5",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_log_customer_followup_event_v1(text,text,text,text,text,jsonb,text,text)",
+    "liveNormalizedHash": "7ea66014b8bb53c05a444f62428b7660",
+    "liveSha256": "338e8b90600ab6168227f8fba6ba1688b87506c7104c2d295a0d26a1550c4347",
+    "repoDefinitions": [
+      "supabase/migrations/20260719_customer_service_secure_command_center.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_complete_customer_followup_v1(text,text,text,numeric,text,text,text)",
+    "liveNormalizedHash": "8c15aa03fa9a6d114d3ffde24d112a02",
+    "liveSha256": "14153a419934780fb02480e6b32c37d3db38ee51bec0f39d46ae704722a60f50",
+    "repoDefinitions": [
+      "supabase/migrations/20260719_customer_service_secure_command_center.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_cancel_customer_followup_v1(text,text,text,text)",
+    "liveNormalizedHash": "b7e9cf7090b4df0a48df37117e619cec",
+    "liveSha256": "2f9e3a8cc1dc453fdb801b1b0f037dcae8746b9146e579af75a3f2736f9bcf11",
+    "repoDefinitions": [
+      "supabase/migrations/20260719_customer_service_secure_command_center.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "get_customer_request_product_candidates_core_v2(uuid,integer)",
+    "liveNormalizedHash": "d8a78468b365d0305c608ad4eae47e38",
+    "liveSha256": "b024b1562f764f8a14d3d0ac6cda9649839fe6857c3a451dae8d1989bc541185",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "sync_customer_branch_to_open_followups_and_daily_queue()",
+    "liveNormalizedHash": "0e485248171517448658f67293eb960e",
+    "liveSha256": "0d56ca0b122a118f8f3b748708488e49e24570712d05bd83f4410e7f73cc0607",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "find_or_create_open_customer_followup(text,text,text,text,text,text,text,text,text,date,text,text,text,text)",
+    "liveNormalizedHash": "7fadde984a73f43401a25c56e2067587",
+    "liveSha256": "7642ae39f8c6997c4a9180e5b722372bd20ac4f156a379bc23e85644495910f9",
+    "repoDefinitions": [
+      "supabase/migrations/20260720_customer_followup_find_or_create_open_case.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "customer_followup_performance_v1(text,text,date,date)",
+    "liveNormalizedHash": "6b79404714fdb7065faf1a0b540d8bf8",
+    "liveSha256": "4cdb1fe63c3825fd631b2a4e9163cc76c0c60ea5a5294bbb896a4bbab2e8327b",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_archive_customer_followup_v1(text,text,text)",
+    "liveNormalizedHash": "1ade5325fd2b24f10423057b5cf11090",
+    "liveSha256": "9f002cea2ead069a8896a215323601ce4b87bd28345b1fcef8620a2e418808f5",
+    "repoDefinitions": [
+      "supabase/migrations/20260719_customer_service_secure_command_center.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_postpone_customer_followup_v1(text,text,text)",
+    "liveNormalizedHash": "b51e4a0f2e02f63b27ad5d2ba64ad805",
+    "liveSha256": "c7579b52e600cbf8f8b57c7fd67362f5a5a4a9983c2984c4bd0ffeec2cfca4b3",
+    "repoDefinitions": [
+      "supabase/migrations/20260719_customer_service_secure_command_center.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "get_cs_command_overview_v1(text)",
+    "liveNormalizedHash": "1691e453aa53cace43da0f341d918375",
+    "liveSha256": "d198ed99b047b157d7e564e37bae643594df0cc14e4a483fbe85809a4eecf508",
+    "repoDefinitions": [
+      "supabase/migrations/20260823024500_cs_command_overview_summary_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_create_exceptional_followup_v2(text,text,text,text,text,text,text,text,text,text,text,text,text)",
+    "liveNormalizedHash": "0e97f90b07131a2201e90b751fb918eb",
+    "liveSha256": "d49edb84391e7e506307d6f5f13db43cf14ce76ba3d64e2046d2db4a91874d78",
+    "repoDefinitions": [
+      "supabase/migrations/20260719_customer_service_secure_command_center.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "calculate_weekly_checklist_completion_v4(text,date,date,jsonb,text)",
+    "liveNormalizedHash": "a25d25f4807d4cea70f75cb163b795fb",
+    "liveSha256": "236dc27e1e15c5fc537cd89ff4c418fb57aa505a910b28b0685f4c50570cbfb4",
+    "repoDefinitions": [
+      "supabase/migrations/20260816014500_branches_manager_per_branch_checklist_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_doctor_competition_support_v1(date,date,text)",
+    "liveNormalizedHash": "1f1abd8deb2b4a82151f01ecfc895a84",
+    "liveSha256": "ebbca120ebce818203d969b656a4a2d990e2a492ed54edb22e869f450a5c4843",
+    "repoDefinitions": [
+      "supabase/migrations/20260823030000_doctor_competition_support_aggregate_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "repair_customer_followup_duplicates_and_branches()",
+    "liveNormalizedHash": "efde8246ca46ecce5ebde2775fa98e71",
+    "liveSha256": "ecf2e8fe99000cedad7547fcb9790582b976722f34564cf92a5661c28d841612",
+    "repoDefinitions": [
+      "supabase/migrations/20260726232000_dedupe_followups_and_fix_canonical_branch.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_can_write_employee_transaction(text,text,boolean)",
+    "liveNormalizedHash": "d27f2285d80663632f30d07e6675ba15",
+    "liveSha256": "f26141afef8792293a7d6a549450d627f87b9df0318eae4cb4318bd243d64a6e",
+    "repoDefinitions": [
+      "supabase/migrations/20260823201000_employee_transactions_source_authorization_v1.sql",
+      "supabase/migrations/20260823204000_tighten_employee_transaction_transitional_sources_v1.sql",
+      "supabase/migrations/20260823206000_remove_employee_transaction_transitional_sources_v1.sql",
+      "supabase/migrations/20260823211000_restore_penalty_incentive_source_authorization_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "apply_followup_incentive_points()",
+    "liveNormalizedHash": "26ac9ca3e87eb955bd1b921d09891254",
+    "liveSha256": "e0200c4e5dbce36651c1b16685be70fb6d08e89f51363090dc2cb493212bf858",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_executive_dashboard_payload_v166(date,date,text)",
+    "liveNormalizedHash": "7c7d0be1f2ad42dcb7b67979ed4b33f8",
+    "liveSha256": "8eb14d0e3ac901e957286d8fbaec6ba54d9465d7792617fa814bbf1562492feb",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "refresh_doctor_followup_points(text)",
+    "liveNormalizedHash": "4682230766c4155272ff9bcd4120abb8",
+    "liveSha256": "50daae0f210244e5776723f54aef5a3d7e7312f7c32b45d8c13d3efa84d1e903",
+    "repoDefinitions": [
+      "supabase/migrations/20260830203000_points_cycle_consistency_cron_writers_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_followup_recovery_stats(text,text,date,date)",
+    "liveNormalizedHash": "78d6085ceb799a1f026ed26b27c36798",
+    "liveSha256": "a11fedbf2e3022af6cd46641dc97391c6e202b5492c508d8416fe9a7cfae4fbe",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "ensure_excel_followup_dual_records_v1()",
+    "liveNormalizedHash": "f485f37413e5eb8b92366f1a3c3a07aa",
+    "liveSha256": "3e1e75880522118c0d07d9c3c2cbe1bc1f2e661bdc1398b780a197dfe297cc32",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "refresh_daily_followup_customer_metrics(text)",
+    "liveNormalizedHash": "d68f9f52e2a993b2b5c23fc2446f0702",
+    "liveSha256": "0dd63be0b866792e4963a552715914599feda2c485488fff0105204ece436d14",
+    "repoDefinitions": [
+      "supabase/migrations/20260726213000_refresh_all_followup_customer_metrics.sql",
+      "supabase/migrations/20260826160000_batch_daily_followup_metrics_after_sales_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_whatsapp_story_truth_health_v39()",
+    "liveNormalizedHash": "2372828e202a6c7ab3f6b87b8cf9989a",
+    "liveSha256": "7f90b8547839d99cfacff61077a21916fa009ead25256275f144c2aff9458afe",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "escalate_stale_risk_followups()",
+    "liveNormalizedHash": "6da9b10005d64bb2f6b7066339576f2a",
+    "liveSha256": "f54f1406e50a9ce7f9319755ceaade2da50309f81458a584bc1948685e32c4cb",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "get_customer_service_weekly_metrics(text,date)",
+    "liveNormalizedHash": "3912812c9019e380b81d0a619980a140",
+    "liveSha256": "3d32abd64cce87c5c50db46b39c16554f16720f2888086fe82911f5a50799e5d",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "move_customer_request_to_shortage_v1(uuid)",
+    "liveNormalizedHash": "5d45b8f4d60072d693ee0e82622fdf68",
+    "liveSha256": "d4b18901f0d0db17d2bcdb026f27e0f3cd0edcea0801d20f5520a32d24868905",
+    "repoDefinitions": [
+      "supabase/migrations/20260824143000_secure_customer_request_to_shortage_command_v1.sql",
+      "supabase/migrations/20260824181000_customer_request_shortage_alignment_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "get_customer_followup_records_v1(text,text,text,text,date,date,integer,integer)",
+    "liveNormalizedHash": "f134730c4390242611692a25490ad6f2",
+    "liveSha256": "10d58f3857bbb5e16ec922cdb01d3eb39306c4c4aabf80891b27d035a5af8df3",
+    "repoDefinitions": [
+      "supabase/migrations/20260822165000_customer_followup_records_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_customer_requests_command_center_summary(text)",
+    "liveNormalizedHash": "f8b6ec246494884b43ff3fbabf6a5c0d",
+    "liveSha256": "82bf57915aa9205daa9a3e362d6109b5f0bcff111af7d0942d47a5aaf76c7406",
+    "repoDefinitions": [
+      "supabase/migrations/20260811030500_customer_requests_command_center_summary.sql",
+      "supabase/migrations/20260811051200_customer_request_stage_sla.sql",
+      "supabase/migrations/20260823232000_customer_requests_branch_aliases.sql",
+      "supabase/migrations/20260824141500_customer_request_actionable_exception_summary.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_customer_request_overdue_ids(text)",
+    "liveNormalizedHash": "6980e6c3f75243ff686ca9a58c9319cc",
+    "liveSha256": "edce6d97149d16513c72b337bcf848717b44cbf6f5a4411afbb4f0062ad3ad8b",
+    "repoDefinitions": [
+      "supabase/migrations/20260811051200_customer_request_stage_sla.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_customer_request_permission_allowed(uuid,text)",
+    "liveNormalizedHash": "c257ffc5c440d1b9d035524bced8bc6a",
+    "liveSha256": "09f319fea31d7b3c43767639db94a75417a612868233aa5f51c3d7af6d87bc2f",
+    "repoDefinitions": [
+      "supabase/migrations/20260824151000_align_customer_request_permission_ceiling_v1.sql",
+      "supabase/migrations/20260824160000_customer_request_shift_supervisor_permissions_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_customer_request_product_match_queue_core_v2(text,integer)",
+    "liveNormalizedHash": "ad674c3a806da079e13e756b404912c4",
+    "liveSha256": "fc3a54b8b41726541b4e4443175a8c2fe046b725428c1b692f85900b0fc44b01",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "settle_doctor_threshold_bonuses()",
+    "liveNormalizedHash": "34a0473b82ee8358bba30d653b82a207",
+    "liveSha256": "f54386f6fb4eff62d5579d26367319324afd0c8997db187dd3543950b8f844da",
+    "repoDefinitions": [
+      "supabase/migrations/20260830203000_points_cycle_consistency_cron_writers_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "auto_link_customer_request_products_core_v2(boolean,text)",
+    "liveNormalizedHash": "6188f90db36fcddf7b956e4f9e5b509e",
+    "liveSha256": "b8bd9e75d7667ac652f8466dc80d22a909146d4c619beb89ec977935380fecfc",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_customer_request_product_match_queue_v2(text,integer)",
+    "liveNormalizedHash": "2c23cc35a0f109deb5c860af147a6d05",
+    "liveSha256": "a09b5fd9cb5a702629164b29cb2713c1f5664d165e20b7b2ddde9d3b62faf8fe",
+    "repoDefinitions": [
+      "supabase/migrations/20260815044500_customer_request_product_intelligence_v2.sql",
+      "supabase/migrations/20260824131500_customer_request_product_intelligence_guards.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_customer_request_staff_attribution_review_core_v1(text,integer)",
+    "liveNormalizedHash": "808634e48a5ff26f751c622c694784ac",
+    "liveSha256": "19e47f2632ffc52ceb57565161b8fef7f5db61cd8d625e8eab208c657f944f7b",
+    "repoDefinitions": [
+      "supabase/migrations/20260824193000_customer_request_registrar_attribution_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_customer_request_staff_attribution_review_v1(text,integer)",
+    "liveNormalizedHash": "8325ca8751fd94810ab031856484619b",
+    "liveSha256": "da4857a6054414dc4b9022edd4dbc8f5b353a498e283ad6d37ed4601a19df98c",
+    "repoDefinitions": [
+      "supabase/migrations/20260824133000_customer_request_staff_attribution_review_v1.sql",
+      "supabase/migrations/20260824135500_customer_request_staff_attribution_branch_scope.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "review_customer_request_staff_attribution_v1(text,text,uuid,text,text)",
+    "liveNormalizedHash": "18b1608916ea2b05c974011f37e60f02",
+    "liveSha256": "8fb558dd7944f779cc53dda2fd604f42bf1ee48db7e111d365eb3bf9062fbd32",
+    "repoDefinitions": [
+      "supabase/migrations/20260824134500_customer_request_staff_attribution_approval_v1.sql",
+      "supabase/migrations/20260824135500_customer_request_staff_attribution_branch_scope.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "record_customer_request_contact_v2(uuid,text,text,timestamp with time zone)",
+    "liveNormalizedHash": "6cf6888a50271fc2cd1ceefb14fd18cf",
+    "liveSha256": "0e27a3b522952116312e683fbe36a91d6348ce569328edab2796aed428fb0a17",
+    "repoDefinitions": [
+      "supabase/migrations/20260824154500_record_customer_request_contact_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "get_customer_request_staff_attribution_apply_preview_v1(text,text,uuid)",
+    "liveNormalizedHash": "45d847bf0a6053b2003d5dce7e2ee89f",
+    "liveSha256": "9da331f3d0600f2dc7efdc8ea6fb5ae6bb56e1f77f582df3226efb746406b672",
+    "repoDefinitions": [
+      "supabase/migrations/20260824134500_customer_request_staff_attribution_approval_v1.sql",
+      "supabase/migrations/20260824135500_customer_request_staff_attribution_branch_scope.sql",
+      "supabase/migrations/20260824193000_customer_request_registrar_attribution_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_revoke_whatsapp_canonical_sale_proof_v46(uuid,text,jsonb)",
+    "liveNormalizedHash": "e4626a209af91dee6a46f065dfe35ef1",
+    "liveSha256": "0afe15f376d77971d56e8e55c8fa2e343c8999b5de0dfaf07d07dd284a7e6dfa",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "settle_doctor_self_logged_request(uuid)",
+    "liveNormalizedHash": "ed671f36cbde8f6017c51bdd4068e862",
+    "liveSha256": "0d1b709f2591a8b059f40ba85fc0721b46bdf65be0614b15a52832259d73eba1",
+    "repoDefinitions": [
+      "supabase/migrations/20260830204000_points_cycle_consistency_doctor_writers_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_archive_superseded_whatsapp_source_v35(text,timestamp with time zone,timestamp with time zone,integer,uuid[])",
+    "liveNormalizedHash": "f347dd98cd0625b94e82eed7eb5cf6d8",
+    "liveSha256": "3ac647e92b3b37386901c7ce51325c209f87378cb2eeffcca78d2696401e23a4",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "get_customer_request_product_metrics_v2(text[],text,integer)",
+    "liveNormalizedHash": "5037a2932392ba97289bb4ce9f03a811",
+    "liveSha256": "703be37f1f4a5b21099ecc2195c55eb35b149b6e94793131d6dab46bdf57b18a",
+    "repoDefinitions": [
+      "supabase/migrations/20260824172000_customer_request_product_metrics_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_customer_requests_command_center_summary_v2(text)",
+    "liveNormalizedHash": "c19fd39ecf2e6142ea4c4fad48338276",
+    "liveSha256": "ceb12af19d10adf033b5c5b8475e74a2ced7fe543340b235030b473722aca080",
+    "repoDefinitions": [
+      "supabase/migrations/20260824183000_customer_request_summary_v2.sql",
+      "supabase/migrations/20260824185000_customer_request_summary_alignment_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "return_shortage_to_customer_request_v2(uuid,text)",
+    "liveNormalizedHash": "db34427db90f7cac1c03d9cb0647de9d",
+    "liveSha256": "f9f1ccfe38f4fe76a6e59ac78e874021741ec3a3de3c3d671134b5e08428406e",
+    "repoDefinitions": [
+      "supabase/migrations/20260824184500_customer_request_shortage_return_v2.sql",
+      "supabase/migrations/20260824185500_shortage_manage_permission_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_save_customer_followup_result_v1(text,text,text,text,text,text,text,date,text,text,text,text,numeric,integer,numeric,text,text)",
+    "liveNormalizedHash": "7318d4681688cf43739d923113fe2763",
+    "liveSha256": "c65dd57c71afe2a84b932aa61e39c964142cf7db71e5d66b69e283135d33f2ff",
+    "repoDefinitions": [
+      "supabase/migrations/20260824180000_customer_followup_lifecycle_commands_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "update_customer_request_details_v2(uuid,numeric,text,text,text,text,text)",
+    "liveNormalizedHash": "19f1e4f846d1ba26b7f9715db135397a",
+    "liveSha256": "bde8a20b9c29398d596184e6ca7d08d3f60c8dd71786102b50817a69f21fee4e",
+    "repoDefinitions": [
+      "supabase/migrations/20260824171000_customer_request_details_command_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "repair_customer_request_customer_v2(uuid,uuid,boolean)",
+    "liveNormalizedHash": "8ff2ad1514d2228b229b7c8c570db10b",
+    "liveSha256": "59f1e10d58c6ddac65121bd7db9fe41bad4e6ddc907f79513939e48c6d2c97c5",
+    "repoDefinitions": [
+      "supabase/migrations/20260824184000_customer_request_customer_repair_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_archive_today_trial_followups_v1()",
+    "liveNormalizedHash": "f0b10a108f0484cdb78b30a09c3b12af",
+    "liveSha256": "c8715aca34ba687c17372ead6eb84e3bd92c8d7dac7f6c458945a6093860e8a5",
+    "repoDefinitions": [
+      "supabase/migrations/20260824180000_customer_followup_lifecycle_commands_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_append_customer_service_followup_event_v1(text,uuid,text,text,text,jsonb)",
+    "liveNormalizedHash": "3b2081cd0c4ef7d675e5defb1e205e01",
+    "liveSha256": "ebc9708eae3ef66b904b73af9f06bd65ec85ed3af9154ee385d0fd5bcb363b84",
+    "repoDefinitions": [
+      "supabase/migrations/20260824190000_customer_service_queue_command_boundary_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_capture_whatsapp_canonical_purchase_v36()",
+    "liveNormalizedHash": "985edbd177824f9c0e910280710dc873",
+    "liveSha256": "40cade9b4396aa647ea5fbc4d9a48529dc785ce260dca574b20e52d93f804177",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "function",
+    "name": "record_conversation_review_points_v1(text,uuid)",
+    "liveNormalizedHash": "5c64c154d739fdc6648a8da990cd2d65",
+    "liveSha256": "182e37b0e28d39f821fc8a1ef49a37cf477bececa9a06df1da4895687ee0eecf",
+    "repoDefinitions": [
+      "supabase/migrations/20261005170000_conversation_review_points_staff_session_v1.sql",
+      "supabase/migrations/20261008160000_conversation_review_manager_correction_versioning_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "create_or_link_customer_followup(jsonb)",
+    "liveNormalizedHash": "a2e6624d4eb3476362891090dc0a0942",
+    "liveSha256": "daa9c8072d6858d4febf3f00643d869192a1b0ef2b90a8ac758aa6e99d107aa2",
+    "repoDefinitions": [
+      "supabase/migrations/20260720_customer_followup_compat_rpc_forward.sql",
+      "supabase/migrations/20260720_customer_followup_hardening_live.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "notify_missing_daily_followup_generation()",
+    "liveNormalizedHash": "d6a1992b49941cada010f7335af56a1d",
+    "liveSha256": "b4c96967880e0d37477115a3b2b637b4c80e0662cce036f4ed4b06e644e58b14",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_customer_service_health_v1(text)",
+    "liveNormalizedHash": "99a831609ba392ee10d6b9a88561c403",
+    "liveSha256": "a621d21cb0d4e66bce2adf816ab7616cff3b5092ae95e8aa31459cbbb066e260",
+    "repoDefinitions": [
+      "supabase/migrations/20260826103900_customer_service_health_snapshot_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_compute_customer_service_watchlist_performance(text,date,integer)",
+    "liveNormalizedHash": "171abe4a5f33303d8e1e456bcd94a7bc",
+    "liveSha256": "850f70d1d25d10456b007fec7be47f920070a48daec011eeac83929668bdf0e3",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "refresh_doctor_metrics_daily()",
+    "liveNormalizedHash": "6b59d5c1202d6a4b4d700ccdeba29de8",
+    "liveSha256": "6b265ba0cab8b49791dfd8c799b566f28a5b447aef68fc943aa0b83be0ce4708",
+    "repoDefinitions": [
+      "supabase/migrations/20260825_separate_customer_doctor_sales_truth_v1.sql",
+      "supabase/migrations/20260830204000_points_cycle_consistency_doctor_writers_v1.sql",
+      "supabase/migrations/20260830206000_points_cycle_invoice_quality_canonical_sales_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_customer_service_health_issues_v1(text,text,integer)",
+    "liveNormalizedHash": "3e7b04cd778977637dfbea446f194be1",
+    "liveSha256": "23f678c64b43c86abf280324007adf594d91327c6a49680dd4334b9d79bf5fe9",
+    "repoDefinitions": [
+      "supabase/migrations/20260826104300_customer_service_health_issues_v1.sql",
+      "supabase/migrations/20260826104400_customer_service_health_issues_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "refresh_daily_followup_customer_metrics_for_codes_v2(text[])",
+    "liveNormalizedHash": "1c3fa0a5b73a916f5e5200983df4e280",
+    "liveSha256": "7cb55aadd55c6fab3c6ec54a93b5a6d9d8d182e21ba647e14886e397e05bf913",
+    "repoDefinitions": [
+      "supabase/migrations/20260826160000_batch_daily_followup_metrics_after_sales_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "get_cs_manager_supporting_metrics_v1(text,date,date,text)",
+    "liveNormalizedHash": "256d0e9c83657b7bbaa03937015f76e3",
+    "liveSha256": "78b41a8f452a9f22870e50df6fd222f35e9b580b428fb320ca72aebffc636b93",
+    "repoDefinitions": [
+      "supabase/migrations/20260817063500_cs_manager_supporting_metrics_truth_v1.sql",
+      "supabase/migrations/20260817064000_cs_manager_supporting_metrics_truth_v2.sql",
+      "supabase/migrations/20260823033500_cs_manager_supporting_metrics_fast_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_doctor_conversation_conversion_summary_v1(date,date,text)",
+    "liveNormalizedHash": "c3d6aa5418c760bd6eaee0a0c2e1eefc",
+    "liveSha256": "f22d8e8b1d62f520a52e1e3686d295083c1b9610545868a00b9cfd2686c2db46",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_guard_conversation_review_points_v53()",
+    "liveNormalizedHash": "22fcebf748244a344978af5b1bfb3bfe",
+    "liveSha256": "5c3104347c3065b6a36d4544d1f43b3088e4445b5e788f135afce7840ae851af",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_doctor_cycle_reviews_v1(text,text,date,date)",
+    "liveNormalizedHash": "d7943c581cf0646c8e2ad5b8df61d16c",
+    "liveSha256": "fbc642b8d2c6c357a49ec4dc32c95905b003f5e24bbd5f52702ec0e4f960f356",
+    "repoDefinitions": [
+      "supabase/migrations/20260817065500_doctor_dashboard_cycle_truth_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_supersede_legacy_review_on_automatic_v2()",
+    "liveNormalizedHash": "b9a7d39f5382ac412fc91c3f1d7668f2",
+    "liveSha256": "bc768c1aa5eb8f5808ca73158cd48918e81cdd0669c7facae5959c5b04c4fc0d",
+    "repoDefinitions": [
+      "supabase/migrations/20261005123000_sales_intelligence_truth_boundary_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "function",
+    "name": "integration_sync_health_v1()",
+    "liveNormalizedHash": "2c02aeb0867e33167cea272c26eb4ffe",
+    "liveSha256": "e9cd134cec7c438fd395369b65f554c503d7bfef33aaa8ffb3d8d032736ef117",
+    "repoDefinitions": [
+      "supabase/migrations/20260906123500_unified_integration_sync_health_v1.sql",
+      "supabase/migrations/20260907064000_customer_order_sync_false_offline_guard_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "evaluate_integration_sync_alerts_v1()",
+    "liveNormalizedHash": "8ce8701b8d84ca9f938d5ccfda9641f2",
+    "liveSha256": "eea97bf82afdb9e0e8e8bba1901df48c77904e09552746346ce25809c20d0bd7",
+    "repoDefinitions": [
+      "supabase/migrations/20260906124000_integration_sync_alert_evaluator_v1.sql",
+      "supabase/migrations/20260907064000_customer_order_sync_false_offline_guard_v1.sql",
+      "supabase/migrations/20260921093631_attendance_biometric_alert_noise_cleanup_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_customer_service_at_risk_completion_v1(date,uuid)",
+    "liveNormalizedHash": "7237e1427fb42f94fc1fcee32d21c02d",
+    "liveSha256": "abd270d68dd619eba814533c80614426545c60142f6c8caaf3d157ebfac54ff6",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_retention_campaign_results_v1(date)",
+    "liveNormalizedHash": "22e1e3e90122296340427ad141834e12",
+    "liveSha256": "651dddb1f3a4ed8df25e084e7a674737d351983b5ae3cea25f37b3284b9f59bf",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_first_purchase_campaign_results_v1(date)",
+    "liveNormalizedHash": "f2feae110a0961f9eacaec9c8a04c6cd",
+    "liveSha256": "e8bc792e882d5d61e766f8abf11c68d4c3a613ea1cee1ce10582f466c5c6074a",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_customer_request_operational_insights(text,integer,timestamp with time zone)",
+    "liveNormalizedHash": "cdfd959ab0bc277717695d078ee27b85",
+    "liveSha256": "8cf498ca47656662014c262e1540a086a6599f54b59b79769e68945f4f5336e2",
+    "repoDefinitions": [
+      "supabase/migrations/20260811050000_customer_request_operational_insights.sql",
+      "supabase/migrations/20260811051200_customer_request_stage_sla.sql",
+      "supabase/migrations/20260811234500_customer_request_speed_and_staff_insights.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "whatsapp_auto_followup_list_v1(text,text)",
+    "liveNormalizedHash": "302f95c576d64b22507216b027fc384f",
+    "liveSha256": "6fbd47cbf1fb107921bb3f05d037644fe870f3549d4f3b9cb314e0d18a2c6ff7",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_capture_whatsapp_verified_purchase_v16()",
+    "liveNormalizedHash": "5da5d45efde57695ae6476555f68bc00",
+    "liveSha256": "7b374cd1f73c05f879e7cace5184f82269505cf88482383aa41882feb78373cf",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETIRE AFTER CUTOVER"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_create_case_rescue_task_v24(uuid)",
+    "liveNormalizedHash": "c4565bd600b605983db7346baad21f42",
+    "liveSha256": "0589ad1bb320a1306a0e6822443d3894275a64038a2be6721c71c6ff5a37786b",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETIRE AFTER CUTOVER"
+  },
+  {
+    "type": "function",
+    "name": "whatsapp_auto_followup_confirm_sale_v1(uuid,text,text,date,numeric,numeric,text)",
+    "liveNormalizedHash": "da90c3dc933c7070f391c5a8d453fbfd",
+    "liveSha256": "298f37a0c5af6dadbf067f419db00a7565a14393a43de72f60a51007464c2397",
+    "repoDefinitions": [
+      "supabase/migrations/20260917073000_whatsapp_followup_sale_evidence_v1.sql",
+      "supabase/migrations/20260917080000_whatsapp_followup_sale_identity_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETIRE AFTER CUTOVER"
+  },
+  {
+    "type": "function",
+    "name": "whatsapp_auto_followup_update_status_v1(uuid,text,text,text)",
+    "liveNormalizedHash": "f9f6322241482fd1e24e60e97a8c67ce",
+    "liveSha256": "98dc8ec0db9683eaf2ea85681088a7ee72fee427ec865170a9feca59b0580234",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETIRE AFTER CUTOVER"
+  },
+  {
+    "type": "function",
+    "name": "whatsapp_auto_followup_list_v2(text,text)",
+    "liveNormalizedHash": "173dfa81ee8eb11a92d31540e02aaefc",
+    "liveSha256": "f9b033b1d5c81dc777337b1e498f5e389c974e7fe072646ed30fd3705cb9de17",
+    "repoDefinitions": [
+      "supabase/migrations/20260917070000_whatsapp_followup_permissions_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "whatsapp_auto_followup_update_status_v2(uuid,text,text,text)",
+    "liveNormalizedHash": "1c31ee7ec1b5af8964f191b1d3b8efc5",
+    "liveSha256": "af5734092d3beb52f95c5b97f249fafb34b14938e1ba88eba986ab318a5a726e",
+    "repoDefinitions": [
+      "supabase/migrations/20260917070000_whatsapp_followup_permissions_v2.sql",
+      "supabase/migrations/20260917073000_whatsapp_followup_sale_evidence_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETIRE AFTER CUTOVER"
+  },
+  {
+    "type": "function",
+    "name": "whatsapp_auto_followup_revoke_sale_v1(uuid,text)",
+    "liveNormalizedHash": "6ff388cab897828399468cfcbfb1665e",
+    "liveSha256": "73cb02ad41c537e64cd14dd1e76158d2c0251da389f7939915aeb5e637cab1e9",
+    "repoDefinitions": [
+      "supabase/migrations/20260917073000_whatsapp_followup_sale_evidence_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETIRE AFTER CUTOVER"
+  },
+  {
+    "type": "function",
+    "name": "get_doctor_conversation_quality_summary(text,integer)",
+    "liveNormalizedHash": "5ade88f4104066380e61a8a526580407",
+    "liveSha256": "5562634189b49e521e275f22fd551fe293f084540f7a19d846bbfc5d197fd90f",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_branch_conversation_conversion_summary_v1(date,date)",
+    "liveNormalizedHash": "52fd6f4b58f204bd40931aad2351bfef",
+    "liveSha256": "702eb9e582336d65b9bcabb82b38d58dc9d4e0dc006faf9c05225b1ae99abea4",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_cs_dashboard_reviews(text,text,date,date)",
+    "liveNormalizedHash": "035dc74ca657b3c2ba9d30114cf306ee",
+    "liveSha256": "da75292c9cfff6a34995d17d3e92c32cca5de92b84131d3de548f6d8fc53ba90",
+    "repoDefinitions": [
+      "supabase/migrations/20260817054500_fix_cs_dashboard_review_identity_and_ops_truth_v1.sql",
+      "supabase/migrations/20260817055000_fix_cs_dashboard_review_identity_type_v2.sql",
+      "supabase/migrations/20260817055500_fix_cs_dashboard_review_legacy_identity_v3.sql",
+      "supabase/migrations/20260817060000_fix_cs_dashboard_review_cycle_identity_v4.sql",
+      "supabase/migrations/20260817060500_cs_identity_truth_v5.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "calculate_weekly_manager_metrics(text,text,date,date)",
+    "liveNormalizedHash": "69841ab8e1efbc038bbecfec2721b6c8",
+    "liveSha256": "e16c1105ce0a8691e82c066bdc10707720bd0e6abc2e7560b334ad6d88442f9c",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_manager_doctor_alerts(text,integer)",
+    "liveNormalizedHash": "5e1357db309c6bf36378616ce8e94ca3",
+    "liveSha256": "af5cef93f53abbbe1753064f118e99ef80eb320fc06de77e05bb6dac1eb39c1f",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_doctor_today_review_count(uuid)",
+    "liveNormalizedHash": "549b1dc7b71c04de15b8ac8486c478a0",
+    "liveSha256": "8aa0e61e498b566af8ace5ce2f22c9d5e236acb3e5b43b2ec6e812d09c18e990",
+    "repoDefinitions": [
+      "supabase/migrations/20260906140000_authorize_doctor_dashboard_rpc_functions_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "record_employee_points_transaction_v3(uuid,numeric,text,text,text,uuid,text,text,text,text,text,jsonb)",
+    "liveNormalizedHash": "ea803eb63c8c774abcdb738c0d281dcc",
+    "liveSha256": "2f66666d1f924da10f9376be309adca03371ab4a7c21f3980b3e85b8e21c9676",
+    "repoDefinitions": [
+      "supabase/migrations/20260826152000_points_event_identity_and_command_v3.sql",
+      "supabase/migrations/20260912105000_heba_mohamed_and_review_points_authorization_v3.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_monthly_evaluation_server_evidence_v5(uuid,date)",
+    "liveNormalizedHash": "c80ae6e4bc094d98014af6764b70e04d",
+    "liveSha256": "553589172ae54c7125d4d4278de32e0544196727b2d3ebd19256a27d70d3898c",
+    "repoDefinitions": [
+      "supabase/migrations/20260930113000_monthly_evaluation_score_truth_v5.sql",
+      "supabase/migrations/20260930155500_monthly_evaluation_server_evidence_type_compat_v5.sql",
+      "supabase/migrations/20261005133000_monthly_evidence_canonical_reads_v2.sql",
+      "supabase/migrations/20261005150000_monthly_evidence_attendance_type_fix_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_monthly_evaluation_profile_contract_v5(text)",
+    "liveNormalizedHash": "0d3ab343d2d68b669b6fe6503b5c5aee",
+    "liveSha256": "32af333cb494bf2d73a93787e3a20b6ae6ef46a07c72df4d5e860ef56c5d6fe8",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "sales_intelligence_reconcile_case_set_v1(uuid,text[])",
+    "liveNormalizedHash": "c160f6ba18118858818dda09308d3497",
+    "liveSha256": "202a0615d01e3fd0665d87d1a66eb497151ca69b7c3d48419aaab8fcfbbea15d",
+    "repoDefinitions": [
+      "supabase/migrations/20261003193000_si_case_lifecycle_reconciliation_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "function",
+    "name": "correct_customer_followup_data_legacy_v1(text,text,text,text,text,text,text,text)",
+    "liveNormalizedHash": "737071d33b07bce7c9aeba3c0f271ee0",
+    "liveSha256": "a8d7372dfa8d29db4f8c0ad3a3c1e53fb0f29bf833402b5781d12b52f2c519d9",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "correct_customer_followup_data_v1(text,text,text,text,text,text,text,text)",
+    "liveNormalizedHash": "f0f7dfc88157dde7f1f91a3933d1bd0a",
+    "liveSha256": "371b1ea71f4b1c9643b6c45133d241eceddf9cb7f1bf1ae8deb2f8437fbee17b",
+    "repoDefinitions": [
+      "supabase/migrations/20260720_customer_followup_customer_correction.sql",
+      "supabase/migrations/20261005131000_followup_writer_surface_hardening_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "merge_open_followup_duplicates_legacy_v1(text,text[],text,text,text)",
+    "liveNormalizedHash": "d3490d38887bdca76afd5a023522a3c9",
+    "liveSha256": "c911fc12b0fdad9d4de9905ff24cb602eb57a0bef1bd2d82ebbeb816b13b5c7f",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "merge_open_followup_duplicates_v1(text,text[],text,text,text)",
+    "liveNormalizedHash": "9fdf65dbe8f410afd60d9d4aa7ff3439",
+    "liveSha256": "4620804c7fdc19dbc95fb2d9803218d88b6983a73f1c7c67d5b029b5453b1780",
+    "repoDefinitions": [
+      "supabase/migrations/20260720_customer_followup_duplicate_management.sql",
+      "supabase/migrations/20261005131000_followup_writer_surface_hardening_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "transfer_customer_followup_branch_legacy_v1(text,text,text,text,text)",
+    "liveNormalizedHash": "840354a93c06ed720c2c44772f2cec7f",
+    "liveSha256": "5e0d87f8aa6e114a1df9ba0da44f43fa49f00d2dcd568f4b35474f7fa48baaa5",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "flag_burst_followup_registrations()",
+    "liveNormalizedHash": "ec72a0c1c08842eb3a3b5c5a4d2642ac",
+    "liveSha256": "f20122829f5f17cf0f0160cbf9e3428f85414f2af494dec196529be812f233b4",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "transfer_customer_followup_branch_v1(text,text,text,text,text)",
+    "liveNormalizedHash": "7cdba894fd46043ce00e14e7c9b785d7",
+    "liveSha256": "00e6882ad429cf54031e8761a49187a47bd65c7ed34f439b98510afa78e0542f",
+    "repoDefinitions": [
+      "supabase/migrations/20260721_transfer_customer_followup_branch_v1.sql",
+      "supabase/migrations/20261005131000_followup_writer_surface_hardening_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "settle_doctor_self_logged_followup(text)",
+    "liveNormalizedHash": "003836fbd553d3eadb52fb4cbb4554a2",
+    "liveSha256": "b3eb8a4416bc73266fc0b8c2420b309d676e9d1e1a2d7c48816f8705ebf719da",
+    "repoDefinitions": [
+      "supabase/migrations/20260830204000_points_cycle_consistency_doctor_writers_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "settle_followup_doctor_points(text,text)",
+    "liveNormalizedHash": "844fdaa395777444be7c3ce6c542f6d9",
+    "liveSha256": "7e9f133a167cfb10789cb3a3c96ba69961eb0fbca11a113d294224092548baa8",
+    "repoDefinitions": [
+      "supabase/migrations/20260829220000_customer_request_policy_v2_and_followup_points.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_sync_whatsapp_action_evidence_v17()",
+    "liveNormalizedHash": "798a64bdb238bcaef18d636ad3debe0d",
+    "liveSha256": "338f7b3d371d987794e97b09f24b6b33617c01ac8356bbb99bce65100749ba65",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_create_customer_followup_request_legacy_v1(jsonb)",
+    "liveNormalizedHash": "73d1d939de5b7788339f5532d06e458f",
+    "liveSha256": "bf244a0cbace6e78fbfd322f8819b0ba9f1c9bf63930e436c1a6084ea15b1e51",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_approve_whatsapp_customer_request_action_v2(uuid)",
+    "liveNormalizedHash": "d1d6e6877cf0cf20f66529dc16c63dfc",
+    "liveSha256": "6c47210276ae8fba60eace7bc32f61cba4be81fa20f6309662a27d8810ae6453",
+    "repoDefinitions": [
+      "supabase/migrations/20261005141000_whatsapp_action_truth_guard_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_materialize_whatsapp_action_v1(uuid)",
+    "liveNormalizedHash": "fa3a8e11b41d3bd2ae456f643543a3a4",
+    "liveSha256": "cefd16a5d9a2c4d2151d9e8378b0d8db5b4c3282a85f21fec40d5bda9d5e9a51",
+    "repoDefinitions": [
+      "supabase/migrations/20261005141000_whatsapp_action_truth_guard_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "set_conversation_reviews_updated_at()",
+    "liveNormalizedHash": "266fafef5feb1fc414e74f6eb9113ccd",
+    "liveSha256": "284961f8543b73ebe8b4e0ad6c9cefce648e97a6e2d7e25f14aa059d154ace98",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "set_updated_at()",
+    "liveNormalizedHash": "e0c972e313aae281103db27f7e8d74db",
+    "liveSha256": "cf5d6315eb5839f935fda6e1a4cec1f97993f2845eac25a7dd9671e413afd860",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "set_conversation_review_updated_at()",
+    "liveNormalizedHash": "19120de582b69f988ac78a37dbdb6e2d",
+    "liveSha256": "e7c4bc5d5ba1d310d48c7c4f2f0d67e65ca44c1dfa9dba7bc59db5688e76d525",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "normalize_customer_service_branch_owner()",
+    "liveNormalizedHash": "89bf7ce153a9dbb06bb7ad7b782d54e7",
+    "liveSha256": "ac5c8766f8820437bdb42cc6140e27a9a925568ca71913596b9fd5aed8c737fe",
+    "repoDefinitions": [
+      "supabase/migrations/20260712162000_fix_customer_service_branch_owners.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "set_conversation_review_report_date()",
+    "liveNormalizedHash": "30daa3b8d062bd7228f3ebec395ba9f3",
+    "liveSha256": "8c50cacf027a8f6c6f83fb23b9ee6b55de745453358b85778f18ea3e88e26f59",
+    "repoDefinitions": [
+      "supabase/migrations/20260713153000_conversation_reviews_report_date.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_guard_daily_followup_state_v2()",
+    "liveNormalizedHash": "d15ea61061880023e0815f0cf22cfb15",
+    "liveSha256": "ecbf5943c5e8aa6a1843097a425ad0bc8d54d3a2a5f8edf9b3283ff7aaf2106f",
+    "repoDefinitions": [
+      "supabase/migrations/20260719_customer_service_followup_guards_operations_v2.sql",
+      "supabase/migrations/20260826103500_customer_followup_transition_guard_v3.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "daily_followups_set_identity_key()",
+    "liveNormalizedHash": "766e9bfc6c0bec693f44129213fa2b98",
+    "liveSha256": "c86c8f3df39bfb2e4b3a7714d95f78f87643b4ead31ff34cf1873f6010a74e23",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "validate_daily_followup_write()",
+    "liveNormalizedHash": "3cbffc464595a08c3fc6100b42ed6fe5",
+    "liveSha256": "7d95f9e5ae1ddd6b09d64bbd94cdd52eef4b672eada1981e3a0d314b9af9045b",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "audit_daily_followup_change_v1()",
+    "liveNormalizedHash": "75d6a572140d47f9773ef4cee8906ef1",
+    "liveSha256": "e930874c9b58dfbb9cf9f6ac59555343fc9a29b1a3a780fef96867888ea7deb2",
+    "repoDefinitions": [
+      "supabase/migrations/20260720_customer_followup_audit_log.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "refresh_new_daily_followup_metrics()",
+    "liveNormalizedHash": "b69d359013c2970e53f57e8ba528b0cd",
+    "liveSha256": "799940fa9790486be84a2c42c944b390e3aaa2c394f9d9f973b580d0a2c71105",
+    "repoDefinitions": [
+      "supabase/migrations/20260726213000_refresh_all_followup_customer_metrics.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "assign_customer_request_primary_branch_manager()",
+    "liveNormalizedHash": "ce26c4e554cfffdc0cca9da52307e720",
+    "liveSha256": "c7c278becb81633f827e48c7c78928612c6305c13bf65315a2500a4bef8988b7",
+    "repoDefinitions": [
+      "supabase/migrations/20260811060300_customer_request_primary_branch_manager.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "customer_request_autolink_dawaawael_v1()",
+    "liveNormalizedHash": "33d0d14e4d971a8e0867c23a20363654",
+    "liveSha256": "f5dba12e3738d24f591cf8f05cfda327daff6093b7429a9c175202c126397f65",
+    "repoDefinitions": [
+      "supabase/migrations/20260814030500_customer_request_source_enrichment_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "function",
+    "name": "customer_request_exact_source_mirror_v1()",
+    "liveNormalizedHash": "2e4fee190d5ae04972c5326aa970e327",
+    "liveSha256": "cb50edc763f5e15e2e609167cfab24053d06c5886794838095f58a383e47e66b",
+    "repoDefinitions": [
+      "supabase/migrations/20260815042500_customer_request_exact_source_mirror_v5.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "function",
+    "name": "customer_request_enrich_product_staff_v1()",
+    "liveNormalizedHash": "8d84be4d26538260fb4e6b6ffface6e1",
+    "liveSha256": "86d4ad487697d3a5bdef53f7d0e13e6fe9e54c15ca6b2aa6bc7e76c145ad7943",
+    "repoDefinitions": [
+      "supabase/migrations/20260815041800_customer_request_product_staff_linkage_export_v1.sql",
+      "supabase/migrations/20260824195000_preserve_stable_source_staff_identity_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "function",
+    "name": "trg_followup_self_log_settlement()",
+    "liveNormalizedHash": "a7ab257219b80006f85737475eab72ee",
+    "liveSha256": "99e5920e6edece4cc5a20dfc0d7b61e7b487166d59034c3155ea2010108e3890",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "trg_compute_followup_points()",
+    "liveNormalizedHash": "2ee98c8965ad1806b38e789814226c72",
+    "liveSha256": "30c9e94e37b947694f3f62667ea6047f34e12e003739854d58e68d1e3b96222e",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "customer_request_doctor_points_trigger()",
+    "liveNormalizedHash": "704f15c5ea1987d2daec3242b12dab89",
+    "liveSha256": "1e52c0f86dacf83aeb6959b8e52e91b3989d27447c21256544de6ab2d8f01408",
+    "repoDefinitions": [
+      "supabase/migrations/20260824013000_customer_request_doctor_points_v1.sql",
+      "supabase/migrations/20260824014500_customer_request_points_retry_on_identity_link.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "customer_request_canonical_source_identity_v2()",
+    "liveNormalizedHash": "55fb8973b0f78cda39b4febd847af0c3",
+    "liveSha256": "b769cd83639a127f187b22a49d8026186898531c6e02881b99b1c614b370702d",
+    "repoDefinitions": [
+      "supabase/migrations/20260824194000_customer_request_canonical_source_identity_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "function",
+    "name": "trg_followup_doctor_points()",
+    "liveNormalizedHash": "c6f6fe87d9dc4e8aa82483a4c4968e37",
+    "liveSha256": "2a23df078410fde0ac75b3852bf2d6dd397647c914d3d0f7fcb19a7843383f52",
+    "repoDefinitions": [
+      "supabase/migrations/20260829220000_customer_request_policy_v2_and_followup_points.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "bind_conversation_review_reviewer_v1()",
+    "liveNormalizedHash": "2ce7a56c3ac6938fb1ac0afb48c01ffc",
+    "liveSha256": "68f61b627fdd98935ed694220755762b54a69a8f9848c5dc783686e7e414e305",
+    "repoDefinitions": [
+      "supabase/migrations/20260906173600_fix_conversation_review_reviewer_identity_v1.sql",
+      "supabase/migrations/20261008160000_conversation_review_manager_correction_versioning_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "set_conversation_review_submission_fingerprint_v2()",
+    "liveNormalizedHash": "cd1443d6ffaec85e53b4434e93675735",
+    "liveSha256": "f9f05e7b2abc6ed27ca0399b0b2f65dd55e47ebc957108f12ef22dface052f94",
+    "repoDefinitions": [
+      "supabase/migrations/20260906175500_conversation_review_save_hardening_v2.sql",
+      "supabase/migrations/20260907051000_fix_conversation_review_pgcrypto_schema_v3.sql",
+      "supabase/migrations/20261008160000_conversation_review_manager_correction_versioning_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_whatsapp_recovery_workflow_sync_v12()",
+    "liveNormalizedHash": "07ecd14dbd39d63b356f2f4abce0d28e",
+    "liveSha256": "df67fa6a377ca814baea4d519d093aad110498931e2a37283507bf9d5ce437c8",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_sync_whatsapp_invoice_evidence_v17()",
+    "liveNormalizedHash": "81fd56f20732a210959c028eb7b22125",
+    "liveSha256": "aed15283f90abe3db53fb807e48b9e709dedd78313b3ce0c7497cb4da09163ad",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_whatsapp_followup_resolve_customer_identity_v1()",
+    "liveNormalizedHash": "5dee8016c2c6264cd35bb73157b5273e",
+    "liveSha256": "081fe118faf2f40106d4effaa451ee4f150faf27af5df93d55034ce44d019d49",
+    "repoDefinitions": [
+      "supabase/migrations/20260917074500_whatsapp_followup_customer_identity_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_guard_automatic_conversation_review_writer_v2()",
+    "liveNormalizedHash": "4a8fc75913e9057fe7468bf819d275b2",
+    "liveSha256": "63120e221987afeaed9b726d15674922a93ab824dcd7e4976a1c4cd96e53236c",
+    "repoDefinitions": [
+      "supabase/migrations/20261005124500_automatic_review_writer_guard_v2.sql",
+      "supabase/migrations/20261008160000_conversation_review_manager_correction_versioning_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_guard_whatsapp_conversation_action_v2()",
+    "liveNormalizedHash": "0f7daf993c7aaf4df6c7ea2cdd08438a",
+    "liveSha256": "4f2de4fa2fd22cdb2861570e548045d7ef7abd887d6757eb100441cc003d16ea",
+    "repoDefinitions": [
+      "supabase/migrations/20261005141000_whatsapp_action_truth_guard_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_create_customer_followup_request_v1(jsonb)",
+    "liveNormalizedHash": "ac332b646aa48517d01ba43e387465bc",
+    "liveSha256": "3f1311fd36bded6a7fcce39c1b716e831395f4eaef8f4c00e7a50a7fd049a5c5",
+    "repoDefinitions": [
+      "supabase/migrations/20261005134500_customer_followup_request_writer_guard_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_create_or_link_customer_followup_v1(text,text,text,text,text,text,text,text,text,date,text,text)",
+    "liveNormalizedHash": "e75721ea1c67310ff7a062cdbba70497",
+    "liveSha256": "72b35812c5f0d7468174fcb172cbccce3919c495bb7b4433db5d22a7ee2d343e",
+    "repoDefinitions": [
+      "supabase/migrations/20260824180000_customer_followup_lifecycle_commands_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_replace_customer_service_daily_queue_v1(text,date,jsonb,boolean)",
+    "liveNormalizedHash": "616d7b7d437e0a21367888526de72f16",
+    "liveSha256": "89f7846f1c5b857729edfffefc1476d291b5503bd2660a139058383caac19e14",
+    "repoDefinitions": [
+      "supabase/migrations/20260824190000_customer_service_queue_command_boundary_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_update_customer_service_queue_item_v1(uuid,text,text,boolean,date,boolean,boolean,boolean)",
+    "liveNormalizedHash": "8af7416a6bf08e265c88787430b5458c",
+    "liveSha256": "764765dd430ed8fd25f72ccbb7350c27c307b3cbceebb328f86f4114eb0dad56",
+    "repoDefinitions": [
+      "supabase/migrations/20260824190000_customer_service_queue_command_boundary_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "refresh_followup_metrics_after_sales_invoice()",
+    "liveNormalizedHash": "935c9ea0905644970938156d29c1486e",
+    "liveSha256": "2b695f76fa002c7053bb473335a2a2b08edcf36f3368867f8440f2897bb3ca8e",
+    "repoDefinitions": [
+      "supabase/migrations/20260726213000_refresh_all_followup_customer_metrics.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_customer_sales_truth_refresh_v2()",
+    "liveNormalizedHash": "2a0593be739135ce9842d7e5f7cc496a",
+    "liveSha256": "0d7837f66b99456cb4b63c780c84cc7c856b57b9cf57d1b2af351d6b2c1be9f9",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "import_customer_followup_results_v1(uuid,text,text,jsonb)",
+    "liveNormalizedHash": "619e2b3935d76556406467cddfd35ee7",
+    "liveSha256": "3e274db9991d92a976d9363f6cb3b29bc9b5e745212ac96da1f0ecddc3e5a898",
+    "repoDefinitions": [
+      "supabase/migrations/20261005131000_followup_writer_surface_hardening_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "ingest_dawaawael_customer_orders(jsonb,text)",
+    "liveNormalizedHash": "3d5781e1bab972c1398b76f99e4bd039",
+    "liveSha256": "af00908ecfa39e8108690bd9ceb8a8d45224b5a3a960b32142a9a955bea11e79",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "function",
+    "name": "calculate_weekly_manager_metrics_v3(text,text,date,date)",
+    "liveNormalizedHash": "12a9524d9d854d3c2e79d9f6a67f042a",
+    "liveSha256": "02259e96c099775a525dc30ad4b5fb2800a925977026c0c9465eafb1fab5f086",
+    "repoDefinitions": [
+      "supabase/migrations/20260811220000_customer_service_cohort_intelligence.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "calculate_weekly_manager_metrics_v5(text,text,date,date)",
+    "liveNormalizedHash": "455f68ed8ac866f78736feaa80583fa6",
+    "liveSha256": "fb49ba4158df98ad4675d6131e56d04667012377f581299f2f047a387d003814",
+    "repoDefinitions": [
+      "supabase/migrations/20260823040500_weekly_manager_metrics_composition_v6.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_app_data_health_v2()",
+    "liveNormalizedHash": "2e2a7aa70ffa9ce44d8fce13842cabc7",
+    "liveSha256": "a82affd53ee4617fa6d8f0be87e832b6e3539a87bdea34e6a2805272212e0159",
+    "repoDefinitions": [
+      "supabase/migrations/20260822_decouple_app_data_health_refresh.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_customer_service_daily_queue_completion_v1(date,uuid)",
+    "liveNormalizedHash": "f7101ee51aac0a4bb7c307feba9f1287",
+    "liveSha256": "e81aeb1506967b481db3f5d62fc88b60706da5d07010a569668574f59a6eee62",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_customer_service_cycle_cohorts(text,date,integer,uuid)",
+    "liveNormalizedHash": "2b04b996bac7af6df6f5fdbffa54b854",
+    "liveSha256": "b73085d77fcca524b809398f9e6da10c85a5cd0cdf9b4c251ed67aaf35173dec",
+    "repoDefinitions": [
+      "supabase/migrations/20260811220000_customer_service_cohort_intelligence.sql",
+      "supabase/migrations/20260811221500_customer_service_cohort_performance.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_customer_service_watchlist_performance(text,date,integer,uuid)",
+    "liveNormalizedHash": "c8b7a17808933ea5a7d702ae3a7275a8",
+    "liveSha256": "e3034dbd36aca99ec1841e24026f1a9bd974a4ce866c00cc2f28f8abfa3be179",
+    "repoDefinitions": [
+      "supabase/migrations/20260811220000_customer_service_cohort_intelligence.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_customer_request_sync_health_v2()",
+    "liveNormalizedHash": "beefaa03fcb6dff330b93952edfff28e",
+    "liveSha256": "b0da8cad3cb49da62285b69f016d7710f78d2ad42e2f366f5c23403724a71136",
+    "repoDefinitions": [
+      "supabase/migrations/20260824123500_customer_request_sync_health_admin_guard.sql",
+      "supabase/migrations/20260824132500_customer_request_sync_health_global_manager_guard.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "import_customer_service_queue_results_v4(uuid,text,text,jsonb)",
+    "liveNormalizedHash": "17b3f307703398c053ae331606f3a509",
+    "liveSha256": "cb05419df8dc2467c8acee8ef4900e02a1b6d9b9af2a8af1ad7e891267ce60f2",
+    "repoDefinitions": [
+      "supabase/migrations/20260814_customer_service_doctor_workbook_v4.sql",
+      "supabase/migrations/20261005131000_followup_writer_surface_hardening_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "trg_request_self_log_settlement()",
+    "liveNormalizedHash": "0b85f1074688a536fbd110d1c61a6f83",
+    "liveSha256": "d999587b9cec224b7f6ae80a6cdb4fe6ea2125fd543c4bdde90a1c2415320b0f",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_employee_workspace_dashboard_v3(uuid,text,text,text,text,text)",
+    "liveNormalizedHash": "6f9645566c2cad2880d6d63d7bcc5a6b",
+    "liveSha256": "533bcb1c8099cea6afee010b346eab3cf880f9331b9b093c7770f604092830d4",
+    "repoDefinitions": [
+      "supabase/migrations/20260826151000_employee_workspace_dashboard_v3.sql",
+      "supabase/migrations/20260826152500_employee_workspace_identity_guard_v3.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_can_access_customer_request_branch(text,text)",
+    "liveNormalizedHash": "306deeca4b8a335e9f4eae91243765d2",
+    "liveSha256": "747589e033e2912c093ba17ae656556c9504e0925d71ab63e79cb1084e342e52",
+    "repoDefinitions": [
+      "supabase/migrations/20260824150000_harden_customer_requests_rls_v2.sql",
+      "supabase/migrations/20260824151000_align_customer_request_permission_ceiling_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "refresh_followup_metrics_after_sales_invoice_insert_v2()",
+    "liveNormalizedHash": "9f04955102d82471ad2173c2f90334a2",
+    "liveSha256": "ae97b39aad3185b285b93c15e561be96925cb3075660abc561d90bc5a78499cf",
+    "repoDefinitions": [
+      "supabase/migrations/20260826160000_batch_daily_followup_metrics_after_sales_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "refresh_followup_metrics_after_sales_invoice_update_v2()",
+    "liveNormalizedHash": "1c9ff847630d239ae6b2e7b3b7c9de12",
+    "liveSha256": "63c98d560c37b72faa7555f580382f83345038bb5cdc5eeccad0524706937b63",
+    "repoDefinitions": [
+      "supabase/migrations/20260826160000_batch_daily_followup_metrics_after_sales_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "refresh_followup_metrics_after_sales_invoice_delete_v2()",
+    "liveNormalizedHash": "66a314db5daa996e98c211c554efa522",
+    "liveSha256": "db1671a79872feedab0d2288b2264b572168dbc86186822122a56852334a3be9",
+    "repoDefinitions": [
+      "supabase/migrations/20260826160000_batch_daily_followup_metrics_after_sales_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "record_employee_points_transaction_v4(uuid,numeric,text,text,text,uuid,text,text,text,text,text,jsonb,boolean)",
+    "liveNormalizedHash": "248d3e5d5abf4e2e2ed6eb86ab65d087",
+    "liveSha256": "e4409e79794f4cde828875433bd1bd4df2d965c93af55aba1c063bc30a49c71e",
+    "repoDefinitions": [
+      "supabase/migrations/20260925152000_points_command_overlap_guard_v4.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "check_sync_health_v1()",
+    "liveNormalizedHash": "f7f55adf5956a061633fe2d0c5438710",
+    "liveSha256": "c706ed17e9615d0926c287591de4d823152877658ede89e78b3625e84489f1bd",
+    "repoDefinitions": [
+      "supabase/migrations/20260907043500_notification_sync_producer_boundary_v2.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_reconcile_sales_intelligence_case_v22_v1(text)",
+    "liveNormalizedHash": "5e08ca9b5d8c81f54eab3a8fef3d3d9c",
+    "liveSha256": "6316143ebcbd179ab6741f6f05515d80ba183d94d2a74d79bf214e020d6bebdb",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "trg_monthly_evaluation_final_snapshot_v5()",
+    "liveNormalizedHash": "c380a9444875666310da1dd672917b11",
+    "liveSha256": "d1779397f451fcc03ed1fffe4a211b6e26d8de9c5f6135ad8ceaa2933e3768e1",
+    "repoDefinitions": [
+      "supabase/migrations/20260930113000_monthly_evaluation_score_truth_v5.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_monthly_evaluation_evidence_drift_v5(uuid,date,jsonb)",
+    "liveNormalizedHash": "032ac85a981cca98ddceead96a857b2e",
+    "liveSha256": "30ce5e553894e0502f323e59f44b3bc7d3aec7a3319139e3ff533c0be1f3a7a4",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "trg_monthly_evaluation_profile_contract_v5()",
+    "liveNormalizedHash": "9b7a07cdc6f7c7a9536ef60585e85a3a",
+    "liveSha256": "77a94d4525d3d207b5554f0a0e598431eb42042548bf79094b7d728913eb0717",
+    "repoDefinitions": [
+      "supabase/migrations/20260930113000_monthly_evaluation_score_truth_v5.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "rebuild_customer_analysis()",
+    "liveNormalizedHash": "8714df34e451957a6016b89887dadbca",
+    "liveSha256": "bf7365c1c655d275b6705fa07313c338a3c72021754de5151abc87c10f48bcd5",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "dawaa_invoice_post_import_refresh_v1(date,date)",
+    "liveNormalizedHash": "7dd45fd0158610bdb0960bf95ea6351a",
+    "liveSha256": "ed058ac13207582e38a3a2c17df3b2ff9a7569cdd92562ea54832763d0bcdd84",
+    "repoDefinitions": [
+      "supabase/migrations/20260817012000_refresh_clean_sales_analytics_after_invoice_import_v29.sql",
+      "supabase/migrations/20260817041000_dashboard_performance_v32.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "function",
+    "name": "get_weekly_manager_metrics_fast_v1(uuid,text,text,date,date,integer)",
+    "liveNormalizedHash": "0d64959b24e5dfc6a1fab72b7f2bb6a9",
+    "liveSha256": "bf08cfab262c2294ff2f6e6b0b4d95dc1886804c7a023826b171ff337e841776",
+    "repoDefinitions": [
+      "supabase/migrations/20260827005000_manager_weekly_evaluation_fast_path_v1.sql"
+    ],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "function",
+    "name": "get_staff_monthly_evaluation_evidence_drift_v5(uuid,uuid,date)",
+    "liveNormalizedHash": "e1820070df16170f837982e7732f7d78",
+    "liveSha256": "422049f6714a473c667509b845f11b84fd08a7cadfd6a549e3813e5c4feb30fc",
+    "repoDefinitions": [],
+    "representation": "name/signature candidate only; semantic parity requires comparison",
+    "classification": "LEGACY READ ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "bind_conversation_review_reviewer_v1",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "ced1d81f8adf40cb085e9bd73b51920c9361824fb52a85e74cb7774ed6d19f9b",
+    "repoDefinitions": [
+      "supabase/migrations/20260906173600_fix_conversation_review_reviewer_identity_v1.sql",
+      "supabase/migrations/20260918024614_automatic_review_notification_identity_v1.sql",
+      "supabase/migrations/20261008160000_conversation_review_manager_correction_versioning_v1.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "conversation_review_supersede_legacy_v2",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "d4c8386df0a8522aa067335130257fc6e7eb7735080eacd13e7e299a03d0f90b",
+    "repoDefinitions": [
+      "supabase/migrations/20261005123000_sales_intelligence_truth_boundary_v2.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "set_conversation_sales_reviews_updated_at",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "1037c4ace9494dda3cf524216fdbc5e9b71d28f7f6be65a0925774e8e582ba8e",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "trg_attach_review_staff_id",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "20da27ad64c3f74c3626fdc3bb44c376c72393541d1a2d0e742ffc227b70e419",
+    "repoDefinitions": [
+      "supabase/migrations/20260716_fix_doctor_reviews_and_header_notifications.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETIRE AFTER CUTOVER"
+  },
+  {
+    "type": "trigger",
+    "name": "trg_conversation_review_report_date",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "c612db790a474373e2a64936dfbb59f87421bf3f363a4257e603d16fb0103726",
+    "repoDefinitions": [
+      "supabase/migrations/20260713153000_conversation_reviews_report_date.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "trg_conversation_review_updated_at",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "07229322707a1e2ef785126e467a43425d64c60e2d88514bd857da0deeb1bee1",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "trg_notify_doctor_on_conversation_review",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "49cdba7463c1eab89f42f5cbee89d8472500d023bda0bccdfaea975981d1243b",
+    "repoDefinitions": [
+      "supabase/migrations/20260716_doctor_personal_workspace_notifications_payroll.sql",
+      "supabase/migrations/20260716_fix_doctor_reviews_and_header_notifications.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "zz_set_conversation_review_submission_fingerprint_v2",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "d9690f1088aa0d6e15aa9a6205a68565b02ff4f1762d543212cee7049e43a007",
+    "repoDefinitions": [
+      "supabase/migrations/20260906175500_conversation_review_save_hardening_v2.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "zzzz_automatic_conversation_review_writer_guard_v2",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "7700c5296fa143fed30e8b456f502dab3c667fe28a1ebe7e6a7e1d2da9ac09ab",
+    "repoDefinitions": [
+      "supabase/migrations/20261005135500_automatic_review_guard_order_v2.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "aaa_customer_request_canonical_source_identity_v2",
+    "parent": "customer_requests",
+    "liveSha256": "6ec65f2548b4c30de16e03ef28dac1a1aa2a10223311a382e5b32cb4bbb06111",
+    "repoDefinitions": [
+      "supabase/migrations/20260824194000_customer_request_canonical_source_identity_v2.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "trg_customer_request_autolink_dawaawael_v1",
+    "parent": "customer_requests",
+    "liveSha256": "b7b5801eb372391f8d6415a9acac5f753efee5b7de4bbbf39fd33d5836f4edd2",
+    "repoDefinitions": [
+      "supabase/migrations/20260815040500_customer_request_source_payload_trigger_v3.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "trg_customer_request_doctor_points",
+    "parent": "customer_requests",
+    "liveSha256": "66e8627608d5ca95304e8be7a1161f95f57385fde82d453fbb307a49f84a665d",
+    "repoDefinitions": [
+      "supabase/migrations/20260824013000_customer_request_doctor_points_v1.sql",
+      "supabase/migrations/20260824014500_customer_request_points_retry_on_identity_link.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "trg_customer_request_enrich_product_staff_v1",
+    "parent": "customer_requests",
+    "liveSha256": "2c4ee0fc1dcbd9ffea1dd5a7801e1a26ef1e71ad5f99b1531595d0f0fc44422d",
+    "repoDefinitions": [
+      "supabase/migrations/20260815041800_customer_request_product_staff_linkage_export_v1.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "trg_customer_request_primary_branch_manager",
+    "parent": "customer_requests",
+    "liveSha256": "a2684b8100104cf4b915b79120d4e8b02812d6446caf38dc91c6a2910b7b1606",
+    "repoDefinitions": [
+      "supabase/migrations/20260811060300_customer_request_primary_branch_manager.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "trg_customer_requests_updated_at",
+    "parent": "customer_requests",
+    "liveSha256": "ede661ff536e6e04e5f889cae30f17d28ac7e490c34021ec3dacbafea6b67c16",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "zz_customer_request_exact_source_mirror_v1",
+    "parent": "customer_requests",
+    "liveSha256": "1118e91934bf0505d1a72bfd9b47869906a17d0637a0ff29a1c08a90b1bd1a8b",
+    "repoDefinitions": [
+      "supabase/migrations/20260815042500_customer_request_exact_source_mirror_v5.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "daily_followups_refresh_customer_metrics_after_insert",
+    "parent": "daily_followups",
+    "liveSha256": "0f5cad169dbb71477ddeddf14b4ef78e525c78429cd941383033f51ab7e5dfa4",
+    "repoDefinitions": [
+      "supabase/migrations/20260726213000_refresh_all_followup_customer_metrics.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "followup_self_log_settlement",
+    "parent": "daily_followups",
+    "liveSha256": "817c3995eb83c8bf5d66ff3a7e1a74155eddf270b9f01995025548cd0ae69692",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "trg_audit_daily_followup_change_v1",
+    "parent": "daily_followups",
+    "liveSha256": "cdd25784cf644e8e6e3b368ec7173ca7712e85f992cfaaed5c971c25e5343d87",
+    "repoDefinitions": [
+      "supabase/migrations/20260720_customer_followup_audit_log.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "trg_daily_followups_branch_owner",
+    "parent": "daily_followups",
+    "liveSha256": "ed77ee346144ca3ed61556a4715c49b9f0e15165d08903c35ca8d9d580c47a52",
+    "repoDefinitions": [
+      "supabase/migrations/20260712162000_fix_customer_service_branch_owners.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "trg_daily_followups_compute_points",
+    "parent": "daily_followups",
+    "liveSha256": "382d2eb56e0b183079a46ffe4d2f2509d307219ab2a0805940f1e8e95440075a",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "trg_daily_followups_dedupe",
+    "parent": "daily_followups",
+    "liveSha256": "f26985e180c05af5ed83b300581488ec28b1e7260b32d8f7244e8c71df302806",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "trg_daily_followups_doctor_points",
+    "parent": "daily_followups",
+    "liveSha256": "dd126a8681035170e030f4ce29ce6590c7d9dd8dd82e94c8b2422c01e0bd4a68",
+    "repoDefinitions": [
+      "supabase/migrations/20260829220000_customer_request_policy_v2_and_followup_points.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "trg_daily_followups_guard_insert",
+    "parent": "daily_followups",
+    "liveSha256": "89f3b9e5ec3e36587d23cef60fb07f239c2fe60177f6533ec35afad5c7471a03",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "trg_daily_followups_identity_key",
+    "parent": "daily_followups",
+    "liveSha256": "df46daf3509cdf2e4a4ddf481dac168010358efc073e2ebb691022cd9e62f536",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "trg_daily_followups_state_guard_v2",
+    "parent": "daily_followups",
+    "liveSha256": "84de61889e922cb605d87d8d13592db738426b1f241158891d6b61fcbc444606",
+    "repoDefinitions": [
+      "supabase/migrations/20260719_customer_service_followup_guards_operations_v2.sql",
+      "supabase/migrations/20260721_customer_followup_legacy_cleanup_and_profile_backfill_v5.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "trg_excel_followup_dual_records_v1",
+    "parent": "daily_followups",
+    "liveSha256": "1c886b8b43420a91b5adafaadaa588c98dd951411e72ecb68101d26813381947",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "trg_validate_daily_followup_write",
+    "parent": "daily_followups",
+    "liveSha256": "e3962ff3ea0565e0eca9442ecf3952700782707bd8e6d9aa2ffeb9e51232e6d8",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "whatsapp_auto_followup_resolve_customer_identity_v1",
+    "parent": "whatsapp_auto_followup_requests",
+    "liveSha256": "90cf3e02e4afd6b1e5829f48b2e0fd729c4a2c41ded96d98fbbadb0132bedb90",
+    "repoDefinitions": [
+      "supabase/migrations/20260917074500_whatsapp_followup_customer_identity_v1.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "trg_whatsapp_action_evidence_v17",
+    "parent": "whatsapp_conversation_actions",
+    "liveSha256": "ad109df68cbfd38f4f62eedd60eed01e7dd3d470a8f0da3c44d6f31748eecdc7",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "trg_whatsapp_recovery_workflow_v12",
+    "parent": "whatsapp_conversation_actions",
+    "liveSha256": "cb8ed20ef57a38ba6dce40371f26fdc277f4e5a28128a99890d6bea6d74629b1",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "whatsapp_conversation_action_truth_guard_v2",
+    "parent": "whatsapp_conversation_actions",
+    "liveSha256": "7e60a16278d274271fdaab712b89558f01b638664f7f54c34ca66376eb95efc6",
+    "repoDefinitions": [
+      "supabase/migrations/20261005141000_whatsapp_action_truth_guard_v2.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "trg_whatsapp_invoice_evidence_v17",
+    "parent": "whatsapp_review_sources",
+    "liveSha256": "4118b1f9e804795e2b5306dcdc05afe5dc17f2060eb877d1a7a7892118429a7f",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "index",
+    "name": "conversation_sales_reviews_created_at_idx",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "d1587eea78ccf22f8daae47165c2a6c5a60771ba9363a662e7e62c66efe4aa0b",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "conversation_sales_reviews_pkey",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "a05b2cbd85a13b8f6f6ec3715dc5f62107339be70d14ccd924e3b6c9b5ba2bfe",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "conversation_sales_reviews_staff_name_idx",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "996ef8eb1642d31880e122896217bdcea78d394963fa4723ed1b1a77dcd08dfe",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "conversation_sales_reviews_cycle_idx",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "a2fa4383a10924aa323b0f3d9461829f94735192ccb4e04874e28e787da57b9b",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "conversation_sales_reviews_doctor_cycle_idx",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "d7448692cc82820090efd537200b57a2b109f04b844dc4e0d12049b0b61714f1",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "conversation_sales_reviews_staff_cycle_idx",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "97314c5a617fc1145fc60104d7b7978df68296a4b1097937baad83f38d990e25",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "conversation_sales_reviews_source_date_idx",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "331bc3e162a26c1d9322cd58262eba04a91e9e3d6a9b704dbf3d8bac0a443d5b",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "conversation_sales_reviews_branch_created_at_idx",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "37cd05af2588bb7e7ceb9cbb7154746b5e3b7cd6a50608ce3cbb7fa3c81cdeda",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "conversation_sales_reviews_staff_created_at_idx",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "8d89178cc357564d2c6d679a32d1a355a7dae0a867c9a74aa2373f3722553cb8",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "conversation_sales_reviews_reviewer_created_at_idx",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "e62442ac1fce8dc7998c8c4e26510dda07d362f1c036ecbda5603941726dc7d3",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "conversation_sales_reviews_month_cycle_idx",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "02a923d72f32c20743c9d92ff27ec8c9ad2ee37ff7f631e9cbbe38aea42c5a6a",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "conversation_sales_reviews_score_idx",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "d63dba2d8fd7c7f0d002709e100116d6b74d4bd005a3e2f7947289c421e7c7c2",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "ux_conversation_review_submission_fingerprint_v2",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "96226120d606ba6406b92f5e7027932a7b9f20312be739c0d12a8ab40199f8f0",
+    "repoDefinitions": [
+      "supabase/migrations/20260906175500_conversation_review_save_hardening_v2.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "conversation_sales_reviews_review_date_idx",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "a065ecc9292174fd1dfcc3faa73673eff333a5e3e5daf51ef0e350fa14a8f2ca",
+    "repoDefinitions": [
+      "supabase/migrations/20260713153000_conversation_reviews_report_date.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "conversation_sales_reviews_branch_review_date_idx",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "1afce3becf37e504913be31bec2ae9ed5b04ca93388f02d87fbc12b999a14ebf",
+    "repoDefinitions": [
+      "supabase/migrations/20260713153000_conversation_reviews_report_date.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_conversation_reviews_unique_submission",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "b0b466520615daada003406bf4daa47ce2c844f30d5c8a4344525509cde19b65",
+    "repoDefinitions": [
+      "supabase/migrations/20261008160000_conversation_review_manager_correction_versioning_v1.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_conv_reviews_branch_norm_reviewer",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "c0d6b2e80e07cf6d810449e37cf4945657a665c78a7086f0886042654688237e",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_conv_reviews_branch_conversation_date",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "7ba69a8634bc35060e83bdbbfe304e60bca2a4bdfb2ae1deff88d83eaa98d887",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_conv_reviews_branch_norm_reviewer_date",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "786a32bf1fb8243b79aa1b19e43c2c29dbb1b5a32763dbe917d429b67f994705",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "conversation_sales_reviews_whatsapp_source_legacy_uk",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "98fbd3507b72857a7f0cd51a2b676d5b58ea1db78d90657ba7be148357afc359",
+    "repoDefinitions": [
+      "supabase/migrations/20260930153500_case_level_automatic_conversation_reviews.sql",
+      "supabase/migrations/20261008160000_conversation_review_manager_correction_versioning_v1.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "conversation_sales_reviews_whatsapp_case_uk",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "3e06ac99d3f77b3364a4b788cd575d48f0c174e2f3d9ec2ddd872803eba0f00f",
+    "repoDefinitions": [
+      "supabase/migrations/20260930153500_case_level_automatic_conversation_reviews.sql",
+      "supabase/migrations/20261008160000_conversation_review_manager_correction_versioning_v1.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "conversation_sales_reviews_current_si_case_idx",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "d806b13ae8bc3c1e6b88f24b1a4a52f96637e13502cbccfd082e06176bc9c6e5",
+    "repoDefinitions": [
+      "supabase/migrations/20261003193000_si_case_lifecycle_reconciliation_v1.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "customer_requests_pkey",
+    "parent": "customer_requests",
+    "liveSha256": "74f24439784c779540eb9131e22d4cbf7f3c657f422996c6cc33751c9164759f",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_customer_requests_status",
+    "parent": "customer_requests",
+    "liveSha256": "d4baef1ed7415c6922736f74684d342a3f21095eb95dc56b230025d9ac6e59f5",
+    "repoDefinitions": [
+      "supabase/migrations/20260824175000_customer_request_operational_indexes_v2.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_customer_requests_customer_code",
+    "parent": "customer_requests",
+    "liveSha256": "153fc366203f9189850807216b20c26d3a05494dbb973778bbf7cc65c2a169de",
+    "repoDefinitions": [
+      "supabase/migrations/20260824174000_customer_request_search_indexes_v2.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_customer_requests_branch",
+    "parent": "customer_requests",
+    "liveSha256": "a37cc36ed9f0f67889b119782fd715668e9f0138f7c2bb0ef5fbeaeadefecaf5",
+    "repoDefinitions": [
+      "supabase/migrations/20260822_optimize_cs_dashboard_ops_runtime.sql",
+      "supabase/migrations/20260824175000_customer_request_operational_indexes_v2.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_customer_requests_created_at",
+    "parent": "customer_requests",
+    "liveSha256": "c2ea879cd5f926e91cf43614fe092e669c412b610c91931e1b2ebba1e782cb08",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_customer_requests_stage_due",
+    "parent": "customer_requests",
+    "liveSha256": "efd542af65d315842a4e9572be2ac548b3108050f99580d9f4b5217de8f79cec",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_customer_requests_current_stage",
+    "parent": "customer_requests",
+    "liveSha256": "3ac4e1007b8ccc763d60adc3cfcba7e6cae71c97dc09e985d479861e05ff97a1",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_customer_requests_source_assigned_staff_id_fk",
+    "parent": "customer_requests",
+    "liveSha256": "cebc1de22e7cf5045f0c08aa08a9c314b00daa5b87848af52cd2fee66997563c",
+    "repoDefinitions": [
+      "supabase/migrations/20260827030000_database_hygiene_security_fk_indexes_v1.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_customer_requests_source_recorded_staff_id_fk",
+    "parent": "customer_requests",
+    "liveSha256": "ab4dfce32817baadb3a060a681f737e58c44f114aaa1f3dacc432ba21eb595f9",
+    "repoDefinitions": [
+      "supabase/migrations/20260827030000_database_hygiene_security_fk_indexes_v1.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_customer_requests_customer_phone",
+    "parent": "customer_requests",
+    "liveSha256": "db11538ea42175d5b020bd400c0472dbc3bb055219af3d5b759ef233cb37ccc8",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_customer_requests_needed_by_date",
+    "parent": "customer_requests",
+    "liveSha256": "8e3f1763ad033b0e6fafc532e051f89749121a0366c4e46582dad1461524c6fb",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_customer_requests_shortage_item_id",
+    "parent": "customer_requests",
+    "liveSha256": "c0f366b607db644ea96fd190c4953e25aa66087a262f1b1b6851794b30a91659",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "customer_requests_source_identity_uidx",
+    "parent": "customer_requests",
+    "liveSha256": "c2a3fd00127773f3ab6a98d2bd7b2948f517a02d337a931e2c9ced8969b9a39c",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "customer_requests_product_id_idx",
+    "parent": "customer_requests",
+    "liveSha256": "acb54977bcae706d52207eac858c068afc5df3204f89d156fde397e0365b55c0",
+    "repoDefinitions": [
+      "supabase/migrations/20260811040000_simple_product_catalog.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_customer_requests_branch_created_at",
+    "parent": "customer_requests",
+    "liveSha256": "b2518086988f12dee03b83e4cac841cf09b53347126b3cd46f0d92d39e043ca5",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_customer_requests_product_code",
+    "parent": "customer_requests",
+    "liveSha256": "f80556bd6195b276b42951f30d98705fc1347e12f452dc55a374da503731bf4d",
+    "repoDefinitions": [
+      "supabase/migrations/20260811044700_customer_request_product_codes_and_catalog_entry.sql",
+      "supabase/migrations/20260824174000_customer_request_search_indexes_v2.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_customer_requests_primary_responsible",
+    "parent": "customer_requests",
+    "liveSha256": "0e6cc476748bd75a3adc97fdaf03414f85bacbdedaf008620a34eb7fff6f0f4a",
+    "repoDefinitions": [
+      "supabase/migrations/20260811060300_customer_request_primary_branch_manager.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_customer_requests_branch_status_updated",
+    "parent": "customer_requests",
+    "liveSha256": "425af8d1e2aaf20b6f7bc394a3f5069a70d476fcf85ce2aaa37ed6059398f699",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_customer_requests_branch_owner_updated",
+    "parent": "customer_requests",
+    "liveSha256": "0c7c1b8399f81bf6538390153851ebe0c89e89b9b0865c27caf93a9912cede33",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_customer_requests_branch_norm_creator_created",
+    "parent": "customer_requests",
+    "liveSha256": "9879f1e4c0ae0facd759aff8833f6e509ce1b17871cddb7686e9861ac318bab3",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_customer_requests_product_id_status_v2",
+    "parent": "customer_requests",
+    "liveSha256": "4a5bb83f6c74ae7cbd2a6e0fd91b1d149ebc857a44857aa9680a9ad53c0a58cd",
+    "repoDefinitions": [
+      "supabase/migrations/20260815044500_customer_request_product_intelligence_v2.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_customer_requests_smart_name_linked_v2",
+    "parent": "customer_requests",
+    "liveSha256": "79b67c43f816f52f7ea472eab3fb1345cb87cf8a237eba79a5123db8772b38b6",
+    "repoDefinitions": [
+      "supabase/migrations/20260815044500_customer_request_product_intelligence_v2.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_customer_requests_sync_code_key_v1",
+    "parent": "customer_requests",
+    "liveSha256": "706d1f6af7c58a9139624eb5fc12493cfc654f4847f2954e462904e08dae2434",
+    "repoDefinitions": [
+      "supabase/migrations/20260822194000_optimize_dawaawael_customer_order_sync_identity.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_customer_requests_sync_phone_key_v1",
+    "parent": "customer_requests",
+    "liveSha256": "d52500e09913b26c210ac2405aea354004fbd23508b57e27ac060082f790db37",
+    "repoDefinitions": [
+      "supabase/migrations/20260822194000_optimize_dawaawael_customer_order_sync_identity.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_customer_requests_next_action_at_open",
+    "parent": "customer_requests",
+    "liveSha256": "50221a1cec26044d4f8c1b3a5cea4a4b117d40be3454c9b21fb37a1efb873ee4",
+    "repoDefinitions": [
+      "supabase/migrations/20260824153500_customer_request_next_action_at_v1.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_customer_requests_customer_name_trgm_v2",
+    "parent": "customer_requests",
+    "liveSha256": "5713f0599c853f1313eb5805b683fbba24af72dd04af046fff7ff62364ff9fc1",
+    "repoDefinitions": [
+      "supabase/migrations/20260824174000_customer_request_search_indexes_v2.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_customer_requests_medicine_name_trgm_v2",
+    "parent": "customer_requests",
+    "liveSha256": "e01707721783bbb95317542f4938128b529b42e3d00fe11cb4f358d43556cd87",
+    "repoDefinitions": [
+      "supabase/migrations/20260824174000_customer_request_search_indexes_v2.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_customer_requests_doctor_name_trgm_v2",
+    "parent": "customer_requests",
+    "liveSha256": "07ef8ae0ce2a0b0d978766dcdb411c5d85218af0a47473157942cc97813b5174",
+    "repoDefinitions": [
+      "supabase/migrations/20260824174000_customer_request_search_indexes_v2.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_customer_requests_source_assignee_trgm_v2",
+    "parent": "customer_requests",
+    "liveSha256": "558d9edcc1c154bc743e3ca07edc557cd935eabdc21b372199b482f21c2b55e6",
+    "repoDefinitions": [
+      "supabase/migrations/20260824174000_customer_request_search_indexes_v2.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_customer_requests_customer_code_trgm_v2",
+    "parent": "customer_requests",
+    "liveSha256": "8d3abfe828733a5273973b913bd3b34ca1a8baf1f53972fea3bea78c0949db03",
+    "repoDefinitions": [
+      "supabase/migrations/20260824174000_customer_request_search_indexes_v2.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_customer_requests_product_code_trgm_v2",
+    "parent": "customer_requests",
+    "liveSha256": "0266527e9b4d8dd3503c86e51f3044479190fa3e1e8c4ed4166373ddfa3c0a25",
+    "repoDefinitions": [
+      "supabase/migrations/20260824174000_customer_request_search_indexes_v2.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_customer_requests_requested_at_v2",
+    "parent": "customer_requests",
+    "liveSha256": "4736c771aa42093d168ad2c75e38745373da0dc28ed76326e68f01ec674cfa0e",
+    "repoDefinitions": [
+      "supabase/migrations/20260824175000_customer_request_operational_indexes_v2.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_customer_requests_branch_requested_at_v2",
+    "parent": "customer_requests",
+    "liveSha256": "d8063271f8544967413cf0a8f9f57ee7e64dfea009f76d45a4b4ac01a3742fb0",
+    "repoDefinitions": [
+      "supabase/migrations/20260824175000_customer_request_operational_indexes_v2.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_customer_requests_doctor_id_requested_at_v2",
+    "parent": "customer_requests",
+    "liveSha256": "753068041a07c5d79d0e51df3d878d5b516257f1db6a53773e4550aeeabe7e5c",
+    "repoDefinitions": [
+      "supabase/migrations/20260824175000_customer_request_operational_indexes_v2.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_customer_requests_status_requested_at_v2",
+    "parent": "customer_requests",
+    "liveSha256": "6a4a7bff9fb0f2db794dc0367d90f49583f3898e45c41f01ca78ac7d20a2af6e",
+    "repoDefinitions": [
+      "supabase/migrations/20260824175000_customer_request_operational_indexes_v2.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "daily_followups_pkey",
+    "parent": "daily_followups",
+    "liveSha256": "4bf47d322964132a997a4fc177101290c5ef19a59cc90cf6f117bc2a49c5e143",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_daily_followups_date",
+    "parent": "daily_followups",
+    "liveSha256": "6246aea261104885528edfadbf2e26a08fb3f12e4dfc3cf5e5c3bf631aad52c2",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_daily_followups_status",
+    "parent": "daily_followups",
+    "liveSha256": "2b86a210daf1b4cbde9a5be0185dda7fa5f329220d78bc040948855f5f9468a2",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_daily_followups_today",
+    "parent": "daily_followups",
+    "liveSha256": "0d34a3e49e45115fcef0b614d4087e2ae4035062f0ff9fc719b2056d4479b6ac",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_daily_followups_customer_code",
+    "parent": "daily_followups",
+    "liveSha256": "4229220524a25f8aced2ae27101a8916b7791c11117774add65efc60fdd8d013",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_daily_followups_customer_phone",
+    "parent": "daily_followups",
+    "liveSha256": "21eea59568e877e03c276b2e59250067aa4fc3c74a729aca28364b296afb46f7",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_daily_followups_followup_type",
+    "parent": "daily_followups",
+    "liveSha256": "a8c0170e160ff36804d1b480a4a8d014a3e20a2d55c899dea26af7a2fac24482",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_daily_followups_request_status",
+    "parent": "daily_followups",
+    "liveSha256": "29bc942300d88d0a94679b24c6f8d8f272b7acf6b836a825e985281e9048ffc8",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "daily_followups_open_branch_status_idx",
+    "parent": "daily_followups",
+    "liveSha256": "8a8d978174aa70c5aa5d93deaa54391abb3e3c85bb72b1d88fd26f8486c85ae6",
+    "repoDefinitions": [
+      "supabase/migrations/20260721_customer_service_advanced_waiting_indexes.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "daily_followups_hidden_archive_idx",
+    "parent": "daily_followups",
+    "liveSha256": "dec318e3248645aa779042128f50106f57282a001b0609146fabacbfe76cc36a",
+    "repoDefinitions": [
+      "supabase/migrations/20260719_customer_service_secure_command_center.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "daily_followups_exceptional_idx",
+    "parent": "daily_followups",
+    "liveSha256": "0c7605535ada76f7560634efdc6573091c0cebfca7f57a60968096457f9376dc",
+    "repoDefinitions": [
+      "supabase/migrations/20260719_customer_service_secure_command_center.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "daily_followups_followup_datetime_idx",
+    "parent": "daily_followups",
+    "liveSha256": "6675d92fd638369175f4367bb8613c4befa622bbae1bbd4926a74ca49120a0a7",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "daily_followups_next_followup_date_idx",
+    "parent": "daily_followups",
+    "liveSha256": "d4869d270c9d86a1a6929237eaf6b72b5d6567afc114ad5d82314f05843a63e2",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "daily_followups_completed_at_idx",
+    "parent": "daily_followups",
+    "liveSha256": "4482788b6d880a9ffd29f37e38ee2932d8f641b4bfdc62ca133bdccceffbf2d1",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "daily_followups_postponed_until_idx",
+    "parent": "daily_followups",
+    "liveSha256": "f590f81e9d313aa65b4e9eca77dce769557a5e5057a5ec93cf035cec6d91da83",
+    "repoDefinitions": [
+      "supabase/migrations/20260719_customer_service_secure_command_center.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "daily_followups_followup_status_idx",
+    "parent": "daily_followups",
+    "liveSha256": "2961f54a0c9a1c2125506953bbd3ac8b79492ce6f5f3d0b60d9dda9aff17e278",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "daily_followups_contact_status_idx",
+    "parent": "daily_followups",
+    "liveSha256": "5e3b47a8e8e52d412d7044894da514e267d1e3162a7654d4ab07785484789c68",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "daily_followups_assigned_doctor_idx",
+    "parent": "daily_followups",
+    "liveSha256": "82d546e91628aede432607a888bb54d47675329485bb2a652de9027f59c65ced",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "daily_followups_needs_manager_idx",
+    "parent": "daily_followups",
+    "liveSha256": "774e1041a932572e9ae218685ea068a66af8c4516ee5f5a7a8b3da2e68af4f61",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_daily_followups_priority",
+    "parent": "daily_followups",
+    "liveSha256": "4d41e3a491be51c9ecab2e0f2eb748081f2090620823030e7d09f50b42b9644f",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_daily_followups_request_type",
+    "parent": "daily_followups",
+    "liveSha256": "b6b441f47b2de08c0188b63041ea55001cffeeea4b4dd6ed944ecc8ccf679def",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_daily_followups_closed_at",
+    "parent": "daily_followups",
+    "liveSha256": "ae99c2b13e7651b1bf639eaf9d55b0a95c6a5fe25061ebee26e4c2a76c36b518",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_daily_followups_created_at",
+    "parent": "daily_followups",
+    "liveSha256": "388c18efecd31b3dd88d03ec1967cecd28a1321a9a66ba38099b94307b373362",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_daily_followups_customer_name",
+    "parent": "daily_followups",
+    "liveSha256": "d9bd8f268293e09ff6ca7d16a6d76ede1307ed2b3f3a96ecad1229a55c2ca127",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_daily_followups_phone",
+    "parent": "daily_followups",
+    "liveSha256": "e632de4d64cb99208e34876fe15ea78b0d6bdaf39c81496fa2b070079cfef146",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_daily_followups_purchase_frequency",
+    "parent": "daily_followups",
+    "liveSha256": "2370bb196c0980d345adf79f88efdde8260b8b9f5592b696ac47e9ad6aed30f1",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_daily_followups_assigned_staff_id",
+    "parent": "daily_followups",
+    "liveSha256": "331699a48c25bc6953c3448dc810745d9f68d58d4e492da0aba3f9b6f74d9e42",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "daily_followups_source_batch_idx",
+    "parent": "daily_followups",
+    "liveSha256": "6372b3b9f782d7143040c2ab7c0e29f0dbcc1ef0907000a57c6d3e0bca813afc",
+    "repoDefinitions": [
+      "supabase/migrations/20260719_customer_service_secure_command_center.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "daily_followups_waiting_contact_idx",
+    "parent": "daily_followups",
+    "liveSha256": "91e8cf98bbf07c6fd02a74aa791eea847041353f47ad3f6a819c833eb5d93775",
+    "repoDefinitions": [
+      "supabase/migrations/20260721_customer_service_advanced_waiting_indexes.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "daily_followups_assignee_open_idx",
+    "parent": "daily_followups",
+    "liveSha256": "b81d8f745183f3124fafc96aad2aecd47cbd0d2e655b91cacbb4ff9e8c84df03",
+    "repoDefinitions": [
+      "supabase/migrations/20260721_customer_service_advanced_waiting_indexes.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "daily_followups_manager_queue_v2_idx",
+    "parent": "daily_followups",
+    "liveSha256": "ebc54387242d1ac7c98fae6e846edf5bceacdc03d27f8de262f73b78a80f1d8f",
+    "repoDefinitions": [
+      "supabase/migrations/20260719_customer_service_followup_guards_operations_v2.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "daily_followups_one_open_case_per_customer_branch_uidx",
+    "parent": "daily_followups",
+    "liveSha256": "3a0fdb31bf1c3b9d93a3780af2bc3990f2f607710d9644fa89a60631a7b39590",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "daily_followups_client_request_id_uidx",
+    "parent": "daily_followups",
+    "liveSha256": "4ddbd8cb6644049c8c67ec9edcfbd69e46827816df92095a6adc0285a72246d5",
+    "repoDefinitions": [
+      "supabase/migrations/20260720_customer_followup_find_or_create_open_case.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "daily_followups_open_identity_case_idx",
+    "parent": "daily_followups",
+    "liveSha256": "f81ab5f9bfb2a30008ce79ad6fd8a0a6f8238dfd16005d2749cfe8ec2ec7c9d2",
+    "repoDefinitions": [
+      "supabase/migrations/20260720_customer_followup_find_or_create_open_case.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "daily_followups_requested_by_staff_idx",
+    "parent": "daily_followups",
+    "liveSha256": "421e53ed8e9677b0fbb311982e478cadf5cc7707c023d567ea26b6ee7017ffec",
+    "repoDefinitions": [
+      "supabase/migrations/20260718_customer_service_daily_execution_v1.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "daily_followups_next_followup_idx",
+    "parent": "daily_followups",
+    "liveSha256": "b1163adf1f7095d72e17b293262bedbbf3e83fff414c77dbfa6c5bdcacd2a06c",
+    "repoDefinitions": [
+      "supabase/migrations/20260718_customer_service_daily_execution_v1.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "daily_followups_customer_schedule_idx",
+    "parent": "daily_followups",
+    "liveSha256": "ff32774d141af182e56a7b5d29b0aba10e4ce3581f6478e86fb4fc8e1168c47d",
+    "repoDefinitions": [
+      "supabase/migrations/20260718_customer_service_daily_execution_v1.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "daily_followups_one_visible_open_case_uidx",
+    "parent": "daily_followups",
+    "liveSha256": "7d0596275f5475381df32cb11ceee55d6c1057fa8ea5de60ea6ab254e04b8105",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_daily_followups_req_open",
+    "parent": "daily_followups",
+    "liveSha256": "92d9a3d3512f5346293efa8ee77972dee8824ecc49092948dfa0740626b9e279",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_daily_followups_date_branch",
+    "parent": "daily_followups",
+    "liveSha256": "bb3f364fcd12b91f45a12e772120cec72e56e5860fc764ed7ae467eb8ed15970",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_daily_followups_responsible",
+    "parent": "daily_followups",
+    "liveSha256": "759cb09b276a6a70cd264e8ab862f73a28be01ad0223c2f9e364e6e6ad202744",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "daily_followups_unique_customer_per_day_v14",
+    "parent": "daily_followups",
+    "liveSha256": "0bdc364fa936023960544ef7752893500b9d1b30e10d5881d192fff6ed2aba2c",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_daily_followups_responsible_date",
+    "parent": "daily_followups",
+    "liveSha256": "10bbf0304bf32dd63aeaff513e3f8a4b46412ca5356248bf42fcd5230aab09f2",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "daily_followups_is_duplicate_idx",
+    "parent": "daily_followups",
+    "liveSha256": "a50c6e638ccd31bb23198d76ce6eab37b938311418f34da2666e2ca7a06ef78d",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "daily_followups_duplicate_of_idx",
+    "parent": "daily_followups",
+    "liveSha256": "dd1be7eaf0ef6b677e197c0effb7de1e71718ecead13fc1936360d49559c7326",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "daily_followups_visible_queue_idx",
+    "parent": "daily_followups",
+    "liveSha256": "00ce47903b344f0de4c965490b559027fb1538cb97478e63f532be018872a8b7",
+    "repoDefinitions": [
+      "supabase/migrations/20260719052000_followup_archive_and_notification_targets.sql",
+      "supabase/migrations/20260719_customer_service_secure_command_center.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_daily_followups_branch_norm_responsible",
+    "parent": "daily_followups",
+    "liveSha256": "b79a92b3732375df1ab5a612c9659de02eb5610ce8716f76a99b93bf04f67f8e",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_daily_followups_branch_norm_assigned_doctor",
+    "parent": "daily_followups",
+    "liveSha256": "a28ec8fcfa51ef1e6427a469f733827e1d1925fe56a88ac63b729123d292e0cf",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_daily_followups_branch_created_at",
+    "parent": "daily_followups",
+    "liveSha256": "eae23d02fa8ac7a40cea59b244d0c8e72a50e94201e74afe30c7e24bc348e750",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "daily_followups_reviews_insights_idx",
+    "parent": "daily_followups",
+    "liveSha256": "1b84457f3d530cf3741dfa5cf5c1e659f0a13c2a681a967424a2f92667b22d46",
+    "repoDefinitions": [
+      "supabase/migrations/20260811032210_speed_reviews_insights_followups.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_daily_followups_activity_date_branch",
+    "parent": "daily_followups",
+    "liveSha256": "2d6e9ca3a240c1d9b893faacae250040daee341e96f0c6c7a2707fe78ce42e44",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_daily_followups_branch_trim_code_created",
+    "parent": "daily_followups",
+    "liveSha256": "785e1c8bd4dbdde114da4c9cbffc89c8a41781b68bfc26d0a959af64c5bd54b3",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "daily_followups_import_fingerprint_uidx",
+    "parent": "daily_followups",
+    "liveSha256": "d6c702cffcb5404f73290a4b3dfda08a060cfffd35d9bc75d3f0d20654187fa0",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "daily_followups_import_batch_idx",
+    "parent": "daily_followups",
+    "liveSha256": "fad499bdeb01911a142d349196fa836a306cc887f9a9b47224ffdef21cd7c987",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_daily_followups_branch_code_date",
+    "parent": "daily_followups",
+    "liveSha256": "8d7593c5c0ecd2b2d229b7b40abd6444aea3374baa6d26bcbca51cc7f21e9932",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_daily_followups_branch_code_date_expr",
+    "parent": "daily_followups",
+    "liveSha256": "fabb68eb27894bcc4072a0987bd536d3b631ee69c22f3709b37966688b512234",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_daily_followups_assigned_doctor_created",
+    "parent": "daily_followups",
+    "liveSha256": "7d653a05caf0002723c31232c8b981b36341b1254c7cb2cba50b8551bd2222ee",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "daily_followups_open_due_order_v3_idx",
+    "parent": "daily_followups",
+    "liveSha256": "13711455dfb67e5fa484d70fe313fb6004632bbcd8d477e6d79ff68ae1b73ec5",
+    "repoDefinitions": [
+      "supabase/migrations/20260822163000_optimize_daily_followups_due_order_v1.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "whatsapp_auto_followup_requests_pkey",
+    "parent": "whatsapp_auto_followup_requests",
+    "liveSha256": "287eea3655033f3252f5c78c0ca015e6dfdc6d6ba8a0ecbda1cddcfa93b78b14",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_whatsapp_auto_followup_status",
+    "parent": "whatsapp_auto_followup_requests",
+    "liveSha256": "383d6c222699e17d3d99ba2dbb997f08e416b45e2f467b7b9cdef5cd3f8d7c5c",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_whatsapp_auto_followup_branch",
+    "parent": "whatsapp_auto_followup_requests",
+    "liveSha256": "c2fb3d33ee3fc6fed234d61728c5f026edcb3bf09f626ddf553a126f7707f57c",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_whatsapp_auto_followup_signal",
+    "parent": "whatsapp_auto_followup_requests",
+    "liveSha256": "8d76ab824d7aa59c77a81b7a8f21589b921c623f26ec63879db56374f7c69be9",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "whatsapp_auto_followup_requests_matched_invoice_id_idx",
+    "parent": "whatsapp_auto_followup_requests",
+    "liveSha256": "e3f5fba86498975151d78807581b92c9fcfa3b038bbc8780126fcbf30b2eedab",
+    "repoDefinitions": [
+      "supabase/migrations/20260917073000_whatsapp_followup_sale_evidence_v1.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "whatsapp_auto_followup_requests_sale_verified_at_idx",
+    "parent": "whatsapp_auto_followup_requests",
+    "liveSha256": "a18eb8b078ed8411ff1bce3dd85608be71333c6b3cdcbe973ffbfe1dae8505f5",
+    "repoDefinitions": [
+      "supabase/migrations/20260917073000_whatsapp_followup_sale_evidence_v1.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "whatsapp_auto_followup_requests_customer_id_idx",
+    "parent": "whatsapp_auto_followup_requests",
+    "liveSha256": "39cbddba4d8c50bd34187aabde6f5f532ef8113f5d3db78a2ad7d4fd5881ecf7",
+    "repoDefinitions": [
+      "supabase/migrations/20260917074500_whatsapp_followup_customer_identity_v1.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "whatsapp_auto_followup_requests_customer_code_idx",
+    "parent": "whatsapp_auto_followup_requests",
+    "liveSha256": "df65cfeb6fffa63b33a1cd451c02c9b90740bccbfa03e7143a40a56baeb49de7",
+    "repoDefinitions": [
+      "supabase/migrations/20260917074500_whatsapp_followup_customer_identity_v1.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "whatsapp_auto_followup_requests_dedupe_uk",
+    "parent": "whatsapp_auto_followup_requests",
+    "liveSha256": "68f11c77c3a47133f2106062949a28b9640780edde2e6eb1bf59ee347b731779",
+    "repoDefinitions": [
+      "supabase/migrations/20260917_whatsapp_followup_idempotency.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "whatsapp_auto_followup_requests_followup_identity_uk",
+    "parent": "whatsapp_auto_followup_requests",
+    "liveSha256": "77e823277ad39de608983e163d2a2101fdf5036a716f3ed9ac37ccfc718bdfc2",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "whatsapp_conversation_actions_pkey",
+    "parent": "whatsapp_conversation_actions",
+    "liveSha256": "f5b74127cf563e97622a5641d975fb8f4faeea46020ae9bc0cc350629dcfec54",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "whatsapp_conversation_actions_source_id_action_key_key",
+    "parent": "whatsapp_conversation_actions",
+    "liveSha256": "a0d87a6c5ad719254696fba6acb282ed3aae35fe2727efa937f5325644730703",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "whatsapp_conversation_actions_source_idx",
+    "parent": "whatsapp_conversation_actions",
+    "liveSha256": "83c213758dba9b21fc51752536a43f18b737b8b57073184c5ee247f103c2b993",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "whatsapp_conversation_actions_customer_idx",
+    "parent": "whatsapp_conversation_actions",
+    "liveSha256": "d30cf7cb913786258a2f0cf2c571d91085e22eddf9fe274f89a630a8df2a547c",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "whatsapp_conversation_actions_status_idx",
+    "parent": "whatsapp_conversation_actions",
+    "liveSha256": "8e7e6e626a8ff44e59bc6e095284bf9561740b236e78f6771925bb4b3947e3d4",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "whatsapp_actions_work_queue_idx",
+    "parent": "whatsapp_conversation_actions",
+    "liveSha256": "fffc2ef823261cedcb60001887fb28c8dca6e3437827b97d25d3594ba69927f7",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "whatsapp_actions_assignee_idx",
+    "parent": "whatsapp_conversation_actions",
+    "liveSha256": "8176f5f5856909e87360f25e93370287d48f170acf61ef7a4d7b3e718c4ba5de",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "whatsapp_actions_recovery_idx",
+    "parent": "whatsapp_conversation_actions",
+    "liveSha256": "af7bdb8da264fe348e606c44e61021b1703bf1e42cbaa9328013525df60365db",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "idx_whatsapp_actions_work_status_due_v12",
+    "parent": "whatsapp_conversation_actions",
+    "liveSha256": "79b0716c620f44c969939ba709392f03cad121acee0412facf734156876b9c7a",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "index",
+    "name": "whatsapp_conversation_actions_followup_identity_uk",
+    "parent": "whatsapp_conversation_actions",
+    "liveSha256": "630146a33ef27b45d4e9b3c1829518da2cac2d322aaf44898561b54d256d3f7d",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "policy",
+    "name": "conversation_sales_reviews_insert_canonical",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "739cf19f456a68f03fbdb3206f0232a664d65e7e11806df22dbe361b9c786775",
+    "repoDefinitions": [
+      "supabase/migrations/20260823191500_harden_active_reviews_and_shift_notes_rls_v1.sql",
+      "supabase/migrations/20260905153000_fix_conversation_review_actor_rls_v1.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "policy",
+    "name": "conversation_sales_reviews_select_canonical",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "e7956f223c60ef61158be2e713d1dade1fcd922e6e2cb87eb08ff99eea8d350b",
+    "repoDefinitions": [
+      "supabase/migrations/20260823191500_harden_active_reviews_and_shift_notes_rls_v1.sql",
+      "supabase/migrations/20260906120000_scope_conversation_review_select_to_owner_and_branch_v1.sql",
+      "supabase/migrations/20261003193000_si_case_lifecycle_reconciliation_v1.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "policy",
+    "name": "conversation_sales_reviews_update_canonical",
+    "parent": "conversation_sales_reviews",
+    "liveSha256": "03777e633055a4d8e259ce8936b3fdea70c01bff00aae8804213af8176c32e82",
+    "repoDefinitions": [
+      "supabase/migrations/20260823191500_harden_active_reviews_and_shift_notes_rls_v1.sql",
+      "supabase/migrations/20260905153000_fix_conversation_review_actor_rls_v1.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "policy",
+    "name": "customer_requests_scoped_select",
+    "parent": "customer_requests",
+    "liveSha256": "7ea8ce4e7bd24da0b3bbb98eae34fc6b26dec8eadd2cc2675a6ba58f04c116b1",
+    "repoDefinitions": [
+      "supabase/migrations/20260824150000_harden_customer_requests_rls_v2.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "policy",
+    "name": "daily_followups_branch_select_v3",
+    "parent": "daily_followups",
+    "liveSha256": "d04b511395e24030c3ee177f86912d47ddbb5948678e7b11a5d1118510882030",
+    "repoDefinitions": [
+      "supabase/migrations/20260826102500_customer_service_raw_table_boundary_v3.sql"
+    ],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "policy",
+    "name": "whatsapp_auto_followup_requests_management",
+    "parent": "whatsapp_auto_followup_requests",
+    "liveSha256": "bf068556c6a1fefa80d4b9340a5c18de639241e8df4821a77e6c5a1a4413d33c",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "policy",
+    "name": "whatsapp_conversation_actions_insert_v1",
+    "parent": "whatsapp_conversation_actions",
+    "liveSha256": "1e7e225910720e812ba428264e1ad68ff27f3396b97914cbf382adf1a9fb76ba",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "policy",
+    "name": "whatsapp_conversation_actions_select_v1",
+    "parent": "whatsapp_conversation_actions",
+    "liveSha256": "46288e77095139fe9025e53206c475a025d813951cd19d2dcb56f6647fa02e23",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "policy",
+    "name": "whatsapp_conversation_actions_update_v1",
+    "parent": "whatsapp_conversation_actions",
+    "liveSha256": "4d1d86e56bea1b66b5c74a451cb90a2dfb805e8b40e66ff852c7e95771019b0f",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "RETAIN"
+  },
+  {
+    "type": "trigger",
+    "name": "trg_conversation_review_points_official_v53",
+    "parent": "employee_transactions",
+    "liveSha256": "2eb576ff0c17aabcadfcd84bd6d56a02eca4d71424fe7b6f264337d507e35572",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "trg_prepare_conversation_review_attachment",
+    "parent": "conversation_review_attachments",
+    "liveSha256": "e489d15b6fb882a242ac65ff681d74cb6da8a6de99f177cc56efda66de068816",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "trg_sync_customer_branch_to_followups",
+    "parent": "customers",
+    "liveSha256": "c87dd464783f3b8fb45030dae312c19af6fd5a1965e24630fe120b1f3496b2d2",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  },
+  {
+    "type": "trigger",
+    "name": "trg_whatsapp_story_canonical_purchase_v36",
+    "parent": "whatsapp_customer_cases_v22",
+    "liveSha256": "decb2aa92f4cb0beb4021a71e8cc8aaaaf1da90b6ad252a56cc79563878e72cc",
+    "repoDefinitions": [],
+    "representation": "name occurrence only; not proof of executable migration parity",
+    "classification": "PROJECT ONLY"
+  }
+]

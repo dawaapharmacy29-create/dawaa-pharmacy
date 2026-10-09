@@ -1,0 +1,832 @@
+[
+  {
+    "file": "supabase/migrations/20260709160000_customer_service_daily_followup_rules.sql",
+    "line": 47,
+    "function": "dawaa_normalize_customer_followup_key",
+    "operation": "UPDATE",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260709160000_customer_service_daily_followup_rules.sql",
+    "line": 95,
+    "function": "dawaa_normalize_customer_followup_key",
+    "operation": "DELETE FROM",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260709174000_customer_service_daily_generator_v2.sql",
+    "line": 103,
+    "function": "dawaa_generate_customer_service_daily_followups_v2",
+    "operation": "INSERT INTO",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260712162000_fix_customer_service_branch_owners.sql",
+    "line": 44,
+    "function": "normalize_customer_service_branch_owner",
+    "operation": "update",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260712162000_fix_customer_service_branch_owners.sql",
+    "line": 57,
+    "function": "normalize_customer_service_branch_owner",
+    "operation": "update",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260713153000_conversation_reviews_report_date.sql",
+    "line": 7,
+    "function": "<migration statement>",
+    "operation": "update",
+    "destination": "conversation_sales_reviews",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260716_fix_doctor_reviews_and_header_notifications.sql",
+    "line": 138,
+    "function": "attach_review_staff_id",
+    "operation": "update",
+    "destination": "conversation_sales_reviews",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260716_fix_review_staff_resolution_uuid.sql",
+    "line": 58,
+    "function": "resolve_review_staff_id",
+    "operation": "update",
+    "destination": "conversation_sales_reviews",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260719_customer_service_secure_command_center.sql",
+    "line": 32,
+    "function": "<migration statement>",
+    "operation": "update",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260719_customer_service_secure_command_center.sql",
+    "line": 171,
+    "function": "dawaa_archive_customer_followup_v1",
+    "operation": "update",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260719_customer_service_secure_command_center.sql",
+    "line": 182,
+    "function": "dawaa_restore_customer_followup_v1",
+    "operation": "update",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260719_customer_service_secure_command_center.sql",
+    "line": 198,
+    "function": "dawaa_postpone_customer_followup_v1",
+    "operation": "update",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260719_customer_service_secure_command_center.sql",
+    "line": 212,
+    "function": "dawaa_create_exceptional_followup_v2",
+    "operation": "insert into",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260719_customer_service_secure_command_center.sql",
+    "line": 228,
+    "function": "dawaa_complete_customer_followup_v1",
+    "operation": "update",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260719_customer_service_secure_command_center.sql",
+    "line": 241,
+    "function": "dawaa_cancel_customer_followup_v1",
+    "operation": "update",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260720_customer_followup_compat_rpc_forward.sql",
+    "line": 49,
+    "function": "create_or_link_customer_followup",
+    "operation": "insert into",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260720_customer_followup_customer_correction.sql",
+    "line": 52,
+    "function": "correct_customer_followup_data_v1",
+    "operation": "update",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260720_customer_followup_duplicate_management.sql",
+    "line": 68,
+    "function": "merge_open_followup_duplicates_v1",
+    "operation": "update",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260720_customer_followup_find_or_create_open_case.sql",
+    "line": 148,
+    "function": "find_or_create_open_customer_followup",
+    "operation": "update",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260720_customer_followup_find_or_create_open_case.sql",
+    "line": 166,
+    "function": "find_or_create_open_customer_followup",
+    "operation": "insert into",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260720_customer_followup_hardening_live.sql",
+    "line": 80,
+    "function": "create_or_link_customer_followup",
+    "operation": "insert into",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260721_customer_followup_legacy_cleanup_and_profile_backfill_v5.sql",
+    "line": 7,
+    "function": "<migration statement>",
+    "operation": "update",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260721_customer_followup_legacy_cleanup_and_profile_backfill_v5.sql",
+    "line": 29,
+    "function": "<migration statement>",
+    "operation": "update",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260721_customer_followup_legacy_cleanup_and_profile_backfill_v5.sql",
+    "line": 45,
+    "function": "<migration statement>",
+    "operation": "update",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260721_customer_followup_legacy_cleanup_and_profile_backfill_v5.sql",
+    "line": 74,
+    "function": "<migration statement>",
+    "operation": "update",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260721_transfer_customer_followup_branch_v1.sql",
+    "line": 52,
+    "function": "transfer_customer_followup_branch_v1",
+    "operation": "update",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260726213000_refresh_all_followup_customer_metrics.sql",
+    "line": 68,
+    "function": "refresh_daily_followup_customer_metrics",
+    "operation": "update",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260726232000_dedupe_followups_and_fix_canonical_branch.sql",
+    "line": 86,
+    "function": "repair_customer_followup_duplicates_and_branches",
+    "operation": "update",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260726232000_dedupe_followups_and_fix_canonical_branch.sql",
+    "line": 119,
+    "function": "repair_customer_followup_duplicates_and_branches",
+    "operation": "update",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260811040000_simple_product_catalog.sql",
+    "line": 60,
+    "function": "auto_link_customer_request_products",
+    "operation": "update",
+    "destination": "customer_requests",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260811044700_customer_request_product_codes_and_catalog_entry.sql",
+    "line": 87,
+    "function": "link_customer_request_product",
+    "operation": "update",
+    "destination": "customer_requests",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260811060300_customer_request_primary_branch_manager.sql",
+    "line": 71,
+    "function": "assign_customer_request_primary_branch_manager",
+    "operation": "update",
+    "destination": "customer_requests",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260813023000_customer_service_smart_queues_v2.sql",
+    "line": 145,
+    "function": "import_customer_service_queue_results_v2",
+    "operation": "insert into",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260813024500_extend_smart_queue_import_to_branch_staff.sql",
+    "line": 45,
+    "function": "import_customer_service_queue_results_v2",
+    "operation": "insert into",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260814030500_customer_request_source_enrichment_v2.sql",
+    "line": 154,
+    "function": "customer_request_autolink_dawaawael_v1",
+    "operation": "update",
+    "destination": "customer_requests",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260814_customer_service_doctor_workbook_v4.sql",
+    "line": 101,
+    "function": "import_customer_service_queue_results_v4",
+    "operation": "update",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260814_customer_service_doctor_workbook_v4.sql",
+    "line": 141,
+    "function": "import_customer_service_queue_results_v4",
+    "operation": "update",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260814_customer_service_doctor_workbook_v4.sql",
+    "line": 156,
+    "function": "import_customer_service_queue_results_v4",
+    "operation": "insert into",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260815040500_customer_request_source_payload_trigger_v3.sql",
+    "line": 13,
+    "function": "<migration statement>",
+    "operation": "update",
+    "destination": "customer_requests",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260815041800_customer_request_product_staff_linkage_export_v1.sql",
+    "line": 79,
+    "function": "customer_request_enrich_product_staff_v1",
+    "operation": "update",
+    "destination": "customer_requests",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260815042300_customer_request_staff_name_normalization_v2.sql",
+    "line": 34,
+    "function": "customer_request_resolve_staff_id_v1",
+    "operation": "update",
+    "destination": "customer_requests",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260815042500_customer_request_exact_source_mirror_v5.sql",
+    "line": 48,
+    "function": "customer_request_exact_source_mirror_v1",
+    "operation": "update",
+    "destination": "customer_requests",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260815044500_customer_request_product_intelligence_v2.sql",
+    "line": 185,
+    "function": "auto_link_customer_request_products_v2",
+    "operation": "update",
+    "destination": "customer_requests",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260824125000_customer_request_product_link_branch_guard.sql",
+    "line": 33,
+    "function": "link_customer_request_product",
+    "operation": "update",
+    "destination": "customer_requests",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260824131500_customer_request_deterministic_identity_backfill.sql",
+    "line": 7,
+    "function": "<migration statement>",
+    "operation": "update",
+    "destination": "customer_requests",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260824131500_customer_request_deterministic_identity_backfill.sql",
+    "line": 35,
+    "function": "<migration statement>",
+    "operation": "update",
+    "destination": "customer_requests",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260824134500_customer_request_staff_attribution_approval_v1.sql",
+    "line": 169,
+    "function": "apply_customer_request_staff_attribution_v1",
+    "operation": "update",
+    "destination": "customer_requests",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260824135500_customer_request_staff_attribution_branch_scope.sql",
+    "line": 217,
+    "function": "apply_customer_request_staff_attribution_v1",
+    "operation": "update",
+    "destination": "customer_requests",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260824140000_create_customer_request_canonical_v1.sql",
+    "line": 112,
+    "function": "create_customer_request_canonical_v1",
+    "operation": "insert into",
+    "destination": "customer_requests",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260824143000_secure_customer_request_to_shortage_command_v1.sql",
+    "line": 139,
+    "function": "move_customer_request_to_shortage_v1",
+    "operation": "update",
+    "destination": "customer_requests",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260824154500_record_customer_request_contact_v2.sql",
+    "line": 79,
+    "function": "record_customer_request_contact_v2",
+    "operation": "update",
+    "destination": "customer_requests",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260824170000_customer_followup_atomic_command_v1.sql",
+    "line": 52,
+    "function": "dawaa_execute_customer_followup_command_v1",
+    "operation": "update",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260824171000_customer_request_details_command_v2.sql",
+    "line": 57,
+    "function": "update_customer_request_details_v2",
+    "operation": "update",
+    "destination": "customer_requests",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260824173000_customer_followup_atomic_command_v2.sql",
+    "line": 64,
+    "function": "dawaa_execute_customer_followup_command_v1",
+    "operation": "update",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260824180000_customer_followup_lifecycle_commands_v1.sql",
+    "line": 41,
+    "function": "dawaa_save_customer_followup_result_v1",
+    "operation": "update",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260824180000_customer_followup_lifecycle_commands_v1.sql",
+    "line": 62,
+    "function": "dawaa_archive_today_trial_followups_v1",
+    "operation": "update",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260824181000_customer_request_shortage_alignment_v2.sql",
+    "line": 121,
+    "function": "move_customer_request_to_shortage_v1",
+    "operation": "update",
+    "destination": "customer_requests",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260824182000_customer_request_transition_matrix_complete_v2.sql",
+    "line": 133,
+    "function": "advance_customer_request_v2",
+    "operation": "update",
+    "destination": "customer_requests",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260824182500_customer_request_atomic_transition_v2.sql",
+    "line": 116,
+    "function": "advance_customer_request_v2",
+    "operation": "update",
+    "destination": "customer_requests",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260824184000_customer_request_customer_repair_v2.sql",
+    "line": 98,
+    "function": "repair_customer_request_customer_v2",
+    "operation": "update",
+    "destination": "customer_requests",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260824184500_customer_request_shortage_return_v2.sql",
+    "line": 95,
+    "function": "return_shortage_to_customer_request_v2",
+    "operation": "update",
+    "destination": "customer_requests",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260824185500_shortage_manage_permission_v1.sql",
+    "line": 161,
+    "function": "return_shortage_to_customer_request_v2",
+    "operation": "update",
+    "destination": "customer_requests",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260824193000_customer_request_registrar_attribution_v2.sql",
+    "line": 192,
+    "function": "apply_customer_request_staff_attribution_v1",
+    "operation": "update",
+    "destination": "customer_requests",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260824194000_customer_request_canonical_source_identity_v2.sql",
+    "line": 127,
+    "function": "customer_request_canonical_source_identity_v2",
+    "operation": "update",
+    "destination": "customer_requests",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260826160000_batch_daily_followup_metrics_after_sales_v2.sql",
+    "line": 44,
+    "function": "refresh_daily_followup_customer_metrics_for_codes_v2",
+    "operation": "update",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260906140300_authorize_penalize_followup_fraud_v1.sql",
+    "line": 55,
+    "function": "penalize_followup_fraud",
+    "operation": "update",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260906140300_authorize_penalize_followup_fraud_v1.sql",
+    "line": 69,
+    "function": "penalize_followup_fraud",
+    "operation": "update",
+    "destination": "daily_followups",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260917070000_whatsapp_followup_permissions_v2.sql",
+    "line": 105,
+    "function": "whatsapp_auto_followup_update_status_v2",
+    "operation": "update",
+    "destination": "whatsapp_auto_followup_requests",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260917073000_whatsapp_followup_sale_evidence_v1.sql",
+    "line": 137,
+    "function": "whatsapp_auto_followup_confirm_sale_v1",
+    "operation": "update",
+    "destination": "whatsapp_auto_followup_requests",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260917073000_whatsapp_followup_sale_evidence_v1.sql",
+    "line": 215,
+    "function": "whatsapp_auto_followup_revoke_sale_v1",
+    "operation": "update",
+    "destination": "whatsapp_auto_followup_requests",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260917073000_whatsapp_followup_sale_evidence_v1.sql",
+    "line": 281,
+    "function": "whatsapp_auto_followup_update_status_v2",
+    "operation": "update",
+    "destination": "whatsapp_auto_followup_requests",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260917074500_whatsapp_followup_customer_identity_v1.sql",
+    "line": 112,
+    "function": "dawaa_whatsapp_followup_resolve_customer_identity_v1",
+    "operation": "update",
+    "destination": "whatsapp_auto_followup_requests",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20260917080000_whatsapp_followup_sale_identity_v2.sql",
+    "line": 112,
+    "function": "whatsapp_auto_followup_confirm_sale_v1",
+    "operation": "update",
+    "destination": "whatsapp_auto_followup_requests",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20261003193000_si_case_lifecycle_reconciliation_v1.sql",
+    "line": 185,
+    "function": "sales_intelligence_reconcile_case_set_v1",
+    "operation": "update",
+    "destination": "conversation_sales_reviews",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20261005123000_sales_intelligence_truth_boundary_v2.sql",
+    "line": 409,
+    "function": "dawaa_supersede_legacy_review_on_automatic_v2",
+    "operation": "update",
+    "destination": "conversation_sales_reviews",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20261005133000_monthly_evidence_canonical_reads_v2.sql",
+    "line": 4,
+    "function": "<migration statement>",
+    "operation": "update",
+    "destination": "conversation_sales_reviews",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20261005133000_monthly_evidence_canonical_reads_v2.sql",
+    "line": 18,
+    "function": "<migration statement>",
+    "operation": "update",
+    "destination": "conversation_sales_reviews",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20261005141000_whatsapp_action_truth_guard_v2.sql",
+    "line": 124,
+    "function": "dawaa_guard_whatsapp_conversation_action_v2",
+    "operation": "update",
+    "destination": "whatsapp_conversation_actions",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20261005141000_whatsapp_action_truth_guard_v2.sql",
+    "line": 204,
+    "function": "dawaa_approve_whatsapp_customer_request_action_v2",
+    "operation": "update",
+    "destination": "whatsapp_conversation_actions",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20261008160000_conversation_review_manager_correction_versioning_v1.sql",
+    "line": 818,
+    "function": "dawaa_correct_conversation_review_session_v1",
+    "operation": "update",
+    "destination": "conversation_sales_reviews",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20261008160000_conversation_review_manager_correction_versioning_v1.sql",
+    "line": 877,
+    "function": "dawaa_correct_conversation_review_session_v1",
+    "operation": "insert into",
+    "destination": "conversation_sales_reviews",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20261008160000_conversation_review_manager_correction_versioning_v1.sql",
+    "line": 917,
+    "function": "dawaa_follow_case_lifecycle_for_review_corrections_v1",
+    "operation": "update",
+    "destination": "conversation_sales_reviews",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  },
+  {
+    "file": "supabase/migrations/20261008160000_conversation_review_manager_correction_versioning_v1.sql",
+    "line": 926,
+    "function": "dawaa_follow_case_lifecycle_for_review_corrections_v1",
+    "operation": "update",
+    "destination": "conversation_sales_reviews",
+    "classification": "LEGACY READ ONLY",
+    "production": "historical definition; latest live body is authoritative, not automatically runnable",
+    "when": "migration application only; no migration applied in this audit"
+  }
+]

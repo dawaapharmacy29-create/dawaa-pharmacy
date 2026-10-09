@@ -1,0 +1,1854 @@
+[
+  {
+    "signature": "dawaa_execute_customer_followup_command_v1(text,text,text,timestamp with time zone,text,text,numeric,text,text,boolean,text,text)",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "04b07723edbed765d53f89ad141d52d2",
+    "closestRepoFiles": [
+      "supabase/migrations/20260824170000_customer_followup_atomic_command_v1.sql",
+      "supabase/migrations/20260824173000_customer_followup_atomic_command_v2.sql"
+    ],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "process_dawaawael_customer_order(uuid,text)",
+    "destinations": [
+      "customer_requests"
+    ],
+    "directDestinations": [
+      "customer_requests"
+    ],
+    "classification": "PROJECT ONLY",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [
+      "ingest_dawaawael_customer_orders(jsonb,text)"
+    ],
+    "definitionHash": "fc29fb52985f3a971177763d308b2501",
+    "closestRepoFiles": [],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "create_customer_request_canonical_v1(uuid,uuid,uuid,text,numeric,text,text,text,date,integer,text,text,text,text)",
+    "destinations": [
+      "customer_requests"
+    ],
+    "directDestinations": [
+      "customer_requests"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [
+      "create_customer_request_canonical_v2(uuid,uuid,uuid,text,numeric,text,text,text,date,integer,text,text,text,text)"
+    ],
+    "definitionHash": "efa90457ea927f3dc9b3d0e68a9c4d9b",
+    "closestRepoFiles": [
+      "supabase/migrations/20260824140000_create_customer_request_canonical_v1.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "apply_customer_request_staff_attribution_v1(text,text,uuid,text)",
+    "destinations": [
+      "customer_requests"
+    ],
+    "directDestinations": [
+      "customer_requests"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "e6d8cf6507218c916204083ca82e700f",
+    "closestRepoFiles": [
+      "supabase/migrations/20260824134500_customer_request_staff_attribution_approval_v1.sql",
+      "supabase/migrations/20260824135500_customer_request_staff_attribution_branch_scope.sql",
+      "supabase/migrations/20260824193000_customer_request_registrar_attribution_v2.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "attach_review_staff_id()",
+    "destinations": [
+      "conversation_sales_reviews"
+    ],
+    "directDestinations": [
+      "conversation_sales_reviews"
+    ],
+    "classification": "RETIRE AFTER CUTOVER",
+    "when": [
+      "conversation_sales_reviews:trg_attach_review_staff_id"
+    ],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "b2b20e613a03997062b88b1b27090029",
+    "closestRepoFiles": [
+      "supabase/migrations/20260716_fix_doctor_reviews_and_header_notifications.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "create_customer_request_canonical_v2(uuid,uuid,uuid,text,numeric,text,text,text,date,integer,text,text,text,text)",
+    "destinations": [
+      "customer_requests"
+    ],
+    "directDestinations": [],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [
+      "dawaa_materialize_whatsapp_action_core_v2(uuid)"
+    ],
+    "definitionHash": "9c741c8c745da89da683a42f01198ae5",
+    "closestRepoFiles": [
+      "supabase/migrations/20260824164500_create_customer_request_canonical_v2.sql",
+      "supabase/migrations/20260824201500_harden_customer_request_create_authorization_v2.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "auto_link_customer_request_products()",
+    "destinations": [
+      "customer_requests"
+    ],
+    "directDestinations": [
+      "customer_requests"
+    ],
+    "classification": "PROJECT ONLY",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "abd3dcf586a78393ff0e45a00737f4cc",
+    "closestRepoFiles": [
+      "supabase/migrations/20260811040000_simple_product_catalog.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "auto_link_customer_request_products_v2(boolean,text)",
+    "destinations": [
+      "customer_requests"
+    ],
+    "directDestinations": [],
+    "classification": "PROJECT ONLY",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "30f0ecc1782ca4350e209d1696ca0f21",
+    "closestRepoFiles": [
+      "supabase/migrations/20260815044500_customer_request_product_intelligence_v2.sql",
+      "supabase/migrations/20260824131500_customer_request_product_intelligence_guards.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "import_historical_followup_v1(jsonb)",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "77649dd054709bd3360ae5f4b9dd9638",
+    "closestRepoFiles": [],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "rollback_historical_followup_import_v1(text)",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "cf90599d371f7fb17168b8e6087fc2da",
+    "closestRepoFiles": [],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "reconcile_followup_purchases()",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "a073a2a6a7562a78d739ec60046d3cc4",
+    "closestRepoFiles": [],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "import_customer_service_queue_results_v2(uuid,text,text,jsonb)",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "6538977a27bce93be1a72f0e20e191ed",
+    "closestRepoFiles": [
+      "supabase/migrations/20260813023000_customer_service_smart_queues_v2.sql",
+      "supabase/migrations/20260813024500_extend_smart_queue_import_to_branch_staff.sql"
+    ],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "link_customer_request_product(uuid,uuid)",
+    "destinations": [
+      "customer_requests"
+    ],
+    "directDestinations": [
+      "customer_requests"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "90305f4d532754cde841c6f6c84106ad",
+    "closestRepoFiles": [
+      "supabase/migrations/20260811044700_customer_request_product_codes_and_catalog_entry.sql",
+      "supabase/migrations/20260824125000_customer_request_product_link_branch_guard.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "advance_customer_request_v2(uuid,text,text,date)",
+    "destinations": [
+      "customer_requests"
+    ],
+    "directDestinations": [
+      "customer_requests"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "1c072d8d430e4856bc241b229a06eba7",
+    "closestRepoFiles": [
+      "supabase/migrations/20260824182000_customer_request_transition_matrix_complete_v2.sql",
+      "supabase/migrations/20260824182500_customer_request_atomic_transition_v2.sql"
+    ],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "dawaa_sync_whatsapp_recovery_invoice_v11()",
+    "destinations": [
+      "whatsapp_conversation_actions"
+    ],
+    "directDestinations": [
+      "whatsapp_conversation_actions"
+    ],
+    "classification": "RETIRE AFTER CUTOVER",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "1365ed3f7c4d7a59100e290a0deae781",
+    "closestRepoFiles": [],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "import_customer_service_queue_results_v3(uuid,text,text,jsonb)",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "8ee78cfd211a056b168083aa538c148c",
+    "closestRepoFiles": [],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "penalize_followup_fraud(text,text,text)",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "479dbef00a28aca4087bb09cecfbe650",
+    "closestRepoFiles": [
+      "supabase/migrations/20260906140300_authorize_penalize_followup_fraud_v1.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "trg_followup_dedupe_same_day()",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [
+      "daily_followups:trg_daily_followups_dedupe"
+    ],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "9cca378785a1ef0729f26f0898495f26",
+    "closestRepoFiles": [],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "prepare_conversation_review_attachment()",
+    "destinations": [
+      "conversation_review_attachments"
+    ],
+    "directDestinations": [
+      "conversation_review_attachments"
+    ],
+    "classification": "RETAIN",
+    "when": [
+      "conversation_review_attachments:trg_prepare_conversation_review_attachment"
+    ],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "03a22f6f358063ce049321136dd5f070",
+    "closestRepoFiles": [],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "dawaa_materialize_whatsapp_action_core_v2(uuid)",
+    "destinations": [
+      "whatsapp_conversation_actions",
+      "customer_requests",
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "whatsapp_conversation_actions"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [
+      "dawaa_materialize_whatsapp_action_v1(uuid)"
+    ],
+    "definitionHash": "8c394c96a5820098981e8b808c70b374",
+    "closestRepoFiles": [],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "import_customer_service_queue_results_legacy_v4(uuid,text,text,jsonb)",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [
+      "import_customer_service_queue_results_v4(uuid,text,text,jsonb)"
+    ],
+    "definitionHash": "0c69b396fb91df4145a9df3331dbceed",
+    "closestRepoFiles": [],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "dawaa_restore_customer_followup_v1(text,text)",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "ba682613f68191ed8dd594d2db73f374",
+    "closestRepoFiles": [
+      "supabase/migrations/20260719_customer_service_secure_command_center.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "daily_followups_guard_insert()",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [
+      "daily_followups:trg_daily_followups_guard_insert"
+    ],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "b4d7086e78e797b1e48109b02659bb26",
+    "closestRepoFiles": [],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "import_customer_followup_results_legacy_v1(uuid,text,text,jsonb)",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [
+      "import_customer_followup_results_v1(uuid,text,text,jsonb)"
+    ],
+    "definitionHash": "f1b8abe72d6d407360feec943d0bd8d9",
+    "closestRepoFiles": [],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "compute_followup_points(text)",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [
+      "daily_followups:trg_daily_followups_compute_points"
+    ],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [
+      "trg_compute_followup_points()"
+    ],
+    "definitionHash": "585496b0d9fb941daa631f82796a3a40",
+    "closestRepoFiles": [],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "dawaa_complete_customer_followup_v1(text,text,text,numeric,text,text,text)",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "8c15aa03fa9a6d114d3ffde24d112a02",
+    "closestRepoFiles": [
+      "supabase/migrations/20260719_customer_service_secure_command_center.sql"
+    ],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "dawaa_cancel_customer_followup_v1(text,text,text,text)",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "b7e9cf7090b4df0a48df37117e619cec",
+    "closestRepoFiles": [
+      "supabase/migrations/20260719_customer_service_secure_command_center.sql"
+    ],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "sync_customer_branch_to_open_followups_and_daily_queue()",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [
+      "customers:trg_sync_customer_branch_to_followups"
+    ],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "0e485248171517448658f67293eb960e",
+    "closestRepoFiles": [],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "find_or_create_open_customer_followup(text,text,text,text,text,text,text,text,text,date,text,text,text,text)",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [
+      "create_or_link_customer_followup(jsonb)",
+      "dawaa_create_or_link_customer_followup_v1(text,text,text,text,text,text,text,text,text,date,text,text)"
+    ],
+    "definitionHash": "7fadde984a73f43401a25c56e2067587",
+    "closestRepoFiles": [
+      "supabase/migrations/20260720_customer_followup_find_or_create_open_case.sql"
+    ],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "dawaa_archive_customer_followup_v1(text,text,text)",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "1ade5325fd2b24f10423057b5cf11090",
+    "closestRepoFiles": [
+      "supabase/migrations/20260719_customer_service_secure_command_center.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "dawaa_postpone_customer_followup_v1(text,text,text)",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "b51e4a0f2e02f63b27ad5d2ba64ad805",
+    "closestRepoFiles": [
+      "supabase/migrations/20260719_customer_service_secure_command_center.sql"
+    ],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "dawaa_create_exceptional_followup_v2(text,text,text,text,text,text,text,text,text,text,text,text,text)",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "0e97f90b07131a2201e90b751fb918eb",
+    "closestRepoFiles": [
+      "supabase/migrations/20260719_customer_service_secure_command_center.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "repair_customer_followup_duplicates_and_branches()",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "efde8246ca46ecce5ebde2775fa98e71",
+    "closestRepoFiles": [
+      "supabase/migrations/20260726232000_dedupe_followups_and_fix_canonical_branch.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "ensure_excel_followup_dual_records_v1()",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [
+      "daily_followups:trg_excel_followup_dual_records_v1"
+    ],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "f485f37413e5eb8b92366f1a3c3a07aa",
+    "closestRepoFiles": [],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "refresh_daily_followup_customer_metrics(text)",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [
+      "refresh_new_daily_followup_metrics()",
+      "refresh_followup_metrics_after_sales_invoice()",
+      "dawaa_customer_sales_truth_refresh_v2()"
+    ],
+    "definitionHash": "d68f9f52e2a993b2b5c23fc2446f0702",
+    "closestRepoFiles": [
+      "supabase/migrations/20260726213000_refresh_all_followup_customer_metrics.sql",
+      "supabase/migrations/20260826160000_batch_daily_followup_metrics_after_sales_v2.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "escalate_stale_risk_followups()",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "6da9b10005d64bb2f6b7066339576f2a",
+    "closestRepoFiles": [],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "move_customer_request_to_shortage_v1(uuid)",
+    "destinations": [
+      "customer_requests"
+    ],
+    "directDestinations": [
+      "customer_requests"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "5d45b8f4d60072d693ee0e82622fdf68",
+    "closestRepoFiles": [
+      "supabase/migrations/20260824143000_secure_customer_request_to_shortage_command_v1.sql",
+      "supabase/migrations/20260824181000_customer_request_shortage_alignment_v2.sql"
+    ],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "auto_link_customer_request_products_core_v2(boolean,text)",
+    "destinations": [
+      "customer_requests"
+    ],
+    "directDestinations": [
+      "customer_requests"
+    ],
+    "classification": "PROJECT ONLY",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [
+      "auto_link_customer_request_products_v2(boolean,text)"
+    ],
+    "definitionHash": "6188f90db36fcddf7b956e4f9e5b509e",
+    "closestRepoFiles": [],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "record_customer_request_contact_v2(uuid,text,text,timestamp with time zone)",
+    "destinations": [
+      "customer_requests"
+    ],
+    "directDestinations": [
+      "customer_requests"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "6cf6888a50271fc2cd1ceefb14fd18cf",
+    "closestRepoFiles": [
+      "supabase/migrations/20260824154500_record_customer_request_contact_v2.sql"
+    ],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "dawaa_revoke_whatsapp_canonical_sale_proof_v46(uuid,text,jsonb)",
+    "destinations": [
+      "whatsapp_conversation_actions"
+    ],
+    "directDestinations": [
+      "whatsapp_conversation_actions"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [
+      "sales_intelligence_reconcile_case_set_v1(uuid,text[])",
+      "dawaa_reconcile_sales_intelligence_case_v22_v1(text)"
+    ],
+    "definitionHash": "e4626a209af91dee6a46f065dfe35ef1",
+    "closestRepoFiles": [],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "dawaa_archive_superseded_whatsapp_source_v35(text,timestamp with time zone,timestamp with time zone,integer,uuid[])",
+    "destinations": [
+      "whatsapp_conversation_actions"
+    ],
+    "directDestinations": [
+      "whatsapp_conversation_actions"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "f347dd98cd0625b94e82eed7eb5cf6d8",
+    "closestRepoFiles": [],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "return_shortage_to_customer_request_v2(uuid,text)",
+    "destinations": [
+      "customer_requests"
+    ],
+    "directDestinations": [
+      "customer_requests"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "db34427db90f7cac1c03d9cb0647de9d",
+    "closestRepoFiles": [
+      "supabase/migrations/20260824184500_customer_request_shortage_return_v2.sql",
+      "supabase/migrations/20260824185500_shortage_manage_permission_v1.sql"
+    ],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "dawaa_save_customer_followup_result_v1(text,text,text,text,text,text,text,date,text,text,text,text,numeric,integer,numeric,text,text)",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "7318d4681688cf43739d923113fe2763",
+    "closestRepoFiles": [
+      "supabase/migrations/20260824180000_customer_followup_lifecycle_commands_v1.sql"
+    ],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "update_customer_request_details_v2(uuid,numeric,text,text,text,text,text)",
+    "destinations": [
+      "customer_requests"
+    ],
+    "directDestinations": [
+      "customer_requests"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "19f1e4f846d1ba26b7f9715db135397a",
+    "closestRepoFiles": [
+      "supabase/migrations/20260824171000_customer_request_details_command_v2.sql"
+    ],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "repair_customer_request_customer_v2(uuid,uuid,boolean)",
+    "destinations": [
+      "customer_requests"
+    ],
+    "directDestinations": [
+      "customer_requests"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "8ff2ad1514d2228b229b7c8c570db10b",
+    "closestRepoFiles": [
+      "supabase/migrations/20260824184000_customer_request_customer_repair_v2.sql"
+    ],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "dawaa_archive_today_trial_followups_v1()",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "f0b10a108f0484cdb78b30a09c3b12af",
+    "closestRepoFiles": [
+      "supabase/migrations/20260824180000_customer_followup_lifecycle_commands_v1.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "dawaa_capture_whatsapp_canonical_purchase_v36()",
+    "destinations": [
+      "whatsapp_conversation_actions"
+    ],
+    "directDestinations": [
+      "whatsapp_conversation_actions"
+    ],
+    "classification": "PROJECT ONLY",
+    "when": [
+      "whatsapp_customer_cases_v22:trg_whatsapp_story_canonical_purchase_v36"
+    ],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "985edbd177824f9c0e910280710dc873",
+    "closestRepoFiles": [],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "create_or_link_customer_followup(jsonb)",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "a2e6624d4eb3476362891090dc0a0942",
+    "closestRepoFiles": [
+      "supabase/migrations/20260720_customer_followup_compat_rpc_forward.sql",
+      "supabase/migrations/20260720_customer_followup_hardening_live.sql"
+    ],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "refresh_daily_followup_customer_metrics_for_codes_v2(text[])",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [
+      "refresh_daily_followup_customer_metrics(text)",
+      "refresh_followup_metrics_after_sales_invoice_insert_v2()",
+      "refresh_followup_metrics_after_sales_invoice_update_v2()",
+      "refresh_followup_metrics_after_sales_invoice_delete_v2()"
+    ],
+    "definitionHash": "1c3fa0a5b73a916f5e5200983df4e280",
+    "closestRepoFiles": [
+      "supabase/migrations/20260826160000_batch_daily_followup_metrics_after_sales_v2.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "dawaa_supersede_legacy_review_on_automatic_v2()",
+    "destinations": [
+      "conversation_sales_reviews"
+    ],
+    "directDestinations": [
+      "conversation_sales_reviews"
+    ],
+    "classification": "PROJECT ONLY",
+    "when": [
+      "conversation_sales_reviews:conversation_review_supersede_legacy_v2"
+    ],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "b9a7d39f5382ac412fc91c3f1d7668f2",
+    "closestRepoFiles": [
+      "supabase/migrations/20261005123000_sales_intelligence_truth_boundary_v2.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "dawaa_capture_whatsapp_verified_purchase_v16()",
+    "destinations": [
+      "whatsapp_conversation_actions"
+    ],
+    "directDestinations": [
+      "whatsapp_conversation_actions"
+    ],
+    "classification": "RETIRE AFTER CUTOVER",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "5da5d45efde57695ae6476555f68bc00",
+    "closestRepoFiles": [],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "dawaa_create_case_rescue_task_v24(uuid)",
+    "destinations": [
+      "whatsapp_conversation_actions"
+    ],
+    "directDestinations": [
+      "whatsapp_conversation_actions"
+    ],
+    "classification": "RETIRE AFTER CUTOVER",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "c4565bd600b605983db7346baad21f42",
+    "closestRepoFiles": [],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "whatsapp_auto_followup_confirm_sale_v1(uuid,text,text,date,numeric,numeric,text)",
+    "destinations": [
+      "whatsapp_auto_followup_requests"
+    ],
+    "directDestinations": [
+      "whatsapp_auto_followup_requests"
+    ],
+    "classification": "RETIRE AFTER CUTOVER",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "da90c3dc933c7070f391c5a8d453fbfd",
+    "closestRepoFiles": [
+      "supabase/migrations/20260917073000_whatsapp_followup_sale_evidence_v1.sql",
+      "supabase/migrations/20260917080000_whatsapp_followup_sale_identity_v2.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "whatsapp_auto_followup_update_status_v1(uuid,text,text,text)",
+    "destinations": [
+      "whatsapp_auto_followup_requests"
+    ],
+    "directDestinations": [
+      "whatsapp_auto_followup_requests"
+    ],
+    "classification": "RETIRE AFTER CUTOVER",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "f9f6322241482fd1e24e60e97a8c67ce",
+    "closestRepoFiles": [],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "whatsapp_auto_followup_update_status_v2(uuid,text,text,text)",
+    "destinations": [
+      "whatsapp_auto_followup_requests"
+    ],
+    "directDestinations": [
+      "whatsapp_auto_followup_requests"
+    ],
+    "classification": "RETIRE AFTER CUTOVER",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "1c31ee7ec1b5af8964f191b1d3b8efc5",
+    "closestRepoFiles": [
+      "supabase/migrations/20260917070000_whatsapp_followup_permissions_v2.sql",
+      "supabase/migrations/20260917073000_whatsapp_followup_sale_evidence_v1.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "whatsapp_auto_followup_revoke_sale_v1(uuid,text)",
+    "destinations": [
+      "whatsapp_auto_followup_requests"
+    ],
+    "directDestinations": [
+      "whatsapp_auto_followup_requests"
+    ],
+    "classification": "RETIRE AFTER CUTOVER",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "6ff388cab897828399468cfcbfb1665e",
+    "closestRepoFiles": [
+      "supabase/migrations/20260917073000_whatsapp_followup_sale_evidence_v1.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "sales_intelligence_reconcile_case_set_v1(uuid,text[])",
+    "destinations": [
+      "conversation_sales_reviews",
+      "whatsapp_conversation_actions"
+    ],
+    "directDestinations": [
+      "conversation_sales_reviews"
+    ],
+    "classification": "PROJECT ONLY",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "c160f6ba18118858818dda09308d3497",
+    "closestRepoFiles": [
+      "supabase/migrations/20261003193000_si_case_lifecycle_reconciliation_v1.sql"
+    ],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "correct_customer_followup_data_legacy_v1(text,text,text,text,text,text,text,text)",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [
+      "correct_customer_followup_data_v1(text,text,text,text,text,text,text,text)"
+    ],
+    "definitionHash": "737071d33b07bce7c9aeba3c0f271ee0",
+    "closestRepoFiles": [],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "correct_customer_followup_data_v1(text,text,text,text,text,text,text,text)",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "f0f7dfc88157dde7f1f91a3933d1bd0a",
+    "closestRepoFiles": [
+      "supabase/migrations/20260720_customer_followup_customer_correction.sql",
+      "supabase/migrations/20261005131000_followup_writer_surface_hardening_v2.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "merge_open_followup_duplicates_legacy_v1(text,text[],text,text,text)",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [
+      "merge_open_followup_duplicates_v1(text,text[],text,text,text)"
+    ],
+    "definitionHash": "d3490d38887bdca76afd5a023522a3c9",
+    "closestRepoFiles": [],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "merge_open_followup_duplicates_v1(text,text[],text,text,text)",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "9fdf65dbe8f410afd60d9d4aa7ff3439",
+    "closestRepoFiles": [
+      "supabase/migrations/20260720_customer_followup_duplicate_management.sql",
+      "supabase/migrations/20261005131000_followup_writer_surface_hardening_v2.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "transfer_customer_followup_branch_legacy_v1(text,text,text,text,text)",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [
+      "transfer_customer_followup_branch_v1(text,text,text,text,text)"
+    ],
+    "definitionHash": "840354a93c06ed720c2c44772f2cec7f",
+    "closestRepoFiles": [],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "flag_burst_followup_registrations()",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "ec72a0c1c08842eb3a3b5c5a4d2642ac",
+    "closestRepoFiles": [],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "transfer_customer_followup_branch_v1(text,text,text,text,text)",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "7cdba894fd46043ce00e14e7c9b785d7",
+    "closestRepoFiles": [
+      "supabase/migrations/20260721_transfer_customer_followup_branch_v1.sql",
+      "supabase/migrations/20261005131000_followup_writer_surface_hardening_v2.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "dawaa_create_customer_followup_request_legacy_v1(jsonb)",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [
+      "dawaa_create_customer_followup_request_v1(jsonb)"
+    ],
+    "definitionHash": "73d1d939de5b7788339f5532d06e458f",
+    "closestRepoFiles": [],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "dawaa_approve_whatsapp_customer_request_action_v2(uuid)",
+    "destinations": [
+      "whatsapp_conversation_actions"
+    ],
+    "directDestinations": [
+      "whatsapp_conversation_actions"
+    ],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "d1d6e6877cf0cf20f66529dc16c63dfc",
+    "closestRepoFiles": [
+      "supabase/migrations/20261005141000_whatsapp_action_truth_guard_v2.sql"
+    ],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "dawaa_materialize_whatsapp_action_v1(uuid)",
+    "destinations": [
+      "whatsapp_conversation_actions",
+      "customer_requests",
+      "daily_followups"
+    ],
+    "directDestinations": [],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "fa3a8e11b41d3bd2ae456f643543a3a4",
+    "closestRepoFiles": [
+      "supabase/migrations/20261005141000_whatsapp_action_truth_guard_v2.sql"
+    ],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "normalize_customer_service_branch_owner()",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [
+      "daily_followups:trg_daily_followups_branch_owner"
+    ],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "89bf7ce153a9dbb06bb7ad7b782d54e7",
+    "closestRepoFiles": [
+      "supabase/migrations/20260712162000_fix_customer_service_branch_owners.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "set_conversation_review_report_date()",
+    "destinations": [
+      "conversation_sales_reviews"
+    ],
+    "directDestinations": [
+      "conversation_sales_reviews"
+    ],
+    "classification": "RETAIN",
+    "when": [
+      "conversation_sales_reviews:trg_conversation_review_report_date"
+    ],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "30daa3b8d062bd7228f3ebec395ba9f3",
+    "closestRepoFiles": [
+      "supabase/migrations/20260713153000_conversation_reviews_report_date.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "dawaa_guard_daily_followup_state_v2()",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [
+      "daily_followups:trg_daily_followups_state_guard_v2"
+    ],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "d15ea61061880023e0815f0cf22cfb15",
+    "closestRepoFiles": [
+      "supabase/migrations/20260719_customer_service_followup_guards_operations_v2.sql",
+      "supabase/migrations/20260826103500_customer_followup_transition_guard_v3.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "daily_followups_set_identity_key()",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [
+      "daily_followups:trg_daily_followups_identity_key"
+    ],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "766e9bfc6c0bec693f44129213fa2b98",
+    "closestRepoFiles": [],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "validate_daily_followup_write()",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [
+      "daily_followups"
+    ],
+    "classification": "RETAIN",
+    "when": [
+      "daily_followups:trg_validate_daily_followup_write"
+    ],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "3cbffc464595a08c3fc6100b42ed6fe5",
+    "closestRepoFiles": [],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "refresh_new_daily_followup_metrics()",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [],
+    "classification": "RETAIN",
+    "when": [
+      "daily_followups:daily_followups_refresh_customer_metrics_after_insert"
+    ],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "b69d359013c2970e53f57e8ba528b0cd",
+    "closestRepoFiles": [
+      "supabase/migrations/20260726213000_refresh_all_followup_customer_metrics.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "assign_customer_request_primary_branch_manager()",
+    "destinations": [
+      "customer_requests"
+    ],
+    "directDestinations": [
+      "customer_requests"
+    ],
+    "classification": "RETAIN",
+    "when": [
+      "customer_requests:trg_customer_request_primary_branch_manager"
+    ],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "ce26c4e554cfffdc0cca9da52307e720",
+    "closestRepoFiles": [
+      "supabase/migrations/20260811060300_customer_request_primary_branch_manager.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "customer_request_autolink_dawaawael_v1()",
+    "destinations": [
+      "customer_requests"
+    ],
+    "directDestinations": [
+      "customer_requests"
+    ],
+    "classification": "PROJECT ONLY",
+    "when": [
+      "customer_requests:trg_customer_request_autolink_dawaawael_v1"
+    ],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "33d0d14e4d971a8e0867c23a20363654",
+    "closestRepoFiles": [
+      "supabase/migrations/20260814030500_customer_request_source_enrichment_v2.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "customer_request_exact_source_mirror_v1()",
+    "destinations": [
+      "customer_requests"
+    ],
+    "directDestinations": [
+      "customer_requests"
+    ],
+    "classification": "PROJECT ONLY",
+    "when": [
+      "customer_requests:zz_customer_request_exact_source_mirror_v1"
+    ],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "2e4fee190d5ae04972c5326aa970e327",
+    "closestRepoFiles": [
+      "supabase/migrations/20260815042500_customer_request_exact_source_mirror_v5.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "customer_request_enrich_product_staff_v1()",
+    "destinations": [
+      "customer_requests"
+    ],
+    "directDestinations": [
+      "customer_requests"
+    ],
+    "classification": "PROJECT ONLY",
+    "when": [
+      "customer_requests:trg_customer_request_enrich_product_staff_v1"
+    ],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "8d84be4d26538260fb4e6b6ffface6e1",
+    "closestRepoFiles": [
+      "supabase/migrations/20260815041800_customer_request_product_staff_linkage_export_v1.sql",
+      "supabase/migrations/20260824195000_preserve_stable_source_staff_identity_v2.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "trg_compute_followup_points()",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [],
+    "classification": "RETAIN",
+    "when": [
+      "daily_followups:trg_daily_followups_compute_points"
+    ],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "2ee98c8965ad1806b38e789814226c72",
+    "closestRepoFiles": [],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "customer_request_canonical_source_identity_v2()",
+    "destinations": [
+      "customer_requests"
+    ],
+    "directDestinations": [
+      "customer_requests"
+    ],
+    "classification": "PROJECT ONLY",
+    "when": [
+      "customer_requests:aaa_customer_request_canonical_source_identity_v2"
+    ],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "55fb8973b0f78cda39b4febd847af0c3",
+    "closestRepoFiles": [
+      "supabase/migrations/20260824194000_customer_request_canonical_source_identity_v2.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "bind_conversation_review_reviewer_v1()",
+    "destinations": [
+      "conversation_sales_reviews"
+    ],
+    "directDestinations": [
+      "conversation_sales_reviews"
+    ],
+    "classification": "RETAIN",
+    "when": [
+      "conversation_sales_reviews:bind_conversation_review_reviewer_v1"
+    ],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "2ce7a56c3ac6938fb1ac0afb48c01ffc",
+    "closestRepoFiles": [
+      "supabase/migrations/20260906173600_fix_conversation_review_reviewer_identity_v1.sql",
+      "supabase/migrations/20261008160000_conversation_review_manager_correction_versioning_v1.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "set_conversation_review_submission_fingerprint_v2()",
+    "destinations": [
+      "conversation_sales_reviews"
+    ],
+    "directDestinations": [
+      "conversation_sales_reviews"
+    ],
+    "classification": "RETAIN",
+    "when": [
+      "conversation_sales_reviews:zz_set_conversation_review_submission_fingerprint_v2"
+    ],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "cd1443d6ffaec85e53b4434e93675735",
+    "closestRepoFiles": [
+      "supabase/migrations/20260906175500_conversation_review_save_hardening_v2.sql",
+      "supabase/migrations/20260907051000_fix_conversation_review_pgcrypto_schema_v3.sql",
+      "supabase/migrations/20261008160000_conversation_review_manager_correction_versioning_v1.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "dawaa_whatsapp_recovery_workflow_sync_v12()",
+    "destinations": [
+      "whatsapp_conversation_actions"
+    ],
+    "directDestinations": [
+      "whatsapp_conversation_actions"
+    ],
+    "classification": "RETAIN",
+    "when": [
+      "whatsapp_conversation_actions:trg_whatsapp_recovery_workflow_v12"
+    ],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "07ecd14dbd39d63b356f2f4abce0d28e",
+    "closestRepoFiles": [],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "dawaa_whatsapp_followup_resolve_customer_identity_v1()",
+    "destinations": [
+      "whatsapp_auto_followup_requests"
+    ],
+    "directDestinations": [
+      "whatsapp_auto_followup_requests"
+    ],
+    "classification": "RETAIN",
+    "when": [
+      "whatsapp_auto_followup_requests:whatsapp_auto_followup_resolve_customer_identity_v1"
+    ],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "5dee8016c2c6264cd35bb73157b5273e",
+    "closestRepoFiles": [
+      "supabase/migrations/20260917074500_whatsapp_followup_customer_identity_v1.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "dawaa_guard_whatsapp_conversation_action_v2()",
+    "destinations": [
+      "whatsapp_conversation_actions"
+    ],
+    "directDestinations": [
+      "whatsapp_conversation_actions"
+    ],
+    "classification": "RETAIN",
+    "when": [
+      "whatsapp_conversation_actions:whatsapp_conversation_action_truth_guard_v2"
+    ],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "0f7daf993c7aaf4df6c7ea2cdd08438a",
+    "closestRepoFiles": [
+      "supabase/migrations/20261005141000_whatsapp_action_truth_guard_v2.sql"
+    ],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "dawaa_create_customer_followup_request_v1(jsonb)",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "ac332b646aa48517d01ba43e387465bc",
+    "closestRepoFiles": [
+      "supabase/migrations/20261005134500_customer_followup_request_writer_guard_v2.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "dawaa_create_or_link_customer_followup_v1(text,text,text,text,text,text,text,text,text,date,text,text)",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [
+      "dawaa_materialize_whatsapp_action_core_v2(uuid)"
+    ],
+    "definitionHash": "e75721ea1c67310ff7a062cdbba70497",
+    "closestRepoFiles": [
+      "supabase/migrations/20260824180000_customer_followup_lifecycle_commands_v1.sql"
+    ],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "refresh_followup_metrics_after_sales_invoice()",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "935c9ea0905644970938156d29c1486e",
+    "closestRepoFiles": [
+      "supabase/migrations/20260726213000_refresh_all_followup_customer_metrics.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "dawaa_customer_sales_truth_refresh_v2()",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [
+      "rebuild_customer_analysis()",
+      "dawaa_invoice_post_import_refresh_v1(date,date)"
+    ],
+    "definitionHash": "2a0593be739135ce9842d7e5f7cc496a",
+    "closestRepoFiles": [],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "import_customer_followup_results_v1(uuid,text,text,jsonb)",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "619e2b3935d76556406467cddfd35ee7",
+    "closestRepoFiles": [
+      "supabase/migrations/20261005131000_followup_writer_surface_hardening_v2.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "ingest_dawaawael_customer_orders(jsonb,text)",
+    "destinations": [
+      "customer_requests"
+    ],
+    "directDestinations": [],
+    "classification": "PROJECT ONLY",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "3d5781e1bab972c1398b76f99e4bd039",
+    "closestRepoFiles": [],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "import_customer_service_queue_results_v4(uuid,text,text,jsonb)",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "17b3f307703398c053ae331606f3a509",
+    "closestRepoFiles": [
+      "supabase/migrations/20260814_customer_service_doctor_workbook_v4.sql",
+      "supabase/migrations/20261005131000_followup_writer_surface_hardening_v2.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "refresh_followup_metrics_after_sales_invoice_insert_v2()",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "9f04955102d82471ad2173c2f90334a2",
+    "closestRepoFiles": [
+      "supabase/migrations/20260826160000_batch_daily_followup_metrics_after_sales_v2.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "refresh_followup_metrics_after_sales_invoice_update_v2()",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "1c9ff847630d239ae6b2e7b3b7c9de12",
+    "closestRepoFiles": [
+      "supabase/migrations/20260826160000_batch_daily_followup_metrics_after_sales_v2.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "refresh_followup_metrics_after_sales_invoice_delete_v2()",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "66a314db5daa996e98c211c554efa522",
+    "closestRepoFiles": [
+      "supabase/migrations/20260826160000_batch_daily_followup_metrics_after_sales_v2.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "dawaa_reconcile_sales_intelligence_case_v22_v1(text)",
+    "destinations": [
+      "whatsapp_conversation_actions"
+    ],
+    "directDestinations": [],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "5e08ca9b5d8c81f54eab3a8fef3d3d9c",
+    "closestRepoFiles": [],
+    "stableIdentity": "present: inspect definition for per-path contract",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "rebuild_customer_analysis()",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "8714df34e451957a6016b89887dadbca",
+    "closestRepoFiles": [],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  },
+  {
+    "signature": "dawaa_invoice_post_import_refresh_v1(date,date)",
+    "destinations": [
+      "daily_followups"
+    ],
+    "directDestinations": [],
+    "classification": "RETAIN",
+    "when": [],
+    "production": "catalog present; trigger activity confirmed where attached; invocation frequency unverified",
+    "liveCallers": [],
+    "definitionHash": "7dd45fd0158610bdb0960bf95ea6351a",
+    "closestRepoFiles": [
+      "supabase/migrations/20260817012000_refresh_clean_sales_analytics_after_invoice_import_v29.sql",
+      "supabase/migrations/20260817041000_dashboard_performance_v32.sql"
+    ],
+    "stableIdentity": "not established from this function",
+    "classificationStatus": "audit proposal, not activated"
+  }
+]

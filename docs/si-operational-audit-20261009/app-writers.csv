@@ -1,0 +1,348 @@
+﻿file,line,function,operation,destination,classification,when,stableIdentity,production,evidence,decision,classificationStatus
+src/components/customer-requests/CustomerRequestProductIntelligencePanel.tsx,94,load,RPC auto_link_customer_request_products_v2,customer_requests,PROJECT ONLY,manual UI,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('auto_link_customer_request_products_v2', { p_apply: false, p_branch: branchArg })",consume canonical SI/identity/proof outputs only,"audit proposal, not activated"
+src/components/customer-requests/CustomerRequestProductIntelligencePanel.tsx,139,applySafe,RPC auto_link_customer_request_products_v2,customer_requests,PROJECT ONLY,manual UI,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('auto_link_customer_request_products_v2', {
+        p_apply: true,
+        p_branch: branch === 'all' ? null : branch,
+      })",consume canonical SI/identity/proof outputs only,"audit proposal, not activated"
+src/components/customerService/CustomerBranchTransferPanel.tsx,116,transfer,RPC transfer_customer_followup_branch_v1,daily_followups,RETAIN,manual UI,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('transfer_customer_followup_branch_v1', {
+        p_followup_id: selected.id,
+        p_target_branch: targetBranch,
+        p_actor_staff_id: user?.staffId || user?.id || null,
+        p_actor_name: user?.name || null,
+        p_reason: reason.trim() || null,
+      })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/components/customerService/CustomerFollowupOperationsCompletionPanel.tsx,204,mergeDuplicates,RPC merge_open_followup_duplicates_v1,daily_followups,RETAIN,manual UI,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('merge_open_followup_duplicates_v1', {
+        p_canonical_id: group.canonical_id,
+        p_duplicate_ids: duplicateIds,
+        p_actor_staff_id: actorStaffId,
+        p_actor_name: actorName,
+        p_reason: 'دمج يدوي من لوحة إدارة متابعات العملاء',
+      })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/components/customerService/CustomerFollowupOperationsCompletionPanel.tsx,233,saveCorrection,RPC correct_customer_followup_data_v1,daily_followups,RETAIN,manual UI,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('correct_customer_followup_data_v1', {
+        p_followup_id: correction.followupId.trim(),
+        p_customer_name: correction.name.trim() || null,
+        p_customer_code: correction.code.trim() || null,
+        p_customer_phone: correction.phone.trim() || null,
+        p_branch: correction.branch || null,
+        p_actor_staff_id: actorStaffId,
+        p_actor_name: actorName,
+        p_note: correction.note.trim() || 'تصحيح من لوحة خدمة العملاء',
+      })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/components/customerService/CustomerServiceDoctorWorkbookCenter.tsx,163,importReadyRows,RPC import_customer_service_queue_results_v4,daily_followups,RETAIN,manual UI,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('import_customer_service_queue_results_v4', {
+        p_actor_id: user.id,
+        p_branch: managerView ? 'كل الفروع' : userBranch,
+        p_file_name: preview.fileName,
+        p_rows: safeRows,
+      })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/components/customerService/FollowupResultsExcelImportModal.tsx,210,importRows,RPC import_customer_followup_results_v1,daily_followups,RETAIN,manual UI,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('import_customer_followup_results_v1', {
+        p_actor_id: user.id,
+        p_branch: branch,
+        p_file_name: fileName,
+        p_rows: rows,
+      })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/components/customerService/SmartQueueExcelImportModal.tsx,155,importRows,RPC import_customer_service_queue_results_v4,daily_followups,RETAIN,manual UI,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('import_customer_service_queue_results_v4', { p_actor_id: user.id, p_branch: branch, p_file_name: fileName, p_rows: executedRows })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/components/doctor/DoctorRequestedFollowups.tsx,62,reportFraud,RPC penalize_followup_fraud,daily_followups,RETAIN,manual UI,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('penalize_followup_fraud', {
+        p_followup_id: followupId,
+        p_flagged_by: user?.name || 'مدير',
+        p_reason: reason.trim(),
+      })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/components/reviews/WhatsAppLostOpportunityAnalyticsV24.tsx,118,createRescueTask,RPC dawaa_create_case_rescue_task_v24,whatsapp_conversation_actions,RETIRE AFTER CUTOVER,manual UI,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('dawaa_create_case_rescue_task_v24', { p_case_id: row.id })",legacy operational or identity decision: remove after canonical activation,"audit proposal, not activated"
+src/components/reviews/WhatsAppRecoverableOpportunitiesV10.tsx,99,createRecoveryTask,insert,whatsapp_conversation_actions,RETIRE AFTER CUTOVER,manual UI,inspect source,source present on audited branch; deployed bundle not verified,"supabase.from('whatsapp_conversation_actions').insert({
+        source_id: row.source_id,
+        action_key: actionKey,
+        action_type: 'customer_followup',
+        status: 'ready',
+        work_status: 'unassigned',
+        confidence: recovery.score,
+        auto_eligible: false,
+        branch: row.branch,
+        customer_id: row.customer_id,
+        customer_code: row.customer_code,
+        customer_name: row.customer_name,
+        customer_phone: row.customer_phone,
+        staff_id: row.staff_id,
+        staff_name: row.staff_name,
+        product_code: row.product_code,
+        product_name: row.product_name,
+        quantity: row.quantity,
+        due_at: deadline,
+        sla_due_at: deadline,
+        reason: row.leakage_reason || row.next_action || recovery.why,
+        evidence: { origin: 'recoverable_v12', recovery_score: recovery.score, current_stage: row.current_stag",legacy operational or identity decision: remove after canonical activation,"audit proposal, not activated"
+src/components/reviews/WhatsAppRecoveryWorkQueueV11.tsx,56,patchAction,update,whatsapp_conversation_actions,RETAIN,manual UI,inspect source,source present on audited branch; deployed bundle not verified,"supabase.from('whatsapp_conversation_actions').update({ ...patch, updated_at:new Date().toISOString() })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/features/customer-requests/commands/customerRequestCommands.ts,21,runAtomicTransition,RPC advance_customer_request_v2,customer_requests,RETAIN,service caller,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('advance_customer_request_v2', {
+    p_request_id: request.id,
+    p_action: action,
+    p_notes: notes?.trim() || null,
+    p_expected_arrival_date: expectedArrivalDate || null,
+  })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/features/customer-requests/commands/customerRequestCommands.ts,98,contactCustomerForRequest,RPC record_customer_request_contact_v2,customer_requests,RETAIN,service caller,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('record_customer_request_contact_v2', {
+    p_request_id: request.id,
+    p_outcome: input.outcome,
+    p_notes: input.notes?.trim() || null,
+    p_followup_at: input.outcome === 'later' ? input.followupAt || null : null,
+  })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/features/customer-requests/commands/customerRequestCommands.ts,180,updateCustomerRequestDetailsV2,RPC update_customer_request_details_v2,customer_requests,RETAIN,service caller,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('update_customer_request_details_v2', {
+    p_request_id: request.id,
+    p_quantity: input.quantity,
+    p_urgency: input.urgency,
+    p_request_type: input.requestType,
+    p_channel: input.channel || null,
+    p_customer_phone: input.customerPhone?.trim() || null,
+    p_doctor_notes: input.doctorNotes?.trim() || null,
+  })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/features/customer-requests/commands/moveCustomerRequestToShortageSecure.ts,7,moveCustomerRequestToShortageSecure,RPC move_customer_request_to_shortage_v1,customer_requests,RETAIN,service caller,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('move_customer_request_to_shortage_v1', {
+    p_request_id: request.id,
+  })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/features/customer-requests/create/createCanonicalCustomerRequest.ts,106,createCanonicalCustomerRequest,RPC create_customer_request_canonical_v2,customer_requests,RETAIN,service caller,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('create_customer_request_canonical_v2', {
+    p_customer_id: customerId,
+    p_product_id: productId,
+    p_doctor_id: doctorId,
+    p_branch: branch,
+    p_quantity: quantity,
+    p_urgency: input.urgency || 'normal',
+    p_request_type: input.requestType || 'missing_medicine',
+    p_channel: input.channel || null,
+    p_needed_by_date: input.neededBy || null,
+    p_expected_fulfillment_days: input.expectedFulfillmentDays ?? null,
+    p_supplier_hint: input.supplierHint || null,
+    p_notes: input.notes || null,
+    p_image_url: input.imageUrl || null,
+    p_image_path: input.imagePath || null,
+  })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/lib/api/customerRequestDataQuality.ts,110,repairCustomerRequestCustomer,RPC repair_customer_request_customer_v2,customer_requests,RETAIN,service caller,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('repair_customer_request_customer_v2', {
+    p_request_id: requestId,
+    p_customer_id: customer.id,
+    p_keep_request_branch: keepRequestBranch,
+  })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/lib/api/customerRequestStaffAttribution.ts,88,applyCustomerRequestStaffAttribution,RPC apply_customer_request_staff_attribution_v1,customer_requests,RETAIN,service caller,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('apply_customer_request_staff_attribution_v1', {
+    p_source_label: input.sourceLabel,
+    p_branch: input.branch,
+    p_staff_id: input.staffId,
+    p_confirm: 'APPLY_CONFIRMED_MAPPING',
+  })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/lib/api/customerServiceCommandCenter.ts,629,createExceptionalFollowup,RPC dawaa_create_exceptional_followup_v2,daily_followups,RETAIN,service caller,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('dawaa_create_exceptional_followup_v2', {
+    p_customer_id: input.customer?.customer_id || input.customer?.id || null,
+    p_customer_code: input.customer?.customer_code || input.customerCode || null,
+    p_customer_name: input.customerName || input.customer?.customer_name || null,
+    p_customer_phone: input.customerPhone || input.customer?.customer_phone || null,
+    p_branch: normalizeBranchName(input.branch || input.customer?.branch || ''), p_priority: input.priority || 'مهم',
+    p_reason: publicReason, p_followup_datetime: input.followupDatetime || new Date().toISOString(),
+    p_assigned_doctor: input.assignedDoctor || null, p_request_details: publicFollowupReason(input.requestDetails || input.notes) || null,
+    p_notes: input.notes || null, p_created_by: null, p_created_by_name: null,
+  })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/lib/api/customerServiceCommandCenter.ts,644,updateFollowupResult,RPC dawaa_cancel_customer_followup_v1,daily_followups,RETAIN,service caller,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('dawaa_cancel_customer_followup_v1', { p_followup_id:id, p_reason:payload.cancelled_reason || payload.followup_notes || 'إلغاء المتابعة', p_actor_id:null, p_actor_name:null })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/lib/api/customerServiceCommandCenter.ts,648,updateFollowupResult,RPC dawaa_archive_customer_followup_v1,daily_followups,RETAIN,service caller,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('dawaa_archive_customer_followup_v1', { p_followup_id:id, p_reason:payload.archive_reason || payload.hidden_reason || payload.followup_notes || 'أرشفة المتابعة', p_actor:null })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/lib/api/customerServiceCommandCenter.ts,652,updateFollowupResult,RPC dawaa_postpone_customer_followup_v1,daily_followups,RETAIN,service caller,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('dawaa_postpone_customer_followup_v1', { p_followup_id:id, p_postponed_until:payload.postponed_until || payload.next_followup_date, p_actor:null })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/lib/api/customerServiceCommandCenter.ts,656,updateFollowupResult,RPC dawaa_save_customer_followup_result_v1,daily_followups,RETAIN,service caller,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('dawaa_save_customer_followup_result_v1',{
+    p_followup_id:id,p_status:payload.status || payload.followup_status || 'تم',p_contact_status:payload.contact_status || null,
+    p_contact_result:result,p_summary:payload.followup_summary || result,p_notes:payload.followup_notes || payload.notes || null,
+    p_contact_method:payload.contact_method || null,p_next_followup_date:payload.next_followup_date || null,p_responsible_name:payload.responsible_name || null,
+    p_request_type:payload.request_type || null,p_request_details:payload.request_details || null,p_request_status:payload.request_status || null,
+    p_purchase_amount:payload.purchase_after_followup ? Number(payload.purchase_amount || 0) : null,p_quality_rating:payload.quality_rating ?? null,
+    p_internal_rating:payload.internal_rating ?? null,p_customer_satisfaction:payload.customer_satisfaction || null,p_purchase_i",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/lib/api/customerServiceSecureActions.ts,24,archiveCustomerFollowup,RPC dawaa_archive_customer_followup_v1,daily_followups,RETAIN,service caller,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('dawaa_archive_customer_followup_v1', {
+    p_followup_id: followupId,
+    p_reason: reason.trim(),
+    p_actor: null,
+  })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/lib/api/customerServiceSecureActions.ts,35,restoreCustomerFollowup,RPC dawaa_restore_customer_followup_v1,daily_followups,RETAIN,service caller,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('dawaa_restore_customer_followup_v1', {
+    p_followup_id: followupId,
+    p_actor: null,
+  })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/lib/api/customerServiceSecureActions.ts,49,postponeCustomerFollowup,RPC dawaa_postpone_customer_followup_v1,daily_followups,RETAIN,service caller,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('dawaa_postpone_customer_followup_v1', {
+    p_followup_id: followupId,
+    p_postponed_until: postponedUntil,
+    p_actor: null,
+  })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/lib/api/customerServiceSecureActions.ts,74,createExceptionalCustomerFollowup,RPC dawaa_create_exceptional_followup_v2,daily_followups,RETAIN,service caller,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('dawaa_create_exceptional_followup_v2', {
+    p_customer_id: input.customerId || null,
+    p_customer_code: input.customerCode || null,
+    p_customer_name: input.customerName.trim(),
+    p_customer_phone: input.customerPhone || null,
+    p_branch: input.branch.trim(),
+    p_priority: input.priority || 'مهم',
+    p_reason: input.reason.trim(),
+    p_followup_datetime: input.followupDatetime || null,
+    p_assigned_doctor: input.assignedDoctor || null,
+    p_request_details: input.requestDetails || null,
+    p_notes: input.notes || null,
+    p_created_by: null,
+    p_created_by_name: null,
+  })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/lib/api/customerServiceSecureActions.ts,104,completeCustomerFollowup,RPC dawaa_complete_customer_followup_v1,daily_followups,RETAIN,service caller,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('dawaa_complete_customer_followup_v1', {
+    p_followup_id: input.followupId,
+    p_result: input.result.trim(),
+    p_summary: input.summary.trim(),
+    p_score: score,
+    p_notes: input.notes || null,
+    p_actor_id: null,
+    p_actor_name: null,
+  })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/lib/api/customerServiceSecureActions.ts,119,cancelCustomerFollowup,RPC dawaa_cancel_customer_followup_v1,daily_followups,RETAIN,service caller,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('dawaa_cancel_customer_followup_v1', {
+    p_followup_id: followupId,
+    p_reason: reason.trim(),
+    p_actor_id: null,
+    p_actor_name: null,
+  })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/lib/api/customers.ts,905,createCustomerManualFollowup,RPC dawaa_create_customer_followup_request_v1,daily_followups,RETAIN,service caller,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('dawaa_create_customer_followup_request_v1', {
+    p_payload: requestPayload as any,
+  })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/lib/api/dailyFollowups.ts,113,insertFollowupRecords,RPC dawaa_create_or_link_customer_followup_v1,daily_followups,RETAIN,service caller,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('dawaa_create_or_link_customer_followup_v1', {
+      p_customer_id: record.customer_id || null, p_customer_code: record.customer_code || null,
+      p_customer_name: record.customer_name || record.name || null, p_customer_phone: record.customer_phone || record.phone || null,
+      p_branch: record.branch || null, p_request_type: record.request_type || record.followup_type || 'general',
+      p_request_details: record.request_details || record.notes || null, p_followup_reason: record.followup_reason || record.notes || null,
+      p_priority: record.priority || 'متوسطة', p_next_followup_date: record.next_followup_date || null,
+      p_client_request_id: record.client_request_id || null, p_source: record.request_source || 'daily_followups_api',
+    })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/lib/api/dailyFollowups.ts,204,updateFollowupStatus,RPC dawaa_save_customer_followup_result_v1,daily_followups,RETAIN,service caller,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('dawaa_save_customer_followup_result_v1', {
+    p_followup_id: id, p_status: nextStatus, p_contact_status: record.contact_status || null,
+    p_contact_result: result, p_summary: record.followup_summary || result, p_notes: record.notes || null,
+    p_contact_method: record.contact_method || null, p_next_followup_date: record.next_followup_date || null,
+    p_responsible_name: record.responsible_name || null, p_request_type: record.request_type || null,
+    p_request_details: record.request_details || null, p_request_status: record.request_status || null,
+    p_purchase_amount: record.purchase_after_followup ? Number(record.purchase_amount || 0) : null,
+    p_quality_rating: record.quality_rating == null ? null : Number(record.quality_rating),
+    p_internal_rating: record.internal_rating == null ? null : Number(record.internal_rating),
+    p_customer_satisfaction: record.cus",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/lib/api/dailyFollowups.ts,275,clearTodayTrialFollowups,RPC dawaa_archive_today_trial_followups_v1,daily_followups,RETAIN,service caller,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,supabase.rpc('dawaa_archive_today_trial_followups_v1'),retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/lib/api/findOrCreateCustomerFollowup.ts,41,findOrCreateOpenCustomerFollowup,RPC dawaa_create_or_link_customer_followup_v1,daily_followups,RETAIN,service caller,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('dawaa_create_or_link_customer_followup_v1', {
+    p_customer_id: input.customerId || null,
+    p_customer_code: input.customerCode || null,
+    p_customer_name: input.customerName.trim(),
+    p_customer_phone: normalizeEgyptianPhone(input.customerPhone) || null,
+    p_branch: input.branch.trim(),
+    p_request_type: input.requestType || 'general',
+    p_request_details: input.requestDetails || null,
+    p_followup_reason: input.followupReason || null,
+    p_priority: input.priority || 'متوسطة',
+    p_next_followup_date: input.nextFollowupDate || null,
+    p_client_request_id: input.clientRequestId || createFollowupClientRequestId(),
+    p_source: input.source || 'manual',
+  })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/lib/api/productsCatalog.ts,123,importProductsCatalog,RPC auto_link_customer_request_products,customer_requests,PROJECT ONLY,service caller,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,supabase.rpc('auto_link_customer_request_products'),consume canonical SI/identity/proof outputs only,"audit proposal, not activated"
+src/lib/api/productsCatalog.ts,198,linkCustomerRequestProduct,RPC link_customer_request_product,customer_requests,RETAIN,service caller,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('link_customer_request_product', {
+    p_request_id: requestId,
+    p_product_id: productId,
+  })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/lib/customerService/followupCommandService.ts,35,executeFollowupCommand,RPC dawaa_execute_customer_followup_command_v1,daily_followups,RETAIN,service caller,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('dawaa_execute_customer_followup_command_v1', {
+    p_followup_id: input.followupId,
+    p_command: input.command,
+    p_note: input.note ?? null,
+    p_next_followup_date: input.nextFollowupDate ?? null,
+    p_contact_channel: input.contactChannel ?? null,
+    p_outcome: input.outcome ?? null,
+    p_purchase_value: input.purchaseValue ?? null,
+    p_target_branch: input.targetBranch ?? null,
+    p_attempt_type: input.attemptType ?? null,
+    p_needs_next_followup: input.needsNextFollowup ?? null,
+    p_result: input.result ?? null,
+    p_followup_notes: input.followupNotes ?? null,
+  })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/lib/salesIntelligence/conversationEvaluationPersistence.ts,434,persistAutomaticCaseConversationReviewWithClient,update,conversation_sales_reviews,PROJECT ONLY,service caller,inspect source,source present on audited branch; deployed bundle not verified,"client
+      .from('conversation_sales_reviews')
+      .update(currentPayload)",consume canonical SI/identity/proof outputs only,"audit proposal, not activated"
+src/lib/salesIntelligence/conversationEvaluationPersistence.ts,455,persistAutomaticCaseConversationReviewWithClient,insert,conversation_sales_reviews,PROJECT ONLY,service caller,inspect source,source present on audited branch; deployed bundle not verified,"client
+    .from('conversation_sales_reviews')
+    .insert(currentPayload)",consume canonical SI/identity/proof outputs only,"audit proposal, not activated"
+src/lib/salesIntelligence/conversationEvaluationPersistence.ts,477,persistAutomaticCaseConversationReviewWithClient,update,conversation_sales_reviews,PROJECT ONLY,service caller,inspect source,source present on audited branch; deployed bundle not verified,"client
+        .from('conversation_sales_reviews')
+        .update(currentPayload)",consume canonical SI/identity/proof outputs only,"audit proposal, not activated"
+src/lib/salesIntelligence/refresh/canonicalRefreshService.ts,670,reconcileSoldCustomerRequestActions,update,whatsapp_conversation_actions,PROJECT ONLY,refresh/backfill,inspect source,source present on audited branch; deployed bundle not verified,"service
+          .from('whatsapp_conversation_actions')
+          .update({
+            status: 'dismissed',
+            work_status: 'completed',
+            outcome: 'sold',
+            outcome_note: 'تم إغلاق طلب العميل تلقائيًا بعد إثبات البيع وربطه بفاتورة فعلية.',
+            completed_at: nowIso,
+            target_table: 'sales_invoices',
+            target_id: invoiceId,
+            reason: 'تم إثبات بيع الطلب وربطه بفاتورة فعلية؛ لا يحتاج متابعة كطلب غير مغلق.',
+            payload: { ...payload, canonical_sale: canonicalSale },
+            updated_at: nowIso,
+          })",consume canonical SI/identity/proof outputs only,"audit proposal, not activated"
+src/lib/salesIntelligence/refresh/canonicalRefreshService.ts,785,enrichComplaintFollowupContext,update,whatsapp_conversation_actions,PROJECT ONLY,refresh/backfill,inspect source,source present on audited branch; deployed bundle not verified,"service
+      .from('whatsapp_conversation_actions')
+      .update({
+        payload: { ...existingPayload, delivery_context: deliveryContext },
+        updated_at: new Date().toISOString(),
+      })",consume canonical SI/identity/proof outputs only,"audit proposal, not activated"
+src/lib/whatsappAutoIngestPipeline.ts,295,saveFollowupSignals,update,whatsapp_auto_followup_requests,RETIRE AFTER CUTOVER,ingest,inspect source,source present on audited branch; deployed bundle not verified,"supabase
+        .from('whatsapp_auto_followup_requests')
+        .update({ followup_identity: key })",legacy operational or identity decision: remove after canonical activation,"audit proposal, not activated"
+src/lib/whatsappAutoIngestPipeline.ts,354,saveFollowupSignals,insert,whatsapp_auto_followup_requests,RETIRE AFTER CUTOVER,ingest,inspect source,source present on audited branch; deployed bundle not verified,supabase.from('whatsapp_auto_followup_requests').insert(rows),legacy operational or identity decision: remove after canonical activation,"audit proposal, not activated"
+src/lib/whatsappAutomaticReviewPersistence.ts,227,persistAutomaticWhatsAppReview,insert,conversation_sales_reviews,PROJECT ONLY,service caller,inspect source,source present on audited branch; deployed bundle not verified,"supabase
+    .from('conversation_sales_reviews')
+    .insert(payload)",consume canonical SI/identity/proof outputs only,"audit proposal, not activated"
+src/lib/whatsappCustomerJourneyPersistenceV15.ts,130,syncWhatsAppCustomerJourneyV15,upsert,whatsapp_conversation_actions,RETIRE AFTER CUTOVER,service caller,inspect source,source present on audited branch; deployed bundle not verified,"supabase
+      .from('whatsapp_conversation_actions')
+      .upsert({
+        source_id: journey.root_source_id,
+        action_key: actionKey,
+        action_type: recoveryAction.type,
+        status: journey.customer_code ? 'ready' : 'proposed',
+        confidence: model.customerRisk === 'critical' ? 96 : model.customerRisk === 'high' ? 90 : 80,
+        auto_eligible: Boolean(journey.customer_code),
+        branch: context.branch || root.branch || null,
+        customer_id: root.customer_id || null,
+        customer_code: root.customer_code || null,
+        customer_name: root.customer_name || null,
+        customer_phone: root.customer_phone || null,
+        staff_id: root.staff_id || null,
+        staff_name: root.staff_name || null,
+        due_at: dueInHours(recoveryAction.dueInHours),
+        reason: recoveryAction.reason,
+        evidence: recoveryAction.evidenceSessionIds,
+     ",legacy operational or identity decision: remove after canonical activation,"audit proposal, not activated"
+src/lib/whatsappOperationalIntelligenceV6.ts,1293,syncWhatsAppOperationalActionsV6,upsert,whatsapp_conversation_actions,RETIRE AFTER CUTOVER,service caller,source_id/action_key plus fu1; request index remains,source present on audited branch; deployed bundle not verified,"supabase.from('whatsapp_conversation_actions').upsert(rows, { onConflict: 'source_id,action_key', ignoreDuplicates: false })",legacy operational or identity decision: remove after canonical activation,"audit proposal, not activated"
+src/lib/whatsappOperationalIntelligenceV6.ts,1458,syncActionsWithStableIdentity,update,whatsapp_conversation_actions,RETIRE AFTER CUTOVER,service caller,source_id/action_key plus fu1; request index remains,source present on audited branch; deployed bundle not verified,"supabase
+        .from('whatsapp_conversation_actions')
+        .update({ followup_identity: row.followup_identity })",legacy operational or identity decision: remove after canonical activation,"audit proposal, not activated"
+src/lib/whatsappOperationalIntelligenceV6.ts,1503,syncActionsWithStableIdentity,upsert,whatsapp_conversation_actions,RETIRE AFTER CUTOVER,service caller,source_id/action_key plus fu1; request index remains,source present on audited branch; deployed bundle not verified,"supabase.from('whatsapp_conversation_actions').upsert(refreshSameSource, { onConflict: 'source_id,action_key', ignoreDuplicates: false })",legacy operational or identity decision: remove after canonical activation,"audit proposal, not activated"
+src/lib/whatsappOperationalIntelligenceV6.ts,1508,syncActionsWithStableIdentity,upsert,whatsapp_conversation_actions,RETIRE AFTER CUTOVER,service caller,source_id/action_key plus fu1; request index remains,source present on audited branch; deployed bundle not verified,"supabase.from('whatsapp_conversation_actions').upsert(refreshEvidenceOnly, { onConflict: 'id', ignoreDuplicates: false })",legacy operational or identity decision: remove after canonical activation,"audit proposal, not activated"
+src/lib/whatsappOperationalIntelligenceV6.ts,1513,syncActionsWithStableIdentity,insert,whatsapp_conversation_actions,RETIRE AFTER CUTOVER,service caller,source_id/action_key plus fu1; request index remains,source present on audited branch; deployed bundle not verified,supabase.from('whatsapp_conversation_actions').insert(inserts),legacy operational or identity decision: remove after canonical activation,"audit proposal, not activated"
+src/pages/ConversationReviewEvidence.tsx,77,save,update,conversation_sales_reviews,RETAIN,manual UI,inspect source,source present on audited branch; deployed bundle not verified,"supabase
+          .from('conversation_sales_reviews')
+          .update({ reviewer_message: message.trim(), updated_at: new Date().toISOString() })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/pages/OperationalModule.tsx,807,returnShortageToCustomerRequest,RPC return_shortage_to_customer_request_v2,customer_requests,RETAIN,manual UI,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('return_shortage_to_customer_request_v2', {
+      p_shortage_item_id: String(row.id || ''),
+      p_notes: `تم توفير الصنف من النواقص: ${String(row.item_name || row.title || 'الصنف')}`,
+    })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/pages/Reviews.tsx,1599,save,insertSafe,conversation_sales_reviews,RETAIN,review save/edit/manual,inspect source,source present on audited branch; deployed bundle not verified,"insertSafe('conversation_sales_reviews', payload)",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/pages/Reviews.tsx,1722,save,insertSafe,followups,RETIRE AFTER CUTOVER,review save/edit/manual,none,source present on audited branch; deployed bundle not verified,"insertSafe('followups', {
+            customer_id: form.customerId || null,
+            customer_name: form.customerName || 'عميل يحتاج متابعة جودة',
+            customer_phone: form.customerPhone || null,
+            customer_code: form.customerCode || null,
+            branch: reviewSourceBranch || null,
+            followup_status: 'pending',
+            status: 'pending',
+            priority: result.hasSevereError ? 'عاجل' : 'مهم',
+            followup_reason: 'تقييم محادثة سلبي يحتاج متابعة',
+            followup_summary: `تقييم محادثة ${result.finalScore}/100 بواسطة ${currentUserProfile.name}. ${result.mainNegativeReason || finalTraining}`,
+            assigned_staff_id: selectedStaff.id,
+            responsible_name: selectedStaff.name,
+            source: 'conversation_review',
+            source_record_id: reviewRowId || null,
+            created_by: currentUserProfile.id,
+    ",legacy operational or identity decision: remove after canonical activation,"audit proposal, not activated"
+src/pages/Reviews.tsx,2144,saveEdit,updateSafe,conversation_sales_reviews,RETAIN,review save/edit/manual,inspect source,source present on audited branch; deployed bundle not verified,"updateSafe('conversation_sales_reviews', editingReview.id, { ...payload, ...identity.patch })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/pages/Reviews.tsx,2280,saveManagerReview,updateSafe,conversation_sales_reviews,RETAIN,review save/edit/manual,inspect source,source present on audited branch; deployed bundle not verified,"updateSafe('conversation_sales_reviews', managerReviewTarget.id, {
+          manager_review_score: score,
+          manager_review_notes: managerForm.notes,
+          manager_reviewed_by: user?.name || 'مدير عام',
+          manager_reviewed_at: new Date().toISOString(),
+        })",retain authorized manual command/lifecycle; no autonomous WhatsApp meaning,"audit proposal, not activated"
+src/pages/WhatsAppAutoFollowupRequests.tsx,73,updateFollowupRpc,RPC whatsapp_auto_followup_update_status_v2,whatsapp_auto_followup_requests,RETIRE AFTER CUTOVER,manual UI,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('whatsapp_auto_followup_update_status_v2', params)",legacy operational or identity decision: remove after canonical activation,"audit proposal, not activated"
+src/pages/WhatsAppAutoFollowupRequests.tsx,75,updateFollowupRpc,RPC whatsapp_auto_followup_update_status_v1,whatsapp_auto_followup_requests,RETIRE AFTER CUTOVER,manual UI,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('whatsapp_auto_followup_update_status_v1', params)",legacy operational or identity decision: remove after canonical activation,"audit proposal, not activated"
+src/pages/WhatsAppAutoFollowupRequests.tsx,220,confirmSale,RPC whatsapp_auto_followup_confirm_sale_v1,whatsapp_auto_followup_requests,RETIRE AFTER CUTOVER,manual UI,see canonical RPC inventory,source present on audited branch; deployed bundle not verified,"supabase.rpc('whatsapp_auto_followup_confirm_sale_v1', {
+        p_id: row.id,
+        p_invoice_id: candidate.invoiceId,
+        p_invoice_number: candidate.invoiceNumber,
+        p_invoice_date: invoiceDateOnly(candidate.invoiceDate),
+        p_invoice_value: candidate.amount,
+        p_confidence: candidate.confidence,
+        p_notes: draft?.notes.trim() || null,
+      })",legacy operational or identity decision: remove after canonical activation,"audit proposal, not activated"

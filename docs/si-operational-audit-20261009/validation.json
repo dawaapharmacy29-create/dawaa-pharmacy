@@ -1,0 +1,19 @@
+{
+  "phase": "phase_1",
+  "status": "BLOCKED",
+  "application_sha": "2a8e85fce639a04d5562c42e054797584f496a63",
+  "verify_exit_code": 0,
+  "tests_passed": 643,
+  "tests_failed": 0,
+  "initial_js_gzip_kib": 92.2,
+  "implementation_started": false,
+  "live_mutations": 0,
+  "migrations_applied": 0,
+  "preview_created": false,
+  "production_deploy": false,
+  "single_writer_executable_proof": false,
+  "dynamic_sql_exhaustiveness_proven": false,
+  "deployed_bundle_verified": false,
+  "isolated_db_harness_run": false,
+  "classifications": "proposed, not activated"
+}
