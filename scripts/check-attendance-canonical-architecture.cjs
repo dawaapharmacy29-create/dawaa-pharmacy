@@ -12,6 +12,7 @@ const required = {
   runtime: 'supabase/migrations/20261009092500_attendance_runtime_canonical_router_v1.sql',
   commandCenter: 'supabase/migrations/20261009095500_attendance_command_center_canonical_v1.sql',
   compatibility: 'supabase/migrations/20261009101500_attendance_canonical_compatibility_cutover_v1.sql',
+  healthLanes: 'supabase/migrations/20261009104000_attendance_health_review_lanes_v2.sql',
   service: 'src/lib/attendance/attendanceResolutionService.ts',
   center: 'src/components/attendance/AttendanceResolutionCenter.tsx',
 };
@@ -46,6 +47,7 @@ if (!failures.length) {
   const runtime = read(required.runtime);
   const commandCenter = read(required.commandCenter);
   const compatibility = read(required.compatibility);
+  const healthLanes = read(required.healthLanes);
   const service = read(required.service);
   const center = read(required.center);
 
@@ -78,7 +80,7 @@ if (!failures.length) {
     'dawaa_staff_flexible_attendance_v1',
   ]);
 
-  mustContain('Health migration', health, [
+  mustContain('Health scope migration', health, [
     "'flexible_system_v2_rows'",
     "'duplicate_classified_resolutions'",
     "'financial_functions_reading_raw_attendance'",
@@ -119,6 +121,17 @@ if (!failures.length) {
     failures.push('Legacy materialize_attendance_range_v2 must never materialize V2 directly.');
   }
 
+  mustContain('Health lane migration', healthLanes, [
+    "'attendance_review_lanes_v2'",
+    "'auto_resolvable'",
+    "'manager_required'",
+    "'manager_required_active_staff'",
+    "'manager_required_former_staff'",
+    "'system_repair'",
+    "'waiting'",
+    "'system_review_backlog'",
+  ]);
+
   // The browser command center must stay behind RPC/service boundaries.
   if (/\.from\(['"]attendance_daily_summary['"]\)|\.from\(['"]attendance_impact_ledger['"]\)/.test(center)) {
     failures.push('AttendanceResolutionCenter must not read attendance truth/ledger tables directly.');
@@ -149,6 +162,7 @@ if (!failures.length) {
     required.runtime,
     required.commandCenter,
     required.compatibility,
+    required.healthLanes,
   ];
   for (const rel of ordered) {
     const base = path.basename(rel);
@@ -164,4 +178,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('[attendance-canonical] PASS: one routing contract, route-safe materialization, canonical review triage, guarded compatibility entrypoints, and no raw attendance reads in financial/payroll frontend modules.');
+console.log('[attendance-canonical] PASS: one routing contract, route-safe materialization, canonical review triage, guarded compatibility entrypoints, accurate review lanes, and no raw attendance reads in financial/payroll frontend modules.');
