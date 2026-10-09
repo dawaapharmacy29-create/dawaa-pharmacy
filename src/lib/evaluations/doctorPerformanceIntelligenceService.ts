@@ -6,6 +6,7 @@ import { readAttendanceRange } from '@/lib/readModels/attendanceReadModel';
 import { getStaffAttendanceDetail } from '@/lib/attendance/attendanceBreakdownService';
 import { cairoDateBoundaryIso, cairoDayOf } from '@/lib/time/cairoDateBoundary';
 import { addDays } from '@/lib/attendance/period';
+import { comparableProductivity, parseSalesReconciliation, verifiedConversion, type CycleReconciliation } from '@/lib/evaluations/doctorSalesReconciliation';
 
 /** First evidence later than this many days into a cycle means the doctor joined mid-cycle. */
 const JOIN_TOLERANCE_DAYS=3;
@@ -39,13 +40,19 @@ export type DoctorPerformanceMonth = {
   sales: number | null; invoices: number | null; customers: number | null; averageInvoice: number | null;
   workedHours: number | null; salesPerHour: number | null; invoicesPerHour: number | null; customersPerHour: number | null;
   /**
-   * Reviewed conversations. A verified sale is a review marked converted that carries the sale invoice number.
-   * `conversionRecorded` = verified sales + reviews recorded as no sale; a missing outcome, or a "converted" mark
-   * with no invoice, is unknown and stays out of both sides. `conversionRate` = verified ÷ recorded.
+   * Reviewed conversations. A verified sale is checked by the reconciliation source at invoice (same branch and
+   * number, positive, within 48h), customer and seller level. `conversionRecorded` = verified sales + reviews
+   * recorded as no sale; every unverified "converted" claim and every missing outcome stays out of both sides.
+   * All conversion figures are null while the reconciliation source is unavailable.
    */
   conversations: number | null; convertedConversations: number | null; conversionRate: number | null; conversionRecorded: number | null;
-  /** Reviews marked converted without an invoice number: claimed, not verified. */
+  /** Reviews marked converted that failed invoice, customer or seller verification. */
   unverifiedConversions: number | null;
+  /**
+   * Invoice-level reconciliation of this cycle (attendance-verified, identity-only, uncertain, zero-value), the
+   * only source of comparable productivity. Null when the source is not enabled or failed.
+   */
+  reconciliation: CycleReconciliation | null;
   /** Canonical attendance for the cycle (same truth as the evaluation header); null when unavailable. */
   attendanceDetail: AttendanceFacts | null;
   /** Per-hour productivity is computed only for a closed cycle whose attendance days are all settled. */
@@ -147,7 +154,7 @@ export type DoctorPerformanceAction = {
 
 export type DoctorPerformanceIntelligence = {
   months: DoctorPerformanceMonth[];
-  sources: { sales: PerformanceSourceHealth; attendance: PerformanceSourceHealth; conversations: PerformanceSourceHealth; customerImpact: PerformanceSourceHealth };
+  sources: { sales: PerformanceSourceHealth; attendance: PerformanceSourceHealth; conversations: PerformanceSourceHealth; customerImpact: PerformanceSourceHealth; reconciliation: PerformanceSourceHealth };
   actions: DoctorPerformanceAction[];
   generatedAt: string;
   firstEvidenceDate: string | null;
@@ -311,30 +318,21 @@ function coverageText(coverage:PerformanceCoverage, salesAvailable:boolean, atte
 }
 
 /**
- * Per-hour productivity and conversion for one cycle.
- * - Sales cover every day worked, so dividing by approved hours alone overstates the rate while days are pending
- *   review, and a running cycle's hours run past its loaded sales: per-hour figures exist only for a closed cycle
- *   whose attendance days are all settled.
- * - Conversion counts a sale only when it is verified (marked converted and carrying the invoice number). A missing
- *   outcome, or a "converted" mark without an invoice, is unknown, not "not converted": it stays out of both sides.
+ * Hours completeness for one cycle. Per-hour productivity itself comes only from the reconciliation source
+ * (attendance-verified sales of approved days ÷ approved hours): dividing all sales — including sales of days
+ * without a punch — by worked hours would inflate it.
  */
-export type ConversationOutcome = { converted: boolean | null | undefined; invoiceNumber: string | null | undefined };
-export function cycleRates(a:{salesTotal:number|null;invoices:number|null;customers:number|null;hours:number|null;detail:AttendanceFacts|null;cycleClosed:boolean;outcomes:ConversationOutcome[]|null}){
-  const hasInvoice=(o:ConversationOutcome)=>Boolean(o.invoiceNumber&&String(o.invoiceNumber).trim());
-  const verified=a.outcomes===null?null:a.outcomes.filter(o=>o.converted===true&&hasInvoice(o)).length;
-  const unverified=a.outcomes===null?null:a.outcomes.filter(o=>o.converted===true&&!hasInvoice(o)).length;
-  const noSale=a.outcomes===null?null:a.outcomes.filter(o=>o.converted===false).length;
-  const recorded=verified===null||noSale===null?null:verified+noSale;
+export function cycleRates(a:{hours:number|null;detail:AttendanceFacts|null;cycleClosed:boolean}){
   const hoursComplete=a.cycleClosed&&a.hours!==null&&a.hours>0&&a.detail!==null&&a.detail.unsettledDays===0;
   const hoursNote=a.hours===null?null:!a.detail?'تفاصيل الحضور غير متاحة؛ إنتاجية الساعة غير محسوبة.'
-    :a.detail.unsettledDays>0?`${a.detail.unsettledDays} يوم حضور بانتظار المراجعة؛ إنتاجية الساعة لا تُحسب على ساعات ناقصة.`
-    :!a.cycleClosed?'الدورة جارية؛ إنتاجية الساعة تُحسب بعد اكتمالها.':null;
-  const perHour=(v:number|null)=>hoursComplete&&v!==null?v/(a.hours as number):null;
-  return {
-    recorded,converted:verified,unverified,hoursComplete,hoursNote,
-    salesPerHour:perHour(a.salesTotal),invoicesPerHour:perHour(a.invoices),customersPerHour:perHour(a.customers),
-    conversionRate:recorded&&verified!==null?verified/recorded*100:null,
-  };
+    :a.detail.unsettledDays>0?`${a.detail.unsettledDays} يوم حضور بانتظار المراجعة؛ الساعات المعتمدة لا تغطي كل أيام الدورة.`
+    :!a.cycleClosed?'الدورة جارية؛ الساعات لم تكتمل بعد.':null;
+  return {hoursComplete,hoursNote};
+}
+
+async function salesReconciliationWindow(staffId:string,start:string,endExclusive:string){
+  const {data,error}=await supabase.rpc('get_doctor_sales_reconciliation_v1',{p_staff_id:staffId,p_window_start:start,p_window_end:endExclusive});
+  return {cycles:error?[]:parseSalesReconciliation(data),available:!error,problem:problemOf(error,'مطابقة المبيعات بالحضور','sales_reconciliation')};
 }
 
 export async function loadDoctorPerformanceIntelligence(args:{staffId:string;staffName:string;cycleLabel:string}):Promise<DoctorPerformanceIntelligence>{
@@ -359,11 +357,12 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
   // Worked hours come from the canonical attendance detail (same truth as the evaluation header); the raw
   // attendance read model carries no hours and is used only for evidence dates/counts.
   const canonicalAttendance=Promise.allSettled(cycleSpecs.map(spec=>getStaffAttendanceDetail(args.staffId,spec.start,spec.endInclusive)));
-  const [salesTruth,attendanceWindow,conversationWindow,impactWindow]=await Promise.all([
+  const [salesTruth,attendanceWindow,conversationWindow,impactWindow,reconciliationWindow]=await Promise.all([
     salesBundle(args.staffId,windowStart,windowEnd,currentSpec.start,requestedElapsedDays),
     readAttendanceRange({staffId:args.staffId,startDate:windowStart,endDateExclusive:windowEnd,limit:400}),
-    supabase.from('conversation_sales_reviews_canonical_v2').select('id,converted_to_sale,invoice_number,conversation_date,created_at').or(`doctor_id.eq.${args.staffId},staff_id.eq.${args.staffId}`).or(`and(conversation_date.gte.${windowStartAt},conversation_date.lt.${windowEndAt}),and(conversation_date.is.null,created_at.gte.${windowStartAt},created_at.lt.${windowEndAt})`).limit(3000),
+    supabase.from('conversation_sales_reviews_canonical_v2').select('id,converted_to_sale,conversation_date,created_at').or(`doctor_id.eq.${args.staffId},staff_id.eq.${args.staffId}`).or(`and(conversation_date.gte.${windowStartAt},conversation_date.lt.${windowEndAt}),and(conversation_date.is.null,created_at.gte.${windowStartAt},created_at.lt.${windowEndAt})`).limit(3000),
     customerImpactWindow(args.staffId,windowStart,windowEnd),
+    salesReconciliationWindow(args.staffId,windowStart,windowEnd),
   ]);
   const attendanceDetails=await canonicalAttendance;
   const failedDetail=attendanceDetails.find((r):r is PromiseRejectedResult=>r.status==='rejected');
@@ -442,8 +441,10 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
     const hours=coverage==='not_applicable'||attendance.error?null:attendance.hours;
     const conv=coverage==='not_applicable'||conversations.error?null:conversationRows.length;
     const detail=attendance.detail;
-    const rates=cycleRates({salesTotal,invoices,customers,hours,detail,cycleClosed,outcomes:conv===null?null:conversationRows.map(r=>({converted:r.converted_to_sale,invoiceNumber:r.invoice_number}))});
-    const {recorded,converted,hoursComplete,hoursNote}=rates;
+    const {hoursComplete,hoursNote}=cycleRates({hours,detail,cycleClosed});
+    const reconciliation=coverage==='not_applicable'?null:reconciliationWindow.cycles.find(c=>c.start===start)||null;
+    const productivity=reconciliation?comparableProductivity(reconciliation):null;
+    const conversion=reconciliation&&conv!==null?verifiedConversion(reconciliation):null;
     const salesDays=!salesUsable?null:cycleClosed?Math.round((Date.parse(`${endExclusive}T00:00:00Z`)-Date.parse(`${start}T00:00:00Z`))/86400000):(elapsedDays>0?elapsedDays:null);
     // Attendance days matched to the same window as the sales totals (a running cycle stops at the last loaded sales day).
     const salesPresentDays=!salesUsable||!detail?null:cycleClosed?detail.presentDays:presentDaysThrough(detail,start,salesDataAsOf);
@@ -475,8 +476,10 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
     return {
       cycleLabel,displayLabel:range.displayLabel,
       sales:salesTotal,invoices,customers,averageInvoice:avg,
-      workedHours:hours,salesPerHour:rates.salesPerHour,invoicesPerHour:rates.invoicesPerHour,customersPerHour:rates.customersPerHour,
-      conversations:conv,convertedConversations:converted,conversionRate:rates.conversionRate,conversionRecorded:recorded,unverifiedConversions:rates.unverified,
+      // Per-hour: attendance-verified sales of approved days ÷ approved hours, from the reconciliation only.
+      workedHours:hours,salesPerHour:productivity?.perApprovedHour??null,invoicesPerHour:null,customersPerHour:null,
+      conversations:conv,convertedConversations:conversion?conversion.verified:null,conversionRate:conversion?conversion.rate:null,
+      conversionRecorded:conversion?conversion.recorded:null,unverifiedConversions:conversion?conversion.unverifiedClaims:null,reconciliation,
       attendanceDetail:coverage==='not_applicable'?null:detail,hoursComplete,hoursNote,salesDays,salesPresentDays:coverage==='not_applicable'?null:salesPresentDays,
       coverage,confidence,
       coverageReason:coverageText(coverage,sales.available,attendanceAvailable,hasCoreEvidence),
@@ -517,6 +520,11 @@ export async function loadDoctorPerformanceIntelligence(args:{staffId:string;sta
       status:!impactWindow.available?'unavailable':impactWindow.rows.length?'available':'partial',
       ...sourceStateOf(impactWindow.problem,impactWindow.available&&!impactWindow.rows.length?'لا توجد بيانات أثر عملاء لهذه الفترة بعد.':null),
       evidenceCount:impactWindow.rows.length,firstEvidenceDate:null,dataAsOf:null,
+    },
+    reconciliation:{
+      status:reconciliationWindow.available?'available':'unavailable',...sourceStateOf(reconciliationWindow.problem),
+      evidenceCount:reconciliationWindow.cycles.reduce((sum,c)=>sum+c.categories.attendance_verified.invoices+c.categories.identity_only.invoices+c.categories.uncertain.invoices+c.categories.zero_value.invoices,0),
+      firstEvidenceDate:null,dataAsOf:maxDate(reconciliationWindow.cycles.map(c=>c.attendance.lastDay)),
     },
   };
   if(months[0]?.comparisonMode==='same_period'&&elapsedDays>0){

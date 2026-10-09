@@ -1,6 +1,7 @@
 import type { DoctorPerformanceIntelligence, DoctorPerformanceMonth, PerformanceSourceHealth } from '@/lib/evaluations/doctorPerformanceIntelligenceService';
 import type { DecisionIntelligence } from '@/lib/evaluations/doctorDecisionIntelligence';
 import { isEvaluationCycleClosed } from '@/lib/evaluations/monthlyEvaluationCycle';
+import { comparableProductivity, totalSales, verifiedCoverage } from '@/lib/evaluations/doctorSalesReconciliation';
 
 /**
  * View model for the Doctor Performance Eye chart: one chart, four tabs.
@@ -14,7 +15,7 @@ export type EyeChartTabKey = 'trend' | 'shifts' | 'peers' | 'sources';
 export type EyeChartTabState = 'ready' | 'loading' | 'not_enabled' | 'failed' | 'insufficient';
 export type EyeChartTab = { key: EyeChartTabKey; label: string; available: boolean; state: EyeChartTabState; reason: string | null };
 
-export type EyeTrendMetricKey = 'salesPerPresentDay' | 'invoicesPerPresentDay' | 'salesPerHour' | 'conversion' | 'lateShare' | 'salesPerCalendarDay';
+export type EyeTrendMetricKey = 'verifiedSalesPerDay' | 'verifiedInvoicesPerDay' | 'salesPerHour' | 'conversion' | 'lateShare' | 'salesPerCalendarDay';
 /**
  * `final`: closed cycle with every input settled. `provisional`: shown, but it can still change (running cycle,
  * attendance days pending review, conversation outcomes not all recorded) and is never a final judgement.
@@ -62,6 +63,8 @@ export const MIN_CONVERSION_COVERAGE = 0.5;
 /** Same minimum settled days the decision engine needs before reading discipline. */
 export const MIN_LATENESS_DAYS = 5;
 
+const NO_RECONCILIATION = 'مصدر مطابقة المبيعات بالحضور غير متاح؛ لا تُقسم مبيعات أيام بلا بصمة على أيام الحضور.';
+
 const TAB_LABEL: Record<EyeChartTabKey, string> = { trend: 'تطور الأداء', shifts: 'الإنتاجية حسب الشيفت', peers: 'مقارنة الزملاء', sources: 'مصادر الثقة' };
 
 type PointValue = { value: number | null; status: EyePointStatus | null; note: string | null };
@@ -72,32 +75,39 @@ function trendPoint(m: DoctorPerformanceMonth, running: boolean, key: EyeTrendMe
   const d = m.attendanceDetail;
   const pendingNote = d && d.unsettledDays ? `${ar(d.unsettledDays)} يوم حضور بانتظار المراجعة` : null;
   switch (key) {
-    case 'salesPerPresentDay':
-    case 'invoicesPerPresentDay': {
-      const total = key === 'salesPerPresentDay' ? m.sales : m.invoices;
-      if (total === null) return unknown('المبيعات غير متاحة لهذه الدورة');
-      if (!d || m.salesPresentDays === null) return unknown('أيام الحضور غير متاحة؛ لا يُقسم على أيام تقويمية بدلًا منها');
-      if (!m.salesPresentDays) return unknown('لا توجد أيام حضور مسجلة في فترة المبيعات');
-      const final = !running && !d.unsettledDays;
-      return { value: total / m.salesPresentDays, status: final ? 'final' : 'provisional', note: [`${ar(m.salesPresentDays)} يوم حضور`, running ? 'دورة جارية حتى آخر يوم مبيعات محمّل' : null, pendingNote].filter(Boolean).join('، ') };
+    case 'verifiedSalesPerDay':
+    case 'verifiedInvoicesPerDay': {
+      const r = m.reconciliation;
+      // Only attendance-verified sales, divided only by the days they come from. No fallback to all sales.
+      if (!r) return unknown(NO_RECONCILIATION);
+      const p = comparableProductivity(r);
+      if (!r.attendance.presentDays || p.perAttendanceDay === null) return unknown('لا توجد أيام حضور مسجلة لهذه الدورة');
+      const value = key === 'verifiedSalesPerDay' ? p.perAttendanceDay : r.productivity.verifiedInvoices / r.attendance.presentDays;
+      const coverage = verifiedCoverage(r);
+      const final = !running && p.perAttendanceDayFinal;
+      return { value, status: final ? 'final' : 'provisional', note: [`${ar(r.attendance.presentDays)} يوم حضور`, coverage === null ? null : `${ar(coverage * 100)}% من المبيعات موثقة بالحضور`, running ? 'دورة جارية' : null, r.attendance.pendingDays ? `${ar(r.attendance.pendingDays)} يوم بانتظار المراجعة` : null].filter(Boolean).join('، ') };
     }
     case 'salesPerCalendarDay': {
       if (m.sales === null || !m.salesDays) return unknown('المبيعات غير متاحة لهذه الدورة');
       return { value: m.sales / m.salesDays, status: running ? 'provisional' : 'final', note: `${ar(m.salesDays)} يوم تقويمي${running ? ' محمّل' : ''}` };
     }
-    case 'salesPerHour':
-      if (m.salesPerHour !== null) return { value: m.salesPerHour, status: 'final', note: m.workedHours === null ? null : `${ar(m.workedHours)} ساعة معتمدة` };
-      return unknown(m.hoursNote || (m.workedHours === null ? 'ساعات الحضور غير متاحة' : m.sales === null ? 'المبيعات غير متاحة' : 'الساعات غير مكتملة'));
+    case 'salesPerHour': {
+      const r = m.reconciliation;
+      if (!r) return unknown(NO_RECONCILIATION);
+      if (m.salesPerHour === null) return unknown(r.attendance.settledDays ? 'لا توجد ساعات معتمدة لهذه الدورة' : 'لا يوجد يوم حضور معتمد بعد');
+      return { value: m.salesPerHour, status: running ? 'provisional' : 'final', note: `${ar(r.attendance.approvedHours)} ساعة معتمدة في ${ar(r.attendance.settledDays)} يوم${r.attendance.pendingDays ? `؛ ${ar(r.attendance.pendingDays)} يوم معلق خارج الحساب` : ''}` };
+    }
     case 'conversion': {
-      if (m.conversations === null || m.conversionRecorded === null) return unknown('مراجعات المحادثات غير متاحة');
+      if (m.conversations === null) return unknown('مراجعات المحادثات غير متاحة');
+      if (m.conversionRecorded === null) return unknown(m.conversations ? 'التحويل يحتاج تحقق الفاتورة والعميل والبائع من مصدر المطابقة، وهو غير متاح' : 'لا توجد مراجعات محادثات');
       if (!m.conversations) return unknown('لا توجد مراجعات محادثات');
       const coverage = m.conversionRecorded / m.conversations;
-      const coverageText = `نتيجة البيع مسجلة في ${ar(m.conversionRecorded)} من ${ar(m.conversations)} مراجعة`;
-      if (m.conversionRecorded === 0) return unknown(`${ar(m.conversations)} مراجعة بدون نتيجة بيع مسجلة — غير معروف وليس صفرًا`);
+      const coverageText = `نتيجة موثقة في ${ar(m.conversionRecorded)} من ${ar(m.conversations)} مراجعة`;
+      if (m.conversionRecorded === 0) return unknown(`${ar(m.conversations)} مراجعة بدون نتيجة بيع موثقة — غير معروف وليس صفرًا`);
       if (m.conversionRecorded < MIN_CONVERSION_OUTCOMES) return unknown(`${coverageText}؛ أقل من ${ar(MIN_CONVERSION_OUTCOMES)} نتائج`);
       if (coverage < MIN_CONVERSION_COVERAGE) return unknown(`${coverageText}؛ التغطية أقل من ${ar(MIN_CONVERSION_COVERAGE * 100)}% فلا تمثل أداء الدكتور`);
       const final = !running && coverage === 1 && !m.unverifiedConversions;
-      return { value: m.conversionRate, status: final ? 'final' : 'provisional', note: [`${ar(m.convertedConversations || 0)} بيع موثق بفاتورة من ${ar(m.conversionRecorded)} نتيجة مسجلة`, coverage < 1 ? coverageText : null, m.unverifiedConversions ? `${ar(m.unverifiedConversions)} «تم البيع» بلا رقم فاتورة لم تُحسب` : null].filter(Boolean).join('، ') };
+      return { value: m.conversionRate, status: final ? 'final' : 'provisional', note: [`${ar(m.convertedConversations || 0)} بيع موثق من ${ar(m.conversionRecorded)} نتيجة`, coverage < 1 ? coverageText : null, m.unverifiedConversions ? `${ar(m.unverifiedConversions)} «تم البيع» لم يثبت (فاتورة/عميل/بائع) ولم تُحسب` : null].filter(Boolean).join('، ') };
     }
     case 'lateShare': {
       if (!d) return unknown('تفاصيل الحضور غير متاحة');
@@ -111,10 +121,10 @@ function trendPoint(m: DoctorPerformanceMonth, running: boolean, key: EyeTrendMe
 }
 
 const METRICS: { key: EyeTrendMetricKey; label: string; unit: EyeTrendMetric['unit']; definition: string; missing: string; context?: boolean }[] = [
-  { key: 'salesPerPresentDay', label: 'مبيعات/يوم حضور', unit: 'money', definition: 'صافي مبيعات الدكتور (فواتيره الموثقة) ÷ الأيام التي سجّل فيها بصمة حضور أو انصراف في نفس الفترة. يشمل البسط مبيعات أيام بلا بصمة إن وُجدت؛ الإنتاجية المطابقة للحضور بدقة ومقارنة الزملاء في تبويبي الشيفت والزملاء', missing: 'لا توجد دورتان بمبيعات وأيام حضور معروفة.' },
-  { key: 'salesPerHour', label: 'مبيعات/ساعة', unit: 'money', definition: 'صافي المبيعات ÷ ساعات الحضور المعتمدة — يُحسب فقط لدورة مكتملة كل أيام حضورها معتمدة', missing: 'لا توجد دورتان مكتملتان بساعات حضور معتمدة بالكامل؛ أيام الحضور المعلقة تجعل الساعات ناقصة.' },
-  { key: 'invoicesPerPresentDay', label: 'فواتير/يوم حضور', unit: 'count', definition: 'عدد فواتير الدكتور ÷ أيام الحضور في نفس الفترة', missing: 'لا توجد دورتان بفواتير وأيام حضور معروفة.' },
-  { key: 'conversion', label: 'التحويل الموثق', unit: 'pct', definition: `بيع موثق (مراجعة «تم البيع» برقم فاتورة) ÷ المراجعات المسجل لها نتيجة. غير المسجل غير معروف ولا يدخل الحساب؛ يُرسم عند ${MIN_CONVERSION_OUTCOMES} نتائج وتغطية ${MIN_CONVERSION_COVERAGE * 100}% على الأقل`, missing: 'نتائج البيع غير مسجلة بعدد وتغطية كافيين في دورتين.' },
+  { key: 'verifiedSalesPerDay', label: 'مبيعات موثقة/يوم حضور', unit: 'money', definition: 'مبيعات الدكتور الواقعة داخل شيفتاته المسجلة بالبصمة في نفس الفرع ÷ أيام حضوره. مبيعات الأيام بلا بصمة وغير المؤكدة لا تدخل الإنتاجية وتظهر في مصادر الثقة', missing: 'لا توجد دورتان بمبيعات موثقة بالحضور.' },
+  { key: 'salesPerHour', label: 'مبيعات/ساعة', unit: 'money', definition: 'المبيعات الموثقة في الأيام المعتمدة ÷ ساعاتها المعتمدة؛ الأيام المعلقة خارج البسط والمقام', missing: 'لا توجد دورتان بساعات حضور معتمدة ومبيعات موثقة.' },
+  { key: 'verifiedInvoicesPerDay', label: 'فواتير موثقة/يوم حضور', unit: 'count', definition: 'فواتير داخل شيفتات الحضور ÷ أيام الحضور', missing: 'لا توجد دورتان بفواتير موثقة بالحضور.' },
+  { key: 'conversion', label: 'التحويل الموثق', unit: 'pct', definition: `بيع موثق (فاتورة بنفس الفرع والرقم، لنفس العميل، باعها الدكتور، خلال ٤٨ ساعة) ÷ (البيع الموثق + «لم يتم البيع»). غير المسجل غير معروف ولا يدخل الحساب؛ يُرسم عند ${MIN_CONVERSION_OUTCOMES} نتائج وتغطية ${MIN_CONVERSION_COVERAGE * 100}% على الأقل`, missing: 'نتائج البيع غير مسجلة بعدد وتغطية كافيين في دورتين.' },
   { key: 'lateShare', label: 'نسبة أيام التأخير', unit: 'pct', definition: 'أيام التأخير المعتمدة ÷ أيام الحضور المعتمدة؛ الأيام المعلقة لم يُحسم تأخيرها فتبقى النسبة مؤقتة', missing: 'لا توجد دورتان بأيام حضور معتمدة كافية.' },
   { key: 'salesPerCalendarDay', label: 'متوسط يومي تقويمي', unit: 'money', definition: 'صافي المبيعات ÷ أيام الدورة التقويمية — سياق فقط، لا يقيس إنتاجية الدكتور ولا يُستخدم لمقارنته بزملائه', missing: 'المبيعات غير متاحة في دورتين على الأقل.', context: true },
 ];
@@ -183,6 +193,17 @@ export function buildEyeChartModel(args: { data: DoctorPerformanceIntelligence; 
     key, label, stateLabel: SOURCE_STATE_TEXT[health[key].state], tone: sourceTone(health[key].state), reason: health[key].reason,
     cells: ordered.map((m, i) => cellFor(m, cycles[i].running, key)),
   });
+  const reconciliationRow: EyeSourceRow = {
+    key: 'reconciliation', label: 'مطابقة المبيعات بالحضور', stateLabel: SOURCE_STATE_TEXT[health.reconciliation.state], tone: sourceTone(health.reconciliation.state), reason: health.reconciliation.reason,
+    cells: ordered.map(m => {
+      if (m.coverage === 'not_applicable') return { status: 'not_applicable' as const, text: 'قبل أول دليل' };
+      const r = m.reconciliation;
+      if (!r) return { status: 'missing' as const, text: 'غير متاح' };
+      const c = r.categories, cov = verifiedCoverage(r);
+      return { status: cov !== null && cov >= 0.9 && !c.uncertain.invoices ? 'ok' as const : 'partial' as const,
+        text: `${cov === null ? '—' : `${ar(cov * 100)}%`} موثقة (${ar(c.attendance_verified.invoices)})، ${ar(c.identity_only.invoices)} بلا بصمة${c.uncertain.invoices ? `، ${ar(c.uncertain.invoices)} غير مؤكدة` : ''} من ${ar(totalSales(r))} ج` };
+    }),
+  };
   const branchRow: EyeSourceRow = !decision
     ? { key: 'branch', label: 'مقارنة الفرع', stateLabel: decisionLoading ? 'جاري التحميل' : 'غير محملة', tone: 'neutral', reason: hasBranch ? (decisionLoading ? null : 'لم تُحمّل مقارنة الفرع بعد.') : 'لا يوجد فرع محدد لهذا الدكتور.', cells: null }
     : decision.availability === 'ready'
@@ -196,6 +217,6 @@ export function buildEyeChartModel(args: { data: DoctorPerformanceIntelligence; 
     trend: { metrics, defaultMetric },
     shifts: decision?.availability === 'ready' ? decision.charts.shifts : [],
     peers: decision?.availability === 'ready' ? { points: decision.charts.peers, band: decision.charts.peerBand } : { points: [], band: null },
-    sources: [ownRow('sales', 'المبيعات'), ownRow('attendance', 'الحضور'), ownRow('conversations', 'المحادثات'), ownRow('customerImpact', 'أثر العملاء'), branchRow],
+    sources: [ownRow('sales', 'المبيعات'), reconciliationRow, ownRow('attendance', 'الحضور'), ownRow('conversations', 'المحادثات'), ownRow('customerImpact', 'أثر العملاء'), branchRow],
   };
 }

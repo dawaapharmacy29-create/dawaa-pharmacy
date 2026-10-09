@@ -8,7 +8,7 @@ const impact = { available: true, commercialConversations: 2, verifiedSaleConver
 function month(sales: number | null, eligible = true): DoctorPerformanceMonth {
   return {
     cycleLabel: 'x', displayLabel: '', sales, invoices: 1, customers: 1, averageInvoice: 1, workedHours: 1, salesPerHour: 1, invoicesPerHour: 1, customersPerHour: 1,
-    conversations: 1, convertedConversations: 1, conversionRate: 1, conversionRecorded: 1, unverifiedConversions: 0, attendanceDetail: null, hoursComplete: true, hoursNote: null, salesDays: 30, salesPresentDays: 20, coverage: 'available', confidence: 'high', coverageReason: '', comparisonEligible: eligible,
+    conversations: 1, convertedConversations: 1, conversionRate: 1, conversionRecorded: 1, unverifiedConversions: 0, reconciliation: null, attendanceDetail: null, hoursComplete: true, hoursNote: null, salesDays: 30, salesPresentDays: 20, coverage: 'available', confidence: 'high', coverageReason: '', comparisonEligible: eligible,
     comparisonMode: eligible ? 'full_cycle' : 'blocked', comparisonReason: 'محجوبة', comparisonSnapshot: null, salesIdentity: 'canonical', salesSourceAvailable: true,
     attendanceSourceAvailable: true, conversationSourceAvailable: true, salesEvidenceCount: 1, attendanceEvidenceCount: 1, conversationEvidenceCount: 1, customerImpact: impact, diagnoses: [],
   };
@@ -16,7 +16,7 @@ function month(sales: number | null, eligible = true): DoctorPerformanceMonth {
 const ok = { status: 'available' as const, state: 'available' as const, reason: null, diagnostic: null, evidenceCount: 1, firstEvidenceDate: null, dataAsOf: null };
 const TIMEOUT_REASON = 'انتهت مهلة تحميل مصدر «المبيعات»؛ أعد المحاولة بعد قليل.';
 function data(cur: number | null, prev: number | null, salesStatus: 'available' | 'unavailable' = 'available'): DoctorPerformanceIntelligence {
-  return { months: [month(cur), month(prev), month(prev)], sources: { sales: salesStatus === 'available' ? ok : { ...ok, status: salesStatus, state: 'failed', reason: TIMEOUT_REASON, diagnostic: { source: 'sales', code: '57014', message: 'canceling statement due to statement timeout', details: null, hint: null } }, attendance: ok, conversations: ok, customerImpact: ok },
+  return { months: [month(cur), month(prev), month(prev)], sources: { sales: salesStatus === 'available' ? ok : { ...ok, status: salesStatus, state: 'failed', reason: TIMEOUT_REASON, diagnostic: { source: 'sales', code: '57014', message: 'canceling statement due to statement timeout', details: null, hint: null } }, attendance: ok, conversations: ok, customerImpact: ok, reconciliation: ok },
     actions: [], generatedAt: '', firstEvidenceDate: null, firstSalesEvidenceDate: null, firstAttendanceEvidenceDate: null, firstConversationEvidenceDate: null };
 }
 function header(worked: number | null, late: number | null): EvaluationHeaderSummary {

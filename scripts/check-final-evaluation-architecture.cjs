@@ -17,6 +17,7 @@ const decisionEngine=read('src/lib/evaluations/doctorDecisionIntelligence.ts');
 const decisionData=read('src/lib/evaluations/doctorDecisionDataService.ts');
 const decisionChart=read('src/components/evaluations/DoctorPerformanceChart.tsx');
 const eyeChartModel=read('src/lib/evaluations/doctorEyeChartModel.ts');
+const reconciliationMigration=read('supabase/migrations/20261009090000_doctor_sales_reconciliation_v1.sql');
 const branchWindowMigration=read('supabase/migrations/20261008090000_branch_doctor_performance_window_v1.sql');
 const performanceBundleFreshnessMigration=read('supabase/migrations/20261007090000_performance_sales_bundle_v1_freshness_index.sql');
 const performanceScope=read('src/lib/performance/performanceScope.ts');
@@ -133,7 +134,9 @@ if(!performanceEye.includes('{x.reason}'))failures.push('decision source status 
  if(!performanceEye.includes('buildEyeChartModel('))failures.push('performance eye chart must be built by the pure chart model');
  for(const key of ["'trend'","'shifts'","'peers'","'sources'"])if(!eyeChartModel.includes(key))failures.push('performance eye chart must keep the '+key+' tab');
  if(!/defaultMetric = metrics\.find\(m => m\.available && !m\.context\)/.test(eyeChartModel)||!/key: 'salesPerCalendarDay'[^\n]*context: true/.test(eyeChartModel))failures.push('doctor productivity must be per attendance day; the calendar-day average is context only and never the default');
- if(!/converted===true&&hasInvoice\(o\)/.test(performanceService))failures.push('doctor conversion must count only verified sales (converted with an invoice number)');
+ if(!performanceService.includes('verifiedConversion(')||!performanceService.includes('comparableProductivity('))failures.push('doctor conversion and per-hour productivity must come from the shared sales reconciliation');
+ if(/salesPresentDays|m\.sales \/ (?!m\.salesDays)/.test(eyeChartModel))failures.push('doctor productivity must never divide total sales (including days without a punch) by attendance days');
+ if(!/get_branch_doctor_performance_window_v1[\s\S]*dawaa_doctor_sales_reconciliation_v1/.test(reconciliationMigration))failures.push('peer comparison must be built on the same sales reconciliation as the doctor eye');
  if(/\?\?\s*0\b|\|\|\s*0\)\s*\/|value:\s*0\b/.test(eyeChartModel))failures.push('performance eye chart model must keep unknown values null, never zero');
 }
 if(/describeSourceError/.test(performanceService+performanceEye+decisionData))failures.push('doctor eye must not format raw PostgREST/SQL errors for the screen; use the source-state contract');
