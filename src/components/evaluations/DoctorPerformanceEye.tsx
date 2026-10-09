@@ -117,8 +117,6 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
   async function load(force: boolean) {
     const requestId = ++requestRef.current;
     if (force) { invalidatePerformanceSalesBundleCache(staffId); invalidateDoctorDecisionData(); setEvidence(null); setEvidenceError(''); }
-    // Decision sources load in parallel and never block the doctor's own summary.
-    void loadDecision(force, requestId);
     setLoading(true); setError('');
     try {
       const value = await loadDoctorPerformanceIntelligence({ staffId, staffName, cycleLabel });
@@ -126,14 +124,25 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
     } catch (e) {
       if (requestRef.current === requestId) { setData(null); setError(userFacingMessage(e, 'تعذر بناء التحليل الآن؛ أعد المحاولة بعد قليل.', 'load')); }
     } finally {
-      if (requestRef.current === requestId) setLoading(false);
+      if (requestRef.current === requestId) {
+        setLoading(false);
+        // Branch-wide comparison can read thousands of review rows. Start it only after
+        // the doctor's primary summary settles so it cannot compete with first useful paint.
+        void loadDecision(force, requestId);
+      }
     }
   }
   function show() {
     setOpen(true);
-    // A complete result is reused; a result with any failed source is retried instead of pinned.
+    // A complete primary result is reused. If only the comparative layer is missing/failed,
+    // retry that layer without re-fetching the doctor's personal sources.
     const decisionFailed = Boolean(decisionSources && Object.values(decisionSources).some(x => x.status === 'failed'));
-    if (loading || (data && !hasSourceFailure(data) && !decisionFailed && (decisionSources || !branch))) return;
+    if (loading) return;
+    if (data && !hasSourceFailure(data)) {
+      if (!branch || decisionLoading || (decisionSources && !decisionFailed)) return;
+      void loadDecision(Boolean(decisionSources), requestRef.current);
+      return;
+    }
     void load(Boolean(data));
   }
   async function openEvidence(focus: EvidenceFocus) {
