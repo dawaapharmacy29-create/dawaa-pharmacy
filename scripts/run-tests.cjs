@@ -224,6 +224,7 @@ for (const ext of ['.ts', '.tsx']) {
 }
 
 const testFiles = [
+  'scripts/staging/historical-dml.test.cjs',
   'src/lib/salesIntelligence/refresh/__tests__/soldActionLineage.test.ts',
   'src/lib/__tests__/targetAchievementBonus.test.ts',
   'src/lib/__tests__/incentiveEligibility.test.ts',

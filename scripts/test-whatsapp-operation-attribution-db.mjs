@@ -1,14 +1,18 @@
 // Isolated PostgreSQL/WASM only. No Supabase URL, credentials, project or network connection.
 // Install @electric-sql/pglite in scratch and pass its package entry via DAWAA_PGLITE_MODULE.
 import { readFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const modulePath = process.env.DAWAA_PGLITE_MODULE;
 if (!modulePath) throw new Error('Set DAWAA_PGLITE_MODULE to the scratch-installed pglite dist/index.js');
-const { PGlite } = await import(modulePath);
-const { pgcrypto } = await import(path.join(path.dirname(modulePath), 'contrib/pgcrypto.js'));
+const moduleUrl = modulePath.startsWith('file:')
+  ? modulePath
+  : pathToFileURL(path.resolve(modulePath)).href;
+const moduleDirectory = path.dirname(fileURLToPath(moduleUrl));
+const { PGlite } = await import(moduleUrl);
+const { pgcrypto } = await import(pathToFileURL(path.join(moduleDirectory, 'contrib/pgcrypto.js')).href);
 const db = new PGlite({ extensions: { pgcrypto } });
 try {
   const sql = (relative) => readFile(path.join(root, relative), 'utf8');

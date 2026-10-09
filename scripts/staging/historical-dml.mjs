@@ -24,7 +24,7 @@ export const HISTORICAL_DML = [
   },
 ];
 
-const sha = (text) => createHash('sha256').update(text.trim()).digest('hex');
+const sha = (text) => createHash('sha256').update(text.replace(/\r\n?/g, '\n').trim()).digest('hex');
 
 // Returns the migration with its historical DML statements replaced by a marker comment.
 // Throws when an expected statement is missing, ambiguous, or any other top-level DML remains.
@@ -37,7 +37,7 @@ export function extractDdl(root, migration) {
   let out = '';
   let cursor = 0;
   for (const statement of statements) {
-    const text = statement.text.replace(/^(\s*--[^\n]*\n|\s+)*/, '');
+    const text = statement.text.replace(/\r\n?/g, '\n').replace(/^(\s*--[^\n]*\n|\s+)*/, '');
     const match = Object.keys(entry.statements).filter((prefix) => text.startsWith(prefix));
     if (match.length > 1) throw new Error(`${migration}: ambiguous historical DML anchor`);
     if (match.length === 1) {
