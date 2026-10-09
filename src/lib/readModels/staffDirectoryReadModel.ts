@@ -15,6 +15,13 @@ export type StaffDirectoryIdentity = {
 type Row = Record<string, unknown>;
 let inFlightDirectoryRead: Promise<StaffDirectoryIdentity[]> | null = null;
 
+/** Current employee identity by canonical staff ID; never a name/account fallback. */
+export async function readStaffIdentityById(staffId: string) {
+  const { data, error } = await supabase.from('staff').select('name,role').eq('id', staffId).maybeSingle();
+  if (error) throw error;
+  return data as { name: string | null; role: string | null } | null;
+}
+
 function text(value: unknown) {
   return String(value ?? '').trim();
 }

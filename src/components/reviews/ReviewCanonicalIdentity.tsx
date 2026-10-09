@@ -3,6 +3,7 @@
 // read by id, so a renamed customer/staff never shows an old name as the current one.
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { readStaffIdentityById } from '@/lib/readModels/staffDirectoryReadModel';
 import { reviewCustomerLookup, reviewResponsibleStaffId } from '@/lib/reviews/reviewIdentity';
 
 interface IdentityRow {
@@ -45,7 +46,7 @@ export function useReviewCanonicalIdentity(row: IdentityRow | null | undefined):
           )
         : Promise.resolve(null),
       staffId
-        ? Promise.resolve(supabase.from('staff').select('name,role').eq('id', staffId).maybeSingle())
+        ? readStaffIdentityById(staffId).then((data) => ({ data }))
         : Promise.resolve(null),
     ]).then(([customerResult, staffResult]) => {
       if (cancelled) return;

@@ -145,7 +145,9 @@ if (/(grant|revoke)[^;]*record_conversation_review_points_v1/i.test(sqlNoComment
   failures.push(`${MIGRATION}: must not change record_conversation_review_points_v1 grants.`);
 
 const ui = read('src/pages/Reviews.tsx');
-if (!/branch: editIsVersioned \? f\.branch : selected\?\.branch \|\| f\.branch,/.test(ui))
+const staffSelection = ui.slice(ui.indexOf('<Field label="الدكتور / الموظف">'), ui.indexOf('<Field label="اسم الدكتور الظاهر">'));
+if (!staffSelection.includes('setEditForm((f) => ({') || !staffSelection.includes('...f,') ||
+    !staffSelection.includes('staff_id: e.target.value,') || /\bbranch\s*:/.test(staffSelection))
   failures.push('src/pages/Reviews.tsx: staff selection must not change the branch of a versioned review.');
 
 // Application side: one boundary, no parallel writer.
