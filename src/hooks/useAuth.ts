@@ -213,6 +213,7 @@ function readStoredUser(): User | null {
 let currentUser: User | null = readStoredUser();
 
 function setCurrentUser(user: User | null) {
+  const previousAccountId = currentUser?.id ?? null;
   currentUser = sanitizeUser(user);
   if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
     try {
@@ -226,6 +227,22 @@ function setCurrentUser(user: User | null) {
     }
   }
   listeners.forEach((listener) => listener());
+  const nextAccountId = currentUser?.id ?? null;
+  if (previousAccountId && previousAccountId !== nextAccountId) discardPreviousAccountMemory(nextAccountId);
+}
+
+/**
+ * Module-level read caches (sales bundles, branch comparison windows, evaluation headers, …) are keyed by the
+ * subject being viewed, not by the viewer. Logout, expiry, idle timeout or a logout in another tab keep the SPA
+ * alive, so a different account in the same tab could be served the previous account's cached data (another
+ * branch's figures). A full navigation drops all in-memory state once the identity changes.
+ */
+function discardPreviousAccountMemory(nextAccountId: string | null) {
+  if (typeof window === 'undefined') return;
+  window.setTimeout(() => {
+    if (nextAccountId) window.location.reload();
+    else window.location.replace('/login');
+  }, 0);
 }
 
 function logAuthActivity(user: User, action: string, details: string) {

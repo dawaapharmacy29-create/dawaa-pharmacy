@@ -120,7 +120,9 @@ export function loadBranchPerformanceWindow(args: { branch: string; cycleLabel: 
     const parsed = parseBranchPerformanceWindow(data);
     // A payload that does not match the contract is a failure, never zeros.
     return parsed ? sourceAvailable(parsed) : sourceProblem<BranchPerformanceWindow>({ code: 'invalid_payload', message: 'branch window payload failed the shape check' }, BRANCH_LABEL, 'branch_window');
-  })();
+  })()
+    // A thrown request or parser error is a failed source (evicted below), never a rejected promise pinned in the cache.
+    .catch((e: unknown) => sourceProblem<BranchPerformanceWindow>(e, BRANCH_LABEL, 'branch_window'));
   windowCache.set(key, { at: Date.now(), promise });
   void promise.then(r => { if (r.status !== 'available' && windowCache.get(key)?.promise === promise) windowCache.delete(key); });
   return promise;
@@ -134,7 +136,8 @@ export function loadBranchReviewRows(args: { branch: string; cycleLabel: string;
   const promise = loadBranchConversationReviewRows({ branch: args.branch, startDate: windowStart, endDateExclusive: windowEnd })
     .then(({ rows, error }) => error
       ? sourceProblem<Record<string, unknown>[]>({ message: error }, REVIEWS_LABEL, 'branch_reviews')
-      : sourceAvailable(rows));
+      : sourceAvailable(rows))
+    .catch((e: unknown) => sourceProblem<Record<string, unknown>[]>(e, REVIEWS_LABEL, 'branch_reviews'));
   reviewCache.set(key, { at: Date.now(), promise });
   void promise.then(r => { if (r.status !== 'available' && reviewCache.get(key)?.promise === promise) reviewCache.delete(key); });
   return promise;
