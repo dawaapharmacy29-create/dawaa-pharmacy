@@ -37,3 +37,11 @@ No live migration applied. Production untouched. `20261008160000` and `vercel.js
 ## Fixture type correction
 
 The next batch discovered that the synthetic follow-up ID was UUID while the real column and event foreign key are text. The fixture and draft replay array now use text; all 16 repair properties pass again. No live application occurred before this correction.
+
+## Review correction: replay scope is the recorded scope, not the current row
+
+Independent review found that the scope check compared a retry with the follow-up row's *current* identity and branch. The existing customer-branch sync trigger (and customer-data correction) can legitimately move that row after creation, so the same logical retry would then fail with `followup_client_request_scope_conflict` instead of converging. Reproduced in the harness against the previous draft.
+
+The draft now records `identity_key` and `branch` in the `created` / `request_linked` event metadata (next to the existing `request_type` and `client_request_id`) and compares a replay with the scope recorded for that key. Events written before this change have no recorded scope and fall back to the row, which is the previous behavior. A genuinely different scope for the same key still fails. The `unique_violation` handler uses the same rule.
+
+The harness now has 17 repair properties, including "retry after the row moved branch/identity replays against the recorded scope", and all hold. Still repo-only and not applied live.

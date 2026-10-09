@@ -29,7 +29,7 @@ try {
     create table customer_service_followup_events (
       id uuid primary key default gen_random_uuid(), followup_id text,
       event_type text, event_status text, actor_staff_id text, actor_name text,
-      notes text, metadata jsonb
+      notes text, metadata jsonb, created_at timestamptz default now()
     );
     create function resolve_staff_account_safe(text)
     returns table(id text, active boolean, can_login boolean, role text, name text)
@@ -122,6 +122,18 @@ try {
   } else {
     const collision = await run({key:'obligation:A',customer:'different-fixture-customer',branch:'فرع شكري'});
     assert.equal(collision.followup_id,a.followup_id);
+  }
+  if (repairMode) {
+    // Same logical retry after the row moved (customer branch sync / customer-data correction)
+    // converges on the original follow-up; a genuinely different scope still conflicts.
+    const m = await run({key:'obligation:M',customer:'moving-customer'});
+    assert.equal(m.created,true);
+    await db.query(`update daily_followups set branch='فرع شكري', identity_key='corrected-identity' where id=$1`,[m.followup_id]);
+    const replayM = await run({key:'obligation:M',customer:'moving-customer'});
+    assert.equal(replayM.followup_id,m.followup_id);
+    assert.equal(replayM.idempotent_replay,true);
+    await assert.rejects(()=>run({key:'obligation:M',customer:'moving-customer',branch:'فرع شكري'}),/followup_client_request_scope_conflict/);
+    checks.push({name:'retry after the row moved branch/identity replays against the recorded scope',holds:true});
   }
   checks.push({name:'replayed key checks customer and branch scope',holds:repairMode,
     actual:repairMode ? 'rejects mismatched creation and linked-replay scope' : 'returns original ID without comparing supplied customer or branch'});

@@ -31,6 +31,7 @@ declare
   v_created public.daily_followups%rowtype;
   v_lock_key text;
   v_replay_ids text[];
+  v_scope jsonb;
   v_today text := to_char(timezone('Africa/Cairo', now()), 'YYYY-MM-DD');
 begin
   if nullif(btrim(p_actor_staff_id), '') is null then
@@ -93,9 +94,20 @@ begin
     end if;
 
     if v_existing.id is not null then
-      if v_existing.identity_key is distinct from v_identity
-         or v_existing.branch is distinct from v_branch
-         or coalesce(nullif(btrim(v_existing.request_type), ''), 'general') is distinct from v_case_type then
+      -- Compare the retry with the scope this key was first recorded under, not the row's
+      -- current values: a later branch sync or customer-data correction moves the row but
+      -- must not turn the same logical retry into a conflict. Legacy events without a
+      -- recorded scope fall back to the row.
+      select e.metadata into v_scope
+      from public.customer_service_followup_events e
+      where e.followup_id = v_existing.id
+        and e.event_type in ('created', 'request_linked')
+        and e.metadata->>'client_request_id' = btrim(p_client_request_id)
+      order by e.created_at nulls last, e.id
+      limit 1;
+      if coalesce(v_scope->>'identity_key', v_existing.identity_key) is distinct from v_identity
+         or coalesce(v_scope->>'branch', v_existing.branch) is distinct from v_branch
+         or coalesce(nullif(btrim(v_scope->>'request_type'), ''), nullif(btrim(v_existing.request_type), ''), 'general') is distinct from v_case_type then
         raise exception 'followup_client_request_scope_conflict';
       end if;
       return jsonb_build_object('followup_id', v_existing.id, 'created', false, 'idempotent_replay', true, 'identity_key', v_existing.identity_key);
@@ -139,6 +151,8 @@ begin
         'source', coalesce(nullif(btrim(p_source), ''), 'manual'),
         'request_type', v_case_type,
         'client_request_id', nullif(btrim(p_client_request_id), ''),
+        'identity_key', v_identity,
+        'branch', v_branch,
         'requested_at', now()
       )
     );
@@ -170,7 +184,7 @@ begin
     v_created.id, 'created', 'open', p_actor_staff_id,
     coalesce(nullif(btrim(p_actor_name), ''), v_staff.name),
     coalesce(nullif(btrim(p_request_details), ''), nullif(btrim(p_followup_reason), ''), 'إنشاء متابعة'),
-    jsonb_build_object('source', coalesce(nullif(btrim(p_source), ''), 'manual'), 'request_type', v_case_type, 'client_request_id', nullif(btrim(p_client_request_id), ''))
+    jsonb_build_object('source', coalesce(nullif(btrim(p_source), ''), 'manual'), 'request_type', v_case_type, 'client_request_id', nullif(btrim(p_client_request_id), ''), 'identity_key', v_identity, 'branch', v_branch)
   );
 
   return jsonb_build_object('followup_id', v_created.id, 'created', true, 'linked_to_open_case', false, 'identity_key', v_identity);
@@ -179,9 +193,16 @@ exception
     if nullif(btrim(p_client_request_id), '') is not null then
       select * into v_existing from public.daily_followups where client_request_id = btrim(p_client_request_id) limit 1;
       if v_existing.id is not null then
-        if v_existing.identity_key is distinct from v_identity
-           or v_existing.branch is distinct from v_branch
-           or coalesce(nullif(btrim(v_existing.request_type), ''), 'general') is distinct from v_case_type then
+        select e.metadata into v_scope
+        from public.customer_service_followup_events e
+        where e.followup_id = v_existing.id
+          and e.event_type in ('created', 'request_linked')
+          and e.metadata->>'client_request_id' = btrim(p_client_request_id)
+        order by e.created_at nulls last, e.id
+        limit 1;
+        if coalesce(v_scope->>'identity_key', v_existing.identity_key) is distinct from v_identity
+           or coalesce(v_scope->>'branch', v_existing.branch) is distinct from v_branch
+           or coalesce(nullif(btrim(v_scope->>'request_type'), ''), nullif(btrim(v_existing.request_type), ''), 'general') is distinct from v_case_type then
           raise exception 'followup_client_request_scope_conflict';
         end if;
         return jsonb_build_object('followup_id', v_existing.id, 'created', false, 'idempotent_replay', true, 'identity_key', v_existing.identity_key);

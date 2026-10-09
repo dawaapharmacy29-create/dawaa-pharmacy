@@ -64,5 +64,6 @@
     "no application or protected migration applied"
   ],
   "productionMutations": 0,
-  "applicationMigrationsApplied": 0
+  "applicationMigrationsApplied": 0,
+  "migrationScope": "captured definitions only"
 }

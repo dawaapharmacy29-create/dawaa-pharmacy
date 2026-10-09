@@ -25,6 +25,10 @@
       "actual": "reuses target recorded in linked-request event"
     },
     {
+      "name": "retry after the row moved branch/identity replays against the recorded scope",
+      "holds": true
+    },
+    {
       "name": "replayed key checks customer and branch scope",
       "holds": true,
       "actual": "rejects mismatched creation and linked-replay scope"
@@ -72,7 +76,7 @@
       "limit": "synthetic fixture permits orphan event; live FK may already prevent this condition"
     }
   ],
-  "passedExistingProperties": 16,
+  "passedExistingProperties": 17,
   "reproducedContractGaps": 0,
   "limitations": [
     "single embedded backend; no multi-connection concurrency proof",
