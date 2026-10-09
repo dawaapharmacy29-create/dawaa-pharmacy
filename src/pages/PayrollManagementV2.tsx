@@ -101,6 +101,7 @@ export default function PayrollManagementV2() {
   const [compensationEffective, setCompensationEffective] = useState(cairoToday());
   const [compensationReloadKey, setCompensationReloadKey] = useState(0);
   const [saving, setSaving] = useState(false);
+  const saveOperationRef = useRef(0);
 
   const [components, setComponents] = useState<PayrollComponents | null>(null);
   const [automatedTruth, setAutomatedTruth] = useState<PayrollIncentiveTruth | null>(null);
@@ -148,6 +149,8 @@ export default function PayrollManagementV2() {
   }, []);
 
   useEffect(() => {
+    saveOperationRef.current += 1;
+    setSaving(false);
     setAttendanceReadiness(null);
     setAttendanceState('idle');
     setAttendanceError('');
@@ -308,6 +311,7 @@ export default function PayrollManagementV2() {
       return;
     }
     const requestScope = scopeKey;
+    const operationId = ++saveOperationRef.current;
     setSaving(true);
     try {
       await saveCompensationProfile({
@@ -324,31 +328,39 @@ export default function PayrollManagementV2() {
         effectiveFrom: compensationEffective,
         reason: compensationReason.trim(),
       });
-      if (scopeRef.current !== requestScope) return;
+      if (scopeRef.current !== requestScope || saveOperationRef.current !== operationId) return;
       setCompensationReason('');
-      setCompensationChanges(await listCompensationChanges(selected.staffId));
+      const rows = await listCompensationChanges(selected.staffId);
+      if (scopeRef.current !== requestScope || saveOperationRef.current !== operationId) return;
+      setCompensationChanges(rows);
       toast.success('تم إرسال التعديل للاعتماد؛ القيم الحالية لم تتغير');
     } catch (error) {
-      if (scopeRef.current === requestScope) toast.error(errorText(error, 'تعذر حفظ ملف التعويضات'));
+      if (scopeRef.current === requestScope && saveOperationRef.current === operationId) {
+        toast.error(errorText(error, 'تعذر حفظ ملف التعويضات'));
+      }
     } finally {
-      if (scopeRef.current === requestScope) setSaving(false);
+      if (saveOperationRef.current === operationId) setSaving(false);
     }
   }
 
   async function decideChange(id: string, approve: boolean) {
     if (!selected) return;
     const requestScope = scopeKey;
+    const operationId = ++saveOperationRef.current;
     setSaving(true);
     try {
       await decideCompensationChange(id, approve, '');
+      if (scopeRef.current !== requestScope || saveOperationRef.current !== operationId) return;
       const rows = await listCompensationChanges(selected.staffId);
-      if (scopeRef.current !== requestScope) return;
+      if (scopeRef.current !== requestScope || saveOperationRef.current !== operationId) return;
       setCompensationChanges(rows);
       toast.success(approve ? 'تم اعتماد التعديل وتطبيقه' : 'تم رفض الطلب');
     } catch (error) {
-      if (scopeRef.current === requestScope) toast.error(errorText(error, 'تعذر اتخاذ القرار'));
+      if (scopeRef.current === requestScope && saveOperationRef.current === operationId) {
+        toast.error(errorText(error, 'تعذر اتخاذ القرار'));
+      }
     } finally {
-      if (scopeRef.current === requestScope) setSaving(false);
+      if (saveOperationRef.current === operationId) setSaving(false);
     }
   }
 
@@ -487,6 +499,7 @@ export default function PayrollManagementV2() {
                         <div className="rounded-xl border p-3" style={surfaceSoft}><div className="text-[10px] font-bold" style={mutedText}>الشيفتات المقترنة</div><div className="mt-1 text-lg font-black text-white">{attendanceReadiness.pairedShifts}</div></div>
                         <div className="rounded-xl border p-3" style={surfaceSoft}><div className="text-[10px] font-bold" style={mutedText}>بصمات تحتاج مراجعة</div><div className="mt-1 text-lg font-black text-white">{attendanceReadiness.manualReviewPunches + attendanceReadiness.unpairedAcceptedPunches}</div></div>
                       </div>
+                      <div className="mt-2 text-[11px] font-bold" style={mutedText}>ساعات البصمة هنا للمراجعة فقط؛ لا تدخل تلقائيًا في معادلة الأساسي ولا تُنسخ إلى قيمة الساعة الشهرية أو ساعات الدوام.</div>
                       {attendanceReadiness.reasons.length ? <div className="mt-2 flex items-start gap-2 text-[11px] text-amber-200"><AlertTriangle size={14} className="mt-0.5 shrink-0" /><span>{attendanceReadiness.reasons.join(' · ')}</span></div> : null}
                     </>
                   ) : attendanceState === 'loaded' ? <div className="mt-3 text-xs" style={mutedText}>لا توجد بيانات جاهزية بصمة لهذه الدورة.</div> : null}
