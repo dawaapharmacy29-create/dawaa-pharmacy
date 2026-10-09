@@ -1,6 +1,7 @@
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import type { DailyFollowup } from '@/types/database';
 import { cleanEgyptianPhone } from '@/lib/whatsapp';
+import { followupWriteErrorMessage } from '@/lib/api/followupWriteErrors';
 import { generateTodayFollowupsFromCustomerMetrics } from '@/lib/api/customerServiceCommandCenter';
 import {
   buildCustomerIdentity,
@@ -118,7 +119,7 @@ async function insertFollowupRecords(records: Array<Record<string, unknown>>) {
       p_priority: record.priority || 'متوسطة', p_next_followup_date: record.next_followup_date || null,
       p_client_request_id: record.client_request_id || null, p_source: record.request_source || 'daily_followups_api',
     });
-    if (error) throw new Error(error.message);
+    if (error) throw new Error(followupWriteErrorMessage(error));
     const followupId = String((result as Record<string, unknown> | null)?.followup_id || '');
     if (!followupId) throw new Error('لم ترجع قاعدة البيانات رقم المتابعة');
     const { data, error: loadError } = await supabase.from('daily_followups').select('*').eq('id', followupId).single();

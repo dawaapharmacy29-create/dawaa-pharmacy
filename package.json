@@ -21,6 +21,7 @@
     "check": "npm run doctor && npm run typecheck && npm run build && npm run perf:budget",
     "test:integration": "vitest run src/lib/staff/__tests__/staffPerformanceProfileService.integration.ts",
     "test:db:followup-branch": "bash scripts/test-db-followup-branch-provenance.sh",
+    "test:db:followup-contract-a": "bash scripts/test-db-followup-contract-a.sh",
     "vercel:install": "npm ci --legacy-peer-deps --no-audit --no-fund",
     "verify": "npm run doctor && npm run test && npm run typecheck && npm run build && npm run perf:budget",
     "check:hr-canonical-hardening": "node scripts/check-hr-canonical-hardening-v1.cjs",

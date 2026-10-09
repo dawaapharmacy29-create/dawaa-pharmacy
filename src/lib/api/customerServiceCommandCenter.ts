@@ -1,6 +1,7 @@
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { ALL_FILTER, getCustomers, type CustomerMetric } from '@/lib/api/customers';
 import { normalizeBranchName } from '@/lib/branch';
+import { followupWriteErrorMessage } from '@/lib/api/followupWriteErrors';
 import { getBestCustomerPhone } from '@/lib/customerAnalyticsService';
 import { calculateMonthlyIncentive } from '@/lib/performance/performanceRulesEngine';
 
@@ -636,7 +637,7 @@ export async function createExceptionalFollowup(input: CreateExceptionalFollowup
     p_assigned_doctor: input.assignedDoctor || null, p_request_details: publicFollowupReason(input.requestDetails || input.notes) || null,
     p_notes: input.notes || null, p_created_by: null, p_created_by_name: null,
   });
-  if (error) throw new Error(error.message);
+  if (error) throw new Error(followupWriteErrorMessage(error, 'تعذر إنشاء المتابعة الاستثنائية'));
   return normalizeFollowup(data as Row);
 }
 export async function updateFollowupResult(id: string, payload: FollowupResultPayload) {

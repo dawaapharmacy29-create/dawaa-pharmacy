@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import type { FollowupRow } from '@/lib/api/customerServiceCommandCenter';
+import { followupWriteErrorMessage } from '@/lib/api/followupWriteErrors';
 
 export type FollowupEventRow = {
   id: string;
@@ -86,7 +87,7 @@ export async function createExceptionalCustomerFollowup(input: {
     p_created_by: null,
     p_created_by_name: null,
   });
-  if (error) rpcError(error, 'تعذر إنشاء المتابعة الاستثنائية');
+  if (error) throw new Error(followupWriteErrorMessage(error, 'تعذر إنشاء المتابعة الاستثنائية'));
   return data as FollowupRow;
 }
 

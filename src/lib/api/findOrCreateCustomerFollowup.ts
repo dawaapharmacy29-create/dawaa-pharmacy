@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { normalizeEgyptianPhone } from '@/lib/customerFollowupCore';
+import { followupWriteErrorMessage } from '@/lib/api/followupWriteErrors';
 
 export type FindOrCreateCustomerFollowupInput = {
   customerId?: string | null;
@@ -22,6 +23,8 @@ export type FindOrCreateCustomerFollowupResult = {
   followup_id: string;
   created: boolean;
   linked_to_open_case?: boolean;
+  request_type?: string | null;
+  case_request_type?: string | null;
   idempotent_replay?: boolean;
   identity_key?: string | null;
 };
@@ -53,7 +56,7 @@ export async function findOrCreateOpenCustomerFollowup(
     p_source: input.source || 'manual',
   });
 
-  if (error) throw new Error(error.message);
+  if (error) throw new Error(followupWriteErrorMessage(error));
   const result = data as FindOrCreateCustomerFollowupResult | null;
   if (!result?.followup_id) throw new Error('لم ترجع قاعدة البيانات رقم المتابعة');
   return result;
