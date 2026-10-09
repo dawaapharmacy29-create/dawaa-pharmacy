@@ -60,8 +60,10 @@ if (!failures.length) {
     // Schema defaults and classification snapshots are allowed; application of non-zero values belongs to a later policy projection boundary.
   }
 
+  // The queue moved to the canonical, staff-scoped v4 (attendance_queue_v4_staff_scope_v1); v3 is banned by
+  // scripts/check-attendance-canonical-architecture.cjs, so this gate must not require it.
   for (const rpc of [
-    'get_attendance_resolution_queue_v3',
+    'get_attendance_resolution_queue_v4',
     'materialize_attendance_range_v2',
     'approve_attendance_day_resolution_v2',
     'get_attendance_impact_ledger_v2',
