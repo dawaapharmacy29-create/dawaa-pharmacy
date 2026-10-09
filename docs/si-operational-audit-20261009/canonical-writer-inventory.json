@@ -1,0 +1,25 @@
+{
+  "note": "Sale Truth / SI persistence / KPI writers. Built from the repository only (migrations, TS callers, audit CSVs); Production was not read for this inventory. PRODUCTION_ONLY_CANONICAL_GAP = canonical writer whose body exists only in Production: a release blocker until its exact definition is captured into a forward-only migration.",
+  "functions": [
+    { "name": "sales_intelligence_write_case_analysis", "role": "canonical_writer", "truth": "sales_intelligence_case_analyses", "callers": ["src/lib/salesIntelligence/persistence/analysisWriter.ts"], "status": "PRODUCTION_ONLY_CANONICAL_GAP" },
+    { "name": "sales_intelligence_write_attribution", "role": "canonical_writer", "truth": "sales_intelligence_attributions", "callers": ["src/lib/salesIntelligence/persistence/attributionWriter.ts"], "status": "PRODUCTION_ONLY_CANONICAL_GAP" },
+    { "name": "sales_intelligence_write_basket_invoice_match", "role": "canonical_writer", "truth": "sales_intelligence_basket_invoice_matches", "callers": ["src/lib/salesIntelligence/persistence/basketInvoiceMatchWriter.ts"], "status": "PRODUCTION_ONLY_CANONICAL_GAP" },
+    { "name": "sales_intelligence_write_policy_evaluation", "role": "canonical_writer", "truth": "sales_intelligence_policy_evaluations", "callers": ["src/lib/salesIntelligence/persistence/policyEvaluationWriter.ts"], "status": "PRODUCTION_ONLY_CANONICAL_GAP" },
+    { "name": "sales_intelligence_reconcile_case_set_v1", "role": "canonical_writer", "truth": "sales_intelligence_cases.lifecycle", "callers": ["src/lib/salesIntelligence/refresh/canonicalRefreshService.ts"], "status": "source_controlled", "migration": "20261003193000_si_case_lifecycle_reconciliation_v1.sql" },
+    { "name": "dawaa_reconcile_sales_intelligence_case_v22_v1", "role": "canonical_writer", "truth": "whatsapp_customer_cases_v22.canonical_sale_proof", "callers": ["src/lib/salesIntelligence/refresh/canonicalRefreshService.ts"], "status": "PRODUCTION_ONLY_CANONICAL_GAP" },
+    { "name": "dawaa_revoke_whatsapp_canonical_sale_proof_v46", "role": "canonical_writer", "truth": "whatsapp_conversation_actions.sale_proof_revocation", "callers": ["supabase/migrations/20261003193000_si_case_lifecycle_reconciliation_v1.sql"], "status": "PRODUCTION_ONLY_CANONICAL_GAP" },
+    { "name": "dawaa_capture_whatsapp_canonical_purchase_v36", "role": "canonical_writer", "truth": "whatsapp_conversation_actions.canonical_purchase", "callers": ["trigger on whatsapp_customer_cases_v22"], "status": "PRODUCTION_ONLY_CANONICAL_GAP" },
+    { "name": "dawaa_refresh_whatsapp_customer_story_v16", "role": "canonical_writer", "truth": "whatsapp_customer_stories", "callers": ["src/lib/salesIntelligence/refresh/storyProjectionRefresh.ts"], "status": "PRODUCTION_ONLY_CANONICAL_GAP" },
+    { "name": "dawaa_reconcile_whatsapp_product_conversion_v21", "role": "legacy_writer", "truth": "whatsapp_sales_opportunities_v17", "callers": ["v22 triggers"], "status": "source_controlled", "migration": "20261005123000_sales_intelligence_truth_boundary_v2.sql" },
+    { "name": "whatsapp_auto_followup_confirm_sale_v1", "role": "legacy_writer", "truth": "whatsapp_auto_followup_requests.sale", "callers": ["src/pages/WhatsAppAutoFollowupRequests.tsx"], "status": "source_controlled", "migration": "20260917080000_whatsapp_followup_sale_identity_v2.sql" },
+    { "name": "dawaa_reconcile_whatsapp_sales_after_invoice_import_v1", "role": "unknown_production_only", "truth": null, "callers": [], "status": "PRODUCTION_ONLY_UNCLASSIFIED" },
+    { "name": "dawaa_sales_invoice_item_reconcile_trigger_v21", "role": "unknown_production_only", "truth": null, "callers": [], "status": "PRODUCTION_ONLY_UNCLASSIFIED" },
+    { "name": "whatsapp_doctor_performance_v1", "role": "legacy_kpi_read", "truth": null, "callers": ["src/pages/WhatsAppDoctorPerformance.tsx"], "status": "PRODUCTION_ONLY_LEGACY_KPI" },
+    { "name": "whatsapp_branch_comparison_v1", "role": "legacy_kpi_read", "truth": null, "callers": ["src/pages/WhatsAppBranchComparison.tsx"], "status": "PRODUCTION_ONLY_LEGACY_KPI" },
+    { "name": "whatsapp_customer_history_v1", "role": "legacy_kpi_read", "truth": null, "callers": ["src/pages/WhatsAppCustomerHistory.tsx"], "status": "PRODUCTION_ONLY_LEGACY_KPI" },
+    { "name": "whatsapp_customers_list_v1", "role": "legacy_kpi_read", "truth": null, "callers": ["src/pages/WhatsAppCustomerHistory.tsx"], "status": "PRODUCTION_ONLY_LEGACY_KPI" },
+    { "name": "whatsapp_lost_opportunities_v1", "role": "legacy_kpi_read", "truth": null, "callers": ["src/pages/WhatsAppLostOpportunities.tsx"], "status": "PRODUCTION_ONLY_LEGACY_KPI" },
+    { "name": "calculate_customer_monthly_performance", "role": "legacy_kpi_read", "truth": null, "callers": ["src/lib/customerMonthlyPerformanceService.ts"], "status": "PRODUCTION_ONLY_LEGACY_KPI" },
+    { "name": "sales_intelligence_invoice_staff_truth_v1", "kind": "view", "role": "canonical_read", "truth": null, "callers": ["src/components/salesIntelligence/SalesIntelligenceStaffPerformanceV1.tsx", "src/components/salesIntelligence/SalesIntelligenceManagementOverviewV1.tsx"], "status": "PRODUCTION_ONLY_CANONICAL_GAP" }
+  ]
+}

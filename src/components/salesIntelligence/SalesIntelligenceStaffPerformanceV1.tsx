@@ -3,6 +3,7 @@ import { BadgeCheck, CircleAlert, PackageCheck, ReceiptText, Search, UsersRound 
 import { supabase } from '@/lib/supabase';
 import { dateFallsInCycleV1, nextDayYmdV1, previousDayYmdV1, type SalesIntelligenceCycleScopeV1 } from '@/lib/salesIntelligence/dashboardScopeV1';
 import { readStaffDirectory, type StaffDirectoryReadRow } from '@/lib/staff/staffDirectoryReadModel';
+import { ratioPercent } from '@/lib/salesIntelligence/canonicalConversionV1';
 
 type StaffTruthRow = {
   case_id: string;
@@ -303,7 +304,7 @@ export default function SalesIntelligenceStaffPerformanceV1({
           <>
           <div className="divide-y divide-[var(--dawaa-theme-border)] sm:hidden">
             {filtered.map((row) => {
-              const conversion = row.opportunities ? Math.round((row.acceptedOrLater / row.opportunities) * 100) : null;
+              const conversion = ratioPercent(row.acceptedOrLater, row.opportunities);
               return (
                 <div key={row.key} className="p-4">
                   <div className="flex items-start justify-between gap-3">
@@ -334,7 +335,7 @@ export default function SalesIntelligenceStaffPerformanceV1({
               </thead>
               <tbody>
                 {filtered.map((row) => {
-                  const conversion = row.opportunities ? Math.round((row.acceptedOrLater / row.opportunities) * 100) : null;
+                  const conversion = ratioPercent(row.acceptedOrLater, row.opportunities);
                   return (
                     <tr key={row.key} className="border-b border-[var(--dawaa-theme-border)]/60">
                       <td className="p-3"><div className="dawaa-heading font-black">{row.name}</div><div className="dawaa-muted mt-1 text-[11px]">{row.role || 'الدور غير محدد'}</div></td>

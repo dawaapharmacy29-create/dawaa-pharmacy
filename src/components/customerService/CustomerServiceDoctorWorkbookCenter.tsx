@@ -18,6 +18,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
 import { canViewAllBranches } from '@/lib/security/userDataScope';
 import { supabase } from '@/lib/supabase';
+import { ratioPercentOrZero } from '@/lib/salesIntelligence/canonicalConversionV1';
 import { parseMatrix, type SmartQueueImportRow } from '@/components/customerService/SmartQueueExcelImportModal';
 
 type ImportSummary = { total: number; imported: number; updated?: number; duplicates: number; skipped: number };
@@ -106,7 +107,7 @@ export default function CustomerServiceDoctorWorkbookCenter({ onImported }: { on
       next,
       noAnswer,
       responseRate: readyRows.length ? Math.round((responded / readyRows.length) * 100) : 0,
-      conversionRate: responded ? Math.round((purchases / responded) * 100) : 0,
+      conversionRate: ratioPercentOrZero(purchases, responded),
     };
   }, [readyRows]);
   const branchBreakdown = useMemo(() => {

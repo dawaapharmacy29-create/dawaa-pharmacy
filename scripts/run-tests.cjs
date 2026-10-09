@@ -321,6 +321,11 @@ const testFiles = [
   'src/lib/__tests__/v22EnvelopeWriteStrategy.test.ts',
   'src/lib/__tests__/whatsappStoryEventsReanalysis.test.ts',
   'src/lib/salesIntelligence/__tests__/lostOpportunityEngine.test.ts',
+  // Release Candidate closure: Sale Proof, invoice identity, phone-like codes, stale proof,
+  // branch provenance, canonical Conversion and the Production-only writer gate.
+  'src/lib/salesIntelligence/__tests__/saleTruthClosureRC.test.ts',
+  'src/lib/__tests__/conversationBranchProvenanceRC.test.ts',
+  'src/lib/salesIntelligence/__tests__/saleAttributionEngine.test.ts',
 ];
 for (const relativePath of testFiles) {
   const testFile = path.join(root, relativePath);

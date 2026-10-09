@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, FileSpreadsheet, Upload, X } from 'lucide-
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
+import { ratioPercentOrZero } from '@/lib/salesIntelligence/canonicalConversionV1';
 
 export type SmartQueueImportRow = {
   rowNumber: number;
@@ -118,7 +119,7 @@ export default function SmartQueueExcelImportModal({ open, onClose, onImported, 
       nextFollowups,
       executionRate: rows.length ? Math.round((executedRows.length / rows.length) * 100) : 0,
       responseRate: executedRows.length ? Math.round((responded / executedRows.length) * 100) : 0,
-      conversionRate: responded ? Math.round((purchases / responded) * 100) : 0,
+      conversionRate: ratioPercentOrZero(purchases, responded),
     };
   }, [rows, executedRows, invalid]);
   const invalidReason = (row: SmartQueueImportRow) => [row.notes.trim().length < 10 ? 'الملاحظات أقل من 10 حروف' : '', row.needsNextFollowup && !row.nextFollowupDate ? 'موعد المتابعة القادمة ناقص' : ''].filter(Boolean).join(' · ');
