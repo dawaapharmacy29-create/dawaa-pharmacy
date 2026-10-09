@@ -70,8 +70,18 @@ if (!fs.existsSync(payrollWorkspacePath)) {
   if (!/جاهزية البصمة(?: للرواتب)?/.test(page)) {
     failures.push('Payroll Workspace V2 must expose biometric payroll-readiness status to the operator.');
   }
-  if (!page.includes('لا تضرب في قيمة الساعة الشهرية')) {
-    failures.push('Payroll Workspace V2 must explicitly keep fingerprint hours separate from the monthly-hour-unit base salary formula.');
+
+  // Readiness hours are evidence only. The monthly-hour-unit compensation path must remain
+  // structurally independent: it is configured from monthlyHourUnitValue + contractedDailyHours,
+  // never from candidateWorkedHours or another biometric-readiness value.
+  for (const token of ['monthlyHourUnitValue', 'contractedDailyHours', "salaryCalculationMode === 'monthly_hour_unit'"]) {
+    if (!page.includes(token)) failures.push(`Payroll Workspace V2 missing independent compensation token: ${token}`);
+  }
+  if (/candidateWorkedHours[\s\S]{0,240}(?:monthlyHourUnitValue|contractedDailyHours|setMonthly)/.test(page)) {
+    failures.push('Payroll Workspace V2 must not feed candidate fingerprint hours into the monthly-hour-unit compensation path.');
+  }
+  if (/(?:monthlyHourUnitValue|contractedDailyHours)[\s\S]{0,240}candidateWorkedHours/.test(page)) {
+    failures.push('Payroll Workspace V2 must keep biometric readiness outside the monthly-hour-unit compensation path.');
   }
   if (/candidateWorkedHours[\s\S]{0,180}setMonthly/.test(page)) {
     failures.push('Payroll Workspace V2 must not automatically copy candidate fingerprint hours into the payroll row.');
@@ -90,4 +100,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('[attendance-payroll-readiness] PASS: fingerprint promotion is canonical, trigger-only, live Workspace V2 exposes scoped read-only readiness, and base salary uses the independent compensation formula.');
+console.log('[attendance-payroll-readiness] PASS: fingerprint promotion is canonical, trigger-only, live Workspace V2 exposes scoped read-only readiness, and biometric hours remain structurally separate from the monthly-hour-unit compensation formula.');
