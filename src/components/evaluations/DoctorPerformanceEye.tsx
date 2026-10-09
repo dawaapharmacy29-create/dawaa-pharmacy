@@ -164,7 +164,7 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
   const otherNote = snap ? 'لا مقارنة عادلة أثناء الدورة' : null;
   const salesReason = data?.sources.sales.reason || null;
   const insights = cur ? [...cur.diagnoses].sort((a, b) => severityRank[a.severity] - severityRank[b.severity]).slice(0, 5) : [];
-  const failedSources = data ? ([['المبيعات', data.sources.sales], ['الحضور', data.sources.attendance], ['المحادثات', data.sources.conversations], ['أثر العملاء', data.sources.customerImpact]] as const).filter(([, s]) => s.state !== 'available') : [];
+  const failedSources = data ? ([['المبيعات', data.sources.sales], ['مطابقة المبيعات بالحضور', data.sources.reconciliation], ['الحضور', data.sources.attendance], ['المحادثات', data.sources.conversations], ['أثر العملاء', data.sources.customerImpact]] as const).filter(([, s]) => s.state !== 'available') : [];
   const sourcesRetryable = failedSources.some(([, s]) => s.state === 'failed' || s.state === 'partial');
   const conversations = evidence?.conversations || [], products = evidence?.products || [];
   const visibleConversations = evidenceFocus === 'opportunity' ? conversations.filter(item => item.followup_required || item.invoice_match_status !== 'verified') : evidenceFocus === 'conversion' ? conversations : evidenceFocus === 'availability' ? [] : conversations;
@@ -357,12 +357,12 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
             <div hidden={!detailsOpen}>
             <Section title="كل المؤشرات — الدورة الحالية" hint={comparisonBasis}>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
-                <Kpi label="المبيعات" value={money(cur.sales)} deltaValue={salesDelta(cur.sales, prev.sales, snap?.sales, snap?.previousSales)} deltaNote={null} unavailableReason={salesReason} />
+                <Kpi label="إجمالي المبيعات" value={money(cur.sales)} deltaValue={salesDelta(cur.sales, prev.sales, snap?.sales, snap?.previousSales)} deltaNote={null} unavailableReason={salesReason} />
                 <Kpi label="الفواتير" value={fmt(cur.invoices)} deltaValue={salesDelta(cur.invoices, prev.invoices, snap?.invoices, snap?.previousInvoices)} deltaNote={null} unavailableReason={salesReason} />
                 <Kpi label="العملاء" value={fmt(cur.customers)} deltaValue={salesDelta(cur.customers, prev.customers, snap?.customers, snap?.previousCustomers)} deltaNote={null} unavailableReason={salesReason} />
                 <Kpi label="متوسط الفاتورة" value={money(cur.averageInvoice === null ? null : Math.round(cur.averageInvoice))} deltaValue={salesDelta(cur.averageInvoice, prev.averageInvoice, snap?.averageInvoice, snap?.previousAverageInvoice)} deltaNote={null} unavailableReason={salesReason} />
                 <Kpi label="ساعات معتمدة" value={cur.workedHours === null ? UNAVAILABLE : `${fmt(cur.workedHours, 1)} س`} deltaValue={hoursFair ? otherDelta(cur.workedHours, prev.workedHours) : null} deltaNote={cur.hoursNote || otherNote} unavailableReason={data.sources.attendance.reason} />
-                <Kpi label="مبيعات/ساعة" value={cur.salesPerHour === null ? UNAVAILABLE : `${fmt(cur.salesPerHour)} ج`} deltaValue={otherDelta(cur.salesPerHour, prev.salesPerHour)} deltaNote={otherNote} unavailableReason={salesReason || cur.hoursNote || data.sources.attendance.reason} />
+                <Kpi label="مبيعات موثقة/ساعة" value={cur.salesPerHour === null ? UNAVAILABLE : `${fmt(cur.salesPerHour)} ج`} deltaValue={otherDelta(cur.salesPerHour, prev.salesPerHour)} deltaNote={otherNote} unavailableReason={salesReason || cur.hoursNote || data.sources.attendance.reason} />
                 <Kpi label="التحويل الموثق" value={pct(cur.conversionRate)} deltaValue={otherDelta(cur.conversionRate, prev.conversionRate)} deltaNote={conversionNote || otherNote} unavailableReason={conversionReason} />
               </div>
             </Section>
