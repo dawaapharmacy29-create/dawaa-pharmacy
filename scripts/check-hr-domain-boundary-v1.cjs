@@ -97,19 +97,30 @@ for (const file of files) {
   }
 }
 
-const payrollPage = read(path.join(srcRoot, 'pages/PayrollManagement.tsx'));
-if (payrollPage.includes('supabase.rpc(') || payrollPage.includes('supabase.from(')) {
-  fail('PayrollManagement must use HR/payroll domain services; direct Supabase access is forbidden.');
+// PayrollManagement is now a compatibility entrypoint. The live implementation is Workspace V2,
+// so domain-boundary assertions must follow the live route instead of the historical wrapper file.
+const payrollEntry = read(path.join(srcRoot, 'pages/PayrollManagement.tsx'));
+const payrollWorkspace = read(path.join(srcRoot, 'pages/PayrollManagementV2.tsx'));
+if (!payrollEntry.includes("export { default } from './PayrollManagementV2';")) {
+  fail('PayrollManagement compatibility entrypoint must route to PayrollManagementV2.');
+}
+for (const [label, text] of [
+  ['PayrollManagement compatibility entrypoint', payrollEntry],
+  ['PayrollManagementV2 live workspace', payrollWorkspace],
+]) {
+  if (text.includes('supabase.rpc(') || text.includes('supabase.from(')) {
+    fail(label + ' must use HR/payroll domain services; direct Supabase access is forbidden.');
+  }
 }
 const legacyPayrollHistory = read(path.join(srcRoot, 'lib/payroll/payrollLegacyHistoryService.ts'));
-if (payrollPage.includes('netSalaryPreview') || payrollPage.includes('overtimeValue')) {
-  fail('PayrollManagement must not calculate payroll net/overtime locally.');
+if (payrollWorkspace.includes('netSalaryPreview') || payrollWorkspace.includes('overtimeValue')) {
+  fail('PayrollManagementV2 must not calculate payroll net/overtime locally.');
 }
-if (!payrollPage.includes('<PayrollManualEntriesPanel')) {
-  fail('PayrollManagement must use the canonical manual-entry ledger.');
+if (!payrollWorkspace.includes("workspaceTab === 'adjustments' ? <PayrollManualEntriesPanel")) {
+  fail('PayrollManagementV2 must use the canonical manual-entry ledger on the adjustments tab.');
 }
-if (payrollPage.includes('staff_payroll_monthly_v13')) {
-  fail('PayrollManagement must not read V13 directly; legacy history is isolated behind payrollLegacyHistoryService.');
+if (payrollWorkspace.includes('staff_payroll_monthly_v13')) {
+  fail('PayrollManagementV2 must not read V13 directly; legacy history is isolated behind payrollLegacyHistoryService.');
 }
 if (!legacyPayrollHistory.includes("in('status', ['approved', 'paid'])")) {
   fail('V13 compatibility reader must be restricted to approved/paid historical rows.');
