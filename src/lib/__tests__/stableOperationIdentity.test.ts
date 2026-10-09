@@ -120,7 +120,7 @@ import {
   resolveOperationOwner,
   stableOperationIdentity,
 } from '@/lib/whatsappFollowupIdentity';
-import { syncWhatsAppOperationalActionsV6 } from '@/lib/whatsappOperationalIntelligenceV6';
+import { syncWhatsAppOperationalActionsV6, writeWhatsAppOperationalActionsV6 } from '@/lib/whatsappOperationalIntelligenceV6';
 import { runSalesIntelligencePipeline } from '@/lib/salesIntelligence/salesIntelligencePipeline';
 import { deriveFollowUpOpportunities } from '@/lib/salesIntelligence/followUpOpportunityEngine';
 import { buildConversationUnderstandingV32 } from '@/lib/whatsappConversationUnderstandingV32';
@@ -709,6 +709,48 @@ describe('operational action writer: one row per real operation', () => {
     await sync(chat('Customer B'), 'source-fixture-b');
     expect(rows()).toHaveLength(2);
     expect(new Set(rows().map((row) => row.followup_identity)).size).toBe(2);
+  });
+
+  it('a re-import from a source with another branch never moves the operation branch, proof or target', async () => {
+    const session = unitOf(EXPORT);
+    const syncAt = (sourceId: string, branch: string) =>
+      syncWhatsAppOperationalActionsV6(model(session, [REQUEST]), {
+        sourceId,
+        branch,
+        customerId: RESOLVED.customerId,
+        followupIdentity: { session, caseStartedAt: session.startedAt, legacy: { customer: RESOLVED, caseAnchor: session.id } },
+      });
+    await syncAt('source-fixture-a', 'branch-a');
+    Object.assign(rows()[0], { target_table: 'daily_followups', target_id: 'followup-fixture-1', recovered_invoice_id: 'invoice-fixture-1' });
+    const first = { ...rows()[0] };
+    await syncAt('source-fixture-b', 'branch-b');
+    await syncAt('source-fixture-b', 'branch-b'); // retry
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0]).toMatchObject({
+      id: first.id,
+      followup_identity: first.followup_identity,
+      branch: 'branch-a',
+      source_id: 'source-fixture-a',
+      target_table: 'daily_followups',
+      target_id: 'followup-fixture-1',
+      recovered_invoice_id: 'invoice-fixture-1',
+    });
+    for (const write of db.writes.filter((w) => w.table === ACTIONS && w.op !== 'select'))
+      for (const row of [write.payload].flat()) expect(Object.keys(row || {}).includes('branch') && row.id === first.id).toBe(false);
+  });
+
+  it('the positional writer without a stable identity context is closed (no identity-less row)', async () => {
+    let failure: unknown = null;
+    try {
+      await writeWhatsAppOperationalActionsV6([{ action_key: 'request:0:x', action_type: 'customer_request', evidence: [] }], {
+        sourceId: 'source-fixture-a',
+      } as any);
+    } catch (error) {
+      failure = error;
+    }
+    expect(String((failure as Error | null)?.message)).toBe('followup_identity_context_required');
+    expect(rows()).toHaveLength(0);
+    expect(db.writes.filter((w) => w.table === ACTIONS)).toHaveLength(0);
   });
 
   it('Journey V15 (reachable from every file ingest) writes its recovery follow-up through the same identity', async () => {

@@ -75,3 +75,12 @@ describe('follow-up branch provenance guard migration', () => {
     expect(migration.replace(/create or replace function[\s\S]*?\$function\$;/g, '')).not.toMatch(/^\s*(update|delete|insert)\s/im);
   });
 });
+
+describe('release candidate reconciliation report', () => {
+  const report = read('supabase/readonly/release_candidate_reconciliation_v1.sql');
+  it('is read only: a READ ONLY transaction, no write or DDL statement, and a final rollback', () => {
+    expect(report).toMatch(/^begin transaction isolation level repeatable read read only;$/m);
+    expect(report.trim().endsWith('rollback;')).toBe(true);
+    expect(report).not.toMatch(/^\s*(update|delete|insert|merge|create|alter|drop|truncate|grant|revoke)\b/im);
+  });
+});

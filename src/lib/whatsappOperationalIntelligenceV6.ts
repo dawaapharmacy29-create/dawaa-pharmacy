@@ -1287,8 +1287,8 @@ export async function syncWhatsAppOperationalActionsV6(model: WhatsAppOperationa
 
 /**
  * The one writer of whatsapp_conversation_actions rows built from an analysis (V6/V22 actions and
- * the Journey V15 recovery action). With a followupIdentity context every row goes through the
- * Stable Operation Identity; without one, the legacy positional upsert is kept for old callers.
+ * the Journey V15 recovery action). Every row goes through the Stable Operation Identity; a call
+ * without a followupIdentity context fails closed and writes nothing.
  */
 export async function writeWhatsAppOperationalActionsV6(actions: any[], context: WhatsAppOperationalContext) {
   if (!actions.length) return [];
@@ -1306,11 +1306,9 @@ export async function writeWhatsAppOperationalActionsV6(actions: any[], context:
     created_by: context.createdBy || null,
     updated_at: new Date().toISOString(),
   }));
-  if (!context.followupIdentity) {
-    const { data, error } = await supabase.from('whatsapp_conversation_actions').upsert(rows, { onConflict: 'source_id,action_key', ignoreDuplicates: false }).select('id,action_key,action_type,status,target_table,target_id');
-    if (error) throw error;
-    return data || [];
-  }
+  // Closed: the old positional upsert (source_id + request:<index>) wrote rows without an operation
+  // identity and could overwrite another operation. Every caller passes the identity context.
+  if (!context.followupIdentity) throw new Error('followup_identity_context_required');
   return syncActionsWithStableIdentity(rows, context);
 }
 
