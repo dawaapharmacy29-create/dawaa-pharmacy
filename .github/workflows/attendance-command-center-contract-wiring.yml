@@ -5,7 +5,8 @@ on:
     paths:
       - 'supabase/migrations/*attendance*.sql'
       - 'scripts/check-attendance-command-center-contract-wiring.cjs'
-      - 'src/lib/attendance/attendanceResolutionService.ts'
+      - 'src/lib/attendance/**'
+      - 'src/components/attendance/AttendanceResolutionCenter.tsx'
       - 'src/pages/Reviews.tsx'
       - '.github/workflows/attendance-command-center-contract-wiring.yml'
   push:
@@ -15,7 +16,8 @@ on:
     paths:
       - 'supabase/migrations/*attendance*.sql'
       - 'scripts/check-attendance-command-center-contract-wiring.cjs'
-      - 'src/lib/attendance/attendanceResolutionService.ts'
+      - 'src/lib/attendance/**'
+      - 'src/components/attendance/AttendanceResolutionCenter.tsx'
       - 'src/pages/Reviews.tsx'
       - '.github/workflows/attendance-command-center-contract-wiring.yml'
 
@@ -37,6 +39,8 @@ jobs:
         run: npm ci --legacy-peer-deps --no-audit --no-fund
       - name: Command center contract guard
         run: node scripts/check-attendance-command-center-contract-wiring.cjs
+      - name: Priority comparator unit tests
+        run: npx vitest run src/lib/attendance/__tests__/attendanceReviewPriority.test.ts
       - name: TypeScript
         run: npm run typecheck
       - name: Vite production bundle
