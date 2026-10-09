@@ -8,6 +8,7 @@ const failures = [];
 
 const attendanceRel = 'supabase/migrations/20261009120500_attendance_materialize_verified_actor_guard_v2.sql';
 const payrollRel = 'supabase/migrations/20261009121000_payroll_finalize_preview_route_alignment_v1.sql';
+const classificationRel = 'supabase/migrations/20261009121500_payroll_delivery_classification_fail_closed_v1.sql';
 
 function read(rel) {
   const full = path.join(ROOT, rel);
@@ -26,6 +27,7 @@ function mustContain(label, text, tokens) {
 
 const attendance = read(attendanceRel);
 const payroll = read(payrollRel);
+const classification = read(classificationRel);
 
 mustContain('Attendance materialization authorization guard', attendance, [
   'dawaa_current_staff_account_id_strict()',
@@ -47,6 +49,29 @@ mustContain('Payroll staged-preview route alignment', payroll, [
   'public.compare_payroll_final_snapshot_v1(p_snapshot_id)',
   'compare anchor not found exactly once',
 ]);
+
+mustContain('Payroll delivery classification fail-closed boundary', classification, [
+  'create or replace function public.dawaa_delivery_payroll_classification_strict_v1',
+  "not (v_class ? 'payroll_eligible')",
+  "jsonb_typeof(v_class->'payroll_eligible') <> 'boolean'",
+  "raise exception 'delivery_payroll_classification_unavailable'",
+  'public.payroll_finalization_gate_v2(uuid,text)',
+  'public.payroll_finalization_gate_current_v1(uuid,text)',
+  'public.employee_payroll_financial_composition_v3(uuid,text)',
+  'public.employee_payroll_financial_composition_compat_v1(uuid,text)',
+  'public.employee_payroll_financial_composition_current_v1(uuid,text)',
+  'public.employee_payroll_transparency_v2(uuid,text)',
+  'public.employee_payroll_transparency_current_v1(uuid,text)',
+  'public.employee_payroll_statement_v2(uuid,text)',
+  'public.finalize_payroll_snapshot_v3(uuid)',
+  'expected one legacy fallback',
+]);
+if (!classification.includes("dawaa_delivery_payroll_classification_strict_v1(p_staff_id,p_month_cycle)")) {
+  failures.push('Payroll classification migration must route staff/month decisions through the strict classification boundary.');
+}
+if (!classification.includes("dawaa_delivery_payroll_classification_strict_v1(v_snapshot.staff_id,v_snapshot.month_cycle)")) {
+  failures.push('Payroll finalization must route staged snapshot decisions through the strict classification boundary.');
+}
 
 const migrationNames = fs.existsSync(MIGRATIONS)
   ? fs.readdirSync(MIGRATIONS).filter((name) => name.endsWith('.sql')).sort()
@@ -73,6 +98,21 @@ rejectLaterRedefinition(
   'create or replace function public.finalize_payroll_snapshot_v2(',
   'finalize_payroll_snapshot_v2'
 );
+
+for (const [signatureNeedle, label] of [
+  ['create or replace function public.dawaa_delivery_payroll_classification_strict_v1(', 'strict delivery classification boundary'],
+  ['create or replace function public.payroll_finalization_gate_v2(', 'payroll_finalization_gate_v2'],
+  ['create or replace function public.payroll_finalization_gate_current_v1(', 'payroll_finalization_gate_current_v1'],
+  ['create or replace function public.employee_payroll_financial_composition_v3(', 'employee_payroll_financial_composition_v3'],
+  ['create or replace function public.employee_payroll_financial_composition_compat_v1(', 'employee_payroll_financial_composition_compat_v1'],
+  ['create or replace function public.employee_payroll_financial_composition_current_v1(', 'employee_payroll_financial_composition_current_v1'],
+  ['create or replace function public.employee_payroll_transparency_v2(', 'employee_payroll_transparency_v2'],
+  ['create or replace function public.employee_payroll_transparency_current_v1(', 'employee_payroll_transparency_current_v1'],
+  ['create or replace function public.employee_payroll_statement_v2(', 'employee_payroll_statement_v2'],
+  ['create or replace function public.finalize_payroll_snapshot_v3(', 'finalize_payroll_snapshot_v3'],
+]) {
+  rejectLaterRedefinition(path.basename(classificationRel), signatureNeedle, label);
+}
 
 if (failures.length) {
   console.error('[runtime-sensitive-finalization-guards] FAILED');
