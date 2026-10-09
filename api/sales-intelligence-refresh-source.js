@@ -13500,8 +13500,8 @@ async function reconcileSoldCustomerRequestActions(service, sourceId, caseAnalys
           outcome: "sold",
           outcome_note: "\u062A\u0645 \u0625\u063A\u0644\u0627\u0642 \u0637\u0644\u0628 \u0627\u0644\u0639\u0645\u064A\u0644 \u062A\u0644\u0642\u0627\u0626\u064A\u064B\u0627 \u0628\u0639\u062F \u0625\u062B\u0628\u0627\u062A \u0627\u0644\u0628\u064A\u0639 \u0648\u0631\u0628\u0637\u0647 \u0628\u0641\u0627\u062A\u0648\u0631\u0629 \u0641\u0639\u0644\u064A\u0629.",
           completed_at: nowIso,
-          target_table: "sales_invoices",
-          target_id: invoiceId2,
+          // Execution owns target_table/target_id. Sale proof belongs in canonical_sale;
+          // omitting target fields also preserves materialization that races this refresh.
           reason: "\u062A\u0645 \u0625\u062B\u0628\u0627\u062A \u0628\u064A\u0639 \u0627\u0644\u0637\u0644\u0628 \u0648\u0631\u0628\u0637\u0647 \u0628\u0641\u0627\u062A\u0648\u0631\u0629 \u0641\u0639\u0644\u064A\u0629\u061B \u0644\u0627 \u064A\u062D\u062A\u0627\u062C \u0645\u062A\u0627\u0628\u0639\u0629 \u0643\u0637\u0644\u0628 \u063A\u064A\u0631 \u0645\u063A\u0644\u0642.",
           payload: { ...payload, canonical_sale: canonicalSale },
           updated_at: nowIso

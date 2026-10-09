@@ -3,7 +3,7 @@
   "status": "BLOCKED",
   "application_sha": "2a8e85fce639a04d5562c42e054797584f496a63",
   "verify_exit_code": 0,
-  "tests_passed": 643,
+  "tests_passed": 648,
   "tests_failed": 0,
   "initial_js_gzip_kib": 92.2,
   "implementation_started": true,
@@ -42,7 +42,7 @@
   "isolated_db_harness_contract_gaps_reproduced": 3,
   "isolated_db_harness_concurrency_proven": false,
   "isolated_db_harness_authorization_proven": false,
-  "application_source_changed": false,
+  "application_source_changed": true,
   "full_si_cutover_activated": false,
   "migrations_prepared": 2,
   "repair_1": {
@@ -68,5 +68,19 @@
     "verify_exit_code": 0,
     "tests_passed": 643,
     "initial_js_gzip_kib": 92.2
+  },
+  "repair_3": {
+    "status": "PREPARED_LOCALLY",
+    "boundary": "canonicalRefreshService.reconcileSoldCustomerRequestActions",
+    "regression_tests_passed": 5,
+    "verify_exit_code": 0,
+    "live_deployed": false,
+    "remaining_status_payload_concurrency_proven": false
+  },
+  "main_readiness": {
+    "observed_main_sha": "0b9bead8df7c39373e297a47f75fc9eaba03af18",
+    "observed_main_is_ancestor": true,
+    "merge_conflicts": 0,
+    "full_cutover_ready": false
   }
 }

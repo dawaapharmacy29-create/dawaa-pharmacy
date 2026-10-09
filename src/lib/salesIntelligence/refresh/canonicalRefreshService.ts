@@ -572,7 +572,7 @@ export async function runCanonicalSalesIntelligenceBackfill(
   return { mode: 'dry-run', gate, refresh: null, preview };
 }
 
-async function reconcileSoldCustomerRequestActions(
+export async function reconcileSoldCustomerRequestActions(
   service: any,
   sourceId: string,
   caseAnalyses: any[]
@@ -675,8 +675,8 @@ async function reconcileSoldCustomerRequestActions(
             outcome: 'sold',
             outcome_note: 'تم إغلاق طلب العميل تلقائيًا بعد إثبات البيع وربطه بفاتورة فعلية.',
             completed_at: nowIso,
-            target_table: 'sales_invoices',
-            target_id: invoiceId,
+            // Execution owns target_table/target_id. Sale proof belongs in canonical_sale;
+            // omitting target fields also preserves materialization that races this refresh.
             reason: 'تم إثبات بيع الطلب وربطه بفاتورة فعلية؛ لا يحتاج متابعة كطلب غير مغلق.',
             payload: { ...payload, canonical_sale: canonicalSale },
             updated_at: nowIso,

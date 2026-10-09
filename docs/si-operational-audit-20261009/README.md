@@ -204,3 +204,5 @@ Baseline application SHA remains `2a8e85fce639a04d5562c42e054797584f496a63`; aud
 **No live migration applied. `20261008160000` untouched. No Vercel Production deploy. No Preview created. Production application and data untouched.**
 
 Second scoped repair: see [branch-lineage-repair.md](branch-lineage-repair.md). It preserves conversation-linked follow-up/queue branches using existing action/source/event provenance. Both migrations remain repo-only; full cutover remains BLOCKED.
+
+Trial/main acceptance is tracked in [merge-readiness.md](merge-readiness.md). Full trial and merge remain NOT READY; scoped test success is not cutover acceptance.

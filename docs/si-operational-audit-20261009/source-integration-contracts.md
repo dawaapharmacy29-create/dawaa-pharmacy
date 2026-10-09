@@ -1,6 +1,6 @@
 # Source integration contracts — Phase 1 continuation
 
-Status: **design specified; implementation remains BLOCKED**. These contracts resolve design choices; they do not certify writer retirement, schema parity, or an atomic cutover. No application behavior or live object is changed by this document.
+Status: **design specified; full cutover remains BLOCKED**. Subsequent explicit user instructions authorize bounded repairs; see the repair reports and merge-readiness.md. These contracts resolve design choices; they do not certify writer retirement, schema parity, or an atomic cutover. No application behavior or live object is changed by this document.
 
 ## Evidence found in the existing SI path
 
@@ -139,4 +139,4 @@ Design specifications now exist for complaint state, request qualification, proj
 * Compare live-only schema definitions against executable isolated schema, including trigger order and ACLs.
 * Run the supplied 20 scenarios plus stale-writer, stale-analysis, lost-response, and closed-tab retry fixtures.
 
-The supplied instruction is explicit: “Only after Phase 1 returns READY” may implementation start. Phase 1 remains BLOCKED; this continuation changes audit documentation only. No migration prepared/applied, no Vercel operation, and no Production mutation.
+The supplied instruction is explicit: “Only after Phase 1 returns READY” may implementation start. Phase 1 remains BLOCKED for full cutover. This contract was originally documentation-only; subsequent user-authorized bounded repairs now prepare repo-only migrations and the sale-lineage source correction. No live migration, Vercel operation, or Production mutation has occurred.
