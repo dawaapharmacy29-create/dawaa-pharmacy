@@ -161,22 +161,34 @@ export type AttendanceExceptionRow = {
   scheduled_end_at: string | null;
 };
 
-export async function listAttendanceExceptionInbox(args: {
-  start: string;
-  end: string;
-  branch?: string | null;
-  lane?: AttendanceExceptionLane | 'all';
-  limit?: number;
-}): Promise<AttendanceExceptionRow[]> {
-  const { data, error } = await supabase.rpc('get_attendance_exception_inbox_v2', {
-    p_start: args.start,
-    p_end: args.end,
-    p_branch: args.branch && args.branch !== 'الكل' ? args.branch : null,
-    p_lane: args.lane || 'manager',
-    p_limit: args.limit ?? 300,
-  });
-  if (error) throw new Error(error.message);
-  return ((data || []) as Array<Record<string, unknown>>).map((row) => ({
+export type AttendanceDiagnosticSummaryV1 = {
+  total_cases: number;
+  manager_cases: number;
+  system_cases: number;
+  auto_resolvable_cases?: number;
+  manager_required_active_staff?: number;
+  manager_required_former_staff?: number;
+  system_repair_cases?: number;
+  waiting_cases?: number;
+  causes: Array<{
+    code: string;
+    label: string;
+    owner: 'manager' | 'system' | string;
+    cases: number;
+  }>;
+  generated_at: string;
+};
+
+export type AttendanceCommandCenterBundleV1 = {
+  rows: AttendanceExceptionRow[];
+  summary: AttendanceDiagnosticSummaryV1;
+  generated_at: string;
+};
+
+const attendanceCommandCenterInFlight = new Map<string, Promise<AttendanceCommandCenterBundleV1>>();
+
+function mapAttendanceExceptionRow(row: Record<string, unknown>): AttendanceExceptionRow {
+  return {
     id: String(row.resolution_id || ''),
     staff_id: String(row.staff_id || ''),
     staff_name: String(row.staff_name || row.staff_id || 'غير محدد'),
@@ -201,7 +213,86 @@ export async function listAttendanceExceptionInbox(args: {
     schedule_id: row.schedule_id == null ? null : String(row.schedule_id),
     scheduled_start_at: row.scheduled_start_at == null ? null : String(row.scheduled_start_at),
     scheduled_end_at: row.scheduled_end_at == null ? null : String(row.scheduled_end_at),
-  }));
+  };
+}
+
+export async function getAttendanceCommandCenterBundleV1(args: {
+  start: string;
+  end: string;
+  branch?: string | null;
+}): Promise<AttendanceCommandCenterBundleV1> {
+  const branch = args.branch && args.branch !== 'الكل' ? args.branch : null;
+  const key = `${args.start}:${args.end}:${branch || 'all'}`;
+  const existing = attendanceCommandCenterInFlight.get(key);
+  if (existing) return existing;
+
+  const request = (async () => {
+    const { data, error } = await supabase.rpc('get_attendance_command_center_bundle_v1', {
+      p_start: args.start,
+      p_end: args.end,
+      p_branch: branch,
+      p_limit: 1000,
+    });
+    if (error) throw new Error(error.message);
+
+    const payload = (data || {}) as Record<string, unknown>;
+    const generatedAt = String(payload.generated_at || new Date().toISOString());
+    const rows = Array.isArray(payload.rows)
+      ? (payload.rows as Array<Record<string, unknown>>).map(mapAttendanceExceptionRow)
+      : [];
+    const rawSummary = payload.summary && typeof payload.summary === 'object'
+      ? payload.summary as Record<string, unknown>
+      : {};
+    const rawCauses = Array.isArray(rawSummary.causes)
+      ? rawSummary.causes as Array<Record<string, unknown>>
+      : [];
+
+    return {
+      rows,
+      summary: {
+        total_cases: Number(rawSummary.total_cases || 0),
+        manager_cases: Number(rawSummary.manager_cases || 0),
+        system_cases: Number(rawSummary.system_cases || 0),
+        auto_resolvable_cases: Number(rawSummary.auto_resolvable_cases || 0),
+        manager_required_active_staff: Number(rawSummary.manager_required_active_staff || 0),
+        manager_required_former_staff: Number(rawSummary.manager_required_former_staff || 0),
+        system_repair_cases: Number(rawSummary.system_repair_cases || 0),
+        waiting_cases: Number(rawSummary.waiting_cases || 0),
+        causes: rawCauses.map((cause) => ({
+          code: String(cause.code || ''),
+          label: String(cause.label || cause.code || 'غير محدد'),
+          owner: String(cause.owner || 'system'),
+          cases: Number(cause.cases || 0),
+        })),
+        generated_at: generatedAt,
+      },
+      generated_at: generatedAt,
+    };
+  })();
+
+  attendanceCommandCenterInFlight.set(key, request);
+  try {
+    return await request;
+  } finally {
+    if (attendanceCommandCenterInFlight.get(key) === request) {
+      attendanceCommandCenterInFlight.delete(key);
+    }
+  }
+}
+
+export async function listAttendanceExceptionInbox(args: {
+  start: string;
+  end: string;
+  branch?: string | null;
+  lane?: AttendanceExceptionLane | 'all';
+  limit?: number;
+}): Promise<AttendanceExceptionRow[]> {
+  const bundle = await getAttendanceCommandCenterBundleV1(args);
+  const lane = args.lane || 'manager';
+  const rows = lane === 'all'
+    ? bundle.rows
+    : bundle.rows.filter((row) => row.queue_lane === lane);
+  return rows.slice(0, Math.max(1, Math.min(args.limit ?? 300, 1000)));
 }
 
 
@@ -241,31 +332,13 @@ export async function getAttendanceCaseDiagnosticV1(
 }
 
 
-export type AttendanceDiagnosticSummaryV1 = {
-  total_cases: number;
-  manager_cases: number;
-  system_cases: number;
-  causes: Array<{
-    code: string;
-    label: string;
-    owner: 'manager' | 'system' | string;
-    cases: number;
-  }>;
-  generated_at: string;
-};
-
 export async function getAttendanceDiagnosticSummaryV1(args: {
   start: string;
   end: string;
   branch?: string | null;
 }): Promise<AttendanceDiagnosticSummaryV1> {
-  const { data, error } = await supabase.rpc('attendance_diagnostic_summary_v1', {
-    p_start: args.start,
-    p_end: args.end,
-    p_branch: args.branch && args.branch !== 'الكل' ? args.branch : null,
-  });
-  if (error) throw new Error(error.message);
-  return data as AttendanceDiagnosticSummaryV1;
+  const bundle = await getAttendanceCommandCenterBundleV1(args);
+  return bundle.summary;
 }
 
 
