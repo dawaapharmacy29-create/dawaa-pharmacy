@@ -94,6 +94,33 @@ for (const file of byFile.keys()) {
   if (size > ROUTE_GZIP_LIMIT) failures.push(`${file} is ${(size / 1024).toFixed(1)} KiB gzip; route/module budget is ${(ROUTE_GZIP_LIMIT / 1024).toFixed(0)} KiB.`);
 }
 
+// Runtime scheduling guard: the Doctor Eye primary summary must win the first-load race.
+// The comparative layer may read thousands of branch review rows, so it must start only after
+// loadDoctorPerformanceIntelligence settles and must be retryable without reloading primary data.
+const eyePath = path.join(ROOT, 'src/components/evaluations/DoctorPerformanceEye.tsx');
+if (!fs.existsSync(eyePath)) {
+  failures.push('Missing DoctorPerformanceEye runtime source.');
+} else {
+  const eyeSource = fs.readFileSync(eyePath, 'utf8');
+  const loadStart = eyeSource.indexOf('async function load(force: boolean)');
+  const showStart = eyeSource.indexOf('function show()', loadStart);
+  const evidenceStart = eyeSource.indexOf('async function openEvidence', showStart);
+  if (loadStart < 0 || showStart < 0 || evidenceStart < 0) {
+    failures.push('DoctorPerformanceEye runtime functions could not be inspected.');
+  } else {
+    const loadBody = eyeSource.slice(loadStart, showStart);
+    const primaryAwait = loadBody.indexOf('await loadDoctorPerformanceIntelligence');
+    const decisionKick = loadBody.indexOf('void loadDecision(force, requestId)');
+    if (primaryAwait < 0 || decisionKick < 0 || decisionKick < primaryAwait) {
+      failures.push('Doctor Eye must settle the primary doctor intelligence before starting branch comparison.');
+    }
+    const showBody = eyeSource.slice(showStart, evidenceStart);
+    if (!showBody.includes('if (!branch || decisionLoading || (decisionSources && !decisionFailed)) return;') || !showBody.includes('void loadDecision(Boolean(decisionSources), requestRef.current);')) {
+      failures.push('Doctor Eye must retry the comparative layer without re-fetching an already healthy primary summary.');
+    }
+  }
+}
+
 console.log(`[perf-budget] initial static JS: ${(initialGzip / 1024).toFixed(1)} KiB gzip across ${initialFiles.size} chunks`);
 console.log(`[perf-budget] initial files: ${[...initialFiles].join(', ')}`);
 
