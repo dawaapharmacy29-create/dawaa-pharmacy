@@ -13737,22 +13737,38 @@ async function refreshCustomerStoryProjectionsForSources(client, sourceIds) {
 
 // src/lib/deployEnvironmentGuard.ts
 var PRODUCTION_SUPABASE_PROJECT_REF = "jkjqeqkshllustwlzzbf";
+var DELIVERY_SUPABASE_PROJECT_REF = "qlugjplnnkjzxcbhwopg";
+var FORBIDDEN_OUTSIDE_PRODUCTION = {
+  [PRODUCTION_SUPABASE_PROJECT_REF]: "the production project",
+  [DELIVERY_SUPABASE_PROJECT_REF]: "the delivery project (dawaa-delivery-os)"
+};
+var CLIENT_PREFIXES = ["VITE_", "NEXT_PUBLIC_"];
 var URL_VARS = ["VITE_SUPABASE_URL", "SUPABASE_URL"];
 var KEY_VARS = ["VITE_SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY"];
 function supabaseProjectRefFromUrl(value) {
   const match = /^https:\/\/([a-z0-9]{20})\.supabase\.co\/?$/i.exec(String(value || "").trim());
   return match ? match[1].toLowerCase() : null;
 }
-function supabaseProjectRefFromKey(value) {
+function jwtPayload(value) {
   const parts = String(value || "").trim().split(".");
   if (parts.length !== 3) return null;
   try {
     const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
     const payload = JSON.parse(atob(base64 + "=".repeat((4 - base64.length % 4) % 4)));
-    return typeof payload?.ref === "string" ? payload.ref.toLowerCase() : null;
+    return payload && typeof payload === "object" ? payload : null;
   } catch {
     return null;
   }
+}
+function supabaseProjectRefFromKey(value) {
+  const ref3 = jwtPayload(value)?.ref;
+  return typeof ref3 === "string" ? ref3.toLowerCase() : null;
+}
+function clientExposedSecrets(env) {
+  return Object.keys(env).filter((name) => CLIENT_PREFIXES.some((prefix) => name.startsWith(prefix)) && env[name]).filter((name) => {
+    const value = String(env[name]).trim();
+    return /SERVICE_ROLE|SECRET/i.test(name) || value.startsWith("sb_secret_") || jwtPayload(value)?.role === "service_role";
+  }).sort();
 }
 function environmentOf(env) {
   const vercel = String(env.VERCEL_ENV || "").trim().toLowerCase();
@@ -13779,6 +13795,8 @@ function evaluateDeployEnvironment(env) {
     if (env[name] && String(env[name]).includes(production) && !pointsAtProduction.includes(name))
       pointsAtProduction.push(name);
   }
+  for (const name of clientExposedSecrets(env))
+    errors.push(`${name} is readable by the browser bundle and holds a service-role or secret key`);
   if (environment === "production") {
     if (!env.VITE_SUPABASE_URL) warnings.push("VITE_SUPABASE_URL is not set for production");
     for (const [name, ref3] of Object.entries(projectRefs)) {
@@ -13797,9 +13815,17 @@ function evaluateDeployEnvironment(env) {
       errors.push(
         "DAWAA_STAGING_SUPABASE_REF is missing: declare the staging project ref this preview must use"
       );
-    if (expected === production)
-      errors.push("DAWAA_STAGING_SUPABASE_REF is the production project");
+    if (FORBIDDEN_OUTSIDE_PRODUCTION[expected])
+      errors.push(`DAWAA_STAGING_SUPABASE_REF is ${FORBIDDEN_OUTSIDE_PRODUCTION[expected]}`);
     for (const name of pointsAtProduction) errors.push(`${name} points to the production project`);
+    for (const [name, ref3] of Object.entries(projectRefs)) {
+      if (ref3 === DELIVERY_SUPABASE_PROJECT_REF)
+        errors.push(`${name} points to the delivery project`);
+    }
+    for (const name of URL_VARS) {
+      if (env[name] && String(env[name]).includes(DELIVERY_SUPABASE_PROJECT_REF) && projectRefs[name] !== DELIVERY_SUPABASE_PROJECT_REF)
+        errors.push(`${name} points to the delivery project`);
+    }
     for (const name of URL_VARS) {
       if (!env[name]) continue;
       const ref3 = projectRefs[name];
@@ -13813,6 +13839,10 @@ function evaluateDeployEnvironment(env) {
         errors.push(`${name} belongs to project ${ref3}, expected staging ${expected}`);
     }
   } else if (enforced) {
+    for (const [name, ref3] of Object.entries(projectRefs)) {
+      if (ref3 === DELIVERY_SUPABASE_PROJECT_REF)
+        errors.push(`${name} points to the delivery project`);
+    }
     for (const name of pointsAtProduction)
       errors.push(
         `${name} points to the production project; local must use a local or test database`

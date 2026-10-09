@@ -1,9 +1,12 @@
 // Staging isolation: a preview build or the server transport must never reach the production
 // database. The build gate (scripts/check-deploy-environment.cjs) and the server share this rule.
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  DELIVERY_SUPABASE_PROJECT_REF as DELIVERY,
   PRODUCTION_SUPABASE_PROJECT_REF as PROD,
+  clientExposedSecrets,
   evaluateDeployEnvironment,
   supabaseProjectRefFromKey,
 } from '@/lib/deployEnvironmentGuard';
@@ -91,5 +94,75 @@ describe('deploy environment isolation', () => {
     expect(readFileSync('api/sales-intelligence-refresh-source.js', 'utf8')).not.toContain(
       `'https://${PROD}.supabase.co'`
     );
+  });
+});
+
+describe('deploy environment isolation: delivery project and client secrets', () => {
+  const jwt = (payload: Record<string, string>) =>
+    `eyJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify(payload)).replace(/=+$/, '')}.signature`;
+  const stagingPreview = {
+    VERCEL_ENV: 'preview',
+    VITE_SUPABASE_URL: `https://${STAGING}.supabase.co`,
+    VITE_SUPABASE_ANON_KEY: jwt({ ref: STAGING, role: 'anon' }),
+    DAWAA_STAGING_SUPABASE_REF: STAGING,
+  };
+
+  it('a preview fails when any URL, key or the declared ref is the delivery project', () => {
+    for (const extra of [
+      { VITE_SUPABASE_URL: `https://${DELIVERY}.supabase.co` },
+      { SUPABASE_URL: `https://${DELIVERY}.supabase.co` },
+      { SUPABASE_SERVICE_ROLE_KEY: jwt({ ref: DELIVERY, role: 'service_role' }) },
+      {
+        DAWAA_STAGING_SUPABASE_REF: DELIVERY,
+        VITE_SUPABASE_URL: `https://${DELIVERY}.supabase.co`,
+      },
+    ]) {
+      expect(evaluateDeployEnvironment({ ...stagingPreview, ...extra }).ok).toBe(false);
+    }
+    expect(
+      evaluateDeployEnvironment({
+        DAWAA_DEPLOY_ENV: 'local',
+        VITE_SUPABASE_URL: `https://${DELIVERY}.supabase.co`,
+      }).ok
+    ).toBe(false);
+  });
+
+  it('no browser-readable variable may hold a service-role or secret key, in any environment', () => {
+    const serviceRole = jwt({ ref: STAGING, role: 'service_role' });
+    expect(clientExposedSecrets({ VITE_SUPABASE_ANON_KEY: serviceRole })).toEqual([
+      'VITE_SUPABASE_ANON_KEY',
+    ]);
+    expect(
+      clientExposedSecrets({
+        VITE_SUPABASE_SERVICE_ROLE_KEY: 'x',
+        NEXT_PUBLIC_KEY: 'sb_secret_abc',
+      })
+    ).toEqual(['NEXT_PUBLIC_KEY', 'VITE_SUPABASE_SERVICE_ROLE_KEY']);
+    expect(
+      clientExposedSecrets({
+        SUPABASE_SERVICE_ROLE_KEY: serviceRole,
+        VITE_SUPABASE_ANON_KEY: jwt({ ref: STAGING, role: 'anon' }),
+      })
+    ).toEqual([]);
+    for (const environment of ['production', 'preview', undefined]) {
+      expect(
+        evaluateDeployEnvironment({
+          ...stagingPreview,
+          VERCEL_ENV: environment,
+          VITE_SUPABASE_ANON_KEY: serviceRole,
+        }).ok
+      ).toBe(false);
+    }
+  });
+
+  it('the service role key is read only by server code, never by browser sources', () => {
+    const files = readdirSync('src', { recursive: true, encoding: 'utf8' })
+      .filter((file) => /\.(ts|tsx)$/.test(file) && !file.includes('__tests__'))
+      .filter((file) => file !== path.join('lib', 'deployEnvironmentGuard.ts'));
+    const offenders = files.filter((file) =>
+      /SERVICE_ROLE/.test(readFileSync(path.join('src', file), 'utf8'))
+    );
+    expect(offenders).toEqual([]);
+    expect(readFileSync('src/lib/supabase.ts', 'utf8')).not.toMatch(/process\.env/);
   });
 });

@@ -5,6 +5,13 @@
 // payload. It never prints a key.
 
 export const PRODUCTION_SUPABASE_PROJECT_REF = 'jkjqeqkshllustwlzzbf';
+// The delivery app's project: never a database for this app in any non-production environment.
+export const DELIVERY_SUPABASE_PROJECT_REF = 'qlugjplnnkjzxcbhwopg';
+const FORBIDDEN_OUTSIDE_PRODUCTION: Record<string, string> = {
+  [PRODUCTION_SUPABASE_PROJECT_REF]: 'the production project',
+  [DELIVERY_SUPABASE_PROJECT_REF]: 'the delivery project (dawaa-delivery-os)',
+};
+const CLIENT_PREFIXES = ['VITE_', 'NEXT_PUBLIC_'];
 
 export type DeployEnvironment = 'production' | 'preview' | 'development' | 'local';
 type Env = Record<string, string | undefined>;
@@ -26,18 +33,38 @@ export function supabaseProjectRefFromUrl(value: string | undefined): string | n
   return match ? match[1].toLowerCase() : null;
 }
 
-export function supabaseProjectRefFromKey(value: string | undefined): string | null {
+function jwtPayload(value: string | undefined): Record<string, unknown> | null {
   const parts = String(value || '')
     .trim()
     .split('.');
-  if (parts.length !== 3) return null; // publishable/secret keys (sb_...) carry no project ref
+  if (parts.length !== 3) return null; // publishable/secret keys (sb_...) are not JWTs
   try {
     const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
     const payload = JSON.parse(atob(base64 + '='.repeat((4 - (base64.length % 4)) % 4)));
-    return typeof payload?.ref === 'string' ? payload.ref.toLowerCase() : null;
+    return payload && typeof payload === 'object' ? payload : null;
   } catch {
     return null;
   }
+}
+
+export function supabaseProjectRefFromKey(value: string | undefined): string | null {
+  const ref = jwtPayload(value)?.ref;
+  return typeof ref === 'string' ? ref.toLowerCase() : null;
+}
+
+// A variable the browser bundle can read must never hold a service-role or secret key.
+export function clientExposedSecrets(env: Env): string[] {
+  return Object.keys(env)
+    .filter((name) => CLIENT_PREFIXES.some((prefix) => name.startsWith(prefix)) && env[name])
+    .filter((name) => {
+      const value = String(env[name]).trim();
+      return (
+        /SERVICE_ROLE|SECRET/i.test(name) ||
+        value.startsWith('sb_secret_') ||
+        jwtPayload(value)?.role === 'service_role'
+      );
+    })
+    .sort();
 }
 
 function environmentOf(env: Env): { environment: DeployEnvironment; enforced: boolean } {
@@ -77,6 +104,8 @@ export function evaluateDeployEnvironment(env: Env): DeployEnvironmentReport {
     if (env[name] && String(env[name]).includes(production) && !pointsAtProduction.includes(name))
       pointsAtProduction.push(name);
   }
+  for (const name of clientExposedSecrets(env))
+    errors.push(`${name} is readable by the browser bundle and holds a service-role or secret key`);
 
   if (environment === 'production') {
     if (!env.VITE_SUPABASE_URL) warnings.push('VITE_SUPABASE_URL is not set for production');
@@ -98,9 +127,21 @@ export function evaluateDeployEnvironment(env: Env): DeployEnvironmentReport {
       errors.push(
         'DAWAA_STAGING_SUPABASE_REF is missing: declare the staging project ref this preview must use'
       );
-    if (expected === production)
-      errors.push('DAWAA_STAGING_SUPABASE_REF is the production project');
+    if (FORBIDDEN_OUTSIDE_PRODUCTION[expected])
+      errors.push(`DAWAA_STAGING_SUPABASE_REF is ${FORBIDDEN_OUTSIDE_PRODUCTION[expected]}`);
     for (const name of pointsAtProduction) errors.push(`${name} points to the production project`);
+    for (const [name, ref] of Object.entries(projectRefs)) {
+      if (ref === DELIVERY_SUPABASE_PROJECT_REF)
+        errors.push(`${name} points to the delivery project`);
+    }
+    for (const name of URL_VARS) {
+      if (
+        env[name] &&
+        String(env[name]).includes(DELIVERY_SUPABASE_PROJECT_REF) &&
+        projectRefs[name] !== DELIVERY_SUPABASE_PROJECT_REF
+      )
+        errors.push(`${name} points to the delivery project`);
+    }
     for (const name of URL_VARS) {
       if (!env[name]) continue;
       const ref = projectRefs[name];
@@ -114,6 +155,10 @@ export function evaluateDeployEnvironment(env: Env): DeployEnvironmentReport {
         errors.push(`${name} belongs to project ${ref}, expected staging ${expected}`);
     }
   } else if (enforced) {
+    for (const [name, ref] of Object.entries(projectRefs)) {
+      if (ref === DELIVERY_SUPABASE_PROJECT_REF)
+        errors.push(`${name} points to the delivery project`);
+    }
     for (const name of pointsAtProduction)
       errors.push(
         `${name} points to the production project; local must use a local or test database`
