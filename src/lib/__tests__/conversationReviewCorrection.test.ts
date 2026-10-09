@@ -251,7 +251,9 @@ describe('manager correction = versioning, not overwrite (A/B/E/F/O/P/R/S)', () 
       reviews.indexOf('{editingReview && ('),
       reviews.indexOf('<div className="section-title text-sm">بنود التقييم كاملة</div>')
     );
-    expect(editor.match(/disabled=\{editIsVersioned\}/g) ?? []).toHaveLength(11);
+    // locked when versioned; staff name and source branch are locked for every review (contracts 2/3),
+    // and a resolved customer is locked for legacy reviews too (contract 1)
+    expect(editor.match(/disabled=\{editIsVersioned(?: \|\| Boolean\(editingReview\?\.customer_id\))?\}|readOnly disabled/g) ?? []).toHaveLength(11);
   });
 
   it('R: the migration touches no SI v22 / Story V16 / Evidence V17 object', () => {
@@ -313,15 +315,12 @@ function flags(criteria: ConversationReviewState, severeErrors: SevereErrorsStat
 }
 
 describe('fix A: staff reassignment never moves the conversation branch', () => {
-  it('selecting a staff member keeps the source branch for a versioned review', () => {
+  it('selecting a staff member keeps the source branch (versioned and legacy reviews alike)', () => {
     const select = reviews.slice(
       reviews.indexOf('<Field label="الدكتور / الموظف">'),
       reviews.indexOf('<Field label="اسم الدكتور الظاهر">')
     );
-    expect(select).toMatch(
-      /branch: editIsVersioned \? f\.branch : selected\?\.branch \|\| f\.branch,/
-    );
-    expect(select).not.toMatch(/^\s*branch: selected\?\.branch \|\| f\.branch,/m);
+    expect(select).not.toMatch(/^\s*branch:/m);
   });
 
   it('the command binds the correction branch to the superseded version, never the staff branch', () => {

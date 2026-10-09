@@ -7,13 +7,14 @@ import { normalizeRole } from '@/lib/core/permissionSystem';
 import { REVIEW_CRITERIA, reviewerDisplayName } from '@/lib/conversationReviews';
 import { toNumber } from '@/lib/utils';
 import ConversationReviewTranscriptCard from '@/components/reviews/ConversationReviewTranscriptCard';
+import { ReviewCanonicalIdentity } from '@/components/reviews/ReviewCanonicalIdentity';
 
 type ReviewRow = Record<string, any>;
 
 const DETAIL_SELECT = [
   'id','is_current','created_at','updated_at','reviewer_id','reviewer_name','reviewer_role',
   'staff_id','doctor_id','staff_name','doctor_name','staff_role','branch',
-  'customer_name','customer_code','customer_phone','invoice_number','evaluation_kind','conversation_type','evaluation_reason',
+  'customer_id','customer_name','customer_code','customer_phone','invoice_number','evaluation_kind','conversation_type','evaluation_reason',
   'conversation_date','final_score','total_score','doctor_points_impact','point_impact','level',
   'main_positive_reason','main_negative_reason','reviewer_notes','training_recommendation',
   'manager_review_score','manager_review_notes','manager_reviewed_by','manager_reviewed_at',
@@ -124,6 +125,7 @@ export default function ConversationReviewDetailsFast() {
       </div>
 
       <section className="dawaa-card p-4 space-y-4">
+        <ReviewCanonicalIdentity row={row} />
         <div className="grid gap-3 md:grid-cols-3">
           <Info label="الدكتور / الموظف" value={row.staff_name || row.doctor_name || '-'} />
           <Info label="المراجع" value={reviewerDisplayName(row, '-')} />

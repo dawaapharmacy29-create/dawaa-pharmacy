@@ -1393,15 +1393,18 @@ async function loadConversationReviews(args: {
     `and(conversation_date.gte.${args.startDate},conversation_date.lt.${args.endDateExclusive}),`
     + `and(conversation_date.is.null,created_at.gte.${args.startDate},created_at.lt.${args.endDateExclusive})`;
 
-  const makeQuery = (column: 'staff_id' | 'doctor_id') =>
-    supabase
+  // staff_id is the attribution; the legacy doctor_id mirror counts only for rows without staff_id.
+  const makeQuery = (column: 'staff_id' | 'doctor_id') => {
+    const base = supabase
       .from('conversation_sales_reviews')
       .select(REVIEW_SELECT)
       .eq(column, args.staffId)
-      .eq('is_current', true)
+      .eq('is_current', true);
+    return (column === 'doctor_id' ? base.is('staff_id', null) : base)
       .or(dateFilter)
       .order('created_at', { ascending: false })
       .limit(500);
+  };
 
   const [byStaff, byDoctor] = await Promise.all([
     makeQuery('staff_id'),

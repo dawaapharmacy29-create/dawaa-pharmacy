@@ -192,3 +192,48 @@ describe('whatsapp review reanalysis', () => {
     expect(client.tables.whatsapp_review_audit.filter((item) => item.action === 'invoice_verification')).toHaveLength(1);
   });
 });
+
+describe('reanalysis identity groups (contracts 1/2)', () => {
+  it('an unresolved owner is stored without a staff name (never the first outbound label)', async () => {
+    const client = createFakeClient();
+    await persistAnalyzedWhatsAppSession(session(), intelligence(), {}, { client });
+    expect(client.tables.whatsapp_review_sources[0].staff_name).toBeNull();
+    const withStaff = createFakeClient();
+    await persistAnalyzedWhatsAppSession(session(), intelligence(), { staffId: 'staff-1', staffName: 'نور' }, { client: withStaff });
+    expect(withStaff.tables.whatsapp_review_sources[0]).toMatchObject({ staff_id: 'staff-1', staff_name: 'نور' });
+  });
+
+  it('a newly resolved customer replaces the unresolved hints as one group; a resolved one is never touched', async () => {
+    const client = createFakeClient();
+    await persistAnalyzedWhatsAppSession(session(), intelligence(), { customerName: 'اسم جهة الاتصال', customerCode: 'X9' }, { client });
+    const ctx = { analysisVersion: 'whatsapp-smart-folder-v5' };
+    await persistAnalyzedWhatsAppSession(
+      session(),
+      intelligence(),
+      { ...ctx, customerId: 'cust-1', customerCode: 'C1', customerName: 'عميل أ', customerPhone: null },
+      { client, mode: 'reanalyze' }
+    );
+    const row = client.tables.whatsapp_review_sources[0];
+    expect(row).toMatchObject({ customer_id: 'cust-1', customer_code: 'C1', customer_name: 'عميل أ', customer_phone: null });
+
+    await persistAnalyzedWhatsAppSession(
+      session(),
+      intelligence(),
+      { analysisVersion: 'whatsapp-smart-folder-v6', customerId: 'cust-2', customerCode: 'C2', customerName: 'عميل ب' },
+      { client, mode: 'reanalyze' }
+    );
+    expect(client.tables.whatsapp_review_sources[0]).toMatchObject({ customer_id: 'cust-1', customer_code: 'C1', customer_name: 'عميل أ' });
+  });
+
+  it('without a resolved id only empty hint columns are filled (no mixing into an existing label)', async () => {
+    const client = createFakeClient();
+    await persistAnalyzedWhatsAppSession(session(), intelligence(), { customerName: 'لقطة' }, { client });
+    await persistAnalyzedWhatsAppSession(
+      session(),
+      intelligence(),
+      { analysisVersion: 'whatsapp-smart-folder-v5', customerName: 'اسم آخر', customerCode: 'H7' },
+      { client, mode: 'reanalyze' }
+    );
+    expect(client.tables.whatsapp_review_sources[0]).toMatchObject({ customer_id: null, customer_name: 'لقطة', customer_code: 'H7' });
+  });
+});

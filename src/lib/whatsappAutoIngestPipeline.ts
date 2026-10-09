@@ -143,9 +143,11 @@ async function saveSessionReview(
       source_filename: sourceFileName,
       inner_filename: innerFileName,
       branch: conversationBranch,
+      // Resolved: every customer column from the resolved customer. Unresolved: id stays null and the
+      // contact label is kept only as a hint.
       customer_id: identity.customerId,
       customer_code: identity.customerCode,
-      customer_name: identity.customerName || session.customerName,
+      customer_name: identity.customerId ? identity.customerName : identity.customerName || session.customerName,
       customer_phone: identity.customerPhone,
       staff_name: staffName,
       conversation_started_at: session.startedAt.toISOString(),
@@ -330,7 +332,9 @@ export async function saveFollowupSignals(
     branch: conversationBranch,
     doctor_name:
       session.outboundStaffNames.length === 1 ? session.outboundStaffNames[0] : null,
-    customer_name: identity.customerName || session.customerName || 'غير معروف',
+    customer_name:
+      (identity.resolutionStatus === 'resolved' ? identity.customerName : identity.customerName || session.customerName) ||
+      'غير معروف',
     customer_phone: identity.customerPhone,
     // Canonical Customer Identity decided; the DB trigger no longer guesses (V47).
     customer_id: identity.resolutionStatus === 'resolved' ? identity.customerId : null,

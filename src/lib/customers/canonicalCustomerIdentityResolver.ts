@@ -77,7 +77,10 @@ export interface CanonicalCustomerIdentity {
   status: CanonicalCustomerIdentityStatus;
   customerId: string | null;
   customerCode: string | null;
-  /** Resolved customer's phone, else the contact phone evidence; never a merely mentioned phone. */
+  /**
+   * Resolved: the resolved customer's own phone (null when the record has none). Otherwise the contact
+   * phone evidence (an unresolved hint); never a merely mentioned phone.
+   */
   normalizedPhone: string | null;
   customerName: string | null;
   branch: string | null;
@@ -271,12 +274,14 @@ export function resolveCanonicalCustomerIdentity(
     }
     const by = matched[0];
     const row = candidates.byId.get(id);
+    // Every identity field of a resolved customer comes from that customer's record: a contact label,
+    // contact phone or file code is evidence, never mixed into the resolved identity.
     return {
       status: 'resolved',
       customerId: id,
-      customerCode: row?.customerCode ?? (codes[0] || null),
-      normalizedPhone: row?.phones[0] ?? contactPhone,
-      customerName: row?.name ?? evidence.displayName ?? null,
+      customerCode: row?.customerCode ?? null,
+      normalizedPhone: row?.phones[0] ?? null,
+      customerName: row?.name ?? null,
       branch: row?.branch ?? null,
       resolvedBy: by.kind,
       reason: `unique_${by.kind}_match`,
@@ -433,4 +438,29 @@ export async function resolveCanonicalCustomerIdentities(
 ): Promise<CanonicalCustomerIdentity[]> {
   const candidates = await loadCustomerIdentityCandidates(client, evidences);
   return evidences.map((evidence) => resolveCanonicalCustomerIdentity(evidence, candidates));
+}
+
+/**
+ * whatsapp_review_sources customer columns from one identity decision. Resolved: id + code + name +
+ * phone all from the resolved customer. Otherwise customer_id stays null and the columns keep the
+ * unresolved hints (code/name/phone evidence) for human review — ambiguity is never resolved here.
+ */
+export function canonicalCustomerSourceColumns(
+  identity: Pick<CanonicalCustomerIdentity, 'status' | 'customerId' | 'customerCode' | 'customerName' | 'normalizedPhone'>,
+  hints: { code?: string | null; name?: string | null; phone?: string | null } = {}
+) {
+  if (identity.status === 'resolved' && identity.customerId) {
+    return {
+      customer_id: identity.customerId,
+      customer_code: identity.customerCode ?? null,
+      customer_name: identity.customerName ?? null,
+      customer_phone: identity.normalizedPhone ?? null,
+    };
+  }
+  return {
+    customer_id: null,
+    customer_code: identity.customerCode || hints.code || null,
+    customer_name: identity.customerName || hints.name || null,
+    customer_phone: identity.normalizedPhone || hints.phone || null,
+  };
 }

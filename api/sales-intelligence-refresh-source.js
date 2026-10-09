@@ -7245,9 +7245,9 @@ function resolveCanonicalCustomerIdentity(evidence, candidates) {
     return {
       status: "resolved",
       customerId: id,
-      customerCode: row?.customerCode ?? (codes[0] || null),
-      normalizedPhone: row?.phones[0] ?? contactPhone,
-      customerName: row?.name ?? evidence.displayName ?? null,
+      customerCode: row?.customerCode ?? null,
+      normalizedPhone: row?.phones[0] ?? null,
+      customerName: row?.name ?? null,
       branch: row?.branch ?? null,
       resolvedBy: by.kind,
       reason: `unique_${by.kind}_match`,

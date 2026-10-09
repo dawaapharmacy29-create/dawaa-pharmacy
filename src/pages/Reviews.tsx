@@ -50,7 +50,6 @@ import { getStaffSessionToken } from '@/lib/auth/staffSession';
 // writer; the reviewer save path uses the staff-session command record_conversation_review_points_v1.
 // Automatic reviews and manager corrections are corrected only through the versioning command in
 // conversationReviewCorrection (points are reversed/applied server-side in the same transaction).
-import { persistPointsTransaction } from '@/lib/pointsPersistence';
 import {
   buildConversationReviewCorrection,
   conversationReviewKindLabel,
@@ -90,6 +89,19 @@ import {
   reviewEditPath,
 } from '@/lib/reviews/reviewRouteState';
 import { deriveConversationReviewEvaluationFlags } from '@/lib/reviews/conversationReviewEvaluationColumns';
+import { ReviewCanonicalIdentity } from '@/components/reviews/ReviewCanonicalIdentity';
+import {
+  clearedReviewCustomerFields,
+  deterministicActionUuid,
+  isReviewCustomerLocked,
+  legacyEditIdentityPatch,
+  newReviewSourceBranch,
+  reviewCustomerFieldsFromRecord,
+  reviewCustomerPayload,
+  reviewPointsConvergencePlan,
+  reviewResponsibleStaffId,
+  staffAttributionOrFilter,
+} from '@/lib/reviews/reviewIdentity';
 import { useDebounce } from '@/hooks/useDebounce';
 import {
   clearPendingConversationReviewTransfer,
@@ -185,6 +197,15 @@ const EVAL_REASONS = [
 const REVIEW_DRAFT_KEY = 'dawaa_conversation_review_draft_v3';
 // v2: rows are current versions only; v1 caches could still hold superseded/reconciled rows.
 const REVIEW_HISTORY_CACHE_KEY = 'dawaa_conversation_review_history_v2';
+
+/** Every review mutation drops the tab's history cache so no pre-mutation row is rendered again. */
+function invalidateReviewHistoryCache(userId: string | null | undefined) {
+  try {
+    window.sessionStorage.removeItem(`${REVIEW_HISTORY_CACHE_KEY}:${userId || 'anonymous'}`);
+  } catch {
+    // Storage unavailable: nothing cached either.
+  }
+}
 const REVIEW_HISTORY_SELECT =
   'id,created_at,updated_at,reviewer_id,reviewer_name,reviewer_role,staff_id,doctor_id,staff_name,staff_role,doctor_name,branch,customer_id,customer_name,customer_code,customer_phone,invoice_number,evaluation_kind,conversation_type,evaluation_reason,conversation_date,total_score,final_score,level,point_impact,doctor_points_impact,main_positive_reason,main_negative_reason,reviewer_notes,training_recommendation,month_cycle,manager_review_score,manager_review_notes,manager_reviewed_by,manager_reviewed_at';
 
@@ -343,6 +364,12 @@ async function insertSafe(table: string, payload: Record<string, unknown>) {
     const ins = await supabase.from(table).insert(currentPayload).select('id').single();
     if (!ins.error) return { id: ins.data?.id as string | undefined, removedColumns, reusedExisting: false };
 
+    // A caller-chosen primary key that already exists is the same logical action saved by an
+    // earlier attempt (retry / double submit): converge on it instead of failing or duplicating.
+    if (ins.error.code === '23505' && typeof currentPayload.id === 'string' && /_pkey/.test(ins.error.message || '')) {
+      return { id: currentPayload.id, removedColumns, reusedExisting: true };
+    }
+
     // لو حصل retry بعد إن السيرفر حفظ التقييم لكن المتصفح ما استلمش الرد،
     // رجّع نفس الصف بدل ما نعتبره خطأ أو نكرر التقييم/النقاط.
     if (table === 'conversation_sales_reviews' && ins.error.code === '23505') {
@@ -478,6 +505,12 @@ export default function Reviews() {
   const detailsDeepLinkId = detailsDeepLinkReviewId(reviewsRoute);
   const [saving, setSaving] = useState(false);
   const saveInFlightRef = useRef(false);
+  const editSaveInFlightRef = useRef(false);
+  const managerReviewInFlightRef = useRef(false);
+  // One key per manager-review attempt: kept across retries, renewed per open (PK of the row).
+  const managerReviewAttemptRef = useRef<string | null>(null);
+  // Only the latest openEdit() may hydrate the editor (a slower earlier hydration is dropped).
+  const openEditSeqRef = useRef(0);
   // نسخة "المقترح وقت التعبئة" لبنود الـconfident اللي اتعمل لها prefill تلقائي — تُستخدم
   // فقط لحساب humanModifiedCriteriaCount وقت الحفظ (كام بند غيّره المراجع عن اقتراح النظام)،
   // مش لأي غرض آخر.
@@ -511,6 +544,8 @@ export default function Reviews() {
   const [humanDecision, setHumanDecision] = useState<'approved_as_is' | 'edited_then_approved' | 'rejected' | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  // When set, the list on screen is the tab's cached copy (saved at this time), not a live read.
+  const [historyCachedAt, setHistoryCachedAt] = useState<number | null>(null);
   const [reviewHistory, setReviewHistory] = useState<ConversationReviewHistoryRow[]>([]);
   const [draftRestored, setDraftRestored] = useState(false);
   const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
@@ -826,14 +861,11 @@ export default function Reviews() {
     // أي إعادة بحث بالاسم. لو ambiguous، نعرض قائمة اختيار بشري (نفس منطق الموظف).
     const customerResolution = snapshot.smartIntelligence?.customer || null;
     const resolvedCustomer = customerResolution?.customer || null;
+    // Resolved: every customer field from that ONE customer record. Otherwise the conversation's
+    // display name stays an unresolved snapshot with no customer_id (ambiguity is kept).
     const customerFields = resolvedCustomer
-      ? {
-          customerId: resolvedCustomer.id,
-          customerCode: resolvedCustomer.code || '',
-          customerName: resolvedCustomer.name || snapshot.customerName || '',
-          customerPhone: resolvedCustomer.phone || '',
-        }
-      : { customerName: snapshot.customerName || '' };
+      ? reviewCustomerFieldsFromRecord(resolvedCustomer)
+      : { ...clearedReviewCustomerFields(), customerName: snapshot.customerName || '' };
 
     const evaluationV2 = snapshot.smartIntelligence?.evaluationV2 || null;
     const saleTransferFields = evaluationV2?.sale.outcome === 'invoice_verified_sale'
@@ -946,6 +978,18 @@ export default function Reviews() {
   const canEditReviews = checkPermission('edit_reviews');
   const canApproveReviews = checkPermission('approve_reviews');
   const selectedStaff = staffOptions.find((s) => s.id === form.staffId) || null;
+  const customerLocked = isReviewCustomerLocked(form);
+  // The conversation's branch (source provenance), never the reviewed employee's home branch when
+  // the conversation context is known (Smart transfer, or the branch the reviewer reviews for).
+  const reviewSourceBranch = newReviewSourceBranch({
+    conversationBranch: smartSnapshot?.smartIntelligence?.branchHint?.value || null,
+    reviewerBranch: canViewAllBranches(user)
+      ? null
+      : canPickTargetBranch
+        ? targetBranch
+        : normalizeBranchName(user?.branch || ''),
+    staffHomeBranch: selectedStaff?.branch || null,
+  });
   // المراجع دايمًا هو صاحب الجلسة الحالية — مش أي قيمة جاية من الفورم أو مسودة
   // محفوظة، عشان نضمن إن كل تقييم يتسجل باسم اللي فعليًا بيعمله.
   const selectedReviewer = user
@@ -1081,7 +1125,10 @@ export default function Reviews() {
             cachedRows = cached.rows.filter((row) =>
               canUserSeeConversationReviewBranch(user, row.branch)
             );
-            if (cachedRows.length) setReviewHistory(cachedRows);
+            if (cachedRows.length) {
+              setReviewHistory(cachedRows);
+              setHistoryCachedAt(cached.savedAt || null);
+            }
           }
         }
       } catch {
@@ -1098,8 +1145,8 @@ export default function Reviews() {
           .order('created_at', { ascending: false });
 
         if (historyFilterStaffId) {
-          // بنطابق staff_id أو doctor_id لأن بعض الصفوف القديمة بتستخدم العمود التاني
-          q = q.or(`staff_id.eq.${historyFilterStaffId},doctor_id.eq.${historyFilterStaffId}`);
+          // staff_id is the attribution; the legacy doctor_id mirror counts only when staff_id is empty.
+          q = q.or(staffAttributionOrFilter(historyFilterStaffId));
         }
         const customerTerm = historyFilterCustomerDebounced.trim();
         if (customerTerm) {
@@ -1129,6 +1176,7 @@ export default function Reviews() {
       const sourceRows = (response.data || []) as ConversationReviewHistoryRow[];
       const rows = sourceRows.filter((row) => canUserSeeConversationReviewBranch(user, row.branch));
       setReviewHistory(rows);
+      setHistoryCachedAt(null);
 
       if (!historyFiltersActive) {
         try {
@@ -1153,7 +1201,10 @@ export default function Reviews() {
     } catch (error) {
       if (requestId !== historyLoadSeq.current) return;
       setHistoryError((error as Error).message);
-      if (!cachedRows.length) setReviewHistory([]);
+      if (!cachedRows.length) {
+        setReviewHistory([]);
+        setHistoryCachedAt(null);
+      }
     } finally {
       if (requestId === historyLoadSeq.current) setHistoryLoading(false);
     }
@@ -1434,12 +1485,13 @@ export default function Reviews() {
         doctor_id: asUuid(selectedStaff.id),
         staff_name: selectedStaff.name,
         staff_role: selectedStaff.role,
-        branch: selectedStaff.branch,
-        branch_id: asUuid(selectedStaff.branch_id) ?? null,
-        customer_id: form.customerId || form.customerCode || null,
-        customer_name: form.customerName || null,
-        customer_code: form.customerCode || null,
-        customer_phone: form.customerPhone || null,
+        branch: reviewSourceBranch || null,
+        // branch_id names the same (source) branch; the staff's home branch id only when it is that branch.
+        branch_id:
+          normalizeBranchName(selectedStaff.branch || '') === normalizeBranchName(reviewSourceBranch)
+            ? (asUuid(selectedStaff.branch_id) ?? null)
+            : null,
+        ...reviewCustomerPayload(form),
         evaluation_kind: form.evaluationKind,
         conversation_type: form.evaluationKind,
         conversation_date: new Date(conversationDate).toISOString(),
@@ -1588,7 +1640,13 @@ export default function Reviews() {
       // للدكتور وتُبنى تلقائيًا عشان محدش يحتاج يتابع الأنماط يدويًا كل شهر.
       if (previousCount >= 1 && result.repeatErrorType) {
         try {
-          await supabase.from('staff_coaching_notes').insert({
+          // One coaching note per review (PK derived from the review id): a retried or concurrent
+          // save of the same review hits the primary key instead of adding a second note.
+          const coachingNoteId = reviewRowId
+            ? await deterministicActionUuid('staff_coaching_notes', 'conversation_review_repeat', reviewRowId)
+            : undefined;
+          const coachingInsert = await supabase.from('staff_coaching_notes').insert({
+            ...(coachingNoteId ? { id: coachingNoteId } : {}),
             from_staff_id: asUuid(selectedReviewer.id || user?.id) || null,
             from_staff_name: selectedReviewer.name || user?.name || 'النظام',
             from_role: selectedReviewer.role || user?.role || 'system',
@@ -1602,6 +1660,7 @@ export default function Reviews() {
             linked_table: 'conversation_sales_reviews',
             linked_record_id: reviewRowId || null,
           });
+          if (coachingInsert.error && coachingInsert.error.code !== '23505') throw coachingInsert.error;
         } catch (coachingError) {
           // ملاحظة التدريب تحسين إضافي — فشلها ميوقفش حفظ التقييم نفسه
           console.warn('[reviews] auto coaching note failed', coachingError);
@@ -1621,7 +1680,7 @@ export default function Reviews() {
           'تقييم محادثة',
           'تقييم المحادثات',
           `درجة ${result.finalScore}/100 - ${selectedStaff.name}`,
-          selectedStaff.branch || '',
+          reviewSourceBranch || '',
           {
             user_role: currentUserProfile.role,
             target_type: 'conversation_review',
@@ -1665,7 +1724,7 @@ export default function Reviews() {
             customer_name: form.customerName || 'عميل يحتاج متابعة جودة',
             customer_phone: form.customerPhone || null,
             customer_code: form.customerCode || null,
-            branch: selectedStaff.branch || null,
+            branch: reviewSourceBranch || null,
             followup_status: 'pending',
             status: 'pending',
             priority: result.hasSevereError ? 'عاجل' : 'مهم',
@@ -1682,6 +1741,7 @@ export default function Reviews() {
         );
       }
 
+      invalidateReviewHistoryCache(user?.id);
       if (historyVisible) postSaveTasks.push(loadReviewHistory());
 
       void Promise.allSettled(postSaveTasks).then((results) => {
@@ -1730,6 +1790,7 @@ export default function Reviews() {
   };
 
   const openEdit = async (row: ConversationReviewHistoryRow) => {
+    const openSeq = ++openEditSeqRef.current;
     let fullRow = row;
     if (row.id && row.raw_scores == null && row.review_items == null) {
       const { data, error } = await supabase
@@ -1739,6 +1800,8 @@ export default function Reviews() {
         .maybeSingle();
       if (!error && data) fullRow = data as ConversationReviewHistoryRow;
     }
+    // Another review was opened (or the route changed) while this one was loading.
+    if (openSeq !== openEditSeqRef.current) return;
 
     const nextReviewState = reviewStateFromRow(fullRow);
     const nextSevereErrors = severeErrorsFromRow(fullRow);
@@ -1876,6 +1939,9 @@ export default function Reviews() {
       toast.error('اكتب سبب تعديل المدير العام لحفظ سجل مراجعة واضح');
       return false;
     }
+    // A second click while the first save runs is ignored (the DB boundaries below also converge).
+    if (editSaveInFlightRef.current) return false;
+    editSaveInFlightRef.current = true;
 
     setSaving(true);
     try {
@@ -1895,14 +1961,12 @@ export default function Reviews() {
           : recalculated.doctorPointsImpact;
       const oldScore = scoreOf(editingReview);
       const oldImpact = impactOf(editingReview);
-      const selectedDoctor = mergeStaffChoices(staff).find((item) => item.id === editForm.staff_id);
       const selectedReviewerEdit = mergeStaffChoices(staff).find(
         (item) => item.id === editForm.reviewer_id
       );
       const conversationDate = editForm.conversation_date
         ? new Date(editForm.conversation_date)
         : new Date(editingReview.conversation_date || editingReview.created_at || Date.now());
-      const cycle = getCycleForDate(conversationDate);
       const cycleLabel = monthCycleFromDate(conversationDate);
       const derivedFlags = deriveConversationReviewEvaluationFlags(
         editReviewState,
@@ -1924,15 +1988,8 @@ export default function Reviews() {
         reviewer_id: asUuid(editForm.reviewer_id),
         reviewer_name: editForm.reviewer_name.trim() || null,
         reviewer_role: editForm.reviewer_role.trim() || null,
-        staff_id: asUuid(editForm.staff_id),
-        doctor_id: asUuid(editForm.staff_id),
-        staff_name: editForm.staff_name.trim() || null,
-        doctor_name: editForm.staff_name.trim() || null,
-        staff_role: editForm.staff_role.trim() || selectedDoctor?.role || null,
-        branch: editForm.branch.trim() || selectedDoctor?.branch || null,
-        customer_name: editForm.customer_name.trim() || null,
-        customer_code: editForm.customer_code.trim() || null,
-        customer_phone: editForm.customer_phone.trim() || null,
+        // Staff / customer identity columns come only from legacyEditIdentityPatch() below; the
+        // source branch is never written by an edit.
         evaluation_kind: editForm.evaluation_kind,
         conversation_type: editForm.evaluation_kind,
         evaluation_reason: editForm.evaluation_reason,
@@ -2064,9 +2121,7 @@ export default function Reviews() {
             new_points_impact: impact,
           }
         );
-        try {
-          window.sessionStorage.removeItem(`${REVIEW_HISTORY_CACHE_KEY}:${user?.id || 'anonymous'}`);
-        } catch {}
+        invalidateReviewHistoryCache(user?.id);
         if (historyVisible) await loadReviewHistory();
         setEditingReview(null);
         toast.success(
@@ -2077,91 +2132,64 @@ export default function Reviews() {
         return true;
       }
 
-      await updateSafe('conversation_sales_reviews', editingReview.id, payload);
+      const identity = legacyEditIdentityPatch(editingReview, editForm, mergeStaffChoices(staff));
+      if (identity.ok === false) {
+        toast.error(
+          identity.error === 'staff_required'
+            ? 'اختر الموظف المسؤول عن المحادثة من القائمة'
+            : 'الموظف المختار غير موجود في قائمة الموظفين النشطين'
+        );
+        return false;
+      }
+      await updateSafe('conversation_sales_reviews', editingReview.id, { ...payload, ...identity.patch });
 
-      const previousStaffId = editingReview.staff_id || editingReview.doctor_id || '';
-      const nextStaffId = editForm.staff_id;
-      const staffChanged = Boolean(previousStaffId && nextStaffId && previousStaffId !== nextStaffId);
+      const previousStaffId = reviewResponsibleStaffId(editingReview);
+      const nextStaffId = identity.staffChanged ? editForm.staff_id : previousStaffId;
 
-      const persistManagerAdjustment = async (args: {
-        employeeId: string;
-        employeeName: string;
-        branch: string;
-        branchId?: string | null;
-        signedDelta: number;
-        sourceKey: string;
-        note: string;
-      }) => {
-        if (!args.employeeId || args.signedDelta === 0) return null;
-        return persistPointsTransaction({
-          employeeId: args.employeeId,
-          employeeName: args.employeeName,
-          branch: args.branch,
-          branchId: args.branchId ?? null,
-          operation: 'admin_adjustment',
-          rule: null,
-          pointsToStore: Math.abs(args.signedDelta),
-          adminDeltaSigned: args.signedDelta,
-          userNote: args.note,
-          createdByName: user?.name || 'مدير عام',
-          createdById: user?.id || '',
-          createdByRole: user?.role || 'general_manager',
-          status: 'approved',
-          cycle,
-          source: 'conversation_evaluation_manager_edit',
-          sourceModule: 'conversation_evaluation',
-          sourceRecordId: args.sourceKey,
-          description: `مراجعة إدارية للتقييم ${editingReview.id}`,
-          reasonLabel: 'تسوية نقاط بعد تعديل تقييم محادثة',
+      // Points converge on the canonical review row key (staff, month_cycle, 'conversation_evaluation',
+      // review id) that record_conversation_review_points_v1 wrote at creation: the current staff
+      // holds the current impact, a previous staff (or cycle) holds 0. The DB upserts on that key
+      // (employee_transactions_semantic_event_once_v3), so retries and overlapping saves converge.
+      const pointsWrites = reviewPointsConvergencePlan(
+        {
+          staffId: previousStaffId,
+          monthCycle: String(editingReview.month_cycle || ''),
+          impact: oldImpact,
+        },
+        { staffId: nextStaffId, monthCycle: cycleLabel, impact }
+      );
+      const pointsStatus = recalculated.impactStatus === 'approved' ? 'approved' : 'pending';
+      for (const write of pointsWrites) {
+        const { error: pointsError } = await supabase.rpc('record_employee_points_transaction_v4', {
+          p_staff_id: write.staffId,
+          p_signed_points: write.points,
+          p_reason: `تقييم محادثة عميل - النتيجة ${write.points === 0 && write.staffId !== nextStaffId ? oldScore : recalculated.finalScore}/100`,
+          p_description:
+            write.staffId === nextStaffId
+              ? `تعديل إداري للتقييم: ${oldImpact} ← ${impact}. ${editForm.manager_note.trim()}`
+              : `إلغاء أثر التقييم عن الموظف السابق بعد تصحيح صاحب المحادثة. ${editForm.manager_note.trim()}`,
+          p_source: 'conversation_evaluation',
+          p_source_id: editingReview.id,
+          p_rule_code: null,
+          p_month_cycle: write.monthCycle || null,
+          // points lineage keeps the conversation's source branch
+          p_branch: editingReview.branch || null,
+          p_status: pointsStatus,
+          p_category: null,
+          p_metadata: {
+            source_module: 'conversation_evaluation',
+            review_id: editingReview.id,
+            manager_edit: true,
+            previous_staff_id: previousStaffId || null,
+            previous_points_impact: oldImpact,
+          },
+          p_manager_override: false,
         });
-      };
-
-      if (staffChanged) {
-        const previousDoctor = mergeStaffChoices(staff).find((item) => item.id === previousStaffId);
-        const reverseOld = await persistManagerAdjustment({
-          employeeId: previousStaffId,
-          employeeName:
-            editingReview.staff_name || editingReview.doctor_name || previousDoctor?.name || 'موظف سابق',
-          branch: editingReview.branch || previousDoctor?.branch || '',
-          branchId: previousDoctor?.branch_id ?? null,
-          signedDelta: -oldImpact,
-          sourceKey: `${editingReview.id}:manager-reassign:reverse:${previousStaffId}:${oldImpact}`,
-          note: `عكس أثر التقييم من الموظف السابق بعد تصحيح صاحب المحادثة. الأثر السابق ${oldImpact}. ${editForm.manager_note.trim()}`,
-        });
-        if (reverseOld?.error) {
-          toast.error(`تم تعديل التقييم لكن تعذر عكس نقاط الموظف السابق: ${reverseOld.error}`);
+        if (pointsError) {
+          toast.error(
+            `تم تعديل التقييم لكن تسوية النقاط لم تكتمل (إعادة الحفظ آمنة ولا تكرر النقاط): ${pointsError.message}`
+          );
           return false;
-        }
-
-        const applyNew = await persistManagerAdjustment({
-          employeeId: nextStaffId,
-          employeeName: editForm.staff_name || selectedDoctor?.name || 'موظف',
-          branch: editForm.branch || selectedDoctor?.branch || '',
-          branchId: selectedDoctor?.branch_id ?? null,
-          signedDelta: impact,
-          sourceKey: `${editingReview.id}:manager-reassign:apply:${nextStaffId}:${impact}`,
-          note: `إسناد أثر التقييم للموظف الصحيح بعد تعديل المدير العام. الأثر الجديد ${impact}. ${editForm.manager_note.trim()}`,
-        });
-        if (applyNew?.error) {
-          toast.error(`تم تعديل التقييم وعكس نقاط الموظف السابق لكن تعذر إضافة الأثر للموظف الجديد: ${applyNew.error}`);
-          return false;
-        }
-      } else {
-        const delta = impact - oldImpact;
-        if (delta !== 0 && nextStaffId) {
-          const pointsResult = await persistManagerAdjustment({
-            employeeId: nextStaffId,
-            employeeName: editForm.staff_name || selectedDoctor?.name || 'موظف',
-            branch: editForm.branch || selectedDoctor?.branch || editingReview.branch || '',
-            branchId: selectedDoctor?.branch_id ?? null,
-            signedDelta: delta,
-            sourceKey: `${editingReview.id}:manager-reconcile:${oldImpact}:${impact}`,
-            note: `تسوية تلقائية بعد تعديل تقييم محادثة: ${oldImpact} ← ${impact}. ${editForm.manager_note.trim()}`,
-          });
-          if (pointsResult?.error) {
-            toast.error(`تم تعديل التقييم لكن تسوية النقاط لم تكتمل: ${pointsResult.error}`);
-            return false;
-          }
         }
       }
 
@@ -2172,7 +2200,7 @@ export default function Reviews() {
         'تعديل تقييم محادثة',
         'تقييم المحادثات',
         `${editForm.staff_name || editingReview.staff_name || 'موظف'}: ${oldScore}/100 ← ${recalculated.finalScore}/100`,
-        editForm.branch || editingReview.branch || '',
+        editingReview.branch || '',
         {
           user_role: actor.role,
           target_type: 'conversation_review',
@@ -2187,9 +2215,7 @@ export default function Reviews() {
         }
       );
 
-      try {
-        window.sessionStorage.removeItem(`${REVIEW_HISTORY_CACHE_KEY}:${user?.id || 'anonymous'}`);
-      } catch {}
+      invalidateReviewHistoryCache(user?.id);
       if (historyVisible) await loadReviewHistory();
       setEditingReview(null);
       toast.success('تم تعديل التقييم بالكامل وإعادة احتساب الدرجة والنقاط');
@@ -2198,11 +2224,13 @@ export default function Reviews() {
       toast.error(`تعذر تعديل التقييم: ${(error as Error).message}`);
       return false;
     } finally {
+      editSaveInFlightRef.current = false;
       setSaving(false);
     }
   };
 
   const openManagerReview = (row: ConversationReviewHistoryRow) => {
+    managerReviewAttemptRef.current = null;
     setManagerReviewTarget(row);
     setManagerForm({
       score: String(row.manager_review_score || '100'),
@@ -2218,10 +2246,15 @@ export default function Reviews() {
       toast.error('لا توجد صلاحية لاعتماد تقييم المراجع');
       return false;
     }
+    if (managerReviewInFlightRef.current) return false;
+    managerReviewInFlightRef.current = true;
+    if (!managerReviewAttemptRef.current) managerReviewAttemptRef.current = newCorrectionIdempotencyKey();
     setManagerSaving(true);
     try {
       const score = Math.max(0, Math.min(100, Number(managerForm.score || 0)));
       const payload = {
+        // Client-chosen primary key of this attempt: a retry or a concurrent duplicate hits the PK.
+        id: managerReviewAttemptRef.current,
         source_review_id: managerReviewTarget.id || null,
         linked_review_id: managerReviewTarget.id || null,
         reviewer_id: asUuid(managerReviewTarget.reviewer_id),
@@ -2251,6 +2284,8 @@ export default function Reviews() {
           manager_reviewed_at: new Date().toISOString(),
         });
       }
+      managerReviewAttemptRef.current = null;
+      invalidateReviewHistoryCache(user?.id);
       if (historyVisible) await loadReviewHistory();
       setManagerReviewTarget(null);
       toast.success('تم حفظ تقييم مدير خدمة العملاء/المراجع');
@@ -2266,6 +2301,7 @@ export default function Reviews() {
       }
       return false;
     } finally {
+      managerReviewInFlightRef.current = false;
       setManagerSaving(false);
     }
   };
@@ -2463,7 +2499,7 @@ export default function Reviews() {
                     key={i}
                     type="button"
                     onClick={() => {
-                      setForm((current) => ({ ...current, customerId: c.id, customerCode: c.code || '', customerName: c.name || '', customerPhone: c.phone || '' }));
+                      setForm((current) => ({ ...current, ...reviewCustomerFieldsFromRecord(c) }));
                       setAmbiguousCustomerCandidates(null);
                       toast.success(`تم اختيار ${c.name} يدويًا`);
                     }}
@@ -2716,6 +2752,12 @@ export default function Reviews() {
             تعذر تحميل سجل التقييمات. تأكد من تشغيل SQL المرفق. تفاصيل الخطأ: {historyError}
           </div>
         )}
+        {historyCachedAt ? (
+          <div className="rounded-xl border border-sky-400/30 bg-sky-500/10 p-3 text-sky-100 text-sm">
+            {historyError ? 'تعذر التحديث: ' : 'جاري التحديث: '}
+            المعروض نسخة محفوظة مؤقتًا من {new Date(historyCachedAt).toLocaleTimeString('ar-EG')} وقد لا تعكس آخر تعديل أو نسخة حالية.
+          </div>
+        ) : null}
 
         <div className="grid md:grid-cols-4 gap-3">
           <Metric label="عدد التقييمات المسجلة" value={`${reviewHistory.length}`} tone="teal" />
@@ -3295,10 +3337,12 @@ export default function Reviews() {
                     onClick={() => {
                       setForm((f) => ({
                         ...f,
-                        customerId: customer.id,
-                        customerCode: customer.customer_code || '',
-                        customerName: customer.name || '',
-                        customerPhone: customer.phone || '',
+                        ...reviewCustomerFieldsFromRecord({
+                          id: customer.id,
+                          code: customer.customer_code,
+                          name: customer.name,
+                          phone: customer.phone,
+                        }),
                         customerType: customer.segment || '',
                       }));
                       setCustSearch(customer.name || customer.customer_code || '');
@@ -3316,11 +3360,28 @@ export default function Reviews() {
                 ))}
               </div>
             )}
+            {customerLocked ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-teal-500/30 bg-teal-500/10 p-2 text-xs font-bold text-teal-100">
+                <span>عميل معتمد: الاسم والكود والهاتف من نفس سجل العميل ولا تُعدَّل يدويًا.</span>
+                <button
+                  type="button"
+                  className="btn-secondary text-xs"
+                  onClick={() => setForm((f) => ({ ...f, ...clearedReviewCustomerFields(), customerType: '' }))}
+                >
+                  تغيير العميل
+                </button>
+              </div>
+            ) : form.customerName || form.customerCode || form.customerPhone ? (
+              <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-2 text-xs font-bold text-amber-100">
+                عميل غير محسوم: البيانات المكتوبة تُحفظ كلقطة نصية بدون هوية عميل. اختر العميل من البحث لربطه.
+              </div>
+            ) : null}
             <div className="grid md:grid-cols-3 gap-3">
               <Field label="اسم العميل">
                 <input
                   className="input-dark"
                   value={form.customerName}
+                  readOnly={customerLocked}
                   onChange={(e) => setForm((f) => ({ ...f, customerName: e.target.value }))}
                 />
               </Field>
@@ -3328,6 +3389,7 @@ export default function Reviews() {
                 <input
                   className="input-dark"
                   value={form.customerCode}
+                  readOnly={customerLocked}
                   onChange={(e) => setForm((f) => ({ ...f, customerCode: e.target.value }))}
                 />
               </Field>
@@ -3335,6 +3397,7 @@ export default function Reviews() {
                 <input
                   className="input-dark"
                   value={form.customerPhone}
+                  readOnly={customerLocked}
                   onChange={(e) => setForm((f) => ({ ...f, customerPhone: e.target.value }))}
                 />
               </Field>
@@ -3758,9 +3821,7 @@ export default function Reviews() {
                     staff_id: e.target.value,
                     staff_name: selected?.name || f.staff_name,
                     staff_role: selected?.role || f.staff_role,
-                    // A versioned correction keeps the conversation's source branch: reassigning the
-                    // responsible staff never moves the review (or its points) to the staff's branch.
-                    branch: editIsVersioned ? f.branch : selected?.branch || f.branch,
+                    // The conversation's source branch never follows the responsible staff's home branch.
                   }));
                 }}
               >
@@ -3771,24 +3832,28 @@ export default function Reviews() {
               </select>
             </Field>
             <Field label="اسم الدكتور الظاهر">
-              <input className="input-dark" value={editForm.staff_name} disabled={editIsVersioned} onChange={(e) => setEditForm((f) => ({ ...f, staff_name: e.target.value }))} />
+              {/* Derived from the selected staff id (never typed): the name always belongs to that staff. */}
+              <input className="input-dark" value={editForm.staff_name} readOnly disabled />
             </Field>
-            <Field label={editIsVersioned ? 'فرع المحادثة (ثابت)' : 'الفرع'}>
-              <input className="input-dark" value={editForm.branch} disabled={editIsVersioned} onChange={(e) => setEditForm((f) => ({ ...f, branch: e.target.value }))} />
-              {editIsVersioned && (
-                <div className="mt-1 text-xs text-gray-400">
-                  فرع المحادثة يبقى كما هو حتى لو تم تغيير الموظف المسؤول لموظف من فرع آخر.
-                </div>
-              )}
+            <Field label="فرع المحادثة (ثابت)">
+              <input className="input-dark" value={editForm.branch} readOnly disabled />
+              <div className="mt-1 text-xs text-gray-400">
+                فرع المحادثة يبقى كما هو حتى لو تم تغيير الموظف المسؤول لموظف من فرع آخر.
+              </div>
             </Field>
+            {editingReview?.customer_id ? (
+              <div className="md:col-span-3 text-xs font-bold text-teal-200">
+                العميل معتمد بهوية ثابتة: الاسم والكود والهاتف لا تُعدَّل من هنا.
+              </div>
+            ) : null}
             <Field label="اسم العميل">
-              <input className="input-dark" value={editForm.customer_name} disabled={editIsVersioned} onChange={(e) => setEditForm((f) => ({ ...f, customer_name: e.target.value }))} />
+              <input className="input-dark" value={editForm.customer_name} disabled={editIsVersioned || Boolean(editingReview?.customer_id)} onChange={(e) => setEditForm((f) => ({ ...f, customer_name: e.target.value }))} />
             </Field>
             <Field label="كود العميل">
-              <input className="input-dark" value={editForm.customer_code} disabled={editIsVersioned} onChange={(e) => setEditForm((f) => ({ ...f, customer_code: e.target.value }))} />
+              <input className="input-dark" value={editForm.customer_code} disabled={editIsVersioned || Boolean(editingReview?.customer_id)} onChange={(e) => setEditForm((f) => ({ ...f, customer_code: e.target.value }))} />
             </Field>
             <Field label="هاتف العميل">
-              <input className="input-dark" value={editForm.customer_phone} disabled={editIsVersioned} onChange={(e) => setEditForm((f) => ({ ...f, customer_phone: e.target.value }))} />
+              <input className="input-dark" value={editForm.customer_phone} disabled={editIsVersioned || Boolean(editingReview?.customer_id)} onChange={(e) => setEditForm((f) => ({ ...f, customer_phone: e.target.value }))} />
             </Field>
             <Field label="نوع المحادثة">
               <select className="input-dark" value={editForm.evaluation_kind} disabled={editIsVersioned} onChange={(e) => setEditForm((f) => ({ ...f, evaluation_kind: e.target.value }))}>
@@ -3997,6 +4062,7 @@ function ReviewDetailsModal({
   const showApprove = canApprove && !superseded;
   return (
     <Modal title="تفاصيل تقييم المحادثة كاملة" onClose={onClose}>
+      <ReviewCanonicalIdentity row={row} />
       {superseded ? (
         <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-3 text-sm font-bold text-amber-100">
           هذه نسخة سابقة غير معتمدة من التقييم (تم استبدالها)، ولا تدخل في النتائج أو النقاط.

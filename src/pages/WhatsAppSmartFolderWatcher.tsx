@@ -30,6 +30,7 @@ import { resolveStaffIdentity, type ResolvedStaffIdentity } from '@/lib/whatsapp
 import { buildSmartOfficialReviewDraftV1 } from '@/lib/whatsappSmartOfficialReviewDraft';
 import { buildSmartConversationEvaluationV2 } from '@/lib/whatsappConversationEvaluationV2';
 import { resolveCanonicalCustomerContexts } from '@/lib/whatsappCustomerContextResolver';
+import { canonicalCustomerSourceColumns } from '@/lib/customers/canonicalCustomerIdentityResolver';
 import { buildConversationTimingV28 } from '@/lib/whatsappConversationTimingV28';
 import { buildDelayAttributionV29 } from '@/lib/whatsappDelayAttributionV29';
 import { buildConversationFocusV30 } from '@/lib/whatsappConversationFocusV30';
@@ -130,6 +131,11 @@ type FileRun = {
     cases?: CanonicalCaseSummary[];
   } | null;
   mode?: PersistSessionMode;
+  /**
+   * In-memory only: this run was restored from the browser's local history. Its names, scores and
+   * decisions are a snapshot from analysis time, never the current canonical case/review.
+   */
+  restoredFromHistory?: boolean;
 };
 
 /** Composite version of the Smart Folder's persisted (non-canonical, derived) analysis. */
@@ -459,19 +465,24 @@ export default function WhatsAppSmartFolderWatcher() {
           timingV28: caseTimingV28,
           delayAttributionV29,
         } as any;
-        const identityResolved = canonicalIdentity.status === 'resolved';
+        // Only a canonically resolved identity is written as customer_id, and then all customer columns
+        // come from that one customer; otherwise code/name/phone stay unresolved hints for human review.
+        const customerColumns = canonicalCustomerSourceColumns(canonicalIdentity, {
+          code: segmentation.fileCustomerHint.codeHint || null,
+          name: customerContext.displayNameHint || session.customerName || null,
+        });
         const persisted = await persistAnalyzedWhatsAppSession(
           session,
           persistenceIntelligence,
           {
             sourceFileName: file.name,
-            branch: resolvedCustomer?.branch || branchHint.value || null,
-            // Only a canonically resolved identity is written as customer_id; a code/name hint is
-            // kept for human review but never promoted to identity.
-            customerId: identityResolved ? canonicalIdentity.customerId : null,
-            customerCode: canonicalIdentity.customerCode || segmentation.fileCustomerHint.codeHint || null,
-            customerName: canonicalIdentity.customerName || customerContext.displayNameHint || session.customerName || null,
-            customerPhone: canonicalIdentity.normalizedPhone || null,
+            // The conversation's branch (source provenance). The customer's home branch is customer
+            // metadata and never becomes the conversation's branch.
+            branch: branchHint.value || null,
+            customerId: customerColumns.customer_id,
+            customerCode: customerColumns.customer_code,
+            customerName: customerColumns.customer_name,
+            customerPhone: customerColumns.customer_phone,
             staffId: singleResolvedStaff?.staffId || null,
             staffName: singleResolvedStaff?.canonicalStaffName || null,
             createdBy: actorName,
@@ -484,7 +495,7 @@ export default function WhatsAppSmartFolderWatcher() {
           sourceId: persisted.id,
           contextOnly: false,
         });
-        if (resolvedCustomer?.branch || branchHint.value) persistedBranchHints.push(String(resolvedCustomer?.branch || branchHint.value));
+        if (branchHint.value) persistedBranchHints.push(String(branchHint.value));
 
         // Side writes after the durable source: visible warnings, never silent, never blocking.
         try {
@@ -633,7 +644,14 @@ export default function WhatsAppSmartFolderWatcher() {
     void (async () => {
       try {
         const history = await loadLocalWhatsAppAnalysisHistory<FileRun>(30);
-        if (history.length) setRuns(history.map((row) => row.payload));
+        if (history.length) {
+          const restored = history.map((row) => ({ ...row.payload, restoredFromHistory: true }));
+          // Merge, never replace: a scan that finished before the restore keeps its live runs on top.
+          setRuns((current) => {
+            const live = new Set(current.map((run) => `${run.fileName}|${run.at}`));
+            return [...current, ...restored.filter((run) => !live.has(`${run.fileName}|${run.at}`))].slice(0, 30);
+          });
+        }
       } catch (error) {
         console.warn('[whatsapp-watcher] failed to restore local analysis history', error);
       }
@@ -846,6 +864,11 @@ export default function WhatsAppSmartFolderWatcher() {
                   <button type="button" onClick={() => toggleRun(run, runIndex)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-right transition hover:bg-slate-950/25">
                     <div className="min-w-0 flex-1">
                       <div className="truncate font-black text-white">{run.fileName}</div>
+                      {run.restoredFromHistory ? (
+                        <div className="mt-1 inline-flex rounded-full border border-amber-400/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-200" data-testid="smart-folder-historical-run">
+                          لقطة تاريخية من وقت التحليل — الأسماء والدرجات قد لا تطابق الحالة أو التقييم الحالي
+                        </div>
+                      ) : null}
                       <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500">
                         <span>{run.at}</span><span>{run.messages} رسالة</span><span>{run.sessions} جلسة خام</span><span>{run.cases ?? run.sessions} حالة/رحلة</span><span>{run.staffRuns.length} مسؤول</span>
                       </div>

@@ -80,6 +80,10 @@ const REANALYSIS_FILL_ONLY_COLUMNS = [
   'staff_name',
 ] as const;
 
+/** Identity groups: [id column, ...columns that must belong to that same id]. */
+const CUSTOMER_IDENTITY_COLUMNS = ['customer_id', 'customer_code', 'customer_name', 'customer_phone'] as const;
+const STAFF_IDENTITY_COLUMNS = ['staff_id', 'staff_name'] as const;
+
 const EXISTING_SOURCE_COLUMNS = [
   'id',
   'source_hash',
@@ -193,8 +197,26 @@ async function reanalyzeExistingSource(
     const next = (derived as Record<string, unknown>)[column];
     if (stableJson(next) !== stableJson(existing[column])) patch[column] = next;
   }
+  const identityGroups = [CUSTOMER_IDENTITY_COLUMNS, STAFF_IDENTITY_COLUMNS] as const;
   for (const column of REANALYSIS_FILL_ONLY_COLUMNS) {
+    if (identityGroups.some((group) => (group as readonly string[]).includes(column))) continue;
     if (blank(existing[column]) && !blank(fillValues[column])) patch[column] = fillValues[column];
+  }
+  // Identity columns move as ONE group: a newly resolved id brings its own name/code/phone (the
+  // earlier unresolved hints are replaced and kept in the audit), an existing id is never touched,
+  // and without an id only empty hint columns are filled.
+  for (const group of identityGroups) {
+    const [idColumn, ...detailColumns] = group;
+    if (!blank(existing[idColumn])) continue;
+    if (!blank(fillValues[idColumn])) {
+      for (const column of group) {
+        if (stableJson(fillValues[column] ?? null) !== stableJson(existing[column] ?? null)) patch[column] = fillValues[column] ?? null;
+      }
+      continue;
+    }
+    for (const column of detailColumns) {
+      if (blank(existing[column]) && !blank(fillValues[column])) patch[column] = fillValues[column];
+    }
   }
 
   if (!Object.keys(patch).length) {
@@ -255,7 +277,9 @@ export async function persistAnalyzedWhatsAppSession(
     return { id: String(existing.id), duplicate: true, sourceHash, reviewStatus: (existing.review_status || reviewStatus) as ReviewQueueStatus };
   }
 
-  const staffName = context.staffName || session.outboundStaffNames[0] || null;
+  // A staff name is written only with its resolved staff id; an unresolved/ambiguous owner stays empty
+  // (never the first outbound display name).
+  const staffName = context.staffId ? context.staffName || null : null;
   const customerName = context.customerName || session.customerName || null;
   const { data, error } = await client
     .from('whatsapp_review_sources')

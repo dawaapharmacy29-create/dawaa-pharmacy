@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { staffAttributionOrFilter } from '@/lib/reviews/reviewIdentity';
 import { normalizeStaffName } from '@/lib/staffIdentityService';
 import { staffRowIsActive } from '@/lib/staffActiveFilter';
 import { getStaffCycleIncentive, type StaffCycleIncentive } from '@/lib/staffIncentiveService';
@@ -334,7 +335,7 @@ export async function loadStaffDetailSections(args: {
       const byId = await supabase
         .from('conversation_sales_reviews')
         .select('*')
-        .or(`staff_id.eq.${args.staffId},doctor_id.eq.${args.staffId}`)
+        .or(staffAttributionOrFilter(args.staffId))
         .eq('is_current', true)
         .order('created_at', { ascending: false })
         .limit(150);
@@ -343,6 +344,8 @@ export async function loadStaffDetailSections(args: {
         .from('conversation_sales_reviews')
         .select('*')
         .eq('staff_name', args.staffName)
+        // a display name never re-attributes a review that already has a canonical staff id
+        .is('staff_id', null)
         .eq('is_current', true)
         .order('created_at', { ascending: false })
         .limit(150);
