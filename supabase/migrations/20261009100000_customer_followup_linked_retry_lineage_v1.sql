@@ -30,7 +30,7 @@ declare
   v_existing public.daily_followups%rowtype;
   v_created public.daily_followups%rowtype;
   v_lock_key text;
-  v_replay_ids uuid[];
+  v_replay_ids text[];
   v_today text := to_char(timezone('Africa/Cairo', now()), 'YYYY-MM-DD');
 begin
   if nullif(btrim(p_actor_staff_id), '') is null then

@@ -33,3 +33,7 @@ Before any live application, verify against a faithful isolated schema with real
 Rollback restores the captured original core definition and optionally drops the new lookup index in a forward rollback migration. No historical event or operational record is rewritten by this repair. Restoring the original function also restores the old retry defect, so rollback is a deliberate operational decision.
 
 No live migration applied. Production untouched. `20261008160000` and `vercel.json` untouched. No Vercel operation requested. The full complaint/request/projector/staff/branch consolidation remains separate pending work.
+
+## Fixture type correction
+
+The next batch discovered that the synthetic follow-up ID was UUID while the real column and event foreign key are text. The fixture and draft replay array now use text; all 16 repair properties pass again. No live application occurred before this correction.

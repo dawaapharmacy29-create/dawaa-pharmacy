@@ -44,7 +44,7 @@
   "isolated_db_harness_authorization_proven": false,
   "application_source_changed": false,
   "full_si_cutover_activated": false,
-  "migrations_prepared": 1,
+  "migrations_prepared": 2,
   "repair_1": {
     "status": "PREPARED_LOCALLY",
     "migration": "20261009100000_customer_followup_linked_retry_lineage_v1.sql",
@@ -53,6 +53,20 @@
     "fixture_migration_applications": 2,
     "native_concurrency_proven": false,
     "live_applied": false,
-    "verify_exit_code": 0
+    "verify_exit_code": 0,
+    "followup_id_type": "text",
+    "text_fixture_rerun_passed": true
+  },
+  "repair_2": {
+    "status": "PREPARED_LOCALLY",
+    "migration": "20261009103000_preserve_conversation_followup_branch_v1.sql",
+    "fixture_properties_holding": 34,
+    "fixture_migration_applications": 2,
+    "native_concurrency_proven": false,
+    "real_rls_proven": false,
+    "live_applied": false,
+    "verify_exit_code": 0,
+    "tests_passed": 643,
+    "initial_js_gzip_kib": 92.2
   }
 }

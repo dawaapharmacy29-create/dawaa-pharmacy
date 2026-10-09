@@ -16,18 +16,18 @@ const checks = [];
 try {
   await db.exec(`
     create table daily_followups (
-      id uuid primary key default gen_random_uuid(), date text, customer_id text,
+      id text primary key default gen_random_uuid()::text, date text, customer_id text,
       customer_name text, name text, phone text, customer_phone text, customer_code text,
       branch text, status text, followup_status text, contact_status text, followup_type text,
       request_type text, request_details text, followup_reason text, priority text,
       next_followup_date date, created_by text, created_by_name text, requested_by_staff_id text,
       request_source text, identity_key text, client_request_id text unique,
       is_hidden boolean default false, is_duplicate boolean default false,
-      duplicate_of uuid, created_at timestamptz default now(), updated_at timestamptz,
+      duplicate_of text, created_at timestamptz default now(), updated_at timestamptz,
       completed_at timestamptz, cancelled_at timestamptz, archived_at timestamptz
     );
     create table customer_service_followup_events (
-      id uuid primary key default gen_random_uuid(), followup_id uuid,
+      id uuid primary key default gen_random_uuid(), followup_id text,
       event_type text, event_status text, actor_staff_id text, actor_name text,
       notes text, metadata jsonb
     );

@@ -202,3 +202,5 @@ Final branch remains `chatgpt/si-operational-consolidation-20261009`.
 Baseline application SHA remains `2a8e85fce639a04d5562c42e054797584f496a63`; audit documentation may be committed separately without altering behavior.
 
 **No live migration applied. `20261008160000` untouched. No Vercel Production deploy. No Preview created. Production application and data untouched.**
+
+Second scoped repair: see [branch-lineage-repair.md](branch-lineage-repair.md). It preserves conversation-linked follow-up/queue branches using existing action/source/event provenance. Both migrations remain repo-only; full cutover remains BLOCKED.
