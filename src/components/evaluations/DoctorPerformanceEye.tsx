@@ -34,6 +34,19 @@ const kpiValue = (k: EyeKpi) => k.value === null ? UNAVAILABLE
   : k.unit === 'money' ? `${fmt(Math.round(k.value))} ج` : k.unit === 'pct' ? `${fmt(k.value, 1)}%` : k.unit === 'days' ? `${fmt(k.value)} يوم` : fmt(k.value);
 const coverageLabel = (c: DoctorPerformanceMonth['coverage']) => c === 'available' ? 'تغطية كاملة' : c === 'partial' ? 'تغطية جزئية' : c === 'not_applicable' ? 'قبل أول دليل' : 'غير متاح';
 
+const EVIDENCE_ENUM_LABEL: Record<string, string> = {
+  offered: 'تم العرض', purchased: 'تم الشراء', sold: 'تم البيع', available: 'متاح', unavailable: 'غير متاح',
+  requested: 'تم الطلب', accepted: 'تم القبول', declined: 'تم الرفض', pending: 'معلق', followup: 'متابعة',
+  follow_up: 'متابعة', not_purchased: 'لم يتم الشراء', no_sale: 'لم يتم البيع', verified: 'مؤكد',
+};
+/** Display-only mapping: stored values and contracts stay untouched; unknown/free-text values pass through unchanged. */
+const evidenceDisplay = (value: unknown, fallback = '') => {
+  if (value === null || value === undefined || value === '') return fallback;
+  const raw = String(value).trim();
+  const key = raw.toLowerCase().replace(/[\s-]+/g, '_');
+  return EVIDENCE_ENUM_LABEL[key] || raw;
+};
+
 type Tone = 'success' | 'warning' | 'danger' | 'info' | 'neutral';
 const toneStyle = (tone: Tone) => tone === 'neutral'
   ? { color: 'var(--dawaa-theme-muted)', background: 'var(--dawaa-theme-soft)', borderColor: 'var(--dawaa-theme-border)' }
@@ -240,13 +253,11 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
               <button type="button" onClick={() => void load(true)} className="mt-3 inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-black" style={{ borderColor: 'currentColor' }}><RefreshCw size={14} /> إعادة المحاولة</button>
             </div>
           : cur && prev && data ? <>
-            {/* Only a real load failure of the doctor's own sources is raised at the top; other states live in "جودة البيانات". */}
             {ownFailures.length ? <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border p-3 text-[12px] font-bold" style={toneStyle('danger')} data-testid="eye-source-status">
               <span className="flex items-center gap-2"><AlertTriangle size={15} /> تعذر تحميل: {ownFailures.map(x => x.label).join('، ')} — الأرقام المرتبطة محجوبة وليست صفرًا.</span>
               <button type="button" onClick={() => void load(true)} disabled={loading} className="inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] font-black disabled:opacity-50" style={{ borderColor: 'currentColor' }}><RefreshCw size={13} className={loading ? 'animate-spin' : undefined} /> إعادة التحميل</button>
             </div> : null}
 
-            {/* B. Executive verdict: one reading, from the existing verdict / decision layers only. */}
             <section className="mt-3 rounded-2xl border p-4 sm:mt-4 sm:p-5" style={{ ...border, background: 'var(--dawaa-theme-soft)' }} data-testid="eye-executive-verdict">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-[12px] font-black" style={muted}>الخلاصة التنفيذية</span>
@@ -273,7 +284,6 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
               </div>
             </section>
 
-            {/* C. Core KPIs: value, final/provisional, and a change only where the comparison is fair. */}
             <section className="mt-3" aria-label="المؤشرات الأساسية" data-testid="eye-kpi-strip">
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {kpis.map(k => <div key={k.key} className="min-w-0 rounded-xl border p-3" style={{ ...border, background: 'var(--dawaa-theme-surface)' }} data-testid={`eye-kpi-${k.key}`}>
@@ -290,10 +300,8 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
               </div>
             </section>
 
-            {/* D. Performance story: one chart, four tabs; the doctor's own tabs never wait for the branch comparison. */}
             {chartModel ? <div className="mt-3"><Suspense fallback={<div className="h-[260px] animate-pulse rounded-2xl" style={{ background: 'var(--dawaa-theme-soft)' }} />}><DoctorPerformanceChart key={`${staffId}:${cycleLabel}:${chartModel.defaultTab}`} model={chartModel} /></Suspense></div> : null}
 
-            {/* Branch comparison: calm explanation when it cannot speak; three indicators when it can. */}
             {branchNotice ? <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 text-[12px] font-bold" style={{ ...border, ...muted }} data-testid="decision-source-status">
               <span><Users size={13} className="me-1 inline" /> مقارنة الفرع غير متاحة لهذه الدورة — {branchNotice}</span>
               {branchRetryable ? <button type="button" onClick={retryComparison} disabled={decisionLoading} className="inline-flex items-center gap-1 text-[11px] font-black disabled:opacity-50" style={{ color: 'var(--dawaa-theme-primary-strong)' }}><RefreshCw size={12} className={decisionLoading ? 'animate-spin' : undefined} /> إعادة المحاولة</button> : null}
@@ -310,7 +318,6 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
               </div>)}
             </div> : decisionLoading ? <div className="mt-2 grid gap-2 sm:grid-cols-3">{[0, 1, 2].map(i => <div key={i} className="h-[92px] animate-pulse rounded-xl" style={{ background: 'var(--dawaa-theme-soft)' }} />)}</div> : null}
 
-            {/* E. Why this result: intervention first, then review, then strengths. */}
             <Section title="لماذا ظهرت هذه النتيجة؟" hint={diagnosis.length > DEFAULT_DIAGNOSIS_LIMIT ? `أهم ${fmt(DEFAULT_DIAGNOSIS_LIMIT)} من ${fmt(diagnosis.length)}` : undefined}>
               {visibleDiagnosis.length ? <ul className="space-y-2" data-testid="eye-diagnosis">
                 {visibleDiagnosis.map(d => <li key={d.id} className="rounded-xl border p-3" style={{ ...border, borderInlineStartWidth: 4, borderInlineStartColor: `var(--dawaa-status-${d.group === 'intervene' ? 'danger' : d.group === 'review' ? 'warning' : 'success'}-text)` }}>
@@ -329,7 +336,6 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
               {diagnosis.length > DEFAULT_DIAGNOSIS_LIMIT ? <button type="button" onClick={() => setShowAllDiagnosis(v => !v)} className="mt-2 text-[12px] font-black" style={{ color: 'var(--dawaa-theme-primary-strong)' }}>{showAllDiagnosis ? 'عرض الأهم فقط' : `عرض كل الملاحظات (${fmt(diagnosis.length)})`}</button> : null}
             </Section>
 
-            {/* G. Data trust: a compact summary; details on demand. Insufficient data is not a failure. */}
             {quality ? <section className="mt-4 rounded-xl border" style={border} data-testid="eye-data-quality">
               <button type="button" onClick={() => setQualityOpen(v => !v)} aria-expanded={qualityOpen} className="flex w-full flex-wrap items-center justify-between gap-2 p-3 text-right">
                 <span className="flex items-center gap-2 text-[12px] font-black" style={heading}><ShieldCheck size={15} /> جودة البيانات</span>
@@ -356,7 +362,6 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
 
             <button type="button" onClick={() => setDetailsOpen(v => !v)} aria-expanded={detailsOpen} className="mt-3 flex w-full items-center justify-center gap-1 rounded-xl border px-3 py-2.5 text-[13px] font-black" style={{ ...border, color: 'var(--dawaa-theme-primary-strong)' }}>{detailsOpen ? 'إخفاء الأدلة والتفاصيل' : 'عرض الأدلة والتفاصيل'} <ChevronDown size={16} className={detailsOpen ? 'rotate-180 transition-transform' : 'transition-transform'} /></button>
 
-            {/* F. Evidence and details: collapsed until requested; evidence rows load lazily. */}
             <div hidden={!detailsOpen}>
             {summaryFromReady && ready?.decision ? <Section title="تفاصيل القرار">
               <div className="rounded-xl border p-3" style={border}>
@@ -442,7 +447,7 @@ export default function DoctorPerformanceEye({ staffId, staffName, cycleLabel, b
                       {!visibleConversations.length ? <div className="p-2 text-[11px]" style={muted}>لا توجد محادثات مطابقة في هذه الدورة.</div> : null}
                     </div></div>
                     <div className="min-w-0"><div className="mb-2 flex items-center gap-2 text-xs font-black"><PackageSearch size={14} /> الأصناف والفرص</div><div className="max-h-72 space-y-2 overflow-y-auto">
-                      {visibleProducts.map((item, index) => <div key={`${item.source_id}-${item.product_name}-${index}`} className="rounded-lg border p-2 text-[11px]" style={border}><div className="truncate font-black">{item.product_name || 'صنف غير محدد'} · {item.customer_name || 'عميل غير محدد'}</div><div className="mt-1 break-words" style={muted}>{item.current_stage || 'مرحلة غير محددة'}{item.leakage_reason ? ` · سبب فقد البيع: ${item.leakage_reason}` : ''}{item.next_action ? ` · التالي: ${item.next_action}` : ''}{item.invoice_match_status === 'verified' ? ` · بيع مؤكد${invoiceValue(item.matched_invoice_value)}` : ''}</div></div>)}
+                      {visibleProducts.map((item, index) => <div key={`${item.source_id}-${item.product_name}-${index}`} className="rounded-lg border p-2 text-[11px]" style={border}><div className="truncate font-black">{item.product_name || 'صنف غير محدد'} · {item.customer_name || 'عميل غير محدد'}</div><div className="mt-1 break-words" style={muted}>{evidenceDisplay(item.current_stage, 'مرحلة غير محددة')}{item.leakage_reason ? ` · سبب فقد البيع: ${evidenceDisplay(item.leakage_reason)}` : ''}{item.next_action ? ` · التالي: ${evidenceDisplay(item.next_action)}` : ''}{item.invoice_match_status === 'verified' ? ` · بيع مؤكد${invoiceValue(item.matched_invoice_value)}` : ''}</div></div>)}
                       {!visibleProducts.length ? <div className="p-2 text-[11px]" style={muted}>لا توجد رحلات أصناف مطابقة في هذه الدورة.</div> : null}
                     </div></div>
                   </div>}
