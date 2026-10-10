@@ -1,5 +1,6 @@
 // Fail-closed database isolation for deployments.
 // Production -> the Production Supabase project. Preview / development -> the staging project ONLY.
+// Explicit local development may use loopback Supabase only, including under `vercel dev`.
 // Used at build time (scripts/check-deploy-environment.cjs, run by prebuild) and at runtime by the
 // server transport. It reads only public identifiers: URLs and the project ref inside a key's JWT
 // payload. It never prints a key.
@@ -31,6 +32,15 @@ const KEY_VARS = ['VITE_SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY'] as cons
 export function supabaseProjectRefFromUrl(value: string | undefined): string | null {
   const match = /^https:\/\/([a-z0-9]{20})\.supabase\.co\/?$/i.exec(String(value || '').trim());
   return match ? match[1].toLowerCase() : null;
+}
+
+function isLoopbackUrl(value: string | undefined): boolean {
+  try {
+    const parsed = new URL(String(value || '').trim());
+    return ['localhost', '127.0.0.1', '::1', '[::1]'].includes(parsed.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
 }
 
 function jwtPayload(value: string | undefined): Record<string, unknown> | null {
@@ -71,11 +81,16 @@ function environmentOf(env: Env): { environment: DeployEnvironment; enforced: bo
   const vercel = String(env.VERCEL_ENV || '')
     .trim()
     .toLowerCase();
-  if (vercel === 'production' || vercel === 'preview' || vercel === 'development')
-    return { environment: vercel, enforced: true };
   const declared = String(env.DAWAA_DEPLOY_ENV || '')
     .trim()
     .toLowerCase();
+
+  // `vercel dev` sets VERCEL_ENV=development. Permit an explicit local override only there;
+  // preview/production can never be reclassified as local.
+  if (vercel === 'development' && declared === 'local')
+    return { environment: 'local', enforced: true };
+  if (vercel === 'production' || vercel === 'preview' || vercel === 'development')
+    return { environment: vercel, enforced: true };
   if (
     declared === 'production' ||
     declared === 'preview' ||
@@ -163,6 +178,10 @@ export function evaluateDeployEnvironment(env: Env): DeployEnvironmentReport {
       errors.push(
         `${name} points to the production project; local must use a local or test database`
       );
+    for (const name of URL_VARS) {
+      if (env[name] && !isLoopbackUrl(env[name]))
+        errors.push(`${name} must be a loopback URL when DAWAA_DEPLOY_ENV=local`);
+    }
   } else if (pointsAtProduction.length) {
     warnings.push(
       `local run points to the production project (${pointsAtProduction.join(', ')}); set DAWAA_DEPLOY_ENV=local to enforce isolation`
