@@ -66,8 +66,6 @@ export default function DoctorPerformanceChart({ model }: { model: EyeChartModel
   const axis = { fontSize: 11, fill: c.muted };
   const active = model.tabs.find(t => t.key === tab) || model.tabs[0];
   const metric = model.trend.metrics.find(m => m.key === metricKey) || null;
-  // Final segments are solid; any segment reaching a provisional point is dashed, so a running or pending figure never
-  // reads as settled. Unknown values stay null, so the line breaks at a gap instead of bridging it.
   const trendRows = useMemo(() => (metric ? metric.points.map((p, i, all) => {
     const next = all[i + 1];
     return {
@@ -163,11 +161,32 @@ export default function DoctorPerformanceChart({ model }: { model: EyeChartModel
     </div> : null}
 
     {tab === 'sources' ? <div className="mt-2">
-      <Table head={['المصدر', 'الحالة', ...model.cycles.map(cy => `${cy.name}${cy.running ? ' (جارية)' : ''}`)]} rows={model.sources.map(r => [
-        <span key="l" className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{r.label}</span>,
-        <span key="s" title={r.reason || undefined} className="inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-black" style={toneStyle(r.tone)}>{r.stateLabel}</span>,
-        ...(r.cells ? r.cells.map((cell, i) => <span key={i} style={{ color: CELL_COLOR[cell.status] }}>{cell.text}</span>) : [<span key="all" style={{ color: 'var(--dawaa-theme-muted)' }}>{r.reason || 'نطاق التحليل كاملًا'}</span>, ...model.cycles.slice(1).map((_, i) => <span key={`x${i}`} />)]),
-      ])} />
+      <div className="overflow-x-auto rounded-lg" data-testid="doctor-eye-sources-table">
+        <table className="w-full min-w-[760px] table-fixed text-[11px] font-bold">
+          <colgroup>
+            <col className="w-[22%]" />
+            <col className="w-[14%]" />
+            {model.cycles.map(cy => <col key={cy.cycleLabel} className="w-auto" />)}
+          </colgroup>
+          <thead>
+            <tr style={{ color: 'var(--dawaa-theme-muted)' }}>
+              {['المصدر', 'الحالة', ...model.cycles.map(cy => `${cy.name}${cy.running ? ' (جارية)' : ''}`)].map((h, i) => <th key={i} className="p-2 text-right align-bottom font-black leading-5 whitespace-normal break-words">{h}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {model.sources.map(r => {
+              const cells = r.cells
+                ? r.cells.map((cell, i) => <span key={i} className="block whitespace-normal break-words leading-5" style={{ color: CELL_COLOR[cell.status] }}>{cell.text}</span>)
+                : [<span key="all" className="block whitespace-normal break-words leading-5" style={{ color: 'var(--dawaa-theme-muted)' }}>{r.reason || 'نطاق التحليل كاملًا'}</span>, ...model.cycles.slice(1).map((_, i) => <span key={`x${i}`} />)];
+              return <tr key={r.key} className="border-t align-top" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
+                <td className="p-2 align-top whitespace-normal break-words leading-5"><span className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>{r.label}</span></td>
+                <td className="p-2 align-top"><span title={r.reason || undefined} className="inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-black" style={toneStyle(r.tone)}>{r.stateLabel}</span></td>
+                {cells.map((cell, i) => <td key={i} className="p-2 align-top whitespace-normal break-words leading-5 tabular-nums">{cell}</td>)}
+              </tr>;
+            })}
+          </tbody>
+        </table>
+      </div>
       {model.sources.some(r => r.cells && r.reason) ? <div className="mt-1 space-y-0.5 text-[11px] font-bold leading-5" style={{ color: 'var(--dawaa-theme-muted)' }}>{model.sources.filter(r => r.cells && r.reason).map(r => <div key={r.key}>• {r.label}: {r.reason}</div>)}</div> : null}
       <Legend items={[{ color: CELL_COLOR.ok, label: 'مكتمل' }, { color: CELL_COLOR.partial, label: 'جزئي' }, { color: CELL_COLOR.missing, label: 'غير متاح' }, { color: CELL_COLOR.not_applicable, label: 'قبل أول دليل' }]} />
     </div> : null}
