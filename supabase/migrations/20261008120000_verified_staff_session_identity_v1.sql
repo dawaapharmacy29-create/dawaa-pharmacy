@@ -401,5 +401,3 @@ begin
     raise exception 'identity hardening: snapshotted functions disappeared: %', v_bad_grants;
   end if;
 end $$;
-
-
