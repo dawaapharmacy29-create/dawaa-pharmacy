@@ -1,6 +1,6 @@
 import type { DoctorPerformanceIntelligence, DoctorPerformanceMonth, PerformanceSourceHealth } from '@/lib/evaluations/doctorPerformanceIntelligenceService';
 import type { DecisionIntelligence } from '@/lib/evaluations/doctorDecisionIntelligence';
-import { isEvaluationCycleClosed } from '@/lib/evaluations/monthlyEvaluationCycle';
+import { evaluationCycleDateKeys, isEvaluationCycleClosed } from '@/lib/evaluations/monthlyEvaluationCycle';
 import { comparableProductivity, totalSales, verifiedCoverage } from '@/lib/evaluations/doctorSalesReconciliation';
 
 /**
@@ -22,7 +22,7 @@ export type EyeTrendMetricKey = 'verifiedSalesPerDay' | 'verifiedInvoicesPerDay'
  * attendance days pending review, conversation outcomes not all recorded) and is never a final judgement.
  */
 export type EyePointStatus = 'final' | 'provisional';
-export type EyeTrendPoint = { cycleLabel: string; name: string; running: boolean; value: number | null; status: EyePointStatus | null; note: string | null };
+export type EyeTrendPoint = { cycleLabel: string; name: string; range: string; running: boolean; value: number | null; status: EyePointStatus | null; note: string | null };
 export type EyeTrendMetric = {
   key: EyeTrendMetricKey;
   label: string;
@@ -44,7 +44,7 @@ export type EyeChartModel = {
   tabs: EyeChartTab[];
   defaultTab: EyeChartTabKey;
   /** Oldest first, so lines read from past to present. */
-  cycles: { cycleLabel: string; name: string; running: boolean }[];
+  cycles: { cycleLabel: string; name: string; range: string; running: boolean }[];
   trend: { metrics: EyeTrendMetric[]; defaultMetric: EyeTrendMetricKey | null };
   shifts: DecisionIntelligence['charts']['shifts'];
   peers: { points: DecisionIntelligence['charts']['peers']; band: DecisionIntelligence['charts']['peerBand'] };
@@ -54,6 +54,15 @@ export type EyeChartModel = {
 const MONTHS = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
 /** A 26→25 cycle is named after the month it ends in, which is the month of its label. */
 export const eyeCycleName = (cycleLabel: string) => MONTHS[(Number(cycleLabel.slice(5, 7)) + 11) % 12] || cycleLabel;
+const dayMonth = (iso: string) => {
+  const [, m, d] = iso.split('-').map(Number);
+  return m && d ? `${d.toLocaleString('ar-EG')} ${MONTHS[m - 1]}` : iso;
+};
+/** "26 سبتمبر ← 25 أكتوبر": the evaluation cycle runs from the 26th to the 25th (canonical date keys). */
+export function cycleRangeLabel(cycleLabel: string) {
+  const k = evaluationCycleDateKeys(cycleLabel);
+  return `${dayMonth(k.startDate)} ← ${dayMonth(k.endDate)}`;
+}
 const ar = (v: number) => v.toLocaleString('ar-EG', { maximumFractionDigits: 0 });
 const arDate = (iso: string) => { const d = new Date(`${iso}T12:00:00Z`); return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('ar-EG', { day: 'numeric', month: 'long' }); };
 
@@ -150,10 +159,10 @@ export function buildEyeChartModel(args: { data: DoctorPerformanceIntelligence; 
   const { data, decision, decisionLoading, hasBranch } = args;
   const now = args.now || new Date();
   const ordered = [...data.months].reverse();
-  const cycles = ordered.map(m => ({ cycleLabel: m.cycleLabel, name: eyeCycleName(m.cycleLabel), running: !isEvaluationCycleClosed(m.cycleLabel, now) }));
+  const cycles = ordered.map(m => ({ cycleLabel: m.cycleLabel, name: eyeCycleName(m.cycleLabel), range: cycleRangeLabel(m.cycleLabel), running: !isEvaluationCycleClosed(m.cycleLabel, now) }));
 
   const metrics: EyeTrendMetric[] = METRICS.map(def => {
-    const points = ordered.map((m, i) => ({ cycleLabel: m.cycleLabel, name: cycles[i].name, running: cycles[i].running, ...trendPoint(m, cycles[i].running, def.key) }));
+    const points = ordered.map((m, i) => ({ cycleLabel: m.cycleLabel, name: cycles[i].name, range: cycles[i].range, running: cycles[i].running, ...trendPoint(m, cycles[i].running, def.key) }));
     const known = points.filter(p => p.value !== null && Number.isFinite(p.value)).length;
     return { key: def.key, label: def.label, unit: def.unit, definition: def.definition, context: Boolean(def.context), available: known >= 2, reason: known >= 2 ? null : known === 1 ? 'قيمة دورة واحدة فقط؛ لا يُرسم اتجاه من نقطة واحدة.' : def.missing, points };
   });

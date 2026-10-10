@@ -222,6 +222,7 @@ const testFiles = [
   'src/lib/attendance/__tests__/attendanceCommandCenterInFlight.test.ts',
   'src/lib/hr/__tests__/payrollRequestCoordinator.test.ts',
   'src/lib/evaluations/__tests__/doctorEyeChartModel.test.ts',
+  'src/lib/evaluations/__tests__/doctorEyeViewModel.test.ts',
   'src/lib/auth/__tests__/requestIdentityHeaders.test.ts',
   'src/lib/auth/__tests__/authorizationCacheScope.test.ts',
   'src/lib/__tests__/incentiveEligibility.test.ts',
