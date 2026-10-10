@@ -83,6 +83,39 @@ describe('deploy environment isolation', () => {
     ).toBe(false);
   });
 
+  it('vercel development may use explicit local loopback Supabase, but only loopback', () => {
+    const local = evaluateDeployEnvironment({
+      VERCEL_ENV: 'development',
+      DAWAA_DEPLOY_ENV: 'local',
+      VITE_SUPABASE_URL: 'http://127.0.0.1:54321',
+      SUPABASE_URL: 'http://localhost:54321',
+      VITE_SUPABASE_ANON_KEY: 'sb_publishable_local',
+      SUPABASE_SERVICE_ROLE_KEY: 'sb_secret_local',
+    });
+    expect(local.ok).toBe(true);
+    expect(local.environment).toBe('local');
+    expect(local.enforced).toBe(true);
+
+    for (const remote of [url(STAGING), url(PROD), url(DELIVERY), 'https://example.com']) {
+      expect(
+        evaluateDeployEnvironment({
+          VERCEL_ENV: 'development',
+          DAWAA_DEPLOY_ENV: 'local',
+          VITE_SUPABASE_URL: remote,
+        }).ok
+      ).toBe(false);
+    }
+
+    const previewCannotBecomeLocal = evaluateDeployEnvironment({
+      VERCEL_ENV: 'preview',
+      DAWAA_DEPLOY_ENV: 'local',
+      VITE_SUPABASE_URL: 'http://127.0.0.1:54321',
+      VITE_SUPABASE_ANON_KEY: 'sb_publishable_local',
+    });
+    expect(previewCannotBecomeLocal.environment).toBe('preview');
+    expect(previewCannotBecomeLocal.ok).toBe(false);
+  });
+
   it('every build runs the gate and the server has no production fallback', () => {
     const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
     expect(pkg.scripts.prebuild.startsWith('node scripts/check-deploy-environment.cjs && ')).toBe(
