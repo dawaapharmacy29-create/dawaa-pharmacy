@@ -164,7 +164,8 @@ export type EyeDiagnosisItem = {
   confidence: 'high' | 'medium' | 'low';
   focus: EyeEvidenceTarget;
 };
-export const DIAGNOSIS_GROUP_LABEL: Record<EyeDiagnosisGroup, string> = { intervene: 'تحتاج تدخل', review: 'للمراجعة', strength: 'نقاط القوة' };
+// Diagnosis chips describe priority inside the evidence list; they are deliberately not a second overall verdict.
+export const DIAGNOSIS_GROUP_LABEL: Record<EyeDiagnosisGroup, string> = { intervene: 'أولوية عالية', review: 'للمراجعة', strength: 'نقاط القوة' };
 export const DEFAULT_DIAGNOSIS_LIMIT = 5;
 
 const focusForDiagnosis = (d: DoctorPerformanceDiagnosis): EyeEvidenceTarget =>
@@ -175,13 +176,25 @@ const PROBLEM_TARGET: Record<string, EyeEvidenceTarget> = { lateness: 'cycles', 
 const targetForVerdictEvidence = (evidence: string): EyeEvidenceTarget =>
   evidence.includes('الحضور') || evidence.includes('فواتير') ? 'cycles' : evidence.includes('أثر العملاء') ? 'opportunity' : 'all';
 
+/**
+ * Conservative presentation-only root-cause key. It intentionally collapses only obvious duplicate sales-decline
+ * phrasings coming from different read models; unrelated sales/productivity findings stay separate.
+ */
+const diagnosisRootKey = (item: EyeDiagnosisItem) => {
+  const text = `${item.id} ${item.title} ${item.reason}`.toLowerCase();
+  const explicitSalesTrend = item.id.startsWith('diag-sales_trend-');
+  const phrasedSalesDecline = /(تراجع|انخفاض|أقل).{0,28}(المبيعات|بيعي)|(المبيعات|بيعي).{0,28}(تراجع|انخفاض|أقل)/.test(text);
+  if (explicitSalesTrend || phrasedSalesDecline) return 'sales-trend';
+  return item.title.trim();
+};
+
 export function buildEyeDiagnosis(args: { data: DoctorPerformanceIntelligence; verdict: DoctorPerformanceVerdict | null; ready: DecisionIntelligence | null }): EyeDiagnosisItem[] {
   const { data, verdict, ready } = args;
   const cur = data.months[0];
   const monthConfidence = cur?.confidence || 'low';
   const items: EyeDiagnosisItem[] = [];
   const seen = new Set<string>();
-  const add = (item: EyeDiagnosisItem) => { const k = item.title.trim(); if (seen.has(k)) return; seen.add(k); items.push(item); };
+  const add = (item: EyeDiagnosisItem) => { const k = diagnosisRootKey(item); if (seen.has(k)) return; seen.add(k); items.push(item); };
 
   // Doctor-level priority problem from the verdict (safety, customer harm, discipline) leads.
   if (verdict?.lead === 'problem' && verdict.problem) add({ id: 'verdict-problem', group: 'intervene', title: verdict.problem.text, reason: verdict.action?.text || verdict.headline, impact: verdict.problem.evidence, confidence: 'high', focus: targetForVerdictEvidence(verdict.problem.evidence) });
