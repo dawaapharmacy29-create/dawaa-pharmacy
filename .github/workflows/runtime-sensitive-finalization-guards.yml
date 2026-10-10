@@ -1,0 +1,28 @@
+name: Runtime Sensitive Finalization Guards
+
+on:
+  push:
+    branches:
+      - integration/performance-attendance-20261009
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify attendance and payroll finalization guards
+        run: node scripts/check-runtime-sensitive-finalization-guards.cjs

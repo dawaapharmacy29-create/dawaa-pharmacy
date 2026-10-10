@@ -213,6 +213,17 @@ for (const ext of ['.ts', '.tsx']) {
 
 const testFiles = [
   'src/lib/__tests__/targetAchievementBonus.test.ts',
+  'src/lib/evaluations/__tests__/doctorPerformanceEye.test.ts',
+  'src/lib/evaluations/__tests__/doctorPerformanceVerdict.test.ts',
+  'src/lib/evaluations/__tests__/doctorDecisionIntelligence.test.ts',
+  'src/lib/evaluations/__tests__/decisionSourceState.test.ts',
+  'src/lib/evaluations/__tests__/doctorDecisionDataCache.test.ts',
+  'src/lib/evaluations/__tests__/managerEvaluationService.test.ts',
+  'src/lib/attendance/__tests__/attendanceCommandCenterInFlight.test.ts',
+  'src/lib/hr/__tests__/payrollRequestCoordinator.test.ts',
+  'src/lib/evaluations/__tests__/doctorEyeChartModel.test.ts',
+  'src/lib/auth/__tests__/requestIdentityHeaders.test.ts',
+  'src/lib/auth/__tests__/authorizationCacheScope.test.ts',
   'src/lib/__tests__/incentiveEligibility.test.ts',
   'src/lib/__tests__/customerCohortIntelligence.test.ts',
   'src/lib/staff/__tests__/staffPerformanceProfileService.test.ts',
@@ -284,6 +295,15 @@ for (const relativePath of testFiles) {
   require(testFile);
 }
 
+// A test awaiting a promise that never settles empties the event loop and Node would exit 0 without a
+// result line (a false green). Treat an unfinished run as a failure.
+let runFinished = false;
+process.on('beforeExit', () => {
+  if (runFinished) return;
+  console.error('\nTest run ended before completion: a test never settled (pending promise).');
+  process.exit(1);
+});
+
 (async () => {
   let passed = 0;
   let failed = 0;
@@ -305,6 +325,7 @@ for (const relativePath of testFiles) {
     }
   }
 
+  runFinished = true;
   console.log(`\nTest result: ${passed} passed, ${failed} failed`);
   if (failed > 0) process.exit(1);
 })();

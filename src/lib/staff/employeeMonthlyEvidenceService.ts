@@ -11,6 +11,10 @@ import {
 } from '@/lib/evaluations/monthlyDevelopmentTextEvidence';
 import { readAttendanceRange } from '@/lib/readModels/attendanceReadModel';
 import { listAttendanceImpactLedger, type AttendanceImpactRow } from '@/lib/attendance/attendanceResolutionService';
+import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
+import { readPerformanceTaskEvidence } from '@/lib/performance/performanceTaskEvidenceService';
+import type { EvaluationMetricProjection } from '@/lib/evaluations/evaluationMetrics';
+import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
 
 export type EmployeeMonthlyEvidenceMetrics = {
   review_count: number;
@@ -246,8 +250,9 @@ export type EmployeeMonthlyEvidence = {
   health: {
     reviews: 'available' | 'unavailable';
     followups: 'available' | 'unavailable';
-    attendance: 'available' | 'unavailable';
+    attendance: 'available' | 'partial' | 'unavailable';
   };
+  taskEvaluation: EvaluationMetricProjection | null;
   ready: boolean;
   errors: Record<string, string>;
 };
@@ -391,7 +396,8 @@ function rowConversationCoreAverage(row: Record<string, unknown>) {
   return columns.reduce((sum, value) => sum + value, 0) / columns.length;
 }
 
-function buildConversationCoaching(rows: Record<string, unknown>[]): MonthlyConversationCoaching {
+/** Canonical conversation rubric; exported so peer comparisons score reviews exactly like the evaluation page. */
+export function buildConversationCoaching(rows: Record<string, unknown>[]): MonthlyConversationCoaching {
   const minSamples = 3;
   const sampleSufficient = rows.length >= minSamples;
   const dimensions = sampleSufficient ? dimensionEvidence(rows, minSamples) : [];
@@ -772,9 +778,8 @@ function buildSalesQualityCoaching(
       : '',
     salesQuality && salesQuality.average < 7 ? `جودة البيع ${salesQuality.average}/10` : '',
     upsellCrossSell && upsellCrossSell.average < 6 ? `البيع التكميلي ${upsellCrossSell.average}/10` : '',
-    invoicePerformanceAvailable && weightedRaw !== null && weightedRaw <= -10
-      ? `مؤشر قيمة/تركيب الفاتورة أقل من خط الأساس بـ${Math.abs(weightedRaw)}%`
-      : '',
+    // Invoice baseline is contextual only until its settlement writer uses the same
+    // staff_id + alias identity contract as the canonical evaluation sales truth.
   ].filter(Boolean);
 
   const actions = [
@@ -802,6 +807,7 @@ function buildSalesQualityCoaching(
     !invoicePerformanceAvailable
       ? 'مؤشر أداء الفاتورة يحتاج 15 فاتورة على الأقل حتى يكون قابلًا للمقارنة بخط الأساس.'
       : '',
+    'مؤشر أداء الفاتورة سياقي فقط حاليًا؛ لا يُنشئ حكم تطوير تلقائيًا حتى يتوحد مسار هويته مع staff_id + aliases في حقيقة المبيعات canonical.',
     'مؤشر أداء الفاتورة يقارن متوسط قيمة الفاتورة وعدد الأصناف بخط أساس 90 يوم لنفس الفرع والشيفت؛ لا يقيس دقة الفاتورة.',
     'دقة الفاتورة تُثبت فقط بخطأ فاتورة موثق أو واقعة تشغيلية واضحة.',
   ].filter(Boolean);
@@ -900,22 +906,32 @@ async function loadTrainingEvidence(args: {
   startDate: string;
   endDateExclusive: string;
 }) {
+  const trainingStartAt = cairoDateBoundaryIso(args.startDate);
+  const trainingEndAt = cairoDateBoundaryIso(args.endDateExclusive);
   const filter =
     `and(due_date.gte.${args.startDate},due_date.lt.${args.endDateExclusive}),`
-    + `and(due_date.is.null,created_at.gte.${args.startDate},created_at.lt.${args.endDateExclusive})`;
+    + `and(due_date.is.null,created_at.gte.${trainingStartAt},created_at.lt.${trainingEndAt})`;
 
   const { data, error } = await supabase
     .from('training_assignments')
     .select('id,module_id,due_date,status,completed_at,score,created_at')
     .eq('staff_id', args.staffId)
     .or(filter)
-    .limit(200);
+    .limit(201);
 
   if (error) {
     return {
       assignments: [] as TrainingAssignmentEvidenceRow[],
       modules: [] as TrainingModuleEvidenceRow[],
       error: error.message,
+    };
+  }
+
+  if ((data?.length || 0) >= 201) {
+    return {
+      assignments: [] as TrainingAssignmentEvidenceRow[],
+      modules: [] as TrainingModuleEvidenceRow[],
+      error: 'training_assignments_truncated: more than 200 assignments matched this cycle; monthly evidence is incomplete',
     };
   }
 
@@ -929,12 +945,14 @@ async function loadTrainingEvidence(args: {
     .from('training_modules')
     .select('id,title,category')
     .in('id', moduleIds)
-    .limit(200);
+    .limit(201);
+  const modulesTruncated = !moduleResult.error && (moduleResult.data?.length || 0) >= 201;
 
   return {
     assignments,
-    modules: moduleResult.error ? [] as TrainingModuleEvidenceRow[] : (moduleResult.data || []) as TrainingModuleEvidenceRow[],
-    error: moduleResult.error?.message || '',
+    modules: moduleResult.error || modulesTruncated ? [] as TrainingModuleEvidenceRow[] : (moduleResult.data || []) as TrainingModuleEvidenceRow[],
+    error: moduleResult.error?.message
+      || (modulesTruncated ? 'training_modules_truncated: more than 200 referenced modules matched; development evidence is incomplete' : ''),
   };
 }
 
@@ -1169,6 +1187,7 @@ async function loadInventoryEvidence(args: {
   staffId: string;
   startDate: string;
   endDateExclusive: string;
+  branch?: string | null;
 }) {
   const anchors = cycleWeekAnchors(args.startDate, args.endDateExclusive);
 
@@ -1176,7 +1195,7 @@ async function loadInventoryEvidence(args: {
     anchors.map(async (anchor) => {
       const { data, error } = await supabase.rpc('get_branch_inventory_weekly_progress_v1', {
         p_anchor_date: anchor,
-        p_branch: null,
+        p_branch: args.branch || null,
       });
       if (error) return { rows: [] as InventoryWeeklyProgressRow[], error: error.message };
       return {
@@ -1192,15 +1211,15 @@ async function loadInventoryEvidence(args: {
     .from('stagnant_medicines')
     .select('id,responsible_doctor_id,total_quantity,quantity_available,target_min_percent,minimum_remaining_percent,target_min_quantity,status')
     .eq('responsible_doctor_id', args.staffId)
-    .limit(500);
+    .limit(501);
 
   const stagnantMovementPromise = supabase
     .from('stagnant_medicine_dispenses')
     .select('id,stagnant_medicine_id,medicine_id,doctor_id,quantity,dispensed_at')
     .eq('doctor_id', args.staffId)
-    .gte('dispensed_at', args.startDate)
-    .lt('dispensed_at', args.endDateExclusive)
-    .limit(1000);
+    .gte('dispensed_at', cairoDateBoundaryIso(args.startDate))
+    .lt('dispensed_at', cairoDateBoundaryIso(args.endDateExclusive))
+    .limit(1001);
 
   const [weeklyResults, stagnantAssignedResult, stagnantMovementResult] = await Promise.all([
     weeklyPromise,
@@ -1208,6 +1227,10 @@ async function loadInventoryEvidence(args: {
     stagnantMovementPromise,
   ]);
 
+  const inventoryTruncationErrors = [
+    (stagnantAssignedResult.data?.length || 0) >= 501 ? 'stagnant_assignments_truncated: more than 500 assigned stagnant items matched; inventory evidence is incomplete' : '',
+    (stagnantMovementResult.data?.length || 0) >= 1001 ? 'stagnant_movements_truncated: more than 1000 stagnant movement rows matched this cycle; inventory evidence is incomplete' : '',
+  ].filter(Boolean);
   const weeklyErrors = weeklyResults.map((item) => item.error).filter(Boolean);
   const weeklyRowsByWeek = new Map<string, InventoryWeeklyProgressRow>();
   weeklyResults
@@ -1224,10 +1247,10 @@ async function loadInventoryEvidence(args: {
   const weeklyRows = [...weeklyRowsByWeek.values()];
   const allAssignedRows = stagnantAssignedResult.error
     ? []
-    : (stagnantAssignedResult.data || []) as StagnantMedicineEvidenceRow[];
+    : (stagnantAssignedResult.data || []).slice(0, 500) as StagnantMedicineEvidenceRow[];
   const movementRows = stagnantMovementResult.error
     ? []
-    : (stagnantMovementResult.data || []) as StagnantMovementEvidenceRow[];
+    : (stagnantMovementResult.data || []).slice(0, 1000) as StagnantMovementEvidenceRow[];
 
   const movedByMedicine = new Map<string, number>();
   movementRows.forEach((row) => {
@@ -1252,7 +1275,7 @@ async function loadInventoryEvidence(args: {
   });
 
   const weeklyAvailable = weeklyErrors.length < anchors.length;
-  const stagnantAvailable = !stagnantAssignedResult.error && !stagnantMovementResult.error;
+  const stagnantAvailable = !stagnantAssignedResult.error && !stagnantMovementResult.error && inventoryTruncationErrors.length === 0;
 
   return {
     weeklyRows,
@@ -1268,6 +1291,7 @@ async function loadInventoryEvidence(args: {
         : 'unavailable' as const,
     errors: [
       ...weeklyErrors,
+      ...inventoryTruncationErrors,
       stagnantAssignedResult.error?.message || '',
       stagnantMovementResult.error?.message || '',
     ].filter(Boolean),
@@ -1389,18 +1413,20 @@ async function loadConversationReviews(args: {
   startDate: string;
   endDateExclusive: string;
 }) {
+  const startAt = cairoDateBoundaryIso(args.startDate);
+  const endAt = cairoDateBoundaryIso(args.endDateExclusive);
   const dateFilter =
-    `and(conversation_date.gte.${args.startDate},conversation_date.lt.${args.endDateExclusive}),`
-    + `and(conversation_date.is.null,created_at.gte.${args.startDate},created_at.lt.${args.endDateExclusive})`;
+    `and(conversation_date.gte.${startAt},conversation_date.lt.${endAt}),`
+    + `and(conversation_date.is.null,created_at.gte.${startAt},created_at.lt.${endAt})`;
 
   const makeQuery = (column: 'staff_id' | 'doctor_id') =>
     supabase
-      .from('conversation_sales_reviews')
+      .from('conversation_sales_reviews_canonical_v2')
       .select(REVIEW_SELECT)
       .eq(column, args.staffId)
       .or(dateFilter)
       .order('created_at', { ascending: false })
-      .limit(500);
+      .limit(501);
 
   const [byStaff, byDoctor] = await Promise.all([
     makeQuery('staff_id'),
@@ -1414,8 +1440,9 @@ async function loadConversationReviews(args: {
     };
   }
 
+  const conversationRowsTruncated = (byStaff.data?.length || 0) >= 501 || (byDoctor.data?.length || 0) >= 501;
   const unique = new Map<string, Record<string, unknown>>();
-  [...(byStaff.data || []), ...(byDoctor.data || [])].forEach((row) => {
+  [...(byStaff.data || []).slice(0, 500), ...(byDoctor.data || []).slice(0, 500)].forEach((row) => {
     const record = row as Record<string, unknown>;
     const key = text(record.id) || `${text(record.created_at)}:${unique.size}`;
     unique.set(key, record);
@@ -1423,8 +1450,36 @@ async function loadConversationReviews(args: {
 
   return {
     rows: [...unique.values()],
-    error: byStaff.error?.message || byDoctor.error?.message || '',
+    error: conversationRowsTruncated
+      ? 'conversation_reviews_truncated: more than 500 review rows matched one identity path; monthly evidence is incomplete'
+      : byStaff.error?.message || byDoctor.error?.message || '',
   };
+}
+
+/**
+ * Branch-wide conversation review rows for peer comparison, read through the same canonical view and
+ * select list as the monthly evidence. Bounded by branch, date window and an explicit limit; a truncated
+ * or failed read is reported, never returned as a complete empty set.
+ */
+export async function loadBranchConversationReviewRows(args: {
+  branch: string;
+  startDate: string;
+  endDateExclusive: string;
+}): Promise<{ rows: Record<string, unknown>[]; error: string }> {
+  const startAt = cairoDateBoundaryIso(args.startDate);
+  const endAt = cairoDateBoundaryIso(args.endDateExclusive);
+  const limit = 3000;
+  const { data, error } = await supabase
+    .from('conversation_sales_reviews_canonical_v2')
+    .select(REVIEW_SELECT)
+    .eq('branch', args.branch)
+    .or(`and(conversation_date.gte.${startAt},conversation_date.lt.${endAt}),and(conversation_date.is.null,created_at.gte.${startAt},created_at.lt.${endAt})`)
+    .order('created_at', { ascending: false })
+    .limit(limit + 1);
+  if (error) return { rows: [], error: error.message || 'branch_conversation_reviews_unavailable' };
+  const rows = (data || []) as unknown as Record<string, unknown>[];
+  if (rows.length > limit) return { rows: [], error: 'branch_conversation_reviews_truncated' };
+  return { rows, error: '' };
 }
 
 /**
@@ -1438,25 +1493,70 @@ export async function loadEmployeeMonthlyEvidence(args: {
   staffId: string;
   startDate: string;
   endDateExclusive: string;
+  role?: unknown;
+  branch?: string | null;
 }): Promise<EmployeeMonthlyEvidence> {
   const errors: Record<string, string> = {};
+  const role = canonicalStaffRole(args.role);
+  const inventoryRoles = new Set(['doctor', 'assistant', 'inventory_assistant', 'purchasing']);
+  const needsInventoryEvidence = inventoryRoles.has(role);
+  const needsInvoicePerformance = role === 'doctor';
+  const attendanceRoles = new Set(['doctor', 'assistant', 'inventory_assistant', 'delivery', 'customer_service', 'shift_supervisor']);
+  const needsAttendanceEvidence = attendanceRoles.has(role);
+  // Development is shared by all role profiles, so training remains canonical for every role.
+  // Task evidence is only useful for roles whose axes can consume task/operational projection.
+  const taskEvidenceRoles = new Set(['assistant','inventory_assistant','delivery','customer_service','customer_service_manager','shift_supervisor','branch_manager','branches_manager','purchasing','executive']);
+  const needsTaskEvidence = taskEvidenceRoles.has(role);
+  const emptyInventoryEvidence = {
+    weeklyRows: [],
+    assignedRows: [],
+    movementRows: [],
+    configuredTargets: [],
+    achievedTargets: [],
+    historicalAssignedExcluded: 0,
+    sourceStatus: 'unavailable' as const,
+    errors: [],
+  };
+  const emptyInvoicePerformance = { row: null, error: '' };
+  const emptyFollowupResult = { data: [] as Record<string, unknown>[], error: null };
+  // Keep these aligned with sectionEvidenceFor(): delivery.customer consumes conversation
+  // evidence, while purchasing.customer_requests consumes follow-up evidence.
+  const conversationRoles = new Set(['doctor', 'delivery', 'customer_service']);
+  const followupRoles = new Set(['doctor', 'customer_service', 'purchasing']);
+  const needsConversationEvidence = conversationRoles.has(role);
+  const needsFollowupEvidence = followupRoles.has(role);
 
-  const [reviewResult, followupResult, attendanceResult, attendanceImpactResult, inventoryResult, trainingResult, invoicePerformanceResult] = await Promise.all([
-    loadConversationReviews(args),
-    supabase
-      .from('daily_followups')
-      .select('id,status,followup_status,followup_result,followup_summary,notes,completed_at,closed_at,needs_next_followup,next_followup_date,purchase_after_followup,created_at,assigned_staff_id,requested_by_staff_id')
-      .or(`assigned_staff_id.eq.${args.staffId},requested_by_staff_id.eq.${args.staffId}`)
-      .gte('created_at', args.startDate)
-      .lt('created_at', args.endDateExclusive)
-      .limit(1000),
-    readAttendanceRange({
+  const taskEvidencePromise: Promise<EvaluationMetricProjection | null> = needsTaskEvidence && args.branch && args.role
+    ? readPerformanceTaskEvidence({
+        staffId: args.staffId,
+        branch: args.branch,
+        role,
+        start: args.startDate,
+        end: new Date(new Date(args.endDateExclusive).getTime() - 86400000).toISOString().slice(0,10),
+      }).catch((cause) => {
+        errors.taskEvidence = cause instanceof Error ? cause.message : String(cause);
+        return null;
+      })
+    : Promise.resolve(null);
+
+  const [reviewResult, followupResult, attendanceResult, attendanceImpactResult, inventoryResult, trainingResult, invoicePerformanceResult, taskEvaluation] = await Promise.all([
+    needsConversationEvidence ? loadConversationReviews(args) : Promise.resolve({ rows: [] as Record<string, unknown>[], error: '' }),
+    needsFollowupEvidence ? supabase
+      .from('customer_followup_operations_v2')
+      .select('id,status,followup_status,followup_result,followup_summary,notes,completed_at,closed_at,needs_next_followup,next_followup_date,purchase_after_followup,created_at,staff_id,assigned_staff_id,requested_by_staff_id,assigned_to_staff_id,handled_by_staff_id,is_hidden,archived_at')
+      .or(`staff_id.eq.${args.staffId},assigned_staff_id.eq.${args.staffId},requested_by_staff_id.eq.${args.staffId},assigned_to_staff_id.eq.${args.staffId},handled_by_staff_id.eq.${args.staffId}`)
+      .eq('is_hidden', false)
+      .is('archived_at', null)
+      .gte('created_at', cairoDateBoundaryIso(args.startDate))
+      .lt('created_at', cairoDateBoundaryIso(args.endDateExclusive))
+      .limit(1001) : Promise.resolve(emptyFollowupResult),
+    needsAttendanceEvidence ? readAttendanceRange({
       staffId: args.staffId,
       startDate: args.startDate,
       endDateExclusive: args.endDateExclusive,
       limit: 400,
-    }),
-    listAttendanceImpactLedger({
+    }) : Promise.resolve({ status: 'available' as const, rows: [], error: '' }),
+    needsAttendanceEvidence ? listAttendanceImpactLedger({
       staffId: args.staffId,
       start: args.startDate,
       end: new Date(new Date(args.endDateExclusive).getTime() - 86400000).toISOString().slice(0, 10),
@@ -1464,21 +1564,35 @@ export async function loadEmployeeMonthlyEvidence(args: {
     }).then((rows) => ({ rows, error: '' })).catch((cause) => ({
       rows: [] as AttendanceImpactRow[],
       error: cause instanceof Error ? cause.message : String(cause),
+    })) : Promise.resolve({ rows: [] as AttendanceImpactRow[], error: '' }),
+    needsInventoryEvidence ? loadInventoryEvidence(args).catch((cause) => ({
+      ...emptyInventoryEvidence,
+      errors: [cause instanceof Error ? cause.message : String(cause)],
+    })) : Promise.resolve(emptyInventoryEvidence),
+    loadTrainingEvidence(args).catch((cause) => ({
+      assignments: [] as TrainingAssignmentEvidenceRow[],
+      modules: [] as TrainingModuleEvidenceRow[],
+      error: cause instanceof Error ? cause.message : String(cause),
     })),
-    loadInventoryEvidence(args),
-    loadTrainingEvidence(args),
-    loadInvoicePerformanceEvidence(args),
+    needsInvoicePerformance ? loadInvoicePerformanceEvidence(args).catch((cause) => ({
+      row: null,
+      error: cause instanceof Error ? cause.message : String(cause),
+    })) : Promise.resolve(emptyInvoicePerformance),
+    taskEvidencePromise,
   ]);
 
   const reviewRows = reviewResult.rows;
-  if (reviewResult.error && !reviewRows.length) errors.reviews = reviewResult.error;
+  if (reviewResult.error) errors.reviews = reviewResult.error;
 
-  const followupRows = followupResult.error ? [] : followupResult.data || [];
+  const followupTruncated = !followupResult.error && (followupResult.data?.length || 0) >= 1001;
+  const followupRows = followupResult.error ? [] : (followupResult.data || []).slice(0, 1000);
   if (followupResult.error) errors.followups = followupResult.error.message;
+  if (followupTruncated) errors.followups = 'followups_truncated: more than 1000 follow-up rows matched this cycle; monthly evidence is incomplete';
 
-  const attendanceRows = attendanceResult.status === 'available' ? attendanceResult.rows : [];
-  if (attendanceResult.status === 'unavailable') errors.attendance = attendanceResult.error;
-  if (attendanceImpactResult.error && attendanceResult.status === 'unavailable') {
+  const attendanceRows = attendanceResult.status === 'unavailable' ? [] : attendanceResult.rows;
+  if (attendanceResult.status !== 'available') errors.attendance = attendanceResult.error;
+  // The impact ledger carries the lateness/absence cases: losing it while daily rows load must not read as a clean month.
+  if (attendanceImpactResult.error) {
     errors.attendance = [errors.attendance, attendanceImpactResult.error].filter(Boolean).join(' | ');
   }
 
@@ -1508,9 +1622,15 @@ export async function loadEmployeeMonthlyEvidence(args: {
 
   const reviewAvailable = !errors.reviews;
   const health = {
-    reviews: reviewAvailable ? 'available' as const : 'unavailable' as const,
-    followups: followupResult.error ? 'unavailable' as const : 'available' as const,
-    attendance: attendanceResult.status,
+    reviews: needsConversationEvidence
+      ? (reviewAvailable ? 'available' as const : 'unavailable' as const)
+      : 'available' as const,
+    followups: needsFollowupEvidence
+      ? (followupResult.error || followupTruncated ? 'unavailable' as const : 'available' as const)
+      : 'available' as const,
+    attendance: needsAttendanceEvidence
+      ? (attendanceResult.status === 'available' && attendanceImpactResult.error ? 'partial' as const : attendanceResult.status)
+      : 'available' as const,
   };
 
   const conversationCoaching = buildConversationCoaching(reviewRows);
@@ -1536,6 +1656,7 @@ export async function loadEmployeeMonthlyEvidence(args: {
       salesQuality: buildSalesQualityCoaching(conversationCoaching, invoicePerformanceResult),
     },
     health,
+    taskEvaluation,
     ready:
       health.reviews === 'available' &&
       health.followups === 'available' &&

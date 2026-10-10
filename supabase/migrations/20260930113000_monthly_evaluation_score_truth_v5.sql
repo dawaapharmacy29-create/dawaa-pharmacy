@@ -437,6 +437,8 @@ begin
     'overall_score',new.overall_score,
     'grade',new.grade,
     'active_critical_gates',coalesce(new.metrics_snapshot->'active_critical_gates','[]'::jsonb),
+    'axis_evidence_snapshot',coalesce(new.metrics_snapshot->'axis_evidence_snapshot','[]'::jsonb),
+    'points_truth',new.metrics_snapshot->'points_truth',
     'server_evidence',v_evidence,
     'coaching_snapshot',new.metrics_snapshot->'coaching_snapshot',
     'employee_feedback_draft',new.metrics_snapshot->'employee_feedback_draft',

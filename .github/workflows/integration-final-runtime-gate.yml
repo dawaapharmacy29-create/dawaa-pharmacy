@@ -1,0 +1,79 @@
+name: Integration Final Runtime Gate
+
+on:
+  push:
+    branches:
+      - integration/performance-attendance-20261009
+  workflow_dispatch:
+
+concurrency:
+  group: integration-final-runtime-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: Environment doctor
+        run: npm run doctor
+
+      - name: Full repository tests
+        run: npm run test
+
+      - name: Runtime architecture guards
+        run: |
+          node scripts/check-db-authorization-architecture.cjs
+          node scripts/check-verified-session-identity.cjs
+          node scripts/check-attendance-canonical-architecture.cjs
+          node scripts/check-attendance-resolution-v2-architecture.cjs
+          node scripts/check-attendance-review-triage-contract.cjs
+          node scripts/check-attendance-command-center-contract-wiring.cjs
+          node scripts/check-payroll-transparency-v1.cjs
+          node scripts/check-monthly-evaluation-v5-architecture.cjs
+          node scripts/check-final-evaluation-architecture.cjs
+          node scripts/check-runtime-sensitive-finalization-guards.cjs
+
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: Verify checks are source-pure
+        run: |
+          if ! git diff --quiet; then
+            echo "Runtime tests or architecture guards changed tracked source files."
+            git status --short
+            git diff --stat
+            git diff
+            exit 1
+          fi
+
+      - name: Production build
+        run: npm run build
+
+      - name: Runtime performance budget
+        run: npm run perf:budget
+
+      - name: Verify build is source-pure
+        run: |
+          if ! git diff --quiet; then
+            echo "Production build changed tracked repository files."
+            git status --short
+            git diff --stat
+            git diff
+            exit 1
+          fi
