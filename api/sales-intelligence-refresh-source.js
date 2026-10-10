@@ -2008,6 +2008,7 @@ function buildPharmacyProductIndex(catalog) {
 var CROSS_SCRIPT_SEED = /* @__PURE__ */ new Map([
   ["\u0632\u0648\u0631\u0643\u0627\u0644", "zurcal"],
   ["\u0627\u0646\u062A\u064A\u0646\u0627\u0644", "antinal"],
+  ["\u0628\u0627\u0646\u0627\u062F\u0648\u0644 \u0627\u0643\u0633\u062A\u0631\u0627", "panadol extra"],
   ["\u0628\u0627\u0645\u0628\u0631\u0632", "pampers"],
   ["\u0643\u0648\u0631\u064A\u063A\u0627", "corega"],
   ["\u0643\u0648\u0631\u064A\u062C\u0627", "corega"],
@@ -13777,6 +13778,14 @@ function supabaseProjectRefFromUrl(value) {
   const match = /^https:\/\/([a-z0-9]{20})\.supabase\.co\/?$/i.exec(String(value || "").trim());
   return match ? match[1].toLowerCase() : null;
 }
+function isLoopbackUrl(value) {
+  try {
+    const parsed = new URL(String(value || "").trim());
+    return ["localhost", "127.0.0.1", "::1", "[::1]"].includes(parsed.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
 function jwtPayload(value) {
   const parts = String(value || "").trim().split(".");
   if (parts.length !== 3) return null;
@@ -13800,9 +13809,11 @@ function clientExposedSecrets(env) {
 }
 function environmentOf(env) {
   const vercel = String(env.VERCEL_ENV || "").trim().toLowerCase();
+  const declared = String(env.DAWAA_DEPLOY_ENV || "").trim().toLowerCase();
+  if (vercel === "development" && declared === "local")
+    return { environment: "local", enforced: true };
   if (vercel === "production" || vercel === "preview" || vercel === "development")
     return { environment: vercel, enforced: true };
-  const declared = String(env.DAWAA_DEPLOY_ENV || "").trim().toLowerCase();
   if (declared === "production" || declared === "preview" || declared === "development" || declared === "local") {
     return { environment: declared, enforced: true };
   }
@@ -13875,6 +13886,10 @@ function evaluateDeployEnvironment(env) {
       errors.push(
         `${name} points to the production project; local must use a local or test database`
       );
+    for (const name of URL_VARS) {
+      if (env[name] && !isLoopbackUrl(env[name]))
+        errors.push(`${name} must be a loopback URL when DAWAA_DEPLOY_ENV=local`);
+    }
   } else if (pointsAtProduction.length) {
     warnings.push(
       `local run points to the production project (${pointsAtProduction.join(", ")}); set DAWAA_DEPLOY_ENV=local to enforce isolation`
@@ -13992,12 +14007,12 @@ async function handler(req, res) {
       dryRun: false
     });
   } catch (error) {
+    const message = error instanceof Error ? error.message : error && typeof error === "object" && "message" in error && typeof error.message === "string" ? error.message : String(error);
     console.error("[sales-intelligence-refresh-source] canonical refresh failed", {
       ...page,
-      message: error instanceof Error ? error.message : String(error),
+      message,
       stack: error instanceof Error ? error.stack : null
     });
-    const message = error instanceof Error ? error.message : String(error);
     return json(res, 500, {
       error: message.startsWith("canonical_source_gate_") ? "canonical_source_gate_lookup_failed" : "canonical_refresh_failed",
       detail: message

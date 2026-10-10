@@ -17,6 +17,8 @@ const ROWS: RawProductRow[] = [
   { id: 'p-antinal-susp', name: 'ANTINAL SUSP', product_code: '4608', normalized_name: 'antinal susp', category: null, price: 45, source: 'catalog_import' },
   { id: 'p-flexilax', name: 'Flexilax 30 tabs', product_code: '68114', normalized_name: 'flexilax 30 tabs', category: null, price: 55, source: 'catalog_import' },
   { id: 'p-teenderm-sensitive', name: 'ISIS TEEN DERM GEL SENSITIVE 250ML', product_code: '70271', normalized_name: 'isis teen derm gel sensitive 250ml', category: null, price: 420, source: 'catalog_import' },
+  { id: 'p-panadol-extra-24', name: 'Panadol Extra 24 tabs', product_code: 'SYN-PANADOL-EXTRA-24', normalized_name: 'panadol extra 24 tabs', category: null, price: null, source: 'synthetic_local_smoke' },
+  { id: 'p-panadol-extra-48', name: 'Panadol Extra 48 tabs', product_code: 'SYN-PANADOL-EXTRA-48', normalized_name: 'panadol extra 48 tabs', category: null, price: null, source: 'synthetic_local_smoke' },
 ];
 
 const CATALOG = catalogFrom(ROWS);
@@ -47,6 +49,16 @@ describe('resolveProductMention — match basis hierarchy', () => {
   it('5. resolves via the cross-script seed table (Arabic -> Latin catalog token)', () => {
     const result = resolveProductMention('عايز فليكسيلاكس', INDEX);
     expect(result.candidates.some((c) => c.product.productId === 'p-flexilax' && c.basis === 'cross_script_equivalent')).toBe(true);
+  });
+
+  it('5b. returns all Panadol Extra variants for the Arabic brand mention without choosing a pack size', () => {
+    const result = resolveProductMention('بانادول اكسترا', INDEX);
+    expect(result.candidates.map((candidate) => candidate.product.productId)).toEqual(
+      expect.arrayContaining(['p-panadol-extra-24', 'p-panadol-extra-48'])
+    );
+    expect(result.candidates.every((candidate) => candidate.basis === 'cross_script_equivalent')).toBe(true);
+    expect(result.selected).toBeNull();
+    expect(result.ambiguous).toBe(true);
   });
 
   it('6. strongly resolves a joined brand spelling when the dominant catalog name is uniquely covered', () => {

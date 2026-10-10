@@ -19,6 +19,18 @@ create table public.staff_login_sessions (
   last_used_at timestamptz, revoked_at timestamptz);
 create table public.staff (id uuid primary key, name text, role text, branch text, branch_id uuid, active boolean, is_active boolean);
 
+-- The product catalog is a production-owned base table referenced by canonical SI's catalog reader.
+create table public.products (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  product_code text,
+  normalized_name text,
+  category text,
+  price numeric,
+  source text,
+  updated_at timestamp without time zone default now()
+);
+
 create table public.customers (
   id uuid primary key, customer_code text, effective_customer_code text, code text, name text, display_name text,
   customer_name text, branch text, effective_branch text, is_duplicate boolean, normalized_phone text, phone text,

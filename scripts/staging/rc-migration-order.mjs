@@ -197,4 +197,15 @@ export const RC_MIGRATIONS = [
       noClientExecute('dawaa_sync_whatsapp_story_reengagement_events_v16(uuid)'),
       noClientExecute('dawaa_refresh_whatsapp_customer_story_v16(uuid)')],
   },
+  {
+    order: 21, file: '20261010110000_whatsapp_customer_case_v22_envelope_rls_v1.sql', after: [19],
+    objects: 'branch-scoped browser V22 envelope SELECT/INSERT/UPDATE policies; trigger-enforced envelope-only browser writes; canonical proof fields remain server-owned',
+    mutatesData: 'no', lockRisk: 'low: policy and grants only',
+    reversal: 'drop the three policies and browser write-guard trigger/function; revoke browser table grants',
+    assertions: [
+      sql('V22 case graph row security enabled', `select relrowsecurity from pg_class where oid='public.whatsapp_customer_cases_v22'::regclass`, 't'),
+      sql('V22 case graph has scoped browser policies', `select count(*) = 3 from pg_policies where schemaname='public' and tablename='whatsapp_customer_cases_v22' and policyname like 'whatsapp_customer_case_v22_%_v1'`, 't'),
+      trigger('whatsapp_customer_case_v22_browser_write_guard_v1', 'whatsapp_customer_cases_v22'),
+    ],
+  },
 ];

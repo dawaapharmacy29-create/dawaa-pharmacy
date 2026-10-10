@@ -82,6 +82,8 @@ console.log('PASS reset local public schema');
 for (const file of ['10_production_tables.sql', '15_canonical_si_schema.sql', '20_production_only_objects.sql', '30_session_helpers.sql']) {
   apply(`staging ${file}`, read(`supabase/staging/${file}`));
 }
+apply('WhatsApp Journey V15 source-scoped RLS', read('supabase/staging/35_whatsapp_customer_journey_v15_rls.sql'));
+apply('WhatsApp Story V16 branch-scoped RLS', read('supabase/staging/36_whatsapp_customer_story_v16_rls.sql'));
 
 const liveDefs = JSON.parse(read('docs/si-operational-audit-20261009/followup-core-live-definitions.json'));
 const liveDef = (prefix) => {

@@ -103,6 +103,7 @@ export function buildPharmacyProductIndex(catalog: CanonicalProduct[]): Pharmacy
 export const CROSS_SCRIPT_SEED: ReadonlyMap<string, string> = new Map([
   ['زوركال', 'zurcal'],
   ['انتينال', 'antinal'],
+  ['بانادول اكسترا', 'panadol extra'],
   ['بامبرز', 'pampers'],
   ['كوريغا', 'corega'],
   ['كوريجا', 'corega'],

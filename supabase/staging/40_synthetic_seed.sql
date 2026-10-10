@@ -12,6 +12,11 @@ insert into public.customers (id, customer_code, name, phone, mobile, branch) va
   ('00000000-0000-4000-8000-0000000000c1', 'SYN-C1', 'Synthetic Customer One', '01000000001', '01000000001', 'فرع شكري'),
   ('00000000-0000-4000-8000-0000000000c2', 'SYN-C2', 'Synthetic Customer Two', '01000000002', '01000000002', 'فرع الشامي');
 
+-- Synthetic catalog rows exercise Arabic brand resolution without copying Production product data.
+insert into public.products (id, name, product_code, normalized_name, category, price, source) values
+  ('00000000-0000-4000-8000-0000000000f1', 'Panadol Extra 24 tabs', 'SYN-PANADOL-EXTRA-24', 'panadol extra 24 tabs', null, null, 'synthetic_local_smoke'),
+  ('00000000-0000-4000-8000-0000000000f2', 'Panadol Extra 48 tabs', 'SYN-PANADOL-EXTRA-48', 'panadol extra 48 tabs', null, null, 'synthetic_local_smoke');
+
 insert into public.whatsapp_review_sources (id, staff_id, branch, source_filename, customer_id, source_hash) values
   ('00000000-0000-4000-8000-000000000051', '00000000-0000-4000-8000-0000000000a1', 'فرع شكري', 'synthetic-chat-1.txt', '00000000-0000-4000-8000-0000000000c1', 'synthetic-source-1'),
   ('00000000-0000-4000-8000-000000000052', '00000000-0000-4000-8000-0000000000a3', 'فرع الشامي', 'synthetic-chat-2.txt', '00000000-0000-4000-8000-0000000000c2', 'synthetic-source-2');

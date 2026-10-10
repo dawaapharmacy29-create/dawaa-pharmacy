@@ -176,12 +176,17 @@ export default async function handler(req: any, res: any) {
       dryRun: false,
     });
   } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : error && typeof error === 'object' && 'message' in error && typeof error.message === 'string'
+          ? error.message
+          : String(error);
     console.error('[sales-intelligence-refresh-source] canonical refresh failed', {
       ...page,
-      message: error instanceof Error ? error.message : String(error),
+      message,
       stack: error instanceof Error ? error.stack : null,
     });
-    const message = error instanceof Error ? error.message : String(error);
     return json(res, 500, {
       error: message.startsWith('canonical_source_gate_')
         ? 'canonical_source_gate_lookup_failed'
