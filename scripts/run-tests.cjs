@@ -218,6 +218,7 @@ const testFiles = [
   'src/lib/evaluations/__tests__/doctorDecisionIntelligence.test.ts',
   'src/lib/evaluations/__tests__/decisionSourceState.test.ts',
   'src/lib/evaluations/__tests__/doctorDecisionDataCache.test.ts',
+  'src/lib/evaluations/__tests__/managerEvaluationService.test.ts',
   'src/lib/attendance/__tests__/attendanceCommandCenterInFlight.test.ts',
   'src/lib/hr/__tests__/payrollRequestCoordinator.test.ts',
   'src/lib/evaluations/__tests__/doctorEyeChartModel.test.ts',

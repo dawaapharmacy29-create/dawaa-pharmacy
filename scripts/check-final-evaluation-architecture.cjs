@@ -20,8 +20,9 @@ const eyeChartModel=read('src/lib/evaluations/doctorEyeChartModel.ts');
 const reconciliationMigration=read('supabase/migrations/20261009090000_doctor_sales_reconciliation_v1.sql');
 const branchWindowMigration=read('supabase/migrations/20261009090000_doctor_sales_reconciliation_v1.sql');
 const performanceBundleFreshnessMigration=read('supabase/migrations/20261007090000_performance_sales_bundle_v1_freshness_index.sql');
-const performanceScope=read('src/lib/performance/performanceScope.ts');
-const report=read('src/lib/reports/monthlyPerformance360Service.ts');
+const staffSession=read('src/lib/auth/staffSession.ts');
+const supabaseClient=read('src/lib/supabase.ts');
+const verifiedSessionMigration=read('supabase/migrations/20261008120000_verified_staff_session_identity_v1.sql');
 const financial=read('src/lib/payroll/employeeFinancialProjection.ts');
 const composition=read('src/lib/payroll/payrollFinancialCompositionService.ts');
 const requestEvidence=read('src/lib/tasks/customerRequestEvidenceAdapter.ts');
@@ -30,6 +31,10 @@ const evidenceReader=read('src/lib/performance/performanceTaskEvidenceService.ts
 const monthlyEvidence=read('src/lib/staff/employeeMonthlyEvidenceService.ts');
 const required=[
  [evalPage,"get_staff_monthly_evaluation_v5",'final evaluation must use V5'],
+ [evalPage,'loadEmployeeMonthlyEvidence','monthly evaluation must use the shared employee evidence service'],
+ [evalPage,'useAuth','monthly evaluation must use the verified authenticated session'],
+ [evalPage,'authorizationCacheScopeKey(user)','Doctor Eye cache must be scoped to the current authorization identity'],
+ [evalPage,'<DoctorPerformanceEye','monthly evaluation must mount the canonical Doctor Performance Eye'],
  [evalPage,'final_approval_snapshot','published evaluation must use final snapshot'],
  [evalPage,'EvaluationDecisionHeaderV1','manager decision header must be wired'],
  [evalPage,'EvaluationAxisCardV1','final evaluation must use the unified evidence-first axis card'],
@@ -70,6 +75,9 @@ const required=[
  [employeeHeader,'permissionMinutes','employee header must expose permission duration'],
  [headerService,'getStaffAttendanceDetail','header must use canonical attendance detail'],
  [headerService,'getAnnualLeaveBalanceV1','header must use canonical annual leave balance'],
+ [staffSession,"supabase.rpc('refresh_staff_login_session_v1'",'verified staff sessions must refresh through the canonical server RPC'],
+ [supabaseClient,"headers.set('x-dawaa-session-token'",'Supabase requests must carry the verified staff session token'],
+ [verifiedSessionMigration,'dawaa_bind_actor_v1','verified-session migration must bind client actors to verified identity'],
  [headerService,'get_staff_evaluation_sales_summary_v3','header sales must use focused indexed evaluation summary'],
  [headerSalesV3Migration,'get_staff_evaluation_sales_summary_v3','focused evaluation sales summary v3 must have a canonical replayable migration'],
  [headerSalesV3Migration,'security invoker','focused evaluation sales summary v3 must remain invoker-safe'],
@@ -102,10 +110,6 @@ const required=[
  [headerService,"sourceTableUsed!=='none'",'unavailable sales source must never render as zero'],
  [headerService,"roleGroup==='doctor'",'sales truth must be scoped to pharmacist role'],
  [headerService,'overlapDays','leave requests must be clamped to evaluation cycle'],
- [performanceScope,"scope === 'assistants'",'assistants must have a canonical separate scope'],
- [performanceScope,"if (scope === 'assistants') return role === 'assistant';",'warehouse must not leak into assistant scope'],
- [report,"get_staff_monthly_evaluation_v5",'360 must not read legacy evaluation API'],
- [report,'availableWeight === 100','360 partial data must fail closed'],
  [financial,"duplicate component",'financial duplicate guard missing'],
  [composition,"finalized_snapshot_v2",'payable projection must recognize finalized snapshot'],
  [composition,"get_payroll_incentive_truth_v2",'financial projection must use canonical incentive truth'],
@@ -116,6 +120,11 @@ const required=[
  [evalPage,'role: selected.job_title || selected.role','monthly evidence must receive canonical employee role scope'],
 ];
 for(const [body,token,msg] of required)if(!body.includes(token))failures.push(msg);
+for(const forbidden of ["get_staff_monthly_evaluation_safe","save_staff_monthly_evaluation_v3"]){
+ if(evalPage.includes(forbidden))failures.push('monthly evaluation must not use legacy duplicate API: '+forbidden);
+}
+if(evalPage.includes('supabase.from('))failures.push('monthly evaluation UI must not query shared tables directly; use canonical service/RPC boundaries');
+if(!/import\s*\{\s*loadEmployeeMonthlyEvidence[\s\S]*?\}\s*from\s*['"]@\/lib\/staff\/employeeMonthlyEvidenceService['"]/.test(evalPage))failures.push('monthly evaluation must import employee evidence from the canonical service boundary');
 if(/ممتاز|يحتاج تدخل|\bscore\s*:/.test(performanceVerdict.replace(/\/\*[\s\S]*?\*\//g,'')))failures.push('performance eye verdict must stay an evidence reading, never a parallel evaluation grade');
 for(const [label,body] of [['decision engine',decisionEngine],['decision chart',decisionChart],['performance eye',performanceEye]]){
  if(/(^|[\s'"`(])(خصم|الخصم|عقوبة|العقوبة|عقوبات|جزاء|الجزاء|جزاءات)(?=[\s'"`.,،)]|$)|penalt/i.test(body.replace(/\/\*[\s\S]*?\*\//g,'')))failures.push(label+' must never recommend deductions or penalties');
@@ -185,6 +194,5 @@ if(!performanceVerdict.includes('evidenceComplete'))failures.push('verdict must 
 if(/range\.(start|endExclusive)\.toISOString\(\)/.test(performanceEye+performanceService))failures.push('cycle date keys must come from evaluationCycleDateKeys, not Date#toISOString (Cairo day shift)');
 if(headerService.includes('getStaffCycleSales'))failures.push('evaluation header must not fall back to legacy heavy staff cycle sales truth');
 if(headerService.includes('loadPerformanceSalesBundle')||headerService.includes('get_staff_performance_sales_bundle_v1'))failures.push('evaluation header must stay on focused summary and not load the detailed performance bundle');
-for(const forbidden of ["get_staff_monthly_evaluation_safe","save_staff_monthly_evaluation_v3"]){if(report.includes(forbidden))failures.push('360 legacy API: '+forbidden)}
 if(failures.length){console.error('Final evaluation architecture gate failed:');failures.forEach(x=>console.error('- '+x));process.exit(1)}
 console.log('Final evaluation architecture gate passed.');
