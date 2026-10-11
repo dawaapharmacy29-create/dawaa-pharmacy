@@ -19,6 +19,10 @@ const suites = [
     '../migrations/20261011173000_notification_sla_anon_session_read_v1.sql',
     '../migrations/20261011173100_dashboard_staff_ops_summary_accounts_v1.sql',
   ]],
+  ['notification_rls_latest_index_v1', [
+    '../migrations/20261003114500_notification_inbox_latest_lookup_v5.sql',
+    '../migrations/20261011190000_notifications_inbox_canonical_latest_tiebreak_v1.sql',
+  ], false, 'notifications_inbox_canonical_latest_v5_idx'],
 ];
 try {
   for (const [name, migrations, stagingPolicies = false] of suites) {
@@ -30,6 +34,10 @@ try {
     for (const file of [`supabase/tests/${name}.fixture.sql`, ...policyFiles, `supabase/tests/${name}.test.sql`]) {
       const result = await runtime.execute(db, readSql(file));
       if (result.code) throw new Error(`${file}: ${result.stderr}`);
+      if (file.endsWith('.test.sql') && name === 'notification_rls_latest_index_v1'
+          && !result.stdout.includes('notifications_inbox_canonical_latest_v5_idx')) {
+        throw new Error(`${name}: EXPLAIN did not use notifications_inbox_canonical_latest_v5_idx`);
+      }
     }
     console.log(`PASS ${name}: existing SQL authorization/RLS assertions`);
     await runtime.execute('postgres', `drop database ${db};`);

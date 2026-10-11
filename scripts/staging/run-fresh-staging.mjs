@@ -70,6 +70,7 @@ async function applyNotificationReadModel(db, lazy) {
     -- Production already grants anon SELECT on events; only its anon RLS policy is under test.
     grant select on public.notification_sla_events to anon;
   `, lazy);
+  await psql(db, read('supabase/migrations/20261003113000_notification_inbox_expression_indexes_v4.sql'), lazy);
 }
 
 // Captured Production bodies and repository bodies the migrations and the smoke checks rely on.

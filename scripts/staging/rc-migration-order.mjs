@@ -236,4 +236,16 @@ export const RC_MIGRATIONS = [
       sql('RPC preserves predicates and zero-valued fields', `select active_accounts=(select count(*) from public.staff_accounts where active=true and coalesce(can_login,true)=true) and disabled_accounts=(select count(*) from public.staff_accounts where active=false or coalesce(can_login,true)=false) and pending_time_off=0 and absences_today=0 and late_today=0 from public.get_dashboard_staff_ops_summary_v171()`, 't'),
     ],
   },
+  {
+    order: 24, file: '20261011190000_notifications_inbox_canonical_latest_tiebreak_v1.sql', after: [],
+    objects: 'additive partial expression index matching the canonical notification latest-row lookup including id::text tie-break',
+    mutatesData: 'no', lockRisk: 'medium: builds an index on notifications',
+    reversal: 'drop notifications_inbox_canonical_latest_v5_idx after confirming no Production plan depends on it',
+    assertions: [
+      sql('new canonical latest lookup index exists', `select to_regclass('public.notifications_inbox_canonical_latest_v5_idx') is not null`, 't'),
+      sql('existing canonical lookup index is preserved', `select to_regclass('public.notifications_inbox_canonical_lookup_v4_idx') is not null`, 't'),
+      sql('new index is partial to unarchived notifications', `select pg_get_expr(i.indpred,i.indrelid)='(archived_at IS NULL)' from pg_index i where i.indexrelid='public.notifications_inbox_canonical_latest_v5_idx'::regclass`, 't'),
+      sql('new index definition includes text UUID tie-break ordering', `select pg_get_indexdef('public.notifications_inbox_canonical_latest_v5_idx'::regclass) like '%((id)::text) DESC%' or pg_get_indexdef('public.notifications_inbox_canonical_latest_v5_idx'::regclass) like '%(id::text) DESC%'`, 't'),
+    ],
+  },
 ];

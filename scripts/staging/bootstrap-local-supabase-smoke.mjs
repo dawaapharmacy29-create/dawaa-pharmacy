@@ -104,6 +104,7 @@ const applyNotificationReadModel = () => {
   apply('Production-shaped notification SLA event read ACL', `
     grant select on public.notification_sla_events to anon;
   `);
+  apply('notification inbox expression indexes v4 baseline', read('supabase/migrations/20261003113000_notification_inbox_expression_indexes_v4.sql'));
 };
 
 console.log(`Local smoke bootstrap target: Docker container ${container}, database postgres`);
