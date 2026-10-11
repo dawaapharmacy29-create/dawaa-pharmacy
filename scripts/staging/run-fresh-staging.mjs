@@ -101,6 +101,8 @@ async function bootstrap(db) {
     'create or replace function public.dawaa_normalize_staff_name_v1', 'create or replace function public.dawaa_map_base44_branch_v1'), lazy);
   await psql(db, between(read('supabase/migrations/20261003193000_si_case_lifecycle_reconciliation_v1.sql'),
     'create or replace function public.sales_intelligence_reconcile_case_set_v1', 'create or replace view public.sales_intelligence_current_policy_evaluations'), lazy);
+  await psql(db, read('supabase/staging/37_whatsapp_opportunity_center_v22.sql'), lazy);
+  await psql(db, read('supabase/staging/38_whatsapp_sales_opportunities_v17_rls.sql'), lazy);
   await psql(db, read('supabase/staging/40_synthetic_seed.sql'));
 }
 
@@ -123,6 +125,51 @@ const step = (name, detail = 'ok') => { summary.steps.push({ name, detail }); co
 try {
   await bootstrap(db);
   step('bootstrap: platform shim, Production-shaped tables, Production-only objects, prerequisite bodies, synthetic seed');
+  assert.equal(await query(db, `select count(*) from pg_class where oid in (
+    'public.whatsapp_product_demand_monthly_v22'::regclass,
+    'public.whatsapp_sales_leakage_monthly_v22'::regclass,
+    'public.whatsapp_product_demand_unresolved_detail_v22'::regclass,
+    'public.whatsapp_product_demand_unresolved_v22'::regclass
+  ) and relkind='v' and not relrowsecurity`), '4', 'Opportunity Center views must exist as non-RLS views');
+  assert.equal(await query(db, `select count(*) from pg_proc where oid in (
+    'public.dawaa_cycle_start_26(date)'::regprocedure,
+    'public.dawaa_cycle_end_25(date)'::regprocedure
+  )`), '2', '26-to-25 cycle helpers must exist');
+  assert.equal(await query(db, `select relrowsecurity from pg_class where oid='public.whatsapp_sales_opportunities_v17'::regclass`), 't',
+    'V17 base relation must retain its production row-security boundary');
+  assert.equal(await query(db, `select count(*) from pg_policy where polrelid='public.whatsapp_sales_opportunities_v17'::regclass
+    and polname in ('whatsapp_sales_opportunities_v17_select','whatsapp_sales_opportunities_v17_insert','whatsapp_sales_opportunities_v17_update')`), '3',
+    'V17 source-scoped select/insert/update policies must be installed');
+  assert.equal(await query(db, `select count(*) from pg_attribute where attrelid='public.whatsapp_product_demand_monthly_v22'::regclass
+    and attname in ('cycle_start','cycle_end','branch','product_id','product_code','product_name','inquiry_opportunities','unique_customers',
+      'unavailable_count','accepted_or_later_count','acceptance_rate','conversation_verified_count') and not attisdropped`), '12',
+    'monthly demand view must expose the read-model contract used by the UI');
+  assert.equal(await query(db, `select count(*) from pg_attribute where attrelid='public.whatsapp_sales_leakage_monthly_v22'::regclass
+    and attname in ('cycle_start','cycle_end','branch','leakage_code','cases_count','unique_customers','unique_products','staff_attributed_cases')
+    and not attisdropped`), '8', 'monthly leakage view must expose the read-model contract used by the UI');
+  assert.equal(await query(db, `select count(*) from pg_attribute where attrelid='public.whatsapp_product_demand_unresolved_v22'::regclass
+    and attname in ('cycle_start','cycle_end','branch','unresolved_type','unresolved_mentions','conversations_affected') and not attisdropped`), '6',
+    'unresolved demand view must expose the read-model contract used by the UI');
+  assert.equal(await query(db, `select
+    position('whatsapp_sales_opportunities_v17' in pg_get_viewdef('public.whatsapp_product_demand_monthly_v22'::regclass)) > 0
+    and position('dawaa_cycle_start_26' in pg_get_viewdef('public.whatsapp_product_demand_monthly_v22'::regclass)) > 0
+    and position('dawaa_cycle_end_25' in pg_get_viewdef('public.whatsapp_sales_leakage_monthly_v22'::regclass)) > 0
+    and position('whatsapp_review_sources' in pg_get_viewdef('public.whatsapp_product_demand_unresolved_detail_v22'::regclass)) > 0
+    and position('whatsapp_operational_canonical_sources_v1' in pg_get_viewdef('public.whatsapp_product_demand_unresolved_detail_v22'::regclass)) > 0
+    and position('whatsapp_product_demand_unresolved_detail_v22' in pg_get_viewdef('public.whatsapp_product_demand_unresolved_v22'::regclass)) > 0`), 't',
+    'Opportunity Center read models must retain the supplied production dependency graph');
+  assert.equal(await query(db, `select public.dawaa_cycle_start_26('2026-10-25'::date) || '|' ||
+    public.dawaa_cycle_end_25('2026-10-25'::date) || '|' ||
+    public.dawaa_cycle_start_26('2026-10-26'::date) || '|' ||
+    public.dawaa_cycle_end_25('2026-10-26'::date)`), '2026-09-26|2026-10-25|2026-10-26|2026-11-25',
+    'cycle boundaries must match the application 26th-to-25th cycle');
+  assert.equal(await query(db, `select
+    (select count(*) from public.whatsapp_product_demand_monthly_v22) +
+    (select count(*) from public.whatsapp_sales_leakage_monthly_v22) +
+    (select count(*) from public.whatsapp_product_demand_unresolved_detail_v22) +
+    (select count(*) from public.whatsapp_product_demand_unresolved_v22)`), '0',
+    'schema parity must not invent Opportunity Center business rows');
+  step('Opportunity Center V22 views, cycle functions, and V17 RLS contract verified');
   const before = await query(db, DML_WATCH);
   const seededReady = await query(db, `select count(*) from whatsapp_conversation_actions where action_type='customer_request' and status='ready' and target_id is null`);
   assert.ok(Number(seededReady) > 0, 'seed must contain rows the historical DML would change');

@@ -146,6 +146,8 @@ apply('SI lifecycle reconciliation body', between(
   'create or replace function public.sales_intelligence_reconcile_case_set_v1',
   'create or replace view public.sales_intelligence_current_policy_evaluations'
 ));
+apply('local Opportunity Center V22 schema parity', read('supabase/staging/37_whatsapp_opportunity_center_v22.sql'));
+apply('local V17 source-scoped RLS parity', read('supabase/staging/38_whatsapp_sales_opportunities_v17_rls.sql'));
 
 apply('synthetic smoke seed', read('supabase/staging/40_synthetic_seed.sql'), { lazy: false });
 
