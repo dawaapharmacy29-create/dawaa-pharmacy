@@ -67,26 +67,8 @@ async function applyNotificationReadModel(db, lazy) {
     grant execute on function public.dawaa_notification_visible_to_current_user_v2(text,text,text,text,text,text) to anon, authenticated;
   `, lazy);
   await psql(db, `
-    alter table public.notification_sla_policies enable row level security;
-    revoke all on public.notification_sla_policies from anon, authenticated;
-    grant select on public.notification_sla_policies to anon, authenticated;
-    drop policy if exists notification_sla_policies_local_active_actor on public.notification_sla_policies;
-    create policy notification_sla_policies_local_active_actor
-      on public.notification_sla_policies for select to anon, authenticated
-      using (public.dawaa_current_staff_account_id_strict() is not null);
-    grant select on public.notification_sla_events to anon, authenticated;
-    revoke insert, update, delete on public.notification_sla_events from anon, authenticated;
-    drop policy if exists notification_sla_events_visible_v1 on public.notification_sla_events;
-    create policy notification_sla_events_visible_v1 on public.notification_sla_events
-      for select to anon, authenticated
-      using (exists (
-        select 1 from public.notifications n
-        where n.id = notification_sla_events.notification_id
-          and public.dawaa_notification_visible_to_current_user_v2(
-            n.recipient_user_id, n.user_id::text, n.recipient_staff_id,
-            n.staff_id, n.recipient_role, n.branch
-          )
-      ));
+    -- Production already grants anon SELECT on events; only its anon RLS policy is under test.
+    grant select on public.notification_sla_events to anon;
   `, lazy);
 }
 
@@ -294,13 +276,14 @@ try {
     }
     step(`migration ${m.order} ${m.file}`, `${m.assertions.length} post-checks`);
   }
-  await psql(db, 'grant select on public.notification_sla_policies to anon;');
   const anonymousDependencyProbe = await psql(db, `
     begin;
     set local role anon;
     select set_config('request.headers','{}',true);
     select
       (select count(*) from public.notification_events_v2)
+      + (select count(*) from public.notification_sla_policies)
+      + (select count(*) from public.notification_sla_events)
       + (select count(*) from public.shift_notes)
       + (select count(*) from public.staff_identity_aliases)
       + (select count(*) from public.customer_requests)

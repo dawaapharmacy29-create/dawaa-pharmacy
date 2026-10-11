@@ -208,4 +208,32 @@ export const RC_MIGRATIONS = [
       trigger('whatsapp_customer_case_v22_browser_write_guard_v1', 'whatsapp_customer_cases_v22'),
     ],
   },
+  {
+    order: 22, file: '20261011173000_notification_sla_anon_session_read_v1.sql', after: [],
+    objects: 'verified custom-session SELECT policy for anon on notification SLA policies and events; no notification_sla_events grant change',
+    mutatesData: 'no', lockRisk: 'low: grants and RLS policies only',
+    reversal: 'drop the two anon policies and revoke anon SELECT on notification_sla_policies',
+    assertions: [
+      sql('anon SELECT grant on SLA policies', `select has_table_privilege('anon','public.notification_sla_policies','select')`, 't'),
+      sql('no new anon SELECT grant on SLA events', `select has_table_privilege('anon','public.notification_sla_events','select')`, 't'),
+      policy('notification_sla_policies_anon_verified_staff_read_v1', 'notification_sla_policies'),
+      policy('notification_sla_events_anon_visible_v1', 'notification_sla_events'),
+      sql('anonymous SLA policy requires verified account', `select position('dawaa_current_staff_account_id_strict' in coalesce(pg_get_expr(polqual,polrelid),'')) > 0 from pg_policy where polname='notification_sla_policies_anon_verified_staff_read_v1'`, 't'),
+      sql('anonymous SLA event policy uses canonical visibility contract', `select position('dawaa_notification_visible_to_current_user_v2' in coalesce(pg_get_expr(polqual,polrelid),'')) > 0 from pg_policy where polname='notification_sla_events_anon_visible_v1'`, 't'),
+      sql('authenticated SLA read policies preserved', `select count(*)=2 from pg_policies where schemaname='public' and ((tablename='notification_sla_policies' and policyname='notification_sla_policies_authenticated_read_v2') or (tablename='notification_sla_events' and policyname='notification_sla_events_visible_v1')) and 'authenticated'=any(roles)`, 't'),
+    ],
+  },
+  {
+    order: 23, file: '20261011173100_dashboard_staff_ops_summary_accounts_v1.sql', after: [],
+    objects: 'dashboard staff account summary RPC reads canonical staff_accounts with the original predicates and return contract',
+    mutatesData: 'no', lockRisk: 'none: CREATE OR REPLACE function and ACL only',
+    reversal: 'restore the captured Production RPC body only after catalog review',
+    assertions: [
+      fn('get_dashboard_staff_ops_summary_v171()'),
+      sql('RPC no longer references retired permissions audit relation', `select position('dawaa_staff_permissions_audit_v166' in pg_get_functiondef('public.get_dashboard_staff_ops_summary_v171()'::regprocedure))=0`, 't'),
+      sql('RPC preserves SQL STABLE SECURITY DEFINER and pinned search_path', `select l.lanname='sql' and p.provolatile='s' and p.prosecdef and p.proconfig @> array['search_path=public'] from pg_proc p join pg_language l on l.oid=p.prolang where p.oid='public.get_dashboard_staff_ops_summary_v171()'::regprocedure`, 't'),
+      sql('RPC execute grants preserved for intended roles only', `select has_function_privilege('anon','public.get_dashboard_staff_ops_summary_v171()','execute') and has_function_privilege('authenticated','public.get_dashboard_staff_ops_summary_v171()','execute') and has_function_privilege('service_role','public.get_dashboard_staff_ops_summary_v171()','execute') and not exists (select 1 from aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a where p.oid='public.get_dashboard_staff_ops_summary_v171()'::regprocedure and a.grantee=0 and a.privilege_type='EXECUTE') from pg_proc p where p.oid='public.get_dashboard_staff_ops_summary_v171()'::regprocedure`, 't'),
+      sql('RPC preserves predicates and zero-valued fields', `select active_accounts=(select count(*) from public.staff_accounts where active=true and coalesce(can_login,true)=true) and disabled_accounts=(select count(*) from public.staff_accounts where active=false or coalesce(can_login,true)=false) and pending_time_off=0 and absences_today=0 and late_today=0 from public.get_dashboard_staff_ops_summary_v171()`, 't'),
+    ],
+  },
 ];

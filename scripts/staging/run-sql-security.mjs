@@ -15,6 +15,10 @@ const suites = [
   ['whatsapp_customer_journey_v15_rls', ['../staging/35_whatsapp_customer_journey_v15_rls.sql'], true],
   ['whatsapp_customer_story_v16_rls', ['../staging/36_whatsapp_customer_story_v16_rls.sql'], true],
   ['whatsapp_sales_opportunities_v17_rls', ['../staging/38_whatsapp_sales_opportunities_v17_rls.sql'], true],
+  ['production_read_contracts_v1', [
+    '../migrations/20261011173000_notification_sla_anon_session_read_v1.sql',
+    '../migrations/20261011173100_dashboard_staff_ops_summary_accounts_v1.sql',
+  ]],
 ];
 try {
   for (const [name, migrations, stagingPolicies = false] of suites) {

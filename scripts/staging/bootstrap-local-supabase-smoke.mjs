@@ -101,27 +101,8 @@ const applyNotificationReadModel = () => {
     grant execute on function public.dawaa_current_staff_id_v1() to anon, authenticated;
     grant execute on function public.dawaa_notification_visible_to_current_user_v2(text,text,text,text,text,text) to anon, authenticated;
   `);
-  apply('notification SLA local read grants and active-actor RLS', `
-    alter table public.notification_sla_policies enable row level security;
-    revoke all on public.notification_sla_policies from anon, authenticated;
-    grant select on public.notification_sla_policies to anon, authenticated;
-    drop policy if exists notification_sla_policies_local_active_actor on public.notification_sla_policies;
-    create policy notification_sla_policies_local_active_actor
-      on public.notification_sla_policies for select to anon, authenticated
-      using (public.dawaa_current_staff_account_id_strict() is not null);
-    grant select on public.notification_sla_events to anon, authenticated;
-    revoke insert, update, delete on public.notification_sla_events from anon, authenticated;
-    drop policy if exists notification_sla_events_visible_v1 on public.notification_sla_events;
-    create policy notification_sla_events_visible_v1 on public.notification_sla_events
-      for select to anon, authenticated
-      using (exists (
-        select 1 from public.notifications n
-        where n.id = notification_sla_events.notification_id
-          and public.dawaa_notification_visible_to_current_user_v2(
-            n.recipient_user_id, n.user_id::text, n.recipient_staff_id,
-            n.staff_id, n.recipient_role, n.branch
-          )
-      ));
+  apply('Production-shaped notification SLA event read ACL', `
+    grant select on public.notification_sla_events to anon;
   `);
 };
 
@@ -257,10 +238,6 @@ for (const migration of RC_MIGRATIONS) {
     }
   }
 }
-apply('local custom-auth read access to notification SLA policy metadata', `
-  grant select on public.notification_sla_policies to anon;
-`);
-
 const required = ['staff_accounts', 'staff_login_sessions', 'whatsapp_review_sources'];
 for (const table of required) {
   if (query(`select to_regclass('public.${table}') is not null`) !== 't') {
