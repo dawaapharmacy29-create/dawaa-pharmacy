@@ -136,6 +136,16 @@
         // legitimately take several seconds, so normal slowness must not be treated as logout.
         var RECOVERY_DELAY_MS = 20000;
         var shown = false;
+        var startupRecoveryTimer = null;
+
+        window.__DAWAA_MARK_REACT_BOOTSTRAPPED = function () {
+          if (window.__DAWAA_REACT_BOOTSTRAPPED) return;
+          window.__DAWAA_REACT_BOOTSTRAPPED = true;
+          if (startupRecoveryTimer !== null) {
+            window.clearTimeout(startupRecoveryTimer);
+            startupRecoveryTimer = null;
+          }
+        };
 
         function recoveryUrl(path, reason) {
           var url = new URL(path, window.location.origin);
@@ -257,12 +267,9 @@
           }
         });
 
-        window.setTimeout(function () {
-          var root = document.getElementById('root');
-          var text = root ? (root.textContent || '').trim() : '';
-          if (!root || !text || /جاري التحميل|loading/i.test(text)) {
-            showRecovery('startup_timeout', text || 'empty root');
-          }
+        startupRecoveryTimer = window.setTimeout(function () {
+          if (window.__DAWAA_REACT_BOOTSTRAPPED) return;
+          showRecovery('startup_timeout', 'React bootstrap did not commit');
         }, RECOVERY_DELAY_MS);
       })();
     </script>

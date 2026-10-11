@@ -1,5 +1,13 @@
 import './lib/mobileSafariCompat';
-import { StrictMode, Suspense, lazy, useEffect, useState, type ComponentType } from 'react';
+import {
+  StrictMode,
+  Suspense,
+  lazy,
+  useEffect,
+  useLayoutEffect,
+  useState,
+  type ComponentType,
+} from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import './index.css';
@@ -34,7 +42,15 @@ const BOOTSTRAP_RECOVERY_SCOPE = 'bootstrap';
 declare global {
   interface Window {
     __DAWAA_REACT_BOOTSTRAPPED?: boolean;
+    __DAWAA_MARK_REACT_BOOTSTRAPPED?: () => void;
   }
+}
+
+function ReactBootstrapMarker() {
+  useLayoutEffect(() => {
+    window.__DAWAA_MARK_REACT_BOOTSTRAPPED?.();
+  }, []);
+  return null;
 }
 
 function BootstrapShell() {
@@ -88,7 +104,6 @@ const SafeApp = lazy(async () => {
   try {
     const module = await withTimeout(import('./App.tsx'), APP_IMPORT_TIMEOUT_MS, 'App import');
     console.info('[Dawaa bootstrap] App imported');
-    window.__DAWAA_REACT_BOOTSTRAPPED = true;
     clearRecoveredRuntimeError();
     clearStaleChunkRecoveryMarker(BOOTSTRAP_RECOVERY_SCOPE);
     return normalizeDefault(module);
@@ -184,6 +199,7 @@ if (!rootElement) {
   createRoot(rootElement).render(
     <StrictMode>
       <ThemeProvider>
+        <ReactBootstrapMarker />
         <Suspense fallback={<BootstrapShell />}>
           <SafeApp />
           <OptionalRuntimeAddons />
