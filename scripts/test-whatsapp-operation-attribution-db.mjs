@@ -19,8 +19,8 @@ try {
   await db.exec(await sql('supabase/tests/whatsapp_operation_attribution_session_v1.fixture.sql'));
   const customerFoundation = await sql('supabase/migrations/20260713123000_customer_data_foundation.sql');
   await db.exec(customerFoundation.slice(customerFoundation.indexOf('create or replace function'), customerFoundation.indexOf('create or replace function public.classify')));
-  const originalGuard = await sql('supabase/migrations/20261005141000_whatsapp_action_truth_guard_v2.sql');
-  await db.exec(originalGuard.slice(originalGuard.indexOf('create or replace function'), originalGuard.indexOf('-- Existing unmaterialized')));
+  const originalGuard = await sql('supabase/migrations/20261005141100_whatsapp_action_truth_guard_v2.sql');
+  await db.exec(originalGuard.slice(originalGuard.indexOf('create or replace function'), originalGuard.indexOf('create or replace function public.dawaa_approve_whatsapp_customer_request_action_v2')));
   const originalResolver = await sql('supabase/migrations/20260917074500_whatsapp_followup_customer_identity_v1.sql');
   await db.exec(originalResolver.slice(0, originalResolver.indexOf('-- Backfill')));
   await db.exec(await sql('supabase/migrations/20261009130016_whatsapp_operation_attribution_session_v1.sql'));

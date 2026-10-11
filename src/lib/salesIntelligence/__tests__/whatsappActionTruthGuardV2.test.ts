@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const source = readFileSync(
-  'supabase/migrations/20261005141000_whatsapp_action_truth_guard_v2.sql',
+  'supabase/migrations/20261005141100_whatsapp_action_truth_guard_v2.sql',
   'utf8'
 );
 

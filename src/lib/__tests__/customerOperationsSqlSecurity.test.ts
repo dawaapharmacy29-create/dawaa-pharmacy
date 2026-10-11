@@ -25,7 +25,7 @@ const appSource = sourceFiles(resolve(root, 'src'))
   .map((path) => readFileSync(path, 'utf8'))
   .join('\n');
 const repairPrivilegeMigration = readFileSync(
-  resolve(root, 'supabase/migrations/20261009190000_harden_customer_repair_rpc_privileges_v1.sql'),
+  resolve(root, 'supabase/migrations/20261009190500_harden_customer_repair_rpc_privileges_v1.sql'),
   'utf8'
 );
 const reviewIncubationMigration = readFileSync(

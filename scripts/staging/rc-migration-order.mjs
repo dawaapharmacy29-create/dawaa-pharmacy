@@ -33,7 +33,7 @@ export const RC_MIGRATIONS = [
     ],
   },
   {
-    order: 2, file: '20261005124500_automatic_review_writer_guard_v2.sql', after: [],
+    order: 2, file: '20261005124600_automatic_review_writer_guard_v2.sql', after: [],
     objects: 'automatic conversation-review writer guard function and trigger',
     mutatesData: 'no', lockRisk: 'low: one CREATE TRIGGER on conversation_sales_reviews',
     reversal: 'drop trigger automatic_conversation_review_writer_guard_v2 and its function',
@@ -54,9 +54,9 @@ export const RC_MIGRATIONS = [
     ],
   },
   {
-    order: 4, file: '20261005133000_monthly_evidence_canonical_reads_v2.sql', after: [1],
+    order: 4, file: '20261005133100_monthly_evidence_canonical_reads_v2.sql', after: [1],
     objects: 'dawaa_monthly_evaluation_server_evidence_v5 reads canonical reviews',
-    mutatesData: 'HISTORICAL DML: two one-time UPDATEs of conversation_sales_reviews.is_current. EXCLUDED from staging (scripts/staging/historical-dml.mjs) and must never be replayed',
+    mutatesData: 'no; the former one-time UPDATEs are archived in historical-migration-writes.json and removed from executable migrations',
     lockRisk: 'none for the DDL part',
     reversal: 'restore the previous function body (20260930155500)',
     assertions: [fn('dawaa_monthly_evaluation_server_evidence_v5(uuid,date)')],
@@ -79,9 +79,9 @@ export const RC_MIGRATIONS = [
     ],
   },
   {
-    order: 7, file: '20261005141000_whatsapp_action_truth_guard_v2.sql', after: [],
+    order: 7, file: '20261005141100_whatsapp_action_truth_guard_v2.sql', after: [],
     objects: 'action truth guard trigger; approve-customer-request command; materialize v1 becomes a session-bound wrapper over the service-only core_v2',
-    mutatesData: 'HISTORICAL DML: one-time UPDATE demoting ready customer_request actions to proposed. EXCLUDED from staging and must never be replayed',
+    mutatesData: 'no; the former one-time UPDATE is archived in historical-migration-writes.json and removed from executable migrations',
     lockRisk: 'low: one CREATE TRIGGER on whatsapp_conversation_actions',
     reversal: 'drop the guard trigger and the approve command; restore the previous materialize ACL',
     assertions: [

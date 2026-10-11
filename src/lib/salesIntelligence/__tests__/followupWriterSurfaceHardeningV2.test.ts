@@ -6,7 +6,7 @@ const followupMigration = readFileSync(
   'utf8'
 );
 const automaticReviewMigration = readFileSync(
-  'supabase/migrations/20261005124500_automatic_review_writer_guard_v2.sql',
+  'supabase/migrations/20261005124600_automatic_review_writer_guard_v2.sql',
   'utf8'
 );
 

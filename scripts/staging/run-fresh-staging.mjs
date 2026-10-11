@@ -1,8 +1,8 @@
 // Fresh staging migration test, reproducible from zero on native PostgreSQL or --pglite.
 // Order: 1 platform shim -> 2 Production-shaped tables -> 3 Production-only objects (indexes, captured
-// bodies, stubs) -> 4 repository prerequisite bodies -> 5 synthetic seed -> 6 the Release Candidate
-// migrations in their deterministic order, with a check after each -> 7 historical DML not re-run
-// (plus a negative control proving the check would catch it) -> 8 read-only reconciliation ->
+// bodies, stubs) -> 4 repository prerequisite bodies -> 5 synthetic seed -> 6 DDL-only Release
+// Candidate migrations in deterministic order, with a check after each -> 7 archived historical DML
+// absent from the executable chain -> 8 read-only reconciliation ->
 // 9 contract smoke on the migrated database.
 // Uses only a local database (libpq env: PGHOST, PGPORT, PGUSER). Refuses any non-local host.
 // Never touches Supabase. Writes a JSON summary to $STAGING_REPORT when set.
@@ -11,7 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
-import { extractDdl, HISTORICAL_DML } from './historical-dml.mjs';
+import { extractDdl } from './historical-dml.mjs';
 import { RC_MIGRATIONS } from './rc-migration-order.mjs';
 import { localSql } from './local-sql.mjs';
 
@@ -181,14 +181,13 @@ const DML_WATCH = `select md5(coalesce(string_agg(x, '|' order by x), '')) from 
   union all
   select 'a:' || id || ':' || coalesce(status, '') || ':' || coalesce(auto_eligible::text, '') || ':' || coalesce(updated_at::text, '') from public.whatsapp_conversation_actions) s`;
 
-async function applyMigration(db, migration, { original = false } = {}) {
-  const sql = original ? read(`supabase/migrations/${migration}`) : extractDdl(root, migration).sql;
+async function applyMigration(db, migration) {
+  const sql = extractDdl(root, migration).sql;
   return await psql(db, sql, { allowError: true });
 }
 
 const suffix = `${process.pid}`;
 const db = `dawaa_staging_${suffix}`;
-const control = `dawaa_staging_control_${suffix}`;
 const summary = { runtime: process.argv.includes('--pglite') ? 'PGlite 0.5.8' : 'native PostgreSQL', steps: [], historicalDml: {}, reconciliation: {}, smoke: [] };
 const step = (name, detail = 'ok') => { summary.steps.push({ name, detail }); console.log(`PASS ${name}${detail === 'ok' ? '' : ` (${detail})`}`); };
 try {
@@ -347,19 +346,7 @@ try {
   assert.equal(after, before, 'historical DML changed watched rows');
   assert.equal(await query(db, `select count(*) from whatsapp_conversation_actions where action_type='customer_request' and status='ready' and target_id is null`), seededReady);
   summary.historicalDml.staging = { watchedRowsUnchanged: true, readyCustomerRequestsKept: Number(seededReady) };
-  step('historical DML of 20261005133000 and 20261005141000 did not run', `${seededReady} ready requests and all review flags unchanged`);
-
-  // Negative control: the ORIGINAL files on the same seed do change the watched rows.
-  await bootstrap(control);
-  const controlBefore = await query(control, DML_WATCH);
-  for (const m of RC_MIGRATIONS) {
-    const result = await applyMigration(control, m.file, { original: HISTORICAL_DML.some((h) => h.migration === m.file) });
-    if (result.code !== 0) throw new Error(`control ${m.file} failed:\n${result.stderr.slice(0, 2000)}`);
-  }
-  assert.notEqual(await query(control, DML_WATCH), controlBefore, 'negative control: original files must change watched rows');
-  summary.historicalDml.negativeControl = 'original files change the watched rows (check is sensitive)';
-  step('negative control: the unsplit originals would have rewritten the seeded rows');
-  await psql('postgres', `drop database if exists ${control};`);
+  step('historical DML absent from executable migration chain', `${seededReady} ready requests and all review flags unchanged`);
 
   // Read-only reconciliation on the migrated staging database.
   const rec = await psql(db, read('supabase/readonly/release_candidate_reconciliation_v1.sql'));

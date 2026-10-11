@@ -1,4 +1,4 @@
--- Automatic conversation-review writer guard V2.
+-- Automatic conversation-review writer guard V2 (DDL only).
 -- System-generated review evidence is service-owned. Human managers may annotate the same row only
 -- through the manager_review_* fields; they may not rewrite the automatic score/evidence payload.
 

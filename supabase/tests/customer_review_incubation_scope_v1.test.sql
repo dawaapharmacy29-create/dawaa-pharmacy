@@ -35,7 +35,7 @@ grant execute on function public.ignore_customer_branch_repair_v14(text,text,tex
 grant execute on function public.update_customer_phone_v14_6(text,text,text) to public;
 grant execute on function public.dawaa_run_customer_operations_autofix(text) to public;
 
-\ir ../migrations/20261009190000_harden_customer_repair_rpc_privileges_v1.sql
+\ir ../migrations/20261009190500_harden_customer_repair_rpc_privileges_v1.sql
 \ir ../migrations/20261009193000_harden_customer_review_and_incubation_scope_v1.sql
 
 select test.assert(

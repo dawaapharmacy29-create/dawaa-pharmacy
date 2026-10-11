@@ -1,31 +1,5 @@
 -- Monthly evaluation evidence must read canonical/current truth, never raw historical rows.
 
--- One-time reconciliation: retain history, but remove superseded rows from the current set.
-update public.conversation_sales_reviews legacy
-set is_current=false,
-    updated_at=now()
-where coalesce(legacy.is_current,true)=true
-  and legacy.whatsapp_review_source_id is not null
-  and legacy.sales_intelligence_case_id is null
-  and exists (
-    select 1
-    from public.conversation_sales_reviews current_case
-    where current_case.whatsapp_review_source_id=legacy.whatsapp_review_source_id
-      and current_case.sales_intelligence_case_id is not null
-      and coalesce(current_case.is_current,true)=true
-  );
-
-update public.conversation_sales_reviews r
-set is_current=false,
-    updated_at=now()
-where coalesce(r.is_current,true)=true
-  and r.sales_intelligence_case_id is not null
-  and not exists (
-    select 1
-    from public.sales_intelligence_current_case_analyses c
-    where c.case_id=r.sales_intelligence_case_id
-  );
-
 create or replace function public.dawaa_monthly_evaluation_server_evidence_v5(
   p_staff_id uuid,
   p_evaluation_month date

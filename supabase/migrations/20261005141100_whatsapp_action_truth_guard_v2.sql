@@ -120,13 +120,6 @@ on public.whatsapp_conversation_actions
 for each row
 execute function public.dawaa_guard_whatsapp_conversation_action_v2();
 
--- Existing unmaterialized browser-ready customer requests are demoted once, preserving evidence.
-update public.whatsapp_conversation_actions
-set status='proposed',auto_eligible=false,updated_at=now()
-where action_type='customer_request'
-  and target_id is null
-  and status='ready';
-
 create or replace function public.dawaa_approve_whatsapp_customer_request_action_v2(p_action_id uuid)
 returns jsonb
 language plpgsql
