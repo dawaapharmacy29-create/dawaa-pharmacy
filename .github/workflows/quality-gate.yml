@@ -76,6 +76,9 @@ jobs:
       - name: Conversation review manager-correction boundary
         run: node scripts/check-conversation-review-correction-command.cjs
 
+      - name: Verified staff session identity boundary
+        run: node scripts/check-verified-session-identity.cjs
+
       - name: Customer Request shortage command boundary
         run: node scripts/check-customer-request-shortage-command.cjs
 

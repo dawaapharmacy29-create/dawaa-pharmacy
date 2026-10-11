@@ -1,3 +1,4 @@
+import { markPayrollTruthChanged } from '@/lib/hr/payrollRequestCoordinator';
 import { supabase } from '@/lib/supabase';
 
 export type PayrollFinalizedSnapshotV2 = {
@@ -25,9 +26,10 @@ export async function finalizePayrollSnapshotV2(snapshotId: string): Promise<{
   paid: boolean;
   financial_effect: 'none';
 }> {
-  const { data, error } = await supabase.rpc('finalize_payroll_snapshot_v2', {
+  const { data, error } = await supabase.rpc('finalize_payroll_snapshot_v3', {
     p_snapshot_id: snapshotId,
   });
+  markPayrollTruthChanged(); // a write: later reads must not join requests started before it
   if (error) throw new Error(error.message);
   return data as {
     success: boolean;

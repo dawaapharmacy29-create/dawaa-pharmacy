@@ -6,8 +6,12 @@ import {
   clearStaffSessionToken,
   revokeStoredStaffSession,
   setStaffSessionToken,
+  STAFF_SESSION_STORAGE_KEY,
+  verifyStoredStaffSession,
+  type StaffSessionStatus,
 } from '@/lib/auth/staffSession';
 import type { User } from '@/types';
+import { hasAuthorizationScopeChanged } from '@/lib/auth/authorizationCacheScope';
 import {
   ALL_PERMISSION_KEYS,
   getDefaultPermissionsForRole,
@@ -45,6 +49,9 @@ const STORAGE_KEY = 'dawaa_auth_user_v2';
 const listeners = new Set<() => void>();
 const ACCOUNT_REFRESH_TTL_MS = 5 * 60 * 1000;
 const ACCOUNT_REFRESH_TIMEOUT_MS = 3500;
+// The server session slides 12h on each refresh; renew well inside that window.
+const STAFF_SESSION_RENEW_INTERVAL_MS = 30 * 60 * 1000;
+const STAFF_SESSION_VISIBLE_RECHECK_MS = 5 * 60 * 1000;
 let lastAccountRefreshAt = 0;
 let accountRefreshPromise: Promise<User | null> | null = null;
 
@@ -207,6 +214,7 @@ function readStoredUser(): User | null {
 let currentUser: User | null = readStoredUser();
 
 function setCurrentUser(user: User | null) {
+  const previousUser = currentUser;
   currentUser = sanitizeUser(user);
   if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
     try {
@@ -220,6 +228,21 @@ function setCurrentUser(user: User | null) {
     }
   }
   listeners.forEach((listener) => listener());
+  if (hasAuthorizationScopeChanged(previousUser, currentUser)) discardPreviousAccountMemory(currentUser?.id ?? null);
+}
+
+/**
+ * Module-level read caches (sales bundles, branch comparison windows, evaluation headers, …) are keyed by the
+ * subject being viewed, not by the viewer. Logout, expiry, idle timeout or a logout in another tab keep the SPA
+ * alive, so a different account in the same tab could be served the previous account's cached data (another
+ * branch's figures). A full navigation drops all in-memory state once the identity changes.
+ */
+function discardPreviousAccountMemory(nextAccountId: string | null) {
+  if (typeof window === 'undefined') return;
+  window.setTimeout(() => {
+    if (nextAccountId) window.location.reload();
+    else window.location.replace('/login');
+  }, 0);
 }
 
 function logAuthActivity(user: User, action: string, details: string) {
@@ -269,8 +292,20 @@ async function loadEffectivePermissions(
   return effectivePermissions;
 }
 
+function checkStaffSession(): Promise<StaffSessionStatus> {
+  return withTimeout(
+    verifyStoredStaffSession(),
+    ACCOUNT_REFRESH_TIMEOUT_MS,
+    'refresh_staff_login_session_v1'
+  ).catch((): StaffSessionStatus => 'unavailable');
+}
+
 async function resolveCurrentStaffAccount(user: User): Promise<User | null> {
   if (!isSupabaseConfigured) return sanitizeUser(user);
+
+  // The database identifies the caller only by the verified session token, so a stored profile
+  // without a live server session is signed out instead of silently losing every permission.
+  if ((await checkStaffSession()) === 'invalid') return null;
 
   const identifiers = Array.from(
     new Set([user.id, user.staffId, user.username].map((value) => safeText(value)).filter(Boolean))
@@ -461,6 +496,35 @@ export function useAuth() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!user || !isSupabaseConfigured) return;
+    let cancelled = false;
+    let lastCheckAt = Date.now();
+    const renew = () => {
+      lastCheckAt = Date.now();
+      void checkStaffSession().then((status) => {
+        if (!cancelled && status === 'invalid') setCurrentUser(null);
+      });
+    };
+    // A tab returning from sleep re-checks before its next requests rely on a possibly expired session.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && Date.now() - lastCheckAt >= STAFF_SESSION_VISIBLE_RECHECK_MS) renew();
+    };
+    // Logout in another tab removes the shared token; this tab must not keep running without an identity.
+    const onStorage = (event: StorageEvent) => {
+      if ((event.key === STAFF_SESSION_STORAGE_KEY || event.key === STORAGE_KEY) && !event.newValue) setCurrentUser(null);
+    };
+    const intervalId = window.setInterval(renew, STAFF_SESSION_RENEW_INTERVAL_MS);
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     if (!user) return;

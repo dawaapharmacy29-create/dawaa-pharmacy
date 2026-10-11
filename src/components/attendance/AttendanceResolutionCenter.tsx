@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Clock3, RefreshCw, ShieldCheck, Wrench } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -6,6 +6,7 @@ import {
   getAttendanceCaseDiagnosticV1,
   getAttendanceDiagnosticSummaryV1,
   getMissingPunchContextV1,
+  isFormerAttendanceReviewRow,
   listAttendanceExceptionInbox,
   listStaffMissingPunchHistoryV1,
   materializeAttendanceRange,
@@ -33,7 +34,6 @@ import {
   resolveWeeklyOffSwapFromAttendanceV1,
   type WeeklyOffSwapPreviewV1,
 } from '@/lib/hr/canonicalScheduleService';
-import { useStaffDirectory } from '@/hooks/useStaffDirectory';
 
 function cairoDate(offsetDays = 0) {
   const date = new Date();
@@ -163,7 +163,6 @@ export default function AttendanceResolutionCenter({
   const [categoryTab, setCategoryTab] = useState<'all' | 'absence' | 'early_leave' | 'missing_punch' | 'system'>('all');
   const [missingPunchTab, setMissingPunchTab] = useState<'all' | 'check_in' | 'check_out'>('all');
   const [showFormer, setShowFormer] = useState(false);
-  const { data: staffDirectory = [], isLoading: directoryLoading, isError: directoryError } = useStaffDirectory();
   const [loading, setLoading] = useState(false);
   const [materializing, setMaterializing] = useState(false);
   const [selected, setSelected] = useState<AttendanceExceptionRow | null>(null);
@@ -205,7 +204,10 @@ export default function AttendanceResolutionCenter({
     setEnd(initialDate);
   }, [initialDate, initialTriage]);
 
+  // Only the latest load may write: a slower response for previous dates or branch never overwrites a newer one.
+  const loadGeneration = useRef(0);
   const load = useCallback(async () => {
+    const generation = ++loadGeneration.current;
     setLoading(true);
     try {
       const [queue, summary] = await Promise.all([
@@ -218,14 +220,16 @@ export default function AttendanceResolutionCenter({
         }),
         getAttendanceDiagnosticSummaryV1({ start, end, branch }),
       ]);
+      if (generation !== loadGeneration.current) return;
       setRows(queue);
       setDiagnosticSummary(summary);
     } catch (error) {
+      if (generation !== loadGeneration.current) return;
       toast.error(error instanceof Error ? error.message : 'تعذر تحميل صندوق مراجعة الحضور');
     } finally {
-      setLoading(false);
+      if (generation === loadGeneration.current) setLoading(false);
     }
-  }, [branch, end, lane, start]);
+  }, [branch, end, start]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -354,11 +358,16 @@ export default function AttendanceResolutionCenter({
     return () => { active = false; };
   }, [reason, selected]);
 
-  const formerIds = useMemo(() => new Set(staffDirectory
-    .filter((person) => person.source === 'staff' && person.id && !person.active)
-    .map((person) => person.id)), [staffDirectory]);
-  const formerRows = rows.filter((row) => formerIds.has(row.staff_id));
-  const baseRows = showFormer ? rows : rows.filter((row) => !formerIds.has(row.staff_id));
+  const formerRows = useMemo(() => rows.filter(isFormerAttendanceReviewRow), [rows]);
+  const baseRows = useMemo(
+    () => showFormer ? rows : rows.filter((row) => !isFormerAttendanceReviewRow(row)),
+    [rows, showFormer]
+  );
+  const priorityCounts = useMemo(() => ({
+    p1: baseRows.filter((row) => row.queue_lane === 'manager' && row.priority_code === 'P1').length,
+    p2: baseRows.filter((row) => row.queue_lane === 'manager' && row.priority_code === 'P2').length,
+    p3: baseRows.filter((row) => row.queue_lane === 'manager' && row.priority_code === 'P3').length,
+  }), [baseRows]);
   const tabCounts = useMemo(() => ({
     all: baseRows.length,
     absence: baseRows.filter((row) => row.issue_group === 'absence' || row.resolution_status === 'absence_review').length,
@@ -796,8 +805,13 @@ export default function AttendanceResolutionCenter({
           <input type="checkbox" checked={showFormer} onChange={(e) => setShowFormer(e.target.checked)} />
           إظهار الموظفين السابقين ({formerRows.length} يوم معلّق في النطاق الحالي)
         </label>
-        {directoryError && <p className="mt-2 text-xs text-[var(--dawaa-status-warning-text)]">تعذر التحقق من حالة الموظفين؛ تظهر كل الحالات حتى يُعاد تحميل دليل الموظفين.</p>}
         {formerRows.length > 0 && !showFormer && <p className="mt-1 text-xs text-[var(--dawaa-theme-muted)]">أيام الموظفين السابقين محفوظة للمراجعة التاريخية، ولا تُلغى من جاهزية الرواتب بمجرد إخفائها هنا.</p>}
+        <div className="mt-2 flex flex-wrap gap-2 text-[10px] font-black">
+          <span className="rounded-full border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-2 py-1 text-[var(--dawaa-status-warning-text)]">P1 عاجل: {priorityCounts.p1.toLocaleString('ar-EG')}</span>
+          <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-1 text-[var(--dawaa-theme-heading)]">P2: {priorityCounts.p2.toLocaleString('ar-EG')}</span>
+          <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-1 text-[var(--dawaa-theme-muted)]">P3: {priorityCounts.p3.toLocaleString('ar-EG')}</span>
+          <span className="px-1 py-1 text-[var(--dawaa-theme-muted)]">الترتيب صادر من عقد الأولوية المركزي، والأقدم داخل نفس الأولوية يظهر أولًا.</span>
+        </div>
 
         <div className={`mt-3 rounded-xl border p-3 text-xs font-bold ${lane === 'all' ? 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] text-[var(--dawaa-theme-muted)]' : currentLaneMeta.className}`}>
           {lane === 'all'
@@ -1000,7 +1014,7 @@ export default function AttendanceResolutionCenter({
             </tr>
           </thead>
           <tbody>
-            {!directoryLoading && displayRows.map((row) => {
+            {displayRows.map((row) => {
               const meta = laneMeta(row.queue_lane);
               return (
                 <tr key={row.id} className={`border-b border-[var(--dawaa-theme-border)]/60 last:border-0 ${selectedRowIds.has(row.id) ? 'bg-[var(--dawaa-theme-primary-soft)]/30' : ''}`}>
@@ -1024,8 +1038,8 @@ export default function AttendanceResolutionCenter({
                     <button onClick={() => setProfileStaffId(row.staff_id)} className="text-right font-black text-[var(--dawaa-theme-heading)] hover:underline hover:text-[var(--dawaa-theme-primary-strong)]">
                       {row.staff_name}
                     </button>
-                    <div className="text-xs text-[var(--dawaa-theme-muted)]">{row.branch || '-'}</div>
-                    {formerIds.has(row.staff_id) && <div className="text-xs text-[var(--dawaa-status-warning-text)]">موظف سابق — راجع تاريخ آخر يوم عمل</div>}
+                    <div className="text-xs text-[var(--dawaa-theme-muted)]">{row.staff_branch || row.branch || '-'}</div>
+                    {isFormerAttendanceReviewRow(row) && <div className="text-xs text-[var(--dawaa-status-warning-text)]">موظف سابق — مسار تاريخي منفصل</div>}
                   </td>
                   <td className="p-3">
                     <div className="font-black">{row.attendance_date}</div>
@@ -1034,6 +1048,12 @@ export default function AttendanceResolutionCenter({
                   <td className="p-3">
                     <div className="font-black text-[var(--dawaa-theme-heading)]">{row.issue_label}</div>
                     <div className="mt-1 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{row.issue_group}</div>
+                    {row.queue_lane === 'manager' && row.priority_code && row.priority_code !== 'former_staff' && (
+                      <div className="mt-1 flex flex-wrap items-center gap-1 text-[10px] font-black text-[var(--dawaa-theme-muted)]">
+                        <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-0.5 text-[var(--dawaa-theme-heading)]">{row.priority_code}</span>
+                        {row.age_days != null && <span>انتظار {row.age_days.toLocaleString('ar-EG')} يوم</span>}
+                      </div>
+                    )}
                   </td>
                   <td className="p-3">
                     <span className={`inline-flex rounded-full border px-2 py-1 text-[11px] font-black ${meta.className}`}>{meta.label}</span>
@@ -1056,14 +1076,13 @@ export default function AttendanceResolutionCenter({
                 </tr>
               );
             })}
-            {!displayRows.length && !loading && !directoryLoading && (
+            {!displayRows.length && !loading && (
               <tr>
                 <td colSpan={9} className="p-8 text-center font-bold text-[var(--dawaa-theme-muted)]">
                   لا توجد حالات في هذا المسار خلال الفترة المحددة.
                 </td>
               </tr>
             )}
-            {directoryLoading && <tr><td colSpan={9} className="p-8 text-center">جارٍ التحقق من حالة الموظفين...</td></tr>}
           </tbody>
         </table>
       </section>
@@ -1080,7 +1099,7 @@ export default function AttendanceResolutionCenter({
                 <div>
                   <h3 className="text-lg font-black text-[var(--dawaa-theme-heading)]">قرار حضور — {selected.staff_name}</h3>
                   <p className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">
-                    {arabicWeekday(selected.attendance_date)} · {selected.attendance_date} · {selected.branch || '-'}
+                    {arabicWeekday(selected.attendance_date)} · {selected.attendance_date} · {selected.staff_branch || selected.branch || '-'}
                   </p>
                 </div>
                 <span className="rounded-full border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-3 py-1 text-[10px] font-black text-[var(--dawaa-status-warning-text)]">

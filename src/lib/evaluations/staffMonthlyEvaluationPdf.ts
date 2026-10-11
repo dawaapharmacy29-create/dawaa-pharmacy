@@ -17,6 +17,12 @@ export type StaffMonthlyEvaluationPdfInput = {
   pointsFinal?: number | null;
   pointsTarget?: number | null;
   incentiveEgp?: number | null;
+  evidenceByAxis?: Array<{ key: string; title: string; status: string; summary: string }>;
+  pointsBreakdown?: Array<{ source: string; points: number; events: number }>;
+  rewardPoints?: number | null;
+  deductionPoints?: number | null;
+  startingPoints?: number | null;
+  criticalGates?: Array<{ label: string; rationale: string }>;
 };
 
 function escapeHtml(value: unknown) {
@@ -79,6 +85,7 @@ export async function buildStaffMonthlyEvaluationPdf(
 ): Promise<{ pdf: jsPDF; fileName: string }> {
   const weakSections = input.sections.filter((item) => item.score > 0 && item.score <= 3);
 
+  const evidenceByKey = new Map((input.evidenceByAxis || []).map((item) => [item.key, item]));
   const sectionsHtml = input.sections
     .map((item) => {
       const rubricLine = item.rubric && item.score ? item.rubric[item.score - 1] : '';
@@ -90,6 +97,7 @@ export async function buildStaffMonthlyEvaluationPdf(
           </div>
           ${rubricLine ? `<div style="margin-top:6px;font-size:12px;color:#374151">المعيار المُطبَّق: ${escapeHtml(rubricLine)}</div>` : ''}
           ${item.notes ? `<div style="margin-top:6px;font-size:12px;color:#111827;background:#f9fafb;border-radius:6px;padding:6px 8px">ملاحظة المدير: ${escapeHtml(item.notes)}</div>` : ''}
+          ${evidenceByKey.get(item.key)?.summary ? `<div style="margin-top:6px;font-size:11px;color:#475569;border-right:3px solid #0f766e;padding:4px 8px">الدليل وقت الاعتماد: ${escapeHtml(evidenceByKey.get(item.key)?.summary)}</div>` : ''}
         </div>`;
     })
     .join('');
@@ -131,6 +139,27 @@ export async function buildStaffMonthlyEvaluationPdf(
       ? `<div>النقاط: <b>${input.pointsFinal} / ${input.pointsTarget}</b></div>`
       : '';
 
+  const pointsAuditHtml = (input.pointsBreakdown?.length || input.startingPoints != null || input.rewardPoints != null || input.deductionPoints != null)
+    ? `<div style="margin-top:16px;border:1px solid #d1d5db;border-radius:10px;padding:12px;page-break-inside:avoid">
+        <div style="font-weight:800;margin-bottom:7px">تفصيل النقاط والحافز</div>
+        <div style="font-size:12px;line-height:1.9">
+          ${input.startingPoints != null ? `<div>رصيد بداية الدورة: <b>${input.startingPoints}</b></div>` : ''}
+          ${input.rewardPoints != null ? `<div>نقاط مضافة: <b>+${input.rewardPoints}</b></div>` : ''}
+          ${input.deductionPoints != null ? `<div>نقاط مخصومة: <b>-${input.deductionPoints}</b></div>` : ''}
+          ${(input.pointsBreakdown || []).map((item) => `<div>• ${escapeHtml(item.source)}: <b>${item.points > 0 ? '+' : ''}${item.points}</b> نقطة · ${item.events} حدث</div>`).join('')}
+        </div>
+      </div>`
+    : '';
+
+  const criticalGatesHtml = input.criticalGates?.length
+    ? `<div style="margin-top:16px;border:1px solid #ef444480;background:#fef2f2;border-radius:10px;padding:12px;page-break-inside:avoid">
+        <div style="font-weight:800;color:#991b1b;margin-bottom:7px">مخالفات حرجة أثرت على قرار الحافز</div>
+        <div style="font-size:12px;line-height:1.9;color:#7f1d1d">
+          ${input.criticalGates.map((gate) => `<div style="margin-bottom:6px"><b>${escapeHtml(gate.label)}</b><br/>الواقعة/سبب القرار: ${escapeHtml(gate.rationale)}</div>`).join('')}
+        </div>
+      </div>`
+    : '';
+
   const host = document.createElement('div');
   host.style.position = 'fixed';
   host.style.left = '-9999px';
@@ -158,6 +187,8 @@ export async function buildStaffMonthlyEvaluationPdf(
       ${sectionsHtml}
 
       ${tipsHtml}
+      ${criticalGatesHtml}
+      ${pointsAuditHtml}
 
       <div style="display:flex;gap:12px;margin-top:16px">
         <div style="flex:1;border:1px solid #10b98140;background:#ecfdf5;border-radius:10px;padding:12px">

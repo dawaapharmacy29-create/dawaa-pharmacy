@@ -22,6 +22,22 @@ const EMPLOYEE_LEDGER_LOCKDOWN_MIGRATION = path.join(
   ROOT,
   'supabase/migrations/20260925154500_employee_transactions_command_lockdown_v1.sql'
 );
+const PAYROLL_FREEZE_MIGRATION = path.join(
+  ROOT,
+  'supabase/migrations/20261005134000_points_payroll_freeze_boundary_v5.sql'
+);
+const MANUAL_POINTS_IDENTITY_MIGRATION = path.join(
+  ROOT,
+  'supabase/migrations/20261005135000_manual_points_identity_guard_v5.sql'
+);
+const TRANSITION_AUDIT_MIGRATION = path.join(
+  ROOT,
+  'supabase/migrations/20261005140000_points_transition_audit_v5.sql'
+);
+const MANUAL_POINTS_PERMISSION_MIGRATION = path.join(
+  ROOT,
+  'supabase/migrations/20261005141000_manual_points_permission_truth_v5.sql'
+);
 
 // Transitional direct writers that still exist today. Keep shrinking this set as
 // lifecycle mutations move behind canonical authorization-aware RPCs. New direct
@@ -216,8 +232,83 @@ for (const token of [
   }
 }
 
+if (!fs.existsSync(PAYROLL_FREEZE_MIGRATION)) {
+  console.error('\nEmployee points payroll-freeze boundary failed: migration is missing.');
+  process.exit(1);
+}
+const payrollFreezeMigration = fs.readFileSync(PAYROLL_FREEZE_MIGRATION, 'utf8').toLowerCase();
+for (const token of [
+  'employee_transactions_payroll_freeze_v5',
+  'before insert or update or delete',
+  'payroll_finalized_snapshots_v2',
+  'finalized_payroll_cycle_is_immutable',
+]) {
+  if (!payrollFreezeMigration.includes(token.toLowerCase())) {
+    console.error(`\nEmployee points payroll-freeze boundary failed: migration missing ${token}.`);
+    process.exit(1);
+  }
+}
+
+if (!fs.existsSync(MANUAL_POINTS_IDENTITY_MIGRATION)) {
+  console.error('\nManual points identity boundary failed: migration is missing.');
+  process.exit(1);
+}
+const manualIdentityMigration = fs.readFileSync(MANUAL_POINTS_IDENTITY_MIGRATION, 'utf8').toLowerCase();
+for (const token of [
+  'manual_points_identity_guard_v5',
+  'manual_points_source_identity_required',
+  "new.source_id is null",
+]) {
+  if (!manualIdentityMigration.includes(token.toLowerCase())) {
+    console.error(`\nManual points identity boundary failed: migration missing ${token}.`);
+    process.exit(1);
+  }
+}
+const manualPointsPage = fs.readFileSync(path.join(SRC, 'pages/PenaltyIncentiveManagement.tsx'), 'utf8');
+for (const token of ['manualSaveIdentityRef', 'crypto.randomUUID()', 'sourceRecordId: manualSaveIdentityRef.current']) {
+  if (!manualPointsPage.includes(token)) {
+    console.error(`\nManual points UI idempotency failed: missing ${token}.`);
+    process.exit(1);
+  }
+}
+
 // Lifecycle status changes are also authorization-sensitive and must stay behind the
 // server-side V4 transition command. This protects branch scope and row locking.
+if (!fs.existsSync(MANUAL_POINTS_PERMISSION_MIGRATION)) {
+  console.error('\nManual points permission boundary failed: migration is missing.');
+  process.exit(1);
+}
+const manualPermissionMigration = fs.readFileSync(MANUAL_POINTS_PERMISSION_MIGRATION, 'utf8').toLowerCase();
+for (const token of [
+  'manual_points_permission_truth_v5',
+  "dawaa_current_actor_can(array['manage_points','manage_payroll'])",
+  'not_authorized_for_manual_points',
+]) {
+  if (!manualPermissionMigration.includes(token.toLowerCase())) {
+    console.error(`\nManual points permission boundary failed: migration missing ${token}.`);
+    process.exit(1);
+  }
+}
+
+if (!fs.existsSync(TRANSITION_AUDIT_MIGRATION)) {
+  console.error('\nEmployee points transition audit boundary failed: migration is missing.');
+  process.exit(1);
+}
+const transitionAuditMigration = fs.readFileSync(TRANSITION_AUDIT_MIGRATION, 'utf8').toLowerCase();
+for (const token of [
+  'approved_points_cannot_return_to_pending',
+  "'last_transition_from'",
+  "'last_transition_to'",
+  "'last_transition_actor_id'",
+  "'last_transition_at'",
+  "approved_by = case when p_status='active'",
+]) {
+  if (!transitionAuditMigration.includes(token.toLowerCase())) {
+    console.error(`\nEmployee points transition audit boundary failed: migration missing ${token}.`);
+    process.exit(1);
+  }
+}
+
 if (!fs.existsSync(TRANSITION_MIGRATION)) {
   console.error('\nEmployee points transition boundary failed: guarded transition migration is missing.');
   process.exit(1);

@@ -2145,11 +2145,7 @@ export default function Reviews() {
 
       const previousStaffId = reviewResponsibleStaffId(editingReview);
       const nextStaffId = identity.staffChanged ? editForm.staff_id : previousStaffId;
-
-      // Points converge on the canonical review row key (staff, month_cycle, 'conversation_evaluation',
-      // review id) that record_conversation_review_points_v1 wrote at creation: the current staff
-      // holds the current impact, a previous staff (or cycle) holds 0. The DB upserts on that key
-      // (employee_transactions_semantic_event_once_v3), so retries and overlapping saves converge.
+      // Points converge on the canonical review row key (staff, cycle, source, review id).
       const pointsWrites = reviewPointsConvergencePlan(
         {
           staffId: previousStaffId,
@@ -2172,7 +2168,6 @@ export default function Reviews() {
           p_source_id: editingReview.id,
           p_rule_code: null,
           p_month_cycle: write.monthCycle || null,
-          // points lineage keeps the conversation's source branch
           p_branch: editingReview.branch || null,
           p_status: pointsStatus,
           p_category: null,

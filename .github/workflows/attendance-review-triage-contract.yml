@@ -1,0 +1,30 @@
+name: Attendance Review Triage Contract
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/**attendance**.sql'
+      - 'src/lib/attendance/**'
+      - 'src/components/attendance/**'
+      - 'scripts/check-attendance-review-triage-contract.cjs'
+      - '.github/workflows/attendance-review-triage-contract.yml'
+  push:
+    branches:
+      - main
+      - 'feat/**'
+    paths:
+      - 'supabase/migrations/**attendance**.sql'
+      - 'src/lib/attendance/**'
+      - 'src/components/attendance/**'
+      - 'scripts/check-attendance-review-triage-contract.cjs'
+      - '.github/workflows/attendance-review-triage-contract.yml'
+
+jobs:
+  triage-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node scripts/check-attendance-review-triage-contract.cjs

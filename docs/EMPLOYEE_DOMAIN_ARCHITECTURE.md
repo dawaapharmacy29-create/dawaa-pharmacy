@@ -165,6 +165,27 @@ Target structure:
 
 The profile service should combine section results, data freshness, and health states only. It should not contain direct shared-table queries or its own identity/matching algorithms.
 
+### Sales evidence contract
+
+Doctor Performance, the monthly evaluation sales summary, and Invoice Truth use
+`dawaa_sales_invoices_dashboard_v1` for the same final analytics population:
+pending/draft rows and the six configured system customer codes are excluded,
+and duplicate branch + invoice + day versions resolve to the newest row.
+Invoice amount priority is `net_amount`, `discounted_amount`, `amount`,
+`gross_amount`, `net_total`, `total_amount`, then `gross_total`; an explicit
+zero is retained. Customer identity priority is customer code, phone, then
+name. Name/alias attribution is compatibility-only, applies only when
+`staff_id` is empty, and is suppressed when the normalized identity is
+ambiguous.
+
+The database caller scope controls every sales row and freshness value:
+authorized all-scope roles read all branches; Shamy/Shokry branch users read
+only their own branch. Warehouse and unknown branch accounts fail closed.
+`branchAverage`, `branchInvoicesCount`, and seller diagnostics describe the
+positive-invoice population in that same authorized scope; `globalSellerNames`
+means all seller names visible within the requested period and caller scope,
+not names from every branch for a branch-scoped caller.
+
 ## 9. Payroll boundary
 
 Payroll must consume settled, auditable projections only.
@@ -216,3 +237,33 @@ During migration CI should progressively enforce:
 8. Make payroll consume only settled projections.
 9. Capture live-only database functions in real migrations.
 10. Remove legacy name matching and direct table readers after backfill/parity verification.
+
+
+## 13. Evidence-to-money boundary
+
+Performance evidence and payroll money are deliberately separated by an approval/settlement boundary.
+
+Canonical direction:
+
+`Domain Evidence -> Evaluation Projection -> Approved Evaluation / Points Truth -> Settlement -> employee_transactions -> Payroll Incentive Truth -> Financial Composition -> Finalized Payroll Snapshot`
+
+Financial components are explicit and must never be reconstructed from UI totals:
+
+- base salary;
+- monthly performance incentive;
+- target achievement bonus (separate from performance);
+- product/list/stagnant incentive;
+- near-expiry incentive only after an explicit settlement policy exists; until then it is not applicable, never inferred;
+- approved overtime;
+- other approved earnings, adjustments and deductions.
+
+Rules:
+
+- Shadow/evaluation scores are not payable money.
+- Preview payroll is pending, not settled pay.
+- Only a frozen/finalized payroll snapshot is payable truth.
+- Missing/unavailable financial input blocks a payable total; it never becomes zero.
+- Pending money remains visible but excluded from payable total.
+- The automated incentive total already contains performance/target/threshold components; consumers must not add those components a second time.
+- Corrections use reversal/immutable-ledger semantics; historical finalized payroll is never silently rewritten.
+- Every payable component must expose a canonical source or settlement identity.

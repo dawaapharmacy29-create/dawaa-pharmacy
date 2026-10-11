@@ -163,7 +163,12 @@ export default function PointAppeals() {
       refetchAll();
       refetchMine();
     } catch (err) {
-      toast.error(`تعذر حفظ القرار: ${(err as Error).message}`);
+      const message = (err as Error).message || '';
+      if (message.includes('finalized_payroll_cycle_is_immutable')) {
+        toast.error('الدورة المالية مقفولة بالفعل؛ لا يمكن تعديل سجل النقاط التاريخي. استخدم مسار تسوية/إعادة فتح الرواتب المعتمد لمعالجة الاعتراض.');
+      } else {
+        toast.error(`تعذر حفظ القرار: ${message}`);
+      }
     } finally {
       setReviewingId(null);
     }

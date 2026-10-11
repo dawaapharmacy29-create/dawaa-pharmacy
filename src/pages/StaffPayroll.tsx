@@ -1,1 +1,1 @@
-export { default } from './PayrollManagement';
+export { default } from './PayrollManagementV2';

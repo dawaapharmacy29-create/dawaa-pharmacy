@@ -235,6 +235,19 @@ if (fs.existsSync(coachingNotesRlsPath)) {
   if (/\busing\s*\(\s*true\s*\)/i.test(source) || /\bwith\s+check\s*\(\s*true\s*\)/i.test(source)) failures.push('Coaching-note policies must not use unconditional true authorization.');
 }
 
+const definerActorGuardPath = path.join(ROOT, 'supabase/migrations/20261005145000_security_definer_actor_identity_guard_v5.sql');
+if (!fs.existsSync(definerActorGuardPath)) failures.push('SECURITY DEFINER actor identity guard V5 is missing.');
+else {
+  const definerActorGuard = fs.readFileSync(definerActorGuardPath, 'utf8');
+  for (const token of [
+    'dawaa_can_manage_branch_targets',
+    'dawaa_shortage_permission_allowed_v1',
+    'dawaa_can_access_review_coverage_branch_v1',
+    'p_actor_id is distinct from v_session_id',
+    'dawaa_current_staff_account_id_strict()',
+  ]) if (!definerActorGuard.includes(token)) failures.push(`SECURITY DEFINER actor guard missing: ${token}`);
+}
+
 if (failures.length) {
   console.error('\nDB authorization architecture check failed:');
   failures.forEach((failure) => console.error(`- ${failure}`));

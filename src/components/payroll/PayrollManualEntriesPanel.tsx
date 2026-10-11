@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, RefreshCw, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -42,20 +42,32 @@ export default function PayrollManualEntriesPanel({ staffId, monthCycle }: { sta
   const [reason, setReason] = useState('');
   const [referenceNote, setReferenceNote] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  // Only the latest employee/cycle load writes; a failure clears the list instead of leaving the previous
+  // employee's entries on screen or reading as "no entries".
+  const loadGeneration = useRef(0);
 
   async function load() {
+    const generation = ++loadGeneration.current;
     setLoading(true);
+    setLoadError('');
     try {
       const [entries, composition] = await Promise.all([
         listPayrollManualEntries(staffId, monthCycle),
         getEmployeePayrollFinancialComposition(staffId, monthCycle),
       ]);
+      if (generation !== loadGeneration.current) return;
       setRows(entries);
       setFinancial(composition as unknown as Record<string, any>);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'تعذر تحميل سجل التسويات');
+      if (generation !== loadGeneration.current) return;
+      const message = error instanceof Error ? error.message : 'تعذر تحميل سجل التسويات';
+      setRows([]);
+      setFinancial(null);
+      setLoadError(message);
+      toast.error(message);
     } finally {
-      setLoading(false);
+      if (generation === loadGeneration.current) setLoading(false);
     }
   }
 
@@ -174,7 +186,7 @@ export default function PayrollManualEntriesPanel({ staffId, monthCycle }: { sta
                   </td>
                 </tr>
               );
-            }) : <tr><td colSpan={7} className="p-6 text-center text-[var(--dawaa-theme-muted)]">لا توجد حركات يدوية لهذه الدورة.</td></tr>}
+            }) : <tr><td colSpan={7} className="p-6 text-center text-[var(--dawaa-theme-muted)]">{loadError ? `تعذر تحميل الحركات اليدوية لهذه الدورة: ${loadError}` : 'لا توجد حركات يدوية لهذه الدورة.'}</td></tr>}
           </tbody>
         </table>
       </div>

@@ -113,6 +113,17 @@ type StaffInvoiceReadPayload = {
   globalSellerNames?: unknown[] | null;
 };
 
+function errorMessage(value: unknown) {
+  if (value instanceof Error) return value.message;
+  if (value && typeof value === 'object') {
+    const row=value as Record<string,unknown>;
+    const parts=[row.message,row.details,row.hint,row.code].map((item)=>String(item??'').trim()).filter(Boolean);
+    if(parts.length)return parts.join(' · ');
+    try{return JSON.stringify(value)}catch{return 'خطأ غير معروف من مصدر الفواتير'}
+  }
+  return String(value ?? 'خطأ غير معروف من مصدر الفواتير');
+}
+
 function numberValue(value: unknown) {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -507,7 +518,7 @@ export async function getStaffInvoiceTruth(
     payload = normalizeReadPayload(data);
   } catch (error) {
     errors.push(
-      `تعذر تحميل مصدر فواتير الموظف الموحّد: ${error instanceof Error ? error.message : String(error)}`
+      `تعذر تحميل مصدر فواتير الموظف الموحّد: ${errorMessage(error)}`
     );
     return emptyTruth(staffId, periodStart, periodEnd, errors, warnings, staff, aliases);
   }

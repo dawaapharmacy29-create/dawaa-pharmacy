@@ -134,6 +134,32 @@ if (!fs.existsSync(penaltySourcePath)) {
   if (!/return\s+false\s*;[\s\S]*end\s*;/i.test(source)) failures.push('Penalty source correction must keep unknown sources fail-closed.');
 }
 
+const readScopeV5Path = path.join(ROOT, 'supabase/migrations/20261005142000_employee_points_read_scope_v5.sql');
+if (!fs.existsSync(readScopeV5Path)) failures.push('Employee points V5 read-scope migration is missing.');
+else {
+  const readScopeV5 = fs.readFileSync(readScopeV5Path, 'utf8');
+  for (const token of [
+    "array['view_team','manage_points','approve_points','manage_payroll']",
+    "v_role in ('branch_manager','shift_supervisor_morning','shift_supervisor_evening')",
+    "p_staff_id::text=trim(v_staff_id)",
+  ]) if (!readScopeV5.includes(token)) failures.push(`Employee points V5 read scope missing: ${token}`);
+  if (readScopeV5.includes("'customer_service_manager'") || readScopeV5.includes("'customer_service'")) {
+    failures.push('Customer-service roles must not receive team-wide employee ledger access by role.');
+  }
+}
+
+const appealScopeV5Path = path.join(ROOT, 'supabase/migrations/20261005143000_point_appeal_branch_scope_v5.sql');
+if (!fs.existsSync(appealScopeV5Path)) failures.push('Point appeal V5 branch-scope migration is missing.');
+else {
+  const appealScopeV5 = fs.readFileSync(appealScopeV5Path, 'utf8');
+  for (const token of [
+    'dawaa_can_review_point_appeal_v5',
+    'point_appeal_branch_scope_denied',
+    "v_role in ('general_manager','executive_manager','branches_manager','admin')",
+    "coalesce(trim(v_original.branch),'')<>coalesce(trim(v_appeal.branch),'')",
+  ]) if (!appealScopeV5.includes(token)) failures.push(`Point appeal V5 scope missing: ${token}`);
+}
+
 if (failures.length) {
   console.error('\nEmployee transaction source authorization check failed:');
   failures.forEach((failure) => console.error(`- ${failure}`));

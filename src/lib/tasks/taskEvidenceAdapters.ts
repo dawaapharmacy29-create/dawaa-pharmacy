@@ -1,4 +1,5 @@
 import { normalizeTaskEvidence, type TaskEvidence, type TaskEvidenceStatus } from './taskEvidence';
+import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
 
 type Nullable<T> = T | null | undefined;
 
@@ -107,8 +108,7 @@ function dateAtEndOfDay(value: Nullable<string>) {
   if (!raw) return null;
   const direct = iso(raw);
   if (direct && raw.includes('T')) return direct;
-  const timestamp = new Date(`${raw}T23:59:59+03:00`).getTime();
-  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : direct;
+  try { return cairoDateBoundaryIso(raw, true); } catch { return direct; }
 }
 
 function normalizedState(value: unknown) {

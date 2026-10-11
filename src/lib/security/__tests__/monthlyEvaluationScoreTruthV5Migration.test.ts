@@ -54,6 +54,8 @@ describe('monthly evaluation V5 score/incentive truth migration', () => {
     const source = sql();
     expect(source).toContain('monthly_evaluation_final_snapshot_v5');
     expect(source).toContain("'final_approval_snapshot',v_snapshot");
+    expect(source).toContain("'axis_evidence_snapshot',coalesce(new.metrics_snapshot->'axis_evidence_snapshot','[]'::jsonb)");
+    expect(source).toContain("'points_truth',new.metrics_snapshot->'points_truth'");
     expect(source).toContain("'final_approval_hash',v_snapshot_hash");
     expect(source).toContain('monthly_evaluation_final_snapshot_missing_from_audit');
     expect(source).toContain("'final_approval_snapshot',v_snapshot");
