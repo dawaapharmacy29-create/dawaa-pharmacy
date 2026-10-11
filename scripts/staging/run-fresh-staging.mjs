@@ -41,6 +41,55 @@ const query = async (db, sql) => (await psql(db, sql)).stdout.trim();
 const liveDefs = JSON.parse(read('docs/si-operational-audit-20261009/followup-core-live-definitions.json'));
 const liveDef = (prefix) => liveDefs.find((d) => d.signature.startsWith(prefix)).definition;
 
+async function applyNotificationReadModel(db, lazy) {
+  await psql(db, read('supabase/migrations/20260907090000_notification_read_model_v2.sql'), lazy);
+  await psql(db, read('supabase/migrations/20260907091000_notification_metadata_contract_v2.sql'), lazy);
+  await psql(db, read('supabase/migrations/20260907092500_notification_read_model_metadata_v2.sql'), lazy);
+  await psql(db, read('supabase/migrations/20260908164500_notification_sla_engine_v1.sql'), lazy);
+  await psql(db, read('supabase/migrations/20260908171000_notification_sla_read_model_v1.sql'), lazy);
+  await psql(db, read('supabase/migrations/20260908172000_notification_sla_metadata_surface_v1.sql'), lazy);
+  const guardrails = read('supabase/migrations/20260911063000_notification_architecture_v3_guardrails.sql');
+  await psql(db, between(guardrails, 'create or replace function public.notification_route_v3(',
+    '-- Preserve the original SLA-enriched view once on fresh databases.'), lazy);
+  await psql(db, between(guardrails, '-- Preserve the original SLA-enriched view once on fresh databases.',
+    'create or replace view public.notification_events_v3'), lazy);
+  await psql(db, read('supabase/migrations/20260911165000_smart_notification_signal_and_noise_control_v1.sql'), lazy);
+  await psql(db, read('supabase/migrations/20260911170500_smart_notification_signal_refinement_v2.sql'), lazy);
+  const priorityRefinement = read('supabase/migrations/20260912202500_notification_review_severity_and_legacy_sync_cleanup_v4.sql');
+  await psql(db, between(priorityRefinement, 'create or replace function public.notification_presentation_priority_v1(',
+    '\nupdate public.notifications'), lazy);
+  await psql(db, `
+    grant select on public.notification_events_v2_base, public.notification_events_v2, public.notifications to anon, authenticated;
+    grant execute on function public.dawaa_current_notification_account_id_v1() to anon, authenticated;
+    grant execute on function public.dawaa_current_notification_branch_v1() to anon, authenticated;
+    grant execute on function public.dawaa_current_notification_role_v1() to anon, authenticated;
+    grant execute on function public.dawaa_current_staff_id_v1() to anon, authenticated;
+    grant execute on function public.dawaa_notification_visible_to_current_user_v2(text,text,text,text,text,text) to anon, authenticated;
+  `, lazy);
+  await psql(db, `
+    alter table public.notification_sla_policies enable row level security;
+    revoke all on public.notification_sla_policies from anon, authenticated;
+    grant select on public.notification_sla_policies to anon, authenticated;
+    drop policy if exists notification_sla_policies_local_active_actor on public.notification_sla_policies;
+    create policy notification_sla_policies_local_active_actor
+      on public.notification_sla_policies for select to anon, authenticated
+      using (public.dawaa_current_staff_account_id_strict() is not null);
+    grant select on public.notification_sla_events to anon, authenticated;
+    revoke insert, update, delete on public.notification_sla_events from anon, authenticated;
+    drop policy if exists notification_sla_events_visible_v1 on public.notification_sla_events;
+    create policy notification_sla_events_visible_v1 on public.notification_sla_events
+      for select to anon, authenticated
+      using (exists (
+        select 1 from public.notifications n
+        where n.id = notification_sla_events.notification_id
+          and public.dawaa_notification_visible_to_current_user_v2(
+            n.recipient_user_id, n.user_id::text, n.recipient_staff_id,
+            n.staff_id, n.recipient_role, n.branch
+          )
+      ));
+  `, lazy);
+}
+
 // Captured Production bodies and repository bodies the migrations and the smoke checks rely on.
 export const PREREQUISITES = [
   ['catalog-derived schema only', 'SI tables/composite row types and canonical writer relation columns/defaults/keys', 'supabase/staging/15_canonical_si_schema.sql'],
@@ -68,10 +117,21 @@ async function bootstrap(db) {
   for (const file of ['00_platform_shim.sql', '10_production_tables.sql', '15_canonical_si_schema.sql', '20_production_only_objects.sql', '30_session_helpers.sql']) {
     await psql(db, read(`supabase/staging/${file}`), lazy);
   }
+  await psql(db, between(read('supabase/migrations/20260824150000_harden_customer_requests_rls_v2.sql'),
+    'create or replace function public.dawaa_customer_request_branch_key',
+    'create or replace function public.dawaa_can_access_customer_request_branch'), lazy);
+  await psql(db, read('supabase/staging/41_shared_runtime_dependency_parity.sql'), lazy);
+  await psql(db, between(read('supabase/migrations/20260716090000_employee_360_profile_events_payroll.sql'),
+    'create or replace function public.dawaa_current_staff_id_v1()', '\n$$;') + '\n$$;\nrevoke all on function public.dawaa_current_staff_id_v1() from public;\ngrant execute on function public.dawaa_current_staff_id_v1() to anon, authenticated;', lazy);
+  const notificationAudience = read('supabase/migrations/20260823173500_fix_notification_audience_leakage_v2.sql');
+  await psql(db, between(notificationAudience, 'create or replace function public.dawaa_current_notification_account_id_v1()',
+    '-- Backfill the old recipient column used by legacy writers.'), lazy);
+  await psql(db, between(notificationAudience, '-- Replace permissive app policies with recipient-scoped policies.',
+    '-- Fix the scheduled weekly manager reminder writer.'), lazy);
+  await applyNotificationReadModel(db, lazy);
+  await psql(db, read('supabase/migrations/20260822231000_pending_shift_notes_count_v1.sql'), lazy);
   await psql(db, read('supabase/migrations/20260720_customer_followup_find_or_create_open_case.sql'), lazy);
   await psql(db, `${liveDef('dawaa_normalize_egyptian_mobile_v1')};\n${liveDef('dawaa_customer_identity_key_v1')};\n${liveDef('dawaa_materialize_whatsapp_action_core_v2')};`, lazy);
-  await psql(db, between(read('supabase/migrations/20260824150000_harden_customer_requests_rls_v2.sql'),
-    'create or replace function public.dawaa_customer_request_branch_key', 'create or replace function public.dawaa_can_access_customer_request_branch'), lazy);
   await psql(db, between(read('supabase/migrations/20260713_staff_accounts_security_hardening.sql'),
     'create function public.resolve_staff_account_safe', '\n$$;') + '\n$$;', lazy);
   await psql(db, read('supabase/migrations/20260720_customer_followup_customer_correction.sql'), lazy);
@@ -101,6 +161,15 @@ async function bootstrap(db) {
     'create or replace function public.dawaa_normalize_staff_name_v1', 'create or replace function public.dawaa_map_base44_branch_v1'), lazy);
   await psql(db, between(read('supabase/migrations/20261003193000_si_case_lifecycle_reconciliation_v1.sql'),
     'create or replace function public.sales_intelligence_reconcile_case_set_v1', 'create or replace view public.sales_intelligence_current_policy_evaluations'), lazy);
+  await psql(db, between(read('supabase/migrations/20261003193000_si_case_lifecycle_reconciliation_v1.sql'),
+    'create or replace view public.sales_intelligence_current_policy_evaluations', 'create or replace view public.sales_intelligence_current_basket_invoice_matches'), lazy);
+  await psql(db, read('supabase/migrations/20260820_expand_staff_accounts_directory.sql'), lazy);
+  await psql(db, between(read('supabase/migrations/20261003111500_db_rls_timeout_hardening_v1.sql'),
+    '-- 1) Sales Intelligence read-path RLS: cache request identity / management checks',
+    '-- 2) WhatsApp review/source RLS used by the SI views'), lazy);
+  await psql(db, between(read('supabase/migrations/20261003111500_db_rls_timeout_hardening_v1.sql'),
+    'drop policy if exists whatsapp_review_sources_select_v1',
+    'drop policy if exists whatsapp_review_sources_insert_v1'), lazy);
   await psql(db, read('supabase/staging/37_whatsapp_opportunity_center_v22.sql'), lazy);
   await psql(db, read('supabase/staging/38_whatsapp_sales_opportunities_v17_rls.sql'), lazy);
   await psql(db, read('supabase/staging/40_synthetic_seed.sql'));
@@ -137,6 +206,18 @@ try {
   )`), '2', '26-to-25 cycle helpers must exist');
   assert.equal(await query(db, `select relrowsecurity from pg_class where oid='public.whatsapp_sales_opportunities_v17'::regclass`), 't',
     'V17 base relation must retain its production row-security boundary');
+  assert.equal(await query(db, `select count(*) from pg_policy where polrelid='public.whatsapp_review_sources'::regclass
+    and polname='whatsapp_review_sources_select_v1'`), '1',
+    'WhatsApp source SELECT RLS must be present for security-invoker read views');
+  assert.equal(await query(db, `set role authenticated;
+    set request.headers = '{"x-dawaa-user-id":"00000000-0000-4000-8000-0000000000a2"}';
+    select count(*) from public.sales_intelligence_current_case_analyses where case_id='syn-case-1';
+    reset role;`), '1', 'authorized local manager must read the current case analysis through the invoker view');
+  assert.equal(await query(db, `set role authenticated;
+    set request.headers = '{"x-dawaa-user-id":"00000000-0000-4000-8000-0000000000a4"}';
+    select count(*) from public.sales_intelligence_current_case_analyses where case_id='syn-case-1';
+    reset role;`), '0', 'inactive local account must not read current case analysis through the invoker view');
+  step('Case Detail invoker-view read is authorized for manager and denied for inactive actor');
   assert.equal(await query(db, `select count(*) from pg_policy where polrelid='public.whatsapp_sales_opportunities_v17'::regclass
     and polname in ('whatsapp_sales_opportunities_v17_select','whatsapp_sales_opportunities_v17_insert','whatsapp_sales_opportunities_v17_update')`), '3',
     'V17 source-scoped select/insert/update policies must be installed');
@@ -170,6 +251,37 @@ try {
     (select count(*) from public.whatsapp_product_demand_unresolved_v22)`), '0',
     'schema parity must not invent Opportunity Center business rows');
   step('Opportunity Center V22 views, cycle functions, and V17 RLS contract verified');
+  assert.equal(await query(db, `select
+    (select relkind='v' from pg_class where oid='public.notification_events_v2'::regclass)
+    and to_regclass('public.notification_events_v2_base') is not null
+    and to_regprocedure('public.canonical_notification_type_v2(text)') is not null
+    and to_regprocedure('public.notification_route_v3(text,text,text,text,uuid,jsonb)') is not null
+    and to_regprocedure('public.notification_presentation_priority_v1(text,text,text,text,text,jsonb)') is not null
+    and to_regprocedure('public.notification_signal_metadata_v1(text,text,text,text,text,boolean,jsonb)') is not null
+    and to_regprocedure('public.count_pending_shift_notes_v1()') is not null
+    and (select relrowsecurity from pg_class where oid='public.customer_requests'::regclass)
+    and (select relrowsecurity from pg_class where oid='public.daily_followups'::regclass)
+    and (select relrowsecurity from pg_class where oid='public.shift_notes'::regclass)
+    and (select relrowsecurity from pg_class where oid='public.staff_identity_aliases'::regclass)`), 't',
+    'shared runtime views/RPC and protected tables must be installed');
+  const requestRepository = read('src/features/customer-requests/data/customerRequestsRepository.ts');
+  const requestProjection = requestRepository.match(/const CUSTOMER_REQUEST_OPERATIONAL_SELECT = \[([\s\S]*?)\]\.join/);
+  assert.ok(requestProjection, 'customer-request repository projection must be readable for schema verification');
+  const requestColumns = [...requestProjection[1].matchAll(/'([^']+)'/g)].map((match) => match[1]);
+  const requestColumnSql = requestColumns.map((column) => `'${column.replaceAll("'", "''")}'`).join(',');
+  assert.equal(await query(db, `select count(*) from pg_attribute
+    where attrelid='public.customer_requests'::regclass and not attisdropped and attname in (${requestColumnSql})`),
+    String(requestColumns.length), 'customer_requests must satisfy its complete canonical repository projection');
+  assert.equal(await query(db, `select count(*) from pg_attribute
+    where attrelid='public.daily_followups'::regclass and not attisdropped
+      and attname in ('staff_id','followup_summary','requested_by_staff_id')`), '3',
+    'daily_followups must include its runtime evidence columns');
+  assert.equal(await query(db, `select
+    (select count(*) from public.staff_identity_aliases) +
+    (select count(*) from public.shift_notes) +
+    (select count(*) from public.notifications)`), '0',
+    'shared runtime parity must not seed fake alias or shift-note rows');
+  step('shared runtime dependency schema, RLS, notification view, and pending shift-notes RPC verified');
   const before = await query(db, DML_WATCH);
   const seededReady = await query(db, `select count(*) from whatsapp_conversation_actions where action_type='customer_request' and status='ready' and target_id is null`);
   assert.ok(Number(seededReady) > 0, 'seed must contain rows the historical DML would change');
@@ -183,6 +295,36 @@ try {
     }
     step(`migration ${m.order} ${m.file}`, `${m.assertions.length} post-checks`);
   }
+  await psql(db, 'grant select on public.notification_sla_policies to anon;');
+  const anonymousDependencyProbe = await psql(db, `
+    begin;
+    set local role anon;
+    select set_config('request.headers','{}',true);
+    select
+      (select count(*) from public.notification_events_v2)
+      + (select count(*) from public.shift_notes)
+      + (select count(*) from public.staff_identity_aliases)
+      + (select count(*) from public.customer_requests)
+      + (select count(*) from public.daily_followups);
+    rollback;
+  `);
+  assert.equal(anonymousDependencyProbe.code, 0, 'anonymous shared dependency reads must remain executable');
+  assert.equal(anonymousDependencyProbe.stdout.trim().split(/\r?\n/).at(-1), '0',
+    'anonymous reads without a local staff session must not expose shared dependency rows');
+  assert.equal(await query(db, `select count(*) from pg_policy
+    where polrelid in (
+      'public.notifications'::regclass,
+      'public.notification_sla_policies'::regclass,
+      'public.notification_sla_events'::regclass,
+      'public.shift_notes'::regclass,
+      'public.staff_identity_aliases'::regclass,
+      'public.customer_requests'::regclass,
+      'public.daily_followups'::regclass
+    ) and (
+      lower(trim(coalesce(pg_get_expr(polqual,polrelid),''))) in ('true','(true)')
+      or lower(trim(coalesce(pg_get_expr(polwithcheck,polrelid),''))) in ('true','(true)')
+    )`), '0',
+    'shared dependency policies must not use unconditional true predicates');
   const dependencies = checkCanonicalSiDependencies(root);
   assert.deepEqual(dependencies.missing, []);
   for (const name of dependencies.dependencies) {

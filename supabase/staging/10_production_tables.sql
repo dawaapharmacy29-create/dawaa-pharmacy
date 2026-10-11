@@ -160,7 +160,6 @@ create unique index conversation_sales_reviews_whatsapp_source_legacy_uk on publ
 create unique index conversation_sales_reviews_whatsapp_case_uk on public.conversation_sales_reviews (whatsapp_review_source_id, sales_intelligence_case_id) where whatsapp_review_source_id is not null and sales_intelligence_case_id is not null;
 
 -- RLS hardening targets (M: names only; the migration enables RLS and adds one read policy) --------
-create table public.notification_sla_policies (id uuid primary key default gen_random_uuid());
 create table public.sales_import_bridge_tokens_20260908 (id uuid primary key default gen_random_uuid());
 create table public.task_activity_log (id uuid primary key default gen_random_uuid());
 
