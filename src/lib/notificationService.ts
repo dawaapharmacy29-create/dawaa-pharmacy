@@ -9,6 +9,7 @@ import {
   type NotificationPriority,
 } from '@/lib/notifications/notificationDomain';
 import { normalizeNotificationMetadata } from '@/lib/notifications/notificationMetadata';
+import { getNotificationPageRange, NOTIFICATION_PAGE_SIZE } from '@/lib/notifications/notificationPagination';
 
 export type NotificationType = CanonicalNotificationType | string;
 export type NotificationStatus = 'new' | 'read' | 'in_progress' | 'completed' | 'dismissed' | 'escalated';
@@ -270,10 +271,9 @@ function buildCanonicalQuery(filters: NotificationFilters, from: number, to: num
 
 export async function getRecentNotifications(filters: NotificationFilters = {}) {
   if (!isSupabaseConfigured) return [];
-  const limit = Math.min(filters.limit || 20, 1000);
+  const limit = Math.min(filters.limit || NOTIFICATION_PAGE_SIZE, NOTIFICATION_PAGE_SIZE);
   const page = Math.max(filters.page || 1, 1);
-  const from = (page - 1) * limit;
-  const to = from + limit - 1;
+  const { from, to } = getNotificationPageRange(page, limit);
   const { data, error } = await buildCanonicalQuery(filters, from, to);
   if (error) {
     // An unavailable read model is not the same thing as a healthy empty inbox.

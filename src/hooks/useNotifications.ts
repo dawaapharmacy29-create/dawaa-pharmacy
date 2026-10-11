@@ -15,6 +15,7 @@ import {
   canonicalNotificationType,
   notificationPreferenceCategory,
 } from '@/lib/notifications/notificationDomain';
+import { mergeNotificationPages, NOTIFICATION_PAGE_SIZE } from '@/lib/notifications/notificationPagination';
 
 type NotificationRuntimeState = {
   ownerKey: string | null;
@@ -25,6 +26,10 @@ type NotificationRuntimeState = {
   rows: AppNotification[];
   available: boolean;
   loading: boolean;
+  page: number;
+  hasMore: boolean;
+  loadingMore: boolean;
+  queryGeneration: number;
   timer: number | null;
   channel: ReturnType<typeof supabase.channel> | null;
 };
@@ -40,12 +45,20 @@ const notificationRuntime = ((globalThis as typeof globalThis & {
   rows: [],
   available: true,
   loading: true,
+  page: 0,
+  hasMore: false,
+  loadingMore: false,
+  queryGeneration: 0,
   timer: null,
   channel: null,
 });
 // Keep hot-reload sessions compatible when the runtime shape gains fields.
 notificationRuntime.ownerKey ??= null;
 notificationRuntime.generation ??= 0;
+notificationRuntime.page ??= 0;
+notificationRuntime.hasMore ??= false;
+notificationRuntime.loadingMore ??= false;
+notificationRuntime.queryGeneration ??= 0;
 
 const NOTIFICATION_CACHE_TTL_MS = 30_000;
 const NOTIFICATION_POLL_INTERVAL_MS = 120_000;
@@ -169,6 +182,16 @@ function burstDedupeKey(notification: AppNotification) {
     .join('|');
 }
 
+function dedupeNotificationRows(rows: AppNotification[]) {
+  const unique = new Map<string, AppNotification>();
+  for (const item of rows) {
+    const normalized = { ...item, route: notificationRoute(item) };
+    const key = burstDedupeKey(normalized);
+    if (!unique.has(key)) unique.set(key, normalized);
+  }
+  return [...unique.values()];
+}
+
 export function useNotifications() {
   const navigate = useNavigate();
   const navigationGuard = useOptionalNavigationGuard();
@@ -178,6 +201,8 @@ export function useNotifications() {
   const [rows, setRows] = useState<AppNotification[]>(ownsRuntime ? notificationRuntime.rows : []);
   const [loading, setLoading] = useState(ownsRuntime ? notificationRuntime.loading : Boolean(ownerKey));
   const [available, setAvailable] = useState(ownsRuntime ? notificationRuntime.available : true);
+  const [hasMoreNotifications, setHasMoreNotifications] = useState(ownsRuntime ? notificationRuntime.hasMore : false);
+  const [loadingMoreNotifications, setLoadingMoreNotifications] = useState(ownsRuntime ? notificationRuntime.loadingMore : false);
   const [settings, setSettings] = useState(readSettings);
   const mountedRef = useRef(true);
 
@@ -188,12 +213,18 @@ export function useNotifications() {
       notificationRuntime.refreshPromise = null;
       notificationRuntime.rows = [];
       notificationRuntime.lastRefreshAt = 0;
+      notificationRuntime.page = 0;
+      notificationRuntime.hasMore = false;
+      notificationRuntime.loadingMore = false;
+      notificationRuntime.queryGeneration += 1;
       notificationRuntime.available = true;
       notificationRuntime.loading = false;
       if (mountedRef.current) {
         setRows([]);
         setAvailable(true);
         setLoading(false);
+        setHasMoreNotifications(false);
+        setLoadingMoreNotifications(false);
       }
       return;
     }
@@ -207,12 +238,18 @@ export function useNotifications() {
       notificationRuntime.refreshPromise = null;
       notificationRuntime.rows = [];
       notificationRuntime.lastRefreshAt = 0;
+      notificationRuntime.page = 0;
+      notificationRuntime.hasMore = false;
+      notificationRuntime.loadingMore = false;
+      notificationRuntime.queryGeneration += 1;
       notificationRuntime.available = true;
       notificationRuntime.loading = true;
       if (mountedRef.current) {
         setRows([]);
         setAvailable(true);
         setLoading(true);
+        setHasMoreNotifications(false);
+        setLoadingMoreNotifications(false);
       }
     }
 
@@ -221,6 +258,7 @@ export function useNotifications() {
       notificationRuntime.loading = false;
       setAvailable(false);
       setLoading(false);
+      setLoadingMoreNotifications(false);
       return;
     }
 
@@ -233,6 +271,8 @@ export function useNotifications() {
         setRows(notificationRuntime.rows);
         setAvailable(notificationRuntime.available);
         setLoading(false);
+        setHasMoreNotifications(notificationRuntime.hasMore);
+        setLoadingMoreNotifications(notificationRuntime.loadingMore);
       }
       return;
     }
@@ -243,30 +283,29 @@ export function useNotifications() {
         setRows(sharedRows);
         setAvailable(notificationRuntime.available);
         setLoading(false);
+        setHasMoreNotifications(notificationRuntime.hasMore);
+        setLoadingMoreNotifications(notificationRuntime.loadingMore);
       }
       return;
     }
 
     const refreshGeneration = notificationRuntime.generation;
+    const queryGeneration = ++notificationRuntime.queryGeneration;
+    notificationRuntime.loadingMore = false;
+    if (mountedRef.current) setLoadingMoreNotifications(false);
     notificationRuntime.refreshPromise = (async () => {
       try {
-        // 500 keeps the operational center complete across a busy multi-branch week
-        // without loading the entire historical audit log on every refresh.
-        const result = await getRecentNotifications({ limit: 500 });
-        const unique = new Map<string, AppNotification>();
-        for (const item of result) {
-          const normalized = { ...item, route: notificationRoute(item) };
-          const key = burstDedupeKey(normalized);
-          if (!unique.has(key)) unique.set(key, normalized);
-        }
-
-        const resolvedRows = [...unique.values()];
+        const result = await getRecentNotifications({ limit: NOTIFICATION_PAGE_SIZE, page: 1 });
+        const resolvedRows = dedupeNotificationRows(result);
         if (
           notificationRuntime.ownerKey !== ownerKey ||
-          notificationRuntime.generation !== refreshGeneration
+          notificationRuntime.generation !== refreshGeneration ||
+          notificationRuntime.queryGeneration !== queryGeneration
         ) return notificationRuntime.rows;
 
         notificationRuntime.rows = resolvedRows;
+        notificationRuntime.page = 1;
+        notificationRuntime.hasMore = result.length === NOTIFICATION_PAGE_SIZE;
         notificationRuntime.available = true;
         notificationRuntime.lastRefreshAt = Date.now();
         return resolvedRows;
@@ -274,13 +313,17 @@ export function useNotifications() {
         console.warn('[notifications] canonical read source unavailable', error);
         if (
           notificationRuntime.ownerKey === ownerKey &&
-          notificationRuntime.generation === refreshGeneration
+          notificationRuntime.generation === refreshGeneration &&
+          notificationRuntime.queryGeneration === queryGeneration
         ) notificationRuntime.available = false;
         // Preserve the last known-good rows. A temporary outage must not look
         // like an empty inbox or clear the decision tray.
         return notificationRuntime.rows;
       } finally {
-        if (notificationRuntime.generation === refreshGeneration) {
+        if (
+          notificationRuntime.generation === refreshGeneration &&
+          notificationRuntime.queryGeneration === queryGeneration
+        ) {
           notificationRuntime.refreshPromise = null;
         }
       }
@@ -295,6 +338,64 @@ export function useNotifications() {
     setRows(nextRows);
     setAvailable(notificationRuntime.available);
     setLoading(false);
+    setHasMoreNotifications(notificationRuntime.hasMore);
+    setLoadingMoreNotifications(notificationRuntime.loadingMore);
+  }, [ownerKey]);
+
+  const loadMoreNotifications = useCallback(async () => {
+    if (
+      !ownerKey ||
+      !isSupabaseConfigured ||
+      !notificationRuntime.hasMore ||
+      notificationRuntime.loadingMore
+    ) return;
+
+    const refreshGeneration = notificationRuntime.generation;
+    const queryGeneration = notificationRuntime.queryGeneration;
+    const nextPage = notificationRuntime.page + 1;
+    notificationRuntime.loadingMore = true;
+    if (mountedRef.current) setLoadingMoreNotifications(true);
+
+    try {
+      const result = await getRecentNotifications({ limit: NOTIFICATION_PAGE_SIZE, page: nextPage });
+      if (
+        notificationRuntime.ownerKey !== ownerKey ||
+        notificationRuntime.generation !== refreshGeneration ||
+        notificationRuntime.queryGeneration !== queryGeneration
+      ) return;
+
+      const nextRows = dedupeNotificationRows(
+        mergeNotificationPages(notificationRuntime.rows, result)
+      );
+      notificationRuntime.rows = nextRows;
+      notificationRuntime.page = nextPage;
+      notificationRuntime.hasMore = result.length === NOTIFICATION_PAGE_SIZE;
+      notificationRuntime.available = true;
+      if (mountedRef.current) {
+        setRows(nextRows);
+        setAvailable(true);
+        setHasMoreNotifications(notificationRuntime.hasMore);
+      }
+    } catch (error) {
+      console.warn('[notifications] next canonical page unavailable', error);
+      if (
+        notificationRuntime.ownerKey === ownerKey &&
+        notificationRuntime.generation === refreshGeneration &&
+        notificationRuntime.queryGeneration === queryGeneration
+      ) {
+        notificationRuntime.available = false;
+        if (mountedRef.current) setAvailable(false);
+      }
+    } finally {
+      if (
+        notificationRuntime.ownerKey === ownerKey &&
+        notificationRuntime.generation === refreshGeneration &&
+        notificationRuntime.queryGeneration === queryGeneration
+      ) {
+        notificationRuntime.loadingMore = false;
+        if (mountedRef.current) setLoadingMoreNotifications(false);
+      }
+    }
   }, [ownerKey]);
 
   const ensureNotificationLoaded = useCallback(async (id: string) => {
@@ -320,6 +421,8 @@ export function useNotifications() {
       setRows(notificationRuntime.rows);
       setAvailable(notificationRuntime.available);
       setLoading(false);
+      setHasMoreNotifications(notificationRuntime.hasMore);
+      setLoadingMoreNotifications(notificationRuntime.loadingMore);
     }
 
     void refreshNotifications();
@@ -458,9 +561,12 @@ export function useNotifications() {
     allNotifications,
     unreadCount,
     loading,
+    hasMoreNotifications,
+    loadingMoreNotifications,
     available,
     settings,
     refreshNotifications,
+    loadMoreNotifications,
     ensureNotificationLoaded,
     markAsRead,
     markAllAsRead,

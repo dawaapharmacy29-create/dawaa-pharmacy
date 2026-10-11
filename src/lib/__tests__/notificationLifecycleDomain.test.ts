@@ -5,6 +5,11 @@ import {
   notificationTransitionAllowed,
   type NotificationLike,
 } from '@/lib/notifications/notificationDomain';
+import {
+  getNotificationPageRange,
+  mergeNotificationPages,
+  NOTIFICATION_PAGE_SIZE,
+} from '@/lib/notifications/notificationPagination';
 
 function notification(overrides: Partial<NotificationLike> = {}): NotificationLike {
   return {
@@ -18,6 +23,31 @@ function notification(overrides: Partial<NotificationLike> = {}): NotificationLi
 }
 
 describe('notification lifecycle domain', () => {
+  it('requests notifications in 50-row pages with the next offset at 50', () => {
+    expect(NOTIFICATION_PAGE_SIZE).toBe(50);
+    expect(getNotificationPageRange(1)).toEqual({ from: 0, to: 49 });
+    expect(getNotificationPageRange(2)).toEqual({ from: 50, to: 99 });
+    expect(getNotificationPageRange(1, 500)).toEqual({ from: 0, to: 49 });
+  });
+
+  it('merges pages in descending creation order without duplicate rows or changing row fields', () => {
+    const firstPage = [
+      { id: 'newest', title: 'Newest', created_at: '2026-10-11T12:00:00Z', body: 'unchanged' },
+      { id: 'overlap', title: 'Existing row', created_at: '2026-10-11T11:00:00Z', body: 'keep rendering' },
+    ];
+    const secondPage = [
+      { id: 'overlap', title: 'Duplicate row', created_at: '2026-10-11T11:00:00Z', body: 'must not replace' },
+      { id: 'oldest', title: 'Oldest', created_at: '2026-10-11T10:00:00Z', body: 'unchanged' },
+    ];
+
+    const merged = mergeNotificationPages(firstPage, secondPage);
+
+    expect(merged.map((item) => item.id)).toEqual(['newest', 'overlap', 'oldest']);
+    expect(merged[1]).toBe(firstPage[1]);
+    expect(merged[0].body).toBe('unchanged');
+    expect(merged[2].body).toBe('unchanged');
+  });
+
   it('requires operational notifications to start before completion', () => {
     const item = notification();
     expect(notificationTransitionAllowed(item, 'in_progress')).toBe(true);

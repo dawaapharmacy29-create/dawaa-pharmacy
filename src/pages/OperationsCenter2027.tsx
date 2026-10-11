@@ -183,7 +183,10 @@ export default function OperationsCenter2027() {
   const { data: staffDirectory = [] } = useStaffDirectory();
   const {
     allNotifications: notifications,
+    hasMoreNotifications,
+    loadingMoreNotifications,
     refreshNotifications,
+    loadMoreNotifications,
     ensureNotificationLoaded,
     markAsRead,
     handleNotificationClick,
@@ -728,6 +731,16 @@ export default function OperationsCenter2027() {
             </div>;
           })}
         </div>
+        {hasMoreNotifications ? (
+          <button
+            type="button"
+            disabled={loadingMoreNotifications}
+            onClick={() => void loadMoreNotifications()}
+            className="dawaa-button dawaa-button--secondary mt-4 w-full justify-center"
+          >
+            {loadingMoreNotifications ? 'جاري تحميل الإشعارات...' : 'تحميل 50 تنبيهًا إضافيًا'}
+          </button>
+        ) : null}
       </section>
       <span className="sr-only">قيد المتابعة: {inProgressCount}</span>
     </div>
