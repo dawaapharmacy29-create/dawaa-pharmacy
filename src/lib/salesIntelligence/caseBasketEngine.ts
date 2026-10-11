@@ -119,6 +119,8 @@ const GREETING_LEAD_RX =
 const LEAD_DISCOURSE_RX =
   /^\s*(?:(?:تمام|ماشي|اوك|ok|خلاص|طيب|ايوه|ايوا|اه|آه|بالمناسبة|على\s*فكرة)(?=[\s،,])[\s،,]*)+/i;
 const TRAILING_ADDITIVE_RX = /\s+(?:كمان|برضه|برضو|أيضا|ايضا)\s*$/i;
+const CONTACT_DETAIL_TAIL_RX =
+  /[،,]\s*(?:رقم\s*(?:تليفوني|موبايلي|الهاتف|التليفون)|(?:تليفوني|موبايلي))\s*[:：-]?\s*[+0-9٠-٩()\s-]{7,}$/u;
 
 export function stripRequestPrefix(text: string): string {
   return text
@@ -151,6 +153,7 @@ const POLITENESS_RX = /(?<![\p{L}\p{N}])(?:لو\s*سمحت|من\s*فضلك|يا\
 /** Product phrases named by an explicit request ("عايز X و Y"); [] when it is not a product request. */
 export function explicitRequestProductPhrases(text: string): string[] {
   const phrase = stripRequestPrefix(text.replace(POLITENESS_RX, ' '))
+    .replace(CONTACT_DETAIL_TAIL_RX, '')
     .replace(/[؟?!.]+$/g, '')
     .replace(/\s+/g, ' ')
     .trim();

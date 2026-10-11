@@ -2377,6 +2377,7 @@ var ADDITIVE_CONNECTOR_RX = /^\s*(?:(?:و|وكمان|كمان|وبرضه|برض�
 var GREETING_LEAD_RX = /^\s*(?:(?:السلام\s*عليكم(?:\s*ورحمة\s*الله(?:\s*وبركاته)?)?|صباح\s*الخير|مساء\s*الخير|أهلا|اهلا)(?=[\s،,!]|$)[\s،,!]*)+/i;
 var LEAD_DISCOURSE_RX = /^\s*(?:(?:تمام|ماشي|اوك|ok|خلاص|طيب|ايوه|ايوا|اه|آه|بالمناسبة|على\s*فكرة)(?=[\s،,])[\s،,]*)+/i;
 var TRAILING_ADDITIVE_RX = /\s+(?:كمان|برضه|برضو|أيضا|ايضا)\s*$/i;
+var CONTACT_DETAIL_TAIL_RX = /[،,]\s*(?:رقم\s*(?:تليفوني|موبايلي|الهاتف|التليفون)|(?:تليفوني|موبايلي))\s*[:：-]?\s*[+0-9٠-٩()\s-]{7,}$/u;
 function stripRequestPrefix(text2) {
   return text2.replace(GREETING_LEAD_RX, "").replace(LEAD_DISCOURSE_RX, "").replace(ADDITIVE_CONNECTOR_RX, "").replace(/^\s*(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|ممكن|هات[ي]?|ابعت(?:لي|يلي)?)\s*/i, "").replace(ADDITIVE_CONNECTOR_RX, "").replace(TRAILING_ADDITIVE_RX, "").trim().replace(/^[,،]+|[,،]+$/g, "").trim();
 }
@@ -2391,7 +2392,7 @@ var ONLY_THIS_RX = /(?<![\p{L}\p{N}])(?:بس|فقط)[.!، ]*$/u;
 var INFO_QUESTION_LEAD_RX = /^(?:اعرف|أعرف|اسأل|أسأل|استفسر|أستفسر|افهم|أفهم|اشوف|أشوف|اتأكد|أتأكد)(?=\s|$)/;
 var POLITENESS_RX = /(?<![\p{L}\p{N}])(?:لو\s*سمحت|من\s*فضلك|يا\s*(?:دكتور[ةه]?|فندم)|بعد\s*اذنك|بعد\s*إذنك)(?![\p{L}\p{N}])/giu;
 function explicitRequestProductPhrases(text2) {
-  const phrase = stripRequestPrefix(text2.replace(POLITENESS_RX, " ")).replace(/[؟?!.]+$/g, "").replace(/\s+/g, " ").trim();
+  const phrase = stripRequestPrefix(text2.replace(POLITENESS_RX, " ")).replace(CONTACT_DETAIL_TAIL_RX, "").replace(/[؟?!.]+$/g, "").replace(/\s+/g, " ").trim();
   if (!phrase || /[؟?]/.test(text2) || INFO_QUESTION_LEAD_RX.test(phrase)) return [];
   const parts = phrase.split(/\s+و\s+|\s*[،,+]\s*/).map((part) => stripRequestPrefix(part).trim()).filter((part) => part.length >= 2);
   if (!parts.length || parts.some(

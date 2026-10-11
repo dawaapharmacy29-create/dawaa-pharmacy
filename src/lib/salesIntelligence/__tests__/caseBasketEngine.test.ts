@@ -131,6 +131,14 @@ describe('Case Basket Engine (Sales Intelligence Phase B.2) — Golden Cases', (
       const allItems = baskets.flatMap((basket) => itemsOf(itemsByBasketId, basket.basketId));
       expect(allItems).toHaveLength(0);
     });
+
+    it('B10. a phone number appended to an explicit product request is not extracted as another product', () => {
+      const raw = `[10/10/26, 7:00:00 PM] Customer: محتاج بانادول اكسترا، رقم تليفوني 01000000001
+[10/10/26, 7:02:00 PM] You: متوفر`;
+      const { baskets, itemsByBasketId } = firstCaseWithBaskets(raw);
+      const allItems = baskets.flatMap((basket) => itemsOf(itemsByBasketId, basket.basketId));
+      expect(allItems.map((item) => item.productNameRaw)).toEqual(['بانادول اكسترا']);
+    });
   });
 
   describe('Confirmation and basket versioning', () => {
