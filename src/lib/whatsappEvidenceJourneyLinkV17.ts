@@ -2,7 +2,7 @@ import { supabase } from '@/lib/supabase';
 import { getStaffSessionToken } from '@/lib/auth/staffSession';
 
 // Evidence V17 -> Journey/Story link is a SIDE PROJECTION. It authenticates with the Dawaa staff
-// session token (staff_login_sessions), never with auth.uid() or the x-dawaa-user-id header.
+// session token (staff_login_sessions), never with auth.uid() or browser-supplied identity headers.
 // The command validates session, permission, journey membership and source/branch scope on the
 // server, then updates existing evidence rows in place (idempotent; no rows are created).
 export const EVIDENCE_JOURNEY_LINK_COMMAND = 'dawaa_link_whatsapp_evidence_journey_session_v1';

@@ -55,9 +55,24 @@ returns boolean language sql stable security definer set search_path to 'public'
           and public.dawaa_customer_request_branch_key(me.branch)=public.dawaa_customer_request_branch_key(p_branch)))
 $$;
 create function public.dawaa_current_staff_account_id_strict() returns uuid language sql stable security definer set search_path to 'public' as $$
-  select a.id from public.staff_accounts a
+  with request_headers as (
+    select nullif(current_setting('request.headers', true), '')::jsonb as headers
+  )
+  select a.id
+  from public.staff_accounts a
+  cross join request_headers h
   where coalesce(a.active,false) and coalesce(a.can_login,false)
-    and a.id::text = nullif(current_setting('request.headers', true),'')::jsonb ->> 'x-dawaa-user-id'
+    and case
+      when nullif(h.headers->>'x-dawaa-session-token','') is not null then exists (
+        select 1
+        from public.staff_login_sessions s
+        where s.staff_account_id=a.id
+          and s.token_hash=encode(extensions.digest(btrim(h.headers->>'x-dawaa-session-token'),'sha256'),'hex')
+          and s.revoked_at is null
+          and s.expires_at>now()
+      )
+      else a.id::text = h.headers->>'x-dawaa-user-id'
+    end
   limit 1
 $$;
 create function public.dawaa_current_actor_can(required_permissions text[]) returns boolean language plpgsql stable security definer set search_path to 'public' as $$
@@ -303,7 +318,7 @@ CREATE FUNCTION public.dawaa_current_points_cycle_label_v1() RETURNS text LANGUA
     else to_char((now() at time zone 'Africa/Cairo')::date, 'YYYY-MM') end
 $function$;
 CREATE FUNCTION public.employee_operating_actor_id() RETURNS text LANGUAGE sql STABLE SET search_path TO 'public', 'pg_catalog' AS $function$
-  select coalesce(nullif((nullif(current_setting('request.headers', true), '')::jsonb ->> 'x-dawaa-user-id'), ''), nullif(current_setting('request.jwt.claim.sub', true), ''));
+  select coalesce(public.dawaa_current_staff_account_id_strict()::text, nullif(current_setting('request.jwt.claim.sub', true), ''));
 $function$;
 CREATE FUNCTION public.employee_operating_actor_role() RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path TO 'public', 'pg_catalog' AS $function$
   select lower(trim(coalesce(sa.role, ''))) from public.staff_accounts sa where sa.id::text = public.employee_operating_actor_id() and coalesce(sa.active, true) = true and coalesce(sa.can_login, true) = true limit 1;

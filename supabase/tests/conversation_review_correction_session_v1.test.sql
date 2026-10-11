@@ -15,12 +15,16 @@ create function public.t_hash(p text) returns text language sql as $$ select enc
 -- One correction call exactly as the browser makes it (anon key + staff session token).
 create function public.t_call(p_token text, p_review uuid, p_key uuid, p_reason text, p_payload jsonb) returns text
 language plpgsql as $$
-declare r jsonb; v_detail text;
+declare r jsonb; v_detail text; v_previous_headers text;
 begin
+  v_previous_headers := current_setting('request.headers', true);
+  perform set_config('request.headers', jsonb_build_object('x-dawaa-session-token',p_token)::text,true);
   r := public.dawaa_correct_conversation_review_session_v1(p_token, p_review, p_key, p_reason, p_payload);
+  perform set_config('request.headers', coalesce(v_previous_headers,''), true);
   return 'ok:' || r::text;
 exception when others then
   get stacked diagnostics v_detail = pg_exception_detail;
+  perform set_config('request.headers', coalesce(v_previous_headers,''), true);
   return 'err:' || sqlstate || ':' || sqlerrm || ':' || coalesce(v_detail,'');
 end $$;
 grant execute on function public.t_call(text,uuid,uuid,text,jsonb) to anon;
@@ -628,7 +632,6 @@ insert into public.conversation_sales_reviews(id,evaluation_kind,staff_id,staff_
   doctor_points_impact,point_impact,impact_status,month_cycle,reviewer_id,reviewer_name,review_items,raw_scores)
 values ('e0000000-0000-4000-8000-0000000000a1','واتساب','d0000000-0000-4000-8000-000000000002','دكتور 2','A','عميل نقاط','2026-10-04 09:00+00',70,
         -2,-2,'approved','2026-10','a0000000-0000-4000-8000-000000000001','مدير أ','[]','{}');
-select set_config('request.headers','',false);
 set role anon;
 select public.t_assert(public.t_points('tok-n1','e0000000-0000-4000-8000-0000000000a1') like 'err:42501:invalid_or_expired_staff_session%', 'C: NULL active denied');
 select public.t_assert(public.t_points('tok-n2','e0000000-0000-4000-8000-0000000000a1') like 'err:42501:invalid_or_expired_staff_session%', 'C: NULL is_active denied');
@@ -643,7 +646,10 @@ select public.t_assert(public.t_call('tok-n1','e0000000-0000-4000-8000-000000000
 reset role;
 select public.t_assert((select count(*) from public.employee_transactions where source_id='e0000000-0000-4000-8000-0000000000a1')=0, 'C: denied calls posted nothing');
 set role anon;
+select public.t_assert(public.t_points('tok-n6','e0000000-0000-4000-8000-0000000000a1') like 'err:42501:invalid_or_expired_staff_session%', 'C: a valid supplied token cannot act when it differs from the verified request identity');
+select set_config('request.headers','{"x-dawaa-user-id":"a0000000-0000-4000-8000-000000000016"}',false);
 select public.t_assert(public.t_points('tok-n6','e0000000-0000-4000-8000-0000000000a1') like 'err:42501:review_author_session_mismatch%', 'C: case/space-normalized "Active" status authenticates (then the author binding applies)');
+select set_config('request.headers','{"x-dawaa-user-id":"a0000000-0000-4000-8000-000000000001"}',false);
 select public.t_assert(public.t_points('tok-mgrA','e0000000-0000-4000-8000-0000000000a1') like 'ok:%"session_authorized": true%', 'C: a valid session still posts normal review points (Production caller)');
 select public.t_assert(public.t_points('tok-mgrA','e0000000-0000-4000-8000-0000000000a1') like 'ok:%', 'C: Production caller retry stays compatible');
 reset role;
@@ -657,12 +663,13 @@ select public.t_assert((select b.acl = p.proacl::text and b.proowner=p.proowner 
 select public.t_assert(has_function_privilege('anon','public.record_conversation_review_points_v1(text,uuid)','execute')
   and has_function_privilege('authenticated','public.record_conversation_review_points_v1(text,uuid)','execute')
   and has_function_privilege('service_role','public.record_conversation_review_points_v1(text,uuid)','execute'), 'C: existing callers keep execute (anon, authenticated, service_role)');
-select public.t_assert((select regexp_replace(b.prosrc, '\n\s*and coalesce\(a\.active,true\)=true.*?limit 1;', ' <ACCOUNT_STATE> limit 1;')
-    = regexp_replace(p.prosrc, '\n\s*-- Fail closed[^\n]*\n\s*and a\.active is true.*?limit 1;', ' <ACCOUNT_STATE> limit 1;')
-    and p.prosrc like '%and a.active is true and a.is_active is true and a.can_login is true and lower(btrim(coalesce(a.status,'''')))=''active''%'
+select public.t_assert((select p.prosrc like '%and a.active is true and a.is_active is true and a.can_login is true and lower(btrim(coalesce(a.status,'''')))=''active''%'
     and p.prosrc not like '%coalesce(a.active,true)%'
+    and p.prosrc like '%dawaa_current_staff_account_id_strict() is distinct from v_account.id%'
+    and p.prosrc not like '%set_config(''request.headers''%'
+    and p.prosrc not like '%x-dawaa-user-id%'
   from public.t_points_v1_before b, pg_proc p where p.oid='public.record_conversation_review_points_v1(text,uuid)'::regprocedure),
-  'C: the live body changed ONLY in its account-state predicate (now fail-closed)');
+  'C: the live body fails closed and binds the supplied session to verified caller identity without rewriting request headers');
 select public.t_assert(not has_function_privilege('anon','public.dawaa_conversation_review_chose_v1(jsonb,text,text[])','execute'), 'grant: criterion predicate is internal');
 
 select public.t_assert(true, 'ALL CORRECTION COMMAND TESTS PASSED');

@@ -50,7 +50,7 @@
 --
 -- Authentication follows record_conversation_review_points_v1 / Evidence V17 session command:
 -- opaque staff session token -> sha256 -> live staff_login_sessions row -> fail-closed active
--- account. auth.uid(), request headers and x-dawaa-user-id never participate in the decision.
+-- account. Caller identity is resolved with dawaa_current_staff_account_id_strict().
 
 -- ---------------------------------------------------------------------------------------------
 -- 1. Explicit lineage columns.
@@ -439,6 +439,9 @@ begin
     -- Fail closed: NULL in any account-state column denies (all four columns are nullable).
     and a.active is true and a.is_active is true and a.can_login is true and lower(btrim(coalesce(a.status,'')))='active' limit 1;
   if not found then raise exception 'invalid_or_expired_staff_session' using errcode='42501'; end if;
+  if public.dawaa_current_staff_account_id_strict() is distinct from v_account.id then
+    raise exception 'invalid_or_expired_staff_session' using errcode='42501';
+  end if;
   select * into v_review from public.conversation_sales_reviews where id=p_review_id for update;
   if not found then raise exception 'conversation_review_not_found' using errcode='P0002'; end if;
   if v_review.reviewer_id is null or (v_review.reviewer_id::text is distinct from v_account.id::text and v_review.reviewer_id::text is distinct from coalesce(v_account.staff_id::text,'')) then
@@ -453,7 +456,6 @@ begin
   v_points:=coalesce(v_review.doctor_points_impact,v_review.point_impact,0);
   if v_points=0 then return jsonb_build_object('review_id',v_review.id,'status','no_points','points_delta',0); end if;
   v_status:=case when lower(coalesce(v_review.impact_status,''))='approved' then 'approved' else 'pending' end;
-  perform set_config('request.headers',jsonb_build_object('x-dawaa-user-id',v_account.id::text)::text,true);
   v_result:=public.record_employee_points_transaction_v4(v_review.staff_id,v_points,
     format('تقييم محادثة عميل - النتيجة %s/100',coalesce(v_review.final_score,v_review.total_score,0)),
     coalesce(nullif(btrim(coalesce(v_review.reviewer_notes,'')),''),nullif(btrim(coalesce(v_review.training_recommendation,'')),'')),
