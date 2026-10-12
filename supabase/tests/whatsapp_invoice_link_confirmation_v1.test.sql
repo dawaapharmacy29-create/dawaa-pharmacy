@@ -4,12 +4,62 @@ declare
   v_confirmed_at timestamptz;
   v_actor_id uuid := '10000000-0000-4000-8000-000000000001';
 begin
+  if (
+    select format_type(a.atttypid, a.atttypmod)
+    from pg_attribute a
+    where a.attrelid = 'public.sales_invoices'::regclass
+      and a.attname = 'id'
+      and not a.attisdropped
+  ) <> 'text' then
+    raise exception 'production_contract_sales_invoices_id_must_be_text';
+  end if;
+  if (
+    select format_type(a.atttypid, a.atttypmod)
+    from pg_attribute a
+    where a.attrelid = 'public.whatsapp_review_sources'::regclass
+      and a.attname = 'invoice_link_confirmed_invoice_id'
+      and not a.attisdropped
+  ) <> 'text' then
+    raise exception 'production_contract_confirmed_invoice_id_must_be_text';
+  end if;
+  if (
+    select format_type(a.atttypid, a.atttypmod)
+    from pg_attribute a
+    where a.attrelid = 'public.whatsapp_review_sources'::regclass
+      and a.attname = 'matched_invoice_id'
+      and not a.attisdropped
+  ) <> 'uuid' then
+    raise exception 'production_contract_matched_invoice_id_must_be_uuid';
+  end if;
+  if to_regprocedure('public.dawaa_confirm_whatsapp_invoice_link_v1(uuid,text,text,text)') is null then
+    raise exception 'production_contract_rpc_invoice_id_must_be_text';
+  end if;
+
+  perform set_config('test.actor_id', '', true);
+  perform set_config(
+    'request.headers',
+    '{"x-dawaa-user-id":"10000000-0000-4000-8000-000000000001"}',
+    true
+  );
+  perform set_config('test.can_edit_reviews', 'true', true);
+  begin
+    perform public.dawaa_confirm_whatsapp_invoice_link_v1(
+      '20000000-0000-4000-8000-000000000001',
+      'LOCAL-INVOICE-74880',
+      '74880',
+      null
+    );
+    raise exception 'expected_legacy_actor_spoof_denied';
+  exception when sqlstate '42501' then
+    if sqlerrm <> 'verified_staff_session_required' then raise; end if;
+  end;
+
   perform set_config('test.actor_id', '', true);
   perform set_config('test.can_edit_reviews', 'true', true);
   begin
     perform public.dawaa_confirm_whatsapp_invoice_link_v1(
       '20000000-0000-4000-8000-000000000001',
-      '50000000-0000-4000-8000-000000000001',
+      'LOCAL-INVOICE-74880',
       '74880',
       null
     );
@@ -24,7 +74,7 @@ begin
   begin
     perform public.dawaa_confirm_whatsapp_invoice_link_v1(
       '20000000-0000-4000-8000-000000000001',
-      '50000000-0000-4000-8000-000000000001',
+      'LOCAL-INVOICE-74880',
       '74880',
       null
     );
@@ -37,7 +87,7 @@ begin
   begin
     perform public.dawaa_confirm_whatsapp_invoice_link_v1(
       '20000000-0000-4000-8000-000000000001',
-      '50000000-0000-4000-8000-000000000001',
+      'LOCAL-INVOICE-74880',
       '74880',
       null
     );
@@ -49,7 +99,7 @@ begin
   begin
     perform public.dawaa_confirm_whatsapp_invoice_link_v1(
       '20000000-0000-4000-8000-000000000004',
-      '50000000-0000-4000-8000-000000000001',
+      'LOCAL-INVOICE-74880',
       '74880',
       null
     );
@@ -61,7 +111,7 @@ begin
   begin
     perform public.dawaa_confirm_whatsapp_invoice_link_v1(
       '20000000-0000-4000-8000-000000000099',
-      '50000000-0000-4000-8000-000000000001',
+      'LOCAL-INVOICE-74880',
       '74880',
       null
     );
@@ -73,7 +123,7 @@ begin
   begin
     perform public.dawaa_confirm_whatsapp_invoice_link_v1(
       '20000000-0000-4000-8000-000000000001',
-      '50000000-0000-4000-8000-000000000099',
+      'LOCAL-INVOICE-NOT-FOUND',
       '74880',
       null
     );
@@ -85,7 +135,7 @@ begin
   begin
     perform public.dawaa_confirm_whatsapp_invoice_link_v1(
       '20000000-0000-4000-8000-000000000001',
-      '50000000-0000-4000-8000-000000000001',
+      'LOCAL-INVOICE-74880',
       '74966',
       null
     );
@@ -112,7 +162,7 @@ begin
   begin
     perform public.dawaa_confirm_whatsapp_invoice_link_v1(
       '20000000-0000-4000-8000-000000000001',
-      '50000000-0000-4000-8000-000000000001',
+      'LOCAL-INVOICE-74880',
       '74880',
       null
     );
@@ -126,7 +176,7 @@ begin
 
   v_result := public.dawaa_confirm_whatsapp_invoice_link_v1(
     '20000000-0000-4000-8000-000000000001',
-    '50000000-0000-4000-8000-000000000001',
+    'LOCAL-INVOICE-74880',
     '74880',
     'Reviewed candidate'
   );
@@ -136,6 +186,10 @@ begin
   from public.whatsapp_review_sources
   where id = '20000000-0000-4000-8000-000000000001';
   if v_confirmed_at is null then raise exception 'server_timestamp_missing'; end if;
+  if (select invoice_link_confirmed_invoice_id from public.whatsapp_review_sources where id = '20000000-0000-4000-8000-000000000001')
+      <> 'LOCAL-INVOICE-74880' then
+    raise exception 'text_invoice_id_not_preserved';
+  end if;
   if (select invoice_link_confirmed_by from public.whatsapp_review_sources where id = '20000000-0000-4000-8000-000000000001') <> v_actor_id::text
     then raise exception 'actor_identity_was_not_server_derived'; end if;
   if (select invoice_link_confirmed_by_name from public.whatsapp_review_sources where id = '20000000-0000-4000-8000-000000000001') <> 'Verified Staff'
@@ -143,7 +197,7 @@ begin
 
   v_result := public.dawaa_confirm_whatsapp_invoice_link_v1(
     '20000000-0000-4000-8000-000000000001',
-    '50000000-0000-4000-8000-000000000001',
+    'LOCAL-INVOICE-74880',
     '74880',
     'Ignored idempotent note'
   );
@@ -163,11 +217,11 @@ begin
     if sqlerrm <> 'different_invoice_already_confirmed' then raise; end if;
   end;
 
-  if (select proargnames from pg_proc where oid = 'public.dawaa_confirm_whatsapp_invoice_link_v1(uuid,uuid,text,text)'::regprocedure)
+  if (select proargnames from pg_proc where oid = 'public.dawaa_confirm_whatsapp_invoice_link_v1(uuid,text,text,text)'::regprocedure)
       <> array['p_source_id','p_invoice_id','p_invoice_number','p_confirmation_note']::text[] then
     raise exception 'unexpected_actor_argument_in_rpc_contract';
   end if;
-  if pg_get_functiondef('public.dawaa_confirm_whatsapp_invoice_link_v1(uuid,uuid,text,text)'::regprocedure)
+  if pg_get_functiondef('public.dawaa_confirm_whatsapp_invoice_link_v1(uuid,text,text,text)'::regprocedure)
       ~* '(sale_proven|canonical_outcome|revenue_countable)' then
     raise exception 'rpc_must_not_write_sales_intelligence_outcome';
   end if;

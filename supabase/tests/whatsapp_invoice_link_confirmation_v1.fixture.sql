@@ -35,7 +35,7 @@ create table public.whatsapp_review_sources (
 );
 
 create table public.sales_invoices (
-  id uuid primary key,
+  id text primary key,
   invoice_number text,
   invoice_no text,
   customer_id uuid,
@@ -109,6 +109,6 @@ values
 
 insert into public.sales_invoices (id, invoice_number, invoice_no, customer_id, customer_code, customer_phone, branch)
 values
-  ('50000000-0000-4000-8000-000000000001', '74880', '74880', '40000000-0000-4000-8000-000000000001', '2490', '01012345678', 'فرع شكري'),
+  ('LOCAL-INVOICE-74880', '74880', '74880', '40000000-0000-4000-8000-000000000001', '2490', '01012345678', 'فرع شكري'),
   ('50000000-0000-4000-8000-000000000002', '74966', '74966', '40000000-0000-4000-8000-000000000001', '2490', '01012345678', 'فرع شكري'),
   ('50000000-0000-4000-8000-000000000003', '74967', '74967', '40000000-0000-4000-8000-000000000009', '9999', '01112345678', 'فرع شكري');

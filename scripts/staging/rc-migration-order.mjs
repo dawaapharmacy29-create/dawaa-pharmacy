@@ -254,10 +254,10 @@ export const RC_MIGRATIONS = [
     mutatesData: 'no', lockRisk: 'none (function body and ACL only)',
     reversal: 'revoke client execute and drop dawaa_confirm_whatsapp_invoice_link_v1 after confirming no Production invocation depends on it',
     assertions: [
-      fn('dawaa_confirm_whatsapp_invoice_link_v1(uuid,uuid,text,text)'),
-      sql('invoice confirmation RPC is SECURITY DEFINER with pinned search_path', `select prosecdef and proconfig @> array['search_path=public, pg_catalog'] from pg_proc where oid='public.dawaa_confirm_whatsapp_invoice_link_v1(uuid,uuid,text,text)'::regprocedure`, 't'),
-      sql('invoice confirmation RPC is not executable by PUBLIC', `select not exists (select 1 from aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a where p.oid='public.dawaa_confirm_whatsapp_invoice_link_v1(uuid,uuid,text,text)'::regprocedure and a.grantee=0 and a.privilege_type='EXECUTE') from pg_proc p where p.oid='public.dawaa_confirm_whatsapp_invoice_link_v1(uuid,uuid,text,text)'::regprocedure`, 't'),
-      sql('invoice confirmation RPC is executable by browser roles', `select has_function_privilege('anon','public.dawaa_confirm_whatsapp_invoice_link_v1(uuid,uuid,text,text)','execute') and has_function_privilege('authenticated','public.dawaa_confirm_whatsapp_invoice_link_v1(uuid,uuid,text,text)','execute') from pg_proc where oid='public.dawaa_confirm_whatsapp_invoice_link_v1(uuid,uuid,text,text)'::regprocedure`, 't'),
+      fn('dawaa_confirm_whatsapp_invoice_link_v1(uuid,text,text,text)'),
+      sql('invoice confirmation RPC is SECURITY DEFINER with pinned search_path', `select prosecdef and proconfig @> array['search_path=public, pg_catalog'] from pg_proc where oid='public.dawaa_confirm_whatsapp_invoice_link_v1(uuid,text,text,text)'::regprocedure`, 't'),
+      sql('invoice confirmation RPC is not executable by PUBLIC', `select not exists (select 1 from aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a where p.oid='public.dawaa_confirm_whatsapp_invoice_link_v1(uuid,text,text,text)'::regprocedure and a.grantee=0 and a.privilege_type='EXECUTE') from pg_proc p where p.oid='public.dawaa_confirm_whatsapp_invoice_link_v1(uuid,text,text,text)'::regprocedure`, 't'),
+      sql('invoice confirmation RPC is executable by browser roles', `select has_function_privilege('anon','public.dawaa_confirm_whatsapp_invoice_link_v1(uuid,text,text,text)','execute') and has_function_privilege('authenticated','public.dawaa_confirm_whatsapp_invoice_link_v1(uuid,text,text,text)','execute') from pg_proc where oid='public.dawaa_confirm_whatsapp_invoice_link_v1(uuid,text,text,text)'::regprocedure`, 't'),
     ],
   },
 ];

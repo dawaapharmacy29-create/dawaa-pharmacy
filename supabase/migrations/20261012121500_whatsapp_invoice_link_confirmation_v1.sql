@@ -1,6 +1,6 @@
 create or replace function public.dawaa_confirm_whatsapp_invoice_link_v1(
   p_source_id uuid,
-  p_invoice_id uuid,
+  p_invoice_id text,
   p_invoice_number text,
   p_confirmation_note text default null
 )
@@ -126,12 +126,12 @@ begin
   end if;
 
   if v_source.matched_invoice_id is not null
-     and v_source.matched_invoice_id <> p_invoice_id then
+     and v_source.matched_invoice_id::text <> p_invoice_id then
     raise exception 'matched_invoice_conflict' using errcode = '22023';
   end if;
 
   if coalesce(v_source.invoice_link_confirmed, false) then
-    if v_source.invoice_link_confirmed_invoice_id = p_invoice_id::text
+    if v_source.invoice_link_confirmed_invoice_id = p_invoice_id
        and nullif(btrim(v_source.invoice_link_confirmed_invoice_number), '') = v_invoice_number then
       return jsonb_build_object(
         'ok', true,
@@ -146,7 +146,7 @@ begin
 
   update public.whatsapp_review_sources
   set invoice_link_confirmed = true,
-      invoice_link_confirmed_invoice_id = p_invoice_id::text,
+      invoice_link_confirmed_invoice_id = p_invoice_id,
       invoice_link_confirmed_invoice_number = v_invoice_number,
       invoice_link_confirmed_by = v_actor_id::text,
       invoice_link_confirmed_by_name = coalesce(
@@ -168,5 +168,5 @@ begin
 end;
 $function$;
 
-revoke all on function public.dawaa_confirm_whatsapp_invoice_link_v1(uuid, uuid, text, text) from public;
-grant execute on function public.dawaa_confirm_whatsapp_invoice_link_v1(uuid, uuid, text, text) to anon, authenticated;
+revoke all on function public.dawaa_confirm_whatsapp_invoice_link_v1(uuid, text, text, text) from public;
+grant execute on function public.dawaa_confirm_whatsapp_invoice_link_v1(uuid, text, text, text) to anon, authenticated;
