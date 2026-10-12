@@ -377,6 +377,11 @@ export interface QaCaseDetailBundle {
     /** Persisted source-level conversation staff identity; display context only, never sale ownership. */
     staffId: string | null;
     staffName: string | null;
+    invoiceMatchConfidence: number | null;
+    invoiceMatchReason: string | null;
+    invoiceLinkConfirmed: boolean;
+    invoiceLinkConfirmedInvoiceId: string | null;
+    invoiceLinkConfirmedInvoiceNumber: string | null;
   } | null;
   /** Snapshot-lineage status. Old contained exports remain readable for audit, never current truth. */
   sourceSnapshot: {
@@ -467,6 +472,16 @@ export interface QaCaseDetailBundle {
     resolutionStatus: 'resolved_by_staff_id' | 'resolved_by_unique_name' | 'ambiguous_name' | 'missing_invoice_staff' | 'unresolved';
     itemEvidenceAvailable: boolean;
   } | null;
+  candidateInvoice: {
+    id: string;
+    invoiceNumber: string;
+    customerName: string | null;
+    customerCode: string | null;
+    branch: string | null;
+    staffName: string | null;
+    invoiceDatetime: string | null;
+    total: number | null;
+  } | null;
   catalogProductMatches: Array<{
     sourceMessageId: string;
     rawPhrase: string;
@@ -519,7 +534,7 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
   if (caseRow?.conversation_id) {
     const { data: conversationRow } = await supabaseClient
       .from('whatsapp_review_sources')
-      .select([...REVIEW_SOURCE_BATCH_INPUT_COLUMNS, 'staff_id', 'staff_name', 'source_filename', 'conversation_ended_at', 'message_count', 'created_at', 'analysis_json', 'review_status'].join(','))
+      .select([...REVIEW_SOURCE_BATCH_INPUT_COLUMNS, 'staff_name', 'invoice_match_confidence', 'invoice_match_reason', 'source_filename', 'conversation_ended_at', 'message_count', 'created_at', 'analysis_json', 'review_status'].join(','))
       .eq('id', caseRow.conversation_id)
       .maybeSingle();
     if (conversationRow?.raw_text) {
@@ -593,6 +608,15 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
         customerPhone: displayIdentity.phone,
         staffId: conversationRow.staff_id ?? null,
         staffName: conversationRow.staff_name ?? null,
+        invoiceMatchConfidence: conversationRow.invoice_match_confidence == null
+          ? null
+          : Number(conversationRow.invoice_match_confidence),
+        invoiceMatchReason: conversationRow.invoice_match_reason == null
+          ? null
+          : String(conversationRow.invoice_match_reason),
+        invoiceLinkConfirmed: conversationRow.invoice_link_confirmed === true,
+        invoiceLinkConfirmedInvoiceId: conversationRow.invoice_link_confirmed_invoice_id ?? null,
+        invoiceLinkConfirmedInvoiceNumber: conversationRow.invoice_link_confirmed_invoice_number ?? null,
       };
 
       if (conversationRow.source_filename) {
@@ -956,6 +980,7 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
   }
 
   const invoiceItemFacts: QaCaseDetailBundle['invoiceItemFacts'] = [];
+  let candidateInvoice: QaCaseDetailBundle['candidateInvoice'] = null;
   const selectedInvoiceId = liveEvidence?.attribution.selectedInvoiceId ?? attributionRow?.selected_invoice_id ?? null;
 
   if (selectedInvoiceId) {
@@ -968,6 +993,27 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
         .limit(500),
       readInvoiceRecordById(selectedInvoiceId, supabaseClient).then((data) => ({ data })),
     ]);
+    if (invoiceHeader) {
+      const rawTotal = [
+        invoiceHeader.net_amount,
+        invoiceHeader.discounted_amount,
+        invoiceHeader.amount,
+        invoiceHeader.gross_amount,
+        invoiceHeader.net_total,
+        invoiceHeader.total_amount,
+      ].find((value) => value != null);
+      const totalValue = rawTotal == null ? null : Number(rawTotal);
+      candidateInvoice = {
+        id: String(invoiceHeader.id),
+        invoiceNumber: String(invoiceHeader.invoice_number ?? invoiceHeader.invoice_no ?? ''),
+        customerName: invoiceHeader.customer_name == null ? null : String(invoiceHeader.customer_name),
+        customerCode: invoiceHeader.customer_code == null ? null : String(invoiceHeader.customer_code),
+        branch: String(invoiceHeader.branch_name ?? invoiceHeader.branch ?? '').trim() || null,
+        staffName: String(invoiceHeader.seller_name ?? invoiceHeader.normalized_seller_name ?? invoiceHeader.staff_name ?? '').trim() || null,
+        invoiceDatetime: String(invoiceHeader.invoice_datetime ?? invoiceHeader.close_datetime ?? invoiceHeader.invoice_date ?? invoiceHeader.sale_date ?? '').trim() || null,
+        total: totalValue != null && Number.isFinite(totalValue) ? totalValue : null,
+      };
+    }
 
     const productCodes = Array.from(new Set((itemRows ?? []).map((row: any) => String(row.product_code ?? '').trim()).filter(Boolean)));
     const productIds = Array.from(new Set((itemRows ?? []).map((row: any) => String(row.product_id ?? '').trim()).filter(Boolean)));
@@ -1192,6 +1238,7 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
     quotedBasketV2Items,
     recommendationConversions,
     invoiceStaffTruth,
+    candidateInvoice,
     invoiceItemFacts,
     catalogProductMatches,
   };

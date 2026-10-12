@@ -11,13 +11,10 @@ import {
 } from '../src/lib/salesIntelligence/refresh/canonicalRefreshService';
 import { refreshCustomerStoryProjectionsForSources } from '../src/lib/salesIntelligence/refresh/storyProjectionRefresh';
 import { evaluateDeployEnvironment } from '../src/lib/deployEnvironmentGuard';
-
-const ALLOWED_ROLES = new Set([
-  'general_manager',
-  'admin',
-  'executive_manager',
-  'branches_manager',
-]);
+import {
+  authorizeRefreshActor,
+  isRefreshSourceInActorScope,
+} from './sales-intelligence-refresh-authorization';
 
 function json(res: any, status: number, body: unknown) {
   res.status(status).setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -66,34 +63,36 @@ export default async function handler(req: any, res: any) {
 
   const { data: staff, error: staffError } = await service
     .from('staff_accounts')
-    .select('id,role,active,is_active,status,can_login')
+    .select('id,staff_id,branch,role,active,is_active,status,can_login')
     .eq('id', loginSession.staff_account_id)
     .maybeSingle();
 
   if (staffError) return json(res, 500, { error: 'staff_lookup_failed' });
-  const active =
-    Boolean(staff?.active) &&
-    Boolean(staff?.is_active) &&
-    staff?.status === 'active' &&
-    staff?.can_login !== false;
-  if (!staff || !active || !ALLOWED_ROLES.has(String(staff.role || ''))) {
+  if (!staff) {
     return json(res, 403, { error: 'not_authorized_for_sales_intelligence_refresh' });
   }
 
-  const sessionRefreshAt = new Date();
-  const sessionRefreshExpiry = new Date(sessionRefreshAt.getTime() + 12 * 60 * 60 * 1000);
-  const { error: sessionRefreshError } = await service
-    .from('staff_login_sessions')
-    .update({
-      last_used_at: sessionRefreshAt.toISOString(),
-      expires_at: sessionRefreshExpiry.toISOString(),
-    })
-    .eq('id', loginSession.id);
-  if (sessionRefreshError) {
-    console.warn(
-      '[sales-intelligence-refresh-source] staff session sliding refresh failed',
-      sessionRefreshError.message
-    );
+  const anonKey = process.env.VITE_SUPABASE_ANON_KEY;
+  if (!anonKey) return json(res, 503, { error: 'missing_supabase_anon_key' });
+  const permissionClient = createClient(supabaseUrl, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { 'x-dawaa-session-token': token } },
+  });
+  let refreshActorAuthorization: Awaited<ReturnType<typeof authorizeRefreshActor>>;
+  try {
+    refreshActorAuthorization = await authorizeRefreshActor({
+      client: permissionClient,
+      sessionAccountId: String(loginSession.staff_account_id),
+      staff,
+    });
+  } catch (error) {
+    console.error('[sales-intelligence-refresh-source] canonical permission check failed', {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return json(res, 503, { error: 'refresh_authorization_check_failed' });
+  }
+  if (!refreshActorAuthorization.allowed) {
+    return json(res, 403, { error: 'not_authorized_for_sales_intelligence_refresh' });
   }
 
   let body = req.body || {};
@@ -155,6 +154,47 @@ export default async function handler(req: any, res: any) {
     )
   ) {
     return json(res, 404, { error: 'source_not_found_or_empty' });
+  }
+  try {
+    for (const source of sourceRows) {
+      const inScope = await isRefreshSourceInActorScope({
+        client: permissionClient,
+        actor: staff,
+        source: {
+          id: String(source.id),
+          staff_id: typeof source.staff_id === 'string' ? source.staff_id : null,
+          branch: typeof source.branch === 'string' ? source.branch : null,
+        },
+        topManagement: refreshActorAuthorization.topManagement,
+      });
+      if (!inScope) {
+        return json(res, 403, {
+          error: 'not_authorized_for_sales_intelligence_refresh',
+          sourceId: String(source.id),
+        });
+      }
+    }
+  } catch (error) {
+    console.error('[sales-intelligence-refresh-source] source scope check failed', {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return json(res, 503, { error: 'refresh_authorization_check_failed' });
+  }
+
+  const sessionRefreshAt = new Date();
+  const sessionRefreshExpiry = new Date(sessionRefreshAt.getTime() + 12 * 60 * 60 * 1000);
+  const { error: sessionRefreshError } = await service
+    .from('staff_login_sessions')
+    .update({
+      last_used_at: sessionRefreshAt.toISOString(),
+      expires_at: sessionRefreshExpiry.toISOString(),
+    })
+    .eq('id', loginSession.id);
+  if (sessionRefreshError) {
+    console.warn(
+      '[sales-intelligence-refresh-source] staff session sliding refresh failed',
+      sessionRefreshError.message
+    );
   }
 
   const page = {

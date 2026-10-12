@@ -13921,13 +13921,74 @@ function evaluateDeployEnvironment(env) {
   return { environment, enforced, ok: errors.length === 0, errors, warnings, projectRefs };
 }
 
+// server/sales-intelligence-refresh-authorization.ts
+var SALES_INTELLIGENCE_REFRESH_PERMISSIONS = [
+  "edit_reviews",
+  "approve_reviews",
+  "manage_conversation_evaluations"
+];
+function isActiveStaff(staff) {
+  return Boolean(
+    staff?.id && staff.active && staff.is_active && staff.status === "active" && staff.can_login !== false
+  );
+}
+async function readBooleanRpc(client, functionName, args) {
+  const { data, error } = await client.rpc(functionName, args);
+  if (error) {
+    throw new Error(`${functionName}_failed${error.message ? `: ${error.message}` : ""}`);
+  }
+  return data === true;
+}
+async function authorizeRefreshActor(input) {
+  const { client, sessionAccountId, staff } = input;
+  if (!isActiveStaff(staff) || staff.id.toLowerCase() !== sessionAccountId.toLowerCase()) {
+    return { allowed: false, topManagement: false };
+  }
+  const { data: currentActorId, error: identityError } = await client.rpc(
+    "dawaa_current_staff_account_id_strict"
+  );
+  if (identityError) {
+    throw new Error(`verified_staff_identity_check_failed${identityError.message ? `: ${identityError.message}` : ""}`);
+  }
+  if (typeof currentActorId !== "string" || currentActorId.toLowerCase() !== sessionAccountId.toLowerCase()) {
+    return { allowed: false, topManagement: false };
+  }
+  const hasReviewPermission = await readBooleanRpc(client, "dawaa_current_actor_can", {
+    required_permissions: [...SALES_INTELLIGENCE_REFRESH_PERMISSIONS]
+  });
+  if (!hasReviewPermission) return { allowed: false, topManagement: false };
+  const topManagement = await readBooleanRpc(client, "dawaa_actor_is_top_management_v1");
+  return { allowed: true, topManagement };
+}
+async function isRefreshSourceInActorScope(input) {
+  const { client, actor, source, topManagement } = input;
+  if (topManagement) return true;
+  const role = String(actor.role || "").trim().toLowerCase();
+  if (role === "team_dawaa_alpha" || role === "customer_service_manager") return true;
+  if (actor.staff_id != null && source.staff_id != null && String(actor.staff_id) === String(source.staff_id)) {
+    return true;
+  }
+  if (![
+    "branch_manager",
+    "customer_service",
+    "shift_supervisor_morning",
+    "shift_supervisor_evening"
+  ].includes(role)) {
+    return false;
+  }
+  const [actorBranch, sourceBranch] = await Promise.all([
+    client.rpc("dawaa_customer_request_branch_key", { p_branch: actor.branch ?? null }),
+    client.rpc("dawaa_customer_request_branch_key", { p_branch: source.branch ?? null })
+  ]);
+  if (actorBranch.error || sourceBranch.error) {
+    throw new Error(
+      `refresh_source_scope_check_failed: ${actorBranch.error?.message || sourceBranch.error?.message || "branch_scope_lookup_failed"}`
+    );
+  }
+  return typeof actorBranch.data === "string" && actorBranch.data.length > 0 && actorBranch.data === sourceBranch.data;
+}
+
 // server/sales-intelligence-refresh-source.ts
-var ALLOWED_ROLES = /* @__PURE__ */ new Set([
-  "general_manager",
-  "admin",
-  "executive_manager",
-  "branches_manager"
-]);
 function json(res, status, body) {
   res.status(status).setHeader("Content-Type", "application/json; charset=utf-8");
   res.end(JSON.stringify(body));
@@ -13957,23 +14018,32 @@ async function handler(req, res) {
   if (!loginSession || loginSession.revoked_at || new Date(loginSession.expires_at).getTime() <= Date.now()) {
     return json(res, 401, { error: "invalid_or_expired_staff_session" });
   }
-  const { data: staff, error: staffError } = await service.from("staff_accounts").select("id,role,active,is_active,status,can_login").eq("id", loginSession.staff_account_id).maybeSingle();
+  const { data: staff, error: staffError } = await service.from("staff_accounts").select("id,staff_id,branch,role,active,is_active,status,can_login").eq("id", loginSession.staff_account_id).maybeSingle();
   if (staffError) return json(res, 500, { error: "staff_lookup_failed" });
-  const active = Boolean(staff?.active) && Boolean(staff?.is_active) && staff?.status === "active" && staff?.can_login !== false;
-  if (!staff || !active || !ALLOWED_ROLES.has(String(staff.role || ""))) {
+  if (!staff) {
     return json(res, 403, { error: "not_authorized_for_sales_intelligence_refresh" });
   }
-  const sessionRefreshAt = /* @__PURE__ */ new Date();
-  const sessionRefreshExpiry = new Date(sessionRefreshAt.getTime() + 12 * 60 * 60 * 1e3);
-  const { error: sessionRefreshError } = await service.from("staff_login_sessions").update({
-    last_used_at: sessionRefreshAt.toISOString(),
-    expires_at: sessionRefreshExpiry.toISOString()
-  }).eq("id", loginSession.id);
-  if (sessionRefreshError) {
-    console.warn(
-      "[sales-intelligence-refresh-source] staff session sliding refresh failed",
-      sessionRefreshError.message
-    );
+  const anonKey = process.env.VITE_SUPABASE_ANON_KEY;
+  if (!anonKey) return json(res, 503, { error: "missing_supabase_anon_key" });
+  const permissionClient = createClient2(supabaseUrl2, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { "x-dawaa-session-token": token } }
+  });
+  let refreshActorAuthorization;
+  try {
+    refreshActorAuthorization = await authorizeRefreshActor({
+      client: permissionClient,
+      sessionAccountId: String(loginSession.staff_account_id),
+      staff
+    });
+  } catch (error) {
+    console.error("[sales-intelligence-refresh-source] canonical permission check failed", {
+      message: error instanceof Error ? error.message : String(error)
+    });
+    return json(res, 503, { error: "refresh_authorization_check_failed" });
+  }
+  if (!refreshActorAuthorization.allowed) {
+    return json(res, 403, { error: "not_authorized_for_sales_intelligence_refresh" });
   }
   let body = req.body || {};
   if (typeof body === "string") {
@@ -14013,6 +14083,43 @@ async function handler(req, res) {
     (row) => typeof row.raw_text === "string" && String(row.raw_text).trim().length > 0
   )) {
     return json(res, 404, { error: "source_not_found_or_empty" });
+  }
+  try {
+    for (const source of sourceRows) {
+      const inScope = await isRefreshSourceInActorScope({
+        client: permissionClient,
+        actor: staff,
+        source: {
+          id: String(source.id),
+          staff_id: typeof source.staff_id === "string" ? source.staff_id : null,
+          branch: typeof source.branch === "string" ? source.branch : null
+        },
+        topManagement: refreshActorAuthorization.topManagement
+      });
+      if (!inScope) {
+        return json(res, 403, {
+          error: "not_authorized_for_sales_intelligence_refresh",
+          sourceId: String(source.id)
+        });
+      }
+    }
+  } catch (error) {
+    console.error("[sales-intelligence-refresh-source] source scope check failed", {
+      message: error instanceof Error ? error.message : String(error)
+    });
+    return json(res, 503, { error: "refresh_authorization_check_failed" });
+  }
+  const sessionRefreshAt = /* @__PURE__ */ new Date();
+  const sessionRefreshExpiry = new Date(sessionRefreshAt.getTime() + 12 * 60 * 60 * 1e3);
+  const { error: sessionRefreshError } = await service.from("staff_login_sessions").update({
+    last_used_at: sessionRefreshAt.toISOString(),
+    expires_at: sessionRefreshExpiry.toISOString()
+  }).eq("id", loginSession.id);
+  if (sessionRefreshError) {
+    console.warn(
+      "[sales-intelligence-refresh-source] staff session sliding refresh failed",
+      sessionRefreshError.message
+    );
   }
   const page = {
     sourceId: validSourceId ? sourceId : null,
