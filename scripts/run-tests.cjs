@@ -276,6 +276,7 @@ const testFiles = [
   'src/lib/__tests__/whatsappSmartConversationRefinement.test.ts',
   'src/lib/__tests__/whatsappSmartReviewActions.test.ts',
   'src/lib/__tests__/whatsappSmartReviewGoldenCases.test.ts',
+  'src/lib/__tests__/localWhatsAppInbox.test.ts',
   // كانت موجودة على القرص من دمج feature/whatsapp-smart-review-v2-test لكن لم تكن
   // مضافة هنا فعليًا، فكانت لا تُنفَّذ إطلاقًا رغم وجودها - تمت إضافتها هنا بعد التأكد
   // إنها لا تحتاج vi.mock/vi.fn (المُحرِّك المبسّط هنا لا يدعمهم بعد).
