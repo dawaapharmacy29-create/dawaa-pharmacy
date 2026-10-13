@@ -65,7 +65,7 @@ begin
   -- Recover only a unique active identity from server-owned staff data.
   -- Never trust a client-supplied id and never guess across duplicate names/branches.
   if v_review.staff_id is null then
-    select min(s.id), count(*)::integer
+    select (array_agg(s.id order by s.id))[1], count(*)::integer
       into v_recovered_staff_id, v_recovered_count
     from public.staff s
     where coalesce(s.active,true)=true
