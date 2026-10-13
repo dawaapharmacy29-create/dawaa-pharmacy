@@ -111,10 +111,10 @@ async function loadRescueRoute() {
 const SafeApp = lazy(async () => {
   console.info('[Dawaa bootstrap] start');
 
-  // Login/diagnostics are recovery entry points. Load them directly instead of making them wait
-  // for the entire application bundle. This is especially important after a route chunk/session
-  // recovery sends the browser to /login on a weak pharmacy connection.
-  if (window.location.pathname === '/login' || window.location.pathname === '/diagnostics') {
+  // Diagnostics must remain independently reachable when the main application bundle cannot load.
+  // Login, however, must go through App.tsx so the normal auth/session lifecycle and post-login
+  // routing remain intact. It is still available below as a rescue route if App import itself fails.
+  if (window.location.pathname === '/diagnostics') {
     try {
       const rescueRoute = await withTimeout(
         loadRescueRoute(),
