@@ -49,9 +49,8 @@ export default defineConfig({
         manualChunks(id) {
           const normalizedId = id.replace(/\\/g, '/');
 
-          // Keep modules shared by App.tsx and the Reviews route out of the App chunk.
-          // Otherwise Rollup can make ReviewsEnhanced depend back on App while App lazily
-          // imports ReviewsEnhanced, creating a circular async chunk graph on /reviews.
+          // Reviews and App both use these runtime modules. Keep them in small shared chunks
+          // so the lazy Reviews chunk never has to import the App chunk that imports Reviews.
           if (normalizedId.includes('/src/contexts/NavigationGuardContext'))
             return 'navigation-guard';
           if (normalizedId.includes('/src/lib/security/userDataScope')) return 'user-data-scope';
@@ -60,47 +59,28 @@ export default defineConfig({
           if (normalizedId.includes('/src/lib/activityLog')) return 'activity-log';
           if (normalizedId.includes('/src/lib/utils')) return 'app-utils';
 
-          if (normalizedId.includes('node_modules')) {
-            if (
-              normalizedId.includes('react-dom') ||
-              normalizedId.includes('react/') ||
-              normalizedId.includes('scheduler')
-            )
+          if (id.includes('node_modules')) {
+            if (id.includes('react-dom') || id.includes('react/') || id.includes('scheduler'))
               return 'react-core';
-            if (normalizedId.includes('react-router')) return 'router';
-            if (normalizedId.includes('@supabase')) return 'supabase';
-            if (normalizedId.includes('@tanstack/react-query')) return 'query';
-            if (normalizedId.includes('recharts') || normalizedId.includes('d3-')) return 'charts';
-            if (
-              normalizedId.includes('react-hook-form') ||
-              normalizedId.includes('@hookform') ||
-              normalizedId.includes('zod')
-            )
+            if (id.includes('react-router')) return 'router';
+            if (id.includes('@supabase')) return 'supabase';
+            if (id.includes('@tanstack/react-query')) return 'query';
+            if (id.includes('recharts') || id.includes('d3-')) return 'charts';
+            if (id.includes('react-hook-form') || id.includes('@hookform') || id.includes('zod'))
               return 'forms';
-            if (normalizedId.includes('date-fns')) return 'date-fns';
-            if (normalizedId.includes('@radix-ui')) return 'radix';
-            if (normalizedId.includes('lucide-react') || normalizedId.includes('react-icons'))
-              return 'icons';
-            if (normalizedId.includes('framer-motion')) return 'motion';
-            if (normalizedId.includes('leaflet') || normalizedId.includes('react-leaflet'))
-              return 'maps';
-            if (normalizedId.includes('xlsx') || normalizedId.includes('exceljs')) return 'excel';
-            if (normalizedId.includes('/qrcode/')) return 'qrcode';
-            if (
-              normalizedId.includes('react-calendar') ||
-              normalizedId.includes('react-day-picker')
-            )
-              return 'calendar';
-            if (normalizedId.includes('react-dropzone')) return 'upload';
-            if (normalizedId.includes('react-window')) return 'virtual-list';
-            if (normalizedId.includes('embla-carousel')) return 'carousel';
-            if (normalizedId.includes('zustand')) return 'state';
-            if (
-              normalizedId.includes('sonner') ||
-              normalizedId.includes('vaul') ||
-              normalizedId.includes('cmdk')
-            )
-              return 'ui-feedback';
+            if (id.includes('date-fns')) return 'date-fns';
+            if (id.includes('@radix-ui')) return 'radix';
+            if (id.includes('lucide-react') || id.includes('react-icons')) return 'icons';
+            if (id.includes('framer-motion')) return 'motion';
+            if (id.includes('leaflet') || id.includes('react-leaflet')) return 'maps';
+            if (id.includes('xlsx') || id.includes('exceljs')) return 'excel';
+            if (id.includes('/qrcode/')) return 'qrcode';
+            if (id.includes('react-calendar') || id.includes('react-day-picker')) return 'calendar';
+            if (id.includes('react-dropzone')) return 'upload';
+            if (id.includes('react-window')) return 'virtual-list';
+            if (id.includes('embla-carousel')) return 'carousel';
+            if (id.includes('zustand')) return 'state';
+            if (id.includes('sonner') || id.includes('vaul') || id.includes('cmdk')) return 'ui-feedback';
             return undefined;
           }
           return undefined;
