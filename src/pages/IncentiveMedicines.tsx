@@ -17,6 +17,7 @@ import {
   ToggleRight,
   Trophy,
   Upload,
+  UserRound,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
@@ -25,6 +26,7 @@ import { useSupabaseQuery, logActivity } from '@/hooks/useSupabaseQuery';
 import { canViewAllBranches, canViewBranchData } from '@/lib/security/userDataScope';
 import { formatCurrency } from '@/lib/utils';
 import { getCurrentCycle } from '@/lib/pharmacy-cycle';
+import IncentiveDoctorSummary, { type IncentiveDoctorSaleRow } from '@/pages/IncentiveDoctorSummary';
 
 interface IncentiveMedicine {
   id: string;
@@ -42,20 +44,12 @@ interface IncentiveMedicine {
   notes?: string | null;
 }
 
-interface IncentiveSaleRecord {
-  id: string;
-  medicine_id?: string | null;
-  doctor_name: string;
-  branch?: string | null;
-  quantity?: number | null;
-  incentive_total?: number | null;
-  sale_date?: string | null;
-}
-
+type IncentiveSaleRecord = IncentiveDoctorSaleRow;
 type ImportAction = 'new' | 'update' | 'error';
 type StatusFilter = 'all' | 'active' | 'inactive';
 type MotionFilter = 'all' | 'moved' | 'no_movement';
 type SortMode = 'smart' | 'sales' | 'incentive' | 'name';
+type PageTab = 'catalog' | 'doctors';
 
 interface ImportRow {
   rowNumber: number;
@@ -69,7 +63,6 @@ interface ImportRow {
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
-
 const blankForm = {
   product_code: '',
   product_name: '',
@@ -108,6 +101,7 @@ export default function IncentiveMedicines() {
   const canCreate = canManage || user?.permissions?.create_incentive_medicine === true;
   const canEdit = canManage || user?.permissions?.edit_incentive_medicine === true;
 
+  const [activeTab, setActiveTab] = useState<PageTab>('catalog');
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<IncentiveMedicine | null>(null);
   const [form, setForm] = useState(blankForm);
@@ -149,16 +143,30 @@ export default function IncentiveMedicines() {
     return map;
   }, [medicines]);
 
-  const cycle = getCurrentCycle();
+  const medicineById = useMemo(() => {
+    const map = new Map<string, IncentiveMedicine>();
+    for (const item of medicines) map.set(item.id, item);
+    return map;
+  }, [medicines]);
 
+  const cycle = getCurrentCycle();
   const cycleSales = useMemo(
-    () => saleRecords.filter((row) => {
-      if (!row.sale_date) return false;
-      const date = new Date(`${row.sale_date}T00:00:00`);
-      if (date < cycle.start || date > cycle.end) return false;
-      return canViewAllBranches(user) || canViewBranchData(user, row.branch);
-    }),
-    [saleRecords, cycle.start, cycle.end, user]
+    () => saleRecords
+      .filter((row) => {
+        if (!row.sale_date) return false;
+        const date = new Date(`${row.sale_date}T00:00:00`);
+        if (date < cycle.start || date > cycle.end) return false;
+        return canViewAllBranches(user) || canViewBranchData(user, row.branch);
+      })
+      .map((row) => {
+        const medicine = row.medicine_id ? medicineById.get(row.medicine_id) : undefined;
+        return {
+          ...row,
+          product_name: row.product_name || medicine?.product_name || 'صنف غير محدد',
+          incentive_per_unit: Number(row.incentive_per_unit || (medicine ? incentivePerUnit(medicine) : 0)),
+        };
+      }),
+    [saleRecords, cycle.start, cycle.end, user, medicineById]
   );
 
   const medicineSales = useMemo(() => {
@@ -198,8 +206,7 @@ export default function IncentiveMedicines() {
   }, [visibleMedicines, cycleSales, medicineSales]);
 
   const usageOptions = useMemo(
-    () => Array.from(new Set(visibleMedicines.map((item) => item.product_type?.trim()).filter(Boolean) as string[]))
-      .sort((a, b) => a.localeCompare(b, 'ar')),
+    () => Array.from(new Set(visibleMedicines.map((item) => item.product_type?.trim()).filter(Boolean) as string[])).sort((a, b) => a.localeCompare(b, 'ar')),
     [visibleMedicines]
   );
 
@@ -213,8 +220,7 @@ export default function IncentiveMedicines() {
       if (motionFilter === 'no_movement' && quantity > 0) return false;
       if (usageFilter !== 'all' && (item.product_type || '') !== usageFilter) return false;
       if (!q) return true;
-      return [item.product_name, cleanCode(item.product_code), item.product_type || '', item.branch || '']
-        .some((value) => value.toLocaleLowerCase('ar').includes(q));
+      return [item.product_name, cleanCode(item.product_code), item.product_type || '', item.branch || ''].some((value) => value.toLocaleLowerCase('ar').includes(q));
     });
 
     return filtered.sort((a, b) => {
@@ -223,26 +229,11 @@ export default function IncentiveMedicines() {
       if (sortMode === 'sales') return bSale.quantity - aSale.quantity || a.product_name.localeCompare(b.product_name, 'ar');
       if (sortMode === 'incentive') return incentivePerUnit(b) - incentivePerUnit(a) || a.product_name.localeCompare(b.product_name, 'ar');
       if (sortMode === 'name') return a.product_name.localeCompare(b.product_name, 'ar');
-
-      const aAttention = (a.active === false ? 0 : aSale.quantity === 0 ? 3 : 1);
-      const bAttention = (b.active === false ? 0 : bSale.quantity === 0 ? 3 : 1);
+      const aAttention = a.active === false ? 0 : aSale.quantity === 0 ? 3 : 1;
+      const bAttention = b.active === false ? 0 : bSale.quantity === 0 ? 3 : 1;
       return bAttention - aAttention || bSale.quantity - aSale.quantity || incentivePerUnit(b) - incentivePerUnit(a) || a.product_name.localeCompare(b.product_name, 'ar');
     });
   }, [visibleMedicines, medicineSales, search, statusFilter, motionFilter, usageFilter, sortMode]);
-
-  const doctorTotals = useMemo(() => {
-    const map = new Map<string, { quantity: number; money: number }>();
-    for (const row of cycleSales) {
-      const name = row.doctor_name || 'غير محدد';
-      const current = map.get(name) || { quantity: 0, money: 0 };
-      current.quantity += Number(row.quantity || 0);
-      current.money += Number(row.incentive_total || 0);
-      map.set(name, current);
-    }
-    return Array.from(map.entries())
-      .map(([doctor, totals]) => ({ doctor, ...totals }))
-      .sort((a, b) => b.money - a.money);
-  }, [cycleSales]);
 
   function openNew() {
     setEditing(null);
@@ -272,7 +263,6 @@ export default function IncentiveMedicines() {
     const code = cleanCode(form.product_code);
     if (!code || !form.product_name.trim()) return toast.error('كود الصنف واسم الصنف مطلوبان');
     if (Number(form.incentive_value) <= 0) return toast.error('حافز الوحدة يجب أن يكون أكبر من صفر');
-
     const duplicate = existingByKey.get(`${code}::${branchKey(form.branch)}`);
     if (duplicate && duplicate.id !== editing?.id) return toast.error('هذا الكود موجود بالفعل لنفس نطاق الفرع');
 
@@ -295,13 +285,9 @@ export default function IncentiveMedicines() {
       source_file_date: today(),
       created_by: profile.id,
     };
-
-    const query = editing
-      ? supabase.from('incentive_medicines').update(payload).eq('id', editing.id)
-      : supabase.from('incentive_medicines').insert(payload);
+    const query = editing ? supabase.from('incentive_medicines').update(payload).eq('id', editing.id) : supabase.from('incentive_medicines').insert(payload);
     const { error } = await query;
     if (error) return toast.error(error.message);
-
     await logActivity(profile.id, profile.name, editing ? 'تحديث صنف لستة' : 'إضافة صنف لستة', 'أدوية الحوافز', `${code} - ${form.product_name}`, form.branch);
     toast.success(editing ? 'تم تحديث الصنف' : 'تم إضافة الصنف');
     setShowForm(false);
@@ -334,7 +320,6 @@ export default function IncentiveMedicines() {
         const key = `${productCode}::${branchKey(importBranch)}`;
         let action: ImportAction = existingByKey.has(key) ? 'update' : 'new';
         let message = action === 'update' ? 'سيتم تحديث الصنف الموجود' : 'صنف جديد';
-
         if (!productCode || !productName || incentiveValue <= 0) {
           action = 'error';
           message = 'يلزم كود + اسم + حافز أكبر من صفر';
@@ -345,7 +330,6 @@ export default function IncentiveMedicines() {
         seen.add(productCode);
         return { rowNumber: index + 2, productCode, productName, productPrice, productType, incentiveValue, action, message };
       });
-
       setFileName(file.name);
       setPreview(parsed);
       const errors = parsed.filter((row) => row.action === 'error').length;
@@ -360,7 +344,6 @@ export default function IncentiveMedicines() {
     const valid = preview.filter((row) => row.action !== 'error');
     if (!valid.length) return toast.error('لا توجد صفوف صالحة للاستيراد');
     if (preview.some((row) => row.action === 'error')) return toast.error('عالج الصفوف التي عليها خطأ قبل الحفظ');
-
     setImporting(true);
     try {
       const profile = getCurrentUserProfile();
@@ -382,10 +365,8 @@ export default function IncentiveMedicines() {
         notes: `Master List import: ${fileName}`,
         created_by: profile.id,
       }));
-
       const { error } = await supabase.from('incentive_medicines').upsert(payload, { onConflict: 'product_code,branch' });
       if (error) throw error;
-
       await logActivity(profile.id, profile.name, 'استيراد لستة حوافز', 'أدوية الحوافز', `${valid.length} صنف - ${fileName}`, importBranch);
       toast.success(`تم حفظ ${valid.length} صنف بنجاح`);
       setPreview([]);
@@ -404,7 +385,6 @@ export default function IncentiveMedicines() {
     updateCount: preview.filter((row) => row.action === 'update').length,
     errorCount: preview.filter((row) => row.action === 'error').length,
   }), [preview]);
-
   const hasFilters = search || statusFilter !== 'all' || motionFilter !== 'all' || usageFilter !== 'all';
 
   return (
@@ -413,9 +393,7 @@ export default function IncentiveMedicines() {
         <div className="pointer-events-none absolute -left-20 -top-20 h-56 w-56 rounded-full bg-emerald-400/10 blur-3xl" />
         <div className="relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-start gap-4">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-emerald-300/20 bg-emerald-400/12 text-emerald-300 shadow-lg shadow-emerald-950/20">
-              <Sparkles size={24} />
-            </div>
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-emerald-300/20 bg-emerald-400/12 text-emerald-300"><Sparkles size={24} /></div>
             <div>
               <div className="mb-2 flex flex-wrap items-center gap-2">
                 <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-[11px] font-bold text-emerald-200">دورة {cycle.shortLabel}</span>
@@ -423,92 +401,59 @@ export default function IncentiveMedicines() {
                 {stats.noMovement > 0 && <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1 text-[11px] font-bold text-amber-200">{stats.noMovement} بدون حركة</span>}
               </div>
               <h1 className="text-2xl font-black text-white md:text-3xl">أدوية اللستة</h1>
-              <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-300">
-                شاشة تشغيل ومتابعة: اعرف بسرعة الصنف، قيمة الحافز، حركة الدورة، وما يحتاج انتباهك أولًا.
-              </p>
+              <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-300">إدارة الأصناف ومتابعة حركة الدورة واستحقاق كل دكتور من نفس مصدر البيع المثبت.</p>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {canCreate && (
-              <button className="btn-secondary flex items-center gap-2" onClick={() => setShowImport((value) => !value)}>
-                <FileSpreadsheet size={16} /> إدارة ملف الليستة {showImport ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
-              </button>
-            )}
+          {activeTab === 'catalog' && <div className="flex flex-wrap gap-2">
+            {canCreate && <button className="btn-secondary flex items-center gap-2" onClick={() => setShowImport((value) => !value)}><FileSpreadsheet size={16} /> إدارة ملف الليستة {showImport ? <ChevronUp size={15} /> : <ChevronDown size={15} />}</button>}
             {canCreate && <button className="btn-primary flex items-center gap-2" onClick={openNew}><Plus size={16} /> إضافة صنف</button>}
-          </div>
+          </div>}
         </div>
       </section>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="أصناف نشطة" value={stats.active} sub={`${stats.coded} بكود مؤكد`} icon={<Package size={18} />} />
-        <Stat label="المباع في الدورة" value={stats.totalUnits} sub={stats.bestMover.item ? `الأكثر حركة: ${stats.bestMover.item.product_name}` : 'لا توجد حركة مسجلة'} icon={<CheckCircle2 size={18} />} />
-        <Stat label="الحافز المحقق" value={formatCurrency(stats.totalEarned)} sub="إجمالي الدورة الحالية" icon={<DollarSign size={18} />} />
-        <Stat label="تحتاج متابعة" value={stats.noMovement} sub="أصناف نشطة بدون حركة" icon={<CircleAlert size={18} />} tone={stats.noMovement > 0 ? 'amber' : 'emerald'} />
+      <div className="grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-white/[0.035] p-1.5 md:max-w-xl">
+        <button onClick={() => setActiveTab('catalog')} className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition ${activeTab === 'catalog' ? 'bg-emerald-500/15 text-emerald-200 shadow-sm' : 'text-slate-400 hover:text-white'}`}><Package size={17} /> أصناف الليستة</button>
+        <button onClick={() => setActiveTab('doctors')} className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition ${activeTab === 'doctors' ? 'bg-emerald-500/15 text-emerald-200 shadow-sm' : 'text-slate-400 hover:text-white'}`}><UserRound size={17} /> حوافز الدكاترة</button>
       </div>
 
-      {canCreate && showImport && (
-        <section className="space-y-4 rounded-3xl border border-white/10 bg-[#15243e]/90 p-5 shadow-xl shadow-black/10">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2 font-bold text-white"><FileSpreadsheet size={18} className="text-emerald-300" /> إدارة ملف الليستة</div>
-              <p className="mt-1 text-xs text-slate-400">أداة إدارية منفصلة عن الاستخدام اليومي؛ الملف يتراجع قبل الحفظ ولا يتكرر الصنف لنفس النطاق.</p>
+      {activeTab === 'doctors' ? (
+        <IncentiveDoctorSummary rows={cycleSales} cycleLabel={cycle.shortLabel} />
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <Stat label="أصناف نشطة" value={stats.active} sub={`${stats.coded} بكود مؤكد`} icon={<Package size={18} />} />
+            <Stat label="المباع في الدورة" value={stats.totalUnits} sub={stats.bestMover.item ? `الأكثر حركة: ${stats.bestMover.item.product_name}` : 'لا توجد حركة مسجلة'} icon={<CheckCircle2 size={18} />} />
+            <Stat label="الحافز المحقق" value={formatCurrency(stats.totalEarned)} sub="إجمالي الدورة الحالية" icon={<DollarSign size={18} />} />
+            <Stat label="تحتاج متابعة" value={stats.noMovement} sub="أصناف نشطة بدون حركة" icon={<CircleAlert size={18} />} tone={stats.noMovement > 0 ? 'amber' : 'emerald'} />
+          </div>
+
+          {canCreate && showImport && <section className="space-y-4 rounded-3xl border border-white/10 bg-[#15243e]/90 p-5 shadow-xl shadow-black/10">
+            <div className="flex items-center justify-between gap-3"><div><div className="flex items-center gap-2 font-bold text-white"><FileSpreadsheet size={18} className="text-emerald-300" /> إدارة ملف الليستة</div><p className="mt-1 text-xs text-slate-400">الملف يتراجع قبل الحفظ ولا يتكرر الصنف لنفس النطاق.</p></div><button className="text-xs text-slate-400 hover:text-white" onClick={() => setShowImport(false)}>إغلاق</button></div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <Field label="نطاق الليستة"><select className="input-dark" value={importBranch} onChange={(e) => setImportBranch(e.target.value)}><option value="كل الفروع">كل الفروع</option>{user?.branch && <option value={user.branch}>{user.branch}</option>}</select></Field>
+              <Field label="بداية السريان"><input className="input-dark" type="date" value={importEffectiveDate} onChange={(e) => setImportEffectiveDate(e.target.value)} /></Field>
+              <div className="flex items-end"><label className="btn-secondary flex w-full cursor-pointer items-center justify-center gap-2"><Upload size={16} /> اختر ملف Excel<input type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) parseFile(file); e.currentTarget.value = ''; }} /></label></div>
             </div>
-            <button className="text-xs text-slate-400 hover:text-white" onClick={() => setShowImport(false)}>إغلاق</button>
-          </div>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-            <Field label="نطاق الليستة"><select className="input-dark" value={importBranch} onChange={(e) => setImportBranch(e.target.value)}><option value="كل الفروع">كل الفروع</option>{user?.branch && <option value={user.branch}>{user.branch}</option>}</select></Field>
-            <Field label="بداية السريان"><input className="input-dark" type="date" value={importEffectiveDate} onChange={(e) => setImportEffectiveDate(e.target.value)} /></Field>
-            <div className="flex items-end"><label className="btn-secondary flex w-full cursor-pointer items-center justify-center gap-2"><Upload size={16} /> اختر ملف Excel<input type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) parseFile(file); e.currentTarget.value = ''; }} /></label></div>
-          </div>
-          <div className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-slate-400">الأعمدة الأساسية: كود الصنف، اسم الصنف، حافز الوحدة للدكتور. السعر والاستخدام اختياريان.</div>
+            {preview.length > 0 && <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3"><div className="text-sm text-slate-300">{fileName} — جديد: <b className="text-emerald-300">{previewCounts.newCount}</b>، تحديث: <b className="text-blue-300">{previewCounts.updateCount}</b>، أخطاء: <b className="text-red-300">{previewCounts.errorCount}</b></div><button className="btn-primary" disabled={importing || previewCounts.errorCount > 0} onClick={importPreview}>{importing ? 'جاري الحفظ...' : `اعتماد وحفظ ${preview.length} صنف`}</button></div>
+              <div className="max-h-[420px] overflow-auto rounded-2xl border border-white/10"><table className="w-full min-w-[850px] text-sm"><thead className="sticky top-0 bg-[#182945] text-slate-300"><tr><th className="p-2 text-right">#</th><th className="p-2 text-right">الكود</th><th className="p-2 text-right">الصنف</th><th className="p-2 text-right">السعر</th><th className="p-2 text-right">الاستخدام</th><th className="p-2 text-right">الحافز</th><th className="p-2 text-right">الحالة</th></tr></thead><tbody>{preview.map((row) => <tr key={`${row.rowNumber}-${row.productCode}`} className="border-t border-white/5"><td className="p-2 text-slate-500">{row.rowNumber}</td><td className="p-2 font-mono text-white">{row.productCode || '—'}</td><td className="p-2 text-white">{row.productName || '—'}</td><td className="p-2 text-slate-300">{formatCurrency(row.productPrice)}</td><td className="p-2 text-slate-300">{row.productType || '—'}</td><td className="p-2 font-bold text-emerald-300">{formatCurrency(row.incentiveValue)}</td><td className={`p-2 ${row.action === 'error' ? 'text-red-300' : row.action === 'update' ? 'text-blue-300' : 'text-emerald-300'}`}>{row.message}</td></tr>)}</tbody></table></div>
+            </div>}
+          </section>}
 
-          {preview.length > 0 && (
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="text-sm text-slate-300">{fileName} — جديد: <b className="text-emerald-300">{previewCounts.newCount}</b>، تحديث: <b className="text-blue-300">{previewCounts.updateCount}</b>، أخطاء: <b className="text-red-300">{previewCounts.errorCount}</b></div>
-                <button className="btn-primary" disabled={importing || previewCounts.errorCount > 0} onClick={importPreview}>{importing ? 'جاري الحفظ...' : `اعتماد وحفظ ${preview.length} صنف`}</button>
-              </div>
-              <div className="max-h-[420px] overflow-auto rounded-2xl border border-white/10">
-                <table className="w-full min-w-[850px] text-sm">
-                  <thead className="sticky top-0 bg-[#182945] text-slate-300"><tr><th className="p-2 text-right">#</th><th className="p-2 text-right">الكود</th><th className="p-2 text-right">الصنف</th><th className="p-2 text-right">السعر</th><th className="p-2 text-right">الاستخدام</th><th className="p-2 text-right">الحافز</th><th className="p-2 text-right">الحالة</th></tr></thead>
-                  <tbody>{preview.map((row) => <tr key={`${row.rowNumber}-${row.productCode}`} className="border-t border-white/5"><td className="p-2 text-slate-500">{row.rowNumber}</td><td className="p-2 font-mono text-white">{row.productCode || '—'}</td><td className="p-2 text-white">{row.productName || '—'}</td><td className="p-2 text-slate-300">{formatCurrency(row.productPrice)}</td><td className="p-2 text-slate-300">{row.productType || '—'}</td><td className="p-2 font-bold text-emerald-300">{formatCurrency(row.incentiveValue)}</td><td className={`p-2 ${row.action === 'error' ? 'text-red-300' : row.action === 'update' ? 'text-blue-300' : 'text-emerald-300'}`}>{row.message}</td></tr>)}</tbody>
-                </table>
-              </div>
+          <section className="rounded-3xl border border-white/10 bg-white/[0.035] p-4 md:p-5">
+            <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1fr_auto_auto_auto_auto]">
+              <div className="relative"><Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500" size={17} /><input className="input-dark pr-10" placeholder="ابحث باسم الصنف أو الكود أو الاستخدام..." value={search} onChange={(e) => setSearch(e.target.value)} /></div>
+              <select className="input-dark min-w-[145px]" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}><option value="all">كل الحالات</option><option value="active">النشط فقط</option><option value="inactive">الموقوف فقط</option></select>
+              <select className="input-dark min-w-[155px]" value={motionFilter} onChange={(e) => setMotionFilter(e.target.value as MotionFilter)}><option value="all">كل الحركة</option><option value="moved">تحرك في الدورة</option><option value="no_movement">بدون حركة</option></select>
+              <select className="input-dark min-w-[165px]" value={usageFilter} onChange={(e) => setUsageFilter(e.target.value)}><option value="all">كل الاستخدامات</option>{usageOptions.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+              <label className="relative min-w-[170px]"><ArrowUpDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-500" size={15} /><select className="input-dark pr-9" value={sortMode} onChange={(e) => setSortMode(e.target.value as SortMode)}><option value="smart">ترتيب ذكي</option><option value="sales">الأكثر مبيعًا</option><option value="incentive">أعلى حافز</option><option value="name">الاسم</option></select></label>
             </div>
-          )}
-        </section>
-      )}
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500"><span>ظاهر {filteredMedicines.length} من {visibleMedicines.length} صنف</span>{hasFilters && <button className="text-emerald-300 hover:text-emerald-200" onClick={() => { setSearch(''); setStatusFilter('all'); setMotionFilter('all'); setUsageFilter('all'); }}>مسح الفلاتر</button>}</div>
+          </section>
 
-      <section className="rounded-3xl border border-white/10 bg-white/[0.035] p-4 md:p-5">
-        <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1fr_auto_auto_auto_auto]">
-          <div className="relative">
-            <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500" size={17} />
-            <input className="input-dark pr-10" placeholder="ابحث باسم الصنف أو الكود أو الاستخدام..." value={search} onChange={(e) => setSearch(e.target.value)} />
-          </div>
-          <select className="input-dark min-w-[145px]" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}><option value="all">كل الحالات</option><option value="active">النشط فقط</option><option value="inactive">الموقوف فقط</option></select>
-          <select className="input-dark min-w-[155px]" value={motionFilter} onChange={(e) => setMotionFilter(e.target.value as MotionFilter)}><option value="all">كل الحركة</option><option value="moved">تحرك في الدورة</option><option value="no_movement">بدون حركة</option></select>
-          <select className="input-dark min-w-[165px]" value={usageFilter} onChange={(e) => setUsageFilter(e.target.value)}><option value="all">كل الاستخدامات</option>{usageOptions.map((value) => <option key={value} value={value}>{value}</option>)}</select>
-          <label className="relative min-w-[170px]"><ArrowUpDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-500" size={15} /><select className="input-dark pr-9" value={sortMode} onChange={(e) => setSortMode(e.target.value as SortMode)}><option value="smart">ترتيب ذكي</option><option value="sales">الأكثر مبيعًا</option><option value="incentive">أعلى حافز</option><option value="name">الاسم</option></select></label>
-        </div>
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-          <span>ظاهر {filteredMedicines.length} من {visibleMedicines.length} صنف</span>
-          {hasFilters ? <button className="text-emerald-300 hover:text-emerald-200" onClick={() => { setSearch(''); setStatusFilter('all'); setMotionFilter('all'); setUsageFilter('all'); }}>مسح الفلاتر</button> : null}
-        </div>
-      </section>
-
-      <section>
-        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-          <div><h2 className="text-lg font-black text-white">أصناف الليستة</h2><p className="mt-1 text-xs text-slate-500">الترتيب الذكي يرفع الأصناف النشطة بدون حركة للأعلى، ثم يعرض الحركة والأعلى قيمة.</p></div>
-          {sortMode === 'smart' && stats.noMovement > 0 && <div className="flex items-center gap-2 rounded-full border border-amber-400/15 bg-amber-400/8 px-3 py-1.5 text-xs text-amber-200"><CircleAlert size={14} /> الأولوية الآن: {stats.noMovement} صنف بدون حركة</div>}
-        </div>
-
-        {loading ? (
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">{Array.from({ length: 6 }).map((_, index) => <div key={index} className="h-72 animate-pulse rounded-3xl border border-white/10 bg-white/5" />)}</div>
-        ) : filteredMedicines.length === 0 ? (
-          <div className="rounded-3xl border border-dashed border-white/10 p-10 text-center text-slate-400">لا توجد أصناف مطابقة للفلاتر الحالية.</div>
-        ) : (
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
-            {filteredMedicines.map((item, index) => {
+          <section>
+            <div className="mb-4 flex flex-wrap items-end justify-between gap-3"><div><h2 className="text-lg font-black text-white">أصناف الليستة</h2><p className="mt-1 text-xs text-slate-500">الترتيب الذكي يرفع الأصناف النشطة بدون حركة للأعلى.</p></div>{sortMode === 'smart' && stats.noMovement > 0 && <div className="flex items-center gap-2 rounded-full border border-amber-400/15 bg-amber-400/[0.08] px-3 py-1.5 text-xs text-amber-200"><CircleAlert size={14} /> الأولوية الآن: {stats.noMovement} صنف بدون حركة</div>}</div>
+            {loading ? <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">{Array.from({ length: 6 }).map((_, index) => <div key={index} className="h-72 animate-pulse rounded-3xl border border-white/10 bg-white/5" />)}</div> : filteredMedicines.length === 0 ? <div className="rounded-3xl border border-dashed border-white/10 p-10 text-center text-slate-400">لا توجد أصناف مطابقة للفلاتر الحالية.</div> : <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">{filteredMedicines.map((item, index) => {
               const sale = medicineSales.get(item.id) || { quantity: 0, money: 0 };
               const price = Number(item.product_price || 0);
               const incentive = incentivePerUnit(item);
@@ -516,92 +461,20 @@ export default function IncentiveMedicines() {
               const isNoMovement = item.active !== false && sale.quantity === 0;
               const isTopMover = stats.bestMover.item?.id === item.id && stats.bestMover.quantity > 0;
               const isHighIncentive = stats.max > 0 && incentive === stats.max;
-              const accents = [
-                'from-emerald-500/16 via-teal-500/7 to-transparent border-emerald-400/20',
-                'from-sky-500/14 via-cyan-500/6 to-transparent border-sky-400/20',
-                'from-violet-500/14 via-indigo-500/6 to-transparent border-violet-400/20',
-                'from-amber-500/14 via-orange-500/6 to-transparent border-amber-400/20',
-              ];
-              const accent = item.active === false
-                ? 'from-slate-500/10 via-slate-500/5 to-transparent border-slate-400/15'
-                : isNoMovement
-                  ? 'from-amber-500/15 via-orange-500/6 to-transparent border-amber-400/25'
-                  : accents[index % accents.length];
-
-              return (
-                <article key={item.id} className={`group relative overflow-hidden rounded-3xl border bg-gradient-to-br ${accent} p-5 shadow-lg shadow-black/10 transition duration-200 hover:-translate-y-0.5 hover:border-white/25 hover:shadow-xl ${item.active === false ? 'opacity-70' : ''}`}>
-                  <div className="pointer-events-none absolute -left-12 -top-12 h-36 w-36 rounded-full bg-white/5 blur-2xl" />
-                  <div className="relative">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="mb-2 flex flex-wrap gap-2">
-                          <span className="rounded-full border border-white/10 bg-black/10 px-2.5 py-1 font-mono text-[11px] text-slate-300">#{cleanCode(item.product_code) || 'بدون كود'}</span>
-                          <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${item.active === false ? 'bg-slate-500/15 text-slate-400' : 'bg-emerald-400/12 text-emerald-300'}`}>{item.active === false ? 'موقوف' : 'نشط'}</span>
-                          {isTopMover && <span className="flex items-center gap-1 rounded-full border border-cyan-400/15 bg-cyan-400/10 px-2.5 py-1 text-[11px] font-bold text-cyan-200"><Trophy size={12} /> الأكثر حركة</span>}
-                          {isNoMovement && <span className="flex items-center gap-1 rounded-full border border-amber-400/15 bg-amber-400/10 px-2.5 py-1 text-[11px] font-bold text-amber-200"><CircleAlert size={12} /> يحتاج متابعة</span>}
-                          {isHighIncentive && <span className="rounded-full border border-violet-400/15 bg-violet-400/10 px-2.5 py-1 text-[11px] font-bold text-violet-200">أعلى حافز</span>}
-                        </div>
-                        <h3 className="text-lg font-black leading-7 text-white">{item.product_name}</h3>
-                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-400"><span>{item.product_type || 'بدون تصنيف'}</span><span className="text-slate-600">•</span><span>{item.branch}</span></div>
-                      </div>
-                      <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.08] ${isNoMovement ? 'text-amber-300' : 'text-emerald-300'}`}><Package size={22} /></div>
-                    </div>
-
-                    <div className="mt-5 grid grid-cols-2 gap-3">
-                      <Mini label="حافز الوحدة" value={formatCurrency(incentive)} tone="text-emerald-300" emphasis />
-                      <Mini label="المباع بالدورة" value={`${sale.quantity} وحدة`} tone={sale.quantity > 0 ? 'text-cyan-300' : 'text-amber-300'} emphasis />
-                      <Mini label="سعر البيع" value={formatCurrency(price)} />
-                      <Mini label="الحافز المحقق" value={formatCurrency(sale.money)} tone="text-cyan-300" />
-                    </div>
-
-                    <div className="mt-4 grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-black/10 p-3 text-xs">
-                      <div><div className="text-slate-500">نسبة الحافز</div><div className="mt-1 font-bold text-white">{ratio ? `${ratio.toFixed(1)}%` : '—'}</div></div>
-                      <div><div className="text-slate-500">قرار المتابعة</div><div className={`mt-1 font-bold ${item.active === false ? 'text-slate-400' : isNoMovement ? 'text-amber-300' : 'text-emerald-300'}`}>{item.active === false ? 'موقوف' : isNoMovement ? 'تابع الحركة' : 'يتحرك بالدورة'}</div></div>
-                    </div>
-
-                    <div className="mt-4 flex items-center justify-between gap-3 border-t border-white/10 pt-4">
-                      <div className="text-[11px] text-slate-500">ساري من {item.effective_date || 'غير محدد'}{item.expiry_date ? ` حتى ${item.expiry_date}` : ''}</div>
-                      <div className="flex items-center gap-2">
-                        {canEdit && <button onClick={() => toggleActive(item)} className={`rounded-xl border px-3 py-2 text-xs transition ${item.active === false ? 'border-slate-500/20 bg-slate-500/10 text-slate-400' : 'border-emerald-400/15 bg-emerald-400/10 text-emerald-300'}`} title={item.active === false ? 'تفعيل' : 'إيقاف'}>{item.active === false ? <ToggleLeft size={17} /> : <ToggleRight size={17} />}</button>}
-                        {canEdit && <button className="btn-secondary px-3 py-2" onClick={() => openEdit(item)} title="تعديل"><Edit size={15} /></button>}
-                      </div>
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        )}
-      </section>
-
-      <section className="rounded-3xl border border-white/10 bg-[#15243e]/70 p-5">
-        <div className="mb-4 flex items-center justify-between"><div><div className="font-bold text-white">حوافز الدكاترة — {cycle.shortLabel}</div><div className="mt-1 text-xs text-slate-500">ملخص الحركة المسجلة فعليًا في الدورة.</div></div></div>
-        {doctorTotals.length ? <div className="grid grid-cols-1 gap-3 md:grid-cols-3">{doctorTotals.map((row, index) => <div key={row.doctor} className="rounded-2xl border border-white/10 bg-white/5 p-4"><div className="flex items-start justify-between gap-3"><div><div className="font-bold text-white">{row.doctor}</div><div className="mt-1 text-xs text-slate-400">{row.quantity} وحدة</div></div>{index === 0 && <span className="flex items-center gap-1 rounded-full bg-emerald-400/10 px-2 py-1 text-[10px] font-bold text-emerald-200"><Trophy size={11} /> الأول</span>}</div><div className="mt-3 font-black text-emerald-300">{formatCurrency(row.money)}</div></div>)}</div> : <div className="rounded-2xl border border-dashed border-white/10 p-6 text-center text-sm text-slate-400">لا توجد حركات حوافز في الدورة الحالية.</div>}
-      </section>
-
-      {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm">
-          <div className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-3xl border border-[#2d4063] bg-[#172744] p-6 shadow-2xl">
-            <div className="mb-5"><h3 className="text-xl font-black text-white">{editing ? 'تعديل صنف من الليستة' : 'إضافة صنف جديد'}</h3><p className="mt-1 text-xs text-slate-400">الصنف جزء من كتالوج عام، وليس مرتبطًا بدكتور بعينه.</p></div>
-            <form onSubmit={saveItem} className="space-y-4">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <Field label="كود الصنف *"><input className="input-dark" value={form.product_code} onChange={(e) => setForm({ ...form, product_code: e.target.value })} required /></Field>
-                <Field label="اسم الصنف *"><input className="input-dark" value={form.product_name} onChange={(e) => setForm({ ...form, product_name: e.target.value })} required /></Field>
-                <Field label="الاستخدام"><input className="input-dark" value={form.product_type} onChange={(e) => setForm({ ...form, product_type: e.target.value })} /></Field>
-                <Field label="سعر البيع"><input className="input-dark" type="number" step="0.01" min="0" value={form.product_price} onChange={(e) => setForm({ ...form, product_price: Number(e.target.value) })} /></Field>
-                <Field label="حافز الوحدة بالجنيه *"><input className="input-dark" type="number" step="0.01" min="0.01" value={form.incentive_value} onChange={(e) => setForm({ ...form, incentive_value: Number(e.target.value) })} required /></Field>
-                <Field label="النطاق"><select className="input-dark" value={form.branch} onChange={(e) => setForm({ ...form, branch: e.target.value })}><option value="كل الفروع">كل الفروع</option>{user?.branch && <option value={user.branch}>{user.branch}</option>}</select></Field>
-                <Field label="تاريخ السريان"><input className="input-dark" type="date" value={form.effective_date} onChange={(e) => setForm({ ...form, effective_date: e.target.value })} /></Field>
-                <Field label="تاريخ الانتهاء"><input className="input-dark" type="date" value={form.expiry_date} onChange={(e) => setForm({ ...form, expiry_date: e.target.value })} /></Field>
-              </div>
-              <Field label="ملاحظات"><textarea className="input-dark resize-none" rows={3} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
-              <label className="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} /> نشط</label>
-              <div className="flex gap-2 rounded-2xl border border-blue-400/15 bg-blue-500/[0.08] p-3 text-sm leading-6 text-blue-100"><AlertTriangle size={17} className="mt-0.5 shrink-0" /> كل دكتور يتحسب له الحافز عند ثبوت بيع الصنف باسمه؛ مفيش دكتور مسؤول ثابت للصنف.</div>
-              <div className="flex gap-3 pt-1"><button type="button" className="btn-secondary flex-1" onClick={() => setShowForm(false)}>إلغاء</button><button type="submit" className="btn-primary flex-1">{editing ? 'حفظ التعديل' : 'إضافة الصنف'}</button></div>
-            </form>
-          </div>
-        </div>
+              const accents = ['from-emerald-500/16 via-teal-500/7 to-transparent border-emerald-400/20','from-sky-500/14 via-cyan-500/6 to-transparent border-sky-400/20','from-violet-500/14 via-indigo-500/6 to-transparent border-violet-400/20','from-amber-500/14 via-orange-500/6 to-transparent border-amber-400/20'];
+              const accent = item.active === false ? 'from-slate-500/10 via-slate-500/5 to-transparent border-slate-400/15' : isNoMovement ? 'from-amber-500/15 via-orange-500/6 to-transparent border-amber-400/25' : accents[index % accents.length];
+              return <article key={item.id} className={`group relative overflow-hidden rounded-3xl border bg-gradient-to-br ${accent} p-5 shadow-lg shadow-black/10 ${item.active === false ? 'opacity-70' : ''}`}>
+                <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="mb-2 flex flex-wrap gap-2"><span className="rounded-full border border-white/10 bg-black/10 px-2.5 py-1 font-mono text-[11px] text-slate-300">#{cleanCode(item.product_code) || 'بدون كود'}</span><span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${item.active === false ? 'bg-slate-500/15 text-slate-400' : 'bg-emerald-400/12 text-emerald-300'}`}>{item.active === false ? 'موقوف' : 'نشط'}</span>{isTopMover && <span className="flex items-center gap-1 rounded-full bg-cyan-400/10 px-2.5 py-1 text-[11px] font-bold text-cyan-200"><Trophy size={12} /> الأكثر حركة</span>}{isNoMovement && <span className="flex items-center gap-1 rounded-full bg-amber-400/10 px-2.5 py-1 text-[11px] font-bold text-amber-200"><CircleAlert size={12} /> يحتاج متابعة</span>}{isHighIncentive && <span className="rounded-full bg-violet-400/10 px-2.5 py-1 text-[11px] font-bold text-violet-200">أعلى حافز</span>}</div><h3 className="text-lg font-black leading-7 text-white">{item.product_name}</h3><div className="mt-2 text-xs text-slate-400">{item.product_type || 'بدون تصنيف'} · {item.branch}</div></div><div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.08] ${isNoMovement ? 'text-amber-300' : 'text-emerald-300'}`}><Package size={22} /></div></div>
+                <div className="mt-5 grid grid-cols-2 gap-3"><Mini label="حافز الوحدة" value={formatCurrency(incentive)} tone="text-emerald-300" emphasis /><Mini label="المباع بالدورة" value={`${sale.quantity} وحدة`} tone={sale.quantity > 0 ? 'text-cyan-300' : 'text-amber-300'} emphasis /><Mini label="سعر البيع" value={formatCurrency(price)} /><Mini label="الحافز المحقق" value={formatCurrency(sale.money)} tone="text-cyan-300" /></div>
+                <div className="mt-4 grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-black/10 p-3 text-xs"><div><div className="text-slate-500">نسبة الحافز</div><div className="mt-1 font-bold text-white">{ratio ? `${ratio.toFixed(1)}%` : '—'}</div></div><div><div className="text-slate-500">قرار المتابعة</div><div className={`mt-1 font-bold ${item.active === false ? 'text-slate-400' : isNoMovement ? 'text-amber-300' : 'text-emerald-300'}`}>{item.active === false ? 'موقوف' : isNoMovement ? 'تابع الحركة' : 'يتحرك بالدورة'}</div></div></div>
+                <div className="mt-4 flex items-center justify-between gap-3 border-t border-white/10 pt-4"><div className="text-[11px] text-slate-500">ساري من {item.effective_date || 'غير محدد'}{item.expiry_date ? ` حتى ${item.expiry_date}` : ''}</div><div className="flex items-center gap-2">{canEdit && <button onClick={() => toggleActive(item)} className={`rounded-xl border px-3 py-2 ${item.active === false ? 'border-slate-500/20 text-slate-400' : 'border-emerald-400/15 text-emerald-300'}`}>{item.active === false ? <ToggleLeft size={17} /> : <ToggleRight size={17} />}</button>}{canEdit && <button className="btn-secondary px-3 py-2" onClick={() => openEdit(item)}><Edit size={15} /></button>}</div></div>
+              </article>;
+            })}</div>}
+          </section>
+        </>
       )}
+
+      {showForm && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm"><div className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-3xl border border-[#2d4063] bg-[#172744] p-6 shadow-2xl"><div className="mb-5"><h3 className="text-xl font-black text-white">{editing ? 'تعديل صنف من الليستة' : 'إضافة صنف جديد'}</h3><p className="mt-1 text-xs text-slate-400">الصنف جزء من كتالوج عام، وليس مرتبطًا بدكتور بعينه.</p></div><form onSubmit={saveItem} className="space-y-4"><div className="grid grid-cols-1 gap-4 md:grid-cols-2"><Field label="كود الصنف *"><input className="input-dark" value={form.product_code} onChange={(e) => setForm({ ...form, product_code: e.target.value })} required /></Field><Field label="اسم الصنف *"><input className="input-dark" value={form.product_name} onChange={(e) => setForm({ ...form, product_name: e.target.value })} required /></Field><Field label="الاستخدام"><input className="input-dark" value={form.product_type} onChange={(e) => setForm({ ...form, product_type: e.target.value })} /></Field><Field label="سعر البيع"><input className="input-dark" type="number" step="0.01" min="0" value={form.product_price} onChange={(e) => setForm({ ...form, product_price: Number(e.target.value) })} /></Field><Field label="حافز الوحدة بالجنيه *"><input className="input-dark" type="number" step="0.01" min="0.01" value={form.incentive_value} onChange={(e) => setForm({ ...form, incentive_value: Number(e.target.value) })} required /></Field><Field label="النطاق"><select className="input-dark" value={form.branch} onChange={(e) => setForm({ ...form, branch: e.target.value })}><option value="كل الفروع">كل الفروع</option>{user?.branch && <option value={user.branch}>{user.branch}</option>}</select></Field><Field label="تاريخ السريان"><input className="input-dark" type="date" value={form.effective_date} onChange={(e) => setForm({ ...form, effective_date: e.target.value })} /></Field><Field label="تاريخ الانتهاء"><input className="input-dark" type="date" value={form.expiry_date} onChange={(e) => setForm({ ...form, expiry_date: e.target.value })} /></Field></div><Field label="ملاحظات"><textarea className="input-dark resize-none" rows={3} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field><label className="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} /> نشط</label><div className="flex gap-2 rounded-2xl border border-blue-400/15 bg-blue-500/[0.08] p-3 text-sm leading-6 text-blue-100"><AlertTriangle size={17} className="mt-0.5 shrink-0" /> كل دكتور يتحسب له الحافز عند ثبوت بيع الصنف باسمه.</div><div className="flex gap-3 pt-1"><button type="button" className="btn-secondary flex-1" onClick={() => setShowForm(false)}>إلغاء</button><button type="submit" className="btn-primary flex-1">{editing ? 'حفظ التعديل' : 'إضافة الصنف'}</button></div></form></div></div>}
     </div>
   );
 }
