@@ -37,6 +37,7 @@ import {
 } from '@/lib/appRecovery';
 
 const APP_IMPORT_TIMEOUT_MS = 25000;
+const ROUTE_RESCUE_IMPORT_TIMEOUT_MS = 8000;
 const BOOTSTRAP_RECOVERY_SCOPE = 'bootstrap';
 
 declare global {
@@ -76,8 +77,16 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): 
   });
 }
 
-function normalizeDefault<T extends ComponentType>(module: { default: T }) {
-  return module;
+function markBootstrapReady<T extends ComponentType>(module: { default: T }) {
+  const ReadyComponent = module.default;
+  return {
+    default: () => (
+      <>
+        <ReactBootstrapMarker />
+        <ReadyComponent />
+      </>
+    ),
+  };
 }
 
 async function loadRescueRoute() {
@@ -101,12 +110,34 @@ async function loadRescueRoute() {
 
 const SafeApp = lazy(async () => {
   console.info('[Dawaa bootstrap] start');
+
+  // Login/diagnostics are recovery entry points. Load them directly instead of making them wait
+  // for the entire application bundle. This is especially important after a route chunk/session
+  // recovery sends the browser to /login on a weak pharmacy connection.
+  if (window.location.pathname === '/login' || window.location.pathname === '/diagnostics') {
+    try {
+      const rescueRoute = await withTimeout(
+        loadRescueRoute(),
+        ROUTE_RESCUE_IMPORT_TIMEOUT_MS,
+        'recovery route import'
+      );
+      if (rescueRoute) {
+        console.info('[Dawaa bootstrap] recovery route imported');
+        clearRecoveredRuntimeError();
+        clearStaleChunkRecoveryMarker(BOOTSTRAP_RECOVERY_SCOPE);
+        return markBootstrapReady(rescueRoute);
+      }
+    } catch (error) {
+      logRuntimeError('bootstrap direct recovery route failed', error);
+    }
+  }
+
   try {
     const module = await withTimeout(import('./App.tsx'), APP_IMPORT_TIMEOUT_MS, 'App import');
     console.info('[Dawaa bootstrap] App imported');
     clearRecoveredRuntimeError();
     clearStaleChunkRecoveryMarker(BOOTSTRAP_RECOVERY_SCOPE);
-    return normalizeDefault(module);
+    return markBootstrapReady(module);
   } catch (error) {
     console.error('[Dawaa bootstrap] App import failed', error);
     logRuntimeError('bootstrap App import failed', error);
@@ -118,8 +149,8 @@ const SafeApp = lazy(async () => {
       logRuntimeError('bootstrap rescue route failed', rescueError);
       return null;
     });
-    if (rescueRoute) return rescueRoute;
-    return {
+    if (rescueRoute) return markBootstrapReady(rescueRoute);
+    return markBootstrapReady({
       default: () => (
         <AppRecoveryScreen
           reason="app_import_failed"
@@ -127,7 +158,7 @@ const SafeApp = lazy(async () => {
           message="فشل التحميل بعد محاولة استرداد تلقائية آمنة. جرّب إصلاح كاش التشغيل؛ لا تحتاج لتسجيل الخروج إلا إذا كانت الجلسة نفسها منتهية."
         />
       ),
-    };
+    });
   }
 });
 
@@ -199,7 +230,6 @@ if (!rootElement) {
   createRoot(rootElement).render(
     <StrictMode>
       <ThemeProvider>
-        <ReactBootstrapMarker />
         <Suspense fallback={<BootstrapShell />}>
           <SafeApp />
           <OptionalRuntimeAddons />
