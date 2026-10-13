@@ -1,15 +1,6 @@
 import './lib/mobileSafariCompat';
-import {
-  StrictMode,
-  Suspense,
-  lazy,
-  useEffect,
-  useLayoutEffect,
-  useState,
-  type ComponentType,
-} from 'react';
+import { StrictMode, Suspense, lazy, useEffect, useLayoutEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
 import './index.css';
 import './styles/dawaa-design-system.css';
 import './styles/v3-polish.css';
@@ -26,18 +17,10 @@ import './styles/dawaa-theme-foundation.css';
 import './styles/dawaa-theme-palettes.css';
 import './styles/dawaa-theme-components.css';
 import './styles/dawaa-theme-shell.css';
-import AppRecoveryScreen from '@/components/system/AppRecoveryScreen';
+import App from './App.tsx';
 import { ThemeProvider } from '@/contexts/ThemeContext';
-import {
-  clearRecoveredRuntimeError,
-  clearStaleChunkRecoveryMarker,
-  isStaleChunkImportError,
-  logRuntimeError,
-  recoverFromStaleChunkOnce,
-} from '@/lib/appRecovery';
+import { clearRecoveredRuntimeError, clearStaleChunkRecoveryMarker, logRuntimeError } from '@/lib/appRecovery';
 
-const APP_IMPORT_TIMEOUT_MS = 25000;
-const ROUTE_RESCUE_IMPORT_TIMEOUT_MS = 8000;
 const BOOTSTRAP_RECOVERY_SCOPE = 'bootstrap';
 
 declare global {
@@ -49,6 +32,8 @@ declare global {
 
 function ReactBootstrapMarker() {
   useLayoutEffect(() => {
+    clearRecoveredRuntimeError();
+    clearStaleChunkRecoveryMarker(BOOTSTRAP_RECOVERY_SCOPE);
     window.__DAWAA_MARK_REACT_BOOTSTRAPPED?.();
   }, []);
   return null;
@@ -65,102 +50,6 @@ function BootstrapShell() {
     </div>
   );
 }
-
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
-  let timeoutId: number | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timeoutId = window.setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
-  });
-
-  return Promise.race([promise, timeout]).finally(() => {
-    if (timeoutId) window.clearTimeout(timeoutId);
-  });
-}
-
-function markBootstrapReady<T extends ComponentType>(module: { default: T }) {
-  const ReadyComponent = module.default;
-  return {
-    default: () => (
-      <>
-        <ReactBootstrapMarker />
-        <ReadyComponent />
-      </>
-    ),
-  };
-}
-
-async function loadRescueRoute() {
-  const path = window.location.pathname;
-  if (path === '/login') {
-    const module = await import('@/pages/Login');
-    const LoginPage = module.default;
-    return {
-      default: () => (
-        <BrowserRouter>
-          <LoginPage />
-        </BrowserRouter>
-      ),
-    };
-  }
-  if (path === '/diagnostics') {
-    return await import('@/pages/Diagnostics');
-  }
-  return null;
-}
-
-const SafeApp = lazy(async () => {
-  console.info('[Dawaa bootstrap] start');
-
-  // Diagnostics must remain independently reachable when the main application bundle cannot load.
-  // Login, however, must go through App.tsx so the normal auth/session lifecycle and post-login
-  // routing remain intact. It is still available below as a rescue route if App import itself fails.
-  if (window.location.pathname === '/diagnostics') {
-    try {
-      const rescueRoute = await withTimeout(
-        loadRescueRoute(),
-        ROUTE_RESCUE_IMPORT_TIMEOUT_MS,
-        'recovery route import'
-      );
-      if (rescueRoute) {
-        console.info('[Dawaa bootstrap] recovery route imported');
-        clearRecoveredRuntimeError();
-        clearStaleChunkRecoveryMarker(BOOTSTRAP_RECOVERY_SCOPE);
-        return markBootstrapReady(rescueRoute);
-      }
-    } catch (error) {
-      logRuntimeError('bootstrap direct recovery route failed', error);
-    }
-  }
-
-  try {
-    const module = await withTimeout(import('./App.tsx'), APP_IMPORT_TIMEOUT_MS, 'App import');
-    console.info('[Dawaa bootstrap] App imported');
-    clearRecoveredRuntimeError();
-    clearStaleChunkRecoveryMarker(BOOTSTRAP_RECOVERY_SCOPE);
-    return markBootstrapReady(module);
-  } catch (error) {
-    console.error('[Dawaa bootstrap] App import failed', error);
-    logRuntimeError('bootstrap App import failed', error);
-    if (isStaleChunkImportError(error)) {
-      const recovering = await recoverFromStaleChunkOnce(BOOTSTRAP_RECOVERY_SCOPE);
-      if (recovering) return { default: BootstrapShell };
-    }
-    const rescueRoute = await loadRescueRoute().catch((rescueError) => {
-      logRuntimeError('bootstrap rescue route failed', rescueError);
-      return null;
-    });
-    if (rescueRoute) return markBootstrapReady(rescueRoute);
-    return markBootstrapReady({
-      default: () => (
-        <AppRecoveryScreen
-          reason="app_import_failed"
-          title="تعذر تحميل التطبيق"
-          message="فشل التحميل بعد محاولة استرداد تلقائية آمنة. جرّب إصلاح كاش التشغيل؛ لا تحتاج لتسجيل الخروج إلا إذا كانت الجلسة نفسها منتهية."
-        />
-      ),
-    });
-  }
-});
 
 function isOptionalRuntimeEnabled() {
   if (typeof window === 'undefined') return false;
@@ -231,7 +120,8 @@ if (!rootElement) {
     <StrictMode>
       <ThemeProvider>
         <Suspense fallback={<BootstrapShell />}>
-          <SafeApp />
+          <ReactBootstrapMarker />
+          <App />
           <OptionalRuntimeAddons />
         </Suspense>
       </ThemeProvider>
