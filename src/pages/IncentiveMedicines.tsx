@@ -1,1015 +1,493 @@
 import { useMemo, useState } from 'react';
-import { useEscapeKey } from '@/hooks/useEscapeKey';
-import { Link } from 'react-router-dom';
 import {
-  Plus,
-  TrendingUp,
+  AlertTriangle,
+  ArrowUpDown,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  CircleAlert,
   DollarSign,
-  Trash2,
   Edit,
+  FileSpreadsheet,
+  Package,
+  Plus,
+  Search,
+  Sparkles,
   ToggleLeft,
   ToggleRight,
-  Package,
+  Trophy,
+  Upload,
   UserRound,
-  Award,
 } from 'lucide-react';
-import { useSupabaseQuery, logActivity } from '@/hooks/useSupabaseQuery';
+import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { useAuth, getCurrentUserProfile } from '@/hooks/useAuth';
+import { useSupabaseQuery, logActivity } from '@/hooks/useSupabaseQuery';
 import { canViewAllBranches, canViewBranchData } from '@/lib/security/userDataScope';
-import { toast } from 'sonner';
 import { formatCurrency } from '@/lib/utils';
-import { persistPointsTransaction } from '@/lib/pointsPersistence';
 import { getCurrentCycle } from '@/lib/pharmacy-cycle';
-import {
-  groupDoctorTotals,
-  movementTotalForMedicine,
-  requiredQuantity,
-  targetAchieved,
-} from '@/lib/medicinePerformance';
-import { triggerCelebration } from '@/lib/celebration';
-import { staffProfilePath } from '@/lib/staff/staffIdentityResolver';
-import { readStaffDirectory } from '@/lib/readModels/staffDirectoryReadModel';
-import { useStaffDirectory } from '@/hooks/useStaffDirectory';
-import { normalizeBranchName } from '@/lib/branch';
+import IncentiveDoctorSummary, { type IncentiveDoctorSaleRow } from '@/pages/IncentiveDoctorSummary';
 
 interface IncentiveMedicine {
   id: string;
+  product_code?: string | null;
   product_name: string;
-  incentive_value: number | null;
-  incentive_type?: 'fixed' | 'percent' | string | null;
-  incentive_percent?: number | null;
-  product_price?: number | null;
   product_type?: string | null;
-  current_quantity: number | null;
-  sold_quantity?: number | null;
-  target_min_percent?: number | null;
-  target_min_quantity?: number | null;
-  doctor_id?: string | null;
-  responsible_doctor?: string | null;
-  source_file_date?: string | null;
-  branch: string | null;
-  active: boolean | null;
-  effective_date: string | null;
-  expiry_date: string | null;
-  notes: string | null;
-  created_by: string | null;
-}
-
-interface IncentiveSaleRecord {
-  id: string;
-  medicine_id: string | null;
-  product_name: string;
-  doctor_id?: string | null;
-  doctor_name: string;
-  branch: string | null;
-  quantity: number | null;
-  incentive_per_unit: number | null;
-  incentive_total: number | null;
-  sale_date: string | null;
-  month_cycle?: string | null;
+  product_price?: number | null;
+  incentive_type?: string | null;
+  incentive_value?: number | null;
+  incentive_percent?: number | null;
+  branch: string;
+  active?: boolean | null;
+  effective_date?: string | null;
+  expiry_date?: string | null;
   notes?: string | null;
 }
 
-interface DoctorOption {
-  id: string;
-  name: string;
-  role?: string | null;
-  branch?: string | null;
-  branch_name?: string | null;
-  active?: boolean | null;
+type IncentiveSaleRecord = IncentiveDoctorSaleRow;
+type ImportAction = 'new' | 'update' | 'error';
+type StatusFilter = 'all' | 'active' | 'inactive';
+type MotionFilter = 'all' | 'moved' | 'no_movement';
+type SortMode = 'smart' | 'sales' | 'incentive' | 'name';
+type PageTab = 'catalog' | 'doctors';
+
+interface ImportRow {
+  rowNumber: number;
+  productCode: string;
+  productName: string;
+  productPrice: number;
+  productType: string;
+  incentiveValue: number;
+  action: ImportAction;
+  message: string;
 }
 
+const today = () => new Date().toISOString().slice(0, 10);
 const blankForm = {
+  product_code: '',
   product_name: '',
   product_type: '',
   product_price: 0,
-  incentive_type: 'fixed',
   incentive_value: 0,
-  incentive_percent: 0,
-  current_quantity: 0,
-  sold_quantity: 0,
-  target_min_percent: 0,
-  doctor_id: '',
-  responsible_doctor: '',
-  source_file_date: new Date().toISOString().split('T')[0],
-  active: true,
-  effective_date: new Date().toISOString().split('T')[0],
+  branch: 'كل الفروع',
+  effective_date: today(),
   expiry_date: '',
+  active: true,
   notes: '',
 };
 
-function missingColumn(message: string) {
-  return (
-    message.match(/column ["']?([^"'\s]+)["']? (?:of relation [^ ]+ )?does not exist/i)?.[1] || null
-  );
+function cleanCode(value: unknown) {
+  return String(value ?? '').trim().replace(/\.0$/, '');
 }
 
-function isAllBranches(branch?: string | null) {
-  return !branch || branch === 'الكل' || branch.includes('ÙƒÙ„');
+function numeric(value: unknown) {
+  const n = Number(String(value ?? '').replace(/,/g, '').trim());
+  return Number.isFinite(n) ? n : 0;
 }
 
-function getIncentivePerUnit(
-  medicine: Pick<
-    IncentiveMedicine,
-    'incentive_type' | 'incentive_value' | 'incentive_percent' | 'product_price'
-  >
-) {
-  if (medicine.incentive_type === 'percent') {
-    return (Number(medicine.product_price || 0) * Number(medicine.incentive_percent || 0)) / 100;
+function branchKey(value?: string | null) {
+  return String(value || '').trim() || 'كل الفروع';
+}
+
+function incentivePerUnit(item: IncentiveMedicine) {
+  if (item.incentive_type === 'percent') {
+    return (Number(item.product_price || 0) * Number(item.incentive_percent || 0)) / 100;
   }
-  return Number(medicine.incentive_value || 0);
-}
-
-async function saveWithMissingColumnRetry(
-  table: 'incentive_medicines',
-  payload: Record<string, unknown>,
-  id?: string
-) {
-  const next = { ...payload };
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    const query = id
-      ? supabase.from(table).update(next).eq('id', id)
-      : supabase.from(table).insert(next);
-    const { error } = await query;
-    if (!error) return;
-    const column = missingColumn(error.message);
-    if (!column || !(column in next)) throw error;
-    delete next[column];
-    toast.warning(
-      `عمود ${column} غير موجود في Supabase، تم تخطيه مؤقتًا. شغل ملف التحديث عشان يتسجل دائمًا.`
-    );
-  }
+  return Number(item.incentive_value || 0);
 }
 
 export default function IncentiveMedicines() {
   const { user, canManage } = useAuth();
-  const canCreateIncentive = canManage || user?.permissions?.create_incentive_medicine === true;
-  const canEditIncentive = canManage || user?.permissions?.edit_incentive_medicine === true;
-  const canDeleteIncentive = canManage || user?.permissions?.delete_incentive_medicine === true;
-  const [showModal, setShowModal] = useState(false);
-  const [editingMedicine, setEditingMedicine] = useState<IncentiveMedicine | null>(null);
+  const canCreate = canManage || user?.permissions?.create_incentive_medicine === true;
+  const canEdit = canManage || user?.permissions?.edit_incentive_medicine === true;
 
-  useEscapeKey(() => setShowModal(false), showModal);
+  const [activeTab, setActiveTab] = useState<PageTab>('catalog');
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState<IncentiveMedicine | null>(null);
   const [form, setForm] = useState(blankForm);
+  const [preview, setPreview] = useState<ImportRow[]>([]);
+  const [fileName, setFileName] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [importBranch, setImportBranch] = useState('كل الفروع');
+  const [importEffectiveDate, setImportEffectiveDate] = useState(today());
+  const [showImport, setShowImport] = useState(false);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [motionFilter, setMotionFilter] = useState<MotionFilter>('all');
+  const [usageFilter, setUsageFilter] = useState('all');
+  const [sortMode, setSortMode] = useState<SortMode>('smart');
 
-  const {
-    data: medicines,
-    loading,
-    refetch,
-  } = useSupabaseQuery<IncentiveMedicine>({
+  const { data: medicines = [], loading, refetch } = useSupabaseQuery<IncentiveMedicine>({
     table: 'incentive_medicines',
-    orderBy: { column: 'incentive_value', ascending: false },
+    orderBy: { column: 'product_name', ascending: true },
     realtimeEnabled: true,
   });
-  const { data: saleRecords, refetch: refetchSales } = useSupabaseQuery<IncentiveSaleRecord>({
+
+  const { data: saleRecords = [] } = useSupabaseQuery<IncentiveSaleRecord>({
     table: 'incentive_medicine_sales',
     orderBy: { column: 'sale_date', ascending: false },
     realtimeEnabled: true,
   });
-  const { data: staffDirectory = [] } = useStaffDirectory();
-  const staffOptions = useMemo<DoctorOption[]>(
-    () =>
-      staffDirectory
-        .filter((item) => item.source !== 'alias' && item.active && item.id && item.name)
-        .map((item) => ({
-          id: item.id as string,
-          name: item.name as string,
-          role: item.role,
-          branch: item.branch,
-          branch_name: item.branch,
-          active: item.active,
-        })),
-    [staffDirectory]
-  );
-  const cycle = getCurrentCycle();
 
-  const doctorOptions = useMemo(() => {
-    const byId = new Map<string, DoctorOption>();
-    for (const item of staffOptions || []) {
-      const role = item.role || '';
-      const isDoctorRole = /doctor|pharmacist|دكتور|صيدلي|صيدلاني/i.test(role);
-      if (!item.id || !item.name || item.active === false || !isDoctorRole) continue;
-      if (!byId.has(item.id)) byId.set(item.id, item);
-    }
-    return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
-  }, [staffOptions]);
-
-  const selectedDoctor = useMemo(
-    () => doctorOptions.find((doctor) => doctor.id === form.doctor_id) || null,
-    [doctorOptions, form.doctor_id]
-  );
-
-  const filteredMedicines = useMemo(
-    () =>
-      (medicines || []).filter((medicine) =>
-        canViewAllBranches(user) || canViewBranchData(user, medicine.branch)
-      ),
+  const visibleMedicines = useMemo(
+    () => medicines.filter((item) => canViewAllBranches(user) || canViewBranchData(user, item.branch)),
     [medicines, user]
   );
-  const scopedSaleRecords = useMemo(
-    () =>
-      (saleRecords || []).filter((row) =>
-        canViewAllBranches(user) || canViewBranchData(user, row.branch)
-      ),
-    [saleRecords, user]
+
+  const existingByKey = useMemo(() => {
+    const map = new Map<string, IncentiveMedicine>();
+    for (const item of medicines) {
+      const code = cleanCode(item.product_code);
+      if (code) map.set(`${code}::${branchKey(item.branch)}`, item);
+    }
+    return map;
+  }, [medicines]);
+
+  const medicineById = useMemo(() => {
+    const map = new Map<string, IncentiveMedicine>();
+    for (const item of medicines) map.set(item.id, item);
+    return map;
+  }, [medicines]);
+
+  const cycle = getCurrentCycle();
+  const cycleSales = useMemo(
+    () => saleRecords
+      .filter((row) => {
+        if (!row.sale_date) return false;
+        const date = new Date(`${row.sale_date}T00:00:00`);
+        if (date < cycle.start || date > cycle.end) return false;
+        return canViewAllBranches(user) || canViewBranchData(user, row.branch);
+      })
+      .map((row) => {
+        const medicine = row.medicine_id ? medicineById.get(row.medicine_id) : undefined;
+        return {
+          ...row,
+          product_name: row.product_name || medicine?.product_name || 'صنف غير محدد',
+          incentive_per_unit: Number(row.incentive_per_unit || (medicine ? incentivePerUnit(medicine) : 0)),
+        };
+      }),
+    [saleRecords, cycle.start, cycle.end, user, medicineById]
   );
 
+  const medicineSales = useMemo(() => {
+    const map = new Map<string, { quantity: number; money: number }>();
+    for (const row of cycleSales) {
+      if (!row.medicine_id) continue;
+      const current = map.get(row.medicine_id) || { quantity: 0, money: 0 };
+      current.quantity += Number(row.quantity || 0);
+      current.money += Number(row.incentive_total || 0);
+      map.set(row.medicine_id, current);
+    }
+    return map;
+  }, [cycleSales]);
+
   const stats = useMemo(() => {
-    return filteredMedicines.reduce(
-      (acc, medicine) => {
-        const perUnit = getIncentivePerUnit(medicine);
-        const available = Number(medicine.current_quantity || 0);
-        const sold = movementTotalForMedicine(scopedSaleRecords, medicine.id, cycle);
-        if (medicine.active) acc.potential += perUnit * available;
-        acc.earned += perUnit * sold;
-        acc.available += available;
-        acc.active += medicine.active ? 1 : 0;
-        return acc;
+    const active = visibleMedicines.filter((item) => item.active !== false);
+    const incentives = active.map(incentivePerUnit).filter((n) => n > 0);
+    const totalEarned = cycleSales.reduce((sum, row) => sum + Number(row.incentive_total || 0), 0);
+    const totalUnits = cycleSales.reduce((sum, row) => sum + Number(row.quantity || 0), 0);
+    const noMovement = active.filter((item) => (medicineSales.get(item.id)?.quantity || 0) === 0).length;
+    const bestMover = active.reduce<{ item: IncentiveMedicine | null; quantity: number }>(
+      (best, item) => {
+        const quantity = medicineSales.get(item.id)?.quantity || 0;
+        return quantity > best.quantity ? { item, quantity } : best;
       },
-      { potential: 0, earned: 0, available: 0, active: 0 }
+      { item: null, quantity: 0 }
     );
-  }, [cycle, filteredMedicines, scopedSaleRecords]);
+    return {
+      active: active.length,
+      coded: active.filter((item) => cleanCode(item.product_code)).length,
+      max: incentives.length ? Math.max(...incentives) : 0,
+      totalEarned,
+      totalUnits,
+      noMovement,
+      bestMover,
+    };
+  }, [visibleMedicines, cycleSales, medicineSales]);
 
-  const doctorTotals = useMemo(() => {
-    return groupDoctorTotals(scopedSaleRecords, cycle).map((item) => {
-      const money = scopedSaleRecords
-        .filter((row) => row.doctor_name === item.doctor)
-        .reduce((sum, row) => sum + Number(row.incentive_total || 0), 0);
-      return { ...item, money };
+  const usageOptions = useMemo(
+    () => Array.from(new Set(visibleMedicines.map((item) => item.product_type?.trim()).filter(Boolean) as string[])).sort((a, b) => a.localeCompare(b, 'ar')),
+    [visibleMedicines]
+  );
+
+  const filteredMedicines = useMemo(() => {
+    const q = search.trim().toLocaleLowerCase('ar');
+    const filtered = visibleMedicines.filter((item) => {
+      const quantity = medicineSales.get(item.id)?.quantity || 0;
+      if (statusFilter === 'active' && item.active === false) return false;
+      if (statusFilter === 'inactive' && item.active !== false) return false;
+      if (motionFilter === 'moved' && quantity <= 0) return false;
+      if (motionFilter === 'no_movement' && quantity > 0) return false;
+      if (usageFilter !== 'all' && (item.product_type || '') !== usageFilter) return false;
+      if (!q) return true;
+      return [item.product_name, cleanCode(item.product_code), item.product_type || '', item.branch || ''].some((value) => value.toLocaleLowerCase('ar').includes(q));
     });
-  }, [cycle, scopedSaleRecords]);
 
-  const resetModal = () => {
-    setShowModal(false);
-    setEditingMedicine(null);
-    setForm(blankForm);
-  };
+    return filtered.sort((a, b) => {
+      const aSale = medicineSales.get(a.id) || { quantity: 0, money: 0 };
+      const bSale = medicineSales.get(b.id) || { quantity: 0, money: 0 };
+      if (sortMode === 'sales') return bSale.quantity - aSale.quantity || a.product_name.localeCompare(b.product_name, 'ar');
+      if (sortMode === 'incentive') return incentivePerUnit(b) - incentivePerUnit(a) || a.product_name.localeCompare(b.product_name, 'ar');
+      if (sortMode === 'name') return a.product_name.localeCompare(b.product_name, 'ar');
+      const aAttention = a.active === false ? 0 : aSale.quantity === 0 ? 3 : 1;
+      const bAttention = b.active === false ? 0 : bSale.quantity === 0 ? 3 : 1;
+      return bAttention - aAttention || bSale.quantity - aSale.quantity || incentivePerUnit(b) - incentivePerUnit(a) || a.product_name.localeCompare(b.product_name, 'ar');
+    });
+  }, [visibleMedicines, medicineSales, search, statusFilter, motionFilter, usageFilter, sortMode]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      if (!user) {
-        toast.error('يجب تسجيل الدخول أولًا لتنفيذ العملية');
-        return;
-      }
+  function openNew() {
+    setEditing(null);
+    setForm({ ...blankForm, branch: 'كل الفروع', effective_date: today() });
+    setShowForm(true);
+  }
 
-      if (!form.doctor_id || !selectedDoctor) {
-        toast.error('يجب اختيار الدكتور المسؤول عن صرف الصنف');
-        return;
-      }
-
-      const currentUserProfile = getCurrentUserProfile();
-      const payload = {
-        product_name: form.product_name,
-        product_type: form.product_type || null,
-        product_price: Number(form.product_price || 0),
-        incentive_type: form.incentive_type,
-        incentive_value: Number(form.incentive_value || 0),
-        incentive_percent: Number(form.incentive_percent || 0),
-        current_quantity: Number(form.current_quantity || 0),
-        sold_quantity: Number(form.sold_quantity || 0),
-        target_min_percent: Number(form.target_min_percent || 0),
-        target_min_quantity: Math.ceil(
-          (Number(form.current_quantity || 0) * Number(form.target_min_percent || 0)) / 100
-        ),
-        doctor_id: selectedDoctor.id,
-        responsible_doctor: selectedDoctor.name,
-        source_file_date: form.source_file_date || new Date().toISOString().split('T')[0],
-        active: form.active,
-        effective_date: form.effective_date,
-        expiry_date: form.expiry_date || null,
-        notes: form.notes || null,
-        branch: user?.branch || 'الكل',
-        created_by: currentUserProfile.id,
-      };
-
-      await saveWithMissingColumnRetry('incentive_medicines', payload, editingMedicine?.id);
-
-      toast.success(editingMedicine ? 'تم تحديث صنف الحوافز بنجاح' : 'تم إضافة صنف الحوافز بنجاح');
-      await logActivity(
-        currentUserProfile.id,
-        currentUserProfile.name,
-        editingMedicine ? 'تحديث صنف حوافز' : 'إضافة صنف حوافز',
-        'أدوية الحوافز',
-        form.product_name,
-        user?.branch || ''
-      );
-
-      resetModal();
-      refetch();
-    } catch (error) {
-      toast.error(`حدث خطأ: ${(error as Error).message}`);
-    }
-  };
-
-  const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`هل أنت متأكد من حذف ${name}؟`)) return;
-
-    try {
-      if (!user) {
-        toast.error('يجب تسجيل الدخول أولًا لتنفيذ العملية');
-        return;
-      }
-
-      const currentUserProfile = getCurrentUserProfile();
-      const { error } = await supabase.from('incentive_medicines').delete().eq('id', id);
-      if (error) throw error;
-
-      toast.success('تم حذف الصنف بنجاح');
-      await logActivity(
-        currentUserProfile.id,
-        currentUserProfile.name,
-        'حذف صنف حوافز',
-        'أدوية الحوافز',
-        name,
-        user?.branch || ''
-      );
-      refetch();
-    } catch (error) {
-      toast.error(`حدث خطأ: ${(error as Error).message}`);
-    }
-  };
-
-  const handleEdit = (medicine: IncentiveMedicine) => {
-    setEditingMedicine(medicine);
+  function openEdit(item: IncentiveMedicine) {
+    setEditing(item);
     setForm({
-      product_name: medicine.product_name,
-      product_type: medicine.product_type || '',
-      product_price: Number(medicine.product_price || 0),
-      incentive_type: medicine.incentive_type || 'fixed',
-      incentive_value: Number(medicine.incentive_value || 0),
-      incentive_percent: Number(medicine.incentive_percent || 0),
-      current_quantity: Number(medicine.current_quantity || 0),
-      sold_quantity: Number(medicine.sold_quantity || 0),
-      target_min_percent: Number(medicine.target_min_percent || 0),
-      doctor_id: medicine.doctor_id || '',
-      responsible_doctor: medicine.responsible_doctor || '',
-      source_file_date: medicine.source_file_date || new Date().toISOString().split('T')[0],
-      active: Boolean(medicine.active),
-      effective_date: medicine.effective_date || new Date().toISOString().split('T')[0],
-      expiry_date: medicine.expiry_date || '',
-      notes: medicine.notes || '',
+      product_code: cleanCode(item.product_code),
+      product_name: item.product_name || '',
+      product_type: item.product_type || '',
+      product_price: Number(item.product_price || 0),
+      incentive_value: incentivePerUnit(item),
+      branch: branchKey(item.branch),
+      effective_date: item.effective_date || today(),
+      expiry_date: item.expiry_date || '',
+      active: item.active !== false,
+      notes: item.notes || '',
     });
-    setShowModal(true);
-  };
+    setShowForm(true);
+  }
 
-  const handleToggleActive = async (medicine: IncentiveMedicine) => {
+  async function saveItem(e: React.FormEvent) {
+    e.preventDefault();
+    const code = cleanCode(form.product_code);
+    if (!code || !form.product_name.trim()) return toast.error('كود الصنف واسم الصنف مطلوبان');
+    if (Number(form.incentive_value) <= 0) return toast.error('حافز الوحدة يجب أن يكون أكبر من صفر');
+    const duplicate = existingByKey.get(`${code}::${branchKey(form.branch)}`);
+    if (duplicate && duplicate.id !== editing?.id) return toast.error('هذا الكود موجود بالفعل لنفس نطاق الفرع');
+
+    const profile = getCurrentUserProfile();
+    const payload = {
+      product_code: code,
+      product_name: form.product_name.trim(),
+      product_type: form.product_type.trim() || null,
+      product_price: Number(form.product_price || 0),
+      incentive_type: 'fixed',
+      incentive_value: Number(form.incentive_value || 0),
+      incentive_percent: 0,
+      branch: branchKey(form.branch),
+      active: form.active,
+      effective_date: form.effective_date || today(),
+      expiry_date: form.expiry_date || null,
+      notes: form.notes.trim() || null,
+      doctor_id: null,
+      responsible_doctor: null,
+      source_file_date: today(),
+      created_by: profile.id,
+    };
+    const query = editing ? supabase.from('incentive_medicines').update(payload).eq('id', editing.id) : supabase.from('incentive_medicines').insert(payload);
+    const { error } = await query;
+    if (error) return toast.error(error.message);
+    await logActivity(profile.id, profile.name, editing ? 'تحديث صنف لستة' : 'إضافة صنف لستة', 'أدوية الحوافز', `${code} - ${form.product_name}`, form.branch);
+    toast.success(editing ? 'تم تحديث الصنف' : 'تم إضافة الصنف');
+    setShowForm(false);
+    setEditing(null);
+    setForm(blankForm);
+    refetch();
+  }
+
+  async function toggleActive(item: IncentiveMedicine) {
+    const { error } = await supabase.from('incentive_medicines').update({ active: item.active === false }).eq('id', item.id);
+    if (error) return toast.error(error.message);
+    toast.success(item.active === false ? 'تم تفعيل الصنف' : 'تم إيقاف الصنف');
+    refetch();
+  }
+
+  async function parseFile(file: File) {
     try {
-      if (!user) {
-        toast.error('يجب تسجيل الدخول أولًا لتنفيذ العملية');
-        return;
-      }
+      const XLSX = await import('xlsx');
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
+      const sheetName = workbook.SheetNames.includes('Master List') ? 'Master List' : workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
+      const seen = new Set<string>();
+      const parsed: ImportRow[] = rows.map((row, index) => {
+        const productCode = cleanCode(row['كود الصنف'] ?? row['الكود'] ?? row['code']);
+        const productName = String(row['اسم الصنف'] ?? row['إسم الصنف'] ?? row['product_name'] ?? '').trim();
+        const productPrice = numeric(row['سعر البيع'] ?? row['سعر الصنف'] ?? row['product_price']);
+        const productType = String(row['الاستخدام'] ?? row['نوع الصنف'] ?? row['product_type'] ?? '').trim();
+        const incentiveValue = numeric(row['حافز الوحدة للدكتور'] ?? row['حافز الوحدة'] ?? row['incentive_value']);
+        const key = `${productCode}::${branchKey(importBranch)}`;
+        let action: ImportAction = existingByKey.has(key) ? 'update' : 'new';
+        let message = action === 'update' ? 'سيتم تحديث الصنف الموجود' : 'صنف جديد';
+        if (!productCode || !productName || incentiveValue <= 0) {
+          action = 'error';
+          message = 'يلزم كود + اسم + حافز أكبر من صفر';
+        } else if (seen.has(productCode)) {
+          action = 'error';
+          message = 'كود مكرر داخل الملف';
+        }
+        seen.add(productCode);
+        return { rowNumber: index + 2, productCode, productName, productPrice, productType, incentiveValue, action, message };
+      });
+      setFileName(file.name);
+      setPreview(parsed);
+      const errors = parsed.filter((row) => row.action === 'error').length;
+      if (errors) toast.warning(`تمت القراءة مع ${errors} صفوف تحتاج مراجعة`);
+      else toast.success(`تمت قراءة ${parsed.length} صنف وجاهزة للمعاينة`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'تعذر قراءة ملف Excel');
+    }
+  }
 
-      const currentUserProfile = getCurrentUserProfile();
-      const { error } = await supabase
-        .from('incentive_medicines')
-        .update({ active: !medicine.active })
-        .eq('id', medicine.id);
-
+  async function importPreview() {
+    const valid = preview.filter((row) => row.action !== 'error');
+    if (!valid.length) return toast.error('لا توجد صفوف صالحة للاستيراد');
+    if (preview.some((row) => row.action === 'error')) return toast.error('عالج الصفوف التي عليها خطأ قبل الحفظ');
+    setImporting(true);
+    try {
+      const profile = getCurrentUserProfile();
+      const payload = valid.map((row) => ({
+        product_code: row.productCode,
+        product_name: row.productName,
+        product_type: row.productType || null,
+        product_price: row.productPrice,
+        incentive_type: 'fixed',
+        incentive_value: row.incentiveValue,
+        incentive_percent: 0,
+        branch: branchKey(importBranch),
+        active: true,
+        effective_date: importEffectiveDate || today(),
+        expiry_date: null,
+        doctor_id: null,
+        responsible_doctor: null,
+        source_file_date: today(),
+        notes: `Master List import: ${fileName}`,
+        created_by: profile.id,
+      }));
+      const { error } = await supabase.from('incentive_medicines').upsert(payload, { onConflict: 'product_code,branch' });
       if (error) throw error;
-
-      toast.success(medicine.active ? 'تم إيقاف الصنف' : 'تم تفعيل الصنف');
-      await logActivity(
-        currentUserProfile.id,
-        currentUserProfile.name,
-        medicine.active ? 'إيقاف صنف حوافز' : 'تفعيل صنف حوافز',
-        'أدوية الحوافز',
-        medicine.product_name,
-        user?.branch || ''
-      );
+      await logActivity(profile.id, profile.name, 'استيراد لستة حوافز', 'أدوية الحوافز', `${valid.length} صنف - ${fileName}`, importBranch);
+      toast.success(`تم حفظ ${valid.length} صنف بنجاح`);
+      setPreview([]);
+      setFileName('');
+      setShowImport(false);
       refetch();
     } catch (error) {
-      toast.error(`حدث خطأ: ${(error as Error).message}`);
+      toast.error(error instanceof Error ? error.message : 'تعذر حفظ الليستة');
+    } finally {
+      setImporting(false);
     }
-  };
+  }
 
-  const handleRecordSale = async (medicine: IncentiveMedicine) => {
-    if (!user || (!medicine.doctor_id && !medicine.responsible_doctor)) {
-      toast.error('يجب تحديد الدكتور المسؤول عن الصنف أولًا');
-      return;
-    }
-
-    const quantityToAdd = prompt('أدخل الكمية المباعة:', '1');
-    if (!quantityToAdd) return;
-
-    const quantity = Number(quantityToAdd);
-    if (isNaN(quantity) || quantity <= 0) {
-      toast.error('الكمية يجب أن تكون رقمًا موجبًا');
-      return;
-    }
-
-    try {
-      const currentUserProfile = getCurrentUserProfile();
-      const perUnit = getIncentivePerUnit(medicine);
-      const totalIncentive = perUnit * quantity;
-      const doctorName = medicine.responsible_doctor || 'غير محدد';
-
-      const cycleLabel = `${getCurrentCycle().end.getFullYear()}-${String(getCurrentCycle().end.getMonth() + 1).padStart(2, '0')}`;
-      const { error: saleError } = await supabase.from('incentive_medicine_sales').insert({
-        medicine_id: medicine.id,
-        product_name: medicine.product_name,
-        doctor_id: medicine.doctor_id || null,
-        doctor_name: doctorName,
-        branch: medicine.branch || user?.branch || '',
-        quantity,
-        incentive_per_unit: perUnit,
-        incentive_total: totalIncentive,
-        sale_date: new Date().toISOString().slice(0, 10),
-        month_cycle: cycleLabel,
-        notes: `بيع صنف حوافز: ${medicine.product_name}`,
-        created_by: currentUserProfile.id,
-        created_by_name: currentUserProfile.name,
-      });
-      if (saleError) throw saleError;
-
-      const { error: updateError } = await supabase
-        .from('incentive_medicines')
-        .update({
-          sold_quantity: Number(medicine.sold_quantity || 0) + quantity,
-        })
-        .eq('id', medicine.id);
-
-      if (updateError) throw updateError;
-
-      // Find staff member by name to get employeeId
-      const directory = medicine.doctor_id ? [] : await readStaffDirectory();
-      const staffData = directory.find(
-        (row) => row.active && row.name?.localeCompare(doctorName, 'ar', { sensitivity: 'base' }) === 0
-          && normalizeBranchName(row.branch || '') === normalizeBranchName(user?.branch || '')
-      );
-      const employeeId = medicine.doctor_id || staffData?.id;
-      if (!employeeId) {
-        toast.warning(`تم تحديث الكمية المباعة، لكن لم يتم العثور على الدكتور في جدول الموظفين`);
-        refetch();
-        return;
-      }
-
-      // Record points for the doctor
-      const pointsEarned = Math.round(totalIncentive * 10); // Convert EGP to points (1 EGP = 10 points)
-      const result = await persistPointsTransaction({
-        employeeId,
-        employeeName: doctorName,
-        branch: user?.branch || '',
-        operation: 'bonus',
-        rule: null,
-        pointsToStore: pointsEarned,
-        basePoints: pointsEarned,
-        finalPoints: pointsEarned,
-        userNote: `بيع ${quantity} علبة من ${medicine.product_name} (حوافز: ${formatCurrency(totalIncentive)})`,
-        createdByName: currentUserProfile.name,
-        createdById: currentUserProfile.id,
-        createdByRole: currentUserProfile.role,
-        status: 'approved',
-        cycle: getCurrentCycle(),
-        sourceModule: 'incentive_medicines',
-        reasonLabel: `بيع صنف حوافز: ${medicine.product_name}`,
-      });
-
-      if (result.error) {
-        toast.warning(`تم تحديث الكمية المباعة، لكن لم يتم تسجيل النقاط: ${result.error}`);
-      } else {
-        triggerCelebration(
-          `تهانينا! تم تسجيل ${quantity} علبة من ${medicine.product_name} وإضافة ${pointsEarned} نقطة`
-        );
-      }
-
-      await logActivity(
-        currentUserProfile.id,
-        currentUserProfile.name,
-        'تسجيل بيع صنف حوافز',
-        'أدوية الحوافز',
-        `${quantity} × ${medicine.product_name}`,
-        user?.branch || ''
-      );
-
-      const afterSold = movementTotalForMedicine(saleRecords, medicine.id, cycle) + quantity;
-      const target = {
-        id: medicine.id,
-        name: medicine.product_name,
-        totalQuantity: Number(medicine.current_quantity || 0),
-        targetMinPercent: medicine.target_min_percent,
-      };
-      if (targetAchieved(target, afterSold)) {
-        triggerCelebration(`ممتاز! ${medicine.product_name} حقق التارجت المطلوب`);
-      }
-      refetch();
-      refetchSales();
-    } catch (error) {
-      toast.error(`حدث خطأ: ${(error as Error).message}`);
-    }
-  };
+  const previewCounts = useMemo(() => ({
+    newCount: preview.filter((row) => row.action === 'new').length,
+    updateCount: preview.filter((row) => row.action === 'update').length,
+    errorCount: preview.filter((row) => row.action === 'error').length,
+  }), [preview]);
+  const hasFilters = search || statusFilter !== 'all' || motionFilter !== 'all' || usageFilter !== 'all';
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-xl bg-green-500/15 flex items-center justify-center text-green-400">
-            <TrendingUp size={22} />
-          </div>
-          <div>
-            <h2 className="text-xl font-bold text-white">أدوية اللستة</h2>
-            <p className="text-slate-400 text-sm mt-1">
-              أصناف اللستة مع متابعة الكمية المباعة والحافز المحقق لكل دكتور
-            </p>
-          </div>
-        </div>
-        {canCreateIncentive && (
-          <button
-            onClick={() => setShowModal(true)}
-            className="btn-primary flex items-center gap-2"
-          >
-            <Plus size={16} /> إضافة صنف
-          </button>
-        )}
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="stat-card">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-green-500/15 flex items-center justify-center text-green-400">
-              <DollarSign size={20} />
-            </div>
+    <div className="space-y-6" dir="rtl">
+      <section className="relative overflow-hidden rounded-3xl border border-emerald-400/15 bg-gradient-to-br from-emerald-500/12 via-[#15243e] to-[#101b30] p-5 md:p-6">
+        <div className="pointer-events-none absolute -left-20 -top-20 h-56 w-56 rounded-full bg-emerald-400/10 blur-3xl" />
+        <div className="relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-emerald-300/20 bg-emerald-400/12 text-emerald-300"><Sparkles size={24} /></div>
             <div>
-              <div className="text-slate-400 text-xs">حوافز محتملة</div>
-              <div className="text-white font-bold text-lg num">
-                {formatCurrency(stats.potential)}
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-[11px] font-bold text-emerald-200">دورة {cycle.shortLabel}</span>
+                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-slate-300">{stats.active} صنف نشط</span>
+                {stats.noMovement > 0 && <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1 text-[11px] font-bold text-amber-200">{stats.noMovement} بدون حركة</span>}
               </div>
+              <h1 className="text-2xl font-black text-white md:text-3xl">أدوية اللستة</h1>
+              <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-300">إدارة الأصناف ومتابعة حركة الدورة واستحقاق كل دكتور من نفس مصدر البيع المثبت.</p>
             </div>
           </div>
+          {activeTab === 'catalog' && <div className="flex flex-wrap gap-2">
+            {canCreate && <button className="btn-secondary flex items-center gap-2" onClick={() => setShowImport((value) => !value)}><FileSpreadsheet size={16} /> إدارة ملف الليستة {showImport ? <ChevronUp size={15} /> : <ChevronDown size={15} />}</button>}
+            {canCreate && <button className="btn-primary flex items-center gap-2" onClick={openNew}><Plus size={16} /> إضافة صنف</button>}
+          </div>}
         </div>
-        <div className="stat-card">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-teal-500/15 flex items-center justify-center text-teal-400">
-              <TrendingUp size={20} />
-            </div>
-            <div>
-              <div className="text-slate-400 text-xs">حوافز محققة</div>
-              <div className="text-white font-bold text-lg num">{formatCurrency(stats.earned)}</div>
-            </div>
-          </div>
-        </div>
-        <div className="stat-card">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-500/15 flex items-center justify-center text-blue-400">
-              <Package size={20} />
-            </div>
-            <div>
-              <div className="text-slate-400 text-xs">إجمالي الكمية</div>
-              <div className="text-white font-bold text-lg num">{stats.available}</div>
-            </div>
-          </div>
-        </div>
-        <div className="stat-card">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500/15 flex items-center justify-center text-emerald-400">
-              <Package size={20} />
-            </div>
-            <div>
-              <div className="text-slate-400 text-xs">أصناف نشطة</div>
-              <div className="text-white font-bold text-lg num">{stats.active}</div>
-            </div>
-          </div>
-        </div>
+      </section>
+
+      <div className="grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-white/[0.035] p-1.5 md:max-w-xl">
+        <button onClick={() => setActiveTab('catalog')} className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition ${activeTab === 'catalog' ? 'bg-emerald-500/15 text-emerald-200 shadow-sm' : 'text-slate-400 hover:text-white'}`}><Package size={17} /> أصناف الليستة</button>
+        <button onClick={() => setActiveTab('doctors')} className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition ${activeTab === 'doctors' ? 'bg-emerald-500/15 text-emerald-200 shadow-sm' : 'text-slate-400 hover:text-white'}`}><UserRound size={17} /> حوافز الدكاترة</button>
       </div>
 
-      <div className="bg-green-500/10 border border-green-500/25 rounded-xl p-4 text-sm text-slate-300">
-        <div className="flex items-start gap-3">
-          <TrendingUp className="text-green-400 flex-shrink-0 mt-0.5" size={18} />
-          <div>
-            <div className="font-semibold text-green-200 mb-1">معلومات الحوافز</div>
-            <p>
-              يمكن تسجيل الحافز كقيمة ثابتة بالجنيه لكل علبة أو كنسبة من سعر الصنف. سجل الدكتور
-              والكمية المباعة عشان يظهر الحافز المحقق بوضوح.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="stat-card">
-        <div className="section-title text-sm mb-3">تقرير حوافز الدكاترة - {cycle.shortLabel}</div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {doctorTotals.length ? (
-            doctorTotals.map((item) => (
-              <div key={item.doctor} className="bg-white/5 rounded-xl p-3">
-                <div className="text-white font-bold text-sm">{item.doctor}</div>
-                <div className="text-slate-400 text-xs mt-1">{item.count} سجل بيع</div>
-                <div className="text-teal-300 font-bold num mt-2">{item.quantity} علبة</div>
-                <div className="text-green-300 font-bold num mt-1">
-                  {formatCurrency(item.money)}
-                </div>
-              </div>
-            ))
-          ) : (
-            <div className="text-slate-400 text-sm">لا توجد مبيعات حوافز في الدورة الحالية.</div>
-          )}
-        </div>
-      </div>
-
-      {loading ? (
-        <div className="stat-card text-center py-10 text-slate-400">جاري التحميل...</div>
-      ) : filteredMedicines.length === 0 ? (
-        <div className="stat-card text-center py-10 text-slate-400">لا توجد أدوية حوافز حاليًا</div>
+      {activeTab === 'doctors' ? (
+        <IncentiveDoctorSummary rows={cycleSales} cycleLabel={cycle.shortLabel} />
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
-          {filteredMedicines.map((medicine, index) => {
-            const perUnit = getIncentivePerUnit(medicine);
-            const soldInCycle = movementTotalForMedicine(scopedSaleRecords, medicine.id, cycle);
-            const earned = perUnit * soldInCycle;
-            const target = {
-              id: medicine.id,
-              name: medicine.product_name,
-              totalQuantity: Number(medicine.current_quantity || 0),
-              targetMinPercent: medicine.target_min_percent,
-            };
-            const required = medicine.target_min_quantity || requiredQuantity(target);
-            const achieved = targetAchieved(target, soldInCycle);
-            const progress = required
-              ? Math.min(100, Math.round((soldInCycle / required) * 100))
-              : 0;
-            const accents = [
-              'from-teal-500/18 to-cyan-500/8 border-teal-400/25',
-              'from-purple-500/18 to-indigo-500/8 border-purple-400/25',
-              'from-amber-500/16 to-orange-500/8 border-amber-400/25',
-              'from-emerald-500/16 to-green-500/8 border-emerald-400/25',
-              'from-blue-500/16 to-sky-500/8 border-blue-400/25',
-            ];
-            return (
-              <div
-                key={medicine.id}
-                className={`rounded-3xl border bg-gradient-to-br ${accents[index % accents.length]} p-5 card-glow ${!medicine.active ? 'opacity-55' : ''}`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-start gap-3 min-w-0">
-                    <div className="w-12 h-12 rounded-2xl bg-white/10 border border-white/10 flex items-center justify-center text-teal-300 shrink-0">
-                      <Package size={23} />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-white font-black text-lg truncate">
-                        {medicine.product_name}
-                      </div>
-                      <div className="flex flex-wrap gap-2 mt-2">
-                        <span className="badge-info">{medicine.product_type || 'بدون تصنيف'}</span>
-                        <span className={achieved ? 'badge-success' : 'badge-warning'}>
-                          {achieved ? 'حقق التارجت' : 'جاري التنفيذ'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => handleToggleActive(medicine)}
-                    className={`flex items-center gap-1 text-xs ${medicine.active ? 'text-green-300' : 'text-slate-400'}`}
-                  >
-                    {medicine.active ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}{' '}
-                    {medicine.active ? 'نشط' : 'موقوف'}
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3 mt-5">
-                  <Mini label="السعر" value={formatCurrency(Number(medicine.product_price || 0))} />
-                  <Mini
-                    label="حافز العلبة"
-                    value={
-                      medicine.incentive_type === 'percent'
-                        ? `${medicine.incentive_percent || 0}%`
-                        : formatCurrency(Number(medicine.incentive_value || 0))
-                    }
-                  />
-                  <Mini
-                    label="المباع / الهدف"
-                    value={required ? `${soldInCycle}/${required}` : `${soldInCycle}`}
-                  />
-                  <Mini label="الحافز المحقق" value={formatCurrency(earned)} tone="text-teal-300" />
-                </div>
-
-                <div className="mt-5">
-                  <div className="flex items-center justify-between text-xs mb-2">
-                    <span className="text-slate-400">نسبة الإنجاز</span>
-                    <span
-                      className={achieved ? 'text-teal-300 font-bold' : 'text-amber-300 font-bold'}
-                    >
-                      {progress}%
-                    </span>
-                  </div>
-                  <div className="progress-bar">
-                    <div className="progress-fill" style={{ width: `${progress}%` }} />
-                  </div>
-                </div>
-
-                <div className="mt-5 flex items-center justify-between gap-3 rounded-2xl bg-white/5 border border-white/10 p-3">
-                  <div className="min-w-0">
-                    <div className="text-xs text-slate-400">الدكتور المسؤول</div>
-                    {medicine.doctor_id ? (
-                      <Link
-                        to={staffProfilePath({
-                          staff_id: medicine.doctor_id,
-                          name: medicine.responsible_doctor,
-                        })}
-                        className="text-teal-300 hover:text-teal-200 font-bold inline-flex items-center gap-1 mt-1"
-                      >
-                        <UserRound size={14} /> {medicine.responsible_doctor || 'غير محدد'}
-                      </Link>
-                    ) : (
-                      <div className="text-white font-bold mt-1">
-                        {medicine.responsible_doctor || 'غير محدد'}
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    {canEditIncentive && (
-                      <button
-                        onClick={() => handleRecordSale(medicine)}
-                        className="btn-primary px-3 py-2"
-                        title="تسجيل بيع"
-                      >
-                        <Award size={16} />
-                      </button>
-                    )}
-                    {canEditIncentive && (
-                      <button
-                        onClick={() => handleEdit(medicine)}
-                        className="btn-secondary px-3 py-2"
-                        title="تعديل"
-                      >
-                        <Edit size={16} />
-                      </button>
-                    )}
-                    {canDeleteIncentive && (
-                      <button
-                        onClick={() => handleDelete(medicine.id, medicine.product_name)}
-                        className="btn-danger px-3 py-2"
-                        title="حذف"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <div className="mt-3 text-xs text-slate-500">
-                  تاريخ الانتهاء: {medicine.expiry_date || 'غير محدد'}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <h3 className="text-xl font-bold text-white mb-4">
-              {editingMedicine ? 'تعديل صنف حوافز' : 'إضافة صنف حوافز'}
-            </h3>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-slate-300 text-sm block mb-1">اسم الصنف *</label>
-                  <input
-                    className="input-dark"
-                    value={form.product_name}
-                    onChange={(e) => setForm({ ...form, product_name: e.target.value })}
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="text-slate-300 text-sm block mb-1">نوع الصنف</label>
-                  <input
-                    className="input-dark"
-                    placeholder="تخسيس، معدة، مضاد حيوي..."
-                    value={form.product_type}
-                    onChange={(e) => setForm({ ...form, product_type: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label className="text-slate-300 text-sm block mb-1">سعر الصنف</label>
-                  <input
-                    className="input-dark"
-                    type="number"
-                    step="0.01"
-                    min={0}
-                    value={form.product_price}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        product_price: Number(e.target.value),
-                      })
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="text-slate-300 text-sm block mb-1">نوع الحافز</label>
-                  <select
-                    className="input-dark"
-                    value={form.incentive_type}
-                    onChange={(e) => setForm({ ...form, incentive_type: e.target.value })}
-                  >
-                    <option value="fixed">قيمة ثابتة بالجنيه</option>
-                    <option value="percent">نسبة من سعر الصنف</option>
-                  </select>
-                </div>
-                {form.incentive_type === 'fixed' ? (
-                  <div>
-                    <label className="text-slate-300 text-sm block mb-1">قيمة الحافز للعلبة</label>
-                    <input
-                      className="input-dark"
-                      type="number"
-                      step="0.01"
-                      min={0}
-                      value={form.incentive_value}
-                      onChange={(e) =>
-                        setForm({
-                          ...form,
-                          incentive_value: Number(e.target.value),
-                        })
-                      }
-                    />
-                  </div>
-                ) : (
-                  <div>
-                    <label className="text-slate-300 text-sm block mb-1">نسبة الحافز %</label>
-                    <input
-                      className="input-dark"
-                      type="number"
-                      step="0.01"
-                      min={0}
-                      value={form.incentive_percent}
-                      onChange={(e) =>
-                        setForm({
-                          ...form,
-                          incentive_percent: Number(e.target.value),
-                        })
-                      }
-                    />
-                  </div>
-                )}
-                <div>
-                  <label className="text-slate-300 text-sm block mb-1">الكمية المتاحة *</label>
-                  <input
-                    className="input-dark"
-                    type="number"
-                    min={0}
-                    value={form.current_quantity}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        current_quantity: Number(e.target.value),
-                      })
-                    }
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="text-slate-300 text-sm block mb-1">الكمية المباعة</label>
-                  <input
-                    className="input-dark"
-                    type="number"
-                    min={0}
-                    value={form.sold_quantity}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        sold_quantity: Number(e.target.value),
-                      })
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="text-slate-300 text-sm block mb-1">
-                    نسبة الحد الأدنى لكل صنف %
-                  </label>
-                  <input
-                    className="input-dark"
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={form.target_min_percent}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        target_min_percent: Number(e.target.value),
-                      })
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="text-slate-300 text-sm block mb-1">
-                    الدكتور الذي صرف الصنف
-                  </label>
-                  <select
-                    className="input-dark"
-                    value={form.doctor_id}
-                    onChange={(e) => {
-                      const doctor = doctorOptions.find((item) => item.id === e.target.value);
-                      setForm({
-                        ...form,
-                        doctor_id: e.target.value,
-                        responsible_doctor: doctor?.name || '',
-                      });
-                    }}
-                    required
-                  >
-                    <option value="">اختر الدكتور أو الصيدلي</option>
-                    {doctorOptions.map((doctor) => (
-                      <option key={doctor.id} value={doctor.id}>
-                        {doctor.name} - {doctor.branch_name || doctor.branch || 'كل الفروع'} -{' '}
-                        {doctor.role || 'دكتور'}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-slate-300 text-sm block mb-1">تاريخ ملف الحوافز</label>
-                  <input
-                    className="input-dark"
-                    type="date"
-                    value={form.source_file_date}
-                    onChange={(e) => setForm({ ...form, source_file_date: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label className="text-slate-300 text-sm block mb-1">تاريخ الفعالية</label>
-                  <input
-                    className="input-dark"
-                    type="date"
-                    value={form.effective_date}
-                    onChange={(e) => setForm({ ...form, effective_date: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label className="text-slate-300 text-sm block mb-1">تاريخ انتهاء الصنف</label>
-                  <input
-                    className="input-dark"
-                    type="date"
-                    value={form.expiry_date}
-                    onChange={(e) => setForm({ ...form, expiry_date: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              <div className="bg-white/5 rounded-xl p-3 text-sm text-slate-300">
-                الحافز للعلبة:{' '}
-                <span className="text-teal-300 font-bold num">
-                  {formatCurrency(getIncentivePerUnit(form))}
-                </span>
-                <span className="mx-2 text-slate-500">|</span>
-                الحافز المحقق:{' '}
-                <span className="text-green-300 font-bold num">
-                  {formatCurrency(getIncentivePerUnit(form) * Number(form.sold_quantity || 0))}
-                </span>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="active"
-                  checked={form.active}
-                  onChange={(e) => setForm({ ...form, active: e.target.checked })}
-                  className="w-4 h-4 rounded"
-                />
-                <label htmlFor="active" className="text-slate-300 text-sm">
-                  نشط
-                </label>
-              </div>
-
-              <div>
-                <label className="text-slate-300 text-sm block mb-1">ملاحظات</label>
-                <textarea
-                  className="input-dark resize-none"
-                  rows={3}
-                  value={form.notes}
-                  onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                />
-              </div>
-
-              <div className="flex gap-3 pt-2">
-                <button type="button" onClick={resetModal} className="flex-1 btn-secondary">
-                  إلغاء
-                </button>
-                <button type="submit" className="flex-1 btn-primary">
-                  {editingMedicine ? 'تحديث' : 'إضافة'}
-                </button>
-              </div>
-            </form>
+        <>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <Stat label="أصناف نشطة" value={stats.active} sub={`${stats.coded} بكود مؤكد`} icon={<Package size={18} />} />
+            <Stat label="المباع في الدورة" value={stats.totalUnits} sub={stats.bestMover.item ? `الأكثر حركة: ${stats.bestMover.item.product_name}` : 'لا توجد حركة مسجلة'} icon={<CheckCircle2 size={18} />} />
+            <Stat label="الحافز المحقق" value={formatCurrency(stats.totalEarned)} sub="إجمالي الدورة الحالية" icon={<DollarSign size={18} />} />
+            <Stat label="تحتاج متابعة" value={stats.noMovement} sub="أصناف نشطة بدون حركة" icon={<CircleAlert size={18} />} tone={stats.noMovement > 0 ? 'amber' : 'emerald'} />
           </div>
-        </div>
+
+          {canCreate && showImport && <section className="space-y-4 rounded-3xl border border-white/10 bg-[#15243e]/90 p-5 shadow-xl shadow-black/10">
+            <div className="flex items-center justify-between gap-3"><div><div className="flex items-center gap-2 font-bold text-white"><FileSpreadsheet size={18} className="text-emerald-300" /> إدارة ملف الليستة</div><p className="mt-1 text-xs text-slate-400">الملف يتراجع قبل الحفظ ولا يتكرر الصنف لنفس النطاق.</p></div><button className="text-xs text-slate-400 hover:text-white" onClick={() => setShowImport(false)}>إغلاق</button></div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <Field label="نطاق الليستة"><select className="input-dark" value={importBranch} onChange={(e) => setImportBranch(e.target.value)}><option value="كل الفروع">كل الفروع</option>{user?.branch && <option value={user.branch}>{user.branch}</option>}</select></Field>
+              <Field label="بداية السريان"><input className="input-dark" type="date" value={importEffectiveDate} onChange={(e) => setImportEffectiveDate(e.target.value)} /></Field>
+              <div className="flex items-end"><label className="btn-secondary flex w-full cursor-pointer items-center justify-center gap-2"><Upload size={16} /> اختر ملف Excel<input type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) parseFile(file); e.currentTarget.value = ''; }} /></label></div>
+            </div>
+            {preview.length > 0 && <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3"><div className="text-sm text-slate-300">{fileName} — جديد: <b className="text-emerald-300">{previewCounts.newCount}</b>، تحديث: <b className="text-blue-300">{previewCounts.updateCount}</b>، أخطاء: <b className="text-red-300">{previewCounts.errorCount}</b></div><button className="btn-primary" disabled={importing || previewCounts.errorCount > 0} onClick={importPreview}>{importing ? 'جاري الحفظ...' : `اعتماد وحفظ ${preview.length} صنف`}</button></div>
+              <div className="max-h-[420px] overflow-auto rounded-2xl border border-white/10"><table className="w-full min-w-[850px] text-sm"><thead className="sticky top-0 bg-[#182945] text-slate-300"><tr><th className="p-2 text-right">#</th><th className="p-2 text-right">الكود</th><th className="p-2 text-right">الصنف</th><th className="p-2 text-right">السعر</th><th className="p-2 text-right">الاستخدام</th><th className="p-2 text-right">الحافز</th><th className="p-2 text-right">الحالة</th></tr></thead><tbody>{preview.map((row) => <tr key={`${row.rowNumber}-${row.productCode}`} className="border-t border-white/5"><td className="p-2 text-slate-500">{row.rowNumber}</td><td className="p-2 font-mono text-white">{row.productCode || '—'}</td><td className="p-2 text-white">{row.productName || '—'}</td><td className="p-2 text-slate-300">{formatCurrency(row.productPrice)}</td><td className="p-2 text-slate-300">{row.productType || '—'}</td><td className="p-2 font-bold text-emerald-300">{formatCurrency(row.incentiveValue)}</td><td className={`p-2 ${row.action === 'error' ? 'text-red-300' : row.action === 'update' ? 'text-blue-300' : 'text-emerald-300'}`}>{row.message}</td></tr>)}</tbody></table></div>
+            </div>}
+          </section>}
+
+          <section className="rounded-3xl border border-white/10 bg-white/[0.035] p-4 md:p-5">
+            <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1fr_auto_auto_auto_auto]">
+              <div className="relative"><Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500" size={17} /><input className="input-dark pr-10" placeholder="ابحث باسم الصنف أو الكود أو الاستخدام..." value={search} onChange={(e) => setSearch(e.target.value)} /></div>
+              <select className="input-dark min-w-[145px]" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}><option value="all">كل الحالات</option><option value="active">النشط فقط</option><option value="inactive">الموقوف فقط</option></select>
+              <select className="input-dark min-w-[155px]" value={motionFilter} onChange={(e) => setMotionFilter(e.target.value as MotionFilter)}><option value="all">كل الحركة</option><option value="moved">تحرك في الدورة</option><option value="no_movement">بدون حركة</option></select>
+              <select className="input-dark min-w-[165px]" value={usageFilter} onChange={(e) => setUsageFilter(e.target.value)}><option value="all">كل الاستخدامات</option>{usageOptions.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+              <label className="relative min-w-[170px]"><ArrowUpDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-500" size={15} /><select className="input-dark pr-9" value={sortMode} onChange={(e) => setSortMode(e.target.value as SortMode)}><option value="smart">ترتيب ذكي</option><option value="sales">الأكثر مبيعًا</option><option value="incentive">أعلى حافز</option><option value="name">الاسم</option></select></label>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500"><span>ظاهر {filteredMedicines.length} من {visibleMedicines.length} صنف</span>{hasFilters && <button className="text-emerald-300 hover:text-emerald-200" onClick={() => { setSearch(''); setStatusFilter('all'); setMotionFilter('all'); setUsageFilter('all'); }}>مسح الفلاتر</button>}</div>
+          </section>
+
+          <section>
+            <div className="mb-4 flex flex-wrap items-end justify-between gap-3"><div><h2 className="text-lg font-black text-white">أصناف الليستة</h2><p className="mt-1 text-xs text-slate-500">الترتيب الذكي يرفع الأصناف النشطة بدون حركة للأعلى.</p></div>{sortMode === 'smart' && stats.noMovement > 0 && <div className="flex items-center gap-2 rounded-full border border-amber-400/15 bg-amber-400/[0.08] px-3 py-1.5 text-xs text-amber-200"><CircleAlert size={14} /> الأولوية الآن: {stats.noMovement} صنف بدون حركة</div>}</div>
+            {loading ? <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">{Array.from({ length: 6 }).map((_, index) => <div key={index} className="h-72 animate-pulse rounded-3xl border border-white/10 bg-white/5" />)}</div> : filteredMedicines.length === 0 ? <div className="rounded-3xl border border-dashed border-white/10 p-10 text-center text-slate-400">لا توجد أصناف مطابقة للفلاتر الحالية.</div> : <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">{filteredMedicines.map((item, index) => {
+              const sale = medicineSales.get(item.id) || { quantity: 0, money: 0 };
+              const price = Number(item.product_price || 0);
+              const incentive = incentivePerUnit(item);
+              const ratio = price > 0 ? (incentive / price) * 100 : 0;
+              const isNoMovement = item.active !== false && sale.quantity === 0;
+              const isTopMover = stats.bestMover.item?.id === item.id && stats.bestMover.quantity > 0;
+              const isHighIncentive = stats.max > 0 && incentive === stats.max;
+              const accents = ['from-emerald-500/16 via-teal-500/7 to-transparent border-emerald-400/20','from-sky-500/14 via-cyan-500/6 to-transparent border-sky-400/20','from-violet-500/14 via-indigo-500/6 to-transparent border-violet-400/20','from-amber-500/14 via-orange-500/6 to-transparent border-amber-400/20'];
+              const accent = item.active === false ? 'from-slate-500/10 via-slate-500/5 to-transparent border-slate-400/15' : isNoMovement ? 'from-amber-500/15 via-orange-500/6 to-transparent border-amber-400/25' : accents[index % accents.length];
+              return <article key={item.id} className={`group relative overflow-hidden rounded-3xl border bg-gradient-to-br ${accent} p-5 shadow-lg shadow-black/10 ${item.active === false ? 'opacity-70' : ''}`}>
+                <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="mb-2 flex flex-wrap gap-2"><span className="rounded-full border border-white/10 bg-black/10 px-2.5 py-1 font-mono text-[11px] text-slate-300">#{cleanCode(item.product_code) || 'بدون كود'}</span><span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${item.active === false ? 'bg-slate-500/15 text-slate-400' : 'bg-emerald-400/12 text-emerald-300'}`}>{item.active === false ? 'موقوف' : 'نشط'}</span>{isTopMover && <span className="flex items-center gap-1 rounded-full bg-cyan-400/10 px-2.5 py-1 text-[11px] font-bold text-cyan-200"><Trophy size={12} /> الأكثر حركة</span>}{isNoMovement && <span className="flex items-center gap-1 rounded-full bg-amber-400/10 px-2.5 py-1 text-[11px] font-bold text-amber-200"><CircleAlert size={12} /> يحتاج متابعة</span>}{isHighIncentive && <span className="rounded-full bg-violet-400/10 px-2.5 py-1 text-[11px] font-bold text-violet-200">أعلى حافز</span>}</div><h3 className="text-lg font-black leading-7 text-white">{item.product_name}</h3><div className="mt-2 text-xs text-slate-400">{item.product_type || 'بدون تصنيف'} · {item.branch}</div></div><div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.08] ${isNoMovement ? 'text-amber-300' : 'text-emerald-300'}`}><Package size={22} /></div></div>
+                <div className="mt-5 grid grid-cols-2 gap-3"><Mini label="حافز الوحدة" value={formatCurrency(incentive)} tone="text-emerald-300" emphasis /><Mini label="المباع بالدورة" value={`${sale.quantity} وحدة`} tone={sale.quantity > 0 ? 'text-cyan-300' : 'text-amber-300'} emphasis /><Mini label="سعر البيع" value={formatCurrency(price)} /><Mini label="الحافز المحقق" value={formatCurrency(sale.money)} tone="text-cyan-300" /></div>
+                <div className="mt-4 grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-black/10 p-3 text-xs"><div><div className="text-slate-500">نسبة الحافز</div><div className="mt-1 font-bold text-white">{ratio ? `${ratio.toFixed(1)}%` : '—'}</div></div><div><div className="text-slate-500">قرار المتابعة</div><div className={`mt-1 font-bold ${item.active === false ? 'text-slate-400' : isNoMovement ? 'text-amber-300' : 'text-emerald-300'}`}>{item.active === false ? 'موقوف' : isNoMovement ? 'تابع الحركة' : 'يتحرك بالدورة'}</div></div></div>
+                <div className="mt-4 flex items-center justify-between gap-3 border-t border-white/10 pt-4"><div className="text-[11px] text-slate-500">ساري من {item.effective_date || 'غير محدد'}{item.expiry_date ? ` حتى ${item.expiry_date}` : ''}</div><div className="flex items-center gap-2">{canEdit && <button onClick={() => toggleActive(item)} className={`rounded-xl border px-3 py-2 ${item.active === false ? 'border-slate-500/20 text-slate-400' : 'border-emerald-400/15 text-emerald-300'}`}>{item.active === false ? <ToggleLeft size={17} /> : <ToggleRight size={17} />}</button>}{canEdit && <button className="btn-secondary px-3 py-2" onClick={() => openEdit(item)}><Edit size={15} /></button>}</div></div>
+              </article>;
+            })}</div>}
+          </section>
+        </>
       )}
+
+      {showForm && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm"><div className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-3xl border border-[#2d4063] bg-[#172744] p-6 shadow-2xl"><div className="mb-5"><h3 className="text-xl font-black text-white">{editing ? 'تعديل صنف من الليستة' : 'إضافة صنف جديد'}</h3><p className="mt-1 text-xs text-slate-400">الصنف جزء من كتالوج عام، وليس مرتبطًا بدكتور بعينه.</p></div><form onSubmit={saveItem} className="space-y-4"><div className="grid grid-cols-1 gap-4 md:grid-cols-2"><Field label="كود الصنف *"><input className="input-dark" value={form.product_code} onChange={(e) => setForm({ ...form, product_code: e.target.value })} required /></Field><Field label="اسم الصنف *"><input className="input-dark" value={form.product_name} onChange={(e) => setForm({ ...form, product_name: e.target.value })} required /></Field><Field label="الاستخدام"><input className="input-dark" value={form.product_type} onChange={(e) => setForm({ ...form, product_type: e.target.value })} /></Field><Field label="سعر البيع"><input className="input-dark" type="number" step="0.01" min="0" value={form.product_price} onChange={(e) => setForm({ ...form, product_price: Number(e.target.value) })} /></Field><Field label="حافز الوحدة بالجنيه *"><input className="input-dark" type="number" step="0.01" min="0.01" value={form.incentive_value} onChange={(e) => setForm({ ...form, incentive_value: Number(e.target.value) })} required /></Field><Field label="النطاق"><select className="input-dark" value={form.branch} onChange={(e) => setForm({ ...form, branch: e.target.value })}><option value="كل الفروع">كل الفروع</option>{user?.branch && <option value={user.branch}>{user.branch}</option>}</select></Field><Field label="تاريخ السريان"><input className="input-dark" type="date" value={form.effective_date} onChange={(e) => setForm({ ...form, effective_date: e.target.value })} /></Field><Field label="تاريخ الانتهاء"><input className="input-dark" type="date" value={form.expiry_date} onChange={(e) => setForm({ ...form, expiry_date: e.target.value })} /></Field></div><Field label="ملاحظات"><textarea className="input-dark resize-none" rows={3} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field><label className="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} /> نشط</label><div className="flex gap-2 rounded-2xl border border-blue-400/15 bg-blue-500/[0.08] p-3 text-sm leading-6 text-blue-100"><AlertTriangle size={17} className="mt-0.5 shrink-0" /> كل دكتور يتحسب له الحافز عند ثبوت بيع الصنف باسمه.</div><div className="flex gap-3 pt-1"><button type="button" className="btn-secondary flex-1" onClick={() => setShowForm(false)}>إلغاء</button><button type="submit" className="btn-primary flex-1">{editing ? 'حفظ التعديل' : 'إضافة الصنف'}</button></div></form></div></div>}
     </div>
   );
 }
 
-function Mini({
-  label,
-  value,
-  tone = 'text-white',
-}: {
-  label: string;
-  value: string | number;
-  tone?: string;
-}) {
-  return (
-    <div className="rounded-2xl bg-white/5 border border-white/10 p-3">
-      <div className="text-[11px] text-slate-400">{label}</div>
-      <div className={`mt-1 font-extrabold num ${tone}`}>{value}</div>
-    </div>
-  );
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return <div><label className="mb-1 block text-sm text-slate-300">{label}</label>{children}</div>;
+}
+
+function Mini({ label, value, tone = 'text-white', emphasis = false }: { label: string; value: string | number; tone?: string; emphasis?: boolean }) {
+  return <div className={`rounded-2xl border p-3 ${emphasis ? 'border-white/15 bg-white/[0.08]' : 'border-white/10 bg-white/5'}`}><div className="text-[11px] text-slate-500">{label}</div><div className={`mt-1 ${emphasis ? 'text-lg' : ''} font-black ${tone}`}>{value}</div></div>;
+}
+
+function Stat({ label, value, sub, icon, tone = 'emerald' }: { label: string; value: string | number; sub: string; icon: React.ReactNode; tone?: 'emerald' | 'amber' }) {
+  const tile = tone === 'amber' ? 'bg-amber-500/10 text-amber-300' : 'bg-emerald-500/10 text-emerald-300';
+  return <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4"><div className="flex items-start gap-3"><div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${tile}`}>{icon}</div><div className="min-w-0"><div className="text-xs text-slate-400">{label}</div><div className="mt-1 text-lg font-black text-white">{value}</div><div className="mt-1 truncate text-[11px] text-slate-600" title={sub}>{sub}</div></div></div></div>;
 }
