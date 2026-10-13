@@ -47,6 +47,17 @@ begin
     raise exception 'invalid_or_expired_staff_session' using errcode='42501';
   end if;
 
+  -- Rebuild the request identity from the same verified opaque session token so all
+  -- downstream canonical writers resolve the actor through the strict session contract.
+  perform set_config(
+    'request.headers',
+    jsonb_build_object('x-dawaa-session-token',btrim(p_session_token))::text,
+    true
+  );
+  if public.dawaa_current_staff_account_id_strict() is distinct from v_account.id then
+    raise exception 'staff_session_identity_mismatch' using errcode='42501';
+  end if;
+
   select * into v_review
   from public.conversation_sales_reviews
   where id=p_review_id
@@ -105,7 +116,6 @@ begin
   end if;
 
   v_status:=case when lower(coalesce(v_review.impact_status,''))='approved' then 'approved' else 'pending' end;
-  perform set_config('request.headers',jsonb_build_object('x-dawaa-user-id',v_account.id::text)::text,true);
 
   v_result:=public.record_employee_points_transaction_v4(
     v_review.staff_id,
