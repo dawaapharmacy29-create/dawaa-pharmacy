@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react';
 import {
   AlertTriangle,
+  ArrowUpDown,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
+  CircleAlert,
   DollarSign,
   Edit,
   FileSpreadsheet,
@@ -13,6 +15,7 @@ import {
   Sparkles,
   ToggleLeft,
   ToggleRight,
+  Trophy,
   Upload,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -51,6 +54,8 @@ interface IncentiveSaleRecord {
 
 type ImportAction = 'new' | 'update' | 'error';
 type StatusFilter = 'all' | 'active' | 'inactive';
+type MotionFilter = 'all' | 'moved' | 'no_movement';
+type SortMode = 'smart' | 'sales' | 'incentive' | 'name';
 
 interface ImportRow {
   rowNumber: number;
@@ -114,7 +119,9 @@ export default function IncentiveMedicines() {
   const [showImport, setShowImport] = useState(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [motionFilter, setMotionFilter] = useState<MotionFilter>('all');
   const [usageFilter, setUsageFilter] = useState('all');
+  const [sortMode, setSortMode] = useState<SortMode>('smart');
 
   const { data: medicines = [], loading, refetch } = useSupabaseQuery<IncentiveMedicine>({
     table: 'incentive_medicines',
@@ -171,14 +178,24 @@ export default function IncentiveMedicines() {
     const incentives = active.map(incentivePerUnit).filter((n) => n > 0);
     const totalEarned = cycleSales.reduce((sum, row) => sum + Number(row.incentive_total || 0), 0);
     const totalUnits = cycleSales.reduce((sum, row) => sum + Number(row.quantity || 0), 0);
+    const noMovement = active.filter((item) => (medicineSales.get(item.id)?.quantity || 0) === 0).length;
+    const bestMover = active.reduce<{ item: IncentiveMedicine | null; quantity: number }>(
+      (best, item) => {
+        const quantity = medicineSales.get(item.id)?.quantity || 0;
+        return quantity > best.quantity ? { item, quantity } : best;
+      },
+      { item: null, quantity: 0 }
+    );
     return {
       active: active.length,
       coded: active.filter((item) => cleanCode(item.product_code)).length,
       max: incentives.length ? Math.max(...incentives) : 0,
       totalEarned,
       totalUnits,
+      noMovement,
+      bestMover,
     };
-  }, [visibleMedicines, cycleSales]);
+  }, [visibleMedicines, cycleSales, medicineSales]);
 
   const usageOptions = useMemo(
     () => Array.from(new Set(visibleMedicines.map((item) => item.product_type?.trim()).filter(Boolean) as string[]))
@@ -188,15 +205,30 @@ export default function IncentiveMedicines() {
 
   const filteredMedicines = useMemo(() => {
     const q = search.trim().toLocaleLowerCase('ar');
-    return visibleMedicines.filter((item) => {
+    const filtered = visibleMedicines.filter((item) => {
+      const quantity = medicineSales.get(item.id)?.quantity || 0;
       if (statusFilter === 'active' && item.active === false) return false;
       if (statusFilter === 'inactive' && item.active !== false) return false;
+      if (motionFilter === 'moved' && quantity <= 0) return false;
+      if (motionFilter === 'no_movement' && quantity > 0) return false;
       if (usageFilter !== 'all' && (item.product_type || '') !== usageFilter) return false;
       if (!q) return true;
       return [item.product_name, cleanCode(item.product_code), item.product_type || '', item.branch || '']
         .some((value) => value.toLocaleLowerCase('ar').includes(q));
     });
-  }, [visibleMedicines, search, statusFilter, usageFilter]);
+
+    return filtered.sort((a, b) => {
+      const aSale = medicineSales.get(a.id) || { quantity: 0, money: 0 };
+      const bSale = medicineSales.get(b.id) || { quantity: 0, money: 0 };
+      if (sortMode === 'sales') return bSale.quantity - aSale.quantity || a.product_name.localeCompare(b.product_name, 'ar');
+      if (sortMode === 'incentive') return incentivePerUnit(b) - incentivePerUnit(a) || a.product_name.localeCompare(b.product_name, 'ar');
+      if (sortMode === 'name') return a.product_name.localeCompare(b.product_name, 'ar');
+
+      const aAttention = (a.active === false ? 0 : aSale.quantity === 0 ? 3 : 1);
+      const bAttention = (b.active === false ? 0 : bSale.quantity === 0 ? 3 : 1);
+      return bAttention - aAttention || bSale.quantity - aSale.quantity || incentivePerUnit(b) - incentivePerUnit(a) || a.product_name.localeCompare(b.product_name, 'ar');
+    });
+  }, [visibleMedicines, medicineSales, search, statusFilter, motionFilter, usageFilter, sortMode]);
 
   const doctorTotals = useMemo(() => {
     const map = new Map<string, { quantity: number; money: number }>();
@@ -373,23 +405,26 @@ export default function IncentiveMedicines() {
     errorCount: preview.filter((row) => row.action === 'error').length,
   }), [preview]);
 
+  const hasFilters = search || statusFilter !== 'all' || motionFilter !== 'all' || usageFilter !== 'all';
+
   return (
     <div className="space-y-6" dir="rtl">
       <section className="relative overflow-hidden rounded-3xl border border-emerald-400/15 bg-gradient-to-br from-emerald-500/12 via-[#15243e] to-[#101b30] p-5 md:p-6">
         <div className="pointer-events-none absolute -left-20 -top-20 h-56 w-56 rounded-full bg-emerald-400/10 blur-3xl" />
         <div className="relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-start gap-4">
-            <div className="flex h-13 w-13 shrink-0 items-center justify-center rounded-2xl border border-emerald-300/20 bg-emerald-400/12 text-emerald-300 shadow-lg shadow-emerald-950/20">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-emerald-300/20 bg-emerald-400/12 text-emerald-300 shadow-lg shadow-emerald-950/20">
               <Sparkles size={24} />
             </div>
             <div>
               <div className="mb-2 flex flex-wrap items-center gap-2">
                 <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-[11px] font-bold text-emerald-200">دورة {cycle.shortLabel}</span>
                 <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-slate-300">{stats.active} صنف نشط</span>
+                {stats.noMovement > 0 && <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1 text-[11px] font-bold text-amber-200">{stats.noMovement} بدون حركة</span>}
               </div>
               <h1 className="text-2xl font-black text-white md:text-3xl">أدوية اللستة</h1>
               <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-300">
-                كل أصناف الحوافز في مكان واحد — بالكود، سعر البيع، حافز الوحدة، وحركة الدورة الحالية لكل صنف.
+                شاشة تشغيل ومتابعة: اعرف بسرعة الصنف، قيمة الحافز، حركة الدورة، وما يحتاج انتباهك أولًا.
               </p>
             </div>
           </div>
@@ -406,17 +441,17 @@ export default function IncentiveMedicines() {
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="أصناف نشطة" value={stats.active} sub={`${stats.coded} بكود مؤكد`} icon={<Package size={18} />} />
-        <Stat label="المباع في الدورة" value={stats.totalUnits} sub="وحدة من أصناف الليستة" icon={<CheckCircle2 size={18} />} />
+        <Stat label="المباع في الدورة" value={stats.totalUnits} sub={stats.bestMover.item ? `الأكثر حركة: ${stats.bestMover.item.product_name}` : 'لا توجد حركة مسجلة'} icon={<CheckCircle2 size={18} />} />
         <Stat label="الحافز المحقق" value={formatCurrency(stats.totalEarned)} sub="إجمالي الدورة الحالية" icon={<DollarSign size={18} />} />
-        <Stat label="أعلى حافز للوحدة" value={formatCurrency(stats.max)} sub="أعلى قيمة في الكتالوج" icon={<Sparkles size={18} />} />
+        <Stat label="تحتاج متابعة" value={stats.noMovement} sub="أصناف نشطة بدون حركة" icon={<CircleAlert size={18} />} tone={stats.noMovement > 0 ? 'amber' : 'emerald'} />
       </div>
 
       {canCreate && showImport && (
-        <section className="rounded-3xl border border-white/10 bg-[#15243e]/90 p-5 shadow-xl shadow-black/10 space-y-4">
+        <section className="space-y-4 rounded-3xl border border-white/10 bg-[#15243e]/90 p-5 shadow-xl shadow-black/10">
           <div className="flex items-center justify-between gap-3">
             <div>
               <div className="flex items-center gap-2 font-bold text-white"><FileSpreadsheet size={18} className="text-emerald-300" /> إدارة ملف الليستة</div>
-              <p className="mt-1 text-xs text-slate-400">الاستيراد أداة إدارة، لذلك بيفضل مقفول أثناء الاستخدام اليومي للصفحة.</p>
+              <p className="mt-1 text-xs text-slate-400">أداة إدارية منفصلة عن الاستخدام اليومي؛ الملف يتراجع قبل الحفظ ولا يتكرر الصنف لنفس النطاق.</p>
             </div>
             <button className="text-xs text-slate-400 hover:text-white" onClick={() => setShowImport(false)}>إغلاق</button>
           </div>
@@ -425,7 +460,7 @@ export default function IncentiveMedicines() {
             <Field label="بداية السريان"><input className="input-dark" type="date" value={importEffectiveDate} onChange={(e) => setImportEffectiveDate(e.target.value)} /></Field>
             <div className="flex items-end"><label className="btn-secondary flex w-full cursor-pointer items-center justify-center gap-2"><Upload size={16} /> اختر ملف Excel<input type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) parseFile(file); e.currentTarget.value = ''; }} /></label></div>
           </div>
-          <div className="rounded-xl border border-white/8 bg-white/4 px-3 py-2 text-xs text-slate-400">الأعمدة الأساسية: كود الصنف، اسم الصنف، حافز الوحدة للدكتور. السعر والاستخدام اختياريان.</div>
+          <div className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-slate-400">الأعمدة الأساسية: كود الصنف، اسم الصنف، حافز الوحدة للدكتور. السعر والاستخدام اختياريان.</div>
 
           {preview.length > 0 && (
             <div className="space-y-3">
@@ -445,24 +480,30 @@ export default function IncentiveMedicines() {
       )}
 
       <section className="rounded-3xl border border-white/10 bg-white/[0.035] p-4 md:p-5">
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_auto_auto]">
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1fr_auto_auto_auto_auto]">
           <div className="relative">
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500" size={17} />
             <input className="input-dark pr-10" placeholder="ابحث باسم الصنف أو الكود أو الاستخدام..." value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
-          <select className="input-dark min-w-[150px]" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}><option value="all">كل الحالات</option><option value="active">النشط فقط</option><option value="inactive">الموقوف فقط</option></select>
-          <select className="input-dark min-w-[170px]" value={usageFilter} onChange={(e) => setUsageFilter(e.target.value)}><option value="all">كل الاستخدامات</option>{usageOptions.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+          <select className="input-dark min-w-[145px]" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}><option value="all">كل الحالات</option><option value="active">النشط فقط</option><option value="inactive">الموقوف فقط</option></select>
+          <select className="input-dark min-w-[155px]" value={motionFilter} onChange={(e) => setMotionFilter(e.target.value as MotionFilter)}><option value="all">كل الحركة</option><option value="moved">تحرك في الدورة</option><option value="no_movement">بدون حركة</option></select>
+          <select className="input-dark min-w-[165px]" value={usageFilter} onChange={(e) => setUsageFilter(e.target.value)}><option value="all">كل الاستخدامات</option>{usageOptions.map((value) => <option key={value} value={value}>{value}</option>)}</select>
+          <label className="relative min-w-[170px]"><ArrowUpDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-500" size={15} /><select className="input-dark pr-9" value={sortMode} onChange={(e) => setSortMode(e.target.value as SortMode)}><option value="smart">ترتيب ذكي</option><option value="sales">الأكثر مبيعًا</option><option value="incentive">أعلى حافز</option><option value="name">الاسم</option></select></label>
         </div>
-        <div className="mt-3 flex items-center justify-between text-xs text-slate-500"><span>ظاهر {filteredMedicines.length} من {visibleMedicines.length} صنف</span>{search || statusFilter !== 'all' || usageFilter !== 'all' ? <button className="text-emerald-300 hover:text-emerald-200" onClick={() => { setSearch(''); setStatusFilter('all'); setUsageFilter('all'); }}>مسح الفلاتر</button> : null}</div>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+          <span>ظاهر {filteredMedicines.length} من {visibleMedicines.length} صنف</span>
+          {hasFilters ? <button className="text-emerald-300 hover:text-emerald-200" onClick={() => { setSearch(''); setStatusFilter('all'); setMotionFilter('all'); setUsageFilter('all'); }}>مسح الفلاتر</button> : null}
+        </div>
       </section>
 
       <section>
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <div><h2 className="text-lg font-black text-white">أصناف الليستة</h2><p className="mt-1 text-xs text-slate-500">الكارت بيوضح بيانات الصنف وحركته في الدورة الحالية من غير زحمة جداول.</p></div>
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <div><h2 className="text-lg font-black text-white">أصناف الليستة</h2><p className="mt-1 text-xs text-slate-500">الترتيب الذكي يرفع الأصناف النشطة بدون حركة للأعلى، ثم يعرض الحركة والأعلى قيمة.</p></div>
+          {sortMode === 'smart' && stats.noMovement > 0 && <div className="flex items-center gap-2 rounded-full border border-amber-400/15 bg-amber-400/8 px-3 py-1.5 text-xs text-amber-200"><CircleAlert size={14} /> الأولوية الآن: {stats.noMovement} صنف بدون حركة</div>}
         </div>
 
         {loading ? (
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">{Array.from({ length: 6 }).map((_, index) => <div key={index} className="h-64 animate-pulse rounded-3xl border border-white/8 bg-white/5" />)}</div>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">{Array.from({ length: 6 }).map((_, index) => <div key={index} className="h-72 animate-pulse rounded-3xl border border-white/10 bg-white/5" />)}</div>
         ) : filteredMedicines.length === 0 ? (
           <div className="rounded-3xl border border-dashed border-white/10 p-10 text-center text-slate-400">لا توجد أصناف مطابقة للفلاتر الحالية.</div>
         ) : (
@@ -472,14 +513,23 @@ export default function IncentiveMedicines() {
               const price = Number(item.product_price || 0);
               const incentive = incentivePerUnit(item);
               const ratio = price > 0 ? (incentive / price) * 100 : 0;
+              const isNoMovement = item.active !== false && sale.quantity === 0;
+              const isTopMover = stats.bestMover.item?.id === item.id && stats.bestMover.quantity > 0;
+              const isHighIncentive = stats.max > 0 && incentive === stats.max;
               const accents = [
                 'from-emerald-500/16 via-teal-500/7 to-transparent border-emerald-400/20',
                 'from-sky-500/14 via-cyan-500/6 to-transparent border-sky-400/20',
                 'from-violet-500/14 via-indigo-500/6 to-transparent border-violet-400/20',
                 'from-amber-500/14 via-orange-500/6 to-transparent border-amber-400/20',
               ];
+              const accent = item.active === false
+                ? 'from-slate-500/10 via-slate-500/5 to-transparent border-slate-400/15'
+                : isNoMovement
+                  ? 'from-amber-500/15 via-orange-500/6 to-transparent border-amber-400/25'
+                  : accents[index % accents.length];
+
               return (
-                <article key={item.id} className={`group relative overflow-hidden rounded-3xl border bg-gradient-to-br ${accents[index % accents.length]} p-5 shadow-lg shadow-black/10 transition duration-200 hover:-translate-y-0.5 hover:border-white/25 hover:shadow-xl`}>
+                <article key={item.id} className={`group relative overflow-hidden rounded-3xl border bg-gradient-to-br ${accent} p-5 shadow-lg shadow-black/10 transition duration-200 hover:-translate-y-0.5 hover:border-white/25 hover:shadow-xl ${item.active === false ? 'opacity-70' : ''}`}>
                   <div className="pointer-events-none absolute -left-12 -top-12 h-36 w-36 rounded-full bg-white/5 blur-2xl" />
                   <div className="relative">
                     <div className="flex items-start justify-between gap-3">
@@ -487,25 +537,29 @@ export default function IncentiveMedicines() {
                         <div className="mb-2 flex flex-wrap gap-2">
                           <span className="rounded-full border border-white/10 bg-black/10 px-2.5 py-1 font-mono text-[11px] text-slate-300">#{cleanCode(item.product_code) || 'بدون كود'}</span>
                           <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${item.active === false ? 'bg-slate-500/15 text-slate-400' : 'bg-emerald-400/12 text-emerald-300'}`}>{item.active === false ? 'موقوف' : 'نشط'}</span>
+                          {isTopMover && <span className="flex items-center gap-1 rounded-full border border-cyan-400/15 bg-cyan-400/10 px-2.5 py-1 text-[11px] font-bold text-cyan-200"><Trophy size={12} /> الأكثر حركة</span>}
+                          {isNoMovement && <span className="flex items-center gap-1 rounded-full border border-amber-400/15 bg-amber-400/10 px-2.5 py-1 text-[11px] font-bold text-amber-200"><CircleAlert size={12} /> يحتاج متابعة</span>}
+                          {isHighIncentive && <span className="rounded-full border border-violet-400/15 bg-violet-400/10 px-2.5 py-1 text-[11px] font-bold text-violet-200">أعلى حافز</span>}
                         </div>
                         <h3 className="text-lg font-black leading-7 text-white">{item.product_name}</h3>
                         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-400"><span>{item.product_type || 'بدون تصنيف'}</span><span className="text-slate-600">•</span><span>{item.branch}</span></div>
                       </div>
-                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/8 text-emerald-300"><Package size={22} /></div>
+                      <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.08] ${isNoMovement ? 'text-amber-300' : 'text-emerald-300'}`}><Package size={22} /></div>
                     </div>
 
                     <div className="mt-5 grid grid-cols-2 gap-3">
+                      <Mini label="حافز الوحدة" value={formatCurrency(incentive)} tone="text-emerald-300" emphasis />
+                      <Mini label="المباع بالدورة" value={`${sale.quantity} وحدة`} tone={sale.quantity > 0 ? 'text-cyan-300' : 'text-amber-300'} emphasis />
                       <Mini label="سعر البيع" value={formatCurrency(price)} />
-                      <Mini label="حافز الوحدة" value={formatCurrency(incentive)} tone="text-emerald-300" />
-                      <Mini label="المباع بالدورة" value={`${sale.quantity} وحدة`} />
                       <Mini label="الحافز المحقق" value={formatCurrency(sale.money)} tone="text-cyan-300" />
                     </div>
 
-                    <div className="mt-4 rounded-2xl border border-white/8 bg-black/10 px-3 py-3">
-                      <div className="flex items-center justify-between gap-3 text-xs"><span className="text-slate-400">نسبة الحافز من سعر البيع</span><span className="font-bold text-white">{ratio ? `${ratio.toFixed(1)}%` : '—'}</span></div>
+                    <div className="mt-4 grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-black/10 p-3 text-xs">
+                      <div><div className="text-slate-500">نسبة الحافز</div><div className="mt-1 font-bold text-white">{ratio ? `${ratio.toFixed(1)}%` : '—'}</div></div>
+                      <div><div className="text-slate-500">قرار المتابعة</div><div className={`mt-1 font-bold ${item.active === false ? 'text-slate-400' : isNoMovement ? 'text-amber-300' : 'text-emerald-300'}`}>{item.active === false ? 'موقوف' : isNoMovement ? 'تابع الحركة' : 'يتحرك بالدورة'}</div></div>
                     </div>
 
-                    <div className="mt-4 flex items-center justify-between gap-3 border-t border-white/8 pt-4">
+                    <div className="mt-4 flex items-center justify-between gap-3 border-t border-white/10 pt-4">
                       <div className="text-[11px] text-slate-500">ساري من {item.effective_date || 'غير محدد'}{item.expiry_date ? ` حتى ${item.expiry_date}` : ''}</div>
                       <div className="flex items-center gap-2">
                         {canEdit && <button onClick={() => toggleActive(item)} className={`rounded-xl border px-3 py-2 text-xs transition ${item.active === false ? 'border-slate-500/20 bg-slate-500/10 text-slate-400' : 'border-emerald-400/15 bg-emerald-400/10 text-emerald-300'}`} title={item.active === false ? 'تفعيل' : 'إيقاف'}>{item.active === false ? <ToggleLeft size={17} /> : <ToggleRight size={17} />}</button>}
@@ -522,7 +576,7 @@ export default function IncentiveMedicines() {
 
       <section className="rounded-3xl border border-white/10 bg-[#15243e]/70 p-5">
         <div className="mb-4 flex items-center justify-between"><div><div className="font-bold text-white">حوافز الدكاترة — {cycle.shortLabel}</div><div className="mt-1 text-xs text-slate-500">ملخص الحركة المسجلة فعليًا في الدورة.</div></div></div>
-        {doctorTotals.length ? <div className="grid grid-cols-1 gap-3 md:grid-cols-3">{doctorTotals.map((row) => <div key={row.doctor} className="rounded-2xl border border-white/8 bg-white/5 p-4"><div className="font-bold text-white">{row.doctor}</div><div className="mt-1 text-xs text-slate-400">{row.quantity} وحدة</div><div className="mt-3 font-black text-emerald-300">{formatCurrency(row.money)}</div></div>)}</div> : <div className="rounded-2xl border border-dashed border-white/10 p-6 text-center text-sm text-slate-400">لا توجد حركات حوافز في الدورة الحالية.</div>}
+        {doctorTotals.length ? <div className="grid grid-cols-1 gap-3 md:grid-cols-3">{doctorTotals.map((row, index) => <div key={row.doctor} className="rounded-2xl border border-white/10 bg-white/5 p-4"><div className="flex items-start justify-between gap-3"><div><div className="font-bold text-white">{row.doctor}</div><div className="mt-1 text-xs text-slate-400">{row.quantity} وحدة</div></div>{index === 0 && <span className="flex items-center gap-1 rounded-full bg-emerald-400/10 px-2 py-1 text-[10px] font-bold text-emerald-200"><Trophy size={11} /> الأول</span>}</div><div className="mt-3 font-black text-emerald-300">{formatCurrency(row.money)}</div></div>)}</div> : <div className="rounded-2xl border border-dashed border-white/10 p-6 text-center text-sm text-slate-400">لا توجد حركات حوافز في الدورة الحالية.</div>}
       </section>
 
       {showForm && (
@@ -542,7 +596,7 @@ export default function IncentiveMedicines() {
               </div>
               <Field label="ملاحظات"><textarea className="input-dark resize-none" rows={3} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
               <label className="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} /> نشط</label>
-              <div className="flex gap-2 rounded-2xl border border-blue-400/15 bg-blue-500/8 p-3 text-sm leading-6 text-blue-100"><AlertTriangle size={17} className="mt-0.5 shrink-0" /> كل دكتور يتحسب له الحافز عند ثبوت بيع الصنف باسمه؛ مفيش دكتور مسؤول ثابت للصنف.</div>
+              <div className="flex gap-2 rounded-2xl border border-blue-400/15 bg-blue-500/[0.08] p-3 text-sm leading-6 text-blue-100"><AlertTriangle size={17} className="mt-0.5 shrink-0" /> كل دكتور يتحسب له الحافز عند ثبوت بيع الصنف باسمه؛ مفيش دكتور مسؤول ثابت للصنف.</div>
               <div className="flex gap-3 pt-1"><button type="button" className="btn-secondary flex-1" onClick={() => setShowForm(false)}>إلغاء</button><button type="submit" className="btn-primary flex-1">{editing ? 'حفظ التعديل' : 'إضافة الصنف'}</button></div>
             </form>
           </div>
@@ -556,10 +610,11 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return <div><label className="mb-1 block text-sm text-slate-300">{label}</label>{children}</div>;
 }
 
-function Mini({ label, value, tone = 'text-white' }: { label: string; value: string | number; tone?: string }) {
-  return <div className="rounded-2xl border border-white/8 bg-white/5 p-3"><div className="text-[11px] text-slate-500">{label}</div><div className={`mt-1 font-black ${tone}`}>{value}</div></div>;
+function Mini({ label, value, tone = 'text-white', emphasis = false }: { label: string; value: string | number; tone?: string; emphasis?: boolean }) {
+  return <div className={`rounded-2xl border p-3 ${emphasis ? 'border-white/15 bg-white/[0.08]' : 'border-white/10 bg-white/5'}`}><div className="text-[11px] text-slate-500">{label}</div><div className={`mt-1 ${emphasis ? 'text-lg' : ''} font-black ${tone}`}>{value}</div></div>;
 }
 
-function Stat({ label, value, sub, icon }: { label: string; value: string | number; sub: string; icon: React.ReactNode }) {
-  return <div className="rounded-2xl border border-white/8 bg-white/[0.035] p-4"><div className="flex items-start gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-300">{icon}</div><div className="min-w-0"><div className="text-xs text-slate-400">{label}</div><div className="mt-1 text-lg font-black text-white">{value}</div><div className="mt-1 truncate text-[11px] text-slate-600">{sub}</div></div></div></div>;
+function Stat({ label, value, sub, icon, tone = 'emerald' }: { label: string; value: string | number; sub: string; icon: React.ReactNode; tone?: 'emerald' | 'amber' }) {
+  const tile = tone === 'amber' ? 'bg-amber-500/10 text-amber-300' : 'bg-emerald-500/10 text-emerald-300';
+  return <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-4"><div className="flex items-start gap-3"><div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${tile}`}>{icon}</div><div className="min-w-0"><div className="text-xs text-slate-400">{label}</div><div className="mt-1 text-lg font-black text-white">{value}</div><div className="mt-1 truncate text-[11px] text-slate-600" title={sub}>{sub}</div></div></div></div>;
 }
