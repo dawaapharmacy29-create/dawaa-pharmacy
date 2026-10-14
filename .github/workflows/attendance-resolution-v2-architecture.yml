@@ -21,6 +21,9 @@ on:
       - 'supabase/migrations/20260906171400_attendance_resolution_v2_materialization.sql'
       - 'scripts/check-attendance-resolution-v2-architecture.cjs'
 
+permissions:
+  contents: read
+
 jobs:
   canonical-attendance-v2:
     runs-on: ubuntu-latest
