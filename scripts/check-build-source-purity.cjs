@@ -61,6 +61,15 @@ if (fs.existsSync(workflowsDir)) {
   }
 }
 
+const retiredPatchMutators = fs
+  .readdirSync('scripts')
+  .filter((name) => /^patch-.*\.(?:cjs|mjs|js|sh)$/.test(name));
+if (retiredPatchMutators.length) {
+  failures.push(
+    `retired source patchers must stay out of the live repository; found: ${retiredPatchMutators.join(', ')}`
+  );
+}
+
 if (failures.length) {
   console.error('[build-source-purity] FAIL: active app or CI paths may mutate committed source/generated output.');
   failures.forEach((failure) => console.error(`- ${failure}`));
