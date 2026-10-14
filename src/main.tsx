@@ -32,9 +32,9 @@ declare global {
 
 function ReactBootstrapMarker() {
   useLayoutEffect(() => {
+    window.__DAWAA_MARK_REACT_BOOTSTRAPPED?.();
     clearRecoveredRuntimeError();
     clearStaleChunkRecoveryMarker(BOOTSTRAP_RECOVERY_SCOPE);
-    window.__DAWAA_MARK_REACT_BOOTSTRAPPED?.();
   }, []);
   return null;
 }
@@ -119,8 +119,8 @@ if (!rootElement) {
   createRoot(rootElement).render(
     <StrictMode>
       <ThemeProvider>
+        <ReactBootstrapMarker />
         <Suspense fallback={<BootstrapShell />}>
-          <ReactBootstrapMarker />
           <App />
           <OptionalRuntimeAddons />
         </Suspense>
