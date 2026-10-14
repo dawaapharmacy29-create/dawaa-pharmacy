@@ -45,5 +45,20 @@ try {
     console.log(`PASS ${name}: existing SQL authorization/RLS assertions`);
     await runtime.execute('postgres', `drop database ${db};`);
   }
+  const normalizerDb = 'sql_security_product_normalizer_v21';
+  await runtime.execute('postgres', `create database ${normalizerDb};`);
+  const truthBoundary = readSql('supabase/migrations/20261005123000_sales_intelligence_truth_boundary_v2.sql');
+  const normalizerStart = truthBoundary.indexOf('create or replace function public.dawaa_normalize_product_match_v21(');
+  const normalizerEnd = truthBoundary.indexOf('$function$;', normalizerStart);
+  if (normalizerStart < 0 || normalizerEnd < 0) {
+    throw new Error('product normalizer definition is missing from the canonical SI migration');
+  }
+  const definition = truthBoundary.slice(normalizerStart, normalizerEnd + '$function$;'.length);
+  for (const sql of [definition, readSql('supabase/tests/product_normalizer_v21.test.sql')]) {
+    const result = await runtime.execute(normalizerDb, sql);
+    if (result.code) throw new Error(`product normalizer SQL contract: ${result.stderr}`);
+  }
+  console.log('PASS product_normalizer_v21: Production SQL signature, security and output parity');
+  await runtime.execute('postgres', `drop database ${normalizerDb};`);
 } catch (error) { console.error(error.message); process.exitCode = 1; }
 finally { await runtime.close(); }

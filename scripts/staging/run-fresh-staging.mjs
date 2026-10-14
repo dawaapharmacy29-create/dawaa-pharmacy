@@ -298,6 +298,11 @@ try {
     }
     step(`migration ${m.order} ${m.file}`, `${m.assertions.length} post-checks`);
   }
+  const productNormalizerTest = await psql(db, read('supabase/tests/product_normalizer_v21.test.sql'));
+  if (productNormalizerTest.code !== 0) {
+    throw new Error(`product normalizer parity test failed:\n${productNormalizerTest.stderr}`);
+  }
+  step('Production product-normalizer signature and output parity verified');
   const anonymousDependencyProbe = await psql(db, `
     begin;
     set local role anon;
