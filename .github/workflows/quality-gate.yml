@@ -2,7 +2,9 @@ name: Quality Gate
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - 'audit/**'
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -37,6 +39,9 @@ jobs:
 
       - name: Build source purity boundary
         run: node scripts/check-build-source-purity.cjs
+
+      - name: Runtime bootstrap patch boundary
+        run: node scripts/check-runtime-bootstrap-patches.cjs
 
       - name: Environment doctor
         run: npm run doctor
