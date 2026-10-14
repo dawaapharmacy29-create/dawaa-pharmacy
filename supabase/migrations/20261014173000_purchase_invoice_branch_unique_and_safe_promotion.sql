@@ -1,0 +1,68 @@
+alter table public.purchase_invoices
+  drop constraint if exists purchase_invoices_system_invoice_number_key;
+
+alter table public.purchase_invoices
+  add constraint purchase_invoices_branch_system_invoice_number_key
+  unique (branch, system_invoice_number);
+
+create or replace function public.promote_matched_purchase_invoices_v1()
+returns integer
+language plpgsql
+security definer
+set search_path to 'public', 'pg_catalog'
+as $function$
+declare
+  v_count int := 0;
+begin
+  insert into public.purchase_invoices (
+    base44_id, system_invoice_number, supplier_invoice_number, branch,
+    entered_by_staff_id, invoice_date, total_value, transaction_type,
+    supplier_id, purchase_category, purchase_category_source,
+    source_branch, destination_branch, cash_amount, payment_type, notes,
+    transfer_authorization_number
+  )
+  select distinct on (s.branch, s.system_invoice_number)
+    s.base44_id, s.system_invoice_number, s.supplier_invoice_number, s.branch,
+    s.entered_by_staff_id, s.invoice_date, coalesce(s.total_value, 0),
+    coalesce(nullif(s.transaction_type, ''), 'external_purchase'),
+    ps.id,
+    coalesce(nullif(s.purchase_category, 'unclassified'), 'unclassified'),
+    case when s.purchase_category is not null and s.purchase_category != 'unclassified' then 'supplier_default' else 'manual' end,
+    s.source_branch, s.destination_branch, coalesce(s.cash_amount, 0), s.payment_type, s.notes,
+    s.transfer_authorization_number
+  from public.base44_purchase_invoice_sync s
+  left join public.purchase_suppliers ps on ps.base44_id = s.base44_supplier_id
+  where s.match_status = 'matched'
+    and s.entered_by_staff_id is not null
+    and s.base44_id is not null
+    and s.system_invoice_number is not null
+    and s.branch is not null
+    and not exists (
+      select 1
+      from public.purchase_invoices p
+      where p.branch = s.branch
+        and p.system_invoice_number = s.system_invoice_number
+        and p.base44_id is distinct from s.base44_id
+    )
+  order by s.branch, s.system_invoice_number, s.synced_at desc
+  on conflict (base44_id) where base44_id is not null do update set
+    system_invoice_number = excluded.system_invoice_number,
+    supplier_invoice_number = excluded.supplier_invoice_number,
+    branch = excluded.branch,
+    invoice_date = excluded.invoice_date,
+    total_value = excluded.total_value,
+    supplier_id = coalesce(excluded.supplier_id, public.purchase_invoices.supplier_id),
+    purchase_category = case when excluded.purchase_category != 'unclassified' then excluded.purchase_category else public.purchase_invoices.purchase_category end,
+    purchase_category_source = case when excluded.purchase_category != 'unclassified' then 'supplier_default' else public.purchase_invoices.purchase_category_source end,
+    source_branch = coalesce(excluded.source_branch, public.purchase_invoices.source_branch),
+    destination_branch = coalesce(excluded.destination_branch, public.purchase_invoices.destination_branch),
+    cash_amount = coalesce(excluded.cash_amount, public.purchase_invoices.cash_amount),
+    payment_type = coalesce(excluded.payment_type, public.purchase_invoices.payment_type),
+    notes = coalesce(excluded.notes, public.purchase_invoices.notes),
+    transfer_authorization_number = coalesce(excluded.transfer_authorization_number, public.purchase_invoices.transfer_authorization_number),
+    updated_at = now();
+
+  get diagnostics v_count = row_count;
+  return v_count;
+end;
+$function$;
