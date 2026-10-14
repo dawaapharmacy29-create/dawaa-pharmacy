@@ -91,8 +91,10 @@ if (!failures.length) {
   if (/resolution_status\s*===?\s*['"]missing_checkin['"][\s\S]{0,300}priority_code/i.test(service)) {
     failures.push('frontend service must not reclassify priority from resolution_status');
   }
-  if (!reviews.includes("import { persistPointsTransaction } from '@/lib/pointsPersistence';")) {
-    failures.push('Reviews.tsx must import persistPointsTransaction explicitly');
+  // The review writer moved to the staff-session RPC. Never require the legacy
+  // client-side points writer, which could create duplicate point transactions.
+  if (!reviews.includes("'record_conversation_review_points_v1'")) {
+    failures.push('Reviews.tsx must use the canonical staff-session points command');
   }
 }
 
@@ -102,4 +104,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('[attendance-command-center-contract] PASS: command center consumes canonical triage + priority contracts; service preserves/sorts contract metadata; UI uses bundle former-staff + priority metadata without directory reclassification; Reviews points persistence is wired.');
+console.log('[attendance-command-center-contract] PASS: command center consumes canonical triage + priority contracts; service preserves/sorts contract metadata; UI uses bundle former-staff + priority metadata without directory reclassification; Reviews canonical staff-session points command is wired.');
