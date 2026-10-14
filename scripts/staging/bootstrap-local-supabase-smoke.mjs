@@ -136,6 +136,11 @@ apply('notification custom-auth identity helper', between(
   'create or replace function public.dawaa_current_staff_id_v1()',
   '\n$$;'
 ) + '\n$$;\nrevoke all on function public.dawaa_current_staff_id_v1() from public;\ngrant execute on function public.dawaa_current_staff_id_v1() to anon, authenticated;');
+apply('canonical staff actor SELECT policy', between(
+  read('supabase/migrations/20260827014500_harden_staff_identity_boundary_v6.sql'),
+  'create policy staff_actor_read_v6',
+  '-- Staff mutations are administrative commands'
+));
 const notificationAudience = read('supabase/migrations/20260823173500_fix_notification_audience_leakage_v2.sql');
 apply('notification audience visibility helpers', between(
   notificationAudience,
@@ -170,7 +175,7 @@ apply('Sales Intelligence read-path RLS', between(
 apply('WhatsApp review-source SELECT RLS for invoker views', between(
   read('supabase/migrations/20261003111500_db_rls_timeout_hardening_v1.sql'),
   'drop policy if exists whatsapp_review_sources_select_v1',
-  'drop policy if exists whatsapp_review_sources_insert_v1'
+  'drop policy if exists whatsapp_sales_opportunities_v17_select'
 ));
 apply('staff account resolver', between(
   read('supabase/migrations/20260713_staff_accounts_security_hardening.sql'),
@@ -270,6 +275,25 @@ if (query("select relrowsecurity from pg_class where oid='public.customer_reques
   || query("select relrowsecurity from pg_class where oid='public.staff_identity_aliases'::regclass") !== 't') {
   throw new Error('shared runtime identity/shift tables must retain RLS');
 }
+if (query("select relrowsecurity from pg_class where oid='public.staff'::regclass") !== 't'
+  || query("select count(*) from pg_policy where polrelid='public.staff'::regclass and polname='staff_actor_read_v6' and polcmd='r'") !== '1') {
+  throw new Error('canonical staff actor SELECT policy and RLS must be present');
+}
+console.log('PASS STAFF_ACTOR_SELECT_POLICY_PRESENT=YES');
+for (const policy of [
+  ['SELECT', 'r', 'whatsapp_review_sources_select_v1'],
+  ['INSERT', 'a', 'whatsapp_review_sources_insert_v1'],
+  ['UPDATE', 'w', 'whatsapp_review_sources_update_v1'],
+]) {
+  if (query(`select count(*) from pg_policy where polrelid='public.whatsapp_review_sources'::regclass and polname='${policy[2]}' and polcmd='${policy[1]}'`) !== '1') {
+    throw new Error(`whatsapp_review_sources ${policy[0]} policy is missing or has the wrong command`);
+  }
+  console.log(`PASS ${policy[0]}_POLICY_PRESENT=YES`);
+}
+if (query("select relrowsecurity from pg_class where oid='public.whatsapp_review_sources'::regclass") !== 't') {
+  throw new Error('whatsapp_review_sources must retain row-level security');
+}
+console.log('PASS WHATSAPP_REVIEW_SOURCES_RLS_ENABLED=YES');
 const requestRepository = read('src/features/customer-requests/data/customerRequestsRepository.ts');
 const requestProjection = requestRepository.match(/const CUSTOMER_REQUEST_OPERATIONAL_SELECT = \[([\s\S]*?)\]\.join/);
 if (!requestProjection) throw new Error('customer-request repository projection could not be read for schema verification');

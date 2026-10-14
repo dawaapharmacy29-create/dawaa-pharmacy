@@ -106,6 +106,8 @@ async function bootstrap(db) {
   await psql(db, read('supabase/staging/41_shared_runtime_dependency_parity.sql'), lazy);
   await psql(db, between(read('supabase/migrations/20260716090000_employee_360_profile_events_payroll.sql'),
     'create or replace function public.dawaa_current_staff_id_v1()', '\n$$;') + '\n$$;\nrevoke all on function public.dawaa_current_staff_id_v1() from public;\ngrant execute on function public.dawaa_current_staff_id_v1() to anon, authenticated;', lazy);
+  await psql(db, between(read('supabase/migrations/20260827014500_harden_staff_identity_boundary_v6.sql'),
+    'create policy staff_actor_read_v6', '-- Staff mutations are administrative commands'), lazy);
   const notificationAudience = read('supabase/migrations/20260823173500_fix_notification_audience_leakage_v2.sql');
   await psql(db, between(notificationAudience, 'create or replace function public.dawaa_current_notification_account_id_v1()',
     '-- Backfill the old recipient column used by legacy writers.'), lazy);
@@ -152,7 +154,7 @@ async function bootstrap(db) {
     '-- 2) WhatsApp review/source RLS used by the SI views'), lazy);
   await psql(db, between(read('supabase/migrations/20261003111500_db_rls_timeout_hardening_v1.sql'),
     'drop policy if exists whatsapp_review_sources_select_v1',
-    'drop policy if exists whatsapp_review_sources_insert_v1'), lazy);
+    'drop policy if exists whatsapp_sales_opportunities_v17_select'), lazy);
   await psql(db, read('supabase/staging/37_whatsapp_opportunity_center_v22.sql'), lazy);
   await psql(db, read('supabase/staging/38_whatsapp_sales_opportunities_v17_rls.sql'), lazy);
   await psql(db, read('supabase/staging/40_synthetic_seed.sql'));
@@ -191,6 +193,19 @@ try {
   assert.equal(await query(db, `select count(*) from pg_policy where polrelid='public.whatsapp_review_sources'::regclass
     and polname='whatsapp_review_sources_select_v1'`), '1',
     'WhatsApp source SELECT RLS must be present for security-invoker read views');
+  for (const [command, policyName] of [
+    ['SELECT', 'whatsapp_review_sources_select_v1'],
+    ['INSERT', 'whatsapp_review_sources_insert_v1'],
+    ['UPDATE', 'whatsapp_review_sources_update_v1'],
+  ]) {
+    assert.equal(await query(db, `select count(*) from pg_policies where schemaname='public' and tablename='whatsapp_review_sources'
+      and policyname='${policyName}' and cmd='${command}'`), '1',
+    `WhatsApp source ${command} RLS policy must match the canonical source`);
+    step(`${command}_POLICY_PRESENT=YES`);
+  }
+  assert.equal(await query(db, `select relrowsecurity from pg_class where oid='public.whatsapp_review_sources'::regclass`), 't',
+    'WhatsApp review sources must retain RLS');
+  step('WHATSAPP_REVIEW_SOURCES_RLS_ENABLED=YES');
   assert.equal(await query(db, `set role authenticated;
     set request.headers = '{"x-dawaa-user-id":"00000000-0000-4000-8000-0000000000a2"}';
     select count(*) from public.sales_intelligence_current_case_analyses where case_id='syn-case-1';
@@ -263,6 +278,12 @@ try {
     (select count(*) from public.shift_notes) +
     (select count(*) from public.notifications)`), '0',
     'shared runtime parity must not seed fake alias or shift-note rows');
+  assert.equal(await query(db, `select
+    (select relrowsecurity from pg_class where oid='public.staff'::regclass)
+    and (select count(*)=1 from pg_policies where schemaname='public' and tablename='staff'
+      and policyname='staff_actor_read_v6' and cmd='SELECT'
+      and qual='(dawaa_current_staff_id_v1() IS NOT NULL)')`), 't',
+    'staff SELECT RLS must match the canonical actor-bound migration');
   step('shared runtime dependency schema, RLS, notification view, and pending shift-notes RPC verified');
   const before = await query(db, DML_WATCH);
   const seededReady = await query(db, `select count(*) from whatsapp_conversation_actions where action_type='customer_request' and status='ready' and target_id is null`);

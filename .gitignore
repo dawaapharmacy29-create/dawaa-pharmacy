@@ -15,6 +15,7 @@ env.local
 .env.*
 .env*.local
 *.env
+supabase/.temp/
 
 # System & build files
 .DS_Store

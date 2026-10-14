@@ -109,7 +109,9 @@ create table public.whatsapp_sales_opportunities_v17 (
   journey_id uuid references public.whatsapp_customer_journeys(id), story_id uuid references public.whatsapp_customer_stories(id),
   opportunity_key text, current_stage text, matched_invoice_id text, matched_invoice_number text, product_id uuid,
   product_code text, product_name text, customer_id uuid, customer_code text, branch text, opened_at timestamptz,
-  last_stage_at timestamptz, updated_at timestamptz, unique (root_source_id, opportunity_key));
+  last_stage_at timestamptz, updated_at timestamptz, status text, sale_verified_scope text,
+  matched_invoice_value numeric, matched_invoice_item_id uuid, matched_invoice_item_value numeric,
+  product_verified_at timestamptz, evidence_json jsonb, unique (root_source_id, opportunity_key));
 create table public.whatsapp_customer_cases_v22 (id uuid primary key default gen_random_uuid(), updated_at timestamptz);
 
 -- Sales Intelligence and reviews (L + M) -------------------------------------------------------
