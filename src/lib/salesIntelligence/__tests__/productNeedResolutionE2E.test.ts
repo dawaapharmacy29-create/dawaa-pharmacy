@@ -14,6 +14,8 @@ import { runSalesIntelligencePipeline, type SalesIntelligencePipelineInput } fro
 
 const GAST_REG_50MG_3AMP_ID = '65ccef56-825a-4c31-93c8-a3bdaffd0488';
 const GAST_REG_50MG_3AMP_CODE = '40049';
+const PEDICORT_PRODUCT_ID = '60bf9629-2e60-479f-a811-972da45ae836';
+const PEDICORT_PRODUCT_CODE = '67929';
 
 const CATALOG_ROWS: RawProductRow[] = [
   { id: '6fb1480c-936b-452b-9c42-8d364782e2af', name: 'GAST-REG 100MG 30 TAB', product_code: '58009', normalized_name: 'gast reg 100mg 30 tab', category: null, price: 72, source: 'catalog_import' },
@@ -30,6 +32,26 @@ function catalogFrom(rows: RawProductRow[]) {
   return rows.map((row) => buildCanonicalProduct(row, counts, normalizePharmacyText));
 }
 const INDEX = buildPharmacyProductIndex(catalogFrom(CATALOG_ROWS));
+const PEDICORT_INDEX = buildPharmacyProductIndex(catalogFrom([
+  {
+    id: PEDICORT_PRODUCT_ID,
+    name: 'PEDICORT FORTE SYRUP 100 ML',
+    product_code: PEDICORT_PRODUCT_CODE,
+    normalized_name: 'pedicort forte syrup 100 ml',
+    category: null,
+    price: 180,
+    source: 'catalog_import',
+  },
+  {
+    id: 'p-cortiforte-syrup',
+    name: 'CORTIFORTE SYRUP 100 ML',
+    product_code: 'SYN-CORTIFORTE',
+    normalized_name: 'cortiforte syrup 100 ml',
+    category: null,
+    price: null,
+    source: 'synthetic_local_smoke',
+  },
+]));
 
 function baseInput(overrides: Partial<SalesIntelligencePipelineInput> = {}): SalesIntelligencePipelineInput {
   return {
@@ -104,5 +126,107 @@ describe('Product/Need resolution E2E — regression safety negatives', () => {
     const result = runSalesIntelligencePipeline(baseInput({ rawWhatsAppExportText: raw }));
     const { customerNeed } = result.caseAnalyses[0];
     expect(customerNeed.products).toHaveLength(0);
+  });
+});
+
+describe('Product/Need/Attribution E2E — canonical cross-script basket propagation', () => {
+  it('carries the seeded Pedicort identity through the active basket and attribution without guessing quantity', () => {
+    const raw = `[9/27/26, 6:46:00 PM] Customer: عايزه بيدو كورت فورت شراب للكبار
+[9/27/26, 6:47:00 PM] You: تحت أمر حضرتك`;
+    const result = runSalesIntelligencePipeline(baseInput({
+      conversationId: 'pedicort-canonical-basket',
+      rawWhatsAppExportText: raw,
+      customerIdHint: 'customer-pedicort',
+      productIndex: PEDICORT_INDEX,
+      resolveInvoiceCandidates: (context) => [
+        {
+          id: 'invoice-74947',
+          invoice_number: '74947',
+          customer_id: 'customer-pedicort',
+          invoice_datetime: context.caseEndedAt,
+          net_amount: 180,
+        },
+        {
+          id: 'invoice-74956',
+          invoice_number: '74956',
+          customer_id: 'customer-pedicort',
+          invoice_datetime: context.caseEndedAt,
+          net_amount: 155,
+        },
+      ],
+      itemEvidenceProvider: {
+        getItemsForInvoice: (invoiceId) => invoiceId === 'invoice-74947'
+          ? [{
+              productNameRaw: 'PEDICORT FORTE SYRUP 100 ML',
+              productId: PEDICORT_PRODUCT_ID,
+              productCode: PEDICORT_PRODUCT_CODE,
+              quantity: 1,
+              lineTotal: 180,
+            }]
+          : [{
+              productNameRaw: 'CERELAC WHEAT WITHOUT MILK 400 GM',
+              productId: 'p-cerelac',
+              productCode: '56832',
+              quantity: 1,
+              lineTotal: 155,
+            }],
+      },
+    }));
+
+    expect(result.caseAnalyses).toHaveLength(1);
+    const analysis = result.caseAnalyses[0];
+    const [needProduct] = analysis.customerNeed.products;
+    expect(needProduct).toMatchObject({
+      productId: PEDICORT_PRODUCT_ID,
+      productCode: PEDICORT_PRODUCT_CODE,
+      canonicalName: 'PEDICORT FORTE SYRUP 100 ML',
+      requestedQuantity: null,
+      finalQuantity: null,
+      confidence: { level: 'weakly_inferred' },
+    });
+
+    const activeItems = analysis.activeBasket
+      ? analysis.itemsByBasketId[analysis.activeBasket.basketId] ?? []
+      : [];
+    expect(activeItems).toHaveLength(1);
+    expect(activeItems[0]).toMatchObject({
+      productId: PEDICORT_PRODUCT_ID,
+      productCode: PEDICORT_PRODUCT_CODE,
+      canonicalName: 'PEDICORT FORTE SYRUP 100 ML',
+      quantity: null,
+      resolutionStatus: 'partially_proven',
+      confidence: { level: 'weakly_inferred' },
+    });
+
+    expect(analysis.attribution.selectedInvoiceNumber).toBe('74947');
+    expect(analysis.attribution.selectedCandidate?.productMatch).toBe('available_match');
+    expect(analysis.attribution.selectedCandidate?.quantityMatch).toBe('available_match');
+    expect(analysis.attribution.alternativeCandidates.find((candidate) => candidate.invoiceNumber === '74956')?.productMatch)
+      .toBe('available_mismatch');
+    expect(analysis.salesOutcome.saleProofState).not.toBe('proven');
+    expect(analysis.salesOutcome.outcome).not.toBe('sale_proven');
+  });
+
+  it('leaves an unresolved named request without invented canonical product identity', () => {
+    const raw = `[9/27/26, 6:46:00 PM] Customer: عايزه دواء غير مسجل
+[9/27/26, 6:47:00 PM] You: تحت أمر حضرتك`;
+    const result = runSalesIntelligencePipeline(baseInput({
+      conversationId: 'unresolved-canonical-basket',
+      rawWhatsAppExportText: raw,
+      productIndex: PEDICORT_INDEX,
+    }));
+
+    const analysis = result.caseAnalyses[0];
+    expect(analysis.customerNeed.products).toHaveLength(1);
+    expect(analysis.customerNeed.products[0].productId).toBeNull();
+    expect(analysis.customerNeed.products[0].productCode).toBeNull();
+    expect(analysis.customerNeed.products[0].canonicalName).toBeNull();
+    const activeItems = analysis.activeBasket
+      ? analysis.itemsByBasketId[analysis.activeBasket.basketId] ?? []
+      : [];
+    expect(activeItems).toHaveLength(1);
+    expect(activeItems[0].productId).toBeNull();
+    expect(activeItems[0].productCode).toBeUndefined();
+    expect(activeItems[0].canonicalName).toBeUndefined();
   });
 });

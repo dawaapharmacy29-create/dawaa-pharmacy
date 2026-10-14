@@ -5540,20 +5540,28 @@ function deriveCustomerNeedModel(input) {
   )) {
     humanReviewReasons.push("customer_need_product_context_ambiguous");
   }
-  const productList = Array.from(products.values()).map((product) => ({
-    key: product.key,
-    productNameRaw: product.productNameRaw,
-    productId: product.productId,
-    requestedQuantity: product.requestedQuantity,
-    offeredQuantity: product.offeredQuantity,
-    finalQuantity: product.finalQuantity,
-    roles: Array.from(product.roles),
-    availability: currentAvailability(product),
-    availabilityEvidence: product.availabilityEvidence,
-    alternatives: product.alternatives,
-    evidenceMessageIds: Array.from(product.evidenceMessageIds),
-    confidence: product.confidence ?? assessment6("unknown", 0.2, ["need.product.insufficient_evidence"], [])
-  }));
+  const canonicalProductsById = new Map(
+    (input.productIndex?.catalog ?? []).map((candidate) => [candidate.productId, candidate])
+  );
+  const productList = Array.from(products.values()).map((product) => {
+    const canonicalProduct = product.productId ? canonicalProductsById.get(product.productId) : null;
+    return {
+      key: product.key,
+      productNameRaw: product.productNameRaw,
+      productId: product.productId,
+      productCode: canonicalProduct?.productCode ?? null,
+      canonicalName: canonicalProduct?.canonicalName ?? null,
+      requestedQuantity: product.requestedQuantity,
+      offeredQuantity: product.offeredQuantity,
+      finalQuantity: product.finalQuantity,
+      roles: Array.from(product.roles),
+      availability: currentAvailability(product),
+      availabilityEvidence: product.availabilityEvidence,
+      alternatives: product.alternatives,
+      evidenceMessageIds: Array.from(product.evidenceMessageIds),
+      confidence: product.confidence ?? assessment6("unknown", 0.2, ["need.product.insufficient_evidence"], [])
+    };
+  });
   const evidenceMessageIds = Array.from(
     /* @__PURE__ */ new Set([
       ...requestSignals.map((signal) => signal.messageId),
@@ -6489,6 +6497,8 @@ function buildCaseIntelligenceView(analysis, context) {
       productKey: product.key,
       productNameRaw: product.productNameRaw,
       productId: product.productId,
+      productCode: product.productCode,
+      canonicalName: product.canonicalName,
       roles: product.roles,
       requestedQuantity: product.requestedQuantity,
       offeredQuantity: product.offeredQuantity,
@@ -6812,23 +6822,31 @@ function computeOverallEvidenceLevel(completeness) {
 }
 function enrichBasketProductIdentities(itemsByBasketId, productIndex) {
   if (!productIndex) return itemsByBasketId;
+  const productsById = new Map(productIndex.catalog.map((product) => [product.productId, product]));
   return Object.fromEntries(
     Object.entries(itemsByBasketId).map(([basketId, items]) => [
       basketId,
       items.map((item) => {
-        if (item.productId || item.resolutionStatus === "contradicted" || item.resolutionStatus === "missing") {
+        if (item.resolutionStatus === "contradicted" || item.resolutionStatus === "missing") {
           return item;
+        }
+        if (item.productId) {
+          const product = productsById.get(item.productId);
+          return product ? { ...item, productCode: product.productCode, canonicalName: product.canonicalName } : item;
         }
         const resolution = resolveProductMention(item.productNameRaw, productIndex);
         const selected2 = resolution.selected;
-        if (!selected2 || !["proven", "strongly_inferred"].includes(selected2.confidence)) {
+        if (!selected2 || !isBasketEligibleProductResolution(selected2)) {
           return item;
         }
         return {
           ...item,
           productId: selected2.product.productId,
+          productCode: selected2.product.productCode,
+          canonicalName: selected2.product.canonicalName,
           // Exact code is canonical proof. Exact canonical name / approved alias remains
-          // partially proven even though we can safely carry the canonical id forward.
+          // partially proven even though we can safely carry the canonical id forward. An explicit
+          // cross-script seed also retains its weak confidence and is never promoted to proven.
           resolutionStatus: selected2.confidence === "proven" ? "proven" : "partially_proven"
         };
       })
@@ -8116,6 +8134,7 @@ async function prepareSalesIntelligenceConversations(client, conversations, cont
   return conversations.map((conversation, index) => {
     const identity = identities[index];
     const resolved = identity.status === "resolved";
+    const staffIdentity = resolveConversationStaffIdentity(conversation, context);
     return {
       ...conversation,
       customerIdHint: resolved ? identity.customerId : null,

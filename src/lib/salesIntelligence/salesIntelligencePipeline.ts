@@ -40,6 +40,7 @@ import { deriveFollowUpOpportunities } from './followUpOpportunityEngine';
 import { buildCaseIntelligenceView } from './caseIntelligenceView';
 import { deriveCaseOperationalDisposition } from './caseOperationalDispositionEngine';
 import {
+  isBasketEligibleProductResolution,
   resolveProductMention,
   type PharmacyProductIndex,
 } from './pharmacyProducts/pharmacyProductResolverV2';
@@ -203,25 +204,36 @@ function enrichBasketProductIdentities(
 ): Record<string, CaseBasketItem[]> {
   if (!productIndex) return itemsByBasketId;
 
+  const productsById = new Map(productIndex.catalog.map((product) => [product.productId, product]));
   return Object.fromEntries(
     Object.entries(itemsByBasketId).map(([basketId, items]) => [
       basketId,
       items.map((item) => {
-        if (item.productId || item.resolutionStatus === 'contradicted' || item.resolutionStatus === 'missing') {
+        if (item.resolutionStatus === 'contradicted' || item.resolutionStatus === 'missing') {
           return item;
+        }
+
+        if (item.productId) {
+          const product = productsById.get(item.productId);
+          return product
+            ? { ...item, productCode: product.productCode, canonicalName: product.canonicalName }
+            : item;
         }
 
         const resolution = resolveProductMention(item.productNameRaw, productIndex);
         const selected = resolution.selected;
-        if (!selected || !['proven', 'strongly_inferred'].includes(selected.confidence)) {
+        if (!selected || !isBasketEligibleProductResolution(selected)) {
           return item;
         }
 
         return {
           ...item,
           productId: selected.product.productId,
+          productCode: selected.product.productCode,
+          canonicalName: selected.product.canonicalName,
           // Exact code is canonical proof. Exact canonical name / approved alias remains
-          // partially proven even though we can safely carry the canonical id forward.
+          // partially proven even though we can safely carry the canonical id forward. An explicit
+          // cross-script seed also retains its weak confidence and is never promoted to proven.
           resolutionStatus:
             selected.confidence === 'proven' ? 'proven' : 'partially_proven',
         };

@@ -740,22 +740,30 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
     humanReviewReasons.push('customer_need_product_context_ambiguous');
   }
 
-  const productList: CustomerNeedProductLifecycle[] = Array.from(products.values()).map((product) => ({
-    key: product.key,
-    productNameRaw: product.productNameRaw,
-    productId: product.productId,
-    requestedQuantity: product.requestedQuantity,
-    offeredQuantity: product.offeredQuantity,
-    finalQuantity: product.finalQuantity,
-    roles: Array.from(product.roles),
-    availability: currentAvailability(product),
-    availabilityEvidence: product.availabilityEvidence,
-    alternatives: product.alternatives,
-    evidenceMessageIds: Array.from(product.evidenceMessageIds),
-    confidence:
-      product.confidence ??
-      assessment('unknown', 0.2, ['need.product.insufficient_evidence'], []),
-  }));
+  const canonicalProductsById = new Map(
+    (input.productIndex?.catalog ?? []).map((candidate) => [candidate.productId, candidate])
+  );
+  const productList: CustomerNeedProductLifecycle[] = Array.from(products.values()).map((product) => {
+    const canonicalProduct = product.productId ? canonicalProductsById.get(product.productId) : null;
+    return {
+      key: product.key,
+      productNameRaw: product.productNameRaw,
+      productId: product.productId,
+      productCode: canonicalProduct?.productCode ?? null,
+      canonicalName: canonicalProduct?.canonicalName ?? null,
+      requestedQuantity: product.requestedQuantity,
+      offeredQuantity: product.offeredQuantity,
+      finalQuantity: product.finalQuantity,
+      roles: Array.from(product.roles),
+      availability: currentAvailability(product),
+      availabilityEvidence: product.availabilityEvidence,
+      alternatives: product.alternatives,
+      evidenceMessageIds: Array.from(product.evidenceMessageIds),
+      confidence:
+        product.confidence ??
+        assessment('unknown', 0.2, ['need.product.insufficient_evidence'], []),
+    };
+  });
 
   const evidenceMessageIds = Array.from(
     new Set([

@@ -157,7 +157,14 @@ export interface CaseAttributionContext {
   /** Sum of the current basket's item line totals, when computable; null when unit prices aren't populated (the common case today) — never guessed. */
   activeBasketValue: number | null;
   /** Product identity from the CURRENT basket version only. productId is canonical products.id when resolved. */
-  activeBasketItems: Array<{ productNameRaw: string; productId?: string | null; quantity: number | null; resolutionStatus?: ItemResolutionStatus }>;
+  activeBasketItems: Array<{
+    productNameRaw: string;
+    productId?: string | null;
+    productCode?: string | null;
+    canonicalName?: string | null;
+    quantity: number | null;
+    resolutionStatus?: ItemResolutionStatus;
+  }>;
   /** Known contributing staff ids for this case (Phase B StaffContribution.staffId) — conservative, may be empty. */
   knownStaffIds: string[];
   /** Exact canonical staff-name/active-alias resolver from the staff directory boundary. */

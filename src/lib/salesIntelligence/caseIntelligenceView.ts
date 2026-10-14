@@ -95,6 +95,8 @@ export function buildCaseIntelligenceView(
       productKey: product.key,
       productNameRaw: product.productNameRaw,
       productId: product.productId,
+      productCode: product.productCode,
+      canonicalName: product.canonicalName,
       roles: product.roles,
       requestedQuantity: product.requestedQuantity,
       offeredQuantity: product.offeredQuantity,
