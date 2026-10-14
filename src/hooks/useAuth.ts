@@ -212,6 +212,10 @@ function readStoredUser(): User | null {
 }
 
 let currentUser: User | null = readStoredUser();
+// A restored profile is verified once before protected content is trusted. After that, TTL refreshes
+// are stale-while-revalidate: they run in the background and must not flash the full auth loader on
+// every protected-route mount. A real identity/role/branch/permission change still forces the cache-safe reload below.
+let initialAccountRefreshComplete = currentUser == null;
 
 function setCurrentUser(user: User | null) {
   const previousUser = currentUser;
@@ -471,7 +475,8 @@ export function useAuth() {
     }
     let cancelled = false;
 
-    const shouldBlockForRefresh = Date.now() - lastAccountRefreshAt >= ACCOUNT_REFRESH_TTL_MS;
+    const refreshIsDue = Date.now() - lastAccountRefreshAt >= ACCOUNT_REFRESH_TTL_MS;
+    const shouldBlockForRefresh = !initialAccountRefreshComplete && refreshIsDue;
     setLoading(shouldBlockForRefresh);
 
     void refreshCurrentStaffAccount(currentUser)
@@ -490,6 +495,7 @@ export function useAuth() {
         }
       })
       .finally(() => {
+        initialAccountRefreshComplete = true;
         if (!cancelled) setLoading(false);
       });
     return () => {
@@ -553,6 +559,7 @@ export function useAuth() {
     const accountUser = await loginWithStaffAccount(username, password);
     if (accountUser) {
       lastAccountRefreshAt = Date.now();
+      initialAccountRefreshComplete = true;
       setCurrentUser(accountUser);
       logAuthActivity(accountUser, 'login', 'success');
       return true;
@@ -565,6 +572,7 @@ export function useAuth() {
     await revokeStoredStaffSession();
     setCurrentUser(null);
     lastAccountRefreshAt = 0;
+    initialAccountRefreshComplete = true;
     try {
       await withTimeout(
         supabase.rpc('set_current_user_context', { p_user_id: null }),
