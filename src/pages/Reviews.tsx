@@ -3481,7 +3481,7 @@ export default function Reviews() {
 
           <section id="review-criteria-section" className="space-y-3">
             {REVIEW_CRITERIA.map((criterion) => {
-              const itemState = reviewState[criterion.key];
+              const itemState = reviewState[criterion.key] ?? { applies: criterion.defaultApplies, choice: criterion.defaultChoice, notes: '' };
               const suggestion = smartSnapshot?.officialReviewDraft?.criteria.find(
                 (c) => c.criterionKey === criterion.key
               );
@@ -3871,7 +3871,7 @@ export default function Reviews() {
           <div className="space-y-3">
             <div className="section-title text-sm">بنود التقييم كاملة</div>
             {REVIEW_CRITERIA.map((criterion) => {
-              const itemState = editReviewState[criterion.key];
+              const itemState = editReviewState[criterion.key] ?? { applies: criterion.defaultApplies, choice: criterion.defaultChoice, notes: '' };
               return (
                 <div key={criterion.key} className={`rounded-xl border p-3 ${itemState.applies ? 'border-teal-500/25 bg-teal-500/5' : 'border-slate-700 bg-slate-900/30'}`}>
                   <div className="flex flex-wrap items-center justify-between gap-2">
