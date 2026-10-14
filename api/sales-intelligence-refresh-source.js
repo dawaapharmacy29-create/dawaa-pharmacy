@@ -2014,6 +2014,9 @@ function normalizePharmacyText(raw) {
 
 // src/lib/salesIntelligence/pharmacyProducts/pharmacyProductResolverV2.ts
 var FUZZY_MAX_CONFIDENCE_LEVEL = "weakly_inferred";
+function isBasketEligibleProductResolution(candidate) {
+  return candidate.confidence === "proven" || candidate.confidence === "strongly_inferred" || candidate.confidence === "weakly_inferred" && candidate.basis === "cross_script_equivalent";
+}
 function buildPharmacyProductIndex(catalog) {
   const byCode = /* @__PURE__ */ new Map();
   const byNormalizedName = /* @__PURE__ */ new Map();
@@ -2031,6 +2034,9 @@ var CROSS_SCRIPT_SEED = /* @__PURE__ */ new Map([
   ["\u0632\u0648\u0631\u0643\u0627\u0644", "zurcal"],
   ["\u0627\u0646\u062A\u064A\u0646\u0627\u0644", "antinal"],
   ["\u0628\u0627\u0646\u0627\u062F\u0648\u0644 \u0627\u0643\u0633\u062A\u0631\u0627", "panadol extra"],
+  ["\u0628\u064A\u062F\u0648 \u0643\u0648\u0631\u062A", "pedicort"],
+  ["\u0628\u064A\u062F\u0648\u0643\u0648\u0631\u062A", "pedicort"],
+  ["\u0628\u064A\u062F\u064A \u0643\u0648\u0631\u062A", "pedicort"],
   ["\u0628\u0627\u0645\u0628\u0631\u0632", "pampers"],
   ["\u0643\u0648\u0631\u064A\u063A\u0627", "corega"],
   ["\u0643\u0648\u0631\u064A\u062C\u0627", "corega"],
@@ -2605,7 +2611,7 @@ function directCatalogMentionItem(message, productIndex) {
   if (!message.isMeaningful || message.role !== "customer") return null;
   const resolution = resolveProductMention(message.text, productIndex);
   const selected2 = resolution.selected;
-  if (resolution.ambiguous || !selected2 || !["proven", "strongly_inferred"].includes(selected2.confidence)) return null;
+  if (resolution.ambiguous || !selected2 || !isBasketEligibleProductResolution(selected2)) return null;
   return {
     productNameRaw: message.text.trim(),
     productId: selected2.product.productId,

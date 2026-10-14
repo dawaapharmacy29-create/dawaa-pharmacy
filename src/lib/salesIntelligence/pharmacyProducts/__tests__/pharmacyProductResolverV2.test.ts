@@ -17,6 +17,8 @@ const ROWS: RawProductRow[] = [
   { id: 'p-antinal-susp', name: 'ANTINAL SUSP', product_code: '4608', normalized_name: 'antinal susp', category: null, price: 45, source: 'catalog_import' },
   { id: 'p-flexilax', name: 'Flexilax 30 tabs', product_code: '68114', normalized_name: 'flexilax 30 tabs', category: null, price: 55, source: 'catalog_import' },
   { id: 'p-teenderm-sensitive', name: 'ISIS TEEN DERM GEL SENSITIVE 250ML', product_code: '70271', normalized_name: 'isis teen derm gel sensitive 250ml', category: null, price: 420, source: 'catalog_import' },
+  { id: 'p-pedicort-syrup', name: 'PEDICORT FORTE SYRUP 100 ML', product_code: '67929', normalized_name: 'pedicort forte syrup 100 ml', category: null, price: 180, source: 'catalog_import' },
+  { id: 'p-cortiforte-syrup', name: 'CORTIFORTE SYRUP 100 ML', product_code: 'SYN-CORTIFORTE', normalized_name: 'cortiforte syrup 100 ml', category: null, price: null, source: 'synthetic_local_smoke' },
   { id: 'p-panadol-extra-24', name: 'Panadol Extra 24 tabs', product_code: 'SYN-PANADOL-EXTRA-24', normalized_name: 'panadol extra 24 tabs', category: null, price: null, source: 'synthetic_local_smoke' },
   { id: 'p-panadol-extra-48', name: 'Panadol Extra 48 tabs', product_code: 'SYN-PANADOL-EXTRA-48', normalized_name: 'panadol extra 48 tabs', category: null, price: null, source: 'synthetic_local_smoke' },
 ];
@@ -49,6 +51,37 @@ describe('resolveProductMention — match basis hierarchy', () => {
   it('5. resolves via the cross-script seed table (Arabic -> Latin catalog token)', () => {
     const result = resolveProductMention('عايز فليكسيلاكس', INDEX);
     expect(result.candidates.some((c) => c.product.productId === 'p-flexilax' && c.basis === 'cross_script_equivalent')).toBe(true);
+  });
+
+  it('resolves the compound Arabic Pedicort phrase to its syrup SKU', () => {
+    const result = resolveProductMention('عايزه بيدو كورت فورت شراب للكبار', INDEX);
+    expect(result.selected?.product.productCode).toBe('67929');
+    expect(result.selected?.product.canonicalName).toBe('PEDICORT FORTE SYRUP 100 ML');
+    expect(result.selected?.basis).toBe('cross_script_equivalent');
+    expect(result.candidates.some((candidate) => candidate.product.productCode === 'SYN-CORTIFORTE')).toBe(false);
+  });
+
+  it('resolves the joined Arabic Pedicort spelling', () => {
+    const result = resolveProductMention('بيدوكورت فورت', INDEX);
+    expect(result.selected?.product.productCode).toBe('67929');
+  });
+
+  it('resolves the alternate compound spelling normalized from بيدي كورت', () => {
+    const result = resolveProductMention('بيدي كورت فورت شراب', INDEX);
+    expect(result.selected?.product.productCode).toBe('67929');
+  });
+
+  it('does not resolve generic Arabic cort/forte words to Pedicort', () => {
+    for (const phrase of ['كورت', 'فورت شراب']) {
+      const result = resolveProductMention(phrase, INDEX);
+      expect(result.selected?.product.productCode).not.toBe('67929');
+    }
+  });
+
+  it('keeps a different CORT/FORTE product distinct from Pedicort', () => {
+    const result = resolveProductMention('CORTIFORTE SYRUP 100 ML', INDEX);
+    expect(result.selected?.product.productCode).toBe('SYN-CORTIFORTE');
+    expect(result.selected?.basis).toBe('exact_canonical_name');
   });
 
   it('5b. returns all Panadol Extra variants for the Arabic brand mention without choosing a pack size', () => {

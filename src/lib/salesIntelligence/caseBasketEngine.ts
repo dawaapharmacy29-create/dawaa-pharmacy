@@ -17,7 +17,11 @@ import {
   isSubstantiveConfirmationSignal,
   resolveReference,
 } from '../whatsappSemanticSignalsV32';
-import { resolveProductMention, type PharmacyProductIndex } from './pharmacyProducts/pharmacyProductResolverV2';
+import {
+  isBasketEligibleProductResolution,
+  resolveProductMention,
+  type PharmacyProductIndex,
+} from './pharmacyProducts/pharmacyProductResolverV2';
 import type {
   AnnouncedTotal,
   CaseBasket,
@@ -448,7 +452,7 @@ function directCatalogMentionItem(
   if (!message.isMeaningful || message.role !== 'customer') return null;
   const resolution = resolveProductMention(message.text, productIndex);
   const selected = resolution.selected;
-  if (resolution.ambiguous || !selected || !['proven', 'strongly_inferred'].includes(selected.confidence)) return null;
+  if (resolution.ambiguous || !selected || !isBasketEligibleProductResolution(selected)) return null;
   return {
     productNameRaw: message.text.trim(),
     productId: selected.product.productId,
