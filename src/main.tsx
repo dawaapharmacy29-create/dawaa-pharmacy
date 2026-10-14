@@ -20,6 +20,7 @@ import './styles/dawaa-theme-shell.css';
 import App from './App.tsx';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { clearRecoveredRuntimeError, clearStaleChunkRecoveryMarker, logRuntimeError } from '@/lib/appRecovery';
+import { normalizeStoredConversationReviewDraft } from '@/lib/reviews/reviewDraftNormalization';
 
 const BOOTSTRAP_RECOVERY_SCOPE = 'bootstrap';
 
@@ -109,6 +110,12 @@ function initOptionalRuntimeServices() {
   void import('@/lib/performanceMonitoring')
     .then(({ initializePerformanceMonitoring }) => initializePerformanceMonitoring?.())
     .catch((error) => logRuntimeError('performanceMonitoring init failed', error));
+}
+
+try {
+  normalizeStoredConversationReviewDraft(window.localStorage);
+} catch (error) {
+  logRuntimeError('conversation review draft normalization failed', error);
 }
 
 const rootElement = document.getElementById('root');

@@ -1,10 +1,18 @@
 const fs = require('node:fs');
 
+const checkOnly = process.argv.includes('--check');
+let drift = false;
+
 function patchFile(path, transform) {
   const before = fs.readFileSync(path, 'utf8');
   const after = transform(before);
   if (after === before) {
     console.log(`[audit-fix] no change needed: ${path}`);
+    return;
+  }
+  if (checkOnly) {
+    drift = true;
+    console.error(`[audit-fix] source drift detected: ${path}`);
     return;
   }
   fs.writeFileSync(path, after);
@@ -75,3 +83,10 @@ patchFile('src/components/ui/chart.tsx', (source) =>
 patchFile('src/lib/customers/loyaltyTiersService.ts', (source) =>
   source.replace(/while \(true\)/, 'for (;;)')
 );
+
+if (checkOnly && drift) {
+  console.error('[audit-fix] FAIL: targeted repairs are not fully committed. Run the repair script intentionally, review the diff, and commit it.');
+  process.exit(1);
+}
+
+if (checkOnly) console.log('[audit-fix] PASS: targeted repairs are already committed; no source mutation needed.');

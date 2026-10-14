@@ -1,6 +1,10 @@
 name: Quality Gate
 
 on:
+  push:
+    branches:
+      - main
+      - 'audit/**'
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -30,15 +34,14 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps --no-audit --no-fund
 
-      - name: Verify targeted repairs are idempotent
-        run: |
-          node scripts/audit-fix-semantic-lint.cjs
-          if ! git diff --quiet -- src; then
-            echo "Targeted repair script still changes committed source files."
-            git diff --stat
-            git diff
-            exit 1
-          fi
+      - name: Verify targeted repairs are already committed
+        run: node scripts/audit-fix-semantic-lint.cjs --check
+
+      - name: Build source purity boundary
+        run: node scripts/check-build-source-purity.cjs
+
+      - name: Runtime bootstrap patch boundary
+        run: node scripts/check-runtime-bootstrap-patches.cjs
 
       - name: Environment doctor
         run: npm run doctor

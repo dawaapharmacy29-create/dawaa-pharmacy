@@ -23,6 +23,9 @@ on:
       - 'supabase/migrations/*monthly_evaluation*.sql'
       - '.github/workflows/monthly-evaluation-v5.yml'
 
+permissions:
+  contents: read
+
 concurrency:
   group: monthly-evaluation-v5-${{ github.ref }}
   cancel-in-progress: true

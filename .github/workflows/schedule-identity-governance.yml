@@ -17,6 +17,9 @@ on:
       - 'supabase/migrations/20260906173500_shift_schedule_identity_governance_v1.sql'
       - 'scripts/check-schedule-identity-governance.cjs'
 
+permissions:
+  contents: read
+
 jobs:
   verify:
     runs-on: ubuntu-latest

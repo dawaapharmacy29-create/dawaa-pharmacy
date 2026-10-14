@@ -27,6 +27,9 @@ on:
       - 'scripts/check-attendance-canonical-architecture.cjs'
       - '.github/workflows/attendance-canonical-architecture.yml'
 
+permissions:
+  contents: read
+
 concurrency:
   group: attendance-canonical-${{ github.ref }}
   cancel-in-progress: true
