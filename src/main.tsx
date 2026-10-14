@@ -1,15 +1,6 @@
 import './lib/mobileSafariCompat';
-import {
-  StrictMode,
-  Suspense,
-  lazy,
-  useEffect,
-  useLayoutEffect,
-  useState,
-  type ComponentType,
-} from 'react';
+import { StrictMode, Suspense, lazy, useEffect, useLayoutEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
 import './index.css';
 import './styles/dawaa-design-system.css';
 import './styles/v3-polish.css';
@@ -26,17 +17,11 @@ import './styles/dawaa-theme-foundation.css';
 import './styles/dawaa-theme-palettes.css';
 import './styles/dawaa-theme-components.css';
 import './styles/dawaa-theme-shell.css';
-import AppRecoveryScreen from '@/components/system/AppRecoveryScreen';
+import App from './App.tsx';
 import { ThemeProvider } from '@/contexts/ThemeContext';
-import {
-  clearRecoveredRuntimeError,
-  clearStaleChunkRecoveryMarker,
-  isStaleChunkImportError,
-  logRuntimeError,
-  recoverFromStaleChunkOnce,
-} from '@/lib/appRecovery';
+import { clearRecoveredRuntimeError, clearStaleChunkRecoveryMarker, logRuntimeError } from '@/lib/appRecovery';
+import { normalizeStoredConversationReviewDraft } from '@/lib/reviews/reviewDraftNormalization';
 
-const APP_IMPORT_TIMEOUT_MS = 25000;
 const BOOTSTRAP_RECOVERY_SCOPE = 'bootstrap';
 
 declare global {
@@ -49,6 +34,8 @@ declare global {
 function ReactBootstrapMarker() {
   useLayoutEffect(() => {
     window.__DAWAA_MARK_REACT_BOOTSTRAPPED?.();
+    clearRecoveredRuntimeError();
+    clearStaleChunkRecoveryMarker(BOOTSTRAP_RECOVERY_SCOPE);
   }, []);
   return null;
 }
@@ -64,72 +51,6 @@ function BootstrapShell() {
     </div>
   );
 }
-
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
-  let timeoutId: number | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timeoutId = window.setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
-  });
-
-  return Promise.race([promise, timeout]).finally(() => {
-    if (timeoutId) window.clearTimeout(timeoutId);
-  });
-}
-
-function normalizeDefault<T extends ComponentType>(module: { default: T }) {
-  return module;
-}
-
-async function loadRescueRoute() {
-  const path = window.location.pathname;
-  if (path === '/login') {
-    const module = await import('@/pages/Login');
-    const LoginPage = module.default;
-    return {
-      default: () => (
-        <BrowserRouter>
-          <LoginPage />
-        </BrowserRouter>
-      ),
-    };
-  }
-  if (path === '/diagnostics') {
-    return await import('@/pages/Diagnostics');
-  }
-  return null;
-}
-
-const SafeApp = lazy(async () => {
-  console.info('[Dawaa bootstrap] start');
-  try {
-    const module = await withTimeout(import('./App.tsx'), APP_IMPORT_TIMEOUT_MS, 'App import');
-    console.info('[Dawaa bootstrap] App imported');
-    clearRecoveredRuntimeError();
-    clearStaleChunkRecoveryMarker(BOOTSTRAP_RECOVERY_SCOPE);
-    return normalizeDefault(module);
-  } catch (error) {
-    console.error('[Dawaa bootstrap] App import failed', error);
-    logRuntimeError('bootstrap App import failed', error);
-    if (isStaleChunkImportError(error)) {
-      const recovering = await recoverFromStaleChunkOnce(BOOTSTRAP_RECOVERY_SCOPE);
-      if (recovering) return { default: BootstrapShell };
-    }
-    const rescueRoute = await loadRescueRoute().catch((rescueError) => {
-      logRuntimeError('bootstrap rescue route failed', rescueError);
-      return null;
-    });
-    if (rescueRoute) return rescueRoute;
-    return {
-      default: () => (
-        <AppRecoveryScreen
-          reason="app_import_failed"
-          title="تعذر تحميل التطبيق"
-          message="فشل التحميل بعد محاولة استرداد تلقائية آمنة. جرّب إصلاح كاش التشغيل؛ لا تحتاج لتسجيل الخروج إلا إذا كانت الجلسة نفسها منتهية."
-        />
-      ),
-    };
-  }
-});
 
 function isOptionalRuntimeEnabled() {
   if (typeof window === 'undefined') return false;
@@ -191,6 +112,12 @@ function initOptionalRuntimeServices() {
     .catch((error) => logRuntimeError('performanceMonitoring init failed', error));
 }
 
+try {
+  normalizeStoredConversationReviewDraft(window.localStorage);
+} catch (error) {
+  logRuntimeError('conversation review draft normalization failed', error);
+}
+
 const rootElement = document.getElementById('root');
 
 if (!rootElement) {
@@ -201,7 +128,7 @@ if (!rootElement) {
       <ThemeProvider>
         <ReactBootstrapMarker />
         <Suspense fallback={<BootstrapShell />}>
-          <SafeApp />
+          <App />
           <OptionalRuntimeAddons />
         </Suspense>
       </ThemeProvider>

@@ -1,8 +1,11 @@
 import { lazy, Suspense } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import Reviews from '@/pages/Reviews';
 import { parseReviewsRoute, reviewsFormKey } from '@/lib/reviews/reviewRouteState';
 
-const Reviews = lazy(() => import('@/pages/Reviews'));
+// ReviewsEnhanced is already lazy-loaded by App.tsx. Keep the primary editor in the same
+// route module so opening /reviews does not depend on a second dynamic-import boundary that can
+// leave the user stuck on "جاري تحميل نموذج التقييم..." after a deployment/cache transition.
 const ConversationReviewEvidence = lazy(() => import('@/pages/ConversationReviewEvidence'));
 const ConversationReviewsHistoryAdvanced = lazy(() => import('@/pages/ConversationReviewsHistoryAdvanced'));
 const ConversationReviewDetailsFast = lazy(() => import('@/pages/ConversationReviewDetailsFast'));
@@ -80,10 +83,8 @@ export default function ReviewsEnhanced() {
           </div>
         </div>
       ) : null}
-      <Suspense fallback={<ReviewModeLoader label={editMode ? 'جاري تحميل تعديل التقييم...' : 'جاري تحميل نموذج التقييم...'} />}>
-        {/* The key depends only on route kind + review id: edits, autosave and refetches never remount. */}
-        <Reviews key={reviewsFormKey(route)} />
-      </Suspense>
+      {/* The key depends only on route kind + review id: edits, autosave and refetches never remount. */}
+      <Reviews key={reviewsFormKey(route)} />
     </div>
   );
 }

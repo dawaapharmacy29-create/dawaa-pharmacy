@@ -5,7 +5,7 @@ import { getCurrentCycle, getRemainingDays } from '@/lib/pharmacy-cycle';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { isSupabaseConfigured } from '@/lib/supabase';
-import type { AppNotification } from '@/lib/notificationService';
+import { NOTIFICATIONS_ENABLED, type AppNotification } from '@/lib/notificationService';
 import { saveNotificationSettings, useNotifications } from '@/hooks/useNotifications';
 import {
   notificationActionLabel,
@@ -186,7 +186,7 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
 
   return (
     <header className="dawaa-header sticky top-0 z-[220] flex h-14 items-center gap-3 border-b px-4 backdrop-blur" dir="rtl">
-      <DesktopNotificationRuntime notifications={notifications} onOpen={openNotification} />
+      {NOTIFICATIONS_ENABLED && <DesktopNotificationRuntime notifications={notifications} onOpen={openNotification} /> }
       <button type="button" onClick={onMobileMenuOpen} className="dawaa-header-icon-button rounded-lg p-2 transition lg:hidden">
         <Menu size={20} />
       </button>
@@ -219,7 +219,7 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
         </button>
       </div>
 
-      <div className="relative">
+      {NOTIFICATIONS_ENABLED && <div className="relative">
         <button type="button" onClick={() => setShowNotifs((value) => !value)} className="dawaa-header-icon-button relative rounded-lg p-2 transition" aria-label="الإشعارات المهمة">
           <Bell size={18} />
           {visibleUnreadCount > 0 && (
@@ -290,9 +290,9 @@ export default function Header({ onMobileMenuOpen, title }: HeaderProps) {
             <button type="button" onClick={() => { setShowNotifs(false); navigate('/operations-center'); }} className="dawaa-header-footer-action w-full border-t px-4 py-3 text-center text-xs font-black">فتح مركز الإشعارات والمهام الكامل</button>
           </div>
         )}
-      </div>
+      </div>}
 
-      {showNotifs && <div className="fixed inset-0 z-40" onClick={() => setShowNotifs(false)} aria-hidden />}
+      {NOTIFICATIONS_ENABLED && showNotifs && <div className="fixed inset-0 z-40" onClick={() => setShowNotifs(false)} aria-hidden />}
     </header>
   );
 }

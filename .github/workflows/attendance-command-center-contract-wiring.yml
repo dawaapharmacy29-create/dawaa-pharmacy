@@ -21,6 +21,9 @@ on:
       - 'src/pages/Reviews.tsx'
       - '.github/workflows/attendance-command-center-contract-wiring.yml'
 
+permissions:
+  contents: read
+
 concurrency:
   group: attendance-command-center-contract-${{ github.ref }}
   cancel-in-progress: true

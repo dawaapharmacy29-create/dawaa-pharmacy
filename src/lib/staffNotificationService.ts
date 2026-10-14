@@ -1,12 +1,3 @@
-import { supabase } from '@/lib/supabase';
-import {
-  buildNotificationDedupeKey,
-  canonicalNotificationRoute,
-  canonicalNotificationType,
-  notificationRequiresAction,
-} from '@/lib/notifications/notificationDomain';
-import { CANONICAL_NOTIFICATION_READ_MODEL } from '@/lib/notificationService';
-
 export type StaffNotificationPriority = 'low' | 'normal' | 'high' | 'urgent';
 
 export type StaffNotification = {
@@ -24,7 +15,6 @@ export type StaffNotification = {
   createdAt: string;
 };
 
-type RawRow = Record<string, unknown>;
 export type CreateStaffNotificationInput = {
   recipientStaffId: string;
   type: string;
@@ -39,145 +29,31 @@ export type CreateStaffNotificationInput = {
   stateKey?: string;
 };
 
-function text(value: unknown): string { return String(value ?? '').trim(); }
-function priority(value: unknown): StaffNotificationPriority {
-  const candidate = text(value);
-  return candidate === 'low' || candidate === 'high' || candidate === 'urgent' ? candidate : 'normal';
-}
-function mapRow(row: RawRow): StaffNotification {
-  return {
-    id: text(row.id),
-    recipientStaffId: text(row.recipient_staff_id),
-    type: text(row.type || 'system'),
-    title: text(row.title || 'إشعار'),
-    message: text(row.message),
-    priority: priority(row.priority),
-    entityType: text(row.target_type) || undefined,
-    entityId: text(row.target_id) || undefined,
-    actionUrl: text(row.route) || undefined,
-    metadata: (row.metadata && typeof row.metadata === 'object' ? row.metadata : {}) as Record<string, unknown>,
-    isRead: Boolean(row.is_read ?? row.status === 'read'),
-    createdAt: text(row.created_at),
-  };
-}
-
-async function readStaffNotificationById(id: string): Promise<StaffNotification | null> {
-  const { data, error } = await supabase
-    .from(CANONICAL_NOTIFICATION_READ_MODEL)
-    .select('*')
-    .eq('id', id)
-    .maybeSingle();
-  if (error || !data) return null;
-  return mapRow(data as RawRow);
-}
-
-export async function createStaffNotification(input: CreateStaffNotificationInput): Promise<StaffNotification | null> {
-  const recipientStaffId = text(input.recipientStaffId);
-  const title = text(input.title);
-  if (!recipientStaffId || !title) return null;
-
-  const canonicalType = canonicalNotificationType(input.type);
-  const notifPriority = input.priority || 'normal';
-  const actionUrl = canonicalNotificationRoute({
-    type: canonicalType,
-    entityId: input.entityId,
-    explicitRoute: input.actionUrl,
-    recipientStaffId,
-  });
-  const dedupeKey = text(input.dedupeKey) || buildNotificationDedupeKey({
-    type: canonicalType,
-    recipientStaffId,
-    entityType: input.entityType,
-    entityId: input.entityId,
-    stateKey: input.stateKey,
-  });
-  const metadata = {
-    ...(input.metadata || {}),
-    canonicalType,
-    requiresAction: notificationRequiresAction(canonicalType, notifPriority),
-    route: actionUrl,
-  };
-
-  const { data: rpcId, error: rpcError } = await supabase.rpc('create_staff_notification_client_v1', {
-    p_recipient_staff_id: recipientStaffId,
-    p_notification_type: canonicalType,
-    p_title: title,
-    p_message: text(input.message),
-    p_entity_type: text(input.entityType) || null,
-    p_entity_id: text(input.entityId) || null,
-    p_action_url: actionUrl,
-    p_priority: notifPriority,
-    p_metadata: metadata,
-    p_dedupe_key: dedupeKey || null,
-  });
-
-  if (rpcError || !rpcId) throw rpcError || new Error('تعذر إنشاء إشعار الموظف.');
-  return await readStaffNotificationById(String(rpcId)) || {
-    id: String(rpcId),
-    recipientStaffId,
-    type: canonicalType,
-    title,
-    message: text(input.message),
-    priority: notifPriority,
-    entityType: text(input.entityType) || undefined,
-    entityId: text(input.entityId) || undefined,
-    actionUrl,
-    metadata,
-    isRead: false,
-    createdAt: new Date().toISOString(),
-  };
+// Staff notifications are intentionally paused to remove notification load from
+// the admin app while the database is under recovery/compute pressure.
+export async function createStaffNotification(_input: CreateStaffNotificationInput): Promise<StaffNotification | null> {
+  return null;
 }
 
 export async function notifyBranchDoctors(
-  branch: string,
-  notification: Omit<CreateStaffNotificationInput, 'recipientStaffId'>
+  _branch: string,
+  _notification: Omit<CreateStaffNotificationInput, 'recipientStaffId'>
 ): Promise<void> {
-  const branchValue = text(branch);
-  if (!branchValue) return;
-  const { data, error } = await supabase.rpc('get_staff_accounts_directory', {
-    p_roles: ['pharmacist', 'assistant'],
-    p_branch: branchValue,
-  });
-  if (error || !data) return;
-  const activeRows = (data as Array<{ staff_id: string; active: boolean; can_login: boolean }>)
-    .filter((row) => row.active !== false && row.can_login !== false);
-  const staffIds: string[] = [...new Set(activeRows.map((row) => text(row.staff_id)))].filter((value): value is string => Boolean(value));
-  await Promise.all(staffIds.map((recipientStaffId: string) => createStaffNotification({ ...notification, recipientStaffId }).catch(() => null)));
+  return;
 }
 
-export async function listStaffNotifications(staffId: string, limit = 100): Promise<StaffNotification[]> {
-  if (!staffId) return [];
-  const [personal, global] = await Promise.all([
-    supabase.from(CANONICAL_NOTIFICATION_READ_MODEL).select('*').eq('recipient_staff_id', staffId).order('created_at', { ascending: false }).limit(limit),
-    supabase.from(CANONICAL_NOTIFICATION_READ_MODEL).select('*').eq('is_global', true).order('created_at', { ascending: false }).limit(Math.min(limit, 30)),
-  ]);
-  const unique = new Map<string, StaffNotification>();
-  [...(personal.data || []), ...(global.data || [])]
-    .map((row) => mapRow(row as RawRow))
-    .filter((row) => row.id)
-    .forEach((row) => unique.set(row.id, row));
-  return [...unique.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit);
+export async function listStaffNotifications(_staffId: string, _limit = 100): Promise<StaffNotification[]> {
+  return [];
 }
 
-export async function markStaffNotificationRead(notificationId: string): Promise<void> {
-  if (!notificationId) return;
-  const { error } = await supabase.rpc('mark_my_notification_read_v1', { p_notification_id: notificationId });
-  if (error) throw error;
+export async function markStaffNotificationRead(_notificationId: string): Promise<void> {
+  return;
 }
 
-export async function markAllStaffNotificationsRead(staffId: string): Promise<void> {
-  if (!staffId) return;
-  const { error } = await supabase.rpc('mark_all_my_notifications_read_v1');
-  if (error) throw error;
+export async function markAllStaffNotificationsRead(_staffId: string): Promise<void> {
+  return;
 }
 
-export function subscribeToStaffNotifications(staffId: string, onChange: () => void) {
-  if (!staffId) return () => undefined;
-  // Realtime listens to the physical table because Postgres views are not a realtime source;
-  // all payload reads still go through notification_events_v2.
-  const channel = supabase
-    .channel(`staff-notifications:${staffId}`)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `recipient_staff_id=eq.${staffId}` }, onChange)
-    .subscribe();
-  return () => { void supabase.removeChannel(channel); };
+export function subscribeToStaffNotifications(_staffId: string, _onChange: () => void) {
+  return () => undefined;
 }

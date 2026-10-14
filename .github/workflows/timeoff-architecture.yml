@@ -23,6 +23,9 @@ on:
       - 'supabase/migrations/**'
       - 'scripts/check-timeoff-canonical-architecture.cjs'
 
+permissions:
+  contents: read
+
 jobs:
   canonical-timeoff:
     runs-on: ubuntu-latest

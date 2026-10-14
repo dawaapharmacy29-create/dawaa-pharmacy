@@ -11,7 +11,10 @@ import {
   type StaffSessionStatus,
 } from '@/lib/auth/staffSession';
 import type { User } from '@/types';
-import { hasAuthorizationScopeChanged } from '@/lib/auth/authorizationCacheScope';
+import {
+  authorizationCacheScopeKey,
+  hasAuthorizationScopeChanged,
+} from '@/lib/auth/authorizationCacheScope';
 import {
   ALL_PERMISSION_KEYS,
   getDefaultPermissionsForRole,
@@ -46,6 +49,8 @@ interface StaffAccountLoginRow {
 }
 
 const STORAGE_KEY = 'dawaa_auth_user_v2';
+const AUTH_SCOPE_RELOAD_GUARD_KEY = 'dawaa_auth_scope_reload_guard_v1';
+const AUTH_SCOPE_RELOAD_GUARD_MS = 60 * 1000;
 const listeners = new Set<() => void>();
 const ACCOUNT_REFRESH_TTL_MS = 5 * 60 * 1000;
 const ACCOUNT_REFRESH_TIMEOUT_MS = 3500;
@@ -212,6 +217,10 @@ function readStoredUser(): User | null {
 }
 
 let currentUser: User | null = readStoredUser();
+// A restored profile is verified once before protected content is trusted. After that, TTL refreshes
+// are stale-while-revalidate: they run in the background and must not flash the full auth loader on
+// every protected-route mount. A real identity/role/branch/permission change still forces the cache-safe reload below.
+let initialAccountRefreshComplete = currentUser == null;
 
 function setCurrentUser(user: User | null) {
   const previousUser = currentUser;
@@ -228,7 +237,7 @@ function setCurrentUser(user: User | null) {
     }
   }
   listeners.forEach((listener) => listener());
-  if (hasAuthorizationScopeChanged(previousUser, currentUser)) discardPreviousAccountMemory(currentUser?.id ?? null);
+  if (hasAuthorizationScopeChanged(previousUser, currentUser)) discardPreviousAccountMemory(currentUser);
 }
 
 /**
@@ -237,12 +246,37 @@ function setCurrentUser(user: User | null) {
  * alive, so a different account in the same tab could be served the previous account's cached data (another
  * branch's figures). A full navigation drops all in-memory state once the identity changes.
  */
-function discardPreviousAccountMemory(nextAccountId: string | null) {
+function discardPreviousAccountMemory(nextUser: User | null) {
   if (typeof window === 'undefined') return;
-  window.setTimeout(() => {
-    if (nextAccountId) window.location.reload();
-    else window.location.replace('/login');
-  }, 0);
+  if (!nextUser) {
+    window.setTimeout(() => window.location.replace('/login'), 0);
+    return;
+  }
+
+  // One hard reload is enough to drop viewer-scoped module caches. If the browser restores stale
+  // auth storage or another bootstrap edge case reports the same scope again, do not enter a reload loop.
+  const scopeKey = authorizationCacheScopeKey(nextUser) || nextUser.id;
+  try {
+    const raw = window.sessionStorage.getItem(AUTH_SCOPE_RELOAD_GUARD_KEY);
+    if (raw) {
+      const previous = JSON.parse(raw) as { scopeKey?: string; at?: number };
+      if (
+        previous.scopeKey === scopeKey &&
+        Number.isFinite(previous.at) &&
+        Date.now() - Number(previous.at) < AUTH_SCOPE_RELOAD_GUARD_MS
+      ) {
+        return;
+      }
+    }
+    window.sessionStorage.setItem(
+      AUTH_SCOPE_RELOAD_GUARD_KEY,
+      JSON.stringify({ scopeKey, at: Date.now() })
+    );
+  } catch {
+    // If sessionStorage is unavailable, preserve the existing secure one-reload behavior.
+  }
+
+  window.setTimeout(() => window.location.reload(), 0);
 }
 
 function logAuthActivity(user: User, action: string, details: string) {
@@ -471,7 +505,8 @@ export function useAuth() {
     }
     let cancelled = false;
 
-    const shouldBlockForRefresh = Date.now() - lastAccountRefreshAt >= ACCOUNT_REFRESH_TTL_MS;
+    const refreshIsDue = Date.now() - lastAccountRefreshAt >= ACCOUNT_REFRESH_TTL_MS;
+    const shouldBlockForRefresh = !initialAccountRefreshComplete && refreshIsDue;
     setLoading(shouldBlockForRefresh);
 
     void refreshCurrentStaffAccount(currentUser)
@@ -490,6 +525,7 @@ export function useAuth() {
         }
       })
       .finally(() => {
+        initialAccountRefreshComplete = true;
         if (!cancelled) setLoading(false);
       });
     return () => {
@@ -553,6 +589,10 @@ export function useAuth() {
     const accountUser = await loginWithStaffAccount(username, password);
     if (accountUser) {
       lastAccountRefreshAt = Date.now();
+      initialAccountRefreshComplete = true;
+      try {
+        window.sessionStorage.removeItem(AUTH_SCOPE_RELOAD_GUARD_KEY);
+      } catch {}
       setCurrentUser(accountUser);
       logAuthActivity(accountUser, 'login', 'success');
       return true;
@@ -565,6 +605,10 @@ export function useAuth() {
     await revokeStoredStaffSession();
     setCurrentUser(null);
     lastAccountRefreshAt = 0;
+    initialAccountRefreshComplete = true;
+    try {
+      window.sessionStorage.removeItem(AUTH_SCOPE_RELOAD_GUARD_KEY);
+    } catch {}
     try {
       await withTimeout(
         supabase.rpc('set_current_user_context', { p_user_id: null }),

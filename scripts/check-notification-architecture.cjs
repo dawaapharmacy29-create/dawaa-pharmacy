@@ -101,6 +101,30 @@ if (fs.existsSync(path.join(ROOT, LEGACY_BURST_DEDUPE_MIGRATION))) {
   if (/delete\s+from\s+public\.notifications/i.test(dedupeSource)) failures.push(`${LEGACY_BURST_DEDUPE_MIGRATION} must archive history, never delete it.`);
 }
 
+// The admin notification feature is deliberately archived. In this mode,
+// validate the fail-closed public API instead of requiring live inbox wiring.
+const pausedService = fs.readFileSync(path.join(ROOT, SERVICE), 'utf8');
+const pausedHook = fs.readFileSync(path.join(ROOT, 'src/hooks/useNotifications.ts'), 'utf8');
+if (/export const NOTIFICATIONS_ENABLED = false\s*;/.test(pausedService)) {
+  for (const token of [
+    'export async function createNotification(',
+    'export async function getRecentNotifications(',
+    'export async function getUnreadNotificationCount(',
+  ]) {
+    if (!pausedService.includes(token)) failures.push('Archived notification API missing: ' + token);
+  }
+  if (!pausedHook.includes('notifications: [] as AppNotification[]') || !pausedHook.includes('unreadCount: 0')) {
+    failures.push('Archived notification hook must expose an empty, non-loading inbox');
+  }
+  if (failures.length) {
+    console.error('[notification-architecture] archived mode FAIL');
+    failures.forEach((failure) => console.error('- ' + failure));
+    process.exit(1);
+  }
+  console.log('[notification-architecture] PASS: archived mode, no direct notification writers/readers and empty inbox API');
+  process.exit(0);
+}
+
 const serviceSource = fs.readFileSync(path.join(ROOT, SERVICE), 'utf8');
 if (!serviceSource.includes('notification_events_v2')) failures.push(`${SERVICE} must own the canonical notification_events_v2 read boundary.`);
 if (!serviceSource.includes('create_notification_audience_v1')) failures.push(`${SERVICE} must keep notification creation behind create_notification_audience_v1.`);
