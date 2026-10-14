@@ -5,8 +5,10 @@ const migrationPath = 'supabase/migrations/20260824004500_harden_payroll_permiss
 const alignmentPath = 'supabase/migrations/20260824004600_align_payroll_permission_contract_v2.sql';
 const freezePath = 'supabase/migrations/20260830210000_payroll_freeze_command_v14.sql';
 const lockdownPath = 'supabase/migrations/20260830211000_payroll_table_surface_lockdown_v14.sql';
+const currentEnginePath = 'supabase/migrations/20260921043120_attendance_payroll_engine_v2_and_readiness_v19.sql';
 const permissionPath = 'src/lib/core/permissionSystem.ts';
-const payrollPagePath = 'src/pages/PayrollManagement.tsx';
+const payrollEntryPath = 'src/pages/PayrollManagement.tsx';
+const payrollWorkspacePath = 'src/pages/PayrollManagementV2.tsx';
 const failures = [];
 
 if (!fs.existsSync(migrationPath)) {
@@ -60,32 +62,51 @@ if (!fs.existsSync(lockdownPath)) {
   if (!lockdownSql.includes('grant select on table public.staff_payroll_monthly_v13 to anon,authenticated')) failures.push('Payroll browser roles must retain scoped SELECT access.');
 }
 
+if (!fs.existsSync(currentEnginePath)) {
+  failures.push(`Missing current payroll engine/readiness migration: ${currentEnginePath}`);
+} else {
+  const currentEngineSql = fs.readFileSync(currentEnginePath, 'utf8').toLowerCase().replace(/\s+/g, ' ');
+  if (!currentEngineSql.includes('attendance_payroll_engine_v2')) failures.push('Current payroll contract must keep attendance_payroll_engine_v2.');
+  if (!/['"]engine_version['"]\s*,\s*19/.test(currentEngineSql)) failures.push('Current payroll readiness contract must identify engine version 19.');
+}
+
 const permissionSource = fs.readFileSync(permissionPath, 'utf8');
 for (const key of ['view_salary_calculator', 'manage_payroll']) if (!permissionSource.includes(key)) failures.push(`Canonical permission system missing ${key}`);
 if (permissionSource.includes('manage_salary_calculator')) failures.push('Non-canonical manage_salary_calculator must not be added to permissionSystem.ts.');
 if (!/['"]\/staff-payroll['"]\s*:\s*['"]manage_payroll['"]/.test(permissionSource)) failures.push('staff-payroll route must remain guarded by manage_payroll.');
 
-const payrollPage = fs.readFileSync(payrollPagePath, 'utf8');
+if (!fs.existsSync(payrollEntryPath)) {
+  failures.push(`Missing payroll compatibility entrypoint: ${payrollEntryPath}`);
+} else {
+  const payrollEntry = fs.readFileSync(payrollEntryPath, 'utf8');
+  if (!payrollEntry.includes("export { default } from './PayrollManagementV2';")) {
+    failures.push('Live PayrollManagement entrypoint must route to PayrollManagementV2.');
+  }
+}
 
-// PayrollManagement has moved beyond the legacy V13/V14 editor into the current
-// read-model/ledger architecture. Keep the historical freeze/lockdown migrations
-// verified above, while requiring the active page to use the canonical services
-// and never reintroduce direct writes to the legacy payroll tables.
-for (const boundary of [
-  '@/lib/payroll/payrollFinalizedSnapshotService',
-  '@/lib/payroll/payrollCompensationService',
-  '@/lib/payroll/attendancePayrollReadinessService',
-  '@/components/attendance/PayrollAttendanceSafetyGate',
-  '@/components/payroll/PayrollManualEntriesPanel',
-]) {
-  if (!payrollPage.includes(boundary)) failures.push(`Payroll page missing current canonical boundary ${boundary}`);
-}
-if (!payrollPage.includes('Payroll Engine V18')) failures.push('Payroll page must identify the current Payroll Engine V18 preview/source-of-truth contract.');
-if (/\.from\(['"]staff_payroll_(?:profiles|monthly)_v13['"]\)[\s\S]{0,350}\.(?:insert|update|upsert|delete)\s*\(/.test(payrollPage)) {
-  failures.push('Payroll page must not write legacy V13 payroll tables directly.');
-}
-if (/save_staff_payroll_monthly_v14/.test(payrollPage)) {
-  failures.push('Current PayrollManagement must not reintroduce the legacy V14 monthly save command.');
+if (!fs.existsSync(payrollWorkspacePath)) {
+  failures.push(`Missing live payroll workspace: ${payrollWorkspacePath}`);
+} else {
+  const payrollPage = fs.readFileSync(payrollWorkspacePath, 'utf8');
+
+  // PayrollManagement is now only a compatibility entrypoint. The live Workspace V2
+  // owns the read-model/ledger integrations, so validate the actual routed page rather
+  // than requiring stale implementation tokens from the wrapper or an old V18 label.
+  for (const boundary of [
+    '@/lib/payroll/payrollFinalizedSnapshotService',
+    '@/lib/payroll/payrollCompensationService',
+    '@/lib/payroll/attendancePayrollReadinessService',
+    '@/components/attendance/PayrollAttendanceSafetyGate',
+    '@/components/payroll/PayrollManualEntriesPanel',
+  ]) {
+    if (!payrollPage.includes(boundary)) failures.push(`Payroll Workspace V2 missing current canonical boundary ${boundary}`);
+  }
+  if (/\.from\(['"]staff_payroll_(?:profiles|monthly)_v13['"]\)[\s\S]{0,350}\.(?:insert|update|upsert|delete)\s*\(/.test(payrollPage)) {
+    failures.push('Payroll Workspace V2 must not write legacy V13 payroll tables directly.');
+  }
+  if (/save_staff_payroll_monthly_v14/.test(payrollPage)) {
+    failures.push('Current Payroll Workspace V2 must not reintroduce the legacy V14 monthly save command.');
+  }
 }
 
 if (failures.length) {
@@ -93,4 +114,4 @@ if (failures.length) {
   failures.forEach((failure) => console.error(`- ${failure}`));
   process.exit(1);
 }
-console.log('[payroll-architecture] PASS: canonical payroll permissions, branch scope, historical freeze/lockdown invariants, current read-model/ledger boundaries, and no legacy payroll writes are enforced.');
+console.log('[payroll-architecture] PASS: canonical payroll permissions, branch scope, historical freeze/lockdown invariants, live Workspace V2 boundaries, current V19 engine/readiness contract, and no legacy payroll writes are enforced.');
