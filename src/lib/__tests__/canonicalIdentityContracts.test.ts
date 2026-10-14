@@ -236,6 +236,12 @@ describe('contract 3: source branch is immutable provenance', () => {
     expect(persistContext).toContain('branch: branchHint.value || null');
     expect(persistContext).not.toContain('resolvedCustomer');
   });
+
+  it('V22 case branch stays aligned with its root source when the source branch is null', () => {
+    const persistence = read('src/lib/whatsappCustomerCasePersistenceV22.ts');
+    expect(persistence).toContain('branch: rootSource ? rootSource.branch : context.branch || null');
+    expect(persistence).not.toContain('branch: rootSource?.branch || context.branch || null');
+  });
 });
 
 describe('contract 14: retries converge', () => {

@@ -29,7 +29,10 @@ import {
   staffDirectoryRowsFromIdentities,
   type StaffIdentityMap,
 } from '../staff/staffIdentityResolver';
-import { parseWhatsAppExport } from '../whatsappConversationParser';
+import {
+  extractIntroducedStaffName,
+  parseWhatsAppExport,
+} from '../whatsappConversationParser';
 import { fetchPharmacyProductIndex } from './pharmacyProductCatalogRepository';
 import type { PharmacyProductIndex } from './pharmacyProducts/pharmacyProductResolverV2';
 import type { SalesIntelligencePipelineInput } from './salesIntelligencePipeline';
@@ -51,6 +54,7 @@ export interface SalesIntelligenceRuntimeContext {
 export interface PreparedSalesIntelligenceConversation extends BatchConversationInput {
   customerIdentityStatus: CanonicalCustomerIdentityStatus;
   staffIdBySender: Record<string, string>;
+  staffIdByIntroductionMessageId: Record<string, string>;
 }
 
 export type SalesIntelligencePipelineBaseInput = Omit<
@@ -73,6 +77,14 @@ export function buildSalesIntelligenceRuntimeContext(input: {
       .filter(Boolean)
   );
   return { staffIdentityMap, staffLikeNames, productIndex: input.productIndex };
+}
+
+export function resolveCanonicalStaffIdByName(
+  name: string,
+  staffIdentityMap: StaffIdentityMap
+): string | null {
+  const normalized = normalizeDoctorName(name);
+  return normalized ? staffIdentityMap.get(`name:${normalized}`)?.staffId ?? null : null;
 }
 
 /**
@@ -98,21 +110,35 @@ export async function loadSalesIntelligenceRuntimeContext(
  *  - inbound senders are mapped only if at least one inbound sender has NO directory name match
  *    at all (unique or ambiguous) — that sender is the customer. A conversation whose every
  *    inbound sender "looks like" staff stays unmapped;
- *  - "You"/device-owner senders carry no name and therefore stay unmapped;
- *  - no filename, no first-staff-wins, no introduced-name guessing here.
+ *  - "You"/device-owner senders stay unmapped here; explicit self-introductions are resolved
+ *    separately by exact canonical directory name and scoped to their own case;
+ *  - no filename, first-staff-wins, or fuzzy introduced-name matching.
  */
-export function resolveStaffIdBySender(
+function resolveConversationStaffIdentity(
   conversation: Pick<
     BatchConversationInput,
     'rawWhatsAppExportText' | 'trustedConversationStartedAt' | 'customerNameHint'
   >,
   context: Pick<SalesIntelligenceRuntimeContext, 'staffIdentityMap' | 'staffLikeNames'>
-): Record<string, string> {
+): {
+  staffIdBySender: Record<string, string>;
+  staffIdByIntroductionMessageId: Record<string, string>;
+} {
   const { staffIdentityMap, staffLikeNames } = context;
-  if (!staffIdentityMap.size || !conversation.rawWhatsAppExportText) return {};
+  if (!staffIdentityMap.size || !conversation.rawWhatsAppExportText) {
+    return { staffIdBySender: {}, staffIdByIntroductionMessageId: {} };
+  }
   const messages = parseWhatsAppExport(conversation.rawWhatsAppExportText, {
     trustedConversationStartedAt: conversation.trustedConversationStartedAt ?? null,
   }).filter((message) => message.direction !== 'system' && message.kind !== 'system');
+
+  const staffIdByIntroductionMessageId: Record<string, string> = {};
+  for (const message of messages) {
+    const introducedName = extractIntroducedStaffName(message);
+    if (!introducedName) continue;
+    const staffId = resolveCanonicalStaffIdByName(introducedName, staffIdentityMap);
+    if (staffId) staffIdByIntroductionMessageId[message.id] = staffId;
+  }
 
   const customerName = normalizeDoctorName(conversation.customerNameHint ?? '');
   const directionBySender = new Map<string, Set<string>>();
@@ -147,7 +173,17 @@ export function resolveStaffIdBySender(
     if (isInbound && !customerRemains) continue;
     staffIdBySender[sender] = staffId;
   }
-  return staffIdBySender;
+  return { staffIdBySender, staffIdByIntroductionMessageId };
+}
+
+export function resolveStaffIdBySender(
+  conversation: Pick<
+    BatchConversationInput,
+    'rawWhatsAppExportText' | 'trustedConversationStartedAt' | 'customerNameHint'
+  >,
+  context: Pick<SalesIntelligenceRuntimeContext, 'staffIdentityMap' | 'staffLikeNames'>
+): Record<string, string> {
+  return resolveConversationStaffIdentity(conversation, context).staffIdBySender;
 }
 
 /**
@@ -175,6 +211,7 @@ export async function prepareSalesIntelligenceConversations(
   return conversations.map((conversation, index) => {
     const identity = identities[index];
     const resolved = identity.status === 'resolved';
+    const staffIdentity = resolveConversationStaffIdentity(conversation, context);
     return {
       ...conversation,
       customerIdHint: resolved ? identity.customerId : null,
@@ -182,7 +219,8 @@ export async function prepareSalesIntelligenceConversations(
         ? (identity.normalizedPhone ?? conversation.customerPhoneHint ?? null)
         : (conversation.customerPhoneHint ?? null),
       customerIdentityStatus: identity.status,
-      staffIdBySender: resolveStaffIdBySender(conversation, context),
+      staffIdBySender: staffIdentity.staffIdBySender,
+      staffIdByIntroductionMessageId: staffIdentity.staffIdByIntroductionMessageId,
     };
   });
 }
@@ -210,6 +248,9 @@ export function pipelineBaseInputFor(
     branchNameRawHint: conversation.branchNameRawHint ?? null,
     knownStaffIds: conversation.knownStaffIds,
     staffIdBySender: conversation.staffIdBySender,
+    staffIdByIntroductionMessageId: conversation.staffIdByIntroductionMessageId,
+    resolveInvoiceStaffIdByName: (name) =>
+      resolveCanonicalStaffIdByName(name, context.staffIdentityMap),
     legacyMatchedInvoiceId: conversation.legacyMatchedInvoiceId,
     legacyMatchedInvoiceNumber: conversation.legacyMatchedInvoiceNumber,
     trustedInvoiceId: conversation.trustedInvoiceId,

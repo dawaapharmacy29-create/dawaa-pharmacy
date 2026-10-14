@@ -3194,8 +3194,14 @@ function getInvoiceCustomerName(row) {
 function normalizeCustomerNameForInvoiceMatch(value) {
   return String(value ?? "").trim().toLowerCase().replace(/^(?:الحاج(?:ة)?|السيد(?:ة)?|استاذ(?:ة)?|الأستاذ(?:ة)?|الاستاذ(?:ة)?)\s+/i, "").replace(/[أإآ]/g, "\u0627").replace(/ى/g, "\u064A").replace(/ة/g, "\u0647").replace(/[\u064B-\u065F]/g, "").replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
 }
-function getInvoiceStaffId(row) {
-  return cleanText2(firstValue2(row, ["staff_id"])) || null;
+function getInvoiceStaffId(row, resolveInvoiceStaffIdByName) {
+  const staffId = cleanText2(firstValue2(row, ["staff_id"]));
+  if (staffId) return staffId;
+  if (!resolveInvoiceStaffIdByName) return null;
+  const resolvedStaffIds = new Set(
+    ["seller_name", "staff_name"].map((key) => cleanText2(row[key])).filter(Boolean).map((name) => resolveInvoiceStaffIdByName(name)).filter((resolved) => Boolean(resolved))
+  );
+  return resolvedStaffIds.size === 1 ? [...resolvedStaffIds][0] : null;
 }
 function isDraftLikeZeroInvoice(row) {
   const explicitAmountValue = firstValue2(row, [
@@ -3298,7 +3304,7 @@ function classifyAmountMatch(expected, actual) {
   return diff <= tolerance ? "near_match" : "different";
 }
 function classifyStaff(ctx, row) {
-  const invoiceStaffId = getInvoiceStaffId(row);
+  const invoiceStaffId = getInvoiceStaffId(row, ctx.resolveInvoiceStaffIdByName);
   if (!invoiceStaffId || ctx.knownStaffIds.length === 0) return "unknown";
   if (ctx.knownStaffIds.includes(invoiceStaffId)) return "same";
   return ctx.knownStaffIds.length > 1 ? "compatible" : "different";
@@ -3545,7 +3551,7 @@ function buildEvidenceItems(input) {
     items.push({
       kind: "direct_invoice_id",
       matched: true,
-      detail: "\u0631\u0627\u0628\u0637 \u0641\u0627\u062A\u0648\u0631\u0629 \u0645\u0648\u062B\u0648\u0642 \u0648\u0645\u062E\u0632\u064E\u0651\u0646 \u0645\u0633\u0628\u0642\u064B\u0627 \u0639\u0644\u0649 \u0645\u0633\u062A\u0648\u0649 \u0627\u0644\u0646\u0638\u0627\u0645 (\u0648\u0644\u064A\u0633 \u062A\u062E\u0645\u064A\u0646\u064B\u0627 \u0625\u062D\u0635\u0627\u0626\u064A\u064B\u0627).",
+      detail: "\u062F\u0644\u064A\u0644 \u0625\u0633\u0646\u0627\u062F \u0645\u0628\u0627\u0634\u0631 \u0645\u0648\u062B\u0648\u0642\u061B \u064A\u062D\u062F\u062F provenance \u0625\u0646 \u0643\u0627\u0646 \u0645\u0637\u0627\u0628\u0642\u0629 \u0622\u0644\u064A\u0629 \u0635\u0627\u0631\u0645\u0629 \u0623\u0648 \u062A\u0623\u0643\u064A\u062F\u064B\u0627 \u064A\u062F\u0648\u064A\u064B\u0627.",
       weight: 1
     });
   }

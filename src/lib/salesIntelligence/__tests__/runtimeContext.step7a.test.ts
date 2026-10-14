@@ -3,6 +3,7 @@ import {
   buildSalesIntelligenceRuntimeContext,
   pipelineBaseInputFor,
   prepareSalesIntelligenceConversations,
+  resolveCanonicalStaffIdByName,
   resolveStaffIdBySender,
 } from '@/lib/salesIntelligence/runtimeContext';
 import {
@@ -97,6 +98,62 @@ describe('resolveStaffIdBySender — canonical directory, unique names only', ()
       productIndex: buildPharmacyProductIndex([]),
     });
     expect(resolveStaffIdBySender({ rawWhatsAppExportText: GROUP }, empty)).toEqual({});
+  });
+});
+
+describe('canonical invoice seller and self-introduction identity', () => {
+  it('resolves only exact active canonical names and leaves duplicate, fuzzy, and inactive names unresolved', () => {
+    const context = buildSalesIntelligenceRuntimeContext({
+      staffDirectory: [
+        staff('staff-wael', 'د وائل'),
+        staff('staff-wael', 'وائل', { source: 'alias' }),
+        staff('staff-ali-1', 'د علي'),
+        staff('staff-ali-2', 'د علي'),
+        staff('staff-inactive', 'د غير نشط', { source: 'alias', active: false }),
+      ],
+      productIndex: buildPharmacyProductIndex([]),
+    });
+
+    expect(resolveCanonicalStaffIdByName('د وائل', context.staffIdentityMap)).toBe('staff-wael');
+    expect(resolveCanonicalStaffIdByName('وائل', context.staffIdentityMap)).toBe('staff-wael');
+    expect(resolveCanonicalStaffIdByName('د علي', context.staffIdentityMap)).toBeNull();
+    expect(resolveCanonicalStaffIdByName('وائل حسن', context.staffIdentityMap)).toBeNull();
+    expect(resolveCanonicalStaffIdByName('د غير نشط', context.staffIdentityMap)).toBeNull();
+    expect(resolveCanonicalStaffIdByName('اسم غير معروف', context.staffIdentityMap)).toBeNull();
+  });
+
+  it('resolves explicit outbound self-introductions by message id without treating You as identity', async () => {
+    const introContext = buildSalesIntelligenceRuntimeContext({
+      staffDirectory: [staff('staff-wael', 'د وائل'), staff('staff-omar', 'د عمر')],
+      productIndex: buildPharmacyProductIndex([]),
+    });
+    const raw = `[9/27/26, 5:00:00 PM] Customer: عايز استفسر عن منتج
+[9/27/26, 5:01:00 PM] You: أهلا، مع حضرتك د وائل
+[9/30/26, 5:00:00 PM] Customer: عندي سؤال تاني
+[9/30/26, 5:01:00 PM] You: أهلا، مع حضرتك د عمر`;
+    const [prepared] = await prepareSalesIntelligenceConversations(
+      clientReturning(),
+      [{ conversationId: 'intro-case', rawWhatsAppExportText: raw }],
+      introContext
+    );
+
+    expect(prepared.staffIdBySender).toEqual({});
+    expect(Object.values(prepared.staffIdByIntroductionMessageId)).toEqual([
+      'staff-wael',
+      'staff-omar',
+    ]);
+
+    const { caseAnalyses } = runSalesIntelligencePipeline({
+      ...pipelineBaseInputFor(prepared, introContext),
+      resolveInvoiceCandidates: () => [],
+    });
+    const caseStaffIds = caseAnalyses
+      .map((analysis) =>
+        analysis.caseIntelligence.staff.participants.find((participant) => participant.sender === 'You')
+          ?.staffId
+      )
+      .filter((staffId): staffId is string => Boolean(staffId));
+    expect(caseStaffIds).toEqual(expect.arrayContaining(['staff-wael', 'staff-omar']));
   });
 });
 

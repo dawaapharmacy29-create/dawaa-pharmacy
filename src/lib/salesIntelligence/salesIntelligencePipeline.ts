@@ -81,6 +81,10 @@ export interface SalesIntelligencePipelineInput {
    * Omitted = senders stay raw with staffId null (never guessed).
    */
   staffIdBySender?: Record<string, string>;
+  /** Exact canonical staff ids resolved from explicit outbound self-introductions, keyed by message id. */
+  staffIdByIntroductionMessageId?: Record<string, string>;
+  /** Exact-name/active-alias resolver supplied by the canonical staff identity boundary. */
+  resolveInvoiceStaffIdByName?: (name: string) => string | null;
   /** From an existing legacy adapter's own matched-invoice fields (e.g. whatsapp_review_sources.matched_invoice_id) — evidence only, never trusted as canonical. */
   legacyMatchedInvoiceId?: string | null;
   legacyMatchedInvoiceNumber?: string | null;
@@ -226,6 +230,31 @@ function enrichBasketProductIdentities(
   );
 }
 
+function staffEvidenceForCase(
+  input: Pick<
+    SalesIntelligencePipelineInput,
+    'staffIdBySender' | 'staffIdByIntroductionMessageId'
+  >,
+  scopedMessages: NormalizedConversationMessageV32[]
+): Record<string, string> {
+  const staffIdBySender = { ...(input.staffIdBySender ?? {}) };
+  const introductionIdsBySender = new Map<string, Set<string>>();
+
+  for (const message of scopedMessages) {
+    const staffId = input.staffIdByIntroductionMessageId?.[message.id];
+    if (!staffId || message.direction !== 'outbound') continue;
+    const ids = introductionIdsBySender.get(message.sender) ?? new Set<string>();
+    ids.add(staffId);
+    introductionIdsBySender.set(message.sender, ids);
+  }
+
+  for (const [sender, staffIds] of introductionIdsBySender) {
+    if (staffIds.size === 1) staffIdBySender[sender] = [...staffIds][0];
+    else delete staffIdBySender[sender];
+  }
+  return staffIdBySender;
+}
+
 function analyzeOneCase(
   conversationCase: ConversationCase,
   scopedMessages: NormalizedConversationMessageV32[],
@@ -234,6 +263,10 @@ function analyzeOneCase(
   conversationTimeline: NormalizedConversationMessageV32[] = scopedMessages
 ): SalesIntelligenceCaseAnalysis {
   const pipelineWarnings: string[] = [];
+  const caseStaffIdBySender = staffEvidenceForCase(input, scopedMessages);
+  const caseKnownStaffIds = [
+    ...new Set([...(input.knownStaffIds ?? []), ...Object.values(caseStaffIdBySender)]),
+  ];
 
   const {
     baskets,
@@ -271,7 +304,7 @@ function analyzeOneCase(
     baskets,
     itemsByBasketId,
     activeBasket,
-    staffIdBySender: input.staffIdBySender,
+    staffIdBySender: caseStaffIdBySender,
     productIndex: input.productIndex,
   });
   const unavailableDemand = deriveUnavailableDemand({
@@ -337,7 +370,8 @@ function analyzeOneCase(
       quantity: item.quantity,
       resolutionStatus: item.resolutionStatus,
     })),
-    knownStaffIds: input.knownStaffIds ?? [],
+    knownStaffIds: caseKnownStaffIds,
+    resolveInvoiceStaffIdByName: input.resolveInvoiceStaffIdByName,
     legacyMatchedInvoiceId: input.legacyMatchedInvoiceId ?? null,
     legacyMatchedInvoiceNumber: input.legacyMatchedInvoiceNumber ?? null,
     trustedInvoiceId: input.trustedInvoiceId ?? null,
@@ -385,7 +419,7 @@ function analyzeOneCase(
     attribution: rawAttribution,
     basketInvoiceMatch,
     invoiceStatusHint: input.invoiceStatusHint ?? null,
-    knownStaffIds: input.knownStaffIds,
+    knownStaffIds: caseKnownStaffIds,
     caseEndedAt: conversationCase.endedAt,
     protocolPolicyEffectiveAt: input.protocolPolicyEffectiveAt,
   });
@@ -446,7 +480,7 @@ function analyzeOneCase(
   }
   if (rawAttribution.contradictions.includes('ambiguous_multiple_candidates')) failureReasons.push('invoice_candidates_ambiguous');
   if (rawAttribution.hasAttributedInvoice && !basketInvoiceMatch.itemEvidenceReady) failureReasons.push('invoice_items_unavailable');
-  if (commercialConfirmation.staffConfirmed && (input.knownStaffIds ?? []).length === 0) failureReasons.push('staff_identity_unresolved');
+  if (commercialConfirmation.staffConfirmed && caseKnownStaffIds.length === 0) failureReasons.push('staff_identity_unresolved');
   if (!conversationCase.endedAt) failureReasons.push('conversation_timestamp_quality_issue');
 
   // A genuinely information-only conversation (Phase B's own classification, confirmed by no real
@@ -594,7 +628,7 @@ function analyzeOneCase(
     lostOpportunity,
     salesOutcome,
     customerIdentityStatus: input.customerIdentityStatus,
-    staffIdBySender: input.staffIdBySender,
+    staffIdBySender: caseStaffIdBySender,
     conversationTimeline,
   });
   // Last canonical decision: consumes Lost Opportunity + Follow-up + Journey outputs only.
@@ -664,7 +698,7 @@ function analyzeOneCase(
       customerIdentityStatus: input.customerIdentityStatus,
       customerNameHint: input.customerNameHint ?? null,
       customerCodeHint: input.customerCodeHint ?? null,
-      staffIdBySender: input.staffIdBySender,
+      staffIdBySender: caseStaffIdBySender,
     }),
   };
 }

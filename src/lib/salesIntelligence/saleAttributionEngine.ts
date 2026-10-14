@@ -160,6 +160,8 @@ export interface CaseAttributionContext {
   activeBasketItems: Array<{ productNameRaw: string; productId?: string | null; quantity: number | null; resolutionStatus?: ItemResolutionStatus }>;
   /** Known contributing staff ids for this case (Phase B StaffContribution.staffId) — conservative, may be empty. */
   knownStaffIds: string[];
+  /** Exact canonical staff-name/active-alias resolver from the staff directory boundary. */
+  resolveInvoiceStaffIdByName?: (name: string) => string | null;
   /** From the Phase B legacy V17 adapter's own matched-invoice fields — evidence only, never trusted as canonical. */
   legacyMatchedInvoiceId: string | null;
   legacyMatchedInvoiceNumber: string | null;
@@ -228,8 +230,21 @@ function normalizeCustomerNameForInvoiceMatch(value: string | null | undefined):
     .trim();
 }
 
-function getInvoiceStaffId(row: InvoiceLike): string | null {
-  return cleanText(firstValue(row, ['staff_id'])) || null;
+function getInvoiceStaffId(
+  row: InvoiceLike,
+  resolveInvoiceStaffIdByName?: (name: string) => string | null
+): string | null {
+  const staffId = cleanText(firstValue(row, ['staff_id']));
+  if (staffId) return staffId;
+  if (!resolveInvoiceStaffIdByName) return null;
+  const resolvedStaffIds = new Set(
+    ['seller_name', 'staff_name']
+      .map((key) => cleanText(row[key]))
+      .filter(Boolean)
+      .map((name) => resolveInvoiceStaffIdByName(name))
+      .filter((resolved): resolved is string => Boolean(resolved))
+  );
+  return resolvedStaffIds.size === 1 ? [...resolvedStaffIds][0] : null;
 }
 
 function isDraftLikeZeroInvoice(row: InvoiceLike): boolean {
@@ -392,7 +407,7 @@ function classifyAmountMatch(expected: number | null, actual: number | null): Am
  * closer is plausible — never as a way to paper over a clean single-staff mismatch.
  */
 function classifyStaff(ctx: CaseAttributionContext, row: InvoiceLike): StaffCompatibility {
-  const invoiceStaffId = getInvoiceStaffId(row);
+  const invoiceStaffId = getInvoiceStaffId(row, ctx.resolveInvoiceStaffIdByName);
   if (!invoiceStaffId || ctx.knownStaffIds.length === 0) return 'unknown';
   if (ctx.knownStaffIds.includes(invoiceStaffId)) return 'same';
   return ctx.knownStaffIds.length > 1 ? 'compatible' : 'different';
@@ -780,7 +795,7 @@ function buildEvidenceItems(input: {
     items.push({
       kind: 'direct_invoice_id',
       matched: true,
-      detail: 'رابط فاتورة موثوق ومخزَّن مسبقًا على مستوى النظام (وليس تخمينًا إحصائيًا).',
+      detail: 'دليل إسناد مباشر موثوق؛ يحدد provenance إن كان مطابقة آلية صارمة أو تأكيدًا يدويًا.',
       weight: 1,
     });
   }

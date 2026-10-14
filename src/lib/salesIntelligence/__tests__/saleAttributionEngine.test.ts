@@ -10,6 +10,12 @@ import {
   type CaseAttributionContext,
   type InvoiceItemEvidenceProvider,
 } from '@/lib/salesIntelligence/saleAttributionEngine';
+import {
+  buildSalesIntelligenceRuntimeContext,
+  resolveCanonicalStaffIdByName,
+} from '@/lib/salesIntelligence/runtimeContext';
+import { buildPharmacyProductIndex } from '@/lib/salesIntelligence/pharmacyProducts/pharmacyProductResolverV2';
+import type { StaffDirectoryIdentity } from '@/lib/readModels/staffDirectoryReadModel';
 import type { CommercialConfirmationAssessment } from '@/lib/salesIntelligence/types';
 
 const COMPLETE_CONFIRMATION: CommercialConfirmationAssessment = {
@@ -316,10 +322,123 @@ describe('Sale Attribution Engine (Sales Intelligence Phase D) — Golden Cases'
   });
 
   describe('Staff', () => {
+    const staff = (
+      id: string,
+      name: string,
+      extra: Partial<StaffDirectoryIdentity> = {}
+    ): StaffDirectoryIdentity => ({
+      id,
+      name,
+      branch: null,
+      role: 'صيدلاني',
+      username: null,
+      status: 'active',
+      active: true,
+      source: 'staff',
+      ...extra,
+    });
+    const staffDirectory = buildSalesIntelligenceRuntimeContext({
+      staffDirectory: [
+        staff('staff-wael', 'د وائل'),
+        staff('staff-wael', 'وائل', { source: 'alias' }),
+        staff('staff-shibl', 'د محمد شبل'),
+        staff('staff-other', 'د وائل حسن'),
+        staff('staff-ambiguous-1', 'د علي'),
+        staff('staff-ambiguous-2', 'د علي'),
+        staff('staff-inactive-alias', 'د غير نشط', {
+          source: 'alias',
+          active: false,
+        }),
+      ],
+      productIndex: buildPharmacyProductIndex([]),
+    });
+    const resolveSeller = (name: string) =>
+      resolveCanonicalStaffIdByName(name, staffDirectory.staffIdentityMap);
+
     it('21. the invoice staff matching a known case contributor is classified same', () => {
       const ctx = baseCase({ knownStaffIds: ['staff-1'] });
       const c = buildAttributionCandidate(ctx, { id: 'inv-1', staff_id: 'staff-1' });
       expect(c.staffMatch).toBe('same');
+    });
+
+    it('matches an invoice seller name to the exact canonical staff identity when staff_id is null', () => {
+      const wael = buildAttributionCandidate(
+        baseCase({
+          knownStaffIds: ['staff-wael'],
+          resolveInvoiceStaffIdByName: resolveSeller,
+        }),
+        { id: 'inv-wael', staff_id: null, seller_name: 'د وائل' }
+      );
+      const shibl = buildAttributionCandidate(
+        baseCase({
+          knownStaffIds: ['staff-shibl'],
+          resolveInvoiceStaffIdByName: resolveSeller,
+        }),
+        { id: 'inv-shibl', staff_id: null, staff_name: 'د محمد شبل' }
+      );
+      const approvedAlias = buildAttributionCandidate(
+        baseCase({
+          knownStaffIds: ['staff-wael'],
+          resolveInvoiceStaffIdByName: resolveSeller,
+        }),
+        { id: 'inv-wael-alias', staff_id: null, seller_name: 'وائل' }
+      );
+      expect(wael.staffMatch).toBe('same');
+      expect(shibl.staffMatch).toBe('same');
+      expect(approvedAlias.staffMatch).toBe('same');
+    });
+
+    it('keeps unknown, ambiguous, fuzzy-only, and inactive alias seller names unresolved', () => {
+      for (const name of [
+        'اسم غير معروف',
+        'د علي',
+        'د وائل ح',
+        'د غير نشط',
+      ]) {
+        const candidate = buildAttributionCandidate(
+          baseCase({
+            knownStaffIds: ['staff-wael'],
+            resolveInvoiceStaffIdByName: resolveSeller,
+          }),
+          { id: `inv-${name}`, staff_id: null, seller_name: name }
+        );
+        expect(candidate.staffMatch).toBe('unknown');
+      }
+    });
+
+    it('reports a different exact canonical seller as different rather than matching by similarity', () => {
+      const candidate = buildAttributionCandidate(
+        baseCase({
+          knownStaffIds: ['staff-wael'],
+          resolveInvoiceStaffIdByName: resolveSeller,
+        }),
+        { id: 'inv-other', staff_id: null, seller_name: 'د وائل حسن' }
+      );
+      expect(candidate.staffMatch).toBe('different');
+    });
+
+    it('does not replace a populated invoice staff_id or reconcile conflicting canonical seller columns', () => {
+      const populatedId = buildAttributionCandidate(
+        baseCase({
+          knownStaffIds: ['staff-wael'],
+          resolveInvoiceStaffIdByName: resolveSeller,
+        }),
+        { id: 'inv-populated-id', staff_id: 'staff-shibl', seller_name: 'د وائل' }
+      );
+      const conflictingNames = buildAttributionCandidate(
+        baseCase({
+          knownStaffIds: ['staff-wael'],
+          resolveInvoiceStaffIdByName: resolveSeller,
+        }),
+        {
+          id: 'inv-conflicting-sellers',
+          staff_id: null,
+          seller_name: 'د وائل',
+          staff_name: 'د محمد شبل',
+        }
+      );
+      expect(populatedId.staffMatch).toBe('different');
+      expect(conflictingNames.staffMatch).toBe('unknown');
     });
 
     it('22. an invoice staff outside a known MULTI-staff case is classified compatible, not disqualified', () => {
