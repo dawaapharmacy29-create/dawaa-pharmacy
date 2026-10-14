@@ -19,6 +19,9 @@ on:
       - 'scripts/check-attendance-review-triage-contract.cjs'
       - '.github/workflows/attendance-review-triage-contract.yml'
 
+permissions:
+  contents: read
+
 jobs:
   triage-contract:
     runs-on: ubuntu-latest
