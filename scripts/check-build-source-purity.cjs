@@ -43,6 +43,9 @@ if (fs.existsSync(workflowsDir)) {
     // permission or allowing it to commit/push recreates the exact patch-at-build class
     // of failures this guard exists to prevent. A future source-writing bot must be an
     // explicit architecture decision, not an accidental regression.
+    if (!/^permissions:\s*$/m.test(source) || !/^\s{2}contents:\s*read\s*$/m.test(source)) {
+      failures.push(`${context} must declare top-level permissions with contents: read.`);
+    }
     if (/^\s*contents:\s*write\s*$/m.test(source)) {
       failures.push(`${context} requests contents: write; verification workflows must be read-only.`);
     }
