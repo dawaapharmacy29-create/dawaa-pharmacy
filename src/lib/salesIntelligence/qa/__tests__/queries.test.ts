@@ -35,6 +35,32 @@ describe('mergeCaseListRows', () => {
     });
   });
 
+  it('projects persisted canonical sales outcome separately from persisted sale proof', () => {
+    const rows = mergeCaseListRows(
+      [{
+        ...baseAnalysis,
+        canonical_sales_outcome: {
+          outcome: 'needs_review',
+          saleProofState: 'proven',
+          isSaleCountable: false,
+        },
+      }],
+      [baseAttribution]
+    );
+    expect(rows[0].canonicalSalesOutcome).toEqual({
+      outcome: 'needs_review',
+      isSaleCountable: false,
+    });
+  });
+
+  it('does not treat a missing or malformed canonical outcome as countable', () => {
+    const rows = mergeCaseListRows([
+      { ...baseAnalysis, canonical_sales_outcome: { outcome: 'not_an_outcome', isSaleCountable: true } },
+      baseAnalysis,
+    ], []);
+    expect(rows.map((row) => row.canonicalSalesOutcome)).toEqual([null, null]);
+  });
+
   it('adds reviewer-facing customer display identity when conversation metadata is available', () => {
     const rows = mergeCaseListRows(
       [baseAnalysis],

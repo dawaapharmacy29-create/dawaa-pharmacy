@@ -65,6 +65,7 @@ const MAX_LIST_ROWS = 2000;
 interface RawCaseAnalysisRow {
   analysis_id: string;
   case_id: string;
+  canonical_sales_outcome?: unknown;
   case_type: string;
   identity_branch_name_raw: string | null;
   case_started_at: string;
@@ -76,6 +77,35 @@ interface RawCaseAnalysisRow {
   integrity_evaluation_scope: string;
   needs_human_review: boolean;
   human_review_reasons: string[] | null;
+}
+
+const CANONICAL_SALES_OUTCOMES = new Set([
+  'sale_proven',
+  'order_confirmed_unproven',
+  'customer_confirmed_unproven',
+  'open_opportunity',
+  'customer_rejected',
+  'information_only',
+  'needs_review',
+  'unknown',
+]);
+
+function readCanonicalSalesOutcome(value: unknown): Pick<
+  CanonicalSalesOutcomeAssessment,
+  'outcome' | 'isSaleCountable'
+> | null {
+  if (!value || typeof value !== 'object') return null;
+  const outcome = (value as Record<string, unknown>).outcome;
+  const isSaleCountable = (value as Record<string, unknown>).isSaleCountable;
+  if (
+    typeof outcome !== 'string' ||
+    !CANONICAL_SALES_OUTCOMES.has(outcome) ||
+    typeof isSaleCountable !== 'boolean'
+  ) return null;
+  return {
+    outcome: outcome as CanonicalSalesOutcomeAssessment['outcome'],
+    isSaleCountable,
+  };
 }
 
 interface RawAttributionRow {
@@ -196,6 +226,7 @@ export function mergeCaseListRows(
       needsHumanReview: analysis.needs_human_review,
       humanReviewReasons: analysis.human_review_reasons ?? [],
       saleProofState: proof.state,
+      canonicalSalesOutcome: readCanonicalSalesOutcome(analysis.canonical_sales_outcome),
       proofSource: proof.proofSource,
       trustedInvoiceId: proof.trustedInvoiceId,
       itemEvidenceReady: proof.itemEvidenceReady,
@@ -293,7 +324,7 @@ export async function fetchQaCaseList(supabaseClient: any): Promise<QaCaseListRo
     supabaseClient
       .from('sales_intelligence_current_case_analyses')
       .select(
-        'analysis_id, case_id, case_type, identity_branch_name_raw, case_started_at, case_ended_at, historical_closure_level, protocol_applicability, commercial_confirmation_state, attribution_level, integrity_evaluation_scope, needs_human_review, human_review_reasons'
+        'analysis_id, case_id, canonical_sales_outcome:evidence_snapshot->canonicalSalesOutcome, case_type, identity_branch_name_raw, case_started_at, case_ended_at, historical_closure_level, protocol_applicability, commercial_confirmation_state, attribution_level, integrity_evaluation_scope, needs_human_review, human_review_reasons'
       )
       .order('case_started_at', { ascending: false })
       .limit(MAX_LIST_ROWS),

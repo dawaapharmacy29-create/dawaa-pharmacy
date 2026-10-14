@@ -65,6 +65,15 @@ function delta(current: number, previous: number): { value: number; percent: num
   };
 }
 
+type CanonicalSaleRow = Pick<QaCaseListRow, 'canonicalSalesOutcome'>;
+
+export function countConfirmedSales(rows: CanonicalSaleRow[]): number {
+  return rows.filter((row) =>
+    row.canonicalSalesOutcome?.outcome === 'sale_proven' &&
+    row.canonicalSalesOutcome.isSaleCountable
+  ).length;
+}
+
 function DeltaBadge({ current, previous, moneyMode = false }: { current: number; previous: number; moneyMode?: boolean }) {
   const change = delta(current, previous);
   const Icon = change.value > 0 ? ArrowUpRight : change.value < 0 ? ArrowDownLeft : Minus;
@@ -174,14 +183,14 @@ export default function SalesIntelligenceManagementOverviewV1({
     const withInvoice = sourceRows.filter((row) => Boolean(row.selectedInvoiceId)).length;
     const itemReady = sourceRows.filter((row) => row.itemEvidenceReady).length;
     const needsReview = sourceRows.filter((row) => row.needsHumanReview).length;
-    const proven = sourceRows.filter((row) => row.saleProofState === 'proven').length;
+    const confirmedSales = countConfirmedSales(sourceRows);
     const strong = sourceRows.filter((row) => row.saleProofState === 'strongly_supported').length;
     const contradicted = sourceRows.filter((row) => row.saleProofState === 'contradicted').length;
     const officialSales = truthRows.length;
     const officialRevenue = truthRows.reduce((sum, row) => sum + number(row.invoice_amount), 0);
     const resolvedStaff = truthRows.filter((row) => row.is_staff_resolved).length;
     const unresolvedStaff = officialSales - resolvedStaff;
-    return { total, withInvoice, itemReady, needsReview, proven, strong, contradicted, officialSales, officialRevenue, resolvedStaff, unresolvedStaff };
+    return { total, withInvoice, itemReady, needsReview, confirmedSales, strong, contradicted, officialSales, officialRevenue, resolvedStaff, unresolvedStaff };
   };
 
   const metrics = useMemo(() => summarize(rows, currentTruth), [currentTruth, rows]);
@@ -222,7 +231,7 @@ export default function SalesIntelligenceManagementOverviewV1({
       currentCases: number;
       currentInvoices: number;
       currentReview: number;
-      currentProven: number;
+      currentConfirmedSales: number;
       previousCases: number;
       previousInvoices: number;
       previousReview: number;
@@ -235,7 +244,7 @@ export default function SalesIntelligenceManagementOverviewV1({
         currentCases: 0,
         currentInvoices: 0,
         currentReview: 0,
-        currentProven: 0,
+        currentConfirmedSales: 0,
         previousCases: 0,
         previousInvoices: 0,
         previousReview: 0,
@@ -249,7 +258,7 @@ export default function SalesIntelligenceManagementOverviewV1({
       current.currentCases += 1;
       if (row.selectedInvoiceId) current.currentInvoices += 1;
       if (row.needsHumanReview) current.currentReview += 1;
-      if (row.saleProofState === 'proven') current.currentProven += 1;
+      if (countConfirmedSales([row])) current.currentConfirmedSales += 1;
     }
 
     for (const row of previousRows) {
@@ -321,7 +330,7 @@ export default function SalesIntelligenceManagementOverviewV1({
           {[
             ['كل الحالات', metrics.total, '100٪'],
             ['فاتورة مختارة', metrics.withInvoice, pct(metrics.withInvoice, metrics.total)],
-            ['بيع مؤكد', metrics.proven, pct(metrics.proven, metrics.total)],
+            ['بيع مؤكد', metrics.confirmedSales, pct(metrics.confirmedSales, metrics.total)],
             ['بيع رسمي من نفس الحالات', currentCaseOfficialSales, pct(currentCaseOfficialSales, metrics.total)],
           ].map(([label, value, ratio]) => (
             <div key={String(label)} className="rounded-2xl border border-[var(--dawaa-theme-border)] p-3">
@@ -354,7 +363,7 @@ export default function SalesIntelligenceManagementOverviewV1({
                       {summary.currentCases ? Math.round((summary.currentInvoices / summary.currentCases) * 100).toLocaleString('ar-EG') : '0'}٪
                     </div>
                   </div>
-                  <div className="rounded-xl bg-[var(--dawaa-theme-soft)] p-2"><div className="dawaa-muted">بيع مؤكد</div><div className="mt-1 font-black">{summary.currentProven.toLocaleString('ar-EG')}</div></div>
+                  <div className="rounded-xl bg-[var(--dawaa-theme-soft)] p-2"><div className="dawaa-muted">بيع مؤكد</div><div className="mt-1 font-black">{summary.currentConfirmedSales.toLocaleString('ar-EG')}</div></div>
                   <div className="rounded-xl bg-[var(--dawaa-theme-soft)] p-2"><div className="dawaa-muted">مراجعة</div><div className="mt-1 font-black">{summary.currentReview.toLocaleString('ar-EG')}</div></div>
                 </div>
                 <div className="dawaa-muted mt-2 text-[10px]">
