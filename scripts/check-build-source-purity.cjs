@@ -35,14 +35,28 @@ for (const name of activeScripts) {
 const workflowsDir = path.join('.github', 'workflows');
 if (fs.existsSync(workflowsDir)) {
   for (const filename of fs.readdirSync(workflowsDir).filter((name) => /\.ya?ml$/i.test(name))) {
-    const source = fs.readFileSync(path.join(workflowsDir, filename), 'utf8');
+    const workflowPath = path.join(workflowsDir, filename);
+    const source = fs.readFileSync(workflowPath, 'utf8');
+    const context = `.github/workflows/${filename}`;
+
+    // CI in this repository is verification-only. Giving a workflow repository-write
+    // permission or allowing it to commit/push recreates the exact patch-at-build class
+    // of failures this guard exists to prevent. A future source-writing bot must be an
+    // explicit architecture decision, not an accidental regression.
+    if (/^\s*contents:\s*write\s*$/m.test(source)) {
+      failures.push(`${context} requests contents: write; verification workflows must be read-only.`);
+    }
+    if (/\bgit\s+(?:commit|push)\b/.test(source)) {
+      failures.push(`${context} contains git commit/push; CI must never rewrite repository source.`);
+    }
+
     source.split(/\r?\n/).forEach((line, index) => {
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith('#')) return;
       // Only inspect executable-looking workflow lines. This avoids treating comments or
       // human-readable step names as commands while still catching inline and block run bodies.
       if (!/^(?:run:\s*)?[^#]*(?:node|bash|sh|npm|npx|\.\/)/.test(trimmed)) return;
-      unsafeCommand(trimmed, `.github/workflows/${filename}:${index + 1}`);
+      unsafeCommand(trimmed, `${context}:${index + 1}`);
     });
   }
 }
@@ -53,4 +67,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('[build-source-purity] PASS: active dev/build/test and workflow paths are check-only and source-pure.');
+console.log('[build-source-purity] PASS: active dev/build/test and workflow paths are check-only, read-only, and source-pure.');
