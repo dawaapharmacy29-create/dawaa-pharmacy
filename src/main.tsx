@@ -119,8 +119,8 @@ if (!rootElement) {
   createRoot(rootElement).render(
     <StrictMode>
       <ThemeProvider>
+        <ReactBootstrapMarker />
         <Suspense fallback={<BootstrapShell />}>
-          <ReactBootstrapMarker />
           <App />
           <OptionalRuntimeAddons />
         </Suspense>
