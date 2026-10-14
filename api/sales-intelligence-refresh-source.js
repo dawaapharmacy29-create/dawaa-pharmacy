@@ -6835,8 +6835,28 @@ function enrichBasketProductIdentities(itemsByBasketId, productIndex) {
     ])
   );
 }
+function staffEvidenceForCase(input, scopedMessages) {
+  const staffIdBySender = { ...input.staffIdBySender ?? {} };
+  const introductionIdsBySender = /* @__PURE__ */ new Map();
+  for (const message of scopedMessages) {
+    const staffId = input.staffIdByIntroductionMessageId?.[message.id];
+    if (!staffId || message.direction !== "outbound") continue;
+    const ids = introductionIdsBySender.get(message.sender) ?? /* @__PURE__ */ new Set();
+    ids.add(staffId);
+    introductionIdsBySender.set(message.sender, ids);
+  }
+  for (const [sender, staffIds2] of introductionIdsBySender) {
+    if (staffIds2.size === 1) staffIdBySender[sender] = [...staffIds2][0];
+    else delete staffIdBySender[sender];
+  }
+  return staffIdBySender;
+}
 function analyzeOneCase(conversationCase, scopedMessages, input, interaction = null, conversationTimeline = scopedMessages) {
   const pipelineWarnings = [];
+  const caseStaffIdBySender = staffEvidenceForCase(input, scopedMessages);
+  const caseKnownStaffIds = [
+    .../* @__PURE__ */ new Set([...input.knownStaffIds ?? [], ...Object.values(caseStaffIdBySender)])
+  ];
   const {
     baskets,
     itemsByBasketId: rawItemsByBasketId,
@@ -6865,7 +6885,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     baskets,
     itemsByBasketId,
     activeBasket,
-    staffIdBySender: input.staffIdBySender,
+    staffIdBySender: caseStaffIdBySender,
     productIndex: input.productIndex
   });
   const unavailableDemand = deriveUnavailableDemand({
@@ -6920,7 +6940,8 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
       quantity: item.quantity,
       resolutionStatus: item.resolutionStatus
     })),
-    knownStaffIds: input.knownStaffIds ?? [],
+    knownStaffIds: caseKnownStaffIds,
+    resolveInvoiceStaffIdByName: input.resolveInvoiceStaffIdByName,
     legacyMatchedInvoiceId: input.legacyMatchedInvoiceId ?? null,
     legacyMatchedInvoiceNumber: input.legacyMatchedInvoiceNumber ?? null,
     trustedInvoiceId: input.trustedInvoiceId ?? null,
@@ -6961,7 +6982,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     attribution: rawAttribution,
     basketInvoiceMatch,
     invoiceStatusHint: input.invoiceStatusHint ?? null,
-    knownStaffIds: input.knownStaffIds,
+    knownStaffIds: caseKnownStaffIds,
     caseEndedAt: conversationCase.endedAt,
     protocolPolicyEffectiveAt: input.protocolPolicyEffectiveAt
   });
@@ -7009,7 +7030,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
   }
   if (rawAttribution.contradictions.includes("ambiguous_multiple_candidates")) failureReasons.push("invoice_candidates_ambiguous");
   if (rawAttribution.hasAttributedInvoice && !basketInvoiceMatch.itemEvidenceReady) failureReasons.push("invoice_items_unavailable");
-  if (commercialConfirmation.staffConfirmed && (input.knownStaffIds ?? []).length === 0) failureReasons.push("staff_identity_unresolved");
+  if (commercialConfirmation.staffConfirmed && caseKnownStaffIds.length === 0) failureReasons.push("staff_identity_unresolved");
   if (!conversationCase.endedAt) failureReasons.push("conversation_timestamp_quality_issue");
   const isGenuinelyInformationOnly = conversationCase.caseType === "information_only" && !evidenceCompleteness.basketDetected;
   const rawNeedsHumanReview = conversationCase.needsHumanReview || commercialConfirmation.needsHumanReview || rawAttribution.needsHumanReview || basketInvoiceMatch.needsHumanReview || financialSettlement.needsHumanReview || !isGenuinelyInformationOnly && integrityAssessment.needsHumanReview || activeBasketResolution.outcome === "needs_human_review";
@@ -7106,7 +7127,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     lostOpportunity,
     salesOutcome,
     customerIdentityStatus: input.customerIdentityStatus,
-    staffIdBySender: input.staffIdBySender,
+    staffIdBySender: caseStaffIdBySender,
     conversationTimeline
   });
   const operationalDisposition = deriveCaseOperationalDisposition({
@@ -7168,7 +7189,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
       customerIdentityStatus: input.customerIdentityStatus,
       customerNameHint: input.customerNameHint ?? null,
       customerCodeHint: input.customerCodeHint ?? null,
-      staffIdBySender: input.staffIdBySender
+      staffIdBySender: caseStaffIdBySender
     })
   };
 }
@@ -8023,6 +8044,10 @@ function buildSalesIntelligenceRuntimeContext(input) {
   );
   return { staffIdentityMap, staffLikeNames, productIndex: input.productIndex };
 }
+function resolveCanonicalStaffIdByName(name, staffIdentityMap) {
+  const normalized = normalizeDoctorName(name);
+  return normalized ? staffIdentityMap.get(`name:${normalized}`)?.staffId ?? null : null;
+}
 async function loadSalesIntelligenceRuntimeContext(client) {
   const [staffDirectory, productIndex] = await Promise.all([
     loadStaffDirectoryFrom(client),
@@ -8030,12 +8055,21 @@ async function loadSalesIntelligenceRuntimeContext(client) {
   ]);
   return buildSalesIntelligenceRuntimeContext({ staffDirectory, productIndex });
 }
-function resolveStaffIdBySender(conversation, context) {
+function resolveConversationStaffIdentity(conversation, context) {
   const { staffIdentityMap, staffLikeNames } = context;
-  if (!staffIdentityMap.size || !conversation.rawWhatsAppExportText) return {};
+  if (!staffIdentityMap.size || !conversation.rawWhatsAppExportText) {
+    return { staffIdBySender: {}, staffIdByIntroductionMessageId: {} };
+  }
   const messages = parseWhatsAppExport(conversation.rawWhatsAppExportText, {
     trustedConversationStartedAt: conversation.trustedConversationStartedAt ?? null
   }).filter((message) => message.direction !== "system" && message.kind !== "system");
+  const staffIdByIntroductionMessageId = {};
+  for (const message of messages) {
+    const introducedName = extractIntroducedStaffName(message);
+    if (!introducedName) continue;
+    const staffId = resolveCanonicalStaffIdByName(introducedName, staffIdentityMap);
+    if (staffId) staffIdByIntroductionMessageId[message.id] = staffId;
+  }
   const customerName = normalizeDoctorName(conversation.customerNameHint ?? "");
   const directionBySender = /* @__PURE__ */ new Map();
   for (const message of messages) {
@@ -8064,7 +8098,7 @@ function resolveStaffIdBySender(conversation, context) {
     if (isInbound && !customerRemains) continue;
     staffIdBySender[sender] = staffId;
   }
-  return staffIdBySender;
+  return { staffIdBySender, staffIdByIntroductionMessageId };
 }
 async function prepareSalesIntelligenceConversations(client, conversations, context) {
   const evidences = conversations.map((conversation) => {
@@ -8087,7 +8121,8 @@ async function prepareSalesIntelligenceConversations(client, conversations, cont
       customerIdHint: resolved ? identity.customerId : null,
       customerPhoneHint: resolved ? identity.normalizedPhone ?? conversation.customerPhoneHint ?? null : conversation.customerPhoneHint ?? null,
       customerIdentityStatus: identity.status,
-      staffIdBySender: resolveStaffIdBySender(conversation, context)
+      staffIdBySender: staffIdentity.staffIdBySender,
+      staffIdByIntroductionMessageId: staffIdentity.staffIdByIntroductionMessageId
     };
   });
 }
@@ -8106,6 +8141,8 @@ function pipelineBaseInputFor(conversation, context) {
     branchNameRawHint: conversation.branchNameRawHint ?? null,
     knownStaffIds: conversation.knownStaffIds,
     staffIdBySender: conversation.staffIdBySender,
+    staffIdByIntroductionMessageId: conversation.staffIdByIntroductionMessageId,
+    resolveInvoiceStaffIdByName: (name) => resolveCanonicalStaffIdByName(name, context.staffIdentityMap),
     legacyMatchedInvoiceId: conversation.legacyMatchedInvoiceId,
     legacyMatchedInvoiceNumber: conversation.legacyMatchedInvoiceNumber,
     trustedInvoiceId: conversation.trustedInvoiceId,
@@ -8234,13 +8271,13 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v22";
+var PIPELINE_VERSION = "sales-intelligence-v24-canonical-basket-product-identity";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v10-payment-continuation-ambiguity-safe",
   historicalClosure: "historical-closure-v1",
   commercialConfirmation: "commercial-confirmation-v6-compact-total-interstitial-ack-safe",
   protocolApplicability: "protocol-applicability-v1",
-  attribution: "attribution-v8-unresolved-product-evidence-safe",
+  attribution: "attribution-v9-canonical-seller-staff-identity",
   matching: "matching-v3-unresolved-product-evidence-safe",
   policyEvaluation: "policy-evaluation-v1"
 };
