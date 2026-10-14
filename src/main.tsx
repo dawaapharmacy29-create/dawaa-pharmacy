@@ -32,9 +32,9 @@ declare global {
 
 function ReactBootstrapMarker() {
   useLayoutEffect(() => {
+    window.__DAWAA_MARK_REACT_BOOTSTRAPPED?.();
     clearRecoveredRuntimeError();
     clearStaleChunkRecoveryMarker(BOOTSTRAP_RECOVERY_SCOPE);
-    window.__DAWAA_MARK_REACT_BOOTSTRAPPED?.();
   }, []);
   return null;
 }
