@@ -1,189 +1,22 @@
-import { Children, lazy, Suspense, useEffect, useRef, useState } from 'react';
-import { Link, Navigate, useLocation } from 'react-router-dom';
-import Sidebar from './Sidebar';
-import Header from './Header';
-import { PageSectionsPreview } from '@/components/security/PermissionGate';
-import { NavigationGuardProvider } from '@/contexts/NavigationGuardContext';
-import BranchTargetEditor from '@/components/dashboard/BranchTargetEditor';
-import { useAuth } from '@/hooks/useAuth';
-import { normalizeRole } from '@/lib/core/permissionSystem';
+import { lazy, Suspense, type ReactNode } from 'react';
 
-const ReviewsInsightsHub = lazy(() => import('@/components/reviews/ReviewsInsightsHub'));
+const LayoutRuntime = lazy(() => import('./LayoutRuntime'));
 
-const PAGE_TITLES: Record<string, string> = {
-  '/': 'لوحة القيادة 2027',
-  '/customers': 'إدارة العملاء',
-  '/customer-service': 'مركز خدمة العملاء',
-  '/customer-data-review': 'مراجعة بيانات العملاء',
-  '/customer-welcome': 'الرسائل الترحيبية',
-  '/welcome-messages': 'الرسائل الترحيبية',
-  '/quick-replies': 'اختصارات الردود السريعة',
-  '/doctor-competition': 'مسابقة الدكاترة',
-  '/customer-cashback': 'نقاط العملاء / الكاش باك',
-  '/customer-service-credit': 'كريديت خدمة العملاء',
-  '/customer-requests': 'طلبات العملاء',
-  '/team': 'إدارة الفريق',
-  '/schedule': 'الجدول الأسبوعي',
-  '/time-off': 'الإذونات والإجازات',
-  '/points': 'النقاط والمكافآت',
-  '/reviews': 'تقييم المحادثات',
-  '/shift-performance': 'تقييم الشيفتات',
-  '/doctor-dashboard': 'لوحة الدكتور',
-  '/stagnant-medicines': 'الأدوية الرواكد',
-  '/incentive-medicines': 'أدوية اللستة',
-  '/delivery': 'التوصيل وتقييم الدليفري',
-  '/analytics': 'التحليلات والمبيعات',
-  '/invoices': 'استيراد الفواتير',
-  '/staff-accounts': 'حسابات الفريق',
-  '/roles-permissions': 'الأدوار والصلاحيات',
-  '/activity-log': 'سجل الأنشطة',
-  '/penalty-incentive': 'إدارة الجزاءات والحوافز',
-  '/executive-2027': 'لوحة القيادة 2027',
-  '/evaluation-rules': 'قواعد التقييم المرنة',
-  '/quarterly-incentives': 'الحافز الربع سنوي',
-  '/operations-center': 'المهام والتنبيهات',
-  '/staff-dashboard': 'لوحة تحكم الموظف',
-  '/medicine-expiry': 'متابعة صلاحية الأدوية',
-  '/attendance-report': 'الحضور والوقت',
-  '/loyalty-tiers': 'مستويات ولاء العملاء',
-  '/assistant-operational-log': 'تسجيل المشتريات وخدمة العملاء',
-  '/my-daily-checklist': 'التشيك ليست اليومي',
-  '/pharmacy-zone-tasks': 'الرص والجرد اليومي',
-  '/purchases': 'المشتريات',
-  '/purchase-invoice-entry': 'تسجيل فاتورة مشتريات',
-};
-
-const TEAM_DAWAA_ASSISTANT_NAMES = new Set(['هاجر', 'نور', 'هبه محمد', 'هبة محمد']);
-const TEAM_DAWAA_ASSISTANT_ALLOWED_PATHS = new Set([
-  '/assistant-operational-log',
-  '/my-daily-checklist',
-  '/pharmacy-zone-tasks',
-  '/schedule',
-  '/customer-service',
-  '/customer-requests',
-  '/reviews',
-  '/customers',
-  '/customer-coding',
-  '/quick-replies',
-  '/welcome-messages',
-  '/purchases',
-  '/purchase-invoice-entry',
-  '/purchase-invoice-accuracy',
-  '/customer-monthly-performance',
-  '/customer-cashback',
-  '/customer-points-ledger',
-  '/points',
-]);
-
-function normalizeAssistantName(value: unknown) {
-  return String(value ?? '')
-    .replace(/[ًٌٍَُِّْـ]/g, '')
-    .replace(/[إأآا]/g, 'ا')
-    .replace(/ة/g, 'ه')
-    .replace(/\s+/g, ' ')
-    .trim();
+function LayoutLoadingShell() {
+  return (
+    <main className="grid min-h-screen place-items-center dawaa-app-bg p-5" dir="rtl">
+      <div className="text-center">
+        <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-[var(--dawaa-theme-primary)] border-t-transparent" />
+        <p className="dawaa-muted text-sm font-bold">جاري تجهيز واجهة التطبيق…</p>
+      </div>
+    </main>
+  );
 }
 
-export default function Layout({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
-  const [collapsed, setCollapsed] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const location = useLocation();
-  const title = PAGE_TITLES[location.pathname] || 'صيدليات دواء';
-  const mainRef = useRef<HTMLElement>(null);
-  const hasChildren = Children.count(children) > 0;
-  const showTargetEditor = location.pathname === '/' || location.pathname === '/executive-2027';
-  const reviewParams = new URLSearchParams(location.search);
-  const reviewsPageMode = reviewParams.get('mode');
-  const reviewsPageSection = reviewParams.get('section');
-  const reviewsPageId = reviewParams.get('id');
-  const showReviewsHub =
-    location.pathname === '/reviews' &&
-    reviewsPageMode !== 'new' &&
-    reviewsPageSection !== 'history' &&
-    !reviewsPageId;
-
-  const isScopedAssistant =
-    normalizeRole(user?.role) === 'assistant' &&
-    TEAM_DAWAA_ASSISTANT_NAMES.has(normalizeAssistantName(user?.name));
-  const assistantPathAllowed = TEAM_DAWAA_ASSISTANT_ALLOWED_PATHS.has(location.pathname);
-
-  useEffect(() => {
-    const onStorage = (event: StorageEvent) => {
-      if (event.key !== 'dawaa_invoice_import_refresh' || !event.newValue) return;
-      window.dispatchEvent(
-        new CustomEvent('dawaa:data-refresh', { detail: { source: 'invoice-import' } })
-      );
-    };
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
-  }, []);
-
-  useEffect(() => {
-    const key = `dawaa_scroll_${location.pathname}${location.search}`;
-    const main = mainRef.current;
-    if (!main) return;
-    const saved = sessionStorage.getItem(key);
-    if (saved) {
-      requestAnimationFrame(() => {
-        main.scrollTop = Number(saved) || 0;
-      });
-    } else {
-      main.scrollTop = 0;
-    }
-    const saveScroll = () => sessionStorage.setItem(key, String(main.scrollTop));
-    main.addEventListener('scroll', saveScroll, { passive: true });
-    return () => {
-      saveScroll();
-      main.removeEventListener('scroll', saveScroll);
-    };
-  }, [location.pathname, location.search]);
-
-  if (isScopedAssistant && !assistantPathAllowed) {
-    return <Navigate to="/assistant-operational-log" replace />;
-  }
-
+export default function Layout({ children }: { children: ReactNode }) {
   return (
-    <NavigationGuardProvider>
-      <div className="dawaa-app-bg flex h-screen overflow-hidden" dir="rtl">
-        <Sidebar
-          collapsed={collapsed}
-          onToggle={() => setCollapsed(!collapsed)}
-          mobileOpen={mobileOpen}
-          onMobileClose={() => setMobileOpen(false)}
-        />
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <div className="relative z-[220] shrink-0">
-            <Header onMobileMenuOpen={() => setMobileOpen(true)} title={title} />
-          </div>
-          <main ref={mainRef} className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
-            <div className="animate-fade-in mx-auto min-h-[calc(100vh-120px)] max-w-[1720px] space-y-4">
-              <PageSectionsPreview path={location.pathname} />
-              {showTargetEditor ? <BranchTargetEditor compact /> : null}
-              {showReviewsHub ? (
-                <Suspense fallback={<div className="dawaa-card p-4 text-sm text-[var(--dawaa-theme-muted)]">جاري تحميل تحليلات التقييمات…</div>}>
-                  <ReviewsInsightsHub />
-                </Suspense>
-              ) : null}
-              {hasChildren ? (
-                children
-              ) : (
-                <section className="dawaa-card dawaa-alert--warning text-center">
-                  <div className="w-full">
-                    <h1 className="dawaa-title text-xl">لم يتم تحميل محتوى الصفحة</h1>
-                    <p className="dawaa-caption mt-2">
-                      الصفحة فتحت لكن لم يصل محتوى قابل للعرض. افتح التشخيص لمعرفة آخر خطأ تشغيل.
-                    </p>
-                    <Link to="/diagnostics" className="dawaa-button dawaa-button--primary mt-4">
-                      فتح التشخيص
-                    </Link>
-                  </div>
-                </section>
-              )}
-            </div>
-          </main>
-        </div>
-      </div>
-    </NavigationGuardProvider>
+    <Suspense fallback={<LayoutLoadingShell />}>
+      <LayoutRuntime>{children}</LayoutRuntime>
+    </Suspense>
   );
 }
