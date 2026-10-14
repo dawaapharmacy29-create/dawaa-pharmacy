@@ -105,7 +105,7 @@ if (fs.existsSync(path.join(ROOT, LEGACY_BURST_DEDUPE_MIGRATION))) {
 // validate the fail-closed public API instead of requiring live inbox wiring.
 const pausedService = fs.readFileSync(path.join(ROOT, SERVICE), 'utf8');
 const pausedHook = fs.readFileSync(path.join(ROOT, 'src/hooks/useNotifications.ts'), 'utf8');
-if (/export const NOTIFICATIONS_ENABLED = false\\s*;/.test(pausedService)) {
+if (/export const NOTIFICATIONS_ENABLED = false\s*;/.test(pausedService)) {
   for (const token of [
     'export async function createNotification(',
     'export async function getRecentNotifications(',
