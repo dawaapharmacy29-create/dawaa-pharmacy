@@ -259,7 +259,9 @@ describe('Canonical Follow-up Opportunity Engine', () => {
     const first = analyze(raw).followUp.opportunities.map((o) => o.followUpKey);
     const second = analyze(raw).followUp.opportunities.map((o) => o.followUpKey);
     expect(first).toEqual(second);
-    expect(first[0]).toMatch(/^fu1\|customer:customer-1\|/);
+    expect(first).toHaveLength(1);
+    expect(first[0]).toMatch(/^fu1\|chat:/);
+    expect(new Set([...first, ...second]).size).toBe(1);
     expect(first[0]).not.toMatch(/\.txt|\.zip/);
   });
 
@@ -286,4 +288,3 @@ describe('Follow-up review gate for unresolved media', () => {
     expect(analysis.followUp.notNeededReason).toBeNull();
   });
 });
-

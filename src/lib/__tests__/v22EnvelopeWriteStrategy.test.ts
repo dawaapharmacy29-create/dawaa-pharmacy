@@ -137,6 +137,55 @@ describe('V22 envelope write strategy', () => {
     expect(db.rows[0]).toMatchObject({ case_type: 'followup', case_state: 'awaiting_customer', root_source_id: '4b2f3e27' });
   });
 
+  it('replaying the same complaint source updates one canonical V22 case without duplicating its evidence or ownership', async () => {
+    const db = fakeDb();
+    const complaint = envelope({
+      case_key: 'v22:complaint-source:2026-10-06T06:00:00.000Z',
+      root_source_id: 'complaint-source',
+      source_ids: ['complaint-source'],
+      case_type: 'complaint',
+      case_state: 'recovery',
+      customer_id: 'customer-complaint',
+      staff_account_ids: ['staff-account-1'],
+      staff_names: ['Staff One'],
+      summary: 'Complaint recovery',
+      case_json: {
+        type: 'complaint',
+        complaint: true,
+        state: 'recovery',
+        sessionIds: ['complaint-session'],
+        evidenceMessageIds: ['complaint-message-1'],
+        canonicalStaff: [{ accountId: 'staff-account-1', staffName: 'Staff One' }],
+      },
+    });
+
+    const first = await writeV22Envelope(db, complaint);
+    const firstRow = JSON.parse(JSON.stringify(db.rows[0]));
+    const replay = await writeV22Envelope(db, complaint);
+
+    expect(first).toMatchObject({ op: 'insert', id: replay.id });
+    expect(replay.op).toBe('update');
+    expect(db.rows).toHaveLength(1);
+    expect(db.rows[0]).toMatchObject({
+      case_key: complaint.case_key,
+      root_source_id: 'complaint-source',
+      case_type: 'complaint',
+      case_state: 'recovery',
+      customer_id: 'customer-complaint',
+      staff_account_ids: ['staff-account-1'],
+      staff_names: ['Staff One'],
+      case_json: {
+        complaint: true,
+        state: 'recovery',
+        sessionIds: ['complaint-session'],
+        evidenceMessageIds: ['complaint-message-1'],
+      },
+    });
+    expect(db.ops.map(({ op }) => op)).toEqual(['insert', 'update']);
+    expect(db.rows[0].case_key).toBe(firstRow.case_key);
+    expect(db.rows[0].case_json.evidenceMessageIds).toEqual(firstRow.case_json.evidenceMessageIds);
+  });
+
   it('the old UPSERT payload of a projected row is exactly what Postgres rejects (runtime root cause)', () => {
     const plan = planV22EnvelopeWrite(projectedRow() as any, envelope());
     expect(plan.op).toBe('update');
