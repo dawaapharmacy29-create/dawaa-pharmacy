@@ -32,6 +32,19 @@ const suites = [
     '../migrations/20261003114500_notification_inbox_latest_lookup_v5.sql',
     '../migrations/20261011190000_notifications_inbox_canonical_latest_tiebreak_v1.sql',
   ], false, 'notifications_inbox_canonical_latest_v5_idx'],
+  ['whatsapp_customer_cases_v22_initplan_v1', [
+    '20261015140000_rls_actor_scope_initplan_v1.sql',
+    '20261015150000_whatsapp_customer_cases_v22_initplan_v1.sql',
+  ]],
+  ['attendance_read_scope_initplan_callers_v1', [
+    '20261015140000_rls_actor_scope_initplan_v1.sql',
+    '20261015150100_attendance_read_scope_initplan_callers_v1.sql',
+  ]],
+  ['pending_overtime_branch_scope_initplan_v1', ['20261015150200_pending_overtime_branch_scope_initplan_v1.sql']],
+  ['employee_kpi_read_scope_initplan_v1', ['20261015150300_employee_kpi_read_scope_initplan_v1.sql']],
+  // Index plan suite: tables listed last are vacuumed (visibility map) before the test file, as in Production.
+  ['sales_invoices_health_covering_index_v1', ['20261015150400_sales_invoices_health_classification_covering_index_v1.sql'],
+    false, null, ['public.sales_invoices']],
 ];
 const guardRefusals = [
   ['hr_health_without_actor_check', 'session_internal_authorized_reads_v1', 'session_grant_guard_refusal_health_v1.pre.sql',
@@ -42,13 +55,19 @@ const guardRefusals = [
     '20261015140300_reconcile_staff_points_manager_summary_v4.sql', /get_staff_points_manager_summary_v4 no longer authorizes the verified session actor; anon grant refused/],
 ];
 try {
-  for (const [name, migrations, stagingPolicies = false] of suites) {
+  for (const [name, migrations, stagingPolicies = false, , vacuumTables = []] of suites) {
     const db = `sql_security_${name}`;
     await runtime.execute('postgres', `create database ${db};`);
     const policyFiles = migrations.map(m => stagingPolicies
       ? path.normalize(path.join('supabase/tests', m))
       : `supabase/migrations/${m}`);
     for (const file of [`supabase/tests/${name}.fixture.sql`, ...policyFiles, `supabase/tests/${name}.test.sql`]) {
+      if (file.endsWith('.test.sql')) {
+        for (const table of vacuumTables) {
+          const vacuum = await runtime.execute(db, `vacuum analyze ${table};`);
+          if (vacuum.code) throw new Error(`${name} vacuum ${table}: ${vacuum.stderr}`);
+        }
+      }
       const result = await runtime.execute(db, readSql(file));
       if (result.code) throw new Error(`${file}: ${result.stderr}`);
       if (file.endsWith('.test.sql') && name === 'notification_rls_latest_index_v1'
