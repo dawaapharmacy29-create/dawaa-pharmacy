@@ -53,7 +53,7 @@ export default function StaffDuplicateAudit() {
 
   return (
     <div className="dawaa-text p-6 max-w-7xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">مراجعة ودمج الموظفين المكررين</h1>
+      <h1 className="text-2xl font-bold mb-6">تدقيق تكرار الموظفين</h1>
 
       {/* إحصائيات */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">

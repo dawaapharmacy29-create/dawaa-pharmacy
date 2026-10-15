@@ -1,5 +1,5 @@
 import type { ElementType } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Calendar,
   ClipboardCheck,
@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { LOGO_URL } from '@/lib/constants';
+import { activeItem as pathIsActive } from '@/lib/sidebarNavigation';
 import { cn } from '@/lib/utils';
 
 interface SidebarProps {
@@ -50,19 +51,19 @@ const TEAM_DAWAA_ALPHA_STAFF_IDS = [
 
 const GROUPS: AssistantNavGroup[] = [
   {
-    title: 'مساحة العمل',
+    title: 'عملي اليومي',
     items: [
       { path: '/assistant-operational-log', label: 'تسجيل المشتريات وخدمة العملاء', icon: LayoutDashboard, permission: 'view_dashboard' },
-      { path: '/my-daily-checklist', label: 'التشيك ليست اليومي', icon: ClipboardCheck, permission: 'view_dashboard' },
+      { path: '/my-daily-checklist', label: 'مهامي اليومية', icon: ClipboardCheck, permission: 'view_dashboard' },
       { path: '/pharmacy-zone-tasks', label: 'الرص والجرد اليومي', icon: ClipboardList, permission: 'view_dashboard', excludeStaffIds: TEAM_DAWAA_ALPHA_STAFF_IDS },
-      { path: '/schedule', label: 'جدولي والشيفتات', icon: Calendar, permission: 'view_schedule' },
+      { path: '/schedule', label: 'جدولي ومناوباتي', icon: Calendar, permission: 'view_schedule' },
     ],
   },
   {
-    title: 'خدمة العملاء',
+    title: 'العملاء والمتابعات',
     items: [
-      { path: '/customer-service', label: 'خدمة العملاء', icon: HeadphonesIcon, permission: 'view_customer_service' },
-      { path: '/customer-service?quickFollowup=1', label: 'المتابعات', icon: ClipboardCheck, permission: 'view_customer_service' },
+      { path: '/customer-service', label: 'متابعة العملاء', icon: HeadphonesIcon, permission: 'view_customer_service' },
+      { path: '/customer-service?quickFollowup=1', label: 'تسجيل متابعة سريعة', icon: ClipboardCheck, permission: 'view_customer_service' },
       { path: '/customer-requests', label: 'طلبات العملاء', icon: PackageSearch, permission: 'view_customer_requests' },
       { path: '/reviews', label: 'تقييم المحادثات', icon: ClipboardCheck, permission: 'view_reviews' },
       { path: '/customers', label: 'قاعدة العملاء', icon: Users, permission: 'view_customers' },
@@ -90,21 +91,11 @@ const GROUPS: AssistantNavGroup[] = [
   },
 ];
 
-function pathIsActive(itemPath: string, pathname: string, search: string) {
-  const [base, query] = itemPath.split('?');
-  if (pathname !== base) return false;
-  if (!query) return true;
-  const expected = new URLSearchParams(query);
-  const actual = new URLSearchParams(search);
-  for (const [key, value] of expected.entries()) {
-    if (actual.get(key) !== value) return false;
-  }
-  return true;
-}
 
 export default function AssistantSidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: SidebarProps) {
   const { user, logout, checkPermission } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const currentStaffId = user?.staffId || user?.id || '';
 
   const groups = GROUPS
@@ -147,14 +138,16 @@ export default function AssistantSidebar({ collapsed, onToggle, mobileOpen, onMo
           <div key={group.title} className="space-y-1">
             {!collapsed ? <div className="dawaa-sidebar-group px-3 py-2 text-xs font-black">{group.title}</div> : null}
             {group.items.map((item) => (
-              <NavLink
+              <Link
                 key={`${item.path}-${item.label}`}
                 to={item.path}
+                title={item.label}
+                aria-current={pathIsActive(item.path, location.pathname, location.search) ? 'page' : undefined}
                 onClick={onMobileClose}
-                className={({ isActive }) =>
+                className={
                   cn(
                     'nav-item',
-                    isActive || pathIsActive(item.path, window.location.pathname, window.location.search)
+                    pathIsActive(item.path, location.pathname, location.search)
                       ? 'nav-item-active'
                       : 'nav-item-inactive',
                     collapsed && 'justify-center px-2'
@@ -163,7 +156,7 @@ export default function AssistantSidebar({ collapsed, onToggle, mobileOpen, onMo
               >
                 <item.icon size={18} />
                 {!collapsed ? <span>{item.label}</span> : null}
-              </NavLink>
+              </Link>
             ))}
           </div>
         ))}

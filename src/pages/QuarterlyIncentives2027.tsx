@@ -114,7 +114,7 @@ export default function QuarterlyIncentives2027() {
     <div className="space-y-6" dir="rtl">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <h1 className="page-title">الحافز الربع سنوي 2027</h1>
+          <h1 className="page-title">الحافز الربع سنوي وقواعده</h1>
           <p className="mt-2 text-sm leading-7 text-slate-400">
             حافز منفصل بقيمة 2000 جنيه كل 3 أشهر. لا يختلط مع حافز الشهر: 500 نقطة = 1500 جنيه.
           </p>

@@ -390,7 +390,7 @@ export default function PayrollManagementV2() {
     <div className="space-y-5 p-4 md:p-6" dir="rtl">
       <div className="rounded-3xl border p-5" style={surface}>
         <div className="flex items-center gap-2 text-teal-200"><Banknote size={18} /><span className="text-xs font-black">إدارة الرواتب والحوافز · Workspace V2</span></div>
-        <h1 className="mt-1 text-2xl font-black text-white">كشوف رواتب الموظفين</h1>
+        <h1 className="mt-1 text-2xl font-black text-white">الرواتب والجاهزية</h1>
         <p className="mt-1 text-sm" style={mutedText}>تحميل تدريجي حسب التاب · منع الردود القديمة · Finalization كامل عند الطلب فقط</p>
       </div>
 

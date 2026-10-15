@@ -3,6 +3,7 @@
   "framework": "vite",
   "git": {
     "deploymentEnabled": {
+      "feat/navigation-workspaces-20261015": false,
       "whatsapp-review-integration-test": true,
       "claude/project-thread-pkg0jt": false
     }

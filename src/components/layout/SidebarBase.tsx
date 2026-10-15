@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type ElementType } from 'react';
-import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useState, type ElementType } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Activity, ActivitySquare, AlertTriangle, BarChart3, BellRing, Calendar, ChevronDown, ChevronLeft,
   ClipboardCheck, ClipboardList, Clock, Crown, FileSpreadsheet, Fingerprint, HeadphonesIcon, LayoutDashboard, LogOut,
@@ -10,6 +10,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useOptionalNavigationGuard } from '@/contexts/NavigationGuardContext';
 import { usePendingShiftNotesCount } from '@/hooks/usePendingShiftNotesCount';
 import { LOGO_URL } from '@/lib/constants';
+import { basePath, activeItem } from '@/lib/sidebarNavigation';
 import { cn } from '@/lib/utils';
 import { getVisibleSectionsForPath } from '@/lib/permissionMatrix';
 import { canAccessHRRoute, canManageBiometricOperations, getRoutePermissions, normalizeRole } from '@/lib/core/permissionSystem';
@@ -25,6 +26,7 @@ type NavItem = {
   biometricOnly?: boolean;
 };
 type NavGroup = { title: string; icon: ElementType; items: NavItem[] };
+type WorkspaceGroup = NavGroup & { sections?: Array<{ title: string; items: NavItem[] }> };
 
 const ENABLE_INTERNAL_DELIVERY_MODULE = false;
 const SHIFT_NOTES_ITEM: NavItem = { path: '/shift-notes', icon: ClipboardList, label: 'ملاحظات الشيفت', permission: 'view_schedule' };
@@ -32,10 +34,10 @@ const QUICK_FOLLOWUP_ITEM: NavItem = { path: '/customer-service?quickFollowup=1'
 const CUSTOMER_CODING_ITEM: NavItem = { path: '/customer-coding', icon: UserPlus, label: 'تكويد عميل', permission: 'view_customer_service' };
 
 // Navigation is grouped by user workflow, while keeping the existing routes and permissions intact.
-const GROUPS: NavGroup[] = [
+const PAGE_GROUPS: NavGroup[] = [
   { title: 'الرئيسية والإدارة', icon: Crown, items: [
     { path: '/', icon: LayoutDashboard, label: 'لوحة الإدارة', permission: 'view_dashboard', excludeRoles: ['customer_service_manager', 'procurement_manager', 'inventory_assistant', 'customer_service', 'delivery', 'cleaning_supervisor'] },
-    { path: '/daily-command', icon: Target, label: 'الأمر اليومي', allowedRoles: ['general_manager', 'admin', 'executive_manager', 'branches_manager'] },
+    { path: '/daily-command', icon: Target, label: 'القيادة اليومية', allowedRoles: ['general_manager', 'admin', 'executive_manager', 'branches_manager'] },
     { path: '/operations-center', icon: BellRing, label: 'مركز المهام والتنبيهات', permission: 'view_operations' },
     { path: '/branch-inspection', icon: ClipboardList, label: 'متابعة ومرور الفروع', permission: 'view_branch_inspection' },
   ]},
@@ -65,15 +67,15 @@ const GROUPS: NavGroup[] = [
 
   { title: 'الرواتب والأداء', icon: WalletCards, items: [
     { path: '/staff-payroll', icon: WalletCards, label: 'الرواتب والجاهزية', permission: 'manage_payroll' },
-    { path: '/employee-kpi', icon: BarChart3, label: 'مؤشرات الموظفين' },
+    { path: '/employee-kpi', icon: BarChart3, label: 'مؤشرات أداء الموظفين' },
     { path: '/staff-monthly-evaluation', icon: Star, label: 'التقييم الشهري' },
     { path: '/monthly-incentive-report', icon: Wallet, label: 'الحوافز الشهرية' },
     { path: '/penalty-incentive', icon: AlertTriangle, label: 'الجزاءات والمكافآت' },
   ]},
 
   { title: 'خدمة العملاء والمتابعات', icon: HeadphonesIcon, items: [
-    { path: '/customer-service', icon: HeadphonesIcon, label: 'مركز خدمة العملاء', permission: 'view_customer_service' },
-    { path: '/customer-service?quickFollowup=1', icon: ClipboardCheck, label: 'متابعة العملاء', permission: 'view_customer_service' },
+    { path: '/customer-service', icon: HeadphonesIcon, label: 'متابعة العملاء', permission: 'view_customer_service' },
+    { path: '/customer-service?quickFollowup=1', icon: ClipboardCheck, label: 'تسجيل متابعة سريعة', permission: 'view_customer_service' },
     { path: '/customer-requests', icon: PackageSearch, label: 'طلبات العملاء', permission: 'view_customer_requests' },
     { path: '/reviews', icon: ClipboardCheck, label: 'تقييم المحادثات', permission: 'view_reviews' },
     { path: '/whatsapp-smart-folder-watcher', icon: MessageCircle, label: 'التقاط واتساب تلقائيًا', permission: 'view_reviews' },
@@ -114,7 +116,7 @@ const GROUPS: NavGroup[] = [
 
   { title: 'الفواتير والمشتريات', icon: FileSpreadsheet, items: [
     { path: '/invoices', icon: FileSpreadsheet, label: 'استيراد فواتير المبيعات', permission: 'view_invoices' },
-    { path: '/purchases', icon: FileSpreadsheet, label: 'المشتريات', permission: 'view_purchases' },
+    { path: '/purchases', icon: FileSpreadsheet, label: 'المشتريات ودليل الأصناف', permission: 'view_purchases' },
     { path: '/purchase-invoice-entry', icon: FileSpreadsheet, label: 'إدخال فاتورة مشتريات', allowedRoles: ['assistant'] },
     { path: '/purchase-invoice-review', icon: ClipboardCheck, label: 'مراجعة فواتير المشتريات', excludeRoles: ['pharmacist', 'assistant', 'customer_service_manager'] },
     { path: '/purchase-invoice-accuracy', icon: FileSpreadsheet, label: 'دقة إدخال فواتير المشتريات', allowedRoles: ['assistant', 'customer_service_manager', 'general_manager', 'branches_manager'] },
@@ -156,19 +158,19 @@ const GROUPS: NavGroup[] = [
 
   { title: 'النقاط والحوافز', icon: Star, items: [
     { path: '/monthly-incentive-report', icon: Wallet, label: 'ملخص الحوافز الشهري', allowedRoles: ['general_manager', 'admin', 'executive_manager', 'branches_manager'] },
-    { path: '/performance-pillars', icon: BarChart3, label: 'مؤشر الأداء الشامل', excludeRoles: ['customer_service_manager'] },
+    { path: '/performance-pillars', icon: BarChart3, label: 'الدرجة المركبة للأداء', excludeRoles: ['customer_service_manager'] },
     { path: '/points', icon: Star, label: 'نقاط الأداء', permission: 'view_points' },
     { path: '/penalty-incentive', icon: AlertTriangle, label: 'الجزاءات والمكافآت', permission: 'view_penalty_management' },
     { path: '/point-appeals', icon: AlertTriangle, label: 'اعتراضات النقاط' },
     { path: '/incentive-governance', icon: ShieldCheck, label: 'اعتماد الحوافز', permission: 'manage_incentives' },
     { path: '/assistant-operational-bonus', icon: Sparkles, label: 'المكافآت الاستثنائية', permission: 'manage_incentives' },
-    { path: '/quarterly-incentives', icon: Crown, label: 'نظام وقواعد الحافز', permission: 'view_quarterly_incentives' },
+    { path: '/quarterly-incentives', icon: Crown, label: 'الحافز الربع سنوي وقواعده', permission: 'view_quarterly_incentives' },
   ]},
 
   { title: 'إدارة النظام', icon: ShieldCheck, items: [
     { path: '/staff-accounts', icon: ShieldCheck, label: 'الحسابات والصلاحيات', permission: 'view_staff_accounts', adminOnly: true },
     { path: '/roles-permissions', icon: ShieldCheck, label: 'إعدادات الأدوار والصلاحيات', permission: 'view_roles_permissions', adminOnly: true },
-    { path: '/staff-duplicate-audit', icon: AlertTriangle, label: 'تدقيق الحسابات والتكرار', permission: 'view_staff_accounts', adminOnly: true },
+    { path: '/staff-duplicate-audit', icon: AlertTriangle, label: 'تدقيق تكرار الموظفين', permission: 'view_staff_accounts', adminOnly: true },
     { path: '/data-health', icon: ShieldCheck, label: 'صحة البيانات', permission: 'view_data_health' },
     { path: '/activity-log', icon: ActivitySquare, label: 'سجل أنشطة النظام', permission: 'view_activity_log', adminOnly: true },
   ]},
@@ -197,7 +199,6 @@ const PHARMACIST_GROUPS: NavGroup[] = [
     { path: '/points', icon: Star, label: 'نقاطي وحافزي', permission: 'view_points' },
     { path: '/point-appeals', icon: AlertTriangle, label: 'اعتراضاتي على النقاط' },
     { path: '/doctor-dashboard?tab=payroll', icon: WalletCards, label: 'راتبي ومستحقاتي', permission: 'view_doctor_dashboard' },
-    { path: '/doctor-dashboard?tab=notifications', icon: BellRing, label: 'إشعاراتي', permission: 'view_doctor_dashboard' },
     { path: '/doctor-dashboard?tab=activity', icon: Activity, label: 'سجل نشاطي', permission: 'view_doctor_dashboard' },
   ]},
   { title: 'الأصناف والتشغيل', icon: Store, items: [
@@ -206,15 +207,17 @@ const PHARMACIST_GROUPS: NavGroup[] = [
   ]},
 ];
 
-function basePath(path: string) { return path.split('?')[0]; }
-function activeItem(itemPath: string, pathname: string, search: string) {
-  const base = basePath(itemPath);
-  if (base === '/') return pathname === '/';
-  if (base === '/team' && pathname.startsWith('/staff/')) return true;
-  if (pathname !== base && !pathname.startsWith(`${base}/`)) return false;
-  const expectedTab = new URLSearchParams(itemPath.split('?')[1] || '').get('tab');
-  return expectedTab ? new URLSearchParams(search).get('tab') === expectedTab : !new URLSearchParams(search).get('tab');
-}
+const WORKSPACE_GROUPS = [
+  { title: "الإدارة", icon: Crown, sections: [{"title": "لوحة الإدارة", "paths": ["/"]}, {"title": "القيادة اليومية", "paths": ["/daily-command"]}] },
+  { title: "الموظفون", icon: UserCheck, sections: [{"title": "الموظفون والملفات", "paths": ["/hr-workforce", "/team", "/hr-staff-milestones", "/hr-data-quality"]}, {"title": "الحضور والوقت", "paths": ["/attendance-report"]}, {"title": "الجداول والإجازات", "paths": ["/schedule", "/time-off"]}, {"title": "التقييمات والأداء", "paths": ["/employee-kpi", "/staff-monthly-evaluation", "/weekly-evaluation", "/shift-performance", "/doctor-quality-summary", "/performance-pillars", "/doctor-competition", "/monthly-report-360"]}, {"title": "الرواتب والحوافز", "paths": ["/staff-payroll", "/points", "/monthly-incentive-report", "/penalty-incentive", "/point-appeals", "/incentive-governance", "/assistant-operational-bonus", "/quarterly-incentives"]}] },
+  { title: "العملاء وخدمة العملاء", icon: Users, sections: [{"title": "العملاء", "paths": ["/customers", "/customer-monthly-performance", "/customer-data-review", "/customer-coding"]}, {"title": "المتابعات والطلبات", "paths": ["/customer-service", "/customer-requests", "/whatsapp-followup-requests"]}, {"title": "ولاء العملاء", "paths": ["/customer-cashback", "/customer-points-ledger"]}, {"title": "قوالب الرسائل", "paths": ["/quick-replies", "/welcome-messages"]}] },
+  { title: "المحادثات وذكاء المبيعات", icon: MessageCircle, sections: [{"title": "تقييم المحادثات وحالات البيع", "paths": ["/reviews", "/sales-intelligence/qa"]}, {"title": "تحليلات واتساب", "paths": ["/whatsapp-analytics"]}, {"title": "التقاط المحادثات", "paths": ["/whatsapp-smart-folder-watcher"]}, {"title": "أدوات وتقارير تجريبية", "paths": ["/whatsapp-folder-watcher", "/whatsapp-doctor-performance", "/whatsapp-customer-history", "/whatsapp-lost-opportunities", "/whatsapp-branch-comparison"]}] },
+  { title: "المبيعات", icon: BarChart3, sections: [{"title": "المبيعات والفواتير", "paths": ["/analytics", "/branch-comparison", "/invoices"]}] },
+  { title: "المشتريات والمخزون", icon: Package, sections: [{"title": "المشتريات", "paths": ["/purchases", "/purchase-invoice-entry", "/purchase-invoice-review", "/purchase-invoice-accuracy", "/purchase-returns", "/purchase-cycle-report", "/purchase-order-log"]}, {"title": "الموردون", "paths": ["/supplier-accounts"]}, {"title": "المخزون والأصناف", "paths": ["/shortages", "/stagnant-medicines", "/medicine-expiry", "/inventory-counts", "/supplies", "/accessories"]}] },
+  { title: "تشغيل الفروع", icon: Store, sections: [{"title": "مهام التشغيل", "paths": ["/operations-center", "/employee-operating-system", "/my-daily-checklist", "/assistant-operational-log", "/daily-manager-checklist"]}, {"title": "متابعة الفروع", "paths": ["/branch-inspection", "/shelf-organization", "/pharmacy-zone-tasks", "/branch-checklist-review"]}, {"title": "ملاحظات وتسليم الشيفتات", "paths": ["/shift-notes", "/shift-handovers"]}] },
+  { title: "التقارير والإعدادات", icon: ShieldCheck, sections: [{"title": "التقارير", "paths": ["/reports", "/hr-reports"]}, {"title": "الإعدادات وإدارة النظام", "paths": ["/hr-settings", "/staff-accounts", "/roles-permissions", "/staff-duplicate-audit", "/data-health", "/activity-log"]}, {"title": "حسابي", "paths": ["/my-attendance"]}] },
+];
+
 
 interface SidebarProps { collapsed: boolean; onToggle: () => void; mobileOpen: boolean; onMobileClose: () => void }
 
@@ -230,7 +233,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
   const pharmacistView = ['pharmacist', 'shift_supervisor_morning', 'shift_supervisor_evening'].includes(role)
     && !checkPermission('view_executive_dashboard');
 
-  const canAccess = (item: NavItem) => {
+  const canAccess = useCallback((item: NavItem) => {
     if (!canAccessHRRoute(basePath(item.path), user?.role)) return false;
     if (item.biometricOnly && !canManageBiometricOperations(user?.role)) return false;
     if (item.adminOnly && !privileged) return false;
@@ -248,7 +251,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
     if (routePermissions?.length && !routePermissions.some(checkPermission)) return false;
 
     return true;
-  };
+  }, [checkPermission, privileged, role, user?.role]);
 
   const canQuickFollowup = pharmacistView
     ? checkPermission('view_doctor_dashboard')
@@ -256,10 +259,29 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
   const canQuickCoding = canAccess(CUSTOMER_CODING_ITEM);
   const quickFollowupPath = pharmacistView ? '/doctor-dashboard?tab=followups' : QUICK_FOLLOWUP_ITEM.path;
 
-  const groups = useMemo(() => (pharmacistView ? PHARMACIST_GROUPS : GROUPS)
-    .filter((group) => group.title !== 'التوصيل' || ENABLE_INTERNAL_DELIVERY_MODULE)
-    .map((group) => ({ ...group, items: group.items.filter(canAccess) }))
-    .filter((group) => group.items.length), [checkPermission, pharmacistView, privileged, role]);
+  const groups = useMemo<WorkspaceGroup[]>(() => {
+    if (pharmacistView) return PHARMACIST_GROUPS
+      .map((group) => ({ ...group, items: group.items.filter(canAccess) }))
+      .filter((group) => group.items.length);
+
+    // Filter first: duplicate links have different role predicates. Keep the first
+    // accessible variant without widening any page's existing permissions.
+    const seen = new Set<string>();
+    const pages = [...PAGE_GROUPS.filter((group) => group.title !== 'التوصيل' || ENABLE_INTERNAL_DELIVERY_MODULE)
+      .flatMap((group) => group.items), SHIFT_NOTES_ITEM]
+      .filter(canAccess).filter((item) => {
+        if (seen.has(item.path)) return false;
+        seen.add(item.path);
+        return true;
+      });
+    return WORKSPACE_GROUPS.map((group) => {
+      const sections = group.sections.map((section) => ({
+        title: section.title,
+        items: pages.filter((item) => section.paths.some((path) => basePath(item.path) === path || basePath(item.path).startsWith(`${path}/`))),
+      })).filter((section) => section.items.length);
+      return { ...group, sections, items: sections.flatMap((section) => section.items) };
+    }).filter((group) => group.items.length);
+  }, [canAccess, pharmacistView]);
 
   useEffect(() => {
     setExpandedGroups((previous) => {
@@ -277,8 +299,46 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
     <div className={cn('dawaa-sidebar-divider flex items-center gap-3 border-b p-4', collapsed && 'justify-center')}><div className="logo-tile flex h-10 w-10 items-center justify-center rounded-xl"><img src={LOGO_URL} alt="Dawaa Pharmacy 2027" className="h-8 w-8 object-contain" /></div>{!collapsed ? <div className="min-w-0"><div className="dawaa-sidebar-title text-sm font-bold">Dawaa Pharmacy 2027</div><div className="dawaa-sidebar-brand truncate text-xs">نظام تشغيل الصيدلية الذكي</div></div> : null}<button onClick={onToggle} className="dawaa-sidebar-muted mr-auto hidden rounded-lg p-1.5 lg:flex"><ChevronLeft className={collapsed ? 'rotate-180' : ''} /></button></div>
     <div className="dawaa-sidebar-divider border-b p-3"><div className="dawaa-sidebar-user-card rounded-xl p-2.5 text-xs"><div className="dawaa-sidebar-title font-semibold">{user?.name}</div>{!collapsed ? <div className="dawaa-sidebar-muted">{user?.role} - {user?.branch}</div> : null}</div></div>
     {!collapsed && (canQuickFollowup || canQuickCoding) ? <div className="px-3 py-2"><div className="flex gap-2">{canQuickFollowup ? <button onClick={() => go(quickFollowupPath)} className="dawaa-sidebar-quick flex-1 rounded-lg px-3 py-2 text-xs font-bold">متابعة سريعة</button> : null}{canQuickCoding ? <button onClick={() => go(CUSTOMER_CODING_ITEM.path)} className="dawaa-sidebar-quick dawaa-sidebar-quick--secondary flex-1 rounded-lg px-3 py-2 text-xs font-bold">تكويد عميل</button> : null}</div></div> : null}
-    {canAccess(SHIFT_NOTES_ITEM) ? <button onClick={() => go(SHIFT_NOTES_ITEM.path)} className="nav-item nav-item-inactive mx-3 my-2"><ClipboardList size={18} />{!collapsed ? <span className="flex w-full justify-between">ملاحظات الشيفت{pendingShiftNotes ? <b className="dawaa-sidebar-count rounded-full px-2">{pendingShiftNotes}</b> : null}</span> : null}</button> : null}
-    <nav className="flex-1 space-y-2 overflow-y-auto p-3">{groups.map((group) => { const active = group.items.some((item) => activeItem(item.path, location.pathname, location.search)); const expanded = collapsed || expandedGroups[group.title] || active; return <div key={group.title} className="space-y-1">{!collapsed ? <button type="button" onClick={() => setExpandedGroups((value) => ({...value,[group.title]:!value[group.title]}))} className={cn('dawaa-sidebar-group flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold', active && 'is-active')}><group.icon size={15} /><span className="flex-1 text-right">{group.title}</span><ChevronDown size={14} className={expanded ? 'rotate-180' : ''} /></button> : null}{expanded ? <div className={cn('space-y-0.5', !collapsed && 'pr-2')}>{group.items.map((item) => { const itemActive = activeItem(item.path, location.pathname, location.search); const sections = getVisibleSectionsForPath(basePath(item.path), checkPermission); return <div key={`${item.path}-${item.label}`}><NavLink to={item.path} onClick={(event) => { if (guard?.hasActiveDirtyGuard()) { event.preventDefault(); guard.requestNavigation(item.path); } onMobileClose(); }} className={cn('nav-item', itemActive ? 'nav-item-active' : 'nav-item-inactive', collapsed && 'justify-center px-2')}><item.icon size={18} />{!collapsed ? <span>{item.label}</span> : null}</NavLink>{!collapsed && itemActive && sections.length ? <div className="dawaa-sidebar-section-label mr-8 border-r pr-3">{sections.map((section) => <div key={section.key} className="px-2 py-1 text-[11px]">{section.label}</div>)}</div> : null}</div>;})}</div> : null}</div>;})}</nav>
+    {pharmacistView && canAccess(SHIFT_NOTES_ITEM) ? <button onClick={() => go(SHIFT_NOTES_ITEM.path)} className="nav-item nav-item-inactive mx-3 my-2"><ClipboardList size={18} />{!collapsed ? <span className="flex w-full justify-between">ملاحظات الشيفت{pendingShiftNotes ? <b className="dawaa-sidebar-count rounded-full px-2">{pendingShiftNotes}</b> : null}</span> : null}</button> : null}
+    <nav aria-label="القائمة الرئيسية" className="flex-1 space-y-2 overflow-y-auto p-3">
+      {groups.map((group) => {
+        const active = group.items.some((item) => activeItem(item.path, location.pathname, location.search));
+        const expanded = collapsed || expandedGroups[group.title] || active;
+        const renderItem = (item: NavItem) => {
+          const itemActive = activeItem(item.path, location.pathname, location.search);
+          const sections = getVisibleSectionsForPath(basePath(item.path), checkPermission);
+          return <div key={item.path}>
+            <Link to={item.path} title={item.label} aria-current={itemActive ? 'page' : undefined}
+              onClick={(event) => { if (guard?.hasActiveDirtyGuard()) { event.preventDefault(); guard.requestNavigation(item.path); } onMobileClose(); }}
+              className={cn('nav-item', itemActive ? 'nav-item-active' : 'nav-item-inactive', collapsed && 'justify-center px-2')}>
+              <item.icon size={18} />{!collapsed ? <span>{item.label}{item.path === '/shift-notes' && pendingShiftNotes ? ` (${pendingShiftNotes})` : ''}</span> : null}
+            </Link>
+            {!collapsed && itemActive && sections.length ? <div className="dawaa-sidebar-section-label mr-8 border-r pr-3">{sections.map((section) => <div key={section.key} className="px-2 py-1 text-[11px]">{section.label}</div>)}</div> : null}
+          </div>;
+        };
+        return <div key={group.title} className="space-y-1">
+          {!collapsed ? <button type="button" aria-expanded={Boolean(expanded)} onClick={() => setExpandedGroups((value) => ({ ...value, [group.title]: !value[group.title] }))}
+            className={cn('dawaa-sidebar-group flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold', active && 'is-active')}>
+            <group.icon size={15} /><span className="flex-1 text-right">{group.title}</span><ChevronDown size={14} className={expanded ? 'rotate-180' : ''} />
+          </button> : null}
+          {expanded ? <div className={cn('space-y-1', !collapsed && 'pr-2')}>
+            {group.sections && !collapsed ? group.sections.map((section) => {
+              const sectionActive = section.items.some((item) => activeItem(item.path, location.pathname, location.search));
+              const sectionKey = `${group.title}/${section.title}`;
+              const open = sectionActive || expandedGroups[sectionKey];
+              if (section.items.length === 1) return <div key={section.title}>{section.items.map(renderItem)}</div>;
+              return <div key={section.title}>
+                <button type="button" aria-expanded={Boolean(open)} onClick={() => setExpandedGroups((value) => ({ ...value, [sectionKey]: !value[sectionKey] }))}
+                  className="dawaa-sidebar-muted flex w-full items-center justify-between rounded-lg px-3 py-2 text-right text-xs font-semibold">
+                  {section.title}<ChevronDown size={13} className={open ? 'rotate-180' : ''} />
+                </button>
+                {open ? <div className="space-y-0.5 border-r pr-2">{section.items.map(renderItem)}</div> : null}
+              </div>;
+            }) : group.items.map(renderItem)}
+          </div> : null}
+        </div>;
+      })}
+    </nav>
     <div className="dawaa-sidebar-divider border-t p-3"><button onClick={() => { logout(); navigate('/login'); }} className="nav-item nav-item-inactive dawaa-sidebar-logout w-full"><LogOut size={18} />{!collapsed ? 'تسجيل الخروج' : null}</button></div>
   </div>;
 

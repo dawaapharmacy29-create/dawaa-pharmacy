@@ -224,6 +224,7 @@ for (const ext of ['.ts', '.tsx']) {
 }
 
 const testFiles = [
+  'src/lib/sidebarNavigation.test.ts',
   'scripts/staging/historical-dml.test.cjs',
   'scripts/staging/canonical-si-dependencies.test.cjs',
   'src/lib/salesIntelligence/refresh/__tests__/soldActionLineage.test.ts',
