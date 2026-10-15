@@ -1,43 +1,83 @@
 import { useState, useEffect } from 'react';
 import {
   AlertCircle,
-  Users,
   CheckCircle,
-  XCircle,
   Loader2,
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
 import {
-  findStaffDuplicates,
+  fetchStaffLinkedRecordCounts,
   getDuplicateStatistics,
   type StaffDuplicateGroup,
   type StaffDuplicateRecord,
+  type StaffLinkedRecordCounts,
 } from '@/lib/staffDuplicateAudit';
 import { toast } from 'sonner';
 
+type DuplicateStatistics = Awaited<ReturnType<typeof getDuplicateStatistics>>;
+
+const UNAVAILABLE_COUNTS: StaffLinkedRecordCounts = {
+  sales_invoice_count: null,
+  employee_transactions_count: null,
+  conversation_reviews_count: null,
+  daily_followups_count: null,
+  shift_schedule_count: null,
+  attendance_count: null,
+  stagnant_list_records_count: null,
+};
+
 export default function StaffDuplicateAudit() {
   const [loading, setLoading] = useState(true);
-  const [statistics, setStatistics] = useState<any>(null);
+  const [statistics, setStatistics] = useState<DuplicateStatistics | null>(null);
   const [duplicateGroups, setDuplicateGroups] = useState<StaffDuplicateGroup[]>([]);
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
+  const [countsByStaff, setCountsByStaff] = useState<Map<string, StaffLinkedRecordCounts>>(new Map());
+  const [countsLoadingGroup, setCountsLoadingGroup] = useState<string | null>(null);
 
   useEffect(() => {
-    loadDuplicates();
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const stats = await getDuplicateStatistics();
+        if (cancelled) return;
+        setStatistics(stats);
+        setDuplicateGroups(stats.duplicateGroups);
+      } catch (error) {
+        if (!cancelled) toast.error(`خطأ: ${(error as Error).message}`);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const loadDuplicates = async () => {
-    setLoading(true);
-    try {
-      const stats = await getDuplicateStatistics();
-      setStatistics(stats);
-      setDuplicateGroups(stats.duplicateGroups);
-    } catch (error) {
-      toast.error(`خطأ: ${(error as Error).message}`);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Linked-record counts are loaded only for the expanded group (bounded request budget).
+  useEffect(() => {
+    const group = duplicateGroups.find((item) => item.normalized_name === expandedGroup);
+    if (!group) return;
+    const missing = group.staff.map((staff) => staff.staff_id).filter((id) => !countsByStaff.has(id));
+    if (missing.length === 0) return;
+    const controller = new AbortController();
+    setCountsLoadingGroup(group.normalized_name);
+    fetchStaffLinkedRecordCounts(missing, { signal: controller.signal })
+      .then((counts) => {
+        if (controller.signal.aborted) return;
+        setCountsByStaff((previous) => {
+          const next = new Map([...previous, ...counts]);
+          // Ids beyond the per-call cap are recorded as unavailable, so the effect never re-requests in a loop.
+          for (const id of missing) if (!next.has(id)) next.set(id, UNAVAILABLE_COUNTS);
+          return next;
+        });
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setCountsLoadingGroup(null);
+      });
+    return () => controller.abort();
+  }, [expandedGroup, duplicateGroups, countsByStaff]);
 
   const toggleGroup = (normalizedName: string) => {
     setExpandedGroup(expandedGroup === normalizedName ? null : normalizedName);
@@ -106,7 +146,12 @@ export default function StaffDuplicateAudit() {
                 <div className="border-t p-4">
                   <div className="space-y-4">
                     {group.staff.map((staff) => (
-                      <StaffRecordCard key={staff.staff_id} staff={staff} />
+                      <StaffRecordCard
+                        key={staff.staff_id}
+                        staff={staff}
+                        counts={countsByStaff.get(staff.staff_id)}
+                        countsLoading={countsLoadingGroup === group.normalized_name}
+                      />
                     ))}
                   </div>
 
@@ -128,7 +173,15 @@ export default function StaffDuplicateAudit() {
   );
 }
 
-function StaffRecordCard({ staff }: { staff: StaffDuplicateRecord }) {
+function StaffRecordCard({
+  staff,
+  counts,
+  countsLoading,
+}: {
+  staff: StaffDuplicateRecord;
+  counts?: StaffLinkedRecordCounts;
+  countsLoading: boolean;
+}) {
   return (
     <div className="border rounded-lg p-4 dawaa-surface-soft">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
@@ -157,57 +210,31 @@ function StaffRecordCard({ staff }: { staff: StaffDuplicateRecord }) {
       </div>
 
       <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-        <div>
-          <div className="text-[var(--dawaa-theme-muted)]">فواتير</div>
-          <div className="font-semibold">{staff.sales_invoice_count}</div>
-        </div>
-        <div>
-          <div className="text-[var(--dawaa-theme-muted)]">ملخص المبيعات</div>
-          <div className="font-semibold">{staff.staff_sales_summary_count}</div>
-        </div>
-        <div>
-          <div className="text-[var(--dawaa-theme-muted)]">معاملات الموظف</div>
-          <div className="font-semibold">{staff.employee_transactions_count}</div>
-        </div>
-        <div>
-          <div className="text-[var(--dawaa-theme-muted)]">معاملات النقاط</div>
-          <div className="font-semibold">{staff.points_transactions_count}</div>
-        </div>
-        <div>
-          <div className="text-[var(--dawaa-theme-muted)]">سجلات النقاط</div>
-          <div className="font-semibold">{staff.point_records_count}</div>
-        </div>
-        <div>
-          <div className="text-[var(--dawaa-theme-muted)]">تقييمات المحادثات</div>
-          <div className="font-semibold">{staff.conversation_reviews_count}</div>
-        </div>
-        <div>
-          <div className="text-[var(--dawaa-theme-muted)]">المتابعات اليومية</div>
-          <div className="font-semibold">{staff.daily_followups_count}</div>
-        </div>
-        <div>
-          <div className="text-[var(--dawaa-theme-muted)]">جداول الشيفتات</div>
-          <div className="font-semibold">{staff.shift_schedule_count}</div>
-        </div>
-        <div>
-          <div className="text-[var(--dawaa-theme-muted)]">الحضور</div>
-          <div className="font-semibold">{staff.attendance_count}</div>
-        </div>
-        <div>
-          <div className="text-[var(--dawaa-theme-muted)]">الإذنات/الإجازات</div>
-          <div className="font-semibold">{staff.time_off_count}</div>
-        </div>
-        <div>
-          <div className="text-[var(--dawaa-theme-muted)]">سجلات الراكد</div>
-          <div className="font-semibold">{staff.stagnant_list_records_count}</div>
-        </div>
+        {COUNT_LABELS.map(([key, label]) => (
+          <div key={key}>
+            <div className="text-[var(--dawaa-theme-muted)]">{label}</div>
+            <div className="font-semibold">
+              {countsLoading && !counts ? '…' : counts?.[key] == null ? 'غير متاح' : counts[key]}
+            </div>
+          </div>
+        ))}
         <div>
           <div className="text-[var(--dawaa-theme-muted)]">تاريخ الإنشاء</div>
           <div className="font-semibold">
-            {new Date(staff.created_at).toLocaleDateString('ar-EG')}
+            {staff.created_at ? new Date(staff.created_at).toLocaleDateString('ar-EG') : '—'}
           </div>
         </div>
       </div>
     </div>
   );
 }
+
+const COUNT_LABELS: ReadonlyArray<[keyof StaffLinkedRecordCounts, string]> = [
+  ['sales_invoice_count', 'فواتير'],
+  ['employee_transactions_count', 'معاملات الموظف'],
+  ['conversation_reviews_count', 'تقييمات المحادثات'],
+  ['daily_followups_count', 'المتابعات اليومية'],
+  ['shift_schedule_count', 'جداول الشيفتات'],
+  ['attendance_count', 'الحضور'],
+  ['stagnant_list_records_count', 'سجلات الراكد'],
+];

@@ -15,18 +15,60 @@ export interface StaffDuplicateRecord {
   active: boolean;
   created_at: string;
   linked_user_id?: string;
-  sales_invoice_count: number;
-  staff_sales_summary_count: number;
-  employee_transactions_count: number;
-  points_transactions_count: number;
-  point_records_count: number;
-  conversation_reviews_count: number;
-  daily_followups_count: number;
-  shift_schedule_count: number;
-  attendance_count: number;
-  time_off_count: number;
-  stagnant_list_records_count: number;
 }
+
+/**
+ * Linked-record counts for one staff row. `null` means the count failed to load and must be shown
+ * as unavailable — never as a valid-looking zero.
+ */
+export interface StaffLinkedRecordCounts {
+  sales_invoice_count: number | null;
+  employee_transactions_count: number | null;
+  conversation_reviews_count: number | null;
+  daily_followups_count: number | null;
+  shift_schedule_count: number | null;
+  attendance_count: number | null;
+  stagnant_list_records_count: number | null;
+}
+
+/**
+ * The only linked-record sources counted by the audit. Each one exists in Production and is keyed by
+ * the listed staff column. Legacy tables (points_transactions, point_records, time_off) and the
+ * staff_sales_summary materialized view (no staff column) are intentionally not probed.
+ */
+export const STAFF_LINKED_RECORD_SOURCES: ReadonlyArray<{
+  key: keyof StaffLinkedRecordCounts;
+  table: string;
+  column: string;
+}> = [
+  { key: 'sales_invoice_count', table: 'sales_invoices', column: 'staff_id' },
+  { key: 'employee_transactions_count', table: 'employee_transactions', column: 'staff_id' },
+  { key: 'conversation_reviews_count', table: 'conversation_sales_reviews', column: 'staff_id' },
+  { key: 'daily_followups_count', table: 'daily_followups', column: 'staff_id' },
+  { key: 'shift_schedule_count', table: 'shift_schedules', column: 'staff_id' },
+  { key: 'attendance_count', table: 'attendance', column: 'staff_id' },
+  { key: 'stagnant_list_records_count', table: 'stagnant_medicine_dispenses', column: 'doctor_id' },
+];
+
+/** Upper bound of concurrent count requests; keeps the browser and PostgREST out of saturation. */
+export const STAFF_COUNT_CONCURRENCY = 3;
+/** Upper bound of staff rows whose counts are loaded in one call (one expanded duplicate group). */
+export const STAFF_COUNT_MAX_STAFF = 12;
+
+type QueryResult = { data?: unknown; count?: number | null; error: unknown };
+type CountQuery = PromiseLike<QueryResult> & { abortSignal?: (signal: AbortSignal) => CountQuery };
+
+/** Minimal client surface used by the audit, so the request budget can be tested without a network. */
+export interface StaffDuplicateAuditClient {
+  from(table: string): {
+    select(columns: string, options?: { count?: 'exact'; head?: boolean }): PromiseLike<QueryResult> & {
+      eq(column: string, value: string): CountQuery;
+    };
+  };
+  rpc(fn: string, args: Record<string, unknown>): PromiseLike<QueryResult>;
+}
+
+const defaultClient = supabase as unknown as StaffDuplicateAuditClient;
 
 export function normalizeStaffName(name: string): string {
   if (!name) return '';
@@ -41,18 +83,12 @@ export function normalizeStaffName(name: string): string {
     .toLowerCase();
 }
 
-async function safeCount(table: string, column: string, staffId: string): Promise<number> {
-  const { count, error } = await supabase.from(table).select('*', { count: 'exact', head: true }).eq(column, staffId);
-  if (error) return 0;
-  return count || 0;
-}
-
-async function loadStaffAccountsByStaffId(): Promise<Map<string, string>> {
-  const { data, error } = await supabase.rpc('get_staff_accounts_directory', {
+async function loadStaffAccountsByStaffId(client: StaffDuplicateAuditClient): Promise<Map<string, string>> {
+  const { data, error } = await client.rpc('get_staff_accounts_directory', {
     p_roles: null,
     p_branch: null,
   });
-  if (error) return new Map<string, string>();
+  if (error) throw new Error(String((error as { message?: string })?.message || error));
   const rows = ((data || []) as Array<{ account_id?: unknown; staff_id?: unknown }>).filter(Boolean);
   return new Map<string, string>(
     rows
@@ -61,46 +97,22 @@ async function loadStaffAccountsByStaffId(): Promise<Map<string, string>> {
   );
 }
 
-export async function fetchAllStaffWithCounts(): Promise<StaffDuplicateRecord[]> {
-  const staffSelects = [
-    'id,name,role,branch,active,created_at',
-    'id,name,role,branch,is_active,created_at',
-    'id,name,role,branch,active',
-    'id,name,role,branch,is_active',
-    'id,name,role,branch',
-  ];
-
-  let staffData: Record<string, unknown>[] = [];
-  let lastError: unknown = null;
-  for (const select of staffSelects) {
-    const { data, error } = await supabase.from('staff').select(select);
-    if (!error) {
-      staffData = ((data || []) as Record<string, unknown>[]).filter(Boolean);
-      lastError = null;
-      break;
-    }
-    lastError = error;
+/** Staff identity rows only: exactly two requests, independent of staff count. */
+export async function fetchAllStaffRecords(
+  client: StaffDuplicateAuditClient = defaultClient
+): Promise<StaffDuplicateRecord[]> {
+  const [staffResult, accountsByStaff] = await Promise.all([
+    client.from('staff').select('id,name,role,branch,active,is_active,created_at'),
+    loadStaffAccountsByStaffId(client),
+  ]);
+  if (staffResult.error) {
+    throw new Error(String((staffResult.error as { message?: string })?.message || staffResult.error));
   }
-  if (lastError) throw new Error(String((lastError as { message?: string })?.message || lastError));
+  const staffData = ((staffResult.data || []) as Record<string, unknown>[]).filter(Boolean);
 
-  const accountsByStaff = await loadStaffAccountsByStaffId();
-
-  return Promise.all(staffData.map(async (staff) => {
+  return staffData.map((staff) => {
     const staffId = String(staff.id || '');
     const displayName = String(staff.name || '');
-    const counts = await Promise.all([
-      safeCount('sales_invoices', 'staff_id', staffId),
-      safeCount('staff_sales_summary', 'staff_id', staffId),
-      safeCount('employee_transactions', 'staff_id', staffId),
-      safeCount('points_transactions', 'staff_id', staffId),
-      safeCount('point_records', 'staff_id', staffId),
-      safeCount('conversation_sales_reviews', 'staff_id', staffId),
-      safeCount('daily_followups', 'staff_id', staffId),
-      safeCount('shift_schedules', 'staff_id', staffId),
-      safeCount('attendance', 'staff_id', staffId),
-      safeCount('time_off', 'staff_id', staffId),
-      safeCount('stagnant_medicine_dispenses', 'staff_id', staffId),
-    ]);
     const accountId = accountsByStaff.get(staffId);
     return {
       staff_id: staffId,
@@ -112,19 +124,52 @@ export async function fetchAllStaffWithCounts(): Promise<StaffDuplicateRecord[]>
       active: Boolean(staff.active ?? staff.is_active ?? true),
       created_at: String(staff.created_at || ''),
       linked_user_id: accountId,
-      sales_invoice_count: counts[0],
-      staff_sales_summary_count: counts[1],
-      employee_transactions_count: counts[2],
-      points_transactions_count: counts[3],
-      point_records_count: counts[4],
-      conversation_reviews_count: counts[5],
-      daily_followups_count: counts[6],
-      shift_schedule_count: counts[7],
-      attendance_count: counts[8],
-      time_off_count: counts[9],
-      stagnant_list_records_count: counts[10],
     };
-  }));
+  });
+}
+
+async function runBounded<T>(tasks: Array<() => Promise<T>>, limit: number): Promise<T[]> {
+  const results = new Array<T>(tasks.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < tasks.length) {
+      const index = next++;
+      results[index] = await tasks[index]();
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker));
+  return results;
+}
+
+/**
+ * Loads linked-record counts on demand for one duplicate group. Requests are bounded to
+ * STAFF_COUNT_MAX_STAFF × STAFF_LINKED_RECORD_SOURCES with STAFF_COUNT_CONCURRENCY in flight.
+ */
+export async function fetchStaffLinkedRecordCounts(
+  staffIds: string[],
+  options: { signal?: AbortSignal; client?: StaffDuplicateAuditClient } = {}
+): Promise<Map<string, StaffLinkedRecordCounts>> {
+  const client = options.client || defaultClient;
+  const ids = Array.from(new Set(staffIds.filter(Boolean))).slice(0, STAFF_COUNT_MAX_STAFF);
+  const tasks = ids.flatMap((staffId) =>
+    STAFF_LINKED_RECORD_SOURCES.map((source) => async () => {
+      if (options.signal?.aborted) return { staffId, key: source.key, value: null };
+      let query = client.from(source.table).select('id', { count: 'exact', head: true }).eq(source.column, staffId);
+      if (options.signal && query.abortSignal) query = query.abortSignal(options.signal);
+      const { count, error } = await query;
+      return { staffId, key: source.key, value: error ? null : count ?? null };
+    })
+  );
+  const rows = await runBounded(tasks, STAFF_COUNT_CONCURRENCY);
+  const result = new Map<string, StaffLinkedRecordCounts>();
+  for (const row of rows) {
+    const current =
+      result.get(row.staffId) ||
+      (Object.fromEntries(STAFF_LINKED_RECORD_SOURCES.map((s) => [s.key, null])) as unknown as StaffLinkedRecordCounts);
+    current[row.key] = row.value;
+    result.set(row.staffId, current);
+  }
+  return result;
 }
 
 function groupDuplicateStaff(allStaff: StaffDuplicateRecord[]): StaffDuplicateGroup[] {
@@ -140,12 +185,14 @@ function groupDuplicateStaff(allStaff: StaffDuplicateRecord[]): StaffDuplicateGr
     .map(([normalized_name, staff]) => ({ normalized_name, staff }));
 }
 
-export async function findStaffDuplicates(): Promise<StaffDuplicateGroup[]> {
-  return groupDuplicateStaff(await fetchAllStaffWithCounts());
+export async function findStaffDuplicates(
+  client: StaffDuplicateAuditClient = defaultClient
+): Promise<StaffDuplicateGroup[]> {
+  return groupDuplicateStaff(await fetchAllStaffRecords(client));
 }
 
-export async function getDuplicateStatistics() {
-  const allStaff = await fetchAllStaffWithCounts();
+export async function getDuplicateStatistics(client: StaffDuplicateAuditClient = defaultClient) {
+  const allStaff = await fetchAllStaffRecords(client);
   const duplicateGroups = groupDuplicateStaff(allStaff);
   return {
     totalStaff: allStaff.length,

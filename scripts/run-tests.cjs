@@ -328,6 +328,8 @@ const testFiles = [
   'src/lib/__tests__/reviewRouteState.test.ts',
   'src/lib/__tests__/reviewEditorNavigationGuard.test.ts',
   'src/lib/__tests__/runtimeReadContracts.test.ts',
+  'src/lib/__tests__/staffDuplicateAuditRequestBudget.test.ts',
+  'src/lib/__tests__/weeklyEvaluationCanonicalRpc.test.ts',
   'src/lib/__tests__/startupRecoveryGuard.test.ts',
   'src/lib/__tests__/canonicalIdentityContracts.test.ts',
   'src/lib/__tests__/conversationReviewCorrection.test.ts',

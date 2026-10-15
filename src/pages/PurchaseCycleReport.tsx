@@ -139,7 +139,8 @@ export default function PurchaseCycleReport() {
                   .sort((a, b) => n(b.invoice_count) - n(a.invoice_count))
                   .map((leader, idx) => (
                     <div
-                      key={leader.staff_id}
+                      // The leaderboard RPC groups by staff and branch, so one staff row can appear once per branch.
+                      key={`${leader.staff_id ?? 'unlinked'}:${leader.branch ?? ''}`}
                       className="flex items-center justify-between rounded-xl border p-3"
                       style={{ borderColor: 'var(--dawaa-theme-border)' }}
                     >

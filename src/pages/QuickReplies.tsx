@@ -3,7 +3,6 @@ import { Archive, Clipboard, MessageSquare, Plus, RefreshCw, Save, ShieldAlert }
 import { toast } from 'sonner';
 import { BRANCHES } from '@/lib/constants';
 import { useAuth } from '@/hooks/useAuth';
-import { supabase } from '@/lib/supabase';
 import {
   DEFAULT_QUICK_REPLY_SCRIPTS,
   QUICK_REPLY_SCRIPT_TYPES,
@@ -55,7 +54,6 @@ export default function QuickReplies() {
   const [branchFilter, setBranchFilter] = useState(ALL);
   const [typeFilter, setTypeFilter] = useState(ALL);
   const [libraryFilter, setLibraryFilter] = useState<LibraryFilter>('active');
-  const [backupCount, setBackupCount] = useState(0);
   const [form, setForm] = useState<Partial<QuickReplyScript>>(emptyForm(user));
   const [useCustomerName, setUseCustomerName] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -65,13 +63,6 @@ export default function QuickReplies() {
     try {
       const data = await fetchQuickReplyScripts();
       setScripts(data);
-      const backupTables = ['quick_reply_scripts_restore_backup_20260721', 'quick_reply_scripts_recovery_backup_20260721'];
-      let total = 0;
-      for (const table of backupTables) {
-        const { count, error } = await supabase.from(table).select('*', { count: 'exact', head: true });
-        if (!error) total += Number(count || 0);
-      }
-      setBackupCount(total);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'تعذر تحميل الردود السريعة');
     } finally {
@@ -191,7 +182,7 @@ export default function QuickReplies() {
   const cards: Array<[LibraryFilter, string, number, typeof MessageSquare, string]> = [
     ['active', 'نشط وجاهز للاستخدام', stats.active, MessageSquare, 'text-emerald-200'],
     ['inactive', 'غير نشط وسليم', stats.inactive, Archive, 'text-amber-200'],
-    ['recovery', 'أرشيف الاستعادة والتالف', stats.recovery || backupCount, ShieldAlert, 'text-red-200'],
+    ['recovery', 'أرشيف الاستعادة والتالف', stats.recovery, ShieldAlert, 'text-red-200'],
     ['all', 'كل السجلات الحالية', stats.all, Clipboard, 'text-cyan-200'],
   ];
 
@@ -207,7 +198,7 @@ export default function QuickReplies() {
       {cards.map(([id, label, count, Icon, color]) => <button key={id} onClick={() => setLibraryFilter(id)} className={`rounded-3xl border p-4 text-right transition ${libraryFilter === id ? 'border-cyan-300 bg-cyan-400/10' : 'border-white/10 bg-slate-950/40 hover:bg-white/[0.04]'}`}><Icon className={`mb-3 h-5 w-5 ${color}`}/><div className="text-xs font-black text-slate-400">{label}</div><div className="mt-1 text-3xl font-black text-white">{count}</div></button>)}
     </section>
 
-    {libraryFilter === 'recovery' ? <section className="rounded-3xl border border-red-400/25 bg-red-500/10 p-4 text-sm font-bold leading-7 text-red-100">سجلات الاستعادة محفوظة للحماية والمراجعة فقط. لا يتم تشغيل النصوص التي تعرضت للتلف الجماعي أو أصبحت نسخًا متطابقة دون مصدر أصلي موثوق. عدد صفوف النسخ الاحتياطية المقروءة: {backupCount}.</section> : null}
+    {libraryFilter === 'recovery' ? <section className="rounded-3xl border border-red-400/25 bg-red-500/10 p-4 text-sm font-bold leading-7 text-red-100">سجلات الاستعادة محفوظة للحماية والمراجعة فقط. لا يتم تشغيل النصوص التي تعرضت للتلف الجماعي أو أصبحت نسخًا متطابقة دون مصدر أصلي موثوق.</section> : null}
 
     <section className="dawaa-panel grid gap-3 lg:grid-cols-2">
       <input className="input-dark" placeholder="الاختصار مثل /برد" value={form.shortcut || ''} onChange={(event) => setForm((current) => ({ ...current, shortcut: event.target.value }))}/>
