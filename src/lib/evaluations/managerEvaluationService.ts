@@ -6,6 +6,10 @@ import {
   readWeeklyChecklistMetrics,
   readWeeklyEvaluationMetrics,
 } from '@/lib/evaluations/evaluationMetricsGateway';
+import {
+  markManagerEvaluationChanged,
+  shareEvaluationRequest,
+} from '@/lib/evaluations/evaluationRequestCoordinator';
 
 export type ManagerEvaluationSubject = {
   id: string;
@@ -59,7 +63,11 @@ export async function fetchWeeklyAutoMetrics(
   weekStart: string,
   weekEnd: string
 ): Promise<WeeklyAutoMetrics> {
-  const result = await readWeeklyEvaluationMetrics({ evaluationType, branch, weekStart, weekEnd });
+  const result = await shareEvaluationRequest(
+    `metrics:${evaluationType}:${branch ?? ''}:${weekStart}:${weekEnd}`,
+    () => readWeeklyEvaluationMetrics({ evaluationType, branch, weekStart, weekEnd }),
+    { heavy: true }
+  );
   return result.data;
 }
 
@@ -82,6 +90,21 @@ export async function fetchWeeklyAutoMetricsFast(
   // much fresher because it covers a shorter period and is cheaper to rebuild.
   const maxAgeSeconds = evaluationType === 'branches_manager' ? 30 * 60 : 24 * 60 * 60;
 
+  return shareEvaluationRequest(
+    `fast:${actorId}:${evaluationType}:${branch ?? ''}:${weekStart}:${weekEnd}`,
+    () => readWeeklyAutoMetricsFast(actorId, evaluationType, branch, weekStart, weekEnd, maxAgeSeconds),
+    { heavy: true }
+  );
+}
+
+async function readWeeklyAutoMetricsFast(
+  actorId: string,
+  evaluationType: EvaluationType,
+  branch: string | null,
+  weekStart: string,
+  weekEnd: string,
+  maxAgeSeconds: number
+): Promise<WeeklyAutoMetrics> {
   const { data, error } = await supabase.rpc('get_weekly_manager_metrics_fast_v1', {
     p_actor_id: actorId,
     p_evaluation_type: evaluationType,
@@ -124,6 +147,17 @@ export async function fetchManagerCycleSalesTargetSummary(
   cycleStart: string,
   asOf: string
 ): Promise<ManagerCycleSalesTargetSummary> {
+  return shareEvaluationRequest(`sales-target:${evaluationType}:${branch ?? ''}:${cycleStart}:${asOf}`, () =>
+    readManagerCycleSalesTargetSummary(evaluationType, branch, cycleStart, asOf)
+  );
+}
+
+async function readManagerCycleSalesTargetSummary(
+  evaluationType: EvaluationType,
+  branch: string | null,
+  cycleStart: string,
+  asOf: string
+): Promise<ManagerCycleSalesTargetSummary> {
   const { data, error } = await supabase.rpc('calculate_manager_cycle_sales_target_v1', {
     p_evaluation_type: evaluationType,
     p_branch: branch,
@@ -154,13 +188,15 @@ export async function fetchWeeklyChecklistCompletion(
     allManagerTaskKeys.map((key) => [key, getManagerTaskCadence(key)])
   );
 
-  const result = await readWeeklyChecklistMetrics({
-    staffId,
-    weekStart,
-    weekEnd,
-    branch,
-    taskCadences: cadencePayload,
-  });
+  const result = await shareEvaluationRequest(`checklist:${staffId}:${branch ?? ''}:${weekStart}:${weekEnd}`, () =>
+    readWeeklyChecklistMetrics({
+      staffId,
+      weekStart,
+      weekEnd,
+      branch,
+      taskCadences: cadencePayload,
+    })
+  );
   return result.data;
 }
 
@@ -201,6 +237,7 @@ export async function saveWeeklyEvaluation(evaluation: ManagerWeeklyEvaluation):
       status: evaluation.status,
     },
   });
+  markManagerEvaluationChanged();
   if (error) throw new Error(error.message);
   return (data || null) as ManagerEvaluationHistoryRecord | null;
 }
@@ -209,6 +246,16 @@ export async function fetchEvaluationHistory(
   evaluationType: EvaluationType,
   subjectStaffId: string,
   branch: string | null = null
+): Promise<ManagerEvaluationHistoryRecord[]> {
+  return shareEvaluationRequest(`history:${evaluationType}:${subjectStaffId}:${branch ?? ''}`, () =>
+    readEvaluationHistory(evaluationType, subjectStaffId, branch)
+  );
+}
+
+async function readEvaluationHistory(
+  evaluationType: EvaluationType,
+  subjectStaffId: string,
+  branch: string | null
 ): Promise<ManagerEvaluationHistoryRecord[]> {
   let query = supabase
     .from(TABLES.managerWeeklyEvaluations)
