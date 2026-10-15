@@ -819,9 +819,14 @@ const BASE_ROLE_PERMISSION_PRESETS: Record<RoleKey, string[]> = {
   delivery: DELIVERY_BASE,
 };
 
-export const ROLE_PERMISSION_PRESETS: Record<RoleKey, string[]> = Object.fromEntries(
-  Object.entries(BASE_ROLE_PERMISSION_PRESETS).map(([role, permissions]) => [role, withSelfServiceOperations(permissions)])
-) as Record<RoleKey, string[]>;
+function buildRolePermissionPresets(): Record<RoleKey, string[]> {
+  return Object.fromEntries(
+    Object.entries(BASE_ROLE_PERMISSION_PRESETS).map(([role, permissions]) => [role, withSelfServiceOperations(permissions)])
+  ) as Record<RoleKey, string[]>;
+}
+
+// Pure so bundles that never read role presets (the server refresh API) tree-shake them away.
+export const ROLE_PERMISSION_PRESETS: Record<RoleKey, string[]> = /* @__PURE__ */ buildRolePermissionPresets();
 
 export function getDefaultPermissionsForRole(role?: string | null): Record<string, boolean> {
   const key = normalizeRole(role);
