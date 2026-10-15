@@ -39,6 +39,30 @@ Export date: September 14, 2026 at 7:00 PM
 `;
 
 describe('rich WhatsApp markdown export', () => {
+  it('interprets dated TXT and markdown clocks in Cairo in both winter and summer', () => {
+    for (const sample of [
+      { date: '1/15/26', heading: 'January 15, 2026', expected: '2026-01-15T07:00:00.000Z' },
+      { date: '9/15/26', heading: 'September 15, 2026', expected: '2026-09-15T06:00:00.000Z' },
+    ]) {
+      const txt = parseWhatsAppExport(`[${sample.date}, 9:00:00 AM] Customer: صباح الخير`);
+      const md = parseWhatsAppExport(`## ${sample.heading}\n\n[9:00 AM] **Customer:** صباح الخير`);
+      expect(txt[0].timestamp.toISOString()).toBe(sample.expected);
+      expect(md[0].timestamp.toISOString()).toBe(sample.expected);
+      expect(txt[0].id).toBe(md[0].id);
+    }
+  });
+
+  it('keeps the Cairo date across UTC midnight and preserves explicit trusted timeline anchors', () => {
+    const raw = '[9/15/26, 12:30:00 AM] Customer: مساء الخير\n[9/15/26, 12:35:00 AM] You: أهلا';
+    const parsed = parseWhatsAppExport(raw);
+    expect(parsed[0].timestamp.toISOString()).toBe('2026-09-14T21:30:00.000Z');
+    const anchored = parseWhatsAppExport(raw, {
+      trustedConversationStartedAt: '2026-09-15T00:30:00.000Z',
+    });
+    expect(anchored[0].timestamp.toISOString()).toBe('2026-09-15T00:30:00.000Z');
+    expect(anchored[1].timestamp.toISOString()).toBe('2026-09-15T00:35:00.000Z');
+  });
+
   it('detects markdown and keeps reply/media semantics without duplicating quote text into message body', () => {
     expect(detectWhatsAppExportFormat(sample)).toBe('md');
     const messages = parseWhatsAppExport(sample);

@@ -407,6 +407,23 @@ async function fetchInvoiceCandidates(supabaseClient, query) {
   return Array.from(merged.values());
 }
 
+// src/lib/time/cairoDateBoundary.ts
+var CAIRO_TZ = "Africa/Cairo";
+var cairoClockFormat = new Intl.DateTimeFormat("en-US", { timeZone: CAIRO_TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
+function offsetMs(date) {
+  const p = cairoClockFormat.formatToParts(date);
+  const v = Object.fromEntries(p.map((x) => [x.type, x.value]));
+  return Date.UTC(+v.year, +v.month - 1, +v.day, +v.hour, +v.minute, +v.second) - Math.floor(date.getTime() / 1e3) * 1e3;
+}
+function cairoWallTimeDate(year, month, day, hour = 0, minute = 0, second = 0, millisecond = 0) {
+  const local = Date.UTC(year, month - 1, day, hour, minute, second, millisecond);
+  if (!Number.isFinite(local)) return /* @__PURE__ */ new Date(NaN);
+  let d = new Date(local);
+  for (let i = 0; i < 2; i++) d = new Date(local - offsetMs(d));
+  return d;
+}
+var cairoDayFormat = new Intl.DateTimeFormat("en-CA", { timeZone: CAIRO_TZ, year: "numeric", month: "2-digit", day: "2-digit" });
+
 // src/lib/whatsappConversationParser.ts
 var STAFF_INTRO_PATTERNS = [
   /مع حضرتك\s+(?:د\.?|دكتور(?:ة)?|دكتوره)\s*([^\n،,.]+)/i,
@@ -462,9 +479,9 @@ function timestampFromPrefix(prefix) {
   let hour = prefix.hour;
   if (prefix.meridiem === "pm" && hour < 12) hour += 12;
   if (prefix.meridiem === "am" && hour === 12) hour = 0;
-  const date = new Date(
+  const date = cairoWallTimeDate(
     prefix.year,
-    prefix.month - 1,
+    prefix.month,
     prefix.day,
     hour,
     prefix.minute,
@@ -635,9 +652,9 @@ function parseMarkdownTime(raw, date) {
   const meridiem = match[4].toLowerCase();
   if (meridiem === "pm" && hour < 12) hour += 12;
   if (meridiem === "am" && hour === 12) hour = 0;
-  const timestamp = new Date(
+  const timestamp = cairoWallTimeDate(
     date.year,
-    date.month - 1,
+    date.month,
     date.day,
     hour,
     Number(match[2]),

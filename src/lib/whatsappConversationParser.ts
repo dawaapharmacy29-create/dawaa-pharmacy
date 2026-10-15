@@ -1,3 +1,5 @@
+import { cairoWallTimeDate } from './time/cairoDateBoundary';
+
 export type WhatsAppMessageKind =
   | 'text'
   | 'image'
@@ -140,9 +142,9 @@ function timestampFromPrefix(prefix: ParsedPrefix) {
   let hour = prefix.hour;
   if (prefix.meridiem === 'pm' && hour < 12) hour += 12;
   if (prefix.meridiem === 'am' && hour === 12) hour = 0;
-  const date = new Date(
+  const date = cairoWallTimeDate(
     prefix.year,
-    prefix.month - 1,
+    prefix.month,
     prefix.day,
     hour,
     prefix.minute,
@@ -340,9 +342,9 @@ function parseMarkdownTime(raw: string, date: { year: number; month: number; day
   const meridiem = match[4].toLowerCase();
   if (meridiem === 'pm' && hour < 12) hour += 12;
   if (meridiem === 'am' && hour === 12) hour = 0;
-  const timestamp = new Date(
+  const timestamp = cairoWallTimeDate(
     date.year,
-    date.month - 1,
+    date.month,
     date.day,
     hour,
     Number(match[2]),
