@@ -409,7 +409,6 @@ async function fetchInvoiceCandidates(supabaseClient, query) {
 
 // src/lib/time/cairoDateBoundary.ts
 var CAIRO_TZ = "Africa/Cairo";
-var cairoDayFormat = new Intl.DateTimeFormat("en-CA", { timeZone: CAIRO_TZ, year: "numeric", month: "2-digit", day: "2-digit" });
 var cairoPartsFormat = new Intl.DateTimeFormat("en-US", {
   timeZone: CAIRO_TZ,
   year: "numeric",
@@ -437,6 +436,7 @@ function cairoWallClockToDate(year, month, day, hour = 0, minute = 0, second = 0
   const date = new Date(instant);
   return Number.isNaN(date.getTime()) ? null : date;
 }
+var cairoDayFormat = new Intl.DateTimeFormat("en-CA", { timeZone: CAIRO_TZ, year: "numeric", month: "2-digit", day: "2-digit" });
 function cairoWallClockParts(date) {
   const local = new Date(date.getTime() + cairoOffsetAt(date.getTime()));
   return {
