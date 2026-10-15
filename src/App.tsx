@@ -4,7 +4,7 @@ import { Component, lazy, Suspense, useEffect, useState, type ReactNode } from '
 import { isIOSWebKit } from '@/lib/mobileSafariCompat';
 import { Toaster } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
-import { canAccessHRRoute, getRoutePermissions, normalizeRole } from '@/lib/core/permissionSystem';
+import { canAccessHRRoute, getRoleLandingPath, getRoutePermissions } from '@/lib/core/permissionSystem';
 import Layout from '@/components/layout/Layout';
 import PWABanner from '@/components/features/PWABanner';
 import { isDoctorRole, isManagerRole } from '@/lib/security/userDataScope';
@@ -221,18 +221,13 @@ function ProtectedRoute({ children, permission }: { children: ReactNode; permiss
     if (isDoctorRole(user) && !checkPermission('view_executive_dashboard')) {
       return <Navigate to="/doctor-dashboard" replace />;
     }
-    const role = normalizeRole(user?.role);
     const canViewExecutive =
       isManagerRole(user) ||
       checkPermission('view_executive_dashboard') ||
       checkPermission('view_branch_dashboard');
     if (!isDoctorRole(user) && !canViewExecutive) {
-      if (role === 'delivery') return <Navigate to="/delivery" replace />;
-      if (role === 'cleaning_supervisor') return <Navigate to="/my-daily-checklist" replace />;
-      if (role === 'inventory_assistant') return <Navigate to="/inventory-counts" replace />;
-      if (role === 'customer_service' || role === 'customer_service_manager')
-        return <Navigate to="/customer-service-dashboard" replace />;
-      if (role === 'procurement_manager') return <Navigate to="/purchases" replace />;
+      const landingPath = getRoleLandingPath(user.role);
+      if (landingPath) return <Navigate to={landingPath} replace />;
     }
   }
   if (
@@ -806,7 +801,7 @@ function AppRoutes() {
       <Route
         path="/incentive-governance"
         element={
-          <ProtectedRoute permission="manage_payroll">
+          <ProtectedRoute>
             {routeSuspense(<IncentiveGovernance />, 'اعتماد الحوافز')}
           </ProtectedRoute>
         }

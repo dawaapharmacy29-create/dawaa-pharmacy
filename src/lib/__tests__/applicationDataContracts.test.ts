@@ -21,4 +21,10 @@ describe('application consolidation — data and analytics contracts', () => {
     expect(page).toMatch(/whatsapp_auto_followup_update_status_v2/);
     expect(page).not.toMatch(/whatsapp_auto_followup_list_v1|whatsapp_auto_followup_update_status_v1|isMissingRpc/);
   });
+
+  it('the doctor dashboard activity tab turns a failed read into an error state, never an endless spinner', () => {
+    const page = read('src/pages/DoctorDashboardStable.tsx');
+    expect(page).toMatch(/setPart\('activity', 'error'\)/);
+    expect(page).toMatch(/personalState\.activity === 'error'/);
+  });
 });

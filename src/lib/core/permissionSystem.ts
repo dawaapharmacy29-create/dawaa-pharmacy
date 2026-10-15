@@ -780,7 +780,16 @@ const PROCUREMENT_MANAGER_BASE = [
   'view_data_health',
 ];
 
-export const ROLE_PERMISSION_PRESETS: Record<RoleKey, string[]> = {
+// مركز المهام والتنبيهات (/operations-center) مساحة ذاتية لكل موظف، فـ view_operations
+// تُمنح لكل الأدوار هنا في المصدر الوحيد للصلاحيات. صفحات التشغيل الإدارية الأخرى تبقى خلف
+// صلاحياتها المتخصصة (manage_operations / view_inventory) في ROUTE_PERMISSION_MAP.
+function withSelfServiceOperations(permissions: string[]): string[] {
+  return permissions.includes('*') || permissions.includes('view_operations')
+    ? permissions
+    : [...permissions, 'view_operations'];
+}
+
+const BASE_ROLE_PERMISSION_PRESETS: Record<RoleKey, string[]> = {
   general_manager: ALL,
   executive_manager: MANAGER_BASE,
   branches_manager: ALL,
@@ -809,6 +818,10 @@ export const ROLE_PERMISSION_PRESETS: Record<RoleKey, string[]> = {
   cleaning_supervisor: ['view_dashboard', 'view_operations', 'record_attendance', 'create_leave_request'],
   delivery: DELIVERY_BASE,
 };
+
+export const ROLE_PERMISSION_PRESETS: Record<RoleKey, string[]> = Object.fromEntries(
+  Object.entries(BASE_ROLE_PERMISSION_PRESETS).map(([role, permissions]) => [role, withSelfServiceOperations(permissions)])
+) as Record<RoleKey, string[]>;
 
 export function getDefaultPermissionsForRole(role?: string | null): Record<string, boolean> {
   const key = normalizeRole(role);
@@ -1020,10 +1033,10 @@ export const ROUTE_PERMISSION_MAP: Record<string, string | string[]> = {
   '/shelf-organization': 'view_inventory',
   '/inventory-counts': 'view_inventory',
   '/supplies': 'view_supplies',
-  '/accessories': 'view_operations',
-  '/offers': 'view_operations',
-  '/stories': 'view_operations',
-  '/training': 'view_operations',
+  '/accessories': ['view_inventory', 'manage_operations'],
+  '/offers': 'manage_operations',
+  '/stories': 'manage_operations',
+  '/training': 'manage_operations',
   '/daily-command': 'view_dashboard',
   '/daily-target': 'view_dashboard',
   '/today-brief': 'view_dashboard',
@@ -1057,6 +1070,21 @@ export const ROUTE_PERMISSION_MAP: Record<string, string | string[]> = {
   '/purchase-invoice-review': 'view_team',
   '/point-appeals': 'view_points',
 };
+
+// Where a role lands when it opens "/" without access to the executive dashboard. Every target
+// must be a route the role is allowed to open (covered by applicationPermissions.test.ts).
+const ROLE_LANDING_PATHS: Partial<Record<RoleKey, string>> = {
+  delivery: '/delivery',
+  cleaning_supervisor: '/my-daily-checklist',
+  inventory_assistant: '/inventory-counts',
+  customer_service: '/customer-service',
+  customer_service_manager: '/customer-service-dashboard',
+  procurement_manager: '/purchases',
+};
+
+export function getRoleLandingPath(role: unknown): string | null {
+  return ROLE_LANDING_PATHS[normalizeRole(role)] ?? null;
+}
 
 export function getRoutePermissions(pathname: string): string[] | undefined {
   const exact = ROUTE_PERMISSION_MAP[pathname];

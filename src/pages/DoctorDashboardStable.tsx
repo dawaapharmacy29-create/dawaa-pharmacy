@@ -526,7 +526,17 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
     }
   }, [branch, cycle.end, cycle.start, doctorName]);
 
-  const loadActivity = useCallback(async () => { setPart('activity', 'loading'); setEvents((await getEmployeeEvents(staffId, 200)) as EmployeeEvent[]); setPart('activity', 'success'); }, [staffId]);
+  const loadActivity = useCallback(async () => {
+    setPart('activity', 'loading');
+    try {
+      setEvents((await getEmployeeEvents(staffId, 200)) as EmployeeEvent[]);
+      setPart('activity', 'success');
+    } catch (activityError) {
+      // A failed read must surface as an error, not a spinner that never ends or an empty log.
+      console.warn('[doctor-dashboard] activity load failed', activityError);
+      setPart('activity', 'error');
+    }
+  }, [staffId]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { void loadBranchTarget(); }, [loadBranchTarget]);
@@ -1048,6 +1058,7 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
               );
             })}
             {personalState.activity === 'success' && !events.length ? <Empty>لا توجد أحداث شخصية مسجلة بعد.</Empty> : null}
+            {personalState.activity === 'error' ? <div className="rounded-2xl border border-red-400/25 bg-red-500/10 p-4 text-sm text-red-100">تعذر تحميل سجل النشاط. <button type="button" className="font-black underline" onClick={() => void loadActivity()}>إعادة المحاولة</button></div> : null}
           </div>
         </section>
       ) : null}
