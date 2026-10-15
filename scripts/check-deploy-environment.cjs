@@ -2,7 +2,8 @@
 'use strict';
 // Build-time database isolation gate (runs in prebuild, so every Vercel build runs it).
 // Preview / development builds FAIL unless every Supabase URL and key belongs to the declared
-// staging project (DAWAA_STAGING_SUPABASE_REF) and none belongs to Production.
+// staging project (DAWAA_STAGING_SUPABASE_REF), unless an explicitly authorized
+// branch-scoped Production preview is configured server-side.
 // Production builds and unflagged local builds only report. Prints project refs, never keys.
 // The rule itself lives in src/lib/deployEnvironmentGuard.ts (also used by the server at runtime).
 const fs = require('fs');
@@ -23,7 +24,7 @@ console.log(`[deploy-env] environment=${report.environment} enforced=${report.en
 for (const warning of report.warnings) console.warn(`[deploy-env] WARN: ${warning}`);
 if (!report.ok) {
   for (const error of report.errors) console.error(`[deploy-env] FAIL: ${error}`);
-  console.error('[deploy-env] Refusing to build: this environment must not reach the production database.');
+  console.error('[deploy-env] Refusing to build: deployment environment authorization failed.');
   process.exit(1);
 }
 console.log('[deploy-env] PASS');

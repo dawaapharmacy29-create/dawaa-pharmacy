@@ -48,3 +48,9 @@ Revert the navigation commit; no database rollback is required.
 Navigation groups and sections now use short Arabic labels, generally one word. Page links retain two or three words where needed to distinguish customer/employee points, invoice review, monthly evaluation, and quarterly incentives. Existing pages remain separate. The customer-followup heading is aligned with the shorter navigation label.
 
 The user authorized a Vercel test deployment after this branch was prepared. Production remains a separate release decision. The repository's preview isolation gate requires a staging Supabase project and rejects the production project; do not weaken this gate or create a paid/new database to work around it.
+
+## Explicit shared-data preview approval
+
+The user subsequently explicitly authorized a branch-only Vercel deployment using the existing project, with main/Production unchanged. An opt-in `DAWAA_PRODUCTION_PREVIEW_BRANCH` environment variable is scoped in Vercel to preview + this exact branch. The shared build/runtime guard requires the matching Git branch, canonical Production project URLs, credentials, and no client-exposed secrets. Other preview branches and development remain isolated by default. This opt-in is server-side, not a VITE variable.
+
+A manual preview uses a deployment-scoped ignored-build command that accepts only this preview branch. The project-wide production merge gate is unchanged. Real application saves in this preview affect real data, as communicated to the user. No database migration or new Supabase project is involved.

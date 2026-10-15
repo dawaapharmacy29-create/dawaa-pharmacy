@@ -1,5 +1,6 @@
 // Fail-closed database isolation for deployments.
-// Production -> the Production Supabase project. Preview / development -> the staging project ONLY.
+// Production -> Production Supabase. Preview / development -> staging by default.
+// A preview may share Production only with an explicit server-side, branch-scoped opt-in.
 // Explicit local development may use loopback Supabase only, including under `vercel dev`.
 // Used at build time (scripts/check-deploy-environment.cjs, run by prebuild) and at runtime by the
 // server transport. It reads only public identifiers: URLs and the project ref inside a key's JWT
@@ -128,6 +129,26 @@ export function evaluateDeployEnvironment(env: Env): DeployEnvironmentReport {
       if (ref && ref !== production)
         warnings.push(`${name} points to project ${ref}, not the production project`);
     }
+  } else if (
+    environment === 'preview' &&
+    Boolean(env.DAWAA_PRODUCTION_PREVIEW_BRANCH?.trim()) &&
+    env.DAWAA_PRODUCTION_PREVIEW_BRANCH?.trim() === env.VERCEL_GIT_COMMIT_REF?.trim()
+  ) {
+    // Explicitly authorized shared-data preview. This server-only variable must be
+    // scoped to the approved preview branch in Vercel, never a client-side toggle.
+    if (projectRefs.VITE_SUPABASE_URL !== production)
+      errors.push('Authorized preview requires the canonical production Supabase URL');
+    if (!env.VITE_SUPABASE_ANON_KEY)
+      errors.push('Authorized preview requires VITE_SUPABASE_ANON_KEY');
+    for (const [name, ref] of Object.entries(projectRefs)) {
+      if (ref && ref !== production)
+        errors.push(`${name} belongs to project ${ref}, expected production`);
+    }
+    for (const name of URL_VARS) {
+      if (env[name] && projectRefs[name] !== production)
+        errors.push(`${name} must be the canonical production Supabase URL`);
+    }
+    warnings.push('Authorized branch preview shares live production data; normal app actions affect real records');
   } else if (environment === 'preview' || environment === 'development') {
     const expected = String(env.DAWAA_STAGING_SUPABASE_REF || '')
       .trim()

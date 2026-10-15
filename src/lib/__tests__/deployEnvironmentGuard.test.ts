@@ -199,3 +199,36 @@ describe('deploy environment isolation: delivery project and client secrets', ()
     expect(readFileSync('src/lib/supabase.ts', 'utf8')).not.toMatch(/process\.env/);
   });
 });
+
+
+describe('explicit shared-production branch preview', () => {
+  const branch = 'feat/navigation-workspaces-20261015';
+  const authorized = {
+    VERCEL_ENV: 'preview', VERCEL_GIT_COMMIT_REF: branch,
+    DAWAA_PRODUCTION_PREVIEW_BRANCH: branch,
+    VITE_SUPABASE_URL: url(PROD), VITE_SUPABASE_ANON_KEY: key(PROD),
+  };
+  it('allows the authorized branch and reports the shared-data boundary', () => {
+    const report = evaluateDeployEnvironment(authorized);
+    expect(report.ok).toBe(true);
+    expect(report.environment).toBe('preview');
+    expect(report.warnings.length).toBe(1);
+  });
+  it('does not allow other branches, missing Git context, or development', () => {
+    for (const extra of [
+      { VERCEL_GIT_COMMIT_REF: 'other' },
+      { VERCEL_GIT_COMMIT_REF: undefined },
+      { DAWAA_PRODUCTION_PREVIEW_BRANCH: undefined },
+      { VERCEL_ENV: 'development' },
+    ]) expect(evaluateDeployEnvironment({ ...authorized, ...extra }).ok).toBe(false);
+  });
+  it('rejects missing credentials, delivery, mixed projects, and exposed secrets', () => {
+    for (const extra of [
+      { VITE_SUPABASE_ANON_KEY: undefined },
+      { VITE_SUPABASE_URL: url(DELIVERY) },
+      { SUPABASE_URL: url(STAGING) },
+      { SUPABASE_SERVICE_ROLE_KEY: key(STAGING) },
+      { VITE_SUPABASE_ANON_KEY: 'sb_secret_forbidden' },
+    ]) expect(evaluateDeployEnvironment({ ...authorized, ...extra }).ok).toBe(false);
+  });
+});

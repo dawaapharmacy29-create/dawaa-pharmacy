@@ -13950,6 +13950,20 @@ function evaluateDeployEnvironment(env) {
       if (ref3 && ref3 !== production)
         warnings.push(`${name} points to project ${ref3}, not the production project`);
     }
+  } else if (environment === "preview" && Boolean(env.DAWAA_PRODUCTION_PREVIEW_BRANCH?.trim()) && env.DAWAA_PRODUCTION_PREVIEW_BRANCH?.trim() === env.VERCEL_GIT_COMMIT_REF?.trim()) {
+    if (projectRefs.VITE_SUPABASE_URL !== production)
+      errors.push("Authorized preview requires the canonical production Supabase URL");
+    if (!env.VITE_SUPABASE_ANON_KEY)
+      errors.push("Authorized preview requires VITE_SUPABASE_ANON_KEY");
+    for (const [name, ref3] of Object.entries(projectRefs)) {
+      if (ref3 && ref3 !== production)
+        errors.push(`${name} belongs to project ${ref3}, expected production`);
+    }
+    for (const name of URL_VARS) {
+      if (env[name] && projectRefs[name] !== production)
+        errors.push(`${name} must be the canonical production Supabase URL`);
+    }
+    warnings.push("Authorized branch preview shares live production data; normal app actions affect real records");
   } else if (environment === "preview" || environment === "development") {
     const expected = String(env.DAWAA_STAGING_SUPABASE_REF || "").trim().toLowerCase();
     if (!env.VITE_SUPABASE_URL)
