@@ -202,7 +202,7 @@ export default function SmartCustomerService() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-[var(--dawaa-theme-accent-soft)] text-[var(--dawaa-theme-primary)]"><HeadphonesIcon size={17}/></span>
-          <h1 className="text-lg font-black text-[var(--dawaa-theme-heading)]">متابعة العملاء</h1>
+          <h1 className="text-lg font-black text-[var(--dawaa-theme-heading)]">المتابعات</h1>
           <span className="rounded-full border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] px-2.5 py-1 text-[11px] font-black text-[var(--dawaa-theme-primary)]">{normalizedUserBranch || (managerView ? 'كل الفروع' : 'غير محدد')}</span>
           <span className="hidden items-center gap-1 text-[11px] font-bold text-[var(--dawaa-theme-text)] sm:flex"><Clock3 size={12}/> آخر تحديث {formatClock(lastUpdatedAt)}</span>
         </div>

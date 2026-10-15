@@ -42,3 +42,9 @@ Align daily leadership, payroll readiness, quarterly incentives, and staff-dupli
 ## Reversal
 
 Revert the navigation commit; no database rollback is required.
+
+## Short labels and requested preview
+
+Navigation groups and sections now use short Arabic labels, generally one word. Page links retain two or three words where needed to distinguish customer/employee points, invoice review, monthly evaluation, and quarterly incentives. Existing pages remain separate. The customer-followup heading is aligned with the shorter navigation label.
+
+The user authorized a Vercel test deployment after this branch was prepared. Production remains a separate release decision. The repository's preview isolation gate requires a staging Supabase project and rejects the production project; do not weaken this gate or create a paid/new database to work around it.

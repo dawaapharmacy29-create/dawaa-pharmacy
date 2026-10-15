@@ -205,7 +205,7 @@ export default function DailyCommand() {
     <div className="space-y-5" dir="rtl">
       <CommandHeader
         badge="Dawaa Command Center"
-        title="القيادة اليومية"
+        title="اليوم"
         description="صورة تشغيلية موحدة لليوم: المبيعات، المخاطر، والقرارات التي تحتاج تدخلًا."
       />
       <div className="flex justify-end">

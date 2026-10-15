@@ -51,42 +51,42 @@ const TEAM_DAWAA_ALPHA_STAFF_IDS = [
 
 const GROUPS: AssistantNavGroup[] = [
   {
-    title: 'عملي اليومي',
+    title: 'عملي',
     items: [
-      { path: '/assistant-operational-log', label: 'تسجيل المشتريات وخدمة العملاء', icon: LayoutDashboard, permission: 'view_dashboard' },
-      { path: '/my-daily-checklist', label: 'مهامي اليومية', icon: ClipboardCheck, permission: 'view_dashboard' },
-      { path: '/pharmacy-zone-tasks', label: 'الرص والجرد اليومي', icon: ClipboardList, permission: 'view_dashboard', excludeStaffIds: TEAM_DAWAA_ALPHA_STAFF_IDS },
-      { path: '/schedule', label: 'جدولي ومناوباتي', icon: Calendar, permission: 'view_schedule' },
+      { path: '/assistant-operational-log', label: 'سجل الأعمال', icon: LayoutDashboard, permission: 'view_dashboard' },
+      { path: '/my-daily-checklist', label: 'مهامي', icon: ClipboardCheck, permission: 'view_dashboard' },
+      { path: '/pharmacy-zone-tasks', label: 'الرص والجرد', icon: ClipboardList, permission: 'view_dashboard', excludeStaffIds: TEAM_DAWAA_ALPHA_STAFF_IDS },
+      { path: '/schedule', label: 'جدولي', icon: Calendar, permission: 'view_schedule' },
     ],
   },
   {
-    title: 'العملاء والمتابعات',
+    title: 'العملاء',
     items: [
-      { path: '/customer-service', label: 'متابعة العملاء', icon: HeadphonesIcon, permission: 'view_customer_service' },
-      { path: '/customer-service?quickFollowup=1', label: 'تسجيل متابعة سريعة', icon: ClipboardCheck, permission: 'view_customer_service' },
-      { path: '/customer-requests', label: 'طلبات العملاء', icon: PackageSearch, permission: 'view_customer_requests' },
+      { path: '/customer-service', label: 'المتابعات', icon: HeadphonesIcon, permission: 'view_customer_service' },
+      { path: '/customer-service?quickFollowup=1', label: 'متابعة سريعة', icon: ClipboardCheck, permission: 'view_customer_service' },
+      { path: '/customer-requests', label: 'الطلبات', icon: PackageSearch, permission: 'view_customer_requests' },
       { path: '/reviews', label: 'تقييم المحادثات', icon: ClipboardCheck, permission: 'view_reviews' },
-      { path: '/customers', label: 'قاعدة العملاء', icon: Users, permission: 'view_customers' },
+      { path: '/customers', label: 'العملاء', icon: Users, permission: 'view_customers' },
       { path: '/customer-coding', label: 'تكويد عميل', icon: UserPlus, permission: 'view_customer_service' },
-      { path: '/customer-monthly-performance', label: 'أداء العملاء الشهري', icon: Users, permission: 'view_analytics' },
-      { path: '/customer-cashback', label: 'نقاط العملاء من الفواتير', icon: Star, permission: 'view_cashback' },
-      { path: '/customer-points-ledger', label: 'سجل حركات نقاط العملاء', icon: Star, permission: 'view_points' },
-      { path: '/quick-replies', label: 'الردود السريعة', icon: HeadphonesIcon, permission: 'whatsapp_customer' },
-      { path: '/welcome-messages', label: 'رسائل الترحيب', icon: MessageCircle, permission: 'customer_welcome_messages_view' },
+      { path: '/customer-monthly-performance', label: 'نشاط العملاء', icon: Users, permission: 'view_analytics' },
+      { path: '/customer-cashback', label: 'نقاط العملاء', icon: Star, permission: 'view_cashback' },
+      { path: '/customer-points-ledger', label: 'حركات النقاط', icon: Star, permission: 'view_points' },
+      { path: '/quick-replies', label: 'الردود', icon: HeadphonesIcon, permission: 'whatsapp_customer' },
+      { path: '/welcome-messages', label: 'الترحيب', icon: MessageCircle, permission: 'customer_welcome_messages_view' },
     ],
   },
   {
     title: 'المشتريات',
     items: [
       { path: '/purchases', label: 'المشتريات', icon: FileSpreadsheet, permission: 'view_purchases' },
-      { path: '/purchase-invoice-entry', label: 'تسجيل فاتورة مشتريات', icon: FileSpreadsheet, permission: 'view_dashboard' },
-      { path: '/purchase-invoice-accuracy', label: 'دقة إدخال فواتير المشتريات', icon: FileSpreadsheet, permission: 'view_dashboard' },
+      { path: '/purchase-invoice-entry', label: 'إدخال فاتورة', icon: FileSpreadsheet, permission: 'view_dashboard' },
+      { path: '/purchase-invoice-accuracy', label: 'دقة الإدخال', icon: FileSpreadsheet, permission: 'view_dashboard' },
     ],
   },
   {
     title: 'حسابي',
     items: [
-      { path: '/points', label: 'النقاط والحافز', icon: Star, permission: 'view_points' },
+      { path: '/points', label: 'نقاطي', icon: Star, permission: 'view_points' },
     ],
   },
 ];
