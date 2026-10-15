@@ -6,7 +6,32 @@ import { visualizer } from 'rollup-plugin-visualizer';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const plugins = [react()];
+let isViteDevServer = false;
+const localDevelopmentCsp = {
+  name: 'local-development-csp',
+  configResolved(config: { command: string }) {
+    isViteDevServer = config.command === 'serve';
+  },
+  transformIndexHtml(html: string, context: { server?: unknown }) {
+    if (!isViteDevServer || !context.server) return html;
+
+    return html.replace(
+      /(<meta\s+http-equiv="Content-Security-Policy"\s+content="[^"]*?connect-src\s+)([^;]*)(;[^"]*")/i,
+      (meta, prefix: string, sources: string, suffix: string) => {
+        const localOrigins = [
+          'http://127.0.0.1:54321',
+          'http://localhost:54321',
+          'ws://127.0.0.1:54321',
+          'ws://localhost:54321',
+        ];
+        const additions = localOrigins.filter((origin) => !sources.split(/\s+/).includes(origin));
+        return additions.length ? `${prefix}${sources} ${additions.join(' ')}${suffix}` : meta;
+      }
+    );
+  },
+};
+
+const plugins = [react(), localDevelopmentCsp];
 if (process.env.ANALYZE === 'true') {
   plugins.push(visualizer({ filename: 'dist/stats.html', open: true, gzipSize: true }));
 }
