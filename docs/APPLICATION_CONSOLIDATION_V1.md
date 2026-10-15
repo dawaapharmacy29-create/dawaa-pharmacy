@@ -224,7 +224,7 @@ previously unregistered `appRoutes`.
 | ID | Status |
 |---|---|
 | APP-001 | IMPLEMENTED |
-| APP-002 | DEFERRED (Master Brain frozen; needs contract decision — production rows verified Cairo-consistent) |
+| APP-002 | FIXED in the closure pass (re-rated P1: a UTC machine changed Golden Case #1 output) |
 | APP-003 | IMPLEMENTED |
 | APP-004 | IMPLEMENTED |
 | APP-005 | IMPLEMENTED |
@@ -241,16 +241,13 @@ previously unregistered `appRoutes`.
 | APP-016 | IMPLEMENTED |
 | APP-017 | IMPLEMENTED |
 | APP-018 | IMPLEMENTED |
-| APP-019 | DEFERRED (product decision; routes kept URL-only) |
+| APP-019 | CLASSIFIED in the closure pass (7 kept as internal/legacy-hidden; 2 broken → APP-024) |
 | APP-020 | IMPLEMENTED |
-| APP-021 | DEFERRED (orphan `src/lib` modules need per-module tracing) |
+| APP-021 | CLASSIFIED in the closure pass (no deletion) |
 | APP-022 | IMPLEMENTED |
 | APP-023 | DEFERRED (P5 visual standardisation) |
 
-Pre-existing, not changed: `check-whatsapp-deep-intelligence-v26.cjs` and
-`check-whatsapp-governance-v25.cjs` fail on the untouched base as well (they assert content
-of the orphan pages `WhatsAppReviewQueueV4` / `WhatsAppConversationAnalyzer`) and are not part
-of the Quality Gate workflow.
+The V25/V26 WhatsApp surface checks were retired in the closure pass (see below).
 
 ## Final sidebar map
 
@@ -512,3 +509,95 @@ Page component files: 136 → 134.
 | `*` | الصفحة | Core/Admin | — | — | INTERNAL |
 
 Status totals: INTERNAL=11, ACTIVE_PRIMARY=71, LEGACY_HIDDEN=8, ACTIVE_CONTEXTUAL=17, ADMIN_ONLY=7 (routes=114)
+
+
+---
+
+## Closure pass
+
+### 1. APP-002 — timezone (FIXED)
+
+Timestamp path: raw WhatsApp clock → `whatsappConversationParser` (`timestampFromPrefix` for native
+`[m/d/yy, h:mm AM]` exports, `parseMarkdownTime` for dated markdown, trusted-anchor arithmetic for
+time-only markdown) → `parseWhatsAppExport` (native exports are re-anchored to the trusted DB
+`conversation_started_at`) → segmentation / canonical cases → invoice candidate window
+(`buildInvoiceCandidateQuery`, pure millisecond arithmetic) → persisted `timestamptz` columns and
+`month_cycle` (`monthCycleFromDate`).
+
+| Question | Answer |
+|---|---|
+| Where is Cairo wall-clock interpreted? | Before: implicitly, by the machine timezone (`new Date(y, m - 1, d, h, …)`). After: explicitly, `cairoWallClockToDate` in `src/lib/time/cairoDateBoundary.ts`. |
+| Where does it become UTC? | At that same call: the result is an absolute instant; everything downstream is millisecond arithmetic and ISO/timestamptz. |
+| Could Vercel (UTC) differ from local? | Yes, before the fix. Proven: on the pre-fix code a UTC machine turned Golden Case #1 from `needs_human_review` into `analyzed` and every timezone produced a different canonical hash. Production rows were correct only because every source (116/116) carries a trusted `conversation_started_at` written by a Cairo browser and none sit on a month-cycle boundary. |
+| Is pinning TZ in the test runner enough? | No — it hid the bug. The pin was removed; the code is now machine-independent and the suite passes in any timezone. |
+| Machine-timezone Date usage left? | AST scan of every module bundled into the server API, all of `src/lib/salesIntelligence` and the WhatsApp libs: no local-component constructor or local getter remains on the canonical path. Remaining `Date.parse` calls read `timestamptz` values (offset included). Browser-side follow-up window, display day grouping and follow-up due dates were also made Cairo-explicit. `trustedDateParts` uses UTC calendar parts for a display label only (deterministic). |
+| Same canonical output under UTC and Cairo? | Yes. `scripts/check-timezone-independence.cjs` (now part of `npm test`) runs Golden Case #1 and 41 WhatsApp fixtures through the real pipeline under UTC, Africa/Cairo, Asia/Tokyo and America/New_York: one canonical hash, Golden Case #1 = `needs_human_review` in all four. The post-fix hash equals the pre-fix Cairo hash, so Cairo semantics are unchanged. |
+
+Equivalence proof for the helper: 280,512 wall-clock readings (every 15 min, 2024–2027, both sides
+of every DST transition) match `new Date(y, m - 1, d, h, mi)` on a Cairo machine exactly; the browser
+helpers' replacements match their old Cairo-machine results on 198,877 cases. No sale-proof,
+invoice-ownership, segmentation or scoring rule changed. The generated server API changed only in
+the timestamp boundary.
+
+Observation (not timezone, not changed): 56 `conversation_sales_reviews` rows have a `month_cycle`
+that disagrees with `review_date`, 47 of them by more than 40 days — a historical data-quality issue,
+recorded as APP-025.
+
+### 2. V25 / V26 checks
+
+| Script | Validates | Current contract | Verdict | Action |
+|---|---|---|---|---|
+| `check-whatsapp-governance-v25` | V25 governance panel imported/rendered by `WhatsAppReviewQueueV4`; governance lib strings; resolver ambiguity guard; scoring `review_required` | the page has no route and the panel renders nowhere; resolver and scoring are live | STALE (surface) / VALID (two live safeguards) | moved to `scripts/retired/` (exits `RETIRED`); live no-guess resolution now covered by the registered behavioural test `whatsappResolverNoGuess`; `review_required` already covered by `whatsappSmartOfficialReviewDraft` |
+| `check-whatsapp-deep-intelligence-v26` | V26 panels wired into `WhatsAppReviewQueueV4` and `WhatsAppConversationAnalyzer` | both pages unrouted; V26 panels/lib used by nothing that renders | STALE | moved to `scripts/retired/` (exits `RETIRED`) |
+
+Neither was ever called by `npm test`, `verify`, `prebuild` or a workflow. KNOWN_VALID_FAILING_CHECKS = 0
+(every `scripts/check-*.cjs` passes).
+
+### 3. Deleted files
+
+All 51 deleted files (50 UI + `SidebarRuntimePolish`): no reference in `src`, tests, scripts,
+`server`, `api`, configs (`vite.config.ts`, `tsconfig*`, `index.html`, `vercel.json`, `public/`),
+no barrel re-export, no template-string `import()`/`require()`, no `import.meta.glob`. Only
+documentation mentions remain; the SI operational audit's release-candidate gate already recorded
+the three V10/V11/V24 panels as "not imported anywhere". Typecheck, build and the full suite pass.
+
+### 4. Redirects
+
+`/executive-2027` → `/`, `/customer-service-classic` → `/customer-service`: query string and hash are
+preserved; targets are distinct non-redirecting routes (no loop); the target's own `ProtectedRoute`
+applies (same permission for customer service; stricter for `/`, which now also applies role
+landing). Production `notifications`, `app_notifications` and `employee_events` hold no link to either
+path. The only pathname check (`ExecutiveCustomerServiceKpiSync`) is in a component that is never mounted.
+
+### 5. Orphan routes
+
+| Route | Evidence | Class |
+|---|---|---|
+| `/customer-import` | only customer bulk-import tool (`customerBulkImport`), `import_customers` (sensitive) | INTERNAL_TOOL |
+| `/loyalty-tiers` | loyalty tier report (`loyaltyTiersService`) linking to customer 360 | INTERNAL_TOOL |
+| `/customer-incubation` | 1 case ever in `customer_incubation_cases` | LEGACY_HIDDEN |
+| `/customer-welcome` | `customer_welcome_tasks` empty; superseded by `/welcome-messages` | LEGACY_HIDDEN |
+| `/offers`, `/stories`, `/training` | `offers`, `whatsapp_stories`, `training_modules` empty | LEGACY_HIDDEN |
+| `/returns` | writes `return_orders` — table exists neither in production nor in migrations | ORPHAN_REAL (broken) |
+| `/today-brief` | calls `get_today_command_summary` — function exists neither in production nor in migrations | ORPHAN_REAL (broken) |
+
+ORPHAN_REAL = 2 (APP-024, P3): URL-only, no nav or link, fail visibly (error state), kept untouched
+pending a product decision (provision the backend or retire the route).
+
+### 6. Unused `src/lib` modules (56, none deleted)
+
+| Class | Modules |
+|---|---|
+| POTENTIAL_DYNAMIC_USE / gate-read (keep) | `reconcileWorker` (Vite `new Worker(new URL(...))`), `notifications/notificationActionService`, `notifications/notificationMetadata` (read by `check-notification-architecture`), `rolePermissionPresets`, `staffPermissions` (read by `check-permission-architecture`), `salesMetrics` (semantic-lint audit list), `src/types/legacyTaskTypeCompat.d.ts` (ambient types) |
+| SHARED_BUT_CURRENTLY_UNUSED | `core/dateCycle`, `core/money`, `core/normalize`, `core/supabasePagination`, `core/permissions`, `permissions` (compat re-exports), `supabaseIdentity`, `supabasePaged`, `api/customerRequestsCommandCenter` (compat bridge), `sales/salesTruthService`, `sales/sharedSalesSummaryService`, `customers/sharedCustomerMetricsService`, `incentives/sharedIncentivePayoutService`, `performance/performanceReportService`, `performance/permissionPolicy`, `performance/repetitionPolicy`, `readModels/staffPerformanceProjection`, `dashboard/dashboardRpcClient`, `dataSources`, `salesIntelligence/doctorCommercialCycleRepositoryV1`, `salesIntelligence/legacyOpportunityAdapter` (SI, frozen), `attendance/locationAttendanceService`, `staff/staffDataExportService`, `staff/staffPdfReportService`, `monthlyPDFReport` |
+| SAFE_LEGACY | `whatsappAnalysisScope`, `whatsappOrderLifecycleV19`, `whatsappPerformanceV4`, `whatsappReviewDecisionSupport`, `whatsappReviewFrameworkV3`, `dashboardFromInvoices`, `dashboardMetrics`, `branchMetrics`, `staffMetrics`, `salesInvoiceItemsV21`, `api/customerInvoiceMetricsPatch`, `classificationService`, `celebration`, `customerBranchOverrides`, `customerServiceSmartFollowup`, `customerUtils`, `dailyFollowupGenerator`, `followups`, `api/followups`, `followupScripts`, `incentiveDrugs` |
+| UNKNOWN | `whatsappTemplates`, `operatingPolicy`, `pointsMoneyAudit` |
+
+### Closure-pass register additions
+
+| ID | Sev | Status |
+|---|---|---|
+| APP-002 | P1 (re-rated) | FIXED |
+| APP-024 `/returns`, `/today-brief` reference missing backend objects | P3 | DEFERRED — product decision |
+| APP-025 56 historical `month_cycle` / `review_date` mismatches | P3 | DEFERRED — production data, out of scope (read-only) |
+| APP-026 stale V25/V26 checks | P3 | FIXED (retired, live safeguard tested) |
