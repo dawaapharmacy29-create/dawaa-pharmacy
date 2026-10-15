@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { TrendingUp, AlertTriangle, MessageSquareText } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import LegacySurfaceNotice from '@/components/system/LegacySurfaceNotice';
 
 type DoctorPerformanceRow = {
   staff_name: string;
@@ -36,6 +37,7 @@ export default function WhatsAppDoctorPerformance() {
 
   return (
     <div className="dawaa-text space-y-4 p-4" dir="rtl">
+      <LegacySurfaceNotice />
       <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
         <h1 className="text-xl font-black text-[var(--dawaa-theme-heading)]">أداء الدكاترة في محادثات الواتساب</h1>
         <p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-muted)]">معدل التحويل ونقاط الضعف الأكثر تكرارًا، محسوبة تلقائيًا من كل المحادثات المحلَّلة — بدون أي تقييم بشري.</p>

@@ -93,21 +93,14 @@ export const GROUPS: NavGroup[] = [
   ]},
 
   // مسار واتساب الموحد: التقاط وتحليل ← مراجعة الاستثناءات ← تقييم المحادثات ← التحليلات.
-  // المتابعة نفسها تتم من مركز خدمة العملاء.
+  // المتابعة نفسها تتم من مركز خدمة العملاء. صفحات واتساب التجريبية القديمة (المراقبة القديمة
+  // للفولدر، طلبات المتابعة الآلية، أداء الدكاترة، سجل العميل، الفرص الضائعة، مقارنة الفروع)
+  // تبقى بروابطها المباشرة فقط لأنها تحسب تحويلًا موازيًا غير معتمد وتحتاج صلاحية مقيِّم خاصة.
   { title: 'واتساب وذكاء المبيعات', icon: Sparkles, items: [
     { path: '/whatsapp-smart-folder-watcher', icon: MessageCircle, label: 'التقاط وتحليل محادثات واتساب', permission: 'view_reviews' },
     { path: '/sales-intelligence/qa', icon: ShieldCheck, label: 'مراجعة حالات ذكاء المبيعات', permission: 'view_reviews' },
     { path: '/reviews', icon: ClipboardCheck, label: 'تقييم المحادثات', permission: 'view_reviews' },
     { path: '/whatsapp-analytics', icon: BarChart3, label: 'تحليلات واتساب', permission: 'view_reviews' },
-  ]},
-
-  { title: 'مراجعة واتساب الذكية (تجريبي)', icon: MessageCircle, items: [
-    { path: '/whatsapp-folder-watcher', icon: MessageCircle, label: 'المراقبة التلقائية للفولدر' },
-    { path: '/whatsapp-followup-requests', icon: ClipboardCheck, label: 'طلبات المتابعة الآلية' },
-    { path: '/whatsapp-doctor-performance', icon: Star, label: 'أداء الدكاترة' },
-    { path: '/whatsapp-customer-history', icon: Users, label: 'سجل محادثات العميل' },
-    { path: '/whatsapp-lost-opportunities', icon: PackageX, label: 'الفرص الضائعة' },
-    { path: '/whatsapp-branch-comparison', icon: BarChart3, label: 'مقارنة الفروع (واتساب)' },
   ]},
 
   { title: 'العملاء ونقاط الولاء', icon: Users, items: [

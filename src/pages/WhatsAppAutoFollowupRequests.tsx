@@ -8,6 +8,7 @@ import {
   type FollowupSaleCandidate,
   type FollowupSaleVerification,
 } from '@/lib/whatsappFollowupSalesVerification';
+import LegacySurfaceNotice from '@/components/system/LegacySurfaceNotice';
 
 type FollowupRow = {
   id: string;
@@ -277,6 +278,7 @@ export default function WhatsAppAutoFollowupRequests() {
 
   return (
     <div className="dawaa-text space-y-4 p-4" dir="rtl">
+      <LegacySurfaceNotice />
       <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
         <h1 className="text-xl font-black text-[var(--dawaa-theme-heading)]">طلبات المتابعة الآلية من محادثات الواتساب</h1>
         <p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-muted)]">طابور تشغيلي للحالات التي التقطها التحليل تلقائيًا. البيع لا يُعتمد آليًا: لازم توجد فاتورة قوية المطابقة ثم يعتمدها المراجع بشريًا.</p>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Search, User, TrendingUp, Clock3 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import LegacySurfaceNotice from '@/components/system/LegacySurfaceNotice';
 
 type CustomerListRow = { customer_name: string; total_conversations: number; last_conversation_at: string; conversion_rate_pct: number };
 type CustomerSession = {
@@ -43,6 +44,7 @@ export default function WhatsAppCustomerHistory() {
 
   return (
     <div className="dawaa-text grid gap-4 p-4 lg:grid-cols-[320px_1fr]" dir="rtl">
+      <LegacySurfaceNotice className="lg:col-span-2" />
       <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
         <h2 className="mb-2 font-black text-[var(--dawaa-theme-heading)]">العملاء</h2>
         <div className="mb-3 flex items-center gap-2 rounded-xl border border-[var(--dawaa-theme-border)] px-2">

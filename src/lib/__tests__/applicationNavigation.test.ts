@@ -54,6 +54,15 @@ const LEGACY_WHATSAPP_ROUTES = [
   '/whatsapp-branch-comparison',
 ];
 
+const LEGACY_PAGE_FILES: Record<string, string> = {
+  '/whatsapp-folder-watcher': 'WhatsAppFolderWatcher',
+  '/whatsapp-followup-requests': 'WhatsAppAutoFollowupRequests',
+  '/whatsapp-doctor-performance': 'WhatsAppDoctorPerformance',
+  '/whatsapp-customer-history': 'WhatsAppCustomerHistory',
+  '/whatsapp-lost-opportunities': 'WhatsAppLostOpportunities',
+  '/whatsapp-branch-comparison': 'WhatsAppBranchComparison',
+};
+
 describe('application navigation consolidation', () => {
   const allNavPaths = [...GROUPS, ...PHARMACIST_GROUPS].flatMap((group) =>
     group.items.map((item) => item.path)
@@ -80,6 +89,14 @@ describe('application navigation consolidation', () => {
 
   it('the quick follow-up modal is an action, not a nav entry', () => {
     expect(allNavPaths.filter((path) => path.includes('quickFollowup'))).toEqual([]);
+  });
+
+  it('legacy WhatsApp surfaces stay routable but out of the menu', () => {
+    for (const route of LEGACY_WHATSAPP_ROUTES) {
+      expect(appRoutes.has(route)).toBe(true);
+      expect(allNavPaths.map(basePath).includes(route)).toBe(false);
+      expect(read(`src/pages/${LEGACY_PAGE_FILES[route]}.tsx`)).toMatch(/<LegacySurfaceNotice/);
+    }
   });
 
   it('keeps the canonical WhatsApp workflow in one ordered group', () => {

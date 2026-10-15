@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { AlertOctagon, Clock3 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import LegacySurfaceNotice from '@/components/system/LegacySurfaceNotice';
 
 type LostOpportunityRow = {
   session_id: string; customer_name: string; staff_name: string | null; branch: string | null;
@@ -24,6 +25,7 @@ export default function WhatsAppLostOpportunities() {
 
   return (
     <div className="dawaa-text space-y-4 p-4" dir="rtl">
+      <LegacySurfaceNotice />
       <div className="rounded-2xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-4 shadow-sm">
         <h1 className="flex items-center gap-2 text-xl font-black text-[var(--dawaa-status-danger-text)]"><AlertOctagon size={20} /> فرص بيع ضائعة</h1>
         <p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-muted)]">محادثات فيها نية شراء واضحة من العميل، لكن مفيش فاتورة بيع فعلية اتسجلت له خلال 7 أيام بعدها — كل حالة هنا فرصة حقيقية تستاهل متابعة الآن.</p>
