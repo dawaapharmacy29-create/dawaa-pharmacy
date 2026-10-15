@@ -111,7 +111,7 @@ export default class PageSafetyBoundary extends Component<
               فتح التشخيص
             </Link>
             <Link
-              to="/executive-2027"
+              to="/"
               className="rounded-xl border border-slate-700 px-4 py-3 text-sm font-black text-slate-100 hover:bg-slate-800"
             >
               العودة للداشبورد

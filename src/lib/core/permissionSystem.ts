@@ -938,7 +938,6 @@ const LEGACY_ALIASES: Record<string, string[]> = {
 };
 export const ROUTE_PERMISSION_MAP: Record<string, string | string[]> = {
   '/': 'view_dashboard',
-  '/executive-2027': ['view_executive_dashboard', 'view_branch_dashboard'],
   '/customer-service-dashboard': ['view_branch_dashboard', 'view_executive_dashboard'],
   '/data-health': 'view_data_health',
   '/operations-center': 'view_operations',
@@ -1032,7 +1031,6 @@ export const ROUTE_PERMISSION_MAP: Record<string, string | string[]> = {
   '/customer-import': 'import_customers',
   '/customer-incubation': 'view_customer_incubation',
   '/customer-points-ledger': 'view_points',
-  '/customer-service-classic': 'view_customer_service',
   '/customer-service-credit': 'view_customer_service',
   '/welcome-messages': 'customer_welcome_messages_view',
   '/diagnostics': 'view_diagnostics',

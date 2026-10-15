@@ -37,7 +37,6 @@ const Customers = lazy(() => import('@/pages/Customers'));
 const Customer360 = lazy(() => import('@/pages/Customer360'));
 const CustomerImport = lazy(() => import('@/pages/CustomerImport'));
 const CustomerService = lazy(() => import('@/pages/SmartCustomerService'));
-const CustomerServiceClassic = lazy(() => import('@/pages/CustomerService'));
 const WhatsAppAutoFollowupRequests = lazy(() => import('@/pages/WhatsAppAutoFollowupRequests'));
 const WhatsAppFolderWatcher = lazy(() => import('@/pages/WhatsAppFolderWatcher'));
 const WhatsAppDoctorPerformance = lazy(() => import('@/pages/WhatsAppDoctorPerformance'));
@@ -111,7 +110,6 @@ const Shortages = lazy(() => import('@/pages/Shortages'));
 const Supplies = lazy(() => import('@/pages/Supplies'));
 const Purchases = lazy(() => import('@/pages/Purchases'));
 const ShiftHandovers = lazy(() => import('@/pages/ShiftHandovers'));
-const StaffPayroll = lazy(() => import('@/pages/StaffPayroll'));
 const Accessories = lazy(() => import('@/pages/Accessories'));
 const Offers = lazy(() => import('@/pages/Offers'));
 const Stories = lazy(() => import('@/pages/Stories'));
@@ -255,6 +253,13 @@ function ProtectedRoute({ children, permission }: { children: ReactNode; permiss
   return <Layout>{children}</Layout>;
 }
 
+// Retired alias paths keep old bookmarks and notification links working by forwarding to the
+// single canonical route (query string and hash preserved), so each page has one URL.
+function CompatibilityRedirect({ to }: { to: string }) {
+  const location = useLocation();
+  return <Navigate to={`${to}${location.search}${location.hash}`} replace />;
+}
+
 function AdminRoute({ children, permission }: { children: ReactNode; permission?: string }) {
   const { isAdmin, checkPermission } = useAuth();
   if (!isAdmin && (!permission || !checkPermission(permission)))
@@ -334,14 +339,7 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
-      <Route
-        path="/executive-2027"
-        element={
-          <ProtectedRoute>
-            {routeSuspense(<ExecutiveDashboardRoute />, 'لوحة القيادة')}
-          </ProtectedRoute>
-        }
-      />
+      <Route path="/executive-2027" element={<CompatibilityRedirect to="/" />} />
       <Route
         path="/customer-service-dashboard"
         element={
@@ -424,7 +422,7 @@ function AppRoutes() {
         path="/quarterly-incentives"
         element={
           <ProtectedRoute>
-            {routeSuspense(<QuarterlyIncentives2027 />, 'الحافز الشهري')}
+            {routeSuspense(<QuarterlyIncentives2027 />, 'نظام وقواعد الحافز')}
           </ProtectedRoute>
         }
       />
@@ -466,14 +464,7 @@ function AppRoutes() {
           <ProtectedRoute>{routeSuspense(<CustomerService />, 'خدمة العملاء')}</ProtectedRoute>
         }
       />
-      <Route
-        path="/customer-service-classic"
-        element={
-          <ProtectedRoute>
-            {routeSuspense(<CustomerServiceClassic />, 'خدمة العملاء الكلاسيكية')}
-          </ProtectedRoute>
-        }
-      />
+      <Route path="/customer-service-classic" element={<CompatibilityRedirect to="/customer-service" />} />
       <Route
         path="/whatsapp-followup-requests"
         element={
@@ -518,7 +509,7 @@ function AppRoutes() {
         path="/whatsapp-branch-comparison"
         element={
           <ProtectedRoute>
-            {routeSuspense(<WhatsAppBranchComparison />, 'مقارنة الفروع')}
+            {routeSuspense(<WhatsAppBranchComparison />, 'مقارنة الفروع (واتساب)')}
           </ProtectedRoute>
         }
       />
@@ -736,11 +727,11 @@ function AppRoutes() {
       />
       <Route
         path="/whatsapp-smart-folder-watcher"
-        element={<ProtectedRoute permission="view_reviews">{routeSuspense(<WhatsAppSmartFolderWatcher />, 'التقاط واتساب تلقائيًا')}</ProtectedRoute>}
+        element={<ProtectedRoute permission="view_reviews">{routeSuspense(<WhatsAppSmartFolderWatcher />, 'التقاط وتحليل محادثات واتساب')}</ProtectedRoute>}
       />
       <Route
         path="/sales-intelligence/qa"
-        element={<ProtectedRoute permission="view_reviews">{routeSuspense(<SalesIntelligenceQA />, 'مراجعة ذكاء المبيعات')}</ProtectedRoute>}
+        element={<ProtectedRoute permission="view_reviews">{routeSuspense(<SalesIntelligenceQA />, 'مراجعة حالات ذكاء المبيعات')}</ProtectedRoute>}
       />
       <Route
         path="/sales-intelligence/qa/:caseId"
@@ -764,7 +755,7 @@ function AppRoutes() {
         path="/monthly-incentive-report"
         element={
           <ProtectedRoute>
-            {routeSuspense(<MonthlyIncentiveReport />, 'التقرير الشهري للحوافز')}
+            {routeSuspense(<MonthlyIncentiveReport />, 'ملخص الحوافز الشهري')}
           </ProtectedRoute>
         }
       />
@@ -809,7 +800,7 @@ function AppRoutes() {
       <Route
         path="/staff-payroll"
         element={
-          <ProtectedRoute>{routeSuspense(<PayrollManagement />, 'إدارة الرواتب')}</ProtectedRoute>
+          <ProtectedRoute>{routeSuspense(<PayrollManagement />, 'الرواتب والجاهزية')}</ProtectedRoute>
         }
       />
       <Route
@@ -894,7 +885,7 @@ function AppRoutes() {
       />
       <Route
         path="/attendance-report"
-        element={<ProtectedRoute>{routeSuspense(<AttendanceReport />, 'الحضور')}</ProtectedRoute>}
+        element={<ProtectedRoute>{routeSuspense(<AttendanceReport />, 'مركز الحضور')}</ProtectedRoute>}
       />
       <Route
         path="/loyalty-tiers"
