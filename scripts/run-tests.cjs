@@ -231,6 +231,7 @@ const testFiles = [
   'src/lib/__tests__/applicationNavigation.test.ts',
   'src/lib/__tests__/appRoutes.test.ts',
   'src/lib/__tests__/applicationDataContracts.test.ts',
+  'src/lib/__tests__/sessionLifecycleSingleton.test.ts',
   'scripts/staging/historical-dml.test.cjs',
   'scripts/staging/canonical-si-dependencies.test.cjs',
   'src/lib/salesIntelligence/refresh/__tests__/soldActionLineage.test.ts',

@@ -533,7 +533,7 @@ export default function AttendanceReport() {
   useEffect(() => { if (activeTab === 'system' && systemSubTab === 'unmapped') void loadSyncHealth(); }, [activeTab, systemSubTab, loadSyncHealth]);
   useEffect(() => {
     if (activeTab !== 'system' || systemSubTab !== 'unmapped' || !canViewSyncHealth) return;
-    const id = window.setInterval(() => { void loadSyncHealth(); }, 60_000); // biometric-auto-refresh
+    const id = window.setInterval(() => { if (!document.hidden) void loadSyncHealth(); }, 60_000); // biometric-auto-refresh
     return () => window.clearInterval(id);
   }, [activeTab, systemSubTab, canViewSyncHealth, loadSyncHealth]);
   useEffect(() => { if (activeTab === 'dashboard') void loadApprovalsSummary(); }, [activeTab, loadApprovalsSummary]);
