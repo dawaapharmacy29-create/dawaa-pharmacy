@@ -116,12 +116,12 @@ const Stories = lazy(() => import('@/pages/Stories'));
 const Training = lazy(() => import('@/pages/Training'));
 const WhatsappAnalytics = lazy(() => import('@/pages/WhatsappAnalytics'));
 const NotFound = lazy(() => import('@/pages/NotFound'));
+const RetiredSurfacePage = lazy(() => import('@/components/system/RetiredSurfacePage'));
 const MedicineExpiryTracker = lazy(() => import('@/pages/MedicineExpiryTracker'));
 const AttendanceReport = lazy(() => import('@/pages/AttendanceReport'));
 const LoyaltyTiers = lazy(() => import('@/pages/LoyaltyTiers'));
 const DailyCommand = lazy(() => import('@/pages/DailyCommand'));
 const DailyTarget = lazy(() => import('@/pages/DailyTarget'));
-const TodayBrief = lazy(() => import('@/pages/TodayBrief'));
 const RefillReminders = lazy(() => import('@/pages/RefillReminders'));
 const CustomerHealthProfile = lazy(() => import('@/pages/CustomerHealthProfile'));
 const ExpiryDiscounts = lazy(() => import('@/pages/ExpiryDiscounts'));
@@ -136,7 +136,6 @@ const SupplierPerformance = lazy(() => import('@/pages/SupplierPerformance'));
 const ReportsCenter = lazy(() => import('@/pages/ReportsCenter'));
 const MonthlyPerformanceReport360 = lazy(() => import('@/pages/MonthlyPerformanceReport360'));
 const StockAlerts = lazy(() => import('@/pages/StockAlerts'));
-const Returns = lazy(() => import('@/pages/Returns'));
 const Diagnostics = lazy(() => import('@/pages/Diagnostics'));
 
 function PageLoadingFallback({ pageName }: { pageName: string }) {
@@ -896,7 +895,7 @@ function AppRoutes() {
       />
       <Route
         path="/today-brief"
-        element={<ProtectedRoute>{routeSuspense(<TodayBrief />, 'ملخص اليوم')}</ProtectedRoute>}
+        element={<ProtectedRoute>{routeSuspense(<RetiredSurfacePage title="ملخص اليوم" reason="كانت تعتمد على دالة get_today_command_summary غير الموجودة في قاعدة البيانات. استخدم لوحة القيادة أو مركز المهام والتنبيهات." />, 'ملخص اليوم')}</ProtectedRoute>}
       />
       <Route
         path="/refill-reminders"
@@ -994,7 +993,7 @@ function AppRoutes() {
       />
       <Route
         path="/returns"
-        element={<ProtectedRoute>{routeSuspense(<Returns />, 'المرتجعات')}</ProtectedRoute>}
+        element={<ProtectedRoute>{routeSuspense(<RetiredSurfacePage title="المرتجعات" reason="كانت تعتمد على جدول return_orders غير الموجود في قاعدة البيانات، فلم يكن أي مرتجع يُحفظ. مرتجعات الموردين متاحة من صفحة مرتجعات المشتريات." />, 'المرتجعات')}</ProtectedRoute>}
       />
       <Route
         path="/diagnostics"

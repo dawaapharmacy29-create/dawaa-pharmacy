@@ -124,4 +124,15 @@ describe('application navigation consolidation', () => {
       /path="\/customer-service-classic" element=\{<CompatibilityRedirect to="\/customer-service" \/>\}/
     );
   });
+
+  it('routes with no provisioned backend render a retired notice, never a failing fetch (APP-024)', () => {
+    for (const route of ['/returns', '/today-brief']) {
+      const start = appSource.indexOf(`path="${route}"`);
+      const block = appSource.slice(start, appSource.indexOf('/>', appSource.indexOf('<RetiredSurfacePage', start)));
+      expect(block).toMatch(/<RetiredSurfacePage/);
+      expect(allNavPaths.map(basePath).includes(route)).toBe(false);
+    }
+    const appAndPages = [appSource, read('src/components/system/RetiredSurfacePage.tsx')].join('\n');
+    expect(appAndPages).not.toMatch(/from\('return_orders'\)|rpc\('get_today_command_summary'/);
+  });
 });

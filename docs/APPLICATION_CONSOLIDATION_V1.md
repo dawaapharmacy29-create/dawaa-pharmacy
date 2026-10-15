@@ -241,7 +241,7 @@ previously unregistered `appRoutes`.
 | APP-016 | IMPLEMENTED |
 | APP-017 | IMPLEMENTED |
 | APP-018 | IMPLEMENTED |
-| APP-019 | CLASSIFIED in the closure pass (7 kept as internal/legacy-hidden; 2 broken → APP-024) |
+| APP-019 | CLASSIFIED in the closure pass (7 kept as internal/legacy-hidden; 2 broken → APP-024, retired) |
 | APP-020 | IMPLEMENTED |
 | APP-021 | CLASSIFIED in the closure pass (no deletion) |
 | APP-022 | IMPLEMENTED |
@@ -489,7 +489,7 @@ Page component files: 136 → 134.
 | `/loyalty-tiers` | درجات الولاء | Customers/CS | — | view_loyalty_tiers | INTERNAL (URL-only) |
 | `/daily-command` | الأمر اليومي | Core/Admin | الرئيسية والإدارة | view_dashboard | ACTIVE_PRIMARY |
 | `/daily-target` | الهدف اليومي | Core/Admin | — | view_dashboard | ACTIVE_CONTEXTUAL |
-| `/today-brief` | ملخص اليوم | Core/Admin | — | view_dashboard | INTERNAL (URL-only) |
+| `/today-brief` | ملخص اليوم | Core/Admin | — | view_dashboard | LEGACY_BROKEN_SURFACE → retired notice |
 | `/refill-reminders` | تذكير إعادة الشراء | Customers/CS | — | view_customers | ACTIVE_CONTEXTUAL |
 | `/customer-health/:id` | الملف الصحي | Customers/CS | — | prefix rule | ACTIVE_CONTEXTUAL |
 | `/expiry-discounts` | خصومات الصلاحية | Inventory/Ops | — | view_expiry_tracker | ACTIVE_CONTEXTUAL |
@@ -504,7 +504,7 @@ Page component files: 136 → 134.
 | `/reports` | مركز التقارير | Sales/Reports | المبيعات والتقارير | view_sales_reports | ACTIVE_PRIMARY |
 | `/monthly-report-360` | تقرير الأداء الشهري 360° | Sales/Reports | المبيعات والتقارير | [view_sales_reports, view_doctor_dashboard] | ACTIVE_PRIMARY |
 | `/stock-alerts` | تنبيهات المخزون | Inventory/Ops | — | view_inventory | ACTIVE_CONTEXTUAL |
-| `/returns` | المرتجعات | Sales/Reports | — | view_invoices | INTERNAL (URL-only) |
+| `/returns` | المرتجعات | Sales/Reports | — | view_invoices | LEGACY_BROKEN_SURFACE → retired notice |
 | `/diagnostics` | التشخيص | Core/Admin | — | view_diagnostics | ADMIN_ONLY (contextual) |
 | `*` | الصفحة | Core/Admin | — | — | INTERNAL |
 
@@ -578,11 +578,10 @@ path. The only pathname check (`ExecutiveCustomerServiceKpiSync`) is in a compon
 | `/customer-incubation` | 1 case ever in `customer_incubation_cases` | LEGACY_HIDDEN |
 | `/customer-welcome` | `customer_welcome_tasks` empty; superseded by `/welcome-messages` | LEGACY_HIDDEN |
 | `/offers`, `/stories`, `/training` | `offers`, `whatsapp_stories`, `training_modules` empty | LEGACY_HIDDEN |
-| `/returns` | writes `return_orders` — table exists neither in production nor in migrations | ORPHAN_REAL (broken) |
-| `/today-brief` | calls `get_today_command_summary` — function exists neither in production nor in migrations | ORPHAN_REAL (broken) |
+| `/returns` | wrote `return_orders` — table exists neither in production nor in migrations | LEGACY_BROKEN_SURFACE (retired, micro-closure) |
+| `/today-brief` | called `get_today_command_summary` — function exists neither in production nor in migrations | LEGACY_BROKEN_SURFACE (retired, micro-closure) |
 
-ORPHAN_REAL = 2 (APP-024, P3): URL-only, no nav or link, fail visibly (error state), kept untouched
-pending a product decision (provision the backend or retire the route).
+ORPHAN_REAL = 0 after the micro-closure pass (both broken routes retired, see below).
 
 ### 6. Unused `src/lib` modules (56, none deleted)
 
@@ -598,6 +597,29 @@ pending a product decision (provision the backend or retire the route).
 | ID | Sev | Status |
 |---|---|---|
 | APP-002 | P1 (re-rated) | FIXED |
-| APP-024 `/returns`, `/today-brief` reference missing backend objects | P3 | DEFERRED — product decision |
-| APP-025 56 historical `month_cycle` / `review_date` mismatches | P3 | DEFERRED — production data, out of scope (read-only) |
+| APP-024 `/returns`, `/today-brief` reference missing backend objects | P3 | CLOSED (micro-closure: retired) |
+| APP-025 56 historical `month_cycle` / `review_date` mismatches | P3 | HISTORICAL_DATA_QUALITY_BACKLOG — documented only, not an operation blocker |
 | APP-026 stale V25/V26 checks | P3 | FIXED (retired, live safeguard tested) |
+
+
+---
+
+## Micro-closure pass — APP-024
+
+| Item | Result |
+|---|---|
+| Classification | `/returns` and `/today-brief` = LEGACY_BROKEN_SURFACE |
+| Navigation / contextual entries | none existed (no sidebar item, no in-app link); production `notifications`, `app_notifications`, `employee_events`, `notification_events_v3` hold no link to either path |
+| Redirect target | none — no equivalent page exists (`/purchase-returns` is supplier returns; `/daily-command` is executive-only), so no redirect was invented |
+| URL behaviour | both routes keep their `ProtectedRoute` and route permission and render `RetiredSurfacePage`: a static retired notice with a link home. No fetch, no write |
+| Files | `src/pages/Returns.tsx` and `src/pages/TodayBrief.tsx` removed — zero references after the route change (code, tests, scripts, server, configs); no shared logic involved |
+| Backend | **no backend was built**; `return_orders` and `get_today_command_summary` remain absent |
+| Production | **no Production change required** |
+| Regression guard | `applicationNavigation.test.ts` — both routes render the retired notice, stay out of the menu, and no code calls the missing table/RPC |
+| Status | **APP-024 CLOSED** — `/returns` retired, `/today-brief` retired |
+
+## HISTORICAL_DATA_QUALITY_BACKLOG
+
+| ID | Item | Evidence | Decision |
+|---|---|---|---|
+| APP-025 | 56 `conversation_sales_reviews` rows whose `month_cycle` disagrees with `review_date` (47 by more than 40 days) | read-only query during the closure pass; not a timezone effect | documented only; not fixed; not a blocker for real operational testing; any correction needs a separately approved, reviewed production data change |
