@@ -1,4 +1,5 @@
 import type { CustomerType } from '@/lib/constants';
+import { cairoCalendarParts } from '@/lib/time/cairoDateBoundary';
 
 // اسم ثابت وواضح للتقييمات اللي عملها النظام الآلي (whatsappAutomaticReviewPersistence)،
 // عشان محدش يفتكر إن موظف حقيقي هو اللي كتب التقييم ده.
@@ -947,11 +948,11 @@ export function conversationLevel(score: number) {
 
 export function monthCycleFromDate(dateInput: Date | string = new Date()) {
   const date = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
-  const year = date.getFullYear();
-  const month = date.getMonth();
-  const cycleMonth = date.getDate() >= 26 ? month + 1 : month;
-  const cycleDate = new Date(year, cycleMonth, 1);
-  return `${cycleDate.getFullYear()}-${String(cycleDate.getMonth() + 1).padStart(2, '0')}`;
+  // The pharmacy cycle (26th → 25th) is a Cairo calendar rule; read the Cairo day explicitly so a
+  // UTC server and a Cairo browser assign the same month_cycle.
+  const { year, month, day } = cairoCalendarParts(date);
+  const cycleDate = new Date(Date.UTC(year, month - 1 + (day >= 26 ? 1 : 0), 1));
+  return `${cycleDate.getUTCFullYear()}-${String(cycleDate.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
 function scoreReason(score: number) {

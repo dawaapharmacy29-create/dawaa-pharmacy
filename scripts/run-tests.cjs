@@ -4,9 +4,6 @@ const path = require('path');
 const Module = require('module');
 const ts = require('typescript');
 
-// Pharmacy wall-clock fixtures (WhatsApp exports, invoice times) are Cairo time, and the
-// persisted production truth is Cairo. Pin it so results never depend on the host timezone.
-process.env.TZ = 'Africa/Cairo';
 
 const root = path.resolve(__dirname, '..');
 const tests = [];
@@ -233,6 +230,7 @@ const testFiles = [
   'src/lib/__tests__/applicationDataContracts.test.ts',
   'src/lib/__tests__/sessionLifecycleSingleton.test.ts',
   'src/lib/__tests__/applicationPermissions.test.ts',
+  'src/lib/__tests__/cairoWallClock.test.ts',
   'scripts/staging/historical-dml.test.cjs',
   'scripts/staging/canonical-si-dependencies.test.cjs',
   'src/lib/salesIntelligence/refresh/__tests__/soldActionLineage.test.ts',

@@ -1,3 +1,4 @@
+import { cairoWallClockToDate } from '@/lib/time/cairoDateBoundary';
 export type WhatsAppMessageKind =
   | 'text'
   | 'image'
@@ -140,15 +141,9 @@ function timestampFromPrefix(prefix: ParsedPrefix) {
   let hour = prefix.hour;
   if (prefix.meridiem === 'pm' && hour < 12) hour += 12;
   if (prefix.meridiem === 'am' && hour === 12) hour = 0;
-  const date = new Date(
-    prefix.year,
-    prefix.month - 1,
-    prefix.day,
-    hour,
-    prefix.minute,
-    prefix.second
-  );
-  return Number.isNaN(date.getTime()) ? null : date;
+  // WhatsApp export clocks are Egypt wall-clock. Interpret them explicitly as Africa/Cairo so the
+  // canonical timestamp never depends on the machine timezone (Vercel functions run UTC).
+  return cairoWallClockToDate(prefix.year, prefix.month, prefix.day, hour, prefix.minute, prefix.second);
 }
 
 function detectKind(text: string): WhatsAppMessageKind {
@@ -340,15 +335,7 @@ function parseMarkdownTime(raw: string, date: { year: number; month: number; day
   const meridiem = match[4].toLowerCase();
   if (meridiem === 'pm' && hour < 12) hour += 12;
   if (meridiem === 'am' && hour === 12) hour = 0;
-  const timestamp = new Date(
-    date.year,
-    date.month - 1,
-    date.day,
-    hour,
-    Number(match[2]),
-    Number(match[3] || 0)
-  );
-  return Number.isNaN(timestamp.getTime()) ? null : timestamp;
+  return cairoWallClockToDate(date.year, date.month, date.day, hour, Number(match[2]), Number(match[3] || 0));
 }
 
 function parseMarkdownReply(lines: string[]) {

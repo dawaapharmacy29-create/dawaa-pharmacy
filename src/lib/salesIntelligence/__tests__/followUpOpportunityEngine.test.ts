@@ -193,7 +193,7 @@ describe('Canonical Follow-up Opportunity Engine', () => {
     expect(followUp.reason).toBe('staff_no_response');
     expect(followUp.duePolicy).toBe('immediate');
     expect(followUp.nextBestAction).toBe('respond_to_customer_request');
-    expect(followUp.dueAt).toBe(new Date('2026-09-15T09:00:00').toISOString());
+    expect(followUp.dueAt).toBe(new Date('2026-09-15T09:00:00+03:00').toISOString());
   });
 
   it('M. customer silent after a real offer -> exactly one recovery opportunity', () => {
@@ -232,7 +232,7 @@ describe('Canonical Follow-up Opportunity Engine', () => {
     const callback = actionable(analysis).find((o) => o.reason === 'callback_requested')!;
     expect(callback.duePolicy).toBe('customer_requested_time');
     expect(callback.requestedDelayDays).toBe(1);
-    expect(callback.dueAt).toBe(new Date(new Date('2026-09-15T09:02:00').getTime() + 24 * 60 * 60 * 1000).toISOString());
+    expect(callback.dueAt).toBe(new Date(new Date('2026-09-15T09:02:00+03:00').getTime() + 24 * 60 * 60 * 1000).toISOString());
   });
 
   it('P. A sold + B waiting stock -> follow-up only for B', () => {
