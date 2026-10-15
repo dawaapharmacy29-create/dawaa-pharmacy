@@ -395,7 +395,7 @@ export async function syncWhatsAppCustomerCasesV22(
         source_ids: sourceIds,
         story_id: journeyLink?.storyId || null,
         journey_id: journeyLink?.journeyId || null,
-        branch: rootSource?.branch || context.branch || null,
+        branch: rootSource ? rootSource.branch : context.branch || null,
         customer_id: rootSource?.customer_id || null,
         customer_code: rootSource?.customer_code || null,
         customer_name: rootSource?.customer_name || null,

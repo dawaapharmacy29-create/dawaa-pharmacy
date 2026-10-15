@@ -36,7 +36,7 @@ describe('Sales Intelligence I.B.4 — trusted date anchor for time-only markdow
 });
 
 describe('Sales Intelligence Pipeline (Phase G) — Golden Cases', () => {
-  it('1. one clean conversation end-to-end: summary, total, confirmation, matching invoice -> zero exceptions', () => {
+  it('1. a weakly matched invoice candidate stays in review instead of being treated as a clean sale', () => {
     const raw = `[9/15/26, 9:00:00 AM] Customer: عايز 2 علبة فيتامين د
 [9/15/26, 9:01:00 AM] You: حضرتك تأمر بـ:
 2 علبة فيتامين د
@@ -55,9 +55,14 @@ describe('Sales Intelligence Pipeline (Phase G) — Golden Cases', () => {
     );
     expect(result.caseAnalyses).toHaveLength(1);
     const a = result.caseAnalyses[0];
-    expect(a.status).toBe('analyzed');
-    expect(a.integrityAssessment.exceptions).toEqual([]);
-    expect(a.attribution.hasAttributedInvoice).toBe(true);
+    expect(a.status).toBe('needs_human_review');
+    const attributionException = a.integrityAssessment.exceptions.find(
+      (exception) => exception.type === 'confirmed_case_without_attributed_invoice'
+    );
+    expect(attributionException).toBeDefined();
+    expect(attributionException?.stage).toBe('attribution');
+    expect(a.attribution.hasAttributedInvoice).toBe(false);
+    expect(a.attribution.isOfficialForStaffEvaluation).toBe(false);
     expect(a.basketInvoiceMatch.overallMatch).not.toBe('mismatch');
   });
 
@@ -227,7 +232,12 @@ describe('Sales Intelligence Pipeline (Phase G) — Golden Cases', () => {
     expect(a.activeBasket?.version).toBe(2);
     expect(a.basketInvoiceMatch.basketVersion).toBe(2);
     expect(a.attribution.selectedCandidate?.announcedTotalMatch).toBe('exact');
-    expect(a.integrityAssessment.exceptions).toEqual([]);
+    const attributionException = a.integrityAssessment.exceptions.find(
+      (exception) => exception.type === 'confirmed_case_without_attributed_invoice'
+    );
+    expect(attributionException).toBeDefined();
+    expect(attributionException?.stage).toBe('attribution');
+    expect(a.needsHumanReview).toBe(true);
   });
 
   it('5. case timestamp used for candidate retrieval — the SEGMENTED case timing, never a coarse whole-thread value', () => {
@@ -372,7 +382,9 @@ describe('Sales Intelligence Pipeline (Phase G) — Golden Cases', () => {
     expect(a.integrityAssessment.canEvaluateItemIntegrity).toBe(false);
     expect(a.integrityAssessment.exceptions.some((e) => e.stage === 'invoice_items')).toBe(false);
     expect(a.evidenceCompleteness.invoiceItemsAvailable).toBe(false);
-    expect(a.failureReasons).toContain('invoice_items_unavailable');
+    expect(a.attribution.hasAttributedInvoice).toBe(false);
+    expect(a.failureReasons).toContain('staff_identity_unresolved');
+    expect(a.failureReasons).not.toContain('invoice_items_unavailable');
   });
 
   it('11. an undocumented total mismatch surfaces end-to-end as a high_priority integrity exception', () => {
@@ -419,8 +431,13 @@ describe('Sales Intelligence Pipeline (Phase G) — Golden Cases', () => {
     const a = result.caseAnalyses[0];
     expect(['high', 'medium']).toContain(a.evidenceCompleteness.overallEvidenceLevel);
     expect(a.pipelineWarnings).toEqual([]);
-    expect(a.needsHumanReview).toBe(false);
-    expect(a.integrityAssessment.exceptions).toEqual([]);
+    expect(a.needsHumanReview).toBe(true);
+    expect(a.status).toBe('needs_human_review');
+    const attributionException = a.integrityAssessment.exceptions.find(
+      (exception) => exception.type === 'confirmed_case_without_attributed_invoice'
+    );
+    expect(attributionException).toBeDefined();
+    expect(attributionException?.stage).toBe('attribution');
   });
 });
 

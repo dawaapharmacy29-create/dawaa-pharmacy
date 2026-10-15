@@ -37,6 +37,8 @@ Rules:
 * Exactly one refresh request per file run, for the sources owned by saved V22 cases.
 * A file is recorded as processed only when `parsed`, `source_saved`, `identity_resolved`,
   `case_graph_saved` and `sales_intelligence_refreshed` are all done. Otherwise it stays retryable.
+* If local folder read permission expires, ingestion reports the permission failure and disconnects
+  the folder; it must never present the denied read as an empty inbox.
 * `dawaa_refresh_whatsapp_customer_story_v16` is never granted to `anon`; the browser never calls it.
 
 ### 1b. Semantic ownership inside Sales Intelligence (acyclic)

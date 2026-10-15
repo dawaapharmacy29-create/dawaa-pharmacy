@@ -11,7 +11,15 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowRight, Building2, Hash, Layers3, Phone, RefreshCw, UserRound } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { formatDateTime } from '@/lib/utils';
+import { useAuth } from '@/hooks/useAuth';
+import { getStaffSessionToken } from '@/lib/auth/staffSession';
 import { fetchQaCaseDetail, type QaCaseDetailBundle } from '@/lib/salesIntelligence/qa/queries';
+import {
+  buildInvoiceConfirmationDialogText,
+  confirmInvoiceCandidateAndRefresh,
+  hasConfirmableInvoiceCandidate,
+} from '@/lib/salesIntelligence/invoiceLinkConfirmation';
+import { requestCanonicalSalesIntelligenceRefresh } from '@/lib/salesIntelligence/refresh/refreshClient';
 import { WhatsAppConversationPanel } from '@/components/salesIntelligence/WhatsAppConversationPanel';
 import { CaseIntelligenceWorkspace } from '@/components/salesIntelligence/CaseIntelligenceWorkspace';
 import { loadConversationEvaluation } from '@/lib/salesIntelligence/conversationEvaluationLoader';
@@ -130,8 +138,12 @@ export default function SalesIntelligenceQACaseDetail() {
   const { caseId: rawCaseId } = useParams<{ caseId: string }>();
   const caseId = rawCaseId ? decodeURIComponent(rawCaseId) : '';
   const navigate = useNavigate();
+  const { checkPermission } = useAuth();
   const [bundle, setBundle] = useState<QaCaseDetailBundle | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
+  const [invoiceConfirming, setInvoiceConfirming] = useState(false);
+  const [invoiceConfirmationMessage, setInvoiceConfirmationMessage] = useState<string | null>(null);
+  const [invoiceConfirmationError, setInvoiceConfirmationError] = useState<string | null>(null);
   const [legacyAuditOpen, setLegacyAuditOpen] = useState<boolean | null>(null);
   const [conversationEvaluation, setConversationEvaluation] = useState<ConversationEvaluationResult | null>(null);
   const [conversationEvaluationLoading, setConversationEvaluationLoading] = useState(false);
@@ -274,6 +286,111 @@ export default function SalesIntelligenceQACaseDetail() {
   const quotedPriceAccuracyPercent = priceQuotedRows.length
     ? Math.round((priceExactRows.length / priceQuotedRows.length) * 100)
     : null;
+  const candidateInvoice = bundle.candidateInvoice;
+  const candidateInvoiceId = liveEvidence?.attribution.selectedInvoiceId ?? attribution?.selected_invoice_id ?? null;
+  const candidateInvoiceNumber = candidateInvoice?.invoiceNumber || liveEvidence?.attribution.selectedInvoiceNumber || attribution?.selected_invoice_number || null;
+  const invoiceAlreadyConfirmed = Boolean(conversation?.invoiceLinkConfirmed);
+  const invoiceConfirmationMatchesCandidate = Boolean(
+    invoiceAlreadyConfirmed &&
+      conversation?.invoiceLinkConfirmedInvoiceId &&
+    conversation.invoiceLinkConfirmedInvoiceId === candidateInvoiceId &&
+    conversation.invoiceLinkConfirmedInvoiceNumber === candidateInvoiceNumber
+  );
+  const invoiceAlreadyProven = Boolean(saleProof.trustedInvoiceId && saleProof.trustedInvoiceId === candidateInvoiceId);
+  const canConfirmInvoiceLink = Boolean(
+    checkPermission('edit_reviews') ||
+    checkPermission('approve_reviews') ||
+    checkPermission('manage_conversation_evaluations')
+  );
+  const canConfirmCandidate = hasConfirmableInvoiceCandidate({
+    sourceId: conversation?.id,
+    invoiceId: candidateInvoiceId,
+    invoiceNumber: candidateInvoiceNumber,
+    sourceIsCanonical: sourceSnapshot.isCanonical,
+    alreadyConfirmed: invoiceAlreadyConfirmed,
+    alreadyConfirmedInvoiceId: conversation?.invoiceLinkConfirmedInvoiceId,
+    alreadyProven: invoiceAlreadyProven,
+  }) && Boolean(candidateInvoice?.id === candidateInvoiceId && canConfirmInvoiceLink);
+
+  async function confirmSelectedInvoice() {
+    if (!canConfirmCandidate || !conversation || !candidateInvoice || !candidateInvoiceNumber || !candidateInvoiceId) return;
+    const confidence = conversation.invoiceMatchConfidence == null
+      ? attributionConfidencePercent == null ? 'غير متاحة' : `${attributionConfidencePercent}٪`
+      : `${Math.round(conversation.invoiceMatchConfidence * 100)}٪`;
+    const reason = conversation.invoiceMatchReason || 'مرشح الإسناد الحالي في تحليل Sales Intelligence.';
+    const details = buildInvoiceConfirmationDialogText({
+      invoiceNumber: candidateInvoiceNumber,
+      customer: `${candidateInvoice.customerName || conversation.customerName || 'غير متاح'} (${candidateInvoice.customerCode || conversation.customerCode || 'بدون كود'})`,
+      branch: candidateInvoice.branch || 'غير متاح',
+      staff: candidateInvoice.staffName || 'غير متاح',
+      datetime: candidateInvoice.invoiceDatetime ? formatDateTime(candidateInvoice.invoiceDatetime) : 'غير متاح',
+      total: candidateInvoice.total == null ? 'غير متاح' : `${candidateInvoice.total.toLocaleString('ar-EG')} ج.م`,
+      confidence,
+      reason,
+      retryingRefresh: invoiceConfirmationMatchesCandidate,
+    });
+    if (!window.confirm(details)) return;
+
+    const sessionToken = getStaffSessionToken();
+    if (!sessionToken) {
+      setInvoiceConfirmationError('تعذر التأكيد: جلسة الموظف الموثقة غير متاحة.');
+      return;
+    }
+
+    setInvoiceConfirming(true);
+    setInvoiceConfirmationError(null);
+    setInvoiceConfirmationMessage(null);
+    try {
+      const { confirmation, refresh } = await confirmInvoiceCandidateAndRefresh(supabase, {
+        sourceId: conversation.id,
+        invoiceId: candidateInvoiceId,
+        invoiceNumber: candidateInvoiceNumber,
+      }, (sourceId) => requestCanonicalSalesIntelligenceRefresh({
+        sourceIds: [sourceId],
+        accessToken: sessionToken,
+      }));
+      let refreshFailure: string | null = null;
+      const sourceStatus = refresh.bySource[conversation.id];
+      if (refresh.errors.length || sourceStatus?.status !== 'allowed') {
+        refreshFailure = refresh.errors.map((item) => item.message).join('؛ ') ||
+          sourceStatus?.reason ||
+          'canonical_refresh_not_completed';
+      }
+
+      try {
+        const refreshedBundle = await fetchQaCaseDetail(supabase, caseId);
+        setBundle(refreshedBundle);
+      } catch (reloadCause) {
+        refreshFailure = [
+          refreshFailure,
+          reloadCause instanceof Error ? reloadCause.message : String(reloadCause),
+        ].filter(Boolean).join('؛ ');
+      }
+
+      setInvoiceConfirmationMessage(
+        confirmation.idempotent
+          ? 'رابط الفاتورة كان معتمدًا بالفعل.'
+          : 'تم اعتماد رابط الفاتورة؛ قرار إثبات البيع يظل صادرًا من المحرك فقط.'
+      );
+      if (refreshFailure) {
+        setInvoiceConfirmationError(`تم حفظ التأكيد لكن تعذر إكمال إعادة التحليل/إعادة التحميل: ${refreshFailure}`);
+      }
+    } catch (confirmationCause) {
+      let failureMessage = confirmationCause instanceof Error
+        ? confirmationCause.message
+        : 'تعذر اعتماد رابط الفاتورة.';
+      try {
+        setBundle(await fetchQaCaseDetail(supabase, caseId));
+      } catch (reloadCause) {
+        failureMessage = `${failureMessage}؛ وتعذر تحديث الحالة لمعرفة وضع التأكيد المحفوظ: ${
+          reloadCause instanceof Error ? reloadCause.message : String(reloadCause)
+        }`;
+      }
+      setInvoiceConfirmationError(failureMessage);
+    } finally {
+      setInvoiceConfirming(false);
+    }
+  }
 
   return (
     <div className="space-y-5" dir="rtl">
@@ -826,6 +943,62 @@ export default function SalesIntelligenceQACaseDetail() {
           </div>
         )}
       </Section>
+
+      {candidateInvoice ? (
+        <Section title="تأكيد رابط الفاتورة المرشحة">
+          {invoiceAlreadyConfirmed && !invoiceConfirmationMatchesCandidate ? (
+            <div className="dawaa-alert dawaa-alert--info text-sm">
+              يوجد تأكيد محفوظ مسبقًا للفاتورة {conversation?.invoiceLinkConfirmedInvoiceNumber || 'بدون رقم ظاهر'}.
+              {' '}التأكيد الحالي يشير إلى فاتورة مختلفة؛ لا يمكن استبداله من هذه الشاشة.
+            </div>
+          ) : invoiceAlreadyProven ? (
+            <div className="dawaa-alert dawaa-alert--success text-sm">رابط الفاتورة موثوق بالفعل.</div>
+          ) : (
+            <>
+              {invoiceConfirmationMatchesCandidate ? (
+                <div className="dawaa-alert dawaa-alert--info text-sm">
+                  رابط الفاتورة {conversation?.invoiceLinkConfirmedInvoiceNumber || candidateInvoiceNumber} محفوظ؛ يمكن إعادة محاولة التحليل دون كتابة تأكيد جديد.
+                </div>
+              ) : null}
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                <Field label="رقم الفاتورة" value={candidateInvoice.invoiceNumber || candidateInvoiceNumber || 'غير متاح'} />
+                <Field label="العميل" value={candidateInvoice.customerName || conversation?.customerName || 'غير متاح'} />
+                <Field label="كود العميل" value={candidateInvoice.customerCode || conversation?.customerCode || 'غير متاح'} />
+                <Field label="الفرع" value={candidateInvoice.branch || 'غير متاح'} />
+                <Field label="الموظف على الفاتورة" value={candidateInvoice.staffName || 'غير متاح'} />
+                <Field label="وقت الفاتورة" value={candidateInvoice.invoiceDatetime ? formatDateTime(candidateInvoice.invoiceDatetime) : 'غير متاح'} />
+                <Field label="إجمالي الفاتورة" value={candidateInvoice.total == null ? 'غير متاح' : `${candidateInvoice.total.toLocaleString('ar-EG')} ج.م`} />
+                <Field
+                  label="ثقة / سبب المطابقة"
+                  value={`${conversation?.invoiceMatchConfidence == null
+                    ? attributionConfidencePercent == null ? 'غير متاحة' : `${attributionConfidencePercent}٪`
+                    : `${Math.round(conversation.invoiceMatchConfidence * 100)}٪`} — ${conversation?.invoiceMatchReason || 'مرشح الإسناد الحالي في Sales Intelligence'}`}
+                />
+              </div>
+              {canConfirmCandidate ? (
+                <button
+                  type="button"
+                  className="dawaa-button dawaa-button--primary"
+                  onClick={() => void confirmSelectedInvoice()}
+                  disabled={invoiceConfirming}
+                >
+                  {invoiceConfirming
+                    ? 'جارٍ إعادة التحليل...'
+                    : invoiceConfirmationMatchesCandidate
+                      ? 'إعادة محاولة تحليل الفاتورة'
+                      : 'اعتماد الفاتورة لهذه الحالة'}
+                </button>
+              ) : (
+                <div className="dawaa-muted text-xs">
+                  لا يمكن اعتماد الرابط: الحالة غير canonical، أو بيانات المرشح غير مكتملة، أو لا تتوفر صلاحية المراجعة المطلوبة.
+                </div>
+              )}
+              {invoiceConfirmationMessage ? <div className="dawaa-alert dawaa-alert--success text-sm">{invoiceConfirmationMessage}</div> : null}
+              {invoiceConfirmationError ? <div className="dawaa-alert dawaa-alert--danger text-sm">{invoiceConfirmationError}</div> : null}
+            </>
+          )}
+        </Section>
+      ) : null}
 
       {/* 7. Sale Proof State (NEW) — always from PERSISTED rows via deriveSaleProofStateFromPersisted(), never liveEvidence. */}
       <Section title="٧. حالة إثبات البيع">

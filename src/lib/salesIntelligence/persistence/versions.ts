@@ -7,6 +7,10 @@
 // REPROCESSING_MATRIX assigns it (see persistence/types.ts).
 // IMPORTANT: after changing semantic versions here, regenerate the committed serverless transport
 // with scripts/build-sales-intelligence-refresh-api.cjs so Preview/Production runs the same versions.
+// v24 (2026-10-13): unique explicit cross-script seed matches retain their weak confidence while
+// carrying canonical product identity through the active basket, Customer Need, and attribution.
+// v23 (2026-10-13): exact active canonical staff names/aliases resolve invoice sellers when staff_id
+// is NULL; explicit self-introductions resolve sender identity only inside their own case.
 // v22 (2026-10-08): Lost Opportunity product losses come only from a canonical UNAVAILABLE fact; a
 // check_pending demand (e.g. "هراجع لحضرتك التوفر") stays unresolved operational demand and no longer
 // produces ProductLossEvidence stock_unavailable/recoverable. Persisted lostOpportunity.productLosses
@@ -48,14 +52,14 @@
 // changed materially: V32 now keeps payment settlement inside the original order interaction,
 // and commercial confirmation/basket parsing recognizes natural Egyptian recap/compact totals
 // without manufacturing product identity from unresolved media deictics.
-export const PIPELINE_VERSION = 'sales-intelligence-v22';
+export const PIPELINE_VERSION = 'sales-intelligence-v24-canonical-basket-product-identity';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v10-payment-continuation-ambiguity-safe',
   historicalClosure: 'historical-closure-v1',
   commercialConfirmation: 'commercial-confirmation-v6-compact-total-interstitial-ack-safe',
   protocolApplicability: 'protocol-applicability-v1',
-  attribution: 'attribution-v8-unresolved-product-evidence-safe',
+  attribution: 'attribution-v9-canonical-seller-staff-identity',
   matching: 'matching-v3-unresolved-product-evidence-safe',
   policyEvaluation: 'policy-evaluation-v1',
 } as const;

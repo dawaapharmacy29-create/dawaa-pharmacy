@@ -65,6 +65,7 @@ const MAX_LIST_ROWS = 2000;
 interface RawCaseAnalysisRow {
   analysis_id: string;
   case_id: string;
+  canonical_sales_outcome?: unknown;
   case_type: string;
   identity_branch_name_raw: string | null;
   case_started_at: string;
@@ -76,6 +77,35 @@ interface RawCaseAnalysisRow {
   integrity_evaluation_scope: string;
   needs_human_review: boolean;
   human_review_reasons: string[] | null;
+}
+
+const CANONICAL_SALES_OUTCOMES = new Set([
+  'sale_proven',
+  'order_confirmed_unproven',
+  'customer_confirmed_unproven',
+  'open_opportunity',
+  'customer_rejected',
+  'information_only',
+  'needs_review',
+  'unknown',
+]);
+
+function readCanonicalSalesOutcome(value: unknown): Pick<
+  CanonicalSalesOutcomeAssessment,
+  'outcome' | 'isSaleCountable'
+> | null {
+  if (!value || typeof value !== 'object') return null;
+  const outcome = (value as Record<string, unknown>).outcome;
+  const isSaleCountable = (value as Record<string, unknown>).isSaleCountable;
+  if (
+    typeof outcome !== 'string' ||
+    !CANONICAL_SALES_OUTCOMES.has(outcome) ||
+    typeof isSaleCountable !== 'boolean'
+  ) return null;
+  return {
+    outcome: outcome as CanonicalSalesOutcomeAssessment['outcome'],
+    isSaleCountable,
+  };
 }
 
 interface RawAttributionRow {
@@ -196,6 +226,7 @@ export function mergeCaseListRows(
       needsHumanReview: analysis.needs_human_review,
       humanReviewReasons: analysis.human_review_reasons ?? [],
       saleProofState: proof.state,
+      canonicalSalesOutcome: readCanonicalSalesOutcome(analysis.canonical_sales_outcome),
       proofSource: proof.proofSource,
       trustedInvoiceId: proof.trustedInvoiceId,
       itemEvidenceReady: proof.itemEvidenceReady,
@@ -293,7 +324,7 @@ export async function fetchQaCaseList(supabaseClient: any): Promise<QaCaseListRo
     supabaseClient
       .from('sales_intelligence_current_case_analyses')
       .select(
-        'analysis_id, case_id, case_type, identity_branch_name_raw, case_started_at, case_ended_at, historical_closure_level, protocol_applicability, commercial_confirmation_state, attribution_level, integrity_evaluation_scope, needs_human_review, human_review_reasons'
+        'analysis_id, case_id, canonical_sales_outcome:evidence_snapshot->canonicalSalesOutcome, case_type, identity_branch_name_raw, case_started_at, case_ended_at, historical_closure_level, protocol_applicability, commercial_confirmation_state, attribution_level, integrity_evaluation_scope, needs_human_review, human_review_reasons'
       )
       .order('case_started_at', { ascending: false })
       .limit(MAX_LIST_ROWS),
@@ -377,6 +408,11 @@ export interface QaCaseDetailBundle {
     /** Persisted source-level conversation staff identity; display context only, never sale ownership. */
     staffId: string | null;
     staffName: string | null;
+    invoiceMatchConfidence: number | null;
+    invoiceMatchReason: string | null;
+    invoiceLinkConfirmed: boolean;
+    invoiceLinkConfirmedInvoiceId: string | null;
+    invoiceLinkConfirmedInvoiceNumber: string | null;
   } | null;
   /** Snapshot-lineage status. Old contained exports remain readable for audit, never current truth. */
   sourceSnapshot: {
@@ -467,6 +503,16 @@ export interface QaCaseDetailBundle {
     resolutionStatus: 'resolved_by_staff_id' | 'resolved_by_unique_name' | 'ambiguous_name' | 'missing_invoice_staff' | 'unresolved';
     itemEvidenceAvailable: boolean;
   } | null;
+  candidateInvoice: {
+    id: string;
+    invoiceNumber: string;
+    customerName: string | null;
+    customerCode: string | null;
+    branch: string | null;
+    staffName: string | null;
+    invoiceDatetime: string | null;
+    total: number | null;
+  } | null;
   catalogProductMatches: Array<{
     sourceMessageId: string;
     rawPhrase: string;
@@ -519,7 +565,7 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
   if (caseRow?.conversation_id) {
     const { data: conversationRow } = await supabaseClient
       .from('whatsapp_review_sources')
-      .select([...REVIEW_SOURCE_BATCH_INPUT_COLUMNS, 'staff_id', 'staff_name', 'source_filename', 'conversation_ended_at', 'message_count', 'created_at', 'analysis_json', 'review_status'].join(','))
+      .select([...REVIEW_SOURCE_BATCH_INPUT_COLUMNS, 'staff_name', 'invoice_match_confidence', 'invoice_match_reason', 'source_filename', 'conversation_ended_at', 'message_count', 'created_at', 'analysis_json', 'review_status'].join(','))
       .eq('id', caseRow.conversation_id)
       .maybeSingle();
     if (conversationRow?.raw_text) {
@@ -593,6 +639,15 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
         customerPhone: displayIdentity.phone,
         staffId: conversationRow.staff_id ?? null,
         staffName: conversationRow.staff_name ?? null,
+        invoiceMatchConfidence: conversationRow.invoice_match_confidence == null
+          ? null
+          : Number(conversationRow.invoice_match_confidence),
+        invoiceMatchReason: conversationRow.invoice_match_reason == null
+          ? null
+          : String(conversationRow.invoice_match_reason),
+        invoiceLinkConfirmed: conversationRow.invoice_link_confirmed === true,
+        invoiceLinkConfirmedInvoiceId: conversationRow.invoice_link_confirmed_invoice_id ?? null,
+        invoiceLinkConfirmedInvoiceNumber: conversationRow.invoice_link_confirmed_invoice_number ?? null,
       };
 
       if (conversationRow.source_filename) {
@@ -956,6 +1011,7 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
   }
 
   const invoiceItemFacts: QaCaseDetailBundle['invoiceItemFacts'] = [];
+  let candidateInvoice: QaCaseDetailBundle['candidateInvoice'] = null;
   const selectedInvoiceId = liveEvidence?.attribution.selectedInvoiceId ?? attributionRow?.selected_invoice_id ?? null;
 
   if (selectedInvoiceId) {
@@ -968,6 +1024,27 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
         .limit(500),
       readInvoiceRecordById(selectedInvoiceId, supabaseClient).then((data) => ({ data })),
     ]);
+    if (invoiceHeader) {
+      const rawTotal = [
+        invoiceHeader.net_amount,
+        invoiceHeader.discounted_amount,
+        invoiceHeader.amount,
+        invoiceHeader.gross_amount,
+        invoiceHeader.net_total,
+        invoiceHeader.total_amount,
+      ].find((value) => value != null);
+      const totalValue = rawTotal == null ? null : Number(rawTotal);
+      candidateInvoice = {
+        id: String(invoiceHeader.id),
+        invoiceNumber: String(invoiceHeader.invoice_number ?? invoiceHeader.invoice_no ?? ''),
+        customerName: invoiceHeader.customer_name == null ? null : String(invoiceHeader.customer_name),
+        customerCode: invoiceHeader.customer_code == null ? null : String(invoiceHeader.customer_code),
+        branch: String(invoiceHeader.branch_name ?? invoiceHeader.branch ?? '').trim() || null,
+        staffName: String(invoiceHeader.seller_name ?? invoiceHeader.normalized_seller_name ?? invoiceHeader.staff_name ?? '').trim() || null,
+        invoiceDatetime: String(invoiceHeader.invoice_datetime ?? invoiceHeader.close_datetime ?? invoiceHeader.invoice_date ?? invoiceHeader.sale_date ?? '').trim() || null,
+        total: totalValue != null && Number.isFinite(totalValue) ? totalValue : null,
+      };
+    }
 
     const productCodes = Array.from(new Set((itemRows ?? []).map((row: any) => String(row.product_code ?? '').trim()).filter(Boolean)));
     const productIds = Array.from(new Set((itemRows ?? []).map((row: any) => String(row.product_id ?? '').trim()).filter(Boolean)));
@@ -1192,6 +1269,7 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
     quotedBasketV2Items,
     recommendationConversions,
     invoiceStaffTruth,
+    candidateInvoice,
     invoiceItemFacts,
     catalogProductMatches,
   };

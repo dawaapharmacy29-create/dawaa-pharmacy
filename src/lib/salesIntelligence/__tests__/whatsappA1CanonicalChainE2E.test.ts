@@ -1,7 +1,7 @@
 // A1 regression fixture — "WhatsApp Chat with معاذ مزروع - 17.txt" — through the canonical chain:
 //   persisted source raw_text (exact production format of source 4b2f3e27-…)
 //   -> Canonical Source Gate (requires exactly one Customer Case V22 owner)
-//   -> Sales Intelligence pipeline V20 -> Product/Need = GAST-REG 50MG 3AMP (40049)
+//   -> Sales Intelligence pipeline -> Product/Need = GAST-REG 50MG 3AMP (40049)
 //   -> follow-up promise "هراجع لحضرتك التوفر." at the end of the export = pending, no penalty.
 // Catalog rows are the real GAST-REG `products` rows (same as productNeedResolutionE2E).
 import { describe, expect, it } from 'vitest';
@@ -57,7 +57,7 @@ describe('A1 canonical chain — "جاست ريج أمبول"', () => {
   });
 
   it('runs on the canonical pipeline and resolves GAST-REG 50MG 3AMP / 40049', () => {
-    expect(PIPELINE_VERSION).toBe('sales-intelligence-v22');
+    expect(PIPELINE_VERSION).toBe('sales-intelligence-v24-canonical-basket-product-identity');
     const result = runSalesIntelligencePipeline({
       conversationId: SOURCE_ID,
       rawWhatsAppExportText: A1_RAW_TEXT,

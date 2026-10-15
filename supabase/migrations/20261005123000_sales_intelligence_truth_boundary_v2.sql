@@ -141,6 +141,17 @@ alter table public.whatsapp_sales_opportunities_v17
   ]));
 
 -- Harden the reconciler: invoice + branch + customer + product + reasonable time window.
+create or replace function public.dawaa_normalize_product_match_v21(p_value text)
+returns text
+language sql
+immutable
+as $function$
+  select regexp_replace(
+    replace(replace(replace(replace(lower(btrim(coalesce(p_value,''))), 'أ','ا'),'إ','ا'),'آ','ا'),'ة','ه'),
+    '[^[:alnum:]ء-ي]+','','g'
+  );
+$function$;
+
 create or replace function public.dawaa_reconcile_whatsapp_product_conversion_v21(p_item_id uuid)
 returns integer
 language plpgsql

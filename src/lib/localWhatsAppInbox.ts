@@ -163,7 +163,9 @@ export function resetLocalWhatsAppProcessedLedger() {
 
 export async function getUnprocessedWhatsAppExports(handle: any, limit = 10): Promise<LocalInboxCandidate[]> {
   const permission = await queryLocalWhatsAppFolderPermission(handle, false);
-  if (permission !== 'granted') return [];
+  if (permission !== 'granted') {
+    throw new Error('local_whatsapp_folder_permission_not_granted');
+  }
   const processed = new Set(readStringLedger(LEDGER_KEY));
   const failed = new Map(readFailedLedger().map((item) => [item.key, item]));
   const now = Date.now();

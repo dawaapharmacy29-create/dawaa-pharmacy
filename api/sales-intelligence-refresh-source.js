@@ -2014,6 +2014,9 @@ function normalizePharmacyText(raw) {
 
 // src/lib/salesIntelligence/pharmacyProducts/pharmacyProductResolverV2.ts
 var FUZZY_MAX_CONFIDENCE_LEVEL = "weakly_inferred";
+function isBasketEligibleProductResolution(candidate) {
+  return candidate.confidence === "proven" || candidate.confidence === "strongly_inferred" || candidate.confidence === "weakly_inferred" && candidate.basis === "cross_script_equivalent";
+}
 function buildPharmacyProductIndex(catalog) {
   const byCode = /* @__PURE__ */ new Map();
   const byNormalizedName = /* @__PURE__ */ new Map();
@@ -2031,6 +2034,9 @@ var CROSS_SCRIPT_SEED = /* @__PURE__ */ new Map([
   ["\u0632\u0648\u0631\u0643\u0627\u0644", "zurcal"],
   ["\u0627\u0646\u062A\u064A\u0646\u0627\u0644", "antinal"],
   ["\u0628\u0627\u0646\u0627\u062F\u0648\u0644 \u0627\u0643\u0633\u062A\u0631\u0627", "panadol extra"],
+  ["\u0628\u064A\u062F\u0648 \u0643\u0648\u0631\u062A", "pedicort"],
+  ["\u0628\u064A\u062F\u0648\u0643\u0648\u0631\u062A", "pedicort"],
+  ["\u0628\u064A\u062F\u064A \u0643\u0648\u0631\u062A", "pedicort"],
   ["\u0628\u0627\u0645\u0628\u0631\u0632", "pampers"],
   ["\u0643\u0648\u0631\u064A\u063A\u0627", "corega"],
   ["\u0643\u0648\u0631\u064A\u062C\u0627", "corega"],
@@ -2605,7 +2611,7 @@ function directCatalogMentionItem(message, productIndex) {
   if (!message.isMeaningful || message.role !== "customer") return null;
   const resolution = resolveProductMention(message.text, productIndex);
   const selected2 = resolution.selected;
-  if (resolution.ambiguous || !selected2 || !["proven", "strongly_inferred"].includes(selected2.confidence)) return null;
+  if (resolution.ambiguous || !selected2 || !isBasketEligibleProductResolution(selected2)) return null;
   return {
     productNameRaw: message.text.trim(),
     productId: selected2.product.productId,
@@ -3194,8 +3200,14 @@ function getInvoiceCustomerName(row) {
 function normalizeCustomerNameForInvoiceMatch(value) {
   return String(value ?? "").trim().toLowerCase().replace(/^(?:الحاج(?:ة)?|السيد(?:ة)?|استاذ(?:ة)?|الأستاذ(?:ة)?|الاستاذ(?:ة)?)\s+/i, "").replace(/[أإآ]/g, "\u0627").replace(/ى/g, "\u064A").replace(/ة/g, "\u0647").replace(/[\u064B-\u065F]/g, "").replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
 }
-function getInvoiceStaffId(row) {
-  return cleanText2(firstValue2(row, ["staff_id"])) || null;
+function getInvoiceStaffId(row, resolveInvoiceStaffIdByName) {
+  const staffId = cleanText2(firstValue2(row, ["staff_id"]));
+  if (staffId) return staffId;
+  if (!resolveInvoiceStaffIdByName) return null;
+  const resolvedStaffIds = new Set(
+    ["seller_name", "staff_name"].map((key) => cleanText2(row[key])).filter(Boolean).map((name) => resolveInvoiceStaffIdByName(name)).filter((resolved) => Boolean(resolved))
+  );
+  return resolvedStaffIds.size === 1 ? [...resolvedStaffIds][0] : null;
 }
 function isDraftLikeZeroInvoice(row) {
   const explicitAmountValue = firstValue2(row, [
@@ -3298,7 +3310,7 @@ function classifyAmountMatch(expected, actual) {
   return diff <= tolerance ? "near_match" : "different";
 }
 function classifyStaff(ctx, row) {
-  const invoiceStaffId = getInvoiceStaffId(row);
+  const invoiceStaffId = getInvoiceStaffId(row, ctx.resolveInvoiceStaffIdByName);
   if (!invoiceStaffId || ctx.knownStaffIds.length === 0) return "unknown";
   if (ctx.knownStaffIds.includes(invoiceStaffId)) return "same";
   return ctx.knownStaffIds.length > 1 ? "compatible" : "different";
@@ -3545,7 +3557,7 @@ function buildEvidenceItems(input) {
     items.push({
       kind: "direct_invoice_id",
       matched: true,
-      detail: "\u0631\u0627\u0628\u0637 \u0641\u0627\u062A\u0648\u0631\u0629 \u0645\u0648\u062B\u0648\u0642 \u0648\u0645\u062E\u0632\u064E\u0651\u0646 \u0645\u0633\u0628\u0642\u064B\u0627 \u0639\u0644\u0649 \u0645\u0633\u062A\u0648\u0649 \u0627\u0644\u0646\u0638\u0627\u0645 (\u0648\u0644\u064A\u0633 \u062A\u062E\u0645\u064A\u0646\u064B\u0627 \u0625\u062D\u0635\u0627\u0626\u064A\u064B\u0627).",
+      detail: "\u062F\u0644\u064A\u0644 \u0625\u0633\u0646\u0627\u062F \u0645\u0628\u0627\u0634\u0631 \u0645\u0648\u062B\u0648\u0642\u061B \u064A\u062D\u062F\u062F provenance \u0625\u0646 \u0643\u0627\u0646 \u0645\u0637\u0627\u0628\u0642\u0629 \u0622\u0644\u064A\u0629 \u0635\u0627\u0631\u0645\u0629 \u0623\u0648 \u062A\u0623\u0643\u064A\u062F\u064B\u0627 \u064A\u062F\u0648\u064A\u064B\u0627.",
       weight: 1
     });
   }
@@ -5528,20 +5540,28 @@ function deriveCustomerNeedModel(input) {
   )) {
     humanReviewReasons.push("customer_need_product_context_ambiguous");
   }
-  const productList = Array.from(products.values()).map((product) => ({
-    key: product.key,
-    productNameRaw: product.productNameRaw,
-    productId: product.productId,
-    requestedQuantity: product.requestedQuantity,
-    offeredQuantity: product.offeredQuantity,
-    finalQuantity: product.finalQuantity,
-    roles: Array.from(product.roles),
-    availability: currentAvailability(product),
-    availabilityEvidence: product.availabilityEvidence,
-    alternatives: product.alternatives,
-    evidenceMessageIds: Array.from(product.evidenceMessageIds),
-    confidence: product.confidence ?? assessment6("unknown", 0.2, ["need.product.insufficient_evidence"], [])
-  }));
+  const canonicalProductsById = new Map(
+    (input.productIndex?.catalog ?? []).map((candidate) => [candidate.productId, candidate])
+  );
+  const productList = Array.from(products.values()).map((product) => {
+    const canonicalProduct = product.productId ? canonicalProductsById.get(product.productId) : null;
+    return {
+      key: product.key,
+      productNameRaw: product.productNameRaw,
+      productId: product.productId,
+      productCode: canonicalProduct?.productCode ?? null,
+      canonicalName: canonicalProduct?.canonicalName ?? null,
+      requestedQuantity: product.requestedQuantity,
+      offeredQuantity: product.offeredQuantity,
+      finalQuantity: product.finalQuantity,
+      roles: Array.from(product.roles),
+      availability: currentAvailability(product),
+      availabilityEvidence: product.availabilityEvidence,
+      alternatives: product.alternatives,
+      evidenceMessageIds: Array.from(product.evidenceMessageIds),
+      confidence: product.confidence ?? assessment6("unknown", 0.2, ["need.product.insufficient_evidence"], [])
+    };
+  });
   const evidenceMessageIds = Array.from(
     /* @__PURE__ */ new Set([
       ...requestSignals.map((signal) => signal.messageId),
@@ -6477,6 +6497,8 @@ function buildCaseIntelligenceView(analysis, context) {
       productKey: product.key,
       productNameRaw: product.productNameRaw,
       productId: product.productId,
+      productCode: product.productCode,
+      canonicalName: product.canonicalName,
       roles: product.roles,
       requestedQuantity: product.requestedQuantity,
       offeredQuantity: product.offeredQuantity,
@@ -6800,31 +6822,59 @@ function computeOverallEvidenceLevel(completeness) {
 }
 function enrichBasketProductIdentities(itemsByBasketId, productIndex) {
   if (!productIndex) return itemsByBasketId;
+  const productsById = new Map(productIndex.catalog.map((product) => [product.productId, product]));
   return Object.fromEntries(
     Object.entries(itemsByBasketId).map(([basketId, items]) => [
       basketId,
       items.map((item) => {
-        if (item.productId || item.resolutionStatus === "contradicted" || item.resolutionStatus === "missing") {
+        if (item.resolutionStatus === "contradicted" || item.resolutionStatus === "missing") {
           return item;
+        }
+        if (item.productId) {
+          const product = productsById.get(item.productId);
+          return product ? { ...item, productCode: product.productCode, canonicalName: product.canonicalName } : item;
         }
         const resolution = resolveProductMention(item.productNameRaw, productIndex);
         const selected2 = resolution.selected;
-        if (!selected2 || !["proven", "strongly_inferred"].includes(selected2.confidence)) {
+        if (!selected2 || !isBasketEligibleProductResolution(selected2)) {
           return item;
         }
         return {
           ...item,
           productId: selected2.product.productId,
+          productCode: selected2.product.productCode,
+          canonicalName: selected2.product.canonicalName,
           // Exact code is canonical proof. Exact canonical name / approved alias remains
-          // partially proven even though we can safely carry the canonical id forward.
+          // partially proven even though we can safely carry the canonical id forward. An explicit
+          // cross-script seed also retains its weak confidence and is never promoted to proven.
           resolutionStatus: selected2.confidence === "proven" ? "proven" : "partially_proven"
         };
       })
     ])
   );
 }
+function staffEvidenceForCase(input, scopedMessages) {
+  const staffIdBySender = { ...input.staffIdBySender ?? {} };
+  const introductionIdsBySender = /* @__PURE__ */ new Map();
+  for (const message of scopedMessages) {
+    const staffId = input.staffIdByIntroductionMessageId?.[message.id];
+    if (!staffId || message.direction !== "outbound") continue;
+    const ids = introductionIdsBySender.get(message.sender) ?? /* @__PURE__ */ new Set();
+    ids.add(staffId);
+    introductionIdsBySender.set(message.sender, ids);
+  }
+  for (const [sender, staffIds2] of introductionIdsBySender) {
+    if (staffIds2.size === 1) staffIdBySender[sender] = [...staffIds2][0];
+    else delete staffIdBySender[sender];
+  }
+  return staffIdBySender;
+}
 function analyzeOneCase(conversationCase, scopedMessages, input, interaction = null, conversationTimeline = scopedMessages) {
   const pipelineWarnings = [];
+  const caseStaffIdBySender = staffEvidenceForCase(input, scopedMessages);
+  const caseKnownStaffIds = [
+    .../* @__PURE__ */ new Set([...input.knownStaffIds ?? [], ...Object.values(caseStaffIdBySender)])
+  ];
   const {
     baskets,
     itemsByBasketId: rawItemsByBasketId,
@@ -6853,7 +6903,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     baskets,
     itemsByBasketId,
     activeBasket,
-    staffIdBySender: input.staffIdBySender,
+    staffIdBySender: caseStaffIdBySender,
     productIndex: input.productIndex
   });
   const unavailableDemand = deriveUnavailableDemand({
@@ -6908,7 +6958,8 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
       quantity: item.quantity,
       resolutionStatus: item.resolutionStatus
     })),
-    knownStaffIds: input.knownStaffIds ?? [],
+    knownStaffIds: caseKnownStaffIds,
+    resolveInvoiceStaffIdByName: input.resolveInvoiceStaffIdByName,
     legacyMatchedInvoiceId: input.legacyMatchedInvoiceId ?? null,
     legacyMatchedInvoiceNumber: input.legacyMatchedInvoiceNumber ?? null,
     trustedInvoiceId: input.trustedInvoiceId ?? null,
@@ -6949,7 +7000,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     attribution: rawAttribution,
     basketInvoiceMatch,
     invoiceStatusHint: input.invoiceStatusHint ?? null,
-    knownStaffIds: input.knownStaffIds,
+    knownStaffIds: caseKnownStaffIds,
     caseEndedAt: conversationCase.endedAt,
     protocolPolicyEffectiveAt: input.protocolPolicyEffectiveAt
   });
@@ -6997,7 +7048,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
   }
   if (rawAttribution.contradictions.includes("ambiguous_multiple_candidates")) failureReasons.push("invoice_candidates_ambiguous");
   if (rawAttribution.hasAttributedInvoice && !basketInvoiceMatch.itemEvidenceReady) failureReasons.push("invoice_items_unavailable");
-  if (commercialConfirmation.staffConfirmed && (input.knownStaffIds ?? []).length === 0) failureReasons.push("staff_identity_unresolved");
+  if (commercialConfirmation.staffConfirmed && caseKnownStaffIds.length === 0) failureReasons.push("staff_identity_unresolved");
   if (!conversationCase.endedAt) failureReasons.push("conversation_timestamp_quality_issue");
   const isGenuinelyInformationOnly = conversationCase.caseType === "information_only" && !evidenceCompleteness.basketDetected;
   const rawNeedsHumanReview = conversationCase.needsHumanReview || commercialConfirmation.needsHumanReview || rawAttribution.needsHumanReview || basketInvoiceMatch.needsHumanReview || financialSettlement.needsHumanReview || !isGenuinelyInformationOnly && integrityAssessment.needsHumanReview || activeBasketResolution.outcome === "needs_human_review";
@@ -7094,7 +7145,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     lostOpportunity,
     salesOutcome,
     customerIdentityStatus: input.customerIdentityStatus,
-    staffIdBySender: input.staffIdBySender,
+    staffIdBySender: caseStaffIdBySender,
     conversationTimeline
   });
   const operationalDisposition = deriveCaseOperationalDisposition({
@@ -7156,7 +7207,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
       customerIdentityStatus: input.customerIdentityStatus,
       customerNameHint: input.customerNameHint ?? null,
       customerCodeHint: input.customerCodeHint ?? null,
-      staffIdBySender: input.staffIdBySender
+      staffIdBySender: caseStaffIdBySender
     })
   };
 }
@@ -8011,6 +8062,10 @@ function buildSalesIntelligenceRuntimeContext(input) {
   );
   return { staffIdentityMap, staffLikeNames, productIndex: input.productIndex };
 }
+function resolveCanonicalStaffIdByName(name, staffIdentityMap) {
+  const normalized = normalizeDoctorName(name);
+  return normalized ? staffIdentityMap.get(`name:${normalized}`)?.staffId ?? null : null;
+}
 async function loadSalesIntelligenceRuntimeContext(client) {
   const [staffDirectory, productIndex] = await Promise.all([
     loadStaffDirectoryFrom(client),
@@ -8018,12 +8073,21 @@ async function loadSalesIntelligenceRuntimeContext(client) {
   ]);
   return buildSalesIntelligenceRuntimeContext({ staffDirectory, productIndex });
 }
-function resolveStaffIdBySender(conversation, context) {
+function resolveConversationStaffIdentity(conversation, context) {
   const { staffIdentityMap, staffLikeNames } = context;
-  if (!staffIdentityMap.size || !conversation.rawWhatsAppExportText) return {};
+  if (!staffIdentityMap.size || !conversation.rawWhatsAppExportText) {
+    return { staffIdBySender: {}, staffIdByIntroductionMessageId: {} };
+  }
   const messages = parseWhatsAppExport(conversation.rawWhatsAppExportText, {
     trustedConversationStartedAt: conversation.trustedConversationStartedAt ?? null
   }).filter((message) => message.direction !== "system" && message.kind !== "system");
+  const staffIdByIntroductionMessageId = {};
+  for (const message of messages) {
+    const introducedName = extractIntroducedStaffName(message);
+    if (!introducedName) continue;
+    const staffId = resolveCanonicalStaffIdByName(introducedName, staffIdentityMap);
+    if (staffId) staffIdByIntroductionMessageId[message.id] = staffId;
+  }
   const customerName = normalizeDoctorName(conversation.customerNameHint ?? "");
   const directionBySender = /* @__PURE__ */ new Map();
   for (const message of messages) {
@@ -8052,7 +8116,7 @@ function resolveStaffIdBySender(conversation, context) {
     if (isInbound && !customerRemains) continue;
     staffIdBySender[sender] = staffId;
   }
-  return staffIdBySender;
+  return { staffIdBySender, staffIdByIntroductionMessageId };
 }
 async function prepareSalesIntelligenceConversations(client, conversations, context) {
   const evidences = conversations.map((conversation) => {
@@ -8070,12 +8134,14 @@ async function prepareSalesIntelligenceConversations(client, conversations, cont
   return conversations.map((conversation, index) => {
     const identity = identities[index];
     const resolved = identity.status === "resolved";
+    const staffIdentity = resolveConversationStaffIdentity(conversation, context);
     return {
       ...conversation,
       customerIdHint: resolved ? identity.customerId : null,
       customerPhoneHint: resolved ? identity.normalizedPhone ?? conversation.customerPhoneHint ?? null : conversation.customerPhoneHint ?? null,
       customerIdentityStatus: identity.status,
-      staffIdBySender: resolveStaffIdBySender(conversation, context)
+      staffIdBySender: staffIdentity.staffIdBySender,
+      staffIdByIntroductionMessageId: staffIdentity.staffIdByIntroductionMessageId
     };
   });
 }
@@ -8094,6 +8160,8 @@ function pipelineBaseInputFor(conversation, context) {
     branchNameRawHint: conversation.branchNameRawHint ?? null,
     knownStaffIds: conversation.knownStaffIds,
     staffIdBySender: conversation.staffIdBySender,
+    staffIdByIntroductionMessageId: conversation.staffIdByIntroductionMessageId,
+    resolveInvoiceStaffIdByName: (name) => resolveCanonicalStaffIdByName(name, context.staffIdentityMap),
     legacyMatchedInvoiceId: conversation.legacyMatchedInvoiceId,
     legacyMatchedInvoiceNumber: conversation.legacyMatchedInvoiceNumber,
     trustedInvoiceId: conversation.trustedInvoiceId,
@@ -8222,13 +8290,13 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v22";
+var PIPELINE_VERSION = "sales-intelligence-v24-canonical-basket-product-identity";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v10-payment-continuation-ambiguity-safe",
   historicalClosure: "historical-closure-v1",
   commercialConfirmation: "commercial-confirmation-v6-compact-total-interstitial-ack-safe",
   protocolApplicability: "protocol-applicability-v1",
-  attribution: "attribution-v8-unresolved-product-evidence-safe",
+  attribution: "attribution-v9-canonical-seller-staff-identity",
   matching: "matching-v3-unresolved-product-evidence-safe",
   policyEvaluation: "policy-evaluation-v1"
 };
@@ -13921,13 +13989,74 @@ function evaluateDeployEnvironment(env) {
   return { environment, enforced, ok: errors.length === 0, errors, warnings, projectRefs };
 }
 
+// server/sales-intelligence-refresh-authorization.ts
+var SALES_INTELLIGENCE_REFRESH_PERMISSIONS = [
+  "edit_reviews",
+  "approve_reviews",
+  "manage_conversation_evaluations"
+];
+function isActiveStaff(staff) {
+  return Boolean(
+    staff?.id && staff.active && staff.is_active && staff.status === "active" && staff.can_login !== false
+  );
+}
+async function readBooleanRpc(client, functionName, args) {
+  const { data, error } = await client.rpc(functionName, args);
+  if (error) {
+    throw new Error(`${functionName}_failed${error.message ? `: ${error.message}` : ""}`);
+  }
+  return data === true;
+}
+async function authorizeRefreshActor(input) {
+  const { client, sessionAccountId, staff } = input;
+  if (!isActiveStaff(staff) || staff.id.toLowerCase() !== sessionAccountId.toLowerCase()) {
+    return { allowed: false, topManagement: false };
+  }
+  const { data: currentActorId, error: identityError } = await client.rpc(
+    "dawaa_current_staff_account_id_strict"
+  );
+  if (identityError) {
+    throw new Error(`verified_staff_identity_check_failed${identityError.message ? `: ${identityError.message}` : ""}`);
+  }
+  if (typeof currentActorId !== "string" || currentActorId.toLowerCase() !== sessionAccountId.toLowerCase()) {
+    return { allowed: false, topManagement: false };
+  }
+  const hasReviewPermission = await readBooleanRpc(client, "dawaa_current_actor_can", {
+    required_permissions: [...SALES_INTELLIGENCE_REFRESH_PERMISSIONS]
+  });
+  if (!hasReviewPermission) return { allowed: false, topManagement: false };
+  const topManagement = await readBooleanRpc(client, "dawaa_actor_is_top_management_v1");
+  return { allowed: true, topManagement };
+}
+async function isRefreshSourceInActorScope(input) {
+  const { client, actor, source, topManagement } = input;
+  if (topManagement) return true;
+  const role = String(actor.role || "").trim().toLowerCase();
+  if (role === "team_dawaa_alpha" || role === "customer_service_manager") return true;
+  if (actor.staff_id != null && source.staff_id != null && String(actor.staff_id) === String(source.staff_id)) {
+    return true;
+  }
+  if (![
+    "branch_manager",
+    "customer_service",
+    "shift_supervisor_morning",
+    "shift_supervisor_evening"
+  ].includes(role)) {
+    return false;
+  }
+  const [actorBranch, sourceBranch] = await Promise.all([
+    client.rpc("dawaa_customer_request_branch_key", { p_branch: actor.branch ?? null }),
+    client.rpc("dawaa_customer_request_branch_key", { p_branch: source.branch ?? null })
+  ]);
+  if (actorBranch.error || sourceBranch.error) {
+    throw new Error(
+      `refresh_source_scope_check_failed: ${actorBranch.error?.message || sourceBranch.error?.message || "branch_scope_lookup_failed"}`
+    );
+  }
+  return typeof actorBranch.data === "string" && actorBranch.data.length > 0 && actorBranch.data === sourceBranch.data;
+}
+
 // server/sales-intelligence-refresh-source.ts
-var ALLOWED_ROLES = /* @__PURE__ */ new Set([
-  "general_manager",
-  "admin",
-  "executive_manager",
-  "branches_manager"
-]);
 function json(res, status, body) {
   res.status(status).setHeader("Content-Type", "application/json; charset=utf-8");
   res.end(JSON.stringify(body));
@@ -13957,23 +14086,32 @@ async function handler(req, res) {
   if (!loginSession || loginSession.revoked_at || new Date(loginSession.expires_at).getTime() <= Date.now()) {
     return json(res, 401, { error: "invalid_or_expired_staff_session" });
   }
-  const { data: staff, error: staffError } = await service.from("staff_accounts").select("id,role,active,is_active,status,can_login").eq("id", loginSession.staff_account_id).maybeSingle();
+  const { data: staff, error: staffError } = await service.from("staff_accounts").select("id,staff_id,branch,role,active,is_active,status,can_login").eq("id", loginSession.staff_account_id).maybeSingle();
   if (staffError) return json(res, 500, { error: "staff_lookup_failed" });
-  const active = Boolean(staff?.active) && Boolean(staff?.is_active) && staff?.status === "active" && staff?.can_login !== false;
-  if (!staff || !active || !ALLOWED_ROLES.has(String(staff.role || ""))) {
+  if (!staff) {
     return json(res, 403, { error: "not_authorized_for_sales_intelligence_refresh" });
   }
-  const sessionRefreshAt = /* @__PURE__ */ new Date();
-  const sessionRefreshExpiry = new Date(sessionRefreshAt.getTime() + 12 * 60 * 60 * 1e3);
-  const { error: sessionRefreshError } = await service.from("staff_login_sessions").update({
-    last_used_at: sessionRefreshAt.toISOString(),
-    expires_at: sessionRefreshExpiry.toISOString()
-  }).eq("id", loginSession.id);
-  if (sessionRefreshError) {
-    console.warn(
-      "[sales-intelligence-refresh-source] staff session sliding refresh failed",
-      sessionRefreshError.message
-    );
+  const anonKey = process.env.VITE_SUPABASE_ANON_KEY;
+  if (!anonKey) return json(res, 503, { error: "missing_supabase_anon_key" });
+  const permissionClient = createClient2(supabaseUrl2, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { "x-dawaa-session-token": token } }
+  });
+  let refreshActorAuthorization;
+  try {
+    refreshActorAuthorization = await authorizeRefreshActor({
+      client: permissionClient,
+      sessionAccountId: String(loginSession.staff_account_id),
+      staff
+    });
+  } catch (error) {
+    console.error("[sales-intelligence-refresh-source] canonical permission check failed", {
+      message: error instanceof Error ? error.message : String(error)
+    });
+    return json(res, 503, { error: "refresh_authorization_check_failed" });
+  }
+  if (!refreshActorAuthorization.allowed) {
+    return json(res, 403, { error: "not_authorized_for_sales_intelligence_refresh" });
   }
   let body = req.body || {};
   if (typeof body === "string") {
@@ -14013,6 +14151,43 @@ async function handler(req, res) {
     (row) => typeof row.raw_text === "string" && String(row.raw_text).trim().length > 0
   )) {
     return json(res, 404, { error: "source_not_found_or_empty" });
+  }
+  try {
+    for (const source of sourceRows) {
+      const inScope = await isRefreshSourceInActorScope({
+        client: permissionClient,
+        actor: staff,
+        source: {
+          id: String(source.id),
+          staff_id: typeof source.staff_id === "string" ? source.staff_id : null,
+          branch: typeof source.branch === "string" ? source.branch : null
+        },
+        topManagement: refreshActorAuthorization.topManagement
+      });
+      if (!inScope) {
+        return json(res, 403, {
+          error: "not_authorized_for_sales_intelligence_refresh",
+          sourceId: String(source.id)
+        });
+      }
+    }
+  } catch (error) {
+    console.error("[sales-intelligence-refresh-source] source scope check failed", {
+      message: error instanceof Error ? error.message : String(error)
+    });
+    return json(res, 503, { error: "refresh_authorization_check_failed" });
+  }
+  const sessionRefreshAt = /* @__PURE__ */ new Date();
+  const sessionRefreshExpiry = new Date(sessionRefreshAt.getTime() + 12 * 60 * 60 * 1e3);
+  const { error: sessionRefreshError } = await service.from("staff_login_sessions").update({
+    last_used_at: sessionRefreshAt.toISOString(),
+    expires_at: sessionRefreshExpiry.toISOString()
+  }).eq("id", loginSession.id);
+  if (sessionRefreshError) {
+    console.warn(
+      "[sales-intelligence-refresh-source] staff session sliding refresh failed",
+      sessionRefreshError.message
+    );
   }
   const page = {
     sourceId: validSourceId ? sourceId : null,

@@ -582,7 +582,20 @@ export default function WhatsAppSmartFolderWatcher() {
     scanningRef.current = true;
     setScanning(true);
     try {
-      const candidates = await getUnprocessedWhatsAppExports(handleRef.current, 10);
+      let candidates: Awaited<ReturnType<typeof getUnprocessedWhatsAppExports>>;
+      try {
+        candidates = await getUnprocessedWhatsAppExports(handleRef.current, 10);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        if (reason === 'local_whatsapp_folder_permission_not_granted') {
+          handleRef.current = null;
+          setConnected(false);
+          toast.error('انتهت صلاحية قراءة الفولدر. أعد ربط فولدر التصدير للمتابعة.');
+        } else {
+          toast.error(`تعذر فحص فولدر واتساب: ${reason}`);
+        }
+        return;
+      }
       if (!candidates.length) {
         toast.message('لا توجد ملفات جديدة في الفولدر');
         return;

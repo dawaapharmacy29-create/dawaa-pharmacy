@@ -42,6 +42,18 @@ export interface ProductResolutionCandidate {
   reasons: string[];
 }
 
+/**
+ * Basket identity may retain a unique, explicit cross-script seed match at its honest weak
+ * confidence. Fuzzy and strength/form-only matches remain ineligible for canonical basket identity.
+ */
+export function isBasketEligibleProductResolution(candidate: ProductResolutionCandidate): boolean {
+  return (
+    candidate.confidence === 'proven' ||
+    candidate.confidence === 'strongly_inferred' ||
+    (candidate.confidence === 'weakly_inferred' && candidate.basis === 'cross_script_equivalent')
+  );
+}
+
 export interface ProductResolutionResult {
   phrase: string;
   normalized: NormalizedPharmacyText;
@@ -104,6 +116,9 @@ export const CROSS_SCRIPT_SEED: ReadonlyMap<string, string> = new Map([
   ['زوركال', 'zurcal'],
   ['انتينال', 'antinal'],
   ['بانادول اكسترا', 'panadol extra'],
+  ['بيدو كورت', 'pedicort'],
+  ['بيدوكورت', 'pedicort'],
+  ['بيدي كورت', 'pedicort'],
   ['بامبرز', 'pampers'],
   ['كوريغا', 'corega'],
   ['كوريجا', 'corega'],

@@ -190,6 +190,8 @@ export interface CustomerNeedProductLifecycle {
   key: string;
   productNameRaw: string;
   productId: string | null;
+  productCode: string | null;
+  canonicalName: string | null;
   requestedQuantity: number | null;
   offeredQuantity: number | null;
   finalQuantity: number | null;
@@ -544,6 +546,8 @@ export interface CaseIntelligenceView {
     productKey: string;
     productNameRaw: string;
     productId: string | null;
+    productCode: string | null;
+    canonicalName: string | null;
     roles: CustomerNeedProductRole[];
     requestedQuantity: number | null;
     offeredQuantity: number | null;
@@ -682,6 +686,9 @@ export interface CaseBasketItem {
   productNameRaw: string;
   /** products.id once resolved — an interpretation layered on top of productNameRaw, kept separate. */
   productId: string | null;
+  /** Canonical catalog identity and name, populated only when productId resolves. */
+  productCode?: string | null;
+  canonicalName?: string | null;
   quantity: number | null;
   unit: string | null;
   unitPrice: number | null;

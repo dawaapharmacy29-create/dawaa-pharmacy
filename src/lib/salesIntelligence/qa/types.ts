@@ -6,6 +6,7 @@
 // docs/SALES_INTELLIGENCE_PERSISTENCE_DESIGN.md) plus a live, in-memory re-run of the same
 // deterministic pipeline for full evidence drill-down (see queries.ts's own module comment).
 import type { SaleProofSource, SaleProofState } from '../saleProofState';
+import type { CanonicalSalesOutcome } from '../types';
 
 /**
  * One row of the QA list — deliberately excludes customer name/phone/id (never shown in the list).
@@ -38,6 +39,11 @@ export interface QaCaseListRow {
   humanReviewReasons: string[];
   /** Canonical I.C.2 Sale Proof State — see saleProofState.ts. Computed from PERSISTED rows only. */
   saleProofState: SaleProofState;
+  /** Persisted canonical commercial outcome; absent on legacy rows that predate this projection. */
+  canonicalSalesOutcome: {
+    outcome: CanonicalSalesOutcome;
+    isSaleCountable: boolean;
+  } | null;
   proofSource: SaleProofSource;
   trustedInvoiceId: string | null;
   itemEvidenceReady: boolean;

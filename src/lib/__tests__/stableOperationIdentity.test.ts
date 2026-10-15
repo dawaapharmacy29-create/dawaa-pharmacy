@@ -455,6 +455,7 @@ describe('operational action writer: one row per real operation', () => {
       target_table: 'customer_requests',
       target_id: 'request-fixture-1',
     });
+    expect(rows().filter((row) => row.followup_identity === first.followup_identity)).toHaveLength(1);
     // Re-import on another source keeps source evidence: workflow state and lineage stay owned
     // by the existing task. Attribution correction never discards that provenance.
     for (const write of db.writes.filter((w) => w.op === 'upsert' && w.payload.some((row: any) => row.id)))

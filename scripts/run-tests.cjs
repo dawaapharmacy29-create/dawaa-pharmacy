@@ -276,6 +276,7 @@ const testFiles = [
   'src/lib/__tests__/whatsappSmartConversationRefinement.test.ts',
   'src/lib/__tests__/whatsappSmartReviewActions.test.ts',
   'src/lib/__tests__/whatsappSmartReviewGoldenCases.test.ts',
+  'src/lib/__tests__/localWhatsAppInbox.test.ts',
   // كانت موجودة على القرص من دمج feature/whatsapp-smart-review-v2-test لكن لم تكن
   // مضافة هنا فعليًا، فكانت لا تُنفَّذ إطلاقًا رغم وجودها - تمت إضافتها هنا بعد التأكد
   // إنها لا تحتاج vi.mock/vi.fn (المُحرِّك المبسّط هنا لا يدعمهم بعد).
@@ -314,6 +315,7 @@ const testFiles = [
   // draft lifecycle, follow-up promise lifecycle, and the A1-A3 Product/Need regressions.
   'src/lib/__tests__/whatsappCanonicalFilePipeline.test.ts',
   'src/lib/__tests__/whatsappReviewReanalysis.test.ts',
+  'src/lib/__tests__/stableOperationIdentity.test.ts',
   'src/lib/__tests__/reviewDraftLifecycle.test.ts',
   'src/lib/__tests__/reviewRouteState.test.ts',
   'src/lib/__tests__/reviewEditorNavigationGuard.test.ts',
@@ -330,6 +332,8 @@ const testFiles = [
   'src/lib/__tests__/staffCommitmentClassifierV32.test.ts',
   'src/lib/salesIntelligence/__tests__/operationalDispositionInverse.test.ts',
   'src/lib/salesIntelligence/__tests__/v22SemanticProjection.test.ts',
+  'src/lib/salesIntelligence/__tests__/followUpOpportunityEngine.test.ts',
+  'src/lib/salesIntelligence/__tests__/salesIntelligencePipeline.test.ts',
   'src/lib/salesIntelligence/__tests__/productLossCheckPending.test.ts',
   'src/lib/__tests__/v22EnvelopeWriteStrategy.test.ts',
   'src/lib/__tests__/whatsappStoryEventsReanalysis.test.ts',
