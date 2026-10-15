@@ -200,3 +200,315 @@ in-flight promise; `refreshCurrentStaffAccount` TTL) — not a storm.
 | APP-021 | Cleanup | ~60 orphan `src/lib` modules | unreferenced domain modules | — | P4 | CODE_CLEANUP | **DEFERRED** — domain layer near frozen SI; needs per-module tracing | — | — |
 | APP-022 | Polling | `DailyTarget`, attendance biometric | polls while tab hidden | no visibility guard | P4 | PERFORMANCE | skip ticks while hidden | none | — |
 | APP-023 | UI | all pages | header/filter/table primitives not uniform | historical | P5 | UI | **DEFERRED** — redesign outside minimal scope | — | — |
+
+---
+
+## Phase B — Implementation (commits on the branch)
+
+| Batch | Commit subject | Register items |
+|---|---|---|
+| 0 | test: pin the business timezone in the test runner | APP-001 |
+| 1 | refactor: consolidate application navigation | APP-009, 010, 011, 012, 013, 014 |
+| 2 | refactor: retire legacy application surfaces | APP-006, 015, 020 |
+| 3 | fix: unify canonical analytics reads | APP-007, 018 |
+| 4 | perf: reduce duplicated page data fetching and session listeners | APP-008, 016, 022 |
+| 5 | fix: align route and data permissions; recover failed doctor activity reads | APP-003, 004, 005, 017 |
+| 6 | docs: final application map (this section) | — |
+
+New regression tests (registered in `scripts/run-tests.cjs`): `applicationNavigation`,
+`applicationDataContracts`, `applicationPermissions`, `sessionLifecycleSingleton`, plus the
+previously unregistered `appRoutes`.
+
+## Final change report
+
+| ID | Status |
+|---|---|
+| APP-001 | IMPLEMENTED |
+| APP-002 | DEFERRED (Master Brain frozen; needs contract decision — production rows verified Cairo-consistent) |
+| APP-003 | IMPLEMENTED |
+| APP-004 | IMPLEMENTED |
+| APP-005 | IMPLEMENTED |
+| APP-006 | IMPLEMENTED |
+| APP-007 | IMPLEMENTED |
+| APP-008 | IMPLEMENTED |
+| APP-009 | IMPLEMENTED |
+| APP-010 | IMPLEMENTED |
+| APP-011 | IMPLEMENTED |
+| APP-012 | IMPLEMENTED |
+| APP-013 | IMPLEMENTED |
+| APP-014 | IMPLEMENTED |
+| APP-015 | IMPLEMENTED (50 files) |
+| APP-016 | IMPLEMENTED |
+| APP-017 | IMPLEMENTED |
+| APP-018 | IMPLEMENTED |
+| APP-019 | DEFERRED (product decision; routes kept URL-only) |
+| APP-020 | IMPLEMENTED |
+| APP-021 | DEFERRED (orphan `src/lib` modules need per-module tracing) |
+| APP-022 | IMPLEMENTED |
+| APP-023 | DEFERRED (P5 visual standardisation) |
+
+Pre-existing, not changed: `check-whatsapp-deep-intelligence-v26.cjs` and
+`check-whatsapp-governance-v25.cjs` fail on the untouched base as well (they assert content
+of the orphan pages `WhatsAppReviewQueueV4` / `WhatsAppConversationAnalyzer`) and are not part
+of the Quality Gate workflow.
+
+## Final sidebar map
+
+| | Before | After |
+|---|---|---|
+| Groups (main) | 16 | 14 |
+| Items (main) | 96 | 79 |
+| Items (pharmacist view) | 17 | 13 |
+
+Per role (visible groups/items, duplicate paths):
+
+| Role | Before | After |
+|---|---|---|
+| general_manager | 15 / 89 (dup 3) | 13 / 72 (dup 0) |
+| executive_manager | 15 / 87 (dup 3) | 13 / 70 (dup 0) |
+| branches_manager | 15 / 90 (dup 3) | 13 / 73 (dup 0) |
+| procurement_manager | 5 / 16 (dup 0) | 5 / 16 (dup 0) |
+| branch_manager | 15 / 72 (dup 2) | 13 / 58 (dup 0) |
+| customer_service_manager | 12 / 32 (dup 1) | 9 / 24 (dup 0) |
+| shift_supervisor_morning | 4 / 7 (dup 0) | 4 / 7 (dup 0) |
+| shift_supervisor_evening | 4 / 7 (dup 0) | 4 / 7 (dup 0) |
+| pharmacist | 4 / 16 (dup 0) | 4 / 12 (dup 0) |
+| inventory_assistant | 5 / 14 (dup 0) | 5 / 14 (dup 0) |
+| customer_service | 9 / 25 (dup 0) | 7 / 18 (dup 0) |
+| assistant | 6 / 9 (dup 0) | 6 / 9 (dup 0) |
+| cleaning_supervisor | 4 / 4 (dup 0) | 4 / 4 (dup 0) |
+| delivery | 4 / 4 (dup 0) | 4 / 4 (dup 0) |
+
+`assistant` uses `AssistantSidebar` (unchanged). The delivery group stays behind
+`ENABLE_INTERNAL_DELIVERY_MODULE = false` (Delivery not touched).
+
+**الرئيسية والإدارة**
+- لوحة القيادة → `/`
+- الأمر اليومي → `/daily-command`
+- مركز المهام والتنبيهات → `/operations-center`
+- متابعة ومرور الفروع → `/branch-inspection`
+
+**الموارد البشرية**
+- مركز الموارد البشرية → `/hr-workforce`
+- دليل الموظفين → `/team`
+- ملف الموظف الوظيفي → `/hr-staff-milestones`
+- الجداول والمناوبات → `/schedule`
+- الإجازات والغياب → `/time-off`
+- حضوري → `/my-attendance`
+
+**الحضور والوقت**
+- مركز الحضور → `/attendance-report`
+- جودة بيانات الموارد البشرية → `/hr-data-quality`
+- تقارير الموارد البشرية → `/hr-reports`
+- إعدادات الموارد البشرية → `/hr-settings`
+
+**الرواتب والنقاط والحوافز**
+- الرواتب والجاهزية → `/staff-payroll`
+- ملخص الحوافز الشهري → `/monthly-incentive-report`
+- نقاط الأداء → `/points`
+- الجزاءات والمكافآت → `/penalty-incentive`
+- اعتراضات النقاط → `/point-appeals`
+- اعتماد الحوافز → `/incentive-governance`
+- المكافآت الاستثنائية → `/assistant-operational-bonus`
+- نظام وقواعد الحافز → `/quarterly-incentives`
+
+**الأداء والتقييمات**
+- مؤشرات الموظفين → `/employee-kpi`
+- مؤشر الأداء الشامل → `/performance-pillars`
+- ملخص أداء الدكاترة → `/doctor-quality-summary`
+- تقييم أداء الشيفتات → `/shift-performance`
+- التقييم الشهري للدكاترة وخدمة العملاء → `/staff-monthly-evaluation`
+- تقييم الدكاترة من خدمة العملاء → `/staff-monthly-evaluation`
+- تقييم مدير الفرع → `/weekly-evaluation/branch_manager`
+- تقييم مدير الفروع → `/weekly-evaluation/branches_manager`
+- تقييم فريق خدمة العملاء ودواء ألفا → `/weekly-evaluation/customer_service`
+
+**خدمة العملاء والمتابعات**
+- مركز خدمة العملاء → `/customer-service`
+- طلبات العملاء → `/customer-requests`
+- تكويد العملاء → `/customer-coding`
+- الردود السريعة → `/quick-replies`
+- رسائل الترحيب → `/welcome-messages`
+
+**واتساب وذكاء المبيعات**
+- التقاط وتحليل محادثات واتساب → `/whatsapp-smart-folder-watcher`
+- مراجعة حالات ذكاء المبيعات → `/sales-intelligence/qa`
+- تقييم المحادثات → `/reviews`
+- تحليلات واتساب → `/whatsapp-analytics`
+
+**العملاء ونقاط الولاء**
+- قاعدة العملاء → `/customers`
+- أداء العملاء الشهري → `/customer-monthly-performance`
+- مراجعة بيانات العملاء → `/customer-data-review`
+- نقاط العملاء من الفواتير → `/customer-cashback`
+- سجل حركات نقاط العملاء → `/customer-points-ledger`
+
+**المبيعات والتقارير**
+- لوحة المبيعات والتحليلات → `/analytics`
+- مقارنة أداء الفروع → `/branch-comparison`
+- أداء ومنافسة الدكاترة → `/doctor-competition`
+- تقرير الأداء الشهري 360° → `/monthly-report-360`
+- مركز التقارير → `/reports`
+
+**الفواتير والمشتريات**
+- استيراد فواتير المبيعات → `/invoices`
+- المشتريات → `/purchases`
+- إدخال فاتورة مشتريات → `/purchase-invoice-entry`
+- مراجعة فواتير المشتريات → `/purchase-invoice-review`
+- دقة إدخال فواتير المشتريات → `/purchase-invoice-accuracy`
+- مرتجعات المشتريات → `/purchase-returns`
+- تقرير دورة المشتريات → `/purchase-cycle-report`
+- حسابات الموردين → `/supplier-accounts`
+- سجل الطلبيات → `/purchase-order-log`
+- تسليم الشيفتات → `/shift-handovers`
+
+**المخزون وتشغيل الصيدلية**
+- النواقص → `/shortages`
+- الرواكد → `/stagnant-medicines`
+- متابعة الصلاحية → `/medicine-expiry`
+- الجرد → `/inventory-counts`
+- تنظيم ورص الأرفف → `/shelf-organization`
+- متابعة المستلزمات → `/supplies`
+- متابعة الإكسسوارات → `/accessories`
+- الرص والجرد اليومي → `/pharmacy-zone-tasks`
+- مراجعة النظافة والرص والجرد → `/branch-checklist-review`
+
+**المهام والتشغيل اليومي**
+- مهام الفريق → `/employee-operating-system`
+- مهامي اليومية → `/my-daily-checklist`
+- سجل أعمال المساعد → `/assistant-operational-log`
+- مهام الإدارة اليومية → `/daily-manager-checklist`
+
+**إدارة النظام**
+- الحسابات والصلاحيات → `/staff-accounts`
+- إعدادات الأدوار والصلاحيات → `/roles-permissions`
+- تدقيق الحسابات والتكرار → `/staff-duplicate-audit`
+- صحة البيانات → `/data-health`
+- سجل أنشطة النظام → `/activity-log`
+
+**التوصيل**
+- إدارة الدليفري → `/delivery`
+
+## Final application map
+
+TOTAL_ROUTES before 114 → after 114 (2 converted to compatibility redirects; no route deleted).
+Page component files: 136 → 134.
+
+| ROUTE | FINAL_PAGE_NAME | DOMAIN | SIDEBAR_GROUP | PERMISSION | STATUS |
+|---|---|---|---|---|---|
+| `/login` | تسجيل الدخول | Core/Admin | — | — | INTERNAL |
+| `/` | لوحة القيادة | Core/Admin | الرئيسية والإدارة | view_dashboard | ACTIVE_PRIMARY |
+| `/executive-2027` | — | Core/Admin | — | — | LEGACY_HIDDEN (redirect → /) |
+| `/customer-service-dashboard` | لوحة مديرة خدمة العملاء | Customers/CS | — | [view_branch_dashboard, view_executive_dashboard] | ACTIVE_CONTEXTUAL |
+| `/doctor-dashboard` | لوحة الدكتور | Core/Admin | — | view_doctor_dashboard | ACTIVE_CONTEXTUAL |
+| `/branch-comparison` | مقارنة الفروع | Sales/Reports | المبيعات والتقارير | view_branch_comparison | ACTIVE_PRIMARY |
+| `/branch-inspection` | مرور مدير الفروع | Core/Admin | الرئيسية والإدارة | view_branch_inspection | ACTIVE_PRIMARY |
+| `/evaluation-rules` | قواعد التقييم | Performance | — | manage_evaluation_rules | ADMIN_ONLY (contextual) |
+| `/point-appeals` | اعتراضات النقاط | Payroll/Incentives | الرواتب والنقاط والحوافز | view_points | ACTIVE_PRIMARY |
+| `/performance-pillars` | الدرجة المركّبة للأداء | Performance | الأداء والتقييمات | view_team | ACTIVE_PRIMARY |
+| `/doctor-quality-summary` | ملخص أداء الدكاترة | Performance | الأداء والتقييمات | view_team | ACTIVE_PRIMARY |
+| `/weekly-evaluation/:type` | التقييم الأسبوعي | Performance | الأداء والتقييمات | prefix rule | ACTIVE_PRIMARY |
+| `/daily-manager-checklist` | المهام اليومية | Inventory/Ops | المهام والتشغيل اليومي | view_team | ACTIVE_PRIMARY |
+| `/customer-monthly-performance` | أداء العملاء الشهري | Performance | العملاء ونقاط الولاء | view_analytics | ACTIVE_PRIMARY |
+| `/quarterly-incentives` | نظام وقواعد الحافز | Payroll/Incentives | الرواتب والنقاط والحوافز | view_quarterly_incentives | ACTIVE_PRIMARY |
+| `/operations-center` | مركز العمليات | Core/Admin | الرئيسية والإدارة | view_operations | ACTIVE_PRIMARY |
+| `/data-health` | صحة البيانات | Core/Admin | إدارة النظام | view_data_health | ADMIN_ONLY |
+| `/customers` | العملاء | Customers/CS | العملاء ونقاط الولاء | view_customers | ACTIVE_PRIMARY |
+| `/customers/:id` | ملف العميل | Customers/CS | — | prefix rule | ACTIVE_CONTEXTUAL |
+| `/customer-360` | ملف العميل | Customers/CS | — | view_customer_360 | ACTIVE_CONTEXTUAL |
+| `/customer-import` | استيراد العملاء | Customers/CS | — | import_customers | INTERNAL (URL-only) |
+| `/customer-service` | خدمة العملاء | Customers/CS | خدمة العملاء والمتابعات | view_customer_service | ACTIVE_PRIMARY |
+| `/customer-service-classic` | — | Customers/CS | — | — | LEGACY_HIDDEN (redirect → /customer-service) |
+| `/whatsapp-followup-requests` | طلبات المتابعة الآلية | WhatsApp/SI | — | view_reviews | LEGACY_HIDDEN |
+| `/whatsapp-folder-watcher` | المراقبة التلقائية للواتساب | WhatsApp/SI | — | view_reviews | LEGACY_HIDDEN |
+| `/whatsapp-doctor-performance` | أداء الدكاترة في الواتساب | WhatsApp/SI | — | view_reviews | LEGACY_HIDDEN |
+| `/whatsapp-customer-history` | سجل محادثات العميل | WhatsApp/SI | — | view_reviews | LEGACY_HIDDEN |
+| `/whatsapp-lost-opportunities` | الفرص الضائعة | WhatsApp/SI | — | view_reviews | LEGACY_HIDDEN |
+| `/whatsapp-branch-comparison` | مقارنة الفروع (واتساب) | WhatsApp/SI | — | view_reviews | LEGACY_HIDDEN |
+| `/customer-requests` | طلبات العملاء | Customers/CS | خدمة العملاء والمتابعات | view_customer_requests | ACTIVE_PRIMARY |
+| `/customer-incubation` | احتضان العملاء | Customers/CS | — | view_customer_incubation | INTERNAL (URL-only) |
+| `/customer-data-review` | مراجعة بيانات العملاء | Customers/CS | العملاء ونقاط الولاء | view_customer_details | ACTIVE_PRIMARY |
+| `/crm` | CRM | Customers/CS | — | view_crm | ACTIVE_CONTEXTUAL |
+| `/customer-cashback` | كاش باك العملاء | Customers/CS | العملاء ونقاط الولاء | view_cashback | ACTIVE_PRIMARY |
+| `/customer-service-credit` | رصيد خدمة العملاء | Customers/CS | — | view_customer_service | ACTIVE_CONTEXTUAL |
+| `/customer-points-ledger` | سجل نقاط العملاء | Payroll/Incentives | العملاء ونقاط الولاء | view_points | ACTIVE_PRIMARY |
+| `/welcome-messages` | رسائل الترحيب | Customers/CS | خدمة العملاء والمتابعات | customer_welcome_messages_view | ACTIVE_PRIMARY |
+| `/customer-welcome` | ترحيب العملاء | Customers/CS | — | customer_welcome_messages_view | INTERNAL (URL-only) |
+| `/customer-coding` | تكويد العملاء | Customers/CS | خدمة العملاء والمتابعات | view_customer_service | ACTIVE_PRIMARY |
+| `/quick-replies` | الردود السريعة | Customers/CS | خدمة العملاء والمتابعات | whatsapp_customer | ACTIVE_PRIMARY |
+| `/my-daily-checklist` | التشيك ليست اليومي | Inventory/Ops | المهام والتشغيل اليومي | view_dashboard | ACTIVE_PRIMARY |
+| `/assistant-operational-log` | تسجيل عمليات المشتريات وخدمة العملاء | Core/Admin | المهام والتشغيل اليومي | view_dashboard | ACTIVE_PRIMARY |
+| `/assistant-operational-bonus` | مكافأة تميز مفاجئة | Payroll/Incentives | الرواتب والنقاط والحوافز | manage_incentives | ACTIVE_PRIMARY |
+| `/pharmacy-zone-tasks` | الرص والجرد اليومي | Inventory/Ops | المخزون وتشغيل الصيدلية | view_dashboard | ACTIVE_PRIMARY |
+| `/purchase-invoice-accuracy` | دقة إدخال فواتير المشتريات | Purchases | الفواتير والمشتريات | view_dashboard | ACTIVE_PRIMARY |
+| `/purchase-invoice-entry` | تسجيل فاتورة مشتريات | Purchases | الفواتير والمشتريات | view_dashboard | ACTIVE_PRIMARY |
+| `/purchase-invoice-review` | مراجعة فواتير المشتريات | Purchases | الفواتير والمشتريات | view_team | ACTIVE_PRIMARY |
+| `/purchase-returns` | مرتجعات المشتريات | Purchases | الفواتير والمشتريات | view_purchases | ACTIVE_PRIMARY |
+| `/purchase-cycle-report` | تقرير دورة المشتريات | Purchases | الفواتير والمشتريات | view_purchases | ACTIVE_PRIMARY |
+| `/supplier-accounts` | حسابات الموردين | Purchases | الفواتير والمشتريات | view_purchases | ACTIVE_PRIMARY |
+| `/purchase-order-log` | سجل الطلبيات | Purchases | الفواتير والمشتريات | view_purchases | ACTIVE_PRIMARY |
+| `/shift-handovers` | تسليم الشيفتات | Purchases | الفواتير والمشتريات | view_purchases | ACTIVE_PRIMARY |
+| `/branch-checklist-review` | مراجعة التشيك ليست | Inventory/Ops | المخزون وتشغيل الصيدلية | view_team | ACTIVE_PRIMARY |
+| `/doctor-competition` | مسابقة الدكاترة | Sales/Reports | المبيعات والتقارير | view_doctor_dashboard | ACTIVE_PRIMARY |
+| `/team` | الفريق | HR/Attendance | الموارد البشرية | view_team | ACTIVE_PRIMARY |
+| `/schedule` | الجدول | HR/Attendance | الموارد البشرية | view_schedule | ACTIVE_PRIMARY |
+| `/points` | النقاط | Payroll/Incentives | الرواتب والنقاط والحوافز | view_points | ACTIVE_PRIMARY |
+| `/delivery` | الدليفري | Delivery | التوصيل | view_delivery | ACTIVE_PRIMARY |
+| `/analytics` | التحليلات | Sales/Reports | المبيعات والتقارير | view_analytics | ACTIVE_PRIMARY |
+| `/invoices` | الفواتير | Sales/Reports | الفواتير والمشتريات | [view_invoices, view_invoice_import] | ACTIVE_PRIMARY |
+| `/activity-log` | سجل الأنشطة | Core/Admin | إدارة النظام | view_activity_log | ADMIN_ONLY |
+| `/reviews` | التقييمات | WhatsApp/SI | واتساب وذكاء المبيعات | view_reviews | ACTIVE_PRIMARY |
+| `/whatsapp-smart-folder-watcher` | التقاط وتحليل محادثات واتساب | WhatsApp/SI | واتساب وذكاء المبيعات | view_reviews | ACTIVE_PRIMARY |
+| `/sales-intelligence/qa` | مراجعة حالات ذكاء المبيعات | WhatsApp/SI | واتساب وذكاء المبيعات | view_reviews | ACTIVE_PRIMARY |
+| `/sales-intelligence/qa/:caseId` | تفاصيل الحالة | WhatsApp/SI | — | prefix rule | ACTIVE_CONTEXTUAL |
+| `/shift-performance` | تقييم الشيفت | Performance | الأداء والتقييمات | view_shift_performance | ACTIVE_PRIMARY |
+| `/staff-monthly-evaluation` | التقييم الشهري | Performance | الأداء والتقييمات | view_team | ACTIVE_PRIMARY |
+| `/monthly-incentive-report` | ملخص الحوافز الشهري | Payroll/Incentives | الرواتب والنقاط والحوافز | view_team | ACTIVE_PRIMARY |
+| `/shift-notes` | ملاحظات الشيفت | HR/Attendance | — | view_schedule | ACTIVE_CONTEXTUAL |
+| `/staff/:id` | تفاصيل الموظف | HR/Attendance | — | view_staff_details | ACTIVE_CONTEXTUAL |
+| `/time-off` | الأذونات | HR/Attendance | الموارد البشرية | [view_attendance_leaves] | ACTIVE_PRIMARY |
+| `/my-attendance` | حضوري | HR/Attendance | الموارد البشرية | record_attendance | ACTIVE_PRIMARY |
+| `/stagnant-medicines` | الرواكد | Inventory/Ops | المخزون وتشغيل الصيدلية | view_stagnant_medicines | ACTIVE_PRIMARY |
+| `/incentive-medicines` | اللستة | Payroll/Incentives | — | view_incentive_medicines | ACTIVE_CONTEXTUAL |
+| `/staff-accounts` | حسابات الموظفين | Core/Admin | إدارة النظام | view_staff_accounts | ADMIN_ONLY |
+| `/staff-duplicate-audit` | مراجعة التكرار | Core/Admin | إدارة النظام | view_staff_accounts | ADMIN_ONLY |
+| `/staff-payroll` | الرواتب والجاهزية | Payroll/Incentives | الرواتب والنقاط والحوافز | manage_payroll | ACTIVE_PRIMARY |
+| `/incentive-governance` | اعتماد الحوافز | Payroll/Incentives | الرواتب والنقاط والحوافز | manage_incentives | ACTIVE_PRIMARY |
+| `/penalty-incentive` | الجزاءات والمكافآت | Payroll/Incentives | الرواتب والنقاط والحوافز | view_penalty_management | ACTIVE_PRIMARY |
+| `/staff-dashboard` | لوحة الموظف | HR/Attendance | — | view_team | ACTIVE_CONTEXTUAL |
+| `/roles-permissions` | الأدوار والصلاحيات | Core/Admin | إدارة النظام | view_roles_permissions | ADMIN_ONLY |
+| `/shelf-organization` | تنظيم الأرفف | Inventory/Ops | المخزون وتشغيل الصيدلية | view_inventory | ACTIVE_PRIMARY |
+| `/inventory-counts` | الجرد | Inventory/Ops | المخزون وتشغيل الصيدلية | view_inventory | ACTIVE_PRIMARY |
+| `/shortages` | النواقص | Inventory/Ops | المخزون وتشغيل الصيدلية | view_shortages | ACTIVE_PRIMARY |
+| `/supplies` | المستلزمات | Inventory/Ops | المخزون وتشغيل الصيدلية | view_supplies | ACTIVE_PRIMARY |
+| `/purchases` | المشتريات | Purchases | الفواتير والمشتريات | view_purchases | ACTIVE_PRIMARY |
+| `/accessories` | الإكسسوارات | Inventory/Ops | المخزون وتشغيل الصيدلية | [view_inventory, manage_operations] | ACTIVE_PRIMARY |
+| `/offers` | العروض | Core/Admin | — | manage_operations | INTERNAL (URL-only) |
+| `/stories` | القصص | Core/Admin | — | manage_operations | INTERNAL (URL-only) |
+| `/training` | التدريب | Core/Admin | — | manage_operations | INTERNAL (URL-only) |
+| `/whatsapp-analytics` | تحليلات واتساب | WhatsApp/SI | واتساب وذكاء المبيعات | view_reviews | ACTIVE_PRIMARY |
+| `/medicine-expiry` | الصلاحية | Inventory/Ops | المخزون وتشغيل الصيدلية | view_expiry_tracker | ACTIVE_PRIMARY |
+| `/attendance-report` | مركز الحضور | HR/Attendance | الحضور والوقت | [view_attendance_leaves, record_attendance] | ACTIVE_PRIMARY |
+| `/loyalty-tiers` | درجات الولاء | Customers/CS | — | view_loyalty_tiers | INTERNAL (URL-only) |
+| `/daily-command` | الأمر اليومي | Core/Admin | الرئيسية والإدارة | view_dashboard | ACTIVE_PRIMARY |
+| `/daily-target` | الهدف اليومي | Core/Admin | — | view_dashboard | ACTIVE_CONTEXTUAL |
+| `/today-brief` | ملخص اليوم | Core/Admin | — | view_dashboard | INTERNAL (URL-only) |
+| `/refill-reminders` | تذكير إعادة الشراء | Customers/CS | — | view_customers | ACTIVE_CONTEXTUAL |
+| `/customer-health/:id` | الملف الصحي | Customers/CS | — | prefix rule | ACTIVE_CONTEXTUAL |
+| `/expiry-discounts` | خصومات الصلاحية | Inventory/Ops | — | view_expiry_tracker | ACTIVE_CONTEXTUAL |
+| `/employee-kpi` | مؤشرات الموظف | Performance | الأداء والتقييمات | view_team | ACTIVE_PRIMARY |
+| `/hr-workforce` | مركز الموارد البشرية | HR/Attendance | الموارد البشرية | view_attendance_leaves | ACTIVE_PRIMARY |
+| `/hr-staff-milestones` | مهام ملف الموظف | HR/Attendance | الموارد البشرية | view_attendance_leaves | ACTIVE_PRIMARY |
+| `/hr-data-quality` | جودة بيانات الموارد البشرية | HR/Attendance | الحضور والوقت | view_attendance_leaves | ACTIVE_PRIMARY |
+| `/hr-reports` | تقارير الموارد البشرية | HR/Attendance | الحضور والوقت | view_attendance_leaves | ACTIVE_PRIMARY |
+| `/hr-settings` | إعدادات الموارد البشرية | HR/Attendance | الحضور والوقت | view_attendance_leaves | ACTIVE_PRIMARY |
+| `/employee-operating-system` | نظام تشغيل الموظف | Core/Admin | المهام والتشغيل اليومي | employee_operating_system_view | ACTIVE_PRIMARY |
+| `/supplier-performance` | أداء الموردين | Performance | — | view_purchases | ACTIVE_CONTEXTUAL |
+| `/reports` | مركز التقارير | Sales/Reports | المبيعات والتقارير | view_sales_reports | ACTIVE_PRIMARY |
+| `/monthly-report-360` | تقرير الأداء الشهري 360° | Sales/Reports | المبيعات والتقارير | [view_sales_reports, view_doctor_dashboard] | ACTIVE_PRIMARY |
+| `/stock-alerts` | تنبيهات المخزون | Inventory/Ops | — | view_inventory | ACTIVE_CONTEXTUAL |
+| `/returns` | المرتجعات | Sales/Reports | — | view_invoices | INTERNAL (URL-only) |
+| `/diagnostics` | التشخيص | Core/Admin | — | view_diagnostics | ADMIN_ONLY (contextual) |
+| `*` | الصفحة | Core/Admin | — | — | INTERNAL |
+
+Status totals: INTERNAL=11, ACTIVE_PRIMARY=71, LEGACY_HIDDEN=8, ACTIVE_CONTEXTUAL=17, ADMIN_ONLY=7 (routes=114)
