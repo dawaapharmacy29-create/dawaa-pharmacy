@@ -22,10 +22,24 @@ const suites = [
     '../migrations/20261011173000_notification_sla_anon_session_read_v1.sql',
     '../migrations/20261011173100_dashboard_staff_ops_summary_accounts_v1.sql',
   ]],
+  ['rls_actor_scope_initplan_v1', ['20261015140000_rls_actor_scope_initplan_v1.sql']],
+  ['weekly_queue_completion_read_only_v1', ['20261015140100_weekly_queue_completion_read_only_v1.sql']],
+  ['session_internal_authorized_reads_v1', [
+    '20261015140200_anon_session_internal_authorized_reads_v1.sql',
+    '20261015140300_reconcile_staff_points_manager_summary_v4.sql',
+  ]],
   ['notification_rls_latest_index_v1', [
     '../migrations/20261003114500_notification_inbox_latest_lookup_v5.sql',
     '../migrations/20261011190000_notifications_inbox_canonical_latest_tiebreak_v1.sql',
   ], false, 'notifications_inbox_canonical_latest_v5_idx'],
+];
+const guardRefusals = [
+  ['hr_health_without_actor_check', 'session_internal_authorized_reads_v1', 'session_grant_guard_refusal_health_v1.pre.sql',
+    '20261015140200_anon_session_internal_authorized_reads_v1.sql', /hr_canonical_architecture_health_v1 no longer authorizes the session actor first; anon grant refused/],
+  ['pillar_truth_without_authorization', 'session_internal_authorized_reads_v1', 'session_grant_guard_refusal_pillar_v1.pre.sql',
+    '20261015140200_anon_session_internal_authorized_reads_v1.sql', /get_doctor_pillar_breakdown no longer authorizes through dawaa_staff_points_truth_v2; anon grant refused/],
+  ['v4_actor_without_verified_session', 'session_internal_authorized_reads_v1', 'session_grant_guard_refusal_v4_actor_v1.pre.sql',
+    '20261015140300_reconcile_staff_points_manager_summary_v4.sql', /get_staff_points_manager_summary_v4 no longer authorizes the verified session actor; anon grant refused/],
 ];
 try {
   for (const [name, migrations, stagingPolicies = false] of suites) {
@@ -43,6 +57,23 @@ try {
       }
     }
     console.log(`PASS ${name}: existing SQL authorization/RLS assertions`);
+    await runtime.execute('postgres', `drop database ${db};`);
+  }
+  // Grant-guard refusal cases: a migration whose anon grant depends on an internal authorization check must
+  // fail (and grant nothing) when that check has been removed from the function it guards.
+  for (const [caseName, fixture, preMutation, migration, expectedError] of guardRefusals) {
+    const db = `sql_security_guard_${caseName}`;
+    await runtime.execute('postgres', `create database ${db};`);
+    for (const file of [`supabase/tests/${fixture}.fixture.sql`, `supabase/tests/${preMutation}`]) {
+      const result = await runtime.execute(db, readSql(file));
+      if (result.code) throw new Error(`${caseName} ${file}: ${result.stderr}`);
+    }
+    const refused = await runtime.execute(db, readSql(`supabase/migrations/${migration}`));
+    if (!refused.code) throw new Error(`${caseName}: ${migration} did not refuse the grant after its guarded check was removed`);
+    if (!expectedError.test(refused.stderr)) throw new Error(`${caseName}: ${migration} failed for another reason: ${refused.stderr}`);
+    const post = await runtime.execute(db, readSql('supabase/tests/session_grant_guard_refusal_v1.post.sql'));
+    if (post.code) throw new Error(`${caseName}: ${post.stderr}`);
+    console.log(`PASS guard refusal ${caseName}: grant refused and nothing granted`);
     await runtime.execute('postgres', `drop database ${db};`);
   }
   const normalizerDb = 'sql_security_product_normalizer_v21';
