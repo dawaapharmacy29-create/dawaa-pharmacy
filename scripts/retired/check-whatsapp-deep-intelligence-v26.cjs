@@ -1,3 +1,10 @@
+// RETIRED — NOT A GATE (docs/APPLICATION_CONSOLIDATION_V1.md, closure pass).
+// This script asserted that the V26 panels are wired into src/pages/WhatsAppReviewQueueV4.tsx and src/pages/WhatsAppConversationAnalyzer.tsx, pages with no route; the V26 panels and their library are used by nothing that renders.
+// It failed on main 45fd8d9 already, was never part of npm test / verify / the Quality Gate
+// workflow, and is kept only as history. It exits before validating anything.
+console.log('[check-whatsapp-deep-intelligence-v26.cjs] RETIRED: legacy surface check, not a gate.');
+process.exit(0);
+
 const fs = require('fs');
 const path = require('path');
 

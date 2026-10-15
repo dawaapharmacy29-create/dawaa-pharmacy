@@ -231,6 +231,7 @@ const testFiles = [
   'src/lib/__tests__/sessionLifecycleSingleton.test.ts',
   'src/lib/__tests__/applicationPermissions.test.ts',
   'src/lib/__tests__/cairoWallClock.test.ts',
+  'src/lib/__tests__/whatsappResolverNoGuess.test.ts',
   'scripts/staging/historical-dml.test.cjs',
   'scripts/staging/canonical-si-dependencies.test.cjs',
   'src/lib/salesIntelligence/refresh/__tests__/soldActionLineage.test.ts',

@@ -1,3 +1,10 @@
+// RETIRED — NOT A GATE (docs/APPLICATION_CONSOLIDATION_V1.md, closure pass).
+// This script asserted that the V25 governance panel is imported and rendered by src/pages/WhatsAppReviewQueueV4.tsx, a page with no route; the panel renders nowhere. Its live safeguards are covered by registered tests: whatsappResolverNoGuess.test.ts (no-guess customer resolution) and whatsappSmartOfficialReviewDraft.test.ts (review_required stays review_required).
+// It failed on main 45fd8d9 already, was never part of npm test / verify / the Quality Gate
+// workflow, and is kept only as history. It exits before validating anything.
+console.log('[check-whatsapp-governance-v25.cjs] RETIRED: legacy surface check, not a gate.');
+process.exit(0);
+
 const fs = require('fs');
 const path = require('path');
 
