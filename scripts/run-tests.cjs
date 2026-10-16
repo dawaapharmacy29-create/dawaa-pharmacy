@@ -229,6 +229,7 @@ const testFiles = [
   'src/lib/__tests__/appRoutes.test.ts',
   'src/lib/__tests__/applicationDataContracts.test.ts',
   'src/lib/__tests__/runtimeClosureContracts.test.ts',
+  'src/lib/__tests__/overtimeReviewContracts.test.ts',
   'src/lib/__tests__/sessionLifecycleSingleton.test.ts',
   'src/lib/__tests__/applicationPermissions.test.ts',
   'src/lib/__tests__/cairoWallClock.test.ts',

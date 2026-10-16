@@ -9,6 +9,7 @@ import {
   type PendingOvertimeRow,
 } from '@/lib/attendance/attendanceBreakdownService';
 import OvertimeDecisionEvidenceCardV3 from '@/components/attendance/OvertimeDecisionEvidenceCardV3';
+import StaleOvertimeReviewPanel from '@/components/attendance/StaleOvertimeReviewPanel';
 
 export default function OvertimeApprovalCenter({ defaultBranch = '' }: { defaultBranch?: string }) {
   const [branch, setBranch] = useState(defaultBranch);
@@ -99,6 +100,8 @@ export default function OvertimeApprovalCenter({ defaultBranch = '' }: { default
       <div className="rounded-2xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-info-text)]">
         <div className="flex items-center gap-2"><ShieldCheck size={15} /> قاعدة V2: Attendance Truth → Overtime Review → Payroll. لا يمكن تجاوز اعتماد يوم الحضور.</div>
       </div>
+
+      <StaleOvertimeReviewPanel branch={branch} onDecided={() => void load()} />
 
       <div className="rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-4 shadow-sm">
         <div className="mb-3 flex items-center justify-between gap-2">

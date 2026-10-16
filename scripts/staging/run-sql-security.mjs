@@ -78,6 +78,11 @@ const suites = [
     '20261016150000_overtime_approval_freshness_v1.sql',
     '20261016150000_overtime_approval_freshness_v1.sql',
   ]],
+  ['overtime_review_operational_closure_v1', [
+    '20261016145000_overtime_review_operational_closure_v1.sql',
+    '20261016145000_overtime_review_operational_closure_v1.sql',
+    '20261016150000_overtime_approval_freshness_v1.sql',
+  ]],
 ];
 const guardRefusals = [
   ['hr_health_without_actor_check', 'session_internal_authorized_reads_v1', 'session_grant_guard_refusal_health_v1.pre.sql',
@@ -122,6 +127,10 @@ const guardRefusals = [
     '20261016150000_overtime_approval_freshness_v1.sql',
     /hr_invalidate_overtime_on_attendance_change_v1 differs from the reviewed definition; regenerate this migration/,
     'overtime_approval_freshness_guard_refusal_v1.post.sql'],
+  ['overtime_decision_rpc_changed_after_review', 'overtime_review_operational_closure_v1', 'overtime_review_guard_refusal_v1.pre.sql',
+    '20261016145000_overtime_review_operational_closure_v1.sql',
+    /decide_overtime_approval_v3 differs from the reviewed definition; regenerate this migration/,
+    'overtime_review_guard_refusal_v1.post.sql'],
 ];
 try {
   for (const [name, migrations, stagingPolicies = false, , vacuumTables = []] of suites) {

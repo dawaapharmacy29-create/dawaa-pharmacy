@@ -157,6 +157,82 @@ export async function decideOvertimeApproval(id: string, decision: 'approved' | 
   if (error) throw error;
 }
 
+export type StaleOvertimeReason =
+  | 'no_attendance_link'
+  | 'linked_attendance_missing'
+  | 'linked_attendance_not_approved'
+  | 'fingerprint_missing'
+  | 'fingerprint_diverged';
+
+/** Approved overtime that no longer matches attendance truth; it blocks payroll finalization until a manager decides. */
+export interface StaleOvertimeApprovalRow {
+  id: string;
+  staff_id: string;
+  staff_name: string;
+  branch: string | null;
+  attendance_date: string;
+  month_cycle: string;
+  overtime_minutes: number;
+  overtime_hours: number;
+  hourly_rate: number | null;
+  overtime_amount: number | null;
+  amount_missing: boolean;
+  multiplier: number | null;
+  is_delivery: boolean;
+  stale_reason: StaleOvertimeReason;
+  fingerprint_state: 'missing' | 'diverged';
+  approval_source: string | null;
+  decided_by_name: string | null;
+  decided_at: string | null;
+  decision_note: string | null;
+  truth_resolution_id: string | null;
+  truth_status: string | null;
+  truth_resolution_status: string | null;
+  truth_first_in: string | null;
+  truth_last_out: string | null;
+  truth_scheduled_start_at: string | null;
+  truth_scheduled_end_at: string | null;
+  truth_payroll_eligible_hours: number | null;
+  truth_policy_version: string | null;
+  recalculate_available: boolean;
+  payroll_finalized: boolean;
+}
+
+export type StaleOvertimeDecision = 'confirm' | 'adjust' | 'reject' | 'recalculate';
+
+export async function listStaleOvertimeApprovals(args: {
+  monthCycle?: string | null;
+  branch?: string | null;
+} = {}): Promise<StaleOvertimeApprovalRow[]> {
+  const { data, error } = await supabase.rpc('list_stale_overtime_approvals_v1', {
+    p_month_cycle: args.monthCycle || null,
+    p_branch: args.branch || null,
+  });
+  if (error) throw new Error(error.message);
+  return (data || []) as StaleOvertimeApprovalRow[];
+}
+
+/** One manager decision on a stale approval; 'recalculate' returns it to the pending queue for decide_overtime_approval_v3. */
+export async function reviewStaleOvertimeApproval(args: {
+  id: string;
+  decision: StaleOvertimeDecision;
+  note: string;
+  overtimeMinutes?: number | null;
+  overtimeAmount?: number | null;
+  multiplier?: number | null;
+}): Promise<{ success: boolean; status: 'approved' | 'rejected' | 'pending' }> {
+  const { data, error } = await supabase.rpc('review_stale_overtime_approval_v1', {
+    p_id: args.id,
+    p_decision: args.decision,
+    p_note: args.note,
+    p_overtime_minutes: args.overtimeMinutes ?? null,
+    p_overtime_amount: args.overtimeAmount ?? null,
+    p_multiplier: args.multiplier ?? null,
+  });
+  if (error) throw new Error(error.message);
+  return data as { success: boolean; status: 'approved' | 'rejected' | 'pending' };
+}
+
 export async function listOvertimeDecisions(args: {
   branch?: string | null;
   status?: 'approved' | 'rejected' | null;
