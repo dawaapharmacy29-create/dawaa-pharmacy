@@ -2177,7 +2177,7 @@ export default function ExecutiveDashboard2027() {
             subtitle="كل الفواتير داخل الفترة"
             icon={<FileText className="h-6 w-6" />}
             tone="green"
-            onClick={() => navigate(`/invoice-import?${dashboardQuery}`)}
+            onClick={() => navigate(`/invoices?${new URLSearchParams({ from: startDate, to: endDate }).toString()}`)}
             showAction={Boolean(salesKPIError || salesKPITimedOut)}
             onAction={reloadDashboard}
             loading={salesKPILoading && !salesKPILoadedAt}

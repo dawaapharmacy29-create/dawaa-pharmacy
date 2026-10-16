@@ -121,8 +121,10 @@ export async function fetchManagerLiveIncentiveSnapshot(
   const [current, prev, checklistRates, history, cycleSalesTarget] = await Promise.all([
     fetchWeeklyAutoMetrics(evaluationType, branch, weekStart, weekEnd),
     fetchWeeklyAutoMetrics(evaluationType, branch, previous.start, previous.end).catch(() => null),
-    fetchWeeklyChecklistCompletion(subjectStaffId, weekStart, weekEnd, branch).catch(() => ({})),
-    fetchEvaluationHistory(evaluationType, subjectStaffId, branch).catch(() => []),
+    // Checklist rates and submitted history feed the score and the approved weeks directly: a failed read must
+    // surface as an unavailable incentive, never as a 0% checklist or an empty history.
+    fetchWeeklyChecklistCompletion(subjectStaffId, weekStart, weekEnd, branch),
+    fetchEvaluationHistory(evaluationType, subjectStaffId, branch),
     fetchManagerCycleSalesTargetSummary(evaluationType, branch, cycleStart, today).catch(() => null),
   ]);
 

@@ -21,6 +21,7 @@ import {
   checkDataHealth,
   getHealthSeverityColor,
   type DataHealthIssue,
+  type DataHealthReport,
 } from '@/lib/dataIntegrityService';
 
 export default function QuarterlyIncentives2027() {
@@ -186,6 +187,14 @@ export default function QuarterlyIncentives2027() {
       </div>
 
       {/* Data Health Section */}
+      {dataHealth?.unavailableChecks?.length > 0 && (
+        <div role="alert" className="rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm font-bold text-red-300">
+          تعذر إجراء بعض فحوص البيانات، ونتيجتها غير معروفة (ليست صفرًا):
+          {dataHealth.unavailableChecks.map((check: DataHealthReport['unavailableChecks'][number]) => (
+            <div key={check.type} className="mt-1 font-normal">{check.description}: {check.error}</div>
+          ))}
+        </div>
+      )}
       {dataHealth?.issues && dataHealth.issues.length > 0 && (
         <div className="stat-card">
           <div className="flex items-center gap-2 mb-4">

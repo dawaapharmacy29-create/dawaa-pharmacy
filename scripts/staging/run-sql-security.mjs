@@ -54,6 +54,22 @@ const suites = [
     '20261016090100_attendance_v3_cutover_readiness_dependency_v1.sql',
     '20261016090100_attendance_v3_cutover_readiness_dependency_v1.sql',
   ]],
+  ['payroll_cycle_staff_scope_shared_v1', [
+    '20261016100000_payroll_cycle_staff_scope_shared_v1.sql',
+    '20261016100000_payroll_cycle_staff_scope_shared_v1.sql',
+  ]],
+  ['attendance_v1_deduction_readers_revoke_client_v1', [
+    '20261016110000_attendance_v1_deduction_readers_revoke_client_v1.sql',
+    '20261016110000_attendance_v1_deduction_readers_revoke_client_v1.sql',
+  ]],
+  ['cleaning_daily_rating_cards_stars_type_v1', [
+    '20261016120000_cleaning_daily_rating_cards_stars_type_v1.sql',
+    '20261016120000_cleaning_daily_rating_cards_stars_type_v1.sql',
+  ]],
+  ['at_risk_completion_read_only_v1', [
+    '20261016130000_at_risk_completion_read_only_v1.sql',
+    '20261016130000_at_risk_completion_read_only_v1.sql',
+  ]],
 ];
 const guardRefusals = [
   ['hr_health_without_actor_check', 'session_internal_authorized_reads_v1', 'session_grant_guard_refusal_health_v1.pre.sql',
@@ -70,6 +86,18 @@ const guardRefusals = [
     '20261016090100_attendance_v3_cutover_readiness_dependency_v1.sql',
     /attendance_policy_v3_cutover_readiness_v1 exists with a different definition; refusing to replace it/,
     'attendance_v3_cutover_readiness_guard_refusal_v1.post.sql'],
+  ['payroll_overview_changed_after_review', 'payroll_cycle_staff_scope_shared_v1', 'payroll_cycle_staff_scope_guard_refusal_v1.pre.sql',
+    '20261016100000_payroll_cycle_staff_scope_shared_v1.sql',
+    /payroll_cycle_finalization_overview_v2 differs from the reviewed definition; regenerate this migration/,
+    'payroll_cycle_staff_scope_guard_refusal_v1.post.sql'],
+  ['cleaning_cards_changed_after_review', 'cleaning_daily_rating_cards_stars_type_v1', 'cleaning_daily_rating_cards_guard_refusal_v1.pre.sql',
+    '20261016120000_cleaning_daily_rating_cards_stars_type_v1.sql',
+    /get_cleaning_daily_rating_cards_v2 differs from the reviewed definition; regenerate this migration/,
+    'cleaning_daily_rating_cards_guard_refusal_v1.post.sql'],
+  ['at_risk_completion_changed_after_review', 'at_risk_completion_read_only_v1', 'at_risk_completion_guard_refusal_v1.pre.sql',
+    '20261016130000_at_risk_completion_read_only_v1.sql',
+    /get_customer_service_at_risk_completion_v1 differs from the reviewed definition; regenerate this migration/,
+    'at_risk_completion_guard_refusal_v1.post.sql'],
 ];
 try {
   for (const [name, migrations, stagingPolicies = false, , vacuumTables = []] of suites) {
