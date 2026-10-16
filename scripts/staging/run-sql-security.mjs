@@ -70,6 +70,10 @@ const suites = [
     '20261016130000_at_risk_completion_read_only_v1.sql',
     '20261016130000_at_risk_completion_read_only_v1.sql',
   ]],
+  ['attendance_legacy_time_off_revoke_client_v1', [
+    '20261016140000_attendance_legacy_time_off_revoke_client_v1.sql',
+    '20261016140000_attendance_legacy_time_off_revoke_client_v1.sql',
+  ]],
 ];
 const guardRefusals = [
   ['hr_health_without_actor_check', 'session_internal_authorized_reads_v1', 'session_grant_guard_refusal_health_v1.pre.sql',
@@ -98,6 +102,14 @@ const guardRefusals = [
     '20261016130000_at_risk_completion_read_only_v1.sql',
     /get_customer_service_at_risk_completion_v1 differs from the reviewed definition; regenerate this migration/,
     'at_risk_completion_guard_refusal_v1.post.sql'],
+  ['legacy_time_off_changed_after_review', 'attendance_legacy_time_off_revoke_client_v1', 'attendance_legacy_time_off_guard_refusal_v1.pre.sql',
+    '20261016140000_attendance_legacy_time_off_revoke_client_v1.sql',
+    /legacy time-off API public\.attendance_gm_time_off_queue_v1\(\) differs from the reviewed definition; regenerate this migration/,
+    'attendance_legacy_time_off_guard_refusal_v1.post.sql'],
+  ['legacy_time_off_grants_changed_after_review', 'attendance_legacy_time_off_revoke_client_v1', 'attendance_legacy_time_off_grant_refusal_v1.pre.sql',
+    '20261016140000_attendance_legacy_time_off_revoke_client_v1.sql',
+    /legacy time-off API public\.attendance_my_time_off_requests_v1\(\) has unreviewed grants \(PUBLIC,anon,authenticated,reporting,service_role\); regenerate this migration/,
+    'attendance_legacy_time_off_guard_refusal_v1.post.sql'],
 ];
 try {
   for (const [name, migrations, stagingPolicies = false, , vacuumTables = []] of suites) {
