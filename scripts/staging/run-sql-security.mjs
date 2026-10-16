@@ -45,6 +45,15 @@ const suites = [
   // Index plan suite: tables listed last are vacuumed (visibility map) before the test file, as in Production.
   ['sales_invoices_health_covering_index_v1', ['20261015150400_sales_invoices_health_classification_covering_index_v1.sql'],
     false, null, ['public.sales_invoices']],
+  // Applied twice: a re-run of the guarded migration must be a no-op.
+  ['staff_actor_session_identity_once_v1', [
+    '20261016090000_staff_actor_session_identity_once_per_call_v1.sql',
+    '20261016090000_staff_actor_session_identity_once_per_call_v1.sql',
+  ]],
+  ['attendance_v3_cutover_readiness_dependency_v1', [
+    '20261016090100_attendance_v3_cutover_readiness_dependency_v1.sql',
+    '20261016090100_attendance_v3_cutover_readiness_dependency_v1.sql',
+  ]],
 ];
 const guardRefusals = [
   ['hr_health_without_actor_check', 'session_internal_authorized_reads_v1', 'session_grant_guard_refusal_health_v1.pre.sql',
@@ -53,6 +62,14 @@ const guardRefusals = [
     '20261015140200_anon_session_internal_authorized_reads_v1.sql', /get_doctor_pillar_breakdown no longer authorizes through dawaa_staff_points_truth_v2; anon grant refused/],
   ['v4_actor_without_verified_session', 'session_internal_authorized_reads_v1', 'session_grant_guard_refusal_v4_actor_v1.pre.sql',
     '20261015140300_reconcile_staff_points_manager_summary_v4.sql', /get_staff_points_manager_summary_v4 no longer authorizes the verified session actor; anon grant refused/],
+  ['strict_identity_changed_after_review', 'staff_actor_session_identity_once_v1', 'staff_actor_session_identity_guard_refusal_v1.pre.sql',
+    '20261016090000_staff_actor_session_identity_once_per_call_v1.sql',
+    /dawaa_current_staff_account_id_strict\(\) differs from the reviewed definition; regenerate this migration/,
+    'staff_actor_session_identity_guard_refusal_v1.post.sql'],
+  ['cutover_readiness_exists_differently', 'attendance_v3_cutover_readiness_dependency_v1', 'attendance_v3_cutover_readiness_guard_refusal_v1.pre.sql',
+    '20261016090100_attendance_v3_cutover_readiness_dependency_v1.sql',
+    /attendance_policy_v3_cutover_readiness_v1 exists with a different definition; refusing to replace it/,
+    'attendance_v3_cutover_readiness_guard_refusal_v1.post.sql'],
 ];
 try {
   for (const [name, migrations, stagingPolicies = false, , vacuumTables = []] of suites) {
@@ -80,7 +97,8 @@ try {
   }
   // Grant-guard refusal cases: a migration whose anon grant depends on an internal authorization check must
   // fail (and grant nothing) when that check has been removed from the function it guards.
-  for (const [caseName, fixture, preMutation, migration, expectedError] of guardRefusals) {
+  for (const [caseName, fixture, preMutation, migration, expectedError,
+    postCheck = 'session_grant_guard_refusal_v1.post.sql'] of guardRefusals) {
     const db = `sql_security_guard_${caseName}`;
     await runtime.execute('postgres', `create database ${db};`);
     for (const file of [`supabase/tests/${fixture}.fixture.sql`, `supabase/tests/${preMutation}`]) {
@@ -90,7 +108,7 @@ try {
     const refused = await runtime.execute(db, readSql(`supabase/migrations/${migration}`));
     if (!refused.code) throw new Error(`${caseName}: ${migration} did not refuse the grant after its guarded check was removed`);
     if (!expectedError.test(refused.stderr)) throw new Error(`${caseName}: ${migration} failed for another reason: ${refused.stderr}`);
-    const post = await runtime.execute(db, readSql('supabase/tests/session_grant_guard_refusal_v1.post.sql'));
+    const post = await runtime.execute(db, readSql(`supabase/tests/${postCheck}`));
     if (post.code) throw new Error(`${caseName}: ${post.stderr}`);
     console.log(`PASS guard refusal ${caseName}: grant refused and nothing granted`);
     await runtime.execute('postgres', `drop database ${db};`);
