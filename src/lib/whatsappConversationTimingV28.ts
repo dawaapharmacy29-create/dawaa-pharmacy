@@ -2,6 +2,7 @@ import type { WhatsAppConversationSession, WhatsAppParsedMessage } from './whats
 import type { WhatsAppParticipantRoleModelV15 } from './whatsappParticipantRoleResolverV15';
 import type { UnifiedInvoiceVerification } from './whatsappUnifiedIntelligenceV4';
 import { buildWhatsAppResponseTurnsV18 } from './whatsappResponseTurnsV18';
+import { cairoDayOf } from '@/lib/time/cairoDateBoundary';
 
 export type TimingStageV28 =
   | 'opening'
@@ -129,7 +130,7 @@ function buildEpisodes(session: WhatsAppConversationSession): ConversationEpisod
     }
     const previous = current[current.length - 1];
     const gapMinutes = (row.timestamp.getTime() - previous.timestamp.getTime()) / 60000;
-    const dateChanged = row.timestamp.toDateString() !== previous.timestamp.toDateString();
+    const dateChanged = cairoDayOf(row.timestamp.toISOString()) !== cairoDayOf(previous.timestamp.toISOString());
     // 20 دقيقة هنا للعرض فقط، وليس لفصل التحليل. Case Context يظل موحدًا.
     if (dateChanged || gapMinutes >= 20) {
       groups.push(current);

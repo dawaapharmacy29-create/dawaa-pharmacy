@@ -40,7 +40,8 @@ export default function DoctorDetailedActivityCard({ staffId, doctorName }: { st
   const [stock, setStock] = useState<{ list_priority: StockItem[]; expiry_priority: StockItem[] } | null>(null);
   const [requests, setRequests] = useState<CustomerRequestRow[]>([]);
   const [followups, setFollowups] = useState<FollowupRow[]>([]);
-  const [pillars, setPillars] = useState<PillarRow[]>([]);
+  // null = the pillar read failed; it must not render as a valid zero.
+  const [pillars, setPillars] = useState<PillarRow[] | null>([]);
   const [tab, setTab] = useState<TabKey | null>(null);
 
   useEffect(() => {
@@ -72,12 +73,13 @@ export default function DoctorDetailedActivityCard({ staffId, doctorName }: { st
     }
     void supabase
       .rpc('get_doctor_pillar_breakdown', { p_staff_id: staffId })
-      .then(({ data }) => setPillars((data as PillarRow[]) || []));
+      .then(({ data, error }) => setPillars(error ? null : (data as PillarRow[]) || []));
   }, [staffId, doctorName]);
 
-  const pillarPoints = (key: string) => pillars.find((p) => p.pillar_key === key)?.points ?? 0;
+  const pillarPoints = (key: string): number | null =>
+    pillars === null ? null : pillars.find((p) => p.pillar_key === key)?.points ?? 0;
 
-  const tabs: Array<{ key: TabKey; icon: typeof MessageSquare; label: string; count: number; points: number }> = [
+  const tabs: Array<{ key: TabKey; icon: typeof MessageSquare; label: string; count: number; points: number | null }> = [
     { key: 'conversations', icon: MessageSquare, label: 'المحادثات', count: reviews.length, points: pillarPoints('محادثات') },
     { key: 'stock', icon: PackageSearch, label: 'اللستة والرواكد', count: (stock?.list_priority?.length || 0) + (stock?.expiry_priority?.length || 0), points: pillarPoints('الرواكد') },
     { key: 'requests', icon: UserRound, label: 'طلبات العملاء', count: requests.length, points: pillarPoints('طلبات العملاء') },
@@ -100,7 +102,7 @@ export default function DoctorDetailedActivityCard({ staffId, doctorName }: { st
             >
               <Icon size={16} className={active ? 'dawaa-heading' : 'dawaa-muted'} />
               <span className="dawaa-title text-xs">{t.label}</span>
-              <span className="dawaa-caption text-[11px] font-bold">{t.count} · {t.points} نقطة</span>
+              <span className="dawaa-caption text-[11px] font-bold">{t.count} · {t.points === null ? 'النقاط غير متاحة' : `${t.points} نقطة`}</span>
             </button>
           );
         })}

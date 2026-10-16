@@ -66,12 +66,6 @@ export async function getAttendanceReviewTriage(start: string, end: string, bran
   return (data || {}) as Record<string, unknown>;
 }
 
-export async function listPendingAttendanceDeductions() {
-  const { data, error } = await supabase.rpc('attendance_deduction_pending_review_v2');
-  if (error) throw new Error(error.message);
-  return (data || []) as Array<Record<string, unknown>>;
-}
-
 export async function searchBiometricMappingCandidates(search: string, limit = 30) {
   const { data, error } = await supabase.rpc('list_biometric_mapping_staff_candidates_v1', {
     p_search: search,

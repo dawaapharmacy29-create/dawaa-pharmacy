@@ -10,6 +10,7 @@ import {
 export default function StaffAssignmentApprovalPanelV2({ enabled }: { enabled: boolean }) {
   const [rows, setRows] = useState<PendingStaffAssignmentV2[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [note, setNote] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
@@ -17,8 +18,10 @@ export default function StaffAssignmentApprovalPanelV2({ enabled }: { enabled: b
     setLoading(true);
     try {
       setRows(await listPendingStaffAssignmentsV2());
+      setLoadError(null);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'تعذر تحميل تغييرات الفرع والدور المعلقة');
+      // A failed read is not "no pending changes": keep the empty state hidden and show the failure.
+      setLoadError(error instanceof Error ? error.message : 'تعذر تحميل تغييرات الفرع والدور المعلقة');
     } finally {
       setLoading(false);
     }
@@ -95,7 +98,8 @@ export default function StaffAssignmentApprovalPanelV2({ enabled }: { enabled: b
             </div>
           </div>
         ))}
-        {!loading && rows.length === 0 && <div className="rounded-xl border border-[var(--dawaa-theme-border)] p-4 text-sm font-bold text-[var(--dawaa-theme-muted)]">لا توجد تغييرات فرع/دور معلقة حاليًا.</div>}
+        {loadError && <div role="alert" className="rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-4 text-sm font-bold text-[var(--dawaa-status-danger-text)]">تعذر تحميل تغييرات الفرع/الدور المعلقة: {loadError}</div>}
+        {!loading && !loadError && rows.length === 0 && <div className="rounded-xl border border-[var(--dawaa-theme-border)] p-4 text-sm font-bold text-[var(--dawaa-theme-muted)]">لا توجد تغييرات فرع/دور معلقة حاليًا.</div>}
       </div>
     </section>
   );

@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { logSupabaseError } from '@/lib/supabaseError';
+import { pointRecordStatus, type PointLedgerRecord } from '@/lib/pointsLedger';
 import { createStaffNotification } from '@/lib/staffNotificationService';
 
 export type EmployeeTransactionType = 'penalty' | 'reward';
@@ -127,6 +128,17 @@ export async function transitionEmployeeTransaction(
     logSupabaseError('transition employee transaction', result.error);
   }
   return result;
+}
+
+/**
+ * Pending points/penalty decisions in a cycle: the same source and status rule as the penalty/incentive page
+ * (get_employee_transactions_for_cycle_v1 + pointRecordStatus). Throws on a failed read; callers show it as
+ * unavailable, never as 0.
+ */
+export async function countPendingEmployeeTransactionsForCycle(startDate: string, endDate: string): Promise<number> {
+  const { data, error } = await supabase.rpc('get_employee_transactions_for_cycle_v1', { p_start: startDate, p_end: endDate });
+  if (error) throw new Error(error.message);
+  return ((data || []) as PointLedgerRecord[]).filter((row) => row && pointRecordStatus(row) === 'pending').length;
 }
 
 export async function fetchEmployeeTransactionsForStaff(staffId: string) {

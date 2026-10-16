@@ -91,6 +91,8 @@ function formatDate(value?: string | null) { if (!value) return '—'; const dat
 function greeting() { const hour = new Date().getHours(); return hour < 12 ? 'صباح الخير' : hour < 18 ? 'نهارك سعيد' : 'مساء الخير'; }
 function branchTargetFallback(sales: number) { return Math.max(sales * 1.25, 1); }
 async function safeRows(query: PromiseLike<{ data: unknown[] | null; error: { message?: string } | null }>) { try { const result = await query; return result.error ? [] : (result.data || []) as Row[]; } catch { return []; } }
+// Personal sections read with strictRows: a failed read marks the section as failed instead of rendering "none".
+async function strictRows(query: PromiseLike<{ data: unknown[] | null; error: { message?: string } | null }>) { const result = await query; if (result.error) throw new Error(result.error.message || 'read failed'); return (result.data || []) as Row[]; }
 
 // ألوان الهوية الفعلية للتطبيق (navy/teal من tailwind.config) بدل درجات الرمادي العامة.
 const surface = { background: 'var(--dawaa-theme-surface)', borderColor: 'var(--dawaa-theme-border)' };
@@ -148,6 +150,10 @@ function StatChip({
       {hint ? <div className="mt-1 text-[11px]" style={mutedText}>{hint}</div> : null}
     </div>
   );
+}
+
+function PartError({ label, onRetry }: { label: string; onRetry: () => void }) {
+  return <div role="alert" className="rounded-2xl border border-red-400/25 bg-red-500/10 p-4 text-sm text-red-100">تعذر تحميل {label}. <button type="button" className="font-black underline" onClick={onRetry}>إعادة المحاولة</button></div>;
 }
 
 function Empty({ children }: { children: string }) {
@@ -351,15 +357,16 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
 
   const loadReviews = useCallback(async () => {
     setPart('reviews', 'loading');
+    try {
     const queries: Promise<Row[]>[] = [];
     if (staffId) {
-      queries.push(safeRows(supabase.from('conversation_sales_reviews').select('*').eq('staff_id', staffId).eq('is_current', true).order('created_at', { ascending: false }).limit(100)));
-      queries.push(safeRows(supabase.from('conversation_sales_reviews').select('*').eq('doctor_id', staffId).is('staff_id', null).eq('is_current', true).order('created_at', { ascending: false }).limit(100)));
+      queries.push(strictRows(supabase.from('conversation_sales_reviews').select('*').eq('staff_id', staffId).eq('is_current', true).order('created_at', { ascending: false }).limit(100)));
+      queries.push(strictRows(supabase.from('conversation_sales_reviews').select('*').eq('doctor_id', staffId).is('staff_id', null).eq('is_current', true).order('created_at', { ascending: false }).limit(100)));
     }
     // بعض التقييمات (خصوصًا القديمة) اتسجلت بالاسم بس من غير staff_id/doctor_id،
     // فمينفعش نعتمد على المطابقة بالـ ID لوحدها — لازم fallback بالاسم زي الرواكد واللستة.
     if (doctorName) {
-      queries.push(safeRows(supabase.from('conversation_sales_reviews').select('*').eq('doctor_name', doctorName).is('staff_id', null).is('doctor_id', null).eq('is_current', true).order('created_at', { ascending: false }).limit(100)));
+      queries.push(strictRows(supabase.from('conversation_sales_reviews').select('*').eq('doctor_name', doctorName).is('staff_id', null).is('doctor_id', null).eq('is_current', true).order('created_at', { ascending: false }).limit(100)));
     }
     const rows = (await Promise.all(queries)).flat();
     const mine = staffId
@@ -378,6 +385,9 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
       repeatCount: number(row.repeat_count), repeatedErrorType: text(row.repeated_error_type),
     })));
     setPart('reviews', 'success');
+    } catch {
+      setPart('reviews', 'error');
+    }
   }, [staffId, doctorName]);
 
   const loadNotifications = useCallback(async () => {
@@ -388,9 +398,10 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
 
   const loadAssignments = useCallback(async () => {
     setPart('requirements', 'loading');
+    try {
     // ملاحظة: جدول staff_assignments مش موجود. المصدر الحقيقي المتاح دلوقتي هو stagnant_medicines
     // (الأدوية الراكدة المسندة لدكتور مسؤول)، ومربوط غالبًا بالاسم مش بمعرف staff_id.
-    const rows = await safeRows(supabase.from('stagnant_medicines').select('*').order('nearest_expiry_date', { ascending: true }).limit(200));
+    const rows = await strictRows(supabase.from('stagnant_medicines').select('*').order('nearest_expiry_date', { ascending: true }).limit(200));
     const mine = rows.filter((row) => {
       const idMatch = [row.responsible_doctor_id, row.doctor_id].map(text).some((value) => value && (value === staffId));
       const nameMatch = [row.responsible_doctor_name, row.responsible_doctor].map(normalizeName).some((value) => value && value === normalizeName(doctorName));
@@ -399,7 +410,7 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
     setAssignments(mine);
 
     // نفس فكرة الرواكد، بس لـ"اللستة" (incentive_medicines) — كانت مش ظاهرة للدكتور خالص قبل كده.
-    const listRows = await safeRows(supabase.from('incentive_medicines').select('*').eq('active', true).order('expiry_date', { ascending: true }).limit(200));
+    const listRows = await strictRows(supabase.from('incentive_medicines').select('*').eq('active', true).order('expiry_date', { ascending: true }).limit(200));
     const myList = listRows.filter((row) => {
       const idMatch = text(row.doctor_id) === staffId;
       const nameMatch = normalizeName(text(row.responsible_doctor)) === normalizeName(doctorName);
@@ -407,14 +418,18 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
     });
     setIncentiveAssignments(myList);
     setPart('requirements', 'success');
+    } catch {
+      setPart('requirements', 'error');
+    }
   }, [staffId, doctorName]);
 
   const loadPayroll = useCallback(async () => {
     setPart('payroll', 'loading');
+    try {
     // الكشف الرسمي المعتمد (رواتب أساسية + خصومات إدارية) لسه من staff_payroll_summary،
     // ده مصدر منفصل عن نظام النقاط ومربوط باعتماد يدوي من فريق الرواتب.
     const statements = username
-      ? await safeRows(
+      ? await strictRows(
           supabase
             .from('staff_payroll_summary')
             .select('*')
@@ -446,6 +461,8 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
             .eq('staff_id', staffId)
             .maybeSingle(),
         ]);
+        // A failed ledger/profile read must not become a live incentive built from zero points.
+        if (txResult.error || profileResult.error) throw new Error((txResult.error || profileResult.error)?.message);
         const rows = txResult.data || [];
         const rewardPoints = rows.filter((r) => Number(r.points_delta) > 0).reduce((s, r) => s + Number(r.points_delta), 0);
         const deductionPoints = rows.filter((r) => Number(r.points_delta) < 0).reduce((s, r) => s + Math.abs(Number(r.points_delta)), 0);
@@ -478,16 +495,23 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
       }
     }
     setPart('payroll', 'success');
+    } catch {
+      setPart('payroll', 'error');
+    }
   }, [username, staffId]);
 
   const loadOffers = useCallback(async () => {
     setPart('offers', 'loading');
+    try {
     const now = new Date().toISOString();
     const [offerRows, storyRows] = await Promise.all([
-      safeRows(supabase.from('offers').select('*').or(`end_date.is.null,end_date.gte.${now}`).order('created_at', { ascending: false }).limit(50)),
-      safeRows(supabase.from('whatsapp_stories').select('*').order('story_date', { ascending: false }).order('created_at', { ascending: false }).limit(50)),
+      strictRows(supabase.from('offers').select('*').or(`end_date.is.null,end_date.gte.${now}`).order('created_at', { ascending: false }).limit(50)),
+      strictRows(supabase.from('whatsapp_stories').select('*').order('story_date', { ascending: false }).order('created_at', { ascending: false }).limit(50)),
     ]);
     setOffers(offerRows); setStories(storyRows); setPart('offers', 'success');
+    } catch {
+      setPart('offers', 'error');
+    }
   }, []);
 
   const loadDoctorTrend = useCallback(async () => {
@@ -526,7 +550,17 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
     }
   }, [branch, cycle.end, cycle.start, doctorName]);
 
-  const loadActivity = useCallback(async () => { setPart('activity', 'loading'); setEvents((await getEmployeeEvents(staffId, 200)) as EmployeeEvent[]); setPart('activity', 'success'); }, [staffId]);
+  const loadActivity = useCallback(async () => {
+    setPart('activity', 'loading');
+    try {
+      setEvents((await getEmployeeEvents(staffId, 200)) as EmployeeEvent[]);
+      setPart('activity', 'success');
+    } catch (activityError) {
+      // A failed read must surface as an error, not a spinner that never ends or an empty log.
+      console.warn('[doctor-dashboard] activity load failed', activityError);
+      setPart('activity', 'error');
+    }
+  }, [staffId]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { void loadBranchTarget(); }, [loadBranchTarget]);
@@ -809,6 +843,7 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
                 </article>
               );
             })}
+            {personalState.requirements === 'error' ? <PartError label="الأصناف المسندة لك" onRetry={() => void loadAssignments()} /> : null}
             {personalState.requirements === 'success' && !assignments.length ? <Empty>لا يوجد أصناف راكدة مسندة لك حاليًا.</Empty> : null}
           </div>
 
@@ -981,6 +1016,7 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
                 </article>
               );
             })}
+            {personalState.reviews === 'error' ? <PartError label="تقييمات المحادثات" onRetry={() => void loadReviews()} /> : null}
             {personalState.reviews === 'success' && !reviews.length ? <Empty>لا توجد تقييمات مرتبطة بحسابك حتى الآن.</Empty> : null}
           </div>
         </section>
@@ -1048,6 +1084,7 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
               );
             })}
             {personalState.activity === 'success' && !events.length ? <Empty>لا توجد أحداث شخصية مسجلة بعد.</Empty> : null}
+            {personalState.activity === 'error' ? <div className="rounded-2xl border border-red-400/25 bg-red-500/10 p-4 text-sm text-red-100">تعذر تحميل سجل النشاط. <button type="button" className="font-black underline" onClick={() => void loadActivity()}>إعادة المحاولة</button></div> : null}
           </div>
         </section>
       ) : null}
@@ -1192,6 +1229,7 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
                   {text(row.status)==='paid' && staffId && <button className="btn-secondary mt-3" onClick={() => void buildPaidStatementPdf(staffId,text(row.payroll_month).slice(0,7)).then(({pdf,fileName})=>pdf.save(fileName)).catch((error)=>window.alert(error instanceof Error?error.message:'تعذر تنزيل الكشف'))}>تنزيل كشف PDF المدفوع</button>}
                 </article>
               ))}
+              {personalState.payroll === 'error' ? <PartError label="كشوف الراتب والحافز" onRetry={() => void loadPayroll()} /> : null}
               {personalState.payroll === 'success' && !payrollRows.length ? <Empty>لسه مفيش كشف شهري معتمد لحسابك — هيظهر هنا أول ما يتم اعتماد دورة راتب فعلية.</Empty> : null}
             </div>
           </div>
@@ -1210,6 +1248,7 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
                   <div className="mt-3 text-xs" style={mutedText}>حتى {text(item.end_date || 'إشعار آخر')}</div>
                 </article>
               ))}
+              {personalState.offers === 'error' ? <PartError label="العروض والاستوريز" onRetry={() => void loadOffers()} /> : null}
               {personalState.offers === 'success' && !offers.length ? <Empty>لا توجد عروض نشطة حاليًا.</Empty> : null}
             </div>
           </div>

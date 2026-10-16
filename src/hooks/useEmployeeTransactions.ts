@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getCurrentCycle } from '@/lib/pharmacy-cycle';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
@@ -22,6 +22,8 @@ function normalizeLimit(limit?: number) {
 
 export function useEmployeeTransactions<T>(options: EmployeeTransactionQueryOptions = {}) {
   const queryClient = useQueryClient();
+  // A unique topic per subscriber: two screens on the same cycle must not displace each other.
+  const channelInstanceId = useRef(Math.random().toString(36).slice(2, 10));
   const cycle = useMemo(() => getCurrentCycle(), []);
   const startDate = options.startDate || isoDate(cycle.start);
   const endDate = options.endDate || isoDate(cycle.end);
@@ -49,7 +51,7 @@ export function useEmployeeTransactions<T>(options: EmployeeTransactionQueryOpti
   useEffect(() => {
     if (!isSupabaseConfigured || !realtimeEnabled) return;
     const channel = supabase
-      .channel(`employee-transactions:${startDate}:${endDate}`)
+      .channel(`employee-transactions:${startDate}:${endDate}:${channelInstanceId.current}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: TABLES.employeeTransactions },

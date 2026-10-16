@@ -8,6 +8,7 @@ import {
   type FollowupSaleCandidate,
   type FollowupSaleVerification,
 } from '@/lib/whatsappFollowupSalesVerification';
+import LegacySurfaceNotice from '@/components/system/LegacySurfaceNotice';
 
 type FollowupRow = {
   id: string;
@@ -56,23 +57,14 @@ function normalizeSearch(value: unknown) {
   return String(value ?? '').trim().toLocaleLowerCase('ar-EG');
 }
 
-function isMissingRpc(error: { code?: string | null; message?: string | null } | null) {
-  if (!error) return false;
-  return error.code === 'PGRST202' || /function.+not found|could not find the function/i.test(error.message || '');
+// v2 is committed (20260917070000_whatsapp_followup_permissions_v2.sql) and live; a failure must
+// surface instead of silently retrying the pre-permission v1 functions.
+function listFollowups(status: string, signalType: string) {
+  return supabase.rpc('whatsapp_auto_followup_list_v2', { p_status: status || null, p_signal_type: signalType || null });
 }
 
-async function listFollowups(status: string, signalType: string) {
-  const params = { p_status: status || null, p_signal_type: signalType || null };
-  const v2 = await supabase.rpc('whatsapp_auto_followup_list_v2', params);
-  if (!v2.error || !isMissingRpc(v2.error)) return v2;
-  return supabase.rpc('whatsapp_auto_followup_list_v1', params);
-}
-
-async function updateFollowupRpc(id: string, status: string, notes: string | null, assignedTo: string | null) {
-  const params = { p_id: id, p_status: status, p_notes: notes, p_assigned_to: assignedTo };
-  const v2 = await supabase.rpc('whatsapp_auto_followup_update_status_v2', params);
-  if (!v2.error || !isMissingRpc(v2.error)) return v2;
-  return supabase.rpc('whatsapp_auto_followup_update_status_v1', params);
+function updateFollowupRpc(id: string, status: string, notes: string | null, assignedTo: string | null) {
+  return supabase.rpc('whatsapp_auto_followup_update_status_v2', { p_id: id, p_status: status, p_notes: notes, p_assigned_to: assignedTo });
 }
 
 function formatMoney(value: number | null | undefined) {
@@ -226,13 +218,7 @@ export default function WhatsAppAutoFollowupRequests() {
         p_confidence: candidate.confidence,
         p_notes: draft?.notes.trim() || null,
       });
-      if (error) {
-        if (isMissingRpc(error)) {
-          toast.error('مسار حفظ دليل البيع موجود في التطوير لكنه لم يُطبّق على قاعدة البيانات بعد');
-          return;
-        }
-        throw error;
-      }
+      if (error) throw error;
       toast.success('تم اعتماد البيع وربطه بالفاتورة وحفظ دليل المطابقة');
       await load();
     } catch (error) {
@@ -277,6 +263,7 @@ export default function WhatsAppAutoFollowupRequests() {
 
   return (
     <div className="dawaa-text space-y-4 p-4" dir="rtl">
+      <LegacySurfaceNotice />
       <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
         <h1 className="text-xl font-black text-[var(--dawaa-theme-heading)]">طلبات المتابعة الآلية من محادثات الواتساب</h1>
         <p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-muted)]">طابور تشغيلي للحالات التي التقطها التحليل تلقائيًا. البيع لا يُعتمد آليًا: لازم توجد فاتورة قوية المطابقة ثم يعتمدها المراجع بشريًا.</p>

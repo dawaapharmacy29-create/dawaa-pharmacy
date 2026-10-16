@@ -191,10 +191,29 @@ export type PolicyRolloutAssignment = {
   created_at: string;
 };
 
-export async function getAttendancePolicyRollout(): Promise<PolicyRolloutAssignment[]> {
-  const { data, error } = await supabase.rpc('list_attendance_policy_rollout_v1');
-  if (error) throw new Error(error.message);
-  return Array.isArray(data) ? data as PolicyRolloutAssignment[] : [];
+// HRSettings and its AttendancePolicyGovernance panel both load the rollout on mount. Concurrent loads share
+// one in-flight request; nothing is cached after it settles, and every policy/rollout write invalidates it so a
+// read issued after a write never joins an older request.
+let rolloutInFlight: Promise<PolicyRolloutAssignment[]> | null = null;
+
+function invalidateAttendancePolicyRollout() {
+  rolloutInFlight = null;
+}
+
+export function getAttendancePolicyRollout(): Promise<PolicyRolloutAssignment[]> {
+  if (rolloutInFlight) return rolloutInFlight;
+  const request = (async () => {
+    const { data, error } = await supabase.rpc('list_attendance_policy_rollout_v1');
+    if (error) throw new Error(error.message);
+    return Array.isArray(data) ? data as PolicyRolloutAssignment[] : [];
+  })();
+  rolloutInFlight = request;
+  void request
+    .finally(() => {
+      if (rolloutInFlight === request) rolloutInFlight = null;
+    })
+    .catch(() => undefined);
+  return request;
 }
 
 
@@ -255,6 +274,7 @@ export async function createAttendancePolicyVersion(args: {
     p_rounding_minutes: args.roundingMinutes ?? null,
     p_note: args.note || null,
   });
+  invalidateAttendancePolicyRollout();
   if (error) throw new Error(error.message);
   return (data || {}) as Record<string, unknown>;
 }
@@ -275,6 +295,7 @@ export async function assignAttendancePolicy(args: {
     p_effective_to: args.effectiveTo || null,
     p_note: args.note || null,
   });
+  invalidateAttendancePolicyRollout();
   if (error) throw new Error(error.message);
   return (data || {}) as Record<string, unknown>;
 }
@@ -295,6 +316,7 @@ export async function setAttendancePolicyRollout(args: {
     p_effective_to: args.effectiveTo || null,
     p_note: args.note || null,
   });
+  invalidateAttendancePolicyRollout();
   if (error) throw new Error(error.message);
   return (data || {}) as Record<string, unknown>;
 }

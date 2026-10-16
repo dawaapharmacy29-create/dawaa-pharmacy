@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { AlertTriangle, CheckCircle2, History, LockKeyhole, RefreshCw, Save, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -17,6 +18,9 @@ import {
   type PayrollStagedSnapshot,
 } from '@/lib/hr/workforceService';
 import { finalizePayrollSnapshotV2, listPayrollFinalizedSnapshotsV2, type PayrollFinalizedSnapshotV2 } from '@/lib/hr/payrollContractService';
+import { listStaleOvertimeApprovals } from '@/lib/attendance/attendanceBreakdownService';
+
+const OVERTIME_REVIEW_ROUTE = '/attendance-report?tab=overtime';
 
 export default function PayrollAttendanceSafetyGate({ staffId, monthCycle }: { staffId: string; monthCycle: string }) {
   const [gate, setGate] = useState<PayrollFinalizationGate | null>(null);
@@ -29,10 +33,24 @@ export default function PayrollAttendanceSafetyGate({ staffId, monthCycle }: { s
   const [compareResult, setCompareResult] = useState<{ snapshotId: string; unchanged: boolean } | null>(null);
   const [finalized, setFinalized] = useState<PayrollFinalizedSnapshotV2[]>([]);
   const [loading, setLoading] = useState(false);
+  // Approved overtime that no longer matches attendance truth: finalization is refused server-side; show it here first.
+  const [staleOvertime, setStaleOvertime] = useState<{ count: number; missingAmount: number } | null>(null);
+  const [staleOvertimeError, setStaleOvertimeError] = useState<string | null>(null);
+  const overtimeBlocked = staleOvertimeError !== null || (staleOvertime?.count ?? 0) > 0;
 
   const load = useCallback(async () => {
     if (!staffId || !monthCycle) return;
     setLoading(true);
+    listStaleOvertimeApprovals({ monthCycle })
+      .then((rows) => {
+        const own = rows.filter((row) => row.staff_id === staffId);
+        setStaleOvertime({ count: own.length, missingAmount: own.filter((row) => row.amount_missing).length });
+        setStaleOvertimeError(null);
+      })
+      .catch((error: unknown) => {
+        setStaleOvertime(null);
+        setStaleOvertimeError(error instanceof Error ? error.message : 'تعذر التحقق من الأوفر تايم المعتمد');
+      });
     try {
       const [gateResult, snapshotResult, stagedResult, auditResult, finalizedResult] = await Promise.all([
         getPayrollFinalizationGate(staffId, monthCycle),
@@ -131,6 +149,10 @@ export default function PayrollAttendanceSafetyGate({ staffId, monthCycle }: { s
       toast.warning('يجب أن تكون آخر مراجعة للـSnapshot معتمدة قبل القفل النهائي.');
       return;
     }
+    if (overtimeBlocked) {
+      toast.warning('يوجد أوفر تايم معتمد يحتاج قرار المدير قبل القفل النهائي.');
+      return;
+    }
     if (!window.confirm('سيتم قفل Snapshot هذه كنسخة نهائية للدورة. العملية لا تعني الدفع، لكنها تمنع استبدال النسخة النهائية بصمت. هل تريد المتابعة؟')) return;
     setLoading(true);
     try {
@@ -158,18 +180,20 @@ export default function PayrollAttendanceSafetyGate({ staffId, monthCycle }: { s
     );
   }
 
+  const ready = gate.ready && !overtimeBlocked;
+
   return (
-    <section className={`rounded-2xl border p-4 ${gate.ready
+    <section className={`rounded-2xl border p-4 ${ready
       ? 'border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)]'
       : 'border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)]'}`}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]">
-            {gate.ready ? <CheckCircle2 size={18} /> : <ShieldCheck size={18} />}
+            {ready ? <CheckCircle2 size={18} /> : <ShieldCheck size={18} />}
             بوابة الإقفال المالي للمرتب
           </div>
           <p className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">
-            {gate.ready
+            {ready
               ? 'Attendance Truth وPolicy V3 والأوفر تايم والـdrift سليمة لهذه الدورة، ويمكن الانتقال لخطوة الاعتماد المالي.'
               : 'الإقفال المالي محجوب حتى يتم إغلاق موانع Attendance Truth وPolicy Engine والأوفر تايم أدناه.'}
           </p>
@@ -186,6 +210,23 @@ export default function PayrollAttendanceSafetyGate({ staffId, monthCycle }: { s
               {item.hours != null && <div className="mt-1 text-[var(--dawaa-theme-muted)]">الساعات: {Number(item.hours).toFixed(2)}</div>}
             </div>
           ))}
+        </div>
+      )}
+
+      {overtimeBlocked && (
+        <div role="alert" className="mt-3 rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-theme-surface)] p-3 text-xs font-bold">
+          <div className="flex items-center gap-2 text-[var(--dawaa-status-danger-text)]">
+            <AlertTriangle size={14} />
+            {staleOvertimeError
+              ? `تعذر التحقق من الأوفر تايم المعتمد؛ الإقفال متوقف حتى يتم التحقق: ${staleOvertimeError}`
+              : 'أوفر تايم معتمد لا يطابق Attendance Truth الحالية — يحتاج قرار المدير قبل الإقفال'}
+          </div>
+          {staleOvertime && (
+            <div className="mt-1 text-[var(--dawaa-theme-muted)]">
+              الحالات: {staleOvertime.count.toLocaleString('ar-EG')} · بدون قيمة محفوظة: {staleOvertime.missingAmount.toLocaleString('ar-EG')}
+            </div>
+          )}
+          <Link to={OVERTIME_REVIEW_ROUTE} className="mt-2 inline-block font-black text-[var(--dawaa-theme-primary-strong)] underline">فتح مراجعة الأوفر تايم</Link>
         </div>
       )}
 
@@ -267,7 +308,7 @@ export default function PayrollAttendanceSafetyGate({ staffId, monthCycle }: { s
                     </button>
                     <button
                       onClick={() => void reviewSnapshot(row.id, 'approved')}
-                      disabled={loading || !row.finalization_ready}
+                      disabled={loading || !row.finalization_ready || overtimeBlocked}
                       className="btn-secondary !px-2 !py-1"
                     >
                       اعتماد المراجعة
@@ -281,7 +322,7 @@ export default function PayrollAttendanceSafetyGate({ staffId, monthCycle }: { s
                     </button>
                     <button
                       onClick={() => void finalizeSnapshot(row.id)}
-                      disabled={loading || !!finalized.length || reviewsBySnapshot[row.id]?.[0]?.decision !== 'approved'}
+                      disabled={loading || overtimeBlocked || !!finalized.length || reviewsBySnapshot[row.id]?.[0]?.decision !== 'approved'}
                       className="btn-secondary !px-2 !py-1"
                     >
                       <LockKeyhole size={12} /> قفل نهائي

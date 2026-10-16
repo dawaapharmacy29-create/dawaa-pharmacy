@@ -20,6 +20,7 @@ import {
   type LegacyAliasKind,
   type StableOperationIdentity,
 } from './whatsappFollowupIdentity';
+import { cairoWallClockParts, cairoWallClockToDate } from '@/lib/time/cairoDateBoundary';
 
 export type WhatsAppPrimaryIntent =
   | 'customer_request'
@@ -1249,9 +1250,11 @@ export async function enrichWhatsAppOperationalProductsV6(
 
 function dueIso(days: number | null) {
   if (days == null) return null;
-  const date = new Date();
-  date.setDate(date.getDate() + days);
-  return date.toISOString();
+  // N Cairo calendar days from now at the same Cairo wall-clock time.
+  const now = new Date();
+  const wall = cairoWallClockParts(now);
+  const due = cairoWallClockToDate(wall.year, wall.month, wall.day + days, wall.hour, wall.minute, wall.second) as Date;
+  return new Date(due.getTime() + now.getMilliseconds()).toISOString();
 }
 
 export async function syncWhatsAppOperationalActionsV6(model: WhatsAppOperationalIntelligenceV6, context: WhatsAppOperationalContext) {

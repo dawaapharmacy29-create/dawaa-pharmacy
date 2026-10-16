@@ -26,6 +26,7 @@ type Row = Record<string, unknown>;
 
 const WAREHOUSE_BRANCH = 'المخزن';
 const ALL_BRANCHES = 'كل الفروع';
+const REVIEW_READ_LIMIT = 3000;
 
 function text(row: Row, keys: string[], fallback = '') {
   for (const key of keys) {
@@ -88,7 +89,16 @@ export default function WhatsappAnalytics() {
     error,
   } = useSupabaseQuery<Row>({
     table: 'conversation_sales_reviews',
-    limit: 3000,
+    // Bounded on the server by the selected period and current (non-superseded) reviews, like
+    // every other review reader; the page used to read a fixed 3000 rows and filter dates in the
+    // browser, which silently truncates the period once the table grows past the limit.
+    filters: [
+      { column: 'is_current', operator: 'eq', value: true },
+      { column: 'review_date', operator: 'gte', value: startDate },
+      { column: 'review_date', operator: 'lte', value: endDate },
+    ],
+    orderBy: { column: 'review_date', ascending: false },
+    limit: REVIEW_READ_LIMIT,
     realtimeEnabled: true,
   });
   const { data: invoices, loading: invoicesLoading, error: invoicesError } = useSalesInvoiceTruth<Row>({
@@ -224,7 +234,11 @@ export default function WhatsappAnalytics() {
   const loadFailed = Boolean(error);
   const stillLoading = loading;
   const hasData = filtered.length > 0;
+  const reviewsTruncated = (reviews || []).length >= REVIEW_READ_LIMIT;
   const enrichmentWarnings = [
+    reviewsTruncated
+      ? `الفترة المختارة تحتوي أكثر من ${REVIEW_READ_LIMIT} تقييم؛ ضيّق الفترة لعرض كل التقييمات`
+      : null,
     invoicesError ? 'تعذر تحميل المبيعات المرتبطة مؤقتًا' : null,
     txError ? 'تعذر تحميل أثر النقاط مؤقتًا' : null,
   ].filter(Boolean) as string[];

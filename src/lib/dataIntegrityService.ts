@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { readInvoiceDataHealth } from '@/lib/readModels/invoiceDataHealthReadModel';
+import { findStaffDuplicates } from '@/lib/staffDuplicateAudit';
 
 export type DataHealthIssue = {
   type:
@@ -24,6 +25,8 @@ export type DataHealthReport = {
   recordsWithoutStaffId: number;
   classificationIssues: number;
   issues: DataHealthIssue[];
+  // Checks whose source could not be read: shown as unavailable, never as "no issue".
+  unavailableChecks: Array<{ type: DataHealthIssue['type']; description: string; error: string }>;
   lastChecked: string;
 };
 
@@ -31,6 +34,8 @@ const DIAGNOSTIC_SAMPLE_LIMIT = 100;
 
 export async function checkDataHealth(): Promise<DataHealthReport> {
   const issues: DataHealthIssue[] = [];
+  const unavailableChecks: DataHealthReport['unavailableChecks'] = [];
+  const errorText = (error: unknown) => String((error as { message?: string })?.message || error);
 
   // Invoice integrity checks live behind a dedicated transactional read boundary.
   // Counts are exact while affectedIds are intentionally bounded diagnostic samples.
@@ -56,20 +61,22 @@ export async function checkDataHealth(): Promise<DataHealthReport> {
     });
   }
 
-  // Check duplicate staff
-  const { data: staffWithDuplicates, error: staffError } = await supabase
-    .from('staff')
-    .select('id, name, duplicate_count')
-    .gt('duplicate_count', 1);
-
-  if (!staffError && staffWithDuplicates) {
-    issues.push({
-      type: 'duplicate_staff',
-      severity: 'low',
-      count: staffWithDuplicates.length,
-      description: 'دكاترة مكررين في النظام',
-      affectedIds: staffWithDuplicates.map((s: any) => s.id),
-    });
+  // Duplicate staff: the same canonical grouping as the staff duplicate audit page
+  // (the staff table has no per-row duplicate counter).
+  try {
+    const duplicateGroups = await findStaffDuplicates();
+    const duplicateStaffIds = duplicateGroups.flatMap((group) => group.staff.map((staff) => staff.staff_id));
+    if (duplicateStaffIds.length > 0) {
+      issues.push({
+        type: 'duplicate_staff',
+        severity: 'low',
+        count: duplicateStaffIds.length,
+        description: 'دكاترة مكررين في النظام',
+        affectedIds: duplicateStaffIds,
+      });
+    }
+  } catch (error) {
+    unavailableChecks.push({ type: 'duplicate_staff', description: 'دكاترة مكررين في النظام', error: errorText(error) });
   }
 
   // Historical stagnant/list cash rewards must never be counted as monthly performance points.
@@ -83,7 +90,9 @@ export async function checkDataHealth(): Promise<DataHealthReport> {
     )
     .limit(DIAGNOSTIC_SAMPLE_LIMIT);
 
-  if (!cashAsPoints.error && Number(cashAsPoints.count || 0) > 0) {
+  if (cashAsPoints.error) {
+    unavailableChecks.push({ type: 'cash_as_points', description: 'مكافآت مالية محتملة مسجلة كنقاط بدلاً من جنيه', error: errorText(cashAsPoints.error) });
+  } else if (Number(cashAsPoints.count || 0) > 0) {
     issues.push({
       type: 'cash_as_points',
       severity: 'high',
@@ -101,7 +110,9 @@ export async function checkDataHealth(): Promise<DataHealthReport> {
     .is('employee_id', null)
     .limit(DIAGNOSTIC_SAMPLE_LIMIT);
 
-  if (!noStaffId.error && Number(noStaffId.count || 0) > 0) {
+  if (noStaffId.error) {
+    unavailableChecks.push({ type: 'no_staff_id', description: 'سجلات نقاط بدون staff_id', error: errorText(noStaffId.error) });
+  } else if (Number(noStaffId.count || 0) > 0) {
     issues.push({
       type: 'no_staff_id',
       severity: 'critical',
@@ -130,6 +141,7 @@ export async function checkDataHealth(): Promise<DataHealthReport> {
     recordsWithoutStaffId: issues.find((i) => i.type === 'no_staff_id')?.count || 0,
     classificationIssues: issues.find((i) => i.type === 'classification_issue')?.count || 0,
     issues,
+    unavailableChecks,
     lastChecked: new Date().toISOString(),
   };
 }

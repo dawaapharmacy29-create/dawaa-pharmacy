@@ -409,20 +409,49 @@ async function fetchInvoiceCandidates(supabaseClient, query) {
 
 // src/lib/time/cairoDateBoundary.ts
 var CAIRO_TZ = "Africa/Cairo";
-var cairoClockFormat = new Intl.DateTimeFormat("en-US", { timeZone: CAIRO_TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
-function offsetMs(date) {
-  const p = cairoClockFormat.formatToParts(date);
-  const v = Object.fromEntries(p.map((x) => [x.type, x.value]));
-  return Date.UTC(+v.year, +v.month - 1, +v.day, +v.hour, +v.minute, +v.second) - Math.floor(date.getTime() / 1e3) * 1e3;
+var cairoPartsFormat = new Intl.DateTimeFormat("en-US", {
+  timeZone: CAIRO_TZ,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23"
+});
+function cairoOffsetAt(instantMs) {
+  const parts = Object.fromEntries(
+    cairoPartsFormat.formatToParts(new Date(instantMs)).map((part) => [part.type, part.value])
+  );
+  const wallAsUtc = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second);
+  return wallAsUtc - Math.floor(instantMs / 1e3) * 1e3;
 }
-function cairoWallTimeDate(year, month, day, hour = 0, minute = 0, second = 0, millisecond = 0) {
-  const local = Date.UTC(year, month - 1, day, hour, minute, second, millisecond);
-  if (!Number.isFinite(local)) return /* @__PURE__ */ new Date(NaN);
-  let d = new Date(local);
-  for (let i = 0; i < 2; i++) d = new Date(local - offsetMs(d));
-  return d;
+function cairoWallClockToDate(year, month, day, hour = 0, minute = 0, second = 0) {
+  const wallAsUtc = Date.UTC(year, month - 1, day, hour, minute, second);
+  if (!Number.isFinite(wallAsUtc)) return null;
+  const offsetBefore = cairoOffsetAt(wallAsUtc - 24 * 36e5);
+  const offsetAfter = cairoOffsetAt(wallAsUtc + 24 * 36e5);
+  const valid = [.../* @__PURE__ */ new Set([offsetBefore, offsetAfter])].map((offset) => wallAsUtc - offset).filter((candidate) => wallAsUtc - cairoOffsetAt(candidate) === candidate).sort((a, b) => a - b);
+  const instant = valid.length ? valid[0] : wallAsUtc - offsetBefore;
+  const date = new Date(instant);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 var cairoDayFormat = new Intl.DateTimeFormat("en-CA", { timeZone: CAIRO_TZ, year: "numeric", month: "2-digit", day: "2-digit" });
+function cairoWallClockParts(date) {
+  const local = new Date(date.getTime() + cairoOffsetAt(date.getTime()));
+  return {
+    year: local.getUTCFullYear(),
+    month: local.getUTCMonth() + 1,
+    day: local.getUTCDate(),
+    hour: local.getUTCHours(),
+    minute: local.getUTCMinutes(),
+    second: local.getUTCSeconds()
+  };
+}
+function cairoCalendarParts(date) {
+  const { year, month, day } = cairoWallClockParts(date);
+  return { year, month, day };
+}
 
 // src/lib/whatsappConversationParser.ts
 var STAFF_INTRO_PATTERNS = [
@@ -479,15 +508,7 @@ function timestampFromPrefix(prefix) {
   let hour = prefix.hour;
   if (prefix.meridiem === "pm" && hour < 12) hour += 12;
   if (prefix.meridiem === "am" && hour === 12) hour = 0;
-  const date = cairoWallTimeDate(
-    prefix.year,
-    prefix.month,
-    prefix.day,
-    hour,
-    prefix.minute,
-    prefix.second
-  );
-  return Number.isNaN(date.getTime()) ? null : date;
+  return cairoWallClockToDate(prefix.year, prefix.month, prefix.day, hour, prefix.minute, prefix.second);
 }
 function detectKind(text2) {
   const value = text2.toLowerCase();
@@ -652,15 +673,7 @@ function parseMarkdownTime(raw, date) {
   const meridiem = match[4].toLowerCase();
   if (meridiem === "pm" && hour < 12) hour += 12;
   if (meridiem === "am" && hour === 12) hour = 0;
-  const timestamp = cairoWallTimeDate(
-    date.year,
-    date.month,
-    date.day,
-    hour,
-    Number(match[2]),
-    Number(match[3] || 0)
-  );
-  return Number.isNaN(timestamp.getTime()) ? null : timestamp;
+  return cairoWallClockToDate(date.year, date.month, date.day, hour, Number(match[2]), Number(match[3] || 0));
 }
 function parseMarkdownReply(lines) {
   const quoteLines = lines.filter((line) => /^>\s?/.test(line.trim()));
@@ -10260,11 +10273,9 @@ function conversationLevel(score) {
 }
 function monthCycleFromDate(dateInput = /* @__PURE__ */ new Date()) {
   const date = typeof dateInput === "string" ? new Date(dateInput) : dateInput;
-  const year = date.getFullYear();
-  const month = date.getMonth();
-  const cycleMonth = date.getDate() >= 26 ? month + 1 : month;
-  const cycleDate = new Date(year, cycleMonth, 1);
-  return `${cycleDate.getFullYear()}-${String(cycleDate.getMonth() + 1).padStart(2, "0")}`;
+  const { year, month, day } = cairoCalendarParts(date);
+  const cycleDate = new Date(Date.UTC(year, month - 1 + (day >= 26 ? 1 : 0), 1));
+  return `${cycleDate.getUTCFullYear()}-${String(cycleDate.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
 // src/lib/salesIntelligence/conversationClinicalReview.ts

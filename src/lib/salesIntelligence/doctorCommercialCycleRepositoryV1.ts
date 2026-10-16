@@ -2,49 +2,19 @@ import { supabase } from '@/lib/supabase';
 import { readInvoiceRecordsByIds } from '@/lib/readModels/invoiceRecordReadModel';
 import { derivePricingExecutionAssessment } from './salesPricingExecutionV1';
 import { summarizeStaffCommercialPerformanceV1, type StaffCommercialSummaryV1 } from './staffCommercialAnalyticsV1';
+import { cairoDateBoundaryIso, cairoWallTimeDate } from '@/lib/time/cairoDateBoundary';
 
 type AnyRow = Record<string, any>;
 
 const PAGE_SIZE = 1000;
 const MAX_ROWS = 50000;
 
+// Delegates to the canonical Cairo boundary (one Cairo wall-clock implementation in the app);
+// identical output to the former local conversion for every day 2020-2030.
 function cairoWallClockToIso(date: string, endOfDay = false): string {
+  if (!endOfDay) return cairoDateBoundaryIso(date);
   const [year, month, day] = date.split('-').map(Number);
-  const hour = endOfDay ? 23 : 0;
-  const minute = endOfDay ? 59 : 0;
-  const second = endOfDay ? 59 : 0;
-  const desiredWallAsUtc = Date.UTC(year, month - 1, day, hour, minute, second);
-
-  const formatter = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Africa/Cairo',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hourCycle: 'h23',
-  });
-  const offsetAt = (instantMs: number) => {
-    const parts = Object.fromEntries(
-      formatter.formatToParts(new Date(instantMs))
-        .filter((part) => part.type !== 'literal')
-        .map((part) => [part.type, part.value])
-    ) as Record<string, string>;
-    return Date.UTC(
-      Number(parts.year),
-      Number(parts.month) - 1,
-      Number(parts.day),
-      Number(parts.hour),
-      Number(parts.minute),
-      Number(parts.second)
-    ) - instantMs;
-  };
-  const offset = offsetAt(desiredWallAsUtc);
-  let result = desiredWallAsUtc - offset;
-  const correctedOffset = offsetAt(result);
-  if (correctedOffset !== offset) result = desiredWallAsUtc - correctedOffset;
-  return new Date(result).toISOString();
+  return new Date(cairoWallTimeDate(year, month, day + 1).getTime() - 1000).toISOString();
 }
 
 function normalizeBranch(value: unknown) {

@@ -15,7 +15,10 @@ import {
   fetchExecutiveDashboardSummary,
   type DashboardSummary,
 } from '@/lib/dashboardSummaryService';
-import { safeRows, isOpenStatus, safeNumber, safeText } from '@/lib/safeSupabase';
+import { safeNumber } from '@/lib/safeSupabase';
+import { listStaffTimeOffRequests } from '@/lib/timeOffService';
+import { getCurrentCycle } from '@/lib/pharmacy-cycle';
+import { countPendingEmployeeTransactionsForCycle } from '@/services/employeeTransactionService';
 
 function safeString(value: unknown, fallback = ''): string {
   if (value === undefined || value === null) return fallback;
@@ -47,12 +50,12 @@ export default function DailyCommand() {
   const [teamAlpha, setTeamAlpha] = useState<TeamAlphaRow[]>([]);
   const [atRiskStatus, setAtRiskStatus] = useState<AtRiskCompletionRow[]>([]);
   const [branchOffers, setBranchOffers] = useState<Record<string, BranchOfferRow | null>>({});
-  const [extras, setExtras] = useState({
-    complaints: 0,
-    weakReviews: 0,
-    shortages: 0,
-    pendingApprovals: 0,
-    leaveRequests: 0,
+  const [teamAlphaError, setTeamAlphaError] = useState<string | null>(null);
+  const [atRiskError, setAtRiskError] = useState<string | null>(null);
+  const [extras, setExtras] = useState<{ weakReviews: number | null; pendingApprovals: number | null; leaveRequests: number | null }>({
+    weakReviews: null,
+    pendingApprovals: null,
+    leaveRequests: null,
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -68,6 +71,8 @@ export default function DailyCommand() {
           startDate: date,
           endDate: date,
           branch: user?.branch || 'all',
+          // This page renders sales and invoice data health only, not the ~10 s customer cards.
+          includeCustomerIntelligence: false,
         });
       } catch (summaryErr) {
         // If fetchExecutiveDashboardSummary throws, catch it and use empty summary
@@ -108,27 +113,27 @@ export default function DailyCommand() {
         };
       }
       setSummary(result);
-      const [complaints, reviews, shortages, points, leaves] = await Promise.all([
-        safeRows<Row>('customer_requests', (q) => q.limit(200)),
-        safeRows<Row>('conversation_sales_reviews', (q) => q.limit(200)),
-        safeRows<Row>('shortages', (q) => q.limit(200)),
-        safeRows<Row>('employee_transactions', (q) => q.limit(200)),
-        safeRows<Row>('time_off_requests', (q) => q.limit(200)),
+      // Decision counts come from their canonical sources as exact server-side counts; a failed read is shown
+      // as unavailable (null), never as 0. (The old first-200-rows scans counted the wrong rows and read
+      // tables that do not exist: shortages, time_off_requests.)
+      const cycle = getCurrentCycle();
+      const [pointsResult, reviewsResult, leavesResult] = await Promise.allSettled([
+        countPendingEmployeeTransactionsForCycle(cycle.start.toISOString().slice(0, 10), cycle.end.toISOString().slice(0, 10)),
+        supabase
+          .from('conversation_sales_reviews')
+          .select('id', { count: 'exact', head: true })
+          .eq('is_current', true)
+          .or('final_score.lt.70,and(final_score.is.null,total_score.lt.70)'),
+        listStaffTimeOffRequests({ status: 'pending', limit: 200 }),
       ]);
+      const exactCount = (settled: PromiseSettledResult<{ count: number | null; error: unknown }>) =>
+        settled.status === 'fulfilled' && !settled.value.error && typeof settled.value.count === 'number'
+          ? settled.value.count
+          : null;
       setExtras({
-        complaints: complaints.rows.filter(
-          (r) =>
-            /complaint|شكوى/i.test(safeText(r.type ?? r.request_type)) && isOpenStatus(r.status)
-        ).length,
-        weakReviews: reviews.rows.filter(
-          (r) => safeNumber(r.final_score ?? r.score ?? r.percentage) < 70
-        ).length,
-        shortages: shortages.rows.filter((r) => isOpenStatus(r.status)).length,
-        pendingApprovals: points.rows.filter((r) =>
-          /pending|معلق|بانتظار/i.test(safeText(r.status ?? r.approval_status))
-        ).length,
-        leaveRequests: leaves.rows.filter((r) => /pending|معلق|بانتظار/i.test(safeText(r.status)))
-          .length,
+        pendingApprovals: pointsResult.status === 'fulfilled' ? pointsResult.value : null,
+        weakReviews: exactCount(reviewsResult),
+        leaveRequests: leavesResult.status === 'fulfilled' ? leavesResult.value.length : null,
       });
 
       const [teamAlphaRes, atRiskRes, shokryOfferRes, shamiOfferRes] = await Promise.all([
@@ -137,8 +142,10 @@ export default function DailyCommand() {
         supabase.rpc('get_current_branch_offer_v1', { p_branch: 'فرع شكري' }),
         supabase.rpc('get_current_branch_offer_v1', { p_branch: 'فرع الشامي' }),
       ]);
-      if (!teamAlphaRes.error) setTeamAlpha((teamAlphaRes.data || []) as TeamAlphaRow[]);
-      if (!atRiskRes.error) setAtRiskStatus((atRiskRes.data || []) as AtRiskCompletionRow[]);
+      setTeamAlphaError(teamAlphaRes.error ? teamAlphaRes.error.message : null);
+      setTeamAlpha(teamAlphaRes.error ? [] : (teamAlphaRes.data || []) as TeamAlphaRow[]);
+      setAtRiskError(atRiskRes.error ? atRiskRes.error.message : null);
+      setAtRiskStatus(atRiskRes.error ? [] : (atRiskRes.data || []) as AtRiskCompletionRow[]);
       setBranchOffers({
         'فرع شكري': (Array.isArray(shokryOfferRes.data) ? shokryOfferRes.data[0] : null) as BranchOfferRow | null,
         'فرع الشامي': (Array.isArray(shamiOfferRes.data) ? shamiOfferRes.data[0] : null) as BranchOfferRow | null,
@@ -160,6 +167,15 @@ export default function DailyCommand() {
   const normalizedKpis = (summary?.normalizedKpis ?? {}) as Partial<typeof summary.normalizedKpis>;
   const customerIntelligence = summary?.customerIntelligence ?? null;
   const dataHealth = summary?.dataHealth ?? null;
+  // Number of invoice data-health categories with open issues; unknown when the summary failed.
+  const dataIssueCount = !dataHealth || dataHealth.error
+    ? null
+    : [
+        dataHealth.invoicesWithoutCustomerCode,
+        dataHealth.invoicesWithoutCustomerPhone,
+        dataHealth.invoicesWithoutSellerName,
+        dataHealth.invoicesWithoutBranch,
+      ].filter((value) => typeof value === 'number' && value > 0).length;
   const sales = typeof k?.netSales === 'number' ? k.netSales : null;
   const target = useMemo(
     () =>
@@ -173,33 +189,6 @@ export default function DailyCommand() {
   );
   const achievement = target && sales !== null ? Math.round((sales / target) * 100) : null;
   const urgentNotifications = safeNumber(normalizedKpis?.urgentNotifications?.value);
-  const risks = [
-    ...(summary?.actionCenter || []).filter((item) => item.value !== 0),
-    ...(extras.weakReviews
-      ? [
-          {
-            key: 'weak',
-            label: 'تقييمات محادثات أقل من 70%',
-            value: extras.weakReviews,
-            recommendation: 'راجع التسجيلات وحدد الاحتياج التدريبي',
-            route: '/reviews',
-            severity: 'danger' as const,
-          },
-        ]
-      : []),
-    ...(extras.shortages
-      ? [
-          {
-            key: 'shortages',
-            label: 'نواقص تحتاج مراجعة',
-            value: extras.shortages,
-            recommendation: 'راجع النواقص المفتوحة مع الفرع',
-            route: '/shortages',
-            severity: 'warning' as const,
-          },
-        ]
-      : []),
-  ];
 
   return (
     <div className="space-y-5" dir="rtl">
@@ -232,19 +221,19 @@ export default function DailyCommand() {
               قرارات مطلوبة
             </h2>
             <div className="space-y-3">
-              {[
+              {([
                 ['نقاط وخصومات تحتاج اعتماد', extras.pendingApprovals, '/penalty-incentive'],
                 ['طلبات إجازة معلقة', extras.leaveRequests, '/time-off'],
-                ['مشاكل بيانات تحتاج إصلاح', dataHealth?.error ? 1 : 0, '/data-health'],
+                ['مشاكل بيانات تحتاج إصلاح', dataIssueCount, '/data-health'],
                 ['تقييمات تحتاج مراجعة', extras.weakReviews, '/reviews'],
-              ].map(([label, value, route]) => (
+              ] as Array<[string, number | null, string]>).map(([label, value, route]) => (
                 <a
                   key={String(label)}
                   href={String(route)}
                   className="flex items-center justify-between rounded-2xl border border-slate-200 p-4 font-bold text-slate-700 dark:border-slate-700 dark:text-slate-200"
                 >
                   <span>{label}</span>
-                  <span className="badge-warning">{String(value)}</span>
+                  <span className="badge-warning">{value === null ? 'غير متاح' : String(value)}</span>
                 </a>
               ))}
             </div>
@@ -269,7 +258,8 @@ export default function DailyCommand() {
                 </div>
               </div>
             ))}
-            {!teamAlpha.length ? <p className="text-sm font-bold text-slate-500">تعذر تحميل بيانات الفريق.</p> : null}
+            {teamAlphaError ? <p role="alert" className="text-sm font-bold text-red-500">تعذر تحميل بيانات الفريق: {teamAlphaError}</p> : null}
+            {!teamAlphaError && !loading && !teamAlpha.length ? <p className="text-sm font-bold text-slate-500">لا توجد بيانات للفريق هذا الأسبوع.</p> : null}
           </div>
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -280,7 +270,7 @@ export default function DailyCommand() {
                 <div key={branch} className="rounded-2xl border border-slate-200 p-3 dark:border-slate-700">
                   <p className="font-black text-slate-800 dark:text-slate-100">{branch}</p>
                   <p className="mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">
-                    عملاء معرّضين للخطر اتعمل معاهم متابعة: {risk ? `${risk.at_risk_handled}/${risk.at_risk_total}` : '—'}
+                    عملاء معرّضين للخطر اتعمل معاهم متابعة: {atRiskError ? 'غير متاح' : risk ? `${risk.at_risk_handled}/${risk.at_risk_total}` : '0/0'}
                   </p>
                   <p className="mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">
                     عرض الأسبوع: {offer ? `${offer.offer_title} (حتى ${offer.ends_on})` : 'مفيش عرض مسجل'}

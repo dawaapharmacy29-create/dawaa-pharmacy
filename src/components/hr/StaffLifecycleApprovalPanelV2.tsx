@@ -16,6 +16,7 @@ const stateLabel = {
 export default function StaffLifecycleApprovalPanelV2({ enabled }: { enabled: boolean }) {
   const [rows, setRows] = useState<PendingStaffLifecycleChangeV2[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [note, setNote] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
@@ -23,8 +24,10 @@ export default function StaffLifecycleApprovalPanelV2({ enabled }: { enabled: bo
     setLoading(true);
     try {
       setRows(await listPendingStaffLifecycleChangesV2());
+      setLoadError(null);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'تعذر تحميل طلبات Lifecycle');
+      // A failed read is not "no pending requests": keep the empty state hidden and show the failure.
+      setLoadError(error instanceof Error ? error.message : 'تعذر تحميل طلبات Lifecycle');
     } finally {
       setLoading(false);
     }
@@ -103,7 +106,12 @@ export default function StaffLifecycleApprovalPanelV2({ enabled }: { enabled: bo
             </div>
           </div>
         ))}
-        {!loading && rows.length === 0 && (
+        {loadError && (
+          <div role="alert" className="rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-4 text-sm font-bold text-[var(--dawaa-status-danger-text)]">
+            تعذر تحميل طلبات Lifecycle المعلقة: {loadError}
+          </div>
+        )}
+        {!loading && !loadError && rows.length === 0 && (
           <div className="rounded-xl border border-[var(--dawaa-theme-border)] p-4 text-sm font-bold text-[var(--dawaa-theme-muted)]">
             لا توجد طلبات Lifecycle معلقة حاليًا.
           </div>

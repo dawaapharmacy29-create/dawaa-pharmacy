@@ -70,15 +70,6 @@ function OptionalRuntimeAddons() {
 
   if (!enabled || !mounted) return null;
 
-  const SidebarRuntimePolish = lazy(async () => {
-    try {
-      return await import('@/components/layout/SidebarRuntimePolish');
-    } catch (error) {
-      logRuntimeError('SidebarRuntimePolish import failed', error);
-      return { default: () => null };
-    }
-  });
-
   const GlobalCustomerServiceAlerts = lazy(async () => {
     try {
       return await import('@/components/customerService/GlobalCustomerServiceAlerts');
@@ -90,7 +81,6 @@ function OptionalRuntimeAddons() {
 
   return (
     <Suspense fallback={null}>
-      <SidebarRuntimePolish />
       <GlobalCustomerServiceAlerts />
     </Suspense>
   );

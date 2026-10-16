@@ -15,6 +15,7 @@ import {
 import { ingestWhatsAppExportFile, type IngestOneFileResult } from '@/lib/whatsappAutoIngestPipeline';
 import { shouldMarkWhatsAppFileProcessed } from '@/lib/whatsappWatcherCaseGraphSync';
 import { getStaffSessionToken } from '@/lib/auth/staffSession';
+import LegacySurfaceNotice from '@/components/system/LegacySurfaceNotice';
 
 const SCAN_INTERVAL_MS = 60_000;
 
@@ -118,6 +119,7 @@ export default function WhatsAppFolderWatcher() {
 
   return (
     <div className="dawaa-text space-y-4 p-4" dir="rtl">
+      <LegacySurfaceNotice />
       <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
         <h1 className="text-xl font-black text-[var(--dawaa-theme-heading)]">المراقبة التلقائية لمحادثات الواتساب</h1>
         <p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-muted)]">

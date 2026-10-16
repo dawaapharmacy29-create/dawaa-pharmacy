@@ -77,7 +77,7 @@ export default function DailyTarget() {
 
   useEffect(() => {
     void load(false);
-    const timer = window.setInterval(() => void load(true), 5 * 60 * 1000);
+    const timer = window.setInterval(() => { if (!document.hidden) void load(true); }, 5 * 60 * 1000);
     return () => window.clearInterval(timer);
   }, [load]);
 

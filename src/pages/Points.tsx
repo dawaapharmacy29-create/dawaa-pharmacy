@@ -11,7 +11,7 @@ import {
   FileDown,
   PieChart as PieChartIcon,
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { AddPointsModal } from '@/components/points/AddPointsModal';
 import SalaryCalculator, { exportIncentiveReport } from '@/components/points/SalaryCalculator';
@@ -162,6 +162,9 @@ export default function Points() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [branchFilter, setBranchFilter] = useState('الكل');
   const [search, setSearch] = useState('');
+  // /points?staff_id=… (Team page badges) focuses one employee by id, not by a name search.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const focusStaffId = searchParams.get('staff_id') || '';
   const [selectedStaffForSalary, setSelectedStaffForSalary] = useState<StaffMember | null>(null);
   const [canonicalPointsDashboard, setCanonicalPointsDashboard] = useState<StaffPointsDashboardV3 | null>(null);
   const [bulkExporting, setBulkExporting] = useState(false);
@@ -338,8 +341,15 @@ export default function Points() {
       );
     const searchMatches =
       normalizedSearch === '' || matchesOrderedSegments(searchText, normalizedSearch);
-    return branchMatches && searchMatches;
+    const focusMatches = !focusStaffId || staff.id === focusStaffId;
+    return branchMatches && searchMatches && focusMatches;
   });
+  const focusedStaff = focusStaffId ? staffChoices.find((staff) => staff.id === focusStaffId) || null : null;
+  const clearStaffFocus = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete('staff_id');
+    setSearchParams(next, { replace: true });
+  };
 
   const pendingApprovals = validRecords.filter(
     (row) => pointRecordStatus(row) === 'pending' && isDeductionRecord(row)
@@ -969,6 +979,13 @@ export default function Points() {
               ))}
             </select>
           </div>
+
+          {focusStaffId ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-3 text-sm font-bold">
+              <span>{focusedStaff ? `عرض نقاط ${focusedStaff.display_name || focusedStaff.name} فقط` : 'الموظف المطلوب غير موجود ضمن الموظفين المتاحين لك.'}</span>
+              <button type="button" onClick={clearStaffFocus} className="btn-secondary text-xs">عرض كل الموظفين</button>
+            </div>
+          ) : null}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {filteredStaff.map((employee) => {

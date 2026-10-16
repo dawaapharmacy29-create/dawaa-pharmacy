@@ -485,6 +485,81 @@ async function loginWithStaffAccount(username: string, password: string): Promis
   } as User);
 }
 
+// ─── App-wide session lifecycle (single owner) ───────────────────────────────
+const IDLE_SIGN_OUT_MS = 12 * 60 * 60 * 1000;
+let sessionLifecycleOwners = 0;
+let sessionLifecycleUserId: string | null = null;
+let sessionLifecycleCleanup: (() => void) | null = null;
+
+function installSessionLifecycle(): () => void {
+  let cancelled = false;
+  const cleanups: Array<() => void> = [];
+
+  if (isSupabaseConfigured) {
+    let lastCheckAt = Date.now();
+    const renew = () => {
+      lastCheckAt = Date.now();
+      void checkStaffSession().then((status) => {
+        if (!cancelled && status === 'invalid') setCurrentUser(null);
+      });
+    };
+    // A tab returning from sleep re-checks before its next requests rely on a possibly expired session.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && Date.now() - lastCheckAt >= STAFF_SESSION_VISIBLE_RECHECK_MS) renew();
+    };
+    // Logout in another tab removes the shared token; this tab must not keep running without an identity.
+    const onStorage = (event: StorageEvent) => {
+      if ((event.key === STAFF_SESSION_STORAGE_KEY || event.key === STORAGE_KEY) && !event.newValue) setCurrentUser(null);
+    };
+    const intervalId = window.setInterval(renew, STAFF_SESSION_RENEW_INTERVAL_MS);
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('storage', onStorage);
+    cleanups.push(() => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('storage', onStorage);
+    });
+  }
+
+  let idleTimerId: number | undefined;
+  const resetIdle = () => {
+    if (idleTimerId) window.clearTimeout(idleTimerId);
+    idleTimerId = window.setTimeout(() => setCurrentUser(null), IDLE_SIGN_OUT_MS);
+  };
+  const activityEvents: Array<keyof WindowEventMap> = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
+  activityEvents.forEach((eventName) => window.addEventListener(eventName, resetIdle, { passive: true }));
+  resetIdle();
+  cleanups.push(() => {
+    if (idleTimerId) window.clearTimeout(idleTimerId);
+    activityEvents.forEach((eventName) => window.removeEventListener(eventName, resetIdle));
+  });
+
+  return () => {
+    cancelled = true;
+    cleanups.forEach((cleanup) => cleanup());
+  };
+}
+
+export function acquireSessionLifecycle(userId: string): () => void {
+  sessionLifecycleOwners += 1;
+  if (sessionLifecycleUserId !== userId || !sessionLifecycleCleanup) {
+    sessionLifecycleCleanup?.();
+    sessionLifecycleCleanup = installSessionLifecycle();
+    sessionLifecycleUserId = userId;
+  }
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    sessionLifecycleOwners = Math.max(0, sessionLifecycleOwners - 1);
+    if (sessionLifecycleOwners === 0) {
+      sessionLifecycleCleanup?.();
+      sessionLifecycleCleanup = null;
+      sessionLifecycleUserId = null;
+    }
+  };
+}
+
 export function useAuth() {
   const [user, setUser] = useState<User | null>(currentUser);
   const [loading, setLoading] = useState(false);
@@ -533,56 +608,11 @@ export function useAuth() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!user || !isSupabaseConfigured) return;
-    let cancelled = false;
-    let lastCheckAt = Date.now();
-    const renew = () => {
-      lastCheckAt = Date.now();
-      void checkStaffSession().then((status) => {
-        if (!cancelled && status === 'invalid') setCurrentUser(null);
-      });
-    };
-    // A tab returning from sleep re-checks before its next requests rely on a possibly expired session.
-    const onVisible = () => {
-      if (document.visibilityState === 'visible' && Date.now() - lastCheckAt >= STAFF_SESSION_VISIBLE_RECHECK_MS) renew();
-    };
-    // Logout in another tab removes the shared token; this tab must not keep running without an identity.
-    const onStorage = (event: StorageEvent) => {
-      if ((event.key === STAFF_SESSION_STORAGE_KEY || event.key === STORAGE_KEY) && !event.newValue) setCurrentUser(null);
-    };
-    const intervalId = window.setInterval(renew, STAFF_SESSION_RENEW_INTERVAL_MS);
-    document.addEventListener('visibilitychange', onVisible);
-    window.addEventListener('storage', onStorage);
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-      document.removeEventListener('visibilitychange', onVisible);
-      window.removeEventListener('storage', onStorage);
-    };
-  }, [user?.id]);
-
+  // Session renewal and idle sign-out are app-wide: one owner installs them for the signed-in
+  // user no matter how many components call useAuth().
   useEffect(() => {
     if (!user) return;
-    const TIMEOUT = 12 * 60 * 60 * 1000;
-    let timerId: number | undefined;
-    const reset = () => {
-      if (timerId) window.clearTimeout(timerId);
-      timerId = window.setTimeout(() => setCurrentUser(null), TIMEOUT);
-    };
-    const events: Array<keyof WindowEventMap> = [
-      'mousemove',
-      'keydown',
-      'click',
-      'scroll',
-      'touchstart',
-    ];
-    events.forEach((eventName) => window.addEventListener(eventName, reset, { passive: true }));
-    reset();
-    return () => {
-      if (timerId) window.clearTimeout(timerId);
-      events.forEach((eventName) => window.removeEventListener(eventName, reset));
-    };
+    return acquireSessionLifecycle(String(user.id ?? ''));
   }, [user?.id]);
 
   const login = useCallback(async (username: string, password: string): Promise<boolean> => {

@@ -1,5 +1,6 @@
 import { readCustomerInvoices, type CustomerInvoiceMatch, type CustomerInvoiceReadRow } from '@/lib/readModels/customerInvoiceReadModel';
 import { customerIdentityText } from '@/lib/customers/customerIdentity';
+import { cairoCalendarParts, cairoWallClockToDate } from '@/lib/time/cairoDateBoundary';
 
 export type FollowupSaleVerificationInput = {
   customerPhone?: string | null;
@@ -54,11 +55,11 @@ function amountValue(row: CustomerInvoiceReadRow) {
   return Number.isFinite(number) ? number : null;
 }
 
-function startOfDay(value: string | Date) {
+// Sale-verification windows are Cairo calendar days, independent of the browser timezone.
+function cairoDay(value: string | Date) {
   const date = value instanceof Date ? new Date(value) : new Date(value);
   if (Number.isNaN(date.getTime())) throw new Error('تاريخ إشارة المتابعة غير صالح');
-  date.setHours(0, 0, 0, 0);
-  return date;
+  return cairoCalendarParts(date);
 }
 
 function strategyBaseConfidence(matchedBy: FollowupSaleCandidate['matchedBy']) {
@@ -70,10 +71,11 @@ function strategyBaseConfidence(matchedBy: FollowupSaleCandidate['matchedBy']) {
 }
 
 export function rankFollowupSaleCandidates(input: FollowupSaleRankingInput): FollowupSaleCandidate[] {
-  const from = startOfDay(input.signalAt);
-  const until = new Date(from);
-  until.setDate(until.getDate() + Math.max(1, Math.min(input.windowDays ?? 14, 45)));
-  until.setHours(23, 59, 59, 999);
+  const signalDay = cairoDay(input.signalAt);
+  const windowDays = Math.max(1, Math.min(input.windowDays ?? 14, 45));
+  const from = cairoWallClockToDate(signalDay.year, signalDay.month, signalDay.day, 0, 0, 0) as Date;
+  const untilStart = cairoWallClockToDate(signalDay.year, signalDay.month, signalDay.day + windowDays, 23, 59, 59) as Date;
+  const until = new Date(untilStart.getTime() + 999);
   const targetBranch = normalizeBranch(input.branch);
 
   return input.rows

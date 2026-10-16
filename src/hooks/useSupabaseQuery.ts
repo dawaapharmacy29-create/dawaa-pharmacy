@@ -115,8 +115,13 @@ function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number, label: strin
   });
 }
 
+export function realtimeInvalidationKey(table: string) {
+  return ['supabase', table] as const;
+}
+
 export function useSupabaseQuery<T>(options: QueryOptions) {
   const channelRef = useRef<RealtimeChannel | null>(null);
+  const channelInstanceId = useRef(Math.random().toString(36).slice(2, 10));
   const queryClient = useQueryClient();
   const freshness = options.freshness ?? 'standard';
   const policy = FRESHNESS_POLICIES[freshness];
@@ -201,10 +206,13 @@ export function useSupabaseQuery<T>(options: QueryOptions) {
   useEffect(() => {
     if (!isSupabaseConfigured || options.realtimeEnabled !== true || blockedBulkRead) return;
 
+    // Invalidate every cached read of the table (prefix match), not the key captured on the first
+    // render: after a filter/date change that stale key no longer matches the visible query.
+    // Each subscriber gets its own topic so two screens on one table do not displace each other.
     channelRef.current = supabase
-      .channel(`realtime:${options.table}`)
+      .channel(`realtime:${options.table}:${channelInstanceId.current}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: options.table }, () => {
-        void queryClient.invalidateQueries({ queryKey });
+        void queryClient.invalidateQueries({ queryKey: realtimeInvalidationKey(options.table) });
       })
       .subscribe();
 

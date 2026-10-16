@@ -4,7 +4,7 @@ import { Component, lazy, Suspense, useEffect, useState, type ReactNode } from '
 import { isIOSWebKit } from '@/lib/mobileSafariCompat';
 import { Toaster } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
-import { canAccessHRRoute, getRoutePermissions, normalizeRole } from '@/lib/core/permissionSystem';
+import { canAccessHRRoute, getRoleLandingPath, getRoutePermissions } from '@/lib/core/permissionSystem';
 import Layout from '@/components/layout/Layout';
 import PWABanner from '@/components/features/PWABanner';
 import { isDoctorRole, isManagerRole } from '@/lib/security/userDataScope';
@@ -37,7 +37,6 @@ const Customers = lazy(() => import('@/pages/Customers'));
 const Customer360 = lazy(() => import('@/pages/Customer360'));
 const CustomerImport = lazy(() => import('@/pages/CustomerImport'));
 const CustomerService = lazy(() => import('@/pages/SmartCustomerService'));
-const CustomerServiceClassic = lazy(() => import('@/pages/CustomerService'));
 const WhatsAppAutoFollowupRequests = lazy(() => import('@/pages/WhatsAppAutoFollowupRequests'));
 const WhatsAppFolderWatcher = lazy(() => import('@/pages/WhatsAppFolderWatcher'));
 const WhatsAppDoctorPerformance = lazy(() => import('@/pages/WhatsAppDoctorPerformance'));
@@ -111,19 +110,18 @@ const Shortages = lazy(() => import('@/pages/Shortages'));
 const Supplies = lazy(() => import('@/pages/Supplies'));
 const Purchases = lazy(() => import('@/pages/Purchases'));
 const ShiftHandovers = lazy(() => import('@/pages/ShiftHandovers'));
-const StaffPayroll = lazy(() => import('@/pages/StaffPayroll'));
 const Accessories = lazy(() => import('@/pages/Accessories'));
 const Offers = lazy(() => import('@/pages/Offers'));
 const Stories = lazy(() => import('@/pages/Stories'));
 const Training = lazy(() => import('@/pages/Training'));
 const WhatsappAnalytics = lazy(() => import('@/pages/WhatsappAnalytics'));
 const NotFound = lazy(() => import('@/pages/NotFound'));
+const RetiredSurfacePage = lazy(() => import('@/components/system/RetiredSurfacePage'));
 const MedicineExpiryTracker = lazy(() => import('@/pages/MedicineExpiryTracker'));
 const AttendanceReport = lazy(() => import('@/pages/AttendanceReport'));
 const LoyaltyTiers = lazy(() => import('@/pages/LoyaltyTiers'));
 const DailyCommand = lazy(() => import('@/pages/DailyCommand'));
 const DailyTarget = lazy(() => import('@/pages/DailyTarget'));
-const TodayBrief = lazy(() => import('@/pages/TodayBrief'));
 const RefillReminders = lazy(() => import('@/pages/RefillReminders'));
 const CustomerHealthProfile = lazy(() => import('@/pages/CustomerHealthProfile'));
 const ExpiryDiscounts = lazy(() => import('@/pages/ExpiryDiscounts'));
@@ -138,7 +136,6 @@ const SupplierPerformance = lazy(() => import('@/pages/SupplierPerformance'));
 const ReportsCenter = lazy(() => import('@/pages/ReportsCenter'));
 const MonthlyPerformanceReport360 = lazy(() => import('@/pages/MonthlyPerformanceReport360'));
 const StockAlerts = lazy(() => import('@/pages/StockAlerts'));
-const Returns = lazy(() => import('@/pages/Returns'));
 const Diagnostics = lazy(() => import('@/pages/Diagnostics'));
 
 function PageLoadingFallback({ pageName }: { pageName: string }) {
@@ -223,18 +220,13 @@ function ProtectedRoute({ children, permission }: { children: ReactNode; permiss
     if (isDoctorRole(user) && !checkPermission('view_executive_dashboard')) {
       return <Navigate to="/doctor-dashboard" replace />;
     }
-    const role = normalizeRole(user?.role);
     const canViewExecutive =
       isManagerRole(user) ||
       checkPermission('view_executive_dashboard') ||
       checkPermission('view_branch_dashboard');
     if (!isDoctorRole(user) && !canViewExecutive) {
-      if (role === 'delivery') return <Navigate to="/delivery" replace />;
-      if (role === 'cleaning_supervisor') return <Navigate to="/my-daily-checklist" replace />;
-      if (role === 'inventory_assistant') return <Navigate to="/inventory-counts" replace />;
-      if (role === 'customer_service' || role === 'customer_service_manager')
-        return <Navigate to="/customer-service-dashboard" replace />;
-      if (role === 'procurement_manager') return <Navigate to="/purchases" replace />;
+      const landingPath = getRoleLandingPath(user.role);
+      if (landingPath) return <Navigate to={landingPath} replace />;
     }
   }
   if (
@@ -253,6 +245,13 @@ function ProtectedRoute({ children, permission }: { children: ReactNode; permiss
     );
   }
   return <Layout>{children}</Layout>;
+}
+
+// Retired alias paths keep old bookmarks and notification links working by forwarding to the
+// single canonical route (query string and hash preserved), so each page has one URL.
+function CompatibilityRedirect({ to }: { to: string }) {
+  const location = useLocation();
+  return <Navigate to={`${to}${location.search}${location.hash}`} replace />;
 }
 
 function AdminRoute({ children, permission }: { children: ReactNode; permission?: string }) {
@@ -334,14 +333,7 @@ function AppRoutes() {
           </ProtectedRoute>
         }
       />
-      <Route
-        path="/executive-2027"
-        element={
-          <ProtectedRoute>
-            {routeSuspense(<ExecutiveDashboardRoute />, 'لوحة القيادة')}
-          </ProtectedRoute>
-        }
-      />
+      <Route path="/executive-2027" element={<CompatibilityRedirect to="/" />} />
       <Route
         path="/customer-service-dashboard"
         element={
@@ -424,7 +416,7 @@ function AppRoutes() {
         path="/quarterly-incentives"
         element={
           <ProtectedRoute>
-            {routeSuspense(<QuarterlyIncentives2027 />, 'الحافز الشهري')}
+            {routeSuspense(<QuarterlyIncentives2027 />, 'نظام وقواعد الحافز')}
           </ProtectedRoute>
         }
       />
@@ -466,14 +458,7 @@ function AppRoutes() {
           <ProtectedRoute>{routeSuspense(<CustomerService />, 'خدمة العملاء')}</ProtectedRoute>
         }
       />
-      <Route
-        path="/customer-service-classic"
-        element={
-          <ProtectedRoute>
-            {routeSuspense(<CustomerServiceClassic />, 'خدمة العملاء الكلاسيكية')}
-          </ProtectedRoute>
-        }
-      />
+      <Route path="/customer-service-classic" element={<CompatibilityRedirect to="/customer-service" />} />
       <Route
         path="/whatsapp-followup-requests"
         element={
@@ -518,7 +503,7 @@ function AppRoutes() {
         path="/whatsapp-branch-comparison"
         element={
           <ProtectedRoute>
-            {routeSuspense(<WhatsAppBranchComparison />, 'مقارنة الفروع')}
+            {routeSuspense(<WhatsAppBranchComparison />, 'مقارنة الفروع (واتساب)')}
           </ProtectedRoute>
         }
       />
@@ -736,11 +721,11 @@ function AppRoutes() {
       />
       <Route
         path="/whatsapp-smart-folder-watcher"
-        element={<ProtectedRoute permission="view_reviews">{routeSuspense(<WhatsAppSmartFolderWatcher />, 'التقاط واتساب تلقائيًا')}</ProtectedRoute>}
+        element={<ProtectedRoute permission="view_reviews">{routeSuspense(<WhatsAppSmartFolderWatcher />, 'التقاط وتحليل محادثات واتساب')}</ProtectedRoute>}
       />
       <Route
         path="/sales-intelligence/qa"
-        element={<ProtectedRoute permission="view_reviews">{routeSuspense(<SalesIntelligenceQA />, 'مراجعة ذكاء المبيعات')}</ProtectedRoute>}
+        element={<ProtectedRoute permission="view_reviews">{routeSuspense(<SalesIntelligenceQA />, 'مراجعة حالات ذكاء المبيعات')}</ProtectedRoute>}
       />
       <Route
         path="/sales-intelligence/qa/:caseId"
@@ -764,7 +749,7 @@ function AppRoutes() {
         path="/monthly-incentive-report"
         element={
           <ProtectedRoute>
-            {routeSuspense(<MonthlyIncentiveReport />, 'التقرير الشهري للحوافز')}
+            {routeSuspense(<MonthlyIncentiveReport />, 'ملخص الحوافز الشهري')}
           </ProtectedRoute>
         }
       />
@@ -809,13 +794,13 @@ function AppRoutes() {
       <Route
         path="/staff-payroll"
         element={
-          <ProtectedRoute>{routeSuspense(<PayrollManagement />, 'إدارة الرواتب')}</ProtectedRoute>
+          <ProtectedRoute>{routeSuspense(<PayrollManagement />, 'الرواتب والجاهزية')}</ProtectedRoute>
         }
       />
       <Route
         path="/incentive-governance"
         element={
-          <ProtectedRoute permission="manage_payroll">
+          <ProtectedRoute>
             {routeSuspense(<IncentiveGovernance />, 'اعتماد الحوافز')}
           </ProtectedRoute>
         }
@@ -894,7 +879,7 @@ function AppRoutes() {
       />
       <Route
         path="/attendance-report"
-        element={<ProtectedRoute>{routeSuspense(<AttendanceReport />, 'الحضور')}</ProtectedRoute>}
+        element={<ProtectedRoute>{routeSuspense(<AttendanceReport />, 'مركز الحضور')}</ProtectedRoute>}
       />
       <Route
         path="/loyalty-tiers"
@@ -910,7 +895,7 @@ function AppRoutes() {
       />
       <Route
         path="/today-brief"
-        element={<ProtectedRoute>{routeSuspense(<TodayBrief />, 'ملخص اليوم')}</ProtectedRoute>}
+        element={<ProtectedRoute>{routeSuspense(<RetiredSurfacePage title="ملخص اليوم" reason="كانت تعتمد على دالة get_today_command_summary غير الموجودة في قاعدة البيانات. استخدم لوحة القيادة أو مركز المهام والتنبيهات." />, 'ملخص اليوم')}</ProtectedRoute>}
       />
       <Route
         path="/refill-reminders"
@@ -1008,7 +993,7 @@ function AppRoutes() {
       />
       <Route
         path="/returns"
-        element={<ProtectedRoute>{routeSuspense(<Returns />, 'المرتجعات')}</ProtectedRoute>}
+        element={<ProtectedRoute>{routeSuspense(<RetiredSurfacePage title="المرتجعات" reason="كانت تعتمد على جدول return_orders غير الموجود في قاعدة البيانات، فلم يكن أي مرتجع يُحفظ. مرتجعات الموردين متاحة من صفحة مرتجعات المشتريات." />, 'المرتجعات')}</ProtectedRoute>}
       />
       <Route
         path="/diagnostics"

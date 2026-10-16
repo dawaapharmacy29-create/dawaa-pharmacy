@@ -4,6 +4,7 @@ const path = require('path');
 const Module = require('module');
 const ts = require('typescript');
 
+
 const root = path.resolve(__dirname, '..');
 const tests = [];
 let currentSuite = null;
@@ -224,6 +225,15 @@ for (const ext of ['.ts', '.tsx']) {
 }
 
 const testFiles = [
+  'src/lib/__tests__/applicationNavigation.test.ts',
+  'src/lib/__tests__/appRoutes.test.ts',
+  'src/lib/__tests__/applicationDataContracts.test.ts',
+  'src/lib/__tests__/runtimeClosureContracts.test.ts',
+  'src/lib/__tests__/overtimeReviewContracts.test.ts',
+  'src/lib/__tests__/sessionLifecycleSingleton.test.ts',
+  'src/lib/__tests__/applicationPermissions.test.ts',
+  'src/lib/__tests__/cairoWallClock.test.ts',
+  'src/lib/__tests__/whatsappResolverNoGuess.test.ts',
   'scripts/staging/historical-dml.test.cjs',
   'scripts/staging/canonical-si-dependencies.test.cjs',
   'src/lib/salesIntelligence/refresh/__tests__/soldActionLineage.test.ts',
@@ -320,6 +330,10 @@ const testFiles = [
   'src/lib/__tests__/reviewRouteState.test.ts',
   'src/lib/__tests__/reviewEditorNavigationGuard.test.ts',
   'src/lib/__tests__/runtimeReadContracts.test.ts',
+  'src/lib/__tests__/staffDuplicateAuditRequestBudget.test.ts',
+  'src/lib/__tests__/weeklyEvaluationCanonicalRpc.test.ts',
+  'src/lib/__tests__/evaluationRequestDedupe.test.ts',
+  'src/lib/__tests__/attendancePolicyRolloutDedupe.test.ts',
   'src/lib/__tests__/startupRecoveryGuard.test.ts',
   'src/lib/__tests__/canonicalIdentityContracts.test.ts',
   'src/lib/__tests__/conversationReviewCorrection.test.ts',

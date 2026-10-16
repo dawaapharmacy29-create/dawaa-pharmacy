@@ -21,7 +21,6 @@ import {
   getAttendanceReviewTriage,
   getAttendanceSyncHealth,
   getBiometricCrossSourceCandidates,
-  listPendingAttendanceDeductions,
   listUnmappedBiometricStaff,
   searchBiometricMappingCandidates,
 } from '@/lib/attendance/attendanceOperationsService';
@@ -157,7 +156,6 @@ interface ApprovalsSummary {
   singlePunch: number | null;
   scheduleIssues: number | null;
   totalPending: number | null;
-  pendingDeductions: number | null;
   pendingOvertime: number | null;
   pendingTimeOff: number | null;
   unmappedBiometrics: number | null;
@@ -438,11 +436,12 @@ export default function AttendanceReport() {
     try {
       const today = cairoDate();
       const cycle = attendanceCycleBounds(today);
-      const [triageResult, deductionResult, overtimeResult, timeOffResult] = await Promise.allSettled([
+      // The pending attendance-deduction tile was retired (2026-10-16): the current attendance architecture has no
+      // canonical pending-deduction source (docs/ATTENDANCE_DEDUCTION_LEDGER_DECISION_2026-10-16.md).
+      const [triageResult, overtimeResult, timeOffResult] = await Promise.allSettled([
         isOperationalManager
           ? getAttendanceReviewTriage(cycle.start, today, effectiveBranch === 'الكل' ? null : effectiveBranch)
           : Promise.resolve(null),
-        isOperationalManager ? listPendingAttendanceDeductions() : Promise.resolve(null),
         isOperationalManager ? listPendingOvertime(effectiveBranch === 'الكل' ? null : effectiveBranch) : Promise.resolve(null),
         canViewTimeOff ? listStaffTimeOffRequests({ status: 'pending', limit: 200 }) : Promise.resolve(null),
       ]);
@@ -459,7 +458,6 @@ export default function AttendanceReport() {
         singlePunch: isOperationalManager && triage ? Number(triage.single_punch || 0) : null,
         scheduleIssues: isOperationalManager && triage ? Number(triage.schedule_issues || 0) : null,
         totalPending: isOperationalManager && triage ? Number(triage.total_pending || 0) : null,
-        pendingDeductions: isOperationalManager ? settledCount(deductionResult) : null,
         pendingOvertime: isOperationalManager ? settledCount(overtimeResult) : null,
         pendingTimeOff: canViewTimeOff ? settledCount(timeOffResult) : null,
         unmappedBiometrics: canViewSyncHealth && triage ? Number(triage.unmapped_active_codes || 0) : null,
@@ -533,7 +531,7 @@ export default function AttendanceReport() {
   useEffect(() => { if (activeTab === 'system' && systemSubTab === 'unmapped') void loadSyncHealth(); }, [activeTab, systemSubTab, loadSyncHealth]);
   useEffect(() => {
     if (activeTab !== 'system' || systemSubTab !== 'unmapped' || !canViewSyncHealth) return;
-    const id = window.setInterval(() => { void loadSyncHealth(); }, 60_000); // biometric-auto-refresh
+    const id = window.setInterval(() => { if (!document.hidden) void loadSyncHealth(); }, 60_000); // biometric-auto-refresh
     return () => window.clearInterval(id);
   }, [activeTab, systemSubTab, canViewSyncHealth, loadSyncHealth]);
   useEffect(() => { if (activeTab === 'dashboard') void loadApprovalsSummary(); }, [activeTab, loadApprovalsSummary]);
@@ -574,7 +572,10 @@ export default function AttendanceReport() {
     } catch (e) { const message = e instanceof Error ? e.message : 'تعذر تسجيل الحضور'; setError(message); toast.error(message); } finally { setClocking(false); }
   }
 
-  const decisionsBadge = (approvalsSummary?.pendingResolutions || 0) + (approvalsSummary?.pendingDeductions || 0) + (approvalsSummary?.pendingOvertime || 0) + (approvalsSummary?.pendingTimeOff || 0);
+  const decisionsBadge = (approvalsSummary?.pendingResolutions || 0) + (approvalsSummary?.pendingOvertime || 0) + (approvalsSummary?.pendingTimeOff || 0);
+  const systemInterpretationCount = approvalsSummary?.systemPairable == null || approvalsSummary?.systemInterpretation == null
+    ? null
+    : approvalsSummary.systemPairable + approvalsSummary.systemInterpretation;
 
   return (
     <div className="dawaa-text dawaa-print-surface space-y-6 print:space-y-4" dir="rtl">
@@ -597,13 +598,12 @@ export default function AttendanceReport() {
         <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
           <div className="mb-3 flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 text-base font-black text-[var(--dawaa-theme-heading)]"><ClipboardCheck size={18} className="text-[var(--dawaa-theme-primary-strong)]" /> مطلوب مراجعتك الآن</h2></div>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {isOperationalManager && <DecisionTile label="يحتاج قرارك فعلًا" hint={`${approvalsSummary?.trueNoPunch || 0} بدون بصمة · ${approvalsSummary?.singlePunch || 0} بصمة واحدة · ${approvalsSummary?.scheduleIssues || 0} مشكلة جدول`} value={approvalsSummary?.pendingResolutions ?? null} icon={ShieldAlert} onClick={() => openDecision('resolution', 'manager')} />}
-            {isOperationalManager && <DecisionTile label="مشكلة تفسير نظام" hint={`${(approvalsSummary?.systemPairable || 0) + (approvalsSummary?.systemInterpretation || 0)} حالة عندها أكثر من بصمة — لا تعتبر خطأ موظف`} value={(approvalsSummary?.systemPairable || 0) + (approvalsSummary?.systemInterpretation || 0)} icon={AlertTriangle} onClick={() => openDecision('resolution', 'system')} />}
+            {isOperationalManager && <DecisionTile label="يحتاج قرارك فعلًا" hint={approvalsSummary?.pendingResolutions == null ? 'غير متاح' : `${approvalsSummary.trueNoPunch ?? 0} بدون بصمة · ${approvalsSummary.singlePunch ?? 0} بصمة واحدة · ${approvalsSummary.scheduleIssues ?? 0} مشكلة جدول`} value={approvalsSummary?.pendingResolutions ?? null} icon={ShieldAlert} onClick={() => openDecision('resolution', 'manager')} />}
+            {isOperationalManager && <DecisionTile label="مشكلة تفسير نظام" hint={systemInterpretationCount == null ? 'غير متاح' : `${systemInterpretationCount} حالة عندها أكثر من بصمة — لا تعتبر خطأ موظف`} value={systemInterpretationCount} icon={AlertTriangle} onClick={() => openDecision('resolution', 'system')} />}
             {canViewSyncHealth && <DecisionTile label="أكواد نشطة غير مربوطة" hint={`${approvalsSummary?.unmappedEvents ?? 'غير متاح'} بصمة متأثرة في الدورة الحالية`} value={approvalsSummary?.unmappedBiometrics ?? null} icon={Fingerprint} onClick={() => { setSystemSubTab('unmapped'); setTab('system', 'unmapped'); }} />}
             {isOperationalManager && <DecisionTile label="بصمات من فرع آخر" hint={`${approvalsSummary?.crossBranchStaff ?? 'غير متاح'} موظفين — معلومة رقابية وليست خطأ`} value={approvalsSummary?.crossBranchEvents ?? null} icon={MapPin} onClick={() => { setSystemSubTab('cross-branch'); setTab('system', 'cross-branch'); }} />}
           </div>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {isOperationalManager && <DecisionTile label="خصومات حضور بانتظار اعتمادك" hint="لا تؤثر على رصيد أي موظف قبل قرارك" value={approvalsSummary?.pendingDeductions ?? null} icon={AlertTriangle} onClick={() => openDecision('resolution', 'manager')} />}
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
             {isOperationalManager && <DecisionTile label="أوفر تايم بانتظار اعتمادك" hint="ساعات إضافية مسجلة تحتاج قرارك" value={approvalsSummary?.pendingOvertime ?? null} icon={Timer} onClick={() => openDecision('overtime')} />}
             {canViewTimeOff && <DecisionTile label="أذونات وإجازات معلّقة" hint="طلبات إذن/إجازة بانتظار قرارك" value={approvalsSummary?.pendingTimeOff ?? null} icon={CalendarClock} onClick={() => openDecision('timeoff')} />}
           </div>
@@ -617,7 +617,7 @@ export default function AttendanceReport() {
 
       {activeTab === 'decisions' && <>
         <Tabs value={decisionSubTab} onValueChange={(v) => { setDecisionSubTab(v as DecisionSubTab); setSearchParams((params) => { const updated = new URLSearchParams(params); updated.set('tab', v); return updated; }, { replace: true }); }} dir="rtl"><TabsList className="h-auto flex-wrap justify-start gap-1.5 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-1.5">
-          {isOperationalManager && <TabsTrigger value="resolution" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-[var(--dawaa-theme-primary-text)] data-[state=active]:shadow-md"><ShieldAlert size={16} /> المراجعات والتسويات <TabBadge value={(approvalsSummary?.pendingResolutions || 0) + (approvalsSummary?.pendingDeductions || 0)} /></TabsTrigger>}
+          {isOperationalManager && <TabsTrigger value="resolution" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-[var(--dawaa-theme-primary-text)] data-[state=active]:shadow-md"><ShieldAlert size={16} /> المراجعات والتسويات <TabBadge value={approvalsSummary?.pendingResolutions || 0} /></TabsTrigger>}
           {isOperationalManager && <TabsTrigger value="overtime" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-[var(--dawaa-theme-primary-text)] data-[state=active]:shadow-md"><Timer size={16} /> الأوفر تايم <TabBadge value={approvalsSummary?.pendingOvertime} /></TabsTrigger>}
           {canViewTimeOff && <TabsTrigger value="timeoff" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-[var(--dawaa-theme-primary-text)] data-[state=active]:shadow-md"><CalendarClock size={16} /> الأذونات والإجازات <TabBadge value={approvalsSummary?.pendingTimeOff} /></TabsTrigger>}
         </TabsList></Tabs>

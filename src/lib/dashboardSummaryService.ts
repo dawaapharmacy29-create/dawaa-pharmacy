@@ -765,6 +765,9 @@ export async function fetchExecutiveDashboardSummary(params: {
   startDate: string;
   endDate: string;
   branch: string;
+  // Customer intelligence reads dawaa_dashboard_customer_cards_v13 (~10 s, all customers, all branches).
+  // Pages that do not render it opt out; the section is then reported as not loaded, never as zeros.
+  includeCustomerIntelligence?: boolean;
 }): Promise<DashboardSummary> {
   if (!isSupabaseConfigured) {
     return {
@@ -812,7 +815,9 @@ export async function fetchExecutiveDashboardSummary(params: {
     fetchOrderedRows('notifications', 'created_at', 10, errors, sourceHealth, 'notificationsAvailable'),
     fetchOrderedRows('activity_log', 'created_at', 12, errors, sourceHealth, 'activityLogAvailable'),
     readDashboardInvoiceHealth({ startDate, endDate, branch }),
-    fetchCustomerIntelligence(branch, errors, sourceHealth),
+    params.includeCustomerIntelligence === false
+      ? Promise.resolve<CustomerIntelligence>({ ...CUSTOMER_INTELLIGENCE_EMPTY, error: 'لم يُطلب تحميل مؤشرات العملاء في هذه الصفحة.' })
+      : fetchCustomerIntelligence(branch, errors, sourceHealth),
   ]);
 
   const analytics = analyticsResult.data;

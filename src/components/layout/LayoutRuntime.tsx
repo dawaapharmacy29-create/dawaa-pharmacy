@@ -37,14 +37,13 @@ const PAGE_TITLES: Record<string, string> = {
   '/staff-accounts': 'حسابات الفريق',
   '/roles-permissions': 'الأدوار والصلاحيات',
   '/activity-log': 'سجل الأنشطة',
-  '/penalty-incentive': 'إدارة الجزاءات والحوافز',
-  '/executive-2027': 'لوحة القيادة 2027',
+  '/penalty-incentive': 'الجزاءات والمكافآت',
   '/evaluation-rules': 'قواعد التقييم المرنة',
-  '/quarterly-incentives': 'الحافز الربع سنوي',
+  '/quarterly-incentives': 'نظام وقواعد الحافز',
   '/operations-center': 'المهام والتنبيهات',
   '/staff-dashboard': 'لوحة تحكم الموظف',
   '/medicine-expiry': 'متابعة صلاحية الأدوية',
-  '/attendance-report': 'الحضور والوقت',
+  '/attendance-report': 'مركز الحضور',
   '/loyalty-tiers': 'مستويات ولاء العملاء',
   '/assistant-operational-log': 'تسجيل المشتريات وخدمة العملاء',
   '/my-daily-checklist': 'التشيك ليست اليومي',
@@ -92,7 +91,7 @@ export default function LayoutRuntime({ children }: { children: React.ReactNode 
   const title = PAGE_TITLES[location.pathname] || 'صيدليات دواء';
   const mainRef = useRef<HTMLElement>(null);
   const hasChildren = Children.count(children) > 0;
-  const showTargetEditor = location.pathname === '/' || location.pathname === '/executive-2027';
+  const showTargetEditor = location.pathname === '/';
   const reviewParams = new URLSearchParams(location.search);
   const reviewsPageMode = reviewParams.get('mode');
   const reviewsPageSection = reviewParams.get('section');
