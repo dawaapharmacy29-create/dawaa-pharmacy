@@ -142,6 +142,7 @@ type StaffDirectoryRow = {
   status?: string | null;
   active?: boolean | null;
   is_active?: boolean | null;
+  visible_in_schedule?: boolean | null;
 };
 
 type ShiftScheduleRow = {
@@ -295,6 +296,14 @@ function roleGroup(role: unknown) {
   )
     return 'doctor';
   return 'other';
+}
+
+function shiftRoleLabel(role: unknown) {
+  const group = roleGroup(role);
+  if (group === 'assistant') return 'مساعد صيدلي';
+  if (group === 'delivery') return 'توصيل';
+  if (group === 'doctor') return 'صيدلي';
+  return String(role || 'فريق');
 }
 
 function safeDate(value?: string | null) {
@@ -1326,6 +1335,7 @@ export default function ExecutiveDashboard2027() {
                 status: row.status,
                 active: row.active,
                 is_active: row.active,
+                visible_in_schedule: row.visible_in_schedule,
               })) as StaffDirectoryRow[],
               error: null,
             })),
@@ -1380,6 +1390,7 @@ export default function ExecutiveDashboard2027() {
         }
         const scheduledToday = staffDirectory
           .map((member) => {
+            if (member.visible_in_schedule === false) return null;
             const name = staffName(member);
             const memberBranch = branchName(member.branch);
             const idKey = `id:${staffId(member)}|${memberBranch}`;
@@ -2034,7 +2045,7 @@ export default function ExecutiveDashboard2027() {
                       <div className="flex items-start justify-between gap-2">
                         <div>
                           <b className="block text-[var(--dawaa-theme-heading)]">{roleGroup(member.role) === 'doctor' ? normalizeDoctorName(staffName(member)) : staffName(member)}</b>
-                          <span className="text-[var(--dawaa-theme-muted)]">{branchName(member.branch)} · {String(member.role || 'فريق')}</span>
+                          <span className="text-[var(--dawaa-theme-muted)]">{branchName(member.branch)} · {shiftRoleLabel(member.role)}</span>
                         </div>
                         <span className="text-[var(--dawaa-theme-primary-strong)]">
                           {member.shifts.map((shift, index) => (
