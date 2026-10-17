@@ -49,7 +49,7 @@ jobs:
           npx eslint
           src/lib/whatsappConversationParser.ts
           src/lib/salesIntelligence/caseBasketEngine.ts
-          src/lib/salesIntelligence/customerNeedEngine.ts
+          src/lib/salesIntelligence/customerNeedModel.ts
           src/lib/salesIntelligence/__tests__/realChatSemanticGuards.test.ts
           --rule 'prettier/prettier: off'
 
