@@ -217,8 +217,8 @@ describe('canonical follow-up operational projector', () => {
     expect(client.rows[0]).toMatchObject({
       followup_identity: 'fu1|fixture|stock-check',
       status: 'ready',
-      target_table: undefined,
-      target_id: undefined,
     });
+    expect('target_table' in client.rows[0]).toBe(false);
+    expect('target_id' in client.rows[0]).toBe(false);
   });
 });
