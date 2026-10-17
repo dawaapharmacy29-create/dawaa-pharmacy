@@ -15,9 +15,17 @@ against local, disposable databases only.** Never point these scripts at Product
 | 8 | `gen_rollback.cjs <catalog.json> <20_clone_policies.sql> <out.sql>` | Regenerates the emergency rollback from the captured bodies. |
 | 9 | `classify.cjs` / `gen_actor_table.cjs` | p_actor_id classification table. |
 
-Expected local results (2026-10-17): security suite pre 58/58 (exposure reproduced), post 58/58; flows 150/150 identical;
+Original local results (2026-10-17, candidate 090000–090600): security suite pre 58/58 (exposure reproduced), post 58/58; flows 150/150 identical;
 `supabase/tests/identity_contract_live_v1.sql` 48 violations on the pre-fix clone, 0 after; rollback restores the baseline catalog;
 apply → rollback → re-apply passes; drift guards abort as designed.
 
-Local databases: a dedicated database inside the local Docker Supabase Postgres (`dawaa_sec_rehearsal`, `dawaa_sec_baseline`),
-created with `create database`; the local stack's own `postgres` database is not used.
+**Follow-up candidate changes:**
+
+- `090100` now verifies the exact full metadata of all 15 reviewed RLS policies and aborts on partial/mixed state.
+- `090700` closes postgres/public future-function default EXECUTE for PUBLIC/anon/authenticated while keeping service_role explicit.
+- the live contract now checks exact RLS POST metadata plus the postgres/public default-ACL and managed-role ownership boundary.
+
+The original 58/58 and 150/150 outputs predate those two follow-up changes. Re-run the isolated rehearsal before any Production apply decision. The required target is still native PostgreSQL **17.6**, using a `postgres` executor that is not a member of `supabase_admin`, matching Production's managed execution boundary as closely as the local environment allows.
+
+Local databases: dedicated databases inside the local Docker Supabase Postgres (`dawaa_sec_rehearsal`, `dawaa_sec_baseline`),
+created with `create database`; the local stack's own `postgres` database is not used for business test data.
