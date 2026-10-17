@@ -35,7 +35,7 @@ import { persistAutomaticCaseConversationReviewWithClient } from '../conversatio
 import { hasPaymentSettlementHandoffText } from '../../whatsappConversationUnderstandingV32';
 import { projectCanonicalSemanticsToV22, v22EnvelopeValue } from './v22SemanticProjection';
 
-export const CASE_SET_RECONCILE_RPC = 'sales_intelligence_reconcile_case_set_v1';
+export const CASE_SET_RECONCILE_RPC = 'sales_intelligence_reconcile_case_set_v2';
 export const CANONICAL_PROOF_WRITER_RPC = 'dawaa_reconcile_sales_intelligence_case_v22_v1';
 
 /** Columns every transport must load for a review source before calling the service. */
@@ -308,41 +308,49 @@ export async function runCanonicalSalesIntelligenceRefresh(
     v22CaseIdBySource,
     v22ContextByCaseId
   );
-  const batch = await runBatchPersistence(service, { conversations, dryRun: input.dryRun });
+  const batch = await runBatchPersistence(service, { conversations, dryRun: input.dryRun, deferPublication: true });
   if (input.dryRun) return { ...empty, status: 'ok', admittedSourceIds, blockedSources, batch };
 
   const outcomes = batch.caseOutcomes || [];
   const persistenceFailures = outcomes
     .filter((row) => !row.success)
     .map((row) => ({ caseId: row.caseId, error: row.error }));
-  if (persistenceFailures.length) {
-    return {
-      ...empty,
-      status: 'persistence_partial_failure',
-      admittedSourceIds,
-      blockedSources,
-      batch,
-      persistenceFailures,
-    };
-  }
-
   // 3. Publish the latest canonical case set for every admitted source BEFORE proof or evaluation
   // followers run. An empty active set is meaningful: if the new engine derives zero cases, every
   // previously-active case for that source must retire. The DB RPC owns lifecycle + proof revoke.
   const caseSetReconciliation: CaseSetReconciliation[] = [];
-  for (const source of admitted) {
+  const hasIndependentInput = (sourceId: string) => conversations.some((row) => row.conversationId === sourceId);
+  const publicationOrder = [...admitted.filter((row) => hasIndependentInput(String(row.id))),
+    ...admitted.filter((row) => !hasIndependentInput(String(row.id)))];
+  for (const source of publicationOrder) {
     const sourceId = String(source.id || '');
     const activeCaseIds = batch.caseAnalyses
       .filter((row: any) => String(row.conversationId || '') === sourceId)
       .map((row: any) => String(row.caseId));
-    const { data, error } = await service.rpc(CASE_SET_RECONCILE_RPC, {
+    // Payment-continuation followers have no independent derived set. Do not retire them
+    // while any assembly anchor is incomplete; zero-case analyzed sources still reconcile.
+    const assemblyPending = !hasIndependentInput(sourceId)
+      && (batch.caseAnalyses.some((row) => !outcomes.some((outcome) => outcome.caseId === row.caseId && outcome.success))
+        || caseSetReconciliation.some((row) => !row.ok));
+    const sourceOutcomes = outcomes.filter((row) => activeCaseIds.includes(row.caseId));
+    if (assemblyPending || activeCaseIds.some((id) => !sourceOutcomes.some((row) => row.caseId === id && row.success && row.analysis?.analysisId))) {
+      caseSetReconciliation.push({ sourceId, ok: false, status: assemblyPending ? 'dependency_pending_retry' : 'persistence_failed_pending_retry',
+        activeCaseIds, retiredCaseIds: [], reactivatedCaseIds: [], error: 'source_case_set_incomplete' });
+      continue;
+    }
+    let data: any = null;
+    let error: any = null;
+    try {
+      ({ data, error } = await service.rpc(CASE_SET_RECONCILE_RPC, {
       p_conversation_id: sourceId,
       p_active_case_ids: activeCaseIds,
-    });
+      p_analysis_ids: Object.fromEntries(sourceOutcomes.map((row) => [row.caseId, row.analysis!.analysisId])),
+      }));
+    } catch (caught) { error = { message: caught instanceof Error ? caught.message : String(caught) }; }
     const payload = data && typeof data === 'object' ? data : null;
     caseSetReconciliation.push({
       sourceId,
-      ok: !error && payload?.ok !== false,
+      ok: !error && payload?.ok === true && payload?.status === 'reconciled',
       status: error ? 'rpc_error' : String(payload?.status || 'empty_reconcile_result'),
       activeCaseIds,
       retiredCaseIds: Array.isArray(payload?.retiredCaseIds) ? payload.retiredCaseIds.map(String) : [],
@@ -352,22 +360,16 @@ export async function runCanonicalSalesIntelligenceRefresh(
       error: error?.message ?? null,
     });
   }
-  if (caseSetReconciliation.some((row) => !row.ok || row.status !== 'reconciled')) {
-    return {
-      ...empty,
-      status: 'case_set_reconciliation_failure',
-      admittedSourceIds,
-      blockedSources,
-      batch,
-      caseSetReconciliation,
-    };
-  }
+  const reconciledSources = new Set(caseSetReconciliation.filter((row) => row.ok).map((row) => row.sourceId));
+  const lifecycleStatus = persistenceFailures.length || caseSetReconciliation.some((row) => row.status === 'persistence_failed_pending_retry')
+    ? 'persistence_partial_failure' as const
+    : caseSetReconciliation.some((row) => !row.ok) ? 'case_set_reconciliation_failure' as const : 'ok' as const;
 
   // 4. Canonical proof bridge — the ONLY writer of Canonical Sale Proof into Customer Case V22
   // for active cases. Truth is bidirectional (V46): the RPC re-reads the CURRENT persisted
   // analysis and promotes, keeps, moves (invoice A -> B) or revokes the proof this case wrote.
   const persisted = new Set(outcomes.filter((row) => row.success).map((row) => row.caseId));
-  const reconcileCandidates = batch.caseAnalyses.filter((row: any) => persisted.has(row.caseId));
+  const reconcileCandidates = batch.caseAnalyses.filter((row: any) => persisted.has(row.caseId) && reconciledSources.has(String(row.conversationId)));
   const canonicalReconciliation: CanonicalProofReconciliation[] = [];
   for (const analysis of reconcileCandidates) {
     const { data, error } = await service.rpc(CANONICAL_PROOF_WRITER_RPC, {
@@ -383,7 +385,8 @@ export async function runCanonicalSalesIntelligenceRefresh(
   if (canonicalReconciliation.some((row) => row.status === 'rpc_error')) {
     return {
       ...empty,
-      status: 'proof_bridge_transport_failure',
+      status: lifecycleStatus === 'ok' ? 'proof_bridge_transport_failure' : lifecycleStatus,
+      persistenceFailures,
       admittedSourceIds,
       blockedSources,
       batch,
@@ -481,7 +484,7 @@ export async function runCanonicalSalesIntelligenceRefresh(
   let enrichedComplaintActions = 0;
   for (const source of admitted) {
     const sourceId = String(source.id);
-    const sourceAnalyses = batch.caseAnalyses.filter((row: any) => row.conversationId === sourceId);
+    const sourceAnalyses = reconcileCandidates.filter((row: any) => row.conversationId === sourceId);
     const provenAnalyses = sourceAnalyses.filter((row: any) => reconciledCaseIds.has(row.caseId));
     if (provenAnalyses.length) {
       reconciledActions += (
@@ -496,7 +499,8 @@ export async function runCanonicalSalesIntelligenceRefresh(
 
   return {
     ...empty,
-    status: 'ok',
+    status: lifecycleStatus,
+    persistenceFailures,
     admittedSourceIds,
     blockedSources,
     batch,

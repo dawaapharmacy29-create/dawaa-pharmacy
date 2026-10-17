@@ -1,3 +1,4 @@
+import LifecycleExceptionsPanel from './LifecycleExceptionsPanel';
 import { loadCanonicalStaffRows } from '@/lib/salesIntelligence/canonicalKpiAdapters';
 import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
 import { nextDayYmdV1 } from '@/lib/salesIntelligence/dashboardScopeV1';
@@ -322,6 +323,7 @@ export default function SalesIntelligenceManagementOverviewV1({
         </div>
       </section>
 
+      <LifecycleExceptionsPanel />
       <SalesIntelligenceCoveragePanelV1 />
 
       <SalesIntelligenceOpportunityCenterV1 cycle={cycle} branch={branch} />

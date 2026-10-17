@@ -8218,25 +8218,27 @@ function pipelineBaseInputFor(conversation, context) {
 }
 
 // src/lib/salesIntelligence/persistence/caseWriter.ts
-async function upsertSalesIntelligenceCase(supabaseClient, caseId, content) {
+async function upsertSalesIntelligenceCase(supabaseClient, caseId, content, deferPublication = false) {
   const { data: existing, error: readError } = await supabaseClient.from("sales_intelligence_cases").select("case_id, conversation_id, source_case_id_v22, customer_id, customer_phone, branch_id, branch_name_raw").eq("case_id", caseId).maybeSingle();
   if (readError) throw readError;
   const canonicalIdentityChanged = !existing || existing.conversation_id !== content.conversationId || existing.source_case_id_v22 !== content.sourceCaseIdV22 || existing.customer_id !== content.customerId || existing.customer_phone !== content.customerPhone || existing.branch_id !== content.branchId || existing.branch_name_raw !== content.branchNameRaw;
-  const { error: upsertError } = await supabaseClient.from("sales_intelligence_cases").upsert(
-    {
-      case_id: caseId,
-      conversation_id: content.conversationId,
-      source_case_id_v22: content.sourceCaseIdV22,
-      customer_id: content.customerId,
-      customer_phone: content.customerPhone,
-      branch_id: content.branchId,
-      branch_name_raw: content.branchNameRaw,
-      case_started_at: content.caseStartedAt,
-      case_ended_at: content.caseEndedAt,
-      last_seen_at: (/* @__PURE__ */ new Date()).toISOString()
-    },
-    { onConflict: "case_id" }
-  );
+  const payload = {
+    case_id: caseId,
+    conversation_id: content.conversationId,
+    source_case_id_v22: content.sourceCaseIdV22,
+    customer_id: content.customerId,
+    customer_phone: content.customerPhone,
+    branch_id: content.branchId,
+    branch_name_raw: content.branchNameRaw,
+    case_started_at: content.caseStartedAt,
+    case_ended_at: content.caseEndedAt,
+    last_seen_at: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  if (deferPublication) {
+    const { error } = await supabaseClient.from("sales_intelligence_cases").upsert({ ...payload, is_active: false }, { onConflict: "case_id", ignoreDuplicates: true });
+    if (error) throw error;
+  }
+  const { error: upsertError } = deferPublication ? await supabaseClient.from("sales_intelligence_cases").update(payload).eq("case_id", caseId) : await supabaseClient.from("sales_intelligence_cases").upsert(payload, { onConflict: "case_id" });
   if (upsertError) throw upsertError;
   return { caseId, wasCreated: !existing, canonicalIdentityChanged };
 }
@@ -8346,14 +8348,14 @@ var ENGINE_VERSIONS = {
 var BRANCH_IDENTITY_MAPPING_VERSION = "branch-identity-mapping-v2";
 
 // src/lib/salesIntelligence/persistence/analysisWriter.ts
-async function persistCaseAnalysis(supabaseClient, caseId, rawWhatsAppExportText, content, trustedConversationStartedAt, saleProofFingerprint2) {
+async function persistCaseAnalysis(supabaseClient, caseId, rawWhatsAppExportText, content, trustedConversationStartedAt, saleProofFingerprint2, deferPublication = false) {
   const semanticSourceHash = await computeSemanticSourceHash({
     rawWhatsAppExportText,
     trustedConversationStartedAt: trustedConversationStartedAt ?? null,
     branchIdentityMappingVersion: BRANCH_IDENTITY_MAPPING_VERSION,
     saleProofFingerprint: saleProofFingerprint2 ?? null
   });
-  const { data, error } = await supabaseClient.rpc("sales_intelligence_write_case_analysis", {
+  const { data, error } = await supabaseClient.rpc(deferPublication ? "sales_intelligence_stage_case_analysis_v1" : "sales_intelligence_write_case_analysis", {
     p_case_id: caseId,
     p_row: {
       pipeline_version: PIPELINE_VERSION,
@@ -9251,14 +9253,15 @@ async function runBatchPersistence(supabaseClient, input) {
         match: null
       };
       try {
-        outcome.caseUpsert = await upsertSalesIntelligenceCase(supabaseClient, analysis.caseId, caseContent);
+        outcome.caseUpsert = await upsertSalesIntelligenceCase(supabaseClient, analysis.caseId, caseContent, input.deferPublication === true);
         outcome.analysis = await persistCaseAnalysis(
           supabaseClient,
           analysis.caseId,
           conversationInput?.rawWhatsAppExportText ?? "",
           caseAnalysisContent,
           conversationInput?.trustedConversationStartedAt ?? null,
-          saleProofFingerprint(analysis)
+          saleProofFingerprint(analysis),
+          input.deferPublication === true
         );
         outcome.attribution = await persistAttribution(
           supabaseClient,
@@ -9306,32 +9309,6 @@ async function runBatchPersistence(supabaseClient, input) {
         outcome.error = err instanceof Error ? err.message : String(err);
       }
       caseOutcomes.push(outcome);
-    }
-  }
-  if (!input.dryRun) {
-    const derivedCaseIdsByConversation = /* @__PURE__ */ new Map();
-    for (const analysis of caseAnalyses) {
-      const set = derivedCaseIdsByConversation.get(analysis.conversationId) ?? /* @__PURE__ */ new Set();
-      set.add(analysis.caseId);
-      derivedCaseIdsByConversation.set(analysis.conversationId, set);
-    }
-    const outcomeByCaseId = new Map(caseOutcomes.map((outcome) => [outcome.caseId, outcome]));
-    for (const conversation of effectiveConversations) {
-      const derivedCaseIds = derivedCaseIdsByConversation.get(conversation.conversationId) ?? /* @__PURE__ */ new Set();
-      const allDerivedCasesSucceeded = Array.from(derivedCaseIds).every(
-        (caseId) => outcomeByCaseId.get(caseId)?.success === true
-      );
-      if (!allDerivedCasesSucceeded) continue;
-      const { data: existingCases, error: existingCasesError } = await supabaseClient.from("sales_intelligence_cases").select("case_id").eq("conversation_id", conversation.conversationId);
-      if (existingCasesError) throw existingCasesError;
-      const staleCaseIds = (existingCases ?? []).map((row) => String(row.case_id ?? "").trim()).filter((caseId) => caseId && !derivedCaseIds.has(caseId));
-      if (!staleCaseIds.length) continue;
-      const { error: retireError } = await supabaseClient.from("sales_intelligence_case_analyses").update({
-        is_current: false,
-        superseded_at: (/* @__PURE__ */ new Date()).toISOString(),
-        superseded_by_analysis_id: null
-      }).in("case_id", staleCaseIds).eq("is_current", true);
-      if (retireError) throw retireError;
     }
   }
   const persistencePlanningMs = Date.now() - planningStart;
@@ -13392,7 +13369,7 @@ function errorText(error) {
 }
 
 // src/lib/salesIntelligence/refresh/canonicalRefreshService.ts
-var CASE_SET_RECONCILE_RPC = "sales_intelligence_reconcile_case_set_v1";
+var CASE_SET_RECONCILE_RPC = "sales_intelligence_reconcile_case_set_v2";
 var CANONICAL_PROOF_WRITER_RPC = "dawaa_reconcile_sales_intelligence_case_v22_v1";
 var CANONICAL_REFRESH_SOURCE_COLUMNS = [
   ...REVIEW_SOURCE_BATCH_INPUT_COLUMNS,
@@ -13536,32 +13513,48 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
     v22CaseIdBySource,
     v22ContextByCaseId
   );
-  const batch = await runBatchPersistence(service, { conversations, dryRun: input.dryRun });
+  const batch = await runBatchPersistence(service, { conversations, dryRun: input.dryRun, deferPublication: true });
   if (input.dryRun) return { ...empty, status: "ok", admittedSourceIds, blockedSources, batch };
   const outcomes = batch.caseOutcomes || [];
   const persistenceFailures = outcomes.filter((row) => !row.success).map((row) => ({ caseId: row.caseId, error: row.error }));
-  if (persistenceFailures.length) {
-    return {
-      ...empty,
-      status: "persistence_partial_failure",
-      admittedSourceIds,
-      blockedSources,
-      batch,
-      persistenceFailures
-    };
-  }
   const caseSetReconciliation = [];
-  for (const source of admitted) {
+  const hasIndependentInput = (sourceId) => conversations.some((row) => row.conversationId === sourceId);
+  const publicationOrder = [
+    ...admitted.filter((row) => hasIndependentInput(String(row.id))),
+    ...admitted.filter((row) => !hasIndependentInput(String(row.id)))
+  ];
+  for (const source of publicationOrder) {
     const sourceId = String(source.id || "");
     const activeCaseIds = batch.caseAnalyses.filter((row) => String(row.conversationId || "") === sourceId).map((row) => String(row.caseId));
-    const { data, error } = await service.rpc(CASE_SET_RECONCILE_RPC, {
-      p_conversation_id: sourceId,
-      p_active_case_ids: activeCaseIds
-    });
+    const assemblyPending = !hasIndependentInput(sourceId) && (batch.caseAnalyses.some((row) => !outcomes.some((outcome) => outcome.caseId === row.caseId && outcome.success)) || caseSetReconciliation.some((row) => !row.ok));
+    const sourceOutcomes = outcomes.filter((row) => activeCaseIds.includes(row.caseId));
+    if (assemblyPending || activeCaseIds.some((id) => !sourceOutcomes.some((row) => row.caseId === id && row.success && row.analysis?.analysisId))) {
+      caseSetReconciliation.push({
+        sourceId,
+        ok: false,
+        status: assemblyPending ? "dependency_pending_retry" : "persistence_failed_pending_retry",
+        activeCaseIds,
+        retiredCaseIds: [],
+        reactivatedCaseIds: [],
+        error: "source_case_set_incomplete"
+      });
+      continue;
+    }
+    let data = null;
+    let error = null;
+    try {
+      ({ data, error } = await service.rpc(CASE_SET_RECONCILE_RPC, {
+        p_conversation_id: sourceId,
+        p_active_case_ids: activeCaseIds,
+        p_analysis_ids: Object.fromEntries(sourceOutcomes.map((row) => [row.caseId, row.analysis.analysisId]))
+      }));
+    } catch (caught) {
+      error = { message: caught instanceof Error ? caught.message : String(caught) };
+    }
     const payload = data && typeof data === "object" ? data : null;
     caseSetReconciliation.push({
       sourceId,
-      ok: !error && payload?.ok !== false,
+      ok: !error && payload?.ok === true && payload?.status === "reconciled",
       status: error ? "rpc_error" : String(payload?.status || "empty_reconcile_result"),
       activeCaseIds,
       retiredCaseIds: Array.isArray(payload?.retiredCaseIds) ? payload.retiredCaseIds.map(String) : [],
@@ -13569,18 +13562,10 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
       error: error?.message ?? null
     });
   }
-  if (caseSetReconciliation.some((row) => !row.ok || row.status !== "reconciled")) {
-    return {
-      ...empty,
-      status: "case_set_reconciliation_failure",
-      admittedSourceIds,
-      blockedSources,
-      batch,
-      caseSetReconciliation
-    };
-  }
+  const reconciledSources = new Set(caseSetReconciliation.filter((row) => row.ok).map((row) => row.sourceId));
+  const lifecycleStatus = persistenceFailures.length || caseSetReconciliation.some((row) => row.status === "persistence_failed_pending_retry") ? "persistence_partial_failure" : caseSetReconciliation.some((row) => !row.ok) ? "case_set_reconciliation_failure" : "ok";
   const persisted = new Set(outcomes.filter((row) => row.success).map((row) => row.caseId));
-  const reconcileCandidates = batch.caseAnalyses.filter((row) => persisted.has(row.caseId));
+  const reconcileCandidates = batch.caseAnalyses.filter((row) => persisted.has(row.caseId) && reconciledSources.has(String(row.conversationId)));
   const canonicalReconciliation = [];
   for (const analysis of reconcileCandidates) {
     const { data, error } = await service.rpc(CANONICAL_PROOF_WRITER_RPC, {
@@ -13594,7 +13579,8 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
   if (canonicalReconciliation.some((row) => row.status === "rpc_error")) {
     return {
       ...empty,
-      status: "proof_bridge_transport_failure",
+      status: lifecycleStatus === "ok" ? "proof_bridge_transport_failure" : lifecycleStatus,
+      persistenceFailures,
       admittedSourceIds,
       blockedSources,
       batch,
@@ -13677,7 +13663,7 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
   let enrichedComplaintActions = 0;
   for (const source of admitted) {
     const sourceId = String(source.id);
-    const sourceAnalyses = batch.caseAnalyses.filter((row) => row.conversationId === sourceId);
+    const sourceAnalyses = reconcileCandidates.filter((row) => row.conversationId === sourceId);
     const provenAnalyses = sourceAnalyses.filter((row) => reconciledCaseIds.has(row.caseId));
     if (provenAnalyses.length) {
       reconciledActions += (await reconcileSoldCustomerRequestActions(service, sourceId, provenAnalyses)).reconciledActions;
@@ -13686,7 +13672,8 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
   }
   return {
     ...empty,
-    status: "ok",
+    status: lifecycleStatus,
+    persistenceFailures,
     admittedSourceIds,
     blockedSources,
     batch,

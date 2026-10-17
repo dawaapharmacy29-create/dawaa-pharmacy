@@ -122,7 +122,7 @@ function batch(conversations: any[]) {
     },
   }));
   return {
-    caseOutcomes: caseAnalyses.map((row) => ({ caseId: row.caseId, success: true })),
+    caseOutcomes: caseAnalyses.map((row) => ({ caseId: row.caseId, success: true, analysis: { analysisId: `analysis-${row.caseId}` } })),
     caseAnalyses,
   };
 }
@@ -244,6 +244,7 @@ describe('manual backfill --apply uses the canonical boundary', () => {
     expect(rpc).toHaveBeenNthCalledWith(1, CASE_SET_RECONCILE_RPC, {
       p_conversation_id: 'fine',
       p_active_case_ids: ['fine:interaction:0'],
+      p_analysis_ids: { 'fine:interaction:0': 'analysis-fine:interaction:0' },
     });
     expect(rpc).toHaveBeenNthCalledWith(2, CANONICAL_PROOF_WRITER_RPC, {
       p_sales_case_id: 'fine:interaction:0',
