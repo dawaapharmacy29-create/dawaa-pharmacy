@@ -71,8 +71,8 @@ function normalizeArabicText(value) {
   return String(value || "").trim().replace(/[\u064B-\u065F\u0640]/g, "").replace(/[\u0623\u0625\u0622]/g, "\u0627").replace(/\u0649/g, "\u064A").replace(/\u0629/g, "\u0647").replace(/\s+/g, " ").toLowerCase();
 }
 function normalizeBranchName(value) {
-  const text2 = String(value || "").trim();
-  const normalized = normalizeArabicText(text2);
+  const text5 = String(value || "").trim();
+  const normalized = normalizeArabicText(text5);
   if (!normalized) return UNKNOWN_BRANCH;
   if (/all|every|branches/i.test(normalized) || normalized.includes("\u0643\u0644") || normalized.includes("\u0627\u0644\u0643\u0644")) {
     return ALL_BRANCHES;
@@ -83,7 +83,7 @@ function normalizeBranchName(value) {
   if (/shamy|shami|elshamy|el shamy|alshamy|al shamy|elshami|el shami/i.test(normalized) || normalized.includes("\u0627\u0644\u0634\u0627\u0645\u064A") || normalized.includes("\u0634\u0627\u0645\u064A")) {
     return SHAMY_BRANCH;
   }
-  return text2;
+  return text5;
 }
 
 // src/lib/invoices/invoiceCore.ts
@@ -126,22 +126,22 @@ function parseInvoiceDateTime(value) {
   if (typeof value === "number") {
     return excelSerialToInvoiceDate(value)?.toISOString() ?? null;
   }
-  const text2 = cleanText(value);
-  if (!text2) return null;
-  if (/^\d+(\.\d+)?$/.test(text2)) {
-    const serial = Number.parseFloat(text2);
+  const text5 = cleanText(value);
+  if (!text5) return null;
+  if (/^\d+(\.\d+)?$/.test(text5)) {
+    const serial = Number.parseFloat(text5);
     if (serial > 4e4 && serial < 6e4) {
       return excelSerialToInvoiceDate(serial)?.toISOString() ?? null;
     }
   }
-  if (/^\d{4}-\d{2}-\d{2}/.test(text2)) {
-    const parsed = new Date(text2);
+  if (/^\d{4}-\d{2}-\d{2}/.test(text5)) {
+    const parsed = new Date(text5);
     if (!Number.isNaN(parsed.getTime())) {
       const year = parsed.getUTCFullYear();
       if (year >= 2e3 && year <= 2100) return parsed.toISOString();
     }
   }
-  const egyptian = text2.match(
+  const egyptian = text5.match(
     /^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/
   );
   if (egyptian) {
@@ -161,7 +161,7 @@ function parseInvoiceDateTime(value) {
     }
     return null;
   }
-  const fallback = new Date(text2);
+  const fallback = new Date(text5);
   if (!Number.isNaN(fallback.getTime())) {
     const year = fallback.getUTCFullYear();
     if (year >= 2e3 && year <= 2100) return fallback.toISOString();
@@ -455,8 +455,9 @@ function cairoCalendarParts(date) {
 
 // src/lib/whatsappConversationParser.ts
 var STAFF_INTRO_PATTERNS = [
-  /مع حضرتك\s+(?:د\.?|دكتور(?:ة)?|دكتوره)\s*([^\n،,.]+)/i,
-  /معاك(?:ي)?\s+(?:د\.?|دكتور(?:ة)?|دكتوره)\s*([^\n،,.]+)/i,
+  /مع\s+حضرتك\s+(?:(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*)?([^\n،,.]+?)\s+من\s+(?:خدمة\s*عملاء\s+(?:صيدليات\s+)?دواء|صيدليات\s+دواء)/i,
+  /مع حضرتك\s+(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*([^\n،,.]+)/i,
+  /معاك(?:ي)?\s+(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*([^\n،,.]+)/i,
   /(?:د\.?|دكتور(?:ة)?|دكتوره)\s+([^\n،,.]+)\s+من\s+(?:خدمة عملاء|صيدليات)\s+دواء/i
 ];
 var PHARMACY_TEXT_RX = /(صيدليات دواء|مع حضرتك|تحت امر حضرتك|تحت أمر حضرتك|تم تأكيد الطلب|جاري الارسال|جاري الإرسال)/i;
@@ -510,21 +511,21 @@ function timestampFromPrefix(prefix) {
   if (prefix.meridiem === "am" && hour === 12) hour = 0;
   return cairoWallClockToDate(prefix.year, prefix.month, prefix.day, hour, prefix.minute, prefix.second);
 }
-function detectKind(text2) {
-  const value = text2.toLowerCase();
-  if (/(messages and calls are end-to-end encrypted|created group|added you|changed the subject|security code changed)/i.test(text2)) return "system";
+function detectKind(text5) {
+  const value = text5.toLowerCase();
+  if (/(messages and calls are end-to-end encrypted|created group|added you|changed the subject|security code changed)/i.test(text5)) return "system";
   if (/<voice message omitted>|audio omitted|صوت محذوف|\[voice message\]|\.(?:opus|ogg|mp3|m4a|wav)(?:\s|$|\))/i.test(
-    text2
+    text5
   ))
     return "voice";
   if (/<image omitted>|image omitted|صورة محذوفة|\[image\]|\.(?:jpe?g|png|webp|gif|heic)(?:\s|$|\))/i.test(
-    text2
+    text5
   ))
     return "image";
-  if (/<video omitted>|video omitted|فيديو محذوف|\[video\]|\.(?:mp4|mov)(?:\s|$|\))/i.test(text2))
+  if (/<video omitted>|video omitted|فيديو محذوف|\[video\]|\.(?:mp4|mov)(?:\s|$|\))/i.test(text5))
     return "video";
   if (/<document omitted>|document omitted|مستند محذوف|\[document\]|\[file\]|\.(?:pdf|docx?|xlsx?)(?:\s|$|\))/i.test(
-    text2
+    text5
   ))
     return "document";
   if (/you deleted this message|this message was deleted|تم حذف هذه الرسالة/i.test(value))
@@ -532,9 +533,9 @@ function detectKind(text2) {
   if (/omitted>|محذوف/i.test(value)) return "unknown";
   return "text";
 }
-function hasMediaPlaceholder(text2, kind) {
+function hasMediaPlaceholder(text5, kind) {
   return MEDIA_KIND_SET.has(kind) && /(omitted>|\[(?:voice message|image|video|document|file)\]|<attached:|\.(?:jpe?g|png|webp|gif|heic|opus|ogg|mp3|m4a|wav|mp4|mov|pdf|docx?|xlsx?))/i.test(
-    text2
+    text5
   );
 }
 function messageId(index, timestamp, sender) {
@@ -572,8 +573,8 @@ function finalizeDirections(messages) {
   }
   return humans;
 }
-function parseTextExport(text2) {
-  const lines = text2.replace(/^\uFEFF/, "").split(/\r?\n/);
+function parseTextExport(text5) {
+  const lines = text5.replace(/^\uFEFF/, "").split(/\r?\n/);
   const messages = [];
   let current = null;
   for (const line of lines) {
@@ -696,8 +697,8 @@ function trustedDateParts(value) {
   if (Number.isNaN(date.getTime())) return null;
   return { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() };
 }
-function parseMarkdownExport(text2, trustedConversationStartedAt) {
-  const lines = text2.replace(/^\uFEFF/, "").split(/\r?\n/);
+function parseMarkdownExport(text5, trustedConversationStartedAt) {
+  const lines = text5.replace(/^\uFEFF/, "").split(/\r?\n/);
   const messages = [];
   let currentDate = trustedDateParts(trustedConversationStartedAt);
   const trustedAnchor = trustedConversationStartedAt ? trustedConversationStartedAt instanceof Date ? trustedConversationStartedAt : new Date(trustedConversationStartedAt) : null;
@@ -786,8 +787,8 @@ function parseMarkdownExport(text2, trustedConversationStartedAt) {
   finalizeDirections(messages);
   return messages;
 }
-function detectWhatsAppExportFormat(text2) {
-  const head = text2.slice(0, 5e3);
+function detectWhatsAppExportFormat(text5) {
+  const head = text5.slice(0, 5e3);
   if (/^# WhatsApp Chat Export:/m.test(head) || /^##\s+[A-Za-z]+\s+\d{1,2},\s+\d{4}$/m.test(head) || /^\[\d{1,2}:\d{2}(?::\d{2})?\s*[APap][Mm]\]\s+\*\*[^*]{1,100}:\*\*/m.test(head)) return "md";
   return "txt";
 }
@@ -802,11 +803,11 @@ function rebaseTextTimelineToTrustedStart(messages, trustedConversationStartedAt
     return { ...message, timestamp, id: messageId(index, timestamp, message.sender) };
   });
 }
-function parseWhatsAppExport(text2, options = {}) {
-  if (detectWhatsAppExportFormat(text2) === "md") {
-    return parseMarkdownExport(text2, options.trustedConversationStartedAt);
+function parseWhatsAppExport(text5, options = {}) {
+  if (detectWhatsAppExportFormat(text5) === "md") {
+    return parseMarkdownExport(text5, options.trustedConversationStartedAt);
   }
-  return rebaseTextTimelineToTrustedStart(parseTextExport(text2), options.trustedConversationStartedAt);
+  return rebaseTextTimelineToTrustedStart(parseTextExport(text5), options.trustedConversationStartedAt);
 }
 function extractIntroducedStaffName(message) {
   if (message.direction !== "outbound") return null;
@@ -923,9 +924,9 @@ var COMMIT_REPLY_RX = new RegExp(
   `${COMMIT_FUTURE}\u062A\u0627\u0628\u0639(?![\\p{L}])|${COMMIT_FUTURE}\u062A\u0627\u0628\u0639\\s*${COMMIT_RECIPIENT}|${COMMIT_FUTURE}${REPLY_VERB}(?:\u0643|\u0643\u064A|\u0643\u0645)(?![\\p{L}])|${COMMIT_FUTURE}${REPLY_VERB}${COMMIT_GAP}\\s*(?:\u0639\u0644\u0649\\s*|\u0644)?${COMMIT_RECIPIENT}`,
   "iu"
 );
-function classifyStaffCommitmentsV32(text2) {
+function classifyStaffCommitmentsV32(text5) {
   const out = [];
-  for (const clause of statementClauses(text2)) {
+  for (const clause of statementClauses(text5)) {
     const withObject = clause.match(COMMIT_CHECK_WITH_OBJECT_RX);
     const bare = withObject ? null : clause.match(COMMIT_BARE_CHECK_RX);
     if (withObject || bare) {
@@ -958,56 +959,56 @@ var PRODUCT_REFERENCE_RX = /(?<![\p{L}\p{N}])(?:ده|دي|دول|منه|منها
 var STAFF_NON_PRODUCT_TEMPLATE_RX = /أهلا\s*وسهلا|نورت(?:نا|ينا)|صيدليات\s*دواء|خدمة\s*التوصيل|على\s*مدار\s*24\s*ساعة|مع\s*حضرتك|تحت\s*أمر\s*حضرتك|تشرفنا\s*بخدمت/i;
 function isPlausibleStaffProductOffer(message) {
   if (message.role !== "staff" || !message.isMeaningful) return false;
-  const text2 = message.text.trim();
-  if (!text2 || STAFF_NON_PRODUCT_TEMPLATE_RX.test(text2)) return false;
-  if (WEAK_IMPLICIT_RX.test(text2) || classifyConfirmationStrength(text2) !== "none") return false;
-  return PRICE_RX.test(text2) || /متوفر|موجود|عندنا|بديل|ترشيح|أنسب|افضل|أفضل|سعر|عبوة|علبة|شريط|كبسول|قرص|جل|كريم|شامبو|غسول|سيرم|سيروم|لوشن|spray|cream|gel|shampoo|serum|lotion/i.test(text2) || /[A-Za-z]{3,}/.test(text2);
+  const text5 = message.text.trim();
+  if (!text5 || STAFF_NON_PRODUCT_TEMPLATE_RX.test(text5)) return false;
+  if (WEAK_IMPLICIT_RX.test(text5) || classifyConfirmationStrength(text5) !== "none") return false;
+  return PRICE_RX.test(text5) || /متوفر|موجود|عندنا|بديل|ترشيح|أنسب|افضل|أفضل|سعر|عبوة|علبة|شريط|كبسول|قرص|جل|كريم|شامبو|غسول|سيرم|سيروم|لوشن|spray|cream|gel|shampoo|serum|lotion/i.test(text5) || /[A-Za-z]{3,}/.test(text5);
 }
 function isPlausibleCustomerProductMention(message) {
   if (message.role !== "customer" || !message.isMeaningful) return false;
-  const text2 = message.text.trim();
-  if (!text2) return false;
-  if (GREETING_ONLY_RX.test(text2) || THANKS_CLOSING_ONLY_RX.test(text2) || ACCEPTANCE_RX.test(text2) || REJECTION_RX.test(text2)) return false;
-  const strippedForwarded = text2.replace(/^\s*\[?forwarded\]?\s*/i, "").trim();
+  const text5 = message.text.trim();
+  if (!text5) return false;
+  if (GREETING_ONLY_RX.test(text5) || THANKS_CLOSING_ONLY_RX.test(text5) || ACCEPTANCE_RX.test(text5) || REJECTION_RX.test(text5)) return false;
+  const strippedForwarded = text5.replace(/^\s*\[?forwarded\]?\s*/i, "").trim();
   if (!strippedForwarded) return false;
   const withoutReference = strippedForwarded.replace(PRODUCT_REFERENCE_RX, "").trim();
   if (!withoutReference || /^(?:موجود|متوفر|عندكم|عايز|عاوز|محتاج|ابعت|هات)(?:\s|$)/iu.test(withoutReference)) return false;
   return /[A-Za-z]{3,}/.test(strippedForwarded) || /\b\d+(?:\.\d+)?\s*(?:mg|mcg|gm|g|ml|%)\b/i.test(strippedForwarded) || /جل|كريم|شامبو|غسول|سيرم|سيروم|لوشن|بخاخ|قطره|قطرة|امبول|أمبول|كبسول|قرص|مرهم|spray|cream|gel|shampoo|serum|lotion|drops?|amp(?:oule)?/i.test(strippedForwarded);
 }
-function isGreetingOnly(text2) {
-  return GREETING_ONLY_RX.test((text2 || "").trim());
+function isGreetingOnly(text5) {
+  return GREETING_ONLY_RX.test((text5 || "").trim());
 }
-function isBareAcknowledgementOnly(text2) {
-  return WEAK_IMPLICIT_RX.test((text2 || "").trim());
+function isBareAcknowledgementOnly(text5) {
+  return WEAK_IMPLICIT_RX.test((text5 || "").trim());
 }
 function isSubstantiveConfirmationSignal(signal) {
   return signal.confidence >= 0.5;
 }
-function isAcceptanceOnly(text2) {
-  return ACCEPTANCE_RX.test((text2 || "").trim());
+function isAcceptanceOnly(text5) {
+  return ACCEPTANCE_RX.test((text5 || "").trim());
 }
 var COMMITMENT_ONLY_RX = /^(?:(?:تمام|ماشي|اوك|ok|خلاص|ايوه|ايوا|اه|آه|أه|طيب|حلو|موافق)[،,!.\s]*)*(?:هاته|هاتها|هاتهم|هاتيه|هاتيها|ابعته|ابعتها|ابعتهم|ابعتيه|ابعتيها|خليه|خليها|هاخده|هاخدها|هاخدهم|(?:هات|ابعت|ابعتلي|هاتلي)\s*(?:ده|دي|دا|دول|البديل))(?:[،,!.\s]*(?:لو\s*سمحت|من\s*فضلك|يا\s*(?:دكتور[ةه]?|فندم)|بسرعة|خلاص|تمام))*[!.،,\s]*$/i;
-function isCommitmentOnly(text2) {
-  return COMMITMENT_ONLY_RX.test((text2 || "").trim());
+function isCommitmentOnly(text5) {
+  return COMMITMENT_ONLY_RX.test((text5 || "").trim());
 }
-function isRejectionOnly(text2) {
-  return REJECTION_RX.test((text2 || "").trim());
+function isRejectionOnly(text5) {
+  return REJECTION_RX.test((text5 || "").trim());
 }
-function isThanksOrClosingOnly(text2) {
-  return THANKS_CLOSING_ONLY_RX.test((text2 || "").trim());
+function isThanksOrClosingOnly(text5) {
+  return THANKS_CLOSING_ONLY_RX.test((text5 || "").trim());
 }
 function isRequestCandidate(message) {
   if (message.role !== "customer" || !message.isMeaningful) return false;
-  const text2 = message.text;
-  if (isGreetingOnly(text2)) return false;
-  if (isBareAcknowledgementOnly(text2)) return false;
-  if (isAcceptanceOnly(text2)) return false;
-  if (isCommitmentOnly(text2)) return false;
-  if (isRejectionOnly(text2)) return false;
-  if (!REQUEST_VERB_RX.test(text2) && (isNonRequestIntentStatement(text2) || classifyCustomerTimingRequestV32(text2))) {
+  const text5 = message.text;
+  if (isGreetingOnly(text5)) return false;
+  if (isBareAcknowledgementOnly(text5)) return false;
+  if (isAcceptanceOnly(text5)) return false;
+  if (isCommitmentOnly(text5)) return false;
+  if (isRejectionOnly(text5)) return false;
+  if (!REQUEST_VERB_RX.test(text5) && (isNonRequestIntentStatement(text5) || classifyCustomerTimingRequestV32(text5))) {
     return false;
   }
-  if (isThanksOrClosingOnly(text2)) return false;
+  if (isThanksOrClosingOnly(text5)) return false;
   return true;
 }
 function contextWindowV32(messages, index, before = 3, after = 1) {
@@ -1022,10 +1023,10 @@ function contextWindowV32(messages, index, before = 3, after = 1) {
     after: meaningfulIndices.slice(pos + 1, pos + 1 + after).map((i) => messages[i])
   };
 }
-function classifyConfirmationStrength(text2) {
-  if (EXPLICIT_CONFIRMATION_RX.test(text2)) return "explicit";
-  if (STRONG_IMPLICIT_CONFIRMATION_RX.test(text2)) return "strong_implicit";
-  if (WEAK_IMPLICIT_RX.test(text2.trim())) return "weak_implicit";
+function classifyConfirmationStrength(text5) {
+  if (EXPLICIT_CONFIRMATION_RX.test(text5)) return "explicit";
+  if (STRONG_IMPLICIT_CONFIRMATION_RX.test(text5)) return "strong_implicit";
+  if (WEAK_IMPLICIT_RX.test(text5.trim())) return "weak_implicit";
   return "none";
 }
 function isConfirmationContextuallyLinked(messages, index) {
@@ -1221,8 +1222,8 @@ function extractDeliverySignals(messages) {
 function extractPromiseSignals(messages) {
   return messages.filter((m) => m.role === "staff" && m.isMeaningful && PROMISE_RX.test(m.text)).map((m) => ({ type: "promise", messageId: m.id, confidence: 0.6, ruleId: "promise.future_fulfillment_phrase" }));
 }
-function statementClauses(text2) {
-  return (text2.match(/[^؟?.!\n،,]+[؟?]?/g) || []).map((clause) => clause.trim()).filter((clause) => clause.length > 0 && !/[؟?]$/.test(clause));
+function statementClauses(text5) {
+  return (text5.match(/[^؟?.!\n،,]+[؟?]?/g) || []).map((clause) => clause.trim()).filter((clause) => clause.length > 0 && !/[؟?]$/.test(clause));
 }
 function clauseAvailabilityState(clause) {
   if (NON_STOCK_AVAILABILITY_CONTEXT_RX.test(clause)) return null;
@@ -1233,11 +1234,11 @@ function clauseAvailabilityState(clause) {
   if (check) return "check_pending";
   return null;
 }
-function availabilityStatementClausesV32(text2) {
-  return statementClauses(text2).map((clause) => ({ clause, state: clauseAvailabilityState(clause) })).filter((row) => row.state !== null);
+function availabilityStatementClausesV32(text5) {
+  return statementClauses(text5).map((clause) => ({ clause, state: clauseAvailabilityState(clause) })).filter((row) => row.state !== null);
 }
-function classifyAvailabilityStatementV32(text2) {
-  const states = statementClauses(text2).map((clause) => clauseAvailabilityState(clause)).filter((state) => state !== null);
+function classifyAvailabilityStatementV32(text5) {
+  const states = statementClauses(text5).map((clause) => clauseAvailabilityState(clause)).filter((state) => state !== null);
   if (states.includes("unavailable")) return "unavailable";
   if (states.includes("available")) return "available";
   if (states.includes("check_pending")) return "check_pending";
@@ -1260,13 +1261,13 @@ function extractAvailabilitySignals(messages) {
   return signals;
 }
 var ALTERNATIVE_LEAD_FILLER_RX = /^(?:(?:فيه|في|عندنا|ممكن|ينفع|نقدر|نجيب|أجيب|اجيب|نديلك|أقدم|اقدم|نقدم|أرشح|ارشح|لحضرتك|و)(?=\s|$)|[\s:\-،])+/i;
-function alternativePhraseAfter(text2, marker) {
-  const match = text2.match(marker);
+function alternativePhraseAfter(text5, marker) {
+  const match = text5.match(marker);
   if (!match || match.index == null) return null;
-  const tail = text2.slice(match.index + match[0].length).split(/[؟?\n.!،,]/)[0].replace(ALTERNATIVE_PHRASE_FILLER_RX, "").trim();
+  const tail = text5.slice(match.index + match[0].length).split(/[؟?\n.!،,]/)[0].replace(ALTERNATIVE_PHRASE_FILLER_RX, "").trim();
   if (tail.length >= 2) return tail.slice(0, 80);
-  const clauseStart = Math.max(...["\u060C", ",", ".", "\n", "\u061F", "?"].map((sep) => text2.lastIndexOf(sep, match.index - 1)));
-  const head = text2.slice(clauseStart + 1, match.index).replace(ALTERNATIVE_LEAD_FILLER_RX, "").trim();
+  const clauseStart = Math.max(...["\u060C", ",", ".", "\n", "\u061F", "?"].map((sep) => text5.lastIndexOf(sep, match.index - 1)));
+  const head = text5.slice(clauseStart + 1, match.index).replace(ALTERNATIVE_LEAD_FILLER_RX, "").trim();
   return head.length >= 2 && head.split(/\s+/).length <= 4 ? head.slice(0, 80) : null;
 }
 function extractAlternativeOfferSignals(messages) {
@@ -1297,16 +1298,16 @@ var BOUGHT_ELSEWHERE_RX = /(?:جبت|اشتريت|خدت|لقيت|هجيب|هش�
 var FINAL_DECLINE_RX = /مش\s*(?:عايز|عاوز|محتاج)[ةه]?\s*خلاص|خلاص\s*مش\s*(?:عايز|عاوز|محتاج)|^لا\s*خلاص|لا\s*خلاص\s*مش|خلاص\s*(?:بلاش|مش\s*لازم)|(?:ا|أ|إ)لغي\s*الطلب|كنسل\s*الطلب|مبقتش\s*(?:محتاج|عايز|عاوز)/i;
 var DELAY_COMPLAINT_RX = /اتأخرت(?:وا)?|متأخرين|محدش\s*(?:رد|بيرد)|ليه\s*محدش|بقالي\s*(?:ساع[ةه]|كتير|فتر[ةه])|مستني\s*من\s*بدري/i;
 var WILL_WAIT_RX = /هستنا(?:ه|ها)?|هستنى|(?:ابقى|ابقي)\s*(?:بلغني|كلمني|قولي|عرفني)|لما\s*(?:\S+\s+){0,3}?(?:يوصل|يتوفر|ييجي|ينزل)|بلغني\s*لما|عرفني\s*لما/i;
-function isNonRequestIntentStatement(text2) {
-  const intent = classifyCustomerIntentStatementV32(text2);
+function isNonRequestIntentStatement(text5) {
+  const intent = classifyCustomerIntentStatementV32(text5);
   return intent === "considering" || intent === "will_wait" || intent === "final_decline" || intent === "bought_elsewhere";
 }
-function classifyCustomerIntentStatementV32(text2) {
-  if (BOUGHT_ELSEWHERE_RX.test(text2)) return "bought_elsewhere";
-  if (FINAL_DECLINE_RX.test(text2)) return "final_decline";
-  if (DELAY_COMPLAINT_RX.test(text2)) return "delay_complaint";
-  if (WILL_WAIT_RX.test(text2)) return "will_wait";
-  if (CONSIDERING_RX.test(text2)) return "considering";
+function classifyCustomerIntentStatementV32(text5) {
+  if (BOUGHT_ELSEWHERE_RX.test(text5)) return "bought_elsewhere";
+  if (FINAL_DECLINE_RX.test(text5)) return "final_decline";
+  if (DELAY_COMPLAINT_RX.test(text5)) return "delay_complaint";
+  if (WILL_WAIT_RX.test(text5)) return "will_wait";
+  if (CONSIDERING_RX.test(text5)) return "considering";
   return null;
 }
 var CUSTOMER_CALLBACK_RX = /كلمني|كلميني|كلمنى|اتصل(?:\s*(?:بي|بيا|عليا))?|رن\s*عليا|تابع\s*معايا|ابقى\s*(?:كلمني|تابع|بلغني|عرفني)|بلغني|عرفني|ابعتلي\s*لما/i;
@@ -1315,31 +1316,31 @@ var TOMORROW_RX = /بكر[ةه]|بكرا/i;
 var AFTER_DAYS_RX = /بعد\s*(?:(يومين)|(\d+)\s*(?:يوم|أيام|ايام)|(اسبوع|أسبوع))/i;
 var SAME_DAY_RX = /النهارد[ةه]|بالليل|كمان\s*ساع[ةه]|بعد\s*ساع[ةه]|آخر\s*النهار|اخر\s*النهار/i;
 var PRESCRIPTION_REQUEST_RX = /(?:ابعت|ابعتي|ابعتلنا|محتاج(?:ين)?|لازم|ممكن)\s*(?:\S+\s*){0,2}(?:صور[ةه]\s*)?(?:ال)?(?:روشت[ةه]|وصف[ةه]\s*طبي[ةه])/i;
-function isStaffFollowUpPromiseV32(text2) {
-  return classifyStaffCommitmentsV32(text2).length > 0;
+function isStaffFollowUpPromiseV32(text5) {
+  return classifyStaffCommitmentsV32(text5).length > 0;
 }
-function mentionsPrescriptionV32(text2) {
-  return /روشت[ةه]|وصف[ةه]\s*طبي[ةه]/i.test(text2);
+function mentionsPrescriptionV32(text5) {
+  return /روشت[ةه]|وصف[ةه]\s*طبي[ةه]/i.test(text5);
 }
-function isPrescriptionRequestV32(text2) {
-  return PRESCRIPTION_REQUEST_RX.test(text2);
+function isPrescriptionRequestV32(text5) {
+  return PRESCRIPTION_REQUEST_RX.test(text5);
 }
-function classifyCustomerTimingRequestV32(text2) {
-  const callback = CUSTOMER_CALLBACK_RX.test(text2);
-  const waitForStock = WHEN_IN_STOCK_RX.test(text2);
+function classifyCustomerTimingRequestV32(text5) {
+  const callback = CUSTOMER_CALLBACK_RX.test(text5);
+  const waitForStock = WHEN_IN_STOCK_RX.test(text5);
   if (!callback && !waitForStock) return null;
   if (waitForStock) return { when: "when_in_stock", days: null };
-  const days = text2.match(AFTER_DAYS_RX);
+  const days = text5.match(AFTER_DAYS_RX);
   if (days) return { when: "days", days: days[1] ? 2 : days[2] ? Number(days[2]) : 7 };
-  if (TOMORROW_RX.test(text2)) return { when: "days", days: 1 };
-  if (SAME_DAY_RX.test(text2)) return { when: "same_day", days: 0 };
+  if (TOMORROW_RX.test(text5)) return { when: "days", days: 1 };
+  if (SAME_DAY_RX.test(text5)) return { when: "same_day", days: 0 };
   return { when: "unspecified", days: null };
 }
 var LEADING_NO_RX = /^(?:لا|لأ)(?:\s*[،,.!]|\s+(?=\S))/;
-function classifyCustomerOfferResponseV32(text2) {
-  if (REJECTION_RX.test(text2) || LEADING_NO_RX.test(text2.trim()) && !THANKS_CLOSING_ONLY_RX.test(text2.trim())) return "rejected";
-  if (CONSIDERING_RX.test(text2)) return "considering";
-  if (ACCEPTANCE_RX.test(text2) || ACCEPT_OFFER_RX.test(text2)) return "accepted";
+function classifyCustomerOfferResponseV32(text5) {
+  if (REJECTION_RX.test(text5) || LEADING_NO_RX.test(text5.trim()) && !THANKS_CLOSING_ONLY_RX.test(text5.trim())) return "rejected";
+  if (CONSIDERING_RX.test(text5)) return "considering";
+  if (ACCEPTANCE_RX.test(text5) || ACCEPT_OFFER_RX.test(text5)) return "accepted";
   return null;
 }
 function buildSemanticSignalsV32(messages) {
@@ -1390,16 +1391,16 @@ function computeRequestBurstIds(messages, gapMs = 3 * 60 * 1e3) {
 // src/lib/whatsappConversationUnderstandingV32.ts
 var EMOJI_RX = new RegExp("\\p{Extended_Pictographic}", "u");
 var NON_EMOJI_MEANINGFUL_RX = /[\p{L}\p{N}]/u;
-function isEmojiOnlyText(text2) {
-  const trimmed = (text2 || "").trim();
+function isEmojiOnlyText(text5) {
+  const trimmed = (text5 || "").trim();
   if (!trimmed) return false;
   if (!EMOJI_RX.test(trimmed)) return false;
   return !NON_EMOJI_MEANINGFUL_RX.test(trimmed);
 }
 var PLACEHOLDER_ONLY_RX = /^<[^<>]*\bomitted>$|^\[(?:voice message|image|video|document|file|sticker)\]$|^(?:this message was deleted|you deleted this message)$/i;
 var FORWARDED_PREFIX_RX = /^\[Forwarded\]\s*/i;
-function isPlaceholderOnlyText(text2) {
-  const stripped = (text2 || "").trim().replace(FORWARDED_PREFIX_RX, "").trim();
+function isPlaceholderOnlyText(text5) {
+  const stripped = (text5 || "").trim().replace(FORWARDED_PREFIX_RX, "").trim();
   return PLACEHOLDER_ONLY_RX.test(stripped);
 }
 var INTERACTION_GAP_MS = 30 * 60 * 1e3;
@@ -1410,8 +1411,8 @@ var FULFILLMENT_FOLLOWUP_RX = /(?:بعت|بعتوا|اتبعت|اتبعث).*?(?:
 var PRIOR_ORDER_REFERENCE_RX = /(?:بخصوص|بالنسبة\s*ل).*?(?:الاوردر|الأوردر|الطلب)|(?:الاوردر|الأوردر|الطلب).*?(?:اللي\s*فات|السابق|بتاعي|بتاعتي|القديم)|المندوب.*?(?:فين|وصل|الطريق)/i;
 var ORDER_DETAIL_CONTINUATION_RX = /العنوان|عنواني|اللوكيشن|الموقع|رقمي|رقم\s*(?:الموبايل|التليفون)|الموبايل|التليفون|الدور|الشقه|الشقة|العماره|العمارة/i;
 var PAYMENT_SETTLEMENT_CONTINUATION_RX = /رقم\s*التحويل|(?:صوره|صورة)\s*التحويل|استاذن[^\n]{0,80}(?:صوره|صورة)[^\n]{0,40}التحويل|رابط\s*الدفع|لينك\s*الدفع/i;
-function hasPaymentSettlementHandoffText(text2) {
-  return PAYMENT_SETTLEMENT_CONTINUATION_RX.test(text2 || "");
+function hasPaymentSettlementHandoffText(text5) {
+  return PAYMENT_SETTLEMENT_CONTINUATION_RX.test(text5 || "");
 }
 var ADDITIVE_REQUEST_RX = /(?:^|\s)(?:وكمان|كمان|وزود|زود|ضيف|معاهم|معاه|مع\s*الطلب)(?:\s|$)/i;
 var STAFF_PENDING_REPLY_RX = /لحظات|ثواني|دقيق[ةه]|اشوف|أشوف|هشوف|هراجع|هتأكد|هاتأكد|جاري\s*(?:المراجعه|المراجعة|البحث)/i;
@@ -1454,8 +1455,8 @@ function hasLinkedCorrectionContinuation(current, next) {
     (signal) => signal.messageId === next.id && (signal.relatedMessageIds?.length ?? 0) > 0
   );
 }
-function isCustomerCourtesyOrResponseOnly(text2) {
-  const value = (text2 || "").trim();
+function isCustomerCourtesyOrResponseOnly(text5) {
+  const value = (text5 || "").trim();
   return isAcceptanceOnly(value) || isRejectionOnly(value) || isBareAcknowledgementOnly(value) || isThanksOrClosingOnly(value) || CUSTOMER_COURTESY_RESPONSE_RX.test(value);
 }
 function isCustomerResponseContinuation(current, next) {
@@ -1634,8 +1635,8 @@ var PAYMENT_CONTINUATION_MAX_MS = 24 * 60 * 60 * 1e3;
 function asciiDigits(value) {
   return value.replace(/[٠-٩]/g, (digit) => String(digit.charCodeAt(0) - 1632)).replace(/[۰-۹]/g, (digit) => String(digit.charCodeAt(0) - 1776)).replace("\u066B", ".").replace(",", ".");
 }
-function parseCompactAmount(text2) {
-  const match = asciiDigits(text2.trim()).match(COMPACT_AMOUNT_RX);
+function parseCompactAmount(text5) {
+  const match = asciiDigits(text5.trim()).match(COMPACT_AMOUNT_RX);
   if (!match) return null;
   const value = Number(match[1]);
   return Number.isFinite(value) ? value : null;
@@ -1904,11 +1905,11 @@ var ARABIC_LETTER_VARIANTS = [
   [/[ً-ْٰـ]/g, ""]
   // tashkeel + tatweel
 ];
-function convertArabicDigits(text2) {
-  return text2.replace(/[٠-٩]/g, (d) => ARABIC_INDIC_DIGITS[d] ?? d);
+function convertArabicDigits(text5) {
+  return text5.replace(/[٠-٩]/g, (d) => ARABIC_INDIC_DIGITS[d] ?? d);
 }
-function unifyArabicLetters(text2) {
-  let result = text2;
+function unifyArabicLetters(text5) {
+  let result = text5;
   for (const [pattern, replacement] of ARABIC_LETTER_VARIANTS) {
     result = result.replace(pattern, replacement);
   }
@@ -1991,8 +1992,8 @@ var DOSAGE_FORM_KEYWORDS = [
   [/\b(shampoo)\b|شامبو/g, "shampoo"],
   [/\b(suppository|suppositories)\b|لبوس/g, "suppository"]
 ];
-function normalizeBaseText(text2) {
-  let result = text2;
+function normalizeBaseText(text5) {
+  let result = text5;
   result = convertArabicDigits(result);
   result = unifyArabicLetters(result);
   result = result.toLowerCase();
@@ -2278,7 +2279,7 @@ function resolveProductMention(phrase, index, options = {}) {
       if (!strengthsCompatible(normalized.strengths, product.strengths)) return;
       if (!dosageFormsCompatible(normalized.dosageForms, product.dosageForms)) return;
       if (normalized.packSizes.length && product.packSizes.length && !normalized.packSizes.every((pack) => product.packSizes.some((other) => other.count === pack.count))) return;
-      const percentages = (text2) => Array.from(text2.matchAll(/(\d+(?:\.\d+)?)\s*%/g), (match) => Number(match[1]));
+      const percentages = (text5) => Array.from(text5.matchAll(/(\d+(?:\.\d+)?)\s*%/g), (match) => Number(match[1]));
       const requested = percentages(normalized.raw);
       const offered = percentages(product.canonicalName);
       if (requested.length && offered.length && !requested.every((value) => offered.includes(value))) return;
@@ -2449,22 +2450,25 @@ var GREETING_LEAD_RX = /^\s*(?:(?:السلام\s*عليكم(?:\s*ورحمة\s*ا
 var LEAD_DISCOURSE_RX = /^\s*(?:(?:تمام|ماشي|اوك|ok|خلاص|طيب|ايوه|ايوا|اه|آه|بالمناسبة|على\s*فكرة)(?=[\s،,])[\s،,]*)+/i;
 var TRAILING_ADDITIVE_RX = /\s+(?:كمان|برضه|برضو|أيضا|ايضا)\s*$/i;
 var CONTACT_DETAIL_TAIL_RX = /[،,]\s*(?:رقم\s*(?:تليفوني|موبايلي|الهاتف|التليفون)|(?:تليفوني|موبايلي))\s*[:：-]?\s*[+0-9٠-٩()\s-]{7,}$/u;
-function stripRequestPrefix(text2) {
-  return text2.replace(GREETING_LEAD_RX, "").replace(LEAD_DISCOURSE_RX, "").replace(ADDITIVE_CONNECTOR_RX, "").replace(/^\s*(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|ممكن|هات[ي]?|ابعت(?:لي|يلي)?)\s*/i, "").replace(ADDITIVE_CONNECTOR_RX, "").replace(TRAILING_ADDITIVE_RX, "").trim().replace(/^[,،]+|[,،]+$/g, "").trim();
+function stripRequestPrefix(text5) {
+  return text5.replace(GREETING_LEAD_RX, "").replace(LEAD_DISCOURSE_RX, "").replace(ADDITIVE_CONNECTOR_RX, "").replace(/^\s*(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|ممكن|هات[ي]?|ابعت(?:لي|يلي)?)\s*/i, "").replace(ADDITIVE_CONNECTOR_RX, "").replace(TRAILING_ADDITIVE_RX, "").trim().replace(/^[,،]+|[,،]+$/g, "").trim();
 }
 var NON_PRODUCT_PHRASE_RX = /^(?:مش|لا|لأ|اه|آه|تمام|حاجة|حاجه|ده|دي|دا|دول|منه|منها|بس)?$/;
 var GENERIC_DEICTIC_PRODUCT_PHRASE_RX = /^(?:(?:العلب[هة]|العبو[هة]|الشريط|الصنف)\s*(?:دي|ده|دا)|(?:الحاجات|الحاجه|الحاجة|الأشياء|الاشياء)\s*(?:دي|دول|ده|دا)?|(?:دول|دي|ده|دا)(?:\s*كلهم)?|اللي\s*(?:في|ف)\s*(?:الصوره|الصورة|الصور|الفويس|الصوت)|اللي\s*(?:بعت(?:ه|ها|هم)|مبعت(?:ه|ها|هم)))$/i;
 var NON_IDENTIFYING_RECAP_ITEM_RX = /مع\s+\d+\s+نوع|اللي\s+الدكتور|في\s+(?:الريكورد|الفويس|الصوت)/i;
 function isGenericDeicticProductPhrase(value) {
-  return GENERIC_DEICTIC_PRODUCT_PHRASE_RX.test(String(value || "").trim());
+  const phrase = String(value || "").trim();
+  const quantityOnly = /^(?:و\s*)?(?:(?:منهم|منه|منها)\s+)?(?:شريطين|علبتين|عبوتين|شريط|علب[ةه]|عبو[ةه])(?:\s*(?:و\s*)?(?:شريط|علب[ةه]|عبو[ةه]))?$/i;
+  const colourOnly = /^(?:(?:كلها|كله|العلب[ةه])\s+)?لون(?:ها|ه)?\s+\S+$/i;
+  return GENERIC_DEICTIC_PRODUCT_PHRASE_RX.test(phrase) || quantityOnly.test(phrase) || colourOnly.test(phrase);
 }
 var EXPLICIT_REQUEST_VERB_RX = /(?<![\p{L}\p{N}])(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|هات(?:ي|لي)?|ابعت(?:لي|يلي)?)(?![\p{L}\p{N}])/u;
 var ONLY_THIS_RX = /(?<![\p{L}\p{N}])(?:بس|فقط)[.!، ]*$/u;
 var INFO_QUESTION_LEAD_RX = /^(?:اعرف|أعرف|اسأل|أسأل|استفسر|أستفسر|افهم|أفهم|اشوف|أشوف|اتأكد|أتأكد)(?=\s|$)/;
 var POLITENESS_RX = /(?<![\p{L}\p{N}])(?:لو\s*سمحت|من\s*فضلك|يا\s*(?:دكتور[ةه]?|فندم)|بعد\s*اذنك|بعد\s*إذنك)(?![\p{L}\p{N}])/giu;
-function explicitRequestProductPhrases(text2) {
-  const phrase = stripRequestPrefix(text2.replace(POLITENESS_RX, " ")).replace(CONTACT_DETAIL_TAIL_RX, "").replace(/[؟?!.]+$/g, "").replace(/\s+/g, " ").trim();
-  if (!phrase || /[؟?]/.test(text2) || INFO_QUESTION_LEAD_RX.test(phrase)) return [];
+function explicitRequestProductPhrases(text5) {
+  const phrase = stripRequestPrefix(text5.replace(POLITENESS_RX, " ")).replace(CONTACT_DETAIL_TAIL_RX, "").replace(/[؟?!.]+$/g, "").replace(/\s+/g, " ").trim();
+  if (!phrase || /[؟?]/.test(text5) || INFO_QUESTION_LEAD_RX.test(phrase)) return [];
   const parts = phrase.split(/\s+و\s+|\s*[،,+]\s*/).map((part) => stripRequestPrefix(part).trim()).filter((part) => part.length >= 2);
   if (!parts.length || parts.some(
     (part) => part.split(/\s+/).length > 4 || NON_PRODUCT_PHRASE_RX.test(part) || isGenericDeicticProductPhrase(part)
@@ -2472,8 +2476,8 @@ function explicitRequestProductPhrases(text2) {
   return parts;
 }
 var QUANTITY_REVISION_RX = /^(?:(?:لا|لأ|طيب|خلاص)[،,\s]+)?(?:خلي(?:ه|ها|هم|هملي|هولي|هالي)|نزل(?:ه|ها|هم))\s+(?:ل)?(?:(\d+|واحد[ةه]?|اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?)\s*(?:علب[ةه]?|علب|شريط|عبو[ةه]|قطع[ةه]|حب[ةه])?|(?:علب[ةه]|شريط|عبو[ةه]|قطع[ةه]|حب[ةه])\s*(واحد[ةه]?|اتنين|\d+)|(علبتين|شريطين|عبوتين|حبتين))\s*(?:بس|فقط)?[.!، ]*$/i;
-function parseQuantityRevision(text2) {
-  const match = text2.trim().match(QUANTITY_REVISION_RX);
+function parseQuantityRevision(text5) {
+  const match = text5.trim().match(QUANTITY_REVISION_RX);
   if (!match) return null;
   if (match[3]) return 2;
   return parseNumberToken(match[1] ?? match[2] ?? "");
@@ -2670,8 +2674,8 @@ function directCatalogMentionItem(message, productIndex) {
     resolutionStatus: selected2.confidence === "proven" ? "proven" : "partially_proven"
   };
 }
-function itemsNamedIn(text2, keys) {
-  const phraseTokens = normalizeProductKey(stripRequestPrefix(text2.replace(ONLY_THIS_RX, ""))).split(" ").map((token) => token.replace(/^ال/, "")).filter((token) => token.length >= 3);
+function itemsNamedIn(text5, keys) {
+  const phraseTokens = normalizeProductKey(stripRequestPrefix(text5.replace(ONLY_THIS_RX, ""))).split(" ").map((token) => token.replace(/^ال/, "")).filter((token) => token.length >= 3);
   return keys.filter((key) => {
     const keyTokens = key.split(" ").map((token) => token.replace(/^ال/, ""));
     return phraseTokens.length > 0 && phraseTokens.every((token) => keyTokens.includes(token));
@@ -2726,20 +2730,20 @@ function isFinalBasketSummary(message) {
 function isStaffFinalConfirmation(message) {
   return message.role === "staff" && message.isMeaningful && STAFF_FINAL_CONFIRMATION_RX.test(message.text);
 }
-function classifyCustomerModification(text2) {
-  if (MODIFICATION_QTY_CHANGE_RX.test(text2) || parseQuantityRevision(text2) != null) return "quantity_change";
-  if (SUBSTITUTION_MARKER_RX.test(text2)) return "substitute";
-  if (MODIFICATION_ADD_RX.test(text2)) return "add";
-  if (MODIFICATION_REMOVE_RX.test(text2)) return "remove";
+function classifyCustomerModification(text5) {
+  if (MODIFICATION_QTY_CHANGE_RX.test(text5) || parseQuantityRevision(text5) != null) return "quantity_change";
+  if (SUBSTITUTION_MARKER_RX.test(text5)) return "substitute";
+  if (MODIFICATION_ADD_RX.test(text5)) return "add";
+  if (MODIFICATION_REMOVE_RX.test(text5)) return "remove";
   return null;
 }
-function extractSubstituteProductName(text2) {
-  const afterVerb = text2.replace(/^.*?(?:هات[ي]?|عايز|عاوز|ابعت(?:لي|يلي)?)\s*/i, "").trim();
-  return afterVerb || text2.trim();
+function extractSubstituteProductName(text5) {
+  const afterVerb = text5.replace(/^.*?(?:هات[ي]?|عايز|عاوز|ابعت(?:لي|يلي)?)\s*/i, "").trim();
+  return afterVerb || text5.trim();
 }
-function extractAddedProductName(text2) {
-  const stripped = text2.replace(/^.*?(?:زود(?:ي)?|ضيف(?:ي)?|كمان\s*عايز|كمان\s*حاجة|نسيت)\s*/i, "").trim();
-  return stripped || text2.trim();
+function extractAddedProductName(text5) {
+  const stripped = text5.replace(/^.*?(?:زود(?:ي)?|ضيف(?:ي)?|كمان\s*عايز|كمان\s*حاجة|نسيت)\s*/i, "").trim();
+  return stripped || text5.trim();
 }
 function isLinkedToSummary(scopedMessages, candidateMessageId, summaryMessageId) {
   const index = scopedMessages.findIndex((m) => m.id === candidateMessageId);
@@ -5108,7 +5112,7 @@ function deriveCanonicalSalesOutcome(input) {
 var PRICE_OBJECTION_RX = /غالي|السعر\s*(?:عالي|كتير|كبير)|كتير\s*(?:عليه|عليها)|مش\s*مناسب.*(?:السعر|الثمن)|خصم\s*اكتر/i;
 var AVAILABILITY_OBJECTION_RX = /مش\s*(?:موجود|متوفر)|مفيش|خلص|مش\s*لاقي|مش\s*لاقية/i;
 var DELIVERY_OBJECTION_RX = /التوصيل|الدليفري|المندوب|اتأخر|متأخر|مش\s*(?:هستنى|هقدر\s*استنى)|(?:ما|م)?\s*وصلش|موصلش|لسه\s*(?:ما\s*)?(?:وصل|جه|جا)ش?|لم\s*يصل|فين\s*(?:ال)?(?:أوردر|اوردر|طلب|طلبي)/i;
-var PRODUCT_FIT_OBJECTION_RX = /مش\s*مناسب|مش\s*ده|عايز\s*غير|عاوز\s*غير|بديل|حساسي[ةه]|مش\s*نفس/i;
+var PRODUCT_FIT_OBJECTION_RX = /مش\s*مناسب|مش\s*ده|عايز\s*غير|عاوز\s*غير|(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|ممكن)\s+(?:له\s+|ليه\s+)?بديل|(?:عمل|سبب)(?:لي|ليّ|تلي)?\s*حساسي[ةه]|مش\s*نفس/i;
 var TIMING_OBJECTION_RX = /مش\s*دلوقتي|بعدين|بعد\s*كده|وقت\s*تاني|لما\s*احتاج/i;
 var ALTERNATIVE_RX = /بديل|بدل(?:ه|ها|هم|\s)/i;
 function evidenceRef2(messageId2, description) {
@@ -5142,25 +5146,25 @@ function strongestConfidence(current, next) {
 }
 var STOCK_QUESTION_WORDS_RX = /(?<![\p{L}\p{N}])(?:هو|هي|هل|طيب|مش|مو|غير|عندكم|عندكو|عندك|موجود[ةه]?|متوفر[ةه]?|متاح[ةه]?|فيه|في|لو\s*سمحت|من\s*فضلك|ممكن|يا\s*(?:دكتور[ةه]?|فندم))(?![\p{L}\p{N}])/giu;
 var NON_PRODUCT_LEFTOVER_RX = /^(?:مش|لا|لأ|اه|آه|تمام|حاجة|حاجه|ده|دي|دا|منه|منها)?$/;
-function productPhraseFromStockQuestion(text2) {
-  const phrase = stripRequestPrefix(text2.replace(STOCK_QUESTION_WORDS_RX, " ")).replace(/[؟?!.،]+/g, " ").replace(/\s+/g, " ").trim();
+function productPhraseFromStockQuestion(text5) {
+  const phrase = stripRequestPrefix(text5.replace(STOCK_QUESTION_WORDS_RX, " ")).replace(/[؟?!.،]+/g, " ").replace(/\s+/g, " ").trim();
   if (phrase.length < 3 || NON_PRODUCT_LEFTOVER_RX.test(phrase) || isGenericDeicticProductPhrase(phrase)) return null;
   return phrase;
 }
-function classifyObjectionCategory(text2, explicitRejection, correction) {
-  if (PRICE_OBJECTION_RX.test(text2)) return "price";
-  if (AVAILABILITY_OBJECTION_RX.test(text2)) return "availability";
-  if (DELIVERY_OBJECTION_RX.test(text2)) return "delivery";
-  if (PRODUCT_FIT_OBJECTION_RX.test(text2)) return "product_fit";
-  if (TIMING_OBJECTION_RX.test(text2)) return "timing";
+function classifyObjectionCategory(text5, explicitRejection, correction) {
+  if (PRICE_OBJECTION_RX.test(text5)) return "price";
+  if (AVAILABILITY_OBJECTION_RX.test(text5)) return "availability";
+  if (DELIVERY_OBJECTION_RX.test(text5)) return "delivery";
+  if (PRODUCT_FIT_OBJECTION_RX.test(text5)) return "product_fit";
+  if (TIMING_OBJECTION_RX.test(text5)) return "timing";
   if (explicitRejection) return "customer_declined";
   if (correction) return "unknown";
   return null;
 }
 function directRequestedProduct(message, quantityPhrase) {
-  let text2 = message.text;
-  if (quantityPhrase) text2 = text2.replace(quantityPhrase, " ");
-  const stripped = stripRequestPrefix(text2).replace(/^(?:لو\s*سمحت|من\s*فضلك)\s*/i, "").replace(/[؟?!.،]+$/g, "").trim();
+  let text5 = message.text;
+  if (quantityPhrase) text5 = text5.replace(quantityPhrase, " ");
+  const stripped = stripRequestPrefix(text5).replace(/^(?:لو\s*سمحت|من\s*فضلك)\s*/i, "").replace(/[؟?!.،]+$/g, "").trim();
   return stripped.length >= 2 ? stripped : null;
 }
 function deriveCustomerNeedModel(input) {
@@ -6279,8 +6283,8 @@ function deriveFollowUpOpportunities(input) {
       sameDay: timing?.when === "same_day"
     });
   }
-  const demandForWait = (text2) => {
-    const textKey = normalizeProductKey(text2);
+  const demandForWait = (text5) => {
+    const textKey = normalizeProductKey(text5);
     const named = unavailableDemand.filter((d) => d.productKey.length >= 3 && textKey.includes(d.productKey));
     if (named.length) return named;
     return unavailableDemand.length === 1 ? unavailableDemand : [];
@@ -7989,9 +7993,9 @@ function buildStaffIdentityMap(staffRows) {
     names.set(key, [...names.get(key) || [], row]);
   }
   for (const [name, candidates] of names) {
-    const unique = uniqueByStaffId(candidates);
-    if (unique.length !== 1) continue;
-    const entry = makeEntry(unique[0]);
+    const unique2 = uniqueByStaffId(candidates);
+    if (unique2.length !== 1) continue;
+    const entry = makeEntry(unique2[0]);
     if (entry) map.set(`name:${name}`, entry);
   }
   return map;
@@ -9331,6 +9335,627 @@ async function runBatchPersistence(supabaseClient, input) {
       purePipelineComputeMs,
       persistencePlanningMs
     }
+  };
+}
+
+// src/lib/salesIntelligence/persistence/canonicalFollowupProjector.ts
+var CANONICAL_FOLLOWUP_PROJECTION_VERSION = "si-canonical-followup-projection-v1";
+function text2(value) {
+  return String(value ?? "").trim();
+}
+function uuidOrNull(value) {
+  const raw = text2(value);
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw) ? raw : null;
+}
+function materializerPriority(priority) {
+  if (priority === "high") return "urgent";
+  if (priority === "medium") return "important";
+  return "normal";
+}
+function operationalReason(reason) {
+  const reasons = {
+    stock_unavailable: "\u0627\u0644\u0635\u0646\u0641 \u063A\u064A\u0631 \u0645\u062A\u0648\u0641\u0631 \u0648\u064A\u062D\u062A\u0627\u062C \u0645\u062A\u0627\u0628\u0639\u0629 \u0639\u0646\u062F \u0627\u0644\u062A\u0648\u0641\u0631",
+    stock_check_pending: "\u0641\u062D\u0635 \u0627\u0644\u062A\u0648\u0641\u0631 \u0645\u0627 \u0632\u0627\u0644 \u0645\u0639\u0644\u0642\u064B\u0627 \u0648\u064A\u062D\u062A\u0627\u062C \u0631\u062F \u0644\u0644\u0639\u0645\u064A\u0644",
+    customer_asked_to_wait: "\u0627\u0644\u0639\u0645\u064A\u0644 \u0637\u0644\u0628 \u0627\u0644\u0627\u0646\u062A\u0638\u0627\u0631 \u0648\u064A\u062D\u062A\u0627\u062C \u0645\u062A\u0627\u0628\u0639\u0629",
+    customer_considering: "\u0627\u0644\u0639\u0645\u064A\u0644 \u0645\u0627 \u0632\u0627\u0644 \u064A\u062F\u0631\u0633 \u0627\u0644\u0627\u062E\u062A\u064A\u0627\u0631 \u0648\u064A\u062D\u062A\u0627\u062C \u0645\u062A\u0627\u0628\u0639\u0629",
+    price_objection: "\u0627\u0639\u062A\u0631\u0627\u0636 \u0627\u0644\u0633\u0639\u0631 \u0645\u0627 \u0632\u0627\u0644 \u0645\u0641\u062A\u0648\u062D\u064B\u0627 \u0648\u064A\u062D\u062A\u0627\u062C \u0645\u062A\u0627\u0628\u0639\u0629 \u0645\u0646\u0627\u0633\u0628\u0629",
+    alternative_open: "\u0627\u0644\u0628\u062F\u064A\u0644 \u0645\u0639\u0631\u0648\u0636 \u0648\u0642\u0631\u0627\u0631 \u0627\u0644\u0639\u0645\u064A\u0644 \u0645\u0627 \u0632\u0627\u0644 \u0645\u0641\u062A\u0648\u062D\u064B\u0627",
+    prescription_incomplete: "\u062A\u0641\u0627\u0635\u064A\u0644 \u0627\u0644\u0631\u0648\u0634\u062A\u0629 \u063A\u064A\u0631 \u0645\u0643\u062A\u0645\u0644\u0629 \u0648\u062A\u062D\u062A\u0627\u062C \u0627\u0633\u062A\u0643\u0645\u0627\u0644\u064B\u0627",
+    staff_promised_check: "\u062A\u0645 \u0648\u0639\u062F \u0627\u0644\u0639\u0645\u064A\u0644 \u0628\u0627\u0644\u0645\u0631\u0627\u062C\u0639\u0629 \u0648\u064A\u062C\u0628 \u0627\u0633\u062A\u0643\u0645\u0627\u0644 \u0627\u0644\u0631\u062F",
+    callback_requested: "\u0627\u0644\u0639\u0645\u064A\u0644 \u0637\u0644\u0628 \u0645\u0639\u0627\u0648\u062F\u0629 \u0627\u0644\u062A\u0648\u0627\u0635\u0644 \u0641\u064A \u0645\u0648\u0639\u062F \u0645\u062D\u062F\u062F",
+    delivery_unresolved: "\u062D\u0627\u0644\u0629 \u0627\u0644\u062A\u0648\u0635\u064A\u0644 \u063A\u064A\u0631 \u0645\u062D\u0633\u0648\u0645\u0629 \u0648\u062A\u062D\u062A\u0627\u062C \u0645\u062A\u0627\u0628\u0639\u0629",
+    customer_no_response: "\u0627\u0644\u0639\u0645\u064A\u0644 \u0644\u0645 \u064A\u0631\u062F \u0628\u0639\u062F \u0648\u064A\u062D\u062A\u0627\u062C \u0645\u062D\u0627\u0648\u0644\u0629 \u0645\u062A\u0627\u0628\u0639\u0629 \u0648\u0627\u062D\u062F\u0629",
+    staff_no_response: "\u0637\u0644\u0628 \u0627\u0644\u0639\u0645\u064A\u0644 \u0645\u0627 \u0632\u0627\u0644 \u0628\u062F\u0648\u0646 \u0631\u062F \u0648\u064A\u062D\u062A\u0627\u062C \u0627\u0633\u062A\u0643\u0645\u0627\u0644\u064B\u0627"
+  };
+  return reasons[reason];
+}
+function buildCanonicalFollowupActionRows(analyses, sources) {
+  const sourceById = new Map(sources.map((source) => [text2(source.id), source]));
+  const byIdentity = /* @__PURE__ */ new Map();
+  const skipped = [];
+  for (const analysis of analyses) {
+    const sourceId = text2(analysis.conversationId);
+    const source = sourceById.get(sourceId);
+    for (const opportunity of analysis.followUp.opportunities) {
+      if (opportunity.status !== "actionable") continue;
+      if (opportunity.blocker) {
+        skipped.push({
+          caseId: analysis.caseId,
+          followUpKey: opportunity.followUpKey,
+          reason: "blocked"
+        });
+        continue;
+      }
+      if (!source) {
+        skipped.push({
+          caseId: analysis.caseId,
+          followUpKey: opportunity.followUpKey,
+          reason: "missing_source"
+        });
+        continue;
+      }
+      const customerName = text2(source.customer_name);
+      const branch = text2(analysis.conversationCase.branchNameRaw);
+      if (!customerName) {
+        skipped.push({
+          caseId: analysis.caseId,
+          followUpKey: opportunity.followUpKey,
+          reason: "missing_customer_name"
+        });
+        continue;
+      }
+      if (!branch) {
+        skipped.push({
+          caseId: analysis.caseId,
+          followUpKey: opportunity.followUpKey,
+          reason: "missing_branch"
+        });
+        continue;
+      }
+      const explicitAssignedStaffId = uuidOrNull(opportunity.assignedStaffId);
+      const row = {
+        source_id: sourceId,
+        action_key: `canonical-followup:${opportunity.followUpKey}`,
+        action_type: "customer_followup",
+        status: "ready",
+        work_status: "unassigned",
+        auto_eligible: false,
+        branch,
+        customer_id: uuidOrNull(opportunity.customerId),
+        customer_code: text2(source.customer_code) || null,
+        customer_name: customerName,
+        customer_phone: text2(analysis.conversationCase.customerPhone) || null,
+        product_id: uuidOrNull(opportunity.productId),
+        product_name: text2(opportunity.productRaw) || null,
+        quantity: opportunity.quantity == null ? null : Number(opportunity.quantity),
+        due_at: text2(opportunity.dueAt) || null,
+        reason: operationalReason(opportunity.reason),
+        evidence: [...opportunity.evidenceMessageIds],
+        payload: {
+          canonicalProjectionVersion: CANONICAL_FOLLOWUP_PROJECTION_VERSION,
+          caseId: analysis.caseId,
+          followUpKey: opportunity.followUpKey,
+          canonicalReason: opportunity.reason,
+          priority: materializerPriority(opportunity.priority),
+          canonicalPriority: opportunity.priority,
+          duePolicy: opportunity.duePolicy,
+          requestedDelayDays: opportunity.requestedDelayDays,
+          assignedRole: opportunity.assignedRole,
+          goal: opportunity.goal,
+          nextBestAction: opportunity.nextBestAction,
+          demandKey: opportunity.demandKey,
+          evidenceMessageIds: [...opportunity.evidenceMessageIds],
+          confidenceLevel: opportunity.confidence.level
+        },
+        followup_identity: opportunity.followUpKey,
+        assigned_to_id: explicitAssignedStaffId,
+        assigned_to_name: explicitAssignedStaffId ? text2(opportunity.assignedStaffName) || null : null,
+        created_by: CANONICAL_FOLLOWUP_PROJECTION_VERSION
+      };
+      const existing = byIdentity.get(opportunity.followUpKey);
+      if (existing) {
+        if (existing.source_id !== row.source_id || existing.payload.caseId !== row.payload.caseId) {
+          throw new Error(`canonical_followup_identity_collision:${opportunity.followUpKey}`);
+        }
+        continue;
+      }
+      byIdentity.set(opportunity.followUpKey, row);
+    }
+  }
+  return { rows: [...byIdentity.values()], skipped };
+}
+async function projectCanonicalFollowupsToActions(supabaseClient, analyses, sources) {
+  const built = buildCanonicalFollowupActionRows(analyses, sources);
+  if (!built.rows.length) return { ...built, inserted: 0, existing: 0 };
+  const identities = built.rows.map((row) => row.followup_identity);
+  const { data: existingRows, error: existingError } = await supabaseClient.from("whatsapp_conversation_actions").select("id,followup_identity,status,target_table,target_id").in("followup_identity", identities);
+  if (existingError) throw existingError;
+  const existing = new Set(
+    (existingRows || []).map((row) => text2(row.followup_identity)).filter(Boolean)
+  );
+  let inserted = 0;
+  for (const row of built.rows) {
+    if (existing.has(row.followup_identity)) continue;
+    const { error } = await supabaseClient.from("whatsapp_conversation_actions").insert(row);
+    if (!error) {
+      inserted += 1;
+      existing.add(row.followup_identity);
+      continue;
+    }
+    if (String(error.code || "") !== "23505") throw error;
+    const { data: raced, error: raceReadError } = await supabaseClient.from("whatsapp_conversation_actions").select("id,followup_identity").eq("followup_identity", row.followup_identity).maybeSingle();
+    if (raceReadError) throw raceReadError;
+    if (!raced) throw error;
+    existing.add(row.followup_identity);
+  }
+  return {
+    ...built,
+    inserted,
+    existing: built.rows.length - inserted
+  };
+}
+
+// src/lib/salesIntelligence/customerRequestQualificationEngine.ts
+function sameProductLoss(lost, demand) {
+  return lost.productLosses.find((row) => row.productKey === demand.productKey) ?? null;
+}
+function deriveCanonicalCustomerRequestAssessment(input) {
+  const productByKey = new Map(input.customerNeed.products.map((product) => [product.key, product]));
+  const requests = input.unavailableDemand.map((demand) => {
+    const product = productByKey.get(demand.productKey) ?? null;
+    const productLoss = sameProductLoss(input.lostOpportunity, demand);
+    const blockers = [];
+    let suppressedBy = null;
+    if (demand.availabilityState === "check_pending") {
+      suppressedBy = "availability_check_pending";
+    } else if (input.customerNeed.needDeclined || productLoss?.reason === "customer_declined") {
+      suppressedBy = "customer_final_decline";
+    } else if (demand.alternativeResponse === "accepted" || productLoss?.outcome === "replaced_by_alternative") {
+      suppressedBy = "alternative_accepted";
+    } else if (productLoss?.reason === "competitor") {
+      suppressedBy = "bought_elsewhere";
+    } else if (input.salesOutcome.outcome === "sale_proven" && product?.roles.includes("final_basket")) {
+      suppressedBy = "sale_proven_for_same_product";
+    } else if (demand.confidence.level === "weakly_inferred" || demand.confidence.level === "unknown") {
+      suppressedBy = "weak_evidence";
+    }
+    if (!suppressedBy) {
+      if (demand.customerIdentityStatus !== "resolved" || !demand.customerId) blockers.push("customer_identity_unresolved");
+      if (!demand.branchNameRaw) blockers.push("branch_unknown");
+      if (!demand.resolvedProductId) blockers.push("product_identity_unresolved");
+      if (demand.blockers.includes("quantity_conflict")) blockers.push("quantity_conflict");
+    }
+    const status = suppressedBy ? "suppressed" : blockers.length ? "review_required" : "qualified";
+    return {
+      requestKey: `cr1|${demand.demandKey}`,
+      caseId: input.caseId,
+      customerId: demand.customerId,
+      status,
+      productKey: demand.productKey,
+      productId: demand.resolvedProductId,
+      productRaw: demand.requestedProductRaw,
+      quantity: demand.quantityRequested,
+      demandKey: demand.demandKey,
+      priority: input.lostOpportunity.state === "recoverable" ? "high" : "medium",
+      reason: "confirmed_unavailable_product",
+      blockers,
+      suppressedBy,
+      evidenceMessageIds: [...demand.evidenceMessageIds],
+      confidence: demand.confidence
+    };
+  });
+  const decision = requests.some((request) => request.status === "qualified") ? "qualified" : requests.some((request) => request.status === "review_required") ? "review_required" : "not_needed";
+  return {
+    version: "canonical-customer-request-v1",
+    caseId: input.caseId,
+    decision,
+    requests
+  };
+}
+
+// src/lib/salesIntelligence/persistence/canonicalCustomerRequestProjector.ts
+var CANONICAL_CUSTOMER_REQUEST_PROJECTION_VERSION = "si-canonical-customer-request-projection-v1";
+function text3(value) {
+  return String(value ?? "").trim();
+}
+function uuidOrNull2(value) {
+  const raw = text3(value);
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw) ? raw : null;
+}
+function confidencePercent(score) {
+  const numeric = Number(score);
+  if (!Number.isFinite(numeric)) return 0;
+  const scaled = numeric <= 1 ? numeric * 100 : numeric;
+  return Math.max(0, Math.min(100, Math.round(scaled)));
+}
+function buildCanonicalCustomerRequestActionRows(analyses, sources) {
+  const sourceById = new Map(sources.map((source) => [text3(source.id), source]));
+  const byIdentity = /* @__PURE__ */ new Map();
+  const skipped = [];
+  for (const analysis of analyses) {
+    const assessment7 = deriveCanonicalCustomerRequestAssessment({
+      caseId: analysis.caseId,
+      customerNeed: analysis.customerNeed,
+      unavailableDemand: analysis.unavailableDemand,
+      salesOutcome: analysis.salesOutcome,
+      lostOpportunity: analysis.lostOpportunity
+    });
+    const sourceId = text3(analysis.conversationId);
+    const source = sourceById.get(sourceId);
+    for (const request of assessment7.requests) {
+      if (request.status !== "qualified") {
+        skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: "not_qualified" });
+        continue;
+      }
+      if (!source) {
+        skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: "missing_source" });
+        continue;
+      }
+      const customerName = text3(source.customer_name);
+      const branch = text3(analysis.conversationCase.branchNameRaw);
+      const staffId = uuidOrNull2(source.staff_id);
+      const customerId = uuidOrNull2(request.customerId);
+      const productId = uuidOrNull2(request.productId);
+      const product = analysis.customerNeed.products.find((row2) => row2.key === request.productKey) ?? null;
+      const productCode = text3(product?.productCode);
+      const productName = text3(product?.canonicalName || request.productRaw);
+      const demand = analysis.unavailableDemand.find((row2) => row2.demandKey === request.demandKey) ?? null;
+      if (!customerName) {
+        skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: "missing_customer_name" });
+        continue;
+      }
+      if (!branch) {
+        skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: "missing_branch" });
+        continue;
+      }
+      if (!staffId) {
+        skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: "missing_staff_identity" });
+        continue;
+      }
+      if (!customerId || !productId) {
+        skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: "missing_product_identity" });
+        continue;
+      }
+      if (!productCode) {
+        skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: "missing_product_code" });
+        continue;
+      }
+      const timeline = parseWhatsAppExport(text3(source.raw_text));
+      if (!timeline.length) {
+        skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: "missing_timeline" });
+        continue;
+      }
+      const evidenceAt = demand?.requestedAt ? new Date(demand.requestedAt) : null;
+      if (!evidenceAt || !Number.isFinite(evidenceAt.getTime())) {
+        skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: "invalid_evidence_time" });
+        continue;
+      }
+      const operation = stableOperationIdentity({
+        timeline: timeline.map((message) => ({
+          timestamp: message.timestamp,
+          direction: message.direction,
+          sender: message.sender,
+          text: message.text,
+          kind: message.kind,
+          mediaPlaceholder: message.mediaPlaceholder
+        })),
+        evidenceAt,
+        operationType: "customer_request",
+        reasonKey: productName
+      });
+      const row = {
+        source_id: sourceId,
+        action_key: `canonical-request:${operation.identity}`,
+        action_type: "customer_request",
+        status: "proposed",
+        work_status: "unassigned",
+        auto_eligible: false,
+        confidence: confidencePercent(request.confidence.score),
+        branch,
+        customer_id: customerId,
+        customer_code: text3(source.customer_code) || null,
+        customer_name: customerName,
+        customer_phone: text3(analysis.conversationCase.customerPhone) || null,
+        staff_id: staffId,
+        staff_name: null,
+        product_id: productId,
+        product_code: productCode,
+        product_name: productName,
+        quantity: request.quantity == null ? null : Number(request.quantity),
+        due_at: null,
+        reason: "\u0635\u0646\u0641 \u0645\u0637\u0644\u0648\u0628 \u0645\u0646 \u0627\u0644\u0639\u0645\u064A\u0644 \u0648\u062B\u0628\u062A \u0639\u062F\u0645 \u062A\u0648\u0641\u0631\u0647 \u0648\u064A\u062D\u062A\u0627\u062C \u0627\u0639\u062A\u0645\u0627\u062F \u062A\u0633\u062C\u064A\u0644 \u0627\u0644\u0637\u0644\u0628.",
+        evidence: [...request.evidenceMessageIds],
+        payload: {
+          canonicalProjectionVersion: CANONICAL_CUSTOMER_REQUEST_PROJECTION_VERSION,
+          caseId: analysis.caseId,
+          requestKey: request.requestKey,
+          demandKey: request.demandKey,
+          canonicalReason: request.reason,
+          priority: request.priority,
+          evidenceMessageIds: [...request.evidenceMessageIds],
+          confidenceLevel: request.confidence.level,
+          approvalRequired: true
+        },
+        followup_identity: operation.identity,
+        created_by: CANONICAL_CUSTOMER_REQUEST_PROJECTION_VERSION
+      };
+      const existing = byIdentity.get(operation.identity);
+      if (existing) {
+        if (existing.source_id !== row.source_id) {
+          throw new Error(`canonical_customer_request_identity_collision:${operation.identity}`);
+        }
+        continue;
+      }
+      byIdentity.set(operation.identity, row);
+    }
+  }
+  return { rows: [...byIdentity.values()], skipped };
+}
+async function projectCanonicalCustomerRequestsToActions(supabaseClient, analyses, sources) {
+  const built = buildCanonicalCustomerRequestActionRows(analyses, sources);
+  if (!built.rows.length) return { ...built, inserted: 0, existing: 0 };
+  const identities = built.rows.map((row) => row.followup_identity);
+  const { data: existingRows, error: existingError } = await supabaseClient.from("whatsapp_conversation_actions").select("id,followup_identity,status,target_table,target_id").in("followup_identity", identities);
+  if (existingError) throw existingError;
+  const existing = new Set(
+    (existingRows || []).map((row) => text3(row.followup_identity)).filter(Boolean)
+  );
+  let inserted = 0;
+  for (const row of built.rows) {
+    if (existing.has(row.followup_identity)) continue;
+    const { error } = await supabaseClient.from("whatsapp_conversation_actions").insert(row);
+    if (!error) {
+      inserted += 1;
+      existing.add(row.followup_identity);
+      continue;
+    }
+    if (String(error.code || "") !== "23505") throw error;
+    const { data: raced, error: raceReadError } = await supabaseClient.from("whatsapp_conversation_actions").select("id,followup_identity").eq("followup_identity", row.followup_identity).maybeSingle();
+    if (raceReadError) throw raceReadError;
+    if (!raced) throw error;
+    existing.add(row.followup_identity);
+  }
+  return {
+    ...built,
+    inserted,
+    existing: built.rows.length - inserted
+  };
+}
+
+// src/lib/salesIntelligence/complaintAssessmentEngine.ts
+var COMPLAINT_RX = /(?:زعلان|متضايق|غاضب|شكوى|مشكله|مشكلة|مش\s*راضي|سيئ|وحش|خدمة\s*وحشه|خدمة\s*سيئه|كل\s*مرة|كل\s*مره|بشتكي|ليه\s*كده)/i;
+var APOLOGY_RX = /(?:متاسف|متأسف|آسف|اسف|بنعتذر|نعتذر|حقك\s*علينا|معلش)/i;
+var REMEDY_RX = /(?:هحل|هنحل|هنبدل|هبدل|هنرجع|هرجع\s*المبلغ|هتابع|هراجع|هكلم|هنكلم|هنوفر|هشوف|هراجع\s*بنفسي)/i;
+var HOSTILE_RX = /(?:لو\s*مش\s*عاجبك|مش\s*مشكلتي|مش\s*شغلي|بلاش\s*زن|ما\s*تزنش|انت\s*غلطان|إنت\s*غلطان|روح\s*اشتكي|اخرس|اخرسي)/i;
+var STAFF_RESOLUTION_RX = /(?:اتحل(?:ت)?\s*(?:المشكله|المشكلة|الموضوع)?|تم\s*(?:حل|معالجة)\s*(?:المشكله|المشكلة|الموضوع)?|اتظبط(?:ت)?\s*(?:المشكله|المشكلة|الموضوع)?)/i;
+var CUSTOMER_RESOLUTION_RX = /(?:المشكله\s*اتحلت|المشكلة\s*اتحلت|الموضوع\s*اتحل|كده\s*تمام|كدا\s*تمام|تمام\s*كده|تمام\s*كدا|شكرا.*(?:اتحل|اتظبط|تمام))/i;
+var unique = (ids) => Array.from(new Set(ids.filter(Boolean)));
+function deriveCanonicalComplaintAssessment(input) {
+  const meaningful = input.messages.filter((message) => message.meaningful);
+  const firstComplaintIndex = meaningful.findIndex(
+    (message) => message.role === "customer" && COMPLAINT_RX.test(message.text)
+  );
+  if (firstComplaintIndex < 0) {
+    return {
+      version: "canonical-complaint-v1",
+      caseId: input.caseId,
+      state: "none",
+      complaintMessageIds: [],
+      staffResponseMessageIds: [],
+      apologyMessageIds: [],
+      remedyAttemptMessageIds: [],
+      hostileResponseMessageIds: [],
+      resolutionMessageIds: [],
+      evidenceMessageIds: [],
+      confidence: "high",
+      ruleIds: ["complaint.none.no_explicit_customer_complaint"]
+    };
+  }
+  const afterComplaint = meaningful.slice(firstComplaintIndex + 1);
+  const complaintMessages = meaningful.slice(firstComplaintIndex).filter((message) => message.role === "customer" && COMPLAINT_RX.test(message.text));
+  const staffResponses = afterComplaint.filter((message) => message.role === "staff");
+  const apologies = staffResponses.filter((message) => APOLOGY_RX.test(message.text));
+  const remedies = staffResponses.filter((message) => REMEDY_RX.test(message.text));
+  const hostile = staffResponses.filter((message) => HOSTILE_RX.test(message.text));
+  const staffResolution = staffResponses.filter((message) => STAFF_RESOLUTION_RX.test(message.text));
+  const customerResolution = afterComplaint.filter(
+    (message) => message.role === "customer" && CUSTOMER_RESOLUTION_RX.test(message.text)
+  );
+  const resolutionIds = unique([...staffResolution, ...customerResolution].map((message) => message.id));
+  let state;
+  const ruleIds = [];
+  if (resolutionIds.length > 0) {
+    state = "resolved";
+    ruleIds.push("complaint.resolved.explicit_closure");
+  } else if (apologies.length > 0 || remedies.length > 0) {
+    state = "recovery_attempted";
+    ruleIds.push("complaint.recovery_attempted.no_explicit_closure");
+  } else if (staffResponses.length > 0) {
+    state = "detected";
+    ruleIds.push("complaint.detected.staff_response_without_recovery");
+  } else {
+    state = "unresolved";
+    ruleIds.push("complaint.unresolved.no_staff_response");
+  }
+  if (hostile.length > 0) ruleIds.push("complaint.hostile_response");
+  const complaintMessageIds = complaintMessages.map((message) => message.id);
+  const staffResponseMessageIds = staffResponses.map((message) => message.id);
+  const apologyMessageIds = apologies.map((message) => message.id);
+  const remedyAttemptMessageIds = remedies.map((message) => message.id);
+  const hostileResponseMessageIds = hostile.map((message) => message.id);
+  const evidenceMessageIds = unique([
+    ...complaintMessageIds,
+    ...staffResponseMessageIds,
+    ...resolutionIds
+  ]);
+  return {
+    version: "canonical-complaint-v1",
+    caseId: input.caseId,
+    state,
+    complaintMessageIds,
+    staffResponseMessageIds,
+    apologyMessageIds,
+    remedyAttemptMessageIds,
+    hostileResponseMessageIds,
+    resolutionMessageIds: resolutionIds,
+    evidenceMessageIds,
+    confidence: resolutionIds.length > 0 || complaintMessageIds.length > 0 ? "high" : "medium",
+    ruleIds
+  };
+}
+
+// src/lib/salesIntelligence/persistence/canonicalComplaintProjector.ts
+var CANONICAL_COMPLAINT_PROJECTION_VERSION = "si-canonical-complaint-projection-v1";
+function text4(value) {
+  return String(value ?? "").trim();
+}
+function uuidOrNull3(value) {
+  const raw = text4(value);
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw) ? raw : null;
+}
+function complaintConfidence(value) {
+  return value === "high" ? 95 : value === "medium" ? 80 : 65;
+}
+function firstEvidenceAt(analysis, evidenceIds) {
+  const wanted = new Set(evidenceIds.map(String));
+  const values = analysis.caseIntelligence.interaction.messages.filter((message) => wanted.has(String(message.id))).map((message) => new Date(message.at)).filter((value) => Number.isFinite(value.getTime())).sort((a, b) => a.getTime() - b.getTime());
+  return values[0] ?? null;
+}
+function buildCanonicalComplaintActionRows(analyses, sources) {
+  const sourceById = new Map(sources.map((source) => [text4(source.id), source]));
+  const byIdentity = /* @__PURE__ */ new Map();
+  const skipped = [];
+  for (const analysis of analyses) {
+    const complaint = deriveCanonicalComplaintAssessment({
+      caseId: analysis.caseId,
+      messages: analysis.caseIntelligence.interaction.messages.map((message) => ({
+        id: message.id,
+        role: message.role,
+        text: message.text,
+        meaningful: message.meaningful
+      }))
+    });
+    if (!["detected", "recovery_attempted", "unresolved"].includes(complaint.state)) {
+      if (complaint.state !== "none") {
+        skipped.push({ caseId: analysis.caseId, reason: "not_actionable" });
+      }
+      continue;
+    }
+    const sourceId = text4(analysis.conversationId);
+    const source = sourceById.get(sourceId);
+    if (!source) {
+      skipped.push({ caseId: analysis.caseId, reason: "missing_source" });
+      continue;
+    }
+    const customerName = text4(source.customer_name);
+    const branch = text4(analysis.conversationCase.branchNameRaw);
+    if (!customerName) {
+      skipped.push({ caseId: analysis.caseId, reason: "missing_customer_name" });
+      continue;
+    }
+    if (!branch) {
+      skipped.push({ caseId: analysis.caseId, reason: "missing_branch" });
+      continue;
+    }
+    const timeline = parseWhatsAppExport(text4(source.raw_text));
+    if (!timeline.length) {
+      skipped.push({ caseId: analysis.caseId, reason: "missing_timeline" });
+      continue;
+    }
+    const evidenceAt = firstEvidenceAt(analysis, complaint.complaintMessageIds);
+    if (!evidenceAt) {
+      skipped.push({ caseId: analysis.caseId, reason: "missing_complaint_time" });
+      continue;
+    }
+    const operation = stableOperationIdentity({
+      timeline: timeline.map((message) => ({
+        timestamp: message.timestamp,
+        direction: message.direction,
+        sender: message.sender,
+        text: message.text,
+        kind: message.kind,
+        mediaPlaceholder: message.mediaPlaceholder
+      })),
+      evidenceAt,
+      operationType: "complaint_followup",
+      reasonKey: null
+    });
+    const customerId = uuidOrNull3(analysis.conversationCase.customerId);
+    const row = {
+      source_id: sourceId,
+      action_key: `canonical-complaint:${operation.identity}`,
+      action_type: "complaint_followup",
+      status: customerId || text4(source.customer_code) ? "ready" : "proposed",
+      work_status: "unassigned",
+      auto_eligible: false,
+      confidence: complaintConfidence(complaint.confidence),
+      branch,
+      customer_id: customerId,
+      customer_code: text4(source.customer_code) || null,
+      customer_name: customerName,
+      customer_phone: text4(analysis.conversationCase.customerPhone) || null,
+      due_at: evidenceAt.toISOString(),
+      reason: complaint.state === "recovery_attempted" ? "\u0628\u062F\u0623\u062A \u0645\u0639\u0627\u0644\u062C\u0629 \u0634\u0643\u0648\u0649 \u0627\u0644\u0639\u0645\u064A\u0644 \u0644\u0643\u0646 \u0644\u0627 \u064A\u0648\u062C\u062F \u0625\u063A\u0644\u0627\u0642 \u0635\u0631\u064A\u062D\u061B \u062A\u062D\u062A\u0627\u062C \u0645\u062A\u0627\u0628\u0639\u0629 \u0631\u0636\u0627 \u0627\u0644\u0639\u0645\u064A\u0644." : "\u0634\u0643\u0648\u0649 \u0639\u0645\u064A\u0644 \u063A\u064A\u0631 \u0645\u062D\u0633\u0648\u0645\u0629 \u0648\u062A\u062D\u062A\u0627\u062C \u0645\u062A\u0627\u0628\u0639\u0629 \u062E\u062F\u0645\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621.",
+      evidence: [...complaint.evidenceMessageIds],
+      payload: {
+        canonicalProjectionVersion: CANONICAL_COMPLAINT_PROJECTION_VERSION,
+        caseId: analysis.caseId,
+        canonicalComplaintState: complaint.state,
+        complaintRuleIds: [...complaint.ruleIds],
+        complaintMessageIds: [...complaint.complaintMessageIds],
+        staffResponseMessageIds: [...complaint.staffResponseMessageIds],
+        apologyMessageIds: [...complaint.apologyMessageIds],
+        remedyAttemptMessageIds: [...complaint.remedyAttemptMessageIds],
+        hostileResponseMessageIds: [...complaint.hostileResponseMessageIds],
+        resolutionMessageIds: [...complaint.resolutionMessageIds],
+        ownerRole: "customer_service",
+        priority: complaint.hostileResponseMessageIds.length ? "urgent" : "important",
+        reviewRequired: true
+      },
+      followup_identity: operation.identity,
+      assigned_to_id: null,
+      assigned_to_name: null,
+      created_by: CANONICAL_COMPLAINT_PROJECTION_VERSION
+    };
+    const existing = byIdentity.get(operation.identity);
+    if (existing) {
+      if (existing.source_id !== row.source_id) {
+        throw new Error(`canonical_complaint_identity_collision:${operation.identity}`);
+      }
+      continue;
+    }
+    byIdentity.set(operation.identity, row);
+  }
+  return { rows: [...byIdentity.values()], skipped };
+}
+async function projectCanonicalComplaintsToActions(supabaseClient, analyses, sources) {
+  const built = buildCanonicalComplaintActionRows(analyses, sources);
+  if (!built.rows.length) return { ...built, inserted: 0, existing: 0 };
+  const identities = built.rows.map((row) => row.followup_identity);
+  const { data: existingRows, error: existingError } = await supabaseClient.from("whatsapp_conversation_actions").select("id,followup_identity,status,target_table,target_id").in("followup_identity", identities);
+  if (existingError) throw existingError;
+  const existing = new Set(
+    (existingRows || []).map((row) => text4(row.followup_identity)).filter(Boolean)
+  );
+  let inserted = 0;
+  for (const row of built.rows) {
+    if (existing.has(row.followup_identity)) continue;
+    const { error } = await supabaseClient.from("whatsapp_conversation_actions").insert(row);
+    if (!error) {
+      inserted += 1;
+      existing.add(row.followup_identity);
+      continue;
+    }
+    if (String(error.code || "") !== "23505") throw error;
+    const { data: raced, error: raceReadError } = await supabaseClient.from("whatsapp_conversation_actions").select("id,followup_identity").eq("followup_identity", row.followup_identity).maybeSingle();
+    if (raceReadError) throw raceReadError;
+    if (!raced) throw error;
+    existing.add(row.followup_identity);
+  }
+  return {
+    ...built,
+    inserted,
+    existing: built.rows.length - inserted
   };
 }
 
@@ -10793,8 +11418,8 @@ function assessGreeting(view) {
     [firstStaff.id]
   );
 }
-function introducedStaffName(text2) {
-  const match = text2.match(STAFF_INTRO_RX);
+function introducedStaffName(text5) {
+  const match = text5.match(STAFF_INTRO_RX);
   return match?.[1]?.trim().replace(/\s+/g, " ") || null;
 }
 function assessDoctorName(view) {
@@ -10920,7 +11545,7 @@ function analyzeConversationEvaluationFoundation(view) {
 // src/lib/salesIntelligence/conversationEvaluationCore.ts
 var criterionMap2 = new Map(REVIEW_CRITERIA.map((criterion5) => [criterion5.key, criterion5]));
 var RESPECT_RX = /(?:حضرتك|يا\s*فندم|يا\s*افندم|تحت\s*(?:أمر|امر)(?:\s*حضرتك)?|من\s*فضلك|لو\s*سمحت|حاضر|عنيا|نورتنا|نتشرف|شكرا|شكرًا)/i;
-var APOLOGY_RX = /(?:معلش|متاسف|متأسف|آسف|اسف|بنعتذر|نعتذر)/i;
+var APOLOGY_RX2 = /(?:معلش|متاسف|متأسف|آسف|اسف|بنعتذر|نعتذر)/i;
 var STRONG_HOSTILITY_RX = /(?:يا\s*(?:غبي|اهبل|أهبل|حمار)|اخرس|اخرسي|قليل\s*الادب|قليلة\s*الادب|مش\s*ناقصينك|لو\s*مش\s*عاجبك|روح\s*اشتكي)/i;
 var DISMISSIVE_RX = /(?:مش\s*فاضي|مش\s*شغلي|مش\s*مسؤوليتي|بلاش\s*زن|ما\s*تزنش|خلصنا\s*بقى|استنى\s*بقى)/i;
 var CLARIFICATION_RX = /(?:تقصد|حضرتك\s*تقصد|كام\s*(?:علبة|علب|شريط)|الكمية|التركيز|سن\s*(?:الطفل|حضرتك)?|الوزن|الأعراض|الاعراض|حضرتك\s*(?:عايز|عاوزه|عايزة)|صح\s*[؟?]?|صحيح\s*[؟?]?)/i;
@@ -10979,7 +11604,7 @@ function assessTone(view) {
       [dismissive.id]
     );
   }
-  const respectMessages = staff.filter((message) => RESPECT_RX.test(message.text) || APOLOGY_RX.test(message.text));
+  const respectMessages = staff.filter((message) => RESPECT_RX.test(message.text) || APOLOGY_RX2.test(message.text));
   const serviceClarificationMessages = staff.filter(
     (message) => !respectMessages.some((respect) => respect.id === message.id) && CLARIFICATION_RX.test(message.text)
   );
@@ -11005,8 +11630,8 @@ function assessTone(view) {
     );
   }
   const terse = staff.filter((message) => {
-    const text2 = message.text.trim();
-    return text2.length <= 14 && wordCount(text2) <= 2;
+    const text5 = message.text.trim();
+    return text5.length <= 14 && wordCount(text5) <= 2;
   });
   if (staff.length >= 3 && terse.length / staff.length >= 0.67) {
     return make(
@@ -11698,15 +12323,13 @@ function analyzeConversationEvaluationSales(view) {
 
 // src/lib/salesIntelligence/conversationEvaluationServiceRecovery.ts
 var criteria2 = new Map(REVIEW_CRITERIA.map((criterion5) => [criterion5.key, criterion5]));
-var COMPLAINT_RX = /(?:زعلان|متضايق|غاضب|شكوى|مشكله|مشكلة|مش\s*راضي|سيئ|وحش|خدمة\s*وحشه|خدمة\s*سيئه|كل\s*مرة|كل\s*مره|بشتكي|ليه\s*كده)/i;
-var APOLOGY_RX2 = /(?:متاسف|متأسف|آسف|اسف|بنعتذر|نعتذر|حقك\s*علينا|معلش)/i;
-var SOLUTION_RX = /(?:هحل|هنحل|هنبدل|هبدل|هنرجع|هرجع\s*المبلغ|هتابع|هنابع|هراجع|هكلم|هنكلم|هنبعت|هتبعت|هنوفر|جاري\s*المتابعه|جاري\s*المتابعة|اتحل|تم\s*الحل|تم\s*التواصل)/i;
-var HOSTILE_RX = /(?:لو\s*مش\s*عاجبك|مش\s*مشكلتي|مش\s*شغلي|بلاش\s*زن|ما\s*تزنش|انت\s*غلطان|إنت\s*غلطان|روح\s*اشتكي|اخرس|اخرسي)/i;
+var APOLOGY_RX3 = /(?:متاسف|متأسف|آسف|اسف|بنعتذر|نعتذر|حقك\s*علينا|معلش)/i;
 var ORDER_CONTEXT_RX = /(?:اوردر|أوردر|الاوردر|الأوردر|طلب|المندوب|توصيل|دليفري)/i;
 var DELAY_RX = /(?:اتأخر|اتاخر|متأخر|متاخر|تأخير|تاخير|لسه|فين|مجاش|ماجاش|موصلش|ماوصلش|هييجي\s*امتى|هيوصل\s*امتى)/i;
 var STAFF_DELAY_NOTICE_RX = /(?:(?:الطلب|الاوردر|الأوردر|المندوب|التوصيل)[^\n]{0,40}(?:ه?يتأخر|متأخر|في\s*تأخير|فيه\s*تأخير)|(?:في|فيه)\s*تأخير[^\n]{0,30}(?:الطلب|الاوردر|المندوب|التوصيل))/i;
 var ETA_RX = /(?:خلال\s*\d+\s*(?:دقيقه|دقيقة|دقائق|ساعه|ساعة|ساعات)|نص\s*ساعه|نصف\s*ساعه|هيوصل\s*(?:خلال|في)|هيكون\s*عند\s*حضرتك|موعد\s*جديد)/i;
-var RESOLUTION_RX = /(?:خرج\s*(?:مع|ل)\s*المندوب|في\s*الطريق|جاري\s*الارسال|جاري\s*الإرسال|تم\s*الارسال|تم\s*الإرسال|وصل|تم\s*التواصل|اتحل|تم\s*الحل)/i;
+var DELIVERY_PROGRESS_RX = /(?:خرج\s*(?:مع|ل)\s*المندوب|في\s*الطريق|جاري\s*الارسال|جاري\s*الإرسال|تم\s*الارسال|تم\s*الإرسال)/i;
+var DELIVERY_CLOSURE_RX = /(?:تم\s*التسليم|اتسلم|استلم(?:ت|نا)?|وصل(?:ت)?\s*(?:تمام|الحمد|شكرا|شكرًا)|المشكله\s*اتحلت|المشكلة\s*اتحلت|تم\s*الحل)/i;
 var CANCEL_RX = /(?:الغ(?:ي|ى)\s*(?:الطلب|الاوردر)|مش\s*عايزه|مش\s*عايز|خلاص\s*مش\s*محتاج|هجيب\s*من\s*مكان\s*تاني)/i;
 function make5(key, option, status, confidence3, reason, evidenceMessageIds) {
   const criterion5 = criteria2.get(key);
@@ -11729,67 +12352,85 @@ function ordered2(view) {
   return view.interaction.messages.slice().sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
 }
 function assessComplaint(view) {
-  const messages = ordered2(view);
-  const complaintIndex = messages.findIndex(
-    (message) => message.role === "customer" && message.meaningful && COMPLAINT_RX.test(message.text)
-  );
-  if (complaintIndex < 0) {
-    return make5("angry_customer", null, "not_applicable", 100, "\u0644\u0627 \u062A\u0648\u062C\u062F \u0634\u0643\u0648\u0649/\u063A\u0636\u0628 \u0635\u0631\u064A\u062D \u064A\u0645\u0643\u0646 \u062A\u0642\u064A\u064A\u0645 \u0637\u0631\u064A\u0642\u0629 \u0627\u0644\u062A\u0639\u0627\u0645\u0644 \u0645\u0639\u0647.", []);
-  }
-  const complaint = messages[complaintIndex];
-  const laterStaff = messages.slice(complaintIndex + 1).filter((m) => m.role === "staff" && m.meaningful);
-  if (!laterStaff.length) {
+  const complaint = deriveCanonicalComplaintAssessment({
+    caseId: view.caseId,
+    messages: ordered2(view).map((message) => ({
+      id: message.id,
+      role: message.role,
+      text: message.text,
+      meaningful: message.meaningful
+    }))
+  });
+  if (complaint.state === "none") {
     return make5(
       "angry_customer",
-      "ignored",
-      "assessed",
-      98,
-      "\u0627\u0644\u0639\u0645\u064A\u0644 \u0639\u0628\u0651\u0631 \u0639\u0646 \u0634\u0643\u0648\u0649/\u0639\u062F\u0645 \u0631\u0636\u0627 \u0648\u0644\u0645 \u064A\u0638\u0647\u0631 \u0631\u062F \u0645\u0648\u0638\u0641 \u0644\u0627\u062D\u0642 \u062F\u0627\u062E\u0644 \u0646\u0641\u0633 \u0627\u0644\u062A\u0641\u0627\u0639\u0644.",
-      [complaint.id]
+      null,
+      "not_applicable",
+      100,
+      "\u0627\u0644\u0639\u0642\u0644 \u0627\u0644\u0643\u0627\u0646\u0648\u0646\u064A\u0643\u0627\u0644 \u0644\u0645 \u064A\u062B\u0628\u062A \u0648\u062C\u0648\u062F \u0634\u0643\u0648\u0649/\u063A\u0636\u0628 \u0635\u0631\u064A\u062D \u0641\u064A \u0647\u0630\u0627 \u0627\u0644\u062A\u0641\u0627\u0639\u0644.",
+      []
     );
   }
-  const hostile = laterStaff.find((m) => HOSTILE_RX.test(m.text));
-  if (hostile) {
+  if (complaint.hostileResponseMessageIds.length > 0) {
     return make5(
       "angry_customer",
       "inappropriate",
       "assessed",
       99,
-      "\u0638\u0647\u0631 \u0631\u062F \u063A\u064A\u0631 \u0644\u0627\u0626\u0642 \u0635\u0631\u064A\u062D \u0628\u0639\u062F \u0634\u0643\u0648\u0649 \u0627\u0644\u0639\u0645\u064A\u0644.",
-      [complaint.id, hostile.id]
+      "\u0627\u0644\u0639\u0642\u0644 \u0627\u0644\u0643\u0627\u0646\u0648\u0646\u064A\u0643\u0627\u0644 \u0623\u062B\u0628\u062A \u0631\u062F\u064B\u0627 \u063A\u064A\u0631 \u0644\u0627\u0626\u0642 \u0628\u0639\u062F \u0634\u0643\u0648\u0649 \u0627\u0644\u0639\u0645\u064A\u0644.",
+      complaint.evidenceMessageIds
     );
   }
-  const apology = laterStaff.find((m) => APOLOGY_RX2.test(m.text));
-  const solution = laterStaff.find((m) => SOLUTION_RX.test(m.text));
-  const resolved = laterStaff.find((m) => RESOLUTION_RX.test(m.text));
-  if (apology && solution && resolved) {
+  if (complaint.state === "unresolved" && complaint.staffResponseMessageIds.length === 0) {
+    return make5(
+      "angry_customer",
+      "ignored",
+      "assessed",
+      98,
+      "\u0627\u0644\u0639\u0642\u0644 \u0627\u0644\u0643\u0627\u0646\u0648\u0646\u064A\u0643\u0627\u0644 \u0623\u062B\u0628\u062A \u0634\u0643\u0648\u0649 \u0648\u0644\u0645 \u064A\u062B\u0628\u062A \u0623\u064A \u0631\u062F \u0645\u0648\u0638\u0641 \u0644\u0627\u062D\u0642 \u062F\u0627\u062E\u0644 \u0646\u0641\u0633 \u0627\u0644\u062A\u0641\u0627\u0639\u0644.",
+      complaint.complaintMessageIds
+    );
+  }
+  const hasApology = complaint.apologyMessageIds.length > 0;
+  const hasRemedy = complaint.remedyAttemptMessageIds.length > 0;
+  if (complaint.state === "resolved" && hasApology && hasRemedy) {
     return make5(
       "angry_customer",
       "solved",
       "assessed",
       96,
-      "\u062A\u0645 \u0631\u0635\u062F \u0627\u0639\u062A\u0630\u0627\u0631 \u0648\u0627\u0636\u062D \u062B\u0645 \u0625\u062C\u0631\u0627\u0621/\u062D\u0644 \u062B\u0645 \u062F\u0644\u064A\u0644 \u0644\u0627\u062D\u0642 \u0639\u0644\u0649 \u062A\u0646\u0641\u064A\u0630 \u0623\u0648 \u0625\u063A\u0644\u0627\u0642 \u0627\u0644\u0645\u0634\u0643\u0644\u0629.",
-      [complaint.id, apology.id, solution.id, resolved.id]
+      "\u0627\u0644\u0639\u0642\u0644 \u0627\u0644\u0643\u0627\u0646\u0648\u0646\u064A\u0643\u0627\u0644 \u0623\u062B\u0628\u062A \u0627\u0639\u062A\u0630\u0627\u0631\u064B\u0627 \u0648\u0625\u062C\u0631\u0627\u0621\u064B \u062B\u0645 \u0625\u063A\u0644\u0627\u0642\u064B\u0627 \u0635\u0631\u064A\u062D\u064B\u0627 \u0644\u0644\u0645\u0634\u0643\u0644\u0629.",
+      complaint.evidenceMessageIds
     );
   }
-  if (apology && solution) {
+  if (complaint.state === "recovery_attempted" && hasApology && hasRemedy) {
     return make5(
       "angry_customer",
       "good",
       "assessed",
       92,
-      "\u062A\u0645 \u0627\u062D\u062A\u0648\u0627\u0621 \u0627\u0644\u0634\u0643\u0648\u0649 \u0628\u0627\u0639\u062A\u0630\u0627\u0631 \u0648\u0625\u062C\u0631\u0627\u0621 \u0648\u0627\u0636\u062D\u060C \u0644\u0643\u0646 \u0644\u0627 \u064A\u0648\u062C\u062F \u062F\u0644\u064A\u0644 \u0643\u0627\u0641\u064D \u062F\u0627\u062E\u0644 \u0627\u0644\u062A\u0641\u0627\u0639\u0644 \u0639\u0644\u0649 \u0625\u063A\u0644\u0627\u0642 \u0627\u0644\u0645\u0634\u0643\u0644\u0629 \u0646\u0647\u0627\u0626\u064A\u064B\u0627.",
-      [complaint.id, apology.id, solution.id]
+      "\u0627\u0644\u0639\u0642\u0644 \u0627\u0644\u0643\u0627\u0646\u0648\u0646\u064A\u0643\u0627\u0644 \u0623\u062B\u0628\u062A \u0627\u062D\u062A\u0648\u0627\u0621 \u0627\u0644\u0634\u0643\u0648\u0649 \u0628\u0627\u0639\u062A\u0630\u0627\u0631 \u0648\u0625\u062C\u0631\u0627\u0621 \u0648\u0627\u0636\u062D\u060C \u0644\u0643\u0646 \u0644\u0645 \u064A\u062B\u0628\u062A \u0625\u063A\u0644\u0627\u0642\u0647\u0627 \u0646\u0647\u0627\u0626\u064A\u064B\u0627.",
+      complaint.evidenceMessageIds
     );
   }
-  if (apology || solution) {
+  if (complaint.state === "resolved") {
+    return make5(
+      "angry_customer",
+      "medium",
+      "assessed",
+      86,
+      "\u0627\u0644\u0639\u0642\u0644 \u0627\u0644\u0643\u0627\u0646\u0648\u0646\u064A\u0643\u0627\u0644 \u0623\u062B\u0628\u062A \u0625\u063A\u0644\u0627\u0642 \u0627\u0644\u0645\u0634\u0643\u0644\u0629\u060C \u0644\u0643\u0646 \u0639\u0646\u0627\u0635\u0631 \u0627\u0644\u0627\u0639\u062A\u0630\u0627\u0631/\u0627\u0644\u0625\u062C\u0631\u0627\u0621 \u0642\u0628\u0644 \u0627\u0644\u0625\u063A\u0644\u0627\u0642 \u063A\u064A\u0631 \u0645\u0643\u062A\u0645\u0644\u0629 \u0641\u064A \u0627\u0644\u062F\u0644\u064A\u0644.",
+      complaint.evidenceMessageIds
+    );
+  }
+  if (complaint.state === "recovery_attempted" || hasApology || hasRemedy) {
     return make5(
       "angry_customer",
       "medium",
       "assessed",
       84,
-      "\u064A\u0648\u062C\u062F \u062A\u0641\u0627\u0639\u0644 \u0625\u064A\u062C\u0627\u0628\u064A \u062C\u0632\u0626\u064A \u0645\u0639 \u0627\u0644\u0634\u0643\u0648\u0649\u060C \u0644\u0643\u0646 \u0639\u0646\u0627\u0635\u0631 \u0627\u0644\u0627\u062D\u062A\u0648\u0627\u0621/\u0627\u0644\u062D\u0644 \u063A\u064A\u0631 \u0645\u0643\u062A\u0645\u0644\u0629.",
-      [complaint.id, ...[apology?.id, solution?.id].filter(Boolean)]
+      "\u0627\u0644\u0639\u0642\u0644 \u0627\u0644\u0643\u0627\u0646\u0648\u0646\u064A\u0643\u0627\u0644 \u0623\u062B\u0628\u062A \u0645\u062D\u0627\u0648\u0644\u0629 \u062A\u0639\u0627\u0641\u064D \u062C\u0632\u0626\u064A\u0629\u060C \u0644\u0643\u0646 \u0627\u0644\u0627\u062D\u062A\u0648\u0627\u0621 \u0623\u0648 \u0627\u0644\u0625\u063A\u0644\u0627\u0642 \u063A\u064A\u0631 \u0645\u0643\u062A\u0645\u0644.",
+      complaint.evidenceMessageIds
     );
   }
   return make5(
@@ -11797,8 +12438,8 @@ function assessComplaint(view) {
     "medium",
     "assessed",
     76,
-    "\u062A\u0645 \u0627\u0644\u0631\u062F \u0639\u0644\u0649 \u0627\u0644\u0639\u0645\u064A\u0644\u060C \u0644\u0643\u0646 \u0644\u0627 \u064A\u0648\u062C\u062F \u0627\u0639\u062A\u0630\u0627\u0631 \u0623\u0648 \u062D\u0644 \u0648\u0627\u0636\u062D \u064A\u0645\u0643\u0646 \u0625\u062B\u0628\u0627\u062A\u0647 \u0645\u0646 \u0627\u0644\u0646\u0635 \u0627\u0644\u0645\u062A\u0627\u062D.",
-    [complaint.id, laterStaff[0].id]
+    "\u0627\u0644\u0639\u0642\u0644 \u0627\u0644\u0643\u0627\u0646\u0648\u0646\u064A\u0643\u0627\u0644 \u0623\u062B\u0628\u062A \u0648\u062C\u0648\u062F \u0627\u0644\u0634\u0643\u0648\u0649 \u0648\u0631\u062F\u064B\u0627 \u0639\u0644\u064A\u0647\u0627\u060C \u0644\u0643\u0646 \u0644\u0645 \u064A\u062B\u0628\u062A \u0627\u0639\u062A\u0630\u0627\u0631\u064B\u0627 \u0623\u0648 \u0625\u062C\u0631\u0627\u0621 \u062A\u0639\u0627\u0641\u064D \u0648\u0627\u0636\u062D\u064B\u0627.",
+    complaint.evidenceMessageIds
   );
 }
 function assessDelay(view) {
@@ -11821,12 +12462,16 @@ function assessDelay(view) {
   }
   const anchorIndex = customerDelayIndex >= 0 ? customerDelayIndex : proactiveNoticeIndex;
   const anchor = messages[anchorIndex];
-  const laterStaff = messages.slice(anchorIndex + 1).filter((m) => m.role === "staff" && m.meaningful);
-  const apology = anchor.role === "staff" && APOLOGY_RX2.test(anchor.text) ? anchor : laterStaff.find((m) => APOLOGY_RX2.test(m.text)) || null;
-  const eta = anchor.role === "staff" && ETA_RX.test(anchor.text) ? anchor : laterStaff.find((m) => ETA_RX.test(m.text)) || null;
-  const resolution = laterStaff.find((m) => RESOLUTION_RX.test(m.text)) || null;
+  const laterMessages = messages.slice(anchorIndex + 1).filter((message) => message.meaningful);
+  const laterStaff = laterMessages.filter((message) => message.role === "staff");
+  const apology = anchor.role === "staff" && APOLOGY_RX3.test(anchor.text) ? anchor : laterStaff.find((message) => APOLOGY_RX3.test(message.text)) || null;
+  const eta = anchor.role === "staff" && ETA_RX.test(anchor.text) ? anchor : laterStaff.find((message) => ETA_RX.test(message.text)) || null;
+  const progress = laterStaff.find((message) => DELIVERY_PROGRESS_RX.test(message.text)) || null;
+  const closure = laterMessages.find(
+    (message) => (message.role === "customer" || message.role === "staff") && DELIVERY_CLOSURE_RX.test(message.text)
+  ) || null;
   const cancelled = messages.slice(anchorIndex + 1).find(
-    (m) => m.role === "customer" && m.meaningful && CANCEL_RX.test(m.text)
+    (message) => message.role === "customer" && message.meaningful && CANCEL_RX.test(message.text)
   );
   if (cancelled && view.lostOpportunity.reason === "delivery_issue") {
     return make5(
@@ -11838,14 +12483,14 @@ function assessDelay(view) {
       [anchor.id, cancelled.id, ...view.lostOpportunity.evidenceMessageIds]
     );
   }
-  if (proactiveNoticeIndex >= 0 && apology && eta && resolution) {
+  if (proactiveNoticeIndex >= 0 && apology && eta && closure) {
     return make5(
       "order_delay_handling",
       view.lostOpportunity.responsibility === "delivery" || view.lostOpportunity.responsibility === "inventory" ? "outside_reason_handled" : "handled_full",
       "assessed",
       97,
-      "\u062A\u0645 \u0625\u0628\u0644\u0627\u063A \u0627\u0644\u0639\u0645\u064A\u0644 \u0628\u0627\u0644\u062A\u0623\u062E\u064A\u0631\u060C \u0648\u0627\u0644\u0627\u0639\u062A\u0630\u0627\u0631\u060C \u0648\u0625\u0639\u0637\u0627\u0621 \u062A\u0648\u0642\u064A\u062A/\u062A\u0648\u0642\u0639 \u062C\u062F\u064A\u062F\u060C \u062B\u0645 \u0638\u0647\u0631\u062A \u0645\u062A\u0627\u0628\u0639\u0629 \u062D\u062A\u0649 \u0627\u0644\u062A\u0646\u0641\u064A\u0630. \u0644\u0627 \u064A\u062A\u0645 \u062A\u062D\u0645\u064A\u0644 \u0627\u0644\u0645\u0648\u0638\u0641 \u0633\u0628\u0628\u064B\u0627 \u062A\u0634\u063A\u064A\u0644\u064A\u064B\u0627 \u062E\u0627\u0631\u062C \u0625\u0631\u0627\u062F\u062A\u0647.",
-      [messages[proactiveNoticeIndex].id, apology.id, eta.id, resolution.id]
+      "\u062A\u0645 \u0625\u0628\u0644\u0627\u063A \u0627\u0644\u0639\u0645\u064A\u0644 \u0628\u0627\u0644\u062A\u0623\u062E\u064A\u0631 \u0648\u0627\u0644\u0627\u0639\u062A\u0630\u0627\u0631 \u0648\u0625\u0639\u0637\u0627\u0621 \u062A\u0648\u0642\u064A\u062A \u062C\u062F\u064A\u062F\u060C \u062B\u0645 \u0638\u0647\u0631 \u062F\u0644\u064A\u0644 \u0625\u063A\u0644\u0627\u0642 \u0635\u0631\u064A\u062D. \u0644\u0627 \u064A\u062A\u0645 \u062A\u062D\u0645\u064A\u0644 \u0627\u0644\u0645\u0648\u0638\u0641 \u0633\u0628\u0628\u064B\u0627 \u062A\u0634\u063A\u064A\u0644\u064A\u064B\u0627 \u062E\u0627\u0631\u062C \u0625\u0631\u0627\u062F\u062A\u0647.",
+      [messages[proactiveNoticeIndex].id, apology.id, eta.id, closure.id]
     );
   }
   if ((proactiveNoticeIndex >= 0 || laterStaff.length > 0) && eta) {
@@ -11854,8 +12499,8 @@ function assessDelay(view) {
       "informed_only",
       "assessed",
       90,
-      "\u062A\u0645 \u0625\u0628\u0644\u0627\u063A \u0627\u0644\u0639\u0645\u064A\u0644/\u0627\u0644\u0631\u062F \u0639\u0644\u064A\u0647 \u0645\u0639 \u0648\u0642\u062A \u0623\u0648 \u062A\u0648\u0642\u0639 \u062C\u062F\u064A\u062F\u060C \u0644\u0643\u0646 \u0644\u0627 \u064A\u0648\u062C\u062F \u062F\u0644\u064A\u0644 \u0643\u0627\u0645\u0644 \u0639\u0644\u0649 \u0645\u062A\u0627\u0628\u0639\u0629 \u0627\u0644\u062A\u0646\u0641\u064A\u0630 \u062D\u062A\u0649 \u0627\u0644\u0646\u0647\u0627\u064A\u0629.",
-      [anchor.id, eta.id, ...apology ? [apology.id] : []]
+      progress ? "\u062A\u0645 \u0625\u0628\u0644\u0627\u063A \u0627\u0644\u0639\u0645\u064A\u0644/\u0627\u0644\u0631\u062F \u0639\u0644\u064A\u0647 \u0628\u0648\u0642\u062A \u062C\u062F\u064A\u062F \u0648\u0638\u0647\u0631\u062A \u0645\u062A\u0627\u0628\u0639\u0629 \u062A\u0634\u063A\u064A\u0644\u064A\u0629\u060C \u0644\u0643\u0646 \u0644\u0627 \u064A\u0648\u062C\u062F \u062F\u0644\u064A\u0644 \u0625\u063A\u0644\u0627\u0642 \u0635\u0631\u064A\u062D\u061B \u062D\u0627\u0644\u0629 \xAB\u0641\u064A \u0627\u0644\u0637\u0631\u064A\u0642\xBB \u0644\u0627 \u062A\u064F\u0639\u0627\u0645\u0644 \u0643\u062A\u0633\u0644\u064A\u0645 \u0645\u0643\u062A\u0645\u0644." : "\u062A\u0645 \u0625\u0628\u0644\u0627\u063A \u0627\u0644\u0639\u0645\u064A\u0644/\u0627\u0644\u0631\u062F \u0639\u0644\u064A\u0647 \u0645\u0639 \u0648\u0642\u062A \u0623\u0648 \u062A\u0648\u0642\u0639 \u062C\u062F\u064A\u062F\u060C \u0644\u0643\u0646 \u0644\u0627 \u064A\u0648\u062C\u062F \u062F\u0644\u064A\u0644 \u0625\u063A\u0644\u0627\u0642 \u0635\u0631\u064A\u062D.",
+      [anchor.id, eta.id, ...apology ? [apology.id] : [], ...progress ? [progress.id] : []]
     );
   }
   if (customerDelayIndex >= 0 && apology) {
@@ -11884,7 +12529,7 @@ function assessDelay(view) {
     "assessed",
     78,
     "\u064A\u0648\u062C\u062F \u062A\u0639\u0627\u0645\u0644 \u0645\u0639 \u0627\u0644\u062A\u0623\u062E\u064A\u0631 \u0644\u0643\u0646\u0647 \u063A\u064A\u0631 \u0645\u0643\u062A\u0645\u0644 \u0628\u0645\u0627 \u064A\u0643\u0641\u064A \u0644\u0625\u062B\u0628\u0627\u062A \u0645\u062A\u0627\u0628\u0639\u0629 \u0643\u0627\u0645\u0644\u0629.",
-    [anchor.id, ...laterStaff.slice(0, 2).map((m) => m.id)]
+    [anchor.id, ...laterStaff.slice(0, 2).map((message) => message.id)]
   );
 }
 function analyzeConversationEvaluationServiceRecovery(view) {
@@ -13485,6 +14130,12 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
     canonicalReconciliation: [],
     actionReconciliation: { reconciledActions: 0 },
     complaintEnrichment: { enrichedComplaintActions: 0 },
+    operationalProjection: {
+      followups: { inserted: 0, existing: 0, skipped: 0 },
+      customerRequests: { inserted: 0, existing: 0, skipped: 0 },
+      complaints: { inserted: 0, existing: 0, skipped: 0 },
+      errors: []
+    },
     semanticProjection: [],
     conversationEvaluations: []
   };
@@ -13599,6 +14250,71 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
     reason: row.reason,
     ...row.error ? { error: row.error } : {}
   }));
+  const projectionSources = admitted.map((source) => ({
+    id: String(source.id || ""),
+    raw_text: typeof source.raw_text === "string" ? source.raw_text : null,
+    customer_name: source.customer_name ? String(source.customer_name) : null,
+    customer_code: source.customer_code ? String(source.customer_code) : null,
+    staff_id: source.staff_id ? String(source.staff_id) : null
+  }));
+  const projectionErrors = [];
+  let followupProjection = { inserted: 0, existing: 0, skipped: 0 };
+  let customerRequestProjection = { inserted: 0, existing: 0, skipped: 0 };
+  let complaintProjection = { inserted: 0, existing: 0, skipped: 0 };
+  try {
+    const result = await projectCanonicalFollowupsToActions(
+      service,
+      reconcileCandidates,
+      projectionSources
+    );
+    followupProjection = {
+      inserted: result.inserted,
+      existing: result.existing,
+      skipped: result.skipped.length
+    };
+  } catch (error) {
+    projectionErrors.push(
+      `canonical_followup_projection_failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  try {
+    const result = await projectCanonicalCustomerRequestsToActions(
+      service,
+      reconcileCandidates,
+      projectionSources
+    );
+    customerRequestProjection = {
+      inserted: result.inserted,
+      existing: result.existing,
+      skipped: result.skipped.length
+    };
+  } catch (error) {
+    projectionErrors.push(
+      `canonical_customer_request_projection_failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  try {
+    const result = await projectCanonicalComplaintsToActions(
+      service,
+      reconcileCandidates,
+      projectionSources
+    );
+    complaintProjection = {
+      inserted: result.inserted,
+      existing: result.existing,
+      skipped: result.skipped.length
+    };
+  } catch (error) {
+    projectionErrors.push(
+      `canonical_complaint_projection_failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  const operationalProjection = {
+    followups: followupProjection,
+    customerRequests: customerRequestProjection,
+    complaints: complaintProjection,
+    errors: projectionErrors
+  };
   const conversationEvaluations = [];
   for (const analysis of reconcileCandidates) {
     const view = analysis.caseIntelligence;
@@ -13681,6 +14397,7 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
     canonicalReconciliation,
     actionReconciliation: { reconciledActions },
     complaintEnrichment: { enrichedComplaintActions },
+    operationalProjection,
     semanticProjection,
     conversationEvaluations
   };
