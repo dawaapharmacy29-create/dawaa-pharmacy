@@ -72,7 +72,8 @@ jobs:
       - name: TypeScript
         run: npm run typecheck
       - name: Semantic ESLint
-        run: npx eslint . --ext .ts,.tsx --ignore-path .eslintignore --quiet --rule 'prettier/prettier: off' --format json --output-file batch4-semantic-eslint.json
+        run: |
+          npx eslint . --ext .ts,.tsx --ignore-path .eslintignore --quiet --rule 'prettier/prettier: off' --format json --output-file batch4-semantic-eslint.json
       - name: Production build
         run: npm run build
       - name: Performance budget
