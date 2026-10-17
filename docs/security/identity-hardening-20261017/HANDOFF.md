@@ -23,7 +23,7 @@ Production reads performed during review were catalog-only SELECTs; business-row
   - **Deploy only after the DB migrations.**
 - `api/sales-intelligence-refresh-source.js`: regenerated; its application diff is the removed hint lines and generated parity passed in the original rehearsal.
 - `scripts/security/identity-rehearsal/`: isolated rehearsal tooling and synthetic seed.
-- `docs/security/identity-hardening-20261017/`: original rehearsal report, per-function classification and synthetic test results.
+- `docs/security/identity-hardening-20261017/`: original rehearsal evidence, per-function classification, synthetic results, and `FOLLOWUP_REVIEW.md` documenting the corrective review.
 
 ## Production read-only facts confirmed during the follow-up review
 
@@ -54,11 +54,7 @@ Production reads performed during review were catalog-only SELECTs; business-row
 ## Current repository / CI state
 
 - Draft PR: `#512` — review only, do not merge.
-- The branch CI after the guard/default-ACL corrections is green for:
-  - Build
-  - Quality Gate
-  - Time Off Architecture
-  - Runtime Sensitive Finalization Guards
+- Build, Quality Gate, Time Off Architecture, and Runtime Sensitive Finalization Guards passed on the corrected code head before the final documentation-only commits.
 - CI success does **not** replace the required isolated SQL rehearsal of the updated 8-migration set.
 
 ## Not done / open
