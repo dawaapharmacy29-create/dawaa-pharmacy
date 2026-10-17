@@ -2,9 +2,11 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react-swc';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../../..');
+const require = createRequire(import.meta.url);
 
 export default defineConfig({
   root,
@@ -13,6 +15,8 @@ export default defineConfig({
   css: { postcss: { plugins: [(await import('tailwindcss')).default, (await import('autoprefixer')).default] } },
   resolve: {
     alias: [
+      // Production profiling is opt-in; this alias applies only to the synthetic harness.
+      { find: 'react-dom/client', replacement: require.resolve('react-dom/profiling') },
       { find: '@/lib/supabase', replacement: path.resolve(here, 'fakeSupabase.ts') },
       { find: '@', replacement: path.resolve(root, 'src') },
     ],
