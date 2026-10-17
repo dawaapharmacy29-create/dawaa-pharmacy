@@ -2246,15 +2246,15 @@ export async function importInvoicesToDB(
       : [];
 
     if (matches.length > 0) {
-      // رقم الفاتورة + الفرع هما العلامة المميزة الوحيدة المعتمدة لمنع التكرار.
-      // مبنكنش نشترط تطابق التاريخ بالظبط كمان، لأن أي فرق بسيط في التاريخ
-      // (تنسيق مختلف، وقت مختلف) كان بيخلي الفاتورة تتحفظ تاني كنسخة جديدة
-      // تمامًا بنفس الرقم بدل ما تتحدّث أو تتجاهل — وده السبب الحقيقي للتكرار
-      // عند إعادة استيراد نفس اليوم.
+      // Invoice identity is (invoice number, canonical branch, Cairo sale day).
+      // Never update a historical invoice merely because its number is reused.
+      // All source dates have already been normalized by the importer.
+      const incomingDay = parseInvoiceDate(row.date) || String(row.date || '').slice(0, 10);
       const sameBranchAndDate = matches.find((existing) => {
         const existingBranch = normalizeComparableBranch(getCoreInvoiceBranch(existing), branch);
         const incomingBranch = normalizeComparableBranch(rowBranch, branch);
-        return existingBranch === incomingBranch;
+        const existingDay = getInvoiceDay(existing);
+        return existingBranch === incomingBranch && existingDay === incomingDay;
       });
 
       if (sameBranchAndDate) {

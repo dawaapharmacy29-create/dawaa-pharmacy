@@ -645,7 +645,7 @@ describe('loadDatabaseDayComparison', () => {
     expect(lastUpdatePayload).toMatchObject({ invoice_number: 'IDEMP-1' });
   });
 
-  it('updates same invoice_number in the same branch when the incoming date differs', async () => {
+  it('inserts reused invoice_number in same branch when the Cairo day differs', async () => {
     const row = makeInvoiceRow({ rowIndex: 1, invoiceNumber: 'SAME-NO', date: '2026-07-05', amount: 180 });
     mockExistingInvoiceRows = [
       {
@@ -672,18 +672,13 @@ describe('loadDatabaseDayComparison', () => {
 
     const summary = await importInvoicesToDB([row], 'ÙØ±Ø¹ Ø´ÙƒØ±ÙŠ', 'same-number-new-date');
 
-    expect(summary.insertedRows).toBe(0);
-    expect(summary.confirmedExistingInvoices).toBe(1);
-    expect(summary.valueChangedUpdates).toBe(1);
+    expect(summary.insertedRows).toBe(1);
+    expect(summary.confirmedExistingInvoices).toBe(0);
+    expect(summary.valueChangedUpdates).toBe(0);
     expect(summary.rowsSavedSuccessfullyCount).toBe(1);
-    expect(lastSalesInvoiceInsertPayload).toEqual([]);
-    expect(lastUpdatePayload).toMatchObject({
-      invoice_number: 'SAME-NO',
-      invoice_date: '2026-07-05',
-      sale_date: '2026-07-05',
-      date: '2026-07-05',
-      net_amount: 180,
-    });
+    expect(lastSalesInvoiceInsertPayload).toMatchObject([{ invoice_number: 'SAME-NO', invoice_date: '2026-07-05', net_amount: 180 }]);
+    expect(lastUpdatePayload).toBeNull();
+
   });
 
   it('inserts same invoice_number in a different branch instead of updating the old row', async () => {
