@@ -1,0 +1,31 @@
+VERIFY_FAILURE_DIAGNOSTIC_TMP
+head=c4ab7f549eca1187a1f2ffec13a44f1d65647618
+status=1
+
+  ✓ the doctor dashboard activity tab turns a failed read into an error state, never an endless spinner
+  ✓ pending lifecycle/assignment panels show a failed load, never "no pending requests"
+  ✓ the manager live incentive never turns a failed checklist or history read into 0% or an empty history
+  ✓ doctor dashboard personal sections report failed reads instead of rendering "none"
+  ✓ /daily-command reads canonical sources with exact counts and never shows a failed read as 0
+  ✓ reports a failed branch source as failed, with no verdict and no recommendation
+  ✓ turns a timeout into a failed state with no decision and no technical text
+[Dawaa doctor-decision:branch_window] Error: Cannot read properties of null (reading 'start')
+  ✓ turns a throwing parser into a failed source and retries the next call
+  ✓ keeps the trend when the branch comparison failed, is loading, or there is no branch
+  ✓ should include error information for failed sections
+  ✓ keeps failed order + feedback + apology in one recovery case
+  ✓ a source that failed to persist blocks completion even if the others succeeded
+  ✓ E: dirty + failed save keeps the editor open with the draft intact
+  ✓ one expanded duplicate pair costs exactly 2 × sources requests
+  ✓ failed counts are unavailable (null), never a valid-looking zero
+  ✓ a failed shared request rejects every waiter and is not retained
+  ✓ M/N: a failed correction reports that nothing was saved
+  ✓ O/S: a failed correction returns false without navigating (editor and route stay put)
+  ✓ a case graph with zero saved cases is failed, not partial
+  ✓ 23. unavailable evidence is pending, not a failed conversion; no data is null, not 0
+Test result: 1047 passed, 0 failed
+[2m Test Files [22m [1m[32m123 passed[39m[22m[2m | [22m[33m1 skipped[39m[90m (124)[39m
+[2m      Tests [22m [1m[32m1241 passed[39m[22m[2m | [22m[33m1 skipped[39m[90m (1242)[39m
+[2m Test Files [22m [1m[32m123 passed[39m[22m[2m | [22m[33m1 skipped[39m[90m (124)[39m
+[2m      Tests [22m [1m[32m1241 passed[39m[22m[2m | [22m[33m1 skipped[39m[90m (1242)[39m
+[build-source-purity] FAIL: active app or CI paths may mutate committed source/generated output.
