@@ -4,6 +4,8 @@
 // The database must identify callers only from the opaque `x-dawaa-session-token` (verified against
 // staff_login_sessions), never from the client-chosen `x-dawaa-user-id` header, and a client-supplied
 // p_actor_id must never authorize a caller unless it is bound to the verified session.
+// Future postgres-owned functions in public must also start closed to browser roles unless a migration
+// grants EXECUTE deliberately.
 //
 // Why this is effective-definition based: an earlier version of this check only verified that one hardening
 // migration FILE contained the right clauses and that later files did not mention the header. It passed while
@@ -22,7 +24,7 @@ const stripSqlComments = (sql) => sql.replace(/--[^\n]*/g, '');
 const migrations = fs.readdirSync(migrationsDir).filter((name) => name.endsWith('.sql')).sort();
 
 // ---------------------------------------------------------------------------------------------------
-// 1. The security migrations that remove header trust and bind p_actor_id must exist and keep their guards.
+// 1. The security migrations that remove header trust, bind p_actor_id and close default EXECUTE must exist.
 // ---------------------------------------------------------------------------------------------------
 const READERS = '20261017090000_security_verified_identity_readers_v1.sql';
 const POLICIES = '20261017090100_security_identity_rls_policies_v1.sql';
@@ -33,8 +35,9 @@ const BINDINGS = [
   '20261017090500_security_actor_binding_sales_targets_v1.sql',
 ];
 const REVOKES = '20261017090600_security_revoke_client_internal_actor_writers_v1.sql';
-const SECURITY_SET = new Set([READERS, POLICIES, ...BINDINGS, REVOKES]);
-const CUTOFF = REVOKES; // migrations sorted after this must satisfy the forward rules below
+const DEFAULT_PRIVILEGES = '20261017090700_security_postgres_public_function_default_privileges_v1.sql';
+const SECURITY_SET = new Set([READERS, POLICIES, ...BINDINGS, REVOKES, DEFAULT_PRIVILEGES]);
+const CUTOFF = DEFAULT_PRIVILEGES; // migrations sorted after this must satisfy the forward rules below
 
 const requireClauses = (file, clauses) => {
   if (!migrations.includes(file)) return failures.push(`missing ${file}`);
@@ -55,8 +58,10 @@ requireClauses(READERS, [
 ]);
 requireClauses(POLICIES, [
   'dawaa_current_staff_account_id_strict()',
-  "raise exception 'identity rls v1: policies still read request headers: %'",
-  "raise exception 'identity rls v1: unexpected header-based policies %",
+  "raise exception 'identity rls v1: unreviewed policies read request headers: %'",
+  "raise exception 'identity rls v1: partial/mixed state detected",
+  'drifted from both reviewed PRE and POST metadata',
+  'post-state drift for %.%',
   'alter policy %I on public.%I',
 ]);
 for (const file of BINDINGS) {
@@ -64,7 +69,7 @@ for (const file of BINDINGS) {
     'pg_temp.dawaa_bind_actor_in_place',
     'public.dawaa_bind_actor_v1(p_actor_id)',
     'drifted from the reviewed Production body',
-    "must be applied first",
+    'must be applied first',
   ]);
 }
 requireClauses(REVOKES, [
@@ -72,12 +77,25 @@ requireClauses(REVOKES, [
   "raise exception 'revoke internal writers: still client-executable: %'",
   'is called by SECURITY INVOKER',
 ]);
+requireClauses(DEFAULT_PRIVILEGES, [
+  "current_user <> 'postgres' or session_user <> 'postgres'",
+  "pg_has_role(current_user, 'supabase_admin', 'member')",
+  'alter default privileges for role postgres in schema public',
+  'revoke execute on functions from public, anon, authenticated',
+  'grant execute on functions to service_role',
+  'non-extension public functions are not postgres-owned',
+  'unreviewed supabase_admin public functions exist',
+]);
+const defaultPrivilegeSql = stripSqlComments(read(`supabase/migrations/${DEFAULT_PRIVILEGES}`));
+if (/alter\s+default\s+privileges\s+for\s+role\s+"?supabase_admin"?/i.test(defaultPrivilegeSql)) {
+  failures.push(`${DEFAULT_PRIVILEGES} must not alter managed supabase_admin defaults or depend on role escalation`);
+}
 
 // Neutralization manifests: objects the security migrations rewrite IN PLACE (so their last textual
 // definition in an older migration is superseded).
 const readSecurity = (file) => (migrations.includes(file) ? read(`supabase/migrations/${file}`) : '');
 const neutralizedPolicies = new Set(
-  [...readSecurity(POLICIES).matchAll(/'(\w+)\.(\w+)'/g)].map((m) => `${m[1]}.${m[2]}`)
+  [...readSecurity(POLICIES).matchAll(/\('([a-zA-Z0-9_]+)'\s*,\s*'([a-zA-Z0-9_]+)'/g)].map((m) => `${m[1]}.${m[2]}`)
 );
 const boundFunctions = new Set(
   BINDINGS.flatMap((file) => [...readSecurity(file).matchAll(/\('public\.(\w+)\(/g)].map((m) => m[1]))
@@ -138,16 +156,22 @@ for (const file of migrations.filter((n) => n > CUTOFF)) {
   if (/coalesce\(\s*p_actor_id\s*,/i.test(sql)) {
     failures.push(`${file} uses coalesce(p_actor_id, ...): a client-supplied actor would override the verified session`);
   }
+  if (/alter\s+default\s+privileges[\s\S]*?grant\s+execute\s+on\s+functions\s+to\s+(?:public|anon|authenticated)/i.test(sql)) {
+    failures.push(`${file} re-opens implicit function EXECUTE for a browser role via default privileges`);
+  }
+  if (/alter\s+default\s+privileges\s+for\s+role\s+"?supabase_admin"?/i.test(sql)) {
+    failures.push(`${file} attempts to modify managed supabase_admin default privileges; use the reviewed postgres-owned application boundary`);
+  }
   for (const m of sql.matchAll(fnRe)) {
     const [, name, args, , body] = m;
     const definer = /security\s+definer/i.test(sql.slice(m.index, m.index + m[0].length));
     const revokedFromClients = new RegExp(
       `revoke[^;]*on\\s+function\\s+(?:public\\.)?${name}\\b[^;]*from[^;]*\\b(public|anon)\\b`, 'i'
     ).test(sql);
-    // Schema default privileges grant EXECUTE on every new function to anon/authenticated (that is how
-    // 20260825233000's revokes were silently undone). A new SECURITY DEFINER function must state its grants.
+    // Even with fail-closed postgres defaults, every new SECURITY DEFINER function states its ACL explicitly.
+    // This protects repository replay, nonstandard executors and future default-ACL drift.
     if (definer && !revokedFromClients) {
-      failures.push(`${file}: SECURITY DEFINER function ${name} has no explicit "revoke ... from public/anon" (default privileges grant EXECUTE to anon)`);
+      failures.push(`${file}: SECURITY DEFINER function ${name} has no explicit "revoke ... from public/anon"`);
     }
     if (/\bp_actor_id\b/i.test(args) && /\bp_actor_id\b/i.test(body)) {
       const verified = VERIFIED_ACTOR_RESOLVERS.some((re) => re.test(body));
@@ -181,6 +205,7 @@ for (const file of migrations.filter((n) => n > CUTOFF)) {
 for (const rel of [
   'supabase/tests/identity_contract_live_v1.sql',
   'supabase/sql/ROLLBACK_20261017_security_identity_hardening_v1.sql',
+  `supabase/migrations/${DEFAULT_PRIVILEGES}`,
 ]) {
   if (!fs.existsSync(path.join(ROOT, rel))) failures.push(`missing ${rel}`);
 }
@@ -241,5 +266,6 @@ if (failures.length) {
 }
 console.log(
   `Verified session identity check passed (${lastFunction.size} functions, ${lastPolicy.size} policies, ` +
-  `${neutralizedPolicies.size} neutralized policies, ${boundFunctions.size} bound functions, ${revokedFunctions.size} revoked writers).`
+  `${neutralizedPolicies.size} neutralized policies, ${boundFunctions.size} bound functions, ${revokedFunctions.size} revoked writers; ` +
+  `postgres/public default EXECUTE is fail-closed).`
 );
