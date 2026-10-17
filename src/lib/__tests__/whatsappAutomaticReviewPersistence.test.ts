@@ -20,6 +20,12 @@ vi.mock('@/lib/whatsappReviewPersistenceV4', () => ({
   appendWhatsAppReviewAudit: (...args: unknown[]) => appendWhatsAppReviewAuditMock(...args),
 }));
 
+// The Canonical Review Gate (whatsappOperationalSourceOwner) runs before staff resolution; these
+// cases exercise what happens AFTER a source is admitted, so the fixture source is canonical.
+vi.mock('@/lib/whatsappOperationalSourceOwner', () => ({
+  loadOperationalSourceIds: async (_client: unknown, sourceIds: string[]) => new Set(sourceIds.map(String)),
+}));
+
 const STAFF_ROW = {
   id: 'staff-1',
   name: 'د أحمد',

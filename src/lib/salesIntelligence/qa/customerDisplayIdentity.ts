@@ -60,11 +60,13 @@ function splitNameSuffixCode(rawName: string | null | undefined): { name: string
   const normalized = westernDigits(original);
   // Accept attached/separated forms:
   // "محمد الكموني17777", "محمد الكموني 17777", "محمد - 17777", "محمد (17777)", "محمد #17777".
-  const match = normalized.match(/^(.+?)(?:\s*[-–—|/#:]?\s*|\s*\(\s*)(\d{2,9})\s*\)?$/u);
+  // Capture the WHOLE trailing digit run before judging it: bounding the run itself ({2,9}) let the
+  // lazy name swallow a phone's leading digits ("محمد 01012345678" → "محمد 01" + code "012345678").
+  const match = normalized.match(/^(.+?)(?:\s*[-–—|/#:]?\s*|\s*\(\s*)(\d+)\s*\)?$/u);
   if (!match) return { name: original, code: null };
 
   const code = match[2];
-  if (looksLikePhoneDigits(code)) return { name: original, code: null };
+  if (code.length < 2 || code.length > 9 || looksLikePhoneDigits(code)) return { name: original, code: null };
 
   const name = cleanSpaces(match[1]?.replace(/[-–—|/#:(\s]+$/u, '')) ?? original;
   // Do not turn a numeric-only contact label into an empty/invalid person name.

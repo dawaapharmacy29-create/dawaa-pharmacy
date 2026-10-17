@@ -20,6 +20,15 @@ let actions: Record<string, any>[] = [];
 const writes: Array<{ table: string; op: string; payload: unknown }> = [];
 const rpc = vi.fn();
 const getUser = vi.fn();
+// Verified-session authorization (server/sales-intelligence-refresh-authorization.ts) runs on the
+// session-token client; the fixture actor is the session's own staff account with refresh
+// permission and top management. Kept apart from `rpc` so writer-call counts stay exact.
+const permissionRpc = vi.fn(async (name: string) => {
+  if (name === 'dawaa_current_staff_account_id_strict') return { data: loginSession?.staff_account_id ?? null, error: null };
+  if (name === 'dawaa_current_actor_can') return { data: true, error: null };
+  if (name === 'dawaa_actor_is_top_management_v1') return { data: true, error: null };
+  return { data: null, error: { message: `unexpected permission rpc: ${name}` } };
+});
 
 function query(table: string) {
   const filters: Record<string, unknown> = {};
@@ -86,7 +95,10 @@ function query(table: string) {
 }
 
 vi.mock('@supabase/supabase-js', () => ({
-  createClient: () => ({ from: (table: string) => query(table), rpc, auth: { getUser } }),
+  createClient: (_url: string, _key: string, options?: { global?: { headers?: Record<string, string> } }) =>
+    options?.global?.headers?.['x-dawaa-session-token']
+      ? { from: (table: string) => query(table), rpc: permissionRpc, auth: { getUser } }
+      : { from: (table: string) => query(table), rpc, auth: { getUser } },
 }));
 
 const FILE = 'customer 4250.zip';
@@ -186,6 +198,9 @@ const transports = [
 beforeEach(() => {
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-key';
   process.env.SUPABASE_URL = 'https://example.supabase.co';
+  // The handler builds its verified-session permission client from the anon key and fails closed
+  // (503 missing_supabase_anon_key) without it.
+  process.env.VITE_SUPABASE_ANON_KEY = 'anon-key';
   loginSession = {
     id: 'login-1',
     staff_account_id: 'staff-1',
@@ -345,7 +360,11 @@ describe('canonical refresh — lifecycle then single proof writer (server trans
     await call(load, fine.id);
     const closed = writes.filter((row) => row.table === 'whatsapp_conversation_actions');
     expect(closed).toHaveLength(1);
-    expect(closed[0].payload).toMatchObject({ outcome: 'sold', target_id: 'inv-1' });
+    // Since feca2250 the sale proof lives in payload.canonical_sale; execution owns target_* and
+    // the reconciliation never overwrites them (see soldActionLineage.test.ts).
+    expect(closed[0].payload).toMatchObject({ outcome: 'sold', payload: { canonical_sale: { invoice_id: 'inv-1' } } });
+    expect(closed[0].payload).not.toHaveProperty('target_id');
+    expect(closed[0].payload).not.toHaveProperty('target_table');
   });
 
   it('reports a proof-bridge transport failure instead of success', async () => {

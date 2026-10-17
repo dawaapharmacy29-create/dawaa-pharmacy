@@ -229,7 +229,7 @@ describe('no reader keeps a second canonical-source definition', () => {
               code
             )
           ) {
-            offenders.push(path.relative(root, full));
+            offenders.push(path.relative(root, full).split(path.sep).join('/'));
           }
         }
       }
@@ -237,8 +237,10 @@ describe('no reader keeps a second canonical-source definition', () => {
     walk(path.join(root, 'src'));
     walk(path.join(root, 'server'));
     walk(path.join(root, 'scripts'));
+    // The backfill dry-run script that used to be the only other caller is not on main
+    // (run-sales-intelligence-backfill.cjs exists only on unmerged branches), so today the legacy
+    // selector is referenced solely by its own definition module.
     expect(offenders.sort()).toEqual([
-      'scripts/run-sales-intelligence-backfill.cjs',
       'src/lib/salesIntelligence/sourceSnapshotLineage.ts',
     ]);
   });

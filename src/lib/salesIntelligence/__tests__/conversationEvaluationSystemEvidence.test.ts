@@ -77,13 +77,17 @@ describe('conversation evaluation system evidence 9J-A',()=>{
         const result={data:rows[table]??[],error:null};
         const chain:any={
           select(){return chain;},or(){return chain;},gte(){return chain;},lte(){return chain;},
-          lt(){return chain;},order(){return chain;},limit(){return Promise.resolve(result);}
+          lt(){return chain;},eq(){return chain;},in(){return chain;},order(){return chain;},limit(){return Promise.resolve(result);}
         };
         return chain;
       }
     };
     const snap=await loadConversationEvaluationSystemEvidenceWithClient(fakeClient,view());
-    expect(calls).toEqual(['customer_requests','daily_followups','sales_invoices']);
+    // Purchase history is read once per known customer identity column (id / code / phone) through
+    // the invoice read model and de-duplicated by invoice id, so the same invoice appears once.
+    expect(calls.slice(0, 2)).toEqual(['customer_requests','daily_followups']);
+    expect(calls.slice(2).every((table) => table === 'sales_invoices')).toBe(true);
+    expect(calls.slice(2).length).toBeGreaterThanOrEqual(1);
     expect(snap.customerRequests.map(x=>x.row.id)).toEqual(['r1']);
     expect(snap.purchaseHistory.invoices.map(x=>x.id)).toEqual(['old']);
   });

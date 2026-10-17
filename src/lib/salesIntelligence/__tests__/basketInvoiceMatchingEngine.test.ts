@@ -240,15 +240,20 @@ describe('Basket <-> Invoice Matching Engine (Sales Intelligence Phase E) — Go
     expect(diff?.after).toBe(3);
   });
 
-  it('11. an unresolved product identity (a raw pronoun, never invented into a real name) is compared as-is and correctly reported missing, not crashed on', () => {
+  it('11. an unresolved product identity (a raw pronoun, never invented into a real name) is unavailable evidence for human review — never a negative "missing item", not crashed on', () => {
+    // Since 18c3f451 an unknown identity (pronoun / image / voice) is not negative product
+    // evidence: it cannot be matched to or against any invoice line, so the item verdict fails
+    // closed as insufficient_data and the case is routed to human review.
     const m = deriveBasketInvoiceMatch(
       baseInput({
         itemsByBasketId: { 'basket:1': [item('التاني', null, 'unknown')] },
         itemEvidenceProvider: { getItemsForInvoice: () => [{ productNameRaw: 'فيتامين د', quantity: 2, lineTotal: 180 }] },
       })
     );
-    expect(m.itemMatch).toBe('mismatch');
-    expect(m.differences.some((d) => d.type === 'missing_item' && d.key === 'التاني')).toBe(true);
+    expect(m.itemMatch).toBe('insufficient_data');
+    expect(m.differences.some((d) => d.type === 'missing_item' && d.key === 'التاني')).toBe(false);
+    expect(m.differences.some((d) => d.type === 'extra_item')).toBe(false);
+    expect(m.humanReviewReasons).toContain('unresolved_product_identity');
   });
 
   it('12. a documented delivery fee explains a real total gap and is never flagged as suspicious', () => {

@@ -306,21 +306,33 @@ describe('canonical refresh invoice read boundary', () => {
   });
 });
 
-describe('backfill script has no bypass of the canonical boundary', () => {
-  const script = fs.readFileSync(
-    path.resolve(__dirname, '../../../../../scripts/run-sales-intelligence-backfill.cjs'),
-    'utf8'
-  );
-  const code = script.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+describe('backfill scripts have no bypass of the canonical boundary', () => {
+  // main ships no manual Sales Intelligence backfill script today (run-sales-intelligence-backfill.cjs
+  // only exists on unmerged branches). Every SI backfill script that DOES exist must route through
+  // runCanonicalSalesIntelligenceBackfill and never load the batch writer directly.
+  const scriptsDir = path.resolve(__dirname, '../../../../../scripts');
+  const backfillScripts = fs
+    .readdirSync(scriptsDir)
+    .filter((name) => /sales-intelligence.*backfill|backfill.*sales-intelligence/i.test(name))
+    .map((name) => ({
+      name,
+      code: fs
+        .readFileSync(path.join(scriptsDir, name), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\/.*$/gm, ''),
+    }));
 
   it('does not load the batch writer or adapter directly', () => {
-    expect(code).not.toMatch(
-      /batchPersistenceService|reviewSourceBatchAdapter|runBatchPersistence\(/
-    );
+    for (const script of backfillScripts) {
+      expect({ name: script.name, bypass: /batchPersistenceService|reviewSourceBatchAdapter|runBatchPersistence\(/.test(script.code) })
+        .toEqual({ name: script.name, bypass: false });
+    }
   });
 
   it('writes through runCanonicalSalesIntelligenceBackfill', () => {
-    expect(code).toMatch(/refresh\/canonicalRefreshService\.ts/);
-    expect(code).toMatch(/runCanonicalSalesIntelligenceBackfill\(supabase,/);
+    for (const script of backfillScripts) {
+      expect(script.code).toMatch(/refresh\/canonicalRefreshService\.ts/);
+      expect(script.code).toMatch(/runCanonicalSalesIntelligenceBackfill\(supabase,/);
+    }
   });
 });

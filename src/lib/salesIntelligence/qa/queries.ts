@@ -19,7 +19,6 @@
 // unbounded high-volume reads.
 import { parseWhatsAppExport, type WhatsAppParsedMessage } from '../../whatsappConversationParser';
 import {
-  deriveCasesOnly,
   deriveSegmentedCases,
   runSalesIntelligencePipeline,
   segmentationInputFromPipelineInput,
@@ -33,21 +32,18 @@ import {
   REVIEW_SOURCE_BATCH_INPUT_COLUMNS,
   reviewSourceRowToBatchConversation,
 } from '../persistence/reviewSourceBatchAdapter';
-import { buildInvoiceCandidateQuery, fetchInvoiceCandidates } from '../invoiceCandidateRetrieval';
-import { deriveSaleProofState } from '../saleProofState';
-import { deriveCanonicalSalesOutcome } from '../canonicalSalesOutcomeEngine';
 import { deriveSaleProofStateFromPersisted } from './saleProofProjection';
 import { resolveCustomerDisplayIdentity } from './customerDisplayIdentity';
 import type {
   CanonicalSalesOutcomeAssessment,
-  CommercialConfirmationState,
+  CaseBasketItem,
   SalesIntelligenceCaseAnalysis,
 } from '../types';
 import type { SaleProofAssessment } from '../saleProofState';
 import type { QaCaseListRow, QaListFilters } from './types';
 import { rankProductCandidates } from '../../productMatching';
 import { loadCanonicalAnalyticalSources } from '../persistence/canonicalSourceGate';
-import { fetchInvoiceItemEvidenceProvider } from '../invoiceItemEvidenceRepository';
+import { readCanonicalCaseSaleTruth, type CanonicalCaseSaleTruth } from './canonicalCaseTruth';
 import { readInvoiceRecordById } from '../../readModels/invoiceRecordReadModel';
 import {
   compareQuotedAndActualUnitPrice,
@@ -429,23 +425,27 @@ export interface QaCaseDetailBundle {
   /** Parsed transcript messages (whatsappConversationParser.parseWhatsAppExport) — never re-interpreted, just rendered. */
   transcript: WhatsAppParsedMessage[];
   /**
-   * Fresh read-only re-derivation of this exact case using the trusted source timeline plus the
-   * current real invoice candidates for THIS case window. It performs SELECTs only and runs the
-   * same pure pipeline in memory; it never writes. The detail UI prefers this fresh projection so
-   * stale persisted snapshots cannot keep showing a temporally invalid invoice after an engine fix.
+   * The business truth for THIS case exactly as the canonical writers persisted it: the current
+   * analysis' canonicalSalesOutcome, the current attribution and the V22 sale ledger entry. The
+   * window renders these values; it never re-derives a sales decision.
    */
-  liveEvidence: SalesIntelligenceCaseAnalysis | null;
-  /** Canonical Sale Proof derived from the fresh read-only pipeline, when reproducible. */
-  liveSaleProof: SaleProofAssessment | null;
+  canonicalTruth: CanonicalCaseSaleTruth;
   /**
-   * The canonical I.C.2 Sale Proof State, computed from `persisted.attributionRow`/`matchRow`/
-   * `analysisRow` via deriveSaleProofStateFromPersisted() (saleProofProjection.ts) — the SAME
-   * function the list page uses. Never derived from `liveEvidence` (which runs with zero invoice
-   * candidates and would misrepresent the real, batch-computed attribution).
+   * Explanation only (contradictions, rule ids, evidence scope) projected from the persisted
+   * attribution/match rows. Its `state` is never rendered as the case's proof state.
    */
-  saleProof: SaleProofAssessment;
-  /** Current canonical commercial outcome derived from current proof + commercial state. */
-  salesOutcome: CanonicalSalesOutcomeAssessment;
+  persistedProofEvidence: SaleProofAssessment;
+  /**
+   * Display-only re-reading of the conversation basket (item names, quantities, source messages),
+   * which the analysis row does not persist. It runs with NO invoice candidates, so it can never
+   * select an invoice, prove a sale or change any canonical value above.
+   */
+  conversationReread: {
+    activeBasket: SalesIntelligenceCaseAnalysis['activeBasket'];
+    basketItems: CaseBasketItem[];
+  } | null;
+  /** Set when the display-only conversation re-reading failed; the window says so explicitly. */
+  conversationRereadError: string | null;
   quotedBasketV2Items: Array<{
     productId: string;
     productCode: string | null;
@@ -525,13 +525,28 @@ export interface QaCaseDetailBundle {
   }>;
 }
 
-export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Promise<QaCaseDetailBundle | null> {
+export interface QaCaseDetailLoadOptions {
+  /** Aborted when the selected case changes; the loader stops between read stages. */
+  signal?: AbortSignal;
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw new DOMException('qa_case_detail_load_aborted', 'AbortError');
+}
+
+export async function fetchQaCaseDetail(
+  supabaseClient: any,
+  caseId: string,
+  options: QaCaseDetailLoadOptions = {}
+): Promise<QaCaseDetailBundle | null> {
+  const { signal } = options;
   const [{ data: caseRow }, { data: analysisRow, error: analysisError }] = await Promise.all([
     supabaseClient.from('sales_intelligence_cases').select('*').eq('case_id', caseId).maybeSingle(),
     supabaseClient.from('sales_intelligence_current_case_analyses').select('*').eq('case_id', caseId).maybeSingle(),
   ]);
   if (analysisError) throw analysisError;
   if (!analysisRow) return null;
+  throwIfAborted(signal);
 
   const [{ data: attributionRow }, { data: matchRow }, { data: policyEvaluationRow }] = await Promise.all([
     supabaseClient
@@ -555,13 +570,14 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
   let conversation: QaCaseDetailBundle['conversation'] = null;
   let siblingCases: QaCaseDetailBundle['siblingCases'] = [];
   let transcript: WhatsAppParsedMessage[] = [];
-  let liveEvidence: SalesIntelligenceCaseAnalysis | null = null;
-  let liveSaleProof: SaleProofAssessment | null = null;
+  let conversationReread: QaCaseDetailBundle['conversationReread'] = null;
+  let conversationRereadError: string | null = null;
   let quotedBasketV2Items: QaCaseDetailBundle['quotedBasketV2Items'] = [];
   let caseScopedMessageIds = new Set<string>();
   let sourceAnalysisJson: any = null;
   let sourceSnapshot: QaCaseDetailBundle['sourceSnapshot'] = { isCanonical: true, canonicalSourceId: null };
 
+  throwIfAborted(signal);
   if (caseRow?.conversation_id) {
     const { data: conversationRow } = await supabaseClient
       .from('whatsapp_review_sources')
@@ -706,9 +722,11 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
       transcript = parseWhatsAppExport(conversationRow.raw_text, {
         trustedConversationStartedAt: conversationRow.conversation_started_at ?? null,
       });
+      throwIfAborted(signal);
       try {
-        // Same production runtime context as the canonical refresh (runtimeContext.ts): canonical
-        // customer + staff identity, canonical catalog, one base input for segmentation and run.
+        // Display-only conversation re-reading with the same runtime context as the canonical
+        // refresh (runtimeContext.ts). It runs with NO invoice candidates and no competing claims,
+        // so it cannot select an invoice or prove a sale; only basket detail is taken from it.
         const runtimeContext = await loadSalesIntelligenceRuntimeContext(supabaseClient);
         const [preparedConversation] = await prepareSalesIntelligenceConversations(
           supabaseClient,
@@ -722,37 +740,8 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
         );
         const baseInput = pipelineBaseInputFor(preparedConversation, runtimeContext);
         const productIndex = runtimeContext.productIndex;
-        const segmented = deriveCasesOnly(segmentationInputFromPipelineInput(baseInput));
-        const targetCase = segmented.cases.find((candidate) => candidate.caseId === caseId) ?? null;
-        let freshCandidates: any[] = [];
-        if (targetCase) {
-          freshCandidates = await fetchInvoiceCandidates(
-            supabaseClient,
-            buildInvoiceCandidateQuery({
-              caseId: targetCase.caseId,
-              customerId: targetCase.customerId,
-              customerPhone: targetCase.customerPhone,
-              customerCode: baseInput.customerCodeHint ?? null,
-              customerName: baseInput.customerNameHint ?? null,
-              branchNameRaw: targetCase.branchNameRaw,
-              caseStartedAt: targetCase.startedAt,
-              caseEndedAt: targetCase.endedAt,
-            })
-          );
-          siblingCases = segmented.cases.map((candidate) => ({
-            caseId: candidate.caseId,
-            startedAt: candidate.startedAt,
-            endedAt: candidate.endedAt,
-            isCurrent: candidate.caseId === caseId,
-          }));
-        }
-
-        const itemEvidenceProvider = await fetchInvoiceItemEvidenceProvider(
-          supabaseClient,
-          freshCandidates
-        );
-        const segmentedForPrice = deriveSegmentedCases(segmentationInputFromPipelineInput(baseInput));
-        const priceSegment = segmentedForPrice.cases.find(
+        const segmented = deriveSegmentedCases(segmentationInputFromPipelineInput(baseInput));
+        const priceSegment = segmented.cases.find(
           (entry) => entry.conversationCase.caseId === caseId
         ) ?? null;
         if (priceSegment) {
@@ -777,154 +766,58 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
             unitPrice: item.unitPrice,
             lineTotal: item.lineTotal,
           }));
-        }
 
-        const runLivePipeline = (
-          competingSelections: Array<{ caseId: string; invoiceId: string }> = []
-        ) => runSalesIntelligencePipeline({
-          ...baseInput,
-          competingSelections,
-          resolveInvoiceCandidates: (context) => context.caseId === caseId ? freshCandidates : [],
-          itemEvidenceProvider,
-        });
-
-        let result = runLivePipeline([]);
-        let targetAnalysis = result.caseAnalyses.find((a) => a.caseId === caseId) ?? null;
-
-        // Competing invoice claims must come from CURRENT CANONICAL source snapshots only.
-        // Historical/superseded snapshots stay readable for audit but must never create a false
-        // invoice competition against the canonical conversation.
-        const provisionalInvoiceId = targetAnalysis?.attribution.selectedInvoiceId ?? null;
-        if (provisionalInvoiceId) {
-          const { data: persistedCompetingClaims } = await supabaseClient
-            .from('sales_intelligence_current_attributions')
-            .select('case_id, selected_invoice_id')
-            .eq('selected_invoice_id', provisionalInvoiceId)
-            .neq('case_id', caseId)
-            .limit(MAX_LIST_ROWS);
-
-          const competingCaseIds = Array.from(new Set(
-            (persistedCompetingClaims ?? [])
-              .map((row: any) => row.case_id ? String(row.case_id) : null)
-              .filter(Boolean)
-          )) as string[];
-
-          const canonicalCompetingCaseIds = new Set<string>();
-          if (competingCaseIds.length) {
-            const { data: competingCases } = await supabaseClient
-              .from('sales_intelligence_cases')
-              .select('case_id, conversation_id')
-              .in('case_id', competingCaseIds)
-              .limit(MAX_LIST_ROWS);
-
-            const conversationIds = Array.from(new Set(
-              (competingCases ?? [])
-                .map((row: any) => row.conversation_id ? String(row.conversation_id) : null)
-                .filter(Boolean)
-            )) as string[];
-
-            let lineageRows: RawConversationIdentityRow[] = [];
-            if (conversationIds.length) {
-              const { data: directSourceRows } = await supabaseClient
-                .from('whatsapp_review_sources')
-                .select('id, source_filename, customer_id, customer_name, customer_code, customer_phone, conversation_started_at, conversation_ended_at, message_count, created_at, review_status')
-                .in('id', conversationIds)
-                .limit(MAX_LIST_ROWS);
-
-              const sourceFilenames = Array.from(new Set(
-                (directSourceRows ?? [])
-                  .map((row: any) => row.source_filename ? String(row.source_filename) : null)
-                  .filter(Boolean)
-              )) as string[];
-
-              if (sourceFilenames.length) {
-                const { data: familyRows } = await supabaseClient
-                  .from('whatsapp_review_sources')
-                  .select('id, source_filename, customer_id, customer_name, customer_code, customer_phone, conversation_started_at, conversation_ended_at, message_count, created_at, review_status')
-                  .in('source_filename', sourceFilenames)
-                  .limit(MAX_LIST_ROWS);
-                lineageRows = (familyRows ?? directSourceRows ?? []) as RawConversationIdentityRow[];
-              } else {
-                lineageRows = (directSourceRows ?? []) as RawConversationIdentityRow[];
-              }
-            }
-
-            const { canonicalIds: canonicalConversationIds } = await loadCanonicalAnalyticalSources(
-              supabaseClient,
-              lineageRows
-            );
-            for (const row of competingCases ?? []) {
-              if (!row.case_id) continue;
-              const competingConversationId = row.conversation_id ? String(row.conversation_id) : null;
-              if (!competingConversationId || canonicalConversationIds.has(competingConversationId)) {
-                canonicalCompetingCaseIds.add(String(row.case_id));
-              }
-            }
+          const reread = runSalesIntelligencePipeline({
+            ...baseInput,
+            competingSelections: [],
+            resolveInvoiceCandidates: () => [],
+          }).caseAnalyses.find((entry) => entry.caseId === caseId) ?? null;
+          if (reread) {
+            conversationReread = {
+              activeBasket: reread.activeBasket,
+              basketItems: reread.activeBasket ? reread.itemsByBasketId[reread.activeBasket.basketId] ?? [] : [],
+            };
           }
-
-          const competingSelections = (persistedCompetingClaims ?? [])
-            .filter((row: any) =>
-              row.case_id &&
-              row.selected_invoice_id &&
-              canonicalCompetingCaseIds.has(String(row.case_id))
-            )
-            .map((row: any) => ({
-              caseId: String(row.case_id),
-              invoiceId: String(row.selected_invoice_id),
-            }));
-
-          if (competingSelections.length > 0) {
-            result = runLivePipeline(competingSelections);
-            targetAnalysis = result.caseAnalyses.find((a) => a.caseId === caseId) ?? null;
-          }
+        } else {
+          conversationRereadError = 'case_not_reproduced_by_current_segmentation';
         }
-
-        liveEvidence = targetAnalysis;
-        if (liveEvidence) {
-          liveSaleProof = deriveSaleProofState({
-            attribution: liveEvidence.attribution,
-            basketInvoiceMatch: liveEvidence.basketInvoiceMatch,
-            integrityAssessment: liveEvidence.integrityAssessment,
-          });
-        }
-      } catch {
-        liveEvidence = null;
-        liveSaleProof = null;
+      } catch (cause) {
+        conversationReread = null;
+        conversationRereadError = cause instanceof Error ? cause.message : String(cause);
       }
     }
   }
 
-  const persistedSaleProof = deriveSaleProofStateFromPersisted(caseId, analysisRow, attributionRow ?? null, matchRow ?? null);
-  const saleProof = liveSaleProof ?? persistedSaleProof;
-  const persistedCommercialState = String(
-    analysisRow.commercial_confirmation_state ?? 'unknown'
-  ) as CommercialConfirmationState;
-  const persistedBasketDetected = Boolean(
-    analysisRow.evidence_snapshot?.evidenceCompleteness?.basketDetected
-  );
-  const salesOutcome = liveEvidence?.salesOutcome ?? deriveCanonicalSalesOutcome({
+  throwIfAborted(signal);
+  // Canonical sale ledger: the V22 case linked to THIS SI case. Read only; visibility is decided
+  // by RLS and a hidden row becomes an explicit 'v22_not_visible' state, never a different truth.
+  const linkedV22CaseId = caseRow?.source_case_id_v22 ? String(caseRow.source_case_id_v22) : null;
+  let v22Row: Record<string, any> | null = null;
+  if (linkedV22CaseId) {
+    const { data } = await supabaseClient
+      .from('whatsapp_customer_cases_v22')
+      .select('id, proposed_outcome, confirmed_outcome, verified_invoice_id, verified_invoice_number, verified_revenue, verified_sale_at, canonical_sale_proof:case_json->canonicalSaleProof')
+      .eq('id', linkedV22CaseId)
+      .maybeSingle();
+    v22Row = data ?? null;
+  }
+  const canonicalTruth = readCanonicalCaseSaleTruth({
     caseId,
-    caseType: analysisRow.case_type,
-    commercialConfirmation: {
-      currentState: persistedCommercialState,
-      customerConfirmed:
-        persistedCommercialState === 'customer_confirmed' ||
-        persistedCommercialState === 'commercial_confirmation_complete',
-    },
-    saleProof,
-    hasMeaningfulBasketItems: persistedBasketDetected,
-    needsHumanReview: Boolean(analysisRow.needs_human_review),
+    analysisRow,
+    attributionRow: attributionRow ?? null,
+    linkedV22CaseId,
+    v22Row,
   });
+  const persistedProofEvidence = deriveSaleProofStateFromPersisted(caseId, analysisRow, attributionRow ?? null, matchRow ?? null);
 
   // Read-only catalog matching for reviewer visibility. Scope STRICTLY to the current Case.
   // Prefer the active basket's own source messages/items; only fall back to messages inside this
   // case interval when the legacy basket engine produced no item. Never scan the whole WhatsApp
   // thread, otherwise a product mentioned in another morning/evening interaction leaks here.
+  throwIfAborted(signal);
   const catalogProductMatches: QaCaseDetailBundle['catalogProductMatches'] = [];
   const seenProductIds = new Set<string>();
-  const activeBasketItems = liveEvidence?.activeBasket
-    ? (liveEvidence.itemsByBasketId[liveEvidence.activeBasket.basketId] ?? [])
-    : [];
+  const activeBasketItems = conversationReread?.basketItems ?? [];
   const basketPhrases = activeBasketItems
     .map((item) => ({
       sourceMessageId: item.sourceMessageId,
@@ -933,10 +826,10 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
     .filter((item) => item.rawPhrase.length > 1);
 
   const caseStartMs = new Date(
-    liveEvidence?.conversationCase.startedAt ?? analysisRow.case_started_at
+    analysisRow.case_started_at
   ).getTime();
   const caseEndMs = new Date(
-    liveEvidence?.conversationCase.endedAt ?? analysisRow.case_ended_at ?? analysisRow.case_started_at
+    analysisRow.case_ended_at ?? analysisRow.case_started_at
   ).getTime();
   const fallbackPhrases = transcript
     .filter((message) => {
@@ -959,6 +852,7 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
   const productBearingMessages = basketPhrases.length ? basketPhrases : fallbackPhrases;
 
   for (const message of productBearingMessages) {
+    throwIfAborted(signal);
     const rawPhrase = message.rawPhrase;
     const tokens = rawPhrase
       .toLowerCase()
@@ -1012,8 +906,9 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
 
   const invoiceItemFacts: QaCaseDetailBundle['invoiceItemFacts'] = [];
   let candidateInvoice: QaCaseDetailBundle['candidateInvoice'] = null;
-  const selectedInvoiceId = liveEvidence?.attribution.selectedInvoiceId ?? attributionRow?.selected_invoice_id ?? null;
+  const selectedInvoiceId = canonicalTruth.attribution?.selectedInvoiceId ?? null;
 
+  throwIfAborted(signal);
   if (selectedInvoiceId) {
     const [{ data: itemRows }, { data: invoiceHeader }] = await Promise.all([
       supabaseClient
@@ -1262,10 +1157,10 @@ export async function fetchQaCaseDetail(supabaseClient: any, caseId: string): Pr
     sourceSnapshot,
     siblingCases,
     transcript,
-    liveEvidence,
-    liveSaleProof,
-    saleProof,
-    salesOutcome,
+    canonicalTruth,
+    persistedProofEvidence,
+    conversationReread,
+    conversationRereadError,
     quotedBasketV2Items,
     recommendationConversions,
     invoiceStaffTruth,
