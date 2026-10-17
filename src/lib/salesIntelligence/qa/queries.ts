@@ -756,15 +756,17 @@ export async function fetchQaCaseDetail(
     const productIds = Array.from(new Set((itemRows ?? []).map((row: any) => String(row.product_id ?? '').trim()).filter(Boolean)));
     const productsByKey = new Map<string, any>();
 
-    if (productCodes.length) {
-      const { data } = await supabaseClient.from('products').select('id,product_code,name,price').in('product_code', productCodes).limit(1000);
-      for (const product of data ?? []) {
-        if (product.id) productsByKey.set(`id:${product.id}`, product);
-        if (product.product_code) productsByKey.set(`code:${product.product_code}`, product);
-      }
-    }
-    if (productIds.length) {
-      const { data } = await supabaseClient.from('products').select('id,product_code,name,price').in('id', productIds).limit(1000);
+    // Independent bounded exact lookups share one transport round. Merge in the original
+    // code-then-ID order so canonical ID precedence is unchanged by response arrival order.
+    const productResults = await Promise.all([
+      productCodes.length
+        ? supabaseClient.from('products').select('id,product_code,name,price').in('product_code', productCodes).limit(1000)
+        : Promise.resolve({ data: [] }),
+      productIds.length
+        ? supabaseClient.from('products').select('id,product_code,name,price').in('id', productIds).limit(1000)
+        : Promise.resolve({ data: [] }),
+    ]);
+    for (const { data } of productResults) {
       for (const product of data ?? []) {
         if (product.id) productsByKey.set(`id:${product.id}`, product);
         if (product.product_code) productsByKey.set(`code:${product.product_code}`, product);
