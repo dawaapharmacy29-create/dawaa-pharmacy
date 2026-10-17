@@ -38,6 +38,9 @@ jobs:
       - name: Focused real-chat semantic regression tests
         run: npx vitest run src/lib/salesIntelligence/__tests__/realChatSemanticGuards.test.ts
 
+      - name: Canonical complaint and request ownership tests
+        run: npx vitest run src/lib/salesIntelligence/__tests__/canonicalComplaintAndRequestOwners.test.ts
+
       - name: Canonical follow-up projection tests
         run: npx vitest run src/lib/salesIntelligence/persistence/__tests__/canonicalFollowupProjector.test.ts
 
@@ -54,6 +57,9 @@ jobs:
           src/lib/salesIntelligence/caseBasketEngine.ts
           src/lib/salesIntelligence/customerNeedModel.ts
           src/lib/salesIntelligence/__tests__/realChatSemanticGuards.test.ts
+          src/lib/salesIntelligence/complaintAssessmentEngine.ts
+          src/lib/salesIntelligence/customerRequestQualificationEngine.ts
+          src/lib/salesIntelligence/__tests__/canonicalComplaintAndRequestOwners.test.ts
           src/lib/salesIntelligence/persistence/canonicalFollowupProjector.ts
           src/lib/salesIntelligence/persistence/__tests__/canonicalFollowupProjector.test.ts
           --rule 'prettier/prettier: off'
