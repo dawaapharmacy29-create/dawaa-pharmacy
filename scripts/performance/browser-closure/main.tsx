@@ -38,7 +38,9 @@ try {
   new PerformanceObserver((list) => {
     for (const entry of list.getEntries()) metrics.longTasks.push(entry.duration);
   }).observe({ type: 'longtask', buffered: true } as any);
-} catch {}
+} catch {
+  // Older browser engines may not support long-task observation; other metrics still run.
+}
 
 function onRender(id: 'qa' | 'brain', _phase: string, actualDuration: number) {
   metrics.profiler[id].commits += 1;

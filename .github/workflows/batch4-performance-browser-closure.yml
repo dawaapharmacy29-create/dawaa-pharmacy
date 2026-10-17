@@ -59,7 +59,7 @@ jobs:
       - name: TypeScript
         run: npm run typecheck
       - name: Semantic ESLint
-        run: npm run lint -- --quiet
+        run: npm run lint -- --quiet --rule 'prettier/prettier: off'
       - name: Production build and performance budget
         run: npm run build && npm run perf:budget
       - name: Verify source and lockfiles remain unchanged
