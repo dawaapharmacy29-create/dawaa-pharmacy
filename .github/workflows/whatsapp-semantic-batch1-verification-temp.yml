@@ -1,4 +1,4 @@
-name: WhatsApp Semantic Batch 1 Verification (Temporary)
+name: WhatsApp Continuation Verification (Temporary)
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
       - fix/whatsapp-master-brain-lifecycle-v4-continuation-20261017
 
 concurrency:
-  group: whatsapp-semantic-batch1-${{ github.ref }}
+  group: whatsapp-continuation-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -35,8 +35,11 @@ jobs:
       - name: Regenerate canonical Sales Intelligence API
         run: npm run generate:sales-intelligence-refresh-api
 
-      - name: Focused semantic regression tests
+      - name: Focused real-chat semantic regression tests
         run: npx vitest run src/lib/salesIntelligence/__tests__/realChatSemanticGuards.test.ts
+
+      - name: Canonical follow-up projection tests
+        run: npx vitest run src/lib/salesIntelligence/persistence/__tests__/canonicalFollowupProjector.test.ts
 
       - name: Generated API parity
         run: node scripts/build-sales-intelligence-refresh-api.cjs --check
@@ -44,13 +47,15 @@ jobs:
       - name: Full repository verify gate
         run: npm run verify
 
-      - name: Semantic lint for Batch 1 touched source
+      - name: Focused semantic and projection lint
         run: >-
           npx eslint
           src/lib/whatsappConversationParser.ts
           src/lib/salesIntelligence/caseBasketEngine.ts
           src/lib/salesIntelligence/customerNeedModel.ts
           src/lib/salesIntelligence/__tests__/realChatSemanticGuards.test.ts
+          src/lib/salesIntelligence/persistence/canonicalFollowupProjector.ts
+          src/lib/salesIntelligence/persistence/__tests__/canonicalFollowupProjector.test.ts
           --rule 'prettier/prettier: off'
 
       - name: Show generated API delta
@@ -63,7 +68,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: batch1-generated-api-${{ github.sha }}
+          name: whatsapp-continuation-generated-api-${{ github.sha }}
           path: api/sales-intelligence-refresh-source.js
           if-no-files-found: error
           retention-days: 2
