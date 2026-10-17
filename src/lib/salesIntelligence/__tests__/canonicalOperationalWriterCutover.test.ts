@@ -21,6 +21,11 @@ describe('canonical operational writer cutover', () => {
     expect(source).not.toContain('await syncWhatsAppOperationalActionsV6(');
   });
 
+  it('does not let Journey V15 publish recovery tasks beside the canonical brain', () => {
+    const source = read('src/lib/whatsappCustomerJourneyPersistenceV15.ts');
+    expect(source).not.toContain('await writeWhatsAppOperationalActionsV6(');
+  });
+
   it('keeps canonical projectors wired into the single refresh service', () => {
     const source = read('src/lib/salesIntelligence/refresh/canonicalRefreshService.ts');
     expect(source).toContain('projectCanonicalFollowupsToActions');
