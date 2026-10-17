@@ -8497,7 +8497,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v24-canonical-basket-product-identity";
+var PIPELINE_VERSION = "sales-intelligence-v25-canonical-operational-assessments";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v10-payment-continuation-ambiguity-safe",
   historicalClosure: "historical-closure-v1",

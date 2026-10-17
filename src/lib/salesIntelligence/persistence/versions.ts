@@ -52,7 +52,9 @@
 // changed materially: V32 now keeps payment settlement inside the original order interaction,
 // and commercial confirmation/basket parsing recognizes natural Egyptian recap/compact totals
 // without manufacturing product identity from unresolved media deictics.
-export const PIPELINE_VERSION = 'sales-intelligence-v24-canonical-basket-product-identity';
+// Persist the newly owned complaint/request decisions on the next explicit refresh. Retries
+// within this version still reuse the same analysis; this constant never initiates a backfill.
+export const PIPELINE_VERSION = 'sales-intelligence-v25-canonical-operational-assessments';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v10-payment-continuation-ambiguity-safe',
@@ -70,3 +72,4 @@ export const ENGINE_VERSIONS = {
  * branch/identity mapping versioning system yet, so this is a constant until one exists).
  */
 export const BRANCH_IDENTITY_MAPPING_VERSION = 'branch-identity-mapping-v2';
+
