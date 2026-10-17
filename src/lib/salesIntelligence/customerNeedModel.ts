@@ -382,12 +382,16 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
   const indexById = new Map(messages.map((message, index) => [message.id, index]));
   const unlinkedAvailability: CustomerNeedAvailabilityEvidence[] = [];
   const unlinkedAlternatives: CustomerNeedAlternative[] = [];
+  const catalogMentionIds = new Map<string, string | null>();
   const catalogNamesProduct = (text: string, product: ProductAccumulator): boolean => {
     if (!input.productIndex || !product.productId) return false;
-    const resolution = resolveProductMention(text, input.productIndex);
-    return !resolution.ambiguous && Boolean(resolution.selected &&
-      ['proven', 'strongly_inferred'].includes(resolution.selected.confidence) &&
-      resolution.selected.product.productId === product.productId);
+    if (!catalogMentionIds.has(text)) {
+      const resolution = resolveProductMention(text, input.productIndex);
+      catalogMentionIds.set(text, !resolution.ambiguous && resolution.selected &&
+        ['proven', 'strongly_inferred'].includes(resolution.selected.confidence)
+        ? resolution.selected.product.productId : null);
+    }
+    return catalogMentionIds.get(text) === product.productId;
   };
 
   const linkProduct = (

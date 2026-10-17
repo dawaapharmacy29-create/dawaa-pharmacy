@@ -5486,10 +5486,14 @@ function deriveCustomerNeedModel(input) {
   const indexById = new Map(messages.map((message, index) => [message.id, index]));
   const unlinkedAvailability = [];
   const unlinkedAlternatives = [];
+  const catalogMentionIds = /* @__PURE__ */ new Map();
   const catalogNamesProduct = (text5, product) => {
     if (!input.productIndex || !product.productId) return false;
-    const resolution = resolveProductMention(text5, input.productIndex);
-    return !resolution.ambiguous && Boolean(resolution.selected && ["proven", "strongly_inferred"].includes(resolution.selected.confidence) && resolution.selected.product.productId === product.productId);
+    if (!catalogMentionIds.has(text5)) {
+      const resolution = resolveProductMention(text5, input.productIndex);
+      catalogMentionIds.set(text5, !resolution.ambiguous && resolution.selected && ["proven", "strongly_inferred"].includes(resolution.selected.confidence) ? resolution.selected.product.productId : null);
+    }
+    return catalogMentionIds.get(text5) === product.productId;
   };
   const linkProduct = (staffMessage, exclude = /* @__PURE__ */ new Set()) => {
     const staffText = normalizeProductKey(staffMessage.text);
