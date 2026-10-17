@@ -23,9 +23,6 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Apply canonical cutover regression test once
-        run: node scripts/patch-operational-cutover-regression-tests.cjs
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -35,80 +32,25 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps --no-audit --no-fund
 
-      - name: Regenerate canonical Sales Intelligence API
-        run: npm run generate:sales-intelligence-refresh-api
-
-      - name: Commit regression cutover and generated API when changed
+      - name: Capture exact full verify failure
+        shell: bash
         run: |
-          if git diff --quiet -- src/lib/__tests__/stableOperationIdentity.test.ts api/sales-intelligence-refresh-source.js; then
-            echo "Regression cutover and generated API already current."
-            exit 0
+          set +e
+          npm run verify > /tmp/verify.log 2>&1
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            mkdir -p docs/whatsapp-master-brain-lifecycle-v4-20261017
+            {
+              echo "VERIFY_FAILURE_DIAGNOSTIC_TMP"
+              echo "head=${GITHUB_SHA}"
+              echo "status=${status}"
+              echo
+              grep -E 'FAIL|failed|Failed|Error:|AssertionError|TypeError|ReferenceError|TS[0-9]{4}|Test Files|Tests|ELIFECYCLE|npm error|✗|×' /tmp/verify.log | tail -n 180 || true
+            } > docs/whatsapp-master-brain-lifecycle-v4-20261017/VERIFY_FAILURE_TMP.txt
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add docs/whatsapp-master-brain-lifecycle-v4-20261017/VERIFY_FAILURE_TMP.txt
+            git commit -m "chore(si): capture temporary verify failure diagnostic"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/lib/__tests__/stableOperationIdentity.test.ts api/sales-intelligence-refresh-source.js
-          git commit -m "test(si): close canonical operational writer cutover"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
-
-      - name: Focused real-chat semantic regression tests
-        run: npx vitest run src/lib/salesIntelligence/__tests__/realChatSemanticGuards.test.ts
-
-      - name: Canonical complaint and request ownership tests
-        run: >-
-          npx vitest run
-          src/lib/salesIntelligence/__tests__/canonicalComplaintAndRequestOwners.test.ts
-          src/lib/salesIntelligence/__tests__/conversationEvaluationServiceRecovery.test.ts
-          src/lib/salesIntelligence/__tests__/canonicalOperationalWriterCutover.test.ts
-
-      - name: Canonical operational projection tests
-        run: >-
-          npx vitest run
-          src/lib/salesIntelligence/persistence/__tests__/canonicalFollowupProjector.test.ts
-          src/lib/salesIntelligence/persistence/__tests__/canonicalCustomerRequestProjector.test.ts
-          src/lib/salesIntelligence/persistence/__tests__/canonicalComplaintProjector.test.ts
-
-      - name: Generated API parity
-        run: node scripts/build-sales-intelligence-refresh-api.cjs --check
-
-      - name: Full repository verify gate
-        run: npm run verify
-
-      - name: Focused semantic and projection lint
-        run: >-
-          npx eslint
-          src/lib/whatsappConversationParser.ts
-          src/lib/whatsappAutoIngestPipeline.ts
-          src/lib/whatsappProductDemandBackfillV22.ts
-          src/lib/whatsappCustomerJourneyPersistenceV15.ts
-          src/lib/salesIntelligence/caseBasketEngine.ts
-          src/lib/salesIntelligence/customerNeedModel.ts
-          src/lib/salesIntelligence/__tests__/realChatSemanticGuards.test.ts
-          src/lib/salesIntelligence/complaintAssessmentEngine.ts
-          src/lib/salesIntelligence/customerRequestQualificationEngine.ts
-          src/lib/salesIntelligence/conversationEvaluationServiceRecovery.ts
-          src/lib/salesIntelligence/__tests__/canonicalComplaintAndRequestOwners.test.ts
-          src/lib/salesIntelligence/__tests__/conversationEvaluationServiceRecovery.test.ts
-          src/lib/salesIntelligence/__tests__/canonicalOperationalWriterCutover.test.ts
-          src/lib/salesIntelligence/persistence/canonicalFollowupProjector.ts
-          src/lib/salesIntelligence/persistence/canonicalCustomerRequestProjector.ts
-          src/lib/salesIntelligence/persistence/canonicalComplaintProjector.ts
-          src/lib/salesIntelligence/persistence/__tests__/canonicalFollowupProjector.test.ts
-          src/lib/salesIntelligence/persistence/__tests__/canonicalCustomerRequestProjector.test.ts
-          src/lib/salesIntelligence/persistence/__tests__/canonicalComplaintProjector.test.ts
-          src/lib/salesIntelligence/refresh/canonicalRefreshService.ts
-          --rule 'prettier/prettier: off'
-
-      - name: Show generated API delta
-        if: always()
-        run: |
-          git status --short
-          git diff --stat -- api/sales-intelligence-refresh-source.js
-
-      - name: Upload regenerated API artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: whatsapp-continuation-generated-api-${{ github.sha }}
-          path: api/sales-intelligence-refresh-source.js
-          if-no-files-found: error
-          retention-days: 2
+          exit "$status"
