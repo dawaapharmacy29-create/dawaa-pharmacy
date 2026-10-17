@@ -1,0 +1,26 @@
+Node 22.23.3; all checks local/synthetic. No Production request was issued in this gate.
+TypeScript exit0; semantic ESLint exit0/zero errors; generated API check PASS in npm test and build prechecks; production build exit0.
+
+Full regression
+Test result: 1047 passed, 0 failed
+ Test Files  116 passed | 1 skipped (117)
+      Tests  1200 passed | 1 skipped (1201)
+ Test Files  116 passed | 1 skipped (117)
+      Tests  1200 passed | 1 skipped (1201)
+[si-regression-gate] PASS
+
+Identity/followup
+ Test Files  5 passed (5)
+      Tests  71 passed (71)
+
+Targeted performance/isolation
+ Test Files  5 passed (5)
+      Tests  23 passed (23)
+
+Quality
+QUALITY 29/29 PASS
+
+Final budget
+[perf-budget] initial static JS: 202.1 KiB gzip across 6 chunks
+[perf-budget] initial files: assets/index-BsK5QYY_.js, assets/react-core-Cf6l1Jd1.js, assets/query-CNx5r1mK.js, assets/ui-feedback-ChJ7mhf4.js, assets/supabase-B-WKDbgh.js, assets/router-C913sKlS.js
+[perf-budget] PASS: heavy tools remain lazy and bundle budgets are within limits.
