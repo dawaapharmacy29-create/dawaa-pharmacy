@@ -10,11 +10,10 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   verify:
-    if: ${{ !contains(github.event.head_commit.message, '[batch1-generated]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
 
@@ -60,14 +59,11 @@ jobs:
           git status --short
           git diff --stat -- api/sales-intelligence-refresh-source.js
 
-      - name: Commit generated API after all gates pass
-        run: |
-          if git diff --quiet -- api/sales-intelligence-refresh-source.js; then
-            echo "Generated API was already current; no generated commit required."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add api/sales-intelligence-refresh-source.js
-          git commit -m "chore(si): regenerate canonical refresh API [batch1-generated]"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+      - name: Upload regenerated API artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: batch1-generated-api-${{ github.sha }}
+          path: api/sales-intelligence-refresh-source.js
+          if-no-files-found: error
+          retention-days: 2
