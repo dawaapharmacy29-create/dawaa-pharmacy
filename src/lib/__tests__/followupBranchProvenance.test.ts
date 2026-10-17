@@ -1,13 +1,14 @@
 // Branch provenance contract: a conversation's branch is decided once, when its source is first
-// saved, and every follow-up that comes from that conversation keeps it. Behavior is proven on
-// native PostgreSQL by scripts/test-followup-branch-provenance-db.mjs; these checks keep the
-// repository wiring from regressing in the default test run.
+// saved. Legacy autonomous follow-up writers are retired from live ingest; canonical Sales
+// Intelligence projectors inherit the persisted source/case branch instead of re-deciding it.
+// Native PostgreSQL coverage remains in scripts/test-followup-branch-provenance-db.mjs.
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const read = (file: string) => readFileSync(file, 'utf8');
 const migration = read('supabase/migrations/20261009170000_followup_branch_provenance_guard_v1.sql');
 const pipeline = read('src/lib/whatsappAutoIngestPipeline.ts');
+const refresh = read('src/lib/salesIntelligence/refresh/canonicalRefreshService.ts');
 
 function body(sql: string, signature: string) {
   const start = sql.indexOf(`create or replace function public.${signature}`);
@@ -22,12 +23,16 @@ describe('auto-ingest keeps the stored source branch', () => {
     expect(pipeline).not.toMatch(/\.update\(\{\s*branch:\s*conversationBranch/);
   });
 
-  it('an existing source reports its stored branch and downstream writers use it', () => {
+  it('an existing source reports its stored branch and the canonical chain consumes it', () => {
     expect(pipeline).toContain(".select('id,branch')");
     expect(pipeline).toContain('const sourceBranch = saved.branch ?? conversationBranch;');
     expect(pipeline).toMatch(/verifySessionSale\(session, saved\.sourceId, identity, sourceBranch\)/);
-    expect(pipeline).toMatch(/syncWhatsAppOperationalActionsV6\(operational, \{\s*sourceId,\s*branch: sourceBranch,/);
-    expect(pipeline).toMatch(/identity,\s*sourceBranch\s*\);\s*result\.followupsCreated/);
+    expect(pipeline).toMatch(/persistOperationalJourneyIntelligence\([\s\S]*?sourceBranch,/);
+    expect(pipeline).not.toContain('await syncWhatsAppOperationalActionsV6(');
+    expect(pipeline).not.toContain('const followups = await saveFollowupSignals(');
+    expect(refresh).toContain('projectCanonicalFollowupsToActions');
+    expect(refresh).toContain('projectCanonicalCustomerRequestsToActions');
+    expect(refresh).toContain('projectCanonicalComplaintsToActions');
   });
 });
 
