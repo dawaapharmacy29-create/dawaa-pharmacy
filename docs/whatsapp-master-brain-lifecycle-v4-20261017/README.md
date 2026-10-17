@@ -1,6 +1,8 @@
 # WhatsApp Master Brain — Batch 4
 
-BATCH_4_STATUS: READY_FOR_APPROVAL — implementation/rehearsal package only; no approval to apply, merge or deploy is implied.
+BATCH_4_STATUS: READY_FOR_PHASE_A_PRODUCTION_SQL_APPROVAL — no approval to apply, merge or deploy is implied.
+
+Final Node 22 / native PostgreSQL 17 verification and fresh Production read-only preflight: PASS. [Final environment parity report](ENVIRONMENT_PARITY.md) supersedes the earlier Node 24 / PGlite-only environment limitations recorded below. Tested code HEAD: `20f854c56cbe18faf336cd7e1949d3ddc4aebd50`; subsequent final evidence commit changes documentation only.
 
 BRANCH: `fix/whatsapp-master-brain-lifecycle-v4-continuation-20261017`
 
