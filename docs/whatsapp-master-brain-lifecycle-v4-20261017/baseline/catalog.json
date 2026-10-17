@@ -1,0 +1,1869 @@
+{
+  "columns": [
+    {
+      "type": "uuid",
+      "table": "conversation_sales_reviews",
+      "column": "id",
+      "default": "uuid_generate_v4()",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "conversation_sales_reviews",
+      "column": "reviewer_id",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "reviewer_name",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "reviewer_role",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "uuid",
+      "table": "conversation_sales_reviews",
+      "column": "staff_id",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "staff_name",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "staff_role",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "branch",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "customer_id",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "customer_name",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "customer_code",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "customer_phone",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "evaluation_kind",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "invoice_number",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "timestamp",
+      "table": "conversation_sales_reviews",
+      "column": "invoice_time",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "evaluation_reason",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "conversation_sales_reviews",
+      "column": "total_score",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "jsonb",
+      "table": "conversation_sales_reviews",
+      "column": "raw_scores",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "bool",
+      "table": "conversation_sales_reviews",
+      "column": "has_complaint",
+      "default": "false",
+      "nullable": "YES"
+    },
+    {
+      "type": "bool",
+      "table": "conversation_sales_reviews",
+      "column": "has_medical_error",
+      "default": "false",
+      "nullable": "YES"
+    },
+    {
+      "type": "bool",
+      "table": "conversation_sales_reviews",
+      "column": "has_invoice_error",
+      "default": "false",
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "reviewer_notes",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "training_recommendation",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "conversation_sales_reviews",
+      "column": "final_score",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "conversation_sales_reviews",
+      "column": "point_impact",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "impact_status",
+      "default": "'approved'::text",
+      "nullable": "YES"
+    },
+    {
+      "type": "timestamptz",
+      "table": "conversation_sales_reviews",
+      "column": "reviewed_at",
+      "default": "now()",
+      "nullable": "YES"
+    },
+    {
+      "type": "timestamptz",
+      "table": "conversation_sales_reviews",
+      "column": "created_at",
+      "default": "now()",
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "conversation_sales_reviews",
+      "column": "base_score",
+      "default": "100",
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "conversation_sales_reviews",
+      "column": "positive_points",
+      "default": "0",
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "conversation_sales_reviews",
+      "column": "negative_points",
+      "default": "0",
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "conversation_sales_reviews",
+      "column": "severe_error_points",
+      "default": "0",
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "conversation_sales_reviews",
+      "column": "doctor_points_impact",
+      "default": "0",
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "conversation_level",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "top_positive_reason",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "top_deduction_reason",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "bool",
+      "table": "conversation_sales_reviews",
+      "column": "forgotten_customer",
+      "default": "false",
+      "nullable": "YES"
+    },
+    {
+      "type": "bool",
+      "table": "conversation_sales_reviews",
+      "column": "missed_sale_opportunity",
+      "default": "false",
+      "nullable": "YES"
+    },
+    {
+      "type": "bool",
+      "table": "conversation_sales_reviews",
+      "column": "has_critical_error",
+      "default": "false",
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "repeated_error_type",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "int4",
+      "table": "conversation_sales_reviews",
+      "column": "repeat_count",
+      "default": "0",
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "conversation_sales_reviews",
+      "column": "repeat_multiplier",
+      "default": "1",
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "month_cycle",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "uuid",
+      "table": "conversation_sales_reviews",
+      "column": "doctor_id",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "uuid",
+      "table": "conversation_sales_reviews",
+      "column": "branch_id",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "timestamptz",
+      "table": "conversation_sales_reviews",
+      "column": "conversation_date",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "conversation_type",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "level",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "conversation_sales_reviews",
+      "column": "base_points_impact",
+      "default": "0",
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "conversation_sales_reviews",
+      "column": "extra_penalty_points",
+      "default": "0",
+      "nullable": "YES"
+    },
+    {
+      "type": "int4",
+      "table": "conversation_sales_reviews",
+      "column": "total_applicable_items",
+      "default": "0",
+      "nullable": "YES"
+    },
+    {
+      "type": "int4",
+      "table": "conversation_sales_reviews",
+      "column": "total_not_applicable_items",
+      "default": "0",
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "conversation_sales_reviews",
+      "column": "total_applicable_points",
+      "default": "0",
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "conversation_sales_reviews",
+      "column": "earned_points",
+      "default": "0",
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "main_positive_reason",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "main_negative_reason",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "jsonb",
+      "table": "conversation_sales_reviews",
+      "column": "review_items",
+      "default": "'[]'::jsonb",
+      "nullable": "YES"
+    },
+    {
+      "type": "timestamptz",
+      "table": "conversation_sales_reviews",
+      "column": "first_customer_message_at",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "timestamptz",
+      "table": "conversation_sales_reviews",
+      "column": "first_staff_reply_at",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "int4",
+      "table": "conversation_sales_reviews",
+      "column": "first_response_minutes",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "conversation_sales_reviews",
+      "column": "response_speed_score",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "conversation_sales_reviews",
+      "column": "greeting_score",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "greeting_message_used",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "bool",
+      "table": "conversation_sales_reviews",
+      "column": "doctor_name_used_in_greeting",
+      "default": "false",
+      "nullable": "YES"
+    },
+    {
+      "type": "bool",
+      "table": "conversation_sales_reviews",
+      "column": "doctor_name_used",
+      "default": "false",
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "conversation_sales_reviews",
+      "column": "doctor_name_score",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "bool",
+      "table": "conversation_sales_reviews",
+      "column": "customer_name_used",
+      "default": "false",
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "conversation_sales_reviews",
+      "column": "customer_name_score",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "conversation_sales_reviews",
+      "column": "tone_language_score",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "bool",
+      "table": "conversation_sales_reviews",
+      "column": "bad_tone_flag",
+      "default": "false",
+      "nullable": "YES"
+    },
+    {
+      "type": "bool",
+      "table": "conversation_sales_reviews",
+      "column": "severe_bad_tone_flag",
+      "default": "false",
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "conversation_sales_reviews",
+      "column": "understanding_score",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "bool",
+      "table": "conversation_sales_reviews",
+      "column": "rushed_response_flag",
+      "default": "false",
+      "nullable": "YES"
+    },
+    {
+      "type": "bool",
+      "table": "conversation_sales_reviews",
+      "column": "misunderstood_customer_flag",
+      "default": "false",
+      "nullable": "YES"
+    },
+    {
+      "type": "bool",
+      "table": "conversation_sales_reviews",
+      "column": "follow_up_promised",
+      "default": "false",
+      "nullable": "YES"
+    },
+    {
+      "type": "int4",
+      "table": "conversation_sales_reviews",
+      "column": "follow_up_delay_minutes",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "conversation_sales_reviews",
+      "column": "follow_up_score",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "conversation_sales_reviews",
+      "column": "consultation_quality_score",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "conversation_sales_reviews",
+      "column": "dosage_explanation_score",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "conversation_sales_reviews",
+      "column": "alternative_handling_score",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "bool",
+      "table": "conversation_sales_reviews",
+      "column": "bad_alternative_flag",
+      "default": "false",
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "conversation_sales_reviews",
+      "column": "sales_quality_score",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "conversation_sales_reviews",
+      "column": "upsell_cross_sell_score",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "bool",
+      "table": "conversation_sales_reviews",
+      "column": "successful_cross_sell",
+      "default": "false",
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "conversation_sales_reviews",
+      "column": "complaint_handling_score",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "bool",
+      "table": "conversation_sales_reviews",
+      "column": "handled_angry_customer_well",
+      "default": "false",
+      "nullable": "YES"
+    },
+    {
+      "type": "bool",
+      "table": "conversation_sales_reviews",
+      "column": "excellent_case",
+      "default": "false",
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "conversation_sales_reviews",
+      "column": "order_confirmation_score",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "bool",
+      "table": "conversation_sales_reviews",
+      "column": "has_delivery_issue",
+      "default": "false",
+      "nullable": "YES"
+    },
+    {
+      "type": "bool",
+      "table": "conversation_sales_reviews",
+      "column": "missed_sales_opportunity",
+      "default": "false",
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "conversation_sales_reviews",
+      "column": "closing_message_score",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "bool",
+      "table": "conversation_sales_reviews",
+      "column": "closing_message_used",
+      "default": "false",
+      "nullable": "YES"
+    },
+    {
+      "type": "timestamptz",
+      "table": "conversation_sales_reviews",
+      "column": "updated_at",
+      "default": "now()",
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "doctor_name",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "date",
+      "table": "conversation_sales_reviews",
+      "column": "review_date",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "reviewer_message",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "conversation_sales_reviews",
+      "column": "manager_review_score",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "manager_review_notes",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "manager_reviewed_by",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "timestamptz",
+      "table": "conversation_sales_reviews",
+      "column": "manager_reviewed_at",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "bool",
+      "table": "conversation_sales_reviews",
+      "column": "converted_to_sale",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "submission_fingerprint",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "uuid",
+      "table": "conversation_sales_reviews",
+      "column": "whatsapp_review_source_id",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "sales_intelligence_case_id",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "automatic_evaluation_version",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "jsonb",
+      "table": "conversation_sales_reviews",
+      "column": "automatic_evaluation_json",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "conversation_sales_reviews",
+      "column": "evidence_coverage_percent",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "conversation_sales_reviews",
+      "column": "automatic_reliability_percent",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "bool",
+      "table": "conversation_sales_reviews",
+      "column": "manual_clinical_review_required",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "bool",
+      "table": "conversation_sales_reviews",
+      "column": "is_current",
+      "default": "true",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "conversation_sales_reviews",
+      "column": "superseded_at",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "conversation_sales_reviews",
+      "column": "superseded_reason",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "uuid",
+      "table": "sales_intelligence_case_analyses",
+      "column": "analysis_id",
+      "default": "gen_random_uuid()",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "sales_intelligence_case_analyses",
+      "column": "case_id",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "type": "int4",
+      "table": "sales_intelligence_case_analyses",
+      "column": "analysis_version",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "sales_intelligence_case_analyses",
+      "column": "pipeline_version",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "sales_intelligence_case_analyses",
+      "column": "engine_version_case_segmentation",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "sales_intelligence_case_analyses",
+      "column": "engine_version_historical_closure",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "sales_intelligence_case_analyses",
+      "column": "engine_version_commercial_confirmation",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "sales_intelligence_case_analyses",
+      "column": "engine_version_protocol_applicability",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "sales_intelligence_case_analyses",
+      "column": "semantic_source_hash",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "sales_intelligence_case_analyses",
+      "column": "analyzed_at",
+      "default": "now()",
+      "nullable": "NO"
+    },
+    {
+      "type": "bool",
+      "table": "sales_intelligence_case_analyses",
+      "column": "is_current",
+      "default": "true",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "sales_intelligence_case_analyses",
+      "column": "superseded_at",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "uuid",
+      "table": "sales_intelligence_case_analyses",
+      "column": "superseded_by_analysis_id",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "sales_intelligence_case_analyses",
+      "column": "case_type",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "sales_intelligence_case_analyses",
+      "column": "case_status",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "sales_intelligence_case_analyses",
+      "column": "pipeline_status",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "sales_intelligence_case_analyses",
+      "column": "overall_evidence_level",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "sales_intelligence_case_analyses",
+      "column": "identity_customer_id",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "sales_intelligence_case_analyses",
+      "column": "identity_customer_phone",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "uuid",
+      "table": "sales_intelligence_case_analyses",
+      "column": "identity_branch_id",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "sales_intelligence_case_analyses",
+      "column": "identity_branch_name_raw",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "timestamptz",
+      "table": "sales_intelligence_case_analyses",
+      "column": "case_started_at",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "sales_intelligence_case_analyses",
+      "column": "case_ended_at",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "sales_intelligence_case_analyses",
+      "column": "historical_closure_level",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "sales_intelligence_case_analyses",
+      "column": "commercial_confirmation_state",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "sales_intelligence_case_analyses",
+      "column": "protocol_applicability",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "sales_intelligence_case_analyses",
+      "column": "attribution_level",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "sales_intelligence_case_analyses",
+      "column": "integrity_evaluation_scope",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "type": "bool",
+      "table": "sales_intelligence_case_analyses",
+      "column": "needs_human_review",
+      "default": "false",
+      "nullable": "NO"
+    },
+    {
+      "type": "_text",
+      "table": "sales_intelligence_case_analyses",
+      "column": "human_review_reasons",
+      "default": "'{}'::text[]",
+      "nullable": "NO"
+    },
+    {
+      "type": "_text",
+      "table": "sales_intelligence_case_analyses",
+      "column": "failure_reasons",
+      "default": "'{}'::text[]",
+      "nullable": "NO"
+    },
+    {
+      "type": "_text",
+      "table": "sales_intelligence_case_analyses",
+      "column": "pipeline_warnings",
+      "default": "'{}'::text[]",
+      "nullable": "NO"
+    },
+    {
+      "type": "jsonb",
+      "table": "sales_intelligence_case_analyses",
+      "column": "evidence_snapshot",
+      "default": "'{}'::jsonb",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "sales_intelligence_cases",
+      "column": "case_id",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "sales_intelligence_cases",
+      "column": "conversation_id",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "sales_intelligence_cases",
+      "column": "source_case_id_v22",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "uuid",
+      "table": "sales_intelligence_cases",
+      "column": "customer_id",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "sales_intelligence_cases",
+      "column": "customer_phone",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "uuid",
+      "table": "sales_intelligence_cases",
+      "column": "branch_id",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "sales_intelligence_cases",
+      "column": "branch_name_raw",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "timestamptz",
+      "table": "sales_intelligence_cases",
+      "column": "case_started_at",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "sales_intelligence_cases",
+      "column": "case_ended_at",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "timestamptz",
+      "table": "sales_intelligence_cases",
+      "column": "first_seen_at",
+      "default": "now()",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "sales_intelligence_cases",
+      "column": "last_seen_at",
+      "default": "now()",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "sales_intelligence_cases",
+      "column": "created_at",
+      "default": "now()",
+      "nullable": "NO"
+    },
+    {
+      "type": "bool",
+      "table": "sales_intelligence_cases",
+      "column": "is_active",
+      "default": "false",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "sales_intelligence_cases",
+      "column": "published_analysis_id",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "timestamptz",
+      "table": "sales_intelligence_cases",
+      "column": "retired_at",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "sales_intelligence_cases",
+      "column": "retire_reason",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "uuid",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "id",
+      "default": "gen_random_uuid()",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "case_key",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "root_source_id",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "type": "_uuid",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "source_ids",
+      "default": "'{}'::uuid[]",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "story_id",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "uuid",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "journey_id",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "branch",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "uuid",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "customer_id",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "customer_code",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "customer_name",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "customer_phone",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "case_type",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "case_state",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "started_at",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "last_event_at",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "type": "int4",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "session_count",
+      "default": "1",
+      "nullable": "NO"
+    },
+    {
+      "type": "_uuid",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "staff_account_ids",
+      "default": "'{}'::uuid[]",
+      "nullable": "NO"
+    },
+    {
+      "type": "_text",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "staff_names",
+      "default": "'{}'::text[]",
+      "nullable": "NO"
+    },
+    {
+      "type": "bool",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "order_intent",
+      "default": "false",
+      "nullable": "NO"
+    },
+    {
+      "type": "bool",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "order_confirmed",
+      "default": "false",
+      "nullable": "NO"
+    },
+    {
+      "type": "bool",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "failure_detected",
+      "default": "false",
+      "nullable": "NO"
+    },
+    {
+      "type": "bool",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "complaint_detected",
+      "default": "false",
+      "nullable": "NO"
+    },
+    {
+      "type": "bool",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "recommendation_detected",
+      "default": "false",
+      "nullable": "NO"
+    },
+    {
+      "type": "int4",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "recovery_attempts",
+      "default": "0",
+      "nullable": "NO"
+    },
+    {
+      "type": "bool",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "customer_reengaged",
+      "default": "false",
+      "nullable": "NO"
+    },
+    {
+      "type": "int4",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "media_referenced",
+      "default": "0",
+      "nullable": "NO"
+    },
+    {
+      "type": "int4",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "media_available",
+      "default": "0",
+      "nullable": "NO"
+    },
+    {
+      "type": "int4",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "media_missing",
+      "default": "0",
+      "nullable": "NO"
+    },
+    {
+      "type": "numeric",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "media_coverage_percent",
+      "default": "100",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "semantic_coverage",
+      "default": "'full_text'::text",
+      "nullable": "NO"
+    },
+    {
+      "type": "bool",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "needs_human_review",
+      "default": "false",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "next_action",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "summary",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "jsonb",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "case_json",
+      "default": "'{}'::jsonb",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "created_by",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "timestamptz",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "created_at",
+      "default": "now()",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "updated_at",
+      "default": "now()",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "proposed_outcome",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "outcome_confidence",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "jsonb",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "outcome_evidence",
+      "default": "'[]'::jsonb",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "confirmed_outcome",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "outcome_reviewed_by",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "timestamptz",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "outcome_reviewed_at",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "proposed_lost_reason",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "lost_reason_confidence",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "confirmed_lost_reason",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "bool",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "commercial_opportunity",
+      "default": "false",
+      "nullable": "NO"
+    },
+    {
+      "type": "numeric",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "opportunity_value",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "verified_revenue",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "verified_invoice_id",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "verified_invoice_number",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "timestamptz",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "verified_sale_at",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "responsibility_status",
+      "default": "'unreviewed'::text",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_customer_cases_v22",
+      "column": "responsibility_note",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "uuid",
+      "table": "whatsapp_review_sources",
+      "column": "id",
+      "default": "gen_random_uuid()",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_review_sources",
+      "column": "source_hash",
+      "default": null,
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_review_sources",
+      "column": "source_type",
+      "default": "'whatsapp_export'::text",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_review_sources",
+      "column": "source_filename",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_review_sources",
+      "column": "inner_filename",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_review_sources",
+      "column": "branch",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "uuid",
+      "table": "whatsapp_review_sources",
+      "column": "customer_id",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_review_sources",
+      "column": "customer_code",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_review_sources",
+      "column": "customer_name",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_review_sources",
+      "column": "customer_phone",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "uuid",
+      "table": "whatsapp_review_sources",
+      "column": "staff_id",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_review_sources",
+      "column": "staff_name",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "timestamptz",
+      "table": "whatsapp_review_sources",
+      "column": "conversation_started_at",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "timestamptz",
+      "table": "whatsapp_review_sources",
+      "column": "conversation_ended_at",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "int4",
+      "table": "whatsapp_review_sources",
+      "column": "message_count",
+      "default": "0",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_review_sources",
+      "column": "parser_version",
+      "default": "'whatsapp-review-v4'::text",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_review_sources",
+      "column": "analysis_version",
+      "default": "'whatsapp-review-v4'::text",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_review_sources",
+      "column": "analysis_status",
+      "default": "'queued'::text",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_review_sources",
+      "column": "review_status",
+      "default": "'new'::text",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_review_sources",
+      "column": "priority",
+      "default": "'normal'::text",
+      "nullable": "NO"
+    },
+    {
+      "type": "numeric",
+      "table": "whatsapp_review_sources",
+      "column": "analysis_confidence",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "whatsapp_review_sources",
+      "column": "service_score",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "whatsapp_review_sources",
+      "column": "commercial_score",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "bool",
+      "table": "whatsapp_review_sources",
+      "column": "commercial_eligible",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "bool",
+      "table": "whatsapp_review_sources",
+      "column": "chat_suggested_sold",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "bool",
+      "table": "whatsapp_review_sources",
+      "column": "followup_required",
+      "default": "false",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_review_sources",
+      "column": "suggested_followup_reason",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "jsonb",
+      "table": "whatsapp_review_sources",
+      "column": "analysis_json",
+      "default": "'{}'::jsonb",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_review_sources",
+      "column": "raw_text",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_review_sources",
+      "column": "invoice_match_status",
+      "default": "'pending'::text",
+      "nullable": "NO"
+    },
+    {
+      "type": "uuid",
+      "table": "whatsapp_review_sources",
+      "column": "matched_invoice_id",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_review_sources",
+      "column": "matched_invoice_number",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "timestamptz",
+      "table": "whatsapp_review_sources",
+      "column": "matched_invoice_date",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "whatsapp_review_sources",
+      "column": "matched_invoice_value",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "numeric",
+      "table": "whatsapp_review_sources",
+      "column": "invoice_match_confidence",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_review_sources",
+      "column": "invoice_match_reason",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "uuid",
+      "table": "whatsapp_review_sources",
+      "column": "official_review_id",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "bool",
+      "table": "whatsapp_review_sources",
+      "column": "reviewer_confirmed",
+      "default": "false",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_review_sources",
+      "column": "reviewer_id",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_review_sources",
+      "column": "reviewer_name",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "timestamptz",
+      "table": "whatsapp_review_sources",
+      "column": "reviewer_confirmed_at",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_review_sources",
+      "column": "created_by",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "timestamptz",
+      "table": "whatsapp_review_sources",
+      "column": "created_at",
+      "default": "now()",
+      "nullable": "NO"
+    },
+    {
+      "type": "timestamptz",
+      "table": "whatsapp_review_sources",
+      "column": "updated_at",
+      "default": "now()",
+      "nullable": "NO"
+    },
+    {
+      "type": "bool",
+      "table": "whatsapp_review_sources",
+      "column": "invoice_link_confirmed",
+      "default": "false",
+      "nullable": "NO"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_review_sources",
+      "column": "invoice_link_confirmed_invoice_id",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_review_sources",
+      "column": "invoice_link_confirmed_invoice_number",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_review_sources",
+      "column": "invoice_link_confirmed_by",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_review_sources",
+      "column": "invoice_link_confirmed_by_name",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "timestamptz",
+      "table": "whatsapp_review_sources",
+      "column": "invoice_link_confirmed_at",
+      "default": null,
+      "nullable": "YES"
+    },
+    {
+      "type": "text",
+      "table": "whatsapp_review_sources",
+      "column": "invoice_link_confirmation_note",
+      "default": null,
+      "nullable": "YES"
+    }
+  ],
+  "triggers": [
+    "CREATE TRIGGER trg_whatsapp_invoice_evidence_v17 AFTER UPDATE OF invoice_match_status, matched_invoice_id, matched_invoice_number, matched_invoice_value, matched_invoice_date, invoice_match_confidence ON public.whatsapp_review_sources FOR EACH ROW WHEN (((old.invoice_match_status IS DISTINCT FROM new.invoice_match_status) OR (old.matched_invoice_id IS DISTINCT FROM new.matched_invoice_id) OR (old.matched_invoice_number IS DISTINCT FROM new.matched_invoice_number) OR (old.matched_invoice_value IS DISTINCT FROM new.matched_invoice_value) OR (old.matched_invoice_date IS DISTINCT FROM new.matched_invoice_date) OR (old.invoice_match_confidence IS DISTINCT FROM new.invoice_match_confidence))) EXECUTE FUNCTION dawaa_sync_whatsapp_invoice_evidence_v17()"
+  ]
+}

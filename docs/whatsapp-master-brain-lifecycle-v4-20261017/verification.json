@@ -1,0 +1,159 @@
+{
+  "runtimeCheckpoint": "ef39ae0b41a553f687cd618ea67781bbc5d7b66c",
+  "productionWrites": 0,
+  "productionDataChanges": 0,
+  "deploy": 0,
+  "sqlRehearsal": {
+    "passed": 53,
+    "failed": 0,
+    "baselineMd5": "9fd2f5976e2419ca7154d203b29da5fc",
+    "v2md5": "97e621afd88048b1c1f8f04dfa70892a",
+    "postgres": "PostgreSQL 18.3 (PGlite 0.5.8) on wasm32-unknown-emscripten, compiled by emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 3.1.74 (1092ec30a3fb1d46b1782ff1b4db5094d3d06ae5), 32-bit"
+  },
+  "npmTest": {
+    "customPassed": 1047,
+    "customFailed": 0,
+    "siTimezones": [
+      "Africa/Cairo",
+      "UTC"
+    ],
+    "siPassedPerTimezone": 1189,
+    "siSkippedPerTimezone": 1,
+    "siPassedFilesPerTimezone": 115
+  },
+  "qualityScripts": [
+    {
+      "command": "node scripts/audit-fix-semantic-lint.cjs --check",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-build-source-purity.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-runtime-bootstrap-patches.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-data-access-boundaries.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-generic-query-data-access.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-notification-architecture.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-production-exposure-closure.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-permission-architecture.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-action-permission-boundaries.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-db-authorization-architecture.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-whatsapp-evidence-link-session.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-conversation-review-correction-command.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-verified-session-identity.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-customer-request-shortage-command.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-customer-request-v2-parity.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-customer-request-create-authorization.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-customer-followup-command-boundary.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-payroll-architecture.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-incentive-governance-architecture.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-shift-performance-architecture.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-shift-notes-architecture.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-attendance-identity-architecture.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-employee-transaction-write-boundary.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-employee-transaction-source-authorization.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-task-evidence-architecture.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-review-coverage-architecture.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-theme-architecture.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/audit-theme-debt.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-dashboard-primitives-architecture.cjs",
+      "code": 0
+    }
+  ],
+  "semanticEslintErrors": 0,
+  "typeScript": "PASS",
+  "productionBuild": "PASS",
+  "generatedParity": "PASS",
+  "perfBudget": "PASS",
+  "initialStaticGzipKiB": 202.1,
+  "window": {
+    "reads": 17,
+    "productReads": 2,
+    "fuzzy": 0,
+    "pipelineRuns": 0
+  },
+  "hostedCIExecuted": false,
+  "browserSmokeExecuted": false,
+  "localNode": "24.19.0",
+  "productionPostgreSQL": "17.6",
+  "nativePostgres17Rehearsal": false
+}
