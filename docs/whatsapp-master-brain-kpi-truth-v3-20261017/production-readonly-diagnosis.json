@@ -1,0 +1,605 @@
+{
+  "project": "dawaa-pharmacy-os",
+  "date": "2026-10-17",
+  "writes": 0,
+  "summary": {
+    "groups": [
+      {
+        "day": "2025-12-22",
+        "cases": 2,
+        "no_v22_link": true,
+        "history_count": 5,
+        "review_status": "archived",
+        "analysis_status": "needs_review",
+        "branch_name_raw": "فرع شكري",
+        "no_published_pointer": false,
+        "source_analysis_version": "whatsapp-review-v4"
+      },
+      {
+        "day": "2026-01-02",
+        "cases": 2,
+        "no_v22_link": true,
+        "history_count": 5,
+        "review_status": "archived",
+        "analysis_status": "needs_review",
+        "branch_name_raw": "فرع شكري",
+        "no_published_pointer": false,
+        "source_analysis_version": "whatsapp-review-v4"
+      },
+      {
+        "day": "2026-01-05",
+        "cases": 3,
+        "no_v22_link": true,
+        "history_count": 5,
+        "review_status": "archived",
+        "analysis_status": "needs_review",
+        "branch_name_raw": "فرع شكري",
+        "no_published_pointer": false,
+        "source_analysis_version": "whatsapp-review-v4"
+      },
+      {
+        "day": "2026-01-05",
+        "cases": 1,
+        "no_v22_link": false,
+        "history_count": 3,
+        "review_status": "needs_context",
+        "analysis_status": "needs_review",
+        "branch_name_raw": "فرع شكري",
+        "no_published_pointer": true,
+        "source_analysis_version": "whatsapp-review-v4"
+      },
+      {
+        "day": "2026-03-02",
+        "cases": 1,
+        "no_v22_link": false,
+        "history_count": 5,
+        "review_status": "needs_context",
+        "analysis_status": "needs_review",
+        "branch_name_raw": "فرع شكري",
+        "no_published_pointer": true,
+        "source_analysis_version": "whatsapp-review-v4"
+      },
+      {
+        "day": "2026-04-17",
+        "cases": 3,
+        "no_v22_link": true,
+        "history_count": 5,
+        "review_status": "archived",
+        "analysis_status": "needs_review",
+        "branch_name_raw": "فرع شكري",
+        "no_published_pointer": false,
+        "source_analysis_version": "whatsapp-review-v4"
+      },
+      {
+        "day": "2026-04-17",
+        "cases": 1,
+        "no_v22_link": false,
+        "history_count": 3,
+        "review_status": "needs_context",
+        "analysis_status": "needs_review",
+        "branch_name_raw": "فرع شكري",
+        "no_published_pointer": true,
+        "source_analysis_version": "whatsapp-review-v4"
+      },
+      {
+        "day": "2026-04-27",
+        "cases": 3,
+        "no_v22_link": true,
+        "history_count": 5,
+        "review_status": "archived",
+        "analysis_status": "needs_review",
+        "branch_name_raw": "فرع شكري",
+        "no_published_pointer": false,
+        "source_analysis_version": "whatsapp-review-v4"
+      },
+      {
+        "day": "2026-05-06",
+        "cases": 1,
+        "no_v22_link": true,
+        "history_count": 5,
+        "review_status": "archived",
+        "analysis_status": "needs_review",
+        "branch_name_raw": "فرع شكري",
+        "no_published_pointer": false,
+        "source_analysis_version": "whatsapp-review-v4"
+      },
+      {
+        "day": "2026-05-07",
+        "cases": 4,
+        "no_v22_link": true,
+        "history_count": 5,
+        "review_status": "archived",
+        "analysis_status": "needs_review",
+        "branch_name_raw": "فرع شكري",
+        "no_published_pointer": false,
+        "source_analysis_version": "whatsapp-review-v4"
+      },
+      {
+        "day": "2026-05-13",
+        "cases": 1,
+        "no_v22_link": true,
+        "history_count": 5,
+        "review_status": "archived",
+        "analysis_status": "needs_review",
+        "branch_name_raw": "فرع شكري",
+        "no_published_pointer": false,
+        "source_analysis_version": "whatsapp-review-v4"
+      },
+      {
+        "day": "2026-05-15",
+        "cases": 3,
+        "no_v22_link": true,
+        "history_count": 5,
+        "review_status": "archived",
+        "analysis_status": "needs_review",
+        "branch_name_raw": "فرع شكري",
+        "no_published_pointer": false,
+        "source_analysis_version": "whatsapp-review-v4"
+      },
+      {
+        "day": "2026-05-15",
+        "cases": 1,
+        "no_v22_link": false,
+        "history_count": 3,
+        "review_status": "needs_context",
+        "analysis_status": "needs_review",
+        "branch_name_raw": "فرع شكري",
+        "no_published_pointer": true,
+        "source_analysis_version": "whatsapp-review-v5"
+      },
+      {
+        "day": "2026-05-16",
+        "cases": 1,
+        "no_v22_link": true,
+        "history_count": 5,
+        "review_status": "archived",
+        "analysis_status": "needs_review",
+        "branch_name_raw": "فرع شكري",
+        "no_published_pointer": false,
+        "source_analysis_version": "whatsapp-review-v4"
+      },
+      {
+        "day": "2026-07-31",
+        "cases": 3,
+        "no_v22_link": true,
+        "history_count": 5,
+        "review_status": "archived",
+        "analysis_status": "needs_review",
+        "branch_name_raw": "فرع شكري",
+        "no_published_pointer": false,
+        "source_analysis_version": "whatsapp-review-v4"
+      },
+      {
+        "day": "2026-08-01",
+        "cases": 1,
+        "no_v22_link": true,
+        "history_count": 5,
+        "review_status": "archived",
+        "analysis_status": "needs_review",
+        "branch_name_raw": "فرع شكري",
+        "no_published_pointer": false,
+        "source_analysis_version": "whatsapp-review-v4"
+      },
+      {
+        "day": "2026-08-09",
+        "cases": 1,
+        "no_v22_link": false,
+        "history_count": 5,
+        "review_status": "needs_context",
+        "analysis_status": "needs_review",
+        "branch_name_raw": "فرع شكري",
+        "no_published_pointer": true,
+        "source_analysis_version": "whatsapp-review-v4"
+      },
+      {
+        "day": "2026-08-11",
+        "cases": 1,
+        "no_v22_link": false,
+        "history_count": 5,
+        "review_status": "needs_context",
+        "analysis_status": "needs_review",
+        "branch_name_raw": "فرع شكري",
+        "no_published_pointer": true,
+        "source_analysis_version": "whatsapp-review-v4"
+      },
+      {
+        "day": "2026-08-15",
+        "cases": 1,
+        "no_v22_link": false,
+        "history_count": 5,
+        "review_status": "needs_context",
+        "analysis_status": "needs_review",
+        "branch_name_raw": "فرع شكري",
+        "no_published_pointer": true,
+        "source_analysis_version": "whatsapp-review-v4"
+      },
+      {
+        "day": "2026-08-18",
+        "cases": 1,
+        "no_v22_link": false,
+        "history_count": 5,
+        "review_status": "needs_context",
+        "analysis_status": "needs_review",
+        "branch_name_raw": "فرع شكري",
+        "no_published_pointer": true,
+        "source_analysis_version": "whatsapp-review-v4"
+      },
+      {
+        "day": "2026-08-19",
+        "cases": 1,
+        "no_v22_link": true,
+        "history_count": 4,
+        "review_status": "archived",
+        "analysis_status": "needs_review",
+        "branch_name_raw": "فرع شكري",
+        "no_published_pointer": false,
+        "source_analysis_version": "whatsapp-review-v4"
+      },
+      {
+        "day": "2026-08-20",
+        "cases": 2,
+        "no_v22_link": true,
+        "history_count": 4,
+        "review_status": "archived",
+        "analysis_status": "needs_review",
+        "branch_name_raw": "فرع شكري",
+        "no_published_pointer": false,
+        "source_analysis_version": "whatsapp-review-v4"
+      },
+      {
+        "day": "2026-08-28",
+        "cases": 1,
+        "no_v22_link": false,
+        "history_count": 5,
+        "review_status": "needs_context",
+        "analysis_status": "needs_review",
+        "branch_name_raw": "فرع شكري",
+        "no_published_pointer": true,
+        "source_analysis_version": "whatsapp-review-v4"
+      },
+      {
+        "day": "2026-08-29",
+        "cases": 1,
+        "no_v22_link": false,
+        "history_count": 5,
+        "review_status": "needs_context",
+        "analysis_status": "needs_review",
+        "branch_name_raw": "فرع شكري",
+        "no_published_pointer": true,
+        "source_analysis_version": "whatsapp-review-v4"
+      },
+      {
+        "day": "2026-09-01",
+        "cases": 1,
+        "no_v22_link": false,
+        "history_count": 5,
+        "review_status": "ready_detailed",
+        "analysis_status": "needs_review",
+        "branch_name_raw": "فرع شكري",
+        "no_published_pointer": true,
+        "source_analysis_version": "whatsapp-review-v4"
+      },
+      {
+        "day": "2026-09-12",
+        "cases": 3,
+        "no_v22_link": true,
+        "history_count": 5,
+        "review_status": "archived",
+        "analysis_status": "needs_review",
+        "branch_name_raw": "فرع شكري",
+        "no_published_pointer": false,
+        "source_analysis_version": "whatsapp-review-v4"
+      },
+      {
+        "day": "2026-09-13",
+        "cases": 1,
+        "no_v22_link": true,
+        "history_count": 5,
+        "review_status": "archived",
+        "analysis_status": "needs_review",
+        "branch_name_raw": "فرع شكري",
+        "no_published_pointer": false,
+        "source_analysis_version": "whatsapp-review-v4"
+      },
+      {
+        "day": "2026-09-14",
+        "cases": 1,
+        "no_v22_link": false,
+        "history_count": 5,
+        "review_status": "needs_context",
+        "analysis_status": "analyzed",
+        "branch_name_raw": "فرع شكري",
+        "no_published_pointer": true,
+        "source_analysis_version": "whatsapp-review-v4"
+      },
+      {
+        "day": "2026-09-15",
+        "cases": 2,
+        "no_v22_link": true,
+        "history_count": 1,
+        "review_status": "archived",
+        "analysis_status": "needs_review",
+        "branch_name_raw": "فرع الشامي",
+        "no_published_pointer": false,
+        "source_analysis_version": "whatsapp-review-v5"
+      },
+      {
+        "day": "2026-09-15",
+        "cases": 3,
+        "no_v22_link": true,
+        "history_count": 5,
+        "review_status": "archived",
+        "analysis_status": "needs_review",
+        "branch_name_raw": "فرع شكري",
+        "no_published_pointer": false,
+        "source_analysis_version": "whatsapp-review-v4"
+      },
+      {
+        "day": "2026-09-15",
+        "cases": 1,
+        "no_v22_link": false,
+        "history_count": 1,
+        "review_status": "ready_quick",
+        "analysis_status": "needs_review",
+        "branch_name_raw": "فرع شكري",
+        "no_published_pointer": true,
+        "source_analysis_version": "whatsapp-review-v4"
+      },
+      {
+        "day": "2026-09-15",
+        "cases": 1,
+        "no_v22_link": false,
+        "history_count": 3,
+        "review_status": "needs_context",
+        "analysis_status": "needs_review",
+        "branch_name_raw": "فرع شكري",
+        "no_published_pointer": true,
+        "source_analysis_version": "whatsapp-review-v5"
+      }
+    ],
+    "legacy": {
+      "sales": 14,
+      "revenue": 6101.5
+    },
+    "canonical": {
+      "countable_sales": 10,
+      "countable_revenue_cases": 10
+    },
+    "all_active": 189,
+    "missing_count": 53,
+    "current_analyses": 136
+  },
+  "nonarchived": {
+    "cases": [
+      {
+        "case_id": "83a34d22-8c27-44a5-8052-380040a72656:interaction:1",
+        "versions": [
+          "sales-intelligence-v1"
+        ],
+        "v22_exists": true,
+        "last_seen_at": "2026-10-03T17:33:36.777+00:00",
+        "current_flags": 0,
+        "history_count": 3,
+        "last_analyzed": "2026-09-28T06:13:39.388827+00:00",
+        "review_status": "needs_context",
+        "source_version": "whatsapp-review-v4",
+        "branch_name_raw": "فرع شكري",
+        "case_started_at": "2026-01-05T13:03:42+00:00",
+        "last_superseded": "2026-09-30T09:25:41.241+00:00"
+      },
+      {
+        "case_id": "d564c02c-0b79-4bee-b5e8-9254fea1291b:interaction:1",
+        "versions": [
+          "sales-intelligence-v1"
+        ],
+        "v22_exists": true,
+        "last_seen_at": "2026-10-06T09:02:50.387+00:00",
+        "current_flags": 0,
+        "history_count": 5,
+        "last_analyzed": "2026-09-28T06:13:47.684731+00:00",
+        "review_status": "needs_context",
+        "source_version": "whatsapp-review-v4",
+        "branch_name_raw": "فرع شكري",
+        "case_started_at": "2026-03-02T22:54:37+00:00",
+        "last_superseded": "2026-09-30T09:26:00.619+00:00"
+      },
+      {
+        "case_id": "4e63af46-6bfe-4fa8-b12b-af50513d4489:interaction:1",
+        "versions": [
+          "sales-intelligence-v1"
+        ],
+        "v22_exists": true,
+        "last_seen_at": "2026-09-29T08:59:44.436066+00:00",
+        "current_flags": 0,
+        "history_count": 3,
+        "last_analyzed": "2026-09-28T06:14:07.128933+00:00",
+        "review_status": "needs_context",
+        "source_version": "whatsapp-review-v4",
+        "branch_name_raw": "فرع شكري",
+        "case_started_at": "2026-04-17T12:50:46+00:00",
+        "last_superseded": "2026-09-30T09:26:09.264+00:00"
+      },
+      {
+        "case_id": "8c63fef4-40b9-4f2b-b027-4699ca6155c0:interaction:1",
+        "versions": [
+          "sales-intelligence-v1"
+        ],
+        "v22_exists": true,
+        "last_seen_at": "2026-09-29T08:59:44.436066+00:00",
+        "current_flags": 0,
+        "history_count": 3,
+        "last_analyzed": "2026-09-28T06:14:54.451818+00:00",
+        "review_status": "needs_context",
+        "source_version": "whatsapp-review-v5",
+        "branch_name_raw": "فرع شكري",
+        "case_started_at": "2026-05-15T08:00:12+00:00",
+        "last_superseded": "2026-10-03T09:05:18.869+00:00"
+      },
+      {
+        "case_id": "bb4aac31-6a21-45bb-87ba-5d3a72d8e95a:interaction:1",
+        "versions": [
+          "sales-intelligence-v1"
+        ],
+        "v22_exists": true,
+        "last_seen_at": "2026-09-29T08:59:44.436066+00:00",
+        "current_flags": 0,
+        "history_count": 5,
+        "last_analyzed": "2026-09-28T06:27:33.777147+00:00",
+        "review_status": "needs_context",
+        "source_version": "whatsapp-review-v4",
+        "branch_name_raw": "فرع شكري",
+        "case_started_at": "2026-08-09T08:07:35+00:00",
+        "last_superseded": "2026-09-30T09:28:05.958+00:00"
+      },
+      {
+        "case_id": "c835bd69-5996-42ae-9a3a-34120b5bbe94:interaction:1",
+        "versions": [
+          "sales-intelligence-v1"
+        ],
+        "v22_exists": true,
+        "last_seen_at": "2026-09-29T08:59:44.436066+00:00",
+        "current_flags": 0,
+        "history_count": 5,
+        "last_analyzed": "2026-09-28T06:27:37.130122+00:00",
+        "review_status": "needs_context",
+        "source_version": "whatsapp-review-v4",
+        "branch_name_raw": "فرع شكري",
+        "case_started_at": "2026-08-11T12:27:41+00:00",
+        "last_superseded": "2026-10-03T08:39:30.94+00:00"
+      },
+      {
+        "case_id": "6a8fee97-8d7a-4a42-a525-e3768b8f714f:interaction:3",
+        "versions": [
+          "sales-intelligence-v1"
+        ],
+        "v22_exists": true,
+        "last_seen_at": "2026-09-29T08:59:44.436066+00:00",
+        "current_flags": 0,
+        "history_count": 5,
+        "last_analyzed": "2026-09-28T06:27:43.606411+00:00",
+        "review_status": "needs_context",
+        "source_version": "whatsapp-review-v4",
+        "branch_name_raw": "فرع شكري",
+        "case_started_at": "2026-08-15T10:39:27+00:00",
+        "last_superseded": "2026-09-30T09:28:19.121+00:00"
+      },
+      {
+        "case_id": "0d1e5874-d1d6-427a-9b35-7ce8fb70c5f7:interaction:1",
+        "versions": [
+          "sales-intelligence-v1"
+        ],
+        "v22_exists": true,
+        "last_seen_at": "2026-09-29T08:59:44.436066+00:00",
+        "current_flags": 0,
+        "history_count": 5,
+        "last_analyzed": "2026-09-28T06:27:45.752515+00:00",
+        "review_status": "needs_context",
+        "source_version": "whatsapp-review-v4",
+        "branch_name_raw": "فرع شكري",
+        "case_started_at": "2026-08-18T06:37:31+00:00",
+        "last_superseded": "2026-09-30T09:28:16.141+00:00"
+      },
+      {
+        "case_id": "a2b52b43-ff49-4ed8-a967-48133e18691e:interaction:1",
+        "versions": [
+          "sales-intelligence-v1"
+        ],
+        "v22_exists": true,
+        "last_seen_at": "2026-09-29T08:59:44.436066+00:00",
+        "current_flags": 0,
+        "history_count": 5,
+        "last_analyzed": "2026-09-28T06:28:04.09712+00:00",
+        "review_status": "needs_context",
+        "source_version": "whatsapp-review-v4",
+        "branch_name_raw": "فرع شكري",
+        "case_started_at": "2026-08-28T05:43:55+00:00",
+        "last_superseded": "2026-09-30T09:28:27.746+00:00"
+      },
+      {
+        "case_id": "063030d2-1f64-4fb9-ba2b-30de4146e22c:interaction:3",
+        "versions": [
+          "sales-intelligence-v1"
+        ],
+        "v22_exists": true,
+        "last_seen_at": "2026-09-29T08:59:44.436066+00:00",
+        "current_flags": 0,
+        "history_count": 5,
+        "last_analyzed": "2026-09-28T06:28:08.33809+00:00",
+        "review_status": "needs_context",
+        "source_version": "whatsapp-review-v4",
+        "branch_name_raw": "فرع شكري",
+        "case_started_at": "2026-08-29T13:42:54+00:00",
+        "last_superseded": "2026-09-30T09:28:31.125+00:00"
+      },
+      {
+        "case_id": "66fe13b7-7ebc-48a9-8180-033bfb34cd4b:interaction:1",
+        "versions": [
+          "sales-intelligence-v1"
+        ],
+        "v22_exists": true,
+        "last_seen_at": "2026-09-29T08:59:44.436066+00:00",
+        "current_flags": 0,
+        "history_count": 5,
+        "last_analyzed": "2026-09-28T06:28:11.096063+00:00",
+        "review_status": "ready_detailed",
+        "source_version": "whatsapp-review-v4",
+        "branch_name_raw": "فرع شكري",
+        "case_started_at": "2026-09-01T09:49:27+00:00",
+        "last_superseded": "2026-09-30T09:28:27.593+00:00"
+      },
+      {
+        "case_id": "f35c5632-991f-489e-98fa-f237cb592b87:interaction:1",
+        "versions": [
+          "sales-intelligence-v1"
+        ],
+        "v22_exists": true,
+        "last_seen_at": "2026-10-06T09:00:46.545+00:00",
+        "current_flags": 0,
+        "history_count": 5,
+        "last_analyzed": "2026-09-28T06:11:41.384328+00:00",
+        "review_status": "needs_context",
+        "source_version": "whatsapp-review-v4",
+        "branch_name_raw": "فرع شكري",
+        "case_started_at": "2026-09-14T15:47:10+00:00",
+        "last_superseded": "2026-09-30T09:29:19.179+00:00"
+      },
+      {
+        "case_id": "74b0b726-ce78-49b7-a80d-8eba809f5b2d:interaction:1",
+        "versions": [
+          "sales-intelligence-v1"
+        ],
+        "v22_exists": true,
+        "last_seen_at": "2026-09-29T08:59:44.436066+00:00",
+        "current_flags": 0,
+        "history_count": 3,
+        "last_analyzed": "2026-09-28T06:28:41.991747+00:00",
+        "review_status": "needs_context",
+        "source_version": "whatsapp-review-v5",
+        "branch_name_raw": "فرع شكري",
+        "case_started_at": "2026-09-15T16:50:32+00:00",
+        "last_superseded": "2026-10-03T09:08:41.474+00:00"
+      },
+      {
+        "case_id": "9a59338b-f1ca-4b68-bd3b-c081fee914a8:interaction:1",
+        "versions": [
+          "sales-intelligence-v1"
+        ],
+        "v22_exists": true,
+        "last_seen_at": "2026-10-03T09:01:50.32+00:00",
+        "current_flags": 0,
+        "history_count": 1,
+        "last_analyzed": "2026-09-22T18:27:05.091377+00:00",
+        "review_status": "ready_quick",
+        "source_version": "whatsapp-review-v4",
+        "branch_name_raw": "فرع شكري",
+        "case_started_at": "2026-09-15T19:29:31+00:00",
+        "last_superseded": "2026-09-27T02:02:26.959+00:00"
+      }
+    ],
+    "counts": {
+      "total": 14,
+      "unlinked": 0,
+      "never_analyzed": 0
+    }
+  }
+}

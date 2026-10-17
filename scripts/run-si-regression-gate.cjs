@@ -17,6 +17,9 @@ const SUITES = [
   'src/lib/salesIntelligence',
   // WhatsApp automatic review persistence (needs module mocks, so it cannot run in run-tests.cjs).
   'src/lib/__tests__/whatsappAutomaticReviewPersistence.test.ts',
+  'src/lib/__tests__/whatsappConversationJourneyClassifier.test.ts',
+  'src/lib/evaluations/__tests__/doctorPerformanceEye.test.ts',
+  'src/components/salesIntelligence/__tests__/SalesIntelligenceManagementOverviewV1.test.ts',
 ];
 const ZONES = ['Africa/Cairo', 'UTC'];
 

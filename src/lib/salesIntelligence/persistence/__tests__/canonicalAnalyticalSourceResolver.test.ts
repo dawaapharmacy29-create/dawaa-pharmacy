@@ -202,7 +202,6 @@ describe('no reader keeps a second canonical-source definition', () => {
   const root = path.resolve(__dirname, '../../../../..');
   const readers = [
     'src/components/salesIntelligence/SalesIntelligenceCoveragePanelV1.tsx',
-    'src/components/salesIntelligence/ProductDemandLeakageV22.tsx',
     'src/lib/whatsappProductDemandBackfillV22.ts',
     'src/lib/salesIntelligence/qa/queries.ts',
   ];
@@ -213,6 +212,13 @@ describe('no reader keeps a second canonical-source definition', () => {
     expect(code).not.toMatch(
       /sourceSnapshotLineage|selectCanonicalReviewSourceIds|resolveReviewSourceSnapshotLineage/
     );
+  });
+
+  it('the retired demand surface delegates to the canonical case reader without a backfill writer', () => {
+    const code=fs.readFileSync(path.join(root,'src/components/salesIntelligence/ProductDemandLeakageV22.tsx'),'utf8');
+    expect(code).toContain('SalesIntelligenceOpportunityCenterV1');
+    expect(code).not.toContain('.from(');
+    expect(code).not.toContain('runProductDemandBackfill');
   });
 
   it('the legacy lineage selector is only used by the read-only backfill dry-run preview', () => {
