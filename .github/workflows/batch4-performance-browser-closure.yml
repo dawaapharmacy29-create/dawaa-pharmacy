@@ -1,0 +1,76 @@
+name: Batch 4 Performance Browser Closure
+
+on:
+  push:
+    branches: [fix/whatsapp-master-brain-lifecycle-v4-continuation-20261017]
+    paths:
+      - '.github/workflows/batch4-performance-browser-closure.yml'
+      - 'scripts/performance/browser-closure/**'
+      - 'src/lib/salesIntelligence/__tests__/analysisStageTiming.performance.test.ts'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  closure:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.3'
+          cache: npm
+      - name: Install exact application lockfile
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Resolve preinstalled system Chrome
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHROME_BIN="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser || true)"
+          test -n "$CHROME_BIN"
+          "$CHROME_BIN" --version
+          echo "CHROME_BIN=$CHROME_BIN" >> "$GITHUB_ENV"
+      - name: Install browser controller only (no browser download, no lockfile mutation)
+        run: npm install --no-save --package-lock=false --ignore-scripts --no-audit --no-fund playwright-core@1.55.0
+      - name: Measure analysis stages
+        run: npx vitest run src/lib/salesIntelligence/__tests__/analysisStageTiming.performance.test.ts --reporter=verbose | tee /tmp/analysis-stage-timing.txt
+      - name: Build real-component browser harness
+        run: npx vite build --config scripts/performance/browser-closure/vite.config.ts
+      - name: Serve browser harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vite preview --config scripts/performance/browser-closure/vite.config.ts --host 127.0.0.1 --port 4174 >/tmp/browser-preview.log 2>&1 &
+          echo $! >/tmp/browser-preview.pid
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4174/scripts/performance/browser-closure/index.html >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/browser-preview.log
+          exit 1
+      - name: Measure browser UX, rendering and retained memory
+        env:
+          BROWSER_CLOSURE_URL: http://127.0.0.1:4174/scripts/performance/browser-closure/index.html
+        run: node scripts/performance/browser-closure/browser.mjs | tee /tmp/browser-closure.txt
+      - name: Regression suite
+        run: npm test
+      - name: TypeScript
+        run: npm run typecheck
+      - name: Semantic ESLint
+        run: npm run lint -- --quiet
+      - name: Production build and performance budget
+        run: npm run build && npm run perf:budget
+      - name: Verify source and lockfiles remain unchanged
+        run: git diff --exit-code -- package.json package-lock.json src ':!src/lib/salesIntelligence/__tests__/analysisStageTiming.performance.test.ts'
+      - name: Preserve closure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: batch4-performance-browser-closure
+          if-no-files-found: warn
+          path: |
+            /tmp/analysis-stage-timing.txt
+            /tmp/browser-closure.txt
+            /tmp/browser-preview.log
