@@ -16,6 +16,8 @@
 // cases, while sales_intelligence_reconcile_case_set_v1 may only revoke proof owned by a case that
 // has just left the latest canonical segmentation set.
 import { runBatchPersistence } from '../persistence/batchPersistenceService';
+import { projectCanonicalFollowupsToActions } from '../persistence/canonicalFollowupProjector';
+import { projectCanonicalCustomerRequestsToActions } from '../persistence/canonicalCustomerRequestProjector';
 import {
   REVIEW_SOURCE_BATCH_INPUT_COLUMNS,
   reviewSourceRowToBatchConversation,
@@ -89,6 +91,11 @@ export interface CanonicalRefreshResult {
   canonicalReconciliation: CanonicalProofReconciliation[];
   actionReconciliation: { reconciledActions: number };
   complaintEnrichment: { enrichedComplaintActions: number };
+  operationalProjection: {
+    followups: { inserted: number; existing: number; skipped: number };
+    customerRequests: { inserted: number; existing: number; skipped: number };
+    errors: string[];
+  };
   /** Follower: canonical meaning projected onto each touched V22 envelope (never fatal). */
   semanticProjection: Array<{ v22CaseId: string; status: string; reason: string | null; error?: string }>;
   conversationEvaluations: Array<{
@@ -268,6 +275,11 @@ export async function runCanonicalSalesIntelligenceRefresh(
     canonicalReconciliation: [],
     actionReconciliation: { reconciledActions: 0 },
     complaintEnrichment: { enrichedComplaintActions: 0 },
+    operationalProjection: {
+      followups: { inserted: 0, existing: 0, skipped: 0 },
+      customerRequests: { inserted: 0, existing: 0, skipped: 0 },
+      errors: [],
+    },
     semanticProjection: [],
     conversationEvaluations: [],
   };
@@ -411,6 +423,57 @@ export async function runCanonicalSalesIntelligenceRefresh(
     ...(row.error ? { error: row.error } : {}),
   }));
 
+  // 4c. Canonical operational projection. The semantic owners have already decided the work;
+  // these projectors only publish idempotent queue proposals. They never materialize
+  // customer_requests/daily_followups and a projection failure never rewrites canonical truth.
+  const projectionSources = admitted.map((source) => ({
+    id: String(source.id || ''),
+    raw_text: typeof source.raw_text === 'string' ? source.raw_text : null,
+    customer_name: source.customer_name ? String(source.customer_name) : null,
+    customer_code: source.customer_code ? String(source.customer_code) : null,
+    staff_id: source.staff_id ? String(source.staff_id) : null,
+  }));
+  const projectionErrors: string[] = [];
+  let followupProjection = { inserted: 0, existing: 0, skipped: 0 };
+  let customerRequestProjection = { inserted: 0, existing: 0, skipped: 0 };
+  try {
+    const result = await projectCanonicalFollowupsToActions(
+      service,
+      reconcileCandidates,
+      projectionSources
+    );
+    followupProjection = {
+      inserted: result.inserted,
+      existing: result.existing,
+      skipped: result.skipped.length,
+    };
+  } catch (error) {
+    projectionErrors.push(
+      `canonical_followup_projection_failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  try {
+    const result = await projectCanonicalCustomerRequestsToActions(
+      service,
+      reconcileCandidates,
+      projectionSources
+    );
+    customerRequestProjection = {
+      inserted: result.inserted,
+      existing: result.existing,
+      skipped: result.skipped.length,
+    };
+  } catch (error) {
+    projectionErrors.push(
+      `canonical_customer_request_projection_failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  const operationalProjection = {
+    followups: followupProjection,
+    customerRequests: customerRequestProjection,
+    errors: projectionErrors,
+  };
+
   // 5. Conversation evaluation follower — only after Sales Intelligence persistence, case-set
   // reconciliation, and canonical proof reconciliation completed. This follower NEVER writes
   // doctor points/incentives. A failure here must not corrupt or roll back canonical sale truth.
@@ -508,6 +571,7 @@ export async function runCanonicalSalesIntelligenceRefresh(
     canonicalReconciliation,
     actionReconciliation: { reconciledActions },
     complaintEnrichment: { enrichedComplaintActions },
+    operationalProjection,
     semanticProjection,
     conversationEvaluations,
   };
