@@ -2,6 +2,11 @@ const fs = require('node:fs');
 
 const path = 'src/lib/__tests__/stableOperationIdentity.test.ts';
 let source = fs.readFileSync(path, 'utf8');
+const replacementTitle = "Journey V15 is story/evidence only and never publishes recovery tasks beside canonical SI";
+if (source.includes(replacementTitle)) {
+  console.log('operational cutover regression test already updated');
+  process.exit(0);
+}
 const startMarker = "  it('Journey V15 (reachable from every file ingest) writes its recovery follow-up through the same identity', async () => {\n";
 const start = source.indexOf(startMarker);
 if (start < 0) throw new Error('Journey V15 legacy test anchor not found');
