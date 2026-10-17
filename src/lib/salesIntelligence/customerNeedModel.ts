@@ -64,7 +64,9 @@ const PRICE_OBJECTION_RX = /غالي|السعر\s*(?:عالي|كتير|كبير)
 const AVAILABILITY_OBJECTION_RX = /مش\s*(?:موجود|متوفر)|مفيش|خلص|مش\s*لاقي|مش\s*لاقية/i;
 const DELIVERY_OBJECTION_RX =
   /التوصيل|الدليفري|المندوب|اتأخر|متأخر|مش\s*(?:هستنى|هقدر\s*استنى)|(?:ما|م)?\s*وصلش|موصلش|لسه\s*(?:ما\s*)?(?:وصل|جه|جا)ش?|لم\s*يصل|فين\s*(?:ال)?(?:أوردر|اوردر|طلب|طلبي)/i;
-const PRODUCT_FIT_OBJECTION_RX = /مش\s*مناسب|مش\s*ده|عايز\s*غير|عاوز\s*غير|بديل|حساسي[ةه]|مش\s*نفس/i;
+// A product description ("بديل الغسول", "for sensitive skin") is not an objection.
+// Require an explicit rejection, alternative request, or reported adverse reaction.
+const PRODUCT_FIT_OBJECTION_RX = /مش\s*مناسب|مش\s*ده|عايز\s*غير|عاوز\s*غير|(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|ممكن)\s+(?:له\s+|ليه\s+)?بديل|(?:عمل|سبب)(?:لي|ليّ|تلي)?\s*حساسي[ةه]|مش\s*نفس/i;
 const TIMING_OBJECTION_RX = /مش\s*دلوقتي|بعدين|بعد\s*كده|وقت\s*تاني|لما\s*احتاج/i;
 const ALTERNATIVE_RX = /بديل|بدل(?:ه|ها|هم|\s)/i;
 
@@ -821,3 +823,4 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
     humanReviewReasons,
   };
 }
+

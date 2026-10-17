@@ -80,8 +80,9 @@ type ParsedPrefix = {
 };
 
 const STAFF_INTRO_PATTERNS = [
-  /مع حضرتك\s+(?:د\.?|دكتور(?:ة)?|دكتوره)\s*([^\n،,.]+)/i,
-  /معاك(?:ي)?\s+(?:د\.?|دكتور(?:ة)?|دكتوره)\s*([^\n،,.]+)/i,
+  /مع\s+حضرتك\s+(?:(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*)?([^\n،,.]+?)\s+من\s+(?:خدمة\s*عملاء\s+(?:صيدليات\s+)?دواء|صيدليات\s+دواء)/i,
+  /مع حضرتك\s+(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*([^\n،,.]+)/i,
+  /معاك(?:ي)?\s+(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*([^\n،,.]+)/i,
   /(?:د\.?|دكتور(?:ة)?|دكتوره)\s+([^\n،,.]+)\s+من\s+(?:خدمة عملاء|صيدليات)\s+دواء/i,
 ];
 const PHARMACY_TEXT_RX =
@@ -581,3 +582,4 @@ export function splitWhatsAppSessions(
   if (current.length) groups.push(current);
   return groups.map((group, index) => buildSession(group, index));
 }
+
