@@ -39,10 +39,16 @@ jobs:
         run: npx vitest run src/lib/salesIntelligence/__tests__/realChatSemanticGuards.test.ts
 
       - name: Canonical complaint and request ownership tests
-        run: npx vitest run src/lib/salesIntelligence/__tests__/canonicalComplaintAndRequestOwners.test.ts
+        run: >-
+          npx vitest run
+          src/lib/salesIntelligence/__tests__/canonicalComplaintAndRequestOwners.test.ts
+          src/lib/salesIntelligence/__tests__/conversationEvaluationServiceRecovery.test.ts
 
-      - name: Canonical follow-up projection tests
-        run: npx vitest run src/lib/salesIntelligence/persistence/__tests__/canonicalFollowupProjector.test.ts
+      - name: Canonical operational projection tests
+        run: >-
+          npx vitest run
+          src/lib/salesIntelligence/persistence/__tests__/canonicalFollowupProjector.test.ts
+          src/lib/salesIntelligence/persistence/__tests__/canonicalCustomerRequestProjector.test.ts
 
       - name: Generated API parity
         run: node scripts/build-sales-intelligence-refresh-api.cjs --check
@@ -59,9 +65,13 @@ jobs:
           src/lib/salesIntelligence/__tests__/realChatSemanticGuards.test.ts
           src/lib/salesIntelligence/complaintAssessmentEngine.ts
           src/lib/salesIntelligence/customerRequestQualificationEngine.ts
+          src/lib/salesIntelligence/conversationEvaluationServiceRecovery.ts
           src/lib/salesIntelligence/__tests__/canonicalComplaintAndRequestOwners.test.ts
+          src/lib/salesIntelligence/__tests__/conversationEvaluationServiceRecovery.test.ts
           src/lib/salesIntelligence/persistence/canonicalFollowupProjector.ts
+          src/lib/salesIntelligence/persistence/canonicalCustomerRequestProjector.ts
           src/lib/salesIntelligence/persistence/__tests__/canonicalFollowupProjector.test.ts
+          src/lib/salesIntelligence/persistence/__tests__/canonicalCustomerRequestProjector.test.ts
           --rule 'prettier/prettier: off'
 
       - name: Show generated API delta
