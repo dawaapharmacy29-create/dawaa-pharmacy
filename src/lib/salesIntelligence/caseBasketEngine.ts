@@ -149,7 +149,8 @@ export function isGenericDeicticProductPhrase(value: string): boolean {
   // Units, anaphoric quantity answers and colour descriptions do not identify a product.
   const quantityOnly = /^(?:و\s*)?(?:(?:منهم|منه|منها)\s+)?(?:شريطين|علبتين|عبوتين|شريط|علب[ةه]|عبو[ةه])(?:\s*(?:و\s*)?(?:شريط|علب[ةه]|عبو[ةه]))?$/i;
   const colourOnly = /^(?:(?:كلها|كله|العلب[ةه])\s+)?لون(?:ها|ه)?\s+\S+$/i;
-  return GENERIC_DEICTIC_PRODUCT_PHRASE_RX.test(phrase) || quantityOnly.test(phrase) || colourOnly.test(phrase);
+  const numberOnly = /^(?:\d+|واحد[ةه]?|اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?)(?:\s+(?:بس|فقط))?[.!\s]*$/i;
+  return GENERIC_DEICTIC_PRODUCT_PHRASE_RX.test(phrase) || quantityOnly.test(phrase) || numberOnly.test(phrase) || colourOnly.test(phrase);
 }
 const EXPLICIT_REQUEST_VERB_RX = /(?<![\p{L}\p{N}])(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|هات(?:ي|لي)?|ابعت(?:لي|يلي)?)(?![\p{L}\p{N}])/u;
 // "ابعت X بس" — the customer narrows the order to the named item(s).
@@ -895,7 +896,21 @@ export function buildCaseBaskets(
         if (newItems.length === 0 && productIndex) {
           const direct = directCatalogMentionItem(message, productIndex);
           if (direct) {
-            items.set(normalizeProductKey(direct.productNameRaw), direct);
+            // A repeated catalogue identity is the same line, even when the wording changes.
+            // Keep its known quantity; a repeated mention without quantity cannot add an item.
+            const sameProduct = Array.from(items.entries()).filter(([, item]) => {
+              if (item.productId) return item.productId === direct.productId;
+              const resolved = resolveProductMention(item.productNameRaw, productIndex);
+              return !resolved.ambiguous && resolved.selected &&
+                isBasketEligibleProductResolution(resolved.selected) &&
+                resolved.selected.product.productId === direct.productId;
+            });
+            if (sameProduct.length === 1) {
+              const [key, existing] = sameProduct[0];
+              items.set(key, { ...existing, productId: direct.productId });
+            } else {
+              items.set(normalizeProductKey(direct.productNameRaw), direct);
+            }
             sourceMessageIds.push(message.id);
           }
         }
@@ -952,3 +967,4 @@ export function deriveCaseStatusFromBasket(baseline: CaseStatus, latestBasket: C
   if (latestBasket.status === 'awaiting_confirmation') return 'awaiting_customer_confirmation';
   return 'basket_building';
 }
+

@@ -148,9 +148,11 @@ function classifyObjectionCategory(
   if (PRICE_OBJECTION_RX.test(text)) return 'price';
   if (AVAILABILITY_OBJECTION_RX.test(text)) return 'availability';
   if (DELIVERY_OBJECTION_RX.test(text)) return 'delivery';
-  if (PRODUCT_FIT_OBJECTION_RX.test(text)) return 'product_fit';
+  // A refusal of substitutes is not a refusal of the requested product.
+  const fitText = text.replace(/(?:مش|لا)\s+(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?)\s+بديل/gi, '');
+  if (PRODUCT_FIT_OBJECTION_RX.test(fitText)) return 'product_fit';
   if (TIMING_OBJECTION_RX.test(text)) return 'timing';
-  if (explicitRejection) return 'customer_declined';
+  if (explicitRejection && fitText === text) return 'customer_declined';
   if (correction) return 'unknown';
   return null;
 }
@@ -380,6 +382,13 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
   const indexById = new Map(messages.map((message, index) => [message.id, index]));
   const unlinkedAvailability: CustomerNeedAvailabilityEvidence[] = [];
   const unlinkedAlternatives: CustomerNeedAlternative[] = [];
+  const catalogNamesProduct = (text: string, product: ProductAccumulator): boolean => {
+    if (!input.productIndex || !product.productId) return false;
+    const resolution = resolveProductMention(text, input.productIndex);
+    return !resolution.ambiguous && Boolean(resolution.selected &&
+      ['proven', 'strongly_inferred'].includes(resolution.selected.confidence) &&
+      resolution.selected.product.productId === product.productId);
+  };
 
   const linkProduct = (
     staffMessage: NormalizedConversationMessageV32,
@@ -394,7 +403,7 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
         product.key.length >= 3 &&
         product.key !== staffText &&
         !product.evidenceMessageIds.has(staffMessage.id) &&
-        staffText.includes(product.key)
+        (staffText.includes(product.key) || catalogNamesProduct(staffMessage.text, product))
     );
     if (named.length === 1) return { product: named[0], basis: 'product_named_in_message' };
     if (named.length > 1) return null;
@@ -448,7 +457,7 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
         product.key.length >= 3 &&
         product.key !== normalizeProductKey(message.text) &&
         !product.evidenceMessageIds.has(message.id) &&
-        clauseKey.includes(product.key)
+        (clauseKey.includes(product.key) || catalogNamesProduct(clause, product))
     );
   };
   const availabilityFact = (
@@ -607,11 +616,13 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
   }
 
   const currentAvailability = (product: ProductAccumulator): CustomerNeedAvailability => {
-    const latest = product.availabilityEvidence
+    const ordered = product.availabilityEvidence
       .slice()
-      .sort((a, b) => (indexById.get(a.messageId) ?? 0) - (indexById.get(b.messageId) ?? 0))
-      .pop();
-    return latest?.state ?? 'unknown';
+      .sort((a, b) => (indexById.get(a.messageId) ?? 0) - (indexById.get(b.messageId) ?? 0));
+    // Checking another stock source is an outstanding duty, not a reversal of a stated stock fact.
+    // A later explicit available/unavailable statement still replaces the earlier fact.
+    const statedStock = ordered.filter((fact) => fact.state !== 'check_pending').pop();
+    return statedStock?.state ?? ordered[ordered.length - 1]?.state ?? 'unknown';
   };
   // A product that left the basket because staff said it is unavailable was not rejected by the
   // customer; its removal is an availability fact, kept in availabilityEvidence/alternatives.
@@ -823,4 +834,5 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
     humanReviewReasons,
   };
 }
+
 

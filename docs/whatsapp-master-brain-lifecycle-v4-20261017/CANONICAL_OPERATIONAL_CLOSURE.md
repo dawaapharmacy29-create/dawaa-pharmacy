@@ -15,3 +15,14 @@ No main update, deploy, Supabase change, production action creation, historical 
 Pipeline version is now sales-intelligence-v25-canonical-operational-assessments so a future explicitly authorized refresh persists the new case-bound assessments instead of reusing a v24 snapshot. No refresh or historical backfill was initiated. The A1 chain fixture checks this version and preserves product, sale, staff, follow-up and qualification assertions. Persisted evidenceSnapshot types explicitly include the two optional assessments for compatibility with older rows.
 
 Closure: source-only cutover is ready for final review without deployment. No blocking item remains in the reviewed scope. Production continues running the previously activated runtime; this branch has not been activated.
+
+
+## Expanded synthetic semantic matrix — 2026-10-18
+
+The exact-commit Preview approval was added in 2861927 following explicit user authorization to use the existing Supabase project. Its CI 39071867239 passed. The Preview is a separate deployment; main and the production alias remain unchanged.
+
+A subsequent local synthetic conversation exposed semantic defects, so no synthetic source or operational task was created in Production. This batch adds 33 self-contained pipeline scenarios with synthetic customer/staff identities and no database calls. Coverage includes quantity-only text, repeat catalogue references, substitute refusal versus genuine product-fit objection, confirmed shortage versus pending checks, missing identity, cancellation, unresolved/resolved complaints, sale/revenue non-countability without invoice proof, explicit Cairo appointments, Arabic digits, ambiguous/invalid times, authorship, appointment correction, exact retry, customer correction, multiple dosage forms and missing media.
+
+Fixes stay in the canonical basket/Need/Follow-up owners: quantity-only phrases cannot be products; a safe repeated catalogue identity keeps the existing quantity; rejecting a substitute preserves the original need; only a unique strong catalogue match can link shortened stock wording; a pending stock search cannot erase the latest explicit stock fact; explicit scheduled commitments retain author and Cairo deadline despite unrelated later replies; a later correction updates the same obligation. Existing projectors still do not reinterpret text or automatically materialize actions. No permissions, RPC, RLS, invoice writer or historical rows change.
+
+Pipeline version advances to sales-intelligence-v26-canonical-semantic-matrix; the generated API is regenerated rather than edited. Focused local verification: 122 tests passed across ten suites, plus the existing 22-test ownership/A1/projector group. Full CI on this batch is pending. The current Preview remains on 2861927 until a separately verified update; do not infer live end-to-end operational creation from these local results.

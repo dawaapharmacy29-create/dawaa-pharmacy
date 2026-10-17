@@ -18,6 +18,7 @@ import {
 } from '../whatsappSemanticSignalsV32';
 import { normalizeProductKey } from './caseBasketEngine';
 import { stableOperationIdentity, type OperationTimelineMessage } from '../whatsappFollowupIdentity';
+import { cairoWallClockParts, cairoWallClockToDate } from '../time/cairoDateBoundary';
 import type {
   CanonicalSalesOutcomeAssessment,
   ConfidenceAssessment,
@@ -88,6 +89,7 @@ interface Candidate {
   priority?: FollowUpOpportunity['priority'];
   duePolicy?: FollowUpDuePolicy;
   requestedDelayDays?: number | null;
+  dueAt?: string | null;
   assignedStaffName?: string | null;
   assignedStaffId?: string | null;
   evidence: string[];
@@ -217,13 +219,22 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
   const checkPendingIds = new Set(unavailableDemand.filter((d) => d.availabilityState === 'check_pending').map((d) => d.availabilityMessageId));
   for (const message of meaningful) {
     if (message.role !== 'staff' || !isStaffFollowUpPromiseV32(message.text)) continue;
-    if (checkPendingIds.has(message.id) || laterStaffReply(message)) continue;
+    const scheduledAt = explicitPromiseTime(message.text, message.timestamp);
+    // A later apology or unrelated reply does not fulfil a future, explicitly scheduled call.
+    const fulfilled = scheduledAt && meaningful.some((later) =>
+      later.role === 'staff' && (indexOf.get(later.id) ?? 0) > (indexOf.get(message.id) ?? 0) &&
+      /(?:تم\s+(?:الاتصال|التواصل)|كلمت\s+حضرتك|بلغت\s+حضرتك)/.test(later.text) &&
+      !/(?:مش|لم|لم\s*يتم)\s/.test(later.text)
+    );
+    if (fulfilled || (!scheduledAt && (checkPendingIds.has(message.id) || laterStaffReply(message)))) continue;
     candidates.push({
       reason: 'staff_promised_check',
       explicit: true,
       demand: null,
       assignedStaffName: message.sender,
       assignedStaffId: input.staffIdBySender?.[message.sender] ?? null,
+      dueAt: scheduledAt,
+      duePolicy: scheduledAt ? 'customer_requested_time' : undefined,
       evidence: [message.id],
       level: 'strongly_inferred',
       score: 0.85,
@@ -316,7 +327,7 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
       demandKey: demand?.demandKey ?? null,
       duePolicy,
       requestedDelayDays,
-      dueAt: dueAtFor(duePolicy, requestedDelayDays, lastAt),
+      dueAt: candidate.dueAt ?? dueAtFor(duePolicy, requestedDelayDays, lastAt),
       assignedRole: profile.role,
       assignedStaffId: candidate.assignedStaffId ?? null,
       assignedStaffName: candidate.assignedStaffName ?? null,
@@ -329,6 +340,14 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
     };
     const existing = byKey.get(followUpKey);
     if (existing) {
+      const latestExisting = Math.max(...existing.evidenceMessageIds.map((id) => messageAt.get(id) ?? 0));
+      const latestIncoming = Math.max(...opportunity.evidenceMessageIds.map((id) => messageAt.get(id) ?? 0));
+      if (candidate.dueAt && latestIncoming > latestExisting) {
+        existing.dueAt = candidate.dueAt;
+        existing.duePolicy = opportunity.duePolicy;
+        existing.assignedStaffId = opportunity.assignedStaffId;
+        existing.assignedStaffName = opportunity.assignedStaffName;
+      }
       existing.evidenceMessageIds = [...new Set([...existing.evidenceMessageIds, ...opportunity.evidenceMessageIds])];
       continue;
     }
@@ -385,6 +404,20 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
   };
 }
 
+/** Only a stated day plus an unambiguous AM/PM clock time can set an exact deadline. */
+function explicitPromiseTime(text: string, at: Date): string | null {
+  const normalized = text.replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)));
+  const dayOffset = /بكر[ةه]|بكرا/.test(normalized) ? 1 : /اليوم|النهارد[ةه]/.test(normalized) ? 0 : null;
+  const clock = normalized.match(/الساع[ةه]\s*(\d{1,2})(?::(\d{2}))?\s*((?:صباح|مساء)[ًا]*|ص|م)(?![\p{L}])/u);
+  if (dayOffset === null || !clock) return null;
+  const hour = Number(clock[1]), minute = Number(clock[2] ?? 0);
+  if (hour < 1 || hour > 12 || minute > 59) return null;
+  const wall = cairoWallClockParts(at);
+  const afternoon = clock[3].startsWith('م');
+  return cairoWallClockToDate(wall.year, wall.month, wall.day + dayOffset,
+    (hour % 12) + (afternoon ? 12 : 0), minute)?.toISOString() ?? null;
+}
+
 function dueAtFor(policy: FollowUpDuePolicy, days: number | null, lastAt: Date): string | null {
   switch (policy) {
     case 'immediate':
@@ -409,3 +442,4 @@ function confidence(candidate: Candidate, profile: ReasonProfile): ConfidenceAss
       : [],
   };
 }
+

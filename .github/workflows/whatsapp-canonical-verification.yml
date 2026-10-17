@@ -57,6 +57,9 @@ jobs:
       - name: Previous regression and branch provenance contracts
         run: npx vitest run src/lib/__tests__/stableOperationIdentity.test.ts src/lib/__tests__/followupBranchProvenance.test.ts
 
+      - name: Synthetic canonical decision matrix
+        run: npx vitest run src/lib/salesIntelligence/__tests__/syntheticCanonicalDecisionMatrix.test.ts
+
       - name: Full repository verify gate
         run: npm run verify
 

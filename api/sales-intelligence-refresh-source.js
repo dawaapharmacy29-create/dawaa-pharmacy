@@ -2460,7 +2460,8 @@ function isGenericDeicticProductPhrase(value) {
   const phrase = String(value || "").trim();
   const quantityOnly = /^(?:و\s*)?(?:(?:منهم|منه|منها)\s+)?(?:شريطين|علبتين|عبوتين|شريط|علب[ةه]|عبو[ةه])(?:\s*(?:و\s*)?(?:شريط|علب[ةه]|عبو[ةه]))?$/i;
   const colourOnly = /^(?:(?:كلها|كله|العلب[ةه])\s+)?لون(?:ها|ه)?\s+\S+$/i;
-  return GENERIC_DEICTIC_PRODUCT_PHRASE_RX.test(phrase) || quantityOnly.test(phrase) || colourOnly.test(phrase);
+  const numberOnly = /^(?:\d+|واحد[ةه]?|اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?)(?:\s+(?:بس|فقط))?[.!\s]*$/i;
+  return GENERIC_DEICTIC_PRODUCT_PHRASE_RX.test(phrase) || quantityOnly.test(phrase) || numberOnly.test(phrase) || colourOnly.test(phrase);
 }
 var EXPLICIT_REQUEST_VERB_RX = /(?<![\p{L}\p{N}])(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|هات(?:ي|لي)?|ابعت(?:لي|يلي)?)(?![\p{L}\p{N}])/u;
 var ONLY_THIS_RX = /(?<![\p{L}\p{N}])(?:بس|فقط)[.!، ]*$/u;
@@ -2993,7 +2994,17 @@ function buildCaseBaskets(caseId, scopedMessages, productIndex) {
         if (newItems.length === 0 && productIndex) {
           const direct = directCatalogMentionItem(message, productIndex);
           if (direct) {
-            items.set(normalizeProductKey(direct.productNameRaw), direct);
+            const sameProduct = Array.from(items.entries()).filter(([, item]) => {
+              if (item.productId) return item.productId === direct.productId;
+              const resolved = resolveProductMention(item.productNameRaw, productIndex);
+              return !resolved.ambiguous && resolved.selected && isBasketEligibleProductResolution(resolved.selected) && resolved.selected.product.productId === direct.productId;
+            });
+            if (sameProduct.length === 1) {
+              const [key, existing] = sameProduct[0];
+              items.set(key, { ...existing, productId: direct.productId });
+            } else {
+              items.set(normalizeProductKey(direct.productNameRaw), direct);
+            }
             sourceMessageIds.push(message.id);
           }
         }
@@ -5295,9 +5306,10 @@ function classifyObjectionCategory(text5, explicitRejection, correction) {
   if (PRICE_OBJECTION_RX.test(text5)) return "price";
   if (AVAILABILITY_OBJECTION_RX.test(text5)) return "availability";
   if (DELIVERY_OBJECTION_RX.test(text5)) return "delivery";
-  if (PRODUCT_FIT_OBJECTION_RX.test(text5)) return "product_fit";
+  const fitText = text5.replace(/(?:مش|لا)\s+(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?)\s+بديل/gi, "");
+  if (PRODUCT_FIT_OBJECTION_RX.test(fitText)) return "product_fit";
   if (TIMING_OBJECTION_RX.test(text5)) return "timing";
-  if (explicitRejection) return "customer_declined";
+  if (explicitRejection && fitText === text5) return "customer_declined";
   if (correction) return "unknown";
   return null;
 }
@@ -5474,10 +5486,15 @@ function deriveCustomerNeedModel(input) {
   const indexById = new Map(messages.map((message, index) => [message.id, index]));
   const unlinkedAvailability = [];
   const unlinkedAlternatives = [];
+  const catalogNamesProduct = (text5, product) => {
+    if (!input.productIndex || !product.productId) return false;
+    const resolution = resolveProductMention(text5, input.productIndex);
+    return !resolution.ambiguous && Boolean(resolution.selected && ["proven", "strongly_inferred"].includes(resolution.selected.confidence) && resolution.selected.product.productId === product.productId);
+  };
   const linkProduct = (staffMessage, exclude = /* @__PURE__ */ new Set()) => {
     const staffText = normalizeProductKey(staffMessage.text);
     const named = Array.from(products.values()).filter(
-      (product) => !exclude.has(product.key) && product.key.length >= 3 && product.key !== staffText && !product.evidenceMessageIds.has(staffMessage.id) && staffText.includes(product.key)
+      (product) => !exclude.has(product.key) && product.key.length >= 3 && product.key !== staffText && !product.evidenceMessageIds.has(staffMessage.id) && (staffText.includes(product.key) || catalogNamesProduct(staffMessage.text, product))
     );
     if (named.length === 1) return { product: named[0], basis: "product_named_in_message" };
     if (named.length > 1) return null;
@@ -5517,7 +5534,7 @@ function deriveCustomerNeedModel(input) {
   const namedInClause = (clause, message) => {
     const clauseKey = normalizeProductKey(clause);
     return Array.from(products.values()).filter(
-      (product) => product.key.length >= 3 && product.key !== normalizeProductKey(message.text) && !product.evidenceMessageIds.has(message.id) && clauseKey.includes(product.key)
+      (product) => product.key.length >= 3 && product.key !== normalizeProductKey(message.text) && !product.evidenceMessageIds.has(message.id) && (clauseKey.includes(product.key) || catalogNamesProduct(clause, product))
     );
   };
   const availabilityFact = (message, state, basis, signalConfidence, ruleId) => ({
@@ -5640,8 +5657,9 @@ function deriveCustomerNeedModel(input) {
     evidenceIds.forEach((id) => original.evidenceMessageIds.add(id));
   }
   const currentAvailability = (product) => {
-    const latest = product.availabilityEvidence.slice().sort((a, b) => (indexById.get(a.messageId) ?? 0) - (indexById.get(b.messageId) ?? 0)).pop();
-    return latest?.state ?? "unknown";
+    const ordered4 = product.availabilityEvidence.slice().sort((a, b) => (indexById.get(a.messageId) ?? 0) - (indexById.get(b.messageId) ?? 0));
+    const statedStock = ordered4.filter((fact) => fact.state !== "check_pending").pop();
+    return statedStock?.state ?? ordered4[ordered4.length - 1]?.state ?? "unknown";
   };
   for (const product of products.values()) {
     if (product.roles.has("rejected") && currentAvailability(product) === "unavailable") product.roles.delete("rejected");
@@ -6486,13 +6504,19 @@ function deriveFollowUpOpportunities(input) {
   const checkPendingIds = new Set(unavailableDemand.filter((d) => d.availabilityState === "check_pending").map((d) => d.availabilityMessageId));
   for (const message of meaningful) {
     if (message.role !== "staff" || !isStaffFollowUpPromiseV32(message.text)) continue;
-    if (checkPendingIds.has(message.id) || laterStaffReply(message)) continue;
+    const scheduledAt = explicitPromiseTime(message.text, message.timestamp);
+    const fulfilled = scheduledAt && meaningful.some(
+      (later) => later.role === "staff" && (indexOf.get(later.id) ?? 0) > (indexOf.get(message.id) ?? 0) && /(?:تم\s+(?:الاتصال|التواصل)|كلمت\s+حضرتك|بلغت\s+حضرتك)/.test(later.text) && !/(?:مش|لم|لم\s*يتم)\s/.test(later.text)
+    );
+    if (fulfilled || !scheduledAt && (checkPendingIds.has(message.id) || laterStaffReply(message))) continue;
     candidates.push({
       reason: "staff_promised_check",
       explicit: true,
       demand: null,
       assignedStaffName: message.sender,
       assignedStaffId: input.staffIdBySender?.[message.sender] ?? null,
+      dueAt: scheduledAt,
+      duePolicy: scheduledAt ? "customer_requested_time" : void 0,
       evidence: [message.id],
       level: "strongly_inferred",
       score: 0.85
@@ -6568,7 +6592,7 @@ function deriveFollowUpOpportunities(input) {
       demandKey: demand?.demandKey ?? null,
       duePolicy,
       requestedDelayDays,
-      dueAt: dueAtFor(duePolicy, requestedDelayDays, lastAt),
+      dueAt: candidate.dueAt ?? dueAtFor(duePolicy, requestedDelayDays, lastAt),
       assignedRole: profile.role,
       assignedStaffId: candidate.assignedStaffId ?? null,
       assignedStaffName: candidate.assignedStaffName ?? null,
@@ -6581,6 +6605,14 @@ function deriveFollowUpOpportunities(input) {
     };
     const existing = byKey.get(followUpKey);
     if (existing) {
+      const latestExisting = Math.max(...existing.evidenceMessageIds.map((id) => messageAt.get(id) ?? 0));
+      const latestIncoming = Math.max(...opportunity.evidenceMessageIds.map((id) => messageAt.get(id) ?? 0));
+      if (candidate.dueAt && latestIncoming > latestExisting) {
+        existing.dueAt = candidate.dueAt;
+        existing.duePolicy = opportunity.duePolicy;
+        existing.assignedStaffId = opportunity.assignedStaffId;
+        existing.assignedStaffName = opportunity.assignedStaffName;
+      }
       existing.evidenceMessageIds = [.../* @__PURE__ */ new Set([...existing.evidenceMessageIds, ...opportunity.evidenceMessageIds])];
       continue;
     }
@@ -6603,6 +6635,23 @@ function deriveFollowUpOpportunities(input) {
     opportunities,
     notNeededReason: decision === "not_needed" ? saleProven ? "sale_proven" : operationallyClosed ? operationalClosureSuppression : interactionSuppression : null
   };
+}
+function explicitPromiseTime(text5, at) {
+  const normalized = text5.replace(/[٠-٩]/g, (digit) => String("\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669".indexOf(digit)));
+  const dayOffset = /بكر[ةه]|بكرا/.test(normalized) ? 1 : /اليوم|النهارد[ةه]/.test(normalized) ? 0 : null;
+  const clock = normalized.match(/الساع[ةه]\s*(\d{1,2})(?::(\d{2}))?\s*((?:صباح|مساء)[ًا]*|ص|م)(?![\p{L}])/u);
+  if (dayOffset === null || !clock) return null;
+  const hour = Number(clock[1]), minute = Number(clock[2] ?? 0);
+  if (hour < 1 || hour > 12 || minute > 59) return null;
+  const wall = cairoWallClockParts(at);
+  const afternoon = clock[3].startsWith("\u0645");
+  return cairoWallClockToDate(
+    wall.year,
+    wall.month,
+    wall.day + dayOffset,
+    hour % 12 + (afternoon ? 12 : 0),
+    minute
+  )?.toISOString() ?? null;
 }
 function dueAtFor(policy, days, lastAt) {
   switch (policy) {
@@ -8497,7 +8546,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v25-canonical-operational-assessments";
+var PIPELINE_VERSION = "sales-intelligence-v26-canonical-semantic-matrix";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v10-payment-continuation-ambiguity-safe",
   historicalClosure: "historical-closure-v1",

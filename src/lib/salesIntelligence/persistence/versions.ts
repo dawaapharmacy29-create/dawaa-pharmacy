@@ -7,6 +7,9 @@
 // REPROCESSING_MATRIX assigns it (see persistence/types.ts).
 // IMPORTANT: after changing semantic versions here, regenerate the committed serverless transport
 // with scripts/build-sales-intelligence-refresh-api.cjs so Preview/Production runs the same versions.
+// v26 (2026-10-18): quantity-only wording and repeated catalogue identities do not create products;
+// substitute refusal preserves the original need; known stock facts survive a pending warehouse
+// check; explicit appointments retain Cairo deadlines, actual authors and latest corrections.
 // v24 (2026-10-13): unique explicit cross-script seed matches retain their weak confidence while
 // carrying canonical product identity through the active basket, Customer Need, and attribution.
 // v23 (2026-10-13): exact active canonical staff names/aliases resolve invoice sellers when staff_id
@@ -54,7 +57,7 @@
 // without manufacturing product identity from unresolved media deictics.
 // Persist the newly owned complaint/request decisions on the next explicit refresh. Retries
 // within this version still reuse the same analysis; this constant never initiates a backfill.
-export const PIPELINE_VERSION = 'sales-intelligence-v25-canonical-operational-assessments';
+export const PIPELINE_VERSION = 'sales-intelligence-v26-canonical-semantic-matrix';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v10-payment-continuation-ambiguity-safe',
