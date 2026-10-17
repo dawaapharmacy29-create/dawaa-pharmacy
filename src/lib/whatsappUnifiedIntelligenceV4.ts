@@ -226,7 +226,7 @@ export function buildUnifiedConversationIntelligence(session: WhatsAppConversati
   const serviceScore = scoreService(session);
   const commercialScore = scoreCommercial(session, lostSales, outcome);
   const commercialEligible = signals.saleIntentDetected || journeyStages.some((x) => ['need', 'availability', 'alternative', 'closing'].includes(x.key) && x.detected);
-  const chatSuggestedSold = outcome === 'sold';
+  const chatSuggestedSold = false; // Retired inferred sales; conversation sales require persisted canonical outcome.
   // نقص/عدم توفر بدون بديل (lostSales.severity==='high') هي بالظبط نفس حالة
   // "stockout_recovery" في whatsappConversationEvaluationV2.ts - لازم تتابع، حتى لو
   // outcome نفسه فضل 'unknown' لأن العميل ما استخدمش كلمة NEED_RX المعروفة (زي "موجود؟"
@@ -396,6 +396,6 @@ export function summarizePortfolio(sessions: WhatsAppConversationSession[]): Por
     complaints: models.filter((x) => x.outcome === 'complaint_resolved' || x.outcome === 'complaint_unresolved').length,
     averageServiceScore: average(models.map((x) => x.serviceScore)),
     averageCommercialScore: average(models.map((x) => x.commercialScore)),
-    conversionSuggestionRate: salesEligible ? Number(((suggestedSold / salesEligible) * 100).toFixed(1)) : null,
+    conversionSuggestionRate: null,
   };
 }

@@ -57,7 +57,7 @@ function hydrate(item: WhatsAppPerformanceItem) {
 function profile(items: WhatsAppPerformanceItem[], dimension: 'branch' | 'doctor', key: string, label: string): WhatsAppPerformanceProfile {
   const hydrated = items.map(hydrate);
   const eligible = hydrated.filter((x) => x.intelligence.commercialEligible);
-  const sold = eligible.filter((x) => x.intelligence.chatSuggestedSold);
+  const sold: typeof eligible = []; // Retired legacy sale inference; official sales come from canonical persisted KPI truth.
   const signals = hydrated.map((x) => extractConversationSignals(x.session));
   const response = signals.map((x) => x.firstResponseSeconds).filter((x): x is number => x != null);
   const lostSales = eligible.filter((x) => x.intelligence.lostSales.some((s) => s.severity === 'medium' || s.severity === 'high')).length;
@@ -69,7 +69,7 @@ function profile(items: WhatsAppPerformanceItem[], dimension: 'branch' | 'doctor
     conversations: hydrated.length,
     eligibleSalesChats: eligible.length,
     suggestedSoldChats: sold.length,
-    conversionSuggestionRate: eligible.length ? round1((sold.length / eligible.length) * 100) : null,
+    conversionSuggestionRate: null,
     avgServiceScore: average(hydrated.map((x) => x.intelligence.serviceScore)),
     avgCommercialScore: average(hydrated.map((x) => x.intelligence.commercialScore)),
     avgFirstResponseSeconds: average(response),

@@ -134,13 +134,13 @@ export default function DoctorPerformanceAnalysis({
         </div>
         <div className="bg-white/5 rounded-xl p-4">
           <div className="flex items-center gap-2 text-slate-400 text-xs mb-1">
-            <DollarSign size={14} /> إجمالي المبيعات
+            <DollarSign size={14} /> قيمة مشتريات مدونة بالمتابعة
           </div>
           <div className="text-2xl font-bold text-teal-300">
             {Math.round(metrics.totalPurchase).toLocaleString('ar-EG')} ج
           </div>
           <div className="text-xs text-slate-400 mt-1">
-            متوسط: {Math.round(metrics.avgPurchasePerFollowup).toLocaleString('ar-EG')} ج/متابعة
+            متوسط: {Math.round(metrics.avgPurchasePerFollowup).toLocaleString('ar-EG')} ج/متابعة — ليست نسبة بيع منسوبة
           </div>
         </div>
         <div className="bg-white/5 rounded-xl p-4">
