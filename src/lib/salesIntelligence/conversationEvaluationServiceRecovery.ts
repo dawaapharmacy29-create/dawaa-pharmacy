@@ -1,4 +1,5 @@
 import { REVIEW_CRITERIA } from '@/lib/conversationReviews';
+import { deriveCanonicalComplaintAssessment } from './complaintAssessmentEngine';
 import type { CaseIntelligenceView } from './types';
 
 type RecoveryCriterionKey = 'angry_customer' | 'order_delay_handling';
@@ -24,22 +25,17 @@ export interface ConversationEvaluationServiceRecovery {
 
 const criteria = new Map(REVIEW_CRITERIA.map((criterion) => [criterion.key, criterion]));
 
-const COMPLAINT_RX =
-  /(?:زعلان|متضايق|غاضب|شكوى|مشكله|مشكلة|مش\s*راضي|سيئ|وحش|خدمة\s*وحشه|خدمة\s*سيئه|كل\s*مرة|كل\s*مره|بشتكي|ليه\s*كده)/i;
 const APOLOGY_RX = /(?:متاسف|متأسف|آسف|اسف|بنعتذر|نعتذر|حقك\s*علينا|معلش)/i;
-const SOLUTION_RX =
-  /(?:هحل|هنحل|هنبدل|هبدل|هنرجع|هرجع\s*المبلغ|هتابع|هنابع|هراجع|هكلم|هنكلم|هنبعت|هتبعت|هنوفر|جاري\s*المتابعه|جاري\s*المتابعة|اتحل|تم\s*الحل|تم\s*التواصل)/i;
-const HOSTILE_RX =
-  /(?:لو\s*مش\s*عاجبك|مش\s*مشكلتي|مش\s*شغلي|بلاش\s*زن|ما\s*تزنش|انت\s*غلطان|إنت\s*غلطان|روح\s*اشتكي|اخرس|اخرسي)/i;
-
 const ORDER_CONTEXT_RX = /(?:اوردر|أوردر|الاوردر|الأوردر|طلب|المندوب|توصيل|دليفري)/i;
 const DELAY_RX = /(?:اتأخر|اتاخر|متأخر|متاخر|تأخير|تاخير|لسه|فين|مجاش|ماجاش|موصلش|ماوصلش|هييجي\s*امتى|هيوصل\s*امتى)/i;
 const STAFF_DELAY_NOTICE_RX =
   /(?:(?:الطلب|الاوردر|الأوردر|المندوب|التوصيل)[^\n]{0,40}(?:ه?يتأخر|متأخر|في\s*تأخير|فيه\s*تأخير)|(?:في|فيه)\s*تأخير[^\n]{0,30}(?:الطلب|الاوردر|المندوب|التوصيل))/i;
 const ETA_RX =
   /(?:خلال\s*\d+\s*(?:دقيقه|دقيقة|دقائق|ساعه|ساعة|ساعات)|نص\s*ساعه|نصف\s*ساعه|هيوصل\s*(?:خلال|في)|هيكون\s*عند\s*حضرتك|موعد\s*جديد)/i;
-const RESOLUTION_RX =
-  /(?:خرج\s*(?:مع|ل)\s*المندوب|في\s*الطريق|جاري\s*الارسال|جاري\s*الإرسال|تم\s*الارسال|تم\s*الإرسال|وصل|تم\s*التواصل|اتحل|تم\s*الحل)/i;
+const DELIVERY_PROGRESS_RX =
+  /(?:خرج\s*(?:مع|ل)\s*المندوب|في\s*الطريق|جاري\s*الارسال|جاري\s*الإرسال|تم\s*الارسال|تم\s*الإرسال)/i;
+const DELIVERY_CLOSURE_RX =
+  /(?:تم\s*التسليم|اتسلم|استلم(?:ت|نا)?|وصل(?:ت)?\s*(?:تمام|الحمد|شكرا|شكرًا)|المشكله\s*اتحلت|المشكلة\s*اتحلت|تم\s*الحل)/i;
 const CANCEL_RX =
   /(?:الغ(?:ي|ى)\s*(?:الطلب|الاوردر)|مش\s*عايزه|مش\s*عايز|خلاص\s*مش\s*محتاج|هجيب\s*من\s*مكان\s*تاني)/i;
 
@@ -74,91 +70,99 @@ function make(
 }
 
 function ordered(view: CaseIntelligenceView) {
-  return view.interaction.messages.slice().sort((a,b)=>new Date(a.at).getTime()-new Date(b.at).getTime());
-}
-
-function firstAfter(
-  messages: ReturnType<typeof ordered>,
-  index: number,
-  role: 'staff'|'customer',
-  predicate?: (text:string)=>boolean
-) {
-  return messages.slice(index+1).find((message) =>
-    message.role===role &&
-    message.meaningful &&
-    (!predicate || predicate(message.text))
-  ) || null;
+  return view.interaction.messages
+    .slice()
+    .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
 }
 
 function assessComplaint(view: CaseIntelligenceView): RecoveryCriterionAssessment {
-  const messages=ordered(view);
-  const complaintIndex=messages.findIndex(
-    (message)=>message.role==='customer' && message.meaningful && COMPLAINT_RX.test(message.text)
-  );
+  const complaint = deriveCanonicalComplaintAssessment({
+    caseId: view.caseId,
+    messages: ordered(view).map((message) => ({
+      id: message.id,
+      role: message.role,
+      text: message.text,
+      meaningful: message.meaningful,
+    })),
+  });
 
-  if(complaintIndex<0){
-    return make('angry_customer',null,'not_applicable',100,'لا توجد شكوى/غضب صريح يمكن تقييم طريقة التعامل معه.',[]);
-  }
-
-  const complaint=messages[complaintIndex];
-  const laterStaff=messages.slice(complaintIndex+1).filter((m)=>m.role==='staff'&&m.meaningful);
-  if(!laterStaff.length){
+  if (complaint.state === 'none') {
     return make(
       'angry_customer',
-      'ignored',
-      'assessed',
-      98,
-      'العميل عبّر عن شكوى/عدم رضا ولم يظهر رد موظف لاحق داخل نفس التفاعل.',
-      [complaint.id]
+      null,
+      'not_applicable',
+      100,
+      'العقل الكانونيكال لم يثبت وجود شكوى/غضب صريح في هذا التفاعل.',
+      []
     );
   }
 
-  const hostile=laterStaff.find((m)=>HOSTILE_RX.test(m.text));
-  if(hostile){
+  if (complaint.hostileResponseMessageIds.length > 0) {
     return make(
       'angry_customer',
       'inappropriate',
       'assessed',
       99,
-      'ظهر رد غير لائق صريح بعد شكوى العميل.',
-      [complaint.id,hostile.id]
+      'العقل الكانونيكال أثبت ردًا غير لائق بعد شكوى العميل.',
+      complaint.evidenceMessageIds
     );
   }
 
-  const apology=laterStaff.find((m)=>APOLOGY_RX.test(m.text));
-  const solution=laterStaff.find((m)=>SOLUTION_RX.test(m.text));
-  const resolved=laterStaff.find((m)=>RESOLUTION_RX.test(m.text));
+  if (complaint.state === 'unresolved' && complaint.staffResponseMessageIds.length === 0) {
+    return make(
+      'angry_customer',
+      'ignored',
+      'assessed',
+      98,
+      'العقل الكانونيكال أثبت شكوى ولم يثبت أي رد موظف لاحق داخل نفس التفاعل.',
+      complaint.complaintMessageIds
+    );
+  }
 
-  if(apology && solution && resolved){
+  const hasApology = complaint.apologyMessageIds.length > 0;
+  const hasRemedy = complaint.remedyAttemptMessageIds.length > 0;
+
+  if (complaint.state === 'resolved' && hasApology && hasRemedy) {
     return make(
       'angry_customer',
       'solved',
       'assessed',
       96,
-      'تم رصد اعتذار واضح ثم إجراء/حل ثم دليل لاحق على تنفيذ أو إغلاق المشكلة.',
-      [complaint.id,apology.id,solution.id,resolved.id]
+      'العقل الكانونيكال أثبت اعتذارًا وإجراءً ثم إغلاقًا صريحًا للمشكلة.',
+      complaint.evidenceMessageIds
     );
   }
 
-  if(apology && solution){
+  if (complaint.state === 'recovery_attempted' && hasApology && hasRemedy) {
     return make(
       'angry_customer',
       'good',
       'assessed',
       92,
-      'تم احتواء الشكوى باعتذار وإجراء واضح، لكن لا يوجد دليل كافٍ داخل التفاعل على إغلاق المشكلة نهائيًا.',
-      [complaint.id,apology.id,solution.id]
+      'العقل الكانونيكال أثبت احتواء الشكوى باعتذار وإجراء واضح، لكن لم يثبت إغلاقها نهائيًا.',
+      complaint.evidenceMessageIds
     );
   }
 
-  if(apology || solution){
+  if (complaint.state === 'resolved') {
+    return make(
+      'angry_customer',
+      'medium',
+      'assessed',
+      86,
+      'العقل الكانونيكال أثبت إغلاق المشكلة، لكن عناصر الاعتذار/الإجراء قبل الإغلاق غير مكتملة في الدليل.',
+      complaint.evidenceMessageIds
+    );
+  }
+
+  if (complaint.state === 'recovery_attempted' || hasApology || hasRemedy) {
     return make(
       'angry_customer',
       'medium',
       'assessed',
       84,
-      'يوجد تفاعل إيجابي جزئي مع الشكوى، لكن عناصر الاحتواء/الحل غير مكتملة.',
-      [complaint.id,...[apology?.id,solution?.id].filter(Boolean) as string[]]
+      'العقل الكانونيكال أثبت محاولة تعافٍ جزئية، لكن الاحتواء أو الإغلاق غير مكتمل.',
+      complaint.evidenceMessageIds
     );
   }
 
@@ -167,22 +171,27 @@ function assessComplaint(view: CaseIntelligenceView): RecoveryCriterionAssessmen
     'medium',
     'assessed',
     76,
-    'تم الرد على العميل، لكن لا يوجد اعتذار أو حل واضح يمكن إثباته من النص المتاح.',
-    [complaint.id,laterStaff[0].id]
+    'العقل الكانونيكال أثبت وجود الشكوى وردًا عليها، لكن لم يثبت اعتذارًا أو إجراء تعافٍ واضحًا.',
+    complaint.evidenceMessageIds
   );
 }
 
 function assessDelay(view: CaseIntelligenceView): RecoveryCriterionAssessment {
-  const messages=ordered(view);
-  const customerDelayIndex=messages.findIndex(
-    (message)=>message.role==='customer' && message.meaningful && ORDER_CONTEXT_RX.test(message.text) && DELAY_RX.test(message.text)
+  const messages = ordered(view);
+  const customerDelayIndex = messages.findIndex(
+    (message) =>
+      message.role === 'customer' &&
+      message.meaningful &&
+      ORDER_CONTEXT_RX.test(message.text) &&
+      DELAY_RX.test(message.text)
   );
 
-  const proactiveNoticeIndex=messages.findIndex(
-    (message)=>message.role==='staff' && message.meaningful && STAFF_DELAY_NOTICE_RX.test(message.text)
+  const proactiveNoticeIndex = messages.findIndex(
+    (message) =>
+      message.role === 'staff' && message.meaningful && STAFF_DELAY_NOTICE_RX.test(message.text)
   );
 
-  if(customerDelayIndex<0 && proactiveNoticeIndex<0){
+  if (customerDelayIndex < 0 && proactiveNoticeIndex < 0) {
     return make(
       'order_delay_handling',
       null,
@@ -193,68 +202,83 @@ function assessDelay(view: CaseIntelligenceView): RecoveryCriterionAssessment {
     );
   }
 
-  const anchorIndex=customerDelayIndex>=0?customerDelayIndex:proactiveNoticeIndex;
-  const anchor=messages[anchorIndex];
-  const laterStaff=messages.slice(anchorIndex+1).filter((m)=>m.role==='staff'&&m.meaningful);
-  const apology=(anchor.role==='staff'&&APOLOGY_RX.test(anchor.text))
-    ? anchor
-    : laterStaff.find((m)=>APOLOGY_RX.test(m.text)) || null;
-  const eta=(anchor.role==='staff'&&ETA_RX.test(anchor.text))
-    ? anchor
-    : laterStaff.find((m)=>ETA_RX.test(m.text)) || null;
-  const resolution=laterStaff.find((m)=>RESOLUTION_RX.test(m.text)) || null;
+  const anchorIndex = customerDelayIndex >= 0 ? customerDelayIndex : proactiveNoticeIndex;
+  const anchor = messages[anchorIndex];
+  const laterMessages = messages.slice(anchorIndex + 1).filter((message) => message.meaningful);
+  const laterStaff = laterMessages.filter((message) => message.role === 'staff');
+  const apology =
+    anchor.role === 'staff' && APOLOGY_RX.test(anchor.text)
+      ? anchor
+      : laterStaff.find((message) => APOLOGY_RX.test(message.text)) || null;
+  const eta =
+    anchor.role === 'staff' && ETA_RX.test(anchor.text)
+      ? anchor
+      : laterStaff.find((message) => ETA_RX.test(message.text)) || null;
+  const progress = laterStaff.find((message) => DELIVERY_PROGRESS_RX.test(message.text)) || null;
+  const closure =
+    laterMessages.find(
+      (message) =>
+        (message.role === 'customer' || message.role === 'staff') &&
+        DELIVERY_CLOSURE_RX.test(message.text)
+    ) || null;
 
-  const cancelled=messages.slice(anchorIndex+1).find(
-    (m)=>m.role==='customer'&&m.meaningful&&CANCEL_RX.test(m.text)
-  );
+  const cancelled = messages
+    .slice(anchorIndex + 1)
+    .find(
+      (message) =>
+        message.role === 'customer' && message.meaningful && CANCEL_RX.test(message.text)
+    );
 
-  if(cancelled && view.lostOpportunity.reason==='delivery_issue'){
+  if (cancelled && view.lostOpportunity.reason === 'delivery_issue') {
     return make(
       'order_delay_handling',
       'lost_customer',
       'assessed',
       98,
       'العميل ألغى/ترك الطلب بعد سياق تأخير توصيل، وLost Opportunity ربط الخسارة بمشكلة الدليفري. التقييم هنا لطريقة المتابعة لا لسبب التأخير نفسه.',
-      [anchor.id,cancelled.id,...view.lostOpportunity.evidenceMessageIds]
+      [anchor.id, cancelled.id, ...view.lostOpportunity.evidenceMessageIds]
     );
   }
 
-  if(proactiveNoticeIndex>=0 && apology && eta && resolution){
+  if (proactiveNoticeIndex >= 0 && apology && eta && closure) {
     return make(
       'order_delay_handling',
-      view.lostOpportunity.responsibility==='delivery' || view.lostOpportunity.responsibility==='inventory'
+      view.lostOpportunity.responsibility === 'delivery' ||
+        view.lostOpportunity.responsibility === 'inventory'
         ? 'outside_reason_handled'
         : 'handled_full',
       'assessed',
       97,
-      'تم إبلاغ العميل بالتأخير، والاعتذار، وإعطاء توقيت/توقع جديد، ثم ظهرت متابعة حتى التنفيذ. لا يتم تحميل الموظف سببًا تشغيليًا خارج إرادته.',
-      [messages[proactiveNoticeIndex].id,apology.id,eta.id,resolution.id]
+      'تم إبلاغ العميل بالتأخير والاعتذار وإعطاء توقيت جديد، ثم ظهر دليل إغلاق صريح. لا يتم تحميل الموظف سببًا تشغيليًا خارج إرادته.',
+      [messages[proactiveNoticeIndex].id, apology.id, eta.id, closure.id]
     );
   }
 
-  if((proactiveNoticeIndex>=0 || laterStaff.length>0) && eta){
+  if ((proactiveNoticeIndex >= 0 || laterStaff.length > 0) && eta) {
     return make(
       'order_delay_handling',
       'informed_only',
       'assessed',
       90,
-      'تم إبلاغ العميل/الرد عليه مع وقت أو توقع جديد، لكن لا يوجد دليل كامل على متابعة التنفيذ حتى النهاية.',
-      [anchor.id,eta.id,...(apology?[apology.id]:[])]
+      progress
+        ? 'تم إبلاغ العميل/الرد عليه بوقت جديد وظهرت متابعة تشغيلية، لكن لا يوجد دليل إغلاق صريح؛ حالة «في الطريق» لا تُعامل كتسليم مكتمل.'
+        : 'تم إبلاغ العميل/الرد عليه مع وقت أو توقع جديد، لكن لا يوجد دليل إغلاق صريح.',
+      [anchor.id, eta.id, ...(apology ? [apology.id] : []), ...(progress ? [progress.id] : [])]
     );
   }
 
-  if(customerDelayIndex>=0 && apology){
+  if (customerDelayIndex >= 0 && apology) {
     return make(
       'order_delay_handling',
       'late_apology',
       'assessed',
       92,
       'الاعتذار ظهر بعد أن سأل العميل أو اشتكى من التأخير، بدون وقت جديد/متابعة كاملة مثبتة.',
-      [anchor.id,apology.id]
+      [anchor.id, apology.id]
     );
   }
 
-  if(customerDelayIndex>=0 && !laterStaff.length){
+  if (customerDelayIndex >= 0 && !laterStaff.length) {
     return make(
       'order_delay_handling',
       'not_informed',
@@ -271,7 +295,7 @@ function assessDelay(view: CaseIntelligenceView): RecoveryCriterionAssessment {
     'assessed',
     78,
     'يوجد تعامل مع التأخير لكنه غير مكتمل بما يكفي لإثبات متابعة كاملة.',
-    [anchor.id,...laterStaff.slice(0,2).map((m)=>m.id)]
+    [anchor.id, ...laterStaff.slice(0, 2).map((message) => message.id)]
   );
 }
 
@@ -279,8 +303,8 @@ export function analyzeConversationEvaluationServiceRecovery(
   view: CaseIntelligenceView
 ): ConversationEvaluationServiceRecovery {
   return {
-    version:'conversation-evaluation-service-recovery-v1',
-    caseId:view.caseId,
-    items:[assessComplaint(view),assessDelay(view)],
+    version: 'conversation-evaluation-service-recovery-v1',
+    caseId: view.caseId,
+    items: [assessComplaint(view), assessDelay(view)],
   };
 }
