@@ -219,6 +219,9 @@ export interface SalesIntelligenceCaseAnalysisRow extends CaseAnalysisProvenance
     protocolApplicabilityRuleIds: string[];
     /** Durable canonical commercial verdict produced by the same analysis run; never re-derived by readers. */
     canonicalSalesOutcome: CanonicalSalesOutcomeAssessment;
+    /** Case-bound operational decisions; optional for snapshots from older pipeline versions. */
+    canonicalComplaintAssessment?: import('../complaintAssessmentEngine').CanonicalComplaintAssessment;
+    canonicalCustomerRequestAssessment?: import('../customerRequestQualificationEngine').CanonicalCustomerRequestAssessment;
     /** Invoice-backed payment reconciliation from this exact analysis run; optional for older rows. */
     financialSettlement?: FinancialSettlementAssessment;
   };
@@ -621,3 +624,4 @@ export const REPROCESSING_MATRIX: Record<ReprocessingTrigger, ReprocessingScope>
   policy_effective_date_changed: 'policy_evaluation_only',
   protocol_policy_version_changed: 'full_semantic_reanalysis',
 };
+
