@@ -33,7 +33,9 @@ jobs:
           "$CHROME_BIN" --version
           echo "CHROME_BIN=$CHROME_BIN" >> "$GITHUB_ENV"
       - name: Install browser controller only (no browser download, no lockfile mutation)
-        run: npm install --no-save --package-lock=false --ignore-scripts --no-audit --no-fund playwright-core@1.55.0
+        run: |
+          npm install --prefix "$RUNNER_TEMP/dawaa-browser-controller" --ignore-scripts --no-audit --no-fund playwright-core@1.55.0
+          echo "DAWAA_BROWSER_CONTROLLER_MODULE=$RUNNER_TEMP/dawaa-browser-controller/node_modules/playwright-core/index.mjs" >> "$GITHUB_ENV"
       - name: Measure analysis stages
         run: |
           set -o pipefail

@@ -1,4 +1,4 @@
-import { chromium } from 'playwright-core';
+const { chromium } = await import(process.env.DAWAA_BROWSER_CONTROLLER_MODULE || 'playwright-core');
 
 const chrome = process.env.CHROME_BIN;
 if (!chrome) throw new Error('CHROME_BIN is required');
