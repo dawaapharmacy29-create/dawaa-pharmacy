@@ -333,8 +333,9 @@ export async function fetchCurrentShiftPresence(): Promise<CurrentShiftPresence>
       id: String(row.staff_id || '').trim(),
       name,
       role:
-        row.role ||
-        (category === 'doctors' ? 'صيدلاني' : category === 'delivery' ? 'توصيل' : 'مساعد'),
+        category === 'assistants' ? 'مساعد صيدلي' :
+        category === 'delivery' ? 'توصيل' :
+        row.role || 'صيدلاني',
       branch: row.branch || 'غير محدد',
       shift_name: row.shift_name || null,
       day_name: row.day_name || todayArabic,
