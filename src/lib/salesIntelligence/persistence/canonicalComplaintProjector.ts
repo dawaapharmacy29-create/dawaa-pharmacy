@@ -5,7 +5,6 @@
 // never writes daily_followups directly and never materializes the action automatically.
 import { parseWhatsAppExport } from '../../whatsappConversationParser';
 import { stableOperationIdentity } from '../../whatsappFollowupIdentity';
-import { deriveCanonicalComplaintAssessment } from '../complaintAssessmentEngine';
 import type { SalesIntelligenceCaseAnalysis } from '../types';
 
 export const CANONICAL_COMPLAINT_PROJECTION_VERSION = 'si-canonical-complaint-projection-v1';
@@ -44,6 +43,7 @@ export interface CanonicalComplaintProjectionSkip {
   caseId: string;
   reason:
     | 'not_actionable'
+    | 'missing_canonical_assessment'
     | 'missing_source'
     | 'missing_customer_name'
     | 'missing_branch'
@@ -98,15 +98,11 @@ export function buildCanonicalComplaintActionRows(
   const skipped: CanonicalComplaintProjectionSkip[] = [];
 
   for (const analysis of analyses) {
-    const complaint = deriveCanonicalComplaintAssessment({
-      caseId: analysis.caseId,
-      messages: analysis.caseIntelligence.interaction.messages.map((message) => ({
-        id: message.id,
-        role: message.role,
-        text: message.text,
-        meaningful: message.meaningful,
-      })),
-    });
+    const complaint = analysis.complaintAssessment;
+    if (!complaint || complaint.caseId !== analysis.caseId) {
+      skipped.push({ caseId: analysis.caseId, reason: 'missing_canonical_assessment' });
+      continue;
+    }
 
     if (!['detected', 'recovery_attempted', 'unresolved'].includes(complaint.state)) {
       if (complaint.state !== 'none') {
@@ -260,3 +256,4 @@ export async function projectCanonicalComplaintsToActions(
     existing: built.rows.length - inserted,
   };
 }
+

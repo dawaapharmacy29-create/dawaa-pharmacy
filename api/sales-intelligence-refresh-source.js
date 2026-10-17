@@ -3,7 +3,7 @@
 
 // server/sales-intelligence-refresh-source.ts
 import { createHash } from "node:crypto";
-import { createClient as createClient2 } from "@supabase/supabase-js";
+import { createClient } from "@supabase/supabase-js";
 
 // src/lib/customers/customerIdentity.ts
 var INVALID_TEXT_VALUES = /* @__PURE__ */ new Set([
@@ -62,31 +62,8 @@ function extractTrailingCustomerCodeFromDisplayName(value) {
   return normalizeDawaaCustomerCode(digits);
 }
 
-// src/lib/branch.ts
-var UNKNOWN_BRANCH = "\u063A\u064A\u0631 \u0645\u062D\u062F\u062F";
-var ALL_BRANCHES = "\u0643\u0644 \u0627\u0644\u0641\u0631\u0648\u0639";
-var SHOKRY_BRANCH = "\u0641\u0631\u0639 \u0634\u0643\u0631\u064A";
-var SHAMY_BRANCH = "\u0641\u0631\u0639 \u0627\u0644\u0634\u0627\u0645\u064A";
-function normalizeArabicText(value) {
-  return String(value || "").trim().replace(/[\u064B-\u065F\u0640]/g, "").replace(/[\u0623\u0625\u0622]/g, "\u0627").replace(/\u0649/g, "\u064A").replace(/\u0629/g, "\u0647").replace(/\s+/g, " ").toLowerCase();
-}
-function normalizeBranchName(value) {
-  const text5 = String(value || "").trim();
-  const normalized = normalizeArabicText(text5);
-  if (!normalized) return UNKNOWN_BRANCH;
-  if (/all|every|branches/i.test(normalized) || normalized.includes("\u0643\u0644") || normalized.includes("\u0627\u0644\u0643\u0644")) {
-    return ALL_BRANCHES;
-  }
-  if (/shokry|shukri|shkri|shoukry|shoukri|abou\s*el\s*azm|abo\s*el\s*azm/i.test(normalized) || normalized.includes("\u0634\u0643\u0631\u064A") || normalized.includes("\u0627\u0644\u0639\u0632\u0645")) {
-    return SHOKRY_BRANCH;
-  }
-  if (/shamy|shami|elshamy|el shamy|alshamy|al shamy|elshami|el shami/i.test(normalized) || normalized.includes("\u0627\u0644\u0634\u0627\u0645\u064A") || normalized.includes("\u0634\u0627\u0645\u064A")) {
-    return SHAMY_BRANCH;
-  }
-  return text5;
-}
-
 // src/lib/invoices/invoiceCore.ts
+import { normalizeBranchName } from "@/lib/branch";
 var EGYPTIAN_BRANCHES = [
   {
     canonical: "\u0641\u0631\u0639 \u0634\u0643\u0631\u064A",
@@ -200,95 +177,8 @@ function getInvoiceBranch(row, fallback = "\u063A\u064A\u0631 \u0645\u062D\u062F
   return normalized || raw || fallback;
 }
 
-// src/lib/supabase.ts
-import { createClient } from "@supabase/supabase-js";
-var supabaseUrl = process.env.VITE_SUPABASE_URL;
-var supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
-var hasSupabaseConfig = Boolean(supabaseUrl && supabaseAnonKey);
-var AUTH_STORAGE_KEY = "dawaa_auth_user_v2";
-var STAFF_SESSION_STORAGE_KEY = "dawaa_staff_session_token_v1";
-function readStoredUserId() {
-  if (typeof window === "undefined" || typeof localStorage === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    const candidate = [parsed.id, parsed.staff_id, parsed.username].find(
-      (value) => typeof value === "string" && value.trim().length > 0
-    );
-    if (typeof candidate !== "string") return null;
-    const normalized = candidate.trim();
-    return normalized.length <= 160 ? normalized : null;
-  } catch {
-    return null;
-  }
-}
-function readStoredStaffSessionToken() {
-  if (typeof window === "undefined" || typeof localStorage === "undefined") return null;
-  try {
-    const token = (window.localStorage.getItem(STAFF_SESSION_STORAGE_KEY) || "").trim();
-    return token.length >= 32 && token.length <= 512 ? token : null;
-  } catch {
-    return null;
-  }
-}
-function buildDawaaRequestHeaders(initHeaders) {
-  const headers = new Headers(initHeaders);
-  const sessionToken = readStoredStaffSessionToken();
-  if (sessionToken) headers.set("x-dawaa-session-token", sessionToken);
-  const userId = readStoredUserId();
-  if (userId) headers.set("x-dawaa-user-id", userId);
-  return headers;
-}
-var supabaseFetch = (input, init) => fetch(input, {
-  ...init,
-  headers: buildDawaaRequestHeaders(init?.headers)
-});
-function createStubClient() {
-  const noop = () => stubQuery;
-  const stubQuery = {
-    select: async () => ({ data: [], error: null }),
-    insert: async () => ({ data: null, error: null }),
-    update: async () => ({ data: null, error: null }),
-    delete: async () => ({ data: null, error: null }),
-    upsert: async () => ({ data: null, error: null }),
-    eq: () => stubQuery,
-    order: () => stubQuery,
-    limit: () => stubQuery,
-    range: () => stubQuery,
-    single: async () => ({ data: null, error: null }),
-    maybeSingle: async () => ({ data: null, error: null }),
-    is: () => stubQuery,
-    or: () => stubQuery,
-    match: () => stubQuery,
-    filter: () => stubQuery,
-    on: () => ({ subscribe: () => ({ unsubscribe: () => null }) })
-  };
-  return {
-    from: () => stubQuery,
-    rpc: async () => ({ data: null, error: null }),
-    auth: {
-      signIn: async () => ({ data: null, error: null }),
-      signOut: async () => ({ error: null }),
-      user: () => null,
-      onAuthStateChange: () => ({ data: null })
-    },
-    storage: {
-      from: () => ({ upload: async () => ({ data: null, error: null }) })
-    }
-  };
-}
-var supabase = hasSupabaseConfig ? createClient(
-  hasSupabaseConfig ? supabaseUrl : "https://placeholder.supabase.co",
-  hasSupabaseConfig ? supabaseAnonKey : "placeholder-anon-key",
-  {
-    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
-    realtime: { params: { eventsPerSecond: 10 } },
-    global: { fetch: supabaseFetch }
-  }
-) : createStubClient();
-
 // src/lib/readModels/invoiceRecordReadModel.ts
+import { supabase } from "@/lib/supabase";
 var SALES_INTELLIGENCE_INVOICE_SELECT = [
   "id",
   "invoice_number",
@@ -407,53 +297,8 @@ async function fetchInvoiceCandidates(supabaseClient, query) {
   return Array.from(merged.values());
 }
 
-// src/lib/time/cairoDateBoundary.ts
-var CAIRO_TZ = "Africa/Cairo";
-var cairoPartsFormat = new Intl.DateTimeFormat("en-US", {
-  timeZone: CAIRO_TZ,
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-  second: "2-digit",
-  hourCycle: "h23"
-});
-function cairoOffsetAt(instantMs) {
-  const parts = Object.fromEntries(
-    cairoPartsFormat.formatToParts(new Date(instantMs)).map((part) => [part.type, part.value])
-  );
-  const wallAsUtc = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second);
-  return wallAsUtc - Math.floor(instantMs / 1e3) * 1e3;
-}
-function cairoWallClockToDate(year, month, day, hour = 0, minute = 0, second = 0) {
-  const wallAsUtc = Date.UTC(year, month - 1, day, hour, minute, second);
-  if (!Number.isFinite(wallAsUtc)) return null;
-  const offsetBefore = cairoOffsetAt(wallAsUtc - 24 * 36e5);
-  const offsetAfter = cairoOffsetAt(wallAsUtc + 24 * 36e5);
-  const valid = [.../* @__PURE__ */ new Set([offsetBefore, offsetAfter])].map((offset) => wallAsUtc - offset).filter((candidate) => wallAsUtc - cairoOffsetAt(candidate) === candidate).sort((a, b) => a - b);
-  const instant = valid.length ? valid[0] : wallAsUtc - offsetBefore;
-  const date = new Date(instant);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-var cairoDayFormat = new Intl.DateTimeFormat("en-CA", { timeZone: CAIRO_TZ, year: "numeric", month: "2-digit", day: "2-digit" });
-function cairoWallClockParts(date) {
-  const local = new Date(date.getTime() + cairoOffsetAt(date.getTime()));
-  return {
-    year: local.getUTCFullYear(),
-    month: local.getUTCMonth() + 1,
-    day: local.getUTCDate(),
-    hour: local.getUTCHours(),
-    minute: local.getUTCMinutes(),
-    second: local.getUTCSeconds()
-  };
-}
-function cairoCalendarParts(date) {
-  const { year, month, day } = cairoWallClockParts(date);
-  return { year, month, day };
-}
-
 // src/lib/whatsappConversationParser.ts
+import { cairoWallClockToDate } from "@/lib/time/cairoDateBoundary";
 var STAFF_INTRO_PATTERNS = [
   /مع\s+حضرتك\s+(?:(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*)?([^\n،,.]+?)\s+من\s+(?:خدمة\s*عملاء\s+(?:صيدليات\s+)?دواء|صيدليات\s+دواء)/i,
   /مع حضرتك\s+(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*([^\n،,.]+)/i,
@@ -3174,6 +3019,30 @@ function deriveOrderConfirmationProtocolApplicability(params) {
   }
 }
 
+// src/lib/branch.ts
+var UNKNOWN_BRANCH = "\u063A\u064A\u0631 \u0645\u062D\u062F\u062F";
+var ALL_BRANCHES = "\u0643\u0644 \u0627\u0644\u0641\u0631\u0648\u0639";
+var SHOKRY_BRANCH = "\u0641\u0631\u0639 \u0634\u0643\u0631\u064A";
+var SHAMY_BRANCH = "\u0641\u0631\u0639 \u0627\u0644\u0634\u0627\u0645\u064A";
+function normalizeArabicText(value) {
+  return String(value || "").trim().replace(/[\u064B-\u065F\u0640]/g, "").replace(/[\u0623\u0625\u0622]/g, "\u0627").replace(/\u0649/g, "\u064A").replace(/\u0629/g, "\u0647").replace(/\s+/g, " ").toLowerCase();
+}
+function normalizeBranchName2(value) {
+  const text5 = String(value || "").trim();
+  const normalized = normalizeArabicText(text5);
+  if (!normalized) return UNKNOWN_BRANCH;
+  if (/all|every|branches/i.test(normalized) || normalized.includes("\u0643\u0644") || normalized.includes("\u0627\u0644\u0643\u0644")) {
+    return ALL_BRANCHES;
+  }
+  if (/shokry|shukri|shkri|shoukry|shoukri|abou\s*el\s*azm|abo\s*el\s*azm/i.test(normalized) || normalized.includes("\u0634\u0643\u0631\u064A") || normalized.includes("\u0627\u0644\u0639\u0632\u0645")) {
+    return SHOKRY_BRANCH;
+  }
+  if (/shamy|shami|elshamy|el shamy|alshamy|al shamy|elshami|el shami/i.test(normalized) || normalized.includes("\u0627\u0644\u0634\u0627\u0645\u064A") || normalized.includes("\u0634\u0627\u0645\u064A")) {
+    return SHAMY_BRANCH;
+  }
+  return text5;
+}
+
 // src/lib/salesIntelligence/saleAttributionEngine.ts
 var TIME_MATCH_BANDS = {
   veryStrongMaxMinutes: 30,
@@ -3212,7 +3081,7 @@ var ATTRIBUTION_LEVEL_THRESHOLDS = {
 };
 var AMBIGUITY_SCORE_MARGIN = 0.05;
 var CANONICAL_BRANCH_LABELS = /* @__PURE__ */ new Set(["\u0641\u0631\u0639 \u0634\u0643\u0631\u064A", "\u0641\u0631\u0639 \u0627\u0644\u0634\u0627\u0645\u064A"]);
-var UNKNOWN_BRANCH_LABEL = normalizeBranchName("");
+var UNKNOWN_BRANCH_LABEL = normalizeBranchName2("");
 var unavailableInvoiceItemEvidenceProvider = {
   getItemsForInvoice: () => "unavailable"
 };
@@ -3303,9 +3172,9 @@ function classifyIdentity(ctx, row) {
   return { customerIdMatch, phoneMatch, identityConflict };
 }
 function classifyBranch(ctx, row) {
-  const caseNormalized = ctx.branchNameRaw ? normalizeBranchName(ctx.branchNameRaw) : null;
+  const caseNormalized = ctx.branchNameRaw ? normalizeBranchName2(ctx.branchNameRaw) : null;
   const invoiceRawText = cleanText2(firstValue2(row, ["branch_name", "branch"]));
-  const invoiceNormalized = invoiceRawText ? normalizeBranchName(invoiceRawText) : null;
+  const invoiceNormalized = invoiceRawText ? normalizeBranchName2(invoiceRawText) : null;
   if (!caseNormalized || !invoiceNormalized || caseNormalized === UNKNOWN_BRANCH_LABEL || invoiceNormalized === UNKNOWN_BRANCH_LABEL) {
     return "unknown";
   }
@@ -5105,6 +4974,146 @@ function deriveCanonicalSalesOutcome(input) {
     isRevenueCountable: false,
     isOrderConfirmed: false,
     reasonCodes: ["outcome.unknown"]
+  };
+}
+
+// src/lib/salesIntelligence/complaintAssessmentEngine.ts
+var COMPLAINT_RX = /(?:زعلان|متضايق|غاضب|شكوى|مشكله|مشكلة|مش\s*راضي|سيئ|وحش|خدمة\s*وحشه|خدمة\s*سيئه|كل\s*مرة|كل\s*مره|بشتكي|ليه\s*كده)/i;
+var APOLOGY_RX = /(?:متاسف|متأسف|آسف|اسف|بنعتذر|نعتذر|حقك\s*علينا|معلش)/i;
+var REMEDY_RX = /(?:هحل|هنحل|هنبدل|هبدل|هنرجع|هرجع\s*المبلغ|هتابع|هراجع|هكلم|هنكلم|هنوفر|هشوف|هراجع\s*بنفسي)/i;
+var HOSTILE_RX = /(?:لو\s*مش\s*عاجبك|مش\s*مشكلتي|مش\s*شغلي|بلاش\s*زن|ما\s*تزنش|انت\s*غلطان|إنت\s*غلطان|روح\s*اشتكي|اخرس|اخرسي)/i;
+var STAFF_RESOLUTION_RX = /(?:اتحل(?:ت)?\s*(?:المشكله|المشكلة|الموضوع)?|تم\s*(?:حل|معالجة)\s*(?:المشكله|المشكلة|الموضوع)?|اتظبط(?:ت)?\s*(?:المشكله|المشكلة|الموضوع)?)/i;
+var CUSTOMER_RESOLUTION_RX = /(?:المشكله\s*اتحلت|المشكلة\s*اتحلت|الموضوع\s*اتحل|كده\s*تمام|كدا\s*تمام|تمام\s*كده|تمام\s*كدا|شكرا.*(?:اتحل|اتظبط|تمام))/i;
+var unique = (ids) => Array.from(new Set(ids.filter(Boolean)));
+function deriveCanonicalComplaintAssessment(input) {
+  const meaningful = input.messages.filter((message) => message.meaningful);
+  const firstComplaintIndex = meaningful.findIndex(
+    (message) => message.role === "customer" && COMPLAINT_RX.test(message.text)
+  );
+  if (firstComplaintIndex < 0) {
+    return {
+      version: "canonical-complaint-v1",
+      caseId: input.caseId,
+      state: "none",
+      complaintMessageIds: [],
+      staffResponseMessageIds: [],
+      apologyMessageIds: [],
+      remedyAttemptMessageIds: [],
+      hostileResponseMessageIds: [],
+      resolutionMessageIds: [],
+      evidenceMessageIds: [],
+      confidence: "high",
+      ruleIds: ["complaint.none.no_explicit_customer_complaint"]
+    };
+  }
+  const afterComplaint = meaningful.slice(firstComplaintIndex + 1);
+  const complaintMessages = meaningful.slice(firstComplaintIndex).filter((message) => message.role === "customer" && COMPLAINT_RX.test(message.text));
+  const staffResponses = afterComplaint.filter((message) => message.role === "staff");
+  const apologies = staffResponses.filter((message) => APOLOGY_RX.test(message.text));
+  const remedies = staffResponses.filter((message) => REMEDY_RX.test(message.text));
+  const hostile = staffResponses.filter((message) => HOSTILE_RX.test(message.text));
+  const staffResolution = staffResponses.filter((message) => STAFF_RESOLUTION_RX.test(message.text));
+  const customerResolution = afterComplaint.filter(
+    (message) => message.role === "customer" && CUSTOMER_RESOLUTION_RX.test(message.text)
+  );
+  const resolutionIds = unique([...staffResolution, ...customerResolution].map((message) => message.id));
+  let state;
+  const ruleIds = [];
+  if (resolutionIds.length > 0) {
+    state = "resolved";
+    ruleIds.push("complaint.resolved.explicit_closure");
+  } else if (apologies.length > 0 || remedies.length > 0) {
+    state = "recovery_attempted";
+    ruleIds.push("complaint.recovery_attempted.no_explicit_closure");
+  } else if (staffResponses.length > 0) {
+    state = "detected";
+    ruleIds.push("complaint.detected.staff_response_without_recovery");
+  } else {
+    state = "unresolved";
+    ruleIds.push("complaint.unresolved.no_staff_response");
+  }
+  if (hostile.length > 0) ruleIds.push("complaint.hostile_response");
+  const complaintMessageIds = complaintMessages.map((message) => message.id);
+  const staffResponseMessageIds = staffResponses.map((message) => message.id);
+  const apologyMessageIds = apologies.map((message) => message.id);
+  const remedyAttemptMessageIds = remedies.map((message) => message.id);
+  const hostileResponseMessageIds = hostile.map((message) => message.id);
+  const evidenceMessageIds = unique([
+    ...complaintMessageIds,
+    ...staffResponseMessageIds,
+    ...resolutionIds
+  ]);
+  return {
+    version: "canonical-complaint-v1",
+    caseId: input.caseId,
+    state,
+    complaintMessageIds,
+    staffResponseMessageIds,
+    apologyMessageIds,
+    remedyAttemptMessageIds,
+    hostileResponseMessageIds,
+    resolutionMessageIds: resolutionIds,
+    evidenceMessageIds,
+    confidence: resolutionIds.length > 0 || complaintMessageIds.length > 0 ? "high" : "medium",
+    ruleIds
+  };
+}
+
+// src/lib/salesIntelligence/customerRequestQualificationEngine.ts
+function sameProductLoss(lost, demand) {
+  return lost.productLosses.find((row) => row.productKey === demand.productKey) ?? null;
+}
+function deriveCanonicalCustomerRequestAssessment(input) {
+  const productByKey = new Map(input.customerNeed.products.map((product) => [product.key, product]));
+  const requests = input.unavailableDemand.map((demand) => {
+    const product = productByKey.get(demand.productKey) ?? null;
+    const productLoss = sameProductLoss(input.lostOpportunity, demand);
+    const blockers = [];
+    let suppressedBy = null;
+    if (demand.availabilityState === "check_pending") {
+      suppressedBy = "availability_check_pending";
+    } else if (input.customerNeed.needDeclined || productLoss?.reason === "customer_declined") {
+      suppressedBy = "customer_final_decline";
+    } else if (demand.alternativeResponse === "accepted" || productLoss?.outcome === "replaced_by_alternative") {
+      suppressedBy = "alternative_accepted";
+    } else if (productLoss?.reason === "competitor") {
+      suppressedBy = "bought_elsewhere";
+    } else if (input.salesOutcome.outcome === "sale_proven" && product?.roles.includes("final_basket")) {
+      suppressedBy = "sale_proven_for_same_product";
+    } else if (demand.confidence.level === "weakly_inferred" || demand.confidence.level === "unknown") {
+      suppressedBy = "weak_evidence";
+    }
+    if (!suppressedBy) {
+      if (demand.customerIdentityStatus !== "resolved" || !demand.customerId) blockers.push("customer_identity_unresolved");
+      if (!demand.branchNameRaw) blockers.push("branch_unknown");
+      if (!demand.resolvedProductId) blockers.push("product_identity_unresolved");
+      if (demand.blockers.includes("quantity_conflict")) blockers.push("quantity_conflict");
+    }
+    const status = suppressedBy ? "suppressed" : blockers.length ? "review_required" : "qualified";
+    return {
+      requestKey: `cr1|${demand.demandKey}`,
+      caseId: input.caseId,
+      customerId: demand.customerId,
+      status,
+      productKey: demand.productKey,
+      productId: demand.resolvedProductId,
+      productRaw: demand.requestedProductRaw,
+      quantity: demand.quantityRequested,
+      demandKey: demand.demandKey,
+      priority: input.lostOpportunity.state === "recoverable" ? "high" : "medium",
+      reason: "confirmed_unavailable_product",
+      blockers,
+      suppressedBy,
+      evidenceMessageIds: [...demand.evidenceMessageIds],
+      confidence: demand.confidence
+    };
+  });
+  const decision = requests.some((request) => request.status === "qualified") ? "qualified" : requests.some((request) => request.status === "review_required") ? "review_required" : "not_needed";
+  return {
+    version: "canonical-customer-request-v1",
+    caseId: input.caseId,
+    decision,
+    requests
   };
 }
 
@@ -7217,7 +7226,25 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
   } else {
     status = "analyzed";
   }
+  const complaintAssessment = deriveCanonicalComplaintAssessment({
+    caseId: conversationCase.caseId,
+    messages: scopedMessages.map((message) => ({
+      id: message.id,
+      role: message.role,
+      text: message.text,
+      meaningful: message.isMeaningful
+    }))
+  });
+  const customerRequestAssessment = deriveCanonicalCustomerRequestAssessment({
+    caseId: conversationCase.caseId,
+    customerNeed,
+    unavailableDemand,
+    salesOutcome,
+    lostOpportunity
+  });
   const analysis = {
+    complaintAssessment,
+    customerRequestAssessment,
     caseId: conversationCase.caseId,
     conversationId: input.conversationId,
     conversationCase: effectiveConversationCase,
@@ -7358,6 +7385,7 @@ function runSalesIntelligencePipeline(input) {
 }
 
 // src/lib/customers/canonicalCustomerIdentityResolver.ts
+import { extractCustomerHintFromExportFileName } from "@/lib/whatsappExportCustomerHint";
 var EVIDENCE_CONFIDENCE = {
   customer_id: 1,
   customer_code: 0.99,
@@ -7603,6 +7631,8 @@ async function resolveCanonicalCustomerIdentities(client, evidences) {
 }
 
 // src/lib/readModels/staffDirectoryReadModel.ts
+import { normalizeBranchName as normalizeBranchName3 } from "@/lib/branch";
+import { isSupabaseConfigured, supabase as supabase2 } from "@/lib/supabase";
 function text(value) {
   return String(value ?? "").trim();
 }
@@ -7617,7 +7647,7 @@ function identityFromRow(row, idKeys, nameKeys, source) {
   return {
     id: text(read(row, idKeys, "")) || null,
     name: text(read(row, nameKeys, "")) || null,
-    branch: normalizeBranchName(read(row, ["branch", "branch_name"], null)) || null,
+    branch: normalizeBranchName3(read(row, ["branch", "branch_name"], null)) || null,
     role: text(read(row, ["role", "staff_role", "job_title"], "")) || null,
     username: text(read(row, ["username"], "")) || null,
     status: text(read(row, ["status"], "")) || null,
@@ -7665,249 +7695,11 @@ async function loadStaffDirectoryFrom(client) {
   return [...baseRows, ...aliases];
 }
 
-// src/lib/core/permissionSystem.ts
-var PERMISSION_CATEGORIES = [
-  {
-    key: "dashboard",
-    label: "\u0644\u0648\u062D\u0629 \u0627\u0644\u062A\u062D\u0643\u0645",
-    permissions: [
-      { key: "view_dashboard", label: "\u0645\u0634\u0627\u0647\u062F\u0629 \u0644\u0648\u062D\u0629 \u0627\u0644\u062A\u062D\u0643\u0645" },
-      { key: "view_dashboard_stats", label: "\u0625\u062D\u0635\u0627\u0626\u064A\u0627\u062A \u0644\u0648\u062D\u0629 \u0627\u0644\u062A\u062D\u0643\u0645" },
-      { key: "view_executive_dashboard", label: "\u0644\u0648\u062D\u0629 \u0627\u0644\u062A\u062D\u0643\u0645 \u0627\u0644\u062A\u0646\u0641\u064A\u0630\u064A\u0629" },
-      { key: "view_branch_dashboard", label: "\u0645\u0634\u0627\u0647\u062F\u0629 \u0644\u0648\u062D\u0629 \u0627\u0644\u0641\u0631\u0639 \u0627\u0644\u062A\u0646\u0641\u064A\u0630\u064A\u0629" },
-      { key: "view_alerts", label: "\u0645\u0634\u0627\u0647\u062F\u0629 \u0627\u0644\u062A\u0646\u0628\u064A\u0647\u0627\u062A" },
-      { key: "manage_alerts", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u062A\u0646\u0628\u064A\u0647\u0627\u062A", sensitive: true }
-    ]
-  },
-  {
-    key: "shift_performance",
-    label: "\u062A\u0642\u064A\u064A\u0645 \u0627\u0644\u0634\u064A\u0641\u062A\u0627\u062A",
-    permissions: [
-      { key: "view_shift_performance", label: "\u0645\u0634\u0627\u0647\u062F\u0629 \u062A\u0642\u064A\u064A\u0645 \u0627\u0644\u0634\u064A\u0641\u062A\u0627\u062A" },
-      { key: "create_shift_evaluation", label: "\u0625\u0646\u0634\u0627\u0621 \u062A\u0642\u064A\u064A\u0645 \u0634\u064A\u0641\u062A" },
-      { key: "edit_shift_evaluation", label: "\u062A\u0639\u062F\u064A\u0644 \u062A\u0642\u064A\u064A\u0645 \u0634\u064A\u0641\u062A" },
-      { key: "delete_shift_evaluation", label: "\u062D\u0630\u0641 \u062A\u0642\u064A\u064A\u0645 \u0634\u064A\u0641\u062A", sensitive: true },
-      { key: "approve_shift_evaluation", label: "\u0627\u0639\u062A\u0645\u0627\u062F \u062A\u0642\u064A\u064A\u0645 \u0634\u064A\u0641\u062A", sensitive: true }
-    ]
-  },
-  {
-    key: "doctor",
-    label: "\u0644\u0648\u062D\u0629 \u0627\u0644\u0635\u064A\u062F\u0644\u0627\u0646\u064A",
-    permissions: [
-      { key: "view_doctor_dashboard", label: "\u0644\u0648\u062D\u0629 \u0627\u0644\u0635\u064A\u062F\u0644\u0627\u0646\u064A" },
-      { key: "view_own_performance", label: "\u0645\u0634\u0627\u0647\u062F\u0629 \u0623\u062F\u0627\u0621\u0647 \u0627\u0644\u0634\u062E\u0635\u064A" },
-      { key: "view_all_doctors_performance", label: "\u0645\u0634\u0627\u0647\u062F\u0629 \u0623\u062F\u0627\u0621 \u0643\u0644 \u0627\u0644\u0635\u064A\u0627\u062F\u0644\u0629" },
-      { key: "view_branch_comparison", label: "\u0645\u0642\u0627\u0631\u0646\u0629 \u0627\u0644\u0641\u0631\u0648\u0639" }
-    ]
-  },
-  {
-    key: "customers",
-    label: "\u0627\u0644\u0639\u0645\u0644\u0627\u0621",
-    permissions: [
-      { key: "view_customers", label: "\u0645\u0634\u0627\u0647\u062F\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621" },
-      { key: "view_customer_details", label: "\u062A\u0641\u0627\u0635\u064A\u0644 \u0627\u0644\u0639\u0645\u064A\u0644" },
-      { key: "create_customer", label: "\u0625\u0636\u0627\u0641\u0629 \u0639\u0645\u064A\u0644" },
-      { key: "edit_customer", label: "\u062A\u0639\u062F\u064A\u0644 \u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u0639\u0645\u064A\u0644" },
-      { key: "delete_customer", label: "\u062D\u0630\u0641 \u0639\u0645\u064A\u0644", sensitive: true },
-      { key: "export_customers", label: "\u062A\u0635\u062F\u064A\u0631 \u0627\u0644\u0639\u0645\u0644\u0627\u0621" },
-      { key: "import_customers", label: "\u0627\u0633\u062A\u064A\u0631\u0627\u062F \u0627\u0644\u0639\u0645\u0644\u0627\u0621", sensitive: true },
-      { key: "view_customer_360", label: "\u0645\u0644\u0641 \u0627\u0644\u0639\u0645\u064A\u0644 \u0627\u0644\u0643\u0627\u0645\u0644 360\xB0" }
-    ]
-  },
-  {
-    key: "customer_service",
-    label: "\u062E\u062F\u0645\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621 \u0648\u0627\u0644\u0645\u062A\u0627\u0628\u0639\u0627\u062A",
-    permissions: [
-      { key: "view_customer_service", label: "\u062E\u062F\u0645\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621" },
-      { key: "create_followup", label: "\u0625\u0646\u0634\u0627\u0621 \u0645\u062A\u0627\u0628\u0639\u0629" },
-      { key: "edit_followup", label: "\u062A\u0639\u062F\u064A\u0644 \u0645\u062A\u0627\u0628\u0639\u0629" },
-      { key: "close_followup", label: "\u0625\u063A\u0644\u0627\u0642 \u0645\u062A\u0627\u0628\u0639\u0629" },
-      { key: "assign_followup", label: "\u0625\u0633\u0646\u0627\u062F \u0645\u062A\u0627\u0628\u0639\u0629 \u0644\u0645\u0648\u0638\u0641", sensitive: true },
-      { key: "whatsapp_customer", label: "\u0648\u0627\u062A\u0633\u0627\u0628 \u0645\u0639 \u0627\u0644\u0639\u0645\u064A\u0644" },
-      { key: "customer_welcome_messages_view", label: "\u0645\u0634\u0627\u0647\u062F\u0629 \u0627\u0644\u0631\u0633\u0627\u0626\u0644 \u0627\u0644\u062A\u0631\u062D\u064A\u0628\u064A\u0629" },
-      { key: "customer_welcome_messages_create", label: "\u062A\u0633\u062C\u064A\u0644 \u0631\u0633\u0627\u0644\u0629 \u062A\u0631\u062D\u064A\u0628\u064A\u0629" },
-      { key: "customer_welcome_messages_update", label: "\u062A\u062D\u062F\u064A\u062B \u062D\u0627\u0644\u0629 \u0631\u0633\u0627\u0644\u0629 \u062A\u0631\u062D\u064A\u0628\u064A\u0629", sensitive: true },
-      { key: "view_customer_requests", label: "\u0637\u0644\u0628\u0627\u062A \u0627\u0644\u0639\u0645\u0644\u0627\u0621" },
-      { key: "manage_customer_requests", label: "\u0625\u062F\u0627\u0631\u0629 \u0637\u0644\u0628\u0627\u062A \u0627\u0644\u0639\u0645\u0644\u0627\u0621" },
-      { key: "view_customer_incubation", label: "\u062D\u0636\u0627\u0646\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621" },
-      { key: "manage_customer_incubation", label: "\u0625\u062F\u0627\u0631\u0629 \u062D\u0636\u0627\u0646\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621", sensitive: true },
-      { key: "view_crm", label: "\u0645\u0631\u0643\u0632 CRM" }
-    ]
-  },
-  {
-    key: "loyalty",
-    label: "\u0627\u0644\u0648\u0644\u0627\u0621 \u0648\u0627\u0644\u0643\u0627\u0634\u0628\u0627\u0643",
-    permissions: [
-      { key: "view_cashback", label: "\u0645\u0634\u0627\u0647\u062F\u0629 \u0627\u0644\u0643\u0627\u0634\u0628\u0627\u0643" },
-      { key: "manage_cashback", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0643\u0627\u0634\u0628\u0627\u0643", sensitive: true },
-      { key: "view_loyalty_tiers", label: "\u0645\u0633\u062A\u0648\u064A\u0627\u062A \u0627\u0644\u0648\u0644\u0627\u0621" },
-      { key: "manage_loyalty_tiers", label: "\u0625\u062F\u0627\u0631\u0629 \u0645\u0633\u062A\u0648\u064A\u0627\u062A \u0627\u0644\u0648\u0644\u0627\u0621", sensitive: true }
-    ]
-  },
-  {
-    key: "team",
-    label: "\u0627\u0644\u0641\u0631\u064A\u0642 \u0648\u0627\u0644\u0645\u0648\u0638\u0641\u0648\u0646",
-    permissions: [
-      { key: "view_team", label: "\u0645\u0634\u0627\u0647\u062F\u0629 \u0627\u0644\u0641\u0631\u064A\u0642" },
-      { key: "view_staff_details", label: "\u062A\u0641\u0627\u0635\u064A\u0644 \u0627\u0644\u0645\u0648\u0638\u0641 \u0627\u0644\u0643\u0627\u0645\u0644\u0629" },
-      { key: "employee_operating_system_view", label: "\u0645\u0634\u0627\u0647\u062F\u0629 \u0645\u0647\u0627\u0645 \u0627\u0644\u0641\u0631\u064A\u0642 \u0627\u0644\u064A\u0648\u0645\u064A\u0629" },
-      { key: "employee_operating_system_manage", label: "\u0625\u062F\u0627\u0631\u0629 \u0645\u0647\u0627\u0645 \u0627\u0644\u0641\u0631\u064A\u0642 \u0627\u0644\u064A\u0648\u0645\u064A\u0629", sensitive: true },
-      { key: "create_team_member", label: "\u0625\u0636\u0627\u0641\u0629 \u0645\u0648\u0638\u0641", sensitive: true },
-      { key: "edit_team_member", label: "\u062A\u0639\u062F\u064A\u0644 \u0628\u064A\u0627\u0646\u0627\u062A \u0645\u0648\u0638\u0641", sensitive: true },
-      { key: "disable_team_member", label: "\u062A\u0639\u0637\u064A\u0644 \u062D\u0633\u0627\u0628 \u0645\u0648\u0638\u0641", sensitive: true }
-    ]
-  },
-  {
-    key: "schedule",
-    label: "\u0627\u0644\u062C\u062F\u0627\u0648\u0644 \u0648\u0627\u0644\u062D\u0636\u0648\u0631",
-    permissions: [
-      { key: "view_schedule", label: "\u0627\u0644\u062C\u062F\u0648\u0644 \u0627\u0644\u0623\u0633\u0628\u0648\u0639\u064A" },
-      { key: "manage_schedule", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u062C\u062F\u0648\u0644", sensitive: true },
-      { key: "view_attendance_leaves", label: "\u0627\u0644\u062D\u0636\u0648\u0631 \u0648\u0627\u0644\u0625\u062C\u0627\u0632\u0627\u062A" },
-      { key: "create_leave_request", label: "\u0637\u0644\u0628 \u0625\u062C\u0627\u0632\u0629 / \u0625\u0630\u0646" },
-      { key: "record_attendance", label: "\u062A\u0633\u062C\u064A\u0644 \u0627\u0644\u062D\u0636\u0648\u0631" },
-      { key: "approve_leave_request", label: "\u0627\u0639\u062A\u0645\u0627\u062F \u0627\u0644\u0625\u062C\u0627\u0632\u0627\u062A", sensitive: true },
-      { key: "manage_time_off", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0625\u0630\u0648\u0646\u0627\u062A \u0648\u0627\u0644\u0625\u062C\u0627\u0632\u0627\u062A", sensitive: true }
-    ]
-  },
-  {
-    key: "points",
-    label: "\u0627\u0644\u0646\u0642\u0627\u0637 \u0648\u0627\u0644\u0645\u0643\u0627\u0641\u0622\u062A",
-    permissions: [
-      { key: "view_points", label: "\u0645\u0634\u0627\u0647\u062F\u0629 \u0627\u0644\u0646\u0642\u0627\u0637" },
-      { key: "manage_points", label: "\u0625\u0636\u0627\u0641\u0629 \u0646\u0642\u0627\u0637" },
-      { key: "approve_points", label: "\u0627\u0639\u062A\u0645\u0627\u062F \u0627\u0644\u0646\u0642\u0627\u0637", sensitive: true },
-      { key: "create_reward", label: "\u0625\u0636\u0627\u0641\u0629 \u0645\u0643\u0627\u0641\u0623\u0629" },
-      { key: "create_deduction", label: "\u0625\u0636\u0627\u0641\u0629 \u062E\u0635\u0645", sensitive: true },
-      { key: "edit_points_transaction", label: "\u062A\u0639\u062F\u064A\u0644 \u0645\u0639\u0627\u0645\u0644\u0629 \u0646\u0642\u0627\u0637", sensitive: true },
-      { key: "export_points_report", label: "\u062A\u0635\u062F\u064A\u0631 \u062A\u0642\u0631\u064A\u0631 \u0627\u0644\u0646\u0642\u0627\u0637" },
-      { key: "view_salary_calculator", label: "\u062D\u0627\u0633\u0628\u0629 \u0627\u0644\u0631\u0627\u062A\u0628" },
-      { key: "manage_payroll", label: "\u0625\u062F\u0627\u0631\u0629 \u0643\u0634\u0648\u0641 \u0627\u0644\u0631\u0648\u0627\u062A\u0628", sensitive: true }
-    ]
-  },
-  {
-    key: "reviews",
-    label: "\u062A\u0642\u064A\u064A\u0645 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0627\u062A",
-    permissions: [
-      { key: "view_reviews", label: "\u0645\u0634\u0627\u0647\u062F\u0629 \u0627\u0644\u062A\u0642\u064A\u064A\u0645\u0627\u062A" },
-      { key: "add_reviews", label: "\u0625\u0636\u0627\u0641\u0629 \u062A\u0642\u064A\u064A\u0645" },
-      { key: "edit_reviews", label: "\u062A\u0639\u062F\u064A\u0644 \u062A\u0642\u064A\u064A\u0645", sensitive: true },
-      { key: "delete_reviews", label: "\u062D\u0630\u0641 \u062A\u0642\u064A\u064A\u0645", sensitive: true },
-      { key: "approve_reviews", label: "\u0627\u0639\u062A\u0645\u0627\u062F \u0627\u0644\u062A\u0642\u064A\u064A\u0645\u0627\u062A", sensitive: true }
-    ]
-  },
-  {
-    key: "medicines",
-    label: "\u0627\u0644\u0623\u062F\u0648\u064A\u0629 \u0648\u0627\u0644\u0645\u062E\u0632\u0648\u0646",
-    permissions: [
-      { key: "view_medicines", label: "\u0627\u0644\u0623\u062F\u0648\u064A\u0629" },
-      { key: "manage_medicines", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0623\u062F\u0648\u064A\u0629", sensitive: true },
-      { key: "view_stagnant_medicines", label: "\u0627\u0644\u0623\u062F\u0648\u064A\u0629 \u0627\u0644\u0631\u0627\u0643\u062F\u0629" },
-      { key: "manage_stagnant_medicines", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0623\u062F\u0648\u064A\u0629 \u0627\u0644\u0631\u0627\u0643\u062F\u0629" },
-      { key: "view_incentive_medicines", label: "\u0623\u062F\u0648\u064A\u0629 \u0627\u0644\u062D\u0648\u0627\u0641\u0632" },
-      { key: "manage_incentive_medicines", label: "\u0625\u062F\u0627\u0631\u0629 \u0623\u062F\u0648\u064A\u0629 \u0627\u0644\u062D\u0648\u0627\u0641\u0632", sensitive: true },
-      { key: "view_inventory", label: "\u0627\u0644\u0645\u062E\u0632\u0648\u0646" },
-      { key: "manage_inventory", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0645\u062E\u0632\u0648\u0646", sensitive: true },
-      { key: "view_shortages", label: "\u0627\u0644\u0646\u0648\u0627\u0642\u0635" },
-      { key: "manage_shortages", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0646\u0648\u0627\u0642\u0635" },
-      { key: "view_expiry_tracker", label: "\u062A\u062A\u0628\u0639 \u0627\u0646\u062A\u0647\u0627\u0621 \u0627\u0644\u0635\u0644\u0627\u062D\u064A\u0629" }
-    ]
-  },
-  {
-    key: "delivery",
-    label: "\u0627\u0644\u062A\u0648\u0635\u064A\u0644",
-    permissions: [
-      { key: "view_delivery", label: "\u0645\u0634\u0627\u0647\u062F\u0629 \u0627\u0644\u062A\u0648\u0635\u064A\u0644" },
-      { key: "manage_delivery", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u062A\u0648\u0635\u064A\u0644" },
-      { key: "view_delivery_reports", label: "\u062A\u0642\u0627\u0631\u064A\u0631 \u0627\u0644\u062A\u0648\u0635\u064A\u0644" },
-      { key: "approve_delivery_deduction", label: "\u0627\u0639\u062A\u0645\u0627\u062F \u062E\u0635\u0645 \u0627\u0644\u062A\u0648\u0635\u064A\u0644", sensitive: true }
-    ]
-  },
-  {
-    key: "analytics",
-    label: "\u0627\u0644\u062A\u062D\u0644\u064A\u0644\u0627\u062A \u0648\u0627\u0644\u062A\u0642\u0627\u0631\u064A\u0631",
-    permissions: [
-      { key: "view_analytics", label: "\u0627\u0644\u062A\u062D\u0644\u064A\u0644\u0627\u062A" },
-      { key: "view_analytics_sales", label: "\u062A\u062D\u0644\u064A\u0644\u0627\u062A \u0627\u0644\u0645\u0628\u064A\u0639\u0627\u062A" },
-      { key: "view_sales_reports", label: "\u062A\u0642\u0627\u0631\u064A\u0631 \u0627\u0644\u0645\u0628\u064A\u0639\u0627\u062A" },
-      { key: "export_sales_reports", label: "\u062A\u0635\u062F\u064A\u0631 \u062A\u0642\u0627\u0631\u064A\u0631 \u0627\u0644\u0645\u0628\u064A\u0639\u0627\u062A" },
-      { key: "view_invoices", label: "\u0627\u0644\u0641\u0648\u0627\u062A\u064A\u0631" },
-      { key: "view_invoice_import", label: "\u0648\u0627\u062C\u0647\u0629 \u0627\u0633\u062A\u064A\u0631\u0627\u062F \u0627\u0644\u0641\u0648\u0627\u062A\u064A\u0631" },
-      { key: "import_sales_invoices", label: "\u0627\u0633\u062A\u064A\u0631\u0627\u062F \u0641\u0648\u0627\u062A\u064A\u0631 \u0627\u0644\u0645\u0628\u064A\u0639\u0627\u062A", sensitive: true }
-    ]
-  },
-  {
-    key: "operations",
-    label: "\u0627\u0644\u0639\u0645\u0644\u064A\u0627\u062A \u0627\u0644\u062A\u0634\u063A\u064A\u0644\u064A\u0629",
-    permissions: [
-      { key: "view_operations", label: "\u0627\u0644\u0639\u0645\u0644\u064A\u0627\u062A" },
-      { key: "manage_operations", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0639\u0645\u0644\u064A\u0627\u062A", sensitive: true },
-      { key: "view_supplies", label: "\u0627\u0644\u0645\u0633\u062A\u0644\u0632\u0645\u0627\u062A" },
-      { key: "manage_supplies", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0645\u0633\u062A\u0644\u0632\u0645\u0627\u062A" },
-      { key: "view_purchases", label: "\u0627\u0644\u0645\u0634\u062A\u0631\u064A\u0627\u062A" },
-      { key: "manage_purchases", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0645\u0634\u062A\u0631\u064A\u0627\u062A", sensitive: true },
-      { key: "view_branch_inspection", label: "\u062A\u0641\u062A\u064A\u0634 \u0627\u0644\u0641\u0631\u0639" },
-      { key: "manage_branch_inspection", label: "\u0625\u062F\u0627\u0631\u0629 \u062A\u0641\u062A\u064A\u0634 \u0627\u0644\u0641\u0631\u0639" }
-    ]
-  },
-  {
-    key: "incentives",
-    label: "\u0627\u0644\u062D\u0648\u0627\u0641\u0632 \u0648\u0627\u0644\u0645\u0643\u0627\u0641\u0622\u062A \u0627\u0644\u062F\u0648\u0631\u064A\u0629",
-    permissions: [
-      { key: "view_incentives", label: "\u0627\u0644\u062D\u0648\u0627\u0641\u0632" },
-      { key: "manage_incentives", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u062D\u0648\u0627\u0641\u0632", sensitive: true },
-      { key: "view_quarterly_incentives", label: "\u0627\u0644\u062D\u0648\u0627\u0641\u0632 \u0627\u0644\u0631\u0628\u0639 \u0633\u0646\u0648\u064A\u0629" },
-      { key: "manage_quarterly_incentives", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u062D\u0648\u0627\u0641\u0632 \u0627\u0644\u0631\u0628\u0639 \u0633\u0646\u0648\u064A\u0629", sensitive: true },
-      { key: "view_penalty_management", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u062C\u0632\u0627\u0621\u0627\u062A" },
-      { key: "manage_penalty_management", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u062C\u0632\u0627\u0621\u0627\u062A \u0648\u0627\u0644\u0645\u0643\u0627\u0641\u0622\u062A", sensitive: true }
-    ]
-  },
-  {
-    key: "activity",
-    label: "\u0633\u062C\u0644 \u0627\u0644\u0623\u0646\u0634\u0637\u0629",
-    permissions: [
-      { key: "view_activity_log", label: "\u0633\u062C\u0644 \u0627\u0644\u0623\u0646\u0634\u0637\u0629" },
-      { key: "view_activity_logs", label: "\u0643\u0644 \u0633\u062C\u0644\u0627\u062A \u0627\u0644\u0623\u0646\u0634\u0637\u0629" },
-      { key: "export_activity_logs", label: "\u062A\u0635\u062F\u064A\u0631 \u0633\u062C\u0644 \u0627\u0644\u0623\u0646\u0634\u0637\u0629" },
-      { key: "view_diagnostics", label: "\u062A\u0634\u062E\u064A\u0635 \u0627\u0644\u0646\u0638\u0627\u0645", sensitive: true },
-      { key: "manage_evaluation_rules", label: "\u0625\u062F\u0627\u0631\u0629 \u0642\u0648\u0627\u0639\u062F \u0627\u0644\u062A\u0642\u064A\u064A\u0645 \u0648\u0627\u0644\u062D\u0648\u0627\u0641\u0632", sensitive: true }
-    ]
-  },
-  {
-    key: "accounts",
-    label: "\u0627\u0644\u062D\u0633\u0627\u0628\u0627\u062A \u0648\u0627\u0644\u0635\u0644\u0627\u062D\u064A\u0627\u062A",
-    permissions: [
-      { key: "view_staff_accounts", label: "\u0645\u0634\u0627\u0647\u062F\u0629 \u0627\u0644\u062D\u0633\u0627\u0628\u0627\u062A" },
-      { key: "manage_staff_accounts", label: "\u0625\u062F\u0627\u0631\u0629 \u062D\u0633\u0627\u0628\u0627\u062A \u0627\u0644\u0645\u0648\u0638\u0641\u064A\u0646", sensitive: true },
-      { key: "view_roles_permissions", label: "\u0645\u0634\u0627\u0647\u062F\u0629 \u0627\u0644\u0623\u062F\u0648\u0627\u0631 \u0648\u0627\u0644\u0635\u0644\u0627\u062D\u064A\u0627\u062A" },
-      { key: "manage_permissions", label: "\u062A\u0639\u062F\u064A\u0644 \u0627\u0644\u0635\u0644\u0627\u062D\u064A\u0627\u062A", sensitive: true },
-      { key: "manage_roles", label: "\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0623\u062F\u0648\u0627\u0631", sensitive: true }
-    ]
-  },
-  {
-    key: "settings",
-    label: "\u0627\u0644\u0625\u0639\u062F\u0627\u062F\u0627\u062A \u0648\u0627\u0644\u0646\u0638\u0627\u0645",
-    permissions: [
-      { key: "view_settings", label: "\u0627\u0644\u0625\u0639\u062F\u0627\u062F\u0627\u062A" },
-      { key: "manage_settings", label: "\u062A\u0639\u062F\u064A\u0644 \u0627\u0644\u0625\u0639\u062F\u0627\u062F\u0627\u062A", sensitive: true },
-      { key: "view_data_health", label: "\u0635\u062D\u0629 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A" },
-      { key: "manage_data_health", label: "\u0625\u062F\u0627\u0631\u0629 \u0635\u062D\u0629 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A", sensitive: true }
-    ]
-  }
-];
-var ALL_PERMISSION_KEYS = PERMISSION_CATEGORIES.flatMap(
-  (cat) => cat.permissions.map((p) => p.key)
-);
-var PERMISSION_MAP = Object.fromEntries(
-  PERMISSION_CATEGORIES.flatMap((cat) => cat.permissions.map((p) => [p.key, p]))
-);
-
-// src/lib/security/userDataScope.ts
-function normalizeArabicName(value) {
-  return String(value ?? "").replace(/[\u064B-\u065F\u0640]/g, "").replace(/[\u0623\u0625\u0622]/g, "\u0627").replace(/\u0649/g, "\u064A").replace(/\u0629/g, "\u0647").replace(/^(?:\s*(?:دكتور|الدكتور|د\.?|د\/)\s*)+/i, "").replace(/[.,،;:()[\]{}_\-/\\|]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
-}
-
 // src/lib/staff/staffIdentityResolver.ts
+import { normalizeBranchName as normalizeBranchName4 } from "@/lib/branch";
+import { readStaffDirectory } from "@/lib/readModels/staffDirectoryReadModel";
+import { normalizeArabicName } from "@/lib/security/userDataScope";
+import { resolveStaffAccountSafe } from "@/lib/staff/staffAccountsApi";
 var PHARMACIST_ROLE_PATTERN = /صيدلاني|pharmacist|دكتور|doctor/i;
 function normalizeStaffName(name) {
   if (!name) return "";
@@ -7921,7 +7713,7 @@ function normalizeIdentifier(value) {
 }
 function normalizedBranch(value) {
   const raw = normalizeIdentifier(value);
-  return normalizeBranchName(raw) || raw;
+  return normalizeBranchName4(raw) || raw;
 }
 function isStaffRowActive(row) {
   if (row.active === false || row.is_active === false) return false;
@@ -8456,6 +8248,8 @@ function mapCaseAnalysisRowContent(analysis) {
       // choice, not a guess.
       protocolApplicabilityRuleIds: analysis.historicalClosure.ruleIds,
       canonicalSalesOutcome: analysis.salesOutcome,
+      canonicalComplaintAssessment: analysis.complaintAssessment,
+      canonicalCustomerRequestAssessment: analysis.customerRequestAssessment,
       financialSettlement: analysis.financialSettlement ?? null
     }
   };
@@ -8751,7 +8545,7 @@ function invoiceNumber(row) {
   return clean2(row.invoice_number ?? row.invoice_no);
 }
 function candidateKey(number, branch) {
-  return `${number}|${normalizeBranchName(branch || "")}`;
+  return `${number}|${normalizeBranchName2(branch || "")}`;
 }
 function sameOrNull(values) {
   const present = values.filter((value) => value != null);
@@ -9495,64 +9289,6 @@ async function projectCanonicalFollowupsToActions(supabaseClient, analyses, sour
   };
 }
 
-// src/lib/salesIntelligence/customerRequestQualificationEngine.ts
-function sameProductLoss(lost, demand) {
-  return lost.productLosses.find((row) => row.productKey === demand.productKey) ?? null;
-}
-function deriveCanonicalCustomerRequestAssessment(input) {
-  const productByKey = new Map(input.customerNeed.products.map((product) => [product.key, product]));
-  const requests = input.unavailableDemand.map((demand) => {
-    const product = productByKey.get(demand.productKey) ?? null;
-    const productLoss = sameProductLoss(input.lostOpportunity, demand);
-    const blockers = [];
-    let suppressedBy = null;
-    if (demand.availabilityState === "check_pending") {
-      suppressedBy = "availability_check_pending";
-    } else if (input.customerNeed.needDeclined || productLoss?.reason === "customer_declined") {
-      suppressedBy = "customer_final_decline";
-    } else if (demand.alternativeResponse === "accepted" || productLoss?.outcome === "replaced_by_alternative") {
-      suppressedBy = "alternative_accepted";
-    } else if (productLoss?.reason === "competitor") {
-      suppressedBy = "bought_elsewhere";
-    } else if (input.salesOutcome.outcome === "sale_proven" && product?.roles.includes("final_basket")) {
-      suppressedBy = "sale_proven_for_same_product";
-    } else if (demand.confidence.level === "weakly_inferred" || demand.confidence.level === "unknown") {
-      suppressedBy = "weak_evidence";
-    }
-    if (!suppressedBy) {
-      if (demand.customerIdentityStatus !== "resolved" || !demand.customerId) blockers.push("customer_identity_unresolved");
-      if (!demand.branchNameRaw) blockers.push("branch_unknown");
-      if (!demand.resolvedProductId) blockers.push("product_identity_unresolved");
-      if (demand.blockers.includes("quantity_conflict")) blockers.push("quantity_conflict");
-    }
-    const status = suppressedBy ? "suppressed" : blockers.length ? "review_required" : "qualified";
-    return {
-      requestKey: `cr1|${demand.demandKey}`,
-      caseId: input.caseId,
-      customerId: demand.customerId,
-      status,
-      productKey: demand.productKey,
-      productId: demand.resolvedProductId,
-      productRaw: demand.requestedProductRaw,
-      quantity: demand.quantityRequested,
-      demandKey: demand.demandKey,
-      priority: input.lostOpportunity.state === "recoverable" ? "high" : "medium",
-      reason: "confirmed_unavailable_product",
-      blockers,
-      suppressedBy,
-      evidenceMessageIds: [...demand.evidenceMessageIds],
-      confidence: demand.confidence
-    };
-  });
-  const decision = requests.some((request) => request.status === "qualified") ? "qualified" : requests.some((request) => request.status === "review_required") ? "review_required" : "not_needed";
-  return {
-    version: "canonical-customer-request-v1",
-    caseId: input.caseId,
-    decision,
-    requests
-  };
-}
-
 // src/lib/salesIntelligence/persistence/canonicalCustomerRequestProjector.ts
 var CANONICAL_CUSTOMER_REQUEST_PROJECTION_VERSION = "si-canonical-customer-request-projection-v1";
 function text3(value) {
@@ -9573,13 +9309,11 @@ function buildCanonicalCustomerRequestActionRows(analyses, sources) {
   const byIdentity = /* @__PURE__ */ new Map();
   const skipped = [];
   for (const analysis of analyses) {
-    const assessment7 = deriveCanonicalCustomerRequestAssessment({
-      caseId: analysis.caseId,
-      customerNeed: analysis.customerNeed,
-      unavailableDemand: analysis.unavailableDemand,
-      salesOutcome: analysis.salesOutcome,
-      lostOpportunity: analysis.lostOpportunity
-    });
+    const assessment7 = analysis.customerRequestAssessment;
+    if (!assessment7 || assessment7.caseId !== analysis.caseId) {
+      skipped.push({ caseId: analysis.caseId, requestKey: "", reason: "missing_canonical_assessment" });
+      continue;
+    }
     const sourceId = text3(analysis.conversationId);
     const source = sourceById.get(sourceId);
     for (const request of assessment7.requests) {
@@ -9722,88 +9456,6 @@ async function projectCanonicalCustomerRequestsToActions(supabaseClient, analyse
   };
 }
 
-// src/lib/salesIntelligence/complaintAssessmentEngine.ts
-var COMPLAINT_RX = /(?:زعلان|متضايق|غاضب|شكوى|مشكله|مشكلة|مش\s*راضي|سيئ|وحش|خدمة\s*وحشه|خدمة\s*سيئه|كل\s*مرة|كل\s*مره|بشتكي|ليه\s*كده)/i;
-var APOLOGY_RX = /(?:متاسف|متأسف|آسف|اسف|بنعتذر|نعتذر|حقك\s*علينا|معلش)/i;
-var REMEDY_RX = /(?:هحل|هنحل|هنبدل|هبدل|هنرجع|هرجع\s*المبلغ|هتابع|هراجع|هكلم|هنكلم|هنوفر|هشوف|هراجع\s*بنفسي)/i;
-var HOSTILE_RX = /(?:لو\s*مش\s*عاجبك|مش\s*مشكلتي|مش\s*شغلي|بلاش\s*زن|ما\s*تزنش|انت\s*غلطان|إنت\s*غلطان|روح\s*اشتكي|اخرس|اخرسي)/i;
-var STAFF_RESOLUTION_RX = /(?:اتحل(?:ت)?\s*(?:المشكله|المشكلة|الموضوع)?|تم\s*(?:حل|معالجة)\s*(?:المشكله|المشكلة|الموضوع)?|اتظبط(?:ت)?\s*(?:المشكله|المشكلة|الموضوع)?)/i;
-var CUSTOMER_RESOLUTION_RX = /(?:المشكله\s*اتحلت|المشكلة\s*اتحلت|الموضوع\s*اتحل|كده\s*تمام|كدا\s*تمام|تمام\s*كده|تمام\s*كدا|شكرا.*(?:اتحل|اتظبط|تمام))/i;
-var unique = (ids) => Array.from(new Set(ids.filter(Boolean)));
-function deriveCanonicalComplaintAssessment(input) {
-  const meaningful = input.messages.filter((message) => message.meaningful);
-  const firstComplaintIndex = meaningful.findIndex(
-    (message) => message.role === "customer" && COMPLAINT_RX.test(message.text)
-  );
-  if (firstComplaintIndex < 0) {
-    return {
-      version: "canonical-complaint-v1",
-      caseId: input.caseId,
-      state: "none",
-      complaintMessageIds: [],
-      staffResponseMessageIds: [],
-      apologyMessageIds: [],
-      remedyAttemptMessageIds: [],
-      hostileResponseMessageIds: [],
-      resolutionMessageIds: [],
-      evidenceMessageIds: [],
-      confidence: "high",
-      ruleIds: ["complaint.none.no_explicit_customer_complaint"]
-    };
-  }
-  const afterComplaint = meaningful.slice(firstComplaintIndex + 1);
-  const complaintMessages = meaningful.slice(firstComplaintIndex).filter((message) => message.role === "customer" && COMPLAINT_RX.test(message.text));
-  const staffResponses = afterComplaint.filter((message) => message.role === "staff");
-  const apologies = staffResponses.filter((message) => APOLOGY_RX.test(message.text));
-  const remedies = staffResponses.filter((message) => REMEDY_RX.test(message.text));
-  const hostile = staffResponses.filter((message) => HOSTILE_RX.test(message.text));
-  const staffResolution = staffResponses.filter((message) => STAFF_RESOLUTION_RX.test(message.text));
-  const customerResolution = afterComplaint.filter(
-    (message) => message.role === "customer" && CUSTOMER_RESOLUTION_RX.test(message.text)
-  );
-  const resolutionIds = unique([...staffResolution, ...customerResolution].map((message) => message.id));
-  let state;
-  const ruleIds = [];
-  if (resolutionIds.length > 0) {
-    state = "resolved";
-    ruleIds.push("complaint.resolved.explicit_closure");
-  } else if (apologies.length > 0 || remedies.length > 0) {
-    state = "recovery_attempted";
-    ruleIds.push("complaint.recovery_attempted.no_explicit_closure");
-  } else if (staffResponses.length > 0) {
-    state = "detected";
-    ruleIds.push("complaint.detected.staff_response_without_recovery");
-  } else {
-    state = "unresolved";
-    ruleIds.push("complaint.unresolved.no_staff_response");
-  }
-  if (hostile.length > 0) ruleIds.push("complaint.hostile_response");
-  const complaintMessageIds = complaintMessages.map((message) => message.id);
-  const staffResponseMessageIds = staffResponses.map((message) => message.id);
-  const apologyMessageIds = apologies.map((message) => message.id);
-  const remedyAttemptMessageIds = remedies.map((message) => message.id);
-  const hostileResponseMessageIds = hostile.map((message) => message.id);
-  const evidenceMessageIds = unique([
-    ...complaintMessageIds,
-    ...staffResponseMessageIds,
-    ...resolutionIds
-  ]);
-  return {
-    version: "canonical-complaint-v1",
-    caseId: input.caseId,
-    state,
-    complaintMessageIds,
-    staffResponseMessageIds,
-    apologyMessageIds,
-    remedyAttemptMessageIds,
-    hostileResponseMessageIds,
-    resolutionMessageIds: resolutionIds,
-    evidenceMessageIds,
-    confidence: resolutionIds.length > 0 || complaintMessageIds.length > 0 ? "high" : "medium",
-    ruleIds
-  };
-}
-
 // src/lib/salesIntelligence/persistence/canonicalComplaintProjector.ts
 var CANONICAL_COMPLAINT_PROJECTION_VERSION = "si-canonical-complaint-projection-v1";
 function text4(value) {
@@ -9826,15 +9478,11 @@ function buildCanonicalComplaintActionRows(analyses, sources) {
   const byIdentity = /* @__PURE__ */ new Map();
   const skipped = [];
   for (const analysis of analyses) {
-    const complaint = deriveCanonicalComplaintAssessment({
-      caseId: analysis.caseId,
-      messages: analysis.caseIntelligence.interaction.messages.map((message) => ({
-        id: message.id,
-        role: message.role,
-        text: message.text,
-        meaningful: message.meaningful
-      }))
-    });
+    const complaint = analysis.complaintAssessment;
+    if (!complaint || complaint.caseId !== analysis.caseId) {
+      skipped.push({ caseId: analysis.caseId, reason: "missing_canonical_assessment" });
+      continue;
+    }
     if (!["detected", "recovery_attempted", "unresolved"].includes(complaint.state)) {
       if (complaint.state !== "none") {
         skipped.push({ caseId: analysis.caseId, reason: "not_actionable" });
@@ -10213,685 +9861,16 @@ async function loadV22CaseOwnership(service, sourceIds) {
   return v22CaseIdsBySource;
 }
 
-// src/lib/conversationReviews.ts
-var REVIEW_CRITERIA = [
-  {
-    key: "first_response_speed",
-    label: "\u0633\u0631\u0639\u0629 \u0623\u0648\u0644 \u0631\u062F",
-    hint: "\u064A\u062A\u0645 \u062D\u0633\u0627\u0628\u0647\u0627 \u0637\u0648\u0627\u0644 24 \u0633\u0627\u0639\u0629 \u0628\u062F\u0648\u0646 \u0627\u0633\u062A\u062B\u0646\u0627\u0621 \u062E\u0627\u0631\u062C \u0645\u0648\u0627\u0639\u064A\u062F \u0627\u0644\u0639\u0645\u0644.",
-    maxPoints: 10,
-    defaultApplies: true,
-    defaultChoice: "within_5",
-    choices: [
-      { value: "within_5", label: "\u0645\u0646 0 \u0625\u0644\u0649 5 \u062F\u0642\u0627\u0626\u0642", pointsEarned: 10 },
-      {
-        value: "five_to_10",
-        label: "\u0623\u0643\u062B\u0631 \u0645\u0646 5 \u0625\u0644\u0649 10 \u062F\u0642\u0627\u0626\u0642",
-        pointsEarned: 5,
-        training: "\u062A\u0642\u0644\u064A\u0644 \u0632\u0645\u0646 \u0623\u0648\u0644 \u0631\u062F \u0644\u0644\u0639\u0645\u064A\u0644."
-      },
-      {
-        value: "ten_to_20",
-        label: "\u0623\u0643\u062B\u0631 \u0645\u0646 10 \u0625\u0644\u0649 20 \u062F\u0642\u064A\u0642\u0629",
-        pointsEarned: 0,
-        training: "\u062A\u062F\u0631\u064A\u0628 \u0639\u0644\u0649 \u0633\u0631\u0639\u0629 \u0627\u0644\u0627\u0633\u062A\u062C\u0627\u0628\u0629 \u0648\u0645\u062A\u0627\u0628\u0639\u0629 \u0627\u0644\u0631\u0633\u0627\u0626\u0644."
-      },
-      {
-        value: "over_20",
-        label: "\u0623\u0643\u062B\u0631 \u0645\u0646 20 \u062F\u0642\u064A\u0642\u0629",
-        pointsEarned: 0,
-        training: "\u0645\u0631\u0627\u062C\u0639\u0629 \u062A\u0648\u0632\u064A\u0639 \u0645\u0633\u0624\u0648\u0644\u064A\u0629 \u0627\u0644\u0631\u062F \u0623\u062B\u0646\u0627\u0621 \u0627\u0644\u0634\u064A\u0641\u062A."
-      },
-      {
-        value: "over_30",
-        label: "\u0623\u0643\u062B\u0631 \u0645\u0646 30 \u062F\u0642\u064A\u0642\u0629",
-        pointsEarned: 0,
-        training: "\u062A\u062F\u062E\u0644 \u0625\u062F\u0627\u0631\u064A \u0644\u062A\u062D\u0633\u064A\u0646 \u0633\u0631\u0639\u0629 \u0627\u0644\u0631\u062F."
-      }
-    ]
-  },
-  {
-    key: "greeting",
-    label: "\u0631\u0633\u0627\u0644\u0629 \u0627\u0644\u062A\u0631\u062D\u064A\u0628 \u0627\u0644\u0631\u0633\u0645\u064A\u0629",
-    hint: "\u064A\u0641\u0636\u0644 \u0623\u0646 \u062A\u062D\u062A\u0648\u064A \u0639\u0644\u0649 \u062A\u062D\u064A\u0629\u060C \u0627\u0633\u0645 \u0635\u064A\u062F\u0644\u064A\u0627\u062A \u062F\u0648\u0627\u0621\u060C \u0627\u0633\u0645 \u0627\u0644\u062F\u0643\u062A\u0648\u0631\u060C \u0648\u0639\u0631\u0636 \u0627\u0644\u0645\u0633\u0627\u0639\u062F\u0629.",
-    maxPoints: 10,
-    defaultApplies: true,
-    defaultChoice: "official_full",
-    choices: [
-      { value: "official_full", label: "\u0627\u0633\u062A\u062E\u062F\u0645 \u0627\u0644\u0631\u0633\u0627\u0644\u0629 \u0627\u0644\u0631\u0633\u0645\u064A\u0629 \u0643\u0627\u0645\u0644\u0629", pointsEarned: 10 },
-      { value: "close_with_name", label: "\u0631\u0633\u0627\u0644\u0629 \u0642\u0631\u064A\u0628\u0629 \u0648\u0628\u0647\u0627 \u0627\u0633\u0645 \u0627\u0644\u062F\u0643\u062A\u0648\u0631", pointsEarned: 8 },
-      {
-        value: "greeting_no_name",
-        label: "\u0631\u062D\u0628 \u0628\u062F\u0648\u0646 \u0627\u0633\u0645 \u0627\u0644\u062F\u0643\u062A\u0648\u0631",
-        pointsEarned: 5,
-        errorType: "missing_doctor_name"
-      },
-      {
-        value: "direct_reply",
-        label: "\u0631\u062F \u0645\u0628\u0627\u0634\u0631\u0629 \u0628\u062F\u0648\u0646 \u062A\u0631\u062D\u064A\u0628 \u0645\u0646\u0627\u0633\u0628",
-        pointsEarned: 2,
-        errorType: "missing_greeting",
-        training: "\u062A\u062F\u0631\u064A\u0628 \u0639\u0644\u0649 \u0627\u0633\u062A\u062E\u062F\u0627\u0645 \u0631\u0633\u0627\u0644\u0629 \u0627\u0644\u062A\u0631\u062D\u064A\u0628 \u0627\u0644\u0631\u0633\u0645\u064A\u0629 \u0648\u0630\u0643\u0631 \u0627\u0633\u0645 \u0627\u0644\u062F\u0643\u062A\u0648\u0631."
-      },
-      {
-        value: "none",
-        label: "\u0644\u0645 \u064A\u0633\u062A\u062E\u062F\u0645 \u062A\u0631\u062D\u064A\u0628 \u0623\u0648 \u0628\u062F\u0627\u064A\u0629 \u063A\u064A\u0631 \u0645\u0647\u0646\u064A\u0629",
-        pointsEarned: 0,
-        errorType: "missing_greeting",
-        training: "\u062A\u062F\u0631\u064A\u0628 \u0639\u0644\u0649 \u0631\u0633\u0627\u0644\u0629 \u0627\u0644\u062A\u0631\u062D\u064A\u0628 \u0627\u0644\u0631\u0633\u0645\u064A\u0629 \u0644\u0635\u064A\u062F\u0644\u064A\u0627\u062A \u062F\u0648\u0627\u0621."
-      }
-    ]
-  },
-  {
-    key: "doctor_name",
-    label: "\u0630\u0643\u0631 \u0627\u0633\u0645 \u0627\u0644\u062F\u0643\u062A\u0648\u0631",
-    hint: "\u064A\u0632\u064A\u062F \u0627\u0644\u062B\u0642\u0629 \u0648\u064A\u062D\u062F\u062F \u0627\u0644\u0645\u0633\u0624\u0648\u0644 \u0639\u0646 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629.",
-    maxPoints: 10,
-    defaultApplies: true,
-    defaultChoice: "start",
-    choices: [
-      { value: "start", label: "\u0630\u0643\u0631 \u0627\u0633\u0645\u0647 \u0641\u064A \u0628\u062F\u0627\u064A\u0629 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629", pointsEarned: 10 },
-      { value: "later", label: "\u0630\u0643\u0631\u0647 \u0644\u0627\u062D\u0642\u064B\u0627", pointsEarned: 5 },
-      {
-        value: "none",
-        label: "\u0644\u0645 \u064A\u0630\u0643\u0631 \u0627\u0633\u0645\u0647",
-        pointsEarned: 0,
-        errorType: "missing_doctor_name",
-        training: "\u062A\u062F\u0631\u064A\u0628 \u0639\u0644\u0649 \u062A\u0642\u062F\u064A\u0645 \u0627\u0644\u0646\u0641\u0633 \u0641\u064A \u0628\u062F\u0627\u064A\u0629 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629 \u0644\u0632\u064A\u0627\u062F\u0629 \u062B\u0642\u0629 \u0627\u0644\u0639\u0645\u064A\u0644."
-      }
-    ]
-  },
-  {
-    key: "customer_name",
-    label: "\u0627\u0633\u062A\u062E\u062F\u0627\u0645 \u0627\u0633\u0645 \u0627\u0644\u0639\u0645\u064A\u0644 \u0648\u0627\u0644\u0627\u0647\u062A\u0645\u0627\u0645 \u0627\u0644\u0634\u062E\u0635\u064A",
-    hint: "\u0641\u0639\u0644\u0647 \u0641\u0642\u0637 \u0644\u0648 \u0627\u0633\u0645 \u0627\u0644\u0639\u0645\u064A\u0644 \u0645\u062A\u0627\u062D \u0641\u064A \u0627\u0644\u0646\u0638\u0627\u0645 \u0623\u0648 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629.",
-    maxPoints: 10,
-    defaultApplies: false,
-    defaultChoice: "used",
-    choices: [
-      { value: "used", label: "\u0627\u0633\u062A\u062E\u062F\u0645 \u0627\u0633\u0645 \u0627\u0644\u0639\u0645\u064A\u0644 \u0628\u0634\u0643\u0644 \u0645\u062D\u062A\u0631\u0645 \u0648\u0645\u0646\u0627\u0633\u0628", pointsEarned: 10 },
-      { value: "not_used_good", label: "\u0644\u0645 \u064A\u0633\u062A\u062E\u062F\u0645 \u0627\u0644\u0627\u0633\u0645 \u0644\u0643\u0646 \u0627\u0644\u0623\u0633\u0644\u0648\u0628 \u0643\u0627\u0646 \u0645\u0647\u062A\u0645\u064B\u0627", pointsEarned: 5 },
-      {
-        value: "ignored_dry",
-        label: "\u062A\u062C\u0627\u0647\u0644 \u0627\u0644\u0627\u0633\u0645 \u0648\u0643\u0627\u0646 \u0627\u0644\u0631\u062F \u062C\u0627\u0641\u064B\u0627",
-        pointsEarned: 0,
-        errorType: "poor_tone",
-        training: "\u062A\u062F\u0631\u064A\u0628 \u0639\u0644\u0649 \u062A\u062E\u0635\u064A\u0635 \u0627\u0644\u0631\u062F \u0628\u0627\u0633\u0645 \u0627\u0644\u0639\u0645\u064A\u0644 \u0639\u0646\u062F \u062A\u0648\u0641\u0631\u0647."
-      }
-    ]
-  },
-  {
-    key: "tone",
-    label: "\u0627\u062D\u062A\u0631\u0627\u0645 \u0627\u0644\u0639\u0645\u064A\u0644 \u0648\u062C\u0648\u062F\u0629 \u0627\u0644\u0623\u0633\u0644\u0648\u0628",
-    hint: "\u064A\u0642\u064A\u0633 \u0646\u0628\u0631\u0629 \u0627\u0644\u062F\u0643\u062A\u0648\u0631 \u0648\u0627\u062D\u062A\u0631\u0627\u0641\u0647 \u0641\u064A \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629.",
-    maxPoints: 10,
-    defaultApplies: true,
-    defaultChoice: "professional",
-    choices: [
-      { value: "professional", label: "\u0623\u0633\u0644\u0648\u0628 \u0645\u062D\u062A\u0631\u0645 \u0648\u0645\u0647\u0646\u064A \u0648\u0648\u0627\u0636\u062D", pointsEarned: 10 },
-      { value: "acceptable", label: "\u0623\u0633\u0644\u0648\u0628 \u0645\u0642\u0628\u0648\u0644", pointsEarned: 7 },
-      {
-        value: "dry",
-        label: "\u0623\u0633\u0644\u0648\u0628 \u062C\u0627\u0641 \u0623\u0648 \u0645\u062E\u062A\u0635\u0631 \u0628\u0637\u0631\u064A\u0642\u0629 \u0633\u064A\u0626\u0629",
-        pointsEarned: 4,
-        errorType: "poor_tone",
-        training: "\u062A\u062D\u0633\u064A\u0646 \u0635\u064A\u0627\u063A\u0629 \u0627\u0644\u0631\u062F\u0648\u062F \u0644\u062A\u0643\u0648\u0646 \u0623\u0647\u062F\u0623 \u0648\u0623\u0648\u0636\u062D."
-      },
-      {
-        value: "bad",
-        label: "\u0623\u0633\u0644\u0648\u0628 \u0633\u064A\u0626 \u0623\u0648 \u0641\u064A\u0647 \u062A\u062C\u0627\u0647\u0644",
-        pointsEarned: 0,
-        errorType: "poor_tone",
-        training: "\u0645\u0631\u0627\u062C\u0639\u0629 \u0642\u0648\u0627\u0639\u062F \u0627\u0644\u062A\u0639\u0627\u0645\u0644 \u0645\u0639 \u0627\u0644\u0639\u0645\u0644\u0627\u0621."
-      },
-      {
-        value: "very_bad",
-        label: "\u0623\u0633\u0644\u0648\u0628 \u0633\u064A\u0626 \u062C\u062F\u064B\u0627 \u0623\u0648 \u062A\u0633\u0628\u0628 \u0641\u064A \u063A\u0636\u0628 \u0627\u0644\u0639\u0645\u064A\u0644",
-        pointsEarned: 0,
-        errorType: "poor_tone",
-        training: "\u062A\u062F\u0631\u064A\u0628 \u0639\u0627\u062C\u0644 \u0639\u0644\u0649 \u0625\u062F\u0627\u0631\u0629 \u063A\u0636\u0628 \u0627\u0644\u0639\u0645\u064A\u0644."
-      },
-      {
-        value: "insult",
-        label: "\u0625\u0633\u0627\u0621\u0629 \u0648\u0627\u0636\u062D\u0629 \u0644\u0644\u0639\u0645\u064A\u0644",
-        pointsEarned: 0,
-        errorType: "poor_tone",
-        severe: true,
-        training: "\u062A\u0635\u0639\u064A\u062F \u0625\u062F\u0627\u0631\u064A \u0628\u0633\u0628\u0628 \u0625\u0633\u0627\u0621\u0629 \u0644\u0644\u0639\u0645\u064A\u0644."
-      }
-    ]
-  },
-  {
-    key: "understanding",
-    label: "\u0641\u0647\u0645 \u0637\u0644\u0628 \u0627\u0644\u0639\u0645\u064A\u0644",
-    hint: "\u0647\u0644 \u0641\u0647\u0645 \u0627\u0644\u062F\u0643\u062A\u0648\u0631 \u0637\u0644\u0628 \u0627\u0644\u0639\u0645\u064A\u0644 \u0642\u0628\u0644 \u0627\u0644\u0631\u062F \u0623\u0648 \u0627\u0644\u0628\u064A\u0639\u061F",
-    maxPoints: 10,
-    defaultApplies: true,
-    defaultChoice: "strong",
-    choices: [
-      { value: "strong", label: "\u0641\u0647\u0645 \u0627\u0644\u0637\u0644\u0628 \u0628\u062F\u0642\u0629 \u0648\u0633\u0623\u0644 \u0623\u0633\u0626\u0644\u0629 \u0645\u0646\u0627\u0633\u0628\u0629", pointsEarned: 10 },
-      { value: "acceptable", label: "\u0641\u0647\u0645 \u0645\u0642\u0628\u0648\u0644", pointsEarned: 7 },
-      { value: "medium", label: "\u0641\u0647\u0645 \u0645\u062A\u0648\u0633\u0637", pointsEarned: 5 },
-      {
-        value: "rushed",
-        label: "\u0627\u0633\u062A\u0639\u062C\u0644 \u0642\u0628\u0644 \u0641\u0647\u0645 \u0627\u0644\u0637\u0644\u0628",
-        pointsEarned: 2,
-        training: "\u062A\u062F\u0631\u064A\u0628 \u0639\u0644\u0649 \u0637\u0631\u062D \u0623\u0633\u0626\u0644\u0629 \u0642\u0628\u0644 \u0627\u0644\u062A\u0631\u0634\u064A\u062D \u0623\u0648 \u0627\u0644\u0628\u064A\u0639."
-      },
-      {
-        value: "wrong",
-        label: "\u0641\u0647\u0645 \u0627\u0644\u0637\u0644\u0628 \u063A\u0644\u0637",
-        pointsEarned: 0,
-        training: "\u0645\u0631\u0627\u062C\u0639\u0629 \u0637\u0631\u064A\u0642\u0629 \u0642\u0631\u0627\u0621\u0629 \u0637\u0644\u0628 \u0627\u0644\u0639\u0645\u064A\u0644."
-      },
-      {
-        value: "caused_error",
-        label: "\u062A\u0633\u0628\u0628 \u0641\u064A \u062E\u0637\u0623 \u0628\u0633\u0628\u0628 \u0633\u0648\u0621 \u0627\u0644\u0641\u0647\u0645",
-        pointsEarned: 0,
-        errorType: "medical_error",
-        training: "\u062A\u062F\u0631\u064A\u0628 \u0639\u0644\u0649 \u062A\u0623\u0643\u064A\u062F \u0627\u0644\u0637\u0644\u0628 \u0642\u0628\u0644 \u0627\u0644\u062A\u0635\u0631\u0641."
-      }
-    ]
-  },
-  {
-    key: "followup_after_wait",
-    label: "\u0627\u0644\u0645\u062A\u0627\u0628\u0639\u0629 \u0628\u0639\u062F \u0643\u0644\u0645\u0629 \u0644\u062D\u0638\u0627\u062A \u0623\u0648 \u0647\u0631\u0627\u062C\u0639",
-    hint: "\u064A\u0646\u0637\u0628\u0642 \u0644\u0648 \u0627\u0644\u062F\u0643\u062A\u0648\u0631 \u0648\u0639\u062F \u0627\u0644\u0639\u0645\u064A\u0644 \u0628\u0627\u0644\u0631\u062C\u0648\u0639 \u0623\u0648 \u0645\u0631\u0627\u062C\u0639\u0629 \u0627\u0644\u062A\u0648\u0641\u0631.",
-    maxPoints: 10,
-    defaultApplies: false,
-    defaultChoice: "within_5",
-    choices: [
-      { value: "within_5", label: "\u0631\u062C\u0639 \u062E\u0644\u0627\u0644 5 \u062F\u0642\u0627\u0626\u0642", pointsEarned: 10 },
-      { value: "five_to_10", label: "\u0631\u062C\u0639 \u062E\u0644\u0627\u0644 5 \u0625\u0644\u0649 10 \u062F\u0642\u0627\u0626\u0642", pointsEarned: 5 },
-      {
-        value: "over_10",
-        label: "\u0631\u062C\u0639 \u0628\u0639\u062F \u0623\u0643\u062B\u0631 \u0645\u0646 10 \u062F\u0642\u0627\u0626\u0642",
-        pointsEarned: 2,
-        errorType: "forgotten_customer",
-        training: "\u062A\u062F\u0631\u064A\u0628 \u0639\u0644\u0649 \u0645\u062A\u0627\u0628\u0639\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621 \u0628\u0639\u062F \u0643\u0644\u0645\u0629 \u0644\u062D\u0638\u0627\u062A."
-      },
-      {
-        value: "over_20",
-        label: "\u0631\u062C\u0639 \u0628\u0639\u062F \u0623\u0643\u062B\u0631 \u0645\u0646 20 \u062F\u0642\u064A\u0642\u0629",
-        pointsEarned: 0,
-        errorType: "forgotten_customer",
-        training: "\u062A\u062F\u0631\u064A\u0628 \u0639\u0644\u0649 \u0639\u062F\u0645 \u062A\u0631\u0643 \u0627\u0644\u0639\u0645\u064A\u0644 \u0628\u0639\u062F \u0648\u0639\u062F \u0628\u0627\u0644\u0631\u062C\u0648\u0639."
-      },
-      {
-        value: "never",
-        label: "\u0644\u0645 \u064A\u0631\u062C\u0639 \u0646\u0647\u0627\u0626\u064A\u064B\u0627",
-        pointsEarned: 0,
-        errorType: "forgotten_customer",
-        forgottenCustomer: true,
-        training: "\u062A\u0635\u0639\u064A\u062F \u0648\u0645\u0631\u0627\u062C\u0639\u0629 \u0628\u0633\u0628\u0628 \u0646\u0633\u064A\u0627\u0646 \u0627\u0644\u0639\u0645\u064A\u0644."
-      }
-    ]
-  },
-  {
-    key: "consultation_quality",
-    label: "\u062C\u0648\u062F\u0629 \u0627\u0644\u0627\u0633\u062A\u0634\u0627\u0631\u0629",
-    hint: "\u064A\u0646\u0637\u0628\u0642 \u0641\u0642\u0637 \u0644\u0648 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629 \u0641\u064A\u0647\u0627 \u0627\u0633\u062A\u0634\u0627\u0631\u0629 \u062F\u0648\u0627\u0626\u064A\u0629 \u0623\u0648 \u0635\u062D\u064A\u0629.",
-    maxPoints: 15,
-    defaultApplies: false,
-    defaultChoice: "strong_safe",
-    choices: [
-      { value: "strong_safe", label: "\u0627\u0633\u062A\u0634\u0627\u0631\u0629 \u0642\u0648\u064A\u0629 \u0648\u0622\u0645\u0646\u0629 \u0648\u0645\u0641\u064A\u062F\u0629", pointsEarned: 15 },
-      { value: "good", label: "\u0627\u0633\u062A\u0634\u0627\u0631\u0629 \u062C\u064A\u062F\u0629", pointsEarned: 12 },
-      { value: "medium", label: "\u0627\u0633\u062A\u0634\u0627\u0631\u0629 \u0645\u062A\u0648\u0633\u0637\u0629", pointsEarned: 8 },
-      {
-        value: "weak",
-        label: "\u0631\u062F \u0639\u0627\u0645 \u0648\u0636\u0639\u064A\u0641",
-        pointsEarned: 4,
-        training: "\u062A\u062F\u0631\u064A\u0628 \u0639\u0644\u0649 \u0627\u0644\u0627\u0633\u062A\u0634\u0627\u0631\u0629 \u0627\u0644\u0622\u0645\u0646\u0629 \u0648\u062D\u062F\u0648\u062F \u0627\u0644\u0631\u062F \u0627\u0644\u0635\u064A\u062F\u0644\u064A."
-      },
-      {
-        value: "rushed",
-        label: "\u0627\u0633\u062A\u0639\u062C\u0644 \u0628\u062F\u0648\u0646 \u0623\u0633\u0626\u0644\u0629 \u0645\u0647\u0645\u0629",
-        pointsEarned: 2,
-        training: "\u0645\u0631\u0627\u062C\u0639\u0629 \u062E\u0637\u0648\u0627\u062A \u0627\u0644\u0627\u0633\u062A\u0634\u0627\u0631\u0629 \u0642\u0628\u0644 \u0627\u0644\u062A\u0631\u0634\u064A\u062D."
-      },
-      {
-        value: "dangerous",
-        label: "\u0645\u0639\u0644\u0648\u0645\u0629 \u062E\u0637\u0623 \u0623\u0648 \u062E\u0637\u0631",
-        pointsEarned: 0,
-        errorType: "medical_error",
-        severe: true,
-        training: "\u062A\u0635\u0639\u064A\u062F \u0625\u062F\u0627\u0631\u064A \u0648\u062A\u062F\u0631\u064A\u0628 \u062F\u0648\u0627\u0626\u064A \u0639\u0627\u062C\u0644."
-      }
-    ]
-  },
-  {
-    key: "dosage_explanation",
-    label: "\u062A\u0648\u0636\u064A\u062D \u0627\u0644\u062C\u0631\u0639\u0629 \u0648\u0637\u0631\u064A\u0642\u0629 \u0627\u0644\u0627\u0633\u062A\u062E\u062F\u0627\u0645",
-    hint: "\u064A\u0646\u0637\u0628\u0642 \u0644\u0648 \u0627\u0644\u062F\u0648\u0627\u0621 \u0623\u0648 \u0627\u0644\u0645\u0646\u062A\u062C \u064A\u062D\u062A\u0627\u062C \u0634\u0631\u062D.",
-    maxPoints: 10,
-    defaultApplies: false,
-    defaultChoice: "full",
-    choices: [
-      { value: "full", label: "\u0634\u0631\u062D \u0643\u0627\u0645\u0644 \u0644\u0644\u062C\u0631\u0639\u0629 \u0648\u0627\u0644\u0627\u0633\u062A\u062E\u062F\u0627\u0645 \u0648\u0627\u0644\u062A\u062D\u0630\u064A\u0631\u0627\u062A", pointsEarned: 10 },
-      { value: "good", label: "\u0634\u0631\u062D \u062C\u064A\u062F \u0644\u0643\u0646 \u0646\u0627\u0642\u0635 \u062A\u0641\u0635\u064A\u0644\u0629 \u0628\u0633\u064A\u0637\u0629", pointsEarned: 8 },
-      { value: "medium", label: "\u0634\u0631\u062D \u0645\u062A\u0648\u0633\u0637", pointsEarned: 5 },
-      {
-        value: "incomplete",
-        label: "\u0634\u0631\u062D \u0646\u0627\u0642\u0635",
-        pointsEarned: 2,
-        training: "\u062A\u062F\u0631\u064A\u0628 \u0639\u0644\u0649 \u0634\u0631\u062D \u0627\u0644\u062C\u0631\u0639\u0627\u062A \u0648\u0637\u0631\u064A\u0642\u0629 \u0627\u0644\u0627\u0633\u062A\u062E\u062F\u0627\u0645 \u0648\u0627\u0644\u062A\u062D\u0630\u064A\u0631\u0627\u062A."
-      },
-      {
-        value: "none",
-        label: "\u0644\u0645 \u064A\u0634\u0631\u062D \u0631\u063A\u0645 \u0627\u0644\u062D\u0627\u062C\u0629",
-        pointsEarned: 0,
-        training: "\u0625\u0644\u0632\u0627\u0645 \u0634\u0631\u062D \u0627\u0644\u0627\u0633\u062A\u062E\u062F\u0627\u0645 \u0639\u0646\u062F \u0627\u0644\u062D\u0627\u062C\u0629."
-      },
-      {
-        value: "wrong",
-        label: "\u0634\u0631\u062D \u062E\u0627\u0637\u0626",
-        pointsEarned: 0,
-        errorType: "medical_error",
-        severe: true,
-        training: "\u062A\u0635\u0639\u064A\u062F \u0628\u0633\u0628\u0628 \u0634\u0631\u062D \u062C\u0631\u0639\u0629 \u062E\u0627\u0637\u0626."
-      }
-    ]
-  },
-  {
-    key: "unavailable_items",
-    label: "\u0627\u0644\u0646\u0648\u0627\u0642\u0635 \u0648\u062A\u0631\u0634\u064A\u062D \u0627\u0644\u0628\u062F\u0627\u0626\u0644",
-    hint: "\u064A\u0646\u0637\u0628\u0642 \u0644\u0648 \u0627\u0644\u0639\u0645\u064A\u0644 \u0633\u0623\u0644 \u0639\u0646 \u0635\u0646\u0641 \u063A\u064A\u0631 \u0645\u062A\u0648\u0641\u0631 \u0623\u0648 \u0646\u0627\u0642\u0635.",
-    maxPoints: 10,
-    defaultApplies: false,
-    defaultChoice: "alternative_explained",
-    choices: [
-      {
-        value: "alternative_explained",
-        label: "\u0627\u0639\u062A\u0630\u0631 \u0648\u0631\u0634\u062D \u0628\u062F\u064A\u0644 \u0645\u0646\u0627\u0633\u0628 \u0648\u0634\u0631\u062D \u0627\u0644\u0641\u0631\u0642",
-        pointsEarned: 10
-      },
-      { value: "alternative_no_explain", label: "\u0631\u0634\u062D \u0628\u062F\u064A\u0644 \u0628\u062F\u0648\u0646 \u0634\u0631\u062D \u0643\u0627\u0641\u064A", pointsEarned: 7 },
-      {
-        value: "helped_without_alternative",
-        label: "\u0633\u0627\u0639\u062F \u0628\u0627\u0644\u062A\u0648\u0641\u064A\u0631/\u0627\u0644\u0645\u0631\u0627\u062C\u0639\u0629/\u0627\u0644\u0645\u062A\u0627\u0628\u0639\u0629 \u0628\u062F\u0648\u0646 \u0628\u062F\u064A\u0644",
-        pointsEarned: 8
-      },
-      {
-        value: "unavailable_only",
-        label: "\u0642\u0627\u0644 \u0645\u0634 \u0645\u0648\u062C\u0648\u062F \u0641\u0642\u0637 \u0628\u062F\u0648\u0646 \u0645\u062D\u0627\u0648\u0644\u0629 \u0645\u0633\u0627\u0639\u062F\u0629",
-        pointsEarned: 3,
-        training: "\u062A\u062F\u0631\u064A\u0628 \u0639\u0644\u0649 \u062A\u0631\u0634\u064A\u062D \u0627\u0644\u0628\u062F\u0627\u0626\u0644 \u0628\u062F\u0644 \u0625\u0646\u0647\u0627\u0621 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629."
-      },
-      {
-        value: "ignored",
-        label: "\u062A\u062C\u0627\u0647\u0644 \u0637\u0644\u0628 \u0627\u0644\u0639\u0645\u064A\u0644",
-        pointsEarned: 0,
-        training: "\u0645\u0631\u0627\u062C\u0639\u0629 \u0645\u062A\u0627\u0628\u0639\u0629 \u0637\u0644\u0628\u0627\u062A \u0627\u0644\u0646\u0648\u0627\u0642\u0635."
-      },
-      {
-        value: "bad_alternative",
-        label: "\u0631\u0634\u062D \u0628\u062F\u064A\u0644 \u063A\u064A\u0631 \u0645\u0646\u0627\u0633\u0628",
-        pointsEarned: 0,
-        errorType: "medical_error",
-        severe: true,
-        training: "\u062A\u062F\u0631\u064A\u0628 \u062F\u0648\u0627\u0626\u064A \u0639\u0644\u0649 \u0627\u0644\u0628\u062F\u0627\u0626\u0644 \u0627\u0644\u0645\u0646\u0627\u0633\u0628\u0629."
-      }
-    ]
-  },
-  {
-    key: "sales_closing",
-    label: "\u062C\u0648\u062F\u0629 \u0639\u0645\u0644\u064A\u0629 \u0627\u0644\u0628\u064A\u0639 \u0648\u0625\u063A\u0644\u0627\u0642 \u0627\u0644\u0637\u0644\u0628",
-    hint: "\u064A\u0642\u064A\u0633 \u0647\u0644 \u0623\u062F\u0627\u0631 \u0627\u0644\u062F\u0643\u062A\u0648\u0631 \u0639\u0645\u0644\u064A\u0629 \u0627\u0644\u0628\u064A\u0639 \u0628\u0627\u062D\u062A\u0631\u0627\u0641 \u0628\u062F\u0648\u0646 \u0636\u063A\u0637.",
-    maxPoints: 10,
-    defaultApplies: true,
-    defaultChoice: "clear_order",
-    choices: [
-      { value: "clear_order", label: "\u0642\u0627\u062F \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629 \u0644\u0637\u0644\u0628 \u0648\u0627\u0636\u062D \u0628\u0627\u062D\u062A\u0631\u0627\u0641", pointsEarned: 10 },
-      { value: "helped", label: "\u0633\u0627\u0639\u062F \u0627\u0644\u0639\u0645\u064A\u0644 \u0639\u0644\u0649 \u0627\u0644\u0642\u0631\u0627\u0631 \u0628\u062F\u0648\u0646 \u0636\u063A\u0637", pointsEarned: 8 },
-      {
-        value: "passive",
-        label: "\u0631\u062F \u0641\u0642\u0637 \u0628\u062F\u0648\u0646 \u0645\u062D\u0627\u0648\u0644\u0629 \u0625\u063A\u0644\u0627\u0642 \u0631\u063A\u0645 \u0648\u062C\u0648\u062F \u0641\u0631\u0635\u0629",
-        pointsEarned: 4,
-        training: "\u062A\u062F\u0631\u064A\u0628 \u0639\u0644\u0649 \u0625\u063A\u0644\u0627\u0642 \u0627\u0644\u0637\u0644\u0628 \u0628\u0637\u0631\u064A\u0642\u0629 \u0645\u062D\u062A\u0631\u0645\u0629."
-      },
-      {
-        value: "missed",
-        label: "\u0623\u0636\u0627\u0639 \u0641\u0631\u0635\u0629 \u0628\u064A\u0639 \u0648\u0627\u0636\u062D\u0629",
-        pointsEarned: 0,
-        errorType: "missed_sale",
-        missedSale: true,
-        training: "\u062A\u062F\u0631\u064A\u0628 \u0639\u0644\u0649 \u062A\u062D\u0648\u064A\u0644 \u0627\u0644\u0627\u0647\u062A\u0645\u0627\u0645 \u0625\u0644\u0649 \u0637\u0644\u0628 \u0648\u0627\u0636\u062D."
-      },
-      {
-        value: "pressure",
-        label: "\u0636\u063A\u0637 \u0639\u0644\u0649 \u0627\u0644\u0639\u0645\u064A\u0644 \u0628\u0637\u0631\u064A\u0642\u0629 \u0633\u064A\u0626\u0629",
-        pointsEarned: 0,
-        errorType: "poor_tone",
-        training: "\u062A\u062F\u0631\u064A\u0628 \u0639\u0644\u0649 \u0627\u0644\u0628\u064A\u0639 \u0627\u0644\u0645\u0633\u0624\u0648\u0644 \u0628\u062F\u0648\u0646 \u0636\u063A\u0637."
-      }
-    ]
-  },
-  {
-    key: "cross_sell_upsell",
-    label: "Cross-selling / Upselling",
-    hint: "\u064A\u0646\u0637\u0628\u0642 \u0641\u0642\u0637 \u0644\u0648 \u062A\u0648\u062C\u062F \u0641\u0631\u0635\u0629 \u062D\u0642\u064A\u0642\u064A\u0629 \u0648\u0645\u0641\u064A\u062F\u0629 \u0644\u0644\u0639\u0645\u064A\u0644.",
-    maxPoints: 10,
-    defaultApplies: false,
-    defaultChoice: "useful",
-    choices: [
-      {
-        value: "useful",
-        label: "\u0627\u0642\u062A\u0631\u062D \u0645\u0646\u062A\u062C \u0645\u0643\u0645\u0644 \u0623\u0648 \u0627\u062E\u062A\u064A\u0627\u0631 \u0623\u0641\u0636\u0644 \u0628\u0634\u0643\u0644 \u0645\u0641\u064A\u062F \u0648\u0645\u062D\u062A\u0631\u0645",
-        pointsEarned: 10,
-        successfulCrossSell: true
-      },
-      { value: "partial", label: "\u0645\u062D\u0627\u0648\u0644\u0629 \u062C\u064A\u062F\u0629 \u0644\u0643\u0646 \u0646\u0627\u0642\u0635\u0629", pointsEarned: 7 },
-      {
-        value: "missed",
-        label: "\u0643\u0627\u0646\u062A \u0647\u0646\u0627\u0643 \u0641\u0631\u0635\u0629 \u0648\u0627\u0636\u062D\u0629 \u0648\u0644\u0645 \u064A\u062D\u0627\u0648\u0644",
-        pointsEarned: 2,
-        errorType: "missed_sale",
-        missedSale: true,
-        training: "\u062A\u062F\u0631\u064A\u0628 \u0639\u0644\u0649 \u0627\u0642\u062A\u0631\u0627\u062D \u0627\u0644\u0645\u0646\u062A\u062C\u0627\u062A \u0627\u0644\u0645\u0643\u0645\u0644\u0629 \u0628\u062F\u0648\u0646 \u0636\u063A\u0637."
-      },
-      {
-        value: "unsuitable",
-        label: "\u0627\u0642\u062A\u0631\u062D \u0634\u064A\u0621 \u063A\u064A\u0631 \u0645\u0646\u0627\u0633\u0628",
-        pointsEarned: 0,
-        training: "\u0645\u0631\u0627\u062C\u0639\u0629 \u0645\u0646\u0627\u0633\u0628\u0629 \u0627\u0644\u0627\u0642\u062A\u0631\u0627\u062D \u0644\u0627\u062D\u062A\u064A\u0627\u062C \u0627\u0644\u0639\u0645\u064A\u0644."
-      },
-      {
-        value: "pressure",
-        label: "\u0636\u063A\u0637 \u0639\u0644\u0649 \u0627\u0644\u0639\u0645\u064A\u0644",
-        pointsEarned: 0,
-        errorType: "poor_tone",
-        training: "\u062A\u062F\u0631\u064A\u0628 \u0639\u0644\u0649 \u0627\u0644\u0628\u064A\u0639 \u0627\u0644\u0645\u0633\u0624\u0648\u0644."
-      }
-    ]
-  },
-  {
-    key: "angry_customer",
-    label: "\u0627\u0644\u062A\u0639\u0627\u0645\u0644 \u0645\u0639 \u0627\u0644\u0639\u0645\u064A\u0644 \u0627\u0644\u063A\u0627\u0636\u0628 \u0623\u0648 \u0627\u0644\u0634\u0643\u0648\u0649",
-    hint: "\u064A\u0646\u0637\u0628\u0642 \u0644\u0648 \u0627\u0644\u0639\u0645\u064A\u0644 \u063A\u0627\u0636\u0628 \u0623\u0648 \u0639\u0646\u062F\u0647 \u0634\u0643\u0648\u0649.",
-    maxPoints: 10,
-    defaultApplies: false,
-    defaultChoice: "solved",
-    choices: [
-      {
-        value: "solved",
-        label: "\u0627\u0645\u062A\u0635 \u063A\u0636\u0628 \u0627\u0644\u0639\u0645\u064A\u0644 \u0648\u0627\u0639\u062A\u0630\u0631 \u0648\u0642\u062F\u0645 \u062D\u0644 \u0648\u0627\u0636\u062D",
-        pointsEarned: 10,
-        handledAngryCustomerWell: true,
-        excellentCase: true
-      },
-      {
-        value: "good",
-        label: "\u062A\u0639\u0627\u0645\u0644 \u062C\u064A\u062F \u0648\u062D\u0627\u0641\u0638 \u0639\u0644\u0649 \u0627\u0644\u0639\u0645\u064A\u0644",
-        pointsEarned: 8,
-        handledAngryCustomerWell: true
-      },
-      { value: "medium", label: "\u062A\u0639\u0627\u0645\u0644 \u0645\u062A\u0648\u0633\u0637", pointsEarned: 5 },
-      {
-        value: "ignored",
-        label: "\u0644\u0645 \u064A\u062A\u0639\u0627\u0645\u0644 \u0645\u0639 \u0627\u0644\u0634\u0643\u0648\u0649 \u0623\u0648 \u062A\u0631\u0643\u0647\u0627 \u0628\u062F\u0648\u0646 \u0631\u062F/\u062D\u0644",
-        pointsEarned: 0,
-        errorType: "poor_tone",
-        training: "\u062A\u062F\u0631\u064A\u0628 \u0639\u0644\u0649 \u0627\u062D\u062A\u0648\u0627\u0621 \u0627\u0644\u0634\u0643\u0648\u0649 \u0648\u0627\u0644\u0631\u062F \u0639\u0644\u064A\u0647\u0627 \u0628\u0648\u0636\u0648\u062D."
-      },
-      {
-        value: "argued",
-        label: "\u062C\u0627\u062F\u0644 \u0627\u0644\u0639\u0645\u064A\u0644 \u0623\u0648 \u0632\u0627\u062F \u063A\u0636\u0628\u0647",
-        pointsEarned: 0,
-        errorType: "poor_tone",
-        training: "\u062A\u062F\u0631\u064A\u0628 \u0639\u0644\u0649 \u0627\u0645\u062A\u0635\u0627\u0635 \u063A\u0636\u0628 \u0627\u0644\u0639\u0645\u064A\u0644 \u0648\u062D\u0644 \u0627\u0644\u0634\u0643\u0627\u0648\u0649."
-      },
-      {
-        value: "inappropriate",
-        label: "\u0631\u062F \u063A\u064A\u0631 \u0644\u0627\u0626\u0642",
-        pointsEarned: 0,
-        errorType: "poor_tone",
-        severe: true,
-        training: "\u062A\u0635\u0639\u064A\u062F \u0625\u062F\u0627\u0631\u064A \u0628\u0633\u0628\u0628 \u0631\u062F \u063A\u064A\u0631 \u0644\u0627\u0626\u0642."
-      }
-    ]
-  },
-  {
-    key: "order_confirmation",
-    label: "\u062A\u0623\u0643\u064A\u062F \u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u0637\u0644\u0628",
-    hint: "\u064A\u0646\u0637\u0628\u0642 \u0644\u0648 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629 \u0627\u0646\u062A\u0647\u062A \u0628\u0637\u0644\u0628 \u0623\u0648 \u062F\u0644\u064A\u0641\u0631\u064A.",
-    maxPoints: 10,
-    defaultApplies: false,
-    defaultChoice: "full",
-    choices: [
-      { value: "full", label: "\u0623\u0643\u062F \u0643\u0644 \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u0645\u0637\u0644\u0648\u0628\u0629", pointsEarned: 10 },
-      { value: "minor_missing", label: "\u0646\u0627\u0642\u0635 \u0628\u0646\u062F \u0628\u0633\u064A\u0637", pointsEarned: 7 },
-      {
-        value: "many_missing",
-        label: "\u0646\u0627\u0642\u0635 \u0623\u0643\u062B\u0631 \u0645\u0646 \u0628\u0646\u062F",
-        pointsEarned: 4,
-        training: "\u062A\u062F\u0631\u064A\u0628 \u0639\u0644\u0649 \u0642\u0627\u0626\u0645\u0629 \u062A\u0623\u0643\u064A\u062F \u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u0637\u0644\u0628."
-      },
-      {
-        value: "important_missing",
-        label: "\u0644\u0645 \u064A\u0624\u0643\u062F \u0628\u064A\u0627\u0646\u0627\u062A \u0645\u0647\u0645\u0629",
-        pointsEarned: 0,
-        errorType: "missing_order_confirmation",
-        training: "\u0625\u0644\u0632\u0627\u0645 \u062A\u0623\u0643\u064A\u062F \u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u0637\u0644\u0628 \u0642\u0628\u0644 \u0627\u0644\u062A\u0646\u0641\u064A\u0630."
-      },
-      {
-        value: "caused_error",
-        label: "\u062A\u0633\u0628\u0628 \u0641\u064A \u062E\u0637\u0623 \u0641\u0627\u062A\u0648\u0631\u0629 \u0623\u0648 \u062F\u0644\u064A\u0641\u0631\u064A",
-        pointsEarned: 0,
-        errorType: "missing_order_confirmation",
-        training: "\u0645\u0631\u0627\u062C\u0639\u0629 \u0623\u062E\u0637\u0627\u0621 \u062A\u0623\u0643\u064A\u062F \u0627\u0644\u0637\u0644\u0628."
-      }
-    ]
-  },
-  {
-    key: "order_delay_handling",
-    label: "\u0645\u062A\u0627\u0628\u0639\u0629 \u062A\u0623\u062E\u064A\u0631 \u0627\u0644\u0623\u0648\u0631\u062F\u0631",
-    hint: "\u0644\u0627 \u062A\u062A\u0645 \u0645\u062D\u0627\u0633\u0628\u0629 \u0627\u0644\u062F\u0643\u062A\u0648\u0631 \u0639\u0644\u0649 \u0633\u0628\u0628 \u062E\u0627\u0631\u062C \u0625\u0631\u0627\u062F\u062A\u0647\u060C \u0644\u0643\u0646 \u064A\u062A\u0645 \u062A\u0642\u064A\u064A\u0645 \u0637\u0631\u064A\u0642\u0629 \u0627\u0644\u062A\u0639\u0627\u0645\u0644: \u0625\u0628\u0644\u0627\u063A \u0627\u0644\u0639\u0645\u064A\u0644\u060C \u0627\u0644\u0627\u0639\u062A\u0630\u0627\u0631\u060C \u062A\u062D\u062F\u064A\u062F \u0648\u0642\u062A \u0648\u0627\u0642\u0639\u064A\u060C \u0648\u0627\u0644\u0645\u062A\u0627\u0628\u0639\u0629 \u062D\u062A\u0649 \u0627\u0644\u062A\u0646\u0641\u064A\u0630.",
-    maxPoints: 15,
-    defaultApplies: false,
-    defaultChoice: "handled_full",
-    choices: [
-      {
-        value: "handled_full",
-        label: "\u0623\u0628\u0644\u063A \u0627\u0644\u0639\u0645\u064A\u0644 \u0648\u0627\u0639\u062A\u0630\u0631 \u0648\u062D\u062F\u062F \u0648\u0642\u062A\u064B\u0627 \u0648\u0627\u0642\u0639\u064A\u064B\u0627 \u0648\u062A\u0627\u0628\u0639 \u062D\u062A\u0649 \u0627\u0644\u062A\u0646\u0641\u064A\u0630",
-        pointsEarned: 15,
-        handledAngryCustomerWell: true,
-        excellentCase: true
-      },
-      {
-        value: "outside_reason_handled",
-        label: "\u0627\u0644\u062A\u0623\u062E\u064A\u0631 \u062E\u0627\u0631\u062C \u0625\u0631\u0627\u062F\u062A\u0647 \u0648\u062A\u0639\u0627\u0645\u0644 \u0645\u0639\u0647 \u0628\u0627\u0647\u062A\u0645\u0627\u0645 \u0648\u0627\u0636\u062D",
-        pointsEarned: 15,
-        handledAngryCustomerWell: true
-      },
-      {
-        value: "informed_only",
-        label: "\u0623\u0628\u0644\u063A \u0627\u0644\u0639\u0645\u064A\u0644 \u0628\u0627\u0644\u062A\u0623\u062E\u064A\u0631 \u0644\u0643\u0646 \u0627\u0644\u0645\u062A\u0627\u0628\u0639\u0629 \u0623\u0648 \u0627\u0644\u0648\u0642\u062A \u0627\u0644\u062C\u062F\u064A\u062F \u0643\u0627\u0646 \u0646\u0627\u0642\u0635\u064B\u0627",
-        pointsEarned: 9,
-        training: "\u062A\u062F\u0631\u064A\u0628 \u0639\u0644\u0649 \u0645\u062A\u0627\u0628\u0639\u0629 \u0627\u0644\u0623\u0648\u0631\u062F\u0631 \u0627\u0644\u0645\u062A\u0623\u062E\u0631 \u062D\u062A\u0649 \u0627\u0644\u062A\u0646\u0641\u064A\u0630."
-      },
-      {
-        value: "late_apology",
-        label: "\u0627\u0639\u062A\u0630\u0631 \u0628\u0639\u062F \u062A\u0623\u062E\u064A\u0631 \u0648\u0627\u0636\u062D \u0623\u0648 \u0628\u0639\u062F \u0633\u0624\u0627\u0644 \u0627\u0644\u0639\u0645\u064A\u0644",
-        pointsEarned: 5,
-        errorType: "poor_order_delay_handling",
-        training: "\u062A\u062F\u0631\u064A\u0628 \u0639\u0644\u0649 \u0625\u0628\u0644\u0627\u063A \u0627\u0644\u0639\u0645\u064A\u0644 \u0645\u0628\u0643\u0631\u064B\u0627 \u0642\u0628\u0644 \u0623\u0646 \u064A\u0637\u0644\u0628 \u0647\u0648 \u0627\u0644\u062A\u0648\u0636\u064A\u062D."
-      },
-      {
-        value: "not_informed",
-        label: "\u0644\u0645 \u064A\u0628\u0644\u063A \u0627\u0644\u0639\u0645\u064A\u0644 \u0628\u0627\u0644\u062A\u0623\u062E\u064A\u0631 \u0648\u0644\u0645 \u064A\u062D\u062F\u062F \u0648\u0642\u062A\u064B\u0627 \u062C\u062F\u064A\u062F\u064B\u0627",
-        pointsEarned: 0,
-        errorType: "poor_order_delay_handling",
-        forgottenCustomer: true,
-        training: "\u062A\u062F\u0631\u064A\u0628 \u0639\u0627\u062C\u0644 \u0639\u0644\u0649 \u0628\u0631\u0648\u062A\u0648\u0643\u0648\u0644 \u062A\u0623\u062E\u064A\u0631 \u0627\u0644\u0623\u0648\u0631\u062F\u0631."
-      },
-      {
-        value: "lost_customer",
-        label: "\u0627\u0644\u062A\u0623\u062E\u064A\u0631 \u0623\u062F\u0649 \u0644\u0636\u064A\u0627\u0639 \u0627\u0644\u0639\u0645\u064A\u0644 \u0623\u0648 \u0625\u0644\u063A\u0627\u0621 \u0627\u0644\u0637\u0644\u0628 \u0628\u0633\u0628\u0628 \u0636\u0639\u0641 \u0627\u0644\u0645\u062A\u0627\u0628\u0639\u0629",
-        pointsEarned: 0,
-        errorType: "poor_order_delay_handling",
-        forgottenCustomer: true,
-        severe: true,
-        training: "\u0645\u0631\u0627\u062C\u0639\u0629 \u0625\u062F\u0627\u0631\u064A\u0629 \u0648\u0628\u0631\u0648\u062A\u0648\u0643\u0648\u0644 \u0625\u0646\u0642\u0627\u0630 \u0627\u0644\u0639\u0645\u064A\u0644 \u0639\u0646\u062F \u062A\u0623\u062E\u064A\u0631 \u0627\u0644\u0623\u0648\u0631\u062F\u0631."
-      }
-    ]
-  },
-  {
-    key: "customer_request_registration",
-    label: "\u062A\u0633\u062C\u064A\u0644 \u0637\u0644\u0628\u0627\u062A \u0648\u0627\u062D\u062A\u064A\u0627\u062C\u0627\u062A \u0627\u0644\u0639\u0645\u064A\u0644",
-    hint: "\u064A\u0646\u0637\u0628\u0642 \u0639\u0646\u062F\u0645\u0627 \u064A\u0637\u0644\u0628 \u0627\u0644\u0639\u0645\u064A\u0644 \u0635\u0646\u0641\u064B\u0627 \u063A\u064A\u0631 \u0645\u062A\u0648\u0641\u0631 \u0623\u0648 \u0648\u0639\u062F \u0627\u0644\u062F\u0643\u062A\u0648\u0631 \u0628\u062A\u0648\u0641\u064A\u0631\u0647. \u0627\u0644\u0645\u062E\u0627\u0644\u0641\u0629 \u0627\u0644\u0623\u0633\u0627\u0633\u064A\u0629: \u0627\u0644\u0648\u0639\u062F \u0628\u062F\u0648\u0646 \u062A\u0633\u062C\u064A\u0644 \u0627\u0644\u0637\u0644\u0628 \u0643\u0627\u0645\u0644\u064B\u0627 \u0639\u0644\u0649 \u0627\u0644\u0646\u0638\u0627\u0645.",
-    maxPoints: 15,
-    defaultApplies: false,
-    defaultChoice: "registered_complete",
-    choices: [
-      {
-        value: "registered_complete",
-        label: "\u0633\u062C\u0644 \u0627\u0644\u0637\u0644\u0628 \u0643\u0627\u0645\u0644\u064B\u0627: \u0627\u0644\u0639\u0645\u064A\u0644\u060C \u0627\u0644\u0643\u0648\u062F\u060C \u0627\u0644\u0647\u0627\u062A\u0641\u060C \u0627\u0644\u0635\u0646\u0641\u060C \u0627\u0644\u062A\u0631\u0643\u064A\u0632\u060C \u0627\u0644\u0643\u0645\u064A\u0629\u060C \u0627\u0644\u0641\u0631\u0639\u060C \u0645\u0648\u0639\u062F \u0627\u0644\u0645\u062A\u0627\u0628\u0639\u0629",
-        pointsEarned: 15,
-        excellentCase: true
-      },
-      {
-        value: "registered_minor_missing",
-        label: "\u0633\u062C\u0644 \u0627\u0644\u0637\u0644\u0628 \u0645\u0639 \u0646\u0642\u0635 \u0628\u0633\u064A\u0637 \u0644\u0627 \u064A\u0645\u0646\u0639 \u0627\u0644\u0645\u062A\u0627\u0628\u0639\u0629",
-        pointsEarned: 10,
-        training: "\u0645\u0631\u0627\u062C\u0639\u0629 \u0628\u064A\u0627\u0646\u0627\u062A \u0637\u0644\u0628 \u0627\u0644\u0639\u0645\u064A\u0644 \u0642\u0628\u0644 \u0627\u0644\u062D\u0641\u0638."
-      },
-      {
-        value: "registered_late",
-        label: "\u0633\u062C\u0644 \u0627\u0644\u0637\u0644\u0628 \u0645\u062A\u0623\u062E\u0631\u064B\u0627 \u0628\u0639\u062F \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629",
-        pointsEarned: 7,
-        errorType: "unregistered_customer_request",
-        training: "\u062A\u0633\u062C\u064A\u0644 \u0637\u0644\u0628 \u0627\u0644\u0639\u0645\u064A\u0644 \u0641\u0648\u0631 \u0627\u0644\u0648\u0639\u062F \u0628\u0627\u0644\u062A\u0648\u0641\u064A\u0631."
-      },
-      {
-        value: "promised_not_registered",
-        label: "\u0648\u0639\u062F \u0628\u062A\u0648\u0641\u064A\u0631 \u0627\u0644\u0635\u0646\u0641 \u0628\u062F\u0648\u0646 \u062A\u0633\u062C\u064A\u0644 \u0627\u0644\u0637\u0644\u0628",
-        pointsEarned: 0,
-        errorType: "unregistered_customer_request",
-        forgottenCustomer: true,
-        training: "\u0645\u062E\u0627\u0644\u0641\u0629 \u0639\u062F\u0645 \u062A\u0633\u062C\u064A\u0644 \u0637\u0644\u0628 \u0627\u0644\u0639\u0645\u064A\u0644: \u064A\u062C\u0628 \u062A\u0633\u062C\u064A\u0644 \u0623\u064A \u0648\u0639\u062F \u0623\u0648 \u0627\u062D\u062A\u064A\u0627\u062C \u0641\u0648\u0631\u064B\u0627."
-      },
-      {
-        value: "wrong_or_incomplete",
-        label: "\u0633\u062C\u0644 \u0627\u0633\u0645/\u062A\u0631\u0643\u064A\u0632/\u0643\u0645\u064A\u0629 \u062E\u0637\u0623 \u0623\u0648 \u0628\u064A\u0627\u0646\u0627\u062A \u0646\u0627\u0642\u0635\u0629 \u0645\u0624\u062B\u0631\u0629",
-        pointsEarned: 0,
-        errorType: "unregistered_customer_request",
-        training: "\u062A\u062F\u0631\u064A\u0628 \u0639\u0644\u0649 \u0646\u0645\u0648\u0630\u062C \u062A\u0633\u062C\u064A\u0644 \u0637\u0644\u0628\u0627\u062A \u0627\u0644\u0639\u0645\u0644\u0627\u0621."
-      },
-      {
-        value: "arrived_no_contact",
-        label: "\u0648\u0635\u0644 \u0627\u0644\u0635\u0646\u0641 \u0648\u0644\u0645 \u064A\u062A\u0645 \u0627\u0644\u062A\u0648\u0627\u0635\u0644 \u0645\u0639 \u0627\u0644\u0639\u0645\u064A\u0644",
-        pointsEarned: 0,
-        errorType: "unregistered_customer_request",
-        forgottenCustomer: true,
-        severe: true,
-        training: "\u062A\u062F\u0631\u064A\u0628 \u0639\u0644\u0649 \u0645\u062A\u0627\u0628\u0639\u0629 \u0637\u0644\u0628\u0627\u062A \u0627\u0644\u0639\u0645\u0644\u0627\u0621 \u0628\u0639\u062F \u0648\u0635\u0648\u0644 \u0627\u0644\u0635\u0646\u0641."
-      },
-      {
-        value: "verbal_handoff",
-        label: "\u062D\u0648\u0651\u0644 \u0627\u0644\u0637\u0644\u0628 \u0634\u0641\u0647\u064A\u064B\u0627 \u0628\u062F\u0648\u0646 \u062A\u0633\u062C\u064A\u0644 \u062E\u0637\u0648\u0629 \u062A\u0627\u0644\u064A\u0629",
-        pointsEarned: 0,
-        errorType: "unregistered_customer_request",
-        training: "\u0645\u0646\u0639 \u0627\u0644\u062A\u062D\u0648\u064A\u0644 \u0627\u0644\u0634\u0641\u0647\u064A \u0628\u062F\u0648\u0646 \u062A\u0633\u062C\u064A\u0644 \u062F\u0627\u062E\u0644 \u0627\u0644\u0646\u0638\u0627\u0645."
-      }
-    ]
-  },
-  {
-    key: "exceptional_followup_recognition",
-    label: "\u0627\u0644\u062A\u0639\u0631\u0641 \u0639\u0644\u0649 \u0641\u0631\u0635\u0629 \u0645\u062A\u0627\u0628\u0639\u0629 \u0627\u0633\u062A\u062B\u0646\u0627\u0626\u064A\u0629 \u0648\u062A\u0633\u062C\u064A\u0644\u0647\u0627",
-    hint: "\u064A\u0646\u0637\u0628\u0642 \u0644\u0648 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629 \u0641\u064A\u0647\u0627 \u062D\u0627\u0644\u0629 \u062A\u0633\u062A\u0627\u0647\u0644 \u0627\u0647\u062A\u0645\u0627\u0645 \u062E\u0627\u0635 (\u0631\u0648\u0634\u062A\u0629 \u062C\u062F\u064A\u062F\u0629\u060C \u0645\u0631\u064A\u0636 \u0645\u0632\u0645\u0646\u060C \u0639\u0645\u064A\u0644 \u0645\u0647\u0645) \u2014 \u0647\u0644 \u0644\u0627\u062D\u0638\u0647\u0627 \u0627\u0644\u062F\u0643\u062A\u0648\u0631 \u0648\u0633\u062C\u0651\u0644\u0647\u0627 \u0643\u0637\u0644\u0628 \u0645\u062A\u0627\u0628\u0639\u0629 \u0627\u0633\u062A\u062B\u0646\u0627\u0626\u064A\u0629\u061F",
-    maxPoints: 10,
-    defaultApplies: false,
-    defaultChoice: "registered_correctly",
-    choices: [
-      {
-        value: "registered_correctly",
-        label: "\u0644\u0627\u062D\u0638 \u0627\u0644\u062D\u0627\u0644\u0629 \u0648\u0633\u062C\u0651\u0644\u0647\u0627 \u0643\u0645\u062A\u0627\u0628\u0639\u0629 \u0627\u0633\u062A\u062B\u0646\u0627\u0626\u064A\u0629 \u0628\u0633\u0628\u0628 \u0648\u0627\u0636\u062D \u0648\u0645\u0641\u0635\u0651\u0644",
-        pointsEarned: 10,
-        excellentCase: true
-      },
-      {
-        value: "registered_generic",
-        label: "\u0633\u062C\u0651\u0644\u0647\u0627 \u0644\u0643\u0646 \u0628\u0633\u0628\u0628 \u0639\u0627\u0645 \u063A\u064A\u0631 \u0645\u0641\u0635\u0651\u0644",
-        pointsEarned: 6,
-        training: "\u062A\u062F\u0631\u064A\u0628 \u0639\u0644\u0649 \u062A\u0648\u062B\u064A\u0642 \u0633\u0628\u0628 \u0648\u0627\u0636\u062D \u0648\u0645\u0641\u064A\u062F \u0639\u0646\u062F \u062A\u0633\u062C\u064A\u0644 \u0645\u062A\u0627\u0628\u0639\u0629 \u0627\u0633\u062A\u062B\u0646\u0627\u0626\u064A\u0629."
-      },
-      {
-        value: "missed_opportunity",
-        label: "\u0627\u0644\u062D\u0627\u0644\u0629 \u0643\u0627\u0646\u062A \u0648\u0627\u0636\u062D\u0629 \u0648\u0644\u0645 \u064A\u0633\u062C\u0651\u0644\u0647\u0627",
-        pointsEarned: 0,
-        errorType: "missed_exceptional_followup",
-        training: "\u062A\u062F\u0631\u064A\u0628 \u0639\u0644\u0649 \u0627\u0644\u062A\u0639\u0631\u0641 \u0639\u0644\u0649 \u0627\u0644\u062D\u0627\u0644\u0627\u062A \u0627\u0644\u0645\u0633\u062A\u062D\u0642\u0629 \u0645\u062A\u0627\u0628\u0639\u0629 \u0627\u0633\u062A\u062B\u0646\u0627\u0626\u064A\u0629 (\u0645\u0631\u064A\u0636 \u0645\u0632\u0645\u0646 / \u0631\u0648\u0634\u062A\u0629 \u062C\u062F\u064A\u062F\u0629 / \u0639\u0645\u064A\u0644 \u0645\u0647\u0645) \u0648\u062A\u0633\u062C\u064A\u0644\u0647\u0627 \u0641\u0648\u0631\u064B\u0627."
-      }
-    ]
-  },
-  {
-    key: "purchase_history_usage",
-    label: "\u0627\u0633\u062A\u062E\u062F\u0627\u0645 \u062A\u0627\u0631\u064A\u062E \u0627\u0644\u0634\u0631\u0627\u0621 \u0627\u0644\u0633\u0627\u0628\u0642 \u0644\u0644\u0639\u0645\u064A\u0644",
-    hint: "\u064A\u0646\u0637\u0628\u0642 \u0644\u0648 \u062A\u0627\u0631\u064A\u062E \u0634\u0631\u0627\u0621 \u0627\u0644\u0639\u0645\u064A\u0644 \u0645\u062A\u0627\u062D \u0641\u064A \u0627\u0644\u0646\u0638\u0627\u0645 \u2014 \u0647\u0644 \u0627\u0633\u062A\u062E\u062F\u0645\u0647 \u0627\u0644\u062F\u0643\u062A\u0648\u0631 \u0641\u064A \u0627\u0644\u062A\u0631\u0634\u064A\u062D \u0623\u0648 \u0627\u0644\u062A\u0630\u0643\u064A\u0631 \u0628\u0645\u0648\u0639\u062F \u062F\u0648\u0627\u0621 \u0645\u062A\u0643\u0631\u0631\u061F",
-    maxPoints: 10,
-    defaultApplies: false,
-    defaultChoice: "used_well",
-    choices: [
-      {
-        value: "used_well",
-        label: "\u0627\u0633\u062A\u062E\u062F\u0645 \u062A\u0627\u0631\u064A\u062E \u0627\u0644\u0634\u0631\u0627\u0621 \u0644\u062A\u0631\u0634\u064A\u062D \u0645\u0646\u0627\u0633\u0628 \u0623\u0648 \u062A\u0630\u0643\u064A\u0631 \u0628\u0645\u0648\u0639\u062F \u0627\u0644\u062F\u0648\u0627\u0621",
-        pointsEarned: 10
-      },
-      {
-        value: "used_partial",
-        label: "\u0623\u0634\u0627\u0631 \u0644\u062A\u0627\u0631\u064A\u062E \u0627\u0644\u0634\u0631\u0627\u0621 \u0644\u0643\u0646 \u0628\u062F\u0648\u0646 \u0627\u0633\u062A\u0641\u0627\u062F\u0629 \u0643\u0627\u0645\u0644\u0629 \u0645\u0646\u0647",
-        pointsEarned: 6
-      },
-      {
-        value: "ignored",
-        label: "\u062A\u062C\u0627\u0647\u0644 \u062A\u0627\u0631\u064A\u062E \u0627\u0644\u0634\u0631\u0627\u0621 \u0631\u063A\u0645 \u062A\u0648\u0641\u0631\u0647 \u0648\u0648\u0636\u0648\u062D \u0641\u0627\u0626\u062F\u062A\u0647",
-        pointsEarned: 0,
-        errorType: "ignored_purchase_history",
-        training: "\u062A\u062F\u0631\u064A\u0628 \u0639\u0644\u0649 \u0645\u0631\u0627\u062C\u0639\u0629 \u062A\u0627\u0631\u064A\u062E \u0634\u0631\u0627\u0621 \u0627\u0644\u0639\u0645\u064A\u0644 \u0642\u0628\u0644 \u0627\u0644\u062A\u0631\u0634\u064A\u062D \u0623\u0648 \u0627\u0644\u0631\u062F."
-      }
-    ]
-  },
-  {
-    key: "closing_message",
-    label: "\u0631\u0633\u0627\u0644\u0629 \u0627\u0644\u062E\u062A\u0627\u0645",
-    hint: "\u0625\u063A\u0644\u0627\u0642 \u0645\u062D\u062A\u0631\u0645 \u064A\u062D\u0627\u0641\u0638 \u0639\u0644\u0649 \u0639\u0644\u0627\u0642\u0629 \u0627\u0644\u0639\u0645\u064A\u0644 \u0628\u0627\u0644\u0635\u064A\u062F\u0644\u064A\u0629.",
-    maxPoints: 5,
-    defaultApplies: true,
-    defaultChoice: "official",
-    choices: [
-      { value: "official", label: "\u0627\u0633\u062A\u062E\u062F\u0645 \u0631\u0633\u0627\u0644\u0629 \u0627\u0644\u062E\u062A\u0627\u0645 \u0627\u0644\u0631\u0633\u0645\u064A\u0629", pointsEarned: 5 },
-      { value: "respectful", label: "\u062E\u062A\u0627\u0645 \u0645\u062D\u062A\u0631\u0645 \u0642\u0631\u064A\u0628 \u0645\u0646 \u0627\u0644\u0631\u0633\u0645\u064A", pointsEarned: 3 },
-      {
-        value: "none_completed",
-        label: "\u0644\u0627 \u064A\u0648\u062C\u062F \u062E\u062A\u0627\u0645 \u0631\u063A\u0645 \u0627\u0643\u062A\u0645\u0627\u0644 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629",
-        pointsEarned: 0,
-        training: "\u062A\u062F\u0631\u064A\u0628 \u0639\u0644\u0649 \u0625\u0646\u0647\u0627\u0621 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629 \u0628\u0631\u0633\u0627\u0644\u0629 \u0627\u0644\u062E\u062A\u0627\u0645 \u0627\u0644\u0631\u0633\u0645\u064A\u0629."
-      },
-      {
-        value: "left_open",
-        label: "\u062A\u0631\u0643 \u0627\u0644\u0639\u0645\u064A\u0644 \u0628\u062F\u0648\u0646 \u0625\u063A\u0644\u0627\u0642",
-        pointsEarned: 0,
-        training: "\u062A\u062D\u0633\u064A\u0646 \u0645\u062A\u0627\u0628\u0639\u0629 \u0646\u0647\u0627\u064A\u0629 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629."
-      }
-    ]
-  }
-];
-function conversationLevel(score) {
-  if (score >= 95) return "\u0645\u0645\u062A\u0627\u0632\u0629";
-  if (score >= 90) return "\u0642\u0648\u064A\u0629";
-  if (score >= 85) return "\u062C\u064A\u062F\u0629";
-  if (score >= 80) return "\u0645\u0642\u0628\u0648\u0644\u0629";
-  if (score >= 70) return "\u062A\u062D\u062A\u0627\u062C \u062A\u062D\u0633\u064A\u0646";
-  if (score >= 60) return "\u0636\u0639\u064A\u0641\u0629";
-  return "\u062D\u0631\u062C\u0629";
-}
-function monthCycleFromDate(dateInput = /* @__PURE__ */ new Date()) {
-  const date = typeof dateInput === "string" ? new Date(dateInput) : dateInput;
-  const { year, month, day } = cairoCalendarParts(date);
-  const cycleDate = new Date(Date.UTC(year, month - 1 + (day >= 26 ? 1 : 0), 1));
-  return `${cycleDate.getUTCFullYear()}-${String(cycleDate.getUTCMonth() + 1).padStart(2, "0")}`;
-}
+// src/lib/salesIntelligence/conversationEvaluation.ts
+import {
+  REVIEW_CRITERIA as REVIEW_CRITERIA10,
+  conversationLevel
+} from "@/lib/conversationReviews";
+
+// src/lib/salesIntelligence/conversationEvaluationFoundation.ts
+import {
+  REVIEW_CRITERIA
+} from "@/lib/conversationReviews";
 
 // src/lib/salesIntelligence/conversationClinicalReview.ts
 var CONSULTATION_CONTEXT_RX = /(?:استشار(?:ة|ه)|تشخيص|اعراض|أعراض|حامل|حمل|رضاع(?:ة|ه)|مرضع|طفل|رضيع|حساسي(?:ة|ه)|ضغط|سكر|حرار(?:ة|ه)|كح(?:ة|ه)|اسهال|إسهال|قيء|ترجيع|استفراغ|دوخ(?:ة|ه)|التهاب|صداع|وجع|ألم|الم|رشح|برد|جرح|تداخل|يتعارض|روشت(?:ة|ه)|تحليل|مناسب\s+(?:ل|مع)|آمن\s+(?:ل|مع)|امن\s+(?:ل|مع))/i;
@@ -11543,7 +10522,8 @@ function analyzeConversationEvaluationFoundation(view) {
 }
 
 // src/lib/salesIntelligence/conversationEvaluationCore.ts
-var criterionMap2 = new Map(REVIEW_CRITERIA.map((criterion5) => [criterion5.key, criterion5]));
+import { REVIEW_CRITERIA as REVIEW_CRITERIA2 } from "@/lib/conversationReviews";
+var criterionMap2 = new Map(REVIEW_CRITERIA2.map((criterion5) => [criterion5.key, criterion5]));
 var RESPECT_RX = /(?:حضرتك|يا\s*فندم|يا\s*افندم|تحت\s*(?:أمر|امر)(?:\s*حضرتك)?|من\s*فضلك|لو\s*سمحت|حاضر|عنيا|نورتنا|نتشرف|شكرا|شكرًا)/i;
 var APOLOGY_RX2 = /(?:معلش|متاسف|متأسف|آسف|اسف|بنعتذر|نعتذر)/i;
 var STRONG_HOSTILITY_RX = /(?:يا\s*(?:غبي|اهبل|أهبل|حمار)|اخرس|اخرسي|قليل\s*الادب|قليلة\s*الادب|مش\s*ناقصينك|لو\s*مش\s*عاجبك|روح\s*اشتكي)/i;
@@ -11797,6 +10777,9 @@ function analyzeConversationEvaluationCore(view) {
   return { version: "conversation-evaluation-core-v1", caseId: view.caseId, items };
 }
 
+// src/lib/salesIntelligence/conversationEvaluationFollowUp.ts
+import { REVIEW_CRITERIA as REVIEW_CRITERIA3 } from "@/lib/conversationReviews";
+
 // src/lib/followUpPromiseLifecycle.ts
 var FOLLOWUP_PROMISE_LIFECYCLE_VERSION = "followup-promise-lifecycle-v1";
 var FOLLOWUP_PROMISE_SLA = {
@@ -11871,7 +10854,7 @@ function evaluateFollowUpPromiseLifecycle(input) {
 }
 
 // src/lib/salesIntelligence/conversationEvaluationFollowUp.ts
-var criterion = REVIEW_CRITERIA.find((item) => item.key === "followup_after_wait");
+var criterion = REVIEW_CRITERIA3.find((item) => item.key === "followup_after_wait");
 if (!criterion) throw new Error("Missing followup_after_wait review criterion");
 var PROMISE_OBLIGATION_REASONS = /* @__PURE__ */ new Set(["staff_promised_check", "stock_check_pending"]);
 var NUDGE_RX = /^(?:[؟?]+|يا\s*دكتور|دكتور|لسه|تمام|طيب|اوك|أوك|اوكي|ok|حضرتك|معلش)$/i;
@@ -12032,7 +11015,8 @@ function analyzeConversationEvaluationFollowUp(view) {
 }
 
 // src/lib/salesIntelligence/conversationEvaluationAvailability.ts
-var criterion2 = REVIEW_CRITERIA.find((item) => item.key === "unavailable_items");
+import { REVIEW_CRITERIA as REVIEW_CRITERIA4 } from "@/lib/conversationReviews";
+var criterion2 = REVIEW_CRITERIA4.find((item) => item.key === "unavailable_items");
 if (!criterion2) throw new Error("Missing unavailable_items review criterion");
 var EXPLANATION_RX = /(?:نفس\s*(?:المادة|التركيز|الاستخدام|الفعالية)|بديل[^\n]{0,50}(?:نفس|لأن|علشان|عشان|مناسب)|الفرق\s*(?:بين|انه|إنه)|يماثل|يعادل|بديل\s+له\s+في)/i;
 function choicePoints(option) {
@@ -12147,7 +11131,8 @@ function analyzeConversationEvaluationAvailability(view) {
 }
 
 // src/lib/salesIntelligence/conversationEvaluationSales.ts
-var criteria = new Map(REVIEW_CRITERIA.map((criterion5) => [criterion5.key, criterion5]));
+import { REVIEW_CRITERIA as REVIEW_CRITERIA5 } from "@/lib/conversationReviews";
+var criteria = new Map(REVIEW_CRITERIA5.map((criterion5) => [criterion5.key, criterion5]));
 function make4(key, option, status, confidence3, reason, evidenceMessageIds, productKeys = []) {
   const criterion5 = criteria.get(key);
   if (!criterion5) throw new Error(`Missing criterion ${key}`);
@@ -12322,7 +11307,8 @@ function analyzeConversationEvaluationSales(view) {
 }
 
 // src/lib/salesIntelligence/conversationEvaluationServiceRecovery.ts
-var criteria2 = new Map(REVIEW_CRITERIA.map((criterion5) => [criterion5.key, criterion5]));
+import { REVIEW_CRITERIA as REVIEW_CRITERIA6 } from "@/lib/conversationReviews";
+var criteria2 = new Map(REVIEW_CRITERIA6.map((criterion5) => [criterion5.key, criterion5]));
 var APOLOGY_RX3 = /(?:متاسف|متأسف|آسف|اسف|بنعتذر|نعتذر|حقك\s*علينا|معلش)/i;
 var ORDER_CONTEXT_RX = /(?:اوردر|أوردر|الاوردر|الأوردر|طلب|المندوب|توصيل|دليفري)/i;
 var DELAY_RX = /(?:اتأخر|اتاخر|متأخر|متاخر|تأخير|تاخير|لسه|فين|مجاش|ماجاش|موصلش|ماوصلش|هييجي\s*امتى|هيوصل\s*امتى)/i;
@@ -12541,7 +11527,8 @@ function analyzeConversationEvaluationServiceRecovery(view) {
 }
 
 // src/lib/salesIntelligence/conversationEvaluationOrderConfirmation.ts
-var criterion3 = REVIEW_CRITERIA.find((item) => item.key === "order_confirmation");
+import { REVIEW_CRITERIA as REVIEW_CRITERIA7 } from "@/lib/conversationReviews";
+var criterion3 = REVIEW_CRITERIA7.find((item) => item.key === "order_confirmation");
 if (!criterion3) throw new Error("Missing order_confirmation criterion");
 function make6(option, status, confidence3, reason, evidenceMessageIds, missingProtocolSteps) {
   const choice = option ? criterion3.choices.find((item) => item.value === option) ?? null : null;
@@ -12675,7 +11662,8 @@ function analyzeConversationEvaluationOrderConfirmation(view) {
 }
 
 // src/lib/salesIntelligence/conversationEvaluationOperational.ts
-var criteria3 = new Map(REVIEW_CRITERIA.map((criterion5) => [criterion5.key, criterion5]));
+import { REVIEW_CRITERIA as REVIEW_CRITERIA8 } from "@/lib/conversationReviews";
+var criteria3 = new Map(REVIEW_CRITERIA8.map((criterion5) => [criterion5.key, criterion5]));
 function make7(key, option, status, confidence3, reason, evidenceMessageIds, systemRecordIds = []) {
   const criterion5 = criteria3.get(key);
   if (!criterion5) throw new Error(`Missing criterion ${key}`);
@@ -12986,7 +11974,8 @@ function analyzeConversationEvaluationOperational(view, system) {
 }
 
 // src/lib/salesIntelligence/conversationEvaluationClosing.ts
-var criterion4 = REVIEW_CRITERIA.find((item) => item.key === "closing_message");
+import { REVIEW_CRITERIA as REVIEW_CRITERIA9 } from "@/lib/conversationReviews";
+var criterion4 = REVIEW_CRITERIA9.find((item) => item.key === "closing_message");
 if (!criterion4) throw new Error("Missing closing_message criterion");
 var OFFICIAL_CLOSING_RX = /(?:(?:نتشرف|تشرفنا)[^\n]{0,60}(?:ب\s*خدم(?:ة|ه)?|خدمت)[^\n]{0,40}(?:24|٢٤|أي\s*وقت|اى\s*وقت|اي\s*وقت)|صيدليات?\s*دواء[^\n]{0,60}(?:تحت\s*(?:أمر|امر)|نتشرف|في\s*خدمت)|(?:نتشرف|تشرفنا)\s*ب\s*خدم(?:ة|ه)\s*حضرتك\s*(?:دائم|في\s*أي\s*وقت)?)/i;
 var RESPECTFUL_CLOSING_RX = /(?:تحت\s*(?:أمر|امر)\s*حضرتك|تحت\s*امرك|شكر(?:ا|ًا)\s*(?:لحضرتك|لتواصلك)|العفو\s*(?:يا\s*فندم)?|نتشرف\s*ب\s*خدم(?:ة|ه)\s*حضرتك|تشرفنا\s*(?:بخدمت|بالكلام)|في\s*أي\s*وقت\s*(?:يا\s*فندم)?)/i;
@@ -13112,7 +12101,7 @@ function analyzeConversationEvaluationClosing(view) {
 }
 
 // src/lib/salesIntelligence/conversationEvaluation.ts
-var criterionByKey = new Map(REVIEW_CRITERIA.map((criterion5) => [criterion5.key, criterion5]));
+var criterionByKey = new Map(REVIEW_CRITERIA10.map((criterion5) => [criterion5.key, criterion5]));
 function clamp(value, min = 0, max = 100) {
   return Math.max(min, Math.min(max, Math.round(value)));
 }
@@ -13224,7 +12213,7 @@ function analyzeConversationEvaluation(view, systemEvidence = null) {
     if (byKey.has(item.key)) throw new Error(`Duplicate conversation evaluation criterion: ${item.key}`);
     byKey.set(item.key, item);
   }
-  const items = REVIEW_CRITERIA.map((criterion5) => {
+  const items = REVIEW_CRITERIA10.map((criterion5) => {
     const item = byKey.get(criterion5.key);
     if (!item) throw new Error(`Missing conversation evaluation criterion: ${criterion5.key}`);
     return item;
@@ -13268,6 +12257,8 @@ function analyzeConversationEvaluation(view, systemEvidence = null) {
 }
 
 // src/lib/salesIntelligence/conversationEvaluationSystemEvidence.ts
+import { supabase as supabase3 } from "@/lib/supabase";
+import { readInvoiceRecordsByIdentityWindow as readInvoiceRecordsByIdentityWindow2 } from "@/lib/readModels/invoiceRecordReadModel";
 function clean3(value) {
   return String(value ?? "").trim();
 }
@@ -13365,7 +12356,7 @@ async function loadConversationEvaluationSystemEvidenceWithClient(client, view) 
       ].filter((identity) => Boolean(identity.value));
       const batches = await Promise.all(
         identities.map(
-          (identity) => readInvoiceRecordsByIdentityWindow({
+          (identity) => readInvoiceRecordsByIdentityWindow2({
             column: identity.column,
             value: identity.value,
             windowStartIso: "1970-01-01T00:00:00.000Z",
@@ -13404,18 +12395,10 @@ async function loadConversationEvaluationSystemEvidenceWithClient(client, view) 
   });
 }
 
-// src/lib/supabaseError.ts
-function logSupabaseError(context, error) {
-  console.error("Supabase error:", {
-    context,
-    message: error.message,
-    details: error.details,
-    hint: error.hint,
-    code: error.code
-  });
-}
-
 // src/lib/salesIntelligence/conversationEvaluationPersistence.ts
+import { supabase as supabase4 } from "@/lib/supabase";
+import { monthCycleFromDate } from "@/lib/conversationReviews";
+import { logSupabaseError } from "@/lib/supabaseError";
 function itemByKey(evaluation, key) {
   return evaluation.items.find((item) => item.key === key) ?? null;
 }
@@ -14811,8 +13794,8 @@ async function handler(req, res) {
     res.setHeader("Allow", "POST");
     return json(res, 405, { error: "method_not_allowed" });
   }
-  const supabaseUrl2 = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  if (!supabaseUrl2) return json(res, 503, { error: "missing_supabase_url" });
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  if (!supabaseUrl) return json(res, 503, { error: "missing_supabase_url" });
   const deployEnvironment = evaluateDeployEnvironment(process.env);
   if (!deployEnvironment.ok) return json(res, 503, { error: "deploy_environment_isolation_failed" });
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -14822,7 +13805,7 @@ async function handler(req, res) {
   const authHeader = String(req.headers.authorization || "");
   const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
   if (!token) return json(res, 401, { error: "missing_user_token" });
-  const service = createClient2(supabaseUrl2, serviceRoleKey, {
+  const service = createClient(supabaseUrl, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false }
   });
   const tokenHash = createHash("sha256").update(token).digest("hex");
@@ -14838,7 +13821,7 @@ async function handler(req, res) {
   }
   const anonKey = process.env.VITE_SUPABASE_ANON_KEY;
   if (!anonKey) return json(res, 503, { error: "missing_supabase_anon_key" });
-  const permissionClient = createClient2(supabaseUrl2, anonKey, {
+  const permissionClient = createClient(supabaseUrl, anonKey, {
     auth: { persistSession: false, autoRefreshToken: false },
     global: { headers: { "x-dawaa-session-token": token } }
   });

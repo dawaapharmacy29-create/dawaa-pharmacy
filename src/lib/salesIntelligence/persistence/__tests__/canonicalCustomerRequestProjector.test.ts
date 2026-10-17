@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { deriveCanonicalCustomerRequestAssessment } from '../../customerRequestQualificationEngine';
 import { buildCanonicalCustomerRequestActionRows } from '../canonicalCustomerRequestProjector';
 
 const CUSTOMER_ID = '33333333-3333-4333-8333-333333333333';
@@ -12,7 +13,7 @@ const RAW = [
 function analysis(caseId = 'case-1', availabilityState: 'unavailable' | 'check_pending' = 'unavailable') {
   const productKey = 'panadol';
   const demandKey = `${caseId}:demand:product:${PRODUCT_ID}`;
-  return {
+  const result = {
     caseId,
     conversationId: '11111111-1111-4111-8111-111111111111',
     conversationCase: {
@@ -125,6 +126,8 @@ function analysis(caseId = 'case-1', availabilityState: 'unavailable' | 'check_p
       explanation: 'fixture',
     },
   } as any;
+  result.customerRequestAssessment = deriveCanonicalCustomerRequestAssessment(result);
+  return result;
 }
 
 function source(staffId: string | null = STAFF_ID) {
@@ -175,4 +178,16 @@ describe('canonical customer request projector', () => {
     expect(result.rows).toEqual([]);
     expect(result.skipped[0]).toMatchObject({ reason: 'missing_staff_identity' });
   });
+  it('uses the pipeline qualification and never requalifies mutable demand evidence', () => {
+    const canonical = analysis();
+    canonical.unavailableDemand[0].availabilityState = 'check_pending';
+    const result = buildCanonicalCustomerRequestActionRows([canonical], [source()]);
+    expect(result.rows).toHaveLength(1);
+    delete canonical.customerRequestAssessment;
+    const missing = buildCanonicalCustomerRequestActionRows([canonical], [source()]);
+    expect(missing.rows).toEqual([]);
+    expect(missing.skipped[0].reason).toBe('missing_canonical_assessment');
+  });
+
 });
+

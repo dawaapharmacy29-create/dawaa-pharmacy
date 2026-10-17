@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { deriveCanonicalComplaintAssessment } from '../../complaintAssessmentEngine';
 import { buildCanonicalComplaintActionRows } from '../canonicalComplaintProjector';
 
 const SOURCE_ID = '11111111-1111-4111-8111-111111111111';
@@ -17,6 +18,7 @@ function analysis(
 ) {
   return {
     caseId,
+    complaintAssessment: deriveCanonicalComplaintAssessment({caseId,messages:messages.map(message=>({...message,meaningful:true}))}),
     conversationId: SOURCE_ID,
     conversationCase: {
       customerId: CUSTOMER_ID,
@@ -95,4 +97,16 @@ describe('canonical complaint projector', () => {
     );
     expect(result.rows[0].payload).toMatchObject({ canonicalComplaintState: 'unresolved' });
   });
+  it('consumes the canonical decision without reinterpreting later text edits', () => {
+    const canonical = analysis();
+    canonical.caseIntelligence.interaction.messages[0].text = 'المشكلة اتحلت شكرا';
+    const result = buildCanonicalComplaintActionRows([canonical], [source()]);
+    expect(result.rows[0].payload.canonicalComplaintState).toBe('recovery_attempted');
+    delete canonical.complaintAssessment;
+    const missing = buildCanonicalComplaintActionRows([canonical], [source()]);
+    expect(missing.rows).toEqual([]);
+    expect(missing.skipped[0].reason).toBe('missing_canonical_assessment');
+  });
+
 });
+

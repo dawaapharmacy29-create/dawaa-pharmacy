@@ -1,0 +1,13 @@
+# Canonical operational closure — source-only
+
+Continuation baseline: d4eadbbd68ca07357c8bee25379169c6e4476be3, newer than the supplied 02108430 checkpoint. Baseline CI 39068475802 passed Full Verify: 1047 custom tests and 1241 Vitest tests in each regression timezone, one pre-existing skip; TypeScript/build/performance and generated parity passed. The two reported stale legacy-writer tests were already corrected upstream. The three temporary cutover patchers were already removed; no legacy writer was restored.
+
+This batch moves complaint and customer-request qualification calculations out of projectors into the canonical pipeline. Projectors consume precomputed, case-bound assessments; missing or mismatched historical assessments fail closed rather than reparse text. Assessments are included in the persisted evidence snapshot. Raw timeline parsing in request/complaint projection remains identity-input extraction only, not semantic decision making. No automatic materialization is enabled.
+
+Focused local verification: 19 tests passed across four suites. Coverage includes preserved source-case branch across retry/correction; concurrent follow-up insertion; explicit non-materialization; frozen semantic assessment consumption despite changed text/evidence; missing-assessment fail-closed; unresolved complaints stay reviewable and no-invoice cases do not become countable sales.
+
+Generated API regenerated using the repository generator with esbuild 0.27.7 from the committed lockfile; --check passes locally. Full verification on this batch remains pending CI. The permanent branch verification workflow replaces the temporary workflow with contents:read and persist-credentials:false; it contains no commit/push or source patching. It retains full verify plus source purity, focused regressions, semantic lint and original architecture boundaries. Original Quality Gate remains unchanged.
+
+Reviewed automatic cutover paths: Auto Ingest, Smart Watcher -> canonical case-graph/refresh, Product Demand backfill, Journey V15. V6/V15 remain evidence/story code; their autonomous action calls are absent from these paths. Existing authorized materialization remains a separate user-controlled boundary. Claims are limited to these reviewed paths, not arbitrary manual task entry elsewhere in the application.
+
+No main update, deploy, Supabase change, production action creation, historical repair, runtime activation or Production smoke was performed. No credentials or customer exports are included. Performance changes add no database reads; assessment calculation moves upstream once per case. Runtime budgets must pass CI; no new Production latency measurement is claimed.

@@ -5,7 +5,6 @@
 // explicit approval + materialization RPC remains the only path to customer_requests truth.
 import { parseWhatsAppExport } from '../../whatsappConversationParser';
 import { stableOperationIdentity } from '../../whatsappFollowupIdentity';
-import { deriveCanonicalCustomerRequestAssessment } from '../customerRequestQualificationEngine';
 import type { SalesIntelligenceCaseAnalysis } from '../types';
 
 export const CANONICAL_CUSTOMER_REQUEST_PROJECTION_VERSION =
@@ -51,6 +50,7 @@ export interface CanonicalCustomerRequestProjectionSkip {
   requestKey: string;
   reason:
     | 'not_qualified'
+    | 'missing_canonical_assessment'
     | 'missing_source'
     | 'missing_customer_name'
     | 'missing_branch'
@@ -99,13 +99,11 @@ export function buildCanonicalCustomerRequestActionRows(
   const skipped: CanonicalCustomerRequestProjectionSkip[] = [];
 
   for (const analysis of analyses) {
-    const assessment = deriveCanonicalCustomerRequestAssessment({
-      caseId: analysis.caseId,
-      customerNeed: analysis.customerNeed,
-      unavailableDemand: analysis.unavailableDemand,
-      salesOutcome: analysis.salesOutcome,
-      lostOpportunity: analysis.lostOpportunity,
-    });
+    const assessment = analysis.customerRequestAssessment;
+    if (!assessment || assessment.caseId !== analysis.caseId) {
+      skipped.push({ caseId: analysis.caseId, requestKey: '', reason: 'missing_canonical_assessment' });
+      continue;
+    }
     const sourceId = text(analysis.conversationId);
     const source = sourceById.get(sourceId);
 
@@ -274,3 +272,4 @@ export async function projectCanonicalCustomerRequestsToActions(
     existing: built.rows.length - inserted,
   };
 }
+

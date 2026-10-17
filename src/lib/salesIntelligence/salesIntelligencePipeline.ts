@@ -32,6 +32,8 @@ import { deriveHistoricalCommercialClosureAssessment } from './historicalCommerc
 import { deriveFinancialSettlementAssessment } from './financialSettlementEngine';
 import { deriveSaleProofState } from './saleProofState';
 import { deriveCanonicalSalesOutcome } from './canonicalSalesOutcomeEngine';
+import { deriveCanonicalComplaintAssessment } from './complaintAssessmentEngine';
+import { deriveCanonicalCustomerRequestAssessment } from './customerRequestQualificationEngine';
 import { deriveCustomerNeedModel } from './customerNeedModel';
 import { deriveCommercialJourneyState } from './commercialJourneyStateMachine';
 import { deriveUnavailableDemand } from './unavailableDemandEngine';
@@ -673,7 +675,26 @@ function analyzeOneCase(
     status = 'analyzed';
   }
 
+  const complaintAssessment = deriveCanonicalComplaintAssessment({
+    caseId: conversationCase.caseId,
+    messages: scopedMessages.map((message) => ({
+      id: message.id,
+      role: message.role,
+      text: message.text,
+      meaningful: message.isMeaningful,
+    })),
+  });
+  const customerRequestAssessment = deriveCanonicalCustomerRequestAssessment({
+    caseId: conversationCase.caseId,
+    customerNeed,
+    unavailableDemand,
+    salesOutcome,
+    lostOpportunity,
+  });
+
   const analysis = {
+    complaintAssessment,
+    customerRequestAssessment,
     caseId: conversationCase.caseId,
     conversationId: input.conversationId,
     conversationCase: effectiveConversationCase,
@@ -925,3 +946,4 @@ export function runSalesIntelligencePipeline(input: SalesIntelligencePipelineInp
     pipelineWarnings: segmented.pipelineWarnings,
   };
 }
+

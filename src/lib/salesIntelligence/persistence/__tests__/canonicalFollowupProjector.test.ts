@@ -221,4 +221,32 @@ describe('canonical follow-up operational projector', () => {
     expect('target_table' in client.rows[0]).toBe(false);
     expect('target_id' in client.rows[0]).toBe(false);
   });
+  it('keeps the stored source-case branch through retry and customer correction', async () => {
+    const client = fakeClient();
+    const original = analysis({ branch: 'فرع الشامي', assignedStaffId: STAFF_ID });
+    await projectCanonicalFollowupsToActions(client, [original], sources);
+    const actionId = client.rows[0].id;
+    await projectCanonicalFollowupsToActions(client, [analysis({
+      branch: 'فرع شكري',
+      customerId: '55555555-5555-4555-8555-555555555555',
+    })], sources);
+    expect(client.rows).toHaveLength(1);
+    expect(client.rows[0]).toMatchObject({
+      id: actionId, branch: 'فرع الشامي', followup_identity: 'fu1|fixture|stock-check',
+      auto_eligible: false,
+    });
+  });
+
+  it('publishes one stable action when two canonical refreshes race', async () => {
+    const client = fakeClient();
+    const results = await Promise.all([
+      projectCanonicalFollowupsToActions(client, [analysis()], sources),
+      projectCanonicalFollowupsToActions(client, [analysis()], sources),
+    ]);
+    expect(client.rows).toHaveLength(1);
+    expect(results.reduce((sum, result) => sum + result.inserted, 0)).toBe(1);
+    expect(results.reduce((sum, result) => sum + result.existing, 0)).toBe(1);
+  });
+
 });
+
