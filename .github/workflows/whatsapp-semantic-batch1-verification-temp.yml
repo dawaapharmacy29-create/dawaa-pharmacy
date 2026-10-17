@@ -23,21 +23,19 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Apply canonical operational writer cutover once
-        run: |
-          node scripts/patch-canonical-operational-cutover.cjs
-          node scripts/patch-journey-v15-operational-writer-cutover.cjs
+      - name: Apply Journey V15 writer cutover once
+        run: node scripts/patch-journey-v15-operational-writer-cutover.cjs
 
-      - name: Commit canonical operational writer cutover when changed
+      - name: Commit Journey V15 writer cutover when changed
         run: |
-          if git diff --quiet -- src/lib/salesIntelligence/refresh/canonicalRefreshService.ts src/lib/whatsappAutoIngestPipeline.ts src/lib/whatsappProductDemandBackfillV22.ts src/lib/whatsappCustomerJourneyPersistenceV15.ts; then
-            echo "Canonical operational cutover already present."
+          if git diff --quiet -- src/lib/whatsappCustomerJourneyPersistenceV15.ts; then
+            echo "Journey V15 writer already retired."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/lib/salesIntelligence/refresh/canonicalRefreshService.ts src/lib/whatsappAutoIngestPipeline.ts src/lib/whatsappProductDemandBackfillV22.ts src/lib/whatsappCustomerJourneyPersistenceV15.ts
-          git commit -m "refactor(si): cut over operational writers to canonical brain"
+          git add src/lib/whatsappCustomerJourneyPersistenceV15.ts
+          git commit -m "refactor(si): retire Journey V15 operational task writer"
           git push origin "HEAD:${GITHUB_REF_NAME}"
 
       - name: Setup Node.js
