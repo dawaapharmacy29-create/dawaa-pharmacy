@@ -1,0 +1,206 @@
+{
+  "decision": "PHASE_A_INSTALLED_AND_VERIFIED",
+  "checkpoint": "60398e58f68cc4ec2cc455a827fd5a93542a5c62",
+  "testedHead": "20f854c56cbe18faf336cd7e1949d3ddc4aebd50",
+  "candidateSha256": "d52cdd2f01d40f0a3b1a1a08725d01d2cbfaf42255d1ff19afc9f550038ab470",
+  "precheck": "PASS_NO_DRIFT",
+  "apply": "SUCCESS_ONE_ATTEMPT",
+  "postcheck": "PASS",
+  "successfulDdlTransactions": 1,
+  "ddlFunctionDefinitions": 4,
+  "ddlTriggerCreations": 1,
+  "migrationLedgerRowsAdded": 1,
+  "productionApplicationDataRowChanges": 0,
+  "productionReanalysis": 0,
+  "historicalRepair": 0,
+  "runtimeActivation": 0,
+  "deploy": 0,
+  "merge": 0,
+  "mainChanges": 0,
+  "rollback": "READY_NOT_NEEDED_NOT_EXECUTED",
+  "unchangedDefects": {
+    "missingCurrent": 53,
+    "archivedActive": 39,
+    "nonArchivedMissing": 14,
+    "publishedSuperseded": 16,
+    "pointerMismatches": 16,
+    "duplicateCurrent": 0
+  },
+  "before": {
+    "cases": {
+      "count": 201,
+      "fingerprint": "f431c105a02d6109b5970bca51692879"
+    },
+    "analyses": {
+      "count": 1071,
+      "fingerprint": "36268696cc9ec69efd0e43dbcfa94e1d"
+    },
+    "triggers": [
+      {
+        "name": "trg_whatsapp_invoice_evidence_v17",
+        "enabled": "O",
+        "definition": "CREATE TRIGGER trg_whatsapp_invoice_evidence_v17 AFTER UPDATE OF invoice_match_status, matched_invoice_id, matched_invoice_number, matched_invoice_value, matched_invoice_date, invoice_match_confidence ON public.whatsapp_review_sources FOR EACH ROW WHEN (((old.invoice_match_status IS DISTINCT FROM new.invoice_match_status) OR (old.matched_invoice_id IS DISTINCT FROM new.matched_invoice_id) OR (old.matched_invoice_number IS DISTINCT FROM new.matched_invoice_number) OR (old.matched_invoice_value IS DISTINCT FROM new.matched_invoice_value) OR (old.matched_invoice_date IS DISTINCT FROM new.matched_invoice_date) OR (old.invoice_match_confidence IS DISTINCT FROM new.invoice_match_confidence))) EXECUTE FUNCTION dawaa_sync_whatsapp_invoice_evidence_v17()"
+      }
+    ],
+    "functions": [
+      {
+        "acl": [
+          "postgres=X/postgres",
+          "anon=X/postgres",
+          "authenticated=X/postgres",
+          "service_role=X/postgres"
+        ],
+        "md5": "fd7b5e40f631e4633049147cb2933ee7",
+        "name": "dawaa_archive_superseded_whatsapp_source_v35",
+        "owner": "postgres",
+        "config": [
+          "search_path=public"
+        ],
+        "signature": "dawaa_archive_superseded_whatsapp_source_v35(text,timestamp with time zone,timestamp with time zone,integer,uuid[])",
+        "security_definer": true
+      },
+      {
+        "acl": [
+          "postgres=X/postgres",
+          "service_role=X/postgres"
+        ],
+        "md5": "9fd2f5976e2419ca7154d203b29da5fc",
+        "name": "sales_intelligence_reconcile_case_set_v1",
+        "owner": "postgres",
+        "config": [
+          "search_path=public, pg_catalog"
+        ],
+        "signature": "sales_intelligence_reconcile_case_set_v1(uuid,text[])",
+        "security_definer": true
+      },
+      {
+        "acl": [
+          "postgres=X/postgres",
+          "service_role=X/postgres"
+        ],
+        "md5": "c6c53c94a20cfdbf2946371398790d98",
+        "name": "sales_intelligence_write_case_analysis",
+        "owner": "postgres",
+        "config": [
+          "search_path=public, pg_temp"
+        ],
+        "signature": "sales_intelligence_write_case_analysis(text,jsonb)",
+        "security_definer": true
+      }
+    ],
+    "captured_at": "2026-10-17T12:43:55.227009+00:00",
+    "migration_rows": 0
+  },
+  "after": {
+    "cases": {
+      "count": 201,
+      "fingerprint": "f431c105a02d6109b5970bca51692879"
+    },
+    "analyses": {
+      "count": 1071,
+      "fingerprint": "36268696cc9ec69efd0e43dbcfa94e1d"
+    },
+    "triggers": [
+      {
+        "name": "sales_intelligence_source_archived_v1",
+        "enabled": "O",
+        "definition": "CREATE TRIGGER sales_intelligence_source_archived_v1 AFTER UPDATE OF review_status ON public.whatsapp_review_sources FOR EACH ROW WHEN (((new.review_status = 'archived'::text) AND (old.review_status IS DISTINCT FROM new.review_status))) EXECUTE FUNCTION sales_intelligence_on_source_archived_v1()"
+      },
+      {
+        "name": "trg_whatsapp_invoice_evidence_v17",
+        "enabled": "O",
+        "definition": "CREATE TRIGGER trg_whatsapp_invoice_evidence_v17 AFTER UPDATE OF invoice_match_status, matched_invoice_id, matched_invoice_number, matched_invoice_value, matched_invoice_date, invoice_match_confidence ON public.whatsapp_review_sources FOR EACH ROW WHEN (((old.invoice_match_status IS DISTINCT FROM new.invoice_match_status) OR (old.matched_invoice_id IS DISTINCT FROM new.matched_invoice_id) OR (old.matched_invoice_number IS DISTINCT FROM new.matched_invoice_number) OR (old.matched_invoice_value IS DISTINCT FROM new.matched_invoice_value) OR (old.matched_invoice_date IS DISTINCT FROM new.matched_invoice_date) OR (old.invoice_match_confidence IS DISTINCT FROM new.invoice_match_confidence))) EXECUTE FUNCTION dawaa_sync_whatsapp_invoice_evidence_v17()"
+      }
+    ],
+    "functions": [
+      {
+        "acl": [
+          "postgres=X/postgres",
+          "anon=X/postgres",
+          "authenticated=X/postgres",
+          "service_role=X/postgres"
+        ],
+        "md5": "5209146fa7e69c228de39ca7cfc0c9e9",
+        "name": "dawaa_archive_superseded_whatsapp_source_v35",
+        "owner": "postgres",
+        "config": [
+          "search_path=public"
+        ],
+        "signature": "dawaa_archive_superseded_whatsapp_source_v35(text,timestamp with time zone,timestamp with time zone,integer,uuid[])",
+        "security_definer": true
+      },
+      {
+        "acl": [
+          "postgres=X/postgres",
+          "service_role=X/postgres"
+        ],
+        "md5": "cabbabec53cd0330fdb29f6669f2f4d1",
+        "name": "sales_intelligence_on_source_archived_v1",
+        "owner": "postgres",
+        "config": [
+          "search_path=public, pg_catalog"
+        ],
+        "signature": "sales_intelligence_on_source_archived_v1()",
+        "security_definer": true
+      },
+      {
+        "acl": [
+          "postgres=X/postgres",
+          "service_role=X/postgres"
+        ],
+        "md5": "9fd2f5976e2419ca7154d203b29da5fc",
+        "name": "sales_intelligence_reconcile_case_set_v1",
+        "owner": "postgres",
+        "config": [
+          "search_path=public, pg_catalog"
+        ],
+        "signature": "sales_intelligence_reconcile_case_set_v1(uuid,text[])",
+        "security_definer": true
+      },
+      {
+        "acl": [
+          "postgres=X/postgres",
+          "service_role=X/postgres"
+        ],
+        "md5": "b1d51222a320d551aeb0034afae74211",
+        "name": "sales_intelligence_reconcile_case_set_v2",
+        "owner": "postgres",
+        "config": [
+          "search_path=public, pg_catalog"
+        ],
+        "signature": "sales_intelligence_reconcile_case_set_v2(uuid,text[],jsonb)",
+        "security_definer": true
+      },
+      {
+        "acl": [
+          "postgres=X/postgres",
+          "service_role=X/postgres"
+        ],
+        "md5": "b06dc86dd488b7af4418f53195252947",
+        "name": "sales_intelligence_stage_case_analysis_v1",
+        "owner": "postgres",
+        "config": [
+          "search_path=public, pg_temp"
+        ],
+        "signature": "sales_intelligence_stage_case_analysis_v1(text,jsonb)",
+        "security_definer": true
+      },
+      {
+        "acl": [
+          "postgres=X/postgres",
+          "service_role=X/postgres"
+        ],
+        "md5": "c6c53c94a20cfdbf2946371398790d98",
+        "name": "sales_intelligence_write_case_analysis",
+        "owner": "postgres",
+        "config": [
+          "search_path=public, pg_temp"
+        ],
+        "signature": "sales_intelligence_write_case_analysis(text,jsonb)",
+        "security_definer": true
+      }
+    ],
+    "captured_at": "2026-10-17T12:44:19.324407+00:00",
+    "migration_rows": 1
+  }
+}
