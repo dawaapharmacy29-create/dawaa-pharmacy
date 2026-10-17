@@ -35,7 +35,9 @@ jobs:
       - name: Install browser controller only (no browser download, no lockfile mutation)
         run: npm install --no-save --package-lock=false --ignore-scripts --no-audit --no-fund playwright-core@1.55.0
       - name: Measure analysis stages
-        run: npx vitest run src/lib/salesIntelligence/__tests__/analysisStageTiming.performance.test.ts --reporter=verbose | tee /tmp/analysis-stage-timing.txt
+        run: |
+          set -o pipefail
+          npx vitest run src/lib/salesIntelligence/__tests__/analysisStageTiming.performance.test.ts --reporter=verbose 2>&1 | tee /tmp/analysis-stage-timing.txt
       - name: Build real-component browser harness
         run: npx vite build --config scripts/performance/browser-closure/vite.config.ts
       - name: Serve browser harness
@@ -53,13 +55,16 @@ jobs:
       - name: Measure browser UX, rendering and retained memory
         env:
           BROWSER_CLOSURE_URL: http://127.0.0.1:4174/scripts/performance/browser-closure/index.html
-        run: node scripts/performance/browser-closure/browser.mjs | tee /tmp/browser-closure.txt
+        run: |
+          set -o pipefail
+          node scripts/performance/browser-closure/browser.mjs 2>&1 | tee /tmp/browser-closure.txt
       - name: Regression suite
         run: npm test
       - name: TypeScript
         run: npm run typecheck
       - name: Semantic ESLint
-        run: npm run lint -- --quiet --rule 'prettier/prettier: off'
+        run: |
+          npm run lint -- --quiet --rule 'prettier/prettier: off'
       - name: Production build and performance budget
         run: npm run build && npm run perf:budget
       - name: Verify source and lockfiles remain unchanged
