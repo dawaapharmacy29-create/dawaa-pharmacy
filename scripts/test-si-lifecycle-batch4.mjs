@@ -1,19 +1,21 @@
-// Local PostgreSQL WASM rehearsal only; no network/client credentials and no Production target.
+// Local-only Batch 4 matrix: existing PGlite mode or an explicitly selected loopback Native PG17 fixture.
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import assert from 'node:assert/strict';
 const modulePath=process.env.DAWAA_PGLITE_MODULE;
-const {PGlite}=await import(modulePath?pathToFileURL(modulePath).href:'@electric-sql/pglite');
-const db=new PGlite();
+const native=Boolean(process.env.DAWAA_NATIVE_PG_URL);
+const db=native ? await (await import('./verification/nativePgFixture.mjs')).nativePgFixture()
+ : new (await import(modulePath?pathToFileURL(modulePath).href:'@electric-sql/pglite')).PGlite();
 const root=path.resolve('docs/whatsapp-master-brain-lifecycle-v4-20261017');
 const read=p=>fs.readFileSync(path.join(root,p),'utf8');
+const install=()=>db.exec(read(native?'sql/phase-a-release-candidate.sql':'sql/phase-a-candidate.sql'));
 const catalog=JSON.parse(read('baseline/catalog.json'));
 let passed=0;
 const test=async(name,fn)=>{await fn();passed++;console.log(`PASS ${name}`);};
 const query=async(sql,args=[])=> (await db.query(sql,args)).rows;
 const scalar=async(sql,args=[])=>Object.values((await query(sql,args))[0])[0];
-await db.exec('CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role; CREATE FUNCTION uuid_generate_v4() RETURNS uuid LANGUAGE sql AS $$ SELECT gen_random_uuid() $$;');
+await db.exec(`DO $$ BEGIN IF NOT EXISTS(SELECT FROM pg_roles WHERE rolname='anon') THEN CREATE ROLE anon; END IF; IF NOT EXISTS(SELECT FROM pg_roles WHERE rolname='authenticated') THEN CREATE ROLE authenticated; END IF; IF NOT EXISTS(SELECT FROM pg_roles WHERE rolname='service_role') THEN CREATE ROLE service_role; END IF; END $$; CREATE FUNCTION uuid_generate_v4() RETURNS uuid LANGUAGE sql AS $$ SELECT gen_random_uuid() $$;`);
 for(const table of [...new Set(catalog.columns.map(c=>c.table))]){
  const cols=catalog.columns.filter(c=>c.table===table).map(c=>`"${c.column}" ${c.type==='_text'?'text[]':c.type==='_uuid'?'uuid[]':c.type}${c.default?' DEFAULT '+c.default:''}${c.nullable==='NO'?' NOT NULL':''}`);
  await db.exec(`CREATE TABLE public.${table} (${cols.join(',')});`);
@@ -40,6 +42,10 @@ CREATE TABLE whatsapp_customer_story_events(source_id uuid);
 `);
 const md5=async(name)=>scalar('select md5(prosrc) from pg_proc where proname=$1',[name]);
 const expected='9fd2f5976e2419ca7154d203b29da5fc';
+if(native){
+ await db.exec('CREATE FUNCTION dawaa_sync_whatsapp_invoice_evidence_v17() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$;');
+ for(const trigger of catalog.triggers) await db.exec(trigger);
+}
 await test('exact production v1 and analysis writer bodies',async()=>{
  assert.equal(await md5('sales_intelligence_reconcile_case_set_v1'),expected);
  assert.equal(await md5('sales_intelligence_write_case_analysis'),'c6c53c94a20cfdbf2946371398790d98');
@@ -49,15 +55,25 @@ const other='22222222-2222-4222-8222-222222222222';
 const row=(hash='h')=>({case_type:'sales_opportunity',case_status:'closed',pipeline_status:'analyzed',overall_evidence_level:'strong',case_started_at:'2026-01-01',historical_closure_level:'none',commercial_confirmation_state:'none',protocol_applicability:'not_applicable',attribution_level:'none',integrity_evaluation_scope:'not_evaluable',semantic_source_hash:hash,pipeline_version:'v1',engine_version_case_segmentation:'1',engine_version_historical_closure:'1',engine_version_commercial_confirmation:'1',engine_version_protocol_applicability:'1'});
 async function reset(){await db.exec(`TRUNCATE sales_intelligence_cases,sales_intelligence_case_analyses,whatsapp_review_sources,whatsapp_customer_cases_v22,conversation_sales_reviews,proof_revocations;
 INSERT INTO whatsapp_review_sources(id,review_status,source_hash) VALUES('${source}','new','source-hash'),('${other}','new','other-hash');`);}
-async function c(id='a',s=source){await db.query("INSERT INTO sales_intelligence_cases(case_id,conversation_id,is_active,case_started_at,source_case_id_v22) VALUES($1,$2,true,'2026-01-01','44444444-4444-4444-8444-444444444444') ON CONFLICT DO NOTHING",[id,s]);}
+async function c(id='a',s=source){await db.query("INSERT INTO sales_intelligence_cases(case_id,conversation_id,is_active,case_started_at,source_case_id_v22) VALUES($1,$2,$3,'2026-01-01','44444444-4444-4444-8444-444444444444') ON CONFLICT DO NOTHING",[id,s,!native]);}
 async function write(id='a',hash='h',staged=true){return scalar(`SELECT public.${staged?'sales_intelligence_stage_case_analysis_v1':'sales_intelligence_write_case_analysis'}($1,$2::jsonb)`,[id,JSON.stringify(row(hash))]);}
 async function reconcile(ids=['a'],mapping={},s=source){return scalar('SELECT public.sales_intelligence_reconcile_case_set_v2($1,$2::text[],$3::jsonb)',[s,ids,JSON.stringify(mapping)]);}
 async function pointer(id='a'){return (await query('SELECT published_analysis_id FROM sales_intelligence_cases WHERE case_id=$1',[id]))[0].published_analysis_id;}
 async function current(id='a'){return scalar('SELECT analysis_id FROM sales_intelligence_case_analyses WHERE case_id=$1 AND is_current',[id]);}
 async function initial(){await c();const a=await write('a','old',false);await db.query('SELECT sales_intelligence_reconcile_case_set_v1($1,$2::text[])',[source,['a']]);return a.analysis_id;}
+if(native) await test('exact strict precheck on synthetic baseline cohort and captured column/trigger contracts',async()=>{
+ await reset();
+ for(let i=1;i<=53;i++){
+  const id='00000000-0000-4000-8000-'+String(i).padStart(12,'0');const key='precheck-'+i;
+  await db.query('insert into whatsapp_review_sources(id,review_status,source_hash) values($1,$2,$3)',[id,i<=39?'archived':'new',key]);
+  await c(key,id);await db.query('update sales_intelligence_cases set is_active=true where case_id=$1',[key]);
+  if(i<=16){const a=await write(key,'baseline',false);await db.query('update sales_intelligence_case_analyses set is_current=false,superseded_at=now() where analysis_id=$1',[a.analysis_id]);await db.query('update sales_intelligence_cases set published_analysis_id=$1 where case_id=$2',[a.analysis_id,key]);}
+ }
+ await db.exec(read('sql/precheck.sql'));
+});
 await test('baseline v1 publishes current analysis',async()=>{await reset();const old=await initial();assert.equal(await pointer(),old);});
 await test('baseline exhibits archival inconsistency',async()=>{await db.query("UPDATE whatsapp_review_sources SET review_status='archived' WHERE id=$1",[source]);await db.query('SELECT sales_intelligence_reconcile_case_set_v1($1,$2::text[])',[source,['a']]);assert.equal(await scalar("select is_active from sales_intelligence_cases where case_id='a'"),true);});
-await db.exec(read('sql/phase-a-candidate.sql'));
+await install();
 async function matrix(prefix){
  await test(prefix+' first case staged, not published',async()=>{await reset();await c();const a=await write();assert.equal(a.is_current,false);assert.equal(await pointer(),null);});
  await test(prefix+' first complete source publishes',async()=>{const a=await write();const r=await reconcile(['a'],{a:a.analysis_id});assert.equal(r.ok,true);assert.equal(await pointer(),a.analysis_id);assert.equal(await current(),a.analysis_id);});
@@ -90,12 +106,12 @@ await test('archive also retires staged inactive cases and stale inactive pointe
  assert.equal(await scalar('select count(*)::int from sales_intelligence_case_analyses'),1);
 });
 await test('exact rollback to baseline',async()=>{await db.exec(read('sql/rollback.sql'));assert.equal(await md5('sales_intelligence_reconcile_case_set_v1'),expected);assert.equal(await md5('dawaa_archive_superseded_whatsapp_source_v35'),'fd7b5e40f631e4633049147cb2933ee7');assert.equal(await scalar("select count(*)::int from pg_proc where proname='sales_intelligence_reconcile_case_set_v2'"),0);});
-await test('reapply candidate exact body',async()=>{await db.exec(read('sql/phase-a-candidate.sql'));assert.equal(await md5('sales_intelligence_reconcile_case_set_v2'),v2md5);});
+await test('reapply candidate exact body',async()=>{await install();assert.equal(await md5('sales_intelligence_reconcile_case_set_v2'),v2md5);});
 await matrix('reapply');
-await db.exec(read('sql/archive-candidate.sql'));
+if(!native) await db.exec(read('sql/archive-candidate.sql'));
 await test('future archival routes atomically through canonical reconcile',async()=>{await reset();await initial();await db.query("update whatsapp_review_sources set review_status='archived' where id=$1",[source]);assert.equal(await scalar('select count(*)::int from sales_intelligence_cases where conversation_id=$1 and is_active',[source]),0);assert.equal(await pointer(),null);});
 await test('archive trigger cannot recurse and retains historical analyses',async()=>{assert.equal(await scalar('select count(*)::int from sales_intelligence_case_analyses'),1);assert.equal(await scalar("select count(*)::int from pg_trigger where tgname='sales_intelligence_source_archived_v1'"),1);});
-await db.exec(read('sql/archive-writer-candidate.sql'));
+if(!native) await db.exec(read('sql/archive-writer-candidate.sql'));
 await test('real v35 archival path preserves SI case and analysis history',async()=>{
  await reset();const old=await initial();
  await db.query("update whatsapp_review_sources set source_filename='fixture.txt',conversation_started_at='2026-01-01',conversation_ended_at='2026-01-02',message_count=2 where id=$1",[source]);
@@ -129,7 +145,7 @@ await test('rollback restores exact owner ACL security and config as well as bod
  assert.equal(await md5('dawaa_archive_superseded_whatsapp_source_v35'),'fd7b5e40f631e4633049147cb2933ee7');
 });
 await test('final reapply after full rollback restores all candidates',async()=>{
- await db.exec(read('sql/phase-a-candidate.sql'));await db.exec(read('sql/archive-candidate.sql'));await db.exec(read('sql/archive-writer-candidate.sql'));
+ await install();if(!native) await db.exec(read('sql/archive-candidate.sql'));if(!native) await db.exec(read('sql/archive-writer-candidate.sql'));
  assert.equal(await md5('sales_intelligence_reconcile_case_set_v2'),v2md5);
 });
 await test('single transaction release bundle installs all candidates after rollback',async()=>{
@@ -165,9 +181,10 @@ await test('automatic reviews retire while human review and all history remain',
  assert.equal(await scalar("select count(*)::int from conversation_sales_reviews where evaluation_kind='manual' and is_current"),1);
  assert.equal(await scalar('select count(*)::int from conversation_sales_reviews'),2);
 });
-await test('strict Production precheck refuses different local PostgreSQL version',async()=>{
- await assert.rejects(()=>db.exec(read('sql/precheck.sql')),/role\/version drift/);
+await test(native?'strict precheck rejects installed candidate state':'strict Production precheck refuses different local PostgreSQL version',async()=>{
+ await assert.rejects(()=>db.exec(read('sql/precheck.sql')),native?/function baseline drift/:/role\/version drift/);
  await db.exec('ROLLBACK');
 });
+if(native) await (await import('./verification/batch4NativeConcurrency.mjs')).runNativeConcurrency({db,test,reset,c,write,reconcile,query,scalar,row,source,other,pointer,current});
 console.log(JSON.stringify({passed,failed:0,baselineMd5:expected,v2md5,postgres:await scalar('select version()')}));
 await db.close();
