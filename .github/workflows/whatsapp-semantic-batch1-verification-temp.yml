@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   verify:
@@ -22,6 +22,21 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+
+      - name: Apply canonical operational writer cutover once
+        run: node scripts/patch-canonical-operational-cutover.cjs
+
+      - name: Commit canonical operational writer cutover when changed
+        run: |
+          if git diff --quiet -- src/lib/salesIntelligence/refresh/canonicalRefreshService.ts src/lib/whatsappAutoIngestPipeline.ts src/lib/whatsappProductDemandBackfillV22.ts; then
+            echo "Canonical operational cutover already present."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/salesIntelligence/refresh/canonicalRefreshService.ts src/lib/whatsappAutoIngestPipeline.ts src/lib/whatsappProductDemandBackfillV22.ts
+          git commit -m "refactor(si): cut over operational writers to canonical brain"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -43,12 +58,14 @@ jobs:
           npx vitest run
           src/lib/salesIntelligence/__tests__/canonicalComplaintAndRequestOwners.test.ts
           src/lib/salesIntelligence/__tests__/conversationEvaluationServiceRecovery.test.ts
+          src/lib/salesIntelligence/__tests__/canonicalOperationalWriterCutover.test.ts
 
       - name: Canonical operational projection tests
         run: >-
           npx vitest run
           src/lib/salesIntelligence/persistence/__tests__/canonicalFollowupProjector.test.ts
           src/lib/salesIntelligence/persistence/__tests__/canonicalCustomerRequestProjector.test.ts
+          src/lib/salesIntelligence/persistence/__tests__/canonicalComplaintProjector.test.ts
 
       - name: Generated API parity
         run: node scripts/build-sales-intelligence-refresh-api.cjs --check
@@ -60,6 +77,8 @@ jobs:
         run: >-
           npx eslint
           src/lib/whatsappConversationParser.ts
+          src/lib/whatsappAutoIngestPipeline.ts
+          src/lib/whatsappProductDemandBackfillV22.ts
           src/lib/salesIntelligence/caseBasketEngine.ts
           src/lib/salesIntelligence/customerNeedModel.ts
           src/lib/salesIntelligence/__tests__/realChatSemanticGuards.test.ts
@@ -68,10 +87,13 @@ jobs:
           src/lib/salesIntelligence/conversationEvaluationServiceRecovery.ts
           src/lib/salesIntelligence/__tests__/canonicalComplaintAndRequestOwners.test.ts
           src/lib/salesIntelligence/__tests__/conversationEvaluationServiceRecovery.test.ts
+          src/lib/salesIntelligence/__tests__/canonicalOperationalWriterCutover.test.ts
           src/lib/salesIntelligence/persistence/canonicalFollowupProjector.ts
           src/lib/salesIntelligence/persistence/canonicalCustomerRequestProjector.ts
+          src/lib/salesIntelligence/persistence/canonicalComplaintProjector.ts
           src/lib/salesIntelligence/persistence/__tests__/canonicalFollowupProjector.test.ts
           src/lib/salesIntelligence/persistence/__tests__/canonicalCustomerRequestProjector.test.ts
+          src/lib/salesIntelligence/persistence/__tests__/canonicalComplaintProjector.test.ts
           src/lib/salesIntelligence/refresh/canonicalRefreshService.ts
           --rule 'prettier/prettier: off'
 
