@@ -22,7 +22,7 @@ ANALYSIS_WRITER_MD5: `c6c53c94a20cfdbf2946371398790d98` for `sales_intelligence_
 
 TARGET_FUNCTION: `public.sales_intelligence_reconcile_case_set_v2(uuid,text[],jsonb)`; third argument is an explicit case → staged analysis ID map, default empty only for empty/archived sets.
 
-TARGET_MD5: `97e621afd88048b1c1f8f04dfa70892a`
+TARGET_MD5: `b1d51222a320d551aeb0034afae74211`
 
 The original v1 and analysis writer are not replaced by the candidate. Exact baseline definitions, owner, ACL/config and relevant column/trigger metadata are preserved in [baseline](baseline). All proposed functions' prosrc hashes are in [candidate-md5.json](candidate-md5.json).
 

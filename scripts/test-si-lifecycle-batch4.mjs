@@ -143,6 +143,12 @@ await test('rollback restores exact owner ACL security and config as well as bod
  assert.equal(await md5('sales_intelligence_reconcile_case_set_v1'),expected);
  assert.equal(await md5('sales_intelligence_write_case_analysis'),'c6c53c94a20cfdbf2946371398790d98');
  assert.equal(await md5('dawaa_archive_superseded_whatsapp_source_v35'),'fd7b5e40f631e4633049147cb2933ee7');
+ if(native){
+  assert.equal(await scalar("select count(*)::int from pg_proc where proname in ('sales_intelligence_reconcile_case_set_v2','sales_intelligence_stage_case_analysis_v1','sales_intelligence_on_source_archived_v1')"),0);
+  assert.equal(await scalar("select count(*)::int from pg_trigger where tgname='sales_intelligence_source_archived_v1'"),0);
+  const triggers=await query("select pg_get_triggerdef(t.oid) definition from pg_trigger t join pg_class c on c.oid=t.tgrelid where not t.tgisinternal and c.relname in ('sales_intelligence_cases','sales_intelligence_case_analyses','whatsapp_review_sources') order by t.tgname");
+  assert.deepEqual(triggers.map(t=>t.definition),catalog.triggers);
+ }
 });
 await test('final reapply after full rollback restores all candidates',async()=>{
  await install();if(!native) await db.exec(read('sql/archive-candidate.sql'));if(!native) await db.exec(read('sql/archive-writer-candidate.sql'));

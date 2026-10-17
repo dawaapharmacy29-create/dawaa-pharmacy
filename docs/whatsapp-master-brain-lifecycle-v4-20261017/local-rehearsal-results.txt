@@ -51,4 +51,4 @@ PASS read-only Phase A postcheck executes and validates all candidate hashes and
 PASS read-only historical postcheck executes and detects no unrelated changes/history deletion in fixture
 PASS automatic reviews retire while human review and all history remain
 PASS strict Production precheck refuses different local PostgreSQL version
-{"passed":53,"failed":0,"baselineMd5":"9fd2f5976e2419ca7154d203b29da5fc","v2md5":"97e621afd88048b1c1f8f04dfa70892a","postgres":"PostgreSQL 18.3 (PGlite 0.5.8) on wasm32-unknown-emscripten, compiled by emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 3.1.74 (1092ec30a3fb1d46b1782ff1b4db5094d3d06ae5), 32-bit"}
+{"passed":53,"failed":0,"baselineMd5":"9fd2f5976e2419ca7154d203b29da5fc","v2md5":"b1d51222a320d551aeb0034afae74211","postgres":"PostgreSQL 18.3 (PGlite 0.5.8) on wasm32-unknown-emscripten, compiled by emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 3.1.74 (1092ec30a3fb1d46b1782ff1b4db5094d3d06ae5), 32-bit"}

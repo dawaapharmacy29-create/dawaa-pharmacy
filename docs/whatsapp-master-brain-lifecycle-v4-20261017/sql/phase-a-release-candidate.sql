@@ -144,6 +144,11 @@ begin
     select distinct unnest(array_prepend(p_conversation_id, v_superseded_source_ids)) as id
   ) x;
 
+  -- Archive UPDATE already holds its source row. Take source rows before advisory locks
+  -- in the same order, so refresh cannot hold advisory while waiting on archival's row.
+  perform s.id from public.whatsapp_review_sources s
+  where s.id = any(v_lock_source_ids) order by s.id for update;
+
   foreach v_source_id in array v_lock_source_ids loop
     perform pg_advisory_xact_lock(hashtext('sales_intelligence_case_set:' || v_source_id::text));
   end loop;

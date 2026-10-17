@@ -7,7 +7,7 @@
     "passed": 53,
     "failed": 0,
     "baselineMd5": "9fd2f5976e2419ca7154d203b29da5fc",
-    "v2md5": "97e621afd88048b1c1f8f04dfa70892a",
+    "v2md5": "b1d51222a320d551aeb0034afae74211",
     "postgres": "PostgreSQL 18.3 (PGlite 0.5.8) on wasm32-unknown-emscripten, compiled by emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 3.1.74 (1092ec30a3fb1d46b1782ff1b4db5094d3d06ae5), 32-bit"
   },
   "npmTest": {
@@ -153,7 +153,8 @@
   },
   "hostedCIExecuted": false,
   "browserSmokeExecuted": false,
-  "localNode": "24.19.0",
+  "localNode": "22.23.3",
   "productionPostgreSQL": "17.6",
-  "nativePostgres17Rehearsal": false
+  "nativePostgres17Rehearsal": false,
+  "nativePg17ParityStatus": "PENDING_CI_RERUN"
 }

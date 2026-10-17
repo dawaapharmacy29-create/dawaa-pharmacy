@@ -3,7 +3,7 @@
 Branch: fix/whatsapp-master-brain-lifecycle-v4-continuation-20261017.
 Starting HEAD: f60cc279d087c13406f94a069f4694ea57e127c9.
 
-The approved runtime/SQL design and classifications are unchanged. Candidate v2 prosrc MD5 remains 97e621afd88048b1c1f8f04dfa70892a.
+The approved business design and classifications remain unchanged. The initial parity candidate had v2 prosrc MD5 97e621afd88048b1c1f8f04dfa70892a; the proven concurrency correction below supersedes that never-deployed candidate.
 
 Node 22.23.3 was downloaded from nodejs.org and SHA256-verified. Native PostgreSQL 17.11 binaries were extracted from the official PGDG Ubuntu package, verified against the signed repository index. Local server startup is blocked by this environment's single-UID user namespace: PostgreSQL correctly refuses root and this host disallows switching/mapping to a non-root UID. No root-check bypass was attempted.
 
@@ -18,3 +18,12 @@ Concurrency result: PENDING.
 Production read-only fresh preflight: NOT RUN (must follow successful PG17/Node22 verification).
 Production writes/data changes/reanalysis/repair: 0.
 Merge/deploy: 0.
+
+## Proven verification failures and minimal correction
+
+- Initial workflow YAML plain-scalar quoting: CI configuration/harness issue, corrected in db7e3855.
+- First native worker PID lookup was queued behind the deliberately blocked query: test harness issue, corrected in 70c2cbbd. The exact baseline, strict precheck and SQL matrix had already passed on PG17.
+- Native run https://github.com/dawaapharmacy29-create/dawaa-pharmacy/actions/runs/39031501324 proved an actual archive/refresh lock inversion (40P01), after the same-case/same-source concurrency and retry/reactivation checks passed. Original component lines 143–149 acquired advisory locks before the source FOR UPDATE; archival already held the row and requested advisory, forming a cycle.
+
+The necessary candidate delta takes the same sorted source row locks before the existing advisory locks. It changes concurrency behavior only; sale/publication/retirement policies and rollback baseline bodies remain unchanged. This is a proven SQL concurrency bug, not a PG17 syntax incompatibility or a Production baseline drift. Original never-deployed v2 MD5: 97e621afd88048b1c1f8f04dfa70892a.
+Corrected candidate v2 MD5: b1d51222a320d551aeb0034afae74211. Native rerun: PENDING.
