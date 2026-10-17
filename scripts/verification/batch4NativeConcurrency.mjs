@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 export async function runNativeConcurrency({db,test,reset,c,write,reconcile,scalar,row,source,pointer,current}) {
   const a=await db.connectPeer(), b=await db.connectPeer();
   const pid=async client=>(await client.query('select pg_backend_pid() pid')).rows[0].pid;
+  const bPid=await pid(b);
   const waitBlocked=async blocked=>{
     for(let i=0;i<100;i++){
       if(await scalar('select cardinality(pg_blocking_pids($1)) > 0',[blocked]))return;
@@ -15,7 +16,7 @@ export async function runNativeConcurrency({db,test,reset,c,write,reconcile,scal
     await test('native concurrent same-case stages serialize and return one semantic analysis; versions remain monotonic',async()=>{
       await reset();await c();await a.query('BEGIN');
       const first=await stage(a,'parallel');const second=stage(b,'parallel');
-      await waitBlocked(await pid(b));await a.query('COMMIT');
+      await waitBlocked(bPid);await a.query('COMMIT');
       assert.equal((await second).analysis_id,first.analysis_id);
       const next=await Promise.all([stage(a,'parallel-next'),stage(b,'parallel-next')]);
       assert.equal(next[0].analysis_id,next[1].analysis_id);assert.equal(next[0].analysis_version,2);
@@ -26,7 +27,7 @@ export async function runNativeConcurrency({db,test,reset,c,write,reconcile,scal
     await test('native concurrent same-source reconciliation blocks and converges with atomic reader visibility',async()=>{
       await reset();await c();const staged=await write();await a.query('BEGIN');
       await publish(a,staged.analysis_id);const second=publish(b,staged.analysis_id);
-      await waitBlocked(await pid(b));assert.equal(await pointer(),null);
+      await waitBlocked(bPid);assert.equal(await pointer(),null);
       await a.query('COMMIT');assert.equal((await second).ok,true);
       assert.equal(await pointer(),await current());
       assert.equal(await scalar('select count(*)::int from sales_intelligence_case_analyses where is_current'),1);
@@ -49,7 +50,7 @@ export async function runNativeConcurrency({db,test,reset,c,write,reconcile,scal
       const rec=publish(b,staged.analysis_id).then(async r=>{await b.query('COMMIT');return r;}).catch(async e=>{await b.query('ROLLBACK');throw e;});
       // Attach a rejection handler immediately while waiting for the deliberately contested row.
       rec.catch(()=>{});
-      await waitBlocked(await pid(b));
+      await waitBlocked(bPid);
       const archive=a.query("update whatsapp_review_sources set review_status='archived' where id=$1",[source]).then(async r=>{await a.query('COMMIT');return r;}).catch(async e=>{await a.query('ROLLBACK');throw e;});
       const results=await Promise.allSettled([archive,rec]);
       const errors=results.filter(r=>r.status==='rejected').map(r=>({code:r.reason.code,message:r.reason.message,detail:r.reason.detail}));
