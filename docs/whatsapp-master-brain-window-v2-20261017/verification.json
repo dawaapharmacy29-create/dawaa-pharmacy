@@ -1,0 +1,130 @@
+{
+  "qualityGates": [
+    {
+      "script": "scripts/audit-fix-semantic-lint.cjs",
+      "exitCode": 0
+    },
+    {
+      "script": "scripts/check-build-source-purity.cjs",
+      "exitCode": 0
+    },
+    {
+      "script": "scripts/check-runtime-bootstrap-patches.cjs",
+      "exitCode": 0
+    },
+    {
+      "script": "scripts/check-data-access-boundaries.cjs",
+      "exitCode": 0
+    },
+    {
+      "script": "scripts/check-generic-query-data-access.cjs",
+      "exitCode": 0
+    },
+    {
+      "script": "scripts/check-notification-architecture.cjs",
+      "exitCode": 0
+    },
+    {
+      "script": "scripts/check-production-exposure-closure.cjs",
+      "exitCode": 0
+    },
+    {
+      "script": "scripts/check-permission-architecture.cjs",
+      "exitCode": 0
+    },
+    {
+      "script": "scripts/check-action-permission-boundaries.cjs",
+      "exitCode": 0
+    },
+    {
+      "script": "scripts/check-db-authorization-architecture.cjs",
+      "exitCode": 0
+    },
+    {
+      "script": "scripts/check-whatsapp-evidence-link-session.cjs",
+      "exitCode": 0
+    },
+    {
+      "script": "scripts/check-conversation-review-correction-command.cjs",
+      "exitCode": 0
+    },
+    {
+      "script": "scripts/check-verified-session-identity.cjs",
+      "exitCode": 0
+    },
+    {
+      "script": "scripts/check-customer-request-shortage-command.cjs",
+      "exitCode": 0
+    },
+    {
+      "script": "scripts/check-customer-request-v2-parity.cjs",
+      "exitCode": 0
+    },
+    {
+      "script": "scripts/check-customer-request-create-authorization.cjs",
+      "exitCode": 0
+    },
+    {
+      "script": "scripts/check-customer-followup-command-boundary.cjs",
+      "exitCode": 0
+    },
+    {
+      "script": "scripts/check-payroll-architecture.cjs",
+      "exitCode": 0
+    },
+    {
+      "script": "scripts/check-incentive-governance-architecture.cjs",
+      "exitCode": 0
+    },
+    {
+      "script": "scripts/check-shift-performance-architecture.cjs",
+      "exitCode": 0
+    },
+    {
+      "script": "scripts/check-shift-notes-architecture.cjs",
+      "exitCode": 0
+    },
+    {
+      "script": "scripts/check-attendance-identity-architecture.cjs",
+      "exitCode": 0
+    },
+    {
+      "script": "scripts/check-employee-transaction-write-boundary.cjs",
+      "exitCode": 0
+    },
+    {
+      "script": "scripts/check-employee-transaction-source-authorization.cjs",
+      "exitCode": 0
+    },
+    {
+      "script": "scripts/check-task-evidence-architecture.cjs",
+      "exitCode": 0
+    },
+    {
+      "script": "scripts/check-review-coverage-architecture.cjs",
+      "exitCode": 0
+    },
+    {
+      "script": "scripts/check-theme-architecture.cjs",
+      "exitCode": 0
+    },
+    {
+      "script": "scripts/audit-theme-debt.cjs",
+      "exitCode": 0
+    },
+    {
+      "script": "scripts/check-dashboard-primitives-architecture.cjs",
+      "exitCode": 0
+    }
+  ],
+  "mainEnvironmentGates": {
+    "check-whatsapp-evidence-link-session": "PASS",
+    "check-dashboard-primitives-architecture": "PASS"
+  },
+  "node": "24.19.0 (available runtime; project CI targets 22.x)",
+  "productionWrites": 0,
+  "productionDataChanges": 0,
+  "mainChanges": 0,
+  "securityBranchChanges": 0,
+  "deploymentCommands": 0
+}

@@ -129,6 +129,10 @@ export const CROSS_SCRIPT_SEED: ReadonlyMap<string, string> = new Map([
   ['فليكس لايكس', 'flexilax'],
   ['جاست ريج', 'gast reg'],
   ['جاست ريج امبول', 'gast reg'],
+  ['هاي فريش', 'hyfresh'],
+  ['هاى فريش', 'hyfresh'],
+  ['hy fresh', 'hyfresh'],
+  ['hyfresh', 'hyfresh'],
   ['سولو فريش', 'solofresh'],
   ['سولوفريش', 'solofresh'],
   ['كوجي سان', 'koji san'],
@@ -208,7 +212,7 @@ function isSafeSelection(candidates: ProductResolutionCandidate[]): ProductResol
 
 function strengthsCompatible(a: ExtractedStrength[], b: ExtractedStrength[]): boolean {
   if (a.length === 0 || b.length === 0) return true; // insufficient info on one side -> never used to REJECT, only to prefer
-  return a.some((sa) => b.some((sb) => sa.unit === sb.unit && Math.abs(sa.value - sb.value) < 0.001));
+  return a.every((sa) => !b.some((sb) => sa.unit === sb.unit) || b.some((sb) => sa.unit === sb.unit && Math.abs(sa.value - sb.value) < 0.001));
 }
 
 function dosageFormsCompatible(a: DosageForm[], b: DosageForm[]): boolean {
@@ -348,6 +352,19 @@ export function resolveProductMention(
 
   function addCandidate(product: CanonicalProduct, basis: ProductMatchBasis, score: number, reason: string) {
     if (!allowed(product)) return;
+    // All text/alias paths share the same medical identity gates. Exact product code is an
+    // identity key, not a dosage/pack number. An approved alias cannot override explicit facts.
+    if (basis !== 'exact_code') {
+      if (!strengthsCompatible(normalized.strengths, product.strengths)) return;
+      if (!dosageFormsCompatible(normalized.dosageForms, product.dosageForms)) return;
+      if (normalized.packSizes.length && product.packSizes.length &&
+          !normalized.packSizes.every(pack => product.packSizes.some(other => other.count === pack.count))) return;
+      const percentages = (text: string) => Array.from(text.matchAll(/(\d+(?:\.\d+)?)\s*%/g), match => Number(match[1]));
+      const requested = percentages(normalized.raw);
+      const offered = percentages(product.canonicalName);
+      if (requested.length && offered.length && !requested.every(value => offered.includes(value))) return;
+    }
+
     const existing = candidateMap.get(product.productId);
     // Keep the HIGHEST-confidence basis found for this product — never downgrade a stronger match.
     if (existing && confidenceRank(existing.confidence) >= confidenceRank(confidenceForBasis(basis))) {

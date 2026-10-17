@@ -4,7 +4,8 @@
   "git": {
     "deploymentEnabled": {
       "whatsapp-review-integration-test": true,
-      "claude/project-thread-pkg0jt": false
+      "claude/project-thread-pkg0jt": false,
+      "perf/whatsapp-master-brain-window-v2-continuation-20261017": false
     }
   },
   "installCommand": "npm install -g npm@10.9.2 && npm ci --legacy-peer-deps --no-audit --no-fund",

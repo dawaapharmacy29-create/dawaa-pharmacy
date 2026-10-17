@@ -1,12 +1,7 @@
 // Sales Intelligence QA Case Detail — Phase H.2.
 //
-// READ ONLY. Shows the full reasoning chain for one case, in the order a human auditor would want
-// to check it: original conversation -> segmentation -> basket -> historical closure -> protocol ->
-// invoice attribution -> basket/invoice matching -> human review. Every section reads either the
-// PERSISTED row (source of truth for what was saved) or the display-only conversation re-reading
-// (basket item detail, which the analysis row does not persist; it runs without invoice candidates).
-// Sale outcome, invoice proof, countable sale/revenue and the V22 sale ledger are rendered exactly as
-// persisted (canonicalCaseTruth.ts) — the window never re-derives a sales decision.
+// Reads persisted canonical case truth. Full reanalysis runs only after an explicit command;
+// secondary conversation-evaluation evidence loads only when requested. No product search on open.
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowRight, Building2, Hash, Layers3, Phone, RefreshCw, UserRound } from 'lucide-react';
@@ -36,6 +31,7 @@ import { WhatsAppConversationPanel } from '@/components/salesIntelligence/WhatsA
 import { CaseIntelligenceWorkspace } from '@/components/salesIntelligence/CaseIntelligenceWorkspace';
 import { loadConversationEvaluation } from '@/lib/salesIntelligence/conversationEvaluationLoader';
 import type { ConversationEvaluationResult } from '@/lib/salesIntelligence/conversationEvaluation';
+import { productDisplayStateLabel } from '@/lib/salesIntelligence/qa/persistedProductTruth';
 import { readCaseIntelligence } from '@/lib/salesIntelligence/qa/caseIntelligencePresentation';
 import {
   ambiguityStatusLabelFor,
@@ -56,7 +52,6 @@ import {
   unknownProofReason,
   ruleIdLabelFor,
   pipelineWarningLabelFor,
-  productMatchLabelFor,
   attributionLevelLabelFor,
   evidenceCompletenessLabelFor,
   evidenceLevelLabelFor,
@@ -157,6 +152,7 @@ export default function SalesIntelligenceQACaseDetail() {
   const [invoiceConfirmationMessage, setInvoiceConfirmationMessage] = useState<string | null>(null);
   const [invoiceConfirmationError, setInvoiceConfirmationError] = useState<string | null>(null);
   const [legacyAuditOpen, setLegacyAuditOpen] = useState<boolean | null>(null);
+  const [evaluationRequestedFor, setEvaluationRequestedFor] = useState<string | null>(null);
   const [conversationEvaluation, setConversationEvaluation] = useState<ConversationEvaluationResult | null>(null);
   const [conversationEvaluationLoading, setConversationEvaluationLoading] = useState(false);
   const [conversationEvaluationWarning, setConversationEvaluationWarning] = useState<string | null>(null);
@@ -176,6 +172,7 @@ export default function SalesIntelligenceQACaseDetail() {
   const loadDetail = (id: string, signal: AbortSignal) => fetchQaCaseDetail(supabase, id, { signal });
 
   useEffect(() => {
+    setEvaluationRequestedFor(null);
     if (!caseId) return undefined;
     // gate, sink setters and loader are stable for the component's lifetime.
     return openSelectedCase(gate, caseId, loadDetail, sink);
@@ -186,7 +183,7 @@ export default function SalesIntelligenceQACaseDetail() {
     let cancelled = false;
     const currentView = readCaseIntelligence(bundle?.persisted.analysisRow);
 
-    if (!currentView) {
+    if (!currentView || evaluationRequestedFor !== `${caseId}:${bundle?.persisted.analysisRow.analysis_id}`) {
       setConversationEvaluation(null);
       setConversationEvaluationLoading(false);
       setConversationEvaluationWarning(null);
@@ -208,7 +205,7 @@ export default function SalesIntelligenceQACaseDetail() {
     });
 
     return () => { cancelled = true; };
-  }, [bundle]);
+  }, [bundle, caseId, evaluationRequestedFor]);
 
   if (error) {
     return <div className="dawaa-alert dawaa-alert--danger text-sm font-bold" dir="rtl">{error}</div>;
@@ -221,6 +218,7 @@ export default function SalesIntelligenceQACaseDetail() {
   }
 
   const { persisted, conversation, sourceSnapshot, siblingCases, transcript, canonicalTruth, persistedProofEvidence, conversationReread, conversationRereadError, recommendationConversions, invoiceStaffTruth, invoiceItemFacts, catalogProductMatches } = bundle;
+  const evaluationKey = `${caseId}:${persisted.analysisRow.analysis_id}`;
   const persistedAnalysis = persisted.analysisRow;
   const persistedAttribution = persisted.attributionRow;
   const persistedMatch = persisted.matchRow;
@@ -282,6 +280,22 @@ export default function SalesIntelligenceQACaseDetail() {
     alreadyConfirmedInvoiceId: conversation?.invoiceLinkConfirmedInvoiceId,
     alreadyProven: invoiceAlreadyProven,
   }) && Boolean(candidateInvoice?.id === candidateInvoiceId && canConfirmInvoiceLink);
+
+  async function reanalyzeSelectedCase() {
+    if (!canConfirmInvoiceLink || !sourceSnapshot.isCanonical || !conversation || invoiceConfirming) return;
+    const token = getStaffSessionToken();
+    if (!token) { setInvoiceConfirmationError('جلسة الموظف الموثقة غير متاحة.'); return; }
+    const sourceId = conversation.id;
+    await confirmInvoiceThenReload(gate, async () => {
+      const result = await requestCanonicalSalesIntelligenceRefresh({sourceIds:[sourceId], accessToken:token});
+      const failure = result.errors.map(item => item.message).join('؛ ') ||
+        (result.bySource[sourceId]?.status !== 'allowed'
+          ? result.bySource[sourceId]?.reason || 'تعذر إكمال التحليل القياسي.'
+          : null);
+      if (failure) throw new Error(failure);
+      return { message: 'تمت إعادة التحليل وحفظ النتيجة القياسية.', refreshFailure: null };
+    }, loadDetail, sink);
+  }
 
   async function confirmSelectedInvoice() {
     if (!canConfirmCandidate || !conversation || !candidateInvoice || !candidateInvoiceNumber || !candidateInvoiceId) return;
@@ -350,6 +364,20 @@ export default function SalesIntelligenceQACaseDetail() {
         <div className="dawaa-muted max-w-full truncate font-mono text-xs" title={caseId}>{caseId}</div>
       </div>
 
+      <div className="flex flex-wrap gap-2">
+        {canConfirmInvoiceLink && sourceSnapshot.isCanonical && conversation ? (
+          <button type="button" className="dawaa-button dawaa-button--secondary" disabled={invoiceConfirming} onClick={() => void reanalyzeSelectedCase()}>
+            {invoiceConfirming ? 'جارٍ تنفيذ الطلب...' : 'إعادة التحليل الصريحة'}
+          </button>
+        ) : null}
+        {caseIntelligence && evaluationRequestedFor !== evaluationKey ? (
+          <button type="button" className="dawaa-button dawaa-button--ghost" onClick={() => setEvaluationRequestedFor(evaluationKey)}>تحميل تفاصيل تقييم المحادثة</button>
+        ) : null}
+      </div>
+      {conversationRereadError ? <div className="dawaa-alert dawaa-alert--warning text-sm">{conversationRereadError}</div> : null}
+      {invoiceConfirmationMessage ? <div className="dawaa-alert dawaa-alert--success text-sm">{invoiceConfirmationMessage}</div> : null}
+      {invoiceConfirmationError ? <div className="dawaa-alert dawaa-alert--danger text-sm">{invoiceConfirmationError}</div> : null}
+
       {!sourceSnapshot.isCanonical ? (
         <div className="dawaa-alert dawaa-alert--warning text-sm leading-7">
           هذه الحالة مبنية على لقطة واتساب أقدم تم احتواؤها لاحقًا داخل نسخة أشمل من نفس المحادثة. تُعرض هنا للـAudit فقط ولا ينبغي اعتمادها كالحالة الحالية.
@@ -387,9 +415,9 @@ export default function SalesIntelligenceQACaseDetail() {
           />
         ) : null}
         staffDisplayName={conversation?.staffId ? conversation.staffName : null}
-        conversationEvaluation={conversationEvaluation}
-        conversationEvaluationLoading={conversationEvaluationLoading}
-        conversationEvaluationWarning={conversationEvaluationWarning}
+        conversationEvaluation={evaluationRequestedFor === evaluationKey ? conversationEvaluation : null}
+        conversationEvaluationLoading={evaluationRequestedFor === evaluationKey && conversationEvaluationLoading}
+        conversationEvaluationWarning={evaluationRequestedFor === evaluationKey ? conversationEvaluationWarning : null}
         invoiceEvidence={{
           status: trustedInvoiceId ? 'trusted' : candidateInvoiceId ? 'candidate' : 'none',
           linkMethod: invoiceLinkMethod,
@@ -431,7 +459,7 @@ export default function SalesIntelligenceQACaseDetail() {
       <Section title="المراجعة الذكية الشاملة — ملخص الحالة بالكامل">
         {conversationRereadError ? (
           <div className="dawaa-alert dawaa-alert--warning mb-3 text-xs leading-6">
-            تعذرت إعادة قراءة سلة المحادثة للعرض ({conversationRereadError}). القيم البيعية المعروضة محفوظة ولا تتأثر بذلك.
+            حالة السلة المحفوظة ({conversationRereadError}). القيم البيعية المعروضة محفوظة ولا تتأثر بذلك.
           </div>
         ) : null}
         <div className="dawaa-alert dawaa-alert--info text-xs leading-6">
@@ -466,7 +494,7 @@ export default function SalesIntelligenceQACaseDetail() {
             <div className="dawaa-heading mt-2 font-black">{basketItems.length ? basketItems.length + ' صنف/طلب ظاهر' : 'لا توجد سلة مكتملة'}</div>
             <div className="dawaa-body mt-2 text-xs leading-6">
               كميات محسومة: {basketKnownQuantities} من {basketItems.length}<br />
-              تطابقات كتالوج: {catalogProductMatches.length}<br />
+              أصناف التحليل المحفوظ: {catalogProductMatches.length}<br />
               الإجمالي المعلن: {activeBasket?.announcedTotal?.amount ?? 'غير متاح'}
             </div>
           </div>
@@ -550,7 +578,7 @@ export default function SalesIntelligenceQACaseDetail() {
             <div>• هوية العميل: {conversation?.customerCode && conversation?.customerPhone ? 'مرتبطة ببيانات واضحة' : 'غير مكتملة'}</div>
             <div>• تصنيف الحالة: {caseTypeLabelFor(analysis.case_type)} — {classificationConfidencePercent}٪</div>
             <div>• الفاتورة: {attribution?.selected_invoice_number ? 'مرشحة رقم ' + attribution.selected_invoice_number : 'لا توجد فاتورة مرشحة'}</div>
-            <div>• الأصناف: {catalogProductMatches.length ? catalogProductMatches.length + ' تطابق كتالوج ظاهر' : 'لا توجد مطابقة كتالوج حاليًا'}</div>
+            <div>• الأصناف: {catalogProductMatches.length ? catalogProductMatches.length + ' صنف من التحليل المحفوظ' : 'لا توجد مطابقة كتالوج حاليًا'}</div>
           </div>
 
           <div className="rounded-xl border border-amber-700/30 bg-amber-950/10 p-3 text-xs leading-6">
@@ -659,28 +687,28 @@ export default function SalesIntelligenceQACaseDetail() {
 
       <Section title="٣.ب. مطابقة أصناف المحادثة مع كتالوج الصيدلية">
         <div className="dawaa-muted text-xs">
-          مطابقة قراءة فقط مع جدول المنتجات الفعلي. النتيجة هنا مرشح كتالوج وليست إثبات بيع؛ التأكيد النهائي سيعتمد على بيانات الفاتورة وبنودها عند توفرها.
+          هوية الأصناف من التحليل القياسي المحفوظ لهذه الحالة. الصنف غير المحسوم يحتاج مراجعة بشرية؛ الهوية وحدها لا تثبت البيع.
         </div>
         {!catalogProductMatches.length ? (
-          <div className="dawaa-empty-state py-4 text-center">لم يظهر تطابق كتالوج من النص المتاح لهذه الحالة.</div>
+          <div className="dawaa-empty-state py-4 text-center">لا توجد هوية أصناف محفوظة لهذه الحالة. يمكن استخدام إعادة التحليل الصريحة.</div>
         ) : (
           <div className="mt-2 overflow-x-auto">
             <table className="min-w-full text-xs">
               <thead>
                 <tr className="dawaa-muted border-b border-[var(--dawaa-theme-border)] text-right">
-                  {['النص في المحادثة', 'الصنف الفعلي', 'كود الصنف', 'السعر الحالي', 'قوة المطابقة'].map((h) => <th key={h} className="p-2">{h}</th>)}
+                  {['النص في المحادثة', 'الصنف القياسي', 'كود الصنف', 'المصدر', 'حالة الهوية'].map((h) => <th key={h} className="p-2">{h}</th>)}
                 </tr>
               </thead>
               <tbody>
                 {catalogProductMatches.map((match) => (
-                  <tr key={`${match.sourceMessageId}:${match.productId}`} className="border-b border-[var(--dawaa-theme-border)]/60">
+                  <tr key={match.key} className="border-b border-[var(--dawaa-theme-border)]/60">
                     <td className="max-w-[360px] p-2">{match.rawPhrase}</td>
-                    <td className="p-2 font-bold">{match.productName}</td>
-                    <td className="p-2 font-mono">{match.productCode}</td>
-                    <td className="p-2">{match.price == null ? '—' : `${match.price} ج.م`}</td>
+                    <td className="p-2 font-bold">{match.productName ?? 'غير محسوم'}</td>
+                    <td className="p-2 font-mono">{match.productCode ?? '—'}</td>
+                    <td className="p-2">{match.source === 'persisted_need' ? 'احتياج محفوظ' : 'سلة محفوظة'}</td>
                     <td className="p-2">
-                      <span className={match.score >= 68 ? 'dawaa-badge dawaa-badge--success' : 'dawaa-badge dawaa-badge--warning'}>
-                        {productMatchLabelFor(match.label)} • {match.score}%
+                      <span className={match.state === 'CANONICAL_MATCH' ? 'dawaa-badge dawaa-badge--success' : 'dawaa-badge dawaa-badge--warning'}>
+                        {productDisplayStateLabel(match.state)}
                       </span>
                     </td>
                   </tr>

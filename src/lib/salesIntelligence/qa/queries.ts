@@ -1,17 +1,6 @@
-// Sales Intelligence QA Review UI — data access + live evidence re-derivation.
-//
-// READ ONLY, by construction:
-//   - The list/detail fetchers below only ever SELECT from sales_intelligence_current_case_analyses,
-//     sales_intelligence_current_attributions, sales_intelligence_basket_invoice_matches (filtered
-//     to is_current_evaluation), sales_intelligence_current_policy_evaluations, sales_intelligence_cases
-//     and whatsapp_review_sources. Nothing here ever calls .insert/.update/.upsert/.delete or any
-//     sales_intelligence_write_* RPC.
-//   - `deriveLiveCaseEvidence` re-runs the SAME deterministic, already-committed pipeline
-//     (runSalesIntelligencePipeline) purely in memory against the case's own already-persisted raw
-//     conversation text, to reconstruct the full evidence chain (basket items, evidence lists, rule
-//     ids, contradictions) that the persisted rows summarize but don't store item-by-item — this is
-//     the exact same technique used for the H.1C.1 reconciliation investigation. It writes nothing
-//     back; it is display-only explainability for the QA reviewer.
+// Sales Intelligence QA — read-only persisted canonical truth.
+// Normal case open never re-runs the pipeline or resolves product identity.
+// Missing snapshots are visible and require an explicit canonical refresh.
 //
 // Dataset size discipline: the Sales Intelligence dataset is a supervised backfill (currently ~150
 // cases), never an unbounded high-volume table — the list fetch below caps at MAX_LIST_ROWS rather
@@ -19,29 +8,17 @@
 // unbounded high-volume reads.
 import { parseWhatsAppExport, type WhatsAppParsedMessage } from '../../whatsappConversationParser';
 import {
-  deriveSegmentedCases,
-  runSalesIntelligencePipeline,
-  segmentationInputFromPipelineInput,
-} from '../salesIntelligencePipeline';
-import {
-  loadSalesIntelligenceRuntimeContext,
-  pipelineBaseInputFor,
-  prepareSalesIntelligenceConversations,
-} from '../runtimeContext';
-import {
   REVIEW_SOURCE_BATCH_INPUT_COLUMNS,
-  reviewSourceRowToBatchConversation,
 } from '../persistence/reviewSourceBatchAdapter';
 import { deriveSaleProofStateFromPersisted } from './saleProofProjection';
 import { resolveCustomerDisplayIdentity } from './customerDisplayIdentity';
 import type {
   CanonicalSalesOutcomeAssessment,
   CaseBasketItem,
-  SalesIntelligenceCaseAnalysis,
 } from '../types';
 import type { SaleProofAssessment } from '../saleProofState';
 import type { QaCaseListRow, QaListFilters } from './types';
-import { rankProductCandidates } from '../../productMatching';
+import { readPersistedProductTruth, type PersistedProductDisplay } from './persistedProductTruth';
 import { loadCanonicalAnalyticalSources } from '../persistence/canonicalSourceGate';
 import { readCanonicalCaseSaleTruth, type CanonicalCaseSaleTruth } from './canonicalCaseTruth';
 import { readInvoiceRecordById } from '../../readModels/invoiceRecordReadModel';
@@ -49,8 +26,6 @@ import {
   compareQuotedAndActualUnitPrice,
   derivePricingExecutionAssessment,
 } from '../salesPricingExecutionV1';
-import { buildConversationEntityGraphV2 } from '../basketV2/conversationEntityGraphV2';
-import { reconstructBasketV2 } from '../basketV2/basketReconstructionV2';
 import {
   derivePersistedRecommendationConversionFactsV1,
   type RecommendationConversionFactV1,
@@ -435,16 +410,12 @@ export interface QaCaseDetailBundle {
    * attribution/match rows. Its `state` is never rendered as the case's proof state.
    */
   persistedProofEvidence: SaleProofAssessment;
-  /**
-   * Display-only re-reading of the conversation basket (item names, quantities, source messages),
-   * which the analysis row does not persist. It runs with NO invoice candidates, so it can never
-   * select an invoice, prove a sale or change any canonical value above.
-   */
+  /** Persisted canonical basket projection. The compatibility name is retained for callers. */
   conversationReread: {
-    activeBasket: SalesIntelligenceCaseAnalysis['activeBasket'];
+    activeBasket: { announcedTotal: { amount: number } | null } | null;
     basketItems: CaseBasketItem[];
   } | null;
-  /** Set when the display-only conversation re-reading failed; the window says so explicitly. */
+  /** Explicit warning when no supported case-scoped product snapshot is available. */
   conversationRereadError: string | null;
   quotedBasketV2Items: Array<{
     productId: string;
@@ -513,16 +484,7 @@ export interface QaCaseDetailBundle {
     invoiceDatetime: string | null;
     total: number | null;
   } | null;
-  catalogProductMatches: Array<{
-    sourceMessageId: string;
-    rawPhrase: string;
-    productId: string;
-    productCode: string;
-    productName: string;
-    price: number | null;
-    score: number;
-    label: string;
-  }>;
+  catalogProductMatches: PersistedProductDisplay[];
 }
 
 export interface QaCaseDetailLoadOptions {
@@ -570,10 +532,11 @@ export async function fetchQaCaseDetail(
   let conversation: QaCaseDetailBundle['conversation'] = null;
   let siblingCases: QaCaseDetailBundle['siblingCases'] = [];
   let transcript: WhatsAppParsedMessage[] = [];
-  let conversationReread: QaCaseDetailBundle['conversationReread'] = null;
-  let conversationRereadError: string | null = null;
-  let quotedBasketV2Items: QaCaseDetailBundle['quotedBasketV2Items'] = [];
-  let caseScopedMessageIds = new Set<string>();
+  const productTruth = readPersistedProductTruth(caseId, analysisRow);
+  const conversationReread: QaCaseDetailBundle['conversationReread'] = {activeBasket: productTruth.basket, basketItems: productTruth.basketItems};
+  const conversationRereadError = productTruth.warning;
+  const quotedBasketV2Items: QaCaseDetailBundle['quotedBasketV2Items'] = productTruth.basketItems.filter(item => item.productId).map(item => ({productId: item.productId!, productCode: item.productCode ?? null, productName: item.canonicalName ?? null, quantity: item.quantity, unitPrice: item.unitPrice, lineTotal: item.lineTotal}));
+  const caseScopedMessageIds = new Set(productTruth.messageIds);
   let sourceAnalysisJson: any = null;
   let sourceSnapshot: QaCaseDetailBundle['sourceSnapshot'] = { isCanonical: true, canonicalSourceId: null };
 
@@ -723,68 +686,7 @@ export async function fetchQaCaseDetail(
         trustedConversationStartedAt: conversationRow.conversation_started_at ?? null,
       });
       throwIfAborted(signal);
-      try {
-        // Display-only conversation re-reading with the same runtime context as the canonical
-        // refresh (runtimeContext.ts). It runs with NO invoice candidates and no competing claims,
-        // so it cannot select an invoice or prove a sale; only basket detail is taken from it.
-        const runtimeContext = await loadSalesIntelligenceRuntimeContext(supabaseClient);
-        const [preparedConversation] = await prepareSalesIntelligenceConversations(
-          supabaseClient,
-          [
-            reviewSourceRowToBatchConversation({
-              ...(conversationRow as any),
-              source_case_id_v22: caseRow?.source_case_id_v22 ?? null,
-            }),
-          ],
-          runtimeContext
-        );
-        const baseInput = pipelineBaseInputFor(preparedConversation, runtimeContext);
-        const productIndex = runtimeContext.productIndex;
-        const segmented = deriveSegmentedCases(segmentationInputFromPipelineInput(baseInput));
-        const priceSegment = segmented.cases.find(
-          (entry) => entry.conversationCase.caseId === caseId
-        ) ?? null;
-        if (priceSegment) {
-          caseScopedMessageIds = new Set(priceSegment.scopedMessages.map((message) => message.id));
-          const graph = buildConversationEntityGraphV2(
-            caseId,
-            priceSegment.scopedMessages,
-            { productIndex }
-          );
-          const timestamps = new Map(
-            priceSegment.scopedMessages.map((message) => [
-              message.id,
-              message.timestamp.toISOString(),
-            ])
-          );
-          const basketV2 = reconstructBasketV2(graph, timestamps).currentBasket;
-          quotedBasketV2Items = basketV2.items.map((item) => ({
-            productId: item.canonicalProductId,
-            productCode: item.canonicalProductCode,
-            productName: item.canonicalName,
-            quantity: item.currentQuantity,
-            unitPrice: item.unitPrice,
-            lineTotal: item.lineTotal,
-          }));
 
-          const reread = runSalesIntelligencePipeline({
-            ...baseInput,
-            competingSelections: [],
-            resolveInvoiceCandidates: () => [],
-          }).caseAnalyses.find((entry) => entry.caseId === caseId) ?? null;
-          if (reread) {
-            conversationReread = {
-              activeBasket: reread.activeBasket,
-              basketItems: reread.activeBasket ? reread.itemsByBasketId[reread.activeBasket.basketId] ?? [] : [],
-            };
-          }
-        } else {
-          conversationRereadError = 'case_not_reproduced_by_current_segmentation';
-        }
-      } catch (cause) {
-        conversationReread = null;
-        conversationRereadError = cause instanceof Error ? cause.message : String(cause);
-      }
     }
   }
 
@@ -810,99 +712,8 @@ export async function fetchQaCaseDetail(
   });
   const persistedProofEvidence = deriveSaleProofStateFromPersisted(caseId, analysisRow, attributionRow ?? null, matchRow ?? null);
 
-  // Read-only catalog matching for reviewer visibility. Scope STRICTLY to the current Case.
-  // Prefer the active basket's own source messages/items; only fall back to messages inside this
-  // case interval when the legacy basket engine produced no item. Never scan the whole WhatsApp
-  // thread, otherwise a product mentioned in another morning/evening interaction leaks here.
-  throwIfAborted(signal);
-  const catalogProductMatches: QaCaseDetailBundle['catalogProductMatches'] = [];
-  const seenProductIds = new Set<string>();
-  const activeBasketItems = conversationReread?.basketItems ?? [];
-  const basketPhrases = activeBasketItems
-    .map((item) => ({
-      sourceMessageId: item.sourceMessageId,
-      rawPhrase: String(item.productNameRaw || '').replace(/^\s*\[Forwarded\]\s*/i, '').trim(),
-    }))
-    .filter((item) => item.rawPhrase.length > 1);
-
-  const caseStartMs = new Date(
-    analysisRow.case_started_at
-  ).getTime();
-  const caseEndMs = new Date(
-    analysisRow.case_ended_at ?? analysisRow.case_started_at
-  ).getTime();
-  const fallbackPhrases = transcript
-    .filter((message) => {
-      const ts = message.timestamp.getTime();
-      return (
-        message.direction === 'inbound' &&
-        Number.isFinite(caseStartMs) &&
-        Number.isFinite(caseEndMs) &&
-        ts >= caseStartMs &&
-        ts <= caseEndMs &&
-        message.text.trim().length > 1
-      );
-    })
-    .map((message) => ({
-      sourceMessageId: message.id,
-      rawPhrase: message.text.replace(/^\s*\[Forwarded\]\s*/i, '').trim(),
-    }))
-    .slice(0, 8);
-
-  const productBearingMessages = basketPhrases.length ? basketPhrases : fallbackPhrases;
-
-  for (const message of productBearingMessages) {
-    throwIfAborted(signal);
-    const rawPhrase = message.rawPhrase;
-    const tokens = rawPhrase
-      .toLowerCase()
-      .replace(/[^a-z0-9\u0600-\u06ff\s]/gi, ' ')
-      .split(/\s+/)
-      .filter((token) => token.length >= 3 && !['forwarded', 'for', 'skin', 'بديل', 'الغسول'].includes(token))
-      .slice(0, 5);
-    const candidateMap = new Map<string, any>();
-
-    for (const token of tokens.slice(0, 4)) {
-      const { data } = await supabaseClient
-        .from('products')
-        .select('id, product_code, name, price')
-        .ilike('normalized_name', `%${token}%`)
-        .limit(40);
-      for (const row of data ?? []) if (row?.id) candidateMap.set(String(row.id), row);
-    }
-
-    // Small spelling bridge for common joined brand words seen in WhatsApp (e.g. "teenderm" vs
-    // catalog "teen derm"). It only broadens candidate discovery; ranking still decides the match.
-    const joined = tokens.find((token) => token.length >= 7);
-    if (joined) {
-      const halves = [];
-      for (let i = 3; i <= joined.length - 3; i += 1) halves.push([joined.slice(0, i), joined.slice(i)]);
-      for (const [left, right] of halves.slice(0, 8)) {
-        const { data } = await supabaseClient
-          .from('products')
-          .select('id, product_code, name, price')
-          .ilike('normalized_name', `%${left}%`)
-          .ilike('normalized_name', `%${right}%`)
-          .limit(20);
-        for (const row of data ?? []) if (row?.id) candidateMap.set(String(row.id), row);
-      }
-    }
-
-    const ranked = rankProductCandidates({ name: rawPhrase }, Array.from(candidateMap.values()));
-    const best = ranked[0];
-    if (!best || best.score < 20 || !best.product.id || seenProductIds.has(String(best.product.id))) continue;
-    seenProductIds.add(String(best.product.id));
-    catalogProductMatches.push({
-      sourceMessageId: message.sourceMessageId,
-      rawPhrase,
-      productId: String(best.product.id),
-      productCode: String(best.product.product_code ?? ''),
-      productName: String(best.product.name ?? ''),
-      price: best.product.price == null ? null : Number(best.product.price),
-      score: best.score,
-      label: best.label,
-    });
-  }
+  // Identity is read from the selected analysis only; no product search or pipeline on open.
+  const catalogProductMatches = productTruth.products;
 
   const invoiceItemFacts: QaCaseDetailBundle['invoiceItemFacts'] = [];
   let candidateInvoice: QaCaseDetailBundle['candidateInvoice'] = null;

@@ -28,10 +28,10 @@ const R16_SHAPE = `[9/14/26, 5:21:40 PM] Customer: لو سمحت عاوزة قط
 [9/14/26, 5:31:27 PM] You: جاري الارسال`;
 
 describe('basket V2 — order list continuation', () => {
-  it('unresolved products on continuation lines surface for review; only the resolved product is added', () => {
+  it('unresolved products on continuation lines surface for review; canonical aliases resolve while unknown products stay in review', () => {
     const result = buildBasketFromConversation(R16_SHAPE, 'r16', { productIndex: CATALOG });
     const codes = result.currentBasket.items.map((item) => item.canonicalProductCode);
-    expect(codes).toEqual(['66682']);
+    expect(codes).toEqual(['66682', '28532']);
     const reviewed = result.currentBasket.pendingReviewSignals.map((signal) => signal.rawText);
     expect(reviewed).toEqual(expect.arrayContaining(['وعلبة سويتال شبه دى', 'وشريط كيوتابكس']));
     expect(result.currentBasket.unresolvedCandidates.length).toBeGreaterThanOrEqual(2);

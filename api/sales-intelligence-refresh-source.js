@@ -2077,6 +2077,10 @@ var CROSS_SCRIPT_SEED = /* @__PURE__ */ new Map([
   ["\u0641\u0644\u064A\u0643\u0633 \u0644\u0627\u064A\u0643\u0633", "flexilax"],
   ["\u062C\u0627\u0633\u062A \u0631\u064A\u062C", "gast reg"],
   ["\u062C\u0627\u0633\u062A \u0631\u064A\u062C \u0627\u0645\u0628\u0648\u0644", "gast reg"],
+  ["\u0647\u0627\u064A \u0641\u0631\u064A\u0634", "hyfresh"],
+  ["\u0647\u0627\u0649 \u0641\u0631\u064A\u0634", "hyfresh"],
+  ["hy fresh", "hyfresh"],
+  ["hyfresh", "hyfresh"],
   ["\u0633\u0648\u0644\u0648 \u0641\u0631\u064A\u0634", "solofresh"],
   ["\u0633\u0648\u0644\u0648\u0641\u0631\u064A\u0634", "solofresh"],
   ["\u0643\u0648\u062C\u064A \u0633\u0627\u0646", "koji san"],
@@ -2143,7 +2147,7 @@ function isSafeSelection(candidates) {
 }
 function strengthsCompatible(a, b) {
   if (a.length === 0 || b.length === 0) return true;
-  return a.some((sa) => b.some((sb) => sa.unit === sb.unit && Math.abs(sa.value - sb.value) < 1e-3));
+  return a.every((sa) => !b.some((sb) => sa.unit === sb.unit) || b.some((sb) => sa.unit === sb.unit && Math.abs(sa.value - sb.value) < 1e-3));
 }
 function dosageFormsCompatible(a, b) {
   if (a.length === 0 || b.length === 0) return true;
@@ -2270,6 +2274,15 @@ function resolveProductMention(phrase, index, options = {}) {
   const allowed = (product) => !restrictTo || restrictTo.has(product.productId);
   function addCandidate(product, basis, score, reason) {
     if (!allowed(product)) return;
+    if (basis !== "exact_code") {
+      if (!strengthsCompatible(normalized.strengths, product.strengths)) return;
+      if (!dosageFormsCompatible(normalized.dosageForms, product.dosageForms)) return;
+      if (normalized.packSizes.length && product.packSizes.length && !normalized.packSizes.every((pack) => product.packSizes.some((other) => other.count === pack.count))) return;
+      const percentages = (text2) => Array.from(text2.matchAll(/(\d+(?:\.\d+)?)\s*%/g), (match) => Number(match[1]));
+      const requested = percentages(normalized.raw);
+      const offered = percentages(product.canonicalName);
+      if (requested.length && offered.length && !requested.every((value) => offered.includes(value))) return;
+    }
     const existing = candidateMap.get(product.productId);
     if (existing && confidenceRank(existing.confidence) >= confidenceRank(confidenceForBasis(basis))) {
       existing.reasons.push(reason);
