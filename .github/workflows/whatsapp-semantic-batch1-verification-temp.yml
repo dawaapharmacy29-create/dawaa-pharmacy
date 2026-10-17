@@ -1,0 +1,73 @@
+name: WhatsApp Semantic Batch 1 Verification (Temporary)
+
+on:
+  push:
+    branches:
+      - fix/whatsapp-master-brain-lifecycle-v4-continuation-20261017
+
+concurrency:
+  group: whatsapp-semantic-batch1-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    if: ${{ !contains(github.event.head_commit.message, '[batch1-generated]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: Regenerate canonical Sales Intelligence API
+        run: npm run generate:sales-intelligence-refresh-api
+
+      - name: Focused semantic regression tests
+        run: npx vitest run src/lib/salesIntelligence/__tests__/realChatSemanticGuards.test.ts
+
+      - name: Generated API parity
+        run: node scripts/build-sales-intelligence-refresh-api.cjs --check
+
+      - name: Full repository verify gate
+        run: npm run verify
+
+      - name: Semantic lint for Batch 1 touched source
+        run: >-
+          npx eslint
+          src/lib/whatsappConversationParser.ts
+          src/lib/salesIntelligence/caseBasketEngine.ts
+          src/lib/salesIntelligence/customerNeedEngine.ts
+          src/lib/salesIntelligence/__tests__/realChatSemanticGuards.test.ts
+          --rule 'prettier/prettier: off'
+
+      - name: Show generated API delta
+        if: always()
+        run: |
+          git status --short
+          git diff --stat -- api/sales-intelligence-refresh-source.js
+
+      - name: Commit generated API after all gates pass
+        run: |
+          if git diff --quiet -- api/sales-intelligence-refresh-source.js; then
+            echo "Generated API was already current; no generated commit required."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add api/sales-intelligence-refresh-source.js
+          git commit -m "chore(si): regenerate canonical refresh API [batch1-generated]"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
