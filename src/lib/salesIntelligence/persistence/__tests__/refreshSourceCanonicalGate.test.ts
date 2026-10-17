@@ -466,6 +466,68 @@ describe('source-scoped publication after partial persistence', () => {
   });
 });
 
+describe('Phase B controlled runtime smoke contracts', () => {
+  async function refresh() {
+    const { runCanonicalSalesIntelligenceRefresh } = await import('../../refresh/canonicalRefreshService');
+    return runCanonicalSalesIntelligenceRefresh({ from: query, rpc }, { sources, dryRun: false });
+  }
+  beforeEach(() => {
+    sources = [fine];
+    cases = [{ id: 'case-1', root_source_id: fine.id, source_ids: [fine.id] }];
+  });
+
+  it('publishes a legitimately empty derived set through v2 without proof or direct lifecycle writes', async () => {
+    runBatchPersistence.mockResolvedValue(batchResult([]));
+    const out = await refresh();
+    expect(out.status).toBe('ok');
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledWith(CASE_SET_RECONCILE_RPC, {
+      p_conversation_id: fine.id, p_active_case_ids: [], p_analysis_ids: {},
+    });
+    expect(out.conversationEvaluations).toEqual([]);
+    expect(writes).toEqual([]);
+  });
+
+  it.each([null, {}, [], 'reconciled', { ok: true }, { ok: false, status: 'reconciled' }])(
+    'fails closed on malformed lifecycle reply %j before proof/evaluation/followers', async (data) => {
+      runBatchPersistence.mockResolvedValue(batchResult([analysis('sale_proven', 'proven', 'proven')]));
+      rpc.mockResolvedValue({ data, error: null });
+      const out = await refresh();
+      expect(out.status).toBe('case_set_reconciliation_failure');
+      expect(out.caseSetReconciliation[0].ok).toBe(false);
+      expect(rpc).toHaveBeenCalledTimes(1);
+      expect(out.canonicalReconciliation).toEqual([]);
+      expect(out.conversationEvaluations).toEqual([]);
+      expect(writes).toEqual([]);
+    }
+  );
+
+  it('does not publish when the successful persistence reply has no staged analysis ID', async () => {
+    const result = batchResult([analysis('sale_proven', 'proven', 'proven')]);
+    result.caseOutcomes[0].analysis.analysisId = '';
+    runBatchPersistence.mockResolvedValue(result);
+    const out = await refresh();
+    expect(out.caseSetReconciliation[0].status).toBe('persistence_failed_pending_retry');
+    expect(rpc).not.toHaveBeenCalled();
+    expect(out.conversationEvaluations).toEqual([]);
+    expect(writes).toEqual([]);
+  });
+
+  it('releases a consumed payment follower only after its anchor publication succeeds', async () => {
+    const follower = { ...fine, id: '22222222-2222-4222-8222-222222222222', raw_text: '[1/2/26, 1:00:00 PM] You: اتفضل رقم التحويل يا فندم 01028308235', conversation_started_at: '2026-01-02T13:00:00Z', conversation_ended_at: '2026-01-02T13:00:00Z' };
+    sources = [follower, fine];
+    cases = [
+      { id: 'anchor', root_source_id: fine.id, source_ids: [fine.id], journey_id: 'j', customer_id: 'customer-1', case_type: 'order', order_intent: true },
+      { id: 'follower', root_source_id: follower.id, source_ids: [follower.id], journey_id: 'j', customer_id: 'customer-1', case_type: 'followup' },
+    ] as any;
+    runBatchPersistence.mockResolvedValue(batchResult([analysis('sale_proven', 'proven', 'proven')]));
+    const out = await refresh();
+    expect(out.caseSetReconciliation.map((row) => [row.sourceId, row.ok])).toEqual([[fine.id, true], [follower.id, true]]);
+    expect(rpc.mock.calls.filter(([name]) => name === CASE_SET_RECONCILE_RPC).map(([, args]) => args.p_conversation_id)).toEqual([fine.id, follower.id]);
+    expect(rpc.mock.calls[1][1]).toMatchObject({ p_active_case_ids: [], p_analysis_ids: {} });
+  });
+});
+
 describe('generated transport', () => {
   it('api/*.js is exactly the build output of the canonical server implementation', () => {
     const output = execFileSync(
