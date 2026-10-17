@@ -47,7 +47,7 @@ const evaluationCachedMs = performance.now() - cachedStart;
 const tabTimings = {};
 for (const name of ['المحادثة', 'طلب العميل', 'الأصناف', 'الطلب والبيع', 'الفرصة', 'المتابعة', 'الأدلة والمراجعة']) {
   const start = performance.now();
-  await page.getByRole('tab', { name }).click();
+  await page.getByRole('tab', { name, exact: true }).click();
   await page.waitForTimeout(0);
   tabTimings[name] = Number((performance.now() - start).toFixed(3));
 }
