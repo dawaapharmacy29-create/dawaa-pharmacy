@@ -9,6 +9,7 @@ export type StaffDirectoryIdentity = {
   username: string | null;
   status: string | null;
   active: boolean;
+  visible_in_schedule?: boolean | null;
   source: 'staff' | 'staff_account' | 'alias';
 };
 
@@ -51,6 +52,7 @@ function identityFromRow(
       read(row, ['active'], true) !== false &&
       read(row, ['is_active'], true) !== false &&
       read(row, ['can_login'], true) !== false,
+    visible_in_schedule: row.visible_in_schedule == null ? null : row.visible_in_schedule !== false,
     source,
   };
 }
@@ -80,7 +82,7 @@ function uniqueBaseIdentities(rows: StaffDirectoryIdentity[]) {
  */
 export async function loadStaffDirectoryFrom(client: any): Promise<StaffDirectoryIdentity[]> {
   const [staffResult, accountResult, aliasResult] = await Promise.all([
-    client.from('staff').select('id,name,username,branch,role,status,active,is_active').limit(800),
+    client.from('staff').select('id,name,username,branch,role,status,active,is_active,visible_in_schedule').limit(800),
     client.rpc('get_staff_accounts_directory'),
     client
       .from('staff_identity_aliases')
