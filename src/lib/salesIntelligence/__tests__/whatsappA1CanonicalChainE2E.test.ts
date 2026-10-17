@@ -57,7 +57,7 @@ describe('A1 canonical chain — "جاست ريج أمبول"', () => {
   });
 
   it('runs on the canonical pipeline and resolves GAST-REG 50MG 3AMP / 40049', () => {
-    expect(PIPELINE_VERSION).toBe('sales-intelligence-v24-canonical-basket-product-identity');
+    expect(PIPELINE_VERSION).toBe('sales-intelligence-v25-canonical-operational-assessments');
     const result = runSalesIntelligencePipeline({
       conversationId: SOURCE_ID,
       rawWhatsAppExportText: A1_RAW_TEXT,
@@ -71,6 +71,10 @@ describe('A1 canonical chain — "جاست ريج أمبول"', () => {
     });
     expect(result.caseAnalyses).toHaveLength(1);
     const [analysis] = result.caseAnalyses;
+    expect(analysis.complaintAssessment?.caseId).toBe(analysis.caseId);
+    expect(analysis.complaintAssessment?.state).toBe('none');
+    expect(analysis.customerRequestAssessment?.caseId).toBe(analysis.caseId);
+    expect(analysis.customerRequestAssessment?.requests.some((request) => request.status === 'qualified')).toBe(false);
     expect(analysis.customerNeed.products).toHaveLength(1);
     const [product] = analysis.customerNeed.products;
     expect(product.productId).toBe('65ccef56-825a-4c31-93c8-a3bdaffd0488');
@@ -125,3 +129,4 @@ describe('A1 canonical chain — "جاست ريج أمبول"', () => {
     expect(followUp.lifecycle?.penaltyEligible).toBe(false);
   });
 });
+
