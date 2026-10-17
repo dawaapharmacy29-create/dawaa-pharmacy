@@ -5,7 +5,6 @@ import { buildUnifiedConversationIntelligence } from '@/lib/whatsappUnifiedIntel
 import {
   buildWhatsAppOperationalIntelligenceV6,
   enrichWhatsAppOperationalProductsV6,
-  syncWhatsAppOperationalActionsV6,
 } from '@/lib/whatsappOperationalIntelligenceV6';
 import { enrichWhatsAppOperationalJourneysV7 } from '@/lib/whatsappProductJourneyV7';
 import { planProductOpportunityTruthV23, syncWhatsAppEvidenceLedgerV17 } from '@/lib/whatsappEvidenceLedgerV17';
@@ -275,28 +274,8 @@ async function processProductDemandSourceV22(
         productDemandBackfilledAt: new Date().toISOString(),
       };
 
-      await syncWhatsAppOperationalActionsV6(operational, {
-        sourceId: source.id,
-        branch: source.branch,
-        customerId: source.customer_id,
-        customerCode: source.customer_code,
-        customerName: source.customer_name,
-        customerPhone: source.customer_phone,
-        staffId: source.staff_id,
-        staffName: source.staff_name,
-        createdBy: source.created_by,
-        // Same Stable Operation Identity as automatic ingest: a backfill re-run, a re-import or a
-        // different segmentation reuses the operation instead of writing positional duplicates.
-        followupIdentity: {
-          session,
-          caseStartedAt: source.conversation_started_at,
-          legacy: {
-            customer: source.customer_id
-              ? { status: 'resolved', customerId: source.customer_id, normalizedPhone: null, customerCode: null }
-              : null,
-          },
-        },
-      });
+      // Product-demand backfill may refresh legacy evidence, but operational task publication
+      // belongs exclusively to the canonical Sales Intelligence refresh projectors.
 
       await syncWhatsAppEvidenceLedgerV17(session, {
         sourceId: source.id,

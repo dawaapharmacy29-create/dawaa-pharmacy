@@ -18,6 +18,7 @@
 import { runBatchPersistence } from '../persistence/batchPersistenceService';
 import { projectCanonicalFollowupsToActions } from '../persistence/canonicalFollowupProjector';
 import { projectCanonicalCustomerRequestsToActions } from '../persistence/canonicalCustomerRequestProjector';
+import { projectCanonicalComplaintsToActions } from '../persistence/canonicalComplaintProjector';
 import {
   REVIEW_SOURCE_BATCH_INPUT_COLUMNS,
   reviewSourceRowToBatchConversation,
@@ -94,6 +95,7 @@ export interface CanonicalRefreshResult {
   operationalProjection: {
     followups: { inserted: number; existing: number; skipped: number };
     customerRequests: { inserted: number; existing: number; skipped: number };
+    complaints: { inserted: number; existing: number; skipped: number };
     errors: string[];
   };
   /** Follower: canonical meaning projected onto each touched V22 envelope (never fatal). */
@@ -278,6 +280,7 @@ export async function runCanonicalSalesIntelligenceRefresh(
     operationalProjection: {
       followups: { inserted: 0, existing: 0, skipped: 0 },
       customerRequests: { inserted: 0, existing: 0, skipped: 0 },
+      complaints: { inserted: 0, existing: 0, skipped: 0 },
       errors: [],
     },
     semanticProjection: [],
@@ -436,6 +439,7 @@ export async function runCanonicalSalesIntelligenceRefresh(
   const projectionErrors: string[] = [];
   let followupProjection = { inserted: 0, existing: 0, skipped: 0 };
   let customerRequestProjection = { inserted: 0, existing: 0, skipped: 0 };
+  let complaintProjection = { inserted: 0, existing: 0, skipped: 0 };
   try {
     const result = await projectCanonicalFollowupsToActions(
       service,
@@ -468,9 +472,26 @@ export async function runCanonicalSalesIntelligenceRefresh(
       `canonical_customer_request_projection_failed: ${error instanceof Error ? error.message : String(error)}`
     );
   }
+  try {
+    const result = await projectCanonicalComplaintsToActions(
+      service,
+      reconcileCandidates,
+      projectionSources
+    );
+    complaintProjection = {
+      inserted: result.inserted,
+      existing: result.existing,
+      skipped: result.skipped.length,
+    };
+  } catch (error) {
+    projectionErrors.push(
+      `canonical_complaint_projection_failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
   const operationalProjection = {
     followups: followupProjection,
     customerRequests: customerRequestProjection,
+    complaints: complaintProjection,
     errors: projectionErrors,
   };
 

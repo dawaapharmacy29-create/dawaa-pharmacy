@@ -19,7 +19,6 @@ import { buildUnifiedConversationIntelligence, verifySessionAgainstInvoices } fr
 import {
   buildWhatsAppOperationalIntelligenceV6,
   enrichWhatsAppOperationalProductsV6,
-  syncWhatsAppOperationalActionsV6,
 } from '@/lib/whatsappOperationalIntelligenceV6';
 import { enrichWhatsAppOperationalJourneysV7 } from '@/lib/whatsappProductJourneyV7';
 import { syncWhatsAppEvidenceLedgerV17 } from '@/lib/whatsappEvidenceLedgerV17';
@@ -499,24 +498,8 @@ async function persistOperationalJourneyIntelligence(
     .eq('id', sourceId);
   if (sourceUpdateError) throw sourceUpdateError;
 
-  await syncWhatsAppOperationalActionsV6(operational, {
-    sourceId,
-    branch: sourceBranch,
-    customerId: identity.customerId,
-    customerCode: identity.customerCode,
-    customerName: identity.customerName,
-    customerPhone: identity.customerPhone,
-    staffId: sourceRow?.staff_id || null,
-    staffName:
-      sourceRow?.staff_name ||
-      (session.outboundStaffNames.length === 1 ? session.outboundStaffNames[0] : null),
-    createdBy: sourceRow?.created_by || null,
-    followupIdentity: {
-      session,
-      caseStartedAt: canonicalCaseStartedAt,
-      legacy: { customer: identity.canonical, caseAnchor: session.id },
-    },
-  });
+  // Operational task publication is canonical-SI-owned. V6 remains analysis/evidence only;
+  // it must not publish whatsapp_conversation_actions beside the canonical projectors.
 
   await syncWhatsAppEvidenceLedgerV17(session, {
     sourceId,
@@ -716,14 +699,8 @@ export async function ingestWhatsAppExportFile(
         );
       }
 
-      const followups = await saveFollowupSignals(
-        session,
-        source.sourceFileName,
-        identity,
-        sourceBranch
-      );
-      result.followupsCreated += followups.created;
-      result.followupsDuplicate += followups.duplicate;
+      // Legacy whatsapp_auto_followup_requests publication is retired from live ingest.
+      // Canonical SI FollowUp/Complaint projectors publish the single operational queue.
     } catch (e) {
       const message = e instanceof Error ? e.message : 'خطأ غير معروف أثناء معالجة جلسة محادثة';
       result.errors.push(message);
