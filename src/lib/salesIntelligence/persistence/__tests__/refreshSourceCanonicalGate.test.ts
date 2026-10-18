@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const CASE_SET_RECONCILE_RPC = 'sales_intelligence_reconcile_case_set_v2';
 const CANONICAL_PROOF_WRITER_RPC = 'dawaa_reconcile_sales_intelligence_case_v22_v1';
+const CANONICAL_FOLLOWUP_RECONCILE_RPC = 'dawaa_reconcile_canonical_followup_actions_v1';
 
 const runBatchPersistence = vi.fn();
 vi.mock('../batchPersistenceService', () => ({ runBatchPersistence }));
@@ -163,6 +164,9 @@ function mockProofRpcResult(data: unknown, error: unknown = null) {
       };
     }
     if (name === CANONICAL_PROOF_WRITER_RPC) return { data, error };
+    if (name === CANONICAL_FOLLOWUP_RECONCILE_RPC) {
+      return {data:{ok:true,inserted:0,existing:0,updated:0,withdrawn:0},error:null};
+    }
     return { data: null, error: { message: `unexpected rpc: ${name}` } };
   });
 }
@@ -476,15 +480,34 @@ describe('Phase B controlled runtime smoke contracts', () => {
     cases = [{ id: 'case-1', root_source_id: fine.id, source_ids: [fine.id] }];
   });
 
-  it('publishes a legitimately empty derived set through v2 without proof or direct lifecycle writes', async () => {
+  it('publishes an empty derived set and reconciles obsolete follow-up proposals without proof or direct writes', async () => {
     runBatchPersistence.mockResolvedValue(batchResult([]));
     const out = await refresh();
     expect(out.status).toBe('ok');
-    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledTimes(2);
     expect(rpc).toHaveBeenCalledWith(CASE_SET_RECONCILE_RPC, {
       p_conversation_id: fine.id, p_active_case_ids: [], p_analysis_ids: {},
     });
+    expect(rpc).toHaveBeenNthCalledWith(2,CANONICAL_FOLLOWUP_RECONCILE_RPC,{
+      p_source_id:fine.id,p_analysis_ids:{},p_rows:[],
+    });
+    expect(rpc).not.toHaveBeenCalledWith(CANONICAL_PROOF_WRITER_RPC,expect.anything());
+    expect(out.operationalProjection.errors).toEqual([]);
+    expect(out.operationalProjection.followups).toEqual({inserted:0,existing:0,skipped:0,updated:0,withdrawn:0});
     expect(out.conversationEvaluations).toEqual([]);
+    expect(writes).toEqual([]);
+  });
+
+  it('reports a missing follow-up lifecycle RPC without direct-write fallback or canonical truth changes', async () => {
+    runBatchPersistence.mockResolvedValue(batchResult([]));
+    rpc.mockImplementation(async(name:string) => name===CASE_SET_RECONCILE_RPC
+      ? {data:{ok:true,status:'reconciled'},error:null}
+      : {data:null,error:new Error('followup_rpc_unavailable')});
+    const out=await refresh();
+    expect(out.status).toBe('ok');
+    expect(out.operationalProjection.errors).toEqual([
+      'canonical_followup_projection_failed: followup_rpc_unavailable',
+    ]);
     expect(writes).toEqual([]);
   });
 
@@ -540,3 +563,4 @@ describe('generated transport', () => {
     expect(output).toContain('PASS');
   });
 });
+

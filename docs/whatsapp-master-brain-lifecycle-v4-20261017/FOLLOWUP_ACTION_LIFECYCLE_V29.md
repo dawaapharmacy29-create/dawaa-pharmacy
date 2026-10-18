@@ -30,6 +30,10 @@ published set and persisted opportunity set, and rejects obsolete refreshes or i
 - Stored source branch wins; guessed branch changes are rejected.
 - Identical retries do not update timestamps or inflate action counts.
 
+The browser cannot forge canonical analysis/lifecycle provenance in an existing action payload.
+Recorded contact attempts/recovery evidence also prevent automatic proposal rewriting, even when
+an older workflow marker still says unassigned.
+
 The existing public materializer retains strict staff-session identity, action permission, source
 access, request branch authorization and explicit customer-request approval. Before executing an
 unmaterialized canonical follow-up it locks the source, checks current analysis provenance,
@@ -46,8 +50,12 @@ human dismissal, preserved workflow/targets, source customer correction, missing
 pointer drift, noncanonical source, transport errors, transactional collision rollback, internal
 RPC grants and retained materializer permission/approval checks.
 
-PGlite serializes its connection: overlapping Promise calls and stale ordering are tested, but
-this is not a two-session hosted PostgreSQL lock-contention test. Production RLS and operational
+PGlite serializes its connection: overlapping Promise calls and stale ordering are tested there.
+The separate `followup-concurrency` CI job uses a disposable PostgreSQL 17 service without
+published ports. Its script only accepts that Docker container ID, never a database URL. Five
+multi-session scenarios verify actual lock waiting for retries, stale refresh, stale execution,
+execution before publication, and an overlapping case-analysis writer.
+Production RLS and operational
 tables are not mutated or replaced by these fixtures. The core materializer is stubbed; these
 tests do not claim an actual daily_followups creation or end-to-end browser approval.
 
@@ -59,9 +67,11 @@ the authorized database release process before the corresponding runtime is depl
 RPC remains an explicit operational projection error; it never falls back to the legacy writer.
 Do not deploy this branch runtime to the existing production-backed preview until that release
 dependency has been resolved. Existing Preview remains on its prior verified runtime.
+Older unmaterialized canonical proposals without current analysis provenance will require an
+explicit refresh before execution; they are not silently trusted or mass-refreshed by this change.
 
-Before runtime activation: rehearse the migration against the full isolated schema and real
-authorization functions, test publication/materialization with separate PostgreSQL sessions, and
-review lock contention. Then run an explicitly authorized UI smoke. No historical repair is implied.
+Before runtime activation: require the multi-session CI job to pass, rehearse the migration against
+the full isolated schema and real authorization functions, and review operational lock contention.
+Then run an explicitly authorized UI smoke. No historical repair is implied.
 Customer-request and complaint lifecycle corrections remain separate scopes; their existing
 projection tests are regression checks, not proof that every lifecycle scenario is closed.

@@ -401,5 +401,28 @@ describe('canonical follow-up operational projector', () => {
     expect(client.rows).toEqual(before);
   });
 
+  it('prevents a browser from forging canonical provenance while allowing human dismissal', async () => {
+    const client=await fakeClient();
+    await projectCanonicalFollowupsToActions(client,[analysis()],sources,publication);
+    await client.db.exec('grant select,update on whatsapp_conversation_actions to anon;set role anon');
+    await expect(client.db.exec(`update whatsapp_conversation_actions
+      set payload=payload||'{"canonicalLifecycle":"withdrawn"}'`))
+      .rejects.toThrow('canonical_followup_provenance_is_system_owned');
+    await client.db.exec("update whatsapp_conversation_actions set status='dismissed';reset role");
+    await projectCanonicalFollowupsToActions(client,[analysis()],sources,publication);
+    expect(client.rows[0].status).toBe('dismissed');
+  });
+
+  it('preserves recorded contact attempts even if a legacy workflow marker still says unassigned', async () => {
+    const row=buildCanonicalFollowupActionRows([analysis()],sources).rows[0];
+    const client=await fakeClient([{...row,followup_attempts:1,last_followup_at:'2026-10-17T12:00:00Z'}]);
+    const before=structuredClone(client.rows);
+    const closed=analysis();closed.followUp.opportunities=[];
+    await client.publish([closed],sources,NEXT_ANALYSIS_ID);
+    await projectCanonicalFollowupsToActions(client,[closed],sources,
+      [{sourceId:SOURCE_A,analysisIds:{[closed.caseId]:NEXT_ANALYSIS_ID}}]);
+    expect(client.rows).toEqual(before);
+  });
+
 });
 

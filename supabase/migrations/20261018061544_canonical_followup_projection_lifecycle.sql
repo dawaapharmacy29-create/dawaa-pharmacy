@@ -111,6 +111,9 @@ begin
          or v_action.work_status is distinct from 'unassigned'
          or v_action.assigned_at is not null or v_action.started_at is not null
          or v_action.completed_at is not null or v_action.outcome is not null
+         or v_action.outcome_note is not null or coalesce(v_action.followup_attempts,0)>0
+         or v_action.last_followup_at is not null or v_action.next_followup_at is not null
+         or v_action.recovered_at is not null or v_action.recovered_invoice_id is not null
          or not (v_action.status='ready' or
            (v_action.status='dismissed' and v_action.payload->>'canonicalLifecycle'='withdrawn')) then
         continue;
@@ -166,6 +169,9 @@ begin
     and a.status='ready' and a.work_status='unassigned'
     and a.target_table is null and a.target_id is null and a.assigned_at is null
     and a.started_at is null and a.completed_at is null and a.outcome is null
+    and a.outcome_note is null and coalesce(a.followup_attempts,0)=0
+    and a.last_followup_at is null and a.next_followup_at is null
+    and a.recovered_at is null and a.recovered_invoice_id is null
     and not exists(select 1 from jsonb_array_elements(p_rows) r where r->>'followup_identity'=a.followup_identity);
   get diagnostics v_withdrawn = row_count;
   return jsonb_build_object('ok',true,'inserted',v_inserted,'existing',v_existing,
@@ -175,6 +181,33 @@ $function$;
 revoke all on function public.dawaa_reconcile_canonical_followup_actions_v1(uuid,jsonb,jsonb)
   from public,anon,authenticated;
 grant execute on function public.dawaa_reconcile_canonical_followup_actions_v1(uuid,jsonb,jsonb) to service_role;
+
+-- Browser workflow updates cannot forge a fresh canonical analysis or a projector withdrawal.
+-- The existing truth guard still owns all other identity/execution fields.
+create or replace function public.dawaa_guard_canonical_followup_provenance_v1()
+returns trigger language plpgsql security invoker
+set search_path to 'public','pg_catalog'
+as $function$
+declare v_key text;
+begin
+  if current_user in ('postgres','service_role','supabase_admin') then return new; end if;
+  if old.created_by='si-canonical-followup-projection-v1' then
+    foreach v_key in array array['canonicalProjectionVersion','caseId','followUpKey',
+      'canonicalReason','canonicalAnalysisId','canonicalLifecycle','canonicalPublication','canonicalWithdrawalReason']
+    loop
+      if new.payload->v_key is distinct from old.payload->v_key then
+        raise exception 'canonical_followup_provenance_is_system_owned' using errcode='42501';
+      end if;
+    end loop;
+  end if;
+  return new;
+end;
+$function$;
+revoke all on function public.dawaa_guard_canonical_followup_provenance_v1() from public,anon,authenticated;
+grant execute on function public.dawaa_guard_canonical_followup_provenance_v1() to service_role;
+drop trigger if exists canonical_followup_provenance_guard_v1 on public.whatsapp_conversation_actions;
+create trigger canonical_followup_provenance_guard_v1 before update on public.whatsapp_conversation_actions
+for each row execute function public.dawaa_guard_canonical_followup_provenance_v1();
 
 -- Preserve the public authorized command and all existing staff/branch/approval checks.
 -- Lock source before action, then reject stale canonical follow-up proposals at execution time.
@@ -187,6 +220,7 @@ declare
   v_action public.whatsapp_conversation_actions%rowtype;
   v_source public.whatsapp_review_sources%rowtype;
   v_source_id uuid;
+  v_case record;
 begin
   if v_actor is null then raise exception 'not_authorized' using errcode='42501'; end if;
   if not public.dawaa_current_actor_can(array[
@@ -197,6 +231,11 @@ begin
   select * into v_source from public.whatsapp_review_sources where id=v_source_id for update;
   if not found then raise exception 'whatsapp_source_not_found'; end if;
   perform pg_advisory_xact_lock(hashtext('sales_intelligence_case_set:' || v_source_id::text));
+  for v_case in select case_id from public.sales_intelligence_cases
+    where conversation_id=v_source_id order by case_id
+  loop
+    perform pg_advisory_xact_lock(hashtext('sales_intelligence_case_analyses:' || v_case.case_id));
+  end loop;
   select * into v_action from public.whatsapp_conversation_actions where id=p_action_id for update;
   if not found or v_action.source_id is distinct from v_source_id then
     raise exception 'whatsapp_action_source_changed';
