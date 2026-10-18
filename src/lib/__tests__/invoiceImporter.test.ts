@@ -724,6 +724,38 @@ describe('loadDatabaseDayComparison', () => {
     });
   });
 
+  it('holds a same-day cross-branch match when customer code and net value also match', async () => {
+    const row = makeInvoiceRow({
+      rowIndex: 1,
+      invoiceNumber: 'MISFILED-40165',
+      date: '2026-10-17',
+      branch: 'shamy',
+      customerCode: '170',
+      amount: 665,
+    });
+    mockExistingInvoiceRows = [{
+      id: 'wrong-branch-existing',
+      invoice_date: '2026-10-17',
+      invoice_number: 'MISFILED-40165',
+      invoice_no: 'MISFILED-40165',
+      branch: 'shokry',
+      customer_code: '170',
+      net_amount: 665,
+      amount: 665,
+    }];
+    mockDatabaseRows = mockExistingInvoiceRows;
+
+    const summary = await importInvoicesToDB([row], 'shamy', 'cross-branch-review');
+    expect(summary.insertedRows).toBe(0);
+    expect(summary.conflictReviewRows).toBe(1);
+    expect(lastSalesInvoiceInsertPayload).toEqual([]);
+    expect(lastUpdatePayload).toBeNull();
+    expect(summary.rowSaveTrace?.[0]).toMatchObject({
+      invoice_number: 'MISFILED-40165',
+      finalStatus: 'possible_wrong_branch',
+    });
+  });
+
   it('marks saved rows that are not found by branch invoice_number and invoice_date after verification', async () => {
     const rows = [makeInvoiceRow({ rowIndex: 1, invoiceNumber: 'GHOST-1', date: '2026-07-05', amount: 300 })];
     mockDatabaseRows = [];
