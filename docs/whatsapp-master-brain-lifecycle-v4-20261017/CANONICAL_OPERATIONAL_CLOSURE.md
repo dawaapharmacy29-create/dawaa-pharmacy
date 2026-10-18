@@ -31,3 +31,10 @@ Pipeline version advances to sales-intelligence-v26-canonical-semantic-matrix; t
 ## Review handoff
 
 The semantic matrix source is verified; controlled live materialization of a synthetic request/follow-up/complaint and its database retry checks remain unperformed. Local analytical retry tests and projector concurrency tests are not a substitute for that live check. No test source, task, invoice, customer or staff record was created or changed in Production. No main merge or Production deployment was performed. The next review step is a Preview of the verified semantic source, followed by explicitly scoped operational testing through the real staff session.
+
+
+## Preview checkpoint — 2026-10-18
+
+Verified semantic source was deployed as Preview dpl_GQkMMGh446zFvSjL2G913GUfiPX2, commit ceb2392176ab48a49a2261fe90ca9124bc436c8f (documentation-only change after verified source 1c3798e). State READY. URL: https://dawaa-pharmacy-rc833s3h7-dawaapharmacy29-creates-projects.vercel.app/ . Real staff login succeeded and the dashboard and Smart Watcher page rendered. While attempting the official folder chooser, Cloud Browser rejected continuation of native credential state and its kernel reset; one fresh-document recovery also returned that native credential state cannot safely resume. No synthetic file was selected/uploaded, no refresh was run and no operational record was created. Live materialization/retry verification remains BLOCKED_BY_BROWSER_AUTH_TOOLING, not verified and not classified as an application regression.
+
+Read-only production-alias inspection found an independently published main deployment dpl_9ypW4Pu8UnufLrBF1thip3d1R8Ej, SHA aaa99dfedabbf3713e7fa98e68980e54b1a44970, invoice-import PR #514. This task did not publish or alter it. Reassess current main compatibility before any later merge; do not assume the earlier production checkpoint is still the live alias.
