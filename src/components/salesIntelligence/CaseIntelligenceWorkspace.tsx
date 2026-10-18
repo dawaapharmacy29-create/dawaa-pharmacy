@@ -145,6 +145,7 @@ export function CaseIntelligenceWorkspace({
   staffDisplayName = null,
   conversationEvaluation = null,
   conversationEvaluationLoading = false,
+  conversationEvaluationRequested = false,
   conversationEvaluationWarning = null,
 }: {
   view: CaseIntelligenceView | null;
@@ -155,6 +156,7 @@ export function CaseIntelligenceWorkspace({
   staffDisplayName?: string | null;
   conversationEvaluation?: ConversationEvaluationResult | null;
   conversationEvaluationLoading?: boolean;
+  conversationEvaluationRequested?: boolean;
   conversationEvaluationWarning?: string | null;
 }) {
   const [tab, setTab] = useState<CaseIntelligenceTab>(initialTab);
@@ -383,7 +385,7 @@ export function CaseIntelligenceWorkspace({
             </>
           ) : (
             <div className="dawaa-alert dawaa-alert--info text-sm">
-              اضغط «تحميل تفاصيل تقييم المحادثة» أعلى الصفحة لعرض التقييم من الأدلة الحالية.
+              {conversationEvaluationRequested ? (conversationEvaluationWarning || 'لم يكتمل تحميل تقييم المحادثة؛ أعد فتح الحالة للمحاولة من جديد.') : 'اضغط «تحميل تفاصيل تقييم المحادثة» أعلى الصفحة لعرض التقييم من الأدلة الحالية.'}
             </div>
           )}
         </div>

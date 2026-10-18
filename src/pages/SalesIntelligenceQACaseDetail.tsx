@@ -416,6 +416,7 @@ export default function SalesIntelligenceQACaseDetail() {
         ) : null}
         staffDisplayName={conversation?.staffId ? conversation.staffName : null}
         conversationEvaluation={evaluationRequestedFor === evaluationKey ? conversationEvaluation : null}
+        conversationEvaluationRequested={evaluationRequestedFor === evaluationKey}
         conversationEvaluationLoading={evaluationRequestedFor === evaluationKey && conversationEvaluationLoading}
         conversationEvaluationWarning={evaluationRequestedFor === evaluationKey ? conversationEvaluationWarning : null}
         invoiceEvidence={{
