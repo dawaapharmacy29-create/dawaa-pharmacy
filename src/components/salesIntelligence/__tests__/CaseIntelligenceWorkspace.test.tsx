@@ -352,7 +352,8 @@ describe('Case Intelligence Workspace (display only)', () => {
       view,
       staffDisplayName: 'د محمد شبل',
     }));
-    expect(header).toContain('الموظف بالمحادثة');
+    expect(header).toContain('الموظف المرتبط بالمصدر');
+    expect(view.staff.participants.every((p) => p.staffId == null)).toBe(true);
     expect(header).toContain('د محمد شبل');
     expect(header).not.toContain('>You<');
 
