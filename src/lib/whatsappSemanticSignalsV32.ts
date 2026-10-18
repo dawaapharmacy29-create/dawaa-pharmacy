@@ -187,7 +187,18 @@ const COMMIT_REPLY_RX = new RegExp(
   'iu'
 );
 
-export type StaffCommitmentKindV32 = 'availability_check' | 'reply_back';
+// Delivery commitments are distinct from stock checks and survive an invoiced sale.
+const DELIVERY_PROMISE_RX = /(?<![\p{L}])(?<!(?:مش|لن|لم)\s+)(?:و|ف)?ه(?:اتصل|تصل|كلم|تابع|راجع|شوف)[^.!؟?\n]{0,80}(?:المندوب|الدليفري|التوصيل|وصل\s*لفين)/iu;
+export function isDeliveryFollowUpPromiseV32(text: string): boolean {
+  return statementClauses(text).some((clause) => DELIVERY_PROMISE_RX.test(clause));
+}
+export function isDeliveryFollowUpCompletionV32(text: string): boolean {
+  if (/(?:مش|لم|لسه|لم\s*يتم)\s/.test(text)) return false;
+  return /(?:تم\s*(?:الاستلام|التسليم)|الاوردر\s*وصل|الأوردر\s*وصل|استلمت\s*(?:الطلب|الاوردر|الأوردر))/.test(text) ||
+    /(?:كلمت|اتصلت\s*ب|راجعت\s*مع)\s*(?:المندوب|الدليفري)[^.!؟?\n]{0,80}(?:وصل|فاضل|الطريق|عند)/.test(text);
+}
+
+export type StaffCommitmentKindV32 = 'availability_check' | 'reply_back' | 'delivery_check';
 
 export interface StaffCommitmentV32 {
   kind: StaffCommitmentKindV32;
@@ -204,6 +215,8 @@ export interface StaffCommitmentV32 {
 export function classifyStaffCommitmentsV32(text: string): StaffCommitmentV32[] {
   const out: StaffCommitmentV32[] = [];
   for (const clause of statementClauses(text)) {
+    const delivery = clause.match(DELIVERY_PROMISE_RX);
+    if (delivery) out.push({ kind: 'delivery_check', matchedText: delivery[0], ruleId: 'commitment.delivery_check', confidence: 0.9 });
     const withObject = clause.match(COMMIT_CHECK_WITH_OBJECT_RX);
     const bare = withObject ? null : clause.match(COMMIT_BARE_CHECK_RX);
     if (withObject || bare) {
@@ -917,3 +930,4 @@ export function computeRequestBurstIds(messages: NormalizedConversationMessageV3
   flush();
   return burstIdByMessageId;
 }
+

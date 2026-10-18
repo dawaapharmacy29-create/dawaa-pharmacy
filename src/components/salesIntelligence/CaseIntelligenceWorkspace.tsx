@@ -235,7 +235,7 @@ export function CaseIntelligenceWorkspace({
           </Fact>
           <Fact label="وقت التفاعل">{formatTime(view.interaction.startedAt)}</Fact>
           <Fact label="الفرع">{view.branch.branchNameRaw || UNKNOWN_LABEL}</Fact>
-          <Fact label="الموظف بالمحادثة">{mainStaff ?? 'لم يرد أحد'}{staffNames.length > 1 ? ` (+${staffNames.length - 1})` : ''}</Fact>
+          <Fact label={view.staff.participants.some((p) => p.staffId) ? 'الموظف بالمحادثة' : 'الموظف المرتبط بالمصدر'}>{mainStaff ?? 'لم يرد أحد'}{staffNames.length > 1 ? ` (+${staffNames.length - 1})` : ''}</Fact>
           <Fact label="مرحلة البيع">{journeyStateLabel(view.journey.currentState)}</Fact>
           <Fact label="نتيجة البيع">{saleOutcomeLabel(view.sale.outcome)}</Fact>
           <Fact label="حالة الفرصة">
@@ -383,7 +383,7 @@ export function CaseIntelligenceWorkspace({
             </>
           ) : (
             <div className="dawaa-alert dawaa-alert--info text-sm">
-              تحليل المحادثة النهائي غير متاح لهذه الحالة بعد.
+              اضغط «تحميل تفاصيل تقييم المحادثة» أعلى الصفحة لعرض التقييم من الأدلة الحالية.
             </div>
           )}
         </div>
@@ -513,7 +513,7 @@ export function CaseIntelligenceWorkspace({
                   <Badge tone={status.tone}>{status.label}</Badge>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs">
-                  <Fact label="الكمية المطلوبة">{p.requestedQuantity ?? UNKNOWN_LABEL}</Fact>
+                  <Fact label="الكمية المذكورة في المحادثة">{p.requestedQuantity ?? UNKNOWN_LABEL}</Fact>
                   <Fact label="التوفر">{availabilityLabel(p.availability === 'unknown' ? null : p.availability)}</Fact>
                   <Fact label="البديل">{need?.alternatives.map((a) => a.productNameRaw || 'بديل غير مسمى').join('، ') || 'لا يوجد'}</Fact>
                   <Fact label="رد العميل">{p.alternativeResponses.length ? p.alternativeResponses.map((r) => alternativeResponseLabel(r)).join('، ') : '—'}</Fact>
@@ -546,14 +546,15 @@ export function CaseIntelligenceWorkspace({
             <div className="dawaa-alert dawaa-alert--success text-sm leading-7" data-testid="automatic-invoice-link-summary">
               تم ربط الفاتورة تلقائيًا
               {invoiceEvidence?.invoiceNumber ? ` — فاتورة ${invoiceEvidence.invoiceNumber}` : ''}
-              {' '}— نفس كود واسم العميل وفي توقيت قريب جدًا من المحادثة
+              {' '}— نفس كود واسم العميل وداخل النافذة الزمنية المعتمدة للمطابقة
               {trustedInvoiceItemCount ? ` — ${trustedInvoiceItemCount} أصناف` : ''}
               {trustedInvoiceTotalQuantity ? ` بإجمالي كمية ${trustedInvoiceTotalQuantity}` : ''}.
             </div>
           ) : null}
           <Block title="الطلب (السلة)">
             <div className="grid gap-3 sm:grid-cols-3">
-              <Fact label="حالة التأكيد">{confirmationStateLabel(view.sale.confirmationState)}</Fact>
+              <Fact label="تأكيد السلة بالبروتوكول">{confirmationStateLabel(view.sale.confirmationState)}</Fact>
+              <Fact label="قبول العميل للإرسال">{view.sale.customerAcceptanceDetected == null ? UNKNOWN_LABEL : view.sale.customerAcceptanceDetected ? 'نعم — قبول إرسال، وليس تأكيد إجمالي السلة' : 'لم يُرصد'}</Fact>
               <Fact label="الإجمالي المعلن">{view.basket.announcedTotal != null ? `${view.basket.announcedTotal} جنيه` : 'لم يُعلن'}</Fact>
               <Fact label="نسخ السلة">{view.basket.versions.length}</Fact>
             </div>
@@ -569,7 +570,7 @@ export function CaseIntelligenceWorkspace({
               <Fact label="نتيجة البيع">{saleOutcomeLabel(view.sale.outcome)}</Fact>
               <Fact label="إثبات البيع">{saleProofLabel(view.sale.proofState === 'unknown' ? null : view.sale.proofState)}</Fact>
               <Fact label="الفاتورة المختارة">{view.sale.selectedInvoiceNumber || 'لا توجد'}</Fact>
-              <Fact label="فواتير مرشحة">{view.sale.invoiceCandidateIds.length} (مرشحة فقط — ليست بيعًا)</Fact>
+              <Fact label="الفواتير المفحوصة">{view.sale.invoiceCandidateIds.length}{view.sale.proofState === 'proven' ? ' — الفاتورة المختارة مثبتة' : ' — الترشيح وحده لا يثبت البيع'}</Fact>
             </div>
             {view.sale.contradictions.length ? (
               <div className="dawaa-alert dawaa-alert--warning text-xs">يوجد تعارض في الإسناد يحتاج مراجعة.</div>
@@ -776,3 +777,4 @@ export function CaseIntelligenceWorkspace({
 }
 
 export default CaseIntelligenceWorkspace;
+

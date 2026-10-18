@@ -924,9 +924,19 @@ var COMMIT_REPLY_RX = new RegExp(
   `${COMMIT_FUTURE}\u062A\u0627\u0628\u0639(?![\\p{L}])|${COMMIT_FUTURE}\u062A\u0627\u0628\u0639\\s*${COMMIT_RECIPIENT}|${COMMIT_FUTURE}${REPLY_VERB}(?:\u0643|\u0643\u064A|\u0643\u0645)(?![\\p{L}])|${COMMIT_FUTURE}${REPLY_VERB}${COMMIT_GAP}\\s*(?:\u0639\u0644\u0649\\s*|\u0644)?${COMMIT_RECIPIENT}`,
   "iu"
 );
+var DELIVERY_PROMISE_RX = /(?<![\p{L}])(?<!(?:مش|لن|لم)\s+)(?:و|ف)?ه(?:اتصل|تصل|كلم|تابع|راجع|شوف)[^.!؟?\n]{0,80}(?:المندوب|الدليفري|التوصيل|وصل\s*لفين)/iu;
+function isDeliveryFollowUpPromiseV32(text5) {
+  return statementClauses(text5).some((clause) => DELIVERY_PROMISE_RX.test(clause));
+}
+function isDeliveryFollowUpCompletionV32(text5) {
+  if (/(?:مش|لم|لسه|لم\s*يتم)\s/.test(text5)) return false;
+  return /(?:تم\s*(?:الاستلام|التسليم)|الاوردر\s*وصل|الأوردر\s*وصل|استلمت\s*(?:الطلب|الاوردر|الأوردر))/.test(text5) || /(?:كلمت|اتصلت\s*ب|راجعت\s*مع)\s*(?:المندوب|الدليفري)[^.!؟?\n]{0,80}(?:وصل|فاضل|الطريق|عند)/.test(text5);
+}
 function classifyStaffCommitmentsV32(text5) {
   const out = [];
   for (const clause of statementClauses(text5)) {
+    const delivery = clause.match(DELIVERY_PROMISE_RX);
+    if (delivery) out.push({ kind: "delivery_check", matchedText: delivery[0], ruleId: "commitment.delivery_check", confidence: 0.9 });
     const withObject = clause.match(COMMIT_CHECK_WITH_OBJECT_RX);
     const bare = withObject ? null : clause.match(COMMIT_BARE_CHECK_RX);
     if (withObject || bare) {
@@ -6516,13 +6526,17 @@ function deriveFollowUpOpportunities(input) {
   const checkPendingIds = new Set(unavailableDemand.filter((d) => d.availabilityState === "check_pending").map((d) => d.availabilityMessageId));
   for (const message of meaningful) {
     if (message.role !== "staff" || !isStaffFollowUpPromiseV32(message.text)) continue;
+    const deliveryPromise = isDeliveryFollowUpPromiseV32(message.text);
     const scheduledAt = explicitPromiseTime(message.text, message.timestamp);
     const fulfilled = scheduledAt && meaningful.some(
       (later) => later.role === "staff" && (indexOf.get(later.id) ?? 0) > (indexOf.get(message.id) ?? 0) && /(?:تم\s+(?:الاتصال|التواصل)|كلمت\s+حضرتك|بلغت\s+حضرتك)/.test(later.text) && !/(?:مش|لم|لم\s*يتم)\s/.test(later.text)
     );
-    if (fulfilled || !scheduledAt && (checkPendingIds.has(message.id) || laterStaffReply(message))) continue;
+    const deliveryCompleted = deliveryPromise && meaningful.some(
+      (later) => (indexOf.get(later.id) ?? 0) > (indexOf.get(message.id) ?? 0) && isDeliveryFollowUpCompletionV32(later.text)
+    );
+    if (deliveryCompleted || fulfilled || !deliveryPromise && !scheduledAt && (checkPendingIds.has(message.id) || laterStaffReply(message))) continue;
     candidates.push({
-      reason: "staff_promised_check",
+      reason: deliveryPromise ? "delivery_unresolved" : "staff_promised_check",
       explicit: true,
       demand: null,
       assignedStaffName: message.sender,
@@ -6853,6 +6867,7 @@ function buildCaseIntelligenceView(analysis, context) {
     basket,
     journey: analysis.journeyState,
     sale: {
+      customerAcceptanceDetected: analysis.historicalClosure?.customerAcceptanceDetected,
       confirmationState: commercialConfirmation.currentState,
       summaryPresented: commercialConfirmation.summaryPresented,
       customerConfirmed: commercialConfirmation.customerConfirmed,
@@ -8558,7 +8573,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v27-invoice-backed-sale-proof";
+var PIPELINE_VERSION = "sales-intelligence-v28-delivery-obligations-and-consistent-evidence";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v10-payment-continuation-ambiguity-safe",
   historicalClosure: "historical-closure-v1",
@@ -10969,7 +10984,7 @@ function monthCycleFromDate(dateInput = /* @__PURE__ */ new Date()) {
 }
 
 // src/lib/salesIntelligence/conversationClinicalReview.ts
-var CONSULTATION_CONTEXT_RX = /(?:استشار(?:ة|ه)|تشخيص|اعراض|أعراض|حامل|حمل|رضاع(?:ة|ه)|مرضع|طفل|رضيع|حساسي(?:ة|ه)|ضغط|سكر|حرار(?:ة|ه)|كح(?:ة|ه)|اسهال|إسهال|قيء|ترجيع|استفراغ|دوخ(?:ة|ه)|التهاب|صداع|وجع|ألم|الم|رشح|برد|جرح|تداخل|يتعارض|روشت(?:ة|ه)|تحليل|مناسب\s+(?:ل|مع)|آمن\s+(?:ل|مع)|امن\s+(?:ل|مع))/i;
+var CONSULTATION_CONTEXT_RX = /(?:استشار(?:ة|ه)|تشخيص|اعراض|أعراض|حامل|حمل|رضاع(?:ة|ه)|مرضع|طفل|رضيع|حساسي(?:ة|ه)|ضغط|سكر|حرار(?:ة|ه)|كح(?:ة|ه)|اسهال|إسهال|قيء|ترجيع|استفراغ|دوخ(?:ة|ه)|التهاب|صداع|وجع|ألم|الم(?=$|[\s،,.!?؟])|رشح|برد|جرح|تداخل|يتعارض|روشت(?:ة|ه)|تحليل|مناسب\s+(?:ل|مع)|آمن\s+(?:ل|مع)|امن\s+(?:ل|مع))/i;
 var DOSAGE_USAGE_RX = /(?:جرع(?:ة|ه)|طريق(?:ة|ه)\s*الاستخدام|طريقة\s*الإستخدام|(?:مرة|مره|مرتين|ثلاث\s*مرات|اربع\s*مرات|أربع\s*مرات)\s*(?:في|ف)?\s*(?:اليوم|يوميا|يوميًا)?|كل\s*\d+\s*(?:ساع(?:ة|ه)|ساعات)|(?:قبل|بعد)\s*(?:الاكل|الأكل)|على\s*الريق|لمد(?:ة|ه)\s*\d+\s*(?:يوم|ايام|أيام)|(?:خد|خدي|خدوا|ياخد|تاخد|تاخدي|يتاخد|تؤخذ|استخدم|استخدمي|يستخدم)\s+[^\n]{0,40}(?:قرص|كبسول(?:ة|ه)|مل|ملي|نقط(?:ة|ه)?|بخ(?:ة|ه)|بختين|ملعق(?:ة|ه)|معلق(?:ة|ه)))/i;
 var MEDIA_PLACEHOLDER_RX = /(?:<image omitted>|<voice message omitted>|audio omitted|<video omitted>|<document omitted>|صورة محذوفة|صوت محذوف|فيديو محذوف)/i;
 function ordered(view) {
@@ -11948,7 +11963,7 @@ function evaluateFollowUpPromiseLifecycle(input) {
 // src/lib/salesIntelligence/conversationEvaluationFollowUp.ts
 var criterion = REVIEW_CRITERIA.find((item) => item.key === "followup_after_wait");
 if (!criterion) throw new Error("Missing followup_after_wait review criterion");
-var PROMISE_OBLIGATION_REASONS = /* @__PURE__ */ new Set(["staff_promised_check", "stock_check_pending"]);
+var PROMISE_OBLIGATION_REASONS = /* @__PURE__ */ new Set(["staff_promised_check", "stock_check_pending", "delivery_unresolved"]);
 var NUDGE_RX = /^(?:[؟?]+|يا\s*دكتور|دكتور|لسه|تمام|طيب|اوك|أوك|اوكي|ok|حضرتك|معلش)$/i;
 function make2(option, status, confidence3, reason, evidenceMessageIds, waitSeconds, promiseCount, lifecycle = null, labelOverride = null) {
   const choice = option ? criterion.choices.find((item) => item.value === option) ?? null : null;
@@ -12006,7 +12021,7 @@ function analyzeConversationEvaluationFollowUp(view) {
     const promiseIndex = ordered4.findIndex((message) => message.id === promise.id);
     const after = ordered4.slice(promiseIndex + 1);
     const nextReturn = after.find(
-      (message) => message.role === "staff" && message.meaningful && !isStaffFollowUpPromiseV32(message.text)
+      (message) => message.role === "staff" && message.meaningful && !isStaffFollowUpPromiseV32(message.text) && (!isDeliveryFollowUpPromiseV32(promise.text) || isDeliveryFollowUpCompletionV32(message.text))
     );
     const beforeReturn = nextReturn ? after.slice(0, after.findIndex((message) => message.id === nextReturn.id)) : after;
     const substantiveNewCustomerRequest = beforeReturn.find(

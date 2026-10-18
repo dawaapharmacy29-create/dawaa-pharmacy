@@ -388,7 +388,7 @@ export default function SalesIntelligenceQACaseDetail() {
       <Section title="الحقيقة البيعية المعتمدة لهذه الحالة">
         <div className="dawaa-muted text-xs leading-6">
           تُعرض القيم كما حفظها المحرك الرسمي لهذه الحالة فقط (التحليل الحالي + سجل البيع المعتمد V22). لا يُعاد حساب أي قرار بيعي في هذه الشاشة،
-          وإثبات الفاتورة وحده لا يعني بيعًا قابلًا للعد أو أوردرًا مؤكدًا.
+          البيع المثبت بالفاتورة مستقل عن اكتمال تأكيد السلة في المحادثة وعن إثبات استلام العميل.
         </div>
         <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
           {canonicalTruthRows.map((row) => (
@@ -1110,3 +1110,4 @@ export default function SalesIntelligenceQACaseDetail() {
     </div>
   );
 }
+

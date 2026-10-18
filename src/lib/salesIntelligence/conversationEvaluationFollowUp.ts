@@ -1,5 +1,5 @@
 import { REVIEW_CRITERIA } from '@/lib/conversationReviews';
-import { isStaffFollowUpPromiseV32 } from '../whatsappSemanticSignalsV32';
+import { isStaffFollowUpPromiseV32, isDeliveryFollowUpPromiseV32, isDeliveryFollowUpCompletionV32 } from '../whatsappSemanticSignalsV32';
 import type { CaseIntelligenceView } from './types';
 import { buildConversationEvaluationEvidence } from './conversationEvaluationEvidence';
 import {
@@ -36,7 +36,7 @@ export interface ConversationEvaluationFollowUp {
 const criterion = REVIEW_CRITERIA.find((item) => item.key === 'followup_after_wait');
 if (!criterion) throw new Error('Missing followup_after_wait review criterion');
 
-const PROMISE_OBLIGATION_REASONS = new Set(['staff_promised_check', 'stock_check_pending']);
+const PROMISE_OBLIGATION_REASONS = new Set(['staff_promised_check', 'stock_check_pending', 'delivery_unresolved']);
 
 const NUDGE_RX =
   /^(?:[؟?]+|يا\s*دكتور|دكتور|لسه|تمام|طيب|اوك|أوك|اوكي|ok|حضرتك|معلش)$/i;
@@ -133,7 +133,8 @@ export function analyzeConversationEvaluationFollowUp(
       (message) =>
         message.role === 'staff' &&
         message.meaningful &&
-        !isStaffFollowUpPromiseV32(message.text)
+        !isStaffFollowUpPromiseV32(message.text) &&
+        (!isDeliveryFollowUpPromiseV32(promise.text) || isDeliveryFollowUpCompletionV32(message.text))
     );
 
     const beforeReturn = nextReturn
@@ -259,3 +260,4 @@ export function analyzeConversationEvaluationFollowUp(
     ),
   };
 }
+

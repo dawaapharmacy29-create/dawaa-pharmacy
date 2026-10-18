@@ -212,6 +212,7 @@ export function buildCaseIntelligenceView(
     basket,
     journey: analysis.journeyState,
     sale: {
+      customerAcceptanceDetected: analysis.historicalClosure?.customerAcceptanceDetected,
       confirmationState: commercialConfirmation.currentState,
       summaryPresented: commercialConfirmation.summaryPresented,
       customerConfirmed: commercialConfirmation.customerConfirmed,
@@ -267,3 +268,4 @@ function dedupeFacts(facts: CaseIntelligenceStaffFact[]): CaseIntelligenceStaffF
     return true;
   });
 }
+

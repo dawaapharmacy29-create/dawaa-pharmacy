@@ -578,6 +578,8 @@ export interface CaseIntelligenceView {
   };
   journey: CommercialJourneyStateAssessment;
   sale: {
+    /** Acceptance of sending/fulfilment; separate from final basket protocol. */
+    customerAcceptanceDetected?: boolean;
     confirmationState: CommercialConfirmationState;
     summaryPresented: boolean;
     customerConfirmed: boolean;

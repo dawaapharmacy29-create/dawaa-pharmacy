@@ -114,7 +114,7 @@ export function describeCanonicalCaseSaleTruth(truth: CanonicalCaseSaleTruth): C
     },
     {
       key: 'orderConfirmed',
-      label: 'تأكيد الطلب في المحادثة',
+      label: 'اكتمال تأكيد الطلب (مستقل عن إثبات البيع)',
       value: yesNo(outcome.isOrderConfirmed),
       tone: outcome.isOrderConfirmed ? 'success' : 'neutral',
     },
@@ -151,3 +151,4 @@ export function canonicalTrustedInvoiceId(truth: CanonicalCaseSaleTruth): string
   if (truth.attribution?.attributionLevel !== 'proven') return null;
   return truth.attribution.selectedInvoiceId;
 }
+

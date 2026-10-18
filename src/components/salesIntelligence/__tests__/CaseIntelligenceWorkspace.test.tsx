@@ -63,7 +63,19 @@ describe('Case Intelligence Workspace (display only)', () => {
     expect(header).toContain('رسائل هذا التفاعل فقط');
     const sale = render(view, 'sale');
     expect(sale).toContain('180 جنيه');
-    expect(sale).toContain('مرشحة فقط — ليست بيعًا');
+    expect(sale).toContain('الترشيح وحده لا يثبت البيع');
+  });
+
+  it('A1b. a proven invoice does not retain candidate-only wording or hide sending acceptance', () => {
+    const view = persisted(analyze(SALE).caseIntelligence)!;
+    view.sale.proofState = 'proven';
+    view.sale.outcome = 'sale_proven';
+    view.sale.customerAcceptanceDetected = true;
+    const html = render(view, 'sale');
+    expect(html).toContain('الفاتورة المختارة مثبتة');
+    expect(html).not.toContain('مرشحة فقط — ليست بيعًا');
+    expect(html).toContain('قبول العميل للإرسال');
+    expect(html).toContain('تأكيد السلة بالبروتوكول');
   });
 
   it('A2. conversation tab can render the WhatsApp-style transcript supplied by the case page', () => {
@@ -419,3 +431,4 @@ describe('Case Intelligence Workspace (display only)', () => {
     }
   });
 });
+

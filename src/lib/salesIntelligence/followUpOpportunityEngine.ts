@@ -14,6 +14,8 @@ import {
   classifyCustomerTimingRequestV32,
   isPrescriptionRequestV32,
   isStaffFollowUpPromiseV32,
+  isDeliveryFollowUpPromiseV32,
+  isDeliveryFollowUpCompletionV32,
   mentionsPrescriptionV32,
 } from '../whatsappSemanticSignalsV32';
 import { normalizeProductKey } from './caseBasketEngine';
@@ -219,6 +221,7 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
   const checkPendingIds = new Set(unavailableDemand.filter((d) => d.availabilityState === 'check_pending').map((d) => d.availabilityMessageId));
   for (const message of meaningful) {
     if (message.role !== 'staff' || !isStaffFollowUpPromiseV32(message.text)) continue;
+    const deliveryPromise = isDeliveryFollowUpPromiseV32(message.text);
     const scheduledAt = explicitPromiseTime(message.text, message.timestamp);
     // A later apology or unrelated reply does not fulfil a future, explicitly scheduled call.
     const fulfilled = scheduledAt && meaningful.some((later) =>
@@ -226,9 +229,12 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
       /(?:تم\s+(?:الاتصال|التواصل)|كلمت\s+حضرتك|بلغت\s+حضرتك)/.test(later.text) &&
       !/(?:مش|لم|لم\s*يتم)\s/.test(later.text)
     );
-    if (fulfilled || (!scheduledAt && (checkPendingIds.has(message.id) || laterStaffReply(message)))) continue;
+    const deliveryCompleted = deliveryPromise && meaningful.some((later) =>
+      (indexOf.get(later.id) ?? 0) > (indexOf.get(message.id) ?? 0) && isDeliveryFollowUpCompletionV32(later.text)
+    );
+    if (deliveryCompleted || fulfilled || (!deliveryPromise && !scheduledAt && (checkPendingIds.has(message.id) || laterStaffReply(message)))) continue;
     candidates.push({
-      reason: 'staff_promised_check',
+      reason: deliveryPromise ? 'delivery_unresolved' : 'staff_promised_check',
       explicit: true,
       demand: null,
       assignedStaffName: message.sender,

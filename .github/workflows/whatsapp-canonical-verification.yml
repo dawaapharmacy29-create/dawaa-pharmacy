@@ -60,10 +60,14 @@ jobs:
       - name: Synthetic canonical decision matrix
         run: npx vitest run src/lib/salesIntelligence/__tests__/syntheticCanonicalDecisionMatrix.test.ts
 
-      - name: Invoice-backed sale proof regression
+      - name: Invoice and page evidence consistency regressions
         run: >-
           npx vitest run
           src/lib/salesIntelligence/__tests__/invoiceBackedSaleProof.test.ts
+          src/lib/salesIntelligence/__tests__/conversationClinicalReview.test.ts
+          src/lib/salesIntelligence/__tests__/conversationEvaluationFollowUp.test.ts
+          src/lib/__tests__/staffCommitmentClassifierV32.test.ts
+          src/components/salesIntelligence/__tests__/CaseIntelligenceWorkspace.test.tsx
           src/lib/salesIntelligence/__tests__/saleAttributionEngine.test.ts
           src/lib/salesIntelligence/__tests__/saleProofState.test.ts
           src/lib/salesIntelligence/__tests__/basketInvoiceMatchingEngine.test.ts
