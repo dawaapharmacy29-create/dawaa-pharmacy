@@ -2362,6 +2362,49 @@ export async function importInvoicesToDB(
         return false;
       }
 
+      // Cross-branch identity review: an exact same-day, same-customer and same-value
+      // invoice in another branch might be a previously misfiled invoice.
+      // Never silently duplicate or auto-move it; require operator reconciliation.
+      const crossBranchSameSale = matches.find((existing) => {
+        const existingDay = getInvoiceDay(existing);
+        const otherBranch = normalizeComparableBranch(getCoreInvoiceBranch(existing), branch);
+        const expectedBranch = normalizeComparableBranch(rowBranch, branch);
+        const existingCode = String(existing.customer_code || '').trim();
+        const incomingCode = String(row.customerCode || '').trim();
+        return (
+          existingDay === incomingDay &&
+          otherBranch !== expectedBranch &&
+          Boolean(existingCode) &&
+          existingCode === incomingCode &&
+          Math.abs(existingInvoiceValue(existing) - rawInvoiceNetValue(row)) < 0.01
+        );
+      });
+      if (crossBranchSameSale) {
+        needsReviewRows++;
+        reviewNetSales += rawInvoiceNetValue(row);
+        summary.conflictReviewRows = (summary.conflictReviewRows || 0) + 1;
+        markTrace(traceMap, traceKey(row), {
+          intendedAction: 'review',
+          actualAction: 'skipped_before_save',
+          skipReason: 'possible_wrong_branch',
+          finalStatus: 'possible_wrong_branch',
+        });
+        addSkippedReason(skippedByReason, 'possible_wrong_branch', rawInvoiceNetValue(row));
+        if (conflictRowsSample.length < 20) {
+          conflictRowsSample.push({
+            invoiceNumber: row.invoiceNumber,
+            date: row.date,
+            branch: rowBranch,
+            amount: rawInvoiceNetValue(row),
+            reason: 'possible_wrong_branch',
+          });
+        }
+        summary.schemaWarnings?.push(
+          `فاتورة ${row.invoiceNumber} مطابقة في اليوم والعميل والقيمة لكن مسجلة بفرع مختلف؛ أُوقفت للمراجعة قبل الإضافة.`
+        );
+        return false;
+      }
+
       /*
       needsReviewRows++;
       reviewNetSales += rawInvoiceNetValue(row);
