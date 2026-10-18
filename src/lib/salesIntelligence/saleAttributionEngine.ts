@@ -493,7 +493,7 @@ function classifyLegacyMatch(ctx: CaseAttributionContext, row: InvoiceLike): boo
 /**
  * Strict deterministic automatic-link gate. It is deliberately stronger than normal scoring:
  * exact pharmacy customer code + exact normalized name + no customer-id conflict + very-close
- * timestamp + no branch mismatch + invoice number + real positive invoice lines.
+ * timestamp (or bounded time with exact canonical customer/branch) + invoice number + real positive invoice lines.
  * Promotion happens only when exactly ONE invoice satisfies this gate.
  */
 function qualifiesForAutomaticInvoiceLink(
@@ -514,14 +514,29 @@ function qualifiesForAutomaticInvoiceLink(
 
   if (classifyBranch(ctx, row) === 'mismatch') return false;
   const time = classifyTime(ctx, row);
-  if (time.temporalInversion || time.timeMatchStrength !== 'very_strong') return false;
+  if (time.temporalInversion) return false;
+  // A real imported line-item match plus the exact canonical customer and branch is stronger
+  // than a 30-minute clock heuristic. Allow the existing bounded transactional window (6h),
+  // without shifting timestamps or trusting the legacy classifier's 'verified' label.
+  const exactTransactionalIdentity = Boolean(
+    ctx.customerId && invoiceCustomerId === ctx.customerId &&
+    (classifyBranch(ctx, row) === 'exact_canonical' || classifyBranch(ctx, row) === 'normalized_alias_match')
+  );
+  const boundedTransactionTime =
+    time.timeMatchStrength === 'strong' || time.timeMatchStrength === 'moderate';
+  if (time.timeMatchStrength !== 'very_strong' && !(exactTransactionalIdentity && boundedTransactionTime)) return false;
   if (!getInvoiceRowNumber(row) || isDraftLikeZeroInvoice(row)) return false;
 
   if (!hasStableInvoiceRowId(row)) return false;
   // Same customer + same window is not enough: the invoice must carry EVERY resolved product the
   // conversation asked for. A subset stays statistical (qualified evidence, never `proven`); no
   // overlap is a product mismatch; an unresolved basket or missing invoice lines is an evidence gap.
-  return classifyProductEvidence(ctx, row, provider).productCoverage === 'full';
+  const products = classifyProductEvidence(ctx, row, provider);
+  // Never prove a partly resolved basket, a rejected order, or a known quantity conflict.
+  if (ctx.commercialConfirmation.currentState === 'rejected') return false;
+  if (ctx.activeBasketItems.some((item) => item.resolutionStatus &&
+    item.resolutionStatus !== 'proven' && item.resolutionStatus !== 'partially_proven')) return false;
+  return products.productCoverage === 'full' && products.quantityMatch !== 'available_mismatch';
 }
 
 /** A real sales_invoices.id. getInvoiceRowId falls back to invoice_number for display rows, which is never proof identity. */
@@ -1159,3 +1174,4 @@ export function deriveSaleAttributionAssessment(
     competingCaseIds,
   };
 }
+

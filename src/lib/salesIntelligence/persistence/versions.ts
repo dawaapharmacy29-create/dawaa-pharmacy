@@ -57,7 +57,7 @@
 // without manufacturing product identity from unresolved media deictics.
 // Persist the newly owned complaint/request decisions on the next explicit refresh. Retries
 // within this version still reuse the same analysis; this constant never initiates a backfill.
-export const PIPELINE_VERSION = 'sales-intelligence-v26-canonical-semantic-matrix';
+export const PIPELINE_VERSION = 'sales-intelligence-v27-invoice-backed-sale-proof';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v10-payment-continuation-ambiguity-safe',

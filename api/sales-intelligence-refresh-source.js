@@ -3424,10 +3424,18 @@ function qualifiesForAutomaticInvoiceLink(ctx, row, provider) {
   if (ctx.customerId && invoiceCustomerId && ctx.customerId !== invoiceCustomerId) return false;
   if (classifyBranch(ctx, row) === "mismatch") return false;
   const time2 = classifyTime(ctx, row);
-  if (time2.temporalInversion || time2.timeMatchStrength !== "very_strong") return false;
+  if (time2.temporalInversion) return false;
+  const exactTransactionalIdentity = Boolean(
+    ctx.customerId && invoiceCustomerId === ctx.customerId && (classifyBranch(ctx, row) === "exact_canonical" || classifyBranch(ctx, row) === "normalized_alias_match")
+  );
+  const boundedTransactionTime = time2.timeMatchStrength === "strong" || time2.timeMatchStrength === "moderate";
+  if (time2.timeMatchStrength !== "very_strong" && !(exactTransactionalIdentity && boundedTransactionTime)) return false;
   if (!getInvoiceRowNumber(row) || isDraftLikeZeroInvoice(row)) return false;
   if (!hasStableInvoiceRowId(row)) return false;
-  return classifyProductEvidence(ctx, row, provider).productCoverage === "full";
+  const products = classifyProductEvidence(ctx, row, provider);
+  if (ctx.commercialConfirmation.currentState === "rejected") return false;
+  if (ctx.activeBasketItems.some((item) => item.resolutionStatus && item.resolutionStatus !== "proven" && item.resolutionStatus !== "partially_proven")) return false;
+  return products.productCoverage === "full" && products.quantityMatch !== "available_mismatch";
 }
 function hasStableInvoiceRowId(row) {
   return cleanText2(row.id) !== "";
@@ -8550,7 +8558,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v26-canonical-semantic-matrix";
+var PIPELINE_VERSION = "sales-intelligence-v27-invoice-backed-sale-proof";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v10-payment-continuation-ambiguity-safe",
   historicalClosure: "historical-closure-v1",
