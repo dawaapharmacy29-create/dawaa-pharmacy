@@ -23,3 +23,17 @@ Regression coverage includes a proven invoice plus pending courier promise/unrel
 and reassurance, explicit fulfillment, negation/questions/status-only text, medical-routing
 false positives, acceptance versus protocol and UI candidate wording. No live writes,
 main merge, production deployment or automatic materialization are part of source verification.
+
+## Verification and Preview
+
+- Verified code SHA: `9b6cec05067d50049ad59b78394735ff783d4f26`.
+- CI run `39100687560`, job `117596199069`: SUCCESS.
+- Focused page/evidence regressions: 197 passed. Full Verify: 1047 custom tests passed;
+  1299 Vitest tests passed in each Cairo/UTC run, one existing skip. TypeScript, build,
+  semantic lint, generated API parity, architecture/authorization and performance gates passed.
+- Initial JS budget: 202.1 KiB gzip, unchanged.
+- Authorized Preview update: `dpl_23CUFPAFBLdq4TTD1ZrsUHq3zVs9`, READY, exact verified code SHA.
+- Stable branch URL: https://dawaa-pharmacy-git-fix-8f067e-dawaapharmacy29-creates-projects.vercel.app/
+- Case route HTTP check: 200. This is not an authenticated live reanalysis verification.
+- The agent performed no production data writes. The existing real case must be refreshed once
+  using the official staff UI to verify the new follow-up and evaluation projections together.
