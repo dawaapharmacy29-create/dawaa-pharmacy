@@ -33,7 +33,6 @@ import {
   deleteInvoiceBatchRows,
   getInvoiceDuplicateAudit,
   getInvoiceManagementSummary,
-  getOtherBranchInvoiceNumberRanges,
   listManagedInvoices,
   updateManagedInvoice,
 } from '@/lib/invoices/invoiceManagementService';
@@ -657,46 +656,13 @@ export default function Invoices() {
       reader.readAsArrayBuffer(file);
     });
 
+  // Invoice number ranges across all history are not reliable evidence of branch identity.
+  // A single misfiled invoice can make the historical min/max overlap nearly any file.
+  // Identity conflicts are checked by the importer using number + Cairo day + customer + net.
   const checkBranchMismatch = useCallback(
-    async (rows: RawInvoiceRow[], selectedBranch: string) => {
+    async (_rows: RawInvoiceRow[], _selectedBranch: string) => {
       setBranchMismatchWarning(null);
       setBranchMismatchAcknowledged(false);
-      const numbers = rows
-        .map((row) => Number(String(row.invoiceNumber || '').replace(/[^\d]/g, '')))
-        .filter((n) => Number.isFinite(n) && n > 0);
-      if (numbers.length < 10) return; // عيّنة صغيرة جدًا مش كافية نبني عليها قرار
-      const min = Math.min(...numbers);
-      const max = Math.max(...numbers);
-      let data;
-      try {
-        data = await getOtherBranchInvoiceNumberRanges(selectedBranch);
-      } catch {
-        return;
-      }
-      if (!data) return;
-      const otherBranchRanges = new Map<string, { min: number; max: number; count: number }>();
-      for (const row of data as Array<{ branch: string | null; min_invoice: number | string | null; max_invoice: number | string | null; invoice_count: number | string | null }>) {
-        if (!row.branch) continue;
-        const minValue = Number(row.min_invoice || 0);
-        const maxValue = Number(row.max_invoice || 0);
-        const countValue = Number(row.invoice_count || 0);
-        if (!Number.isFinite(minValue) || !Number.isFinite(maxValue) || countValue <= 0) continue;
-        otherBranchRanges.set(row.branch, { min: minValue, max: maxValue, count: countValue });
-      }
-      for (const [otherBranch, range] of otherBranchRanges) {
-        if (range.count < 20) continue; // نطاق مبني على بيانات قليلة جدًا
-        const overlapStart = Math.max(min, range.min);
-        const overlapEnd = Math.min(max, range.max);
-        const overlapSize = Math.max(0, overlapEnd - overlapStart);
-        const fileSpan = Math.max(1, max - min);
-        if (overlapSize / fileSpan > 0.6) {
-          setBranchMismatchWarning(
-            `أرقام الفواتير في الملف ده (من ${min} لـ ${max}) قريبة جدًا من نطاق أرقام فواتير "${otherBranch}" المسجل قبل كده (${range.min}–${range.max})، ` +
-              `مش نطاق "${selectedBranch}" المختار حاليًا. ده بالظبط نفس نوع الخطأ اللي سبب مشكلة الفروع قبل كده — راجع اختيار الفرع قبل ما تكمل.`
-          );
-          return;
-        }
-      }
     },
     []
   );
