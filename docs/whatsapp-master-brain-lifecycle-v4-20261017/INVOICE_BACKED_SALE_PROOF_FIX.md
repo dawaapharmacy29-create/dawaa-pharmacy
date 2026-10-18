@@ -23,5 +23,19 @@ branch, missing canonical identity, earlier/distant timestamps, absent/different
 quantity mismatch and unresolved customer identity. Repeated analysis retains invoice identity.
 The generated refresh API is regenerated from source, never hand edited.
 
-No production writes, database/schema changes, deployment or main merge are part of this fix.
-The existing Preview still runs V26 until a separately authorized Preview update.
+No production writes, database/schema changes, production deployment or main merge were made.
+
+## Verified delivery
+
+- Code commit: `3ca2ab6c36cffa503415d697efae35e0002354da`.
+- GitHub Actions run `39097699469`, job `117587454521`: SUCCESS.
+- Focused invoice/proof/matching suite: 129 passed, including 13 new regressions.
+- Full Verify: 1047 custom tests passed; 1292 Vitest tests passed in each Cairo/UTC run,
+  with one pre-existing skipped test. TypeScript, build, semantic lint, authorization,
+  architecture, generated parity and performance budget passed (202.1 KiB initial JS gzip).
+- Authorized Preview only: `dpl_FvSXSgHAGWLBjxnkuyi1p5aGpA5b`, READY, exact code SHA above.
+- Preview URL: https://dawaa-pharmacy-q4av4r9vu-dawaapharmacy29-creates-projects.vercel.app/
+- Read-only HTTP verification of the watcher route: 200. This does not establish authenticated
+  browser analysis success. Existing real sources have not been refreshed by the agent.
+- Next live check: refresh only the existing sales source through the official authorized UI;
+  compare canonical sale proof against invoice facts. Do not re-upload or batch-process files.
