@@ -16,7 +16,7 @@
 // cases, while sales_intelligence_reconcile_case_set_v1 may only revoke proof owned by a case that
 // has just left the latest canonical segmentation set.
 import { runBatchPersistence } from '../persistence/batchPersistenceService';
-import { projectCanonicalFollowupsToActions } from '../persistence/canonicalFollowupProjector';
+import { projectCanonicalFollowupsToActions, type CanonicalFollowupPublication } from '../persistence/canonicalFollowupProjector';
 import { projectCanonicalCustomerRequestsToActions } from '../persistence/canonicalCustomerRequestProjector';
 import { projectCanonicalComplaintsToActions } from '../persistence/canonicalComplaintProjector';
 import {
@@ -93,7 +93,7 @@ export interface CanonicalRefreshResult {
   actionReconciliation: { reconciledActions: number };
   complaintEnrichment: { enrichedComplaintActions: number };
   operationalProjection: {
-    followups: { inserted: number; existing: number; skipped: number };
+    followups: { inserted: number; existing: number; skipped: number; updated?: number; withdrawn?: number };
     customerRequests: { inserted: number; existing: number; skipped: number };
     complaints: { inserted: number; existing: number; skipped: number };
     errors: string[];
@@ -334,6 +334,7 @@ export async function runCanonicalSalesIntelligenceRefresh(
   // followers run. An empty active set is meaningful: if the new engine derives zero cases, every
   // previously-active case for that source must retire. The DB RPC owns lifecycle + proof revoke.
   const caseSetReconciliation: CaseSetReconciliation[] = [];
+  const followupPublications: CanonicalFollowupPublication[] = [];
   const hasIndependentInput = (sourceId: string) => conversations.some((row) => row.conversationId === sourceId);
   const publicationOrder = [...admitted.filter((row) => hasIndependentInput(String(row.id))),
     ...admitted.filter((row) => !hasIndependentInput(String(row.id)))];
@@ -363,6 +364,12 @@ export async function runCanonicalSalesIntelligenceRefresh(
       }));
     } catch (caught) { error = { message: caught instanceof Error ? caught.message : String(caught) }; }
     const payload = data && typeof data === 'object' ? data : null;
+    if (!error && payload?.ok === true && payload?.status === 'reconciled') {
+      followupPublications.push({
+        sourceId,
+        analysisIds: Object.fromEntries(sourceOutcomes.map((row) => [row.caseId, row.analysis!.analysisId])),
+      });
+    }
     caseSetReconciliation.push({
       sourceId,
       ok: !error && payload?.ok === true && payload?.status === 'reconciled',
@@ -437,19 +444,22 @@ export async function runCanonicalSalesIntelligenceRefresh(
     staff_id: source.staff_id ? String(source.staff_id) : null,
   }));
   const projectionErrors: string[] = [];
-  let followupProjection = { inserted: 0, existing: 0, skipped: 0 };
+  let followupProjection = { inserted: 0, existing: 0, skipped: 0, updated: 0, withdrawn: 0 };
   let customerRequestProjection = { inserted: 0, existing: 0, skipped: 0 };
   let complaintProjection = { inserted: 0, existing: 0, skipped: 0 };
   try {
     const result = await projectCanonicalFollowupsToActions(
       service,
       reconcileCandidates,
-      projectionSources
+      projectionSources,
+      followupPublications
     );
     followupProjection = {
       inserted: result.inserted,
       existing: result.existing,
       skipped: result.skipped.length,
+      updated: result.updated,
+      withdrawn: result.withdrawn,
     };
   } catch (error) {
     projectionErrors.push(
@@ -883,3 +893,4 @@ async function enrichComplaintFollowupContext(
   }
   return { enrichedComplaintActions: updated };
 }
+

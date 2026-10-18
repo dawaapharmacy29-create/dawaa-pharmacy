@@ -8,6 +8,13 @@
 import type { FollowUpReason, SalesIntelligenceCaseAnalysis } from '../types';
 
 export const CANONICAL_FOLLOWUP_PROJECTION_VERSION = 'si-canonical-followup-projection-v1';
+export const CANONICAL_FOLLOWUP_RECONCILE_RPC = 'dawaa_reconcile_canonical_followup_actions_v1';
+
+/** Exact, successfully published case set. Absence is never interpreted as an empty case set. */
+export interface CanonicalFollowupPublication {
+  sourceId: string;
+  analysisIds: Record<string, string>;
+}
 
 export interface CanonicalFollowupSourceMetadata {
   id: string;
@@ -54,6 +61,8 @@ export interface CanonicalFollowupBuildResult {
 export interface CanonicalFollowupProjectionResult extends CanonicalFollowupBuildResult {
   inserted: number;
   existing: number;
+  updated: number;
+  withdrawn: number;
 }
 
 function text(value: unknown) {
@@ -198,48 +207,48 @@ export function buildCanonicalFollowupActionRows(
 export async function projectCanonicalFollowupsToActions(
   supabaseClient: any,
   analyses: readonly SalesIntelligenceCaseAnalysis[],
-  sources: readonly CanonicalFollowupSourceMetadata[]
+  sources: readonly CanonicalFollowupSourceMetadata[],
+  publications: readonly CanonicalFollowupPublication[]
 ): Promise<CanonicalFollowupProjectionResult> {
   const built = buildCanonicalFollowupActionRows(analyses, sources);
-  if (!built.rows.length) return { ...built, inserted: 0, existing: 0 };
-
-  const identities = built.rows.map((row) => row.followup_identity);
-  const { data: existingRows, error: existingError } = await supabaseClient
-    .from('whatsapp_conversation_actions')
-    .select('id,followup_identity,status,target_table,target_id')
-    .in('followup_identity', identities);
-  if (existingError) throw existingError;
-
-  const existing = new Set(
-    (existingRows || []).map((row: { followup_identity?: string | null }) => text(row.followup_identity)).filter(Boolean)
-  );
-  let inserted = 0;
-
-  for (const row of built.rows) {
-    if (existing.has(row.followup_identity)) continue;
-    const { error } = await supabaseClient.from('whatsapp_conversation_actions').insert(row);
-    if (!error) {
-      inserted += 1;
-      existing.add(row.followup_identity);
-      continue;
-    }
-    if (String(error.code || '') !== '23505') throw error;
-
-    // Concurrency-safe retry: a competing refresh may have inserted the same stable identity after
-    // our preload. Only treat the unique violation as idempotent when that exact identity now exists.
-    const { data: raced, error: raceReadError } = await supabaseClient
-      .from('whatsapp_conversation_actions')
-      .select('id,followup_identity')
-      .eq('followup_identity', row.followup_identity)
-      .maybeSingle();
-    if (raceReadError) throw raceReadError;
-    if (!raced) throw error;
-    existing.add(row.followup_identity);
+  if (built.skipped.some((row) => row.reason !== 'blocked')) {
+    throw new Error('canonical_followup_projection_metadata_incomplete');
   }
-
-  return {
-    ...built,
-    inserted,
-    existing: built.rows.length - inserted,
-  };
+  const result = { ...built, inserted: 0, existing: 0, updated: 0, withdrawn: 0 };
+  const publishedSources = new Set(publications.map((row) => row.sourceId));
+  if (publishedSources.size !== publications.length
+      || analyses.some((row) => !publishedSources.has(row.conversationId))) {
+    throw new Error('canonical_followup_publication_incomplete');
+  }
+  for (const publication of publications) {
+    const sourceAnalyses = analyses.filter((row) => row.conversationId === publication.sourceId);
+    const caseIds = sourceAnalyses.map((row) => row.caseId);
+    if (new Set(caseIds).size !== caseIds.length
+        || Object.keys(publication.analysisIds).length !== caseIds.length
+        || caseIds.some((id) => !uuidOrNull(publication.analysisIds[id]))) {
+      throw new Error('canonical_followup_publication_incomplete');
+    }
+    const rows = built.rows.filter((row) => row.source_id === publication.sourceId).map((row) => ({
+      ...row,
+      payload: { ...row.payload, canonicalAnalysisId: publication.analysisIds[String(row.payload.caseId)] },
+    }));
+    // One source-scoped transaction shares publication locks. An older refresh cannot retract a
+    // newer proposal, and an empty *published* set can retire obsolete unexecuted proposals.
+    // No direct-write fallback: a missing migration/failed read must remain an observable error.
+    const { data, error } = await supabaseClient.rpc(CANONICAL_FOLLOWUP_RECONCILE_RPC, {
+      p_source_id: publication.sourceId,
+      p_analysis_ids: publication.analysisIds,
+      p_rows: rows,
+    });
+    if (error) throw error;
+    if (data?.ok !== true) throw new Error(`canonical_followup_reconcile_failed:${data?.status || 'empty_result'}`);
+    for (const key of ['inserted', 'existing', 'updated', 'withdrawn'] as const) {
+      if (!Number.isSafeInteger(data[key]) || data[key] < 0) {
+        throw new Error('canonical_followup_reconcile_invalid_result');
+      }
+      result[key] += data[key];
+    }
+  }
+  return result;
 }
+

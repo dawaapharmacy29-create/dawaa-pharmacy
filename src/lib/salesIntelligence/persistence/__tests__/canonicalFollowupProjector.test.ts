@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { followupLifecycleHarness } from './canonicalFollowupLifecycleHarness';
 import type { SalesIntelligenceCaseAnalysis } from '../../types';
 import {
   buildCanonicalFollowupActionRows,
@@ -72,43 +73,16 @@ function analysis(options: {
   } as unknown as SalesIntelligenceCaseAnalysis;
 }
 
-function fakeClient(initialRows: Record<string, unknown>[] = []) {
-  const rows = initialRows.map((row) => ({ ...row }));
-  return {
-    rows,
-    from(table: string) {
-      if (table !== 'whatsapp_conversation_actions') throw new Error(`unexpected_table:${table}`);
-      return {
-        select() {
-          return {
-            async in(_column: string, values: string[]) {
-              return {
-                data: rows.filter((row) => values.includes(String(row.followup_identity || ''))),
-                error: null,
-              };
-            },
-            eq(_column: string, value: string) {
-              return {
-                async maybeSingle() {
-                  return {
-                    data: rows.find((row) => row.followup_identity === value) || null,
-                    error: null,
-                  };
-                },
-              };
-            },
-          };
-        },
-        async insert(row: Record<string, unknown>) {
-          if (rows.some((existing) => existing.followup_identity === row.followup_identity)) {
-            return { data: null, error: { code: '23505', message: 'duplicate' } };
-          }
-          rows.push({ id: `action-${rows.length + 1}`, ...row });
-          return { data: null, error: null };
-        },
-      };
-    },
-  };
+const ANALYSIS_ID = '66666666-6666-4666-8666-666666666666';
+const NEXT_ANALYSIS_ID = '77777777-7777-4777-8777-777777777777';
+const publication = [{sourceId:SOURCE_A,analysisIds:{[`${SOURCE_A}:interaction:0`]:ANALYSIS_ID}}];
+const clients: Awaited<ReturnType<typeof followupLifecycleHarness>>[] = [];
+afterEach(async () => { await Promise.all(clients.splice(0).map((client) => client.close())); });
+async function fakeClient(initialRows: Record<string, unknown>[] = [], initialAnalysis = analysis()) {
+  const client = await followupLifecycleHarness(initialRows);
+  clients.push(client);
+  await client.publish([initialAnalysis], sources, ANALYSIS_ID);
+  return client;
 }
 
 const sources = [
@@ -117,6 +91,16 @@ const sources = [
 ];
 
 describe('canonical follow-up operational projector', () => {
+  it('withdraws an unmaterialized proposal when the canonical obligation disappears', async () => {
+    const original = buildCanonicalFollowupActionRows([analysis()], sources).rows[0];
+    const client = await fakeClient([{ id: 'action-old', ...original }]);
+    const closed = analysis();
+    closed.followUp = { ...closed.followUp, decision: 'not_needed', opportunities: [], notNeededReason: 'sale_proven' };
+    await client.publish([closed], sources, NEXT_ANALYSIS_ID);
+    await projectCanonicalFollowupsToActions(client, [closed], sources, [{sourceId:SOURCE_A,analysisIds:{[closed.caseId]:NEXT_ANALYSIS_ID}}]);
+    expect(client.rows[0].status).toBe('dismissed');
+  });
+
   it('projects only canonical actionable truth and keeps the stable followUpKey', () => {
     const result = buildCanonicalFollowupActionRows([analysis()], sources);
     expect(result.skipped).toEqual([]);
@@ -192,24 +176,25 @@ describe('canonical follow-up operational projector', () => {
 
   it('preserves an existing materialized action instead of resetting workflow or target lineage', async () => {
     const original = {
-      id: 'action-existing',
+      ...buildCanonicalFollowupActionRows([analysis()], sources).rows[0],
       followup_identity: 'fu1|fixture|stock-check',
       status: 'created',
       target_table: 'daily_followups',
       target_id: 'followup-existing',
       work_status: 'completed',
     };
-    const client = fakeClient([original]);
-    const result = await projectCanonicalFollowupsToActions(client, [analysis()], sources);
+    const client = await fakeClient([original]);
+    const before = structuredClone(client.rows[0]);
+    const result = await projectCanonicalFollowupsToActions(client, [analysis()], sources, publication);
 
     expect(result.inserted).toBe(0);
     expect(result.existing).toBe(1);
-    expect(client.rows).toEqual([original]);
+    expect(client.rows[0]).toEqual(before);
   });
 
   it('inserts a new canonical action once without materializing daily_followups directly', async () => {
-    const client = fakeClient();
-    const result = await projectCanonicalFollowupsToActions(client, [analysis()], sources);
+    const client = await fakeClient();
+    const result = await projectCanonicalFollowupsToActions(client, [analysis()], sources, publication);
 
     expect(result.inserted).toBe(1);
     expect(result.existing).toBe(0);
@@ -218,34 +203,202 @@ describe('canonical follow-up operational projector', () => {
       followup_identity: 'fu1|fixture|stock-check',
       status: 'ready',
     });
-    expect('target_table' in client.rows[0]).toBe(false);
-    expect('target_id' in client.rows[0]).toBe(false);
+    expect(client.rows[0].target_table).toBeNull();
+    expect(client.rows[0].target_id).toBeNull();
   });
-  it('keeps the stored source-case branch through retry and customer correction', async () => {
-    const client = fakeClient();
-    const original = analysis({ branch: 'فرع الشامي', assignedStaffId: STAFF_ID });
-    await projectCanonicalFollowupsToActions(client, [original], sources);
+  it('rejects a guessed branch without moving the stored source or action', async () => {
+    const original = analysis({ branch: 'فرع الشامي' });
+    const client = await fakeClient([], original);
+    await projectCanonicalFollowupsToActions(client, [original], sources, publication);
     const actionId = client.rows[0].id;
-    await projectCanonicalFollowupsToActions(client, [analysis({
-      branch: 'فرع شكري',
-      customerId: '55555555-5555-4555-8555-555555555555',
-    })], sources);
-    expect(client.rows).toHaveLength(1);
-    expect(client.rows[0]).toMatchObject({
-      id: actionId, branch: 'فرع الشامي', followup_identity: 'fu1|fixture|stock-check',
-      auto_eligible: false,
-    });
+    await expect(projectCanonicalFollowupsToActions(client, [analysis({branch:'فرع شكري'})], sources, publication))
+      .rejects.toThrow('canonical_followup_projection_mismatch');
+    expect(client.rows[0]).toMatchObject({id:actionId,branch:'فرع الشامي',auto_eligible:false});
   });
 
   it('publishes one stable action when two canonical refreshes race', async () => {
-    const client = fakeClient();
+    const client = await fakeClient();
     const results = await Promise.all([
-      projectCanonicalFollowupsToActions(client, [analysis()], sources),
-      projectCanonicalFollowupsToActions(client, [analysis()], sources),
+      projectCanonicalFollowupsToActions(client, [analysis()], sources, publication),
+      projectCanonicalFollowupsToActions(client, [analysis()], sources, publication),
     ]);
     expect(client.rows).toHaveLength(1);
     expect(results.reduce((sum, result) => sum + result.inserted, 0)).toBe(1);
     expect(results.reduce((sum, result) => sum + result.existing, 0)).toBe(1);
+  });
+
+  it('updates a corrected customer and deadline on the same unexecuted identity, without retry churn', async () => {
+    const client = await fakeClient();
+    await projectCanonicalFollowupsToActions(client, [analysis()], sources, publication);
+    const id = client.rows[0].id;
+    const corrected = analysis({customerId:'55555555-5555-4555-8555-555555555555'});
+    corrected.followUp.opportunities[0].dueAt='2026-10-18T11:00:00.000Z';
+    corrected.followUp.opportunities[0].evidenceMessageIds=['m-1','m-correction'];
+    const correctedSources = sources.map((row) => ({...row,customer_name:'العميل المصحح',customer_code:'99'}));
+    await client.publish([corrected],correctedSources,NEXT_ANALYSIS_ID);
+    const next = [{sourceId:SOURCE_A,analysisIds:{[corrected.caseId]:NEXT_ANALYSIS_ID}}];
+    const first = await projectCanonicalFollowupsToActions(client,[corrected],correctedSources,next);
+    expect(first).toMatchObject({inserted:0,updated:1,withdrawn:0});
+    expect(client.rows[0]).toMatchObject({id,customer_id:'55555555-5555-4555-8555-555555555555',
+      customer_name:'العميل المصحح',customer_code:'99',branch:'فرع شكري',evidence:['m-1','m-correction']});
+    expect(new Date(client.rows[0].due_at).toISOString()).toBe('2026-10-18T11:00:00.000Z');
+    const before = structuredClone(client.rows[0]);
+    expect(await projectCanonicalFollowupsToActions(client,[corrected],correctedSources,next))
+      .toMatchObject({inserted:0,updated:0,withdrawn:0});
+    expect(client.rows).toEqual([before]);
+  });
+
+  it.each(['assigned','in_progress','completed','cancelled'])('preserves %s workflow when the obligation disappears', async (workStatus) => {
+    const row = buildCanonicalFollowupActionRows([analysis()],sources).rows[0];
+    const client = await fakeClient([{...row,work_status:workStatus,assigned_at:'2026-10-17T10:00:00Z'}]);
+    const before = structuredClone(client.rows[0]);
+    const closed = analysis(); closed.followUp.opportunities=[];
+    await client.publish([closed],sources,NEXT_ANALYSIS_ID);
+    await projectCanonicalFollowupsToActions(client,[closed],sources,
+      [{sourceId:SOURCE_A,analysisIds:{[closed.caseId]:NEXT_ANALYSIS_ID}}]);
+    expect(client.rows).toEqual([before]);
+  });
+
+  it('rejects an older refresh after a new publication, before changing any action', async () => {
+    const client = await fakeClient();
+    await projectCanonicalFollowupsToActions(client,[analysis()],sources,publication);
+    const before = structuredClone(client.rows);
+    const closed=analysis(); closed.followUp.opportunities=[];
+    await client.publish([closed],sources,NEXT_ANALYSIS_ID);
+    await expect(projectCanonicalFollowupsToActions(client,[analysis()],sources,publication))
+      .rejects.toThrow('canonical_followup_stale_publication');
+    expect(client.rows).toEqual(before);
+  });
+
+  it('withdraws a retired case only from an explicitly published empty source set', async () => {
+    const client = await fakeClient();
+    await projectCanonicalFollowupsToActions(client,[analysis()],sources,publication);
+    await expect(projectCanonicalFollowupsToActions(client,[],sources,[{sourceId:SOURCE_A,analysisIds:{}}]))
+      .rejects.toThrow('canonical_followup_stale_publication');
+    await client.db.exec('update sales_intelligence_cases set is_active=false,published_analysis_id=null');
+    const result = await projectCanonicalFollowupsToActions(client,[],sources,[{sourceId:SOURCE_A,analysisIds:{}}]);
+    expect(result.withdrawn).toBe(1);
+    expect(client.rows[0].status).toBe('dismissed');
+  });
+
+  it('keeps human dismissal and reactivates only a canonical withdrawal under the same identity', async () => {
+    const client = await fakeClient();
+    await projectCanonicalFollowupsToActions(client,[analysis()],sources,publication);
+    const id=client.rows[0].id;
+    const closed=analysis(); closed.followUp.opportunities=[];
+    await client.publish([closed],sources,NEXT_ANALYSIS_ID);
+    await projectCanonicalFollowupsToActions(client,[closed],sources,
+      [{sourceId:SOURCE_A,analysisIds:{[closed.caseId]:NEXT_ANALYSIS_ID}}]);
+    await client.publish([analysis()],sources,ANALYSIS_ID);
+    await projectCanonicalFollowupsToActions(client,[analysis()],sources,publication);
+    expect(client.rows).toHaveLength(1);
+    expect(client.rows[0]).toMatchObject({id,status:'ready',payload:{canonicalLifecycle:'active'}});
+    await client.db.exec("update whatsapp_conversation_actions set status='dismissed'");
+    await projectCanonicalFollowupsToActions(client,[analysis()],sources,publication);
+    expect(client.rows[0].status).toBe('dismissed');
+  });
+
+  it('fails closed on missing canonical evidence, pointer drift, archived source, and transport failure', async () => {
+    const client=await fakeClient();
+    await client.db.exec("update sales_intelligence_case_analyses set evidence_snapshot='{}'");
+    await expect(projectCanonicalFollowupsToActions(client,[analysis()],sources,publication))
+      .rejects.toThrow('canonical_followup_evidence_incomplete');
+    await client.publish([analysis()],sources,ANALYSIS_ID);
+    await client.db.exec('update sales_intelligence_case_analyses set is_current=false');
+    await expect(projectCanonicalFollowupsToActions(client,[analysis()],sources,publication))
+      .rejects.toThrow('canonical_followup_current_analysis_mismatch');
+    await client.db.exec('update whatsapp_review_sources set canonical=false');
+    await expect(projectCanonicalFollowupsToActions(client,[analysis()],sources,publication))
+      .rejects.toThrow('canonical_followup_source_not_canonical');
+    await expect(projectCanonicalFollowupsToActions({rpc:async()=>({data:null,error:new Error('unavailable')})},
+      [analysis()],sources,publication)).rejects.toThrow('unavailable');
+    expect(client.rows).toEqual([]);
+  });
+
+  it('requires the complete canonical opportunity set and rolls back malformed projections', async () => {
+    const client=await fakeClient();
+    const closed=analysis();closed.followUp.opportunities=[];
+    await expect(projectCanonicalFollowupsToActions(client,[closed],sources,publication))
+      .rejects.toThrow('canonical_followup_incomplete_projection');
+    expect(client.rows).toEqual([]);
+    await expect(projectCanonicalFollowupsToActions(client,[analysis()],sources,[]))
+      .rejects.toThrow('canonical_followup_publication_incomplete');
+  });
+
+  it('rechecks live canonical provenance at the authorized materializer and preserves permission checks', async () => {
+    const client=await fakeClient();
+    await projectCanonicalFollowupsToActions(client,[analysis()],sources,publication);
+    const id=String(client.rows[0].id);
+    await expect(client.materialize(id)).rejects.toThrow('not_authorized');
+    await client.authorize();
+    await client.db.exec("set test.permission='false'");
+    await expect(client.materialize(id)).rejects.toThrow('whatsapp_action_execute_permission_denied');
+    await client.db.exec("set test.permission='true';set test.source_access='false'");
+    await expect(client.materialize(id)).rejects.toThrow('whatsapp_action_access_denied');
+    await client.authorize();
+    const closed=analysis();closed.followUp.opportunities=[];
+    await client.publish([closed],sources,NEXT_ANALYSIS_ID);
+    await expect(client.materialize(id)).rejects.toThrow('canonical_followup_requires_current_projection');
+    await client.reload();
+    expect(client.rows[0].target_id).toBeNull();
+    await client.publish([analysis()],sources,ANALYSIS_ID);
+    await client.materialize(id);
+    await client.reload();
+    expect(client.rows[0]).toMatchObject({status:'created',target_table:'daily_followups',target_id:'isolated-target'});
+  });
+
+  it('denies browser calls to internal reconciliation and keeps customer request approval and branch gates', async () => {
+    const client=await fakeClient();
+    await client.db.exec('set role anon');
+    await expect(client.db.query('select dawaa_reconcile_canonical_followup_actions_v1($1,$2,$3)',[SOURCE_A,'{}','[]']))
+      .rejects.toThrow('permission denied');
+    await client.db.exec('reset role');
+    await projectCanonicalFollowupsToActions(client,[analysis()],sources,publication);
+    const id=String(client.rows[0].id);
+    await client.db.exec("update whatsapp_conversation_actions set action_type='customer_request'");
+    await client.authorize();
+    await client.db.exec("set test.branch_access='false'");
+    await expect(client.materialize(id)).rejects.toThrow('customer_request_materialization_permission_denied');
+    await client.db.exec("set test.branch_access='true'");
+    await expect(client.materialize(id)).rejects.toThrow('customer_request_requires_explicit_approval');
+  });
+
+  it('does not rewrite a materialized target when customer evidence changes or the obligation closes', async () => {
+    const client=await fakeClient();
+    await projectCanonicalFollowupsToActions(client,[analysis()],sources,publication);
+    await client.authorize();
+    await client.materialize(String(client.rows[0].id));
+    await client.reload();
+    const before=structuredClone(client.rows);
+    const closed=analysis({customerId:'55555555-5555-4555-8555-555555555555'});
+    closed.followUp.opportunities=[];
+    await client.publish([closed],sources,NEXT_ANALYSIS_ID);
+    await projectCanonicalFollowupsToActions(client,[closed],sources,
+      [{sourceId:SOURCE_A,analysisIds:{[closed.caseId]:NEXT_ANALYSIS_ID}}]);
+    expect(client.rows).toEqual(before);
+  });
+
+  it('rejects source customer corrections before a fresh canonical projection can be executed', async () => {
+    const client=await fakeClient();
+    await projectCanonicalFollowupsToActions(client,[analysis()],sources,publication);
+    await client.authorize();
+    await client.db.exec("update whatsapp_review_sources set customer_id='55555555-5555-4555-8555-555555555555'");
+    await expect(client.materialize(String(client.rows[0].id)))
+      .rejects.toThrow('canonical_followup_requires_current_projection');
+    await expect(projectCanonicalFollowupsToActions(client,[analysis()],sources,publication))
+      .rejects.toThrow('canonical_followup_projection_mismatch');
+  });
+
+  it('rolls back the whole source on stable identity collision and never touches a legacy proposal', async () => {
+    const current=analysis();
+    current.followUp.opportunities.push({...current.followUp.opportunities[0],followUpKey:'fu1|fixture|second'});
+    const row=buildCanonicalFollowupActionRows([current],sources).rows[1];
+    const client=await fakeClient([{...row,created_by:'legacy-writer'}],current);
+    const before=structuredClone(client.rows);
+    await expect(projectCanonicalFollowupsToActions(client,[current],sources,publication))
+      .rejects.toThrow('canonical_followup_identity_collision');
+    await client.reload();
+    expect(client.rows).toEqual(before);
   });
 
 });
