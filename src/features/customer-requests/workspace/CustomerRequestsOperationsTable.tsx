@@ -76,6 +76,7 @@ export default function CustomerRequestsOperationsTable({
                 >
                   <td className="px-2.5 py-2">
                     <div className="max-w-44 font-black leading-5 text-[var(--dawaa-theme-heading)]">{view.product.name || 'صنف غير محدد'}</div>
+                    {view.identityIssues.includes('invalid_product_label') ? <div className="text-xs font-bold text-[var(--dawaa-status-danger-text)]">اسم الصنف يحتاج مراجعة — النص الأصلي محفوظ</div> : null}
                     <div className="mt-0.5 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">كود {view.product.code || 'غير مربوط'} · كمية {view.product.quantity}</div>
                   </td>
                   <td className="px-2.5 py-2">
@@ -101,3 +102,4 @@ export default function CustomerRequestsOperationsTable({
     </div>
   );
 }
+

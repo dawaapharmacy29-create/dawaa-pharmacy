@@ -413,10 +413,10 @@ export function CaseIntelligenceWorkspace({
               <div className="dawaa-muted text-xs leading-6">
                 {automaticInvoiceLink ? (
                   <>
-                    اسم الصنف غير ظاهر في نص المحادثة لأن الطلب مرتبط بصورة/فويس. وجد التحليل تلقائيًا
+                    تفاصيل الطلب غير مكتملة في التحليل المحفوظ. وجد التحليل تلقائيًا
                     {invoiceEvidence.invoiceNumber ? ` فاتورة ${invoiceEvidence.invoiceNumber}` : ' فاتورة'}
                     {' '}لنفس كود واسم العميل داخل التوقيت القريب للمحادثة، وبها {trustedInvoiceItemCount} أصناف.
-                    الأصناف التالية هي ما تم صرفه فعليًا، وليست ادعاءً بأن الصورة/الفويس تم قراءته.
+                    الأصناف التالية مصدرها الفاتورة وتوضح ما تم صرفه فعليًا؛ ولا تستكمل تلقائيًا التفاصيل الناقصة من المحادثة أو الميديا.
                   </>
                 ) : (
                   <>
@@ -632,7 +632,7 @@ export function CaseIntelligenceWorkspace({
                 <Fact label="الصنف">{o.productRaw || '—'}</Fact>
                 <Fact label="الأولوية">{o.priority === 'high' ? 'عالية' : o.priority === 'medium' ? 'متوسطة' : 'منخفضة'}</Fact>
                 <Fact label="الموعد">{duePolicyLabel(o.duePolicy)}{o.dueAt ? ` — ${formatTime(o.dueAt)}` : ''}</Fact>
-                <Fact label="المسؤول">{o.assignedStaffName ? `${o.assignedStaffName} (${assignedRoleLabel(o.assignedRole)})` : assignedRoleLabel(o.assignedRole)}</Fact>
+                <Fact label="المسؤول">{o.assignedStaffId && o.assignedStaffName ? `${o.assignedStaffName} (${assignedRoleLabel(o.assignedRole)})` : `${assignedRoleLabel(o.assignedRole)} — هوية الموظف غير محسومة`}</Fact>
                 <Fact label="لماذا متوقفة/معطلة">{o.blocker ? 'هوية العميل غير محسومة' : o.suppressedBy ? suppressionLabel(o.suppressedBy) : '—'}</Fact>
               </div>
               <WhyButton onClick={() => open({ title: nextBestActionLabel(o.nextBestAction), reason: followUpReasonLabel(o.reason), confidence: o.confidence, messageIds: o.evidenceMessageIds })} />
@@ -779,4 +779,5 @@ export function CaseIntelligenceWorkspace({
 }
 
 export default CaseIntelligenceWorkspace;
+
 

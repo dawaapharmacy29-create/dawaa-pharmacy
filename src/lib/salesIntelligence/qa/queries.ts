@@ -64,7 +64,7 @@ const CANONICAL_SALES_OUTCOMES = new Set([
 function readCanonicalSalesOutcome(value: unknown): Pick<
   CanonicalSalesOutcomeAssessment,
   'outcome' | 'isSaleCountable'
-> | null {
+> & { saleProofState?: SaleProofAssessment['state'] } | null {
   if (!value || typeof value !== 'object') return null;
   const outcome = (value as Record<string, unknown>).outcome;
   const isSaleCountable = (value as Record<string, unknown>).isSaleCountable;
@@ -76,6 +76,8 @@ function readCanonicalSalesOutcome(value: unknown): Pick<
   return {
     outcome: outcome as CanonicalSalesOutcomeAssessment['outcome'],
     isSaleCountable,
+    ...(['proven', 'strongly_supported', 'weakly_supported', 'unknown', 'contradicted'].includes(String((value as Record<string, unknown>).saleProofState))
+      ? { saleProofState: (value as Record<string, unknown>).saleProofState as SaleProofAssessment['state'] } : {}),
   };
 }
 
@@ -129,7 +131,8 @@ interface RawMatchRow {
 }
 
 /**
- * Pure — no I/O — so it's directly unit-testable without a Supabase mock. `saleProofState`/
+ * Pure — no I/O — so it's directly unit-testable without a Supabase mock. The saved canonical
+ * sale proof takes precedence, exactly as on case detail. For older snapshots, `saleProofState`/
  * `proofSource`/etc. are computed via deriveSaleProofStateFromPersisted() (saleProofProjection.ts)
  * — this function NEVER decides Sale Proof State itself, only joins rows and hands them to that
  * shared helper (Final Pilot Readiness: "ممنوع duplication لمنطق Sale Proof").
@@ -174,6 +177,9 @@ export function mergeCaseListRows(
       fallbackPhone: caseIdentity?.customer_phone ?? null,
     });
     const proof: SaleProofAssessment = deriveSaleProofStateFromPersisted(analysis.case_id, analysis, attribution, match);
+    // The persisted canonical outcome is the same source used by case detail. Legacy rows
+    // without that snapshot retain the conservative projection; do not infer a new sale here.
+    const canonicalSalesOutcome = readCanonicalSalesOutcome(analysis.canonical_sales_outcome);
     return {
       caseId: analysis.case_id,
       analysisId: analysis.analysis_id,
@@ -196,8 +202,8 @@ export function mergeCaseListRows(
       competingCaseCount: attribution?.competing_case_ids?.length ?? 0,
       needsHumanReview: analysis.needs_human_review,
       humanReviewReasons: analysis.human_review_reasons ?? [],
-      saleProofState: proof.state,
-      canonicalSalesOutcome: readCanonicalSalesOutcome(analysis.canonical_sales_outcome),
+      saleProofState: canonicalSalesOutcome?.saleProofState ?? proof.state,
+      canonicalSalesOutcome,
       proofSource: proof.proofSource,
       trustedInvoiceId: proof.trustedInvoiceId,
       itemEvidenceReady: proof.itemEvidenceReady,
@@ -982,3 +988,4 @@ export async function fetchQaCaseDetail(
     catalogProductMatches,
   };
 }
+

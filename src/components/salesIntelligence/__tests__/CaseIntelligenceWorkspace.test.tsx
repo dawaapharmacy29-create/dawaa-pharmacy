@@ -54,6 +54,34 @@ const SALE = `[9/15/26, 9:00:00 AM] Customer: عايز 2 علبة فيتامين
 [9/15/26, 9:03:00 AM] You: تم تأكيد الطلب`;
 
 describe('Case Intelligence Workspace (display only)', () => {
+  it('unresolved request details do not imply a missing product name or unread media', () => {
+    const view = persisted(analyze(SALE).caseIntelligence)!;
+    view.need.unresolvedNeed = true;
+    const html = renderToStaticMarkup(createElement(CaseIntelligenceWorkspace, {
+      view, initialTab: 'need', invoiceEvidence: { status: 'trusted', linkMethod: 'automatic', invoiceNumber: '73006', items: [] },
+    }));
+    expect(html).toContain('تفاصيل الطلب غير مكتملة في التحليل المحفوظ');
+    expect(html).not.toContain('اسم الصنف غير ظاهر');
+  });
+
+  it('does not present a raw export sender as an assigned staff identity', () => {
+    const view = persisted(analyze(`[9/15/26, 9:00:00 AM] Customer: عايز كونجستال
+[9/15/26, 9:01:00 AM] You: كونجستال مش متوفر حاليا، لما يتوفر هكلم حضرتك`).caseIntelligence)!;
+    expect(view.followUp.opportunities.length).toBeGreaterThan(0);
+    for (const opportunity of view.followUp.opportunities) {
+      opportunity.assignedStaffName = 'You';
+      opportunity.assignedStaffId = null;
+    }
+    const html = render(view, 'followup');
+    expect(html).toContain('هوية الموظف غير محسومة');
+    expect(html).not.toContain('You (');
+    for (const opportunity of view.followUp.opportunities) {
+      opportunity.assignedStaffName = 'د نور';
+      opportunity.assignedStaffId = 'staff-1';
+    }
+    expect(render(view, 'followup')).toContain('د نور');
+  });
+
   it('A. successful sale: header answers need/stage/outcome; candidate invoices never shown as a sale', () => {
     const view = persisted(analyze(SALE).caseIntelligence)!;
     const header = render(view);

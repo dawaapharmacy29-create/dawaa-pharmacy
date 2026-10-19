@@ -5,6 +5,7 @@ import { customerRequestIsClosedStatus, customerRequestOperationalStage, custome
 export type CustomerRequestIdentityIssue =
   | 'missing_customer'
   | 'missing_customer_code'
+  | 'invalid_product_label'
   | 'missing_product'
   | 'missing_product_code'
   | 'missing_branch'
@@ -58,6 +59,13 @@ export function customerRequestNextActionAt(request: CustomerRequest) {
   return (request as RequestWithExactNextAction).next_action_at || request.due_date || request.needed_by_date || null;
 }
 
+/** Data-quality check only: never extracts products or rewrites imported evidence. */
+export function customerRequestProductLabelNeedsReview(value: string | null | undefined): boolean {
+  const text = String(value || '').trim();
+  return Boolean(text) && (!/[\p{L}\p{N}]/u.test(text)
+    || /تم استلام وتأكيد طلب حضراتكم/.test(text));
+}
+
 export function customerRequestIdentityIssues(request: CustomerRequest): CustomerRequestIdentityIssue[] {
   const issues: CustomerRequestIdentityIssue[] = [];
   const phone = String(request.customer_phone || '').replace(/\D/g, '');
@@ -65,6 +73,7 @@ export function customerRequestIdentityIssues(request: CustomerRequest): Custome
   if (!request.customer_id) issues.push('missing_customer');
   if (!String(request.customer_code || '').trim()) issues.push('missing_customer_code');
   if (!String(request.medicine_name || '').trim()) issues.push('missing_product');
+  if (customerRequestProductLabelNeedsReview(request.medicine_name)) issues.push('invalid_product_label');
   if (!productCode) issues.push('missing_product_code');
   if (!customerRequestBranchIdentity(request.branch).key) issues.push('missing_branch');
   if (!phone || /^0+$/.test(phone) || phone.length < 8) issues.push('missing_phone');
@@ -77,6 +86,7 @@ export function customerRequestQualityIssues(request: CustomerRequest) {
     missing_customer: 'عميل غير مربوط',
     missing_customer_code: 'كود العميل غير مكتمل',
     missing_product: 'الصنف غير محدد',
+    invalid_product_label: 'اسم الصنف يحتاج مراجعة — نص غير صالح كاسم صنف',
     missing_product_code: 'كود الصنف غير مربوط',
     missing_branch: 'بدون فرع',
     missing_phone: 'هاتف يحتاج مراجعة',
@@ -124,3 +134,4 @@ export function customerRequestOperationalView(request: CustomerRequest) {
     identityIssues: customerRequestIdentityIssues(request),
   };
 }
+

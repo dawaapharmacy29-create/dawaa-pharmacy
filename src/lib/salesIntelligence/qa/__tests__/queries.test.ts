@@ -35,7 +35,7 @@ describe('mergeCaseListRows', () => {
     });
   });
 
-  it('projects persisted canonical sales outcome separately from persisted sale proof', () => {
+  it('uses persisted canonical proof without promoting a non-countable sale', () => {
     const rows = mergeCaseListRows(
       [{
         ...baseAnalysis,
@@ -50,7 +50,10 @@ describe('mergeCaseListRows', () => {
     expect(rows[0].canonicalSalesOutcome).toEqual({
       outcome: 'needs_review',
       isSaleCountable: false,
+      saleProofState: 'proven',
     });
+    expect(rows[0].saleProofState).toBe('proven');
+    expect(filterCaseListRows(rows, { ...DEFAULT_QA_LIST_FILTERS, saleProofState: 'proven' })).toHaveLength(1);
   });
 
   it('does not treat a missing or malformed canonical outcome as countable', () => {
@@ -373,3 +376,4 @@ describe('Final Pilot Readiness — SaleProofState list wiring', () => {
     expect(filterCaseListRows(rows, withFilters({ quickFilter: 'no_invoice' }))).toHaveLength(0);
   });
 });
+
