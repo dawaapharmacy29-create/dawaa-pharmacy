@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { deriveCanonicalComplaintAssessment } from '../complaintAssessmentEngine';
-import { runSalesIntelligencePipeline, deriveSegmentedCases, segmentationInputFromPipelineInput } from '../salesIntelligencePipeline';
+import { runSalesIntelligencePipeline, deriveSegmentedCases, segmentationInputFromPipelineInput, type SalesIntelligencePipelineInput } from '../salesIntelligencePipeline';
 import { classifyAvailabilityStatementV32, classifyCustomerTimingRequestV32 } from '@/lib/whatsappSemanticSignalsV32';
 
 const chat = `[10/19/26, 9:00:00 AM] Customer: المندوب مكلمني الساعة 8
@@ -12,7 +12,7 @@ const chat = `[10/19/26, 9:00:00 AM] Customer: المندوب مكلمني ال�
 [10/19/26, 9:02:40 AM] Customer: الاجتماع
 [10/19/26, 9:03:00 AM] You: بعتذر جدا وصعدت الموضوع للادارة
 [10/19/26, 9:04:00 AM] Customer: شكرا بس خليه يبقى روحه طويلة شوية`;
-function input(raw = chat) {
+function input(raw = chat): SalesIntelligencePipelineInput {
   return {conversationId:'synthetic-service-recovery',rawWhatsAppExportText:raw,
     customerIdHint:'synthetic-customer',customerIdentityStatus:'resolved',resolveInvoiceCandidates:()=>[]};
 }
