@@ -771,7 +771,8 @@ function dayAfterIso(date: string) {
 export async function loadDatabaseDayComparison(
   fileDays: Map<string, { date: string; count: number; total: number }>,
   startDate: string | null | undefined,
-  endDate: string | null | undefined
+  endDate: string | null | undefined,
+  selectedBranch?: string
 ) {
   const selectColumns =
     'id,invoice_no,invoice_number,sale_date,invoice_date,invoice_datetime,date,branch,branch_name,net_amount,net_total,total_amount,amount,gross_amount,discounted_amount';
@@ -869,6 +870,7 @@ export async function loadDatabaseDayComparison(
     const branch = getCoreInvoiceBranch(row);
     const invoiceId = getCoreInvoiceId(row);
     if (!date || !invoiceId) continue;
+    if (selectedBranch && normalizeComparableBranch(branch, selectedBranch) !== normalizeComparableBranch(selectedBranch, selectedBranch)) continue;
     databaseInvoicesCount += 1;
     databaseTotalNet += amount;
     addDailyTotal(databaseDays, date, amount);
@@ -3087,7 +3089,8 @@ export async function importInvoicesToDB(
   const databaseComparison = await loadDatabaseDayComparison(
     parsedRowsByDateMap,
     summary.fileMinDate || summary.firstInvoiceDate,
-    summary.fileMaxDate || summary.lastInvoiceDate
+    summary.fileMaxDate || summary.lastInvoiceDate,
+    branch
   );
   summary.databaseMinDateAfterImport = databaseComparison.databaseMinDateAfterImport;
   summary.databaseMaxDateAfterImport = databaseComparison.databaseMaxDateAfterImport;
