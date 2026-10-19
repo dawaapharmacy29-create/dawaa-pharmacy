@@ -57,7 +57,9 @@
 // without manufacturing product identity from unresolved media deictics.
 // Persist the newly owned complaint/request decisions on the next explicit refresh. Retries
 // within this version still reuse the same analysis; this constant never initiates a backfill.
-export const PIPELINE_VERSION = 'sales-intelligence-v28-delivery-obligations-and-consistent-evidence';
+// v29: standalone doubled-lam greetings are not customer needs; explicit requests survive.
+// Versioning affects only the next authorized refresh, never an automatic historical repair.
+export const PIPELINE_VERSION = 'sales-intelligence-v29-standalone-greeting-typo-safe';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v10-payment-continuation-ambiguity-safe',
