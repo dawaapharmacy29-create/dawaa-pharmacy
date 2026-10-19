@@ -15379,6 +15379,16 @@ async function handler(req, res) {
       sideProjections
     });
   }
+  if (refresh.operationalProjection?.errors.length) {
+    return json(res, 500, {
+      error: "canonical_operational_projection_failure",
+      detail: refresh.operationalProjection.errors.join("; "),
+      canonicalPublished: true,
+      ...page,
+      operationalProjection: refresh.operationalProjection,
+      sideProjections
+    });
+  }
   const batch = refresh.batch;
   return json(res, 200, {
     ok: true,
@@ -15388,6 +15398,7 @@ async function handler(req, res) {
     caseSetReconciliation: refresh.caseSetReconciliation,
     canonicalReconciliation: refresh.canonicalReconciliation,
     actionReconciliation: refresh.actionReconciliation,
+    operationalProjection: refresh.operationalProjection,
     complaintEnrichment: refresh.complaintEnrichment,
     semanticProjection: refresh.semanticProjection,
     conversationEvaluations: refresh.conversationEvaluations,
