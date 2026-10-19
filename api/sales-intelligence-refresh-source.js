@@ -2797,6 +2797,41 @@ function isLinkedToSummary(scopedMessages, candidateMessageId, summaryMessageId)
   const { before } = contextWindowV32(scopedMessages, index, 5, 0);
   return before.some((m) => m.id === summaryMessageId) || scopedMessages[index - 1]?.id === summaryMessageId;
 }
+function recommendationNames(message) {
+  if (message.role !== "staff" || !message.isMeaningful) return [];
+  const match = message.text.match(/(?:^|\s)(?:ناخد|نستخدم)\s+(.+)/u);
+  if (!match) return [];
+  const phrase = match[1].split(/\s+(?:ناخدهم|نستخدمهم|بالتبادل|كل\s*[\d٠-٩])/u)[0];
+  const parts = phrase.replace(/ان\s*شاء\s*الله/gu, "").split(/\s+مع\s+|\s+و\s+/u).map((p) => p.trim().replace(/\s+/gu, " ")).filter(Boolean);
+  if (parts.length < 2 || parts.length > 4 || new Set(parts.map(normalizeProductKey)).size !== parts.length || parts.some(
+    (p) => p.split(/\s+/u).length > 4 || !/[\p{L}]/u.test(p) || NON_PRODUCT_PHRASE_RX.test(p) || isGenericDeicticProductPhrase(p) || /[؟?]|(?:لو|أو|او|ولا|بدل)(?:\s|$)/u.test(p)
+  )) return [];
+  return parts;
+}
+function stripPair(text5) {
+  const normalized = text5.trim().replace(/[؟?!.،]+$/u, "").trim();
+  if (!/^(?:شريط|شريطين)\s*و\s*(?:شريط|شريطين)$/u.test(normalized)) return null;
+  return normalized.split(/\s*و\s*/u).map((unit) => unit === "\u0634\u0631\u064A\u0637\u064A\u0646" ? 2 : 1);
+}
+function quantityChoiceOptions(text5) {
+  const body = text5.trim().replace(/^(?:(?:عنيا|عيني|تمام|ان\s*شاء\s*الله)\s+)+/u, "");
+  const options = body.split(/\s+ولا\s+/u).map(stripPair);
+  return options.length === 2 && options.every((option) => option !== null) ? options : null;
+}
+function clarificationCourtesy(text5) {
+  return /^(?:(?:تمام|شكرا|شكرًا|يا\s*دكتور|يادكتور|لحضرتك|حضرتك|🙏|[.!،])\s*)+$/u.test(text5.trim());
+}
+function dialogueMeaningful(message) {
+  return message.isMeaningful && !/<(?:image|audio|voice message) omitted>/iu.test(message.text);
+}
+function clarificationContext(messages, index) {
+  const context = [];
+  for (let i = index - 1; i >= 0 && context.length < 8; i--) {
+    if (messages[index].timestamp.getTime() - messages[i].timestamp.getTime() > 5 * 6e4) break;
+    if (dialogueMeaningful(messages[i])) context.unshift(messages[i]);
+  }
+  return context;
+}
 function buildCaseBaskets(caseId, scopedMessages, productIndex) {
   const messages = scopedMessages.slice().sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
   const baskets = [];
@@ -2885,7 +2920,118 @@ function buildCaseBaskets(caseId, scopedMessages, productIndex) {
     confirmedByCustomerAt = null;
     hasOpenBasket = true;
   }
-  messages.forEach((message) => {
+  let acceptedRecommendation = null;
+  let quantityChoice = null;
+  messages.forEach((message, messageIndex) => {
+    const prior = message.role === "customer" ? clarificationContext(messages, messageIndex) : [];
+    const lastStaff = [...prior].reverse().find((m) => m.role === "staff");
+    const inWindow = (at) => message.timestamp.getTime() - at >= 0 && message.timestamp.getTime() - at <= 5 * 6e4;
+    const proposed = recommendationNames(message);
+    if (proposed.length && !isFinalBasketSummary(message)) return;
+    if (message.role === "staff" && acceptedRecommendation && status === "draft") {
+      const options = quantityChoiceOptions(message.text);
+      if (options && acceptedRecommendation.keys.length === 2 && inWindow(acceptedRecommendation.requestedAt) && acceptedRecommendation.keys.every((key) => items.has(key))) {
+        quantityChoice = { questionId: message.id, keys: [...acceptedRecommendation.keys], options, at: message.timestamp.getTime() };
+        return;
+      }
+    }
+    if (message.role === "customer" && dialogueMeaningful(message) && status === "draft") {
+      if (/^(?:مش|لا)\s*(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?)\s*منهم(?:\s+شريطين)?[.!،\s]*$/u.test(message.text.trim())) return;
+      const pluralOrder = /^(?:و?عايز[هة]?|و?عاوز[هة]?|محتاج[هة]?)\s+منهم\s+شريطين[.!،\s]*$/u.test(message.text.trim());
+      if (pluralOrder) {
+        const names = lastStaff && inWindow(lastStaff.timestamp.getTime()) ? recommendationNames(lastStaff) : [];
+        const sinceOffer = lastStaff ? prior.slice(prior.indexOf(lastStaff) + 1) : [];
+        if (lastStaff && names.length && sinceOffer.length <= 2 && sinceOffer.every((m) => m.role === "customer" && /^(?:تمام|ماشي|حاضر)[.!،\s]*$/u.test(m.text.trim()))) {
+          if (!hasOpenBasket) startNewVersion(/* @__PURE__ */ new Map(), "draft");
+          const keys = names.map(normalizeProductKey);
+          names.forEach((name, index) => {
+            const existing = items.get(keys[index]);
+            items.set(keys[index], {
+              productNameRaw: name,
+              productId: existing?.productId ?? null,
+              // "شريطين" for two named products does not establish the allocation.
+              quantity: existing?.quantity ?? null,
+              unit: "\u0634\u0631\u064A\u0637",
+              sourceMessageId: message.id,
+              confidence: assessment("strongly_inferred", 0.75, "basket.item.customer_orders_named_recommendation", [
+                refFor(lastStaff, "\u0623\u0633\u0645\u0627\u0621 \u0623\u0635\u0646\u0627\u0641 \u0627\u0644\u062A\u0631\u0634\u064A\u062D \u0627\u0644\u0635\u0631\u064A\u062D\u0629."),
+                refFor(message, "\u0637\u0644\u0628 \u0627\u0644\u0639\u0645\u064A\u0644 \u0627\u0644\u0635\u0631\u064A\u062D \u0645\u0646 \u0627\u0644\u0623\u0635\u0646\u0627\u0641 \u0627\u0644\u0645\u0631\u0634\u062D\u0629\u061B \u062A\u0648\u0632\u064A\u0639 \u0627\u0644\u0643\u0645\u064A\u0629 \u063A\u064A\u0631 \u0645\u062D\u0633\u0648\u0645.")
+              ]),
+              resolutionStatus: "partially_proven"
+            });
+          });
+          acceptedRecommendation = { keys, requestedAt: message.timestamp.getTime() };
+          quantityChoice = null;
+          sourceMessageIds.push(lastStaff.id, message.id);
+          return;
+        }
+        return;
+      }
+      const pair = stripPair(message.text);
+      if (pair) {
+        if (quantityChoice && lastStaff?.id === quantityChoice.questionId && inWindow(quantityChoice.at) && quantityChoice.keys.every((key) => items.has(key)) && prior.slice(prior.findIndex((m) => m.id === quantityChoice.questionId) + 1).every((m) => m.role === "customer" && clarificationCourtesy(m.text)) && quantityChoice.options.some((option) => option.every((quantity, i) => quantity === pair[i]))) {
+          const question = lastStaff;
+          if (question) {
+            const updated = new Map(items);
+            quantityChoice.keys.forEach((key, index) => {
+              const item = items.get(key);
+              updated.set(key, { ...item, quantity: pair[index], confidence: {
+                ...item.confidence,
+                ruleIds: [...item.confidence.ruleIds, "basket.item.quantity_choice_confirmed"],
+                evidence: [...item.confidence.evidence, refFor(question, "\u0633\u0624\u0627\u0644 \u062A\u0648\u0632\u064A\u0639 \u0627\u0644\u0643\u0645\u064A\u0629 \u0639\u0644\u0649 \u0627\u0644\u0635\u0646\u0641\u064A\u0646."), refFor(message, "\u0627\u062E\u062A\u064A\u0627\u0631 \u0627\u0644\u0639\u0645\u064A\u0644 \u0627\u0644\u0635\u0631\u064A\u062D \u0644\u062A\u0648\u0632\u064A\u0639 \u0627\u0644\u0643\u0645\u064A\u0629.")]
+              } });
+            });
+            if (quantityChoice.keys.some((key, index) => items.get(key).quantity !== pair[index])) {
+              const evidenceIds = [...sourceMessageIds, question.id, message.id];
+              flushCurrentBasket("superseded");
+              startNewVersion(updated, "draft");
+              sourceMessageIds.push(...evidenceIds);
+            }
+          }
+        }
+        return;
+      }
+      if (/^[\d٠-٩]+(?:\.[\d٠-٩]+)?(?:\s*(?:mg|مجم|ملجم))?[.!،\s]*$/iu.test(message.text.trim()) && lastStaff && /^(?:تركيز\s*(?:ايه|إيه|كام)|(?:ايه|إيه|كام)\s*التركيز)/u.test(lastStaff.text.trim()) && inWindow(lastStaff.timestamp.getTime())) {
+        const beforeQuestion = prior.slice(0, prior.indexOf(lastStaff));
+        const lastCustomer = [...beforeQuestion].reverse().find((m) => m.role === "customer");
+        const candidates = lastCustomer ? [...items.entries()].filter(([, item]) => item.sourceMessageId === lastCustomer.id) : [];
+        const intervening = prior.slice(prior.indexOf(lastStaff) + 1);
+        if (candidates.length > 0 && intervening.length === 0 && lastCustomer && lastStaff.timestamp.getTime() - lastCustomer.timestamp.getTime() <= 5 * 6e4) {
+          if (candidates.length !== 1 || /[\d٠-٩]/u.test(candidates[0][1].productNameRaw)) {
+            for (const [key2, item2] of candidates) {
+              items.set(key2, {
+                ...item2,
+                resolutionStatus: candidates.length === 1 ? "contradicted" : "unknown",
+                confidence: assessment("unknown", 0.3, "basket.item.strength_answer_requires_review", [
+                  ...item2.confidence.evidence,
+                  refFor(lastStaff, "\u0633\u0624\u0627\u0644 \u0627\u0644\u062A\u0631\u0643\u064A\u0632."),
+                  refFor(message, "\u062C\u0648\u0627\u0628 \u062A\u0631\u0643\u064A\u0632 \u0645\u062A\u0639\u0627\u0631\u0636 \u0623\u0648 \u063A\u064A\u0631 \u0645\u062D\u0633\u0648\u0645 \u0628\u064A\u0646 \u0623\u0635\u0646\u0627\u0641 \u0645\u062A\u0639\u062F\u062F\u0629\u061B \u064A\u0644\u0632\u0645 \u0645\u0631\u0627\u062C\u0639\u0629 \u0628\u0634\u0631\u064A\u0629.")
+                ])
+              });
+            }
+            sourceMessageIds.push(lastStaff.id, message.id);
+            return;
+          }
+          const [key, item] = candidates[0];
+          const strength = message.text.trim().replace(/[.!،]+$/u, "");
+          const name = `${item.productNameRaw} ${strength}`;
+          items.delete(key);
+          items.set(normalizeProductKey(name), {
+            ...item,
+            productNameRaw: name,
+            productId: null,
+            resolutionStatus: "partially_proven",
+            confidence: {
+              ...item.confidence,
+              ruleIds: [...item.confidence.ruleIds, "basket.item.strength_answer_linked"],
+              evidence: [...item.confidence.evidence, refFor(lastStaff, "\u0633\u0624\u0627\u0644 \u0635\u0631\u064A\u062D \u0639\u0646 \u062A\u0631\u0643\u064A\u0632 \u0627\u0644\u0635\u0646\u0641 \u0627\u0644\u0623\u062E\u064A\u0631."), refFor(message, "\u062C\u0648\u0627\u0628 \u0627\u0644\u062A\u0631\u0643\u064A\u0632 \u0645\u0631\u062A\u0628\u0637 \u0628\u0627\u0644\u0633\u0624\u0627\u0644\u061B \u0644\u0627 \u064A\u062D\u062F\u062F \u0643\u0645\u064A\u0629 \u0627\u0644\u0637\u0644\u0628.")]
+            }
+          });
+          sourceMessageIds.push(lastStaff.id, message.id);
+        }
+        return;
+      }
+    }
     if (isFinalBasketSummary(message)) {
       if (!hasOpenBasket) startNewVersion(/* @__PURE__ */ new Map(), "draft");
       else if (status === "confirmed" || status === "awaiting_confirmation") {
@@ -5419,6 +5565,13 @@ function deriveCustomerNeedModel(input) {
       const product = ensureProduct(item.productNameRaw, item.confidence, item.productId);
       if (!product) continue;
       product.evidenceMessageIds.add(item.sourceMessageId);
+      for (const ref3 of item.confidence.evidence) {
+        for (const id of ref3.messageIds ?? []) product.evidenceMessageIds.add(id);
+      }
+      if (item.confidence.ruleIds.includes("basket.item.customer_orders_named_recommendation")) {
+        product.roles.add("offered");
+        product.roles.add("accepted");
+      }
       if (sourceMessage?.role === "customer") {
         product.roles.add("requested");
         if (product.requestedQuantity == null && item.quantity != null) {
@@ -5465,7 +5618,10 @@ function deriveCustomerNeedModel(input) {
     }
     if (!productNameRaw) continue;
     const ref3 = evidenceRef2(message.id, `\u0627\u0644\u0639\u0645\u064A\u0644 \u0637\u0644\u0628 \u0627\u0644\u0635\u0646\u0641 \u0628\u0643\u0645\u064A\u0629: "${message.text.slice(0, 120)}".`);
-    const product = ensureProduct(
+    const clarified = Array.from(products.values()).filter(
+      (product2) => product2.evidenceMessageIds.has(message.id) && product2.confidence.ruleIds.includes("basket.item.strength_answer_linked")
+    );
+    const product = clarified.length === 1 ? clarified[0] : ensureProduct(
       productNameRaw,
       assessment6("strongly_inferred", 0.8, ["need.product.customer_quantity_request"], [ref3])
     );
@@ -8612,7 +8768,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v31-standalone-courtesy-need";
+var PIPELINE_VERSION = "sales-intelligence-v32-contextual-basket-clarifications";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v10-payment-continuation-ambiguity-safe",
   historicalClosure: "historical-closure-v1",

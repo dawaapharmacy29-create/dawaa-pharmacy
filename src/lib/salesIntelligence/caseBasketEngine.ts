@@ -609,6 +609,53 @@ interface BuildCaseBasketsResult {
   staffFinalConfirmationEvents: StaffFinalConfirmationEvent[];
 }
 
+// Dialogue-local clarification belongs to basket semantics, never to an operational writer.
+// A recommendation is only a proposal until the customer explicitly orders "منهم".
+function recommendationNames(message: NormalizedConversationMessageV32): string[] {
+  if (message.role !== 'staff' || !message.isMeaningful) return [];
+  const match = message.text.match(/(?:^|\s)(?:ناخد|نستخدم)\s+(.+)/u);
+  if (!match) return [];
+  const phrase = match[1].split(/\s+(?:ناخدهم|نستخدمهم|بالتبادل|كل\s*[\d٠-٩])/u)[0];
+  const parts = phrase.replace(/ان\s*شاء\s*الله/gu, '').split(/\s+مع\s+|\s+و\s+/u).map(p => p.trim().replace(/\s+/gu, ' ')).filter(Boolean);
+  if (parts.length < 2 || parts.length > 4 || new Set(parts.map(normalizeProductKey)).size !== parts.length || parts.some(p =>
+    p.split(/\s+/u).length > 4 || !/[\p{L}]/u.test(p) ||
+    NON_PRODUCT_PHRASE_RX.test(p) || isGenericDeicticProductPhrase(p) ||
+    /[؟?]|(?:لو|أو|او|ولا|بدل)(?:\s|$)/u.test(p)
+  )) return [];
+  return parts;
+}
+
+function stripPair(text: string): number[] | null {
+  const normalized = text.trim().replace(/[؟?!.،]+$/u, '').trim();
+  if (!/^(?:شريط|شريطين)\s*و\s*(?:شريط|شريطين)$/u.test(normalized)) return null;
+  return normalized.split(/\s*و\s*/u).map(unit => unit === 'شريطين' ? 2 : 1);
+}
+
+function quantityChoiceOptions(text: string): number[][] | null {
+  const body = text.trim().replace(/^(?:(?:عنيا|عيني|تمام|ان\s*شاء\s*الله)\s+)+/u, '');
+  const options = body.split(/\s+ولا\s+/u).map(stripPair);
+  return options.length === 2 && options.every((option): option is number[] => option !== null) ? options : null;
+}
+
+function clarificationCourtesy(text: string): boolean {
+  return /^(?:(?:تمام|شكرا|شكرًا|يا\s*دكتور|يادكتور|لحضرتك|حضرتك|🙏|[.!،])\s*)+$/u.test(text.trim());
+}
+
+function dialogueMeaningful(message: NormalizedConversationMessageV32): boolean {
+  return message.isMeaningful && !/<(?:image|audio|voice message) omitted>/iu.test(message.text);
+}
+
+// At most eight meaningful turns in five minutes: never scan a whole long conversation
+// to attach a short clarification, or borrow a stale item from an earlier order.
+function clarificationContext(messages: NormalizedConversationMessageV32[], index: number): NormalizedConversationMessageV32[] {
+  const context: NormalizedConversationMessageV32[] = [];
+  for (let i = index - 1; i >= 0 && context.length < 8; i--) {
+    if (messages[index].timestamp.getTime() - messages[i].timestamp.getTime() > 5 * 60_000) break;
+    if (dialogueMeaningful(messages[i])) context.unshift(messages[i]);
+  }
+  return context;
+}
+
 /**
  * Walks a case's messages chronologically, building successive basket versions. Historical
  * versions are never mutated — each is pushed once final and only ever gains a
@@ -716,7 +763,116 @@ export function buildCaseBaskets(
     hasOpenBasket = true;
   }
 
-  messages.forEach((message) => {
+  let acceptedRecommendation: { keys: string[]; requestedAt: number } | null = null;
+  let quantityChoice: { questionId: string; keys: string[]; options: number[][]; at: number } | null = null;
+  messages.forEach((message, messageIndex) => {
+    const prior = message.role === 'customer' ? clarificationContext(messages, messageIndex) : [];
+    const lastStaff = [...prior].reverse().find(m => m.role === 'staff');
+    const inWindow = (at: number) => message.timestamp.getTime() - at >= 0 && message.timestamp.getTime() - at <= 5 * 60_000;
+    const proposed = recommendationNames(message);
+    // Do not publish a staff recommendation as a customer order by itself.
+    if (proposed.length && !isFinalBasketSummary(message)) return;
+    if (message.role === 'staff' && acceptedRecommendation && status === 'draft') {
+      const options = quantityChoiceOptions(message.text);
+      if (options &&
+          acceptedRecommendation.keys.length === 2 && inWindow(acceptedRecommendation.requestedAt) &&
+          acceptedRecommendation.keys.every(key => items.has(key))) {
+        quantityChoice = { questionId: message.id, keys: [...acceptedRecommendation.keys], options, at: message.timestamp.getTime() };
+        return;
+      }
+    }
+    if (message.role === 'customer' && dialogueMeaningful(message) && status === 'draft') {
+      if (/^(?:مش|لا)\s*(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?)\s*منهم(?:\s+شريطين)?[.!،\s]*$/u.test(message.text.trim())) return;
+      const pluralOrder = /^(?:و?عايز[هة]?|و?عاوز[هة]?|محتاج[هة]?)\s+منهم\s+شريطين[.!،\s]*$/u.test(message.text.trim());
+      if (pluralOrder) {
+        const names = lastStaff && inWindow(lastStaff.timestamp.getTime()) ? recommendationNames(lastStaff) : [];
+        const sinceOffer = lastStaff ? prior.slice(prior.indexOf(lastStaff) + 1) : [];
+        if (lastStaff && names.length && sinceOffer.length <= 2 && sinceOffer.every(m => m.role === 'customer' && /^(?:تمام|ماشي|حاضر)[.!،\s]*$/u.test(m.text.trim()))) {
+          if (!hasOpenBasket) startNewVersion(new Map(), 'draft');
+          const keys = names.map(normalizeProductKey);
+          names.forEach((name, index) => {
+            const existing = items.get(keys[index]);
+            items.set(keys[index], {
+              productNameRaw: name, productId: existing?.productId ?? null,
+              // "شريطين" for two named products does not establish the allocation.
+              quantity: existing?.quantity ?? null, unit: 'شريط', sourceMessageId: message.id,
+              confidence: assessment('strongly_inferred', 0.75, 'basket.item.customer_orders_named_recommendation', [
+                refFor(lastStaff, 'أسماء أصناف الترشيح الصريحة.'), refFor(message, 'طلب العميل الصريح من الأصناف المرشحة؛ توزيع الكمية غير محسوم.'),
+              ]), resolutionStatus: 'partially_proven',
+            });
+          });
+          acceptedRecommendation = { keys, requestedAt: message.timestamp.getTime() };
+          quantityChoice = null;
+          sourceMessageIds.push(lastStaff.id, message.id);
+          return;
+        }
+        // An unresolved plural order is not a product name or a licence to borrow an old offer.
+        return;
+      }
+      const pair = stripPair(message.text);
+      if (pair) {
+        if (quantityChoice && lastStaff?.id === quantityChoice.questionId && inWindow(quantityChoice.at) &&
+            quantityChoice.keys.every(key => items.has(key)) &&
+            prior.slice(prior.findIndex(m => m.id === quantityChoice!.questionId) + 1).every(m => m.role === 'customer' && clarificationCourtesy(m.text)) &&
+            quantityChoice.options.some(option => option.every((quantity, i) => quantity === pair[i]))) {
+          const question = lastStaff;
+          if (question) {
+            const updated = new Map(items);
+            quantityChoice.keys.forEach((key, index) => {
+              const item = items.get(key)!;
+              updated.set(key, { ...item, quantity: pair[index], confidence: {
+                ...item.confidence,
+                ruleIds: [...item.confidence.ruleIds, 'basket.item.quantity_choice_confirmed'],
+                evidence: [...item.confidence.evidence, refFor(question, 'سؤال توزيع الكمية على الصنفين.'), refFor(message, 'اختيار العميل الصريح لتوزيع الكمية.')],
+              } });
+            });
+            if (quantityChoice.keys.some((key, index) => items.get(key)!.quantity !== pair[index])) {
+              const evidenceIds = [...sourceMessageIds, question.id, message.id];
+              flushCurrentBasket('superseded');
+              startNewVersion(updated, 'draft');
+              sourceMessageIds.push(...evidenceIds);
+            }
+          }
+        }
+        return;
+      }
+      // A bare number can qualify ONE explicitly questioned item, never become a quantity/code.
+      if (/^[\d٠-٩]+(?:\.[\d٠-٩]+)?(?:\s*(?:mg|مجم|ملجم))?[.!،\s]*$/iu.test(message.text.trim()) &&
+          lastStaff && /^(?:تركيز\s*(?:ايه|إيه|كام)|(?:ايه|إيه|كام)\s*التركيز)/u.test(lastStaff.text.trim()) && inWindow(lastStaff.timestamp.getTime())) {
+        const beforeQuestion = prior.slice(0, prior.indexOf(lastStaff));
+        const lastCustomer = [...beforeQuestion].reverse().find(m => m.role === 'customer');
+        const candidates = lastCustomer ? [...items.entries()].filter(([, item]) => item.sourceMessageId === lastCustomer.id) : [];
+        const intervening = prior.slice(prior.indexOf(lastStaff) + 1);
+        if (candidates.length > 0 && intervening.length === 0 && lastCustomer &&
+            lastStaff.timestamp.getTime() - lastCustomer.timestamp.getTime() <= 5 * 60_000) {
+          if (candidates.length !== 1 || /[\d٠-٩]/u.test(candidates[0][1].productNameRaw)) {
+            for (const [key, item] of candidates) {
+              items.set(key, { ...item,
+                resolutionStatus: candidates.length === 1 ? 'contradicted' : 'unknown',
+                confidence: assessment('unknown', 0.3, 'basket.item.strength_answer_requires_review', [
+                  ...item.confidence.evidence, refFor(lastStaff, 'سؤال التركيز.'),
+                  refFor(message, 'جواب تركيز متعارض أو غير محسوم بين أصناف متعددة؛ يلزم مراجعة بشرية.'),
+                ]),
+              });
+            }
+            sourceMessageIds.push(lastStaff.id, message.id);
+            return;
+          }
+          const [key, item] = candidates[0];
+          const strength = message.text.trim().replace(/[.!،]+$/u, '');
+          const name = `${item.productNameRaw} ${strength}`;
+          items.delete(key);
+          items.set(normalizeProductKey(name), { ...item, productNameRaw: name, productId: null,
+            resolutionStatus: 'partially_proven', confidence: {
+              ...item.confidence, ruleIds: [...item.confidence.ruleIds, 'basket.item.strength_answer_linked'],
+              evidence: [...item.confidence.evidence, refFor(lastStaff, 'سؤال صريح عن تركيز الصنف الأخير.'), refFor(message, 'جواب التركيز مرتبط بالسؤال؛ لا يحدد كمية الطلب.')],
+            },
+          });
+          sourceMessageIds.push(lastStaff.id, message.id);
+        }
+        return;
+      }
+    }
     if (isFinalBasketSummary(message)) {
       if (!hasOpenBasket) startNewVersion(new Map(), 'draft');
       else if (status === 'confirmed' || status === 'awaiting_confirmation') {

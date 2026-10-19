@@ -226,6 +226,13 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
       const product = ensureProduct(item.productNameRaw, item.confidence, item.productId);
       if (!product) continue;
       product.evidenceMessageIds.add(item.sourceMessageId);
+      for (const ref of item.confidence.evidence) {
+        for (const id of ref.messageIds ?? []) product.evidenceMessageIds.add(id);
+      }
+      if (item.confidence.ruleIds.includes('basket.item.customer_orders_named_recommendation')) {
+        product.roles.add('offered');
+        product.roles.add('accepted');
+      }
       if (sourceMessage?.role === 'customer') {
         product.roles.add('requested');
         if (product.requestedQuantity == null && item.quantity != null) {
@@ -282,7 +289,13 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
 
     if (!productNameRaw) continue;
     const ref = evidenceRef(message.id, `العميل طلب الصنف بكمية: "${message.text.slice(0, 120)}".`);
-    const product = ensureProduct(
+    // A later basket clarification can refine the name/strength while retaining the original
+    // request message. Restore its request role on that same line, not a second unqualified item.
+    const clarified = Array.from(products.values()).filter(product =>
+      product.evidenceMessageIds.has(message.id) &&
+      product.confidence.ruleIds.includes('basket.item.strength_answer_linked')
+    );
+    const product = clarified.length === 1 ? clarified[0] : ensureProduct(
       productNameRaw,
       assessment('strongly_inferred', 0.8, ['need.product.customer_quantity_request'], [ref])
     );
