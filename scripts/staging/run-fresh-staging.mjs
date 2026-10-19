@@ -401,6 +401,11 @@ try {
   await psql(db, read('supabase/tests/canonical_si_schema_runtime.test.sql'));
   step('actual attribution, match, policy writers and unproven reconciliation execute against captured table contracts');
 
+  if (process.argv.includes('--canonical-followup')) {
+    const { runFollowupAuthorizationRehearsal } = await import('./canonical-followup-authorization-rehearsal.mjs');
+    summary.canonicalFollowup = await runFollowupAuthorizationRehearsal({ db, psql, query, read, step });
+  }
+
   await psql('postgres', `drop database if exists ${db};`);
   if (process.env.STAGING_REPORT) writeFileSync(process.env.STAGING_REPORT, JSON.stringify(summary, null, 2));
   console.log(`fresh staging: ${summary.steps.length} steps passed`);
@@ -411,3 +416,4 @@ try {
 } finally {
   await sqlRuntime.close();
 }
+

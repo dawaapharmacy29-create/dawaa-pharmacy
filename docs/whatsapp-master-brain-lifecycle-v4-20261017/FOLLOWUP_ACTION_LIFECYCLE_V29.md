@@ -70,8 +70,10 @@ dependency has been resolved. Existing Preview remains on its prior verified run
 Older unmaterialized canonical proposals without current analysis provenance will require an
 explicit refresh before execution; they are not silently trusted or mass-refreshed by this change.
 
-Before runtime activation: require the multi-session CI job to pass, rehearse the migration against
-the full isolated schema and real authorization functions, and review operational lock contention.
-Then run an explicitly authorized UI smoke. No historical repair is implied.
+The multi-session job passed on f81e2089. The full domain/authentication rehearsal subsequently
+passed 53 local steps; see FOLLOWUP_AUTHORIZATION_REHEARSAL_V30.md. It also reproduced an installed
+writer mismatch resolved by the existing source-only Contract A migration. Production parity is
+therefore still blocked. Review that prerequisite and operational lock contention before an
+authorized release and UI smoke. No historical repair is implied.
 Customer-request and complaint lifecycle corrections remain separate scopes; their existing
 projection tests are regression checks, not proof that every lifecycle scenario is closed.

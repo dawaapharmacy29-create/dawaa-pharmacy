@@ -92,6 +92,9 @@ jobs:
           src/lib/salesIntelligence/__tests__/saleProofState.test.ts
           src/lib/salesIntelligence/__tests__/basketInvoiceMatchingEngine.test.ts
 
+      - name: Full isolated follow-up authorization and runtime parity rehearsal
+        run: STAGING_REPORT=/tmp/dawaa-followup-authorization.json npm run test:db:fresh-staging:pglite -- --canonical-followup
+
       - name: Full repository verify gate
         run: npm run verify
 
