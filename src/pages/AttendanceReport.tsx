@@ -10,7 +10,7 @@ import { createNotification } from '@/lib/notificationService';
 import { normalizeBranchName } from '@/lib/branch';
 import { canSeeAllBranches } from '@/lib/security/permissionScopes';
 import { canManageBiometricOperations } from '@/lib/core/permissionSystem';
-import { listPendingOvertime } from '@/lib/attendance/attendanceBreakdownService';
+import { listPendingOvertime, partitionPendingOvertime } from '@/lib/attendance/attendanceBreakdownService';
 import { listStaffTimeOffRequests } from '@/lib/timeOffService';
 import {
   applyConfirmedBiometricBatch,
@@ -157,6 +157,7 @@ interface ApprovalsSummary {
   scheduleIssues: number | null;
   totalPending: number | null;
   pendingOvertime: number | null;
+  outsideCycleOvertime: number | null;
   pendingTimeOff: number | null;
   unmappedBiometrics: number | null;
   unmappedEvents: number | null;
@@ -449,6 +450,9 @@ export default function AttendanceReport() {
       const triage = triageResult.status === 'fulfilled' && triageResult.value
         ? triageResult.value as Record<string, unknown>
         : null;
+      const overtimeByCycle = overtimeResult.status === 'fulfilled' && Array.isArray(overtimeResult.value)
+        ? partitionPendingOvertime(overtimeResult.value, cycle.start, today)
+        : null;
 
       setApprovalsSummary({
         pendingResolutions: isOperationalManager && triage ? Number(triage.needs_manager_decision || 0) : null,
@@ -458,7 +462,9 @@ export default function AttendanceReport() {
         singlePunch: isOperationalManager && triage ? Number(triage.single_punch || 0) : null,
         scheduleIssues: isOperationalManager && triage ? Number(triage.schedule_issues || 0) : null,
         totalPending: isOperationalManager && triage ? Number(triage.total_pending || 0) : null,
-        pendingOvertime: isOperationalManager ? settledCount(overtimeResult) : null,
+        pendingOvertime: isOperationalManager && overtimeByCycle ? overtimeByCycle.current.length : null,
+        outsideCycleOvertime: isOperationalManager && overtimeByCycle
+          ? overtimeByCycle.previous.length + overtimeByCycle.future.length + overtimeByCycle.undated.length : null,
         pendingTimeOff: canViewTimeOff ? settledCount(timeOffResult) : null,
         unmappedBiometrics: canViewSyncHealth && triage ? Number(triage.unmapped_active_codes || 0) : null,
         unmappedEvents: canViewSyncHealth && triage ? Number(triage.unmapped_events || 0) : null,
@@ -572,14 +578,13 @@ export default function AttendanceReport() {
     } catch (e) { const message = e instanceof Error ? e.message : 'تعذر تسجيل الحضور'; setError(message); toast.error(message); } finally { setClocking(false); }
   }
 
-  const decisionsBadge = (approvalsSummary?.pendingResolutions || 0) + (approvalsSummary?.pendingOvertime || 0) + (approvalsSummary?.pendingTimeOff || 0);
   const systemInterpretationCount = approvalsSummary?.systemPairable == null || approvalsSummary?.systemInterpretation == null
     ? null
     : approvalsSummary.systemPairable + approvalsSummary.systemInterpretation;
 
   return (
     <div className="dawaa-text dawaa-print-surface space-y-6 print:space-y-4" dir="rtl">
-      <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-5 shadow-sm print:hidden"><div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div><h1 className="text-2xl font-black text-[var(--dawaa-theme-heading)]">الحضور والوقت</h1><p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-muted)]">إدارة الحضور الفعلي والجداول والاستثناءات والبصمة من مكان واحد. الحالات السليمة تمر تلقائيًا، وما يحتاج تدخلك فقط يظهر في صندوق المراجعة.</p></div><Tabs value={activeTab} onValueChange={(v) => setTab(v as Tab)} dir="rtl"><TabsList className="h-auto flex-wrap justify-start gap-1.5 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-1.5">{isOperationalManager && <TabsTrigger value="dashboard" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-[var(--dawaa-theme-primary-text)] data-[state=active]:shadow-md"><LayoutDashboard size={16} /> نظرة عامة</TabsTrigger>}{isOperationalManager && <TabsTrigger value="daily" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-[var(--dawaa-theme-primary-text)] data-[state=active]:shadow-md"><Users size={16} /> متابعة اليوم</TabsTrigger>}{showDecisions && <TabsTrigger value="decisions" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-[var(--dawaa-theme-primary-text)] data-[state=active]:shadow-md"><ClipboardCheck size={16} /> صندوق المراجعة <TabBadge value={decisionsBadge} /></TabsTrigger>}<TabsTrigger value="report" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-[var(--dawaa-theme-primary-text)] data-[state=active]:shadow-md"><Filter size={16} /> سجل الحضور</TabsTrigger>{canViewSystem && <TabsTrigger value="system" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-[var(--dawaa-theme-primary-text)] data-[state=active]:shadow-md"><Fingerprint size={16} /> إدارة البصمة <TabBadge value={approvalsSummary?.unmappedBiometrics} /></TabsTrigger>}<TabsTrigger value="clock" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-[var(--dawaa-theme-primary-text)] data-[state=active]:shadow-md"><Clock size={16} /> حضوري</TabsTrigger></TabsList></Tabs></div></div>
+      <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-5 shadow-sm print:hidden"><div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between"><div><h1 className="text-2xl font-black text-[var(--dawaa-theme-heading)]">الحضور والوقت</h1><p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-muted)]">إدارة الحضور الفعلي والجداول والاستثناءات والبصمة من مكان واحد. الحالات السليمة تمر تلقائيًا، وما يحتاج تدخلك فقط يظهر في صندوق المراجعة.</p></div><Tabs value={activeTab} onValueChange={(v) => setTab(v as Tab)} dir="rtl"><TabsList className="h-auto flex-wrap justify-start gap-1.5 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-1.5">{isOperationalManager && <TabsTrigger value="dashboard" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-[var(--dawaa-theme-primary-text)] data-[state=active]:shadow-md"><LayoutDashboard size={16} /> نظرة عامة</TabsTrigger>}{isOperationalManager && <TabsTrigger value="daily" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-[var(--dawaa-theme-primary-text)] data-[state=active]:shadow-md"><Users size={16} /> متابعة اليوم</TabsTrigger>}{showDecisions && <TabsTrigger value="decisions" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-[var(--dawaa-theme-primary-text)] data-[state=active]:shadow-md"><ClipboardCheck size={16} /> صندوق المراجعة</TabsTrigger>}<TabsTrigger value="report" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-[var(--dawaa-theme-primary-text)] data-[state=active]:shadow-md"><Filter size={16} /> سجل الحضور</TabsTrigger>{canViewSystem && <TabsTrigger value="system" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-[var(--dawaa-theme-primary-text)] data-[state=active]:shadow-md"><Fingerprint size={16} /> إدارة البصمة <TabBadge value={approvalsSummary?.unmappedBiometrics} /></TabsTrigger>}<TabsTrigger value="clock" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-[var(--dawaa-theme-primary-text)] data-[state=active]:shadow-md"><Clock size={16} /> حضوري</TabsTrigger></TabsList></Tabs></div></div>
       {error && <div className="rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-4 text-sm font-bold text-[var(--dawaa-status-danger-text)]">⚠️ {error}</div>}
 
       {activeTab === 'dashboard' && <>
@@ -604,8 +609,8 @@ export default function AttendanceReport() {
             {isOperationalManager && <DecisionTile label="بصمات من فرع آخر" hint={`${approvalsSummary?.crossBranchStaff ?? 'غير متاح'} موظفين — معلومة رقابية وليست خطأ`} value={approvalsSummary?.crossBranchEvents ?? null} icon={MapPin} onClick={() => { setSystemSubTab('cross-branch'); setTab('system', 'cross-branch'); }} />}
           </div>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            {isOperationalManager && <DecisionTile label="أوفر تايم بانتظار اعتمادك" hint="ساعات إضافية مسجلة تحتاج قرارك" value={approvalsSummary?.pendingOvertime ?? null} icon={Timer} onClick={() => openDecision('overtime')} />}
-            {canViewTimeOff && <DecisionTile label="أذونات وإجازات معلّقة" hint="طلبات إذن/إجازة بانتظار قرارك" value={approvalsSummary?.pendingTimeOff ?? null} icon={CalendarClock} onClick={() => openDecision('timeoff')} />}
+            {isOperationalManager && <DecisionTile label="أوفر تايم الدورة الحالية" hint={`طلبات الدورة حتى اليوم · خارج الدورة: ${approvalsSummary?.outsideCycleOvertime ?? 'غير متاح'}`} value={approvalsSummary?.pendingOvertime ?? null} icon={Timer} onClick={() => openDecision('overtime')} />}
+            {canViewTimeOff && <DecisionTile label="أذونات وإجازات معلّقة" hint="كل الفترات ضمن صلاحيات الحساب (أول 200 طلب)" value={approvalsSummary?.pendingTimeOff ?? null} icon={CalendarClock} onClick={() => openDecision('timeoff')} />}
           </div>
         </div>
       </>}
