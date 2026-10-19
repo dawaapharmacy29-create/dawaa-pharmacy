@@ -195,7 +195,7 @@ export default function AttendancePayrollTruthPanel({
               </div>
             </div>
             <div className="rounded-full border border-current/10 bg-[var(--dawaa-theme-surface)] px-4 py-2 text-xs font-black">
-              {blockers === 0 ? 'Truth مستقرة' : `${blockers.toLocaleString('ar-EG')} مانع مباشر`}
+              {summary?.ready_for_payroll_truth && blockers === 0 ? 'Truth مستقرة' : blockers > 0 ? `${blockers.toLocaleString('ar-EG')} مانع مباشر` : 'حالة غير جاهزة — راجع الإجراءات المعلقة'}
             </div>
           </div>
         </div>
