@@ -205,13 +205,77 @@ export async function runFollowupAuthorizationRehearsal({db,psql,query,read,step
     and coalesce(is_duplicate,false)=false and archived_at is null and created_by='${accounts.manager}'`),'1');
   assert.equal(Number(await q('select count(*) from daily_followups where coalesce(is_hidden,false)=false')),Number(visibleBefore)+1);
   step('candidate writer creates a visible fresh follow-up under all captured BEFORE guards, preserving actor and branch');
+  // Positive customer-request execution through the captured canonical functions.
+  // Synthetic local records only. Incentive AFTER triggers are not simulated here.
+  const requestRuntime=JSON.parse(read('scripts/staging/fixtures/canonical-request-runtime.json'));
+  for(const table of ['staff','customer_request_incentive_events']) await execute(`create table if not exists public.${ident(table)}();`);
+  for(const col of requestRuntime.columns.filter(c=>['staff','customer_requests','customer_request_events','customer_request_incentive_events'].includes(c.table))) {
+    await execute(`alter table public.${ident(col.table)} add column if not exists ${ident(col.column)} ${col.type};`);
+    if(col.default!==null) await execute(`alter table public.${ident(col.table)} alter column ${ident(col.column)} set default ${col.default};`);
+  }
+  await execute('alter table customer_requests alter column customer_id type text using customer_id::text;');
+  for(const fn of requestRuntime.functions) await psql(db,fn.definition,{options:'-c check_function_bodies=off'});
+  const doctor='00000000-0000-4000-8000-0000000000d1';
+  const requestAction='00000000-0000-4000-8000-0000000000e1';
+  await execute(`insert into staff(id,name,branch,active,is_active) values('${doctor}','Synthetic Canonical Doctor','فرع شكري',true,true);
+    update whatsapp_conversation_actions set product_id='00000000-0000-4000-8000-0000000000f1',staff_id='${doctor}',quantity=2,
+      payload='{"approvalSource":"human_review_v2","approvedBy":"${accounts.manager}","approvedAt":"2026-10-19T06:00:00Z"}'::jsonb
+    where id='${requestAction}';`);
+  const requestsBefore=Number(await q('select count(*) from customer_requests'));
+  const requestResult=JSON.parse(await as('manager',`select dawaa_materialize_whatsapp_action_v1('${requestAction}')`));
+  assert.equal(requestResult.ok,true);
+  assert.equal(Number(await q('select count(*) from customer_requests')),requestsBefore+1);
+  const requestTarget=await q(`select target_id from whatsapp_conversation_actions where id='${requestAction}'`);
+  assert.equal(await q(`select count(*) from customer_requests where id='${requestTarget}' and customer_id='${customer}' and doctor_id='${doctor}' and branch='فرع شكري' and product_code='SYN-PANADOL-EXTRA-24' and quantity=2`),'1');
+  step('explicitly approved canonical request creates one isolated linked request with exact customer/product/staff/branch');
+  const requestAudit=await q(`select count(*) from whatsapp_review_audit where source_id='00000000-0000-4000-8000-000000000051'`);
+  const requestEvents=await q(`select count(*) from customer_request_events where request_id='${requestTarget}'`);
+  await denied('manager',`select dawaa_materialize_whatsapp_action_v1('${requestAction}')`,/customer_request_requires_explicit_approval/);
+  step('captured V29 request retry defect reproduced after successful creation, without additional writes');
+  await execute(read('supabase/migrations/20261019093000_customer_request_materialization_retry_v1.sql'));
+  await execute(read('supabase/migrations/20261019093000_customer_request_materialization_retry_v1.sql'));
+  await denied('manager',"select dawaa_materialize_whatsapp_action_v1('00000000-0000-4000-8000-0000000000e2')",/customer_request_requires_explicit_approval/);
+  const requestRetry=JSON.parse(await as('manager',`select dawaa_materialize_whatsapp_action_v1('${requestAction}')`));
+  assert.equal(requestRetry.already_created,true);
+  assert.equal(requestRetry.target_id,requestTarget);
+  assert.equal(Number(await q('select count(*) from customer_requests')),requestsBefore+1);
+  assert.equal(await q(`select count(*) from customer_request_events where request_id='${requestTarget}'`),requestEvents);
+  assert.equal(await q(`select count(*) from whatsapp_review_audit where source_id='00000000-0000-4000-8000-000000000051'`),requestAudit);
+  step('approved customer-request retry returns existing target without duplicate request, event or audit');
+  await denied(null,`select dawaa_materialize_whatsapp_action_v1('${requestAction}')`,/not_authorized/);
+  await denied('other',`select dawaa_materialize_whatsapp_action_v1('${requestAction}')`,/whatsapp_action_access_denied/);
+  await denied('agent',`select dawaa_materialize_whatsapp_action_v1('${requestAction}')`,/customer_request_materialization_permission_denied/);
+  await execute(`update whatsapp_conversation_actions set target_id='00000000-0000-4000-8000-000000000099' where id='${requestAction}';`);
+  await denied('manager',`select dawaa_materialize_whatsapp_action_v1('${requestAction}')`,/customer_request_created_target_mismatch/);
+  await execute(`update whatsapp_conversation_actions set target_id='${requestTarget}' where id='${requestAction}';`);
+  step('completed retry still rejects missing/cross-branch/unprivileged actors and invalid target lineage');
+  const complaintAction='00000000-0000-4000-8000-0000000000e9';
+  await execute(`insert into whatsapp_conversation_actions(id,source_id,action_key,action_type,customer_id,customer_name,customer_code,branch,status,auto_eligible,reason,payload,created_by)
+    values('${complaintAction}','${source}','synthetic-complaint-action','complaint_followup','${customer}','Synthetic Customer One','SYN-C1','فرع شكري','ready',false,'synthetic unresolved service complaint','{}','si-canonical-complaint-projection-v1');`);
+  const complaintRows=await q('select count(*) from daily_followups');
+  const complaintResult=JSON.parse(await as('manager',`select dawaa_materialize_whatsapp_action_v1('${complaintAction}')`));
+  assert.equal(complaintResult.ok,true);
+  const complaintTarget=await q(`select target_id from whatsapp_conversation_actions where id='${complaintAction}'`);
+  assert.equal(complaintTarget,target,'complaint must link to the same existing open customer/branch follow-up');
+  assert.equal(await q('select count(*) from daily_followups'),complaintRows);
+  const complaintAudit=await q(`select count(*) from whatsapp_review_audit where source_id='${source}'`);
+  const complaintEvents=await q(`select count(*) from customer_service_followup_events where followup_id='${complaintTarget}'`);
+  const complaintRetry=JSON.parse(await as('manager',`select dawaa_materialize_whatsapp_action_v1('${complaintAction}')`));
+  assert.equal(complaintRetry.already_created,true);
+  assert.equal(await q('select count(*) from daily_followups'),complaintRows);
+  assert.equal(await q(`select count(*) from whatsapp_review_audit where source_id='${source}'`),complaintAudit);
+  assert.equal(await q(`select count(*) from customer_service_followup_events where followup_id='${complaintTarget}'`),complaintEvents);
+  step('complaint action materializes into the single open case and retry creates no extra follow-up/event/audit');
+
   assert.equal(await q("select md5(coalesce(string_agg(to_jsonb(s)::text,'|' order by s.id::text),'')) from sales_invoices s"),invoiceBefore);
   assert.equal(await q("select md5(coalesce(string_agg(to_jsonb(p)::text,'|' order by p.id::text),'')) from products p"),productsBefore);
   step('invoice and product fingerprints unchanged throughout the isolated rehearsal');
-  console.log('PRODUCTION_PARITY_BLOCKED: captured runtime still requires the reviewed Contract A writer release. No production change performed.');
-  return {status:'CANDIDATE_VALIDATED_PRODUCTION_PARITY_BLOCKED',
+  console.log('PRODUCTION_RETRY_FIX_NOT_APPLIED: the new request-retry migration is validated locally only. Historical captured writers are used to reproduce prior defects; this does not assert Contract A is absent from current Production.');
+  return {status:'CANDIDATE_VALIDATED_PRODUCTION_RETRY_FIX_NOT_APPLIED',
     prerequisite:'20261009180000_customer_followup_one_open_case_contract_a_v1.sql',
-    runtimeProblem:'cross_type_request_creates_hidden_duplicate_with_live_before_guards',productionWrites:0};
+    pendingMigration:'20261019093000_customer_request_materialization_retry_v1.sql',
+    limits:['customer-request incentive AFTER triggers are not replayed','request retries tested serially; native concurrency gate separately covers follow-up publication'],
+    runtimeProblem:'completed_customer_request_retry_rejected_by_ready_only_approval_guard',productionWrites:0};
 
 
 }
