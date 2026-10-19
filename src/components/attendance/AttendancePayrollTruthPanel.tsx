@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   CalendarDays,
@@ -74,6 +74,8 @@ export default function AttendancePayrollTruthPanel({
   const [error, setError] = useState<string | null>(null);
   const [reopenTarget, setReopenTarget] = useState<DriftRow | null>(null);
   const [reopenNote, setReopenNote] = useState('');
+  const [reopenReviewed, setReopenReviewed] = useState(false);
+  const requestSequence = useRef(0);
   const [reopening, setReopening] = useState(false);
 
   useEffect(() => {
@@ -81,8 +83,15 @@ export default function AttendancePayrollTruthPanel({
   }, [defaultBranch]);
 
   const load = useCallback(async () => {
+    const sequence = ++requestSequence.current;
+    // Fail closed: never display a previous branch/period while loading or after a fetch failure.
     setLoading(true);
     setError(null);
+    setTruth(null);
+    setDriftRows([]);
+    setReopenTarget(null);
+    setReopenNote('');
+    setReopenReviewed(false);
     try {
       const branchArg = branch === 'الكل' ? null : branch;
       const [truthResult, driftResult] = await Promise.all([
@@ -93,6 +102,7 @@ export default function AttendancePayrollTruthPanel({
           p_branch: branchArg,
         }),
       ]);
+      if (sequence !== requestSequence.current) return;
       if (driftResult.error) throw driftResult.error;
       setTruth(truthResult);
       setDriftRows((driftResult.data || []).map((row: any) => ({
@@ -101,19 +111,24 @@ export default function AttendancePayrollTruthPanel({
         rebuilt_hours: n(row.rebuilt_hours),
       })) as DriftRow[]);
     } catch (e) {
+      if (sequence !== requestSequence.current) return;
       setTruth(null);
-      setError(e instanceof Error ? e.message : 'تعذر تحميل Attendance Truth V2');
+      setDriftRows([]);
+      setError(e instanceof Error ? e.message : 'تعذر تحميل حقيقة الحضور للدورة');
     } finally {
-      setLoading(false);
+      if (sequence === requestSequence.current) setLoading(false);
     }
   }, [branch, end, start]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+    return () => { requestSequence.current += 1; };
+  }, [load]);
 
   const reopenFinancialDrift = useCallback(async () => {
     if (!reopenTarget) return;
-    if (!reopenNote.trim()) {
-      toast.warning('اكتب سبب إعادة فتح اليوم حتى يظل القرار موثقًا.');
+    if (!reopenReviewed || reopenNote.trim().length < 10) {
+      toast.warning('راجع القرار السابق وأكّد الاطلاع عليه، ثم اكتب سببًا واضحًا لا يقل عن 10 أحرف.');
       return;
     }
     setReopening(true);
@@ -127,6 +142,7 @@ export default function AttendancePayrollTruthPanel({
       toast.success('تمت إعادة فتح اليوم. خرج من الحقيقة المالية لحين اعتماده من جديد.');
       setReopenTarget(null);
       setReopenNote('');
+      setReopenReviewed(false);
       await load();
       onOpenResolutions?.(reopenedDate);
     } catch (e) {
@@ -134,7 +150,7 @@ export default function AttendancePayrollTruthPanel({
     } finally {
       setReopening(false);
     }
-  }, [load, onOpenResolutions, reopenNote, reopenTarget]);
+  }, [load, onOpenResolutions, reopenNote, reopenReviewed, reopenTarget]);
 
   const financialDriftRows = useMemo(
     () => driftRows.filter((row) => Math.abs(row.stored_hours - row.rebuilt_hours) > 0.1),
@@ -195,7 +211,7 @@ export default function AttendancePayrollTruthPanel({
               </div>
             </div>
             <div className="rounded-full border border-current/10 bg-[var(--dawaa-theme-surface)] px-4 py-2 text-xs font-black">
-              {summary?.ready_for_payroll_truth && blockers === 0 ? 'Truth مستقرة' : blockers > 0 ? `${blockers.toLocaleString('ar-EG')} مانع مباشر` : 'حالة غير جاهزة — راجع الإجراءات المعلقة'}
+              {summary?.ready_for_payroll_truth && blockers === 0 ? 'Truth مستقرة' : blockers > 0 ? `${blockers.toLocaleString('ar-EG')} حالة معلقة أو اختلاف تفسير` : 'حالة غير جاهزة — راجع الإجراءات المعلقة'}
             </div>
           </div>
         </div>
@@ -210,8 +226,8 @@ export default function AttendancePayrollTruthPanel({
         <Metric label="طلبات تصحيح معلقة" value={summary?.pending_corrections ?? '—'} icon={ClipboardCheck} warn={!!summary?.pending_corrections} />
         <Metric label="طلبات إجازة معلقة" value={summary?.pending_timeoff ?? '—'} icon={Umbrella} warn={!!summary?.pending_timeoff} />
         <Metric label="OT معلق" value={summary ? Number(summary.pending_overtime_hours).toFixed(2) : '—'} icon={Timer} warn={!!summary?.pending_overtime_hours} />
-        <Metric label="اختلاف ساعات إعادة التفسير" value={financialDriftRows.length} icon={AlertTriangle} warn={financialDriftRows.length > 0} />
-        <Metric label="فروق تصنيف فقط" value={classificationDriftRows.length} icon={AlertTriangle} />
+        <Metric label="اختلاف ساعات يحتاج مطابقة القرار" value={truth ? financialDriftRows.length : '—'} icon={AlertTriangle} warn={financialDriftRows.length > 0} />
+        <Metric label="اختلاف تصنيف دون فرق ساعات" value={truth ? classificationDriftRows.length : '—'} icon={AlertTriangle} />
       </div>
 
       {error && <div className="rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-3 text-sm font-bold text-[var(--dawaa-status-danger-text)]">⚠️ {error}</div>}
@@ -227,7 +243,7 @@ export default function AttendancePayrollTruthPanel({
           <div className="flex items-start gap-2">
             <AlertTriangle size={18} className="mt-0.5 shrink-0 text-[var(--dawaa-status-danger-text)]" />
             <div>
-              <div className="font-black text-[var(--dawaa-status-danger-text)]">يوجد {financialDriftRows.length} يوم تختلف فيها الساعات المحفوظة عن إعادة التفسير</div>
+              <div className="font-black text-[var(--dawaa-status-danger-text)]">{financialDriftRows.length} يوم يحتاج مطابقة ساعات التفسير مع القرار السابق</div>
               <div className="mt-1 text-xs font-bold text-[var(--dawaa-status-danger-text)]">
                 هذا اختلاف في ساعات المرشح عند إعادة التفسير، وليس دليلًا وحده على خطأ مالي. راجع مسار V2/V3 والقرار الإداري والأدلة أولًا؛ وإذا ثبت خطأ اليوم المعتمد يُعاد فتحه بقرار موثق، ثم يُراجع الأوفر تايم المرتبط.
               </div>
@@ -249,8 +265,8 @@ export default function AttendancePayrollTruthPanel({
                   <td className="p-2">{row.stored_hours.toFixed(2)} ← {row.rebuilt_hours.toFixed(2)}</td>
                   <td className="p-2">{driftReasonLabel(row.drift_reason)}</td>
                   <td className="p-2">
-                    <button onClick={() => { setReopenTarget(row); setReopenNote(''); }} className="btn-secondary whitespace-nowrap px-2 py-1 text-[11px]">
-                      إعادة فتح للمراجعة
+                    <button onClick={() => { setReopenTarget(row); setReopenNote(''); setReopenReviewed(false); }} className="btn-secondary whitespace-nowrap px-2 py-1 text-[11px]">
+                      مراجعة الاختلاف
                     </button>
                   </td>
                 </tr>)}
@@ -260,12 +276,13 @@ export default function AttendancePayrollTruthPanel({
         </div>
       )}
 
+      <p className="text-xs font-bold text-[var(--dawaa-theme-muted)]">الفرع المعروض في هذا الملخص هو الفرع الحالي في ملف الموظف، وليس إثباتًا لفرع البصمة في كل يوم تاريخي. لم يُعدَّل أي سجل فرع سابق.</p>
       <div className="overflow-x-auto rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface shadow-sm">
         <table className="min-w-[1250px] w-full text-sm">
           <thead className="border-b border-[var(--dawaa-theme-border)] text-[var(--dawaa-theme-muted)]">
             <tr>
               <th className="p-3 text-right">الموظف</th>
-              <th className="p-3 text-right">الفرع</th>
+              <th className="p-3 text-right">الفرع الحالي</th>
               <th className="p-3 text-right">Truth</th>
               <th className="p-3 text-right">أيام عمل</th>
               <th className="p-3 text-right">ساعات فعلية</th>
@@ -325,15 +342,19 @@ export default function AttendancePayrollTruthPanel({
               ساعات المرشح المحفوظة: {reopenTarget.stored_hours.toFixed(2)} — إعادة التفسير: {reopenTarget.rebuilt_hours.toFixed(2)}.
               تأكد من القرار السابق قبل المتابعة؛ إعادة فتحه ستخرجه من Payroll Truth حتى يُعتمد مرة أخرى.
             </div>
+            <label className="mt-4 flex items-start gap-2 text-xs font-bold text-[var(--dawaa-theme-heading)]">
+              <input type="checkbox" checked={reopenReviewed} onChange={(e) => setReopenReviewed(e.target.checked)} className="mt-0.5" />
+              راجعت البصمات الأصلية والقرار الإداري السابق، وتأكدت أن الاختلاف يستلزم فعلًا إعادة فتح اليوم وليس اختلافًا مفسرًا.
+            </label>
             <label className="mt-4 block text-xs font-black text-[var(--dawaa-theme-muted)]">
               سبب إعادة الفتح
               <textarea value={reopenNote} onChange={(e) => setReopenNote(e.target.value)} className="input-dark mt-1 min-h-24 w-full" />
             </label>
             <div className="mt-4 flex gap-2">
-              <button onClick={() => void reopenFinancialDrift()} disabled={reopening} className="btn-primary flex-1">
+              <button onClick={() => void reopenFinancialDrift()} disabled={reopening || !reopenReviewed || reopenNote.trim().length < 10} className="btn-primary flex-1">
                 {reopening ? 'جارٍ إعادة الفتح...' : 'تأكيد وإرسال للتسويات'}
               </button>
-              <button onClick={() => { setReopenTarget(null); setReopenNote(''); }} disabled={reopening} className="btn-secondary">
+              <button onClick={() => { setReopenTarget(null); setReopenNote(''); setReopenReviewed(false); }} disabled={reopening} className="btn-secondary">
                 إلغاء
               </button>
             </div>
