@@ -1,12 +1,13 @@
--- 2026-10-19: align legacy drift readers with the canonical attendance engine router.
--- Historical drift comparison wrongly forced V2 even when approved truth came from
--- flexible V3. This created false financial alarms (e.g. V3 flexible_present
--- compared to V2 no_schedule: 15.56 -> 0 hours), and missed other mismatches.
+-- 2026-10-19: pin historical drift readers to the saved day's engine version.
+-- Forcing V2 on approved V3 flexible days fabricated differences. Routing ALL
+-- past days through today's mutable employee policy was also unsafe, because
+-- V2-approved days may later become V3-eligible (or move out of scope).
 --
 -- Read-only shadow comparison, 2026-09-26 through 2026-10-18:
--- 25 old candidate-hour mismatches -> 22 using the current router
--- (5 old-only false positives, 2 newly detected). This is not a decision
--- about pay, manual overrides, or which cases to reopen.
+-- 25 prior candidate-hour mismatches -> 20 when using saved resolution_version,
+-- five false alarms eliminated, no additional candidate-hour differences.
+-- Classification-only drift: 230 -> 186. These are diagnostic comparisons,
+-- NOT evidence of a wrong payroll or reason to repeal an old manager decision.
 --
 -- Use the engine recorded on the approved day, NOT today's mutable staff policy:
 -- resolution_version=2 -> V2; resolution_version=3 -> V3.
