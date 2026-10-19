@@ -7,7 +7,7 @@ Branch: `fix/attendance-truth-cycle-scope-20261019`
 - GitHub branch only. **No deploy, merge, Production DDL/DML, payroll mutation, or settlement.**
 - Source-of-truth `attendance_truth_cycle_v2` fix is a **proposed migration**, not applied.
 - Production SQL was read to copy the **current** authorized function definition; the only functional change is the `eligible` CTE's historical visibility condition.
-- Current Production period reviewed: 2026-09-26 to 2026-10-19 (Cairo). A read-only selection preview identified nine additional staff with historical attendance that the former current-visibility gate omitted; do not treat that as an executed corrected report.
+- Current Production period reviewed: 2026-09-26 to 2026-10-19 (Cairo). A read-only selection preview identified nine additional staff with 128 historical days that the former current-visibility gate omitted. The old eligible set has 37 staff, new preview 46; loss from old: **zero**. No duplicate `(staff_id, attendance_date)` rows found. Do not treat this as an executed corrected report.
 - Pending overtime read-only audit: 201 total pending, 105 in the reviewed cycle to 2026-10-19, 96 before it.
 
 ## Implemented on branch
@@ -17,7 +17,7 @@ Branch: `fix/attendance-truth-cycle-scope-20261019`
 3. HR summary and attendance summary show **current-cycle** overtime separately from outside-cycle cases. Leave requests remain all-period as documented; the source returns at most 200.
 4. Overtime manager pane provides explicit cycle, outside-cycle and all-pending scopes, defaulting to the cycle for matching drilldowns.
 5. Role aliases `delivery` / `دليفري` / `توصيل`, pharmacy, and assistant are normalized for display only; account roles and permissions unchanged.
-6. A failed payroll truth readiness flag cannot be rendered as `Truth مستقرة` just because a direct-blocker count is zero.
+6. A failed payroll truth readiness flag cannot be rendered as `Truth مستقرة` just because a direct-blocker count is zero. Pending overtime list fetch errors also fail closed with an explicit retry, and late responses cannot replace newly selected branch results.
 7. Date-scoped on-time attendance is not labeled as a real-time live-presence count.
 
 ## Verified (branch/source read-only)
@@ -25,8 +25,8 @@ Branch: `fix/attendance-truth-cycle-scope-20261019`
 - Static contract checks: 9/9 passed on the branch.
 - The SQL migration is a byte-for-byte copy of the Production function **except** the documented historical-visibility filter change and SQL statement terminator.
 - Existing RPC authorization `dawaa_current_actor_can` and `dawaa_staff_attendance_log_read_scope_v1` checks remain unchanged.
-- A Vitest regression file `attendanceTruthCycleScope.test.ts` was committed.
-- **Not yet verified:** full Vitest runner, TypeScript build, Playwright/browser smoke, or migration run in PGlite. There was no authorized branch-specific full development runtime in this session.
+- A Vitest regression file `attendanceTruthCycleScope.test.ts` was committed and extended with failed-request/stale-load UI assertions.
+- **Not yet verified:** actual Vitest runner, TypeScript typecheck, Vite build, browser smoke, or migration execution in isolated PGlite/Postgres. GitHub has no CI status on this feature branch yet; static assertions are not a substitute for execution.
 
 ## Required before any Production apply
 
