@@ -5,7 +5,7 @@ import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
 type Row = Record<string, unknown>;
 
-const SYSTEM_GENERIC_CUSTOMER_CODES = new Set(['5', '10', '170', '4902', '12820', '20']);
+const SYSTEM_GENERIC_CUSTOMER_CODES = new Set(['5', '10', '20', '54', '170', '4902', '12820']);
 
 export type StaffInvoiceTruthInvoice = {
   id: string;
