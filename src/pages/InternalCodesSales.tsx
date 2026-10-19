@@ -3,7 +3,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 
 type Flag = { customer_code: string; flag_key: string; flag_label?: string | null };
-type Invoice = { id: string; invoice_number: string | null; invoice_date: string | null; customer_code: string | null; branch: string | null; customer_name: string | null; net_amount: number | null; net_total: number | null; amount: number | null; seller_name: string | null };
+import { loadInternalCodeInvoices, type Invoice } from '@/lib/internalCodesSalesService';
 const money = (value: number) => value.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const day = (value: string | null) => value ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(value)) : '';
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
@@ -38,25 +38,9 @@ export default function InternalCodesSales() {
     let alive = true;
     (async () => {
       setBusy(true); setError('');
-      const loaded: Invoice[] = [];
-      const pageSize = 500;
-      for (let offset = 0; ; offset += pageSize) {
-        let query = supabase.from('sales_invoices')
-          .select('id,invoice_number,invoice_date,customer_code,branch,customer_name,net_amount,net_total,amount,seller_name')
-          .in('customer_code', codes)
-          .gte('invoice_date', previousDay(from) + 'T00:00:00Z')
-          .lt('invoice_date', nextDay(to) + 'T00:00:00Z')
-          .order('invoice_date', { ascending: true }).order('id', { ascending: true })
-          .range(offset, offset + pageSize - 1);
-        if (branch !== 'all') query = query.eq('branch', branch);
-        const result = await query;
-        if (!alive) return;
-        if (result.error) { setError('تعذر قراءة كل الفواتير: ' + result.error.message); setRows([]); setBusy(false); return; }
-        const page = (result.data || []) as Invoice[];
-        loaded.push(...page);
-        if (page.length < pageSize) break;
-        if (offset >= 100000) { setError('حجم النتائج كبير. قلل الفترة ثم أعد المحاولة.'); setBusy(false); return; }
-      }
+      let loaded: Invoice[];
+      try { loaded = await loadInternalCodeInvoices(codes, from, to, branch); }
+      catch (cause) { if (alive) { setError('تعذر قراءة كل الفواتير: ' + (cause as Error).message); setRows([]); setBusy(false); } return; }
       if (alive) { setRows(loaded.filter(r => day(r.invoice_date) >= from && day(r.invoice_date) <= to)); setBusy(false); }
     })();
     return () => { alive = false; };
