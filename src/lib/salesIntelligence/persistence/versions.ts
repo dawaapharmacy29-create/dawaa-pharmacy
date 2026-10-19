@@ -61,7 +61,7 @@
 // Versioning affects only the next authorized refresh, never an automatic historical repair.
 // v30: complaint conduct/recovery and contextual contact timing share canonical evidence.
 // Past courier calls and contact availability do not become callback requests or product stock.
-export const PIPELINE_VERSION = 'sales-intelligence-v30-service-recovery-contact-context';
+export const PIPELINE_VERSION = 'sales-intelligence-v31-standalone-courtesy-need';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v10-payment-continuation-ambiguity-safe',

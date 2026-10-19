@@ -1011,6 +1011,7 @@ function isRequestCandidate(message) {
   if (message.role !== "customer" || !message.isMeaningful) return false;
   const text5 = message.text;
   if (isGreetingOnly(text5)) return false;
+  if (/^(?:لو\s*سمحت(?:ي)?|من\s*فضلك|بعد\s*[إا]ذنك)(?:\s*بس)?[\s؟?!.،]*$/u.test(text5.trim())) return false;
   if (isBareAcknowledgementOnly(text5)) return false;
   if (isAcceptanceOnly(text5)) return false;
   if (isCommitmentOnly(text5)) return false;
@@ -8611,7 +8612,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v30-service-recovery-contact-context";
+var PIPELINE_VERSION = "sales-intelligence-v31-standalone-courtesy-need";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v10-payment-continuation-ambiguity-safe",
   historicalClosure: "historical-closure-v1",

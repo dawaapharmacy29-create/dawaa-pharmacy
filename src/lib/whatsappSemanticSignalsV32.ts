@@ -364,6 +364,8 @@ export function isRequestCandidate(message: NormalizedConversationMessageV32): b
   if (message.role !== 'customer' || !message.isMeaningful) return false;
   const text = message.text;
   if (isGreetingOnly(text)) return false;
+  // Courtesy alone carries no need; anchored so appended requests remain meaningful.
+  if (/^(?:لو\s*سمحت(?:ي)?|من\s*فضلك|بعد\s*[إا]ذنك)(?:\s*بس)?[\s؟?!.،]*$/u.test(text.trim())) return false;
   if (isBareAcknowledgementOnly(text)) return false;
   if (isAcceptanceOnly(text)) return false;
   if (isCommitmentOnly(text)) return false;

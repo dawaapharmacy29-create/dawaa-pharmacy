@@ -42,3 +42,19 @@ describe('standalone greeting spelling tolerance', () => {
   });
 });
 
+
+describe('standalone courtesy does not replace the customer need', () => {
+  it.each(['لو سمحت', 'لو سمحتي', 'من فضلك', 'بعد إذنك', 'بعد اذنك بس'])('excludes courtesy alone: %s', text => {
+    expect(candidate(text)).toBe(false);
+  });
+  it.each(['لو سمحت عايزة قطرة', 'بعد اذنك الاوردر اتأخر', 'من فضلك عندكم الدواء؟', 'لو سمحت عندي مغص'])('preserves substantive content: %s', text => {
+    expect(candidate(text)).toBe(true);
+  });
+  it('keeps the named request as primary need after standalone courtesy', () => {
+    const r=runSalesIntelligencePipeline({conversationId:'synthetic-courtesy-need',rawWhatsAppExportText:`[10/19/26, 9:00:00 AM] Customer: لو سمحت
+[10/19/26, 9:00:10 AM] You: اهلا بحضرتك
+[10/19/26, 9:00:20 AM] Customer: عايزة شريط بانادول`,resolveInvoiceCandidates:()=>[]});
+    expect(r.caseAnalyses[0].customerNeed.primaryNeed).toBe('عايزة شريط بانادول');
+    expect(r.caseAnalyses[0].caseIntelligence.sale.isSaleCountable).toBe(false);
+  });
+});
