@@ -51,8 +51,8 @@ read. **Do not bulk-reopen the 25 days** based on that output.
 
 Read-only Production SQL audit through 2026-10-18 (approved attendance only):
 
-- Old hard-coded V2 rebuild: 25 candidate-hour differences.
-- Rebuild via canonical `dawaa_build_attendance_day_resolution_current_v1`: 22 differences.
+- Old hard-coded V2 rebuild: 25 candidate-hour differences and 230 classification-only differences.
+- Rebuild via canonical `dawaa_build_attendance_day_resolution_current_v1` (excluding explicitly out-of-scope routes): 22 candidate-hour differences and 179 classification-only differences, covering the same approved records and dates.
 - Five old-only false positives (V3 flexible attendance misrouted to V2; these
   included Dr Mohamed El-Agouz on 12/13/15 Oct, Dr Alia on 10 Oct and Dr Amira on 4 Oct).
 - Two additionally detected differences on 26/27 Sep for Dr Mohamed El-Agouz, which must
