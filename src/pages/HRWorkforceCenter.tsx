@@ -413,7 +413,7 @@ export default function HRWorkforceCenter() {
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Metric label="حالات حضور تحتاج قرار" value={available('صندوق المراجعة') ? review.needsManager : 'غير متاح'} hint="عدد أيام/حالات حضور داخل الدورة، وليس عدد الموظفين" icon={ClipboardCheck} tone={review.needsManager ? 'warn' : 'ok'} />
           <Metric label="أوفر تايم الدورة" value={available('الأوفر تايم') ? pendingOvertime : 'غير متاح'} hint={`${cycleStart} ← ${today} · ينتظر قرارًا بشريًا`} icon={Clock} tone={pendingOvertime ? 'warn' : 'ok'} />
-          <Metric label="طلبات إجازة معلقة" value={available('طلبات الإجازة') ? pendingTimeOff : 'غير متاح'} hint="جميع الفترات ضمن صلاحيات الحساب؛ ليست مقيّدة بالدورة" icon={CalendarDays} tone={pendingTimeOff ? 'warn' : 'ok'} />
+          <Metric label="طلبات إجازة معلقة" value={available('طلبات الإجازة') ? pendingTimeOff : 'غير متاح'} hint="أول 200 طلب عبر جميع الفترات ضمن صلاحيات الحساب؛ ليست مقيّدة بالدورة" icon={CalendarDays} tone={pendingTimeOff ? 'warn' : 'ok'} />
           <Metric label="أوفر تايم خارج الدورة" value={available('الأوفر تايم') ? outsideCycleOvertime : 'غير متاح'} hint="طلبات أقدم أو مستقبلية؛ للمراجعة منفصلة عن دورة الحضور" icon={AlertTriangle} tone={outsideCycleOvertime ? 'warn' : 'ok'} />
         </div>
       </section>
