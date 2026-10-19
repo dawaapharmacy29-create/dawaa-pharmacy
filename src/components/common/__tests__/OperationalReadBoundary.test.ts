@@ -1,11 +1,11 @@
-import { createElement } from 'react';
+import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import OperationalReadBoundary from '../OperationalReadBoundary';
 
 describe('operational read availability', () => {
   const content = createElement('button', null, 'تنفيذ طلب');
-  const render = (loading: boolean, error: string | null = null, children = content) =>
+  const render = (loading: boolean, error: string | null = null, children: ReactNode = content) =>
     renderToStaticMarkup(createElement(OperationalReadBoundary, { loading, error, label: 'الطلبات', children }));
   it('does not expose initial zero or an empty list while pending', () => {
     const html = render(true, null, createElement('p', null, '0 طلب — لا توجد نتائج'));

@@ -90,6 +90,7 @@ jobs:
           src/components/salesIntelligence/__tests__/CaseIntelligenceWorkspace.test.tsx
           src/lib/salesIntelligence/qa/__tests__/queries.test.ts
           src/features/customer-requests/domain/__tests__/productLabelQuality.test.ts
+          src/components/common/__tests__/OperationalReadBoundary.test.ts
           src/lib/salesIntelligence/__tests__/saleAttributionEngine.test.ts
           src/lib/salesIntelligence/__tests__/saleProofState.test.ts
           src/lib/salesIntelligence/__tests__/basketInvoiceMatchingEngine.test.ts
