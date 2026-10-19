@@ -130,5 +130,4 @@ begin
     'generated_at',now()
   ) into v_result;
   return v_result;
-end; $function$
-
+end; $function$;
