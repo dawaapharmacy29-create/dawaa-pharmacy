@@ -595,7 +595,7 @@ export default function AttendanceReport() {
         </div>
         {dashboardSummaryError && <div role="alert" className="rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-3 text-sm font-bold text-[var(--dawaa-status-danger-text)]">تعذر تحميل ملخص الحضور؛ الأعداد غير متاحة حاليًا. اضغط تحديث للمحاولة مرة أخرى.</div>}
         <div className="grid gap-3 md:grid-cols-4">
-          <Metric label="موجودين الآن" value={dashboardSummaryAvailable ? dashboardTotals.onTime : null} icon={CheckCircle2} color="text-[var(--dawaa-status-success-text)] bg-[var(--dawaa-status-success-bg)] border-[var(--dawaa-status-success-border)]" />
+          <Metric label="منتظمون في اليوم المحدد" value={dashboardSummaryAvailable ? dashboardTotals.onTime : null} icon={CheckCircle2} color="text-[var(--dawaa-status-success-text)] bg-[var(--dawaa-status-success-bg)] border-[var(--dawaa-status-success-border)]" />
           <Metric label="متأخرين" value={dashboardSummaryAvailable ? dashboardTotals.late : null} icon={Clock} color="text-[var(--dawaa-status-warning-text)] bg-[var(--dawaa-status-warning-bg)] border-[var(--dawaa-status-warning-border)]" />
           <Metric label="غياب/بصمة ناقصة" value={dashboardSummaryAvailable ? dashboardTotals.missing : null} icon={XCircle} color="text-[var(--dawaa-status-danger-text)] bg-[var(--dawaa-status-danger-bg)] border-[var(--dawaa-status-danger-border)]" />
           <Metric label="مشاكل جدول" value={dashboardSummaryAvailable ? dashboardTotals.issues : null} icon={AlertTriangle} color="text-[var(--dawaa-status-warning-text)] bg-[var(--dawaa-status-warning-bg)] border-[var(--dawaa-status-warning-border)]" />
