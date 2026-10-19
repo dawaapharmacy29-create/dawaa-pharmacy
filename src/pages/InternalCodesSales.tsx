@@ -4,6 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 
 type Flag = { customer_code: string; flag_key: string; flag_label?: string | null };
 const KNOWN_INTERNAL_CODES = ['5','7','10','20','54','170','4902','12820'];
+const TARGET_EXCLUDED_CODES = new Set(['5','10','20','54','170','4902','12820']);
 import { loadInternalCodeInvoices, type Invoice } from '@/lib/internalCodesSalesService';
 const money = (value: number) => value.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const day = (value: string | null) => value ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(value)) : '';
@@ -30,7 +31,7 @@ export default function InternalCodesSales() {
     let alive = true;
     supabase.from('customer_flags').select('customer_code,flag_key,flag_label')
       .eq('flag_key', 'system_generic_code').eq('is_active', true)
-      .then(({ data, error }) => { if (!alive) return; if (error || !data?.length) { setFlags(KNOWN_INTERNAL_CODES.map(customer_code => ({customer_code,flag_key:'system_generic_code'}))); setRegistryWarning('تعذر تحميل قائمة الأكواد الحية؛ يتم عرض القائمة الداخلية المعروفة. قد تحتاج صلاحية قراءة الأكواد.'); } else { setRegistryWarning(''); setFlags((data || []) as Flag[]); } });
+      .then(({ data, error }) => { if (!alive) return; if (error || !data?.length) { setFlags(KNOWN_INTERNAL_CODES.map(customer_code => ({customer_code,flag_key:'system_generic_code'}))); setRegistryWarning(error ? `تعذر تحميل قائمة الأكواد الحية: ${error.message}. يتم عرض القائمة الداخلية الاحتياطية.` : 'قائمة الأكواد الحية فارغة؛ يتم عرض القائمة الاحتياطية مؤقتًا.'); } else { setRegistryWarning(''); setFlags((data || []) as Flag[]); } });
     return () => { alive = false; };
   }, [allowed]);
   const codes = useMemo(() => [...new Set(flags.map(f => String(f.customer_code).trim()).filter(Boolean))].sort((a,b) => Number(a)-Number(b)), [flags]);
@@ -55,7 +56,7 @@ export default function InternalCodesSales() {
   const total = filtered.reduce((sum,r) => sum + invoiceAmount(r), 0);
   if (!allowed) return <main dir="rtl" className="p-6">ليس لديك صلاحية عرض تقارير المبيعات.</main>;
   return <main dir="rtl" className="p-4 md:p-6 space-y-5">
-    <header><h1 className="text-2xl font-bold">الأكواد الداخلية</h1><p className="text-sm opacity-70 mt-1">سجل مالي مستقل للأكواد الداخلية، بدون حذف فواتيرها من المبيعات أو احتسابها كعملاء متابعة عاديين.</p></header>
+    <header><h1 className="text-2xl font-bold">الأكواد الداخلية</h1><p className="text-sm opacity-70 mt-1">سجل مالي للأكواد الداخلية: بعض الأكواد مستثناة من التارجت، والبعض الآخر يُحتسب. جميع الفواتير محفوظة.</p></header>
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
       <label className="text-sm">من تاريخ<input className="w-full rounded-lg border p-2 mt-1 bg-transparent" type="date" value={from} onChange={e => setFrom(e.target.value)}/></label>
       <label className="text-sm">إلى تاريخ<input className="w-full rounded-lg border p-2 mt-1 bg-transparent" type="date" value={to} onChange={e => setTo(e.target.value)}/></label>
@@ -66,7 +67,7 @@ export default function InternalCodesSales() {
     {error && <div role="alert" className="border rounded-lg p-3 text-red-600">{error}</div>}
     {busy && <p role="status">جاري تحميل الفواتير والتحقق من اكتمال جميع الصفحات…</p>}
     {!busy && <div className="grid grid-cols-2 gap-3"><div className="rounded-xl border p-4"><div className="opacity-70 text-sm">إجمالي السحب</div><strong className="text-xl">{money(total)} ج</strong></div><div className="rounded-xl border p-4"><div className="opacity-70 text-sm">عدد الفواتير</div><strong className="text-xl">{filtered.length.toLocaleString('ar-EG')}</strong></div></div>}
-    <section className="rounded-xl border overflow-x-auto"><h2 className="font-bold p-3">ملخص كل كود</h2><table className="w-full text-sm text-right"><thead><tr className="border-y"><th className="p-3">الكود</th><th className="p-3">عدد الفواتير</th><th className="p-3">إجمالي السحب</th><th className="p-3">التفاصيل</th></tr></thead><tbody>{summary.filter(r=> code==='all'||r.code===code).map(r=><tr key={r.code} className="border-b"><td className="p-3 font-bold">{r.code}</td><td className="p-3">{r.invoices}</td><td className="p-3">{money(r.total)} ج</td><td className="p-3"><button className="underline" onClick={()=>setCode(r.code)}>عرض الفواتير</button></td></tr>)}</tbody></table></section>
+    <section className="rounded-xl border overflow-x-auto"><h2 className="font-bold p-3">ملخص كل كود</h2><table className="w-full text-sm text-right"><thead><tr className="border-y"><th className="p-3">الكود</th><th className="p-3">التارجت</th><th className="p-3">عدد الفواتير</th><th className="p-3">إجمالي السحب</th><th className="p-3">التفاصيل</th></tr></thead><tbody>{summary.filter(r=> code==='all'||r.code===code).map(r=><tr key={r.code} className="border-b"><td className="p-3 font-bold">{r.code}</td><td className="p-3 text-xs">{TARGET_EXCLUDED_CODES.has(r.code) ? 'مستثنى' : 'يُحتسب'}</td><td className="p-3">{r.invoices}</td><td className="p-3">{money(r.total)} ج</td><td className="p-3"><button className="underline" onClick={()=>setCode(r.code)}>عرض الفواتير</button></td></tr>)}</tbody></table></section>
     <section className="rounded-xl border overflow-x-auto"><h2 className="font-bold p-3">تفاصيل الفواتير {code !== 'all' ? 'للكود ' + code : 'لجميع الأكواد'}</h2><table className="w-full text-sm text-right"><thead><tr className="border-y"><th className="p-3">التاريخ</th><th className="p-3">الكود</th><th className="p-3">رقم الفاتورة</th><th className="p-3">الفرع</th><th className="p-3">المستخدم</th><th className="p-3">الصافي</th></tr></thead><tbody>{filtered.map(r=><tr key={r.id} className="border-b"><td className="p-3">{day(r.invoice_date)}</td><td className="p-3">{r.customer_code}</td><td className="p-3">{r.invoice_number}</td><td className="p-3">{r.branch}</td><td className="p-3">{r.seller_name || '—'}</td><td className="p-3">{money(invoiceAmount(r))} ج</td></tr>)}</tbody></table>{!busy && filtered.length===0 && <p className="p-4 opacity-70">لا توجد فواتير ضمن الفترة والفلتر المحددين.</p>}</section>
   </main>;
 }
