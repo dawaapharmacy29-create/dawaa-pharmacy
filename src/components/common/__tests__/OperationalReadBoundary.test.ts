@@ -6,7 +6,7 @@ import OperationalReadBoundary from '../OperationalReadBoundary';
 describe('operational read availability', () => {
   const content = createElement('button', null, 'تنفيذ طلب');
   const render = (loading: boolean, error: string | null = null, children: ReactNode = content) =>
-    renderToStaticMarkup(createElement(OperationalReadBoundary, { loading, error, label: 'الطلبات', children }));
+    renderToStaticMarkup(createElement(OperationalReadBoundary, { loading, error, label: 'الطلبات' }, children));
   it('does not expose initial zero or an empty list while pending', () => {
     const html = render(true, null, createElement('p', null, '0 طلب — لا توجد نتائج'));
     expect(html).toContain('aria-busy="true"');
