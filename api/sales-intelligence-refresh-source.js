@@ -1336,7 +1336,7 @@ function isPrescriptionRequestV32(text5) {
   return PRESCRIPTION_REQUEST_RX.test(text5);
 }
 function classifyCustomerTimingRequestV32(text5) {
-  const requestedContact = /(?:ممكن|خلي|عايز|عاوز|محتاج)\s*(?:(?:المندوب|الدليفري|حضرتك|حد)\s*)?(?:يكلمني|يتصل\s*(?:بي|بيا)|تكلمني|تتصل\s*(?:بي|بيا))(?![\p{L}])/giu;
+  const requestedContact = /(?:ممكن|خلي|عايز[هة]?|عاوز[هة]?|محتاج[هة]?)\s*(?:(?:المندوب|الدليفري|حضرتك|حد)\s*)?(?:[يت]كلم(?:ي)?ني|[يت]تصل\s*(?:بي|بيا))(?![\p{L}])/giu;
   const requested = [...text5.matchAll(requestedContact)].some((match) => !/(?:مش|لا)\s*$/u.test(text5.slice(0, match.index)));
   const callback = requested || [...text5.matchAll(new RegExp(CUSTOMER_CALLBACK_RX.source, "giu"))].some((match) => {
     const before = text5.slice(0, match.index);

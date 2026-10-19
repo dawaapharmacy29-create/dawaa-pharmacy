@@ -862,7 +862,7 @@ export function isPrescriptionRequestV32(text: string): boolean {
  */
 export function classifyCustomerTimingRequestV32(text: string): CustomerTimingRequestV32 | null {
   // Classify each contact clause, so a past report cannot contaminate a later genuine request.
-  const requestedContact = /(?:ممكن|خلي|عايز|عاوز|محتاج)\s*(?:(?:المندوب|الدليفري|حضرتك|حد)\s*)?(?:يكلمني|يتصل\s*(?:بي|بيا)|تكلمني|تتصل\s*(?:بي|بيا))(?![\p{L}])/giu;
+  const requestedContact = /(?:ممكن|خلي|عايز[هة]?|عاوز[هة]?|محتاج[هة]?)\s*(?:(?:المندوب|الدليفري|حضرتك|حد)\s*)?(?:[يت]كلم(?:ي)?ني|[يت]تصل\s*(?:بي|بيا))(?![\p{L}])/giu;
   const requested = [...text.matchAll(requestedContact)].some(match =>
     !/(?:مش|لا)\s*$/u.test(text.slice(0, match.index)));
   const callback = requested || [...text.matchAll(new RegExp(CUSTOMER_CALLBACK_RX.source, 'giu'))].some(match => {

@@ -29,10 +29,10 @@ describe('service recovery context and contact timing', () => {
   it('does not turn a neutral method question into a complaint', () => {
     expect(deriveCanonicalComplaintAssessment({caseId:'neutral',messages:[{id:'q',role:'customer',meaningful:true,text:'ايه طريقة استخدام الكريم؟'}]}).state).toBe('none');
   });
-  it.each(['المندوب مكلمني الساعة 8','المندوب كلمني الساعة 8','واتصل بيا تاني الساعة 8.10','المندوب كلمني امبارح وعايز لبن'])('does not treat a past call report as a callback request: %s',text=>{
+  it.each(['المندوب مكلمني الساعة 8','المندوب كلمني الساعة 8','واتصل بيا تاني الساعة 8.10','المندوب كلمني امبارح وعايز لبن','مش عايزة حد يكلمني'])('does not treat a past call report as a callback request: %s',text=>{
     expect(classifyCustomerTimingRequestV32(text)).toBeNull();
   });
-  it.each(['كلمني بكرة','اتصل بيا بكرة','كلميني بعد يومين','عايز المندوب يكلمني'])('preserves real callback requests: %s',text=>{
+  it.each(['كلمني بكرة','اتصل بيا بكرة','كلميني بعد يومين','عايز المندوب يكلمني','عايزة حد يكلمني','عايزة حضرتك تكلميني','المندوب كلمني امبارح وكلمني بكرة'])('preserves real callback requests: %s',text=>{
     expect(classifyCustomerTimingRequestV32(text)).not.toBeNull();
   });
   it.each(['هنتظر لما يكون متاح اننا نتواصل','في اقرب فرصة متاح اتصل على حضرتك'])('contact availability is not product stock: %s',text=>{
