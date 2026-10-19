@@ -73,6 +73,7 @@ const Points = lazy(() => import('@/pages/Points'));
 const Delivery = lazy(() => import('@/pages/Delivery'));
 const Analytics = lazy(() => import('@/pages/Analytics'));
 const Invoices = lazy(() => import('@/pages/Invoices'));
+const InternalCodesSales = lazy(() => import('@/pages/InternalCodesSales'));
 const ActivityLog = lazy(() => import('@/pages/ActivityLog'));
 const Reviews = lazy(() => import('@/pages/ReviewsEnhanced'));
 const SalesIntelligenceQA = lazy(() => import('@/pages/SalesIntelligenceQA'));
@@ -707,6 +708,7 @@ function AppRoutes() {
         path="/analytics"
         element={<ProtectedRoute>{routeSuspense(<Analytics />, 'التحليلات')}</ProtectedRoute>}
       />
+      <Route path="/internal-codes" element={<ProtectedRoute permission="view_sales_reports">{routeSuspense(<InternalCodesSales />, 'الأكواد الداخلية')}</ProtectedRoute>} />
       <Route
         path="/invoices"
         element={<ProtectedRoute>{routeSuspense(<Invoices />, 'الفواتير')}</ProtectedRoute>}
