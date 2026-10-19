@@ -1,0 +1,716 @@
+[
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "id",
+    "default": "(gen_random_uuid())::text"
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "date",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "customer_id",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "customer_name",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "phone",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "segment",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "status",
+    "default": null
+  },
+  {
+    "type": "numeric",
+    "table": "daily_followups",
+    "column": "total_spent",
+    "default": "0"
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "followup_type",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "followup_status",
+    "default": "'pending'::text"
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "notes",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "branch",
+    "default": null
+  },
+  {
+    "type": "timestamp with time zone",
+    "table": "daily_followups",
+    "column": "created_at",
+    "default": "now()"
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "followup_date",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "name",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "classification",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "customer_status",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "followup_reason",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "priority",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "contact_status",
+    "default": "'pending'::text"
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "contact_result",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "responsible_name",
+    "default": null
+  },
+  {
+    "type": "timestamp with time zone",
+    "table": "daily_followups",
+    "column": "contacted_at",
+    "default": null
+  },
+  {
+    "type": "uuid",
+    "table": "daily_followups",
+    "column": "staff_id",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "customer_code",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "customer_phone",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "assigned_to",
+    "default": null
+  },
+  {
+    "type": "uuid",
+    "table": "daily_followups",
+    "column": "assigned_staff_id",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "contact_method",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "followup_summary",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "followup_result",
+    "default": null
+  },
+  {
+    "type": "date",
+    "table": "daily_followups",
+    "column": "next_followup_date",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "request_type",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "request_details",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "request_status",
+    "default": null
+  },
+  {
+    "type": "boolean",
+    "table": "daily_followups",
+    "column": "purchase_after_followup",
+    "default": "false"
+  },
+  {
+    "type": "numeric",
+    "table": "daily_followups",
+    "column": "purchase_amount",
+    "default": "0"
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "purchase_invoice_no",
+    "default": null
+  },
+  {
+    "type": "date",
+    "table": "daily_followups",
+    "column": "purchase_date",
+    "default": null
+  },
+  {
+    "type": "timestamp with time zone",
+    "table": "daily_followups",
+    "column": "closed_at",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "closed_by",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "created_by",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "created_by_name",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "assigned_doctor",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "followup_notes",
+    "default": null
+  },
+  {
+    "type": "date",
+    "table": "daily_followups",
+    "column": "last_purchase_date",
+    "default": null
+  },
+  {
+    "type": "integer",
+    "table": "daily_followups",
+    "column": "purchase_count_current_month",
+    "default": "0"
+  },
+  {
+    "type": "numeric",
+    "table": "daily_followups",
+    "column": "average_monthly_purchase_count",
+    "default": "0"
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "purchase_frequency_status",
+    "default": null
+  },
+  {
+    "type": "timestamp with time zone",
+    "table": "daily_followups",
+    "column": "updated_at",
+    "default": "now()"
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "category",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "suggested_action",
+    "default": null
+  },
+  {
+    "type": "integer",
+    "table": "daily_followups",
+    "column": "quality_rating",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "customer_satisfaction",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "response_status",
+    "default": null
+  },
+  {
+    "type": "boolean",
+    "table": "daily_followups",
+    "column": "needs_manager",
+    "default": "false"
+  },
+  {
+    "type": "timestamp with time zone",
+    "table": "daily_followups",
+    "column": "completed_at",
+    "default": null
+  },
+  {
+    "type": "timestamp with time zone",
+    "table": "daily_followups",
+    "column": "postponed_until",
+    "default": null
+  },
+  {
+    "type": "timestamp with time zone",
+    "table": "daily_followups",
+    "column": "cancelled_at",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "cancelled_by",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "updated_by",
+    "default": null
+  },
+  {
+    "type": "timestamp with time zone",
+    "table": "daily_followups",
+    "column": "followup_datetime",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "preferred_contact_method",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "personality_note",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "requested_by",
+    "default": null
+  },
+  {
+    "type": "numeric",
+    "table": "daily_followups",
+    "column": "internal_rating",
+    "default": null
+  },
+  {
+    "type": "boolean",
+    "table": "daily_followups",
+    "column": "need_understood",
+    "default": null
+  },
+  {
+    "type": "boolean",
+    "table": "daily_followups",
+    "column": "cross_sell_offered",
+    "default": "false"
+  },
+  {
+    "type": "boolean",
+    "table": "daily_followups",
+    "column": "up_sell_offered",
+    "default": "false"
+  },
+  {
+    "type": "boolean",
+    "table": "daily_followups",
+    "column": "needs_next_followup",
+    "default": "false"
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "no_purchase_reason",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "doctor_internal_note",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "evaluated_by",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "evaluated_by_name",
+    "default": null
+  },
+  {
+    "type": "timestamp with time zone",
+    "table": "daily_followups",
+    "column": "evaluated_at",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "requested_by_staff_id",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "assigned_to_staff_id",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "handled_by_staff_id",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "request_source",
+    "default": null
+  },
+  {
+    "type": "timestamp with time zone",
+    "table": "daily_followups",
+    "column": "first_attempt_at",
+    "default": null
+  },
+  {
+    "type": "timestamp with time zone",
+    "table": "daily_followups",
+    "column": "last_attempt_at",
+    "default": null
+  },
+  {
+    "type": "integer",
+    "table": "daily_followups",
+    "column": "attempt_count",
+    "default": "0"
+  },
+  {
+    "type": "boolean",
+    "table": "daily_followups",
+    "column": "is_duplicate",
+    "default": "false"
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "duplicate_of",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "duplicate_reason",
+    "default": null
+  },
+  {
+    "type": "timestamp with time zone",
+    "table": "daily_followups",
+    "column": "duplicate_archived_at",
+    "default": null
+  },
+  {
+    "type": "boolean",
+    "table": "daily_followups",
+    "column": "is_hidden",
+    "default": "false"
+  },
+  {
+    "type": "timestamp with time zone",
+    "table": "daily_followups",
+    "column": "hidden_at",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "hidden_by",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "hidden_reason",
+    "default": null
+  },
+  {
+    "type": "timestamp with time zone",
+    "table": "daily_followups",
+    "column": "archived_at",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "archived_by",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "archive_reason",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "cancelled_reason",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "completed_by",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "evaluation_summary",
+    "default": null
+  },
+  {
+    "type": "numeric",
+    "table": "daily_followups",
+    "column": "evaluation_score",
+    "default": null
+  },
+  {
+    "type": "uuid",
+    "table": "daily_followups",
+    "column": "source_batch_id",
+    "default": null
+  },
+  {
+    "type": "integer",
+    "table": "daily_followups",
+    "column": "source_row_number",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "identity_key",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "client_request_id",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "canonical_followup_id",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "data_quality_status",
+    "default": null
+  },
+  {
+    "type": "text[]",
+    "table": "daily_followups",
+    "column": "data_issues",
+    "default": "'{}'::text[]"
+  },
+  {
+    "type": "jsonb",
+    "table": "daily_followups",
+    "column": "customer_metrics",
+    "default": "'{}'::jsonb"
+  },
+  {
+    "type": "boolean",
+    "table": "daily_followups",
+    "column": "open_case",
+    "default": "true"
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "source_file",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "source_sheet",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "import_batch_id",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "import_fingerprint",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "import_source",
+    "default": null
+  },
+  {
+    "type": "boolean",
+    "table": "daily_followups",
+    "column": "linked_to_invoice_today",
+    "default": null
+  },
+  {
+    "type": "timestamp with time zone",
+    "table": "daily_followups",
+    "column": "flagged_at",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "followup_reason_key",
+    "default": null
+  },
+  {
+    "type": "numeric",
+    "table": "daily_followups",
+    "column": "points_value",
+    "default": null
+  },
+  {
+    "type": "boolean",
+    "table": "daily_followups",
+    "column": "counts_toward_quota",
+    "default": "true"
+  },
+  {
+    "type": "boolean",
+    "table": "daily_followups",
+    "column": "is_flagged",
+    "default": "false"
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "flag_reason",
+    "default": null
+  },
+  {
+    "type": "text",
+    "table": "daily_followups",
+    "column": "flagged_by",
+    "default": null
+  }
+]

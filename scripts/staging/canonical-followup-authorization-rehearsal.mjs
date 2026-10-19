@@ -7,6 +7,7 @@ export async function runFollowupAuthorizationRehearsal({db,psql,query,read,step
   assert.match(db,/^dawaa_staging_\d+$/,'only the existing disposable local runner database is accepted');
   const capture=JSON.parse(read('scripts/staging/fixtures/canonical-followup-runtime-definitions.json'));
   const schema=JSON.parse(read('scripts/staging/fixtures/canonical-followup-runtime-schema.json'));
+  schema.columns.push(...JSON.parse(read('scripts/staging/fixtures/canonical-followup-daily-columns.json')));
   const grants=JSON.parse(read('scripts/staging/fixtures/canonical-followup-runtime-grants.json'));
   const quote=value=>`'${String(value).replaceAll("'","''")}'`;
   const ident=value=>`"${String(value).replaceAll('"','""')}"`;
@@ -16,8 +17,12 @@ export async function runFollowupAuthorizationRehearsal({db,psql,query,read,step
   const productsBefore=await q("select md5(coalesce(string_agg(to_jsonb(p)::text,'|' order by p.id::text),'')) from products p");
   // Extend the existing domain tables using catalog-captured column types/defaults, not guesses.
   for(const table of new Set(schema.columns.map(c=>c.table))) await execute(`create table if not exists public.${ident(table)}();`);
+  const existingTypes=JSON.parse(await q("select coalesce(jsonb_object_agg(c.relname||'.'||a.attname,format_type(a.atttypid,a.atttypmod)),'{}') from pg_attribute a join pg_class c on c.oid=a.attrelid join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and a.attnum>0 and not a.attisdropped"));
   for(const col of schema.columns) {
     await execute(`alter table public.${ident(col.table)} add column if not exists ${ident(col.column)} ${col.type};`);
+    if(existingTypes[`${col.table}.${col.column}`] && existingTypes[`${col.table}.${col.column}`]!==col.type) {
+      await execute(`alter table public.${ident(col.table)} alter column ${ident(col.column)} type ${col.type} using ${ident(col.column)}::${col.type};`);
+    }
     if(col.default!==null) await execute(`alter table public.${ident(col.table)} alter column ${ident(col.column)} set default ${col.default};`);
   }
   for(const index of JSON.parse(read('scripts/staging/fixtures/canonical-followup-runtime-indexes.json'))) {
@@ -164,6 +169,18 @@ export async function runFollowupAuthorizationRehearsal({db,psql,query,read,step
     'synthetic-v29-complaint','isolated-v29')`;
   await denied('manager',complaintCall,/duplicate key value violates unique constraint/);
   step('captured runtime mismatch reproduced: complaint cannot link to an existing general follow-up');
+  const guards=JSON.parse(read('scripts/staging/fixtures/canonical-followup-before-insert-guards.json'));
+  for(const fn of guards.functions) await psql(db,fn.definition,{options:'-c check_function_bodies=off'});
+  for(const trigger of guards.triggers) await execute(`drop trigger if exists ${ident(trigger.tgname)} on daily_followups;${trigger.definition};`);
+  const rowsBeforeGuardProbe=await q('select count(*) from daily_followups');
+  const guardedProbe=actor('manager',`${complaintCall};select jsonb_build_object('is_hidden',is_hidden,
+    'is_duplicate',is_duplicate,'archived',archived_at is not null,'duplicate_of',duplicate_of)
+    from daily_followups where client_request_id='synthetic-v29-complaint'`).replace(/commit;$/,'rollback;');
+  const guardedResult=JSON.parse((await execute(guardedProbe)).stdout.trim().split('\n').at(-1));
+  assert.deepEqual(guardedResult,{is_hidden:true,is_duplicate:true,archived:true,duplicate_of:fresh.followup_id});
+  assert.equal(await q('select count(*) from daily_followups'),rowsBeforeGuardProbe,'diagnostic insert must roll back');
+  step('actual BEFORE triggers reproduce a hidden archived duplicate; diagnostic transaction rolled back');
+
   // Existing source-only prerequisite, NOT a newly invented writer or production activation.
   await execute(read('supabase/migrations/20261009180000_customer_followup_one_open_case_contract_a_v1.sql'));
   const linked=JSON.parse(await as('manager',complaintCall));
@@ -176,13 +193,25 @@ export async function runFollowupAuthorizationRehearsal({db,psql,query,read,step
   assert.equal(await q(`select count(*) from customer_service_followup_events where followup_id=${quote(fresh.followup_id)}`),events);
   assert.equal(await q(`select count(*) from daily_followups where customer_id='${otherCustomer}' and branch='فرع شكري' and completed_at is null and archived_at is null`),'1');
   step('existing Contract A candidate resolves the reproduced mismatch and complaint retry adds no duplicate event');
+  const newCustomer='00000000-0000-4000-8000-0000000000c3';
+  await execute(`insert into customers(id,customer_code,name,branch) values('${newCustomer}','SYN-C3','Synthetic Guard Customer','فرع شكري');`);
+  const visibleBefore=await q('select count(*) from daily_followups where coalesce(is_hidden,false)=false');
+  const guardedFresh=JSON.parse(await as('manager',`select dawaa_create_or_link_customer_followup_v1('${newCustomer}',
+    'SYN-C3','Synthetic Guard Customer','01000000003','فرع شكري','general','synthetic guarded create',null,'متوسطة',null,
+    'synthetic-v31-guarded-create','isolated-v31')`));
+  assert.equal(guardedFresh.created,true);
+  assert.equal(await q(`select count(*) from daily_followups where id=${quote(guardedFresh.followup_id)}
+    and customer_id='${newCustomer}' and branch='فرع شكري' and coalesce(is_hidden,false)=false
+    and coalesce(is_duplicate,false)=false and archived_at is null and created_by='${accounts.manager}'`),'1');
+  assert.equal(Number(await q('select count(*) from daily_followups where coalesce(is_hidden,false)=false')),Number(visibleBefore)+1);
+  step('candidate writer creates a visible fresh follow-up under all captured BEFORE guards, preserving actor and branch');
   assert.equal(await q("select md5(coalesce(string_agg(to_jsonb(s)::text,'|' order by s.id::text),'')) from sales_invoices s"),invoiceBefore);
   assert.equal(await q("select md5(coalesce(string_agg(to_jsonb(p)::text,'|' order by p.id::text),'')) from products p"),productsBefore);
   step('invoice and product fingerprints unchanged throughout the isolated rehearsal');
   console.log('PRODUCTION_PARITY_BLOCKED: captured runtime still requires the reviewed Contract A writer release. No production change performed.');
   return {status:'CANDIDATE_VALIDATED_PRODUCTION_PARITY_BLOCKED',
     prerequisite:'20261009180000_customer_followup_one_open_case_contract_a_v1.sql',
-    runtimeProblem:'different_request_type_open_case_unique_violation',productionWrites:0};
+    runtimeProblem:'cross_type_request_creates_hidden_duplicate_with_live_before_guards',productionWrites:0};
 
 
 }

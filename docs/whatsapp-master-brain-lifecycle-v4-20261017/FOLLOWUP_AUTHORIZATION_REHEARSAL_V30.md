@@ -37,11 +37,15 @@ Customer-request creation/incentives and full complaint lifecycle are not claime
 
 ## Proven runtime gap
 
+V31 refines the exact installed symptom using all current BEFORE triggers. Read
+FOLLOWUP_INSERT_GUARDS_V31.md before interpreting the lower-level reproduction below.
+
 The installed `find_or_create_open_customer_followup` still includes request type in its open-case
 lookup/lock. Current unique indexes permit one visible open case per customer and branch. With a
 general follow-up already open, a complaint for the same customer/branch attempts another insert
-and fails with a unique constraint error. Reproduced only in the isolated database using captured
-runtime definitions and indexes; no Production complaint/task was created.
+and, in V30's fixture without the complete BEFORE trigger chain, fails with a unique constraint
+error. V31 shows that the actual BEFORE guard chain instead produces a hidden archived duplicate.
+Both were reproduced only in the isolated database; no Production complaint/task was created.
 
 The existing source-only migration
 `20261009180000_customer_followup_one_open_case_contract_a_v1.sql` already resolves this mismatch.
