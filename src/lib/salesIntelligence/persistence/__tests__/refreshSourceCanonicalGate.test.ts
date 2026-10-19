@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -119,11 +120,21 @@ const coarse = {
   conversation_ended_at: '2026-01-02T17:26:10Z',
 };
 
+function analysisUuid(caseId: string) {
+  const hash = createHash('sha256').update(caseId).digest('hex');
+  return `${hash.slice(0,8)}-${hash.slice(8,12)}-4${hash.slice(13,16)}-8${hash.slice(17,20)}-${hash.slice(20,32)}`;
+}
+
 function analysis(outcome: string, saleProofState: string, attributionLevel: string) {
   return {
     conversationId: fine.id,
     caseId: `${fine.id}:interaction:0`,
     status: 'analyzed',
+    // This fixture explicitly publishes no operational opportunities, rather than omitting the
+    // canonical owner outputs and relying on swallowed projection errors.
+    followUp: { opportunities: [] },
+    complaintAssessment: { caseId: `${fine.id}:interaction:0`, state: 'none' },
+    customerRequestAssessment: { caseId: `${fine.id}:interaction:0`, decision: 'not_needed', requests: [] },
     conversationCase: { customerId: 'customer-1', customerPhone: null, sourceCaseIdV22: 'case-1' },
     attribution: {
       selectedInvoiceId: 'inv-1',
@@ -139,7 +150,7 @@ function analysis(outcome: string, saleProofState: string, attributionLevel: str
 
 function batchResult(caseAnalyses: any[]) {
   return {
-    caseOutcomes: caseAnalyses.map((row) => ({ caseId: row.caseId, success: true, analysis: { analysisId: `analysis-${row.caseId}` } })),
+    caseOutcomes: caseAnalyses.map((row) => ({ caseId: row.caseId, success: true, analysis: { analysisId: analysisUuid(row.caseId) } })),
     caseAnalyses,
     plan: {
       casesToInsert: [],
@@ -313,11 +324,17 @@ describe('canonical refresh — lifecycle then single proof writer (server trans
     );
     const res = await call(load, fine.id);
     expect(res.statusCode).toBe(200);
-    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(res.body.operationalProjection.errors).toEqual([]);
+    expect(rpc).toHaveBeenCalledTimes(3);
+    expect(rpc).toHaveBeenNthCalledWith(3, CANONICAL_FOLLOWUP_RECONCILE_RPC, {
+      p_source_id: fine.id,
+      p_analysis_ids: { [`${fine.id}:interaction:0`]: analysisUuid(`${fine.id}:interaction:0`) },
+      p_rows: [],
+    });
     expect(rpc).toHaveBeenNthCalledWith(1, CASE_SET_RECONCILE_RPC, {
       p_conversation_id: fine.id,
       p_active_case_ids: [`${fine.id}:interaction:0`],
-      p_analysis_ids: { [`${fine.id}:interaction:0`]: `analysis-${fine.id}:interaction:0` },
+      p_analysis_ids: { [`${fine.id}:interaction:0`]: analysisUuid(`${fine.id}:interaction:0`) },
     });
     expect(rpc).toHaveBeenNthCalledWith(2, CANONICAL_PROOF_WRITER_RPC, {
       p_sales_case_id: `${fine.id}:interaction:0`,
@@ -332,7 +349,13 @@ describe('canonical refresh — lifecycle then single proof writer (server trans
     mockProofRpcResult({ ok: true, status: 'revoked' });
     const res = await call(load, fine.id);
     expect(res.statusCode).toBe(200);
-    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(res.body.operationalProjection.errors).toEqual([]);
+    expect(rpc).toHaveBeenCalledTimes(3);
+    expect(rpc).toHaveBeenNthCalledWith(3, CANONICAL_FOLLOWUP_RECONCILE_RPC, {
+      p_source_id: fine.id,
+      p_analysis_ids: { [`${fine.id}:interaction:0`]: analysisUuid(`${fine.id}:interaction:0`) },
+      p_rows: [],
+    });
     expect(rpc).toHaveBeenNthCalledWith(2, CANONICAL_PROOF_WRITER_RPC, {
       p_sales_case_id: `${fine.id}:interaction:0`,
     });
@@ -466,7 +489,7 @@ describe('source-scoped publication after partial persistence', () => {
     expect((await refresh([fine])).status).toBe('persistence_partial_failure');
     expect(rpc).not.toHaveBeenCalled();
     expect((await refresh([fine])).status).toBe('ok');
-    expect(rpc.mock.calls[0][1]).toMatchObject({p_active_case_ids:[a.caseId,b.caseId],p_analysis_ids:{[a.caseId]:`analysis-${a.caseId}`,[b.caseId]:`analysis-${b.caseId}`}});
+    expect(rpc.mock.calls[0][1]).toMatchObject({p_active_case_ids:[a.caseId,b.caseId],p_analysis_ids:{[a.caseId]:analysisUuid(a.caseId),[b.caseId]:analysisUuid(b.caseId)}});
   });
 });
 
