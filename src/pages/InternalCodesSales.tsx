@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 
 type Flag = { customer_code: string; flag_key: string; flag_label?: string | null };
+const KNOWN_INTERNAL_CODES = ['5','7','10','20','54','170','4902','12820'];
 import { loadInternalCodeInvoices, type Invoice } from '@/lib/internalCodesSalesService';
 const money = (value: number) => value.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const day = (value: string | null) => value ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(value)) : '';
@@ -22,13 +23,14 @@ export default function InternalCodesSales() {
   const [rows, setRows] = useState<Invoice[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [registryWarning, setRegistryWarning] = useState('');
   const allowed = isAdmin || checkPermission('view_sales_reports');
   useEffect(() => {
     if (!allowed) return;
     let alive = true;
     supabase.from('customer_flags').select('customer_code,flag_key,flag_label')
       .eq('flag_key', 'system_generic_code').eq('is_active', true)
-      .then(({ data, error }) => { if (!alive) return; if (error) setError(error.message); else setFlags((data || []) as Flag[]); });
+      .then(({ data, error }) => { if (!alive) return; if (error || !data?.length) { setFlags(KNOWN_INTERNAL_CODES.map(customer_code => ({customer_code,flag_key:'system_generic_code'}))); setRegistryWarning('تعذر تحميل قائمة الأكواد الحية؛ يتم عرض القائمة الداخلية المعروفة. قد تحتاج صلاحية قراءة الأكواد.'); } else { setRegistryWarning(''); setFlags((data || []) as Flag[]); } });
     return () => { alive = false; };
   }, [allowed]);
   const codes = useMemo(() => [...new Set(flags.map(f => String(f.customer_code).trim()).filter(Boolean))].sort((a,b) => Number(a)-Number(b)), [flags]);
@@ -57,9 +59,10 @@ export default function InternalCodesSales() {
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
       <label className="text-sm">من تاريخ<input className="w-full rounded-lg border p-2 mt-1 bg-transparent" type="date" value={from} onChange={e => setFrom(e.target.value)}/></label>
       <label className="text-sm">إلى تاريخ<input className="w-full rounded-lg border p-2 mt-1 bg-transparent" type="date" value={to} onChange={e => setTo(e.target.value)}/></label>
-      <label className="text-sm">الفرع<select className="w-full rounded-lg border p-2 mt-1 bg-transparent" value={branch} onChange={e => setBranch(e.target.value)}><option value="all">الفرعان</option><option value="فرع شكري">شكري</option><option value="فرع الشامي">الشامي</option></select></label>
+      <fieldset className="text-sm min-w-0"><legend className="mb-1">الفرع</legend><div className="grid grid-cols-3 gap-1 rounded-lg border p-1" role="group" aria-label="تصفية حسب الفرع">{[{value:'all',label:'الفرعان'},{value:'فرع شكري',label:'شكري'},{value:'فرع الشامي',label:'الشامي'}].map(option=><button key={option.value} type="button" aria-pressed={branch===option.value} onClick={()=>setBranch(option.value)} className={`min-w-0 rounded-md px-1 py-2 text-center text-xs font-semibold transition-colors ${branch===option.value?'bg-emerald-600 text-white shadow-sm':'hover:bg-white/10'}`}>{option.label}</button>)}</div></fieldset>
       <label className="text-sm">الكود الداخلي<select className="w-full rounded-lg border p-2 mt-1 bg-transparent" value={code} onChange={e => setCode(e.target.value)}><option value="all">جميع الأكواد</option>{codes.map(c=><option key={c} value={c}>{c}</option>)}</select></label>
     </div>
+    {registryWarning && <div role="alert" className="rounded-lg border p-3 text-amber-700">{registryWarning}</div>}
     {error && <div role="alert" className="border rounded-lg p-3 text-red-600">{error}</div>}
     {busy && <p role="status">جاري تحميل الفواتير والتحقق من اكتمال جميع الصفحات…</p>}
     {!busy && <div className="grid grid-cols-2 gap-3"><div className="rounded-xl border p-4"><div className="opacity-70 text-sm">إجمالي السحب</div><strong className="text-xl">{money(total)} ج</strong></div><div className="rounded-xl border p-4"><div className="opacity-70 text-sm">عدد الفواتير</div><strong className="text-xl">{filtered.length.toLocaleString('ar-EG')}</strong></div></div>}
