@@ -25,4 +25,19 @@ BEGIN
    RAISE EXCEPTION 'Unexpected sales dashboard policy; review before changing';
  END IF;
 END $$;
+-- Preserve the deployed branch-target RPC while updating its two sales filters.
+DO $
+DECLARE v text;
+BEGIN
+ SELECT pg_get_functiondef(oid) INTO v FROM pg_proc
+ WHERE proname='dawaa_branch_target_progress_for_cycle_v1'
+ AND pronamespace='public'::regnamespace;
+ IF v IS NULL THEN RAISE EXCEPTION 'branch target RPC missing'; END IF;
+ IF position('''5'',''10'',''54'',''170'',''4902'',''12820''' IN v)>0 THEN
+   v:=replace(v,'''5'',''10'',''54'',''170'',''4902'',''12820''','''5'',''10'',''170'',''4902'',''12820'',''20''');
+   EXECUTE v;
+ ELSIF position('''5'',''10'',''170'',''4902'',''12820'',''20''' IN v)=0 THEN
+   RAISE EXCEPTION 'unexpected branch-target policy';
+ END IF;
+END $;
 COMMIT;
