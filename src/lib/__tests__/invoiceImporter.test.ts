@@ -259,6 +259,20 @@ describe('loadDatabaseDayComparison', () => {
     }
   );
 
+  it('compares only the selected branch even when the same day includes other branch sales', async () => {
+    mockDatabaseRows = [
+      { id: 's1', invoice_date: '2026-10-17', invoice_number: '40165', branch: 'فرع الشامي', net_amount: 665 },
+      { id: 's2', invoice_date: '2026-10-17', invoice_number: '78231', branch: 'فرع شكري', net_amount: 537.3 },
+    ];
+    const days = new Map([['2026-10-17', { date: '2026-10-17', count: 1, total: 665 }]]);
+    const result = await loadDatabaseDayComparison(days, '2026-10-17', '2026-10-17', 'فرع الشامي');
+    expect(result.databaseInvoicesCount).toBe(1);
+    expect(result.comparison[0].databaseCount).toBe(1);
+    expect(result.comparison[0].databaseTotal).toBe(665);
+    expect(result.comparison[0].status).toBe('matched');
+    expect(result.verificationFetchedCount).toBe(2);
+  });
+
   it('marks verification incomplete when any page fails', async () => {
     mockDatabaseRows = Array.from({ length: 1001 }, (_, index) => ({
       id: `db-${index + 1}`,
