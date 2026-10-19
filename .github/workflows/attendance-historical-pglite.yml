@@ -1,0 +1,30 @@
+name: Attendance Historical SQL PGlite Rehearsal
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/20261019090000_attendance_truth_historical_visibility_v1.sql'
+      - 'supabase/migrations/20261019123000_attendance_drift_canonical_engine_route_v1.sql'
+      - 'scripts/staging/test-attendance-cycle-scope-pglite.mjs'
+      - '.github/workflows/attendance-historical-pglite.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-attendance-sql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DAWAA_DEPLOY_ENV: local
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: PGlite — replay two migrations against synthetic attendance only
+        run: node scripts/staging/test-attendance-cycle-scope-pglite.mjs
