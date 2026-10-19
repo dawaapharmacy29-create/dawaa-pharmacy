@@ -898,7 +898,7 @@ var DELIVERY_RX = /توصيل|دليفري|delivery/i;
 var PROMISE_RX = /هبعت(?:لك|لحضرتك)?|هيوصل|هجهز(?:لك|لحضرتك)?|هوصلك/i;
 var UNAVAILABLE_RX = /(?:مش|مو|غير)\s*(?:موجود|متوفر|متاح)[ةه]?|مفيش\s*(?:منه|منها|حاليا|حاليًا|عندنا)|مش\s*عندنا|(?:الصنف|المنتج|ده|دي|هو|هي)\s*(?:خلص|خلصان[ةه]?|نفذ|ناقص[ةه]?)|(?:خلص|نفذ|ناقص[ةه]?)\s*(?:من\s*(?:عندنا|السوق|الشركة)|حاليا|حاليًا)|ناقص\s*في\s*السوق/i;
 var AVAILABLE_RX = /(?:^|[\s،,])(?:موجود|متوفر|متاح)[ةه]?(?:$|[\s،,!.])|عندنا\s*(?:منه|منها)|(?:اه|أه|آه|ايوه|أيوه|ايوا)\s*(?:موجود|متوفر)/i;
-var NON_STOCK_AVAILABILITY_CONTEXT_RX = /(?:خدمة\s*)?(?:التوصيل|الدليفري|delivery)|(?:الدفع|التحويل|فودافون\s*كاش|انستا\s*باي|instapay|visa|فيزا|mastercard|ماستر\s*كارد)/i;
+var NON_STOCK_AVAILABILITY_CONTEXT_RX = /(?:خدمة\s*)?(?:التوصيل|الدليفري|delivery)|متاح[ةه]?\s*(?:(?:اننا|إننا|ان|أن)\s*)?(?:نتواصل|[اأ]تصل|[اأ]كلم)|(?:الدفع|التحويل|فودافون\s*كاش|انستا\s*باي|instapay|visa|فيزا|mastercard|ماستر\s*كارد)/i;
 var COMMIT_RECIPIENT = String.raw`(?:لك|ليك|ليكي|لكي|لكم|لحضرتك|لحضرتكم|لحضرتكو|حضرتك|معاك|معاكي|مع\s*حضرتك|عليك|عليكي|على\s*حضرتك)`;
 var COMMIT_FILLER = String.raw`(?:يا\s*(?:ا)?فندم|يا\s*دكتور[ةه]?|حالا|حالًا|دلوقتي|دلوقت|فورا|فورًا|بنفسي|تاني|كده|بس|ان\s*شاء\s*الله|إن\s*شاء\s*الله)`;
 var COMMIT_GAP = String.raw`(?:\s+(?:${COMMIT_RECIPIENT}|${COMMIT_FILLER}))*`;
@@ -1320,7 +1320,7 @@ function classifyCustomerIntentStatementV32(text5) {
   if (CONSIDERING_RX.test(text5)) return "considering";
   return null;
 }
-var CUSTOMER_CALLBACK_RX = /كلمني|كلميني|كلمنى|اتصل(?:\s*(?:بي|بيا|عليا))?|رن\s*عليا|تابع\s*معايا|ابقى\s*(?:كلمني|تابع|بلغني|عرفني)|بلغني|عرفني|ابعتلي\s*لما/i;
+var CUSTOMER_CALLBACK_RX = /(?<![\p{L}])(?:و?(?:كلمني|كلميني|كلمنى|اتصل(?:\s*(?:بي|بيا|عليا))?|رن\s*عليا|تابع\s*معايا|ابقى\s*(?:كلمني|تابع|بلغني|عرفني)|بلغني|عرفني|ابعتلي\s*لما))(?![\p{L}])/iu;
 var WHEN_IN_STOCK_RX = /لما\s*(?:\S+\s+){0,3}?(?:يوصل|يتوفر|ييجي|ينزل|تجيبه|تجيبوه|يبقى\s*موجود)/i;
 var TOMORROW_RX = /بكر[ةه]|بكرا/i;
 var AFTER_DAYS_RX = /بعد\s*(?:(يومين)|(\d+)\s*(?:يوم|أيام|ايام)|(اسبوع|أسبوع))/i;
@@ -1336,7 +1336,9 @@ function isPrescriptionRequestV32(text5) {
   return PRESCRIPTION_REQUEST_RX.test(text5);
 }
 function classifyCustomerTimingRequestV32(text5) {
-  const callback = CUSTOMER_CALLBACK_RX.test(text5);
+  const pastCallReport = /(?:المندوب|الدليفري|هو|هي)\s+(?:م?كلمن[يى]|اتصل)(?![\p{L}])|^\s*و?اتصل\s*(?:بي|بيا|عليا)\s*تان[يى]\s*الساع[ةه]/iu.test(text5);
+  const explicitFutureRequest = TOMORROW_RX.test(text5) || AFTER_DAYS_RX.test(text5) || /(?:ممكن|خلي|عايز|عاوز|محتاج)/.test(text5);
+  const callback = CUSTOMER_CALLBACK_RX.test(text5) && (!pastCallReport || explicitFutureRequest);
   const waitForStock = WHEN_IN_STOCK_RX.test(text5);
   if (!callback && !waitForStock) return null;
   if (waitForStock) return { when: "when_in_stock", days: null };
@@ -1345,6 +1347,34 @@ function classifyCustomerTimingRequestV32(text5) {
   if (TOMORROW_RX.test(text5)) return { when: "days", days: 1 };
   if (SAME_DAY_RX.test(text5)) return { when: "same_day", days: 0 };
   return { when: "unspecified", days: null };
+}
+function extractCustomerTimingRequestsV32(messages) {
+  const rows = messages.filter((m) => m.isMeaningful && (m.role === "customer" || m.role === "staff"));
+  const results = [];
+  for (let index = 0; index < rows.length; index++) {
+    const message = rows[index];
+    if (message.role !== "customer") continue;
+    const direct = classifyCustomerTimingRequestV32(message.text);
+    if (direct) {
+      results.push({ message, timing: direct, evidenceMessageIds: [message.id] });
+      continue;
+    }
+    if (!/(?:بس|لما|بعد\s*ما)\s*(?:[تاأن]خلص|[اأ]نتهي|ينتهي)(?![\p{L}])/u.test(message.text)) continue;
+    let offerIndex = index - 1;
+    while (offerIndex >= 0 && rows[offerIndex].role === "customer" && index - offerIndex <= 5) offerIndex--;
+    const offer = rows[offerIndex];
+    if (!offer || offer.role !== "staff" || message.timestamp.getTime() - offer.timestamp.getTime() > 5 * 6e4) continue;
+    if (!/(?:تسمح|ممكن|ينفع|[اأ]ذن|فرص[ةه]|وقت).{0,60}(?:[اأ]تصل|[اأ]كلم|نتواصل)/u.test(offer.text)) continue;
+    const burst = [];
+    for (let next = offerIndex + 1; next < rows.length && next <= offerIndex + 5; next++) {
+      const part = rows[next];
+      if (part.role !== "customer" || part.sender !== message.sender || part.timestamp.getTime() - offer.timestamp.getTime() > 5 * 6e4) break;
+      burst.push(part);
+    }
+    if (!burst.some((part) => part.id === message.id) || burst.some((part) => WHEN_IN_STOCK_RX.test(part.text))) continue;
+    results.push({ message, timing: { when: "unspecified", days: null }, evidenceMessageIds: [offer.id, ...burst.map((part) => part.id)] });
+  }
+  return results;
 }
 var LEADING_NO_RX = /^(?:لا|لأ)(?:\s*[،,.!]|\s+(?=\S))/;
 function classifyCustomerOfferResponseV32(text5) {
@@ -5138,9 +5168,9 @@ function deriveCanonicalSalesOutcome(input) {
 }
 
 // src/lib/salesIntelligence/complaintAssessmentEngine.ts
-var COMPLAINT_RX = /(?:زعلان|متضايق|غاضب|شكوى|مشكله|مشكلة|مش\s*راضي|سيئ|وحش|خدمة\s*وحشه|خدمة\s*سيئه|كل\s*مرة|كل\s*مره|بشتكي|ليه\s*كده)/i;
-var APOLOGY_RX = /(?:متاسف|متأسف|آسف|اسف|بنعتذر|نعتذر|حقك\s*علينا|معلش)/i;
-var REMEDY_RX = /(?:هحل|هنحل|هنبدل|هبدل|هنرجع|هرجع\s*المبلغ|هتابع|هراجع|هكلم|هنكلم|هنوفر|هشوف|هراجع\s*بنفسي)/i;
+var COMPLAINT_RX = /(?:زعلان|متضايق|غاضب|شكوى|مشكله|مشكلة|مش\s*راضي|سيئ|وحش|خدمة\s*وحشه|خدمة\s*سيئه|كل\s*مرة|كل\s*مره|بشتكي|ليه\s*كده|(?:طريق[ةه]|[أا]سلوب|معامل[ةه]).{0,35}(?:سخيف|سيئ|وحش|مش\s*لائق)|(?:المندوب|الدليفري).{0,25}(?:بيزعق|بيشخط|شتمني|[أا]هانني))/i;
+var APOLOGY_RX = /(?:متاسف|متأسف|آسف|اسف|بنعتذر|نعتذر|بعتذر|[أا]عتذر|حقك\s*علينا|معلش)/i;
+var REMEDY_RX = /(?:هحل|هنحل|هنبدل|هبدل|هنرجع|هرجع\s*المبلغ|هتابع|هراجع|هكلم|هنكلم|هنوفر|هشوف|هراجع\s*بنفسي|(?:صعدت|هصعد)\s*(?:الموضوع|الشكوى|الموقف)|تم\s*تصعيد\s*(?:الموضوع|الشكوى))/i;
 var HOSTILE_RX = /(?:لو\s*مش\s*عاجبك|مش\s*مشكلتي|مش\s*شغلي|بلاش\s*زن|ما\s*تزنش|انت\s*غلطان|إنت\s*غلطان|روح\s*اشتكي|اخرس|اخرسي)/i;
 var STAFF_RESOLUTION_RX = /(?:اتحل(?:ت)?\s*(?:المشكله|المشكلة|الموضوع)?|تم\s*(?:حل|معالجة)\s*(?:المشكله|المشكلة|الموضوع)?|اتظبط(?:ت)?\s*(?:المشكله|المشكلة|الموضوع)?)/i;
 var CUSTOMER_RESOLUTION_RX = /(?:المشكله\s*اتحلت|المشكلة\s*اتحلت|الموضوع\s*اتحل|كده\s*تمام|كدا\s*تمام|تمام\s*كده|تمام\s*كدا|شكرا.*(?:اتحل|اتظبط|تمام))/i;
@@ -5279,7 +5309,7 @@ function deriveCanonicalCustomerRequestAssessment(input) {
 
 // src/lib/salesIntelligence/customerNeedModel.ts
 var PRICE_OBJECTION_RX = /غالي|السعر\s*(?:عالي|كتير|كبير)|كتير\s*(?:عليه|عليها)|مش\s*مناسب.*(?:السعر|الثمن)|خصم\s*اكتر/i;
-var AVAILABILITY_OBJECTION_RX = /مش\s*(?:موجود|متوفر)|مفيش|خلص|مش\s*لاقي|مش\s*لاقية/i;
+var AVAILABILITY_OBJECTION_RX = /مش\s*(?:موجود|متوفر)|مفيش|(?<![\p{L}])خلص(?:ان[ةه]?)?(?![\p{L}])|مش\s*لاقي|مش\s*لاقية/iu;
 var DELIVERY_OBJECTION_RX = /التوصيل|الدليفري|المندوب|اتأخر|متأخر|مش\s*(?:هستنى|هقدر\s*استنى)|(?:ما|م)?\s*وصلش|موصلش|لسه\s*(?:ما\s*)?(?:وصل|جه|جا)ش?|لم\s*يصل|فين\s*(?:ال)?(?:أوردر|اوردر|طلب|طلبي)/i;
 var PRODUCT_FIT_OBJECTION_RX = /مش\s*مناسب|مش\s*ده|عايز\s*غير|عاوز\s*غير|(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|ممكن)\s+(?:له\s+|ليه\s+)?بديل|(?:عمل|سبب)(?:لي|ليّ|تلي)?\s*حساسي[ةه]|مش\s*نفس/i;
 var TIMING_OBJECTION_RX = /مش\s*دلوقتي|بعدين|بعد\s*كده|وقت\s*تاني|لما\s*احتاج/i;
@@ -5720,9 +5750,10 @@ function deriveCustomerNeedModel(input) {
   const rejectionIds = new Set(rejectionSignals.map((signal) => signal.messageId));
   const correctionIds = new Set(correctionSignals.map((signal) => signal.messageId));
   const objections = [];
+  const contactTimingIds = new Set(extractCustomerTimingRequestsV32(messages).filter((row) => row.timing.when !== "when_in_stock").map((row) => row.message.id));
   for (const message of messages) {
     if (message.role !== "customer" || !message.isMeaningful) continue;
-    const category = classifyObjectionCategory(
+    const category = contactTimingIds.has(message.id) ? "timing" : classifyObjectionCategory(
       message.text,
       rejectionIds.has(message.id),
       correctionIds.has(message.id)
@@ -6451,13 +6482,16 @@ function deriveFollowUpOpportunities(input) {
   const indexOf = new Map(messages.map((m, i) => [m.id, i]));
   const laterStaffReply = (message) => meaningful.some((m) => m.role === "staff" && (indexOf.get(m.id) ?? 0) > (indexOf.get(message.id) ?? 0));
   const customerMessages2 = meaningful.filter((m) => m.role === "customer");
+  const timingById = new Map(extractCustomerTimingRequestsV32(meaningful).map((row) => [row.message.id, row]));
   const waitRequests = [];
   for (const message of customerMessages2) {
-    const timing = classifyCustomerTimingRequestV32(message.text);
+    const timingEvidence = timingById.get(message.id);
+    const timing = timingEvidence?.timing;
     const willWait = classifyCustomerIntentStatementV32(message.text) === "will_wait";
     if (!timing && !willWait) continue;
     waitRequests.push({
       message,
+      evidence: timingEvidence?.evidenceMessageIds ?? [message.id],
       whenInStock: willWait || timing?.when === "when_in_stock",
       days: timing?.when === "days" ? timing.days : null,
       sameDay: timing?.when === "same_day"
@@ -6518,7 +6552,7 @@ function deriveFollowUpOpportunities(input) {
       demand: null,
       duePolicy: request.days != null || request.sameDay ? "customer_requested_time" : "manual_schedule",
       requestedDelayDays: request.sameDay ? 0 : request.days,
-      evidence: [request.message.id],
+      evidence: request.evidence,
       level: "strongly_inferred",
       score: 0.85
     });
@@ -8573,7 +8607,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v29-standalone-greeting-typo-safe";
+var PIPELINE_VERSION = "sales-intelligence-v30-service-recovery-contact-context";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v10-payment-continuation-ambiguity-safe",
   historicalClosure: "historical-closure-v1",

@@ -17,6 +17,7 @@ import {
   extractQuantitySignals,
   extractRejectionSignals,
   extractRequestSignals,
+  extractCustomerTimingRequestsV32,
   isRequestCandidate,
   resolveReference,
 } from '../whatsappSemanticSignalsV32';
@@ -61,7 +62,7 @@ export interface DeriveCustomerNeedModelInput {
 }
 
 const PRICE_OBJECTION_RX = /غالي|السعر\s*(?:عالي|كتير|كبير)|كتير\s*(?:عليه|عليها)|مش\s*مناسب.*(?:السعر|الثمن)|خصم\s*اكتر/i;
-const AVAILABILITY_OBJECTION_RX = /مش\s*(?:موجود|متوفر)|مفيش|خلص|مش\s*لاقي|مش\s*لاقية/i;
+const AVAILABILITY_OBJECTION_RX = /مش\s*(?:موجود|متوفر)|مفيش|(?<![\p{L}])خلص(?:ان[ةه]?)?(?![\p{L}])|مش\s*لاقي|مش\s*لاقية/iu;
 const DELIVERY_OBJECTION_RX =
   /التوصيل|الدليفري|المندوب|اتأخر|متأخر|مش\s*(?:هستنى|هقدر\s*استنى)|(?:ما|م)?\s*وصلش|موصلش|لسه\s*(?:ما\s*)?(?:وصل|جه|جا)ش?|لم\s*يصل|فين\s*(?:ال)?(?:أوردر|اوردر|طلب|طلبي)/i;
 // A product description ("بديل الغسول", "for sensitive skin") is not an objection.
@@ -685,9 +686,10 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
   const rejectionIds = new Set(rejectionSignals.map((signal) => signal.messageId));
   const correctionIds = new Set(correctionSignals.map((signal) => signal.messageId));
   const objections: CustomerNeedObjection[] = [];
+  const contactTimingIds = new Set(extractCustomerTimingRequestsV32(messages).filter(row => row.timing.when !== 'when_in_stock').map(row => row.message.id));
   for (const message of messages) {
     if (message.role !== 'customer' || !message.isMeaningful) continue;
-    const category = classifyObjectionCategory(
+    const category = contactTimingIds.has(message.id) ? 'timing' : classifyObjectionCategory(
       message.text,
       rejectionIds.has(message.id),
       correctionIds.has(message.id)

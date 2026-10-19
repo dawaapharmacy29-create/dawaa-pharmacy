@@ -147,7 +147,7 @@ const AVAILABLE_RX =
   /(?:^|[\s،,])(?:موجود|متوفر|متاح)[ةه]?(?:$|[\s،,!.])|عندنا\s*(?:منه|منها)|(?:اه|أه|آه|ايوه|أيوه|ايوا)\s*(?:موجود|متوفر)/i;
 // "خدمة التوصيل متاحة" and similar service/payment statements are not product stock facts.
 const NON_STOCK_AVAILABILITY_CONTEXT_RX =
-  /(?:خدمة\s*)?(?:التوصيل|الدليفري|delivery)|(?:الدفع|التحويل|فودافون\s*كاش|انستا\s*باي|instapay|visa|فيزا|mastercard|ماستر\s*كارد)/i;
+  /(?:خدمة\s*)?(?:التوصيل|الدليفري|delivery)|متاح[ةه]?\s*(?:(?:اننا|إننا|ان|أن)\s*)?(?:نتواصل|[اأ]تصل|[اأ]كلم)|(?:الدفع|التحويل|فودافون\s*كاش|انستا\s*باي|instapay|visa|فيزا|mastercard|ماستر\s*كارد)/i;
 // ---- Staff commitments (single owner: classifyStaffCommitmentsV32 below) ----
 // One structured grammar for "the staff member commits to do something and come back", consumed by
 // availability (check_pending), follow-up promises and scoring. It replaced two independent regex
@@ -827,7 +827,7 @@ export function classifyCustomerIntentStatementV32(text: string): CustomerIntent
 // ---- Follow-up evidence (facts only; the Follow-up engine decides) ----
 // Customer asking to be contacted / to wait, with optional timing.
 const CUSTOMER_CALLBACK_RX =
-  /كلمني|كلميني|كلمنى|اتصل(?:\s*(?:بي|بيا|عليا))?|رن\s*عليا|تابع\s*معايا|ابقى\s*(?:كلمني|تابع|بلغني|عرفني)|بلغني|عرفني|ابعتلي\s*لما/i;
+  /(?<![\p{L}])(?:و?(?:كلمني|كلميني|كلمنى|اتصل(?:\s*(?:بي|بيا|عليا))?|رن\s*عليا|تابع\s*معايا|ابقى\s*(?:كلمني|تابع|بلغني|عرفني)|بلغني|عرفني|ابعتلي\s*لما))(?![\p{L}])/iu;
 const WHEN_IN_STOCK_RX = /لما\s*(?:\S+\s+){0,3}?(?:يوصل|يتوفر|ييجي|ينزل|تجيبه|تجيبوه|يبقى\s*موجود)/i;
 const TOMORROW_RX = /بكر[ةه]|بكرا/i;
 const AFTER_DAYS_RX = /بعد\s*(?:(يومين)|(\d+)\s*(?:يوم|أيام|ايام)|(اسبوع|أسبوع))/i;
@@ -861,7 +861,10 @@ export function isPrescriptionRequestV32(text: string): boolean {
  * message is not a contact/wait request. Never invents a date: "لما يتوفر" is `when_in_stock`.
  */
 export function classifyCustomerTimingRequestV32(text: string): CustomerTimingRequestV32 | null {
-  const callback = CUSTOMER_CALLBACK_RX.test(text);
+  // A report of another person's past calls is not an instruction to call the customer.
+  const pastCallReport = /(?:المندوب|الدليفري|هو|هي)\s+(?:م?كلمن[يى]|اتصل)(?![\p{L}])|^\s*و?اتصل\s*(?:بي|بيا|عليا)\s*تان[يى]\s*الساع[ةه]/iu.test(text);
+  const explicitFutureRequest = TOMORROW_RX.test(text) || AFTER_DAYS_RX.test(text) || /(?:ممكن|خلي|عايز|عاوز|محتاج)/.test(text);
+  const callback = CUSTOMER_CALLBACK_RX.test(text) && (!pastCallReport || explicitFutureRequest);
   const waitForStock = WHEN_IN_STOCK_RX.test(text);
   if (!callback && !waitForStock) return null;
   if (waitForStock) return { when: 'when_in_stock', days: null };
@@ -870,6 +873,38 @@ export function classifyCustomerTimingRequestV32(text: string): CustomerTimingRe
   if (TOMORROW_RX.test(text)) return { when: 'days', days: 1 };
   if (SAME_DAY_RX.test(text)) return { when: 'same_day', days: 0 };
   return { when: 'unspecified', days: null };
+}
+
+/** Contextual timing evidence shared by Need and Follow-up; never crosses a staff turn.
+ * A short postponed answer is accepted only after an explicit contact offer, within five minutes.
+ * No clock time is invented from an activity such as a lesson or meeting finishing.
+ */
+export function extractCustomerTimingRequestsV32(messages: readonly NormalizedConversationMessageV32[]): Array<{
+  message: NormalizedConversationMessageV32; timing: CustomerTimingRequestV32; evidenceMessageIds: string[];
+}> {
+  const rows = messages.filter(m => m.isMeaningful && (m.role === 'customer' || m.role === 'staff'));
+  const results: Array<{message: NormalizedConversationMessageV32; timing: CustomerTimingRequestV32; evidenceMessageIds: string[]}> = [];
+  for (let index = 0; index < rows.length; index++) {
+    const message = rows[index];
+    if (message.role !== 'customer') continue;
+    const direct = classifyCustomerTimingRequestV32(message.text);
+    if (direct) { results.push({message, timing: direct, evidenceMessageIds:[message.id]}); continue; }
+    if (!/(?:بس|لما|بعد\s*ما)\s*(?:[تاأن]خلص|[اأ]نتهي|ينتهي)(?![\p{L}])/u.test(message.text)) continue;
+    let offerIndex = index - 1;
+    while (offerIndex >= 0 && rows[offerIndex].role === 'customer' && index - offerIndex <= 5) offerIndex--;
+    const offer = rows[offerIndex];
+    if (!offer || offer.role !== 'staff' || message.timestamp.getTime() - offer.timestamp.getTime() > 5 * 60_000) continue;
+    if (!/(?:تسمح|ممكن|ينفع|[اأ]ذن|فرص[ةه]|وقت).{0,60}(?:[اأ]تصل|[اأ]كلم|نتواصل)/u.test(offer.text)) continue;
+    const burst: NormalizedConversationMessageV32[] = [];
+    for (let next = offerIndex + 1; next < rows.length && next <= offerIndex + 5; next++) {
+      const part = rows[next];
+      if (part.role !== 'customer' || part.sender !== message.sender || part.timestamp.getTime() - offer.timestamp.getTime() > 5 * 60_000) break;
+      burst.push(part);
+    }
+    if (!burst.some(part => part.id === message.id) || burst.some(part => WHEN_IN_STOCK_RX.test(part.text))) continue;
+    results.push({message, timing:{when:'unspecified',days:null}, evidenceMessageIds:[offer.id,...burst.map(part=>part.id)]});
+  }
+  return results;
 }
 
 // A reply that OPENS with an explicit "no" followed by more words ("لا، أنا عايز X نفسه",

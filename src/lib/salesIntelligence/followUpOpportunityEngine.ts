@@ -11,7 +11,7 @@
 import type { NormalizedConversationMessageV32 } from '../whatsappConversationUnderstandingV32';
 import {
   classifyCustomerIntentStatementV32,
-  classifyCustomerTimingRequestV32,
+  extractCustomerTimingRequestsV32,
   isPrescriptionRequestV32,
   isStaffFollowUpPromiseV32,
   isDeliveryFollowUpPromiseV32,
@@ -138,13 +138,16 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
 
   // --- Explicit customer timing / wait requests (V32) ---
   const customerMessages = meaningful.filter((m) => m.role === 'customer');
-  const waitRequests: Array<{ message: NormalizedConversationMessageV32; whenInStock: boolean; days: number | null; sameDay: boolean }> = [];
+  const timingById = new Map(extractCustomerTimingRequestsV32(meaningful).map(row => [row.message.id,row]));
+  const waitRequests: Array<{ evidence: string[]; message: NormalizedConversationMessageV32; whenInStock: boolean; days: number | null; sameDay: boolean }> = [];
   for (const message of customerMessages) {
-    const timing = classifyCustomerTimingRequestV32(message.text);
+    const timingEvidence = timingById.get(message.id);
+    const timing = timingEvidence?.timing;
     const willWait = classifyCustomerIntentStatementV32(message.text) === 'will_wait';
     if (!timing && !willWait) continue;
     waitRequests.push({
       message,
+      evidence: timingEvidence?.evidenceMessageIds ?? [message.id],
       whenInStock: willWait || timing?.when === 'when_in_stock',
       days: timing?.when === 'days' ? timing.days : null,
       sameDay: timing?.when === 'same_day',
@@ -211,7 +214,7 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
       demand: null,
       duePolicy: request.days != null || request.sameDay ? 'customer_requested_time' : 'manual_schedule',
       requestedDelayDays: request.sameDay ? 0 : request.days,
-      evidence: [request.message.id],
+      evidence: request.evidence,
       level: 'strongly_inferred',
       score: 0.85,
     });
