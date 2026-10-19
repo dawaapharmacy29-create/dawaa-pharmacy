@@ -1023,6 +1023,7 @@ export const ROUTE_PERMISSION_MAP: Record<string, string | string[]> = {
   '/incentive-governance': 'manage_incentives',
   '/payroll': 'view_salary_calculator',
   '/invoices': ['view_invoices', 'view_invoice_import'],
+  '/internal-codes': 'view_sales_reports',
   '/returns': 'view_invoices',
   '/points': 'view_points',
   '/penalty-incentive': 'view_penalty_management',
