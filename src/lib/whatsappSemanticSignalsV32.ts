@@ -147,7 +147,7 @@ const AVAILABLE_RX =
   /(?:^|[\s،,])(?:موجود|متوفر|متاح)[ةه]?(?:$|[\s،,!.])|عندنا\s*(?:منه|منها)|(?:اه|أه|آه|ايوه|أيوه|ايوا)\s*(?:موجود|متوفر)/i;
 // "خدمة التوصيل متاحة" and similar service/payment statements are not product stock facts.
 const NON_STOCK_AVAILABILITY_CONTEXT_RX =
-  /(?:خدمة\s*)?(?:التوصيل|الدليفري|delivery)|متاح[ةه]?\s*(?:(?:اننا|إننا|ان|أن)\s*)?(?:نتواصل|[اأ]تصل|[اأ]كلم)|(?:الدفع|التحويل|فودافون\s*كاش|انستا\s*باي|instapay|visa|فيزا|mastercard|ماستر\s*كارد)/i;
+  /(?:خدمة\s*)?(?:التوصيل|الدليفري|delivery)|(?:لما\s*(?:يكون|يبقى)\s*|(?:فرص[ةه]|وقت|حضرتك)\s*)متاح[ةه]?\s*(?:(?:اننا|إننا|ان|أن)\s*)?(?:نتواصل|[اأ]تصل|[اأ]كلم)(?![\p{L}])|(?:الدفع|التحويل|فودافون\s*كاش|انستا\s*باي|instapay|visa|فيزا|mastercard|ماستر\s*كارد)/iu;
 // ---- Staff commitments (single owner: classifyStaffCommitmentsV32 below) ----
 // One structured grammar for "the staff member commits to do something and come back", consumed by
 // availability (check_pending), follow-up promises and scoring. It replaced two independent regex
@@ -861,10 +861,16 @@ export function isPrescriptionRequestV32(text: string): boolean {
  * message is not a contact/wait request. Never invents a date: "لما يتوفر" is `when_in_stock`.
  */
 export function classifyCustomerTimingRequestV32(text: string): CustomerTimingRequestV32 | null {
-  // A report of another person's past calls is not an instruction to call the customer.
-  const pastCallReport = /(?:المندوب|الدليفري|هو|هي)\s+(?:م?كلمن[يى]|اتصل)(?![\p{L}])|^\s*و?اتصل\s*(?:بي|بيا|عليا)\s*تان[يى]\s*الساع[ةه]/iu.test(text);
-  const explicitFutureRequest = TOMORROW_RX.test(text) || AFTER_DAYS_RX.test(text) || /(?:ممكن|خلي|عايز|عاوز|محتاج)/.test(text);
-  const callback = CUSTOMER_CALLBACK_RX.test(text) && (!pastCallReport || explicitFutureRequest);
+  // Classify each contact clause, so a past report cannot contaminate a later genuine request.
+  const requestedContact = /(?:ممكن|خلي|عايز|عاوز|محتاج)\s*(?:(?:المندوب|الدليفري|حضرتك|حد)\s*)?(?:يكلمني|يتصل\s*(?:بي|بيا)|تكلمني|تتصل\s*(?:بي|بيا))(?![\p{L}])/giu;
+  const requested = [...text.matchAll(requestedContact)].some(match =>
+    !/(?:مش|لا)\s*$/u.test(text.slice(0, match.index)));
+  const callback = requested || [...text.matchAll(new RegExp(CUSTOMER_CALLBACK_RX.source, 'giu'))].some(match => {
+    const before = text.slice(0, match.index);
+    if (/(?:المندوب|الدليفري|هو|هي)\s+(?:كان\s*)?$/u.test(before)) return false;
+    // A continued account of repeated calls at an elapsed clock time is not an imperative.
+    return !/^و?اتصل\s*(?:بي|بيا|عليا)\s*تان[يى]\s*الساع[ةه]/u.test(text.slice(match.index));
+  });
   const waitForStock = WHEN_IN_STOCK_RX.test(text);
   if (!callback && !waitForStock) return null;
   if (waitForStock) return { when: 'when_in_stock', days: null };

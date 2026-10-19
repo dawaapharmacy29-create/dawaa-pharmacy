@@ -898,7 +898,7 @@ var DELIVERY_RX = /توصيل|دليفري|delivery/i;
 var PROMISE_RX = /هبعت(?:لك|لحضرتك)?|هيوصل|هجهز(?:لك|لحضرتك)?|هوصلك/i;
 var UNAVAILABLE_RX = /(?:مش|مو|غير)\s*(?:موجود|متوفر|متاح)[ةه]?|مفيش\s*(?:منه|منها|حاليا|حاليًا|عندنا)|مش\s*عندنا|(?:الصنف|المنتج|ده|دي|هو|هي)\s*(?:خلص|خلصان[ةه]?|نفذ|ناقص[ةه]?)|(?:خلص|نفذ|ناقص[ةه]?)\s*(?:من\s*(?:عندنا|السوق|الشركة)|حاليا|حاليًا)|ناقص\s*في\s*السوق/i;
 var AVAILABLE_RX = /(?:^|[\s،,])(?:موجود|متوفر|متاح)[ةه]?(?:$|[\s،,!.])|عندنا\s*(?:منه|منها)|(?:اه|أه|آه|ايوه|أيوه|ايوا)\s*(?:موجود|متوفر)/i;
-var NON_STOCK_AVAILABILITY_CONTEXT_RX = /(?:خدمة\s*)?(?:التوصيل|الدليفري|delivery)|متاح[ةه]?\s*(?:(?:اننا|إننا|ان|أن)\s*)?(?:نتواصل|[اأ]تصل|[اأ]كلم)|(?:الدفع|التحويل|فودافون\s*كاش|انستا\s*باي|instapay|visa|فيزا|mastercard|ماستر\s*كارد)/i;
+var NON_STOCK_AVAILABILITY_CONTEXT_RX = /(?:خدمة\s*)?(?:التوصيل|الدليفري|delivery)|(?:لما\s*(?:يكون|يبقى)\s*|(?:فرص[ةه]|وقت|حضرتك)\s*)متاح[ةه]?\s*(?:(?:اننا|إننا|ان|أن)\s*)?(?:نتواصل|[اأ]تصل|[اأ]كلم)(?![\p{L}])|(?:الدفع|التحويل|فودافون\s*كاش|انستا\s*باي|instapay|visa|فيزا|mastercard|ماستر\s*كارد)/iu;
 var COMMIT_RECIPIENT = String.raw`(?:لك|ليك|ليكي|لكي|لكم|لحضرتك|لحضرتكم|لحضرتكو|حضرتك|معاك|معاكي|مع\s*حضرتك|عليك|عليكي|على\s*حضرتك)`;
 var COMMIT_FILLER = String.raw`(?:يا\s*(?:ا)?فندم|يا\s*دكتور[ةه]?|حالا|حالًا|دلوقتي|دلوقت|فورا|فورًا|بنفسي|تاني|كده|بس|ان\s*شاء\s*الله|إن\s*شاء\s*الله)`;
 var COMMIT_GAP = String.raw`(?:\s+(?:${COMMIT_RECIPIENT}|${COMMIT_FILLER}))*`;
@@ -1336,9 +1336,13 @@ function isPrescriptionRequestV32(text5) {
   return PRESCRIPTION_REQUEST_RX.test(text5);
 }
 function classifyCustomerTimingRequestV32(text5) {
-  const pastCallReport = /(?:المندوب|الدليفري|هو|هي)\s+(?:م?كلمن[يى]|اتصل)(?![\p{L}])|^\s*و?اتصل\s*(?:بي|بيا|عليا)\s*تان[يى]\s*الساع[ةه]/iu.test(text5);
-  const explicitFutureRequest = TOMORROW_RX.test(text5) || AFTER_DAYS_RX.test(text5) || /(?:ممكن|خلي|عايز|عاوز|محتاج)/.test(text5);
-  const callback = CUSTOMER_CALLBACK_RX.test(text5) && (!pastCallReport || explicitFutureRequest);
+  const requestedContact = /(?:ممكن|خلي|عايز|عاوز|محتاج)\s*(?:(?:المندوب|الدليفري|حضرتك|حد)\s*)?(?:يكلمني|يتصل\s*(?:بي|بيا)|تكلمني|تتصل\s*(?:بي|بيا))(?![\p{L}])/giu;
+  const requested = [...text5.matchAll(requestedContact)].some((match) => !/(?:مش|لا)\s*$/u.test(text5.slice(0, match.index)));
+  const callback = requested || [...text5.matchAll(new RegExp(CUSTOMER_CALLBACK_RX.source, "giu"))].some((match) => {
+    const before = text5.slice(0, match.index);
+    if (/(?:المندوب|الدليفري|هو|هي)\s+(?:كان\s*)?$/u.test(before)) return false;
+    return !/^و?اتصل\s*(?:بي|بيا|عليا)\s*تان[يى]\s*الساع[ةه]/u.test(text5.slice(match.index));
+  });
   const waitForStock = WHEN_IN_STOCK_RX.test(text5);
   if (!callback && !waitForStock) return null;
   if (waitForStock) return { when: "when_in_stock", days: null };
