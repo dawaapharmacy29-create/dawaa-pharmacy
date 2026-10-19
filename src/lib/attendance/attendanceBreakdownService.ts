@@ -96,7 +96,7 @@ export function partitionPendingOvertime<T extends { attendance_date: string }>(
   };
   for (const row of rows) {
     const day = String(row.attendance_date || '').slice(0, 10);
-    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(day)) result.undated.push(row);
+    if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(day)) result.undated.push(row);
     else if (day < start) result.previous.push(row);
     else if (day > end) result.future.push(row);
     else result.current.push(row);
