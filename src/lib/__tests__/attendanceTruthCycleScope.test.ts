@@ -42,6 +42,11 @@ describe('attendance cycle consistency closure (2026-10-19)', () => {
     expect(page).toMatch(/partitionPendingOvertime\(overtimeResult\.value, cycle\.start, today\)/);
     expect(overtime).toMatch(/aria-pressed=\{pendingScope === item\.id\}/);
     expect(overtime).toMatch(/visiblePending\.map\(\(row\)/);
+    // Failed or late requests must never present a false zero or stale branch's list.
+    expect(overtime).toMatch(/if \(sequence !== requestSequence\.current\) return/);
+    expect(overtime).toMatch(/setLoadError\(message\)/);
+    expect(overtime).toMatch(/\{!loadError && <div/);
+    expect(overtime).toMatch(/لا تعتبر الأعداد صفرًا/);
     expect(hr).not.toMatch(/const interventionCount = review\.needsManager \+ pendingOvertime \+ pendingTimeOff/);
   });
 
