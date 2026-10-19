@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 
 type Flag = { customer_code: string; flag_key: string; flag_label?: string | null };
+const KNOWN_INTERNAL_CODES = ['5','7','10','20','54','170','4902','12820'];
 import { loadInternalCodeInvoices, type Invoice } from '@/lib/internalCodesSalesService';
 const money = (value: number) => value.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const day = (value: string | null) => value ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(value)) : '';
@@ -28,7 +29,7 @@ export default function InternalCodesSales() {
     let alive = true;
     supabase.from('customer_flags').select('customer_code,flag_key,flag_label')
       .eq('flag_key', 'system_generic_code').eq('is_active', true)
-      .then(({ data, error }) => { if (!alive) return; if (error) setError(error.message); else setFlags((data || []) as Flag[]); });
+      .then(({ data, error }) => { if (!alive) return; if (error || !data?.length) { setFlags(KNOWN_INTERNAL_CODES.map(customer_code => ({customer_code,flag_key:'system_generic_code'}))); setError('تعذر تحميل قائمة الأكواد الحية؛ يتم عرض القائمة الداخلية المعروفة. قد تحتاج صلاحية قراءة الأكواد.'); } else setFlags((data || []) as Flag[]); });
     return () => { alive = false; };
   }, [allowed]);
   const codes = useMemo(() => [...new Set(flags.map(f => String(f.customer_code).trim()).filter(Boolean))].sort((a,b) => Number(a)-Number(b)), [flags]);
