@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, ChevronDown, ChevronUp, Clock3, History, Link2, ReceiptText, RefreshCw, ShieldCheck, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -19,6 +19,8 @@ export default function OvertimeApprovalCenter({ defaultBranch = '' }: { default
   const [pendingScope, setPendingScope] = useState<'cycle' | 'outside' | 'all'>('cycle');
   const [decisions, setDecisions] = useState<OvertimeDecisionRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const requestSequence = useRef(0);
   const [decidingId, setDecidingId] = useState<string | null>(null);
   const [noteById, setNoteById] = useState<Record<string, string>>({});
   const [expandedEvidenceId, setExpandedEvidenceId] = useState<string | null>(null);
@@ -26,18 +28,26 @@ export default function OvertimeApprovalCenter({ defaultBranch = '' }: { default
   useEffect(() => { setBranch(defaultBranch); }, [defaultBranch]);
 
   const load = useCallback(async () => {
+    const sequence = ++requestSequence.current;
     setLoading(true);
+    setLoadError(null);
     try {
       const [pendingRows, decisionRows] = await Promise.all([
         listPendingOvertime(branch || null),
         listOvertimeDecisions({ branch: branch || null, limit: 100 }),
       ]);
+      if (sequence !== requestSequence.current) return;
       setPending(pendingRows);
       setDecisions(decisionRows);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'تعذر تحميل بيانات الأوفر تايم');
+      if (sequence !== requestSequence.current) return;
+      const message = e instanceof Error ? e.message : 'تعذر تحميل بيانات الأوفر تايم';
+      setLoadError(message);
+      setPending([]);
+      setDecisions([]);
+      toast.error(message);
     } finally {
-      setLoading(false);
+      if (sequence === requestSequence.current) setLoading(false);
     }
   }, [branch]);
 
@@ -115,7 +125,13 @@ export default function OvertimeApprovalCenter({ defaultBranch = '' }: { default
 
       <StaleOvertimeReviewPanel branch={branch} onDecided={() => void load()} />
 
-      <div className="rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-4 shadow-sm">
+      {loadError && (
+        <div role="alert" className="rounded-2xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-4 text-sm font-bold">
+          تعذر تحميل قائمة الأوفر تايم وسجل القرارات. لا تعتبر الأعداد صفرًا: {loadError}
+          <button type="button" className="btn-secondary ms-3" onClick={() => void load()}>إعادة المحاولة</button>
+        </div>
+      )}
+      {!loadError && <div className="rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-4 shadow-sm">
         <div className="mb-3 flex items-center justify-between gap-2">
           <h3 className="flex items-center gap-2 font-black text-[var(--dawaa-status-warning-text)]"><Clock3 size={17} /> بانتظار الاعتماد</h3>
           <span className="rounded-full border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-theme-surface)] px-3 py-1 text-xs font-black text-[var(--dawaa-status-warning-text)]">{visiblePending.length.toLocaleString('ar-EG')}</span>
@@ -136,7 +152,9 @@ export default function OvertimeApprovalCenter({ defaultBranch = '' }: { default
           <span className="text-[11px] font-bold text-[var(--dawaa-theme-muted)]">الدورة: {cycleStart} ← {today}</span>
         </div>
 
-        {!visiblePending.length ? (
+        {loading && !pending.length ? (
+          <p className="text-sm font-bold text-[var(--dawaa-theme-muted)]">جارٍ تحميل قائمة الأوفر تايم...</p>
+        ) : !visiblePending.length ? (
           <p className="text-sm font-bold text-[var(--dawaa-theme-muted)]">لا توجد حالات أوفر تايم معلقة ضمن النطاق المختار.</p>
         ) : (
           <div className="grid gap-3">
@@ -203,9 +221,9 @@ export default function OvertimeApprovalCenter({ defaultBranch = '' }: { default
             ))}
           </div>
         )}
-      </div>
+      </div>}
 
-      <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
+      {!loadError && <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
         <h3 className="mb-3 flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]"><History size={17} /> سجل القرارات</h3>
         {!decisions.length ? (
           <p className="text-sm font-bold text-[var(--dawaa-theme-muted)]">لا توجد قرارات سابقة بعد.</p>
@@ -247,7 +265,7 @@ export default function OvertimeApprovalCenter({ defaultBranch = '' }: { default
             </table>
           </div>
         )}
-      </div>
+      </div>}
     </div>
   );
 }
