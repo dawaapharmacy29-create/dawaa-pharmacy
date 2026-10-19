@@ -43,36 +43,63 @@ Branch: `fix/attendance-truth-cycle-scope-20261019`
 - This work does **not** create or approve any open-ended leave request. The leave-period business policy, start date and paid/unpaid nature must be resolved separately through the canonical leave workflow.
 - Older branch `main` updates found during development affected invoice/sales scope, with no direct file overlap, but this feature branch may need a clean update before merge.
 
-## Additional finding — drift detection compared different engines
+## Further audit — effective historical engine and manager decisions
 
-The 2026-10-19 browser screenshots exposed 25 apparent candidate-hour differences and
-230 classification-only discrepancies in the old `attendance_resolution_drift_v1`
-read. **Do not bulk-reopen the 25 days** based on that output.
+The screenshots and a **read-only** Production simulation exposed two competing
+interpretations:
 
-Read-only Production SQL audit through 2026-10-18 (approved attendance only):
+1. The deployed drift RPC always uses V2, even for materialized V3 days.
+2. The first draft fix used the employee's **current** canonical route, which
+   is mutable and can retroactively select V3 for a day saved under V2.
 
-- Old hard-coded V2 rebuild: 25 candidate-hour differences and 230 classification-only differences.
-- Rebuild via canonical `dawaa_build_attendance_day_resolution_current_v1` (excluding explicitly out-of-scope routes): 22 candidate-hour differences and 179 classification-only differences, covering the same approved records and dates.
-- Five old-only false positives (V3 flexible attendance misrouted to V2; these
-  included Dr Mohamed El-Agouz on 12/13/15 Oct, Dr Alia on 10 Oct and Dr Amira on 4 Oct).
-- Two additionally detected differences on 26/27 Sep for Dr Mohamed El-Agouz, which must
-  be reconciled against stored manual policies before any action.
-- This is a **diagnostic difference between candidate hours**, not evidence by itself
-  of an erroneous payroll settlement: compare `payroll_eligible_hours`, manual
-  authorization, effective policies, and approved snapshot before reopening.
-- No attendance approvals, payroll snapshots, overtime records or statuses were changed.
+**Use the day-specific `attendance_daily_summary.resolution_version`** to select
+the V2 or V3 comparator, rather than the staff's current role/attendance policy.
+Unknown versions now produce a review signal in both generic and delivery
+financial-drift guards (fail closed, not silently omitted). This is not a
+retroactive recalculation or approval edit.
 
-The proposed `20261019123000_attendance_drift_canonical_engine_route_v1.sql`
-migration aligns the four existing drift readers with the central V2/V3 router,
-preserving signatures, branch scope and review authorization. It also avoids
-treating an out-of-scope current route as evidence that historical approved truth
-is invalid.
+### Verified SQL shadow-read: 26 Sep–18 Oct 2026
 
-The UI wording now distinguishes *reinterpreted candidate-hour mismatches* from
-proven financial errors. A regression test
-`attendanceDriftCanonicalEngine.test.ts` guards the four functions and UI copy.
+| Measure | Deployed forced V2 | Proposed stored-version V2/V3 |
+|---|---:|---:|
+| Approved days examined | 715 | 715 |
+| Candidate-hour differences | 25 | 20 |
+| Classification-only differences | 230 | 186 |
+| Old false hour alarms removed | — | 5 |
+| Newly invented differences | — | 0 |
 
-**Outstanding:** run the migration in an isolated PGlite/Postgres fixture, execute
-Vitest/typecheck/build, and compare old and new per-staff drilldowns, particularly
-manager-authorized punches and September 26/27. Production still runs the old RPCs.
-Do not publish/merge/deploy until these checks pass and the user explicitly approves.
+The 20 remaining candidate-hour differences have saved decision notes.
+Nineteen have a non-`system` origin; the one system-origin case still includes
+a manager note. Examples: four manager-approved 08:00 check-outs for Dr Omar
+Eissa, approved early departures, manual clock adjustments, and schedule changes.
+**None should be reopened based solely on this count.** The 20 are not
+necessarily financial-payroll defects.
+
+`candidate_hours`, `payroll_eligible_hours` and actual
+`base_payable_hours` have different meanings. The canonical
+`attendance_payroll_engine_core_v2` derives payable hours from schedule bounds,
+deduction audits and approved notes; it does **not** simply sum
+`payroll_eligible_hours`. On the same 715 approved rows, 42 have positive
+candidate hours but a null `payroll_eligible_hours` value. This is a
+**data-quality/reconciliation question**, not evidence that those hours were
+unpaid or that the stored salary is incorrect.
+
+### Files on the branch
+
+- `20261019123000_attendance_drift_canonical_engine_route_v1.sql` now uses the
+  stored engine version for four existing drift RPCs; no schema/signature,
+  authorization or salary formula changes.
+- `attendanceDriftCanonicalEngine.test.ts` asserts both engine dispatch
+  branches and that unsupported versions are surfaced instead of ignored.
+- `AttendancePayrollTruthPanel.tsx` explains candidate-hour divergence without
+  instructing automatic undoing of an approved payroll decision.
+
+### Before deployment
+
+Run an isolated PostgreSQL/PGlite replay and Vitest/typecheck/Vite build.
+Investigate the 20 evidence-backed deviations, prioritizing changes to actual
+payable hours or payroll finalization readiness. Reconcile employee effective
+dates independently of today's visible roster. Production RPCs remain unchanged,
+and no changes to posted payroll, raw biometric logs or approved manual
+decisions have been made. No merge, preview deployment or new Supabase project
+was authorized.
