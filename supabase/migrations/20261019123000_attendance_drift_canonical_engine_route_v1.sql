@@ -8,9 +8,11 @@
 -- (5 old-only false positives, 2 newly detected). This is not a decision
 -- about pay, manual overrides, or which cases to reopen.
 --
--- Replace ONLY the builder call in each function. Preserve the existing
--- signatures, read scopes, actor rules, math and return shapes. Out-of-scope
--- historical rows are not a reason to invalidate previously approved truth.
+-- Use the engine recorded on the approved day, NOT today's mutable staff policy:
+-- resolution_version=2 -> V2; resolution_version=3 -> V3.
+-- Unknown/unsupported versions are fail-closed and must remain visible.
+-- Preserve function names/signatures, read scopes, actor checks and return shapes.
+-- This avoids both phantom V3->V2 drift and V2->current-V3 false differences.
 -- NO data DML; NO approval replay; NO grant changes; not applied to Production.
 --
 -- attendance_resolution_drift_count_v1
@@ -23,15 +25,18 @@ AS $function$
   select count(*)::integer
   from public.attendance_daily_summary a
   cross join lateral (
-    select public.dawaa_build_attendance_day_resolution_current_v1(a.staff_id,a.attendance_date) as j
+    select case
+        when a.resolution_version = 3 then public.dawaa_build_attendance_day_resolution_v3(a.staff_id,a.attendance_date)
+        when a.resolution_version = 2 then public.dawaa_build_attendance_day_resolution_v2(a.staff_id,a.attendance_date)
+        else jsonb_build_object('resolution_status','unverifiable_resolution_version','route','unverifiable_resolution_version')
+      end as j
   ) rebuilt
   where a.staff_id=p_staff_id
     and a.attendance_date between p_start and least(p_end,(now() at time zone 'Africa/Cairo')::date-1)
     and a.status='approved'
-    -- A current out-of-scope route cannot invalidate an old approved historical day.
-    and coalesce(rebuilt.j->>'route','') <> 'out_of_scope'
     and (
-      coalesce(a.resolution_status,'') is distinct from coalesce(rebuilt.j->>'resolution_status','')
+      coalesce(a.resolution_version,0) not in (2,3)
+      or coalesce(a.resolution_status,'') is distinct from coalesce(rebuilt.j->>'resolution_status','')
       or coalesce(a.schedule_id::text,'') is distinct from coalesce(rebuilt.j->>'schedule_id','')
       or abs(coalesce(a.candidate_hours,0)-coalesce((rebuilt.j->>'candidate_hours')::numeric,0))>0.10
     );
@@ -60,6 +65,7 @@ begin
     coalesce(a.candidate_hours,0),
     coalesce((rebuilt.j->>'candidate_hours')::numeric,0),
     concat_ws(',',
+      case when coalesce(a.resolution_version,0) not in (2,3) then 'unverifiable_resolution_version' end,
       case when coalesce(a.resolution_status,'') is distinct from coalesce(rebuilt.j->>'resolution_status','') then 'status_changed' end,
       case when coalesce(a.schedule_id::text,'') is distinct from coalesce(rebuilt.j->>'schedule_id','') then 'schedule_changed' end,
       case when abs(coalesce(a.candidate_hours,0)-coalesce((rebuilt.j->>'candidate_hours')::numeric,0))>0.10 then 'hours_changed' end
@@ -67,16 +73,19 @@ begin
   from public.attendance_daily_summary a
   join public.staff s on s.id=a.staff_id
   cross join lateral (
-    select public.dawaa_build_attendance_day_resolution_current_v1(a.staff_id,a.attendance_date) as j
+    select case
+        when a.resolution_version = 3 then public.dawaa_build_attendance_day_resolution_v3(a.staff_id,a.attendance_date)
+        when a.resolution_version = 2 then public.dawaa_build_attendance_day_resolution_v2(a.staff_id,a.attendance_date)
+        else jsonb_build_object('resolution_status','unverifiable_resolution_version','route','unverifiable_resolution_version')
+      end as j
   ) rebuilt
   where a.attendance_date between p_start and least(p_end,(now() at time zone 'Africa/Cairo')::date-1)
     and a.status='approved'
-    -- A current out-of-scope route cannot invalidate an old approved historical day.
-    and coalesce(rebuilt.j->>'route','') <> 'out_of_scope'
     and (p_branch is null or trim(p_branch)='' or p_branch='الكل' or s.branch=p_branch)
     and public.dawaa_can_read_staff_attendance_log(s.id,s.branch)
     and (
-      coalesce(a.resolution_status,'') is distinct from coalesce(rebuilt.j->>'resolution_status','')
+      coalesce(a.resolution_version,0) not in (2,3)
+      or coalesce(a.resolution_status,'') is distinct from coalesce(rebuilt.j->>'resolution_status','')
       or coalesce(a.schedule_id::text,'') is distinct from coalesce(rebuilt.j->>'schedule_id','')
       or abs(coalesce(a.candidate_hours,0)-coalesce((rebuilt.j->>'candidate_hours')::numeric,0))>0.10
     )
@@ -94,14 +103,19 @@ AS $function$
   select count(*)::integer
   from public.attendance_daily_summary a
   cross join lateral (
-    select public.dawaa_build_attendance_day_resolution_current_v1(a.staff_id,a.attendance_date) as j
+    select case
+        when a.resolution_version = 3 then public.dawaa_build_attendance_day_resolution_v3(a.staff_id,a.attendance_date)
+        when a.resolution_version = 2 then public.dawaa_build_attendance_day_resolution_v2(a.staff_id,a.attendance_date)
+        else jsonb_build_object('resolution_status','unverifiable_resolution_version','route','unverifiable_resolution_version')
+      end as j
   ) rebuilt
   where a.staff_id=p_staff_id
     and a.attendance_date between p_start and least(p_end,(now() at time zone 'Africa/Cairo')::date-1)
     and a.status='approved'
-    -- A current out-of-scope route cannot invalidate an old approved historical day.
-    and coalesce(rebuilt.j->>'route','') <> 'out_of_scope'
-    and abs(coalesce(a.candidate_hours,0)-coalesce((rebuilt.j->>'candidate_hours')::numeric,0))>0.10;
+    and (
+      coalesce(a.resolution_version,0) not in (2,3)
+      or abs(coalesce(a.candidate_hours,0)-coalesce((rebuilt.j->>'candidate_hours')::numeric,0))>0.10
+    );
 $function$;
 
 -- delivery_attendance_financial_drift_guard_v1
@@ -123,6 +137,8 @@ AS $function$
       a.approval_note,
       a.time_off_request_id,
       (
+        coalesce(a.resolution_version,0) in (2,3)
+        and (
         coalesce(a.resolution_origin,'') like 'manual%'
         or coalesce(a.resolution_origin,'') in ('manager_decision','manual_manager_decision')
         or coalesce(a.approval_note,'') ~ '(قرار الإدارة|قرار المدير|بإذن|بدون خصم)'
@@ -136,17 +152,23 @@ AS $function$
           from public.attendance_manual_actions_audit x
           where x.target_id=a.id
         )
+        )
       ) explained_by_approved_override
     from public.attendance_daily_summary a
     cross join lateral (
-      select public.dawaa_build_attendance_day_resolution_current_v1(a.staff_id,a.attendance_date) j
+      select case
+        when a.resolution_version = 3 then public.dawaa_build_attendance_day_resolution_v3(a.staff_id,a.attendance_date)
+        when a.resolution_version = 2 then public.dawaa_build_attendance_day_resolution_v2(a.staff_id,a.attendance_date)
+        else jsonb_build_object('resolution_status','unverifiable_resolution_version','route','unverifiable_resolution_version')
+      end j
     ) rebuilt
     where a.staff_id=p_staff_id
       and a.attendance_date between p_start and least(p_end,(now() at time zone 'Africa/Cairo')::date-1)
       and a.status='approved'
-    -- A current out-of-scope route cannot invalidate an old approved historical day.
-    and coalesce(rebuilt.j->>'route','') <> 'out_of_scope'
-      and abs(coalesce(a.candidate_hours,0)-coalesce((rebuilt.j->>'candidate_hours')::numeric,0))>0.10
+      and (
+        coalesce(a.resolution_version,0) not in (2,3)
+        or abs(coalesce(a.candidate_hours,0)-coalesce((rebuilt.j->>'candidate_hours')::numeric,0))>0.10
+      )
   )
   select jsonb_build_object(
     'staff_id',p_staff_id,
