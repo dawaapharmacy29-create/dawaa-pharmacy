@@ -178,20 +178,21 @@ export default function EmployeeAttendanceBreakdown({ branches, defaultBranch, c
                   <div>
                     <p className="text-lg font-black text-[var(--dawaa-theme-heading)]">{detail.staff.name}</p>
                     <p className="text-xs font-bold text-[var(--dawaa-theme-muted)]">
-                      {detail.staff.role} · {detail.staff.branch}
+                      {detail.staff.role} · الفرع الحالي: {detail.staff.branch || 'غير محدد'}
                       {(() => { const t = formatTenure(roster.find((r) => r.staff_id === selectedStaffId)?.tenure_days ?? null); return t ? ` · بالشركة منذ ${t}` : ''; })()}
                     </p>
                   </div>
                 </div>
 
+                <p className="mt-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">الفرع المعروض هو فرع ملف الموظف الحالي. وجود بصمة في فرع آخر في تاريخ سابق يُراجع من سجل العمل بين الفروع، ولا يُعد مخالفة تلقائيًا.</p>
                 {summary && (
                   <>
                     {summary.resolution_drift_days > 0 && (
                       <div className="mt-3 flex items-start gap-2 rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-2 text-xs font-bold text-[var(--dawaa-status-warning-text)]">
                         <AlertTriangle size={14} className="mt-0.5 shrink-0" />
                         <span>
-                          يوجد {summary.resolution_drift_days} يوم معتمد قديم تغيّر تفسيره بعد تصحيح الجداول
-                          {summary.financial_drift_days > 0 ? `، منهم ${summary.financial_drift_days} يوم فيه فرق ساعات مالي ويحتاج إعادة اعتماد.` : '، بدون فرق ساعات مالي حاليًا.'}
+                          يوجد {summary.resolution_drift_days} يوم معتمد يختلف تفسيره الحالي عن التفاصيل المحفوظة
+                          {summary.financial_drift_days > 0 ? `، منها ${summary.financial_drift_days} يوم باختلاف ساعات المرشح. راجع القرارات المعتمدة أولًا؛ لا تعِد الاعتماد لمجرد ظهور اختلاف.` : '، من دون اختلاف في ساعات المرشح.'}
                         </span>
                       </div>
                     )}

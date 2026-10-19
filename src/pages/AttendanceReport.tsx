@@ -13,7 +13,6 @@ import { canManageBiometricOperations } from '@/lib/core/permissionSystem';
 import { listPendingOvertime, partitionPendingOvertime } from '@/lib/attendance/attendanceBreakdownService';
 import { listStaffTimeOffRequests } from '@/lib/timeOffService';
 import {
-  applyConfirmedBiometricBatch,
   assignBiometricStaffMapping,
   getAttendanceDailyCommand,
   getAttendanceDailyIntelligence,
@@ -300,7 +299,6 @@ export default function AttendanceReport() {
   const [selectedCandidate, setSelectedCandidate] = useState<StaffCandidate | null>(null);
   const [crossSourceCandidates, setCrossSourceCandidates] = useState<CrossSourceCandidate[] | null>(null);
   const [mappingBusy, setMappingBusy] = useState(false);
-  const [batchMappingBusy, setBatchMappingBusy] = useState(false);
   const [logs, setLogs] = useState<any[]>([]);
   const [locations, setLocations] = useState<AttendanceLocation[]>([]);
   const [position, setPosition] = useState<DevicePosition | null>(null);
@@ -520,17 +518,6 @@ export default function AttendanceReport() {
     finally { setMappingBusy(false); }
   }, [loadApprovalsSummary, loadDaily, loadSyncHealth, mappingTarget, selectedCandidate]);
 
-  const applyConfirmedBatch = useCallback(async () => {
-    if (!window.confirm('اعتماد ٢١ ربطًا مؤكّدًا بالأسماء والفرع من القائمة التي راجعها صاحب العمل؟ سيتم إعادة معالجة أيام الحضور المتأثرة. الأكواد غير المعروفة والسجلات المؤرشفة خارج هذه الدفعة.')) return;
-    setBatchMappingBusy(true);
-    try {
-      const result = await applyConfirmedBiometricBatch();
-      toast.success(`تم ربط ${result.applied ?? 0} كود مؤكد. كان ${result.already_mapped ?? 0} مربوطًا بالفعل.`);
-      await Promise.all([loadSyncHealth(), loadDaily(), loadApprovalsSummary()]);
-    } catch (e) { toast.error(e instanceof Error ? e.message : 'تعذر اعتماد دفعة الربط؛ لم يتم تطبيقها'); }
-    finally { setBatchMappingBusy(false); }
-  }, [loadApprovalsSummary, loadDaily, loadSyncHealth]);
-
   useEffect(() => { if (activeTab === 'clock') void loadClock(); }, [activeTab, loadClock]);
   useEffect(() => { if (activeTab === 'daily') void loadDaily(); }, [activeTab, loadDaily]);
   useEffect(() => { if (activeTab === 'dashboard') void loadDashboardDailySummary(); }, [activeTab, loadDashboardDailySummary]);
@@ -677,7 +664,7 @@ export default function AttendanceReport() {
         </TabsList></Tabs>
         {systemSubTab === 'sync' && <Suspense fallback={<TableSkeleton />}><AttendanceSyncCommandCenter branches={branches} defaultBranch={effectiveBranch} /></Suspense>}
         {systemSubTab === 'unmapped' && <>
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm"><div><h2 className="font-black text-[var(--dawaa-theme-heading)]">صحة مزامنة جهاز البصمة وربط الأكواد</h2><p className="text-xs font-bold text-[var(--dawaa-theme-muted)]">مراقبة مباشرة للاتصال والمزامنة، وربط أكواد البصمة غير المرتبطة بموظف. يتم التحديث تلقائيًا كل دقيقة.</p></div><div className="flex flex-wrap gap-2"><button disabled={batchMappingBusy || loadingSync} onClick={() => void applyConfirmedBatch()} className="btn-secondary">{batchMappingBusy ? 'جارٍ ربط الأكواد...' : 'اعتماد ٢١ كود مؤكّد'}</button><button onClick={() => void loadSyncHealth()} className="btn-primary"><RefreshCw size={16} className={loadingSync ? 'animate-spin' : ''} /> تحديث</button></div></div>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm"><div><h2 className="font-black text-[var(--dawaa-theme-heading)]">مزامنة البصمات وربط الأكواد</h2><p className="text-xs font-bold text-[var(--dawaa-theme-muted)]">ربط الأكواد غير المعروفة يتم لكل كود بعد التأكد من هوية الموظف. لا يوجد اعتماد جماعي ثابت.</p><p className="mt-1 text-xs font-black text-[var(--dawaa-theme-heading)]">{loadingSync ? 'جارٍ تحديث الأكواد…' : `الأكواد المعروضة للمراجعة: ${unmappedRows.length.toLocaleString('ar-EG')}`}</p></div><div className="flex flex-wrap gap-2"><button disabled={loadingSync} onClick={() => void loadSyncHealth()} className="btn-primary"><RefreshCw size={16} className={loadingSync ? 'animate-spin' : ''} /> تحديث المزامنة</button></div></div>
           {loadingSync ? <TableSkeleton /> : syncHealth ? <SyncHealthPanel health={syncHealth} /> : <Empty text="لا توجد بيانات مزامنة متاحة." />}
           {!loadingSync && <BiometricMappingQueue rows={unmappedRows} target={mappingTarget} crossSourceCandidates={crossSourceCandidates} search={candidateSearch} candidates={candidates} selected={selectedCandidate} busy={mappingBusy} onOpen={(row) => { setMappingTarget(row); setCandidateSearch(row.source_name || ''); setCandidates([]); setSelectedCandidate(null); }} onClose={() => { setMappingTarget(null); setCandidateSearch(''); setCandidates([]); setSelectedCandidate(null); }} onSearchChange={setCandidateSearch} onSearch={() => void searchMappingCandidates()} onSelect={setSelectedCandidate} onAssign={() => void assignMapping()} />}
         </>}
