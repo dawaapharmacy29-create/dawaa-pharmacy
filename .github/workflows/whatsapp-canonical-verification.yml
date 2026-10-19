@@ -88,6 +88,8 @@ jobs:
           src/lib/salesIntelligence/__tests__/conversationEvaluationFollowUp.test.ts
           src/lib/__tests__/staffCommitmentClassifierV32.test.ts
           src/components/salesIntelligence/__tests__/CaseIntelligenceWorkspace.test.tsx
+          src/lib/salesIntelligence/qa/__tests__/queries.test.ts
+          src/features/customer-requests/domain/__tests__/productLabelQuality.test.ts
           src/lib/salesIntelligence/__tests__/saleAttributionEngine.test.ts
           src/lib/salesIntelligence/__tests__/saleProofState.test.ts
           src/lib/salesIntelligence/__tests__/basketInvoiceMatchingEngine.test.ts
