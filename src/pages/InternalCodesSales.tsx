@@ -8,6 +8,7 @@ const money = (value: number) => value.toLocaleString('ar-EG', { minimumFraction
 const day = (value: string | null) => value ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(value)) : '';
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 const monthStart = () => today().slice(0, 7) + '-01';
+const previousDay = (date: string) => { const d = new Date(date + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0, 10); };
 const nextDay = (date: string) => { const d = new Date(date + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); };
 const invoiceAmount = (r: Invoice) => Number(r.net_amount ?? r.net_total ?? r.amount ?? 0);
 
@@ -43,8 +44,8 @@ export default function InternalCodesSales() {
         let query = supabase.from('sales_invoices')
           .select('id,invoice_number,invoice_date,customer_code,branch,customer_name,net_amount,net_total,amount,seller_name')
           .in('customer_code', codes)
-          .gte('invoice_date', from + 'T00:00:00+02:00')
-          .lt('invoice_date', nextDay(to) + 'T00:00:00+02:00')
+          .gte('invoice_date', previousDay(from) + 'T00:00:00Z')
+          .lt('invoice_date', nextDay(to) + 'T00:00:00Z')
           .order('invoice_date', { ascending: true }).order('id', { ascending: true })
           .range(offset, offset + pageSize - 1);
         if (branch !== 'all') query = query.eq('branch', branch);
