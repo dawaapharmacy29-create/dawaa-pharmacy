@@ -121,6 +121,7 @@ export const GROUPS: NavGroup[] = [
 
   { title: 'الفواتير والمشتريات', icon: FileSpreadsheet, items: [
     { path: '/invoices', icon: FileSpreadsheet, label: 'استيراد فواتير المبيعات', permission: 'view_invoices' },
+    { path: '/internal-codes', icon: BarChart3, label: 'الأكواد الداخلية', permission: 'view_sales_reports' },
     { path: '/purchases', icon: FileSpreadsheet, label: 'المشتريات', permission: 'view_purchases' },
     { path: '/purchase-invoice-entry', icon: FileSpreadsheet, label: 'إدخال فاتورة مشتريات', allowedRoles: ['assistant'] },
     { path: '/purchase-invoice-review', icon: ClipboardCheck, label: 'مراجعة فواتير المشتريات', excludeRoles: ['pharmacist', 'assistant', 'customer_service_manager'] },
