@@ -20,7 +20,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
 import { canSeeAllBranches } from '@/lib/security/permissionScopes';
 import { canManageBiometricOperations, getRoutePermissions, normalizeRole } from '@/lib/core/permissionSystem';
-import { listPendingOvertime } from '@/lib/attendance/attendanceBreakdownService';
+import { listPendingOvertime, partitionPendingOvertime } from '@/lib/attendance/attendanceBreakdownService';
 import { listStaffTimeOffRequests } from '@/lib/timeOffService';
 import { getHRTruthQualitySnapshotV2, type HRTruthQualitySnapshotV2 } from '@/lib/hr/hrTruthService';
 import { getHRWorkforceCycleReadinessV2, type HRWorkforceCycleReadinessV2 } from '@/lib/hr/hrCommandCenterService';
@@ -194,6 +194,7 @@ export default function HRWorkforceCenter() {
   });
   const [sync, setSync] = useState<SyncSummary>({ status: 'unknown', lagMinutes: null, latestActivity: null, devices: 0 });
   const [pendingOvertime, setPendingOvertime] = useState(0);
+  const [outsideCycleOvertime, setOutsideCycleOvertime] = useState(0);
   const [pendingTimeOff, setPendingTimeOff] = useState(0);
   const [truth, setTruth] = useState<HRTruthQualitySnapshotV2 | null>(null);
   const [truthAvailable, setTruthAvailable] = useState(false);
@@ -259,7 +260,11 @@ export default function HRWorkforceCenter() {
         });
       }
 
-      if (overtimeResult.status === 'fulfilled') setPendingOvertime((overtimeResult.value || []).length);
+      if (overtimeResult.status === 'fulfilled') {
+        const overtimeByPeriod = partitionPendingOvertime(overtimeResult.value || [], cycleStart, today);
+        setPendingOvertime(overtimeByPeriod.current.length);
+        setOutsideCycleOvertime(overtimeByPeriod.previous.length + overtimeByPeriod.future.length + overtimeByPeriod.undated.length);
+      }
       if (timeOffResult.status === 'fulfilled') setPendingTimeOff((timeOffResult.value || []).length);
       if (truthResult.status === 'fulfilled') {
         setTruth(truthResult.value);
@@ -286,7 +291,6 @@ export default function HRWorkforceCenter() {
   useEffect(() => { void load(); }, [load]);
 
   const attendanceCompleted = Math.max(0, daily.onTime + daily.late);
-  const interventionCount = review.needsManager + pendingOvertime + pendingTimeOff;
   const syncHealthy = sync.status === 'healthy';
   const truthBlockers = truth
     ? truth.active_without_schedule + truth.active_schedule_branch_mismatch + truth.legacy_shift_drift + truth.archived_visible_in_schedule
@@ -408,9 +412,9 @@ export default function HRWorkforceCenter() {
         </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Metric label="حالات حضور تحتاج قرار" value={available('صندوق المراجعة') ? review.needsManager : 'غير متاح'} hint="عدد أيام/حالات حضور داخل الدورة، وليس عدد الموظفين" icon={ClipboardCheck} tone={review.needsManager ? 'warn' : 'ok'} />
-          <Metric label="أوفر تايم معلق" value={available('الأوفر تايم') ? pendingOvertime : 'غير متاح'} hint="ينتظر اعتمادًا بشريًا" icon={Clock} tone={pendingOvertime ? 'warn' : 'ok'} />
-          <Metric label="طلبات إجازة" value={available('طلبات الإجازة') ? pendingTimeOff : 'غير متاح'} hint="طلبات معلقة" icon={CalendarDays} tone={pendingTimeOff ? 'warn' : 'ok'} />
-          <Metric label="إجمالي عناصر تحتاج تدخل" value={available('صندوق المراجعة') && available('الأوفر تايم') && available('طلبات الإجازة') ? interventionCount : 'غير متاح'} hint="مجموع حالات الحضور + الأوفر تايم + طلبات الإجازة، وليس عدد الموظفين" icon={AlertTriangle} tone={interventionCount ? 'warn' : 'ok'} />
+          <Metric label="أوفر تايم الدورة" value={available('الأوفر تايم') ? pendingOvertime : 'غير متاح'} hint={`${cycleStart} ← ${today} · ينتظر قرارًا بشريًا`} icon={Clock} tone={pendingOvertime ? 'warn' : 'ok'} />
+          <Metric label="طلبات إجازة معلقة" value={available('طلبات الإجازة') ? pendingTimeOff : 'غير متاح'} hint="جميع الفترات ضمن صلاحيات الحساب؛ ليست مقيّدة بالدورة" icon={CalendarDays} tone={pendingTimeOff ? 'warn' : 'ok'} />
+          <Metric label="أوفر تايم خارج الدورة" value={available('الأوفر تايم') ? outsideCycleOvertime : 'غير متاح'} hint="طلبات أقدم أو مستقبلية؛ للمراجعة منفصلة عن دورة الحضور" icon={AlertTriangle} tone={outsideCycleOvertime ? 'warn' : 'ok'} />
         </div>
       </section>
 
