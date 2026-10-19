@@ -442,17 +442,17 @@ describe('loadDatabaseDayComparison', () => {
       { date: '2026-07-03', count: 2, total: 300 },
     ]);
     expect(summary.databaseByDay).toEqual([
-      { date: '2026-07-03', count: 2, total: 300 },
+      { date: '2026-07-03', count: 1, total: 100 },
     ]);
     expect(summary.dayDatabaseComparison?.[0]).toMatchObject({
       date: '2026-07-03',
-      status: 'matched',
+      status: 'partial',
       fileCount: 2,
       fileTotal: 300,
-      databaseCount: 2,
-      databaseTotal: 300,
-      countDifference: 0,
-      difference: 0,
+      databaseCount: 1,
+      databaseTotal: 100,
+      countDifference: 1,
+      difference: 200,
     });
     expect(summary.databaseComparisonQuery).toMatchObject({
       table: 'sales_invoices',
