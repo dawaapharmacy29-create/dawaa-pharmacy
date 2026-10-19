@@ -8768,7 +8768,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v32-contextual-basket-clarifications";
+var PIPELINE_VERSION = "sales-intelligence-v33-review-preserving-refresh";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v10-payment-continuation-ambiguity-safe",
   historicalClosure: "historical-closure-v1",
@@ -14052,7 +14052,7 @@ async function persistAutomaticCaseConversationReviewWithClient(client, input) {
 }
 
 // src/lib/salesIntelligence/refresh/v22SemanticProjection.ts
-var V22_SEMANTIC_PROJECTION_VERSION = "v22-semantic-projection-v1";
+var V22_SEMANTIC_PROJECTION_VERSION = "v22-semantic-projection-v2-review-preservation";
 var V22_PROJECTED_COLUMNS = [
   "order_intent",
   "commercial_opportunity",
@@ -14140,12 +14140,13 @@ function aggregateV22Projection(facts) {
   }
   const sorted = facts.slice().sort((a, b) => a.salesCaseId.localeCompare(b.salesCaseId));
   const projected = sorted.map(projectSingleCase);
+  const canonicalReviewRequired = sorted.some((fact) => fact.view.review?.required === true);
   const evidenceMessageIds = [...new Set(sorted.flatMap((f) => f.view.operationalDisposition.evidenceMessageIds))];
   const reasonCodes = [...new Set(sorted.flatMap((f) => f.view.operationalDisposition.reasonCodes))];
   const confidence3 = Math.min(...sorted.map((f) => f.view.operationalDisposition.confidence.score || 0));
   if (projected.length === 1) {
     const { _state, _nba, ...values } = projected[0];
-    return { status: "ok", values: { ...values, needs_human_review: false }, reasonCodes, evidenceMessageIds, confidence: confidence3, mode: "direct" };
+    return { status: "ok", values: { ...values, needs_human_review: canonicalReviewRequired }, reasonCodes, evidenceMessageIds, confidence: confidence3, mode: "direct" };
   }
   const states = new Set(projected.map((p) => p._state));
   const openStates = [...states].filter((s) => s !== "closed");
@@ -14162,7 +14163,7 @@ function aggregateV22Projection(facts) {
     const { _state, _nba, ...values } = leader;
     return {
       status: "ok",
-      values: { ...values, ...base, needs_human_review: false },
+      values: { ...values, ...base, needs_human_review: canonicalReviewRequired },
       reasonCodes: [...reasonCodes, "v22_projection.aggregate_agreeing_cases"],
       evidenceMessageIds,
       confidence: confidence3,
@@ -14199,6 +14200,10 @@ function decideV22Projection(row, facts, nowIso) {
   const preliminary = previous?.preliminary ?? Object.fromEntries(V22_PROJECTED_COLUMNS.map((column) => [column, row[column] ?? null]));
   const guards = [];
   const values = { ...aggregate.values };
+  if (row.needs_human_review === true || Number(row.media_missing) > 0 || caseJson.requiresHumanApproval === true) {
+    values.needs_human_review = true;
+    guards.push("v22_projection.review_clearance_requires_explicit_command");
+  }
   if (String(caseJson.canonicalSaleProof?.state || "") === "proven") {
     delete values.proposed_outcome;
     delete values.outcome_confidence;
@@ -14285,7 +14290,7 @@ async function projectCanonicalSemanticsToV22(service, v22CaseIds, nowIso = (/* 
   }
   return out;
 }
-var ROW_COLUMNS = ["id", "case_json", "confirmed_outcome", "updated_at", ...V22_PROJECTED_COLUMNS].join(",");
+var ROW_COLUMNS = ["id", "case_json", "confirmed_outcome", "updated_at", "media_missing", ...V22_PROJECTED_COLUMNS].join(",");
 async function projectOne(service, v22Id, facts, nowIso) {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const { data: row, error } = await service.from("whatsapp_customer_cases_v22").select(ROW_COLUMNS).eq("id", v22Id).maybeSingle();
