@@ -103,3 +103,19 @@ dates independently of today's visible roster. Production RPCs remain unchanged,
 and no changes to posted payroll, raw biometric logs or approved manual
 decisions have been made. No merge, preview deployment or new Supabase project
 was authorized.
+
+### Historical branch attribution (separate, authorization-sensitive)
+
+Read-only Production check on 2026-09-26 to 2026-10-18: 26 daily
+attendance rows from 3 staff have an `attendance_daily_summary.branch`
+different from their current `staff.branch` (22 warehouse days for
+Dr Hoda, 3 Shokry days for Youssef Essam, 1 Shokry day for Dr Wael).
+This is *not* evidence of duplicate biometric events or wrong assignment.
+
+The existing Truth V2 branch filter and row `branch` use current staff branch.
+The historical-visibility migration deliberately leaves that access policy
+unchanged. A future correction should distinguish `current_staff_branch` from
+`attendance_branch_on_day` using authorized historical branch assignment and
+a tested read-scope rule; silently widening branch-manager access is not
+acceptable. Do not change employee branch or historical punch sources to
+mask this attribution difference.
