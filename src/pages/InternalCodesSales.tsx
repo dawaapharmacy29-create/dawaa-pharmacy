@@ -3,7 +3,7 @@ import { useAuth } from '@/hooks/useAuth';
 
 type Flag = { customer_code: string; flag_key: string; flag_label?: string | null };
 const KNOWN_INTERNAL_CODES = ['5','7','10','20','54','170','4902','12820'];
-const INTERNAL_CODE_NAMES: Record<string,string> = { '5': 'عجز رصيد' };
+const INTERNAL_CODE_NAMES: Record<string,string> = { '5': 'عجز رصيد', '7': 'عميل الصيدلية', '10': 'دواء الشامي', '20': 'المخزن', '54': 'زكاة', '170': 'دواء ابو العزم', '4902': 'استخدام الصيدلية', '12820': 'توالف الصيدليه' };
 const displayCode = (code: string) => `كود رقم ${code}${INTERNAL_CODE_NAMES[code] ? ' — ' + INTERNAL_CODE_NAMES[code] : ''}`;
 const TARGET_EXCLUDED_CODES = new Set(['5','10','20','54','170','4902','12820']);
 import { loadInternalCodeInvoices, type Invoice } from '@/lib/internalCodesSalesService';
