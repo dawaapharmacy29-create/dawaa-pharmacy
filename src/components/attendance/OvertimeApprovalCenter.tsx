@@ -1,21 +1,26 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, ChevronDown, ChevronUp, Clock3, History, Link2, ReceiptText, RefreshCw, ShieldCheck, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   decideOvertimeApproval,
   listOvertimeDecisions,
   listPendingOvertime,
+  partitionPendingOvertime,
   type OvertimeDecisionRow,
   type PendingOvertimeRow,
 } from '@/lib/attendance/attendanceBreakdownService';
 import OvertimeDecisionEvidenceCardV3 from '@/components/attendance/OvertimeDecisionEvidenceCardV3';
 import StaleOvertimeReviewPanel from '@/components/attendance/StaleOvertimeReviewPanel';
+import { cairoToday, startOfMonth } from '@/lib/attendance/period';
 
 export default function OvertimeApprovalCenter({ defaultBranch = '' }: { defaultBranch?: string }) {
   const [branch, setBranch] = useState(defaultBranch);
   const [pending, setPending] = useState<PendingOvertimeRow[]>([]);
+  const [pendingScope, setPendingScope] = useState<'cycle' | 'outside' | 'all'>('cycle');
   const [decisions, setDecisions] = useState<OvertimeDecisionRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const requestSequence = useRef(0);
   const [decidingId, setDecidingId] = useState<string | null>(null);
   const [noteById, setNoteById] = useState<Record<string, string>>({});
   const [expandedEvidenceId, setExpandedEvidenceId] = useState<string | null>(null);
@@ -23,18 +28,26 @@ export default function OvertimeApprovalCenter({ defaultBranch = '' }: { default
   useEffect(() => { setBranch(defaultBranch); }, [defaultBranch]);
 
   const load = useCallback(async () => {
+    const sequence = ++requestSequence.current;
     setLoading(true);
+    setLoadError(null);
     try {
       const [pendingRows, decisionRows] = await Promise.all([
         listPendingOvertime(branch || null),
         listOvertimeDecisions({ branch: branch || null, limit: 100 }),
       ]);
+      if (sequence !== requestSequence.current) return;
       setPending(pendingRows);
       setDecisions(decisionRows);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'تعذر تحميل بيانات الأوفر تايم');
+      if (sequence !== requestSequence.current) return;
+      const message = e instanceof Error ? e.message : 'تعذر تحميل بيانات الأوفر تايم';
+      setLoadError(message);
+      setPending([]);
+      setDecisions([]);
+      toast.error(message);
     } finally {
-      setLoading(false);
+      if (sequence === requestSequence.current) setLoading(false);
     }
   }, [branch]);
 
@@ -68,6 +81,15 @@ export default function OvertimeApprovalCenter({ defaultBranch = '' }: { default
       setDecidingId(null);
     }
   }
+
+  const today = cairoToday();
+  const cycleStart = startOfMonth(today);
+  const pendingBuckets = useMemo(() => partitionPendingOvertime(pending, cycleStart, today), [pending, cycleStart, today]);
+  const outsidePending = useMemo(() => [
+    ...pendingBuckets.previous, ...pendingBuckets.future, ...pendingBuckets.undated,
+  ], [pendingBuckets]);
+  const visiblePending = pendingScope === 'cycle' ? pendingBuckets.current
+    : pendingScope === 'outside' ? outsidePending : pending;
 
   const money = (v: number | null | undefined) => (v == null ? 'غير محدد' : `${v.toLocaleString('ar-EG')} ج.م`);
 
@@ -103,17 +125,40 @@ export default function OvertimeApprovalCenter({ defaultBranch = '' }: { default
 
       <StaleOvertimeReviewPanel branch={branch} onDecided={() => void load()} />
 
-      <div className="rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-4 shadow-sm">
+      {loadError && (
+        <div role="alert" className="rounded-2xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-4 text-sm font-bold">
+          تعذر تحميل قائمة الأوفر تايم وسجل القرارات. لا تعتبر الأعداد صفرًا: {loadError}
+          <button type="button" className="btn-secondary ms-3" onClick={() => void load()}>إعادة المحاولة</button>
+        </div>
+      )}
+      {!loadError && <div className="rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-4 shadow-sm">
         <div className="mb-3 flex items-center justify-between gap-2">
           <h3 className="flex items-center gap-2 font-black text-[var(--dawaa-status-warning-text)]"><Clock3 size={17} /> بانتظار الاعتماد</h3>
-          <span className="rounded-full border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-theme-surface)] px-3 py-1 text-xs font-black text-[var(--dawaa-status-warning-text)]">{pending.length.toLocaleString('ar-EG')}</span>
+          <span className="rounded-full border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-theme-surface)] px-3 py-1 text-xs font-black text-[var(--dawaa-status-warning-text)]">{visiblePending.length.toLocaleString('ar-EG')}</span>
+        </div>
+        <div className="mb-3 flex flex-wrap items-center gap-2" role="group" aria-label="نطاق مراجعة الأوفر تايم">
+          {([
+            { id: 'cycle', label: 'الدورة الحالية', count: pendingBuckets.current.length },
+            { id: 'outside', label: 'خارج الدورة', count: outsidePending.length },
+            { id: 'all', label: 'كل المعلقات', count: pending.length },
+          ] as const).map((item) => (
+            <button key={item.id} type="button"
+              aria-pressed={pendingScope === item.id}
+              className={pendingScope === item.id ? 'btn-primary !px-3 !py-1.5 text-xs' : 'btn-secondary !px-3 !py-1.5 text-xs'}
+              onClick={() => setPendingScope(item.id)}>
+              {item.label} ({item.count.toLocaleString('ar-EG')})
+            </button>
+          ))}
+          <span className="text-[11px] font-bold text-[var(--dawaa-theme-muted)]">الدورة: {cycleStart} ← {today}</span>
         </div>
 
-        {!pending.length ? (
-          <p className="text-sm font-bold text-[var(--dawaa-theme-muted)]">لا يوجد أوفر تايم بانتظار القرار حاليًا.</p>
+        {loading && !pending.length ? (
+          <p className="text-sm font-bold text-[var(--dawaa-theme-muted)]">جارٍ تحميل قائمة الأوفر تايم...</p>
+        ) : !visiblePending.length ? (
+          <p className="text-sm font-bold text-[var(--dawaa-theme-muted)]">لا توجد حالات أوفر تايم معلقة ضمن النطاق المختار.</p>
         ) : (
           <div className="grid gap-3">
-            {pending.map((row) => (
+            {visiblePending.map((row) => (
               <div
                 key={row.id}
                 role="button"
@@ -176,9 +221,9 @@ export default function OvertimeApprovalCenter({ defaultBranch = '' }: { default
             ))}
           </div>
         )}
-      </div>
+      </div>}
 
-      <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
+      {!loadError && <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
         <h3 className="mb-3 flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]"><History size={17} /> سجل القرارات</h3>
         {!decisions.length ? (
           <p className="text-sm font-bold text-[var(--dawaa-theme-muted)]">لا توجد قرارات سابقة بعد.</p>
@@ -220,7 +265,7 @@ export default function OvertimeApprovalCenter({ defaultBranch = '' }: { default
             </table>
           </div>
         )}
-      </div>
+      </div>}
     </div>
   );
 }

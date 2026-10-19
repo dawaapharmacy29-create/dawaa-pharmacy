@@ -83,6 +83,27 @@ export async function listPendingOvertime(branch: string | null): Promise<Pendin
   return (data || []) as PendingOvertimeRow[];
 }
 
+/**
+ * This is a presentation-only partition of the *same* pending overtime rows.
+ * Approval/amount semantics and the canonical list_pending_overtime_v1 RPC stay unchanged.
+ * ISO calendar dates sort lexicographically; no timezone conversion is appropriate here.
+ */
+export function partitionPendingOvertime<T extends { attendance_date: string }>(
+  rows: T[], start: string, end: string
+): { current: T[]; previous: T[]; future: T[]; undated: T[] } {
+  const result: { current: T[]; previous: T[]; future: T[]; undated: T[] } = {
+    current: [], previous: [], future: [], undated: [],
+  };
+  for (const row of rows) {
+    const day = String(row.attendance_date || '').slice(0, 10);
+    if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(day)) result.undated.push(row);
+    else if (day < start) result.previous.push(row);
+    else if (day > end) result.future.push(row);
+    else result.current.push(row);
+  }
+  return result;
+}
+
 export type OvertimeEvidenceRoleGroupV3 = 'doctor' | 'delivery' | 'assistant' | 'other';
 
 export interface OvertimeEvidencePersonV3 {

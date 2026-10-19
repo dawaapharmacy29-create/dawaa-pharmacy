@@ -1,0 +1,194 @@
+-- 2026-10-19: pin historical drift readers to the saved day's engine version.
+-- Forcing V2 on approved V3 flexible days fabricated differences. Routing ALL
+-- past days through today's mutable employee policy was also unsafe, because
+-- V2-approved days may later become V3-eligible (or move out of scope).
+--
+-- Read-only shadow comparison, 2026-09-26 through 2026-10-18:
+-- 25 prior candidate-hour mismatches -> 20 when using saved resolution_version,
+-- five false alarms eliminated, no additional candidate-hour differences.
+-- Classification-only drift: 230 -> 186. These are diagnostic comparisons,
+-- NOT evidence of a wrong payroll or reason to repeal an old manager decision.
+--
+-- Use the engine recorded on the approved day, NOT today's mutable staff policy:
+-- resolution_version=2 -> V2; resolution_version=3 -> V3.
+-- Unknown/unsupported versions are fail-closed and must remain visible.
+-- Preserve function names/signatures, read scopes, actor checks and return shapes.
+-- This avoids both phantom V3->V2 drift and V2->current-V3 false differences.
+-- NO data DML; NO approval replay; NO grant changes; not applied to Production.
+--
+-- attendance_resolution_drift_count_v1
+CREATE OR REPLACE FUNCTION public.attendance_resolution_drift_count_v1(p_staff_id uuid, p_start date, p_end date)
+ RETURNS integer
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public', 'pg_catalog'
+AS $function$
+  select count(*)::integer
+  from public.attendance_daily_summary a
+  cross join lateral (
+    select case
+        when a.resolution_version = 3 then public.dawaa_build_attendance_day_resolution_v3(a.staff_id,a.attendance_date)
+        when a.resolution_version = 2 then public.dawaa_build_attendance_day_resolution_v2(a.staff_id,a.attendance_date)
+        else jsonb_build_object('resolution_status','unverifiable_resolution_version','route','unverifiable_resolution_version')
+      end as j
+  ) rebuilt
+  where a.staff_id=p_staff_id
+    and a.attendance_date between p_start and least(p_end,(now() at time zone 'Africa/Cairo')::date-1)
+    and a.status='approved'
+    and (
+      coalesce(a.resolution_version,0) not in (2,3)
+      or coalesce(a.resolution_status,'') is distinct from coalesce(rebuilt.j->>'resolution_status','')
+      or coalesce(a.schedule_id::text,'') is distinct from coalesce(rebuilt.j->>'schedule_id','')
+      or abs(coalesce(a.candidate_hours,0)-coalesce((rebuilt.j->>'candidate_hours')::numeric,0))>0.10
+    );
+$function$;
+
+-- attendance_resolution_drift_v1
+CREATE OR REPLACE FUNCTION public.attendance_resolution_drift_v1(p_start date, p_end date, p_branch text DEFAULT NULL::text)
+ RETURNS TABLE(staff_id uuid, staff_name text, branch text, attendance_date date, stored_status text, rebuilt_status text, stored_hours numeric, rebuilt_hours numeric, drift_reason text)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public', 'pg_catalog'
+AS $function$
+declare v_actor uuid;
+begin
+  if p_start is null or p_end is null or p_end<p_start or p_end-p_start>45 then
+    raise exception 'invalid_attendance_drift_range' using errcode='22023';
+  end if;
+  v_actor:=public.dawaa_current_staff_account_id_strict();
+  if v_actor is null then raise exception 'active staff actor required' using errcode='42501'; end if;
+
+  return query
+  select
+    a.staff_id,s.name,s.branch,a.attendance_date,
+    a.resolution_status,
+    rebuilt.j->>'resolution_status',
+    coalesce(a.candidate_hours,0),
+    coalesce((rebuilt.j->>'candidate_hours')::numeric,0),
+    concat_ws(',',
+      case when coalesce(a.resolution_version,0) not in (2,3) then 'unverifiable_resolution_version' end,
+      case when coalesce(a.resolution_status,'') is distinct from coalesce(rebuilt.j->>'resolution_status','') then 'status_changed' end,
+      case when coalesce(a.schedule_id::text,'') is distinct from coalesce(rebuilt.j->>'schedule_id','') then 'schedule_changed' end,
+      case when abs(coalesce(a.candidate_hours,0)-coalesce((rebuilt.j->>'candidate_hours')::numeric,0))>0.10 then 'hours_changed' end
+    )
+  from public.attendance_daily_summary a
+  join public.staff s on s.id=a.staff_id
+  cross join lateral (
+    select case
+        when a.resolution_version = 3 then public.dawaa_build_attendance_day_resolution_v3(a.staff_id,a.attendance_date)
+        when a.resolution_version = 2 then public.dawaa_build_attendance_day_resolution_v2(a.staff_id,a.attendance_date)
+        else jsonb_build_object('resolution_status','unverifiable_resolution_version','route','unverifiable_resolution_version')
+      end as j
+  ) rebuilt
+  where a.attendance_date between p_start and least(p_end,(now() at time zone 'Africa/Cairo')::date-1)
+    and a.status='approved'
+    and (p_branch is null or trim(p_branch)='' or p_branch='الكل' or s.branch=p_branch)
+    and public.dawaa_can_read_staff_attendance_log(s.id,s.branch)
+    and (
+      coalesce(a.resolution_version,0) not in (2,3)
+      or coalesce(a.resolution_status,'') is distinct from coalesce(rebuilt.j->>'resolution_status','')
+      or coalesce(a.schedule_id::text,'') is distinct from coalesce(rebuilt.j->>'schedule_id','')
+      or abs(coalesce(a.candidate_hours,0)-coalesce((rebuilt.j->>'candidate_hours')::numeric,0))>0.10
+    )
+  order by a.attendance_date desc,s.branch,s.name;
+end;
+$function$;
+
+-- attendance_resolution_financial_drift_count_v1
+CREATE OR REPLACE FUNCTION public.attendance_resolution_financial_drift_count_v1(p_staff_id uuid, p_start date, p_end date)
+ RETURNS integer
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public', 'pg_catalog'
+AS $function$
+  select count(*)::integer
+  from public.attendance_daily_summary a
+  cross join lateral (
+    select case
+        when a.resolution_version = 3 then public.dawaa_build_attendance_day_resolution_v3(a.staff_id,a.attendance_date)
+        when a.resolution_version = 2 then public.dawaa_build_attendance_day_resolution_v2(a.staff_id,a.attendance_date)
+        else jsonb_build_object('resolution_status','unverifiable_resolution_version','route','unverifiable_resolution_version')
+      end as j
+  ) rebuilt
+  where a.staff_id=p_staff_id
+    and a.attendance_date between p_start and least(p_end,(now() at time zone 'Africa/Cairo')::date-1)
+    and a.status='approved'
+    and (
+      coalesce(a.resolution_version,0) not in (2,3)
+      or abs(coalesce(a.candidate_hours,0)-coalesce((rebuilt.j->>'candidate_hours')::numeric,0))>0.10
+    );
+$function$;
+
+-- delivery_attendance_financial_drift_guard_v1
+CREATE OR REPLACE FUNCTION public.delivery_attendance_financial_drift_guard_v1(p_staff_id uuid, p_start date, p_end date)
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public', 'pg_catalog'
+AS $function$
+  with drift as (
+    select
+      a.id,
+      a.attendance_date,
+      a.resolution_status,
+      coalesce(a.candidate_hours,0) stored_hours,
+      coalesce((rebuilt.j->>'candidate_hours')::numeric,0) rebuilt_hours,
+      a.resolution_origin,
+      a.approved_by_name,
+      a.approval_note,
+      a.time_off_request_id,
+      (
+        coalesce(a.resolution_version,0) in (2,3)
+        and (
+        coalesce(a.resolution_origin,'') like 'manual%'
+        or coalesce(a.resolution_origin,'') in ('manager_decision','manual_manager_decision')
+        or coalesce(a.approval_note,'') ~ '(قرار الإدارة|قرار المدير|بإذن|بدون خصم)'
+        or (
+          nullif(trim(coalesce(a.approved_by_name,'')),'') is not null
+          and coalesce(a.approved_by_name,'') not in ('النظام التلقائي للحضور','النظام التلقائي','النظام')
+        )
+        or a.time_off_request_id is not null
+        or exists(
+          select 1
+          from public.attendance_manual_actions_audit x
+          where x.target_id=a.id
+        )
+        )
+      ) explained_by_approved_override
+    from public.attendance_daily_summary a
+    cross join lateral (
+      select case
+        when a.resolution_version = 3 then public.dawaa_build_attendance_day_resolution_v3(a.staff_id,a.attendance_date)
+        when a.resolution_version = 2 then public.dawaa_build_attendance_day_resolution_v2(a.staff_id,a.attendance_date)
+        else jsonb_build_object('resolution_status','unverifiable_resolution_version','route','unverifiable_resolution_version')
+      end j
+    ) rebuilt
+    where a.staff_id=p_staff_id
+      and a.attendance_date between p_start and least(p_end,(now() at time zone 'Africa/Cairo')::date-1)
+      and a.status='approved'
+      and (
+        coalesce(a.resolution_version,0) not in (2,3)
+        or abs(coalesce(a.candidate_hours,0)-coalesce((rebuilt.j->>'candidate_hours')::numeric,0))>0.10
+      )
+  )
+  select jsonb_build_object(
+    'staff_id',p_staff_id,
+    'start_date',p_start,
+    'end_date',p_end,
+    'total_drift_count',count(*),
+    'explained_override_count',count(*) filter(where explained_by_approved_override),
+    'unexplained_drift_count',count(*) filter(where not explained_by_approved_override),
+    'rows',coalesce(jsonb_agg(jsonb_build_object(
+      'attendance_date',attendance_date,
+      'resolution_status',resolution_status,
+      'stored_hours',stored_hours,
+      'rebuilt_hours',rebuilt_hours,
+      'resolution_origin',resolution_origin,
+      'approved_by_name',approved_by_name,
+      'approval_note',approval_note,
+      'time_off_request_id',time_off_request_id,
+      'explained_by_approved_override',explained_by_approved_override
+    ) order by attendance_date),'[]'::jsonb)
+  )
+  from drift;
+$function$;
