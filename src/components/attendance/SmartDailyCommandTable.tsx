@@ -9,9 +9,18 @@ import EmployeeProfileDrawer from '@/components/attendance/EmployeeProfileDrawer
 type RoleGroup = 'الكل' | 'دكاترة وصيادلة' | 'دليفري' | 'باقي الفريق';
 
 function roleGroupOf(role: string | null): Exclude<RoleGroup, 'الكل'> {
-  if (role === 'توصيل') return 'دليفري';
-  if (role === 'صيدلاني' || role === 'pharmacist') return 'دكاترة وصيادلة';
+  const key = String(role || '').trim().toLowerCase();
+  if (['توصيل', 'دليفري', 'delivery'].includes(key)) return 'دليفري';
+  if (['صيدلاني', 'صيدلي', 'pharmacist', 'doctor', 'دكتور'].includes(key)) return 'دكاترة وصيادلة';
   return 'باقي الفريق';
+}
+
+function visibleRoleLabel(role: string | null): string {
+  const key = String(role || '').trim().toLowerCase();
+  if (['مساعد', 'مساعد صيدلي', 'assistant'].includes(key)) return 'مساعد صيدلي';
+  if (roleGroupOf(role) === 'دليفري') return 'توصيل';
+  if (roleGroupOf(role) === 'دكاترة وصيادلة') return 'صيدلي';
+  return role || '-';
 }
 
 const ROLE_GROUP_ICON: Record<RoleGroup, typeof Bike> = {
@@ -232,7 +241,7 @@ export default function SmartDailyCommandTable({ rows, date, branch, preloadedIn
               : null;
           return <Fragment key={`${row.staff_id}-${row.work_date}`}>
             <tr className={cn('border-t border-[var(--dawaa-theme-divider)] align-top', hasCrossBranch && 'bg-[var(--dawaa-status-info-bg)]/40')}>
-              <td className="p-3 font-black text-[var(--dawaa-theme-heading)]"><button onClick={() => setProfileStaffId(row.staff_id)} className="text-right hover:underline hover:text-[var(--dawaa-theme-primary-strong)]">{row.staff_name}</button><div className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{row.role || '-'}</div></td>
+              <td className="p-3 font-black text-[var(--dawaa-theme-heading)]"><button onClick={() => setProfileStaffId(row.staff_id)} className="text-right hover:underline hover:text-[var(--dawaa-theme-primary-strong)]">{row.staff_name}</button><div className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{visibleRoleLabel(row.role)}</div></td>
               <td className="p-3">
                 <div className="font-bold">{row.branch || '-'}</div>
                 {hasCrossBranch && <div className="mt-1 flex flex-wrap gap-1">{crossBranches.map((sourceBranch) => <span key={sourceBranch} className="inline-flex items-center gap-1 rounded-full border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] px-2 py-0.5 text-[10px] font-black text-[var(--dawaa-status-info-text)]"><MapPin size={11}/> بصم في {sourceBranch}</span>)}</div>}
