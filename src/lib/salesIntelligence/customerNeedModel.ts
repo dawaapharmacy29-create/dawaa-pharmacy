@@ -1,3 +1,4 @@
+import type { CanonicalComplaintAssessment } from './complaintAssessmentEngine';
 // Sales Intelligence — Customer Need Model.
 //
 // Pure semantic projection over the SAME V32 messages + CaseBasket history. It never reparses an
@@ -48,6 +49,7 @@ import type {
 
 export interface DeriveCustomerNeedModelInput {
   caseId: string;
+  complaintAssessment?: CanonicalComplaintAssessment;
   messages: NormalizedConversationMessageV32[];
   baskets: CaseBasket[];
   itemsByBasketId: Record<string, CaseBasketItem[]>;
@@ -836,10 +838,24 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
     confidence = assessment('unknown', 0.1, ['need.model.no_commercial_need_evidence'], []);
   }
 
+  // Complaint meaning comes from its canonical owner, not the first narrative sentence.
+  // A real product lifecycle retains its commercial need even in a mixed complaint case.
+  const complaint = input.complaintAssessment;
+  const complaintNeedMessage = productList.length === 0 && complaint?.caseId === input.caseId
+    ? complaint.complaintMessageIds.map(id => messageById.get(id)).find(message => message?.role === 'customer')
+    : null;
+  const primaryNeedMessage = complaintNeedMessage ?? firstRequestMessage;
+  if (complaintNeedMessage) {
+    confidence = assessment('strongly_inferred', 0.85, ['need.model.canonical_complaint'],
+      [evidenceRef(complaintNeedMessage.id, 'احتياج خدمة مستند إلى دليل الشكوى الكانونيكال.')]);
+    const index = humanReviewReasons.indexOf('customer_need_without_resolved_product_context');
+    if (index >= 0) humanReviewReasons.splice(index, 1);
+  }
+
   return {
     caseId: input.caseId,
-    primaryNeed: firstRequestMessage?.text ?? null,
-    primaryNeedMessageId: firstRequestMessage?.id ?? null,
+    primaryNeed: primaryNeedMessage?.text ?? null,
+    primaryNeedMessageId: primaryNeedMessage?.id ?? null,
     products: productList,
     unlinkedAvailability,
     unlinkedAlternatives,

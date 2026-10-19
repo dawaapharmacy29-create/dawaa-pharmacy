@@ -57,7 +57,7 @@ describe('A1 canonical chain — "جاست ريج أمبول"', () => {
   });
 
   it('runs on the canonical pipeline and resolves GAST-REG 50MG 3AMP / 40049', () => {
-    expect(PIPELINE_VERSION).toBe('sales-intelligence-v33-review-preserving-refresh');
+    expect(PIPELINE_VERSION).toBe('sales-intelligence-v34-complaint-cutover');
     const result = runSalesIntelligencePipeline({
       conversationId: SOURCE_ID,
       rawWhatsAppExportText: A1_RAW_TEXT,

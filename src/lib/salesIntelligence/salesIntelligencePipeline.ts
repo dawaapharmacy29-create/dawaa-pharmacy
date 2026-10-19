@@ -312,6 +312,15 @@ function analyzeOneCase(
   const hasMeaningfulBasketItems = baskets.some((basket) => (itemsByBasketId[basket.basketId] ?? []).length > 0);
 
   const activeItems = activeBasket ? (itemsByBasketId[activeBasket.basketId] ?? []) : [];
+  const complaintAssessment = deriveCanonicalComplaintAssessment({
+    caseId: conversationCase.caseId,
+    messages: scopedMessages.map((message) => ({
+      id: message.id,
+      role: message.role,
+      text: message.text,
+      meaningful: message.isMeaningful,
+    })),
+  });
   const customerNeed = deriveCustomerNeedModel({
     caseId: conversationCase.caseId,
     messages: scopedMessages,
@@ -319,6 +328,7 @@ function analyzeOneCase(
     itemsByBasketId,
     activeBasket,
     staffIdBySender: caseStaffIdBySender,
+    complaintAssessment,
     productIndex: input.productIndex,
   });
   const unavailableDemand = deriveUnavailableDemand({
@@ -675,15 +685,6 @@ function analyzeOneCase(
     status = 'analyzed';
   }
 
-  const complaintAssessment = deriveCanonicalComplaintAssessment({
-    caseId: conversationCase.caseId,
-    messages: scopedMessages.map((message) => ({
-      id: message.id,
-      role: message.role,
-      text: message.text,
-      meaningful: message.isMeaningful,
-    })),
-  });
   const customerRequestAssessment = deriveCanonicalCustomerRequestAssessment({
     caseId: conversationCase.caseId,
     customerNeed,

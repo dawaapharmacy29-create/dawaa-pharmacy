@@ -208,6 +208,60 @@ export function buildCanonicalComplaintActionRows(
   return { rows: [...byIdentity.values()], skipped };
 }
 
+// Disable only an untouched legacy proposal for the SAME canonical complaint evidence.
+// This runs before inserting its replacement: failure leaves work blocked, never two executable
+// proposals. Row-level compare-and-set preserves a concurrent human assignment/materialization.
+const LEGACY_WORK_FIELDS = [
+  'assigned_at', 'started_at', 'completed_at', 'outcome', 'outcome_note',
+  'last_followup_at', 'next_followup_at', 'recovered_at', 'recovered_invoice_id',
+  'assigned_to_id', 'assigned_to_name', 'target_table', 'target_id',
+] as const;
+const LEGACY_SELECT = ['id', 'source_id', 'action_key', 'action_type', 'status', 'work_status',
+  'updated_at', 'payload', 'evidence', 'followup_attempts', ...LEGACY_WORK_FIELDS].join(',');
+
+async function withdrawReplacedLegacyComplaints(client: any, rows: CanonicalComplaintActionRow[]) {
+  const sourceIds = [...new Set(rows.map(row => row.source_id))];
+  const { data, error } = await client.from('whatsapp_conversation_actions')
+    .select(LEGACY_SELECT).in('source_id', sourceIds)
+    .eq('action_key', 'complaint-followup').eq('action_type', 'complaint_followup')
+    .in('status', ['ready', 'proposed']);
+  if (error) throw error;
+  for (const legacy of data || []) {
+    const evidence = Array.isArray(legacy.evidence) ? legacy.evidence.map(String) : [];
+    const replacements = rows.filter(row => row.source_id === legacy.source_id
+      && (row.payload.complaintMessageIds as string[]).some(id => evidence.includes(id)));
+    if (replacements.length !== 1) throw new Error('canonical_complaint_legacy_evidence_requires_review');
+    const replacement = replacements[0];
+    if (legacy.work_status !== 'unassigned' || LEGACY_WORK_FIELDS.some(key => legacy[key] != null)
+      || Number(legacy.followup_attempts || 0) !== 0) {
+      throw new Error('canonical_complaint_legacy_work_requires_review');
+    }
+    const payload = { ...(legacy.payload || {}), canonicalLifecycle: 'withdrawn',
+      canonicalWithdrawalReason: 'replaced_by_canonical_complaint',
+      canonicalReplacementIdentity: replacement.followup_identity };
+    let update = client.from('whatsapp_conversation_actions')
+      .update({ status: 'dismissed', auto_eligible: false, payload })
+      .eq('id', legacy.id).eq('source_id', legacy.source_id)
+      .eq('action_key', 'complaint-followup').eq('action_type', 'complaint_followup')
+      .eq('status', legacy.status).eq('work_status', 'unassigned').eq('updated_at', legacy.updated_at);
+    for (const key of LEGACY_WORK_FIELDS) update = update.is(key, null);
+    update = legacy.followup_attempts == null
+      ? update.is('followup_attempts', null) : update.eq('followup_attempts', 0);
+    const { data: changed, error: updateError } = await update.select('id').maybeSingle();
+    if (updateError) throw updateError;
+    if (changed) continue;
+    // A concurrent identical refresh may already have safely withdrawn this exact proposal.
+    const { data: raced, error: raceError } = await client.from('whatsapp_conversation_actions')
+      .select('status,payload').eq('id', legacy.id).maybeSingle();
+    if (raceError) throw raceError;
+    if (raced?.status !== 'dismissed'
+      || raced.payload?.canonicalWithdrawalReason !== 'replaced_by_canonical_complaint'
+      || raced.payload?.canonicalReplacementIdentity !== replacement.followup_identity) {
+      throw new Error('canonical_complaint_legacy_concurrent_work_requires_review');
+    }
+  }
+}
+
 export async function projectCanonicalComplaintsToActions(
   supabaseClient: any,
   analyses: readonly SalesIntelligenceCaseAnalysis[],
@@ -216,13 +270,21 @@ export async function projectCanonicalComplaintsToActions(
   const built = buildCanonicalComplaintActionRows(analyses, sources);
   if (!built.rows.length) return { ...built, inserted: 0, existing: 0 };
 
+  await withdrawReplacedLegacyComplaints(supabaseClient, built.rows);
+
   const identities = built.rows.map((row) => row.followup_identity);
   const { data: existingRows, error: existingError } = await supabaseClient
     .from('whatsapp_conversation_actions')
-    .select('id,followup_identity,status,target_table,target_id')
+    .select('id,source_id,action_type,followup_identity,status,target_table,target_id')
     .in('followup_identity', identities);
   if (existingError) throw existingError;
 
+  for (const existingRow of existingRows || []) {
+    const expected = built.rows.find(row => row.followup_identity === existingRow.followup_identity);
+    if (!expected || existingRow.source_id !== expected.source_id || existingRow.action_type !== 'complaint_followup') {
+      throw new Error('canonical_complaint_identity_collision');
+    }
+  }
   const existing = new Set(
     (existingRows || [])
       .map((row: { followup_identity?: string | null }) => text(row.followup_identity))

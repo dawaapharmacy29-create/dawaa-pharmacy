@@ -6014,10 +6014,23 @@ function deriveCustomerNeedModel(input) {
   } else {
     confidence3 = assessment6("unknown", 0.1, ["need.model.no_commercial_need_evidence"], []);
   }
+  const complaint = input.complaintAssessment;
+  const complaintNeedMessage = productList.length === 0 && complaint?.caseId === input.caseId ? complaint.complaintMessageIds.map((id) => messageById.get(id)).find((message) => message?.role === "customer") : null;
+  const primaryNeedMessage = complaintNeedMessage ?? firstRequestMessage;
+  if (complaintNeedMessage) {
+    confidence3 = assessment6(
+      "strongly_inferred",
+      0.85,
+      ["need.model.canonical_complaint"],
+      [evidenceRef2(complaintNeedMessage.id, "\u0627\u062D\u062A\u064A\u0627\u062C \u062E\u062F\u0645\u0629 \u0645\u0633\u062A\u0646\u062F \u0625\u0644\u0649 \u062F\u0644\u064A\u0644 \u0627\u0644\u0634\u0643\u0648\u0649 \u0627\u0644\u0643\u0627\u0646\u0648\u0646\u064A\u0643\u0627\u0644.")]
+    );
+    const index = humanReviewReasons.indexOf("customer_need_without_resolved_product_context");
+    if (index >= 0) humanReviewReasons.splice(index, 1);
+  }
   return {
     caseId: input.caseId,
-    primaryNeed: firstRequestMessage?.text ?? null,
-    primaryNeedMessageId: firstRequestMessage?.id ?? null,
+    primaryNeed: primaryNeedMessage?.text ?? null,
+    primaryNeedMessageId: primaryNeedMessage?.id ?? null,
     products: productList,
     unlinkedAvailability,
     unlinkedAlternatives,
@@ -7355,6 +7368,15 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
   );
   const hasMeaningfulBasketItems = baskets.some((basket) => (itemsByBasketId[basket.basketId] ?? []).length > 0);
   const activeItems = activeBasket ? itemsByBasketId[activeBasket.basketId] ?? [] : [];
+  const complaintAssessment = deriveCanonicalComplaintAssessment({
+    caseId: conversationCase.caseId,
+    messages: scopedMessages.map((message) => ({
+      id: message.id,
+      role: message.role,
+      text: message.text,
+      meaningful: message.isMeaningful
+    }))
+  });
   const customerNeed = deriveCustomerNeedModel({
     caseId: conversationCase.caseId,
     messages: scopedMessages,
@@ -7362,6 +7384,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     itemsByBasketId,
     activeBasket,
     staffIdBySender: caseStaffIdBySender,
+    complaintAssessment,
     productIndex: input.productIndex
   });
   const unavailableDemand = deriveUnavailableDemand({
@@ -7628,15 +7651,6 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
   } else {
     status = "analyzed";
   }
-  const complaintAssessment = deriveCanonicalComplaintAssessment({
-    caseId: conversationCase.caseId,
-    messages: scopedMessages.map((message) => ({
-      id: message.id,
-      role: message.role,
-      text: message.text,
-      meaningful: message.isMeaningful
-    }))
-  });
   const customerRequestAssessment = deriveCanonicalCustomerRequestAssessment({
     caseId: conversationCase.caseId,
     customerNeed,
@@ -8768,7 +8782,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v33-review-preserving-refresh";
+var PIPELINE_VERSION = "sales-intelligence-v34-complaint-cutover";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v10-payment-continuation-ambiguity-safe",
   historicalClosure: "historical-closure-v1",
@@ -10220,12 +10234,78 @@ function buildCanonicalComplaintActionRows(analyses, sources) {
   }
   return { rows: [...byIdentity.values()], skipped };
 }
+var LEGACY_WORK_FIELDS = [
+  "assigned_at",
+  "started_at",
+  "completed_at",
+  "outcome",
+  "outcome_note",
+  "last_followup_at",
+  "next_followup_at",
+  "recovered_at",
+  "recovered_invoice_id",
+  "assigned_to_id",
+  "assigned_to_name",
+  "target_table",
+  "target_id"
+];
+var LEGACY_SELECT = [
+  "id",
+  "source_id",
+  "action_key",
+  "action_type",
+  "status",
+  "work_status",
+  "updated_at",
+  "payload",
+  "evidence",
+  "followup_attempts",
+  ...LEGACY_WORK_FIELDS
+].join(",");
+async function withdrawReplacedLegacyComplaints(client, rows) {
+  const sourceIds = [...new Set(rows.map((row) => row.source_id))];
+  const { data, error } = await client.from("whatsapp_conversation_actions").select(LEGACY_SELECT).in("source_id", sourceIds).eq("action_key", "complaint-followup").eq("action_type", "complaint_followup").in("status", ["ready", "proposed"]);
+  if (error) throw error;
+  for (const legacy of data || []) {
+    const evidence = Array.isArray(legacy.evidence) ? legacy.evidence.map(String) : [];
+    const replacements = rows.filter((row) => row.source_id === legacy.source_id && row.payload.complaintMessageIds.some((id) => evidence.includes(id)));
+    if (replacements.length !== 1) throw new Error("canonical_complaint_legacy_evidence_requires_review");
+    const replacement = replacements[0];
+    if (legacy.work_status !== "unassigned" || LEGACY_WORK_FIELDS.some((key) => legacy[key] != null) || Number(legacy.followup_attempts || 0) !== 0) {
+      throw new Error("canonical_complaint_legacy_work_requires_review");
+    }
+    const payload = {
+      ...legacy.payload || {},
+      canonicalLifecycle: "withdrawn",
+      canonicalWithdrawalReason: "replaced_by_canonical_complaint",
+      canonicalReplacementIdentity: replacement.followup_identity
+    };
+    let update = client.from("whatsapp_conversation_actions").update({ status: "dismissed", auto_eligible: false, payload }).eq("id", legacy.id).eq("source_id", legacy.source_id).eq("action_key", "complaint-followup").eq("action_type", "complaint_followup").eq("status", legacy.status).eq("work_status", "unassigned").eq("updated_at", legacy.updated_at);
+    for (const key of LEGACY_WORK_FIELDS) update = update.is(key, null);
+    update = legacy.followup_attempts == null ? update.is("followup_attempts", null) : update.eq("followup_attempts", 0);
+    const { data: changed, error: updateError } = await update.select("id").maybeSingle();
+    if (updateError) throw updateError;
+    if (changed) continue;
+    const { data: raced, error: raceError } = await client.from("whatsapp_conversation_actions").select("status,payload").eq("id", legacy.id).maybeSingle();
+    if (raceError) throw raceError;
+    if (raced?.status !== "dismissed" || raced.payload?.canonicalWithdrawalReason !== "replaced_by_canonical_complaint" || raced.payload?.canonicalReplacementIdentity !== replacement.followup_identity) {
+      throw new Error("canonical_complaint_legacy_concurrent_work_requires_review");
+    }
+  }
+}
 async function projectCanonicalComplaintsToActions(supabaseClient, analyses, sources) {
   const built = buildCanonicalComplaintActionRows(analyses, sources);
   if (!built.rows.length) return { ...built, inserted: 0, existing: 0 };
+  await withdrawReplacedLegacyComplaints(supabaseClient, built.rows);
   const identities = built.rows.map((row) => row.followup_identity);
-  const { data: existingRows, error: existingError } = await supabaseClient.from("whatsapp_conversation_actions").select("id,followup_identity,status,target_table,target_id").in("followup_identity", identities);
+  const { data: existingRows, error: existingError } = await supabaseClient.from("whatsapp_conversation_actions").select("id,source_id,action_type,followup_identity,status,target_table,target_id").in("followup_identity", identities);
   if (existingError) throw existingError;
+  for (const existingRow of existingRows || []) {
+    const expected = built.rows.find((row) => row.followup_identity === existingRow.followup_identity);
+    if (!expected || existingRow.source_id !== expected.source_id || existingRow.action_type !== "complaint_followup") {
+      throw new Error("canonical_complaint_identity_collision");
+    }
+  }
   const existing = new Set(
     (existingRows || []).map((row) => text4(row.followup_identity)).filter(Boolean)
   );
