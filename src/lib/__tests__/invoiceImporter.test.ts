@@ -259,6 +259,20 @@ describe('loadDatabaseDayComparison', () => {
     }
   );
 
+  it('compares only the selected branch even when the same day includes other branch sales', async () => {
+    mockDatabaseRows = [
+      { id: 's1', invoice_date: '2026-10-17', invoice_number: '40165', branch: 'فرع الشامي', net_amount: 665 },
+      { id: 's2', invoice_date: '2026-10-17', invoice_number: '78231', branch: 'فرع شكري', net_amount: 537.3 },
+    ];
+    const days = new Map([['2026-10-17', { date: '2026-10-17', count: 1, total: 665 }]]);
+    const result = await loadDatabaseDayComparison(days, '2026-10-17', '2026-10-17', 'فرع الشامي');
+    expect(result.databaseInvoicesCount).toBe(1);
+    expect(result.comparison[0].databaseCount).toBe(1);
+    expect(result.comparison[0].databaseTotal).toBe(665);
+    expect(result.comparison[0].status).toBe('matched');
+    expect(result.verificationFetchedCount).toBe(2);
+  });
+
   it('marks verification incomplete when any page fails', async () => {
     mockDatabaseRows = Array.from({ length: 1001 }, (_, index) => ({
       id: `db-${index + 1}`,
@@ -428,17 +442,17 @@ describe('loadDatabaseDayComparison', () => {
       { date: '2026-07-03', count: 2, total: 300 },
     ]);
     expect(summary.databaseByDay).toEqual([
-      { date: '2026-07-03', count: 2, total: 300 },
+      { date: '2026-07-03', count: 1, total: 100 },
     ]);
     expect(summary.dayDatabaseComparison?.[0]).toMatchObject({
       date: '2026-07-03',
-      status: 'matched',
+      status: 'partial',
       fileCount: 2,
       fileTotal: 300,
-      databaseCount: 2,
-      databaseTotal: 300,
-      countDifference: 0,
-      difference: 0,
+      databaseCount: 1,
+      databaseTotal: 100,
+      countDifference: 1,
+      difference: 200,
     });
     expect(summary.databaseComparisonQuery).toMatchObject({
       table: 'sales_invoices',

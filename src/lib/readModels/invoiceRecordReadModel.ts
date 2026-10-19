@@ -135,3 +135,12 @@ export async function readInvoiceRecordsByCustomerWindow(args: {
   if (error) throw error;
   return (data || []) as InvoiceRecordReadRow[];
 }
+
+/** Approved read boundary: internal-code ledger is a finance report, not target-eligible sales. */
+export async function readInternalCodeLedgerPage(codes: string[], fromIso: string, toIso: string, branch: string, offset: number, pageSize: number) {
+ let query=supabase.from('sales_invoices').select('id,invoice_number,invoice_date,customer_code,branch,customer_name,net_amount,net_total,amount,seller_name').in('customer_code',codes).gte('invoice_date',fromIso).lt('invoice_date',toIso).order('invoice_date',{ascending:true}).order('id',{ascending:true}).range(offset,offset+pageSize-1);
+ if(branch!=='all') query=query.eq('branch',branch);
+ const result=await query;
+ if(result.error)throw new Error(result.error.message);
+ return result.data || [];
+}
