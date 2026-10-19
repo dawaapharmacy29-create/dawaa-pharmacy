@@ -210,7 +210,7 @@ export default function AttendancePayrollTruthPanel({
         <Metric label="طلبات تصحيح معلقة" value={summary?.pending_corrections ?? '—'} icon={ClipboardCheck} warn={!!summary?.pending_corrections} />
         <Metric label="طلبات إجازة معلقة" value={summary?.pending_timeoff ?? '—'} icon={Umbrella} warn={!!summary?.pending_timeoff} />
         <Metric label="OT معلق" value={summary ? Number(summary.pending_overtime_hours).toFixed(2) : '—'} icon={Timer} warn={!!summary?.pending_overtime_hours} />
-        <Metric label="فروق ساعات مالية" value={financialDriftRows.length} icon={AlertTriangle} warn={financialDriftRows.length > 0} />
+        <Metric label="اختلاف ساعات إعادة التفسير" value={financialDriftRows.length} icon={AlertTriangle} warn={financialDriftRows.length > 0} />
         <Metric label="فروق تصنيف فقط" value={classificationDriftRows.length} icon={AlertTriangle} />
       </div>
 
@@ -227,9 +227,9 @@ export default function AttendancePayrollTruthPanel({
           <div className="flex items-start gap-2">
             <AlertTriangle size={18} className="mt-0.5 shrink-0 text-[var(--dawaa-status-danger-text)]" />
             <div>
-              <div className="font-black text-[var(--dawaa-status-danger-text)]">يوجد {financialDriftRows.length} يوم تغيّرت ساعاته بعد الاعتماد</div>
+              <div className="font-black text-[var(--dawaa-status-danger-text)]">يوجد {financialDriftRows.length} يوم تختلف فيها الساعات المحفوظة عن إعادة التفسير</div>
               <div className="mt-1 text-xs font-bold text-[var(--dawaa-status-danger-text)]">
-                لا يتم تعديل اليوم المعتمد تلقائيًا. يلزم إعادة فتحه ثم اعتماده من جديد، وبعدها يعاد تقييم الأوفر تايم المرتبط به.
+                هذا اختلاف في ساعات المرشح عند إعادة التفسير، وليس دليلًا وحده على خطأ مالي. راجع مسار V2/V3 والقرار الإداري والأدلة أولًا؛ وإذا ثبت خطأ اليوم المعتمد يُعاد فتحه بقرار موثق، ثم يُراجع الأوفر تايم المرتبط.
               </div>
             </div>
           </div>
@@ -322,8 +322,8 @@ export default function AttendancePayrollTruthPanel({
               {reopenTarget.staff_name} — {reopenTarget.attendance_date}
             </p>
             <div className="mt-3 rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-danger-text)]">
-              الساعات المعتمدة: {reopenTarget.stored_hours.toFixed(2)} — إعادة البناء: {reopenTarget.rebuilt_hours.toFixed(2)}.
-              بعد إعادة الفتح لا يدخل اليوم في Payroll Truth حتى يتم اعتماده مرة أخرى.
+              ساعات المرشح المحفوظة: {reopenTarget.stored_hours.toFixed(2)} — إعادة التفسير: {reopenTarget.rebuilt_hours.toFixed(2)}.
+              تأكد من القرار السابق قبل المتابعة؛ إعادة فتحه ستخرجه من Payroll Truth حتى يُعتمد مرة أخرى.
             </div>
             <label className="mt-4 block text-xs font-black text-[var(--dawaa-theme-muted)]">
               سبب إعادة الفتح
