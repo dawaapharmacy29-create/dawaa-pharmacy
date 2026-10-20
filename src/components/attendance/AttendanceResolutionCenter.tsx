@@ -21,6 +21,8 @@ import {
 import EmployeeProfileDrawer from '@/components/attendance/EmployeeProfileDrawer';
 import { cairoToday, startOfMonth } from '@/lib/attendance/period';
 import AttendanceCorrectionReviewPanel from '@/components/attendance/AttendanceCorrectionReviewPanel';
+import { recommendedAttendanceDecisionIds } from '@/lib/attendance/compactDecisionChoices';
+import { ensureApprovedPermissionForAttendance } from '@/lib/attendance/inlinePermissionDecision';
 import {
   approveAttendanceFullDayTimeOffV1,
   getAnnualLeaveAttendancePreviewV1,
@@ -128,26 +130,6 @@ const TIME_DECISIONS: Decision[] = [
   { id: 'schedule_error', label: 'تصحيح جدول العمل', schedule: true },
   { id: 'custom', label: 'سبب آخر (اكتب التفاصيل)' },
 ];
-
-// Keep the decision surface short and case-specific. All underlying choices remain
-// accessible behind "خيارات أخرى", with the existing audited backend permissions.
-function primaryDecisionIds(row: AttendanceExceptionRow): string[] {
-  if (row.issue_group === 'absence' || row.resolution_status === 'absence_review') {
-    return ['annual_leave', 'sick_leave', 'approved_absence'];
-  }
-  if (row.resolution_status === 'missing_checkin') return ['forgot_in', 'device_fault', 'cross_branch'];
-  if (row.resolution_status === 'missing_checkout') return ['forgot_out', 'device_fault', 'cross_branch'];
-  if (row.issue_group === 'missing_punch') return ['forgot_in', 'forgot_out', 'device_fault'];
-  if (row.issue_group === 'early_leave' || row.resolution_status === 'early_leave_review'
-    || row.resolution_status === 'late' || row.resolution_status === 'very_late') {
-    return row.first_in && row.last_out && row.candidate_hours != null
-      ? ['approve_actual', 'permission', 'time_deduction']
-      : ['permission', 'time_deduction', 'custom'];
-  }
-  return row.first_in && row.last_out && row.candidate_hours != null
-    ? ['approve_actual', 'permission', 'custom']
-    : ['permission', 'schedule_error', 'custom'];
-}
 
 const COMPACT_DECISION_LABELS: Record<string, string> = {
   approve_actual: 'اعتماد الفعلي',
@@ -698,8 +680,6 @@ export default function AttendanceResolutionCenter({
     }
 
     if (decision.id === 'permission') {
-      // Fast path stays inside this dialog while retaining the canonical
-      // time-off policy preflight, role guards and audited attendance approval.
       const duration = Number(permissionMinutes);
       if (!permissionMinutes.trim() || !Number.isSafeInteger(duration) || duration < 1 || duration > 1440) {
         toast.warning('حدد مدة الإذن الفعلية بالدقائق قبل الاعتماد (من 1 إلى 1440).');
@@ -713,47 +693,17 @@ export default function AttendanceResolutionCenter({
       setApproving(true);
       let permissionApproved = false;
       try {
-        // Re-read current state on submit: never infer that a stale cached
-        // request is still approved or create duplicate permission records.
-        const requests = await listStaffTimeOffRequests({
+        const permission = await ensureApprovedPermissionForAttendance({
           staffId: selected.staff_id,
-          from: selected.attendance_date,
-          to: selected.attendance_date,
-          limit: 100,
+          date: selected.attendance_date,
+          minutes: duration,
+          note: note.trim(),
+        }, {
+          listRequests: listStaffTimeOffRequests,
+          createRequest: createStaffTimeOffRequest,
+          preflight: getTimeOffRequestPreflightV3,
+          approveRequest: decideStaffTimeOffRequest,
         });
-        const permissions = requests.filter((request) => request.request_kind === 'permission'
-          && request.staff_id === selected.staff_id
-          && request.start_date === selected.attendance_date
-          && request.end_date === selected.attendance_date
-          && (request.status === 'pending' || request.status === 'approved'));
-        if (permissions.length > 1 || permissions.some((request) => Number(request.duration_minutes) !== duration)) {
-          toast.warning('يوجد إذن آخر أو أكثر لنفس اليوم بمدة مختلفة. راجع الطلبات الموجودة قبل إضافة إذن جديد.');
-          return;
-        }
-        let request = permissions[0];
-        if (!request) {
-          request = await createStaffTimeOffRequest({
-            staffId: selected.staff_id,
-            kind: 'permission',
-            label: 'إذن حضور من مركز المراجعات',
-            startDate: selected.attendance_date,
-            durationMinutes: duration,
-            reason: note.trim() || `إذن ${duration} دقيقة بعد مراجعة بصمة الحضور`,
-          });
-        }
-        if (request.status === 'pending') {
-          const preflight = await getTimeOffRequestPreflightV3(request.id);
-          if (!preflight.allowed || preflight.blockers.length > 0) {
-            toast.error(`الإذن محفوظ للمراجعة ولم يُعتمد: ${preflight.blockers.map((x) => x.label).join('، ') || 'فحص السياسة لم يكتمل'}`);
-            return;
-          }
-          if (preflight.warnings.length > 0) {
-            toast.warning(`الإذن محفوظ ولم يُعتمد تلقائيًا؛ يحتاج مراجعة إضافية: ${preflight.warnings.map((x) => x.label).join('، ')}`);
-            return;
-          }
-          request = await decideStaffTimeOffRequest(request.id, 'approved', note.trim() || 'اعتماد إذن من مراجعة الحضور');
-        }
-        if (request.status !== 'approved') throw new Error('الإذن لم يحصل على حالة الاعتماد المطلوبة.');
         permissionApproved = true;
         await approveAttendanceResolution({
           staffId: selected.staff_id,
@@ -761,7 +711,7 @@ export default function AttendanceResolutionCenter({
           payrollEligibleHours: parsedHours,
           note: [
             `تصنيف مراجعة الحضور: ${decision.label}`,
-            `إذن معتمد: ${request.id} (${duration} دقيقة)`,
+            `إذن معتمد: ${permission.requestId} (${duration} دقيقة)`,
             note.trim() ? `تفاصيل المدير: ${note.trim()}` : '',
           ].filter(Boolean).join(' | '),
         });
@@ -805,7 +755,9 @@ export default function AttendanceResolutionCenter({
       decision.financial ? `معامل الخصم المقترح: ×${multiplier} (للمراجعة المالية فقط؛ لم يطبق خصم)` : '',
       note.trim() ? `تفاصيل المدير: ${note.trim()}` : '',
     ].filter(Boolean).join(' | ');
-    const parsedHours = hours.trim() === '' ? null : Number(hours);
+    const parsedHours = decision.id === 'approve_actual'
+      ? Number(selected.candidate_hours)
+      : hours.trim() === '' ? null : Number(hours);
     if (parsedHours != null && (!Number.isFinite(parsedHours) || parsedHours < 0 || parsedHours > 18)) {
       toast.error('ساعات الاستحقاق يجب أن تكون بين 0 و18 ساعة.');
       return;
@@ -1297,7 +1249,7 @@ export default function AttendanceResolutionCenter({
                 </div>
                 {selected.queue_lane === 'manager' ? (() => {
                   const all = decisionsFor(selected);
-                  const featured = primaryDecisionIds(selected);
+                  const featured = recommendedAttendanceDecisionIds(selected);
                   const mainDecisions = featured.map((id) => all.find((option) => option.id === id))
                     .filter((option): option is Decision => !!option);
                   const moreDecisions = all.filter((item) => !mainDecisions.some((choice) => choice.id === item.id));
@@ -1393,12 +1345,15 @@ export default function AttendanceResolutionCenter({
               </>}
             </div>}
 
-            {reason && !['annual_leave', 'sick_leave', 'exceptional_leave', 'approved_absence', 'shift_swap', 'forgot_in', 'forgot_out'].includes(reason) && (
+            {reason && !['annual_leave', 'sick_leave', 'exceptional_leave', 'approved_absence', 'shift_swap', 'forgot_in', 'forgot_out', 'approve_actual'].includes(reason) && (
               <label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">
                 ساعات الاستحقاق للمرتب
                 <input value={hours} onChange={(e) => setHours(e.target.value)} type="number" min="0" max="18" step="0.01" className="input-dark mt-1 w-full" />
               </label>
             )}
+            {reason === 'approve_actual' && <p className="mt-3 rounded-xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-info-text)]">
+              اعتماد نفس ساعات العمل المرشحة من البصمتين ({selected.candidate_hours?.toFixed(2) || '—'} ساعة)، دون تعديل أوقات الجهاز أو تسجيل خصم.
+            </p>}
             {(() => {
               const decision = decisionsFor(selected).find((item) => item.id === reason);
               const linked = decision?.requestKind && approvedRequests.find((request) => request.request_kind === decision.requestKind);
@@ -1559,7 +1514,7 @@ export default function AttendanceResolutionCenter({
                         ? applyMissingPunchPenalty ? 'تسجيل البصمة اليدوية + خصم 50ج' : 'تسجيل البصمة اليدوية'
                         : decisionsFor(selected).find((item) => item.id === reason)?.financial
                           ? 'اعتماد الحضور وتوثيق اقتراح الخصم'
-                          : reason === 'permission' ? 'اعتماد الإذن والحضور' : reason ? 'اعتماد القرار الآن' : 'اختر قرارًا أولًا'}
+                          : reason === 'approve_actual' ? 'اعتماد ساعات الحضور الفعلية' : reason === 'permission' ? 'اعتماد الإذن والحضور' : reason ? 'اعتماد القرار الآن' : 'اختر قرارًا أولًا'
               </button>
               <button onClick={() => { setSelected(null); setNote(''); setReason(''); setMultiplier(''); setHours(''); setSwapWithDate(''); setWeeklyOffSwapPreview(null); setManualPunchAt(''); setApplyMissingPunchPenalty(false); setMissingPunchContext(null); setMissingPunchHistory([]); setShowDecisionEvidence(false); }} className="btn-secondary">إلغاء</button>
             </div>
