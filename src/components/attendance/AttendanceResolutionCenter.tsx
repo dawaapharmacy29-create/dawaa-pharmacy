@@ -1297,13 +1297,38 @@ export default function AttendanceResolutionCenter({
                 هذا اعتماد لحقيقة الحضور، وليس خصمًا ماليًا تلقائيًا.
               </div>
 
-              <label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">
-                نوع القرار
-                <select value={reason} onChange={(e) => setReason(e.target.value)} className="input-dark mt-1 w-full">
-                  <option value="">اختر القرار بعد مراجعة الحالة</option>
-                  {decisionsFor(selected).filter((item) => !embedded || (!item.schedule || (item.id === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')))).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-                </select>
-              </label>
+              <fieldset className="mt-3 space-y-2.5">
+                <legend className="text-sm font-black text-[var(--dawaa-theme-heading)]">
+                  اختر القرار المناسب بعد مراجعة الحالة
+                </legend>
+                <p className="text-[11px] font-bold leading-relaxed text-[var(--dawaa-theme-muted)]">
+                  اختر أحد الأزرار، ثم اكتب ملاحظة عند الحاجة واضغط اعتماد القرار. الاختيار وحده لا يحفظ أو ينفذ أي إجراء.
+                </p>
+                <div role="group" aria-label="نوع قرار الحضور" className="flex flex-wrap gap-2">
+                  {decisionsFor(selected)
+                    .filter((item) => !embedded || (!item.schedule || (item.id === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review'))))
+                    .map((item) => {
+                      const active = reason === item.id;
+                      return <button key={item.id} type="button" aria-pressed={active}
+                        disabled={approving || selected.queue_lane !== 'manager'}
+                        onClick={() => {
+                          setReason(item.id);
+                          setMultiplier('');
+                        }}
+                        className={`min-h-10 rounded-xl border px-3 py-2 text-right text-xs font-black leading-relaxed transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--dawaa-theme-accent)] disabled:cursor-not-allowed disabled:opacity-50 ${
+                          active
+                            ? 'border-[var(--dawaa-theme-primary)] bg-[var(--dawaa-theme-primary-soft)] text-[var(--dawaa-theme-heading)] ring-1 ring-[var(--dawaa-theme-primary)]'
+                            : 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] text-[var(--dawaa-theme-muted)] hover:border-[var(--dawaa-theme-primary)] hover:text-[var(--dawaa-theme-heading)]'
+                        }`}>
+                        {active ? '✓ ' : ''}{item.label}
+                      </button>;
+                    })}
+                </div>
+                {reason && <p role="status" className="text-xs font-bold text-[var(--dawaa-status-success-text)]">
+                  القرار المختار: {decisionsFor(selected).find((item) => item.id === reason)?.label}
+                  {' '}— لم يُعتمد بعد.
+                </p>}
+              </fieldset>
 
               <button
                 type="button"
@@ -1506,11 +1531,13 @@ export default function AttendanceResolutionCenter({
             <div className="sticky bottom-0 flex gap-2 border-t border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-4">
               <button
                 onClick={() => void approveSelected()}
-                disabled={selected.queue_lane !== 'manager' || approving || (reason === 'annual_leave' && annualLeavePreviewLoading) || (reason === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review') && weeklyOffSwapLoading)}
+                disabled={selected.queue_lane !== 'manager' || !reason || approving || (reason === 'annual_leave' && annualLeavePreviewLoading) || (reason === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review') && weeklyOffSwapLoading)}
                 className="btn-primary flex-1"
               >
                 {selected.queue_lane !== 'manager'
                   ? 'مشكلة نظام — أصلح السبب أولًا'
+                  : !reason
+                    ? 'اختر القرار أولًا'
                   : reason === 'annual_leave'
                   ? 'اعتماد الإجازة السنوية وتسجيلها'
                   : ['sick_leave', 'exceptional_leave', 'approved_absence'].includes(reason)
