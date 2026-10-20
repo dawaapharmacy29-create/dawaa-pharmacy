@@ -548,16 +548,22 @@ function analyzeOneCase(
   // contradicted identity is a real contradiction.
   const identityStatus = input.customerIdentityStatus;
   const identityBlocked = identityStatus !== undefined && identityStatus !== 'resolved';
+  const noncommercialCase = conversationCase.caseType === 'follow_up';
+  const attributionBlocked = identityBlocked || noncommercialCase;
   const identityReason = `customer_identity_${identityStatus}`;
-  const attribution = identityBlocked
+  const blockedReasons = [
+    ...(identityBlocked ? [identityReason] : []),
+    ...(noncommercialCase ? ['noncommercial_followup_not_attributable'] : []),
+  ];
+  const attribution = attributionBlocked
     ? {
         ...rawAttribution,
         isOfficialForStaffEvaluation: false,
-        humanReviewReasons: Array.from(new Set([...rawAttribution.humanReviewReasons, identityReason])),
+        humanReviewReasons: Array.from(new Set([...rawAttribution.humanReviewReasons, ...blockedReasons])),
       }
     : rawAttribution;
   const saleProof =
-    identityBlocked && derivedSaleProof.state === 'proven'
+    attributionBlocked && derivedSaleProof.state === 'proven'
       ? {
           ...derivedSaleProof,
           state: identityStatus === 'contradicted' ? ('contradicted' as const) : ('strongly_supported' as const),
@@ -566,7 +572,11 @@ function analyzeOneCase(
             identityStatus === 'contradicted'
               ? Array.from(new Set([...derivedSaleProof.contradictions, 'customer_identity_contradicted']))
               : derivedSaleProof.contradictions,
-          ruleIds: Array.from(new Set([...derivedSaleProof.ruleIds, 'sale_proof.customer_identity_not_resolved'])),
+          ruleIds: Array.from(new Set([
+            ...derivedSaleProof.ruleIds,
+            ...(identityBlocked ? ['sale_proof.customer_identity_not_resolved'] : []),
+            ...(noncommercialCase ? ['sale_proof.noncommercial_followup_not_attributable'] : []),
+          ])),
           needsHumanReview: true,
         }
       : derivedSaleProof;
