@@ -41,22 +41,7 @@ if (check) {
   const generated = Buffer.from(result.outputFiles[0].contents).toString('utf8');
   const committed = fs.existsSync(outfile) ? fs.readFileSync(path.resolve(outfile), 'utf8') : '';
   if (generated !== committed) {
-    // Temporary CI diagnostic: print the first bounded differences, never bypass parity.
-    const os = require('os');
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'si-parity-'));
-    const observed = path.join(dir, 'committed.js');
-    const expected = path.join(dir, 'expected.js');
-    fs.writeFileSync(observed, committed);
-    fs.writeFileSync(expected, generated);
-    try {
-      const cp = require('child_process');
-      cp.execFileSync('diff', ['-u', observed, expected], { encoding: 'utf8', maxBuffer: 1024 * 1024 });
-    } catch (diff) {
-      console.error('[refresh-api] PARITY_DIFF_START\n' + String(diff.stdout || '').slice(0, 13000) + '\nPARITY_DIFF_END');
-    } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
-    console.error(\`[refresh-api] \${outfile} is not the generated output of the canonical server implementation.\`);
+    console.error(`[refresh-api] ${outfile} is not the generated output of the canonical server implementation.`);
     console.error('[refresh-api] Run: node scripts/build-sales-intelligence-refresh-api.cjs and commit the result.');
     process.exit(1);
   }
