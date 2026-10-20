@@ -97,7 +97,7 @@ describe('ConversationCase Engine (Sales Intelligence Phase B.1) — Golden Case
       '[9/28/26, 2:20:27 AM] You: حاضر',
       '[9/28/26, 3:39:59 AM] Customer: دكتور معلش شوفه تاني كده',
       '[9/28/26, 3:40:13 AM] You: هكلمه',
-    ].join('\\n');
+    ].join('\n');
     const cases = deriveConversationCases({ understanding: understandingFor(raw), conversationId: 'service-then-chase' });
     expect(cases).toHaveLength(2);
     expect(cases.map((item) => item.caseType)).toEqual(['follow_up', 'follow_up']);
