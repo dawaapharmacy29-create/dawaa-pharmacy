@@ -7468,7 +7468,7 @@ function staffEvidenceForCase(input, scopedMessages) {
 function analyzeOneCase(conversationCase, scopedMessages, input, interaction = null, conversationTimeline = scopedMessages) {
   const pipelineWarnings = [];
   const caseStaffIdBySender = staffEvidenceForCase(input, scopedMessages);
-  const scopedIntroducedStaffIds = /* @__PURE__ */ new Set(
+  const scopedIntroducedStaffIds = new Set(
     scopedMessages.filter((message) => message.direction === "outbound").map((message) => input.staffIdByIntroductionMessageId?.[message.id]).filter((id) => Boolean(id))
   );
   const caseKnownStaffIds = [
