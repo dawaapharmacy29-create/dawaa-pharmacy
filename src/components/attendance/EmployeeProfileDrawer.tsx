@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useNavigate } from 'react-router-dom';
 import { X, Calendar, TrendingUp, Clock3, Download, AlertCircle, ShieldCheck } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
@@ -40,6 +41,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: string; onClose: () => void }) {
+  const navigate = useNavigate();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -85,6 +87,13 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
     weekday: 'long', timeZone: 'Africa/Cairo',
   });
 
+  function openCurrentCycleReview() {
+    // An actual review remains subject to the existing manager role + row-scoped
+    // backend guards; this only opens the canonical inbox with exact staff scope.
+    onClose();
+    navigate('/attendance-report?tab=resolution&triage=all&review_period=current-cycle&review_staff=' + encodeURIComponent(staffId));
+  }
+
   async function handleExport() {
     if (!profile) return;
     setExporting(true);
@@ -108,9 +117,9 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
 
   return createPortal(
     <div role="dialog" aria-modal="true" aria-label="ملف حضور الموظف"
-      className="fixed inset-x-0 bottom-0 top-14 z-[240] flex justify-end bg-black/50 backdrop-blur-[2px]"
+      className="fixed inset-x-0 bottom-0 top-14 z-[240] flex items-center justify-center bg-black/60 px-2 py-3 backdrop-blur-[2px] sm:px-5 sm:py-5"
       onClick={onClose} dir="rtl">
-      <aside className="flex h-full w-full min-w-0 max-w-[640px] flex-col overflow-hidden border-r border-[var(--dawaa-theme-border)] dawaa-surface shadow-2xl"
+      <aside className="flex max-h-full w-full min-w-0 max-w-[1060px] flex-col overflow-hidden rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface shadow-2xl"
         onClick={(e) => e.stopPropagation()}>
         <header className="z-10 flex shrink-0 items-start justify-between gap-3 border-b border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] px-4 py-3 sm:px-5">
           <div className="min-w-0 flex-1">
@@ -162,7 +171,15 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
             <div className="grid grid-cols-3 gap-2">
               <RateBox label="تأخير" value={profile.processed_evidence.coverage_complete ? `${profile.rates.late_rate_pct}%` : '—'} sub={profile.processed_evidence.coverage_complete ? `${profile.rates.late_days + profile.rates.very_late_days} يوم` : 'تغطية الحضور غير مكتملة'} />
               <RateBox label="إذن/إجازة" value={profile.processed_evidence.coverage_complete ? `${profile.rates.permission_rate_pct}%` : '—'} sub={profile.processed_evidence.coverage_complete ? `${profile.rates.permission_days} يوم` : 'تغطية الحضور غير مكتملة'} />
-              <RateBox label="مراجعة معلقة" value={profile.rates.evaluated_days > 0 ? String(profile.rates.pending_review_days) : '—'} sub={profile.rates.evaluated_days > 0 ? 'من أيام الملخص فقط' : 'لا يوجد ملخص حضور'} />
+              {profile.rates.evaluated_days > 0 && profile.rates.pending_review_days > 0 ? (
+                <button type="button" onClick={openCurrentCycleReview}
+                  aria-label={`فتح المراجعات المعلقة للموظف ${profile.staff.name} في الدورة الحالية`}
+                  className="block min-w-0 cursor-pointer rounded-xl text-right focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--dawaa-theme-accent)]">
+                  <RateBox label="مراجعة معلقة" value={String(profile.rates.pending_review_days)} sub="اضغط لعرض مراجعات الدورة الحالية" />
+                </button>
+              ) : (
+                <RateBox label="مراجعة معلقة" value={profile.rates.evaluated_days > 0 ? String(profile.rates.pending_review_days) : '—'} sub={profile.rates.evaluated_days > 0 ? 'من أيام الملخص فقط' : 'لا يوجد ملخص حضور'} />
+              )}
             </div>
           </section>
 
