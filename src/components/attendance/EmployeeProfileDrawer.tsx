@@ -133,22 +133,32 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
 
         {profile && !loading && <div className="space-y-5">
           {!profile.processed_evidence.coverage_complete && profile.processed_evidence.accepted_punches > 0 && (
-            <div role="status" className="rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-3 text-xs font-bold text-[var(--dawaa-theme-heading)]">
-              توجد {profile.processed_evidence.accepted_punches} بصمة مقبولة عبر {profile.processed_evidence.accepted_days} يوم،
-              منها {profile.processed_evidence.missing_summary_days} يوم بصمات مقبولة بدون ملخص حضور مقابل.
-              {profile.rates.evaluated_days > 0 ? ' ملف الحضور متاح جزئيًا فقط.' : ' لا يوجد ملخص تقييم حضور لهذه الفترة.'}
-              لذلك نعرض معدلات التأخير والإذن كغير مكتملة بدل صفر مضلل.
-              البصمات وحدها لا تعني اعتماد ساعات أو خصومات أو مرتبات.
-            </div>
+            <section role="status" className="rounded-2xl border border-[var(--dawaa-status-warning-border)] p-3 sm:p-4">
+              <div className="flex items-center gap-2 text-sm font-black text-[var(--dawaa-theme-heading)]">
+                <AlertCircle size={16} className="shrink-0 text-[var(--dawaa-status-warning-text)]" />
+                ملخص الحضور غير مكتمل
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <div className="rounded-xl border border-[var(--dawaa-theme-border)] p-2.5">
+                  <div className="text-lg font-black text-[var(--dawaa-theme-heading)]">{profile.processed_evidence.accepted_punches.toLocaleString('ar-EG')}</div>
+                  <div className="text-[11px] font-bold text-[var(--dawaa-theme-muted)]">بصمة مقبولة خلال {profile.processed_evidence.accepted_days} يوم</div>
+                </div>
+                <div className="rounded-xl border border-[var(--dawaa-theme-border)] p-2.5">
+                  <div className="text-lg font-black text-[var(--dawaa-theme-heading)]">{profile.processed_evidence.missing_summary_days.toLocaleString('ar-EG')}</div>
+                  <div className="text-[11px] font-bold text-[var(--dawaa-theme-muted)]">يوم بدون ملخص حضور</div>
+                </div>
+              </div>
+              <p className="mt-2.5 text-xs leading-relaxed text-[var(--dawaa-theme-muted)]">
+                {profile.rates.evaluated_days > 0 ? 'التقييم يغطي جزءًا من الفترة فقط؛ النسب ليست نهائية.' : 'لا يوجد ملخص حضور لهذه الفترة؛ النسب غير متاحة.'}
+                {' '}البصمات للمتابعة فقط وليست اعتمادًا لساعات أو خصومات أو مرتبات.
+              </p>
+            </section>
           )}
-          <div className="flex flex-wrap gap-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">
-            <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-1">{profile.staff.role || '-'}</span>
-            <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-1">{profile.staff.branch || '-'}</span>
-            {!profile.staff.active && <span className="rounded-full border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] px-2 py-1 text-[var(--dawaa-status-danger-text)]">غير نشط</span>}
-          </div>
-
           <section>
-            <div className="mb-2 flex items-center gap-1.5 font-black text-[var(--dawaa-theme-heading)]"><TrendingUp size={16} /> معدلات تقييم الحضور للفترة</div>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="flex items-center gap-1.5 text-sm font-black text-[var(--dawaa-theme-heading)]"><TrendingUp size={16} /> معدلات الحضور</h3>
+              <span className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">آخر 30 يوم · من ملخص الحضور</span>
+            </div>
             <div className="grid grid-cols-3 gap-2">
               <RateBox label="تأخير" value={profile.processed_evidence.coverage_complete ? `${profile.rates.late_rate_pct}%` : '—'} sub={profile.processed_evidence.coverage_complete ? `${profile.rates.late_days + profile.rates.very_late_days} يوم` : 'تغطية الحضور غير مكتملة'} />
               <RateBox label="إذن/إجازة" value={profile.processed_evidence.coverage_complete ? `${profile.rates.permission_rate_pct}%` : '—'} sub={profile.processed_evidence.coverage_complete ? `${profile.rates.permission_days} يوم` : 'تغطية الحضور غير مكتملة'} />
@@ -220,9 +230,9 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
 }
 
 function RateBox({ label, value, sub }: { label: string; value: string; sub: string }) {
-  return <div className="rounded-xl border border-[var(--dawaa-theme-border)] dawaa-surface-soft p-2.5 text-center">
+  return <div className="min-w-0 rounded-xl border border-[var(--dawaa-theme-border)] p-2.5 text-center">
     <div className="text-lg font-black text-[var(--dawaa-theme-heading)]">{value}</div>
-    <div className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{label}</div>
-    <div className="text-[9px] text-[var(--dawaa-theme-muted)]">{sub}</div>
+    <div className="mt-0.5 text-[11px] font-bold text-[var(--dawaa-theme-muted)]">{label}</div>
+    <div className="mt-0.5 text-[10px] leading-snug text-[var(--dawaa-theme-muted)]">{sub}</div>
   </div>;
 }
