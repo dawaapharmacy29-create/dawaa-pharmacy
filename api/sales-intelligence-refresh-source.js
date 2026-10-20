@@ -1838,7 +1838,19 @@ function hasUnresolvedMultipleRequests(messages, requestMessages) {
   }
   return false;
 }
-function deriveCaseForInteraction(understanding, interaction, input) {
+var NURSING_VISIT_REQUEST_RX = /(?:ممكن|لو سمحت|عايز|عاوز|محتاج|ابعت|ابعث|تبعت|تبعث|هات|حد).{0,100}(?:التمريض|مالتمريض|ممرض(?:ة)?)/iu;
+var NURSING_SERVICE_CHASE_RX = /(?:شوفه\s+تاني|كلم\s+الممرض|هكلم\s+الممرض|فين\s+الممرض|الممرض\s+فين|الممرض\s+مجاش|التمريض\s+مجاش|مجاش\s+لسه)/iu;
+var EXPLICIT_MEDICINE_REQUEST_RX = /(?:علب(?:ة|تين|ات)?|شريط|روشتة|روشته|أقراص|اقراص|حبوب|دواء|دواءين|شراب|كبسولات|امبولات|امبول|فيال)/iu;
+function serviceOnlyIntent(messages, previousServiceRequestAt) {
+  const customerMessages = messages.filter((message) => message.role === "customer");
+  const customerText = customerMessages.map((message) => message.text).join(" ");
+  if (!customerText || EXPLICIT_MEDICINE_REQUEST_RX.test(customerText)) return null;
+  if (NURSING_VISIT_REQUEST_RX.test(customerText)) return "nursing_visit";
+  const firstTime = customerMessages[0]?.timestamp.getTime() ?? NaN;
+  const lastServiceWithinThreeHours = previousServiceRequestAt != null && Number.isFinite(firstTime) && firstTime >= previousServiceRequestAt && firstTime - previousServiceRequestAt <= 3 * 60 * 60 * 1e3;
+  return lastServiceWithinThreeHours && NURSING_SERVICE_CHASE_RX.test(customerText) ? "nursing_chase" : null;
+}
+function deriveCaseForInteraction(understanding, interaction, input, previousServiceRequestAt) {
   const messages = messagesForInteraction(understanding, interaction);
   const requestSignals = extractRequestSignals(messages);
   const requestMessages = requestSignals.map((s) => messages.find((m) => m.id === s.messageId)).filter((m) => Boolean(m));
@@ -1848,6 +1860,7 @@ function deriveCaseForInteraction(understanding, interaction, input) {
   const productReferenceSignals = extractProductReferenceSignals(messages).filter((s) => s.extractedValue !== "unknown");
   const acceptanceSignals = extractAcceptanceSignals(messages);
   const rejectionSignals = extractRejectionSignals(messages);
+  const serviceIntent = serviceOnlyIntent(messages, previousServiceRequestAt);
   const hasRequest = requestSignals.length > 0;
   const hasCommercialSignal = quantitySignals.length > 0 || priceSignals.length > 0 || productReferenceSignals.length > 0 || confirmationSignals.length > 0;
   let caseType;
@@ -1872,14 +1885,24 @@ function deriveCaseForInteraction(understanding, interaction, input) {
   }
   let needsHumanReview = false;
   const humanReviewReasons = [];
-  let level = hasRequest ? hasCommercialSignal ? "strongly_inferred" : "weakly_inferred" : "proven";
+  if (serviceIntent) {
+    caseType = "follow_up";
+    status = "unknown";
+    score = 0.9;
+    needsHumanReview = true;
+    humanReviewReasons.push("noncommercial_nursing_service_requires_review");
+    ruleIds.push(
+      serviceIntent === "nursing_visit" ? "case.classification.nursing_visit_service_not_sale" : "case.classification.nursing_chase_service_not_sale"
+    );
+  }
+  let level = serviceIntent ? "strongly_inferred" : hasRequest ? hasCommercialSignal ? "strongly_inferred" : "weakly_inferred" : "proven";
   const explicitCommercialJourney = hasRequest && hasCommercialSignal && acceptanceSignals.length > 0 && confirmationSignals.length > 0 && rejectionSignals.length === 0;
-  if (explicitCommercialJourney) {
+  if (explicitCommercialJourney && !serviceIntent) {
     level = "proven";
     score = 1;
     ruleIds.push("case.classification.explicit_commercial_journey");
   }
-  if (hasUnresolvedMultipleRequests(messages, requestMessages)) {
+  if (!serviceIntent && hasUnresolvedMultipleRequests(messages, requestMessages)) {
     caseType = "mixed";
     needsHumanReview = true;
     humanReviewReasons.push(
@@ -1934,7 +1957,20 @@ function deriveCaseForInteraction(understanding, interaction, input) {
   };
 }
 function deriveConversationCases(input) {
-  return input.understanding.interactions.map((interaction) => deriveCaseForInteraction(input.understanding, interaction, input));
+  let previousServiceRequestAt = null;
+  const cases = [];
+  for (const interaction of input.understanding.interactions) {
+    const messages = messagesForInteraction(input.understanding, interaction);
+    const serviceIntent = serviceOnlyIntent(messages, previousServiceRequestAt);
+    const current = deriveCaseForInteraction(input.understanding, interaction, input, previousServiceRequestAt);
+    cases.push(current);
+    if (serviceIntent === "nursing_visit" || serviceIntent === "nursing_chase") {
+      previousServiceRequestAt = new Date(current.endedAt).getTime();
+    } else if (current.caseType === "sales_opportunity" || current.caseType === "mixed") {
+      previousServiceRequestAt = null;
+    }
+  }
+  return cases;
 }
 
 // src/lib/salesIntelligence/pharmacyProducts/pharmacyNormalization.ts
