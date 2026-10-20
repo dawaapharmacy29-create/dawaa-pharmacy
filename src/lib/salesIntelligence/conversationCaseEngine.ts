@@ -98,7 +98,7 @@ function serviceOnlyIntent(
   // Additive requests may contain an unqualified brand name without a pack/unit.
   // Fail open to commercial REVIEW rather than suppressing an independent medicine need.
   if (!customerText || EXPLICIT_MEDICINE_REQUEST_RX.test(customerText) ||
-      /(?:وكمان|وممكن|وعايز|وعاوز|ومحتاج)(?=\\s)/u.test(customerText)) return null;
+      /(?:وكمان|وممكن|وعايز|وعاوز|ومحتاج)(?=\s)/u.test(customerText)) return null;
   if (NURSING_VISIT_REQUEST_RX.test(customerText)) return 'nursing_visit';
   const firstTime = customerMessages[0]?.timestamp.getTime() ?? NaN;
   const lastServiceWithinThreeHours = previousServiceRequestAt != null &&
