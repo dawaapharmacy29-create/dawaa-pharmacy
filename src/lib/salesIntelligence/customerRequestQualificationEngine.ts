@@ -7,6 +7,7 @@ import type {
   LostOpportunityAssessment,
   UnavailableDemand,
 } from './types';
+import { isNonTransactionBranchMarker } from '../branch';
 
 export type CustomerRequestQualificationStatus = 'qualified' | 'review_required' | 'suppressed';
 export type CustomerRequestSuppressionReason =
@@ -79,7 +80,8 @@ export function deriveCanonicalCustomerRequestAssessment(input: {
 
     if (!suppressedBy) {
       if (demand.customerIdentityStatus !== 'resolved' || !demand.customerId) blockers.push('customer_identity_unresolved');
-      if (!demand.branchNameRaw) blockers.push('branch_unknown');
+      // Account-wide scope / unknown markers never become the branch of a new customer request.
+      if (!demand.branchNameRaw || isNonTransactionBranchMarker(demand.branchNameRaw)) blockers.push('branch_unknown');
       if (!demand.resolvedProductId) blockers.push('product_identity_unresolved');
       if (demand.blockers.includes('quantity_conflict')) blockers.push('quantity_conflict');
     }

@@ -3,6 +3,7 @@
 // This module never decides whether a request exists. It consumes the canonical qualification
 // owner and only projects QUALIFIED requests into whatsapp_conversation_actions. The existing
 // explicit approval + materialization RPC remains the only path to customer_requests truth.
+import { isNonTransactionBranchMarker } from '../../branch';
 import { parseWhatsAppExport } from '../../whatsappConversationParser';
 import { stableOperationIdentity } from '../../whatsappFollowupIdentity';
 import type { SalesIntelligenceCaseAnalysis } from '../types';
@@ -54,6 +55,7 @@ export interface CanonicalCustomerRequestProjectionSkip {
     | 'missing_source'
     | 'missing_customer_name'
     | 'missing_branch'
+    | 'non_transaction_branch'
     | 'missing_staff_identity'
     | 'missing_product_identity'
     | 'missing_product_code'
@@ -133,6 +135,10 @@ export function buildCanonicalCustomerRequestActionRows(
       }
       if (!branch) {
         skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: 'missing_branch' });
+        continue;
+      }
+      if (isNonTransactionBranchMarker(branch)) {
+        skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: 'non_transaction_branch' });
         continue;
       }
       if (!staffId) {

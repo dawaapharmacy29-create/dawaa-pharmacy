@@ -17,7 +17,7 @@ import type { WhatsAppParticipantRoleModelV15 } from '@/lib/whatsappParticipantR
 import { buildSmartOwnershipTimeline } from '@/lib/whatsappSmartReviewOwnership';
 import { resolveWhatsAppStaffV6 } from '@/lib/whatsappStaffResolverV6';
 import { extractIntroducedStaffName } from '@/lib/whatsappConversationParser';
-import { normalizeBranchName } from '@/lib/branch';
+import { isNonTransactionBranchMarker, normalizeBranchName } from '@/lib/branch';
 
 export type BranchHintSource = 'source' | 'explicit_introduction' | 'active_owner' | 'staff_resolver' | 'majority_fallback' | 'none';
 
@@ -38,9 +38,8 @@ function majorityFallback(roles: WhatsAppParticipantRoleModelV15): BranchHintRes
 
 // Account-wide access is not evidence of a conversation's transaction branch.
 function operationalBranch(value: string | null | undefined): string | null {
-  if (!value?.trim()) return null;
-  const branch = normalizeBranchName(value);
-  return ['كل الفروع', 'غير محدد'].includes(branch) ? null : branch;
+  if (!value?.trim() || isNonTransactionBranchMarker(value)) return null;
+  return normalizeBranchName(value);
 }
 
 export async function resolveConversationBranchHint(

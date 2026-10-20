@@ -187,6 +187,30 @@ describe('Canonical Follow-up Opportunity Engine', () => {
     expect(followUp.customerId).toBeNull();
   });
 
+  it('K2. account-wide or unknown branch marker -> blocked for review with the same operation identity', () => {
+    const raw = `[9/15/26, 9:00:00 AM] Customer: عايز 2 علبة كونجستال
+[9/15/26, 9:01:00 AM] You: كونجستال مش موجود حاليًا
+[9/15/26, 9:02:00 AM] Customer: طيب`;
+    const withBranch = (branchNameRawHint: string | null) => runSalesIntelligencePipeline({
+      conversationId: 'follow-up-conversation',
+      rawWhatsAppExportText: raw,
+      resolveInvoiceCandidates: () => [],
+      customerIdHint: 'customer-1',
+      customerIdentityStatus: 'resolved',
+      branchNameRawHint,
+    }).caseAnalyses[0].followUp;
+    const real = withBranch('فرع شكري');
+    expect(real.decision).toBe('actionable');
+    expect(withBranch(null).decision).toBe('actionable');
+    for (const marker of ['كل الفروع', 'غير محدد']) {
+      const blocked = withBranch(marker);
+      expect(blocked.decision).toBe('blocked');
+      expect(blocked.opportunities[0]).toMatchObject({ status: 'blocked', blocker: 'transaction_branch_unknown' });
+      // A later authorized branch correction re-activates the same duty instead of a duplicate.
+      expect(blocked.opportunities[0].followUpKey).toBe(real.opportunities[0].followUpKey);
+    }
+  });
+
   it('L. staff never replied -> immediate obligation, not blocked by identity', () => {
     const analysis = analyze(`[9/15/26, 9:00:00 AM] Customer: عايز 1 علبة فيتامين د`, { resolved: false });
     const [followUp] = actionable(analysis);

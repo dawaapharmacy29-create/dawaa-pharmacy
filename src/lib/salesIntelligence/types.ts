@@ -411,7 +411,8 @@ export interface FollowUpOpportunity {
   assignedStaffName: string | null;
   goal: string;
   nextBestAction: NextBestAction;
-  blocker: 'customer_identity_unresolved' | null;
+  /** transaction_branch_unknown: the case branch is account-wide scope or an unknown marker. */
+  blocker: 'customer_identity_unresolved' | 'transaction_branch_unknown' | null;
   suppressedBy: FollowUpSuppression | null;
   evidenceMessageIds: string[];
   confidence: ConfidenceAssessment;

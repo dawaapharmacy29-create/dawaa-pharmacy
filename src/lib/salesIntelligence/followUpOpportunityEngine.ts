@@ -21,6 +21,7 @@ import {
 import { normalizeProductKey } from './caseBasketEngine';
 import { stableOperationIdentity, type OperationTimelineMessage } from '../whatsappFollowupIdentity';
 import { cairoWallClockParts, cairoWallClockToDate } from '../time/cairoDateBoundary';
+import { isNonTransactionBranchMarker } from '../branch';
 import type {
   CanonicalSalesOutcomeAssessment,
   ConfidenceAssessment,
@@ -297,6 +298,9 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
     return times.length ? new Date(Math.min(...times)) : caseStartedAt;
   };
 
+  // Account-wide scope / unknown markers are not a transaction branch: the duty stays visible but
+  // blocked for human review instead of becoming an executable task in a non-branch.
+  const transactionBranchUnknown = isNonTransactionBranchMarker(conversationCase.branchNameRaw);
   const byKey = new Map<string, FollowUpOpportunity>();
   for (const candidate of candidates) {
     const profile = PROFILE[candidate.reason];
@@ -310,7 +314,13 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
     }
     if (!suppressedBy && saleProven && !candidate.explicit) suppressedBy = 'sale_proven';
     if (!suppressedBy && (candidate.evidence.length === 0 || candidate.level === 'unknown')) suppressedBy = 'weak_evidence';
-    const blocked = !suppressedBy && profile.needsCustomerIdentity && !customerId;
+    const blocker: FollowUpOpportunity['blocker'] = suppressedBy
+      ? null
+      : profile.needsCustomerIdentity && !customerId
+        ? 'customer_identity_unresolved'
+        : transactionBranchUnknown
+          ? 'transaction_branch_unknown'
+          : null;
     const duePolicy = candidate.duePolicy ?? profile.duePolicy;
     const requestedDelayDays = candidate.requestedDelayDays ?? null;
     const productScopeKey = demand ? (demand.resolvedProductId ?? demand.productKey) : null;
@@ -326,7 +336,7 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
       followUpKey,
       caseId,
       customerId,
-      status: suppressedBy ? 'suppressed' : blocked ? 'blocked' : 'actionable',
+      status: suppressedBy ? 'suppressed' : blocker ? 'blocked' : 'actionable',
       reason: candidate.reason,
       priority: candidate.priority ?? profile.priority,
       productKey: demand?.productKey ?? null,
@@ -342,7 +352,7 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
       assignedStaffName: candidate.assignedStaffName ?? null,
       goal: profile.goal,
       nextBestAction: profile.nextBestAction,
-      blocker: blocked ? 'customer_identity_unresolved' : null,
+      blocker,
       suppressedBy,
       evidenceMessageIds: [...new Set(candidate.evidence)],
       confidence: confidence(candidate, profile),

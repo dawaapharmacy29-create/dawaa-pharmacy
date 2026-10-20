@@ -10,7 +10,11 @@ const RAW = [
   '[10/17/26, 10:01:00 AM] You: مش متوفر حاليا',
 ].join('\n');
 
-function analysis(caseId = 'case-1', availabilityState: 'unavailable' | 'check_pending' = 'unavailable') {
+function analysis(
+  caseId = 'case-1',
+  availabilityState: 'unavailable' | 'check_pending' = 'unavailable',
+  branchNameRaw = 'شكري'
+) {
   const productKey = 'panadol';
   const demandKey = `${caseId}:demand:product:${PRODUCT_ID}`;
   const result = {
@@ -18,7 +22,7 @@ function analysis(caseId = 'case-1', availabilityState: 'unavailable' | 'check_p
     conversationId: '11111111-1111-4111-8111-111111111111',
     conversationCase: {
       customerPhone: '01000000000',
-      branchNameRaw: 'شكري',
+      branchNameRaw,
     },
     customerNeed: {
       caseId,
@@ -62,7 +66,7 @@ function analysis(caseId = 'case-1', availabilityState: 'unavailable' | 'check_p
         customerId: CUSTOMER_ID,
         customerIdentityStatus: 'resolved',
         branchId: null,
-        branchNameRaw: 'شكري',
+        branchNameRaw,
         requestedAt: '2026-10-17T07:00:00.000Z',
         productKey,
         requestedProductRaw: 'بانادول',
@@ -189,5 +193,29 @@ describe('canonical customer request projector', () => {
     expect(missing.skipped[0].reason).toBe('missing_canonical_assessment');
   });
 
-});
+  it.each(['كل الفروع', 'غير محدد'])('keeps a %s request for review instead of projecting it', (branch) => {
+    const canonical = analysis('case-1', 'unavailable', branch);
+    expect(canonical.customerRequestAssessment.requests[0]).toMatchObject({
+      status: 'review_required',
+      blockers: ['branch_unknown'],
+    });
+    const result = buildCanonicalCustomerRequestActionRows([canonical], [source()]);
+    expect(result.rows).toEqual([]);
+    expect(result.skipped[0]).toMatchObject({ reason: 'not_qualified' });
+  });
 
+  it.each(['شكري', 'فرع شكري', 'فرع الشامي'])('still projects a real %s transaction branch', (branch) => {
+    const result = buildCanonicalCustomerRequestActionRows([analysis('case-1', 'unavailable', branch)], [source()]);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0].branch).toBe(branch);
+  });
+
+  it('refuses a stale qualified decision whose case branch is account-wide scope', () => {
+    const canonical = analysis();
+    canonical.conversationCase.branchNameRaw = 'كل الفروع';
+    const result = buildCanonicalCustomerRequestActionRows([canonical], [source()]);
+    expect(result.rows).toEqual([]);
+    expect(result.skipped[0]).toMatchObject({ reason: 'non_transaction_branch' });
+  });
+
+});

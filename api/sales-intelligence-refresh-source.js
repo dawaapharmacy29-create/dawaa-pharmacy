@@ -85,6 +85,11 @@ function normalizeBranchName(value) {
   }
   return text5;
 }
+function isNonTransactionBranchMarker(value) {
+  if (!String(value ?? "").trim()) return false;
+  const branch = normalizeBranchName(value);
+  return branch === ALL_BRANCHES || branch === UNKNOWN_BRANCH;
+}
 
 // src/lib/invoices/invoiceCore.ts
 var EGYPTIAN_BRANCHES = [
@@ -5434,7 +5439,7 @@ function deriveCanonicalCustomerRequestAssessment(input) {
     }
     if (!suppressedBy) {
       if (demand.customerIdentityStatus !== "resolved" || !demand.customerId) blockers.push("customer_identity_unresolved");
-      if (!demand.branchNameRaw) blockers.push("branch_unknown");
+      if (!demand.branchNameRaw || isNonTransactionBranchMarker(demand.branchNameRaw)) blockers.push("branch_unknown");
       if (!demand.resolvedProductId) blockers.push("product_identity_unresolved");
       if (demand.blockers.includes("quantity_conflict")) blockers.push("quantity_conflict");
     }
@@ -6802,6 +6807,7 @@ function deriveFollowUpOpportunities(input) {
     const times = evidence.map((id) => messageAt.get(id)).filter((t) => typeof t === "number");
     return times.length ? new Date(Math.min(...times)) : caseStartedAt;
   };
+  const transactionBranchUnknown = isNonTransactionBranchMarker(conversationCase.branchNameRaw);
   const byKey = /* @__PURE__ */ new Map();
   for (const candidate of candidates) {
     const profile = PROFILE[candidate.reason];
@@ -6813,7 +6819,7 @@ function deriveFollowUpOpportunities(input) {
     }
     if (!suppressedBy && saleProven && !candidate.explicit) suppressedBy = "sale_proven";
     if (!suppressedBy && (candidate.evidence.length === 0 || candidate.level === "unknown")) suppressedBy = "weak_evidence";
-    const blocked = !suppressedBy && profile.needsCustomerIdentity && !customerId;
+    const blocker = suppressedBy ? null : profile.needsCustomerIdentity && !customerId ? "customer_identity_unresolved" : transactionBranchUnknown ? "transaction_branch_unknown" : null;
     const duePolicy = candidate.duePolicy ?? profile.duePolicy;
     const requestedDelayDays = candidate.requestedDelayDays ?? null;
     const productScopeKey = demand ? demand.resolvedProductId ?? demand.productKey : null;
@@ -6827,7 +6833,7 @@ function deriveFollowUpOpportunities(input) {
       followUpKey,
       caseId,
       customerId,
-      status: suppressedBy ? "suppressed" : blocked ? "blocked" : "actionable",
+      status: suppressedBy ? "suppressed" : blocker ? "blocked" : "actionable",
       reason: candidate.reason,
       priority: candidate.priority ?? profile.priority,
       productKey: demand?.productKey ?? null,
@@ -6843,7 +6849,7 @@ function deriveFollowUpOpportunities(input) {
       assignedStaffName: candidate.assignedStaffName ?? null,
       goal: profile.goal,
       nextBestAction: profile.nextBestAction,
-      blocker: blocked ? "customer_identity_unresolved" : null,
+      blocker,
       suppressedBy,
       evidenceMessageIds: [...new Set(candidate.evidence)],
       confidence: confidence2(candidate, profile)
@@ -8793,7 +8799,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v35-stock-request-pack-context";
+var PIPELINE_VERSION = "sales-intelligence-v36-transaction-branch-required";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v10-payment-continuation-ambiguity-safe",
   historicalClosure: "historical-closure-v1",
@@ -10009,6 +10015,10 @@ function buildCanonicalCustomerRequestActionRows(analyses, sources) {
       }
       if (!branch) {
         skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: "missing_branch" });
+        continue;
+      }
+      if (isNonTransactionBranchMarker(branch)) {
+        skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: "non_transaction_branch" });
         continue;
       }
       if (!staffId) {
