@@ -1304,12 +1304,12 @@ export default function AttendanceResolutionCenter({
                 <p className="text-[11px] font-bold leading-relaxed text-[var(--dawaa-theme-muted)]">
                   اختَر قرارًا من الأزرار التالية، ثم اكتب ملاحظة عند الحاجة واضغط اعتماد القرار. الاختيار وحده لا يحفظ أي شيء.
                 </p>
-                <div role="radiogroup" aria-label="نوع قرار الحضور" className="flex flex-wrap gap-2">
+                <div role="group" aria-label="نوع قرار الحضور" className="flex flex-wrap gap-2">
                   {decisionsFor(selected)
                     .filter((item) => !embedded || (!item.schedule || (item.id === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review'))))
                     .map((item) => {
                       const active = reason === item.id;
-                      return <button key={item.id} type="button" role="radio" aria-checked={active}
+                      return <button key={item.id} type="button" aria-pressed={active}
                         disabled={approving || selected.queue_lane !== 'manager'}
                         onClick={() => {
                           setReason(item.id);
