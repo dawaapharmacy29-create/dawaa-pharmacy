@@ -15,6 +15,8 @@ const sql = readFileSync(path.join(root,
 const db = new PGlite();
 try {
   await db.exec(`
+    create role authenticated;
+    create role service_role;
     create table public.staff_accounts(
       id uuid primary key,active boolean,can_login boolean
     );
