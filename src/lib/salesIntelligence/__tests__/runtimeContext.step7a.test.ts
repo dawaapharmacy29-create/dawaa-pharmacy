@@ -134,7 +134,7 @@ describe('canonical invoice seller and self-introduction identity', () => {
       '[9/28/26, 1:00:00 AM] Customer: محتاج مساعدة',
       '[9/28/26, 1:00:10 AM] You: مع حضرتك هبه من خدمة العملاء',
       '[9/28/26, 1:00:25 AM] Customer: شكرا لحضرتك',
-    ].join('\\n');
+    ].join('\n');
     const [prepared] = await prepareSalesIntelligenceConversations(
       clientReturning(),
       [{ conversationId: 'multi-staff-source', rawWhatsAppExportText: raw, knownStaffIds: ['staff-shebl'] }],
