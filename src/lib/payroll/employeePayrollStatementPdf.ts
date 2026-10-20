@@ -48,7 +48,7 @@ function deliveryPageHtml(statement: Awaited<ReturnType<typeof buildLegacyEmploy
   return '<section class="delivery-statement-page" style="width:794px;min-height:1123px;box-sizing:border-box;padding:30px 34px 46px;background:#fff;color:#102235;font-family:Tahoma,Arial,sans-serif;direction:rtl">' +
     '<header style="display:flex;justify-content:space-between;gap:18px;border-bottom:3px solid #0b8c86;padding-bottom:10px;margin-bottom:16px">' +
       '<div><div style="font-size:20px;font-weight:900">تفاصيل راتب الدليفري</div><div style="font-size:9px;color:#687983;margin-top:3px">' + esc(statement.staff.name) + ' · ' + esc(statement.cycle.start) + ' → ' + esc(statement.cycle.end) + '</div></div>' +
-      '<div style="font-size:9px;color:#687983;text-align:left"><b style="font-size:11px;color:#102235">صيدليات دواء</b><br/>Delivery Payroll V3</div>' +
+      '<div style="font-size:9px;color:#687983;text-align:left"><b style="font-size:11px;color:#102235">صيدليات دواء</b><br/>كشف راتب الدليفري</div>' +
     '</header>' +
     '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">' +
       card('التصنيف', className, 'الفئة: ' + tenure) +
@@ -63,13 +63,13 @@ function deliveryPageHtml(statement: Awaited<ReturnType<typeof buildLegacyEmploy
       card('الأوردرات المحتسبة', num(get(activity, 'orders_counted')).toLocaleString('ar-EG'), 'إجمالي ' + num(get(activity, 'orders_total')).toLocaleString('ar-EG') + ' · معلق ' + num(get(activity, 'orders_pending')).toLocaleString('ar-EG')) +
       card('المشاوير المعتمدة', num(get(activity, 'trips_approved')).toLocaleString('ar-EG'), 'إجمالي ' + num(get(activity, 'trips_total')).toLocaleString('ar-EG') + ' · معلق ' + num(get(activity, 'trips_pending')).toLocaleString('ar-EG')) +
       card('وحدات المشاوير', num(get(activity, 'trip_weighted_units')).toLocaleString('ar-EG')) +
-      card('Attendance Evidence', num(get(evidence, 'app_attendance_days')).toLocaleString('ar-EG') + ' يوم', 'Payroll canonical: ' + num(get(evidence, 'payroll_worked_days')).toLocaleString('ar-EG')) +
+      card('أدلة الحضور', num(get(evidence, 'app_attendance_days')).toLocaleString('ar-EG') + ' يوم', 'الحضور المالي المعتمد: ' + num(get(evidence, 'payroll_worked_days')).toLocaleString('ar-EG')) +
     '</div>' +
     '<div style="border:1px solid #b8ded9;background:#eff9f7;border-radius:14px;padding:13px;margin-bottom:14px">' +
-      '<div style="font-size:12px;font-weight:900;color:#087f7a;margin-bottom:8px">المكونات المالية للدليفري — بدون Double Counting</div>' +
+      '<div style="font-size:12px;font-weight:900;color:#087f7a;margin-bottom:8px">المكونات المالية للدليفري — بدون تكرار الاحتساب</div>' +
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:7px 20px;font-size:10px;line-height:1.8">' +
         '<div>أساس الساعات: <b>' + esc(money(breakdown.base_salary)) + '</b></div>' +
-        '<div>Overtime: <b>' + esc(money(breakdown.approved_overtime)) + '</b></div>' +
+        '<div>العمل الإضافي: <b>' + esc(money(breakdown.approved_overtime)) + '</b></div>' +
         '<div>الأوردرات: <b>' + esc(money(breakdown.order_pay)) + '</b></div>' +
         '<div>المشاوير: <b>' + esc(money(breakdown.trip_pay)) + '</b></div>' +
         '<div>الحافز الشهري: <b>' + esc(money(breakdown.monthly_incentive)) + '</b></div>' +
@@ -79,7 +79,7 @@ function deliveryPageHtml(statement: Awaited<ReturnType<typeof buildLegacyEmploy
       '</div>' +
     '</div>' +
     (blockerRows ? '<div style="border:1px solid #efca78;background:#fff9ec;border-radius:12px;padding:11px;font-size:9px;line-height:1.7"><b style="color:#8b5d00">موانع الإقفال الحالية:</b>' + blockerRows + '</div>' : '<div style="border:1px solid #b8ded9;background:#eff9f7;border-radius:12px;padding:11px;font-size:9px"><b style="color:#087f7a">لا توجد موانع إقفال حالية.</b></div>') +
-    '<div style="margin-top:14px;font-size:8px;color:#687983;line-height:1.6">قاعدة المصدر: Payroll attendance هو المصدر المالي للحضور. تطبيق الدليفري يرسل النشاط المعتمد وAttendance Evidence فقط، ولا يحدد أسعار الراتب.</div>' +
+    '<div style="margin-top:14px;font-size:8px;color:#687983;line-height:1.6">قاعدة المصدر: الحضور المعتمد للمرتب هو المصدر المالي للحضور. تطبيق الدليفري يرسل النشاط المعتمد وأدلة الحضور فقط، ولا يحدد أسعار الراتب.</div>' +
   '</section>';
 }
 
@@ -94,10 +94,12 @@ export async function buildEmployeePayrollStatementPdf(
   const host = document.createElement('div');
   host.style.cssText = 'position:fixed;left:-12000px;top:0;width:794px;background:#fff';
   host.dir = 'rtl';
+  host.lang = 'ar';
   host.innerHTML = deliveryPageHtml(result.statement);
   document.body.appendChild(host);
 
   try {
+    await document.fonts.ready;
     const [{ default: html2canvas }] = await Promise.all([import('html2canvas')]);
     const element = host.querySelector('.delivery-statement-page') as HTMLElement | null;
     if (element) {
