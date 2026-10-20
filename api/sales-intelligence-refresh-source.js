@@ -7299,7 +7299,7 @@ function pickOpportunity(opportunities) {
 function deriveCaseOperationalDisposition(input) {
   const { lostOpportunity, followUp, journeyState } = input;
   const opportunity = pickOpportunity(followUp.opportunities);
-  const lostBucket = (lostOpportunity.state === "open" || lostOpportunity.state === "recoverable") && lostOpportunity.waitingOn ? LOST_WAITING_BUCKET[lostOpportunity.waitingOn] : journeyState.currentState === "awaiting_invoice" ? "invoice" : null;
+  const lostBucket = followUp.decision === "review_required" && lostOpportunity.state === "no_commercial_opportunity" ? null : (lostOpportunity.state === "open" || lostOpportunity.state === "recoverable") && lostOpportunity.waitingOn ? LOST_WAITING_BUCKET[lostOpportunity.waitingOn] : journeyState.currentState === "awaiting_invoice" ? "invoice" : null;
   let decision;
   const fromOpportunity = (o) => ({
     bucket: REASON_BUCKET[o.reason],
