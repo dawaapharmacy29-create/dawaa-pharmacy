@@ -5305,6 +5305,17 @@ function deriveCanonicalSalesOutcome(input) {
       reasonCodes: ["outcome.information_only"]
     };
   }
+  if (caseType === "follow_up") {
+    return {
+      ...base,
+      needsHumanReview: true,
+      outcome: "needs_review",
+      isSaleCountable: false,
+      isRevenueCountable: false,
+      isOrderConfirmed: false,
+      reasonCodes: ["outcome.noncommercial_followup_requires_review"]
+    };
+  }
   if (caseType === "mixed") {
     return {
       ...base,
@@ -6451,7 +6462,7 @@ function deriveLostOpportunity(input) {
       staffId: alternative.offeredByStaffId
     });
   }
-  const hasCommercialNeed = salesOutcome.outcome !== "information_only" && journeyState.currentState !== "information_only" && (customerNeed.products.length > 0 || customerNeed.primaryNeedMessageId !== null);
+  const hasCommercialNeed = !salesOutcome.reasonCodes.includes("outcome.noncommercial_followup_requires_review") && salesOutcome.outcome !== "information_only" && journeyState.currentState !== "information_only" && (customerNeed.products.length > 0 || customerNeed.primaryNeedMessageId !== null);
   let v;
   if (salesOutcome.outcome === "sale_proven") {
     v = verdict("won", null, "none", null, "proven", 1, "won.canonical_sale_proven", []);
@@ -6745,6 +6756,9 @@ function deriveFollowUpOpportunities(input) {
   const customerId = identityResolved ? conversationCase.customerId : null;
   const operationallyClosed = lostOpportunity.state === "closed_order_unproven";
   const operationalClosureSuppression = operationallyClosed ? salesOutcome.reasonCodes.includes("outcome.invoice_backed_order_closed_sale_not_proven") ? "invoiced_unproven" : "financially_settled" : null;
+  if (conversationCase.caseType === "follow_up") {
+    return { caseId, decision: "review_required", opportunities: [], notNeededReason: null };
+  }
   if (salesOutcome.outcome === "information_only" || lostOpportunity.state === "no_commercial_opportunity") {
     return {
       caseId,
@@ -7309,6 +7323,15 @@ function deriveCaseOperationalDisposition(input) {
       confidence: lostOpportunity.confidence,
       nextBestAction: LOST_WAITING_ACTION[lostBucket]
     };
+  } else if (followUp.decision === "review_required") {
+    decision = {
+      bucket: "unknown",
+      opportunity: null,
+      reasonCodes: ["disposition.manual_review_pending"],
+      evidenceMessageIds: [],
+      confidence: lostOpportunity.confidence,
+      nextBestAction: null
+    };
   } else if (TERMINAL_COMMERCIAL.has(lostOpportunity.state)) {
     decision = {
       bucket: "closed",
@@ -7653,18 +7676,28 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
   });
   const identityStatus = input.customerIdentityStatus;
   const identityBlocked = identityStatus !== void 0 && identityStatus !== "resolved";
+  const noncommercialCase = conversationCase.caseType === "follow_up";
+  const attributionBlocked = identityBlocked || noncommercialCase;
   const identityReason = `customer_identity_${identityStatus}`;
-  const attribution = identityBlocked ? {
+  const blockedReasons = [
+    ...identityBlocked ? [identityReason] : [],
+    ...noncommercialCase ? ["noncommercial_followup_not_attributable"] : []
+  ];
+  const attribution = attributionBlocked ? {
     ...rawAttribution,
     isOfficialForStaffEvaluation: false,
-    humanReviewReasons: Array.from(/* @__PURE__ */ new Set([...rawAttribution.humanReviewReasons, identityReason]))
+    humanReviewReasons: Array.from(/* @__PURE__ */ new Set([...rawAttribution.humanReviewReasons, ...blockedReasons]))
   } : rawAttribution;
-  const saleProof = identityBlocked && derivedSaleProof.state === "proven" ? {
+  const saleProof = attributionBlocked && derivedSaleProof.state === "proven" ? {
     ...derivedSaleProof,
     state: identityStatus === "contradicted" ? "contradicted" : "strongly_supported",
     trustedInvoiceId: null,
     contradictions: identityStatus === "contradicted" ? Array.from(/* @__PURE__ */ new Set([...derivedSaleProof.contradictions, "customer_identity_contradicted"])) : derivedSaleProof.contradictions,
-    ruleIds: Array.from(/* @__PURE__ */ new Set([...derivedSaleProof.ruleIds, "sale_proof.customer_identity_not_resolved"])),
+    ruleIds: Array.from(/* @__PURE__ */ new Set([
+      ...derivedSaleProof.ruleIds,
+      ...identityBlocked ? ["sale_proof.customer_identity_not_resolved"] : [],
+      ...noncommercialCase ? ["sale_proof.noncommercial_followup_not_attributable"] : []
+    ])),
     needsHumanReview: true
   } : derivedSaleProof;
   const reviewReasonsResolvedByProvenInvoice = /* @__PURE__ */ new Set(["no_basket_state_for_case"]);
