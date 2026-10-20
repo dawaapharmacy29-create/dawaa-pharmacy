@@ -17,9 +17,10 @@ export type EmployeeProfilePdfInput = {
   }[];
   processedEvidence?: {
     accepted_punches: number; accepted_days: number; complete_pair_days: number;
+    summary_covered_days: number; missing_summary_days: number; coverage_complete: boolean;
     manual_review_punches: number;
     recent_days: { shift_date: string; accepted_punches: number; first_in: string | null;
-      last_out: string | null; punch_branches: string[] }[];
+      last_out: string | null; punch_branches: string[]; has_summary: boolean }[];
   };
 };
 
@@ -55,12 +56,12 @@ export async function buildEmployeeAttendanceProfilePdf(input: EmployeeProfilePd
       </tr>`)
     .join('');
 
-  const coverageMissing = input.rates.evaluated_days === 0;
+  const coverageMissing = !input.processedEvidence?.coverage_complete;
   const rawRows = (input.processedEvidence?.recent_days || [])
     .map((day) => `<tr>
       <td style="padding:6px;border-bottom:1px solid #e5e7eb;font-size:11px">${escapeHtml(day.shift_date)}</td>
       <td style="padding:6px;border-bottom:1px solid #e5e7eb;font-size:11px">${escapeHtml(formatTime(day.first_in))} ← ${escapeHtml(formatTime(day.last_out))}</td>
-      <td style="padding:6px;border-bottom:1px solid #e5e7eb;font-size:11px">${escapeHtml(day.accepted_punches)} مقبولة</td>
+      <td style="padding:6px;border-bottom:1px solid #e5e7eb;font-size:11px">${escapeHtml(day.accepted_punches)} مقبولة${!day.has_summary && day.accepted_punches > 0 ? ' · بدون ملخص' : ''}</td>
       <td style="padding:6px;border-bottom:1px solid #e5e7eb;font-size:11px">${escapeHtml(day.punch_branches?.join('، ') || '-')}</td>
     </tr>`).join('');
   const host = document.createElement('div');
@@ -81,8 +82,9 @@ export async function buildEmployeeAttendanceProfilePdf(input: EmployeeProfilePd
       ${coverageMissing && (input.processedEvidence?.accepted_punches || 0) > 0
         ? `<div style="padding:10px;margin-bottom:12px;border:1px solid #eab308;font-size:12px;font-weight:700">
         توجد ${escapeHtml(input.processedEvidence?.accepted_punches)} بصمة مقبولة عبر
-        ${escapeHtml(input.processedEvidence?.accepted_days)} يوم، لكن ملخص الحضور غير متاح.
-        البصمة ليست اعتماد ساعات للمرتب أو دليلاً على تأخير صفر.</div>` : ''}
+        ${escapeHtml(input.processedEvidence?.accepted_days)} يوم.
+        ${escapeHtml(input.processedEvidence?.missing_summary_days ?? 0)} يوم بصمات مقبولة لا يقابله ملخص حضور.
+        لذلك معدلات الفترة غير مكتملة. البصمة ليست اعتماد ساعات للمرتب أو دليلاً على تأخير صفر.</div>` : ''}
       <div style="font-weight:800;margin-bottom:8px">معدلات آخر 30 يوم (من ملخص الحضور فقط)</div>
       <div style="display:flex;gap:8px;margin-bottom:18px">
         <div style="flex:1;border:1px solid #d1d5db;border-radius:8px;padding:10px;text-align:center">
@@ -122,6 +124,8 @@ export async function buildEmployeeAttendanceProfilePdf(input: EmployeeProfilePd
         ${escapeHtml(input.processedEvidence?.accepted_punches ?? 0)} بصمة مقبولة عبر
         ${escapeHtml(input.processedEvidence?.accepted_days ?? 0)} يوم،
         منها ${escapeHtml(input.processedEvidence?.complete_pair_days ?? 0)} يوم بدخول وخروج،
+        و${escapeHtml(input.processedEvidence?.summary_covered_days ?? 0)} يوم له ملخص حضور،
+        و${escapeHtml(input.processedEvidence?.missing_summary_days ?? 0)} يوم بدون ملخص،
         و${escapeHtml(input.processedEvidence?.manual_review_punches ?? 0)} بصمة تحت الفحص.
         لا تُعتمد الساعات للمرتب من هذا السجل وحده.
       </div>
