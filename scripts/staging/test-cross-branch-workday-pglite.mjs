@@ -15,6 +15,7 @@ const sql = readFileSync(path.join(root,
 const db = new PGlite();
 try {
   await db.exec(`
+    create role anon;
     create role authenticated;
     create role service_role;
     create table public.staff_accounts(
@@ -77,6 +78,14 @@ try {
         '2026-10-20','accepted','check_in',now());
   `);
   await db.exec(sql);
+  await db.exec(readFileSync(path.join(root,
+    'supabase/migrations/20261020070001_cross_branch_v3_explicit_anon_revoke.sql'), 'utf8'));
+  const permissions = (await db.query(`
+    select has_function_privilege('anon', 'public.list_cross_branch_biometric_events_v3(date,date,text,integer)', 'EXECUTE') as anon,
+           has_function_privilege('authenticated', 'public.list_cross_branch_biometric_events_v3(date,date,text,integer)', 'EXECUTE') as authenticated
+  `)).rows[0];
+  assert.equal(permissions.anon,false,'anonymous role may not call security-definer report');
+  assert.equal(permissions.authenticated,true,'authenticated users must still pass per-employee RPC authorization');
   const query = async (statement) => (await db.query(statement)).rows;
   const rows = await query(`
     select staff_id::text,staff_name,home_branch,expected_branch,punch_branch,
