@@ -260,7 +260,7 @@ export default function CrossBranchPunchesPanel({
       <table className="dawaa-table-semantic min-w-[1000px] w-full text-sm">
         <thead><tr className="text-right">
           <th className="p-3">الموظف</th>
-          <th className="p-3">فرعه الأساسي</th>
+          <th className="p-3">فرع الموظف الحالي</th>
           <th className="p-3">فرع شيفت اليوم</th>
           <th className="p-3">بصم في</th>
           <th className="p-3">يوم الشيفت</th>
