@@ -187,6 +187,32 @@ describe('source attribution guard, emergency stop and rollback', () => {
     await t.db.exec('reset role;');
   });
 
+  it('stops safely BEFORE the migration and refuses to resume the older approval behavior', async () => {
+    const t = await harness();
+    await t.publish(qualifiedSnapshot('qualified'));
+    // Pre-migration state (today's Production): previous approve/materialize bodies, no correction command.
+    await t.db.exec(opsScript('rollback_exact_20261020153000_REOPENS_PREVIOUS_APPROVAL.sql'));
+    const id = await t.insertAction(canonicalRequestRow('كل الفروع'), true);
+    await t.db.exec(opsScript('emergency_stop_20261020153000.sql'));
+    await t.db.exec('set role authenticated;');
+    for (const call of [approve, materialize]) expect(await t.errorOf(call, [id])).toMatch(/permission denied/);
+    await t.db.exec('reset role;');
+    const resumeError = await t.db.exec(opsScript('resume_20261020153000.sql')).then(() => null, (error: Error) => error.message);
+    await t.db.exec('rollback;');
+    expect(resumeError).toContain('resume_requires_hardened_20261020153000');
+    await t.db.exec('set role authenticated;');
+    expect(await t.errorOf(approve, [id])).toMatch(/permission denied/);
+    await t.db.exec('reset role;');
+    expect(await t.sql('select status from whatsapp_conversation_actions where id=$1', [id])).toEqual([{ status: 'proposed' }]);
+    // After the migration is installed, resume restores the grants onto the hardened commands only.
+    await t.db.exec(migration('_whatsapp_source_attribution_correction_v1.sql'));
+    await t.db.exec(opsScript('emergency_stop_20261020153000.sql'));
+    await t.db.exec(opsScript('resume_20261020153000.sql'));
+    await t.db.exec('set role authenticated;');
+    expect(await t.errorOf(approve, [id])).toContain('customer_request_action_transaction_branch_required');
+    await t.db.exec('reset role;');
+  });
+
   it('safe rollback removes only the correction command and new triggers and keeps the hardened guards', async () => {
     const t = await harness();
     await t.publish(qualifiedSnapshot('qualified'));

@@ -113,7 +113,34 @@ approval condition. **0 are approvable.**
 4. The source hash is computed in the browser and verified in the database. Older sources stored
    with a `fallback-` hash can still be corrected; the corrected hash is always SHA-256.
 
-## 7. Decisions
+## 7. Final integration handoff
+
+Every hop is PASS, based on existing tests that run in `npm run verify`/CI. No engine was re-tested or changed.
+
+| Hop | Handoff guarantee | Evidence |
+|---|---|---|
+| Folder → file read | export text + media read once per file | Smart Folder / auto-ingest tests |
+| File → segmentation | one canonical segmentation; same export, same case units and hashes | `whatsappCanonicalSegmentation`, supersession tests |
+| Segmentation → customer / doctor / branch | customer resolver; directory-exact staff; explicit-intro transaction branch; operating-branch rule | `conversationIntakeIdentity`, projector/DB tests |
+| Identity → need / doctor response | canonical Need, Unavailable Demand, staff facts per message sender | `stockRequestNaturalPack`, `customerNeedModel`, `followUpOpportunityEngine` |
+| Need → request / follow-up proposals | qualification and follow-up owners; projectors only publish; one identity per operation | projector tests, cycle test |
+| Proposal → approval → execution | three separate states (`proposed` → `ready`+approved → `created`+target), each enforced in the DB | contract tests, PG17 concurrency |
+| Request vs sale | approving or executing a request never creates an invoice/sale; Sale Proof comes only from invoice evidence (`sale_proven`) | `invoiceBackedSaleProof`, `saleProofState`, cycle test |
+| Sale proof → Conversion Rate | numerator = `sale_proven` only; denominator = commercial cases with checkable evidence (pending excluded); `null` when empty, never 0 | `canonicalConversionV1`, `saleTruthClosureRC` |
+| Conversion → doctor KPI | doctor credited only as the single conversation closer with official attribution. The doctor's denominator is withheld (`null`) when any commercial case in the window is unattributed, and the displayed rate is `null` when the denominator is unknown or 0. No misleading rate is shown | `canonicalKpiAdapters.canonicalDoctorImpact`, `doctorPerformanceIntelligenceService` |
+| Pages / reports | QA reads persisted current analysis only; the case panel shows proposal blockers and DB results | QA query tests, panel/service tests |
+
+No overlap: customer and doctor come from different canonical tables, and correction refuses a
+customer as staff. The operation branch is separate from the doctor's home branch. Requests and
+follow-ups have their own identities and targets, and neither feeds Sale Proof.
+
+**Closure fix in this round:** emergency stop/resume.
+- Before: the stop referenced the correction command, so it failed atomically **before** the
+  migration. Resume could re-grant the older approve.
+- Now: the stop works before or after the migration. Resume refuses unless the hardened V36
+  approve/execute/correct commands are installed. Tested on the pre-migration state.
+
+## 8. Decisions
 
 | Gate | Decision |
 |---|---|
