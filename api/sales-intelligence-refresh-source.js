@@ -10280,7 +10280,7 @@ async function withdrawReplacedLegacyComplaints(client, rows) {
       canonicalWithdrawalReason: "replaced_by_canonical_complaint",
       canonicalReplacementIdentity: replacement.followup_identity
     };
-    let update = client.from("whatsapp_conversation_actions").update({ status: "dismissed", auto_eligible: false, payload }).eq("id", legacy.id).eq("source_id", legacy.source_id).eq("action_key", "complaint-followup").eq("action_type", "complaint_followup").eq("status", legacy.status).eq("work_status", "unassigned").eq("updated_at", legacy.updated_at);
+    let update = client.from("whatsapp_conversation_actions").update({ status: "dismissed", auto_eligible: false, payload, updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", legacy.id).eq("source_id", legacy.source_id).eq("action_key", "complaint-followup").eq("action_type", "complaint_followup").eq("status", legacy.status).eq("work_status", "unassigned").eq("updated_at", legacy.updated_at);
     for (const key of LEGACY_WORK_FIELDS) update = update.is(key, null);
     update = legacy.followup_attempts == null ? update.is("followup_attempts", null) : update.eq("followup_attempts", 0);
     const { data: changed, error: updateError } = await update.select("id").maybeSingle();
