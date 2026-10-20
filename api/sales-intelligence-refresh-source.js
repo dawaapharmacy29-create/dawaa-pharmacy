@@ -1844,7 +1844,7 @@ var EXPLICIT_MEDICINE_REQUEST_RX = /(?:علب(?:ة|تين|ات)?|شريط|روش
 function serviceOnlyIntent(messages, previousServiceRequestAt) {
   const customerMessages2 = messages.filter((message) => message.role === "customer");
   const customerText = customerMessages2.map((message) => message.text).join(" ");
-  if (!customerText || EXPLICIT_MEDICINE_REQUEST_RX.test(customerText)) return null;
+  if (!customerText || EXPLICIT_MEDICINE_REQUEST_RX.test(customerText) || /(?:وكمان|وممكن|وعايز|وعاوز|ومحتاج)(?=\s)/u.test(customerText)) return null;
   if (NURSING_VISIT_REQUEST_RX.test(customerText)) return "nursing_visit";
   const firstTime = customerMessages2[0]?.timestamp.getTime() ?? NaN;
   const lastServiceWithinThreeHours = previousServiceRequestAt != null && Number.isFinite(firstTime) && firstTime >= previousServiceRequestAt && firstTime - previousServiceRequestAt <= 3 * 60 * 60 * 1e3;
