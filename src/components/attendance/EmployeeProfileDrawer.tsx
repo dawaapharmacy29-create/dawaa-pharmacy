@@ -22,10 +22,12 @@ type Profile = {
     source: 'staff_attendance_logs';
     from: string; to: string;
     total_punches: number; accepted_punches: number; accepted_days: number;
+    summary_covered_days: number; missing_summary_days: number; coverage_complete: boolean;
     complete_pair_days: number; manual_review_punches: number; rejected_punches: number;
     recent_days: {
       shift_date: string; accepted_punches: number; review_punches: number; rejected_punches: number;
       first_in: string | null; last_out: string | null; punch_branches: string[];
+      has_summary: boolean; summary_status: string | null;
     }[];
   };
 };
@@ -97,9 +99,13 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
         {loading && <div className="space-y-3">{[0, 1, 2].map((i) => <div key={i} className="h-16 animate-pulse rounded-xl bg-[var(--dawaa-theme-surface-2)]" />)}</div>}
 
         {profile && !loading && <div className="space-y-5">
-          {profile.rates.evaluated_days === 0 && profile.processed_evidence.accepted_punches > 0 && (
+          {!profile.processed_evidence.coverage_complete && profile.processed_evidence.accepted_punches > 0 && (
             <div role="status" className="rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-3 text-xs font-bold text-[var(--dawaa-theme-heading)]">
-              توجد {profile.processed_evidence.accepted_punches} بصمة مقبولة في سجل الأجهزة عبر {profile.processed_evidence.accepted_days} يوم، لكن ملخص تقييم الحضور غير متاح لهذه الفترة. لا تُفسَّر النسب الخالية كتأخير صفر أو انتظام مثبت، ولا تُعتمد الساعات للمرتب من البصمات وحدها.
+              توجد {profile.processed_evidence.accepted_punches} بصمة مقبولة عبر {profile.processed_evidence.accepted_days} يوم،
+              منها {profile.processed_evidence.missing_summary_days} يوم بصمات مقبولة بدون ملخص حضور مقابل.
+              {profile.rates.evaluated_days > 0 ? ' ملف الحضور متاح جزئيًا فقط.' : ' لا يوجد ملخص تقييم حضور لهذه الفترة.'}
+              لذلك نعرض معدلات التأخير والإذن كغير مكتملة بدل صفر مضلل.
+              البصمات وحدها لا تعني اعتماد ساعات أو خصومات أو مرتبات.
             </div>
           )}
           <div className="flex flex-wrap gap-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">
@@ -109,11 +115,11 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
           </div>
 
           <section>
-            <div className="mb-2 flex items-center gap-1.5 font-black text-[var(--dawaa-theme-heading)]"><TrendingUp size={16} /> معدلات آخر 30 يوم</div>
+            <div className="mb-2 flex items-center gap-1.5 font-black text-[var(--dawaa-theme-heading)]"><TrendingUp size={16} /> معدلات تقييم الحضور للفترة</div>
             <div className="grid grid-cols-3 gap-2">
-              <RateBox label="تأخير" value={profile.rates.evaluated_days > 0 ? `${profile.rates.late_rate_pct}%` : '—'} sub={profile.rates.evaluated_days > 0 ? `${profile.rates.late_days + profile.rates.very_late_days} يوم` : 'لا توجد أيام مقيّمة'} />
-              <RateBox label="إذن/إجازة" value={profile.rates.evaluated_days > 0 ? `${profile.rates.permission_rate_pct}%` : '—'} sub={profile.rates.evaluated_days > 0 ? `${profile.rates.permission_days} يوم` : 'لا توجد أيام مقيّمة'} />
-              <RateBox label="مراجعة معلقة" value={profile.rates.evaluated_days > 0 ? String(profile.rates.pending_review_days) : '—'} sub={profile.rates.evaluated_days > 0 ? 'يوم' : 'لا يوجد ملخص حضور'} />
+              <RateBox label="تأخير" value={profile.processed_evidence.coverage_complete ? `${profile.rates.late_rate_pct}%` : '—'} sub={profile.processed_evidence.coverage_complete ? `${profile.rates.late_days + profile.rates.very_late_days} يوم` : 'تغطية الحضور غير مكتملة'} />
+              <RateBox label="إذن/إجازة" value={profile.processed_evidence.coverage_complete ? `${profile.rates.permission_rate_pct}%` : '—'} sub={profile.processed_evidence.coverage_complete ? `${profile.rates.permission_days} يوم` : 'تغطية الحضور غير مكتملة'} />
+              <RateBox label="مراجعة معلقة" value={profile.rates.evaluated_days > 0 ? String(profile.rates.pending_review_days) : '—'} sub={profile.rates.evaluated_days > 0 ? 'من أيام الملخص فقط' : 'لا يوجد ملخص حضور'} />
             </div>
           </section>
 
@@ -148,6 +154,8 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
             <p className="mb-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">
               {profile.processed_evidence.accepted_punches} بصمة مقبولة · {profile.processed_evidence.accepted_days} يوم به بصمات ·
               {profile.processed_evidence.complete_pair_days} يوم دخول وخروج ·
+              {profile.processed_evidence.summary_covered_days} يوم له ملخص حضور ·
+              {profile.processed_evidence.missing_summary_days} يوم بدون ملخص ·
               {profile.processed_evidence.manual_review_punches} بصمة تحت الفحص.
               القبول هنا يخص سجل الجهاز، وليس اعتماد الحضور أو ساعات المرتب.
             </p>
@@ -161,12 +169,13 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
                   </div>
                   <div className="mt-1 text-[11px] text-[var(--dawaa-theme-muted)]">
                     {d.punch_branches.join('، ') || 'فرع الجهاز غير محدد'}
+                    {!d.has_summary && d.accepted_punches > 0 ? ' · بلا ملخص حضور لهذا اليوم' : ''}
                     {d.review_punches > 0 ? ` · ${d.review_punches} تحتاج مراجعة` : ''}
                     {d.accepted_punches > 0 && (!d.first_in || !d.last_out) ? ' · البصمات لا تكوّن زوج دخول/خروج كاملًا' : ''}
                   </div>
                 </div>
               ))}
-              {!profile.processed_evidence.recent_days.length && <p className="text-xs font-bold text-[var(--dawaa-theme-muted)]">لا توجد بصمات مُعالجة في نطاق الثلاثين يومًا.</p>}
+              {!profile.processed_evidence.recent_days.length && <p className="text-xs font-bold text-[var(--dawaa-theme-muted)]">لا توجد بصمات مُعالجة في الفترة المحددة.</p>}
             </div>
           </section>
         </div>}
