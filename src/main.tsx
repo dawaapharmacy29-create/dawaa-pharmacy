@@ -22,6 +22,10 @@ import { ThemeProvider } from '@/contexts/ThemeContext';
 import { clearRecoveredRuntimeError, clearStaleChunkRecoveryMarker, logRuntimeError } from '@/lib/appRecovery';
 import { normalizeStoredConversationReviewDraft } from '@/lib/reviews/reviewDraftNormalization';
 
+// Only the branch-scoped Vercel Preview variable enables this synthetic visual review.
+const attendanceVisualPreview = import.meta.env.VITE_DAWAA_ATTENDANCE_DRAWER_DEMO === '1';
+const AttendanceProfileVisualPreview = lazy(() => import('@/components/attendance/AttendanceProfileVisualPreview'));
+
 const BOOTSTRAP_RECOVERY_SCOPE = 'bootstrap';
 
 declare global {
@@ -118,8 +122,7 @@ if (!rootElement) {
       <ThemeProvider>
         <ReactBootstrapMarker />
         <Suspense fallback={<BootstrapShell />}>
-          <App />
-          <OptionalRuntimeAddons />
+          {attendanceVisualPreview ? <AttendanceProfileVisualPreview /> : <><App /><OptionalRuntimeAddons /></>}
         </Suspense>
       </ThemeProvider>
     </StrictMode>
