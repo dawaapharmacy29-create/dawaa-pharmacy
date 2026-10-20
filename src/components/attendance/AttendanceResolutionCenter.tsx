@@ -23,6 +23,9 @@ import { cairoToday, startOfMonth } from '@/lib/attendance/period';
 import AttendanceCorrectionReviewPanel from '@/components/attendance/AttendanceCorrectionReviewPanel';
 import {
   approveAttendanceFullDayTimeOffV1,
+  createStaffTimeOffRequest,
+  decideStaffTimeOffRequest,
+  getTimeOffRequestPreflightV3,
   getAnnualLeaveAttendancePreviewV1,
   listStaffTimeOffRequests,
   resolveAnnualLeaveFromAttendanceV1,
@@ -200,6 +203,8 @@ export default function AttendanceResolutionCenter({
   const [manualPunchAt, setManualPunchAt] = useState('');
   const [applyMissingPunchPenalty, setApplyMissingPunchPenalty] = useState(false);
   const [hours, setHours] = useState('');
+  const [permissionStart, setPermissionStart] = useState('');
+  const [permissionEnd, setPermissionEnd] = useState('');
   const [approving, setApproving] = useState(false);
   const [showDecisionEvidence, setShowDecisionEvidence] = useState(false);
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(() => new Set());
@@ -661,6 +666,78 @@ export default function AttendanceResolutionCenter({
       return;
     }
 
+    // Inline permission flow: explicit clock range + documented reason, with
+    // existing server preflight and approval. No client-side payroll shortcuts.
+    if (embedded && decision.id === 'permission' && !approvedRequests.some((request) => request.request_kind === 'permission')) {
+      if (requestsLoading || requestsError) {
+        toast.error('تعذر التأكد من الأذونات السابقة؛ لا يمكن إنشاء إذن مكرر قبل استكمال الفحص.');
+        return;
+      }
+      const validClock = /^([01]\\d|2[0-3]):[0-5]\\d$/;
+      if (!validClock.test(permissionStart) || !validClock.test(permissionEnd) || permissionEnd <= permissionStart || !note.trim()) {
+        toast.warning('حدد بداية ونهاية الإذن في نفس اليوم، واكتب سببًا واضحًا قبل الحفظ.');
+        return;
+      }
+      const [startHour,startMinute] = permissionStart.split(':').map(Number);
+      const [endHour,endMinute] = permissionEnd.split(':').map(Number);
+      const duration = (endHour*60 + endMinute) - (startHour*60 + startMinute);
+      if (duration <= 0 || duration > 24*60) {
+        toast.error('مدة الإذن غير صحيحة.');
+        return;
+      }
+      setApproving(true);
+      try {
+        // Refetch immediately before creation, since a second tab can have saved
+        // the same employee's permission after this modal was opened.
+        const existing = await listStaffTimeOffRequests({
+          staffId: selected.staff_id, from: selected.attendance_date, to: selected.attendance_date, limit: 100,
+        });
+        if (existing.some((request) => request.request_kind === 'permission'
+          && (request.status === 'pending' || request.status === 'approved'))) {
+          toast.warning('يوجد إذن مسجل بالفعل لهذا اليوم. حدّث المراجعات قبل اتخاذ قرار جديد.');
+          await load();
+          return;
+        }
+        const request = await createStaffTimeOffRequest({
+          staffId: selected.staff_id,
+          kind: 'permission',
+          startDate: selected.attendance_date,
+          startTime: permissionStart,
+          endTime: permissionEnd,
+          durationMinutes: duration,
+          reason: note.trim(),
+        });
+        const preflight = await getTimeOffRequestPreflightV3(request.id);
+        if (!preflight.allowed) {
+          toast.warning('تم تسجيل طلب الإذن للمراجعة فقط، ولم يُعتمد: ' +
+            (preflight.blockers.map((item) => item.label).join('، ') || 'السياسة تمنع اعتماده'));
+          await load();
+          return;
+        }
+        await decideStaffTimeOffRequest(request.id, 'approved', note.trim());
+        await approveAttendanceResolution({
+          staffId: selected.staff_id,
+          date: selected.attendance_date,
+          payrollEligibleHours: hours.trim() ? Number(hours) : selected.candidate_hours,
+          note: `تصنيف مراجعة الحضور: إذن معتمد | طلب معتمد: ${request.id} | تفاصيل المدير: ${note.trim()}`,
+        });
+        toast.success('تم تسجيل الإذن واعتماده وحفظ ملاحظة القرار وتحديث الحضور.');
+        setSelected(null);
+        setNote('');
+        setReason('');
+        setPermissionStart('');
+        setPermissionEnd('');
+        setHours('');
+        await load();
+        onDecisionSaved?.();
+      } catch (error) {
+        toast.error('تعذر إكمال الاعتماد: ' + (error instanceof Error ? error.message : 'راجع حالة الإذن قبل إعادة المحاولة'));
+        await load();
+      } finally {
+        setApproving(false);
+      }
+      return;
+    }
     const linkedRequest = decision.requestKind && approvedRequests.find((request) => request.request_kind === decision.requestKind);
     if (decision.requestKind && (requestsLoading || requestsError || !linkedRequest)) {
       toast.error('سجّل الطلب واعتمده في صفحة الإجازات والغياب أولًا، ثم راجع اليوم مجددًا.');
@@ -1287,6 +1364,21 @@ export default function AttendanceResolutionCenter({
               </>}
             </div>}
 
+            {embedded && reason === 'permission' && !approvedRequests.some((request) => request.request_kind === 'permission') && (
+              <div className="mt-3 grid gap-3 rounded-xl border border-[var(--dawaa-theme-border)] p-3 sm:grid-cols-2">
+                <label className="text-xs font-black text-[var(--dawaa-theme-muted)]">
+                  بداية الإذن
+                  <input type="time" value={permissionStart} onChange={(event) => setPermissionStart(event.target.value)} className="input-dark mt-1 w-full" />
+                </label>
+                <label className="text-xs font-black text-[var(--dawaa-theme-muted)]">
+                  نهاية الإذن
+                  <input type="time" value={permissionEnd} onChange={(event) => setPermissionEnd(event.target.value)} className="input-dark mt-1 w-full" />
+                </label>
+                <p className="text-[11px] font-bold text-[var(--dawaa-theme-muted)] sm:col-span-2">
+                  يلزم كتابة سبب الإذن في الملاحظة أدناه. سيتم فحص سياسة الأذونات والصلاحية قبل الاعتماد.
+                </p>
+              </div>
+            )}
             {reason && !['annual_leave', 'sick_leave', 'exceptional_leave', 'approved_absence', 'shift_swap', 'forgot_in', 'forgot_out'].includes(reason) && (
               <label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">
                 ساعات الاستحقاق للمرتب
