@@ -29,6 +29,7 @@ import {
 import { requestCanonicalSalesIntelligenceRefresh } from '@/lib/salesIntelligence/refresh/refreshClient';
 import { WhatsAppConversationPanel } from '@/components/salesIntelligence/WhatsAppConversationPanel';
 import { CaseIntelligenceWorkspace } from '@/components/salesIntelligence/CaseIntelligenceWorkspace';
+import { SourceOperationsPanel } from '@/components/salesIntelligence/SourceOperationsPanel';
 import { loadConversationEvaluation } from '@/lib/salesIntelligence/conversationEvaluationLoader';
 import type { ConversationEvaluationResult } from '@/lib/salesIntelligence/conversationEvaluation';
 import { productDisplayStateLabel } from '@/lib/salesIntelligence/qa/persistedProductTruth';
@@ -383,6 +384,19 @@ export default function SalesIntelligenceQACaseDetail() {
           هذه الحالة مبنية على لقطة واتساب أقدم تم احتواؤها لاحقًا داخل نسخة أشمل من نفس المحادثة. تُعرض هنا للـAudit فقط ولا ينبغي اعتمادها كالحالة الحالية.
           {sourceSnapshot.canonicalSourceId ? <span className="ms-1 font-mono text-xs">المصدر الأحدث: {sourceSnapshot.canonicalSourceId}</span> : null}
         </div>
+      ) : null}
+
+      {conversation && sourceSnapshot.isCanonical ? (
+        <SourceOperationsPanel
+          sourceId={conversation.id}
+          analysisKey={persistedAnalysis.analysis_id}
+          permissions={{
+            // Mirrors the database commands, which remain the enforcing boundary.
+            canCorrect: checkPermission('approve_reviews'),
+            canApprove: checkPermission('approve_reviews') || checkPermission('manage_conversation_evaluations') || checkPermission('manage_customer_requests'),
+            canExecute: checkPermission('add_reviews') || checkPermission('edit_reviews') || checkPermission('manage_conversation_evaluations'),
+          }}
+        />
       ) : null}
 
       <Section title="الحقيقة البيعية المعتمدة لهذه الحالة">
