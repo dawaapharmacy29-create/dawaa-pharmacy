@@ -7468,8 +7468,14 @@ function staffEvidenceForCase(input, scopedMessages) {
 function analyzeOneCase(conversationCase, scopedMessages, input, interaction = null, conversationTimeline = scopedMessages) {
   const pipelineWarnings = [];
   const caseStaffIdBySender = staffEvidenceForCase(input, scopedMessages);
+  const scopedIntroducedStaffIds = /* @__PURE__ */ new Set(
+    scopedMessages.filter((message) => message.direction === "outbound").map((message) => input.staffIdByIntroductionMessageId?.[message.id]).filter((id) => Boolean(id))
+  );
   const caseKnownStaffIds = [
-    .../* @__PURE__ */ new Set([...input.knownStaffIds ?? [], ...Object.values(caseStaffIdBySender)])
+    .../* @__PURE__ */ new Set([
+      ...scopedIntroducedStaffIds.size === 1 ? [...scopedIntroducedStaffIds] : scopedIntroducedStaffIds.size > 1 ? [] : input.knownStaffIds ?? [],
+      ...Object.values(caseStaffIdBySender)
+    ])
   ];
   const {
     baskets,
