@@ -294,7 +294,7 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
               {!profile.processed_evidence.recent_days.length && <p className="text-xs font-bold text-[var(--dawaa-theme-muted)]">لا توجد بصمات مُعالجة في الفترة المحددة.</p>}
             </div>
           </section>
-        </div>}
+        </div>)}
         </div>
       </aside>
     </div>,
