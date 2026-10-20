@@ -166,27 +166,71 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
             </div>
           </section>
 
-          <section>
-            <div className="mb-2 flex items-center gap-1.5 font-black text-[var(--dawaa-theme-heading)]"><Calendar size={16} /> الشيفت الأسبوعي</div>
-            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
-              {profile.weekly_schedule.filter((s) => s.day_name).map((s, i) => <div key={i} className={cn('rounded-lg border p-2 text-center text-[11px] font-bold', s.is_off ? 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] text-[var(--dawaa-theme-muted)]' : 'border-[var(--dawaa-theme-border)] dawaa-surface-soft')}>
-                <div className="font-black text-[var(--dawaa-theme-heading)]">{s.day_name}{s.shift_date && <span className="mr-1 font-bold text-[var(--dawaa-status-info-text)]">(استثناء {s.shift_date})</span>}</div>
-                <div>{s.is_off ? 'إجازة' : `${formatTime(s.shift_start)} ← ${formatTime(s.shift_end)}`}</div>
-              </div>)}
-              {!profile.weekly_schedule.length && <div className="col-span-full text-xs font-bold text-[var(--dawaa-theme-muted)]">لا يوجد جدول شيفت مسجل.</div>}
+          <section aria-label="الشيفت الأسبوعي" className="space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="flex items-center gap-1.5 text-sm font-black text-[var(--dawaa-theme-heading)]"><Calendar size={16} /> الشيفت الأسبوعي</h3>
+              <span className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">المواعيد المسجلة · الاستثناءات موضحة</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {profile.weekly_schedule.filter((shift) => shift.day_name).map((shift, i) => {
+                const today = !shift.shift_date && shift.day_name.trim() === currentCairoDay;
+                return <div key={`${shift.day_name}-${shift.shift_date || i}`} className={cn(
+                    'min-w-0 rounded-xl border px-2.5 py-2.5',
+                    today ? 'border-[var(--dawaa-theme-accent)] bg-[var(--dawaa-theme-surface-2)]' : 'border-[var(--dawaa-theme-border)]',
+                    shift.is_off && 'bg-[var(--dawaa-theme-surface-2)]'
+                  )}>
+                  <div className="flex flex-wrap items-center justify-between gap-1 text-xs font-black text-[var(--dawaa-theme-heading)]">
+                    <span>{shift.day_name}</span>
+                    {today && <span className="text-[10px] text-[var(--dawaa-theme-muted)]">اليوم</span>}
+                  </div>
+                  <div className="mt-1.5 text-[11px] font-bold leading-relaxed text-[var(--dawaa-theme-heading)]">
+                    {shift.is_off ? 'إجازة' : `من ${formatTime(shift.shift_start)} إلى ${formatTime(shift.shift_end)}`}
+                  </div>
+                  {shift.shift_date && <div className="mt-1 text-[10px] text-[var(--dawaa-status-info-text)]">استثناء {shift.shift_date}</div>}
+                </div>;
+              })}
+              {!profile.weekly_schedule.some((shift) => shift.day_name) &&
+                <div className="col-span-full rounded-xl border border-[var(--dawaa-theme-border)] p-3 text-xs font-bold text-[var(--dawaa-theme-muted)]">لا يوجد جدول شيفت مسجل.</div>}
             </div>
           </section>
 
-          <section>
-            <div className="mb-2 flex items-center gap-1.5 font-black text-[var(--dawaa-theme-heading)]"><Clock3 size={16} /> آخر الأيام</div>
-            <div className="space-y-1.5">
-              {profile.recent_days.slice(0, 15).map((d) => <div key={d.attendance_date} className="flex items-center justify-between gap-1 rounded-lg border border-[var(--dawaa-theme-border)] p-2 text-xs">
-                <span className="font-bold text-[var(--dawaa-theme-muted)]">{d.attendance_date}</span>
-                <span className="font-bold">{formatTime(d.first_in)} ← {formatTime(d.last_out)}</span>
-                <span className="font-black text-[var(--dawaa-theme-heading)]">{d.payroll_eligible_hours != null ? `${d.payroll_eligible_hours} س` : '-'}</span>
-                <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-black', d.resolution_status === 'late' || d.resolution_status === 'very_late' ? 'text-[var(--dawaa-status-warning-text)]' : d.resolution_status === 'absence_review' ? 'text-[var(--dawaa-status-danger-text)]' : 'text-[var(--dawaa-status-success-text)]')}>{STATUS_LABEL[d.resolution_status] || d.resolution_status}</span>
-              </div>)}
-              {!profile.recent_days.length && <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">لا يوجد ملخص حضور معتمد أو قيد المراجعة لهذه الفترة؛ راجع سجل البصمات المنفصل أدناه.</div>}
+          <section aria-label="آخر أيام الحضور" className="space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="flex items-center gap-1.5 text-sm font-black text-[var(--dawaa-theme-heading)]"><Clock3 size={16} /> آخر أيام الحضور</h3>
+              <span className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">الأوقات والساعات المسجلة في ملخص الحضور</span>
+            </div>
+            <div className="space-y-2">
+              {profile.recent_days.slice(0,15).map((day) => {
+                const needsReview = day.status === 'pending_review' ||
+                  ['absence_review', 'missing_checkin', 'missing_checkout', 'early_leave_review'].includes(day.resolution_status);
+                const late = ['late', 'very_late'].includes(day.resolution_status);
+                return <div key={day.attendance_date} className="rounded-xl border border-[var(--dawaa-theme-border)] px-3 py-2.5 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-black text-[var(--dawaa-theme-heading)]">{day.attendance_date}</span>
+                    <span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-black',
+                      needsReview || late ? 'border-[var(--dawaa-status-warning-border)] text-[var(--dawaa-status-warning-text)]' :
+                      'border-[var(--dawaa-theme-border)] text-[var(--dawaa-theme-heading)]'
+                    )}>
+                      {day.status === 'pending_review' ? 'تحتاج مراجعة' : STATUS_LABEL[day.resolution_status] || day.resolution_status || 'غير محدد'}
+                    </span>
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <div className="min-w-0">
+                      <div className="text-[10px] text-[var(--dawaa-theme-muted)]">الدخول ← الخروج</div>
+                      <div className="mt-0.5 font-bold text-[var(--dawaa-theme-heading)]">{formatTime(day.first_in)} ← {formatTime(day.last_out)}</div>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[10px] text-[var(--dawaa-theme-muted)]">ساعات المرتب المحفوظة</div>
+                      <div className="mt-0.5 font-black text-[var(--dawaa-theme-heading)]">
+                        {day.payroll_eligible_hours != null ? `${day.payroll_eligible_hours} س` : 'غير معتمدة'}
+                      </div>
+                    </div>
+                  </div>
+                </div>;
+              })}
+              {!profile.recent_days.length && <div className="rounded-xl border border-[var(--dawaa-theme-border)] p-3 text-xs font-bold leading-relaxed text-[var(--dawaa-theme-muted)]">
+                لا يوجد ملخص حضور لهذه الفترة. راجع دليل البصمات أدناه؛ غياب الملخص لا يعني عدم الحضور.
+              </div>}
             </div>
           </section>
           <section>
