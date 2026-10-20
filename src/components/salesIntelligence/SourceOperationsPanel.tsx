@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { isNonTransactionBranchMarker, normalizeBranchName } from '@/lib/branch';
+import { isOperatingBranch, OPERATING_BRANCHES } from '@/lib/branch';
 import { formatDateTime } from '@/lib/utils';
 import { readStaffDirectory, type StaffDirectoryIdentity } from '@/lib/readModels/staffDirectoryReadModel';
 import {
@@ -12,10 +12,12 @@ import {
 import {
   approveCustomerRequestProposal,
   executeOperationalAction,
-  loadSourceAuditEntries,
+  loadSourceAttributionSummary,
+  loadSourceAuditPage,
   loadSourceOperationalActions,
   loadStoredSourceAttribution,
   submitSourceAttributionCorrection,
+  type SourceAttributionSummary,
   type SourceAuditEntry,
   type SourceOperationalAction,
 } from '@/lib/salesIntelligence/operations/sourceOperationsService';
@@ -24,6 +26,10 @@ import {
 // approval of a customer-request proposal, and explicit execution through the authorized
 // materializer. Every action needs a human click plus confirmation; nothing runs automatically.
 // UI permission checks mirror the database commands, which remain the enforcing boundary.
+//
+// Opening the page costs two bounded reads (source summary + this source's proposals). The
+// conversation text and staff directory load only when correction is opened; the audit log loads
+// only when expanded, one page at a time.
 
 const EXECUTABLE_TYPES = new Set(['customer_request', 'customer_followup', 'complaint_followup', 'recommendation_followup']);
 const TYPE_LABELS: Record<string, string> = {
@@ -58,71 +64,72 @@ interface Props {
   analysisKey: string;
 }
 
-type Load<T> = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; value: T };
+type Load<T> = { status: 'idle' } | { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; value: T };
+
+function RetryAlert({ text, onRetry }: { text: string; onRetry: () => void }) {
+  return (
+    <div className="dawaa-alert dawaa-alert--danger flex flex-wrap items-center justify-between gap-2 text-sm">
+      <span>{text}</span>
+      <button type="button" className="dawaa-button dawaa-button--secondary" onClick={onRetry}>إعادة المحاولة</button>
+    </div>
+  );
+}
 
 export function SourceOperationsPanel({ sourceId, permissions, analysisKey }: Props) {
-  const [stored, setStored] = useState<Load<StoredSourceAttribution>>({ status: 'loading' });
+  const [summary, setSummary] = useState<Load<SourceAttributionSummary>>({ status: 'loading' });
   const [actions, setActions] = useState<Load<SourceOperationalAction[]>>({ status: 'loading' });
-  const [audit, setAudit] = useState<Load<SourceAuditEntry[]>>({ status: 'loading' });
-  const [directory, setDirectory] = useState<Load<StaffDirectoryIdentity[]>>({ status: 'loading' });
   const [busyActionId, setBusyActionId] = useState<string | null>(null);
   const [message, setMessage] = useState<{ tone: 'success' | 'danger'; text: string } | null>(null);
   const [correctionOpen, setCorrectionOpen] = useState(false);
+  const [auditKey, setAuditKey] = useState(0);
   const requestRef = useRef(0);
 
   const reload = useCallback(async () => {
     const request = ++requestRef.current;
+    setSummary({ status: 'loading' });
+    setActions({ status: 'loading' });
     const settle = <T,>(setter: (value: Load<T>) => void, promise: Promise<T>) =>
       promise
         .then((value) => { if (requestRef.current === request) setter({ status: 'ready', value }); })
         .catch((cause) => { if (requestRef.current === request) setter({ status: 'error', message: describeOperationError(cause) }); });
     await Promise.all([
-      settle(setStored, loadStoredSourceAttribution(sourceId)),
+      settle(setSummary, loadSourceAttributionSummary(sourceId)),
       settle(setActions, loadSourceOperationalActions(sourceId)),
-      settle(setAudit, loadSourceAuditEntries(sourceId)),
     ]);
+    setAuditKey((key) => key + 1);
   }, [sourceId]);
 
   useEffect(() => {
-    setStored({ status: 'loading' });
-    setActions({ status: 'loading' });
-    setAudit({ status: 'loading' });
     setMessage(null);
+    setCorrectionOpen(false);
     void reload();
+    return () => { requestRef.current += 1; };
   }, [reload, analysisKey]);
 
-  useEffect(() => {
-    let cancelled = false;
-    readStaffDirectory()
-      .then((rows) => { if (!cancelled) setDirectory({ status: 'ready', value: rows }); })
-      .catch((cause) => { if (!cancelled) setDirectory({ status: 'error', message: describeOperationError(cause) }); });
-    return () => { cancelled = true; };
-  }, []);
-
-  const staffName = useCallback((staffId: string | null) => {
+  const sourceStaffLabel = (staffId: string | null) => {
     if (!staffId) return 'غير محسوم';
-    if (directory.status !== 'ready') return staffId;
-    return directory.value.find((row) => row.id === staffId && row.source === 'staff')?.name || staffId;
-  }, [directory]);
+    if (summary.status === 'ready' && summary.value.staffId === staffId) return summary.value.staffName || staffId;
+    return `${staffId.slice(0, 8)}… (يختلف عن دكتور المصدر)`;
+  };
 
   async function runAction(action: SourceOperationalAction, kind: 'approve' | 'execute') {
-    const summary = [
+    const details = [
       kind === 'approve' ? 'اعتماد تسجيل هذا الطلب؟' : 'تنفيذ هذا الإجراء وإنشاء السجل التشغيلي؟',
       `النوع: ${TYPE_LABELS[action.actionType] || action.actionType}`,
       `العميل: ${action.customerName || 'غير متاح'}`,
-      `الدكتور المسؤول: ${staffName(action.staffId)}`,
+      `الدكتور المسؤول: ${sourceStaffLabel(action.staffId)}`,
       `الفرع: ${action.branch || 'غير محدد'}`,
       `الصنف: ${action.productName || '—'} ${action.productCode ? `(${action.productCode})` : ''}`,
       `الكمية: ${action.quantity ?? '—'}`,
       'لن يُسجَّل بيع أو فاتورة أو دفع.',
     ].join('\n');
-    if (!window.confirm(summary)) return;
+    if (!window.confirm(details)) return;
     setBusyActionId(action.id);
     setMessage(null);
     try {
       if (kind === 'approve') {
-        await approveCustomerRequestProposal(action.id);
-        setMessage({ tone: 'success', text: 'تم اعتماد الطلب. التنفيذ خطوة منفصلة.' });
+        const result = await approveCustomerRequestProposal(action.id);
+        setMessage({ tone: 'success', text: result.alreadyApproved ? 'الطلب كان معتمدًا بالفعل.' : 'تم اعتماد الطلب. التنفيذ خطوة منفصلة.' });
       } else {
         const result = await executeOperationalAction(action.id);
         setMessage({
@@ -144,7 +151,7 @@ export function SourceOperationsPanel({ sourceId, permissions, analysisKey }: Pr
     <section className="dawaa-card space-y-4" dir="rtl">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="dawaa-heading text-base font-black">العمليات المقترحة من هذه المحادثة</h2>
-        {permissions.canCorrect && stored.status === 'ready' ? (
+        {permissions.canCorrect && summary.status === 'ready' ? (
           <button type="button" className="dawaa-button dawaa-button--secondary" onClick={() => setCorrectionOpen((open) => !open)}>
             {correctionOpen ? 'إغلاق تصحيح المصدر' : 'تصحيح الدكتور/الفرع/النص'}
           </button>
@@ -153,38 +160,38 @@ export function SourceOperationsPanel({ sourceId, permissions, analysisKey }: Pr
       <div className="dawaa-muted text-xs leading-6">
         الاقتراحات لا تُنفذ تلقائيًا. الاعتماد والتنفيذ خطوتان منفصلتان وتتحقق قاعدة البيانات من الهوية والفرع والتحليل الحالي في كل خطوة.
       </div>
-      {message ? <div className={`dawaa-alert dawaa-alert--${message.tone} text-sm`}>{message.text}</div> : null}
+      {message ? <div className={`dawaa-alert dawaa-alert--${message.tone} text-sm`} role="status">{message.text}</div> : null}
 
-      {stored.status === 'error' ? <div className="dawaa-alert dawaa-alert--danger text-sm">تعذر قراءة المصدر: {stored.message}</div> : null}
-      {stored.status === 'ready' ? (
+      {summary.status === 'loading' ? <div className="dawaa-muted text-sm">جاري قراءة المصدر...</div> : null}
+      {summary.status === 'error' ? <RetryAlert text={`تعذر قراءة المصدر: ${summary.message}`} onRetry={() => void reload()} /> : null}
+      {summary.status === 'ready' ? (
         <div className="grid gap-2 sm:grid-cols-3">
-          <Info label="العميل" value={`${stored.value.customerName || 'غير متاح'}${stored.value.customerCode ? ` — كود ${stored.value.customerCode}` : ''}`} />
-          <Info label="الدكتور المسؤول على المصدر" value={stored.value.staffId ? staffName(stored.value.staffId) : 'غير محسوم'} />
+          <Info label="العميل" value={`${summary.value.customerName || 'غير متاح'}${summary.value.customerCode ? ` — كود ${summary.value.customerCode}` : ''}`} />
+          <Info label="الدكتور المسؤول على المصدر" value={summary.value.staffId ? summary.value.staffName || summary.value.staffId : 'غير محسوم'} />
           <Info
             label="فرع المعاملة على المصدر"
             value={
-              <span className={isNonTransactionBranchMarker(stored.value.branch) || !stored.value.branch ? 'dawaa-badge dawaa-badge--warning' : ''}>
-                {stored.value.branch || 'غير محدد'}
+              <span className={isOperatingBranch(summary.value.branch) ? '' : 'dawaa-badge dawaa-badge--warning'}>
+                {summary.value.branch || 'غير محدد'}
               </span>
             }
           />
         </div>
       ) : null}
 
-      {correctionOpen && stored.status === 'ready' ? (
+      {correctionOpen && summary.status === 'ready' ? (
         <SourceCorrectionForm
-          stored={stored.value}
-          directory={directory}
+          sourceId={sourceId}
           onDone={async (text) => {
             setCorrectionOpen(false);
-            setMessage({ tone: 'success', text });
             await reload();
+            setMessage({ tone: 'success', text });
           }}
         />
       ) : null}
 
       {actions.status === 'loading' ? <div className="dawaa-muted text-sm">جاري تحميل الاقتراحات...</div> : null}
-      {actions.status === 'error' ? <div className="dawaa-alert dawaa-alert--danger text-sm">تعذر تحميل الاقتراحات: {actions.message}</div> : null}
+      {actions.status === 'error' ? <RetryAlert text={`تعذر تحميل الاقتراحات: ${actions.message}`} onRetry={() => void reload()} /> : null}
       {actions.status === 'ready' && actions.value.length === 0 ? <div className="dawaa-empty-state text-sm">لا توجد اقتراحات تشغيلية لهذه المحادثة.</div> : null}
       {actions.status === 'ready' && actions.value.length ? (
         <div className="overflow-x-auto">
@@ -202,7 +209,7 @@ export function SourceOperationsPanel({ sourceId, permissions, analysisKey }: Pr
             </thead>
             <tbody>
               {actions.value.map((action) => {
-                const invalidBranch = !action.branch || isNonTransactionBranchMarker(action.branch);
+                const invalidBranch = !isOperatingBranch(action.branch);
                 const retired = action.status === 'dismissed';
                 const canApproveRow = permissions.canApprove && action.actionType === 'customer_request'
                   && action.status === 'proposed' && !invalidBranch;
@@ -220,7 +227,7 @@ export function SourceOperationsPanel({ sourceId, permissions, analysisKey }: Pr
                     <td className="p-2">
                       <span className={invalidBranch && !retired ? 'dawaa-badge dawaa-badge--warning' : ''}>{action.branch || 'غير محدد'}</span>
                     </td>
-                    <td className="p-2">{action.actionType === 'customer_request' ? staffName(action.staffId) : '—'}</td>
+                    <td className="p-2">{action.actionType === 'customer_request' ? sourceStaffLabel(action.staffId) : '—'}</td>
                     <td className="p-2">{action.productName || '—'}{action.quantity != null ? ` × ${action.quantity}` : ''}</td>
                     <td className="p-2 font-mono text-xs">{action.targetId ? `${action.targetTable}: ${action.targetId}` : '—'}</td>
                     <td className="p-2">
@@ -248,26 +255,60 @@ export function SourceOperationsPanel({ sourceId, permissions, analysisKey }: Pr
         </div>
       ) : null}
 
-      <details className="space-y-2">
-        <summary className="dawaa-heading cursor-pointer text-sm font-bold">سجل المراجعة (Audit) لهذا المصدر</summary>
-        {audit.status === 'loading' ? <div className="dawaa-muted text-sm">جاري التحميل...</div> : null}
-        {audit.status === 'error' ? <div className="dawaa-alert dawaa-alert--danger text-sm">تعذر تحميل السجل: {audit.message}</div> : null}
-        {audit.status === 'ready' && !audit.value.length ? <div className="dawaa-muted text-sm">لا توجد أحداث مسجلة.</div> : null}
-        {audit.status === 'ready' && audit.value.length ? (
-          <ul className="space-y-2 text-sm">
-            {audit.value.map((entry) => (
-              <li key={entry.id} className="rounded-xl bg-[var(--dawaa-theme-soft)] p-3">
-                <div className="dawaa-heading font-bold">{AUDIT_LABELS[entry.action] || entry.action}</div>
-                <div className="dawaa-muted text-xs">
-                  {entry.actorName || 'غير معروف'} — {entry.createdAt ? formatDateTime(entry.createdAt) : 'بدون وقت'}
-                </div>
-                {entry.note ? <div className="mt-1 text-xs">السبب: {entry.note}</div> : null}
-              </li>
-            ))}
-          </ul>
-        ) : null}
-      </details>
+      <SourceAuditLog key={`${sourceId}:${auditKey}`} sourceId={sourceId} />
     </section>
+  );
+}
+
+function SourceAuditLog({ sourceId }: { sourceId: string }) {
+  const [open, setOpen] = useState(false);
+  const [entries, setEntries] = useState<SourceAuditEntry[]>([]);
+  const [state, setState] = useState<Load<{ hasOlder: boolean }>>({ status: 'idle' });
+
+  const loadPage = useCallback(async (before: string | null) => {
+    setState({ status: 'loading' });
+    try {
+      const page = await loadSourceAuditPage(sourceId, before);
+      setEntries((current) => (before ? [...current, ...page.entries] : page.entries));
+      setState({ status: 'ready', value: { hasOlder: page.hasOlder } });
+    } catch (cause) {
+      setState({ status: 'error', message: describeOperationError(cause) });
+    }
+  }, [sourceId]);
+
+  const oldest = entries.length ? entries[entries.length - 1].createdAt : null;
+  return (
+    <details
+      className="space-y-2"
+      onToggle={(event) => {
+        const isOpen = (event.currentTarget as HTMLDetailsElement).open;
+        setOpen(isOpen);
+        if (isOpen && state.status === 'idle') void loadPage(null);
+      }}
+    >
+      <summary className="dawaa-heading cursor-pointer text-sm font-bold">سجل المراجعة (Audit) لهذا المصدر</summary>
+      {open && state.status === 'error' ? (
+        <RetryAlert text={`تعذر تحميل السجل: ${state.message}`} onRetry={() => void loadPage(entries.length ? oldest : null)} />
+      ) : null}
+      {open && state.status === 'ready' && !entries.length ? <div className="dawaa-muted text-sm">لا توجد أحداث مسجلة.</div> : null}
+      {entries.length ? (
+        <ul className="space-y-2 text-sm">
+          {entries.map((entry) => (
+            <li key={entry.id} className="rounded-xl bg-[var(--dawaa-theme-soft)] p-3">
+              <div className="dawaa-heading font-bold">{AUDIT_LABELS[entry.action] || entry.action}</div>
+              <div className="dawaa-muted text-xs">
+                {entry.actorName || 'غير معروف'} — {entry.createdAt ? formatDateTime(entry.createdAt) : 'بدون وقت'}
+              </div>
+              {entry.note ? <div className="mt-1 text-xs">السبب: {entry.note}</div> : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {open && state.status === 'loading' ? <div className="dawaa-muted text-sm">جاري التحميل...</div> : null}
+      {open && state.status === 'ready' && state.value.hasOlder ? (
+        <button type="button" className="dawaa-button dawaa-button--ghost" onClick={() => void loadPage(oldest)}>عرض أحداث أقدم</button>
+      ) : null}
+    </details>
   );
 }
 
@@ -280,38 +321,53 @@ function Info({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-function SourceCorrectionForm({
+function SourceCorrectionForm({ sourceId, onDone }: { sourceId: string; onDone: (message: string) => Promise<void> }) {
+  const [context, setContext] = useState<Load<{ stored: StoredSourceAttribution; directory: StaffDirectoryIdentity[] }>>({ status: 'loading' });
+
+  const load = useCallback(() => {
+    let cancelled = false;
+    setContext({ status: 'loading' });
+    Promise.all([loadStoredSourceAttribution(sourceId), readStaffDirectory()])
+      .then(([stored, directory]) => { if (!cancelled) setContext({ status: 'ready', value: { stored, directory } }); })
+      .catch((cause) => { if (!cancelled) setContext({ status: 'error', message: describeOperationError(cause) }); });
+    return () => { cancelled = true; };
+  }, [sourceId]);
+
+  useEffect(() => load(), [load]);
+
+  if (context.status === 'loading' || context.status === 'idle') {
+    return <div className="dawaa-muted text-sm">جاري تحميل نص المحادثة ودليل الموظفين...</div>;
+  }
+  if (context.status === 'error') {
+    return <RetryAlert text={`تعذر تجهيز التصحيح: ${context.message}`} onRetry={() => load()} />;
+  }
+  return <SourceCorrectionEditor stored={context.value.stored} directory={context.value.directory} onDone={onDone} />;
+}
+
+function SourceCorrectionEditor({
   stored,
   directory,
   onDone,
 }: {
   stored: StoredSourceAttribution;
-  directory: Load<StaffDirectoryIdentity[]>;
+  directory: StaffDirectoryIdentity[];
   onDone: (message: string) => Promise<void>;
 }) {
   const [rawText, setRawText] = useState(stored.rawText);
-  const [branch, setBranch] = useState(isNonTransactionBranchMarker(stored.branch) ? '' : stored.branch || '');
+  const [branch, setBranch] = useState(isOperatingBranch(stored.branch) ? String(stored.branch) : '');
   const [staffId, setStaffId] = useState<string>('');
+  const [crossBranchCover, setCrossBranchCover] = useState(false);
   const [reason, setReason] = useState('');
   const [preview, setPreview] = useState<SourceCorrectionPreview | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const directoryRows = directory.status === 'ready' ? directory.value : [];
-  const branches = useMemo(() => {
-    const names = new Set<string>();
-    for (const row of directoryRows) {
-      if (row.source === 'staff' && row.active && row.branch && !isNonTransactionBranchMarker(row.branch)) {
-        names.add(normalizeBranchName(row.branch));
-      }
-    }
-    return [...names].sort((a, b) => a.localeCompare(b, 'ar'));
-  }, [directoryRows]);
   const staffOptions = useMemo(
-    () => (branch ? eligibleCorrectionStaff(directoryRows, branch, stored.customerId) : []),
-    [branch, directoryRows, stored.customerId]
+    () => (branch ? eligibleCorrectionStaff(directory, branch, stored.customerId) : []),
+    [branch, directory, stored.customerId]
   );
+  const selected = staffOptions.find((row) => row.id === staffId) ?? null;
 
   // Any edit invalidates the reviewed preview and its confirmation.
   const edit = <T,>(setter: (value: T) => void) => (value: T) => {
@@ -323,11 +379,11 @@ function SourceCorrectionForm({
 
   async function review() {
     setError(null);
-    setPreview(await buildSourceCorrectionPreview(stored, { rawText, staffId: staffId || null, branch, reason }, directoryRows));
+    setPreview(await buildSourceCorrectionPreview(stored, { rawText, staffId: staffId || null, branch, reason, crossBranchCover }, directory));
   }
 
   async function submit() {
-    if (!preview?.ok || !confirmed || submitting) return;
+    if (!preview || !('rawText' in preview) || !confirmed || submitting) return;
     const summary = [
       'اعتماد تصحيح المصدر؟',
       ...preview.changes.map((change) => `${change.label}: ${change.before} ← ${change.after}`),
@@ -355,27 +411,34 @@ function SourceCorrectionForm({
       <div className="dawaa-muted text-xs leading-6">
         التصحيح لا يغير هوية العميل ولا يحذف أي دليل. يُرفض تلقائيًا إذا كان على المصدر إجراء معتمد أو منفذ أو تأكيد بشري.
       </div>
-      {directory.status === 'error' ? <div className="dawaa-alert dawaa-alert--danger text-sm">تعذر تحميل دليل الموظفين: {directory.message}</div> : null}
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="space-y-1 text-sm">
-          <span className="dawaa-muted text-xs">فرع المعاملة (الحالي: {stored.branch || 'غير محدد'})</span>
-          <select className="dawaa-input w-full" value={branch} onChange={(event) => { edit(setBranch)(event.target.value); setStaffId(''); }}>
-            <option value="">اختر الفرع</option>
-            {branches.map((name) => <option key={name} value={name}>{name}</option>)}
+          <span className="dawaa-muted text-xs">فرع المعاملة الفعلي (الحالي: {stored.branch || 'غير محدد'})</span>
+          <select className="dawaa-input w-full" value={branch} onChange={(event) => { edit(setBranch)(event.target.value); setStaffId(''); setCrossBranchCover(false); }}>
+            <option value="">اختر فرع التشغيل</option>
+            {OPERATING_BRANCHES.map((name) => <option key={name} value={name}>{name}</option>)}
           </select>
         </label>
         <label className="space-y-1 text-sm">
           <span className="dawaa-muted text-xs">الدكتور المسؤول (الحالي: {stored.staffName || 'غير محسوم'})</span>
-          <select className="dawaa-input w-full" value={staffId} disabled={!branch} onChange={(event) => edit(setStaffId)(event.target.value)}>
+          <select className="dawaa-input w-full" value={staffId} disabled={!branch}
+            onChange={(event) => { edit(setStaffId)(event.target.value); setCrossBranchCover(false); }}>
             <option value="">اختر من دليل الموظفين</option>
             {staffOptions.map((row) => (
               <option key={String(row.id)} value={String(row.id)}>
-                {row.name} — {row.branch || 'بدون فرع'}{row.role ? ` — ${row.role}` : ''}
+                {row.name} — فرعه الأساسي: {row.branch || 'بدون فرع'}
+                {row.coverage === 'cross_branch' ? ' (تغطية فرع آخر)' : ''}
               </option>
             ))}
           </select>
         </label>
       </div>
+      {selected?.coverage === 'cross_branch' ? (
+        <label className="dawaa-alert dawaa-alert--warning flex items-start gap-2 text-sm">
+          <input type="checkbox" checked={crossBranchCover} onChange={(event) => edit(setCrossBranchCover)(event.target.checked)} />
+          <span>أؤكد أن {selected.name} (فرعه الأساسي {selected.branch || 'غير محدد'}) غطّى {branch} في هذه العملية تحديدًا. يُسجل هذا التأكيد في سجل المراجعة.</span>
+        </label>
+      ) : null}
       <label className="block space-y-1 text-sm">
         <span className="dawaa-muted text-xs">نص المحادثة المصحح (نفس التوقيتات وعدد الرسائل)</span>
         <textarea className="dawaa-input min-h-[180px] w-full font-mono text-xs" dir="auto" value={rawText}
@@ -385,7 +448,7 @@ function SourceCorrectionForm({
         <span className="dawaa-muted text-xs">سبب التصحيح (يُحفظ في سجل المراجعة)</span>
         <input className="dawaa-input w-full" value={reason} onChange={(event) => edit(setReason)(event.target.value)} />
       </label>
-      <button type="button" className="dawaa-button dawaa-button--secondary" disabled={directory.status !== 'ready'} onClick={() => void review()}>
+      <button type="button" className="dawaa-button dawaa-button--secondary" onClick={() => void review()}>
         معاينة التغييرات
       </button>
 
@@ -394,7 +457,7 @@ function SourceCorrectionForm({
           {preview.errors.map((item) => <li key={item}>{item}</li>)}
         </ul>
       ) : null}
-      {preview?.ok ? (
+      {preview && 'rawText' in preview ? (
         <div className="space-y-3">
           <table className="w-full text-sm">
             <thead><tr className="dawaa-muted text-xs"><th className="p-2 text-start">الحقل</th><th className="p-2 text-start">قبل</th><th className="p-2 text-start">بعد</th></tr></thead>

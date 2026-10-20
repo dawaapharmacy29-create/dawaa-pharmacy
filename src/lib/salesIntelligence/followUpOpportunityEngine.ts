@@ -21,7 +21,7 @@ import {
 import { normalizeProductKey } from './caseBasketEngine';
 import { stableOperationIdentity, type OperationTimelineMessage } from '../whatsappFollowupIdentity';
 import { cairoWallClockParts, cairoWallClockToDate } from '../time/cairoDateBoundary';
-import { isNonTransactionBranchMarker } from '../branch';
+import { isOperatingBranch } from '../branch';
 import type {
   CanonicalSalesOutcomeAssessment,
   ConfidenceAssessment,
@@ -298,9 +298,11 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
     return times.length ? new Date(Math.min(...times)) : caseStartedAt;
   };
 
-  // Account-wide scope / unknown markers are not a transaction branch: the duty stays visible but
-  // blocked for human review instead of becoming an executable task in a non-branch.
-  const transactionBranchUnknown = isNonTransactionBranchMarker(conversationCase.branchNameRaw);
+  // A stored branch that is not an operating branch (account-wide scope, unknown marker, warehouse,
+  // unrecognized text) keeps the duty visible but blocked for human review. A missing branch keeps
+  // its existing contract (the projector refuses incomplete metadata).
+  const transactionBranchUnknown = Boolean(String(conversationCase.branchNameRaw ?? '').trim())
+    && !isOperatingBranch(conversationCase.branchNameRaw);
   const byKey = new Map<string, FollowUpOpportunity>();
   for (const candidate of candidates) {
     const profile = PROFILE[candidate.reason];

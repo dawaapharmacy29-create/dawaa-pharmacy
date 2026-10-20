@@ -57,6 +57,18 @@ export function isNonTransactionBranchMarker(value: unknown): boolean {
   return branch === ALL_BRANCHES || branch === UNKNOWN_BRANCH;
 }
 
+/** The pharmacy's operating (transaction) branches; mirrors dawaa_customer_request_branch_key. */
+export const OPERATING_BRANCHES = [SHOKRY_BRANCH, SHAMY_BRANCH] as const;
+
+/**
+ * True only for an operating branch. Account-wide scope, unknown markers, the warehouse and any
+ * unrecognized text are never the branch of new operational work.
+ */
+export function isOperatingBranch(value: unknown): boolean {
+  if (!String(value ?? '').trim()) return false;
+  return (OPERATING_BRANCHES as readonly string[]).includes(normalizeBranchName(value));
+}
+
 export function branchMatches(selected: string, rowBranch: unknown): boolean {
   const normalizedSelected = normalizeBranchName(selected);
   if (

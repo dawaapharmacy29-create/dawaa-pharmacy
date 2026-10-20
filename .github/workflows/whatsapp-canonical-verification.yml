@@ -33,6 +33,26 @@ jobs:
       - name: Isolated PostgreSQL concurrent publication and materialization
         run: python3 scripts/staging/test-canonical-followup-concurrency.py '${{ job.services.postgres.id }}'
 
+  source-attribution-concurrency:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: isolated-test-only
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Isolated PostgreSQL concurrent correction, approval, execution and stale projection
+        run: python3 scripts/staging/test-source-attribution-concurrency.py '${{ job.services.postgres.id }}'
+
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 35

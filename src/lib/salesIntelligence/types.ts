@@ -411,7 +411,7 @@ export interface FollowUpOpportunity {
   assignedStaffName: string | null;
   goal: string;
   nextBestAction: NextBestAction;
-  /** transaction_branch_unknown: the case branch is account-wide scope or an unknown marker. */
+  /** transaction_branch_unknown: the stored case branch is not an operating branch. */
   blocker: 'customer_identity_unresolved' | 'transaction_branch_unknown' | null;
   suppressedBy: FollowUpSuppression | null;
   evidenceMessageIds: string[];

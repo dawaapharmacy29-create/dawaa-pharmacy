@@ -3,7 +3,7 @@
 // This module never decides whether a request exists. It consumes the canonical qualification
 // owner and only projects QUALIFIED requests into whatsapp_conversation_actions. The existing
 // explicit approval + materialization RPC remains the only path to customer_requests truth.
-import { isNonTransactionBranchMarker } from '../../branch';
+import { isOperatingBranch } from '../../branch';
 import { parseWhatsAppExport } from '../../whatsappConversationParser';
 import { stableOperationIdentity } from '../../whatsappFollowupIdentity';
 import type { SalesIntelligenceCaseAnalysis } from '../types';
@@ -57,6 +57,7 @@ export interface CanonicalCustomerRequestProjectionSkip {
     | 'missing_branch'
     | 'non_transaction_branch'
     | 'missing_staff_identity'
+    | 'staff_evidence_conflict'
     | 'missing_product_identity'
     | 'missing_product_code'
     | 'missing_timeline'
@@ -137,12 +138,21 @@ export function buildCanonicalCustomerRequestActionRows(
         skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: 'missing_branch' });
         continue;
       }
-      if (isNonTransactionBranchMarker(branch)) {
+      if (!isOperatingBranch(branch)) {
         skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: 'non_transaction_branch' });
         continue;
       }
       if (!staffId) {
         skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: 'missing_staff_identity' });
+        continue;
+      }
+      // The source staff id alone is not proof when the conversation's own resolved staff evidence
+      // (explicit self-introductions) names someone else: that ownership needs human review.
+      const evidenceStaffIds = (analysis.caseIntelligence?.staff?.participants ?? [])
+        .map((participant) => uuidOrNull(participant.staffId))
+        .filter((id): id is string => Boolean(id));
+      if (evidenceStaffIds.some((id) => id !== staffId)) {
+        skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: 'staff_evidence_conflict' });
         continue;
       }
       if (!customerId || !productId) {

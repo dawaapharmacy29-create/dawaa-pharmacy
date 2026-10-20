@@ -1,5 +1,18 @@
 # Transaction branch rule and audited source attribution correction (V36)
 
+> **Superseded in part by [RELEASE_READINESS_V36.md](RELEASE_READINESS_V36.md).** The marker rule
+> below was tightened to an operating-branch rule (`isOperatingBranch` /
+> `dawaa_is_transaction_branch_v1`: فرع شكري / فرع الشامي only). The release review also added:
+> - staff-evidence conflict checks;
+> - audited cross-branch cover;
+> - a server-side hash check;
+> - a stale-projection insert guard;
+> - emergency stop/resume scripts.
+>
+> The single rollback file below was replaced by `rollback_safe_…` and
+> `rollback_exact_…_REOPENS_PREVIOUS_APPROVAL.sql`. Where they differ, the release-readiness
+> document and the migration file are authoritative.
+
 Status: source and isolated tests only. The migration
 `20261020153000_whatsapp_source_attribution_correction_v1.sql` is **NOT APPLIED** to any
 Supabase project and requires explicit owner approval. No live row was written.

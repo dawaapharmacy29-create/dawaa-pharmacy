@@ -202,7 +202,8 @@ describe('Canonical Follow-up Opportunity Engine', () => {
     const real = withBranch('فرع شكري');
     expect(real.decision).toBe('actionable');
     expect(withBranch(null).decision).toBe('actionable');
-    for (const marker of ['كل الفروع', 'غير محدد']) {
+    expect(withBranch('فرع الشامي').decision).toBe('actionable');
+    for (const marker of ['كل الفروع', 'غير محدد', 'المخزن']) {
       const blocked = withBranch(marker);
       expect(blocked.decision).toBe('blocked');
       expect(blocked.opportunities[0]).toMatchObject({ status: 'blocked', blocker: 'transaction_branch_unknown' });

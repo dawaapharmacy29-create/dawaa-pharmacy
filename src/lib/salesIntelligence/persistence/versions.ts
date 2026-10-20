@@ -61,7 +61,8 @@
 // Versioning affects only the next authorized refresh, never an automatic historical repair.
 // v30: complaint conduct/recovery and contextual contact timing share canonical evidence.
 // Past courier calls and contact availability do not become callback requests or product stock.
-// v36: account-wide scope / unknown branch markers block new customer requests and follow-ups.
+// v36: only an operating branch (فرع شكري / فرع الشامي) owns new customer requests and follow-ups;
+// a request is not projected when the conversation's resolved staff evidence names another doctor.
 export const PIPELINE_VERSION = 'sales-intelligence-v36-transaction-branch-required';
 
 export const ENGINE_VERSIONS = {

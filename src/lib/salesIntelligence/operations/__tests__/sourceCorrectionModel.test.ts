@@ -91,10 +91,12 @@ describe('source correction preview', () => {
       expect(preview.ok).toBe(false);
       return preview.ok ? [] : preview.errors.join(' | ');
     };
-    expect(await errorsOf({ branch: 'كل الفروع' })).toContain('فرع المعاملة الفعلي');
+    expect(await errorsOf({ branch: 'كل الفروع' })).toContain('فرع تشغيل معتمد');
+    expect(await errorsOf({ branch: 'المخزن' })).toContain('فرع تشغيل معتمد');
     expect(await errorsOf({ reason: 'خطأ' })).toContain('سبب التصحيح');
     expect(await errorsOf({ staffId: DONIA_OLD })).toContain('الدكتور المسؤول');
-    expect(await errorsOf({ staffId: SHAMY })).toContain('الدكتور المسؤول');
+    // A doctor from another home branch needs an explicit cover confirmation.
+    expect(await errorsOf({ staffId: SHAMY })).toContain('غطّى هذا الفرع');
     expect(await errorsOf({ staffId: CUSTOMER })).toContain('الدكتور المسؤول');
     expect(await errorsOf({ staffId: null })).toContain('الدكتور المسؤول');
     expect(await errorsOf({ rawText: CORRECTED.replace('5:02:00 AM', '5:09:00 AM') })).toContain('نفس توقيتات');
@@ -107,9 +109,19 @@ describe('source correction preview', () => {
     expect(preview).toEqual({ ok: false, errors: ['لا يوجد أي تغيير عن البيانات المحفوظة.'] });
   });
 
-  it('offers only active canonical staff of the branch or account-wide scope, never the customer', () => {
-    expect(eligibleCorrectionStaff(directory, 'فرع شكري', CUSTOMER).map((row) => row.id).sort()).toEqual([GM, DONIA].sort());
-    expect(eligibleCorrectionStaff(directory, 'فرع الشامي', CUSTOMER).map((row) => row.id).sort()).toEqual([GM, SHAMY].sort());
+  it('offers active canonical staff (home branch, then account-wide, then explicit cover), never the customer', () => {
+    expect(eligibleCorrectionStaff(directory, 'فرع شكري', CUSTOMER).map((row) => [row.id, row.coverage])).toEqual([
+      [DONIA, 'home_branch'], [GM, 'account_wide'], [SHAMY, 'cross_branch'],
+    ]);
+    expect(eligibleCorrectionStaff(directory, 'فرع الشامي', CUSTOMER).map((row) => row.id)).toEqual([SHAMY, GM, DONIA]);
+  });
+
+  it('records an explicitly confirmed cross-branch cover in the preview', async () => {
+    const stored = await storedFrom(ORIGINAL);
+    const preview = await buildSourceCorrectionPreview(stored,
+      { rawText: CORRECTED, staffId: SHAMY, branch: 'فرع شكري', reason: REASON, crossBranchCover: true }, directory);
+    expect('rawText' in preview && preview.crossBranchCover).toBe(true);
+    expect('rawText' in preview && preview.changes[0].after).toBe('د سارة (تغطية من فرع الشامي)');
   });
 });
 

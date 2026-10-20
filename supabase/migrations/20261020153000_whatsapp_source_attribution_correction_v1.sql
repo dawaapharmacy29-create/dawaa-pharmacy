@@ -1,11 +1,17 @@
 -- Source-only forward candidate. NOT APPLIED to Production; requires explicit owner approval.
--- 1) One shared database rule: account-wide scope / unknown markers are never a transaction branch.
--- 2) Customer-request approval and the public materializer enforce that rule in the database, and a
---    canonical request proposal is approvable only while the CURRENT published analysis still
---    qualifies it. Legacy (non-canonical) proposals keep their existing approval contract.
+-- 1) One shared database rule: only an operating branch (فرع شكري / فرع الشامي, the keys of
+--    dawaa_customer_request_branch_key) is a transaction branch for new operational work.
+-- 2) Customer-request approval and the public materializer enforce that rule in the database. A
+--    canonical request proposal is approvable/executable only while the CURRENT published analysis
+--    still qualifies it, its resolved conversation staff evidence does not name another doctor, and
+--    a doctor from another home branch has an audited human cross-branch confirmation. Legacy
+--    (non-canonical) proposals keep their existing approval contract.
 -- 3) One authorized, audited command corrects a source's raw text, staff and transaction branch.
---    It never changes customer identity, never deletes evidence, and retires unexecuted proposals by
---    freeing their identity so the next explicit refresh projects exactly one corrected proposal.
+--    The database recomputes the source hash from the text and stored conversation times. It never
+--    changes customer identity, never deletes evidence, and retires unexecuted proposals by freeing
+--    their identity so the next explicit refresh projects exactly one corrected proposal.
+-- 4) A canonical request proposal can only be inserted with the source's CURRENT staff/branch, so
+--    a refresh that read the source before a correction cannot publish a stale proposal.
 -- No business DML, backfill, new grants beyond the new command, automatic re-analysis or execution.
 
 create or replace function public.dawaa_is_transaction_branch_v1(p_branch text)
@@ -14,12 +20,8 @@ language sql
 immutable
 set search_path to 'public','pg_catalog'
 as $function$
-  -- Mirrors isNonTransactionBranchMarker in src/lib/branch.ts.
-  with v as (
-    select lower(btrim(regexp_replace(coalesce(p_branch,''), '[ً-ٟـ]', '', 'g'))) as b
-  )
-  select b <> '' and b <> 'غير محدد' and position('كل' in b) = 0 and b !~ '(all|every|branches)'
-  from v
+  -- Mirrors isOperatingBranch in src/lib/branch.ts (stricter for unrecognized spellings).
+  select coalesce(public.dawaa_customer_request_branch_key(p_branch) in ('shokry','elshamy'), false)
 $function$;
 
 revoke all on function public.dawaa_is_transaction_branch_v1(text) from public,anon;
@@ -88,6 +90,65 @@ revoke all on function public.dawaa_canonical_request_is_current_v1(uuid,text,te
   from public,anon,authenticated;
 grant execute on function public.dawaa_canonical_request_is_current_v1(uuid,text,text,uuid) to service_role;
 
+-- Why a canonical request's responsible doctor is NOT proven (null = proven). A staff id alone is
+-- not proof when the current analysis resolved a different doctor from the conversation itself,
+-- and a doctor whose home branch differs needs the latest audited correction to confirm the cover.
+-- Account-wide management scope may serve any operating branch.
+create or replace function public.dawaa_canonical_request_staff_refusal_v1(
+  p_source_id uuid,
+  p_case_id text,
+  p_staff_id uuid,
+  p_branch text
+)
+returns text
+language plpgsql
+stable
+set search_path to 'public','pg_catalog'
+as $function$
+declare
+  v_staff_branch text;
+  v_latest jsonb;
+begin
+  if exists (
+    select 1
+    from public.sales_intelligence_cases c
+    join public.sales_intelligence_case_analyses a
+      on a.analysis_id=c.published_analysis_id and a.case_id=c.case_id
+    cross join lateral jsonb_array_elements(
+      coalesce(a.evidence_snapshot #> '{caseIntelligence,staff,participants}','[]'::jsonb)) p
+    where c.case_id=p_case_id and c.conversation_id=p_source_id and c.is_active and a.is_current
+      and nullif(p->>'staffId','') is not null
+      and p->>'staffId' is distinct from p_staff_id::text
+  ) then
+    return 'customer_request_action_staff_evidence_conflict';
+  end if;
+
+  select s.branch into v_staff_branch from public.staff s where s.id=p_staff_id;
+  if position('كل' in coalesce(v_staff_branch,'')) > 0
+     or public.dawaa_customer_request_branch_key(v_staff_branch)
+        is not distinct from public.dawaa_customer_request_branch_key(p_branch) then
+    return null;
+  end if;
+
+  select au.after_state into v_latest
+  from public.whatsapp_review_audit au
+  where au.source_id=p_source_id and au.action='source_attribution_corrected_v1'
+  order by au.created_at desc, au.id desc
+  limit 1;
+  if v_latest->>'staff_id' = p_staff_id::text
+     and public.dawaa_customer_request_branch_key(v_latest->>'branch')
+       = public.dawaa_customer_request_branch_key(p_branch)
+     and v_latest->>'cross_branch_cover' = 'true' then
+    return null;
+  end if;
+  return 'customer_request_action_cross_branch_requires_confirmation';
+end;
+$function$;
+
+revoke all on function public.dawaa_canonical_request_staff_refusal_v1(uuid,text,uuid,text)
+  from public,anon,authenticated;
+grant execute on function public.dawaa_canonical_request_staff_refusal_v1(uuid,text,uuid,text) to service_role;
+
 create or replace function public.dawaa_approve_whatsapp_customer_request_action_v2(p_action_id uuid)
 returns jsonb
 language plpgsql
@@ -101,6 +162,7 @@ declare
   v_actor_name text;
   v_actor_role text;
   v_product_code text;
+  v_staff_refusal text;
 begin
   if v_actor is null
      or not public.dawaa_current_actor_can(array['approve_reviews','manage_conversation_evaluations','manage_customer_requests']) then
@@ -113,6 +175,11 @@ begin
   for update;
   if not found then raise exception 'whatsapp_action_not_found'; end if;
   if v_action.action_type<>'customer_request' then raise exception 'customer_request_action_required'; end if;
+  -- A concurrent or repeated approval of the same proposal is a read, not a second approval.
+  if v_action.status='ready' and coalesce(v_action.auto_eligible,false)
+     and coalesce(v_action.payload->>'approvalSource','')='human_review_v2' then
+    return jsonb_build_object('ok',true,'action_id',p_action_id,'status','ready','already_approved',true);
+  end if;
   if v_action.status not in ('proposed','ready') then raise exception 'customer_request_action_not_approvable'; end if;
   if v_action.customer_id is null or v_action.product_id is null or v_action.staff_id is null then
     raise exception 'customer_request_action_canonical_identity_required';
@@ -144,6 +211,11 @@ begin
        v_action.source_id, v_action.payload->>'caseId', v_action.payload->>'requestKey', v_action.product_id
      ) then
     raise exception 'customer_request_requires_current_qualification';
+  end if;
+  if v_action.created_by='si-canonical-customer-request-projection-v1' then
+    v_staff_refusal := public.dawaa_canonical_request_staff_refusal_v1(
+      v_action.source_id, v_action.payload->>'caseId', v_action.staff_id, v_action.branch);
+    if v_staff_refusal is not null then raise exception '%', v_staff_refusal; end if;
   end if;
 
   if not public.dawaa_can_access_customer_request_branch('manage_customer_requests',v_action.branch) then
@@ -219,6 +291,7 @@ declare
   v_source public.whatsapp_review_sources%rowtype;
   v_source_id uuid;
   v_case record;
+  v_staff_refusal text;
 begin
   if v_actor is null then raise exception 'not_authorized' using errcode='42501'; end if;
   if not public.dawaa_current_actor_can(array[
@@ -301,6 +374,15 @@ begin
        ) then
       -- An approval made before a re-analysis withdrew the qualification is no longer executable.
       raise exception 'customer_request_requires_current_qualification';
+    elsif v_action.created_by='si-canonical-customer-request-projection-v1' then
+      v_staff_refusal := public.dawaa_canonical_request_staff_refusal_v1(
+        v_source_id, v_action.payload->>'caseId', v_action.staff_id, v_action.branch);
+      if v_staff_refusal is not null then raise exception '%', v_staff_refusal; end if;
+      if v_action.staff_id is distinct from v_source.staff_id
+         or public.dawaa_customer_request_branch_key(v_action.branch)
+           is distinct from public.dawaa_customer_request_branch_key(v_source.branch) then
+        raise exception 'customer_request_action_source_attribution_changed';
+      end if;
     end if;
   end if;
   return public.dawaa_materialize_whatsapp_action_core_v2(p_action_id);
@@ -311,6 +393,9 @@ grant execute on function public.dawaa_materialize_whatsapp_action_v1(uuid) to a
 
 -- Authorized, audited correction of ONE source's attribution. Re-analysis stays the separate,
 -- explicit refresh command; this command never analyzes, projects, approves or materializes.
+-- The database recomputes the canonical source hash (hashWhatsAppSession: SHA-256 of
+-- "<startedAt ISO>|<endedAt ISO>|<raw text>") from the STORED conversation times, so the text,
+-- hash and timeline cannot be desynchronized by a direct RPC caller.
 create or replace function public.dawaa_correct_whatsapp_source_attribution_v1(
   p_source_id uuid,
   p_expected_source_hash text,
@@ -318,7 +403,8 @@ create or replace function public.dawaa_correct_whatsapp_source_attribution_v1(
   p_source_hash text,
   p_staff_id uuid,
   p_branch text,
-  p_reason text
+  p_reason text,
+  p_cross_branch_cover boolean default false
 )
 returns jsonb
 language plpgsql
@@ -330,6 +416,7 @@ declare
   v_source public.whatsapp_review_sources%rowtype;
   v_staff_name text;
   v_staff_branch text;
+  v_cross_branch boolean := false;
   v_case record;
   v_actions jsonb;
   v_retired integer := 0;
@@ -338,6 +425,7 @@ declare
   v_branch text := btrim(coalesce(p_branch,''));
   v_reason text := btrim(coalesce(p_reason,''));
   v_correction_id uuid := gen_random_uuid();
+  v_server_hash text;
 begin
   if v_actor is null or not public.dawaa_current_actor_can(array['approve_reviews']) then
     raise exception 'source_attribution_correction_permission_denied' using errcode='42501';
@@ -363,6 +451,17 @@ begin
   if not public.dawaa_can_read_conversation_review_row_v2(v_actor,v_source.staff_id,null::uuid,v_source.branch,null::uuid)
      or not public.dawaa_can_read_conversation_review_row_v2(v_actor,p_staff_id,null::uuid,v_branch,null::uuid) then
     raise exception 'source_attribution_access_denied' using errcode='42501';
+  end if;
+
+  if v_source.conversation_started_at is null or v_source.conversation_ended_at is null then
+    raise exception 'source_attribution_conversation_time_missing';
+  end if;
+  v_server_hash := encode(sha256(convert_to(
+    to_char(v_source.conversation_started_at at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') || '|' ||
+    to_char(v_source.conversation_ended_at at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') || '|' ||
+    p_raw_text, 'UTF8')), 'hex');
+  if v_server_hash is distinct from p_source_hash then
+    raise exception 'source_attribution_hash_mismatch';
   end if;
 
   -- Exact replay of an already-applied correction is a no-op, not a second audit or retirement.
@@ -404,9 +503,12 @@ begin
      or exists(select 1 from public.customers c where c.id=p_staff_id) then
     raise exception 'source_attribution_staff_is_customer';
   end if;
-  if public.dawaa_is_transaction_branch_v1(v_staff_branch)
-     and public.dawaa_customer_request_branch_key(v_staff_branch)
-       is distinct from public.dawaa_customer_request_branch_key(v_branch) then
+  -- Home branch vs operation branch: account-wide management may serve any branch; any other
+  -- home branch (including the warehouse) is cross-branch cover and needs explicit confirmation.
+  v_cross_branch := position('كل' in coalesce(v_staff_branch,'')) = 0
+    and public.dawaa_customer_request_branch_key(v_staff_branch)
+      is distinct from public.dawaa_customer_request_branch_key(v_branch);
+  if v_cross_branch and not coalesce(p_cross_branch_cover,false) then
     raise exception 'source_attribution_staff_branch_mismatch';
   end if;
   if exists(select 1 from public.whatsapp_review_sources s where s.source_hash=p_source_hash and s.id<>p_source_id) then
@@ -465,6 +567,7 @@ begin
     jsonb_build_object(
       'correction_id',v_correction_id,'source_hash',p_source_hash,
       'staff_id',p_staff_id,'staff_name',coalesce(v_staff_name,v_source.staff_name),'branch',v_branch,
+      'staff_home_branch',v_staff_branch,'cross_branch_cover',v_cross_branch,
       'customer_id',v_source.customer_id,'retired_actions',v_retired,
       'reanalysis','required_explicit_refresh'),
     v_reason);
@@ -474,12 +577,47 @@ begin
 end;
 $function$;
 
-revoke all on function public.dawaa_correct_whatsapp_source_attribution_v1(uuid,text,text,text,uuid,text,text)
+revoke all on function public.dawaa_correct_whatsapp_source_attribution_v1(uuid,text,text,text,uuid,text,text,boolean)
   from public,anon;
-grant execute on function public.dawaa_correct_whatsapp_source_attribution_v1(uuid,text,text,text,uuid,text,text)
+grant execute on function public.dawaa_correct_whatsapp_source_attribution_v1(uuid,text,text,text,uuid,text,text,boolean)
   to authenticated,service_role;
 
-comment on function public.dawaa_correct_whatsapp_source_attribution_v1(uuid,text,text,text,uuid,text,text) is
-  'Audited correction of one WhatsApp source''s raw text, staff and transaction branch. Customer identity is immutable here; unexecuted proposals are retired, not deleted; re-analysis is a separate explicit refresh.';
+comment on function public.dawaa_correct_whatsapp_source_attribution_v1(uuid,text,text,text,uuid,text,text,boolean) is
+  'Audited correction of one WhatsApp source''s raw text, staff and transaction branch. The hash is recomputed in the database; customer identity is immutable here; unexecuted proposals are retired, not deleted; re-analysis is a separate explicit refresh.';
+
+-- A canonical request proposal is published only with the source's CURRENT attribution. FOR SHARE
+-- waits for an in-flight correction, so a refresh that read the source earlier cannot insert a
+-- stale proposal into the identity that correction just freed. The refresh reports the failure.
+create or replace function public.dawaa_guard_canonical_request_projection_v1()
+returns trigger
+language plpgsql
+set search_path to 'public','pg_catalog'
+as $function$
+declare
+  v_staff uuid;
+  v_branch text;
+begin
+  select s.staff_id, s.branch into v_staff, v_branch
+  from public.whatsapp_review_sources s where s.id=new.source_id for share;
+  if not found
+     or new.staff_id is distinct from v_staff
+     or public.dawaa_customer_request_branch_key(new.branch)
+       is distinct from public.dawaa_customer_request_branch_key(v_branch)
+     or not public.dawaa_is_transaction_branch_v1(new.branch) then
+    raise exception 'canonical_request_projection_stale_source';
+  end if;
+  return new;
+end;
+$function$;
+
+revoke all on function public.dawaa_guard_canonical_request_projection_v1() from public,anon,authenticated;
+
+drop trigger if exists canonical_request_projection_guard_v1 on public.whatsapp_conversation_actions;
+create trigger canonical_request_projection_guard_v1
+before insert
+on public.whatsapp_conversation_actions
+for each row
+when (new.action_type='customer_request' and new.created_by='si-canonical-customer-request-projection-v1')
+execute function public.dawaa_guard_canonical_request_projection_v1();
 
 notify pgrst,'reload schema';

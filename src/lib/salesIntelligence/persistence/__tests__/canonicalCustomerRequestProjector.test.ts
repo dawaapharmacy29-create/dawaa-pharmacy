@@ -193,7 +193,22 @@ describe('canonical customer request projector', () => {
     expect(missing.skipped[0].reason).toBe('missing_canonical_assessment');
   });
 
-  it.each(['كل الفروع', 'غير محدد'])('keeps a %s request for review instead of projecting it', (branch) => {
+  it('refuses a request whose resolved conversation staff evidence names another doctor', () => {
+    const canonical = analysis();
+    canonical.caseIntelligence = { staff: { participants: [
+      { sender: 'You', staffId: '99999999-9999-4999-8999-999999999999', messageIds: ['m2'], messageCount: 1 },
+    ], facts: [] } };
+    const conflict = buildCanonicalCustomerRequestActionRows([canonical], [source()]);
+    expect(conflict.rows).toEqual([]);
+    expect(conflict.skipped[0]).toMatchObject({ reason: 'staff_evidence_conflict' });
+
+    canonical.caseIntelligence.staff.participants[0].staffId = STAFF_ID;
+    expect(buildCanonicalCustomerRequestActionRows([canonical], [source()]).rows).toHaveLength(1);
+    canonical.caseIntelligence.staff.participants[0].staffId = null;
+    expect(buildCanonicalCustomerRequestActionRows([canonical], [source()]).rows).toHaveLength(1);
+  });
+
+  it.each(['كل الفروع', 'غير محدد', 'المخزن', 'فرع جديد غير معتمد'])('keeps a %s request for review instead of projecting it', (branch) => {
     const canonical = analysis('case-1', 'unavailable', branch);
     expect(canonical.customerRequestAssessment.requests[0]).toMatchObject({
       status: 'review_required',

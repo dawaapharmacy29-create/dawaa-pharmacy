@@ -1,12 +1,14 @@
--- Rollback for 20261020153000_whatsapp_source_attribution_correction_v1.sql. NOT APPLIED.
--- Restores the exact previous approve/materialize bodies (20261005141100 lines 123-232,
--- 20261019093000 lines 4-89) and removes only objects added by the forward migration.
--- It does not restore data: applied corrections stay audited in whatsapp_review_audit and
--- retired proposals stay dismissed. Run in one transaction during a quiesced window.
+-- EXACT ROLLBACK for 20261020153000 (NOT APPLIED). WARNING: restores the previous approve and
+-- materialize bodies (20261005141100 lines 123-232, 20261019093000 lines 4-89), which do NOT know
+-- the operating-branch, current-qualification or staff-proof rules. Use only together with
+-- emergency_stop_20261020153000.sql left in force, or prefer rollback_safe_20261020153000.sql.
+-- No data is changed.
 begin;
+drop trigger if exists canonical_request_projection_guard_v1 on public.whatsapp_conversation_actions;
+drop function if exists public.dawaa_guard_canonical_request_projection_v1();
 drop trigger if exists whatsapp_source_attribution_guard_v1 on public.whatsapp_review_sources;
 drop function if exists public.dawaa_guard_whatsapp_source_attribution_v1();
-drop function if exists public.dawaa_correct_whatsapp_source_attribution_v1(uuid,text,text,text,uuid,text,text);
+drop function if exists public.dawaa_correct_whatsapp_source_attribution_v1(uuid,text,text,text,uuid,text,text,boolean);
 create or replace function public.dawaa_approve_whatsapp_customer_request_action_v2(p_action_id uuid)
 returns jsonb
 language plpgsql
@@ -203,6 +205,7 @@ end;
 $function$;
 revoke all on function public.dawaa_materialize_whatsapp_action_v1(uuid) from public;
 grant execute on function public.dawaa_materialize_whatsapp_action_v1(uuid) to anon,authenticated,service_role;
+drop function if exists public.dawaa_canonical_request_staff_refusal_v1(uuid,text,uuid,text);
 drop function if exists public.dawaa_canonical_request_is_current_v1(uuid,text,text,uuid);
 drop function if exists public.dawaa_is_transaction_branch_v1(text);
 notify pgrst,'reload schema';

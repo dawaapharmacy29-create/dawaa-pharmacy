@@ -5,7 +5,7 @@
 // The corrected text is normalized exactly like ingestion (parse -> canonical segmentation ->
 // serialize/hash of the single case session), so a later re-upload of the corrected file dedupes to
 // the same source instead of creating a parallel one.
-import { isNonTransactionBranchMarker, normalizeBranchName } from '@/lib/branch';
+import { isNonTransactionBranchMarker, isOperatingBranch, normalizeBranchName } from '@/lib/branch';
 import { parseWhatsAppExport, serializeWhatsAppSessionRawText } from '@/lib/whatsappConversationParser';
 import { segmentWhatsAppExportCanonical } from '@/lib/whatsappCanonicalSegmentation';
 import { hashWhatsAppSession } from '@/lib/whatsappReviewPersistenceV4';
@@ -35,7 +35,11 @@ export interface SourceCorrectionDraft {
   staffId: string | null;
   branch: string;
   reason: string;
+  /** Explicit, audited confirmation that a doctor from another home branch covered this branch. */
+  crossBranchCover?: boolean;
 }
+
+export type CorrectionStaffCoverage = 'home_branch' | 'account_wide' | 'cross_branch';
 
 export interface SourceCorrectionChange {
   field: 'staff' | 'branch' | 'text';
@@ -59,6 +63,7 @@ export type SourceCorrectionPreview =
       staffName: string;
       branch: string;
       reason: string;
+      crossBranchCover: boolean;
       changes: SourceCorrectionChange[];
       changedLines: SourceCorrectionLineChange[];
     }
@@ -84,17 +89,26 @@ function changedLines(before: string, after: string): SourceCorrectionLineChange
   return rows;
 }
 
-/** Staff the reviewer may pick: active canonical staff rows of that branch or account-wide scope. */
+/** How a doctor relates to the operation branch: the home branch, account-wide scope, or cover. */
+export function correctionStaffCoverage(staffBranch: string | null, branch: string): CorrectionStaffCoverage {
+  if (isNonTransactionBranchMarker(staffBranch)) return 'account_wide';
+  return normalizeBranchName(staffBranch) === normalizeBranchName(branch) ? 'home_branch' : 'cross_branch';
+}
+
+/**
+ * Doctors the reviewer may pick: active canonical staff rows, never the customer. Home-branch and
+ * account-wide doctors come first; a doctor from another home branch is offered as explicit cover.
+ */
 export function eligibleCorrectionStaff(
   directory: readonly StaffDirectoryIdentity[],
   branch: string,
   customerId: string | null
 ) {
-  const branchKey = normalizeBranchName(branch);
+  const rank: Record<CorrectionStaffCoverage, number> = { home_branch: 0, account_wide: 1, cross_branch: 2 };
   return directory
     .filter((row) => row.source === 'staff' && row.active && row.id && row.id !== customerId)
-    .filter((row) => isNonTransactionBranchMarker(row.branch) || normalizeBranchName(row.branch) === branchKey)
-    .sort((a, b) => String(a.name).localeCompare(String(b.name), 'ar'));
+    .map((row) => ({ ...row, coverage: correctionStaffCoverage(row.branch, branch) }))
+    .sort((a, b) => rank[a.coverage] - rank[b.coverage] || String(a.name).localeCompare(String(b.name), 'ar'));
 }
 
 export async function buildSourceCorrectionPreview(
@@ -107,8 +121,8 @@ export async function buildSourceCorrectionPreview(
   const reason = draft.reason.trim();
 
   if (stored.reviewStatus === 'archived') errors.push('المصدر مؤرشف ولا يقبل التصحيح.');
-  if (!branch || isNonTransactionBranchMarker(branch)) {
-    errors.push('اختر فرع المعاملة الفعلي؛ «كل الفروع» و«غير محدد» لا يصلحان كفرع معاملة.');
+  if (!isOperatingBranch(branch)) {
+    errors.push('اختر فرع تشغيل معتمدًا (فرع شكري أو فرع الشامي)؛ «كل الفروع» و«غير محدد» والمخزن لا تصلح كفرع معاملة.');
   }
   if (reason.length < SOURCE_CORRECTION_MIN_REASON_LENGTH) {
     errors.push(`اكتب سبب التصحيح (${SOURCE_CORRECTION_MIN_REASON_LENGTH} أحرف على الأقل) ليُحفظ في سجل المراجعة.`);
@@ -117,7 +131,11 @@ export async function buildSourceCorrectionPreview(
   const staff = draft.staffId
     ? eligibleCorrectionStaff(directory, branch, stored.customerId).find((row) => row.id === draft.staffId) ?? null
     : null;
-  if (!staff) errors.push('اختر الدكتور المسؤول من دليل الموظفين النشطين لنفس الفرع.');
+  if (!staff) errors.push('اختر الدكتور المسؤول من دليل الموظفين النشطين.');
+  const crossBranchCover = staff?.coverage === 'cross_branch';
+  if (crossBranchCover && !draft.crossBranchCover) {
+    errors.push('الدكتور المختار فرعه الأساسي مختلف؛ أكد صراحة أنه غطّى هذا الفرع في هذه العملية.');
+  }
 
   const messages = parseWhatsAppExport(draft.rawText);
   if (!messages.length) {
@@ -145,7 +163,12 @@ export async function buildSourceCorrectionPreview(
 
   const changes: SourceCorrectionChange[] = [];
   if (staff.id !== stored.staffId) {
-    changes.push({ field: 'staff', label: 'الدكتور المسؤول', before: display(stored.staffName), after: display(staff.name) });
+    changes.push({
+      field: 'staff',
+      label: 'الدكتور المسؤول',
+      before: display(stored.staffName),
+      after: crossBranchCover ? `${display(staff.name)} (تغطية من ${display(staff.branch)})` : display(staff.name),
+    });
   }
   if (branch !== (stored.branch ?? '').trim()) {
     changes.push({ field: 'branch', label: 'فرع المعاملة', before: display(stored.branch), after: branch });
@@ -164,6 +187,7 @@ export async function buildSourceCorrectionPreview(
     staffName: display(staff.name),
     branch,
     reason,
+    crossBranchCover,
     changes,
     changedLines: lines,
   };
@@ -175,7 +199,11 @@ const OPERATION_ERRORS: Record<string, string> = {
   source_attribution_source_changed: 'تغير المصدر منذ فتح الشاشة؛ أعد التحميل وراجع البيانات من جديد.',
   source_attribution_has_human_confirmation: 'المصدر عليه تأكيد بشري أو فاتورة معتمدة؛ يحتاج معالجة يدوية.',
   source_attribution_has_executed_or_approved_work: 'يوجد إجراء معتمد أو منفذ أو قيد العمل على هذا المصدر؛ لا يتم تصحيحه تلقائيًا.',
-  source_attribution_staff_branch_mismatch: 'الدكتور المختار لا يعمل في فرع المعاملة المختار.',
+  source_attribution_staff_branch_mismatch: 'الدكتور المختار من فرع آخر؛ يلزم تأكيد التغطية صراحة.',
+  source_attribution_hash_mismatch: 'بصمة النص لا تطابق النص وتوقيتات المحادثة المحفوظة.',
+  customer_request_action_staff_evidence_conflict: 'أدلة المحادثة تشير إلى دكتور مختلف؛ صحح المصدر أولًا.',
+  customer_request_action_cross_branch_requires_confirmation: 'الدكتور من فرع آخر بدون تأكيد تغطية مسجل؛ صحح المصدر وأكد التغطية.',
+  'permission denied for function': 'الأمر غير متاح حاليًا (متوقف مؤقتًا بقرار إداري أو بدون صلاحية).',
   source_attribution_staff_is_customer: 'لا يمكن اختيار العميل كدكتور مسؤول.',
   source_attribution_hash_conflict: 'هذا النص مطابق لمصدر محفوظ آخر؛ لن يتم إنشاء تكرار.',
   source_attribution_transaction_branch_required: 'فرع المعاملة يجب أن يكون فرعًا فعليًا.',

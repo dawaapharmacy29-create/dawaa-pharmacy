@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase';
 import type { SourceCorrectionPreview, StoredSourceAttribution } from './sourceCorrectionModel';
 
 export const SOURCE_OPERATIONS_ACTION_LIMIT = 50;
-export const SOURCE_OPERATIONS_AUDIT_LIMIT = 20;
+export const SOURCE_OPERATIONS_AUDIT_PAGE_SIZE = 10;
 
 export interface SourceOperationalAction {
   id: string;
@@ -36,13 +36,14 @@ export interface SourceAuditEntry {
   actorName: string | null;
   note: string | null;
   createdAt: string | null;
-  afterState: Record<string, unknown> | null;
 }
 
-const SOURCE_COLUMNS = [
-  'id', 'source_filename', 'source_hash', 'raw_text', 'staff_id', 'staff_name', 'branch', 'customer_id',
+// The page opens with the summary only; the conversation text is read when correction is opened.
+const SOURCE_SUMMARY_COLUMNS = [
+  'id', 'source_filename', 'source_hash', 'staff_id', 'staff_name', 'branch', 'customer_id',
   'customer_code', 'customer_name', 'conversation_started_at', 'conversation_ended_at', 'message_count', 'review_status',
 ].join(',');
+const SOURCE_COLUMNS = `${SOURCE_SUMMARY_COLUMNS},raw_text`;
 const ACTION_COLUMNS = [
   'id', 'action_type', 'status', 'created_by', 'branch', 'staff_id', 'customer_id', 'customer_name', 'product_id',
   'product_code', 'product_name', 'quantity', 'auto_eligible', 'target_table', 'target_id', 'payload', 'updated_at',
@@ -51,8 +52,19 @@ const ACTION_COLUMNS = [
 type Row = Record<string, any>;
 const text = (value: unknown) => (value == null || String(value).trim() === '' ? null : String(value));
 
+export type SourceAttributionSummary = Omit<StoredSourceAttribution, 'rawText'>;
+
+export async function loadSourceAttributionSummary(sourceId: string): Promise<SourceAttributionSummary> {
+  const { rawText: _omitted, ...summary } = await readSource(sourceId, SOURCE_SUMMARY_COLUMNS);
+  return summary;
+}
+
 export async function loadStoredSourceAttribution(sourceId: string): Promise<StoredSourceAttribution> {
-  const { data, error } = await supabase.from('whatsapp_review_sources').select(SOURCE_COLUMNS).eq('id', sourceId).maybeSingle();
+  return readSource(sourceId, SOURCE_COLUMNS);
+}
+
+async function readSource(sourceId: string, columns: string): Promise<StoredSourceAttribution> {
+  const { data, error } = await supabase.from('whatsapp_review_sources').select(columns).eq('id', sourceId).maybeSingle();
   if (error) throw error;
   if (!data) throw new Error('whatsapp_source_not_found');
   const row = data as Row;
@@ -110,22 +122,26 @@ export async function loadSourceOperationalActions(sourceId: string): Promise<So
   return ((data ?? []) as Row[]).map(mapSourceOperationalAction);
 }
 
-export async function loadSourceAuditEntries(sourceId: string): Promise<SourceAuditEntry[]> {
-  const { data, error } = await supabase
+/** Newest audit events first, one bounded page at a time; efore reads the next older page. */
+export async function loadSourceAuditPage(sourceId: string, before: string | null = null) {
+  let query = supabase
     .from('whatsapp_review_audit')
-    .select('id,action,actor_name,note,created_at,after_state')
+    .select('id,action,actor_name,note,created_at')
     .eq('source_id', sourceId)
     .order('created_at', { ascending: false })
-    .limit(SOURCE_OPERATIONS_AUDIT_LIMIT);
+    .limit(SOURCE_OPERATIONS_AUDIT_PAGE_SIZE + 1);
+  if (before) query = query.lt('created_at', before);
+  const { data, error } = await query;
   if (error) throw error;
-  return ((data ?? []) as Row[]).map((row) => ({
+  const rows = (data ?? []) as Row[];
+  const entries: SourceAuditEntry[] = rows.slice(0, SOURCE_OPERATIONS_AUDIT_PAGE_SIZE).map((row) => ({
     id: String(row.id),
     action: String(row.action ?? ''),
     actorName: text(row.actor_name),
     note: text(row.note),
     createdAt: text(row.created_at),
-    afterState: row.after_state && typeof row.after_state === 'object' ? row.after_state : null,
   }));
+  return { entries, hasOlder: rows.length > SOURCE_OPERATIONS_AUDIT_PAGE_SIZE };
 }
 
 export interface SourceCorrectionResult {
@@ -155,6 +171,7 @@ export async function submitSourceAttributionCorrection(
     p_staff_id: preview.staffId,
     p_branch: preview.branch,
     p_reason: preview.reason,
+    p_cross_branch_cover: preview.crossBranchCover,
   });
   if (error) throw error;
   return parseSourceCorrectionResult(data);
@@ -165,7 +182,7 @@ export async function approveCustomerRequestProposal(actionId: string) {
   if (error) throw error;
   const row = (data ?? {}) as Row;
   if (row.ok !== true || row.status !== 'ready') throw new Error('customer_request_approval_invalid_result');
-  return { actionId: String(row.action_id ?? actionId) };
+  return { actionId: String(row.action_id ?? actionId), alreadyApproved: row.already_approved === true };
 }
 
 export function parseMaterializationResult(data: unknown) {

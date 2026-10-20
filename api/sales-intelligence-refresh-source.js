@@ -85,10 +85,10 @@ function normalizeBranchName(value) {
   }
   return text5;
 }
-function isNonTransactionBranchMarker(value) {
+var OPERATING_BRANCHES = [SHOKRY_BRANCH, SHAMY_BRANCH];
+function isOperatingBranch(value) {
   if (!String(value ?? "").trim()) return false;
-  const branch = normalizeBranchName(value);
-  return branch === ALL_BRANCHES || branch === UNKNOWN_BRANCH;
+  return OPERATING_BRANCHES.includes(normalizeBranchName(value));
 }
 
 // src/lib/invoices/invoiceCore.ts
@@ -5439,7 +5439,7 @@ function deriveCanonicalCustomerRequestAssessment(input) {
     }
     if (!suppressedBy) {
       if (demand.customerIdentityStatus !== "resolved" || !demand.customerId) blockers.push("customer_identity_unresolved");
-      if (!demand.branchNameRaw || isNonTransactionBranchMarker(demand.branchNameRaw)) blockers.push("branch_unknown");
+      if (!isOperatingBranch(demand.branchNameRaw)) blockers.push("branch_unknown");
       if (!demand.resolvedProductId) blockers.push("product_identity_unresolved");
       if (demand.blockers.includes("quantity_conflict")) blockers.push("quantity_conflict");
     }
@@ -6807,7 +6807,7 @@ function deriveFollowUpOpportunities(input) {
     const times = evidence.map((id) => messageAt.get(id)).filter((t) => typeof t === "number");
     return times.length ? new Date(Math.min(...times)) : caseStartedAt;
   };
-  const transactionBranchUnknown = isNonTransactionBranchMarker(conversationCase.branchNameRaw);
+  const transactionBranchUnknown = Boolean(String(conversationCase.branchNameRaw ?? "").trim()) && !isOperatingBranch(conversationCase.branchNameRaw);
   const byKey = /* @__PURE__ */ new Map();
   for (const candidate of candidates) {
     const profile = PROFILE[candidate.reason];
@@ -10017,12 +10017,17 @@ function buildCanonicalCustomerRequestActionRows(analyses, sources) {
         skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: "missing_branch" });
         continue;
       }
-      if (isNonTransactionBranchMarker(branch)) {
+      if (!isOperatingBranch(branch)) {
         skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: "non_transaction_branch" });
         continue;
       }
       if (!staffId) {
         skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: "missing_staff_identity" });
+        continue;
+      }
+      const evidenceStaffIds = (analysis.caseIntelligence?.staff?.participants ?? []).map((participant) => uuidOrNull2(participant.staffId)).filter((id) => Boolean(id));
+      if (evidenceStaffIds.some((id) => id !== staffId)) {
+        skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: "staff_evidence_conflict" });
         continue;
       }
       if (!customerId || !productId) {
