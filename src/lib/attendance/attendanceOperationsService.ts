@@ -165,7 +165,7 @@ export async function listCrossBranchBiometricEvents(args: {
   branch?: string | null;
   limit?: number;
 }): Promise<Array<Record<string, unknown>>> {
-  const { data, error } = await supabase.rpc('list_cross_branch_biometric_events_v2', {
+  const { data, error } = await supabase.rpc('list_cross_branch_biometric_events_v3', {
     p_start: args.start,
     p_end: args.end,
     p_branch: args.branch || null,
