@@ -153,6 +153,7 @@ export default function AttendanceResolutionCenter({
   initialStaffId = null,
   initialCurrentCycle = false,
   embedded = false,
+  onDecisionSaved,
 }: {
   defaultBranch?: string;
   initialDate?: string | null;
@@ -160,6 +161,7 @@ export default function AttendanceResolutionCenter({
   initialStaffId?: string | null;
   initialCurrentCycle?: boolean;
   embedded?: boolean;
+  onDecisionSaved?: () => void;
 }) {
   const [start, setStart] = useState(() => initialCurrentCycle ? startOfMonth(cairoToday()) : initialDate || cairoDate(-7));
   const [end, setEnd] = useState(() => initialCurrentCycle ? cairoToday() : initialDate || cairoDate());
@@ -502,6 +504,7 @@ export default function AttendanceResolutionCenter({
         setHours('');
         setAnnualLeavePreview(null);
         await load();
+        onDecisionSaved?.();
       } catch (error) {
         const message = error instanceof Error ? error.message : 'تعذر اعتماد الإجازة السنوية';
         if (message.includes('annual_leave_not_configured') || message.includes('annual_leave_policy_not_configured') || message.includes('annual_leave_entitlement_not_configured')) {
@@ -535,6 +538,7 @@ export default function AttendanceResolutionCenter({
         setMultiplier('');
         setHours('');
         await load();
+        onDecisionSaved?.();
       } catch (error) {
         const message = error instanceof Error ? error.message : 'تعذر اعتماد الإجازة/الغياب';
         if (message.includes('overlapping_approved_full_day_timeoff') || message.includes('time_off_preflight_blocked')) {
@@ -577,6 +581,7 @@ export default function AttendanceResolutionCenter({
         setSwapWithDate('');
         setWeeklyOffSwapPreview(null);
         await load();
+        onDecisionSaved?.();
       } catch (error) {
         const message = error instanceof Error ? error.message : 'تعذر تغيير يوم الراحة';
         if (message.includes('target_must_be_existing_off_day')) {
@@ -640,6 +645,7 @@ export default function AttendanceResolutionCenter({
         setMissingPunchContext(null);
         setMissingPunchHistory([]);
         await load();
+        onDecisionSaved?.();
       } catch (error) {
         const message = error instanceof Error ? error.message : 'تعذر معالجة البصمة المفقودة';
         if (message.includes('missing_punch_allowance_not_exhausted')) {
