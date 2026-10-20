@@ -6,7 +6,7 @@
 // are supplied via `resolveInvoiceCandidates`, a caller-injected SYNCHRONOUS callback (see
 // invoiceCandidateRetrieval.ts for the actual read-only I/O boundary) so this module stays fully
 // pure and unit-testable, exactly like every engine it composes.
-import { parseWhatsAppExport, splitWhatsAppSessions } from '../whatsappConversationParser';
+import { extractIntroducedStaffName, parseWhatsAppExport, splitWhatsAppSessions } from '../whatsappConversationParser';
 import {
   buildConversationUnderstandingV32,
   type ConversationInteractionV32,
@@ -274,7 +274,8 @@ function analyzeOneCase(
   scopedMessages: NormalizedConversationMessageV32[],
   input: SalesIntelligencePipelineInput,
   interaction: ConversationInteractionV32 | null = null,
-  conversationTimeline: NormalizedConversationMessageV32[] = scopedMessages
+  conversationTimeline: NormalizedConversationMessageV32[] = scopedMessages,
+  sourceHasMultipleIntroducedStaff = false
 ): SalesIntelligenceCaseAnalysis {
   const pipelineWarnings: string[] = [];
   const caseStaffIdBySender = staffEvidenceForCase(input, scopedMessages);
@@ -288,13 +289,18 @@ function analyzeOneCase(
       .map((message) => input.staffIdByIntroductionMessageId?.[message.id])
       .filter((id): id is string => Boolean(id))
   );
+  // An introduction can be real but not exactly match the canonical directory (e.g.
+  // "مع حضرتك د شبل" vs "د محمد شبل"). Its absence from the resolved-ID map is NOT
+  // permission to fill this case with the source-wide default employee.
+  const caseHasNamedIntroduction = scopedMessages.some((message) => Boolean(extractIntroducedStaffName(message)));
+  const sourceStaffFallbackAllowed = !sourceHasMultipleIntroducedStaff && !caseHasNamedIntroduction;
   const caseKnownStaffIds = [
     ...new Set([
       ...(scopedIntroducedStaffIds.size === 1
         ? [...scopedIntroducedStaffIds]
-        : scopedIntroducedStaffIds.size > 1
-          ? [] // Multiple different introductions: do not infer a sole responsible employee.
-          : (input.knownStaffIds ?? [])),
+        : sourceStaffFallbackAllowed && scopedIntroducedStaffIds.size === 0
+          ? (input.knownStaffIds ?? [])
+          : []), // Multiple or unresolved introductions never inherit a different employee.
       ...Object.values(caseStaffIdBySender),
     ]),
   ];
@@ -963,8 +969,18 @@ export function deriveCasesOnly(input: DeriveSegmentedCasesInput): {
  */
 export function runSalesIntelligencePipeline(input: SalesIntelligencePipelineInput): SalesIntelligencePipelineResult {
   const segmented = deriveSegmentedCases(segmentationInputFromPipelineInput(input));
+  // A source with multiple named staff is not a single-employee conversation.
+  // Compute this once from the canonical timeline, using the same parser rule that
+  // produced the per-message introductions (no fuzzy surname-to-staff guesses).
+  const namedIntroductions = new Set(
+    (segmented.cases[0]?.conversationTimeline ?? [])
+      .map((message) => extractIntroducedStaffName(message))
+      .filter((name): name is string => Boolean(name))
+      .map((name) => name.trim().toLocaleLowerCase('ar'))
+  );
+  const sourceHasMultipleIntroducedStaff = namedIntroductions.size > 1;
   const caseAnalyses = segmented.cases.map(({ conversationCase, scopedMessages, conversationTimeline, interaction }) =>
-    analyzeOneCase(conversationCase, scopedMessages, input, interaction, conversationTimeline)
+    analyzeOneCase(conversationCase, scopedMessages, input, interaction, conversationTimeline, sourceHasMultipleIntroducedStaff)
   );
 
   return {
