@@ -7476,6 +7476,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
   const caseKnownStaffIds = [
     .../* @__PURE__ */ new Set([
       ...scopedIntroducedStaffIds.size === 1 ? [...scopedIntroducedStaffIds] : sourceStaffFallbackAllowed && scopedIntroducedStaffIds.size === 0 ? input.knownStaffIds ?? [] : [],
+      // Multiple or unresolved introductions never inherit a different employee.
       ...Object.values(caseStaffIdBySender)
     ])
   ];
@@ -7932,7 +7933,7 @@ function deriveCasesOnly(input) {
 }
 function runSalesIntelligencePipeline(input) {
   const segmented = deriveSegmentedCases(segmentationInputFromPipelineInput(input));
-  const namedIntroductions = /* @__PURE__ */ new Set(
+  const namedIntroductions = new Set(
     (segmented.cases[0]?.conversationTimeline ?? []).map((message) => extractIntroducedStaffName(message)).filter((name) => Boolean(name)).map((name) => name.trim().toLocaleLowerCase("ar"))
   );
   const sourceHasMultipleIntroducedStaff = namedIntroductions.size > 1;
