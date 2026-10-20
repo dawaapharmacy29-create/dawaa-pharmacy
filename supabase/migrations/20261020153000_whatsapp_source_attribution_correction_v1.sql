@@ -419,9 +419,12 @@ create policy whatsapp_review_source_hash_aliases_select_v1 on public.whatsapp_r
 -- No new source may claim a retired hash (any role). The advisory lock is shared with the
 -- correction command, so an upload racing an in-flight correction waits and then sees the alias.
 -- unique_violation lets existing ingest duplicate handling resolve the canonical source.
+-- SECURITY DEFINER: the guard must see every retired hash, not only those whose source the
+-- uploading employee may read under RLS; it reveals nothing but the refusal itself.
 create or replace function public.dawaa_guard_whatsapp_source_hash_v1()
 returns trigger
 language plpgsql
+security definer
 set search_path to 'public','pg_catalog'
 as $function$
 begin

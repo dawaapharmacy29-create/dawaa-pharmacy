@@ -283,6 +283,22 @@ describe('retired source hash registry', () => {
     expect(await t.errorOf(...t.correctCall({ raw: 'other text' }))).toContain('source_attribution_hash_conflict');
   });
 
+  it('refuses a retired hash even when the uploader cannot see the corrected source under RLS', async () => {
+    const t = await harness();
+    await t.sql(...t.correctCall());
+    // A branch-scoped uploader: the corrected source (فرع شكري) and therefore its alias are invisible.
+    await t.db.exec(`alter table whatsapp_review_sources enable row level security;
+      create policy branch_scope_select on whatsapp_review_sources for select to authenticated using (branch = 'فرع الشامي');
+      create policy branch_scope_insert on whatsapp_review_sources for insert to authenticated with check (true);
+      grant select, insert on whatsapp_review_sources to authenticated;
+      set role authenticated;`);
+    expect(await t.sql('select count(*)::int n from whatsapp_review_source_hash_aliases')).toEqual([{ n: 0 }]);
+    expect(await t.errorOf(`insert into whatsapp_review_sources(id,customer_name,branch,source_hash)
+      values (gen_random_uuid(),'synthetic','فرع الشامي','${OLD_HASH}')`)).toContain('source_hash_superseded_by_correction');
+    await t.db.exec('reset role;');
+    expect(await t.sql('select count(*)::int n from whatsapp_review_sources')).toEqual([{ n: 2 }]);
+  });
+
   it('is never writable by clients and survives the safe rollback', async () => {
     const t = await harness();
     await t.sql(...t.correctCall());
