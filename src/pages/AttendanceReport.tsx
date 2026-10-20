@@ -281,7 +281,12 @@ export default function AttendanceReport() {
     ? systemSubTabState : 'cross-branch';
   const reportSubTab: ReportSubTab = searchParams.get('section') === 'payroll-truth' ? 'payroll-truth' : 'overview';
   const [resolutionFocusDate, setResolutionFocusDate] = useState<string | null>(null);
-  const [resolutionFocusTriage, setResolutionFocusTriage] = useState<'all' | 'manager' | 'system'>(() => searchParams.get('triage') === 'system' ? 'system' : 'manager');
+  const [resolutionFocusTriage, setResolutionFocusTriage] = useState<'all' | 'manager' | 'system'>(() => searchParams.get('triage') === 'all' ? 'all' : searchParams.get('triage') === 'system' ? 'system' : 'manager');
+  // Deep link from a staff profile: the resolution inbox itself applies the
+  // exact employee filter and the current 26→25 payroll cycle date range.
+  const scopedReviewStaff = searchParams.get('review_period') === 'current-cycle'
+    ? searchParams.get('review_staff')
+    : null;
   const [clockSubView, setClockSubView] = useState<ClockSubView>(() => requestedAlias?.clockSub || 'clock');
   const [dailyDate, setDailyDate] = useState(cairoDate());
   const [branchFilter, setBranchFilter] = useState(() => (canAllBranches ? 'الكل' : normalizedUserBranch || 'الكل'));
@@ -613,7 +618,10 @@ export default function AttendanceReport() {
           {isOperationalManager && <TabsTrigger value="overtime" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-[var(--dawaa-theme-primary-text)] data-[state=active]:shadow-md"><Timer size={16} /> الأوفر تايم <TabBadge value={approvalsSummary?.pendingOvertime} /></TabsTrigger>}
           {canViewTimeOff && <TabsTrigger value="timeoff" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-[var(--dawaa-theme-primary-text)] data-[state=active]:shadow-md"><CalendarClock size={16} /> الأذونات والإجازات <TabBadge value={approvalsSummary?.pendingTimeOff} /></TabsTrigger>}
         </TabsList></Tabs>
-        {decisionSubTab === 'resolution' && isOperationalManager && <Suspense fallback={<TableSkeleton />}><AttendanceResolutionCenter defaultBranch={effectiveBranch} initialDate={resolutionFocusDate} initialTriage={resolutionFocusTriage} /></Suspense>}
+        {decisionSubTab === 'resolution' && isOperationalManager && <Suspense fallback={<TableSkeleton />}><AttendanceResolutionCenter defaultBranch={scopedReviewStaff ? 'الكل' : effectiveBranch}
+              initialDate={scopedReviewStaff ? null : resolutionFocusDate}
+              initialTriage={scopedReviewStaff ? 'all' : resolutionFocusTriage}
+              initialStaffId={scopedReviewStaff} initialCurrentCycle={!!scopedReviewStaff} /></Suspense>}
         {decisionSubTab === 'overtime' && isOperationalManager && <Suspense fallback={<TableSkeleton />}><OvertimeApprovalCenter defaultBranch={effectiveBranch === 'الكل' ? '' : effectiveBranch} /></Suspense>}
         {decisionSubTab === 'timeoff' && canViewTimeOff && <Suspense fallback={<TableSkeleton />}><TimeOffPanel /></Suspense>}
       </>}
