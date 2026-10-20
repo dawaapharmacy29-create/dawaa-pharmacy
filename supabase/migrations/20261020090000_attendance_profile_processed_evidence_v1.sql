@@ -24,6 +24,11 @@ DECLARE
   v_rejected integer;
   v_recent jsonb;
 BEGIN
+  -- The browser may use an anon transport role with a verified Dawaa staff
+  -- session. Granting EXECUTE must never grant access to unauthenticated calls.
+  IF public.dawaa_current_staff_account_id_strict() IS NULL THEN
+    RAISE EXCEPTION 'active staff session required' USING errcode='42501';
+  END IF;
   -- Fails closed on missing staff, inactive/unauthorized session and row scope.
   -- Never fetch staff_attendance_logs before the existing authorization check.
   v_profile := public.attendance_employee_profile_v1(p_staff_id,p_days);
