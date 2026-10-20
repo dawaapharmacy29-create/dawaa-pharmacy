@@ -30,7 +30,8 @@ export async function buildPaidStatementPdf(staffId: string, monthCycle: string)
   host.style.cssText='position:fixed;left:-10000px;top:0;width:794px';
   host.dir='rtl';
   host.lang='ar';
-  host.innerHTML=`<main style="width:794px;box-sizing:border-box;padding:36px;background:#fff;color:#182936;font-family:Tahoma,Arial,sans-serif;direction:rtl">
+  host.style.fontFamily = getComputedStyle(document.body).fontFamily;
+  host.innerHTML=`<main style="width:794px;box-sizing:border-box;padding:36px;background:#fff;color:#182936;font-family:inherit;direction:rtl">
     <header style="border-bottom:3px solid #087e79;padding-bottom:14px"><div style="font-size:23px;font-weight:800">صيدليات دواء · كشف راتب مدفوع</div>
     <div style="font-size:12px;margin-top:6px">دورة ${escape(data.cycle_start)} إلى ${escape(data.cycle_end)} · ${escape(data.month_cycle)}</div></header>
     <div style="display:flex;justify-content:space-between;margin:18px 0;font-size:13px"><div><b>الموظف:</b> ${escape(data.staff_name)}<br/><b>الفرع:</b> ${escape(data.branch)}</div>
