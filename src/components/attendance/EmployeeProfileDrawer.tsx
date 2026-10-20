@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
 import { buildEmployeeAttendanceProfilePdf } from '@/lib/attendance/employeeProfilePdf';
 import { toast } from 'sonner';
+import { formatEmployeeProfileClock as formatTime } from '@/lib/attendance/profileTime';
 
 type Profile = {
   staff: { id: string; name: string; role: string | null; branch: string | null; active: boolean };
@@ -17,14 +18,17 @@ type Profile = {
     attendance_date: string; status: string; resolution_status: string; first_in: string | null;
     last_out: string | null; late_minutes: number; early_leave_minutes: number; payroll_eligible_hours: number | null;
   }[];
+  processed_evidence: {
+    source: 'staff_attendance_logs';
+    from: string; to: string;
+    total_punches: number; accepted_punches: number; accepted_days: number;
+    complete_pair_days: number; manual_review_punches: number; rejected_punches: number;
+    recent_days: {
+      shift_date: string; accepted_punches: number; review_punches: number; rejected_punches: number;
+      first_in: string | null; last_out: string | null; punch_branches: string[];
+    }[];
+  };
 };
-
-function formatTime(value?: string | null) {
-  if (!value) return '-';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '-';
-  return d.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Cairo' });
-}
 
 const STATUS_LABEL: Record<string, string> = {
   on_time: 'في الموعد', late: 'متأخر', very_late: 'متأخر جدًا', absence_review: 'غياب',
@@ -40,15 +44,16 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
 
   useEffect(() => {
     let cancelled = false;
+    setProfile(null);
     setLoading(true);
     setError(null);
     (async () => {
       try {
-        const { data, error: rpcError } = await supabase.rpc('attendance_employee_profile_v1', { p_staff_id: staffId, p_days: 30 });
+        const { data, error: rpcError } = await supabase.rpc('attendance_employee_profile_evidence_v1', { p_staff_id: staffId, p_days: 30 });
         if (rpcError) throw rpcError;
         if (!cancelled) setProfile(data as Profile);
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'تعذر تحميل بيانات الموظف');
+        if (!cancelled) { setProfile(null); setError(e instanceof Error ? e.message : 'تعذر تحميل بيانات الموظف'); }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -67,6 +72,7 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
         weeklySchedule: profile.weekly_schedule,
         rates: profile.rates,
         recentDays: profile.recent_days,
+        processedEvidence: profile.processed_evidence,
       });
       pdf.save(fileName);
     } catch (e) {
@@ -91,6 +97,11 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
         {loading && <div className="space-y-3">{[0, 1, 2].map((i) => <div key={i} className="h-16 animate-pulse rounded-xl bg-[var(--dawaa-theme-surface-2)]" />)}</div>}
 
         {profile && !loading && <div className="space-y-5">
+          {profile.rates.evaluated_days === 0 && profile.processed_evidence.accepted_punches > 0 && (
+            <div role="status" className="rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-3 text-xs font-bold text-[var(--dawaa-theme-heading)]">
+              توجد {profile.processed_evidence.accepted_punches} بصمة مقبولة في سجل الأجهزة عبر {profile.processed_evidence.accepted_days} يوم، لكن ملخص تقييم الحضور غير متاح لهذه الفترة. لا تُفسَّر النسب الخالية كتأخير صفر أو انتظام مثبت، ولا تُعتمد الساعات للمرتب من البصمات وحدها.
+            </div>
+          )}
           <div className="flex flex-wrap gap-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">
             <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-1">{profile.staff.role || '-'}</span>
             <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-1">{profile.staff.branch || '-'}</span>
@@ -100,9 +111,9 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
           <section>
             <div className="mb-2 flex items-center gap-1.5 font-black text-[var(--dawaa-theme-heading)]"><TrendingUp size={16} /> معدلات آخر 30 يوم</div>
             <div className="grid grid-cols-3 gap-2">
-              <RateBox label="تأخير" value={`${profile.rates.late_rate_pct}%`} sub={`${profile.rates.late_days + profile.rates.very_late_days} يوم`} />
-              <RateBox label="إذن/إجازة" value={`${profile.rates.permission_rate_pct}%`} sub={`${profile.rates.permission_days} يوم`} />
-              <RateBox label="مراجعة معلقة" value={String(profile.rates.pending_review_days)} sub="يوم" />
+              <RateBox label="تأخير" value={profile.rates.evaluated_days > 0 ? `${profile.rates.late_rate_pct}%` : '—'} sub={profile.rates.evaluated_days > 0 ? `${profile.rates.late_days + profile.rates.very_late_days} يوم` : 'لا توجد أيام مقيّمة'} />
+              <RateBox label="إذن/إجازة" value={profile.rates.evaluated_days > 0 ? `${profile.rates.permission_rate_pct}%` : '—'} sub={profile.rates.evaluated_days > 0 ? `${profile.rates.permission_days} يوم` : 'لا توجد أيام مقيّمة'} />
+              <RateBox label="مراجعة معلقة" value={profile.rates.evaluated_days > 0 ? String(profile.rates.pending_review_days) : '—'} sub={profile.rates.evaluated_days > 0 ? 'يوم' : 'لا يوجد ملخص حضور'} />
             </div>
           </section>
 
@@ -126,7 +137,36 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
                 <span className="font-black text-[var(--dawaa-theme-heading)]">{d.payroll_eligible_hours != null ? `${d.payroll_eligible_hours} س` : '-'}</span>
                 <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-black', d.resolution_status === 'late' || d.resolution_status === 'very_late' ? 'text-[var(--dawaa-status-warning-text)]' : d.resolution_status === 'absence_review' ? 'text-[var(--dawaa-status-danger-text)]' : 'text-[var(--dawaa-status-success-text)]')}>{STATUS_LABEL[d.resolution_status] || d.resolution_status}</span>
               </div>)}
-              {!profile.recent_days.length && <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">لا توجد بيانات حضور مسجلة.</div>}
+              {!profile.recent_days.length && <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">لا يوجد ملخص حضور معتمد أو قيد المراجعة لهذه الفترة؛ راجع سجل البصمات المنفصل أدناه.</div>}
+            </div>
+          </section>
+          <section>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2 font-black text-[var(--dawaa-theme-heading)]">
+              <span className="flex items-center gap-1.5"><Clock3 size={16} /> سجل البصمات المُعالجة — دليل مستقل</span>
+              <span className="text-xs font-bold text-[var(--dawaa-theme-muted)]">آخر {profile.processed_evidence.to} · {profile.processed_evidence.from} ←</span>
+            </div>
+            <p className="mb-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">
+              {profile.processed_evidence.accepted_punches} بصمة مقبولة · {profile.processed_evidence.accepted_days} يوم به بصمات ·
+              {profile.processed_evidence.complete_pair_days} يوم دخول وخروج ·
+              {profile.processed_evidence.manual_review_punches} بصمة تحت الفحص.
+              القبول هنا يخص سجل الجهاز، وليس اعتماد الحضور أو ساعات المرتب.
+            </p>
+            <div className="max-h-72 space-y-1.5 overflow-y-auto">
+              {profile.processed_evidence.recent_days.map((d) => (
+                <div key={d.shift_date} className="rounded-lg border border-[var(--dawaa-theme-border)] p-2 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-black">{d.shift_date}</span>
+                    <span>{formatTime(d.first_in)} ← {formatTime(d.last_out)}</span>
+                    <span className="font-bold">{d.accepted_punches} مقبولة</span>
+                  </div>
+                  <div className="mt-1 text-[11px] text-[var(--dawaa-theme-muted)]">
+                    {d.punch_branches.join('، ') || 'فرع الجهاز غير محدد'}
+                    {d.review_punches > 0 ? ` · ${d.review_punches} تحتاج مراجعة` : ''}
+                    {d.accepted_punches > 0 && (!d.first_in || !d.last_out) ? ' · البصمات لا تكوّن زوج دخول/خروج كاملًا' : ''}
+                  </div>
+                </div>
+              ))}
+              {!profile.processed_evidence.recent_days.length && <p className="text-xs font-bold text-[var(--dawaa-theme-muted)]">لا توجد بصمات مُعالجة في نطاق الثلاثين يومًا.</p>}
             </div>
           </section>
         </div>}
