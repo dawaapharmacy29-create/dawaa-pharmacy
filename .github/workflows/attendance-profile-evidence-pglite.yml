@@ -1,0 +1,32 @@
+name: Attendance Profile Processed Evidence SQL
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/20261020090000_attendance_profile_processed_evidence_v1.sql'
+      - 'scripts/staging/test-attendance-profile-evidence-pglite.mjs'
+      - '.github/workflows/attendance-profile-evidence-pglite.yml'
+      - 'src/components/attendance/EmployeeProfileDrawer.tsx'
+      - 'src/lib/attendance/profileTime.ts'
+      - 'src/lib/attendance/employeeProfilePdf.ts'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-profile-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DAWAA_DEPLOY_ENV: local
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Replay SQL and assert per-person staff-session guards
+        run: node scripts/staging/test-attendance-profile-evidence-pglite.mjs
