@@ -117,6 +117,13 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
       : 'financially_settled'
     : null;
 
+  // V39: a nursing/service interaction requires a human service check, never an
+  // automatically generated SALES recovery, callback, or customer-no-response task.
+  // Existing operational actions are not mutated here.
+  if (conversationCase.caseType === 'follow_up') {
+    return { caseId, decision: 'review_required', opportunities: [], notNeededReason: null };
+  }
+
   // Information-only/no-need interactions genuinely have nothing to follow up. An invoice-backed
   // closed order is different: the order may be closed while a product-specific shortage, callback,
   // stock check or explicit staff promise remains an outstanding obligation.
