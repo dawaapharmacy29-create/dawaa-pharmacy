@@ -278,8 +278,25 @@ function analyzeOneCase(
 ): SalesIntelligenceCaseAnalysis {
   const pipelineWarnings: string[] = [];
   const caseStaffIdBySender = staffEvidenceForCase(input, scopedMessages);
+  // One exported source may contain multiple employees (customer service, then a
+  // pharmacist). An exact outbound introduction inside THIS case outranks the
+  // source-wide staff hint; otherwise the earlier employee can be incorrectly
+  // credited to the invoice seller or source's default staff member.
+  const scopedIntroducedStaffIds = new Set(
+    scopedMessages
+      .filter((message) => message.direction === 'outbound')
+      .map((message) => input.staffIdByIntroductionMessageId?.[message.id])
+      .filter((id): id is string => Boolean(id))
+  );
   const caseKnownStaffIds = [
-    ...new Set([...(input.knownStaffIds ?? []), ...Object.values(caseStaffIdBySender)]),
+    ...new Set([
+      ...(scopedIntroducedStaffIds.size === 1
+        ? [...scopedIntroducedStaffIds]
+        : scopedIntroducedStaffIds.size > 1
+          ? [] // Multiple different introductions: do not infer a sole responsible employee.
+          : (input.knownStaffIds ?? [])),
+      ...Object.values(caseStaffIdBySender),
+    ]),
   ];
 
   const {
