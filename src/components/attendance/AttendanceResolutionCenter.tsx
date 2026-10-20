@@ -121,6 +121,7 @@ const PUNCH_DECISIONS: Decision[] = [
   { id: 'custom', label: 'سبب آخر (اكتب التفاصيل)' },
 ];
 const TIME_DECISIONS: Decision[] = [
+  { id: 'approve_actual', label: 'اعتماد ساعات العمل الفعلية كما ثبتت بالبصمة، دون خصم أو إذن' },
   { id: 'permission', label: 'تأخير أو انصراف مبكر بإذن', requestKind: 'permission' },
   { id: 'time_deduction', label: 'تأخير أو انصراف مبكر مع إحالة الخصم للمراجعة المالية', financial: true },
   { id: 'shift_swap', label: 'تغيير موعد الشيفت المعتمد', requestKind: 'shift_swap', schedule: true },
@@ -139,12 +140,17 @@ function primaryDecisionIds(row: AttendanceExceptionRow): string[] {
   if (row.issue_group === 'missing_punch') return ['forgot_in', 'forgot_out', 'device_fault'];
   if (row.issue_group === 'early_leave' || row.resolution_status === 'early_leave_review'
     || row.resolution_status === 'late' || row.resolution_status === 'very_late') {
-    return ['permission', 'time_deduction', 'custom'];
+    return row.first_in && row.last_out && row.candidate_hours != null
+      ? ['approve_actual', 'permission', 'time_deduction']
+      : ['permission', 'time_deduction', 'custom'];
   }
-  return ['permission', 'schedule_error', 'custom'];
+  return row.first_in && row.last_out && row.candidate_hours != null
+    ? ['approve_actual', 'permission', 'custom']
+    : ['permission', 'schedule_error', 'custom'];
 }
 
 const COMPACT_DECISION_LABELS: Record<string, string> = {
+  approve_actual: 'اعتماد الفعلي',
   annual_leave: 'إجازة سنوية',
   sick_leave: 'إجازة مرضية',
   exceptional_leave: 'إجازة عارضة',
@@ -507,6 +513,12 @@ export default function AttendanceResolutionCenter({
     const decision = decisionsFor(selected).find((item) => item.id === reason);
     if (!decision || (['custom', 'outside_work'].includes(decision.id) && !note.trim())) {
       toast.warning('اختر نوع القرار، واكتب التفاصيل فقط عند إثبات عمل خارج الفرع أو اختيار سبب آخر.');
+      return;
+    }
+    if (decision.id === 'approve_actual' && (
+      selected.candidate_hours == null || !selected.first_in || !selected.last_out
+    )) {
+      toast.error('لا يمكن اعتماد الفعلي قبل وجود دخول وخروج وساعات مرشحة. راجع الأدلة أولًا.');
       return;
     }
     if (decision.id === 'annual_leave') {
@@ -1476,12 +1488,17 @@ export default function AttendanceResolutionCenter({
                         <div>يوم الغياب الحالي <b>{selected.attendance_date}</b> سيتحول إلى يوم راحة.</div>
                         <label className="mt-2 block">
                           اختر يوم الراحة الأصلي الذي سيصبح يوم عمل
-                          <select value={swapWithDate} onChange={(e) => setSwapWithDate(e.target.value)} className="input-dark mt-1 w-full">
-                            <option value="">اختر يوم الراحة</option>
-                            {weeklyOffSwapPreview.off_day_candidates.map((item) => (
-                              <option key={item.date} value={item.date}>{item.day_name} — {item.date}</option>
-                            ))}
-                          </select>
+                          <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="اختيار يوم الراحة">
+                             {weeklyOffSwapPreview.off_day_candidates.map((item) => (
+                               <button key={item.date} type="button" aria-pressed={swapWithDate === item.date}
+                                 onClick={() => setSwapWithDate(item.date)}
+                                 className={swapWithDate === item.date
+                                   ? 'rounded-xl border border-[var(--dawaa-theme-primary)] bg-[var(--dawaa-theme-primary-soft)] px-3 py-2 text-xs font-black text-[var(--dawaa-theme-primary-strong)]'
+                                   : 'rounded-xl border border-[var(--dawaa-theme-border)] px-3 py-2 text-xs font-black text-[var(--dawaa-theme-heading)]'}>
+                                 {item.day_name} · {item.date}
+                               </button>
+                             ))}
+                           </div>
                         </label>
                         {swapWithDate && <div className="mt-2 font-normal">سيتم نقل نفس مواعيد شيفت {selected.attendance_date} إلى يوم الراحة المختار، مع تسجيل Date Override لليومين وتحديث الحضور تلقائيًا.</div>}
                       </> : 'لم أجد يوم راحة معتمدًا آخر داخل نفس الأسبوع يمكن التبديل معه.'
@@ -1507,7 +1524,13 @@ export default function AttendanceResolutionCenter({
                 </div>}
                 {decision?.schedule && !(decision.id === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')) && <p className="mt-3 text-xs font-bold text-[var(--dawaa-status-warning-text)]">راجع تغيير الراحة أو الشيفت في الجدول ثم حدّث حقيقة الحضور؛ لا يُعتمد من هذه الشاشة مباشرة.</p>}
                 {decision?.financial && <label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">معامل الخصم المقترح للمراجعة المالية
-                  <select value={multiplier} onChange={(e) => setMultiplier(e.target.value)} className="input-dark mt-1 w-full"><option value="">اختر المعامل</option><option value="1">×1</option><option value="2">×2</option><option value="4">×4</option></select>
+                  <div role="group" aria-label="معامل الخصم المقترح" className="mt-2 flex flex-wrap gap-2">
+                     {(['1','2','4'] as const).map((value) => <button key={value}
+                       type="button" aria-pressed={multiplier === value} onClick={() => setMultiplier(value)}
+                       className={multiplier === value
+                         ? 'rounded-xl border border-[var(--dawaa-theme-primary)] bg-[var(--dawaa-theme-primary-soft)] px-4 py-2 font-black text-[var(--dawaa-theme-primary-strong)]'
+                         : 'rounded-xl border border-[var(--dawaa-theme-border)] px-4 py-2 font-black text-[var(--dawaa-theme-heading)]'}>×{value}</button>)}
+                   </div>
                   <span className="mt-1 block font-normal">الغياب: المعامل المقترح لليوم. التأخير: المعامل المقترح لمدة التأخير. اختيار «إجازة بخصم» هنا لا ينشئ طلب إجازة؛ سجّلها في الإجازات والغياب إن كانت إجازة رسمية. لا يُحسب مبلغ ولا يُسجل خصم تلقائيًا؛ راجعه في الجزاءات والرواتب.</span>
                 </label>}
               </>;
