@@ -707,6 +707,7 @@ export default function AttendanceResolutionCenter({
       setMultiplier('');
       setHours('');
       await load();
+      onDecisionSaved?.();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'تعذر اعتماد قرار الحضور');
     } finally {
