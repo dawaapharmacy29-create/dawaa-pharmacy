@@ -4,6 +4,14 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 import { visualizer } from 'rollup-plugin-visualizer';
 
+// Visual-review deployments have no Supabase connection. These values are
+// overridden before Vite resolves client env; branch-scoped demo never loads live data.
+// Normal Production/Preview builds are unchanged unless explicit demo flag is set.
+if (process.env.VITE_DAWAA_ATTENDANCE_DRAWER_DEMO === '1' && process.env.VERCEL_ENV === 'preview') {
+  process.env.VITE_SUPABASE_URL = '';
+  process.env.VITE_SUPABASE_ANON_KEY = '';
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 let isViteDevServer = false;
