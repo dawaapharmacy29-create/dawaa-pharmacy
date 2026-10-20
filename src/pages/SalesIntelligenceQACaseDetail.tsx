@@ -437,6 +437,10 @@ export default function SalesIntelligenceQACaseDetail() {
           status: trustedInvoiceId ? 'trusted' : candidateInvoiceId ? 'candidate' : 'none',
           linkMethod: invoiceLinkMethod,
           invoiceNumber: candidateInvoiceNumber,
+          invoiceCustomerName: candidateInvoice?.customerName ?? null,
+          invoiceCustomerCode: candidateInvoice?.customerCode ?? null,
+          invoiceBranch: candidateInvoice?.branch ?? null,
+          invoiceSellerName: candidateInvoice?.staffName ?? null,
           // Read-only candidate lines stay visible as invoice evidence. The workspace
           // decides whether they are trusted; they must never fill chat/media needs.
           items: candidateInvoiceId
