@@ -45,7 +45,7 @@ function deliveryPageHtml(statement: Awaited<ReturnType<typeof buildLegacyEmploy
     return '<div style="padding:5px 0;border-bottom:1px solid #f0e1b8">• ' + esc(row.label || row.code || 'مراجعة مطلوبة') + '</div>';
   }).join('');
 
-  return '<section class="delivery-statement-page" style="width:794px;min-height:1123px;box-sizing:border-box;padding:30px 34px 46px;background:#fff;color:#102235;font-family:Tahoma,Arial,sans-serif;direction:rtl">' +
+  return '<section class="delivery-statement-page" style="width:794px;min-height:1123px;box-sizing:border-box;padding:30px 34px 46px;background:#fff;color:#102235;font-family:inherit;direction:rtl">' +
     '<header style="display:flex;justify-content:space-between;gap:18px;border-bottom:3px solid #0b8c86;padding-bottom:10px;margin-bottom:16px">' +
       '<div><div style="font-size:20px;font-weight:900">تفاصيل راتب الدليفري</div><div style="font-size:9px;color:#687983;margin-top:3px">' + esc(statement.staff.name) + ' · ' + esc(statement.cycle.start) + ' → ' + esc(statement.cycle.end) + '</div></div>' +
       '<div style="font-size:9px;color:#687983;text-align:left"><b style="font-size:11px;color:#102235">صيدليات دواء</b><br/>كشف راتب الدليفري</div>' +
@@ -95,6 +95,7 @@ export async function buildEmployeePayrollStatementPdf(
   host.style.cssText = 'position:fixed;left:-12000px;top:0;width:794px;background:#fff';
   host.dir = 'rtl';
   host.lang = 'ar';
+  host.style.fontFamily = getComputedStyle(document.body).fontFamily;
   host.innerHTML = deliveryPageHtml(result.statement);
   document.body.appendChild(host);
 
