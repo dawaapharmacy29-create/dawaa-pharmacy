@@ -68,10 +68,12 @@
 // v38: a doctor-proposed strength the customer affirms ("تركيز 550 صح؟" / "مطبووط") qualifies the one
 // item the catalog proves; satisfaction answers and blessings are not requests; "اه إنشاء الله" is an
 // answer that keeps its interaction; "فورت" narrows a seeded brand to its FORTE SKUs.
-export const PIPELINE_VERSION = 'sales-intelligence-v38-confirmed-strength-courtesy';
+// v39: review nursing visits and bounded service chases as non-commercial follow-ups.
+// This is a semantic version bump only; no source is reprocessed without an explicit refresh.
+export const PIPELINE_VERSION = 'sales-intelligence-v39-nursing-service-review';
 
 export const ENGINE_VERSIONS = {
-  caseSegmentation: 'case-segmentation-v10-payment-continuation-ambiguity-safe',
+  caseSegmentation: 'case-segmentation-v11-nursing-service-review',
   historicalClosure: 'historical-closure-v1',
   commercialConfirmation: 'commercial-confirmation-v6-compact-total-interstitial-ack-safe',
   protocolApplicability: 'protocol-applicability-v1',
