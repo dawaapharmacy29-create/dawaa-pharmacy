@@ -437,9 +437,11 @@ export default function SalesIntelligenceQACaseDetail() {
           status: trustedInvoiceId ? 'trusted' : candidateInvoiceId ? 'candidate' : 'none',
           linkMethod: invoiceLinkMethod,
           invoiceNumber: candidateInvoiceNumber,
-          items: trustedInvoiceId
+          // Read-only candidate lines stay visible as invoice evidence. The workspace
+          // decides whether they are trusted; they must never fill chat/media needs.
+          items: candidateInvoiceId
             ? invoiceItemFacts
-                .filter((item) => item.invoiceId === trustedInvoiceId)
+                .filter((item) => item.invoiceId === candidateInvoiceId)
                 .map((item) => ({
                   id: item.id,
                   productName: item.productName,
