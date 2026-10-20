@@ -119,7 +119,9 @@ export function deriveCaseOperationalDisposition(input: DeriveOperationalDisposi
   const { lostOpportunity, followUp, journeyState } = input;
   const opportunity = pickOpportunity(followUp.opportunities);
   const lostBucket =
-    (lostOpportunity.state === 'open' || lostOpportunity.state === 'recoverable') && lostOpportunity.waitingOn
+    followUp.decision === 'review_required' && lostOpportunity.state === 'no_commercial_opportunity'
+      ? null
+      : (lostOpportunity.state === 'open' || lostOpportunity.state === 'recoverable') && lostOpportunity.waitingOn
       ? LOST_WAITING_BUCKET[lostOpportunity.waitingOn]
       : journeyState.currentState === 'awaiting_invoice'
         ? 'invoice'
