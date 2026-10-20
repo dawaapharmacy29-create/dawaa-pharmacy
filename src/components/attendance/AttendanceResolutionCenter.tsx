@@ -25,6 +25,9 @@ import {
   approveAttendanceFullDayTimeOffV1,
   getAnnualLeaveAttendancePreviewV1,
   listStaffTimeOffRequests,
+  createStaffTimeOffRequest,
+  decideStaffTimeOffRequest,
+  getTimeOffRequestPreflightV3,
   resolveAnnualLeaveFromAttendanceV1,
   type AnnualLeaveAttendancePreviewV1,
   type StaffTimeOffRequest,
@@ -125,6 +128,40 @@ const TIME_DECISIONS: Decision[] = [
   { id: 'custom', label: 'سبب آخر (اكتب التفاصيل)' },
 ];
 
+// Keep the decision surface short and case-specific. All underlying choices remain
+// accessible behind "خيارات أخرى", with the existing audited backend permissions.
+function primaryDecisionIds(row: AttendanceExceptionRow): string[] {
+  if (row.issue_group === 'absence' || row.resolution_status === 'absence_review') {
+    return ['annual_leave', 'sick_leave', 'approved_absence'];
+  }
+  if (row.resolution_status === 'missing_checkin') return ['forgot_in', 'device_fault', 'cross_branch'];
+  if (row.resolution_status === 'missing_checkout') return ['forgot_out', 'device_fault', 'cross_branch'];
+  if (row.issue_group === 'missing_punch') return ['forgot_in', 'forgot_out', 'device_fault'];
+  if (row.issue_group === 'early_leave' || row.resolution_status === 'early_leave_review'
+    || row.resolution_status === 'late' || row.resolution_status === 'very_late') {
+    return ['permission', 'time_deduction', 'schedule_error'];
+  }
+  return ['permission', 'schedule_error', 'custom'];
+}
+
+const COMPACT_DECISION_LABELS: Record<string, string> = {
+  annual_leave: 'إجازة سنوية',
+  sick_leave: 'إجازة مرضية',
+  exceptional_leave: 'إجازة عارضة',
+  approved_absence: 'غياب بإذن',
+  absence_deduction: 'اقتراح خصم',
+  forgot_in: 'نسيان دخول',
+  forgot_out: 'نسيان خروج',
+  device_fault: 'عطل جهاز',
+  cross_branch: 'بصمة فرع آخر',
+  permission: 'إذن',
+  time_deduction: 'اقتراح خصم',
+  schedule_error: 'تصحيح جدول',
+  shift_swap: 'تبديل راحة',
+  outside_work: 'مأمورية',
+  custom: 'سبب آخر',
+};
+
 const BULK_SAFE_DECISION_IDS = new Set([
   'annual_leave',
   'sick_leave',
@@ -174,6 +211,8 @@ export default function AttendanceResolutionCenter({
   const [profileStaffId, setProfileStaffId] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [reason, setReason] = useState('');
+  const [showMoreDecisions, setShowMoreDecisions] = useState(false);
+  const [permissionMinutes, setPermissionMinutes] = useState('');
   const [multiplier, setMultiplier] = useState('');
   const [approvedRequests, setApprovedRequests] = useState<StaffTimeOffRequest[]>([]);
   const [requestsLoading, setRequestsLoading] = useState(false);
@@ -1154,13 +1193,39 @@ export default function AttendanceResolutionCenter({
                 هذا اعتماد لحقيقة الحضور، وليس خصمًا ماليًا تلقائيًا.
               </div>
 
-              <label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">
-                نوع القرار
-                <select value={reason} onChange={(e) => setReason(e.target.value)} className="input-dark mt-1 w-full">
-                  <option value="">اختر القرار بعد مراجعة الحالة</option>
-                  {decisionsFor(selected).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-                </select>
-              </label>
+              <section aria-label="القرارات السريعة" className="mt-3 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs font-black text-[var(--dawaa-theme-heading)]">اختر القرار المناسب</div>
+                  <span className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">قرار موثق من نفس النافذة</span>
+                </div>
+                {selected.queue_lane === 'manager' ? (() => {
+                  const all = decisionsFor(selected);
+                  const featured = primaryDecisionIds(selected);
+                  const mainDecisions = featured.map((id) => all.find((option) => option.id === id))
+                    .filter((option): option is Decision => !!option);
+                  const moreDecisions = all.filter((item) => !mainDecisions.some((choice) => choice.id === item.id));
+                  const visibleDecisions = [...mainDecisions,
+                    ...(showMoreDecisions ? moreDecisions : moreDecisions.filter((item) => item.id === reason))];
+                  return <>
+                    <div className="flex flex-wrap gap-2" role="group" aria-label="اختيارات القرار">
+                      {visibleDecisions.map((item) => <button
+                        key={item.id} type="button" aria-pressed={reason === item.id}
+                        onClick={() => { setReason(item.id); setMultiplier(''); setApplyMissingPunchPenalty(false); }}
+                        className={`rounded-xl border px-3 py-2 text-xs font-black transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${reason === item.id
+                          ? 'border-[var(--dawaa-theme-primary)] bg-[var(--dawaa-theme-primary-soft)] text-[var(--dawaa-theme-primary-strong)]'
+                          : 'border-[var(--dawaa-theme-border)] text-[var(--dawaa-theme-heading)] hover:bg-[var(--dawaa-theme-surface-2)]'}`}
+                      >{COMPACT_DECISION_LABELS[item.id] || item.label}</button>)}
+                    </div>
+                    {!!moreDecisions.length && <button type="button" aria-expanded={showMoreDecisions}
+                      onClick={() => setShowMoreDecisions((v) => !v)}
+                      className="text-[11px] font-black text-[var(--dawaa-theme-primary-strong)] underline underline-offset-4">
+                      {showMoreDecisions ? 'إخفاء الخيارات الإضافية' : `خيارات أخرى (${moreDecisions.length})`}
+                    </button>}
+                  </>;
+                })() : <p className="rounded-lg border border-[var(--dawaa-status-info-border)] p-3 text-xs font-bold text-[var(--dawaa-status-info-text)]">
+                  هذه مشكلة نظام؛ لا يصح إصدار قرار حضور على الموظف قبل إصلاح السبب.
+                </p>}
+              </section>
 
               <button
                 type="button"
@@ -1347,7 +1412,7 @@ export default function AttendanceResolutionCenter({
             <div className="sticky bottom-0 flex gap-2 border-t border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-4">
               <button
                 onClick={() => void approveSelected()}
-                disabled={selected.queue_lane !== 'manager' || approving || (reason === 'annual_leave' && annualLeavePreviewLoading) || (reason === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review') && weeklyOffSwapLoading)}
+                disabled={!reason || selected.queue_lane !== 'manager' || approving || (reason === 'annual_leave' && annualLeavePreviewLoading) || (reason === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review') && weeklyOffSwapLoading)}
                 className="btn-primary flex-1"
               >
                 {selected.queue_lane !== 'manager'
@@ -1362,7 +1427,7 @@ export default function AttendanceResolutionCenter({
                         ? applyMissingPunchPenalty ? 'تسجيل البصمة اليدوية + خصم 50ج' : 'تسجيل البصمة اليدوية'
                         : decisionsFor(selected).find((item) => item.id === reason)?.financial
                           ? 'اعتماد الحضور وتوثيق اقتراح الخصم'
-                          : 'اعتماد موثق'}
+                          : reason ? 'اعتماد القرار الآن' : 'اختر قرارًا أولًا'}
               </button>
               <button onClick={() => { setSelected(null); setNote(''); setReason(''); setMultiplier(''); setHours(''); setSwapWithDate(''); setWeeklyOffSwapPreview(null); setManualPunchAt(''); setApplyMissingPunchPenalty(false); setMissingPunchContext(null); setMissingPunchHistory([]); setShowDecisionEvidence(false); }} className="btn-secondary">إلغاء</button>
             </div>
