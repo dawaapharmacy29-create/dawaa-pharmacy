@@ -37,14 +37,14 @@ try {
       staff_account_id uuid, token_hash text, expires_at timestamptz, revoked_at timestamptz
     );
     create function public.dawaa_session_account_id_v1()
-      returns uuid language sql stable security definer as $
+      returns uuid language sql stable security definer as $$
       select s.staff_account_id from public.staff_login_sessions s
       where s.token_hash = (current_setting('request.headers',true)::jsonb ->> 'x-dawaa-session-token')
         and s.revoked_at is null and s.expires_at > now()
-      limit 1 $;
+      limit 1 $$;
     create function public.dawaa_current_staff_account_id_strict()
-      returns uuid language sql stable security definer as $
-      select public.dawaa_session_account_id_v1() $;
+      returns uuid language sql stable security definer as $$
+      select public.dawaa_session_account_id_v1() $$;
     create function public.dawaa_can_read_staff_attendance_log(uuid,text)
       returns boolean language sql stable as $$select true$$;
     create function public.dawaa_fingerprint_effective_time_v1(text,jsonb,timestamptz)
