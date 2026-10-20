@@ -8,17 +8,22 @@ const header = readFileSync(resolve(process.cwd(),
   'src/components/layout/Header.tsx'), 'utf8');
 
 describe('employee attendance profile drawer layout', () => {
-  it('uses a document portal and starts below the 56px global header', () => {
+  it('uses a centered document portal below the 56px global header', () => {
     expect(header).toContain('sticky top-0 z-[220]');
     expect(header).toContain('h-14');
     expect(component).toContain("import { createPortal } from 'react-dom'");
     expect(component).toContain('return createPortal(');
     expect(component).toContain('document.body');
     expect(component).toContain('top-14 z-[240]');
+    expect(component).toContain('items-center justify-center');
+    expect(component).toContain('max-w-[1060px]');
+    expect(component).toContain('max-h-full');
+    expect(component).toContain('onClick={onClose}');
+    expect(component).toContain('onClick={(e) => e.stopPropagation()}');
     expect(component).not.toContain('fixed inset-0 z-50 flex justify-end');
   });
   it('pins complete staff identity and actions while scroll stays inside the body', () => {
-    expect(component).toContain('max-w-[640px]');
+    expect(component).toContain('max-w-[1060px]');
     expect(component).toContain('shrink-0 items-start');
     expect(component).toContain('break-words text-lg');
     expect(component).toContain('min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain');
@@ -38,6 +43,10 @@ describe('employee attendance profile drawer layout', () => {
     expect(component).toContain('آخر أيام الحضور');
     expect(component).toContain('ساعات المرتب المحفوظة');
     expect(component).toContain('دليل البصمات');
+    expect(component).toContain('onClick={openCurrentCycleReview}');
+    expect(component).toContain("review_period=current-cycle&review_staff=");
+    expect(component).toContain("tab=resolution&triage=all");
+    expect(component).toContain('profile.rates.pending_review_days > 0');
     expect(component).toContain('لا يوجد ملخص حضور لهذه الفترة');
   });
   it('preserves the same secured profile RPC and PDF without payroll writes', () => {
