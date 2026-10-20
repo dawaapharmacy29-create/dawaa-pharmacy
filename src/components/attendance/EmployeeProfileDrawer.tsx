@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
-import { X, Calendar, TrendingUp, Clock3, Download } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { X, Calendar, TrendingUp, Clock3, Download, AlertCircle, ShieldCheck } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
 import { buildEmployeeAttendanceProfilePdf } from '@/lib/attendance/employeeProfilePdf';
 import { toast } from 'sonner';
 import { formatEmployeeProfileClock as formatTime } from '@/lib/attendance/profileTime';
 
-type Profile = {
+export type EmployeeAttendanceProfile = {
   staff: { id: string; name: string; role: string | null; branch: string | null; active: boolean };
   weekly_schedule: { day_name: string; shift_date: string | null; is_off: boolean; shift_start: string | null; shift_end: string | null }[];
   rates: {
@@ -38,13 +39,20 @@ const STATUS_LABEL: Record<string, string> = {
   approved_time_off: 'إذن معتمد', early_leave_review: 'خروج مبكر', shift_in_progress: 'جارٍ الآن', no_schedule: 'بدون جدول',
 };
 
-export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: string; onClose: () => void }) {
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [loading, setLoading] = useState(true);
+export default function EmployeeProfileDrawer({ staffId, onClose, previewProfile }: { staffId: string; onClose: () => void; previewProfile?: EmployeeAttendanceProfile }) {
+  const [profile, setProfile] = useState<EmployeeAttendanceProfile | null>(previewProfile ?? null);
+  const [loading, setLoading] = useState(!previewProfile);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
+    if (previewProfile) {
+      // Static visual review: no remote staff profile request and no payroll actions.
+      setProfile(previewProfile);
+      setLoading(false);
+      setError(null);
+      return;
+    }
     let cancelled = false;
     setProfile(null);
     setLoading(true);
@@ -53,7 +61,7 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
       try {
         const { data, error: rpcError } = await supabase.rpc('attendance_employee_profile_evidence_v1', { p_staff_id: staffId, p_days: 30 });
         if (rpcError) throw rpcError;
-        if (!cancelled) setProfile(data as Profile);
+        if (!cancelled) setProfile(data as EmployeeAttendanceProfile);
       } catch (e) {
         if (!cancelled) { setProfile(null); setError(e instanceof Error ? e.message : 'تعذر تحميل بيانات الموظف'); }
       } finally {
@@ -61,7 +69,28 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
       }
     })();
     return () => { cancelled = true; };
-  }, [staffId]);
+  }, [staffId, previewProfile]);
+
+  // The global Header has z-[220] and h-14. The drawer lives in document.body,
+  // outside page stacking contexts, and starts below the visible app header.
+  useEffect(() => {
+    const savedOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = savedOverflow;
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [onClose]);
+
+  const evidence = profile?.processed_evidence;
+  const coverageIncomplete = Boolean(evidence && !evidence.coverage_complete);
+  const currentCairoDay = new Date().toLocaleDateString('ar-EG', {
+    weekday: 'long', timeZone: 'Africa/Cairo',
+  });
 
   async function handleExport() {
     if (!profile) return;
@@ -84,38 +113,59 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
     }
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={onClose} dir="rtl">
-      <div className="h-full w-full max-w-lg overflow-y-auto dawaa-surface p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-black text-[var(--dawaa-theme-heading)]">{loading ? 'جارٍ التحميل...' : profile?.staff.name || 'بروفايل الموظف'}</h2>
-          <div className="flex items-center gap-1">
-            {profile && !loading && <button onClick={() => void handleExport()} disabled={exporting} className="btn-secondary px-2 py-1 text-xs"><Download size={14} className={exporting ? 'animate-pulse' : ''} /> {exporting ? 'جارٍ التصدير...' : 'PDF'}</button>}
-            <button onClick={onClose} className="rounded-full p-1.5 hover:bg-[var(--dawaa-theme-surface-2)]"><X size={18} /></button>
+  return createPortal(
+    <div role="dialog" aria-modal="true" aria-label="ملف حضور الموظف"
+      className="fixed inset-x-0 bottom-0 top-14 z-[240] flex justify-end bg-black/50 backdrop-blur-[2px]"
+      onClick={onClose} dir="rtl">
+      <aside className="flex h-full w-full min-w-0 max-w-[640px] flex-col overflow-hidden border-r border-[var(--dawaa-theme-border)] dawaa-surface shadow-2xl"
+        onClick={(e) => e.stopPropagation()}>
+        <header className="z-10 flex shrink-0 items-start justify-between gap-3 border-b border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] px-4 py-3 sm:px-5">
+          <div className="min-w-0 flex-1">
+          <h2 className="break-words text-lg font-black leading-snug text-[var(--dawaa-theme-heading)] sm:text-xl">{loading ? 'جارٍ التحميل...' : profile?.staff.name || 'ملف حضور الموظف'}</h2>
+          {profile && !loading && <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] font-bold text-[var(--dawaa-theme-muted)]">
+            <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-0.5">{profile.staff.role || 'الوظيفة غير محددة'}</span>
+            <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-0.5">{profile.staff.branch || 'الفرع غير محدد'}</span>
+            <span className="rounded-full border px-2 py-0.5 border-[var(--dawaa-theme-border)] text-[var(--dawaa-theme-heading)]">{coverageIncomplete ? 'تغطية جزئية' : 'تغطية مكتملة'}</span>
+            {!profile.staff.active && <span className="rounded-full border border-[var(--dawaa-status-danger-border)] px-2 py-0.5 text-[var(--dawaa-status-danger-text)]">غير نشط</span>}
+          </div>}
           </div>
-        </div>
-
+          <div className="flex shrink-0 items-center gap-2">
+            {profile && !loading && !previewProfile && <button onClick={() => void handleExport()} disabled={exporting} className="btn-secondary px-3 py-2 text-xs" aria-label="تصدير ملف الحضور PDF"><Download size={14} className={exporting ? 'animate-pulse' : ''} /> {exporting ? 'جارٍ التصدير...' : 'PDF'}</button>}
+            <button type="button" onClick={onClose} aria-label="إغلاق ملف الموظف" className="rounded-xl border border-[var(--dawaa-theme-border)] p-2 text-[var(--dawaa-theme-heading)] hover:bg-[var(--dawaa-theme-surface-2)]"><X size={18} /></button>
+          </div>
+        </header>
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5 sm:py-5">
         {error && <div className="rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-danger-text)]">{error}</div>}
         {loading && <div className="space-y-3">{[0, 1, 2].map((i) => <div key={i} className="h-16 animate-pulse rounded-xl bg-[var(--dawaa-theme-surface-2)]" />)}</div>}
 
         {profile && !loading && <div className="space-y-5">
           {!profile.processed_evidence.coverage_complete && profile.processed_evidence.accepted_punches > 0 && (
-            <div role="status" className="rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-3 text-xs font-bold text-[var(--dawaa-theme-heading)]">
-              توجد {profile.processed_evidence.accepted_punches} بصمة مقبولة عبر {profile.processed_evidence.accepted_days} يوم،
-              منها {profile.processed_evidence.missing_summary_days} يوم بصمات مقبولة بدون ملخص حضور مقابل.
-              {profile.rates.evaluated_days > 0 ? ' ملف الحضور متاح جزئيًا فقط.' : ' لا يوجد ملخص تقييم حضور لهذه الفترة.'}
-              لذلك نعرض معدلات التأخير والإذن كغير مكتملة بدل صفر مضلل.
-              البصمات وحدها لا تعني اعتماد ساعات أو خصومات أو مرتبات.
-            </div>
+            <section role="status" className="rounded-2xl border border-[var(--dawaa-status-warning-border)] p-3 sm:p-4">
+              <div className="flex items-center gap-2 text-sm font-black text-[var(--dawaa-theme-heading)]">
+                <AlertCircle size={16} className="shrink-0 text-[var(--dawaa-status-warning-text)]" />
+                ملخص الحضور غير مكتمل
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <div className="rounded-xl border border-[var(--dawaa-theme-border)] p-2.5">
+                  <div className="text-lg font-black text-[var(--dawaa-theme-heading)]">{profile.processed_evidence.accepted_punches.toLocaleString('ar-EG')}</div>
+                  <div className="text-[11px] font-bold text-[var(--dawaa-theme-muted)]">بصمة مقبولة خلال {profile.processed_evidence.accepted_days} يوم</div>
+                </div>
+                <div className="rounded-xl border border-[var(--dawaa-theme-border)] p-2.5">
+                  <div className="text-lg font-black text-[var(--dawaa-theme-heading)]">{profile.processed_evidence.missing_summary_days.toLocaleString('ar-EG')}</div>
+                  <div className="text-[11px] font-bold text-[var(--dawaa-theme-muted)]">يوم بدون ملخص حضور</div>
+                </div>
+              </div>
+              <p className="mt-2.5 text-xs leading-relaxed text-[var(--dawaa-theme-muted)]">
+                {profile.rates.evaluated_days > 0 ? 'التقييم يغطي جزءًا من الفترة فقط؛ النسب ليست نهائية.' : 'لا يوجد ملخص حضور لهذه الفترة؛ النسب غير متاحة.'}
+                {' '}البصمات للمتابعة فقط وليست اعتمادًا لساعات أو خصومات أو مرتبات.
+              </p>
+            </section>
           )}
-          <div className="flex flex-wrap gap-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">
-            <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-1">{profile.staff.role || '-'}</span>
-            <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-1">{profile.staff.branch || '-'}</span>
-            {!profile.staff.active && <span className="rounded-full border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] px-2 py-1 text-[var(--dawaa-status-danger-text)]">غير نشط</span>}
-          </div>
-
           <section>
-            <div className="mb-2 flex items-center gap-1.5 font-black text-[var(--dawaa-theme-heading)]"><TrendingUp size={16} /> معدلات تقييم الحضور للفترة</div>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="flex items-center gap-1.5 text-sm font-black text-[var(--dawaa-theme-heading)]"><TrendingUp size={16} /> معدلات الحضور</h3>
+              <span className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">آخر 30 يوم · من ملخص الحضور</span>
+            </div>
             <div className="grid grid-cols-3 gap-2">
               <RateBox label="تأخير" value={profile.processed_evidence.coverage_complete ? `${profile.rates.late_rate_pct}%` : '—'} sub={profile.processed_evidence.coverage_complete ? `${profile.rates.late_days + profile.rates.very_late_days} يوم` : 'تغطية الحضور غير مكتملة'} />
               <RateBox label="إذن/إجازة" value={profile.processed_evidence.coverage_complete ? `${profile.rates.permission_rate_pct}%` : '—'} sub={profile.processed_evidence.coverage_complete ? `${profile.rates.permission_days} يوم` : 'تغطية الحضور غير مكتملة'} />
@@ -123,51 +173,95 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
             </div>
           </section>
 
-          <section>
-            <div className="mb-2 flex items-center gap-1.5 font-black text-[var(--dawaa-theme-heading)]"><Calendar size={16} /> الشيفت الأسبوعي</div>
-            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
-              {profile.weekly_schedule.filter((s) => s.day_name).map((s, i) => <div key={i} className={cn('rounded-lg border p-2 text-center text-[11px] font-bold', s.is_off ? 'border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] text-[var(--dawaa-theme-muted)]' : 'border-[var(--dawaa-theme-border)] dawaa-surface-soft')}>
-                <div className="font-black text-[var(--dawaa-theme-heading)]">{s.day_name}{s.shift_date && <span className="mr-1 font-bold text-[var(--dawaa-status-info-text)]">(استثناء {s.shift_date})</span>}</div>
-                <div>{s.is_off ? 'إجازة' : `${formatTime(s.shift_start)} ← ${formatTime(s.shift_end)}`}</div>
-              </div>)}
-              {!profile.weekly_schedule.length && <div className="col-span-full text-xs font-bold text-[var(--dawaa-theme-muted)]">لا يوجد جدول شيفت مسجل.</div>}
+          <section aria-label="الشيفت الأسبوعي" className="space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="flex items-center gap-1.5 text-sm font-black text-[var(--dawaa-theme-heading)]"><Calendar size={16} /> الشيفت الأسبوعي</h3>
+              <span className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">المواعيد المسجلة · الاستثناءات موضحة</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {profile.weekly_schedule.filter((shift) => shift.day_name).map((shift, i) => {
+                const today = !shift.shift_date && shift.day_name.trim() === currentCairoDay;
+                return <div key={`${shift.day_name}-${shift.shift_date || i}`} className={cn(
+                    'min-w-0 rounded-xl border px-2.5 py-2.5',
+                    today ? 'border-[var(--dawaa-theme-accent)] bg-[var(--dawaa-theme-surface-2)]' : 'border-[var(--dawaa-theme-border)]',
+                    shift.is_off && 'bg-[var(--dawaa-theme-surface-2)]'
+                  )}>
+                  <div className="flex flex-wrap items-center justify-between gap-1 text-xs font-black text-[var(--dawaa-theme-heading)]">
+                    <span>{shift.day_name}</span>
+                    {today && <span className="text-[10px] text-[var(--dawaa-theme-muted)]">اليوم</span>}
+                  </div>
+                  <div className="mt-1.5 text-[11px] font-bold leading-relaxed text-[var(--dawaa-theme-heading)]">
+                    {shift.is_off ? 'إجازة' : `من ${formatTime(shift.shift_start)} إلى ${formatTime(shift.shift_end)}`}
+                  </div>
+                  {shift.shift_date && <div className="mt-1 text-[10px] text-[var(--dawaa-status-info-text)]">استثناء {shift.shift_date}</div>}
+                </div>;
+              })}
+              {!profile.weekly_schedule.some((shift) => shift.day_name) &&
+                <div className="col-span-full rounded-xl border border-[var(--dawaa-theme-border)] p-3 text-xs font-bold text-[var(--dawaa-theme-muted)]">لا يوجد جدول شيفت مسجل.</div>}
             </div>
           </section>
 
-          <section>
-            <div className="mb-2 flex items-center gap-1.5 font-black text-[var(--dawaa-theme-heading)]"><Clock3 size={16} /> آخر الأيام</div>
-            <div className="space-y-1.5">
-              {profile.recent_days.slice(0, 15).map((d) => <div key={d.attendance_date} className="flex items-center justify-between gap-1 rounded-lg border border-[var(--dawaa-theme-border)] p-2 text-xs">
-                <span className="font-bold text-[var(--dawaa-theme-muted)]">{d.attendance_date}</span>
-                <span className="font-bold">{formatTime(d.first_in)} ← {formatTime(d.last_out)}</span>
-                <span className="font-black text-[var(--dawaa-theme-heading)]">{d.payroll_eligible_hours != null ? `${d.payroll_eligible_hours} س` : '-'}</span>
-                <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-black', d.resolution_status === 'late' || d.resolution_status === 'very_late' ? 'text-[var(--dawaa-status-warning-text)]' : d.resolution_status === 'absence_review' ? 'text-[var(--dawaa-status-danger-text)]' : 'text-[var(--dawaa-status-success-text)]')}>{STATUS_LABEL[d.resolution_status] || d.resolution_status}</span>
-              </div>)}
-              {!profile.recent_days.length && <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">لا يوجد ملخص حضور معتمد أو قيد المراجعة لهذه الفترة؛ راجع سجل البصمات المنفصل أدناه.</div>}
+          <section aria-label="آخر أيام الحضور" className="space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="flex items-center gap-1.5 text-sm font-black text-[var(--dawaa-theme-heading)]"><Clock3 size={16} /> آخر أيام الحضور</h3>
+              <span className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">الأوقات والساعات المسجلة في ملخص الحضور</span>
+            </div>
+            <div className="space-y-2">
+              {profile.recent_days.slice(0,15).map((day) => {
+                const needsReview = day.status === 'pending_review' ||
+                  ['absence_review', 'missing_checkin', 'missing_checkout', 'early_leave_review'].includes(day.resolution_status);
+                const late = ['late', 'very_late'].includes(day.resolution_status);
+                return <div key={day.attendance_date} className="rounded-xl border border-[var(--dawaa-theme-border)] px-3 py-2.5 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-black text-[var(--dawaa-theme-heading)]">{day.attendance_date}</span>
+                    <span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-black',
+                      needsReview || late ? 'border-[var(--dawaa-status-warning-border)] text-[var(--dawaa-status-warning-text)]' :
+                      'border-[var(--dawaa-theme-border)] text-[var(--dawaa-theme-heading)]'
+                    )}>
+                      {day.status === 'pending_review' ? 'تحتاج مراجعة' : STATUS_LABEL[day.resolution_status] || day.resolution_status || 'غير محدد'}
+                    </span>
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <div className="min-w-0">
+                      <div className="text-[10px] text-[var(--dawaa-theme-muted)]">الدخول ← الخروج</div>
+                      <div className="mt-0.5 font-bold text-[var(--dawaa-theme-heading)]">{formatTime(day.first_in)} ← {formatTime(day.last_out)}</div>
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[10px] text-[var(--dawaa-theme-muted)]">ساعات المرتب المحفوظة</div>
+                      <div className="mt-0.5 font-black text-[var(--dawaa-theme-heading)]">
+                        {day.payroll_eligible_hours != null ? `${day.payroll_eligible_hours} س` : 'غير معتمدة'}
+                      </div>
+                    </div>
+                  </div>
+                </div>;
+              })}
+              {!profile.recent_days.length && <div className="rounded-xl border border-[var(--dawaa-theme-border)] p-3 text-xs font-bold leading-relaxed text-[var(--dawaa-theme-muted)]">
+                لا يوجد ملخص حضور لهذه الفترة. راجع دليل البصمات أدناه؛ غياب الملخص لا يعني عدم الحضور.
+              </div>}
             </div>
           </section>
           <section>
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2 font-black text-[var(--dawaa-theme-heading)]">
-              <span className="flex items-center gap-1.5"><Clock3 size={16} /> سجل البصمات المُعالجة — دليل مستقل</span>
-              <span className="text-xs font-bold text-[var(--dawaa-theme-muted)]">آخر {profile.processed_evidence.to} · {profile.processed_evidence.from} ←</span>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="flex items-center gap-1.5 text-sm font-black text-[var(--dawaa-theme-heading)]"><ShieldCheck size={16} /> دليل البصمات</h3>
+              <span className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">سجل مستقل · غير معتمد ماليًا</span>
             </div>
-            <p className="mb-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">
-              {profile.processed_evidence.accepted_punches} بصمة مقبولة · {profile.processed_evidence.accepted_days} يوم به بصمات ·
-              {profile.processed_evidence.complete_pair_days} يوم دخول وخروج ·
-              {profile.processed_evidence.summary_covered_days} يوم له ملخص حضور ·
-              {profile.processed_evidence.missing_summary_days} يوم بدون ملخص ·
-              {profile.processed_evidence.manual_review_punches} بصمة تحت الفحص.
-              القبول هنا يخص سجل الجهاز، وليس اعتماد الحضور أو ساعات المرتب.
-            </p>
-            <div className="max-h-72 space-y-1.5 overflow-y-auto">
+            <div className="mb-3 flex flex-wrap gap-x-3 gap-y-1 text-[11px] font-bold text-[var(--dawaa-theme-muted)]">
+              <span>{profile.processed_evidence.accepted_punches} بصمة مقبولة</span>
+              <span>{profile.processed_evidence.accepted_days} يوم</span>
+              <span>{profile.processed_evidence.complete_pair_days} دخول وخروج</span>
+              <span>{profile.processed_evidence.summary_covered_days} بملخص</span>
+              <span>{profile.processed_evidence.missing_summary_days} بدون ملخص</span>
+              {profile.processed_evidence.manual_review_punches > 0 && <span>{profile.processed_evidence.manual_review_punches} تحت المراجعة</span>}
+            </div>
+            <div className="space-y-2">
               {profile.processed_evidence.recent_days.map((d) => (
-                <div key={d.shift_date} className="rounded-lg border border-[var(--dawaa-theme-border)] p-2 text-xs">
+                <div key={d.shift_date} className="rounded-xl border border-[var(--dawaa-theme-border)] px-3 py-2.5 text-xs">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-black">{d.shift_date}</span>
-                    <span>{formatTime(d.first_in)} ← {formatTime(d.last_out)}</span>
-                    <span className="font-bold">{d.accepted_punches} مقبولة</span>
+                    <span className="font-black text-[var(--dawaa-theme-heading)]">{d.shift_date}</span>
+                    <span className="font-bold text-[var(--dawaa-theme-muted)]">{d.accepted_punches} مقبولة</span>
                   </div>
-                  <div className="mt-1 text-[11px] text-[var(--dawaa-theme-muted)]">
+                  <div className="mt-1.5 font-bold text-[var(--dawaa-theme-heading)]">{formatTime(d.first_in)} ← {formatTime(d.last_out)}</div>
+                  <div className="mt-1 text-[11px] leading-relaxed text-[var(--dawaa-theme-muted)]">
                     {d.punch_branches.join('، ') || 'فرع الجهاز غير محدد'}
                     {!d.has_summary && d.accepted_punches > 0 ? ' · بلا ملخص حضور لهذا اليوم' : ''}
                     {d.review_punches > 0 ? ` · ${d.review_punches} تحتاج مراجعة` : ''}
@@ -179,15 +273,17 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
             </div>
           </section>
         </div>}
-      </div>
-    </div>
+        </div>
+      </aside>
+    </div>,
+    document.body
   );
 }
 
 function RateBox({ label, value, sub }: { label: string; value: string; sub: string }) {
-  return <div className="rounded-xl border border-[var(--dawaa-theme-border)] dawaa-surface-soft p-2.5 text-center">
+  return <div className="min-w-0 rounded-xl border border-[var(--dawaa-theme-border)] p-2.5 text-center">
     <div className="text-lg font-black text-[var(--dawaa-theme-heading)]">{value}</div>
-    <div className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{label}</div>
-    <div className="text-[9px] text-[var(--dawaa-theme-muted)]">{sub}</div>
+    <div className="mt-0.5 text-[11px] font-bold text-[var(--dawaa-theme-muted)]">{label}</div>
+    <div className="mt-0.5 text-[10px] leading-snug text-[var(--dawaa-theme-muted)]">{sub}</div>
   </div>;
 }
