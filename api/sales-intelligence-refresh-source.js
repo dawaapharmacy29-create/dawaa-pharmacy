@@ -7465,15 +7465,17 @@ function staffEvidenceForCase(input, scopedMessages) {
   }
   return staffIdBySender;
 }
-function analyzeOneCase(conversationCase, scopedMessages, input, interaction = null, conversationTimeline = scopedMessages) {
+function analyzeOneCase(conversationCase, scopedMessages, input, interaction = null, conversationTimeline = scopedMessages, sourceHasMultipleIntroducedStaff = false) {
   const pipelineWarnings = [];
   const caseStaffIdBySender = staffEvidenceForCase(input, scopedMessages);
   const scopedIntroducedStaffIds = new Set(
     scopedMessages.filter((message) => message.direction === "outbound").map((message) => input.staffIdByIntroductionMessageId?.[message.id]).filter((id) => Boolean(id))
   );
+  const caseHasNamedIntroduction = scopedMessages.some((message) => Boolean(extractIntroducedStaffName(message)));
+  const sourceStaffFallbackAllowed = !sourceHasMultipleIntroducedStaff && !caseHasNamedIntroduction;
   const caseKnownStaffIds = [
     .../* @__PURE__ */ new Set([
-      ...scopedIntroducedStaffIds.size === 1 ? [...scopedIntroducedStaffIds] : scopedIntroducedStaffIds.size > 1 ? [] : input.knownStaffIds ?? [],
+      ...scopedIntroducedStaffIds.size === 1 ? [...scopedIntroducedStaffIds] : sourceStaffFallbackAllowed && scopedIntroducedStaffIds.size === 0 ? input.knownStaffIds ?? [] : [],
       ...Object.values(caseStaffIdBySender)
     ])
   ];
@@ -7930,8 +7932,12 @@ function deriveCasesOnly(input) {
 }
 function runSalesIntelligencePipeline(input) {
   const segmented = deriveSegmentedCases(segmentationInputFromPipelineInput(input));
+  const namedIntroductions = /* @__PURE__ */ new Set(
+    (segmented.cases[0]?.conversationTimeline ?? []).map((message) => extractIntroducedStaffName(message)).filter((name) => Boolean(name)).map((name) => name.trim().toLocaleLowerCase("ar"))
+  );
+  const sourceHasMultipleIntroducedStaff = namedIntroductions.size > 1;
   const caseAnalyses = segmented.cases.map(
-    ({ conversationCase, scopedMessages, conversationTimeline, interaction }) => analyzeOneCase(conversationCase, scopedMessages, input, interaction, conversationTimeline)
+    ({ conversationCase, scopedMessages, conversationTimeline, interaction }) => analyzeOneCase(conversationCase, scopedMessages, input, interaction, conversationTimeline, sourceHasMultipleIntroducedStaff)
   );
   return {
     conversationId: input.conversationId,
