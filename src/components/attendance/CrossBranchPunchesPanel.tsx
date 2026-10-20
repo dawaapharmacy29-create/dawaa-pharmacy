@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeftRight, MapPin, RefreshCw, Search } from 'lucide-react';
 import { listCrossBranchBiometricEvents } from '@/lib/attendance/attendanceOperationsService';
 import EmployeeProfileDrawer from '@/components/attendance/EmployeeProfileDrawer';
@@ -16,6 +16,10 @@ type CrossBranchPunch = {
   punch_type: string | null;
   device_id: string | null;
   provider: string | null;
+  attendance_date: string;
+  processing_status: string;
+  attendance_type: string | null;
+  day_evidence: string;
 };
 
 function cairoToday() {
@@ -63,6 +67,8 @@ export default function CrossBranchPunchesPanel({
   const [end, setEnd] = useState(today);
   const [branch, setBranch] = useState(defaultBranch || 'الكل');
   const [search, setSearch] = useState('');
+  const [scope, setScope] = useState<'all' | 'accepted' | 'review'>('all');
+  const requestSequence = useRef(0);
   const [rows, setRows] = useState<CrossBranchPunch[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -73,8 +79,10 @@ export default function CrossBranchPunchesPanel({
   }, [defaultBranch]);
 
   const load = useCallback(async () => {
+    const requestId = ++requestSequence.current;
     setLoading(true);
     setError(null);
+    setRows([]);
     try {
       const data = await listCrossBranchBiometricEvents({
         start,
@@ -82,26 +90,67 @@ export default function CrossBranchPunchesPanel({
         branch: branch === 'الكل' ? null : branch,
         limit: 1000,
       });
+      if (requestId !== requestSequence.current) return;
       setRows((data || []) as unknown as CrossBranchPunch[]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'تعذر تحميل البصمات بين الفروع');
+      if (requestId !== requestSequence.current) return;
+      setRows([]);
+      setError(e instanceof Error ? e.message : 'تعذر تحميل بصمات العمل بين الفروع');
     } finally {
-      setLoading(false);
+      if (requestId === requestSequence.current) setLoading(false);
     }
   }, [branch, end, start]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+    return () => { requestSequence.current += 1; };
+  }, [load]);
 
   const visible = useMemo(() => {
     const q = search.trim().toLocaleLowerCase('ar');
-    if (!q) return rows;
-    return rows.filter((row) =>
-      [row.staff_name, row.role, row.home_branch, row.expected_branch, row.punch_branch, row.expected_source, row.biometric_user_id, row.device_id]
-        .some((value) => String(value || '').toLocaleLowerCase('ar').includes(q))
-    );
-  }, [rows, search]);
+    return rows.filter((row) => {
+      const accepted = row.processing_status === 'accepted';
+      const needsReview = !accepted || row.day_evidence !== 'linked_attendance_shift_date'
+        || row.expected_source === 'staff_current_fallback';
+      if (scope === 'accepted' && !accepted) return false;
+      if (scope === 'review' && !needsReview) return false;
+      return !q || [row.staff_name, row.role, row.home_branch, row.expected_branch,
+        row.punch_branch, row.expected_source, row.biometric_user_id, row.device_id,
+        row.attendance_date, row.attendance_type]
+        .some((value) => String(value || '').toLocaleLowerCase('ar').includes(q));
+    });
+  }, [rows, scope, search]);
 
   const staffCount = useMemo(() => new Set(rows.map((row) => row.staff_id)).size, [rows]);
+  const acceptedCount = rows.filter((r) => r.processing_status === 'accepted').length;
+  const missingLinkCount = rows.filter((r) => r.processing_status !== 'accepted').length;
+  const dayGroups = useMemo(() => {
+    const groups = new Map<string, {
+      staffId: string; name: string; attendanceDate: string;
+      expected: string; actual: string; events: number; accepted: number;
+      first: string; last: string; uncertain: boolean;
+    }>();
+    for (const row of visible) {
+      const key = [row.staff_id, row.attendance_date, row.expected_branch, row.punch_branch].join('|');
+      let group = groups.get(key);
+      if (!group) {
+        group = {
+          staffId: row.staff_id, name: row.staff_name, attendanceDate: row.attendance_date,
+          expected: row.expected_branch, actual: row.punch_branch, events: 0, accepted: 0,
+          first: row.punch_time, last: row.punch_time, uncertain: false,
+        };
+        groups.set(key, group);
+      }
+      group.events++;
+      if (row.processing_status === 'accepted') group.accepted++;
+      if (row.punch_time < group.first) group.first = row.punch_time;
+      if (row.punch_time > group.last) group.last = row.punch_time;
+      if (row.day_evidence !== 'linked_attendance_shift_date'
+        || row.expected_source === 'staff_current_fallback') group.uncertain = true;
+    }
+    return Array.from(groups.values()).sort((a,b) =>
+      b.attendanceDate.localeCompare(a.attendanceDate) || b.last.localeCompare(a.last));
+  }, [visible]);
   const routes = useMemo(() => {
     const map = new Map<string, number>();
     for (const row of rows) {
@@ -120,7 +169,7 @@ export default function CrossBranchPunchesPanel({
             <h2 className="text-lg font-black text-[var(--dawaa-theme-heading)]">البصمات بين الفروع</h2>
           </div>
           <p className="mt-1 max-w-3xl text-xs font-bold text-[var(--dawaa-theme-muted)]">
-            الموظف يُحتسب حضوره طبيعيًا حتى لو بصم على جهاز فرع مختلف. هذه الشاشة رقابية فقط: تقارن مكان البصمة بالفرع المتوقع حسب جدول نفس اليوم، مع إظهار الفرع الأساسي للمعلومة، ولا تعتبر الاختلاف خطأ أو خصمًا.
+            هوية الموظف واحدة على الجهازين بعد تأكيد ربط كوده بكل جهاز. نعرض فرع الموظف الحالي، وفرع جدول يوم الشيفت، ومكان الجهاز الفعلي. بصمة الخروج بعد منتصف الليل تتبع يوم الشيفت المعتمد، لا تاريخ الساعة فقط. الاختلاف معلومة رقابية وليس مخالفة أو خصمًا تلقائيًا.
           </p>
         </div>
         <button onClick={() => void load()} className="btn-secondary">
@@ -129,10 +178,10 @@ export default function CrossBranchPunchesPanel({
       </div>
 
       <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-        <Info label="عدد البصمات بين الفروع" value={rows.length} />
+        <Info label="بصمات من فرع مختلف" value={rows.length} />
         <Info label="موظفون مختلفون" value={staffCount} />
-        <Info label="من" value={start} />
-        <Info label="إلى" value={end} />
+        <Info label="بصمات مقبولة في الحضور" value={acceptedCount} />
+        <Info label="غير مقبولة أو لم ترتبط بعد" value={missingLinkCount} />
       </div>
     </section>
 
@@ -164,21 +213,59 @@ export default function CrossBranchPunchesPanel({
         </label>
       </div>
 
+      <div className="mt-3 flex flex-wrap gap-2">
+        {([
+          { id: 'all', label: 'الكل', count: rows.length },
+          { id: 'accepted', label: 'مسجلة في الحضور', count: acceptedCount },
+          { id: 'review', label: 'تحتاج فحص البيانات', count: rows.filter((r) =>
+            r.processing_status !== 'accepted' || r.day_evidence !== 'linked_attendance_shift_date'
+            || r.expected_source === 'staff_current_fallback').length },
+        ] as const).map((item) => <button type="button" key={item.id}
+          aria-pressed={scope === item.id} onClick={() => setScope(item.id)}
+          className={scope === item.id ? 'btn-primary text-xs' : 'btn-secondary text-xs'}>
+          {item.label} ({item.count.toLocaleString('ar-EG')})
+        </button>)}
+      </div>
       {!!routes.length && <div className="mt-3 flex flex-wrap gap-2">
         {routes.slice(0, 8).map(([route, count]) => <span key={route} className="rounded-full border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] px-3 py-1 text-[11px] font-black text-[var(--dawaa-status-info-text)]">{route} · {count.toLocaleString('ar-EG')}</span>)}
       </div>}
     </section>
 
-    {error && <div className="rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-3 text-xs font-black text-[var(--dawaa-status-danger-text)]">⚠️ {error}</div>}
+    {rows.length >= 1000 && <p role="status" className="text-xs font-bold text-[var(--dawaa-status-warning-text)]">عرض أول 1000 بصمة فقط في الفترة؛ قلّل الفترة لرؤية جميع التفاصيل بدون اختصار.</p>}
+    {loading && <p role="status" className="text-xs font-bold text-[var(--dawaa-theme-muted)]">جارٍ تحديث بصمات الفترة والفرع المحددين...</p>}
+    {error && <div role="alert" className="rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-3 text-xs font-black text-[var(--dawaa-status-danger-text)]">⚠️ {error} — لا يُعتبر غياب البيانات دليلًا على عدم وجود بصمات.</div>}
+    {!loading && !error && dayGroups.length > 0 && <section className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4">
+      <h3 className="mb-1 font-black text-[var(--dawaa-theme-heading)]">ملخص الموظف حسب يوم الشيفت</h3>
+      <p className="mb-3 text-xs text-[var(--dawaa-theme-muted)]">تجميع البصمات على نفس الموظف واليوم والفرع؛ لا نعتبر تعدد الأجهزة حضورًا مكررًا.</p>
+      <div className="grid gap-2 lg:grid-cols-2">
+        {dayGroups.slice(0,40).map((day) => <div key={day.staffId+'|'+day.attendanceDate+'|'+day.actual}
+          className="rounded-xl border border-[var(--dawaa-theme-border)] p-3 text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <button className="font-black text-[var(--dawaa-theme-heading)] hover:underline" onClick={() => setProfileStaffId(day.staffId)}>{day.name}</button>
+            <span className="font-bold">{day.attendanceDate}</span>
+          </div>
+          <p className="mt-1 font-bold">{day.expected || 'فرع غير محدد'} ← {day.actual}</p>
+          <p className="mt-1 text-[var(--dawaa-theme-muted)]">
+            {day.accepted} من {day.events} بصمات مقبولة في سجل الحضور · {fmt(day.first)}{day.events > 1 ? ' ← '+fmt(day.last) : ''}
+          </p>
+          {(day.uncertain || day.accepted !== day.events) && <p className="mt-2 font-bold text-[var(--dawaa-status-warning-text)]">
+            {day.uncertain ? 'يحتاج التأكد من جدول اليوم أو ربطه بسجل الحضور' : 'توجد بصمة غير مقبولة تحتاج مراجعة'}
+          </p>}
+        </div>)}
+      </div>
+      {dayGroups.length > 40 && <p className="mt-2 text-xs text-[var(--dawaa-theme-muted)]">تم عرض أول 40 مجموعة؛ استخدم البحث أو قلّل الفترة لعرض الباقي.</p>}
+    </section>}
 
     <section className="overflow-x-auto rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface shadow-sm">
       <table className="dawaa-table-semantic min-w-[1000px] w-full text-sm">
         <thead><tr className="text-right">
           <th className="p-3">الموظف</th>
-          <th className="p-3">فرعه الأساسي</th>
-          <th className="p-3">الفرع المتوقع</th>
+          <th className="p-3">فرع الموظف الحالي</th>
+          <th className="p-3">فرع شيفت اليوم</th>
           <th className="p-3">بصم في</th>
-          <th className="p-3">الوقت</th>
+          <th className="p-3">يوم الشيفت</th>
+          <th className="p-3">وقت البصمة</th>
+          <th className="p-3">حالة البصمة</th>
           <th className="p-3">نوع الجهاز</th>
           <th className="p-3">كود البصمة</th>
           <th className="p-3">الجهاز</th>
@@ -192,15 +279,20 @@ export default function CrossBranchPunchesPanel({
             <td className="p-3 font-bold">{row.home_branch || '-'}</td>
             <td className="p-3">
               <div className="font-black text-[var(--dawaa-theme-heading)]">{row.expected_branch || '-'}</div>
-              <div className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{row.expected_source === 'staff_current_fallback' ? 'Fallback: الفرع الحالي' : 'حسب جدول اليوم'}</div>
+              <div className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{row.expected_source === 'staff_current_fallback' ? 'فرع الموظف الحالي فقط — الجدول غير محدد' : 'جدول يوم الشيفت'}</div>
             </td>
             <td className="p-3"><span className="inline-flex items-center gap-1 rounded-full border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] px-2 py-1 text-xs font-black text-[var(--dawaa-status-info-text)]"><MapPin size={12}/>{row.punch_branch}</span></td>
+            <td className="p-3 font-bold">{row.attendance_date || '-'}</td>
             <td className="p-3 font-bold">{fmt(row.punch_time)}</td>
+            <td className="p-3">
+              <div className="font-bold">{row.processing_status === 'accepted' ? 'مقبولة في سجل الحضور' : row.processing_status === 'unlinked' ? 'لم ترتبط بسجل الحضور' : 'تحتاج مراجعة: '+row.processing_status}</div>
+              <div className="text-[10px] text-[var(--dawaa-theme-muted)]">{row.day_evidence === 'linked_attendance_shift_date' ? 'يوم الشيفت مؤكد' : 'التاريخ من ساعة الجهاز'} · {typeLabel(row.attendance_type || row.punch_type)}</div>
+            </td>
             <td className="p-3">{typeLabel(row.punch_type)}</td>
             <td className="p-3 font-black">{row.biometric_user_id || '-'}</td>
             <td className="p-3"><div className="font-bold">{row.device_id || '-'}</div><div className="text-[10px] text-[var(--dawaa-theme-muted)]">{row.provider || '-'}</div></td>
           </tr>)}
-          {!loading && !visible.length && <tr><td colSpan={8} className="p-8 text-center font-bold text-[var(--dawaa-theme-muted)]">لا توجد بصمات بين الفروع في الفترة/الفلتر المحدد.</td></tr>}
+          {!loading && !error && !visible.length && <tr><td colSpan={10} className="p-8 text-center font-bold text-[var(--dawaa-theme-muted)]">لا توجد بصمات أخرى بين الفروع ضمن النطاق والفلتر المختارين.</td></tr>}
         </tbody>
       </table>
     </section>

@@ -1,0 +1,32 @@
+name: Cross-Branch Attendance Workday SQL
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/20261020070000_cross_branch_biometric_workday_v3.sql'
+      - 'supabase/migrations/20261020070001_cross_branch_v3_explicit_anon_revoke.sql'
+      - 'scripts/staging/test-cross-branch-workday-pglite.mjs'
+      - '.github/workflows/attendance-cross-branch-pglite.yml'
+      - 'src/components/attendance/CrossBranchPunchesPanel.tsx'
+      - 'src/lib/attendance/attendanceOperationsService.ts'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-postgres-cross-branch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DAWAA_DEPLOY_ENV: local
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Execute SQL contract on synthetic biometric events
+        run: node scripts/staging/test-cross-branch-workday-pglite.mjs
