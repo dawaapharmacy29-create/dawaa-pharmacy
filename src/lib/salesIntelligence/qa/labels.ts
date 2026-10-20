@@ -150,6 +150,7 @@ export const itemResolutionStatusLabels: Record<string, string> = {
 
 /** Human-review / failure reason vocab actually observed across the engines — see salesIntegrityEngine.ts, saleAttributionEngine.ts, commercialConfirmationEngine.ts, conversationCaseEngine.ts. Never framed as an accusation. */
 export const reviewReasonLabels: Record<string, string> = {
+  noncommercial_nursing_service_requires_review: 'طلب تمريض أو متابعة خدمة يحتاج مراجعة تشغيلية، وليس فرصة بيع دواء',
   competing_case_attribution: 'منافسة على نفس الفاتورة مع حالة أخرى',
   possible_unsegmented_multiple_requests: 'احتمال وجود طلبات متعددة غير مقسّمة بوضوح',
   ambiguous_multiple_candidates: 'أكثر من فاتورة مرشحة دون ترجيح واضح',
