@@ -122,3 +122,9 @@ BEGIN
   LIMIT greatest(1,least(coalesce(p_limit,250),1000));
 END;
 $function$;
+
+-- Minimize access to the new security-definer RPC. Explicit authorization is
+-- still enforced per caller and staff row inside the function.
+REVOKE ALL ON FUNCTION public.list_cross_branch_biometric_events_v3(date,date,text,integer) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.list_cross_branch_biometric_events_v3(date,date,text,integer) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.list_cross_branch_biometric_events_v3(date,date,text,integer) TO service_role;
