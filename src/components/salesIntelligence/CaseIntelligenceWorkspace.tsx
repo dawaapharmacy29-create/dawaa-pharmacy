@@ -47,6 +47,11 @@ export interface CaseInvoiceEvidence {
   /** How the exact invoice became trusted. */
   linkMethod?: 'automatic' | 'explicit' | null;
   invoiceNumber: string | null;
+  /** Invoice header facts; these never override source customer, branch or chat staff. */
+  invoiceCustomerCode?: string | null;
+  invoiceCustomerName?: string | null;
+  invoiceBranch?: string | null;
+  invoiceSellerName?: string | null;
   items: Array<{
     id: string;
     productName: string;
@@ -504,6 +509,14 @@ export function CaseIntelligenceWorkspace({
                 فاتورة مرشحة{invoiceEvidence.invoiceNumber ? ` رقم ${invoiceEvidence.invoiceNumber}` : ''}، وارتباطها بالمحادثة لم يثبت بعد.
                 البنود أدناه من الفاتورة الرسمية المرشحة فقط؛ لا تُستخدم لتفسير الصورة أو الفويس أو اعتماد بيع أو إسناد موظف.
               </div>
+              {(invoiceEvidence.invoiceCustomerCode || invoiceEvidence.invoiceCustomerName || invoiceEvidence.invoiceBranch || invoiceEvidence.invoiceSellerName) ? (
+                <div className="grid gap-2 sm:grid-cols-2 text-xs" data-testid="candidate-invoice-header-facts">
+                  {invoiceEvidence.invoiceCustomerName ? <div><strong>اسم العميل على الفاتورة:</strong> {invoiceEvidence.invoiceCustomerName}</div> : null}
+                  {invoiceEvidence.invoiceCustomerCode ? <div><strong>كود العميل على الفاتورة:</strong> {invoiceEvidence.invoiceCustomerCode}</div> : null}
+                  {invoiceEvidence.invoiceBranch ? <div><strong>فرع الفاتورة (دليل مستقل):</strong> {invoiceEvidence.invoiceBranch}</div> : null}
+                  {invoiceEvidence.invoiceSellerName ? <div><strong>بائع الفاتورة (ليس بالضرورة مسؤول المحادثة):</strong> {invoiceEvidence.invoiceSellerName}</div> : null}
+                </div>
+              ) : null}
               {invoiceEvidence.items.length ? (
                 <div data-testid="candidate-invoice-evidence-lines">
                   <div className="dawaa-muted mb-2 text-xs">بنود الفاتورة المرشحة للمراجعة فقط ({invoiceEvidence.items.length}) — منفصلة عن الأصناف المستخرجة من المحادثة</div>
