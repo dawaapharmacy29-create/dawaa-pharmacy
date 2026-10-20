@@ -3,6 +3,7 @@
 // into a countable sale or a confirmed order on its own).
 
 import type { CanonicalCaseSaleTruth, CanonicalSaleLedgerState } from './canonicalCaseTruth';
+import { PIPELINE_VERSION } from '../persistence/versions';
 
 export type CanonicalTruthTone = 'success' | 'warning' | 'danger' | 'neutral';
 
@@ -15,6 +16,7 @@ export interface CanonicalTruthRow {
     | 'saleCountable'
     | 'revenueCountable'
     | 'humanReview'
+    | 'analysisVersion'
     | 'ledger';
   label: string;
   value: string;
@@ -141,8 +143,31 @@ export function describeCanonicalCaseSaleTruth(truth: CanonicalCaseSaleTruth): C
             : 'غير مطلوبة',
       tone: outcome.needsHumanReview ? 'warning' : 'neutral',
     },
+    analysisVersionRow(truth.pipelineVersion),
     ledgerRow,
   ];
+}
+
+function versionLabel(version: string): string {
+  const number = version.match(/-v(\d+)/)?.[1];
+  return number ? `V${number}` : version;
+}
+
+/** Stored results stay as analyzed; a newer engine never rewrites them without an explicit per-source refresh. */
+function analysisVersionRow(pipelineVersion: string | null): CanonicalTruthRow {
+  const current = versionLabel(PIPELINE_VERSION);
+  if (!pipelineVersion) {
+    return { key: 'analysisVersion', label: 'إصدار التحليل', value: `${NOT_RECORDED_LABEL} — الإصدار الحالي ${current}`, tone: 'warning' };
+  }
+  if (pipelineVersion === PIPELINE_VERSION) {
+    return { key: 'analysisVersion', label: 'إصدار التحليل', value: `${current} — الإصدار الحالي`, tone: 'neutral' };
+  }
+  return {
+    key: 'analysisVersion',
+    label: 'إصدار التحليل',
+    value: `تحليل قديم (${versionLabel(pipelineVersion)}) والإصدار الحالي ${current} — النتائج المعروضة قد لا تعكس التحسينات الأحدث. لتحديثها أعد تحليل هذا المصدر وحده صراحةً؛ لا يتم تحديث الأرشيف تلقائيًا.`,
+    tone: 'warning',
+  };
 }
 
 /** The trusted invoice for display: only when the persisted proof state is proven for this case's attribution. */

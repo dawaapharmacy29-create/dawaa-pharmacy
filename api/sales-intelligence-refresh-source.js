@@ -891,12 +891,14 @@ var CLARIFICATION_MARK_RX = /[؟?]/;
 var EXPLICIT_CONFIRMATION_RX = /تم\s*تأكيد\s*الطلب|تم\s*تسجيل(?:\s*طلبك)?|تسجيل\s*طلبك|الأورد?ر\s*اتأكد|تم\s*الطلب|تمام\s*سجلت\s*لحضرتك|تم\s*ال[اإ]رسال/i;
 var STRONG_IMPLICIT_CONFIRMATION_RX = /(?:من\s*)?عني?ا(؟)?\s*(?:حاضر|لحضرتك)?|حاضر\s*(?:هبعت(?:هم|ه)?|هيكون\s*عند\s*حضرتك)|تمام\s*هيتبعت|تمام\s*يا\s*فندم\s*جاري\s*(?:التجهيز|ال[اإ]رسال)|جاري\s*(?:التجهيز|ال[اإ]رسال)|هبعت(?:لك|له|لحضرتك|هم)/i;
 var WEAK_IMPLICIT_RX = /^(?:تمام|حاضر|اوك|ok|ماشي|خلاص)[!.، ]*$/i;
-var ACCEPTANCE_RX = /^(?:تمام|ماشي|ايوا|ايوه|اه|آه|موافق|تمام\s*كده|خلاص\s*ابعت(?:ه|هم|يه|يهم)?)[!.، ]*$|(?:تمام|ايوا|ايوه|اه|آه)[،, ]*\s*(?:هطلبه|ابعت(?:ه|هم|يه|يهم)?|يبقى\s*كده)/i;
+var ACCEPTANCE_RX = /^(?:تمام|ماشي|ايوا|ايوه|اه|آه|موافق|تمام\s*كده|خلاص\s*ابعت(?:ه|هم|يه|يهم)?)(?:\s*(?:(?:ان|إن)\s*شاء\s*الله|[اإ]نشاء\s*الله|[اإ]نشالله|ان\s*شالله))?[!.، ]*$|(?:تمام|ايوا|ايوه|اه|آه)[،, ]*\s*(?:هطلبه|ابعت(?:ه|هم|يه|يهم)?|يبقى\s*كده)/i;
 var REJECTION_RX = /^(?:لا|لأ)[!.، ]*$|مش\s*عايز(?:ه)?|معلش\s*مش\s*هاخد(?:ه|ها)?|مش\s*محتاج(?:ه)?/i;
-var THANKS_CLOSING_ONLY_RX = /^(?:شكرًا|شكرا)(?:\s*لحضرتك)?[!.، ]*$|^لا\s*شكرا[!.، ]*$|^تسلم(?:ي|لي)?[!.، ]*$|^الله\s*يسلم(?:ك|ي)?[!.، ]*$|^وصل(?:ني|تلي)?[!.، ]*$/i;
+var THANKS_CLOSING_ONLY_RX = /^(?:شكرًا|شكرا)(?:\s*لحضرتك)?[!.، ]*$|^لا\s*شكرا[!.، ]*$|^تسلم(?:ي|لي)?[!.، ]*$|^الله\s*يسلم(?:ك|ي)?[!.، ]*$|^وصل(?:ني|تلي)?[!.، ]*$|^(?:ربنا|الله)\s*(?:(?:و\s*)?(?:(?:يسعد|يخلي|يكرم|يحفظ)(?:ك|كي|كم|ي)?|يبارك\s*(?:في|ل)(?:ك|كي|كم|ي))(?:\s*(?:جميعا|جميعًا|كلكم|يا\s*رب|يارب))?[!.،\s🤲🙏❤️🌹🌷💙]*)+$/iu;
+var SATISFACTION_FEEDBACK_RX = /(?:الحمد\s*لله|الحمدلله).*(?:شكرا|شكرًا|متشكر)\s*(?:على|ع)\s*(?:متابعت|اهتمام|سؤال)/u;
+var FEEDBACK_DISQUALIFIER_RX = /[؟?]|مش|لسه|مجاش|موصلش|غلط|تأخير|اتأخر|وجع|تعبان|بيسرب|(?:^|\s)و?(?:علب|شريط|دوا|كريم|ابعت|هات)/u;
 var CORRECTION_RX = /لا\s*قصدي|مش\s*ده(?:\s*اللي)?|ده\s*مش(?:\s*اللي)?|أنا\s*(?:أ|ا)قصد|لا\s*التاني\b|مش\s*كده|لا\s*حضرتك\s*فهمتني\s*غلط|أنا\s*قلت|فهمت\s*غلط/i;
 var QUANTITY_RX = /(\d+|واحد[ةه]?|اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?)\s*(علبة|علب|حبة|حبوب|شريط|عبوة|قطعة|كيس)/i;
-var REFERENCE_QUANTITY_RX = /(?:منه|من\s*ده|من\s*دا)\s*(اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?|\d+)|(\d+|اتنين|تلات[ةه]?)\s*منه/i;
+var REFERENCE_QUANTITY_RX = /(?:منه|من\s*ده|من\s*دا)\s*(اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?|\d+)|(\d+|واحد[ةه]?|اتنين|تلات[ةه]?)\s*(?:منه|من\s*(?:ده|دا))(?:\s|$|[.!،؟?])/i;
 var PHONE_RX = /01[0-2,5]\d{8}/;
 var ADDRESS_RX = /العنوان\s*[:\-]?\s*\S+|عنوانك|هيوصل\s*ل(?:ـ|حضرتك)/i;
 var PRICE_RX = /(\d+(?:\.\d+)?)\s*(جنيه|جنيها|ج\.?م\.?|le|egp)/i;
@@ -1026,6 +1028,7 @@ function isRequestCandidate(message) {
     return false;
   }
   if (isThanksOrClosingOnly(text5)) return false;
+  if (SATISFACTION_FEEDBACK_RX.test(text5) && !FEEDBACK_DISQUALIFIER_RX.test(text5)) return false;
   return true;
 }
 function contextWindowV32(messages, index, before = 3, after = 1) {
@@ -2164,6 +2167,10 @@ var CROSS_SCRIPT_SEED = /* @__PURE__ */ new Map([
   ["\u062C\u0627\u0633\u062A\u0631\u0648 \u0628\u064A\u0648\u062A\u064A\u0643", "gastrobiotic"],
   ["\u062C\u0627\u0633\u062A\u0631\u0648\u0628\u064A\u0648\u062A\u0643", "gastrobiotic"]
 ]);
+var CROSS_SCRIPT_VARIANT_WORDS = /* @__PURE__ */ new Map([
+  ["\u0641\u0648\u0631\u062A", "forte"],
+  ["\u0641\u0648\u0631\u062A\u064A", "forte"]
+]);
 function confidenceForBasis(basis) {
   switch (basis) {
     case "exact_code":
@@ -2365,10 +2372,13 @@ function resolveProductMention(phrase, index, options = {}) {
     for (const [candidateNormalizedName, products] of index.byNormalizedName) {
       if (candidateNormalizedName.includes(latinNormalized)) sameTokenProducts.push(...products);
     }
-    const compatible = sameTokenProducts.filter(
+    const formCompatible = sameTokenProducts.filter(
       (product) => strengthsCompatible(normalized.strengths, product.strengths) && dosageFormsCompatible(normalized.dosageForms, product.dosageForms) && bareNumbersCompatible(phraseBareNumbers, product)
     );
-    const disambiguatedByForm = normalized.dosageForms.length > 0 && sameTokenProducts.length > 1 && compatible.length === 1;
+    const spokenVariants = Array.from(CROSS_SCRIPT_VARIANT_WORDS).filter(([arabic]) => new RegExp(`(?:^|\\s)${arabic}(?:\\s|$)`, "u").test(normalized.normalized)).map(([, latin]) => latin);
+    const variantCompatible = formCompatible.filter((product) => spokenVariants.every((latin) => product.normalizedNames.some((name) => name.split(" ").includes(latin))));
+    const compatible = variantCompatible.length > 0 ? variantCompatible : formCompatible;
+    const disambiguatedByForm = normalized.dosageForms.length > 0 && sameTokenProducts.length > 1 && formCompatible.length === 1;
     for (const product of compatible) {
       const clues = crossScriptCluesByProduct.get(product.productId) ?? /* @__PURE__ */ new Set();
       clues.add(arabicKey);
@@ -3064,6 +3074,23 @@ function buildCaseBaskets(caseId, scopedMessages, productIndex) {
               evidence: [...item.confidence.evidence, refFor(lastStaff, "\u0633\u0624\u0627\u0644 \u0635\u0631\u064A\u062D \u0639\u0646 \u062A\u0631\u0643\u064A\u0632 \u0627\u0644\u0635\u0646\u0641 \u0627\u0644\u0623\u062E\u064A\u0631."), refFor(message, "\u062C\u0648\u0627\u0628 \u0627\u0644\u062A\u0631\u0643\u064A\u0632 \u0645\u0631\u062A\u0628\u0637 \u0628\u0627\u0644\u0633\u0624\u0627\u0644\u061B \u0644\u0627 \u064A\u062D\u062F\u062F \u0643\u0645\u064A\u0629 \u0627\u0644\u0637\u0644\u0628.")]
             }
           });
+          sourceMessageIds.push(lastStaff.id, message.id);
+        }
+        return;
+      }
+      const proposedStrength = lastStaff?.text.trim().match(/^(?:ال)?تركيز\s*([\d٠-٩]+(?:\.[\d٠-٩]+)?)\s*(?:mg|مجم|ملجم)?\s*(?:صح|صحيح|مظبوط|مضبوط|مطبوط)?\s*[؟?]+$/iu);
+      if (proposedStrength && productIndex && lastStaff && inWindow(lastStaff.timestamp.getTime()) && prior.indexOf(lastStaff) === prior.length - 1 && /^(?:م[ظضط]+ب+و+[طظض]+|صح+|صحيح|ايو[هةا]|أيو[هةا]|اه|آه|نعم|تمام)[.!،\s]*$/u.test(message.text.trim())) {
+        const strength = proposedStrength[1].replace(/[٠-٩]/gu, (d) => String("\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669".indexOf(d)));
+        const fitting = [...items.entries()].filter(([, item]) => !item.productId && !/[\d٠-٩]/u.test(item.productNameRaw) && !resolveProductMention(item.productNameRaw, productIndex).selected && Boolean(resolveProductMention(`${item.productNameRaw} ${strength}`, productIndex).selected));
+        if (fitting.length === 1) {
+          const [key, item] = fitting[0];
+          const name = `${item.productNameRaw} ${strength}`;
+          items.delete(key);
+          items.set(normalizeProductKey(name), { ...item, productNameRaw: name, resolutionStatus: "partially_proven", confidence: {
+            ...item.confidence,
+            ruleIds: [...item.confidence.ruleIds, "basket.item.staff_strength_confirmed"],
+            evidence: [...item.confidence.evidence, refFor(lastStaff, "\u0633\u0624\u0627\u0644 \u0627\u0644\u0635\u064A\u062F\u0644\u064A \u0639\u0646 \u062A\u0631\u0643\u064A\u0632 \u0645\u062D\u062F\u062F."), refFor(message, "\u062A\u0623\u0643\u064A\u062F \u0627\u0644\u0639\u0645\u064A\u0644 \u0644\u0644\u062A\u0631\u0643\u064A\u0632 \u0627\u0644\u0645\u0642\u062A\u0631\u062D\u061B \u0627\u0644\u0643\u062A\u0627\u0644\u0648\u062C \u064A\u0637\u0627\u0628\u0642\u0647 \u0644\u0635\u0646\u0641 \u0648\u0627\u062D\u062F \u0641\u0642\u0637.")]
+          } });
           sourceMessageIds.push(lastStaff.id, message.id);
         }
         return;
@@ -8823,7 +8850,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v37-unnamed-quantity-tail";
+var PIPELINE_VERSION = "sales-intelligence-v38-confirmed-strength-courtesy";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v10-payment-continuation-ambiguity-safe",
   historicalClosure: "historical-closure-v1",

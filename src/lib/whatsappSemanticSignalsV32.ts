@@ -112,12 +112,17 @@ const STRONG_IMPLICIT_CONFIRMATION_RX =
 const WEAK_IMPLICIT_RX = /^(?:تمام|حاضر|اوك|ok|ماشي|خلاص)[!.، ]*$/i;
 
 const ACCEPTANCE_RX =
-  /^(?:تمام|ماشي|ايوا|ايوه|اه|آه|موافق|تمام\s*كده|خلاص\s*ابعت(?:ه|هم|يه|يهم)?)[!.، ]*$|(?:تمام|ايوا|ايوه|اه|آه)[،, ]*\s*(?:هطلبه|ابعت(?:ه|هم|يه|يهم)?|يبقى\s*كده)/i;
+  /^(?:تمام|ماشي|ايوا|ايوه|اه|آه|موافق|تمام\s*كده|خلاص\s*ابعت(?:ه|هم|يه|يهم)?)(?:\s*(?:(?:ان|إن)\s*شاء\s*الله|[اإ]نشاء\s*الله|[اإ]نشالله|ان\s*شالله))?[!.، ]*$|(?:تمام|ايوا|ايوه|اه|آه)[،, ]*\s*(?:هطلبه|ابعت(?:ه|هم|يه|يهم)?|يبقى\s*كده)/i;
 const REJECTION_RX = /^(?:لا|لأ)[!.، ]*$|مش\s*عايز(?:ه)?|معلش\s*مش\s*هاخد(?:ه|ها)?|مش\s*محتاج(?:ه)?/i;
 // Pure thanks/closing — carries no request content of its own, but (unlike a rejection) isn't a
 // "no" either. Kept separate so isRequestCandidate() can exclude it without touching REJECTION_RX.
 const THANKS_CLOSING_ONLY_RX =
-  /^(?:شكرًا|شكرا)(?:\s*لحضرتك)?[!.، ]*$|^لا\s*شكرا[!.، ]*$|^تسلم(?:ي|لي)?[!.، ]*$|^الله\s*يسلم(?:ك|ي)?[!.، ]*$|^وصل(?:ني|تلي)?[!.، ]*$/i;
+  /^(?:شكرًا|شكرا)(?:\s*لحضرتك)?[!.، ]*$|^لا\s*شكرا[!.، ]*$|^تسلم(?:ي|لي)?[!.، ]*$|^الله\s*يسلم(?:ك|ي)?[!.، ]*$|^وصل(?:ني|تلي)?[!.، ]*$|^(?:ربنا|الله)\s*(?:(?:و\s*)?(?:(?:يسعد|يخلي|يكرم|يحفظ)(?:ك|كي|كم|ي)?|يبارك\s*(?:في|ل)(?:ك|كي|كم|ي))(?:\s*(?:جميعا|جميعًا|كلكم|يا\s*رب|يارب))?[!.،\s🤲🙏❤️🌹🌷💙]*)+$/iu;
+
+// "الحمدلله الوالد اتحسن… خدمة التمريض ممتازة شكرا على متابعتكم": a satisfaction answer, not a need.
+// Any request verb, question, product word or complaint wording keeps the message a request.
+const SATISFACTION_FEEDBACK_RX = /(?:الحمد\s*لله|الحمدلله).*(?:شكرا|شكرًا|متشكر)\s*(?:على|ع)\s*(?:متابعت|اهتمام|سؤال)/u;
+const FEEDBACK_DISQUALIFIER_RX = /[؟?]|مش|لسه|مجاش|موصلش|غلط|تأخير|اتأخر|وجع|تعبان|بيسرب|(?:^|\s)و?(?:علب|شريط|دوا|كريم|ابعت|هات)/u;
 
 const CORRECTION_RX =
   /لا\s*قصدي|مش\s*ده(?:\s*اللي)?|ده\s*مش(?:\s*اللي)?|أنا\s*(?:أ|ا)قصد|لا\s*التاني\b|مش\s*كده|لا\s*حضرتك\s*فهمتني\s*غلط|أنا\s*قلت|فهمت\s*غلط/i;
@@ -130,7 +135,8 @@ const CORRECTION_RX =
 const QUANTITY_RX = /(\d+|واحد[ةه]?|اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?)\s*(علبة|علب|حبة|حبوب|شريط|عبوة|قطعة|كيس)/i;
 // Reference-aware quantity: "هات منه اتنين" / "عايز اتنين منه" — the quantity word is attached
 // to a pronoun reference rather than an explicit unit word.
-const REFERENCE_QUANTITY_RX = /(?:منه|من\s*ده|من\s*دا)\s*(اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?|\d+)|(\d+|اتنين|تلات[ةه]?)\s*منه/i;
+// "محتاجه واحد من دا" puts the count before the deictic.
+const REFERENCE_QUANTITY_RX = /(?:منه|من\s*ده|من\s*دا)\s*(اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?|\d+)|(\d+|واحد[ةه]?|اتنين|تلات[ةه]?)\s*(?:منه|من\s*(?:ده|دا))(?:\s|$|[.!،؟?])/i;
 
 const PHONE_RX = /01[0-2,5]\d{8}/;
 const ADDRESS_RX = /العنوان\s*[:\-]?\s*\S+|عنوانك|هيوصل\s*ل(?:ـ|حضرتك)/i;
@@ -376,6 +382,7 @@ export function isRequestCandidate(message: NormalizedConversationMessageV32): b
     return false;
   }
   if (isThanksOrClosingOnly(text)) return false;
+  if (SATISFACTION_FEEDBACK_RX.test(text) && !FEEDBACK_DISQUALIFIER_RX.test(text)) return false;
   return true;
 }
 

@@ -94,6 +94,10 @@ describe('selected conversation loader — one case, one window truth', () => {
     expect(rows.revenueCountable).toBe('لا');
     expect(rows.orderConfirmed).toBe('لا');
     expect(rows.outcome).toBe('تحتاج مراجعة بشرية');
+    // A stored analysis from an older engine says so and points to an explicit single-source refresh.
+    const stale = Object.fromEntries(describeCanonicalCaseSaleTruth({ ...b.canonicalTruth, pipelineVersion: 'sales-intelligence-v19' }).map((row) => [row.key, row.value]));
+    expect(stale.analysisVersion).toContain('تحليل قديم (V19)');
+    expect(stale.analysisVersion).toContain('أعد تحليل هذا المصدر وحده');
   });
 
   it('case C (other customer) has no sale proof and no invoice', async () => {

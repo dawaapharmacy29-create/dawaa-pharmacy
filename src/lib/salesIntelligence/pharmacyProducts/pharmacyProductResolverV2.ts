@@ -165,6 +165,12 @@ export const CROSS_SCRIPT_SEED: ReadonlyMap<string, string> = new Map([
   ['جاستروبيوتك', 'gastrobiotic'],
 ]);
 
+/** Spoken product-line variant words (whole words only) that narrow one seeded brand's SKUs. */
+const CROSS_SCRIPT_VARIANT_WORDS: ReadonlyMap<string, string> = new Map([
+  ['فورت', 'forte'],
+  ['فورتي', 'forte'],
+]);
+
 function confidenceForBasis(basis: ProductMatchBasis): ConfidenceLevel {
   switch (basis) {
     case 'exact_code':
@@ -417,14 +423,22 @@ export function resolveProductMention(
     for (const [candidateNormalizedName, products] of index.byNormalizedName) {
       if (candidateNormalizedName.includes(latinNormalized)) sameTokenProducts.push(...products);
     }
-    const compatible = sameTokenProducts.filter(
+    const formCompatible = sameTokenProducts.filter(
       (product) =>
         strengthsCompatible(normalized.strengths, product.strengths) &&
         dosageFormsCompatible(normalized.dosageForms, product.dosageForms) &&
         bareNumbersCompatible(phraseBareNumbers, product)
     );
+    // "بيدو كورت فورت" names the FORTE line explicitly: keep only same-brand SKUs that carry the
+    // spoken variant word. Without the word nothing is filtered (plain brand stays ambiguous).
+    const spokenVariants = Array.from(CROSS_SCRIPT_VARIANT_WORDS)
+      .filter(([arabic]) => new RegExp(`(?:^|\\s)${arabic}(?:\\s|$)`, 'u').test(normalized.normalized))
+      .map(([, latin]) => latin);
+    const variantCompatible = formCompatible.filter((product) =>
+      spokenVariants.every((latin) => product.normalizedNames.some((name) => name.split(' ').includes(latin))));
+    const compatible = variantCompatible.length > 0 ? variantCompatible : formCompatible;
     const disambiguatedByForm =
-      normalized.dosageForms.length > 0 && sameTokenProducts.length > 1 && compatible.length === 1;
+      normalized.dosageForms.length > 0 && sameTokenProducts.length > 1 && formCompatible.length === 1;
     for (const product of compatible) {
       const clues = crossScriptCluesByProduct.get(product.productId) ?? new Set<string>();
       clues.add(arabicKey);

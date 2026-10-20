@@ -401,7 +401,9 @@ export function CaseIntelligenceWorkspace({
           </div>
           <ul className="space-y-1 text-sm">
             {view.products.filter((p) => p.roles.includes('requested')).map((p) => (
-              <li key={p.productKey}>• {p.productNameRaw} — الكمية: {p.requestedQuantity ?? UNKNOWN_LABEL}</li>
+              <li key={p.productKey}>
+                • «{p.productNameRaw}»{p.productCode ? ` ← ${p.canonicalName ?? ''} (كود ${p.productCode})` : ' ← صنف غير محدد في الكتالوج'} — الكمية: {p.requestedQuantity ?? p.finalQuantity ?? UNKNOWN_LABEL}
+              </li>
             ))}
           </ul>
 
@@ -515,7 +517,11 @@ export function CaseIntelligenceWorkspace({
                   <Badge tone={status.tone}>{status.label}</Badge>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs">
+                  <Fact label="الصنف في الكتالوج">
+                    {p.productCode ? `${p.canonicalName ?? ''} • كود ${p.productCode}` : 'غير محدد — يحتاج مراجعة (لا يُستنتج من الصورة أو الاسم التقريبي)'}
+                  </Fact>
                   <Fact label="الكمية المذكورة في المحادثة">{p.requestedQuantity ?? UNKNOWN_LABEL}</Fact>
+                  <Fact label="الكمية في الطلب النهائي">{p.finalQuantity ?? UNKNOWN_LABEL}</Fact>
                   <Fact label="التوفر">{availabilityLabel(p.availability === 'unknown' ? null : p.availability)}</Fact>
                   <Fact label="البديل">{need?.alternatives.map((a) => a.productNameRaw || 'بديل غير مسمى').join('، ') || 'لا يوجد'}</Fact>
                   <Fact label="رد العميل">{p.alternativeResponses.length ? p.alternativeResponses.map((r) => alternativeResponseLabel(r)).join('، ') : '—'}</Fact>

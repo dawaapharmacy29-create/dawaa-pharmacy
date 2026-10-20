@@ -65,7 +65,10 @@
 // a request is not projected when the conversation's resolved staff evidence names another doctor.
 // v37: "عندكم X؟ عايز علبة واحدة." / "محتاج علبتين." — a quantity phrase naming no product takes the
 // product from the same message's explicit availability question (one need, not a whole-message item).
-export const PIPELINE_VERSION = 'sales-intelligence-v37-unnamed-quantity-tail';
+// v38: a doctor-proposed strength the customer affirms ("تركيز 550 صح؟" / "مطبووط") qualifies the one
+// item the catalog proves; satisfaction answers and blessings are not requests; "اه إنشاء الله" is an
+// answer that keeps its interaction; "فورت" narrows a seeded brand to its FORTE SKUs.
+export const PIPELINE_VERSION = 'sales-intelligence-v38-confirmed-strength-courtesy';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v10-payment-continuation-ambiguity-safe',

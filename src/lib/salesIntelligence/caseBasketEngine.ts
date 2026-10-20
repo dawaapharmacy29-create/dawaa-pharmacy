@@ -910,6 +910,29 @@ export function buildCaseBaskets(
         }
         return;
       }
+      // "تركيز 550 صح؟" → "مطبوط": the doctor proposed one strength and the customer affirmed it.
+      // It qualifies an open item only when the catalog proves exactly one of them has that
+      // strength; two fitting items (or none) leave every item unchanged for review.
+      const proposedStrength = lastStaff?.text.trim().match(/^(?:ال)?تركيز\s*([\d٠-٩]+(?:\.[\d٠-٩]+)?)\s*(?:mg|مجم|ملجم)?\s*(?:صح|صحيح|مظبوط|مضبوط|مطبوط)?\s*[؟?]+$/iu);
+      if (proposedStrength && productIndex && lastStaff && inWindow(lastStaff.timestamp.getTime()) &&
+          prior.indexOf(lastStaff) === prior.length - 1 &&
+          /^(?:م[ظضط]+ب+و+[طظض]+|صح+|صحيح|ايو[هةا]|أيو[هةا]|اه|آه|نعم|تمام)[.!،\s]*$/u.test(message.text.trim())) {
+        const strength = proposedStrength[1].replace(/[٠-٩]/gu, d => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
+        const fitting = [...items.entries()].filter(([, item]) => !item.productId && !/[\d٠-٩]/u.test(item.productNameRaw) &&
+          !resolveProductMention(item.productNameRaw, productIndex).selected &&
+          Boolean(resolveProductMention(`${item.productNameRaw} ${strength}`, productIndex).selected));
+        if (fitting.length === 1) {
+          const [key, item] = fitting[0];
+          const name = `${item.productNameRaw} ${strength}`;
+          items.delete(key);
+          items.set(normalizeProductKey(name), { ...item, productNameRaw: name, resolutionStatus: 'partially_proven', confidence: {
+            ...item.confidence, ruleIds: [...item.confidence.ruleIds, 'basket.item.staff_strength_confirmed'],
+            evidence: [...item.confidence.evidence, refFor(lastStaff, 'سؤال الصيدلي عن تركيز محدد.'), refFor(message, 'تأكيد العميل للتركيز المقترح؛ الكتالوج يطابقه لصنف واحد فقط.')],
+          } });
+          sourceMessageIds.push(lastStaff.id, message.id);
+        }
+        return;
+      }
     }
     if (isFinalBasketSummary(message)) {
       if (!hasOpenBasket) startNewVersion(new Map(), 'draft');
