@@ -507,7 +507,7 @@ export function parseWhatsAppExport(text: string, options: WhatsAppParseOptions 
   return rebaseTextTimelineToTrustedStart(parseTextExport(text), options.trustedConversationStartedAt);
 }
 
-export function extractIntroducedStaffName(message: WhatsAppParsedMessage): string | null {
+export function extractIntroducedStaffName(message: Pick<WhatsAppParsedMessage, 'direction' | 'text'>): string | null {
   if (message.direction !== 'outbound') return null;
   for (const pattern of STAFF_INTRO_PATTERNS) {
     const match = message.text.match(pattern);
