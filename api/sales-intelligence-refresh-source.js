@@ -1842,11 +1842,11 @@ var NURSING_VISIT_REQUEST_RX = /(?:ممكن|لو سمحت|عايز|عاوز|مح
 var NURSING_SERVICE_CHASE_RX = /(?:شوفه\s+تاني|كلم\s+الممرض|هكلم\s+الممرض|فين\s+الممرض|الممرض\s+فين|الممرض\s+مجاش|التمريض\s+مجاش|مجاش\s+لسه)/iu;
 var EXPLICIT_MEDICINE_REQUEST_RX = /(?:علب(?:ة|تين|ات)?|شريط|روشتة|روشته|أقراص|اقراص|حبوب|دواء|دواءين|شراب|كبسولات|امبولات|امبول|فيال)/iu;
 function serviceOnlyIntent(messages, previousServiceRequestAt) {
-  const customerMessages = messages.filter((message) => message.role === "customer");
-  const customerText = customerMessages.map((message) => message.text).join(" ");
+  const customerMessages2 = messages.filter((message) => message.role === "customer");
+  const customerText = customerMessages2.map((message) => message.text).join(" ");
   if (!customerText || EXPLICIT_MEDICINE_REQUEST_RX.test(customerText)) return null;
   if (NURSING_VISIT_REQUEST_RX.test(customerText)) return "nursing_visit";
-  const firstTime = customerMessages[0]?.timestamp.getTime() ?? NaN;
+  const firstTime = customerMessages2[0]?.timestamp.getTime() ?? NaN;
   const lastServiceWithinThreeHours = previousServiceRequestAt != null && Number.isFinite(firstTime) && firstTime >= previousServiceRequestAt && firstTime - previousServiceRequestAt <= 3 * 60 * 60 * 1e3;
   return lastServiceWithinThreeHours && NURSING_SERVICE_CHASE_RX.test(customerText) ? "nursing_chase" : null;
 }
@@ -1891,9 +1891,7 @@ function deriveCaseForInteraction(understanding, interaction, input, previousSer
     score = 0.9;
     needsHumanReview = true;
     humanReviewReasons.push("noncommercial_nursing_service_requires_review");
-    ruleIds.push(
-      serviceIntent === "nursing_visit" ? "case.classification.nursing_visit_service_not_sale" : "case.classification.nursing_chase_service_not_sale"
-    );
+    ruleIds.push(serviceIntent === "nursing_visit" ? "case.classification.nursing_visit_service_not_sale" : "case.classification.nursing_chase_service_not_sale");
   }
   let level = serviceIntent ? "strongly_inferred" : hasRequest ? hasCommercialSignal ? "strongly_inferred" : "weakly_inferred" : "proven";
   const explicitCommercialJourney = hasRequest && hasCommercialSignal && acceptanceSignals.length > 0 && confirmationSignals.length > 0 && rejectionSignals.length === 0;
