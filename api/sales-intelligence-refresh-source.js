@@ -8884,9 +8884,9 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v38-confirmed-strength-courtesy";
+var PIPELINE_VERSION = "sales-intelligence-v39-nursing-service-review";
 var ENGINE_VERSIONS = {
-  caseSegmentation: "case-segmentation-v10-payment-continuation-ambiguity-safe",
+  caseSegmentation: "case-segmentation-v11-nursing-service-review",
   historicalClosure: "historical-closure-v1",
   commercialConfirmation: "commercial-confirmation-v6-compact-total-interstitial-ack-safe",
   protocolApplicability: "protocol-applicability-v1",
