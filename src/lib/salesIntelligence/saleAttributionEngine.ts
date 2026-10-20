@@ -227,7 +227,9 @@ function normalizeCustomerNameForInvoiceMatch(value: string | null | undefined):
   return String(value ?? '')
     .trim()
     .toLowerCase()
-    .replace(/^(?:الحاج(?:ة)?|السيد(?:ة)?|استاذ(?:ة)?|الأستاذ(?:ة)?|الاستاذ(?:ة)?)\s+/i, '')
+    // Invoice/customer display names may carry honorifics, but matching still requires
+    // the complete remaining name AND exact pharmacy code, time, branch and invoice lines.
+    .replace(/^(?:(?:د|دكتور|الدكتور|دكتورة|الدكتورة|دكتوره|الدكتوره|الحاج(?:ة)?|السيد(?:ة)?|استاذ(?:ة)?|الأستاذ(?:ة)?|الاستاذ(?:ة)?)(?:\s*[/.-]\s*|\s+))+/i, '')
     .replace(/[أإآ]/g, 'ا')
     .replace(/ى/g, 'ي')
     .replace(/ة/g, 'ه')
