@@ -82,10 +82,35 @@ function hasUnresolvedMultipleRequests(
   return false;
 }
 
+// A non-drug nursing visit is an operational service need, not a medicine-sale lead.
+// This guard is deliberately narrow; unclear product/service combinations retain the
+// ordinary commercial path and are reviewed rather than being quietly suppressed.
+const NURSING_VISIT_REQUEST_RX = /(?:ممكن|لو سمحت|عايز|عاوز|محتاج|ابعت|ابعث|تبعت|تبعث|هات|حد).{0,100}(?:التمريض|مالتمريض|ممرض(?:ة)?)/iu;
+const NURSING_SERVICE_CHASE_RX = /(?:شوفه\s+تاني|كلم\s+الممرض|هكلم\s+الممرض|فين\s+الممرض|الممرض\s+فين|الممرض\s+مجاش|التمريض\s+مجاش|مجاش\s+لسه)/iu;
+const EXPLICIT_MEDICINE_REQUEST_RX = /(?:علب(?:ة|تين|ات)?|شريط|روشتة|روشته|أقراص|اقراص|حبوب|دواء|دواءين|شراب|كبسولات|امبولات|امبول|فيال)/iu;
+
+function serviceOnlyIntent(
+  messages: NormalizedConversationMessageV32[],
+  previousServiceRequestAt: number | null
+): 'nursing_visit' | 'nursing_chase' | null {
+  const customerMessages = messages.filter((message) => message.role === 'customer');
+  const customerText = customerMessages.map((message) => message.text).join(' ');
+  if (!customerText || EXPLICIT_MEDICINE_REQUEST_RX.test(customerText)) return null;
+  if (NURSING_VISIT_REQUEST_RX.test(customerText)) return 'nursing_visit';
+  const firstTime = customerMessages[0]?.timestamp.getTime() ?? NaN;
+  const lastServiceWithinThreeHours = previousServiceRequestAt != null &&
+    Number.isFinite(firstTime) && firstTime >= previousServiceRequestAt &&
+    firstTime - previousServiceRequestAt <= 3 * 60 * 60 * 1000;
+  return lastServiceWithinThreeHours && NURSING_SERVICE_CHASE_RX.test(customerText)
+    ? 'nursing_chase'
+    : null;
+}
+
 function deriveCaseForInteraction(
   understanding: ConversationUnderstandingV32,
   interaction: ConversationInteractionV32,
-  input: DeriveConversationCasesInput
+  input: DeriveConversationCasesInput,
+  previousServiceRequestAt: number | null
 ): ConversationCase {
   const messages = messagesForInteraction(understanding, interaction);
   const requestSignals = extractRequestSignals(messages);
@@ -98,6 +123,7 @@ function deriveCaseForInteraction(
   const productReferenceSignals = extractProductReferenceSignals(messages).filter((s) => s.extractedValue !== 'unknown');
   const acceptanceSignals = extractAcceptanceSignals(messages);
   const rejectionSignals = extractRejectionSignals(messages);
+  const serviceIntent = serviceOnlyIntent(messages, previousServiceRequestAt);
 
   const hasRequest = requestSignals.length > 0;
   const hasCommercialSignal =
@@ -129,7 +155,19 @@ function deriveCaseForInteraction(
 
   let needsHumanReview = false;
   const humanReviewReasons: string[] = [];
-  let level: ConfidenceLevel = hasRequest ? (hasCommercialSignal ? 'strongly_inferred' : 'weakly_inferred') : 'proven';
+  if (serviceIntent) {
+    // Reuse the existing non-commercial follow-up case type. No new enum, migration,
+    // fake invoice, new job or automatic service fulfillment is inferred here.
+    caseType = 'follow_up';
+    status = 'unknown';
+    score = 0.9;
+    needsHumanReview = true;
+    humanReviewReasons.push('noncommercial_nursing_service_requires_review');
+    ruleIds.push(serviceIntent === 'nursing_visit'
+      ? 'case.classification.nursing_visit_service_not_sale'
+      : 'case.classification.nursing_chase_service_not_sale');
+  }
+  let level: ConfidenceLevel = serviceIntent ? 'strongly_inferred' : hasRequest ? (hasCommercialSignal ? 'strongly_inferred' : 'weakly_inferred') : 'proven';
 
   // Classification certainty can be 100% only when the conversation itself contains a complete,
   // explicit commercial journey: a real request + product/commercial evidence + explicit customer
@@ -142,13 +180,13 @@ function deriveCaseForInteraction(
     confirmationSignals.length > 0 &&
     rejectionSignals.length === 0;
 
-  if (explicitCommercialJourney) {
+  if (explicitCommercialJourney && !serviceIntent) {
     level = 'proven';
     score = 1;
     ruleIds.push('case.classification.explicit_commercial_journey');
   }
 
-  if (hasUnresolvedMultipleRequests(messages, requestMessages)) {
+  if (!serviceIntent && hasUnresolvedMultipleRequests(messages, requestMessages)) {
     // This is not one confidently scoped sale opportunity anymore: two independent customer
     // requests are still inside the same analytical interaction. Keep the legacy reason for QA
     // compatibility, plus a durable safety reason that payment settlement must never suppress.
@@ -218,5 +256,19 @@ function deriveCaseForInteraction(
  * derives one ConversationCase per V32 interaction (never merges/splits interactions itself).
  */
 export function deriveConversationCases(input: DeriveConversationCasesInput): ConversationCase[] {
-  return input.understanding.interactions.map((interaction) => deriveCaseForInteraction(input.understanding, interaction, input));
+  let previousServiceRequestAt: number | null = null;
+  const cases: ConversationCase[] = [];
+  for (const interaction of input.understanding.interactions) {
+    const messages = messagesForInteraction(input.understanding, interaction);
+    const serviceIntent = serviceOnlyIntent(messages, previousServiceRequestAt);
+    const current = deriveCaseForInteraction(input.understanding, interaction, input, previousServiceRequestAt);
+    cases.push(current);
+    if (serviceIntent === 'nursing_visit' || serviceIntent === 'nursing_chase') {
+      previousServiceRequestAt = new Date(current.endedAt).getTime();
+    } else if (current.caseType === 'sales_opportunity' || current.caseType === 'mixed') {
+      // A separate commercial journey ends contextual nursing-chase inference.
+      previousServiceRequestAt = null;
+    }
+  }
+  return cases;
 }
