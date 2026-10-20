@@ -2,10 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-// Isolated layout preview must never initialize a live Supabase client,
-// even when the Vercel project has globally scoped Preview env variables.
-const visualPreview = import.meta.env.VITE_DAWAA_ATTENDANCE_DRAWER_DEMO === '1';
-const hasSupabaseConfig = !visualPreview && Boolean(supabaseUrl && supabaseAnonKey);
+const hasSupabaseConfig = Boolean(supabaseUrl && supabaseAnonKey);
 const AUTH_STORAGE_KEY = 'dawaa_auth_user_v2';
 // Owned here (not in auth/staffSession) so the fetch wrapper has no circular import.
 export const STAFF_SESSION_STORAGE_KEY = 'dawaa_staff_session_token_v1';
