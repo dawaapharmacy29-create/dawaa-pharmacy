@@ -3511,7 +3511,7 @@ function getInvoiceCustomerName(row) {
   return cleanText2(firstValue2(row, ["customer_name"])) || null;
 }
 function normalizeCustomerNameForInvoiceMatch(value) {
-  return String(value ?? "").trim().toLowerCase().replace(/^(?:الحاج(?:ة)?|السيد(?:ة)?|استاذ(?:ة)?|الأستاذ(?:ة)?|الاستاذ(?:ة)?)\s+/i, "").replace(/[أإآ]/g, "\u0627").replace(/ى/g, "\u064A").replace(/ة/g, "\u0647").replace(/[\u064B-\u065F]/g, "").replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+  return String(value ?? "").trim().toLowerCase().replace(/^(?:(?:د|دكتور|الدكتور|دكتورة|الدكتورة|دكتوره|الدكتوره|الحاج(?:ة)?|السيد(?:ة)?|استاذ(?:ة)?|الأستاذ(?:ة)?|الاستاذ(?:ة)?)(?:\s*[/.-]\s*|\s+))+/i, "").replace(/[أإآ]/g, "\u0627").replace(/ى/g, "\u064A").replace(/ة/g, "\u0647").replace(/[\u064B-\u065F]/g, "").replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
 }
 function getInvoiceStaffId(row, resolveInvoiceStaffIdByName) {
   const staffId = cleanText2(firstValue2(row, ["staff_id"]));
