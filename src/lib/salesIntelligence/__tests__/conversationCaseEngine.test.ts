@@ -91,6 +91,18 @@ describe('ConversationCase Engine (Sales Intelligence Phase B.1) — Golden Case
     expect(analysis.operationalDisposition?.state).toBe('open_unknown');
   });
 
+  it('a medicine order plus nursing service never disappears into the service-only category', () => {
+    const raw = '[9/28/26, 2:17:35 AM] Customer: عايز علبتين كولونا وممكن تبعت حد من التمريض';
+    const cases = deriveConversationCases({ understanding: understandingFor(raw), conversationId: 'medicine-and-service' });
+    expect(cases[0].caseType).not.toBe('follow_up');
+  });
+
+  it('an unrelated vague message cannot invent an earlier nursing obligation', () => {
+    const raw = '[9/28/26, 2:17:35 AM] Customer: دكتور معلش شوفه تاني كده';
+    const cases = deriveConversationCases({ understanding: understandingFor(raw), conversationId: 'no-context' });
+    expect(cases[0].caseType).not.toBe('follow_up');
+  });
+
   it('5. two distinct customer requests with no staff reply between them are flagged for human review, not silently merged', () => {
     const raw = `[9/15/26, 9:00:00 AM] Customer: عايز فيتامين د
 [9/15/26, 9:00:30 AM] Customer: وعايز كمان شامبو للشعر`;
