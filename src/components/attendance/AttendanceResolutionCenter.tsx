@@ -673,7 +673,7 @@ export default function AttendanceResolutionCenter({
         toast.error('تعذر التأكد من الأذونات السابقة؛ لا يمكن إنشاء إذن مكرر قبل استكمال الفحص.');
         return;
       }
-      const validClock = /^([01]\\d|2[0-3]):[0-5]\\d$/;
+      const validClock = /^([01]\d|2[0-3]):[0-5]\d$/;
       if (!validClock.test(permissionStart) || !validClock.test(permissionEnd) || permissionEnd <= permissionStart || !note.trim()) {
         toast.warning('حدد بداية ونهاية الإذن في نفس اليوم، واكتب سببًا واضحًا قبل الحفظ.');
         return;
