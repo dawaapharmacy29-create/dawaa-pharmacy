@@ -31,9 +31,20 @@ try {
       status text,attendance_type text,created_at timestamptz
     );
     create table public.test_branch_schedule(staff_id uuid,work_day date,branch text);
+    -- Synthetic session gate: no real auth tokens, crypto or remote connection.
+    -- The production function hashes opaque staff session tokens before matching.
+    create table public.staff_login_sessions(
+      staff_account_id uuid, token_hash text, expires_at timestamptz, revoked_at timestamptz
+    );
+    create function public.dawaa_session_account_id_v1()
+      returns uuid language sql stable security definer as $$
+      select s.staff_account_id from public.staff_login_sessions s
+      where s.token_hash = (current_setting('request.headers',true)::jsonb ->> 'x-dawaa-session-token')
+        and s.revoked_at is null and s.expires_at > now()
+      limit 1 $$;
     create function public.dawaa_current_staff_account_id_strict()
-      returns uuid language sql stable as $$
-      select '00000000-0000-0000-0000-000000000099'::uuid $$;
+      returns uuid language sql stable security definer as $$
+      select public.dawaa_session_account_id_v1() $$;
     create function public.dawaa_can_read_staff_attendance_log(uuid,text)
       returns boolean language sql stable as $$select true$$;
     create function public.dawaa_fingerprint_effective_time_v1(text,jsonb,timestamptz)
@@ -51,6 +62,9 @@ try {
 
     insert into public.staff_accounts values
       ('00000000-0000-0000-0000-000000000099',true,true);
+    insert into public.staff_login_sessions values
+      ('00000000-0000-0000-0000-000000000099','synthetic-valid-session',
+        now()+interval '1 day',null);
     insert into public.staff values
       ('00000000-0000-0000-0000-000000000001','Night pharmacist','pharmacist','فرع الشامي'),
       ('00000000-0000-0000-0000-000000000002','Second person','pharmacist','فرع شكري');
@@ -86,6 +100,36 @@ try {
   `)).rows[0];
   assert.equal(permissions.anon,false,'anonymous role may not call security-definer report');
   assert.equal(permissions.authenticated,true,'authenticated users must still pass per-employee RPC authorization');
+
+  // Replay the small final migration from this PR after the historical revoke.
+  await db.exec(readFileSync(path.join(root,
+    'supabase/migrations/20261020071000_cross_branch_v3_staff_session_acl_v1.sql'), 'utf8'));
+  const restored = (await db.query(`
+    select has_function_privilege('anon',
+      'public.list_cross_branch_biometric_events_v3(date,date,text,integer)', 'EXECUTE') as anon
+  `)).rows[0];
+  assert.equal(restored.anon,true,'the browser uses anon transport with its verified staff token');
+
+  // A bare anonymous request has the EXECUTE privilege, but MUST fail the
+  // function's active staff-session authorization before returning any row.
+  await db.exec('SET ROLE anon');
+  let failedClosed = false;
+  try {
+    await db.query(`
+      select * from public.list_cross_branch_biometric_events_v3(
+        '2026-10-19'::date,'2026-10-19'::date,null,20)
+    `);
+  } catch (error) {
+    failedClosed = /active staff actor required/.test(String(error));
+  } finally {
+    await db.exec('RESET ROLE');
+  }
+  assert.equal(failedClosed,true,'RPC must deny anon requests without a verified staff session');
+
+  await db.query(`
+    select set_config('request.headers',
+      '{"x-dawaa-session-token":"synthetic-valid-session"}',false)
+  `);
   const query = async (statement) => (await db.query(statement)).rows;
   const rows = await query(`
     select staff_id::text,staff_name,home_branch,expected_branch,punch_branch,
@@ -119,7 +163,7 @@ try {
     select count(*)::int as n from public.staff_attendance_logs
   `);
   assert.equal(count.n,2,'read-only RPC must not mutate accepted attendance');
-  console.log('PASS: cross-branch v3 uses canonical night-shift day, accepted status, safe fallback, and no automatic code-based identity');
+  console.log('PASS: cross-branch v3 protects bare anon, accepts verified staff sessions, routes night shifts and never joins identity by code alone');
 } finally {
   await db.close();
 }

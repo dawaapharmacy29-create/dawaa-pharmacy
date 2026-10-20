@@ -5,6 +5,7 @@ on:
     paths:
       - 'supabase/migrations/20261020070000_cross_branch_biometric_workday_v3.sql'
       - 'supabase/migrations/20261020070001_cross_branch_v3_explicit_anon_revoke.sql'
+      - 'supabase/migrations/20261020071000_cross_branch_v3_staff_session_acl_v1.sql'
       - 'scripts/staging/test-cross-branch-workday-pglite.mjs'
       - '.github/workflows/attendance-cross-branch-pglite.yml'
       - 'src/components/attendance/CrossBranchPunchesPanel.tsx'
