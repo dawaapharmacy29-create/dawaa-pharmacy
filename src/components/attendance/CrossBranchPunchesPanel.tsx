@@ -238,10 +238,12 @@ export default function CrossBranchPunchesPanel({
       <h3 className="mb-1 font-black text-[var(--dawaa-theme-heading)]">ملخص الموظف حسب يوم الشيفت</h3>
       <p className="mb-3 text-xs text-[var(--dawaa-theme-muted)]">تجميع البصمات على نفس الموظف واليوم والفرع؛ لا نعتبر تعدد الأجهزة حضورًا مكررًا.</p>
       <div className="grid gap-2 lg:grid-cols-2">
-        {dayGroups.slice(0,40).map((day) => <div key={day.staffId+'|'+day.attendanceDate+'|'+day.actual}
-          className="rounded-xl border border-[var(--dawaa-theme-border)] p-3 text-xs">
+        {dayGroups.slice(0,40).map((day) => <button type="button" key={day.staffId+'|'+day.attendanceDate+'|'+day.actual}
+          onClick={() => setProfileStaffId(day.staffId)}
+          aria-label={`عرض تفاصيل ${day.name} ليوم ${day.attendanceDate}`}
+          className="block w-full cursor-pointer rounded-xl border border-[var(--dawaa-theme-border)] p-3 text-right text-xs transition-colors hover:bg-[var(--dawaa-theme-surface-2)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--dawaa-theme-accent)]">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <button className="font-black text-[var(--dawaa-theme-heading)] hover:underline" onClick={() => setProfileStaffId(day.staffId)}>{day.name}</button>
+            <span className="font-black text-[var(--dawaa-theme-heading)]">{day.name}</span>
             <span className="font-bold">{day.attendanceDate}</span>
           </div>
           <p className="mt-1 font-bold">{day.expected || 'فرع غير محدد'} ← {day.actual}</p>
@@ -251,7 +253,7 @@ export default function CrossBranchPunchesPanel({
           {(day.uncertain || day.accepted !== day.events) && <p className="mt-2 font-bold text-[var(--dawaa-status-warning-text)]">
             {day.uncertain ? 'يحتاج التأكد من جدول اليوم أو ربطه بسجل الحضور' : 'توجد بصمة غير مقبولة تحتاج مراجعة'}
           </p>}
-        </div>)}
+        </button>)}
       </div>
       {dayGroups.length > 40 && <p className="mt-2 text-xs text-[var(--dawaa-theme-muted)]">تم عرض أول 40 مجموعة؛ استخدم البحث أو قلّل الفترة لعرض الباقي.</p>}
     </section>}
@@ -271,9 +273,14 @@ export default function CrossBranchPunchesPanel({
           <th className="p-3">الجهاز</th>
         </tr></thead>
         <tbody>
-          {visible.map((row, index) => <tr key={`${row.staff_id}-${row.punch_time}-${index}`} className="border-t border-[var(--dawaa-theme-divider)] bg-[var(--dawaa-status-info-bg)]/20">
+          {visible.map((row, index) => <tr key={`${row.staff_id}-${row.punch_time}-${index}`}
+            role="button" tabIndex={0}
+            aria-label={`عرض تفاصيل ${row.staff_name} يوم ${row.attendance_date}`}
+            onClick={() => setProfileStaffId(row.staff_id)}
+            onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setProfileStaffId(row.staff_id); } }}
+            className="cursor-pointer border-t border-[var(--dawaa-theme-divider)] bg-[var(--dawaa-status-info-bg)]/20 transition-colors hover:bg-[var(--dawaa-theme-surface-2)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--dawaa-theme-accent)]">
             <td className="p-3">
-              <button onClick={() => setProfileStaffId(row.staff_id)} className="font-black text-[var(--dawaa-theme-heading)] hover:underline">{row.staff_name}</button>
+              <span className="font-black text-[var(--dawaa-theme-heading)]">{row.staff_name}</span>
               <div className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{row.role || '-'}</div>
             </td>
             <td className="p-3 font-bold">{row.home_branch || '-'}</td>

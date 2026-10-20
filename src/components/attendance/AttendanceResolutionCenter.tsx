@@ -19,6 +19,7 @@ import {
   type MissingPunchHistoryRowV1,
 } from '@/lib/attendance/attendanceResolutionService';
 import EmployeeProfileDrawer from '@/components/attendance/EmployeeProfileDrawer';
+import { cairoToday, startOfMonth } from '@/lib/attendance/period';
 import AttendanceCorrectionReviewPanel from '@/components/attendance/AttendanceCorrectionReviewPanel';
 import {
   approveAttendanceFullDayTimeOffV1,
@@ -149,13 +150,17 @@ export default function AttendanceResolutionCenter({
   defaultBranch = 'الكل',
   initialDate = null,
   initialTriage = 'manager',
+  initialStaffId = null,
+  initialCurrentCycle = false,
 }: {
   defaultBranch?: string;
   initialDate?: string | null;
   initialTriage?: 'all' | 'manager' | 'system';
+  initialStaffId?: string | null;
+  initialCurrentCycle?: boolean;
 }) {
-  const [start, setStart] = useState(() => initialDate || cairoDate(-7));
-  const [end, setEnd] = useState(() => initialDate || cairoDate());
+  const [start, setStart] = useState(() => initialCurrentCycle ? startOfMonth(cairoToday()) : initialDate || cairoDate(-7));
+  const [end, setEnd] = useState(() => initialCurrentCycle ? cairoToday() : initialDate || cairoDate());
   const [branch, setBranch] = useState(defaultBranch || 'الكل');
   const [lane, setLane] = useState<'all' | AttendanceExceptionLane>(initialTriage);
   const [rows, setRows] = useState<AttendanceExceptionRow[]>([]);
@@ -199,10 +204,18 @@ export default function AttendanceResolutionCenter({
 
   useEffect(() => {
     setLane(initialTriage);
+    if (initialCurrentCycle) {
+      setStart(startOfMonth(cairoToday()));
+      setEnd(cairoToday());
+      setBranch('الكل');
+      setLane('all');
+      setCategoryTab('all');
+      return;
+    }
     if (!initialDate) return;
     setStart(initialDate);
     setEnd(initialDate);
-  }, [initialDate, initialTriage]);
+  }, [initialDate, initialTriage, initialCurrentCycle, initialStaffId]);
 
   // Only the latest load may write: a slower response for previous dates or branch never overwrites a newer one.
   const loadGeneration = useRef(0);
@@ -358,10 +371,15 @@ export default function AttendanceResolutionCenter({
     return () => { active = false; };
   }, [reason, selected]);
 
-  const formerRows = useMemo(() => rows.filter(isFormerAttendanceReviewRow), [rows]);
+  const scopedRows = useMemo(() => initialStaffId
+    ? rows.filter((row) => row.staff_id === initialStaffId && (!initialCurrentCycle || (
+      row.attendance_date >= startOfMonth(cairoToday()) && row.attendance_date <= cairoToday()
+    )))
+    : rows, [rows, initialStaffId, initialCurrentCycle]);
+  const formerRows = useMemo(() => scopedRows.filter(isFormerAttendanceReviewRow), [scopedRows]);
   const baseRows = useMemo(
-    () => showFormer ? rows : rows.filter((row) => !isFormerAttendanceReviewRow(row)),
-    [rows, showFormer]
+    () => showFormer || initialStaffId ? scopedRows : scopedRows.filter((row) => !isFormerAttendanceReviewRow(row)),
+    [scopedRows, showFormer, initialStaffId]
   );
   const priorityCounts = useMemo(() => ({
     p1: baseRows.filter((row) => row.queue_lane === 'manager' && row.priority_code === 'P1').length,
@@ -773,15 +791,18 @@ export default function AttendanceResolutionCenter({
             <p className="mt-1 text-xs font-bold leading-5 text-[var(--dawaa-theme-muted)]">
               الموظف السليم لا يظهر هنا. نفصل قرار المدير عن مشكلة النظام، ومشكلة النظام لا تتحول تلقائيًا إلى مخالفة أو خصم.
             </p>
+            {initialStaffId && <p role="status" className="mt-2 rounded-lg border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] px-3 py-2 text-xs font-bold text-[var(--dawaa-status-info-text)]">
+              مراجعات الموظف المحدد فقط · {initialCurrentCycle ? 'الدورة الحالية 26 → 25 حتى اليوم' : 'الفترة المختارة'} · قرارات المدير ومشاكل النظام
+            </p>}
           </div>
 
           <label className="text-xs font-black text-[var(--dawaa-theme-muted)]">
             من
-            <input type="date" value={start} onChange={(e) => setStart(e.target.value)} className="input-dark mt-1 block" />
+            <input type="date" value={start} onChange={(e) => setStart(e.target.value)} disabled={initialCurrentCycle} className="input-dark mt-1 block" />
           </label>
           <label className="text-xs font-black text-[var(--dawaa-theme-muted)]">
             إلى
-            <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} className="input-dark mt-1 block" />
+            <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} disabled={initialCurrentCycle} className="input-dark mt-1 block" />
           </label>
           <label className="text-xs font-black text-[var(--dawaa-theme-muted)]">
             المسار
@@ -794,18 +815,19 @@ export default function AttendanceResolutionCenter({
           <button onClick={() => void load()} className="btn-secondary">
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> تحديث
           </button>
-          <button onClick={() => void runMaterialization()} disabled={materializing} className="btn-primary">
+          {!initialStaffId && <button onClick={() => void runMaterialization()} disabled={materializing} className="btn-primary">
             <ShieldCheck size={16} className={materializing ? 'animate-pulse' : ''} /> تحديث حقيقة الحضور
-          </button>
+          </button>}
         </div>
 
-        <input value={branch} onChange={(e) => setBranch(e.target.value)} className="input-dark mt-3 max-w-xs" placeholder="الفرع أو الكل" />
+        <input value={branch} onChange={(e) => setBranch(e.target.value)} disabled={!!initialStaffId}
+          className="input-dark mt-3 max-w-xs" placeholder="الفرع أو الكل" />
 
-        <label className="mt-3 flex items-center gap-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">
+        {!initialStaffId && <label className="mt-3 flex items-center gap-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">
           <input type="checkbox" checked={showFormer} onChange={(e) => setShowFormer(e.target.checked)} />
           إظهار الموظفين السابقين ({formerRows.length} يوم معلّق في النطاق الحالي)
-        </label>
-        {formerRows.length > 0 && !showFormer && <p className="mt-1 text-xs text-[var(--dawaa-theme-muted)]">أيام الموظفين السابقين محفوظة للمراجعة التاريخية، ولا تُلغى من جاهزية الرواتب بمجرد إخفائها هنا.</p>}
+        </label>}
+        {!initialStaffId && formerRows.length > 0 && !showFormer && <p className="mt-1 text-xs text-[var(--dawaa-theme-muted)]">أيام الموظفين السابقين محفوظة للمراجعة التاريخية، ولا تُلغى من جاهزية الرواتب بمجرد إخفائها هنا.</p>}
         <div className="mt-2 flex flex-wrap gap-2 text-[10px] font-black">
           <span className="rounded-full border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-2 py-1 text-[var(--dawaa-status-warning-text)]">P1 عاجل: {priorityCounts.p1.toLocaleString('ar-EG')}</span>
           <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-1 text-[var(--dawaa-theme-heading)]">P2: {priorityCounts.p2.toLocaleString('ar-EG')}</span>
