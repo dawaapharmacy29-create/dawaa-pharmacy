@@ -126,5 +126,7 @@ $function$;
 -- Minimize access to the new security-definer RPC. Explicit authorization is
 -- still enforced per caller and staff row inside the function.
 REVOKE ALL ON FUNCTION public.list_cross_branch_biometric_events_v3(date,date,text,integer) FROM PUBLIC;
+-- Supabase may explicitly grant anon in default function privileges; PUBLIC revoke alone is not sufficient.
+REVOKE ALL ON FUNCTION public.list_cross_branch_biometric_events_v3(date,date,text,integer) FROM anon;
 GRANT EXECUTE ON FUNCTION public.list_cross_branch_biometric_events_v3(date,date,text,integer) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.list_cross_branch_biometric_events_v3(date,date,text,integer) TO service_role;
