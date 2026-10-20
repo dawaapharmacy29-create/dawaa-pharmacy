@@ -110,6 +110,12 @@ describe('ConversationCase Engine (Sales Intelligence Phase B.1) — Golden Case
     expect(cases[0].caseType).not.toBe('follow_up');
   });
 
+  it('retains a bare medicine brand in an additive nursing request', () => {
+    const raw = '[9/28/26, 2:17:35 AM] Customer: عايز جاستروبيوتيك وكمان ممرض';
+    const cases = deriveConversationCases({ understanding: understandingFor(raw), conversationId: 'brand-and-service' });
+    expect(cases[0].caseType).not.toBe('follow_up');
+  });
+
   it('an unrelated vague message cannot invent an earlier nursing obligation', () => {
     const raw = '[9/28/26, 2:17:35 AM] Customer: دكتور معلش شوفه تاني كده';
     const cases = deriveConversationCases({ understanding: understandingFor(raw), conversationId: 'no-context' });
