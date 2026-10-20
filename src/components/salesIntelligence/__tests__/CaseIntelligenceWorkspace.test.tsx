@@ -224,7 +224,7 @@ describe('Case Intelligence Workspace (display only)', () => {
     expect(warning).toContain('تعذر تحميل بعض أدلة النظام');
   });
 
-  it('A4. candidate invoice lines are never exposed as product truth', () => {
+  it('A4. candidate invoice lines are shown only as separately labeled review evidence', () => {
     const view = persisted(analyze(SALE).caseIntelligence)!;
     const html = renderToStaticMarkup(createElement(CaseIntelligenceWorkspace, {
       view,
@@ -232,11 +232,17 @@ describe('Case Intelligence Workspace (display only)', () => {
       invoiceEvidence: {
         status: 'candidate',
         invoiceNumber: '74966',
-        items: [{ id: 'line-1', productName: 'SHOULD-NOT-RENDER', productCode: null, quantity: 1, unitName: null, netLineAmount: null }],
+        items: [{ id: 'line-1', productName: 'GASTROBIOTIC 550 MG', productCode: '78994', quantity: 1, unitName: null, netLineAmount: null }],
       },
     }));
     expect(html).toContain('candidate-invoice-products-blocked');
-    expect(html).not.toContain('SHOULD-NOT-RENDER');
+    expect(html).toContain('candidate-invoice-evidence-lines');
+    expect(html).toContain('GASTROBIOTIC 550 MG');
+    expect(html).toContain('78994');
+    expect(html).toContain('الكمية في الفاتورة:');
+    expect(html).toContain('لا تُستخدم لتفسير الصورة أو الفويس أو اعتماد بيع أو إسناد موظف');
+    expect(html).not.toContain('trusted-invoice-products');
+    expect(html).not.toContain('بيع مثبت بالفاتورة');
   });
 
   it('A5. unresolved media need can use only trusted invoice lines as execution reference', () => {
