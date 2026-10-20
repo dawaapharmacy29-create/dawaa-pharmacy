@@ -234,27 +234,27 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
             </div>
           </section>
           <section>
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2 font-black text-[var(--dawaa-theme-heading)]">
-              <span className="flex items-center gap-1.5"><Clock3 size={16} /> سجل البصمات المُعالجة — دليل مستقل</span>
-              <span className="text-xs font-bold text-[var(--dawaa-theme-muted)]">آخر {profile.processed_evidence.to} · {profile.processed_evidence.from} ←</span>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="flex items-center gap-1.5 text-sm font-black text-[var(--dawaa-theme-heading)]"><ShieldCheck size={16} /> دليل البصمات</h3>
+              <span className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">سجل مستقل · غير معتمد ماليًا</span>
             </div>
-            <p className="mb-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">
-              {profile.processed_evidence.accepted_punches} بصمة مقبولة · {profile.processed_evidence.accepted_days} يوم به بصمات ·
-              {profile.processed_evidence.complete_pair_days} يوم دخول وخروج ·
-              {profile.processed_evidence.summary_covered_days} يوم له ملخص حضور ·
-              {profile.processed_evidence.missing_summary_days} يوم بدون ملخص ·
-              {profile.processed_evidence.manual_review_punches} بصمة تحت الفحص.
-              القبول هنا يخص سجل الجهاز، وليس اعتماد الحضور أو ساعات المرتب.
-            </p>
-            <div className="max-h-72 space-y-1.5 overflow-y-auto">
+            <div className="mb-3 flex flex-wrap gap-x-3 gap-y-1 text-[11px] font-bold text-[var(--dawaa-theme-muted)]">
+              <span>{profile.processed_evidence.accepted_punches} بصمة مقبولة</span>
+              <span>{profile.processed_evidence.accepted_days} يوم</span>
+              <span>{profile.processed_evidence.complete_pair_days} دخول وخروج</span>
+              <span>{profile.processed_evidence.summary_covered_days} بملخص</span>
+              <span>{profile.processed_evidence.missing_summary_days} بدون ملخص</span>
+              {profile.processed_evidence.manual_review_punches > 0 && <span>{profile.processed_evidence.manual_review_punches} تحت المراجعة</span>}
+            </div>
+            <div className="space-y-2">
               {profile.processed_evidence.recent_days.map((d) => (
-                <div key={d.shift_date} className="rounded-lg border border-[var(--dawaa-theme-border)] p-2 text-xs">
+                <div key={d.shift_date} className="rounded-xl border border-[var(--dawaa-theme-border)] px-3 py-2.5 text-xs">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="font-black">{d.shift_date}</span>
-                    <span>{formatTime(d.first_in)} ← {formatTime(d.last_out)}</span>
-                    <span className="font-bold">{d.accepted_punches} مقبولة</span>
+                    <span className="font-black text-[var(--dawaa-theme-heading)]">{d.shift_date}</span>
+                    <span className="font-bold text-[var(--dawaa-theme-muted)]">{d.accepted_punches} مقبولة</span>
                   </div>
-                  <div className="mt-1 text-[11px] text-[var(--dawaa-theme-muted)]">
+                  <div className="mt-1.5 font-bold text-[var(--dawaa-theme-heading)]">{formatTime(d.first_in)} ← {formatTime(d.last_out)}</div>
+                  <div className="mt-1 text-[11px] leading-relaxed text-[var(--dawaa-theme-muted)]">
                     {d.punch_branches.join('، ') || 'فرع الجهاز غير محدد'}
                     {!d.has_summary && d.accepted_punches > 0 ? ' · بلا ملخص حضور لهذا اليوم' : ''}
                     {d.review_punches > 0 ? ` · ${d.review_punches} تحتاج مراجعة` : ''}
