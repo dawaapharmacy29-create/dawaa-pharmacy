@@ -16,8 +16,10 @@ import type { WhatsAppConversationSession } from '@/lib/whatsappConversationPars
 import type { WhatsAppParticipantRoleModelV15 } from '@/lib/whatsappParticipantRoleResolverV15';
 import { buildSmartOwnershipTimeline } from '@/lib/whatsappSmartReviewOwnership';
 import { resolveWhatsAppStaffV6 } from '@/lib/whatsappStaffResolverV6';
+import { extractIntroducedStaffName } from '@/lib/whatsappConversationParser';
+import { normalizeBranchName } from '@/lib/branch';
 
-export type BranchHintSource = 'source' | 'active_owner' | 'staff_resolver' | 'majority_fallback' | 'none';
+export type BranchHintSource = 'source' | 'explicit_introduction' | 'active_owner' | 'staff_resolver' | 'majority_fallback' | 'none';
 
 export interface BranchHintResult {
   value: string | null;
@@ -26,12 +28,19 @@ export interface BranchHintResult {
 }
 
 function majorityFallback(roles: WhatsAppParticipantRoleModelV15): BranchHintResult {
-  const branches = roles.staff.map((s) => s.branch).filter((b): b is string => Boolean(b && b.trim()));
+  const branches = roles.staff.map((s) => operationalBranch(s.branch)).filter((b): b is string => Boolean(b));
   if (!branches.length) return { value: null, source: 'none', reason: 'لا توجد أي إشارة فرع من أي مصدر.' };
   const counts = new Map<string, number>();
   for (const b of branches) counts.set(b, (counts.get(b) || 0) + 1);
   const [value] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
   return { value, source: 'majority_fallback', reason: 'أضعف إشارة — تصويت أغلبية على فروع الرسائل الصادرة، لا يُستخدم إلا لما كل المصادر الأقوى تفشل.' };
+}
+
+// Account-wide access is not evidence of a conversation's transaction branch.
+function operationalBranch(value: string | null | undefined): string | null {
+  if (!value?.trim()) return null;
+  const branch = normalizeBranchName(value);
+  return ['كل الفروع', 'غير محدد'].includes(branch) ? null : branch;
 }
 
 export async function resolveConversationBranchHint(
@@ -44,22 +53,40 @@ export async function resolveConversationBranchHint(
     return { value: trimmedSource, source: 'source', reason: 'الفرع مُسجَّل فعليًا على مصدر الاستيراد (whatsapp_review_sources.branch).' };
   }
 
+  // Only an outbound self-introduction can provide explicit branch evidence. Never infer
+  // a transaction branch from a customer's mention or overwrite stored source provenance.
+  const explicitBranches = new Set<string>();
+  for (const message of session.messages) {
+    if (!extractIntroducedStaffName(message)) continue;
+    const match = message.text.match(/من\s+فرع\s+(شكري|الشامي)(?=[\s،,.!?؟]|$)/i);
+    if (match) explicitBranches.add(normalizeBranchName(match[1]));
+  }
+  if (explicitBranches.size > 1) {
+    return { value: null, source: 'none', reason: 'تعارض صريح بين فروع تعريف الموظفين؛ يلزم تحديد فرع المصدر.' };
+  }
+  if (explicitBranches.size === 1) {
+    return { value: [...explicitBranches][0], source: 'explicit_introduction', reason: 'فرع صريح في تعريف الموظف بنفسه في رسالة صادرة.' };
+  }
+
   const timeline = buildSmartOwnershipTimeline(session);
   const firstOwner = timeline.episodes.find((e) => e.eligibleForScoring)?.ownerName || null;
   if (firstOwner) {
     const resolved = await resolveWhatsAppStaffV6([firstOwner], null);
-    if (resolved.staff?.branch) {
-      return { value: resolved.staff.branch, source: 'active_owner', reason: `فرع أول موظف متحقق منه بدأ ملكية المحادثة (${firstOwner}) — قبل أي handoff محتمل لاحقًا.` };
+    const branch = operationalBranch(resolved.staff?.branch);
+    if (branch) {
+      return { value: branch, source: 'active_owner', reason: `فرع أول موظف متحقق منه بدأ ملكية المحادثة (${firstOwner}) — قبل أي handoff محتمل لاحقًا.` };
     }
   }
 
   const candidateNames = [...new Set([...timeline.verifiedStaff.map((s) => s.name), ...session.outboundStaffNames])];
   if (candidateNames.length) {
     const resolved = await resolveWhatsAppStaffV6(candidateNames, null);
-    if (resolved.staff?.branch) {
-      return { value: resolved.staff.branch, source: 'staff_resolver', reason: 'فرع أقرب موظف تم التعرف عليه من كل أسماء الموظفين الظاهرة في الجلسة (بدون وعي بتوقيت الـhandoff).' };
+    const branch = operationalBranch(resolved.staff?.branch);
+    if (branch) {
+      return { value: branch, source: 'staff_resolver', reason: 'فرع أقرب موظف تم التعرف عليه من كل أسماء الموظفين الظاهرة في الجلسة (بدون وعي بتوقيت الـhandoff).' };
     }
   }
 
   return majorityFallback(roles);
 }
+

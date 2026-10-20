@@ -80,6 +80,7 @@ type ParsedPrefix = {
 };
 
 const STAFF_INTRO_PATTERNS = [
+  /(?:مع\s+حضرتك|معاك(?:ي)?)\s+(?:(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*)?([^\n،,.]+?)\s+من\s+فرع\s+(?:شكري|الشامي)(?=[\s،,.!?؟]|$)/i,
   /مع\s+حضرتك\s+(?:(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*)?([^\n،,.]+?)\s+من\s+(?:خدمة\s*عملاء\s+(?:صيدليات\s+)?دواء|صيدليات\s+دواء)/i,
   /مع حضرتك\s+(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*([^\n،,.]+)/i,
   /معاك(?:ي)?\s+(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*([^\n،,.]+)/i,
@@ -582,4 +583,5 @@ export function splitWhatsAppSessions(
   if (current.length) groups.push(current);
   return groups.map((group, index) => buildSession(group, index));
 }
+
 
