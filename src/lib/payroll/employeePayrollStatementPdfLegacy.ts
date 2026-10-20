@@ -49,7 +49,22 @@ const STATUS_LABELS: Record<string, string> = {
   absence_review: 'غياب',
   worked_on_off: 'عمل يوم راحة',
 };
-const statusLabel = (value?: string | null) => STATUS_LABELS[String(value || '')] || String(value || '-');
+const statusLabel = (value?: string | null) => {
+  const key = String(value || '');
+  const labels: Record<string, string> = {
+    on_time: 'حضور في الموعد', late: 'تأخير', very_late: 'تأخير كبير',
+    missing_checkin: 'دخول غير مسجل', missing_checkout: 'خروج غير مسجل',
+    early_leave_review: 'خروج مبكر يحتاج مراجعة', no_schedule: 'جدول غير متاح',
+    needs_event_review: 'بصمات تحتاج مراجعة', flexible_present: 'حضور بنظام مرن',
+    approved_leave: 'إجازة معتمدة', employment_ended: 'انتهاء العمل',
+  };
+  return STATUS_LABELS[key] || labels[key] || (/^[a-z0-9_]+$/i.test(key) ? 'حالة مسجلة تحتاج الرجوع لتفاصيل القرار' : key || '-');
+};
+const missingPunchLabel = (value: string) => ({
+  check_in: 'بصمة دخول', check_out: 'بصمة خروج',
+  missing_checkin: 'بصمة دخول مفقودة', missing_checkout: 'بصمة خروج مفقودة',
+  both: 'بصمتا الدخول والخروج',
+} as Record<string, string>)[value] || (/^[a-z0-9_]+$/i.test(value) ? 'بصمة ناقصة' : value);
 
 function pageShell(title: string, subtitle: string, body: string, preview: boolean, pageCode: string) {
   const watermark = preview
@@ -218,7 +233,7 @@ function buildPages(data: EmployeePayrollStatementV1) {
   ).join('');
 
   const missingRows = data.missing_punch.incidents.map((m) =>
-    '<tr><td>' + esc(m.date) + '</td><td>' + esc(m.missing_type) + '</td><td>' + esc(m.occurrence_no) + ' / سماح ' + esc(m.allowance_limit) + '</td><td>' + esc(m.deduction_applied ? money(m.penalty_amount) : 'لا يوجد خصم مالي') + '</td><td>' + esc(m.reason || '-') + '</td></tr>'
+    '<tr><td>' + esc(m.date) + '</td><td>' + esc(missingPunchLabel(m.missing_type)) + '</td><td>' + esc(m.occurrence_no) + ' / سماح ' + esc(m.allowance_limit) + '</td><td>' + esc(m.deduction_applied ? money(m.penalty_amount) : 'لا يوجد خصم مالي') + '</td><td>' + esc(m.reason || '-') + '</td></tr>'
   ).join('');
 
   const leaveBody =
