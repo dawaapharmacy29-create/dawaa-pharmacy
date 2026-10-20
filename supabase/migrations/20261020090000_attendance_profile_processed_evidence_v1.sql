@@ -19,6 +19,8 @@ DECLARE
   v_total integer;
   v_accepted integer;
   v_accepted_days integer;
+  v_summary_covered_days integer;
+  v_missing_summary_days integer;
   v_pair_days integer;
   v_review integer;
   v_rejected integer;
@@ -54,17 +56,30 @@ BEGIN
     WHERE l.staff_id=p_staff_id
       AND l.shift_date BETWEEN v_from AND v_to
     GROUP BY l.shift_date
+  ),
+  coverage AS (
+    SELECT e.*,(ads.id IS NOT NULL) AS has_summary
+    FROM daily_events e
+    LEFT JOIN public.attendance_daily_summary ads
+      ON ads.staff_id=p_staff_id AND ads.attendance_date=e.shift_date
   )
   SELECT coalesce(sum(d.total),0)::int,
     coalesce(sum(d.accepted_count),0)::int,
     count(*) FILTER(WHERE d.accepted_count>0)::int,
+    count(*) FILTER(WHERE d.accepted_count>0 AND d.has_summary)::int,
+    count(*) FILTER(WHERE d.accepted_count>0 AND NOT d.has_summary)::int,
     count(*) FILTER(WHERE d.accepted_in>0 AND d.accepted_out>0)::int,
     coalesce(sum(d.review_count),0)::int,
     coalesce(sum(d.rejected_count),0)::int
-  INTO v_total,v_accepted,v_accepted_days,v_pair_days,v_review,v_rejected
-  FROM daily_events d;
+  INTO v_total,v_accepted,v_accepted_days,v_summary_covered_days,
+    v_missing_summary_days,v_pair_days,v_review,v_rejected
+  FROM coverage d;
 
-  SELECT coalesce(jsonb_agg(to_jsonb(d) ORDER BY d.shift_date DESC),'[]'::jsonb)
+  SELECT coalesce(jsonb_agg(
+    to_jsonb(d) || jsonb_build_object(
+      'has_summary',(ads.id IS NOT NULL),
+      'summary_status',ads.status
+    ) ORDER BY d.shift_date DESC),'[]'::jsonb)
   INTO v_recent
   FROM (
     SELECT l.shift_date, count(*) FILTER(WHERE l.status='accepted')::int AS accepted_punches,
@@ -79,7 +94,9 @@ BEGIN
     GROUP BY l.shift_date
     ORDER BY l.shift_date DESC
     LIMIT 15
-  ) d;
+  ) d
+  LEFT JOIN public.attendance_daily_summary ads
+    ON ads.staff_id=p_staff_id AND ads.attendance_date=d.shift_date;
 
   RETURN v_profile || jsonb_build_object('processed_evidence',
     jsonb_build_object(
@@ -88,6 +105,10 @@ BEGIN
       'total_punches',v_total,
       'accepted_punches',v_accepted,
       'accepted_days',v_accepted_days,
+      'summary_covered_days',v_summary_covered_days,
+      'missing_summary_days',v_missing_summary_days,
+      'coverage_complete',(v_missing_summary_days=0 AND
+        (v_profile->'rates'->>'evaluated_days')::int > 0),
       'complete_pair_days',v_pair_days,
       'manual_review_punches',v_review,
       'rejected_punches',v_rejected,
