@@ -1514,7 +1514,7 @@ export default function AttendanceResolutionCenter({
                         ? applyMissingPunchPenalty ? 'تسجيل البصمة اليدوية + خصم 50ج' : 'تسجيل البصمة اليدوية'
                         : decisionsFor(selected).find((item) => item.id === reason)?.financial
                           ? 'اعتماد الحضور وتوثيق اقتراح الخصم'
-                          : reason === 'approve_actual' ? 'اعتماد ساعات الحضور الفعلية' : reason === 'permission' ? 'اعتماد الإذن والحضور' : reason ? 'اعتماد القرار الآن' : 'اختر قرارًا أولًا'
+                          : reason === 'approve_actual' ? 'اعتماد ساعات الحضور الفعلية' : reason === 'permission' ? 'اعتماد الإذن والحضور' : reason ? 'اعتماد القرار الآن' : 'اختر قرارًا أولًا'}
               </button>
               <button onClick={() => { setSelected(null); setNote(''); setReason(''); setMultiplier(''); setHours(''); setSwapWithDate(''); setWeeklyOffSwapPreview(null); setManualPunchAt(''); setApplyMissingPunchPenalty(false); setMissingPunchContext(null); setMissingPunchHistory([]); setShowDecisionEvidence(false); }} className="btn-secondary">إلغاء</button>
             </div>
