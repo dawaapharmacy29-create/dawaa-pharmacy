@@ -59,6 +59,14 @@ describe('ConversationCase Engine (Sales Intelligence Phase B.1) — Golden Case
     expect(cases[1].status).toBe('basket_building');
   });
 
+  it('classifies nursing visit request as noncommercial review', () => {
+    const raw = '[9/28/26, 2:17:35 AM] Customer: ممكن تبعت حد مالتمريض عشان الكانيولا اتحركت\n[9/28/26, 2:20:27 AM] You: عنيا هكلم الممرض';
+    const cases = deriveConversationCases({ understanding: understandingFor(raw), conversationId: 'service-1' });
+    expect(cases[0].caseType).toBe('follow_up');
+    expect(cases[0].needsHumanReview).toBe(true);
+    expect(cases[0].confidence.ruleIds).toContain('case.classification.nursing_visit_service_not_sale');
+  });
+
   it('5. two distinct customer requests with no staff reply between them are flagged for human review, not silently merged', () => {
     const raw = `[9/15/26, 9:00:00 AM] Customer: عايز فيتامين د
 [9/15/26, 9:00:30 AM] Customer: وعايز كمان شامبو للشعر`;
