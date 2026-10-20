@@ -499,8 +499,29 @@ export function CaseIntelligenceWorkspace({
               )}
             </div>
           ) : invoiceEvidence?.status === 'candidate' ? (
-            <div className="dawaa-alert dawaa-alert--warning text-xs leading-6" data-testid="candidate-invoice-products-blocked">
-              توجد فاتورة مرشحة{invoiceEvidence.invoiceNumber ? ` رقم ${invoiceEvidence.invoiceNumber}` : ''}، لكن الربط غير موثوق بما يكفي لاستخدام أصنافها بدل محتوى الصورة/الفويس.
+            <div className="dawaa-card space-y-3" data-testid="candidate-invoice-products-blocked">
+              <div className="dawaa-alert dawaa-alert--warning text-xs leading-6">
+                فاتورة مرشحة{invoiceEvidence.invoiceNumber ? ` رقم ${invoiceEvidence.invoiceNumber}` : ''}، وارتباطها بالمحادثة لم يثبت بعد.
+                البنود أدناه من الفاتورة الرسمية المرشحة فقط؛ لا تُستخدم لتفسير الصورة أو الفويس أو اعتماد بيع أو إسناد موظف.
+              </div>
+              {invoiceEvidence.items.length ? (
+                <div data-testid="candidate-invoice-evidence-lines">
+                  <div className="dawaa-muted mb-2 text-xs">بنود الفاتورة المرشحة للمراجعة فقط ({invoiceEvidence.items.length}) — منفصلة عن الأصناف المستخرجة من المحادثة</div>
+                  <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                    {invoiceEvidence.items.map((item) => (
+                      <div key={item.id} className="rounded-xl bg-[var(--dawaa-theme-soft)] p-3" data-candidate-invoice-line={item.id}>
+                        <div className="dawaa-heading text-sm font-black">{item.productName || 'صنف بدون اسم'}</div>
+                        <div className="dawaa-muted mt-1 text-xs">
+                          {item.productCode ? `كود: ${item.productCode} • ` : ''}
+                          الكمية في الفاتورة: {item.quantity ?? UNKNOWN_LABEL}{item.unitName ? ` ${item.unitName}` : ''}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="dawaa-muted text-xs">بنود الفاتورة المرشحة غير متاحة حاليًا.</div>
+              )}
             </div>
           ) : null}
 
