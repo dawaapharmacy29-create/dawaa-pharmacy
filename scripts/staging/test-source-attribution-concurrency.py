@@ -134,7 +134,8 @@ def reset(raw="old text", branch="كل الفروع", staff=GM, request_staff=No
         "caseIntelligence": {"followUp": {"opportunities": []}, "staff": {"participants": [], "facts": []}}}
     sql(f"""
       truncate whatsapp_conversation_actions,sales_intelligence_case_analyses,sales_intelligence_cases,
-        whatsapp_review_sources,whatsapp_review_audit,customer_requests,staff,staff_accounts,customers,products;
+        whatsapp_review_source_hash_aliases,whatsapp_review_sources,whatsapp_review_audit,customer_requests,staff,
+        staff_accounts,customers,products;
       insert into staff values('{GM}','GM','كل الفروع',true,true),('{BRANCH_STAFF}','Branch doctor','فرع شكري',true,true),
         ('{OTHER_BRANCH_STAFF}','Other doctor','فرع الشامي',true,true);
       insert into staff_accounts values('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','Reviewer','Reviewer','reviewer','admin');
@@ -214,4 +215,16 @@ release(first)
 finish(stale, "canonical_request_projection_stale_source")
 assert count("select count(*) from whatsapp_conversation_actions where status in ('proposed','ready')") == 0
 
-print("PASS: concurrent corrections, approvals, executions and stale projections serialize without duplicates")
+# 6. Re-uploading the pre-correction export while the correction is in flight waits on the shared
+#    hash lock, then is refused; it never becomes a second operational source.
+reset()
+first = holder(AUTH + correction("old text", "corrected A", BRANCH_STAFF))
+upload = start(f"""insert into whatsapp_review_sources(id,customer_name,branch,source_hash)
+  values(gen_random_uuid(),'Synthetic re-upload','كل الفروع','{digest("old text")}');""", "v36-old-upload")
+wait_blocked("v36-old-upload")
+release(first)
+finish(upload, "source_hash_superseded_by_correction")
+assert count("select count(*) from whatsapp_review_sources") == 1
+assert count(f"select count(*) from whatsapp_review_source_hash_aliases where source_id='{SOURCE}'") == 1
+
+print("PASS: concurrent corrections, approvals, executions, stale projections and re-uploads serialize without duplicates")

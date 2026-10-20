@@ -2,8 +2,11 @@
 -- materialize bodies (20261005141100 lines 123-232, 20261019093000 lines 4-89), which do NOT know
 -- the operating-branch, current-qualification or staff-proof rules. Use only together with
 -- emergency_stop_20261020153000.sql left in force, or prefer rollback_safe_20261020153000.sql.
--- No data is changed.
+-- It also drops the retired-hash registry: after any applied correction, re-uploading the
+-- pre-correction export could again create a parallel source. No other data is changed.
 begin;
+drop trigger if exists whatsapp_source_hash_guard_v1 on public.whatsapp_review_sources;
+drop function if exists public.dawaa_guard_whatsapp_source_hash_v1();
 drop trigger if exists canonical_request_projection_guard_v1 on public.whatsapp_conversation_actions;
 drop function if exists public.dawaa_guard_canonical_request_projection_v1();
 drop trigger if exists whatsapp_source_attribution_guard_v1 on public.whatsapp_review_sources;
@@ -208,5 +211,6 @@ grant execute on function public.dawaa_materialize_whatsapp_action_v1(uuid) to a
 drop function if exists public.dawaa_canonical_request_staff_refusal_v1(uuid,text,uuid,text);
 drop function if exists public.dawaa_canonical_request_is_current_v1(uuid,text,text,uuid);
 drop function if exists public.dawaa_is_transaction_branch_v1(text);
+drop table if exists public.whatsapp_review_source_hash_aliases;
 notify pgrst,'reload schema';
 commit;

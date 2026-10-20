@@ -21,6 +21,7 @@ import {
   type SourceAuditEntry,
   type SourceOperationalAction,
 } from '@/lib/salesIntelligence/operations/sourceOperationsService';
+import { customerRequestApprovalBlockers } from '@/lib/salesIntelligence/operations/proposalApprovalReadiness';
 
 // Source-scoped operations for one canonical case: audited attribution correction, explicit
 // approval of a customer-request proposal, and explicit execution through the authorized
@@ -211,8 +212,11 @@ export function SourceOperationsPanel({ sourceId, permissions, analysisKey }: Pr
               {actions.value.map((action) => {
                 const invalidBranch = !isOperatingBranch(action.branch);
                 const retired = action.status === 'dismissed';
+                const approvalBlockers = action.actionType === 'customer_request' && action.status === 'proposed'
+                  ? customerRequestApprovalBlockers(action, summary.status === 'ready' ? summary.value : null)
+                  : [];
                 const canApproveRow = permissions.canApprove && action.actionType === 'customer_request'
-                  && action.status === 'proposed' && !invalidBranch;
+                  && action.status === 'proposed' && approvalBlockers.length === 0;
                 const canExecuteRow = permissions.canExecute && EXECUTABLE_TYPES.has(action.actionType)
                   && action.status === 'ready' && !action.targetId && !invalidBranch
                   && (action.actionType !== 'customer_request' || action.autoEligible);
@@ -244,7 +248,14 @@ export function SourceOperationsPanel({ sourceId, permissions, analysisKey }: Pr
                             {busyActionId === action.id ? 'جارٍ...' : 'تنفيذ'}
                           </button>
                         ) : null}
-                        {!retired && invalidBranch ? <span className="dawaa-muted text-xs">يحتاج تصحيح الفرع أولًا</span> : null}
+                        {approvalBlockers.length ? (
+                          <div className="text-xs">
+                            <div className="dawaa-heading font-bold">غير قابل للاعتماد:</div>
+                            <ul className="dawaa-muted list-inside list-disc">
+                              {approvalBlockers.map((reason) => <li key={reason}>{reason}</li>)}
+                            </ul>
+                          </div>
+                        ) : !retired && invalidBranch ? <span className="dawaa-muted text-xs">يحتاج تصحيح الفرع أولًا</span> : null}
                       </div>
                     </td>
                   </tr>

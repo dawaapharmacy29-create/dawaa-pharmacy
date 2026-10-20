@@ -1,7 +1,9 @@
 -- SAFE ROLLBACK for 20261020153000 (NOT APPLIED; recommended rollback). Removes only the new
 -- correction command and the two new triggers. The hardened approve/materialize guards and their
--- helpers stay, so no wrong approval behavior is reopened. No data is changed: applied corrections
--- stay audited in whatsapp_review_audit and retired proposals stay dismissed.
+-- helpers stay, so no wrong approval behavior is reopened. The retired-hash registry and its
+-- insert guard also stay, so re-uploading a pre-correction export still cannot create a parallel
+-- source. No data is changed: applied corrections stay audited in whatsapp_review_audit and
+-- retired proposals stay dismissed.
 begin;
 drop trigger if exists canonical_request_projection_guard_v1 on public.whatsapp_conversation_actions;
 drop function if exists public.dawaa_guard_canonical_request_projection_v1();

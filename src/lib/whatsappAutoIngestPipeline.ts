@@ -12,6 +12,7 @@ import {
 } from '@/lib/whatsappFollowupSignalDetector';
 import {
   attachInvoiceVerificationToQueue,
+  findReviewSourceByHash,
   hashWhatsAppSession,
   readStoredSourceBranch,
 } from '@/lib/whatsappReviewPersistenceV4';
@@ -125,15 +126,11 @@ async function saveSessionReview(
   branchHint: BranchHintResult
 ) {
   const sourceHash = await hashWhatsAppSession(session);
-  const { data: existing, error: existingError } = await supabase
-    .from('whatsapp_review_sources')
-    .select('id,branch')
-    .eq('source_hash', sourceHash)
-    .maybeSingle();
-  if (existingError && existingError.code !== 'PGRST116') throw existingError;
-  // The branch decided when the source was first saved is its provenance; a re-import never re-decides it.
-  if (existing?.id)
-    return { sourceId: String(existing.id), duplicate: true as const, branch: (existing.branch as string | null) ?? null };
+  // The branch decided when the source was first saved (or by an audited correction) is its
+  // provenance; a re-import, including of a pre-correction export, never re-decides it.
+  const existing = await findReviewSourceByHash(supabase, sourceHash, 'id,branch');
+  if (existing?.row.id)
+    return { sourceId: String(existing.row.id), duplicate: true as const, branch: (existing.row.branch as string | null) ?? null };
 
   const summary = buildSmartConversationReviewSummary(session);
   const staffName =
@@ -189,14 +186,11 @@ async function saveSessionReview(
     .select('id')
     .single();
   if (error) {
+    // Concurrent identical upload, or a hash retired by a correction refused by the database.
     if (error.code === '23505') {
-      const { data: duplicate, error: duplicateError } = await supabase
-        .from('whatsapp_review_sources')
-        .select('id,branch')
-        .eq('source_hash', sourceHash)
-        .single();
-      if (duplicateError) throw duplicateError;
-      return { sourceId: String(duplicate.id), duplicate: true as const, branch: (duplicate.branch as string | null) ?? null };
+      const duplicate = await findReviewSourceByHash(supabase, sourceHash, 'id,branch');
+      if (!duplicate?.row.id) throw error;
+      return { sourceId: String(duplicate.row.id), duplicate: true as const, branch: (duplicate.row.branch as string | null) ?? null };
     }
     throw error;
   }

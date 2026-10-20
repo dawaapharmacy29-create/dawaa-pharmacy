@@ -219,6 +219,56 @@ describe('source attribution guard, emergency stop and rollback', () => {
   });
 });
 
+describe('retired source hash registry', () => {
+  const insertSource = (hash: string) =>
+    `insert into whatsapp_review_sources(id,customer_name,branch,source_hash) values (gen_random_uuid(),'synthetic','فرع شكري','${hash}')`;
+
+  it('binds the pre-correction hash to the same source and refuses any new source for it', async () => {
+    const t = await harness();
+    await t.sql(...t.correctCall());
+    expect(await t.sql('select source_hash,source_id from whatsapp_review_source_hash_aliases')).toEqual([
+      { source_hash: OLD_HASH, source_id: SOURCE },
+    ]);
+    expect(await t.errorOf(insertSource(OLD_HASH))).toContain('source_hash_superseded_by_correction');
+    expect(await t.errorOf(insertSource(hashOf('corrected text')))).toMatch(/duplicate key|unique/i);
+    expect(await t.sql('select count(*)::int n from whatsapp_review_sources')).toEqual([{ n: 2 }]);
+  });
+
+  it('keeps every earlier hash on a second correction and lets a source return to its own earlier text', async () => {
+    const t = await harness();
+    await t.sql(...t.correctCall());
+    await t.sql(...t.correctCall({ expected: hashOf('corrected text'), raw: 'second text' }));
+    expect(await t.sql('select source_hash from whatsapp_review_source_hash_aliases order by created_at')).toEqual([
+      { source_hash: OLD_HASH }, { source_hash: hashOf('corrected text') },
+    ]);
+    // Back to the original text of the SAME source: that hash becomes current again.
+    const [{ result }] = await t.sql<{ result: any }>(...t.correctCall({ expected: hashOf('second text'), raw: 'old text', staff: GM_STAFF }));
+    expect(result).toMatchObject({ changed: true });
+    expect(await t.sql('select source_hash from whatsapp_review_source_hash_aliases order by source_hash')).toEqual(
+      [{ source_hash: hashOf('corrected text') }, { source_hash: hashOf('second text') }].sort((a, b) => a.source_hash.localeCompare(b.source_hash))
+    );
+    expect(await t.sql('select source_hash from whatsapp_review_sources where id=$1', [SOURCE])).toEqual([{ source_hash: OLD_HASH }]);
+  });
+
+  it('refuses a correction to a hash retired by another source', async () => {
+    const t = await harness();
+    await t.db.query('select dawaa_correct_whatsapp_source_attribution_v1($1,$2,$3,$4,$5,$6,$7,$8)',
+      [OTHER_SOURCE, hashOf('other text'), 'other corrected', hashOf('other corrected'), BRANCH_STAFF, 'فرع شكري', REASON, false]);
+    expect(await t.errorOf(...t.correctCall({ raw: 'other text' }))).toContain('source_attribution_hash_conflict');
+  });
+
+  it('is never writable by clients and survives the safe rollback', async () => {
+    const t = await harness();
+    await t.sql(...t.correctCall());
+    await t.db.exec('set role authenticated;');
+    expect(await t.errorOf(`insert into whatsapp_review_source_hash_aliases values ('x','${SOURCE}','${SOURCE}')`)).toMatch(/permission denied/);
+    expect(await t.errorOf(`delete from whatsapp_review_source_hash_aliases`)).toMatch(/permission denied/);
+    await t.db.exec('reset role;');
+    await t.db.exec(opsScript('rollback_safe_20261020153000.sql'));
+    expect(await t.errorOf(insertSource(OLD_HASH))).toContain('source_hash_superseded_by_correction');
+  });
+});
+
 describe('authorized source attribution correction', () => {
   async function seededCase() {
     const t = await harness();

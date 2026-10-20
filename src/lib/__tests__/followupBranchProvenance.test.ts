@@ -24,7 +24,8 @@ describe('auto-ingest keeps the stored source branch', () => {
   });
 
   it('an existing source reports its stored branch and the canonical chain consumes it', () => {
-    expect(pipeline).toContain(".select('id,branch')");
+    // One exact-hash resolver (current or correction-retired hash) reads the stored branch.
+    expect(pipeline).toContain("findReviewSourceByHash(supabase, sourceHash, 'id,branch')");
     expect(pipeline).toContain('const sourceBranch = saved.branch ?? conversationBranch;');
     expect(pipeline).toMatch(/verifySessionSale\(session, saved\.sourceId, identity, sourceBranch\)/);
     expect(pipeline).toMatch(/persistOperationalJourneyIntelligence\([\s\S]*?sourceBranch,/);

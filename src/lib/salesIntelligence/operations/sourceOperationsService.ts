@@ -21,6 +21,7 @@ export interface SourceOperationalAction {
   productCode: string | null;
   productName: string | null;
   quantity: number | null;
+  confidence: number | null;
   autoEligible: boolean;
   targetTable: string | null;
   targetId: string | null;
@@ -46,7 +47,7 @@ const SOURCE_SUMMARY_COLUMNS = [
 const SOURCE_COLUMNS = `${SOURCE_SUMMARY_COLUMNS},raw_text`;
 const ACTION_COLUMNS = [
   'id', 'action_type', 'status', 'created_by', 'branch', 'staff_id', 'customer_id', 'customer_name', 'product_id',
-  'product_code', 'product_name', 'quantity', 'auto_eligible', 'target_table', 'target_id', 'payload', 'updated_at',
+  'product_code', 'product_name', 'quantity', 'confidence', 'auto_eligible', 'target_table', 'target_id', 'payload', 'updated_at',
 ].join(',');
 
 type Row = Record<string, any>;
@@ -101,6 +102,7 @@ export function mapSourceOperationalAction(row: Row): SourceOperationalAction {
     productCode: text(row.product_code),
     productName: text(row.product_name),
     quantity: row.quantity == null ? null : Number(row.quantity),
+    confidence: row.confidence == null ? null : Number(row.confidence),
     autoEligible: row.auto_eligible === true,
     targetTable: text(row.target_table),
     targetId: text(row.target_id),

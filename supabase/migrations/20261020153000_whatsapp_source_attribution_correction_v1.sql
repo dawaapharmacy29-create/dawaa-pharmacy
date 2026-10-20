@@ -12,7 +12,11 @@
 --    their identity so the next explicit refresh projects exactly one corrected proposal.
 -- 4) A canonical request proposal can only be inserted with the source's CURRENT staff/branch, so
 --    a refresh that read the source before a correction cannot publish a stale proposal.
--- No business DML, backfill, new grants beyond the new command, automatic re-analysis or execution.
+-- 5) A correction retires the previous source hash into whatsapp_review_source_hash_aliases (same
+--    canonical source, unique hash); no new source may claim a retired hash, so re-uploading the
+--    pre-correction export can neither create a parallel source nor revert the correction.
+-- No business DML, backfill, automatic re-analysis or execution. New grants: the correction
+-- command (authenticated) and SELECT on the alias registry under the sources' visibility.
 
 create or replace function public.dawaa_is_transaction_branch_v1(p_branch text)
 returns boolean
@@ -391,6 +395,56 @@ $function$;
 revoke all on function public.dawaa_materialize_whatsapp_action_v1(uuid) from public;
 grant execute on function public.dawaa_materialize_whatsapp_action_v1(uuid) to anon,authenticated,service_role;
 
+-- Retired source hashes. A correction changes the source hash; the previous hash stays bound to
+-- the SAME canonical source here, so re-uploading the pre-correction export resolves to that
+-- source instead of creating a parallel one, and never reverts the audited correction.
+create table if not exists public.whatsapp_review_source_hash_aliases (
+  source_hash text primary key check (length(btrim(source_hash)) > 0),
+  source_id uuid not null references public.whatsapp_review_sources(id) on delete restrict,
+  correction_id uuid not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists whatsapp_review_source_hash_aliases_source_idx
+  on public.whatsapp_review_source_hash_aliases(source_id);
+alter table public.whatsapp_review_source_hash_aliases enable row level security;
+revoke all on table public.whatsapp_review_source_hash_aliases from public, anon, authenticated;
+grant select on table public.whatsapp_review_source_hash_aliases to authenticated;
+grant all on table public.whatsapp_review_source_hash_aliases to service_role;
+drop policy if exists whatsapp_review_source_hash_aliases_select_v1 on public.whatsapp_review_source_hash_aliases;
+-- Same visibility as the source itself (the sources RLS applies inside the subquery).
+create policy whatsapp_review_source_hash_aliases_select_v1 on public.whatsapp_review_source_hash_aliases
+  for select to authenticated
+  using (exists (select 1 from public.whatsapp_review_sources s where s.id = source_id));
+
+-- No new source may claim a retired hash (any role). The advisory lock is shared with the
+-- correction command, so an upload racing an in-flight correction waits and then sees the alias.
+-- unique_violation lets existing ingest duplicate handling resolve the canonical source.
+create or replace function public.dawaa_guard_whatsapp_source_hash_v1()
+returns trigger
+language plpgsql
+set search_path to 'public','pg_catalog'
+as $function$
+begin
+  if new.source_hash is null then return new; end if;
+  perform pg_advisory_xact_lock(hashtext('whatsapp_source_hash:' || new.source_hash));
+  if exists (select 1 from public.whatsapp_review_source_hash_aliases a
+             where a.source_hash = new.source_hash
+               and (tg_op = 'INSERT' or a.source_id is distinct from new.id)) then
+    raise exception 'source_hash_superseded_by_correction' using errcode = '23505';
+  end if;
+  return new;
+end;
+$function$;
+
+revoke all on function public.dawaa_guard_whatsapp_source_hash_v1() from public, anon, authenticated;
+
+drop trigger if exists whatsapp_source_hash_guard_v1 on public.whatsapp_review_sources;
+create trigger whatsapp_source_hash_guard_v1
+before insert or update of source_hash
+on public.whatsapp_review_sources
+for each row
+execute function public.dawaa_guard_whatsapp_source_hash_v1();
+
 -- Authorized, audited correction of ONE source's attribution. Re-analysis stays the separate,
 -- explicit refresh command; this command never analyzes, projects, approves or materializes.
 -- The database recomputes the canonical source hash (hashWhatsAppSession: SHA-256 of
@@ -511,7 +565,14 @@ begin
   if v_cross_branch and not coalesce(p_cross_branch_cover,false) then
     raise exception 'source_attribution_staff_branch_mismatch';
   end if;
-  if exists(select 1 from public.whatsapp_review_sources s where s.source_hash=p_source_hash and s.id<>p_source_id) then
+  -- Serialize with uploads of either export (same advisory keys as the source-hash guard),
+  -- in a fixed order so two corrections cannot deadlock.
+  perform pg_advisory_xact_lock(hashtext('whatsapp_source_hash:' || h))
+  from (select unnest(array[v_source.source_hash, p_source_hash]) h order by 1) ordered
+  where h is not null;
+  if exists(select 1 from public.whatsapp_review_sources s where s.source_hash=p_source_hash and s.id<>p_source_id)
+     or exists(select 1 from public.whatsapp_review_source_hash_aliases a
+               where a.source_hash=p_source_hash and a.source_id<>p_source_id) then
     raise exception 'source_attribution_hash_conflict';
   end if;
 
@@ -543,6 +604,15 @@ begin
          or (a.status='dismissed' and a.payload->>'canonicalLifecycle'='withdrawn'))
     and a.payload->>'supersededByCorrection' is null;
   get diagnostics v_retired = row_count;
+
+  -- Keep the previous export bound to this canonical source. A hash that becomes current again
+  -- (a correction back to an earlier text of the same source) leaves the registry.
+  delete from public.whatsapp_review_source_hash_aliases
+  where source_hash=p_source_hash and source_id=p_source_id;
+  if nullif(btrim(coalesce(v_source.source_hash,'')),'') is not null then
+    insert into public.whatsapp_review_source_hash_aliases(source_hash,source_id,correction_id)
+    values (v_source.source_hash, p_source_id, v_correction_id);
+  end if;
 
   update public.whatsapp_review_sources set
     raw_text=p_raw_text,
