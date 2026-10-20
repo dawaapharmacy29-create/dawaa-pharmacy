@@ -127,5 +127,5 @@ if (!rootElement) {
       </ThemeProvider>
     </StrictMode>
   );
-  window.requestAnimationFrame(() => initOptionalRuntimeServices());
+  if (!attendanceVisualPreview) window.requestAnimationFrame(() => initOptionalRuntimeServices());
 }
