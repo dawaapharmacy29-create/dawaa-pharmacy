@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parseWhatsAppExport, splitWhatsAppSessions } from '@/lib/whatsappConversationParser';
 import { buildConversationUnderstandingV32 } from '@/lib/whatsappConversationUnderstandingV32';
 import { deriveConversationCases } from '@/lib/salesIntelligence/conversationCaseEngine';
+import { runSalesIntelligencePipeline } from '@/lib/salesIntelligence/salesIntelligencePipeline';
 
 function understandingFor(raw: string) {
   const sessions = splitWhatsAppSessions(parseWhatsAppExport(raw), 120);
@@ -65,6 +66,29 @@ describe('ConversationCase Engine (Sales Intelligence Phase B.1) — Golden Case
     expect(cases[0].caseType).toBe('follow_up');
     expect(cases[0].needsHumanReview).toBe(true);
     expect(cases[0].confidence.ruleIds).toContain('case.classification.nursing_visit_service_not_sale');
+  });
+
+  it('runs noncommercial nursing support through the canonical pipeline without revenue or recovery tasks', () => {
+    const raw = [
+      '[9/28/26, 2:17:35 AM] Customer: ممكن تبعت حد مالتمريض عشان الكانيولا',
+      '[9/28/26, 2:20:27 AM] You: حاضر هكلم الممرض',
+    ].join('\\n');
+    const result = runSalesIntelligencePipeline({
+      conversationId: 'nursing-canonical',
+      rawWhatsAppExportText: raw,
+      customerIdHint: 'customer-1',
+      customerIdentityStatus: 'resolved',
+      branchNameRawHint: 'فرع شكري',
+      resolveInvoiceCandidates: () => [],
+    });
+    const analysis = result.caseAnalyses[0];
+    expect(analysis.conversationCase.caseType).toBe('follow_up');
+    expect(analysis.salesOutcome.isSaleCountable).toBe(false);
+    expect(analysis.salesOutcome.isRevenueCountable).toBe(false);
+    expect(analysis.lostOpportunity.state).toBe('no_commercial_opportunity');
+    expect(analysis.followUp.decision).toBe('review_required');
+    expect(analysis.followUp.opportunities).toHaveLength(0);
+    expect(analysis.operationalDisposition?.state).toBe('open_unknown');
   });
 
   it('5. two distinct customer requests with no staff reply between them are flagged for human review, not silently merged', () => {
