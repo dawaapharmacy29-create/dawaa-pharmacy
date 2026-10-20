@@ -37,4 +37,8 @@ describe('conversation intake identity provenance', () => {
     expect(extractIntroducedStaffName(s.messages[0])).toBeNull();
     expect((await resolveConversationBranchHint(s, roles)).value).toBeNull();
   });
+  it('ignores a later branch mention unrelated to the introduction', async () => {
+    const s = session('[10/20/26, 5:00:30 AM] You: مع حضرتك د سامر. هنجيب الصنف من فرع شكري.');
+    expect((await resolveConversationBranchHint(s, roles)).value).toBeNull();
+  });
 });

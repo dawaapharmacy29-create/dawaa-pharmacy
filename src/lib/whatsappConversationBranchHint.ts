@@ -58,7 +58,7 @@ export async function resolveConversationBranchHint(
   const explicitBranches = new Set<string>();
   for (const message of session.messages) {
     if (!extractIntroducedStaffName(message)) continue;
-    const match = message.text.match(/من\s+فرع\s+(شكري|الشامي)(?=[\s،,.!?؟]|$)/i);
+    const match = message.text.match(/(?:مع\s+حضرتك|معاك(?:ي)?)\s+[^\n،,.!?؟]+?\s+من\s+فرع\s+(شكري|الشامي)(?=[\s،,.!?؟]|$)/i);
     if (match) explicitBranches.add(normalizeBranchName(match[1]));
   }
   if (explicitBranches.size > 1) {
