@@ -232,11 +232,21 @@ describe('Case Intelligence Workspace (display only)', () => {
       invoiceEvidence: {
         status: 'candidate',
         invoiceNumber: '74966',
+        invoiceCustomerName: 'د ابراهيم الخولي',
+        invoiceCustomerCode: '18663',
+        invoiceBranch: 'فرع شكري',
+        invoiceSellerName: 'د محمد شبل',
         items: [{ id: 'line-1', productName: 'GASTROBIOTIC 550 MG', productCode: '78994', quantity: 1, unitName: null, netLineAmount: null }],
       },
     }));
     expect(html).toContain('candidate-invoice-products-blocked');
     expect(html).toContain('candidate-invoice-evidence-lines');
+    expect(html).toContain('candidate-invoice-header-facts');
+    expect(html).toContain('د ابراهيم الخولي');
+    expect(html).toContain('كود العميل على الفاتورة:');
+    expect(html).toContain('18663');
+    expect(html).toContain('فرع شكري');
+    expect(html).toContain('بائع الفاتورة (ليس بالضرورة مسؤول المحادثة):');
     expect(html).toContain('GASTROBIOTIC 550 MG');
     expect(html).toContain('78994');
     expect(html).toContain('الكمية في الفاتورة:');
