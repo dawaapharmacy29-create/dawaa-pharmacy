@@ -42,12 +42,15 @@ describe('employee attendance profile drawer layout', () => {
   });
   it('renders synthetic preview only under branch-scoped flag, without a live client',()=>{
     const entry=readFileSync(resolve(process.cwd(),'src/main.tsx'),'utf8');
-    const client=readFileSync(resolve(process.cwd(),'src/lib/supabase.ts'),'utf8');
+    const config=readFileSync(resolve(process.cwd(),'vite.config.ts'),'utf8');
     const demo=readFileSync(resolve(process.cwd(),
       'src/components/attendance/AttendanceProfileVisualPreview.tsx'),'utf8');
     expect(entry).toContain("import.meta.env.VITE_DAWAA_ATTENDANCE_DRAWER_DEMO === '1'");
     expect(entry).toContain('attendanceVisualPreview ? <AttendanceProfileVisualPreview />');
-    expect(client).toContain('const hasSupabaseConfig = !visualPreview && Boolean');
+    expect(config).toContain("process.env.VITE_DAWAA_ATTENDANCE_DRAWER_DEMO === '1'");
+    expect(config).toContain("process.env.VERCEL_ENV === 'preview'");
+    expect(config).toContain("process.env.VITE_SUPABASE_URL = ''");
+    expect(config).toContain("process.env.VITE_SUPABASE_ANON_KEY = ''");
     expect(demo).toContain('previewProfile={scenario(selected)}');
     expect(demo).toContain('بيانات توضيحية فقط');
     expect(component).toContain('if (previewProfile)');
