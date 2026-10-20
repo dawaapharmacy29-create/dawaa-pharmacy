@@ -59,6 +59,20 @@ export function deriveCanonicalSalesOutcome(
     };
   }
 
+  // A service follow-up is never a separate sale. A nearby invoice can belong to the
+  // earlier medicine order but must not give this follow-up extra revenue or staff credit.
+  if (caseType === 'follow_up') {
+    return {
+      ...base,
+      needsHumanReview: true,
+      outcome: 'needs_review',
+      isSaleCountable: false,
+      isRevenueCountable: false,
+      isOrderConfirmed: false,
+      reasonCodes: ['outcome.noncommercial_followup_requires_review'],
+    };
+  }
+
   // `mixed` is reserved by the Conversation Case Engine for unresolved independent requests that
   // still occupy one analytical interaction. Payment or one invoice may belong to ONE of those
   // requests, but cannot safely close/count the whole mixed case. Resolve/split first, then rerun.
