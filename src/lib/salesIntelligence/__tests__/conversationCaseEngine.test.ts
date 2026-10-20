@@ -72,7 +72,7 @@ describe('ConversationCase Engine (Sales Intelligence Phase B.1) — Golden Case
     const raw = [
       '[9/28/26, 2:17:35 AM] Customer: ممكن تبعت حد مالتمريض عشان الكانيولا',
       '[9/28/26, 2:20:27 AM] You: حاضر هكلم الممرض',
-    ].join('\\n');
+    ].join('\n');
     const result = runSalesIntelligencePipeline({
       conversationId: 'nursing-canonical',
       rawWhatsAppExportText: raw,
