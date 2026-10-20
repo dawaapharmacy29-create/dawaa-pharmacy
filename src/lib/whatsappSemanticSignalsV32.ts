@@ -830,7 +830,7 @@ export function classifyCustomerIntentStatementV32(text: string): CustomerIntent
 // Customer asking to be contacted / to wait, with optional timing.
 const CUSTOMER_CALLBACK_RX =
   /(?<![\p{L}])(?:و?(?:كلمني|كلميني|كلمنى|اتصل(?:\s*(?:بي|بيا|عليا))?|رن\s*عليا|تابع\s*معايا|ابقى\s*(?:كلمني|تابع|بلغني|عرفني)|بلغني|عرفني|ابعتلي\s*لما))(?![\p{L}])/iu;
-const WHEN_IN_STOCK_RX = /لما\s*(?:\S+\s+){0,3}?(?:يوصل|يتوفر|ييجي|ينزل|تجيبه|تجيبوه|يبقى\s*موجود)/i;
+const WHEN_IN_STOCK_RX = /(?:لما|[أا]ول\s*ما)\s*(?:\S+\s+){0,3}?(?:يوصل|يتوفر|ييجي|ينزل|تجيبه|تجيبوه|يبقى\s*موجود)/i;
 const TOMORROW_RX = /بكر[ةه]|بكرا/i;
 const AFTER_DAYS_RX = /بعد\s*(?:(يومين)|(\d+)\s*(?:يوم|أيام|ايام)|(اسبوع|أسبوع))/i;
 const SAME_DAY_RX = /النهارد[ةه]|بالليل|كمان\s*ساع[ةه]|بعد\s*ساع[ةه]|آخر\s*النهار|اخر\s*النهار/i;

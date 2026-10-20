@@ -247,7 +247,9 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
           product.offeredQuantity = item.quantity;
         }
       }
-      if (sourceMessage && ALTERNATIVE_RX.test(sourceMessage.text)) product.roles.add('alternative');
+      if (sourceMessage && ALTERNATIVE_RX.test(sourceMessage.text.replace(
+        /(?:مش|لا)\s+(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?)\s+(?:ال)?بديل/gi, ''
+      ))) product.roles.add('alternative');
       if (isActive) {
         product.roles.add('final_basket');
         product.finalQuantity = item.quantity;

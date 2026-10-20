@@ -249,11 +249,19 @@ function extractNaturalUnitItems(message: NormalizedConversationMessageV32): Dra
   for (const match of message.text.matchAll(NATURAL_UNIT_ITEM_RX)) {
     const quantityInfo = NATURAL_UNIT_QTY[match[1]];
     if (!quantityInfo) continue;
-    const productNameRaw = match[2]
+    let productNameRaw = match[2]
       .trim()
+      .replace(/^واحد[ةه]?\s+/i, '')
       .replace(/^(?:من\s+فضلك|لو\s*سمحت|ان\s*شاء\s*الله)\s*/i, '')
       .replace(/\s+(?:صح|مظبوط|ان\s*شاء\s*الله)\??$/i, '')
       .trim();
+    // A trailing pack description does not replace the product named in the same question.
+    // Require one explicit availability question; an unidentified pack remains unidentified.
+    if (/^(?:\d+\s*(?:قرص|أقراص|اقراص|كبسول[ةه]?))[.؟?\s]*$/u.test(productNameRaw)) {
+      const named = message.text.slice(0, match.index).match(/(?:عندكم|متوفر)\s+([^؟?]+)[؟?]/u);
+      if (!named) continue;
+      productNameRaw = named[1].trim();
+    }
     if (
       !productNameRaw ||
       productNameRaw.length < 2 ||

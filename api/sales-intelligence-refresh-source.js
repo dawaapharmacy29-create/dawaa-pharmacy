@@ -1322,7 +1322,7 @@ function classifyCustomerIntentStatementV32(text5) {
   return null;
 }
 var CUSTOMER_CALLBACK_RX = /(?<![\p{L}])(?:و?(?:كلمني|كلميني|كلمنى|اتصل(?:\s*(?:بي|بيا|عليا))?|رن\s*عليا|تابع\s*معايا|ابقى\s*(?:كلمني|تابع|بلغني|عرفني)|بلغني|عرفني|ابعتلي\s*لما))(?![\p{L}])/iu;
-var WHEN_IN_STOCK_RX = /لما\s*(?:\S+\s+){0,3}?(?:يوصل|يتوفر|ييجي|ينزل|تجيبه|تجيبوه|يبقى\s*موجود)/i;
+var WHEN_IN_STOCK_RX = /(?:لما|[أا]ول\s*ما)\s*(?:\S+\s+){0,3}?(?:يوصل|يتوفر|ييجي|ينزل|تجيبه|تجيبوه|يبقى\s*موجود)/i;
 var TOMORROW_RX = /بكر[ةه]|بكرا/i;
 var AFTER_DAYS_RX = /بعد\s*(?:(يومين)|(\d+)\s*(?:يوم|أيام|ايام)|(اسبوع|أسبوع))/i;
 var SAME_DAY_RX = /النهارد[ةه]|بالليل|كمان\s*ساع[ةه]|بعد\s*ساع[ةه]|آخر\s*النهار|اخر\s*النهار/i;
@@ -2108,6 +2108,8 @@ function buildPharmacyProductIndex(catalog) {
 }
 var CROSS_SCRIPT_SEED = /* @__PURE__ */ new Map([
   ["\u0632\u0648\u0631\u0643\u0627\u0644", "zurcal"],
+  ["\u0643\u062A\u0627\u0641\u0644\u0627\u0645", "cataflam"],
+  ["\u0643\u0627\u062A\u0641\u0644\u0627\u0645", "cataflam"],
   ["\u0627\u0646\u062A\u064A\u0646\u0627\u0644", "antinal"],
   ["\u0628\u0627\u0646\u0627\u062F\u0648\u0644 \u0627\u0643\u0633\u062A\u0631\u0627", "panadol extra"],
   ["\u0628\u064A\u062F\u0648 \u0643\u0648\u0631\u062A", "pedicort"],
@@ -2565,7 +2567,12 @@ function extractNaturalUnitItems(message) {
   for (const match of message.text.matchAll(NATURAL_UNIT_ITEM_RX)) {
     const quantityInfo = NATURAL_UNIT_QTY[match[1]];
     if (!quantityInfo) continue;
-    const productNameRaw = match[2].trim().replace(/^(?:من\s+فضلك|لو\s*سمحت|ان\s*شاء\s*الله)\s*/i, "").replace(/\s+(?:صح|مظبوط|ان\s*شاء\s*الله)\??$/i, "").trim();
+    let productNameRaw = match[2].trim().replace(/^واحد[ةه]?\s+/i, "").replace(/^(?:من\s+فضلك|لو\s*سمحت|ان\s*شاء\s*الله)\s*/i, "").replace(/\s+(?:صح|مظبوط|ان\s*شاء\s*الله)\??$/i, "").trim();
+    if (/^(?:\d+\s*(?:قرص|أقراص|اقراص|كبسول[ةه]?))[.؟?\s]*$/u.test(productNameRaw)) {
+      const named = message.text.slice(0, match.index).match(/(?:عندكم|متوفر)\s+([^؟?]+)[؟?]/u);
+      if (!named) continue;
+      productNameRaw = named[1].trim();
+    }
     if (!productNameRaw || productNameRaw.length < 2 || PRICE_INQUIRY_RX.test(productNameRaw) || NON_PRODUCT_PHRASE_RX.test(productNameRaw) || isGenericDeicticProductPhrase(productNameRaw) || NON_IDENTIFYING_RECAP_ITEM_RX.test(productNameRaw)) continue;
     items.push({
       productNameRaw,
@@ -5584,7 +5591,10 @@ function deriveCustomerNeedModel(input) {
           product.offeredQuantity = item.quantity;
         }
       }
-      if (sourceMessage && ALTERNATIVE_RX.test(sourceMessage.text)) product.roles.add("alternative");
+      if (sourceMessage && ALTERNATIVE_RX.test(sourceMessage.text.replace(
+        /(?:مش|لا)\s+(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?)\s+(?:ال)?بديل/gi,
+        ""
+      ))) product.roles.add("alternative");
       if (isActive) {
         product.roles.add("final_basket");
         product.finalQuantity = item.quantity;
@@ -8782,7 +8792,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v34-complaint-cutover";
+var PIPELINE_VERSION = "sales-intelligence-v35-stock-request-pack-context";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v10-payment-continuation-ambiguity-safe",
   historicalClosure: "historical-closure-v1",
