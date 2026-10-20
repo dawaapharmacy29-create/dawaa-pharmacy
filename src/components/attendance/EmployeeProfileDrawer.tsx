@@ -1,12 +1,16 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@/hooks/useAuth';
 import { X, Calendar, TrendingUp, Clock3, Download, AlertCircle, ShieldCheck } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
 import { buildEmployeeAttendanceProfilePdf } from '@/lib/attendance/employeeProfilePdf';
 import { toast } from 'sonner';
 import { formatEmployeeProfileClock as formatTime } from '@/lib/attendance/profileTime';
+
+// Lazy import avoids circular eager initialization: the inbox also opens staff profiles.
+const AttendanceResolutionCenter = lazy(() => import('@/components/attendance/AttendanceResolutionCenter'));
+const REVIEW_ROLES = new Set(['admin', 'general_manager', 'executive_manager', 'branches_manager', 'branch_manager', 'shift_supervisor_morning', 'shift_supervisor_evening']);
 
 type Profile = {
   staff: { id: string; name: string; role: string | null; branch: string | null; active: boolean };
@@ -41,7 +45,10 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: string; onClose: () => void }) {
-  const navigate = useNavigate();
+  const { user } = useAuth();
+  const canReviewAttendance = REVIEW_ROLES.has(user?.role || '');
+  const [showReviews, setShowReviews] = useState(false);
+  const [reloadVersion, setReloadVersion] = useState(0);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -64,7 +71,7 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
       }
     })();
     return () => { cancelled = true; };
-  }, [staffId]);
+  }, [staffId, reloadVersion]);
 
   // The global Header has z-[220] and h-14. The drawer lives in document.body,
   // outside page stacking contexts, and starts below the visible app header.
@@ -88,10 +95,8 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
   });
 
   function openCurrentCycleReview() {
-    // An actual review remains subject to the existing manager role + row-scoped
-    // backend guards; this only opens the canonical inbox with exact staff scope.
-    onClose();
-    navigate('/attendance-report?tab=resolution&triage=all&review_period=current-cycle&review_staff=' + encodeURIComponent(staffId));
+    // Reuse the existing guarded decision workflow without losing this employee.
+    setShowReviews(true);
   }
 
   async function handleExport() {
@@ -132,7 +137,8 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
           </div>}
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            {profile && !loading && <button onClick={() => void handleExport()} disabled={exporting} className="btn-secondary px-3 py-2 text-xs" aria-label="تصدير ملف الحضور PDF"><Download size={14} className={exporting ? 'animate-pulse' : ''} /> {exporting ? 'جارٍ التصدير...' : 'PDF'}</button>}
+            {showReviews && <button type="button" onClick={() => setShowReviews(false)} className="btn-secondary px-3 py-2 text-xs">العودة للملف</button>}
+            {profile && !loading && !showReviews && <button onClick={() => void handleExport()} disabled={exporting} className="btn-secondary px-3 py-2 text-xs" aria-label="تصدير ملف الحضور PDF"><Download size={14} className={exporting ? 'animate-pulse' : ''} /> {exporting ? 'جارٍ التصدير...' : 'PDF'}</button>}
             <button type="button" onClick={onClose} aria-label="إغلاق ملف الموظف" className="rounded-xl border border-[var(--dawaa-theme-border)] p-2 text-[var(--dawaa-theme-heading)] hover:bg-[var(--dawaa-theme-surface-2)]"><X size={18} /></button>
           </div>
         </header>
@@ -140,7 +146,13 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
         {error && <div className="rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-danger-text)]">{error}</div>}
         {loading && <div className="space-y-3">{[0, 1, 2].map((i) => <div key={i} className="h-16 animate-pulse rounded-xl bg-[var(--dawaa-theme-surface-2)]" />)}</div>}
 
-        {profile && !loading && <div className="space-y-5">
+        {profile && !loading && (showReviews ? (
+          <Suspense fallback={<p className="text-xs font-bold text-[var(--dawaa-theme-muted)]">جارٍ تجهيز مراجعات الموظف...</p>}>
+            <AttendanceResolutionCenter key={staffId} defaultBranch="الكل" initialTriage="all"
+              initialStaffId={staffId} initialCurrentCycle embedded
+              onDecisionSaved={() => setReloadVersion((v) => v + 1)} />
+          </Suspense>
+        ) : <div className="space-y-5">)}
           {!profile.processed_evidence.coverage_complete && profile.processed_evidence.accepted_punches > 0 && (
             <section role="status" className="rounded-2xl border border-[var(--dawaa-status-warning-border)] p-3 sm:p-4">
               <div className="flex items-center gap-2 text-sm font-black text-[var(--dawaa-theme-heading)]">
@@ -171,11 +183,11 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
             <div className="grid grid-cols-3 gap-2">
               <RateBox label="تأخير" value={profile.processed_evidence.coverage_complete ? `${profile.rates.late_rate_pct}%` : '—'} sub={profile.processed_evidence.coverage_complete ? `${profile.rates.late_days + profile.rates.very_late_days} يوم` : 'تغطية الحضور غير مكتملة'} />
               <RateBox label="إذن/إجازة" value={profile.processed_evidence.coverage_complete ? `${profile.rates.permission_rate_pct}%` : '—'} sub={profile.processed_evidence.coverage_complete ? `${profile.rates.permission_days} يوم` : 'تغطية الحضور غير مكتملة'} />
-              {profile.rates.evaluated_days > 0 && profile.rates.pending_review_days > 0 ? (
+              {canReviewAttendance ? (
                 <button type="button" onClick={openCurrentCycleReview}
-                  aria-label={`فتح المراجعات المعلقة للموظف ${profile.staff.name} في الدورة الحالية`}
+                  aria-label={`فتح مراجعات الموظف ${profile.staff.name} في الدورة الحالية داخل النافذة`}
                   className="block min-w-0 cursor-pointer rounded-xl text-right focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--dawaa-theme-accent)]">
-                  <RateBox label="مراجعة معلقة" value={String(profile.rates.pending_review_days)} sub="اضغط لعرض مراجعات الدورة الحالية" />
+                  <RateBox label="مراجعات الدورة" value="عرض" sub="المراجعات والقرارات داخل الملف" />
                 </button>
               ) : (
                 <RateBox label="مراجعة معلقة" value={profile.rates.evaluated_days > 0 ? String(profile.rates.pending_review_days) : '—'} sub={profile.rates.evaluated_days > 0 ? 'من أيام الملخص فقط' : 'لا يوجد ملخص حضور'} />
@@ -282,7 +294,7 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
               {!profile.processed_evidence.recent_days.length && <p className="text-xs font-bold text-[var(--dawaa-theme-muted)]">لا توجد بصمات مُعالجة في الفترة المحددة.</p>}
             </div>
           </section>
-        </div>}
+        </div>)}
         </div>
       </aside>
     </div>,
