@@ -91,6 +91,19 @@ describe('ConversationCase Engine (Sales Intelligence Phase B.1) — Golden Case
     expect(analysis.operationalDisposition?.state).toBe('open_unknown');
   });
 
+  it('links a near-term service chase to the earlier nursing request only', () => {
+    const raw = [
+      '[9/28/26, 2:17:35 AM] Customer: ممكن تبعت حد مالتمريض',
+      '[9/28/26, 2:20:27 AM] You: حاضر',
+      '[9/28/26, 3:39:59 AM] Customer: دكتور معلش شوفه تاني كده',
+      '[9/28/26, 3:40:13 AM] You: هكلمه',
+    ].join('\\n');
+    const cases = deriveConversationCases({ understanding: understandingFor(raw), conversationId: 'service-then-chase' });
+    expect(cases).toHaveLength(2);
+    expect(cases.map((item) => item.caseType)).toEqual(['follow_up', 'follow_up']);
+    expect(cases[1].confidence.ruleIds).toContain('case.classification.nursing_chase_service_not_sale');
+  });
+
   it('a medicine order plus nursing service never disappears into the service-only category', () => {
     const raw = '[9/28/26, 2:17:35 AM] Customer: عايز علبتين كولونا وممكن تبعت حد من التمريض';
     const cases = deriveConversationCases({ understanding: understandingFor(raw), conversationId: 'medicine-and-service' });
