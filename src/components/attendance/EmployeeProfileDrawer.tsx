@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { X, Calendar, TrendingUp, Clock3, Download } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { X, Calendar, TrendingUp, Clock3, Download, AlertCircle, ShieldCheck } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
 import { buildEmployeeAttendanceProfilePdf } from '@/lib/attendance/employeeProfilePdf';
@@ -63,6 +64,27 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
     return () => { cancelled = true; };
   }, [staffId]);
 
+  // The global Header has z-[220] and h-14. The drawer lives in document.body,
+  // outside page stacking contexts, and starts below the visible app header.
+  useEffect(() => {
+    const savedOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = savedOverflow;
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [onClose]);
+
+  const evidence = profile?.processed_evidence;
+  const coverageIncomplete = Boolean(evidence && !evidence.coverage_complete);
+  const currentCairoDay = new Date().toLocaleDateString('ar-EG', {
+    weekday: 'long', timeZone: 'Africa/Cairo',
+  });
+
   async function handleExport() {
     if (!profile) return;
     setExporting(true);
@@ -84,17 +106,28 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
     }
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={onClose} dir="rtl">
-      <div className="h-full w-full max-w-lg overflow-y-auto dawaa-surface p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-black text-[var(--dawaa-theme-heading)]">{loading ? 'جارٍ التحميل...' : profile?.staff.name || 'بروفايل الموظف'}</h2>
-          <div className="flex items-center gap-1">
-            {profile && !loading && <button onClick={() => void handleExport()} disabled={exporting} className="btn-secondary px-2 py-1 text-xs"><Download size={14} className={exporting ? 'animate-pulse' : ''} /> {exporting ? 'جارٍ التصدير...' : 'PDF'}</button>}
-            <button onClick={onClose} className="rounded-full p-1.5 hover:bg-[var(--dawaa-theme-surface-2)]"><X size={18} /></button>
+  return createPortal(
+    <div role="dialog" aria-modal="true" aria-label="ملف حضور الموظف"
+      className="fixed inset-x-0 bottom-0 top-14 z-[240] flex justify-end bg-black/50 backdrop-blur-[2px]"
+      onClick={onClose} dir="rtl">
+      <aside className="flex h-full w-full min-w-0 max-w-[640px] flex-col overflow-hidden border-r border-[var(--dawaa-theme-border)] dawaa-surface shadow-2xl"
+        onClick={(e) => e.stopPropagation()}>
+        <header className="z-10 flex shrink-0 items-start justify-between gap-3 border-b border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] px-4 py-3 sm:px-5">
+          <div className="min-w-0 flex-1">
+          <h2 className="break-words text-lg font-black leading-snug text-[var(--dawaa-theme-heading)] sm:text-xl">{loading ? 'جارٍ التحميل...' : profile?.staff.name || 'ملف حضور الموظف'}</h2>
+          {profile && !loading && <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] font-bold text-[var(--dawaa-theme-muted)]">
+            <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-0.5">{profile.staff.role || 'الوظيفة غير محددة'}</span>
+            <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-0.5">{profile.staff.branch || 'الفرع غير محدد'}</span>
+            <span className="rounded-full border px-2 py-0.5 border-[var(--dawaa-theme-border)] text-[var(--dawaa-theme-heading)]">{coverageIncomplete ? 'تغطية جزئية' : 'تغطية مكتملة'}</span>
+            {!profile.staff.active && <span className="rounded-full border border-[var(--dawaa-status-danger-border)] px-2 py-0.5 text-[var(--dawaa-status-danger-text)]">غير نشط</span>}
+          </div>}
           </div>
-        </div>
-
+          <div className="flex shrink-0 items-center gap-2">
+            {profile && !loading && <button onClick={() => void handleExport()} disabled={exporting} className="btn-secondary px-3 py-2 text-xs" aria-label="تصدير ملف الحضور PDF"><Download size={14} className={exporting ? 'animate-pulse' : ''} /> {exporting ? 'جارٍ التصدير...' : 'PDF'}</button>}
+            <button type="button" onClick={onClose} aria-label="إغلاق ملف الموظف" className="rounded-xl border border-[var(--dawaa-theme-border)] p-2 text-[var(--dawaa-theme-heading)] hover:bg-[var(--dawaa-theme-surface-2)]"><X size={18} /></button>
+          </div>
+        </header>
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5 sm:py-5">
         {error && <div className="rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-danger-text)]">{error}</div>}
         {loading && <div className="space-y-3">{[0, 1, 2].map((i) => <div key={i} className="h-16 animate-pulse rounded-xl bg-[var(--dawaa-theme-surface-2)]" />)}</div>}
 
@@ -179,8 +212,10 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
             </div>
           </section>
         </div>}
-      </div>
-    </div>
+        </div>
+      </aside>
+    </div>,
+    document.body
   );
 }
 
