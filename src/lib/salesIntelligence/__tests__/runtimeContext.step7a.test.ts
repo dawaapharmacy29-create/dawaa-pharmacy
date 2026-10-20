@@ -122,6 +122,44 @@ describe('canonical invoice seller and self-introduction identity', () => {
     expect(resolveCanonicalStaffIdByName('اسم غير معروف', context.staffIdentityMap)).toBeNull();
   });
 
+  it('keeps customer-service staff separate from a source-wide invoice-seller hint', async () => {
+    const directory = buildSalesIntelligenceRuntimeContext({
+      staffDirectory: [
+        staff('staff-heba', 'هبه'),
+        staff('staff-shebl', 'د محمد شبل'),
+      ],
+      productIndex: buildPharmacyProductIndex([]),
+    });
+    const raw = [
+      '[9/28/26, 1:00:00 AM] Customer: محتاج مساعدة',
+      '[9/28/26, 1:00:10 AM] You: مع حضرتك هبه من خدمة العملاء',
+      '[9/28/26, 1:00:25 AM] Customer: شكرا لحضرتك',
+    ].join('\\n');
+    const [prepared] = await prepareSalesIntelligenceConversations(
+      clientReturning(),
+      [{ conversationId: 'multi-staff-source', rawWhatsAppExportText: raw, knownStaffIds: ['staff-shebl'] }],
+      directory
+    );
+    const analyses = runSalesIntelligencePipeline({
+      ...pipelineBaseInputFor(prepared, directory),
+      customerIdHint: 'customer-1',
+      customerIdentityStatus: 'resolved',
+      branchNameRawHint: 'فرع شكري',
+      resolveInvoiceCandidates: () => [{
+        id: 'invoice-1',
+        invoice_number: '11111',
+        customer_id: 'customer-1',
+        branch: 'فرع شكري',
+        staff_id: 'staff-shebl',
+        invoice_datetime: '2026-09-27T22:01:00.000Z',
+      }],
+    }).caseAnalyses;
+    const candidate = analyses[0].attribution.selectedCandidate;
+    expect(candidate).toBeTruthy();
+    expect(candidate?.staffMatch).toBe('different');
+    expect(analyses[0].caseIntelligence.staff.participants.some((p) => p.staffId === 'staff-heba')).toBe(true);
+  });
+
   it('resolves explicit outbound self-introductions by message id without treating You as identity', async () => {
     const introContext = buildSalesIntelligenceRuntimeContext({
       staffDirectory: [staff('staff-wael', 'د وائل'), staff('staff-omar', 'د عمر')],
