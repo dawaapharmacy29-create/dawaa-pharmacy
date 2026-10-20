@@ -7,7 +7,7 @@ import { buildEmployeeAttendanceProfilePdf } from '@/lib/attendance/employeeProf
 import { toast } from 'sonner';
 import { formatEmployeeProfileClock as formatTime } from '@/lib/attendance/profileTime';
 
-type Profile = {
+export type EmployeeAttendanceProfile = {
   staff: { id: string; name: string; role: string | null; branch: string | null; active: boolean };
   weekly_schedule: { day_name: string; shift_date: string | null; is_off: boolean; shift_start: string | null; shift_end: string | null }[];
   rates: {
@@ -39,13 +39,20 @@ const STATUS_LABEL: Record<string, string> = {
   approved_time_off: 'إذن معتمد', early_leave_review: 'خروج مبكر', shift_in_progress: 'جارٍ الآن', no_schedule: 'بدون جدول',
 };
 
-export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: string; onClose: () => void }) {
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [loading, setLoading] = useState(true);
+export default function EmployeeProfileDrawer({ staffId, onClose, previewProfile }: { staffId: string; onClose: () => void; previewProfile?: EmployeeAttendanceProfile }) {
+  const [profile, setProfile] = useState<EmployeeAttendanceProfile | null>(previewProfile ?? null);
+  const [loading, setLoading] = useState(!previewProfile);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
+    if (previewProfile) {
+      // Static visual review: no remote staff profile request and no payroll actions.
+      setProfile(previewProfile);
+      setLoading(false);
+      setError(null);
+      return;
+    }
     let cancelled = false;
     setProfile(null);
     setLoading(true);
@@ -54,7 +61,7 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
       try {
         const { data, error: rpcError } = await supabase.rpc('attendance_employee_profile_evidence_v1', { p_staff_id: staffId, p_days: 30 });
         if (rpcError) throw rpcError;
-        if (!cancelled) setProfile(data as Profile);
+        if (!cancelled) setProfile(data as EmployeeAttendanceProfile);
       } catch (e) {
         if (!cancelled) { setProfile(null); setError(e instanceof Error ? e.message : 'تعذر تحميل بيانات الموظف'); }
       } finally {
@@ -62,7 +69,7 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
       }
     })();
     return () => { cancelled = true; };
-  }, [staffId]);
+  }, [staffId, previewProfile]);
 
   // The global Header has z-[220] and h-14. The drawer lives in document.body,
   // outside page stacking contexts, and starts below the visible app header.
@@ -123,7 +130,7 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
           </div>}
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            {profile && !loading && <button onClick={() => void handleExport()} disabled={exporting} className="btn-secondary px-3 py-2 text-xs" aria-label="تصدير ملف الحضور PDF"><Download size={14} className={exporting ? 'animate-pulse' : ''} /> {exporting ? 'جارٍ التصدير...' : 'PDF'}</button>}
+            {profile && !loading && !previewProfile && <button onClick={() => void handleExport()} disabled={exporting} className="btn-secondary px-3 py-2 text-xs" aria-label="تصدير ملف الحضور PDF"><Download size={14} className={exporting ? 'animate-pulse' : ''} /> {exporting ? 'جارٍ التصدير...' : 'PDF'}</button>}
             <button type="button" onClick={onClose} aria-label="إغلاق ملف الموظف" className="rounded-xl border border-[var(--dawaa-theme-border)] p-2 text-[var(--dawaa-theme-heading)] hover:bg-[var(--dawaa-theme-surface-2)]"><X size={18} /></button>
           </div>
         </header>
