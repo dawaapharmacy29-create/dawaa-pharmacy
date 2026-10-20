@@ -62,7 +62,7 @@ function pageShell(title: string, subtitle: string, body: string, preview: boole
       '<div style="display:flex;align-items:center;gap:8px"><div style="text-align:left;font-size:8px;color:#677983"><b style="display:block;font-size:10px;color:#102235">صيدليات دواء</b>كل اللي تحتاجه وأكثر</div><div style="width:68px;height:58px;overflow:hidden;border-radius:10px;background:#fff"><img src="/dawaa-logo-full.jpeg" alt="صيدليات دواء" style="width:68px;height:92px;object-fit:contain;transform:translateY(-8px)"/></div></div>' +
     '</header>' +
     body +
-    '<footer style="position:absolute;bottom:18px;right:34px;left:34px;border-top:1px solid #dce6e7;padding-top:7px;font-size:8px;color:#72818a;display:flex;justify-content:space-between;gap:10px"><span>صيدليات دواء - Payroll Statement V1</span><span>' + esc(pageCode) + '</span></footer>' +
+    '<footer style="position:absolute;bottom:18px;right:34px;left:34px;border-top:1px solid #dce6e7;padding-top:7px;font-size:8px;color:#72818a;display:flex;justify-content:space-between;gap:10px"><span>صيدليات دواء - كشف الراتب التفصيلي</span><span>' + esc(pageCode) + '</span></footer>' +
   '</section>';
 }
 
@@ -110,8 +110,8 @@ function buildPages(data: EmployeePayrollStatementV1) {
 
   const auditRef = financial.frozen
     ? '<div style="margin-top:8px;border:1px solid #d9e4e5;background:#f9fbfb;border-radius:10px;padding:8px;font-size:8px;color:#5f7079;line-height:1.7">' +
-        '<b style="color:#102235">مرجع الاعتماد:</b> Snapshot ' + esc(data.finalization.snapshot_id || '-') +
-        ' · Fingerprint ' + esc(shortFingerprint(data.finalization.snapshot_fingerprint || financial.snapshot_fingerprint)) +
+        '<b style="color:#102235">مرجع الاعتماد:</b> نسخة الاعتماد ' + esc(data.finalization.snapshot_id || '-') +
+        ' · بصمة الاعتماد ' + esc(shortFingerprint(data.finalization.snapshot_fingerprint || financial.snapshot_fingerprint)) +
         ' · أُقفل في ' + esc(cairoDateTime(data.finalization.finalized_at || financial.finalized_at)) +
       '</div>'
     : '';
@@ -130,8 +130,8 @@ function buildPages(data: EmployeePayrollStatementV1) {
 
   const overviewCards =
     '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px">' +
-      card('ساعات أساسي', durationHours(engine.base_payable_hours), 'Attendance Truth المعتمد') +
-      card('Overtime معتمد', durationHours(overtime.approved_hours), money(financial.earnings.approved_overtime), 'success') +
+      card('ساعات أساسي', durationHours(engine.base_payable_hours), 'الحضور المعتمد المعتمد') +
+      card('العمل الإضافي معتمد', durationHours(overtime.approved_hours), money(financial.earnings.approved_overtime), 'success') +
       card('الحوافز الآلية', money(financial.earnings.automated_incentives_total), 'الأداء + التارجت + البنود الآلية') +
       card('البصمات المفقودة', num(data.missing_punch.summary.incidents).toLocaleString('ar-EG'), 'خصم فعلي ' + money(data.missing_punch.summary.deduction_amount), num(data.missing_punch.summary.deduction_amount) > 0 ? 'danger' : 'normal') +
     '</div>';
@@ -142,7 +142,7 @@ function buildPages(data: EmployeePayrollStatementV1) {
         line('الراتب الأساسي', money(financial.earnings.base_salary)) +
         line('الحوافز الآلية', money(financial.earnings.automated_incentives_total)) +
         line('حافز اللستة', money(financial.earnings.list_incentive)) +
-        line('Overtime معتمد', money(financial.earnings.approved_overtime)) +
+        line('العمل الإضافي معتمد', money(financial.earnings.approved_overtime)) +
         line('حوافز يدوية أخرى', money(financial.earnings.manual_other_incentives)) +
         line('إجمالي المستحقات', money(earningsTotal), true) +
       '</div>' +
@@ -158,7 +158,7 @@ function buildPages(data: EmployeePayrollStatementV1) {
 
   const attentionItems = [
     num(engine.pending_review_days) > 0 ? num(engine.pending_review_days).toLocaleString('ar-EG') + ' يوم حضور يحتاج مراجعة' : '',
-    num(overtime.pending_cases) > 0 ? num(overtime.pending_cases).toLocaleString('ar-EG') + ' حالة Overtime معلقة (' + durationHours(overtime.pending_hours) + ')' : '',
+    num(overtime.pending_cases) > 0 ? num(overtime.pending_cases).toLocaleString('ar-EG') + ' حالة العمل الإضافي معلقة (' + durationHours(overtime.pending_hours) + ')' : '',
     num(data.transactions.summary.pending_rows) > 0 ? num(data.transactions.summary.pending_rows).toLocaleString('ar-EG') + ' حركة معلقة' : '',
     data.finalization.blockers.length ? data.finalization.blockers.length.toLocaleString('ar-EG') + ' مانع إقفال' : '',
   ].filter(Boolean);
@@ -168,7 +168,7 @@ function buildPages(data: EmployeePayrollStatementV1) {
     : '<div style="margin-top:14px;border:1px solid #b8ded9;background:#eff9f7;border-radius:11px;padding:10px;font-size:9px"><b style="color:#087f7a">لا توجد عناصر معلقة حرجة في البيانات الحالية.</b></div>';
 
   const rules =
-    '<div style="margin-top:10px;font-size:8px;color:#6b7a82;line-height:1.6">الأساسي = ساعات الحضور المعتمدة بحد أقصى ساعات الجدول × سعر الساعة. الـOvertime المعتمد منفصل. الحافز الشهري لا يُجمع مرتين؛ هو داخل إجمالي الحوافز الآلية. البنود Pending أو Rejected تظهر للشفافية ولا تدخل الصافي.</div>';
+    '<div style="margin-top:10px;font-size:8px;color:#6b7a82;line-height:1.6">الأساسي = ساعات الحضور المعتمدة بحد أقصى ساعات الجدول × سعر الساعة. العمل الإضافي المعتمد منفصل. الحافز الشهري لا يُجمع مرتين؛ هو داخل إجمالي الحوافز الآلية. البنود المعلقة أو المرفوضة تظهر للشفافية ولا تدخل الصافي.</div>';
 
   pages.push(pageShell('كشف الراتب والشفافية الشهرية', 'ملخص تنفيذي يوضح كيف تم تكوين صافي الراتب', identity + netHero + overviewCards + earnings + attention + rules, preview, 'ملخص مالي'));
 
@@ -192,11 +192,11 @@ function buildPages(data: EmployeePayrollStatementV1) {
     const summary =
       '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:8px">' +
         card('الساعات الفعلية', durationHours(actualWorkedHours), 'إجمالي الحضور الفعلي خلال الدورة') +
-        card('ساعات الأساسي المحتسبة', durationHours(basePayableHours), 'بعد تطبيق الجدول وAttendance Truth') +
+        card('ساعات الأساسي المحتسبة', durationHours(basePayableHours), 'بعد تطبيق الجدول والحضور المعتمد') +
         card('سعر الساعة الفعلي', money(engine.true_hourly_rate), 'السعر المستخدم في حساب الأساسي') +
       '</div>' +
       '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:12px">' +
-        card('فرق عن ساعات الأساسي', durationHours(hoursOutsideBase), 'قد يشمل OT؛ راجع صفحة الأوفر تايم') +
+        card('فرق عن ساعات الأساسي', durationHours(hoursOutsideBase), 'قد يشمل عملًا إضافيًا؛ راجع صفحة الأوفر تايم') +
         card('إجازات/أذونات', num(attendance.approved_time_off_days).toLocaleString('ar-EG')) +
         card('إجمالي التأخير', mins(attendance.late_minutes).toLocaleString('ar-EG') + ' دقيقة') +
         card('الخروج المبكر', mins(attendance.early_leave_minutes).toLocaleString('ar-EG') + ' دقيقة') +
@@ -241,9 +241,9 @@ function buildPages(data: EmployeePayrollStatementV1) {
       card('معلق', durationHours(overtime.pending_hours), 'لا يدخل الراتب قبل الاعتماد') +
       card('مرفوض', durationHours(overtime.rejected_hours), 'للمعلومة فقط') +
     '</div>' +
-    (overtimeRows ? table(overtimeRows, ['اليوم', 'الفرع', 'المدة', 'الحالة', 'القيمة', 'سبب القرار']) : '<div style="font-size:9px;color:#6b7a82">لا توجد حالات Overtime في هذه الدورة.</div>');
+    (overtimeRows ? table(overtimeRows, ['اليوم', 'الفرع', 'المدة', 'الحالة', 'القيمة', 'سبب القرار']) : '<div style="font-size:9px;color:#6b7a82">لا توجد حالات العمل الإضافي في هذه الدورة.</div>');
 
-  pages.push(pageShell('تفاصيل الأوفر تايم', 'ما تم اعتماده وما بقي معلقًا أو تم رفضه', overtimeBody, preview, 'Overtime'));
+  pages.push(pageShell('تفاصيل الأوفر تايم', 'ما تم اعتماده وما بقي معلقًا أو تم رفضه', overtimeBody, preview, 'العمل الإضافي'));
 
   const manualLedgerEntries = data.financial.manual_ledger?.entries || [];
   if (manualLedgerEntries.length) {
@@ -316,9 +316,9 @@ function buildPages(data: EmployeePayrollStatementV1) {
       '</div>' +
     '</div>' +
     (branchBreakdown ? '<h2 style="font-size:12px;color:#087f7a;margin:15px 0 8px">مبيعات الموظف حسب الفرع</h2>' + table(branchBreakdown, ['الفرع', 'المبيعات', 'الفواتير', 'متوسط الفاتورة']) : '') +
-    '<div style="margin-top:13px;border:1px solid #b8ded9;background:#eff9f7;border-radius:11px;padding:10px;font-size:8.5px;line-height:1.6"><b style="color:#087f7a">قاعدة الشفافية:</b> مؤشرات الأداء سياق للموظف والإدارة. لا تغير الراتب مباشرة؛ التأثير المالي يدخل فقط من Incentive Truth أو بند مالي معتمد.</div>';
+    '<div style="margin-top:13px;border:1px solid #b8ded9;background:#eff9f7;border-radius:11px;padding:10px;font-size:8.5px;line-height:1.6"><b style="color:#087f7a">قاعدة الشفافية:</b> مؤشرات الأداء سياق للموظف والإدارة. لا تغير الراتب مباشرة؛ التأثير المالي يدخل فقط من الحوافز المعتمدة أو بند مالي معتمد.</div>';
 
-  pages.push(pageShell('الأداء وKPIs', 'أداء الموظف والفرع خلال نفس دورة الراتب', kpiBody, preview, 'KPIs'));
+  pages.push(pageShell('الأداء ومؤشرات القياس', 'أداء الموظف والفرع خلال نفس دورة الراتب', kpiBody, preview, 'مؤشرات الأداء'));
 
   return pages;
 }
@@ -335,6 +335,7 @@ export async function buildEmployeePayrollStatementPdf(
   const host = document.createElement('div');
   host.style.cssText = 'position:fixed;left:-12000px;top:0;width:794px;background:#fff';
   host.dir = 'rtl';
+  host.lang = 'ar';
   host.innerHTML = buildPages(data).join('');
   host.querySelectorAll('table').forEach((tableElement) => {
     (tableElement as HTMLElement).style.borderCollapse = 'collapse';
@@ -348,6 +349,7 @@ export async function buildEmployeePayrollStatementPdf(
   document.body.appendChild(host);
 
   try {
+    await document.fonts.ready;
     await Promise.all(
       Array.from(host.querySelectorAll('img')).map((img) =>
         img.decode ? img.decode().catch(() => undefined) : Promise.resolve()
