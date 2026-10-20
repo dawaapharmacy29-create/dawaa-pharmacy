@@ -7,6 +7,7 @@ const read = (path: string) => readFileSync(resolve(root, path),'utf8');
 
 describe('cross-branch punch reconciliation', () => {
   const migration = read('supabase/migrations/20261020070000_cross_branch_biometric_workday_v3.sql');
+  const anonFix = read('supabase/migrations/20261020070001_cross_branch_v3_explicit_anon_revoke.sql');
   const panel = read('src/components/attendance/CrossBranchPunchesPanel.tsx');
   const service = read('src/lib/attendance/attendanceOperationsService.ts');
 
@@ -26,6 +27,9 @@ describe('cross-branch punch reconciliation', () => {
     expect(migration).toContain('dawaa_can_read_staff_attendance_log(r.person_id,r.schedule_branch)');
     expect(migration).toContain('coalesce(sa.can_login,false)=true');
     expect(migration).toContain('REVOKE ALL ON FUNCTION public.list_cross_branch_biometric_events_v3');
+    expect(migration).toContain('FROM anon;');
+    expect(anonFix).toContain('FROM anon;');
+    expect(anonFix).toContain("has_function_privilege('anon'");
     expect(migration).not.toMatch(/\b(update public\.|delete from public\.|insert into public\.)/i);
   });
 
