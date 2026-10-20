@@ -152,7 +152,7 @@ export default function EmployeeProfileDrawer({ staffId, onClose }: { staffId: s
               initialStaffId={staffId} initialCurrentCycle embedded
               onDecisionSaved={() => setReloadVersion((v) => v + 1)} />
           </Suspense>
-        ) : <div className="space-y-5">)}
+        ) : <div className="space-y-5">
           {!profile.processed_evidence.coverage_complete && profile.processed_evidence.accepted_punches > 0 && (
             <section role="status" className="rounded-2xl border border-[var(--dawaa-status-warning-border)] p-3 sm:p-4">
               <div className="flex items-center gap-2 text-sm font-black text-[var(--dawaa-theme-heading)]">
