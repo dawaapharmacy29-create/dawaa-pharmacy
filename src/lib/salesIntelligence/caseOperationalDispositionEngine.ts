@@ -149,6 +149,17 @@ export function deriveCaseOperationalDisposition(input: DeriveOperationalDisposi
       confidence: lostOpportunity.confidence,
       nextBestAction: LOST_WAITING_ACTION[lostBucket],
     };
+  } else if (followUp.decision === 'review_required') {
+    // A human service/evidence review is not a completed obligation. No new
+    // executable follow-up, due date or staff assignment is invented here.
+    decision = {
+      bucket: 'unknown',
+      opportunity: null,
+      reasonCodes: ['disposition.manual_review_pending'],
+      evidenceMessageIds: [],
+      confidence: lostOpportunity.confidence,
+      nextBestAction: null,
+    };
   } else if (TERMINAL_COMMERCIAL.has(lostOpportunity.state)) {
     decision = {
       bucket: 'closed',
