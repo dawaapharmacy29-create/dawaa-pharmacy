@@ -1,6 +1,7 @@
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import { formatEmployeeProfileClock as formatTime } from './profileTime';
+import { paginateEmployeeProfileBitmap } from './pdfPageLayout';
 
 export type EmployeeProfilePdfInput = {
   staffName: string;
@@ -150,19 +151,29 @@ export async function buildEmployeeAttendanceProfilePdf(input: EmployeeProfilePd
       logging: false,
     });
     const pdf = new jsPDF('p', 'mm', 'a4');
-    const pageWidth = 190;
-    const pageHeight = 277;
-    const imgHeight = (canvas.height * pageWidth) / canvas.width;
-    const imgData = canvas.toDataURL('image/png', 1);
-    let heightLeft = imgHeight;
-    let position = 10;
-    pdf.addImage(imgData, 'PNG', 10, position, pageWidth, imgHeight);
-    heightLeft -= pageHeight;
-    while (heightLeft > 0) {
-      position = 10 - (imgHeight - heightLeft);
-      pdf.addPage();
-      pdf.addImage(imgData, 'PNG', 10, position, pageWidth, imgHeight);
-      heightLeft -= pageHeight;
+    const pageSlices = paginateEmployeeProfileBitmap(canvas.width, canvas.height);
+    for (let i = 0; i < pageSlices.length; i++) {
+      const slice = pageSlices[i];
+      if (i > 0) pdf.addPage();
+      if (pageSlices.length === 1) {
+        // Slight overrun: scale proportionally into a single page, no blank page 2.
+        pdf.addImage(canvas.toDataURL('image/png'), 'PNG',
+          slice.leftMm, 10, slice.widthMm, slice.heightMm);
+      } else {
+        // Do not repeat the complete bitmap at a negative Y on each page:
+        // slice and include exactly the visible source rows for this page.
+        const pageCanvas = document.createElement('canvas');
+        pageCanvas.width = canvas.width;
+        pageCanvas.height = slice.heightPx;
+        const ctx = pageCanvas.getContext('2d');
+        if (!ctx) throw new Error('تعذر تجهيز صفحات PDF');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+        ctx.drawImage(canvas, 0, slice.topPx, canvas.width, slice.heightPx,
+          0, 0, canvas.width, slice.heightPx);
+        pdf.addImage(pageCanvas.toDataURL('image/png'), 'PNG',
+          slice.leftMm, 10, slice.widthMm, slice.heightMm);
+      }
     }
     const safeName = String(input.staffName || 'employee').replace(/[\\/:*?"<>|]/g, '-');
     const fileName = `بروفايل-حضور-${safeName}.pdf`;
