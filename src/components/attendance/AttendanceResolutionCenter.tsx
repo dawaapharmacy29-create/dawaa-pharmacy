@@ -139,7 +139,7 @@ function primaryDecisionIds(row: AttendanceExceptionRow): string[] {
   if (row.issue_group === 'missing_punch') return ['forgot_in', 'forgot_out', 'device_fault'];
   if (row.issue_group === 'early_leave' || row.resolution_status === 'early_leave_review'
     || row.resolution_status === 'late' || row.resolution_status === 'very_late') {
-    return ['permission', 'time_deduction', 'schedule_error'];
+    return ['permission', 'time_deduction', 'custom'];
   }
   return ['permission', 'schedule_error', 'custom'];
 }
@@ -685,6 +685,91 @@ export default function AttendanceResolutionCenter({
       return;
     }
 
+    if (decision.id === 'permission') {
+      // Fast path stays inside this dialog while retaining the canonical
+      // time-off policy preflight, role guards and audited attendance approval.
+      const duration = Number(permissionMinutes);
+      if (!permissionMinutes.trim() || !Number.isSafeInteger(duration) || duration < 1 || duration > 1440) {
+        toast.warning('حدد مدة الإذن الفعلية بالدقائق قبل الاعتماد (من 1 إلى 1440).');
+        return;
+      }
+      const parsedHours = hours.trim() === '' ? null : Number(hours);
+      if (parsedHours != null && (!Number.isFinite(parsedHours) || parsedHours < 0 || parsedHours > 18)) {
+        toast.error('ساعات الاستحقاق يجب أن تكون بين 0 و18 ساعة.');
+        return;
+      }
+      setApproving(true);
+      let permissionApproved = false;
+      try {
+        // Re-read current state on submit: never infer that a stale cached
+        // request is still approved or create duplicate permission records.
+        const requests = await listStaffTimeOffRequests({
+          staffId: selected.staff_id,
+          from: selected.attendance_date,
+          to: selected.attendance_date,
+          limit: 100,
+        });
+        const permissions = requests.filter((request) => request.request_kind === 'permission'
+          && request.staff_id === selected.staff_id
+          && request.start_date === selected.attendance_date
+          && request.end_date === selected.attendance_date
+          && (request.status === 'pending' || request.status === 'approved'));
+        if (permissions.length > 1 || permissions.some((request) => Number(request.duration_minutes) !== duration)) {
+          toast.warning('يوجد إذن آخر أو أكثر لنفس اليوم بمدة مختلفة. راجع الطلبات الموجودة قبل إضافة إذن جديد.');
+          return;
+        }
+        let request = permissions[0];
+        if (!request) {
+          request = await createStaffTimeOffRequest({
+            staffId: selected.staff_id,
+            kind: 'permission',
+            label: 'إذن حضور من مركز المراجعات',
+            startDate: selected.attendance_date,
+            durationMinutes: duration,
+            reason: note.trim() || `إذن ${duration} دقيقة بعد مراجعة بصمة الحضور`,
+          });
+        }
+        if (request.status === 'pending') {
+          const preflight = await getTimeOffRequestPreflightV3(request.id);
+          if (!preflight.allowed || preflight.blockers.length > 0) {
+            toast.error(`الإذن محفوظ للمراجعة ولم يُعتمد: ${preflight.blockers.map((x) => x.label).join('، ') || 'فحص السياسة لم يكتمل'}`);
+            return;
+          }
+          if (preflight.warnings.length > 0) {
+            toast.warning(`الإذن محفوظ ولم يُعتمد تلقائيًا؛ يحتاج مراجعة إضافية: ${preflight.warnings.map((x) => x.label).join('، ')}`);
+            return;
+          }
+          request = await decideStaffTimeOffRequest(request.id, 'approved', note.trim() || 'اعتماد إذن من مراجعة الحضور');
+        }
+        if (request.status !== 'approved') throw new Error('الإذن لم يحصل على حالة الاعتماد المطلوبة.');
+        permissionApproved = true;
+        await approveAttendanceResolution({
+          staffId: selected.staff_id,
+          date: selected.attendance_date,
+          payrollEligibleHours: parsedHours,
+          note: [
+            `تصنيف مراجعة الحضور: ${decision.label}`,
+            `إذن معتمد: ${request.id} (${duration} دقيقة)`,
+            note.trim() ? `تفاصيل المدير: ${note.trim()}` : '',
+          ].filter(Boolean).join(' | '),
+        });
+        toast.success('تم تسجيل الإذن واعتماده وتوثيق قرار الحضور من نفس النافذة.');
+        setSelected(null);
+        setReason('');
+        setNote('');
+        setHours('');
+        setPermissionMinutes('');
+        await load();
+      } catch (error) {
+        toast.error(permissionApproved
+          ? 'الإذن معتمد في السجل، لكن اعتماد يوم الحضور لم يكتمل. أعد المحاولة؛ لن ننشئ إذنًا جديدًا.'
+          : error instanceof Error ? error.message : 'تعذر اعتماد الإذن. راجع سياسة الإذن قبل المحاولة.');
+      } finally {
+        setApproving(false);
+      }
+      return;
+    }
+
     const linkedRequest = decision.requestKind && approvedRequests.find((request) => request.request_kind === decision.requestKind);
     if (decision.requestKind && (requestsLoading || requestsError || !linkedRequest)) {
       toast.error('سجّل الطلب واعتمده في صفحة الإجازات والغياب أولًا، ثم راجع اليوم مجددًا.');
@@ -1210,7 +1295,17 @@ export default function AttendanceResolutionCenter({
                     <div className="flex flex-wrap gap-2" role="group" aria-label="اختيارات القرار">
                       {visibleDecisions.map((item) => <button
                         key={item.id} type="button" aria-pressed={reason === item.id}
-                        onClick={() => { setReason(item.id); setMultiplier(''); setApplyMissingPunchPenalty(false); }}
+                        onClick={() => {
+                          setReason(item.id);
+                          setMultiplier('');
+                          setApplyMissingPunchPenalty(false);
+                          if (item.id === 'permission') {
+                            const one = selected.early_leave_minutes > 0 && selected.late_minutes === 0
+                              ? selected.early_leave_minutes : selected.late_minutes > 0 && selected.early_leave_minutes === 0
+                                ? selected.late_minutes : 0;
+                            setPermissionMinutes(one > 0 ? String(Math.ceil(one)) : '');
+                          }
+                        }}
                         className={`rounded-xl border px-3 py-2 text-xs font-black transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${reason === item.id
                           ? 'border-[var(--dawaa-theme-primary)] bg-[var(--dawaa-theme-primary-soft)] text-[var(--dawaa-theme-primary-strong)]'
                           : 'border-[var(--dawaa-theme-border)] text-[var(--dawaa-theme-heading)] hover:bg-[var(--dawaa-theme-surface-2)]'}`}
@@ -1393,7 +1488,21 @@ export default function AttendanceResolutionCenter({
                     ) : 'جارٍ تجهيز بيانات الأسبوع...'}
                   </div>
                 )}
-                {decision?.requestKind && !['annual_leave', 'sick_leave', 'exceptional_leave', 'approved_absence'].includes(decision.id) && !(decision.id === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')) && <div className="mt-3 text-xs font-bold text-[var(--dawaa-theme-muted)]">
+                {decision?.id === 'permission' && <div className="mt-3 rounded-xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-info-text)]">
+                  <label className="block">
+                    مدة الإذن الفعلية (دقيقة)
+                    <input type="number" min="1" max="1440" step="1"
+                      value={permissionMinutes}
+                      onChange={(event) => setPermissionMinutes(event.target.value)}
+                      className="input-dark mt-1 w-full"
+                      placeholder="المدة بالدقائق" />
+                  </label>
+                  <p className="mt-2 font-normal leading-relaxed">
+                    سيتم فحص سجل الأذونات والسياسة أولًا، ثم تسجيل الإذن واعتماده وقرار الحضور من هنا.
+                    إذا ظهر تعارض أو تجاوز للحد، يُترك الإذن معلقًا دون احتساب جديد أو خصم.
+                  </p>
+                </div>}
+                {decision?.requestKind && decision.id !== 'permission' && !['annual_leave', 'sick_leave', 'exceptional_leave', 'approved_absence'].includes(decision.id) && !(decision.id === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')) && <div className="mt-3 text-xs font-bold text-[var(--dawaa-theme-muted)]">
                   {requestsLoading ? 'جارٍ التحقق من الطلب المعتمد...' : requestsError ? 'تعذر التحقق من سجل الإجازات. أعد فتح القرار.' : linked ? `الطلب المعتمد المرتبط: ${linked.request_label || linked.request_kind} (${linked.id}). ${decision.requestKind === 'permission' ? 'راجع ساعات اليوم قبل الاعتماد.' : 'اضغط تحديث حقيقة الحضور من أعلى الصفحة بعد إغلاق القرار.'}` : <>لا يوجد طلب معتمد من هذا النوع لهذا اليوم. <a className="underline" href="/time-off">افتح الإجازات والغياب</a> لتسجيله واعتماده أولًا.</>}
                 </div>}
                 {decision?.schedule && !(decision.id === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')) && <p className="mt-3 text-xs font-bold text-[var(--dawaa-status-warning-text)]">راجع تغيير الراحة أو الشيفت في الجدول ثم حدّث حقيقة الحضور؛ لا يُعتمد من هذه الشاشة مباشرة.</p>}
@@ -1427,7 +1536,7 @@ export default function AttendanceResolutionCenter({
                         ? applyMissingPunchPenalty ? 'تسجيل البصمة اليدوية + خصم 50ج' : 'تسجيل البصمة اليدوية'
                         : decisionsFor(selected).find((item) => item.id === reason)?.financial
                           ? 'اعتماد الحضور وتوثيق اقتراح الخصم'
-                          : reason ? 'اعتماد القرار الآن' : 'اختر قرارًا أولًا'}
+                          : reason === 'permission' ? 'اعتماد الإذن والحضور' : reason ? 'اعتماد القرار الآن' : 'اختر قرارًا أولًا'}
               </button>
               <button onClick={() => { setSelected(null); setNote(''); setReason(''); setMultiplier(''); setHours(''); setSwapWithDate(''); setWeeklyOffSwapPreview(null); setManualPunchAt(''); setApplyMissingPunchPenalty(false); setMissingPunchContext(null); setMissingPunchHistory([]); setShowDecisionEvidence(false); }} className="btn-secondary">إلغاء</button>
             </div>
