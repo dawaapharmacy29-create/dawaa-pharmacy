@@ -44,9 +44,11 @@ describe('employee attendance profile drawer layout', () => {
     expect(component).toContain('ساعات المرتب المحفوظة');
     expect(component).toContain('دليل البصمات');
     expect(component).toContain('onClick={openCurrentCycleReview}');
-    expect(component).toContain("review_period=current-cycle&review_staff=");
-    expect(component).toContain("tab=resolution&triage=all");
-    expect(component).toContain('profile.rates.pending_review_days > 0');
+    expect(component).toContain('initialStaffId={staffId} initialCurrentCycle embedded');
+    expect(component).toContain('onDecisionSaved={() => setReloadVersion');
+    expect(component).toContain('مراجعات الدورة');
+    expect(component).toContain('العودة للملف');
+    expect(component).not.toContain('navigate(');
     expect(component).toContain('لا يوجد ملخص حضور لهذه الفترة');
   });
   it('preserves the same secured profile RPC and PDF without payroll writes', () => {

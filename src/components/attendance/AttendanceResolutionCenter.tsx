@@ -23,6 +23,9 @@ import { cairoToday, startOfMonth } from '@/lib/attendance/period';
 import AttendanceCorrectionReviewPanel from '@/components/attendance/AttendanceCorrectionReviewPanel';
 import {
   approveAttendanceFullDayTimeOffV1,
+  createStaffTimeOffRequest,
+  decideStaffTimeOffRequest,
+  getTimeOffRequestPreflightV3,
   getAnnualLeaveAttendancePreviewV1,
   listStaffTimeOffRequests,
   resolveAnnualLeaveFromAttendanceV1,
@@ -152,12 +155,16 @@ export default function AttendanceResolutionCenter({
   initialTriage = 'manager',
   initialStaffId = null,
   initialCurrentCycle = false,
+  embedded = false,
+  onDecisionSaved,
 }: {
   defaultBranch?: string;
   initialDate?: string | null;
   initialTriage?: 'all' | 'manager' | 'system';
   initialStaffId?: string | null;
   initialCurrentCycle?: boolean;
+  embedded?: boolean;
+  onDecisionSaved?: () => void;
 }) {
   const [start, setStart] = useState(() => initialCurrentCycle ? startOfMonth(cairoToday()) : initialDate || cairoDate(-7));
   const [end, setEnd] = useState(() => initialCurrentCycle ? cairoToday() : initialDate || cairoDate());
@@ -169,6 +176,8 @@ export default function AttendanceResolutionCenter({
   const [missingPunchTab, setMissingPunchTab] = useState<'all' | 'check_in' | 'check_out'>('all');
   const [showFormer, setShowFormer] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const selectedPanelRef = useRef<HTMLDivElement | null>(null);
   const [materializing, setMaterializing] = useState(false);
   const [selected, setSelected] = useState<AttendanceExceptionRow | null>(null);
   const [profileStaffId, setProfileStaffId] = useState<string | null>(null);
@@ -194,6 +203,8 @@ export default function AttendanceResolutionCenter({
   const [manualPunchAt, setManualPunchAt] = useState('');
   const [applyMissingPunchPenalty, setApplyMissingPunchPenalty] = useState(false);
   const [hours, setHours] = useState('');
+  const [permissionStart, setPermissionStart] = useState('');
+  const [permissionEnd, setPermissionEnd] = useState('');
   const [approving, setApproving] = useState(false);
   const [showDecisionEvidence, setShowDecisionEvidence] = useState(false);
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(() => new Set());
@@ -222,6 +233,7 @@ export default function AttendanceResolutionCenter({
   const load = useCallback(async () => {
     const generation = ++loadGeneration.current;
     setLoading(true);
+    setLoadError(null);
     try {
       const [queue, summary] = await Promise.all([
         listAttendanceExceptionInbox({
@@ -238,11 +250,15 @@ export default function AttendanceResolutionCenter({
       setDiagnosticSummary(summary);
     } catch (error) {
       if (generation !== loadGeneration.current) return;
-      toast.error(error instanceof Error ? error.message : 'تعذر تحميل صندوق مراجعة الحضور');
+      const message = error instanceof Error ? error.message : 'تعذر تحميل صندوق مراجعة الحضور';
+      setRows([]);
+      setDiagnosticSummary(null);
+      setLoadError(message);
+      if (!embedded) toast.error(message);
     } finally {
       if (generation === loadGeneration.current) setLoading(false);
     }
-  }, [branch, end, start]);
+  }, [branch, end, start, embedded]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -493,6 +509,7 @@ export default function AttendanceResolutionCenter({
         setHours('');
         setAnnualLeavePreview(null);
         await load();
+        onDecisionSaved?.();
       } catch (error) {
         const message = error instanceof Error ? error.message : 'تعذر اعتماد الإجازة السنوية';
         if (message.includes('annual_leave_not_configured') || message.includes('annual_leave_policy_not_configured') || message.includes('annual_leave_entitlement_not_configured')) {
@@ -526,6 +543,7 @@ export default function AttendanceResolutionCenter({
         setMultiplier('');
         setHours('');
         await load();
+        onDecisionSaved?.();
       } catch (error) {
         const message = error instanceof Error ? error.message : 'تعذر اعتماد الإجازة/الغياب';
         if (message.includes('overlapping_approved_full_day_timeoff') || message.includes('time_off_preflight_blocked')) {
@@ -568,6 +586,7 @@ export default function AttendanceResolutionCenter({
         setSwapWithDate('');
         setWeeklyOffSwapPreview(null);
         await load();
+        onDecisionSaved?.();
       } catch (error) {
         const message = error instanceof Error ? error.message : 'تعذر تغيير يوم الراحة';
         if (message.includes('target_must_be_existing_off_day')) {
@@ -631,6 +650,7 @@ export default function AttendanceResolutionCenter({
         setMissingPunchContext(null);
         setMissingPunchHistory([]);
         await load();
+        onDecisionSaved?.();
       } catch (error) {
         const message = error instanceof Error ? error.message : 'تعذر معالجة البصمة المفقودة';
         if (message.includes('missing_punch_allowance_not_exhausted')) {
@@ -646,6 +666,78 @@ export default function AttendanceResolutionCenter({
       return;
     }
 
+    // Inline permission flow: explicit clock range + documented reason, with
+    // existing server preflight and approval. No client-side payroll shortcuts.
+    if (embedded && decision.id === 'permission' && !approvedRequests.some((request) => request.request_kind === 'permission')) {
+      if (requestsLoading || requestsError) {
+        toast.error('تعذر التأكد من الأذونات السابقة؛ لا يمكن إنشاء إذن مكرر قبل استكمال الفحص.');
+        return;
+      }
+      const validClock = /^([01]\d|2[0-3]):[0-5]\d$/;
+      if (!validClock.test(permissionStart) || !validClock.test(permissionEnd) || permissionEnd <= permissionStart || !note.trim()) {
+        toast.warning('حدد بداية ونهاية الإذن في نفس اليوم، واكتب سببًا واضحًا قبل الحفظ.');
+        return;
+      }
+      const [startHour,startMinute] = permissionStart.split(':').map(Number);
+      const [endHour,endMinute] = permissionEnd.split(':').map(Number);
+      const duration = (endHour*60 + endMinute) - (startHour*60 + startMinute);
+      if (duration <= 0 || duration > 24*60) {
+        toast.error('مدة الإذن غير صحيحة.');
+        return;
+      }
+      setApproving(true);
+      try {
+        // Refetch immediately before creation, since a second tab can have saved
+        // the same employee's permission after this modal was opened.
+        const existing = await listStaffTimeOffRequests({
+          staffId: selected.staff_id, from: selected.attendance_date, to: selected.attendance_date, limit: 100,
+        });
+        if (existing.some((request) => request.request_kind === 'permission'
+          && (request.status === 'pending' || request.status === 'approved'))) {
+          toast.warning('يوجد إذن مسجل بالفعل لهذا اليوم. حدّث المراجعات قبل اتخاذ قرار جديد.');
+          await load();
+          return;
+        }
+        const request = await createStaffTimeOffRequest({
+          staffId: selected.staff_id,
+          kind: 'permission',
+          startDate: selected.attendance_date,
+          startTime: permissionStart,
+          endTime: permissionEnd,
+          durationMinutes: duration,
+          reason: note.trim(),
+        });
+        const preflight = await getTimeOffRequestPreflightV3(request.id);
+        if (!preflight.allowed) {
+          toast.warning('تم تسجيل طلب الإذن للمراجعة فقط، ولم يُعتمد: ' +
+            (preflight.blockers.map((item) => item.label).join('، ') || 'السياسة تمنع اعتماده'));
+          await load();
+          return;
+        }
+        await decideStaffTimeOffRequest(request.id, 'approved', note.trim());
+        await approveAttendanceResolution({
+          staffId: selected.staff_id,
+          date: selected.attendance_date,
+          payrollEligibleHours: hours.trim() ? Number(hours) : selected.candidate_hours,
+          note: `تصنيف مراجعة الحضور: إذن معتمد | طلب معتمد: ${request.id} | تفاصيل المدير: ${note.trim()}`,
+        });
+        toast.success('تم تسجيل الإذن واعتماده وحفظ ملاحظة القرار وتحديث الحضور.');
+        setSelected(null);
+        setNote('');
+        setReason('');
+        setPermissionStart('');
+        setPermissionEnd('');
+        setHours('');
+        await load();
+        onDecisionSaved?.();
+      } catch (error) {
+        toast.error('تعذر إكمال الاعتماد: ' + (error instanceof Error ? error.message : 'راجع حالة الإذن قبل إعادة المحاولة'));
+        await load();
+      } finally {
+        setApproving(false);
+      }
+      return;
+    }
     const linkedRequest = decision.requestKind && approvedRequests.find((request) => request.request_kind === decision.requestKind);
     if (decision.requestKind && (requestsLoading || requestsError || !linkedRequest)) {
       toast.error('سجّل الطلب واعتمده في صفحة الإجازات والغياب أولًا، ثم راجع اليوم مجددًا.');
@@ -692,6 +784,7 @@ export default function AttendanceResolutionCenter({
       setMultiplier('');
       setHours('');
       await load();
+      onDecisionSaved?.();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'تعذر اعتماد قرار الحضور');
     } finally {
@@ -779,10 +872,54 @@ export default function AttendanceResolutionCenter({
     setBulkBusy(false);
   }
 
+  useEffect(() => {
+    if (embedded && selected) selectedPanelRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [embedded, selected?.id]);
+
   const currentLaneMeta = lane === 'system' ? laneMeta('system') : laneMeta('manager');
 
   return (
     <div className="space-y-4">
+      {embedded ? (
+        <section className="space-y-3" aria-label="مراجعات الموظف في الدورة الحالية">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-base font-black text-[var(--dawaa-theme-heading)]">مراجعات الدورة الحالية</h3>
+            <button type="button" onClick={() => void load()} disabled={loading} className="btn-secondary text-xs">
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> تحديث الحالات
+            </button>
+          </div>
+          <p className="text-xs font-bold text-[var(--dawaa-theme-muted)]">
+            من {start} إلى {end} · الموظف المحدد فقط · لا خصم أو اعتماد تلقائي
+          </p>
+          {loading && <p role="status" className="text-xs font-bold text-[var(--dawaa-theme-muted)]">جارٍ تحميل المراجعات...</p>}
+          {loadError && <p role="alert" className="rounded-xl border border-[var(--dawaa-status-danger-border)] p-3 text-xs font-bold text-[var(--dawaa-status-danger-text)]">
+            تعذر قراءة المراجعات: {loadError} · لا يعني ذلك عدم وجود حالات
+          </p>}
+          {!loading && !loadError && rows.length >= 1000 && <p role="alert" className="text-xs font-bold text-[var(--dawaa-status-warning-text)]">
+            صندوق المراجعات العام وصل إلى حد 1000 حالة؛ قد يلزم تدقيق تغطية النتائج قبل اعتبار القائمة كاملة.
+          </p>}
+          {!loading && !loadError && <div className="space-y-2">
+            {baseRows.map((row) => (
+              <div key={row.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--dawaa-theme-border)] px-3 py-3 text-xs">
+                <div className="min-w-0 flex-1">
+                  <div className="font-black text-[var(--dawaa-theme-heading)]">{row.attendance_date} · {row.issue_label}</div>
+                  <div className="mt-1 text-[11px] font-bold text-[var(--dawaa-theme-muted)]">
+                    {row.queue_lane === 'system' ? 'فحص نظام، وليس مخالفة موظف' : 'يحتاج قرار المدير'}
+                    {' · '}{row.raw_events} بصمة · {fmt(row.first_in)} ← {fmt(row.last_out)}
+                  </div>
+                </div>
+                <button type="button" className="btn-secondary text-xs"
+                  onClick={() => { setSelected(row); setHours(row.candidate_hours == null ? '' : String(row.candidate_hours)); setNote(''); setReason(''); setMultiplier(''); }}>
+                  {row.queue_lane === 'system' ? 'عرض السبب' : 'مراجعة الحالة'}
+                </button>
+              </div>
+            ))}
+            {!baseRows.length && <p role="status" className="rounded-xl border border-[var(--dawaa-theme-border)] p-4 text-xs font-bold text-[var(--dawaa-theme-muted)]">
+              لا توجد مراجعات ظاهرة لهذا الموظف في الدورة الحالية.
+            </p>}
+          </div>}
+        </section>
+      ) : (<>
       <section className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-end">
           <div className="flex-1">
@@ -1113,9 +1250,15 @@ export default function AttendanceResolutionCenter({
         الحضور يثبت الحقيقة التشغيلية أولًا. الخصومات العامة تمر من مسار الرواتب/الجزاءات؛ والاستثناء الوحيد هنا هو خصم نسيان البصمة الثابت 50ج بعد تجاوز مرتين السماح، لأنه مرتبط مباشرة بسجل الواقعة وممنوع تكراره لنفس البصمة.
       </section>
 
+      </>)}
+
       {selected && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3">
-          <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface shadow-2xl">
+        <div ref={selectedPanelRef} className={embedded
+          ? 'scroll-mt-4 rounded-2xl border border-[var(--dawaa-theme-border)]'
+          : 'fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3'}>
+          <div className={embedded
+            ? 'w-full rounded-2xl dawaa-surface'
+            : 'max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface shadow-2xl'}>
             <div className="sticky top-0 z-10 border-b border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -1158,7 +1301,7 @@ export default function AttendanceResolutionCenter({
                 نوع القرار
                 <select value={reason} onChange={(e) => setReason(e.target.value)} className="input-dark mt-1 w-full">
                   <option value="">اختر القرار بعد مراجعة الحالة</option>
-                  {decisionsFor(selected).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+                  {decisionsFor(selected).filter((item) => !embedded || (!item.schedule || (item.id === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')))).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
                 </select>
               </label>
 
@@ -1207,7 +1350,7 @@ export default function AttendanceResolutionCenter({
                           {action.label}
                         </button>;
                       }
-                      if (action.id === 'open_schedule' || action.id === 'review_schedule_versions' || action.id === 'fix_schedule_time') {
+                      if (!embedded && (action.id === 'open_schedule' || action.id === 'review_schedule_versions' || action.id === 'fix_schedule_time')) {
                         return <a key={action.id} href="/schedule" className="rounded-full border border-[var(--dawaa-theme-border)] px-3 py-1 text-[11px] font-black text-[var(--dawaa-theme-heading)] hover:underline">
                           {action.label}
                         </a>;
@@ -1221,6 +1364,21 @@ export default function AttendanceResolutionCenter({
               </>}
             </div>}
 
+            {embedded && reason === 'permission' && !approvedRequests.some((request) => request.request_kind === 'permission') && (
+              <div className="mt-3 grid gap-3 rounded-xl border border-[var(--dawaa-theme-border)] p-3 sm:grid-cols-2">
+                <label className="text-xs font-black text-[var(--dawaa-theme-muted)]">
+                  بداية الإذن
+                  <input type="time" value={permissionStart} onChange={(event) => setPermissionStart(event.target.value)} className="input-dark mt-1 w-full" />
+                </label>
+                <label className="text-xs font-black text-[var(--dawaa-theme-muted)]">
+                  نهاية الإذن
+                  <input type="time" value={permissionEnd} onChange={(event) => setPermissionEnd(event.target.value)} className="input-dark mt-1 w-full" />
+                </label>
+                <p className="text-[11px] font-bold text-[var(--dawaa-theme-muted)] sm:col-span-2">
+                  يلزم كتابة سبب الإذن في الملاحظة أدناه. سيتم فحص سياسة الأذونات والصلاحية قبل الاعتماد.
+                </p>
+              </div>
+            )}
             {reason && !['annual_leave', 'sick_leave', 'exceptional_leave', 'approved_absence', 'shift_swap', 'forgot_in', 'forgot_out'].includes(reason) && (
               <label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">
                 ساعات الاستحقاق للمرتب
@@ -1329,7 +1487,7 @@ export default function AttendanceResolutionCenter({
                   </div>
                 )}
                 {decision?.requestKind && !['annual_leave', 'sick_leave', 'exceptional_leave', 'approved_absence'].includes(decision.id) && !(decision.id === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')) && <div className="mt-3 text-xs font-bold text-[var(--dawaa-theme-muted)]">
-                  {requestsLoading ? 'جارٍ التحقق من الطلب المعتمد...' : requestsError ? 'تعذر التحقق من سجل الإجازات. أعد فتح القرار.' : linked ? `الطلب المعتمد المرتبط: ${linked.request_label || linked.request_kind} (${linked.id}). ${decision.requestKind === 'permission' ? 'راجع ساعات اليوم قبل الاعتماد.' : 'اضغط تحديث حقيقة الحضور من أعلى الصفحة بعد إغلاق القرار.'}` : <>لا يوجد طلب معتمد من هذا النوع لهذا اليوم. <a className="underline" href="/time-off">افتح الإجازات والغياب</a> لتسجيله واعتماده أولًا.</>}
+                  {requestsLoading ? 'جارٍ التحقق من الطلب المعتمد...' : requestsError ? 'تعذر التحقق من سجل الإجازات. أعد فتح القرار.' : linked ? `الطلب المعتمد المرتبط: ${linked.request_label || linked.request_kind} (${linked.id}). ${decision.requestKind === 'permission' ? 'راجع ساعات اليوم قبل الاعتماد.' : 'اضغط تحديث حقيقة الحضور من أعلى الصفحة بعد إغلاق القرار.'}` : <>لا يوجد طلب معتمد من هذا النوع لهذا اليوم. {embedded ? 'لا يمكن اعتماده بدون توثيق الطلب المطلوب.' : <a className="underline" href="/time-off">افتح الإجازات والغياب</a>} </>}
                 </div>}
                 {decision?.schedule && !(decision.id === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')) && <p className="mt-3 text-xs font-bold text-[var(--dawaa-status-warning-text)]">راجع تغيير الراحة أو الشيفت في الجدول ثم حدّث حقيقة الحضور؛ لا يُعتمد من هذه الشاشة مباشرة.</p>}
                 {decision?.financial && <label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">معامل الخصم المقترح للمراجعة المالية
@@ -1340,7 +1498,8 @@ export default function AttendanceResolutionCenter({
             })()}
             <label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">
               ملاحظة القرار
-              <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} className="input-dark mt-1 w-full resize-none" placeholder="اختياري — مطلوب فقط عند الحاجة لتوثيق سبب إضافي..." />
+              <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} className="input-dark mt-1 w-full resize-none"
+                placeholder={['custom', 'outside_work'].includes(reason) ? 'مطلوب: اكتب سبب القرار والدليل' : 'اختياري: تفاصيل إضافية توثق القرار'} />
             </label>
             <p className="mt-2 text-[10px] text-[var(--dawaa-theme-muted)]">الأدلة محفوظة في السجل ويمكن فتحها عند الحاجة بدون إطالة نافذة القرار.</p>
             </div>
@@ -1362,9 +1521,9 @@ export default function AttendanceResolutionCenter({
                         ? applyMissingPunchPenalty ? 'تسجيل البصمة اليدوية + خصم 50ج' : 'تسجيل البصمة اليدوية'
                         : decisionsFor(selected).find((item) => item.id === reason)?.financial
                           ? 'اعتماد الحضور وتوثيق اقتراح الخصم'
-                          : 'اعتماد موثق'}
+                          : 'حفظ قرار الحضور'}
               </button>
-              <button onClick={() => { setSelected(null); setNote(''); setReason(''); setMultiplier(''); setHours(''); setSwapWithDate(''); setWeeklyOffSwapPreview(null); setManualPunchAt(''); setApplyMissingPunchPenalty(false); setMissingPunchContext(null); setMissingPunchHistory([]); setShowDecisionEvidence(false); }} className="btn-secondary">إلغاء</button>
+              <button onClick={() => { setSelected(null); setNote(''); setReason(''); setMultiplier(''); setHours(''); setSwapWithDate(''); setWeeklyOffSwapPreview(null); setManualPunchAt(''); setApplyMissingPunchPenalty(false); setMissingPunchContext(null); setMissingPunchHistory([]); setShowDecisionEvidence(false); }} className="btn-secondary">{embedded ? 'إغلاق المراجعة' : 'إلغاء'}</button>
             </div>
           </div>
         </div>
