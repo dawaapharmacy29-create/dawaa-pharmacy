@@ -237,6 +237,16 @@ const NATURAL_UNIT_QTY: Record<string, { quantity: number; unit: string }> = {
   حبة: { quantity: 1, unit: 'حبة' },
   حبه: { quantity: 1, unit: 'حبة' },
 };
+// A quantity phrase that names no product: "علبة واحدة", "علبتين 20 قرص", or nothing at all.
+const UNNAMED_QUANTITY_TAIL_RX = /^(?:واحد[ةه]?\s*)?(?:\d+\s*(?:قرص|أقراص|اقراص|كبسول[ةه]?))?[.؟?!\s]*$/u;
+// The same unit as the last words of the message (the main pattern needs text after the unit).
+const NATURAL_UNIT_TAIL_RX =
+  /(علبتين|علبة|علبه|شريطين|شريط|عبوتين|عبوة|عبوه|كيسين|كيس|حبتين|حبة|حبه)((?:\s+واحد[ةه]?)?(?:\s+\d+\s*(?:قرص|أقراص|اقراص|كبسول[ةه]?))?)\s*[.!؟?]*\s*$/u;
+// The product named in the message's own explicit availability question ("عندكم X؟").
+function productNamedInAvailabilityQuestion(text: string): string | null {
+  const named = text.match(/(?:عندكم|متوفر)\s+([^؟?]+)[؟?]/u);
+  return named ? named[1].trim() : null;
+}
 const PRICE_INQUIRY_RX = /بكام|عامل\s*كام|سعر(?:ه|ها)?|كام\s*(?:جنيه|العلبة|العلبه)|فيها\s*كام/i;
 const STAFF_RECAP_CONTEXT_RX = /يعني\s*(?:كدا|كده|حضرتك)|حضرتك\s*محتاج|تكرر|كرر|تأمر|تحت\s*امر/i;
 
@@ -255,12 +265,13 @@ function extractNaturalUnitItems(message: NormalizedConversationMessageV32): Dra
       .replace(/^(?:من\s+فضلك|لو\s*سمحت|ان\s*شاء\s*الله)\s*/i, '')
       .replace(/\s+(?:صح|مظبوط|ان\s*شاء\s*الله)\??$/i, '')
       .trim();
-    // A trailing pack description does not replace the product named in the same question.
-    // Require one explicit availability question; an unidentified pack remains unidentified.
-    if (/^(?:\d+\s*(?:قرص|أقراص|اقراص|كبسول[ةه]?))[.؟?\s]*$/u.test(productNameRaw)) {
-      const named = message.text.slice(0, match.index).match(/(?:عندكم|متوفر)\s+([^؟?]+)[؟?]/u);
+    // A trailing quantity/pack phrase that names no product ("علبة واحدة", "علبة واحدة 20 قرص")
+    // does not replace the product named in the same question. Require one explicit availability
+    // question; an unidentified pack remains unidentified.
+    if (UNNAMED_QUANTITY_TAIL_RX.test(productNameRaw)) {
+      const named = productNamedInAvailabilityQuestion(message.text.slice(0, match.index));
       if (!named) continue;
-      productNameRaw = named[1].trim();
+      productNameRaw = named;
     }
     if (
       !productNameRaw ||
@@ -281,6 +292,25 @@ function extractNaturalUnitItems(message: NormalizedConversationMessageV32): Dra
       ]),
       resolutionStatus: 'proven',
     });
+  }
+  // "عندكم X؟ محتاج علبتين." — the unit ends the message, so the main pattern has no product text.
+  if (!items.length && message.role === 'customer') {
+    const tail = message.text.match(NATURAL_UNIT_TAIL_RX);
+    const quantityInfo = tail ? NATURAL_UNIT_QTY[tail[1]] : undefined;
+    const named = tail && tail.index != null ? productNamedInAvailabilityQuestion(message.text.slice(0, tail.index)) : null;
+    if (tail && quantityInfo && named && named.length >= 2 && !NON_PRODUCT_PHRASE_RX.test(named) && !isGenericDeicticProductPhrase(named)) {
+      items.push({
+        productNameRaw: named,
+        productId: null,
+        quantity: quantityInfo.quantity,
+        unit: quantityInfo.unit,
+        sourceMessageId: message.id,
+        confidence: assessment('strongly_inferred', 0.8, 'basket.item.natural_arabic_unit_form', [
+          refFor(message, `صياغة طلب عربية طبيعية بكمية ضمنية/مثنى: "${tail[0].trim()}".`),
+        ]),
+        resolutionStatus: 'proven',
+      });
+    }
   }
   return items;
 }

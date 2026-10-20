@@ -63,7 +63,9 @@
 // Past courier calls and contact availability do not become callback requests or product stock.
 // v36: only an operating branch (فرع شكري / فرع الشامي) owns new customer requests and follow-ups;
 // a request is not projected when the conversation's resolved staff evidence names another doctor.
-export const PIPELINE_VERSION = 'sales-intelligence-v36-transaction-branch-required';
+// v37: "عندكم X؟ عايز علبة واحدة." / "محتاج علبتين." — a quantity phrase naming no product takes the
+// product from the same message's explicit availability question (one need, not a whole-message item).
+export const PIPELINE_VERSION = 'sales-intelligence-v37-unnamed-quantity-tail';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v10-payment-continuation-ambiguity-safe',

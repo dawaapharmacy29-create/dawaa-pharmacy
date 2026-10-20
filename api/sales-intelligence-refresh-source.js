@@ -2563,6 +2563,12 @@ var NATURAL_UNIT_QTY = {
   \u062D\u0628\u0629: { quantity: 1, unit: "\u062D\u0628\u0629" },
   \u062D\u0628\u0647: { quantity: 1, unit: "\u062D\u0628\u0629" }
 };
+var UNNAMED_QUANTITY_TAIL_RX = /^(?:واحد[ةه]?\s*)?(?:\d+\s*(?:قرص|أقراص|اقراص|كبسول[ةه]?))?[.؟?!\s]*$/u;
+var NATURAL_UNIT_TAIL_RX = /(علبتين|علبة|علبه|شريطين|شريط|عبوتين|عبوة|عبوه|كيسين|كيس|حبتين|حبة|حبه)((?:\s+واحد[ةه]?)?(?:\s+\d+\s*(?:قرص|أقراص|اقراص|كبسول[ةه]?))?)\s*[.!؟?]*\s*$/u;
+function productNamedInAvailabilityQuestion(text5) {
+  const named = text5.match(/(?:عندكم|متوفر)\s+([^؟?]+)[؟?]/u);
+  return named ? named[1].trim() : null;
+}
 var PRICE_INQUIRY_RX = /بكام|عامل\s*كام|سعر(?:ه|ها)?|كام\s*(?:جنيه|العلبة|العلبه)|فيها\s*كام/i;
 var STAFF_RECAP_CONTEXT_RX = /يعني\s*(?:كدا|كده|حضرتك)|حضرتك\s*محتاج|تكرر|كرر|تأمر|تحت\s*امر/i;
 function extractNaturalUnitItems(message) {
@@ -2574,10 +2580,10 @@ function extractNaturalUnitItems(message) {
     const quantityInfo = NATURAL_UNIT_QTY[match[1]];
     if (!quantityInfo) continue;
     let productNameRaw = match[2].trim().replace(/^واحد[ةه]?\s+/i, "").replace(/^(?:من\s+فضلك|لو\s*سمحت|ان\s*شاء\s*الله)\s*/i, "").replace(/\s+(?:صح|مظبوط|ان\s*شاء\s*الله)\??$/i, "").trim();
-    if (/^(?:\d+\s*(?:قرص|أقراص|اقراص|كبسول[ةه]?))[.؟?\s]*$/u.test(productNameRaw)) {
-      const named = message.text.slice(0, match.index).match(/(?:عندكم|متوفر)\s+([^؟?]+)[؟?]/u);
+    if (UNNAMED_QUANTITY_TAIL_RX.test(productNameRaw)) {
+      const named = productNamedInAvailabilityQuestion(message.text.slice(0, match.index));
       if (!named) continue;
-      productNameRaw = named[1].trim();
+      productNameRaw = named;
     }
     if (!productNameRaw || productNameRaw.length < 2 || PRICE_INQUIRY_RX.test(productNameRaw) || NON_PRODUCT_PHRASE_RX.test(productNameRaw) || isGenericDeicticProductPhrase(productNameRaw) || NON_IDENTIFYING_RECAP_ITEM_RX.test(productNameRaw)) continue;
     items.push({
@@ -2591,6 +2597,24 @@ function extractNaturalUnitItems(message) {
       ]),
       resolutionStatus: "proven"
     });
+  }
+  if (!items.length && message.role === "customer") {
+    const tail = message.text.match(NATURAL_UNIT_TAIL_RX);
+    const quantityInfo = tail ? NATURAL_UNIT_QTY[tail[1]] : void 0;
+    const named = tail && tail.index != null ? productNamedInAvailabilityQuestion(message.text.slice(0, tail.index)) : null;
+    if (tail && quantityInfo && named && named.length >= 2 && !NON_PRODUCT_PHRASE_RX.test(named) && !isGenericDeicticProductPhrase(named)) {
+      items.push({
+        productNameRaw: named,
+        productId: null,
+        quantity: quantityInfo.quantity,
+        unit: quantityInfo.unit,
+        sourceMessageId: message.id,
+        confidence: assessment("strongly_inferred", 0.8, "basket.item.natural_arabic_unit_form", [
+          refFor(message, `\u0635\u064A\u0627\u063A\u0629 \u0637\u0644\u0628 \u0639\u0631\u0628\u064A\u0629 \u0637\u0628\u064A\u0639\u064A\u0629 \u0628\u0643\u0645\u064A\u0629 \u0636\u0645\u0646\u064A\u0629/\u0645\u062B\u0646\u0649: "${tail[0].trim()}".`)
+        ]),
+        resolutionStatus: "proven"
+      });
+    }
   }
   return items;
 }
@@ -8799,7 +8823,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v36-transaction-branch-required";
+var PIPELINE_VERSION = "sales-intelligence-v37-unnamed-quantity-tail";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v10-payment-continuation-ambiguity-safe",
   historicalClosure: "historical-closure-v1",
