@@ -70,7 +70,7 @@ function pageShell(title: string, subtitle: string, body: string, preview: boole
   const watermark = preview
     ? '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;opacity:.045;font-size:62px;font-weight:900;transform:rotate(-28deg);color:#102235">معاينة - غير نهائي</div>'
     : '';
-  return '<section class="statement-page" style="position:relative;width:794px;min-height:1123px;box-sizing:border-box;padding:30px 34px 46px;background:#fff;color:#102235;font-family:Tahoma,Arial,sans-serif;direction:rtl;overflow:hidden">' +
+  return '<section class="statement-page" style="position:relative;width:794px;min-height:1123px;box-sizing:border-box;padding:30px 34px 46px;background:#fff;color:#102235;font-family:inherit;direction:rtl;overflow:hidden">' +
     watermark +
     '<header style="display:flex;align-items:center;justify-content:space-between;gap:18px;border-bottom:3px solid #0b8c86;padding-bottom:10px;margin-bottom:15px">' +
       '<div><div style="font-size:20px;font-weight:900">' + esc(title) + '</div><div style="margin-top:3px;font-size:9px;color:#687983">' + esc(subtitle) + '</div></div>' +
@@ -201,7 +201,7 @@ function buildPages(data: EmployeePayrollStatementV1) {
         d.early_leave_minutes ? 'خروج مبكر ' + mins(d.early_leave_minutes).toLocaleString('ar-EG') + 'د' : '',
         d.missing_punch ? 'بصمة مفقودة' : '',
       ].filter(Boolean).join(' · ');
-      return '<tr><td>' + esc(weekday(d.date)) + '<br/><span style="font-size:7.5px;color:#72818a">' + esc(d.date) + '</span></td><td>' + esc(shift) + '</td><td>' + esc(actual) + '</td><td><b>' + esc(durationHours(d.payroll_eligible_hours ?? d.candidate_hours)) + '</b></td><td>' + esc(notes || '-') + '</td></tr>';
+      return '<tr><td>' + esc(weekday(d.date)) + '<br/><span style="font-size:7.5px;color:#72818a">' + esc(d.date) + '</span></td><td>' + esc(shift) + '</td><td>' + esc(actual) + '</td><td><b>' + esc(d.payroll_eligible_hours == null ? 'غير معتمد — مرشح: ' + durationHours(d.candidate_hours) : durationHours(d.payroll_eligible_hours)) + '</b></td><td>' + esc(notes || '-') + '</td></tr>';
     }).join('');
 
     const summary =
@@ -272,10 +272,10 @@ function buildPages(data: EmployeePayrollStatementV1) {
     }).join('');
 
     const manualBody =
-      '<div style="font-size:9px;color:#6b7a82;margin-bottom:10px">كل حركة يدوية محفوظة كسطر immutable؛ التصحيح يتم بعكس الحركة وليس بتعديل التاريخ.</div>' +
+      '<div style="font-size:9px;color:#6b7a82;margin-bottom:10px">كل حركة يدوية محفوظة كسطر ثابت قابل للتدقيق؛ التصحيح يتم بعكس الحركة وليس بتعديل التاريخ.</div>' +
       table(manualRows, ['التاريخ', 'النوع', 'الفئة', 'القيمة', 'السبب', 'سجلها']);
 
-    pages.push(pageShell('التسويات المالية اليدوية', 'سجل Manual Ledger داخل نفس دورة الراتب', manualBody, preview, 'Manual Ledger'));
+    pages.push(pageShell('التسويات المالية اليدوية', 'سجل التسويات المالية اليدوية داخل نفس دورة الراتب', manualBody, preview, 'التسويات المالية اليدوية'));
   }
 
   const visibleTransactions = data.transactions.items.filter((t) => t.employee_visible !== false);
@@ -351,6 +351,7 @@ export async function buildEmployeePayrollStatementPdf(
   host.style.cssText = 'position:fixed;left:-12000px;top:0;width:794px;background:#fff';
   host.dir = 'rtl';
   host.lang = 'ar';
+  host.style.fontFamily = getComputedStyle(document.body).fontFamily;
   host.innerHTML = buildPages(data).join('');
   host.querySelectorAll('table').forEach((tableElement) => {
     (tableElement as HTMLElement).style.borderCollapse = 'collapse';
