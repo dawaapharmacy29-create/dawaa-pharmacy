@@ -1,5 +1,6 @@
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
+import { formatEmployeeProfileClock as formatTime } from './profileTime';
 
 export type EmployeeProfilePdfInput = {
   staffName: string;
@@ -14,6 +15,12 @@ export type EmployeeProfilePdfInput = {
     attendance_date: string; resolution_status: string; first_in: string | null; last_out: string | null;
     late_minutes: number; payroll_eligible_hours: number | null;
   }[];
+  processedEvidence?: {
+    accepted_punches: number; accepted_days: number; complete_pair_days: number;
+    manual_review_punches: number;
+    recent_days: { shift_date: string; accepted_punches: number; first_in: string | null;
+      last_out: string | null; punch_branches: string[] }[];
+  };
 };
 
 function escapeHtml(value: unknown) {
@@ -22,13 +29,6 @@ function escapeHtml(value: unknown) {
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;');
-}
-
-function formatTime(value?: string | null) {
-  if (!value) return '-';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '-';
-  return d.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Cairo' });
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -55,6 +55,14 @@ export async function buildEmployeeAttendanceProfilePdf(input: EmployeeProfilePd
       </tr>`)
     .join('');
 
+  const coverageMissing = input.rates.evaluated_days === 0;
+  const rawRows = (input.processedEvidence?.recent_days || [])
+    .map((day) => `<tr>
+      <td style="padding:6px;border-bottom:1px solid #e5e7eb;font-size:11px">${escapeHtml(day.shift_date)}</td>
+      <td style="padding:6px;border-bottom:1px solid #e5e7eb;font-size:11px">${escapeHtml(formatTime(day.first_in))} ← ${escapeHtml(formatTime(day.last_out))}</td>
+      <td style="padding:6px;border-bottom:1px solid #e5e7eb;font-size:11px">${escapeHtml(day.accepted_punches)} مقبولة</td>
+      <td style="padding:6px;border-bottom:1px solid #e5e7eb;font-size:11px">${escapeHtml(day.punch_branches?.join('، ') || '-')}</td>
+    </tr>`).join('');
   const host = document.createElement('div');
   host.style.position = 'fixed';
   host.style.left = '-9999px';
@@ -70,22 +78,27 @@ export async function buildEmployeeAttendanceProfilePdf(input: EmployeeProfilePd
         <div style="font-size:11px;color:#6b7280">تاريخ التقرير: ${escapeHtml(new Date().toLocaleDateString('ar-EG'))}</div>
       </div>
 
-      <div style="font-weight:800;margin-bottom:8px">معدلات آخر 30 يوم</div>
+      ${coverageMissing && (input.processedEvidence?.accepted_punches || 0) > 0
+        ? `<div style="padding:10px;margin-bottom:12px;border:1px solid #eab308;font-size:12px;font-weight:700">
+        توجد ${escapeHtml(input.processedEvidence?.accepted_punches)} بصمة مقبولة عبر
+        ${escapeHtml(input.processedEvidence?.accepted_days)} يوم، لكن ملخص الحضور غير متاح.
+        البصمة ليست اعتماد ساعات للمرتب أو دليلاً على تأخير صفر.</div>` : ''}
+      <div style="font-weight:800;margin-bottom:8px">معدلات آخر 30 يوم (من ملخص الحضور فقط)</div>
       <div style="display:flex;gap:8px;margin-bottom:18px">
         <div style="flex:1;border:1px solid #d1d5db;border-radius:8px;padding:10px;text-align:center">
-          <div style="font-size:16px;font-weight:800">${input.rates.late_rate_pct}%</div>
+          <div style="font-size:16px;font-weight:800">${coverageMissing ? 'غير متاح' : input.rates.late_rate_pct + '%'}</div>
           <div style="font-size:10px;color:#6b7280">معدل التأخير (${input.rates.late_days + input.rates.very_late_days} يوم)</div>
         </div>
         <div style="flex:1;border:1px solid #d1d5db;border-radius:8px;padding:10px;text-align:center">
-          <div style="font-size:16px;font-weight:800">${input.rates.permission_rate_pct}%</div>
+          <div style="font-size:16px;font-weight:800">${coverageMissing ? 'غير متاح' : input.rates.permission_rate_pct + '%'}</div>
           <div style="font-size:10px;color:#6b7280">معدل الإذن/الإجازة (${input.rates.permission_days} يوم)</div>
         </div>
         <div style="flex:1;border:1px solid #d1d5db;border-radius:8px;padding:10px;text-align:center">
-          <div style="font-size:16px;font-weight:800">${input.rates.absence_days}</div>
+          <div style="font-size:16px;font-weight:800">${coverageMissing ? '—' : input.rates.absence_days}</div>
           <div style="font-size:10px;color:#6b7280">أيام غياب</div>
         </div>
         <div style="flex:1;border:1px solid #d1d5db;border-radius:8px;padding:10px;text-align:center">
-          <div style="font-size:16px;font-weight:800">${input.rates.pending_review_days}</div>
+          <div style="font-size:16px;font-weight:800">${coverageMissing ? '—' : input.rates.pending_review_days}</div>
           <div style="font-size:10px;color:#6b7280">قيد المراجعة</div>
         </div>
       </div>
@@ -101,9 +114,26 @@ export async function buildEmployeeAttendanceProfilePdf(input: EmployeeProfilePd
           <th style="text-align:right;padding:6px;border-bottom:2px solid #111827;font-size:11px">الساعات</th>
           <th style="text-align:right;padding:6px;border-bottom:2px solid #111827;font-size:11px">الحالة</th>
         </tr></thead>
-        <tbody>${recentRows || '<tr><td colspan="4" style="padding:10px;font-size:11px;color:#6b7280">لا توجد بيانات حضور.</td></tr>'}</tbody>
+        <tbody>${recentRows || '<tr><td colspan="4" style="padding:10px;font-size:11px;color:#6b7280">لا يوجد ملخص حضور لهذه الفترة؛ راجع سجل البصمات أدناه.</td></tr>'}</tbody>
       </table>
 
+      <div style="font-weight:800;margin-top:18px;margin-bottom:8px">سجل البصمات المُعالجة (دليل غير مالي)</div>
+      <div style="font-size:11px;color:#374151;margin-bottom:8px">
+        ${escapeHtml(input.processedEvidence?.accepted_punches ?? 0)} بصمة مقبولة عبر
+        ${escapeHtml(input.processedEvidence?.accepted_days ?? 0)} يوم،
+        منها ${escapeHtml(input.processedEvidence?.complete_pair_days ?? 0)} يوم بدخول وخروج،
+        و${escapeHtml(input.processedEvidence?.manual_review_punches ?? 0)} بصمة تحت الفحص.
+        لا تُعتمد الساعات للمرتب من هذا السجل وحده.
+      </div>
+      <table style="width:100%;border-collapse:collapse">
+        <thead><tr>
+          <th style="text-align:right;padding:6px;border-bottom:2px solid #111827;font-size:11px">يوم الشيفت</th>
+          <th style="text-align:right;padding:6px;border-bottom:2px solid #111827;font-size:11px">دخول ← خروج</th>
+          <th style="text-align:right;padding:6px;border-bottom:2px solid #111827;font-size:11px">حالة الجهاز</th>
+          <th style="text-align:right;padding:6px;border-bottom:2px solid #111827;font-size:11px">فرع البصمة</th>
+        </tr></thead>
+        <tbody>${rawRows || '<tr><td colspan="4" style="padding:10px;font-size:11px;color:#6b7280">لا توجد بصمات معالجة.</td></tr>'}</tbody>
+      </table>
       <div style="margin-top:22px;font-size:10px;color:#6b7280;text-align:center">تم إنشاء التقرير من نظام Dawaa Pharmacy — بروفايل حضور الموظف</div>
     </div>`;
   document.body.appendChild(host);
