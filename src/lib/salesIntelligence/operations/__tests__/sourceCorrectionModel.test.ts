@@ -138,7 +138,7 @@ describe('source correction preview', () => {
       '[10/20/26, 5:01:00 AM] عميل تجريبي: تمام',
       '[10/20/26, 5:01:30 AM] You: مع حضرتك د دنيا',
       '[10/20/26, 5:02:00 AM] عميل تجريبي: أهلاً',
-    ].join('\\n');
+    ].join('\n');
     const stored = await storedFrom(multi);
     const craftedPreview = {
       ok: true as const,
