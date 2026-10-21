@@ -3,6 +3,7 @@
 // customer-request proposal, execute an approved proposal). It never writes tables directly and
 // never treats an RPC response without the expected success shape as success.
 import { supabase } from '@/lib/supabase';
+import { legacyComplaintReviewReason } from './proposalApprovalReadiness';
 import { hasMultipleExplicitStaffIntroductions, type SourceCorrectionPreview, type StoredSourceAttribution } from './sourceCorrectionModel';
 
 export const SOURCE_OPERATIONS_ACTION_LIMIT = 50;
@@ -205,6 +206,21 @@ export function parseMaterializationResult(data: unknown) {
 }
 
 export async function executeOperationalAction(actionId: string) {
+  // Read current persisted provenance at submission time, not the panel's cached row.
+  // This is defense in depth only: the RPC remains the authorization/atomicity boundary.
+  const { data: action, error: readError } = await supabase
+    .from('whatsapp_conversation_actions')
+    .select('id,action_type,status,created_by')
+    .eq('id', actionId)
+    .maybeSingle();
+  if (readError) throw readError;
+  if (!action) throw new Error('whatsapp_action_not_found');
+  const legacyReason = legacyComplaintReviewReason({
+    actionType: String(action.action_type ?? ''),
+    status: String(action.status ?? ''),
+    createdBy: text(action.created_by),
+  });
+  if (legacyReason) throw new Error(legacyReason);
   const { data, error } = await supabase.rpc('dawaa_materialize_whatsapp_action_v1', { p_action_id: actionId });
   if (error) throw error;
   return parseMaterializationResult(data);

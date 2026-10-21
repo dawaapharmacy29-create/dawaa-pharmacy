@@ -76,6 +76,14 @@ jobs:
       - name: Generated API parity
         run: node scripts/build-sales-intelligence-refresh-api.cjs --check
 
+      - name: Case identity and stale complaint submission regressions
+        run: >-
+          npx vitest run
+          src/lib/salesIntelligence/__tests__/runtimeContext.step7a.test.ts
+          src/lib/salesIntelligence/__tests__/ibrahimShapeAcceptanceV39.test.ts
+          src/lib/salesIntelligence/operations/__tests__/sourceCorrectionModel.test.ts
+          src/lib/salesIntelligence/operations/__tests__/operationalExecutionGuard.test.ts
+
       - name: Focused real-chat semantic regression tests
         run: npx vitest run src/lib/salesIntelligence/__tests__/realChatSemanticGuards.test.ts
 
