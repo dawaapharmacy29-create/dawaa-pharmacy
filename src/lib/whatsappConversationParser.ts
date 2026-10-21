@@ -507,6 +507,11 @@ export function parseWhatsAppExport(text: string, options: WhatsAppParseOptions 
   return rebaseTextTimelineToTrustedStart(parseTextExport(text), options.trustedConversationStartedAt);
 }
 
+/** A department claim must belong to an outbound self-introduction, never a customer mention. */
+export function isCustomerServiceIntroduction(message: Pick<WhatsAppParsedMessage, 'direction' | 'text'>): boolean {
+  return Boolean(extractIntroducedStaffName(message)) && /من\s+خدمة\s*(?:ال)?عملاء/u.test(message.text);
+}
+
 export function extractIntroducedStaffName(message: Pick<WhatsAppParsedMessage, 'direction' | 'text'>): string | null {
   if (message.direction !== 'outbound') return null;
   for (const pattern of STAFF_INTRO_PATTERNS) {

@@ -14,6 +14,7 @@ import {
   type NormalizedConversationMessageV32,
 } from '../whatsappConversationUnderstandingV32';
 import { deriveConversationCases } from './conversationCaseEngine';
+import { deriveCaseOwnershipContext, type CaseStaffProfile } from './caseOwnershipContext';
 import { buildCaseBaskets } from './caseBasketEngine';
 import {
   assessOrderConfirmationProtocol,
@@ -86,6 +87,7 @@ export interface SalesIntelligencePipelineInput {
   staffIdBySender?: Record<string, string>;
   /** Exact canonical staff ids resolved from explicit outbound self-introductions, keyed by message id. */
   staffIdByIntroductionMessageId?: Record<string, string>;
+  staffProfilesById?: Record<string, CaseStaffProfile>;
   /** Exact-name/active-alias resolver supplied by the canonical staff identity boundary. */
   resolveInvoiceStaffIdByName?: (name: string) => string | null;
   /** From an existing legacy adapter's own matched-invoice fields (e.g. whatsapp_review_sources.matched_invoice_id) — evidence only, never trusted as canonical. */
@@ -404,6 +406,7 @@ function analyzeOneCase(
     customerCode: input.customerCodeHint ?? null,
     customerName: input.customerNameHint ?? null,
     branchNameRaw: conversationCase.branchNameRaw,
+    branchEvidenceConflict: conversationCase.ownership?.branchBasis === 'conflict',
     // Same rule as candidateContext above — this exact segmented case interval, never coarse
     // whole-thread timestamps.
     caseStartedAt: conversationCase.startedAt,
@@ -780,6 +783,9 @@ export interface SegmentedCase {
 }
 
 export interface DeriveSegmentedCasesInput {
+  staffIdBySender?: Record<string, string>;
+  staffIdByIntroductionMessageId?: Record<string, string>;
+  staffProfilesById?: Record<string, CaseStaffProfile>;
   conversationId: string;
   rawWhatsAppExportText: string;
   /** Trusted source date for time-only markdown; no fallback to created_at. */
@@ -846,7 +852,11 @@ export function deriveSegmentedCases(input: DeriveSegmentedCasesInput): DeriveSe
       new Set([...(semanticSession.outboundStaffNames || []), ...input.knownStaffSenders])
     );
   }
-  const understanding = buildConversationUnderstandingV32(semanticSession);
+  const customerServiceMessageIds = new Set(semanticSession.messages.filter((message) => {
+    const id = input.staffIdByIntroductionMessageId?.[message.id] || input.staffIdBySender?.[message.sender];
+    return id && input.staffProfilesById?.[id]?.function === 'customer_service';
+  }).map((message) => message.id));
+  const understanding = buildConversationUnderstandingV32(semanticSession, { customerServiceMessageIds });
   const rawCases = deriveConversationCases({
     understanding,
     conversationId: input.conversationId,
@@ -882,7 +892,7 @@ export function deriveSegmentedCases(input: DeriveSegmentedCasesInput): DeriveSe
     // multiple coarse sessions. Unchanged boundaries therefore keep the same ids, while a true
     // semantic continuation simply consumes the later coarse fragment instead of inventing a
     // duplicate case.
-    const conversationCase =
+    const rawConversationCase =
       coarseSessions.length > 1
         ? {
             ...rawCase,
@@ -890,6 +900,23 @@ export function deriveSegmentedCases(input: DeriveSegmentedCasesInput): DeriveSe
           }
         : rawCase;
     const scopedMessages = messagesForMessageIds(understanding, interaction.messageIds);
+    const ownership = deriveCaseOwnershipContext({
+      messages: scopedMessages,
+      sourceBranch: input.branchNameRawHint,
+      staffIdBySender: input.staffIdBySender,
+      staffIdByIntroductionMessageId: input.staffIdByIntroductionMessageId,
+      staffProfilesById: input.staffProfilesById,
+    });
+    const conversationCase: ConversationCase = {
+      ...rawConversationCase,
+      branchNameRaw: ownership.operationalBranch,
+      branchId: ownership.branchBasis === 'source' ? rawConversationCase.branchId : null,
+      ownership,
+      needsHumanReview: rawConversationCase.needsHumanReview || ownership.blockers.some((b) =>
+        ['case_branch_evidence_conflict', 'multiple_staff_functions_require_review', 'multiple_staff_owners_require_review'].includes(b)),
+      humanReviewReasons: [...new Set([...rawConversationCase.humanReviewReasons, ...ownership.blockers.filter((b) =>
+        ['case_branch_evidence_conflict', 'multiple_staff_functions_require_review', 'multiple_staff_owners_require_review'].includes(b))])],
+    };
     cases.push({ conversationCase, scopedMessages, conversationTimeline: understanding.messages, interaction });
   });
 
@@ -911,6 +938,8 @@ export type SalesIntelligenceSegmentationSource = Pick<
   | 'branchNameRawHint'
   | 'sessionSplitGapMinutes'
   | 'staffIdBySender'
+  | 'staffIdByIntroductionMessageId'
+  | 'staffProfilesById'
 >;
 
 /**
@@ -933,6 +962,9 @@ export function segmentationInputFromPipelineInput(
     branchNameRawHint: input.branchNameRawHint ?? null,
     sessionSplitGapMinutes: input.sessionSplitGapMinutes,
     knownStaffSenders: Object.keys(input.staffIdBySender ?? {}),
+    staffIdBySender: input.staffIdBySender,
+    staffIdByIntroductionMessageId: input.staffIdByIntroductionMessageId,
+    staffProfilesById: input.staffProfilesById,
   };
 }
 

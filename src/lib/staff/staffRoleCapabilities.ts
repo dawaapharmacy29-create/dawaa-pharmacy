@@ -43,7 +43,7 @@ export function canonicalStaffRole(value: unknown): CanonicalStaffRole {
   if (role === 'inventory assistant' || role.includes('مساعد مخزن') || role.includes('مساعد جرد') || role.includes('مساعد مخزون')) return 'inventory_assistant';
   if (role.includes('نظاف') || ['cleaning', 'cleaner', 'cleaning supervisor'].includes(role)) return 'cleaning';
   if (['توصيل', 'دليفري', 'مندوب توصيل', 'delivery', 'delivery rider', 'delivery driver', 'rider'].includes(role)) return 'delivery';
-  if (['خدمة عملاء', 'خدمة العملاء', 'مسؤول خدمة العملاء', 'مسئول خدمة العملاء', 'مسؤولة خدمة العملاء', 'customer service'].includes(role)) return 'customer_service';
+  if (['خدمة عملاء', 'خدمة العملاء', 'مسؤول خدمة العملاء', 'مسئول خدمة العملاء', 'مسؤولة خدمة العملاء', 'customer service', 'team dawaa alpha', 'فريق دواء ألفا', 'فريق دواء الفا'].includes(role)) return 'customer_service';
   if (['مدير خدمة العملاء', 'مديرة خدمة العملاء', 'customer service manager'].includes(role)) return 'customer_service_manager';
   if (
     ['مسؤول الشيفت', 'مسئول الشيفت', 'مسئولة الشيفت', 'shift supervisor'].includes(role)

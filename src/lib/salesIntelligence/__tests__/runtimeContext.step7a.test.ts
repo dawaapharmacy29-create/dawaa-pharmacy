@@ -454,6 +454,7 @@ describe('batch planning — a pipeline-version bump is never a no-op (mirrors t
 
   async function planWith(pipelineVersion: string) {
     const semanticSourceHash = await computeSemanticSourceHash({
+      caseOwnership: deriveCasesOnly({ conversationId: 'c3', rawWhatsAppExportText: RAW }).cases[0].ownership,
       rawWhatsAppExportText: RAW,
       trustedConversationStartedAt: null,
       branchIdentityMappingVersion: BRANCH_IDENTITY_MAPPING_VERSION,

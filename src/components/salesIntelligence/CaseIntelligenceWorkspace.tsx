@@ -190,13 +190,20 @@ export function CaseIntelligenceWorkspace({
   const isTechnicalStaffSender = (value: string | null | undefined) =>
     technicalStaffSenders.has(String(value ?? '').trim().toLowerCase());
   const sourceStaffName = String(staffDisplayName ?? '').trim() || null;
-  const displayStaffSender = (sender: string | null | undefined) =>
-    isTechnicalStaffSender(sender)
+  const displayStaffSender = (sender: string | null | undefined) => {
+    const participant = view.staff.participants.find((p) => p.sender === sender);
+    const owner = view.ownership?.owners.find((p) => p.staffId === participant?.staffId);
+    if (owner?.name) return owner.name;
+    if (view.ownership) return isTechnicalStaffSender(sender) ? 'موظف الصيدلية — الهوية غير محسومة' : (String(sender ?? '').trim() || 'موظف الصيدلية');
+    return isTechnicalStaffSender(sender)
       ? (sourceStaffName || 'موظف الصيدلية')
       : (String(sender ?? '').trim() || sourceStaffName || 'موظف الصيدلية');
+  };
   const staffNames = view.staff.participants.map((p) => displayStaffSender(p.sender));
   const rawMainStaff = view.staff.participants.slice().sort((a, b) => b.messageCount - a.messageCount)[0]?.sender ?? null;
-  const mainStaff = sourceStaffName || (rawMainStaff ? displayStaffSender(rawMainStaff) : null);
+  const mainStaff = view.ownership
+    ? (rawMainStaff ? displayStaffSender(rawMainStaff) : null)
+    : sourceStaffName || (rawMainStaff ? displayStaffSender(rawMainStaff) : null);
   const highlighted = new Set(evidence?.messageIds ?? view.evidenceSummary.evidenceMessageIds);
   const open = (request: EvidenceRequest) => {
     setEvidence(request);
@@ -241,8 +248,13 @@ export function CaseIntelligenceWorkspace({
             {view.customer.customerId ? identityStatusLabel(view.customer.identityStatus) : <Badge tone="warn">{identityStatusLabel(view.customer.identityStatus)}</Badge>}
           </Fact>
           <Fact label="وقت التفاعل">{formatTime(view.interaction.startedAt)}</Fact>
-          <Fact label="الفرع">{view.branch.branchNameRaw || UNKNOWN_LABEL}</Fact>
-          <Fact label={view.staff.participants.some((p) => p.staffId) ? 'الموظف بالمحادثة' : 'الموظف المرتبط بالمصدر'}>{mainStaff ?? 'لم يرد أحد'}{staffNames.length > 1 ? ` (+${staffNames.length - 1})` : ''}</Fact>
+          <Fact label={view.ownership?.department === 'customer_service' ? 'القسم' : 'فرع الحالة'}>
+            {view.ownership?.department === 'customer_service' ? 'خدمة العملاء' : view.branch.branchNameRaw || UNKNOWN_LABEL}
+            {view.ownership?.department !== 'customer_service' && !view.branch.branchNameRaw && view.ownership?.suggestedStaffBranch ? (
+              <div className="dawaa-muted text-xs">فرع الموظف: {view.ownership.suggestedStaffBranch} — يحتاج تأكيد فرع العملية</div>
+            ) : null}
+          </Fact>
+          <Fact label={view.ownership || view.staff.participants.some((p) => p.staffId) ? 'الموظف بالمحادثة' : 'الموظف المرتبط بالمصدر'}>{mainStaff ?? 'لم يرد أحد'}{staffNames.length > 1 ? ` (+${staffNames.length - 1})` : ''}</Fact>
           <Fact label="مرحلة البيع">{journeyStateLabel(view.journey.currentState)}</Fact>
           <Fact label="نتيجة البيع">{saleOutcomeLabel(view.sale.outcome)}</Fact>
           <Fact label="حالة الفرصة">

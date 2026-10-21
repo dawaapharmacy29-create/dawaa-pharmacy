@@ -150,6 +150,9 @@ export const itemResolutionStatusLabels: Record<string, string> = {
 
 /** Human-review / failure reason vocab actually observed across the engines — see salesIntegrityEngine.ts, saleAttributionEngine.ts, commercialConfirmationEngine.ts, conversationCaseEngine.ts. Never framed as an accusation. */
 export const reviewReasonLabels: Record<string, string> = {
+  case_branch_evidence_conflict: 'تعريف الموظف داخل الحالة يتعارض مع فرع المصدر؛ فرع العملية يحتاج مراجعة',
+  multiple_staff_functions_require_review: 'الحالة تضم خدمة عملاء ودكتورًا؛ يلزم مراجعة حدود المسؤولية لكل جزء',
+  multiple_staff_owners_require_review: 'أكثر من موظف داخل الحالة؛ لا يُعتمد مسؤول واحد تلقائيًا',
   noncommercial_nursing_service_requires_review: 'طلب تمريض أو متابعة خدمة يحتاج مراجعة تشغيلية، وليس فرصة بيع دواء',
   competing_case_attribution: 'منافسة على نفس الفاتورة مع حالة أخرى',
   possible_unsegmented_multiple_requests: 'احتمال وجود طلبات متعددة غير مقسّمة بوضوح',

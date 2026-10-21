@@ -148,6 +148,8 @@ export interface CaseAttributionContext {
   customerName?: string | null;
   /** Free-text branch label as recorded on the case — compared via normalizeBranchName, same as invoices. */
   branchNameRaw: string | null;
+  /** Explicit disagreement inside case provenance; absence of a branch is not this conflict. */
+  branchEvidenceConflict?: boolean;
   /** Start/end of this exact segmented case. Invoice timing is compared against the INTERVAL, not just its end. */
   caseStartedAt?: string | null;
   caseEndedAt: string | null;
@@ -336,6 +338,7 @@ function classifyIdentity(
 }
 
 function classifyBranch(ctx: CaseAttributionContext, row: InvoiceLike): BranchMatchKind {
+  if (ctx.branchEvidenceConflict) return 'mismatch';
   const caseNormalized = ctx.branchNameRaw ? normalizeBranchName(ctx.branchNameRaw) : null;
   const invoiceRawText = cleanText(firstValue(row, ['branch_name', 'branch']));
   const invoiceNormalized = invoiceRawText ? normalizeBranchName(invoiceRawText) : null;
@@ -503,6 +506,7 @@ function qualifiesForAutomaticInvoiceLink(
   row: InvoiceLike,
   provider: InvoiceItemEvidenceProvider
 ): boolean {
+  if (ctx.branchEvidenceConflict) return false;
   const caseCode = normalizeDawaaCustomerCode(ctx.customerCode);
   const invoiceCode = getInvoiceCustomerCode(row);
   if (!caseCode || !invoiceCode || caseCode !== invoiceCode) return false;
@@ -894,6 +898,7 @@ export function buildAttributionCandidate(
 
   const ruleIds = [
     `attribution.level.${level}`,
+    ...(ctx.branchEvidenceConflict ? ['attribution.branch.case_evidence_conflict'] : []),
     ...factors.map((f) => `attribution.factor.${f}`),
     ...(automaticDirectInvoiceLink
       ? ['attribution.trusted.automatic_customer_code_name_time_items_unique']

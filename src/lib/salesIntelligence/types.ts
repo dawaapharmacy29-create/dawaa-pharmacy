@@ -11,6 +11,8 @@
 // verdict. A `weakly_inferred` or `unknown` confidence must never be treated as a proven fact by
 // any downstream consumer (see SaleAttribution.isOfficialForStaffEvaluation).
 
+import type { CaseOwnershipContext } from './caseOwnershipContext';
+
 // ---------------------------------------------------------------------------
 // Shared evidence/confidence vocabulary
 // ---------------------------------------------------------------------------
@@ -79,8 +81,10 @@ export interface ConversationCase {
   customerPhone: string | null;
   /** branches.id — a real FK, unlike the free-text `branch`/`branch_name` columns on legacy tables. */
   branchId: string | null;
-  /** The raw text branch label as it actually appears in source rows — kept even after branchId resolves. */
+  /** Case operational branch. Original source provenance is retained in ownership when scoped. */
   branchNameRaw: string | null;
+  /** Case-local ownership with original source provenance retained separately. */
+  ownership?: CaseOwnershipContext;
   startedAt: string;
   endedAt: string | null;
   primaryIntent: CaseType;
@@ -538,6 +542,7 @@ export interface CaseIntelligenceView {
     blockers: Array<'customer_identity_unresolved'>;
   };
   branch: { branchId: string | null; branchNameRaw: string | null };
+  ownership?: CaseOwnershipContext;
   staff: {
     participants: Array<{ sender: string; staffId: string | null; messageIds: string[]; messageCount: number }>;
     facts: CaseIntelligenceStaffFact[];

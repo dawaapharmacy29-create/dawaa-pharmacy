@@ -80,6 +80,7 @@ jobs:
         run: >-
           npx vitest run
           src/lib/salesIntelligence/__tests__/runtimeContext.step7a.test.ts
+          src/lib/salesIntelligence/__tests__/caseOwnershipContext.test.ts
           src/lib/salesIntelligence/__tests__/ibrahimShapeAcceptanceV39.test.ts
           src/lib/salesIntelligence/operations/__tests__/sourceCorrectionModel.test.ts
           src/lib/salesIntelligence/operations/__tests__/operationalExecutionGuard.test.ts

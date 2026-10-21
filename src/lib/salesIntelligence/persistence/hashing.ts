@@ -85,6 +85,8 @@ export function normalizeRawExportTextForHashing(rawWhatsAppExportText: string):
 }
 
 export interface SemanticSourceHashInput {
+  /** Only this case's canonical ownership evidence; never the whole staff directory. */
+  caseOwnership?: unknown;
   rawWhatsAppExportText: string;
   /** Persisted source timeline anchor. It changes the absolute meaning of time-only/local WhatsApp timestamps. */
   trustedConversationStartedAt?: string | null;
@@ -132,6 +134,7 @@ export async function computeSemanticSourceHash(input: SemanticSourceHashInput):
     rawWhatsAppExportText: normalizeRawExportTextForHashing(input.rawWhatsAppExportText),
     trustedConversationStartedAt: input.trustedConversationStartedAt ?? null,
     branchIdentityMappingVersion: input.branchIdentityMappingVersion,
+    ...(input.caseOwnership ? { caseOwnership: input.caseOwnership } : {}),
     ...(input.saleProofFingerprint ? { saleProofFingerprint: input.saleProofFingerprint } : {}),
   });
 }

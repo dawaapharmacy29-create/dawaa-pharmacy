@@ -203,6 +203,7 @@ export function buildCaseIntelligenceView(
       blockers: identityResolved ? [] : ['customer_identity_unresolved'],
     },
     branch: { branchId: conversationCase.branchId, branchNameRaw: conversationCase.branchNameRaw },
+    ownership: conversationCase.ownership,
     staff: {
       participants: [...participants.values()].map((p) => ({ ...p, messageCount: p.messageIds.length })),
       facts: uniqueFacts,

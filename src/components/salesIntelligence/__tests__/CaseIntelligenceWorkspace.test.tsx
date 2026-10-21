@@ -390,8 +390,9 @@ describe('Case Intelligence Workspace (display only)', () => {
     expect(review).toContain('د. أحمد: عرض بديلًا');
   });
 
-  it('F2. technical "You" is replaced by persisted source staff identity for display only', () => {
+  it('F2. a legacy view without case ownership retains labelled source staff display', () => {
     const view = persisted(analyze(SALE).caseIntelligence)!;
+    delete view.ownership;
     const header = renderToStaticMarkup(createElement(CaseIntelligenceWorkspace, {
       view,
       staffDisplayName: 'د محمد شبل',
@@ -477,3 +478,29 @@ describe('Case Intelligence Workspace (display only)', () => {
   });
 });
 
+
+
+describe('case ownership display never inherits a different source employee', () => {
+  it('prefers the case owner and customer-service department over the source employee and warehouse', () => {
+    const view = persisted(analyze(SALE).caseIntelligence)!;
+    view.branch.branchNameRaw = null;
+    view.ownership = {
+      department: 'customer_service', sourceBranchNameRaw: 'المخزن', operationalBranch: null,
+      branchBasis: 'none', suggestedStaffBranch: null, introductionMessageIds: [], blockers: [],
+      owners: [{ staffId: 'service-1', name: 'هبه محمد', homeBranch: 'المخزن', function: 'customer_service' }],
+    };
+    view.staff.participants = [{ sender: 'You', staffId: 'service-1', messageIds: [], messageCount: 2 }];
+    const html = renderToStaticMarkup(createElement(CaseIntelligenceWorkspace, { view, staffDisplayName: 'د محمد شبل' }));
+    expect(html).toContain('خدمة العملاء');
+    expect(html).toContain('هبه محمد');
+    expect(html).not.toContain('د محمد شبل');
+    expect(html).not.toContain('المخزن');
+  });
+
+  it('does not borrow the source employee when case-local ownership is unresolved', () => {
+    const view = persisted(analyze(SALE).caseIntelligence)!;
+    const html = renderToStaticMarkup(createElement(CaseIntelligenceWorkspace, { view, staffDisplayName: 'د محمد شبل' }));
+    expect(html).toContain('الهوية غير محسومة');
+    expect(html).not.toContain('د محمد شبل');
+  });
+});

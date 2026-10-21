@@ -73,10 +73,13 @@
 // are closings, never stock-question products; and the customer's own "علبتين كولونا" is the
 // requested quantity even when the basket line was rebuilt from the doctor's recap.
 // This is a semantic version bump only; no source is reprocessed without an explicit refresh.
-export const PIPELINE_VERSION = 'sales-intelligence-v39-nursing-service-review';
+// v40: case-local service/pharmacy ownership, independent transaction-branch evidence,
+// and explicit new orders/consultations after customer-service outreach.
+// Semantic version only: existing sources are not refreshed automatically.
+export const PIPELINE_VERSION = 'sales-intelligence-v40-case-scoped-service-ownership';
 
 export const ENGINE_VERSIONS = {
-  caseSegmentation: 'case-segmentation-v11-nursing-service-review',
+  caseSegmentation: 'case-segmentation-v12-service-new-need-ownership',
   historicalClosure: 'historical-closure-v1',
   commercialConfirmation: 'commercial-confirmation-v6-compact-total-interstitial-ack-safe',
   protocolApplicability: 'protocol-applicability-v1',

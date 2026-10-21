@@ -536,6 +536,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
       rawWhatsAppExportText: conversationInput?.rawWhatsAppExportText ?? '',
       trustedConversationStartedAt: conversationInput?.trustedConversationStartedAt ?? null,
       branchIdentityMappingVersion: BRANCH_IDENTITY_MAPPING_VERSION,
+      caseOwnership: conversationCase.ownership,
       saleProofFingerprint: saleProofFingerprint(analysis),
     });
 

@@ -6,6 +6,7 @@ export type StaffDirectoryIdentity = {
   name: string | null;
   branch: string | null;
   role: string | null;
+  type?: string | null;
   username: string | null;
   status: string | null;
   active: boolean;
@@ -45,6 +46,7 @@ function identityFromRow(
     name: text(read(row, nameKeys, '')) || null,
     branch: normalizeBranchName(read(row, ['branch', 'branch_name'], null)) || null,
     role: text(read(row, ['role', 'staff_role', 'job_title'], '')) || null,
+    type: text(read(row, ['type'], '')) || null,
     username: text(read(row, ['username'], '')) || null,
     status: text(read(row, ['status'], '')) || null,
     active:
@@ -83,7 +85,7 @@ export async function loadStaffDirectoryFrom(
   options: { requireComplete?: boolean } = {}
 ): Promise<StaffDirectoryIdentity[]> {
   const [staffResult, accountResult, aliasResult] = await Promise.all([
-    client.from('staff').select('id,name,username,branch,role,status,active,is_active').limit(800),
+    client.from('staff').select('id,name,username,branch,role,type,status,active,is_active').limit(800),
     client.rpc('get_staff_accounts_directory'),
     client
       .from('staff_identity_aliases')
