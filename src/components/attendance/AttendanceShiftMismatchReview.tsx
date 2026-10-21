@@ -30,6 +30,7 @@ export default function AttendanceShiftMismatchReview({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
+  const [expandedStaff, setExpandedStaff] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
     void (async () => {
@@ -53,6 +54,20 @@ export default function AttendanceShiftMismatchReview({
   }, [start, end, branch, refresh]);
   const filtered = staffId && staffId !== 'all' ? rows.filter((row) => row.staff_id === staffId) : rows;
   const unverified = filtered.reduce((sum, row) => sum + row.fallback_accepted, 0);
+  const groups = Object.values(filtered.reduce<Record<string, {
+    staffId: string; name: string; role: string | null; branch: string | null;
+    days: MismatchRow[]; raw: number; pending: number; fallback: number;
+  }>>((acc, row) => {
+    const group = acc[row.staff_id] ||= {
+      staffId: row.staff_id, name: row.staff_name, role: row.staff_role,
+      branch: row.branch, days: [], raw: 0, pending: 0, fallback: 0,
+    };
+    group.days.push(row);
+    group.raw += row.raw_events;
+    group.pending += row.review_events;
+    group.fallback += row.fallback_accepted;
+    return acc;
+  }, {})).sort((a, b) => b.days.length - a.days.length || b.raw - a.raw);
   return (
     <section className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4" dir="rtl" aria-label="مراجعة اختلاف مواعيد الشيفت">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -68,21 +83,37 @@ export default function AttendanceShiftMismatchReview({
       {!error && <p className="mt-3 text-xs font-bold">{filtered.length} يوم/موظف بحاجة تدقيق · {unverified} بصمة قُبلت بتفسير خام دون جدول مطابق</p>}
       {busy && <p className="mt-2 text-xs">جارٍ تحميل الأدلة...</p>}
       {!busy && !error && filtered.length === 0 && <p className="mt-2 text-xs">لا توجد مؤشرات ضمن النطاق المختار.</p>}
-      {!error && filtered.length > 0 && (
-        <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-          {filtered.slice(0, 60).map((row) => (
-            <div key={row.staff_id + row.punch_date} className="rounded-xl border border-[var(--dawaa-theme-border)] p-3 text-xs">
-              <div className="font-black">{row.staff_name} · {row.punch_date}</div>
-              <p className="mt-1 text-[var(--dawaa-theme-muted)]">{row.branch} · {row.staff_role || 'موظف'}</p>
-              <p className="mt-2">البصمات: {row.raw_events} · تحتاج تفسير: {row.review_events} · قبول خام: {row.fallback_accepted}</p>
-              <p className="mt-1">الفعلية: {cairoTime(row.first_punch)} — {cairoTime(row.last_punch)}</p>
-              <p className="mt-1">الجدول: {cairoTime(row.scheduled_start_at)} — {cairoTime(row.scheduled_end_at)}</p>
-              <p className="mt-2 font-semibold text-[var(--dawaa-status-warning-text)]">تحتاج مراجعة المدير: لا تعتمد غيابًا أو خصمًا من هذه البصمات وحدها. بصمات بعد منتصف الليل قد تتبع شيفت اليوم السابق.</p>
+      {!error && groups.length > 0 && (
+        <div className="mt-3 space-y-2">
+          <p className="text-xs text-[var(--dawaa-theme-muted)]">الترتيب حسب الأيام التي ظهر فيها اختلاف. كل يوم يحتاج تحققًا مستقلًا؛ لا يوجد اعتماد جماعي تلقائي.</p>
+          {groups.map((group) => (
+            <div key={group.staffId} className="rounded-xl border border-[var(--dawaa-theme-border)] p-3 text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="font-black">{group.name} · {group.branch || 'الفرع غير محدد'}</div>
+                  <p className="mt-1 text-[var(--dawaa-theme-muted)]">{group.role || 'موظف'} · {group.days.length} يوم للمراجعة · {group.raw} بصمة · {group.fallback} قبول خام</p>
+                </div>
+                <button type="button" className="btn-secondary text-xs" aria-expanded={expandedStaff === group.staffId} onClick={() => setExpandedStaff((value) => value === group.staffId ? null : group.staffId)}>
+                  {expandedStaff === group.staffId ? 'إخفاء الأيام' : 'عرض الأيام'}
+                </button>
+              </div>
+              {expandedStaff === group.staffId && (
+                <div className="mt-3 grid gap-2 md:grid-cols-2">
+                  {group.days.map((row) => (
+                    <div key={row.punch_date} className="rounded-lg border border-[var(--dawaa-theme-border)] p-3">
+                      <div className="font-bold">{row.punch_date}</div>
+                      <p className="mt-1">البصمات: {row.raw_events} · تحتاج تفسير: {row.review_events} · قبول خام: {row.fallback_accepted}</p>
+                      <p className="mt-1">المرصود: {cairoTime(row.first_punch)} — {cairoTime(row.last_punch)}</p>
+                      <p className="mt-1">المسجل: {cairoTime(row.scheduled_start_at)} — {cairoTime(row.scheduled_end_at)}</p>
+                      <p className="mt-2 font-semibold text-[var(--dawaa-status-warning-text)]">تحقق من اليوم والشيفت الفعلي؛ البصمات بعد منتصف الليل قد تتبع اليوم السابق.</p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>
       )}
-      {filtered.length > 60 && <p className="mt-2 text-xs">تظهر أول 60 حالة فقط؛ ضيّق فترة البحث أو الفرع للمراجعة.</p>}
     </section>
   );
 }
