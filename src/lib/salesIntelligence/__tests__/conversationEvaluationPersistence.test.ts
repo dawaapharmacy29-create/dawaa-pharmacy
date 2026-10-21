@@ -1,12 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { CaseIntelligenceView } from '../types';
 import type { ConversationEvaluationResult } from '../conversationEvaluation';
 import {
   buildCaseConversationReviewPayload,
   persistAutomaticCaseConversationReviewWithClient,
 } from '../conversationEvaluationPersistence';
-
-vi.mock('@/lib/supabase', () => ({ supabase: {} }));
 
 function view(): CaseIntelligenceView {
   return {
