@@ -18,6 +18,7 @@ import {
   type MissingPunchContextV1,
   type MissingPunchHistoryRowV1,
 } from '@/lib/attendance/attendanceResolutionService';
+import { supabase } from '@/lib/supabase';
 import EmployeeProfileDrawer from '@/components/attendance/EmployeeProfileDrawer';
 import { cairoToday, startOfMonth } from '@/lib/attendance/period';
 import AttendanceCorrectionReviewPanel from '@/components/attendance/AttendanceCorrectionReviewPanel';
@@ -213,6 +214,8 @@ export default function AttendanceResolutionCenter({
   const [bulkNote, setBulkNote] = useState('');
   const [bulkMultiplier, setBulkMultiplier] = useState('');
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [revisedShiftIn, setRevisedShiftIn] = useState('');
+  const [revisedShiftOut, setRevisedShiftOut] = useState('');
 
   useEffect(() => {
     setLane(initialTriage);
@@ -750,7 +753,55 @@ export default function AttendanceResolutionCenter({
       return;
     }
     if (decision.schedule) {
-      toast.warning('راجع تعديل الجدول أو يوم الراحة وأعد تحديث حقيقة الحضور قبل اعتماد اليوم.');
+      if (selected.attendance_date < cairoToday() || !['shift_swap', 'schedule_error'].includes(decision.id)) {
+        toast.warning('لا يمكن تغيير جدول تاريخي من مسار نشر الجدول الأسبوعي. يحتاج اليوم التاريخي إلى تصحيح مؤرخ مستقل.');
+        return;
+      }
+      const timeFormat = /^([01]\\d|2[0-3]):[0-5]\\d$/;
+      if (!timeFormat.test(revisedShiftIn) || !timeFormat.test(revisedShiftOut) || revisedShiftIn === revisedShiftOut || !note.trim()) {
+        toast.warning('حدد وقتي بداية ونهاية الشيفت واكتب سبب التعديل.');
+        return;
+      }
+      if (!window.confirm('سيتم تغيير موعد هذا اليوم من الأسبوع ابتداءً من التاريخ المحدد، وقد يتكرر التعديل في الأسابيع القادمة. هل تؤكد النشر؟')) return;
+      setApproving(true);
+      let draftId = '';
+      try {
+        const effectiveFrom = selected.attendance_date;
+        const { data: seed, error: seedError } = await supabase.rpc('schedule_draft_seed_v1', { p_staff_id: selected.staff_id, p_effective_from: effectiveFrom });
+        if (seedError) throw seedError;
+        const seedRows = (seed as { rows?: Array<{ day_name: string; is_off?: boolean }> })?.rows || [];
+        if (seedRows.length !== 7) throw new Error('الجدول الأسبوعي غير مكتمل؛ لا يمكن نشر تعديل جزئي.');
+        const weekday = arabicWeekday(effectiveFrom);
+        const matches = seedRows.filter((row) => row.day_name === weekday);
+        if (matches.length !== 1) throw new Error('تعذر تحديد يوم الشيفت داخل الجدول المعتمد.');
+        const updated = seedRows.map((row) => row.day_name === weekday
+          ? { ...row, shift_start: revisedShiftIn, shift_end: revisedShiftOut, is_off: false, is_day_off: false }
+          : row);
+        const { data: created, error: createError } = await supabase.rpc('create_schedule_draft_v1', {
+          p_staff_id: selected.staff_id, p_effective_from: effectiveFrom, p_rows: updated,
+          p_note: `قرار مركز الحضور ${selected.attendance_date}: ${note.trim()}`,
+        });
+        if (createError) throw createError;
+        draftId = String((created as { draft_id?: string })?.draft_id || '');
+        if (!draftId) throw new Error('لم يتم إنشاء مسودة الجدول بنجاح.');
+        const { data: validation, error: validateError } = await supabase.rpc('validate_schedule_draft_v1', { p_draft_id: draftId });
+        if (validateError) throw validateError;
+        if (!(validation as { valid?: boolean })?.valid) throw new Error('لم تجتز المسودة فحص تعارضات الجدول.');
+        const { error: publishError } = await supabase.rpc('publish_schedule_draft_v1', { p_draft_id: draftId, p_note: note.trim() });
+        if (publishError) throw publishError;
+        toast.success('تم نشر تعديل الشيفت من مركز الحضور. سيتم تحديث قراءات الحضور من مصدر الجدول المعتمد.');
+        setSelected(null);
+        setReason('');
+        setNote('');
+        setRevisedShiftIn('');
+        setRevisedShiftOut('');
+        await load();
+        onDecisionSaved?.();
+      } catch (error) {
+        toast.error(`لم يُعتمد التعديل: ${error instanceof Error ? error.message : 'تعذر إكمال العملية'}${draftId ? ` — مسودة ${draftId} للمراجعة` : ''}`);
+      } finally {
+        setApproving(false);
+      }
       return;
     }
     if (decision.financial && !note.trim()) {
@@ -1466,7 +1517,20 @@ export default function AttendanceResolutionCenter({
                 {decision?.requestKind && !['annual_leave', 'sick_leave', 'exceptional_leave', 'approved_absence'].includes(decision.id) && !(decision.id === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')) && <div className="mt-3 text-xs font-bold text-[var(--dawaa-theme-muted)]">
                   {requestsLoading ? 'جارٍ التحقق من الطلب المعتمد...' : requestsError ? 'تعذر التحقق من سجل الإجازات. أعد فتح القرار.' : linked ? `الطلب المعتمد المرتبط: ${linked.request_label || linked.request_kind} (${linked.id}). ${decision.requestKind === 'permission' ? 'راجع ساعات اليوم قبل الاعتماد.' : 'اضغط تحديث حقيقة الحضور من أعلى الصفحة بعد إغلاق القرار.'}` : <>لا يوجد طلب معتمد من هذا النوع لهذا اليوم. {embedded ? 'لا يمكن اعتماده بدون توثيق الطلب المطلوب.' : <a className="underline" href="/time-off">افتح الإجازات والغياب</a>} </>}
                 </div>}
-                {decision?.schedule && !(decision.id === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')) && <p role="status" className="mt-3 rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-warning-text)]">تصحيح موعد الشيفت يحتاج أمر تعديل جدول معتمد. لا يتم تطبيق تعديل أو اعتماد شكلي من هذه الشاشة، ولا تتغير بيانات الحضور حتى يكتمل المسار الآمن.</p>}
+                {decision?.schedule && !(decision.id === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')) && (
+                  <div className="mt-3 rounded-xl border border-[var(--dawaa-theme-border)] p-3 text-xs">
+                    {selected.attendance_date < cairoToday()
+                      ? <p className="font-bold text-[var(--dawaa-status-warning-text)]">تصحيح جدول يوم سابق يحتاج تعديلًا مؤرخًا خاصًا بهذا اليوم. لا يمكن نشر تعديل أسبوعي بأثر رجعي.</p>
+                      : <>
+                          <p className="mb-2 font-bold">تعديل مواعيد هذا اليوم من الأسبوع ابتداءً من {selected.attendance_date} (يشمل الأسابيع التالية حتى إصدار جدول أحدث).</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            <label>بداية الشيفت<input type="time" className="input-dark mt-1 block w-full" value={revisedShiftIn} onChange={(event) => setRevisedShiftIn(event.target.value)} /></label>
+                            <label>نهاية الشيفت<input type="time" className="input-dark mt-1 block w-full" value={revisedShiftOut} onChange={(event) => setRevisedShiftOut(event.target.value)} /></label>
+                          </div>
+                          <p className="mt-2">سبب التعديل إجباري. سيتم إنشاء مسودة من الجدول الحالي وفحصها ونشرها بصلاحية المدير.</p>
+                        </>}
+                  </div>
+                )}
                 {decision?.financial && <label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">معامل الخصم المقترح للمراجعة المالية
                   <select value={multiplier} onChange={(e) => setMultiplier(e.target.value)} className="input-dark mt-1 w-full"><option value="">اختر المعامل</option><option value="1">×1</option><option value="2">×2</option><option value="4">×4</option></select>
                   <span className="mt-1 block font-normal">الغياب: المعامل المقترح لليوم. التأخير: المعامل المقترح لمدة التأخير. اختيار «إجازة بخصم» هنا لا ينشئ طلب إجازة؛ سجّلها في الإجازات والغياب إن كانت إجازة رسمية. لا يُحسب مبلغ ولا يُسجل خصم تلقائيًا؛ راجعه في الجزاءات والرواتب.</span>
@@ -1494,7 +1558,9 @@ export default function AttendanceResolutionCenter({
                     ? `اعتماد ${decisionsFor(selected).find((item) => item.id === reason)?.label || 'القرار'} وتسجيله`
                     : reason === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')
                       ? 'اعتماد تغيير يوم الراحة'
-                      : ['forgot_in', 'forgot_out'].includes(reason)
+                      : ['shift_swap', 'schedule_error'].includes(reason)
+                        ? 'فحص ونشر تعديل الشيفت'
+                        : ['forgot_in', 'forgot_out'].includes(reason)
                         ? applyMissingPunchPenalty ? 'تسجيل البصمة اليدوية + خصم 50ج' : 'تسجيل البصمة اليدوية'
                         : decisionsFor(selected).find((item) => item.id === reason)?.financial
                           ? 'اعتماد الحضور وتوثيق اقتراح الخصم'
