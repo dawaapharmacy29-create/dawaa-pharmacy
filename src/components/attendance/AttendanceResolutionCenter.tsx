@@ -108,24 +108,24 @@ const ABSENCE_DECISIONS: Decision[] = [
   { id: 'sick_leave', label: 'إجازة مرضية', requestKind: 'sick_leave' },
   { id: 'exceptional_leave', label: 'إجازة عارضة', requestKind: 'exceptional_leave' },
   { id: 'approved_absence', label: 'غياب بإذن', requestKind: 'approved_absence' },
-  { id: 'shift_swap', label: 'تغيير يوم الراحة هذا الأسبوع', requestKind: 'shift_swap', schedule: true },
-  { id: 'absence_deduction', label: 'غياب أو إجازة بخصم — اقتراح للمراجعة المالية', financial: true },
-  { id: 'outside_work', label: 'مأمورية أو عمل خارج الفرع مثبت' },
-  { id: 'custom', label: 'سبب آخر (اكتب التفاصيل)' },
+  { id: 'shift_swap', label: 'تبديل الراحة', requestKind: 'shift_swap', schedule: true },
+  { id: 'absence_deduction', label: 'غياب بخصم', financial: true },
+  { id: 'outside_work', label: 'عمل خارجي' },
+  { id: 'custom', label: 'سبب آخر' },
 ];
 const PUNCH_DECISIONS: Decision[] = [
-  { id: 'forgot_in', label: 'نسيان بصمة الدخول بعد التحقق' },
-  { id: 'forgot_out', label: 'نسيان بصمة الخروج بعد التحقق' },
-  { id: 'device_fault', label: 'عطل جهاز البصمة مثبت' },
-  { id: 'cross_branch', label: 'عمل بفرع آخر مثبت' },
-  { id: 'custom', label: 'سبب آخر (اكتب التفاصيل)' },
+  { id: 'forgot_in', label: 'نسيان دخول' },
+  { id: 'forgot_out', label: 'نسيان خروج' },
+  { id: 'device_fault', label: 'عطل الجهاز' },
+  { id: 'cross_branch', label: 'فرع آخر' },
+  { id: 'custom', label: 'سبب آخر' },
 ];
 const TIME_DECISIONS: Decision[] = [
-  { id: 'permission', label: 'تأخير أو انصراف مبكر بإذن', requestKind: 'permission' },
-  { id: 'time_deduction', label: 'تأخير أو انصراف مبكر مع إحالة الخصم للمراجعة المالية', financial: true },
-  { id: 'shift_swap', label: 'تغيير موعد الشيفت المعتمد', requestKind: 'shift_swap', schedule: true },
-  { id: 'schedule_error', label: 'تصحيح جدول العمل', schedule: true },
-  { id: 'custom', label: 'سبب آخر (اكتب التفاصيل)' },
+  { id: 'permission', label: 'إذن معتمد', requestKind: 'permission' },
+  { id: 'time_deduction', label: 'خصم وقت', financial: true },
+  { id: 'shift_swap', label: 'تعديل الشيفت', requestKind: 'shift_swap', schedule: true },
+  { id: 'schedule_error', label: 'تصحيح الجدول', schedule: true },
+  { id: 'custom', label: 'سبب آخر' },
 ];
 
 const BULK_SAFE_DECISION_IDS = new Set([
@@ -169,6 +169,7 @@ export default function AttendanceResolutionCenter({
   const [start, setStart] = useState(() => initialCurrentCycle ? startOfMonth(cairoToday()) : initialDate || cairoDate(-7));
   const [end, setEnd] = useState(() => initialCurrentCycle ? cairoToday() : initialDate || cairoDate());
   const [branch, setBranch] = useState(defaultBranch || 'الكل');
+  const [staffFilter, setStaffFilter] = useState('all');
   const [lane, setLane] = useState<'all' | AttendanceExceptionLane>(initialTriage);
   const [rows, setRows] = useState<AttendanceExceptionRow[]>([]);
   const [diagnosticSummary, setDiagnosticSummary] = useState<AttendanceDiagnosticSummaryV1 | null>(null);
@@ -411,7 +412,8 @@ export default function AttendanceResolutionCenter({
     missingCheckOut: baseRows.filter((row) => row.resolution_status === 'missing_checkout').length,
     system: baseRows.filter((row) => row.queue_lane === 'system').length,
   }), [baseRows]);
-  const visibleRows = baseRows.filter((row) => lane === 'all' || row.queue_lane === lane);
+  const employeeOptions = useMemo(() => Array.from(new Map(baseRows.map((row) => [row.staff_id, row.staff_name])).entries()).sort((a, b) => a[1].localeCompare(b[1], 'ar')), [baseRows]);
+  const visibleRows = baseRows.filter((row) => (lane === 'all' || row.queue_lane === lane) && (staffFilter === 'all' || row.staff_id === staffFilter));
   const displayRows = visibleRows.filter((row) => {
     if (categoryTab === 'absence') return row.issue_group === 'absence' || row.resolution_status === 'absence_review';
     if (categoryTab === 'early_leave') return row.issue_group === 'early_leave' || row.resolution_status === 'early_leave_review';
@@ -957,8 +959,20 @@ export default function AttendanceResolutionCenter({
           </button>}
         </div>
 
-        <input value={branch} onChange={(e) => setBranch(e.target.value)} disabled={!!initialStaffId}
-          className="input-dark mt-3 max-w-xs" placeholder="الفرع أو الكل" />
+        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <label className="text-xs font-black text-[var(--dawaa-theme-muted)]">الفرع
+            <select value={branch} onChange={(e) => { setBranch(e.target.value); setStaffFilter('all'); }} disabled={!!initialStaffId} className="input-dark mt-1 block w-full">
+              <option value="الكل">كل الفروع</option>
+              {Array.from(new Set(rows.map((row) => row.staff_branch || row.branch).filter((value): value is string => !!value))).sort((a, b) => a.localeCompare(b, 'ar')).map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+          <label className="text-xs font-black text-[var(--dawaa-theme-muted)]">الموظف
+            <select value={staffFilter} onChange={(e) => setStaffFilter(e.target.value)} disabled={!!initialStaffId} className="input-dark mt-1 block w-full">
+              <option value="all">كل الموظفين</option>
+              {employeeOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+            </select>
+          </label>
+        </div>
 
         {!initialStaffId && <label className="mt-3 flex items-center gap-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">
           <input type="checkbox" checked={showFormer} onChange={(e) => setShowFormer(e.target.checked)} />
@@ -1157,93 +1171,43 @@ export default function AttendanceResolutionCenter({
         </p>
       </section>
 
-      <section className="overflow-x-auto rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface shadow-sm">
-        <table className="min-w-[1050px] w-full text-sm">
-          <thead className="border-b border-[var(--dawaa-theme-border)] text-[var(--dawaa-theme-muted)]">
-            <tr>
-              <th className="w-12 p-3 text-center">اختيار</th>
-              <th className="p-3 text-right">الموظف</th>
-              <th className="p-3 text-right">اليوم</th>
-              <th className="p-3 text-right">نوع الحالة</th>
-              <th className="p-3 text-right">المسار</th>
-              <th className="p-3 text-right">الدليل</th>
-              <th className="p-3 text-right">دخول / خروج</th>
-              <th className="p-3 text-right">ساعات مرشحة</th>
-              <th className="p-3 text-right">إجراء</th>
-            </tr>
-          </thead>
-          <tbody>
-            {displayRows.map((row) => {
-              const meta = laneMeta(row.queue_lane);
-              return (
-                <tr key={row.id} className={`border-b border-[var(--dawaa-theme-border)]/60 last:border-0 ${selectedRowIds.has(row.id) ? 'bg-[var(--dawaa-theme-primary-soft)]/30' : ''}`}>
-                  <td className="p-3 text-center">
-                    <input
-                      type="checkbox"
-                      checked={selectedRowIds.has(row.id)}
-                      disabled={row.queue_lane !== 'manager' || bulkBusy}
-                      aria-label={`اختيار حالة ${row.staff_name} بتاريخ ${row.attendance_date}`}
-                      onChange={(event) => {
-                        setSelectedRowIds((current) => {
-                          const next = new Set(current);
-                          if (event.target.checked) next.add(row.id);
-                          else next.delete(row.id);
-                          return next;
-                        });
-                      }}
-                    />
-                  </td>
-                  <td className="p-3">
-                    <button onClick={() => setProfileStaffId(row.staff_id)} className="text-right font-black text-[var(--dawaa-theme-heading)] hover:underline hover:text-[var(--dawaa-theme-primary-strong)]">
-                      {row.staff_name}
-                    </button>
-                    <div className="text-xs text-[var(--dawaa-theme-muted)]">{row.staff_branch || row.branch || '-'}</div>
-                    {isFormerAttendanceReviewRow(row) && <div className="text-xs text-[var(--dawaa-status-warning-text)]">موظف سابق — مسار تاريخي منفصل</div>}
-                  </td>
-                  <td className="p-3">
-                    <div className="font-black">{row.attendance_date}</div>
-                    <div className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">{arabicWeekday(row.attendance_date)}</div>
-                  </td>
-                  <td className="p-3">
-                    <div className="font-black text-[var(--dawaa-theme-heading)]">{row.issue_label}</div>
-                    <div className="mt-1 text-[10px] font-bold text-[var(--dawaa-theme-muted)]">{row.issue_group}</div>
-                    {row.queue_lane === 'manager' && row.priority_code && row.priority_code !== 'former_staff' && (
-                      <div className="mt-1 flex flex-wrap items-center gap-1 text-[10px] font-black text-[var(--dawaa-theme-muted)]">
-                        <span className="rounded-full border border-[var(--dawaa-theme-border)] px-2 py-0.5 text-[var(--dawaa-theme-heading)]">{row.priority_code}</span>
-                        {row.age_days != null && <span>انتظار {row.age_days.toLocaleString('ar-EG')} يوم</span>}
-                      </div>
-                    )}
-                  </td>
-                  <td className="p-3">
-                    <span className={`inline-flex rounded-full border px-2 py-1 text-[11px] font-black ${meta.className}`}>{meta.label}</span>
-                    {row.queue_lane === 'system' && <div className="mt-1 text-[10px] font-bold text-[var(--dawaa-status-info-text)]">لا إجراء على الموظف</div>}
-                  </td>
-                  <td className="p-3">
-                    <div className="font-black">{row.raw_events.toLocaleString('ar-EG')} بصمة خام</div>
-                    <div className="text-[10px] font-bold text-[var(--dawaa-theme-muted)]">الدليل محفوظ ولا يتم تعديله</div>
-                  </td>
-                  <td className="p-3 text-xs">
-                    <div>{fmt(row.first_in)}</div>
-                    <div>{fmt(row.last_out)}</div>
-                  </td>
-                  <td className="p-3 font-black">{row.candidate_hours == null ? '-' : row.candidate_hours.toFixed(2)}</td>
-                  <td className="p-3">
-                    {row.queue_lane === 'manager'
-                      ? <button onClick={() => { setSelected(row); setHours(row.candidate_hours == null ? '' : String(row.candidate_hours)); setNote(''); setReason(''); setMultiplier(''); }} className="btn-secondary text-xs">اتخاذ قرار</button>
-                      : <button onClick={() => { setSelected(row); setHours(row.candidate_hours == null ? '' : String(row.candidate_hours)); setNote(''); setReason(''); setMultiplier(''); }} className="btn-secondary text-xs">تشخيص وإصلاح</button>}
-                  </td>
-                </tr>
-              );
-            })}
-            {!displayRows.length && !loading && (
-              <tr>
-                <td colSpan={9} className="p-8 text-center font-bold text-[var(--dawaa-theme-muted)]">
-                  لا توجد حالات في هذا المسار خلال الفترة المحددة.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+      <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3" aria-label="كروت مراجعة الحضور">
+        {displayRows.map((row) => {
+          const meta = laneMeta(row.queue_lane);
+          return (
+            <article key={row.id} className={`flex flex-col gap-3 rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm ${selectedRowIds.has(row.id) ? 'ring-2 ring-[var(--dawaa-theme-primary)]' : ''}`}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <button type="button" onClick={() => setProfileStaffId(row.staff_id)} className="text-right text-base font-black text-[var(--dawaa-theme-heading)] hover:underline">{row.staff_name}</button>
+                  <p className="mt-1 text-xs text-[var(--dawaa-theme-muted)]">{row.staff_branch || row.branch || 'فرع غير محدد'} · {row.attendance_date} · {arabicWeekday(row.attendance_date)}</p>
+                </div>
+                <span className={`shrink-0 rounded-full border px-2 py-1 text-[10px] font-black ${meta.className}`}>{meta.label}</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="font-black text-[var(--dawaa-theme-heading)]">{row.issue_label}</span>
+                {row.priority_code && row.priority_code !== 'former_staff' && <span className="rounded-md border border-[var(--dawaa-theme-border)] px-2 py-0.5">{row.priority_code}</span>}
+                {isFormerAttendanceReviewRow(row) && <span className="text-[var(--dawaa-status-warning-text)]">موظف سابق</span>}
+              </div>
+              <div className="grid grid-cols-3 gap-2 rounded-xl bg-[var(--dawaa-theme-surface-2)] p-2 text-center text-xs">
+                <div><p className="text-[10px] text-[var(--dawaa-theme-muted)]">الدخول</p><strong className="break-words">{fmt(row.first_in)}</strong></div>
+                <div><p className="text-[10px] text-[var(--dawaa-theme-muted)]">الخروج</p><strong className="break-words">{fmt(row.last_out)}</strong></div>
+                <div><p className="text-[10px] text-[var(--dawaa-theme-muted)]">الساعات</p><strong>{row.candidate_hours == null ? '-' : row.candidate_hours.toFixed(2)}</strong></div>
+              </div>
+              <p className="text-[11px] text-[var(--dawaa-theme-muted)]">{row.raw_events.toLocaleString('ar-EG')} بصمة خام · الدليل محفوظ</p>
+              <div className="mt-auto flex items-center justify-between gap-2">
+                <label className="flex items-center gap-2 text-xs text-[var(--dawaa-theme-muted)]">
+                  <input type="checkbox" checked={selectedRowIds.has(row.id)} disabled={row.queue_lane !== 'manager' || bulkBusy} aria-label={`اختيار حالة ${row.staff_name} بتاريخ ${row.attendance_date}`}
+                    onChange={(event) => setSelectedRowIds((current) => { const next = new Set(current); if (event.target.checked) next.add(row.id); else next.delete(row.id); return next; })} />
+                  تحديد
+                </label>
+                <button type="button" onClick={() => { setSelected(row); setHours(row.candidate_hours == null ? '' : String(row.candidate_hours)); setNote(''); setReason(''); setMultiplier(''); }} className="btn-secondary text-xs">
+                  {row.queue_lane === 'manager' ? 'اتخاذ قرار' : 'تشخيص الحالة'}
+                </button>
+              </div>
+            </article>
+          );
+        })}
+        {!displayRows.length && !loading && <div className="col-span-full rounded-2xl border border-[var(--dawaa-theme-border)] p-8 text-center text-sm font-bold text-[var(--dawaa-theme-muted)]">لا توجد حالات مطابقة للفلاتر خلال الفترة المحددة.</div>}
       </section>
 
       <section className="rounded-2xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-4 text-xs font-bold text-[var(--dawaa-status-info-text)]">
@@ -1297,13 +1261,17 @@ export default function AttendanceResolutionCenter({
                 هذا اعتماد لحقيقة الحضور، وليس خصمًا ماليًا تلقائيًا.
               </div>
 
-              <label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">
-                نوع القرار
-                <select value={reason} onChange={(e) => setReason(e.target.value)} className="input-dark mt-1 w-full">
-                  <option value="">اختر القرار بعد مراجعة الحالة</option>
-                  {decisionsFor(selected).filter((item) => !embedded || (!item.schedule || (item.id === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')))).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-                </select>
-              </label>
+              <fieldset className="mt-3">
+                <legend className="text-xs font-black text-[var(--dawaa-theme-muted)]">نوع القرار</legend>
+                <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {decisionsFor(selected).filter((item) => !embedded || (!item.schedule || (item.id === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')))).map((item) => (
+                    <label key={item.id} className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-3 text-xs font-black transition-colors ${reason === item.id ? 'border-[var(--dawaa-theme-primary)] bg-[var(--dawaa-theme-primary-soft)] text-[var(--dawaa-theme-heading)]' : 'border-[var(--dawaa-theme-border)] text-[var(--dawaa-theme-muted)]'}`}>
+                      <input type="radio" name="attendance-case-decision" value={item.id} checked={reason === item.id} onChange={() => setReason(item.id)} />
+                      <span>{item.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
 
               <button
                 type="button"
