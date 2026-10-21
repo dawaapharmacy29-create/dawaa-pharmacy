@@ -753,6 +753,10 @@ export default function AttendanceResolutionCenter({
       toast.warning('راجع تعديل الجدول أو يوم الراحة وأعد تحديث حقيقة الحضور قبل اعتماد اليوم.');
       return;
     }
+    if (decision.financial && !note.trim()) {
+      toast.warning('اكتب سبب اقتراح الخصم ودليل المخالفة قبل حفظ القرار.');
+      return;
+    }
     if (decision.financial && !['1', '2', '4'].includes(multiplier)) {
       toast.warning('حدد معامل الخصم المقترح للمراجعة المالية.');
       return;
@@ -806,6 +810,10 @@ export default function AttendanceResolutionCenter({
     }
     if (['custom', 'outside_work'].includes(decision.id) && !bulkNote.trim()) {
       toast.warning('اكتب ملاحظة موحدة توضح سبب القرار للحالات المحددة.');
+      return;
+    }
+    if (decision.financial && !bulkNote.trim()) {
+      toast.warning('اكتب سببًا موثقًا للخصم المقترح قبل الاعتماد الجماعي.');
       return;
     }
     if (decision.financial && !['1', '2', '4'].includes(bulkMultiplier)) {
@@ -1468,7 +1476,7 @@ export default function AttendanceResolutionCenter({
             <label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">
               ملاحظة القرار
               <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} className="input-dark mt-1 w-full resize-none"
-                placeholder={['custom', 'outside_work'].includes(reason) ? 'مطلوب: اكتب سبب القرار والدليل' : 'اختياري: تفاصيل إضافية توثق القرار'} />
+                placeholder={['custom', 'outside_work', 'absence_deduction', 'time_deduction'].includes(reason) ? 'مطلوب: اكتب سبب القرار والدليل' : 'اختياري: تفاصيل إضافية توثق القرار'} />
             </label>
             <p className="mt-2 text-[10px] text-[var(--dawaa-theme-muted)]">الأدلة محفوظة في السجل ويمكن فتحها عند الحاجة بدون إطالة نافذة القرار.</p>
             </div>
