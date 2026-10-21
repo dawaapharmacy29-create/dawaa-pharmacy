@@ -5,7 +5,8 @@ import { buildCanonicalProduct, countNormalizedNames } from '../pharmacyProducts
 import { buildPharmacyProductIndex } from '../pharmacyProducts/pharmacyProductResolverV2';
 import { normalizePharmacyText } from '../pharmacyProducts/pharmacyNormalization';
 import { CANONICAL_COMPLAINT_PROJECTION_VERSION } from '../persistence/canonicalComplaintProjector';
-import { isRequestCandidate } from '@/lib/whatsappSemanticSignalsV32';
+import { isGreetingOnly, isRequestCandidate } from '@/lib/whatsappSemanticSignalsV32';
+import { analyzeConversationEvaluationSales } from '../conversationEvaluationSales';
 import {
   CANONICAL_COMPLAINT_CREATOR,
   legacyComplaintReviewReason,
@@ -110,6 +111,17 @@ describe('V39 acceptance — customer service, drug order and nursing in one exp
     // 550 came from the doctor's question and the customer's "مطبووط".
     expect(gastro[0].productCode).toBe('91004');
     expect(gastro[0].finalQuantity).toBe(1);
+    expect(order[0].customerNeed.primaryNeed).toBe('خليهم علبتين كولونا');
+  });
+
+  it('does not score cross-sell from an item recap when the original request includes unread media', () => {
+    const analysis = order[0];
+    const crossSell = analyzeConversationEvaluationSales(analysis.caseIntelligence).items.find(
+      (item) => item.key === 'cross_sell_upsell'
+    );
+    expect(crossSell?.status).toBe('insufficient_evidence');
+    expect(crossSell?.pointsEarned).toBeNull();
+    expect(crossSell?.reason).toMatch(/صورة\/صوت|اقتراح صريح/);
   });
 
   it('an unresolved customer never turns the matching invoice into proof, revenue or credit', () => {
@@ -142,6 +154,8 @@ describe('V39 acceptance — customer service, drug order and nursing in one exp
 describe('courtesy-only replies are closings, not requests', () => {
   const customer = (text: string) => ({ role: 'customer', isMeaningful: true, text } as any);
   it('treats thank-you-only wording as closing and keeps any real content a request', () => {
+    expect(isGreetingOnly('اهلا وسهلا يا دكتور')).toBe(true);
+    expect(isGreetingOnly('اهلا يا دكتور محتاج علبة دواء')).toBe(false);
     expect(isRequestCandidate(customer('تمام شكرا لحضرتك ي دكتور'))).toBe(false);
     expect(isRequestCandidate(customer('تمام يا دكتور شكرا ليك'))).toBe(false);
     expect(isRequestCandidate(customer('تسلم ي دكتور'))).toBe(false);

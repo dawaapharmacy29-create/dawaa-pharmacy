@@ -323,7 +323,13 @@ function isPlausibleCustomerProductMention(message: NormalizedConversationMessag
 }
 
 export function isGreetingOnly(text: string): boolean {
-  return GREETING_ONLY_RX.test((text || '').trim());
+  // A greeting followed only by an honorific is still a greeting. Keep this anchored so a
+  // substantive request after the greeting ("أهلا يا دكتور، محتاج ...") remains a request.
+  const withoutVocative = (text || '').trim().replace(
+    /\s+(?:(?:يا|يـ?)\s*)?(?:دكتور(?:نا)?|دكتورة|دكتوره|حضرتك|فندم)[.!،\s]*$/iu,
+    ''
+  ).trim();
+  return GREETING_ONLY_RX.test(withoutVocative);
 }
 
 /** A bare "تمام"/"حاضر"/"ok" with nothing else — carries no content of its own about what was understood or offered. */
