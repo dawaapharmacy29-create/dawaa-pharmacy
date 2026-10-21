@@ -9105,7 +9105,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v41-evidence-integrity";
+var PIPELINE_VERSION = "sales-intelligence-v42-evidence-integrity";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v12-service-new-need-ownership",
   historicalClosure: "historical-closure-v1",

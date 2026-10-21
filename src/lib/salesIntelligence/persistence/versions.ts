@@ -79,7 +79,9 @@
 // v41: a basket line whose catalog identity stays ambiguous ("كولونا" = 30 or 40 tablets) is
 // partially_proven, never proven; evaluation sales criteria judge only substantive baskets in
 // commercial cases (an empty draft basket no longer makes a welfare or nursing case "sales").
-export const PIPELINE_VERSION = 'sales-intelligence-v41-evidence-integrity';
+// v42: fixes the product-identity review gate and keeps unresolved case branches out of automatic
+// conversation-review persistence. Existing analyses must be explicitly refreshed to apply it.
+export const PIPELINE_VERSION = 'sales-intelligence-v42-evidence-integrity';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v12-service-new-need-ownership',
