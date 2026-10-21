@@ -143,6 +143,14 @@ describe('case-local service/pharmacy ownership', () => {
     expect(result.caseAnalyses[1].conversationCase.ownership?.blockers).toContain('introduced_staff_unresolved');
   });
 
+  it('does not promote an explicit branch from an unresolved doctor introduction', async () => {
+    const { result } = await analyze(raw('مع حضرتك د شبل من فرع شكري'), 'كل الفروع', directory.filter((p) => !(p.id === 'doctor' && p.source === 'alias')));
+    const order = result.caseAnalyses[1];
+    expect(order.conversationCase.branchNameRaw).toBeNull();
+    expect(order.conversationCase.ownership?.blockers).toContain('explicit_branch_staff_unresolved');
+    expect(order.salesOutcome.isSaleCountable).toBe(false);
+  });
+
   it('cannot turn conflicting case branch evidence into unknown-branch sale proof', async () => {
     const { base } = await analyze(raw('مع حضرتك د شبل من فرع شكري'), 'فرع الشامي');
     const result = runSalesIntelligencePipeline({

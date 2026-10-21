@@ -2012,7 +2012,14 @@ function deriveCaseOwnershipContext(input) {
   const explicit = /* @__PURE__ */ new Set();
   for (const message of introductions) {
     const match = message.text.match(/من\s+فرع\s+(شكري|الشامي)(?=[\s،,.!?؟]|$)/u);
-    if (match) explicit.add(normalizeBranchName(match[1]));
+    if (match) {
+      const id = input.staffIdByIntroductionMessageId?.[message.id];
+      if (id && input.staffProfilesById?.[id]?.function === "pharmacist") {
+        explicit.add(normalizeBranchName(match[1]));
+      } else {
+        blockers.push("explicit_branch_staff_unresolved");
+      }
+    }
   }
   const sourceBranchNameRaw = input.sourceBranch?.trim() || null;
   const source = isOperatingBranch(sourceBranchNameRaw) ? normalizeBranchName(sourceBranchNameRaw) : null;
