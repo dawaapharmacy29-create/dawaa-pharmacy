@@ -218,6 +218,16 @@ describe('case-level conversation evaluation persistence 9N-B', () => {
     expect(payload.negative_points).toBe(0);
   });
 
+  it('names an invoice on the review only when it is proven for the case', () => {
+    const staffRow={id:'staff-1',name:'د شبل',branch:'فرع شكري',branch_id:null,role:'doctor'};
+    const proven=buildCaseConversationReviewPayload({sourceId:'source-1',view:view(),evaluation:evaluation(),staffRow});
+    expect(proven.invoice_number).toBe('74966');
+    const base=view();
+    // Weakly inferred candidate (e.g. invoice 74938 at 0.20): evidence only, never on the review.
+    const weak={...base,sale:{...base.sale,attributionLevel:'weakly_inferred',proofState:'weakly_supported',outcome:'needs_review',isSaleCountable:false}} as CaseIntelligenceView;
+    expect(buildCaseConversationReviewPayload({sourceId:'source-1',view:weak,evaluation:evaluation(),staffRow}).invoice_number).toBeNull();
+  });
+
   it('never writes automatic medical consultation or dosage scores', () => {
     const payload=buildCaseConversationReviewPayload({
       sourceId:'source-1',

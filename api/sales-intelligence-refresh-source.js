@@ -14183,7 +14183,9 @@ function buildCaseConversationReviewPayload(input) {
     conversation_type: "whatsapp",
     review_date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
     month_cycle: monthCycleFromDate(view.interaction.startedAt),
-    invoice_number: view.sale.selectedInvoiceNumber ?? null,
+    // A review row names an invoice only when that invoice is proven for THIS case; a weak or
+    // candidate selection stays in the analysis evidence, never on the staff evaluation record.
+    invoice_number: view.sale.proofState === "proven" ? view.sale.selectedInvoiceNumber ?? null : null,
     final_score: score,
     total_score: score,
     base_score: 100,
