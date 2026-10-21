@@ -57,15 +57,19 @@ describe('conversation evaluation sales 9G', () => {
       .toMatchObject({status:'not_applicable',pointsEarned:null});
   });
 
-  it('recognizes an accepted offered-only product as successful cross-sell structurally', () => {
+  it('recognizes an accepted offered-only product when the offer and acceptance are evidenced', () => {
     const v=base();
+    v.interaction.messages.push(
+      {id:'s2',role:'staff',sender:'You',at:'2026-09-28T09:01:00Z',text:'أنصحك بمنتج إضافي',meaningful:true},
+      {id:'c2',role:'customer',sender:'Customer',at:'2026-09-28T09:01:10Z',text:'تمام ضيفه',meaningful:true},
+    );
     v.products=[{
       productKey:'extra',productNameRaw:'منتج إضافي',productId:null,roles:['offered','accepted','final_basket'],requestedQuantity:null,offeredQuantity:1,finalQuantity:1,availability:'available',alternativeCount:0,alternativeResponses:[],inFinalBasket:true,demandKey:null,lossOutcome:null,lossReason:null,followUpKeys:[]
     }];
     v.need.products=[{
-      key:'extra',productNameRaw:'منتج إضافي',productId:null,requestedQuantity:null,offeredQuantity:1,finalQuantity:1,roles:['offered','accepted','final_basket'],availability:'available',availabilityEvidence:[],alternatives:[],evidenceMessageIds:['s1'],confidence:{level:'strongly_inferred',score:.9,evidence:[],ruleIds:[]}
+      key:'extra',productNameRaw:'منتج إضافي',productId:null,requestedQuantity:null,offeredQuantity:1,finalQuantity:1,roles:['offered','accepted','final_basket'],availability:'available',availabilityEvidence:[],alternatives:[],evidenceMessageIds:['s2','c2'],confidence:{level:'strongly_inferred',score:.9,evidence:[],ruleIds:[]}
     }];
     expect(analyzeConversationEvaluationSales(v).items.find(i=>i.key==='cross_sell_upsell'))
-      .toMatchObject({selectedOption:'useful',pointsEarned:10});
+      .toMatchObject({selectedOption:'useful',pointsEarned:10,evidenceMessageIds:['s2']});
   });
 });
