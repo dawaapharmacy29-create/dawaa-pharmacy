@@ -77,7 +77,7 @@ export default function AttendanceShiftMismatchReview({
               <p className="mt-2">البصمات: {row.raw_events} · تحتاج تفسير: {row.review_events} · قبول خام: {row.fallback_accepted}</p>
               <p className="mt-1">الفعلية: {cairoTime(row.first_punch)} — {cairoTime(row.last_punch)}</p>
               <p className="mt-1">الجدول: {cairoTime(row.scheduled_start_at)} — {cairoTime(row.scheduled_end_at)}</p>
-              <p className="mt-2 font-semibold text-[var(--dawaa-status-warning-text)]">القرار: معلّق للتحقق من تغيير الميعاد؛ لا تستنتج غيابًا أو خصمًا من هذه البصمات وحدها.</p>
+              <p className="mt-2 font-semibold text-[var(--dawaa-status-warning-text)]">تحتاج مراجعة المدير: لا تعتمد غيابًا أو خصمًا من هذه البصمات وحدها. بصمات بعد منتصف الليل قد تتبع شيفت اليوم السابق.</p>
             </div>
           ))}
         </div>
