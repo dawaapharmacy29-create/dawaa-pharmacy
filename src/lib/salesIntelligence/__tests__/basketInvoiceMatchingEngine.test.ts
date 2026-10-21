@@ -195,6 +195,26 @@ describe('Basket <-> Invoice Matching Engine (Sales Intelligence Phase E) — Go
     expect(m.overallMatch).not.toBe('exact');
   });
 
+  it('7d. partially proven cross-script SKU is reviewable and cannot create false missing/extra facts', () => {
+    const match = deriveBasketInvoiceMatch(
+      baseInput({
+        itemsByBasketId: { 'basket:1': [item('كولونا', 2, 'partially_proven', 'product-colona-40')] },
+        itemEvidenceProvider: {
+          getItemsForInvoice: () => [
+            { productNameRaw: 'colona 40 tab', productId: 'product-colona-40', productCode: '81948', quantity: 2 },
+            { productNameRaw: 'RINGER SOLUTION INJECTION 500 ML', productId: 'product-ringer', productCode: '16467', quantity: 1 },
+          ],
+        },
+      })
+    );
+    expect(match.needsHumanReview).toBe(true);
+    expect(match.humanReviewReasons).toContain('product_identity_unresolved');
+    expect(match.itemMatch).toBe('insufficient_data');
+    expect(match.quantityMatch).toBe('insufficient_data');
+    expect(match.differences.filter((d) => d.type === 'missing_item' || d.type === 'extra_item')).toEqual([]);
+    expect(match.overallMatch).not.toBe('exact');
+  });
+
   it('8. a basket item missing from the invoice is reported as missing_item, never guessed silently', () => {
     const m = deriveBasketInvoiceMatch(
       baseInput({

@@ -505,14 +505,7 @@ function analyzeOneCase(
   if (conversationCase.needsHumanReview && financialSettlement.status !== 'settled') failureReasons.push('case_segmentation_uncertain');
   if (!conversationCase.customerId && !conversationCase.customerPhone) failureReasons.push('customer_identity_unresolved');
   if (!evidenceCompleteness.basketDetected) failureReasons.push('basket_not_detected');
-  if (
-    activeItems.some(
-      (item) =>
-        item.resolutionStatus === 'unknown' ||
-        item.resolutionStatus === 'contradicted' ||
-        (Boolean(input.productIndex) && !item.productId)
-    )
-  ) {
+  if (unresolvedActiveBasketProductIdentity) {
     failureReasons.push('product_identity_unresolved');
   }
   if (activeItems.some((item) => item.quantity == null)) failureReasons.push('quantity_unknown');
@@ -545,11 +538,18 @@ function analyzeOneCase(
   // case's pipeline-level review flag or status.
   const isGenuinelyInformationOnly = conversationCase.caseType === 'information_only' && !evidenceCompleteness.basketDetected;
 
+  // Product uncertainty is a review condition in its own right, even when no invoice was selected.
+  // A diagnostic failure reason alone must never leave a weak-SKU case looking review-complete.
+  const unresolvedActiveBasketProductIdentity = activeItems.some(
+    (item) => item.resolutionStatus !== 'proven' || (Boolean(input.productIndex) && !item.productId)
+  );
+
   const rawNeedsHumanReview =
     conversationCase.needsHumanReview ||
     commercialConfirmation.needsHumanReview ||
     rawAttribution.needsHumanReview ||
     basketInvoiceMatch.needsHumanReview ||
+    unresolvedActiveBasketProductIdentity ||
     financialSettlement.needsHumanReview ||
     (!isGenuinelyInformationOnly && integrityAssessment.needsHumanReview) ||
     activeBasketResolution.outcome === 'needs_human_review';
@@ -560,6 +560,7 @@ function analyzeOneCase(
       ...commercialConfirmation.humanReviewReasons,
       ...rawAttribution.humanReviewReasons,
       ...basketInvoiceMatch.humanReviewReasons,
+      ...(unresolvedActiveBasketProductIdentity ? ['product_identity_unresolved'] : []),
       ...(financialSettlement.needsHumanReview ? financialSettlement.ruleIds : []),
       ...(isGenuinelyInformationOnly ? [] : integrityAssessment.humanReviewReasons),
       ...(activeBasketResolution.outcome === 'needs_human_review' ? ['active_basket_conflict'] : []),

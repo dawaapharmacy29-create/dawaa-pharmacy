@@ -70,12 +70,12 @@ const ITEMS = [
   { productNameRaw: 'توصيل منزلي', productCode: '79693', quantity: 1 },
 ];
 
-function analyze() {
+function analyze(customerIdentityStatus: 'resolved' | 'unresolved' = 'unresolved') {
   return runSalesIntelligencePipeline({
     conversationId: 'ibrahim-shape',
     rawWhatsAppExportText: EXPORT,
     customerIdHint: null,
-    customerIdentityStatus: 'unresolved',
+    customerIdentityStatus,
     customerCodeHint: '90001',
     branchNameRawHint: 'المخزن',
     knownStaffIds: [],
@@ -112,6 +112,19 @@ describe('V39 acceptance — customer service, drug order and nursing in one exp
     expect(gastro[0].productCode).toBe('91004');
     expect(gastro[0].finalQuantity).toBe(1);
     expect(order[0].customerNeed.primaryNeed).toBe('خليهم علبتين كولونا');
+  });
+
+  it('surfaces unresolved SKU identity as a human-review blocker even with a resolved customer', () => {
+    const resolvedCustomerOrder = analyze('resolved').find((c) => c.customerNeed.products.length > 0);
+    expect(resolvedCustomerOrder).toBeDefined();
+    expect(resolvedCustomerOrder?.needsHumanReview).toBe(true);
+    expect(resolvedCustomerOrder?.humanReviewReasons).toContain('product_identity_unresolved');
+    expect(resolvedCustomerOrder?.failureReasons).toContain('product_identity_unresolved');
+    expect(resolvedCustomerOrder?.basketInvoiceMatch.needsHumanReview).toBe(true);
+    expect(resolvedCustomerOrder?.basketInvoiceMatch.differences.filter(
+      (d) => d.type === 'missing_item' || d.type === 'extra_item'
+    )).toEqual([]);
+    expect(resolvedCustomerOrder?.salesOutcome.isSaleCountable).toBe(false);
   });
 
   it('does not score cross-sell from an item recap when the original request includes unread media', () => {
