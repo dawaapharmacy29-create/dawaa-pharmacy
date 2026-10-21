@@ -115,7 +115,7 @@ describe('source correction preview', () => {
       '[10/20/26, 5:00:20 AM] عميل تجريبي: أهلاً وسهلاً',
       '[10/20/26, 5:01:00 AM] You: أهلاً وسهلاً مع حضرتك د دنيا',
       '[10/20/26, 5:01:30 AM] عميل تجريبي: عايز علبة واحدة',
-    ].join('\\n');
+    ].join('\n');
     const stored = await storedFrom(multi);
     const preview = await buildSourceCorrectionPreview(stored, {
       rawText: multi, staffId: DONIA, branch: 'فرع شكري', reason: REASON,
