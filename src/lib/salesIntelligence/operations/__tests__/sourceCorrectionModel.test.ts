@@ -9,7 +9,7 @@ import {
   eligibleCorrectionStaff,
   type StoredSourceAttribution,
 } from '../sourceCorrectionModel';
-import { parseMaterializationResult, parseSourceCorrectionResult } from '../sourceOperationsService';
+import { parseMaterializationResult, parseSourceCorrectionResult, submitSourceAttributionCorrection } from '../sourceOperationsService';
 
 // Synthetic management scenario only (no real conversation).
 const HEADER = 'سيناريو تجريبي مصطنع بطلب الإدارة لا يمثل محادثة فعلية مع العميل.';
@@ -130,6 +130,30 @@ describe('source correction preview', () => {
     }, directory);
     expect(hiddenPreview.ok).toBe(false);
     if (!hiddenPreview.ok) expect(hiddenPreview.errors.join(' | ')).toContain('أكثر من موظف');
+  });
+
+  it('also rejects a synthetic successful-preview bypass before submitting an unsafe source-wide update', async () => {
+    const multi = [
+      '[10/20/26, 5:00:00 AM] You: مع حضرتك هبه من خدمة عملاء صيدليات دواء',
+      '[10/20/26, 5:01:00 AM] عميل تجريبي: تمام',
+      '[10/20/26, 5:01:30 AM] You: مع حضرتك د دنيا',
+      '[10/20/26, 5:02:00 AM] عميل تجريبي: أهلاً',
+    ].join('\\n');
+    const stored = await storedFrom(multi);
+    const craftedPreview = {
+      ok: true as const,
+      rawText: multi.replace('مع حضرتك د دنيا', 'نورت حضرتك'),
+      sourceHash: stored.sourceHash,
+      staffId: DONIA,
+      staffName: 'د دنيا',
+      branch: 'فرع شكري',
+      reason: REASON,
+      crossBranchCover: false,
+      changes: [],
+      changedLines: [],
+    };
+    await expect(submitSourceAttributionCorrection(stored, craftedPreview))
+      .rejects.toThrow('source_attribution_multistaff_requires_case_review');
   });
 
   it('rejects a draft that inserts a second named employee even when the stored source had one', async () => {
