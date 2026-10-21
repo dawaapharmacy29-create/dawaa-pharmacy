@@ -16,6 +16,15 @@ type MismatchRow = {
   scheduled_start_at: string | null;
   scheduled_end_at: string | null;
 };
+function possibleShift(row: MismatchRow): string | null {
+  // This is a hypothesis, never a canonical punch pairing or an approval.
+  if (row.raw_events !== 2 || !row.first_punch || !row.last_punch) return null;
+  const first = new Date(row.first_punch).getTime();
+  const last = new Date(row.last_punch).getTime();
+  const hours = (last - first) / 3_600_000;
+  if (!Number.isFinite(hours) || hours < 4 || hours > 12) return null;
+  return `${cairoTime(row.first_punch)} – ${cairoTime(row.last_punch)}`;
+}
 function cairoTime(value?: string | null) {
   if (!value) return '—';
   const date = new Date(value);
@@ -104,6 +113,9 @@ export default function AttendanceShiftMismatchReview({
                       <div className="font-bold">{row.punch_date}</div>
                       <p className="mt-1">البصمات: {row.raw_events} · تحتاج تفسير: {row.review_events} · قبول خام: {row.fallback_accepted}</p>
                       <p className="mt-1">المرصود: {cairoTime(row.first_punch)} — {cairoTime(row.last_punch)}</p>
+                      {possibleShift(row) ? (
+                        <p className="mt-1 font-bold">احتمال شيفت من البصمتين: {possibleShift(row)} (غير مؤكد)</p>
+                      ) : <p className="mt-1 text-[var(--dawaa-theme-muted)]">لا تكفي البصمات لاقتراح شيفت موثوق.</p>}
                       <p className="mt-1">المسجل: {cairoTime(row.scheduled_start_at)} — {cairoTime(row.scheduled_end_at)}</p>
                       <p className="mt-2 font-semibold text-[var(--dawaa-status-warning-text)]">تحقق من اليوم والشيفت الفعلي؛ البصمات بعد منتصف الليل قد تتبع اليوم السابق.</p>
                     </div>
