@@ -98,7 +98,7 @@ function changedLines(before: string, after: string): SourceCorrectionLineChange
  *
  * This is a preview guard, NOT a substitute for the database command's checks.
  */
-function hasMultipleExplicitStaffIntroductions(rawText: string): boolean {
+export function hasMultipleExplicitStaffIntroductions(rawText: string): boolean {
   const names = new Set(
     parseWhatsAppExport(rawText)
       .map((message) => extractIntroducedStaffName(message))
