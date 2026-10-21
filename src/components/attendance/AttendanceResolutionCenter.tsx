@@ -670,7 +670,7 @@ export default function AttendanceResolutionCenter({
 
     // Inline permission flow: explicit clock range + documented reason, with
     // existing server preflight and approval. No client-side payroll shortcuts.
-    if (embedded && decision.id === 'permission' && !approvedRequests.some((request) => request.request_kind === 'permission')) {
+    if (decision.id === 'permission' && !approvedRequests.some((request) => request.request_kind === 'permission')) {
       if (requestsLoading || requestsError) {
         toast.error('تعذر التأكد من الأذونات السابقة؛ لا يمكن إنشاء إذن مكرر قبل استكمال الفحص.');
         return;
@@ -1333,7 +1333,7 @@ export default function AttendanceResolutionCenter({
               </>}
             </div>}
 
-            {embedded && reason === 'permission' && !approvedRequests.some((request) => request.request_kind === 'permission') && (
+            {reason === 'permission' && !approvedRequests.some((request) => request.request_kind === 'permission') && (
               <div className="mt-3 grid gap-3 rounded-xl border border-[var(--dawaa-theme-border)] p-3 sm:grid-cols-2">
                 <label className="text-xs font-black text-[var(--dawaa-theme-muted)]">
                   بداية الإذن
