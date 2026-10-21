@@ -70,7 +70,7 @@ export function describeCanonicalCaseSaleTruth(truth: CanonicalCaseSaleTruth): C
         : LEDGER_LABELS[ledger.state];
   const ledgerRow: CanonicalTruthRow = {
     key: 'ledger',
-    label: 'سجل البيع المعتمد (V22)',
+    label: 'سجل البيع المعتمد',
     value: ledgerValue,
     tone: ledger.state === 'proven' ? 'success' : ledger.state === 'revoked' ? 'danger' : 'neutral',
   };

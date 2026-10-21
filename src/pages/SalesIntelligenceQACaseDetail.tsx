@@ -34,6 +34,13 @@ import { loadConversationEvaluation } from '@/lib/salesIntelligence/conversation
 import type { ConversationEvaluationResult } from '@/lib/salesIntelligence/conversationEvaluation';
 import { productDisplayStateLabel } from '@/lib/salesIntelligence/qa/persistedProductTruth';
 import { readCaseIntelligence } from '@/lib/salesIntelligence/qa/caseIntelligencePresentation';
+
+const MATCH_DIFFERENCE_LABELS: Record<string, string> = {
+  missing_item: 'صنف في المحادثة غير موجود بالفاتورة',
+  extra_item: 'صنف بالفاتورة غير مذكور في المحادثة',
+  quantity_mismatch: 'اختلاف الكمية',
+  total_mismatch: 'اختلاف الإجمالي',
+};
 import {
   ambiguityStatusLabelFor,
   attributionLevelBadge,
@@ -401,7 +408,7 @@ export default function SalesIntelligenceQACaseDetail() {
 
       <Section title="الحقيقة البيعية المعتمدة لهذه الحالة">
         <div className="dawaa-muted text-xs leading-6">
-          تُعرض القيم كما حفظها المحرك الرسمي لهذه الحالة فقط (التحليل الحالي + سجل البيع المعتمد V22). لا يُعاد حساب أي قرار بيعي في هذه الشاشة،
+          تُعرض القيم كما حفظها المحرك الرسمي لهذه الحالة فقط (التحليل الحالي + سجل البيع المعتمد). لا يُعاد حساب أي قرار بيعي في هذه الشاشة،
           البيع المثبت بالفاتورة مستقل عن اكتمال تأكيد السلة في المحادثة وعن إثبات استلام العميل.
         </div>
         <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
@@ -694,7 +701,7 @@ export default function SalesIntelligenceQACaseDetail() {
                       <td className="p-2">{item.productNameRaw}</td>
                       <td className="p-2">{item.quantity ?? '—'}{item.unit ? ` ${item.unit}` : ''}</td>
                       <td className="p-2">{itemResolutionStatusLabelFor(item.resolutionStatus)}</td>
-                      <td className="p-2">{item.confidence?.level ?? '—'}</td>
+                      <td className="p-2">{item.confidence?.level ? attributionLevelLabelFor(item.confidence.level) : '—'}</td>
                       <td className="dawaa-muted p-2 font-mono">{item.sourceMessageId}</td>
                     </tr>
                   ))}
@@ -761,7 +768,7 @@ export default function SalesIntelligenceQACaseDetail() {
                     <td className="p-2">{item.productNameRaw}</td>
                     <td className="p-2">{item.quantity ?? <span className="dawaa-badge dawaa-badge--warning">غير معروفة</span>}{item.unit ? ` ${item.unit}` : ''}</td>
                     <td className="p-2">{itemResolutionStatusLabelFor(item.resolutionStatus)}</td>
-                    <td className="p-2">{item.confidence?.level ?? '—'}</td>
+                    <td className="p-2">{item.confidence?.level ? attributionLevelLabelFor(item.confidence.level) : '—'}</td>
                     <td className="dawaa-muted p-2 font-mono">{item.sourceMessageId}</td>
                   </tr>
                 ))}
@@ -1095,7 +1102,7 @@ export default function SalesIntelligenceQACaseDetail() {
         {attribution?.contradictions?.length ? (
           <div className="mt-2 text-xs">
             <div className="dawaa-muted mb-1">تناقضات إسناد خام (كما سجّلها محرك الإسناد):</div>
-            <div className="text-amber-300">{attribution.contradictions.join('، ')}</div>
+            <div className="text-amber-300">{contradictionReasonsList(attribution.contradictions).join('، ')}</div>
           </div>
         ) : null}
 
@@ -1103,7 +1110,7 @@ export default function SalesIntelligenceQACaseDetail() {
           <Evidence>
             <div className="dawaa-muted mb-1">فروقات السلة/الفاتورة المسجّلة:</div>
             <ul className="space-y-1">
-              {match.differences.map((d: any, i: number) => <li key={i}>• {d.type} — {d.key}: {String(d.before)} ← {String(d.after)} ({d.explanation})</li>)}
+              {match.differences.map((d: any, i: number) => <li key={i}>• {MATCH_DIFFERENCE_LABELS[d.type] || 'فرق آخر'} — {d.key === 'total' ? 'الإجمالي' : d.key}: {d.before == null ? '—' : String(d.before)} ← {d.after == null ? '—' : String(d.after)}{d.explanation ? ` (${d.explanation})` : ''}</li>)}
             </ul>
           </Evidence>
         ) : null}

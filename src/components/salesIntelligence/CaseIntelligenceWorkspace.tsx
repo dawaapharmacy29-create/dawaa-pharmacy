@@ -8,6 +8,7 @@ import { useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, CircleHelp, X } from 'lucide-react';
 import type { CaseIntelligenceView, ConfidenceAssessment } from '@/lib/salesIntelligence/types';
 import { buildConversationClinicalReview } from '@/lib/salesIntelligence/conversationClinicalReview';
+import { arabicExportMarkers } from './WhatsAppConversationPanel';
 import type { ConversationEvaluationResult } from '@/lib/salesIntelligence/conversationEvaluation';
 import {
   UNKNOWN_LABEL,
@@ -293,10 +294,10 @@ export function CaseIntelligenceWorkspace({
                   data-evidence={highlighted.has(m.id) ? 'true' : undefined}
                 >
                   <div className="dawaa-muted flex justify-between text-xs">
-                    <span className="font-bold">{m.role === 'staff' ? `الصيدلية — ${m.sender}` : m.role === 'customer' ? 'العميل' : 'النظام'}</span>
+                    <span className="font-bold">{m.role === 'staff' ? `الصيدلية — ${displayStaffSender(m.sender)}` : m.role === 'customer' ? 'العميل' : 'النظام'}</span>
                     <span>{formatTime(m.at)}</span>
                   </div>
-                  <div className="mt-1 whitespace-pre-wrap leading-7">{m.text}</div>
+                  <div className="mt-1 whitespace-pre-wrap leading-7">{arabicExportMarkers(m.text)}</div>
                 </li>
               ))}
             </ol>

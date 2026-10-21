@@ -38,6 +38,7 @@ const TYPE_LABELS: Record<string, string> = {
   customer_followup: 'متابعة عميل',
   complaint_followup: 'متابعة شكوى',
   recommendation_followup: 'متابعة توصية',
+  manual_review: 'مراجعة يدوية',
 };
 const STATUS_LABELS: Record<string, string> = {
   proposed: 'مقترح — يحتاج اعتماد',
@@ -46,10 +47,19 @@ const STATUS_LABELS: Record<string, string> = {
   dismissed: 'مسحوب/مرفوض',
   error: 'خطأ',
 };
+// Internal values never reach the reviewer: an unmapped type/status/event reads as Arabic.
+const typeLabel = (value: string) => TYPE_LABELS[value] || 'إجراء آخر — يحتاج مراجعة';
+const statusLabel = (value: string) => STATUS_LABELS[value] || 'حالة غير معروفة — يحتاج مراجعة';
 const AUDIT_LABELS: Record<string, string> = {
   source_attribution_corrected_v1: 'تصحيح نسبة المصدر',
   customer_request_action_approved_v2: 'اعتماد طلب عميل',
   operational_action_materialized: 'تنفيذ إجراء',
+  analysis_created: 'إنشاء تحليل',
+  analysis_reanalyzed: 'إعادة تحليل',
+  automatic_review_created: 'إنشاء تقييم آلي',
+  invoice_verification: 'فحص الفاتورة',
+  canonical_sale_proof_reconciled_v44: 'مطابقة إثبات البيع',
+  legacy_recovery_auto_close_reopened_v40: 'إعادة فتح استرجاع قديم',
 };
 
 export interface SourceOperationsPermissions {
@@ -116,7 +126,7 @@ export function SourceOperationsPanel({ sourceId, permissions, analysisKey }: Pr
   async function runAction(action: SourceOperationalAction, kind: 'approve' | 'execute') {
     const details = [
       kind === 'approve' ? 'اعتماد تسجيل هذا الطلب؟' : 'تنفيذ هذا الإجراء وإنشاء السجل التشغيلي؟',
-      `النوع: ${TYPE_LABELS[action.actionType] || action.actionType}`,
+      `النوع: ${typeLabel(action.actionType)}`,
       `العميل: ${action.customerName || 'غير متاح'}`,
       `الدكتور المسؤول: ${sourceStaffLabel(action.staffId)}`,
       `الفرع: ${action.branch || 'غير محدد'}`,
@@ -223,9 +233,9 @@ export function SourceOperationsPanel({ sourceId, permissions, analysisKey }: Pr
                   && (action.actionType !== 'customer_request' || action.autoEligible);
                 return (
                   <tr key={action.id} className={`border-t border-[var(--dawaa-theme-border)] ${retired ? 'opacity-60' : ''}`}>
-                    <td className="p-2">{TYPE_LABELS[action.actionType] || action.actionType}</td>
+                    <td className="p-2">{typeLabel(action.actionType)}</td>
                     <td className="p-2">
-                      {STATUS_LABELS[action.status] || action.status}
+                      {statusLabel(action.status)}
                       {action.withdrawalReason === 'source_attribution_corrected' ? <div className="dawaa-muted text-xs">سُحب بعد تصحيح المصدر</div> : null}
                       {action.approvedByName && action.status === 'ready' ? <div className="dawaa-muted text-xs">اعتمده: {action.approvedByName}</div> : null}
                     </td>
@@ -299,7 +309,7 @@ function SourceAuditLog({ sourceId }: { sourceId: string }) {
         if (isOpen && state.status === 'idle') void loadPage(null);
       }}
     >
-      <summary className="dawaa-heading cursor-pointer text-sm font-bold">سجل المراجعة (Audit) لهذا المصدر</summary>
+      <summary className="dawaa-heading cursor-pointer text-sm font-bold">سجل المراجعة لهذا المصدر</summary>
       {open && state.status === 'error' ? (
         <RetryAlert text={`تعذر تحميل السجل: ${state.message}`} onRetry={() => void loadPage(entries.length ? oldest : null)} />
       ) : null}
@@ -308,7 +318,7 @@ function SourceAuditLog({ sourceId }: { sourceId: string }) {
         <ul className="space-y-2 text-sm">
           {entries.map((entry) => (
             <li key={entry.id} className="rounded-xl bg-[var(--dawaa-theme-soft)] p-3">
-              <div className="dawaa-heading font-bold">{AUDIT_LABELS[entry.action] || entry.action}</div>
+              <div className="dawaa-heading font-bold">{AUDIT_LABELS[entry.action] || 'حدث آخر في سجل المصدر'}</div>
               <div className="dawaa-muted text-xs">
                 {entry.actorName || 'غير معروف'} — {entry.createdAt ? formatDateTime(entry.createdAt) : 'بدون وقت'}
               </div>

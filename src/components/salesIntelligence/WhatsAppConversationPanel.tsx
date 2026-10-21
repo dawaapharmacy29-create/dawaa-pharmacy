@@ -52,6 +52,19 @@ function cleanSender(sender: string | null | undefined): string | null {
 const TECHNICAL_MEDIA_PLACEHOLDER_LINE_RX =
   /^(?:<voice message omitted>|audio omitted|<image omitted>|image omitted|<video omitted>|video omitted|<document omitted>|document omitted|صوت محذوف|صورة محذوفة|فيديو محذوف|مستند محذوف|\[(?:voice message|image|video|document|file)\])$/i;
 
+/** Arabic display of WhatsApp export markers; the stored message text is never rewritten. */
+export function arabicExportMarkers(text: string): string {
+  return String(text || '')
+    .replace(/^\s*\[forwarded\]\s*/i, '↪ رسالة محوَّلة\n')
+    .replace(/<image omitted>|^image omitted$/gim, '📷 صورة غير مرفقة بملف التصدير')
+    .replace(/<voice message omitted>|<audio omitted>|^audio omitted$/gim, '🎤 رسالة صوتية غير مرفقة بملف التصدير')
+    .replace(/<video omitted>|^video omitted$/gim, '🎬 فيديو غير مرفق بملف التصدير')
+    .replace(/<document omitted>|^document omitted$/gim, '📄 مستند غير مرفق بملف التصدير')
+    .replace(/^you deleted this message$/gim, 'تم حذف هذه الرسالة')
+    .replace(/^this message was deleted$/gim, 'تم حذف هذه الرسالة')
+    .trim();
+}
+
 /**
  * WhatsApp exports put technical media placeholders inside the message body. The media card above
  * already communicates that state, so repeating "<image omitted>" as visible chat text makes the
@@ -59,13 +72,18 @@ const TECHNICAL_MEDIA_PLACEHOLDER_LINE_RX =
  * lines while preserving any real caption that travelled with the media.
  */
 export function visibleWhatsAppMessageText(message: WhatsAppParsedMessage): string {
-  const text = String(message.text || '');
-  if (!message.mediaPlaceholder) return text;
-  return text
-    .split(/\r?\n/)
-    .filter((line) => !TECHNICAL_MEDIA_PLACEHOLDER_LINE_RX.test(line.trim()))
-    .join('\n')
-    .trim();
+  // Export markers are shown in Arabic; the stored text itself is never changed.
+  const raw = String(message.text || '');
+  const forwarded = /^\s*\[forwarded\]\s*/i.test(raw);
+  const text = raw.replace(/^\s*\[forwarded\]\s*/i, '').replace(/^you deleted this message$/i, 'تم حذف هذه الرسالة');
+  const body = message.mediaPlaceholder
+    ? text
+      .split(/\r?\n/)
+      .filter((line) => !TECHNICAL_MEDIA_PLACEHOLDER_LINE_RX.test(line.trim()))
+      .join('\n')
+      .trim()
+    : text;
+  return forwarded ? (body ? `↪ رسالة محوَّلة\n${body}` : '↪ رسالة محوَّلة') : body;
 }
 
 function MediaContent({ message }: { message: WhatsAppParsedMessage }) {
@@ -148,7 +166,7 @@ export function WhatsAppConversationPanel({ messages, customerName, customerCode
                 {separator}
                 <div className="my-2 text-center">
                   <span className="inline-block max-w-[90%] rounded-lg bg-[#182229] px-3 py-1.5 text-[10px] leading-5 text-[#8696a0]" dir="rtl">
-                    {message.text || `[${message.kind}]`}
+                    {message.text || 'رسالة نظام بدون نص'}
                   </span>
                 </div>
               </div>

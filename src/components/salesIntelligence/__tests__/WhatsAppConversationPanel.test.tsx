@@ -40,3 +40,13 @@ describe('WhatsAppConversationPanel', () => {
     expect(html.toLowerCase()).not.toContain('image omitted');
   });
 });
+
+describe('export markers in Arabic', () => {
+  it('shows media, forwarded and deleted markers in Arabic without changing captions', async () => {
+    const { arabicExportMarkers } = await import('@/components/salesIntelligence/WhatsAppConversationPanel');
+    expect(arabicExportMarkers('[Forwarded] <image omitted>')).toBe(['↪ رسالة محوَّلة', '📷 صورة غير مرفقة بملف التصدير'].join('\n'));
+    expect(arabicExportMarkers('<voice message omitted>')).toBe('🎤 رسالة صوتية غير مرفقة بملف التصدير');
+    expect(arabicExportMarkers('You deleted this message')).toBe('تم حذف هذه الرسالة');
+    expect(arabicExportMarkers('عايز GASTROBIOTIC 550')).toBe('عايز GASTROBIOTIC 550');
+  });
+});
