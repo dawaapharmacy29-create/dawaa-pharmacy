@@ -1153,7 +1153,7 @@ export default function AttendanceResolutionCenter({
               value={bulkNote}
               disabled={!selectedRows.length || bulkBusy}
               onChange={(event) => setBulkNote(event.target.value)}
-              placeholder="اختياري — إجباري للسبب الآخر أو العمل خارج الفرع"
+              placeholder={commonBulkDecisions.find((decision) => decision.id === bulkDecision)?.financial ? 'إجباري: سبب الخصم والدليل' : 'إجباري للسبب الآخر أو العمل الخارجي'}
               className="input-dark mt-1 w-full"
             />
           </label>
@@ -1466,7 +1466,7 @@ export default function AttendanceResolutionCenter({
                 {decision?.requestKind && !['annual_leave', 'sick_leave', 'exceptional_leave', 'approved_absence'].includes(decision.id) && !(decision.id === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')) && <div className="mt-3 text-xs font-bold text-[var(--dawaa-theme-muted)]">
                   {requestsLoading ? 'جارٍ التحقق من الطلب المعتمد...' : requestsError ? 'تعذر التحقق من سجل الإجازات. أعد فتح القرار.' : linked ? `الطلب المعتمد المرتبط: ${linked.request_label || linked.request_kind} (${linked.id}). ${decision.requestKind === 'permission' ? 'راجع ساعات اليوم قبل الاعتماد.' : 'اضغط تحديث حقيقة الحضور من أعلى الصفحة بعد إغلاق القرار.'}` : <>لا يوجد طلب معتمد من هذا النوع لهذا اليوم. {embedded ? 'لا يمكن اعتماده بدون توثيق الطلب المطلوب.' : <a className="underline" href="/time-off">افتح الإجازات والغياب</a>} </>}
                 </div>}
-                {decision?.schedule && !(decision.id === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')) && <p className="mt-3 text-xs font-bold text-[var(--dawaa-status-warning-text)]">راجع تغيير الراحة أو الشيفت في الجدول ثم حدّث حقيقة الحضور؛ لا يُعتمد من هذه الشاشة مباشرة.</p>}
+                {decision?.schedule && !(decision.id === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')) && <p role="status" className="mt-3 rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-warning-text)]">تصحيح موعد الشيفت يحتاج أمر تعديل جدول معتمد. لا يتم تطبيق تعديل أو اعتماد شكلي من هذه الشاشة، ولا تتغير بيانات الحضور حتى يكتمل المسار الآمن.</p>}
                 {decision?.financial && <label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">معامل الخصم المقترح للمراجعة المالية
                   <select value={multiplier} onChange={(e) => setMultiplier(e.target.value)} className="input-dark mt-1 w-full"><option value="">اختر المعامل</option><option value="1">×1</option><option value="2">×2</option><option value="4">×4</option></select>
                   <span className="mt-1 block font-normal">الغياب: المعامل المقترح لليوم. التأخير: المعامل المقترح لمدة التأخير. اختيار «إجازة بخصم» هنا لا ينشئ طلب إجازة؛ سجّلها في الإجازات والغياب إن كانت إجازة رسمية. لا يُحسب مبلغ ولا يُسجل خصم تلقائيًا؛ راجعه في الجزاءات والرواتب.</span>
