@@ -132,8 +132,10 @@ export function buildCaseConversationReviewPayload(input: {
     staff_name: staffRow.name,
     doctor_name: staffRow.name,
     staff_role: staffRow.role ?? null,
-    branch: view.branch.branchNameRaw || staffRow.branch || null,
-    branch_id: view.branch.branchId || staffRow.branch_id || null,
+    // This is the case's operational branch. A staff member's home branch is only a hint and
+    // must not be persisted as if the conversation happened there when case evidence is unresolved.
+    branch: view.branch.branchNameRaw || null,
+    branch_id: view.branch.branchId || null,
 
     customer_id: view.customer.customerId,
     customer_name: view.customer.customerName ?? null,

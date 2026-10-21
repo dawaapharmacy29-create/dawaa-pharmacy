@@ -7815,7 +7815,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
   const reviewReasonsResolvedByFinancialSettlement = /* @__PURE__ */ new Set(["possible_unsegmented_multiple_requests"]);
   const invoiceBackedOrderClosure = commercialConfirmation.currentState === "commercial_confirmation_complete" && attribution.hasAttributedInvoice && attribution.isOfficialForStaffEvaluation && attribution.selectedCandidate?.announcedTotalMatch === "exact" && attribution.contradictions.length === 0 && saleProof.state === "strongly_supported";
   const reviewReasonsResolvedByInvoiceBackedClosure = /* @__PURE__ */ new Set([
-    "unresolved_product_identity",
+    "product_identity_unresolved",
     "customer_need_product_context_ambiguous"
   ]);
   let humanReviewReasons = saleProof.state === "proven" ? rawHumanReviewReasons.filter((reason) => !reviewReasonsResolvedByProvenInvoice.has(reason)) : [...rawHumanReviewReasons];
@@ -14212,8 +14212,10 @@ function buildCaseConversationReviewPayload(input) {
     staff_name: staffRow.name,
     doctor_name: staffRow.name,
     staff_role: staffRow.role ?? null,
-    branch: view.branch.branchNameRaw || staffRow.branch || null,
-    branch_id: view.branch.branchId || staffRow.branch_id || null,
+    // This is the case's operational branch. A staff member's home branch is only a hint and
+    // must not be persisted as if the conversation happened there when case evidence is unresolved.
+    branch: view.branch.branchNameRaw || null,
+    branch_id: view.branch.branchId || null,
     customer_id: view.customer.customerId,
     customer_name: view.customer.customerName ?? null,
     customer_code: view.customer.customerCode ?? null,

@@ -1,10 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { CaseIntelligenceView } from '../types';
 import type { ConversationEvaluationResult } from '../conversationEvaluation';
 import {
   buildCaseConversationReviewPayload,
   persistAutomaticCaseConversationReviewWithClient,
 } from '../conversationEvaluationPersistence';
+
+vi.mock('@/lib/supabase', () => ({ supabase: {} }));
 
 function view(): CaseIntelligenceView {
   return {
@@ -216,6 +218,21 @@ describe('case-level conversation evaluation persistence 9N-B', () => {
     expect(payload.extra_penalty_points).toBe(0);
     expect(payload.positive_points).toBe(0);
     expect(payload.negative_points).toBe(0);
+  });
+
+  it('keeps an unresolved case branch empty instead of substituting the staff home branch', () => {
+    const unresolvedView = {
+      ...view(),
+      branch: { branchId: null, branchNameRaw: null },
+    } as CaseIntelligenceView;
+    const payload = buildCaseConversationReviewPayload({
+      sourceId:'source-1',
+      view:unresolvedView,
+      evaluation:evaluation(),
+      staffRow:{id:'staff-1',name:'د شبل',branch:'فرع شكري',branch_id:'branch-shukri',role:'doctor'},
+    });
+    expect(payload.branch).toBeNull();
+    expect(payload.branch_id).toBeNull();
   });
 
   it('names an invoice on the review only when it is proven for the case', () => {

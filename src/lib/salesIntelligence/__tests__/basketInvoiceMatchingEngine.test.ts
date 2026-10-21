@@ -273,7 +273,7 @@ describe('Basket <-> Invoice Matching Engine (Sales Intelligence Phase E) — Go
     expect(m.itemMatch).toBe('insufficient_data');
     expect(m.differences.some((d) => d.type === 'missing_item' && d.key === 'التاني')).toBe(false);
     expect(m.differences.some((d) => d.type === 'extra_item')).toBe(false);
-    expect(m.humanReviewReasons).toContain('unresolved_product_identity');
+    expect(m.humanReviewReasons).toContain('product_identity_unresolved');
   });
 
   it('12. a documented delivery fee explains a real total gap and is never flagged as suspicious', () => {
@@ -568,7 +568,7 @@ describe('Basket <-> Invoice Matching Engine (Sales Intelligence Phase E) — Go
         })
       );
       expect(m.needsHumanReview).toBe(true);
-      expect(m.humanReviewReasons).toContain('unresolved_product_identity');
+      expect(m.humanReviewReasons).toContain('product_identity_unresolved');
       // Never compared for quantity — no quantity_mismatch/agreement claim was made about it.
       expect(m.differences.some((d) => d.type === 'quantity_mismatch' && d.key === 'التاني')).toBe(false);
     });

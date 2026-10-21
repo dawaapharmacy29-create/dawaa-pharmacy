@@ -623,7 +623,7 @@ function analyzeOneCase(
     attribution.contradictions.length === 0 &&
     saleProof.state === 'strongly_supported';
   const reviewReasonsResolvedByInvoiceBackedClosure = new Set([
-    'unresolved_product_identity',
+    'product_identity_unresolved',
     'customer_need_product_context_ambiguous',
   ]);
   let humanReviewReasons = saleProof.state === 'proven'
