@@ -216,56 +216,6 @@ export default function AttendanceResolutionCenter({
   const [bulkBusy, setBulkBusy] = useState(false);
   const [revisedShiftIn, setRevisedShiftIn] = useState('');
   const [revisedShiftOut, setRevisedShiftOut] = useState('');
-  const [pendingFinancial, setPendingFinancial] = useState<Array<{ id: string; staff_id: string; transaction_date: string; amount: number; points: number; description: string }>>([]);
-  const [financialLoading, setFinancialLoading] = useState(false);
-  const [financialBusy, setFinancialBusy] = useState(false);
-
-  useEffect(() => {
-    if (!selected || selected.queue_lane !== 'manager') {
-      setPendingFinancial([]);
-      setFinancialLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setFinancialLoading(true);
-    setPendingFinancial([]);
-    void (async () => {
-      const { data, error } = await supabase.rpc('attendance_deduction_pending_review_v1');
-      if (cancelled) return;
-      setFinancialLoading(false);
-      if (error) {
-        toast.error('تعذر تحميل الخصومات المالية المعلقة: ' + error.message);
-        return;
-      }
-      setPendingFinancial(((data || []) as Array<{ id: string; staff_id: string; transaction_date: string; amount: number; points: number; description: string }>)
-        .filter((item) => item.staff_id === selected.staff_id && item.transaction_date === selected.attendance_date));
-    })();
-    return () => { cancelled = true; };
-  }, [selected]);
-
-  async function decidePendingFinancial(transactionId: string, decision: 'approve' | 'reject') {
-    if (!selected || !note.trim() || financialBusy) {
-      toast.warning('اكتب سبب قرار الخصم المالي قبل الاعتماد أو الرفض.');
-      return;
-    }
-    if (!window.confirm(decision === 'approve' ? 'تأكيد اعتماد معاملة الخصم المالي المحددة؟' : 'تأكيد رفض معاملة الخصم المالي المحددة؟')) return;
-    setFinancialBusy(true);
-    try {
-      const { error } = await supabase.rpc('attendance_deduction_review_decide_v1', {
-        p_transaction_id: transactionId, p_decision: decision, p_note: note.trim(),
-      });
-      if (error) throw error;
-      setPendingFinancial((previous) => previous.filter((item) => item.id !== transactionId));
-      toast.success(decision === 'approve' ? 'تم اعتماد معاملة الخصم المالي المحددة.' : 'تم رفض معاملة الخصم المالي المحددة.');
-      await load();
-      onDecisionSaved?.();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'تعذر حفظ القرار المالي');
-    } finally {
-      setFinancialBusy(false);
-    }
-  }
-
   useEffect(() => {
     setLane(initialTriage);
     if (initialCurrentCycle) {
@@ -1578,23 +1528,6 @@ export default function AttendanceResolutionCenter({
                           </div>
                           <p className="mt-2">سبب التعديل إجباري. سيتم إنشاء مسودة من الجدول الحالي وفحصها ونشرها بصلاحية المدير.</p>
                         </>}
-                  </div>
-                )}
-                {decision?.financial && (
-                  <div className="mt-3 rounded-xl border border-[var(--dawaa-theme-border)] p-3 text-xs">
-                    <p className="font-black">الخصومات المالية المعلقة لهذا الموظف واليوم</p>
-                    {financialLoading ? <p className="mt-2">جارٍ التحقق من معاملات الخصم...</p>
-                      : pendingFinancial.length === 0 ? <p className="mt-2 text-[var(--dawaa-theme-muted)]">لا توجد معاملة خصم معلقة مطابقة لهذا اليوم. يمكن توثيق الاقتراح، لكن لا يُنشأ خصم مالي جديد من هذا الزر.</p>
-                      : pendingFinancial.map((entry) => (
-                        <div key={entry.id} className="mt-2 rounded-lg border border-[var(--dawaa-theme-border)] p-2">
-                          <p>{entry.description} · {entry.amount} جنيه · {entry.points} نقطة</p>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            <button type="button" disabled={financialBusy || !note.trim()} className="btn-primary text-xs" onClick={() => void decidePendingFinancial(entry.id, 'approve')}>اعتماد الخصم</button>
-                            <button type="button" disabled={financialBusy || !note.trim()} className="btn-secondary text-xs" onClick={() => void decidePendingFinancial(entry.id, 'reject')}>رفض الخصم</button>
-                          </div>
-                        </div>
-                      ))}
-                    <p className="mt-2 text-[var(--dawaa-theme-muted)]">اكتب سبب القرار في ملاحظة المدير. الاعتماد المالي يعالج المعاملة المعلقة مرة واحدة بصلاحية الإدارة.</p>
                   </div>
                 )}
                 {decision?.financial && <label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">معامل الخصم المقترح للمراجعة المالية
