@@ -107,7 +107,7 @@ function hasMultipleExplicitStaffIntroductions(rawText: string): boolean {
         name
           .trim()
           .toLocaleLowerCase('ar')
-          .replace(/^(?:(?:د|دكتور|الدكتور|دكتورة|الدكتورة)\s*[/.-]?\s*)/u, '')
+          .replace(/^(?:(?:د|دكتور|الدكتور|دكتورة|الدكتورة)(?:\s*[/.-]\s*|\s+|$))+/u, '')
           .replace(/[أإآ]/g, 'ا')
           .replace(/ى/g, 'ي')
           .replace(/[\u064B-\u065F]/g, '')
