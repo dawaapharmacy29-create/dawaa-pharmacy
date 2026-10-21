@@ -147,7 +147,7 @@ beforeEach(() => {
   loadConversationEvaluationSystemEvidenceWithClient.mockResolvedValue({ version: 'conversation-evaluation-system-evidence-v1' });
   analyzeConversationEvaluation.mockReset();
   analyzeConversationEvaluation.mockImplementation((view: any) => ({
-    version: 'conversation-evaluation-v1',
+    version: 'conversation-evaluation-v2',
     caseId: view.caseId,
     items: [],
     summary: {

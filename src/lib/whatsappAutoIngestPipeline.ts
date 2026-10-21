@@ -558,7 +558,7 @@ export async function persistCanonicalAutomaticReviews(
 
 export async function ingestWhatsAppExportFile(
   file: File,
-  options: { accessToken?: string | null; createdBy?: string | null } = {}
+  options: { accessToken?: string | null; createdBy?: string | null; sourceFolderName?: string | null } = {}
 ): Promise<IngestOneFileResult> {
   const result: IngestOneFileResult = {
     fileName: file.name,
@@ -628,7 +628,9 @@ export async function ingestWhatsAppExportFile(
 
       const participantRoles = await resolveWhatsAppParticipantRolesV15(session);
       // Branch provenance: the stored source branch wins; the staff branch is only a fallback.
-      const branchHint = await resolveConversationBranchHint(session, participantRoles, await readStoredSourceBranch(session));
+      const branchHint = await resolveConversationBranchHint(session, participantRoles, await readStoredSourceBranch(session), {
+        sourceFolderName: options.sourceFolderName ?? null,
+      });
       const conversationBranch = branchHint.value;
 
       const saved = await saveSessionReview(

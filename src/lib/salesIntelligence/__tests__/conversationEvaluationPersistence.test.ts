@@ -54,7 +54,7 @@ function evaluation(): ConversationEvaluationResult {
     'customer_request_registration','exceptional_followup_recognition','purchase_history_usage','closing_message',
   ] as const;
   return {
-    version:'conversation-evaluation-v1',
+    version:'conversation-evaluation-v2',
     caseId:'source-1:interaction:2',
     items: keys.map((key, index) => ({
       key,
@@ -153,7 +153,7 @@ describe('case-level conversation evaluation persistence 9N-B', () => {
       superseded_at:null,
       superseded_reason:null,
       final_score:50,
-      automatic_evaluation_version:'conversation-evaluation-v1',
+      automatic_evaluation_version:'conversation-evaluation-v2',
     });
   });
 
@@ -198,7 +198,7 @@ describe('case-level conversation evaluation persistence 9N-B', () => {
     });
     expect(payload.sales_intelligence_case_id).toBe('source-1:interaction:2');
     expect(payload.submission_fingerprint).toBe('auto-case:source-1:source-1:interaction:2');
-    expect(payload.automatic_evaluation_version).toBe('conversation-evaluation-v1');
+    expect(payload.automatic_evaluation_version).toBe('conversation-evaluation-v2');
     expect(payload.automatic_evaluation_json.items).toHaveLength(19);
     expect(payload.evidence_coverage_percent).toBe(100);
   });

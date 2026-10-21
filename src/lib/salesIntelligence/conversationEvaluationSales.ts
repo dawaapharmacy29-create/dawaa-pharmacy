@@ -1,6 +1,6 @@
 import { REVIEW_CRITERIA } from '@/lib/conversationReviews';
 import type { CaseIntelligenceView } from './types';
-import { buildConversationEvaluationEvidence } from './conversationEvaluationEvidence';
+import { buildConversationEvaluationEvidence, hasSubstantiveBasket, salesCriteriaApplicable } from './conversationEvaluationEvidence';
 
 type SalesCriterionKey = 'sales_closing' | 'cross_sell_upsell';
 
@@ -59,12 +59,7 @@ function make(
 }
 
 function assessClosing(view: CaseIntelligenceView): SalesCriterionAssessment {
-  const salesApplicable =
-    view.interaction.caseType === 'sales_opportunity' ||
-    view.sale.isSaleCountable ||
-    view.basket.versions.length > 0;
-
-  if (!salesApplicable) {
+  if (!salesCriteriaApplicable(view)) {
     return make(
       'sales_closing',
       null,
@@ -139,7 +134,7 @@ function assessClosing(view: CaseIntelligenceView): SalesCriterionAssessment {
     }
   }
 
-  if (view.basket.versions.length > 0 || view.basket.activeItems.length > 0) {
+  if (hasSubstantiveBasket(view)) {
     return make(
       'sales_closing',
       'helped',

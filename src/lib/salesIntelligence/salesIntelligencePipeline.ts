@@ -227,7 +227,9 @@ function enrichBasketProductIdentities(
         const resolution = resolveProductMention(item.productNameRaw, productIndex);
         const selected = resolution.selected;
         if (!selected || !isBasketEligibleProductResolution(selected)) {
-          return item;
+          // The wording and quantity were stated, but the catalog could not settle WHICH product
+          // (e.g. "كولونا" = 30 or 40 tablets). A line without identity is never "proven".
+          return item.resolutionStatus === 'proven' ? { ...item, resolutionStatus: 'partially_proven' } : item;
         }
 
         return {

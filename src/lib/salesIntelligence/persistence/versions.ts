@@ -76,7 +76,10 @@
 // v40: case-local service/pharmacy ownership, independent transaction-branch evidence,
 // and explicit new orders/consultations after customer-service outreach.
 // Semantic version only: existing sources are not refreshed automatically.
-export const PIPELINE_VERSION = 'sales-intelligence-v40-case-scoped-service-ownership';
+// v41: a basket line whose catalog identity stays ambiguous ("كولونا" = 30 or 40 tablets) is
+// partially_proven, never proven; evaluation sales criteria judge only substantive baskets in
+// commercial cases (an empty draft basket no longer makes a welfare or nursing case "sales").
+export const PIPELINE_VERSION = 'sales-intelligence-v41-evidence-integrity';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v12-service-new-need-ownership',

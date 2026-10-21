@@ -7527,7 +7527,7 @@ function enrichBasketProductIdentities(itemsByBasketId, productIndex) {
         const resolution = resolveProductMention(item.productNameRaw, productIndex);
         const selected2 = resolution.selected;
         if (!selected2 || !isBasketEligibleProductResolution(selected2)) {
-          return item;
+          return item.resolutionStatus === "proven" ? { ...item, resolutionStatus: "partially_proven" } : item;
         }
         return {
           ...item,
@@ -9098,7 +9098,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v40-case-scoped-service-ownership";
+var PIPELINE_VERSION = "sales-intelligence-v41-evidence-integrity";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v12-service-new-need-ownership",
   historicalClosure: "historical-closure-v1",
@@ -11788,6 +11788,14 @@ var CONVERSATION_EVALUATION_CONTRACT = {
     forbiddenShortcuts: ["\u0645\u0639\u0627\u0642\u0628\u0629 \u0645\u062D\u0627\u062F\u062B\u0629 \u0645\u0627 \u0632\u0627\u0644\u062A \u0645\u0641\u062A\u0648\u062D\u0629", "\u0627\u0639\u062A\u0628\u0627\u0631 \u0623\u064A \u0631\u0633\u0627\u0644\u0629 \u0634\u0643\u0631 \u062E\u062A\u0627\u0645\u064B\u0627 \u0645\u0646 \u0627\u0644\u0645\u0648\u0638\u0641"]
   }
 };
+function hasSubstantiveBasket(view) {
+  return view.basket.activeItems.length > 0 || view.basket.confirmed || view.basket.announcedTotal != null || view.basket.versions.some((version) => version.itemCount > 0 || Boolean(version.confirmedAt) || version.announcedTotal != null);
+}
+function salesCriteriaApplicable(view) {
+  if (view.sale.isSaleCountable) return true;
+  if (view.interaction.caseType === "follow_up" || view.interaction.caseType === "information_only") return false;
+  return view.interaction.caseType === "sales_opportunity" || view.interaction.caseType === "mixed" || hasSubstantiveBasket(view);
+}
 function uniq2(values) {
   return Array.from(new Set(values.filter(Boolean)));
 }
@@ -11804,7 +11812,7 @@ function sourceAvailability(view, external) {
   if (view.staff.participants.some((participant) => participant.staffId)) available.add("staff_identity");
   if (view.need.primaryNeed || view.need.evidenceMessageIds.length || view.need.needDeclined) available.add("customer_need");
   if (view.products.length) available.add("product_lifecycle");
-  if (view.basket.versions.length || view.basket.activeItems.length) available.add("basket");
+  if (hasSubstantiveBasket(view)) available.add("basket");
   if (view.sale.proofState !== "unknown" || view.sale.selectedInvoiceId) available.add("sale_proof");
   if (view.journey) available.add("journey");
   if (view.lostOpportunity) available.add("lost_opportunity");
@@ -11829,14 +11837,14 @@ function criterionApplicable(view, key, clinical) {
     case "unavailable_items":
       return view.unavailableDemand.length > 0 || view.products.some((product) => product.availability === "unavailable");
     case "sales_closing":
-      return view.interaction.caseType === "sales_opportunity" || view.sale.isSaleCountable || view.basket.versions.length > 0;
+      return salesCriteriaApplicable(view);
     case "order_confirmation": {
       const applicability = view.coachingEvidence.protocolApplicability;
       if (applicability) return applicability === "applicable";
       return view.basket.confirmed || view.sale.summaryPresented || view.sale.customerConfirmed || view.sale.staffConfirmed;
     }
     case "cross_sell_upsell":
-      return view.products.some(
+      return salesCriteriaApplicable(view) && view.products.some(
         (product) => product.roles.includes("offered") && !product.roles.includes("requested") && !product.roles.includes("alternative")
       );
     case "angry_customer":
@@ -12865,8 +12873,7 @@ function make4(key, option, status, confidence3, reason, evidenceMessageIds, pro
   };
 }
 function assessClosing(view) {
-  const salesApplicable = view.interaction.caseType === "sales_opportunity" || view.sale.isSaleCountable || view.basket.versions.length > 0;
-  if (!salesApplicable) {
+  if (!salesCriteriaApplicable(view)) {
     return make4(
       "sales_closing",
       null,
@@ -12929,7 +12936,7 @@ function assessClosing(view) {
       );
     }
   }
-  if (view.basket.versions.length > 0 || view.basket.activeItems.length > 0) {
+  if (hasSubstantiveBasket(view)) {
     return make4(
       "sales_closing",
       "helped",
@@ -13944,7 +13951,7 @@ function analyzeConversationEvaluation(view, systemEvidence = null) {
     averageAssessmentConfidence * evidenceCoveragePercent / 100
   );
   return {
-    version: "conversation-evaluation-v1",
+    version: "conversation-evaluation-v2",
     caseId: view.caseId,
     items,
     summary: {

@@ -19,12 +19,27 @@ import { resolveWhatsAppStaffV6 } from '@/lib/whatsappStaffResolverV6';
 import { extractIntroducedStaffName } from '@/lib/whatsappConversationParser';
 import { isOperatingBranch, normalizeBranchName } from '@/lib/branch';
 
-export type BranchHintSource = 'source' | 'explicit_introduction' | 'active_owner' | 'staff_resolver' | 'majority_fallback' | 'none';
+export type BranchHintSource = 'source' | 'source_folder' | 'explicit_introduction' | 'active_owner' | 'staff_resolver' | 'majority_fallback' | 'none';
 
 export interface BranchHintResult {
   value: string | null;
   source: BranchHintSource;
   reason: string;
+  /** The picked import folder's own name, kept as provenance whether or not it names a branch. */
+  sourceFolderName?: string | null;
+}
+
+const SHOKRY_FOLDER_RX = /شكري|شكرى|shokry|shoukry|shukri/i;
+const SHAMY_FOLDER_RX = /الشامي|الشامى|شامي|shamy|shami/i;
+
+/** A folder name is branch evidence only when it names exactly one operating branch. */
+export function branchFromSourceFolder(folderName: string | null | undefined): string | null {
+  const name = String(folderName ?? '').trim();
+  if (!name) return null;
+  const shokry = SHOKRY_FOLDER_RX.test(name);
+  const shamy = SHAMY_FOLDER_RX.test(name);
+  if (shokry === shamy) return null;
+  return normalizeBranchName(shokry ? 'فرع شكري' : 'فرع الشامي');
 }
 
 function majorityFallback(roles: WhatsAppParticipantRoleModelV15): BranchHintResult {
@@ -46,11 +61,15 @@ function operationalBranch(value: string | null | undefined): string | null {
 export async function resolveConversationBranchHint(
   session: WhatsAppConversationSession,
   roles: WhatsAppParticipantRoleModelV15,
-  sourceBranch?: string | null
+  sourceBranch?: string | null,
+  options: { sourceFolderName?: string | null } = {}
 ): Promise<BranchHintResult> {
+  const sourceFolderName = options.sourceFolderName?.trim() || null;
+  const withFolder = (result: BranchHintResult): BranchHintResult =>
+    sourceFolderName ? { ...result, sourceFolderName } : result;
   const trimmedSource = (sourceBranch || '').trim();
   if (trimmedSource) {
-    return { value: trimmedSource, source: 'source', reason: 'الفرع مُسجَّل فعليًا على مصدر الاستيراد (whatsapp_review_sources.branch).' };
+    return withFolder({ value: trimmedSource, source: 'source', reason: 'الفرع مُسجَّل فعليًا على مصدر الاستيراد (whatsapp_review_sources.branch).' });
   }
 
   // Only an outbound self-introduction can provide explicit branch evidence. Never infer
@@ -62,10 +81,19 @@ export async function resolveConversationBranchHint(
     if (match) explicitBranches.add(normalizeBranchName(match[1]));
   }
   if (explicitBranches.size > 1) {
-    return { value: null, source: 'none', reason: 'تعارض صريح بين فروع تعريف الموظفين؛ يلزم تحديد فرع المصدر.' };
+    return withFolder({ value: null, source: 'none', reason: 'تعارض صريح بين فروع تعريف الموظفين؛ يلزم تحديد فرع المصدر.' });
+  }
+  // The branch folder the export was filed under is import-time provenance for the whole file.
+  // It never overrides a contradicting explicit introduction: that conflict stays for review.
+  const folderBranch = branchFromSourceFolder(sourceFolderName);
+  if (folderBranch && explicitBranches.size === 1 && !explicitBranches.has(folderBranch)) {
+    return withFolder({ value: null, source: 'none', reason: `مجلد المصدر (${sourceFolderName}) يخالف فرع تعريف الموظف (${[...explicitBranches][0]})؛ يلزم مراجعة بشرية.` });
+  }
+  if (folderBranch) {
+    return withFolder({ value: folderBranch, source: 'source_folder', reason: `ملف التصدير مأخوذ من مجلد الفرع (${sourceFolderName}).` });
   }
   if (explicitBranches.size === 1) {
-    return { value: [...explicitBranches][0], source: 'explicit_introduction', reason: 'فرع صريح في تعريف الموظف بنفسه في رسالة صادرة.' };
+    return withFolder({ value: [...explicitBranches][0], source: 'explicit_introduction', reason: 'فرع صريح في تعريف الموظف بنفسه في رسالة صادرة.' });
   }
 
   const timeline = buildSmartOwnershipTimeline(session);
@@ -74,7 +102,7 @@ export async function resolveConversationBranchHint(
     const resolved = await resolveWhatsAppStaffV6([firstOwner], null);
     const branch = operationalBranch(resolved.staff?.branch);
     if (branch) {
-      return { value: branch, source: 'active_owner', reason: `فرع أول موظف متحقق منه بدأ ملكية المحادثة (${firstOwner}) — قبل أي handoff محتمل لاحقًا.` };
+      return withFolder({ value: branch, source: 'active_owner', reason: `فرع أول موظف متحقق منه بدأ ملكية المحادثة (${firstOwner}) — قبل أي handoff محتمل لاحقًا.` });
     }
   }
 
@@ -83,10 +111,10 @@ export async function resolveConversationBranchHint(
     const resolved = await resolveWhatsAppStaffV6(candidateNames, null);
     const branch = operationalBranch(resolved.staff?.branch);
     if (branch) {
-      return { value: branch, source: 'staff_resolver', reason: 'فرع أقرب موظف تم التعرف عليه من كل أسماء الموظفين الظاهرة في الجلسة (بدون وعي بتوقيت الـhandoff).' };
+      return withFolder({ value: branch, source: 'staff_resolver', reason: 'فرع أقرب موظف تم التعرف عليه من كل أسماء الموظفين الظاهرة في الجلسة (بدون وعي بتوقيت الـhandoff).' });
     }
   }
 
-  return majorityFallback(roles);
+  return withFolder(majorityFallback(roles));
 }
 

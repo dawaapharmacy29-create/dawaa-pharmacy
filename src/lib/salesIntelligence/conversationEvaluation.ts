@@ -62,7 +62,7 @@ export interface ConversationEvaluationSummary {
 }
 
 export interface ConversationEvaluationResult {
-  version: 'conversation-evaluation-v1';
+  version: 'conversation-evaluation-v2';
   caseId: string;
   items: ConversationEvaluationFinalItem[];
   summary: ConversationEvaluationSummary;
@@ -239,7 +239,7 @@ export function analyzeConversationEvaluation(
   );
 
   return{
-    version:'conversation-evaluation-v1',
+    version:'conversation-evaluation-v2',
     caseId:view.caseId,
     items,
     summary:{
