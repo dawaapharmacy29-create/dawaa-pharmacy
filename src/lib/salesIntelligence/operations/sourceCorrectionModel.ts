@@ -235,6 +235,7 @@ export async function buildSourceCorrectionPreview(
 }
 
 const OPERATION_ERRORS: Record<string, string> = {
+  source_attribution_multistaff_requires_case_review: 'المحادثة تحتوي أكثر من موظف. لا يجوز إسناد الملف كاملًا لشخص واحد؛ يلزم مراجعة كل حالة بشكل مستقل.',
   source_attribution_correction_permission_denied: 'لا تملك صلاحية اعتماد تصحيح المصدر.',
   source_attribution_access_denied: 'لا تملك صلاحية على فرع أو موظف هذا المصدر.',
   source_attribution_source_changed: 'تغير المصدر منذ فتح الشاشة؛ أعد التحميل وراجع البيانات من جديد.',
