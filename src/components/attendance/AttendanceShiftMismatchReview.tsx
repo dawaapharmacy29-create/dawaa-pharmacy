@@ -25,6 +25,23 @@ function possibleShift(row: MismatchRow): string | null {
   if (!Number.isFinite(hours) || hours < 4 || hours > 12) return null;
   return `${cairoTime(row.first_punch)} – ${cairoTime(row.last_punch)}`;
 }
+function possibleOvernightShift(row: MismatchRow, days: MismatchRow[]): string | null {
+  // Only a hypothesis: one isolated evening event plus one early event on the following date.
+  // Other accepted punches may exist outside this anomaly feed; never auto-apply.
+  if (row.raw_events !== 1 || !row.first_punch) return null;
+  const nextDate = new Date(`${row.punch_date}T12:00:00Z`);
+  nextDate.setUTCDate(nextDate.getUTCDate() + 1);
+  const tomorrow = nextDate.toISOString().slice(0, 10);
+  const next = days.find((day) => day.punch_date === tomorrow && day.raw_events === 1);
+  if (!next?.first_punch) return null;
+  const first = new Date(row.first_punch);
+  const last = new Date(next.first_punch);
+  const hours = (last.getTime() - first.getTime()) / 3_600_000;
+  const startHour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Cairo', hour: '2-digit', hourCycle: 'h23' }).format(first));
+  const endHour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Cairo', hour: '2-digit', hourCycle: 'h23' }).format(last));
+  if (!Number.isFinite(hours) || hours < 4 || hours > 12 || startHour < 15 || endHour > 10) return null;
+  return `${cairoTime(row.first_punch)} – ${cairoTime(next.first_punch)} (اليوم التالي)`;
+}
 function cairoTime(value?: string | null) {
   if (!value) return '—';
   const date = new Date(value);
@@ -113,8 +130,8 @@ export default function AttendanceShiftMismatchReview({
                       <div className="font-bold">{row.punch_date}</div>
                       <p className="mt-1">البصمات: {row.raw_events} · تحتاج تفسير: {row.review_events} · قبول خام: {row.fallback_accepted}</p>
                       <p className="mt-1">المرصود: {cairoTime(row.first_punch)} — {cairoTime(row.last_punch)}</p>
-                      {possibleShift(row) ? (
-                        <p className="mt-1 font-bold">احتمال شيفت من البصمتين: {possibleShift(row)} (غير مؤكد)</p>
+                      {(possibleShift(row) || possibleOvernightShift(row, group.days)) ? (
+                        <p className="mt-1 font-bold">احتمال شيفت من البصمات: {possibleShift(row) || possibleOvernightShift(row, group.days)} (غير مؤكد؛ قد توجد بصمات أخرى خارج هذا التقرير)</p>
                       ) : <p className="mt-1 text-[var(--dawaa-theme-muted)]">لا تكفي البصمات لاقتراح شيفت موثوق.</p>}
                       <p className="mt-1">المسجل: {cairoTime(row.scheduled_start_at)} — {cairoTime(row.scheduled_end_at)}</p>
                       <p className="mt-2 font-semibold text-[var(--dawaa-status-warning-text)]">تحقق من اليوم والشيفت الفعلي؛ البصمات بعد منتصف الليل قد تتبع اليوم السابق.</p>
