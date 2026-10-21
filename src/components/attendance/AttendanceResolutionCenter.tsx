@@ -1186,6 +1186,7 @@ export default function AttendanceResolutionCenter({
               <div className="flex flex-wrap items-center gap-2 text-xs">
                 <span className="font-black text-[var(--dawaa-theme-heading)]">{row.issue_label}</span>
                 {row.priority_code && row.priority_code !== 'former_staff' && <span className="rounded-md border border-[var(--dawaa-theme-border)] px-2 py-0.5">{row.priority_code}</span>}
+                {row.age_days != null && <span className="text-[10px] text-[var(--dawaa-theme-muted)]">انتظار {row.age_days.toLocaleString('ar-EG')} يوم</span>}
                 {isFormerAttendanceReviewRow(row) && <span className="text-[var(--dawaa-status-warning-text)]">موظف سابق</span>}
               </div>
               <div className="grid grid-cols-3 gap-2 rounded-xl bg-[var(--dawaa-theme-surface-2)] p-2 text-center text-xs">
