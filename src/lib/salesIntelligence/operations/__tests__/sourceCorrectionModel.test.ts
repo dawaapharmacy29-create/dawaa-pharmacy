@@ -109,6 +109,42 @@ describe('source correction preview', () => {
     expect(preview).toEqual({ ok: false, errors: ['لا يوجد أي تغيير عن البيانات المحفوظة.'] });
   });
 
+  it('refuses to assign an entire Heba-then-pharmacist source to one employee', async () => {
+    const multi = [
+      '[10/20/26, 5:00:00 AM] You: صباح الخير، مع حضرتك هبه من خدمة عملاء صيدليات دواء',
+      '[10/20/26, 5:00:20 AM] عميل تجريبي: أهلاً وسهلاً',
+      '[10/20/26, 5:01:00 AM] You: أهلاً وسهلاً مع حضرتك د دنيا',
+      '[10/20/26, 5:01:30 AM] عميل تجريبي: عايز علبة واحدة',
+    ].join('\\n');
+    const stored = await storedFrom(multi);
+    const preview = await buildSourceCorrectionPreview(stored, {
+      rawText: multi, staffId: DONIA, branch: 'فرع شكري', reason: REASON,
+    }, directory);
+    expect(preview.ok).toBe(false);
+    if (!preview.ok) expect(preview.errors.join(' | ')).toContain('أكثر من موظف');
+    // Editing out the second introduction cannot make the stored multi-owner source
+    // eligible for an unsafe whole-file attribution.
+    const hidden = multi.replace('مع حضرتك د دنيا', 'نتشرف بخدمة حضرتك');
+    const hiddenPreview = await buildSourceCorrectionPreview(stored, {
+      rawText: hidden, staffId: DONIA, branch: 'فرع شكري', reason: REASON,
+    }, directory);
+    expect(hiddenPreview.ok).toBe(false);
+    if (!hiddenPreview.ok) expect(hiddenPreview.errors.join(' | ')).toContain('أكثر من موظف');
+  });
+
+  it('rejects a draft that inserts a second named employee even when the stored source had one', async () => {
+    const stored = await storedFrom(ORIGINAL);
+    const extraIntro = ORIGINAL.replace(
+      'حاضر، هنراجع طلب',
+      'مع حضرتك د دنيا. حاضر، هنراجع طلب'
+    );
+    const preview = await buildSourceCorrectionPreview(stored, {
+      rawText: extraIntro, staffId: DONIA, branch: 'فرع شكري', reason: REASON,
+    }, directory);
+    expect(preview.ok).toBe(false);
+    if (!preview.ok) expect(preview.errors.join(' | ')).toContain('أكثر من موظف');
+  });
+
   it('offers active canonical staff (home branch, then account-wide, then explicit cover), never the customer', () => {
     expect(eligibleCorrectionStaff(directory, 'فرع شكري', CUSTOMER).map((row) => [row.id, row.coverage])).toEqual([
       [DONIA, 'home_branch'], [GM, 'account_wide'], [SHAMY, 'cross_branch'],
