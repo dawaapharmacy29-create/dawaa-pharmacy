@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
@@ -30,22 +30,6 @@ export default function AttendanceShiftMismatchReview({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
-  const load = useCallback(async () => {
-    setBusy(true);
-    setError('');
-    const { data, error: fetchError } = await supabase.rpc('attendance_shift_mismatch_review_v1', {
-      p_start: start, p_end: end,
-      p_branch: branch === 'الكل' ? null : branch,
-      p_limit: 500,
-    });
-    if (fetchError) {
-      setRows([]);
-      setError('تعذر قراءة مراجعات تغير المواعيد. تأكد من تطبيق ترحيل قاعدة البيانات: ' + fetchError.message);
-    } else {
-      setRows((data || []) as MismatchRow[]);
-    }
-    setBusy(false);
-  }, [start, end, branch]);
   useEffect(() => {
     let active = true;
     void (async () => {
