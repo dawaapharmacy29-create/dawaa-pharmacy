@@ -22,6 +22,7 @@ import { supabase } from '@/lib/supabase';
 import EmployeeProfileDrawer from '@/components/attendance/EmployeeProfileDrawer';
 import { cairoToday, startOfMonth } from '@/lib/attendance/period';
 import AttendanceCorrectionReviewPanel from '@/components/attendance/AttendanceCorrectionReviewPanel';
+import AttendanceShiftMismatchReview from '@/components/attendance/AttendanceShiftMismatchReview';
 import {
   approveAttendanceFullDayTimeOffV1,
   createStaffTimeOffRequest,
@@ -940,6 +941,7 @@ export default function AttendanceResolutionCenter({
 
   return (
     <div className="space-y-4">
+      {!embedded && <AttendanceShiftMismatchReview start={start} end={end} branch={branch} staffId={staffFilter} />}
       {embedded ? (
         <section className="space-y-3" aria-label="مراجعات الموظف في الدورة الحالية">
           <div className="flex flex-wrap items-center justify-between gap-2">
