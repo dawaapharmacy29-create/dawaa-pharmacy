@@ -308,8 +308,13 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
   // A stored branch that is not an operating branch (account-wide scope, unknown marker, warehouse,
   // unrecognized text) keeps the duty visible but blocked for human review. A missing branch keeps
   // its existing contract (the projector refuses incomplete metadata).
-  const transactionBranchUnknown = Boolean(String(conversationCase.branchNameRaw ?? '').trim())
-    && !isOperatingBranch(conversationCase.branchNameRaw);
+  const ownership = conversationCase.ownership;
+  const transactionBranchUnknown = ownership
+    ? ownership.branchBasis === 'conflict' || (
+      Boolean(ownership.sourceBranchNameRaw?.trim()) && !isOperatingBranch(ownership.operationalBranch)
+    )
+    : Boolean(String(conversationCase.branchNameRaw ?? '').trim())
+      && !isOperatingBranch(conversationCase.branchNameRaw);
   const byKey = new Map<string, FollowUpOpportunity>();
   for (const candidate of candidates) {
     const profile = PROFILE[candidate.reason];

@@ -6991,7 +6991,8 @@ function deriveFollowUpOpportunities(input) {
     const times = evidence.map((id) => messageAt.get(id)).filter((t) => typeof t === "number");
     return times.length ? new Date(Math.min(...times)) : caseStartedAt;
   };
-  const transactionBranchUnknown = Boolean(String(conversationCase.branchNameRaw ?? "").trim()) && !isOperatingBranch(conversationCase.branchNameRaw);
+  const ownership = conversationCase.ownership;
+  const transactionBranchUnknown = ownership ? ownership.branchBasis === "conflict" || Boolean(ownership.sourceBranchNameRaw?.trim()) && !isOperatingBranch(ownership.operationalBranch) : Boolean(String(conversationCase.branchNameRaw ?? "").trim()) && !isOperatingBranch(conversationCase.branchNameRaw);
   const byKey = /* @__PURE__ */ new Map();
   for (const candidate of candidates) {
     const profile = PROFILE[candidate.reason];
