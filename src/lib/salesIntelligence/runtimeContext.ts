@@ -96,7 +96,7 @@ export async function loadSalesIntelligenceRuntimeContext(
   client: any
 ): Promise<SalesIntelligenceRuntimeContext> {
   const [staffDirectory, productIndex] = await Promise.all([
-    loadStaffDirectoryFrom(client),
+    loadStaffDirectoryFrom(client, { requireComplete: true }),
     fetchPharmacyProductIndex(client),
   ]);
   return buildSalesIntelligenceRuntimeContext({ staffDirectory, productIndex });

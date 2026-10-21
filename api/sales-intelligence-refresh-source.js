@@ -8228,12 +8228,25 @@ function uniqueBaseIdentities(rows) {
   }
   return [...byId.values(), ...withoutId.values()];
 }
-async function loadStaffDirectoryFrom(client) {
+async function loadStaffDirectoryFrom(client, options = {}) {
   const [staffResult, accountResult, aliasResult] = await Promise.all([
     client.from("staff").select("id,name,username,branch,role,status,active,is_active").limit(800),
     client.rpc("get_staff_accounts_directory"),
     client.from("staff_identity_aliases").select("staff_id,alias_name,active,confidence,priority").eq("active", true).limit(2e3)
   ]);
+  if (options.requireComplete) {
+    const failed = [
+      ["staff", staffResult.error],
+      ["accounts", accountResult.error],
+      ["aliases", aliasResult.error]
+    ].filter(([, error]) => Boolean(error));
+    if (failed.length) {
+      throw new Error(`staff_directory_incomplete: ${failed.map(([source]) => source).join(",")}`);
+    }
+    if ((staffResult.data?.length ?? 0) >= 800 || (aliasResult.data?.length ?? 0) >= 2e3) {
+      throw new Error("staff_directory_incomplete: read_limit_reached");
+    }
+  }
   if (staffResult.error && accountResult.error) {
     throw new Error(
       `\u062A\u0639\u0630\u0631 \u062A\u062D\u0645\u064A\u0644 \u062F\u0644\u064A\u0644 \u0627\u0644\u0645\u0648\u0638\u0641\u064A\u0646: ${staffResult.error.message}; ${accountResult.error.message}`
@@ -8704,7 +8717,7 @@ function resolveCanonicalStaffIdByName(name, staffIdentityMap) {
 }
 async function loadSalesIntelligenceRuntimeContext(client) {
   const [staffDirectory, productIndex] = await Promise.all([
-    loadStaffDirectoryFrom(client),
+    loadStaffDirectoryFrom(client, { requireComplete: true }),
     fetchPharmacyProductIndex(client)
   ]);
   return buildSalesIntelligenceRuntimeContext({ staffDirectory, productIndex });

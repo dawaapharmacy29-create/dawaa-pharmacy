@@ -83,6 +83,8 @@ jobs:
           src/lib/salesIntelligence/__tests__/ibrahimShapeAcceptanceV39.test.ts
           src/lib/salesIntelligence/operations/__tests__/sourceCorrectionModel.test.ts
           src/lib/salesIntelligence/operations/__tests__/operationalExecutionGuard.test.ts
+          src/lib/salesIntelligence/operations/__tests__/sourceCorrectionSubmissionGuard.test.ts
+          src/lib/readModels/__tests__/staffDirectoryCompleteness.test.ts
 
       - name: Focused real-chat semantic regression tests
         run: npx vitest run src/lib/salesIntelligence/__tests__/realChatSemanticGuards.test.ts

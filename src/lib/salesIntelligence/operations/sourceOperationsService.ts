@@ -175,6 +175,16 @@ export async function submitSourceAttributionCorrection(
   ) {
     throw new Error('source_attribution_multistaff_requires_case_review');
   }
+  // The caller also holds the stored snapshot. Re-read the persisted source so
+  // a stale or forged snapshot cannot hide another employee's introduction.
+  // The RPC still owns authorization and the atomic expected-hash check.
+  const current = await loadStoredSourceAttribution(stored.id);
+  if (current.sourceHash !== stored.sourceHash) {
+    throw new Error('source_attribution_source_changed');
+  }
+  if (hasMultipleExplicitStaffIntroductions(current.rawText)) {
+    throw new Error('source_attribution_multistaff_requires_case_review');
+  }
   const { data, error } = await supabase.rpc('dawaa_correct_whatsapp_source_attribution_v1', {
     p_source_id: stored.id,
     p_expected_source_hash: stored.sourceHash,
