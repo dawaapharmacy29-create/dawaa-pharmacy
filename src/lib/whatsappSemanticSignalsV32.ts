@@ -119,6 +119,12 @@ const REJECTION_RX = /^(?:لا|لأ)[!.، ]*$|مش\s*عايز(?:ه)?|معلش\s*
 const THANKS_CLOSING_ONLY_RX =
   /^(?:شكرًا|شكرا)(?:\s*لحضرتك)?[!.، ]*$|^لا\s*شكرا[!.، ]*$|^تسلم(?:ي|لي)?[!.، ]*$|^الله\s*يسلم(?:ك|ي)?[!.، ]*$|^وصل(?:ني|تلي)?[!.، ]*$|^(?:ربنا|الله)\s*(?:(?:و\s*)?(?:(?:يسعد|يخلي|يكرم|يحفظ)(?:ك|كي|كم|ي)?|يبارك\s*(?:في|ل)(?:ك|كي|كم|ي))(?:\s*(?:جميعا|جميعًا|كلكم|يا\s*رب|يارب))?[!.،\s🤲🙏❤️🌹🌷💙]*)+$/iu;
 
+// "تمام شكرا لحضرتك ي دكتور" / "تمام يا دكتور شكرا ليك": only courtesy words, at least one of them a
+// thank-you. Any other word (a product, a question, a complaint) keeps the message a request.
+const COURTESY_ONLY_TOKENS_RX =
+  /^(?:(?:تمام|ماشي|اوك|ok|شكرا|شكرًا|متشكر|متشكرين|جزيلا|جزيلًا|تسلم|تسلمي|تسلموا|لحضرتك|حضرتك|ليك|ليكي|ليكم|ي|يا|دكتور|دكتوره|دكتورة|دكتورنا|فندم|حبيبي|حبيبتي)[\s!.،,🙏❤️🌹🌷💙🤲]*)+$/iu;
+const THANKS_WORD_RX = /شكر|متشكر|تسلم/u;
+
 // "الحمدلله الوالد اتحسن… خدمة التمريض ممتازة شكرا على متابعتكم": a satisfaction answer, not a need.
 // Any request verb, question, product word or complaint wording keeps the message a request.
 const SATISFACTION_FEEDBACK_RX = /(?:الحمد\s*لله|الحمدلله).*(?:شكرا|شكرًا|متشكر)\s*(?:على|ع)\s*(?:متابعت|اهتمام|سؤال)/u;
@@ -354,7 +360,8 @@ export function isRejectionOnly(text: string): boolean {
 
 /** "شكرا"/"تسلم"/"وصل"/"لا شكرا" — a closing pleasantry, not a new request. */
 export function isThanksOrClosingOnly(text: string): boolean {
-  return THANKS_CLOSING_ONLY_RX.test((text || '').trim());
+  const value = (text || '').trim();
+  return THANKS_CLOSING_ONLY_RX.test(value) || (COURTESY_ONLY_TOKENS_RX.test(value) && THANKS_WORD_RX.test(value));
 }
 
 /**

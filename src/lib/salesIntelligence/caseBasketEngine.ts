@@ -222,7 +222,7 @@ interface DraftItem {
 
 const NATURAL_UNIT_ITEM_RX =
   /(علبتين|علبة|علبه|شريطين|شريط|عبوتين|عبوة|عبوه|كيسين|كيس|حبتين|حبة|حبه)\s+(.+?)(?=(?:\s+(?:و\s*|مع\s+)(?:علبتين|علبة|علبه|شريطين|شريط|عبوتين|عبوة|عبوه|كيسين|كيس|حبتين|حبة|حبه)\s+)|[,،]|$)/gi;
-const NATURAL_UNIT_QTY: Record<string, { quantity: number; unit: string }> = {
+export const NATURAL_UNIT_QTY: Record<string, { quantity: number; unit: string }> = {
   علبتين: { quantity: 2, unit: 'علبة' },
   علبة: { quantity: 1, unit: 'علبة' },
   علبه: { quantity: 1, unit: 'علبة' },

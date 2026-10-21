@@ -332,17 +332,6 @@ async function readInvoiceRecordsByIdentityWindow(args) {
   if (error) throw error;
   return data || [];
 }
-async function readInvoiceRecordsByCustomerWindow(args) {
-  const client = args.client || supabase;
-  let query = client.from("sales_invoices").select(SALES_INTELLIGENCE_INVOICE_SELECT).gte("invoice_datetime", args.queryStartIso).lte("invoice_datetime", args.queryEndIso).limit(args.limit ?? 100);
-  if (args.customerCode) query = query.eq("customer_code", args.customerCode);
-  else if (args.customerId) query = query.eq("customer_id", args.customerId);
-  else return [];
-  if (args.branch) query = query.eq("branch", args.branch);
-  const { data, error } = await query;
-  if (error) throw error;
-  return data || [];
-}
 
 // src/lib/salesIntelligence/invoiceCandidateRetrieval.ts
 var CANDIDATE_RETRIEVAL_TIME_WINDOW = {
@@ -894,6 +883,8 @@ var WEAK_IMPLICIT_RX = /^(?:تمام|حاضر|اوك|ok|ماشي|خلاص)[!.، 
 var ACCEPTANCE_RX = /^(?:تمام|ماشي|ايوا|ايوه|اه|آه|موافق|تمام\s*كده|خلاص\s*ابعت(?:ه|هم|يه|يهم)?)(?:\s*(?:(?:ان|إن)\s*شاء\s*الله|[اإ]نشاء\s*الله|[اإ]نشالله|ان\s*شالله))?[!.، ]*$|(?:تمام|ايوا|ايوه|اه|آه)[،, ]*\s*(?:هطلبه|ابعت(?:ه|هم|يه|يهم)?|يبقى\s*كده)/i;
 var REJECTION_RX = /^(?:لا|لأ)[!.، ]*$|مش\s*عايز(?:ه)?|معلش\s*مش\s*هاخد(?:ه|ها)?|مش\s*محتاج(?:ه)?/i;
 var THANKS_CLOSING_ONLY_RX = /^(?:شكرًا|شكرا)(?:\s*لحضرتك)?[!.، ]*$|^لا\s*شكرا[!.، ]*$|^تسلم(?:ي|لي)?[!.، ]*$|^الله\s*يسلم(?:ك|ي)?[!.، ]*$|^وصل(?:ني|تلي)?[!.، ]*$|^(?:ربنا|الله)\s*(?:(?:و\s*)?(?:(?:يسعد|يخلي|يكرم|يحفظ)(?:ك|كي|كم|ي)?|يبارك\s*(?:في|ل)(?:ك|كي|كم|ي))(?:\s*(?:جميعا|جميعًا|كلكم|يا\s*رب|يارب))?[!.،\s🤲🙏❤️🌹🌷💙]*)+$/iu;
+var COURTESY_ONLY_TOKENS_RX = /^(?:(?:تمام|ماشي|اوك|ok|شكرا|شكرًا|متشكر|متشكرين|جزيلا|جزيلًا|تسلم|تسلمي|تسلموا|لحضرتك|حضرتك|ليك|ليكي|ليكم|ي|يا|دكتور|دكتوره|دكتورة|دكتورنا|فندم|حبيبي|حبيبتي)[\s!.،,🙏❤️🌹🌷💙🤲]*)+$/iu;
+var THANKS_WORD_RX = /شكر|متشكر|تسلم/u;
 var SATISFACTION_FEEDBACK_RX = /(?:الحمد\s*لله|الحمدلله).*(?:شكرا|شكرًا|متشكر)\s*(?:على|ع)\s*(?:متابعت|اهتمام|سؤال)/u;
 var FEEDBACK_DISQUALIFIER_RX = /[؟?]|مش|لسه|مجاش|موصلش|غلط|تأخير|اتأخر|وجع|تعبان|بيسرب|(?:^|\s)و?(?:علب|شريط|دوا|كريم|ابعت|هات)/u;
 var CORRECTION_RX = /لا\s*قصدي|مش\s*ده(?:\s*اللي)?|ده\s*مش(?:\s*اللي)?|أنا\s*(?:أ|ا)قصد|لا\s*التاني\b|مش\s*كده|لا\s*حضرتك\s*فهمتني\s*غلط|أنا\s*قلت|فهمت\s*غلط/i;
@@ -1013,7 +1004,8 @@ function isRejectionOnly(text5) {
   return REJECTION_RX.test((text5 || "").trim());
 }
 function isThanksOrClosingOnly(text5) {
-  return THANKS_CLOSING_ONLY_RX.test((text5 || "").trim());
+  const value = (text5 || "").trim();
+  return THANKS_CLOSING_ONLY_RX.test(value) || COURTESY_ONLY_TOKENS_RX.test(value) && THANKS_WORD_RX.test(value);
 }
 function isRequestCandidate(message) {
   if (message.role !== "customer" || !message.isMeaningful) return false;
@@ -5787,6 +5779,12 @@ function deriveCustomerNeedModel(input) {
       if (normalizedRequest === product.key || normalizedRequest.includes(product.key) || product.key.includes(normalizedRequest)) {
         product.roles.add("requested");
         product.evidenceMessageIds.add(message.id);
+        if (product.requestedQuantity == null && message.role === "customer") {
+          const messageKey = normalizeProductKey(message.text);
+          const stated = Object.entries(NATURAL_UNIT_QTY).filter(([unit]) => messageKey.includes(normalizeProductKey(`${unit} ${product.productNameRaw}`)));
+          const quantities = new Set(stated.map(([, info]) => info.quantity));
+          if (quantities.size === 1) product.requestedQuantity = [...quantities][0];
+        }
       }
     }
   }
@@ -15048,34 +15046,6 @@ async function enrichComplaintFollowupContext(service, source, caseAnalyses) {
   let invoice = null;
   if (invoiceId2) {
     invoice = await readInvoiceRecordById(invoiceId2, service);
-  }
-  if (!invoice) {
-    const customerId = String(source.customer_id || "").trim();
-    const customerCode = String(source.customer_code || "").trim();
-    const startedAt = source.conversation_started_at ? new Date(String(source.conversation_started_at)) : null;
-    const endedAt = source.conversation_ended_at ? new Date(String(source.conversation_ended_at)) : startedAt;
-    if ((customerId || customerCode) && startedAt && !Number.isNaN(startedAt.getTime())) {
-      const from = new Date(startedAt.getTime() - 2 * 36e5).toISOString();
-      const to = new Date(
-        (endedAt && !Number.isNaN(endedAt.getTime()) ? endedAt.getTime() : startedAt.getTime()) + 6 * 36e5
-      ).toISOString();
-      const rows = await readInvoiceRecordsByCustomerWindow({
-        queryStartIso: from,
-        queryEndIso: to,
-        ...customerId ? { customerId } : { customerCode },
-        limit: 20,
-        client: service
-      });
-      if (rows.length) {
-        const anchor = startedAt.getTime();
-        invoice = [...rows].sort((a, b) => {
-          const ad = Math.abs(new Date(String(a.invoice_datetime || 0)).getTime() - anchor);
-          const bd = Math.abs(new Date(String(b.invoice_datetime || 0)).getTime() - anchor);
-          return ad - bd;
-        })[0];
-        linkageBasis = "customer_time_match";
-      }
-    }
   }
   if (!invoice) return { enrichedComplaintActions: 0 };
   let updated = 0;

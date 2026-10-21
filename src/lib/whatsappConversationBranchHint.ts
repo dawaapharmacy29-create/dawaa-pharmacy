@@ -17,7 +17,7 @@ import type { WhatsAppParticipantRoleModelV15 } from '@/lib/whatsappParticipantR
 import { buildSmartOwnershipTimeline } from '@/lib/whatsappSmartReviewOwnership';
 import { resolveWhatsAppStaffV6 } from '@/lib/whatsappStaffResolverV6';
 import { extractIntroducedStaffName } from '@/lib/whatsappConversationParser';
-import { isNonTransactionBranchMarker, normalizeBranchName } from '@/lib/branch';
+import { isOperatingBranch, normalizeBranchName } from '@/lib/branch';
 
 export type BranchHintSource = 'source' | 'explicit_introduction' | 'active_owner' | 'staff_resolver' | 'majority_fallback' | 'none';
 
@@ -36,9 +36,10 @@ function majorityFallback(roles: WhatsAppParticipantRoleModelV15): BranchHintRes
   return { value, source: 'majority_fallback', reason: 'أضعف إشارة — تصويت أغلبية على فروع الرسائل الصادرة، لا يُستخدم إلا لما كل المصادر الأقوى تفشل.' };
 }
 
-// Account-wide access is not evidence of a conversation's transaction branch.
+// Account-wide access, an unknown marker or a non-selling home branch (e.g. a customer-service
+// employee assigned to «المخزن») is not evidence of a conversation's transaction branch.
 function operationalBranch(value: string | null | undefined): string | null {
-  if (!value?.trim() || isNonTransactionBranchMarker(value)) return null;
+  if (!value?.trim() || !isOperatingBranch(value)) return null;
   return normalizeBranchName(value);
 }
 

@@ -41,3 +41,14 @@ export function customerRequestApprovalBlockers(
   if (normalizeBranchName(action.branch) !== normalizeBranchName(source.branch)) blockers.push('فرع الاقتراح يختلف عن فرع المصدر');
   return blockers;
 }
+
+// A complaint follow-up written by an earlier engine is not current evidence: the canonical
+// complaint projector withdraws it only when it replaces it, so one the current analysis did not
+// confirm (e.g. "العميل لم يعد للرد" after the customer did reply) stays a human decision.
+export const CANONICAL_COMPLAINT_CREATOR = 'si-canonical-complaint-projection-v1';
+
+export function legacyComplaintReviewReason(action: { actionType: string; status: string; createdBy: string | null }): string | null {
+  if (action.actionType !== 'complaint_followup' || action.status === 'dismissed') return null;
+  if (action.createdBy === CANONICAL_COMPLAINT_CREATOR) return null;
+  return 'متابعة شكوى من محرك سابق لم يؤكدها التحليل الحالي؛ راجع الرسائل وقرر يدويًا قبل أي تنفيذ.';
+}

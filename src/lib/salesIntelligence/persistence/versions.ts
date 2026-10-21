@@ -68,7 +68,10 @@
 // v38: a doctor-proposed strength the customer affirms ("تركيز 550 صح؟" / "مطبووط") qualifies the one
 // item the catalog proves; satisfaction answers and blessings are not requests; "اه إنشاء الله" is an
 // answer that keeps its interaction; "فورت" narrows a seeded brand to its FORTE SKUs.
-// v39: review nursing visits and bounded service chases as non-commercial follow-ups.
+// v39: review nursing visits and bounded service chases as non-commercial follow-ups. Before any v39
+// analysis was persisted, v39 also gained: courtesy-only thank-you replies ("تمام شكرا لحضرتك ي دكتور")
+// are closings, never stock-question products; and the customer's own "علبتين كولونا" is the
+// requested quantity even when the basket line was rebuilt from the doctor's recap.
 // This is a semantic version bump only; no source is reprocessed without an explicit refresh.
 export const PIPELINE_VERSION = 'sales-intelligence-v39-nursing-service-review';
 

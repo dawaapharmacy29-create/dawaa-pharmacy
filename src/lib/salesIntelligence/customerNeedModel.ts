@@ -25,6 +25,7 @@ import {
 import {
   explicitRequestProductPhrases,
   isGenericDeicticProductPhrase,
+  NATURAL_UNIT_QTY,
   normalizeProductKey,
   stripRequestPrefix,
 } from './caseBasketEngine';
@@ -370,6 +371,15 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
       ) {
         product.roles.add('requested');
         product.evidenceMessageIds.add(message.id);
+        // "خليهم علبتين كولونا": the customer's own count directly before the same product name
+        // is the requested quantity, even when the basket line was rebuilt from a staff recap.
+        if (product.requestedQuantity == null && message.role === 'customer') {
+          const messageKey = normalizeProductKey(message.text);
+          const stated = Object.entries(NATURAL_UNIT_QTY).filter(([unit]) =>
+            messageKey.includes(normalizeProductKey(`${unit} ${product.productNameRaw}`)));
+          const quantities = new Set(stated.map(([, info]) => info.quantity));
+          if (quantities.size === 1) product.requestedQuantity = [...quantities][0];
+        }
       }
     }
   }

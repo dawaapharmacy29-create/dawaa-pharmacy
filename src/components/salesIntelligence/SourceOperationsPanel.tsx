@@ -21,7 +21,7 @@ import {
   type SourceAuditEntry,
   type SourceOperationalAction,
 } from '@/lib/salesIntelligence/operations/sourceOperationsService';
-import { customerRequestApprovalBlockers } from '@/lib/salesIntelligence/operations/proposalApprovalReadiness';
+import { customerRequestApprovalBlockers, legacyComplaintReviewReason } from '@/lib/salesIntelligence/operations/proposalApprovalReadiness';
 
 // Source-scoped operations for one canonical case: audited attribution correction, explicit
 // approval of a customer-request proposal, and explicit execution through the authorized
@@ -217,8 +217,9 @@ export function SourceOperationsPanel({ sourceId, permissions, analysisKey }: Pr
                   : [];
                 const canApproveRow = permissions.canApprove && action.actionType === 'customer_request'
                   && action.status === 'proposed' && approvalBlockers.length === 0;
+                const legacyReview = action.targetId ? null : legacyComplaintReviewReason(action);
                 const canExecuteRow = permissions.canExecute && EXECUTABLE_TYPES.has(action.actionType)
-                  && action.status === 'ready' && !action.targetId && !invalidBranch
+                  && action.status === 'ready' && !action.targetId && !invalidBranch && !legacyReview
                   && (action.actionType !== 'customer_request' || action.autoEligible);
                 return (
                   <tr key={action.id} className={`border-t border-[var(--dawaa-theme-border)] ${retired ? 'opacity-60' : ''}`}>
@@ -256,6 +257,7 @@ export function SourceOperationsPanel({ sourceId, permissions, analysisKey }: Pr
                             </ul>
                           </div>
                         ) : !retired && invalidBranch ? <span className="dawaa-muted text-xs">يحتاج تصحيح الفرع أولًا</span> : null}
+                        {legacyReview ? <span className="dawaa-badge dawaa-badge--warning text-xs" data-testid="legacy-complaint-review">{legacyReview}</span> : null}
                       </div>
                     </td>
                   </tr>

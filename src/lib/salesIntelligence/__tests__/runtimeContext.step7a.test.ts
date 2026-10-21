@@ -241,6 +241,93 @@ describe('canonical invoice seller and self-introduction identity', () => {
       a.attribution.selectedCandidate.staffMatch !== 'same')).toBe(true);
   });
 
+  // The Heba → Shibl export shape: customer-service follow-up in the morning, a drug order with
+  // "مع حضرتك د شبل" after midnight. An APPROVED alias is the only bridge from "شبل" to the
+  // canonical "د محمد شبل"; the resolved id stays inside the order case.
+  const HEBA_THEN_SHEBL = [
+    '[9/27/26, 10:54:07 AM] You: مع حضرتك هبه من خدمة عملاء صيدليات دواء',
+    '[9/27/26, 1:14:23 PM] Customer: الحمدلله الوالد اتحسن شكرا على متابعتكم',
+    '[9/28/26, 12:56:27 AM] Customer: السلام عليكم',
+    '[9/28/26, 12:58:50 AM] You: مع حضرتك د شبل',
+    '[9/28/26, 1:01:04 AM] Customer: خليهم علبتين كولونا',
+    '[9/28/26, 1:02:11 AM] You: يعني حضرتك محتاج علبتين كولونا وعلبة جاسترو بيوتيك',
+    '[9/28/26, 1:02:18 AM] Customer: مطبووط',
+  ].join('\n');
+
+  async function analyzeHebaThenShebl(directoryRows: StaffDirectoryIdentity[], sellerId: string) {
+    const directory = buildSalesIntelligenceRuntimeContext({ staffDirectory: directoryRows, productIndex: buildPharmacyProductIndex([]) });
+    const [prepared] = await prepareSalesIntelligenceConversations(
+      clientReturning(),
+      [{ conversationId: 'heba-then-shebl-alias', rawWhatsAppExportText: HEBA_THEN_SHEBL, customerNameHint: 'Customer' }],
+      directory
+    );
+    const { caseAnalyses } = runSalesIntelligencePipeline({
+      ...pipelineBaseInputFor(prepared, directory),
+      customerIdHint: 'customer-1',
+      customerIdentityStatus: 'resolved',
+      branchNameRawHint: 'فرع شكري',
+      resolveInvoiceCandidates: () => [{
+        id: 'invoice-74938', invoice_number: '74938', customer_id: 'customer-1', branch: 'فرع شكري',
+        staff_id: sellerId, invoice_datetime: '2026-09-27T22:06:00.000Z',
+      }],
+    });
+    const at = (iso: string) => new Date(iso).getTime();
+    const morning = caseAnalyses.filter((a) => new Date(a.conversationCase.startedAt).getTime() < at('2026-09-27T21:00:00.000Z'));
+    const order = caseAnalyses.filter((a) => new Date(a.conversationCase.startedAt).getTime() >= at('2026-09-27T21:00:00.000Z'));
+    const staffIds = (rows: typeof caseAnalyses) =>
+      rows.flatMap((a) => a.caseIntelligence.staff.participants.map((p) => p.staffId)).filter(Boolean);
+    return { morning, order, staffIds };
+  }
+
+  it('an approved "شبل" alias resolves the order case only; Heba keeps the earlier case', async () => {
+    const { morning, order, staffIds } = await analyzeHebaThenShebl([
+      staff('staff-heba', 'هبه محمد', { role: 'assistant' }),
+      staff('staff-heba', 'هبه', { source: 'alias' }),
+      staff('staff-shebl', 'د محمد شبل'),
+      staff('staff-shebl', 'شبل', { source: 'alias' }),
+    ], 'staff-shebl');
+    expect(morning.length).toBeGreaterThan(0);
+    expect(order.length).toBeGreaterThan(0);
+    expect(staffIds(morning)).not.toContain('staff-shebl');
+    expect(staffIds(order)).toContain('staff-shebl');
+    expect(staffIds(order)).not.toContain('staff-heba');
+    expect(order.some((a) => a.attribution.selectedCandidate?.staffMatch === 'same')).toBe(true);
+  });
+
+  it('a responder different from the invoice seller is reported as different, never rewritten', async () => {
+    const { order, staffIds } = await analyzeHebaThenShebl([
+      staff('staff-heba', 'هبه', { role: 'assistant' }),
+      staff('staff-shebl', 'شبل', { source: 'alias' }),
+      staff('staff-shebl', 'د محمد شبل'),
+      staff('staff-omar', 'د عمر'),
+    ], 'staff-omar');
+    expect(staffIds(order)).toContain('staff-shebl');
+    expect(staffIds(order)).not.toContain('staff-omar');
+    const candidates = order.flatMap((a) => (a.attribution.selectedCandidate ? [a.attribution.selectedCandidate] : []));
+    expect(candidates.every((c) => c.staffMatch !== 'same')).toBe(true);
+  });
+
+  it('two different introductions inside one case leave that case unresolved, not the last speaker', async () => {
+    const directory = buildSalesIntelligenceRuntimeContext({
+      staffDirectory: [staff('staff-wael', 'د وائل'), staff('staff-omar', 'د عمر')],
+      productIndex: buildPharmacyProductIndex([]),
+    });
+    const raw = [
+      '[9/27/26, 5:00:00 PM] Customer: عايز علبة بانادول',
+      '[9/27/26, 5:00:30 PM] You: مع حضرتك د وائل',
+      '[9/27/26, 5:01:00 PM] You: مع حضرتك د عمر',
+      '[9/27/26, 5:01:30 PM] Customer: تمام',
+    ].join('\n');
+    const [prepared] = await prepareSalesIntelligenceConversations(
+      clientReturning(), [{ conversationId: 'two-intros-one-case', rawWhatsAppExportText: raw, knownStaffIds: ['staff-wael'] }], directory
+    );
+    const { caseAnalyses } = runSalesIntelligencePipeline({ ...pipelineBaseInputFor(prepared, directory), resolveInvoiceCandidates: () => [] });
+    expect(caseAnalyses).toHaveLength(1);
+    const ids = caseAnalyses[0].caseIntelligence.staff.participants.map((p) => p.staffId).filter(Boolean);
+    expect(new Set(ids).size).toBeLessThanOrEqual(1);
+    expect(caseAnalyses[0].attribution.isOfficialForStaffEvaluation).toBe(false);
+  });
+
   it('resolves explicit outbound self-introductions by message id without treating You as identity', async () => {
     const introContext = buildSalesIntelligenceRuntimeContext({
       staffDirectory: [staff('staff-wael', 'د وائل'), staff('staff-omar', 'د عمر')],

@@ -23,10 +23,7 @@ import {
   REVIEW_SOURCE_BATCH_INPUT_COLUMNS,
   reviewSourceRowToBatchConversation,
 } from '../persistence/reviewSourceBatchAdapter';
-import {
-  readInvoiceRecordById,
-  readInvoiceRecordsByCustomerWindow,
-} from '../../readModels/invoiceRecordReadModel';
+import { readInvoiceRecordById } from '../../readModels/invoiceRecordReadModel';
 import {
   evaluateCanonicalSourceGate,
   loadCanonicalSourceGateContext,
@@ -827,40 +824,8 @@ async function enrichComplaintFollowupContext(
     invoice = await readInvoiceRecordById(invoiceId, service);
   }
 
-  if (!invoice) {
-    const customerId = String(source.customer_id || '').trim();
-    const customerCode = String(source.customer_code || '').trim();
-    const startedAt = source.conversation_started_at
-      ? new Date(String(source.conversation_started_at))
-      : null;
-    const endedAt = source.conversation_ended_at
-      ? new Date(String(source.conversation_ended_at))
-      : startedAt;
-    if ((customerId || customerCode) && startedAt && !Number.isNaN(startedAt.getTime())) {
-      const from = new Date(startedAt.getTime() - 2 * 3600_000).toISOString();
-      const to = new Date(
-        (endedAt && !Number.isNaN(endedAt.getTime()) ? endedAt.getTime() : startedAt.getTime()) +
-          6 * 3600_000
-      ).toISOString();
-      const rows = await readInvoiceRecordsByCustomerWindow({
-        queryStartIso: from,
-        queryEndIso: to,
-        ...(customerId ? { customerId } : { customerCode }),
-        limit: 20,
-        client: service,
-      });
-      if (rows.length) {
-        const anchor = startedAt.getTime();
-        invoice = [...rows].sort((a: any, b: any) => {
-          const ad = Math.abs(new Date(String(a.invoice_datetime || 0)).getTime() - anchor);
-          const bd = Math.abs(new Date(String(b.invoice_datetime || 0)).getTime() - anchor);
-          return ad - bd;
-        })[0];
-        linkageBasis = 'customer_time_match';
-      }
-    }
-  }
-
+  // Only the case's own canonical attribution may name the delivery invoice. A nearest-in-time
+  // invoice for the same customer code is a guess, so no context is written without it.
   if (!invoice) return { enrichedComplaintActions: 0 };
 
   let updated = 0;

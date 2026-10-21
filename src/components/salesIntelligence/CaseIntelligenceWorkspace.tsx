@@ -552,7 +552,7 @@ export function CaseIntelligenceWorkspace({
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <Fact label="الصنف في الكتالوج">
-                    {p.productCode ? `${p.canonicalName ?? ''} • كود ${p.productCode}` : 'غير محدد — يحتاج مراجعة (لا يُستنتج من الصورة أو الاسم التقريبي)'}
+                    {p.productCode ? `${p.canonicalName ?? ''} • كود ${p.productCode}` : 'غير محسوم من المحادثة — الاسم قد يطابق أكثر من صنف أو حجم عبوة؛ يحتاج مراجعة. الكمية مستقلة عن هذا الحسم.'}
                   </Fact>
                   <Fact label="الكمية المذكورة في المحادثة">{p.requestedQuantity ?? UNKNOWN_LABEL}</Fact>
                   <Fact label="الكمية في الطلب النهائي">{p.finalQuantity ?? UNKNOWN_LABEL}</Fact>

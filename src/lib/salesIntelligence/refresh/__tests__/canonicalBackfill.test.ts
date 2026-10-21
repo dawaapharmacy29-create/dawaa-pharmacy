@@ -299,7 +299,9 @@ describe('canonical refresh invoice read boundary', () => {
   it('never queries sales_invoices directly from the refresh service', () => {
     expect(serviceCode).not.toMatch(/\.from\(\s*['"]sales_invoices['"]\s*\)/);
     expect(serviceCode).toMatch(/readInvoiceRecordById\(/);
-    expect(serviceCode).toMatch(/readInvoiceRecordsByCustomerWindow\(/);
+    // Complaint delivery context comes only from the case's canonical attribution, never from a
+    // nearest-in-time invoice for the same customer code.
+    expect(serviceCode).not.toMatch(/readInvoiceRecordsByCustomerWindow\(/);
   });
 
   it('keeps delivery staff in the approved invoice projection used for complaint context', () => {

@@ -112,6 +112,18 @@ describe('resolveConversationBranchHint', () => {
     expect(result.source).toBe('majority_fallback');
   });
 
+  it('a non-selling home branch (المخزن) of the first owner is never the transaction branch', async () => {
+    const { resolveConversationBranchHint } = await import('@/lib/whatsappConversationBranchHint');
+    const { isOperatingBranch } = await import('@/lib/branch');
+    const messages = [
+      msg('m1', '2026-09-01T10:00:00', 'outbound', 'مع حضرتك نور من خدمة عملاء صيدليات دواء، حابين نطمن على الوالد'),
+      msg('m2', '2026-09-01T10:01:00', 'inbound', 'الحمدلله شكرا'),
+    ];
+    const result = await resolveConversationBranchHint(session(messages), emptyRoles(['المخزن']), null);
+    expect(result.value).not.toBe('المخزن');
+    expect(result.value === null || isOperatingBranch(result.value)).toBe(true);
+  });
+
   it('resolves to none when no signal exists anywhere', async () => {
     const { resolveConversationBranchHint } = await import('@/lib/whatsappConversationBranchHint');
     const messages = [msg('m1', '2026-09-01T10:00:00', 'outbound', 'أهلا بحضرتك'), msg('m2', '2026-09-01T10:01:00', 'inbound', 'شكرا')];
