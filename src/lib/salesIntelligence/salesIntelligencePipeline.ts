@@ -501,6 +501,12 @@ function analyzeOneCase(
     overallEvidenceLevel: computeOverallEvidenceLevel(evidenceCompletenessBase),
   };
 
+  // Product uncertainty is a review condition in its own right, even when no invoice was selected.
+  // A diagnostic failure reason alone must never leave a weak-SKU case looking review-complete.
+  const unresolvedActiveBasketProductIdentity = activeItems.some(
+    (item) => item.resolutionStatus !== 'proven' || (Boolean(input.productIndex) && !item.productId)
+  );
+
   const failureReasons: PipelineFailureReason[] = [];
   if (conversationCase.needsHumanReview && financialSettlement.status !== 'settled') failureReasons.push('case_segmentation_uncertain');
   if (!conversationCase.customerId && !conversationCase.customerPhone) failureReasons.push('customer_identity_unresolved');
@@ -537,12 +543,6 @@ function analyzeOneCase(
   // preserved on the returned analysis (never skipped), but that noise must not drive this specific
   // case's pipeline-level review flag or status.
   const isGenuinelyInformationOnly = conversationCase.caseType === 'information_only' && !evidenceCompleteness.basketDetected;
-
-  // Product uncertainty is a review condition in its own right, even when no invoice was selected.
-  // A diagnostic failure reason alone must never leave a weak-SKU case looking review-complete.
-  const unresolvedActiveBasketProductIdentity = activeItems.some(
-    (item) => item.resolutionStatus !== 'proven' || (Boolean(input.productIndex) && !item.productId)
-  );
 
   const rawNeedsHumanReview =
     conversationCase.needsHumanReview ||
