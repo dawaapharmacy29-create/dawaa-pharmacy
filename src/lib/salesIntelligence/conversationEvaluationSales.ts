@@ -189,7 +189,7 @@ function assessCrossSell(view: CaseIntelligenceView): SalesCriterionAssessment {
   // items that the customer may already have requested in image/voice media the export cannot read.
   // Require a staff-authored recommendation attached to each candidate; unread earlier media keeps
   // the criterion unscored until the original request can be reviewed.
-  const recommendationRx = /(?:أنصح|انصح|أرشح|ارشح|نرشح|ممكن\\s+(?:تستخدم|تاخد|تاخدي)|ناخد|نستخدم|جرب(?:ي)?|خد(?:ي)?\\s+كمان|تاخد(?:ي)?\\s+كمان)/iu;
+  const recommendationRx = /(?:أنصح|انصح|أرشح|ارشح|نرشح|ممكن\s+(?:تستخدم|تاخد|تاخدي)|ناخد|نستخدم|جرب(?:ي)?|خد(?:ي)?\s+كمان|تاخد(?:ي)?\s+كمان)/iu;
   const staffRecommendationMessagesByProduct = new Map<string, string[]>();
   for (const product of offeredExtra) {
     const lifecycle = view.need.products.find((candidate) => candidate.key === product.productKey);
@@ -207,7 +207,7 @@ function assessCrossSell(view: CaseIntelligenceView): SalesCriterionAssessment {
     if (!offerIds.size) return false;
     const firstOfferIndex = view.interaction.messages.findIndex((message) => offerIds.has(message.id));
     return view.interaction.messages.slice(0, firstOfferIndex).some(
-      (message) => message.role === 'customer' && /<(?:image|audio|voice message) omitted>|\\[(?:image|audio|voice message) omitted\\]/iu.test(message.text)
+      (message) => message.role === 'customer' && /<(?:image|audio|voice message) omitted>|\[(?:image|audio|voice message) omitted\]/iu.test(message.text)
     );
   });
   if (!hasRecommendationEvidence || hasUnreadCustomerMediaBeforeOffer) {
