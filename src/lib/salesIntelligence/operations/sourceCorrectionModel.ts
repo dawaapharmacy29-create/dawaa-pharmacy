@@ -6,7 +6,7 @@
 // serialize/hash of the single case session), so a later re-upload of the corrected file dedupes to
 // the same source instead of creating a parallel one.
 import { isNonTransactionBranchMarker, isOperatingBranch, normalizeBranchName } from '@/lib/branch';
-import { parseWhatsAppExport, serializeWhatsAppSessionRawText } from '@/lib/whatsappConversationParser';
+import { extractIntroducedStaffName, parseWhatsAppExport, serializeWhatsAppSessionRawText } from '@/lib/whatsappConversationParser';
 import { segmentWhatsAppExportCanonical } from '@/lib/whatsappCanonicalSegmentation';
 import { hashWhatsAppSession } from '@/lib/whatsappReviewPersistenceV4';
 import type { StaffDirectoryIdentity } from '@/lib/readModels/staffDirectoryReadModel';
@@ -89,6 +89,36 @@ function changedLines(before: string, after: string): SourceCorrectionLineChange
   return rows;
 }
 
+/**
+ * A source correction assigns ONE source-level staff ID. Multi-staff exports are
+ * inherently case-scoped; assigning the whole file to one pharmacist would
+ * attribute unrelated customer-service replies (and potentially their metrics)
+ * to that pharmacist. Check both persisted and proposed text so a reviewer
+ * cannot sidestep this guard by editing out a second introduction.
+ *
+ * This is a preview guard, NOT a substitute for the database command's checks.
+ */
+function hasMultipleExplicitStaffIntroductions(rawText: string): boolean {
+  const names = new Set(
+    parseWhatsAppExport(rawText)
+      .map((message) => extractIntroducedStaffName(message))
+      .filter((name): name is string => Boolean(name))
+      .map((name) =>
+        name
+          .trim()
+          .toLocaleLowerCase('ar')
+          .replace(/^(?:(?:د|دكتور|الدكتور|دكتورة|الدكتورة)\\s*[/.-]?\\s*)/u, '')
+          .replace(/[أإآ]/g, 'ا')
+          .replace(/ى/g, 'ي')
+          .replace(/[\\u064B-\\u065F]/g, '')
+          .replace(/\\s+/g, ' ')
+          .trim()
+      )
+      .filter(Boolean)
+  );
+  return names.size > 1;
+}
+
 /** How a doctor relates to the operation branch: the home branch, account-wide scope, or cover. */
 export function correctionStaffCoverage(staffBranch: string | null, branch: string): CorrectionStaffCoverage {
   if (isNonTransactionBranchMarker(staffBranch)) return 'account_wide';
@@ -135,6 +165,17 @@ export async function buildSourceCorrectionPreview(
   const crossBranchCover = staff?.coverage === 'cross_branch';
   if (crossBranchCover && !draft.crossBranchCover) {
     errors.push('الدكتور المختار فرعه الأساسي مختلف؛ أكد صراحة أنه غطّى هذا الفرع في هذه العملية.');
+  }
+
+  // Reject a whole-source staff correction if either version identifies multiple
+  // distinct outbound employees. The safe remedy is case-level attribution review.
+  if (
+    hasMultipleExplicitStaffIntroductions(stored.rawText) ||
+    hasMultipleExplicitStaffIntroductions(draft.rawText)
+  ) {
+    errors.push(
+      'هذه المحادثة تضم أكثر من موظف مُعرَّف برسائل صادرة. لا يجوز نسب الملف كله لدكتور واحد؛ راجع هوية المسؤول لكل حالة على حدة، مع بقاء تصحيح فرع المصدر قرارًا مستقلًا.'
+    );
   }
 
   const messages = parseWhatsAppExport(draft.rawText);
