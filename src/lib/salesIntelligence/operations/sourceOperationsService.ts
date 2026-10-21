@@ -3,7 +3,7 @@
 // customer-request proposal, execute an approved proposal). It never writes tables directly and
 // never treats an RPC response without the expected success shape as success.
 import { supabase } from '@/lib/supabase';
-import type { SourceCorrectionPreview, StoredSourceAttribution } from './sourceCorrectionModel';
+import { hasMultipleExplicitStaffIntroductions, type SourceCorrectionPreview, type StoredSourceAttribution } from './sourceCorrectionModel';
 
 export const SOURCE_OPERATIONS_ACTION_LIMIT = 50;
 export const SOURCE_OPERATIONS_AUDIT_PAGE_SIZE = 10;
@@ -165,6 +165,15 @@ export async function submitSourceAttributionCorrection(
   stored: StoredSourceAttribution,
   preview: Extract<SourceCorrectionPreview, { ok: true }>
 ): Promise<SourceCorrectionResult> {
+  // Submission defense in depth: do not rely on a possibly stale or forged
+  // successful preview to collapse a multi-employee source into one staff ID.
+  // The SQL correction command remains the authoritative write boundary.
+  if (
+    hasMultipleExplicitStaffIntroductions(stored.rawText) ||
+    hasMultipleExplicitStaffIntroductions(preview.rawText)
+  ) {
+    throw new Error('source_attribution_multistaff_requires_case_review');
+  }
   const { data, error } = await supabase.rpc('dawaa_correct_whatsapp_source_attribution_v1', {
     p_source_id: stored.id,
     p_expected_source_hash: stored.sourceHash,
