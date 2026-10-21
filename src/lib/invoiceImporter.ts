@@ -1381,7 +1381,7 @@ export async function importCustomersToDB(
   );
 
   if (safeImportRows.length) {
-    for (const chunk of chunkArray(safeImportRows, 500)) {
+    for (const chunk of chunkArray(safeImportRows, 20)) {
       const { data, error } = await supabase.rpc('safe_daily_customer_import_from_json', {
         p_rows: chunk,
         p_apply: true,
@@ -1457,7 +1457,7 @@ export async function importCustomersToDB(
       // Ignore non-browser contexts.
     }
 
-    if (summary.errors.length === 0) return summary;
+    return summary; // Never fall back to customer_analysis after a failed canonical import.
   }
 
   const analysisPayloads = rows.map((row) => {
