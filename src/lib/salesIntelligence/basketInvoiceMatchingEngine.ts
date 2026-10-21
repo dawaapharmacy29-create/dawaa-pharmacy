@@ -265,8 +265,6 @@ function classifyItemsAndQuantities(
   basketItems.forEach((item) => {
     const nameKey = normalizeProductNameForMatch(item.productNameRaw);
 
-    // A basket item Phase B never resolved a real identity for (e.g. a raw pronoun) is never
-    // trusted for a positive match, even if its raw text coincidentally equals an invoice item's.
     // A definitive item/invoice verdict requires an independently proven catalogue identity.
     // Partial aliases (for example Arabic "كولونا" with 30/40-tablet variants) remain candidates
     // and must not be promoted through an invoice's suggested product ID.
