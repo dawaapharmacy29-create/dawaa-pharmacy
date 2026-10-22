@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { recommendCaseBranch, type CaseOwnershipContext } from '../caseOwnershipContext';
 import { buildSalesIntelligenceRuntimeContext, pipelineBaseInputFor, prepareSalesIntelligenceConversations } from '../runtimeContext';
 import { deriveCasesOnly, runSalesIntelligencePipeline, segmentationInputFromPipelineInput } from '../salesIntelligencePipeline';
 import { buildPharmacyProductIndex } from '../pharmacyProducts/pharmacyProductResolverV2';
@@ -178,3 +179,64 @@ describe('case-local service/pharmacy ownership', () => {
     expect(await computeSemanticSourceHash({ ...input, caseOwnership: { ...ownership, owners: [] } })).not.toBe(original);
   });
 });
+
+describe('case branch after invoice attribution', () => {
+  it('uses the linked, proven invoice branch as the transaction branch despite correlated seller/home-branch evidence', () => {
+    const result = recommendCaseBranch({
+      ownership: ownership(),
+      invoiceBranch: 'فرع شكري',
+      invoiceCandidateStrong: false,
+      invoiceAttributionProven: true,
+      attributionUsedCaseBranch: false,
+      invoiceSellerIsCaseStaff: true,
+    });
+
+    expect(result).toEqual({
+      branch: 'فرع شكري',
+      strength: 'decided',
+      reasons: ['فرع فاتورة مرتبطة ومثبتة لهذه الحالة؛ يحدد فرع العملية دون تعديل فرع المصدر'],
+    });
+  });
+
+  it('does not promote a merely strong invoice candidate to a decided branch', () => {
+    const result = recommendCaseBranch({
+      ownership: ownership(),
+      invoiceBranch: 'فرع شكري',
+      invoiceCandidateStrong: true,
+      invoiceAttributionProven: false,
+      attributionUsedCaseBranch: false,
+      invoiceSellerIsCaseStaff: true,
+    });
+
+    expect(result.branch).toBe('فرع شكري');
+    expect(result.strength).toBe('supporting_only');
+  });
+
+  it('keeps an explicit case-branch conflict unresolved when a proven invoice names another branch', () => {
+    const result = recommendCaseBranch({
+      ownership: ownership({ operationalBranch: 'فرع الشامي', branchBasis: 'explicit_introduction' }),
+      invoiceBranch: 'فرع شكري',
+      invoiceCandidateStrong: false,
+      invoiceAttributionProven: true,
+      attributionUsedCaseBranch: false,
+    });
+
+    expect(result.branch).toBeNull();
+    expect(result.strength).toBe('conflict');
+    expect(result.reasons.join(' ')).toContain('يخالف فرع الحالة الصريح');
+  });
+
+  it('never assigns a sales branch to a customer-service case, even with a proven invoice input', () => {
+    const result = recommendCaseBranch({
+      ownership: ownership({ department: 'customer_service' }),
+      invoiceBranch: 'فرع شكري',
+      invoiceCandidateStrong: false,
+      invoiceAttributionProven: true,
+      attributionUsedCaseBranch: false,
+    });
+
+    expect(result.branch).toBeNull();
+    expect(result.strength).toBe('none');
+  });
+});
+
