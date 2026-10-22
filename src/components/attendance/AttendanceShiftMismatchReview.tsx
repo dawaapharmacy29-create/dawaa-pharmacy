@@ -16,6 +16,11 @@ type MismatchRow = {
   scheduled_start_at: string | null;
   scheduled_end_at: string | null;
 };
+type HistoricAuditRow = {
+  staff_id: string; staff_name: string; branch: string; attendance_date: string;
+  approval_status: string; sync_proven: boolean; uncertain_raw_evidence: boolean;
+  scheduled_end_at: string | null;
+};
 function possibleShift(row: MismatchRow): string | null {
   // This is a hypothesis, never a canonical punch pairing or an approval.
   if (row.raw_events !== 2 || !row.first_punch || !row.last_punch) return null;
@@ -100,6 +105,9 @@ export default function AttendanceShiftMismatchReview({
   const [error, setError] = useState('');
   const [refresh, setRefresh] = useState(0);
   const [expandedStaff, setExpandedStaff] = useState<string | null>(null);
+  const [historic, setHistoric] = useState<HistoricAuditRow[]>([]);
+  const [historicError, setHistoricError] = useState('');
+  const [showHistoric, setShowHistoric] = useState(false);
   useEffect(() => {
     let active = true;
     void (async () => {
@@ -121,6 +129,24 @@ export default function AttendanceShiftMismatchReview({
     })();
     return () => { active = false; };
   }, [start, end, branch, refresh]);
+  useEffect(() => {
+    if (!showHistoric) return;
+    let active = true;
+    void (async () => {
+      const response = await supabase.rpc('attendance_legacy_approval_evidence_audit_v1', {
+        p_start: start, p_end: end, p_limit: 500,
+      });
+      if (!active) return;
+      if (response.error) {
+        setHistoricError(response.error.message);
+        setHistoric([]);
+      } else {
+        setHistoricError('');
+        setHistoric((response.data || []) as HistoricAuditRow[]);
+      }
+    })();
+    return () => { active = false; };
+  }, [start, end, showHistoric, refresh]);
   const filtered = staffId && staffId !== 'all' ? rows.filter((row) => row.staff_id === staffId) : rows;
   const unverified = filtered.reduce((sum, row) => sum + row.fallback_accepted, 0);
   const groups = Object.values(filtered.reduce<Record<string, {
@@ -187,6 +213,25 @@ export default function AttendanceShiftMismatchReview({
           ))}
         </div>
       )}
+      <div className="mt-4 border-t border-[var(--dawaa-theme-border)] pt-3">
+        <button type="button" className="btn-secondary text-xs" onClick={() => setShowHistoric(value => !value)}>
+          {showHistoric ? 'إخفاء مراجعة الاعتمادات السابقة' : 'عرض اعتمادات سابقة تحتاج تدقيق الأدلة'}
+        </button>
+        {showHistoric && <>
+          <p className="mt-2 text-xs text-[var(--dawaa-theme-muted)]">تنبيه رقابي فقط: لا يلغي الاعتماد ولا يثبت غياب الموظف أو وجود خطأ مالي. يعرض أول 500 يوم في النطاق.</p>
+          {historicError && <p role="alert" className="mt-2 text-xs text-[var(--dawaa-status-warning-text)]">{historicError}</p>}
+          {!historicError && <p className="mt-2 text-xs font-bold">{historic.filter(row => !staffId || staffId === 'all' || row.staff_id === staffId).length} اعتمادًا يحتاج تدقيقًا في الفترة المختارة.</p>}
+          <div className="mt-2 grid gap-2 md:grid-cols-2">
+            {historic.filter(row => !staffId || staffId === 'all' || row.staff_id === staffId).map(row => (
+              <div key={row.staff_id + row.attendance_date} className="rounded-lg border border-[var(--dawaa-theme-border)] p-3 text-xs">
+                <p className="font-black">{row.staff_name} · {row.attendance_date} · {row.branch}</p>
+                <p className="mt-1">{!row.sync_proven ? 'اكتمال المزامنة غير مثبت' : ''}{!row.sync_proven && row.uncertain_raw_evidence ? ' · ' : ''}{row.uncertain_raw_evidence ? 'توجد بصمات خام تحتاج تفسيرًا' : ''}</p>
+                <p className="mt-1 font-semibold text-[var(--dawaa-status-warning-text)]">الاعتماد القديم محفوظ؛ يحتاج قرار مراجعة مستقل.</p>
+              </div>
+            ))}
+          </div>
+        </>}
+      </div>
     </section>
   );
 }
