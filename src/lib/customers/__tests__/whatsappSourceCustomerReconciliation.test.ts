@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/lib/supabase', () => ({ supabase: {} }));
 import {
   describeSourceCustomerReconciliation,
+  reconcilePendingWhatsAppSourceCustomers,
   reconcileWhatsAppSourceCustomers,
+  reconcileWhatsAppSourcesAfterCustomerChange,
   SOURCE_CUSTOMER_RECONCILIATION_ACTION,
 } from '../whatsappSourceCustomerReconciliation';
 
@@ -11,7 +13,7 @@ type Row = Record<string, any>;
 
 function memoryClient(
   tables: Record<string, Row[]>,
-  options: { onUpdate?: (row: Row) => void; failInsertInto?: string; failUpdate?: boolean; failReadOf?: string } = {}
+  options: { onUpdate?: (row: Row) => void; failInsertInto?: string; failUpdate?: boolean; failReadOf?: string; failUpdateTimes?: number } = {}
 ) {
   const writes: Array<{ table: string; kind: string; row: Row }> = [];
   const listOf = (expr: string) => (expr.match(/\(([^)]*)\)/)?.[1] ?? '').split(',').map((v) => v.trim()).filter(Boolean);
@@ -27,6 +29,12 @@ function memoryClient(
         limit: () => builder,
         eq: (key: string, value: unknown) => { filters.push((row) => row[key] === value); return builder; },
         is: (key: string, value: unknown) => { filters.push((row) => (row[key] ?? null) === value); return builder; },
+        not: (key: string, op: string, value: unknown) => {
+          if (op !== 'is' || value !== null) throw new Error(`unsupported not(${op})`);
+          filters.push((row) => row[key] != null);
+          return builder;
+        },
+        order: () => builder,
         in: (key: string, values: unknown[]) => { filters.push((row) => values.includes(row[key])); return builder; },
         or: (expr: string) => {
           const clauses = expr.split(/,(?=[a-z_]+\.in\.)/).map((clause) => ({ column: clause.split('.in.')[0], values: listOf(clause) }));
@@ -41,6 +49,7 @@ function memoryClient(
         maybeSingle: async () => {
           if (patch) {
             if (options.failUpdate) return { data: null, error: { message: 'update denied' } };
+            if (options.failUpdateTimes) { options.failUpdateTimes -= 1; return { data: null, error: { message: 'update timeout' } }; }
             const target = rows()[0];
             if (!target) return { data: null, error: null };
             options.onUpdate?.(target);
@@ -160,5 +169,109 @@ describe('WhatsApp source ↔ customer reconciliation after a customer is added'
     const note = describeSourceCustomerReconciliation(outcomes) ?? '';
     expect(note).toContain('دون سجل تدقيق');
     expect(note).not.toContain('سيُعاد المحاولة');
+  });
+
+});
+
+// The customer (18663 shape) already existed — added before V43, or by a path with no hook (bulk
+// import RPC, B-Connect default, server job). Linking must not depend on that customer being "new".
+describe('pending-source sweep: sources whose customer already exists', () => {
+  const tablesWith = (extra: Partial<Record<string, Row[]>> = {}) => ({
+    whatsapp_review_sources: [source('src-ibrahim')], customers: [customer('cust-18663')],
+    customer_aliases: [], whatsapp_review_audit: [] as Row[], ...extra,
+  }) as Record<string, Row[]>;
+
+  it('links an older unlinked source when ANY customer change happens, not only when its own code is added', async () => {
+    const tables = tablesWith();
+    const client = memoryClient(tables);
+    // A different customer (code 55555) is added today; 18663 was created yesterday.
+    const run = await reconcileWhatsAppSourcesAfterCustomerChange(client, ['55555'], { name: 'إضافة عميل' });
+    expect(run.error).toBeNull();
+    expect(run.outcomes).toEqual([expect.objectContaining({ sourceId: 'src-ibrahim', status: 'linked', customerId: 'cust-18663' })]);
+    expect(tables.whatsapp_review_sources[0].customer_id).toBe('cust-18663');
+    expect(tables.whatsapp_review_audit).toEqual([expect.objectContaining({
+      source_id: 'src-ibrahim', action: SOURCE_CUSTOMER_RECONCILIATION_ACTION,
+      before_state: { customer_id: null, customer_code: '18663' },
+      after_state: expect.objectContaining({ customer_id: 'cust-18663', case_reanalysis_required: true }),
+    })]);
+    // Idempotent: nothing left; no second write or audit.
+    const writes = client.writes.length;
+    expect((await reconcileWhatsAppSourcesAfterCustomerChange(client, ['55555'])).outcomes).toEqual([]);
+    expect(client.writes.length).toBe(writes);
+  });
+
+  it('a source matched by both steps is reported once and linked once', async () => {
+    const tables = tablesWith();
+    const run = await reconcileWhatsAppSourcesAfterCustomerChange(memoryClient(tables), ['18663']);
+    expect(run.outcomes.map((o) => o.sourceId)).toEqual(['src-ibrahim']);
+    expect(tables.whatsapp_review_audit).toHaveLength(1);
+  });
+
+  it('a source the targeted step failed on but the sweep linked is reported as linked', async () => {
+    const tables = tablesWith();
+    const run = await reconcileWhatsAppSourcesAfterCustomerChange(memoryClient(tables, { failUpdateTimes: 1 }), ['18663']);
+    expect(run.outcomes).toEqual([expect.objectContaining({ sourceId: 'src-ibrahim', status: 'linked' })]);
+    expect(tables.whatsapp_review_sources[0].customer_id).toBe('cust-18663');
+    expect(tables.whatsapp_review_audit).toHaveLength(1);
+  });
+
+  it('a transient update failure leaves the source NULL; the next sweep links it', async () => {
+    const tables = tablesWith();
+    const first = await reconcilePendingWhatsAppSourceCustomers(memoryClient(tables, { failUpdateTimes: 1 }));
+    expect(first).toEqual([expect.objectContaining({ status: 'failed', customerId: null })]);
+    expect(tables.whatsapp_review_sources[0].customer_id).toBeNull();
+    expect(tables.whatsapp_review_audit).toEqual([]);
+    const retry = await reconcilePendingWhatsAppSourceCustomers(memoryClient(tables));
+    expect(retry).toEqual([expect.objectContaining({ status: 'linked', customerId: 'cust-18663' })]);
+  });
+
+  it('duplicated codes, an unapproved duplicate and a conflicting phone are left for review by the sweep too', async () => {
+    const dup = tablesWith({ customers: [customer('cust-a'), customer('cust-b')] });
+    expect((await reconcilePendingWhatsAppSourceCustomers(memoryClient(dup)))[0].status).toBe('skipped_ambiguous');
+    const unapproved = tablesWith({ customers: [customer('dup-1', { is_duplicate: true })] });
+    expect((await reconcilePendingWhatsAppSourceCustomers(memoryClient(unapproved)))[0].status).not.toBe('linked');
+    const phone = tablesWith({
+      whatsapp_review_sources: [source('src-ibrahim', { customer_phone: '01012345678' })],
+      customers: [customer('cust-18663'), customer('cust-other', { customer_code: '55555', phone: '01012345678' })],
+    });
+    expect((await reconcilePendingWhatsAppSourceCustomers(memoryClient(phone)))[0].status).toBe('skipped_contradicted');
+    for (const t of [dup, unapproved, phone]) {
+      expect(t.whatsapp_review_sources[0].customer_id).toBeNull();
+      expect(t.whatsapp_review_audit).toEqual([]);
+    }
+  });
+
+  it('never creates an identity from a name: a source without a code, or with a blank code, is not touched', async () => {
+    const tables = tablesWith({
+      whatsapp_review_sources: [source('src-no-code', { customer_code: null }), source('src-blank', { customer_code: '  ' })],
+      customers: [customer('cust-18663', { name: 'ابراهيم الخولي' })],
+    });
+    expect(await reconcilePendingWhatsAppSourceCustomers(memoryClient(tables))).toEqual([]);
+    expect(tables.whatsapp_review_sources.every((row) => row.customer_id === null)).toBe(true);
+  });
+
+  it('a manual link made during the sweep wins (compare-and-set) and gets no automatic audit', async () => {
+    const tables = tablesWith();
+    const client = memoryClient(tables, { onUpdate: (row) => { row.customer_id = 'manual-cust'; } });
+    const [outcome] = await reconcilePendingWhatsAppSourceCustomers(client);
+    expect(outcome.status).toBe('skipped_already_linked');
+    expect(tables.whatsapp_review_sources[0].customer_id).toBe('manual-cust');
+    expect(tables.whatsapp_review_audit).toEqual([]);
+  });
+
+  it('a link written without its audit row is a review state, never a retry promise', async () => {
+    const tables = tablesWith();
+    const run = await reconcileWhatsAppSourcesAfterCustomerChange(memoryClient(tables, { failInsertInto: 'whatsapp_review_audit' }), []);
+    expect(run.outcomes).toEqual([expect.objectContaining({ status: 'linked_audit_missing', customerId: 'cust-18663' })]);
+    expect(run.note).toContain('دون سجل تدقيق');
+    expect(run.note).not.toContain('سيُعاد المحاولة');
+  });
+
+  it('a failed sweep read is reported (error + Arabic note) and never shown as "nothing to link"', async () => {
+    const tables = tablesWith();
+    const run = await reconcileWhatsAppSourcesAfterCustomerChange(memoryClient(tables, { failReadOf: 'whatsapp_review_sources' }), ['18663']);
+    expect(run.error).toBe('read failed');
+    expect(run.note).toContain('تعذر فحص محادثات واتساب السابقة');
+    expect(tables.whatsapp_review_sources[0].customer_id).toBeNull();
   });
 });

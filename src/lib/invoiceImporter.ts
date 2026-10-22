@@ -6,7 +6,7 @@
  */
 
 /* xlsx will be imported statically here because callers expect synchronous parsing */
-import { describeSourceCustomerReconciliation, reconcileWhatsAppSourceCustomers } from '@/lib/customers/whatsappSourceCustomerReconciliation';
+import { reconcileWhatsAppSourcesAfterCustomerChange } from '@/lib/customers/whatsappSourceCustomerReconciliation';
 import * as XLSX from 'xlsx';
 import { supabase } from '@/lib/supabase';
 import { getCycleForDate } from '@/lib/pharmacy-cycle';
@@ -1438,18 +1438,14 @@ export async function importCustomersToDB(
       }
     }
 
-    // WhatsApp conversations saved before these customers existed are linked once, by unique code.
-    if (uniqueCustomerCodes.length) {
-      try {
-        const outcomes = await reconcileWhatsAppSourceCustomers(supabase, uniqueCustomerCodes, { name: 'استيراد العملاء' });
-        const note = describeSourceCustomerReconciliation(outcomes);
-        if (note) summary.summaryRefreshMessage = [summary.summaryRefreshMessage, note].filter(Boolean).join(' ');
-      } catch {
-        summary.schemaWarnings = [
-          ...(summary.schemaWarnings || []),
-          'تعذر ربط محادثات واتساب السابقة بالعملاء الجدد الآن؛ سيتم الربط في الاستيراد أو الإضافة التالية.',
-        ];
-      }
+    // WhatsApp conversations saved before their customer existed are linked once, by unique code:
+    // the imported codes, then every still-unlinked coded source (customers added earlier or by
+    // another path). A failed step is a visible warning; the next import or addition retries it.
+    const reconciliation = await reconcileWhatsAppSourcesAfterCustomerChange(supabase, uniqueCustomerCodes, { name: 'استيراد العملاء' });
+    if (reconciliation.error) {
+      summary.schemaWarnings = [...(summary.schemaWarnings || []), reconciliation.note ?? reconciliation.error];
+    } else if (reconciliation.note) {
+      summary.summaryRefreshMessage = [summary.summaryRefreshMessage, reconciliation.note].filter(Boolean).join(' ');
     }
 
     const refresh = await supabase.rpc('rebuild_customer_metrics_summary');

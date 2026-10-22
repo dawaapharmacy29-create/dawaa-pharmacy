@@ -637,16 +637,16 @@ function scoreCandidate(input: ScoreInput): { score: number; disqualifiers: stri
     score += W.phoneMatch;
     factors.push('phone_match');
   }
-  // Code and name describe the SAME customer as customer_id/phone. They are recorded as factors
-  // but add weight only when no stronger identity rung matched, so one identity is never counted
-  // twice into a staff-evaluation level.
+  // customer_id, phone, code and name all describe ONE customer identity. Each is recorded as a
+  // factor, but only the strongest matching rung adds weight: code only without an id/phone match,
+  // name only without any of them. One identity is never counted twice into a staff-evaluation level.
   const strongerIdentityMatched = Boolean(input.customerIdMatch || input.phoneMatch);
   if (input.customerCodeMatch) {
     if (!strongerIdentityMatched) score += W.customerCodeExact;
     factors.push('customer_code_exact');
   }
   if (input.customerNameMatch) {
-    if (!strongerIdentityMatched) score += W.customerNameMatch;
+    if (!strongerIdentityMatched && !input.customerCodeMatch) score += W.customerNameMatch;
     factors.push('customer_name_match');
   }
 
@@ -1032,7 +1032,11 @@ export function recommendInvoiceCandidate(
   const uniqueCode = Boolean(top.customerCodeMatch) && context.sameCodeCandidates === 1;
   check(uniqueCode, 'كود العميل مطابق تمامًا وهي الفاتورة الوحيدة بهذا الكود في نافذة الحالة',
     top.customerCodeMatch ? 'أكثر من فاتورة بنفس كود العميل في نافذة الحالة' : 'كود العميل غير مطابق أو غير موجود');
-  check(Boolean(top.customerNameMatch), 'اسم العميل مطابق بعد التطبيع (دليل مؤيد)', 'اسم العميل على الفاتورة لا يطابق اسم المحادثة');
+  check(Boolean(top.customerNameMatch),
+    top.customerCodeMatch
+      ? 'اسم العميل مطابق بعد التطبيع — يؤيد نفس هوية الكود ولا يُحسب دليلًا مستقلًا'
+      : 'اسم العميل مطابق بعد التطبيع (دليل مؤيد ضعيف؛ الاسم وحده لا يحدد العميل)',
+    'اسم العميل على الفاتورة لا يطابق اسم المحادثة');
   const closeTime = top.timeMatchStrength === 'very_strong' || top.timeMatchStrength === 'strong';
   check(closeTime, 'توقيت الفاتورة قريب من فترة هذه الحالة (' + (top.timeDistanceMinutes ?? '—') + ' دقيقة)', 'توقيت الفاتورة ليس قريبًا بما يكفي من فترة الحالة');
   const productOk = top.productMatch === 'available_match' && top.quantityMatch !== 'available_mismatch';

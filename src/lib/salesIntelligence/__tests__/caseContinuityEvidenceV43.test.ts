@@ -13,6 +13,8 @@ import { recommendInvoiceCandidate } from '../saleAttributionEngine';
 import { careFollowUpState } from '../careFollowUpEngine';
 import { recommendCaseBranch } from '../caseOwnershipContext';
 import { buildConversationUnderstandingV32 } from '../../whatsappConversationUnderstandingV32';
+import { buildCanonicalComplaintActionRows, projectCanonicalComplaintsToActions } from '../persistence/canonicalComplaintProjector';
+import { projectCanonicalFollowupsToActions } from '../persistence/canonicalFollowupProjector';
 import { parseWhatsAppExport, splitWhatsAppSessions } from '../../whatsappConversationParser';
 
 // V43 acceptance on the real 38-message export shape (customer name, code and address replaced):
@@ -77,11 +79,11 @@ function clientWithCustomer() {
   };
 }
 
-async function analyze(options: { invoices?: unknown[]; lines?: unknown[]; sourceBranch?: string; knownStaffIds?: string[] } = {}) {
+async function analyze(options: { invoices?: unknown[]; lines?: unknown[]; sourceBranch?: string; knownStaffIds?: string[]; conversationId?: string } = {}) {
   const context = buildSalesIntelligenceRuntimeContext({ productIndex, staffDirectory: DIRECTORY as any });
   const [prepared] = await prepareSalesIntelligenceConversations(
     clientWithCustomer(),
-    [{ conversationId: 'case-continuity', rawWhatsAppExportText: EXPORT, customerNameHint: 'عميل تجريبي', customerCodeHint: '90001', knownStaffIds: options.knownStaffIds ?? [] } as any],
+    [{ conversationId: options.conversationId ?? 'case-continuity', rawWhatsAppExportText: EXPORT, customerNameHint: 'عميل تجريبي', customerCodeHint: '90001', knownStaffIds: options.knownStaffIds ?? [] } as any],
     context
   );
   const invoices = options.invoices ?? [ORDER_INVOICE, EARLIER_INVOICE];
@@ -333,5 +335,133 @@ describe('V43 review — gaps closed', () => {
     expect(order.attribution.attributionLevel).not.toBe('proven');
     expect(order.salesOutcome.saleProofState).not.toBe('proven');
     expect(order.salesOutcome.isRevenueCountable).toBe(false);
+  });
+});
+
+describe('invoice policy — a candidate is never a sale, revenue or points', () => {
+  const score = (c: any) => c.attribution.selectedCandidate?.confidenceAssessment.score as number;
+
+  it('customer code and name are one identity: the name adds no weight on top of a matching code', async () => {
+    const renamed = { ...ORDER_INVOICE, customer_name: 'اسم مختلف تماما' };
+    const withName = (await analyze()).cases[1];
+    const withoutName = (await analyze({ invoices: [renamed, EARLIER_INVOICE] })).cases[1];
+    expect(withName.attribution.ruleIds).toEqual(expect.arrayContaining(['attribution.factor.customer_code_exact', 'attribution.factor.customer_name_match']));
+    expect(score(withName)).toBeCloseTo(score(withoutName), 5);
+    // Still shown to the reviewer, with the reason it does not count twice.
+    expect(withName.attribution.candidateRecommendation?.reasons.join(' ')).toMatch(/لا يُحسب دليلًا مستقلًا/);
+  });
+
+  it('without a code, a matching name is a weak supporting signal only (its own small weight, never identity)', async () => {
+    const noCode = (name: string) => ({ ...ORDER_INVOICE, customer_code: null, customer_name: name });
+    const named = (await analyze({ invoices: [noCode('د عميل تجريبي')] })).cases[1];
+    const unnamed = (await analyze({ invoices: [noCode('اسم مختلف تماما')] })).cases[1];
+    expect(score(named) - score(unnamed)).toBeCloseTo(0.03, 5);
+    expect(named.attribution.attributionLevel).not.toBe('strongly_inferred');
+    expect(named.attribution.isOfficialForStaffEvaluation).toBe(false);
+  });
+
+  it('a strong, close, same-seller candidate stays unproven: no sale, no revenue, no points', async () => {
+    const { cases } = await analyze();
+    const order = cases[1];
+    expect(order.attribution.candidateRecommendation?.level).toBe('strong_candidate_requires_approval');
+    expect(order.attribution.selectedCandidate?.staffMatch).toBe('same');
+    expect(order.attribution.selectedCandidate?.timeMatchStrength).toBe('very_strong');
+    expect(order.attribution.attributionLevel).not.toBe('proven');
+    expect(order.salesOutcome.saleProofState).not.toBe('proven');
+    expect(order.salesOutcome.isSaleCountable).toBe(false);
+    expect(order.salesOutcome.isRevenueCountable).toBe(false);
+  });
+
+  it('even a statistical "official for evaluation" attribution (customer_id on both sides + full lines) never counts a sale or revenue', async () => {
+    const linked = { ...ORDER_INVOICE, customer_id: 'customer-90001' };
+    const order = (await analyze({ invoices: [linked, EARLIER_INVOICE] })).cases[1];
+    // This is the existing statistical evaluation level, not a proven sale.
+    expect(order.attribution.attributionLevel).not.toBe('proven');
+    expect(order.salesOutcome.saleProofState).not.toBe('proven');
+    expect(order.salesOutcome.isSaleCountable).toBe(false);
+    expect(order.salesOutcome.isRevenueCountable).toBe(false);
+  });
+
+  it('an unresolved «كولونا» strength keeps the automatic invoice-link gate closed', async () => {
+    const order = (await analyze()).cases[1];
+    expect(order.attribution.ruleIds).not.toContain('attribution.trusted.automatic_customer_code_name_time_items_unique');
+    expect(order.attribution.selectedCandidate?.directInvoiceLink ?? false).toBe(false);
+  });
+});
+
+describe('V43 case boundaries vs the stored cases and legacy actions (local simulation only)', () => {
+  const SOURCE_ID = 'ee4f79b9-7a32-48c6-93b8-ecdfa01b6aed';
+  // Shape of the stored legacy action: a V15 complaint follow-up whose only evidence is a case
+  // reference (the welfare check's start), not a message id. Synthetic copy; nothing is read or written.
+  const legacyComplaint = () => ({
+    id: 'legacy-complaint', source_id: SOURCE_ID, action_key: 'complaint-followup', action_type: 'complaint_followup',
+    status: 'ready', work_status: 'unassigned', updated_at: '2026-10-20T17:58:23.600Z', payload: { journey_key: 'x' },
+    evidence: ['case:1790495647000-0'], followup_attempts: 0, followup_identity: null, created_by: 'reviewer',
+  });
+  function recordingClient(rows: Record<string, any>[]) {
+    const writes: string[] = [];
+    const rpcCalls: Array<{ name: string; args: any }> = [];
+    const from = () => {
+      const filters: Array<(row: any) => boolean> = [];
+      const b: any = {
+        select: () => b, limit: () => b, order: () => b,
+        eq: (k: string, v: unknown) => { filters.push((r) => r[k] === v); return b; },
+        in: (k: string, v: unknown[]) => { filters.push((r) => v.includes(r[k])); return b; },
+        is: (k: string, v: unknown) => { filters.push((r) => (r[k] ?? null) === v); return b; },
+        insert: () => { writes.push('insert'); return b; },
+        update: () => { writes.push('update'); return b; },
+        maybeSingle: async () => ({ data: null, error: null }),
+        then: (resolve: any) => resolve({ data: rows.filter((r) => filters.every((f) => f(r))), error: null }),
+      };
+      return b;
+    };
+    return { writes, rpcCalls, from, rpc: async (name: string, args: any) => { rpcCalls.push({ name, args }); return { data: { ok: true, inserted: 0, existing: 0, updated: 0, withdrawn: 0 }, error: null }; } };
+  }
+
+  it('keeps the stored welfare and order case ids; the nurse chase joins the nurse case (the stored chase case would retire)', async () => {
+    const { cases } = await analyze({ conversationId: SOURCE_ID });
+    expect(cases.map((c) => c.caseId)).toEqual([
+      `${SOURCE_ID}:interaction:0:session:0`,
+      `${SOURCE_ID}:interaction:0:session:2`,
+      `${SOURCE_ID}:interaction:1:session:2`,
+    ]);
+    // Stored before V43: …:interaction:1:session:2 (nurse request) and …:interaction:2:session:2 (chase).
+    expect(cases.some((c) => c.caseId.endsWith(':interaction:2:session:2'))).toBe(false);
+  });
+
+  it('re-analysis projects no complaint and no follow-up, so the legacy complaint action is neither withdrawn nor duplicated', async () => {
+    const { cases } = await analyze({ conversationId: SOURCE_ID });
+    const source = { id: SOURCE_ID, raw_text: EXPORT, customer_name: 'عميل تجريبي', customer_code: '90001' };
+    const rows = [legacyComplaint()];
+    const client = recordingClient(rows);
+    const complaints = await projectCanonicalComplaintsToActions(client, cases, [source]);
+    expect(complaints.rows).toEqual([]);
+    const analysisIds = Object.fromEntries(cases.map((c, i) => [c.caseId, `00000000-0000-4000-8000-00000000000${i}`]));
+    await projectCanonicalFollowupsToActions(client, cases, [source], [{ sourceId: SOURCE_ID, analysisIds }]);
+    // The only follow-up write path is the reconcile RPC, with an empty row set; its SQL withdraws only
+    // its own customer_followup rows, never a legacy complaint_followup.
+    expect(client.rpcCalls).toEqual([expect.objectContaining({ args: expect.objectContaining({ p_rows: [] }) })]);
+    expect(client.writes).toEqual([]);
+    expect(rows[0]).toEqual(legacyComplaint());
+    // The care check-in is a suggestion on the case, not an action row.
+    expect(cases[2].careFollowUp?.kind).toBe('care_check_in');
+  });
+
+  it('if a future engine did see a complaint there, the legacy action blocks for review instead of being replaced', async () => {
+    const { cases } = await analyze({ conversationId: SOURCE_ID });
+    const nursing: any = cases[2];
+    const complaintIds = [nursing.caseIntelligence.interaction.messageIds[0]];
+    const hypothetical = {
+      ...nursing,
+      conversationCase: { ...nursing.conversationCase, branchNameRaw: 'فرع شكري' },
+      complaintAssessment: { ...nursing.complaintAssessment, caseId: nursing.caseId, state: 'unresolved', complaintMessageIds: complaintIds, evidenceMessageIds: complaintIds },
+    };
+    const source = { id: SOURCE_ID, raw_text: EXPORT, customer_name: 'عميل تجريبي', customer_code: '90001' };
+    expect(buildCanonicalComplaintActionRows([hypothetical], [source]).rows).toHaveLength(1);
+    const rows = [legacyComplaint()];
+    const client = recordingClient(rows);
+    await expect(projectCanonicalComplaintsToActions(client, [hypothetical], [source])).rejects.toThrow('canonical_complaint_legacy_evidence_requires_review');
+    expect(client.writes).toEqual([]);
+    expect(rows[0]).toEqual(legacyComplaint());
   });
 });
