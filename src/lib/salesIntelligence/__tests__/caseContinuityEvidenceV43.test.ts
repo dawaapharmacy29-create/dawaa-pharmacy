@@ -65,6 +65,11 @@ const ORDER_LINES = [
   { productNameRaw: 'GASTROBIOTIC 550 MG 20 TAB', productCode: '78994', productId: 'p-gastro-550', quantity: 1 },
 ];
 
+// The same invoice without the two lines the conversation names: no unique canonical product with
+// agreeing quantity, so the automatic invoice-to-case gate cannot fire.
+const LINES_WITHOUT_REQUESTED = ORDER_LINES.filter((line) => line.productCode !== '78994' && line.productCode !== '81948');
+const LINES_GASTRO_QTY_CONFLICT = ORDER_LINES.map((line) => (line.productCode === '78994' ? { ...line, quantity: 2 } : line));
+
 function clientWithCustomer() {
   const rows: Record<string, unknown[]> = { customers: [{ id: 'customer-90001', customer_code: '90001', name: 'د عميل تجريبي', phone: null, branch: null }] };
   return {
@@ -147,12 +152,17 @@ describe('V43 — case continuity on the 38-message export', () => {
     for (const c of cases) expect(c.conversationCase.branchNameRaw).not.toBe('المخزن');
     expect(cases[0].branchRecommendation).toMatchObject({ branch: null, strength: 'none' });
     expect(cases[1].conversationCase.branchNameRaw).toBeNull();
-    // The invoice's seller is the case doctor, so its branch and his home branch are one chain of
-    // evidence: a supporting hint for «فرع شكري», never a confirmed or strong case branch.
-    expect(cases[1].branchRecommendation).toMatchObject({ branch: 'فرع شكري', strength: 'supporting_only' });
-    expect(cases[1].branchRecommendation?.reasons.join(' ')).toMatch(/الفرع الأساسي للدكتور/);
-    expect(cases[1].branchRecommendation?.reasons.join(' ')).toMatch(/فرع الفاتورة/);
-    expect(cases[1].branchRecommendation?.reasons.join(' ')).toMatch(/دليل واحد غير مستقل/);
+    // v45: the order invoice is proven for THIS case, so its branch decides the transaction branch;
+    // the source branch field is never rewritten.
+    expect(cases[1].branchRecommendation).toMatchObject({ branch: 'فرع شكري', strength: 'decided' });
+    expect(cases[1].branchRecommendation?.reasons.join(' ')).toMatch(/فرع فاتورة مرتبطة ومثبتة لهذه الحالة؛ يحدد فرع العملية دون تعديل فرع المصدر/);
+    expect(cases[2].branchRecommendation?.strength).not.toBe('decided');
+    // Without a proven link, the seller-doctor's invoice branch and home branch stay one chain of
+    // evidence: a supporting hint only, never a decided branch (no circular evidence).
+    const unproven = (await analyze({ lines: LINES_WITHOUT_REQUESTED })).cases[1];
+    expect(unproven.attribution.attributionLevel).not.toBe('proven');
+    expect(unproven.branchRecommendation).toMatchObject({ branch: 'فرع شكري', strength: 'supporting_only' });
+    expect(unproven.branchRecommendation?.reasons.join(' ')).toMatch(/دليل واحد غير مستقل|دليل واحد فقط؛ غير كافٍ لحسم الفرع/);
   });
 
   it('a doctor-home vs invoice branch disagreement is a conflict, not a choice', () => {
@@ -162,21 +172,24 @@ describe('V43 — case continuity on the 38-message export', () => {
     expect(recommendCaseBranch({ ownership, invoiceBranch: 'فرع شكري', invoiceCandidateStrong: true, attributionUsedCaseBranch: true }).strength).toBe('supporting_only');
   });
 
-  it('ranks the order invoice as a strong candidate for the ORDER case only, without proof, sale or credit', async () => {
+  it('proves the order invoice for the ORDER case only, and only through the deterministic automatic rule', async () => {
     const { cases } = await analyze();
     const order = cases[1];
     expect(order.attribution.selectedInvoiceNumber).toBe('90938');
-    expect(order.attribution.candidateRecommendation?.level).toBe('strong_candidate_requires_approval');
+    // Documented contract (SOURCE_OF_TRUTH §0): unique code + consistent name + very close time +
+    // one unique canonical product with agreeing quantity + no contradiction. Partial coverage is
+    // allowed; the unmatched lines stay invoice-only.
+    expect(order.attribution.attributionLevel).toBe('proven');
     expect(order.attribution.ruleIds).toEqual(expect.arrayContaining([
-      'attribution.factor.customer_code_exact', 'attribution.factor.customer_name_match',
-      'attribution.factor.time_very_strong', 'attribution.factor.staff_same', 'attribution.factor.product_match',
+      'attribution.trusted.automatic_customer_code_name_time_items_unique',
+      'attribution.product.partial_basket_coverage',
+      'attribution.factor.customer_code_exact', 'attribution.factor.time_very_strong', 'attribution.factor.product_match',
     ]));
-    expect(order.attribution.attributionLevel).not.toBe('proven');
-    expect(order.attribution.isOfficialForStaffEvaluation).toBe(false);
-    expect(order.salesOutcome.isSaleCountable).toBe(false);
-    expect(order.salesOutcome.isRevenueCountable).toBe(false);
-    expect(order.salesOutcome.saleProofState).not.toBe('proven');
-    for (const c of [cases[0], cases[2]]) expect(c.attribution.selectedInvoiceNumber ?? null).toBeNull();
+    expect(order.salesOutcome.saleProofState).toBe('proven');
+    for (const c of [cases[0], cases[2]]) {
+      expect(c.attribution.selectedInvoiceNumber ?? null).toBeNull();
+      expect(c.salesOutcome.isSaleCountable).toBe(false);
+    }
   });
 
   it('customer code and time without product content never make a strong candidate', async () => {
@@ -237,9 +250,10 @@ describe('V43 — case continuity on the 38-message export', () => {
         sourceId: 'case-continuity', view: c.caseIntelligence!, evaluation: analyzeConversationEvaluation(c.caseIntelligence!, null),
         staffRow: { id: 'staff-x', name: 'x', branch: null, role: null },
       });
+      // Conversation-quality evaluation never carries sale points, whatever the invoice proof.
       expect(payload.point_impact).toBe(0);
       expect(payload.doctor_points_impact).toBe(0);
-      expect(payload.invoice_number).toBeNull();
+      expect(payload.invoice_number ?? null).toBe(c === cases[1] ? '90938' : null);
     }
   });
 });
@@ -323,31 +337,33 @@ describe('V43 review — gaps closed', () => {
     expect(staffIds(cases[1])).toEqual(['staff-shebl']);
   });
 
-  it('matches Colona 40 (81948 × 2) and GASTROBIOTIC 550 (78994 × 1) only as candidate lines, never as a proven sale', async () => {
+  it('matches only GASTROBIOTIC 550 (78994 × 1); Colona 40 (81948 × 2) is not matched from «كولونا» alone', async () => {
     const { cases } = await analyze();
     const order = cases[1];
     const lines = order.attribution.selectedCandidate?.lineMatches ?? [];
-    const gastro = lines.find((l) => l.invoiceProductCode === '78994');
-    expect(gastro).toMatchObject({ invoiceQuantity: 1 });
-    // The Colona strength is not resolved from «كولونا» alone (30 vs 40 tab), so it is not matched
-    // to line 81948 by the engine; the line exists on the invoice as a fact only.
+    expect(lines.find((l) => l.invoiceProductCode === '78994')).toMatchObject({ invoiceQuantity: 1, quantityAgrees: true });
+    // The Colona strength is not resolved from «كولونا» alone (30 vs 40 tab), so the engine does not
+    // match line 81948; the proof rests on the Gastrobiotic line only.
     expect(lines.some((l) => l.invoiceProductCode === '81948')).toBe(false);
-    expect(order.attribution.attributionLevel).not.toBe('proven');
-    expect(order.salesOutcome.saleProofState).not.toBe('proven');
-    expect(order.salesOutcome.isRevenueCountable).toBe(false);
+    // A quantity conflict on that one matched line closes the automatic gate.
+    const conflict = (await analyze({ lines: LINES_GASTRO_QTY_CONFLICT })).cases[1];
+    expect(conflict.attribution.attributionLevel).not.toBe('proven');
+    expect(conflict.salesOutcome.isRevenueCountable).toBe(false);
   });
 });
 
-describe('invoice policy — a candidate is never a sale, revenue or points', () => {
+describe('invoice policy — only the documented proof rule counts a sale; candidates never do', () => {
   const score = (c: any) => c.attribution.selectedCandidate?.confidenceAssessment.score as number;
 
   it('customer code and name are one identity: the name adds no weight on top of a matching code', async () => {
+    // Scored candidates (no automatic proof): the lines the conversation names are absent.
     const renamed = { ...ORDER_INVOICE, customer_name: 'اسم مختلف تماما' };
-    const withName = (await analyze()).cases[1];
-    const withoutName = (await analyze({ invoices: [renamed, EARLIER_INVOICE] })).cases[1];
+    const withName = (await analyze({ lines: LINES_WITHOUT_REQUESTED })).cases[1];
+    const withoutName = (await analyze({ invoices: [renamed, EARLIER_INVOICE], lines: LINES_WITHOUT_REQUESTED })).cases[1];
     expect(withName.attribution.ruleIds).toEqual(expect.arrayContaining(['attribution.factor.customer_code_exact', 'attribution.factor.customer_name_match']));
     expect(score(withName)).toBeCloseTo(score(withoutName), 5);
     // Still shown to the reviewer, with the reason it does not count twice.
+    expect(withName.attribution.attributionLevel).not.toBe('proven');
     expect(withName.attribution.candidateRecommendation?.reasons.join(' ')).toMatch(/لا يُحسب دليلًا مستقلًا/);
   });
 
@@ -360,10 +376,10 @@ describe('invoice policy — a candidate is never a sale, revenue or points', ()
     expect(named.attribution.isOfficialForStaffEvaluation).toBe(false);
   });
 
-  it('a strong, close, same-seller candidate stays unproven: no sale, no revenue, no points', async () => {
-    const { cases } = await analyze();
-    const order = cases[1];
-    expect(order.attribution.candidateRecommendation?.level).toBe('strong_candidate_requires_approval');
+  it('a close, same-seller, same-code candidate without a matched requested product stays unproven: no sale, no revenue', async () => {
+    const order = (await analyze({ lines: LINES_WITHOUT_REQUESTED })).cases[1];
+    expect(order.attribution.selectedInvoiceNumber).toBe('90938');
+    expect(order.attribution.candidateRecommendation?.level).not.toBe('strong_candidate_requires_approval');
     expect(order.attribution.selectedCandidate?.staffMatch).toBe('same');
     expect(order.attribution.selectedCandidate?.timeMatchStrength).toBe('very_strong');
     expect(order.attribution.attributionLevel).not.toBe('proven');
@@ -372,20 +388,23 @@ describe('invoice policy — a candidate is never a sale, revenue or points', ()
     expect(order.salesOutcome.isRevenueCountable).toBe(false);
   });
 
-  it('even a statistical "official for evaluation" attribution (customer_id on both sides + full lines) never counts a sale or revenue', async () => {
+  it('customer_id on both sides plus close time and seller never counts a sale without a matched requested product', async () => {
     const linked = { ...ORDER_INVOICE, customer_id: 'customer-90001' };
-    const order = (await analyze({ invoices: [linked, EARLIER_INVOICE] })).cases[1];
-    // This is the existing statistical evaluation level, not a proven sale.
+    const order = (await analyze({ invoices: [linked, EARLIER_INVOICE], lines: LINES_WITHOUT_REQUESTED })).cases[1];
+    // Identity + time + seller is a statistical candidate, not a proven sale.
     expect(order.attribution.attributionLevel).not.toBe('proven');
     expect(order.salesOutcome.saleProofState).not.toBe('proven');
     expect(order.salesOutcome.isSaleCountable).toBe(false);
     expect(order.salesOutcome.isRevenueCountable).toBe(false);
   });
 
-  it('an unresolved «كولونا» strength keeps the automatic invoice-link gate closed', async () => {
-    const order = (await analyze()).cases[1];
+  it('an unresolved «كولونا» alone never opens the automatic invoice-link gate', async () => {
+    // Only the Colona line can relate to the conversation; its strength is unresolved.
+    const colonaOnly = ORDER_LINES.filter((line) => line.productCode !== '78994');
+    const order = (await analyze({ lines: colonaOnly })).cases[1];
     expect(order.attribution.ruleIds).not.toContain('attribution.trusted.automatic_customer_code_name_time_items_unique');
     expect(order.attribution.selectedCandidate?.directInvoiceLink ?? false).toBe(false);
+    expect(order.salesOutcome.isSaleCountable).toBe(false);
   });
 });
 
@@ -463,5 +482,29 @@ describe('V43 case boundaries vs the stored cases and legacy actions (local simu
     await expect(projectCanonicalComplaintsToActions(client, [hypothetical], [source])).rejects.toThrow('canonical_complaint_legacy_evidence_requires_review');
     expect(client.writes).toEqual([]);
     expect(rows[0]).toEqual(legacyComplaint());
+  });
+});
+
+describe('V46 — unresolved products carry their canonical catalog candidates for review only', () => {
+  it('«كولونا» keeps both tied candidates and no identity; resolved «جاسترو بيوتيك 550» has none', async () => {
+    const { cases } = await analyze();
+    const products = cases[1].caseIntelligence!.products;
+    const colona = products.find((p) => p.productNameRaw.includes('كولونا'))!;
+    expect(colona.productId).toBeNull();
+    expect((colona.catalogCandidates ?? []).map((c) => c.productCode).sort()).toEqual(['57909', '81948']);
+    const gastro = products.find((p) => p.productNameRaw.includes('جاسترو'))!;
+    expect(gastro.productId).toBe('p-gastro-550');
+    expect(gastro.catalogCandidates).toBeUndefined();
+    // Review evidence only: candidates never become an identity or a basket line.
+    expect(cases[1].caseIntelligence!.basket.activeItems.every((item) => item.productId !== 'p-colona-40' && item.productId !== 'p-colona-30')).toBe(true);
+  });
+
+  it('a name the catalog does not contain («المحلول») yields no candidates', async () => {
+    const { cases } = await analyze();
+    for (const c of cases) {
+      for (const p of c.caseIntelligence!.products) {
+        if (/محلول/.test(p.productNameRaw)) expect(p.catalogCandidates ?? []).toEqual([]);
+      }
+    }
   });
 });

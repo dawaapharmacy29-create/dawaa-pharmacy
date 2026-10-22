@@ -618,7 +618,13 @@ function analyzeOneCase(
   // commercial-confirmation evidence, but it is not a reason for a human task once the exact
   // transaction itself is proven by a trusted invoice.
   const reviewReasonsResolvedByProvenInvoice = new Set(['no_basket_state_for_case']);
-  const reviewReasonsResolvedByFinancialSettlement = new Set(['possible_unsegmented_multiple_requests']);
+  // An exact settled payment (proof + staff receipt + amount equal to the invoice) is the
+  // transactional corroboration a statistical invoice lacked. It closes the review only; it never
+  // makes the sale or revenue countable (see deriveCanonicalSalesOutcome).
+  const reviewReasonsResolvedByFinancialSettlement = new Set([
+    'possible_unsegmented_multiple_requests',
+    'statistical_invoice_lacks_transactional_corroboration',
+  ]);
   const invoiceBackedOrderClosure =
     commercialConfirmation.currentState === 'commercial_confirmation_complete' &&
     attribution.hasAttributedInvoice &&
@@ -785,8 +791,32 @@ function analyzeOneCase(
       customerNameHint: input.customerNameHint ?? null,
       customerCodeHint: input.customerCodeHint ?? null,
       staffIdBySender: caseStaffIdBySender,
+      catalogCandidatesFor: (name) => unresolvedCatalogCandidates(name, input.productIndex),
     }),
   };
+}
+
+/**
+ * The canonical resolver's top-tier tied candidates for a name it could not resolve safely —
+ * exactly the reason it stayed ambiguous. Bounded; empty when the resolver selects a product or
+ * finds nothing (e.g. «المحلول» names no catalog product).
+ */
+function unresolvedCatalogCandidates(
+  name: string,
+  productIndex: SalesIntelligencePipelineInput['productIndex']
+): Array<{ productId: string; productCode: string; name: string }> {
+  if (!productIndex || !name.trim()) return [];
+  const resolution = resolveProductMention(name, productIndex);
+  if (resolution.selected || !resolution.candidates.length) return [];
+  const top = resolution.candidates[0].confidence;
+  return resolution.candidates
+    .filter((candidate) => candidate.confidence === top)
+    .slice(0, 10)
+    .map((candidate) => ({
+      productId: candidate.product.productId,
+      productCode: candidate.product.productCode,
+      name: candidate.product.canonicalName,
+    }));
 }
 
 export interface SegmentedCase {

@@ -12,7 +12,9 @@ const PRODUCT = '00000000-0000-4000-8000-000000000102';
 const rows: RawProductRow[] = [{id: PRODUCT, name: 'ISIS TEEN DERM GEL SENSITIVE 250ML', product_code: '70271', normalized_name: 'isis teen derm gel sensitive 250ml', category: null, price: 675, source: 'synthetic_regression'}];
 const index = buildPharmacyProductIndex(rows.map(row => buildCanonicalProduct(row, countNormalizedNames(rows), normalizePharmacyText)));
 const invoice = {id: 'synthetic-invoice', invoice_number: 'SYN-1', customer_id: CUSTOMER, customer_code: '17701', customer_name: 'عميل تجريبي', branch: 'فرع شكري', invoice_datetime: '2026-09-15T22:23:00Z', amount: 675, staff_id: 'invoice-seller'};
-const BASE_CHAT = '[9/15/26, 9:30:55 PM] Customer: Isis teenderm gel for sensitive skin بديل الغسول\n[9/15/26, 9:32:09 PM] You: موجود باذن الله يافندم\n[9/15/26, 9:35:06 PM] You: تحب نبعته لحضرتك؟\n[9/15/26, 9:42:30 PM] Customer: اه ابعته\n[9/15/26, 9:42:57 PM] You: من عنيا لحضرتك مسافه الطريق ويكون عند حضرتك\n[9/15/26, 10:28:27 PM] Customer: حضرتك بعت الاوردر\n[9/15/26, 10:30:18 PM] You: المندوب في الطريق لحضرتك';
+// v45: the automatic invoice link needs a canonical product AND an agreeing quantity spoken in the case.
+const QUANTITYLESS_REQUEST = '[9/15/26, 9:30:55 PM] Customer: Isis teenderm gel for sensitive skin بديل الغسول';
+const BASE_CHAT = '[9/15/26, 9:30:55 PM] Customer: عايز 1 علبة Isis teenderm gel for sensitive skin بديل الغسول\n[9/15/26, 9:32:09 PM] You: موجود باذن الله يافندم\n[9/15/26, 9:35:06 PM] You: تحب نبعته لحضرتك؟\n[9/15/26, 9:42:30 PM] Customer: اه ابعته\n[9/15/26, 9:42:57 PM] You: من عنيا لحضرتك مسافه الطريق ويكون عند حضرتك\n[9/15/26, 10:28:27 PM] Customer: حضرتك بعت الاوردر\n[9/15/26, 10:30:18 PM] You: المندوب في الطريق لحضرتك';
 function analyze(overrides: Partial<SalesIntelligencePipelineInput> = {}) {
  const result = runSalesIntelligencePipeline({
   conversationId: 'synthetic-invoice-proof', customerIdHint: CUSTOMER, customerCodeHint: '17701', customerNameHint: 'عميل تجريبي', customerIdentityStatus: 'resolved', branchNameRawHint: 'فرع شكري', productIndex: index,
@@ -60,6 +62,11 @@ describe('invoice-backed canonical sale proof', () => {
  });
  it('does not prove a known quantity mismatch', () => {
   const a = analyze({rawWhatsAppExportText: '[9/15/26, 9:30:55 PM] Customer: عايز 2 علبة ISIS TEEN DERM GEL SENSITIVE 250ML\n[9/15/26, 9:32:09 PM] You: موجود'});
+  expect(a.salesOutcome.isRevenueCountable).toBe(false);
+ });
+ it('does not automatically prove a product request without any spoken quantity', () => {
+  const a = analyze({rawWhatsAppExportText: BASE_CHAT.replace(BASE_CHAT.split('\n')[0], QUANTITYLESS_REQUEST)});
+  expect(a.salesOutcome.saleProofState).not.toBe('proven');
   expect(a.salesOutcome.isRevenueCountable).toBe(false);
  });
  it('retry preserves canonical invoice identity', () => {

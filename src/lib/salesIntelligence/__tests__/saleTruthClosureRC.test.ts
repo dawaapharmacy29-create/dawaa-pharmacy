@@ -83,6 +83,9 @@ function itemsBy(map: Record<string, Item[]>): InvoiceItemEvidenceProvider {
 
 const TRIMED = { productNameRaw: 'Trimed', quantity: 1 };
 const PANADOL = { productNameRaw: 'Panadol', quantity: 2 };
+// v44+: automatic proof needs a canonical product identity (productId) with quantity; a name-only
+// match is review evidence only.
+const TRIMED_CANONICAL = { productNameRaw: 'Trimed', productId: 'p-trimed', quantity: 1 };
 
 describe('RC closure — Sale Proof requires product evidence', () => {
   it('1. same customer + invoice within 30m + no product match -> NOT proven', () => {
@@ -97,9 +100,12 @@ describe('RC closure — Sale Proof requires product evidence', () => {
   });
 
   it('2. same customer + matching product -> proven, bound to the invoice id', () => {
-    const a = deriveSaleAttributionAssessment(ctx([TRIMED]), [invoice('inv-1')], itemsBy({ 'inv-1': [{ productNameRaw: 'trimed ', quantity: 1 }] }));
+    const a = deriveSaleAttributionAssessment(ctx([TRIMED_CANONICAL]), [invoice('inv-1')], itemsBy({ 'inv-1': [{ productNameRaw: 'trimed ', productId: 'p-trimed', quantity: 1 }] }));
     expect(a.attributionLevel).toBe('proven');
     expect(a.selectedInvoiceId).toBe('inv-1');
+    const nameOnly = deriveSaleAttributionAssessment(ctx([TRIMED]), [invoice('inv-1')], itemsBy({ 'inv-1': [{ productNameRaw: 'trimed ', quantity: 1 }] }));
+    expect(nameOnly.attributionLevel).not.toBe('proven');
+    expect(nameOnly.selectedInvoiceId).toBe('inv-1');
   });
 
   it('3. wrong customer + matching product -> NOT proven', () => {
@@ -136,9 +142,10 @@ describe('RC closure — Sale Proof requires product evidence', () => {
     expect(a.selectedCandidate?.ruleIds).toContain('attribution.product.partial_basket_coverage');
   });
 
-  it('7. normalized product variants and canonical product ids match', () => {
+  it('7. normalized name variants stay review evidence; canonical product ids prove', () => {
     const byName = deriveSaleAttributionAssessment(ctx([{ productNameRaw: 'بانادول  اكسترا', quantity: 1 }]), [invoice('inv-1')], itemsBy({ 'inv-1': [{ productNameRaw: 'بانادول اكسترا', quantity: 1 }] }));
-    expect(byName.attributionLevel).toBe('proven');
+    expect(byName.attributionLevel).not.toBe('proven');
+    expect(byName.selectedInvoiceId).toBe('inv-1');
     const byId = deriveSaleAttributionAssessment(ctx([{ productNameRaw: 'panadol extra', productId: 'p-7', quantity: 1 }]), [invoice('inv-1')], itemsBy({ 'inv-1': [{ productNameRaw: 'PANADOL EXTRA 24 TAB', productId: 'p-7', quantity: 1 }] }));
     expect(byId.attributionLevel).toBe('proven');
   });
@@ -154,9 +161,9 @@ describe('RC closure — Sale Proof requires product evidence', () => {
 
   it('11. a newer invoice carrying the requested products beats an older one that does not', () => {
     const a = deriveSaleAttributionAssessment(
-      ctx([TRIMED]),
+      ctx([TRIMED_CANONICAL]),
       [invoice('inv-old', { invoice_datetime: '2026-09-28T03:52:00.000Z' }), invoice('inv-new', { invoice_datetime: '2026-09-28T03:57:00.000Z' })],
-      itemsBy({ 'inv-old': [{ productNameRaw: 'Pampers', quantity: 1 }], 'inv-new': [TRIMED] })
+      itemsBy({ 'inv-old': [{ productNameRaw: 'Pampers', productId: 'p-pampers', quantity: 1 }], 'inv-new': [TRIMED_CANONICAL] })
     );
     expect(a.selectedInvoiceId).toBe('inv-new');
     expect(a.attributionLevel).toBe('proven');
@@ -164,9 +171,9 @@ describe('RC closure — Sale Proof requires product evidence', () => {
 
   it('12. two invoices that both pass the gate -> ambiguity, nothing proven', () => {
     const a = deriveSaleAttributionAssessment(
-      ctx([TRIMED]),
+      ctx([TRIMED_CANONICAL]),
       [invoice('inv-a'), invoice('inv-b', { invoice_datetime: '2026-09-28T03:57:00.000Z' })],
-      itemsBy({ 'inv-a': [TRIMED], 'inv-b': [TRIMED] })
+      itemsBy({ 'inv-a': [TRIMED_CANONICAL], 'inv-b': [TRIMED_CANONICAL] })
     );
     expect(a.attributionLevel).not.toBe('proven');
   });

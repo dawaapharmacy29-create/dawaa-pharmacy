@@ -34,6 +34,8 @@ import { loadConversationEvaluation } from '@/lib/salesIntelligence/conversation
 import type { ConversationEvaluationResult } from '@/lib/salesIntelligence/conversationEvaluation';
 import { productDisplayStateLabel } from '@/lib/salesIntelligence/qa/persistedProductTruth';
 import { readCaseIntelligence } from '@/lib/salesIntelligence/qa/caseIntelligencePresentation';
+import { buildCaseInvoiceCard } from '@/lib/salesIntelligence/qa/caseInvoiceCard';
+import { CaseInvoiceCard } from '@/components/salesIntelligence/CaseInvoiceCard';
 
 const MATCH_DIFFERENCE_LABELS: Record<string, string> = {
   missing_item: 'صنف في المحادثة غير موجود بالفاتورة',
@@ -274,6 +276,26 @@ export default function SalesIntelligenceQACaseDetail() {
     conversation.invoiceLinkConfirmedInvoiceNumber === candidateInvoiceNumber
   );
   const invoiceAlreadyProven = Boolean(trustedInvoiceId && trustedInvoiceId === candidateInvoiceId);
+  const invoiceCard = buildCaseInvoiceCard({
+    view: caseIntelligence,
+    attribution: canonicalTruth.attribution
+      ? {
+          attributionLevel: canonicalTruth.attribution.attributionLevel,
+          selectedInvoiceId: canonicalTruth.attribution.selectedInvoiceId,
+          selectedInvoiceNumber: canonicalTruth.attribution.selectedInvoiceNumber,
+        }
+      : null,
+    automaticProofRule: invoiceLinkMethod === 'automatic',
+    humanLinkConfirmed: invoiceConfirmationMatchesCandidate,
+    outcome: currentSalesOutcome
+      ? { isOrderConfirmed: currentSalesOutcome.isOrderConfirmed, saleProofState: currentSalesOutcome.saleProofState }
+      : null,
+    invoice: candidateInvoice,
+    items: invoiceItemFacts,
+    invoiceStaff: invoiceStaffTruth,
+    source: conversation ? { branch: conversation.branch, customerId: conversation.customerId, customerCode: conversation.customerCode } : null,
+    analysisCustomerId: persistedAnalysis.identity_customer_id ?? null,
+  });
   const canConfirmInvoiceLink = Boolean(
     checkPermission('edit_reviews') ||
     checkPermission('approve_reviews') ||
@@ -843,15 +865,16 @@ export default function SalesIntelligenceQACaseDetail() {
         )}
       </Section>
 
-      <Section title="٦.ب. تفاصيل البيع الفعلية من B-Connect">
-        {!attribution?.selected_invoice_id ? (
-          <div className="dawaa-empty-state py-4 text-center">لا توجد فاتورة مختارة لعرض تفاصيل أصنافها.</div>
-        ) : !invoiceItemFacts.length ? (
+      <Section title="٦.ب. الفاتورة داخل هذه الحالة">
+        <CaseInvoiceCard card={invoiceCard} />
+        {!attribution?.selected_invoice_id ? null : !invoiceItemFacts.length ? (
           <div className="dawaa-alert dawaa-alert--warning text-xs leading-6">
             الفاتورة موجودة، لكن بنود B-Connect لم تُستورد لهذه الفاتورة بعد. لذلك لا يمكن الحكم على الصنف أو الكمية أو السعر أو تنفيذ العرض من هذه الحالة.
           </div>
         ) : (
-          <>
+          <details className="mt-3">
+            <summary className="dawaa-button dawaa-button--ghost cursor-pointer text-xs">تفاصيل التسعير والعروض لكل بند</summary>
+            <div className="mt-3">
             <div className="mb-3 grid gap-2 sm:grid-cols-4">
               <Field label="أصناف الفاتورة" value={invoiceItemFacts.length} />
               <Field label="أصناف لها سعر مذكور بالمحادثة" value={priceQuotedRows.length} />
@@ -926,7 +949,8 @@ export default function SalesIntelligenceQACaseDetail() {
                 </tbody>
               </table>
             </div>
-          </>
+            </div>
+          </details>
         )}
       </Section>
 

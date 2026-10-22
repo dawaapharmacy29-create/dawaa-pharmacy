@@ -235,6 +235,10 @@ function getInvoiceCustomerName(row: InvoiceLike): string | null {
 
 function normalizeCustomerNameForInvoiceMatch(value: string | null | undefined): string {
   return String(value ?? '')
+    // B-Connect appends bracketed annotations to the customer name — discount tiers «(10%)»,
+    // points «(200p)», notes «( بيت )» (about 11% of recent invoices). They are not part of the
+    // name; keeping them turned the same customer into a name contradiction.
+    .replace(/[(（][^)）]*[)）]/g, ' ')
     .trim()
     .toLowerCase()
     // Invoice/customer display names may carry honorifics, but matching still requires

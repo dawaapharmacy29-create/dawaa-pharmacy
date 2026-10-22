@@ -92,14 +92,18 @@
 // v45: once a directly proven invoice is linked to a case, its operating branch resolves the
 // transaction branch. Existing explicit branch conflicts remain blocked; the source branch field
 // is never rewritten by analysis.
-export const PIPELINE_VERSION = 'sales-intelligence-v45-proven-invoice-branch';
+// v46: invoice line evidence reads both stored raw_data shapes (importer `__dawaa_commercial` and the
+// compact B-Connect rows), so returned quantity on compact rows reduces the compared quantity
+// instead of being dropped. An unresolved case product carries the canonical resolver's tied
+// catalog candidates for review only (never an identity). No proof rule changes.
+export const PIPELINE_VERSION = 'sales-intelligence-v46-invoice-line-evidence';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v13-open-service-need-continuity',
   historicalClosure: 'historical-closure-v1',
   commercialConfirmation: 'commercial-confirmation-v6-compact-total-interstitial-ack-safe',
   protocolApplicability: 'protocol-applicability-v1',
-  attribution: 'attribution-v11-complete-pool-staff-branch-gates',
+  attribution: 'attribution-v12-compact-item-returns',
   matching: 'matching-v3-unresolved-product-evidence-safe',
   policyEvaluation: 'policy-evaluation-v1',
 } as const;

@@ -7,6 +7,7 @@
 // than paginating server-side, deliberately kept small per CLAUDE.md's standing constraint against
 // unbounded high-volume reads.
 import { parseWhatsAppExport, type WhatsAppParsedMessage } from '../../whatsappConversationParser';
+import { readInvoiceItemCommercialMeta } from '../../invoices/invoiceItemCommercialMeta';
 import {
   REVIEW_SOURCE_BATCH_INPUT_COLUMNS,
 } from '../persistence/reviewSourceBatchAdapter';
@@ -485,6 +486,8 @@ export interface QaCaseDetailBundle {
     invoiceNumber: string;
     customerName: string | null;
     customerCode: string | null;
+    /** sales_invoices.customer_id as stored — null means no durable customer link on the invoice. */
+    customerId: string | null;
     branch: string | null;
     staffName: string | null;
     invoiceDatetime: string | null;
@@ -727,7 +730,7 @@ export async function fetchQaCaseDetail(
 
   throwIfAborted(signal);
   if (selectedInvoiceId) {
-    const [{ data: itemRows }, { data: invoiceHeader }] = await Promise.all([
+    const [{ data: itemRows, error: itemRowsError }, { data: invoiceHeader }] = await Promise.all([
       supabaseClient
         .from('sales_invoice_items_v21')
         .select('id,invoice_id,invoice_number,line_no,product_id,product_code,product_name,quantity,unit_price,line_total,raw_data')
@@ -736,6 +739,8 @@ export async function fetchQaCaseDetail(
         .limit(500),
       readInvoiceRecordById(selectedInvoiceId, supabaseClient).then((data) => ({ data })),
     ]);
+    // A failed line read is not "no imported lines": the reviewer must see it failed.
+    if (itemRowsError) throw itemRowsError;
     if (invoiceHeader) {
       const rawTotal = [
         invoiceHeader.net_amount,
@@ -751,6 +756,7 @@ export async function fetchQaCaseDetail(
         invoiceNumber: String(invoiceHeader.invoice_number ?? invoiceHeader.invoice_no ?? ''),
         customerName: invoiceHeader.customer_name == null ? null : String(invoiceHeader.customer_name),
         customerCode: invoiceHeader.customer_code == null ? null : String(invoiceHeader.customer_code),
+        customerId: invoiceHeader.customer_id == null ? null : String(invoiceHeader.customer_id),
         branch: String(invoiceHeader.branch_name ?? invoiceHeader.branch ?? '').trim() || null,
         staffName: String(invoiceHeader.seller_name ?? invoiceHeader.normalized_seller_name ?? invoiceHeader.staff_name ?? '').trim() || null,
         invoiceDatetime: String(invoiceHeader.invoice_datetime ?? invoiceHeader.close_datetime ?? invoiceHeader.invoice_date ?? invoiceHeader.sale_date ?? '').trim() || null,
@@ -799,7 +805,7 @@ export async function fetchQaCaseDetail(
     }
 
     for (const row of itemRows ?? []) {
-      const meta = row.raw_data?.__dawaa_commercial ?? {};
+      const meta = readInvoiceItemCommercialMeta(row.raw_data);
       const product = productsByKey.get(`id:${row.product_id}`) ?? productsByKey.get(`code:${row.product_code}`) ?? null;
       const lineOffers = offers
         .filter((offer: any) => String(offer.item_code ?? '') === String(row.product_code ?? ''))
@@ -811,25 +817,25 @@ export async function fetchQaCaseDetail(
       const pricing = derivePricingExecutionAssessment(
         {
           quantity: row.quantity == null ? null : Number(row.quantity),
-          returnedQuantity: meta.returned_quantity == null ? null : Number(meta.returned_quantity),
+          returnedQuantity: meta.returnedQuantity == null ? null : Number(meta.returnedQuantity),
           effectiveQuantity:
-            meta.effective_quantity == null
+            meta.effectiveQuantity == null
               ? (
                   row.quantity == null
                     ? null
-                    : Math.max(0, Number(row.quantity) - Math.max(0, Number(meta.returned_quantity ?? 0)))
+                    : Math.max(0, Number(row.quantity) - Math.max(0, Number(meta.returnedQuantity ?? 0)))
                 )
-              : Number(meta.effective_quantity),
+              : Number(meta.effectiveQuantity),
           unitPrice: row.unit_price == null ? null : Number(row.unit_price),
-          itemDiscountAmount: meta.item_discount_amount == null ? null : Number(meta.item_discount_amount),
-          itemDiscountPercent: meta.item_discount_percent == null ? null : Number(meta.item_discount_percent),
-          grossLineAmount: meta.gross_line_amount == null ? null : Number(meta.gross_line_amount),
-          netLineAmount: meta.net_line_amount == null ? (row.line_total == null ? null : Number(row.line_total)) : Number(meta.net_line_amount),
-          invoiceDiscountAmount: meta.invoice_discount_amount == null ? null : Number(meta.invoice_discount_amount),
+          itemDiscountAmount: meta.itemDiscountAmount == null ? null : Number(meta.itemDiscountAmount),
+          itemDiscountPercent: meta.itemDiscountPercent == null ? null : Number(meta.itemDiscountPercent),
+          grossLineAmount: meta.grossLineAmount == null ? null : Number(meta.grossLineAmount),
+          netLineAmount: meta.netLineAmount == null ? (row.line_total == null ? null : Number(row.line_total)) : Number(meta.netLineAmount),
+          invoiceDiscountAmount: meta.invoiceDiscountAmount == null ? null : Number(meta.invoiceDiscountAmount),
           allocatedInvoiceDiscountAmount:
-            meta.allocated_invoice_discount_amount == null
+            meta.allocatedInvoiceDiscountAmount == null
               ? null
-              : Number(meta.allocated_invoice_discount_amount),
+              : Number(meta.allocatedInvoiceDiscountAmount),
         },
         lineOffers
       );
@@ -853,24 +859,24 @@ export async function fetchQaCaseDetail(
         productName: String(row.product_name ?? product?.name ?? ''),
         quantity: row.quantity == null ? null : Number(row.quantity),
         effectiveQuantity:
-          meta.effective_quantity == null
+          meta.effectiveQuantity == null
             ? (
                 row.quantity == null
                   ? null
-                  : Math.max(0, Number(row.quantity) - Math.max(0, Number(meta.returned_quantity ?? 0)))
+                  : Math.max(0, Number(row.quantity) - Math.max(0, Number(meta.returnedQuantity ?? 0)))
               )
-            : Number(meta.effective_quantity),
-        unitName: meta.unit_name == null ? null : String(meta.unit_name),
+            : Number(meta.effectiveQuantity),
+        unitName: meta.unitName == null ? null : String(meta.unitName),
         unitPrice: row.unit_price == null ? null : Number(row.unit_price),
-        itemDiscountAmount: meta.item_discount_amount == null ? null : Number(meta.item_discount_amount),
-        itemDiscountPercent: meta.item_discount_percent == null ? null : Number(meta.item_discount_percent),
+        itemDiscountAmount: meta.itemDiscountAmount == null ? null : Number(meta.itemDiscountAmount),
+        itemDiscountPercent: meta.itemDiscountPercent == null ? null : Number(meta.itemDiscountPercent),
         allocatedInvoiceDiscountAmount:
-          meta.allocated_invoice_discount_amount == null
+          meta.allocatedInvoiceDiscountAmount == null
             ? null
-            : Number(meta.allocated_invoice_discount_amount),
-        grossLineAmount: meta.gross_line_amount == null ? null : Number(meta.gross_line_amount),
-        netLineAmount: meta.net_line_amount == null ? (row.line_total == null ? null : Number(row.line_total)) : Number(meta.net_line_amount),
-        returnedQuantity: meta.returned_quantity == null ? null : Number(meta.returned_quantity),
+            : Number(meta.allocatedInvoiceDiscountAmount),
+        grossLineAmount: meta.grossLineAmount == null ? null : Number(meta.grossLineAmount),
+        netLineAmount: meta.netLineAmount == null ? (row.line_total == null ? null : Number(row.line_total)) : Number(meta.netLineAmount),
+        returnedQuantity: meta.returnedQuantity == null ? null : Number(meta.returnedQuantity),
         sellerName: invoiceHeader?.seller_name == null && invoiceHeader?.normalized_seller_name == null
           ? null
           : String(invoiceHeader?.seller_name ?? invoiceHeader?.normalized_seller_name),
@@ -890,17 +896,17 @@ export async function fetchQaCaseDetail(
         matchedOfferTitle: pricing.matchedOfferTitle,
         pricingNeedsReview: pricing.needsHumanReview,
         bconnectInvoiceNetAmount:
-          meta.invoice_net_amount == null ? null : Number(meta.invoice_net_amount),
+          meta.invoiceNetAmount == null ? null : Number(meta.invoiceNetAmount),
         headerInvoiceNetAmount:
           invoiceHeader?.net_amount == null ? null : Number(invoiceHeader.net_amount),
         financialNetDifference:
-          meta.invoice_net_amount == null || invoiceHeader?.net_amount == null
+          meta.invoiceNetAmount == null || invoiceHeader?.net_amount == null
             ? null
-            : Number((Number(meta.invoice_net_amount) - Number(invoiceHeader.net_amount)).toFixed(2)),
+            : Number((Number(meta.invoiceNetAmount) - Number(invoiceHeader.net_amount)).toFixed(2)),
         financialNetMatch:
-          meta.invoice_net_amount == null || invoiceHeader?.net_amount == null
+          meta.invoiceNetAmount == null || invoiceHeader?.net_amount == null
             ? null
-            : Math.abs(Number(meta.invoice_net_amount) - Number(invoiceHeader.net_amount)) <= 0.02,
+            : Math.abs(Number(meta.invoiceNetAmount) - Number(invoiceHeader.net_amount)) <= 0.02,
       });
     }
   }

@@ -242,10 +242,12 @@ describe('Golden Case #1 real-source regression', () => {
     ).toBe('golden-staff-wael');
     expect(segment4.attribution.selectedCandidate?.staffMatch).toBe('same');
     expect(segment4.attribution.selectedCandidate?.productMatch).toBe('available_match');
-    expect(segment4.attribution.selectedCandidate?.ruleIds).toContain(
+    // v45: PEDICORT has no spoken quantity in this case, so the unique invoice stays the selected
+    // candidate but is never an automatic proof (canonical product + agreeing quantity required).
+    expect(segment4.attribution.selectedCandidate?.ruleIds).not.toContain(
       'attribution.trusted.automatic_customer_code_name_time_items_unique'
     );
-    expect(segment4.attribution.selectedCandidate?.directInvoiceLink).toBe(true);
+    expect(segment4.attribution.selectedCandidate?.directInvoiceLink).toBe(false);
     expect(segment4.customerNeed.products).toContainEqual(
       expect.objectContaining({
         productCode: '67929',
@@ -260,7 +262,7 @@ describe('Golden Case #1 real-source regression', () => {
         : [])
         .filter((item) => item.productCode === '67929')
     ).toEqual([expect.objectContaining({ quantity: null })]);
-    expect(segment4.salesOutcome.saleProofState).toBe('proven');
+    expect(segment4.salesOutcome.saleProofState).not.toBe('proven');
     expect(segment4.salesOutcome.outcome).toBe('needs_review');
     expect(segment4.salesOutcome.isSaleCountable).toBe(false);
     expect(segment4.salesOutcome.isRevenueCountable).toBe(false);

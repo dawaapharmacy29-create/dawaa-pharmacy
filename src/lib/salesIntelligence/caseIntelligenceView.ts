@@ -27,6 +27,8 @@ export interface BuildCaseIntelligenceContext {
   customerNameHint?: string | null;
   customerCodeHint?: string | null;
   staffIdBySender?: Record<string, string>;
+  /** Canonical resolver candidates for an unresolved product name (see view products[].catalogCandidates). */
+  catalogCandidatesFor?: (productNameRaw: string) => Array<{ productId: string; productCode: string; name: string }>;
 }
 
 type AnalysisWithoutView = Omit<SalesIntelligenceCaseAnalysis, 'caseIntelligence'>;
@@ -121,6 +123,9 @@ export function buildCaseIntelligenceView(
       invoiceLine: attribution.selectedCandidate?.lineMatches?.find(
         (line) => normalizeProductKey(line.basketProductNameRaw) === product.key
       ) ?? null,
+      ...(!product.productId && context.catalogCandidatesFor
+        ? { catalogCandidates: context.catalogCandidatesFor(product.productNameRaw) }
+        : {}),
     };
   });
 

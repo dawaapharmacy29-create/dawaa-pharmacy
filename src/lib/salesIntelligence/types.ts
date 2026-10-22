@@ -577,6 +577,11 @@ export interface CaseIntelligenceView {
     evidenceMessageIds?: string[];
     /** The matching line of the candidate invoice, if any — a comparison, never proof of the request. */
     invoiceLine?: InvoiceLineMatch | null;
+    /**
+     * Only for a product with no resolved identity: the canonical resolver's top-tier tied catalog
+     * candidates (e.g. «كولونا» = colona 30 or colona 40). Evidence for review, never an identity.
+     */
+    catalogCandidates?: Array<{ productId: string; productCode: string; name: string }>;
   }>;
   basket: {
     versions: Array<{
