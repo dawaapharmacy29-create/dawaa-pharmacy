@@ -2150,8 +2150,16 @@ function recommendCaseBranch(input) {
   if (ownership.department === "customer_service") {
     return { branch: null, strength: "none", reasons: ["\u062D\u0627\u0644\u0629 \u062E\u062F\u0645\u0629 \u0639\u0645\u0644\u0627\u0621\u061B \u0644\u0627 \u062A\u064F\u0646\u0633\u0628 \u0644\u0641\u0631\u0639 \u0628\u064A\u0639"] };
   }
+  const provenInvoiceBranch = input.invoiceAttributionProven && isOperatingBranch(input.invoiceBranch) ? normalizeBranchName(input.invoiceBranch) : null;
   if (ownership.branchBasis === "conflict") {
     return { branch: null, strength: "conflict", reasons: ["\u062A\u0639\u0627\u0631\u0636 \u0628\u064A\u0646 \u062A\u0639\u0631\u064A\u0641 \u0627\u0644\u0645\u0648\u0638\u0641 \u0648\u0641\u0631\u0639 \u0627\u0644\u0645\u0635\u062F\u0631"] };
+  }
+  if (provenInvoiceBranch && ownership.operationalBranch && provenInvoiceBranch !== ownership.operationalBranch) {
+    return {
+      branch: null,
+      strength: "conflict",
+      reasons: [`\u0641\u0631\u0639 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0627\u0644\u0645\u0631\u062A\u0628\u0637\u0629 \u0645\u0628\u0627\u0634\u0631\u0629 (${provenInvoiceBranch}) \u064A\u062E\u0627\u0644\u0641 \u0641\u0631\u0639 \u0627\u0644\u062D\u0627\u0644\u0629 \u0627\u0644\u0635\u0631\u064A\u062D (${ownership.operationalBranch})\u061B \u064A\u0644\u0632\u0645 \u062A\u0635\u062D\u064A\u062D \u0628\u0634\u0631\u064A`]
+    };
   }
   if (ownership.operationalBranch) {
     return {
@@ -2160,29 +2168,36 @@ function recommendCaseBranch(input) {
       reasons: [ownership.branchBasis === "explicit_introduction" ? "\u0641\u0631\u0639 \u0635\u0631\u064A\u062D \u0641\u064A \u062A\u0639\u0631\u064A\u0641 \u062F\u0643\u062A\u0648\u0631 \u0645\u062D\u0633\u0648\u0645 \u0627\u0644\u0647\u0648\u064A\u0629" : "\u0641\u0631\u0639 \u0627\u0644\u0645\u0635\u062F\u0631 \u0641\u0631\u0639 \u062A\u0634\u063A\u064A\u0644 \u0645\u0639\u062A\u0645\u062F"]
     };
   }
+  if (provenInvoiceBranch) {
+    return {
+      branch: provenInvoiceBranch,
+      strength: "decided",
+      reasons: ["\u0641\u0631\u0639 \u0641\u0627\u062A\u0648\u0631\u0629 \u0645\u0631\u062A\u0628\u0637\u0629 \u0648\u0645\u062B\u0628\u062A\u0629 \u0644\u0647\u0630\u0647 \u0627\u0644\u062D\u0627\u0644\u0629\u061B \u064A\u062D\u062F\u062F \u0641\u0631\u0639 \u0627\u0644\u0639\u0645\u0644\u064A\u0629 \u062F\u0648\u0646 \u062A\u0639\u062F\u064A\u0644 \u0641\u0631\u0639 \u0627\u0644\u0645\u0635\u062F\u0631"]
+    };
+  }
   const staffBranch = ownership.suggestedStaffBranch;
-  const invoiceBranch = input.invoiceCandidateStrong && !input.attributionUsedCaseBranch && isOperatingBranch(input.invoiceBranch) ? normalizeBranchName(input.invoiceBranch) : null;
+  const candidateInvoiceBranch = input.invoiceCandidateStrong && !input.attributionUsedCaseBranch && isOperatingBranch(input.invoiceBranch) ? normalizeBranchName(input.invoiceBranch) : null;
   const reasons = [];
   if (ownership.sourceBranchNameRaw && !isOperatingBranch(ownership.sourceBranchNameRaw)) {
     reasons.push(`\u0641\u0631\u0639 \u0627\u0644\u0645\u0635\u062F\u0631 \u0627\u0644\u0645\u0633\u062C\u0644 (${ownership.sourceBranchNameRaw}) \u0644\u064A\u0633 \u0641\u0631\u0639 \u062A\u0634\u063A\u064A\u0644`);
   }
   if (staffBranch) reasons.push(`\u0627\u0644\u0641\u0631\u0639 \u0627\u0644\u0623\u0633\u0627\u0633\u064A \u0644\u0644\u062F\u0643\u062A\u0648\u0631 \u0627\u0644\u0645\u0633\u0624\u0648\u0644: ${staffBranch}`);
-  if (invoiceBranch) reasons.push(`\u0641\u0631\u0639 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0627\u0644\u0645\u0631\u0634\u062D\u0629 \u0628\u0642\u0648\u0629: ${invoiceBranch}`);
-  if (staffBranch && invoiceBranch && staffBranch !== invoiceBranch) {
+  if (candidateInvoiceBranch) reasons.push(`\u0641\u0631\u0639 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0627\u0644\u0645\u0631\u0634\u062D\u0629 \u0628\u0642\u0648\u0629: ${candidateInvoiceBranch}`);
+  if (staffBranch && candidateInvoiceBranch && staffBranch !== candidateInvoiceBranch) {
     return { branch: null, strength: "conflict", reasons: [...reasons, "\u0641\u0631\u0639 \u0627\u0644\u062F\u0643\u062A\u0648\u0631 \u064A\u062E\u0627\u0644\u0641 \u0641\u0631\u0639 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629\u061B \u064A\u062D\u062A\u0627\u062C \u0645\u0631\u0627\u062C\u0639\u0629"] };
   }
-  if (staffBranch && invoiceBranch && input.invoiceSellerIsCaseStaff) {
+  if (staffBranch && candidateInvoiceBranch && input.invoiceSellerIsCaseStaff) {
     return {
       branch: staffBranch,
       strength: "supporting_only",
       reasons: [...reasons, "\u0628\u0627\u0626\u0639 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0647\u0648 \u0646\u0641\u0633 \u062F\u0643\u062A\u0648\u0631 \u0627\u0644\u062D\u0627\u0644\u0629\u061B \u0641\u0631\u0639 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0648\u0641\u0631\u0639 \u0627\u0644\u062F\u0643\u062A\u0648\u0631 \u062F\u0644\u064A\u0644 \u0648\u0627\u062D\u062F \u063A\u064A\u0631 \u0645\u0633\u062A\u0642\u0644\u060C \u0648\u064A\u064F\u062D\u0633\u0645 \u0627\u0644\u0641\u0631\u0639 \u0641\u0642\u0637 \u0628\u0627\u0639\u062A\u0645\u0627\u062F \u0631\u0628\u0637 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0623\u0648 \u062A\u0635\u062D\u064A\u062D \u0631\u0633\u0645\u064A"]
     };
   }
-  if (staffBranch && invoiceBranch) {
+  if (staffBranch && candidateInvoiceBranch) {
     return { branch: staffBranch, strength: "strong_recommendation", reasons: [...reasons, "\u062F\u0644\u064A\u0644\u0627\u0646 \u0645\u0633\u062A\u0642\u0644\u0627\u0646 \u0645\u062A\u0641\u0642\u0627\u0646\u061B \u064A\u062D\u062A\u0627\u062C \u0627\u0639\u062A\u0645\u0627\u062F\u064B\u0627 \u0642\u0628\u0644 \u0627\u0639\u062A\u0628\u0627\u0631\u0647 \u0641\u0631\u0639 \u0627\u0644\u0639\u0645\u0644\u064A\u0629"] };
   }
-  if (staffBranch || invoiceBranch) {
-    return { branch: staffBranch ?? invoiceBranch, strength: "supporting_only", reasons: [...reasons, "\u062F\u0644\u064A\u0644 \u0648\u0627\u062D\u062F \u0641\u0642\u0637\u061B \u063A\u064A\u0631 \u0643\u0627\u0641\u064D \u0644\u062D\u0633\u0645 \u0627\u0644\u0641\u0631\u0639"] };
+  if (staffBranch || candidateInvoiceBranch) {
+    return { branch: staffBranch ?? candidateInvoiceBranch, strength: "supporting_only", reasons: [...reasons, "\u062F\u0644\u064A\u0644 \u0648\u0627\u062D\u062F \u0641\u0642\u0637\u061B \u063A\u064A\u0631 \u0643\u0627\u0641\u064D \u0644\u062D\u0633\u0645 \u0627\u0644\u0641\u0631\u0639"] };
   }
   return { branch: null, strength: "none", reasons: reasons.length ? reasons : ["\u0644\u0627 \u062A\u0648\u062C\u062F \u0623\u062F\u0644\u0629 \u0641\u0631\u0639 \u0643\u0627\u0641\u064A\u0629"] };
 }
@@ -8275,6 +8290,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
       ownership: conversationCase.ownership,
       invoiceBranch: attribution.selectedCandidate?.invoiceBranch ?? null,
       invoiceCandidateStrong: attribution.candidateRecommendation?.level === "strong_candidate_requires_approval",
+      invoiceAttributionProven: attribution.attributionLevel === "proven" && Boolean(attribution.selectedCandidate?.directInvoiceLink),
       attributionUsedCaseBranch: Boolean(attribution.selectedCandidate?.ruleIds.some((rule) => rule.includes("branch_exact") || rule.includes("branch_alias"))),
       invoiceSellerIsCaseStaff: attribution.selectedCandidate?.staffMatch === "same"
     })
@@ -9453,7 +9469,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v44-complete-invoice-proof";
+var PIPELINE_VERSION = "sales-intelligence-v45-proven-invoice-branch";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v13-open-service-need-continuity",
   historicalClosure: "historical-closure-v1",
