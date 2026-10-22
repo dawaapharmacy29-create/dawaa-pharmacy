@@ -1,7 +1,4 @@
-import { loadCanonicalWhatsappKpis } from '@/lib/salesIntelligence/canonicalKpiReadModel';
-import { pharmacyCycleForDateV1 } from '@/lib/salesIntelligence/dashboardScopeV1';
-import { canonicalDoctorImpact } from '@/lib/salesIntelligence/canonicalKpiAdapters';
-import { describeSourceProblem, type DecisionSourceDiagnostic } from '@/lib/evaluations/decisionSourceState';
+import { describeSourceProblem, UserFacingError, type DecisionSourceDiagnostic } from '@/lib/evaluations/decisionSourceState';
 import { supabase } from '@/lib/supabase';
 import { loadPerformanceSalesBundle, type PerformanceSalesBundlePayload } from '@/lib/evaluations/performanceSalesBundleCache';
 import { evaluationCycleRangeFromLabel, evaluationCycleDateKeys, isEvaluationCycleClosed, previousEvaluationCycleLabel } from '@/lib/evaluations/monthlyEvaluationCycle';
@@ -9,7 +6,7 @@ import { readAttendanceRange } from '@/lib/readModels/attendanceReadModel';
 import { getStaffAttendanceDetail } from '@/lib/attendance/attendanceBreakdownService';
 import { cairoDateBoundaryIso, cairoDayOf } from '@/lib/time/cairoDateBoundary';
 import { addDays } from '@/lib/attendance/period';
-import { comparableProductivity, parseSalesReconciliation, type CycleReconciliation } from '@/lib/evaluations/doctorSalesReconciliation';
+import { comparableProductivity, parseSalesReconciliation, verifiedConversion, type CycleReconciliation } from '@/lib/evaluations/doctorSalesReconciliation';
 
 /** First evidence later than this many days into a cycle means the doctor joined mid-cycle. */
 const JOIN_TOLERANCE_DAYS=3;
@@ -31,7 +28,6 @@ export type DoctorCustomerImpact = {
   verifiedSaleConversations: number | null;
   verifiedRevenue: number | null;
   verifiedConversionRate: number | null;
-  conversionNumerator?: number | null;
   followupsNeeded: number | null;
   complaints: number | null;
   saleLeakage: number | null;
@@ -44,12 +40,13 @@ export type DoctorPerformanceMonth = {
   sales: number | null; invoices: number | null; customers: number | null; averageInvoice: number | null;
   workedHours: number | null; salesPerHour: number | null; invoicesPerHour: number | null; customersPerHour: number | null;
   /**
-   * Conversation review volume remains service-quality evidence. Conversion uses countable canonical
-   * sales in eligible/checkable SI opportunities, never the transaction-reconciliation sale ratio.
-   * Unknown canonical staff attribution/evidence leaves conversion unavailable.
+   * Reviewed conversations. A verified sale is checked by the reconciliation source at invoice (same branch and
+   * number, positive, within 48h), customer and seller level. `conversionRecorded` = verified sales + reviews
+   * recorded as no sale; every unverified "converted" claim and every missing outcome stays out of both sides.
+   * All conversion figures are null while the reconciliation source is unavailable.
    */
   conversations: number | null; convertedConversations: number | null; conversionRate: number | null; conversionRecorded: number | null;
-  /** Historical review-claim diagnostics are not an official conversation sale count. */
+  /** Reviews marked converted that failed invoice, customer or seller verification. */
   unverifiedConversions: number | null;
   /**
    * Invoice-level reconciliation of this cycle (attendance-verified, identity-only, uncertain, zero-value), the
@@ -204,43 +201,35 @@ function maxDate(values:(string|null)[]){
 
 type DoctorCycleImpactRow = {
   cycle_start?: string; cycle_end?: string;
-  conversion_sale_count?: number | null;
-  commercial_conversations?: number | null; verified_sale_conversations?: number | null; verified_revenue?: number | null;
-  verified_conversion_rate?: number; conversations_needing_followup?: number | null; complaint_conversations?: number | null;
-  sale_leakage_count?: number | null; unavailable_product_count?: number | null; accepted_product_count?: number | null;
+  commercial_conversations?: number; verified_sale_conversations?: number; verified_revenue?: number;
+  verified_conversion_rate?: number; conversations_needing_followup?: number; complaint_conversations?: number;
+  sale_leakage_count?: number; unavailable_product_count?: number; accepted_product_count?: number;
 };
 
 async function customerImpactWindow(staffId:string,start:string,endExclusive:string){
-  try {
-    const facts = await loadCanonicalWhatsappKpis(supabase,{staffId,start:cairoDateBoundaryIso(start),endExclusive:cairoDateBoundaryIso(endExclusive)});
-    const starts = [...new Set(facts.map(f=>{return pharmacyCycleForDateV1(new Date(f.startedAt)).start;}))];
-    const rows=starts.map(cycleStart=>{
-      const date=new Date(`${cycleStart}T12:00:00Z`);date.setUTCMonth(date.getUTCMonth()+1);
-      return canonicalDoctorImpact(facts,staffId,cairoDateBoundaryIso(cycleStart),cairoDateBoundaryIso(date.toISOString().slice(0,10)),cycleStart);
-    }).filter((row):row is NonNullable<typeof row>=>row!==null);
-    return {rows,available:true,problem:null};
-  } catch(error) {return {rows:[] as DoctorCycleImpactRow[],available:false,problem:problemOf(error,'أثر العملاء','customer_impact')};}
+  const {data,error}=await supabase.from('whatsapp_doctor_cycle_intelligence_v1')
+    .select('cycle_start,cycle_end,commercial_conversations,verified_sale_conversations,verified_revenue,verified_conversion_rate,conversations_needing_followup,complaint_conversations,sale_leakage_count,unavailable_product_count,accepted_product_count')
+    .eq('staff_id',staffId).gte('cycle_start',start).lt('cycle_start',endExclusive);
+  return {rows:(data||[]) as DoctorCycleImpactRow[],available:!error,problem:problemOf(error,'أثر العملاء','customer_impact')};
 }
 
 export function aggregateImpactEvidence(rows:DoctorCycleImpactRow[],available:boolean):DoctorCustomerImpact{
   // A successful read with no cycle rows is not evidence of zero customer impact.
   // Keep all derived metrics unknown until a canonical staff/cycle row exists.
   if(!available || rows.length===0) return {available:false,commercialConversations:null,verifiedSaleConversations:null,verifiedRevenue:null,verifiedConversionRate:null,followupsNeeded:null,complaints:null,saleLeakage:null,unavailableProducts:null,acceptedProducts:null};
-  const commercial=rows.some(r=>r.commercial_conversations==null)?null:rows.reduce((s,r)=>s+n(r.commercial_conversations),0);
-  const conversionProven=rows.reduce((sum,row)=>sum+n(row.conversion_sale_count===undefined?row.verified_sale_conversations:row.conversion_sale_count),0);
-  const verified=rows.some(r=>r.verified_sale_conversations==null)?null:rows.reduce((s,r)=>s+n(r.verified_sale_conversations),0);
+  const commercial=rows.reduce((s,r)=>s+n(r.commercial_conversations),0);
+  const verified=rows.reduce((s,r)=>s+n(r.verified_sale_conversations),0);
   return {
     available:true,
     commercialConversations:commercial,
     verifiedSaleConversations:verified,
-    verifiedRevenue:rows.some(r=>r.verified_revenue==null)?null:rows.reduce((s,r)=>s+n(r.verified_revenue),0),
-    verifiedConversionRate:commercial&&verified!=null?conversionProven/commercial*100:null,
-    conversionNumerator:commercial!=null&&verified!=null?conversionProven:null,
-    followupsNeeded:rows.some(r=>r.conversations_needing_followup==null)?null:rows.reduce((s,r)=>s+n(r.conversations_needing_followup),0),
-    complaints:rows.some(r=>r.complaint_conversations==null)?null:rows.reduce((s,r)=>s+n(r.complaint_conversations),0),
-    saleLeakage:rows.some(r=>r.sale_leakage_count==null)?null:rows.reduce((s,r)=>s+n(r.sale_leakage_count),0),
-    unavailableProducts:rows.some(r=>r.unavailable_product_count==null)?null:rows.reduce((s,r)=>s+n(r.unavailable_product_count),0),
-    acceptedProducts:rows.some(r=>r.accepted_product_count==null)?null:rows.reduce((s,r)=>s+n(r.accepted_product_count),0),
+    verifiedRevenue:rows.reduce((s,r)=>s+n(r.verified_revenue),0),
+    verifiedConversionRate:commercial?verified/commercial*100:null,
+    followupsNeeded:rows.reduce((s,r)=>s+n(r.conversations_needing_followup),0),
+    complaints:rows.reduce((s,r)=>s+n(r.complaint_conversations),0),
+    saleLeakage:rows.reduce((s,r)=>s+n(r.sale_leakage_count),0),
+    unavailableProducts:rows.reduce((s,r)=>s+n(r.unavailable_product_count),0),
+    acceptedProducts:rows.reduce((s,r)=>s+n(r.accepted_product_count),0),
   };
 }
 
@@ -373,7 +362,7 @@ export async function loadDoctorPerformanceIntelligence(args:{viewerScopeKey:str
   const [salesTruth,attendanceWindow,conversationWindow,impactWindow,reconciliationWindow]=await Promise.all([
     salesBundle(args.viewerScopeKey,args.staffId,windowStart,windowEnd,currentSpec.start,requestedElapsedDays),
     readAttendanceRange({staffId:args.staffId,startDate:windowStart,endDateExclusive:windowEnd,limit:400}),
-    supabase.from('conversation_sales_reviews_canonical_v2').select('id,conversation_date,created_at').or(`doctor_id.eq.${args.staffId},staff_id.eq.${args.staffId}`).or(`and(conversation_date.gte.${windowStartAt},conversation_date.lt.${windowEndAt}),and(conversation_date.is.null,created_at.gte.${windowStartAt},created_at.lt.${windowEndAt})`).limit(3000),
+    supabase.from('conversation_sales_reviews_canonical_v2').select('id,converted_to_sale,conversation_date,created_at').or(`doctor_id.eq.${args.staffId},staff_id.eq.${args.staffId}`).or(`and(conversation_date.gte.${windowStartAt},conversation_date.lt.${windowEndAt}),and(conversation_date.is.null,created_at.gte.${windowStartAt},created_at.lt.${windowEndAt})`).limit(3000),
     customerImpactWindow(args.staffId,windowStart,windowEnd),
     salesReconciliationWindow(args.staffId,windowStart,windowEnd),
   ]);
@@ -457,8 +446,7 @@ export async function loadDoctorPerformanceIntelligence(args:{viewerScopeKey:str
     const {hoursComplete,hoursNote}=cycleRates({hours,detail,cycleClosed});
     const reconciliation=coverage==='not_applicable'?null:reconciliationWindow.cycles.find(c=>c.start===start)||null;
     const productivity=reconciliation?comparableProductivity(reconciliation):null;
-    const canonicalImpact=aggregateImpactEvidence(impact.rows,impact.available);
-    const conversion=canonicalImpact.available?{verified:canonicalImpact.conversionNumerator===undefined?canonicalImpact.verifiedSaleConversations:canonicalImpact.conversionNumerator,rate:canonicalImpact.verifiedConversionRate,recorded:canonicalImpact.commercialConversations,unverifiedClaims:null}:null;
+    const conversion=reconciliation&&conv!==null?verifiedConversion(reconciliation):null;
     const salesDays=!salesUsable?null:cycleClosed?Math.round((Date.parse(`${endExclusive}T00:00:00Z`)-Date.parse(`${start}T00:00:00Z`))/86400000):(elapsedDays>0?elapsedDays:null);
     // Attendance days matched to the same window as the sales totals (a running cycle stops at the last loaded sales day).
     const salesPresentDays=!salesUsable||!detail?null:cycleClosed?detail.presentDays:presentDaysThrough(detail,start,salesDataAsOf);
@@ -605,17 +593,17 @@ export type DoctorEvidenceProduct = {
  * Cairo local midnight to the previous UTC day) and fails loudly instead of returning empty lists.
  */
 export async function loadDoctorPerformanceEvidence(args:{staffId:string;cycleLabel:string}):Promise<{conversations:DoctorEvidenceConversation[];products:DoctorEvidenceProduct[]}>{
-  const {startDate,endDateExclusive}=evaluationCycleDateKeys(args.cycleLabel);
-  const facts=await loadCanonicalWhatsappKpis(supabase,{staffId:args.staffId,start:cairoDateBoundaryIso(startDate),endExclusive:cairoDateBoundaryIso(endDateExclusive)});
-  return {
-    conversations:facts.map(f=>({id:f.caseId,customer_name:f.view?.customer.customerName??null,customer_code:f.view?.customer.customerCode??null,
-      conversation_started_at:f.startedAt,followup_required:(f.view?.followUp.opportunities??[]).some(o=>o.status==='actionable'),
-      invoice_match_status:f.saleCountable?'canonical_sale':'human_review',matched_invoice_number:f.truth.ledger.invoiceNumber,
-      matched_invoice_value:f.revenue,review_status:f.truth.availability})),
-    products:facts.flatMap(f=>(f.view?.need.products??[]).map(p=>({source_id:f.caseId,customer_name:f.view?.customer.customerName??null,
-      customer_code:f.view?.customer.customerCode??null,product_name:p.canonicalName??p.productNameRaw,
-      current_stage:f.view?.lostOpportunity.state??'unknown',leakage_reason:f.lost?f.view?.lostOpportunity.reason??null:null,
-      next_action:null,invoice_match_status:f.saleCountable?'canonical_sale':'human_review',matched_invoice_number:f.truth.ledger.invoiceNumber,
-      matched_invoice_value:f.revenue,confidence:p.confidence.level}))),
-  };
+  const {startDate,endDate,endDateExclusive}=evaluationCycleDateKeys(args.cycleLabel);
+  const [sources,products]=await Promise.all([
+    supabase.from('whatsapp_review_sources')
+      .select('id,customer_name,customer_code,conversation_started_at,followup_required,invoice_match_status,matched_invoice_number,matched_invoice_value,review_status')
+      .eq('staff_id',args.staffId).gte('conversation_started_at',`${startDate}T00:00:00`).lt('conversation_started_at',`${endDateExclusive}T00:00:00`)
+      .order('conversation_started_at',{ascending:false}).limit(80),
+    supabase.from('whatsapp_product_journey_detail_v1')
+      .select('source_id,customer_name,customer_code,product_name,current_stage,leakage_reason,next_action,invoice_match_status,matched_invoice_number,matched_invoice_value,confidence')
+      .eq('staff_id',args.staffId).eq('cycle_start',startDate).eq('cycle_end',endDate).limit(120),
+  ]);
+  if(sources.error)throw new UserFacingError(describeSourceProblem(sources.error,'محادثات الدليل','evidence_conversations').reason);
+  if(products.error)throw new UserFacingError(describeSourceProblem(products.error,'رحلات الأصناف','evidence_products').reason);
+  return {conversations:(sources.data||[]) as DoctorEvidenceConversation[],products:(products.data||[]) as DoctorEvidenceProduct[]};
 }

@@ -9102,6 +9102,10 @@ async function fetchPharmacyProductIndex(supabaseClient, options = {}) {
 function token(value) {
   return String(value || "").trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
 }
+var CUSTOMER_SERVICE_TEAM_LABELS = ["team dawaa alpha", "\u0641\u0631\u064A\u0642 \u062F\u0648\u0627\u0621 \u0623\u0644\u0641\u0627", "\u0641\u0631\u064A\u0642 \u062F\u0648\u0627\u0621 \u0627\u0644\u0641\u0627"];
+function isCustomerServiceTeamLabel(value) {
+  return CUSTOMER_SERVICE_TEAM_LABELS.includes(token(value)) || canonicalStaffRole(value) === "customer_service";
+}
 function canonicalStaffRole(value) {
   const role = token(value);
   if (!role) return "other";
@@ -9110,7 +9114,7 @@ function canonicalStaffRole(value) {
   if (role === "inventory assistant" || role.includes("\u0645\u0633\u0627\u0639\u062F \u0645\u062E\u0632\u0646") || role.includes("\u0645\u0633\u0627\u0639\u062F \u062C\u0631\u062F") || role.includes("\u0645\u0633\u0627\u0639\u062F \u0645\u062E\u0632\u0648\u0646")) return "inventory_assistant";
   if (role.includes("\u0646\u0638\u0627\u0641") || ["cleaning", "cleaner", "cleaning supervisor"].includes(role)) return "cleaning";
   if (["\u062A\u0648\u0635\u064A\u0644", "\u062F\u0644\u064A\u0641\u0631\u064A", "\u0645\u0646\u062F\u0648\u0628 \u062A\u0648\u0635\u064A\u0644", "delivery", "delivery rider", "delivery driver", "rider"].includes(role)) return "delivery";
-  if (["\u062E\u062F\u0645\u0629 \u0639\u0645\u0644\u0627\u0621", "\u062E\u062F\u0645\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621", "\u0645\u0633\u0624\u0648\u0644 \u062E\u062F\u0645\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621", "\u0645\u0633\u0626\u0648\u0644 \u062E\u062F\u0645\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621", "\u0645\u0633\u0624\u0648\u0644\u0629 \u062E\u062F\u0645\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621", "customer service", "team dawaa alpha", "\u0641\u0631\u064A\u0642 \u062F\u0648\u0627\u0621 \u0623\u0644\u0641\u0627", "\u0641\u0631\u064A\u0642 \u062F\u0648\u0627\u0621 \u0627\u0644\u0641\u0627"].includes(role)) return "customer_service";
+  if (["\u062E\u062F\u0645\u0629 \u0639\u0645\u0644\u0627\u0621", "\u062E\u062F\u0645\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621", "\u0645\u0633\u0624\u0648\u0644 \u062E\u062F\u0645\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621", "\u0645\u0633\u0626\u0648\u0644 \u062E\u062F\u0645\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621", "\u0645\u0633\u0624\u0648\u0644\u0629 \u062E\u062F\u0645\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621", "customer service"].includes(role)) return "customer_service";
   if (["\u0645\u062F\u064A\u0631 \u062E\u062F\u0645\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621", "\u0645\u062F\u064A\u0631\u0629 \u062E\u062F\u0645\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621", "customer service manager"].includes(role)) return "customer_service_manager";
   if (["\u0645\u0633\u0624\u0648\u0644 \u0627\u0644\u0634\u064A\u0641\u062A", "\u0645\u0633\u0626\u0648\u0644 \u0627\u0644\u0634\u064A\u0641\u062A", "\u0645\u0633\u0626\u0648\u0644\u0629 \u0627\u0644\u0634\u064A\u0641\u062A", "shift supervisor"].includes(role) || /^(shift supervisor) (morning|evening)$/.test(role) || /^(مسؤول|مسئول|مسئولة|مشرف|مشرفة) شيفت (صباحي|مسائي)$/.test(role)) return "shift_supervisor";
   if (["\u0645\u062F\u064A\u0631 \u0641\u0631\u0639", "\u0645\u062F\u064A\u0631\u0629 \u0641\u0631\u0639", "branch manager"].includes(role) || /^branch manager (shamy|shokry)$/.test(role)) return "branch_manager";
@@ -9133,7 +9137,7 @@ function buildSalesIntelligenceRuntimeContext(input) {
   for (const row of input.staffDirectory.filter((r) => r.source !== "alias" && r.active && r.id)) {
     if (staffProfilesById[row.id] && row.source !== "staff") continue;
     const role = canonicalStaffRole(row.role);
-    const service = canonicalStaffRole(row.type) === "customer_service" || role === "customer_service" || role === "customer_service_manager";
+    const service = isCustomerServiceTeamLabel(row.type) || isCustomerServiceTeamLabel(row.role) || role === "customer_service_manager";
     staffProfilesById[row.id] = {
       staffId: row.id,
       name: row.name || "",

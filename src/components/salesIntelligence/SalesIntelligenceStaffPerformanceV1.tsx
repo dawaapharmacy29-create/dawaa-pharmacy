@@ -1,6 +1,3 @@
-import { loadCanonicalWhatsappKpis, canonicalStaffTruthRows } from '@/lib/salesIntelligence/canonicalKpiReadModel';
-import { canonicalOpportunityProjection } from '@/lib/salesIntelligence/canonicalKpiAdapters';
-import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
 import { useEffect, useMemo, useState } from 'react';
 import { BadgeCheck, CircleAlert, PackageCheck, ReceiptText, Search, UsersRound } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
@@ -10,8 +7,6 @@ import { ratioPercent } from '@/lib/salesIntelligence/canonicalConversionV1';
 
 type StaffTruthRow = {
   case_id: string;
-  is_sale_countable: boolean;
-  is_revenue_countable: boolean;
   invoice_datetime: string | null;
   invoice_branch: string | null;
   invoice_amount: number | string | null;
@@ -22,7 +17,7 @@ type StaffTruthRow = {
   canonical_staff_is_active: boolean | null;
   staff_resolution_status: string;
   is_staff_resolved: boolean;
-  item_evidence_available: boolean | null;
+  item_evidence_available: boolean;
 };
 
 type OpportunityRow = {
@@ -117,12 +112,24 @@ export default function SalesIntelligenceStaffPerformanceV1({
       setLoading(true);
       setError(null);
 
-      const scope = {start:cairoDateBoundaryIso(cycle.start),endExclusive:cairoDateBoundaryIso(nextDayYmdV1(cycle.end)),branch};
-      const facts = loadCanonicalWhatsappKpis(supabase,scope);
-      const truthQuery = facts.then(result=>({data:canonicalStaffTruthRows(result),error:null as Error|null}))
-        .catch(cause=>({data:[],error:cause instanceof Error?cause:new Error(String(cause))}));
-      const opportunityQuery = facts.then(result=>({data:canonicalOpportunityProjection(result).detail,error:null as Error|null}))
-        .catch(cause=>({data:[],error:cause instanceof Error?cause:new Error(String(cause))}));
+      let truthQuery = supabase
+        .from('sales_intelligence_invoice_staff_truth_v1')
+        .select('case_id,invoice_datetime,invoice_branch,invoice_amount,canonical_staff_id,canonical_staff_name,canonical_staff_role,canonical_staff_branch,canonical_staff_is_active,staff_resolution_status,is_staff_resolved,item_evidence_available')
+        .gte('invoice_datetime', `${previousDayYmdV1(cycle.start)}T00:00:00Z`)
+        .lt('invoice_datetime', `${nextDayYmdV1(cycle.end)}T00:00:00Z`)
+        .limit(2000);
+
+      let opportunityQuery = supabase
+        .from('whatsapp_product_demand_detail_v22')
+        .select('attributed_staff_id,attributed_staff_name,branch,cycle_start,current_stage,leakage_code')
+        .eq('cycle_start', cycle.start)
+        .limit(3000);
+
+      if (branch !== 'all') {
+        truthQuery = truthQuery.eq('invoice_branch', branch);
+        opportunityQuery = opportunityQuery.eq('branch', branch);
+      }
+
       const [truthResult, opportunityResult, staffResult] = await Promise.all([
         truthQuery,
         opportunityQuery,
@@ -145,7 +152,7 @@ export default function SalesIntelligenceStaffPerformanceV1({
       }
 
       if (truthResult.error) {
-        partialErrors.push(`مبيعات المحادثات المعتمدة: ${truthResult.error.message}`);
+        partialErrors.push(`المبيعات الرسمية: ${truthResult.error.message}`);
         setTruthRows([]);
       } else {
         setTruthRows(
@@ -191,7 +198,7 @@ export default function SalesIntelligenceStaffPerformanceV1({
     }
 
     for (const row of truthRows) {
-      if (row.is_sale_countable && (!row.is_staff_resolved) || !row.canonical_staff_id || !row.canonical_staff_name) continue;
+      if (!row.is_staff_resolved || row.canonical_staff_is_active !== true || !row.canonical_staff_id || !row.canonical_staff_name) continue;
       const key = row.canonical_staff_id;
       const current = map.get(key) || {
         key,
@@ -205,18 +212,31 @@ export default function SalesIntelligenceStaffPerformanceV1({
         acceptedOrLater: 0,
         leakageCases: 0,
       };
-      current.officialSales += row.is_sale_countable ? 1 : 0;
-      if(row.is_revenue_countable) current.officialRevenue += number(row.invoice_amount);
-      if (row.is_sale_countable && row.item_evidence_available) current.itemEvidenceSales += 1;
+      current.officialSales += 1;
+      current.officialRevenue += number(row.invoice_amount);
+      if (row.item_evidence_available) current.itemEvidenceSales += 1;
       map.set(key, current);
     }
 
+    const rowsByNormalizedName = new Map<string, StaffRow[]>();
+    for (const row of map.values()) {
+      const key = row.name.trim().toLocaleLowerCase('ar-EG');
+      const list = rowsByNormalizedName.get(key) || [];
+      list.push(row);
+      rowsByNormalizedName.set(key, list);
+    }
+
     for (const opportunity of opportunities) {
-      const current = opportunity.attributed_staff_id ? map.get(opportunity.attributed_staff_id) : null;
+      const name = String(opportunity.attributed_staff_name || '').trim();
+      if (!name && !opportunity.attributed_staff_id) continue;
+      const byId = opportunity.attributed_staff_id ? map.get(opportunity.attributed_staff_id) : null;
+      const nameMatches = name ? (rowsByNormalizedName.get(name.toLocaleLowerCase('ar-EG')) || []) : [];
+      const byUniqueName = nameMatches.length === 1 ? nameMatches[0] : null;
+      const current = byId || byUniqueName;
       if (!current) continue;
       current.opportunities += 1;
       if (['accepted', 'order_confirmed', 'awaiting_invoice', 'verified_sale', 'needs_followup'].includes(opportunity.current_stage)) current.acceptedOrLater += 1;
-      // No staff loss credit/debit without persisted canonical responsibility.
+      if (opportunity.leakage_code) current.leakageCases += 1;
     }
 
     return Array.from(map.values())
@@ -239,7 +259,7 @@ export default function SalesIntelligenceStaffPerformanceV1({
   }, [search, staffRows]);
 
   const unresolvedOfficial = truthRows.filter(
-    (row) => row.is_sale_countable && (!row.is_staff_resolved)
+    (row) => !row.is_staff_resolved || row.canonical_staff_is_active !== true
   ).length;
   const totalRevenue = staffRows.reduce((sum, row) => sum + row.officialRevenue, 0);
   const totalSales = staffRows.reduce((sum, row) => sum + row.officialSales, 0);
@@ -251,7 +271,7 @@ export default function SalesIntelligenceStaffPerformanceV1({
         <div className="flex items-start gap-3">
           <span className="dawaa-icon-tile h-10 w-10 shrink-0"><UsersRound size={19} /></span>
           <div>
-            <div className="dawaa-heading text-lg font-black">أداء الفريق — مبيعات المحادثات المنسوبة بالأدلة</div>
+            <div className="dawaa-heading text-lg font-black">أداء الفريق — المبيعات المنسوبة رسميًا</div>
             <p className="dawaa-muted mt-1 max-w-3xl text-sm leading-6">
               دورة {cycle.label} • {branch === 'all' ? 'كل الفروع' : branch}. الاسم الملتبس أو الفاتورة التي لا تحتوي موظفًا لا تدخل أرقام أي دكتور.
             </p>
@@ -263,8 +283,8 @@ export default function SalesIntelligenceStaffPerformanceV1({
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Metric icon={BadgeCheck} label="بيعات رسمية مرتبطة بموظف" value={loading ? '…' : totalSales.toLocaleString('ar-EG')} hint="لا تشمل الأسماء غير المحسومة" />
-        <Metric icon={ReceiptText} label="قيمة مبيعات المحادثات المعتمدة" value={loading ? '…' : money(totalRevenue)} hint="إجمالي قيمة الفواتير الرسمية" />
-        <Metric icon={PackageCheck} label="بيعات بأدلة أصناف" value={loading ? '…' : truthRows.some(row=>row.item_evidence_available!=null)?itemEvidenceSales.toLocaleString('ar-EG'):'غير محمّلة'} hint="يمكن مراجعة الصنف والكمية داخل الفاتورة" />
+        <Metric icon={ReceiptText} label="قيمة المبيعات الرسمية" value={loading ? '…' : money(totalRevenue)} hint="إجمالي قيمة الفواتير الرسمية" />
+        <Metric icon={PackageCheck} label="بيعات بأدلة أصناف" value={loading ? '…' : itemEvidenceSales.toLocaleString('ar-EG')} hint="يمكن مراجعة الصنف والكمية داخل الفاتورة" />
         <Metric icon={CircleAlert} label="بيعات رسمية غير منسوبة" value={loading ? '…' : unresolvedOfficial.toLocaleString('ar-EG')} hint="تظل في QA ولا تدخل تقييم موظف" />
       </section>
 
@@ -298,7 +318,7 @@ export default function SalesIntelligenceStaffPerformanceV1({
                     </div>
                   </div>
                   <div className="mt-3 grid grid-cols-3 gap-2 text-center text-[11px]">
-                    <div className="rounded-xl bg-[var(--dawaa-theme-soft)] p-2"><div className="dawaa-muted">أدلة أصناف</div><div className="mt-1 font-black">{truthRows.some(item=>item.canonical_staff_id===row.key&&item.item_evidence_available!=null)?row.itemEvidenceSales.toLocaleString('ar-EG'):'—'}</div></div>
+                    <div className="rounded-xl bg-[var(--dawaa-theme-soft)] p-2"><div className="dawaa-muted">أدلة أصناف</div><div className="mt-1 font-black">{row.itemEvidenceSales.toLocaleString('ar-EG')}</div></div>
                     <div className="rounded-xl bg-[var(--dawaa-theme-soft)] p-2"><div className="dawaa-muted">فرص</div><div className="mt-1 font-black">{row.opportunities ? row.opportunities.toLocaleString('ar-EG') : '—'}</div></div>
                     <div className="rounded-xl bg-[var(--dawaa-theme-soft)] p-2"><div className="dawaa-muted">قبول</div><div className="mt-1 font-black">{conversion == null ? '—' : `${conversion}%`}</div></div>
                   </div>
@@ -322,7 +342,7 @@ export default function SalesIntelligenceStaffPerformanceV1({
                       <td className="p-3">{row.branch || '—'}</td>
                       <td className="p-3 font-black">{row.officialSales.toLocaleString('ar-EG')}</td>
                       <td className="p-3 font-black">{money(row.officialRevenue)}</td>
-                      <td className="p-3">{truthRows.some(item=>item.canonical_staff_id===row.key&&item.item_evidence_available!=null)?row.itemEvidenceSales.toLocaleString('ar-EG'):'—'}</td>
+                      <td className="p-3">{row.itemEvidenceSales.toLocaleString('ar-EG')}</td>
                       <td className="p-3">{row.opportunities ? row.opportunities.toLocaleString('ar-EG') : '—'}</td>
                       <td className="p-3">
                         {row.opportunities ? (
@@ -342,7 +362,7 @@ export default function SalesIntelligenceStaffPerformanceV1({
 
       {!opportunities.length && !loading ? (
         <div className="dawaa-muted text-[11px]">
-          تحليل فرص الأصناف للدورة الحالية غير مكتمل؛ مبيعات المحادثات المعتمدة تظل صحيحة، وستظهر أعمدة الفرص والقبول تلقائيًا مع اكتمال Product Demand.
+          تحليل فرص الأصناف للدورة الحالية غير مكتمل؛ المبيعات الرسمية تظل صحيحة، وستظهر أعمدة الفرص والقبول تلقائيًا مع اكتمال Product Demand.
         </div>
       ) : null}
     </div>

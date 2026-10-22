@@ -1,5 +1,4 @@
-import OperationalReadBoundary from '@/components/common/OperationalReadBoundary';
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -206,9 +205,7 @@ export default function CustomerFollowupCockpitPanel() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<AuditEvent[]>([]);
   const [search, setSearch] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [auditError, setAuditError] = useState('');
-  const loadSequence = useRef(0);
+  const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [saving, setSaving] = useState(false);
   const [generatingSmart, setGeneratingSmart] = useState(false);
@@ -241,10 +238,8 @@ export default function CustomerFollowupCockpitPanel() {
 
   const load = useCallback(async () => {
     if (!managerView && !userBranch) return;
-    const sequence = ++loadSequence.current;
     setLoading(true);
     setLoadError('');
-    setAuditError('');
     try {
       const fetchRows = async () => {
         const allRows: FollowupRow[] = [];
@@ -284,7 +279,6 @@ export default function CustomerFollowupCockpitPanel() {
       // سجل الـaudit هنا مطلوب فقط لعداد "مكتمل اليوم"؛ باقي التاريخ له شاشات مستقلة.
       // allSettled يحافظ على قائمة اليوم شغالة حتى لو عداد السجل فشل مؤقتًا.
       const [rowsResult, auditResult] = await Promise.allSettled([fetchRows(), fetchAudit()]);
-      if (sequence !== loadSequence.current) return;
       if (rowsResult.status === 'fulfilled') {
         setRows(dedupeRows(rowsResult.value));
       } else {
@@ -296,12 +290,11 @@ export default function CustomerFollowupCockpitPanel() {
       } else {
         console.error('[customer-followup-cockpit] audit log fetch failed', auditResult.reason);
         setEvents([]);
-        setAuditError('تعذر تحميل عداد المكتمل اليوم');
       }
-    } finally { if (sequence === loadSequence.current) setLoading(false); }
+    } finally { setLoading(false); }
   }, [branch, managerView, userBranch]);
 
-  useEffect(() => { void load(); return () => { loadSequence.current += 1; }; }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const waitingRows = useMemo(() => rows.filter(isWaiting).sort((a, b) => smartScore(b) - smartScore(a)), [rows]);
   const reviewRows = useMemo(() => rows.filter(isPendingReview).sort((a, b) => smartScore(b) - smartScore(a)), [rows]);
@@ -423,9 +416,7 @@ export default function CustomerFollowupCockpitPanel() {
 
       {loadError ? <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] p-3" role="alert"><div className="flex items-center gap-2 text-sm font-black text-[var(--dawaa-status-danger-text)]"><AlertTriangle size={16}/> {loadError}</div><button className="btn-secondary flex items-center gap-2 text-xs" onClick={() => void load()}><RefreshCw size={14}/> إعادة المحاولة</button></div> : null}
 
-      <OperationalReadBoundary loading={loading} error={loadError} label="قائمة المتابعات">
-      {auditError ? <p role="alert">{auditError}</p> : null}
-      <div className="grid grid-cols-3 gap-2 md:grid-cols-6">{kpis.map(([label, value, Icon, tone]) => <div key={label} className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-2.5"><span className={`grid h-7 w-7 place-items-center rounded-lg ${tone}`}><Icon size={14}/></span><div className="mt-1.5 text-[10px] font-black text-[var(--dawaa-theme-text)]">{label}</div><div className="text-xl font-black text-[var(--dawaa-theme-heading)]">{label === 'مكتمل اليوم' && auditError ? '—' : value}</div></div>)}</div>
+      <div className="grid grid-cols-3 gap-2 md:grid-cols-6">{kpis.map(([label, value, Icon, tone]) => <div key={label} className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-2.5"><span className={`grid h-7 w-7 place-items-center rounded-lg ${tone}`}><Icon size={14}/></span><div className="mt-1.5 text-[10px] font-black text-[var(--dawaa-theme-text)]">{label}</div><div className="text-xl font-black text-[var(--dawaa-theme-heading)]">{value}</div></div>)}</div>
 
       {openTotal > 0 ? <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-3">
         <div className="mb-2 text-[11px] font-black text-[var(--dawaa-theme-text)]">توزيع الحالات المفتوحة اليوم</div>
@@ -442,7 +433,6 @@ export default function CustomerFollowupCockpitPanel() {
       {loading && !rows.length ? <div className="animate-pulse space-y-2">{Array.from({ length: 4 }).map((_, index) => <div key={index} className="h-32 rounded-2xl bg-[var(--dawaa-theme-surface-2)]" />)}</div> : null}
       <div className="space-y-2">{visibleRows.map((row, index) => { const info = priorityInfo(row); const tier = importance(row); const responsible = assignedExecutor(row.branch, directory); return <article key={row.id} className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)] p-3"><div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between"><button className="min-w-0 flex-1 text-right" onClick={() => openExecution(row)}><div className="flex flex-wrap items-center gap-2"><span className="rounded-lg bg-[var(--dawaa-theme-surface-2)] px-2 py-1 text-xs font-black text-[var(--dawaa-theme-text)]">#{index + 1}</span><span className="font-black text-[var(--dawaa-theme-heading)]">{customerName(row)}</span><span className={`rounded-full border px-2 py-0.5 text-[11px] font-black ${info.tone}`}>{info.label}</span><span className={`rounded-full border px-2 py-0.5 text-[10px] font-black ${tier.bg} ${tier.color}`}>{tier.label}</span></div><div className="mt-1 text-xs font-bold text-[var(--dawaa-theme-text)]">{row.customer_code || 'بدون كود'} · {customerPhone(row) || 'بدون هاتف'} · {row.branch || 'فرع غير محدد'} · المسؤول {responsible} · {info.reason} · آخر تواصل {lastTouchAt(row) ? formatDateTime(lastTouchAt(row) as string) : 'لا يوجد'}{row.next_followup_date ? ` · موعد ${dayKey(row.next_followup_date)}` : ''}</div></button><div className="flex shrink-0 gap-2"><button className="btn-primary text-xs" onClick={() => openExecution(row)}>تنفيذ الآن</button><button className="btn-secondary text-xs" onClick={() => void loadHistory(row)}>سجل العميل</button><button className="btn-secondary flex items-center gap-1 px-2 text-xs" onClick={() => { setSelected(row); setDetailsOpen(true); }}><Eye size={16}/> تفاصيل</button></div></div></article>; })}</div>
       {!loading && !visibleRows.length ? <SectionEmptyState title="لا توجد حالات مطابقة هنا" description="جرّب تغيير البحث أو الفلتر، أو راجع تبويب آخر." icon={Inbox} /> : null}
-      </OperationalReadBoundary>
     </section>
 
     {selected && !detailsOpen ? <div className="fixed inset-0 z-[100] flex justify-end bg-[var(--dawaa-theme-surface)]" dir="rtl"><aside className="h-full w-full max-w-2xl overflow-y-auto bg-[var(--dawaa-theme-surface-raised)] p-5">

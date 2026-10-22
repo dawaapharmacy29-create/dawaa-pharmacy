@@ -2,12 +2,12 @@ import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 
 const root = new URL('../../../../', import.meta.url);
+// Doctor-evaluation consumers (doctor performance service, staff performance, doctor page) are not part
+// of the WhatsApp release; their guards ship with that separate change.
 describe('official KPI readers cannot return to legacy sales truth', () => {
   it.each([
-    'src/lib/evaluations/doctorPerformanceIntelligenceService.ts',
     'src/pages/WhatsappAnalytics.tsx',
     'src/components/salesIntelligence/SalesIntelligenceManagementOverviewV1.tsx',
-    'src/components/salesIntelligence/SalesIntelligenceStaffPerformanceV1.tsx',
     'src/components/salesIntelligence/SalesIntelligenceOpportunityCenterV1.tsx',
   ])('%s does not query legacy proof-only KPI sources', (file) => {
     const code = readFileSync(new URL(file, root), 'utf8');
@@ -17,7 +17,6 @@ describe('official KPI readers cannot return to legacy sales truth', () => {
     expect(code).not.toMatch(/invoice_match_status\s*===\s*['"]verified['"]/);
   });
   it.each([
-    'WhatsAppDoctorPerformance',
     'WhatsAppBranchComparison',
     'WhatsAppLostOpportunities',
     'WhatsAppCustomerHistory',

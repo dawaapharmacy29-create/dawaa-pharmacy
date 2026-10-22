@@ -34,6 +34,16 @@ function token(value: unknown) {
     .replace(/\s+/g, ' ');
 }
 
+// The «فريق دواء ألفا» team is customer service for WhatsApp conversation analysis only. It is kept
+// out of canonicalStaffRole on purpose: that mapping drives evaluation profiles, capabilities and
+// incentive applicability, which this analysis-only label must not change.
+const CUSTOMER_SERVICE_TEAM_LABELS = ['team dawaa alpha', 'فريق دواء ألفا', 'فريق دواء الفا'];
+
+/** Analysis-only: does this staff role/type label name the customer-service team? */
+export function isCustomerServiceTeamLabel(value: unknown): boolean {
+  return CUSTOMER_SERVICE_TEAM_LABELS.includes(token(value)) || canonicalStaffRole(value) === 'customer_service';
+}
+
 export function canonicalStaffRole(value: unknown): CanonicalStaffRole {
   const role = token(value);
   if (!role) return 'other';
@@ -43,7 +53,7 @@ export function canonicalStaffRole(value: unknown): CanonicalStaffRole {
   if (role === 'inventory assistant' || role.includes('مساعد مخزن') || role.includes('مساعد جرد') || role.includes('مساعد مخزون')) return 'inventory_assistant';
   if (role.includes('نظاف') || ['cleaning', 'cleaner', 'cleaning supervisor'].includes(role)) return 'cleaning';
   if (['توصيل', 'دليفري', 'مندوب توصيل', 'delivery', 'delivery rider', 'delivery driver', 'rider'].includes(role)) return 'delivery';
-  if (['خدمة عملاء', 'خدمة العملاء', 'مسؤول خدمة العملاء', 'مسئول خدمة العملاء', 'مسؤولة خدمة العملاء', 'customer service', 'team dawaa alpha', 'فريق دواء ألفا', 'فريق دواء الفا'].includes(role)) return 'customer_service';
+  if (['خدمة عملاء', 'خدمة العملاء', 'مسؤول خدمة العملاء', 'مسئول خدمة العملاء', 'مسؤولة خدمة العملاء', 'customer service'].includes(role)) return 'customer_service';
   if (['مدير خدمة العملاء', 'مديرة خدمة العملاء', 'customer service manager'].includes(role)) return 'customer_service_manager';
   if (
     ['مسؤول الشيفت', 'مسئول الشيفت', 'مسئولة الشيفت', 'shift supervisor'].includes(role)

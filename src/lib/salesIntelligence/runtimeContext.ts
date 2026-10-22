@@ -34,7 +34,7 @@ import {
   parseWhatsAppExport,
 } from '../whatsappConversationParser';
 import { fetchPharmacyProductIndex } from './pharmacyProductCatalogRepository';
-import { canonicalStaffRole } from '../staff/staffRoleCapabilities';
+import { canonicalStaffRole, isCustomerServiceTeamLabel } from '../staff/staffRoleCapabilities';
 import type { CaseStaffProfile } from './caseOwnershipContext';
 import type { PharmacyProductIndex } from './pharmacyProducts/pharmacyProductResolverV2';
 import type { SalesIntelligencePipelineInput } from './salesIntelligencePipeline';
@@ -85,7 +85,7 @@ export function buildSalesIntelligenceRuntimeContext(input: {
   for (const row of input.staffDirectory.filter((r) => r.source !== 'alias' && r.active && r.id)) {
     if (staffProfilesById[row.id!] && row.source !== 'staff') continue;
     const role = canonicalStaffRole(row.role);
-    const service = canonicalStaffRole(row.type) === 'customer_service' || role === 'customer_service' || role === 'customer_service_manager';
+    const service = isCustomerServiceTeamLabel(row.type) || isCustomerServiceTeamLabel(row.role) || role === 'customer_service_manager';
     staffProfilesById[row.id!] = {
       staffId: row.id!, name: row.name || '', homeBranch: row.branch,
       function: service ? 'customer_service' : role === 'doctor' ? 'pharmacist' : 'other',

@@ -10,7 +10,6 @@ import { mapSaleState } from '../../whatsappConversationJourneyClassifier';
 import { buildUnifiedConversationIntelligence } from '../../whatsappUnifiedIntelligenceV4';
 import { parseWhatsAppExport, splitWhatsAppSessions } from '../../whatsappConversationParser';
 import { runSalesIntelligencePipeline } from '../salesIntelligencePipeline';
-import { aggregateImpactEvidence } from '../../evaluations/doctorPerformanceIntelligenceService';
 
 function fixture(id: string, overrides: Record<string, any> = {}) {
   const view = {
@@ -178,20 +177,6 @@ describe('one official WhatsApp KPI truth', () => {
       canonicalDoctorImpact([f], 'doctor-A', scope.start, scope.endExclusive)
         ?.verified_sale_conversations
     ).toBeNull();
-  });
-  it('conversion numerator is restricted to the same eligible population as its denominator', () => {
-    const won = fixture('won');
-    const other = fixture('noncommercial');
-    other.analysis.case_type = 'complaint';
-    const impact = canonicalDoctorImpact(
-      [project(won), project(other)],
-      'doctor-A',
-      scope.start,
-      scope.endExclusive
-    )!;
-    expect(impact.verified_sale_conversations).toBe(2);
-    expect(impact.conversion_sale_count).toBe(1);
-    expect(aggregateImpactEvidence([impact], true).verifiedConversionRate).toBe(100);
   });
   it('documents deterministic before/after counts instead of forcing canonical equal to legacy', () => {
     const won = fixture('won');
