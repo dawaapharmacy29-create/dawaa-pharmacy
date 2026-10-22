@@ -89,7 +89,10 @@
 // v44: invoice proof requires a complete candidate pool; hitting the bounded retrieval cap keeps
 // the result review-only. Automatic proof also rejects seller/staff contradictions and treats the
 // warehouse source marker as absence of transaction-branch evidence, not as a branch mismatch.
-export const PIPELINE_VERSION = 'sales-intelligence-v44-complete-invoice-proof';
+// v45: once a directly proven invoice is linked to a case, its operating branch resolves the
+// transaction branch. Existing explicit branch conflicts remain blocked; the source branch field
+// is never rewritten by analysis.
+export const PIPELINE_VERSION = 'sales-intelligence-v45-proven-invoice-branch';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v13-open-service-need-continuity',
