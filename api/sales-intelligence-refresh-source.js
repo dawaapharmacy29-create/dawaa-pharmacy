@@ -339,6 +339,9 @@ var CANDIDATE_RETRIEVAL_TIME_WINDOW = {
   afterCaseEndHours: 168
 };
 var CANDIDATE_RETRIEVAL_MAX_ROWS = 200;
+function withCandidatePoolCompleteness(rows, complete) {
+  return Object.assign(rows, { candidatePoolComplete: complete });
+}
 function buildInvoiceCandidateQuery(context) {
   const startMs = new Date(context.caseStartedAt).getTime();
   const endMsRaw = context.caseEndedAt ? new Date(context.caseEndedAt).getTime() : NaN;
@@ -361,7 +364,9 @@ function buildInvoiceCandidateQuery(context) {
   };
 }
 async function fetchInvoiceCandidates(supabaseClient, query) {
-  if (!query.customerCodeNormalized && !query.customerId && !query.customerPhoneNormalized) return [];
+  if (!query.customerCodeNormalized && !query.customerId && !query.customerPhoneNormalized) {
+    return withCandidatePoolCompleteness([], true);
+  }
   async function fetchByIdentity(column, value) {
     return await readInvoiceRecordsByIdentityWindow({
       column,
@@ -386,7 +391,9 @@ async function fetchInvoiceCandidates(supabaseClient, query) {
   const resultSets = await Promise.all(lookups);
   const merged = /* @__PURE__ */ new Map();
   let fallbackIndex = 0;
+  let lookupSaturated = false;
   for (const rows of resultSets) {
+    if (rows.length >= query.limit) lookupSaturated = true;
     for (const row of rows) {
       const record = row;
       const rawId = String(record.id ?? "").trim();
@@ -395,10 +402,11 @@ async function fetchInvoiceCandidates(supabaseClient, query) {
       const branch = String(record.branch ?? record.branch_name ?? "").trim();
       const stableKey = rawId || (invoiceId2 ? `${invoiceId2}|${invoiceDatetime}|${branch}` : "") || `fallback:${fallbackIndex++}`;
       if (!merged.has(stableKey)) merged.set(stableKey, row);
-      if (merged.size >= query.limit) return Array.from(merged.values());
     }
   }
-  return Array.from(merged.values());
+  const allUniqueRows = Array.from(merged.values());
+  const complete = !lookupSaturated && allUniqueRows.length <= query.limit;
+  return withCandidatePoolCompleteness(allUniqueRows.slice(0, query.limit), complete);
 }
 
 // src/lib/time/cairoDateBoundary.ts
@@ -4362,11 +4370,11 @@ function recommendInvoiceCandidate(top, second, context) {
   const missing = [];
   const check = (ok, met, gap) => ok ? reasons.push(met) : missing.push(gap);
   const lead = second ? top.confidenceAssessment.score - second.confidenceAssessment.score : 1;
-  const uniqueCode = Boolean(top.customerCodeMatch) && context.sameCodeCandidates === 1;
+  const uniqueCode = Boolean(top.customerCodeMatch) && context.sameCodeCandidates === 1 && context.candidatePoolComplete !== false;
   check(
     uniqueCode,
     "\u0643\u0648\u062F \u0627\u0644\u0639\u0645\u064A\u0644 \u0645\u0637\u0627\u0628\u0642 \u062A\u0645\u0627\u0645\u064B\u0627 \u0648\u0647\u064A \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0627\u0644\u0648\u062D\u064A\u062F\u0629 \u0628\u0647\u0630\u0627 \u0627\u0644\u0643\u0648\u062F \u0641\u064A \u0646\u0627\u0641\u0630\u0629 \u0627\u0644\u062D\u0627\u0644\u0629",
-    top.customerCodeMatch ? "\u0623\u0643\u062B\u0631 \u0645\u0646 \u0641\u0627\u062A\u0648\u0631\u0629 \u0628\u0646\u0641\u0633 \u0643\u0648\u062F \u0627\u0644\u0639\u0645\u064A\u0644 \u0641\u064A \u0646\u0627\u0641\u0630\u0629 \u0627\u0644\u062D\u0627\u0644\u0629" : "\u0643\u0648\u062F \u0627\u0644\u0639\u0645\u064A\u0644 \u063A\u064A\u0631 \u0645\u0637\u0627\u0628\u0642 \u0623\u0648 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F"
+    context.candidatePoolComplete === false ? "\u0642\u0627\u0626\u0645\u0629 \u0627\u0644\u0641\u0648\u0627\u062A\u064A\u0631 \u063A\u064A\u0631 \u0645\u0643\u062A\u0645\u0644\u0629 \u0628\u0633\u0628\u0628 \u062D\u062F \u0627\u0644\u0642\u0631\u0627\u0621\u0629\u061B \u0644\u0627 \u064A\u0645\u0643\u0646 \u0625\u062B\u0628\u0627\u062A \u0627\u0644\u062A\u0641\u0631\u062F" : top.customerCodeMatch ? "\u0623\u0643\u062B\u0631 \u0645\u0646 \u0641\u0627\u062A\u0648\u0631\u0629 \u0628\u0646\u0641\u0633 \u0643\u0648\u062F \u0627\u0644\u0639\u0645\u064A\u0644 \u0641\u064A \u0646\u0627\u0641\u0630\u0629 \u0627\u0644\u062D\u0627\u0644\u0629" : "\u0643\u0648\u062F \u0627\u0644\u0639\u0645\u064A\u0644 \u063A\u064A\u0631 \u0645\u0637\u0627\u0628\u0642 \u0623\u0648 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F"
   );
   check(
     Boolean(top.customerNameMatch),
@@ -4382,7 +4390,7 @@ function recommendInvoiceCandidate(top, second, context) {
     top.productMatch === "unavailable" ? "\u0644\u0627 \u062A\u0648\u062C\u062F \u0623\u0635\u0646\u0627\u0641 \u0645\u062D\u0633\u0648\u0645\u0629 \u0643\u0627\u0641\u064A\u0629 \u0644\u0644\u0645\u0642\u0627\u0631\u0646\u0629 (\u0635\u0648\u0631\u0629/\u0635\u0648\u062A \u063A\u064A\u0631 \u0645\u062A\u0627\u062D \u0623\u0648 \u0627\u0633\u0645 \u063A\u064A\u0631 \u0645\u062D\u0633\u0648\u0645)" : "\u0623\u0635\u0646\u0627\u0641 \u0627\u0644\u062D\u0627\u0644\u0629 \u0644\u0627 \u062A\u0637\u0627\u0628\u0642 \u0628\u0646\u0648\u062F \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0623\u0648 \u0627\u0644\u0643\u0645\u064A\u0629 \u0645\u062A\u0639\u0627\u0631\u0636\u0629"
   );
   check(top.staffMatch !== "different", top.staffMatch === "same" ? "\u0628\u0627\u0626\u0639 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0647\u0648 \u0646\u0641\u0633 \u0627\u0644\u0645\u0648\u0638\u0641 \u0627\u0644\u0645\u0634\u0627\u0631\u0643 \u0641\u064A \u0647\u0630\u0647 \u0627\u0644\u062D\u0627\u0644\u0629" : "\u0644\u0627 \u064A\u0648\u062C\u062F \u062A\u0639\u0627\u0631\u0636 \u0641\u064A \u0627\u0644\u0628\u0627\u0626\u0639", "\u0628\u0627\u0626\u0639 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0645\u0648\u0638\u0641 \u0645\u062E\u062A\u0644\u0641 \u0639\u0646 \u0627\u0644\u0645\u0634\u0627\u0631\u0643 \u0641\u064A \u0627\u0644\u062D\u0627\u0644\u0629");
-  const clean4 = top.disqualifiers.length === 0 && top.identityConflict === "none" && !context.ambiguous && context.competingCaseIds.length === 0;
+  const clean4 = top.disqualifiers.length === 0 && top.identityConflict === "none" && !context.ambiguous && context.competingCaseIds.length === 0 && context.candidatePoolComplete !== false;
   check(clean4, "\u0644\u0627 \u062A\u0648\u062C\u062F \u062A\u0639\u0627\u0631\u0636\u0627\u062A \u0647\u0648\u064A\u0629 \u0623\u0648 \u062D\u0627\u0644\u0627\u062A \u0645\u0646\u0627\u0641\u0633\u0629 \u0639\u0644\u0649 \u0646\u0641\u0633 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629", "\u064A\u0648\u062C\u062F \u062A\u0639\u0627\u0631\u0636 \u0623\u0648 \u062D\u0627\u0644\u0629 \u0623\u062E\u0631\u0649 \u062A\u0646\u0627\u0641\u0633 \u0639\u0644\u0649 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629");
   check(lead >= STRONG_CANDIDATE_MIN_LEAD, "\u062A\u0641\u0648\u0642 \u0648\u0627\u0636\u062D \u0639\u0644\u0649 \u0623\u064A \u0641\u0627\u062A\u0648\u0631\u0629 \u0645\u0631\u0634\u062D\u0629 \u0623\u062E\u0631\u0649", "\u0641\u0627\u062A\u0648\u0631\u0629 \u0623\u062E\u0631\u0649 \u0642\u0631\u064A\u0628\u0629 \u0641\u064A \u0627\u0644\u0642\u0648\u0629\u061B \u064A\u0644\u0632\u0645 \u062A\u0631\u062C\u064A\u062D \u0628\u0634\u0631\u064A");
   const strong = uniqueCode && Boolean(top.customerNameMatch) && closeTime && productOk && top.staffMatch !== "different" && clean4 && lead >= STRONG_CANDIDATE_MIN_LEAD;
@@ -4395,13 +4403,14 @@ function recommendInvoiceCandidate(top, second, context) {
 }
 function deriveSaleAttributionAssessment(ctx, invoiceRows, itemEvidenceProvider = unavailableInvoiceItemEvidenceProvider, competingSelections = []) {
   const commercialConfirmationState = ctx.commercialConfirmation.currentState;
-  const automaticMatches = ctx.trustedInvoiceId ? [] : invoiceRows.filter((row) => qualifiesForAutomaticInvoiceLink(ctx, row, itemEvidenceProvider));
+  const automaticMatches = ctx.trustedInvoiceId || ctx.invoiceCandidatePoolComplete === false ? [] : invoiceRows.filter((row) => qualifiesForAutomaticInvoiceLink(ctx, row, itemEvidenceProvider));
   const automaticTrustedInvoiceId = automaticMatches.length === 1 ? getInvoiceRowId(automaticMatches[0]) : null;
   const candidates = invoiceRows.map(
     (row) => buildAttributionCandidate(ctx, row, itemEvidenceProvider, automaticTrustedInvoiceId)
   );
   candidates.sort((a, b) => b.confidenceAssessment.score - a.confidenceAssessment.score);
   if (candidates.length === 0) {
+    const candidatePoolIncomplete = ctx.invoiceCandidatePoolComplete === false;
     return {
       caseId: ctx.caseId,
       commercialConfirmationState,
@@ -4414,8 +4423,8 @@ function deriveSaleAttributionAssessment(ctx, invoiceRows, itemEvidenceProvider 
       confidence: { level: "unknown", score: 0, ruleIds: ["attribution.assessment.no_candidates"], evidence: [] },
       primaryEvidence: [],
       contradictions: [],
-      needsHumanReview: false,
-      humanReviewReasons: [],
+      needsHumanReview: candidatePoolIncomplete,
+      humanReviewReasons: candidatePoolIncomplete ? ["invoice_candidate_pool_incomplete"] : [],
       isOfficialForStaffEvaluation: false,
       legacyEvidenceUsed: false,
       ruleIds: ["attribution.assessment.no_candidates"],
@@ -4471,6 +4480,9 @@ function deriveSaleAttributionAssessment(ctx, invoiceRows, itemEvidenceProvider 
   const second = selectableCandidates.find((c) => c !== top) ?? null;
   const contradictions = [];
   const humanReviewReasons = [];
+  if (ctx.invoiceCandidatePoolComplete === false && !top.directInvoiceLink) {
+    humanReviewReasons.push("invoice_candidate_pool_incomplete");
+  }
   if (top.identityConflict !== "none" || top.disqualifiers.some((reason) => reason === "canonical_customer_id_mismatch" || reason === "customer_code_mismatch" || reason === "customer_name_mismatch")) {
     contradictions.push("identity_conflict");
     humanReviewReasons.push("customer_identity_conflict");
@@ -4497,7 +4509,7 @@ function deriveSaleAttributionAssessment(ctx, invoiceRows, itemEvidenceProvider 
   let attributionLevel = top.confidenceAssessment.level;
   if (ambiguous && attributionLevel === "strongly_inferred") attributionLevel = "weakly_inferred";
   const topHasIndependentTransactionalCorroboration = hasIndependentTransactionalCorroboration(top);
-  const statisticalOfficialTimingOk = topHasIndependentTransactionalCorroboration && (top.timeMatchStrength === "very_strong" || top.timeMatchStrength === "strong" || top.timeMatchStrength === "moderate" && top.customerIdMatch && (top.branchMatch === "exact_canonical" || top.branchMatch === "normalized_alias_match"));
+  const statisticalOfficialTimingOk = ctx.invoiceCandidatePoolComplete !== false && topHasIndependentTransactionalCorroboration && (top.timeMatchStrength === "very_strong" || top.timeMatchStrength === "strong" || top.timeMatchStrength === "moderate" && top.customerIdMatch && (top.branchMatch === "exact_canonical" || top.branchMatch === "normalized_alias_match"));
   const isOfficialForStaffEvaluation = attributionLevel === "proven" && contradictions.length === 0 && top.disqualifiers.length === 0 || attributionLevel === "strongly_inferred" && !ambiguous && contradictions.length === 0 && top.identityConflict === "none" && competingCaseIds.length === 0 && top.disqualifiers.length === 0 && statisticalOfficialTimingOk;
   if (attributionLevel === "strongly_inferred" && !directLinked && !statisticalOfficialTimingOk && !humanReviewReasons.includes("statistical_invoice_lacks_transactional_corroboration")) {
     humanReviewReasons.push("statistical_invoice_lacks_transactional_corroboration");
@@ -4533,7 +4545,8 @@ function deriveSaleAttributionAssessment(ctx, invoiceRows, itemEvidenceProvider 
     candidateRecommendation: attributionLevel === "proven" ? void 0 : recommendInvoiceCandidate(top, second, {
       ambiguous,
       competingCaseIds,
-      sameCodeCandidates: candidates.filter((c) => c.customerCodeMatch && isStatisticallySelectable(c)).length
+      sameCodeCandidates: candidates.filter((c) => c.customerCodeMatch && isStatisticallySelectable(c)).length,
+      candidatePoolComplete: ctx.invoiceCandidatePoolComplete
     })
   };
 }
@@ -7961,6 +7974,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     caseEndedAt: conversationCase.endedAt
   };
   const invoiceCandidates = input.resolveInvoiceCandidates(candidateContext);
+  const invoiceCandidatePoolComplete = invoiceCandidates.candidatePoolComplete !== false;
   const attributionCtx = {
     caseId: conversationCase.caseId,
     customerId: conversationCase.customerId,
@@ -7985,6 +7999,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     })),
     knownStaffIds: caseKnownStaffIds,
     resolveInvoiceStaffIdByName: input.resolveInvoiceStaffIdByName,
+    invoiceCandidatePoolComplete,
     legacyMatchedInvoiceId: input.legacyMatchedInvoiceId ?? null,
     legacyMatchedInvoiceNumber: input.legacyMatchedInvoiceNumber ?? null,
     trustedInvoiceId: input.trustedInvoiceId ?? null,
@@ -9427,13 +9442,13 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v43-case-continuity-evidence";
+var PIPELINE_VERSION = "sales-intelligence-v44-complete-invoice-proof";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v13-open-service-need-continuity",
   historicalClosure: "historical-closure-v1",
   commercialConfirmation: "commercial-confirmation-v6-compact-total-interstitial-ack-safe",
   protocolApplicability: "protocol-applicability-v1",
-  attribution: "attribution-v10-explained-code-product-factors",
+  attribution: "attribution-v11-complete-pool-staff-branch-gates",
   matching: "matching-v3-unresolved-product-evidence-safe",
   policyEvaluation: "policy-evaluation-v1"
 };
@@ -10064,12 +10079,13 @@ function filterCandidatesToCaseWindow(candidates, context) {
   const { windowStartIso, windowEndIso } = buildInvoiceCandidateQuery(context);
   const windowStartMs = new Date(windowStartIso).getTime();
   const windowEndMs = new Date(windowEndIso).getTime();
-  return candidates.filter((row) => {
+  const filtered = candidates.filter((row) => {
     const iso = parseInvoiceDateTime(row.invoice_datetime);
     if (!iso) return false;
     const ms = new Date(iso).getTime();
     return ms >= windowStartMs && ms <= windowEndMs;
   });
+  return withCandidatePoolCompleteness(filtered, candidates.candidatePoolComplete !== false);
 }
 async function planCase(supabaseClient, caseId) {
   const { data, error } = await supabaseClient.from("sales_intelligence_cases").select("case_id, conversation_id, source_case_id_v22, customer_id, customer_phone, branch_id, branch_name_raw").eq("case_id", caseId).maybeSingle();
@@ -10157,7 +10173,10 @@ async function runBatchPersistence(supabaseClient, input) {
         resolveInvoiceCandidates: (context) => {
           const denied = deniedInvoiceIdsByCase.get(context.caseId);
           const rows = conversationToGroupCandidates(conversation, context);
-          return denied?.size ? rows.filter((row) => !denied.has(invoiceRowLookupId2(row))) : rows;
+          return denied?.size ? withCandidatePoolCompleteness(
+            rows.filter((row) => !denied.has(invoiceRowLookupId2(row))),
+            rows.candidatePoolComplete !== false
+          ) : rows;
         },
         itemEvidenceProvider
       };
