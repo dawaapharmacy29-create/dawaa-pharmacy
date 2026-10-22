@@ -6,6 +6,7 @@
 // Follow-up). It never re-analyses products, never re-decides sale/lost/follow-up, never resolves
 // identity and never reads message text for meaning: messages are used only to look up a fact's
 // sender by message id. Built once inside the pipeline; readers consume it and never run engines.
+import { normalizeProductKey } from './caseBasketEngine';
 import type {
   ConversationInteractionV32,
   NormalizedConversationMessageV32,
@@ -109,6 +110,17 @@ export function buildCaseIntelligenceView(
       lossOutcome: loss?.outcome ?? null,
       lossReason: loss?.reason ?? null,
       followUpKeys: analysis.followUp.opportunities.filter((o) => o.productKey === product.key).map((o) => o.followUpKey),
+      mentionSource: product.roles.includes('requested')
+        ? ('customer_explicit' as const)
+        : product.roles.includes('offered') ? ('staff_restatement' as const) : ('inferred' as const),
+      quantitySource: product.requestedQuantity != null
+        ? ('customer' as const)
+        : product.offeredQuantity != null ? ('staff_restatement' as const)
+          : product.finalQuantity != null ? ('final_basket' as const) : ('unknown' as const),
+      evidenceMessageIds: [...product.evidenceMessageIds],
+      invoiceLine: attribution.selectedCandidate?.lineMatches?.find(
+        (line) => normalizeProductKey(line.basketProductNameRaw) === product.key
+      ) ?? null,
     };
   });
 
@@ -175,6 +187,7 @@ export function buildCaseIntelligenceView(
     sourceCaseIdV22: conversationCase.sourceCaseIdV22,
     interaction: {
       interactionId: interaction?.id ?? null,
+      continuationEvidence: interaction?.continuationEvidence ?? [],
       startedAt: conversationCase.startedAt,
       endedAt: conversationCase.endedAt,
       messageCount: messages.length,
@@ -202,7 +215,12 @@ export function buildCaseIntelligenceView(
       identityStatus,
       blockers: identityResolved ? [] : ['customer_identity_unresolved'],
     },
-    branch: { branchId: conversationCase.branchId, branchNameRaw: conversationCase.branchNameRaw },
+    branch: {
+      branchId: conversationCase.branchId,
+      branchNameRaw: conversationCase.branchNameRaw,
+      recommendation: analysis.branchRecommendation,
+    },
+    ownership: conversationCase.ownership,
     staff: {
       participants: [...participants.values()].map((p) => ({ ...p, messageCount: p.messageIds.length })),
       facts: uniqueFacts,
@@ -212,6 +230,7 @@ export function buildCaseIntelligenceView(
     basket,
     journey: analysis.journeyState,
     sale: {
+      customerAcceptanceDetected: analysis.historicalClosure?.customerAcceptanceDetected,
       confirmationState: commercialConfirmation.currentState,
       summaryPresented: commercialConfirmation.summaryPresented,
       customerConfirmed: commercialConfirmation.customerConfirmed,
@@ -220,6 +239,7 @@ export function buildCaseIntelligenceView(
       invoiceCandidateIds: analysis.invoiceCandidateIds,
       selectedInvoiceId: attribution.selectedInvoiceId,
       selectedInvoiceNumber: attribution.selectedInvoiceNumber,
+      candidateRecommendation: attribution.candidateRecommendation ?? null,
       attributionLevel: attribution.attributionLevel,
       proofState: salesOutcome.saleProofState,
       outcome: salesOutcome.outcome,
@@ -231,6 +251,7 @@ export function buildCaseIntelligenceView(
     unavailableDemand: analysis.unavailableDemand,
     lostOpportunity: analysis.lostOpportunity,
     followUp: analysis.followUp,
+    careFollowUp: analysis.careFollowUp ?? null,
     // Projected as-is from the canonical disposition engine; the view decides nothing itself.
     ...(analysis.operationalDisposition ? { operationalDisposition: analysis.operationalDisposition } : {}),
     coachingEvidence: {
@@ -267,3 +288,4 @@ function dedupeFacts(facts: CaseIntelligenceStaffFact[]): CaseIntelligenceStaffF
     return true;
   });
 }
+

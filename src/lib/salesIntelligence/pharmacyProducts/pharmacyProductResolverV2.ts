@@ -114,6 +114,8 @@ export function buildPharmacyProductIndex(catalog: CanonicalProduct[]): Pharmacy
  */
 export const CROSS_SCRIPT_SEED: ReadonlyMap<string, string> = new Map([
   ['زوركال', 'zurcal'],
+  ['كتافلام', 'cataflam'],
+  ['كاتفلام', 'cataflam'],
   ['انتينال', 'antinal'],
   ['بانادول اكسترا', 'panadol extra'],
   ['بيدو كورت', 'pedicort'],
@@ -129,6 +131,10 @@ export const CROSS_SCRIPT_SEED: ReadonlyMap<string, string> = new Map([
   ['فليكس لايكس', 'flexilax'],
   ['جاست ريج', 'gast reg'],
   ['جاست ريج امبول', 'gast reg'],
+  ['هاي فريش', 'hyfresh'],
+  ['هاى فريش', 'hyfresh'],
+  ['hy fresh', 'hyfresh'],
+  ['hyfresh', 'hyfresh'],
   ['سولو فريش', 'solofresh'],
   ['سولوفريش', 'solofresh'],
   ['كوجي سان', 'koji san'],
@@ -157,6 +163,12 @@ export const CROSS_SCRIPT_SEED: ReadonlyMap<string, string> = new Map([
   ['كولونا', 'colona'],
   ['جاسترو بيوتيك', 'gastrobiotic'],
   ['جاستروبيوتك', 'gastrobiotic'],
+]);
+
+/** Spoken product-line variant words (whole words only) that narrow one seeded brand's SKUs. */
+const CROSS_SCRIPT_VARIANT_WORDS: ReadonlyMap<string, string> = new Map([
+  ['فورت', 'forte'],
+  ['فورتي', 'forte'],
 ]);
 
 function confidenceForBasis(basis: ProductMatchBasis): ConfidenceLevel {
@@ -208,7 +220,7 @@ function isSafeSelection(candidates: ProductResolutionCandidate[]): ProductResol
 
 function strengthsCompatible(a: ExtractedStrength[], b: ExtractedStrength[]): boolean {
   if (a.length === 0 || b.length === 0) return true; // insufficient info on one side -> never used to REJECT, only to prefer
-  return a.some((sa) => b.some((sb) => sa.unit === sb.unit && Math.abs(sa.value - sb.value) < 0.001));
+  return a.every((sa) => !b.some((sb) => sa.unit === sb.unit) || b.some((sb) => sa.unit === sb.unit && Math.abs(sa.value - sb.value) < 0.001));
 }
 
 function dosageFormsCompatible(a: DosageForm[], b: DosageForm[]): boolean {
@@ -348,6 +360,19 @@ export function resolveProductMention(
 
   function addCandidate(product: CanonicalProduct, basis: ProductMatchBasis, score: number, reason: string) {
     if (!allowed(product)) return;
+    // All text/alias paths share the same medical identity gates. Exact product code is an
+    // identity key, not a dosage/pack number. An approved alias cannot override explicit facts.
+    if (basis !== 'exact_code') {
+      if (!strengthsCompatible(normalized.strengths, product.strengths)) return;
+      if (!dosageFormsCompatible(normalized.dosageForms, product.dosageForms)) return;
+      if (normalized.packSizes.length && product.packSizes.length &&
+          !normalized.packSizes.every(pack => product.packSizes.some(other => other.count === pack.count))) return;
+      const percentages = (text: string) => Array.from(text.matchAll(/(\d+(?:\.\d+)?)\s*%/g), match => Number(match[1]));
+      const requested = percentages(normalized.raw);
+      const offered = percentages(product.canonicalName);
+      if (requested.length && offered.length && !requested.every(value => offered.includes(value))) return;
+    }
+
     const existing = candidateMap.get(product.productId);
     // Keep the HIGHEST-confidence basis found for this product — never downgrade a stronger match.
     if (existing && confidenceRank(existing.confidence) >= confidenceRank(confidenceForBasis(basis))) {
@@ -398,14 +423,22 @@ export function resolveProductMention(
     for (const [candidateNormalizedName, products] of index.byNormalizedName) {
       if (candidateNormalizedName.includes(latinNormalized)) sameTokenProducts.push(...products);
     }
-    const compatible = sameTokenProducts.filter(
+    const formCompatible = sameTokenProducts.filter(
       (product) =>
         strengthsCompatible(normalized.strengths, product.strengths) &&
         dosageFormsCompatible(normalized.dosageForms, product.dosageForms) &&
         bareNumbersCompatible(phraseBareNumbers, product)
     );
+    // "بيدو كورت فورت" names the FORTE line explicitly: keep only same-brand SKUs that carry the
+    // spoken variant word. Without the word nothing is filtered (plain brand stays ambiguous).
+    const spokenVariants = Array.from(CROSS_SCRIPT_VARIANT_WORDS)
+      .filter(([arabic]) => new RegExp(`(?:^|\\s)${arabic}(?:\\s|$)`, 'u').test(normalized.normalized))
+      .map(([, latin]) => latin);
+    const variantCompatible = formCompatible.filter((product) =>
+      spokenVariants.every((latin) => product.normalizedNames.some((name) => name.split(' ').includes(latin))));
+    const compatible = variantCompatible.length > 0 ? variantCompatible : formCompatible;
     const disambiguatedByForm =
-      normalized.dosageForms.length > 0 && sameTokenProducts.length > 1 && compatible.length === 1;
+      normalized.dosageForms.length > 0 && sameTokenProducts.length > 1 && formCompatible.length === 1;
     for (const product of compatible) {
       const clues = crossScriptCluesByProduct.get(product.productId) ?? new Set<string>();
       clues.add(arabicKey);

@@ -1,0 +1,21 @@
+{
+  "testedBaseHead": "f81e2089af4ee5dc4ccf9dc85d1634706a78a2e6",
+  "runtime": "PGlite 0.5.8",
+  "stepsPassed": 53,
+  "stepsFailed": 0,
+  "canonicalFollowup": {
+    "status": "CANDIDATE_VALIDATED_PRODUCTION_PARITY_BLOCKED",
+    "prerequisite": "20261009180000_customer_followup_one_open_case_contract_a_v1.sql",
+    "runtimeProblem": "different_request_type_open_case_unique_violation",
+    "productionWrites": 0
+  },
+  "scope": "Synthetic local domain integration; captured runtime functions and policies. No browser smoke or production mutation.",
+  "sha256": {
+    "scripts/staging/fixtures/canonical-followup-runtime-definitions.json": "9e9f0321dba1782d810953bbccec1977feea39cfe92bd50f20cbf15534ffc375",
+    "scripts/staging/fixtures/canonical-followup-runtime-schema.json": "c11feea41f18aa1e31045f7f4d945504473cb091b88c62e4dd4292f3d14bbf68",
+    "scripts/staging/fixtures/canonical-followup-runtime-grants.json": "bfcf6c60ed616bfc3ce6f75e93f5bf1ded0e088f7ca3e252dc815eed2f6f19ad",
+    "scripts/staging/fixtures/canonical-followup-runtime-indexes.json": "f4fd3b27ca0ca9d0fc5d33f56b55a89ddb0c7f66c54cfb9d3df3f8242b5f89f1",
+    "supabase/migrations/20261018061544_canonical_followup_projection_lifecycle.sql": "76497284e1ec8638265d7468df19e326bb01be6ed14298d457ce3431aa74c403",
+    "supabase/migrations/20261009180000_customer_followup_one_open_case_contract_a_v1.sql": "9d6e2526e0b29153627265aa740646a334990428a4ce3fb438e59caeb8be8bd9"
+  }
+}

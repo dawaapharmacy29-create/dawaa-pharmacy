@@ -1,0 +1,1 @@
+Runtime-provided Playwright chromium v1234 installation failed. Downloaded archive was invalid/truncated: End of central directory record signature not found. No installed Chromium executable was available. Browser measurements NOT RUN. No deploy or remote browser workaround used.

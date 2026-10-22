@@ -54,7 +54,7 @@ function evaluation(): ConversationEvaluationResult {
     'customer_request_registration','exceptional_followup_recognition','purchase_history_usage','closing_message',
   ] as const;
   return {
-    version:'conversation-evaluation-v1',
+    version:'conversation-evaluation-v2',
     caseId:'source-1:interaction:2',
     items: keys.map((key, index) => ({
       key,
@@ -153,7 +153,7 @@ describe('case-level conversation evaluation persistence 9N-B', () => {
       superseded_at:null,
       superseded_reason:null,
       final_score:50,
-      automatic_evaluation_version:'conversation-evaluation-v1',
+      automatic_evaluation_version:'conversation-evaluation-v2',
     });
   });
 
@@ -198,7 +198,7 @@ describe('case-level conversation evaluation persistence 9N-B', () => {
     });
     expect(payload.sales_intelligence_case_id).toBe('source-1:interaction:2');
     expect(payload.submission_fingerprint).toBe('auto-case:source-1:source-1:interaction:2');
-    expect(payload.automatic_evaluation_version).toBe('conversation-evaluation-v1');
+    expect(payload.automatic_evaluation_version).toBe('conversation-evaluation-v2');
     expect(payload.automatic_evaluation_json.items).toHaveLength(19);
     expect(payload.evidence_coverage_percent).toBe(100);
   });
@@ -216,6 +216,31 @@ describe('case-level conversation evaluation persistence 9N-B', () => {
     expect(payload.extra_penalty_points).toBe(0);
     expect(payload.positive_points).toBe(0);
     expect(payload.negative_points).toBe(0);
+  });
+
+  it('keeps an unresolved case branch empty instead of substituting the staff home branch', () => {
+    const unresolvedView = {
+      ...view(),
+      branch: { branchId: null, branchNameRaw: null },
+    } as CaseIntelligenceView;
+    const payload = buildCaseConversationReviewPayload({
+      sourceId:'source-1',
+      view:unresolvedView,
+      evaluation:evaluation(),
+      staffRow:{id:'staff-1',name:'د شبل',branch:'فرع شكري',branch_id:'branch-shukri',role:'doctor'},
+    });
+    expect(payload.branch).toBeNull();
+    expect(payload.branch_id).toBeNull();
+  });
+
+  it('names an invoice on the review only when it is proven for the case', () => {
+    const staffRow={id:'staff-1',name:'د شبل',branch:'فرع شكري',branch_id:null,role:'doctor'};
+    const proven=buildCaseConversationReviewPayload({sourceId:'source-1',view:view(),evaluation:evaluation(),staffRow});
+    expect(proven.invoice_number).toBe('74966');
+    const base=view();
+    // Weakly inferred candidate (e.g. invoice 74938 at 0.20): evidence only, never on the review.
+    const weak={...base,sale:{...base.sale,attributionLevel:'weakly_inferred',proofState:'weakly_supported',outcome:'needs_review',isSaleCountable:false}} as CaseIntelligenceView;
+    expect(buildCaseConversationReviewPayload({sourceId:'source-1',view:weak,evaluation:evaluation(),staffRow}).invoice_number).toBeNull();
   });
 
   it('never writes automatic medical consultation or dosage scores', () => {

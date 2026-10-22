@@ -1,0 +1,59 @@
+2026-10-17T12:14:50.3568665Z PASS exact production v1 and analysis writer bodies
+2026-10-17T12:14:50.4413245Z PASS exact strict precheck on synthetic baseline cohort and captured column/trigger contracts
+2026-10-17T12:14:50.4471234Z PASS baseline v1 publishes current analysis
+2026-10-17T12:14:50.4485168Z PASS baseline exhibits archival inconsistency
+2026-10-17T12:14:50.4549117Z PASS candidate first case staged, not published
+2026-10-17T12:14:50.4579997Z PASS candidate first complete source publishes
+2026-10-17T12:14:50.4593057Z PASS candidate duplicate stage retry no duplicate analysis
+2026-10-17T12:14:50.4610793Z PASS candidate reanalysis stages without pointer/current drift
+2026-10-17T12:14:50.4633861Z PASS candidate partial failed source preserves old publication
+2026-10-17T12:14:50.4673373Z PASS candidate retry publishes full source and supersedes old
+2026-10-17T12:14:50.4696786Z PASS candidate duplicate reconcile is idempotent
+2026-10-17T12:14:50.4724246Z PASS candidate resegmentation retires stale case and clears pointer/current
+2026-10-17T12:14:50.4742627Z PASS candidate foreign case fails closed without unrelated changes
+2026-10-17T12:14:50.4752440Z PASS candidate superseded analysis cannot be republished
+2026-10-17T12:14:50.4764089Z PASS candidate malformed/missing mapping has no partial lifecycle writes
+2026-10-17T12:14:50.4769279Z PASS candidate duplicate case set rejected
+2026-10-17T12:14:50.4790218Z PASS candidate pointer drift repaired by exact candidate
+2026-10-17T12:14:50.4824485Z PASS candidate historical missing-current needs fresh staged analysis
+2026-10-17T12:14:50.4883005Z PASS candidate archived source never reactivated
+2026-10-17T12:14:50.4913206Z PASS candidate archived retry preserves history and retired timestamps
+2026-10-17T12:14:50.5001071Z PASS candidate zero-case source retires full previous set
+2026-10-17T12:14:50.5027955Z PASS candidate missing source rejected
+2026-10-17T12:14:50.5080628Z PASS archive also retires staged inactive cases and stale inactive pointers without deleting history
+2026-10-17T12:14:50.5107224Z PASS exact rollback to baseline
+2026-10-17T12:14:50.5137026Z PASS reapply candidate exact body
+2026-10-17T12:14:50.5183754Z PASS reapply first case staged, not published
+2026-10-17T12:14:50.5216356Z PASS reapply first complete source publishes
+2026-10-17T12:14:50.5229101Z PASS reapply duplicate stage retry no duplicate analysis
+2026-10-17T12:14:50.5244934Z PASS reapply reanalysis stages without pointer/current drift
+2026-10-17T12:14:50.5267801Z PASS reapply partial failed source preserves old publication
+2026-10-17T12:14:50.5297806Z PASS reapply retry publishes full source and supersedes old
+2026-10-17T12:14:50.5321152Z PASS reapply duplicate reconcile is idempotent
+2026-10-17T12:14:50.5343401Z PASS reapply resegmentation retires stale case and clears pointer/current
+2026-10-17T12:14:50.5360694Z PASS reapply foreign case fails closed without unrelated changes
+2026-10-17T12:14:50.5370142Z PASS reapply superseded analysis cannot be republished
+2026-10-17T12:14:50.5380760Z PASS reapply malformed/missing mapping has no partial lifecycle writes
+2026-10-17T12:14:50.5384930Z PASS reapply duplicate case set rejected
+2026-10-17T12:14:50.5402431Z PASS reapply pointer drift repaired by exact candidate
+2026-10-17T12:14:50.5437666Z PASS reapply historical missing-current needs fresh staged analysis
+2026-10-17T12:14:50.5467409Z PASS reapply archived source never reactivated
+2026-10-17T12:14:50.5484613Z PASS reapply archived retry preserves history and retired timestamps
+2026-10-17T12:14:50.5552921Z PASS reapply zero-case source retires full previous set
+2026-10-17T12:14:50.5555526Z PASS reapply missing source rejected
+2026-10-17T12:14:50.5619988Z PASS future archival routes atomically through canonical reconcile
+2026-10-17T12:14:50.5627272Z PASS archive trigger cannot recurse and retains historical analyses
+2026-10-17T12:14:50.5714096Z PASS real v35 archival path preserves SI case and analysis history
+2026-10-17T12:14:50.5800289Z PASS proof revoke failure rolls back source archival and lifecycle atomically
+2026-10-17T12:14:50.5843031Z PASS rollback restores exact owner ACL security and config as well as bodies
+2026-10-17T12:14:50.5865774Z PASS final reapply after full rollback restores all candidates
+2026-10-17T12:14:50.5906874Z PASS single transaction release bundle installs all candidates after rollback
+2026-10-17T12:14:50.5923998Z PASS read-only Phase A postcheck executes and validates all candidate hashes and unchanged data
+2026-10-17T12:14:50.5946614Z PASS read-only historical postcheck executes and detects no unrelated changes/history deletion in fixture
+2026-10-17T12:14:50.6034889Z PASS automatic reviews retire while human review and all history remain
+2026-10-17T12:14:50.6049543Z PASS strict precheck rejects installed candidate state
+2026-10-17T12:14:50.6438842Z PASS native concurrent same-case stages serialize and return one semantic analysis; versions remain monotonic
+2026-10-17T12:14:50.6747038Z PASS native concurrent same-source reconciliation blocks and converges with atomic reader visibility
+2026-10-17T12:14:50.6862464Z PASS native older staged candidate is rejected, retirement/reactivation retain history and owned proof is revoked
+2026-10-17T12:14:50.7171122Z PASS native archive versus reconcile uses compatible locks: archive wins without deadlock or reactivation
+2026-10-17T12:14:50.7220442Z {"passed":58,"failed":0,"baselineMd5":"9fd2f5976e2419ca7154d203b29da5fc","v2md5":"b1d51222a320d551aeb0034afae74211","postgres":"PostgreSQL 17.11 (Debian 17.11-1.pgdg13+2) on x86_64-pc-linux-gnu, compiled by gcc (Debian 14.2.0-19) 14.2.0, 64-bit"}

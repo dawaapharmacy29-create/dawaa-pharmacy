@@ -1,0 +1,189 @@
+{
+  "runtimeCheckpoint": "ef39ae0b41a553f687cd618ea67781bbc5d7b66c",
+  "productionWrites": 0,
+  "productionDataChanges": 0,
+  "deploy": 0,
+  "sqlRehearsal": {
+    "passed": 53,
+    "failed": 0,
+    "baselineMd5": "9fd2f5976e2419ca7154d203b29da5fc",
+    "v2md5": "b1d51222a320d551aeb0034afae74211",
+    "postgres": "PostgreSQL 18.3 (PGlite 0.5.8) on wasm32-unknown-emscripten, compiled by emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 3.1.74 (1092ec30a3fb1d46b1782ff1b4db5094d3d06ae5), 32-bit"
+  },
+  "npmTest": {
+    "customPassed": 1047,
+    "customFailed": 0,
+    "siTimezones": [
+      "Africa/Cairo",
+      "UTC"
+    ],
+    "siPassedPerTimezone": 1189,
+    "siSkippedPerTimezone": 1,
+    "siPassedFilesPerTimezone": 115
+  },
+  "qualityScripts": [
+    {
+      "command": "node scripts/audit-fix-semantic-lint.cjs --check",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-build-source-purity.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-runtime-bootstrap-patches.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-data-access-boundaries.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-generic-query-data-access.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-notification-architecture.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-production-exposure-closure.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-permission-architecture.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-action-permission-boundaries.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-db-authorization-architecture.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-whatsapp-evidence-link-session.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-conversation-review-correction-command.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-verified-session-identity.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-customer-request-shortage-command.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-customer-request-v2-parity.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-customer-request-create-authorization.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-customer-followup-command-boundary.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-payroll-architecture.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-incentive-governance-architecture.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-shift-performance-architecture.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-shift-notes-architecture.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-attendance-identity-architecture.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-employee-transaction-write-boundary.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-employee-transaction-source-authorization.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-task-evidence-architecture.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-review-coverage-architecture.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-theme-architecture.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/audit-theme-debt.cjs",
+      "code": 0
+    },
+    {
+      "command": "node scripts/check-dashboard-primitives-architecture.cjs",
+      "code": 0
+    }
+  ],
+  "semanticEslintErrors": 0,
+  "typeScript": "PASS",
+  "productionBuild": "PASS",
+  "generatedParity": "PASS",
+  "perfBudget": "PASS",
+  "initialStaticGzipKiB": 202.1,
+  "window": {
+    "reads": 17,
+    "productReads": 2,
+    "fuzzy": 0,
+    "pipelineRuns": 0
+  },
+  "hostedCIExecuted": true,
+  "browserSmokeExecuted": false,
+  "localNode": "22.23.3",
+  "productionPostgreSQL": "17.6",
+  "nativePostgres17Rehearsal": true,
+  "nativePg17ParityStatus": "PASS",
+  "decision": "READY_FOR_PHASE_A_PRODUCTION_SQL_APPROVAL",
+  "mainChanges": 0,
+  "merge": 0,
+  "productionReanalysis": 0,
+  "productionRepair": 0,
+  "nativeSqlRehearsal": {
+    "passed": 58,
+    "failed": 0,
+    "postgres": "17.11",
+    "node": "22.23.3",
+    "rollback": "PASS_EXACT_BODIES_OWNER_ACL_CONFIG",
+    "reapply": "PASS_EXACT_ATOMIC_RELEASE",
+    "partialFailure": "PASS",
+    "realConcurrencyScenarios": 4,
+    "v2md5": "b1d51222a320d551aeb0034afae74211"
+  },
+  "hostedCI": {
+    "runId": 39031723616,
+    "jobId": 117393351589,
+    "conclusion": "success",
+    "testedHead": "20f854c56cbe18faf336cd7e1949d3ddc4aebd50",
+    "url": "https://github.com/dawaapharmacy29-create/dawaa-pharmacy/actions/runs/39031723616",
+    "lockfileSha256": "9a899c693b295774718d84080211ae4fbff3f2bf4fc767b7e716f584ee6a7e37"
+  },
+  "freshProductionPreflight": {
+    "status": "PASS_NO_DRIFT",
+    "evidence": "production-final-preflight.json",
+    "capturedAt": "2026-10-17T12:17:48.104029+00:00"
+  }
+}

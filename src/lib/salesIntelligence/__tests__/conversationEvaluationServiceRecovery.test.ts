@@ -22,20 +22,41 @@ function makeView(messages: CaseIntelligenceView['interaction']['messages']): Ca
 }
 
 describe('conversation evaluation service recovery 9H',()=>{
-  it('credits apology + action + resolution on a real complaint',()=>{
+  it('credits apology + action + explicit resolution on a real complaint',()=>{
     const v=makeView([
       {id:'c1',role:'customer',sender:'Customer',at:'2026-09-28T09:00:00Z',text:'انا زعلان جدا من المشكلة دي',meaningful:true},
       {id:'s1',role:'staff',sender:'You',at:'2026-09-28T09:00:10Z',text:'حقك علينا يا فندم، هتابع الموضوع حالا',meaningful:true},
-      {id:'s2',role:'staff',sender:'You',at:'2026-09-28T09:03:00Z',text:'تم التواصل واتحل الموضوع يا فندم',meaningful:true},
+      {id:'s2',role:'staff',sender:'You',at:'2026-09-28T09:03:00Z',text:'تم حل المشكلة يا فندم',meaningful:true},
     ]);
     expect(analyzeConversationEvaluationServiceRecovery(v).items.find(i=>i.key==='angry_customer'))
       .toMatchObject({selectedOption:'solved',pointsEarned:10});
   });
 
-  it('does not blame the doctor for an external delay when communication was handled fully',()=>{
+  it('does not treat in-transit progress as complaint resolution',()=>{
+    const v=makeView([
+      {id:'c1',role:'customer',sender:'Customer',at:'2026-09-28T09:00:00Z',text:'انا زعلان من مشكلة التوصيل',meaningful:true},
+      {id:'s1',role:'staff',sender:'You',at:'2026-09-28T09:00:10Z',text:'حقك علينا، هتابع بنفسي',meaningful:true},
+      {id:'s2',role:'staff',sender:'You',at:'2026-09-28T09:03:00Z',text:'المندوب في الطريق يا فندم',meaningful:true},
+    ]);
+    expect(analyzeConversationEvaluationServiceRecovery(v).items.find(i=>i.key==='angry_customer'))
+      .toMatchObject({selectedOption:'good',pointsEarned:8});
+  });
+
+  it('does not promote delivery progress to full handling without explicit closure',()=>{
     const v=makeView([
       {id:'s0',role:'staff',sender:'You',at:'2026-09-28T09:00:00Z',text:'معلش يا فندم المندوب هيتأخر شوية، هيكون عند حضرتك خلال 30 دقيقة',meaningful:true},
       {id:'s1',role:'staff',sender:'You',at:'2026-09-28T09:20:00Z',text:'المندوب في الطريق يا فندم',meaningful:true},
+    ]);
+    v.lostOpportunity={...v.lostOpportunity,responsibility:'delivery'};
+    expect(analyzeConversationEvaluationServiceRecovery(v).items.find(i=>i.key==='order_delay_handling'))
+      .toMatchObject({selectedOption:'informed_only'});
+  });
+
+  it('credits full external-delay handling only after explicit closure evidence',()=>{
+    const v=makeView([
+      {id:'s0',role:'staff',sender:'You',at:'2026-09-28T09:00:00Z',text:'معلش يا فندم المندوب هيتأخر شوية، هيكون عند حضرتك خلال 30 دقيقة',meaningful:true},
+      {id:'s1',role:'staff',sender:'You',at:'2026-09-28T09:20:00Z',text:'المندوب في الطريق يا فندم',meaningful:true},
+      {id:'c1',role:'customer',sender:'Customer',at:'2026-09-28T09:35:00Z',text:'وصل تمام الحمد لله',meaningful:true},
     ]);
     v.lostOpportunity={...v.lostOpportunity,responsibility:'delivery'};
     expect(analyzeConversationEvaluationServiceRecovery(v).items.find(i=>i.key==='order_delay_handling'))

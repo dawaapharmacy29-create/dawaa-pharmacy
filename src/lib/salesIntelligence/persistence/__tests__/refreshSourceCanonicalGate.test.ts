@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -7,8 +8,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 //   -> V44 proof bridge (only active-case proof writer).
 // api/*.js is generated from server/*.ts; both must behave identically.
 
-const CASE_SET_RECONCILE_RPC = 'sales_intelligence_reconcile_case_set_v1';
+const CASE_SET_RECONCILE_RPC = 'sales_intelligence_reconcile_case_set_v2';
 const CANONICAL_PROOF_WRITER_RPC = 'dawaa_reconcile_sales_intelligence_case_v22_v1';
+const CANONICAL_FOLLOWUP_RECONCILE_RPC = 'dawaa_reconcile_canonical_followup_actions_v1';
 
 const runBatchPersistence = vi.fn();
 vi.mock('../batchPersistenceService', () => ({ runBatchPersistence }));
@@ -20,6 +22,15 @@ let actions: Record<string, any>[] = [];
 const writes: Array<{ table: string; op: string; payload: unknown }> = [];
 const rpc = vi.fn();
 const getUser = vi.fn();
+// Verified-session authorization (server/sales-intelligence-refresh-authorization.ts) runs on the
+// session-token client; the fixture actor is the session's own staff account with refresh
+// permission and top management. Kept apart from `rpc` so writer-call counts stay exact.
+const permissionRpc = vi.fn(async (name: string) => {
+  if (name === 'dawaa_current_staff_account_id_strict') return { data: loginSession?.staff_account_id ?? null, error: null };
+  if (name === 'dawaa_current_actor_can') return { data: true, error: null };
+  if (name === 'dawaa_actor_is_top_management_v1') return { data: true, error: null };
+  return { data: null, error: { message: `unexpected permission rpc: ${name}` } };
+});
 
 function query(table: string) {
   const filters: Record<string, unknown> = {};
@@ -86,7 +97,10 @@ function query(table: string) {
 }
 
 vi.mock('@supabase/supabase-js', () => ({
-  createClient: () => ({ from: (table: string) => query(table), rpc, auth: { getUser } }),
+  createClient: (_url: string, _key: string, options?: { global?: { headers?: Record<string, string> } }) =>
+    options?.global?.headers?.['x-dawaa-session-token']
+      ? { from: (table: string) => query(table), rpc: permissionRpc, auth: { getUser } }
+      : { from: (table: string) => query(table), rpc, auth: { getUser } },
 }));
 
 const FILE = 'customer 4250.zip';
@@ -106,11 +120,21 @@ const coarse = {
   conversation_ended_at: '2026-01-02T17:26:10Z',
 };
 
+function analysisUuid(caseId: string) {
+  const hash = createHash('sha256').update(caseId).digest('hex');
+  return `${hash.slice(0,8)}-${hash.slice(8,12)}-4${hash.slice(13,16)}-8${hash.slice(17,20)}-${hash.slice(20,32)}`;
+}
+
 function analysis(outcome: string, saleProofState: string, attributionLevel: string) {
   return {
     conversationId: fine.id,
     caseId: `${fine.id}:interaction:0`,
     status: 'analyzed',
+    // This fixture explicitly publishes no operational opportunities, rather than omitting the
+    // canonical owner outputs and relying on swallowed projection errors.
+    followUp: { opportunities: [] },
+    complaintAssessment: { caseId: `${fine.id}:interaction:0`, state: 'none' },
+    customerRequestAssessment: { caseId: `${fine.id}:interaction:0`, decision: 'not_needed', requests: [] },
     conversationCase: { customerId: 'customer-1', customerPhone: null, sourceCaseIdV22: 'case-1' },
     attribution: {
       selectedInvoiceId: 'inv-1',
@@ -126,7 +150,7 @@ function analysis(outcome: string, saleProofState: string, attributionLevel: str
 
 function batchResult(caseAnalyses: any[]) {
   return {
-    caseOutcomes: caseAnalyses.map((row) => ({ caseId: row.caseId, success: true })),
+    caseOutcomes: caseAnalyses.map((row) => ({ caseId: row.caseId, success: true, analysis: { analysisId: analysisUuid(row.caseId) } })),
     caseAnalyses,
     plan: {
       casesToInsert: [],
@@ -151,6 +175,9 @@ function mockProofRpcResult(data: unknown, error: unknown = null) {
       };
     }
     if (name === CANONICAL_PROOF_WRITER_RPC) return { data, error };
+    if (name === CANONICAL_FOLLOWUP_RECONCILE_RPC) {
+      return {data:{ok:true,inserted:0,existing:0,updated:0,withdrawn:0},error:null};
+    }
     return { data: null, error: { message: `unexpected rpc: ${name}` } };
   });
 }
@@ -186,6 +213,9 @@ const transports = [
 beforeEach(() => {
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-key';
   process.env.SUPABASE_URL = 'https://example.supabase.co';
+  // The handler builds its verified-session permission client from the anon key and fails closed
+  // (503 missing_supabase_anon_key) without it.
+  process.env.VITE_SUPABASE_ANON_KEY = 'anon-key';
   loginSession = {
     id: 'login-1',
     staff_account_id: 'staff-1',
@@ -294,10 +324,17 @@ describe('canonical refresh — lifecycle then single proof writer (server trans
     );
     const res = await call(load, fine.id);
     expect(res.statusCode).toBe(200);
-    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(res.body.operationalProjection.errors).toEqual([]);
+    expect(rpc).toHaveBeenCalledTimes(3);
+    expect(rpc).toHaveBeenNthCalledWith(3, CANONICAL_FOLLOWUP_RECONCILE_RPC, {
+      p_source_id: fine.id,
+      p_analysis_ids: { [`${fine.id}:interaction:0`]: analysisUuid(`${fine.id}:interaction:0`) },
+      p_rows: [],
+    });
     expect(rpc).toHaveBeenNthCalledWith(1, CASE_SET_RECONCILE_RPC, {
       p_conversation_id: fine.id,
       p_active_case_ids: [`${fine.id}:interaction:0`],
+      p_analysis_ids: { [`${fine.id}:interaction:0`]: analysisUuid(`${fine.id}:interaction:0`) },
     });
     expect(rpc).toHaveBeenNthCalledWith(2, CANONICAL_PROOF_WRITER_RPC, {
       p_sales_case_id: `${fine.id}:interaction:0`,
@@ -312,7 +349,13 @@ describe('canonical refresh — lifecycle then single proof writer (server trans
     mockProofRpcResult({ ok: true, status: 'revoked' });
     const res = await call(load, fine.id);
     expect(res.statusCode).toBe(200);
-    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(res.body.operationalProjection.errors).toEqual([]);
+    expect(rpc).toHaveBeenCalledTimes(3);
+    expect(rpc).toHaveBeenNthCalledWith(3, CANONICAL_FOLLOWUP_RECONCILE_RPC, {
+      p_source_id: fine.id,
+      p_analysis_ids: { [`${fine.id}:interaction:0`]: analysisUuid(`${fine.id}:interaction:0`) },
+      p_rows: [],
+    });
     expect(rpc).toHaveBeenNthCalledWith(2, CANONICAL_PROOF_WRITER_RPC, {
       p_sales_case_id: `${fine.id}:interaction:0`,
     });
@@ -345,7 +388,11 @@ describe('canonical refresh — lifecycle then single proof writer (server trans
     await call(load, fine.id);
     const closed = writes.filter((row) => row.table === 'whatsapp_conversation_actions');
     expect(closed).toHaveLength(1);
-    expect(closed[0].payload).toMatchObject({ outcome: 'sold', target_id: 'inv-1' });
+    // Since feca2250 the sale proof lives in payload.canonical_sale; execution owns target_* and
+    // the reconciliation never overwrites them (see soldActionLineage.test.ts).
+    expect(closed[0].payload).toMatchObject({ outcome: 'sold', payload: { canonical_sale: { invoice_id: 'inv-1' } } });
+    expect(closed[0].payload).not.toHaveProperty('target_id');
+    expect(closed[0].payload).not.toHaveProperty('target_table');
   });
 
   it('reports a proof-bridge transport failure instead of success', async () => {
@@ -374,6 +421,159 @@ describe('canonical refresh — lifecycle then single proof writer (server trans
   });
 });
 
+describe('source-scoped publication after partial persistence', () => {
+  async function refresh(rows: any[]) {
+    const { runCanonicalSalesIntelligenceRefresh } = await import('../../refresh/canonicalRefreshService');
+    return runCanonicalSalesIntelligenceRefresh({ from: query, rpc }, { sources: rows, dryRun: false });
+  }
+  function setupTwoSources() {
+    const second = { ...fine, id: '22222222-2222-4222-8222-222222222222', source_filename: 'other.txt' };
+    sources = [fine, second];
+    cases = sources.map((s, i) => ({ id: `v22-${i}`, root_source_id: s.id, source_ids: [s.id] }));
+    return second;
+  }
+  it('publishes an entirely successful source while another source is incomplete; no proof for incomplete cases', async () => {
+    const second = setupTwoSources();
+    const a = analysis('sale_proven', 'proven', 'proven');
+    const b = { ...a, conversationId: second.id, caseId: `${second.id}:interaction:0` };
+    const c = { ...b, caseId: `${second.id}:interaction:1` };
+    const result = batchResult([a,b,c]);
+    result.caseOutcomes[2].success = false;
+    runBatchPersistence.mockResolvedValue(result);
+    const out = await refresh(sources);
+    expect(out.status).toBe('persistence_partial_failure');
+    expect(out.caseSetReconciliation.map(r=>r.status)).toEqual(['reconciled','persistence_failed_pending_retry']);
+    expect(rpc.mock.calls.filter(([name])=>name===CASE_SET_RECONCILE_RPC).map(([,args])=>args.p_conversation_id)).toEqual([fine.id]);
+    expect(rpc.mock.calls.filter(([name])=>name===CANONICAL_PROOF_WRITER_RPC).map(([,args])=>args.p_sales_case_id)).toEqual([a.caseId]);
+    expect(runBatchPersistence).toHaveBeenCalledWith(expect.anything(),expect.objectContaining({deferPublication:true}));
+  });
+  it('missing persistence outcome is incomplete, never an empty successful source', async () => {
+    setupTwoSources();
+    const a = analysis('sale_proven','proven','proven');
+    runBatchPersistence.mockResolvedValue({...batchResult([a]),caseOutcomes:[]});
+    const out = await refresh([fine]);
+    expect(out.status).toBe('persistence_partial_failure');
+    expect(rpc).not.toHaveBeenCalled();
+  });
+  it('isolates a reconciliation transport failure and still reconciles the other complete source', async () => {
+    const second=setupTwoSources();
+    const a=analysis('sale_proven','proven','proven');
+    const b={...a,conversationId:second.id,caseId:`${second.id}:interaction:0`};
+    runBatchPersistence.mockResolvedValue(batchResult([a,b]));
+    rpc.mockImplementation(async(name,args)=>{
+      if(name===CASE_SET_RECONCILE_RPC&&args.p_conversation_id===fine.id)throw new Error('transport down');
+      return {data:{ok:true,status:'reconciled'},error:null};
+    });
+    const out=await refresh(sources);
+    expect(out.status).toBe('case_set_reconciliation_failure');
+    expect(out.caseSetReconciliation.map(r=>r.ok)).toEqual([false,true]);
+    expect(out.canonicalReconciliation.map(r=>r.caseId)).toEqual([b.caseId]);
+  });
+  it('does not retire a consumed payment follower before its anchor is published, even if input order is reversed', async()=>{
+    const follower={...fine,id:'22222222-2222-4222-8222-222222222222',raw_text:'[1/2/26, 1:00:00 PM] You: اتفضل رقم التحويل يا فندم 01028308235',conversation_started_at:'2026-01-02T13:00:00Z',conversation_ended_at:'2026-01-02T13:02:00Z'};
+    sources=[follower,fine];
+    cases=[{id:'anchor',root_source_id:fine.id,source_ids:[fine.id],journey_id:'j',customer_id:'customer-1',case_type:'order',order_intent:true},
+      {id:'follower',root_source_id:follower.id,source_ids:[follower.id],journey_id:'j',customer_id:'customer-1',case_type:'followup'}] as any;
+    runBatchPersistence.mockResolvedValue(batchResult([analysis('sale_proven','proven','proven')]));
+    rpc.mockResolvedValue({data:null,error:{message:'anchor publication failed'}});
+    const out=await refresh(sources);
+    expect(out.caseSetReconciliation.map(r=>r.status)).toEqual(['rpc_error','dependency_pending_retry']);
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(rpc.mock.calls[0][1].p_conversation_id).toBe(fine.id);
+  });
+  it('retries the complete full case set using stable staged analysis IDs', async () => {
+    setupTwoSources();const a=analysis('sale_proven','proven','proven');
+    const b={...a,caseId:`${fine.id}:interaction:1`};
+    const first=batchResult([a,b]);first.caseOutcomes[1].success=false;
+    runBatchPersistence.mockResolvedValueOnce(first).mockResolvedValueOnce(batchResult([a,b]));
+    expect((await refresh([fine])).status).toBe('persistence_partial_failure');
+    expect(rpc).not.toHaveBeenCalled();
+    expect((await refresh([fine])).status).toBe('ok');
+    expect(rpc.mock.calls[0][1]).toMatchObject({p_active_case_ids:[a.caseId,b.caseId],p_analysis_ids:{[a.caseId]:analysisUuid(a.caseId),[b.caseId]:analysisUuid(b.caseId)}});
+  });
+});
+
+describe('Phase B controlled runtime smoke contracts', () => {
+  async function refresh() {
+    const { runCanonicalSalesIntelligenceRefresh } = await import('../../refresh/canonicalRefreshService');
+    return runCanonicalSalesIntelligenceRefresh({ from: query, rpc }, { sources, dryRun: false });
+  }
+  beforeEach(() => {
+    sources = [fine];
+    cases = [{ id: 'case-1', root_source_id: fine.id, source_ids: [fine.id] }];
+  });
+
+  it('publishes an empty derived set and reconciles obsolete follow-up proposals without proof or direct writes', async () => {
+    runBatchPersistence.mockResolvedValue(batchResult([]));
+    const out = await refresh();
+    expect(out.status).toBe('ok');
+    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(rpc).toHaveBeenCalledWith(CASE_SET_RECONCILE_RPC, {
+      p_conversation_id: fine.id, p_active_case_ids: [], p_analysis_ids: {},
+    });
+    expect(rpc).toHaveBeenNthCalledWith(2,CANONICAL_FOLLOWUP_RECONCILE_RPC,{
+      p_source_id:fine.id,p_analysis_ids:{},p_rows:[],
+    });
+    expect(rpc).not.toHaveBeenCalledWith(CANONICAL_PROOF_WRITER_RPC,expect.anything());
+    expect(out.operationalProjection.errors).toEqual([]);
+    expect(out.operationalProjection.followups).toEqual({inserted:0,existing:0,skipped:0,updated:0,withdrawn:0});
+    expect(out.conversationEvaluations).toEqual([]);
+    expect(writes).toEqual([]);
+  });
+
+  it('reports a missing follow-up lifecycle RPC without direct-write fallback or canonical truth changes', async () => {
+    runBatchPersistence.mockResolvedValue(batchResult([]));
+    rpc.mockImplementation(async(name:string) => name===CASE_SET_RECONCILE_RPC
+      ? {data:{ok:true,status:'reconciled'},error:null}
+      : {data:null,error:new Error('followup_rpc_unavailable')});
+    const out=await refresh();
+    expect(out.status).toBe('ok');
+    expect(out.operationalProjection.errors).toEqual([
+      'canonical_followup_projection_failed: followup_rpc_unavailable',
+    ]);
+    expect(writes).toEqual([]);
+  });
+
+  it.each([null, {}, [], 'reconciled', { ok: true }, { ok: false, status: 'reconciled' }])(
+    'fails closed on malformed lifecycle reply %j before proof/evaluation/followers', async (data) => {
+      runBatchPersistence.mockResolvedValue(batchResult([analysis('sale_proven', 'proven', 'proven')]));
+      rpc.mockResolvedValue({ data, error: null });
+      const out = await refresh();
+      expect(out.status).toBe('case_set_reconciliation_failure');
+      expect(out.caseSetReconciliation[0].ok).toBe(false);
+      expect(rpc).toHaveBeenCalledTimes(1);
+      expect(out.canonicalReconciliation).toEqual([]);
+      expect(out.conversationEvaluations).toEqual([]);
+      expect(writes).toEqual([]);
+    }
+  );
+
+  it('does not publish when the successful persistence reply has no staged analysis ID', async () => {
+    const result = batchResult([analysis('sale_proven', 'proven', 'proven')]);
+    result.caseOutcomes[0].analysis.analysisId = '';
+    runBatchPersistence.mockResolvedValue(result);
+    const out = await refresh();
+    expect(out.caseSetReconciliation[0].status).toBe('persistence_failed_pending_retry');
+    expect(rpc).not.toHaveBeenCalled();
+    expect(out.conversationEvaluations).toEqual([]);
+    expect(writes).toEqual([]);
+  });
+
+  it('releases a consumed payment follower only after its anchor publication succeeds', async () => {
+    const follower = { ...fine, id: '22222222-2222-4222-8222-222222222222', raw_text: '[1/2/26, 1:00:00 PM] You: اتفضل رقم التحويل يا فندم 01028308235', conversation_started_at: '2026-01-02T13:00:00Z', conversation_ended_at: '2026-01-02T13:00:00Z' };
+    sources = [follower, fine];
+    cases = [
+      { id: 'anchor', root_source_id: fine.id, source_ids: [fine.id], journey_id: 'j', customer_id: 'customer-1', case_type: 'order', order_intent: true },
+      { id: 'follower', root_source_id: follower.id, source_ids: [follower.id], journey_id: 'j', customer_id: 'customer-1', case_type: 'followup' },
+    ] as any;
+    runBatchPersistence.mockResolvedValue(batchResult([analysis('sale_proven', 'proven', 'proven')]));
+    const out = await refresh();
+    expect(out.caseSetReconciliation.map((row) => [row.sourceId, row.ok])).toEqual([[fine.id, true], [follower.id, true]]);
+    expect(rpc.mock.calls.filter(([name]) => name === CASE_SET_RECONCILE_RPC).map(([, args]) => args.p_conversation_id)).toEqual([fine.id, follower.id]);
+    expect(rpc.mock.calls[1][1]).toMatchObject({ p_active_case_ids: [], p_analysis_ids: {} });
+  });
+});
+
 describe('generated transport', () => {
   it('api/*.js is exactly the build output of the canonical server implementation', () => {
     const output = execFileSync(
@@ -386,3 +586,4 @@ describe('generated transport', () => {
     expect(output).toContain('PASS');
   });
 });
+

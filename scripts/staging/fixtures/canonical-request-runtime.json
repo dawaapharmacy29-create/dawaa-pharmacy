@@ -1,0 +1,1286 @@
+{
+  "functions": [
+    {
+      "signature": "create_customer_request_canonical_v2(uuid,uuid,uuid,text,numeric,text,text,text,date,integer,text,text,text,text)",
+      "definition": "CREATE OR REPLACE FUNCTION public.create_customer_request_canonical_v2(p_customer_id uuid, p_product_id uuid, p_doctor_id uuid, p_branch text, p_quantity numeric DEFAULT 1, p_urgency text DEFAULT 'normal'::text, p_request_type text DEFAULT 'missing_medicine'::text, p_channel text DEFAULT NULL::text, p_needed_by_date date DEFAULT NULL::date, p_expected_fulfillment_days integer DEFAULT NULL::integer, p_supplier_hint text DEFAULT NULL::text, p_notes text DEFAULT NULL::text, p_image_url text DEFAULT NULL::text, p_image_path text DEFAULT NULL::text)\n RETURNS jsonb\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public', 'pg_catalog'\nAS $function$\ndeclare\n  v_actor_id uuid;\n  v_scope_branch text;\n  v_result jsonb;\n  v_request_id uuid;\n  v_duplicate boolean;\n  v_credit record;\nbegin\n  v_actor_id := public.dawaa_current_staff_account_id_strict();\n  if v_actor_id is null then\n    raise exception 'not_authorized';\n  end if;\n\n  select nullif(trim(coalesce(s.branch,'')),'')\n    into v_scope_branch\n  from public.staff s\n  where s.id = p_doctor_id\n    and coalesce(s.is_active,true) = true\n    and coalesce(s.active,true) = true\n  limit 1;\n\n  v_scope_branch := coalesce(v_scope_branch, nullif(trim(coalesce(p_branch,'')),''));\n  if v_scope_branch is null\n     or not public.dawaa_can_access_customer_request_branch('manage_customer_requests', v_scope_branch) then\n    raise exception 'customer_request_create_not_authorized';\n  end if;\n\n  v_result := public.create_customer_request_canonical_v1(\n    p_customer_id,\n    p_product_id,\n    p_doctor_id,\n    p_branch,\n    p_quantity,\n    p_urgency,\n    p_request_type,\n    p_channel,\n    p_needed_by_date,\n    p_expected_fulfillment_days,\n    p_supplier_hint,\n    p_notes,\n    p_image_url,\n    p_image_path\n  );\n\n  v_request_id := nullif(v_result->'request'->>'id','')::uuid;\n  v_duplicate := coalesce((v_result->>'duplicate')::boolean,false);\n\n  if v_request_id is null then\n    return v_result || jsonb_build_object(\n      'registration_credit',\n      jsonb_build_object('settled',false,'points',null,'tier_key',null,'policy_version',null,'event_id',null)\n    );\n  end if;\n\n  select e.id, e.points, e.tier_key, e.policy_version, e.event_at\n    into v_credit\n  from public.customer_request_incentive_events e\n  where e.request_id = v_request_id\n    and e.event_key = 'request_registered'\n  order by e.event_at asc, e.created_at asc\n  limit 1;\n\n  return v_result || jsonb_build_object(\n    'registration_credit',\n    case when v_credit.id is null then\n      jsonb_build_object(\n        'settled',false,\n        'points',null,\n        'tier_key',null,\n        'policy_version',null,\n        'event_id',null,\n        'duplicate',v_duplicate\n      )\n    else\n      jsonb_build_object(\n        'settled',true,\n        'points',v_credit.points,\n        'tier_key',v_credit.tier_key,\n        'policy_version',v_credit.policy_version,\n        'event_id',v_credit.id,\n        'event_at',v_credit.event_at,\n        'duplicate',v_duplicate\n      )\n    end\n  );\nend;\n$function$\n"
+    },
+    {
+      "signature": "create_customer_request_canonical_v1(uuid,uuid,uuid,text,numeric,text,text,text,date,integer,text,text,text,text)",
+      "definition": "CREATE OR REPLACE FUNCTION public.create_customer_request_canonical_v1(p_customer_id uuid, p_product_id uuid, p_doctor_id uuid, p_branch text, p_quantity numeric DEFAULT 1, p_urgency text DEFAULT 'normal'::text, p_request_type text DEFAULT 'missing_medicine'::text, p_channel text DEFAULT NULL::text, p_needed_by_date date DEFAULT NULL::date, p_expected_fulfillment_days integer DEFAULT NULL::integer, p_supplier_hint text DEFAULT NULL::text, p_notes text DEFAULT NULL::text, p_image_url text DEFAULT NULL::text, p_image_path text DEFAULT NULL::text)\n RETURNS jsonb\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public', 'pg_catalog'\nAS $function$\ndeclare\n  v_identifier text := public.dawaa_request_staff_identifier();\n  v_account public.staff_accounts%rowtype;\n  v_customer public.customers%rowtype;\n  v_product public.products%rowtype;\n  v_doctor public.staff%rowtype;\n  v_request public.customer_requests%rowtype;\n  v_duplicate public.customer_requests%rowtype;\n  v_effective_branch text;\n  v_role text;\n  v_actor_staff_id uuid;\n  v_manager_role boolean := false;\n  v_branch_limited boolean := false;\n  v_account_branch text;\nbegin\n  if v_identifier is null then raise exception 'not_authorized'; end if;\n\n  select * into v_account\n  from public.staff_accounts sa\n  where sa.id::text = v_identifier\n    and coalesce(sa.active,true)=true\n    and coalesce(sa.can_login,true)=true\n  limit 1;\n  if not found then raise exception 'not_authorized'; end if;\n\n  begin\n    v_actor_staff_id := nullif(trim(coalesce(v_account.staff_id,'')),'')::uuid;\n  exception when others then\n    v_actor_staff_id := null;\n  end;\n\n  v_role := lower(trim(coalesce(v_account.role,'')));\n  v_manager_role := v_role in ('general_manager','executive_manager','branches_manager','customer_service_manager','branch_manager');\n  v_branch_limited := v_role in ('branch_manager','customer_service_manager');\n  v_account_branch := nullif(trim(coalesce(v_account.branch,'')),'');\n\n  if p_customer_id is null or p_product_id is null or p_doctor_id is null then\n    raise exception 'canonical_identity_required';\n  end if;\n  if coalesce(p_quantity,0) <= 0 then raise exception 'invalid_quantity'; end if;\n\n  select * into v_customer from public.customers c where c.id=p_customer_id;\n  if not found or nullif(trim(coalesce(v_customer.customer_code,'')),'') is null then\n    raise exception 'customer_not_canonical';\n  end if;\n\n  select * into v_product from public.products p where p.id=p_product_id;\n  if not found or nullif(trim(coalesce(v_product.product_code,'')),'') is null then\n    raise exception 'product_not_canonical';\n  end if;\n\n  select * into v_doctor from public.staff s\n  where s.id=p_doctor_id and coalesce(s.is_active,true)=true and coalesce(s.active,true)=true;\n  if not found then raise exception 'doctor_not_active_staff'; end if;\n\n  if not v_manager_role then\n    if v_actor_staff_id is null or v_actor_staff_id <> p_doctor_id then\n      raise exception 'cannot_attribute_request_to_other_staff';\n    end if;\n  elsif v_branch_limited and v_account_branch is not null and v_account_branch <> 'كل الفروع' then\n    if nullif(trim(coalesce(v_doctor.branch,'')),'') is distinct from v_account_branch then\n      raise exception 'doctor_outside_actor_branch';\n    end if;\n  end if;\n\n  v_effective_branch := coalesce(nullif(trim(coalesce(v_doctor.branch,'')),''),nullif(trim(coalesce(p_branch,'')),''),nullif(trim(coalesce(v_customer.branch,'')),''));\n  if v_effective_branch is null or v_effective_branch='كل الفروع' then\n    v_effective_branch := nullif(trim(coalesce(p_branch,'')), '');\n  end if;\n  if v_effective_branch is null then raise exception 'request_branch_required'; end if;\n\n  select cr.* into v_duplicate\n  from public.customer_requests cr\n  where cr.customer_id=p_customer_id::text\n    and cr.product_code=v_product.product_code\n    and cr.branch=v_effective_branch\n    and cr.status in ('new','purchasing_review','searching_suppliers','needs_customer_confirmation','customer_confirmed','sourcing','available','arrived','customer_contacted','not_available')\n    and coalesce(cr.created_at,cr.requested_at,now()) >= now() - interval '24 hours'\n  order by coalesce(cr.created_at,cr.requested_at) desc nulls last\n  limit 1;\n\n  if found then\n    return jsonb_build_object('request',to_jsonb(v_duplicate),'duplicate',true);\n  end if;\n\n  insert into public.customer_requests(\n    customer_id,customer_code,customer_name,customer_phone,branch,\n    medicine_name,medicine_image_url,item_image_url,item_image_path,\n    product_id,product_code,product_price,quantity,urgency,priority,is_urgent,\n    status,request_type,source_request_channel,needed_by_date,expected_fulfillment_days,\n    doctor_id,doctor_name,doctor_notes,supplier_hint,\n    created_by,created_by_name,requested_at,created_at,updated_at\n  ) values(\n    v_customer.id::text,v_customer.customer_code,v_customer.name,coalesce(v_customer.phone,v_customer.mobile),v_effective_branch,\n    v_product.name,p_image_url,p_image_url,p_image_path,\n    v_product.id,v_product.product_code,v_product.price,p_quantity,\n    coalesce(nullif(trim(p_urgency),''),'normal'),\n    case when lower(coalesce(p_urgency,'')) in ('urgent','high') then 'high' else 'medium' end,\n    lower(coalesce(p_urgency,'')) in ('urgent','high'),\n    'new',coalesce(nullif(trim(p_request_type),''),'missing_medicine'),nullif(trim(coalesce(p_channel,'')),''),p_needed_by_date,p_expected_fulfillment_days,\n    v_doctor.id,v_doctor.name,nullif(trim(coalesce(p_notes,'')),''),nullif(trim(coalesce(p_supplier_hint,'')),''),\n    v_account.id::text,coalesce(nullif(trim(coalesce(v_account.staff_name,'')),''),nullif(trim(coalesce(v_account.name,'')),''),v_doctor.name),now(),now(),now()\n  ) returning * into v_request;\n\n  insert into public.customer_request_events(request_id,old_status,new_status,action,notes,created_by,created_by_name,created_at)\n  values(\n    v_request.id,null,'new','إنشاء طلب عميل',\n    coalesce(nullif(trim(coalesce(p_notes,'')),''),'تم تسجيل طلب صنف: '||v_product.name),\n    v_account.id::text,coalesce(nullif(trim(coalesce(v_account.staff_name,'')),''),nullif(trim(coalesce(v_account.name,'')),''),v_doctor.name),now()\n  );\n\n  return jsonb_build_object('request',to_jsonb(v_request),'duplicate',false);\nend;\n$function$\n"
+    }
+  ],
+  "columns": [
+    {
+      "table": "customer_request_events",
+      "column": "id",
+      "type": "uuid",
+      "default": "gen_random_uuid()"
+    },
+    {
+      "table": "customer_request_events",
+      "column": "request_id",
+      "type": "uuid",
+      "default": null
+    },
+    {
+      "table": "customer_request_events",
+      "column": "old_status",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_request_events",
+      "column": "new_status",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_request_events",
+      "column": "action",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_request_events",
+      "column": "notes",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_request_events",
+      "column": "created_by",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_request_events",
+      "column": "created_by_name",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_request_events",
+      "column": "created_at",
+      "type": "timestamp with time zone",
+      "default": "now()"
+    },
+    {
+      "table": "customer_request_incentive_events",
+      "column": "id",
+      "type": "uuid",
+      "default": "gen_random_uuid()"
+    },
+    {
+      "table": "customer_request_incentive_events",
+      "column": "request_id",
+      "type": "uuid",
+      "default": null
+    },
+    {
+      "table": "customer_request_incentive_events",
+      "column": "event_key",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_request_incentive_events",
+      "column": "staff_id",
+      "type": "uuid",
+      "default": null
+    },
+    {
+      "table": "customer_request_incentive_events",
+      "column": "tier_key",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_request_incentive_events",
+      "column": "points",
+      "type": "numeric(8,2)",
+      "default": null
+    },
+    {
+      "table": "customer_request_incentive_events",
+      "column": "policy_version",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_request_incentive_events",
+      "column": "event_at",
+      "type": "timestamp with time zone",
+      "default": null
+    },
+    {
+      "table": "customer_request_incentive_events",
+      "column": "employee_transaction_id",
+      "type": "uuid",
+      "default": null
+    },
+    {
+      "table": "customer_request_incentive_events",
+      "column": "created_at",
+      "type": "timestamp with time zone",
+      "default": "now()"
+    },
+    {
+      "table": "customer_request_incentive_events",
+      "column": "metadata",
+      "type": "jsonb",
+      "default": "'{}'::jsonb"
+    },
+    {
+      "table": "customer_requests",
+      "column": "id",
+      "type": "uuid",
+      "default": "gen_random_uuid()"
+    },
+    {
+      "table": "customer_requests",
+      "column": "customer_id",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "customer_code",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "customer_name",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "customer_phone",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "branch",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "medicine_name",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "medicine_image_url",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "quantity",
+      "type": "numeric",
+      "default": "1"
+    },
+    {
+      "table": "customer_requests",
+      "column": "urgency",
+      "type": "text",
+      "default": "'normal'::text"
+    },
+    {
+      "table": "customer_requests",
+      "column": "status",
+      "type": "text",
+      "default": "'new'::text"
+    },
+    {
+      "table": "customer_requests",
+      "column": "request_type",
+      "type": "text",
+      "default": "'missing_medicine'::text"
+    },
+    {
+      "table": "customer_requests",
+      "column": "needs_customer_confirmation",
+      "type": "boolean",
+      "default": "false"
+    },
+    {
+      "table": "customer_requests",
+      "column": "is_expensive_or_special",
+      "type": "boolean",
+      "default": "false"
+    },
+    {
+      "table": "customer_requests",
+      "column": "doctor_id",
+      "type": "uuid",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "doctor_name",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "purchasing_assignee",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "doctor_notes",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "supplier_hint",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "purchasing_notes",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "customer_confirmation_status",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "contact_summary",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "expected_arrival_date",
+      "type": "date",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "closed_at",
+      "type": "timestamp with time zone",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "created_by",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "created_by_name",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "created_at",
+      "type": "timestamp with time zone",
+      "default": "now()"
+    },
+    {
+      "table": "customer_requests",
+      "column": "updated_at",
+      "type": "timestamp with time zone",
+      "default": "now()"
+    },
+    {
+      "table": "customer_requests",
+      "column": "current_stage",
+      "type": "text",
+      "default": "'registered'::text"
+    },
+    {
+      "table": "customer_requests",
+      "column": "item_image_url",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "expected_price",
+      "type": "numeric",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "supplier_notes",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "assigned_to",
+      "type": "uuid",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "due_date",
+      "type": "date",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "last_action_at",
+      "type": "timestamp with time zone",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "priority",
+      "type": "text",
+      "default": "'medium'::text"
+    },
+    {
+      "table": "customer_requests",
+      "column": "is_urgent",
+      "type": "boolean",
+      "default": "false"
+    },
+    {
+      "table": "customer_requests",
+      "column": "needed_by_date",
+      "type": "date",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "expected_fulfillment_days",
+      "type": "integer",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "potential_source_id",
+      "type": "uuid",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "potential_source_name",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "item_image_path",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "requested_at",
+      "type": "timestamp with time zone",
+      "default": "now()"
+    },
+    {
+      "table": "customer_requests",
+      "column": "potential_source_text",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "purchasing_received_by_name",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "searching_by_name",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "provided_by_name",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "customer_contacted_by_name",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "delivered_by_name",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "unavailable_since",
+      "type": "timestamp with time zone",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "shortage_item_id",
+      "type": "uuid",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "moved_to_shortage_at",
+      "type": "timestamp with time zone",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "source_system",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "source_entity",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "source_record_id",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "source_order_number",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "source_status",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "source_updated_at",
+      "type": "timestamp with time zone",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "source_last_seen_at",
+      "type": "timestamp with time zone",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "source_request_channel",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "source_assigned_employee",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "source_notes",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "source_selling_price",
+      "type": "numeric",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "source_payload",
+      "type": "jsonb",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "sync_conflict",
+      "type": "boolean",
+      "default": "false"
+    },
+    {
+      "table": "customer_requests",
+      "column": "sync_conflict_reason",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "product_id",
+      "type": "uuid",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "product_code",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "product_price",
+      "type": "numeric",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "primary_responsible_id",
+      "type": "uuid",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "primary_responsible_name",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "primary_responsible_role",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "source_assigned_staff_id",
+      "type": "uuid",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "source_recorded_staff_id",
+      "type": "uuid",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "points_tier",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "points_awarded",
+      "type": "numeric",
+      "default": null
+    },
+    {
+      "table": "customer_requests",
+      "column": "next_action_at",
+      "type": "timestamp with time zone",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "id",
+      "type": "uuid",
+      "default": "gen_random_uuid()"
+    },
+    {
+      "table": "customers",
+      "column": "name",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "phone",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "total_spent",
+      "type": "numeric",
+      "default": "0"
+    },
+    {
+      "table": "customers",
+      "column": "segment",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "last_order_date",
+      "type": "timestamp without time zone",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "created_at",
+      "type": "timestamp without time zone",
+      "default": "now()"
+    },
+    {
+      "table": "customers",
+      "column": "customer_notes",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "notes",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "whatsapp_notes",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "updated_at",
+      "type": "timestamp with time zone",
+      "default": "now()"
+    },
+    {
+      "table": "customers",
+      "column": "service_notes",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "customer_flags",
+      "type": "jsonb",
+      "default": "'[]'::jsonb"
+    },
+    {
+      "table": "customers",
+      "column": "team_notes",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "handling_notes",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "customer_code",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "branch",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "invoices_count",
+      "type": "integer",
+      "default": "0"
+    },
+    {
+      "table": "customers",
+      "column": "avg_monthly",
+      "type": "numeric",
+      "default": "0"
+    },
+    {
+      "table": "customers",
+      "column": "first_purchase",
+      "type": "date",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "last_purchase",
+      "type": "date",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "days_inactive",
+      "type": "integer",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "status",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "priority",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "avg_invoice",
+      "type": "numeric",
+      "default": "0"
+    },
+    {
+      "table": "customers",
+      "column": "phone_alt",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "address",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "source_system",
+      "type": "text",
+      "default": "'BeeConnect'::text"
+    },
+    {
+      "table": "customers",
+      "column": "whatsapp_phone",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "whatsapp_link",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "customer_phone",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "customer_segment",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "bconnect_segment",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "cashback_rate",
+      "type": "numeric",
+      "default": "0"
+    },
+    {
+      "table": "customers",
+      "column": "cashback_enabled",
+      "type": "boolean",
+      "default": "false"
+    },
+    {
+      "table": "customers",
+      "column": "next_cashback_calculation_date",
+      "type": "date",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "branch_name",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "cashback_multiplier",
+      "type": "numeric",
+      "default": "1"
+    },
+    {
+      "table": "customers",
+      "column": "code",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "customer_name",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "type",
+      "type": "text",
+      "default": "'regular'::text"
+    },
+    {
+      "table": "customers",
+      "column": "total_purchases",
+      "type": "numeric",
+      "default": "0"
+    },
+    {
+      "table": "customers",
+      "column": "total_invoices",
+      "type": "integer",
+      "default": "0"
+    },
+    {
+      "table": "customers",
+      "column": "clv",
+      "type": "numeric",
+      "default": "0"
+    },
+    {
+      "table": "customers",
+      "column": "risk_score",
+      "type": "numeric",
+      "default": "0"
+    },
+    {
+      "table": "customers",
+      "column": "retention_status",
+      "type": "text",
+      "default": "'active'::text"
+    },
+    {
+      "table": "customers",
+      "column": "area",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "last_invoice_date",
+      "type": "date",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "first_invoice_date",
+      "type": "date",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "cashback_value",
+      "type": "numeric",
+      "default": "0"
+    },
+    {
+      "table": "customers",
+      "column": "assigned_to",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "assigned_staff_id",
+      "type": "uuid",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "is_test",
+      "type": "boolean",
+      "default": "false"
+    },
+    {
+      "table": "customers",
+      "column": "customer_status",
+      "type": "text",
+      "default": "'active'::text"
+    },
+    {
+      "table": "customers",
+      "column": "loyalty_tier",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "recommended_for_incubation",
+      "type": "boolean",
+      "default": "false"
+    },
+    {
+      "table": "customers",
+      "column": "incubation_reason",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "corrected_branch",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "branch_fix_status",
+      "type": "text",
+      "default": "'pending'::text"
+    },
+    {
+      "table": "customers",
+      "column": "last_auto_repair_at",
+      "type": "timestamp with time zone",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "mobile",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "whatsapp",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "merged_into_customer_id",
+      "type": "uuid",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "is_duplicate",
+      "type": "boolean",
+      "default": "false"
+    },
+    {
+      "table": "customers",
+      "column": "data_quality_status",
+      "type": "text",
+      "default": "'active'::text"
+    },
+    {
+      "table": "customers",
+      "column": "merged_at",
+      "type": "timestamp with time zone",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "normalized_phone",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "normalized_name",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "display_name",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "effective_customer_code",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "effective_branch",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "data_issues",
+      "type": "text[]",
+      "default": "'{}'::text[]"
+    },
+    {
+      "table": "customers",
+      "column": "data_quality_score",
+      "type": "integer",
+      "default": "0"
+    },
+    {
+      "table": "customers",
+      "column": "is_contactable",
+      "type": "boolean",
+      "default": "false"
+    },
+    {
+      "table": "customers",
+      "column": "customer_identity_key",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "customers",
+      "column": "data_quality_checked_at",
+      "type": "timestamp with time zone",
+      "default": null
+    },
+    {
+      "table": "products",
+      "column": "id",
+      "type": "uuid",
+      "default": "gen_random_uuid()"
+    },
+    {
+      "table": "products",
+      "column": "name",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "products",
+      "column": "category",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "products",
+      "column": "price",
+      "type": "numeric",
+      "default": null
+    },
+    {
+      "table": "products",
+      "column": "stock",
+      "type": "integer",
+      "default": null
+    },
+    {
+      "table": "products",
+      "column": "created_at",
+      "type": "timestamp without time zone",
+      "default": "now()"
+    },
+    {
+      "table": "products",
+      "column": "product_code",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "products",
+      "column": "normalized_name",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "products",
+      "column": "updated_at",
+      "type": "timestamp without time zone",
+      "default": "now()"
+    },
+    {
+      "table": "products",
+      "column": "source",
+      "type": "text",
+      "default": "'catalog_import'::text"
+    },
+    {
+      "table": "staff",
+      "column": "id",
+      "type": "uuid",
+      "default": "gen_random_uuid()"
+    },
+    {
+      "table": "staff",
+      "column": "name",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "staff",
+      "column": "role",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "staff",
+      "column": "phone",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "staff",
+      "column": "branch_id",
+      "type": "uuid",
+      "default": null
+    },
+    {
+      "table": "staff",
+      "column": "created_at",
+      "type": "timestamp without time zone",
+      "default": "now()"
+    },
+    {
+      "table": "staff",
+      "column": "type",
+      "type": "text",
+      "default": "'Pharmacist'::text"
+    },
+    {
+      "table": "staff",
+      "column": "shift",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "staff",
+      "column": "max_points",
+      "type": "integer",
+      "default": "100"
+    },
+    {
+      "table": "staff",
+      "column": "status",
+      "type": "text",
+      "default": "'active'::text"
+    },
+    {
+      "table": "staff",
+      "column": "branch",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "staff",
+      "column": "shift_start",
+      "type": "time without time zone",
+      "default": null
+    },
+    {
+      "table": "staff",
+      "column": "shift_end",
+      "type": "time without time zone",
+      "default": null
+    },
+    {
+      "table": "staff",
+      "column": "day_off",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "staff",
+      "column": "notes",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "staff",
+      "column": "is_active",
+      "type": "boolean",
+      "default": "true"
+    },
+    {
+      "table": "staff",
+      "column": "current_points",
+      "type": "numeric",
+      "default": "0"
+    },
+    {
+      "table": "staff",
+      "column": "target_points",
+      "type": "numeric",
+      "default": "500"
+    },
+    {
+      "table": "staff",
+      "column": "updated_at",
+      "type": "timestamp with time zone",
+      "default": "now()"
+    },
+    {
+      "table": "staff",
+      "column": "rewards_count",
+      "type": "integer",
+      "default": "0"
+    },
+    {
+      "table": "staff",
+      "column": "penalties_count",
+      "type": "integer",
+      "default": "0"
+    },
+    {
+      "table": "staff",
+      "column": "default_shift_start",
+      "type": "time without time zone",
+      "default": null
+    },
+    {
+      "table": "staff",
+      "column": "default_shift_end",
+      "type": "time without time zone",
+      "default": null
+    },
+    {
+      "table": "staff",
+      "column": "username",
+      "type": "text",
+      "default": null
+    },
+    {
+      "table": "staff",
+      "column": "active",
+      "type": "boolean",
+      "default": "true"
+    },
+    {
+      "table": "staff",
+      "column": "points",
+      "type": "numeric",
+      "default": "500"
+    },
+    {
+      "table": "staff",
+      "column": "join_date",
+      "type": "date",
+      "default": null
+    },
+    {
+      "table": "staff",
+      "column": "visible_in_schedule",
+      "type": "boolean",
+      "default": "true"
+    },
+    {
+      "table": "staff",
+      "column": "task_profile",
+      "type": "text",
+      "default": null
+    }
+  ]
+}

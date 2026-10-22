@@ -1,0 +1,210 @@
+name: WhatsApp Canonical Verification
+
+on:
+  push:
+    branches:
+      - fix/whatsapp-master-brain-lifecycle-v4-continuation-20261017
+
+concurrency:
+  group: whatsapp-continuation-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  followup-concurrency:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: isolated-test-only
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Isolated PostgreSQL concurrent publication and materialization
+        run: python3 scripts/staging/test-canonical-followup-concurrency.py '${{ job.services.postgres.id }}'
+
+  source-attribution-concurrency:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: isolated-test-only
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Isolated PostgreSQL concurrent correction, approval, execution and stale projection
+        run: python3 scripts/staging/test-source-attribution-concurrency.py '${{ job.services.postgres.id }}'
+
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: Generated API parity
+        run: node scripts/build-sales-intelligence-refresh-api.cjs --check
+
+      - name: Case identity and stale complaint submission regressions
+        run: >-
+          npx vitest run
+          src/lib/salesIntelligence/__tests__/runtimeContext.step7a.test.ts
+          src/lib/salesIntelligence/__tests__/caseOwnershipContext.test.ts
+          src/lib/salesIntelligence/__tests__/ibrahimShapeAcceptanceV39.test.ts
+          src/lib/salesIntelligence/operations/__tests__/sourceCorrectionModel.test.ts
+          src/lib/salesIntelligence/operations/__tests__/operationalExecutionGuard.test.ts
+          src/lib/salesIntelligence/operations/__tests__/sourceCorrectionSubmissionGuard.test.ts
+          src/lib/readModels/__tests__/staffDirectoryCompleteness.test.ts
+
+      - name: Focused real-chat semantic regression tests
+        run: npx vitest run src/lib/salesIntelligence/__tests__/realChatSemanticGuards.test.ts
+
+      - name: Canonical complaint request and writer ownership tests
+        run: >-
+          npx vitest run
+          src/lib/salesIntelligence/__tests__/canonicalComplaintAndRequestOwners.test.ts
+          src/lib/salesIntelligence/__tests__/conversationEvaluationServiceRecovery.test.ts
+          src/lib/salesIntelligence/__tests__/canonicalOperationalWriterCutover.test.ts
+          src/lib/salesIntelligence/__tests__/canonicalPipelineOperationalOwnership.test.ts
+
+      - name: Canonical operational projection tests
+        run: >-
+          npx vitest run
+          src/lib/salesIntelligence/persistence/__tests__/canonicalFollowupProjector.test.ts
+          src/lib/salesIntelligence/persistence/__tests__/canonicalCustomerRequestProjector.test.ts
+          src/lib/salesIntelligence/persistence/__tests__/canonicalComplaintProjector.test.ts
+
+      - name: Previous regression and branch provenance contracts
+        run: npx vitest run src/lib/__tests__/stableOperationIdentity.test.ts src/lib/__tests__/followupBranchProvenance.test.ts
+
+      - name: Synthetic canonical decision matrix
+        run: npx vitest run src/lib/salesIntelligence/__tests__/syntheticCanonicalDecisionMatrix.test.ts
+
+      - name: Invoice and page evidence consistency regressions
+        run: >-
+          npx vitest run
+          src/lib/salesIntelligence/__tests__/invoiceBackedSaleProof.test.ts
+          src/lib/salesIntelligence/__tests__/conversationClinicalReview.test.ts
+          src/lib/salesIntelligence/__tests__/conversationEvaluationFollowUp.test.ts
+          src/lib/__tests__/staffCommitmentClassifierV32.test.ts
+          src/components/salesIntelligence/__tests__/CaseIntelligenceWorkspace.test.tsx
+          src/lib/salesIntelligence/qa/__tests__/queries.test.ts
+          src/features/customer-requests/domain/__tests__/productLabelQuality.test.ts
+          src/components/common/__tests__/OperationalReadBoundary.test.ts
+          src/lib/salesIntelligence/__tests__/saleAttributionEngine.test.ts
+          src/lib/salesIntelligence/__tests__/saleProofState.test.ts
+          src/lib/salesIntelligence/__tests__/basketInvoiceMatchingEngine.test.ts
+
+      - name: Full isolated follow-up authorization and runtime parity rehearsal
+        run: STAGING_REPORT=/tmp/dawaa-followup-authorization.json npm run test:db:fresh-staging:pglite -- --canonical-followup
+
+      - name: Full repository verify gate
+        run: npm run verify
+
+      - name: Source remains unchanged after checks
+        run: git diff --exit-code
+
+      - name: Focused semantic and projection lint
+        run: >-
+          npx eslint
+          src/lib/whatsappConversationParser.ts
+          src/lib/whatsappAutoIngestPipeline.ts
+          src/lib/whatsappProductDemandBackfillV22.ts
+          src/lib/whatsappCustomerJourneyPersistenceV15.ts
+          src/lib/salesIntelligence/caseBasketEngine.ts
+          src/lib/salesIntelligence/customerNeedModel.ts
+          src/lib/salesIntelligence/__tests__/realChatSemanticGuards.test.ts
+          src/lib/salesIntelligence/complaintAssessmentEngine.ts
+          src/lib/salesIntelligence/customerRequestQualificationEngine.ts
+          src/lib/salesIntelligence/conversationEvaluationServiceRecovery.ts
+          src/lib/salesIntelligence/__tests__/canonicalComplaintAndRequestOwners.test.ts
+          src/lib/salesIntelligence/__tests__/conversationEvaluationServiceRecovery.test.ts
+          src/lib/salesIntelligence/__tests__/canonicalOperationalWriterCutover.test.ts
+          src/lib/salesIntelligence/__tests__/canonicalPipelineOperationalOwnership.test.ts
+          src/lib/salesIntelligence/persistence/canonicalFollowupProjector.ts
+          src/lib/salesIntelligence/persistence/canonicalCustomerRequestProjector.ts
+          src/lib/salesIntelligence/persistence/canonicalComplaintProjector.ts
+          src/lib/salesIntelligence/persistence/__tests__/canonicalFollowupProjector.test.ts
+          src/lib/salesIntelligence/persistence/__tests__/canonicalCustomerRequestProjector.test.ts
+          src/lib/salesIntelligence/persistence/__tests__/canonicalComplaintProjector.test.ts
+          src/lib/salesIntelligence/refresh/canonicalRefreshService.ts
+          --rule 'prettier/prettier: off'
+
+
+      - name: Canonical projector decision boundary
+        run: |
+          if rg -n 'deriveCanonicalComplaintAssessment|deriveCanonicalCustomerRequestAssessment' src/lib/salesIntelligence/persistence/canonicalComplaintProjector.ts src/lib/salesIntelligence/persistence/canonicalCustomerRequestProjector.ts; then
+            echo 'Projectors must consume canonical decisions, never recompute them.'
+            exit 1
+          fi
+      - name: Final generated API and source purity
+        run: |
+          node scripts/build-sales-intelligence-refresh-api.cjs --check
+          git diff --exit-code
+
+
+      - name: Original quality architecture boundaries
+        run: |
+          node scripts/audit-fix-semantic-lint.cjs --check
+          node scripts/check-build-source-purity.cjs
+          node scripts/check-runtime-bootstrap-patches.cjs
+          node scripts/check-data-access-boundaries.cjs
+          node scripts/check-generic-query-data-access.cjs
+          node scripts/check-notification-architecture.cjs
+          node scripts/check-production-exposure-closure.cjs
+          node scripts/check-permission-architecture.cjs
+          node scripts/check-action-permission-boundaries.cjs
+          node scripts/check-db-authorization-architecture.cjs
+          node scripts/check-whatsapp-evidence-link-session.cjs
+          node scripts/check-conversation-review-correction-command.cjs
+          node scripts/check-verified-session-identity.cjs
+          node scripts/check-customer-request-shortage-command.cjs
+          node scripts/check-customer-request-v2-parity.cjs
+          node scripts/check-customer-request-create-authorization.cjs
+          node scripts/check-customer-followup-command-boundary.cjs
+          node scripts/check-payroll-architecture.cjs
+          node scripts/check-incentive-governance-architecture.cjs
+          node scripts/check-shift-performance-architecture.cjs
+          node scripts/check-shift-notes-architecture.cjs
+          node scripts/check-attendance-identity-architecture.cjs
+          node scripts/check-employee-transaction-write-boundary.cjs
+          node scripts/check-employee-transaction-source-authorization.cjs
+          node scripts/check-task-evidence-architecture.cjs
+          node scripts/check-review-coverage-architecture.cjs
+          node scripts/check-theme-architecture.cjs
+          node scripts/audit-theme-debt.cjs
+          node scripts/check-dashboard-primitives-architecture.cjs
+      - name: Repository semantic lint
+        run: >-
+          npx eslint . --ext .ts,.tsx --ignore-path .eslintignore --quiet --rule 'prettier/prettier: off'

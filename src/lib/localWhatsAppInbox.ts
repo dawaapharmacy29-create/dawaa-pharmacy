@@ -16,6 +16,8 @@ export interface LocalInboxCandidate {
   name: string;
   size: number;
   lastModified: number;
+  /** Name of the folder the user picked for this export (branch provenance), when known. */
+  folderName?: string | null;
 }
 
 interface FailedInboxItem {
@@ -180,7 +182,7 @@ export async function getUnprocessedWhatsAppExports(handle: any, limit = 10): Pr
       if (failedItem.attempts >= MAX_FAILED_ATTEMPTS) continue;
       if (now - failedItem.failedAt < FAILED_RETRY_MS) continue;
     }
-    candidates.push({ file, key, name: file.name, size: file.size, lastModified: file.lastModified });
+    candidates.push({ file, key, name: file.name, size: file.size, lastModified: file.lastModified, folderName: typeof handle?.name === 'string' ? handle.name : null });
   }
   candidates.sort((a, b) => a.lastModified - b.lastModified || a.name.localeCompare(b.name));
   return candidates.slice(0, Math.max(1, Math.min(25, limit)));

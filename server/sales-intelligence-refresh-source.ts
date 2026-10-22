@@ -276,6 +276,19 @@ export default async function handler(req: any, res: any) {
     });
   }
 
+  // Canonical publication may succeed while operational work is blocked. Never report the
+  // whole refresh as successful or invite users to trust a missing/ambiguous proposal.
+  if (refresh.operationalProjection?.errors.length) {
+    return json(res, 500, {
+      error: 'canonical_operational_projection_failure',
+      detail: refresh.operationalProjection.errors.join('; '),
+      canonicalPublished: true,
+      ...page,
+      operationalProjection: refresh.operationalProjection,
+      sideProjections,
+    });
+  }
+
   const batch = refresh.batch;
   return json(res, 200, {
     ok: true,
@@ -285,6 +298,7 @@ export default async function handler(req: any, res: any) {
     caseSetReconciliation: refresh.caseSetReconciliation,
     canonicalReconciliation: refresh.canonicalReconciliation,
     actionReconciliation: refresh.actionReconciliation,
+    operationalProjection: refresh.operationalProjection,
     complaintEnrichment: refresh.complaintEnrichment,
     semanticProjection: refresh.semanticProjection,
     conversationEvaluations: refresh.conversationEvaluations,
@@ -335,3 +349,4 @@ export default async function handler(req: any, res: any) {
       : null,
   });
 }
+

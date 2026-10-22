@@ -204,6 +204,26 @@ export const CONVERSATION_EVALUATION_CONTRACT: Record<
   },
 };
 
+/**
+ * A basket that actually holds an order: at least one line, a confirmation or an announced total.
+ * The basket engine opens an empty draft for any customer turn; that draft is not a sale signal.
+ */
+export function hasSubstantiveBasket(view: CaseIntelligenceView): boolean {
+  return view.basket.activeItems.length > 0 || view.basket.confirmed || view.basket.announcedTotal != null ||
+    view.basket.versions.some((version) => version.itemCount > 0 || Boolean(version.confirmedAt) || version.announcedTotal != null);
+}
+
+/**
+ * Sales criteria (closing, cross-sell) judge a commercial exchange only. A welfare check or a
+ * service/nursing follow-up is never scored on selling, even when an invoice exists nearby; a
+ * proven countable sale is the only thing that makes such a case commercial.
+ */
+export function salesCriteriaApplicable(view: CaseIntelligenceView): boolean {
+  if (view.sale.isSaleCountable) return true;
+  if (view.interaction.caseType === 'follow_up' || view.interaction.caseType === 'information_only') return false;
+  return view.interaction.caseType === 'sales_opportunity' || view.interaction.caseType === 'mixed' || hasSubstantiveBasket(view);
+}
+
 function uniq(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean)));
 }
@@ -225,7 +245,7 @@ function sourceAvailability(
   if (view.staff.participants.some((participant) => participant.staffId)) available.add('staff_identity');
   if (view.need.primaryNeed || view.need.evidenceMessageIds.length || view.need.needDeclined) available.add('customer_need');
   if (view.products.length) available.add('product_lifecycle');
-  if (view.basket.versions.length || view.basket.activeItems.length) available.add('basket');
+  if (hasSubstantiveBasket(view)) available.add('basket');
   if (view.sale.proofState !== 'unknown' || view.sale.selectedInvoiceId) available.add('sale_proof');
   if (view.journey) available.add('journey');
   if (view.lostOpportunity) available.add('lost_opportunity');
@@ -255,14 +275,14 @@ function criterionApplicable(
     case 'unavailable_items':
       return view.unavailableDemand.length > 0 || view.products.some((product) => product.availability === 'unavailable');
     case 'sales_closing':
-      return view.interaction.caseType === 'sales_opportunity' || view.sale.isSaleCountable || view.basket.versions.length > 0;
+      return salesCriteriaApplicable(view);
     case 'order_confirmation': {
       const applicability = view.coachingEvidence.protocolApplicability;
       if (applicability) return applicability === 'applicable';
       return view.basket.confirmed || view.sale.summaryPresented || view.sale.customerConfirmed || view.sale.staffConfirmed;
     }
     case 'cross_sell_upsell':
-      return view.products.some(
+      return salesCriteriaApplicable(view) && view.products.some(
         (product) =>
           product.roles.includes('offered') &&
           !product.roles.includes('requested') &&

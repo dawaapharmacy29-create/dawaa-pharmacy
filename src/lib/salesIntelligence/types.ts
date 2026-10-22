@@ -11,6 +11,9 @@
 // verdict. A `weakly_inferred` or `unknown` confidence must never be treated as a proven fact by
 // any downstream consumer (see SaleAttribution.isOfficialForStaffEvaluation).
 
+import type { ConversationInteractionV32 } from '../whatsappConversationUnderstandingV32';
+import type { CaseOwnershipContext } from './caseOwnershipContext';
+
 // ---------------------------------------------------------------------------
 // Shared evidence/confidence vocabulary
 // ---------------------------------------------------------------------------
@@ -79,8 +82,10 @@ export interface ConversationCase {
   customerPhone: string | null;
   /** branches.id — a real FK, unlike the free-text `branch`/`branch_name` columns on legacy tables. */
   branchId: string | null;
-  /** The raw text branch label as it actually appears in source rows — kept even after branchId resolves. */
+  /** Case operational branch. Original source provenance is retained in ownership when scoped. */
   branchNameRaw: string | null;
+  /** Case-local ownership with original source provenance retained separately. */
+  ownership?: CaseOwnershipContext;
   startedAt: string;
   endedAt: string | null;
   primaryIntent: CaseType;
@@ -411,7 +416,8 @@ export interface FollowUpOpportunity {
   assignedStaffName: string | null;
   goal: string;
   nextBestAction: NextBestAction;
-  blocker: 'customer_identity_unresolved' | null;
+  /** transaction_branch_unknown: the stored case branch is not an operating branch. */
+  blocker: 'customer_identity_unresolved' | 'transaction_branch_unknown' | null;
   suppressedBy: FollowUpSuppression | null;
   evidenceMessageIds: string[];
   confidence: ConfidenceAssessment;
@@ -507,6 +513,8 @@ export interface CaseIntelligenceView {
   sourceCaseIdV22: string | null;
   interaction: {
     interactionId: string | null;
+    /** Later messages kept in this case across a time gap, and why. */
+    continuationEvidence?: ConversationInteractionV32['continuationEvidence'];
     startedAt: string;
     endedAt: string | null;
     messageCount: number;
@@ -536,7 +544,8 @@ export interface CaseIntelligenceView {
     identityStatus: 'resolved' | 'unresolved' | 'ambiguous' | 'contradicted' | 'not_provided';
     blockers: Array<'customer_identity_unresolved'>;
   };
-  branch: { branchId: string | null; branchNameRaw: string | null };
+  branch: { branchId: string | null; branchNameRaw: string | null; recommendation?: CaseBranchRecommendation };
+  ownership?: CaseOwnershipContext;
   staff: {
     participants: Array<{ sender: string; staffId: string | null; messageIds: string[]; messageCount: number }>;
     facts: CaseIntelligenceStaffFact[];
@@ -560,6 +569,14 @@ export interface CaseIntelligenceView {
     lossOutcome: ProductLossEvidence['outcome'] | null;
     lossReason: LostOpportunityReason | null;
     followUpKeys: string[];
+    /** Who named the item: the customer explicitly, or the doctor's restatement the customer answered. */
+    mentionSource?: 'customer_explicit' | 'staff_restatement' | 'inferred';
+    /** Where the shown quantity comes from. */
+    quantitySource?: 'customer' | 'staff_restatement' | 'final_basket' | 'unknown';
+    /** The message ids, in order, that carry this item's evidence. */
+    evidenceMessageIds?: string[];
+    /** The matching line of the candidate invoice, if any — a comparison, never proof of the request. */
+    invoiceLine?: InvoiceLineMatch | null;
   }>;
   basket: {
     versions: Array<{
@@ -578,6 +595,8 @@ export interface CaseIntelligenceView {
   };
   journey: CommercialJourneyStateAssessment;
   sale: {
+    /** Acceptance of sending/fulfilment; separate from final basket protocol. */
+    customerAcceptanceDetected?: boolean;
     confirmationState: CommercialConfirmationState;
     summaryPresented: boolean;
     customerConfirmed: boolean;
@@ -586,6 +605,8 @@ export interface CaseIntelligenceView {
     invoiceCandidateIds: string[];
     selectedInvoiceId: string | null;
     selectedInvoiceNumber: string | null;
+    /** Reviewer recommendation for the selected invoice (never proof, sale or staff credit). */
+    candidateRecommendation?: InvoiceCandidateRecommendation | null;
     attributionLevel: ConfidenceLevel;
     proofState: CanonicalSalesOutcomeAssessment['saleProofState'];
     outcome: CanonicalSalesOutcome;
@@ -597,6 +618,8 @@ export interface CaseIntelligenceView {
   unavailableDemand: UnavailableDemand[];
   lostOpportunity: LostOpportunityAssessment;
   followUp: FollowUpAssessment;
+  /** Care check-in for a service (nursing) case — separate from sales recovery and complaints. */
+  careFollowUp?: import('./careFollowUpEngine').CareFollowUpSuggestion | null;
   /** Canonical operational disposition (projected as-is; the view never re-derives it). */
   operationalDisposition?: CaseOperationalDisposition;
   /** Pointers into canonical evidence for a later coaching engine; no judgement is made here. */
@@ -1064,6 +1087,46 @@ export interface SaleAttributionCandidate {
   confidenceAssessment: ConfidenceAssessment;
   /** Named reasons this candidate's level was capped or flagged — never silently dropped. */
   disqualifiers: string[];
+  /** Exact pharmacy customer code after normalisation (case vs invoice). Supporting identity, not proof. */
+  customerCodeMatch?: boolean;
+  /** Normalised customer name equality — corroboration only, never a substitute for the code. */
+  customerNameMatch?: boolean;
+  /** How much of the case's identified basket this invoice carries (code, product id or name). */
+  productCoverage?: 'full' | 'partial' | 'none' | 'unavailable';
+  /** The invoice's own branch (normalised) — a fact about the invoice, never the case branch by itself. */
+  invoiceBranch?: string | null;
+  /** Which invoice line each identified case item matched, and how. Unmatched lines are not requests. */
+  lineMatches?: InvoiceLineMatch[];
+}
+
+export interface InvoiceLineMatch {
+  basketProductNameRaw: string;
+  invoiceProductNameRaw: string;
+  invoiceProductCode: string | null;
+  matchedBy: 'product_id' | 'product_code' | 'name';
+  caseQuantity: number | null;
+  invoiceQuantity: number | null;
+  quantityAgrees: boolean | null;
+}
+
+/** Case-level branch recommendation built from independent evidence; never changes the stored branch. */
+export interface CaseBranchRecommendation {
+  branch: string | null;
+  strength: 'decided' | 'strong_recommendation' | 'supporting_only' | 'conflict' | 'none';
+  reasons: string[];
+}
+
+/**
+ * A reviewer-facing recommendation about the selected invoice, separate from proof. A strong
+ * candidate still needs human approval: it never makes the sale countable, proves delivery or
+ * credits a staff member.
+ */
+export interface InvoiceCandidateRecommendation {
+  level: 'strong_candidate_requires_approval' | 'supported_candidate' | 'weak_candidate' | 'none';
+  /** Arabic, one line per decisive factor (met or missing). */
+  reasons: string[];
+  /** Factors still missing for a stronger level. */
+  missing: string[];
 }
 
 /**
@@ -1093,6 +1156,8 @@ export interface SaleAttributionAssessment {
   hasAttributedInvoice: boolean;
   /** Other caseIds independently attributed to the SAME invoice — flagged, never auto-resolved. */
   competingCaseIds: string[];
+  /** Reviewer recommendation for the selected invoice; never proof, sale or staff credit. */
+  candidateRecommendation?: InvoiceCandidateRecommendation;
 }
 
 // ---------------------------------------------------------------------------
@@ -1529,6 +1594,9 @@ export type PipelineFailureReason =
  * score), so a reviewer can see exactly which stage a conclusion came from.
  */
 export interface SalesIntelligenceCaseAnalysis {
+  /** Canonical pipeline decisions. Absent only on historical snapshots; projectors fail closed. */
+  complaintAssessment?: import('./complaintAssessmentEngine').CanonicalComplaintAssessment;
+  customerRequestAssessment?: import('./customerRequestQualificationEngine').CanonicalCustomerRequestAssessment;
   caseId: string;
   conversationId: string;
   conversationCase: ConversationCase;
@@ -1540,6 +1608,10 @@ export interface SalesIntelligenceCaseAnalysis {
   lostOpportunity: LostOpportunityAssessment;
   /** Canonical Follow-up Opportunities for this interaction (followUpOpportunityEngine). */
   followUp: FollowUpAssessment;
+  /** Care check-in for a nursing/service case; separate from sales recovery and complaints. */
+  careFollowUp?: import('./careFollowUpEngine').CareFollowUpSuggestion | null;
+  /** Case-level branch recommendation from independent evidence; never changes the stored branch. */
+  branchRecommendation?: CaseBranchRecommendation;
   /**
    * Canonical Operational Disposition (caseOperationalDispositionEngine) — the single owner of
    * "what is this case waiting on now". Always produced by the pipeline; optional only for
@@ -1575,3 +1647,4 @@ export interface SalesIntelligenceCaseAnalysis {
   humanReviewReasons: string[];
   failureReasons: PipelineFailureReason[];
 }
+

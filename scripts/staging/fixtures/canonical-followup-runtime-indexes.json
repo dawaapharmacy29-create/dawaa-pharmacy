@@ -1,0 +1,10 @@
+[
+  {
+    "indexname": "daily_followups_one_open_case_per_customer_branch_uidx",
+    "indexdef": "CREATE UNIQUE INDEX daily_followups_one_open_case_per_customer_branch_uidx ON public.daily_followups USING btree (identity_key, COALESCE(NULLIF(TRIM(BOTH FROM branch), ''::text), 'غير محدد'::text)) WHERE ((identity_key IS NOT NULL) AND (COALESCE(is_hidden, false) = false) AND (COALESCE(is_duplicate, false) = false) AND (duplicate_of IS NULL) AND (completed_at IS NULL) AND (cancelled_at IS NULL) AND (archived_at IS NULL) AND (lower(COALESCE(status, ''::text)) <> ALL (ARRAY['completed'::text, 'cancelled'::text, 'archived'::text, 'closed'::text, 'merged_duplicate'::text])) AND (lower(COALESCE(followup_status, ''::text)) <> ALL (ARRAY['completed'::text, 'تم'::text, 'تم التواصل'::text, 'تم الشراء بعد المتابعة'::text])))"
+  },
+  {
+    "indexname": "daily_followups_one_visible_open_case_uidx",
+    "indexdef": "CREATE UNIQUE INDEX daily_followups_one_visible_open_case_uidx ON public.daily_followups USING btree (identity_key, COALESCE(NULLIF(TRIM(BOTH FROM branch), ''::text), 'غير محدد'::text)) WHERE ((identity_key IS NOT NULL) AND (COALESCE(is_hidden, false) = false) AND (COALESCE(is_duplicate, false) = false) AND (duplicate_of IS NULL) AND (completed_at IS NULL) AND (cancelled_at IS NULL) AND (archived_at IS NULL) AND (lower(COALESCE(status, ''::text)) <> ALL (ARRAY['completed'::text, 'cancelled'::text, 'archived'::text, 'closed'::text, 'merged_duplicate'::text, 'تم'::text, 'ملغي'::text])) AND (lower(COALESCE(followup_status, ''::text)) <> ALL (ARRAY['completed'::text, 'تم'::text, 'تم التواصل'::text, 'تم الشراء بعد المتابعة'::text, 'ملغي'::text])))"
+  }
+]

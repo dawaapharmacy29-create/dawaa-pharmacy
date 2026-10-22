@@ -11,13 +11,17 @@
 import type { NormalizedConversationMessageV32 } from '../whatsappConversationUnderstandingV32';
 import {
   classifyCustomerIntentStatementV32,
-  classifyCustomerTimingRequestV32,
+  extractCustomerTimingRequestsV32,
   isPrescriptionRequestV32,
   isStaffFollowUpPromiseV32,
+  isDeliveryFollowUpPromiseV32,
+  isDeliveryFollowUpCompletionV32,
   mentionsPrescriptionV32,
 } from '../whatsappSemanticSignalsV32';
 import { normalizeProductKey } from './caseBasketEngine';
 import { stableOperationIdentity, type OperationTimelineMessage } from '../whatsappFollowupIdentity';
+import { cairoWallClockParts, cairoWallClockToDate } from '../time/cairoDateBoundary';
+import { isOperatingBranch } from '../branch';
 import type {
   CanonicalSalesOutcomeAssessment,
   ConfidenceAssessment,
@@ -88,6 +92,7 @@ interface Candidate {
   priority?: FollowUpOpportunity['priority'];
   duePolicy?: FollowUpDuePolicy;
   requestedDelayDays?: number | null;
+  dueAt?: string | null;
   assignedStaffName?: string | null;
   assignedStaffId?: string | null;
   evidence: string[];
@@ -112,6 +117,13 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
       : 'financially_settled'
     : null;
 
+  // V39: a nursing/service interaction requires a human service check, never an
+  // automatically generated SALES recovery, callback, or customer-no-response task.
+  // Existing operational actions are not mutated here.
+  if (conversationCase.caseType === 'follow_up') {
+    return { caseId, decision: 'review_required', opportunities: [], notNeededReason: null };
+  }
+
   // Information-only/no-need interactions genuinely have nothing to follow up. An invoice-backed
   // closed order is different: the order may be closed while a product-specific shortage, callback,
   // stock check or explicit staff promise remains an outstanding obligation.
@@ -134,13 +146,16 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
 
   // --- Explicit customer timing / wait requests (V32) ---
   const customerMessages = meaningful.filter((m) => m.role === 'customer');
-  const waitRequests: Array<{ message: NormalizedConversationMessageV32; whenInStock: boolean; days: number | null; sameDay: boolean }> = [];
+  const timingById = new Map(extractCustomerTimingRequestsV32(meaningful).map(row => [row.message.id,row]));
+  const waitRequests: Array<{ evidence: string[]; message: NormalizedConversationMessageV32; whenInStock: boolean; days: number | null; sameDay: boolean }> = [];
   for (const message of customerMessages) {
-    const timing = classifyCustomerTimingRequestV32(message.text);
+    const timingEvidence = timingById.get(message.id);
+    const timing = timingEvidence?.timing;
     const willWait = classifyCustomerIntentStatementV32(message.text) === 'will_wait';
     if (!timing && !willWait) continue;
     waitRequests.push({
       message,
+      evidence: timingEvidence?.evidenceMessageIds ?? [message.id],
       whenInStock: willWait || timing?.when === 'when_in_stock',
       days: timing?.when === 'days' ? timing.days : null,
       sameDay: timing?.when === 'same_day',
@@ -207,7 +222,7 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
       demand: null,
       duePolicy: request.days != null || request.sameDay ? 'customer_requested_time' : 'manual_schedule',
       requestedDelayDays: request.sameDay ? 0 : request.days,
-      evidence: [request.message.id],
+      evidence: request.evidence,
       level: 'strongly_inferred',
       score: 0.85,
     });
@@ -217,13 +232,26 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
   const checkPendingIds = new Set(unavailableDemand.filter((d) => d.availabilityState === 'check_pending').map((d) => d.availabilityMessageId));
   for (const message of meaningful) {
     if (message.role !== 'staff' || !isStaffFollowUpPromiseV32(message.text)) continue;
-    if (checkPendingIds.has(message.id) || laterStaffReply(message)) continue;
+    const deliveryPromise = isDeliveryFollowUpPromiseV32(message.text);
+    const scheduledAt = explicitPromiseTime(message.text, message.timestamp);
+    // A later apology or unrelated reply does not fulfil a future, explicitly scheduled call.
+    const fulfilled = scheduledAt && meaningful.some((later) =>
+      later.role === 'staff' && (indexOf.get(later.id) ?? 0) > (indexOf.get(message.id) ?? 0) &&
+      /(?:تم\s+(?:الاتصال|التواصل)|كلمت\s+حضرتك|بلغت\s+حضرتك)/.test(later.text) &&
+      !/(?:مش|لم|لم\s*يتم)\s/.test(later.text)
+    );
+    const deliveryCompleted = deliveryPromise && meaningful.some((later) =>
+      (indexOf.get(later.id) ?? 0) > (indexOf.get(message.id) ?? 0) && isDeliveryFollowUpCompletionV32(later.text)
+    );
+    if (deliveryCompleted || fulfilled || (!deliveryPromise && !scheduledAt && (checkPendingIds.has(message.id) || laterStaffReply(message)))) continue;
     candidates.push({
-      reason: 'staff_promised_check',
+      reason: deliveryPromise ? 'delivery_unresolved' : 'staff_promised_check',
       explicit: true,
       demand: null,
       assignedStaffName: message.sender,
       assignedStaffId: input.staffIdBySender?.[message.sender] ?? null,
+      dueAt: scheduledAt,
+      duePolicy: scheduledAt ? 'customer_requested_time' : undefined,
       evidence: [message.id],
       level: 'strongly_inferred',
       score: 0.85,
@@ -277,6 +305,16 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
     return times.length ? new Date(Math.min(...times)) : caseStartedAt;
   };
 
+  // A stored branch that is not an operating branch (account-wide scope, unknown marker, warehouse,
+  // unrecognized text) keeps the duty visible but blocked for human review. A missing branch keeps
+  // its existing contract (the projector refuses incomplete metadata).
+  const ownership = conversationCase.ownership;
+  const transactionBranchUnknown = ownership
+    ? ownership.branchBasis === 'conflict' || (
+      Boolean(ownership.sourceBranchNameRaw?.trim()) && !isOperatingBranch(ownership.operationalBranch)
+    )
+    : Boolean(String(conversationCase.branchNameRaw ?? '').trim())
+      && !isOperatingBranch(conversationCase.branchNameRaw);
   const byKey = new Map<string, FollowUpOpportunity>();
   for (const candidate of candidates) {
     const profile = PROFILE[candidate.reason];
@@ -290,7 +328,13 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
     }
     if (!suppressedBy && saleProven && !candidate.explicit) suppressedBy = 'sale_proven';
     if (!suppressedBy && (candidate.evidence.length === 0 || candidate.level === 'unknown')) suppressedBy = 'weak_evidence';
-    const blocked = !suppressedBy && profile.needsCustomerIdentity && !customerId;
+    const blocker: FollowUpOpportunity['blocker'] = suppressedBy
+      ? null
+      : profile.needsCustomerIdentity && !customerId
+        ? 'customer_identity_unresolved'
+        : transactionBranchUnknown
+          ? 'transaction_branch_unknown'
+          : null;
     const duePolicy = candidate.duePolicy ?? profile.duePolicy;
     const requestedDelayDays = candidate.requestedDelayDays ?? null;
     const productScopeKey = demand ? (demand.resolvedProductId ?? demand.productKey) : null;
@@ -306,7 +350,7 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
       followUpKey,
       caseId,
       customerId,
-      status: suppressedBy ? 'suppressed' : blocked ? 'blocked' : 'actionable',
+      status: suppressedBy ? 'suppressed' : blocker ? 'blocked' : 'actionable',
       reason: candidate.reason,
       priority: candidate.priority ?? profile.priority,
       productKey: demand?.productKey ?? null,
@@ -316,19 +360,27 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
       demandKey: demand?.demandKey ?? null,
       duePolicy,
       requestedDelayDays,
-      dueAt: dueAtFor(duePolicy, requestedDelayDays, lastAt),
+      dueAt: candidate.dueAt ?? dueAtFor(duePolicy, requestedDelayDays, lastAt),
       assignedRole: profile.role,
       assignedStaffId: candidate.assignedStaffId ?? null,
       assignedStaffName: candidate.assignedStaffName ?? null,
       goal: profile.goal,
       nextBestAction: profile.nextBestAction,
-      blocker: blocked ? 'customer_identity_unresolved' : null,
+      blocker,
       suppressedBy,
       evidenceMessageIds: [...new Set(candidate.evidence)],
       confidence: confidence(candidate, profile),
     };
     const existing = byKey.get(followUpKey);
     if (existing) {
+      const latestExisting = Math.max(...existing.evidenceMessageIds.map((id) => messageAt.get(id) ?? 0));
+      const latestIncoming = Math.max(...opportunity.evidenceMessageIds.map((id) => messageAt.get(id) ?? 0));
+      if (candidate.dueAt && latestIncoming > latestExisting) {
+        existing.dueAt = candidate.dueAt;
+        existing.duePolicy = opportunity.duePolicy;
+        existing.assignedStaffId = opportunity.assignedStaffId;
+        existing.assignedStaffName = opportunity.assignedStaffName;
+      }
       existing.evidenceMessageIds = [...new Set([...existing.evidenceMessageIds, ...opportunity.evidenceMessageIds])];
       continue;
     }
@@ -385,6 +437,20 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
   };
 }
 
+/** Only a stated day plus an unambiguous AM/PM clock time can set an exact deadline. */
+function explicitPromiseTime(text: string, at: Date): string | null {
+  const normalized = text.replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)));
+  const dayOffset = /بكر[ةه]|بكرا/.test(normalized) ? 1 : /اليوم|النهارد[ةه]/.test(normalized) ? 0 : null;
+  const clock = normalized.match(/الساع[ةه]\s*(\d{1,2})(?::(\d{2}))?\s*((?:صباح|مساء)[ًا]*|ص|م)(?![\p{L}])/u);
+  if (dayOffset === null || !clock) return null;
+  const hour = Number(clock[1]), minute = Number(clock[2] ?? 0);
+  if (hour < 1 || hour > 12 || minute > 59) return null;
+  const wall = cairoWallClockParts(at);
+  const afternoon = clock[3].startsWith('م');
+  return cairoWallClockToDate(wall.year, wall.month, wall.day + dayOffset,
+    (hour % 12) + (afternoon ? 12 : 0), minute)?.toISOString() ?? null;
+}
+
 function dueAtFor(policy: FollowUpDuePolicy, days: number | null, lastAt: Date): string | null {
   switch (policy) {
     case 'immediate':
@@ -409,3 +475,4 @@ function confidence(candidate: Candidate, profile: ReasonProfile): ConfidenceAss
       : [],
   };
 }
+

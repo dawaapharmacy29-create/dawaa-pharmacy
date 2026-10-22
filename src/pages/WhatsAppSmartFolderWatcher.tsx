@@ -271,7 +271,7 @@ export default function WhatsAppSmartFolderWatcher() {
   const [runQuery, setRunQuery] = useState('');
 
 
-  const analyzeFile = useCallback(async (file: File, mode: PersistSessionMode = 'ingest'): Promise<FileRun> => {
+  const analyzeFile = useCallback(async (file: File, mode: PersistSessionMode = 'ingest', sourceFolderName: string | null = null): Promise<FileRun> => {
     const read = await readWhatsAppExportFile(file);
     const messages = parseWhatsAppExport(read.text);
     if (!messages.length) throw new Error('لم يتم التعرف على رسائل WhatsApp داخل الملف');
@@ -305,7 +305,7 @@ export default function WhatsAppSmartFolderWatcher() {
       const roles = await resolveWhatsAppParticipantRolesV15(session);
       const outboundBurstMetrics = computeStaffBurstEffort(groupOutboundBursts(session, roles));
       // Branch provenance: the stored source branch wins; the staff branch is only a fallback.
-      const branchHint = await resolveConversationBranchHint(session, roles, await readStoredSourceBranch(session));
+      const branchHint = await resolveConversationBranchHint(session, roles, await readStoredSourceBranch(session), { sourceFolderName });
       const customerContext = customerContexts[contextIndex.get(caseContext) ?? 0];
       const canonicalIdentity = customerContext.canonical;
       const resolvedCustomer = customerContext.resolution.customer;
@@ -603,7 +603,7 @@ export default function WhatsAppSmartFolderWatcher() {
 
       const processCandidate = async (candidate: (typeof candidates)[number]): Promise<FileRun> => {
         try {
-          const result = await analyzeFile(candidate.file, mode);
+          const result = await analyzeFile(candidate.file, mode, candidate.folderName ?? null);
           await saveLocalWhatsAppAnalysisHistory<FileRun>(candidate.key, candidate.name, result);
           // "Processed" is recorded only after Source -> V22 -> Sales Intelligence all succeeded.
           // Anything less stays retryable (failed ledger with backoff) and is shown as needs-attention.

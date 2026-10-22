@@ -132,8 +132,10 @@ export function buildCaseConversationReviewPayload(input: {
     staff_name: staffRow.name,
     doctor_name: staffRow.name,
     staff_role: staffRow.role ?? null,
-    branch: view.branch.branchNameRaw || staffRow.branch || null,
-    branch_id: view.branch.branchId || staffRow.branch_id || null,
+    // This is the case's operational branch. A staff member's home branch is only a hint and
+    // must not be persisted as if the conversation happened there when case evidence is unresolved.
+    branch: view.branch.branchNameRaw || null,
+    branch_id: view.branch.branchId || null,
 
     customer_id: view.customer.customerId,
     customer_name: view.customer.customerName ?? null,
@@ -148,7 +150,9 @@ export function buildCaseConversationReviewPayload(input: {
     review_date: new Date().toISOString().slice(0, 10),
     month_cycle: monthCycleFromDate(view.interaction.startedAt),
 
-    invoice_number: view.sale.selectedInvoiceNumber ?? null,
+    // A review row names an invoice only when that invoice is proven for THIS case; a weak or
+    // candidate selection stays in the analysis evidence, never on the staff evaluation record.
+    invoice_number: view.sale.proofState === 'proven' ? view.sale.selectedInvoiceNumber ?? null : null,
 
     final_score: score,
     total_score: score,

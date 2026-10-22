@@ -1,0 +1,36 @@
+{
+  "fixture": "10767 products, 8 product lines, 1 image reference, 1 competing attribution claim",
+  "unit": "synthetic local milliseconds; no network/Production latency",
+  "metrics": {
+    "main": {
+      "total": 65,
+      "pipelineRuns": 1,
+      "products": 41,
+      "fuzzy": 28,
+      "ilikeFilters": 40,
+      "resolutionCalls": 20,
+      "productResolutionMs": 171.6276039999999,
+      "ms": 493.45179299999995
+    },
+    "batch1": {
+      "total": 60,
+      "pipelineRuns": 1,
+      "products": 41,
+      "fuzzy": 28,
+      "ilikeFilters": 40,
+      "resolutionCalls": 20,
+      "productResolutionMs": 194.04688599999997,
+      "ms": 527.8497959999999
+    },
+    "batch2": {
+      "total": 17,
+      "pipelineRuns": 0,
+      "products": 2,
+      "fuzzy": 0,
+      "ilikeFilters": 0,
+      "resolutionCalls": 0,
+      "productResolutionMs": 0,
+      "ms": 13.62453999999991
+    }
+  }
+}

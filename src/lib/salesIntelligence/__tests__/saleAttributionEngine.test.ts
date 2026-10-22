@@ -110,6 +110,58 @@ describe('Sale Attribution Engine (Sales Intelligence Phase D) — Golden Cases'
       expect(assess.ruleIds).toContain('attribution.trusted.automatic_customer_code_name_time_items_unique');
     });
 
+    it('1b2. exact pharmacy code, customer identity and item evidence survive a doctor honorific on the invoice name', () => {
+      const ctx = baseCase({
+        customerId: 'cust-18663',
+        customerCode: '18663',
+        customerName: 'ابراهيم الخولي',
+        branchNameRaw: 'فرع شكري',
+        activeBasketItems: [{ productNameRaw: 'GASTROBIOTIC 550 MG 20 TAB', quantity: 1, resolutionStatus: 'proven' }],
+      });
+      const provider: InvoiceItemEvidenceProvider = {
+        getItemsForInvoice: () => [{ productNameRaw: 'GASTROBIOTIC 550 MG 20 TAB', quantity: 1 }],
+      };
+      for (const customerName of ['د ابراهيم الخولي', 'د/ ابراهيم الخولي', 'الدكتور ابراهيم الخولي']) {
+        const assess = deriveSaleAttributionAssessment(ctx, [{
+          id: 'invoice-id', invoice_number: '74938',
+          customer_id: 'cust-18663', customer_code: '18663', customer_name: customerName,
+          branch: 'فرع شكري', invoice_datetime: '2026-09-15T09:05:00.000Z',
+        }], provider);
+        expect(assess.attributionLevel, customerName).toBe('proven');
+        expect(assess.selectedCandidate?.directInvoiceLink, customerName).toBe(true);
+      }
+    });
+
+    it('1b3. honorific normalization never overrides a different customer, non-operating source branch or incomplete basket', () => {
+      const context = baseCase({
+        customerId: 'cust-18663',
+        customerCode: '18663',
+        customerName: 'ابراهيم الخولي',
+        branchNameRaw: 'المخزن',
+        activeBasketItems: [{ productNameRaw: 'GASTROBIOTIC 550 MG 20 TAB', quantity: 1, resolutionStatus: 'proven' }],
+      });
+      const provider: InvoiceItemEvidenceProvider = {
+        getItemsForInvoice: () => [{ productNameRaw: 'GASTROBIOTIC 550 MG 20 TAB', quantity: 1 }],
+      };
+      const row = {
+        id: 'inv-74938', invoice_number: '74938', customer_id: 'cust-18663',
+        customer_code: '18663', customer_name: 'د ابراهيم الخولي',
+        branch: 'فرع شكري', invoice_datetime: '2026-09-15T09:05:00.000Z',
+      };
+      const branchConflict = deriveSaleAttributionAssessment(context, [row], provider);
+      expect(branchConflict.attributionLevel).not.toBe('proven');
+      expect(branchConflict.isOfficialForStaffEvaluation).toBe(false);
+      const wrongName = deriveSaleAttributionAssessment({ ...context, branchNameRaw: 'فرع شكري' }, [
+        { ...row, customer_name: 'د ابراهيم الصياد' },
+      ], provider);
+      expect(wrongName.attributionLevel).not.toBe('proven');
+      const missingItem = deriveSaleAttributionAssessment({
+        ...context, branchNameRaw: 'فرع شكري',
+        activeBasketItems: [...context.activeBasketItems, { productNameRaw: 'Colona', quantity: 2, resolutionStatus: 'unknown' }],
+      }, [row], provider);
+      expect(missingItem.attributionLevel).not.toBe('proven');
+    });
+
     it('1c. auto-link refuses to guess when two invoices pass the same hard gate', () => {
       const provider: InvoiceItemEvidenceProvider = {
         getItemsForInvoice: () => [{ productNameRaw: 'Bon Care', quantity: 1, lineTotal: 90 }],

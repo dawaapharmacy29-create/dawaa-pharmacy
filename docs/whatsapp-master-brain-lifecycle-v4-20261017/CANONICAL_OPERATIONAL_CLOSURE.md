@@ -1,0 +1,40 @@
+# Canonical operational closure — source-only
+
+Continuation baseline: d4eadbbd68ca07357c8bee25379169c6e4476be3, newer than the supplied 02108430 checkpoint. Baseline CI 39068475802 passed Full Verify: 1047 custom tests and 1241 Vitest tests in each regression timezone, one pre-existing skip; TypeScript/build/performance and generated parity passed. The two reported stale legacy-writer tests were already corrected upstream. The three temporary cutover patchers were already removed; no legacy writer was restored.
+
+This batch moves complaint and customer-request qualification calculations out of projectors into the canonical pipeline. Projectors consume precomputed, case-bound assessments; missing or mismatched historical assessments fail closed rather than reparse text. Assessments are included in the persisted evidence snapshot. Raw timeline parsing in request/complaint projection remains identity-input extraction only, not semantic decision making. No automatic materialization is enabled.
+
+Focused local verification: 22 tests passed across five suites. Coverage includes preserved source-case branch across retry/correction; concurrent follow-up insertion; explicit non-materialization; frozen semantic assessment consumption despite changed text/evidence; missing-assessment fail-closed; unresolved complaints stay reviewable and no-invoice cases do not become countable sales.
+
+Generated API regenerated using the repository generator with esbuild 0.27.7 from the committed lockfile; --check passes locally. Final source commit 8b3fd75c4fe66f146372ec7dce02747b950f107f passed CI 39070170793 (job 117505952861): 1047 custom tests; 1246 Vitest tests in each of Cairo/UTC, with one pre-existing skip; TypeScript, build, runtime performance budgets, repository semantic lint, architecture checks and final generated/source purity all passed. Initial static JS remains 202.1 KiB gzip across six chunks. This document-only closure update does not change the verified source tree. The permanent branch verification workflow replaces the temporary workflow with contents:read and persist-credentials:false; it contains no commit/push or source patching. It retains full verify plus source purity, focused regressions, semantic lint and original architecture boundaries. Original Quality Gate remains unchanged.
+
+Reviewed automatic cutover paths: Auto Ingest, Smart Watcher -> canonical case-graph/refresh, Product Demand backfill, Journey V15. V6/V15 remain evidence/story code; their autonomous action calls are absent from these paths. Existing authorized materialization remains a separate user-controlled boundary. Claims are limited to these reviewed paths, not arbitrary manual task entry elsewhere in the application.
+
+No main update, deploy, Supabase change, production action creation, historical repair, runtime activation or Production smoke was performed. No credentials or customer exports are included. Performance changes add no database reads; assessment calculation moves upstream once per case. Runtime budgets must pass CI; no new Production latency measurement is claimed.
+
+Pipeline version is now sales-intelligence-v25-canonical-operational-assessments so a future explicitly authorized refresh persists the new case-bound assessments instead of reusing a v24 snapshot. No refresh or historical backfill was initiated. The A1 chain fixture checks this version and preserves product, sale, staff, follow-up and qualification assertions. Persisted evidenceSnapshot types explicitly include the two optional assessments for compatibility with older rows.
+
+Closure: source-only cutover is ready for final review without deployment. No blocking item remains in the reviewed scope. Production continues running the previously activated runtime; this branch has not been activated.
+
+
+## Expanded synthetic semantic matrix — 2026-10-18
+
+The exact-commit Preview approval was added in 2861927 following explicit user authorization to use the existing Supabase project. Its CI 39071867239 passed. The Preview is a separate deployment; main and the production alias remain unchanged.
+
+A subsequent local synthetic conversation exposed semantic defects, so no synthetic source or operational task was created in Production. This batch adds 33 self-contained pipeline scenarios with synthetic customer/staff identities and no database calls. Coverage includes quantity-only text, repeat catalogue references, substitute refusal versus genuine product-fit objection, confirmed shortage versus pending checks, missing identity, cancellation, unresolved/resolved complaints, sale/revenue non-countability without invoice proof, explicit Cairo appointments, Arabic digits, ambiguous/invalid times, authorship, appointment correction, exact retry, customer correction, multiple dosage forms and missing media.
+
+Fixes stay in the canonical basket/Need/Follow-up owners: quantity-only phrases cannot be products; a safe repeated catalogue identity keeps the existing quantity; rejecting a substitute preserves the original need; only a unique strong catalogue match can link shortened stock wording; a pending stock search cannot erase the latest explicit stock fact; explicit scheduled commitments retain author and Cairo deadline despite unrelated later replies; a later correction updates the same obligation. Existing projectors still do not reinterpret text or automatically materialize actions. No permissions, RPC, RLS, invoice writer or historical rows change.
+
+Pipeline version advances to sales-intelligence-v26-canonical-semantic-matrix; the generated API is regenerated rather than edited. Focused local verification: 122 tests passed across ten suites, plus the existing 22-test ownership/A1/projector group. Final source commit 1c3798eb2d26f85e1f86d130a828ddd0fedc2b42 passed CI 39073594232 (job 117516227936): 33 synthetic scenarios; 1047 custom tests, zero failures; 1279 Vitest tests passed in each of Cairo/UTC with one pre-existing skip. Full Verify, TypeScript, build, repository semantic lint, architecture checks, generated parity and source purity passed. Initial static JS is 202.1 KiB gzip across six chunks. The current Preview remains on 2861927 until a separately verified update; do not infer live end-to-end operational creation from these local results.
+
+
+## Review handoff
+
+The semantic matrix source is verified; controlled live materialization of a synthetic request/follow-up/complaint and its database retry checks remain unperformed. Local analytical retry tests and projector concurrency tests are not a substitute for that live check. No test source, task, invoice, customer or staff record was created or changed in Production. No main merge or Production deployment was performed. The next review step is a Preview of the verified semantic source, followed by explicitly scoped operational testing through the real staff session.
+
+
+## Preview checkpoint — 2026-10-18
+
+Verified semantic source was deployed as Preview dpl_GQkMMGh446zFvSjL2G913GUfiPX2, commit ceb2392176ab48a49a2261fe90ca9124bc436c8f (documentation-only change after verified source 1c3798e). State READY. URL: https://dawaa-pharmacy-rc833s3h7-dawaapharmacy29-creates-projects.vercel.app/ . Real staff login succeeded and the dashboard and Smart Watcher page rendered. While attempting the official folder chooser, Cloud Browser rejected continuation of native credential state and its kernel reset; one fresh-document recovery also returned that native credential state cannot safely resume. No synthetic file was selected/uploaded, no refresh was run and no operational record was created. Live materialization/retry verification remains BLOCKED_BY_BROWSER_AUTH_TOOLING, not verified and not classified as an application regression.
+
+Read-only production-alias inspection found an independently published main deployment dpl_9ypW4Pu8UnufLrBF1thip3d1R8Ej, SHA aaa99dfedabbf3713e7fa98e68980e54b1a44970, invoice-import PR #514. This task did not publish or alter it. Reassess current main compatibility before any later merge; do not assume the earlier production checkpoint is still the live alias.

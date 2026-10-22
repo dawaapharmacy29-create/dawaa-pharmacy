@@ -20,7 +20,7 @@
 // * Idempotent: an unchanged projection writes nothing.
 import type { CaseIntelligenceView, CaseOperationalDisposition, NextBestAction } from '../types';
 
-export const V22_SEMANTIC_PROJECTION_VERSION = 'v22-semantic-projection-v1';
+export const V22_SEMANTIC_PROJECTION_VERSION = 'v22-semantic-projection-v2-review-preservation';
 
 export const V22_PROJECTED_COLUMNS = [
   'order_intent',
@@ -148,13 +148,14 @@ export function aggregateV22Projection(facts: SiCaseProjectionFact[]):
   }
   const sorted = facts.slice().sort((a, b) => a.salesCaseId.localeCompare(b.salesCaseId));
   const projected = sorted.map(projectSingleCase);
+  const canonicalReviewRequired = sorted.some(fact => fact.view.review?.required === true);
   const evidenceMessageIds = [...new Set(sorted.flatMap((f) => f.view.operationalDisposition!.evidenceMessageIds))];
   const reasonCodes = [...new Set(sorted.flatMap((f) => f.view.operationalDisposition!.reasonCodes))];
   const confidence = Math.min(...sorted.map((f) => f.view.operationalDisposition!.confidence.score || 0));
 
   if (projected.length === 1) {
     const { _state, _nba, ...values } = projected[0];
-    return { status: 'ok', values: { ...values, needs_human_review: false }, reasonCodes, evidenceMessageIds, confidence, mode: 'direct' };
+    return { status: 'ok', values: { ...values, needs_human_review: canonicalReviewRequired }, reasonCodes, evidenceMessageIds, confidence, mode: 'direct' };
   }
 
   const states = new Set(projected.map((p) => p._state));
@@ -174,7 +175,7 @@ export function aggregateV22Projection(facts: SiCaseProjectionFact[]):
     const { _state, _nba, ...values } = leader;
     return {
       status: 'ok',
-      values: { ...values, ...base, needs_human_review: false },
+      values: { ...values, ...base, needs_human_review: canonicalReviewRequired },
       reasonCodes: [...reasonCodes, 'v22_projection.aggregate_agreeing_cases'],
       evidenceMessageIds,
       confidence,
@@ -219,6 +220,12 @@ export function decideV22Projection(row: V22ProjectionRow, facts: SiCaseProjecti
 
   const guards: string[] = [];
   const values: ProjectedValues = { ...aggregate.values };
+  // Refresh is not a review-clearance command. Preserve any existing requirement and
+  // independent envelope evidence; only the explicit review workflow may clear it.
+  if (row.needs_human_review === true || Number(row.media_missing) > 0 || caseJson.requiresHumanApproval === true) {
+    values.needs_human_review = true;
+    guards.push('v22_projection.review_clearance_requires_explicit_command');
+  }
   if (String(caseJson.canonicalSaleProof?.state || '') === 'proven') {
     delete values.proposed_outcome;
     delete values.outcome_confidence;
@@ -336,7 +343,7 @@ export async function projectCanonicalSemanticsToV22(
   return out;
 }
 
-const ROW_COLUMNS = ['id', 'case_json', 'confirmed_outcome', 'updated_at', ...V22_PROJECTED_COLUMNS].join(',');
+const ROW_COLUMNS = ['id', 'case_json', 'confirmed_outcome', 'updated_at', 'media_missing', ...V22_PROJECTED_COLUMNS].join(',');
 
 async function projectOne(service: any, v22Id: string, facts: SiCaseProjectionFact[], nowIso: string) {
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -363,3 +370,4 @@ function errorText(error: unknown) {
   if (error && typeof error === 'object' && 'message' in error) return String((error as any).message);
   return String(error);
 }
+

@@ -6,6 +6,7 @@ export type StaffDirectoryIdentity = {
   name: string | null;
   branch: string | null;
   role: string | null;
+  type?: string | null;
   username: string | null;
   status: string | null;
   active: boolean;
@@ -45,6 +46,7 @@ function identityFromRow(
     name: text(read(row, nameKeys, '')) || null,
     branch: normalizeBranchName(read(row, ['branch', 'branch_name'], null)) || null,
     role: text(read(row, ['role', 'staff_role', 'job_title'], '')) || null,
+    type: text(read(row, ['type'], '')) || null,
     username: text(read(row, ['username'], '')) || null,
     status: text(read(row, ['status'], '')) || null,
     active:
@@ -78,9 +80,12 @@ function uniqueBaseIdentities(rows: StaffDirectoryIdentity[]) {
  * client so it reads the SAME three sources through the SAME mapping — never a second directory.
  * Throws when neither staff nor account rows can be read (never a silent empty directory).
  */
-export async function loadStaffDirectoryFrom(client: any): Promise<StaffDirectoryIdentity[]> {
+export async function loadStaffDirectoryFrom(
+  client: any,
+  options: { requireComplete?: boolean } = {}
+): Promise<StaffDirectoryIdentity[]> {
   const [staffResult, accountResult, aliasResult] = await Promise.all([
-    client.from('staff').select('id,name,username,branch,role,status,active,is_active').limit(800),
+    client.from('staff').select('id,name,username,branch,role,type,status,active,is_active').limit(800),
     client.rpc('get_staff_accounts_directory'),
     client
       .from('staff_identity_aliases')
@@ -88,6 +93,24 @@ export async function loadStaffDirectoryFrom(client: any): Promise<StaffDirector
       .eq('active', true)
       .limit(2000),
   ]);
+
+  // Canonical analysis must not persist an unresolved/unique identity from a
+  // partially unavailable directory. Compatibility readers keep their old policy.
+  if (options.requireComplete) {
+    const failed = [
+      ['staff', staffResult.error],
+      ['accounts', accountResult.error],
+      ['aliases', aliasResult.error],
+    ].filter(([, error]) => Boolean(error));
+    if (failed.length) {
+      throw new Error(`staff_directory_incomplete: ${failed.map(([source]) => source).join(',')}`);
+    }
+    // At the bounded read cap we cannot prove the directory is complete or a name
+    // is unique. Refuse canonical analysis rather than hide a competing identity.
+    if ((staffResult.data?.length ?? 0) >= 800 || (aliasResult.data?.length ?? 0) >= 2000) {
+      throw new Error('staff_directory_incomplete: read_limit_reached');
+    }
+  }
 
   if (staffResult.error && accountResult.error) {
     throw new Error(

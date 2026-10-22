@@ -34,6 +34,8 @@ import {
   parseWhatsAppExport,
 } from '../whatsappConversationParser';
 import { fetchPharmacyProductIndex } from './pharmacyProductCatalogRepository';
+import { canonicalStaffRole } from '../staff/staffRoleCapabilities';
+import type { CaseStaffProfile } from './caseOwnershipContext';
 import type { PharmacyProductIndex } from './pharmacyProducts/pharmacyProductResolverV2';
 import type { SalesIntelligencePipelineInput } from './salesIntelligencePipeline';
 import type { BatchConversationInput } from './persistence/batchPersistenceService';
@@ -47,6 +49,7 @@ export interface SalesIntelligenceRuntimeContext {
    * proof that a customer remains in the conversation.
    */
   staffLikeNames: Set<string>;
+  staffProfilesById?: Record<string, CaseStaffProfile>;
   productIndex: PharmacyProductIndex;
 }
 
@@ -76,7 +79,19 @@ export function buildSalesIntelligenceRuntimeContext(input: {
       .map((row) => normalizeDoctorName(row.name || row.staff_name || ''))
       .filter(Boolean)
   );
-  return { staffIdentityMap, staffLikeNames, productIndex: input.productIndex };
+  const staffProfilesById: Record<string, CaseStaffProfile> = {};
+  // Base canonical staff rows outrank aliases and login metadata. Department is
+  // independent of home branch; Dawaa Alpha is the customer-service team.
+  for (const row of input.staffDirectory.filter((r) => r.source !== 'alias' && r.active && r.id)) {
+    if (staffProfilesById[row.id!] && row.source !== 'staff') continue;
+    const role = canonicalStaffRole(row.role);
+    const service = canonicalStaffRole(row.type) === 'customer_service' || role === 'customer_service' || role === 'customer_service_manager';
+    staffProfilesById[row.id!] = {
+      staffId: row.id!, name: row.name || '', homeBranch: row.branch,
+      function: service ? 'customer_service' : role === 'doctor' ? 'pharmacist' : 'other',
+    };
+  }
+  return { staffIdentityMap, staffLikeNames, staffProfilesById, productIndex: input.productIndex };
 }
 
 export function resolveCanonicalStaffIdByName(
@@ -96,7 +111,7 @@ export async function loadSalesIntelligenceRuntimeContext(
   client: any
 ): Promise<SalesIntelligenceRuntimeContext> {
   const [staffDirectory, productIndex] = await Promise.all([
-    loadStaffDirectoryFrom(client),
+    loadStaffDirectoryFrom(client, { requireComplete: true }),
     fetchPharmacyProductIndex(client),
   ]);
   return buildSalesIntelligenceRuntimeContext({ staffDirectory, productIndex });
@@ -249,6 +264,7 @@ export function pipelineBaseInputFor(
     knownStaffIds: conversation.knownStaffIds,
     staffIdBySender: conversation.staffIdBySender,
     staffIdByIntroductionMessageId: conversation.staffIdByIntroductionMessageId,
+    staffProfilesById: context.staffProfilesById,
     resolveInvoiceStaffIdByName: (name) =>
       resolveCanonicalStaffIdByName(name, context.staffIdentityMap),
     legacyMatchedInvoiceId: conversation.legacyMatchedInvoiceId,

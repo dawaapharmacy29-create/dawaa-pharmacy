@@ -119,7 +119,9 @@ export function deriveCaseOperationalDisposition(input: DeriveOperationalDisposi
   const { lostOpportunity, followUp, journeyState } = input;
   const opportunity = pickOpportunity(followUp.opportunities);
   const lostBucket =
-    (lostOpportunity.state === 'open' || lostOpportunity.state === 'recoverable') && lostOpportunity.waitingOn
+    followUp.decision === 'review_required' && lostOpportunity.state === 'no_commercial_opportunity'
+      ? null
+      : (lostOpportunity.state === 'open' || lostOpportunity.state === 'recoverable') && lostOpportunity.waitingOn
       ? LOST_WAITING_BUCKET[lostOpportunity.waitingOn]
       : journeyState.currentState === 'awaiting_invoice'
         ? 'invoice'
@@ -148,6 +150,17 @@ export function deriveCaseOperationalDisposition(input: DeriveOperationalDisposi
       evidenceMessageIds: lostOpportunity.evidenceMessageIds,
       confidence: lostOpportunity.confidence,
       nextBestAction: LOST_WAITING_ACTION[lostBucket],
+    };
+  } else if (followUp.decision === 'review_required') {
+    // A human service/evidence review is not a completed obligation. No new
+    // executable follow-up, due date or staff assignment is invented here.
+    decision = {
+      bucket: 'unknown',
+      opportunity: null,
+      reasonCodes: ['disposition.manual_review_pending'],
+      evidenceMessageIds: [],
+      confidence: lostOpportunity.confidence,
+      nextBestAction: null,
     };
   } else if (TERMINAL_COMMERCIAL.has(lostOpportunity.state)) {
     decision = {

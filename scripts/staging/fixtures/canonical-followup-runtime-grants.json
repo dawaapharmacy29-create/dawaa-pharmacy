@@ -1,0 +1,339 @@
+[
+  {
+    "signature": "dawaa_actor_is_top_management_v1()",
+    "grants": [
+      {
+        "role": "PUBLIC",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "authenticated",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "anon",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "postgres",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "service_role",
+        "privilege": "EXECUTE"
+      }
+    ]
+  },
+  {
+    "signature": "dawaa_can_access_customer_request_branch(text,text)",
+    "grants": [
+      {
+        "role": "service_role",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "postgres",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "anon",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "authenticated",
+        "privilege": "EXECUTE"
+      }
+    ]
+  },
+  {
+    "signature": "dawaa_can_read_conversation_review_row_v2(uuid,uuid,uuid,text,uuid)",
+    "grants": [
+      {
+        "role": "service_role",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "authenticated",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "anon",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "postgres",
+        "privilege": "EXECUTE"
+      }
+    ]
+  },
+  {
+    "signature": "dawaa_create_or_link_customer_followup_v1(text,text,text,text,text,text,text,text,text,date,text,text)",
+    "grants": [
+      {
+        "role": "anon",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "postgres",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "service_role",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "authenticated",
+        "privilege": "EXECUTE"
+      }
+    ]
+  },
+  {
+    "signature": "dawaa_current_actor_can(text[])",
+    "grants": [
+      {
+        "role": "anon",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "service_role",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "authenticated",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "postgres",
+        "privilege": "EXECUTE"
+      }
+    ]
+  },
+  {
+    "signature": "dawaa_current_followup_actor_v2(text)",
+    "grants": [
+      {
+        "role": "service_role",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "postgres",
+        "privilege": "EXECUTE"
+      }
+    ]
+  },
+  {
+    "signature": "dawaa_current_staff_account_id_strict()",
+    "grants": [
+      {
+        "role": "postgres",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "service_role",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "authenticated",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "anon",
+        "privilege": "EXECUTE"
+      }
+    ]
+  },
+  {
+    "signature": "dawaa_customer_request_branch_key(text)",
+    "grants": [
+      {
+        "role": "anon",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "authenticated",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "service_role",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "postgres",
+        "privilege": "EXECUTE"
+      }
+    ]
+  },
+  {
+    "signature": "dawaa_customer_request_permission_allowed(uuid,text)",
+    "grants": [
+      {
+        "role": "service_role",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "postgres",
+        "privilege": "EXECUTE"
+      }
+    ]
+  },
+  {
+    "signature": "dawaa_customer_service_branch_scope_v1()",
+    "grants": [
+      {
+        "role": "authenticated",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "anon",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "postgres",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "service_role",
+        "privilege": "EXECUTE"
+      }
+    ]
+  },
+  {
+    "signature": "dawaa_jsonb_has_true_any(jsonb,text[])",
+    "grants": [
+      {
+        "role": "postgres",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "PUBLIC",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "anon",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "authenticated",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "service_role",
+        "privilege": "EXECUTE"
+      }
+    ]
+  },
+  {
+    "signature": "dawaa_materialize_whatsapp_action_core_v2(uuid)",
+    "grants": [
+      {
+        "role": "service_role",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "postgres",
+        "privilege": "EXECUTE"
+      }
+    ]
+  },
+  {
+    "signature": "dawaa_request_staff_identifier()",
+    "grants": [
+      {
+        "role": "service_role",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "anon",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "postgres",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "PUBLIC",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "authenticated",
+        "privilege": "EXECUTE"
+      }
+    ]
+  },
+  {
+    "signature": "dawaa_require_customer_service_actor_v1(boolean)",
+    "grants": [
+      {
+        "role": "anon",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "authenticated",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "postgres",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "service_role",
+        "privilege": "EXECUTE"
+      }
+    ]
+  },
+  {
+    "signature": "dawaa_session_account_id_v1()",
+    "grants": [
+      {
+        "role": "service_role",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "postgres",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "anon",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "authenticated",
+        "privilege": "EXECUTE"
+      }
+    ]
+  },
+  {
+    "signature": "find_or_create_open_customer_followup(text,text,text,text,text,text,text,text,text,date,text,text,text,text)",
+    "grants": [
+      {
+        "role": "postgres",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "service_role",
+        "privilege": "EXECUTE"
+      }
+    ]
+  },
+  {
+    "signature": "get_user_permissions(uuid)",
+    "grants": [
+      {
+        "role": "postgres",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "service_role",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "authenticated",
+        "privilege": "EXECUTE"
+      },
+      {
+        "role": "anon",
+        "privilege": "EXECUTE"
+      }
+    ]
+  }
+]

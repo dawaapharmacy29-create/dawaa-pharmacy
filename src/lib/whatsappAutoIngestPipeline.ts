@@ -12,6 +12,7 @@ import {
 } from '@/lib/whatsappFollowupSignalDetector';
 import {
   attachInvoiceVerificationToQueue,
+  findReviewSourceByHash,
   hashWhatsAppSession,
   readStoredSourceBranch,
 } from '@/lib/whatsappReviewPersistenceV4';
@@ -19,7 +20,6 @@ import { buildUnifiedConversationIntelligence, verifySessionAgainstInvoices } fr
 import {
   buildWhatsAppOperationalIntelligenceV6,
   enrichWhatsAppOperationalProductsV6,
-  syncWhatsAppOperationalActionsV6,
 } from '@/lib/whatsappOperationalIntelligenceV6';
 import { enrichWhatsAppOperationalJourneysV7 } from '@/lib/whatsappProductJourneyV7';
 import { syncWhatsAppEvidenceLedgerV17 } from '@/lib/whatsappEvidenceLedgerV17';
@@ -126,15 +126,11 @@ async function saveSessionReview(
   branchHint: BranchHintResult
 ) {
   const sourceHash = await hashWhatsAppSession(session);
-  const { data: existing, error: existingError } = await supabase
-    .from('whatsapp_review_sources')
-    .select('id,branch')
-    .eq('source_hash', sourceHash)
-    .maybeSingle();
-  if (existingError && existingError.code !== 'PGRST116') throw existingError;
-  // The branch decided when the source was first saved is its provenance; a re-import never re-decides it.
-  if (existing?.id)
-    return { sourceId: String(existing.id), duplicate: true as const, branch: (existing.branch as string | null) ?? null };
+  // The branch decided when the source was first saved (or by an audited correction) is its
+  // provenance; a re-import, including of a pre-correction export, never re-decides it.
+  const existing = await findReviewSourceByHash(supabase, sourceHash, 'id,branch');
+  if (existing?.row.id)
+    return { sourceId: String(existing.row.id), duplicate: true as const, branch: (existing.row.branch as string | null) ?? null };
 
   const summary = buildSmartConversationReviewSummary(session);
   const staffName =
@@ -190,14 +186,11 @@ async function saveSessionReview(
     .select('id')
     .single();
   if (error) {
+    // Concurrent identical upload, or a hash retired by a correction refused by the database.
     if (error.code === '23505') {
-      const { data: duplicate, error: duplicateError } = await supabase
-        .from('whatsapp_review_sources')
-        .select('id,branch')
-        .eq('source_hash', sourceHash)
-        .single();
-      if (duplicateError) throw duplicateError;
-      return { sourceId: String(duplicate.id), duplicate: true as const, branch: (duplicate.branch as string | null) ?? null };
+      const duplicate = await findReviewSourceByHash(supabase, sourceHash, 'id,branch');
+      if (!duplicate?.row.id) throw error;
+      return { sourceId: String(duplicate.row.id), duplicate: true as const, branch: (duplicate.row.branch as string | null) ?? null };
     }
     throw error;
   }
@@ -499,24 +492,8 @@ async function persistOperationalJourneyIntelligence(
     .eq('id', sourceId);
   if (sourceUpdateError) throw sourceUpdateError;
 
-  await syncWhatsAppOperationalActionsV6(operational, {
-    sourceId,
-    branch: sourceBranch,
-    customerId: identity.customerId,
-    customerCode: identity.customerCode,
-    customerName: identity.customerName,
-    customerPhone: identity.customerPhone,
-    staffId: sourceRow?.staff_id || null,
-    staffName:
-      sourceRow?.staff_name ||
-      (session.outboundStaffNames.length === 1 ? session.outboundStaffNames[0] : null),
-    createdBy: sourceRow?.created_by || null,
-    followupIdentity: {
-      session,
-      caseStartedAt: canonicalCaseStartedAt,
-      legacy: { customer: identity.canonical, caseAnchor: session.id },
-    },
-  });
+  // Operational task publication is canonical-SI-owned. V6 remains analysis/evidence only;
+  // it must not publish whatsapp_conversation_actions beside the canonical projectors.
 
   await syncWhatsAppEvidenceLedgerV17(session, {
     sourceId,
@@ -581,7 +558,7 @@ export async function persistCanonicalAutomaticReviews(
 
 export async function ingestWhatsAppExportFile(
   file: File,
-  options: { accessToken?: string | null; createdBy?: string | null } = {}
+  options: { accessToken?: string | null; createdBy?: string | null; sourceFolderName?: string | null } = {}
 ): Promise<IngestOneFileResult> {
   const result: IngestOneFileResult = {
     fileName: file.name,
@@ -651,7 +628,9 @@ export async function ingestWhatsAppExportFile(
 
       const participantRoles = await resolveWhatsAppParticipantRolesV15(session);
       // Branch provenance: the stored source branch wins; the staff branch is only a fallback.
-      const branchHint = await resolveConversationBranchHint(session, participantRoles, await readStoredSourceBranch(session));
+      const branchHint = await resolveConversationBranchHint(session, participantRoles, await readStoredSourceBranch(session), {
+        sourceFolderName: options.sourceFolderName ?? null,
+      });
       const conversationBranch = branchHint.value;
 
       const saved = await saveSessionReview(
@@ -716,14 +695,8 @@ export async function ingestWhatsAppExportFile(
         );
       }
 
-      const followups = await saveFollowupSignals(
-        session,
-        source.sourceFileName,
-        identity,
-        sourceBranch
-      );
-      result.followupsCreated += followups.created;
-      result.followupsDuplicate += followups.duplicate;
+      // Legacy whatsapp_auto_followup_requests publication is retired from live ingest.
+      // Canonical SI FollowUp/Complaint projectors publish the single operational queue.
     } catch (e) {
       const message = e instanceof Error ? e.message : 'خطأ غير معروف أثناء معالجة جلسة محادثة';
       result.errors.push(message);

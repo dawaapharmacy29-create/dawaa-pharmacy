@@ -1,3 +1,4 @@
+import type { CanonicalComplaintAssessment } from './complaintAssessmentEngine';
 // Sales Intelligence — Customer Need Model.
 //
 // Pure semantic projection over the SAME V32 messages + CaseBasket history. It never reparses an
@@ -17,12 +18,14 @@ import {
   extractQuantitySignals,
   extractRejectionSignals,
   extractRequestSignals,
+  extractCustomerTimingRequestsV32,
   isRequestCandidate,
   resolveReference,
 } from '../whatsappSemanticSignalsV32';
 import {
   explicitRequestProductPhrases,
   isGenericDeicticProductPhrase,
+  NATURAL_UNIT_QTY,
   normalizeProductKey,
   stripRequestPrefix,
 } from './caseBasketEngine';
@@ -47,6 +50,7 @@ import type {
 
 export interface DeriveCustomerNeedModelInput {
   caseId: string;
+  complaintAssessment?: CanonicalComplaintAssessment;
   messages: NormalizedConversationMessageV32[];
   baskets: CaseBasket[];
   itemsByBasketId: Record<string, CaseBasketItem[]>;
@@ -61,10 +65,12 @@ export interface DeriveCustomerNeedModelInput {
 }
 
 const PRICE_OBJECTION_RX = /غالي|السعر\s*(?:عالي|كتير|كبير)|كتير\s*(?:عليه|عليها)|مش\s*مناسب.*(?:السعر|الثمن)|خصم\s*اكتر/i;
-const AVAILABILITY_OBJECTION_RX = /مش\s*(?:موجود|متوفر)|مفيش|خلص|مش\s*لاقي|مش\s*لاقية/i;
+const AVAILABILITY_OBJECTION_RX = /مش\s*(?:موجود|متوفر)|مفيش|(?<![\p{L}])خلص(?:ان[ةه]?)?(?![\p{L}])|مش\s*لاقي|مش\s*لاقية/iu;
 const DELIVERY_OBJECTION_RX =
   /التوصيل|الدليفري|المندوب|اتأخر|متأخر|مش\s*(?:هستنى|هقدر\s*استنى)|(?:ما|م)?\s*وصلش|موصلش|لسه\s*(?:ما\s*)?(?:وصل|جه|جا)ش?|لم\s*يصل|فين\s*(?:ال)?(?:أوردر|اوردر|طلب|طلبي)/i;
-const PRODUCT_FIT_OBJECTION_RX = /مش\s*مناسب|مش\s*ده|عايز\s*غير|عاوز\s*غير|بديل|حساسي[ةه]|مش\s*نفس/i;
+// A product description ("بديل الغسول", "for sensitive skin") is not an objection.
+// Require an explicit rejection, alternative request, or reported adverse reaction.
+const PRODUCT_FIT_OBJECTION_RX = /مش\s*مناسب|مش\s*ده|عايز\s*غير|عاوز\s*غير|(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|ممكن)\s+(?:له\s+|ليه\s+)?بديل|(?:عمل|سبب)(?:لي|ليّ|تلي)?\s*حساسي[ةه]|مش\s*نفس/i;
 const TIMING_OBJECTION_RX = /مش\s*دلوقتي|بعدين|بعد\s*كده|وقت\s*تاني|لما\s*احتاج/i;
 const ALTERNATIVE_RX = /بديل|بدل(?:ه|ها|هم|\s)/i;
 
@@ -146,9 +152,11 @@ function classifyObjectionCategory(
   if (PRICE_OBJECTION_RX.test(text)) return 'price';
   if (AVAILABILITY_OBJECTION_RX.test(text)) return 'availability';
   if (DELIVERY_OBJECTION_RX.test(text)) return 'delivery';
-  if (PRODUCT_FIT_OBJECTION_RX.test(text)) return 'product_fit';
+  // A refusal of substitutes is not a refusal of the requested product.
+  const fitText = text.replace(/(?:مش|لا)\s+(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?)\s+بديل/gi, '');
+  if (PRODUCT_FIT_OBJECTION_RX.test(fitText)) return 'product_fit';
   if (TIMING_OBJECTION_RX.test(text)) return 'timing';
-  if (explicitRejection) return 'customer_declined';
+  if (explicitRejection && fitText === text) return 'customer_declined';
   if (correction) return 'unknown';
   return null;
 }
@@ -221,6 +229,13 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
       const product = ensureProduct(item.productNameRaw, item.confidence, item.productId);
       if (!product) continue;
       product.evidenceMessageIds.add(item.sourceMessageId);
+      for (const ref of item.confidence.evidence) {
+        for (const id of ref.messageIds ?? []) product.evidenceMessageIds.add(id);
+      }
+      if (item.confidence.ruleIds.includes('basket.item.customer_orders_named_recommendation')) {
+        product.roles.add('offered');
+        product.roles.add('accepted');
+      }
       if (sourceMessage?.role === 'customer') {
         product.roles.add('requested');
         if (product.requestedQuantity == null && item.quantity != null) {
@@ -233,7 +248,9 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
           product.offeredQuantity = item.quantity;
         }
       }
-      if (sourceMessage && ALTERNATIVE_RX.test(sourceMessage.text)) product.roles.add('alternative');
+      if (sourceMessage && ALTERNATIVE_RX.test(sourceMessage.text.replace(
+        /(?:مش|لا)\s+(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?)\s+(?:ال)?بديل/gi, ''
+      ))) product.roles.add('alternative');
       if (isActive) {
         product.roles.add('final_basket');
         product.finalQuantity = item.quantity;
@@ -277,7 +294,13 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
 
     if (!productNameRaw) continue;
     const ref = evidenceRef(message.id, `العميل طلب الصنف بكمية: "${message.text.slice(0, 120)}".`);
-    const product = ensureProduct(
+    // A later basket clarification can refine the name/strength while retaining the original
+    // request message. Restore its request role on that same line, not a second unqualified item.
+    const clarified = Array.from(products.values()).filter(product =>
+      product.evidenceMessageIds.has(message.id) &&
+      product.confidence.ruleIds.includes('basket.item.strength_answer_linked')
+    );
+    const product = clarified.length === 1 ? clarified[0] : ensureProduct(
       productNameRaw,
       assessment('strongly_inferred', 0.8, ['need.product.customer_quantity_request'], [ref])
     );
@@ -348,6 +371,15 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
       ) {
         product.roles.add('requested');
         product.evidenceMessageIds.add(message.id);
+        // "خليهم علبتين كولونا": the customer's own count directly before the same product name
+        // is the requested quantity, even when the basket line was rebuilt from a staff recap.
+        if (product.requestedQuantity == null && message.role === 'customer') {
+          const messageKey = normalizeProductKey(message.text);
+          const stated = Object.entries(NATURAL_UNIT_QTY).filter(([unit]) =>
+            messageKey.includes(normalizeProductKey(`${unit} ${product.productNameRaw}`)));
+          const quantities = new Set(stated.map(([, info]) => info.quantity));
+          if (quantities.size === 1) product.requestedQuantity = [...quantities][0];
+        }
       }
     }
   }
@@ -378,6 +410,17 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
   const indexById = new Map(messages.map((message, index) => [message.id, index]));
   const unlinkedAvailability: CustomerNeedAvailabilityEvidence[] = [];
   const unlinkedAlternatives: CustomerNeedAlternative[] = [];
+  const catalogMentionIds = new Map<string, string | null>();
+  const catalogNamesProduct = (text: string, product: ProductAccumulator): boolean => {
+    if (!input.productIndex || !product.productId) return false;
+    if (!catalogMentionIds.has(text)) {
+      const resolution = resolveProductMention(text, input.productIndex);
+      catalogMentionIds.set(text, !resolution.ambiguous && resolution.selected &&
+        ['proven', 'strongly_inferred'].includes(resolution.selected.confidence)
+        ? resolution.selected.product.productId : null);
+    }
+    return catalogMentionIds.get(text) === product.productId;
+  };
 
   const linkProduct = (
     staffMessage: NormalizedConversationMessageV32,
@@ -392,7 +435,7 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
         product.key.length >= 3 &&
         product.key !== staffText &&
         !product.evidenceMessageIds.has(staffMessage.id) &&
-        staffText.includes(product.key)
+        (staffText.includes(product.key) || catalogNamesProduct(staffMessage.text, product))
     );
     if (named.length === 1) return { product: named[0], basis: 'product_named_in_message' };
     if (named.length > 1) return null;
@@ -446,7 +489,7 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
         product.key.length >= 3 &&
         product.key !== normalizeProductKey(message.text) &&
         !product.evidenceMessageIds.has(message.id) &&
-        clauseKey.includes(product.key)
+        (clauseKey.includes(product.key) || catalogNamesProduct(clause, product))
     );
   };
   const availabilityFact = (
@@ -605,11 +648,13 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
   }
 
   const currentAvailability = (product: ProductAccumulator): CustomerNeedAvailability => {
-    const latest = product.availabilityEvidence
+    const ordered = product.availabilityEvidence
       .slice()
-      .sort((a, b) => (indexById.get(a.messageId) ?? 0) - (indexById.get(b.messageId) ?? 0))
-      .pop();
-    return latest?.state ?? 'unknown';
+      .sort((a, b) => (indexById.get(a.messageId) ?? 0) - (indexById.get(b.messageId) ?? 0));
+    // Checking another stock source is an outstanding duty, not a reversal of a stated stock fact.
+    // A later explicit available/unavailable statement still replaces the earlier fact.
+    const statedStock = ordered.filter((fact) => fact.state !== 'check_pending').pop();
+    return statedStock?.state ?? ordered[ordered.length - 1]?.state ?? 'unknown';
   };
   // A product that left the basket because staff said it is unavailable was not rejected by the
   // customer; its removal is an availability fact, kept in availabilityEvidence/alternatives.
@@ -668,9 +713,10 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
   const rejectionIds = new Set(rejectionSignals.map((signal) => signal.messageId));
   const correctionIds = new Set(correctionSignals.map((signal) => signal.messageId));
   const objections: CustomerNeedObjection[] = [];
+  const contactTimingIds = new Set(extractCustomerTimingRequestsV32(messages).filter(row => row.timing.when !== 'when_in_stock').map(row => row.message.id));
   for (const message of messages) {
     if (message.role !== 'customer' || !message.isMeaningful) continue;
-    const category = classifyObjectionCategory(
+    const category = contactTimingIds.has(message.id) ? 'timing' : classifyObjectionCategory(
       message.text,
       rejectionIds.has(message.id),
       correctionIds.has(message.id)
@@ -804,10 +850,24 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
     confidence = assessment('unknown', 0.1, ['need.model.no_commercial_need_evidence'], []);
   }
 
+  // Complaint meaning comes from its canonical owner, not the first narrative sentence.
+  // A real product lifecycle retains its commercial need even in a mixed complaint case.
+  const complaint = input.complaintAssessment;
+  const complaintNeedMessage = productList.length === 0 && complaint?.caseId === input.caseId
+    ? complaint.complaintMessageIds.map(id => messageById.get(id)).find(message => message?.role === 'customer')
+    : null;
+  const primaryNeedMessage = complaintNeedMessage ?? firstRequestMessage;
+  if (complaintNeedMessage) {
+    confidence = assessment('strongly_inferred', 0.85, ['need.model.canonical_complaint'],
+      [evidenceRef(complaintNeedMessage.id, 'احتياج خدمة مستند إلى دليل الشكوى الكانونيكال.')]);
+    const index = humanReviewReasons.indexOf('customer_need_without_resolved_product_context');
+    if (index >= 0) humanReviewReasons.splice(index, 1);
+  }
+
   return {
     caseId: input.caseId,
-    primaryNeed: firstRequestMessage?.text ?? null,
-    primaryNeedMessageId: firstRequestMessage?.id ?? null,
+    primaryNeed: primaryNeedMessage?.text ?? null,
+    primaryNeedMessageId: primaryNeedMessage?.id ?? null,
     products: productList,
     unlinkedAvailability,
     unlinkedAlternatives,
@@ -821,3 +881,5 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
     humanReviewReasons,
   };
 }
+
+

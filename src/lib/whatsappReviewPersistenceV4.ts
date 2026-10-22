@@ -41,6 +41,11 @@ export interface PersistSessionResult {
   duplicate: boolean;
   sourceHash: string;
   reviewStatus: ReviewQueueStatus;
+  /**
+   * The export is an earlier version of a source whose attribution was corrected. It resolves to
+   * that canonical source as a duplicate and never re-analyzes over the audited correction.
+   */
+  supersededByCorrection?: boolean;
   /** Only for mode=reanalyze on an existing source. */
   reanalysis?: {
     status: 'updated' | 'unchanged';
@@ -120,6 +125,48 @@ export async function hashWhatsAppSession(session: WhatsAppConversationSession) 
   return `fallback-${fallbackHash(payload)}`;
 }
 
+// PostgREST/PostgreSQL "relation does not exist". Before the retired-hash registry migration is
+// installed no hash can have been retired (the correction command ships with it), so absence of
+// the registry means "no retired hash", not a hidden failure. Any other error is thrown.
+function isMissingRegistry(error: { code?: string } | null | undefined) {
+  return error?.code === 'PGRST205' || error?.code === '42P01';
+}
+
+/**
+ * Resolves an export's session hash to its canonical source: the source's current hash, or a hash
+ * retired by an audited attribution correction (whatsapp_review_source_hash_aliases). Matching is by
+ * exact hash only, never by names or text similarity.
+ */
+export async function findReviewSourceByHash<T extends Record<string, unknown> = Record<string, any>>(
+  client: any,
+  sourceHash: string,
+  columns: string
+): Promise<{ row: T; supersededByCorrection: boolean } | null> {
+  const { data, error } = await client.from('whatsapp_review_sources').select(columns).eq('source_hash', sourceHash).maybeSingle();
+  if (error && error.code !== 'PGRST116') throw error;
+  if (data) return { row: data as T, supersededByCorrection: false };
+
+  const { data: alias, error: aliasError } = await client
+    .from('whatsapp_review_source_hash_aliases')
+    .select('source_id')
+    .eq('source_hash', sourceHash)
+    .maybeSingle();
+  if (aliasError) {
+    if (isMissingRegistry(aliasError)) return null;
+    if (aliasError.code !== 'PGRST116') throw aliasError;
+  }
+  if (!alias?.source_id) return null;
+  const { data: source, error: sourceError } = await client
+    .from('whatsapp_review_sources')
+    .select(columns)
+    .eq('id', alias.source_id)
+    .maybeSingle();
+  if (sourceError && sourceError.code !== 'PGRST116') throw sourceError;
+  // A retired hash whose source is not visible to this session must not become a new source.
+  if (!source) throw new Error('source_hash_superseded_by_correction');
+  return { row: source as T, supersededByCorrection: true };
+}
+
 /**
  * The branch already stored on this conversation's source row (same source_hash), or null for a
  * conversation never saved before. It is the conversation's branch provenance: a re-import or the
@@ -127,13 +174,9 @@ export async function hashWhatsAppSession(session: WhatsAppConversationSession) 
  */
 export async function readStoredSourceBranch(session: WhatsAppConversationSession, client: any = supabase): Promise<string | null> {
   const sourceHash = await hashWhatsAppSession(session);
-  const { data, error } = await client
-    .from('whatsapp_review_sources')
-    .select('branch')
-    .eq('source_hash', sourceHash)
-    .maybeSingle();
-  if (error && error.code !== 'PGRST116') throw error;
-  const branch = typeof data?.branch === 'string' ? data.branch.trim() : '';
+  // A pre-correction export carries the corrected branch provenance of its canonical source.
+  const found = await findReviewSourceByHash(client, sourceHash, 'branch');
+  const branch = typeof found?.row.branch === 'string' ? found.row.branch.trim() : '';
   return branch || null;
 }
 
@@ -281,18 +324,23 @@ export async function persistAnalyzedWhatsAppSession(
   const rawText = sessionRawText(session);
   const analysisVersion = String(context.analysisVersion || intelligence.version);
 
-  const { data: existing, error: existingError } = await client
-    .from('whatsapp_review_sources')
-    .select(EXISTING_SOURCE_COLUMNS)
-    .eq('source_hash', sourceHash)
-    .maybeSingle();
-  if (existingError && existingError.code !== 'PGRST116') throw existingError;
-  if (existing?.id) {
+  // Existing canonical source for this export: by current hash, or by a hash retired through an
+  // audited correction. A pre-correction export is a duplicate and never re-analyzes over it.
+  const resolveExisting = async (): Promise<PersistSessionResult | null> => {
+    const found = await findReviewSourceByHash(client, sourceHash, EXISTING_SOURCE_COLUMNS);
+    if (!found?.row.id) return null;
+    const existing = found.row;
+    const existingStatus = (existing.review_status || reviewStatus) as ReviewQueueStatus;
+    if (found.supersededByCorrection) {
+      return { id: String(existing.id), duplicate: true, sourceHash, reviewStatus: existingStatus, supersededByCorrection: true };
+    }
     if (mode === 'reanalyze') {
       return reanalyzeExistingSource(client, existing, intelligence, context, sourceHash, reviewStatus);
     }
-    return { id: String(existing.id), duplicate: true, sourceHash, reviewStatus: (existing.review_status || reviewStatus) as ReviewQueueStatus };
-  }
+    return { id: String(existing.id), duplicate: true, sourceHash, reviewStatus: existingStatus };
+  };
+  const existingResult = await resolveExisting();
+  if (existingResult) return existingResult;
 
   // A staff name is written only with its resolved staff id; an unresolved/ambiguous owner stays empty
   // (never the first outbound display name).
@@ -324,13 +372,12 @@ export async function persistAnalyzedWhatsAppSession(
     .select('id')
     .single();
   if (error) {
+    // 23505: a concurrent identical upload, or the database refusing a hash retired by a
+    // correction (source_hash_superseded_by_correction). Both resolve to the canonical source.
     if (error.code === '23505') {
-      const { data: dupe, error: dupeError } = await client.from('whatsapp_review_sources').select(EXISTING_SOURCE_COLUMNS).eq('source_hash', sourceHash).single();
-      if (dupeError) throw dupeError;
-      if (mode === 'reanalyze') {
-        return reanalyzeExistingSource(client, dupe, intelligence, context, sourceHash, reviewStatus);
-      }
-      return { id: String(dupe.id), duplicate: true, sourceHash, reviewStatus: (dupe.review_status || reviewStatus) as ReviewQueueStatus };
+      const raced = await resolveExisting();
+      if (!raced) throw error;
+      return raced;
     }
     throw error;
   }

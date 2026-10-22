@@ -84,8 +84,10 @@ export type ConfirmationStrength = 'explicit' | 'strong_implicit' | 'weak_implic
 // ---- Curated Egyptian-colloquial vocabulary (kept centralized so no criterion module grows
 // its own duplicate word list — see "منع Regex Explosion" in this phase's instructions). ----
 
+// Tolerate the observed doubled lam in a standalone greeting only. Anchoring preserves
+// real requests appended to a greeting; this is not general fuzzy product matching.
 export const GREETING_ONLY_RX =
-  /^(?:و)?(?:ال)?سلام\s*عليكم(?:\s*(?:و)?رحمة?\s*الله(?:\s*(?:و)?بركاته)?)?[!.، ]*$|^أهل[اً]?\s*(?:و\s*سهل[اً]?)?[!.، ]*$|^مرحب[اً]?[!.، ]*$|^ه?اي[!.، ]*$|^صباح\s*ال(?:خير|نور|فل|ورد)[!.، ]*$|^مساء\s*ال(?:خير|نور|فل|ورد)[!.، ]*$/i;
+  /^(?:و)?(?:ال{1,2})?سلام\s*عليكم(?:\s*(?:و)?رحمة?\s*الله(?:\s*(?:و)?بركاته)?)?[!.، ]*$|^[اأإ]هل[اً]?\s*(?:و\s*سهل[اً]?)?[!.، ]*$|^مرحب[اً]?[!.، ]*$|^ه?اي[!.، ]*$|^صباح\s*ال(?:خير|نور|فل|ورد)[!.، ]*$|^مساء\s*ال(?:خير|نور|فل|ورد)[!.، ]*$/i;
 
 export const AUTOMATED_REPLY_RX =
   /رسال[ةه]\s*(آلي[ةه]|تلقائي[ةه])|رد\s*تلقائي|هذه\s*رساله\s*تلقائيه|out\s*of\s*office|automated\s*reply|بعيد[ًا]?\s*عن\s*مكتبي|خارج\s*مواعيد\s*العمل\s*الرسمي[ةه]?\s*نرد\s*عليك/i;
@@ -110,12 +112,23 @@ const STRONG_IMPLICIT_CONFIRMATION_RX =
 const WEAK_IMPLICIT_RX = /^(?:تمام|حاضر|اوك|ok|ماشي|خلاص)[!.، ]*$/i;
 
 const ACCEPTANCE_RX =
-  /^(?:تمام|ماشي|ايوا|ايوه|اه|آه|موافق|تمام\s*كده|خلاص\s*ابعت(?:ه|هم|يه|يهم)?)[!.، ]*$|(?:تمام|ايوا|ايوه|اه|آه)[،, ]*\s*(?:هطلبه|ابعت(?:ه|هم|يه|يهم)?|يبقى\s*كده)/i;
+  /^(?:تمام|ماشي|ايوا|ايوه|اه|آه|موافق|تمام\s*كده|خلاص\s*ابعت(?:ه|هم|يه|يهم)?)(?:\s*(?:(?:ان|إن)\s*شاء\s*الله|[اإ]نشاء\s*الله|[اإ]نشالله|ان\s*شالله))?[!.، ]*$|(?:تمام|ايوا|ايوه|اه|آه)[،, ]*\s*(?:هطلبه|ابعت(?:ه|هم|يه|يهم)?|يبقى\s*كده)/i;
 const REJECTION_RX = /^(?:لا|لأ)[!.، ]*$|مش\s*عايز(?:ه)?|معلش\s*مش\s*هاخد(?:ه|ها)?|مش\s*محتاج(?:ه)?/i;
 // Pure thanks/closing — carries no request content of its own, but (unlike a rejection) isn't a
 // "no" either. Kept separate so isRequestCandidate() can exclude it without touching REJECTION_RX.
 const THANKS_CLOSING_ONLY_RX =
-  /^(?:شكرًا|شكرا)(?:\s*لحضرتك)?[!.، ]*$|^لا\s*شكرا[!.، ]*$|^تسلم(?:ي|لي)?[!.، ]*$|^الله\s*يسلم(?:ك|ي)?[!.، ]*$|^وصل(?:ني|تلي)?[!.، ]*$/i;
+  /^(?:شكرًا|شكرا)(?:\s*لحضرتك)?[!.، ]*$|^لا\s*شكرا[!.، ]*$|^تسلم(?:ي|لي)?[!.، ]*$|^الله\s*يسلم(?:ك|ي)?[!.، ]*$|^وصل(?:ني|تلي)?[!.، ]*$|^(?:ربنا|الله)\s*(?:(?:و\s*)?(?:(?:يسعد|يخلي|يكرم|يحفظ)(?:ك|كي|كم|ي)?|يبارك\s*(?:في|ل)(?:ك|كي|كم|ي))(?:\s*(?:جميعا|جميعًا|كلكم|يا\s*رب|يارب))?[!.،\s🤲🙏❤️🌹🌷💙]*)+$/iu;
+
+// "تمام شكرا لحضرتك ي دكتور" / "تمام يا دكتور شكرا ليك": only courtesy words, at least one of them a
+// thank-you. Any other word (a product, a question, a complaint) keeps the message a request.
+const COURTESY_ONLY_TOKENS_RX =
+  /^(?:(?:تمام|ماشي|اوك|ok|شكرا|شكرًا|متشكر|متشكرين|جزيلا|جزيلًا|تسلم|تسلمي|تسلموا|لحضرتك|حضرتك|ليك|ليكي|ليكم|ي|يا|دكتور|دكتوره|دكتورة|دكتورنا|فندم|حبيبي|حبيبتي)[\s!.،,🙏❤️🌹🌷💙🤲]*)+$/iu;
+const THANKS_WORD_RX = /شكر|متشكر|تسلم/u;
+
+// "الحمدلله الوالد اتحسن… خدمة التمريض ممتازة شكرا على متابعتكم": a satisfaction answer, not a need.
+// Any request verb, question, product word or complaint wording keeps the message a request.
+const SATISFACTION_FEEDBACK_RX = /(?:الحمد\s*لله|الحمدلله).*(?:شكرا|شكرًا|متشكر)\s*(?:على|ع)\s*(?:متابعت|اهتمام|سؤال)/u;
+const FEEDBACK_DISQUALIFIER_RX = /[؟?]|مش|لسه|مجاش|موصلش|غلط|تأخير|اتأخر|وجع|تعبان|بيسرب|(?:^|\s)و?(?:علب|شريط|دوا|كريم|ابعت|هات)/u;
 
 const CORRECTION_RX =
   /لا\s*قصدي|مش\s*ده(?:\s*اللي)?|ده\s*مش(?:\s*اللي)?|أنا\s*(?:أ|ا)قصد|لا\s*التاني\b|مش\s*كده|لا\s*حضرتك\s*فهمتني\s*غلط|أنا\s*قلت|فهمت\s*غلط/i;
@@ -128,7 +141,8 @@ const CORRECTION_RX =
 const QUANTITY_RX = /(\d+|واحد[ةه]?|اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?)\s*(علبة|علب|حبة|حبوب|شريط|عبوة|قطعة|كيس)/i;
 // Reference-aware quantity: "هات منه اتنين" / "عايز اتنين منه" — the quantity word is attached
 // to a pronoun reference rather than an explicit unit word.
-const REFERENCE_QUANTITY_RX = /(?:منه|من\s*ده|من\s*دا)\s*(اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?|\d+)|(\d+|اتنين|تلات[ةه]?)\s*منه/i;
+// "محتاجه واحد من دا" puts the count before the deictic.
+const REFERENCE_QUANTITY_RX = /(?:منه|من\s*ده|من\s*دا)\s*(اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?|\d+)|(\d+|واحد[ةه]?|اتنين|تلات[ةه]?)\s*(?:منه|من\s*(?:ده|دا))(?:\s|$|[.!،؟?])/i;
 
 const PHONE_RX = /01[0-2,5]\d{8}/;
 const ADDRESS_RX = /العنوان\s*[:\-]?\s*\S+|عنوانك|هيوصل\s*ل(?:ـ|حضرتك)/i;
@@ -145,7 +159,7 @@ const AVAILABLE_RX =
   /(?:^|[\s،,])(?:موجود|متوفر|متاح)[ةه]?(?:$|[\s،,!.])|عندنا\s*(?:منه|منها)|(?:اه|أه|آه|ايوه|أيوه|ايوا)\s*(?:موجود|متوفر)/i;
 // "خدمة التوصيل متاحة" and similar service/payment statements are not product stock facts.
 const NON_STOCK_AVAILABILITY_CONTEXT_RX =
-  /(?:خدمة\s*)?(?:التوصيل|الدليفري|delivery)|(?:الدفع|التحويل|فودافون\s*كاش|انستا\s*باي|instapay|visa|فيزا|mastercard|ماستر\s*كارد)/i;
+  /(?:خدمة\s*)?(?:التوصيل|الدليفري|delivery)|(?:لما\s*(?:يكون|يبقى)\s*|(?:فرص[ةه]|وقت|حضرتك)\s*)متاح[ةه]?\s*(?:(?:اننا|إننا|ان|أن)\s*)?(?:نتواصل|[اأ]تصل|[اأ]كلم)(?![\p{L}])|(?:الدفع|التحويل|فودافون\s*كاش|انستا\s*باي|instapay|visa|فيزا|mastercard|ماستر\s*كارد)/iu;
 // ---- Staff commitments (single owner: classifyStaffCommitmentsV32 below) ----
 // One structured grammar for "the staff member commits to do something and come back", consumed by
 // availability (check_pending), follow-up promises and scoring. It replaced two independent regex
@@ -187,7 +201,18 @@ const COMMIT_REPLY_RX = new RegExp(
   'iu'
 );
 
-export type StaffCommitmentKindV32 = 'availability_check' | 'reply_back';
+// Delivery commitments are distinct from stock checks and survive an invoiced sale.
+const DELIVERY_PROMISE_RX = /(?<![\p{L}])(?<!(?:مش|لن|لم)\s+)(?:و|ف)?ه(?:اتصل|تصل|كلم|تابع|راجع|شوف)[^.!؟?\n]{0,80}(?:المندوب|الدليفري|التوصيل|وصل\s*لفين)/iu;
+export function isDeliveryFollowUpPromiseV32(text: string): boolean {
+  return statementClauses(text).some((clause) => DELIVERY_PROMISE_RX.test(clause));
+}
+export function isDeliveryFollowUpCompletionV32(text: string): boolean {
+  if (/(?:مش|لم|لسه|لم\s*يتم)\s/.test(text)) return false;
+  return /(?:تم\s*(?:الاستلام|التسليم)|الاوردر\s*وصل|الأوردر\s*وصل|استلمت\s*(?:الطلب|الاوردر|الأوردر))/.test(text) ||
+    /(?:كلمت|اتصلت\s*ب|راجعت\s*مع)\s*(?:المندوب|الدليفري)[^.!؟?\n]{0,80}(?:وصل|فاضل|الطريق|عند)/.test(text);
+}
+
+export type StaffCommitmentKindV32 = 'availability_check' | 'reply_back' | 'delivery_check';
 
 export interface StaffCommitmentV32 {
   kind: StaffCommitmentKindV32;
@@ -204,6 +229,8 @@ export interface StaffCommitmentV32 {
 export function classifyStaffCommitmentsV32(text: string): StaffCommitmentV32[] {
   const out: StaffCommitmentV32[] = [];
   for (const clause of statementClauses(text)) {
+    const delivery = clause.match(DELIVERY_PROMISE_RX);
+    if (delivery) out.push({ kind: 'delivery_check', matchedText: delivery[0], ruleId: 'commitment.delivery_check', confidence: 0.9 });
     const withObject = clause.match(COMMIT_CHECK_WITH_OBJECT_RX);
     const bare = withObject ? null : clause.match(COMMIT_BARE_CHECK_RX);
     if (withObject || bare) {
@@ -296,7 +323,13 @@ function isPlausibleCustomerProductMention(message: NormalizedConversationMessag
 }
 
 export function isGreetingOnly(text: string): boolean {
-  return GREETING_ONLY_RX.test((text || '').trim());
+  // A greeting followed only by an honorific is still a greeting. Keep this anchored so a
+  // substantive request after the greeting ("أهلا يا دكتور، محتاج ...") remains a request.
+  const withoutVocative = (text || '').trim().replace(
+    /\s+(?:(?:يا|يـ?)\s*)?(?:دكتور(?:نا)?|دكتورة|دكتوره|حضرتك|فندم)[.!،\s]*$/iu,
+    ''
+  ).trim();
+  return GREETING_ONLY_RX.test(withoutVocative);
 }
 
 /** A bare "تمام"/"حاضر"/"ok" with nothing else — carries no content of its own about what was understood or offered. */
@@ -331,9 +364,57 @@ export function isRejectionOnly(text: string): boolean {
   return REJECTION_RX.test((text || '').trim());
 }
 
+// ---- Operational service needs (a nurse visit, a service follow-up) -------------------------
+// One shared definition for segmentation (whether the case is still open) and classification
+// (whether it is a service rather than a medicine sale).
+export const OPERATIONAL_SERVICE_REQUEST_RX =
+  /(?:ممكن|لو سمحت|عايز|عاوز|محتاج|ابعت|ابعث|تبعت|تبعث|هات|حد).{0,100}(?:التمريض|مالتمريض|ممرض(?:ة)?)/iu;
+// The service actually happened or the customer released it — only then is the need closed.
+const OPERATIONAL_SERVICE_CLOSURE_RX =
+  /(?:الممرض|التمريض|الممرضه|الممرضة)\s*(?:وصل|جه|جت|خلص|ركب|مشي)|(?:وصل|جه)\s*(?:الممرض|التمريض)|خلاص\s*(?:مش\s*)?(?:محتاج|عايز)[^\n]{0,20}(?:الممرض|التمريض)|(?:ألغي|الغي|إلغاء|الغاء)\s*(?:الطلب|الممرض|التمريض)/iu;
+// Wording that starts an independent commercial need instead of continuing an open service need.
+// «دوا/دواء» only as a word: «دوار» (dizziness) is a symptom, not a medicine request.
+const INDEPENDENT_COMMERCIAL_NEED_RX =
+  /(?:علب(?:ة|ه|تين|ات)?|شريط|روشت[ةه]|أقراص|اقراص|حبوب|(?<!\p{L})(?:ال|و|ب)?دواء?(?!\p{L})|شراب|كبسول|امبول|أمبول|فيال|كريم|بكام|سعر|عندكم|متوفر|متاح)/iu;
+// Explicit product/price wording. Only this, not a bare «محتاج/عايز/متاح», can turn a turn that
+// talks about the nurse visit into a new commercial need.
+const EXPLICIT_PRODUCT_OR_PRICE_RX =
+  /(?:علب(?:ة|ه|تين|ات)?|شريط|روشت[ةه]|أقراص|اقراص|حبوب|(?<!\p{L})(?:ال|و|ب)?دواء?(?!\p{L})|شراب|كبسول|امبول|أمبول|فيال|كريم|بكام|سعر)/iu;
+// The turn is about the requested visit itself: the nurse, the device, the leak, the arrival.
+const SERVICE_NEED_REFERENCE_RX =
+  /(?:ممرض|تمريض|كانيولا|بيسرب|تسريب|ييجي|يجي|هيجي|جاي|يوصل|اتأخر|شوفه\s+تاني)/iu;
+
+export function isOperationalServiceRequest(message: Pick<NormalizedConversationMessageV32, 'role' | 'isMeaningful' | 'text'>): boolean {
+  return message.role === 'customer' && message.isMeaningful && OPERATIONAL_SERVICE_REQUEST_RX.test(message.text || '');
+}
+
+export function isOperationalServiceClosure(message: Pick<NormalizedConversationMessageV32, 'isMeaningful' | 'text'>): boolean {
+  return message.isMeaningful && OPERATIONAL_SERVICE_CLOSURE_RX.test(message.text || '');
+}
+
+/** A new medicine order, price or availability question — never a continuation of a service need. */
+export function startsIndependentCommercialNeed(message: Pick<NormalizedConversationMessageV32, 'role' | 'isMeaningful' | 'text'>): boolean {
+  return message.role === 'customer' && message.isMeaningful &&
+    (REQUEST_VERB_RX.test(message.text || '') && !OPERATIONAL_SERVICE_REQUEST_RX.test(message.text || '') ||
+      INDEPENDENT_COMMERCIAL_NEED_RX.test(message.text || ''));
+}
+
+/**
+ * While a service need is open: a new commercial need only when the turn is not about that visit,
+ * or names a product/price explicitly. «محتاج حد ييجي بسرعة» or «الممرض متاح امتى؟» continue it.
+ */
+export function startsIndependentCommercialNeedDuringOpenService(
+  message: Pick<NormalizedConversationMessageV32, 'role' | 'isMeaningful' | 'text'>
+): boolean {
+  if (!startsIndependentCommercialNeed(message)) return false;
+  const text = message.text || '';
+  return !SERVICE_NEED_REFERENCE_RX.test(text) || EXPLICIT_PRODUCT_OR_PRICE_RX.test(text);
+}
+
 /** "شكرا"/"تسلم"/"وصل"/"لا شكرا" — a closing pleasantry, not a new request. */
 export function isThanksOrClosingOnly(text: string): boolean {
-  return THANKS_CLOSING_ONLY_RX.test((text || '').trim());
+  const value = (text || '').trim();
+  return THANKS_CLOSING_ONLY_RX.test(value) || (COURTESY_ONLY_TOKENS_RX.test(value) && THANKS_WORD_RX.test(value));
 }
 
 /**
@@ -349,6 +430,8 @@ export function isRequestCandidate(message: NormalizedConversationMessageV32): b
   if (message.role !== 'customer' || !message.isMeaningful) return false;
   const text = message.text;
   if (isGreetingOnly(text)) return false;
+  // Courtesy alone carries no need; anchored so appended requests remain meaningful.
+  if (/^(?:لو\s*سمحت(?:ي)?|من\s*فضلك|بعد\s*[إا]ذنك)(?:\s*بس)?[\s؟?!.،]*$/u.test(text.trim())) return false;
   if (isBareAcknowledgementOnly(text)) return false;
   if (isAcceptanceOnly(text)) return false;
   if (isCommitmentOnly(text)) return false;
@@ -359,6 +442,7 @@ export function isRequestCandidate(message: NormalizedConversationMessageV32): b
     return false;
   }
   if (isThanksOrClosingOnly(text)) return false;
+  if (SATISFACTION_FEEDBACK_RX.test(text) && !FEEDBACK_DISQUALIFIER_RX.test(text)) return false;
   return true;
 }
 
@@ -812,8 +896,8 @@ export function classifyCustomerIntentStatementV32(text: string): CustomerIntent
 // ---- Follow-up evidence (facts only; the Follow-up engine decides) ----
 // Customer asking to be contacted / to wait, with optional timing.
 const CUSTOMER_CALLBACK_RX =
-  /كلمني|كلميني|كلمنى|اتصل(?:\s*(?:بي|بيا|عليا))?|رن\s*عليا|تابع\s*معايا|ابقى\s*(?:كلمني|تابع|بلغني|عرفني)|بلغني|عرفني|ابعتلي\s*لما/i;
-const WHEN_IN_STOCK_RX = /لما\s*(?:\S+\s+){0,3}?(?:يوصل|يتوفر|ييجي|ينزل|تجيبه|تجيبوه|يبقى\s*موجود)/i;
+  /(?<![\p{L}])(?:و?(?:كلمني|كلميني|كلمنى|اتصل(?:\s*(?:بي|بيا|عليا))?|رن\s*عليا|تابع\s*معايا|ابقى\s*(?:كلمني|تابع|بلغني|عرفني)|بلغني|عرفني|ابعتلي\s*لما))(?![\p{L}])/iu;
+const WHEN_IN_STOCK_RX = /(?:لما|[أا]ول\s*ما)\s*(?:\S+\s+){0,3}?(?:يوصل|يتوفر|ييجي|ينزل|تجيبه|تجيبوه|يبقى\s*موجود)/i;
 const TOMORROW_RX = /بكر[ةه]|بكرا/i;
 const AFTER_DAYS_RX = /بعد\s*(?:(يومين)|(\d+)\s*(?:يوم|أيام|ايام)|(اسبوع|أسبوع))/i;
 const SAME_DAY_RX = /النهارد[ةه]|بالليل|كمان\s*ساع[ةه]|بعد\s*ساع[ةه]|آخر\s*النهار|اخر\s*النهار/i;
@@ -846,7 +930,16 @@ export function isPrescriptionRequestV32(text: string): boolean {
  * message is not a contact/wait request. Never invents a date: "لما يتوفر" is `when_in_stock`.
  */
 export function classifyCustomerTimingRequestV32(text: string): CustomerTimingRequestV32 | null {
-  const callback = CUSTOMER_CALLBACK_RX.test(text);
+  // Classify each contact clause, so a past report cannot contaminate a later genuine request.
+  const requestedContact = /(?:ممكن|خلي|عايز[هة]?|عاوز[هة]?|محتاج[هة]?)\s*(?:(?:المندوب|الدليفري|حضرتك|حد)\s*)?(?:[يت]كلم(?:ي)?ني|[يت]تصل\s*(?:بي|بيا))(?![\p{L}])/giu;
+  const requested = [...text.matchAll(requestedContact)].some(match =>
+    !/(?:مش|لا)\s*$/u.test(text.slice(0, match.index)));
+  const callback = requested || [...text.matchAll(new RegExp(CUSTOMER_CALLBACK_RX.source, 'giu'))].some(match => {
+    const before = text.slice(0, match.index);
+    if (/(?:المندوب|الدليفري|هو|هي)\s+(?:كان\s*)?$/u.test(before)) return false;
+    // A continued account of repeated calls at an elapsed clock time is not an imperative.
+    return !/^و?اتصل\s*(?:بي|بيا|عليا)\s*تان[يى]\s*الساع[ةه]/u.test(text.slice(match.index));
+  });
   const waitForStock = WHEN_IN_STOCK_RX.test(text);
   if (!callback && !waitForStock) return null;
   if (waitForStock) return { when: 'when_in_stock', days: null };
@@ -855,6 +948,38 @@ export function classifyCustomerTimingRequestV32(text: string): CustomerTimingRe
   if (TOMORROW_RX.test(text)) return { when: 'days', days: 1 };
   if (SAME_DAY_RX.test(text)) return { when: 'same_day', days: 0 };
   return { when: 'unspecified', days: null };
+}
+
+/** Contextual timing evidence shared by Need and Follow-up; never crosses a staff turn.
+ * A short postponed answer is accepted only after an explicit contact offer, within five minutes.
+ * No clock time is invented from an activity such as a lesson or meeting finishing.
+ */
+export function extractCustomerTimingRequestsV32(messages: readonly NormalizedConversationMessageV32[]): Array<{
+  message: NormalizedConversationMessageV32; timing: CustomerTimingRequestV32; evidenceMessageIds: string[];
+}> {
+  const rows = messages.filter(m => m.isMeaningful && (m.role === 'customer' || m.role === 'staff'));
+  const results: Array<{message: NormalizedConversationMessageV32; timing: CustomerTimingRequestV32; evidenceMessageIds: string[]}> = [];
+  for (let index = 0; index < rows.length; index++) {
+    const message = rows[index];
+    if (message.role !== 'customer') continue;
+    const direct = classifyCustomerTimingRequestV32(message.text);
+    if (direct) { results.push({message, timing: direct, evidenceMessageIds:[message.id]}); continue; }
+    if (!/(?:بس|لما|بعد\s*ما)\s*(?:[تاأن]خلص|[اأ]نتهي|ينتهي)(?![\p{L}])/u.test(message.text)) continue;
+    let offerIndex = index - 1;
+    while (offerIndex >= 0 && rows[offerIndex].role === 'customer' && index - offerIndex <= 5) offerIndex--;
+    const offer = rows[offerIndex];
+    if (!offer || offer.role !== 'staff' || message.timestamp.getTime() - offer.timestamp.getTime() > 5 * 60_000) continue;
+    if (!/(?:تسمح|ممكن|ينفع|[اأ]ذن|فرص[ةه]|وقت).{0,60}(?:[اأ]تصل|[اأ]كلم|نتواصل)/u.test(offer.text)) continue;
+    const burst: NormalizedConversationMessageV32[] = [];
+    for (let next = offerIndex + 1; next < rows.length && next <= offerIndex + 5; next++) {
+      const part = rows[next];
+      if (part.role !== 'customer' || part.sender !== message.sender || part.timestamp.getTime() - offer.timestamp.getTime() > 5 * 60_000) break;
+      burst.push(part);
+    }
+    if (!burst.some(part => part.id === message.id) || burst.some(part => WHEN_IN_STOCK_RX.test(part.text))) continue;
+    results.push({message, timing:{when:'unspecified',days:null}, evidenceMessageIds:[offer.id,...burst.map(part=>part.id)]});
+  }
+  return results;
 }
 
 // A reply that OPENS with an explicit "no" followed by more words ("لا، أنا عايز X نفسه",
@@ -917,3 +1042,4 @@ export function computeRequestBurstIds(messages: NormalizedConversationMessageV3
   flush();
   return burstIdByMessageId;
 }
+

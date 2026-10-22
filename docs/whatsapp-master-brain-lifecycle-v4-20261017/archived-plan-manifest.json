@@ -1,0 +1,372 @@
+{
+  "productionWrites": 0,
+  "sources": 13,
+  "activeCases": 39,
+  "treatment": "Retire metadata through canonical v2 after separate historical approval. Never reanalyze archived sources. Preserve all case/analysis rows.",
+  "groups": [
+    {
+      "source_id": "09c98e1b-c532-40d2-b2b8-8ee4feb5b012",
+      "retained_case_rows": 5,
+      "active_cases": 5,
+      "cases": [
+        {
+          "caseId": "09c98e1b-c532-40d2-b2b8-8ee4feb5b012:interaction:0:session:0",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "1423f19f-39dd-4b91-8616-740637aea2cc"
+        },
+        {
+          "caseId": "09c98e1b-c532-40d2-b2b8-8ee4feb5b012:interaction:0:session:1",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "a8f0441d-2ffc-47ec-b0c1-995741c2a491"
+        },
+        {
+          "caseId": "09c98e1b-c532-40d2-b2b8-8ee4feb5b012:interaction:0:session:2",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "69a0619c-4af4-4627-a2c8-42cab4a82e52"
+        },
+        {
+          "caseId": "09c98e1b-c532-40d2-b2b8-8ee4feb5b012:interaction:0:session:3",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "bdb2f5d4-644f-447f-9ca8-54d74402ce7d"
+        },
+        {
+          "caseId": "09c98e1b-c532-40d2-b2b8-8ee4feb5b012:interaction:1:session:1",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "ccdcc607-1ade-4a32-b03f-d4749dc801c6"
+        }
+      ]
+    },
+    {
+      "source_id": "2b17106c-fb69-4b4e-ad83-f5aa41303c86",
+      "retained_case_rows": 1,
+      "active_cases": 1,
+      "cases": [
+        {
+          "caseId": "2b17106c-fb69-4b4e-ad83-f5aa41303c86:interaction:0",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "8f0e0ce3-0a55-4972-a0f0-9ad1c764fe04"
+        }
+      ]
+    },
+    {
+      "source_id": "3a6d1591-4c94-421a-bc37-4d89d7b9afb1",
+      "retained_case_rows": 5,
+      "active_cases": 5,
+      "cases": [
+        {
+          "caseId": "3a6d1591-4c94-421a-bc37-4d89d7b9afb1:interaction:0:session:0",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "ceb49be4-ff72-4816-ac93-7c9f2ae6d0be"
+        },
+        {
+          "caseId": "3a6d1591-4c94-421a-bc37-4d89d7b9afb1:interaction:0:session:1",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "b56ea7e3-c269-4b55-a2fd-d55d573aa3ea"
+        },
+        {
+          "caseId": "3a6d1591-4c94-421a-bc37-4d89d7b9afb1:interaction:1:session:1",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "d2174f51-3d8d-40ba-8bf1-26b1504a7f71"
+        },
+        {
+          "caseId": "3a6d1591-4c94-421a-bc37-4d89d7b9afb1:interaction:2:session:1",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "28c2672d-bc09-4e45-93da-380ab26c448a"
+        },
+        {
+          "caseId": "3a6d1591-4c94-421a-bc37-4d89d7b9afb1:interaction:3:session:1",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "c7bfe60a-1bb2-4898-adb9-237000f2d7dc"
+        }
+      ]
+    },
+    {
+      "source_id": "44999fee-c39e-4e40-a66c-b21223775d51",
+      "retained_case_rows": 3,
+      "active_cases": 3,
+      "cases": [
+        {
+          "caseId": "44999fee-c39e-4e40-a66c-b21223775d51:interaction:0:session:0",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "c01d1339-c180-4b9c-827f-67b335cd5cd2"
+        },
+        {
+          "caseId": "44999fee-c39e-4e40-a66c-b21223775d51:interaction:0:session:1",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "3792fda4-4674-4414-ae7a-0cb1155dad4b"
+        },
+        {
+          "caseId": "44999fee-c39e-4e40-a66c-b21223775d51:interaction:0:session:2",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "b893ce73-48f3-4285-93cd-9025a3c682b5"
+        }
+      ]
+    },
+    {
+      "source_id": "6534c81a-5dcb-4e5c-b3d6-77066edb3119",
+      "retained_case_rows": 2,
+      "active_cases": 2,
+      "cases": [
+        {
+          "caseId": "6534c81a-5dcb-4e5c-b3d6-77066edb3119:interaction:0:session:0",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "19a4763f-603d-47d5-bd7a-e052b131b07d"
+        },
+        {
+          "caseId": "6534c81a-5dcb-4e5c-b3d6-77066edb3119:interaction:0:session:1",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "af5a612a-fb93-4cc3-add9-d1966418264d"
+        }
+      ]
+    },
+    {
+      "source_id": "6fe6a00a-d7a5-4f9a-8e81-a72c1b2c9d33",
+      "retained_case_rows": 1,
+      "active_cases": 1,
+      "cases": [
+        {
+          "caseId": "6fe6a00a-d7a5-4f9a-8e81-a72c1b2c9d33:interaction:0",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "5a888a51-0b90-42a8-8fa3-573ba30bfb24"
+        }
+      ]
+    },
+    {
+      "source_id": "7ec6faab-435b-4530-9882-202ffa477b13",
+      "retained_case_rows": 3,
+      "active_cases": 3,
+      "cases": [
+        {
+          "caseId": "7ec6faab-435b-4530-9882-202ffa477b13:interaction:0:session:0",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "06b66997-9af7-4896-9bd5-f11a8f9906b5"
+        },
+        {
+          "caseId": "7ec6faab-435b-4530-9882-202ffa477b13:interaction:0:session:1",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "33b2b1c6-8863-4842-af5a-d6fb466e3131"
+        },
+        {
+          "caseId": "7ec6faab-435b-4530-9882-202ffa477b13:interaction:1:session:0",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "17ecc552-5639-4f83-a63a-db74fd5a1581"
+        }
+      ]
+    },
+    {
+      "source_id": "8b3dcd28-8320-4f4e-b166-d318822e4900",
+      "retained_case_rows": 3,
+      "active_cases": 3,
+      "cases": [
+        {
+          "caseId": "8b3dcd28-8320-4f4e-b166-d318822e4900:interaction:0:session:0",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "d950c38d-7750-424d-a737-db3f550fba5a"
+        },
+        {
+          "caseId": "8b3dcd28-8320-4f4e-b166-d318822e4900:interaction:0:session:1",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "a1ab2d96-ebc0-44c0-99d7-0aa1515f80e0"
+        },
+        {
+          "caseId": "8b3dcd28-8320-4f4e-b166-d318822e4900:interaction:1:session:0",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "1eaa253f-8c66-4146-bf6c-d184dd971ce6"
+        }
+      ]
+    },
+    {
+      "source_id": "92e31b89-b406-4236-ae7b-43ae4478a612",
+      "retained_case_rows": 3,
+      "active_cases": 3,
+      "cases": [
+        {
+          "caseId": "92e31b89-b406-4236-ae7b-43ae4478a612:interaction:0:session:0",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "9d933d31-4f61-4611-bab2-da4bcc5f2d07"
+        },
+        {
+          "caseId": "92e31b89-b406-4236-ae7b-43ae4478a612:interaction:0:session:1",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "ac988ac5-2d88-48b2-9090-8ece934f7dec"
+        },
+        {
+          "caseId": "92e31b89-b406-4236-ae7b-43ae4478a612:interaction:1:session:1",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "4aaac973-35cc-4bea-b8ce-a8e47c9bd82a"
+        }
+      ]
+    },
+    {
+      "source_id": "a9fb4582-2b39-4e93-810a-05f337734e0f",
+      "retained_case_rows": 3,
+      "active_cases": 3,
+      "cases": [
+        {
+          "caseId": "a9fb4582-2b39-4e93-810a-05f337734e0f:interaction:0:session:0",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "2c0014b1-1427-4e47-b81d-bf994c7385f0"
+        },
+        {
+          "caseId": "a9fb4582-2b39-4e93-810a-05f337734e0f:interaction:0:session:1",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "b30b9d31-400c-4a79-9f52-8d64d2ca6adc"
+        },
+        {
+          "caseId": "a9fb4582-2b39-4e93-810a-05f337734e0f:interaction:1:session:1",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "ca714399-5242-4810-8fb7-04235eba42e8"
+        }
+      ]
+    },
+    {
+      "source_id": "aca69ce8-ff92-49f6-9e44-2df9218012c9",
+      "retained_case_rows": 2,
+      "active_cases": 2,
+      "cases": [
+        {
+          "caseId": "aca69ce8-ff92-49f6-9e44-2df9218012c9:interaction:0:session:0",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "1f0565bd-660d-4184-84e0-6483a2990cf7"
+        },
+        {
+          "caseId": "aca69ce8-ff92-49f6-9e44-2df9218012c9:interaction:0:session:1",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "4788821a-b230-4331-b827-bc2448864a26"
+        }
+      ]
+    },
+    {
+      "source_id": "f09471e8-64f4-45d1-859c-17ba97b19259",
+      "retained_case_rows": 4,
+      "active_cases": 4,
+      "cases": [
+        {
+          "caseId": "f09471e8-64f4-45d1-859c-17ba97b19259:interaction:0:session:0",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "ec2dc08b-c588-4b97-8f00-93782028043d"
+        },
+        {
+          "caseId": "f09471e8-64f4-45d1-859c-17ba97b19259:interaction:0:session:1",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "8208b232-f4e1-4c50-9f59-548115c55b3b"
+        },
+        {
+          "caseId": "f09471e8-64f4-45d1-859c-17ba97b19259:interaction:0:session:2",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "78ad042e-e6b7-4ed5-b7a0-3e3a53600096"
+        },
+        {
+          "caseId": "f09471e8-64f4-45d1-859c-17ba97b19259:interaction:0:session:3",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "56a6862a-c014-4c4a-a4a3-354095f9a6d9"
+        }
+      ]
+    },
+    {
+      "source_id": "fd505a4d-3d37-4b59-8478-b2f26bb031c7",
+      "retained_case_rows": 4,
+      "active_cases": 4,
+      "cases": [
+        {
+          "caseId": "fd505a4d-3d37-4b59-8478-b2f26bb031c7:interaction:0:session:0",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "19caf99e-d908-422e-9449-4019efb40ee1"
+        },
+        {
+          "caseId": "fd505a4d-3d37-4b59-8478-b2f26bb031c7:interaction:0:session:1",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "bb49982b-7155-4062-9752-78ef858d54db"
+        },
+        {
+          "caseId": "fd505a4d-3d37-4b59-8478-b2f26bb031c7:interaction:0:session:2",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "91198651-6874-416d-9558-f99227a723f3"
+        },
+        {
+          "caseId": "fd505a4d-3d37-4b59-8478-b2f26bb031c7:interaction:1:session:0",
+          "isActive": true,
+          "retiredAt": null,
+          "retireReason": null,
+          "publishedAnalysisId": "122abe20-33cc-4472-ae24-595a6c55507f"
+        }
+      ]
+    }
+  ]
+}

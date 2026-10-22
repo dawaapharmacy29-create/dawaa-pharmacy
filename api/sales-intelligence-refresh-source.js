@@ -71,8 +71,8 @@ function normalizeArabicText(value) {
   return String(value || "").trim().replace(/[\u064B-\u065F\u0640]/g, "").replace(/[\u0623\u0625\u0622]/g, "\u0627").replace(/\u0649/g, "\u064A").replace(/\u0629/g, "\u0647").replace(/\s+/g, " ").toLowerCase();
 }
 function normalizeBranchName(value) {
-  const text2 = String(value || "").trim();
-  const normalized = normalizeArabicText(text2);
+  const text5 = String(value || "").trim();
+  const normalized = normalizeArabicText(text5);
   if (!normalized) return UNKNOWN_BRANCH;
   if (/all|every|branches/i.test(normalized) || normalized.includes("\u0643\u0644") || normalized.includes("\u0627\u0644\u0643\u0644")) {
     return ALL_BRANCHES;
@@ -83,7 +83,12 @@ function normalizeBranchName(value) {
   if (/shamy|shami|elshamy|el shamy|alshamy|al shamy|elshami|el shami/i.test(normalized) || normalized.includes("\u0627\u0644\u0634\u0627\u0645\u064A") || normalized.includes("\u0634\u0627\u0645\u064A")) {
     return SHAMY_BRANCH;
   }
-  return text2;
+  return text5;
+}
+var OPERATING_BRANCHES = [SHOKRY_BRANCH, SHAMY_BRANCH];
+function isOperatingBranch(value) {
+  if (!String(value ?? "").trim()) return false;
+  return OPERATING_BRANCHES.includes(normalizeBranchName(value));
 }
 
 // src/lib/invoices/invoiceCore.ts
@@ -126,22 +131,22 @@ function parseInvoiceDateTime(value) {
   if (typeof value === "number") {
     return excelSerialToInvoiceDate(value)?.toISOString() ?? null;
   }
-  const text2 = cleanText(value);
-  if (!text2) return null;
-  if (/^\d+(\.\d+)?$/.test(text2)) {
-    const serial = Number.parseFloat(text2);
+  const text5 = cleanText(value);
+  if (!text5) return null;
+  if (/^\d+(\.\d+)?$/.test(text5)) {
+    const serial = Number.parseFloat(text5);
     if (serial > 4e4 && serial < 6e4) {
       return excelSerialToInvoiceDate(serial)?.toISOString() ?? null;
     }
   }
-  if (/^\d{4}-\d{2}-\d{2}/.test(text2)) {
-    const parsed = new Date(text2);
+  if (/^\d{4}-\d{2}-\d{2}/.test(text5)) {
+    const parsed = new Date(text5);
     if (!Number.isNaN(parsed.getTime())) {
       const year = parsed.getUTCFullYear();
       if (year >= 2e3 && year <= 2100) return parsed.toISOString();
     }
   }
-  const egyptian = text2.match(
+  const egyptian = text5.match(
     /^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/
   );
   if (egyptian) {
@@ -161,7 +166,7 @@ function parseInvoiceDateTime(value) {
     }
     return null;
   }
-  const fallback = new Date(text2);
+  const fallback = new Date(text5);
   if (!Number.isNaN(fallback.getTime())) {
     const year = fallback.getUTCFullYear();
     if (year >= 2e3 && year <= 2100) return fallback.toISOString();
@@ -226,8 +231,8 @@ function readStoredUserId() {
 function readStoredStaffSessionToken() {
   if (typeof window === "undefined" || typeof localStorage === "undefined") return null;
   try {
-    const token = (window.localStorage.getItem(STAFF_SESSION_STORAGE_KEY) || "").trim();
-    return token.length >= 32 && token.length <= 512 ? token : null;
+    const token2 = (window.localStorage.getItem(STAFF_SESSION_STORAGE_KEY) || "").trim();
+    return token2.length >= 32 && token2.length <= 512 ? token2 : null;
   } catch {
     return null;
   }
@@ -324,17 +329,6 @@ async function readInvoiceRecordById(invoiceId2, client = supabase) {
 async function readInvoiceRecordsByIdentityWindow(args) {
   const client = args.client || supabase;
   const { data, error } = await client.from("sales_invoices").select(SALES_INTELLIGENCE_INVOICE_SELECT).gte("invoice_datetime", args.windowStartIso).lte("invoice_datetime", args.windowEndIso).eq(args.column, args.value).limit(args.limit);
-  if (error) throw error;
-  return data || [];
-}
-async function readInvoiceRecordsByCustomerWindow(args) {
-  const client = args.client || supabase;
-  let query = client.from("sales_invoices").select(SALES_INTELLIGENCE_INVOICE_SELECT).gte("invoice_datetime", args.queryStartIso).lte("invoice_datetime", args.queryEndIso).limit(args.limit ?? 100);
-  if (args.customerCode) query = query.eq("customer_code", args.customerCode);
-  else if (args.customerId) query = query.eq("customer_id", args.customerId);
-  else return [];
-  if (args.branch) query = query.eq("branch", args.branch);
-  const { data, error } = await query;
   if (error) throw error;
   return data || [];
 }
@@ -455,9 +449,11 @@ function cairoCalendarParts(date) {
 
 // src/lib/whatsappConversationParser.ts
 var STAFF_INTRO_PATTERNS = [
-  /مع حضرتك\s+(?:د\.?|دكتور(?:ة)?|دكتوره)\s*([^\n،,.]+)/i,
-  /معاك(?:ي)?\s+(?:د\.?|دكتور(?:ة)?|دكتوره)\s*([^\n،,.]+)/i,
-  /(?:د\.?|دكتور(?:ة)?|دكتوره)\s+([^\n،,.]+)\s+من\s+(?:خدمة عملاء|صيدليات)\s+دواء/i
+  /(?:مع\s+حضرتك|معاك(?:ي)?)\s+(?:(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*)?([^\n،,.]+?)\s+من\s+فرع\s+(?:شكري|الشامي)(?=[\s،,.!?؟]|$)/i,
+  /مع\s+حضرتك\s+(?:(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*)?([^\n،,.]+?)\s+من\s+(?:خدمة\s*(?:ال)?عملاء(?:\s+(?:صيدليات\s+)?دواء)?|صيدليات\s+دواء)/i,
+  /مع حضرتك\s+(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*([^\n،,.]+)/i,
+  /معاك(?:ي)?\s+(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*([^\n،,.]+)/i,
+  /(?:د\.?|دكتور(?:ة)?|دكتوره)\s+([^\n،,.]+)\s+من\s+(?:خدمة (?:ال)?عملاء|صيدليات)\s+دواء/i
 ];
 var PHARMACY_TEXT_RX = /(صيدليات دواء|مع حضرتك|تحت امر حضرتك|تحت أمر حضرتك|تم تأكيد الطلب|جاري الارسال|جاري الإرسال)/i;
 var MEDIA_KIND_SET = /* @__PURE__ */ new Set(["image", "voice", "video", "document"]);
@@ -510,21 +506,21 @@ function timestampFromPrefix(prefix) {
   if (prefix.meridiem === "am" && hour === 12) hour = 0;
   return cairoWallClockToDate(prefix.year, prefix.month, prefix.day, hour, prefix.minute, prefix.second);
 }
-function detectKind(text2) {
-  const value = text2.toLowerCase();
-  if (/(messages and calls are end-to-end encrypted|created group|added you|changed the subject|security code changed)/i.test(text2)) return "system";
+function detectKind(text5) {
+  const value = text5.toLowerCase();
+  if (/(messages and calls are end-to-end encrypted|created group|added you|changed the subject|security code changed)/i.test(text5)) return "system";
   if (/<voice message omitted>|audio omitted|صوت محذوف|\[voice message\]|\.(?:opus|ogg|mp3|m4a|wav)(?:\s|$|\))/i.test(
-    text2
+    text5
   ))
     return "voice";
   if (/<image omitted>|image omitted|صورة محذوفة|\[image\]|\.(?:jpe?g|png|webp|gif|heic)(?:\s|$|\))/i.test(
-    text2
+    text5
   ))
     return "image";
-  if (/<video omitted>|video omitted|فيديو محذوف|\[video\]|\.(?:mp4|mov)(?:\s|$|\))/i.test(text2))
+  if (/<video omitted>|video omitted|فيديو محذوف|\[video\]|\.(?:mp4|mov)(?:\s|$|\))/i.test(text5))
     return "video";
   if (/<document omitted>|document omitted|مستند محذوف|\[document\]|\[file\]|\.(?:pdf|docx?|xlsx?)(?:\s|$|\))/i.test(
-    text2
+    text5
   ))
     return "document";
   if (/you deleted this message|this message was deleted|تم حذف هذه الرسالة/i.test(value))
@@ -532,9 +528,9 @@ function detectKind(text2) {
   if (/omitted>|محذوف/i.test(value)) return "unknown";
   return "text";
 }
-function hasMediaPlaceholder(text2, kind) {
+function hasMediaPlaceholder(text5, kind) {
   return MEDIA_KIND_SET.has(kind) && /(omitted>|\[(?:voice message|image|video|document|file)\]|<attached:|\.(?:jpe?g|png|webp|gif|heic|opus|ogg|mp3|m4a|wav|mp4|mov|pdf|docx?|xlsx?))/i.test(
-    text2
+    text5
   );
 }
 function messageId(index, timestamp, sender) {
@@ -572,8 +568,8 @@ function finalizeDirections(messages) {
   }
   return humans;
 }
-function parseTextExport(text2) {
-  const lines = text2.replace(/^\uFEFF/, "").split(/\r?\n/);
+function parseTextExport(text5) {
+  const lines = text5.replace(/^\uFEFF/, "").split(/\r?\n/);
   const messages = [];
   let current = null;
   for (const line of lines) {
@@ -696,8 +692,8 @@ function trustedDateParts(value) {
   if (Number.isNaN(date.getTime())) return null;
   return { year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() };
 }
-function parseMarkdownExport(text2, trustedConversationStartedAt) {
-  const lines = text2.replace(/^\uFEFF/, "").split(/\r?\n/);
+function parseMarkdownExport(text5, trustedConversationStartedAt) {
+  const lines = text5.replace(/^\uFEFF/, "").split(/\r?\n/);
   const messages = [];
   let currentDate = trustedDateParts(trustedConversationStartedAt);
   const trustedAnchor = trustedConversationStartedAt ? trustedConversationStartedAt instanceof Date ? trustedConversationStartedAt : new Date(trustedConversationStartedAt) : null;
@@ -786,8 +782,8 @@ function parseMarkdownExport(text2, trustedConversationStartedAt) {
   finalizeDirections(messages);
   return messages;
 }
-function detectWhatsAppExportFormat(text2) {
-  const head = text2.slice(0, 5e3);
+function detectWhatsAppExportFormat(text5) {
+  const head = text5.slice(0, 5e3);
   if (/^# WhatsApp Chat Export:/m.test(head) || /^##\s+[A-Za-z]+\s+\d{1,2},\s+\d{4}$/m.test(head) || /^\[\d{1,2}:\d{2}(?::\d{2})?\s*[APap][Mm]\]\s+\*\*[^*]{1,100}:\*\*/m.test(head)) return "md";
   return "txt";
 }
@@ -802,11 +798,14 @@ function rebaseTextTimelineToTrustedStart(messages, trustedConversationStartedAt
     return { ...message, timestamp, id: messageId(index, timestamp, message.sender) };
   });
 }
-function parseWhatsAppExport(text2, options = {}) {
-  if (detectWhatsAppExportFormat(text2) === "md") {
-    return parseMarkdownExport(text2, options.trustedConversationStartedAt);
+function parseWhatsAppExport(text5, options = {}) {
+  if (detectWhatsAppExportFormat(text5) === "md") {
+    return parseMarkdownExport(text5, options.trustedConversationStartedAt);
   }
-  return rebaseTextTimelineToTrustedStart(parseTextExport(text2), options.trustedConversationStartedAt);
+  return rebaseTextTimelineToTrustedStart(parseTextExport(text5), options.trustedConversationStartedAt);
+}
+function isCustomerServiceIntroduction(message) {
+  return Boolean(extractIntroducedStaffName(message)) && /من\s+خدمة\s*(?:ال)?عملاء/u.test(message.text);
 }
 function extractIntroducedStaffName(message) {
   if (message.direction !== "outbound") return null;
@@ -877,19 +876,23 @@ function splitWhatsAppSessions(messages, gapMinutes = 120) {
 }
 
 // src/lib/whatsappSemanticSignalsV32.ts
-var GREETING_ONLY_RX = /^(?:و)?(?:ال)?سلام\s*عليكم(?:\s*(?:و)?رحمة?\s*الله(?:\s*(?:و)?بركاته)?)?[!.، ]*$|^أهل[اً]?\s*(?:و\s*سهل[اً]?)?[!.، ]*$|^مرحب[اً]?[!.، ]*$|^ه?اي[!.، ]*$|^صباح\s*ال(?:خير|نور|فل|ورد)[!.، ]*$|^مساء\s*ال(?:خير|نور|فل|ورد)[!.، ]*$/i;
+var GREETING_ONLY_RX = /^(?:و)?(?:ال{1,2})?سلام\s*عليكم(?:\s*(?:و)?رحمة?\s*الله(?:\s*(?:و)?بركاته)?)?[!.، ]*$|^[اأإ]هل[اً]?\s*(?:و\s*سهل[اً]?)?[!.، ]*$|^مرحب[اً]?[!.، ]*$|^ه?اي[!.، ]*$|^صباح\s*ال(?:خير|نور|فل|ورد)[!.، ]*$|^مساء\s*ال(?:خير|نور|فل|ورد)[!.، ]*$/i;
 var AUTOMATED_REPLY_RX = /رسال[ةه]\s*(آلي[ةه]|تلقائي[ةه])|رد\s*تلقائي|هذه\s*رساله\s*تلقائيه|out\s*of\s*office|automated\s*reply|بعيد[ًا]?\s*عن\s*مكتبي|خارج\s*مواعيد\s*العمل\s*الرسمي[ةه]?\s*نرد\s*عليك/i;
 var REQUEST_VERB_RX = /محتاج|عايز|عاوز|ممكن\s+(?:اطلب|اخد|احصل)|هات(?:ي)?\s|ابعت(?:لي|يلي)/i;
 var CLARIFICATION_MARK_RX = /[؟?]/;
 var EXPLICIT_CONFIRMATION_RX = /تم\s*تأكيد\s*الطلب|تم\s*تسجيل(?:\s*طلبك)?|تسجيل\s*طلبك|الأورد?ر\s*اتأكد|تم\s*الطلب|تمام\s*سجلت\s*لحضرتك|تم\s*ال[اإ]رسال/i;
 var STRONG_IMPLICIT_CONFIRMATION_RX = /(?:من\s*)?عني?ا(؟)?\s*(?:حاضر|لحضرتك)?|حاضر\s*(?:هبعت(?:هم|ه)?|هيكون\s*عند\s*حضرتك)|تمام\s*هيتبعت|تمام\s*يا\s*فندم\s*جاري\s*(?:التجهيز|ال[اإ]رسال)|جاري\s*(?:التجهيز|ال[اإ]رسال)|هبعت(?:لك|له|لحضرتك|هم)/i;
 var WEAK_IMPLICIT_RX = /^(?:تمام|حاضر|اوك|ok|ماشي|خلاص)[!.، ]*$/i;
-var ACCEPTANCE_RX = /^(?:تمام|ماشي|ايوا|ايوه|اه|آه|موافق|تمام\s*كده|خلاص\s*ابعت(?:ه|هم|يه|يهم)?)[!.، ]*$|(?:تمام|ايوا|ايوه|اه|آه)[،, ]*\s*(?:هطلبه|ابعت(?:ه|هم|يه|يهم)?|يبقى\s*كده)/i;
+var ACCEPTANCE_RX = /^(?:تمام|ماشي|ايوا|ايوه|اه|آه|موافق|تمام\s*كده|خلاص\s*ابعت(?:ه|هم|يه|يهم)?)(?:\s*(?:(?:ان|إن)\s*شاء\s*الله|[اإ]نشاء\s*الله|[اإ]نشالله|ان\s*شالله))?[!.، ]*$|(?:تمام|ايوا|ايوه|اه|آه)[،, ]*\s*(?:هطلبه|ابعت(?:ه|هم|يه|يهم)?|يبقى\s*كده)/i;
 var REJECTION_RX = /^(?:لا|لأ)[!.، ]*$|مش\s*عايز(?:ه)?|معلش\s*مش\s*هاخد(?:ه|ها)?|مش\s*محتاج(?:ه)?/i;
-var THANKS_CLOSING_ONLY_RX = /^(?:شكرًا|شكرا)(?:\s*لحضرتك)?[!.، ]*$|^لا\s*شكرا[!.، ]*$|^تسلم(?:ي|لي)?[!.، ]*$|^الله\s*يسلم(?:ك|ي)?[!.، ]*$|^وصل(?:ني|تلي)?[!.، ]*$/i;
+var THANKS_CLOSING_ONLY_RX = /^(?:شكرًا|شكرا)(?:\s*لحضرتك)?[!.، ]*$|^لا\s*شكرا[!.، ]*$|^تسلم(?:ي|لي)?[!.، ]*$|^الله\s*يسلم(?:ك|ي)?[!.، ]*$|^وصل(?:ني|تلي)?[!.، ]*$|^(?:ربنا|الله)\s*(?:(?:و\s*)?(?:(?:يسعد|يخلي|يكرم|يحفظ)(?:ك|كي|كم|ي)?|يبارك\s*(?:في|ل)(?:ك|كي|كم|ي))(?:\s*(?:جميعا|جميعًا|كلكم|يا\s*رب|يارب))?[!.،\s🤲🙏❤️🌹🌷💙]*)+$/iu;
+var COURTESY_ONLY_TOKENS_RX = /^(?:(?:تمام|ماشي|اوك|ok|شكرا|شكرًا|متشكر|متشكرين|جزيلا|جزيلًا|تسلم|تسلمي|تسلموا|لحضرتك|حضرتك|ليك|ليكي|ليكم|ي|يا|دكتور|دكتوره|دكتورة|دكتورنا|فندم|حبيبي|حبيبتي)[\s!.،,🙏❤️🌹🌷💙🤲]*)+$/iu;
+var THANKS_WORD_RX = /شكر|متشكر|تسلم/u;
+var SATISFACTION_FEEDBACK_RX = /(?:الحمد\s*لله|الحمدلله).*(?:شكرا|شكرًا|متشكر)\s*(?:على|ع)\s*(?:متابعت|اهتمام|سؤال)/u;
+var FEEDBACK_DISQUALIFIER_RX = /[؟?]|مش|لسه|مجاش|موصلش|غلط|تأخير|اتأخر|وجع|تعبان|بيسرب|(?:^|\s)و?(?:علب|شريط|دوا|كريم|ابعت|هات)/u;
 var CORRECTION_RX = /لا\s*قصدي|مش\s*ده(?:\s*اللي)?|ده\s*مش(?:\s*اللي)?|أنا\s*(?:أ|ا)قصد|لا\s*التاني\b|مش\s*كده|لا\s*حضرتك\s*فهمتني\s*غلط|أنا\s*قلت|فهمت\s*غلط/i;
 var QUANTITY_RX = /(\d+|واحد[ةه]?|اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?)\s*(علبة|علب|حبة|حبوب|شريط|عبوة|قطعة|كيس)/i;
-var REFERENCE_QUANTITY_RX = /(?:منه|من\s*ده|من\s*دا)\s*(اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?|\d+)|(\d+|اتنين|تلات[ةه]?)\s*منه/i;
+var REFERENCE_QUANTITY_RX = /(?:منه|من\s*ده|من\s*دا)\s*(اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?|\d+)|(\d+|واحد[ةه]?|اتنين|تلات[ةه]?)\s*(?:منه|من\s*(?:ده|دا))(?:\s|$|[.!،؟?])/i;
 var PHONE_RX = /01[0-2,5]\d{8}/;
 var ADDRESS_RX = /العنوان\s*[:\-]?\s*\S+|عنوانك|هيوصل\s*ل(?:ـ|حضرتك)/i;
 var PRICE_RX = /(\d+(?:\.\d+)?)\s*(جنيه|جنيها|ج\.?م\.?|le|egp)/i;
@@ -897,7 +900,7 @@ var DELIVERY_RX = /توصيل|دليفري|delivery/i;
 var PROMISE_RX = /هبعت(?:لك|لحضرتك)?|هيوصل|هجهز(?:لك|لحضرتك)?|هوصلك/i;
 var UNAVAILABLE_RX = /(?:مش|مو|غير)\s*(?:موجود|متوفر|متاح)[ةه]?|مفيش\s*(?:منه|منها|حاليا|حاليًا|عندنا)|مش\s*عندنا|(?:الصنف|المنتج|ده|دي|هو|هي)\s*(?:خلص|خلصان[ةه]?|نفذ|ناقص[ةه]?)|(?:خلص|نفذ|ناقص[ةه]?)\s*(?:من\s*(?:عندنا|السوق|الشركة)|حاليا|حاليًا)|ناقص\s*في\s*السوق/i;
 var AVAILABLE_RX = /(?:^|[\s،,])(?:موجود|متوفر|متاح)[ةه]?(?:$|[\s،,!.])|عندنا\s*(?:منه|منها)|(?:اه|أه|آه|ايوه|أيوه|ايوا)\s*(?:موجود|متوفر)/i;
-var NON_STOCK_AVAILABILITY_CONTEXT_RX = /(?:خدمة\s*)?(?:التوصيل|الدليفري|delivery)|(?:الدفع|التحويل|فودافون\s*كاش|انستا\s*باي|instapay|visa|فيزا|mastercard|ماستر\s*كارد)/i;
+var NON_STOCK_AVAILABILITY_CONTEXT_RX = /(?:خدمة\s*)?(?:التوصيل|الدليفري|delivery)|(?:لما\s*(?:يكون|يبقى)\s*|(?:فرص[ةه]|وقت|حضرتك)\s*)متاح[ةه]?\s*(?:(?:اننا|إننا|ان|أن)\s*)?(?:نتواصل|[اأ]تصل|[اأ]كلم)(?![\p{L}])|(?:الدفع|التحويل|فودافون\s*كاش|انستا\s*باي|instapay|visa|فيزا|mastercard|ماستر\s*كارد)/iu;
 var COMMIT_RECIPIENT = String.raw`(?:لك|ليك|ليكي|لكي|لكم|لحضرتك|لحضرتكم|لحضرتكو|حضرتك|معاك|معاكي|مع\s*حضرتك|عليك|عليكي|على\s*حضرتك)`;
 var COMMIT_FILLER = String.raw`(?:يا\s*(?:ا)?فندم|يا\s*دكتور[ةه]?|حالا|حالًا|دلوقتي|دلوقت|فورا|فورًا|بنفسي|تاني|كده|بس|ان\s*شاء\s*الله|إن\s*شاء\s*الله)`;
 var COMMIT_GAP = String.raw`(?:\s+(?:${COMMIT_RECIPIENT}|${COMMIT_FILLER}))*`;
@@ -923,9 +926,19 @@ var COMMIT_REPLY_RX = new RegExp(
   `${COMMIT_FUTURE}\u062A\u0627\u0628\u0639(?![\\p{L}])|${COMMIT_FUTURE}\u062A\u0627\u0628\u0639\\s*${COMMIT_RECIPIENT}|${COMMIT_FUTURE}${REPLY_VERB}(?:\u0643|\u0643\u064A|\u0643\u0645)(?![\\p{L}])|${COMMIT_FUTURE}${REPLY_VERB}${COMMIT_GAP}\\s*(?:\u0639\u0644\u0649\\s*|\u0644)?${COMMIT_RECIPIENT}`,
   "iu"
 );
-function classifyStaffCommitmentsV32(text2) {
+var DELIVERY_PROMISE_RX = /(?<![\p{L}])(?<!(?:مش|لن|لم)\s+)(?:و|ف)?ه(?:اتصل|تصل|كلم|تابع|راجع|شوف)[^.!؟?\n]{0,80}(?:المندوب|الدليفري|التوصيل|وصل\s*لفين)/iu;
+function isDeliveryFollowUpPromiseV32(text5) {
+  return statementClauses(text5).some((clause) => DELIVERY_PROMISE_RX.test(clause));
+}
+function isDeliveryFollowUpCompletionV32(text5) {
+  if (/(?:مش|لم|لسه|لم\s*يتم)\s/.test(text5)) return false;
+  return /(?:تم\s*(?:الاستلام|التسليم)|الاوردر\s*وصل|الأوردر\s*وصل|استلمت\s*(?:الطلب|الاوردر|الأوردر))/.test(text5) || /(?:كلمت|اتصلت\s*ب|راجعت\s*مع)\s*(?:المندوب|الدليفري)[^.!؟?\n]{0,80}(?:وصل|فاضل|الطريق|عند)/.test(text5);
+}
+function classifyStaffCommitmentsV32(text5) {
   const out = [];
-  for (const clause of statementClauses(text2)) {
+  for (const clause of statementClauses(text5)) {
+    const delivery = clause.match(DELIVERY_PROMISE_RX);
+    if (delivery) out.push({ kind: "delivery_check", matchedText: delivery[0], ruleId: "commitment.delivery_check", confidence: 0.9 });
     const withObject = clause.match(COMMIT_CHECK_WITH_OBJECT_RX);
     const bare = withObject ? null : clause.match(COMMIT_BARE_CHECK_RX);
     if (withObject || bare) {
@@ -958,56 +971,82 @@ var PRODUCT_REFERENCE_RX = /(?<![\p{L}\p{N}])(?:ده|دي|دول|منه|منها
 var STAFF_NON_PRODUCT_TEMPLATE_RX = /أهلا\s*وسهلا|نورت(?:نا|ينا)|صيدليات\s*دواء|خدمة\s*التوصيل|على\s*مدار\s*24\s*ساعة|مع\s*حضرتك|تحت\s*أمر\s*حضرتك|تشرفنا\s*بخدمت/i;
 function isPlausibleStaffProductOffer(message) {
   if (message.role !== "staff" || !message.isMeaningful) return false;
-  const text2 = message.text.trim();
-  if (!text2 || STAFF_NON_PRODUCT_TEMPLATE_RX.test(text2)) return false;
-  if (WEAK_IMPLICIT_RX.test(text2) || classifyConfirmationStrength(text2) !== "none") return false;
-  return PRICE_RX.test(text2) || /متوفر|موجود|عندنا|بديل|ترشيح|أنسب|افضل|أفضل|سعر|عبوة|علبة|شريط|كبسول|قرص|جل|كريم|شامبو|غسول|سيرم|سيروم|لوشن|spray|cream|gel|shampoo|serum|lotion/i.test(text2) || /[A-Za-z]{3,}/.test(text2);
+  const text5 = message.text.trim();
+  if (!text5 || STAFF_NON_PRODUCT_TEMPLATE_RX.test(text5)) return false;
+  if (WEAK_IMPLICIT_RX.test(text5) || classifyConfirmationStrength(text5) !== "none") return false;
+  return PRICE_RX.test(text5) || /متوفر|موجود|عندنا|بديل|ترشيح|أنسب|افضل|أفضل|سعر|عبوة|علبة|شريط|كبسول|قرص|جل|كريم|شامبو|غسول|سيرم|سيروم|لوشن|spray|cream|gel|shampoo|serum|lotion/i.test(text5) || /[A-Za-z]{3,}/.test(text5);
 }
 function isPlausibleCustomerProductMention(message) {
   if (message.role !== "customer" || !message.isMeaningful) return false;
-  const text2 = message.text.trim();
-  if (!text2) return false;
-  if (GREETING_ONLY_RX.test(text2) || THANKS_CLOSING_ONLY_RX.test(text2) || ACCEPTANCE_RX.test(text2) || REJECTION_RX.test(text2)) return false;
-  const strippedForwarded = text2.replace(/^\s*\[?forwarded\]?\s*/i, "").trim();
+  const text5 = message.text.trim();
+  if (!text5) return false;
+  if (GREETING_ONLY_RX.test(text5) || THANKS_CLOSING_ONLY_RX.test(text5) || ACCEPTANCE_RX.test(text5) || REJECTION_RX.test(text5)) return false;
+  const strippedForwarded = text5.replace(/^\s*\[?forwarded\]?\s*/i, "").trim();
   if (!strippedForwarded) return false;
   const withoutReference = strippedForwarded.replace(PRODUCT_REFERENCE_RX, "").trim();
   if (!withoutReference || /^(?:موجود|متوفر|عندكم|عايز|عاوز|محتاج|ابعت|هات)(?:\s|$)/iu.test(withoutReference)) return false;
   return /[A-Za-z]{3,}/.test(strippedForwarded) || /\b\d+(?:\.\d+)?\s*(?:mg|mcg|gm|g|ml|%)\b/i.test(strippedForwarded) || /جل|كريم|شامبو|غسول|سيرم|سيروم|لوشن|بخاخ|قطره|قطرة|امبول|أمبول|كبسول|قرص|مرهم|spray|cream|gel|shampoo|serum|lotion|drops?|amp(?:oule)?/i.test(strippedForwarded);
 }
-function isGreetingOnly(text2) {
-  return GREETING_ONLY_RX.test((text2 || "").trim());
+function isGreetingOnly(text5) {
+  const withoutVocative = (text5 || "").trim().replace(
+    /\s+(?:(?:يا|يـ?)\s*)?(?:دكتور(?:نا)?|دكتورة|دكتوره|حضرتك|فندم)[.!،\s]*$/iu,
+    ""
+  ).trim();
+  return GREETING_ONLY_RX.test(withoutVocative);
 }
-function isBareAcknowledgementOnly(text2) {
-  return WEAK_IMPLICIT_RX.test((text2 || "").trim());
+function isBareAcknowledgementOnly(text5) {
+  return WEAK_IMPLICIT_RX.test((text5 || "").trim());
 }
 function isSubstantiveConfirmationSignal(signal) {
   return signal.confidence >= 0.5;
 }
-function isAcceptanceOnly(text2) {
-  return ACCEPTANCE_RX.test((text2 || "").trim());
+function isAcceptanceOnly(text5) {
+  return ACCEPTANCE_RX.test((text5 || "").trim());
 }
 var COMMITMENT_ONLY_RX = /^(?:(?:تمام|ماشي|اوك|ok|خلاص|ايوه|ايوا|اه|آه|أه|طيب|حلو|موافق)[،,!.\s]*)*(?:هاته|هاتها|هاتهم|هاتيه|هاتيها|ابعته|ابعتها|ابعتهم|ابعتيه|ابعتيها|خليه|خليها|هاخده|هاخدها|هاخدهم|(?:هات|ابعت|ابعتلي|هاتلي)\s*(?:ده|دي|دا|دول|البديل))(?:[،,!.\s]*(?:لو\s*سمحت|من\s*فضلك|يا\s*(?:دكتور[ةه]?|فندم)|بسرعة|خلاص|تمام))*[!.،,\s]*$/i;
-function isCommitmentOnly(text2) {
-  return COMMITMENT_ONLY_RX.test((text2 || "").trim());
+function isCommitmentOnly(text5) {
+  return COMMITMENT_ONLY_RX.test((text5 || "").trim());
 }
-function isRejectionOnly(text2) {
-  return REJECTION_RX.test((text2 || "").trim());
+function isRejectionOnly(text5) {
+  return REJECTION_RX.test((text5 || "").trim());
 }
-function isThanksOrClosingOnly(text2) {
-  return THANKS_CLOSING_ONLY_RX.test((text2 || "").trim());
+var OPERATIONAL_SERVICE_REQUEST_RX = /(?:ممكن|لو سمحت|عايز|عاوز|محتاج|ابعت|ابعث|تبعت|تبعث|هات|حد).{0,100}(?:التمريض|مالتمريض|ممرض(?:ة)?)/iu;
+var OPERATIONAL_SERVICE_CLOSURE_RX = /(?:الممرض|التمريض|الممرضه|الممرضة)\s*(?:وصل|جه|جت|خلص|ركب|مشي)|(?:وصل|جه)\s*(?:الممرض|التمريض)|خلاص\s*(?:مش\s*)?(?:محتاج|عايز)[^\n]{0,20}(?:الممرض|التمريض)|(?:ألغي|الغي|إلغاء|الغاء)\s*(?:الطلب|الممرض|التمريض)/iu;
+var INDEPENDENT_COMMERCIAL_NEED_RX = new RegExp("(?:\u0639\u0644\u0628(?:\u0629|\u0647|\u062A\u064A\u0646|\u0627\u062A)?|\u0634\u0631\u064A\u0637|\u0631\u0648\u0634\u062A[\u0629\u0647]|\u0623\u0642\u0631\u0627\u0635|\u0627\u0642\u0631\u0627\u0635|\u062D\u0628\u0648\u0628|(?<!\\p{L})(?:\u0627\u0644|\u0648|\u0628)?\u062F\u0648\u0627\u0621?(?!\\p{L})|\u0634\u0631\u0627\u0628|\u0643\u0628\u0633\u0648\u0644|\u0627\u0645\u0628\u0648\u0644|\u0623\u0645\u0628\u0648\u0644|\u0641\u064A\u0627\u0644|\u0643\u0631\u064A\u0645|\u0628\u0643\u0627\u0645|\u0633\u0639\u0631|\u0639\u0646\u062F\u0643\u0645|\u0645\u062A\u0648\u0641\u0631|\u0645\u062A\u0627\u062D)", "iu");
+var EXPLICIT_PRODUCT_OR_PRICE_RX = new RegExp("(?:\u0639\u0644\u0628(?:\u0629|\u0647|\u062A\u064A\u0646|\u0627\u062A)?|\u0634\u0631\u064A\u0637|\u0631\u0648\u0634\u062A[\u0629\u0647]|\u0623\u0642\u0631\u0627\u0635|\u0627\u0642\u0631\u0627\u0635|\u062D\u0628\u0648\u0628|(?<!\\p{L})(?:\u0627\u0644|\u0648|\u0628)?\u062F\u0648\u0627\u0621?(?!\\p{L})|\u0634\u0631\u0627\u0628|\u0643\u0628\u0633\u0648\u0644|\u0627\u0645\u0628\u0648\u0644|\u0623\u0645\u0628\u0648\u0644|\u0641\u064A\u0627\u0644|\u0643\u0631\u064A\u0645|\u0628\u0643\u0627\u0645|\u0633\u0639\u0631)", "iu");
+var SERVICE_NEED_REFERENCE_RX = /(?:ممرض|تمريض|كانيولا|بيسرب|تسريب|ييجي|يجي|هيجي|جاي|يوصل|اتأخر|شوفه\s+تاني)/iu;
+function isOperationalServiceRequest(message) {
+  return message.role === "customer" && message.isMeaningful && OPERATIONAL_SERVICE_REQUEST_RX.test(message.text || "");
+}
+function isOperationalServiceClosure(message) {
+  return message.isMeaningful && OPERATIONAL_SERVICE_CLOSURE_RX.test(message.text || "");
+}
+function startsIndependentCommercialNeed(message) {
+  return message.role === "customer" && message.isMeaningful && (REQUEST_VERB_RX.test(message.text || "") && !OPERATIONAL_SERVICE_REQUEST_RX.test(message.text || "") || INDEPENDENT_COMMERCIAL_NEED_RX.test(message.text || ""));
+}
+function startsIndependentCommercialNeedDuringOpenService(message) {
+  if (!startsIndependentCommercialNeed(message)) return false;
+  const text5 = message.text || "";
+  return !SERVICE_NEED_REFERENCE_RX.test(text5) || EXPLICIT_PRODUCT_OR_PRICE_RX.test(text5);
+}
+function isThanksOrClosingOnly(text5) {
+  const value = (text5 || "").trim();
+  return THANKS_CLOSING_ONLY_RX.test(value) || COURTESY_ONLY_TOKENS_RX.test(value) && THANKS_WORD_RX.test(value);
 }
 function isRequestCandidate(message) {
   if (message.role !== "customer" || !message.isMeaningful) return false;
-  const text2 = message.text;
-  if (isGreetingOnly(text2)) return false;
-  if (isBareAcknowledgementOnly(text2)) return false;
-  if (isAcceptanceOnly(text2)) return false;
-  if (isCommitmentOnly(text2)) return false;
-  if (isRejectionOnly(text2)) return false;
-  if (!REQUEST_VERB_RX.test(text2) && (isNonRequestIntentStatement(text2) || classifyCustomerTimingRequestV32(text2))) {
+  const text5 = message.text;
+  if (isGreetingOnly(text5)) return false;
+  if (/^(?:لو\s*سمحت(?:ي)?|من\s*فضلك|بعد\s*[إا]ذنك)(?:\s*بس)?[\s؟?!.،]*$/u.test(text5.trim())) return false;
+  if (isBareAcknowledgementOnly(text5)) return false;
+  if (isAcceptanceOnly(text5)) return false;
+  if (isCommitmentOnly(text5)) return false;
+  if (isRejectionOnly(text5)) return false;
+  if (!REQUEST_VERB_RX.test(text5) && (isNonRequestIntentStatement(text5) || classifyCustomerTimingRequestV32(text5))) {
     return false;
   }
-  if (isThanksOrClosingOnly(text2)) return false;
+  if (isThanksOrClosingOnly(text5)) return false;
+  if (SATISFACTION_FEEDBACK_RX.test(text5) && !FEEDBACK_DISQUALIFIER_RX.test(text5)) return false;
   return true;
 }
 function contextWindowV32(messages, index, before = 3, after = 1) {
@@ -1022,10 +1061,10 @@ function contextWindowV32(messages, index, before = 3, after = 1) {
     after: meaningfulIndices.slice(pos + 1, pos + 1 + after).map((i) => messages[i])
   };
 }
-function classifyConfirmationStrength(text2) {
-  if (EXPLICIT_CONFIRMATION_RX.test(text2)) return "explicit";
-  if (STRONG_IMPLICIT_CONFIRMATION_RX.test(text2)) return "strong_implicit";
-  if (WEAK_IMPLICIT_RX.test(text2.trim())) return "weak_implicit";
+function classifyConfirmationStrength(text5) {
+  if (EXPLICIT_CONFIRMATION_RX.test(text5)) return "explicit";
+  if (STRONG_IMPLICIT_CONFIRMATION_RX.test(text5)) return "strong_implicit";
+  if (WEAK_IMPLICIT_RX.test(text5.trim())) return "weak_implicit";
   return "none";
 }
 function isConfirmationContextuallyLinked(messages, index) {
@@ -1221,8 +1260,8 @@ function extractDeliverySignals(messages) {
 function extractPromiseSignals(messages) {
   return messages.filter((m) => m.role === "staff" && m.isMeaningful && PROMISE_RX.test(m.text)).map((m) => ({ type: "promise", messageId: m.id, confidence: 0.6, ruleId: "promise.future_fulfillment_phrase" }));
 }
-function statementClauses(text2) {
-  return (text2.match(/[^؟?.!\n،,]+[؟?]?/g) || []).map((clause) => clause.trim()).filter((clause) => clause.length > 0 && !/[؟?]$/.test(clause));
+function statementClauses(text5) {
+  return (text5.match(/[^؟?.!\n،,]+[؟?]?/g) || []).map((clause) => clause.trim()).filter((clause) => clause.length > 0 && !/[؟?]$/.test(clause));
 }
 function clauseAvailabilityState(clause) {
   if (NON_STOCK_AVAILABILITY_CONTEXT_RX.test(clause)) return null;
@@ -1233,11 +1272,11 @@ function clauseAvailabilityState(clause) {
   if (check) return "check_pending";
   return null;
 }
-function availabilityStatementClausesV32(text2) {
-  return statementClauses(text2).map((clause) => ({ clause, state: clauseAvailabilityState(clause) })).filter((row) => row.state !== null);
+function availabilityStatementClausesV32(text5) {
+  return statementClauses(text5).map((clause) => ({ clause, state: clauseAvailabilityState(clause) })).filter((row) => row.state !== null);
 }
-function classifyAvailabilityStatementV32(text2) {
-  const states = statementClauses(text2).map((clause) => clauseAvailabilityState(clause)).filter((state) => state !== null);
+function classifyAvailabilityStatementV32(text5) {
+  const states = statementClauses(text5).map((clause) => clauseAvailabilityState(clause)).filter((state) => state !== null);
   if (states.includes("unavailable")) return "unavailable";
   if (states.includes("available")) return "available";
   if (states.includes("check_pending")) return "check_pending";
@@ -1260,13 +1299,13 @@ function extractAvailabilitySignals(messages) {
   return signals;
 }
 var ALTERNATIVE_LEAD_FILLER_RX = /^(?:(?:فيه|في|عندنا|ممكن|ينفع|نقدر|نجيب|أجيب|اجيب|نديلك|أقدم|اقدم|نقدم|أرشح|ارشح|لحضرتك|و)(?=\s|$)|[\s:\-،])+/i;
-function alternativePhraseAfter(text2, marker) {
-  const match = text2.match(marker);
+function alternativePhraseAfter(text5, marker) {
+  const match = text5.match(marker);
   if (!match || match.index == null) return null;
-  const tail = text2.slice(match.index + match[0].length).split(/[؟?\n.!،,]/)[0].replace(ALTERNATIVE_PHRASE_FILLER_RX, "").trim();
+  const tail = text5.slice(match.index + match[0].length).split(/[؟?\n.!،,]/)[0].replace(ALTERNATIVE_PHRASE_FILLER_RX, "").trim();
   if (tail.length >= 2) return tail.slice(0, 80);
-  const clauseStart = Math.max(...["\u060C", ",", ".", "\n", "\u061F", "?"].map((sep) => text2.lastIndexOf(sep, match.index - 1)));
-  const head = text2.slice(clauseStart + 1, match.index).replace(ALTERNATIVE_LEAD_FILLER_RX, "").trim();
+  const clauseStart = Math.max(...["\u060C", ",", ".", "\n", "\u061F", "?"].map((sep) => text5.lastIndexOf(sep, match.index - 1)));
+  const head = text5.slice(clauseStart + 1, match.index).replace(ALTERNATIVE_LEAD_FILLER_RX, "").trim();
   return head.length >= 2 && head.split(/\s+/).length <= 4 ? head.slice(0, 80) : null;
 }
 function extractAlternativeOfferSignals(messages) {
@@ -1297,49 +1336,83 @@ var BOUGHT_ELSEWHERE_RX = /(?:جبت|اشتريت|خدت|لقيت|هجيب|هش�
 var FINAL_DECLINE_RX = /مش\s*(?:عايز|عاوز|محتاج)[ةه]?\s*خلاص|خلاص\s*مش\s*(?:عايز|عاوز|محتاج)|^لا\s*خلاص|لا\s*خلاص\s*مش|خلاص\s*(?:بلاش|مش\s*لازم)|(?:ا|أ|إ)لغي\s*الطلب|كنسل\s*الطلب|مبقتش\s*(?:محتاج|عايز|عاوز)/i;
 var DELAY_COMPLAINT_RX = /اتأخرت(?:وا)?|متأخرين|محدش\s*(?:رد|بيرد)|ليه\s*محدش|بقالي\s*(?:ساع[ةه]|كتير|فتر[ةه])|مستني\s*من\s*بدري/i;
 var WILL_WAIT_RX = /هستنا(?:ه|ها)?|هستنى|(?:ابقى|ابقي)\s*(?:بلغني|كلمني|قولي|عرفني)|لما\s*(?:\S+\s+){0,3}?(?:يوصل|يتوفر|ييجي|ينزل)|بلغني\s*لما|عرفني\s*لما/i;
-function isNonRequestIntentStatement(text2) {
-  const intent = classifyCustomerIntentStatementV32(text2);
+function isNonRequestIntentStatement(text5) {
+  const intent = classifyCustomerIntentStatementV32(text5);
   return intent === "considering" || intent === "will_wait" || intent === "final_decline" || intent === "bought_elsewhere";
 }
-function classifyCustomerIntentStatementV32(text2) {
-  if (BOUGHT_ELSEWHERE_RX.test(text2)) return "bought_elsewhere";
-  if (FINAL_DECLINE_RX.test(text2)) return "final_decline";
-  if (DELAY_COMPLAINT_RX.test(text2)) return "delay_complaint";
-  if (WILL_WAIT_RX.test(text2)) return "will_wait";
-  if (CONSIDERING_RX.test(text2)) return "considering";
+function classifyCustomerIntentStatementV32(text5) {
+  if (BOUGHT_ELSEWHERE_RX.test(text5)) return "bought_elsewhere";
+  if (FINAL_DECLINE_RX.test(text5)) return "final_decline";
+  if (DELAY_COMPLAINT_RX.test(text5)) return "delay_complaint";
+  if (WILL_WAIT_RX.test(text5)) return "will_wait";
+  if (CONSIDERING_RX.test(text5)) return "considering";
   return null;
 }
-var CUSTOMER_CALLBACK_RX = /كلمني|كلميني|كلمنى|اتصل(?:\s*(?:بي|بيا|عليا))?|رن\s*عليا|تابع\s*معايا|ابقى\s*(?:كلمني|تابع|بلغني|عرفني)|بلغني|عرفني|ابعتلي\s*لما/i;
-var WHEN_IN_STOCK_RX = /لما\s*(?:\S+\s+){0,3}?(?:يوصل|يتوفر|ييجي|ينزل|تجيبه|تجيبوه|يبقى\s*موجود)/i;
+var CUSTOMER_CALLBACK_RX = /(?<![\p{L}])(?:و?(?:كلمني|كلميني|كلمنى|اتصل(?:\s*(?:بي|بيا|عليا))?|رن\s*عليا|تابع\s*معايا|ابقى\s*(?:كلمني|تابع|بلغني|عرفني)|بلغني|عرفني|ابعتلي\s*لما))(?![\p{L}])/iu;
+var WHEN_IN_STOCK_RX = /(?:لما|[أا]ول\s*ما)\s*(?:\S+\s+){0,3}?(?:يوصل|يتوفر|ييجي|ينزل|تجيبه|تجيبوه|يبقى\s*موجود)/i;
 var TOMORROW_RX = /بكر[ةه]|بكرا/i;
 var AFTER_DAYS_RX = /بعد\s*(?:(يومين)|(\d+)\s*(?:يوم|أيام|ايام)|(اسبوع|أسبوع))/i;
 var SAME_DAY_RX = /النهارد[ةه]|بالليل|كمان\s*ساع[ةه]|بعد\s*ساع[ةه]|آخر\s*النهار|اخر\s*النهار/i;
 var PRESCRIPTION_REQUEST_RX = /(?:ابعت|ابعتي|ابعتلنا|محتاج(?:ين)?|لازم|ممكن)\s*(?:\S+\s*){0,2}(?:صور[ةه]\s*)?(?:ال)?(?:روشت[ةه]|وصف[ةه]\s*طبي[ةه])/i;
-function isStaffFollowUpPromiseV32(text2) {
-  return classifyStaffCommitmentsV32(text2).length > 0;
+function isStaffFollowUpPromiseV32(text5) {
+  return classifyStaffCommitmentsV32(text5).length > 0;
 }
-function mentionsPrescriptionV32(text2) {
-  return /روشت[ةه]|وصف[ةه]\s*طبي[ةه]/i.test(text2);
+function mentionsPrescriptionV32(text5) {
+  return /روشت[ةه]|وصف[ةه]\s*طبي[ةه]/i.test(text5);
 }
-function isPrescriptionRequestV32(text2) {
-  return PRESCRIPTION_REQUEST_RX.test(text2);
+function isPrescriptionRequestV32(text5) {
+  return PRESCRIPTION_REQUEST_RX.test(text5);
 }
-function classifyCustomerTimingRequestV32(text2) {
-  const callback = CUSTOMER_CALLBACK_RX.test(text2);
-  const waitForStock = WHEN_IN_STOCK_RX.test(text2);
+function classifyCustomerTimingRequestV32(text5) {
+  const requestedContact = /(?:ممكن|خلي|عايز[هة]?|عاوز[هة]?|محتاج[هة]?)\s*(?:(?:المندوب|الدليفري|حضرتك|حد)\s*)?(?:[يت]كلم(?:ي)?ني|[يت]تصل\s*(?:بي|بيا))(?![\p{L}])/giu;
+  const requested = [...text5.matchAll(requestedContact)].some((match) => !/(?:مش|لا)\s*$/u.test(text5.slice(0, match.index)));
+  const callback = requested || [...text5.matchAll(new RegExp(CUSTOMER_CALLBACK_RX.source, "giu"))].some((match) => {
+    const before = text5.slice(0, match.index);
+    if (/(?:المندوب|الدليفري|هو|هي)\s+(?:كان\s*)?$/u.test(before)) return false;
+    return !/^و?اتصل\s*(?:بي|بيا|عليا)\s*تان[يى]\s*الساع[ةه]/u.test(text5.slice(match.index));
+  });
+  const waitForStock = WHEN_IN_STOCK_RX.test(text5);
   if (!callback && !waitForStock) return null;
   if (waitForStock) return { when: "when_in_stock", days: null };
-  const days = text2.match(AFTER_DAYS_RX);
+  const days = text5.match(AFTER_DAYS_RX);
   if (days) return { when: "days", days: days[1] ? 2 : days[2] ? Number(days[2]) : 7 };
-  if (TOMORROW_RX.test(text2)) return { when: "days", days: 1 };
-  if (SAME_DAY_RX.test(text2)) return { when: "same_day", days: 0 };
+  if (TOMORROW_RX.test(text5)) return { when: "days", days: 1 };
+  if (SAME_DAY_RX.test(text5)) return { when: "same_day", days: 0 };
   return { when: "unspecified", days: null };
 }
+function extractCustomerTimingRequestsV32(messages) {
+  const rows = messages.filter((m) => m.isMeaningful && (m.role === "customer" || m.role === "staff"));
+  const results = [];
+  for (let index = 0; index < rows.length; index++) {
+    const message = rows[index];
+    if (message.role !== "customer") continue;
+    const direct = classifyCustomerTimingRequestV32(message.text);
+    if (direct) {
+      results.push({ message, timing: direct, evidenceMessageIds: [message.id] });
+      continue;
+    }
+    if (!/(?:بس|لما|بعد\s*ما)\s*(?:[تاأن]خلص|[اأ]نتهي|ينتهي)(?![\p{L}])/u.test(message.text)) continue;
+    let offerIndex = index - 1;
+    while (offerIndex >= 0 && rows[offerIndex].role === "customer" && index - offerIndex <= 5) offerIndex--;
+    const offer = rows[offerIndex];
+    if (!offer || offer.role !== "staff" || message.timestamp.getTime() - offer.timestamp.getTime() > 5 * 6e4) continue;
+    if (!/(?:تسمح|ممكن|ينفع|[اأ]ذن|فرص[ةه]|وقت).{0,60}(?:[اأ]تصل|[اأ]كلم|نتواصل)/u.test(offer.text)) continue;
+    const burst = [];
+    for (let next = offerIndex + 1; next < rows.length && next <= offerIndex + 5; next++) {
+      const part = rows[next];
+      if (part.role !== "customer" || part.sender !== message.sender || part.timestamp.getTime() - offer.timestamp.getTime() > 5 * 6e4) break;
+      burst.push(part);
+    }
+    if (!burst.some((part) => part.id === message.id) || burst.some((part) => WHEN_IN_STOCK_RX.test(part.text))) continue;
+    results.push({ message, timing: { when: "unspecified", days: null }, evidenceMessageIds: [offer.id, ...burst.map((part) => part.id)] });
+  }
+  return results;
+}
 var LEADING_NO_RX = /^(?:لا|لأ)(?:\s*[،,.!]|\s+(?=\S))/;
-function classifyCustomerOfferResponseV32(text2) {
-  if (REJECTION_RX.test(text2) || LEADING_NO_RX.test(text2.trim()) && !THANKS_CLOSING_ONLY_RX.test(text2.trim())) return "rejected";
-  if (CONSIDERING_RX.test(text2)) return "considering";
-  if (ACCEPTANCE_RX.test(text2) || ACCEPT_OFFER_RX.test(text2)) return "accepted";
+function classifyCustomerOfferResponseV32(text5) {
+  if (REJECTION_RX.test(text5) || LEADING_NO_RX.test(text5.trim()) && !THANKS_CLOSING_ONLY_RX.test(text5.trim())) return "rejected";
+  if (CONSIDERING_RX.test(text5)) return "considering";
+  if (ACCEPTANCE_RX.test(text5) || ACCEPT_OFFER_RX.test(text5)) return "accepted";
   return null;
 }
 function buildSemanticSignalsV32(messages) {
@@ -1390,16 +1463,16 @@ function computeRequestBurstIds(messages, gapMs = 3 * 60 * 1e3) {
 // src/lib/whatsappConversationUnderstandingV32.ts
 var EMOJI_RX = new RegExp("\\p{Extended_Pictographic}", "u");
 var NON_EMOJI_MEANINGFUL_RX = /[\p{L}\p{N}]/u;
-function isEmojiOnlyText(text2) {
-  const trimmed = (text2 || "").trim();
+function isEmojiOnlyText(text5) {
+  const trimmed = (text5 || "").trim();
   if (!trimmed) return false;
   if (!EMOJI_RX.test(trimmed)) return false;
   return !NON_EMOJI_MEANINGFUL_RX.test(trimmed);
 }
 var PLACEHOLDER_ONLY_RX = /^<[^<>]*\bomitted>$|^\[(?:voice message|image|video|document|file|sticker)\]$|^(?:this message was deleted|you deleted this message)$/i;
 var FORWARDED_PREFIX_RX = /^\[Forwarded\]\s*/i;
-function isPlaceholderOnlyText(text2) {
-  const stripped = (text2 || "").trim().replace(FORWARDED_PREFIX_RX, "").trim();
+function isPlaceholderOnlyText(text5) {
+  const stripped = (text5 || "").trim().replace(FORWARDED_PREFIX_RX, "").trim();
   return PLACEHOLDER_ONLY_RX.test(stripped);
 }
 var INTERACTION_GAP_MS = 30 * 60 * 1e3;
@@ -1410,8 +1483,21 @@ var FULFILLMENT_FOLLOWUP_RX = /(?:بعت|بعتوا|اتبعت|اتبعث).*?(?:
 var PRIOR_ORDER_REFERENCE_RX = /(?:بخصوص|بالنسبة\s*ل).*?(?:الاوردر|الأوردر|الطلب)|(?:الاوردر|الأوردر|الطلب).*?(?:اللي\s*فات|السابق|بتاعي|بتاعتي|القديم)|المندوب.*?(?:فين|وصل|الطريق)/i;
 var ORDER_DETAIL_CONTINUATION_RX = /العنوان|عنواني|اللوكيشن|الموقع|رقمي|رقم\s*(?:الموبايل|التليفون)|الموبايل|التليفون|الدور|الشقه|الشقة|العماره|العمارة/i;
 var PAYMENT_SETTLEMENT_CONTINUATION_RX = /رقم\s*التحويل|(?:صوره|صورة)\s*التحويل|استاذن[^\n]{0,80}(?:صوره|صورة)[^\n]{0,40}التحويل|رابط\s*الدفع|لينك\s*الدفع/i;
-function hasPaymentSettlementHandoffText(text2) {
-  return PAYMENT_SETTLEMENT_CONTINUATION_RX.test(text2 || "");
+function hasPaymentSettlementHandoffText(text5) {
+  return PAYMENT_SETTLEMENT_CONTINUATION_RX.test(text5 || "");
+}
+var OPEN_SERVICE_NEED_MAX_GAP_MS = 12 * 60 * 60 * 1e3;
+function openServiceNeed(current) {
+  let open = null;
+  for (const message of current) {
+    if (isOperationalServiceRequest(message)) open = message;
+    else if (open && isOperationalServiceClosure(message)) open = null;
+  }
+  return open;
+}
+function continuesOpenServiceNeed(current, next, gapMs) {
+  if (next.role !== "customer" || !next.isMeaningful || gapMs > OPEN_SERVICE_NEED_MAX_GAP_MS) return false;
+  return Boolean(openServiceNeed(current)) && !startsIndependentCommercialNeedDuringOpenService(next);
 }
 var ADDITIVE_REQUEST_RX = /(?:^|\s)(?:وكمان|كمان|وزود|زود|ضيف|معاهم|معاه|مع\s*الطلب)(?:\s|$)/i;
 var STAFF_PENDING_REPLY_RX = /لحظات|ثواني|دقيق[ةه]|اشوف|أشوف|هشوف|هراجع|هتأكد|هاتأكد|جاري\s*(?:المراجعه|المراجعة|البحث)/i;
@@ -1454,8 +1540,8 @@ function hasLinkedCorrectionContinuation(current, next) {
     (signal) => signal.messageId === next.id && (signal.relatedMessageIds?.length ?? 0) > 0
   );
 }
-function isCustomerCourtesyOrResponseOnly(text2) {
-  const value = (text2 || "").trim();
+function isCustomerCourtesyOrResponseOnly(text5) {
+  const value = (text5 || "").trim();
   return isAcceptanceOnly(value) || isRejectionOnly(value) || isBareAcknowledgementOnly(value) || isThanksOrClosingOnly(value) || CUSTOMER_COURTESY_RESPONSE_RX.test(value);
 }
 function isCustomerResponseContinuation(current, next) {
@@ -1478,8 +1564,10 @@ function hasStrongSemanticContinuation(current, next, gapMs) {
     return true;
   }
   if (next.role !== "customer" || !next.isMeaningful) return false;
+  if (continuesOpenServiceNeed(current, next, gapMs)) return true;
   if (isSameOrderContinuation(current, next, gapMs)) return true;
   if (gapMs <= SEMANTIC_CONTINUATION_MAX_GAP_MS) {
+    if (current.some(isServiceMessage) && !isExplicitCommercialRequest(next) && /الوالد|والدي|الخدم[ةه]|التمريض|الممرض|اتحسن|تحسن|الحمد\s*لله/u.test(next.text)) return true;
     if (hasResolvedProductReferenceContinuation(current, next)) return true;
     if (hasLinkedCorrectionContinuation(current, next)) return true;
     if (isCustomerResponseContinuation(current, next)) return true;
@@ -1524,12 +1612,27 @@ function normalizeMessage(message, staffNames, customerName) {
     requestBurstId: null
   };
 }
+function isServiceMessage(message) {
+  return message.staffFunction === "customer_service" || isCustomerServiceIntroduction(message);
+}
+function serviceToNewNeedBoundary(current, next) {
+  const consultation = (m) => m.role === "customer" && m.isMeaningful && /(?:عايز|عاوز|محتاج|ممكن|عندي).{0,30}(?:استشار[ةه]|سؤال\s*طبي)|(?:ممكن|عايز|عاوز)\s*(?:اسأل|أسأل)\s*(?:ال)?دكتور/u.test(m.text);
+  if (!current.some(isServiceMessage) || !(isExplicitCommercialRequest(next) || consultation(next)) || current.some((m) => isExplicitCommercialRequest(m) || consultation(m))) return null;
+  let lastCustomerIndex = -1;
+  current.forEach((m, i) => {
+    if (m.role === "customer" && m.isMeaningful) lastCustomerIndex = i;
+  });
+  if (lastCustomerIndex < 0) return null;
+  const trailingIntro = current.findIndex((m, i) => i > lastCustomerIndex && m.direction === "outbound" && Boolean(extractIntroducedStaffName(m)) && !isCustomerServiceIntroduction(m));
+  return trailingIntro >= 0 ? trailingIntro : current.length;
+}
 function segmentInteractions(messages) {
   if (!messages.length) return [];
   const interactions = [];
   let current = [];
   let reason = "conversation_start";
   let sawClosingSinceLastMeaningfulInbound = false;
+  let continuationEvidence = [];
   const flush = () => {
     if (!current.length) return;
     const index = interactions.length;
@@ -1549,20 +1652,43 @@ function segmentInteractions(messages) {
       endedAt: current[current.length - 1].timestamp,
       triggerMessageId: trigger?.id || null,
       primaryStaffNames: staffNames,
-      segmentationReason: reason
+      segmentationReason: reason,
+      ...continuationEvidence.length ? { continuationEvidence } : {}
     });
     current = [];
+    continuationEvidence = [];
     sawClosingSinceLastMeaningfulInbound = false;
   };
   messages.forEach((message, i) => {
     const prev = messages[i - 1];
+    let longGapContinuation = null;
     if (prev && current.length) {
       const previousMeaningful = [...current].reverse().find((candidate) => candidate.isMeaningful) || prev;
       const gapMs = message.timestamp.getTime() - previousMeaningful.timestamp.getTime();
       const semanticContinuation = shouldKeepSemanticContinuation(current, message, gapMs);
       const fulfilledCurrentOrder = currentHasOrderCommitment(current);
       const additiveRequest = ADDITIVE_REQUEST_RX.test(message.text);
-      if (gapMs > INTERACTION_GAP_MS && !semanticContinuation) {
+      const serviceBoundary = serviceToNewNeedBoundary(current, message);
+      const interactionCountBefore = interactions.length;
+      if (gapMs > INTERACTION_GAP_MS && semanticContinuation && message.isMeaningful) {
+        longGapContinuation = {
+          messageId: message.id,
+          reason: continuesOpenServiceNeed(current, message, gapMs) ? "open_service_need_followup" : "semantic_continuation"
+        };
+      }
+      const openService = Boolean(openServiceNeed(current));
+      if (openService && startsIndependentCommercialNeedDuringOpenService(message)) {
+        flush();
+        reason = "new_commercial_need";
+      } else if (!openService && isOperationalServiceRequest(message) && current.some((m) => m.role === "customer" && m.isMeaningful && startsIndependentCommercialNeed(m)) && !startsIndependentCommercialNeed(message)) {
+        flush();
+        reason = "new_service_need";
+      } else if (serviceBoundary !== null) {
+        const trailing = current.splice(serviceBoundary);
+        flush();
+        current = trailing;
+        reason = "customer_service_new_need";
+      } else if (gapMs > INTERACTION_GAP_MS && !semanticContinuation) {
         flush();
         reason = "time_gap";
       } else if (message.role === "customer" && message.isMeaningful && TOPIC_SHIFT_MARKER_RX.test(message.text) && !hasStrongSemanticContinuation(current, message, gapMs)) {
@@ -1575,6 +1701,7 @@ function segmentInteractions(messages) {
         flush();
         reason = "new_commercial_need";
       }
+      if (longGapContinuation && interactions.length === interactionCountBefore) continuationEvidence.push(longGapContinuation);
     }
     if (message.role === "staff" && message.isMeaningful && CLOSING_RX.test(message.text)) {
       sawClosingSinceLastMeaningfulInbound = true;
@@ -1587,9 +1714,12 @@ function segmentInteractions(messages) {
   flush();
   return interactions;
 }
-function buildConversationUnderstandingV32(session) {
+function buildConversationUnderstandingV32(session, context = {}) {
   const staffNames = new Set(session.outboundStaffNames || []);
   const messages = session.messages.slice().sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime()).map((message) => normalizeMessage(message, staffNames, session.customerName));
+  for (const message of messages) {
+    if (message.role === "staff" && context.customerServiceMessageIds?.has(message.id)) message.staffFunction = "customer_service";
+  }
   const interactions = segmentInteractions(messages);
   const burstIdByMessageId = computeRequestBurstIds(messages);
   messages.forEach((message) => {
@@ -1634,8 +1764,8 @@ var PAYMENT_CONTINUATION_MAX_MS = 24 * 60 * 60 * 1e3;
 function asciiDigits(value) {
   return value.replace(/[٠-٩]/g, (digit) => String(digit.charCodeAt(0) - 1632)).replace(/[۰-۹]/g, (digit) => String(digit.charCodeAt(0) - 1776)).replace("\u066B", ".").replace(",", ".");
 }
-function parseCompactAmount(text2) {
-  const match = asciiDigits(text2.trim()).match(COMPACT_AMOUNT_RX);
+function parseCompactAmount(text5) {
+  const match = asciiDigits(text5.trim()).match(COMPACT_AMOUNT_RX);
   if (!match) return null;
   const value = Number(match[1]);
   return Number.isFinite(value) ? value : null;
@@ -1783,7 +1913,19 @@ function hasUnresolvedMultipleRequests(messages, requestMessages) {
   }
   return false;
 }
-function deriveCaseForInteraction(understanding, interaction, input) {
+var NURSING_VISIT_REQUEST_RX = OPERATIONAL_SERVICE_REQUEST_RX;
+var NURSING_SERVICE_CHASE_RX = /(?:شوفه\s+تاني|كلم\s+الممرض|هكلم\s+الممرض|فين\s+الممرض|الممرض\s+فين|الممرض\s+مجاش|التمريض\s+مجاش|مجاش\s+لسه)/iu;
+var EXPLICIT_MEDICINE_REQUEST_RX = /(?:علب(?:ة|تين|ات)?|شريط|روشتة|روشته|أقراص|اقراص|حبوب|دواء|دواءين|شراب|كبسولات|امبولات|امبول|فيال)/iu;
+function serviceOnlyIntent(messages, previousServiceRequestAt) {
+  const customerMessages2 = messages.filter((message) => message.role === "customer");
+  const customerText = customerMessages2.map((message) => message.text).join(" ");
+  if (!customerText || EXPLICIT_MEDICINE_REQUEST_RX.test(customerText) || /(?:وكمان|وممكن|وعايز|وعاوز|ومحتاج)(?=\s)/u.test(customerText)) return null;
+  if (NURSING_VISIT_REQUEST_RX.test(customerText)) return "nursing_visit";
+  const firstTime = customerMessages2[0]?.timestamp.getTime() ?? NaN;
+  const lastServiceWithinThreeHours = previousServiceRequestAt != null && Number.isFinite(firstTime) && firstTime >= previousServiceRequestAt && firstTime - previousServiceRequestAt <= 3 * 60 * 60 * 1e3;
+  return lastServiceWithinThreeHours && NURSING_SERVICE_CHASE_RX.test(customerText) ? "nursing_chase" : null;
+}
+function deriveCaseForInteraction(understanding, interaction, input, previousServiceRequestAt) {
   const messages = messagesForInteraction(understanding, interaction);
   const requestSignals = extractRequestSignals(messages);
   const requestMessages = requestSignals.map((s) => messages.find((m) => m.id === s.messageId)).filter((m) => Boolean(m));
@@ -1793,6 +1935,7 @@ function deriveCaseForInteraction(understanding, interaction, input) {
   const productReferenceSignals = extractProductReferenceSignals(messages).filter((s) => s.extractedValue !== "unknown");
   const acceptanceSignals = extractAcceptanceSignals(messages);
   const rejectionSignals = extractRejectionSignals(messages);
+  const serviceIntent = serviceOnlyIntent(messages, previousServiceRequestAt);
   const hasRequest = requestSignals.length > 0;
   const hasCommercialSignal = quantitySignals.length > 0 || priceSignals.length > 0 || productReferenceSignals.length > 0 || confirmationSignals.length > 0;
   let caseType;
@@ -1817,14 +1960,22 @@ function deriveCaseForInteraction(understanding, interaction, input) {
   }
   let needsHumanReview = false;
   const humanReviewReasons = [];
-  let level = hasRequest ? hasCommercialSignal ? "strongly_inferred" : "weakly_inferred" : "proven";
+  if (serviceIntent) {
+    caseType = "follow_up";
+    status = "unknown";
+    score = 0.9;
+    needsHumanReview = true;
+    humanReviewReasons.push("noncommercial_nursing_service_requires_review");
+    ruleIds.push(serviceIntent === "nursing_visit" ? "case.classification.nursing_visit_service_not_sale" : "case.classification.nursing_chase_service_not_sale");
+  }
+  let level = serviceIntent ? "strongly_inferred" : hasRequest ? hasCommercialSignal ? "strongly_inferred" : "weakly_inferred" : "proven";
   const explicitCommercialJourney = hasRequest && hasCommercialSignal && acceptanceSignals.length > 0 && confirmationSignals.length > 0 && rejectionSignals.length === 0;
-  if (explicitCommercialJourney) {
+  if (explicitCommercialJourney && !serviceIntent) {
     level = "proven";
     score = 1;
     ruleIds.push("case.classification.explicit_commercial_journey");
   }
-  if (hasUnresolvedMultipleRequests(messages, requestMessages)) {
+  if (!serviceIntent && hasUnresolvedMultipleRequests(messages, requestMessages)) {
     caseType = "mixed";
     needsHumanReview = true;
     humanReviewReasons.push(
@@ -1879,7 +2030,191 @@ function deriveCaseForInteraction(understanding, interaction, input) {
   };
 }
 function deriveConversationCases(input) {
-  return input.understanding.interactions.map((interaction) => deriveCaseForInteraction(input.understanding, interaction, input));
+  let previousServiceRequestAt = null;
+  const cases = [];
+  for (const interaction of input.understanding.interactions) {
+    const messages = messagesForInteraction(input.understanding, interaction);
+    const serviceIntent = serviceOnlyIntent(messages, previousServiceRequestAt);
+    const current = deriveCaseForInteraction(input.understanding, interaction, input, previousServiceRequestAt);
+    cases.push(current);
+    if (serviceIntent === "nursing_visit" || serviceIntent === "nursing_chase") {
+      previousServiceRequestAt = new Date(current.endedAt).getTime();
+    } else if (current.caseType === "sales_opportunity" || current.caseType === "mixed") {
+      previousServiceRequestAt = null;
+    }
+  }
+  return cases;
+}
+
+// src/lib/salesIntelligence/caseOwnershipContext.ts
+function deriveCaseOwnershipContext(input) {
+  const introductions = input.messages.filter((m) => Boolean(extractIntroducedStaffName(m)));
+  const ids = /* @__PURE__ */ new Set();
+  const blockers = [];
+  for (const message of input.messages.filter((m) => m.role === "staff")) {
+    const introduced = Boolean(extractIntroducedStaffName(message));
+    const id = introduced ? input.staffIdByIntroductionMessageId?.[message.id] : input.staffIdBySender?.[message.sender];
+    if (id) ids.add(id);
+    else if (introduced) blockers.push("introduced_staff_unresolved");
+  }
+  const owners = [...ids].flatMap((id) => input.staffProfilesById?.[id] ? [input.staffProfilesById[id]] : []);
+  const hasService = input.messages.some((m) => m.staffFunction === "customer_service") || introductions.some(isCustomerServiceIntroduction) || owners.some((p) => p.function === "customer_service");
+  const hasPharmacy = owners.some((p) => p.function === "pharmacist") || introductions.some((m) => {
+    const id = input.staffIdByIntroductionMessageId?.[m.id];
+    const profile = id ? input.staffProfilesById?.[id] : null;
+    return profile?.function !== "customer_service" && !isCustomerServiceIntroduction(m) && /(?:مع\s+حضرتك|معاك(?:ي)?)\s+(?:دكتور(?:ة)?|دكتوره|د\s*[/.-]?)\s+/u.test(m.text);
+  });
+  const department = hasService && hasPharmacy ? "mixed" : hasService ? "customer_service" : hasPharmacy ? "pharmacy" : "unresolved";
+  const explicit = /* @__PURE__ */ new Set();
+  for (const message of introductions) {
+    const match = message.text.match(/من\s+فرع\s+(شكري|الشامي)(?=[\s،,.!?؟]|$)/u);
+    if (match) {
+      const id = input.staffIdByIntroductionMessageId?.[message.id];
+      if (id && input.staffProfilesById?.[id]?.function === "pharmacist") {
+        explicit.add(normalizeBranchName(match[1]));
+      } else {
+        blockers.push("explicit_branch_staff_unresolved");
+      }
+    }
+  }
+  const sourceBranchNameRaw = input.sourceBranch?.trim() || null;
+  const source = isOperatingBranch(sourceBranchNameRaw) ? normalizeBranchName(sourceBranchNameRaw) : null;
+  const homeBranches = new Set(owners.filter((p) => p.function === "pharmacist" && isOperatingBranch(p.homeBranch)).map((p) => normalizeBranchName(p.homeBranch)));
+  let operationalBranch = null;
+  let branchBasis = "none";
+  if (department === "customer_service") {
+    if (sourceBranchNameRaw) blockers.push("service_case_does_not_inherit_source_branch");
+  } else if (explicit.size > 1 || explicit.size === 1 && source && !explicit.has(source)) {
+    branchBasis = "conflict";
+    blockers.push("case_branch_evidence_conflict");
+  } else if (explicit.size === 1) {
+    operationalBranch = [...explicit][0];
+    branchBasis = "explicit_introduction";
+  } else if (source) {
+    operationalBranch = source;
+    branchBasis = "source";
+  }
+  if (sourceBranchNameRaw && !source) blockers.push("source_branch_not_transaction_branch");
+  if (department === "mixed") blockers.push("multiple_staff_functions_require_review");
+  if (ids.size > 1) blockers.push("multiple_staff_owners_require_review");
+  if (operationalBranch && homeBranches.size && !homeBranches.has(operationalBranch)) blockers.push("staff_home_branch_differs_from_operation");
+  return {
+    contributions: deriveCaseStaffContributions(input),
+    department,
+    sourceBranchNameRaw,
+    operationalBranch,
+    branchBasis,
+    suggestedStaffBranch: department !== "customer_service" && homeBranches.size === 1 ? [...homeBranches][0] : null,
+    owners,
+    introductionMessageIds: introductions.map((m) => m.id),
+    blockers: [...new Set(blockers)]
+  };
+}
+function deriveCaseStaffContributions(input) {
+  const buckets = /* @__PURE__ */ new Map();
+  let introduced = null;
+  for (const message of input.messages) {
+    if (message.role !== "staff" || !message.isMeaningful) continue;
+    if (extractIntroducedStaffName(message)) introduced = input.staffIdByIntroductionMessageId?.[message.id] ?? null;
+    const id = input.staffIdByIntroductionMessageId?.[message.id] ?? input.staffIdBySender?.[message.sender] ?? introduced;
+    const key = id ?? "unresolved";
+    const profile = id ? input.staffProfilesById?.[id] : void 0;
+    const bucket = buckets.get(key) ?? {
+      staffId: id,
+      name: profile?.name ?? null,
+      function: profile?.function ?? (id ? "other" : "unresolved"),
+      messageIds: []
+    };
+    bucket.messageIds.push(message.id);
+    buckets.set(key, bucket);
+  }
+  return [...buckets.values()];
+}
+function recommendCaseBranch(input) {
+  const ownership = input.ownership;
+  if (!ownership) return { branch: null, strength: "none", reasons: ["\u0644\u0627 \u062A\u0648\u062C\u062F \u0623\u062F\u0644\u0629 \u0641\u0631\u0639 \u0639\u0644\u0649 \u0645\u0633\u062A\u0648\u0649 \u0627\u0644\u062D\u0627\u0644\u0629"] };
+  if (ownership.department === "customer_service") {
+    return { branch: null, strength: "none", reasons: ["\u062D\u0627\u0644\u0629 \u062E\u062F\u0645\u0629 \u0639\u0645\u0644\u0627\u0621\u061B \u0644\u0627 \u062A\u064F\u0646\u0633\u0628 \u0644\u0641\u0631\u0639 \u0628\u064A\u0639"] };
+  }
+  if (ownership.branchBasis === "conflict") {
+    return { branch: null, strength: "conflict", reasons: ["\u062A\u0639\u0627\u0631\u0636 \u0628\u064A\u0646 \u062A\u0639\u0631\u064A\u0641 \u0627\u0644\u0645\u0648\u0638\u0641 \u0648\u0641\u0631\u0639 \u0627\u0644\u0645\u0635\u062F\u0631"] };
+  }
+  if (ownership.operationalBranch) {
+    return {
+      branch: ownership.operationalBranch,
+      strength: "decided",
+      reasons: [ownership.branchBasis === "explicit_introduction" ? "\u0641\u0631\u0639 \u0635\u0631\u064A\u062D \u0641\u064A \u062A\u0639\u0631\u064A\u0641 \u062F\u0643\u062A\u0648\u0631 \u0645\u062D\u0633\u0648\u0645 \u0627\u0644\u0647\u0648\u064A\u0629" : "\u0641\u0631\u0639 \u0627\u0644\u0645\u0635\u062F\u0631 \u0641\u0631\u0639 \u062A\u0634\u063A\u064A\u0644 \u0645\u0639\u062A\u0645\u062F"]
+    };
+  }
+  const staffBranch = ownership.suggestedStaffBranch;
+  const invoiceBranch = input.invoiceCandidateStrong && !input.attributionUsedCaseBranch && isOperatingBranch(input.invoiceBranch) ? normalizeBranchName(input.invoiceBranch) : null;
+  const reasons = [];
+  if (ownership.sourceBranchNameRaw && !isOperatingBranch(ownership.sourceBranchNameRaw)) {
+    reasons.push(`\u0641\u0631\u0639 \u0627\u0644\u0645\u0635\u062F\u0631 \u0627\u0644\u0645\u0633\u062C\u0644 (${ownership.sourceBranchNameRaw}) \u0644\u064A\u0633 \u0641\u0631\u0639 \u062A\u0634\u063A\u064A\u0644`);
+  }
+  if (staffBranch) reasons.push(`\u0627\u0644\u0641\u0631\u0639 \u0627\u0644\u0623\u0633\u0627\u0633\u064A \u0644\u0644\u062F\u0643\u062A\u0648\u0631 \u0627\u0644\u0645\u0633\u0624\u0648\u0644: ${staffBranch}`);
+  if (invoiceBranch) reasons.push(`\u0641\u0631\u0639 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0627\u0644\u0645\u0631\u0634\u062D\u0629 \u0628\u0642\u0648\u0629: ${invoiceBranch}`);
+  if (staffBranch && invoiceBranch && staffBranch !== invoiceBranch) {
+    return { branch: null, strength: "conflict", reasons: [...reasons, "\u0641\u0631\u0639 \u0627\u0644\u062F\u0643\u062A\u0648\u0631 \u064A\u062E\u0627\u0644\u0641 \u0641\u0631\u0639 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629\u061B \u064A\u062D\u062A\u0627\u062C \u0645\u0631\u0627\u062C\u0639\u0629"] };
+  }
+  if (staffBranch && invoiceBranch && input.invoiceSellerIsCaseStaff) {
+    return {
+      branch: staffBranch,
+      strength: "supporting_only",
+      reasons: [...reasons, "\u0628\u0627\u0626\u0639 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0647\u0648 \u0646\u0641\u0633 \u062F\u0643\u062A\u0648\u0631 \u0627\u0644\u062D\u0627\u0644\u0629\u061B \u0641\u0631\u0639 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0648\u0641\u0631\u0639 \u0627\u0644\u062F\u0643\u062A\u0648\u0631 \u062F\u0644\u064A\u0644 \u0648\u0627\u062D\u062F \u063A\u064A\u0631 \u0645\u0633\u062A\u0642\u0644\u060C \u0648\u064A\u064F\u062D\u0633\u0645 \u0627\u0644\u0641\u0631\u0639 \u0641\u0642\u0637 \u0628\u0627\u0639\u062A\u0645\u0627\u062F \u0631\u0628\u0637 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0623\u0648 \u062A\u0635\u062D\u064A\u062D \u0631\u0633\u0645\u064A"]
+    };
+  }
+  if (staffBranch && invoiceBranch) {
+    return { branch: staffBranch, strength: "strong_recommendation", reasons: [...reasons, "\u062F\u0644\u064A\u0644\u0627\u0646 \u0645\u0633\u062A\u0642\u0644\u0627\u0646 \u0645\u062A\u0641\u0642\u0627\u0646\u061B \u064A\u062D\u062A\u0627\u062C \u0627\u0639\u062A\u0645\u0627\u062F\u064B\u0627 \u0642\u0628\u0644 \u0627\u0639\u062A\u0628\u0627\u0631\u0647 \u0641\u0631\u0639 \u0627\u0644\u0639\u0645\u0644\u064A\u0629"] };
+  }
+  if (staffBranch || invoiceBranch) {
+    return { branch: staffBranch ?? invoiceBranch, strength: "supporting_only", reasons: [...reasons, "\u062F\u0644\u064A\u0644 \u0648\u0627\u062D\u062F \u0641\u0642\u0637\u061B \u063A\u064A\u0631 \u0643\u0627\u0641\u064D \u0644\u062D\u0633\u0645 \u0627\u0644\u0641\u0631\u0639"] };
+  }
+  return { branch: null, strength: "none", reasons: reasons.length ? reasons : ["\u0644\u0627 \u062A\u0648\u062C\u062F \u0623\u062F\u0644\u0629 \u0641\u0631\u0639 \u0643\u0627\u0641\u064A\u0629"] };
+}
+
+// src/lib/salesIntelligence/careFollowUpEngine.ts
+var CARE_CHECK_IN_DELAY_MS = 4 * 60 * 60 * 1e3;
+var NURSING_CASE_RULES = ["case.classification.nursing_visit_service_not_sale", "case.classification.nursing_chase_service_not_sale"];
+var PROBLEM_RX = [
+  ["device_problem", /الكانيولا|كانيولا|اتحرك(?:ت)?\s*(?:م|من)?\s*مكان/u, "\u0645\u0634\u0643\u0644\u0629 \u0641\u064A \u0627\u0644\u0643\u0627\u0646\u064A\u0648\u0644\u0627"],
+  ["leak", /بيسرب|تسريب|سرب/u, "\u062A\u0633\u0631\u064A\u0628 \u0627\u0644\u0645\u062D\u0644\u0648\u0644"],
+  ["symptom", /(?:عنده|عندها)\s*(?:حرار[ةه]|وجع|ألم|الم)|تعبان[ةه]?|ورم|نزيف/u, "\u0623\u0639\u0631\u0627\u0636 \u0644\u062F\u0649 \u0627\u0644\u0645\u0631\u064A\u0636"]
+];
+var DELAY_RX = /شوفه\s+تاني|فين\s+الممرض|الممرض\s+(?:فين|مجاش)|اتأخر|التأخير|عالتاخير|متأخر|مجاش\s+لسه/u;
+function deriveCareFollowUpSuggestion(conversationCase, messages) {
+  const nursing = conversationCase.caseType === "follow_up" && conversationCase.confidence.ruleIds.some((rule) => NURSING_CASE_RULES.includes(rule));
+  if (!nursing) return null;
+  const problems = /* @__PURE__ */ new Set();
+  const labels2 = [];
+  const evidence = /* @__PURE__ */ new Set();
+  for (const message of messages) {
+    if (!message.isMeaningful) continue;
+    if (message.role === "customer") {
+      for (const [problem, rx, label] of PROBLEM_RX) {
+        if (rx.test(message.text) && !problems.has(problem)) {
+          problems.add(problem);
+          labels2.push(label);
+          evidence.add(message.id);
+        }
+      }
+    }
+    if (DELAY_RX.test(message.text)) {
+      if (!problems.has("delay")) labels2.push("\u062A\u0623\u062E\u0631 \u0627\u0644\u0645\u0645\u0631\u0636");
+      problems.add("delay");
+      evidence.add(message.id);
+    }
+  }
+  if (!problems.size) return null;
+  return {
+    key: `${conversationCase.caseId}:care_check_in`,
+    kind: "care_check_in",
+    team: "customer_service",
+    reason: `\u0627\u0637\u0645\u0626\u0646\u0627\u0646 \u0639\u0644\u0649 \u0627\u0644\u0645\u0631\u064A\u0636 \u0628\u0639\u062F \u062E\u062F\u0645\u0629 \u0627\u0644\u062A\u0645\u0631\u064A\u0636: ${labels2.join("\u060C ")}. \u062A\u0648\u0627\u0635\u0644 \u062E\u062F\u0645\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621 \u0644\u0644\u0627\u0637\u0645\u0626\u0646\u0627\u0646\u060C \u0645\u0646\u0641\u0635\u0644 \u0639\u0646 \u0627\u0644\u0628\u064A\u0639 \u0648\u0627\u0644\u0634\u0643\u0648\u0649.`,
+    problems: [...problems],
+    dueAt: new Date(new Date(conversationCase.endedAt).getTime() + CARE_CHECK_IN_DELAY_MS).toISOString(),
+    evidenceMessageIds: [...evidence]
+  };
 }
 
 // src/lib/salesIntelligence/pharmacyProducts/pharmacyNormalization.ts
@@ -1904,11 +2239,11 @@ var ARABIC_LETTER_VARIANTS = [
   [/[ً-ْٰـ]/g, ""]
   // tashkeel + tatweel
 ];
-function convertArabicDigits(text2) {
-  return text2.replace(/[٠-٩]/g, (d) => ARABIC_INDIC_DIGITS[d] ?? d);
+function convertArabicDigits(text5) {
+  return text5.replace(/[٠-٩]/g, (d) => ARABIC_INDIC_DIGITS[d] ?? d);
 }
-function unifyArabicLetters(text2) {
-  let result = text2;
+function unifyArabicLetters(text5) {
+  let result = text5;
   for (const [pattern, replacement] of ARABIC_LETTER_VARIANTS) {
     result = result.replace(pattern, replacement);
   }
@@ -1991,8 +2326,8 @@ var DOSAGE_FORM_KEYWORDS = [
   [/\b(shampoo)\b|شامبو/g, "shampoo"],
   [/\b(suppository|suppositories)\b|لبوس/g, "suppository"]
 ];
-function normalizeBaseText(text2) {
-  let result = text2;
+function normalizeBaseText(text5) {
+  let result = text5;
   result = convertArabicDigits(result);
   result = unifyArabicLetters(result);
   result = result.toLowerCase();
@@ -2062,6 +2397,8 @@ function buildPharmacyProductIndex(catalog) {
 }
 var CROSS_SCRIPT_SEED = /* @__PURE__ */ new Map([
   ["\u0632\u0648\u0631\u0643\u0627\u0644", "zurcal"],
+  ["\u0643\u062A\u0627\u0641\u0644\u0627\u0645", "cataflam"],
+  ["\u0643\u0627\u062A\u0641\u0644\u0627\u0645", "cataflam"],
   ["\u0627\u0646\u062A\u064A\u0646\u0627\u0644", "antinal"],
   ["\u0628\u0627\u0646\u0627\u062F\u0648\u0644 \u0627\u0643\u0633\u062A\u0631\u0627", "panadol extra"],
   ["\u0628\u064A\u062F\u0648 \u0643\u0648\u0631\u062A", "pedicort"],
@@ -2077,6 +2414,10 @@ var CROSS_SCRIPT_SEED = /* @__PURE__ */ new Map([
   ["\u0641\u0644\u064A\u0643\u0633 \u0644\u0627\u064A\u0643\u0633", "flexilax"],
   ["\u062C\u0627\u0633\u062A \u0631\u064A\u062C", "gast reg"],
   ["\u062C\u0627\u0633\u062A \u0631\u064A\u062C \u0627\u0645\u0628\u0648\u0644", "gast reg"],
+  ["\u0647\u0627\u064A \u0641\u0631\u064A\u0634", "hyfresh"],
+  ["\u0647\u0627\u0649 \u0641\u0631\u064A\u0634", "hyfresh"],
+  ["hy fresh", "hyfresh"],
+  ["hyfresh", "hyfresh"],
   ["\u0633\u0648\u0644\u0648 \u0641\u0631\u064A\u0634", "solofresh"],
   ["\u0633\u0648\u0644\u0648\u0641\u0631\u064A\u0634", "solofresh"],
   ["\u0643\u0648\u062C\u064A \u0633\u0627\u0646", "koji san"],
@@ -2105,6 +2446,10 @@ var CROSS_SCRIPT_SEED = /* @__PURE__ */ new Map([
   ["\u0643\u0648\u0644\u0648\u0646\u0627", "colona"],
   ["\u062C\u0627\u0633\u062A\u0631\u0648 \u0628\u064A\u0648\u062A\u064A\u0643", "gastrobiotic"],
   ["\u062C\u0627\u0633\u062A\u0631\u0648\u0628\u064A\u0648\u062A\u0643", "gastrobiotic"]
+]);
+var CROSS_SCRIPT_VARIANT_WORDS = /* @__PURE__ */ new Map([
+  ["\u0641\u0648\u0631\u062A", "forte"],
+  ["\u0641\u0648\u0631\u062A\u064A", "forte"]
 ]);
 function confidenceForBasis(basis) {
   switch (basis) {
@@ -2143,7 +2488,7 @@ function isSafeSelection(candidates) {
 }
 function strengthsCompatible(a, b) {
   if (a.length === 0 || b.length === 0) return true;
-  return a.some((sa) => b.some((sb) => sa.unit === sb.unit && Math.abs(sa.value - sb.value) < 1e-3));
+  return a.every((sa) => !b.some((sb) => sa.unit === sb.unit) || b.some((sb) => sa.unit === sb.unit && Math.abs(sa.value - sb.value) < 1e-3));
 }
 function dosageFormsCompatible(a, b) {
   if (a.length === 0 || b.length === 0) return true;
@@ -2173,7 +2518,7 @@ function tokenOverlapScore(a, b) {
   const tokensB = new Set(b.split(" ").filter((t) => t.length > 1));
   if (tokensA.size === 0 || tokensB.size === 0) return 0;
   let overlap = 0;
-  for (const token of tokensA) if (tokensB.has(token)) overlap += 1;
+  for (const token2 of tokensA) if (tokensB.has(token2)) overlap += 1;
   return overlap / Math.max(tokensA.size, tokensB.size);
 }
 var NAME_MATCH_STOPWORDS = /* @__PURE__ */ new Set([
@@ -2217,16 +2562,16 @@ var NAME_QUANTITY_TOKENS = /* @__PURE__ */ new Set([
   "pieces"
 ]);
 function meaningfulNameTokens(normalized) {
-  return normalized.split(" ").map((token) => token.trim()).filter(
-    (token) => token.length > 1 && !/^[0-9]+(?:\.[0-9]+)?$/.test(token) && !NAME_MATCH_STOPWORDS.has(token) && !NAME_QUANTITY_TOKENS.has(token)
+  return normalized.split(" ").map((token2) => token2.trim()).filter(
+    (token2) => token2.length > 1 && !/^[0-9]+(?:\.[0-9]+)?$/.test(token2) && !NAME_MATCH_STOPWORDS.has(token2) && !NAME_QUANTITY_TOKENS.has(token2)
   );
 }
 function expandJoinedPhraseTokens(phraseTokens, productTokens) {
   const productSet = new Set(productTokens);
   const expanded = [];
-  for (const token of phraseTokens) {
-    if (productSet.has(token)) {
-      expanded.push(token);
+  for (const token2 of phraseTokens) {
+    if (productSet.has(token2)) {
+      expanded.push(token2);
       continue;
     }
     let split = null;
@@ -2234,13 +2579,13 @@ function expandJoinedPhraseTokens(phraseTokens, productTokens) {
       const left = productTokens[i];
       const right = productTokens[i + 1];
       if (left.length < 3 || right.length < 3) continue;
-      if (left + right === token) {
+      if (left + right === token2) {
         split = [left, right];
         break;
       }
     }
     if (split) expanded.push(...split);
-    else expanded.push(token);
+    else expanded.push(token2);
   }
   return expanded;
 }
@@ -2255,7 +2600,7 @@ function dominantNameTokenScore(phraseNormalized, productNormalized) {
   const productSet = new Set(productTokens);
   const phraseUnique = Array.from(new Set(phraseTokens));
   const productUnique = Array.from(new Set(productTokens));
-  const matched = phraseUnique.filter((token) => productSet.has(token)).length;
+  const matched = phraseUnique.filter((token2) => productSet.has(token2)).length;
   if (matched < 3) return 0;
   const phraseCoverage = matched / phraseUnique.length;
   const productCoverage = matched / productUnique.length;
@@ -2270,6 +2615,15 @@ function resolveProductMention(phrase, index, options = {}) {
   const allowed = (product) => !restrictTo || restrictTo.has(product.productId);
   function addCandidate(product, basis, score, reason) {
     if (!allowed(product)) return;
+    if (basis !== "exact_code") {
+      if (!strengthsCompatible(normalized.strengths, product.strengths)) return;
+      if (!dosageFormsCompatible(normalized.dosageForms, product.dosageForms)) return;
+      if (normalized.packSizes.length && product.packSizes.length && !normalized.packSizes.every((pack) => product.packSizes.some((other) => other.count === pack.count))) return;
+      const percentages = (text5) => Array.from(text5.matchAll(/(\d+(?:\.\d+)?)\s*%/g), (match) => Number(match[1]));
+      const requested = percentages(normalized.raw);
+      const offered = percentages(product.canonicalName);
+      if (requested.length && offered.length && !requested.every((value) => offered.includes(value))) return;
+    }
     const existing = candidateMap.get(product.productId);
     if (existing && confidenceRank(existing.confidence) >= confidenceRank(confidenceForBasis(basis))) {
       existing.reasons.push(reason);
@@ -2298,10 +2652,13 @@ function resolveProductMention(phrase, index, options = {}) {
     for (const [candidateNormalizedName, products] of index.byNormalizedName) {
       if (candidateNormalizedName.includes(latinNormalized)) sameTokenProducts.push(...products);
     }
-    const compatible = sameTokenProducts.filter(
+    const formCompatible = sameTokenProducts.filter(
       (product) => strengthsCompatible(normalized.strengths, product.strengths) && dosageFormsCompatible(normalized.dosageForms, product.dosageForms) && bareNumbersCompatible(phraseBareNumbers, product)
     );
-    const disambiguatedByForm = normalized.dosageForms.length > 0 && sameTokenProducts.length > 1 && compatible.length === 1;
+    const spokenVariants = Array.from(CROSS_SCRIPT_VARIANT_WORDS).filter(([arabic]) => new RegExp(`(?:^|\\s)${arabic}(?:\\s|$)`, "u").test(normalized.normalized)).map(([, latin]) => latin);
+    const variantCompatible = formCompatible.filter((product) => spokenVariants.every((latin) => product.normalizedNames.some((name) => name.split(" ").includes(latin))));
+    const compatible = variantCompatible.length > 0 ? variantCompatible : formCompatible;
+    const disambiguatedByForm = normalized.dosageForms.length > 0 && sameTokenProducts.length > 1 && formCompatible.length === 1;
     for (const product of compatible) {
       const clues = crossScriptCluesByProduct.get(product.productId) ?? /* @__PURE__ */ new Set();
       clues.add(arabicKey);
@@ -2424,9 +2781,9 @@ var ARABIC_NUMBER_WORDS = {
   \u0623\u0631\u0628\u0639\u0629: 4,
   \u062E\u0645\u0633\u0629: 5
 };
-function parseNumberToken(token) {
-  if (/^\d+$/.test(token)) return Number(token);
-  return ARABIC_NUMBER_WORDS[token.trim()] ?? null;
+function parseNumberToken(token2) {
+  if (/^\d+$/.test(token2)) return Number(token2);
+  return ARABIC_NUMBER_WORDS[token2.trim()] ?? null;
 }
 function normalizeProductKey(name) {
   return name.trim().toLowerCase().replace(/[أإآ]/g, "\u0627").replace(/ى/g, "\u064A").replace(/ة/g, "\u0647").replace(/\s+/g, " ");
@@ -2436,22 +2793,26 @@ var GREETING_LEAD_RX = /^\s*(?:(?:السلام\s*عليكم(?:\s*ورحمة\s*ا
 var LEAD_DISCOURSE_RX = /^\s*(?:(?:تمام|ماشي|اوك|ok|خلاص|طيب|ايوه|ايوا|اه|آه|بالمناسبة|على\s*فكرة)(?=[\s،,])[\s،,]*)+/i;
 var TRAILING_ADDITIVE_RX = /\s+(?:كمان|برضه|برضو|أيضا|ايضا)\s*$/i;
 var CONTACT_DETAIL_TAIL_RX = /[،,]\s*(?:رقم\s*(?:تليفوني|موبايلي|الهاتف|التليفون)|(?:تليفوني|موبايلي))\s*[:：-]?\s*[+0-9٠-٩()\s-]{7,}$/u;
-function stripRequestPrefix(text2) {
-  return text2.replace(GREETING_LEAD_RX, "").replace(LEAD_DISCOURSE_RX, "").replace(ADDITIVE_CONNECTOR_RX, "").replace(/^\s*(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|ممكن|هات[ي]?|ابعت(?:لي|يلي)?)\s*/i, "").replace(ADDITIVE_CONNECTOR_RX, "").replace(TRAILING_ADDITIVE_RX, "").trim().replace(/^[,،]+|[,،]+$/g, "").trim();
+function stripRequestPrefix(text5) {
+  return text5.replace(GREETING_LEAD_RX, "").replace(LEAD_DISCOURSE_RX, "").replace(ADDITIVE_CONNECTOR_RX, "").replace(/^\s*(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|ممكن|هات[ي]?|ابعت(?:لي|يلي)?)\s*/i, "").replace(ADDITIVE_CONNECTOR_RX, "").replace(TRAILING_ADDITIVE_RX, "").trim().replace(/^[,،]+|[,،]+$/g, "").trim();
 }
 var NON_PRODUCT_PHRASE_RX = /^(?:مش|لا|لأ|اه|آه|تمام|حاجة|حاجه|ده|دي|دا|دول|منه|منها|بس)?$/;
 var GENERIC_DEICTIC_PRODUCT_PHRASE_RX = /^(?:(?:العلب[هة]|العبو[هة]|الشريط|الصنف)\s*(?:دي|ده|دا)|(?:الحاجات|الحاجه|الحاجة|الأشياء|الاشياء)\s*(?:دي|دول|ده|دا)?|(?:دول|دي|ده|دا)(?:\s*كلهم)?|اللي\s*(?:في|ف)\s*(?:الصوره|الصورة|الصور|الفويس|الصوت)|اللي\s*(?:بعت(?:ه|ها|هم)|مبعت(?:ه|ها|هم)))$/i;
 var NON_IDENTIFYING_RECAP_ITEM_RX = /مع\s+\d+\s+نوع|اللي\s+الدكتور|في\s+(?:الريكورد|الفويس|الصوت)/i;
 function isGenericDeicticProductPhrase(value) {
-  return GENERIC_DEICTIC_PRODUCT_PHRASE_RX.test(String(value || "").trim());
+  const phrase = String(value || "").trim();
+  const quantityOnly = /^(?:و\s*)?(?:(?:منهم|منه|منها)\s+)?(?:شريطين|علبتين|عبوتين|شريط|علب[ةه]|عبو[ةه])(?:\s*(?:و\s*)?(?:شريط|علب[ةه]|عبو[ةه]))?$/i;
+  const colourOnly = /^(?:(?:كلها|كله|العلب[ةه])\s+)?لون(?:ها|ه)?\s+\S+$/i;
+  const numberOnly = /^(?:\d+|واحد[ةه]?|اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?)(?:\s+(?:بس|فقط))?[.!\s]*$/i;
+  return GENERIC_DEICTIC_PRODUCT_PHRASE_RX.test(phrase) || quantityOnly.test(phrase) || numberOnly.test(phrase) || colourOnly.test(phrase);
 }
 var EXPLICIT_REQUEST_VERB_RX = /(?<![\p{L}\p{N}])(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|هات(?:ي|لي)?|ابعت(?:لي|يلي)?)(?![\p{L}\p{N}])/u;
 var ONLY_THIS_RX = /(?<![\p{L}\p{N}])(?:بس|فقط)[.!، ]*$/u;
 var INFO_QUESTION_LEAD_RX = /^(?:اعرف|أعرف|اسأل|أسأل|استفسر|أستفسر|افهم|أفهم|اشوف|أشوف|اتأكد|أتأكد)(?=\s|$)/;
 var POLITENESS_RX = /(?<![\p{L}\p{N}])(?:لو\s*سمحت|من\s*فضلك|يا\s*(?:دكتور[ةه]?|فندم)|بعد\s*اذنك|بعد\s*إذنك)(?![\p{L}\p{N}])/giu;
-function explicitRequestProductPhrases(text2) {
-  const phrase = stripRequestPrefix(text2.replace(POLITENESS_RX, " ")).replace(CONTACT_DETAIL_TAIL_RX, "").replace(/[؟?!.]+$/g, "").replace(/\s+/g, " ").trim();
-  if (!phrase || /[؟?]/.test(text2) || INFO_QUESTION_LEAD_RX.test(phrase)) return [];
+function explicitRequestProductPhrases(text5) {
+  const phrase = stripRequestPrefix(text5.replace(POLITENESS_RX, " ")).replace(CONTACT_DETAIL_TAIL_RX, "").replace(/[؟?!.]+$/g, "").replace(/\s+/g, " ").trim();
+  if (!phrase || /[؟?]/.test(text5) || INFO_QUESTION_LEAD_RX.test(phrase)) return [];
   const parts = phrase.split(/\s+و\s+|\s*[،,+]\s*/).map((part) => stripRequestPrefix(part).trim()).filter((part) => part.length >= 2);
   if (!parts.length || parts.some(
     (part) => part.split(/\s+/).length > 4 || NON_PRODUCT_PHRASE_RX.test(part) || isGenericDeicticProductPhrase(part)
@@ -2459,8 +2820,8 @@ function explicitRequestProductPhrases(text2) {
   return parts;
 }
 var QUANTITY_REVISION_RX = /^(?:(?:لا|لأ|طيب|خلاص)[،,\s]+)?(?:خلي(?:ه|ها|هم|هملي|هولي|هالي)|نزل(?:ه|ها|هم))\s+(?:ل)?(?:(\d+|واحد[ةه]?|اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?)\s*(?:علب[ةه]?|علب|شريط|عبو[ةه]|قطع[ةه]|حب[ةه])?|(?:علب[ةه]|شريط|عبو[ةه]|قطع[ةه]|حب[ةه])\s*(واحد[ةه]?|اتنين|\d+)|(علبتين|شريطين|عبوتين|حبتين))\s*(?:بس|فقط)?[.!، ]*$/i;
-function parseQuantityRevision(text2) {
-  const match = text2.trim().match(QUANTITY_REVISION_RX);
+function parseQuantityRevision(text5) {
+  const match = text5.trim().match(QUANTITY_REVISION_RX);
   if (!match) return null;
   if (match[3]) return 2;
   return parseNumberToken(match[1] ?? match[2] ?? "");
@@ -2492,6 +2853,12 @@ var NATURAL_UNIT_QTY = {
   \u062D\u0628\u0629: { quantity: 1, unit: "\u062D\u0628\u0629" },
   \u062D\u0628\u0647: { quantity: 1, unit: "\u062D\u0628\u0629" }
 };
+var UNNAMED_QUANTITY_TAIL_RX = /^(?:واحد[ةه]?\s*)?(?:\d+\s*(?:قرص|أقراص|اقراص|كبسول[ةه]?))?[.؟?!\s]*$/u;
+var NATURAL_UNIT_TAIL_RX = /(علبتين|علبة|علبه|شريطين|شريط|عبوتين|عبوة|عبوه|كيسين|كيس|حبتين|حبة|حبه)((?:\s+واحد[ةه]?)?(?:\s+\d+\s*(?:قرص|أقراص|اقراص|كبسول[ةه]?))?)\s*[.!؟?]*\s*$/u;
+function productNamedInAvailabilityQuestion(text5) {
+  const named = text5.match(/(?:عندكم|متوفر)\s+([^؟?]+)[؟?]/u);
+  return named ? named[1].trim() : null;
+}
 var PRICE_INQUIRY_RX = /بكام|عامل\s*كام|سعر(?:ه|ها)?|كام\s*(?:جنيه|العلبة|العلبه)|فيها\s*كام/i;
 var STAFF_RECAP_CONTEXT_RX = /يعني\s*(?:كدا|كده|حضرتك)|حضرتك\s*محتاج|تكرر|كرر|تأمر|تحت\s*امر/i;
 function extractNaturalUnitItems(message) {
@@ -2502,7 +2869,12 @@ function extractNaturalUnitItems(message) {
   for (const match of message.text.matchAll(NATURAL_UNIT_ITEM_RX)) {
     const quantityInfo = NATURAL_UNIT_QTY[match[1]];
     if (!quantityInfo) continue;
-    const productNameRaw = match[2].trim().replace(/^(?:من\s+فضلك|لو\s*سمحت|ان\s*شاء\s*الله)\s*/i, "").replace(/\s+(?:صح|مظبوط|ان\s*شاء\s*الله)\??$/i, "").trim();
+    let productNameRaw = match[2].trim().replace(/^واحد[ةه]?\s+/i, "").replace(/^(?:من\s+فضلك|لو\s*سمحت|ان\s*شاء\s*الله)\s*/i, "").replace(/\s+(?:صح|مظبوط|ان\s*شاء\s*الله)\??$/i, "").trim();
+    if (UNNAMED_QUANTITY_TAIL_RX.test(productNameRaw)) {
+      const named = productNamedInAvailabilityQuestion(message.text.slice(0, match.index));
+      if (!named) continue;
+      productNameRaw = named;
+    }
     if (!productNameRaw || productNameRaw.length < 2 || PRICE_INQUIRY_RX.test(productNameRaw) || NON_PRODUCT_PHRASE_RX.test(productNameRaw) || isGenericDeicticProductPhrase(productNameRaw) || NON_IDENTIFYING_RECAP_ITEM_RX.test(productNameRaw)) continue;
     items.push({
       productNameRaw,
@@ -2515,6 +2887,24 @@ function extractNaturalUnitItems(message) {
       ]),
       resolutionStatus: "proven"
     });
+  }
+  if (!items.length && message.role === "customer") {
+    const tail = message.text.match(NATURAL_UNIT_TAIL_RX);
+    const quantityInfo = tail ? NATURAL_UNIT_QTY[tail[1]] : void 0;
+    const named = tail && tail.index != null ? productNamedInAvailabilityQuestion(message.text.slice(0, tail.index)) : null;
+    if (tail && quantityInfo && named && named.length >= 2 && !NON_PRODUCT_PHRASE_RX.test(named) && !isGenericDeicticProductPhrase(named)) {
+      items.push({
+        productNameRaw: named,
+        productId: null,
+        quantity: quantityInfo.quantity,
+        unit: quantityInfo.unit,
+        sourceMessageId: message.id,
+        confidence: assessment("strongly_inferred", 0.8, "basket.item.natural_arabic_unit_form", [
+          refFor(message, `\u0635\u064A\u0627\u063A\u0629 \u0637\u0644\u0628 \u0639\u0631\u0628\u064A\u0629 \u0637\u0628\u064A\u0639\u064A\u0629 \u0628\u0643\u0645\u064A\u0629 \u0636\u0645\u0646\u064A\u0629/\u0645\u062B\u0646\u0649: "${tail[0].trim()}".`)
+        ]),
+        resolutionStatus: "proven"
+      });
+    }
   }
   return items;
 }
@@ -2657,11 +3047,11 @@ function directCatalogMentionItem(message, productIndex) {
     resolutionStatus: selected2.confidence === "proven" ? "proven" : "partially_proven"
   };
 }
-function itemsNamedIn(text2, keys) {
-  const phraseTokens = normalizeProductKey(stripRequestPrefix(text2.replace(ONLY_THIS_RX, ""))).split(" ").map((token) => token.replace(/^ال/, "")).filter((token) => token.length >= 3);
+function itemsNamedIn(text5, keys) {
+  const phraseTokens = normalizeProductKey(stripRequestPrefix(text5.replace(ONLY_THIS_RX, ""))).split(" ").map((token2) => token2.replace(/^ال/, "")).filter((token2) => token2.length >= 3);
   return keys.filter((key) => {
-    const keyTokens = key.split(" ").map((token) => token.replace(/^ال/, ""));
-    return phraseTokens.length > 0 && phraseTokens.every((token) => keyTokens.includes(token));
+    const keyTokens = key.split(" ").map((token2) => token2.replace(/^ال/, ""));
+    return phraseTokens.length > 0 && phraseTokens.every((token2) => keyTokens.includes(token2));
   });
 }
 function draftItemsToMap(items) {
@@ -2713,26 +3103,61 @@ function isFinalBasketSummary(message) {
 function isStaffFinalConfirmation(message) {
   return message.role === "staff" && message.isMeaningful && STAFF_FINAL_CONFIRMATION_RX.test(message.text);
 }
-function classifyCustomerModification(text2) {
-  if (MODIFICATION_QTY_CHANGE_RX.test(text2) || parseQuantityRevision(text2) != null) return "quantity_change";
-  if (SUBSTITUTION_MARKER_RX.test(text2)) return "substitute";
-  if (MODIFICATION_ADD_RX.test(text2)) return "add";
-  if (MODIFICATION_REMOVE_RX.test(text2)) return "remove";
+function classifyCustomerModification(text5) {
+  if (MODIFICATION_QTY_CHANGE_RX.test(text5) || parseQuantityRevision(text5) != null) return "quantity_change";
+  if (SUBSTITUTION_MARKER_RX.test(text5)) return "substitute";
+  if (MODIFICATION_ADD_RX.test(text5)) return "add";
+  if (MODIFICATION_REMOVE_RX.test(text5)) return "remove";
   return null;
 }
-function extractSubstituteProductName(text2) {
-  const afterVerb = text2.replace(/^.*?(?:هات[ي]?|عايز|عاوز|ابعت(?:لي|يلي)?)\s*/i, "").trim();
-  return afterVerb || text2.trim();
+function extractSubstituteProductName(text5) {
+  const afterVerb = text5.replace(/^.*?(?:هات[ي]?|عايز|عاوز|ابعت(?:لي|يلي)?)\s*/i, "").trim();
+  return afterVerb || text5.trim();
 }
-function extractAddedProductName(text2) {
-  const stripped = text2.replace(/^.*?(?:زود(?:ي)?|ضيف(?:ي)?|كمان\s*عايز|كمان\s*حاجة|نسيت)\s*/i, "").trim();
-  return stripped || text2.trim();
+function extractAddedProductName(text5) {
+  const stripped = text5.replace(/^.*?(?:زود(?:ي)?|ضيف(?:ي)?|كمان\s*عايز|كمان\s*حاجة|نسيت)\s*/i, "").trim();
+  return stripped || text5.trim();
 }
 function isLinkedToSummary(scopedMessages, candidateMessageId, summaryMessageId) {
   const index = scopedMessages.findIndex((m) => m.id === candidateMessageId);
   if (index === -1) return false;
   const { before } = contextWindowV32(scopedMessages, index, 5, 0);
   return before.some((m) => m.id === summaryMessageId) || scopedMessages[index - 1]?.id === summaryMessageId;
+}
+function recommendationNames(message) {
+  if (message.role !== "staff" || !message.isMeaningful) return [];
+  const match = message.text.match(/(?:^|\s)(?:ناخد|نستخدم)\s+(.+)/u);
+  if (!match) return [];
+  const phrase = match[1].split(/\s+(?:ناخدهم|نستخدمهم|بالتبادل|كل\s*[\d٠-٩])/u)[0];
+  const parts = phrase.replace(/ان\s*شاء\s*الله/gu, "").split(/\s+مع\s+|\s+و\s+/u).map((p) => p.trim().replace(/\s+/gu, " ")).filter(Boolean);
+  if (parts.length < 2 || parts.length > 4 || new Set(parts.map(normalizeProductKey)).size !== parts.length || parts.some(
+    (p) => p.split(/\s+/u).length > 4 || !/[\p{L}]/u.test(p) || NON_PRODUCT_PHRASE_RX.test(p) || isGenericDeicticProductPhrase(p) || /[؟?]|(?:لو|أو|او|ولا|بدل)(?:\s|$)/u.test(p)
+  )) return [];
+  return parts;
+}
+function stripPair(text5) {
+  const normalized = text5.trim().replace(/[؟?!.،]+$/u, "").trim();
+  if (!/^(?:شريط|شريطين)\s*و\s*(?:شريط|شريطين)$/u.test(normalized)) return null;
+  return normalized.split(/\s*و\s*/u).map((unit) => unit === "\u0634\u0631\u064A\u0637\u064A\u0646" ? 2 : 1);
+}
+function quantityChoiceOptions(text5) {
+  const body = text5.trim().replace(/^(?:(?:عنيا|عيني|تمام|ان\s*شاء\s*الله)\s+)+/u, "");
+  const options = body.split(/\s+ولا\s+/u).map(stripPair);
+  return options.length === 2 && options.every((option) => option !== null) ? options : null;
+}
+function clarificationCourtesy(text5) {
+  return /^(?:(?:تمام|شكرا|شكرًا|يا\s*دكتور|يادكتور|لحضرتك|حضرتك|🙏|[.!،])\s*)+$/u.test(text5.trim());
+}
+function dialogueMeaningful(message) {
+  return message.isMeaningful && !/<(?:image|audio|voice message) omitted>/iu.test(message.text);
+}
+function clarificationContext(messages, index) {
+  const context = [];
+  for (let i = index - 1; i >= 0 && context.length < 8; i--) {
+    if (messages[index].timestamp.getTime() - messages[i].timestamp.getTime() > 5 * 6e4) break;
+    if (dialogueMeaningful(messages[i])) context.unshift(messages[i]);
+  }
+  return context;
 }
 function buildCaseBaskets(caseId, scopedMessages, productIndex) {
   const messages = scopedMessages.slice().sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
@@ -2822,7 +3247,135 @@ function buildCaseBaskets(caseId, scopedMessages, productIndex) {
     confirmedByCustomerAt = null;
     hasOpenBasket = true;
   }
-  messages.forEach((message) => {
+  let acceptedRecommendation = null;
+  let quantityChoice = null;
+  messages.forEach((message, messageIndex) => {
+    const prior = message.role === "customer" ? clarificationContext(messages, messageIndex) : [];
+    const lastStaff = [...prior].reverse().find((m) => m.role === "staff");
+    const inWindow = (at) => message.timestamp.getTime() - at >= 0 && message.timestamp.getTime() - at <= 5 * 6e4;
+    const proposed = recommendationNames(message);
+    if (proposed.length && !isFinalBasketSummary(message)) return;
+    if (message.role === "staff" && acceptedRecommendation && status === "draft") {
+      const options = quantityChoiceOptions(message.text);
+      if (options && acceptedRecommendation.keys.length === 2 && inWindow(acceptedRecommendation.requestedAt) && acceptedRecommendation.keys.every((key) => items.has(key))) {
+        quantityChoice = { questionId: message.id, keys: [...acceptedRecommendation.keys], options, at: message.timestamp.getTime() };
+        return;
+      }
+    }
+    if (message.role === "customer" && dialogueMeaningful(message) && status === "draft") {
+      if (/^(?:مش|لا)\s*(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?)\s*منهم(?:\s+شريطين)?[.!،\s]*$/u.test(message.text.trim())) return;
+      const pluralOrder = /^(?:و?عايز[هة]?|و?عاوز[هة]?|محتاج[هة]?)\s+منهم\s+شريطين[.!،\s]*$/u.test(message.text.trim());
+      if (pluralOrder) {
+        const names = lastStaff && inWindow(lastStaff.timestamp.getTime()) ? recommendationNames(lastStaff) : [];
+        const sinceOffer = lastStaff ? prior.slice(prior.indexOf(lastStaff) + 1) : [];
+        if (lastStaff && names.length && sinceOffer.length <= 2 && sinceOffer.every((m) => m.role === "customer" && /^(?:تمام|ماشي|حاضر)[.!،\s]*$/u.test(m.text.trim()))) {
+          if (!hasOpenBasket) startNewVersion(/* @__PURE__ */ new Map(), "draft");
+          const keys = names.map(normalizeProductKey);
+          names.forEach((name, index) => {
+            const existing = items.get(keys[index]);
+            items.set(keys[index], {
+              productNameRaw: name,
+              productId: existing?.productId ?? null,
+              // "شريطين" for two named products does not establish the allocation.
+              quantity: existing?.quantity ?? null,
+              unit: "\u0634\u0631\u064A\u0637",
+              sourceMessageId: message.id,
+              confidence: assessment("strongly_inferred", 0.75, "basket.item.customer_orders_named_recommendation", [
+                refFor(lastStaff, "\u0623\u0633\u0645\u0627\u0621 \u0623\u0635\u0646\u0627\u0641 \u0627\u0644\u062A\u0631\u0634\u064A\u062D \u0627\u0644\u0635\u0631\u064A\u062D\u0629."),
+                refFor(message, "\u0637\u0644\u0628 \u0627\u0644\u0639\u0645\u064A\u0644 \u0627\u0644\u0635\u0631\u064A\u062D \u0645\u0646 \u0627\u0644\u0623\u0635\u0646\u0627\u0641 \u0627\u0644\u0645\u0631\u0634\u062D\u0629\u061B \u062A\u0648\u0632\u064A\u0639 \u0627\u0644\u0643\u0645\u064A\u0629 \u063A\u064A\u0631 \u0645\u062D\u0633\u0648\u0645.")
+              ]),
+              resolutionStatus: "partially_proven"
+            });
+          });
+          acceptedRecommendation = { keys, requestedAt: message.timestamp.getTime() };
+          quantityChoice = null;
+          sourceMessageIds.push(lastStaff.id, message.id);
+          return;
+        }
+        return;
+      }
+      const pair = stripPair(message.text);
+      if (pair) {
+        if (quantityChoice && lastStaff?.id === quantityChoice.questionId && inWindow(quantityChoice.at) && quantityChoice.keys.every((key) => items.has(key)) && prior.slice(prior.findIndex((m) => m.id === quantityChoice.questionId) + 1).every((m) => m.role === "customer" && clarificationCourtesy(m.text)) && quantityChoice.options.some((option) => option.every((quantity, i) => quantity === pair[i]))) {
+          const question = lastStaff;
+          if (question) {
+            const updated = new Map(items);
+            quantityChoice.keys.forEach((key, index) => {
+              const item = items.get(key);
+              updated.set(key, { ...item, quantity: pair[index], confidence: {
+                ...item.confidence,
+                ruleIds: [...item.confidence.ruleIds, "basket.item.quantity_choice_confirmed"],
+                evidence: [...item.confidence.evidence, refFor(question, "\u0633\u0624\u0627\u0644 \u062A\u0648\u0632\u064A\u0639 \u0627\u0644\u0643\u0645\u064A\u0629 \u0639\u0644\u0649 \u0627\u0644\u0635\u0646\u0641\u064A\u0646."), refFor(message, "\u0627\u062E\u062A\u064A\u0627\u0631 \u0627\u0644\u0639\u0645\u064A\u0644 \u0627\u0644\u0635\u0631\u064A\u062D \u0644\u062A\u0648\u0632\u064A\u0639 \u0627\u0644\u0643\u0645\u064A\u0629.")]
+              } });
+            });
+            if (quantityChoice.keys.some((key, index) => items.get(key).quantity !== pair[index])) {
+              const evidenceIds = [...sourceMessageIds, question.id, message.id];
+              flushCurrentBasket("superseded");
+              startNewVersion(updated, "draft");
+              sourceMessageIds.push(...evidenceIds);
+            }
+          }
+        }
+        return;
+      }
+      if (/^[\d٠-٩]+(?:\.[\d٠-٩]+)?(?:\s*(?:mg|مجم|ملجم))?[.!،\s]*$/iu.test(message.text.trim()) && lastStaff && /^(?:تركيز\s*(?:ايه|إيه|كام)|(?:ايه|إيه|كام)\s*التركيز)/u.test(lastStaff.text.trim()) && inWindow(lastStaff.timestamp.getTime())) {
+        const beforeQuestion = prior.slice(0, prior.indexOf(lastStaff));
+        const lastCustomer = [...beforeQuestion].reverse().find((m) => m.role === "customer");
+        const candidates = lastCustomer ? [...items.entries()].filter(([, item]) => item.sourceMessageId === lastCustomer.id) : [];
+        const intervening = prior.slice(prior.indexOf(lastStaff) + 1);
+        if (candidates.length > 0 && intervening.length === 0 && lastCustomer && lastStaff.timestamp.getTime() - lastCustomer.timestamp.getTime() <= 5 * 6e4) {
+          if (candidates.length !== 1 || /[\d٠-٩]/u.test(candidates[0][1].productNameRaw)) {
+            for (const [key2, item2] of candidates) {
+              items.set(key2, {
+                ...item2,
+                resolutionStatus: candidates.length === 1 ? "contradicted" : "unknown",
+                confidence: assessment("unknown", 0.3, "basket.item.strength_answer_requires_review", [
+                  ...item2.confidence.evidence,
+                  refFor(lastStaff, "\u0633\u0624\u0627\u0644 \u0627\u0644\u062A\u0631\u0643\u064A\u0632."),
+                  refFor(message, "\u062C\u0648\u0627\u0628 \u062A\u0631\u0643\u064A\u0632 \u0645\u062A\u0639\u0627\u0631\u0636 \u0623\u0648 \u063A\u064A\u0631 \u0645\u062D\u0633\u0648\u0645 \u0628\u064A\u0646 \u0623\u0635\u0646\u0627\u0641 \u0645\u062A\u0639\u062F\u062F\u0629\u061B \u064A\u0644\u0632\u0645 \u0645\u0631\u0627\u062C\u0639\u0629 \u0628\u0634\u0631\u064A\u0629.")
+                ])
+              });
+            }
+            sourceMessageIds.push(lastStaff.id, message.id);
+            return;
+          }
+          const [key, item] = candidates[0];
+          const strength = message.text.trim().replace(/[.!،]+$/u, "");
+          const name = `${item.productNameRaw} ${strength}`;
+          items.delete(key);
+          items.set(normalizeProductKey(name), {
+            ...item,
+            productNameRaw: name,
+            productId: null,
+            resolutionStatus: "partially_proven",
+            confidence: {
+              ...item.confidence,
+              ruleIds: [...item.confidence.ruleIds, "basket.item.strength_answer_linked"],
+              evidence: [...item.confidence.evidence, refFor(lastStaff, "\u0633\u0624\u0627\u0644 \u0635\u0631\u064A\u062D \u0639\u0646 \u062A\u0631\u0643\u064A\u0632 \u0627\u0644\u0635\u0646\u0641 \u0627\u0644\u0623\u062E\u064A\u0631."), refFor(message, "\u062C\u0648\u0627\u0628 \u0627\u0644\u062A\u0631\u0643\u064A\u0632 \u0645\u0631\u062A\u0628\u0637 \u0628\u0627\u0644\u0633\u0624\u0627\u0644\u061B \u0644\u0627 \u064A\u062D\u062F\u062F \u0643\u0645\u064A\u0629 \u0627\u0644\u0637\u0644\u0628.")]
+            }
+          });
+          sourceMessageIds.push(lastStaff.id, message.id);
+        }
+        return;
+      }
+      const proposedStrength = lastStaff?.text.trim().match(/^(?:ال)?تركيز\s*([\d٠-٩]+(?:\.[\d٠-٩]+)?)\s*(?:mg|مجم|ملجم)?\s*(?:صح|صحيح|مظبوط|مضبوط|مطبوط)?\s*[؟?]+$/iu);
+      if (proposedStrength && productIndex && lastStaff && inWindow(lastStaff.timestamp.getTime()) && prior.indexOf(lastStaff) === prior.length - 1 && /^(?:م[ظضط]+ب+و+[طظض]+|صح+|صحيح|ايو[هةا]|أيو[هةا]|اه|آه|نعم|تمام)[.!،\s]*$/u.test(message.text.trim())) {
+        const strength = proposedStrength[1].replace(/[٠-٩]/gu, (d) => String("\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669".indexOf(d)));
+        const fitting = [...items.entries()].filter(([, item]) => !item.productId && !/[\d٠-٩]/u.test(item.productNameRaw) && !resolveProductMention(item.productNameRaw, productIndex).selected && Boolean(resolveProductMention(`${item.productNameRaw} ${strength}`, productIndex).selected));
+        if (fitting.length === 1) {
+          const [key, item] = fitting[0];
+          const name = `${item.productNameRaw} ${strength}`;
+          items.delete(key);
+          items.set(normalizeProductKey(name), { ...item, productNameRaw: name, resolutionStatus: "partially_proven", confidence: {
+            ...item.confidence,
+            ruleIds: [...item.confidence.ruleIds, "basket.item.staff_strength_confirmed"],
+            evidence: [...item.confidence.evidence, refFor(lastStaff, "\u0633\u0624\u0627\u0644 \u0627\u0644\u0635\u064A\u062F\u0644\u064A \u0639\u0646 \u062A\u0631\u0643\u064A\u0632 \u0645\u062D\u062F\u062F."), refFor(message, "\u062A\u0623\u0643\u064A\u062F \u0627\u0644\u0639\u0645\u064A\u0644 \u0644\u0644\u062A\u0631\u0643\u064A\u0632 \u0627\u0644\u0645\u0642\u062A\u0631\u062D\u061B \u0627\u0644\u0643\u062A\u0627\u0644\u0648\u062C \u064A\u0637\u0627\u0628\u0642\u0647 \u0644\u0635\u0646\u0641 \u0648\u0627\u062D\u062F \u0641\u0642\u0637.")]
+          } });
+          sourceMessageIds.push(lastStaff.id, message.id);
+        }
+        return;
+      }
+    }
     if (isFinalBasketSummary(message)) {
       if (!hasOpenBasket) startNewVersion(/* @__PURE__ */ new Map(), "draft");
       else if (status === "confirmed" || status === "awaiting_confirmation") {
@@ -2976,7 +3529,17 @@ function buildCaseBaskets(caseId, scopedMessages, productIndex) {
         if (newItems.length === 0 && productIndex) {
           const direct = directCatalogMentionItem(message, productIndex);
           if (direct) {
-            items.set(normalizeProductKey(direct.productNameRaw), direct);
+            const sameProduct = Array.from(items.entries()).filter(([, item]) => {
+              if (item.productId) return item.productId === direct.productId;
+              const resolved = resolveProductMention(item.productNameRaw, productIndex);
+              return !resolved.ambiguous && resolved.selected && isBasketEligibleProductResolution(resolved.selected) && resolved.selected.product.productId === direct.productId;
+            });
+            if (sameProduct.length === 1) {
+              const [key, existing] = sameProduct[0];
+              items.set(key, { ...existing, productId: direct.productId });
+            } else {
+              items.set(normalizeProductKey(direct.productNameRaw), direct);
+            }
             sourceMessageIds.push(message.id);
           }
         }
@@ -3187,7 +3750,12 @@ var ATTRIBUTION_FACTOR_WEIGHTS = {
   staffSame: 0.05,
   staffCompatible: 0.02,
   legacyMatch: 0.08,
-  productMatch: 0.05
+  productMatch: 0.05,
+  // Exact pharmacy customer code is a real identity signal even when the invoice has no
+  // customer_id; it supports ranking/review but never satisfies the identity gate for official use.
+  customerCodeExact: 0.15,
+  customerNameMatch: 0.03,
+  quantityMatch: 0.03
 };
 var ATTRIBUTION_LEVEL_THRESHOLDS = {
   stronglyInferredMinScore: 0.55,
@@ -3228,7 +3796,7 @@ function getInvoiceCustomerName(row) {
   return cleanText2(firstValue2(row, ["customer_name"])) || null;
 }
 function normalizeCustomerNameForInvoiceMatch(value) {
-  return String(value ?? "").trim().toLowerCase().replace(/^(?:الحاج(?:ة)?|السيد(?:ة)?|استاذ(?:ة)?|الأستاذ(?:ة)?|الاستاذ(?:ة)?)\s+/i, "").replace(/[أإآ]/g, "\u0627").replace(/ى/g, "\u064A").replace(/ة/g, "\u0647").replace(/[\u064B-\u065F]/g, "").replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+  return String(value ?? "").trim().toLowerCase().replace(/^(?:(?:د|دكتور|الدكتور|دكتورة|الدكتورة|دكتوره|الدكتوره|الحاج(?:ة)?|السيد(?:ة)?|استاذ(?:ة)?|الأستاذ(?:ة)?|الاستاذ(?:ة)?)(?:\s*[/.-]\s*|\s+))+/i, "").replace(/[أإآ]/g, "\u0627").replace(/ى/g, "\u064A").replace(/ة/g, "\u0647").replace(/[\u064B-\u065F]/g, "").replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
 }
 function getInvoiceStaffId(row, resolveInvoiceStaffIdByName) {
   const staffId = cleanText2(firstValue2(row, ["staff_id"]));
@@ -3272,6 +3840,12 @@ function normalizeProductNameForMatch(name) {
 }
 function classifyIdentity(ctx, row) {
   const invoiceCustomerId = getInvoiceCustomerId(row);
+  const caseCode = normalizeDawaaCustomerCode(ctx.customerCode);
+  const invoiceCode = getInvoiceCustomerCode(row);
+  const customerCodeMatch = Boolean(caseCode && invoiceCode && caseCode === invoiceCode);
+  const caseName = normalizeCustomerNameForInvoiceMatch(ctx.customerName);
+  const invoiceName = normalizeCustomerNameForInvoiceMatch(getInvoiceCustomerName(row));
+  const customerNameMatch = Boolean(caseName && invoiceName && caseName === invoiceName);
   const customerIdMatch = Boolean(ctx.customerId && invoiceCustomerId && ctx.customerId === invoiceCustomerId);
   const casePhone = ctx.customerPhone ? normalizeEgyptianCustomerPhone(ctx.customerPhone) : "";
   const invoicePhone = getInvoiceCustomerPhone(row);
@@ -3283,9 +3857,10 @@ function classifyIdentity(ctx, row) {
   if (phoneMatch && ctx.customerId && invoiceCustomerId && ctx.customerId !== invoiceCustomerId) {
     identityConflict = "phone_vs_customer_id_conflict";
   }
-  return { customerIdMatch, phoneMatch, identityConflict };
+  return { customerIdMatch, phoneMatch, identityConflict, customerCodeMatch, customerNameMatch };
 }
 function classifyBranch(ctx, row) {
+  if (ctx.branchEvidenceConflict) return "mismatch";
   const caseNormalized = ctx.branchNameRaw ? normalizeBranchName(ctx.branchNameRaw) : null;
   const invoiceRawText = cleanText2(firstValue2(row, ["branch_name", "branch"]));
   const invoiceNormalized = invoiceRawText ? normalizeBranchName(invoiceRawText) : null;
@@ -3351,7 +3926,7 @@ function classifyProductEvidence(ctx, row, provider) {
     (item) => !item.resolutionStatus || item.resolutionStatus === "proven" || item.resolutionStatus === "partially_proven"
   );
   if (items === "unavailable" || resolvableBasketItems.length === 0) {
-    return { productMatch: "unavailable", quantityMatch: "unavailable", productCoverage: "unavailable" };
+    return { productMatch: "unavailable", quantityMatch: "unavailable", productCoverage: "unavailable", lineMatches: [] };
   }
   const sellableItems = items.filter(
     (item) => item.quantity != null && Number(item.quantity) > 0
@@ -3362,10 +3937,15 @@ function classifyProductEvidence(ctx, row, provider) {
   const invoiceByName = new Map(
     sellableItems.map((i) => [normalizeProductNameForMatch(i.productNameRaw), i])
   );
+  const invoiceByCode = new Map(
+    sellableItems.filter((i) => cleanText2(i.productCode)).map((i) => [cleanText2(i.productCode).toLowerCase(), i])
+  );
   const matchedPairs = resolvableBasketItems.map((basketItem) => {
     const canonical = basketItem.productId ? invoiceByProductId.get(String(basketItem.productId)) : null;
-    const byName = canonical ?? invoiceByName.get(normalizeProductNameForMatch(basketItem.productNameRaw));
-    return byName ? { basketItem, invoiceItem: byName } : null;
+    const byCode = canonical ?? (cleanText2(basketItem.productCode) ? invoiceByCode.get(cleanText2(basketItem.productCode).toLowerCase()) : void 0);
+    const byName = byCode ?? invoiceByName.get(normalizeProductNameForMatch(basketItem.productNameRaw));
+    const matchedBy = canonical ? "product_id" : byCode ? "product_code" : "name";
+    return byName ? { basketItem, invoiceItem: byName, matchedBy } : null;
   }).filter(Boolean);
   const productMatch = matchedPairs.length > 0 ? "available_match" : "available_mismatch";
   let quantityMatch = "unavailable";
@@ -3376,7 +3956,16 @@ function classifyProductEvidence(ctx, row, provider) {
     quantityMatch = allQuantitiesAgree ? "available_match" : "available_mismatch";
   }
   const productCoverage = matchedPairs.length === 0 ? "none" : matchedPairs.length === resolvableBasketItems.length ? "full" : "partial";
-  return { productMatch, quantityMatch, productCoverage };
+  const lineMatches = matchedPairs.map(({ basketItem, invoiceItem, matchedBy }) => ({
+    basketProductNameRaw: basketItem.productNameRaw,
+    invoiceProductNameRaw: invoiceItem.productNameRaw,
+    invoiceProductCode: cleanText2(invoiceItem.productCode) || null,
+    matchedBy,
+    caseQuantity: basketItem.quantity ?? null,
+    invoiceQuantity: invoiceItem.quantity == null ? null : Number(invoiceItem.quantity),
+    quantityAgrees: basketItem.quantity == null || invoiceItem.quantity == null ? null : basketItem.quantity === Number(invoiceItem.quantity)
+  }));
+  return { productMatch, quantityMatch, productCoverage, lineMatches };
 }
 function classifyLegacyMatch(ctx, row) {
   const invoiceId2 = getInvoiceRowId(row);
@@ -3386,6 +3975,7 @@ function classifyLegacyMatch(ctx, row) {
   return false;
 }
 function qualifiesForAutomaticInvoiceLink(ctx, row, provider) {
+  if (ctx.branchEvidenceConflict) return false;
   const caseCode = normalizeDawaaCustomerCode(ctx.customerCode);
   const invoiceCode = getInvoiceCustomerCode(row);
   if (!caseCode || !invoiceCode || caseCode !== invoiceCode) return false;
@@ -3396,10 +3986,18 @@ function qualifiesForAutomaticInvoiceLink(ctx, row, provider) {
   if (ctx.customerId && invoiceCustomerId && ctx.customerId !== invoiceCustomerId) return false;
   if (classifyBranch(ctx, row) === "mismatch") return false;
   const time2 = classifyTime(ctx, row);
-  if (time2.temporalInversion || time2.timeMatchStrength !== "very_strong") return false;
+  if (time2.temporalInversion) return false;
+  const exactTransactionalIdentity = Boolean(
+    ctx.customerId && invoiceCustomerId === ctx.customerId && (classifyBranch(ctx, row) === "exact_canonical" || classifyBranch(ctx, row) === "normalized_alias_match")
+  );
+  const boundedTransactionTime = time2.timeMatchStrength === "strong" || time2.timeMatchStrength === "moderate";
+  if (time2.timeMatchStrength !== "very_strong" && !(exactTransactionalIdentity && boundedTransactionTime)) return false;
   if (!getInvoiceRowNumber(row) || isDraftLikeZeroInvoice(row)) return false;
   if (!hasStableInvoiceRowId(row)) return false;
-  return classifyProductEvidence(ctx, row, provider).productCoverage === "full";
+  const products = classifyProductEvidence(ctx, row, provider);
+  if (ctx.commercialConfirmation.currentState === "rejected") return false;
+  if (ctx.activeBasketItems.some((item) => item.resolutionStatus && item.resolutionStatus !== "proven" && item.resolutionStatus !== "partially_proven")) return false;
+  return products.productCoverage === "full" && products.quantityMatch !== "available_mismatch";
 }
 function hasStableInvoiceRowId(row) {
   return cleanText2(row.id) !== "";
@@ -3425,6 +4023,15 @@ function scoreCandidate(input) {
   if (input.phoneMatch) {
     score += W.phoneMatch;
     factors.push("phone_match");
+  }
+  const strongerIdentityMatched = Boolean(input.customerIdMatch || input.phoneMatch);
+  if (input.customerCodeMatch) {
+    if (!strongerIdentityMatched) score += W.customerCodeExact;
+    factors.push("customer_code_exact");
+  }
+  if (input.customerNameMatch) {
+    if (!strongerIdentityMatched && !input.customerCodeMatch) score += W.customerNameMatch;
+    factors.push("customer_name_match");
   }
   if (input.branchMatch === "exact_canonical") {
     score += W.branchExactCanonical;
@@ -3479,6 +4086,10 @@ function scoreCandidate(input) {
   if (input.productMatch === "available_match") {
     score += W.productMatch;
     factors.push("product_match");
+    if (input.quantityMatch === "available_match") {
+      score += W.quantityMatch;
+      factors.push("quantity_match");
+    }
   } else if (input.productMatch === "available_mismatch") {
     disqualifiers.push("product_mismatch");
   }
@@ -3613,7 +4224,7 @@ function buildAttributionCandidate(ctx, row, itemEvidenceProvider = unavailableI
   const announcedTotalMatch = classifyAmountMatch(ctx.activeAnnouncedTotal?.amount ?? null, invoiceAmount);
   const basketValueMatch = classifyAmountMatch(ctx.activeBasketValue, invoiceAmount);
   const staffMatch = classifyStaff(ctx, row);
-  const { productMatch, quantityMatch, productCoverage } = classifyProductEvidence(ctx, row, itemEvidenceProvider);
+  const { productMatch, quantityMatch, productCoverage, lineMatches } = classifyProductEvidence(ctx, row, itemEvidenceProvider);
   const legacyEvidenceMatch = classifyLegacyMatch(ctx, row);
   const directLinks = classifyDirectLinks(ctx, row);
   const automaticDirectInvoiceLink = Boolean(automaticTrustedInvoiceId && automaticTrustedInvoiceId === invoiceId2);
@@ -3630,7 +4241,10 @@ function buildAttributionCandidate(ctx, row, itemEvidenceProvider = unavailableI
     basketValueMatch,
     staffMatch,
     legacyEvidenceMatch,
-    productMatch
+    productMatch,
+    customerCodeMatch: identity.customerCodeMatch,
+    customerNameMatch: identity.customerNameMatch,
+    quantityMatch
   });
   if (isDraftLikeZeroInvoice(row)) {
     disqualifiers.push("draft_zero_invoice");
@@ -3639,6 +4253,7 @@ function buildAttributionCandidate(ctx, row, itemEvidenceProvider = unavailableI
   const level = directInvoiceLink ? "proven" : deriveLevel(score, disqualifiers, hasIdentitySignal);
   const ruleIds = [
     `attribution.level.${level}`,
+    ...ctx.branchEvidenceConflict ? ["attribution.branch.case_evidence_conflict"] : [],
     ...factors.map((f) => `attribution.factor.${f}`),
     ...automaticDirectInvoiceLink ? ["attribution.trusted.automatic_customer_code_name_time_items_unique"] : [],
     ...productCoverage === "partial" ? ["attribution.product.partial_basket_coverage"] : []
@@ -3684,7 +4299,50 @@ function buildAttributionCandidate(ctx, row, itemEvidenceProvider = unavailableI
     evidence,
     ruleIds,
     confidenceAssessment,
-    disqualifiers
+    disqualifiers,
+    customerCodeMatch: identity.customerCodeMatch,
+    customerNameMatch: identity.customerNameMatch,
+    productCoverage,
+    lineMatches,
+    invoiceBranch: cleanText2(firstValue2(row, ["branch_name", "branch"])) ? normalizeBranchName(cleanText2(firstValue2(row, ["branch_name", "branch"]))) : null
+  };
+}
+var STRONG_CANDIDATE_MIN_LEAD = 0.15;
+function recommendInvoiceCandidate(top, second, context) {
+  if (!top) return { level: "none", reasons: [], missing: ["\u0644\u0627 \u062A\u0648\u062C\u062F \u0641\u0627\u062A\u0648\u0631\u0629 \u0645\u0631\u0634\u062D\u0629 \u0644\u0647\u0630\u0647 \u0627\u0644\u062D\u0627\u0644\u0629"] };
+  const reasons = [];
+  const missing = [];
+  const check = (ok, met, gap) => ok ? reasons.push(met) : missing.push(gap);
+  const lead = second ? top.confidenceAssessment.score - second.confidenceAssessment.score : 1;
+  const uniqueCode = Boolean(top.customerCodeMatch) && context.sameCodeCandidates === 1;
+  check(
+    uniqueCode,
+    "\u0643\u0648\u062F \u0627\u0644\u0639\u0645\u064A\u0644 \u0645\u0637\u0627\u0628\u0642 \u062A\u0645\u0627\u0645\u064B\u0627 \u0648\u0647\u064A \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0627\u0644\u0648\u062D\u064A\u062F\u0629 \u0628\u0647\u0630\u0627 \u0627\u0644\u0643\u0648\u062F \u0641\u064A \u0646\u0627\u0641\u0630\u0629 \u0627\u0644\u062D\u0627\u0644\u0629",
+    top.customerCodeMatch ? "\u0623\u0643\u062B\u0631 \u0645\u0646 \u0641\u0627\u062A\u0648\u0631\u0629 \u0628\u0646\u0641\u0633 \u0643\u0648\u062F \u0627\u0644\u0639\u0645\u064A\u0644 \u0641\u064A \u0646\u0627\u0641\u0630\u0629 \u0627\u0644\u062D\u0627\u0644\u0629" : "\u0643\u0648\u062F \u0627\u0644\u0639\u0645\u064A\u0644 \u063A\u064A\u0631 \u0645\u0637\u0627\u0628\u0642 \u0623\u0648 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F"
+  );
+  check(
+    Boolean(top.customerNameMatch),
+    top.customerCodeMatch ? "\u0627\u0633\u0645 \u0627\u0644\u0639\u0645\u064A\u0644 \u0645\u0637\u0627\u0628\u0642 \u0628\u0639\u062F \u0627\u0644\u062A\u0637\u0628\u064A\u0639 \u2014 \u064A\u0624\u064A\u062F \u0646\u0641\u0633 \u0647\u0648\u064A\u0629 \u0627\u0644\u0643\u0648\u062F \u0648\u0644\u0627 \u064A\u064F\u062D\u0633\u0628 \u062F\u0644\u064A\u0644\u064B\u0627 \u0645\u0633\u062A\u0642\u0644\u064B\u0627" : "\u0627\u0633\u0645 \u0627\u0644\u0639\u0645\u064A\u0644 \u0645\u0637\u0627\u0628\u0642 \u0628\u0639\u062F \u0627\u0644\u062A\u0637\u0628\u064A\u0639 (\u062F\u0644\u064A\u0644 \u0645\u0624\u064A\u062F \u0636\u0639\u064A\u0641\u061B \u0627\u0644\u0627\u0633\u0645 \u0648\u062D\u062F\u0647 \u0644\u0627 \u064A\u062D\u062F\u062F \u0627\u0644\u0639\u0645\u064A\u0644)",
+    "\u0627\u0633\u0645 \u0627\u0644\u0639\u0645\u064A\u0644 \u0639\u0644\u0649 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0644\u0627 \u064A\u0637\u0627\u0628\u0642 \u0627\u0633\u0645 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629"
+  );
+  const closeTime = top.timeMatchStrength === "very_strong" || top.timeMatchStrength === "strong";
+  check(closeTime, "\u062A\u0648\u0642\u064A\u062A \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0642\u0631\u064A\u0628 \u0645\u0646 \u0641\u062A\u0631\u0629 \u0647\u0630\u0647 \u0627\u0644\u062D\u0627\u0644\u0629 (" + (top.timeDistanceMinutes ?? "\u2014") + " \u062F\u0642\u064A\u0642\u0629)", "\u062A\u0648\u0642\u064A\u062A \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0644\u064A\u0633 \u0642\u0631\u064A\u0628\u064B\u0627 \u0628\u0645\u0627 \u064A\u0643\u0641\u064A \u0645\u0646 \u0641\u062A\u0631\u0629 \u0627\u0644\u062D\u0627\u0644\u0629");
+  const productOk = top.productMatch === "available_match" && top.quantityMatch !== "available_mismatch";
+  check(
+    productOk,
+    top.productCoverage === "full" ? "\u0643\u0644 \u0623\u0635\u0646\u0627\u0641 \u0627\u0644\u062D\u0627\u0644\u0629 \u0627\u0644\u0645\u062D\u0633\u0648\u0645\u0629 \u0645\u0648\u062C\u0648\u062F\u0629 \u0641\u064A \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u062F\u0648\u0646 \u062A\u0639\u0627\u0631\u0636 \u0643\u0645\u064A\u0629" : "\u0635\u0646\u0641 \u0648\u0627\u062D\u062F \u0639\u0644\u0649 \u0627\u0644\u0623\u0642\u0644 \u0645\u0646 \u0627\u0644\u062D\u0627\u0644\u0629 \u0645\u0637\u0627\u0628\u0642 \u0641\u064A \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 (\u0628\u0627\u0644\u0643\u0648\u062F \u0623\u0648 \u0627\u0644\u0645\u0646\u062A\u062C) \u062F\u0648\u0646 \u062A\u0639\u0627\u0631\u0636 \u0643\u0645\u064A\u0629",
+    top.productMatch === "unavailable" ? "\u0644\u0627 \u062A\u0648\u062C\u062F \u0623\u0635\u0646\u0627\u0641 \u0645\u062D\u0633\u0648\u0645\u0629 \u0643\u0627\u0641\u064A\u0629 \u0644\u0644\u0645\u0642\u0627\u0631\u0646\u0629 (\u0635\u0648\u0631\u0629/\u0635\u0648\u062A \u063A\u064A\u0631 \u0645\u062A\u0627\u062D \u0623\u0648 \u0627\u0633\u0645 \u063A\u064A\u0631 \u0645\u062D\u0633\u0648\u0645)" : "\u0623\u0635\u0646\u0627\u0641 \u0627\u0644\u062D\u0627\u0644\u0629 \u0644\u0627 \u062A\u0637\u0627\u0628\u0642 \u0628\u0646\u0648\u062F \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0623\u0648 \u0627\u0644\u0643\u0645\u064A\u0629 \u0645\u062A\u0639\u0627\u0631\u0636\u0629"
+  );
+  check(top.staffMatch !== "different", top.staffMatch === "same" ? "\u0628\u0627\u0626\u0639 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0647\u0648 \u0646\u0641\u0633 \u0627\u0644\u0645\u0648\u0638\u0641 \u0627\u0644\u0645\u0634\u0627\u0631\u0643 \u0641\u064A \u0647\u0630\u0647 \u0627\u0644\u062D\u0627\u0644\u0629" : "\u0644\u0627 \u064A\u0648\u062C\u062F \u062A\u0639\u0627\u0631\u0636 \u0641\u064A \u0627\u0644\u0628\u0627\u0626\u0639", "\u0628\u0627\u0626\u0639 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0645\u0648\u0638\u0641 \u0645\u062E\u062A\u0644\u0641 \u0639\u0646 \u0627\u0644\u0645\u0634\u0627\u0631\u0643 \u0641\u064A \u0627\u0644\u062D\u0627\u0644\u0629");
+  const clean4 = top.disqualifiers.length === 0 && top.identityConflict === "none" && !context.ambiguous && context.competingCaseIds.length === 0;
+  check(clean4, "\u0644\u0627 \u062A\u0648\u062C\u062F \u062A\u0639\u0627\u0631\u0636\u0627\u062A \u0647\u0648\u064A\u0629 \u0623\u0648 \u062D\u0627\u0644\u0627\u062A \u0645\u0646\u0627\u0641\u0633\u0629 \u0639\u0644\u0649 \u0646\u0641\u0633 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629", "\u064A\u0648\u062C\u062F \u062A\u0639\u0627\u0631\u0636 \u0623\u0648 \u062D\u0627\u0644\u0629 \u0623\u062E\u0631\u0649 \u062A\u0646\u0627\u0641\u0633 \u0639\u0644\u0649 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629");
+  check(lead >= STRONG_CANDIDATE_MIN_LEAD, "\u062A\u0641\u0648\u0642 \u0648\u0627\u0636\u062D \u0639\u0644\u0649 \u0623\u064A \u0641\u0627\u062A\u0648\u0631\u0629 \u0645\u0631\u0634\u062D\u0629 \u0623\u062E\u0631\u0649", "\u0641\u0627\u062A\u0648\u0631\u0629 \u0623\u062E\u0631\u0649 \u0642\u0631\u064A\u0628\u0629 \u0641\u064A \u0627\u0644\u0642\u0648\u0629\u061B \u064A\u0644\u0632\u0645 \u062A\u0631\u062C\u064A\u062D \u0628\u0634\u0631\u064A");
+  const strong = uniqueCode && Boolean(top.customerNameMatch) && closeTime && productOk && top.staffMatch !== "different" && clean4 && lead >= STRONG_CANDIDATE_MIN_LEAD;
+  const supported = !strong && Boolean(top.customerCodeMatch) && closeTime && clean4 && (productOk || top.staffMatch === "same" || top.announcedTotalMatch === "exact");
+  return {
+    level: strong ? "strong_candidate_requires_approval" : supported ? "supported_candidate" : "weak_candidate",
+    reasons,
+    missing
   };
 }
 function deriveSaleAttributionAssessment(ctx, invoiceRows, itemEvidenceProvider = unavailableInvoiceItemEvidenceProvider, competingSelections = []) {
@@ -3823,7 +4481,12 @@ function deriveSaleAttributionAssessment(ctx, invoiceRows, itemEvidenceProvider 
     legacyEvidenceUsed,
     ruleIds: [...top.ruleIds, ...ambiguous ? ["attribution.assessment.ambiguous"] : []],
     hasAttributedInvoice: attributionLevel === "proven" || attributionLevel === "strongly_inferred",
-    competingCaseIds
+    competingCaseIds,
+    candidateRecommendation: attributionLevel === "proven" ? void 0 : recommendInvoiceCandidate(top, second, {
+      ambiguous,
+      competingCaseIds,
+      sameCodeCandidates: candidates.filter((c) => c.customerCodeMatch && isStatisticallySelectable(c)).length
+    })
   };
 }
 
@@ -3915,12 +4578,13 @@ function classifyItemsAndQuantities(basketItems, invoiceId2, invoiceNumber2, pro
   const humanReviewReasons = [];
   basketItems.forEach((item) => {
     const nameKey = normalizeProductNameForMatch(item.productNameRaw);
-    if (item.resolutionStatus === "unknown") {
+    const identityIsProven = item.resolutionStatus === "proven";
+    if (!identityIsProven) {
       unresolvedCount += 1;
-      humanReviewReasons.push("unresolved_product_identity");
-      return;
+      humanReviewReasons.push("product_identity_unresolved");
     }
-    const canonicalCandidates = item.productId ? invoiceGroupsByProductId.get(String(item.productId)) ?? [] : [];
+    if (item.resolutionStatus === "unknown" || item.resolutionStatus === "contradicted") return;
+    const canonicalCandidates = identityIsProven && item.productId ? invoiceGroupsByProductId.get(String(item.productId)) ?? [] : [];
     if (canonicalCandidates.length === 1) {
       const invoiceItem = canonicalCandidates[0];
       matchedPairs.push({ basketItem: item, invoiceItem, basis: "canonical_id" });
@@ -3939,7 +4603,7 @@ function classifyItemsAndQuantities(basketItems, invoiceId2, invoiceNumber2, pro
     } else if (nameCandidates.length > 1) {
       ambiguousCount += 1;
       humanReviewReasons.push("ambiguous_product_alias");
-    } else {
+    } else if (identityIsProven) {
       differences.push({
         type: "missing_item",
         key: item.productNameRaw,
@@ -4980,6 +5644,17 @@ function deriveCanonicalSalesOutcome(input) {
       reasonCodes: ["outcome.information_only"]
     };
   }
+  if (caseType === "follow_up") {
+    return {
+      ...base,
+      needsHumanReview: true,
+      outcome: "needs_review",
+      isSaleCountable: false,
+      isRevenueCountable: false,
+      isOrderConfirmed: false,
+      reasonCodes: ["outcome.noncommercial_followup_requires_review"]
+    };
+  }
   if (caseType === "mixed") {
     return {
       ...base,
@@ -5091,11 +5766,151 @@ function deriveCanonicalSalesOutcome(input) {
   };
 }
 
+// src/lib/salesIntelligence/complaintAssessmentEngine.ts
+var COMPLAINT_RX = /(?:زعلان|متضايق|غاضب|شكوى|مشكله|مشكلة|مش\s*راضي|سيئ|وحش|خدمة\s*وحشه|خدمة\s*سيئه|كل\s*مرة|كل\s*مره|بشتكي|ليه\s*كده|(?:طريق[ةه]|[أا]سلوب|معامل[ةه]).{0,35}(?:سخيف|سيئ|وحش|مش\s*لائق)|(?:المندوب|الدليفري).{0,25}(?:بيزعق|بيشخط|شتمني|[أا]هانني))/i;
+var APOLOGY_RX = /(?:متاسف|متأسف|آسف|اسف|بنعتذر|نعتذر|بعتذر|[أا]عتذر|حقك\s*علينا|معلش)/i;
+var REMEDY_RX = /(?:هحل|هنحل|هنبدل|هبدل|هنرجع|هرجع\s*المبلغ|هتابع|هراجع|هكلم|هنكلم|هنوفر|هشوف|هراجع\s*بنفسي|(?:صعدت|هصعد)\s*(?:الموضوع|الشكوى|الموقف)|تم\s*تصعيد\s*(?:الموضوع|الشكوى))/i;
+var HOSTILE_RX = /(?:لو\s*مش\s*عاجبك|مش\s*مشكلتي|مش\s*شغلي|بلاش\s*زن|ما\s*تزنش|انت\s*غلطان|إنت\s*غلطان|روح\s*اشتكي|اخرس|اخرسي)/i;
+var STAFF_RESOLUTION_RX = /(?:اتحل(?:ت)?\s*(?:المشكله|المشكلة|الموضوع)?|تم\s*(?:حل|معالجة)\s*(?:المشكله|المشكلة|الموضوع)?|اتظبط(?:ت)?\s*(?:المشكله|المشكلة|الموضوع)?)/i;
+var CUSTOMER_RESOLUTION_RX = /(?:المشكله\s*اتحلت|المشكلة\s*اتحلت|الموضوع\s*اتحل|كده\s*تمام|كدا\s*تمام|تمام\s*كده|تمام\s*كدا|شكرا.*(?:اتحل|اتظبط|تمام))/i;
+var unique = (ids) => Array.from(new Set(ids.filter(Boolean)));
+function deriveCanonicalComplaintAssessment(input) {
+  const meaningful = input.messages.filter((message) => message.meaningful);
+  const firstComplaintIndex = meaningful.findIndex(
+    (message) => message.role === "customer" && COMPLAINT_RX.test(message.text)
+  );
+  if (firstComplaintIndex < 0) {
+    return {
+      version: "canonical-complaint-v1",
+      caseId: input.caseId,
+      state: "none",
+      complaintMessageIds: [],
+      staffResponseMessageIds: [],
+      apologyMessageIds: [],
+      remedyAttemptMessageIds: [],
+      hostileResponseMessageIds: [],
+      resolutionMessageIds: [],
+      evidenceMessageIds: [],
+      confidence: "high",
+      ruleIds: ["complaint.none.no_explicit_customer_complaint"]
+    };
+  }
+  const afterComplaint = meaningful.slice(firstComplaintIndex + 1);
+  const complaintMessages = meaningful.slice(firstComplaintIndex).filter((message) => message.role === "customer" && COMPLAINT_RX.test(message.text));
+  const staffResponses = afterComplaint.filter((message) => message.role === "staff");
+  const apologies = staffResponses.filter((message) => APOLOGY_RX.test(message.text));
+  const remedies = staffResponses.filter((message) => REMEDY_RX.test(message.text));
+  const hostile = staffResponses.filter((message) => HOSTILE_RX.test(message.text));
+  const staffResolution = staffResponses.filter((message) => STAFF_RESOLUTION_RX.test(message.text));
+  const customerResolution = afterComplaint.filter(
+    (message) => message.role === "customer" && CUSTOMER_RESOLUTION_RX.test(message.text)
+  );
+  const resolutionIds = unique([...staffResolution, ...customerResolution].map((message) => message.id));
+  let state;
+  const ruleIds = [];
+  if (resolutionIds.length > 0) {
+    state = "resolved";
+    ruleIds.push("complaint.resolved.explicit_closure");
+  } else if (apologies.length > 0 || remedies.length > 0) {
+    state = "recovery_attempted";
+    ruleIds.push("complaint.recovery_attempted.no_explicit_closure");
+  } else if (staffResponses.length > 0) {
+    state = "detected";
+    ruleIds.push("complaint.detected.staff_response_without_recovery");
+  } else {
+    state = "unresolved";
+    ruleIds.push("complaint.unresolved.no_staff_response");
+  }
+  if (hostile.length > 0) ruleIds.push("complaint.hostile_response");
+  const complaintMessageIds = complaintMessages.map((message) => message.id);
+  const staffResponseMessageIds = staffResponses.map((message) => message.id);
+  const apologyMessageIds = apologies.map((message) => message.id);
+  const remedyAttemptMessageIds = remedies.map((message) => message.id);
+  const hostileResponseMessageIds = hostile.map((message) => message.id);
+  const evidenceMessageIds = unique([
+    ...complaintMessageIds,
+    ...staffResponseMessageIds,
+    ...resolutionIds
+  ]);
+  return {
+    version: "canonical-complaint-v1",
+    caseId: input.caseId,
+    state,
+    complaintMessageIds,
+    staffResponseMessageIds,
+    apologyMessageIds,
+    remedyAttemptMessageIds,
+    hostileResponseMessageIds,
+    resolutionMessageIds: resolutionIds,
+    evidenceMessageIds,
+    confidence: resolutionIds.length > 0 || complaintMessageIds.length > 0 ? "high" : "medium",
+    ruleIds
+  };
+}
+
+// src/lib/salesIntelligence/customerRequestQualificationEngine.ts
+function sameProductLoss(lost, demand) {
+  return lost.productLosses.find((row) => row.productKey === demand.productKey) ?? null;
+}
+function deriveCanonicalCustomerRequestAssessment(input) {
+  const productByKey = new Map(input.customerNeed.products.map((product) => [product.key, product]));
+  const requests = input.unavailableDemand.map((demand) => {
+    const product = productByKey.get(demand.productKey) ?? null;
+    const productLoss = sameProductLoss(input.lostOpportunity, demand);
+    const blockers = [];
+    let suppressedBy = null;
+    if (demand.availabilityState === "check_pending") {
+      suppressedBy = "availability_check_pending";
+    } else if (input.customerNeed.needDeclined || productLoss?.reason === "customer_declined") {
+      suppressedBy = "customer_final_decline";
+    } else if (demand.alternativeResponse === "accepted" || productLoss?.outcome === "replaced_by_alternative") {
+      suppressedBy = "alternative_accepted";
+    } else if (productLoss?.reason === "competitor") {
+      suppressedBy = "bought_elsewhere";
+    } else if (input.salesOutcome.outcome === "sale_proven" && product?.roles.includes("final_basket")) {
+      suppressedBy = "sale_proven_for_same_product";
+    } else if (demand.confidence.level === "weakly_inferred" || demand.confidence.level === "unknown") {
+      suppressedBy = "weak_evidence";
+    }
+    if (!suppressedBy) {
+      if (demand.customerIdentityStatus !== "resolved" || !demand.customerId) blockers.push("customer_identity_unresolved");
+      if (!isOperatingBranch(demand.branchNameRaw)) blockers.push("branch_unknown");
+      if (!demand.resolvedProductId) blockers.push("product_identity_unresolved");
+      if (demand.blockers.includes("quantity_conflict")) blockers.push("quantity_conflict");
+    }
+    const status = suppressedBy ? "suppressed" : blockers.length ? "review_required" : "qualified";
+    return {
+      requestKey: `cr1|${demand.demandKey}`,
+      caseId: input.caseId,
+      customerId: demand.customerId,
+      status,
+      productKey: demand.productKey,
+      productId: demand.resolvedProductId,
+      productRaw: demand.requestedProductRaw,
+      quantity: demand.quantityRequested,
+      demandKey: demand.demandKey,
+      priority: input.lostOpportunity.state === "recoverable" ? "high" : "medium",
+      reason: "confirmed_unavailable_product",
+      blockers,
+      suppressedBy,
+      evidenceMessageIds: [...demand.evidenceMessageIds],
+      confidence: demand.confidence
+    };
+  });
+  const decision = requests.some((request) => request.status === "qualified") ? "qualified" : requests.some((request) => request.status === "review_required") ? "review_required" : "not_needed";
+  return {
+    version: "canonical-customer-request-v1",
+    caseId: input.caseId,
+    decision,
+    requests
+  };
+}
+
 // src/lib/salesIntelligence/customerNeedModel.ts
 var PRICE_OBJECTION_RX = /غالي|السعر\s*(?:عالي|كتير|كبير)|كتير\s*(?:عليه|عليها)|مش\s*مناسب.*(?:السعر|الثمن)|خصم\s*اكتر/i;
-var AVAILABILITY_OBJECTION_RX = /مش\s*(?:موجود|متوفر)|مفيش|خلص|مش\s*لاقي|مش\s*لاقية/i;
+var AVAILABILITY_OBJECTION_RX = /مش\s*(?:موجود|متوفر)|مفيش|(?<![\p{L}])خلص(?:ان[ةه]?)?(?![\p{L}])|مش\s*لاقي|مش\s*لاقية/iu;
 var DELIVERY_OBJECTION_RX = /التوصيل|الدليفري|المندوب|اتأخر|متأخر|مش\s*(?:هستنى|هقدر\s*استنى)|(?:ما|م)?\s*وصلش|موصلش|لسه\s*(?:ما\s*)?(?:وصل|جه|جا)ش?|لم\s*يصل|فين\s*(?:ال)?(?:أوردر|اوردر|طلب|طلبي)/i;
-var PRODUCT_FIT_OBJECTION_RX = /مش\s*مناسب|مش\s*ده|عايز\s*غير|عاوز\s*غير|بديل|حساسي[ةه]|مش\s*نفس/i;
+var PRODUCT_FIT_OBJECTION_RX = /مش\s*مناسب|مش\s*ده|عايز\s*غير|عاوز\s*غير|(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|ممكن)\s+(?:له\s+|ليه\s+)?بديل|(?:عمل|سبب)(?:لي|ليّ|تلي)?\s*حساسي[ةه]|مش\s*نفس/i;
 var TIMING_OBJECTION_RX = /مش\s*دلوقتي|بعدين|بعد\s*كده|وقت\s*تاني|لما\s*احتاج/i;
 var ALTERNATIVE_RX = /بديل|بدل(?:ه|ها|هم|\s)/i;
 function evidenceRef2(messageId2, description) {
@@ -5129,25 +5944,26 @@ function strongestConfidence(current, next) {
 }
 var STOCK_QUESTION_WORDS_RX = /(?<![\p{L}\p{N}])(?:هو|هي|هل|طيب|مش|مو|غير|عندكم|عندكو|عندك|موجود[ةه]?|متوفر[ةه]?|متاح[ةه]?|فيه|في|لو\s*سمحت|من\s*فضلك|ممكن|يا\s*(?:دكتور[ةه]?|فندم))(?![\p{L}\p{N}])/giu;
 var NON_PRODUCT_LEFTOVER_RX = /^(?:مش|لا|لأ|اه|آه|تمام|حاجة|حاجه|ده|دي|دا|منه|منها)?$/;
-function productPhraseFromStockQuestion(text2) {
-  const phrase = stripRequestPrefix(text2.replace(STOCK_QUESTION_WORDS_RX, " ")).replace(/[؟?!.،]+/g, " ").replace(/\s+/g, " ").trim();
+function productPhraseFromStockQuestion(text5) {
+  const phrase = stripRequestPrefix(text5.replace(STOCK_QUESTION_WORDS_RX, " ")).replace(/[؟?!.،]+/g, " ").replace(/\s+/g, " ").trim();
   if (phrase.length < 3 || NON_PRODUCT_LEFTOVER_RX.test(phrase) || isGenericDeicticProductPhrase(phrase)) return null;
   return phrase;
 }
-function classifyObjectionCategory(text2, explicitRejection, correction) {
-  if (PRICE_OBJECTION_RX.test(text2)) return "price";
-  if (AVAILABILITY_OBJECTION_RX.test(text2)) return "availability";
-  if (DELIVERY_OBJECTION_RX.test(text2)) return "delivery";
-  if (PRODUCT_FIT_OBJECTION_RX.test(text2)) return "product_fit";
-  if (TIMING_OBJECTION_RX.test(text2)) return "timing";
-  if (explicitRejection) return "customer_declined";
+function classifyObjectionCategory(text5, explicitRejection, correction) {
+  if (PRICE_OBJECTION_RX.test(text5)) return "price";
+  if (AVAILABILITY_OBJECTION_RX.test(text5)) return "availability";
+  if (DELIVERY_OBJECTION_RX.test(text5)) return "delivery";
+  const fitText = text5.replace(/(?:مش|لا)\s+(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?)\s+بديل/gi, "");
+  if (PRODUCT_FIT_OBJECTION_RX.test(fitText)) return "product_fit";
+  if (TIMING_OBJECTION_RX.test(text5)) return "timing";
+  if (explicitRejection && fitText === text5) return "customer_declined";
   if (correction) return "unknown";
   return null;
 }
 function directRequestedProduct(message, quantityPhrase) {
-  let text2 = message.text;
-  if (quantityPhrase) text2 = text2.replace(quantityPhrase, " ");
-  const stripped = stripRequestPrefix(text2).replace(/^(?:لو\s*سمحت|من\s*فضلك)\s*/i, "").replace(/[؟?!.،]+$/g, "").trim();
+  let text5 = message.text;
+  if (quantityPhrase) text5 = text5.replace(quantityPhrase, " ");
+  const stripped = stripRequestPrefix(text5).replace(/^(?:لو\s*سمحت|من\s*فضلك)\s*/i, "").replace(/[؟?!.،]+$/g, "").trim();
   return stripped.length >= 2 ? stripped : null;
 }
 function deriveCustomerNeedModel(input) {
@@ -5197,6 +6013,13 @@ function deriveCustomerNeedModel(input) {
       const product = ensureProduct(item.productNameRaw, item.confidence, item.productId);
       if (!product) continue;
       product.evidenceMessageIds.add(item.sourceMessageId);
+      for (const ref3 of item.confidence.evidence) {
+        for (const id of ref3.messageIds ?? []) product.evidenceMessageIds.add(id);
+      }
+      if (item.confidence.ruleIds.includes("basket.item.customer_orders_named_recommendation")) {
+        product.roles.add("offered");
+        product.roles.add("accepted");
+      }
       if (sourceMessage?.role === "customer") {
         product.roles.add("requested");
         if (product.requestedQuantity == null && item.quantity != null) {
@@ -5209,7 +6032,10 @@ function deriveCustomerNeedModel(input) {
           product.offeredQuantity = item.quantity;
         }
       }
-      if (sourceMessage && ALTERNATIVE_RX.test(sourceMessage.text)) product.roles.add("alternative");
+      if (sourceMessage && ALTERNATIVE_RX.test(sourceMessage.text.replace(
+        /(?:مش|لا)\s+(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?)\s+(?:ال)?بديل/gi,
+        ""
+      ))) product.roles.add("alternative");
       if (isActive) {
         product.roles.add("final_basket");
         product.finalQuantity = item.quantity;
@@ -5243,7 +6069,10 @@ function deriveCustomerNeedModel(input) {
     }
     if (!productNameRaw) continue;
     const ref3 = evidenceRef2(message.id, `\u0627\u0644\u0639\u0645\u064A\u0644 \u0637\u0644\u0628 \u0627\u0644\u0635\u0646\u0641 \u0628\u0643\u0645\u064A\u0629: "${message.text.slice(0, 120)}".`);
-    const product = ensureProduct(
+    const clarified = Array.from(products.values()).filter(
+      (product2) => product2.evidenceMessageIds.has(message.id) && product2.confidence.ruleIds.includes("basket.item.strength_answer_linked")
+    );
+    const product = clarified.length === 1 ? clarified[0] : ensureProduct(
       productNameRaw,
       assessment6("strongly_inferred", 0.8, ["need.product.customer_quantity_request"], [ref3])
     );
@@ -5297,6 +6126,12 @@ function deriveCustomerNeedModel(input) {
       if (normalizedRequest === product.key || normalizedRequest.includes(product.key) || product.key.includes(normalizedRequest)) {
         product.roles.add("requested");
         product.evidenceMessageIds.add(message.id);
+        if (product.requestedQuantity == null && message.role === "customer") {
+          const messageKey = normalizeProductKey(message.text);
+          const stated = Object.entries(NATURAL_UNIT_QTY).filter(([unit]) => messageKey.includes(normalizeProductKey(`${unit} ${product.productNameRaw}`)));
+          const quantities = new Set(stated.map(([, info]) => info.quantity));
+          if (quantities.size === 1) product.requestedQuantity = [...quantities][0];
+        }
       }
     }
   }
@@ -5317,10 +6152,19 @@ function deriveCustomerNeedModel(input) {
   const indexById = new Map(messages.map((message, index) => [message.id, index]));
   const unlinkedAvailability = [];
   const unlinkedAlternatives = [];
+  const catalogMentionIds = /* @__PURE__ */ new Map();
+  const catalogNamesProduct = (text5, product) => {
+    if (!input.productIndex || !product.productId) return false;
+    if (!catalogMentionIds.has(text5)) {
+      const resolution = resolveProductMention(text5, input.productIndex);
+      catalogMentionIds.set(text5, !resolution.ambiguous && resolution.selected && ["proven", "strongly_inferred"].includes(resolution.selected.confidence) ? resolution.selected.product.productId : null);
+    }
+    return catalogMentionIds.get(text5) === product.productId;
+  };
   const linkProduct = (staffMessage, exclude = /* @__PURE__ */ new Set()) => {
     const staffText = normalizeProductKey(staffMessage.text);
     const named = Array.from(products.values()).filter(
-      (product) => !exclude.has(product.key) && product.key.length >= 3 && product.key !== staffText && !product.evidenceMessageIds.has(staffMessage.id) && staffText.includes(product.key)
+      (product) => !exclude.has(product.key) && product.key.length >= 3 && product.key !== staffText && !product.evidenceMessageIds.has(staffMessage.id) && (staffText.includes(product.key) || catalogNamesProduct(staffMessage.text, product))
     );
     if (named.length === 1) return { product: named[0], basis: "product_named_in_message" };
     if (named.length > 1) return null;
@@ -5360,7 +6204,7 @@ function deriveCustomerNeedModel(input) {
   const namedInClause = (clause, message) => {
     const clauseKey = normalizeProductKey(clause);
     return Array.from(products.values()).filter(
-      (product) => product.key.length >= 3 && product.key !== normalizeProductKey(message.text) && !product.evidenceMessageIds.has(message.id) && clauseKey.includes(product.key)
+      (product) => product.key.length >= 3 && product.key !== normalizeProductKey(message.text) && !product.evidenceMessageIds.has(message.id) && (clauseKey.includes(product.key) || catalogNamesProduct(clause, product))
     );
   };
   const availabilityFact = (message, state, basis, signalConfidence, ruleId) => ({
@@ -5483,8 +6327,9 @@ function deriveCustomerNeedModel(input) {
     evidenceIds.forEach((id) => original.evidenceMessageIds.add(id));
   }
   const currentAvailability = (product) => {
-    const latest = product.availabilityEvidence.slice().sort((a, b) => (indexById.get(a.messageId) ?? 0) - (indexById.get(b.messageId) ?? 0)).pop();
-    return latest?.state ?? "unknown";
+    const ordered4 = product.availabilityEvidence.slice().sort((a, b) => (indexById.get(a.messageId) ?? 0) - (indexById.get(b.messageId) ?? 0));
+    const statedStock = ordered4.filter((fact) => fact.state !== "check_pending").pop();
+    return statedStock?.state ?? ordered4[ordered4.length - 1]?.state ?? "unknown";
   };
   for (const product of products.values()) {
     if (product.roles.has("rejected") && currentAvailability(product) === "unavailable") product.roles.delete("rejected");
@@ -5523,9 +6368,10 @@ function deriveCustomerNeedModel(input) {
   const rejectionIds = new Set(rejectionSignals.map((signal) => signal.messageId));
   const correctionIds = new Set(correctionSignals.map((signal) => signal.messageId));
   const objections = [];
+  const contactTimingIds = new Set(extractCustomerTimingRequestsV32(messages).filter((row) => row.timing.when !== "when_in_stock").map((row) => row.message.id));
   for (const message of messages) {
     if (message.role !== "customer" || !message.isMeaningful) continue;
-    const category = classifyObjectionCategory(
+    const category = contactTimingIds.has(message.id) ? "timing" : classifyObjectionCategory(
       message.text,
       rejectionIds.has(message.id),
       correctionIds.has(message.id)
@@ -5625,10 +6471,23 @@ function deriveCustomerNeedModel(input) {
   } else {
     confidence3 = assessment6("unknown", 0.1, ["need.model.no_commercial_need_evidence"], []);
   }
+  const complaint = input.complaintAssessment;
+  const complaintNeedMessage = productList.length === 0 && complaint?.caseId === input.caseId ? complaint.complaintMessageIds.map((id) => messageById.get(id)).find((message) => message?.role === "customer") : null;
+  const primaryNeedMessage = complaintNeedMessage ?? firstRequestMessage;
+  if (complaintNeedMessage) {
+    confidence3 = assessment6(
+      "strongly_inferred",
+      0.85,
+      ["need.model.canonical_complaint"],
+      [evidenceRef2(complaintNeedMessage.id, "\u0627\u062D\u062A\u064A\u0627\u062C \u062E\u062F\u0645\u0629 \u0645\u0633\u062A\u0646\u062F \u0625\u0644\u0649 \u062F\u0644\u064A\u0644 \u0627\u0644\u0634\u0643\u0648\u0649 \u0627\u0644\u0643\u0627\u0646\u0648\u0646\u064A\u0643\u0627\u0644.")]
+    );
+    const index = humanReviewReasons.indexOf("customer_need_without_resolved_product_context");
+    if (index >= 0) humanReviewReasons.splice(index, 1);
+  }
   return {
     caseId: input.caseId,
-    primaryNeed: firstRequestMessage?.text ?? null,
-    primaryNeedMessageId: firstRequestMessage?.id ?? null,
+    primaryNeed: primaryNeedMessage?.text ?? null,
+    primaryNeedMessageId: primaryNeedMessage?.id ?? null,
     products: productList,
     unlinkedAvailability,
     unlinkedAlternatives,
@@ -5948,7 +6807,7 @@ function deriveLostOpportunity(input) {
       staffId: alternative.offeredByStaffId
     });
   }
-  const hasCommercialNeed = salesOutcome.outcome !== "information_only" && journeyState.currentState !== "information_only" && (customerNeed.products.length > 0 || customerNeed.primaryNeedMessageId !== null);
+  const hasCommercialNeed = !salesOutcome.reasonCodes.includes("outcome.noncommercial_followup_requires_review") && salesOutcome.outcome !== "information_only" && journeyState.currentState !== "information_only" && (customerNeed.products.length > 0 || customerNeed.primaryNeedMessageId !== null);
   let v;
   if (salesOutcome.outcome === "sale_proven") {
     v = verdict("won", null, "none", null, "proven", 1, "won.canonical_sale_proven", []);
@@ -6242,6 +7101,9 @@ function deriveFollowUpOpportunities(input) {
   const customerId = identityResolved ? conversationCase.customerId : null;
   const operationallyClosed = lostOpportunity.state === "closed_order_unproven";
   const operationalClosureSuppression = operationallyClosed ? salesOutcome.reasonCodes.includes("outcome.invoice_backed_order_closed_sale_not_proven") ? "invoiced_unproven" : "financially_settled" : null;
+  if (conversationCase.caseType === "follow_up") {
+    return { caseId, decision: "review_required", opportunities: [], notNeededReason: null };
+  }
   if (salesOutcome.outcome === "information_only" || lostOpportunity.state === "no_commercial_opportunity") {
     return {
       caseId,
@@ -6254,20 +7116,23 @@ function deriveFollowUpOpportunities(input) {
   const indexOf = new Map(messages.map((m, i) => [m.id, i]));
   const laterStaffReply = (message) => meaningful.some((m) => m.role === "staff" && (indexOf.get(m.id) ?? 0) > (indexOf.get(message.id) ?? 0));
   const customerMessages2 = meaningful.filter((m) => m.role === "customer");
+  const timingById = new Map(extractCustomerTimingRequestsV32(meaningful).map((row) => [row.message.id, row]));
   const waitRequests = [];
   for (const message of customerMessages2) {
-    const timing = classifyCustomerTimingRequestV32(message.text);
+    const timingEvidence = timingById.get(message.id);
+    const timing = timingEvidence?.timing;
     const willWait = classifyCustomerIntentStatementV32(message.text) === "will_wait";
     if (!timing && !willWait) continue;
     waitRequests.push({
       message,
+      evidence: timingEvidence?.evidenceMessageIds ?? [message.id],
       whenInStock: willWait || timing?.when === "when_in_stock",
       days: timing?.when === "days" ? timing.days : null,
       sameDay: timing?.when === "same_day"
     });
   }
-  const demandForWait = (text2) => {
-    const textKey = normalizeProductKey(text2);
+  const demandForWait = (text5) => {
+    const textKey = normalizeProductKey(text5);
     const named = unavailableDemand.filter((d) => d.productKey.length >= 3 && textKey.includes(d.productKey));
     if (named.length) return named;
     return unavailableDemand.length === 1 ? unavailableDemand : [];
@@ -6321,7 +7186,7 @@ function deriveFollowUpOpportunities(input) {
       demand: null,
       duePolicy: request.days != null || request.sameDay ? "customer_requested_time" : "manual_schedule",
       requestedDelayDays: request.sameDay ? 0 : request.days,
-      evidence: [request.message.id],
+      evidence: request.evidence,
       level: "strongly_inferred",
       score: 0.85
     });
@@ -6329,13 +7194,23 @@ function deriveFollowUpOpportunities(input) {
   const checkPendingIds = new Set(unavailableDemand.filter((d) => d.availabilityState === "check_pending").map((d) => d.availabilityMessageId));
   for (const message of meaningful) {
     if (message.role !== "staff" || !isStaffFollowUpPromiseV32(message.text)) continue;
-    if (checkPendingIds.has(message.id) || laterStaffReply(message)) continue;
+    const deliveryPromise = isDeliveryFollowUpPromiseV32(message.text);
+    const scheduledAt = explicitPromiseTime(message.text, message.timestamp);
+    const fulfilled = scheduledAt && meaningful.some(
+      (later) => later.role === "staff" && (indexOf.get(later.id) ?? 0) > (indexOf.get(message.id) ?? 0) && /(?:تم\s+(?:الاتصال|التواصل)|كلمت\s+حضرتك|بلغت\s+حضرتك)/.test(later.text) && !/(?:مش|لم|لم\s*يتم)\s/.test(later.text)
+    );
+    const deliveryCompleted = deliveryPromise && meaningful.some(
+      (later) => (indexOf.get(later.id) ?? 0) > (indexOf.get(message.id) ?? 0) && isDeliveryFollowUpCompletionV32(later.text)
+    );
+    if (deliveryCompleted || fulfilled || !deliveryPromise && !scheduledAt && (checkPendingIds.has(message.id) || laterStaffReply(message))) continue;
     candidates.push({
-      reason: "staff_promised_check",
+      reason: deliveryPromise ? "delivery_unresolved" : "staff_promised_check",
       explicit: true,
       demand: null,
       assignedStaffName: message.sender,
       assignedStaffId: input.staffIdBySender?.[message.sender] ?? null,
+      dueAt: scheduledAt,
+      duePolicy: scheduledAt ? "customer_requested_time" : void 0,
       evidence: [message.id],
       level: "strongly_inferred",
       score: 0.85
@@ -6376,6 +7251,8 @@ function deriveFollowUpOpportunities(input) {
     const times = evidence.map((id) => messageAt.get(id)).filter((t) => typeof t === "number");
     return times.length ? new Date(Math.min(...times)) : caseStartedAt;
   };
+  const ownership = conversationCase.ownership;
+  const transactionBranchUnknown = ownership ? ownership.branchBasis === "conflict" || Boolean(ownership.sourceBranchNameRaw?.trim()) && !isOperatingBranch(ownership.operationalBranch) : Boolean(String(conversationCase.branchNameRaw ?? "").trim()) && !isOperatingBranch(conversationCase.branchNameRaw);
   const byKey = /* @__PURE__ */ new Map();
   for (const candidate of candidates) {
     const profile = PROFILE[candidate.reason];
@@ -6387,7 +7264,7 @@ function deriveFollowUpOpportunities(input) {
     }
     if (!suppressedBy && saleProven && !candidate.explicit) suppressedBy = "sale_proven";
     if (!suppressedBy && (candidate.evidence.length === 0 || candidate.level === "unknown")) suppressedBy = "weak_evidence";
-    const blocked = !suppressedBy && profile.needsCustomerIdentity && !customerId;
+    const blocker = suppressedBy ? null : profile.needsCustomerIdentity && !customerId ? "customer_identity_unresolved" : transactionBranchUnknown ? "transaction_branch_unknown" : null;
     const duePolicy = candidate.duePolicy ?? profile.duePolicy;
     const requestedDelayDays = candidate.requestedDelayDays ?? null;
     const productScopeKey = demand ? demand.resolvedProductId ?? demand.productKey : null;
@@ -6401,7 +7278,7 @@ function deriveFollowUpOpportunities(input) {
       followUpKey,
       caseId,
       customerId,
-      status: suppressedBy ? "suppressed" : blocked ? "blocked" : "actionable",
+      status: suppressedBy ? "suppressed" : blocker ? "blocked" : "actionable",
       reason: candidate.reason,
       priority: candidate.priority ?? profile.priority,
       productKey: demand?.productKey ?? null,
@@ -6411,19 +7288,27 @@ function deriveFollowUpOpportunities(input) {
       demandKey: demand?.demandKey ?? null,
       duePolicy,
       requestedDelayDays,
-      dueAt: dueAtFor(duePolicy, requestedDelayDays, lastAt),
+      dueAt: candidate.dueAt ?? dueAtFor(duePolicy, requestedDelayDays, lastAt),
       assignedRole: profile.role,
       assignedStaffId: candidate.assignedStaffId ?? null,
       assignedStaffName: candidate.assignedStaffName ?? null,
       goal: profile.goal,
       nextBestAction: profile.nextBestAction,
-      blocker: blocked ? "customer_identity_unresolved" : null,
+      blocker,
       suppressedBy,
       evidenceMessageIds: [...new Set(candidate.evidence)],
       confidence: confidence2(candidate, profile)
     };
     const existing = byKey.get(followUpKey);
     if (existing) {
+      const latestExisting = Math.max(...existing.evidenceMessageIds.map((id) => messageAt.get(id) ?? 0));
+      const latestIncoming = Math.max(...opportunity.evidenceMessageIds.map((id) => messageAt.get(id) ?? 0));
+      if (candidate.dueAt && latestIncoming > latestExisting) {
+        existing.dueAt = candidate.dueAt;
+        existing.duePolicy = opportunity.duePolicy;
+        existing.assignedStaffId = opportunity.assignedStaffId;
+        existing.assignedStaffName = opportunity.assignedStaffName;
+      }
       existing.evidenceMessageIds = [.../* @__PURE__ */ new Set([...existing.evidenceMessageIds, ...opportunity.evidenceMessageIds])];
       continue;
     }
@@ -6446,6 +7331,23 @@ function deriveFollowUpOpportunities(input) {
     opportunities,
     notNeededReason: decision === "not_needed" ? saleProven ? "sale_proven" : operationallyClosed ? operationalClosureSuppression : interactionSuppression : null
   };
+}
+function explicitPromiseTime(text5, at) {
+  const normalized = text5.replace(/[٠-٩]/g, (digit) => String("\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669".indexOf(digit)));
+  const dayOffset = /بكر[ةه]|بكرا/.test(normalized) ? 1 : /اليوم|النهارد[ةه]/.test(normalized) ? 0 : null;
+  const clock = normalized.match(/الساع[ةه]\s*(\d{1,2})(?::(\d{2}))?\s*((?:صباح|مساء)[ًا]*|ص|م)(?![\p{L}])/u);
+  if (dayOffset === null || !clock) return null;
+  const hour = Number(clock[1]), minute = Number(clock[2] ?? 0);
+  if (hour < 1 || hour > 12 || minute > 59) return null;
+  const wall = cairoWallClockParts(at);
+  const afternoon = clock[3].startsWith("\u0645");
+  return cairoWallClockToDate(
+    wall.year,
+    wall.month,
+    wall.day + dayOffset,
+    hour % 12 + (afternoon ? 12 : 0),
+    minute
+  )?.toISOString() ?? null;
 }
 function dueAtFor(policy, days, lastAt) {
   switch (policy) {
@@ -6540,7 +7442,13 @@ function buildCaseIntelligenceView(analysis, context) {
       demandKey: demand?.demandKey ?? null,
       lossOutcome: loss?.outcome ?? null,
       lossReason: loss?.reason ?? null,
-      followUpKeys: analysis.followUp.opportunities.filter((o) => o.productKey === product.key).map((o) => o.followUpKey)
+      followUpKeys: analysis.followUp.opportunities.filter((o) => o.productKey === product.key).map((o) => o.followUpKey),
+      mentionSource: product.roles.includes("requested") ? "customer_explicit" : product.roles.includes("offered") ? "staff_restatement" : "inferred",
+      quantitySource: product.requestedQuantity != null ? "customer" : product.offeredQuantity != null ? "staff_restatement" : product.finalQuantity != null ? "final_basket" : "unknown",
+      evidenceMessageIds: [...product.evidenceMessageIds],
+      invoiceLine: attribution.selectedCandidate?.lineMatches?.find(
+        (line) => normalizeProductKey(line.basketProductNameRaw) === product.key
+      ) ?? null
     };
   });
   const active = analysis.activeBasket;
@@ -6598,6 +7506,7 @@ function buildCaseIntelligenceView(analysis, context) {
     sourceCaseIdV22: conversationCase.sourceCaseIdV22,
     interaction: {
       interactionId: interaction?.id ?? null,
+      continuationEvidence: interaction?.continuationEvidence ?? [],
       startedAt: conversationCase.startedAt,
       endedAt: conversationCase.endedAt,
       messageCount: messages.length,
@@ -6625,7 +7534,12 @@ function buildCaseIntelligenceView(analysis, context) {
       identityStatus,
       blockers: identityResolved ? [] : ["customer_identity_unresolved"]
     },
-    branch: { branchId: conversationCase.branchId, branchNameRaw: conversationCase.branchNameRaw },
+    branch: {
+      branchId: conversationCase.branchId,
+      branchNameRaw: conversationCase.branchNameRaw,
+      recommendation: analysis.branchRecommendation
+    },
+    ownership: conversationCase.ownership,
     staff: {
       participants: [...participants.values()].map((p) => ({ ...p, messageCount: p.messageIds.length })),
       facts: uniqueFacts
@@ -6635,6 +7549,7 @@ function buildCaseIntelligenceView(analysis, context) {
     basket,
     journey: analysis.journeyState,
     sale: {
+      customerAcceptanceDetected: analysis.historicalClosure?.customerAcceptanceDetected,
       confirmationState: commercialConfirmation.currentState,
       summaryPresented: commercialConfirmation.summaryPresented,
       customerConfirmed: commercialConfirmation.customerConfirmed,
@@ -6643,6 +7558,7 @@ function buildCaseIntelligenceView(analysis, context) {
       invoiceCandidateIds: analysis.invoiceCandidateIds,
       selectedInvoiceId: attribution.selectedInvoiceId,
       selectedInvoiceNumber: attribution.selectedInvoiceNumber,
+      candidateRecommendation: attribution.candidateRecommendation ?? null,
       attributionLevel: attribution.attributionLevel,
       proofState: salesOutcome.saleProofState,
       outcome: salesOutcome.outcome,
@@ -6654,6 +7570,7 @@ function buildCaseIntelligenceView(analysis, context) {
     unavailableDemand: analysis.unavailableDemand,
     lostOpportunity: analysis.lostOpportunity,
     followUp: analysis.followUp,
+    careFollowUp: analysis.careFollowUp ?? null,
     // Projected as-is from the canonical disposition engine; the view decides nothing itself.
     ...analysis.operationalDisposition ? { operationalDisposition: analysis.operationalDisposition } : {},
     coachingEvidence: {
@@ -6742,7 +7659,7 @@ function pickOpportunity(opportunities) {
 function deriveCaseOperationalDisposition(input) {
   const { lostOpportunity, followUp, journeyState } = input;
   const opportunity = pickOpportunity(followUp.opportunities);
-  const lostBucket = (lostOpportunity.state === "open" || lostOpportunity.state === "recoverable") && lostOpportunity.waitingOn ? LOST_WAITING_BUCKET[lostOpportunity.waitingOn] : journeyState.currentState === "awaiting_invoice" ? "invoice" : null;
+  const lostBucket = followUp.decision === "review_required" && lostOpportunity.state === "no_commercial_opportunity" ? null : (lostOpportunity.state === "open" || lostOpportunity.state === "recoverable") && lostOpportunity.waitingOn ? LOST_WAITING_BUCKET[lostOpportunity.waitingOn] : journeyState.currentState === "awaiting_invoice" ? "invoice" : null;
   let decision;
   const fromOpportunity = (o) => ({
     bucket: REASON_BUCKET[o.reason],
@@ -6765,6 +7682,15 @@ function deriveCaseOperationalDisposition(input) {
       evidenceMessageIds: lostOpportunity.evidenceMessageIds,
       confidence: lostOpportunity.confidence,
       nextBestAction: LOST_WAITING_ACTION[lostBucket]
+    };
+  } else if (followUp.decision === "review_required") {
+    decision = {
+      bucket: "unknown",
+      opportunity: null,
+      reasonCodes: ["disposition.manual_review_pending"],
+      evidenceMessageIds: [],
+      confidence: lostOpportunity.confidence,
+      nextBestAction: null
     };
   } else if (TERMINAL_COMMERCIAL.has(lostOpportunity.state)) {
     decision = {
@@ -6867,7 +7793,7 @@ function enrichBasketProductIdentities(itemsByBasketId, productIndex) {
         const resolution = resolveProductMention(item.productNameRaw, productIndex);
         const selected2 = resolution.selected;
         if (!selected2 || !isBasketEligibleProductResolution(selected2)) {
-          return item;
+          return item.resolutionStatus === "proven" ? { ...item, resolutionStatus: "partially_proven" } : item;
         }
         return {
           ...item,
@@ -6899,11 +7825,20 @@ function staffEvidenceForCase(input, scopedMessages) {
   }
   return staffIdBySender;
 }
-function analyzeOneCase(conversationCase, scopedMessages, input, interaction = null, conversationTimeline = scopedMessages) {
+function analyzeOneCase(conversationCase, scopedMessages, input, interaction = null, conversationTimeline = scopedMessages, sourceHasMultipleIntroducedStaff = false) {
   const pipelineWarnings = [];
   const caseStaffIdBySender = staffEvidenceForCase(input, scopedMessages);
+  const scopedIntroducedStaffIds = new Set(
+    scopedMessages.filter((message) => message.direction === "outbound").map((message) => input.staffIdByIntroductionMessageId?.[message.id]).filter((id) => Boolean(id))
+  );
+  const caseHasNamedIntroduction = scopedMessages.some((message) => Boolean(extractIntroducedStaffName(message)));
+  const sourceStaffFallbackAllowed = !sourceHasMultipleIntroducedStaff && !caseHasNamedIntroduction;
   const caseKnownStaffIds = [
-    .../* @__PURE__ */ new Set([...input.knownStaffIds ?? [], ...Object.values(caseStaffIdBySender)])
+    .../* @__PURE__ */ new Set([
+      ...scopedIntroducedStaffIds.size === 1 ? [...scopedIntroducedStaffIds] : sourceStaffFallbackAllowed && scopedIntroducedStaffIds.size === 0 ? input.knownStaffIds ?? [] : [],
+      // Multiple or unresolved introductions never inherit a different employee.
+      ...Object.values(caseStaffIdBySender)
+    ])
   ];
   const {
     baskets,
@@ -6927,6 +7862,15 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
   );
   const hasMeaningfulBasketItems = baskets.some((basket) => (itemsByBasketId[basket.basketId] ?? []).length > 0);
   const activeItems = activeBasket ? itemsByBasketId[activeBasket.basketId] ?? [] : [];
+  const complaintAssessment = deriveCanonicalComplaintAssessment({
+    caseId: conversationCase.caseId,
+    messages: scopedMessages.map((message) => ({
+      id: message.id,
+      role: message.role,
+      text: message.text,
+      meaningful: message.isMeaningful
+    }))
+  });
   const customerNeed = deriveCustomerNeedModel({
     caseId: conversationCase.caseId,
     messages: scopedMessages,
@@ -6934,6 +7878,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     itemsByBasketId,
     activeBasket,
     staffIdBySender: caseStaffIdBySender,
+    complaintAssessment,
     productIndex: input.productIndex
   });
   const unavailableDemand = deriveUnavailableDemand({
@@ -6975,6 +7920,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     customerCode: input.customerCodeHint ?? null,
     customerName: input.customerNameHint ?? null,
     branchNameRaw: conversationCase.branchNameRaw,
+    branchEvidenceConflict: conversationCase.ownership?.branchBasis === "conflict",
     // Same rule as candidateContext above — this exact segmented case interval, never coarse
     // whole-thread timestamps.
     caseStartedAt: conversationCase.startedAt,
@@ -6985,6 +7931,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     activeBasketItems: activeItems.map((item) => ({
       productNameRaw: item.productNameRaw,
       productId: item.productId,
+      productCode: item.productCode ?? null,
       quantity: item.quantity,
       resolutionStatus: item.resolutionStatus
     })),
@@ -7058,13 +8005,14 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     ...evidenceCompletenessBase,
     overallEvidenceLevel: computeOverallEvidenceLevel(evidenceCompletenessBase)
   };
+  const unresolvedActiveBasketProductIdentity = activeItems.some(
+    (item) => item.resolutionStatus !== "proven" || Boolean(input.productIndex) && !item.productId
+  );
   const failureReasons = [];
   if (conversationCase.needsHumanReview && financialSettlement.status !== "settled") failureReasons.push("case_segmentation_uncertain");
   if (!conversationCase.customerId && !conversationCase.customerPhone) failureReasons.push("customer_identity_unresolved");
   if (!evidenceCompleteness.basketDetected) failureReasons.push("basket_not_detected");
-  if (activeItems.some(
-    (item) => item.resolutionStatus === "unknown" || item.resolutionStatus === "contradicted" || Boolean(input.productIndex) && !item.productId
-  )) {
+  if (unresolvedActiveBasketProductIdentity) {
     failureReasons.push("product_identity_unresolved");
   }
   if (activeItems.some((item) => item.quantity == null)) failureReasons.push("quantity_unknown");
@@ -7081,13 +8029,14 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
   if (commercialConfirmation.staffConfirmed && caseKnownStaffIds.length === 0) failureReasons.push("staff_identity_unresolved");
   if (!conversationCase.endedAt) failureReasons.push("conversation_timestamp_quality_issue");
   const isGenuinelyInformationOnly = conversationCase.caseType === "information_only" && !evidenceCompleteness.basketDetected;
-  const rawNeedsHumanReview = conversationCase.needsHumanReview || commercialConfirmation.needsHumanReview || rawAttribution.needsHumanReview || basketInvoiceMatch.needsHumanReview || financialSettlement.needsHumanReview || !isGenuinelyInformationOnly && integrityAssessment.needsHumanReview || activeBasketResolution.outcome === "needs_human_review";
+  const rawNeedsHumanReview = conversationCase.needsHumanReview || commercialConfirmation.needsHumanReview || rawAttribution.needsHumanReview || basketInvoiceMatch.needsHumanReview || unresolvedActiveBasketProductIdentity || financialSettlement.needsHumanReview || !isGenuinelyInformationOnly && integrityAssessment.needsHumanReview || activeBasketResolution.outcome === "needs_human_review";
   const rawHumanReviewReasons = Array.from(
     /* @__PURE__ */ new Set([
       ...conversationCase.humanReviewReasons,
       ...commercialConfirmation.humanReviewReasons,
       ...rawAttribution.humanReviewReasons,
       ...basketInvoiceMatch.humanReviewReasons,
+      ...unresolvedActiveBasketProductIdentity ? ["product_identity_unresolved"] : [],
       ...financialSettlement.needsHumanReview ? financialSettlement.ruleIds : [],
       ...isGenuinelyInformationOnly ? [] : integrityAssessment.humanReviewReasons,
       ...activeBasketResolution.outcome === "needs_human_review" ? ["active_basket_conflict"] : []
@@ -7100,25 +8049,35 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
   });
   const identityStatus = input.customerIdentityStatus;
   const identityBlocked = identityStatus !== void 0 && identityStatus !== "resolved";
+  const noncommercialCase = conversationCase.caseType === "follow_up";
+  const attributionBlocked = identityBlocked || noncommercialCase;
   const identityReason = `customer_identity_${identityStatus}`;
-  const attribution = identityBlocked ? {
+  const blockedReasons = [
+    ...identityBlocked ? [identityReason] : [],
+    ...noncommercialCase ? ["noncommercial_followup_not_attributable"] : []
+  ];
+  const attribution = attributionBlocked ? {
     ...rawAttribution,
     isOfficialForStaffEvaluation: false,
-    humanReviewReasons: Array.from(/* @__PURE__ */ new Set([...rawAttribution.humanReviewReasons, identityReason]))
+    humanReviewReasons: Array.from(/* @__PURE__ */ new Set([...rawAttribution.humanReviewReasons, ...blockedReasons]))
   } : rawAttribution;
-  const saleProof = identityBlocked && derivedSaleProof.state === "proven" ? {
+  const saleProof = attributionBlocked && derivedSaleProof.state === "proven" ? {
     ...derivedSaleProof,
     state: identityStatus === "contradicted" ? "contradicted" : "strongly_supported",
     trustedInvoiceId: null,
     contradictions: identityStatus === "contradicted" ? Array.from(/* @__PURE__ */ new Set([...derivedSaleProof.contradictions, "customer_identity_contradicted"])) : derivedSaleProof.contradictions,
-    ruleIds: Array.from(/* @__PURE__ */ new Set([...derivedSaleProof.ruleIds, "sale_proof.customer_identity_not_resolved"])),
+    ruleIds: Array.from(/* @__PURE__ */ new Set([
+      ...derivedSaleProof.ruleIds,
+      ...identityBlocked ? ["sale_proof.customer_identity_not_resolved"] : [],
+      ...noncommercialCase ? ["sale_proof.noncommercial_followup_not_attributable"] : []
+    ])),
     needsHumanReview: true
   } : derivedSaleProof;
   const reviewReasonsResolvedByProvenInvoice = /* @__PURE__ */ new Set(["no_basket_state_for_case"]);
   const reviewReasonsResolvedByFinancialSettlement = /* @__PURE__ */ new Set(["possible_unsegmented_multiple_requests"]);
   const invoiceBackedOrderClosure = commercialConfirmation.currentState === "commercial_confirmation_complete" && attribution.hasAttributedInvoice && attribution.isOfficialForStaffEvaluation && attribution.selectedCandidate?.announcedTotalMatch === "exact" && attribution.contradictions.length === 0 && saleProof.state === "strongly_supported";
   const reviewReasonsResolvedByInvoiceBackedClosure = /* @__PURE__ */ new Set([
-    "unresolved_product_identity",
+    "product_identity_unresolved",
     "customer_need_product_context_ambiguous"
   ]);
   let humanReviewReasons = saleProof.state === "proven" ? rawHumanReviewReasons.filter((reason) => !reviewReasonsResolvedByProvenInvoice.has(reason)) : [...rawHumanReviewReasons];
@@ -7200,7 +8159,16 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
   } else {
     status = "analyzed";
   }
+  const customerRequestAssessment = deriveCanonicalCustomerRequestAssessment({
+    caseId: conversationCase.caseId,
+    customerNeed,
+    unavailableDemand,
+    salesOutcome,
+    lostOpportunity
+  });
   const analysis = {
+    complaintAssessment,
+    customerRequestAssessment,
     caseId: conversationCase.caseId,
     conversationId: input.conversationId,
     conversationCase: effectiveConversationCase,
@@ -7227,7 +8195,15 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     pipelineWarnings,
     needsHumanReview,
     humanReviewReasons,
-    failureReasons
+    failureReasons,
+    careFollowUp: deriveCareFollowUpSuggestion(conversationCase, scopedMessages),
+    branchRecommendation: recommendCaseBranch({
+      ownership: conversationCase.ownership,
+      invoiceBranch: attribution.selectedCandidate?.invoiceBranch ?? null,
+      invoiceCandidateStrong: attribution.candidateRecommendation?.level === "strong_candidate_requires_approval",
+      attributionUsedCaseBranch: Boolean(attribution.selectedCandidate?.ruleIds.some((rule) => rule.includes("branch_exact") || rule.includes("branch_alias"))),
+      invoiceSellerIsCaseStaff: attribution.selectedCandidate?.staffMatch === "same"
+    })
   };
   return {
     ...analysis,
@@ -7266,7 +8242,11 @@ function deriveSegmentedCases(input) {
       /* @__PURE__ */ new Set([...semanticSession.outboundStaffNames || [], ...input.knownStaffSenders])
     );
   }
-  const understanding = buildConversationUnderstandingV32(semanticSession);
+  const customerServiceMessageIds = new Set(semanticSession.messages.filter((message) => {
+    const id = input.staffIdByIntroductionMessageId?.[message.id] || input.staffIdBySender?.[message.sender];
+    return id && input.staffProfilesById?.[id]?.function === "customer_service";
+  }).map((message) => message.id));
+  const understanding = buildConversationUnderstandingV32(semanticSession, { customerServiceMessageIds });
   const rawCases = deriveConversationCases({
     understanding,
     conversationId: input.conversationId,
@@ -7293,11 +8273,26 @@ function deriveSegmentedCases(input) {
     const localInteractionIndex = localInteractionCountBySession.get(anchorSessionIndex) ?? 0;
     localInteractionCountBySession.set(anchorSessionIndex, localInteractionIndex + 1);
     if (coarseSessionIndexes.length > 1) crossedCoarseBoundary = true;
-    const conversationCase = coarseSessions.length > 1 ? {
+    const rawConversationCase = coarseSessions.length > 1 ? {
       ...rawCase,
       caseId: `${input.conversationId}:interaction:${localInteractionIndex}:session:${anchorSessionIndex}`
     } : rawCase;
     const scopedMessages = messagesForMessageIds(understanding, interaction.messageIds);
+    const ownership = deriveCaseOwnershipContext({
+      messages: scopedMessages,
+      sourceBranch: input.branchNameRawHint,
+      staffIdBySender: input.staffIdBySender,
+      staffIdByIntroductionMessageId: input.staffIdByIntroductionMessageId,
+      staffProfilesById: input.staffProfilesById
+    });
+    const conversationCase = {
+      ...rawConversationCase,
+      branchNameRaw: ownership.operationalBranch,
+      branchId: ownership.branchBasis === "source" ? rawConversationCase.branchId : null,
+      ownership,
+      needsHumanReview: rawConversationCase.needsHumanReview || ownership.blockers.some((b) => ["case_branch_evidence_conflict", "multiple_staff_functions_require_review", "multiple_staff_owners_require_review"].includes(b)),
+      humanReviewReasons: [.../* @__PURE__ */ new Set([...rawConversationCase.humanReviewReasons, ...ownership.blockers.filter((b) => ["case_branch_evidence_conflict", "multiple_staff_functions_require_review", "multiple_staff_owners_require_review"].includes(b))])]
+    };
     cases.push({ conversationCase, scopedMessages, conversationTimeline: understanding.messages, interaction });
   });
   if (crossedCoarseBoundary) {
@@ -7316,7 +8311,10 @@ function segmentationInputFromPipelineInput(input) {
     branchIdHint: input.branchIdHint ?? null,
     branchNameRawHint: input.branchNameRawHint ?? null,
     sessionSplitGapMinutes: input.sessionSplitGapMinutes,
-    knownStaffSenders: Object.keys(input.staffIdBySender ?? {})
+    knownStaffSenders: Object.keys(input.staffIdBySender ?? {}),
+    staffIdBySender: input.staffIdBySender,
+    staffIdByIntroductionMessageId: input.staffIdByIntroductionMessageId,
+    staffProfilesById: input.staffProfilesById
   };
 }
 function deriveCasesOnly(input) {
@@ -7329,8 +8327,12 @@ function deriveCasesOnly(input) {
 }
 function runSalesIntelligencePipeline(input) {
   const segmented = deriveSegmentedCases(segmentationInputFromPipelineInput(input));
+  const namedIntroductions = new Set(
+    (segmented.cases[0]?.conversationTimeline ?? []).map((message) => extractIntroducedStaffName(message)).filter((name) => Boolean(name)).map((name) => name.trim().toLocaleLowerCase("ar"))
+  );
+  const sourceHasMultipleIntroducedStaff = namedIntroductions.size > 1;
   const caseAnalyses = segmented.cases.map(
-    ({ conversationCase, scopedMessages, conversationTimeline, interaction }) => analyzeOneCase(conversationCase, scopedMessages, input, interaction, conversationTimeline)
+    ({ conversationCase, scopedMessages, conversationTimeline, interaction }) => analyzeOneCase(conversationCase, scopedMessages, input, interaction, conversationTimeline, sourceHasMultipleIntroducedStaff)
   );
   return {
     conversationId: input.conversationId,
@@ -7602,6 +8604,7 @@ function identityFromRow(row, idKeys, nameKeys, source) {
     name: text(read(row, nameKeys, "")) || null,
     branch: normalizeBranchName(read(row, ["branch", "branch_name"], null)) || null,
     role: text(read(row, ["role", "staff_role", "job_title"], "")) || null,
+    type: text(read(row, ["type"], "")) || null,
     username: text(read(row, ["username"], "")) || null,
     status: text(read(row, ["status"], "")) || null,
     active: read(row, ["active"], true) !== false && read(row, ["is_active"], true) !== false && read(row, ["can_login"], true) !== false,
@@ -7622,12 +8625,25 @@ function uniqueBaseIdentities(rows) {
   }
   return [...byId.values(), ...withoutId.values()];
 }
-async function loadStaffDirectoryFrom(client) {
+async function loadStaffDirectoryFrom(client, options = {}) {
   const [staffResult, accountResult, aliasResult] = await Promise.all([
-    client.from("staff").select("id,name,username,branch,role,status,active,is_active").limit(800),
+    client.from("staff").select("id,name,username,branch,role,type,status,active,is_active").limit(800),
     client.rpc("get_staff_accounts_directory"),
     client.from("staff_identity_aliases").select("staff_id,alias_name,active,confidence,priority").eq("active", true).limit(2e3)
   ]);
+  if (options.requireComplete) {
+    const failed = [
+      ["staff", staffResult.error],
+      ["accounts", accountResult.error],
+      ["aliases", aliasResult.error]
+    ].filter(([, error]) => Boolean(error));
+    if (failed.length) {
+      throw new Error(`staff_directory_incomplete: ${failed.map(([source]) => source).join(",")}`);
+    }
+    if ((staffResult.data?.length ?? 0) >= 800 || (aliasResult.data?.length ?? 0) >= 2e3) {
+      throw new Error("staff_directory_incomplete: read_limit_reached");
+    }
+  }
   if (staffResult.error && accountResult.error) {
     throw new Error(
       `\u062A\u0639\u0630\u0631 \u062A\u062D\u0645\u064A\u0644 \u062F\u0644\u064A\u0644 \u0627\u0644\u0645\u0648\u0638\u0641\u064A\u0646: ${staffResult.error.message}; ${accountResult.error.message}`
@@ -7976,9 +8992,9 @@ function buildStaffIdentityMap(staffRows) {
     names.set(key, [...names.get(key) || [], row]);
   }
   for (const [name, candidates] of names) {
-    const unique = uniqueByStaffId(candidates);
-    if (unique.length !== 1) continue;
-    const entry = makeEntry(unique[0]);
+    const unique2 = uniqueByStaffId(candidates);
+    if (unique2.length !== 1) continue;
+    const entry = makeEntry(unique2[0]);
     if (entry) map.set(`name:${name}`, entry);
   }
   return map;
@@ -8082,6 +9098,29 @@ async function fetchPharmacyProductIndex(supabaseClient, options = {}) {
   }
 }
 
+// src/lib/staff/staffRoleCapabilities.ts
+function token(value) {
+  return String(value || "").trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ");
+}
+function canonicalStaffRole(value) {
+  const role = token(value);
+  if (!role) return "other";
+  if (["\u0635\u064A\u062F\u0644\u0627\u0646\u064A", "\u0635\u064A\u062F\u0644\u064A", "\u062F\u0643\u062A\u0648\u0631", "doctor", "pharmacist"].includes(role)) return "doctor";
+  if (["\u0645\u0633\u0627\u0639\u062F", "\u0645\u0633\u0627\u0639\u062F \u0635\u064A\u062F\u0644\u064A", "assistant", "pharmacy assistant"].includes(role)) return "assistant";
+  if (role === "inventory assistant" || role.includes("\u0645\u0633\u0627\u0639\u062F \u0645\u062E\u0632\u0646") || role.includes("\u0645\u0633\u0627\u0639\u062F \u062C\u0631\u062F") || role.includes("\u0645\u0633\u0627\u0639\u062F \u0645\u062E\u0632\u0648\u0646")) return "inventory_assistant";
+  if (role.includes("\u0646\u0638\u0627\u0641") || ["cleaning", "cleaner", "cleaning supervisor"].includes(role)) return "cleaning";
+  if (["\u062A\u0648\u0635\u064A\u0644", "\u062F\u0644\u064A\u0641\u0631\u064A", "\u0645\u0646\u062F\u0648\u0628 \u062A\u0648\u0635\u064A\u0644", "delivery", "delivery rider", "delivery driver", "rider"].includes(role)) return "delivery";
+  if (["\u062E\u062F\u0645\u0629 \u0639\u0645\u0644\u0627\u0621", "\u062E\u062F\u0645\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621", "\u0645\u0633\u0624\u0648\u0644 \u062E\u062F\u0645\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621", "\u0645\u0633\u0626\u0648\u0644 \u062E\u062F\u0645\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621", "\u0645\u0633\u0624\u0648\u0644\u0629 \u062E\u062F\u0645\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621", "customer service", "team dawaa alpha", "\u0641\u0631\u064A\u0642 \u062F\u0648\u0627\u0621 \u0623\u0644\u0641\u0627", "\u0641\u0631\u064A\u0642 \u062F\u0648\u0627\u0621 \u0627\u0644\u0641\u0627"].includes(role)) return "customer_service";
+  if (["\u0645\u062F\u064A\u0631 \u062E\u062F\u0645\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621", "\u0645\u062F\u064A\u0631\u0629 \u062E\u062F\u0645\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621", "customer service manager"].includes(role)) return "customer_service_manager";
+  if (["\u0645\u0633\u0624\u0648\u0644 \u0627\u0644\u0634\u064A\u0641\u062A", "\u0645\u0633\u0626\u0648\u0644 \u0627\u0644\u0634\u064A\u0641\u062A", "\u0645\u0633\u0626\u0648\u0644\u0629 \u0627\u0644\u0634\u064A\u0641\u062A", "shift supervisor"].includes(role) || /^(shift supervisor) (morning|evening)$/.test(role) || /^(مسؤول|مسئول|مسئولة|مشرف|مشرفة) شيفت (صباحي|مسائي)$/.test(role)) return "shift_supervisor";
+  if (["\u0645\u062F\u064A\u0631 \u0641\u0631\u0639", "\u0645\u062F\u064A\u0631\u0629 \u0641\u0631\u0639", "branch manager"].includes(role) || /^branch manager (shamy|shokry)$/.test(role)) return "branch_manager";
+  if (["\u0645\u062F\u064A\u0631 \u0627\u0644\u0641\u0631\u0648\u0639", "\u0645\u062F\u064A\u0631\u0629 \u0627\u0644\u0641\u0631\u0648\u0639", "branches manager"].includes(role)) return "branches_manager";
+  if (role.includes("\u0645\u0634\u062A\u0631\u064A\u0627\u062A") || ["purchasing", "purchasing manager"].includes(role)) return "purchasing";
+  if (["\u0645\u062F\u064A\u0631 \u062A\u0646\u0641\u064A\u0630\u064A", "\u0645\u062F\u064A\u0631 \u0639\u0627\u0645", "executive manager", "general manager"].includes(role)) return "executive";
+  if (["admin", "\u0623\u062F\u0645\u0646", "owner"].includes(role)) return "admin";
+  return "other";
+}
+
 // src/lib/salesIntelligence/runtimeContext.ts
 function buildSalesIntelligenceRuntimeContext(input) {
   const rows = staffDirectoryRowsFromIdentities(input.staffDirectory);
@@ -8090,7 +9129,19 @@ function buildSalesIntelligenceRuntimeContext(input) {
   const staffLikeNames = new Set(
     rows.filter((row) => activeIds.has(String(row.staff_id || row.id || ""))).map((row) => normalizeDoctorName(row.name || row.staff_name || "")).filter(Boolean)
   );
-  return { staffIdentityMap, staffLikeNames, productIndex: input.productIndex };
+  const staffProfilesById = {};
+  for (const row of input.staffDirectory.filter((r) => r.source !== "alias" && r.active && r.id)) {
+    if (staffProfilesById[row.id] && row.source !== "staff") continue;
+    const role = canonicalStaffRole(row.role);
+    const service = canonicalStaffRole(row.type) === "customer_service" || role === "customer_service" || role === "customer_service_manager";
+    staffProfilesById[row.id] = {
+      staffId: row.id,
+      name: row.name || "",
+      homeBranch: row.branch,
+      function: service ? "customer_service" : role === "doctor" ? "pharmacist" : "other"
+    };
+  }
+  return { staffIdentityMap, staffLikeNames, staffProfilesById, productIndex: input.productIndex };
 }
 function resolveCanonicalStaffIdByName(name, staffIdentityMap) {
   const normalized = normalizeDoctorName(name);
@@ -8098,7 +9149,7 @@ function resolveCanonicalStaffIdByName(name, staffIdentityMap) {
 }
 async function loadSalesIntelligenceRuntimeContext(client) {
   const [staffDirectory, productIndex] = await Promise.all([
-    loadStaffDirectoryFrom(client),
+    loadStaffDirectoryFrom(client, { requireComplete: true }),
     fetchPharmacyProductIndex(client)
   ]);
   return buildSalesIntelligenceRuntimeContext({ staffDirectory, productIndex });
@@ -8191,6 +9242,7 @@ function pipelineBaseInputFor(conversation, context) {
     knownStaffIds: conversation.knownStaffIds,
     staffIdBySender: conversation.staffIdBySender,
     staffIdByIntroductionMessageId: conversation.staffIdByIntroductionMessageId,
+    staffProfilesById: context.staffProfilesById,
     resolveInvoiceStaffIdByName: (name) => resolveCanonicalStaffIdByName(name, context.staffIdentityMap),
     legacyMatchedInvoiceId: conversation.legacyMatchedInvoiceId,
     legacyMatchedInvoiceNumber: conversation.legacyMatchedInvoiceNumber,
@@ -8205,25 +9257,27 @@ function pipelineBaseInputFor(conversation, context) {
 }
 
 // src/lib/salesIntelligence/persistence/caseWriter.ts
-async function upsertSalesIntelligenceCase(supabaseClient, caseId, content) {
+async function upsertSalesIntelligenceCase(supabaseClient, caseId, content, deferPublication = false) {
   const { data: existing, error: readError } = await supabaseClient.from("sales_intelligence_cases").select("case_id, conversation_id, source_case_id_v22, customer_id, customer_phone, branch_id, branch_name_raw").eq("case_id", caseId).maybeSingle();
   if (readError) throw readError;
   const canonicalIdentityChanged = !existing || existing.conversation_id !== content.conversationId || existing.source_case_id_v22 !== content.sourceCaseIdV22 || existing.customer_id !== content.customerId || existing.customer_phone !== content.customerPhone || existing.branch_id !== content.branchId || existing.branch_name_raw !== content.branchNameRaw;
-  const { error: upsertError } = await supabaseClient.from("sales_intelligence_cases").upsert(
-    {
-      case_id: caseId,
-      conversation_id: content.conversationId,
-      source_case_id_v22: content.sourceCaseIdV22,
-      customer_id: content.customerId,
-      customer_phone: content.customerPhone,
-      branch_id: content.branchId,
-      branch_name_raw: content.branchNameRaw,
-      case_started_at: content.caseStartedAt,
-      case_ended_at: content.caseEndedAt,
-      last_seen_at: (/* @__PURE__ */ new Date()).toISOString()
-    },
-    { onConflict: "case_id" }
-  );
+  const payload = {
+    case_id: caseId,
+    conversation_id: content.conversationId,
+    source_case_id_v22: content.sourceCaseIdV22,
+    customer_id: content.customerId,
+    customer_phone: content.customerPhone,
+    branch_id: content.branchId,
+    branch_name_raw: content.branchNameRaw,
+    case_started_at: content.caseStartedAt,
+    case_ended_at: content.caseEndedAt,
+    last_seen_at: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  if (deferPublication) {
+    const { error } = await supabaseClient.from("sales_intelligence_cases").upsert({ ...payload, is_active: false }, { onConflict: "case_id", ignoreDuplicates: true });
+    if (error) throw error;
+  }
+  const { error: upsertError } = deferPublication ? await supabaseClient.from("sales_intelligence_cases").update(payload).eq("case_id", caseId) : await supabaseClient.from("sales_intelligence_cases").upsert(payload, { onConflict: "case_id" });
   if (upsertError) throw upsertError;
   return { caseId, wasCreated: !existing, canonicalIdentityChanged };
 }
@@ -8285,6 +9339,7 @@ async function computeSemanticSourceHash(input) {
     rawWhatsAppExportText: normalizeRawExportTextForHashing(input.rawWhatsAppExportText),
     trustedConversationStartedAt: input.trustedConversationStartedAt ?? null,
     branchIdentityMappingVersion: input.branchIdentityMappingVersion,
+    ...input.caseOwnership ? { caseOwnership: input.caseOwnership } : {},
     ...input.saleProofFingerprint ? { saleProofFingerprint: input.saleProofFingerprint } : {}
   });
 }
@@ -8320,27 +9375,27 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v24-canonical-basket-product-identity";
+var PIPELINE_VERSION = "sales-intelligence-v43-case-continuity-evidence";
 var ENGINE_VERSIONS = {
-  caseSegmentation: "case-segmentation-v10-payment-continuation-ambiguity-safe",
+  caseSegmentation: "case-segmentation-v13-open-service-need-continuity",
   historicalClosure: "historical-closure-v1",
   commercialConfirmation: "commercial-confirmation-v6-compact-total-interstitial-ack-safe",
   protocolApplicability: "protocol-applicability-v1",
-  attribution: "attribution-v9-canonical-seller-staff-identity",
+  attribution: "attribution-v10-explained-code-product-factors",
   matching: "matching-v3-unresolved-product-evidence-safe",
   policyEvaluation: "policy-evaluation-v1"
 };
 var BRANCH_IDENTITY_MAPPING_VERSION = "branch-identity-mapping-v2";
 
 // src/lib/salesIntelligence/persistence/analysisWriter.ts
-async function persistCaseAnalysis(supabaseClient, caseId, rawWhatsAppExportText, content, trustedConversationStartedAt, saleProofFingerprint2) {
+async function persistCaseAnalysis(supabaseClient, caseId, rawWhatsAppExportText, content, trustedConversationStartedAt, saleProofFingerprint2, deferPublication = false) {
   const semanticSourceHash = await computeSemanticSourceHash({
     rawWhatsAppExportText,
     trustedConversationStartedAt: trustedConversationStartedAt ?? null,
     branchIdentityMappingVersion: BRANCH_IDENTITY_MAPPING_VERSION,
     saleProofFingerprint: saleProofFingerprint2 ?? null
   });
-  const { data, error } = await supabaseClient.rpc("sales_intelligence_write_case_analysis", {
+  const { data, error } = await supabaseClient.rpc(deferPublication ? "sales_intelligence_stage_case_analysis_v1" : "sales_intelligence_write_case_analysis", {
     p_case_id: caseId,
     p_row: {
       pipeline_version: PIPELINE_VERSION,
@@ -8437,6 +9492,8 @@ function mapCaseAnalysisRowContent(analysis) {
       // choice, not a guess.
       protocolApplicabilityRuleIds: analysis.historicalClosure.ruleIds,
       canonicalSalesOutcome: analysis.salesOutcome,
+      canonicalComplaintAssessment: analysis.complaintAssessment,
+      canonicalCustomerRequestAssessment: analysis.customerRequestAssessment,
       financialSettlement: analysis.financialSettlement ?? null
     }
   };
@@ -9106,6 +10163,7 @@ async function runBatchPersistence(supabaseClient, input) {
       rawWhatsAppExportText: conversationInput?.rawWhatsAppExportText ?? "",
       trustedConversationStartedAt: conversationInput?.trustedConversationStartedAt ?? null,
       branchIdentityMappingVersion: BRANCH_IDENTITY_MAPPING_VERSION,
+      caseOwnership: conversationCase.ownership,
       saleProofFingerprint: saleProofFingerprint(analysis)
     });
     const casePlan = await planCase(supabaseClient, analysis.caseId);
@@ -9238,14 +10296,15 @@ async function runBatchPersistence(supabaseClient, input) {
         match: null
       };
       try {
-        outcome.caseUpsert = await upsertSalesIntelligenceCase(supabaseClient, analysis.caseId, caseContent);
+        outcome.caseUpsert = await upsertSalesIntelligenceCase(supabaseClient, analysis.caseId, caseContent, input.deferPublication === true);
         outcome.analysis = await persistCaseAnalysis(
           supabaseClient,
           analysis.caseId,
           conversationInput?.rawWhatsAppExportText ?? "",
           caseAnalysisContent,
           conversationInput?.trustedConversationStartedAt ?? null,
-          saleProofFingerprint(analysis)
+          saleProofFingerprint(analysis),
+          input.deferPublication === true
         );
         outcome.attribution = await persistAttribution(
           supabaseClient,
@@ -9295,32 +10354,6 @@ async function runBatchPersistence(supabaseClient, input) {
       caseOutcomes.push(outcome);
     }
   }
-  if (!input.dryRun) {
-    const derivedCaseIdsByConversation = /* @__PURE__ */ new Map();
-    for (const analysis of caseAnalyses) {
-      const set = derivedCaseIdsByConversation.get(analysis.conversationId) ?? /* @__PURE__ */ new Set();
-      set.add(analysis.caseId);
-      derivedCaseIdsByConversation.set(analysis.conversationId, set);
-    }
-    const outcomeByCaseId = new Map(caseOutcomes.map((outcome) => [outcome.caseId, outcome]));
-    for (const conversation of effectiveConversations) {
-      const derivedCaseIds = derivedCaseIdsByConversation.get(conversation.conversationId) ?? /* @__PURE__ */ new Set();
-      const allDerivedCasesSucceeded = Array.from(derivedCaseIds).every(
-        (caseId) => outcomeByCaseId.get(caseId)?.success === true
-      );
-      if (!allDerivedCasesSucceeded) continue;
-      const { data: existingCases, error: existingCasesError } = await supabaseClient.from("sales_intelligence_cases").select("case_id").eq("conversation_id", conversation.conversationId);
-      if (existingCasesError) throw existingCasesError;
-      const staleCaseIds = (existingCases ?? []).map((row) => String(row.case_id ?? "").trim()).filter((caseId) => caseId && !derivedCaseIds.has(caseId));
-      if (!staleCaseIds.length) continue;
-      const { error: retireError } = await supabaseClient.from("sales_intelligence_case_analyses").update({
-        is_current: false,
-        superseded_at: (/* @__PURE__ */ new Date()).toISOString(),
-        superseded_by_analysis_id: null
-      }).in("case_id", staleCaseIds).eq("is_current", true);
-      if (retireError) throw retireError;
-    }
-  }
   const persistencePlanningMs = Date.now() - planningStart;
   return {
     dryRun: input.dryRun,
@@ -9341,6 +10374,563 @@ async function runBatchPersistence(supabaseClient, input) {
       purePipelineComputeMs,
       persistencePlanningMs
     }
+  };
+}
+
+// src/lib/salesIntelligence/persistence/canonicalFollowupProjector.ts
+var CANONICAL_FOLLOWUP_PROJECTION_VERSION = "si-canonical-followup-projection-v1";
+var CANONICAL_FOLLOWUP_RECONCILE_RPC = "dawaa_reconcile_canonical_followup_actions_v1";
+function text2(value) {
+  return String(value ?? "").trim();
+}
+function uuidOrNull(value) {
+  const raw = text2(value);
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw) ? raw : null;
+}
+function materializerPriority(priority) {
+  if (priority === "high") return "urgent";
+  if (priority === "medium") return "important";
+  return "normal";
+}
+function operationalReason(reason) {
+  const reasons = {
+    stock_unavailable: "\u0627\u0644\u0635\u0646\u0641 \u063A\u064A\u0631 \u0645\u062A\u0648\u0641\u0631 \u0648\u064A\u062D\u062A\u0627\u062C \u0645\u062A\u0627\u0628\u0639\u0629 \u0639\u0646\u062F \u0627\u0644\u062A\u0648\u0641\u0631",
+    stock_check_pending: "\u0641\u062D\u0635 \u0627\u0644\u062A\u0648\u0641\u0631 \u0645\u0627 \u0632\u0627\u0644 \u0645\u0639\u0644\u0642\u064B\u0627 \u0648\u064A\u062D\u062A\u0627\u062C \u0631\u062F \u0644\u0644\u0639\u0645\u064A\u0644",
+    customer_asked_to_wait: "\u0627\u0644\u0639\u0645\u064A\u0644 \u0637\u0644\u0628 \u0627\u0644\u0627\u0646\u062A\u0638\u0627\u0631 \u0648\u064A\u062D\u062A\u0627\u062C \u0645\u062A\u0627\u0628\u0639\u0629",
+    customer_considering: "\u0627\u0644\u0639\u0645\u064A\u0644 \u0645\u0627 \u0632\u0627\u0644 \u064A\u062F\u0631\u0633 \u0627\u0644\u0627\u062E\u062A\u064A\u0627\u0631 \u0648\u064A\u062D\u062A\u0627\u062C \u0645\u062A\u0627\u0628\u0639\u0629",
+    price_objection: "\u0627\u0639\u062A\u0631\u0627\u0636 \u0627\u0644\u0633\u0639\u0631 \u0645\u0627 \u0632\u0627\u0644 \u0645\u0641\u062A\u0648\u062D\u064B\u0627 \u0648\u064A\u062D\u062A\u0627\u062C \u0645\u062A\u0627\u0628\u0639\u0629 \u0645\u0646\u0627\u0633\u0628\u0629",
+    alternative_open: "\u0627\u0644\u0628\u062F\u064A\u0644 \u0645\u0639\u0631\u0648\u0636 \u0648\u0642\u0631\u0627\u0631 \u0627\u0644\u0639\u0645\u064A\u0644 \u0645\u0627 \u0632\u0627\u0644 \u0645\u0641\u062A\u0648\u062D\u064B\u0627",
+    prescription_incomplete: "\u062A\u0641\u0627\u0635\u064A\u0644 \u0627\u0644\u0631\u0648\u0634\u062A\u0629 \u063A\u064A\u0631 \u0645\u0643\u062A\u0645\u0644\u0629 \u0648\u062A\u062D\u062A\u0627\u062C \u0627\u0633\u062A\u0643\u0645\u0627\u0644\u064B\u0627",
+    staff_promised_check: "\u062A\u0645 \u0648\u0639\u062F \u0627\u0644\u0639\u0645\u064A\u0644 \u0628\u0627\u0644\u0645\u0631\u0627\u062C\u0639\u0629 \u0648\u064A\u062C\u0628 \u0627\u0633\u062A\u0643\u0645\u0627\u0644 \u0627\u0644\u0631\u062F",
+    callback_requested: "\u0627\u0644\u0639\u0645\u064A\u0644 \u0637\u0644\u0628 \u0645\u0639\u0627\u0648\u062F\u0629 \u0627\u0644\u062A\u0648\u0627\u0635\u0644 \u0641\u064A \u0645\u0648\u0639\u062F \u0645\u062D\u062F\u062F",
+    delivery_unresolved: "\u062D\u0627\u0644\u0629 \u0627\u0644\u062A\u0648\u0635\u064A\u0644 \u063A\u064A\u0631 \u0645\u062D\u0633\u0648\u0645\u0629 \u0648\u062A\u062D\u062A\u0627\u062C \u0645\u062A\u0627\u0628\u0639\u0629",
+    customer_no_response: "\u0627\u0644\u0639\u0645\u064A\u0644 \u0644\u0645 \u064A\u0631\u062F \u0628\u0639\u062F \u0648\u064A\u062D\u062A\u0627\u062C \u0645\u062D\u0627\u0648\u0644\u0629 \u0645\u062A\u0627\u0628\u0639\u0629 \u0648\u0627\u062D\u062F\u0629",
+    staff_no_response: "\u0637\u0644\u0628 \u0627\u0644\u0639\u0645\u064A\u0644 \u0645\u0627 \u0632\u0627\u0644 \u0628\u062F\u0648\u0646 \u0631\u062F \u0648\u064A\u062D\u062A\u0627\u062C \u0627\u0633\u062A\u0643\u0645\u0627\u0644\u064B\u0627"
+  };
+  return reasons[reason];
+}
+function buildCanonicalFollowupActionRows(analyses, sources) {
+  const sourceById = new Map(sources.map((source) => [text2(source.id), source]));
+  const byIdentity = /* @__PURE__ */ new Map();
+  const skipped = [];
+  for (const analysis of analyses) {
+    const sourceId = text2(analysis.conversationId);
+    const source = sourceById.get(sourceId);
+    for (const opportunity of analysis.followUp.opportunities) {
+      if (opportunity.status !== "actionable") continue;
+      if (opportunity.blocker) {
+        skipped.push({
+          caseId: analysis.caseId,
+          followUpKey: opportunity.followUpKey,
+          reason: "blocked"
+        });
+        continue;
+      }
+      if (!source) {
+        skipped.push({
+          caseId: analysis.caseId,
+          followUpKey: opportunity.followUpKey,
+          reason: "missing_source"
+        });
+        continue;
+      }
+      const customerName = text2(source.customer_name);
+      const branch = text2(analysis.conversationCase.branchNameRaw);
+      if (!customerName) {
+        skipped.push({
+          caseId: analysis.caseId,
+          followUpKey: opportunity.followUpKey,
+          reason: "missing_customer_name"
+        });
+        continue;
+      }
+      if (!branch) {
+        skipped.push({
+          caseId: analysis.caseId,
+          followUpKey: opportunity.followUpKey,
+          reason: "missing_branch"
+        });
+        continue;
+      }
+      const explicitAssignedStaffId = uuidOrNull(opportunity.assignedStaffId);
+      const row = {
+        source_id: sourceId,
+        action_key: `canonical-followup:${opportunity.followUpKey}`,
+        action_type: "customer_followup",
+        status: "ready",
+        work_status: "unassigned",
+        auto_eligible: false,
+        branch,
+        customer_id: uuidOrNull(opportunity.customerId),
+        customer_code: text2(source.customer_code) || null,
+        customer_name: customerName,
+        customer_phone: text2(analysis.conversationCase.customerPhone) || null,
+        product_id: uuidOrNull(opportunity.productId),
+        product_name: text2(opportunity.productRaw) || null,
+        quantity: opportunity.quantity == null ? null : Number(opportunity.quantity),
+        due_at: text2(opportunity.dueAt) || null,
+        reason: operationalReason(opportunity.reason),
+        evidence: [...opportunity.evidenceMessageIds],
+        payload: {
+          canonicalProjectionVersion: CANONICAL_FOLLOWUP_PROJECTION_VERSION,
+          caseId: analysis.caseId,
+          followUpKey: opportunity.followUpKey,
+          canonicalReason: opportunity.reason,
+          priority: materializerPriority(opportunity.priority),
+          canonicalPriority: opportunity.priority,
+          duePolicy: opportunity.duePolicy,
+          requestedDelayDays: opportunity.requestedDelayDays,
+          assignedRole: opportunity.assignedRole,
+          goal: opportunity.goal,
+          nextBestAction: opportunity.nextBestAction,
+          demandKey: opportunity.demandKey,
+          evidenceMessageIds: [...opportunity.evidenceMessageIds],
+          confidenceLevel: opportunity.confidence.level
+        },
+        followup_identity: opportunity.followUpKey,
+        assigned_to_id: explicitAssignedStaffId,
+        assigned_to_name: explicitAssignedStaffId ? text2(opportunity.assignedStaffName) || null : null,
+        created_by: CANONICAL_FOLLOWUP_PROJECTION_VERSION
+      };
+      const existing = byIdentity.get(opportunity.followUpKey);
+      if (existing) {
+        if (existing.source_id !== row.source_id || existing.payload.caseId !== row.payload.caseId) {
+          throw new Error(`canonical_followup_identity_collision:${opportunity.followUpKey}`);
+        }
+        continue;
+      }
+      byIdentity.set(opportunity.followUpKey, row);
+    }
+  }
+  return { rows: [...byIdentity.values()], skipped };
+}
+async function projectCanonicalFollowupsToActions(supabaseClient, analyses, sources, publications) {
+  const built = buildCanonicalFollowupActionRows(analyses, sources);
+  if (built.skipped.some((row) => row.reason !== "blocked")) {
+    throw new Error("canonical_followup_projection_metadata_incomplete");
+  }
+  const result = { ...built, inserted: 0, existing: 0, updated: 0, withdrawn: 0 };
+  const publishedSources = new Set(publications.map((row) => row.sourceId));
+  if (publishedSources.size !== publications.length || analyses.some((row) => !publishedSources.has(row.conversationId))) {
+    throw new Error("canonical_followup_publication_incomplete");
+  }
+  for (const publication of publications) {
+    const sourceAnalyses = analyses.filter((row) => row.conversationId === publication.sourceId);
+    const caseIds = sourceAnalyses.map((row) => row.caseId);
+    if (new Set(caseIds).size !== caseIds.length || Object.keys(publication.analysisIds).length !== caseIds.length || caseIds.some((id) => !uuidOrNull(publication.analysisIds[id]))) {
+      throw new Error("canonical_followup_publication_incomplete");
+    }
+    const rows = built.rows.filter((row) => row.source_id === publication.sourceId).map((row) => ({
+      ...row,
+      payload: { ...row.payload, canonicalAnalysisId: publication.analysisIds[String(row.payload.caseId)] }
+    }));
+    const { data, error } = await supabaseClient.rpc(CANONICAL_FOLLOWUP_RECONCILE_RPC, {
+      p_source_id: publication.sourceId,
+      p_analysis_ids: publication.analysisIds,
+      p_rows: rows
+    });
+    if (error) throw error;
+    if (data?.ok !== true) throw new Error(`canonical_followup_reconcile_failed:${data?.status || "empty_result"}`);
+    for (const key of ["inserted", "existing", "updated", "withdrawn"]) {
+      if (!Number.isSafeInteger(data[key]) || data[key] < 0) {
+        throw new Error("canonical_followup_reconcile_invalid_result");
+      }
+      result[key] += data[key];
+    }
+  }
+  return result;
+}
+
+// src/lib/salesIntelligence/persistence/canonicalCustomerRequestProjector.ts
+var CANONICAL_CUSTOMER_REQUEST_PROJECTION_VERSION = "si-canonical-customer-request-projection-v1";
+function text3(value) {
+  return String(value ?? "").trim();
+}
+function uuidOrNull2(value) {
+  const raw = text3(value);
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw) ? raw : null;
+}
+function confidencePercent(score) {
+  const numeric = Number(score);
+  if (!Number.isFinite(numeric)) return 0;
+  const scaled = numeric <= 1 ? numeric * 100 : numeric;
+  return Math.max(0, Math.min(100, Math.round(scaled)));
+}
+function buildCanonicalCustomerRequestActionRows(analyses, sources) {
+  const sourceById = new Map(sources.map((source) => [text3(source.id), source]));
+  const byIdentity = /* @__PURE__ */ new Map();
+  const skipped = [];
+  for (const analysis of analyses) {
+    const assessment7 = analysis.customerRequestAssessment;
+    if (!assessment7 || assessment7.caseId !== analysis.caseId) {
+      skipped.push({ caseId: analysis.caseId, requestKey: "", reason: "missing_canonical_assessment" });
+      continue;
+    }
+    const sourceId = text3(analysis.conversationId);
+    const source = sourceById.get(sourceId);
+    for (const request of assessment7.requests) {
+      if (request.status !== "qualified") {
+        skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: "not_qualified" });
+        continue;
+      }
+      if (!source) {
+        skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: "missing_source" });
+        continue;
+      }
+      const customerName = text3(source.customer_name);
+      const branch = text3(analysis.conversationCase.branchNameRaw);
+      const staffId = uuidOrNull2(source.staff_id);
+      const customerId = uuidOrNull2(request.customerId);
+      const productId = uuidOrNull2(request.productId);
+      const product = analysis.customerNeed.products.find((row2) => row2.key === request.productKey) ?? null;
+      const productCode = text3(product?.productCode);
+      const productName = text3(product?.canonicalName || request.productRaw);
+      const demand = analysis.unavailableDemand.find((row2) => row2.demandKey === request.demandKey) ?? null;
+      if (!customerName) {
+        skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: "missing_customer_name" });
+        continue;
+      }
+      if (!branch) {
+        skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: "missing_branch" });
+        continue;
+      }
+      if (!isOperatingBranch(branch)) {
+        skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: "non_transaction_branch" });
+        continue;
+      }
+      if (!staffId) {
+        skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: "missing_staff_identity" });
+        continue;
+      }
+      const evidenceStaffIds = (analysis.caseIntelligence?.staff?.participants ?? []).map((participant) => uuidOrNull2(participant.staffId)).filter((id) => Boolean(id));
+      if (evidenceStaffIds.some((id) => id !== staffId)) {
+        skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: "staff_evidence_conflict" });
+        continue;
+      }
+      if (!customerId || !productId) {
+        skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: "missing_product_identity" });
+        continue;
+      }
+      if (!productCode) {
+        skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: "missing_product_code" });
+        continue;
+      }
+      const timeline = parseWhatsAppExport(text3(source.raw_text));
+      if (!timeline.length) {
+        skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: "missing_timeline" });
+        continue;
+      }
+      const evidenceAt = demand?.requestedAt ? new Date(demand.requestedAt) : null;
+      if (!evidenceAt || !Number.isFinite(evidenceAt.getTime())) {
+        skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: "invalid_evidence_time" });
+        continue;
+      }
+      const operation = stableOperationIdentity({
+        timeline: timeline.map((message) => ({
+          timestamp: message.timestamp,
+          direction: message.direction,
+          sender: message.sender,
+          text: message.text,
+          kind: message.kind,
+          mediaPlaceholder: message.mediaPlaceholder
+        })),
+        evidenceAt,
+        operationType: "customer_request",
+        reasonKey: productName
+      });
+      const row = {
+        source_id: sourceId,
+        action_key: `canonical-request:${operation.identity}`,
+        action_type: "customer_request",
+        status: "proposed",
+        work_status: "unassigned",
+        auto_eligible: false,
+        confidence: confidencePercent(request.confidence.score),
+        branch,
+        customer_id: customerId,
+        customer_code: text3(source.customer_code) || null,
+        customer_name: customerName,
+        customer_phone: text3(analysis.conversationCase.customerPhone) || null,
+        staff_id: staffId,
+        staff_name: null,
+        product_id: productId,
+        product_code: productCode,
+        product_name: productName,
+        quantity: request.quantity == null ? null : Number(request.quantity),
+        due_at: null,
+        reason: "\u0635\u0646\u0641 \u0645\u0637\u0644\u0648\u0628 \u0645\u0646 \u0627\u0644\u0639\u0645\u064A\u0644 \u0648\u062B\u0628\u062A \u0639\u062F\u0645 \u062A\u0648\u0641\u0631\u0647 \u0648\u064A\u062D\u062A\u0627\u062C \u0627\u0639\u062A\u0645\u0627\u062F \u062A\u0633\u062C\u064A\u0644 \u0627\u0644\u0637\u0644\u0628.",
+        evidence: [...request.evidenceMessageIds],
+        payload: {
+          canonicalProjectionVersion: CANONICAL_CUSTOMER_REQUEST_PROJECTION_VERSION,
+          caseId: analysis.caseId,
+          requestKey: request.requestKey,
+          demandKey: request.demandKey,
+          canonicalReason: request.reason,
+          priority: request.priority,
+          evidenceMessageIds: [...request.evidenceMessageIds],
+          confidenceLevel: request.confidence.level,
+          approvalRequired: true
+        },
+        followup_identity: operation.identity,
+        created_by: CANONICAL_CUSTOMER_REQUEST_PROJECTION_VERSION
+      };
+      const existing = byIdentity.get(operation.identity);
+      if (existing) {
+        if (existing.source_id !== row.source_id) {
+          throw new Error(`canonical_customer_request_identity_collision:${operation.identity}`);
+        }
+        continue;
+      }
+      byIdentity.set(operation.identity, row);
+    }
+  }
+  return { rows: [...byIdentity.values()], skipped };
+}
+async function projectCanonicalCustomerRequestsToActions(supabaseClient, analyses, sources) {
+  const built = buildCanonicalCustomerRequestActionRows(analyses, sources);
+  if (!built.rows.length) return { ...built, inserted: 0, existing: 0 };
+  const identities = built.rows.map((row) => row.followup_identity);
+  const { data: existingRows, error: existingError } = await supabaseClient.from("whatsapp_conversation_actions").select("id,followup_identity,status,target_table,target_id").in("followup_identity", identities);
+  if (existingError) throw existingError;
+  const existing = new Set(
+    (existingRows || []).map((row) => text3(row.followup_identity)).filter(Boolean)
+  );
+  let inserted = 0;
+  for (const row of built.rows) {
+    if (existing.has(row.followup_identity)) continue;
+    const { error } = await supabaseClient.from("whatsapp_conversation_actions").insert(row);
+    if (!error) {
+      inserted += 1;
+      existing.add(row.followup_identity);
+      continue;
+    }
+    if (String(error.code || "") !== "23505") throw error;
+    const { data: raced, error: raceReadError } = await supabaseClient.from("whatsapp_conversation_actions").select("id,followup_identity").eq("followup_identity", row.followup_identity).maybeSingle();
+    if (raceReadError) throw raceReadError;
+    if (!raced) throw error;
+    existing.add(row.followup_identity);
+  }
+  return {
+    ...built,
+    inserted,
+    existing: built.rows.length - inserted
+  };
+}
+
+// src/lib/salesIntelligence/persistence/canonicalComplaintProjector.ts
+var CANONICAL_COMPLAINT_PROJECTION_VERSION = "si-canonical-complaint-projection-v1";
+function text4(value) {
+  return String(value ?? "").trim();
+}
+function uuidOrNull3(value) {
+  const raw = text4(value);
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw) ? raw : null;
+}
+function complaintConfidence(value) {
+  return value === "high" ? 95 : value === "medium" ? 80 : 65;
+}
+function firstEvidenceAt(analysis, evidenceIds) {
+  const wanted = new Set(evidenceIds.map(String));
+  const values = analysis.caseIntelligence.interaction.messages.filter((message) => wanted.has(String(message.id))).map((message) => new Date(message.at)).filter((value) => Number.isFinite(value.getTime())).sort((a, b) => a.getTime() - b.getTime());
+  return values[0] ?? null;
+}
+function buildCanonicalComplaintActionRows(analyses, sources) {
+  const sourceById = new Map(sources.map((source) => [text4(source.id), source]));
+  const byIdentity = /* @__PURE__ */ new Map();
+  const skipped = [];
+  for (const analysis of analyses) {
+    const complaint = analysis.complaintAssessment;
+    if (!complaint || complaint.caseId !== analysis.caseId) {
+      skipped.push({ caseId: analysis.caseId, reason: "missing_canonical_assessment" });
+      continue;
+    }
+    if (!["detected", "recovery_attempted", "unresolved"].includes(complaint.state)) {
+      if (complaint.state !== "none") {
+        skipped.push({ caseId: analysis.caseId, reason: "not_actionable" });
+      }
+      continue;
+    }
+    const sourceId = text4(analysis.conversationId);
+    const source = sourceById.get(sourceId);
+    if (!source) {
+      skipped.push({ caseId: analysis.caseId, reason: "missing_source" });
+      continue;
+    }
+    const customerName = text4(source.customer_name);
+    const branch = text4(analysis.conversationCase.branchNameRaw);
+    if (!customerName) {
+      skipped.push({ caseId: analysis.caseId, reason: "missing_customer_name" });
+      continue;
+    }
+    if (!branch) {
+      skipped.push({ caseId: analysis.caseId, reason: "missing_branch" });
+      continue;
+    }
+    const timeline = parseWhatsAppExport(text4(source.raw_text));
+    if (!timeline.length) {
+      skipped.push({ caseId: analysis.caseId, reason: "missing_timeline" });
+      continue;
+    }
+    const evidenceAt = firstEvidenceAt(analysis, complaint.complaintMessageIds);
+    if (!evidenceAt) {
+      skipped.push({ caseId: analysis.caseId, reason: "missing_complaint_time" });
+      continue;
+    }
+    const operation = stableOperationIdentity({
+      timeline: timeline.map((message) => ({
+        timestamp: message.timestamp,
+        direction: message.direction,
+        sender: message.sender,
+        text: message.text,
+        kind: message.kind,
+        mediaPlaceholder: message.mediaPlaceholder
+      })),
+      evidenceAt,
+      operationType: "complaint_followup",
+      reasonKey: null
+    });
+    const customerId = uuidOrNull3(analysis.conversationCase.customerId);
+    const row = {
+      source_id: sourceId,
+      action_key: `canonical-complaint:${operation.identity}`,
+      action_type: "complaint_followup",
+      status: customerId || text4(source.customer_code) ? "ready" : "proposed",
+      work_status: "unassigned",
+      auto_eligible: false,
+      confidence: complaintConfidence(complaint.confidence),
+      branch,
+      customer_id: customerId,
+      customer_code: text4(source.customer_code) || null,
+      customer_name: customerName,
+      customer_phone: text4(analysis.conversationCase.customerPhone) || null,
+      due_at: evidenceAt.toISOString(),
+      reason: complaint.state === "recovery_attempted" ? "\u0628\u062F\u0623\u062A \u0645\u0639\u0627\u0644\u062C\u0629 \u0634\u0643\u0648\u0649 \u0627\u0644\u0639\u0645\u064A\u0644 \u0644\u0643\u0646 \u0644\u0627 \u064A\u0648\u062C\u062F \u0625\u063A\u0644\u0627\u0642 \u0635\u0631\u064A\u062D\u061B \u062A\u062D\u062A\u0627\u062C \u0645\u062A\u0627\u0628\u0639\u0629 \u0631\u0636\u0627 \u0627\u0644\u0639\u0645\u064A\u0644." : "\u0634\u0643\u0648\u0649 \u0639\u0645\u064A\u0644 \u063A\u064A\u0631 \u0645\u062D\u0633\u0648\u0645\u0629 \u0648\u062A\u062D\u062A\u0627\u062C \u0645\u062A\u0627\u0628\u0639\u0629 \u062E\u062F\u0645\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621.",
+      evidence: [...complaint.evidenceMessageIds],
+      payload: {
+        canonicalProjectionVersion: CANONICAL_COMPLAINT_PROJECTION_VERSION,
+        caseId: analysis.caseId,
+        canonicalComplaintState: complaint.state,
+        complaintRuleIds: [...complaint.ruleIds],
+        complaintMessageIds: [...complaint.complaintMessageIds],
+        staffResponseMessageIds: [...complaint.staffResponseMessageIds],
+        apologyMessageIds: [...complaint.apologyMessageIds],
+        remedyAttemptMessageIds: [...complaint.remedyAttemptMessageIds],
+        hostileResponseMessageIds: [...complaint.hostileResponseMessageIds],
+        resolutionMessageIds: [...complaint.resolutionMessageIds],
+        ownerRole: "customer_service",
+        priority: complaint.hostileResponseMessageIds.length ? "urgent" : "important",
+        reviewRequired: true
+      },
+      followup_identity: operation.identity,
+      assigned_to_id: null,
+      assigned_to_name: null,
+      created_by: CANONICAL_COMPLAINT_PROJECTION_VERSION
+    };
+    const existing = byIdentity.get(operation.identity);
+    if (existing) {
+      if (existing.source_id !== row.source_id) {
+        throw new Error(`canonical_complaint_identity_collision:${operation.identity}`);
+      }
+      continue;
+    }
+    byIdentity.set(operation.identity, row);
+  }
+  return { rows: [...byIdentity.values()], skipped };
+}
+var LEGACY_WORK_FIELDS = [
+  "assigned_at",
+  "started_at",
+  "completed_at",
+  "outcome",
+  "outcome_note",
+  "last_followup_at",
+  "next_followup_at",
+  "recovered_at",
+  "recovered_invoice_id",
+  "assigned_to_id",
+  "assigned_to_name",
+  "target_table",
+  "target_id"
+];
+var LEGACY_SELECT = [
+  "id",
+  "source_id",
+  "action_key",
+  "action_type",
+  "status",
+  "work_status",
+  "updated_at",
+  "payload",
+  "evidence",
+  "followup_attempts",
+  ...LEGACY_WORK_FIELDS
+].join(",");
+async function withdrawReplacedLegacyComplaints(client, rows) {
+  const sourceIds = [...new Set(rows.map((row) => row.source_id))];
+  const { data, error } = await client.from("whatsapp_conversation_actions").select(LEGACY_SELECT).in("source_id", sourceIds).eq("action_key", "complaint-followup").eq("action_type", "complaint_followup").in("status", ["ready", "proposed"]);
+  if (error) throw error;
+  for (const legacy of data || []) {
+    const evidence = Array.isArray(legacy.evidence) ? legacy.evidence.map(String) : [];
+    const replacements = rows.filter((row) => row.source_id === legacy.source_id && row.payload.complaintMessageIds.some((id) => evidence.includes(id)));
+    if (replacements.length !== 1) throw new Error("canonical_complaint_legacy_evidence_requires_review");
+    const replacement = replacements[0];
+    if (legacy.work_status !== "unassigned" || LEGACY_WORK_FIELDS.some((key) => legacy[key] != null) || Number(legacy.followup_attempts || 0) !== 0) {
+      throw new Error("canonical_complaint_legacy_work_requires_review");
+    }
+    const payload = {
+      ...legacy.payload || {},
+      canonicalLifecycle: "withdrawn",
+      canonicalWithdrawalReason: "replaced_by_canonical_complaint",
+      canonicalReplacementIdentity: replacement.followup_identity
+    };
+    let update = client.from("whatsapp_conversation_actions").update({ status: "dismissed", auto_eligible: false, payload, updated_at: (/* @__PURE__ */ new Date()).toISOString() }).eq("id", legacy.id).eq("source_id", legacy.source_id).eq("action_key", "complaint-followup").eq("action_type", "complaint_followup").eq("status", legacy.status).eq("work_status", "unassigned").eq("updated_at", legacy.updated_at);
+    for (const key of LEGACY_WORK_FIELDS) update = update.is(key, null);
+    update = legacy.followup_attempts == null ? update.is("followup_attempts", null) : update.eq("followup_attempts", 0);
+    const { data: changed, error: updateError } = await update.select("id").maybeSingle();
+    if (updateError) throw updateError;
+    if (changed) continue;
+    const { data: raced, error: raceError } = await client.from("whatsapp_conversation_actions").select("status,payload").eq("id", legacy.id).maybeSingle();
+    if (raceError) throw raceError;
+    if (raced?.status !== "dismissed" || raced.payload?.canonicalWithdrawalReason !== "replaced_by_canonical_complaint" || raced.payload?.canonicalReplacementIdentity !== replacement.followup_identity) {
+      throw new Error("canonical_complaint_legacy_concurrent_work_requires_review");
+    }
+  }
+}
+async function projectCanonicalComplaintsToActions(supabaseClient, analyses, sources) {
+  const built = buildCanonicalComplaintActionRows(analyses, sources);
+  if (!built.rows.length) return { ...built, inserted: 0, existing: 0 };
+  await withdrawReplacedLegacyComplaints(supabaseClient, built.rows);
+  const identities = built.rows.map((row) => row.followup_identity);
+  const { data: existingRows, error: existingError } = await supabaseClient.from("whatsapp_conversation_actions").select("id,source_id,action_type,followup_identity,status,target_table,target_id").in("followup_identity", identities);
+  if (existingError) throw existingError;
+  for (const existingRow of existingRows || []) {
+    const expected = built.rows.find((row) => row.followup_identity === existingRow.followup_identity);
+    if (!expected || existingRow.source_id !== expected.source_id || existingRow.action_type !== "complaint_followup") {
+      throw new Error("canonical_complaint_identity_collision");
+    }
+  }
+  const existing = new Set(
+    (existingRows || []).map((row) => text4(row.followup_identity)).filter(Boolean)
+  );
+  let inserted = 0;
+  for (const row of built.rows) {
+    if (existing.has(row.followup_identity)) continue;
+    const { error } = await supabaseClient.from("whatsapp_conversation_actions").insert(row);
+    if (!error) {
+      inserted += 1;
+      existing.add(row.followup_identity);
+      continue;
+    }
+    if (String(error.code || "") !== "23505") throw error;
+    const { data: raced, error: raceReadError } = await supabaseClient.from("whatsapp_conversation_actions").select("id,followup_identity").eq("followup_identity", row.followup_identity).maybeSingle();
+    if (raceReadError) throw raceReadError;
+    if (!raced) throw error;
+    existing.add(row.followup_identity);
+  }
+  return {
+    ...built,
+    inserted,
+    existing: built.rows.length - inserted
   };
 }
 
@@ -10279,7 +11869,7 @@ function monthCycleFromDate(dateInput = /* @__PURE__ */ new Date()) {
 }
 
 // src/lib/salesIntelligence/conversationClinicalReview.ts
-var CONSULTATION_CONTEXT_RX = /(?:استشار(?:ة|ه)|تشخيص|اعراض|أعراض|حامل|حمل|رضاع(?:ة|ه)|مرضع|طفل|رضيع|حساسي(?:ة|ه)|ضغط|سكر|حرار(?:ة|ه)|كح(?:ة|ه)|اسهال|إسهال|قيء|ترجيع|استفراغ|دوخ(?:ة|ه)|التهاب|صداع|وجع|ألم|الم|رشح|برد|جرح|تداخل|يتعارض|روشت(?:ة|ه)|تحليل|مناسب\s+(?:ل|مع)|آمن\s+(?:ل|مع)|امن\s+(?:ل|مع))/i;
+var CONSULTATION_CONTEXT_RX = /(?:استشار(?:ة|ه)|تشخيص|اعراض|أعراض|حامل|حمل|رضاع(?:ة|ه)|مرضع|طفل|رضيع|حساسي(?:ة|ه)|ضغط|سكر|حرار(?:ة|ه)|كح(?:ة|ه)|اسهال|إسهال|قيء|ترجيع|استفراغ|دوخ(?:ة|ه)|التهاب|صداع|وجع|ألم|الم(?=$|[\s،,.!?؟])|رشح|برد|جرح|تداخل|يتعارض|روشت(?:ة|ه)|تحليل|مناسب\s+(?:ل|مع)|آمن\s+(?:ل|مع)|امن\s+(?:ل|مع))/i;
 var DOSAGE_USAGE_RX = /(?:جرع(?:ة|ه)|طريق(?:ة|ه)\s*الاستخدام|طريقة\s*الإستخدام|(?:مرة|مره|مرتين|ثلاث\s*مرات|اربع\s*مرات|أربع\s*مرات)\s*(?:في|ف)?\s*(?:اليوم|يوميا|يوميًا)?|كل\s*\d+\s*(?:ساع(?:ة|ه)|ساعات)|(?:قبل|بعد)\s*(?:الاكل|الأكل)|على\s*الريق|لمد(?:ة|ه)\s*\d+\s*(?:يوم|ايام|أيام)|(?:خد|خدي|خدوا|ياخد|تاخد|تاخدي|يتاخد|تؤخذ|استخدم|استخدمي|يستخدم)\s+[^\n]{0,40}(?:قرص|كبسول(?:ة|ه)|مل|ملي|نقط(?:ة|ه)?|بخ(?:ة|ه)|بختين|ملعق(?:ة|ه)|معلق(?:ة|ه)))/i;
 var MEDIA_PLACEHOLDER_RX = /(?:<image omitted>|<voice message omitted>|audio omitted|<video omitted>|<document omitted>|صورة محذوفة|صوت محذوف|فيديو محذوف)/i;
 function ordered(view) {
@@ -10475,6 +12065,14 @@ var CONVERSATION_EVALUATION_CONTRACT = {
     forbiddenShortcuts: ["\u0645\u0639\u0627\u0642\u0628\u0629 \u0645\u062D\u0627\u062F\u062B\u0629 \u0645\u0627 \u0632\u0627\u0644\u062A \u0645\u0641\u062A\u0648\u062D\u0629", "\u0627\u0639\u062A\u0628\u0627\u0631 \u0623\u064A \u0631\u0633\u0627\u0644\u0629 \u0634\u0643\u0631 \u062E\u062A\u0627\u0645\u064B\u0627 \u0645\u0646 \u0627\u0644\u0645\u0648\u0638\u0641"]
   }
 };
+function hasSubstantiveBasket(view) {
+  return view.basket.activeItems.length > 0 || view.basket.confirmed || view.basket.announcedTotal != null || view.basket.versions.some((version) => version.itemCount > 0 || Boolean(version.confirmedAt) || version.announcedTotal != null);
+}
+function salesCriteriaApplicable(view) {
+  if (view.sale.isSaleCountable) return true;
+  if (view.interaction.caseType === "follow_up" || view.interaction.caseType === "information_only") return false;
+  return view.interaction.caseType === "sales_opportunity" || view.interaction.caseType === "mixed" || hasSubstantiveBasket(view);
+}
 function uniq2(values) {
   return Array.from(new Set(values.filter(Boolean)));
 }
@@ -10491,7 +12089,7 @@ function sourceAvailability(view, external) {
   if (view.staff.participants.some((participant) => participant.staffId)) available.add("staff_identity");
   if (view.need.primaryNeed || view.need.evidenceMessageIds.length || view.need.needDeclined) available.add("customer_need");
   if (view.products.length) available.add("product_lifecycle");
-  if (view.basket.versions.length || view.basket.activeItems.length) available.add("basket");
+  if (hasSubstantiveBasket(view)) available.add("basket");
   if (view.sale.proofState !== "unknown" || view.sale.selectedInvoiceId) available.add("sale_proof");
   if (view.journey) available.add("journey");
   if (view.lostOpportunity) available.add("lost_opportunity");
@@ -10516,14 +12114,14 @@ function criterionApplicable(view, key, clinical) {
     case "unavailable_items":
       return view.unavailableDemand.length > 0 || view.products.some((product) => product.availability === "unavailable");
     case "sales_closing":
-      return view.interaction.caseType === "sales_opportunity" || view.sale.isSaleCountable || view.basket.versions.length > 0;
+      return salesCriteriaApplicable(view);
     case "order_confirmation": {
       const applicability = view.coachingEvidence.protocolApplicability;
       if (applicability) return applicability === "applicable";
       return view.basket.confirmed || view.sale.summaryPresented || view.sale.customerConfirmed || view.sale.staffConfirmed;
     }
     case "cross_sell_upsell":
-      return view.products.some(
+      return salesCriteriaApplicable(view) && view.products.some(
         (product) => product.roles.includes("offered") && !product.roles.includes("requested") && !product.roles.includes("alternative")
       );
     case "angry_customer":
@@ -10654,7 +12252,7 @@ function normalizedArabic(value) {
   return String(value || "").toLowerCase().replace(/[أإآ]/g, "\u0627").replace(/ى/g, "\u064A").replace(/ة/g, "\u0647").replace(/[\u064B-\u065F]/g, "").replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
 }
 function customerNameTokens(value) {
-  return normalizedArabic(value || "").split(" ").map((token) => token.trim()).filter((token) => token.length >= 3 && !CUSTOMER_HONORIFICS.has(token));
+  return normalizedArabic(value || "").split(" ").map((token2) => token2.trim()).filter((token2) => token2.length >= 3 && !CUSTOMER_HONORIFICS.has(token2));
 }
 function officialChoice(key, option, status, confidence3, reason, evidenceMessageIds, measuredValue) {
   const criterion5 = criterionMap.get(key);
@@ -10803,8 +12401,8 @@ function assessGreeting(view) {
     [firstStaff.id]
   );
 }
-function introducedStaffName(text2) {
-  const match = text2.match(STAFF_INTRO_RX);
+function introducedStaffName(text5) {
+  const match = text5.match(STAFF_INTRO_RX);
   return match?.[1]?.trim().replace(/\s+/g, " ") || null;
 }
 function assessDoctorName(view) {
@@ -10860,7 +12458,7 @@ function assessCustomerName(view) {
   const used = staffMessages2.find((message) => {
     const normalized = normalizedArabic(message.text);
     const words = new Set(normalized.split(" ").filter(Boolean));
-    return tokens.some((token) => words.has(token));
+    return tokens.some((token2) => words.has(token2));
   });
   if (used) {
     return officialChoice(
@@ -10930,7 +12528,7 @@ function analyzeConversationEvaluationFoundation(view) {
 // src/lib/salesIntelligence/conversationEvaluationCore.ts
 var criterionMap2 = new Map(REVIEW_CRITERIA.map((criterion5) => [criterion5.key, criterion5]));
 var RESPECT_RX = /(?:حضرتك|يا\s*فندم|يا\s*افندم|تحت\s*(?:أمر|امر)(?:\s*حضرتك)?|من\s*فضلك|لو\s*سمحت|حاضر|عنيا|نورتنا|نتشرف|شكرا|شكرًا)/i;
-var APOLOGY_RX = /(?:معلش|متاسف|متأسف|آسف|اسف|بنعتذر|نعتذر)/i;
+var APOLOGY_RX2 = /(?:معلش|متاسف|متأسف|آسف|اسف|بنعتذر|نعتذر)/i;
 var STRONG_HOSTILITY_RX = /(?:يا\s*(?:غبي|اهبل|أهبل|حمار)|اخرس|اخرسي|قليل\s*الادب|قليلة\s*الادب|مش\s*ناقصينك|لو\s*مش\s*عاجبك|روح\s*اشتكي)/i;
 var DISMISSIVE_RX = /(?:مش\s*فاضي|مش\s*شغلي|مش\s*مسؤوليتي|بلاش\s*زن|ما\s*تزنش|خلصنا\s*بقى|استنى\s*بقى)/i;
 var CLARIFICATION_RX = /(?:تقصد|حضرتك\s*تقصد|كام\s*(?:علبة|علب|شريط)|الكمية|التركيز|سن\s*(?:الطفل|حضرتك)?|الوزن|الأعراض|الاعراض|حضرتك\s*(?:عايز|عاوزه|عايزة)|صح\s*[؟?]?|صحيح\s*[؟?]?)/i;
@@ -10989,7 +12587,7 @@ function assessTone(view) {
       [dismissive.id]
     );
   }
-  const respectMessages = staff.filter((message) => RESPECT_RX.test(message.text) || APOLOGY_RX.test(message.text));
+  const respectMessages = staff.filter((message) => RESPECT_RX.test(message.text) || APOLOGY_RX2.test(message.text));
   const serviceClarificationMessages = staff.filter(
     (message) => !respectMessages.some((respect) => respect.id === message.id) && CLARIFICATION_RX.test(message.text)
   );
@@ -11015,8 +12613,8 @@ function assessTone(view) {
     );
   }
   const terse = staff.filter((message) => {
-    const text2 = message.text.trim();
-    return text2.length <= 14 && wordCount(text2) <= 2;
+    const text5 = message.text.trim();
+    return text5.length <= 14 && wordCount(text5) <= 2;
   });
   if (staff.length >= 3 && terse.length / staff.length >= 0.67) {
     return make(
@@ -11258,7 +12856,7 @@ function evaluateFollowUpPromiseLifecycle(input) {
 // src/lib/salesIntelligence/conversationEvaluationFollowUp.ts
 var criterion = REVIEW_CRITERIA.find((item) => item.key === "followup_after_wait");
 if (!criterion) throw new Error("Missing followup_after_wait review criterion");
-var PROMISE_OBLIGATION_REASONS = /* @__PURE__ */ new Set(["staff_promised_check", "stock_check_pending"]);
+var PROMISE_OBLIGATION_REASONS = /* @__PURE__ */ new Set(["staff_promised_check", "stock_check_pending", "delivery_unresolved"]);
 var NUDGE_RX = /^(?:[؟?]+|يا\s*دكتور|دكتور|لسه|تمام|طيب|اوك|أوك|اوكي|ok|حضرتك|معلش)$/i;
 function make2(option, status, confidence3, reason, evidenceMessageIds, waitSeconds, promiseCount, lifecycle = null, labelOverride = null) {
   const choice = option ? criterion.choices.find((item) => item.value === option) ?? null : null;
@@ -11316,7 +12914,7 @@ function analyzeConversationEvaluationFollowUp(view) {
     const promiseIndex = ordered4.findIndex((message) => message.id === promise.id);
     const after = ordered4.slice(promiseIndex + 1);
     const nextReturn = after.find(
-      (message) => message.role === "staff" && message.meaningful && !isStaffFollowUpPromiseV32(message.text)
+      (message) => message.role === "staff" && message.meaningful && !isStaffFollowUpPromiseV32(message.text) && (!isDeliveryFollowUpPromiseV32(promise.text) || isDeliveryFollowUpCompletionV32(message.text))
     );
     const beforeReturn = nextReturn ? after.slice(0, after.findIndex((message) => message.id === nextReturn.id)) : after;
     const substantiveNewCustomerRequest = beforeReturn.find(
@@ -11552,8 +13150,7 @@ function make4(key, option, status, confidence3, reason, evidenceMessageIds, pro
   };
 }
 function assessClosing(view) {
-  const salesApplicable = view.interaction.caseType === "sales_opportunity" || view.sale.isSaleCountable || view.basket.versions.length > 0;
-  if (!salesApplicable) {
+  if (!salesCriteriaApplicable(view)) {
     return make4(
       "sales_closing",
       null,
@@ -11616,7 +13213,7 @@ function assessClosing(view) {
       );
     }
   }
-  if (view.basket.versions.length > 0 || view.basket.activeItems.length > 0) {
+  if (hasSubstantiveBasket(view)) {
     return make4(
       "sales_closing",
       "helped",
@@ -11655,17 +13252,46 @@ function assessCrossSell(view) {
       null,
       "not_applicable",
       100,
-      "\u0644\u0645 \u064A\u062A\u0645 \u0631\u0635\u062F \u0627\u0642\u062A\u0631\u0627\u062D \u0625\u0636\u0627\u0641\u064A \u0641\u0639\u0644\u064A \u062E\u0627\u0631\u062C \u0637\u0644\u0628 \u0627\u0644\u0639\u0645\u064A\u0644\u061B \u0644\u0627 \u064A\u062A\u0645 \u0627\u0641\u062A\u0631\u0627\u0636 \u0623\u0646 \u0647\u0646\u0627\u0643 \u0641\u0631\u0635\u0629 Cross-sell \u0645\u0647\u062F\u0631\u0629.",
+      "\u0644\u0645 \u064A\u062A\u0645 \u0631\u0635\u062F \u0627\u0642\u062A\u0631\u0627\u062D \u0625\u0636\u0627\u0641\u064A \u0641\u0639\u0644\u064A \u062E\u0627\u0631\u062C \u0637\u0644\u0628 \u0627\u0644\u0639\u0645\u064A\u0644\u061B \u0644\u0627 \u0646\u0641\u062A\u0631\u0636 \u0648\u062C\u0648\u062F \u0641\u0631\u0635\u0629 \u0628\u064A\u0639 \u0625\u0636\u0627\u0641\u064A \u0645\u0647\u062F\u0631\u0629.",
       []
+    );
+  }
+  const recommendationRx = /(?:أنصح|انصح|أرشح|ارشح|نرشح|ممكن\s+(?:تستخدم|تاخد|تاخدي)|ناخد|نستخدم|جرب(?:ي)?|خد(?:ي)?\s+كمان|تاخد(?:ي)?\s+كمان)/iu;
+  const staffRecommendationMessagesByProduct = /* @__PURE__ */ new Map();
+  for (const product of offeredExtra) {
+    const lifecycle = view.need.products.find((candidate) => candidate.key === product.productKey);
+    const evidenceIds = new Set(lifecycle?.evidenceMessageIds ?? []);
+    const recommendations = view.interaction.messages.filter(
+      (message) => message.role === "staff" && evidenceIds.has(message.id) && recommendationRx.test(message.text)
+    );
+    if (recommendations.length) {
+      staffRecommendationMessagesByProduct.set(product.productKey, recommendations.map((message) => message.id));
+    }
+  }
+  const hasRecommendationEvidence = offeredExtra.every((product) => staffRecommendationMessagesByProduct.has(product.productKey));
+  const hasUnreadCustomerMediaBeforeOffer = offeredExtra.some((product) => {
+    const offerIds = new Set(staffRecommendationMessagesByProduct.get(product.productKey) ?? []);
+    if (!offerIds.size) return false;
+    const firstOfferIndex = view.interaction.messages.findIndex((message) => offerIds.has(message.id));
+    return view.interaction.messages.slice(0, firstOfferIndex).some(
+      (message) => message.role === "customer" && /<(?:image|audio|voice message) omitted>|\[(?:image|audio|voice message) omitted\]/iu.test(message.text)
+    );
+  });
+  if (!hasRecommendationEvidence || hasUnreadCustomerMediaBeforeOffer) {
+    return make4(
+      "cross_sell_upsell",
+      null,
+      "insufficient_evidence",
+      45,
+      hasUnreadCustomerMediaBeforeOffer ? "\u0644\u0627 \u064A\u0645\u0643\u0646 \u062A\u062D\u062F\u064A\u062F \u0645\u0627 \u0625\u0630\u0627 \u0643\u0627\u0646 \u0627\u0644\u0635\u0646\u0641 \u0625\u0636\u0627\u0641\u0629 \u062E\u0627\u0631\u062C \u0627\u0644\u0637\u0644\u0628 \u0627\u0644\u0623\u0635\u0644\u064A \u0644\u0623\u0646 \u0631\u0633\u0627\u0644\u0629 \u0635\u0648\u0631\u0629/\u0635\u0648\u062A \u0633\u0627\u0628\u0642\u0629 \u063A\u064A\u0631 \u0645\u0642\u0631\u0648\u0621\u0629 \u0641\u064A \u0627\u0644\u062A\u0635\u062F\u064A\u0631." : "\u0648\u062C\u0648\u062F \u0627\u0644\u0635\u0646\u0641 \u0641\u064A \u062A\u0644\u062E\u064A\u0635 \u0623\u0648 \u0633\u0644\u0629 \u0644\u0627 \u064A\u062B\u0628\u062A \u0623\u0646 \u0627\u0644\u0645\u0648\u0638\u0641 \u0627\u0642\u062A\u0631\u062D\u0647 \u0643\u0625\u0636\u0627\u0641\u0629\u061B \u064A\u0644\u0632\u0645 \u062F\u0644\u064A\u0644 \u0627\u0642\u062A\u0631\u0627\u062D \u0635\u0631\u064A\u062D \u0645\u0631\u062A\u0628\u0637 \u0628\u0627\u0644\u0635\u0646\u0641.",
+      Array.from(staffRecommendationMessagesByProduct.values()).flat()
     );
   }
   const accepted = offeredExtra.filter(
     (product) => product.inFinalBasket || product.roles.includes("accepted") || product.roles.includes("final_basket")
   );
   if (accepted.length) {
-    const ids2 = offeredExtra.flatMap(
-      (product) => view.need.products.find((needProduct) => needProduct.key === product.productKey)?.evidenceMessageIds ?? []
-    );
+    const ids2 = accepted.flatMap((product) => staffRecommendationMessagesByProduct.get(product.productKey) ?? []);
     return make4(
       "cross_sell_upsell",
       "useful",
@@ -11676,9 +13302,7 @@ function assessCrossSell(view) {
       accepted.map((product) => product.productKey)
     );
   }
-  const ids = offeredExtra.flatMap(
-    (product) => view.need.products.find((needProduct) => needProduct.key === product.productKey)?.evidenceMessageIds ?? []
-  );
+  const ids = offeredExtra.flatMap((product) => staffRecommendationMessagesByProduct.get(product.productKey) ?? []);
   return make4(
     "cross_sell_upsell",
     "partial",
@@ -11708,15 +13332,13 @@ function analyzeConversationEvaluationSales(view) {
 
 // src/lib/salesIntelligence/conversationEvaluationServiceRecovery.ts
 var criteria2 = new Map(REVIEW_CRITERIA.map((criterion5) => [criterion5.key, criterion5]));
-var COMPLAINT_RX = /(?:زعلان|متضايق|غاضب|شكوى|مشكله|مشكلة|مش\s*راضي|سيئ|وحش|خدمة\s*وحشه|خدمة\s*سيئه|كل\s*مرة|كل\s*مره|بشتكي|ليه\s*كده)/i;
-var APOLOGY_RX2 = /(?:متاسف|متأسف|آسف|اسف|بنعتذر|نعتذر|حقك\s*علينا|معلش)/i;
-var SOLUTION_RX = /(?:هحل|هنحل|هنبدل|هبدل|هنرجع|هرجع\s*المبلغ|هتابع|هنابع|هراجع|هكلم|هنكلم|هنبعت|هتبعت|هنوفر|جاري\s*المتابعه|جاري\s*المتابعة|اتحل|تم\s*الحل|تم\s*التواصل)/i;
-var HOSTILE_RX = /(?:لو\s*مش\s*عاجبك|مش\s*مشكلتي|مش\s*شغلي|بلاش\s*زن|ما\s*تزنش|انت\s*غلطان|إنت\s*غلطان|روح\s*اشتكي|اخرس|اخرسي)/i;
+var APOLOGY_RX3 = /(?:متاسف|متأسف|آسف|اسف|بنعتذر|نعتذر|حقك\s*علينا|معلش)/i;
 var ORDER_CONTEXT_RX = /(?:اوردر|أوردر|الاوردر|الأوردر|طلب|المندوب|توصيل|دليفري)/i;
-var DELAY_RX = /(?:اتأخر|اتاخر|متأخر|متاخر|تأخير|تاخير|لسه|فين|مجاش|ماجاش|موصلش|ماوصلش|هييجي\s*امتى|هيوصل\s*امتى)/i;
+var DELAY_RX2 = /(?:اتأخر|اتاخر|متأخر|متاخر|تأخير|تاخير|لسه|فين|مجاش|ماجاش|موصلش|ماوصلش|هييجي\s*امتى|هيوصل\s*امتى)/i;
 var STAFF_DELAY_NOTICE_RX = /(?:(?:الطلب|الاوردر|الأوردر|المندوب|التوصيل)[^\n]{0,40}(?:ه?يتأخر|متأخر|في\s*تأخير|فيه\s*تأخير)|(?:في|فيه)\s*تأخير[^\n]{0,30}(?:الطلب|الاوردر|المندوب|التوصيل))/i;
 var ETA_RX = /(?:خلال\s*\d+\s*(?:دقيقه|دقيقة|دقائق|ساعه|ساعة|ساعات)|نص\s*ساعه|نصف\s*ساعه|هيوصل\s*(?:خلال|في)|هيكون\s*عند\s*حضرتك|موعد\s*جديد)/i;
-var RESOLUTION_RX = /(?:خرج\s*(?:مع|ل)\s*المندوب|في\s*الطريق|جاري\s*الارسال|جاري\s*الإرسال|تم\s*الارسال|تم\s*الإرسال|وصل|تم\s*التواصل|اتحل|تم\s*الحل)/i;
+var DELIVERY_PROGRESS_RX = /(?:خرج\s*(?:مع|ل)\s*المندوب|في\s*الطريق|جاري\s*الارسال|جاري\s*الإرسال|تم\s*الارسال|تم\s*الإرسال)/i;
+var DELIVERY_CLOSURE_RX = /(?:تم\s*التسليم|اتسلم|استلم(?:ت|نا)?|وصل(?:ت)?\s*(?:تمام|الحمد|شكرا|شكرًا)|المشكله\s*اتحلت|المشكلة\s*اتحلت|تم\s*الحل)/i;
 var CANCEL_RX = /(?:الغ(?:ي|ى)\s*(?:الطلب|الاوردر)|مش\s*عايزه|مش\s*عايز|خلاص\s*مش\s*محتاج|هجيب\s*من\s*مكان\s*تاني)/i;
 function make5(key, option, status, confidence3, reason, evidenceMessageIds) {
   const criterion5 = criteria2.get(key);
@@ -11739,67 +13361,85 @@ function ordered2(view) {
   return view.interaction.messages.slice().sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
 }
 function assessComplaint(view) {
-  const messages = ordered2(view);
-  const complaintIndex = messages.findIndex(
-    (message) => message.role === "customer" && message.meaningful && COMPLAINT_RX.test(message.text)
-  );
-  if (complaintIndex < 0) {
-    return make5("angry_customer", null, "not_applicable", 100, "\u0644\u0627 \u062A\u0648\u062C\u062F \u0634\u0643\u0648\u0649/\u063A\u0636\u0628 \u0635\u0631\u064A\u062D \u064A\u0645\u0643\u0646 \u062A\u0642\u064A\u064A\u0645 \u0637\u0631\u064A\u0642\u0629 \u0627\u0644\u062A\u0639\u0627\u0645\u0644 \u0645\u0639\u0647.", []);
-  }
-  const complaint = messages[complaintIndex];
-  const laterStaff = messages.slice(complaintIndex + 1).filter((m) => m.role === "staff" && m.meaningful);
-  if (!laterStaff.length) {
+  const complaint = deriveCanonicalComplaintAssessment({
+    caseId: view.caseId,
+    messages: ordered2(view).map((message) => ({
+      id: message.id,
+      role: message.role,
+      text: message.text,
+      meaningful: message.meaningful
+    }))
+  });
+  if (complaint.state === "none") {
     return make5(
       "angry_customer",
-      "ignored",
-      "assessed",
-      98,
-      "\u0627\u0644\u0639\u0645\u064A\u0644 \u0639\u0628\u0651\u0631 \u0639\u0646 \u0634\u0643\u0648\u0649/\u0639\u062F\u0645 \u0631\u0636\u0627 \u0648\u0644\u0645 \u064A\u0638\u0647\u0631 \u0631\u062F \u0645\u0648\u0638\u0641 \u0644\u0627\u062D\u0642 \u062F\u0627\u062E\u0644 \u0646\u0641\u0633 \u0627\u0644\u062A\u0641\u0627\u0639\u0644.",
-      [complaint.id]
+      null,
+      "not_applicable",
+      100,
+      "\u0627\u0644\u0639\u0642\u0644 \u0627\u0644\u0643\u0627\u0646\u0648\u0646\u064A\u0643\u0627\u0644 \u0644\u0645 \u064A\u062B\u0628\u062A \u0648\u062C\u0648\u062F \u0634\u0643\u0648\u0649/\u063A\u0636\u0628 \u0635\u0631\u064A\u062D \u0641\u064A \u0647\u0630\u0627 \u0627\u0644\u062A\u0641\u0627\u0639\u0644.",
+      []
     );
   }
-  const hostile = laterStaff.find((m) => HOSTILE_RX.test(m.text));
-  if (hostile) {
+  if (complaint.hostileResponseMessageIds.length > 0) {
     return make5(
       "angry_customer",
       "inappropriate",
       "assessed",
       99,
-      "\u0638\u0647\u0631 \u0631\u062F \u063A\u064A\u0631 \u0644\u0627\u0626\u0642 \u0635\u0631\u064A\u062D \u0628\u0639\u062F \u0634\u0643\u0648\u0649 \u0627\u0644\u0639\u0645\u064A\u0644.",
-      [complaint.id, hostile.id]
+      "\u0627\u0644\u0639\u0642\u0644 \u0627\u0644\u0643\u0627\u0646\u0648\u0646\u064A\u0643\u0627\u0644 \u0623\u062B\u0628\u062A \u0631\u062F\u064B\u0627 \u063A\u064A\u0631 \u0644\u0627\u0626\u0642 \u0628\u0639\u062F \u0634\u0643\u0648\u0649 \u0627\u0644\u0639\u0645\u064A\u0644.",
+      complaint.evidenceMessageIds
     );
   }
-  const apology = laterStaff.find((m) => APOLOGY_RX2.test(m.text));
-  const solution = laterStaff.find((m) => SOLUTION_RX.test(m.text));
-  const resolved = laterStaff.find((m) => RESOLUTION_RX.test(m.text));
-  if (apology && solution && resolved) {
+  if (complaint.state === "unresolved" && complaint.staffResponseMessageIds.length === 0) {
+    return make5(
+      "angry_customer",
+      "ignored",
+      "assessed",
+      98,
+      "\u0627\u0644\u0639\u0642\u0644 \u0627\u0644\u0643\u0627\u0646\u0648\u0646\u064A\u0643\u0627\u0644 \u0623\u062B\u0628\u062A \u0634\u0643\u0648\u0649 \u0648\u0644\u0645 \u064A\u062B\u0628\u062A \u0623\u064A \u0631\u062F \u0645\u0648\u0638\u0641 \u0644\u0627\u062D\u0642 \u062F\u0627\u062E\u0644 \u0646\u0641\u0633 \u0627\u0644\u062A\u0641\u0627\u0639\u0644.",
+      complaint.complaintMessageIds
+    );
+  }
+  const hasApology = complaint.apologyMessageIds.length > 0;
+  const hasRemedy = complaint.remedyAttemptMessageIds.length > 0;
+  if (complaint.state === "resolved" && hasApology && hasRemedy) {
     return make5(
       "angry_customer",
       "solved",
       "assessed",
       96,
-      "\u062A\u0645 \u0631\u0635\u062F \u0627\u0639\u062A\u0630\u0627\u0631 \u0648\u0627\u0636\u062D \u062B\u0645 \u0625\u062C\u0631\u0627\u0621/\u062D\u0644 \u062B\u0645 \u062F\u0644\u064A\u0644 \u0644\u0627\u062D\u0642 \u0639\u0644\u0649 \u062A\u0646\u0641\u064A\u0630 \u0623\u0648 \u0625\u063A\u0644\u0627\u0642 \u0627\u0644\u0645\u0634\u0643\u0644\u0629.",
-      [complaint.id, apology.id, solution.id, resolved.id]
+      "\u0627\u0644\u0639\u0642\u0644 \u0627\u0644\u0643\u0627\u0646\u0648\u0646\u064A\u0643\u0627\u0644 \u0623\u062B\u0628\u062A \u0627\u0639\u062A\u0630\u0627\u0631\u064B\u0627 \u0648\u0625\u062C\u0631\u0627\u0621\u064B \u062B\u0645 \u0625\u063A\u0644\u0627\u0642\u064B\u0627 \u0635\u0631\u064A\u062D\u064B\u0627 \u0644\u0644\u0645\u0634\u0643\u0644\u0629.",
+      complaint.evidenceMessageIds
     );
   }
-  if (apology && solution) {
+  if (complaint.state === "recovery_attempted" && hasApology && hasRemedy) {
     return make5(
       "angry_customer",
       "good",
       "assessed",
       92,
-      "\u062A\u0645 \u0627\u062D\u062A\u0648\u0627\u0621 \u0627\u0644\u0634\u0643\u0648\u0649 \u0628\u0627\u0639\u062A\u0630\u0627\u0631 \u0648\u0625\u062C\u0631\u0627\u0621 \u0648\u0627\u0636\u062D\u060C \u0644\u0643\u0646 \u0644\u0627 \u064A\u0648\u062C\u062F \u062F\u0644\u064A\u0644 \u0643\u0627\u0641\u064D \u062F\u0627\u062E\u0644 \u0627\u0644\u062A\u0641\u0627\u0639\u0644 \u0639\u0644\u0649 \u0625\u063A\u0644\u0627\u0642 \u0627\u0644\u0645\u0634\u0643\u0644\u0629 \u0646\u0647\u0627\u0626\u064A\u064B\u0627.",
-      [complaint.id, apology.id, solution.id]
+      "\u0627\u0644\u0639\u0642\u0644 \u0627\u0644\u0643\u0627\u0646\u0648\u0646\u064A\u0643\u0627\u0644 \u0623\u062B\u0628\u062A \u0627\u062D\u062A\u0648\u0627\u0621 \u0627\u0644\u0634\u0643\u0648\u0649 \u0628\u0627\u0639\u062A\u0630\u0627\u0631 \u0648\u0625\u062C\u0631\u0627\u0621 \u0648\u0627\u0636\u062D\u060C \u0644\u0643\u0646 \u0644\u0645 \u064A\u062B\u0628\u062A \u0625\u063A\u0644\u0627\u0642\u0647\u0627 \u0646\u0647\u0627\u0626\u064A\u064B\u0627.",
+      complaint.evidenceMessageIds
     );
   }
-  if (apology || solution) {
+  if (complaint.state === "resolved") {
+    return make5(
+      "angry_customer",
+      "medium",
+      "assessed",
+      86,
+      "\u0627\u0644\u0639\u0642\u0644 \u0627\u0644\u0643\u0627\u0646\u0648\u0646\u064A\u0643\u0627\u0644 \u0623\u062B\u0628\u062A \u0625\u063A\u0644\u0627\u0642 \u0627\u0644\u0645\u0634\u0643\u0644\u0629\u060C \u0644\u0643\u0646 \u0639\u0646\u0627\u0635\u0631 \u0627\u0644\u0627\u0639\u062A\u0630\u0627\u0631/\u0627\u0644\u0625\u062C\u0631\u0627\u0621 \u0642\u0628\u0644 \u0627\u0644\u0625\u063A\u0644\u0627\u0642 \u063A\u064A\u0631 \u0645\u0643\u062A\u0645\u0644\u0629 \u0641\u064A \u0627\u0644\u062F\u0644\u064A\u0644.",
+      complaint.evidenceMessageIds
+    );
+  }
+  if (complaint.state === "recovery_attempted" || hasApology || hasRemedy) {
     return make5(
       "angry_customer",
       "medium",
       "assessed",
       84,
-      "\u064A\u0648\u062C\u062F \u062A\u0641\u0627\u0639\u0644 \u0625\u064A\u062C\u0627\u0628\u064A \u062C\u0632\u0626\u064A \u0645\u0639 \u0627\u0644\u0634\u0643\u0648\u0649\u060C \u0644\u0643\u0646 \u0639\u0646\u0627\u0635\u0631 \u0627\u0644\u0627\u062D\u062A\u0648\u0627\u0621/\u0627\u0644\u062D\u0644 \u063A\u064A\u0631 \u0645\u0643\u062A\u0645\u0644\u0629.",
-      [complaint.id, ...[apology?.id, solution?.id].filter(Boolean)]
+      "\u0627\u0644\u0639\u0642\u0644 \u0627\u0644\u0643\u0627\u0646\u0648\u0646\u064A\u0643\u0627\u0644 \u0623\u062B\u0628\u062A \u0645\u062D\u0627\u0648\u0644\u0629 \u062A\u0639\u0627\u0641\u064D \u062C\u0632\u0626\u064A\u0629\u060C \u0644\u0643\u0646 \u0627\u0644\u0627\u062D\u062A\u0648\u0627\u0621 \u0623\u0648 \u0627\u0644\u0625\u063A\u0644\u0627\u0642 \u063A\u064A\u0631 \u0645\u0643\u062A\u0645\u0644.",
+      complaint.evidenceMessageIds
     );
   }
   return make5(
@@ -11807,14 +13447,14 @@ function assessComplaint(view) {
     "medium",
     "assessed",
     76,
-    "\u062A\u0645 \u0627\u0644\u0631\u062F \u0639\u0644\u0649 \u0627\u0644\u0639\u0645\u064A\u0644\u060C \u0644\u0643\u0646 \u0644\u0627 \u064A\u0648\u062C\u062F \u0627\u0639\u062A\u0630\u0627\u0631 \u0623\u0648 \u062D\u0644 \u0648\u0627\u0636\u062D \u064A\u0645\u0643\u0646 \u0625\u062B\u0628\u0627\u062A\u0647 \u0645\u0646 \u0627\u0644\u0646\u0635 \u0627\u0644\u0645\u062A\u0627\u062D.",
-    [complaint.id, laterStaff[0].id]
+    "\u0627\u0644\u0639\u0642\u0644 \u0627\u0644\u0643\u0627\u0646\u0648\u0646\u064A\u0643\u0627\u0644 \u0623\u062B\u0628\u062A \u0648\u062C\u0648\u062F \u0627\u0644\u0634\u0643\u0648\u0649 \u0648\u0631\u062F\u064B\u0627 \u0639\u0644\u064A\u0647\u0627\u060C \u0644\u0643\u0646 \u0644\u0645 \u064A\u062B\u0628\u062A \u0627\u0639\u062A\u0630\u0627\u0631\u064B\u0627 \u0623\u0648 \u0625\u062C\u0631\u0627\u0621 \u062A\u0639\u0627\u0641\u064D \u0648\u0627\u0636\u062D\u064B\u0627.",
+    complaint.evidenceMessageIds
   );
 }
 function assessDelay(view) {
   const messages = ordered2(view);
   const customerDelayIndex = messages.findIndex(
-    (message) => message.role === "customer" && message.meaningful && ORDER_CONTEXT_RX.test(message.text) && DELAY_RX.test(message.text)
+    (message) => message.role === "customer" && message.meaningful && ORDER_CONTEXT_RX.test(message.text) && DELAY_RX2.test(message.text)
   );
   const proactiveNoticeIndex = messages.findIndex(
     (message) => message.role === "staff" && message.meaningful && STAFF_DELAY_NOTICE_RX.test(message.text)
@@ -11831,12 +13471,16 @@ function assessDelay(view) {
   }
   const anchorIndex = customerDelayIndex >= 0 ? customerDelayIndex : proactiveNoticeIndex;
   const anchor = messages[anchorIndex];
-  const laterStaff = messages.slice(anchorIndex + 1).filter((m) => m.role === "staff" && m.meaningful);
-  const apology = anchor.role === "staff" && APOLOGY_RX2.test(anchor.text) ? anchor : laterStaff.find((m) => APOLOGY_RX2.test(m.text)) || null;
-  const eta = anchor.role === "staff" && ETA_RX.test(anchor.text) ? anchor : laterStaff.find((m) => ETA_RX.test(m.text)) || null;
-  const resolution = laterStaff.find((m) => RESOLUTION_RX.test(m.text)) || null;
+  const laterMessages = messages.slice(anchorIndex + 1).filter((message) => message.meaningful);
+  const laterStaff = laterMessages.filter((message) => message.role === "staff");
+  const apology = anchor.role === "staff" && APOLOGY_RX3.test(anchor.text) ? anchor : laterStaff.find((message) => APOLOGY_RX3.test(message.text)) || null;
+  const eta = anchor.role === "staff" && ETA_RX.test(anchor.text) ? anchor : laterStaff.find((message) => ETA_RX.test(message.text)) || null;
+  const progress = laterStaff.find((message) => DELIVERY_PROGRESS_RX.test(message.text)) || null;
+  const closure = laterMessages.find(
+    (message) => (message.role === "customer" || message.role === "staff") && DELIVERY_CLOSURE_RX.test(message.text)
+  ) || null;
   const cancelled = messages.slice(anchorIndex + 1).find(
-    (m) => m.role === "customer" && m.meaningful && CANCEL_RX.test(m.text)
+    (message) => message.role === "customer" && message.meaningful && CANCEL_RX.test(message.text)
   );
   if (cancelled && view.lostOpportunity.reason === "delivery_issue") {
     return make5(
@@ -11848,14 +13492,14 @@ function assessDelay(view) {
       [anchor.id, cancelled.id, ...view.lostOpportunity.evidenceMessageIds]
     );
   }
-  if (proactiveNoticeIndex >= 0 && apology && eta && resolution) {
+  if (proactiveNoticeIndex >= 0 && apology && eta && closure) {
     return make5(
       "order_delay_handling",
       view.lostOpportunity.responsibility === "delivery" || view.lostOpportunity.responsibility === "inventory" ? "outside_reason_handled" : "handled_full",
       "assessed",
       97,
-      "\u062A\u0645 \u0625\u0628\u0644\u0627\u063A \u0627\u0644\u0639\u0645\u064A\u0644 \u0628\u0627\u0644\u062A\u0623\u062E\u064A\u0631\u060C \u0648\u0627\u0644\u0627\u0639\u062A\u0630\u0627\u0631\u060C \u0648\u0625\u0639\u0637\u0627\u0621 \u062A\u0648\u0642\u064A\u062A/\u062A\u0648\u0642\u0639 \u062C\u062F\u064A\u062F\u060C \u062B\u0645 \u0638\u0647\u0631\u062A \u0645\u062A\u0627\u0628\u0639\u0629 \u062D\u062A\u0649 \u0627\u0644\u062A\u0646\u0641\u064A\u0630. \u0644\u0627 \u064A\u062A\u0645 \u062A\u062D\u0645\u064A\u0644 \u0627\u0644\u0645\u0648\u0638\u0641 \u0633\u0628\u0628\u064B\u0627 \u062A\u0634\u063A\u064A\u0644\u064A\u064B\u0627 \u062E\u0627\u0631\u062C \u0625\u0631\u0627\u062F\u062A\u0647.",
-      [messages[proactiveNoticeIndex].id, apology.id, eta.id, resolution.id]
+      "\u062A\u0645 \u0625\u0628\u0644\u0627\u063A \u0627\u0644\u0639\u0645\u064A\u0644 \u0628\u0627\u0644\u062A\u0623\u062E\u064A\u0631 \u0648\u0627\u0644\u0627\u0639\u062A\u0630\u0627\u0631 \u0648\u0625\u0639\u0637\u0627\u0621 \u062A\u0648\u0642\u064A\u062A \u062C\u062F\u064A\u062F\u060C \u062B\u0645 \u0638\u0647\u0631 \u062F\u0644\u064A\u0644 \u0625\u063A\u0644\u0627\u0642 \u0635\u0631\u064A\u062D. \u0644\u0627 \u064A\u062A\u0645 \u062A\u062D\u0645\u064A\u0644 \u0627\u0644\u0645\u0648\u0638\u0641 \u0633\u0628\u0628\u064B\u0627 \u062A\u0634\u063A\u064A\u0644\u064A\u064B\u0627 \u062E\u0627\u0631\u062C \u0625\u0631\u0627\u062F\u062A\u0647.",
+      [messages[proactiveNoticeIndex].id, apology.id, eta.id, closure.id]
     );
   }
   if ((proactiveNoticeIndex >= 0 || laterStaff.length > 0) && eta) {
@@ -11864,8 +13508,8 @@ function assessDelay(view) {
       "informed_only",
       "assessed",
       90,
-      "\u062A\u0645 \u0625\u0628\u0644\u0627\u063A \u0627\u0644\u0639\u0645\u064A\u0644/\u0627\u0644\u0631\u062F \u0639\u0644\u064A\u0647 \u0645\u0639 \u0648\u0642\u062A \u0623\u0648 \u062A\u0648\u0642\u0639 \u062C\u062F\u064A\u062F\u060C \u0644\u0643\u0646 \u0644\u0627 \u064A\u0648\u062C\u062F \u062F\u0644\u064A\u0644 \u0643\u0627\u0645\u0644 \u0639\u0644\u0649 \u0645\u062A\u0627\u0628\u0639\u0629 \u0627\u0644\u062A\u0646\u0641\u064A\u0630 \u062D\u062A\u0649 \u0627\u0644\u0646\u0647\u0627\u064A\u0629.",
-      [anchor.id, eta.id, ...apology ? [apology.id] : []]
+      progress ? "\u062A\u0645 \u0625\u0628\u0644\u0627\u063A \u0627\u0644\u0639\u0645\u064A\u0644/\u0627\u0644\u0631\u062F \u0639\u0644\u064A\u0647 \u0628\u0648\u0642\u062A \u062C\u062F\u064A\u062F \u0648\u0638\u0647\u0631\u062A \u0645\u062A\u0627\u0628\u0639\u0629 \u062A\u0634\u063A\u064A\u0644\u064A\u0629\u060C \u0644\u0643\u0646 \u0644\u0627 \u064A\u0648\u062C\u062F \u062F\u0644\u064A\u0644 \u0625\u063A\u0644\u0627\u0642 \u0635\u0631\u064A\u062D\u061B \u062D\u0627\u0644\u0629 \xAB\u0641\u064A \u0627\u0644\u0637\u0631\u064A\u0642\xBB \u0644\u0627 \u062A\u064F\u0639\u0627\u0645\u0644 \u0643\u062A\u0633\u0644\u064A\u0645 \u0645\u0643\u062A\u0645\u0644." : "\u062A\u0645 \u0625\u0628\u0644\u0627\u063A \u0627\u0644\u0639\u0645\u064A\u0644/\u0627\u0644\u0631\u062F \u0639\u0644\u064A\u0647 \u0645\u0639 \u0648\u0642\u062A \u0623\u0648 \u062A\u0648\u0642\u0639 \u062C\u062F\u064A\u062F\u060C \u0644\u0643\u0646 \u0644\u0627 \u064A\u0648\u062C\u062F \u062F\u0644\u064A\u0644 \u0625\u063A\u0644\u0627\u0642 \u0635\u0631\u064A\u062D.",
+      [anchor.id, eta.id, ...apology ? [apology.id] : [], ...progress ? [progress.id] : []]
     );
   }
   if (customerDelayIndex >= 0 && apology) {
@@ -11894,7 +13538,7 @@ function assessDelay(view) {
     "assessed",
     78,
     "\u064A\u0648\u062C\u062F \u062A\u0639\u0627\u0645\u0644 \u0645\u0639 \u0627\u0644\u062A\u0623\u062E\u064A\u0631 \u0644\u0643\u0646\u0647 \u063A\u064A\u0631 \u0645\u0643\u062A\u0645\u0644 \u0628\u0645\u0627 \u064A\u0643\u0641\u064A \u0644\u0625\u062B\u0628\u0627\u062A \u0645\u062A\u0627\u0628\u0639\u0629 \u0643\u0627\u0645\u0644\u0629.",
-    [anchor.id, ...laterStaff.slice(0, 2).map((m) => m.id)]
+    [anchor.id, ...laterStaff.slice(0, 2).map((message) => message.id)]
   );
 }
 function analyzeConversationEvaluationServiceRecovery(view) {
@@ -12611,7 +14255,7 @@ function analyzeConversationEvaluation(view, systemEvidence = null) {
     averageAssessmentConfidence * evidenceCoveragePercent / 100
   );
   return {
-    version: "conversation-evaluation-v1",
+    version: "conversation-evaluation-v2",
     caseId: view.caseId,
     items,
     summary: {
@@ -12838,8 +14482,10 @@ function buildCaseConversationReviewPayload(input) {
     staff_name: staffRow.name,
     doctor_name: staffRow.name,
     staff_role: staffRow.role ?? null,
-    branch: view.branch.branchNameRaw || staffRow.branch || null,
-    branch_id: view.branch.branchId || staffRow.branch_id || null,
+    // This is the case's operational branch. A staff member's home branch is only a hint and
+    // must not be persisted as if the conversation happened there when case evidence is unresolved.
+    branch: view.branch.branchNameRaw || null,
+    branch_id: view.branch.branchId || null,
     customer_id: view.customer.customerId,
     customer_name: view.customer.customerName ?? null,
     customer_code: view.customer.customerCode ?? null,
@@ -12850,7 +14496,9 @@ function buildCaseConversationReviewPayload(input) {
     conversation_type: "whatsapp",
     review_date: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
     month_cycle: monthCycleFromDate(view.interaction.startedAt),
-    invoice_number: view.sale.selectedInvoiceNumber ?? null,
+    // A review row names an invoice only when that invoice is proven for THIS case; a weak or
+    // candidate selection stays in the analysis evidence, never on the staff evaluation record.
+    invoice_number: view.sale.proofState === "proven" ? view.sale.selectedInvoiceNumber ?? null : null,
     final_score: score,
     total_score: score,
     base_score: 100,
@@ -13125,7 +14773,7 @@ async function persistAutomaticCaseConversationReviewWithClient(client, input) {
 }
 
 // src/lib/salesIntelligence/refresh/v22SemanticProjection.ts
-var V22_SEMANTIC_PROJECTION_VERSION = "v22-semantic-projection-v1";
+var V22_SEMANTIC_PROJECTION_VERSION = "v22-semantic-projection-v2-review-preservation";
 var V22_PROJECTED_COLUMNS = [
   "order_intent",
   "commercial_opportunity",
@@ -13213,12 +14861,13 @@ function aggregateV22Projection(facts) {
   }
   const sorted = facts.slice().sort((a, b) => a.salesCaseId.localeCompare(b.salesCaseId));
   const projected = sorted.map(projectSingleCase);
+  const canonicalReviewRequired = sorted.some((fact) => fact.view.review?.required === true);
   const evidenceMessageIds = [...new Set(sorted.flatMap((f) => f.view.operationalDisposition.evidenceMessageIds))];
   const reasonCodes = [...new Set(sorted.flatMap((f) => f.view.operationalDisposition.reasonCodes))];
   const confidence3 = Math.min(...sorted.map((f) => f.view.operationalDisposition.confidence.score || 0));
   if (projected.length === 1) {
     const { _state, _nba, ...values } = projected[0];
-    return { status: "ok", values: { ...values, needs_human_review: false }, reasonCodes, evidenceMessageIds, confidence: confidence3, mode: "direct" };
+    return { status: "ok", values: { ...values, needs_human_review: canonicalReviewRequired }, reasonCodes, evidenceMessageIds, confidence: confidence3, mode: "direct" };
   }
   const states = new Set(projected.map((p) => p._state));
   const openStates = [...states].filter((s) => s !== "closed");
@@ -13235,7 +14884,7 @@ function aggregateV22Projection(facts) {
     const { _state, _nba, ...values } = leader;
     return {
       status: "ok",
-      values: { ...values, ...base, needs_human_review: false },
+      values: { ...values, ...base, needs_human_review: canonicalReviewRequired },
       reasonCodes: [...reasonCodes, "v22_projection.aggregate_agreeing_cases"],
       evidenceMessageIds,
       confidence: confidence3,
@@ -13272,6 +14921,10 @@ function decideV22Projection(row, facts, nowIso) {
   const preliminary = previous?.preliminary ?? Object.fromEntries(V22_PROJECTED_COLUMNS.map((column) => [column, row[column] ?? null]));
   const guards = [];
   const values = { ...aggregate.values };
+  if (row.needs_human_review === true || Number(row.media_missing) > 0 || caseJson.requiresHumanApproval === true) {
+    values.needs_human_review = true;
+    guards.push("v22_projection.review_clearance_requires_explicit_command");
+  }
   if (String(caseJson.canonicalSaleProof?.state || "") === "proven") {
     delete values.proposed_outcome;
     delete values.outcome_confidence;
@@ -13358,7 +15011,7 @@ async function projectCanonicalSemanticsToV22(service, v22CaseIds, nowIso = (/* 
   }
   return out;
 }
-var ROW_COLUMNS = ["id", "case_json", "confirmed_outcome", "updated_at", ...V22_PROJECTED_COLUMNS].join(",");
+var ROW_COLUMNS = ["id", "case_json", "confirmed_outcome", "updated_at", "media_missing", ...V22_PROJECTED_COLUMNS].join(",");
 async function projectOne(service, v22Id, facts, nowIso) {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const { data: row, error } = await service.from("whatsapp_customer_cases_v22").select(ROW_COLUMNS).eq("id", v22Id).maybeSingle();
@@ -13379,7 +15032,7 @@ function errorText(error) {
 }
 
 // src/lib/salesIntelligence/refresh/canonicalRefreshService.ts
-var CASE_SET_RECONCILE_RPC = "sales_intelligence_reconcile_case_set_v1";
+var CASE_SET_RECONCILE_RPC = "sales_intelligence_reconcile_case_set_v2";
 var CANONICAL_PROOF_WRITER_RPC = "dawaa_reconcile_sales_intelligence_case_v22_v1";
 var CANONICAL_REFRESH_SOURCE_COLUMNS = [
   ...REVIEW_SOURCE_BATCH_INPUT_COLUMNS,
@@ -13495,6 +15148,12 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
     canonicalReconciliation: [],
     actionReconciliation: { reconciledActions: 0 },
     complaintEnrichment: { enrichedComplaintActions: 0 },
+    operationalProjection: {
+      followups: { inserted: 0, existing: 0, skipped: 0 },
+      customerRequests: { inserted: 0, existing: 0, skipped: 0 },
+      complaints: { inserted: 0, existing: 0, skipped: 0 },
+      errors: []
+    },
     semanticProjection: [],
     conversationEvaluations: []
   };
@@ -13523,32 +15182,55 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
     v22CaseIdBySource,
     v22ContextByCaseId
   );
-  const batch = await runBatchPersistence(service, { conversations, dryRun: input.dryRun });
+  const batch = await runBatchPersistence(service, { conversations, dryRun: input.dryRun, deferPublication: true });
   if (input.dryRun) return { ...empty, status: "ok", admittedSourceIds, blockedSources, batch };
   const outcomes = batch.caseOutcomes || [];
   const persistenceFailures = outcomes.filter((row) => !row.success).map((row) => ({ caseId: row.caseId, error: row.error }));
-  if (persistenceFailures.length) {
-    return {
-      ...empty,
-      status: "persistence_partial_failure",
-      admittedSourceIds,
-      blockedSources,
-      batch,
-      persistenceFailures
-    };
-  }
   const caseSetReconciliation = [];
-  for (const source of admitted) {
+  const followupPublications = [];
+  const hasIndependentInput = (sourceId) => conversations.some((row) => row.conversationId === sourceId);
+  const publicationOrder = [
+    ...admitted.filter((row) => hasIndependentInput(String(row.id))),
+    ...admitted.filter((row) => !hasIndependentInput(String(row.id)))
+  ];
+  for (const source of publicationOrder) {
     const sourceId = String(source.id || "");
     const activeCaseIds = batch.caseAnalyses.filter((row) => String(row.conversationId || "") === sourceId).map((row) => String(row.caseId));
-    const { data, error } = await service.rpc(CASE_SET_RECONCILE_RPC, {
-      p_conversation_id: sourceId,
-      p_active_case_ids: activeCaseIds
-    });
+    const assemblyPending = !hasIndependentInput(sourceId) && (batch.caseAnalyses.some((row) => !outcomes.some((outcome) => outcome.caseId === row.caseId && outcome.success)) || caseSetReconciliation.some((row) => !row.ok));
+    const sourceOutcomes = outcomes.filter((row) => activeCaseIds.includes(row.caseId));
+    if (assemblyPending || activeCaseIds.some((id) => !sourceOutcomes.some((row) => row.caseId === id && row.success && row.analysis?.analysisId))) {
+      caseSetReconciliation.push({
+        sourceId,
+        ok: false,
+        status: assemblyPending ? "dependency_pending_retry" : "persistence_failed_pending_retry",
+        activeCaseIds,
+        retiredCaseIds: [],
+        reactivatedCaseIds: [],
+        error: "source_case_set_incomplete"
+      });
+      continue;
+    }
+    let data = null;
+    let error = null;
+    try {
+      ({ data, error } = await service.rpc(CASE_SET_RECONCILE_RPC, {
+        p_conversation_id: sourceId,
+        p_active_case_ids: activeCaseIds,
+        p_analysis_ids: Object.fromEntries(sourceOutcomes.map((row) => [row.caseId, row.analysis.analysisId]))
+      }));
+    } catch (caught) {
+      error = { message: caught instanceof Error ? caught.message : String(caught) };
+    }
     const payload = data && typeof data === "object" ? data : null;
+    if (!error && payload?.ok === true && payload?.status === "reconciled") {
+      followupPublications.push({
+        sourceId,
+        analysisIds: Object.fromEntries(sourceOutcomes.map((row) => [row.caseId, row.analysis.analysisId]))
+      });
+    }
     caseSetReconciliation.push({
       sourceId,
-      ok: !error && payload?.ok !== false,
+      ok: !error && payload?.ok === true && payload?.status === "reconciled",
       status: error ? "rpc_error" : String(payload?.status || "empty_reconcile_result"),
       activeCaseIds,
       retiredCaseIds: Array.isArray(payload?.retiredCaseIds) ? payload.retiredCaseIds.map(String) : [],
@@ -13556,18 +15238,10 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
       error: error?.message ?? null
     });
   }
-  if (caseSetReconciliation.some((row) => !row.ok || row.status !== "reconciled")) {
-    return {
-      ...empty,
-      status: "case_set_reconciliation_failure",
-      admittedSourceIds,
-      blockedSources,
-      batch,
-      caseSetReconciliation
-    };
-  }
+  const reconciledSources = new Set(caseSetReconciliation.filter((row) => row.ok).map((row) => row.sourceId));
+  const lifecycleStatus = persistenceFailures.length || caseSetReconciliation.some((row) => row.status === "persistence_failed_pending_retry") ? "persistence_partial_failure" : caseSetReconciliation.some((row) => !row.ok) ? "case_set_reconciliation_failure" : "ok";
   const persisted = new Set(outcomes.filter((row) => row.success).map((row) => row.caseId));
-  const reconcileCandidates = batch.caseAnalyses.filter((row) => persisted.has(row.caseId));
+  const reconcileCandidates = batch.caseAnalyses.filter((row) => persisted.has(row.caseId) && reconciledSources.has(String(row.conversationId)));
   const canonicalReconciliation = [];
   for (const analysis of reconcileCandidates) {
     const { data, error } = await service.rpc(CANONICAL_PROOF_WRITER_RPC, {
@@ -13581,7 +15255,8 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
   if (canonicalReconciliation.some((row) => row.status === "rpc_error")) {
     return {
       ...empty,
-      status: "proof_bridge_transport_failure",
+      status: lifecycleStatus === "ok" ? "proof_bridge_transport_failure" : lifecycleStatus,
+      persistenceFailures,
       admittedSourceIds,
       blockedSources,
       batch,
@@ -13600,6 +15275,74 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
     reason: row.reason,
     ...row.error ? { error: row.error } : {}
   }));
+  const projectionSources = admitted.map((source) => ({
+    id: String(source.id || ""),
+    raw_text: typeof source.raw_text === "string" ? source.raw_text : null,
+    customer_name: source.customer_name ? String(source.customer_name) : null,
+    customer_code: source.customer_code ? String(source.customer_code) : null,
+    staff_id: source.staff_id ? String(source.staff_id) : null
+  }));
+  const projectionErrors = [];
+  let followupProjection = { inserted: 0, existing: 0, skipped: 0, updated: 0, withdrawn: 0 };
+  let customerRequestProjection = { inserted: 0, existing: 0, skipped: 0 };
+  let complaintProjection = { inserted: 0, existing: 0, skipped: 0 };
+  try {
+    const result = await projectCanonicalFollowupsToActions(
+      service,
+      reconcileCandidates,
+      projectionSources,
+      followupPublications
+    );
+    followupProjection = {
+      inserted: result.inserted,
+      existing: result.existing,
+      skipped: result.skipped.length,
+      updated: result.updated,
+      withdrawn: result.withdrawn
+    };
+  } catch (error) {
+    projectionErrors.push(
+      `canonical_followup_projection_failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  try {
+    const result = await projectCanonicalCustomerRequestsToActions(
+      service,
+      reconcileCandidates,
+      projectionSources
+    );
+    customerRequestProjection = {
+      inserted: result.inserted,
+      existing: result.existing,
+      skipped: result.skipped.length
+    };
+  } catch (error) {
+    projectionErrors.push(
+      `canonical_customer_request_projection_failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  try {
+    const result = await projectCanonicalComplaintsToActions(
+      service,
+      reconcileCandidates,
+      projectionSources
+    );
+    complaintProjection = {
+      inserted: result.inserted,
+      existing: result.existing,
+      skipped: result.skipped.length
+    };
+  } catch (error) {
+    projectionErrors.push(
+      `canonical_complaint_projection_failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  const operationalProjection = {
+    followups: followupProjection,
+    customerRequests: customerRequestProjection,
+    complaints: complaintProjection,
+    errors: projectionErrors
+  };
   const conversationEvaluations = [];
   for (const analysis of reconcileCandidates) {
     const view = analysis.caseIntelligence;
@@ -13664,7 +15407,7 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
   let enrichedComplaintActions = 0;
   for (const source of admitted) {
     const sourceId = String(source.id);
-    const sourceAnalyses = batch.caseAnalyses.filter((row) => row.conversationId === sourceId);
+    const sourceAnalyses = reconcileCandidates.filter((row) => row.conversationId === sourceId);
     const provenAnalyses = sourceAnalyses.filter((row) => reconciledCaseIds.has(row.caseId));
     if (provenAnalyses.length) {
       reconciledActions += (await reconcileSoldCustomerRequestActions(service, sourceId, provenAnalyses)).reconciledActions;
@@ -13673,7 +15416,8 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
   }
   return {
     ...empty,
-    status: "ok",
+    status: lifecycleStatus,
+    persistenceFailures,
     admittedSourceIds,
     blockedSources,
     batch,
@@ -13681,6 +15425,7 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
     canonicalReconciliation,
     actionReconciliation: { reconciledActions },
     complaintEnrichment: { enrichedComplaintActions },
+    operationalProjection,
     semanticProjection,
     conversationEvaluations
   };
@@ -13787,34 +15532,6 @@ async function enrichComplaintFollowupContext(service, source, caseAnalyses) {
   let invoice = null;
   if (invoiceId2) {
     invoice = await readInvoiceRecordById(invoiceId2, service);
-  }
-  if (!invoice) {
-    const customerId = String(source.customer_id || "").trim();
-    const customerCode = String(source.customer_code || "").trim();
-    const startedAt = source.conversation_started_at ? new Date(String(source.conversation_started_at)) : null;
-    const endedAt = source.conversation_ended_at ? new Date(String(source.conversation_ended_at)) : startedAt;
-    if ((customerId || customerCode) && startedAt && !Number.isNaN(startedAt.getTime())) {
-      const from = new Date(startedAt.getTime() - 2 * 36e5).toISOString();
-      const to = new Date(
-        (endedAt && !Number.isNaN(endedAt.getTime()) ? endedAt.getTime() : startedAt.getTime()) + 6 * 36e5
-      ).toISOString();
-      const rows = await readInvoiceRecordsByCustomerWindow({
-        queryStartIso: from,
-        queryEndIso: to,
-        ...customerId ? { customerId } : { customerCode },
-        limit: 20,
-        client: service
-      });
-      if (rows.length) {
-        const anchor = startedAt.getTime();
-        invoice = [...rows].sort((a, b) => {
-          const ad = Math.abs(new Date(String(a.invoice_datetime || 0)).getTime() - anchor);
-          const bd = Math.abs(new Date(String(b.invoice_datetime || 0)).getTime() - anchor);
-          return ad - bd;
-        })[0];
-        linkageBasis = "customer_time_match";
-      }
-    }
   }
   if (!invoice) return { enrichedComplaintActions: 0 };
   let updated = 0;
@@ -13962,7 +15679,9 @@ function evaluateDeployEnvironment(env) {
         warnings.push(`${name} points to project ${ref3}, not the production project`);
     }
   } else if (environment === "preview" || environment === "development") {
-    const expected = String(env.DAWAA_STAGING_SUPABASE_REF || "").trim().toLowerCase();
+    const approvedSha = String(env.DAWAA_APPROVED_PRODUCTION_PREVIEW_SHA || "").trim();
+    const productionReview = environment === "preview" && /^[a-f0-9]{40}$/.test(approvedSha) && approvedSha === env.VERCEL_GIT_COMMIT_SHA;
+    const expected = String(productionReview ? production : env.DAWAA_STAGING_SUPABASE_REF || "").trim().toLowerCase();
     if (!env.VITE_SUPABASE_URL)
       errors.push("VITE_SUPABASE_URL is missing: a preview must use the staging Supabase project");
     if (!env.VITE_SUPABASE_ANON_KEY)
@@ -13973,9 +15692,11 @@ function evaluateDeployEnvironment(env) {
       errors.push(
         "DAWAA_STAGING_SUPABASE_REF is missing: declare the staging project ref this preview must use"
       );
-    if (FORBIDDEN_OUTSIDE_PRODUCTION[expected])
+    if (productionReview) warnings.push(`Explicitly approved Preview ${approvedSha} uses Production data; normal application authorization remains required`);
+    if (!productionReview && FORBIDDEN_OUTSIDE_PRODUCTION[expected])
       errors.push(`DAWAA_STAGING_SUPABASE_REF is ${FORBIDDEN_OUTSIDE_PRODUCTION[expected]}`);
-    for (const name of pointsAtProduction) errors.push(`${name} points to the production project`);
+    if (!productionReview)
+      for (const name of pointsAtProduction) errors.push(`${name} points to the production project`);
     for (const [name, ref3] of Object.entries(projectRefs)) {
       if (ref3 === DELIVERY_SUPABASE_PROJECT_REF)
         errors.push(`${name} points to the delivery project`);
@@ -14103,12 +15824,12 @@ async function handler(req, res) {
     return json(res, 503, { error: "missing_service_role_key" });
   }
   const authHeader = String(req.headers.authorization || "");
-  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
-  if (!token) return json(res, 401, { error: "missing_user_token" });
+  const token2 = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!token2) return json(res, 401, { error: "missing_user_token" });
   const service = createClient2(supabaseUrl2, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false }
   });
-  const tokenHash = createHash("sha256").update(token).digest("hex");
+  const tokenHash = createHash("sha256").update(token2).digest("hex");
   const { data: loginSession, error: sessionLookupError } = await service.from("staff_login_sessions").select("id,staff_account_id,expires_at,revoked_at").eq("token_hash", tokenHash).maybeSingle();
   if (sessionLookupError) return json(res, 500, { error: "staff_session_lookup_failed" });
   if (!loginSession || loginSession.revoked_at || new Date(loginSession.expires_at).getTime() <= Date.now()) {
@@ -14123,7 +15844,7 @@ async function handler(req, res) {
   if (!anonKey) return json(res, 503, { error: "missing_supabase_anon_key" });
   const permissionClient = createClient2(supabaseUrl2, anonKey, {
     auth: { persistSession: false, autoRefreshToken: false },
-    global: { headers: { "x-dawaa-session-token": token } }
+    global: { headers: { "x-dawaa-session-token": token2 } }
   });
   let refreshActorAuthorization;
   try {
@@ -14271,6 +15992,16 @@ async function handler(req, res) {
       sideProjections
     });
   }
+  if (refresh.operationalProjection?.errors.length) {
+    return json(res, 500, {
+      error: "canonical_operational_projection_failure",
+      detail: refresh.operationalProjection.errors.join("; "),
+      canonicalPublished: true,
+      ...page,
+      operationalProjection: refresh.operationalProjection,
+      sideProjections
+    });
+  }
   const batch = refresh.batch;
   return json(res, 200, {
     ok: true,
@@ -14280,6 +16011,7 @@ async function handler(req, res) {
     caseSetReconciliation: refresh.caseSetReconciliation,
     canonicalReconciliation: refresh.canonicalReconciliation,
     actionReconciliation: refresh.actionReconciliation,
+    operationalProjection: refresh.operationalProjection,
     complaintEnrichment: refresh.complaintEnrichment,
     semanticProjection: refresh.semanticProjection,
     conversationEvaluations: refresh.conversationEvaluations,

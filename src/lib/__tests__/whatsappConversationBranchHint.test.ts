@@ -112,6 +112,51 @@ describe('resolveConversationBranchHint', () => {
     expect(result.source).toBe('majority_fallback');
   });
 
+  it('a non-selling home branch (المخزن) of the first owner is never the transaction branch', async () => {
+    const { resolveConversationBranchHint } = await import('@/lib/whatsappConversationBranchHint');
+    const { isOperatingBranch } = await import('@/lib/branch');
+    const messages = [
+      msg('m1', '2026-09-01T10:00:00', 'outbound', 'مع حضرتك نور من خدمة عملاء صيدليات دواء، حابين نطمن على الوالد'),
+      msg('m2', '2026-09-01T10:01:00', 'inbound', 'الحمدلله شكرا'),
+    ];
+    const result = await resolveConversationBranchHint(session(messages), emptyRoles(['المخزن']), null);
+    expect(result.value).not.toBe('المخزن');
+    expect(result.value === null || isOperatingBranch(result.value)).toBe(true);
+  });
+
+  it('the picked branch folder is import provenance and branch evidence for the file', async () => {
+    const { resolveConversationBranchHint, branchFromSourceFolder } = await import('@/lib/whatsappConversationBranchHint');
+    expect(branchFromSourceFolder('محادثات شكري')).toBe('فرع شكري');
+    expect(branchFromSourceFolder('WhatsApp Elshamy')).toBe('فرع الشامي');
+    expect(branchFromSourceFolder('شكري والشامي')).toBeNull();
+    expect(branchFromSourceFolder('Downloads')).toBeNull();
+    const messages = [msg('m1', '2026-09-01T10:00:00', 'inbound', 'عايز علبة بانادول'), msg('m2', '2026-09-01T10:01:00', 'outbound', 'تحت امر حضرتك')];
+    const folder = await resolveConversationBranchHint(session(messages), emptyRoles(['فرع الشامي']), null, { sourceFolderName: 'محادثات شكري' });
+    expect(folder).toMatchObject({ value: 'فرع شكري', source: 'source_folder', sourceFolderName: 'محادثات شكري' });
+  });
+
+  it('a folder that contradicts an explicit doctor introduction stays unresolved for review', async () => {
+    const { resolveConversationBranchHint } = await import('@/lib/whatsappConversationBranchHint');
+    const messages = [
+      msg('m1', '2026-09-01T10:00:00', 'inbound', 'عايز علبة بانادول'),
+      msg('m2', '2026-09-01T10:01:00', 'outbound', 'مع حضرتك د هبة من فرع الشامي'),
+    ];
+    const result = await resolveConversationBranchHint(session(messages), emptyRoles(), null, { sourceFolderName: 'شكري' });
+    expect(result.value).toBeNull();
+    expect(result.source).toBe('none');
+    expect(result.reason).toMatch(/يخالف/);
+    expect(result.sourceFolderName).toBe('شكري');
+  });
+
+  it('a stored source branch still wins; a folder naming no single branch adds provenance only', async () => {
+    const { resolveConversationBranchHint } = await import('@/lib/whatsappConversationBranchHint');
+    const s = session([msg('m1', '2026-09-01T10:00:00', 'inbound', 'عايز استفسار')]);
+    expect(await resolveConversationBranchHint(s, emptyRoles(), 'فرع الشامي', { sourceFolderName: 'شكري' }))
+      .toMatchObject({ value: 'فرع الشامي', source: 'source', sourceFolderName: 'شكري' });
+    const none = await resolveConversationBranchHint(s, emptyRoles([]), null, { sourceFolderName: 'Downloads' });
+    expect(none).toMatchObject({ value: null, source: 'none', sourceFolderName: 'Downloads' });
+  });
+
   it('resolves to none when no signal exists anywhere', async () => {
     const { resolveConversationBranchHint } = await import('@/lib/whatsappConversationBranchHint');
     const messages = [msg('m1', '2026-09-01T10:00:00', 'outbound', 'أهلا بحضرتك'), msg('m2', '2026-09-01T10:01:00', 'inbound', 'شكرا')];

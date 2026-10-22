@@ -75,6 +75,21 @@ function matchContentFixture() {
 }
 
 describe('Sales Intelligence Persistence — writer failure tests (instruction #21)', () => {
+  it('Phase B deferred publication calls only staging and returns its inactive analysis identity', async () => {
+    const calls: Array<{ name: string; args: any }> = [];
+    const client = {
+      rpc: async (name: string, args: any) => {
+        calls.push({ name, args });
+        return { data: { analysis_id: 'staged-analysis', analysis_version: 2, is_current: false, is_new: false }, error: null };
+      },
+    };
+    const result = await persistCaseAnalysis(client, 'case-phase-b', 'raw synthetic text', analysisContentFixture(), null, null, true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].name).toBe('sales_intelligence_stage_case_analysis_v1');
+    expect(calls[0].args.p_case_id).toBe('case-phase-b');
+    expect(calls[0].args.p_row.semantic_source_hash).toBe(result.semanticSourceHash);
+    expect(result).toMatchObject({ analysisId: 'staged-analysis', analysisVersion: 2, isCurrent: false, isNew: false });
+  });
   it('1. FK violation: persisting a case_analysis for a case_id never upserted throws', async () => {
     const client = createFakeSupabaseClient();
     let threw = false;

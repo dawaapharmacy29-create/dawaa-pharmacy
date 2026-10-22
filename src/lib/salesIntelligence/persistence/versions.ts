@@ -7,6 +7,9 @@
 // REPROCESSING_MATRIX assigns it (see persistence/types.ts).
 // IMPORTANT: after changing semantic versions here, regenerate the committed serverless transport
 // with scripts/build-sales-intelligence-refresh-api.cjs so Preview/Production runs the same versions.
+// v26 (2026-10-18): quantity-only wording and repeated catalogue identities do not create products;
+// substitute refusal preserves the original need; known stock facts survive a pending warehouse
+// check; explicit appointments retain Cairo deadlines, actual authors and latest corrections.
 // v24 (2026-10-13): unique explicit cross-script seed matches retain their weak confidence while
 // carrying canonical product identity through the active basket, Customer Need, and attribution.
 // v23 (2026-10-13): exact active canonical staff names/aliases resolve invoice sellers when staff_id
@@ -52,14 +55,45 @@
 // changed materially: V32 now keeps payment settlement inside the original order interaction,
 // and commercial confirmation/basket parsing recognizes natural Egyptian recap/compact totals
 // without manufacturing product identity from unresolved media deictics.
-export const PIPELINE_VERSION = 'sales-intelligence-v24-canonical-basket-product-identity';
+// Persist the newly owned complaint/request decisions on the next explicit refresh. Retries
+// within this version still reuse the same analysis; this constant never initiates a backfill.
+// v29: standalone doubled-lam greetings are not customer needs; explicit requests survive.
+// Versioning affects only the next authorized refresh, never an automatic historical repair.
+// v30: complaint conduct/recovery and contextual contact timing share canonical evidence.
+// Past courier calls and contact availability do not become callback requests or product stock.
+// v36: only an operating branch (فرع شكري / فرع الشامي) owns new customer requests and follow-ups;
+// a request is not projected when the conversation's resolved staff evidence names another doctor.
+// v37: "عندكم X؟ عايز علبة واحدة." / "محتاج علبتين." — a quantity phrase naming no product takes the
+// product from the same message's explicit availability question (one need, not a whole-message item).
+// v38: a doctor-proposed strength the customer affirms ("تركيز 550 صح؟" / "مطبووط") qualifies the one
+// item the catalog proves; satisfaction answers and blessings are not requests; "اه إنشاء الله" is an
+// answer that keeps its interaction; "فورت" narrows a seeded brand to its FORTE SKUs.
+// v39: review nursing visits and bounded service chases as non-commercial follow-ups. Before any v39
+// analysis was persisted, v39 also gained: courtesy-only thank-you replies ("تمام شكرا لحضرتك ي دكتور")
+// are closings, never stock-question products; and the customer's own "علبتين كولونا" is the
+// requested quantity even when the basket line was rebuilt from the doctor's recap.
+// This is a semantic version bump only; no source is reprocessed without an explicit refresh.
+// v40: case-local service/pharmacy ownership, independent transaction-branch evidence,
+// and explicit new orders/consultations after customer-service outreach.
+// Semantic version only: existing sources are not refreshed automatically.
+// v41: a basket line whose catalog identity stays ambiguous ("كولونا" = 30 or 40 tablets) is
+// partially_proven, never proven; evaluation sales criteria judge only substantive baskets in
+// commercial cases (an empty draft basket no longer makes a welfare or nursing case "sales").
+// v42: fixes the product-identity review gate and keeps unresolved case branches out of automatic
+// conversation-review persistence. Existing analyses must be explicitly refreshed to apply it.
+// v43: an open service need (a requested nurse) keeps its chases in ONE case; a new medicine or
+// service request is its own case regardless of the gap. Invoice scoring explains customer code,
+// name, product code and quantity factors and adds a reviewer "strong candidate" recommendation
+// that never proves the sale. Case-level staff contributions, branch recommendation, per-item
+// evidence and a separate care check-in suggestion are part of the case view.
+export const PIPELINE_VERSION = 'sales-intelligence-v43-case-continuity-evidence';
 
 export const ENGINE_VERSIONS = {
-  caseSegmentation: 'case-segmentation-v10-payment-continuation-ambiguity-safe',
+  caseSegmentation: 'case-segmentation-v13-open-service-need-continuity',
   historicalClosure: 'historical-closure-v1',
   commercialConfirmation: 'commercial-confirmation-v6-compact-total-interstitial-ack-safe',
   protocolApplicability: 'protocol-applicability-v1',
-  attribution: 'attribution-v9-canonical-seller-staff-identity',
+  attribution: 'attribution-v10-explained-code-product-factors',
   matching: 'matching-v3-unresolved-product-evidence-safe',
   policyEvaluation: 'policy-evaluation-v1',
 } as const;
@@ -70,3 +104,4 @@ export const ENGINE_VERSIONS = {
  * branch/identity mapping versioning system yet, so this is a constant until one exists).
  */
 export const BRANCH_IDENTITY_MAPPING_VERSION = 'branch-identity-mapping-v2';
+
