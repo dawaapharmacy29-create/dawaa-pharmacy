@@ -45,4 +45,21 @@ begin
   end loop;
 end;
 $patch$;
+-- Keep the manager/system review filters consistent with the new ambiguity hold.
+-- Cases held for uncertain raw evidence must not be labeled system-only.
+do $queue$
+declare
+  v_def text;
+  v_needle text := 'and b.raw_events>=2';
+  v_replacement text := 'and b.raw_events>=2 and not public.attendance_uncertain_raw_punch_for_day_v1((b.row_data).staff_id,(b.row_data).attendance_date)';
+begin
+  select pg_get_functiondef(p.oid) into v_def
+  from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+  where n.nspname='public' and p.proname='get_attendance_resolution_queue_v3';
+  if v_def is null or position(v_needle in v_def)=0 then
+    raise exception 'attendance_queue_guard_precondition_failed';
+  end if;
+  execute replace(v_def,v_needle,v_replacement);
+end;
+$queue$;
 notify pgrst,'reload schema';
