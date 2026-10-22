@@ -49,6 +49,49 @@ function cairoTime(value?: string | null) {
     timeZone: 'Africa/Cairo', hour: '2-digit', minute: '2-digit',
   }).format(date);
 }
+function ShiftPreflightAction({ row }: { row: MismatchRow }) {
+  const [start, setStart] = useState('');
+  const [end, setEnd] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ eligible_for_further_review?: boolean; blockers?: string[] } | null>(null);
+  const [error, setError] = useState('');
+  async function check() {
+    if (!start || !end) return;
+    setBusy(true);
+    setError('');
+    setResult(null);
+    const response = await supabase.rpc('attendance_shift_change_preflight_v1', {
+      p_staff_id: row.staff_id, p_date: row.punch_date,
+      p_start: start, p_end: end,
+    });
+    setBusy(false);
+    if (response.error) setError(response.error.message);
+    else setResult(response.data || null);
+  }
+  const causes: Record<string,string> = {
+    attendance_day_already_approved: 'اليوم معتمد بالفعل؛ يلزم فتح مراجعة مستقلة',
+    conflicting_date_overrides: 'يوجد أكثر من تعديل جدول متعارض',
+    schedule_missing: 'الجدول الأساسي غير موجود',
+    day_is_off: 'اليوم مسجل راحة',
+    shift_duration_outside_4_12_hours: 'مدة الشيفت خارج 4–12 ساعة وتحتاج مراجعة منفصلة',
+    no_raw_biometric_evidence_in_proposed_window: 'لا توجد بصمة خام في نطاق الشيفت المقترح',
+  };
+  return <div className="mt-3 rounded-lg border border-[var(--dawaa-theme-border)] p-2">
+    <p className="font-bold">فحص أمان التعديل (بدون حفظ)</p>
+    <div className="mt-2 flex flex-wrap items-end gap-2">
+      <label className="flex flex-col gap-1">من <input type="time" className="input-dark" value={start} onChange={e=>{setStart(e.target.value);setResult(null);}} /></label>
+      <label className="flex flex-col gap-1">إلى <input type="time" className="input-dark" value={end} onChange={e=>{setEnd(e.target.value);setResult(null);}} /></label>
+      <button type="button" className="btn-secondary" onClick={()=>void check()} disabled={busy || !start || !end}>{busy ? 'جارٍ الفحص...' : 'فحص فقط'}</button>
+    </div>
+    {error && <p role="alert" className="mt-2 text-[var(--dawaa-status-warning-text)]">تعذر الفحص: {error}</p>}
+    {result && <div className="mt-2" role="status">
+      {result.eligible_for_further_review
+        ? 'لا توجد موانع أولية. لا يزال التعديل غير معتمد، وينتظر مراجعة ربط البصمات.'
+        : 'لا يمكن اعتماد التغيير حاليًا:'}
+      {!!result.blockers?.length && <p className="mt-1">{result.blockers.map(c=>causes[c] || c).join(' · ')}</p>}
+    </div>}
+  </div>;
+}
 export default function AttendanceShiftMismatchReview({
   start, end, branch, staffId,
 }: { start: string; end: string; branch: string; staffId?: string | null }) {
@@ -135,6 +178,7 @@ export default function AttendanceShiftMismatchReview({
                       ) : <p className="mt-1 text-[var(--dawaa-theme-muted)]">لا تكفي البصمات لاقتراح شيفت موثوق.</p>}
                       <p className="mt-1">المسجل: {cairoTime(row.scheduled_start_at)} — {cairoTime(row.scheduled_end_at)}</p>
                       <p className="mt-2 font-semibold text-[var(--dawaa-status-warning-text)]">تحقق من اليوم والشيفت الفعلي؛ البصمات بعد منتصف الليل قد تتبع اليوم السابق.</p>
+                      <ShiftPreflightAction row={row} />
                     </div>
                   ))}
                 </div>
