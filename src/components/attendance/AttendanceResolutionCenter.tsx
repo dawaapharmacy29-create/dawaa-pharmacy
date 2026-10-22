@@ -1132,13 +1132,17 @@ export default function AttendanceResolutionCenter({
                 هذا اعتماد لحقيقة الحضور، وليس خصمًا ماليًا تلقائيًا.
               </div>
 
-              <label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">
-                نوع القرار
-                <select value={reason} onChange={(e) => setReason(e.target.value)} className="input-dark mt-1 w-full">
-                  <option value="">اختر القرار بعد مراجعة الحالة</option>
-                  {decisionsFor(selected).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-                </select>
-              </label>
+              <fieldset className="mt-3">
+                <legend className="text-xs font-black text-[var(--dawaa-theme-muted)]">نوع القرار</legend>
+                <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {decisionsFor(selected).map((item) => (
+                    <label key={item.id} className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-3 text-xs font-black transition-colors ${reason === item.id ? 'border-[var(--dawaa-theme-primary)] bg-[var(--dawaa-theme-primary-soft)] text-[var(--dawaa-theme-heading)]' : 'border-[var(--dawaa-theme-border)] text-[var(--dawaa-theme-muted)]'}`}>
+                      <input type="radio" name="attendance-case-decision" value={item.id} checked={reason === item.id} onChange={() => setReason(item.id)} />
+                      <span>{item.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
 
               <button
                 type="button"
