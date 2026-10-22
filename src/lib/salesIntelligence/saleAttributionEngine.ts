@@ -20,7 +20,7 @@ import {
   parseInvoiceDateTime,
   type InvoiceLike,
 } from '../invoices/invoiceCore';
-import { normalizeBranchName } from '../branch';
+import { isOperatingBranch, normalizeBranchName } from '../branch';
 import { isValidEgyptianCustomerMobile, normalizeDawaaCustomerCode, normalizeEgyptianCustomerPhone } from '../customers/customerIdentity';
 import type { InvoiceCandidateRecommendation, InvoiceLineMatch } from './types';
 import type {
@@ -350,17 +350,16 @@ function classifyIdentity(
 }
 
 function classifyBranch(ctx: CaseAttributionContext, row: InvoiceLike): BranchMatchKind {
+  // A genuine disagreement inside this case remains a hard contradiction. A source label such as
+  // «المخزن», however, is not a transaction branch and must not conflict with the invoice branch.
   if (ctx.branchEvidenceConflict) return 'mismatch';
-  const caseNormalized = ctx.branchNameRaw ? normalizeBranchName(ctx.branchNameRaw) : null;
+  const caseRawText = cleanText(ctx.branchNameRaw);
+  const caseNormalized = isOperatingBranch(caseRawText) ? normalizeBranchName(caseRawText) : null;
   const invoiceRawText = cleanText(firstValue(row, ['branch_name', 'branch']));
-  const invoiceNormalized = invoiceRawText ? normalizeBranchName(invoiceRawText) : null;
+  const invoiceNormalized = isOperatingBranch(invoiceRawText) ? normalizeBranchName(invoiceRawText) : null;
 
-  if (
-    !caseNormalized ||
-    !invoiceNormalized ||
-    caseNormalized === UNKNOWN_BRANCH_LABEL ||
-    invoiceNormalized === UNKNOWN_BRANCH_LABEL
-  ) {
+  if (!caseNormalized || !invoiceNormalized ||
+    caseNormalized === UNKNOWN_BRANCH_LABEL || invoiceNormalized === UNKNOWN_BRANCH_LABEL) {
     return 'unknown';
   }
   if (caseNormalized !== invoiceNormalized) return 'mismatch';
@@ -502,8 +501,13 @@ function classifyProductEvidence(
     quantityMatch = allQuantitiesAgree ? 'available_match' : 'available_mismatch';
   }
 
+  const unresolvedBasketItems = ctx.activeBasketItems.length - resolvableBasketItems.length;
   const productCoverage: ProductCoverage =
-    matchedPairs.length === 0 ? 'none' : matchedPairs.length === resolvableBasketItems.length ? 'full' : 'partial';
+    matchedPairs.length === 0
+      ? 'none'
+      : matchedPairs.length === resolvableBasketItems.length && unresolvedBasketItems === 0
+        ? 'full'
+        : 'partial';
 
   const lineMatches: InvoiceLineMatch[] = matchedPairs.map(({ basketItem, invoiceItem, matchedBy }) => ({
     basketProductNameRaw: basketItem.productNameRaw,
@@ -531,12 +535,57 @@ function classifyLegacyMatch(ctx: CaseAttributionContext, row: InvoiceLike): boo
  * timestamp (or bounded time with exact canonical customer/branch) + invoice number + real positive invoice lines.
  * Promotion happens only when exactly ONE invoice satisfies this gate.
  */
+/**
+ * The automatic transaction gate needs at least one unique, canonical/code-level product line
+ * whose quantity agrees with the case. Display-name equality alone is useful for review but too
+ * weak to prove invoice ownership. Duplicate matching invoice lines stay ambiguous.
+ */
+function hasUniqueCanonicalProductQuantityMatch(
+  ctx: CaseAttributionContext,
+  row: InvoiceLike,
+  provider: InvoiceItemEvidenceProvider
+): boolean {
+  const invoiceItems = provider.getItemsForInvoice(getInvoiceRowId(row), getInvoiceRowNumber(row));
+  if (invoiceItems === 'unavailable') return false;
+
+  const sellableItems = invoiceItems.filter((item) => item.quantity != null && Number(item.quantity) > 0);
+  let hasQuantityConfirmedMatch = false;
+  let hasKnownQuantityConflict = false;
+
+  for (const basketItem of ctx.activeBasketItems) {
+    if (basketItem.resolutionStatus === 'unknown' || basketItem.resolutionStatus === 'contradicted') continue;
+    if (basketItem.quantity == null || (!basketItem.productId && !cleanText(basketItem.productCode))) continue;
+
+    let matches: InvoiceItemRecordForAttribution[] = [];
+    if (basketItem.productId) {
+      matches = sellableItems.filter((item) => item.productId && String(item.productId) === String(basketItem.productId));
+      // A duplicated canonical product line is ambiguous. Do not downgrade to weaker code/text matching.
+      if (matches.length > 1) continue;
+    }
+    if (matches.length === 0 && cleanText(basketItem.productCode)) {
+      const code = cleanText(basketItem.productCode).toLowerCase();
+      matches = sellableItems.filter((item) => cleanText(item.productCode).toLowerCase() === code);
+      if (matches.length > 1) continue;
+    }
+    if (matches.length !== 1) continue;
+
+    const invoiceQuantity = Number(matches[0].quantity);
+    if (!Number.isFinite(invoiceQuantity)) continue;
+    if (Number(basketItem.quantity) === invoiceQuantity) hasQuantityConfirmedMatch = true;
+    else hasKnownQuantityConflict = true;
+  }
+
+  return hasQuantityConfirmedMatch && !hasKnownQuantityConflict;
+}
+
 function qualifiesForAutomaticInvoiceLink(
   ctx: CaseAttributionContext,
   row: InvoiceLike,
   provider: InvoiceItemEvidenceProvider
 ): boolean {
-  if (ctx.branchEvidenceConflict) return false;
+  // The case must resolve to a real canonical customer. The invoice may lack customer_id when
+  // the unique customer code + consistent name are present, but an explicit different id is fatal.
+  if (!ctx.customerId) return false;
   const caseCode = normalizeDawaaCustomerCode(ctx.customerCode);
   const invoiceCode = getInvoiceCustomerCode(row);
   if (!caseCode || !invoiceCode || caseCode !== invoiceCode) return false;
@@ -546,33 +595,32 @@ function qualifiesForAutomaticInvoiceLink(
   if (!caseName || !invoiceName || caseName !== invoiceName) return false;
 
   const invoiceCustomerId = getInvoiceCustomerId(row);
-  if (ctx.customerId && invoiceCustomerId && ctx.customerId !== invoiceCustomerId) return false;
+  if (invoiceCustomerId && invoiceCustomerId !== ctx.customerId) return false;
 
-  if (classifyBranch(ctx, row) === 'mismatch') return false;
+  const branchMatch = classifyBranch(ctx, row);
+  if (branchMatch === 'mismatch') return false;
   const time = classifyTime(ctx, row);
   if (time.temporalInversion) return false;
-  // A real imported line-item match plus the exact canonical customer and branch is stronger
-  // than a 30-minute clock heuristic. Allow the existing bounded transactional window (6h),
-  // without shifting timestamps or trusting the legacy classifier's 'verified' label.
+  // A precise invoice during/very near this exact case is strongest. A wider existing window is
+  // allowed only with the same canonical customer_id AND an independently resolved operating branch.
   const exactTransactionalIdentity = Boolean(
-    ctx.customerId && invoiceCustomerId === ctx.customerId &&
-    (classifyBranch(ctx, row) === 'exact_canonical' || classifyBranch(ctx, row) === 'normalized_alias_match')
+    invoiceCustomerId === ctx.customerId &&
+    (branchMatch === 'exact_canonical' || branchMatch === 'normalized_alias_match')
   );
   const boundedTransactionTime =
     time.timeMatchStrength === 'strong' || time.timeMatchStrength === 'moderate';
   if (time.timeMatchStrength !== 'very_strong' && !(exactTransactionalIdentity && boundedTransactionTime)) return false;
   if (!getInvoiceRowNumber(row) || isDraftLikeZeroInvoice(row)) return false;
-
   if (!hasStableInvoiceRowId(row)) return false;
-  // Same customer + same window is not enough: the invoice must carry EVERY resolved product the
-  // conversation asked for. A subset stays statistical (qualified evidence, never `proven`); no
-  // overlap is a product mismatch; an unresolved basket or missing invoice lines is an evidence gap.
-  const products = classifyProductEvidence(ctx, row, provider);
-  // Never prove a partly resolved basket, a rejected order, or a known quantity conflict.
+
   if (ctx.commercialConfirmation.currentState === 'rejected') return false;
-  if (ctx.activeBasketItems.some((item) => item.resolutionStatus &&
-    item.resolutionStatus !== 'proven' && item.resolutionStatus !== 'partially_proven')) return false;
-  return products.productCoverage === 'full' && products.quantityMatch !== 'available_mismatch';
+  // Do not demand complete basket coverage: an invoice can contain legitimate invoice-only lines,
+  // and a separate unresolved product must not erase an independently exact requested line.
+  // But a unique canonical product/code + quantity match is mandatory, and any known quantity
+  // conflict on a matched canonical/code line blocks automatic proof.
+  const products = classifyProductEvidence(ctx, row, provider);
+  if (products.quantityMatch === 'available_mismatch') return false;
+  return hasUniqueCanonicalProductQuantityMatch(ctx, row, provider);
 }
 
 /** A real sales_invoices.id. getInvoiceRowId falls back to invoice_number for display rows, which is never proof identity. */
