@@ -180,6 +180,21 @@ describe('case-local service/pharmacy ownership', () => {
   });
 });
 
+function ownership(overrides: Partial<CaseOwnershipContext> = {}): CaseOwnershipContext {
+  return {
+    department: 'pharmacy',
+    sourceBranchNameRaw: 'المخزن',
+    operationalBranch: null,
+    branchBasis: 'none',
+    suggestedStaffBranch: 'فرع شكري',
+    owners: [{ staffId: 'staff-shibl', name: 'د محمد شبل', homeBranch: 'فرع شكري', function: 'pharmacist' }],
+    introductionMessageIds: ['intro-shibl'],
+    blockers: ['source_branch_not_transaction_branch'],
+    ...overrides,
+  };
+}
+
+
 describe('case branch after invoice attribution', () => {
   it('uses the linked, proven invoice branch as the transaction branch despite correlated seller/home-branch evidence', () => {
     const result = recommendCaseBranch({
