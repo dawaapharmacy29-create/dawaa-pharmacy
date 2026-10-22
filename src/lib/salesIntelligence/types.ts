@@ -1082,6 +1082,8 @@ export interface SaleAttributionCandidate {
    * automatic customer-code + name + time + real-items gate. The only path to `proven`.
    */
   directInvoiceLink: boolean;
+  /** At least one unique catalogue-id/code line has an exact case-quantity match; not name-only evidence. */
+  hasUniqueCanonicalProductQuantityMatch?: boolean;
   evidence: AttributionEvidenceItem[];
   ruleIds: string[];
   confidenceAssessment: ConfidenceAssessment;
