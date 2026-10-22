@@ -19,8 +19,10 @@ import {
   CANDIDATE_RETRIEVAL_TIME_WINDOW,
   buildInvoiceCandidateQuery,
   fetchInvoiceCandidates,
+  withCandidatePoolCompleteness,
   type InvoiceCandidateQuery,
   type InvoiceCandidateQueryContext,
+  type InvoiceCandidateRows,
 } from '../invoiceCandidateRetrieval';
 import {
   deriveCasesOnly,
@@ -308,16 +310,17 @@ async function fetchCandidatesForGroup(supabaseClient: any, group: CustomerGroup
  * candidate-retrieval-time filter, applied BEFORE attribution ever sees the pool, exactly mirroring
  * what a per-case fetch would have returned in the first place.
  */
-export function filterCandidatesToCaseWindow(candidates: InvoiceLike[], context: InvoiceCandidateQueryContext): InvoiceLike[] {
+export function filterCandidatesToCaseWindow(candidates: InvoiceCandidateRows, context: InvoiceCandidateQueryContext): InvoiceCandidateRows {
   const { windowStartIso, windowEndIso } = buildInvoiceCandidateQuery(context);
   const windowStartMs = new Date(windowStartIso).getTime();
   const windowEndMs = new Date(windowEndIso).getTime();
-  return candidates.filter((row) => {
+  const filtered = candidates.filter((row) => {
     const iso = parseInvoiceDateTime((row as Record<string, unknown>).invoice_datetime);
     if (!iso) return false;
     const ms = new Date(iso).getTime();
     return ms >= windowStartMs && ms <= windowEndMs;
   });
+  return withCandidatePoolCompleteness(filtered, candidates.candidatePoolComplete !== false);
 }
 
 // ---------------------------------------------------------------------------
@@ -415,7 +418,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
   // Step 2: group by canonical customer, one bounded time window + one candidate fetch per group
   // (instruction #12 steps 4-6).
   const groups = groupCasesByCustomer(segmented);
-  const candidatesByGroupKey = new Map<string, InvoiceLike[]>();
+  const candidatesByGroupKey = new Map<string, InvoiceCandidateRows>();
   for (const group of groups) {
     candidatesByGroupKey.set(group.key, await fetchCandidatesForGroup(supabaseClient, group));
   }
@@ -431,7 +434,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
   for (const group of groups) {
     for (const { conversationCase } of group.cases) groupKeyByCaseId.set(conversationCase.caseId, group.key);
   }
-  const conversationToGroupCandidates = (_conversation: BatchConversationInput, context: InvoiceCandidateQueryContext): InvoiceLike[] => {
+  const conversationToGroupCandidates = (_conversation: BatchConversationInput, context: InvoiceCandidateQueryContext): InvoiceCandidateRows => {
     const groupKey = groupKeyByCaseId.get(context.caseId);
     const groupCandidates = groupKey ? (candidatesByGroupKey.get(groupKey) ?? []) : [];
     return filterCandidatesToCaseWindow(groupCandidates, context);
@@ -467,7 +470,12 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
         resolveInvoiceCandidates: (context) => {
           const denied = deniedInvoiceIdsByCase.get(context.caseId);
           const rows = conversationToGroupCandidates(conversation, context);
-          return denied?.size ? rows.filter((row) => !denied.has(invoiceRowLookupId(row))) : rows;
+          return denied?.size
+            ? withCandidatePoolCompleteness(
+              rows.filter((row) => !denied.has(invoiceRowLookupId(row))),
+              rows.candidatePoolComplete !== false
+            )
+            : rows;
         },
         itemEvidenceProvider,
       };
