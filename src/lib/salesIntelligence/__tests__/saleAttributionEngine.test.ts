@@ -281,6 +281,37 @@ describe('Sale Attribution Engine (Sales Intelligence Phase D) — Golden Cases'
       expect(assess.isOfficialForStaffEvaluation).toBe(false);
     });
 
+    it('does not let an exact product code override conflicting canonical product ids', () => {
+      const context = baseCase({
+        customerId: 'cust-18663',
+        customerCode: '18663',
+        customerName: 'ابراهيم الخولي',
+        activeBasketItems: [{
+          productNameRaw: 'GASTROBIOTIC 550 MG 20 TAB',
+          productId: 'canonical-product-a',
+          productCode: '78994',
+          quantity: 1,
+          resolutionStatus: 'proven',
+        }],
+      });
+      const provider: InvoiceItemEvidenceProvider = {
+        getItemsForInvoice: () => [{
+          productNameRaw: 'GASTROBIOTIC 550 MG 20 TAB',
+          productId: 'canonical-product-b',
+          productCode: '78994',
+          quantity: 1,
+        }],
+      };
+      const assess = deriveSaleAttributionAssessment(context, [{
+        id: 'invoice-conflicting-product', invoice_number: '74938',
+        customer_code: '18663', customer_name: 'د ابراهيم الخولي',
+        invoice_datetime: '2026-09-15T09:05:00.000Z',
+      }], provider);
+      expect(assess.selectedCandidate?.hasUniqueCanonicalProductQuantityMatch).toBe(false);
+      expect(assess.selectedCandidate?.directInvoiceLink).toBe(false);
+      expect(assess.isOfficialForStaffEvaluation).toBe(false);
+    });
+
     it('1c. auto-link refuses to guess when two invoices pass the same hard gate', () => {
       const provider: InvoiceItemEvidenceProvider = {
         getItemsForInvoice: () => [{ productNameRaw: 'Bon Care', quantity: 1, lineTotal: 90 }],
