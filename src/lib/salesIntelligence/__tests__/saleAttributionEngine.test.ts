@@ -182,6 +182,37 @@ describe('Sale Attribution Engine (Sales Intelligence Phase D) — Golden Cases'
       }, [row], provider);
       expect(unresolvedMaster.selectedCandidate?.directInvoiceLink).toBe(false);
       expect(unresolvedMaster.attributionLevel).not.toBe('proven');
+
+      const conflictingSeller = deriveSaleAttributionAssessment({
+        ...context,
+        knownStaffIds: ['staff-shibl'],
+      }, [{
+        ...row,
+        staff_id: 'staff-other',
+      }], provider);
+      expect(conflictingSeller.selectedCandidate?.directInvoiceLink).toBe(false);
+      expect(conflictingSeller.isOfficialForStaffEvaluation).toBe(false);
+    });
+
+    it('does not auto-prove through an ambiguous operational branch marker conflict', () => {
+      const context = baseCase({
+        customerId: 'cust-18663',
+        customerCode: '18663',
+        customerName: 'ابراهيم الخولي',
+        branchNameRaw: 'المخزن',
+        branchEvidenceConflict: true,
+        activeBasketItems: [{ productNameRaw: 'GASTROBIOTIC 550 MG 20 TAB', productCode: '78994', quantity: 1, resolutionStatus: 'proven' }],
+      });
+      const provider: InvoiceItemEvidenceProvider = {
+        getItemsForInvoice: () => [{ productNameRaw: 'GASTROBIOTIC 550 MG 20 TAB', productCode: '78994', quantity: 1 }],
+      };
+      const assess = deriveSaleAttributionAssessment(context, [{
+        id: 'invoice-id', invoice_number: '74938',
+        customer_code: '18663', customer_name: 'د ابراهيم الخولي',
+        branch: 'فرع شكري', invoice_datetime: '2026-09-15T09:05:00.000Z',
+      }], provider);
+      expect(assess.selectedCandidate?.directInvoiceLink).toBe(false);
+      expect(assess.isOfficialForStaffEvaluation).toBe(false);
     });
 
     it('1b4. duplicate canonical invoice lines do not count as unique product proof', () => {
