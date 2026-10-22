@@ -766,7 +766,9 @@ describe('Sale Attribution Engine (Sales Intelligence Phase D) — Golden Cases'
         net_amount: 60,
       }]);
       expect(assess.attributionLevel).toBe('strongly_inferred');
-      expect(assess.isOfficialForStaffEvaluation).toBe(true);
+      expect(assess.isOfficialForStaffEvaluation).toBe(false);
+      expect(assess.needsHumanReview).toBe(true);
+      expect(assess.humanReviewReasons).toContain('statistical_invoice_lacks_transactional_corroboration');
     });
 
     it('36. weak evidence is never official', () => {
