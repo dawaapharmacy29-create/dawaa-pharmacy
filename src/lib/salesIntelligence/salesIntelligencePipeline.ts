@@ -770,6 +770,7 @@ function analyzeOneCase(
       invoiceBranch: attribution.selectedCandidate?.invoiceBranch ?? null,
       invoiceCandidateStrong: attribution.candidateRecommendation?.level === 'strong_candidate_requires_approval',
       attributionUsedCaseBranch: Boolean(attribution.selectedCandidate?.ruleIds.some((rule) => rule.includes('branch_exact') || rule.includes('branch_alias'))),
+      invoiceSellerIsCaseStaff: attribution.selectedCandidate?.staffMatch === 'same',
     }),
   };
   return {

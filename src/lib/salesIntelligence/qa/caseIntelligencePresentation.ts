@@ -314,7 +314,7 @@ export const candidateRecommendationLabel = (value: string | null | undefined) =
   value ? CANDIDATE_LEVEL_LABELS[value] ?? 'غير محسوم' : 'غير محسوم';
 
 const BRANCH_STRENGTH_LABELS: Record<string, string> = {
-  decided: 'مؤكد بدليل مباشر',
+  decided: 'محدد بدليل مباشر من المحادثة أو المصدر (لا يغيّر الفرع الرسمي)',
   strong_recommendation: 'ترشيح قوي يحتاج اعتمادًا',
   supporting_only: 'دليل مساند فقط',
   conflict: 'متعارض',

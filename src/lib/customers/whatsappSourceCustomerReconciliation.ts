@@ -20,7 +20,13 @@ export type SourceCustomerReconciliationStatus =
   | 'skipped_unresolved'
   | 'skipped_ambiguous'
   | 'skipped_contradicted'
-  | 'failed';
+  /** Nothing was written; the source stays unlinked and a later run retries it. */
+  | 'failed'
+  /**
+   * The link was written but its audit row was not. A later run cannot see it (it only reads
+   * unlinked sources), so this is never "retried": it is surfaced for an audited human review.
+   */
+  | 'linked_audit_missing';
 
 export interface SourceCustomerReconciliationOutcome {
   sourceId: string;
@@ -133,7 +139,7 @@ export async function reconcileWhatsAppSourceCustomers(
     } catch (auditError) {
       outcomes.push({
         ...base,
-        status: 'failed',
+        status: 'linked_audit_missing',
         customerId: identity.customerId,
         reason: `linked_without_audit:${auditError instanceof Error ? auditError.message : String(auditError)}`,
       });
@@ -148,9 +154,11 @@ export function describeSourceCustomerReconciliation(outcomes: SourceCustomerRec
   const linked = outcomes.filter((row) => row.status === 'linked').length;
   const review = outcomes.filter((row) => row.status === 'skipped_ambiguous' || row.status === 'skipped_contradicted').length;
   const failed = outcomes.filter((row) => row.status === 'failed').length;
+  const auditMissing = outcomes.filter((row) => row.status === 'linked_audit_missing').length;
   const parts = [];
   if (linked) parts.push(`تم ربط ${linked.toLocaleString('ar-EG')} محادثة واتساب سابقة بالعملاء الجدد`);
   if (review) parts.push(`${review.toLocaleString('ar-EG')} محادثة تحتاج مراجعة هوية (كود مكرر أو تعارض)`);
   if (failed) parts.push(`تعذر ربط ${failed.toLocaleString('ar-EG')} محادثة وسيُعاد المحاولة لاحقًا`);
+  if (auditMissing) parts.push(`${auditMissing.toLocaleString('ar-EG')} محادثة رُبطت دون سجل تدقيق وتحتاج مراجعة يدوية`);
   return parts.length ? `${parts.join('، ')}.` : null;
 }

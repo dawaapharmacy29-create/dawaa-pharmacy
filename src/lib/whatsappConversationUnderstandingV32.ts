@@ -18,6 +18,7 @@ import {
   isRequestCandidate,
   isThanksOrClosingOnly,
   startsIndependentCommercialNeed,
+  startsIndependentCommercialNeedDuringOpenService,
   type ConversationSemanticSignalV32,
 } from './whatsappSemanticSignalsV32';
 
@@ -153,7 +154,7 @@ function continuesOpenServiceNeed(
   gapMs: number
 ): boolean {
   if (next.role !== 'customer' || !next.isMeaningful || gapMs > OPEN_SERVICE_NEED_MAX_GAP_MS) return false;
-  return Boolean(openServiceNeed(current)) && !startsIndependentCommercialNeed(next);
+  return Boolean(openServiceNeed(current)) && !startsIndependentCommercialNeedDuringOpenService(next);
 }
 
 const ADDITIVE_REQUEST_RX =
@@ -425,7 +426,7 @@ function segmentInteractions(messages: NormalizedConversationMessageV32[]): Conv
       }
 
       const openService = Boolean(openServiceNeed(current));
-      if (openService && startsIndependentCommercialNeed(message)) {
+      if (openService && startsIndependentCommercialNeedDuringOpenService(message)) {
         // A medicine/price/availability request is its own case even minutes after a nurse request.
         flush();
         reason = 'new_commercial_need';

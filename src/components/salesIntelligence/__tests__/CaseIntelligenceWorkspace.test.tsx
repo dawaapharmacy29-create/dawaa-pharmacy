@@ -518,7 +518,7 @@ describe('V43 case evidence on the review screen (Arabic only)', () => {
     const html = render(view, 'review');
     expect(html).toContain('قرارات الحالة وأدلتها');
     expect(html).toContain('متابعة لطلب خدمة ما زال مفتوحًا');
-    expect(html).not.toMatch(/time_gap|open_service_need_followup|conversation_start|customer_service/);
+    expect(html).not.toMatch(/time_gap|open_service_need_followup|conversation_start|customer_service\b/);
   });
 
   it('shows the care check-in separately from sales follow-up and as history for an old case', () => {

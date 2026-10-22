@@ -136,13 +136,18 @@ export function deriveCaseStaffContributions(input: {
  * Case-level branch recommendation. A decided case branch (explicit resolved introduction or an
  * operating source branch) stands. Otherwise the staff home branch and the invoice branch are
  * combined only when they are independent: the invoice branch counts only for a strong invoice
- * candidate whose score did not already use the case branch. Disagreement is a conflict.
+ * candidate whose score did not already use the case branch. When the invoice's seller is the
+ * case's own doctor, its branch is the same chain of evidence as that doctor's home branch (the
+ * seller match helped select the invoice), so it supports but never confirms. Disagreement is a
+ * conflict.
  */
 export function recommendCaseBranch(input: {
   ownership: CaseOwnershipContext | null | undefined;
   invoiceBranch: string | null | undefined;
   invoiceCandidateStrong: boolean;
   attributionUsedCaseBranch: boolean;
+  /** The selected invoice's seller is the staff member of this case (staff_same). */
+  invoiceSellerIsCaseStaff?: boolean;
 }): import('./types').CaseBranchRecommendation {
   const ownership = input.ownership;
   if (!ownership) return { branch: null, strength: 'none', reasons: ['لا توجد أدلة فرع على مستوى الحالة'] };
@@ -171,6 +176,13 @@ export function recommendCaseBranch(input: {
   if (invoiceBranch) reasons.push(`فرع الفاتورة المرشحة بقوة: ${invoiceBranch}`);
   if (staffBranch && invoiceBranch && staffBranch !== invoiceBranch) {
     return { branch: null, strength: 'conflict', reasons: [...reasons, 'فرع الدكتور يخالف فرع الفاتورة؛ يحتاج مراجعة'] };
+  }
+  if (staffBranch && invoiceBranch && input.invoiceSellerIsCaseStaff) {
+    return {
+      branch: staffBranch,
+      strength: 'supporting_only',
+      reasons: [...reasons, 'بائع الفاتورة هو نفس دكتور الحالة؛ فرع الفاتورة وفرع الدكتور دليل واحد غير مستقل، ويُحسم الفرع فقط باعتماد ربط الفاتورة أو تصحيح رسمي'],
+    };
   }
   if (staffBranch && invoiceBranch) {
     return { branch: staffBranch, strength: 'strong_recommendation', reasons: [...reasons, 'دليلان مستقلان متفقان؛ يحتاج اعتمادًا قبل اعتباره فرع العملية'] };

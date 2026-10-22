@@ -118,11 +118,28 @@ function MediaContent({ message }: { message: WhatsAppParsedMessage }) {
   );
 }
 
+/**
+ * Which transcript messages belong to the selected case. The stored case message ids come from the
+ * analysed transcript; if none of them exists in the transcript shown here (an older analysis, a
+ * corrected conversation start), the case time window is used instead and `idsFallback` tells the
+ * reviewer so — never a silently empty "case only" view.
+ */
+export function caseMessageScope(
+  messages: WhatsAppParsedMessage[],
+  scope: Pick<Props, 'caseMessageIds' | 'caseStartedAt' | 'caseEndedAt'>
+): { isInCase: (message: WhatsAppParsedMessage) => boolean; idsFallback: boolean } {
+  const storedIds = scope.caseMessageIds?.length ? new Set(scope.caseMessageIds) : null;
+  const idsMatch = Boolean(storedIds && messages.some((message) => storedIds.has(message.id)));
+  return {
+    isInCase: (message) =>
+      idsMatch ? storedIds!.has(message.id) : inCaseWindow(message, scope.caseStartedAt, scope.caseEndedAt),
+    idsFallback: Boolean(storedIds) && !idsMatch,
+  };
+}
+
 export function WhatsAppConversationPanel({ messages, customerName, customerCode, customerPhone, branch, caseStartedAt, caseEndedAt, caseMessageIds }: Props) {
   const [caseOnly, setCaseOnly] = useState(false);
-  const caseIds = caseMessageIds?.length ? new Set(caseMessageIds) : null;
-  const isInCase = (message: WhatsAppParsedMessage) =>
-    caseIds ? caseIds.has(message.id) : inCaseWindow(message, caseStartedAt, caseEndedAt);
+  const { isInCase, idsFallback } = caseMessageScope(messages, { caseMessageIds, caseStartedAt, caseEndedAt });
   const visibleMessages = caseOnly ? messages.filter(isInCase) : messages;
   let previousDay = '';
   let previousDirection: WhatsAppParsedMessage['direction'] | null = null;
@@ -150,6 +167,11 @@ export function WhatsAppConversationPanel({ messages, customerName, customerCode
           onClick={() => setCaseOnly((value) => !value)}>
           {caseOnly ? 'عرض المحادثة كاملة' : 'عرض الحالة فقط'}
         </button>
+        {idsFallback ? (
+          <div className="mt-1 text-amber-300" data-testid="case-ids-fallback">
+            تعذر مطابقة رسائل الحالة المحفوظة مع نص المحادثة الحالي؛ التحديد هنا حسب وقت بداية ونهاية الحالة فقط.
+          </div>
+        ) : null}
       </div>
 
       <div

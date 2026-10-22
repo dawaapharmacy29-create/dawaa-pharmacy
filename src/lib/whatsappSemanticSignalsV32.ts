@@ -364,7 +364,6 @@ export function isRejectionOnly(text: string): boolean {
   return REJECTION_RX.test((text || '').trim());
 }
 
-/** "شكرا"/"تسلم"/"وصل"/"لا شكرا" — a closing pleasantry, not a new request. */
 // ---- Operational service needs (a nurse visit, a service follow-up) -------------------------
 // One shared definition for segmentation (whether the case is still open) and classification
 // (whether it is a service rather than a medicine sale).
@@ -374,8 +373,16 @@ export const OPERATIONAL_SERVICE_REQUEST_RX =
 const OPERATIONAL_SERVICE_CLOSURE_RX =
   /(?:الممرض|التمريض|الممرضه|الممرضة)\s*(?:وصل|جه|جت|خلص|ركب|مشي)|(?:وصل|جه)\s*(?:الممرض|التمريض)|خلاص\s*(?:مش\s*)?(?:محتاج|عايز)[^\n]{0,20}(?:الممرض|التمريض)|(?:ألغي|الغي|إلغاء|الغاء)\s*(?:الطلب|الممرض|التمريض)/iu;
 // Wording that starts an independent commercial need instead of continuing an open service need.
+// «دوا/دواء» only as a word: «دوار» (dizziness) is a symptom, not a medicine request.
 const INDEPENDENT_COMMERCIAL_NEED_RX =
-  /(?:علب(?:ة|ه|تين|ات)?|شريط|روشت[ةه]|أقراص|اقراص|حبوب|دوا[ءء]?|شراب|كبسول|امبول|أمبول|فيال|كريم|بكام|سعر|عندكم|متوفر|متاح)/iu;
+  /(?:علب(?:ة|ه|تين|ات)?|شريط|روشت[ةه]|أقراص|اقراص|حبوب|(?<!\p{L})(?:ال|و|ب)?دواء?(?!\p{L})|شراب|كبسول|امبول|أمبول|فيال|كريم|بكام|سعر|عندكم|متوفر|متاح)/iu;
+// Explicit product/price wording. Only this, not a bare «محتاج/عايز/متاح», can turn a turn that
+// talks about the nurse visit into a new commercial need.
+const EXPLICIT_PRODUCT_OR_PRICE_RX =
+  /(?:علب(?:ة|ه|تين|ات)?|شريط|روشت[ةه]|أقراص|اقراص|حبوب|(?<!\p{L})(?:ال|و|ب)?دواء?(?!\p{L})|شراب|كبسول|امبول|أمبول|فيال|كريم|بكام|سعر)/iu;
+// The turn is about the requested visit itself: the nurse, the device, the leak, the arrival.
+const SERVICE_NEED_REFERENCE_RX =
+  /(?:ممرض|تمريض|كانيولا|بيسرب|تسريب|ييجي|يجي|هيجي|جاي|يوصل|اتأخر|شوفه\s+تاني)/iu;
 
 export function isOperationalServiceRequest(message: Pick<NormalizedConversationMessageV32, 'role' | 'isMeaningful' | 'text'>): boolean {
   return message.role === 'customer' && message.isMeaningful && OPERATIONAL_SERVICE_REQUEST_RX.test(message.text || '');
@@ -392,6 +399,19 @@ export function startsIndependentCommercialNeed(message: Pick<NormalizedConversa
       INDEPENDENT_COMMERCIAL_NEED_RX.test(message.text || ''));
 }
 
+/**
+ * While a service need is open: a new commercial need only when the turn is not about that visit,
+ * or names a product/price explicitly. «محتاج حد ييجي بسرعة» or «الممرض متاح امتى؟» continue it.
+ */
+export function startsIndependentCommercialNeedDuringOpenService(
+  message: Pick<NormalizedConversationMessageV32, 'role' | 'isMeaningful' | 'text'>
+): boolean {
+  if (!startsIndependentCommercialNeed(message)) return false;
+  const text = message.text || '';
+  return !SERVICE_NEED_REFERENCE_RX.test(text) || EXPLICIT_PRODUCT_OR_PRICE_RX.test(text);
+}
+
+/** "شكرا"/"تسلم"/"وصل"/"لا شكرا" — a closing pleasantry, not a new request. */
 export function isThanksOrClosingOnly(text: string): boolean {
   const value = (text || '').trim();
   return THANKS_CLOSING_ONLY_RX.test(value) || (COURTESY_ONLY_TOKENS_RX.test(value) && THANKS_WORD_RX.test(value));

@@ -1012,7 +1012,9 @@ function isRejectionOnly(text5) {
 }
 var OPERATIONAL_SERVICE_REQUEST_RX = /(?:ممكن|لو سمحت|عايز|عاوز|محتاج|ابعت|ابعث|تبعت|تبعث|هات|حد).{0,100}(?:التمريض|مالتمريض|ممرض(?:ة)?)/iu;
 var OPERATIONAL_SERVICE_CLOSURE_RX = /(?:الممرض|التمريض|الممرضه|الممرضة)\s*(?:وصل|جه|جت|خلص|ركب|مشي)|(?:وصل|جه)\s*(?:الممرض|التمريض)|خلاص\s*(?:مش\s*)?(?:محتاج|عايز)[^\n]{0,20}(?:الممرض|التمريض)|(?:ألغي|الغي|إلغاء|الغاء)\s*(?:الطلب|الممرض|التمريض)/iu;
-var INDEPENDENT_COMMERCIAL_NEED_RX = /(?:علب(?:ة|ه|تين|ات)?|شريط|روشت[ةه]|أقراص|اقراص|حبوب|دوا[ءء]?|شراب|كبسول|امبول|أمبول|فيال|كريم|بكام|سعر|عندكم|متوفر|متاح)/iu;
+var INDEPENDENT_COMMERCIAL_NEED_RX = new RegExp("(?:\u0639\u0644\u0628(?:\u0629|\u0647|\u062A\u064A\u0646|\u0627\u062A)?|\u0634\u0631\u064A\u0637|\u0631\u0648\u0634\u062A[\u0629\u0647]|\u0623\u0642\u0631\u0627\u0635|\u0627\u0642\u0631\u0627\u0635|\u062D\u0628\u0648\u0628|(?<!\\p{L})(?:\u0627\u0644|\u0648|\u0628)?\u062F\u0648\u0627\u0621?(?!\\p{L})|\u0634\u0631\u0627\u0628|\u0643\u0628\u0633\u0648\u0644|\u0627\u0645\u0628\u0648\u0644|\u0623\u0645\u0628\u0648\u0644|\u0641\u064A\u0627\u0644|\u0643\u0631\u064A\u0645|\u0628\u0643\u0627\u0645|\u0633\u0639\u0631|\u0639\u0646\u062F\u0643\u0645|\u0645\u062A\u0648\u0641\u0631|\u0645\u062A\u0627\u062D)", "iu");
+var EXPLICIT_PRODUCT_OR_PRICE_RX = new RegExp("(?:\u0639\u0644\u0628(?:\u0629|\u0647|\u062A\u064A\u0646|\u0627\u062A)?|\u0634\u0631\u064A\u0637|\u0631\u0648\u0634\u062A[\u0629\u0647]|\u0623\u0642\u0631\u0627\u0635|\u0627\u0642\u0631\u0627\u0635|\u062D\u0628\u0648\u0628|(?<!\\p{L})(?:\u0627\u0644|\u0648|\u0628)?\u062F\u0648\u0627\u0621?(?!\\p{L})|\u0634\u0631\u0627\u0628|\u0643\u0628\u0633\u0648\u0644|\u0627\u0645\u0628\u0648\u0644|\u0623\u0645\u0628\u0648\u0644|\u0641\u064A\u0627\u0644|\u0643\u0631\u064A\u0645|\u0628\u0643\u0627\u0645|\u0633\u0639\u0631)", "iu");
+var SERVICE_NEED_REFERENCE_RX = /(?:ممرض|تمريض|كانيولا|بيسرب|تسريب|ييجي|يجي|هيجي|جاي|يوصل|اتأخر|شوفه\s+تاني)/iu;
 function isOperationalServiceRequest(message) {
   return message.role === "customer" && message.isMeaningful && OPERATIONAL_SERVICE_REQUEST_RX.test(message.text || "");
 }
@@ -1021,6 +1023,11 @@ function isOperationalServiceClosure(message) {
 }
 function startsIndependentCommercialNeed(message) {
   return message.role === "customer" && message.isMeaningful && (REQUEST_VERB_RX.test(message.text || "") && !OPERATIONAL_SERVICE_REQUEST_RX.test(message.text || "") || INDEPENDENT_COMMERCIAL_NEED_RX.test(message.text || ""));
+}
+function startsIndependentCommercialNeedDuringOpenService(message) {
+  if (!startsIndependentCommercialNeed(message)) return false;
+  const text5 = message.text || "";
+  return !SERVICE_NEED_REFERENCE_RX.test(text5) || EXPLICIT_PRODUCT_OR_PRICE_RX.test(text5);
 }
 function isThanksOrClosingOnly(text5) {
   const value = (text5 || "").trim();
@@ -1490,7 +1497,7 @@ function openServiceNeed(current) {
 }
 function continuesOpenServiceNeed(current, next, gapMs) {
   if (next.role !== "customer" || !next.isMeaningful || gapMs > OPEN_SERVICE_NEED_MAX_GAP_MS) return false;
-  return Boolean(openServiceNeed(current)) && !startsIndependentCommercialNeed(next);
+  return Boolean(openServiceNeed(current)) && !startsIndependentCommercialNeedDuringOpenService(next);
 }
 var ADDITIVE_REQUEST_RX = /(?:^|\s)(?:وكمان|كمان|وزود|زود|ضيف|معاهم|معاه|مع\s*الطلب)(?:\s|$)/i;
 var STAFF_PENDING_REPLY_RX = /لحظات|ثواني|دقيق[ةه]|اشوف|أشوف|هشوف|هراجع|هتأكد|هاتأكد|جاري\s*(?:المراجعه|المراجعة|البحث)/i;
@@ -1670,7 +1677,7 @@ function segmentInteractions(messages) {
         };
       }
       const openService = Boolean(openServiceNeed(current));
-      if (openService && startsIndependentCommercialNeed(message)) {
+      if (openService && startsIndependentCommercialNeedDuringOpenService(message)) {
         flush();
         reason = "new_commercial_need";
       } else if (!openService && isOperationalServiceRequest(message) && current.some((m) => m.role === "customer" && m.isMeaningful && startsIndependentCommercialNeed(m)) && !startsIndependentCommercialNeed(message)) {
@@ -2149,6 +2156,13 @@ function recommendCaseBranch(input) {
   if (invoiceBranch) reasons.push(`\u0641\u0631\u0639 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0627\u0644\u0645\u0631\u0634\u062D\u0629 \u0628\u0642\u0648\u0629: ${invoiceBranch}`);
   if (staffBranch && invoiceBranch && staffBranch !== invoiceBranch) {
     return { branch: null, strength: "conflict", reasons: [...reasons, "\u0641\u0631\u0639 \u0627\u0644\u062F\u0643\u062A\u0648\u0631 \u064A\u062E\u0627\u0644\u0641 \u0641\u0631\u0639 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629\u061B \u064A\u062D\u062A\u0627\u062C \u0645\u0631\u0627\u062C\u0639\u0629"] };
+  }
+  if (staffBranch && invoiceBranch && input.invoiceSellerIsCaseStaff) {
+    return {
+      branch: staffBranch,
+      strength: "supporting_only",
+      reasons: [...reasons, "\u0628\u0627\u0626\u0639 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0647\u0648 \u0646\u0641\u0633 \u062F\u0643\u062A\u0648\u0631 \u0627\u0644\u062D\u0627\u0644\u0629\u061B \u0641\u0631\u0639 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0648\u0641\u0631\u0639 \u0627\u0644\u062F\u0643\u062A\u0648\u0631 \u062F\u0644\u064A\u0644 \u0648\u0627\u062D\u062F \u063A\u064A\u0631 \u0645\u0633\u062A\u0642\u0644\u060C \u0648\u064A\u064F\u062D\u0633\u0645 \u0627\u0644\u0641\u0631\u0639 \u0641\u0642\u0637 \u0628\u0627\u0639\u062A\u0645\u0627\u062F \u0631\u0628\u0637 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0623\u0648 \u062A\u0635\u062D\u064A\u062D \u0631\u0633\u0645\u064A"]
+    };
   }
   if (staffBranch && invoiceBranch) {
     return { branch: staffBranch, strength: "strong_recommendation", reasons: [...reasons, "\u062F\u0644\u064A\u0644\u0627\u0646 \u0645\u0633\u062A\u0642\u0644\u0627\u0646 \u0645\u062A\u0641\u0642\u0627\u0646\u061B \u064A\u062D\u062A\u0627\u062C \u0627\u0639\u062A\u0645\u0627\u062F\u064B\u0627 \u0642\u0628\u0644 \u0627\u0639\u062A\u0628\u0627\u0631\u0647 \u0641\u0631\u0639 \u0627\u0644\u0639\u0645\u0644\u064A\u0629"] };
@@ -4010,12 +4024,13 @@ function scoreCandidate(input) {
     score += W.phoneMatch;
     factors.push("phone_match");
   }
+  const strongerIdentityMatched = Boolean(input.customerIdMatch || input.phoneMatch);
   if (input.customerCodeMatch) {
-    score += W.customerCodeExact;
+    if (!strongerIdentityMatched) score += W.customerCodeExact;
     factors.push("customer_code_exact");
   }
   if (input.customerNameMatch) {
-    score += W.customerNameMatch;
+    if (!strongerIdentityMatched) score += W.customerNameMatch;
     factors.push("customer_name_match");
   }
   if (input.branchMatch === "exact_canonical") {
@@ -8182,7 +8197,8 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
       ownership: conversationCase.ownership,
       invoiceBranch: attribution.selectedCandidate?.invoiceBranch ?? null,
       invoiceCandidateStrong: attribution.candidateRecommendation?.level === "strong_candidate_requires_approval",
-      attributionUsedCaseBranch: Boolean(attribution.selectedCandidate?.ruleIds.some((rule) => rule.includes("branch_exact") || rule.includes("branch_alias")))
+      attributionUsedCaseBranch: Boolean(attribution.selectedCandidate?.ruleIds.some((rule) => rule.includes("branch_exact") || rule.includes("branch_alias"))),
+      invoiceSellerIsCaseStaff: attribution.selectedCandidate?.staffMatch === "same"
     })
   };
   return {

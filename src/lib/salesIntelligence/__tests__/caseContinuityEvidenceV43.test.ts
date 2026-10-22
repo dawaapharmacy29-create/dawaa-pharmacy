@@ -12,6 +12,8 @@ import { buildSalesIntelligenceRuntimeContext, pipelineBaseInputFor, prepareSale
 import { recommendInvoiceCandidate } from '../saleAttributionEngine';
 import { careFollowUpState } from '../careFollowUpEngine';
 import { recommendCaseBranch } from '../caseOwnershipContext';
+import { buildConversationUnderstandingV32 } from '../../whatsappConversationUnderstandingV32';
+import { parseWhatsAppExport, splitWhatsAppSessions } from '../../whatsappConversationParser';
 
 // V43 acceptance on the real 38-message export shape (customer name, code and address replaced):
 // customer-service welfare check → medicine order with «د شبل» → nursing request + its chase.
@@ -75,11 +77,11 @@ function clientWithCustomer() {
   };
 }
 
-async function analyze(options: { invoices?: unknown[]; lines?: unknown[]; sourceBranch?: string } = {}) {
+async function analyze(options: { invoices?: unknown[]; lines?: unknown[]; sourceBranch?: string; knownStaffIds?: string[] } = {}) {
   const context = buildSalesIntelligenceRuntimeContext({ productIndex, staffDirectory: DIRECTORY as any });
   const [prepared] = await prepareSalesIntelligenceConversations(
     clientWithCustomer(),
-    [{ conversationId: 'case-continuity', rawWhatsAppExportText: EXPORT, customerNameHint: 'عميل تجريبي', customerCodeHint: '90001', knownStaffIds: [] } as any],
+    [{ conversationId: 'case-continuity', rawWhatsAppExportText: EXPORT, customerNameHint: 'عميل تجريبي', customerCodeHint: '90001', knownStaffIds: options.knownStaffIds ?? [] } as any],
     context
   );
   const invoices = options.invoices ?? [ORDER_INVOICE, EARLIER_INVOICE];
@@ -143,9 +145,12 @@ describe('V43 — case continuity on the 38-message export', () => {
     for (const c of cases) expect(c.conversationCase.branchNameRaw).not.toBe('المخزن');
     expect(cases[0].branchRecommendation).toMatchObject({ branch: null, strength: 'none' });
     expect(cases[1].conversationCase.branchNameRaw).toBeNull();
-    expect(cases[1].branchRecommendation).toMatchObject({ branch: 'فرع شكري', strength: 'strong_recommendation' });
+    // The invoice's seller is the case doctor, so its branch and his home branch are one chain of
+    // evidence: a supporting hint for «فرع شكري», never a confirmed or strong case branch.
+    expect(cases[1].branchRecommendation).toMatchObject({ branch: 'فرع شكري', strength: 'supporting_only' });
     expect(cases[1].branchRecommendation?.reasons.join(' ')).toMatch(/الفرع الأساسي للدكتور/);
     expect(cases[1].branchRecommendation?.reasons.join(' ')).toMatch(/فرع الفاتورة/);
+    expect(cases[1].branchRecommendation?.reasons.join(' ')).toMatch(/دليل واحد غير مستقل/);
   });
 
   it('a doctor-home vs invoice branch disagreement is a conflict, not a choice', () => {
@@ -234,5 +239,99 @@ describe('V43 — case continuity on the 38-message export', () => {
       expect(payload.doctor_points_impact).toBe(0);
       expect(payload.invoice_number).toBeNull();
     }
+  });
+});
+
+// V43 review regressions: each test pins a gap found while reviewing V43 (fixed in the same change).
+describe('V43 review — gaps closed', () => {
+  const interactionsOf = (raw: string) =>
+    buildConversationUnderstandingV32(splitWhatsAppSessions(parseWhatsAppExport(raw), 24 * 60)[0]).interactions;
+  const nurseThen = (turn: string, at = '2:50:00 AM') => [
+    '[9/28/26, 2:17:35 AM] عميل 1: لو سمحت ممكن تبعت حد مالتمريض الكانيولا اتحركت',
+    '[9/28/26, 2:20:27 AM] You: عنيا حالا هبعته لحضرتك',
+    `[9/28/26, ${at}] عميل 1: ${turn}`,
+    `[9/28/26, ${at.replace(/:00 /, ':30 ')}] You: حاضر`,
+  ].join('\n');
+
+  it('a chase of the open nurse visit stays in the nursing case even when worded as a need or an availability question', () => {
+    for (const chase of ['محتاج حد ييجي بسرعة المحلول بيسرب', 'الممرض متاح امتى؟', 'بابا عنده دوار جامد', 'عايز الممرض ييجي دلوقتي']) {
+      const interactions = interactionsOf(nurseThen(chase));
+      expect(interactions.map((i) => i.messageIds.length), chase).toEqual([4]);
+    }
+  });
+
+  it('an explicit medicine or price request during an open nurse visit is still its own case', () => {
+    for (const request of ['عايز علبة بنادول كمان', 'بكام الكانيولا؟', 'محتاج دواء للكحة']) {
+      const interactions = interactionsOf(nurseThen(request));
+      expect(interactions.map((i) => [i.segmentationReason, i.messageIds.length]), request).toEqual([['conversation_start', 2], ['new_commercial_need', 2]]);
+    }
+  });
+
+  it('after the visit is closed, or past the open-need window, a later turn is not kept as an open-need follow-up', () => {
+    const closed = [
+      '[9/28/26, 2:17:35 AM] عميل 1: لو سمحت ممكن تبعت حد مالتمريض',
+      '[9/28/26, 2:20:27 AM] You: عنيا حالا هبعته لحضرتك',
+      '[9/28/26, 3:00:00 AM] عميل 1: الممرض وصل شكرا',
+      '[9/28/26, 9:00:00 AM] عميل 1: عايز علبة بنادول',
+    ].join('\n');
+    const afterClose = interactionsOf(closed);
+    // The closing turn itself still answers the open visit; the medicine request after it does not.
+    expect(afterClose.map((i) => i.messageIds.length)).toEqual([3, 1]);
+    expect(['new_commercial_need', 'time_gap']).toContain(afterClose[1].segmentationReason);
+    const lastId = afterClose[1].messageIds[0];
+    expect(afterClose.flatMap((i) => i.continuationEvidence ?? []).some((e) => e.messageId === lastId)).toBe(false);
+
+    const late = [
+      '[9/28/26, 2:17:35 AM] عميل 1: لو سمحت ممكن تبعت حد مالتمريض',
+      '[9/28/26, 2:20:27 AM] You: عنيا حالا هبعته لحضرتك',
+      '[9/28/26, 3:00:00 PM] عميل 1: الممرض متاح امتى؟',
+    ].join('\n');
+    expect(interactionsOf(late).flatMap((i) => i.continuationEvidence ?? []).some((e) => e.reason === 'open_service_need_followup')).toBe(false);
+  });
+
+  it('customer code and name never add weight on top of a customer_id match (one identity is counted once)', async () => {
+    // Same customer linked by id on both sides, close time and the same seller, but no item lines.
+    const linked = { ...ORDER_INVOICE, customer_id: 'customer-90001' };
+    const { cases } = await analyze({ invoices: [linked, EARLIER_INVOICE], lines: [] });
+    const order = cases[1].attribution;
+    expect(order.selectedInvoiceNumber).toBe('90938');
+    expect(order.ruleIds).toEqual(expect.arrayContaining(['attribution.factor.customer_id_match', 'attribution.factor.customer_code_exact']));
+    // customer_id 0.30 + very strong time 0.15 + same seller 0.05 — the code/name are recorded, not re-weighted.
+    expect(order.selectedCandidate?.confidenceAssessment.score).toBeCloseTo(0.5, 5);
+    expect(order.attributionLevel).not.toBe('strongly_inferred');
+    expect(order.isOfficialForStaffEvaluation).toBe(false);
+    expect(cases[1].salesOutcome.isSaleCountable).toBe(false);
+  });
+
+  it('a doctor-seller invoice branch only supports the doctor home branch; independent agreement stays a recommendation', () => {
+    const ownership = { department: 'pharmacy', sourceBranchNameRaw: 'المخزن', operationalBranch: null, branchBasis: 'none', suggestedStaffBranch: 'فرع شكري', owners: [], introductionMessageIds: [], blockers: [] } as any;
+    const sameChain = recommendCaseBranch({ ownership, invoiceBranch: 'فرع شكري', invoiceCandidateStrong: true, attributionUsedCaseBranch: false, invoiceSellerIsCaseStaff: true });
+    expect(sameChain.strength).toBe('supporting_only');
+    const independent = recommendCaseBranch({ ownership, invoiceBranch: 'فرع شكري', invoiceCandidateStrong: true, attributionUsedCaseBranch: false, invoiceSellerIsCaseStaff: false });
+    expect(independent.strength).toBe('strong_recommendation');
+    expect(independent.strength).not.toBe('decided');
+    // A customer-service case never gets a sale branch, whatever the invoice says.
+    expect(recommendCaseBranch({ ownership: { ...ownership, department: 'customer_service' }, invoiceBranch: 'فرع شكري', invoiceCandidateStrong: true, attributionUsedCaseBranch: false }).branch).toBeNull();
+  });
+
+  it('a source-level staff owner (the invoice seller) never takes over the customer-service welfare case', async () => {
+    const { cases } = await analyze({ knownStaffIds: ['staff-shebl'] });
+    expect(staffIds(cases[0])).toEqual(['staff-heba']);
+    expect(cases[0].conversationCase.ownership?.contributions?.map((c) => c.staffId)).toEqual(['staff-heba']);
+    expect(staffIds(cases[1])).toEqual(['staff-shebl']);
+  });
+
+  it('matches Colona 40 (81948 × 2) and GASTROBIOTIC 550 (78994 × 1) only as candidate lines, never as a proven sale', async () => {
+    const { cases } = await analyze();
+    const order = cases[1];
+    const lines = order.attribution.selectedCandidate?.lineMatches ?? [];
+    const gastro = lines.find((l) => l.invoiceProductCode === '78994');
+    expect(gastro).toMatchObject({ invoiceQuantity: 1 });
+    // The Colona strength is not resolved from «كولونا» alone (30 vs 40 tab), so it is not matched
+    // to line 81948 by the engine; the line exists on the invoice as a fact only.
+    expect(lines.some((l) => l.invoiceProductCode === '81948')).toBe(false);
+    expect(order.attribution.attributionLevel).not.toBe('proven');
+    expect(order.salesOutcome.saleProofState).not.toBe('proven');
+    expect(order.salesOutcome.isRevenueCountable).toBe(false);
   });
 });

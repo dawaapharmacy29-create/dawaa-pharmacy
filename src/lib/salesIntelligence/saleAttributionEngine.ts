@@ -637,12 +637,16 @@ function scoreCandidate(input: ScoreInput): { score: number; disqualifiers: stri
     score += W.phoneMatch;
     factors.push('phone_match');
   }
+  // Code and name describe the SAME customer as customer_id/phone. They are recorded as factors
+  // but add weight only when no stronger identity rung matched, so one identity is never counted
+  // twice into a staff-evaluation level.
+  const strongerIdentityMatched = Boolean(input.customerIdMatch || input.phoneMatch);
   if (input.customerCodeMatch) {
-    score += W.customerCodeExact;
+    if (!strongerIdentityMatched) score += W.customerCodeExact;
     factors.push('customer_code_exact');
   }
   if (input.customerNameMatch) {
-    score += W.customerNameMatch;
+    if (!strongerIdentityMatched) score += W.customerNameMatch;
     factors.push('customer_name_match');
   }
 
