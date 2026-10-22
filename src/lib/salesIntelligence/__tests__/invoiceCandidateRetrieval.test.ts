@@ -126,3 +126,72 @@ describe('Invoice candidate retrieval', () => {
     expect(calls).toEqual([]);
   });
 });
+
+function query(overrides: Partial<InvoiceCandidateQuery> = {}): InvoiceCandidateQuery {
+  return {
+    caseId: 'case-1',
+    customerId: 'customer-1',
+    customerPhoneNormalized: null,
+    customerCodeNormalized: null,
+    customerNameRaw: null,
+    branchNameRaw: null,
+    windowStartIso: '2026-09-01T00:00:00.000Z',
+    windowEndIso: '2026-09-10T00:00:00.000Z',
+    limit: 3,
+    ...overrides,
+  };
+}
+
+function invoiceClient(rowsByIdentity: Record<string, Array<Record<string, unknown>>>) {
+  return {
+    from() {
+      const builder: any = {
+        select() { return builder; },
+        gte() { return builder; },
+        lte() { return builder; },
+        eq(column: string, value: string) {
+          builder.column = column;
+          builder.value = value;
+          return builder;
+        },
+        async limit(limit: number) {
+          const rows = rowsByIdentity[`${builder.column}:${builder.value}`] ?? [];
+          return { data: rows.slice(0, limit), error: null };
+        },
+      };
+      return builder;
+    },
+  };
+}
+
+describe('invoice candidate retrieval completeness', () => {
+  it('marks a single identity lookup at the row cap as incomplete', async () => {
+    const result = await fetchInvoiceCandidates(invoiceClient({
+      'customer_code:18663': [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
+    }), query({ customerId: null, customerCodeNormalized: '18663' }));
+
+    expect(result).toHaveLength(3);
+    expect(result.candidatePoolComplete).toBe(false);
+  });
+
+  it('marks a merged identity pool over the cap as incomplete instead of claiming uniqueness', async () => {
+    const result = await fetchInvoiceCandidates(invoiceClient({
+      'customer_code:18663': [{ id: 'a' }, { id: 'b' }],
+      'customer_id:customer-1': [{ id: 'c' }, { id: 'd' }],
+    }), query({ customerCodeNormalized: '18663' }));
+
+    expect(result).toHaveLength(3);
+    expect(result.candidatePoolComplete).toBe(false);
+  });
+
+  it('marks an under-cap deduplicated identity pool complete', async () => {
+    const shared = { id: 'same-invoice' };
+    const result = await fetchInvoiceCandidates(invoiceClient({
+      'customer_code:18663': [shared],
+      'customer_id:customer-1': [shared],
+    }), query({ customerCodeNormalized: '18663' }));
+
+    expect(result).toHaveLength(1);
+    expect(result.candidatePoolComplete).toBe(true);
+  });
+});
