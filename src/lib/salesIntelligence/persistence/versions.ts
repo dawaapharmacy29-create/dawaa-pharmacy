@@ -86,14 +86,17 @@
 // name, product code and quantity factors and adds a reviewer "strong candidate" recommendation
 // that never proves the sale. Case-level staff contributions, branch recommendation, per-item
 // evidence and a separate care check-in suggestion are part of the case view.
-export const PIPELINE_VERSION = 'sales-intelligence-v43-case-continuity-evidence';
+// v44: invoice proof requires a complete candidate pool; hitting the bounded retrieval cap keeps
+// the result review-only. Automatic proof also rejects seller/staff contradictions and treats the
+// warehouse source marker as absence of transaction-branch evidence, not as a branch mismatch.
+export const PIPELINE_VERSION = 'sales-intelligence-v44-complete-invoice-proof';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v13-open-service-need-continuity',
   historicalClosure: 'historical-closure-v1',
   commercialConfirmation: 'commercial-confirmation-v6-compact-total-interstitial-ack-safe',
   protocolApplicability: 'protocol-applicability-v1',
-  attribution: 'attribution-v10-explained-code-product-factors',
+  attribution: 'attribution-v11-complete-pool-staff-branch-gates',
   matching: 'matching-v3-unresolved-product-evidence-safe',
   policyEvaluation: 'policy-evaluation-v1',
 } as const;
