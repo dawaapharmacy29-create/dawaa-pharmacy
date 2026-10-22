@@ -79,7 +79,7 @@ describe('Sale Attribution Engine (Sales Intelligence Phase D) — Golden Cases'
       const provider: InvoiceItemEvidenceProvider = {
         getItemsForInvoice: (invoiceId) =>
           invoiceId === 'inv-auto'
-            ? [{ productNameRaw: 'Bon Care', quantity: 2, lineTotal: 180 }]
+            ? [{ productNameRaw: 'Bon Care', productCode: 'BON-1', quantity: 2, lineTotal: 180 }]
             : 'unavailable',
       };
       const ctx = baseCase({
@@ -89,7 +89,7 @@ describe('Sale Attribution Engine (Sales Intelligence Phase D) — Golden Cases'
         branchNameRaw: 'فرع شكري',
         caseStartedAt: '2026-09-28T03:51:56.000Z',
         caseEndedAt: '2026-09-28T03:58:45.000Z',
-        activeBasketItems: [{ productNameRaw: 'Bon Care', quantity: 2, resolutionStatus: 'proven' }],
+        activeBasketItems: [{ productNameRaw: 'Bon Care', productCode: 'BON-1', quantity: 2, resolutionStatus: 'proven' }],
       });
       const assess = deriveSaleAttributionAssessment(ctx, [{
         id: 'inv-auto',
@@ -116,10 +116,10 @@ describe('Sale Attribution Engine (Sales Intelligence Phase D) — Golden Cases'
         customerCode: '18663',
         customerName: 'ابراهيم الخولي',
         branchNameRaw: 'فرع شكري',
-        activeBasketItems: [{ productNameRaw: 'GASTROBIOTIC 550 MG 20 TAB', quantity: 1, resolutionStatus: 'proven' }],
+        activeBasketItems: [{ productNameRaw: 'GASTROBIOTIC 550 MG 20 TAB', productCode: '78994', quantity: 1, resolutionStatus: 'partially_proven' }],
       });
       const provider: InvoiceItemEvidenceProvider = {
-        getItemsForInvoice: () => [{ productNameRaw: 'GASTROBIOTIC 550 MG 20 TAB', quantity: 1 }],
+        getItemsForInvoice: () => [{ productNameRaw: 'GASTROBIOTIC 550 MG 20 TAB', productCode: '78994', quantity: 1 }],
       };
       for (const customerName of ['د ابراهيم الخولي', 'د/ ابراهيم الخولي', 'الدكتور ابراهيم الخولي']) {
         const assess = deriveSaleAttributionAssessment(ctx, [{
@@ -132,34 +132,78 @@ describe('Sale Attribution Engine (Sales Intelligence Phase D) — Golden Cases'
       }
     });
 
-    it('1b3. honorific normalization never overrides a different customer, non-operating source branch or incomplete basket', () => {
+    it('1b3. a non-operating source label and a separate unresolved item do not veto a unique exact transaction line', () => {
       const context = baseCase({
         customerId: 'cust-18663',
         customerCode: '18663',
         customerName: 'ابراهيم الخولي',
         branchNameRaw: 'المخزن',
-        activeBasketItems: [{ productNameRaw: 'GASTROBIOTIC 550 MG 20 TAB', quantity: 1, resolutionStatus: 'proven' }],
+        activeBasketItems: [
+          { productNameRaw: 'GASTROBIOTIC 550 MG 20 TAB', productCode: '78994', quantity: 1, resolutionStatus: 'partially_proven' },
+          { productNameRaw: 'كولونا', quantity: 2, resolutionStatus: 'unknown' },
+        ],
       });
       const provider: InvoiceItemEvidenceProvider = {
-        getItemsForInvoice: () => [{ productNameRaw: 'GASTROBIOTIC 550 MG 20 TAB', quantity: 1 }],
+        getItemsForInvoice: () => [
+          { productNameRaw: 'GASTROBIOTIC 550 MG 20 TAB', productCode: '78994', quantity: 1 },
+          { productNameRaw: 'colona 40 tab', productCode: '81948', quantity: 2 },
+          { productNameRaw: 'invoice-only line', productCode: 'EXTRA-1', quantity: 1 },
+        ],
       };
       const row = {
-        id: 'inv-74938', invoice_number: '74938', customer_id: 'cust-18663',
+        id: 'inv-74938', invoice_number: '74938', customer_id: null,
         customer_code: '18663', customer_name: 'د ابراهيم الخولي',
         branch: 'فرع شكري', invoice_datetime: '2026-09-15T09:05:00.000Z',
       };
-      const branchConflict = deriveSaleAttributionAssessment(context, [row], provider);
-      expect(branchConflict.attributionLevel).not.toBe('proven');
-      expect(branchConflict.isOfficialForStaffEvaluation).toBe(false);
-      const wrongName = deriveSaleAttributionAssessment({ ...context, branchNameRaw: 'فرع شكري' }, [
-        { ...row, customer_name: 'د ابراهيم الصياد' },
-      ], provider);
-      expect(wrongName.attributionLevel).not.toBe('proven');
-      const missingItem = deriveSaleAttributionAssessment({
-        ...context, branchNameRaw: 'فرع شكري',
-        activeBasketItems: [...context.activeBasketItems, { productNameRaw: 'Colona', quantity: 2, resolutionStatus: 'unknown' }],
+      const linked = deriveSaleAttributionAssessment(context, [row], provider);
+      expect(linked.selectedInvoiceId).toBe('inv-74938');
+      expect(linked.selectedCandidate?.directInvoiceLink).toBe(true);
+      expect(linked.attributionLevel).toBe('proven');
+      expect(linked.isOfficialForStaffEvaluation).toBe(true);
+      expect(linked.selectedCandidate?.branchMatch).toBe('unknown');
+      expect(linked.selectedCandidate?.productCoverage).toBe('partial');
+      expect(linked.selectedCandidate?.hasUniqueCanonicalProductQuantityMatch).toBe(true);
+      expect(linked.selectedCandidate?.lineMatches?.some((line) => line.invoiceProductCode === 'EXTRA-1')).toBe(false);
+
+      const wrongName = deriveSaleAttributionAssessment(context, [{
+        ...row, customer_name: 'د ابراهيم الصياد',
+      }], provider);
+      expect(wrongName.selectedCandidate?.directInvoiceLink).toBe(false);
+      expect(wrongName.isOfficialForStaffEvaluation).toBe(false);
+
+      const wrongCanonicalId = deriveSaleAttributionAssessment(context, [{
+        ...row, customer_id: 'different-customer-id',
+      }], provider);
+      expect(wrongCanonicalId.isOfficialForStaffEvaluation).toBe(false);
+      expect(wrongCanonicalId.humanReviewReasons).toContain('customer_identity_conflict');
+
+      const unresolvedMaster = deriveSaleAttributionAssessment({
+        ...context, customerId: null,
       }, [row], provider);
-      expect(missingItem.attributionLevel).not.toBe('proven');
+      expect(unresolvedMaster.selectedCandidate?.directInvoiceLink).toBe(false);
+      expect(unresolvedMaster.attributionLevel).not.toBe('proven');
+    });
+
+    it('1b4. duplicate canonical invoice lines do not count as unique product proof', () => {
+      const context = baseCase({
+        customerId: 'cust-18663',
+        customerCode: '18663',
+        customerName: 'ابراهيم الخولي',
+        activeBasketItems: [{ productNameRaw: 'GASTROBIOTIC 550 MG 20 TAB', productCode: '78994', quantity: 1, resolutionStatus: 'proven' }],
+      });
+      const provider: InvoiceItemEvidenceProvider = {
+        getItemsForInvoice: () => [
+          { productNameRaw: 'GASTROBIOTIC 550 MG 20 TAB', productCode: '78994', quantity: 1 },
+          { productNameRaw: 'GASTROBIOTIC 550 MG 20 TAB', productCode: '78994', quantity: 1 },
+        ],
+      };
+      const assess = deriveSaleAttributionAssessment(context, [{
+        id: 'duplicate-lines', invoice_number: '74938', customer_code: '18663',
+        customer_name: 'د ابراهيم الخولي', invoice_datetime: '2026-09-15T09:05:00.000Z',
+      }], provider);
+      expect(assess.selectedCandidate?.hasUniqueCanonicalProductQuantityMatch).toBe(false);
+      expect(assess.selectedCandidate?.directInvoiceLink).toBe(false);
+      expect(assess.isOfficialForStaffEvaluation).toBe(false);
     });
 
     it('1c. auto-link refuses to guess when two invoices pass the same hard gate', () => {
