@@ -340,7 +340,13 @@ var CANDIDATE_RETRIEVAL_TIME_WINDOW = {
 };
 var CANDIDATE_RETRIEVAL_MAX_ROWS = 200;
 function withCandidatePoolCompleteness(rows, complete) {
-  return Object.assign(rows, { candidatePoolComplete: complete });
+  Object.defineProperty(rows, "candidatePoolComplete", {
+    value: complete,
+    configurable: true,
+    writable: true,
+    enumerable: false
+  });
+  return rows;
 }
 function buildInvoiceCandidateQuery(context) {
   const startMs = new Date(context.caseStartedAt).getTime();
