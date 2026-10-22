@@ -164,6 +164,25 @@ describe('case-local service/pharmacy ownership', () => {
     expect(order.salesOutcome.saleProofState).not.toBe('proven');
   });
 
+  it('uses a proven linked invoice to decide transaction branch without rewriting warehouse source provenance', async () => {
+    const { base } = await analyze();
+    const result = runSalesIntelligencePipeline({
+      ...base,
+      customerIdHint: 'customer-1',
+      customerIdentityStatus: 'resolved',
+      trustedInvoiceId: 'invoice-1',
+      resolveInvoiceCandidates: () => [{
+        id: 'invoice-1', invoice_number: '74938', customer_id: 'customer-1',
+        branch: 'فرع شكري', staff_id: 'doctor', invoice_datetime: '2026-10-20T07:04:30Z',
+      }],
+    });
+    const order = result.caseAnalyses.find((a) => a.conversationCase.ownership?.department === 'pharmacy')!;
+    expect(order.attribution.attributionLevel).toBe('proven');
+    expect(order.branchRecommendation).toMatchObject({ branch: 'فرع شكري', strength: 'decided' });
+    expect(order.conversationCase.branchNameRaw).toBeNull();
+    expect(order.conversationCase.ownership?.sourceBranchNameRaw).toBe('المخزن');
+  });
+
   it('uses identical case ownership and identities in candidate pre-pass and real pipeline', async () => {
     const { base, result } = await analyze();
     const prepass = deriveCasesOnly(segmentationInputFromPipelineInput(base));
