@@ -4001,7 +4001,12 @@ function hasUniqueCanonicalProductQuantityMatchForInvoice(ctx, row, provider) {
     }
     if (matches.length === 0 && cleanText2(basketItem.productCode)) {
       const code = cleanText2(basketItem.productCode).toLowerCase();
-      matches = sellableItems.filter((item) => cleanText2(item.productCode).toLowerCase() === code);
+      const codeMatches = sellableItems.filter((item) => cleanText2(item.productCode).toLowerCase() === code);
+      if (basketItem.productId && codeMatches.some((item) => item.productId && String(item.productId) !== String(basketItem.productId))) {
+        hasKnownQuantityConflict = true;
+        continue;
+      }
+      matches = codeMatches;
       if (matches.length > 1) continue;
     }
     if (matches.length !== 1) continue;
