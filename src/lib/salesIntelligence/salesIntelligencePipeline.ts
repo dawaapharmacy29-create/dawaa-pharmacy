@@ -49,7 +49,7 @@ import {
   type PharmacyProductIndex,
 } from './pharmacyProducts/pharmacyProductResolverV2';
 import type { InvoiceLike } from '../invoices/invoiceCore';
-import type { InvoiceCandidateQueryContext } from './invoiceCandidateRetrieval';
+import type { InvoiceCandidateQueryContext, InvoiceCandidateRows } from './invoiceCandidateRetrieval';
 import type {
   CaseBasketItem,
   ConversationCase,
@@ -105,7 +105,7 @@ export interface SalesIntelligencePipelineInput {
    * typically pre-fetches via buildInvoiceCandidateQuery()/fetchInvoiceCandidates()
    * (invoiceCandidateRetrieval.ts) before invoking this pipeline.
    */
-  resolveInvoiceCandidates: (context: InvoiceCandidateQueryContext) => InvoiceLike[];
+  resolveInvoiceCandidates: (context: InvoiceCandidateQueryContext) => InvoiceCandidateRows;
   itemEvidenceProvider?: InvoiceItemEvidenceProvider;
   /** Optional canonical pharmacy catalog index. Used only to enrich basket item identity. */
   productIndex?: PharmacyProductIndex;
@@ -401,6 +401,7 @@ function analyzeOneCase(
     caseEndedAt: conversationCase.endedAt,
   };
   const invoiceCandidates = input.resolveInvoiceCandidates(candidateContext);
+  const invoiceCandidatePoolComplete = invoiceCandidates.candidatePoolComplete !== false;
 
   const attributionCtx: CaseAttributionContext = {
     caseId: conversationCase.caseId,
@@ -426,6 +427,7 @@ function analyzeOneCase(
     })),
     knownStaffIds: caseKnownStaffIds,
     resolveInvoiceStaffIdByName: input.resolveInvoiceStaffIdByName,
+    invoiceCandidatePoolComplete,
     legacyMatchedInvoiceId: input.legacyMatchedInvoiceId ?? null,
     legacyMatchedInvoiceNumber: input.legacyMatchedInvoiceNumber ?? null,
     trustedInvoiceId: input.trustedInvoiceId ?? null,
