@@ -8,11 +8,11 @@ returns boolean language sql stable security definer set search_path to 'public'
  ), window_bounds as (
    select case when shift_start is not null and shift_end is not null
                   and not coalesce(is_off,false) and not coalesce(is_day_off,false)
-         then (p_date::timestamp+shift_start) at time zone 'Africa/Cairo' - interval '4 hours'
+         then (p_date+shift_start) at time zone 'Africa/Cairo' - interval '4 hours'
          else ((p_date-1)::timestamp at time zone 'Africa/Cairo') end as lower_bound,
           case when shift_start is not null and shift_end is not null
                   and not coalesce(is_off,false) and not coalesce(is_day_off,false)
-         then ((p_date+case when shift_end<=shift_start then 1 else 0 end)::timestamp+shift_end)
+         then ((p_date+case when shift_end<=shift_start then 1 else 0 end)+shift_end)
                     at time zone 'Africa/Cairo' + interval '6 hours'
          else ((p_date+2)::timestamp at time zone 'Africa/Cairo') end as upper_bound
    from (select 1) seed left join sch on true
@@ -39,7 +39,7 @@ returns boolean language sql stable security definer set search_path to 'public'
  ), bounds as (
  select case when shift_start is not null and shift_end is not null
                    and not coalesce(is_off,false) and not coalesce(is_day_off,false)
-     then (((p_date+case when shift_end<=shift_start then 1 else 0 end)::timestamp+shift_end)
+     then (((p_date+case when shift_end<=shift_start then 1 else 0 end)+shift_end)
              at time zone 'Africa/Cairo')+interval '6 hours'
      else (((p_date+2)::timestamp) at time zone 'Africa/Cairo') end as required_until
  from (select 1) seed left join sch on true
