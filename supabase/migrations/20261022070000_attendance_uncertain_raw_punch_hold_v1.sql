@@ -14,6 +14,7 @@ returns boolean language sql stable security definer set search_path to 'public'
       and (
         d.biometric_log_id is null
         or coalesce(d.decision,'review')<>'accepted'
+        or coalesce(d.confidence,0)<0.75
         or coalesce(d.reason,'')='no_matching_schedule_fallback_to_raw'
       )
   );
