@@ -145,6 +145,8 @@ export function recommendCaseBranch(input: {
   ownership: CaseOwnershipContext | null | undefined;
   invoiceBranch: string | null | undefined;
   invoiceCandidateStrong: boolean;
+  /** The invoice has a proven direct link to this exact case; its branch is transaction evidence. */
+  invoiceAttributionProven?: boolean;
   attributionUsedCaseBranch: boolean;
   /** The selected invoice's seller is the staff member of this case (staff_same). */
   invoiceSellerIsCaseStaff?: boolean;
@@ -154,8 +156,18 @@ export function recommendCaseBranch(input: {
   if (ownership.department === 'customer_service') {
     return { branch: null, strength: 'none', reasons: ['حالة خدمة عملاء؛ لا تُنسب لفرع بيع'] };
   }
+  const provenInvoiceBranch = input.invoiceAttributionProven && isOperatingBranch(input.invoiceBranch)
+    ? normalizeBranchName(input.invoiceBranch)
+    : null;
   if (ownership.branchBasis === 'conflict') {
     return { branch: null, strength: 'conflict', reasons: ['تعارض بين تعريف الموظف وفرع المصدر'] };
+  }
+  if (provenInvoiceBranch && ownership.operationalBranch && provenInvoiceBranch !== ownership.operationalBranch) {
+    return {
+      branch: null,
+      strength: 'conflict',
+      reasons: [`فرع الفاتورة المرتبطة مباشرة (${provenInvoiceBranch}) يخالف فرع الحالة الصريح (${ownership.operationalBranch})؛ يلزم تصحيح بشري`],
+    };
   }
   if (ownership.operationalBranch) {
     return {
@@ -164,8 +176,18 @@ export function recommendCaseBranch(input: {
       reasons: [ownership.branchBasis === 'explicit_introduction' ? 'فرع صريح في تعريف دكتور محسوم الهوية' : 'فرع المصدر فرع تشغيل معتمد'],
     };
   }
+  // Once the invoice-to-case link is proven, the invoice's branch establishes the transaction
+  // branch even when the invoice seller is the same doctor whose home branch is correlated.
+  // This is a case recommendation only; it never rewrites the source's historical branch.
+  if (provenInvoiceBranch) {
+    return {
+      branch: provenInvoiceBranch,
+      strength: 'decided',
+      reasons: ['فرع فاتورة مرتبطة ومثبتة لهذه الحالة؛ يحدد فرع العملية دون تعديل فرع المصدر'],
+    };
+  }
   const staffBranch = ownership.suggestedStaffBranch;
-  const invoiceBranch = input.invoiceCandidateStrong && !input.attributionUsedCaseBranch && isOperatingBranch(input.invoiceBranch)
+  const candidateInvoiceBranch = input.invoiceCandidateStrong && !input.attributionUsedCaseBranch && isOperatingBranch(input.invoiceBranch)
     ? normalizeBranchName(input.invoiceBranch)
     : null;
   const reasons: string[] = [];
@@ -173,22 +195,22 @@ export function recommendCaseBranch(input: {
     reasons.push(`فرع المصدر المسجل (${ownership.sourceBranchNameRaw}) ليس فرع تشغيل`);
   }
   if (staffBranch) reasons.push(`الفرع الأساسي للدكتور المسؤول: ${staffBranch}`);
-  if (invoiceBranch) reasons.push(`فرع الفاتورة المرشحة بقوة: ${invoiceBranch}`);
-  if (staffBranch && invoiceBranch && staffBranch !== invoiceBranch) {
+  if (candidateInvoiceBranch) reasons.push(`فرع الفاتورة المرشحة بقوة: ${candidateInvoiceBranch}`);
+  if (staffBranch && candidateInvoiceBranch && staffBranch !== candidateInvoiceBranch) {
     return { branch: null, strength: 'conflict', reasons: [...reasons, 'فرع الدكتور يخالف فرع الفاتورة؛ يحتاج مراجعة'] };
   }
-  if (staffBranch && invoiceBranch && input.invoiceSellerIsCaseStaff) {
+  if (staffBranch && candidateInvoiceBranch && input.invoiceSellerIsCaseStaff) {
     return {
       branch: staffBranch,
       strength: 'supporting_only',
       reasons: [...reasons, 'بائع الفاتورة هو نفس دكتور الحالة؛ فرع الفاتورة وفرع الدكتور دليل واحد غير مستقل، ويُحسم الفرع فقط باعتماد ربط الفاتورة أو تصحيح رسمي'],
     };
   }
-  if (staffBranch && invoiceBranch) {
+  if (staffBranch && candidateInvoiceBranch) {
     return { branch: staffBranch, strength: 'strong_recommendation', reasons: [...reasons, 'دليلان مستقلان متفقان؛ يحتاج اعتمادًا قبل اعتباره فرع العملية'] };
   }
-  if (staffBranch || invoiceBranch) {
-    return { branch: staffBranch ?? invoiceBranch, strength: 'supporting_only', reasons: [...reasons, 'دليل واحد فقط؛ غير كافٍ لحسم الفرع'] };
+  if (staffBranch || candidateInvoiceBranch) {
+    return { branch: staffBranch ?? candidateInvoiceBranch, strength: 'supporting_only', reasons: [...reasons, 'دليل واحد فقط؛ غير كافٍ لحسم الفرع'] };
   }
   return { branch: null, strength: 'none', reasons: reasons.length ? reasons : ['لا توجد أدلة فرع كافية'] };
 }
