@@ -28,6 +28,16 @@ export const CANDIDATE_RETRIEVAL_TIME_WINDOW = {
 /** A hard ceiling — this boundary must never return an unbounded result set. */
 export const CANDIDATE_RETRIEVAL_MAX_ROWS = 200;
 
+/** Invoice rows plus whether every identity lookup was proven to be below the retrieval cap. */
+export type InvoiceCandidateRows = InvoiceLike[] & { candidatePoolComplete?: boolean };
+
+export function withCandidatePoolCompleteness(
+  rows: InvoiceLike[],
+  complete: boolean
+): InvoiceCandidateRows {
+  return Object.assign(rows, { candidatePoolComplete: complete });
+}
+
 /**
  * Everything this boundary needs about ONE case to build a conservative query. Deliberately takes
  * the case's own SEGMENTED `startedAt`/`endedAt` (ConversationCase, Phase B) — never a coarse
@@ -106,8 +116,10 @@ export function buildInvoiceCandidateQuery(context: InvoiceCandidateQueryContext
 // narrows nothing useful across a raw `sales_invoices` table with no generated TS schema — see
 // InvoiceLike's own module comment in invoiceCore.ts). Injected so callers reuse the app's single
 // existing `@/lib/supabase` client instance and this boundary stays trivially fakeable in tests.
-export async function fetchInvoiceCandidates(supabaseClient: any, query: InvoiceCandidateQuery): Promise<InvoiceLike[]> {
-  if (!query.customerCodeNormalized && !query.customerId && !query.customerPhoneNormalized) return [];
+export async function fetchInvoiceCandidates(supabaseClient: any, query: InvoiceCandidateQuery): Promise<InvoiceCandidateRows> {
+  if (!query.customerCodeNormalized && !query.customerId && !query.customerPhoneNormalized) {
+    return withCandidatePoolCompleteness([], true);
+  }
 
   // Keep each identity lookup index-friendly. A single PostgREST OR across customer_phone and
   // whatsapp_phone has repeatedly hit PostgreSQL statement_timeout on the production invoice
@@ -145,7 +157,9 @@ export async function fetchInvoiceCandidates(supabaseClient: any, query: Invoice
 
   // Identity priority only matters in the pathological case where the merged candidate pool
   // exceeds the global hard cap: customer_id first, then customer_phone, then whatsapp_phone.
+  let lookupSaturated = false;
   for (const rows of resultSets) {
+    if (rows.length >= query.limit) lookupSaturated = true;
     for (const row of rows) {
       const record = row as Record<string, unknown>;
       const rawId = String(record.id ?? '').trim();
@@ -157,9 +171,10 @@ export async function fetchInvoiceCandidates(supabaseClient: any, query: Invoice
         || `fallback:${fallbackIndex++}`;
 
       if (!merged.has(stableKey)) merged.set(stableKey, row);
-      if (merged.size >= query.limit) return Array.from(merged.values());
     }
   }
 
-  return Array.from(merged.values());
+  const allUniqueRows = Array.from(merged.values());
+  const complete = !lookupSaturated && allUniqueRows.length <= query.limit;
+  return withCandidatePoolCompleteness(allUniqueRows.slice(0, query.limit), complete);
 }
