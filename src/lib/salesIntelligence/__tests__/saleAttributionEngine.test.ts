@@ -192,6 +192,17 @@ describe('Sale Attribution Engine (Sales Intelligence Phase D) — Golden Cases'
       }], provider);
       expect(conflictingSeller.selectedCandidate?.directInvoiceLink).toBe(false);
       expect(conflictingSeller.isOfficialForStaffEvaluation).toBe(false);
+
+      const matchingSeller = deriveSaleAttributionAssessment({
+        ...context,
+        knownStaffIds: ['staff-shibl'],
+        resolveInvoiceStaffIdByName: (name) => name === 'د محمد شبل' ? 'staff-shibl' : null,
+      }, [{
+        ...row,
+        staff_name: 'د محمد شبل',
+      }], provider);
+      expect(matchingSeller.selectedCandidate?.directInvoiceLink).toBe(true);
+      expect(matchingSeller.attributionLevel).toBe('proven');
     });
 
     it('does not auto-prove through an ambiguous operational branch marker conflict', () => {
