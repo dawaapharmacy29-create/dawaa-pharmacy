@@ -3862,9 +3862,10 @@ function classifyIdentity(ctx, row) {
 function classifyBranch(ctx, row) {
   if (ctx.branchEvidenceConflict) return "mismatch";
   const caseRawText = cleanText2(ctx.branchNameRaw);
-  const caseNormalized = isOperatingBranch(caseRawText) ? normalizeBranchName(caseRawText) : null;
+  const warehouseLabel = normalizeBranchName("\u0627\u0644\u0645\u062E\u0632\u0646");
+  const caseNormalized = caseRawText && normalizeBranchName(caseRawText) !== warehouseLabel ? normalizeBranchName(caseRawText) : null;
   const invoiceRawText = cleanText2(firstValue2(row, ["branch_name", "branch"]));
-  const invoiceNormalized = isOperatingBranch(invoiceRawText) ? normalizeBranchName(invoiceRawText) : null;
+  const invoiceNormalized = invoiceRawText && normalizeBranchName(invoiceRawText) !== warehouseLabel ? normalizeBranchName(invoiceRawText) : null;
   if (!caseNormalized || !invoiceNormalized || caseNormalized === UNKNOWN_BRANCH_LABEL || invoiceNormalized === UNKNOWN_BRANCH_LABEL) {
     return "unknown";
   }
@@ -4013,6 +4014,9 @@ function qualifiesForAutomaticInvoiceLink(ctx, row, provider) {
   if (!caseName || !invoiceName || caseName !== invoiceName) return false;
   const invoiceCustomerId = getInvoiceCustomerId(row);
   if (invoiceCustomerId && invoiceCustomerId !== ctx.customerId) return false;
+  const invoiceStaffId = getInvoiceStaffId(row, ctx.resolveInvoiceStaffIdByName);
+  const caseStaffIds = [...new Set(ctx.knownStaffIds.filter(Boolean))];
+  if (invoiceStaffId && caseStaffIds.length > 0 && !caseStaffIds.includes(invoiceStaffId)) return false;
   const branchMatch = classifyBranch(ctx, row);
   if (branchMatch === "mismatch") return false;
   const time2 = classifyTime(ctx, row);
