@@ -35,7 +35,13 @@ export function withCandidatePoolCompleteness(
   rows: InvoiceLike[],
   complete: boolean
 ): InvoiceCandidateRows {
-  return Object.assign(rows, { candidatePoolComplete: complete });
+  Object.defineProperty(rows, 'candidatePoolComplete', {
+    value: complete,
+    configurable: true,
+    writable: true,
+    enumerable: false,
+  });
+  return rows as InvoiceCandidateRows;
 }
 
 /**
