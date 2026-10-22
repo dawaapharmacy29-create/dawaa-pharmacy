@@ -3861,9 +3861,10 @@ function classifyIdentity(ctx, row) {
 }
 function classifyBranch(ctx, row) {
   if (ctx.branchEvidenceConflict) return "mismatch";
-  const caseNormalized = ctx.branchNameRaw ? normalizeBranchName(ctx.branchNameRaw) : null;
+  const caseRawText = cleanText2(ctx.branchNameRaw);
+  const caseNormalized = isOperatingBranch(caseRawText) ? normalizeBranchName(caseRawText) : null;
   const invoiceRawText = cleanText2(firstValue2(row, ["branch_name", "branch"]));
-  const invoiceNormalized = invoiceRawText ? normalizeBranchName(invoiceRawText) : null;
+  const invoiceNormalized = isOperatingBranch(invoiceRawText) ? normalizeBranchName(invoiceRawText) : null;
   if (!caseNormalized || !invoiceNormalized || caseNormalized === UNKNOWN_BRANCH_LABEL || invoiceNormalized === UNKNOWN_BRANCH_LABEL) {
     return "unknown";
   }
@@ -3955,7 +3956,8 @@ function classifyProductEvidence(ctx, row, provider) {
     );
     quantityMatch = allQuantitiesAgree ? "available_match" : "available_mismatch";
   }
-  const productCoverage = matchedPairs.length === 0 ? "none" : matchedPairs.length === resolvableBasketItems.length ? "full" : "partial";
+  const unresolvedBasketItems = ctx.activeBasketItems.length - resolvableBasketItems.length;
+  const productCoverage = matchedPairs.length === 0 ? "none" : matchedPairs.length === resolvableBasketItems.length && unresolvedBasketItems === 0 ? "full" : "partial";
   const lineMatches = matchedPairs.map(({ basketItem, invoiceItem, matchedBy }) => ({
     basketProductNameRaw: basketItem.productNameRaw,
     invoiceProductNameRaw: invoiceItem.productNameRaw,
@@ -3974,8 +3976,35 @@ function classifyLegacyMatch(ctx, row) {
   if (ctx.legacyMatchedInvoiceNumber && invoiceNumber2 && ctx.legacyMatchedInvoiceNumber === invoiceNumber2) return true;
   return false;
 }
+function hasUniqueCanonicalProductQuantityMatchForInvoice(ctx, row, provider) {
+  const invoiceItems = provider.getItemsForInvoice(getInvoiceRowId(row), getInvoiceRowNumber(row));
+  if (invoiceItems === "unavailable") return false;
+  const sellableItems = invoiceItems.filter((item) => item.quantity != null && Number(item.quantity) > 0);
+  let hasQuantityConfirmedMatch = false;
+  let hasKnownQuantityConflict = false;
+  for (const basketItem of ctx.activeBasketItems) {
+    if (basketItem.resolutionStatus === "unknown" || basketItem.resolutionStatus === "contradicted") continue;
+    if (basketItem.quantity == null || !basketItem.productId && !cleanText2(basketItem.productCode)) continue;
+    let matches = [];
+    if (basketItem.productId) {
+      matches = sellableItems.filter((item) => item.productId && String(item.productId) === String(basketItem.productId));
+      if (matches.length > 1) continue;
+    }
+    if (matches.length === 0 && cleanText2(basketItem.productCode)) {
+      const code = cleanText2(basketItem.productCode).toLowerCase();
+      matches = sellableItems.filter((item) => cleanText2(item.productCode).toLowerCase() === code);
+      if (matches.length > 1) continue;
+    }
+    if (matches.length !== 1) continue;
+    const invoiceQuantity = Number(matches[0].quantity);
+    if (!Number.isFinite(invoiceQuantity)) continue;
+    if (Number(basketItem.quantity) === invoiceQuantity) hasQuantityConfirmedMatch = true;
+    else hasKnownQuantityConflict = true;
+  }
+  return hasQuantityConfirmedMatch && !hasKnownQuantityConflict;
+}
 function qualifiesForAutomaticInvoiceLink(ctx, row, provider) {
-  if (ctx.branchEvidenceConflict) return false;
+  if (!ctx.customerId) return false;
   const caseCode = normalizeDawaaCustomerCode(ctx.customerCode);
   const invoiceCode = getInvoiceCustomerCode(row);
   if (!caseCode || !invoiceCode || caseCode !== invoiceCode) return false;
@@ -3983,21 +4012,20 @@ function qualifiesForAutomaticInvoiceLink(ctx, row, provider) {
   const invoiceName = normalizeCustomerNameForInvoiceMatch(getInvoiceCustomerName(row));
   if (!caseName || !invoiceName || caseName !== invoiceName) return false;
   const invoiceCustomerId = getInvoiceCustomerId(row);
-  if (ctx.customerId && invoiceCustomerId && ctx.customerId !== invoiceCustomerId) return false;
-  if (classifyBranch(ctx, row) === "mismatch") return false;
+  if (invoiceCustomerId && invoiceCustomerId !== ctx.customerId) return false;
+  const branchMatch = classifyBranch(ctx, row);
+  if (branchMatch === "mismatch") return false;
   const time2 = classifyTime(ctx, row);
   if (time2.temporalInversion) return false;
   const exactTransactionalIdentity = Boolean(
-    ctx.customerId && invoiceCustomerId === ctx.customerId && (classifyBranch(ctx, row) === "exact_canonical" || classifyBranch(ctx, row) === "normalized_alias_match")
+    invoiceCustomerId === ctx.customerId && (branchMatch === "exact_canonical" || branchMatch === "normalized_alias_match")
   );
   const boundedTransactionTime = time2.timeMatchStrength === "strong" || time2.timeMatchStrength === "moderate";
   if (time2.timeMatchStrength !== "very_strong" && !(exactTransactionalIdentity && boundedTransactionTime)) return false;
   if (!getInvoiceRowNumber(row) || isDraftLikeZeroInvoice(row)) return false;
   if (!hasStableInvoiceRowId(row)) return false;
-  const products = classifyProductEvidence(ctx, row, provider);
   if (ctx.commercialConfirmation.currentState === "rejected") return false;
-  if (ctx.activeBasketItems.some((item) => item.resolutionStatus && item.resolutionStatus !== "proven" && item.resolutionStatus !== "partially_proven")) return false;
-  return products.productCoverage === "full" && products.quantityMatch !== "available_mismatch";
+  return hasUniqueCanonicalProductQuantityMatchForInvoice(ctx, row, provider);
 }
 function hasStableInvoiceRowId(row) {
   return cleanText2(row.id) !== "";
@@ -4225,6 +4253,7 @@ function buildAttributionCandidate(ctx, row, itemEvidenceProvider = unavailableI
   const basketValueMatch = classifyAmountMatch(ctx.activeBasketValue, invoiceAmount);
   const staffMatch = classifyStaff(ctx, row);
   const { productMatch, quantityMatch, productCoverage, lineMatches } = classifyProductEvidence(ctx, row, itemEvidenceProvider);
+  const hasUniqueCanonicalProductQuantityMatch = hasUniqueCanonicalProductQuantityMatchForInvoice(ctx, row, itemEvidenceProvider);
   const legacyEvidenceMatch = classifyLegacyMatch(ctx, row);
   const directLinks = classifyDirectLinks(ctx, row);
   const automaticDirectInvoiceLink = Boolean(automaticTrustedInvoiceId && automaticTrustedInvoiceId === invoiceId2);
@@ -4248,6 +4277,20 @@ function buildAttributionCandidate(ctx, row, itemEvidenceProvider = unavailableI
   });
   if (isDraftLikeZeroInvoice(row)) {
     disqualifiers.push("draft_zero_invoice");
+  }
+  const invoiceCustomerId = getInvoiceCustomerId(row);
+  if (ctx.customerId && invoiceCustomerId && ctx.customerId !== invoiceCustomerId) {
+    disqualifiers.push("canonical_customer_id_mismatch");
+  }
+  const caseCode = normalizeDawaaCustomerCode(ctx.customerCode);
+  const invoiceCode = getInvoiceCustomerCode(row);
+  if (caseCode && invoiceCode && caseCode !== invoiceCode) {
+    disqualifiers.push("customer_code_mismatch");
+  }
+  const caseName = normalizeCustomerNameForInvoiceMatch(ctx.customerName);
+  const invoiceName = normalizeCustomerNameForInvoiceMatch(getInvoiceCustomerName(row));
+  if (caseName && invoiceName && caseName !== invoiceName) {
+    disqualifiers.push("customer_name_mismatch");
   }
   const hasIdentitySignal = identity.customerIdMatch || identity.phoneMatch;
   const level = directInvoiceLink ? "proven" : deriveLevel(score, disqualifiers, hasIdentitySignal);
@@ -4296,6 +4339,7 @@ function buildAttributionCandidate(ctx, row, itemEvidenceProvider = unavailableI
     legacyEvidenceMatch,
     directOrderLink,
     directInvoiceLink,
+    hasUniqueCanonicalProductQuantityMatch,
     evidence,
     ruleIds,
     confidenceAssessment,
@@ -4377,7 +4421,7 @@ function deriveSaleAttributionAssessment(ctx, invoiceRows, itemEvidenceProvider 
   }
   const legacyEvidenceUsed = candidates.some((c) => c.legacyEvidenceMatch);
   const directLinked = candidates.find((c) => c.directInvoiceLink) ?? null;
-  const hasIndependentTransactionalCorroboration = (candidate) => candidate.announcedTotalMatch === "exact" || candidate.announcedTotalMatch === "near_match" || candidate.basketValueMatch === "exact" || candidate.basketValueMatch === "near_match" || candidate.productMatch === "available_match" || candidate.quantityMatch === "available_match" || candidate.staffMatch === "same";
+  const hasIndependentTransactionalCorroboration = (candidate) => candidate.announcedTotalMatch === "exact" || candidate.announcedTotalMatch === "near_match" || candidate.basketValueMatch === "exact" || candidate.basketValueMatch === "near_match" || candidate.hasUniqueCanonicalProductQuantityMatch === true;
   const isStatisticallySelectable = (candidate) => {
     if (candidate.disqualifiers.includes("temporal_inversion_invoice_predates_case")) return false;
     if (candidate.disqualifiers.includes("draft_zero_invoice")) return false;
@@ -4423,7 +4467,7 @@ function deriveSaleAttributionAssessment(ctx, invoiceRows, itemEvidenceProvider 
   const second = selectableCandidates.find((c) => c !== top) ?? null;
   const contradictions = [];
   const humanReviewReasons = [];
-  if (top.identityConflict !== "none") {
+  if (top.identityConflict !== "none" || top.disqualifiers.some((reason) => reason === "canonical_customer_id_mismatch" || reason === "customer_code_mismatch" || reason === "customer_name_mismatch")) {
     contradictions.push("identity_conflict");
     humanReviewReasons.push("customer_identity_conflict");
   }
@@ -4449,7 +4493,7 @@ function deriveSaleAttributionAssessment(ctx, invoiceRows, itemEvidenceProvider 
   let attributionLevel = top.confidenceAssessment.level;
   if (ambiguous && attributionLevel === "strongly_inferred") attributionLevel = "weakly_inferred";
   const topHasIndependentTransactionalCorroboration = hasIndependentTransactionalCorroboration(top);
-  const statisticalOfficialTimingOk = top.timeMatchStrength === "very_strong" || top.timeMatchStrength === "strong" || top.timeMatchStrength === "moderate" && topHasIndependentTransactionalCorroboration;
+  const statisticalOfficialTimingOk = topHasIndependentTransactionalCorroboration && (top.timeMatchStrength === "very_strong" || top.timeMatchStrength === "strong" || top.timeMatchStrength === "moderate" && top.customerIdMatch && (top.branchMatch === "exact_canonical" || top.branchMatch === "normalized_alias_match"));
   const isOfficialForStaffEvaluation = attributionLevel === "proven" && contradictions.length === 0 && top.disqualifiers.length === 0 || attributionLevel === "strongly_inferred" && !ambiguous && contradictions.length === 0 && top.identityConflict === "none" && competingCaseIds.length === 0 && top.disqualifiers.length === 0 && statisticalOfficialTimingOk;
   if (attributionLevel === "strongly_inferred" && !directLinked && !statisticalOfficialTimingOk && !humanReviewReasons.includes("statistical_invoice_lacks_transactional_corroboration")) {
     humanReviewReasons.push("statistical_invoice_lacks_transactional_corroboration");
