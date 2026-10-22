@@ -226,6 +226,39 @@ describe('Sale Attribution Engine (Sales Intelligence Phase D) — Golden Cases'
       expect(assess.isOfficialForStaffEvaluation).toBe(false);
     });
 
+    it('keeps a strong-looking invoice review-only when the candidate pool hit its retrieval cap', () => {
+      const context = baseCase({
+        customerId: 'cust-18663',
+        customerCode: '18663',
+        customerName: 'ابراهيم الخولي',
+        activeBasketItems: [{ productNameRaw: 'GASTROBIOTIC 550 MG 20 TAB', productCode: '78994', quantity: 1, resolutionStatus: 'proven' }],
+        invoiceCandidatePoolComplete: false,
+      });
+      const provider: InvoiceItemEvidenceProvider = {
+        getItemsForInvoice: () => [{ productNameRaw: 'GASTROBIOTIC 550 MG 20 TAB', productCode: '78994', quantity: 1 }],
+      };
+      const assess = deriveSaleAttributionAssessment(context, [{
+        id: 'invoice-id', invoice_number: '74938',
+        customer_code: '18663', customer_name: 'د ابراهيم الخولي',
+        invoice_datetime: '2026-09-15T09:05:00.000Z',
+      }], provider);
+      expect(assess.selectedCandidate?.directInvoiceLink).toBe(false);
+      expect(assess.attributionLevel).not.toBe('proven');
+      expect(assess.isOfficialForStaffEvaluation).toBe(false);
+      expect(assess.needsHumanReview).toBe(true);
+      expect(assess.humanReviewReasons).toContain('invoice_candidate_pool_incomplete');
+      expect(assess.candidateRecommendation?.level).not.toBe('strong_candidate_requires_approval');
+    });
+
+    it('surfaces an incomplete invoice search even when the truncated pool contains no visible rows', () => {
+      const assess = deriveSaleAttributionAssessment({
+        ...baseCase(),
+        invoiceCandidatePoolComplete: false,
+      }, []);
+      expect(assess.needsHumanReview).toBe(true);
+      expect(assess.humanReviewReasons).toContain('invoice_candidate_pool_incomplete');
+    });
+
     it('1b4. duplicate canonical invoice lines do not count as unique product proof', () => {
       const context = baseCase({
         customerId: 'cust-18663',
