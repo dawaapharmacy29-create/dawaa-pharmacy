@@ -177,6 +177,8 @@ export interface CaseAttributionContext {
   knownStaffIds: string[];
   /** Exact canonical staff-name/active-alias resolver from the staff directory boundary. */
   resolveInvoiceStaffIdByName?: (name: string) => string | null;
+  /** False when invoice retrieval hit a cap or otherwise cannot guarantee the complete candidate set. */
+  invoiceCandidatePoolComplete?: boolean;
   /** From the Phase B legacy V17 adapter's own matched-invoice fields — evidence only, never trusted as canonical. */
   legacyMatchedInvoiceId: string | null;
   legacyMatchedInvoiceNumber: string | null;
@@ -1096,16 +1098,18 @@ export const STRONG_CANDIDATE_MIN_LEAD = 0.15;
 export function recommendInvoiceCandidate(
   top: SaleAttributionCandidate | null,
   second: SaleAttributionCandidate | null,
-  context: { ambiguous: boolean; competingCaseIds: string[]; sameCodeCandidates: number }
+  context: { ambiguous: boolean; competingCaseIds: string[]; sameCodeCandidates: number; candidatePoolComplete?: boolean }
 ): InvoiceCandidateRecommendation {
   if (!top) return { level: 'none', reasons: [], missing: ['لا توجد فاتورة مرشحة لهذه الحالة'] };
   const reasons: string[] = [];
   const missing: string[] = [];
   const check = (ok: boolean, met: string, gap: string) => (ok ? reasons.push(met) : missing.push(gap));
   const lead = second ? top.confidenceAssessment.score - second.confidenceAssessment.score : 1;
-  const uniqueCode = Boolean(top.customerCodeMatch) && context.sameCodeCandidates === 1;
+  const uniqueCode = Boolean(top.customerCodeMatch) && context.sameCodeCandidates === 1 && context.candidatePoolComplete !== false;
   check(uniqueCode, 'كود العميل مطابق تمامًا وهي الفاتورة الوحيدة بهذا الكود في نافذة الحالة',
-    top.customerCodeMatch ? 'أكثر من فاتورة بنفس كود العميل في نافذة الحالة' : 'كود العميل غير مطابق أو غير موجود');
+    context.candidatePoolComplete === false
+      ? 'قائمة الفواتير غير مكتملة بسبب حد القراءة؛ لا يمكن إثبات التفرد'
+      : top.customerCodeMatch ? 'أكثر من فاتورة بنفس كود العميل في نافذة الحالة' : 'كود العميل غير مطابق أو غير موجود');
   check(Boolean(top.customerNameMatch),
     top.customerCodeMatch
       ? 'اسم العميل مطابق بعد التطبيع — يؤيد نفس هوية الكود ولا يُحسب دليلًا مستقلًا'
@@ -1119,7 +1123,7 @@ export function recommendInvoiceCandidate(
     : 'صنف واحد على الأقل من الحالة مطابق في الفاتورة (بالكود أو المنتج) دون تعارض كمية',
   top.productMatch === 'unavailable' ? 'لا توجد أصناف محسومة كافية للمقارنة (صورة/صوت غير متاح أو اسم غير محسوم)' : 'أصناف الحالة لا تطابق بنود الفاتورة أو الكمية متعارضة');
   check(top.staffMatch !== 'different', top.staffMatch === 'same' ? 'بائع الفاتورة هو نفس الموظف المشارك في هذه الحالة' : 'لا يوجد تعارض في البائع', 'بائع الفاتورة موظف مختلف عن المشارك في الحالة');
-  const clean = top.disqualifiers.length === 0 && top.identityConflict === 'none' && !context.ambiguous && context.competingCaseIds.length === 0;
+  const clean = top.disqualifiers.length === 0 && top.identityConflict === 'none' && !context.ambiguous && context.competingCaseIds.length === 0 && context.candidatePoolComplete !== false;
   check(clean, 'لا توجد تعارضات هوية أو حالات منافسة على نفس الفاتورة', 'يوجد تعارض أو حالة أخرى تنافس على الفاتورة');
   check(lead >= STRONG_CANDIDATE_MIN_LEAD, 'تفوق واضح على أي فاتورة مرشحة أخرى', 'فاتورة أخرى قريبة في القوة؛ يلزم ترجيح بشري');
   const strong = uniqueCode && Boolean(top.customerNameMatch) && closeTime && productOk && top.staffMatch !== 'different' && clean && lead >= STRONG_CANDIDATE_MIN_LEAD;
@@ -1146,7 +1150,7 @@ export function deriveSaleAttributionAssessment(
   competingSelections: Array<{ caseId: string; invoiceId: string }> = []
 ): SaleAttributionAssessment {
   const commercialConfirmationState = ctx.commercialConfirmation.currentState;
-  const automaticMatches = ctx.trustedInvoiceId
+  const automaticMatches = ctx.trustedInvoiceId || ctx.invoiceCandidatePoolComplete === false
     ? []
     : invoiceRows.filter((row) => qualifiesForAutomaticInvoiceLink(ctx, row, itemEvidenceProvider));
   const automaticTrustedInvoiceId =
@@ -1158,6 +1162,7 @@ export function deriveSaleAttributionAssessment(
   candidates.sort((a, b) => b.confidenceAssessment.score - a.confidenceAssessment.score);
 
   if (candidates.length === 0) {
+    const candidatePoolIncomplete = ctx.invoiceCandidatePoolComplete === false;
     return {
       caseId: ctx.caseId,
       commercialConfirmationState,
@@ -1170,8 +1175,8 @@ export function deriveSaleAttributionAssessment(
       confidence: { level: 'unknown', score: 0, ruleIds: ['attribution.assessment.no_candidates'], evidence: [] },
       primaryEvidence: [],
       contradictions: [],
-      needsHumanReview: false,
-      humanReviewReasons: [],
+      needsHumanReview: candidatePoolIncomplete,
+      humanReviewReasons: candidatePoolIncomplete ? ['invoice_candidate_pool_incomplete'] : [],
       isOfficialForStaffEvaluation: false,
       legacyEvidenceUsed: false,
       ruleIds: ['attribution.assessment.no_candidates'],
@@ -1256,6 +1261,10 @@ export function deriveSaleAttributionAssessment(
   const contradictions: string[] = [];
   const humanReviewReasons: string[] = [];
 
+  if (ctx.invoiceCandidatePoolComplete === false && !top.directInvoiceLink) {
+    humanReviewReasons.push('invoice_candidate_pool_incomplete');
+  }
+
   if (top.identityConflict !== 'none' || top.disqualifiers.some((reason) =>
     reason === 'canonical_customer_id_mismatch' || reason === 'customer_code_mismatch' || reason === 'customer_name_mismatch')) {
     contradictions.push('identity_conflict');
@@ -1301,6 +1310,7 @@ export function deriveSaleAttributionAssessment(
   const topHasIndependentTransactionalCorroboration = hasIndependentTransactionalCorroboration(top);
 
   const statisticalOfficialTimingOk =
+    ctx.invoiceCandidatePoolComplete !== false &&
     topHasIndependentTransactionalCorroboration &&
     (top.timeMatchStrength === 'very_strong' ||
       top.timeMatchStrength === 'strong' ||
@@ -1368,6 +1378,7 @@ export function deriveSaleAttributionAssessment(
         ambiguous,
         competingCaseIds,
         sameCodeCandidates: candidates.filter((c) => c.customerCodeMatch && isStatisticallySelectable(c)).length,
+        candidatePoolComplete: ctx.invoiceCandidatePoolComplete,
       }),
   };
 }
