@@ -540,7 +540,7 @@ function classifyLegacyMatch(ctx: CaseAttributionContext, row: InvoiceLike): boo
  * whose quantity agrees with the case. Display-name equality alone is useful for review but too
  * weak to prove invoice ownership. Duplicate matching invoice lines stay ambiguous.
  */
-function hasUniqueCanonicalProductQuantityMatch(
+function hasUniqueCanonicalProductQuantityMatchForInvoice(
   ctx: CaseAttributionContext,
   row: InvoiceLike,
   provider: InvoiceItemEvidenceProvider
@@ -618,9 +618,7 @@ function qualifiesForAutomaticInvoiceLink(
   // and a separate unresolved product must not erase an independently exact requested line.
   // But a unique canonical product/code + quantity match is mandatory, and any known quantity
   // conflict on a matched canonical/code line blocks automatic proof.
-  const products = classifyProductEvidence(ctx, row, provider);
-  if (products.quantityMatch === 'available_mismatch') return false;
-  return hasUniqueCanonicalProductQuantityMatch(ctx, row, provider);
+  return hasUniqueCanonicalProductQuantityMatchForInvoice(ctx, row, provider);
 }
 
 /** A real sales_invoices.id. getInvoiceRowId falls back to invoice_number for display rows, which is never proof identity. */
@@ -964,6 +962,7 @@ export function buildAttributionCandidate(
   const basketValueMatch = classifyAmountMatch(ctx.activeBasketValue, invoiceAmount);
   const staffMatch = classifyStaff(ctx, row);
   const { productMatch, quantityMatch, productCoverage, lineMatches } = classifyProductEvidence(ctx, row, itemEvidenceProvider);
+  const hasUniqueCanonicalProductQuantityMatch = hasUniqueCanonicalProductQuantityMatchForInvoice(ctx, row, itemEvidenceProvider);
   const legacyEvidenceMatch = classifyLegacyMatch(ctx, row);
   const directLinks = classifyDirectLinks(ctx, row);
   const automaticDirectInvoiceLink = Boolean(automaticTrustedInvoiceId && automaticTrustedInvoiceId === invoiceId);
@@ -989,6 +988,20 @@ export function buildAttributionCandidate(
 
   if (isDraftLikeZeroInvoice(row)) {
     disqualifiers.push('draft_zero_invoice');
+  }
+  const invoiceCustomerId = getInvoiceCustomerId(row);
+  if (ctx.customerId && invoiceCustomerId && ctx.customerId !== invoiceCustomerId) {
+    disqualifiers.push('canonical_customer_id_mismatch');
+  }
+  const caseCode = normalizeDawaaCustomerCode(ctx.customerCode);
+  const invoiceCode = getInvoiceCustomerCode(row);
+  if (caseCode && invoiceCode && caseCode !== invoiceCode) {
+    disqualifiers.push('customer_code_mismatch');
+  }
+  const caseName = normalizeCustomerNameForInvoiceMatch(ctx.customerName);
+  const invoiceName = normalizeCustomerNameForInvoiceMatch(getInvoiceCustomerName(row));
+  if (caseName && invoiceName && caseName !== invoiceName) {
+    disqualifiers.push('customer_name_mismatch');
   }
 
   const hasIdentitySignal = identity.customerIdMatch || identity.phoneMatch;
@@ -1045,6 +1058,7 @@ export function buildAttributionCandidate(
     legacyEvidenceMatch,
     directOrderLink,
     directInvoiceLink,
+    hasUniqueCanonicalProductQuantityMatch,
     evidence,
     ruleIds,
     confidenceAssessment,
@@ -1162,9 +1176,7 @@ export function deriveSaleAttributionAssessment(
     candidate.announcedTotalMatch === 'near_match' ||
     candidate.basketValueMatch === 'exact' ||
     candidate.basketValueMatch === 'near_match' ||
-    candidate.productMatch === 'available_match' ||
-    candidate.quantityMatch === 'available_match' ||
-    candidate.staffMatch === 'same';
+    candidate.hasUniqueCanonicalProductQuantityMatch === true;
 
   const isStatisticallySelectable = (candidate: SaleAttributionCandidate): boolean => {
     if (candidate.disqualifiers.includes('temporal_inversion_invoice_predates_case')) return false;
@@ -1232,7 +1244,8 @@ export function deriveSaleAttributionAssessment(
   const contradictions: string[] = [];
   const humanReviewReasons: string[] = [];
 
-  if (top.identityConflict !== 'none') {
+  if (top.identityConflict !== 'none' || top.disqualifiers.some((reason) =>
+    reason === 'canonical_customer_id_mismatch' || reason === 'customer_code_mismatch' || reason === 'customer_name_mismatch')) {
     contradictions.push('identity_conflict');
     humanReviewReasons.push('customer_identity_conflict');
   }
@@ -1276,9 +1289,12 @@ export function deriveSaleAttributionAssessment(
   const topHasIndependentTransactionalCorroboration = hasIndependentTransactionalCorroboration(top);
 
   const statisticalOfficialTimingOk =
-    top.timeMatchStrength === 'very_strong' ||
-    top.timeMatchStrength === 'strong' ||
-    (top.timeMatchStrength === 'moderate' && topHasIndependentTransactionalCorroboration);
+    topHasIndependentTransactionalCorroboration &&
+    (top.timeMatchStrength === 'very_strong' ||
+      top.timeMatchStrength === 'strong' ||
+      (top.timeMatchStrength === 'moderate' &&
+        top.customerIdMatch &&
+        (top.branchMatch === 'exact_canonical' || top.branchMatch === 'normalized_alias_match')));
 
   const isOfficialForStaffEvaluation =
     (attributionLevel === 'proven' &&
