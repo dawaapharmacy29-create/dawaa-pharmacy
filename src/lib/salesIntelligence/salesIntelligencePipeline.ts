@@ -771,6 +771,7 @@ function analyzeOneCase(
       ownership: conversationCase.ownership,
       invoiceBranch: attribution.selectedCandidate?.invoiceBranch ?? null,
       invoiceCandidateStrong: attribution.candidateRecommendation?.level === 'strong_candidate_requires_approval',
+      invoiceAttributionProven: attribution.attributionLevel === 'proven' && Boolean(attribution.selectedCandidate?.directInvoiceLink),
       attributionUsedCaseBranch: Boolean(attribution.selectedCandidate?.ruleIds.some((rule) => rule.includes('branch_exact') || rule.includes('branch_alias'))),
       invoiceSellerIsCaseStaff: attribution.selectedCandidate?.staffMatch === 'same',
     }),
