@@ -18,6 +18,7 @@ import {
   extractRejectionSignals,
   extractRequestSignals,
   isSubstantiveConfirmationSignal,
+  OPERATIONAL_SERVICE_REQUEST_RX,
 } from '../whatsappSemanticSignalsV32';
 import { isCustomerPaymentSettlementContinuation } from './paymentSettlementSignals';
 import type { CaseStatus, CaseType, ConfidenceAssessment, ConfidenceLevel, ConversationCase, EvidenceRef } from './types';
@@ -85,7 +86,7 @@ function hasUnresolvedMultipleRequests(
 // A non-drug nursing visit is an operational service need, not a medicine-sale lead.
 // This guard is deliberately narrow; unclear product/service combinations retain the
 // ordinary commercial path and are reviewed rather than being quietly suppressed.
-const NURSING_VISIT_REQUEST_RX = /(?:ممكن|لو سمحت|عايز|عاوز|محتاج|ابعت|ابعث|تبعت|تبعث|هات|حد).{0,100}(?:التمريض|مالتمريض|ممرض(?:ة)?)/iu;
+const NURSING_VISIT_REQUEST_RX = OPERATIONAL_SERVICE_REQUEST_RX;
 const NURSING_SERVICE_CHASE_RX = /(?:شوفه\s+تاني|كلم\s+الممرض|هكلم\s+الممرض|فين\s+الممرض|الممرض\s+فين|الممرض\s+مجاش|التمريض\s+مجاش|مجاش\s+لسه)/iu;
 const EXPLICIT_MEDICINE_REQUEST_RX = /(?:علب(?:ة|تين|ات)?|شريط|روشتة|روشته|أقراص|اقراص|حبوب|دواء|دواءين|شراب|كبسولات|امبولات|امبول|فيال)/iu;
 

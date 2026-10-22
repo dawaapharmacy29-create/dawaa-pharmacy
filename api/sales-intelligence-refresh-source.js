@@ -1010,6 +1010,18 @@ function isCommitmentOnly(text5) {
 function isRejectionOnly(text5) {
   return REJECTION_RX.test((text5 || "").trim());
 }
+var OPERATIONAL_SERVICE_REQUEST_RX = /(?:ممكن|لو سمحت|عايز|عاوز|محتاج|ابعت|ابعث|تبعت|تبعث|هات|حد).{0,100}(?:التمريض|مالتمريض|ممرض(?:ة)?)/iu;
+var OPERATIONAL_SERVICE_CLOSURE_RX = /(?:الممرض|التمريض|الممرضه|الممرضة)\s*(?:وصل|جه|جت|خلص|ركب|مشي)|(?:وصل|جه)\s*(?:الممرض|التمريض)|خلاص\s*(?:مش\s*)?(?:محتاج|عايز)[^\n]{0,20}(?:الممرض|التمريض)|(?:ألغي|الغي|إلغاء|الغاء)\s*(?:الطلب|الممرض|التمريض)/iu;
+var INDEPENDENT_COMMERCIAL_NEED_RX = /(?:علب(?:ة|ه|تين|ات)?|شريط|روشت[ةه]|أقراص|اقراص|حبوب|دوا[ءء]?|شراب|كبسول|امبول|أمبول|فيال|كريم|بكام|سعر|عندكم|متوفر|متاح)/iu;
+function isOperationalServiceRequest(message) {
+  return message.role === "customer" && message.isMeaningful && OPERATIONAL_SERVICE_REQUEST_RX.test(message.text || "");
+}
+function isOperationalServiceClosure(message) {
+  return message.isMeaningful && OPERATIONAL_SERVICE_CLOSURE_RX.test(message.text || "");
+}
+function startsIndependentCommercialNeed(message) {
+  return message.role === "customer" && message.isMeaningful && (REQUEST_VERB_RX.test(message.text || "") && !OPERATIONAL_SERVICE_REQUEST_RX.test(message.text || "") || INDEPENDENT_COMMERCIAL_NEED_RX.test(message.text || ""));
+}
 function isThanksOrClosingOnly(text5) {
   const value = (text5 || "").trim();
   return THANKS_CLOSING_ONLY_RX.test(value) || COURTESY_ONLY_TOKENS_RX.test(value) && THANKS_WORD_RX.test(value);
@@ -1467,6 +1479,19 @@ var PAYMENT_SETTLEMENT_CONTINUATION_RX = /رقم\s*التحويل|(?:صوره|ص
 function hasPaymentSettlementHandoffText(text5) {
   return PAYMENT_SETTLEMENT_CONTINUATION_RX.test(text5 || "");
 }
+var OPEN_SERVICE_NEED_MAX_GAP_MS = 12 * 60 * 60 * 1e3;
+function openServiceNeed(current) {
+  let open = null;
+  for (const message of current) {
+    if (isOperationalServiceRequest(message)) open = message;
+    else if (open && isOperationalServiceClosure(message)) open = null;
+  }
+  return open;
+}
+function continuesOpenServiceNeed(current, next, gapMs) {
+  if (next.role !== "customer" || !next.isMeaningful || gapMs > OPEN_SERVICE_NEED_MAX_GAP_MS) return false;
+  return Boolean(openServiceNeed(current)) && !startsIndependentCommercialNeed(next);
+}
 var ADDITIVE_REQUEST_RX = /(?:^|\s)(?:وكمان|كمان|وزود|زود|ضيف|معاهم|معاه|مع\s*الطلب)(?:\s|$)/i;
 var STAFF_PENDING_REPLY_RX = /لحظات|ثواني|دقيق[ةه]|اشوف|أشوف|هشوف|هراجع|هتأكد|هاتأكد|جاري\s*(?:المراجعه|المراجعة|البحث)/i;
 var CLOSING_RX = /شكر(?:ا|ًا)?\s*لتواصلك|تحت\s*أمرك\s*دائم(?:ا|ًا)?|يومك\s*سعيد|في\s*خدمتك\s*دائم(?:ا|ًا)?/i;
@@ -1532,6 +1557,7 @@ function hasStrongSemanticContinuation(current, next, gapMs) {
     return true;
   }
   if (next.role !== "customer" || !next.isMeaningful) return false;
+  if (continuesOpenServiceNeed(current, next, gapMs)) return true;
   if (isSameOrderContinuation(current, next, gapMs)) return true;
   if (gapMs <= SEMANTIC_CONTINUATION_MAX_GAP_MS) {
     if (current.some(isServiceMessage) && !isExplicitCommercialRequest(next) && /الوالد|والدي|الخدم[ةه]|التمريض|الممرض|اتحسن|تحسن|الحمد\s*لله/u.test(next.text)) return true;
@@ -1599,6 +1625,7 @@ function segmentInteractions(messages) {
   let current = [];
   let reason = "conversation_start";
   let sawClosingSinceLastMeaningfulInbound = false;
+  let continuationEvidence = [];
   const flush = () => {
     if (!current.length) return;
     const index = interactions.length;
@@ -1618,13 +1645,16 @@ function segmentInteractions(messages) {
       endedAt: current[current.length - 1].timestamp,
       triggerMessageId: trigger?.id || null,
       primaryStaffNames: staffNames,
-      segmentationReason: reason
+      segmentationReason: reason,
+      ...continuationEvidence.length ? { continuationEvidence } : {}
     });
     current = [];
+    continuationEvidence = [];
     sawClosingSinceLastMeaningfulInbound = false;
   };
   messages.forEach((message, i) => {
     const prev = messages[i - 1];
+    let longGapContinuation = null;
     if (prev && current.length) {
       const previousMeaningful = [...current].reverse().find((candidate) => candidate.isMeaningful) || prev;
       const gapMs = message.timestamp.getTime() - previousMeaningful.timestamp.getTime();
@@ -1632,7 +1662,21 @@ function segmentInteractions(messages) {
       const fulfilledCurrentOrder = currentHasOrderCommitment(current);
       const additiveRequest = ADDITIVE_REQUEST_RX.test(message.text);
       const serviceBoundary = serviceToNewNeedBoundary(current, message);
-      if (serviceBoundary !== null) {
+      const interactionCountBefore = interactions.length;
+      if (gapMs > INTERACTION_GAP_MS && semanticContinuation && message.isMeaningful) {
+        longGapContinuation = {
+          messageId: message.id,
+          reason: continuesOpenServiceNeed(current, message, gapMs) ? "open_service_need_followup" : "semantic_continuation"
+        };
+      }
+      const openService = Boolean(openServiceNeed(current));
+      if (openService && startsIndependentCommercialNeed(message)) {
+        flush();
+        reason = "new_commercial_need";
+      } else if (!openService && isOperationalServiceRequest(message) && current.some((m) => m.role === "customer" && m.isMeaningful && startsIndependentCommercialNeed(m)) && !startsIndependentCommercialNeed(message)) {
+        flush();
+        reason = "new_service_need";
+      } else if (serviceBoundary !== null) {
         const trailing = current.splice(serviceBoundary);
         flush();
         current = trailing;
@@ -1650,6 +1694,7 @@ function segmentInteractions(messages) {
         flush();
         reason = "new_commercial_need";
       }
+      if (longGapContinuation && interactions.length === interactionCountBefore) continuationEvidence.push(longGapContinuation);
     }
     if (message.role === "staff" && message.isMeaningful && CLOSING_RX.test(message.text)) {
       sawClosingSinceLastMeaningfulInbound = true;
@@ -1861,7 +1906,7 @@ function hasUnresolvedMultipleRequests(messages, requestMessages) {
   }
   return false;
 }
-var NURSING_VISIT_REQUEST_RX = /(?:ممكن|لو سمحت|عايز|عاوز|محتاج|ابعت|ابعث|تبعت|تبعث|هات|حد).{0,100}(?:التمريض|مالتمريض|ممرض(?:ة)?)/iu;
+var NURSING_VISIT_REQUEST_RX = OPERATIONAL_SERVICE_REQUEST_RX;
 var NURSING_SERVICE_CHASE_RX = /(?:شوفه\s+تاني|كلم\s+الممرض|هكلم\s+الممرض|فين\s+الممرض|الممرض\s+فين|الممرض\s+مجاش|التمريض\s+مجاش|مجاش\s+لسه)/iu;
 var EXPLICIT_MEDICINE_REQUEST_RX = /(?:علب(?:ة|تين|ات)?|شريط|روشتة|روشته|أقراص|اقراص|حبوب|دواء|دواءين|شراب|كبسولات|امبولات|امبول|فيال)/iu;
 function serviceOnlyIntent(messages, previousServiceRequestAt) {
@@ -2047,6 +2092,7 @@ function deriveCaseOwnershipContext(input) {
   if (ids.size > 1) blockers.push("multiple_staff_owners_require_review");
   if (operationalBranch && homeBranches.size && !homeBranches.has(operationalBranch)) blockers.push("staff_home_branch_differs_from_operation");
   return {
+    contributions: deriveCaseStaffContributions(input),
     department,
     sourceBranchNameRaw,
     operationalBranch,
@@ -2055,6 +2101,105 @@ function deriveCaseOwnershipContext(input) {
     owners,
     introductionMessageIds: introductions.map((m) => m.id),
     blockers: [...new Set(blockers)]
+  };
+}
+function deriveCaseStaffContributions(input) {
+  const buckets = /* @__PURE__ */ new Map();
+  let introduced = null;
+  for (const message of input.messages) {
+    if (message.role !== "staff" || !message.isMeaningful) continue;
+    if (extractIntroducedStaffName(message)) introduced = input.staffIdByIntroductionMessageId?.[message.id] ?? null;
+    const id = input.staffIdByIntroductionMessageId?.[message.id] ?? input.staffIdBySender?.[message.sender] ?? introduced;
+    const key = id ?? "unresolved";
+    const profile = id ? input.staffProfilesById?.[id] : void 0;
+    const bucket = buckets.get(key) ?? {
+      staffId: id,
+      name: profile?.name ?? null,
+      function: profile?.function ?? (id ? "other" : "unresolved"),
+      messageIds: []
+    };
+    bucket.messageIds.push(message.id);
+    buckets.set(key, bucket);
+  }
+  return [...buckets.values()];
+}
+function recommendCaseBranch(input) {
+  const ownership = input.ownership;
+  if (!ownership) return { branch: null, strength: "none", reasons: ["\u0644\u0627 \u062A\u0648\u062C\u062F \u0623\u062F\u0644\u0629 \u0641\u0631\u0639 \u0639\u0644\u0649 \u0645\u0633\u062A\u0648\u0649 \u0627\u0644\u062D\u0627\u0644\u0629"] };
+  if (ownership.department === "customer_service") {
+    return { branch: null, strength: "none", reasons: ["\u062D\u0627\u0644\u0629 \u062E\u062F\u0645\u0629 \u0639\u0645\u0644\u0627\u0621\u061B \u0644\u0627 \u062A\u064F\u0646\u0633\u0628 \u0644\u0641\u0631\u0639 \u0628\u064A\u0639"] };
+  }
+  if (ownership.branchBasis === "conflict") {
+    return { branch: null, strength: "conflict", reasons: ["\u062A\u0639\u0627\u0631\u0636 \u0628\u064A\u0646 \u062A\u0639\u0631\u064A\u0641 \u0627\u0644\u0645\u0648\u0638\u0641 \u0648\u0641\u0631\u0639 \u0627\u0644\u0645\u0635\u062F\u0631"] };
+  }
+  if (ownership.operationalBranch) {
+    return {
+      branch: ownership.operationalBranch,
+      strength: "decided",
+      reasons: [ownership.branchBasis === "explicit_introduction" ? "\u0641\u0631\u0639 \u0635\u0631\u064A\u062D \u0641\u064A \u062A\u0639\u0631\u064A\u0641 \u062F\u0643\u062A\u0648\u0631 \u0645\u062D\u0633\u0648\u0645 \u0627\u0644\u0647\u0648\u064A\u0629" : "\u0641\u0631\u0639 \u0627\u0644\u0645\u0635\u062F\u0631 \u0641\u0631\u0639 \u062A\u0634\u063A\u064A\u0644 \u0645\u0639\u062A\u0645\u062F"]
+    };
+  }
+  const staffBranch = ownership.suggestedStaffBranch;
+  const invoiceBranch = input.invoiceCandidateStrong && !input.attributionUsedCaseBranch && isOperatingBranch(input.invoiceBranch) ? normalizeBranchName(input.invoiceBranch) : null;
+  const reasons = [];
+  if (ownership.sourceBranchNameRaw && !isOperatingBranch(ownership.sourceBranchNameRaw)) {
+    reasons.push(`\u0641\u0631\u0639 \u0627\u0644\u0645\u0635\u062F\u0631 \u0627\u0644\u0645\u0633\u062C\u0644 (${ownership.sourceBranchNameRaw}) \u0644\u064A\u0633 \u0641\u0631\u0639 \u062A\u0634\u063A\u064A\u0644`);
+  }
+  if (staffBranch) reasons.push(`\u0627\u0644\u0641\u0631\u0639 \u0627\u0644\u0623\u0633\u0627\u0633\u064A \u0644\u0644\u062F\u0643\u062A\u0648\u0631 \u0627\u0644\u0645\u0633\u0624\u0648\u0644: ${staffBranch}`);
+  if (invoiceBranch) reasons.push(`\u0641\u0631\u0639 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0627\u0644\u0645\u0631\u0634\u062D\u0629 \u0628\u0642\u0648\u0629: ${invoiceBranch}`);
+  if (staffBranch && invoiceBranch && staffBranch !== invoiceBranch) {
+    return { branch: null, strength: "conflict", reasons: [...reasons, "\u0641\u0631\u0639 \u0627\u0644\u062F\u0643\u062A\u0648\u0631 \u064A\u062E\u0627\u0644\u0641 \u0641\u0631\u0639 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629\u061B \u064A\u062D\u062A\u0627\u062C \u0645\u0631\u0627\u062C\u0639\u0629"] };
+  }
+  if (staffBranch && invoiceBranch) {
+    return { branch: staffBranch, strength: "strong_recommendation", reasons: [...reasons, "\u062F\u0644\u064A\u0644\u0627\u0646 \u0645\u0633\u062A\u0642\u0644\u0627\u0646 \u0645\u062A\u0641\u0642\u0627\u0646\u061B \u064A\u062D\u062A\u0627\u062C \u0627\u0639\u062A\u0645\u0627\u062F\u064B\u0627 \u0642\u0628\u0644 \u0627\u0639\u062A\u0628\u0627\u0631\u0647 \u0641\u0631\u0639 \u0627\u0644\u0639\u0645\u0644\u064A\u0629"] };
+  }
+  if (staffBranch || invoiceBranch) {
+    return { branch: staffBranch ?? invoiceBranch, strength: "supporting_only", reasons: [...reasons, "\u062F\u0644\u064A\u0644 \u0648\u0627\u062D\u062F \u0641\u0642\u0637\u061B \u063A\u064A\u0631 \u0643\u0627\u0641\u064D \u0644\u062D\u0633\u0645 \u0627\u0644\u0641\u0631\u0639"] };
+  }
+  return { branch: null, strength: "none", reasons: reasons.length ? reasons : ["\u0644\u0627 \u062A\u0648\u062C\u062F \u0623\u062F\u0644\u0629 \u0641\u0631\u0639 \u0643\u0627\u0641\u064A\u0629"] };
+}
+
+// src/lib/salesIntelligence/careFollowUpEngine.ts
+var CARE_CHECK_IN_DELAY_MS = 4 * 60 * 60 * 1e3;
+var NURSING_CASE_RULES = ["case.classification.nursing_visit_service_not_sale", "case.classification.nursing_chase_service_not_sale"];
+var PROBLEM_RX = [
+  ["device_problem", /الكانيولا|كانيولا|اتحرك(?:ت)?\s*(?:م|من)?\s*مكان/u, "\u0645\u0634\u0643\u0644\u0629 \u0641\u064A \u0627\u0644\u0643\u0627\u0646\u064A\u0648\u0644\u0627"],
+  ["leak", /بيسرب|تسريب|سرب/u, "\u062A\u0633\u0631\u064A\u0628 \u0627\u0644\u0645\u062D\u0644\u0648\u0644"],
+  ["symptom", /(?:عنده|عندها)\s*(?:حرار[ةه]|وجع|ألم|الم)|تعبان[ةه]?|ورم|نزيف/u, "\u0623\u0639\u0631\u0627\u0636 \u0644\u062F\u0649 \u0627\u0644\u0645\u0631\u064A\u0636"]
+];
+var DELAY_RX = /شوفه\s+تاني|فين\s+الممرض|الممرض\s+(?:فين|مجاش)|اتأخر|التأخير|عالتاخير|متأخر|مجاش\s+لسه/u;
+function deriveCareFollowUpSuggestion(conversationCase, messages) {
+  const nursing = conversationCase.caseType === "follow_up" && conversationCase.confidence.ruleIds.some((rule) => NURSING_CASE_RULES.includes(rule));
+  if (!nursing) return null;
+  const problems = /* @__PURE__ */ new Set();
+  const labels2 = [];
+  const evidence = /* @__PURE__ */ new Set();
+  for (const message of messages) {
+    if (!message.isMeaningful) continue;
+    if (message.role === "customer") {
+      for (const [problem, rx, label] of PROBLEM_RX) {
+        if (rx.test(message.text) && !problems.has(problem)) {
+          problems.add(problem);
+          labels2.push(label);
+          evidence.add(message.id);
+        }
+      }
+    }
+    if (DELAY_RX.test(message.text)) {
+      if (!problems.has("delay")) labels2.push("\u062A\u0623\u062E\u0631 \u0627\u0644\u0645\u0645\u0631\u0636");
+      problems.add("delay");
+      evidence.add(message.id);
+    }
+  }
+  if (!problems.size) return null;
+  return {
+    key: `${conversationCase.caseId}:care_check_in`,
+    kind: "care_check_in",
+    team: "customer_service",
+    reason: `\u0627\u0637\u0645\u0626\u0646\u0627\u0646 \u0639\u0644\u0649 \u0627\u0644\u0645\u0631\u064A\u0636 \u0628\u0639\u062F \u062E\u062F\u0645\u0629 \u0627\u0644\u062A\u0645\u0631\u064A\u0636: ${labels2.join("\u060C ")}. \u062A\u0648\u0627\u0635\u0644 \u062E\u062F\u0645\u0629 \u0627\u0644\u0639\u0645\u0644\u0627\u0621 \u0644\u0644\u0627\u0637\u0645\u0626\u0646\u0627\u0646\u060C \u0645\u0646\u0641\u0635\u0644 \u0639\u0646 \u0627\u0644\u0628\u064A\u0639 \u0648\u0627\u0644\u0634\u0643\u0648\u0649.`,
+    problems: [...problems],
+    dueAt: new Date(new Date(conversationCase.endedAt).getTime() + CARE_CHECK_IN_DELAY_MS).toISOString(),
+    evidenceMessageIds: [...evidence]
   };
 }
 
@@ -3591,7 +3736,12 @@ var ATTRIBUTION_FACTOR_WEIGHTS = {
   staffSame: 0.05,
   staffCompatible: 0.02,
   legacyMatch: 0.08,
-  productMatch: 0.05
+  productMatch: 0.05,
+  // Exact pharmacy customer code is a real identity signal even when the invoice has no
+  // customer_id; it supports ranking/review but never satisfies the identity gate for official use.
+  customerCodeExact: 0.15,
+  customerNameMatch: 0.03,
+  quantityMatch: 0.03
 };
 var ATTRIBUTION_LEVEL_THRESHOLDS = {
   stronglyInferredMinScore: 0.55,
@@ -3676,6 +3826,12 @@ function normalizeProductNameForMatch(name) {
 }
 function classifyIdentity(ctx, row) {
   const invoiceCustomerId = getInvoiceCustomerId(row);
+  const caseCode = normalizeDawaaCustomerCode(ctx.customerCode);
+  const invoiceCode = getInvoiceCustomerCode(row);
+  const customerCodeMatch = Boolean(caseCode && invoiceCode && caseCode === invoiceCode);
+  const caseName = normalizeCustomerNameForInvoiceMatch(ctx.customerName);
+  const invoiceName = normalizeCustomerNameForInvoiceMatch(getInvoiceCustomerName(row));
+  const customerNameMatch = Boolean(caseName && invoiceName && caseName === invoiceName);
   const customerIdMatch = Boolean(ctx.customerId && invoiceCustomerId && ctx.customerId === invoiceCustomerId);
   const casePhone = ctx.customerPhone ? normalizeEgyptianCustomerPhone(ctx.customerPhone) : "";
   const invoicePhone = getInvoiceCustomerPhone(row);
@@ -3687,7 +3843,7 @@ function classifyIdentity(ctx, row) {
   if (phoneMatch && ctx.customerId && invoiceCustomerId && ctx.customerId !== invoiceCustomerId) {
     identityConflict = "phone_vs_customer_id_conflict";
   }
-  return { customerIdMatch, phoneMatch, identityConflict };
+  return { customerIdMatch, phoneMatch, identityConflict, customerCodeMatch, customerNameMatch };
 }
 function classifyBranch(ctx, row) {
   if (ctx.branchEvidenceConflict) return "mismatch";
@@ -3756,7 +3912,7 @@ function classifyProductEvidence(ctx, row, provider) {
     (item) => !item.resolutionStatus || item.resolutionStatus === "proven" || item.resolutionStatus === "partially_proven"
   );
   if (items === "unavailable" || resolvableBasketItems.length === 0) {
-    return { productMatch: "unavailable", quantityMatch: "unavailable", productCoverage: "unavailable" };
+    return { productMatch: "unavailable", quantityMatch: "unavailable", productCoverage: "unavailable", lineMatches: [] };
   }
   const sellableItems = items.filter(
     (item) => item.quantity != null && Number(item.quantity) > 0
@@ -3767,10 +3923,15 @@ function classifyProductEvidence(ctx, row, provider) {
   const invoiceByName = new Map(
     sellableItems.map((i) => [normalizeProductNameForMatch(i.productNameRaw), i])
   );
+  const invoiceByCode = new Map(
+    sellableItems.filter((i) => cleanText2(i.productCode)).map((i) => [cleanText2(i.productCode).toLowerCase(), i])
+  );
   const matchedPairs = resolvableBasketItems.map((basketItem) => {
     const canonical = basketItem.productId ? invoiceByProductId.get(String(basketItem.productId)) : null;
-    const byName = canonical ?? invoiceByName.get(normalizeProductNameForMatch(basketItem.productNameRaw));
-    return byName ? { basketItem, invoiceItem: byName } : null;
+    const byCode = canonical ?? (cleanText2(basketItem.productCode) ? invoiceByCode.get(cleanText2(basketItem.productCode).toLowerCase()) : void 0);
+    const byName = byCode ?? invoiceByName.get(normalizeProductNameForMatch(basketItem.productNameRaw));
+    const matchedBy = canonical ? "product_id" : byCode ? "product_code" : "name";
+    return byName ? { basketItem, invoiceItem: byName, matchedBy } : null;
   }).filter(Boolean);
   const productMatch = matchedPairs.length > 0 ? "available_match" : "available_mismatch";
   let quantityMatch = "unavailable";
@@ -3781,7 +3942,16 @@ function classifyProductEvidence(ctx, row, provider) {
     quantityMatch = allQuantitiesAgree ? "available_match" : "available_mismatch";
   }
   const productCoverage = matchedPairs.length === 0 ? "none" : matchedPairs.length === resolvableBasketItems.length ? "full" : "partial";
-  return { productMatch, quantityMatch, productCoverage };
+  const lineMatches = matchedPairs.map(({ basketItem, invoiceItem, matchedBy }) => ({
+    basketProductNameRaw: basketItem.productNameRaw,
+    invoiceProductNameRaw: invoiceItem.productNameRaw,
+    invoiceProductCode: cleanText2(invoiceItem.productCode) || null,
+    matchedBy,
+    caseQuantity: basketItem.quantity ?? null,
+    invoiceQuantity: invoiceItem.quantity == null ? null : Number(invoiceItem.quantity),
+    quantityAgrees: basketItem.quantity == null || invoiceItem.quantity == null ? null : basketItem.quantity === Number(invoiceItem.quantity)
+  }));
+  return { productMatch, quantityMatch, productCoverage, lineMatches };
 }
 function classifyLegacyMatch(ctx, row) {
   const invoiceId2 = getInvoiceRowId(row);
@@ -3840,6 +4010,14 @@ function scoreCandidate(input) {
     score += W.phoneMatch;
     factors.push("phone_match");
   }
+  if (input.customerCodeMatch) {
+    score += W.customerCodeExact;
+    factors.push("customer_code_exact");
+  }
+  if (input.customerNameMatch) {
+    score += W.customerNameMatch;
+    factors.push("customer_name_match");
+  }
   if (input.branchMatch === "exact_canonical") {
     score += W.branchExactCanonical;
     factors.push("branch_exact_canonical");
@@ -3893,6 +4071,10 @@ function scoreCandidate(input) {
   if (input.productMatch === "available_match") {
     score += W.productMatch;
     factors.push("product_match");
+    if (input.quantityMatch === "available_match") {
+      score += W.quantityMatch;
+      factors.push("quantity_match");
+    }
   } else if (input.productMatch === "available_mismatch") {
     disqualifiers.push("product_mismatch");
   }
@@ -4027,7 +4209,7 @@ function buildAttributionCandidate(ctx, row, itemEvidenceProvider = unavailableI
   const announcedTotalMatch = classifyAmountMatch(ctx.activeAnnouncedTotal?.amount ?? null, invoiceAmount);
   const basketValueMatch = classifyAmountMatch(ctx.activeBasketValue, invoiceAmount);
   const staffMatch = classifyStaff(ctx, row);
-  const { productMatch, quantityMatch, productCoverage } = classifyProductEvidence(ctx, row, itemEvidenceProvider);
+  const { productMatch, quantityMatch, productCoverage, lineMatches } = classifyProductEvidence(ctx, row, itemEvidenceProvider);
   const legacyEvidenceMatch = classifyLegacyMatch(ctx, row);
   const directLinks = classifyDirectLinks(ctx, row);
   const automaticDirectInvoiceLink = Boolean(automaticTrustedInvoiceId && automaticTrustedInvoiceId === invoiceId2);
@@ -4044,7 +4226,10 @@ function buildAttributionCandidate(ctx, row, itemEvidenceProvider = unavailableI
     basketValueMatch,
     staffMatch,
     legacyEvidenceMatch,
-    productMatch
+    productMatch,
+    customerCodeMatch: identity.customerCodeMatch,
+    customerNameMatch: identity.customerNameMatch,
+    quantityMatch
   });
   if (isDraftLikeZeroInvoice(row)) {
     disqualifiers.push("draft_zero_invoice");
@@ -4099,7 +4284,46 @@ function buildAttributionCandidate(ctx, row, itemEvidenceProvider = unavailableI
     evidence,
     ruleIds,
     confidenceAssessment,
-    disqualifiers
+    disqualifiers,
+    customerCodeMatch: identity.customerCodeMatch,
+    customerNameMatch: identity.customerNameMatch,
+    productCoverage,
+    lineMatches,
+    invoiceBranch: cleanText2(firstValue2(row, ["branch_name", "branch"])) ? normalizeBranchName(cleanText2(firstValue2(row, ["branch_name", "branch"]))) : null
+  };
+}
+var STRONG_CANDIDATE_MIN_LEAD = 0.15;
+function recommendInvoiceCandidate(top, second, context) {
+  if (!top) return { level: "none", reasons: [], missing: ["\u0644\u0627 \u062A\u0648\u062C\u062F \u0641\u0627\u062A\u0648\u0631\u0629 \u0645\u0631\u0634\u062D\u0629 \u0644\u0647\u0630\u0647 \u0627\u0644\u062D\u0627\u0644\u0629"] };
+  const reasons = [];
+  const missing = [];
+  const check = (ok, met, gap) => ok ? reasons.push(met) : missing.push(gap);
+  const lead = second ? top.confidenceAssessment.score - second.confidenceAssessment.score : 1;
+  const uniqueCode = Boolean(top.customerCodeMatch) && context.sameCodeCandidates === 1;
+  check(
+    uniqueCode,
+    "\u0643\u0648\u062F \u0627\u0644\u0639\u0645\u064A\u0644 \u0645\u0637\u0627\u0628\u0642 \u062A\u0645\u0627\u0645\u064B\u0627 \u0648\u0647\u064A \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0627\u0644\u0648\u062D\u064A\u062F\u0629 \u0628\u0647\u0630\u0627 \u0627\u0644\u0643\u0648\u062F \u0641\u064A \u0646\u0627\u0641\u0630\u0629 \u0627\u0644\u062D\u0627\u0644\u0629",
+    top.customerCodeMatch ? "\u0623\u0643\u062B\u0631 \u0645\u0646 \u0641\u0627\u062A\u0648\u0631\u0629 \u0628\u0646\u0641\u0633 \u0643\u0648\u062F \u0627\u0644\u0639\u0645\u064A\u0644 \u0641\u064A \u0646\u0627\u0641\u0630\u0629 \u0627\u0644\u062D\u0627\u0644\u0629" : "\u0643\u0648\u062F \u0627\u0644\u0639\u0645\u064A\u0644 \u063A\u064A\u0631 \u0645\u0637\u0627\u0628\u0642 \u0623\u0648 \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F"
+  );
+  check(Boolean(top.customerNameMatch), "\u0627\u0633\u0645 \u0627\u0644\u0639\u0645\u064A\u0644 \u0645\u0637\u0627\u0628\u0642 \u0628\u0639\u062F \u0627\u0644\u062A\u0637\u0628\u064A\u0639 (\u062F\u0644\u064A\u0644 \u0645\u0624\u064A\u062F)", "\u0627\u0633\u0645 \u0627\u0644\u0639\u0645\u064A\u0644 \u0639\u0644\u0649 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0644\u0627 \u064A\u0637\u0627\u0628\u0642 \u0627\u0633\u0645 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629");
+  const closeTime = top.timeMatchStrength === "very_strong" || top.timeMatchStrength === "strong";
+  check(closeTime, "\u062A\u0648\u0642\u064A\u062A \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0642\u0631\u064A\u0628 \u0645\u0646 \u0641\u062A\u0631\u0629 \u0647\u0630\u0647 \u0627\u0644\u062D\u0627\u0644\u0629 (" + (top.timeDistanceMinutes ?? "\u2014") + " \u062F\u0642\u064A\u0642\u0629)", "\u062A\u0648\u0642\u064A\u062A \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0644\u064A\u0633 \u0642\u0631\u064A\u0628\u064B\u0627 \u0628\u0645\u0627 \u064A\u0643\u0641\u064A \u0645\u0646 \u0641\u062A\u0631\u0629 \u0627\u0644\u062D\u0627\u0644\u0629");
+  const productOk = top.productMatch === "available_match" && top.quantityMatch !== "available_mismatch";
+  check(
+    productOk,
+    top.productCoverage === "full" ? "\u0643\u0644 \u0623\u0635\u0646\u0627\u0641 \u0627\u0644\u062D\u0627\u0644\u0629 \u0627\u0644\u0645\u062D\u0633\u0648\u0645\u0629 \u0645\u0648\u062C\u0648\u062F\u0629 \u0641\u064A \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u062F\u0648\u0646 \u062A\u0639\u0627\u0631\u0636 \u0643\u0645\u064A\u0629" : "\u0635\u0646\u0641 \u0648\u0627\u062D\u062F \u0639\u0644\u0649 \u0627\u0644\u0623\u0642\u0644 \u0645\u0646 \u0627\u0644\u062D\u0627\u0644\u0629 \u0645\u0637\u0627\u0628\u0642 \u0641\u064A \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 (\u0628\u0627\u0644\u0643\u0648\u062F \u0623\u0648 \u0627\u0644\u0645\u0646\u062A\u062C) \u062F\u0648\u0646 \u062A\u0639\u0627\u0631\u0636 \u0643\u0645\u064A\u0629",
+    top.productMatch === "unavailable" ? "\u0644\u0627 \u062A\u0648\u062C\u062F \u0623\u0635\u0646\u0627\u0641 \u0645\u062D\u0633\u0648\u0645\u0629 \u0643\u0627\u0641\u064A\u0629 \u0644\u0644\u0645\u0642\u0627\u0631\u0646\u0629 (\u0635\u0648\u0631\u0629/\u0635\u0648\u062A \u063A\u064A\u0631 \u0645\u062A\u0627\u062D \u0623\u0648 \u0627\u0633\u0645 \u063A\u064A\u0631 \u0645\u062D\u0633\u0648\u0645)" : "\u0623\u0635\u0646\u0627\u0641 \u0627\u0644\u062D\u0627\u0644\u0629 \u0644\u0627 \u062A\u0637\u0627\u0628\u0642 \u0628\u0646\u0648\u062F \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0623\u0648 \u0627\u0644\u0643\u0645\u064A\u0629 \u0645\u062A\u0639\u0627\u0631\u0636\u0629"
+  );
+  check(top.staffMatch !== "different", top.staffMatch === "same" ? "\u0628\u0627\u0626\u0639 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0647\u0648 \u0646\u0641\u0633 \u0627\u0644\u0645\u0648\u0638\u0641 \u0627\u0644\u0645\u0634\u0627\u0631\u0643 \u0641\u064A \u0647\u0630\u0647 \u0627\u0644\u062D\u0627\u0644\u0629" : "\u0644\u0627 \u064A\u0648\u062C\u062F \u062A\u0639\u0627\u0631\u0636 \u0641\u064A \u0627\u0644\u0628\u0627\u0626\u0639", "\u0628\u0627\u0626\u0639 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0645\u0648\u0638\u0641 \u0645\u062E\u062A\u0644\u0641 \u0639\u0646 \u0627\u0644\u0645\u0634\u0627\u0631\u0643 \u0641\u064A \u0627\u0644\u062D\u0627\u0644\u0629");
+  const clean4 = top.disqualifiers.length === 0 && top.identityConflict === "none" && !context.ambiguous && context.competingCaseIds.length === 0;
+  check(clean4, "\u0644\u0627 \u062A\u0648\u062C\u062F \u062A\u0639\u0627\u0631\u0636\u0627\u062A \u0647\u0648\u064A\u0629 \u0623\u0648 \u062D\u0627\u0644\u0627\u062A \u0645\u0646\u0627\u0641\u0633\u0629 \u0639\u0644\u0649 \u0646\u0641\u0633 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629", "\u064A\u0648\u062C\u062F \u062A\u0639\u0627\u0631\u0636 \u0623\u0648 \u062D\u0627\u0644\u0629 \u0623\u062E\u0631\u0649 \u062A\u0646\u0627\u0641\u0633 \u0639\u0644\u0649 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629");
+  check(lead >= STRONG_CANDIDATE_MIN_LEAD, "\u062A\u0641\u0648\u0642 \u0648\u0627\u0636\u062D \u0639\u0644\u0649 \u0623\u064A \u0641\u0627\u062A\u0648\u0631\u0629 \u0645\u0631\u0634\u062D\u0629 \u0623\u062E\u0631\u0649", "\u0641\u0627\u062A\u0648\u0631\u0629 \u0623\u062E\u0631\u0649 \u0642\u0631\u064A\u0628\u0629 \u0641\u064A \u0627\u0644\u0642\u0648\u0629\u061B \u064A\u0644\u0632\u0645 \u062A\u0631\u062C\u064A\u062D \u0628\u0634\u0631\u064A");
+  const strong = uniqueCode && Boolean(top.customerNameMatch) && closeTime && productOk && top.staffMatch !== "different" && clean4 && lead >= STRONG_CANDIDATE_MIN_LEAD;
+  const supported = !strong && Boolean(top.customerCodeMatch) && closeTime && clean4 && (productOk || top.staffMatch === "same" || top.announcedTotalMatch === "exact");
+  return {
+    level: strong ? "strong_candidate_requires_approval" : supported ? "supported_candidate" : "weak_candidate",
+    reasons,
+    missing
   };
 }
 function deriveSaleAttributionAssessment(ctx, invoiceRows, itemEvidenceProvider = unavailableInvoiceItemEvidenceProvider, competingSelections = []) {
@@ -4238,7 +4462,12 @@ function deriveSaleAttributionAssessment(ctx, invoiceRows, itemEvidenceProvider 
     legacyEvidenceUsed,
     ruleIds: [...top.ruleIds, ...ambiguous ? ["attribution.assessment.ambiguous"] : []],
     hasAttributedInvoice: attributionLevel === "proven" || attributionLevel === "strongly_inferred",
-    competingCaseIds
+    competingCaseIds,
+    candidateRecommendation: attributionLevel === "proven" ? void 0 : recommendInvoiceCandidate(top, second, {
+      ambiguous,
+      competingCaseIds,
+      sameCodeCandidates: candidates.filter((c) => c.customerCodeMatch && isStatisticallySelectable(c)).length
+    })
   };
 }
 
@@ -7194,7 +7423,13 @@ function buildCaseIntelligenceView(analysis, context) {
       demandKey: demand?.demandKey ?? null,
       lossOutcome: loss?.outcome ?? null,
       lossReason: loss?.reason ?? null,
-      followUpKeys: analysis.followUp.opportunities.filter((o) => o.productKey === product.key).map((o) => o.followUpKey)
+      followUpKeys: analysis.followUp.opportunities.filter((o) => o.productKey === product.key).map((o) => o.followUpKey),
+      mentionSource: product.roles.includes("requested") ? "customer_explicit" : product.roles.includes("offered") ? "staff_restatement" : "inferred",
+      quantitySource: product.requestedQuantity != null ? "customer" : product.offeredQuantity != null ? "staff_restatement" : product.finalQuantity != null ? "final_basket" : "unknown",
+      evidenceMessageIds: [...product.evidenceMessageIds],
+      invoiceLine: attribution.selectedCandidate?.lineMatches?.find(
+        (line) => normalizeProductKey(line.basketProductNameRaw) === product.key
+      ) ?? null
     };
   });
   const active = analysis.activeBasket;
@@ -7252,6 +7487,7 @@ function buildCaseIntelligenceView(analysis, context) {
     sourceCaseIdV22: conversationCase.sourceCaseIdV22,
     interaction: {
       interactionId: interaction?.id ?? null,
+      continuationEvidence: interaction?.continuationEvidence ?? [],
       startedAt: conversationCase.startedAt,
       endedAt: conversationCase.endedAt,
       messageCount: messages.length,
@@ -7279,7 +7515,11 @@ function buildCaseIntelligenceView(analysis, context) {
       identityStatus,
       blockers: identityResolved ? [] : ["customer_identity_unresolved"]
     },
-    branch: { branchId: conversationCase.branchId, branchNameRaw: conversationCase.branchNameRaw },
+    branch: {
+      branchId: conversationCase.branchId,
+      branchNameRaw: conversationCase.branchNameRaw,
+      recommendation: analysis.branchRecommendation
+    },
     ownership: conversationCase.ownership,
     staff: {
       participants: [...participants.values()].map((p) => ({ ...p, messageCount: p.messageIds.length })),
@@ -7299,6 +7539,7 @@ function buildCaseIntelligenceView(analysis, context) {
       invoiceCandidateIds: analysis.invoiceCandidateIds,
       selectedInvoiceId: attribution.selectedInvoiceId,
       selectedInvoiceNumber: attribution.selectedInvoiceNumber,
+      candidateRecommendation: attribution.candidateRecommendation ?? null,
       attributionLevel: attribution.attributionLevel,
       proofState: salesOutcome.saleProofState,
       outcome: salesOutcome.outcome,
@@ -7310,6 +7551,7 @@ function buildCaseIntelligenceView(analysis, context) {
     unavailableDemand: analysis.unavailableDemand,
     lostOpportunity: analysis.lostOpportunity,
     followUp: analysis.followUp,
+    careFollowUp: analysis.careFollowUp ?? null,
     // Projected as-is from the canonical disposition engine; the view decides nothing itself.
     ...analysis.operationalDisposition ? { operationalDisposition: analysis.operationalDisposition } : {},
     coachingEvidence: {
@@ -7670,6 +7912,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     activeBasketItems: activeItems.map((item) => ({
       productNameRaw: item.productNameRaw,
       productId: item.productId,
+      productCode: item.productCode ?? null,
       quantity: item.quantity,
       resolutionStatus: item.resolutionStatus
     })),
@@ -7933,7 +8176,14 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     pipelineWarnings,
     needsHumanReview,
     humanReviewReasons,
-    failureReasons
+    failureReasons,
+    careFollowUp: deriveCareFollowUpSuggestion(conversationCase, scopedMessages),
+    branchRecommendation: recommendCaseBranch({
+      ownership: conversationCase.ownership,
+      invoiceBranch: attribution.selectedCandidate?.invoiceBranch ?? null,
+      invoiceCandidateStrong: attribution.candidateRecommendation?.level === "strong_candidate_requires_approval",
+      attributionUsedCaseBranch: Boolean(attribution.selectedCandidate?.ruleIds.some((rule) => rule.includes("branch_exact") || rule.includes("branch_alias")))
+    })
   };
   return {
     ...analysis,
@@ -9105,13 +9355,13 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v42-evidence-integrity";
+var PIPELINE_VERSION = "sales-intelligence-v43-case-continuity-evidence";
 var ENGINE_VERSIONS = {
-  caseSegmentation: "case-segmentation-v12-service-new-need-ownership",
+  caseSegmentation: "case-segmentation-v13-open-service-need-continuity",
   historicalClosure: "historical-closure-v1",
   commercialConfirmation: "commercial-confirmation-v6-compact-total-interstitial-ack-safe",
   protocolApplicability: "protocol-applicability-v1",
-  attribution: "attribution-v9-canonical-seller-staff-identity",
+  attribution: "attribution-v10-explained-code-product-factors",
   matching: "matching-v3-unresolved-product-evidence-safe",
   policyEvaluation: "policy-evaluation-v1"
 };
@@ -13064,7 +13314,7 @@ function analyzeConversationEvaluationSales(view) {
 var criteria2 = new Map(REVIEW_CRITERIA.map((criterion5) => [criterion5.key, criterion5]));
 var APOLOGY_RX3 = /(?:متاسف|متأسف|آسف|اسف|بنعتذر|نعتذر|حقك\s*علينا|معلش)/i;
 var ORDER_CONTEXT_RX = /(?:اوردر|أوردر|الاوردر|الأوردر|طلب|المندوب|توصيل|دليفري)/i;
-var DELAY_RX = /(?:اتأخر|اتاخر|متأخر|متاخر|تأخير|تاخير|لسه|فين|مجاش|ماجاش|موصلش|ماوصلش|هييجي\s*امتى|هيوصل\s*امتى)/i;
+var DELAY_RX2 = /(?:اتأخر|اتاخر|متأخر|متاخر|تأخير|تاخير|لسه|فين|مجاش|ماجاش|موصلش|ماوصلش|هييجي\s*امتى|هيوصل\s*امتى)/i;
 var STAFF_DELAY_NOTICE_RX = /(?:(?:الطلب|الاوردر|الأوردر|المندوب|التوصيل)[^\n]{0,40}(?:ه?يتأخر|متأخر|في\s*تأخير|فيه\s*تأخير)|(?:في|فيه)\s*تأخير[^\n]{0,30}(?:الطلب|الاوردر|المندوب|التوصيل))/i;
 var ETA_RX = /(?:خلال\s*\d+\s*(?:دقيقه|دقيقة|دقائق|ساعه|ساعة|ساعات)|نص\s*ساعه|نصف\s*ساعه|هيوصل\s*(?:خلال|في)|هيكون\s*عند\s*حضرتك|موعد\s*جديد)/i;
 var DELIVERY_PROGRESS_RX = /(?:خرج\s*(?:مع|ل)\s*المندوب|في\s*الطريق|جاري\s*الارسال|جاري\s*الإرسال|تم\s*الارسال|تم\s*الإرسال)/i;
@@ -13184,7 +13434,7 @@ function assessComplaint(view) {
 function assessDelay(view) {
   const messages = ordered2(view);
   const customerDelayIndex = messages.findIndex(
-    (message) => message.role === "customer" && message.meaningful && ORDER_CONTEXT_RX.test(message.text) && DELAY_RX.test(message.text)
+    (message) => message.role === "customer" && message.meaningful && ORDER_CONTEXT_RX.test(message.text) && DELAY_RX2.test(message.text)
   );
   const proactiveNoticeIndex = messages.findIndex(
     (message) => message.role === "staff" && message.meaningful && STAFF_DELAY_NOTICE_RX.test(message.text)

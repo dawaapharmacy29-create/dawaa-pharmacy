@@ -504,3 +504,27 @@ describe('case ownership display never inherits a different source employee', ()
     expect(html).not.toContain('د محمد شبل');
   });
 });
+
+describe('V43 case evidence on the review screen (Arabic only)', () => {
+  const NURSING = [
+    '[9/28/26, 2:17:35 AM] Customer: لو سمحت ي دكتور ممكن تبعت حد مالتمريض لأن الكانيولا اتحركت والمحلول بيسرب',
+    '[9/28/26, 2:20:27 AM] You: عنيا حالا هبعته لحضرتك',
+    '[9/28/26, 3:39:59 AM] Customer: دكتورنا معلش شوفه تاني كده',
+    '[9/28/26, 3:41:26 AM] You: بيقولي عشر دقايق او ربع ساعه وييجي لحضرتك',
+  ].join('\n');
+
+  it('shows why the case starts, why the chase stayed in it, and the department — never raw codes', () => {
+    const view = persisted(analyze(NURSING).caseIntelligence!)!;
+    const html = render(view, 'review');
+    expect(html).toContain('قرارات الحالة وأدلتها');
+    expect(html).toContain('متابعة لطلب خدمة ما زال مفتوحًا');
+    expect(html).not.toMatch(/time_gap|open_service_need_followup|conversation_start|customer_service/);
+  });
+
+  it('shows the care check-in separately from sales follow-up and as history for an old case', () => {
+    const view = persisted(analyze(NURSING).caseIntelligence!)!;
+    const html = render(view, 'followup');
+    expect(html).toContain('متابعة رعاية مقترحة');
+    expect(html).toContain('سجل تاريخي، لا تُنشأ مهمة الآن');
+  });
+});

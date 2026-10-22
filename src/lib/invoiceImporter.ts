@@ -6,6 +6,7 @@
  */
 
 /* xlsx will be imported statically here because callers expect synchronous parsing */
+import { describeSourceCustomerReconciliation, reconcileWhatsAppSourceCustomers } from '@/lib/customers/whatsappSourceCustomerReconciliation';
 import * as XLSX from 'xlsx';
 import { supabase } from '@/lib/supabase';
 import { getCycleForDate } from '@/lib/pharmacy-cycle';
@@ -1434,6 +1435,20 @@ export async function importCustomersToDB(
         ];
         summary.summaryRefreshMessage =
           'تم تحديث العملاء، وتعذر إنشاء بعض مهام الرسائل الترحيبية تلقائيًا.';
+      }
+    }
+
+    // WhatsApp conversations saved before these customers existed are linked once, by unique code.
+    if (uniqueCustomerCodes.length) {
+      try {
+        const outcomes = await reconcileWhatsAppSourceCustomers(supabase, uniqueCustomerCodes, { name: 'استيراد العملاء' });
+        const note = describeSourceCustomerReconciliation(outcomes);
+        if (note) summary.summaryRefreshMessage = [summary.summaryRefreshMessage, note].filter(Boolean).join(' ');
+      } catch {
+        summary.schemaWarnings = [
+          ...(summary.schemaWarnings || []),
+          'تعذر ربط محادثات واتساب السابقة بالعملاء الجدد الآن؛ سيتم الربط في الاستيراد أو الإضافة التالية.',
+        ];
       }
     }
 

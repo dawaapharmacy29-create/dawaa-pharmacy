@@ -10,6 +10,8 @@ export interface CaseStaffProfile {
 }
 
 export interface CaseOwnershipContext {
+  /** Who wrote which outbound messages of THIS case (see deriveCaseStaffContributions). */
+  contributions?: CaseStaffContribution[];
   department: 'customer_service' | 'pharmacy' | 'mixed' | 'unresolved';
   sourceBranchNameRaw: string | null;
   operationalBranch: string | null;
@@ -85,8 +87,96 @@ export function deriveCaseOwnershipContext(input: {
   if (ids.size > 1) blockers.push('multiple_staff_owners_require_review');
   if (operationalBranch && homeBranches.size && !homeBranches.has(operationalBranch)) blockers.push('staff_home_branch_differs_from_operation');
   return {
+    contributions: deriveCaseStaffContributions(input),
     department, sourceBranchNameRaw, operationalBranch, branchBasis,
     suggestedStaffBranch: department !== 'customer_service' && homeBranches.size === 1 ? [...homeBranches][0] : null,
     owners, introductionMessageIds: introductions.map((m) => m.id), blockers: [...new Set(blockers)],
   };
+}
+
+/**
+ * Staff contributions inside ONE case, in message order. An explicit introduction owns the
+ * following unattributed outbound messages of the same case until another introduction appears;
+ * it never reaches earlier messages or other cases. Messages nobody can be tied to stay unresolved.
+ */
+export interface CaseStaffContribution {
+  staffId: string | null;
+  name: string | null;
+  function: CaseStaffProfile['function'] | 'unresolved';
+  messageIds: string[];
+}
+
+export function deriveCaseStaffContributions(input: {
+  messages: NormalizedConversationMessageV32[];
+  staffIdBySender?: Record<string, string>;
+  staffIdByIntroductionMessageId?: Record<string, string>;
+  staffProfilesById?: Record<string, CaseStaffProfile>;
+}): CaseStaffContribution[] {
+  const buckets = new Map<string, CaseStaffContribution>();
+  let introduced: string | null = null;
+  for (const message of input.messages) {
+    if (message.role !== 'staff' || !message.isMeaningful) continue;
+    if (extractIntroducedStaffName(message)) introduced = input.staffIdByIntroductionMessageId?.[message.id] ?? null;
+    const id = input.staffIdByIntroductionMessageId?.[message.id] ?? input.staffIdBySender?.[message.sender] ?? introduced;
+    const key = id ?? 'unresolved';
+    const profile = id ? input.staffProfilesById?.[id] : undefined;
+    const bucket = buckets.get(key) ?? {
+      staffId: id,
+      name: profile?.name ?? null,
+      function: profile?.function ?? (id ? 'other' : 'unresolved'),
+      messageIds: [],
+    };
+    bucket.messageIds.push(message.id);
+    buckets.set(key, bucket);
+  }
+  return [...buckets.values()];
+}
+
+/**
+ * Case-level branch recommendation. A decided case branch (explicit resolved introduction or an
+ * operating source branch) stands. Otherwise the staff home branch and the invoice branch are
+ * combined only when they are independent: the invoice branch counts only for a strong invoice
+ * candidate whose score did not already use the case branch. Disagreement is a conflict.
+ */
+export function recommendCaseBranch(input: {
+  ownership: CaseOwnershipContext | null | undefined;
+  invoiceBranch: string | null | undefined;
+  invoiceCandidateStrong: boolean;
+  attributionUsedCaseBranch: boolean;
+}): import('./types').CaseBranchRecommendation {
+  const ownership = input.ownership;
+  if (!ownership) return { branch: null, strength: 'none', reasons: ['لا توجد أدلة فرع على مستوى الحالة'] };
+  if (ownership.department === 'customer_service') {
+    return { branch: null, strength: 'none', reasons: ['حالة خدمة عملاء؛ لا تُنسب لفرع بيع'] };
+  }
+  if (ownership.branchBasis === 'conflict') {
+    return { branch: null, strength: 'conflict', reasons: ['تعارض بين تعريف الموظف وفرع المصدر'] };
+  }
+  if (ownership.operationalBranch) {
+    return {
+      branch: ownership.operationalBranch,
+      strength: 'decided',
+      reasons: [ownership.branchBasis === 'explicit_introduction' ? 'فرع صريح في تعريف دكتور محسوم الهوية' : 'فرع المصدر فرع تشغيل معتمد'],
+    };
+  }
+  const staffBranch = ownership.suggestedStaffBranch;
+  const invoiceBranch = input.invoiceCandidateStrong && !input.attributionUsedCaseBranch && isOperatingBranch(input.invoiceBranch)
+    ? normalizeBranchName(input.invoiceBranch)
+    : null;
+  const reasons: string[] = [];
+  if (ownership.sourceBranchNameRaw && !isOperatingBranch(ownership.sourceBranchNameRaw)) {
+    reasons.push(`فرع المصدر المسجل (${ownership.sourceBranchNameRaw}) ليس فرع تشغيل`);
+  }
+  if (staffBranch) reasons.push(`الفرع الأساسي للدكتور المسؤول: ${staffBranch}`);
+  if (invoiceBranch) reasons.push(`فرع الفاتورة المرشحة بقوة: ${invoiceBranch}`);
+  if (staffBranch && invoiceBranch && staffBranch !== invoiceBranch) {
+    return { branch: null, strength: 'conflict', reasons: [...reasons, 'فرع الدكتور يخالف فرع الفاتورة؛ يحتاج مراجعة'] };
+  }
+  if (staffBranch && invoiceBranch) {
+    return { branch: staffBranch, strength: 'strong_recommendation', reasons: [...reasons, 'دليلان مستقلان متفقان؛ يحتاج اعتمادًا قبل اعتباره فرع العملية'] };
+  }
+  if (staffBranch || invoiceBranch) {
+    return { branch: staffBranch ?? invoiceBranch, strength: 'supporting_only', reasons: [...reasons, 'دليل واحد فقط؛ غير كافٍ لحسم الفرع'] };
+  }
+  return { branch: null, strength: 'none', reasons: reasons.length ? reasons : ['لا توجد أدلة فرع كافية'] };
 }

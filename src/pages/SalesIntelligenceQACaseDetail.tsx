@@ -433,6 +433,7 @@ export default function SalesIntelligenceQACaseDetail() {
             branch={conversation.branch}
             caseStartedAt={analysis.case_started_at}
             caseEndedAt={analysis.case_ended_at}
+            caseMessageIds={caseIntelligence?.interaction.messageIds ?? null}
           />
         ) : null}
         staffDisplayName={conversation?.staffId ? conversation.staffName : null}

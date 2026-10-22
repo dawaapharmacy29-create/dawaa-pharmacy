@@ -50,3 +50,20 @@ describe('export markers in Arabic', () => {
     expect(arabicExportMarkers('عايز GASTROBIOTIC 550')).toBe('عايز GASTROBIOTIC 550');
   });
 });
+
+describe('case-only view', () => {
+  it('offers a case-only switch and highlights the case by its exact message ids', async () => {
+    const { createElement: h } = await import('react');
+    const { renderToStaticMarkup: render } = await import('react-dom/server');
+    const messages = parseWhatsAppExport([
+      '[9/27/26, 10:54:07 AM] You: مع حضرتك هبه من خدمة عملاء صيدليات دواء',
+      '[9/28/26, 1:01:04 AM] Customer: خليهم علبتين كولونا',
+    ].join('\n'));
+    const html = render(h(WhatsAppConversationPanel, {
+      messages, customerName: 'عميل', customerCode: null, customerPhone: null, branch: null,
+      caseStartedAt: null, caseEndedAt: null, caseMessageIds: [messages[1].id],
+    }));
+    expect(html).toContain('عرض الحالة فقط');
+    expect(html).toContain('المحادثة الأصلية كاملة (2 رسالة)');
+  });
+});

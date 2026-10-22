@@ -178,7 +178,7 @@ export function SourceOperationsPanel({ sourceId, permissions, analysisKey }: Pr
       {summary.status === 'ready' ? (
         <div className="grid gap-2 sm:grid-cols-3">
           <Info label="العميل" value={`${summary.value.customerName || 'غير متاح'}${summary.value.customerCode ? ` — كود ${summary.value.customerCode}` : ''}`} />
-          <Info label="الدكتور المسؤول على المصدر" value={summary.value.staffId ? summary.value.staffName || summary.value.staffId : 'غير محسوم'} />
+          <Info label="الدكتور المسجل على المصدر (ليس بالضرورة مسؤول كل حالاته)" value={summary.value.staffId ? summary.value.staffName || summary.value.staffId : 'غير محسوم — المسؤول يُحدد لكل حالة من رسائلها'} />
           <Info
             label="فرع المعاملة على المصدر"
             value={

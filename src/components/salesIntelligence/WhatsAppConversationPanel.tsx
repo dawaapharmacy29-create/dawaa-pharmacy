@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { WhatsAppParsedMessage } from '@/lib/whatsappConversationParser';
 import { ArrowLeft, CheckCheck, FileText, Forward, Image as ImageIcon, Mic, MoreVertical, Paperclip, Phone, Search, UserRound, Video } from 'lucide-react';
 
@@ -9,6 +10,8 @@ interface Props {
   branch: string | null;
   caseStartedAt: string | null;
   caseEndedAt: string | null;
+  /** The exact message ids of the current case; preferred over the time window when known. */
+  caseMessageIds?: string[] | null;
 }
 
 function inCaseWindow(message: WhatsAppParsedMessage, start: string | null, end: string | null): boolean {
@@ -115,7 +118,12 @@ function MediaContent({ message }: { message: WhatsAppParsedMessage }) {
   );
 }
 
-export function WhatsAppConversationPanel({ messages, customerName, customerCode, customerPhone, branch, caseStartedAt, caseEndedAt }: Props) {
+export function WhatsAppConversationPanel({ messages, customerName, customerCode, customerPhone, branch, caseStartedAt, caseEndedAt, caseMessageIds }: Props) {
+  const [caseOnly, setCaseOnly] = useState(false);
+  const caseIds = caseMessageIds?.length ? new Set(caseMessageIds) : null;
+  const isInCase = (message: WhatsAppParsedMessage) =>
+    caseIds ? caseIds.has(message.id) : inCaseWindow(message, caseStartedAt, caseEndedAt);
+  const visibleMessages = caseOnly ? messages.filter(isInCase) : messages;
   let previousDay = '';
   let previousDirection: WhatsAppParsedMessage['direction'] | null = null;
 
@@ -135,7 +143,13 @@ export function WhatsAppConversationPanel({ messages, customerName, customerCode
       </div>
 
       <div className="border-b border-white/5 bg-[#111b21] px-3 py-1.5 text-center text-[10px] text-[#aebac1]" dir="rtl">
-        المحادثة الأصلية كاملة • كل الرسائل ظاهرة بوضوح، ورسائل الجزء الحالي فقط عليها تمييز أخضر خفيف
+        {caseOnly
+          ? `رسائل هذه الحالة فقط (${visibleMessages.length} من ${messages.length} رسالة)`
+          : `المحادثة الأصلية كاملة (${messages.length} رسالة) • رسائل هذه الحالة عليها تمييز أخضر خفيف`}
+        <button type="button" className="mr-2 rounded bg-white/10 px-2 py-0.5 text-[10px] text-[#e9edef]" data-testid="case-only-toggle"
+          onClick={() => setCaseOnly((value) => !value)}>
+          {caseOnly ? 'عرض المحادثة كاملة' : 'عرض الحالة فقط'}
+        </button>
       </div>
 
       <div
@@ -146,8 +160,8 @@ export function WhatsAppConversationPanel({ messages, customerName, customerCode
           backgroundSize: '16px 16px',
         }}
       >
-        {messages.length ? messages.map((message) => {
-          const inside = inCaseWindow(message, caseStartedAt, caseEndedAt);
+        {visibleMessages.length ? visibleMessages.map((message) => {
+          const inside = isInCase(message);
           const key = dayKey(message.timestamp);
           const showDay = key !== previousDay;
           const sameSender = !showDay && previousDirection === message.direction;

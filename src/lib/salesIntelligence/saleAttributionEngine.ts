@@ -22,6 +22,7 @@ import {
 } from '../invoices/invoiceCore';
 import { normalizeBranchName } from '../branch';
 import { isValidEgyptianCustomerMobile, normalizeDawaaCustomerCode, normalizeEgyptianCustomerPhone } from '../customers/customerIdentity';
+import type { InvoiceCandidateRecommendation, InvoiceLineMatch } from './types';
 import type {
   AmountMatchKind,
   AnnouncedTotal,
@@ -86,6 +87,11 @@ export const ATTRIBUTION_FACTOR_WEIGHTS = {
   staffCompatible: 0.02,
   legacyMatch: 0.08,
   productMatch: 0.05,
+  // Exact pharmacy customer code is a real identity signal even when the invoice has no
+  // customer_id; it supports ranking/review but never satisfies the identity gate for official use.
+  customerCodeExact: 0.15,
+  customerNameMatch: 0.03,
+  quantityMatch: 0.03,
 } as const;
 
 export const ATTRIBUTION_LEVEL_THRESHOLDS = {
@@ -313,8 +319,14 @@ export function normalizeProductNameForMatch(name: string): string {
 function classifyIdentity(
   ctx: CaseAttributionContext,
   row: InvoiceLike
-): { customerIdMatch: boolean; phoneMatch: boolean; identityConflict: IdentityConflictStatus } {
+): { customerIdMatch: boolean; phoneMatch: boolean; identityConflict: IdentityConflictStatus; customerCodeMatch: boolean; customerNameMatch: boolean } {
   const invoiceCustomerId = getInvoiceCustomerId(row);
+  const caseCode = normalizeDawaaCustomerCode(ctx.customerCode);
+  const invoiceCode = getInvoiceCustomerCode(row);
+  const customerCodeMatch = Boolean(caseCode && invoiceCode && caseCode === invoiceCode);
+  const caseName = normalizeCustomerNameForInvoiceMatch(ctx.customerName);
+  const invoiceName = normalizeCustomerNameForInvoiceMatch(getInvoiceCustomerName(row));
+  const customerNameMatch = Boolean(caseName && invoiceName && caseName === invoiceName);
   const customerIdMatch = Boolean(ctx.customerId && invoiceCustomerId && ctx.customerId === invoiceCustomerId);
 
   const casePhone = ctx.customerPhone ? normalizeEgyptianCustomerPhone(ctx.customerPhone) : '';
@@ -334,7 +346,7 @@ function classifyIdentity(
     identityConflict = 'phone_vs_customer_id_conflict';
   }
 
-  return { customerIdMatch, phoneMatch, identityConflict };
+  return { customerIdMatch, phoneMatch, identityConflict, customerCodeMatch, customerNameMatch };
 }
 
 function classifyBranch(ctx: CaseAttributionContext, row: InvoiceLike): BranchMatchKind {
@@ -436,6 +448,7 @@ function classifyProductEvidence(
   quantityMatch: ProductEvidenceAvailability;
   /** How much of the conversation's resolved basket the invoice lines cover: all, some, none, or no evidence. */
   productCoverage: ProductCoverage;
+  lineMatches: InvoiceLineMatch[];
 } {
   const items = provider.getItemsForInvoice(getInvoiceRowId(row), getInvoiceRowNumber(row));
   const resolvableBasketItems = ctx.activeBasketItems.filter(
@@ -444,7 +457,7 @@ function classifyProductEvidence(
   // A media/deictic basket item whose identity is still unknown cannot contradict invoice lines.
   // It is an evidence gap: only resolved product identity is eligible for positive/negative item evidence.
   if (items === 'unavailable' || resolvableBasketItems.length === 0) {
-    return { productMatch: 'unavailable', quantityMatch: 'unavailable', productCoverage: 'unavailable' };
+    return { productMatch: 'unavailable', quantityMatch: 'unavailable', productCoverage: 'unavailable', lineMatches: [] };
   }
 
   const sellableItems = items.filter(
@@ -456,16 +469,24 @@ function classifyProductEvidence(
   const invoiceByName = new Map(
     sellableItems.map((i) => [normalizeProductNameForMatch(i.productNameRaw), i])
   );
+  // The pharmacy product code is an exact line key when the conversation's catalog identity
+  // carried one (e.g. "جاسترو بيوتيك 550" -> 78994), whatever the displayed names look like.
+  const invoiceByCode = new Map(
+    sellableItems.filter((i) => cleanText(i.productCode)).map((i) => [cleanText(i.productCode).toLowerCase(), i])
+  );
 
   const matchedPairs = resolvableBasketItems
     .map((basketItem) => {
       const canonical = basketItem.productId ? invoiceByProductId.get(String(basketItem.productId)) : null;
-      const byName = canonical ?? invoiceByName.get(normalizeProductNameForMatch(basketItem.productNameRaw));
-      return byName ? { basketItem, invoiceItem: byName } : null;
+      const byCode = canonical ?? (cleanText(basketItem.productCode) ? invoiceByCode.get(cleanText(basketItem.productCode).toLowerCase()) : undefined);
+      const byName = byCode ?? invoiceByName.get(normalizeProductNameForMatch(basketItem.productNameRaw));
+      const matchedBy: InvoiceLineMatch['matchedBy'] = canonical ? 'product_id' : byCode ? 'product_code' : 'name';
+      return byName ? { basketItem, invoiceItem: byName, matchedBy } : null;
     })
     .filter(Boolean) as Array<{
-      basketItem: { productNameRaw: string; productId?: string | null; quantity: number | null; resolutionStatus?: ItemResolutionStatus };
+      basketItem: { productNameRaw: string; productId?: string | null; productCode?: string | null; quantity: number | null; resolutionStatus?: ItemResolutionStatus };
       invoiceItem: InvoiceItemRecordForAttribution;
+      matchedBy: InvoiceLineMatch['matchedBy'];
     }>;
 
   const productMatch: ProductEvidenceAvailability =
@@ -484,7 +505,16 @@ function classifyProductEvidence(
   const productCoverage: ProductCoverage =
     matchedPairs.length === 0 ? 'none' : matchedPairs.length === resolvableBasketItems.length ? 'full' : 'partial';
 
-  return { productMatch, quantityMatch, productCoverage };
+  const lineMatches: InvoiceLineMatch[] = matchedPairs.map(({ basketItem, invoiceItem, matchedBy }) => ({
+    basketProductNameRaw: basketItem.productNameRaw,
+    invoiceProductNameRaw: invoiceItem.productNameRaw,
+    invoiceProductCode: cleanText(invoiceItem.productCode) || null,
+    matchedBy,
+    caseQuantity: basketItem.quantity ?? null,
+    invoiceQuantity: invoiceItem.quantity == null ? null : Number(invoiceItem.quantity),
+    quantityAgrees: basketItem.quantity == null || invoiceItem.quantity == null ? null : basketItem.quantity === Number(invoiceItem.quantity),
+  }));
+  return { productMatch, quantityMatch, productCoverage, lineMatches };
 }
 
 function classifyLegacyMatch(ctx: CaseAttributionContext, row: InvoiceLike): boolean {
@@ -588,6 +618,9 @@ interface ScoreInput {
   staffMatch: StaffCompatibility;
   legacyEvidenceMatch: boolean;
   productMatch: ProductEvidenceAvailability;
+  customerCodeMatch?: boolean;
+  customerNameMatch?: boolean;
+  quantityMatch?: ProductEvidenceAvailability;
 }
 
 function scoreCandidate(input: ScoreInput): { score: number; disqualifiers: string[]; factors: string[] } {
@@ -603,6 +636,14 @@ function scoreCandidate(input: ScoreInput): { score: number; disqualifiers: stri
   if (input.phoneMatch) {
     score += W.phoneMatch;
     factors.push('phone_match');
+  }
+  if (input.customerCodeMatch) {
+    score += W.customerCodeExact;
+    factors.push('customer_code_exact');
+  }
+  if (input.customerNameMatch) {
+    score += W.customerNameMatch;
+    factors.push('customer_name_match');
   }
 
   if (input.branchMatch === 'exact_canonical') {
@@ -664,6 +705,10 @@ function scoreCandidate(input: ScoreInput): { score: number; disqualifiers: stri
   if (input.productMatch === 'available_match') {
     score += W.productMatch;
     factors.push('product_match');
+    if (input.quantityMatch === 'available_match') {
+      score += W.quantityMatch;
+      factors.push('quantity_match');
+    }
   } else if (input.productMatch === 'available_mismatch') {
     disqualifiers.push('product_mismatch');
   }
@@ -866,7 +911,7 @@ export function buildAttributionCandidate(
   const announcedTotalMatch = classifyAmountMatch(ctx.activeAnnouncedTotal?.amount ?? null, invoiceAmount);
   const basketValueMatch = classifyAmountMatch(ctx.activeBasketValue, invoiceAmount);
   const staffMatch = classifyStaff(ctx, row);
-  const { productMatch, quantityMatch, productCoverage } = classifyProductEvidence(ctx, row, itemEvidenceProvider);
+  const { productMatch, quantityMatch, productCoverage, lineMatches } = classifyProductEvidence(ctx, row, itemEvidenceProvider);
   const legacyEvidenceMatch = classifyLegacyMatch(ctx, row);
   const directLinks = classifyDirectLinks(ctx, row);
   const automaticDirectInvoiceLink = Boolean(automaticTrustedInvoiceId && automaticTrustedInvoiceId === invoiceId);
@@ -885,6 +930,9 @@ export function buildAttributionCandidate(
     staffMatch,
     legacyEvidenceMatch,
     productMatch,
+    customerCodeMatch: identity.customerCodeMatch,
+    customerNameMatch: identity.customerNameMatch,
+    quantityMatch,
   });
 
   if (isDraftLikeZeroInvoice(row)) {
@@ -949,6 +997,57 @@ export function buildAttributionCandidate(
     ruleIds,
     confidenceAssessment,
     disqualifiers,
+    customerCodeMatch: identity.customerCodeMatch,
+    customerNameMatch: identity.customerNameMatch,
+    productCoverage,
+    lineMatches,
+    invoiceBranch: cleanText(firstValue(row, ['branch_name', 'branch'])) ? normalizeBranchName(cleanText(firstValue(row, ['branch_name', 'branch']))) : null,
+  };
+}
+
+/** Minimum score lead over the next candidate for a "strong candidate" recommendation. */
+export const STRONG_CANDIDATE_MIN_LEAD = 0.15;
+
+/**
+ * Reviewer recommendation for the selected invoice. Strong only when independent evidence agrees:
+ * a unique exact customer code, the customer name, close timing within THIS case, at least one
+ * identified product line (code / product id / name) with no contradicting quantity, no seller
+ * contradiction, no conflict/competition, and a clear lead over the next invoice. Unavailable
+ * media is a gap: it neither blocks nor supports. This never proves the sale or delivery.
+ */
+export function recommendInvoiceCandidate(
+  top: SaleAttributionCandidate | null,
+  second: SaleAttributionCandidate | null,
+  context: { ambiguous: boolean; competingCaseIds: string[]; sameCodeCandidates: number }
+): InvoiceCandidateRecommendation {
+  if (!top) return { level: 'none', reasons: [], missing: ['لا توجد فاتورة مرشحة لهذه الحالة'] };
+  const reasons: string[] = [];
+  const missing: string[] = [];
+  const check = (ok: boolean, met: string, gap: string) => (ok ? reasons.push(met) : missing.push(gap));
+  const lead = second ? top.confidenceAssessment.score - second.confidenceAssessment.score : 1;
+  const uniqueCode = Boolean(top.customerCodeMatch) && context.sameCodeCandidates === 1;
+  check(uniqueCode, 'كود العميل مطابق تمامًا وهي الفاتورة الوحيدة بهذا الكود في نافذة الحالة',
+    top.customerCodeMatch ? 'أكثر من فاتورة بنفس كود العميل في نافذة الحالة' : 'كود العميل غير مطابق أو غير موجود');
+  check(Boolean(top.customerNameMatch), 'اسم العميل مطابق بعد التطبيع (دليل مؤيد)', 'اسم العميل على الفاتورة لا يطابق اسم المحادثة');
+  const closeTime = top.timeMatchStrength === 'very_strong' || top.timeMatchStrength === 'strong';
+  check(closeTime, 'توقيت الفاتورة قريب من فترة هذه الحالة (' + (top.timeDistanceMinutes ?? '—') + ' دقيقة)', 'توقيت الفاتورة ليس قريبًا بما يكفي من فترة الحالة');
+  const productOk = top.productMatch === 'available_match' && top.quantityMatch !== 'available_mismatch';
+  check(productOk, top.productCoverage === 'full'
+    ? 'كل أصناف الحالة المحسومة موجودة في الفاتورة دون تعارض كمية'
+    : 'صنف واحد على الأقل من الحالة مطابق في الفاتورة (بالكود أو المنتج) دون تعارض كمية',
+  top.productMatch === 'unavailable' ? 'لا توجد أصناف محسومة كافية للمقارنة (صورة/صوت غير متاح أو اسم غير محسوم)' : 'أصناف الحالة لا تطابق بنود الفاتورة أو الكمية متعارضة');
+  check(top.staffMatch !== 'different', top.staffMatch === 'same' ? 'بائع الفاتورة هو نفس الموظف المشارك في هذه الحالة' : 'لا يوجد تعارض في البائع', 'بائع الفاتورة موظف مختلف عن المشارك في الحالة');
+  const clean = top.disqualifiers.length === 0 && top.identityConflict === 'none' && !context.ambiguous && context.competingCaseIds.length === 0;
+  check(clean, 'لا توجد تعارضات هوية أو حالات منافسة على نفس الفاتورة', 'يوجد تعارض أو حالة أخرى تنافس على الفاتورة');
+  check(lead >= STRONG_CANDIDATE_MIN_LEAD, 'تفوق واضح على أي فاتورة مرشحة أخرى', 'فاتورة أخرى قريبة في القوة؛ يلزم ترجيح بشري');
+  const strong = uniqueCode && Boolean(top.customerNameMatch) && closeTime && productOk && top.staffMatch !== 'different' && clean && lead >= STRONG_CANDIDATE_MIN_LEAD;
+  // Customer code + time alone (no product content, no seller, no total) is never more than weak.
+  const supported = !strong && Boolean(top.customerCodeMatch) && closeTime && clean &&
+    (productOk || top.staffMatch === 'same' || top.announcedTotalMatch === 'exact');
+  return {
+    level: strong ? 'strong_candidate_requires_approval' : supported ? 'supported_candidate' : 'weak_candidate',
+    reasons,
+    missing,
   };
 }
 
@@ -1179,6 +1278,13 @@ export function deriveSaleAttributionAssessment(
     ruleIds: [...top.ruleIds, ...(ambiguous ? ['attribution.assessment.ambiguous'] : [])],
     hasAttributedInvoice: attributionLevel === 'proven' || attributionLevel === 'strongly_inferred',
     competingCaseIds,
+    candidateRecommendation: attributionLevel === 'proven'
+      ? undefined
+      : recommendInvoiceCandidate(top, second, {
+        ambiguous,
+        competingCaseIds,
+        sameCodeCandidates: candidates.filter((c) => c.customerCodeMatch && isStatisticallySelectable(c)).length,
+      }),
   };
 }
 

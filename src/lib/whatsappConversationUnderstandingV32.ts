@@ -13,8 +13,11 @@ import {
   isAcceptanceOnly,
   isBareAcknowledgementOnly,
   isRejectionOnly,
+  isOperationalServiceClosure,
+  isOperationalServiceRequest,
   isRequestCandidate,
   isThanksOrClosingOnly,
+  startsIndependentCommercialNeed,
   type ConversationSemanticSignalV32,
 } from './whatsappSemanticSignalsV32';
 
@@ -67,7 +70,13 @@ export interface ConversationInteractionV32 {
     | 'reopened_after_closing'
     | 'topic_shift_marker'
     | 'new_commercial_need'
-    | 'customer_service_new_need';
+    | 'customer_service_new_need'
+    | 'new_service_need';
+  /**
+   * Messages that stayed in this interaction across a time gap, and why. A gap alone never
+   * splits or merges; these are the semantic ties that kept the case together.
+   */
+  continuationEvidence?: Array<{ messageId: string; reason: 'open_service_need_followup' | 'semantic_continuation' }>;
 }
 
 export interface ConversationUnderstandingV32 {
@@ -123,6 +132,30 @@ const PAYMENT_SETTLEMENT_CONTINUATION_RX =
 export function hasPaymentSettlementHandoffText(text: string): boolean {
   return PAYMENT_SETTLEMENT_CONTINUATION_RX.test(text || '');
 }
+// An open operational need (a requested nurse visit) keeps its follow-ups in the same case for
+// up to 12 hours; past that, a chase needs its own explicit reference.
+const OPEN_SERVICE_NEED_MAX_GAP_MS = 12 * 60 * 60 * 1000;
+
+/** The latest service request in the current case that nothing has closed yet. */
+function openServiceNeed(current: NormalizedConversationMessageV32[]): NormalizedConversationMessageV32 | null {
+  let open: NormalizedConversationMessageV32 | null = null;
+  for (const message of current) {
+    if (isOperationalServiceRequest(message)) open = message;
+    else if (open && isOperationalServiceClosure(message)) open = null;
+  }
+  return open;
+}
+
+/** A customer turn that continues an open service need: anything that does not start a new need. */
+function continuesOpenServiceNeed(
+  current: NormalizedConversationMessageV32[],
+  next: NormalizedConversationMessageV32,
+  gapMs: number
+): boolean {
+  if (next.role !== 'customer' || !next.isMeaningful || gapMs > OPEN_SERVICE_NEED_MAX_GAP_MS) return false;
+  return Boolean(openServiceNeed(current)) && !startsIndependentCommercialNeed(next);
+}
+
 const ADDITIVE_REQUEST_RX =
   /(?:^|\s)(?:وكمان|كمان|وزود|زود|ضيف|معاهم|معاه|مع\s*الطلب)(?:\s|$)/i;
 const STAFF_PENDING_REPLY_RX =
@@ -244,6 +277,7 @@ function hasStrongSemanticContinuation(
     return true;
   }
   if (next.role !== 'customer' || !next.isMeaningful) return false;
+  if (continuesOpenServiceNeed(current, next, gapMs)) return true;
   if (isSameOrderContinuation(current, next, gapMs)) return true;
   if (gapMs <= SEMANTIC_CONTINUATION_MAX_GAP_MS) {
     // A bounded answer to explicit customer-service outreach stays with that
@@ -343,6 +377,7 @@ function segmentInteractions(messages: NormalizedConversationMessageV32[]): Conv
   let current: NormalizedConversationMessageV32[] = [];
   let reason: ConversationInteractionV32['segmentationReason'] = 'conversation_start';
   let sawClosingSinceLastMeaningfulInbound = false;
+  let continuationEvidence: NonNullable<ConversationInteractionV32['continuationEvidence']> = [];
 
   const flush = () => {
     if (!current.length) return;
@@ -364,13 +399,16 @@ function segmentInteractions(messages: NormalizedConversationMessageV32[]): Conv
       triggerMessageId: trigger?.id || null,
       primaryStaffNames: staffNames,
       segmentationReason: reason,
+      ...(continuationEvidence.length ? { continuationEvidence } : {}),
     });
     current = [];
+    continuationEvidence = [];
     sawClosingSinceLastMeaningfulInbound = false;
   };
 
   messages.forEach((message, i) => {
     const prev = messages[i - 1];
+    let longGapContinuation: NonNullable<ConversationInteractionV32['continuationEvidence']>[number] | null = null;
     if (prev && current.length) {
       const previousMeaningful = [...current].reverse().find((candidate) => candidate.isMeaningful) || prev;
       const gapMs = message.timestamp.getTime() - previousMeaningful.timestamp.getTime();
@@ -378,8 +416,26 @@ function segmentInteractions(messages: NormalizedConversationMessageV32[]): Conv
       const fulfilledCurrentOrder = currentHasOrderCommitment(current);
       const additiveRequest = ADDITIVE_REQUEST_RX.test(message.text);
       const serviceBoundary = serviceToNewNeedBoundary(current, message);
+      const interactionCountBefore = interactions.length;
+      if (gapMs > INTERACTION_GAP_MS && semanticContinuation && message.isMeaningful) {
+        longGapContinuation = {
+          messageId: message.id,
+          reason: continuesOpenServiceNeed(current, message, gapMs) ? 'open_service_need_followup' : 'semantic_continuation',
+        };
+      }
 
-      if (serviceBoundary !== null) {
+      const openService = Boolean(openServiceNeed(current));
+      if (openService && startsIndependentCommercialNeed(message)) {
+        // A medicine/price/availability request is its own case even minutes after a nurse request.
+        flush();
+        reason = 'new_commercial_need';
+      } else if (!openService && isOperationalServiceRequest(message) &&
+          current.some((m) => m.role === 'customer' && m.isMeaningful && startsIndependentCommercialNeed(m)) &&
+          !startsIndependentCommercialNeed(message)) {
+        // A nurse request after a medicine order is a separate service case, whatever the gap.
+        flush();
+        reason = 'new_service_need';
+      } else if (serviceBoundary !== null) {
         const trailing = current.splice(serviceBoundary);
         flush();
         current = trailing;
@@ -413,6 +469,8 @@ function segmentInteractions(messages: NormalizedConversationMessageV32[]): Conv
         flush();
         reason = 'new_commercial_need';
       }
+      // Recorded only when the message really stayed in the same case.
+      if (longGapContinuation && interactions.length === interactionCountBefore) continuationEvidence.push(longGapContinuation);
     }
 
     if (message.role === 'staff' && message.isMeaningful && CLOSING_RX.test(message.text)) {

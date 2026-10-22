@@ -14,7 +14,8 @@ import {
   type NormalizedConversationMessageV32,
 } from '../whatsappConversationUnderstandingV32';
 import { deriveConversationCases } from './conversationCaseEngine';
-import { deriveCaseOwnershipContext, type CaseStaffProfile } from './caseOwnershipContext';
+import { deriveCaseOwnershipContext, recommendCaseBranch, type CaseStaffProfile } from './caseOwnershipContext';
+import { deriveCareFollowUpSuggestion } from './careFollowUpEngine';
 import { buildCaseBaskets } from './caseBasketEngine';
 import {
   assessOrderConfirmationProtocol,
@@ -419,6 +420,7 @@ function analyzeOneCase(
     activeBasketItems: activeItems.map((item) => ({
       productNameRaw: item.productNameRaw,
       productId: item.productId,
+      productCode: item.productCode ?? null,
       quantity: item.quantity,
       resolutionStatus: item.resolutionStatus,
     })),
@@ -762,6 +764,13 @@ function analyzeOneCase(
     needsHumanReview,
     humanReviewReasons,
     failureReasons,
+    careFollowUp: deriveCareFollowUpSuggestion(conversationCase, scopedMessages),
+    branchRecommendation: recommendCaseBranch({
+      ownership: conversationCase.ownership,
+      invoiceBranch: attribution.selectedCandidate?.invoiceBranch ?? null,
+      invoiceCandidateStrong: attribution.candidateRecommendation?.level === 'strong_candidate_requires_approval',
+      attributionUsedCaseBranch: Boolean(attribution.selectedCandidate?.ruleIds.some((rule) => rule.includes('branch_exact') || rule.includes('branch_alias'))),
+    }),
   };
   return {
     ...analysis,

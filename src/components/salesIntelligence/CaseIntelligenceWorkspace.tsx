@@ -39,7 +39,17 @@ import {
   staffFactLabel,
   suppressionLabel,
   waitingOnLabel,
+  segmentationReasonLabel,
+  continuationReasonLabel,
+  candidateRecommendationLabel,
+  branchRecommendationLabel,
+  staffFunctionLabel,
+  departmentLabel,
+  mentionSourceLabel,
+  quantitySourceLabel,
+  lineMatchedByLabel,
 } from '@/lib/salesIntelligence/qa/caseIntelligencePresentation';
+import { careFollowUpState } from '@/lib/salesIntelligence/careFollowUpEngine';
 
 export type CaseIntelligenceTab = 'conversation' | 'evaluation' | 'need' | 'products' | 'sale' | 'lost' | 'followup' | 'clinical' | 'review';
 
@@ -574,6 +584,13 @@ export function CaseIntelligenceWorkspace({
                   <Fact label="رد العميل">{p.alternativeResponses.length ? p.alternativeResponses.map((r) => alternativeResponseLabel(r)).join('، ') : '—'}</Fact>
                   <Fact label="في الطلب النهائي">{p.inFinalBasket ? 'نعم' : 'لا'}</Fact>
                   <Fact label="المتابعة">{followUps.length ? followUps.map((o) => `${followUpReasonLabel(o.reason)} (${followUpStatusLabel(o.status)})`).join('، ') : 'لا يوجد'}</Fact>
+                  <Fact label="مصدر ذكر الصنف">{mentionSourceLabel(p.mentionSource)}</Fact>
+                  <Fact label="مصدر الكمية">{quantitySourceLabel(p.quantitySource)}</Fact>
+                  <Fact label="بند الفاتورة المرشحة المقابل">
+                    {p.invoiceLine
+                      ? `${p.invoiceLine.invoiceProductNameRaw}${p.invoiceLine.invoiceProductCode ? ` • كود ${p.invoiceLine.invoiceProductCode}` : ''} • الكمية ${p.invoiceLine.invoiceQuantity ?? UNKNOWN_LABEL} — ${lineMatchedByLabel(p.invoiceLine.matchedBy)}${p.invoiceLine.quantityAgrees === false ? ' — الكمية مختلفة' : ''}`
+                      : 'لا يوجد بند مقابل محسوم'}
+                  </Fact>
                 </div>
                 {demand ? (
                   <WhyButton
@@ -597,6 +614,21 @@ export function CaseIntelligenceWorkspace({
 
       {tab === 'sale' ? (
         <div className="space-y-3">
+          {view.sale.candidateRecommendation && view.sale.selectedInvoiceNumber ? (
+            <Block title={`الفاتورة المرشحة ${view.sale.selectedInvoiceNumber}: ${candidateRecommendationLabel(view.sale.candidateRecommendation.level)}`}>
+              <div className="dawaa-muted text-xs leading-6" data-testid="invoice-candidate-recommendation">
+                ترشيح للمراجعة فقط: لا يثبت البيع أو التسليم، ولا يُحتسب إيرادًا أو تقييمًا قبل الاعتماد.
+              </div>
+              <ul className="list-disc space-y-1 ps-6 text-sm">
+                {view.sale.candidateRecommendation.reasons.map((reason) => <li key={reason}>{reason}</li>)}
+              </ul>
+              {view.sale.candidateRecommendation.missing.length ? (
+                <ul className="dawaa-muted list-disc space-y-1 ps-6 text-xs">
+                  {view.sale.candidateRecommendation.missing.map((reason) => <li key={reason}>ناقص: {reason}</li>)}
+                </ul>
+              ) : null}
+            </Block>
+          ) : null}
           {automaticInvoiceLink ? (
             <div className="dawaa-alert dawaa-alert--success text-sm leading-7" data-testid="automatic-invoice-link-summary">
               تم ربط الفاتورة تلقائيًا
@@ -673,6 +705,17 @@ export function CaseIntelligenceWorkspace({
 
       {tab === 'followup' ? (
         <div className="space-y-3">
+          {view.careFollowUp ? (
+            <Block title="متابعة رعاية مقترحة (خدمة العملاء)">
+              <div className="text-sm leading-7" data-testid="care-follow-up">{view.careFollowUp.reason}</div>
+              <div className="dawaa-muted text-xs">
+                {careFollowUpState(view.careFollowUp, new Date()) === 'was_due_historically'
+                  ? `كانت مستحقة بعد الواقعة (${formatTime(view.careFollowUp.dueAt)}) — سجل تاريخي، لا تُنشأ مهمة الآن.`
+                  : `موعد مقترح: ${formatTime(view.careFollowUp.dueAt)} — اقتراح فقط، لا يُنفذ ولا يُرسل تلقائيًا.`}
+              </div>
+              <WhyButton onClick={() => open({ title: 'متابعة الرعاية', reason: view.careFollowUp!.reason, confidence: null, messageIds: view.careFollowUp!.evidenceMessageIds })} />
+            </Block>
+          ) : null}
           <div className="dawaa-muted text-sm">{followUpDecisionLabel(view.followUp.decision)}{view.followUp.notNeededReason ? ` — ${suppressionLabel(view.followUp.notNeededReason)}` : ''}</div>
           {view.followUp.opportunities.map((o) => (
             <div key={o.followUpKey} className="dawaa-card space-y-2" data-followup={o.status}>
@@ -764,6 +807,43 @@ export function CaseIntelligenceWorkspace({
 
       {tab === 'review' ? (
         <div className="space-y-3">
+          <Block title="قرارات الحالة وأدلتها">
+            <div className="grid gap-3 sm:grid-cols-2" data-testid="case-decisions">
+              <Fact label="سبب بداية الحالة">{segmentationReasonLabel(view.interaction.segmentationReason)}</Fact>
+              <Fact label="القسم">{departmentLabel(view.ownership?.department)}</Fact>
+              <Fact label="فرع الحالة">
+                {view.branch.recommendation
+                  ? `${view.branch.recommendation.branch ?? UNKNOWN_LABEL} — ${branchRecommendationLabel(view.branch.recommendation.strength)}`
+                  : UNKNOWN_LABEL}
+              </Fact>
+              <Fact label="عدد رسائل الحالة">{view.interaction.messageCount}</Fact>
+            </div>
+            {view.branch.recommendation?.reasons.length ? (
+              <ul className="dawaa-muted list-disc space-y-1 ps-6 text-xs">
+                {view.branch.recommendation.reasons.map((reason) => <li key={reason}>{reason}</li>)}
+              </ul>
+            ) : null}
+            {view.interaction.continuationEvidence?.length ? (
+              <ul className="list-disc space-y-1 ps-6 text-xs">
+                {view.interaction.continuationEvidence.map((item) => (
+                  <li key={item.messageId} className="flex items-center justify-between gap-2">
+                    <span>{continuationReasonLabel(item.reason)}</span>
+                    <WhyButton onClick={() => open({ title: 'سبب بقاء الرسالة في الحالة', reason: continuationReasonLabel(item.reason), confidence: null, messageIds: [item.messageId] })} />
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {view.ownership?.contributions?.length ? (
+              <ul className="space-y-1 text-sm" data-testid="staff-contributions">
+                {view.ownership.contributions.map((c) => (
+                  <li key={c.staffId ?? 'unresolved'} className="flex items-center justify-between gap-2">
+                    <span>{c.name ?? 'موظف غير محسوم الهوية'} — {staffFunctionLabel(c.function)} — {c.messageIds.length} رسالة</span>
+                    <WhyButton onClick={() => open({ title: 'رسائل الموظف في هذه الحالة', reason: staffFunctionLabel(c.function), confidence: null, messageIds: c.messageIds })} />
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </Block>
           <Block title={`يحتاج مراجعة؟ ${view.review.required ? 'نعم' : 'لا'}`}>
             {view.review.reasons.length ? (
               <ul className="list-disc space-y-1 ps-6 text-sm">
@@ -800,7 +880,7 @@ export function CaseIntelligenceWorkspace({
               <div>المعرف: <span className="font-mono">{view.caseId}</span></div>
               <div>المحادثة: <span className="font-mono">{view.conversationId}</span></div>
               <div>نسخة العرض: <span className="font-mono">{view.version}</span></div>
-              <div>سبب تقسيم التفاعل: <span className="font-mono">{view.interaction.segmentationReason ?? '—'}</span></div>
+              <div>سبب تقسيم التفاعل: {segmentationReasonLabel(view.interaction.segmentationReason)}</div>
               <div>قواعد الفرصة: <span className="font-mono">{view.lostOpportunity.explanation}</span></div>
             </div>
           ) : null}

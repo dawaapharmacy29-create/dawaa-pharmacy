@@ -365,6 +365,33 @@ export function isRejectionOnly(text: string): boolean {
 }
 
 /** "شكرا"/"تسلم"/"وصل"/"لا شكرا" — a closing pleasantry, not a new request. */
+// ---- Operational service needs (a nurse visit, a service follow-up) -------------------------
+// One shared definition for segmentation (whether the case is still open) and classification
+// (whether it is a service rather than a medicine sale).
+export const OPERATIONAL_SERVICE_REQUEST_RX =
+  /(?:ممكن|لو سمحت|عايز|عاوز|محتاج|ابعت|ابعث|تبعت|تبعث|هات|حد).{0,100}(?:التمريض|مالتمريض|ممرض(?:ة)?)/iu;
+// The service actually happened or the customer released it — only then is the need closed.
+const OPERATIONAL_SERVICE_CLOSURE_RX =
+  /(?:الممرض|التمريض|الممرضه|الممرضة)\s*(?:وصل|جه|جت|خلص|ركب|مشي)|(?:وصل|جه)\s*(?:الممرض|التمريض)|خلاص\s*(?:مش\s*)?(?:محتاج|عايز)[^\n]{0,20}(?:الممرض|التمريض)|(?:ألغي|الغي|إلغاء|الغاء)\s*(?:الطلب|الممرض|التمريض)/iu;
+// Wording that starts an independent commercial need instead of continuing an open service need.
+const INDEPENDENT_COMMERCIAL_NEED_RX =
+  /(?:علب(?:ة|ه|تين|ات)?|شريط|روشت[ةه]|أقراص|اقراص|حبوب|دوا[ءء]?|شراب|كبسول|امبول|أمبول|فيال|كريم|بكام|سعر|عندكم|متوفر|متاح)/iu;
+
+export function isOperationalServiceRequest(message: Pick<NormalizedConversationMessageV32, 'role' | 'isMeaningful' | 'text'>): boolean {
+  return message.role === 'customer' && message.isMeaningful && OPERATIONAL_SERVICE_REQUEST_RX.test(message.text || '');
+}
+
+export function isOperationalServiceClosure(message: Pick<NormalizedConversationMessageV32, 'isMeaningful' | 'text'>): boolean {
+  return message.isMeaningful && OPERATIONAL_SERVICE_CLOSURE_RX.test(message.text || '');
+}
+
+/** A new medicine order, price or availability question — never a continuation of a service need. */
+export function startsIndependentCommercialNeed(message: Pick<NormalizedConversationMessageV32, 'role' | 'isMeaningful' | 'text'>): boolean {
+  return message.role === 'customer' && message.isMeaningful &&
+    (REQUEST_VERB_RX.test(message.text || '') && !OPERATIONAL_SERVICE_REQUEST_RX.test(message.text || '') ||
+      INDEPENDENT_COMMERCIAL_NEED_RX.test(message.text || ''));
+}
+
 export function isThanksOrClosingOnly(text: string): boolean {
   const value = (text || '').trim();
   return THANKS_CLOSING_ONLY_RX.test(value) || (COURTESY_ONLY_TOKENS_RX.test(value) && THANKS_WORD_RX.test(value));

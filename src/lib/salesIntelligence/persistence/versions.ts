@@ -81,14 +81,19 @@
 // commercial cases (an empty draft basket no longer makes a welfare or nursing case "sales").
 // v42: fixes the product-identity review gate and keeps unresolved case branches out of automatic
 // conversation-review persistence. Existing analyses must be explicitly refreshed to apply it.
-export const PIPELINE_VERSION = 'sales-intelligence-v42-evidence-integrity';
+// v43: an open service need (a requested nurse) keeps its chases in ONE case; a new medicine or
+// service request is its own case regardless of the gap. Invoice scoring explains customer code,
+// name, product code and quantity factors and adds a reviewer "strong candidate" recommendation
+// that never proves the sale. Case-level staff contributions, branch recommendation, per-item
+// evidence and a separate care check-in suggestion are part of the case view.
+export const PIPELINE_VERSION = 'sales-intelligence-v43-case-continuity-evidence';
 
 export const ENGINE_VERSIONS = {
-  caseSegmentation: 'case-segmentation-v12-service-new-need-ownership',
+  caseSegmentation: 'case-segmentation-v13-open-service-need-continuity',
   historicalClosure: 'historical-closure-v1',
   commercialConfirmation: 'commercial-confirmation-v6-compact-total-interstitial-ack-safe',
   protocolApplicability: 'protocol-applicability-v1',
-  attribution: 'attribution-v9-canonical-seller-staff-identity',
+  attribution: 'attribution-v10-explained-code-product-factors',
   matching: 'matching-v3-unresolved-product-evidence-safe',
   policyEvaluation: 'policy-evaluation-v1',
 } as const;

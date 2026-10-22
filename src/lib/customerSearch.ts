@@ -1,3 +1,4 @@
+import { reconcileWhatsAppSourceCustomers } from '@/lib/customers/whatsappSourceCustomerReconciliation';
 import { supabase } from '@/lib/supabase';
 
 export type CustomerSearchResult = {
@@ -122,7 +123,11 @@ export async function createCustomerFromSearch(input: {
   let next: Record<string, unknown> = payload;
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const { data, error } = await supabase.from('customers').insert(next).select(CUSTOMER_SEARCH_FIELDS).single();
-    if (!error && data) return normalizeCustomerRow(data as Record<string, unknown>);
+    if (!error && data) {
+      // Earlier WhatsApp conversations carrying this exact code are linked once, with audit.
+      if (input.code?.trim()) await reconcileWhatsAppSourceCustomers(supabase, [input.code]).catch(() => undefined);
+      return normalizeCustomerRow(data as Record<string, unknown>);
+    }
     const column =
       error?.message.match(/column "([^"]+)"/)?.[1] ||
       error?.message.match(/'([^']+)' column/)?.[1];
