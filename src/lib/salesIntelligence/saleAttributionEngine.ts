@@ -20,7 +20,7 @@ import {
   parseInvoiceDateTime,
   type InvoiceLike,
 } from '../invoices/invoiceCore';
-import { isOperatingBranch, normalizeBranchName } from '../branch';
+import { normalizeBranchName } from '../branch';
 import { isValidEgyptianCustomerMobile, normalizeDawaaCustomerCode, normalizeEgyptianCustomerPhone } from '../customers/customerIdentity';
 import type { InvoiceCandidateRecommendation, InvoiceLineMatch } from './types';
 import type {
@@ -354,9 +354,14 @@ function classifyBranch(ctx: CaseAttributionContext, row: InvoiceLike): BranchMa
   // «المخزن», however, is not a transaction branch and must not conflict with the invoice branch.
   if (ctx.branchEvidenceConflict) return 'mismatch';
   const caseRawText = cleanText(ctx.branchNameRaw);
-  const caseNormalized = isOperatingBranch(caseRawText) ? normalizeBranchName(caseRawText) : null;
+  const warehouseLabel = normalizeBranchName('المخزن');
+  const caseNormalized = caseRawText && normalizeBranchName(caseRawText) !== warehouseLabel
+    ? normalizeBranchName(caseRawText)
+    : null;
   const invoiceRawText = cleanText(firstValue(row, ['branch_name', 'branch']));
-  const invoiceNormalized = isOperatingBranch(invoiceRawText) ? normalizeBranchName(invoiceRawText) : null;
+  const invoiceNormalized = invoiceRawText && normalizeBranchName(invoiceRawText) !== warehouseLabel
+    ? normalizeBranchName(invoiceRawText)
+    : null;
 
   if (!caseNormalized || !invoiceNormalized ||
     caseNormalized === UNKNOWN_BRANCH_LABEL || invoiceNormalized === UNKNOWN_BRANCH_LABEL) {
@@ -596,6 +601,13 @@ function qualifiesForAutomaticInvoiceLink(
 
   const invoiceCustomerId = getInvoiceCustomerId(row);
   if (invoiceCustomerId && invoiceCustomerId !== ctx.customerId) return false;
+
+  // A uniquely identified invoice can prove this case only when its resolved seller does not
+  // contradict the staff actually attributed to the case. Missing seller identity is neutral;
+  // a different canonical staff member is a hard stop for automatic proof.
+  const invoiceStaffId = getInvoiceStaffId(row, ctx.resolveInvoiceStaffIdByName);
+  const caseStaffIds = [...new Set(ctx.knownStaffIds.filter(Boolean))];
+  if (invoiceStaffId && caseStaffIds.length > 0 && !caseStaffIds.includes(invoiceStaffId)) return false;
 
   const branchMatch = classifyBranch(ctx, row);
   if (branchMatch === 'mismatch') return false;
