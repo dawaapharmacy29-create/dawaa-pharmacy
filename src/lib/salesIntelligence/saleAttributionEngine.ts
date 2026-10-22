@@ -571,7 +571,13 @@ function hasUniqueCanonicalProductQuantityMatchForInvoice(
     }
     if (matches.length === 0 && cleanText(basketItem.productCode)) {
       const code = cleanText(basketItem.productCode).toLowerCase();
-      matches = sellableItems.filter((item) => cleanText(item.productCode).toLowerCase() === code);
+      const codeMatches = sellableItems.filter((item) => cleanText(item.productCode).toLowerCase() === code);
+      // A product code cannot override two populated, conflicting canonical product ids.
+      if (basketItem.productId && codeMatches.some((item) => item.productId && String(item.productId) !== String(basketItem.productId))) {
+        hasKnownQuantityConflict = true;
+        continue;
+      }
+      matches = codeMatches;
       if (matches.length > 1) continue;
     }
     if (matches.length !== 1) continue;
