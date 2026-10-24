@@ -74,6 +74,30 @@ export type CanonicalProofReconciliation = {
   [key: string]: unknown;
 };
 
+/** Proof-writer statuses that mean "this case owns the proven invoice". Everything else — including
+ * canonical_proof_owned_by_other_case, canonical_proof_owner_unknown_requires_review,
+ * not_proven_no_change, conflicts and transport errors — is not an accepted proof. */
+export const PROOF_ACCEPTED_STATUSES: ReadonlySet<string> = new Set(['reconciled', 'already_reconciled']);
+
+/**
+ * Cases whose proof the writer accepted for THEMSELVES. A row only counts when it is ok, carries an
+ * accepted status, and — when the writer echoes salesCaseId — names this very case; an owner the
+ * writer reports as someone else is never accepted.
+ */
+export function proofAcceptedCaseIds(rows: CanonicalProofReconciliation[]): Set<string> {
+  return new Set(
+    rows
+      .filter((row) => {
+        if (row.ok !== true || !PROOF_ACCEPTED_STATUSES.has(String(row.status))) return false;
+        const echoed = typeof row.salesCaseId === 'string' ? row.salesCaseId : null;
+        if (echoed !== null && echoed !== row.caseId) return false;
+        const owner = typeof row.ownerSalesCaseId === 'string' ? row.ownerSalesCaseId : null;
+        return owner === null || owner === row.caseId;
+      })
+      .map((row) => row.caseId)
+  );
+}
+
 export interface CanonicalRefreshResult {
   status:
     | 'ok'
@@ -567,11 +591,7 @@ export async function runCanonicalSalesIntelligenceRefresh(
   }
 
   // 6. Followers of proven truth: close customer requests only for cases the proof writer accepted.
-  const reconciledCaseIds = new Set(
-    canonicalReconciliation
-      .filter((row) => row.ok && ['reconciled', 'already_reconciled'].includes(String(row.status)))
-      .map((row) => row.caseId)
-  );
+  const reconciledCaseIds = proofAcceptedCaseIds(canonicalReconciliation);
   let reconciledActions = 0;
   let enrichedComplaintActions = 0;
   for (const source of admitted) {

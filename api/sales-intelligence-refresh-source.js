@@ -15398,6 +15398,18 @@ var CANONICAL_REFRESH_SOURCE_COLUMNS = [
   "created_at",
   "review_status"
 ].join(",");
+var PROOF_ACCEPTED_STATUSES = /* @__PURE__ */ new Set(["reconciled", "already_reconciled"]);
+function proofAcceptedCaseIds(rows) {
+  return new Set(
+    rows.filter((row) => {
+      if (row.ok !== true || !PROOF_ACCEPTED_STATUSES.has(String(row.status))) return false;
+      const echoed = typeof row.salesCaseId === "string" ? row.salesCaseId : null;
+      if (echoed !== null && echoed !== row.caseId) return false;
+      const owner = typeof row.ownerSalesCaseId === "string" ? row.ownerSalesCaseId : null;
+      return owner === null || owner === row.caseId;
+    }).map((row) => row.caseId)
+  );
+}
 function toBlocked(decision) {
   return {
     sourceId: decision.sourceId,
@@ -15756,9 +15768,7 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
       });
     }
   }
-  const reconciledCaseIds = new Set(
-    canonicalReconciliation.filter((row) => row.ok && ["reconciled", "already_reconciled"].includes(String(row.status))).map((row) => row.caseId)
-  );
+  const reconciledCaseIds = proofAcceptedCaseIds(canonicalReconciliation);
   let reconciledActions = 0;
   let enrichedComplaintActions = 0;
   for (const source of admitted) {

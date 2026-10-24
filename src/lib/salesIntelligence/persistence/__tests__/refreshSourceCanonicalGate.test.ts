@@ -398,6 +398,17 @@ describe('canonical refresh — lifecycle then single proof writer (server trans
     expect(writes.filter((row) => row.table === 'whatsapp_review_sources')).toEqual([]);
   });
 
+  it('an owner-unknown proof result closes no request and writes nothing on the source', async () => {
+    actions = [
+      { id: 'a-1', action_type: 'customer_request', action_key: 'request:1:p', product_id: 'p-1', payload: { caseId: `${fine.id}:interaction:0` } },
+    ];
+    runBatchPersistence.mockResolvedValue(batchResult([analysis('sale_proven', 'proven', 'proven')]));
+    mockProofRpcResult({ ok: false, status: 'canonical_proof_owner_unknown_requires_review', salesCaseId: `${fine.id}:interaction:0` });
+    await call(load, fine.id);
+    expect(writes.filter((row) => row.table === 'whatsapp_conversation_actions')).toEqual([]);
+    expect(writes.filter((row) => row.table === 'whatsapp_review_sources')).toEqual([]);
+  });
+
   it('a proof owned by a sibling case of the same envelope closes nothing for this case', async () => {
     actions = [
       { id: 'a-1', action_type: 'customer_request', action_key: 'request:1:p', product_id: 'p-1', payload: { caseId: `${fine.id}:interaction:0` } },
@@ -601,3 +612,26 @@ describe('generated transport', () => {
   });
 });
 
+
+describe('proof writer results the refresh may treat as accepted', () => {
+  it('accepts only ok reconciled/already_reconciled rows for the same case; ownerless or sibling proofs never close anything', async () => {
+    const { proofAcceptedCaseIds } = await import('../../refresh/canonicalRefreshService');
+    const order = 'src:interaction:0:session:2';
+    const nursing = 'src:interaction:1:session:2';
+    const accepted = proofAcceptedCaseIds([
+      { caseId: order, ok: true, status: 'already_reconciled', salesCaseId: order, provenanceRefreshed: true },
+      { caseId: nursing, ok: false, status: 'canonical_proof_owned_by_other_case', salesCaseId: nursing, ownerSalesCaseId: order },
+      { caseId: 'c-unknown', ok: false, status: 'canonical_proof_owner_unknown_requires_review', salesCaseId: 'c-unknown' },
+      { caseId: 'c-not-proven', ok: true, status: 'not_proven_no_change', salesCaseId: 'c-not-proven' },
+      { caseId: 'c-conflict', ok: false, status: 'existing_canonical_invoice_conflict' },
+      { caseId: 'c-human', ok: false, status: 'human_outcome_conflict' },
+      { caseId: 'c-rpc', ok: false, status: 'rpc_error' },
+      // Defensive: an accepted status that names another case, or reports another owner, is not this case's proof.
+      { caseId: 'c-echo', ok: true, status: 'already_reconciled', salesCaseId: 'someone-else' },
+      { caseId: 'c-owner', ok: true, status: 'already_reconciled', ownerSalesCaseId: order },
+      { caseId: 'c-new', ok: true, status: 'reconciled', salesCaseId: 'c-new' },
+    ]);
+    expect([...accepted].sort()).toEqual(['c-new', order].sort());
+  });
+
+});

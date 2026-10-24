@@ -92,8 +92,10 @@ begin insert into purchase_trigger_log(v22_id) values (new.id); return new; end 
 create trigger trg_whatsapp_story_canonical_purchase_v36 after insert or update of proposed_outcome,
   confirmed_outcome, verified_invoice_id, verified_invoice_number, verified_revenue, verified_sale_at, story_id
   on whatsapp_customer_cases_v22 for each row execute function dawaa_capture_whatsapp_canonical_purchase_v36();
+create table revoke_log(v22_id uuid, reason text, at timestamptz default now());
 create function dawaa_revoke_whatsapp_canonical_sale_proof_v46(p uuid, r text, c jsonb) returns jsonb
-  language sql as $$ select jsonb_build_object('ok', false, 'status', 'revoke_not_expected_in_test') $$;
+  language plpgsql as $$ begin insert into revoke_log(v22_id, reason) values (p, r);
+  return jsonb_build_object('ok', true, 'status', 'revoked'); end $$;
 """
 
 PROOF = {
@@ -208,34 +210,95 @@ def rpc(case_id):
     return json.loads(run(f"select public.dawaa_reconcile_sales_intelligence_case_v22_v1('{case_id}')"))
 
 
+def proof_field(field):
+    return run(f"select coalesce(case_json#>>'{{canonicalSaleProof,{field}}}', '<null>') from whatsapp_customer_cases_v22 where id='{V22}'")
+
+
+def audit_count():
+    return run("select count(*) from whatsapp_review_audit")
+
+
+def untouched(before_row):
+    return (row_hash(V22) == before_row and ledger() == ledger_before and audit_count() == "0"
+            and run("select count(*) from revoke_log") == "0" and run("select count(*) from purchase_trigger_log") == "0")
+
+
+def set_owner(sql_value):
+    """sql_value: a jsonb expression for salesCaseId, or None to remove the key."""
+    if sql_value is None:
+        run(f"update whatsapp_customer_cases_v22 set case_json = case_json #- '{{canonicalSaleProof,salesCaseId}}' where id='{V22}'")
+    else:
+        run(f"update whatsapp_customer_cases_v22 set case_json = jsonb_set(case_json, '{{canonicalSaleProof,salesCaseId}}', {sql_value}) where id='{V22}'")
+    run("truncate purchase_trigger_log")
+
+
+OWNERLESS = (("no salesCaseId", None), ("salesCaseId ''", "'\"\"'::jsonb"), ("salesCaseId '   '", "'\"   \"'::jsonb"), ("salesCaseId null", "'null'::jsonb"))
+
 for label, fn in (("live", LIVE), ("candidate", CANDIDATE)):
+    # 1. Ownerless proven proof: nobody owns it; nothing is written, revoked or refreshed.
+    for owner_label, owner_value in OWNERLESS:
+        for caller in (ORDER, NURSING, SERVICE):
+            seed(nursing_attribution=True)
+            run(fn)
+            set_owner(owner_value)
+            before = row_hash(V22)
+            result = rpc(caller)
+            caller_name = caller.split(":", 1)[1]
+            if label == "candidate":
+                check(f"candidate: proof with {owner_label} called by {caller_name} -> owner_unknown_requires_review, no write",
+                      result.get("status") == "canonical_proof_owner_unknown_requires_review" and result.get("ok") is False
+                      and untouched(before), json.dumps(result))
+            elif caller == ORDER and owner_label == "no salesCaseId":
+                check("live: a proof without salesCaseId is treated as owned by the caller (defect reproduced)",
+                      result.get("status") == "already_reconciled" and result.get("ok") is True, json.dumps(result))
+            elif caller == SERVICE and owner_label == "no salesCaseId":
+                # The service case has no proven analysis: the live writer revokes a proof it cannot own.
+                check("live: an unproven case revokes an ownerless proof (defect reproduced)",
+                      run("select count(*) from revoke_log") == "1", json.dumps(result))
+
+    # 2. Sibling-owned proof: the nursing case (even with a hypothetical proven attribution of the
+    # same invoice) and the customer-service case never close on, revoke or rewrite the order's proof.
     seed(nursing_attribution=True)
     run(fn)
     before = row_hash(V22)
     sibling = rpc(NURSING)
     if label == "live":
-        check("live writer tells a sibling case 'already_reconciled' (defect reproduced)", sibling.get("status") == "already_reconciled")
+        check("live: a sibling case is told 'already_reconciled' (defect reproduced)", sibling.get("status") == "already_reconciled")
     else:
-        check("candidate refuses a sibling case: proof owned by the order case",
+        check("candidate: sibling-owned proof -> canonical_proof_owned_by_other_case with the owner, envelope untouched",
               sibling.get("status") == "canonical_proof_owned_by_other_case" and sibling.get("ok") is False
-              and sibling.get("ownerSalesCaseId") == ORDER and row_hash(V22) == before)
+              and sibling.get("ownerSalesCaseId") == ORDER and untouched(before), json.dumps(sibling))
+    seed(nursing_attribution=False)
+    run(fn)
+    before = row_hash(V22)
+    nursing_plain = rpc(NURSING)
+    service_plain = rpc(SERVICE)
+    check(f"{label}: the real nursing and service cases (no proven analysis) never revoke or close on the order proof",
+          nursing_plain.get("status") == "not_proven_no_change" and service_plain.get("status") == "not_proven_no_change"
+          and untouched(before), json.dumps([nursing_plain, service_plain]))
+
+    # 3. Owner with an older analysis: provenance only, once.
+    seed(nursing_attribution=False)
+    run(fn)
     owner = rpc(ORDER)
-    analysis_id = run(f"select case_json#>>'{{canonicalSaleProof,analysisId}}' from whatsapp_customer_cases_v22 where id='{V22}'")
     if label == "live":
-        check("live writer leaves provenance on the superseded analysis (defect reproduced)",
-              owner.get("status") == "already_reconciled" and analysis_id == OLD_ANALYSIS)
-    else:
-        check("candidate refreshes provenance for the owner, ledger untouched, trigger silent",
-              owner.get("status") == "already_reconciled" and owner.get("provenanceRefreshed") is True
-              and analysis_id == ORDER_ANALYSIS and ledger() == ledger_before
-              and run("select count(*) from purchase_trigger_log") == "0"
-              and run("select count(*) from whatsapp_review_audit where action='canonical_sale_proof_provenance_refreshed_v48'") == "1")
-        once = row_hash(V22)
-        again = rpc(ORDER)
-        check("candidate is idempotent: a second call writes nothing",
-              again.get("status") == "already_reconciled" and "provenanceRefreshed" not in again
-              and row_hash(V22) == once and run("select count(*) from whatsapp_review_audit") == "1")
-        check("candidate leaves both legacy actions untouched", actions_hash() == actions_before)
+        check("live: the owner keeps provenance on the superseded analysis (defect reproduced)",
+              owner.get("status") == "already_reconciled" and proof_field("analysisId") == OLD_ANALYSIS)
+        continue
+    check("candidate: owner with an old analysis refreshes provenance only (owner, invoice, reconciledAt, ledger kept)",
+          owner.get("status") == "already_reconciled" and owner.get("provenanceRefreshed") is True
+          and proof_field("analysisId") == ORDER_ANALYSIS and proof_field("previousAnalysisId") == OLD_ANALYSIS
+          and proof_field("salesCaseId") == ORDER and proof_field("invoiceId") == INVOICE
+          and proof_field("reconciledAt") == PROOF["reconciledAt"] and ledger() == ledger_before
+          and run("select count(*) from purchase_trigger_log") == "0" and run("select count(*) from revoke_log") == "0"
+          and audit_count() == "1", json.dumps(owner))
+    once = row_hash(V22)
+    repeats = [rpc(ORDER) for _ in range(3)]
+    check("candidate: repeated calls add no audit row, no revenue and no write",
+          all(r.get("status") == "already_reconciled" and "provenanceRefreshed" not in r for r in repeats)
+          and row_hash(V22) == once and audit_count() == "1" and ledger() == ledger_before
+          and run(f"select count(*)||'|'||sum(verified_revenue) from whatsapp_customer_cases_v22 where root_source_id='{SOURCE}' and verified_invoice_id='{INVOICE}'") == "1|849")
+    check("candidate: both legacy actions untouched", actions_hash() == actions_before)
 
 failed = [name for name, ok in checks if not ok]
 if failed:

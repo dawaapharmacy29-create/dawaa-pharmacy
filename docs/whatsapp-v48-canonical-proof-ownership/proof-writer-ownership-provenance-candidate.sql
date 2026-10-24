@@ -3,13 +3,21 @@
 -- public.dawaa_reconcile_sales_intelligence_case_v22_v1(text) (md5 28e9b90458d00f395a0c45d7d7b996d9,
 -- byte-identical to supabase/migrations/20261009200000_capture_production_canonical_si_writers_v1.sql).
 --
--- Defects in the 'already_reconciled' early return (same proven invoice already on the envelope):
---   1. It does not check that the existing proof belongs to THIS Sales Intelligence case. One V22
---      envelope is shared by every case of a conversation, so a sibling case attributing the same
---      invoice was told 'already_reconciled', and the refresh then treats it as proof-accepted.
---   2. It never refreshes provenance: after a re-analysis the proof keeps naming the superseded
---      analysis (ee4f79b9 order case: proof analysisId b561fcd2/V45 while the current is V48).
--- Change: only that early return. Every other statement is byte-identical to the live function.
+-- Defects in the live function:
+--   1. Ownership defaults to the caller: coalesce(salesCaseId, p_sales_case_id) = p_sales_case_id
+--      makes ANY case the owner of a proven proof whose salesCaseId is missing — it may then revoke,
+--      replace or keep that proof as its own.
+--   2. The 'already_reconciled' early return never checks ownership. One V22 envelope is shared by
+--      every SI case of a conversation, so a sibling case attributing the same invoice was told
+--      'already_reconciled' and the refresh treats it as proof-accepted.
+--   3. That early return never refreshes provenance: after a re-analysis the proof keeps naming
+--      the superseded analysis.
+-- Changes (only these): explicit ownership (salesCaseId present, non-blank, equal to the caller);
+-- a proven proof without an owner returns canonical_proof_owner_unknown_requires_review and writes
+-- nothing; a sibling-owned proof returns canonical_proof_owned_by_other_case with the owner and
+-- writes nothing; the explicit owner refreshes provenance once (ledger, outcome, story untouched).
+-- Every other statement is byte-identical to the live function.
+-- Production today (2026-10-24, read-only): 10 proven proofs, all with salesCaseId; 0 ownerless.
 -- Rollback: re-run the CREATE OR REPLACE from the captured 20261009200000 migration.
 
 CREATE OR REPLACE FUNCTION public.dawaa_reconcile_sales_intelligence_case_v22_v1(p_sales_case_id text)
@@ -35,6 +43,8 @@ declare
   v_after jsonb;
   v_not_proven text := null;
   v_owns_proof boolean;
+  v_proof_state text;
+  v_proof_owner text;
   v_revoked jsonb := null;
 begin
   select * into v_case from public.sales_intelligence_cases where case_id = p_sales_case_id;
@@ -54,8 +64,17 @@ begin
       'salesCaseId', p_sales_case_id, 'v22CaseId', v_case.source_case_id_v22);
   end if;
 
-  v_owns_proof := coalesce(v_v22.case_json #>> '{canonicalSaleProof,state}', '') = 'proven'
-    and coalesce(v_v22.case_json #>> '{canonicalSaleProof,salesCaseId}', p_sales_case_id) = p_sales_case_id;
+  -- v48: ownership is explicit. One envelope is shared by every SI case of a conversation, so a
+  -- proven proof belongs to the case named in salesCaseId — never to whichever case asks. A proven
+  -- proof without an owner is ambiguous: nobody owns it, nothing is written, a human reviews it.
+  v_proof_state := coalesce(v_v22.case_json #>> '{canonicalSaleProof,state}', '');
+  v_proof_owner := nullif(btrim(coalesce(v_v22.case_json #>> '{canonicalSaleProof,salesCaseId}', '')), '');
+  v_owns_proof := v_proof_state = 'proven' and v_proof_owner is not null and v_proof_owner = p_sales_case_id;
+  if v_proof_state = 'proven' and v_proof_owner is null then
+    return jsonb_build_object('ok', false, 'status', 'canonical_proof_owner_unknown_requires_review',
+      'salesCaseId', p_sales_case_id, 'v22CaseId', v_v22.id,
+      'existingInvoiceId', v_v22.verified_invoice_id);
+  end if;
 
   select * into v_analysis
   from public.sales_intelligence_case_analyses
@@ -146,17 +165,17 @@ begin
   if coalesce(v_v22.case_json #>> '{canonicalSaleProof,state}', '') = 'proven'
      and v_v22.verified_invoice_id = v_attr.selected_invoice_id
      and coalesce(v_v22.proposed_outcome, '') = 'verified_sale' then
-    -- v48: the shared operation envelope proves ONE Sales Intelligence case. The same invoice
-    -- proven by a sibling case is not "already reconciled" for this case: report it so callers
-    -- never treat this case as proof-accepted (requests/follow-ups close on that status).
+    -- v48: the same invoice proven by a sibling case is not "already reconciled" for this case;
+    -- callers must never treat this case as proof-accepted. The envelope is not touched.
     if not v_owns_proof then
       return jsonb_build_object('ok', false, 'status', 'canonical_proof_owned_by_other_case',
         'salesCaseId', p_sales_case_id, 'v22CaseId', v_v22.id,
-        'ownerSalesCaseId', v_v22.case_json #>> '{canonicalSaleProof,salesCaseId}',
+        'ownerSalesCaseId', v_proof_owner,
         'invoiceId', v_attr.selected_invoice_id);
     end if;
-    -- v48: same owner, same invoice, newer analysis — move the audit provenance only. The ledger
-    -- (verified_*), outcome and story columns stay untouched, so the purchase trigger does not fire.
+    -- v48: explicit owner, same invoice, newer analysis — move the audit provenance only. The
+    -- ledger (verified_*), outcome and story columns stay untouched, so the purchase trigger does
+    -- not fire, and the original reconciledAt is kept.
     if v_v22.case_json #>> '{canonicalSaleProof,analysisId}' is distinct from v_analysis.analysis_id::text then
       v_before := jsonb_build_object('canonicalSaleProof', v_v22.case_json -> 'canonicalSaleProof');
       update public.whatsapp_customer_cases_v22
