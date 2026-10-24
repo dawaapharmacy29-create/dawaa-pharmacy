@@ -1,5 +1,6 @@
--- CANDIDATE ONLY — NOT APPLIED. A global behaviour change of the canonical proof writer; apply only
--- with a separate approval (copy into supabase/migrations). Built from the live definition of
+-- APPLIED to Production as migration 20261024113355_v48_proof_ownership_provenance_guard (approved). This file is the reviewed
+-- record only — do NOT apply it again; the migration of record is supabase/migrations/20261024113355_v48_proof_ownership_provenance_guard.sql.
+-- Built from the live definition of
 -- public.dawaa_reconcile_sales_intelligence_case_v22_v1(text) (md5 28e9b90458d00f395a0c45d7d7b996d9,
 -- byte-identical to supabase/migrations/20261009200000_capture_production_canonical_si_writers_v1.sql).
 --

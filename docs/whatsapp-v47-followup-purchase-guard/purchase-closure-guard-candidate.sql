@@ -1,5 +1,6 @@
--- CANDIDATE ONLY — NOT APPLIED. Do not copy into supabase/migrations without a separate,
--- explicit approval. Reviewed against the live definition of
+-- APPLIED to Production as migration 20261024015617_whatsapp_v47_followup_purchase_guard (approved). This file is the reviewed
+-- record only — do NOT apply it again; the migration of record is supabase/migrations/20261024000000_whatsapp_v47_followup_purchase_guard.sql.
+-- Reviewed against the live definition of
 -- public.dawaa_capture_whatsapp_canonical_purchase_v36() (md5 ce65a4ab91789412483e281f42e04d55,
 -- identical to supabase/migrations/20261009200000_capture_production_canonical_si_writers_v1.sql).
 --
