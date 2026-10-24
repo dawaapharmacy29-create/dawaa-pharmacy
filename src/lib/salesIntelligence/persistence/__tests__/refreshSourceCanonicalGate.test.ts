@@ -373,7 +373,8 @@ describe('canonical refresh — lifecycle then single proof writer (server trans
         action_type: 'customer_request',
         action_key: 'request:1:p',
         product_id: 'p-1',
-        payload: {},
+        // A request is closed only by its own case's proven invoice (case-scoped reconciliation).
+        payload: { caseId: `${fine.id}:interaction:0` },
       },
     ];
     runBatchPersistence.mockResolvedValue(

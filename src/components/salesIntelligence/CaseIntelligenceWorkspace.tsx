@@ -43,6 +43,7 @@ import {
   continuationReasonLabel,
   candidateRecommendationLabel,
   branchRecommendationLabel,
+  caseBranchFact,
   staffFunctionLabel,
   departmentLabel,
   mentionSourceLabel,
@@ -210,6 +211,7 @@ export function CaseIntelligenceWorkspace({
       ? (sourceStaffName || 'موظف الصيدلية')
       : (String(sender ?? '').trim() || sourceStaffName || 'موظف الصيدلية');
   };
+  const branchFact = caseBranchFact(view);
   const staffNames = view.staff.participants.map((p) => displayStaffSender(p.sender));
   const rawMainStaff = view.staff.participants.slice().sort((a, b) => b.messageCount - a.messageCount)[0]?.sender ?? null;
   const mainStaff = view.ownership
@@ -259,9 +261,10 @@ export function CaseIntelligenceWorkspace({
             {view.customer.customerId ? identityStatusLabel(view.customer.identityStatus) : <Badge tone="warn">{identityStatusLabel(view.customer.identityStatus)}</Badge>}
           </Fact>
           <Fact label="وقت التفاعل">{formatTime(view.interaction.startedAt)}</Fact>
-          <Fact label={view.ownership?.department === 'customer_service' ? 'القسم' : 'فرع الحالة'}>
-            {view.ownership?.department === 'customer_service' ? 'خدمة العملاء' : view.branch.branchNameRaw || UNKNOWN_LABEL}
-            {view.ownership?.department !== 'customer_service' && !view.branch.branchNameRaw && view.ownership?.suggestedStaffBranch ? (
+          <Fact label={branchFact.label}>
+            <span data-testid="case-branch-fact">{branchFact.value}</span>
+            {branchFact.hint ? <div className="dawaa-muted text-xs">{branchFact.hint}</div> : null}
+            {!branchFact.decided && view.ownership?.department !== 'customer_service' && view.ownership?.suggestedStaffBranch ? (
               <div className="dawaa-muted text-xs">فرع الموظف: {view.ownership.suggestedStaffBranch} — يحتاج تأكيد فرع العملية</div>
             ) : null}
           </Fact>

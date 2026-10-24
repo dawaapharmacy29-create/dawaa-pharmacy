@@ -8,6 +8,7 @@ const money = (value: number | null | undefined) =>
 
 const MATCH_BADGE: Record<InvoiceLineConversationMatch, string> = {
   explicit: 'dawaa-badge dawaa-badge--success',
+  staff_confirmed: 'dawaa-badge dawaa-badge--info',
   partial: 'dawaa-badge dawaa-badge--warning',
   unresolved: 'dawaa-badge dawaa-badge--danger',
   invoice_only: 'dawaa-badge',
@@ -88,10 +89,17 @@ export function CaseInvoiceCard({ card }: { card: CaseInvoiceCardModel }) {
         <Item label="فترة الحالة" value={invoice.caseWindowLocal} hint={invoice.timeZoneLabel} />
       </div>
 
-      <div className="grid gap-2 sm:grid-cols-3" data-testid="case-invoice-verdicts">
-        <Item label="١. هل الفاتورة تخص هذه الحالة؟" value={verdicts.invoiceBelongsToCase} />
-        <Item label="٢. هل طُلبت بنود الفاتورة في المحادثة؟" value={verdicts.lineRequests} />
-        <Item label="٣. تأكيد الطلب والتسليم" value={verdicts.orderAndDelivery} />
+      <div className="space-y-2" data-testid="case-invoice-verdicts">
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+          <Item label="١. هل الفاتورة تخص هذه الحالة؟" value={verdicts.invoiceBelongsToCase} />
+          <Item label="٢. تأكيد العميل النهائي للطلب" value={verdicts.customerFinalConfirmation} />
+          <Item label="٣. هل طُلبت بنود الفاتورة في المحادثة؟" value={verdicts.lineRequests} />
+          <Item label="٤. التسليم" value={verdicts.delivery} />
+          <Item label="٥. فرع المعاملة مقابل فرع الحالة" value={verdicts.branch} />
+        </div>
+        <div className="dawaa-alert dawaa-alert--info text-xs leading-6" data-testid="case-invoice-counting">
+          {verdicts.counting}
+        </div>
       </div>
 
       <div className="overflow-x-auto">

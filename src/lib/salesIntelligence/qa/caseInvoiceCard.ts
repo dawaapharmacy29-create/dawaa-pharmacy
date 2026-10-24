@@ -5,15 +5,29 @@
 // decides attribution, never writes, and never copies invoice data anywhere. Three verdicts stay
 // separate and none implies another:
 //   1. does the invoice belong to this case (persisted attribution / human link),
-//   2. was each invoice line asked for in this case (conversation evidence per line),
-//   3. was the order confirmed / delivered (conversation-side facts; delivery is never proven here).
+//   2. did the customer give a final order confirmation in this case (conversation fact),
+//   3. was each invoice line asked for in this case (conversation evidence per line),
+//   4. was the order delivered (never proven here: no delivery evidence source exists),
+//   5. the invoice's transaction branch versus this case's branch and the source branch.
+// A proven invoice can make the sale countable; it never proves 2, 3 or 4.
 import type { CaseIntelligenceView } from '../types';
+import { caseBranchFact } from './caseIntelligencePresentation';
 import type { QaCaseDetailBundle } from './queries';
 
-export type InvoiceLineConversationMatch = 'explicit' | 'partial' | 'unresolved' | 'invoice_only';
+/**
+ * explicit: the customer named the item; staff_confirmed: the doctor named it and the customer
+ * answered/confirmed it. A matching code and quantity never changes WHO named the item.
+ */
+export type InvoiceLineConversationMatch =
+  | 'explicit'
+  | 'staff_confirmed'
+  | 'partial'
+  | 'unresolved'
+  | 'invoice_only';
 
 export const INVOICE_LINE_MATCH_LABELS: Record<InvoiceLineConversationMatch, string> = {
   explicit: 'مذكور صراحة',
+  staff_confirmed: 'أكده العميل بعد عرض الدكتور',
   partial: 'تطابق جزئي',
   unresolved: 'غير محسوم',
   invoice_only: 'موجود بالفاتورة فقط',
@@ -72,8 +86,12 @@ export interface CaseInvoiceCard {
   };
   verdicts: {
     invoiceBelongsToCase: string;
+    customerFinalConfirmation: string;
     lineRequests: string;
-    orderAndDelivery: string;
+    delivery: string;
+    branch: string;
+    /** What the persisted outcome counts, and what that does NOT mean. */
+    counting: string;
   };
   lines: CaseInvoiceCardLine[];
   counts: Record<InvoiceLineConversationMatch, number>;
@@ -113,7 +131,7 @@ const sameCode = (a: string | null | undefined, b: string | null | undefined) =>
 const MENTION_LABEL: Record<string, string> = {
   customer_explicit: 'العميل ذكره صراحة',
   staff_restatement: 'أعاد الدكتور ذكره وردّ العميل عليه',
-  inferred: 'استنتاج من المحرك',
+  inferred: 'استنتاج من المحرك وليس تصريحًا من العميل',
 };
 
 type ViewProduct = CaseIntelligenceView['products'][number];
@@ -131,24 +149,39 @@ function classifyLine(
       sameCode(line.invoiceProductCode, item.productCode) ||
       (!line.invoiceProductCode && line.invoiceProductNameRaw === item.productName);
     if (!sameLine) continue;
-    const who = MENTION_LABEL[product.mentionSource ?? ''] ?? 'ذُكر في المحادثة';
+    const who = MENTION_LABEL[product.mentionSource ?? ''] ?? 'مصدر الذكر غير محدد';
     const ids = product.evidenceMessageIds ?? [];
-    if (
+    // An unresolved pack/strength (more than one catalog candidate) is never a complete match.
+    const packUnresolved = (product.catalogCandidates?.length ?? 0) > 1;
+    const identityAndQuantityAgree =
       (line.matchedBy === 'product_id' || line.matchedBy === 'product_code') &&
-      line.quantityAgrees === true
-    ) {
+      line.quantityAgrees === true &&
+      !packUnresolved;
+    const same = `نفس ${line.matchedBy === 'product_id' ? 'المنتج في الكتالوج' : 'كود الصنف'} والكمية ${line.caseQuantity} = ${line.invoiceQuantity}`;
+    // Who named the item decides the badge; the code/quantity agreement is reported, not promoted.
+    if (identityAndQuantityAgree && product.mentionSource === 'customer_explicit') {
       return {
         match: 'explicit',
-        evidence: `«${product.productNameRaw}» — ${who}؛ نفس ${line.matchedBy === 'product_id' ? 'المنتج في الكتالوج' : 'كود الصنف'} والكمية ${line.caseQuantity} = ${line.invoiceQuantity}.`,
+        evidence: `«${product.productNameRaw}» — ${who}؛ ${same}.`,
         evidenceMessageIds: ids,
       };
     }
-    const why =
-      line.matchedBy === 'name'
-        ? 'التطابق بالاسم فقط وليس بكود الصنف'
-        : line.quantityAgrees === false
-          ? `الكمية في المحادثة ${line.caseQuantity} مقابل ${line.invoiceQuantity} بالفاتورة`
-          : 'الكمية غير محسومة في المحادثة';
+    if (identityAndQuantityAgree && product.mentionSource === 'staff_restatement') {
+      return {
+        match: 'staff_confirmed',
+        evidence: `«${product.productNameRaw}» — ذكره الدكتور وأكده العميل، وليس طلبًا بدأه العميل؛ ${same}.`,
+        evidenceMessageIds: ids,
+      };
+    }
+    const why = identityAndQuantityAgree
+      ? `${same}، لكن لا يوجد تصريح من العميل بهذا الصنف`
+      : packUnresolved
+        ? 'التركيز/العبوة غير محسومة من النص'
+        : line.matchedBy === 'name'
+          ? 'التطابق بالاسم فقط وليس بكود الصنف'
+          : line.quantityAgrees === false
+            ? `الكمية في المحادثة ${line.caseQuantity} مقابل ${line.invoiceQuantity} بالفاتورة`
+            : 'الكمية غير محسومة في المحادثة';
     return {
       match: 'partial',
       evidence: `«${product.productNameRaw}» — ${who}؛ ${why}.`,
@@ -214,11 +247,17 @@ export interface CaseInvoiceCardInput {
     attributionLevel: string | null;
     selectedInvoiceId: string | null;
     selectedInvoiceNumber: string | null;
+    isOfficialForStaffEvaluation?: boolean | null;
   } | null;
   /** Rule ids of the persisted attribution, to tell an automatic proof from a trusted link. */
   automaticProofRule: boolean;
   humanLinkConfirmed: boolean;
-  outcome: { isOrderConfirmed: boolean | null; saleProofState: string } | null;
+  outcome: {
+    isOrderConfirmed: boolean | null;
+    saleProofState: string;
+    isSaleCountable?: boolean | null;
+    isRevenueCountable?: boolean | null;
+  } | null;
   invoice: QaCaseDetailBundle['candidateInvoice'];
   items: QaCaseDetailBundle['invoiceItemFacts'];
   invoiceStaff: QaCaseDetailBundle['invoiceStaffTruth'];
@@ -266,7 +305,7 @@ export function buildCaseInvoiceCard(input: CaseInvoiceCardInput): CaseInvoiceCa
       matchLabel: INVOICE_LINE_MATCH_LABELS[classified.match],
     };
   });
-  const counts = { explicit: 0, partial: 0, unresolved: 0, invoice_only: 0 } as Record<
+  const counts = { explicit: 0, staff_confirmed: 0, partial: 0, unresolved: 0, invoice_only: 0 } as Record<
     InvoiceLineConversationMatch,
     number
   >;
@@ -277,12 +316,22 @@ export function buildCaseInvoiceCard(input: CaseInvoiceCardInput): CaseInvoiceCa
   const analyticCustomerId = input.analysisCustomerId ?? view?.customer.customerId ?? null;
   const identityStatus =
     view?.customer.identityStatus ?? (analyticCustomerId ? 'resolved' : 'not_provided');
+  // Durable customer_id links actually saved on the conversation record and on the invoice.
+  const persistedIds = [input.source?.customerId ?? null, invoice?.customerId ?? null].filter(
+    (id): id is string => Boolean(id)
+  );
   const customer = {
     code,
     analyticCustomerId,
     analyticStatusLabel:
       identityStatus === 'resolved' && analyticCustomerId
-        ? `سجل العميل موجود وحُدد تحليليًا بالكود ${code ?? '—'} (حل تحليلي، ليس ربطًا محفوظًا).`
+        ? persistedIds.some((id) => id !== analyticCustomerId)
+          ? `تعارض: العميل المحدد تحليليًا بالكود ${code ?? '—'} يختلف عن customer_id المحفوظ — يحتاج مراجعة.`
+          : persistedIds.length === 2
+            ? `العميل محدد بالكود ${code ?? '—'}، وسجل المحادثة والفاتورة مربوطان رسميًا بنفس سجل العميل.`
+            : persistedIds.length === 1
+              ? `العميل محدد بالكود ${code ?? '—'}، ومربوط رسميًا في ${input.source?.customerId ? 'سجل المحادثة' : 'الفاتورة'} فقط.`
+              : `سجل العميل موجود وحُدد تحليليًا بالكود ${code ?? '—'} (حل تحليلي، ليس ربطًا محفوظًا).`
         : identityStatus === 'ambiguous'
           ? 'هوية العميل ملتبسة (أكثر من سجل) — لا يُختار سجل.'
           : identityStatus === 'contradicted'
@@ -328,10 +377,10 @@ export function buildCaseInvoiceCard(input: CaseInvoiceCardInput): CaseInvoiceCa
       ? 'بائع الفاتورة هو نفس الدكتور المنسوب لرسائل هذه الحالة (من تعريفه داخل الحالة، وليس من الفاتورة).'
       : 'الدكتور المنسوب للحالة من رسائلها؛ بائع الفاتورة لا يُستخدم لإسناد الرسائل.';
 
-  const recommendation = view?.branch.recommendation;
-  const caseBranchLabel = !recommendation
+  const branchFact = view ? caseBranchFact(view) : null;
+  const caseBranchLabel = !branchFact
     ? 'غير محسوم'
-    : `${recommendation.branch ?? 'غير محسوم'} — ${recommendation.reasons[recommendation.reasons.length - 1] ?? ''}`;
+    : `${branchFact.label === 'القسم' ? `${branchFact.value} (قسم وليس فرعًا)` : branchFact.value}${branchFact.hint ? ` — ${branchFact.hint}` : ''}`;
 
   const linesNetTotal =
     items.length && items.every((i) => i.netLineAmount != null)
@@ -353,6 +402,16 @@ export function buildCaseInvoiceCard(input: CaseInvoiceCardInput): CaseInvoiceCa
   const startedAt = view?.interaction.startedAt ?? null;
   const endedAt = view?.interaction.endedAt ?? null;
   const orderConfirmed = input.outcome?.isOrderConfirmed;
+  const proven = input.outcome?.saleProofState === 'proven';
+  const counted = input.outcome?.isSaleCountable === true || input.outcome?.isRevenueCountable === true;
+  const official = input.attribution?.isOfficialForStaffEvaluation;
+  const counting = counted
+    ? `البيع${input.outcome?.isRevenueCountable ? ' والإيراد' : ''} محسوب${input.outcome?.isRevenueCountable ? 'ان' : ''} من إثبات ربط الفاتورة بهذه الحالة فقط${official == null ? '' : official ? ' (معلّم رسميًا لتقييم الموظف)' : ' (غير رسمي لتقييم الموظف)'}. هذا لا يعني تأكيد العميل النهائي ولا التسليم ولا أن كل بنود الفاتورة طُلبت.`
+    : proven
+      ? 'الفاتورة مثبتة للحالة لكن البيع غير محسوب في النتيجة المحفوظة.'
+      : 'لا يُحتسب بيع أو إيراد لهذه الحالة: لا توجد فاتورة مثبتة لها.';
+  const transactionBranch = invoice?.branch ?? null;
+  const branchVerdict = `فرع المعاملة بالفاتورة: ${transactionBranch ?? 'غير متاح'} • ${branchFact?.label ?? 'فرع الحالة'}: ${branchFact?.value ?? 'غير محسوم'} • فرع مصدر المحادثة: ${input.source?.branch ?? 'غير متاح'} (لا يتغير بالفاتورة).`;
 
   return {
     available: Boolean(invoice),
@@ -383,9 +442,17 @@ export function buildCaseInvoiceCard(input: CaseInvoiceCardInput): CaseInvoiceCa
     verdicts: {
       invoiceBelongsToCase: belongsVerdict(input),
       lineRequests: items.length
-        ? `${counts.explicit} مذكور صراحة، ${counts.partial} تطابق جزئي، ${counts.unresolved} غير محسوم، ${counts.invoice_only} بالفاتورة فقط. ربط الفاتورة بالحالة لا يعني أن كل بنودها طُلبت في المحادثة.`
+        ? `${counts.explicit} مذكور صراحة من العميل، ${counts.staff_confirmed} أكده العميل بعد عرض الدكتور، ${counts.partial} تطابق جزئي، ${counts.unresolved} غير محسوم، ${counts.invoice_only} بالفاتورة فقط. ربط الفاتورة بالحالة لا يعني أن كل بنودها طُلبت في المحادثة.`
         : 'بنود الفاتورة غير متاحة للمقارنة.',
-      orderAndDelivery: `${orderConfirmed === true ? 'تأكيد الطلب: مؤكد من المحادثة' : orderConfirmed === false ? 'تأكيد الطلب: غير مكتمل في المحادثة' : 'تأكيد الطلب: غير مسجل'}. التسليم: غير مثبت — «تم الإرسال» لا تثبت التسليم، ولا تثبته الفاتورة.`,
+      customerFinalConfirmation:
+        orderConfirmed === true
+          ? 'أكد العميل الطلب النهائي في رسائل هذه الحالة.'
+          : orderConfirmed === false
+            ? 'لا توجد رسالة تأكيد نهائي من العميل في هذه الحالة؛ إثبات الفاتورة لا يعوّضها.'
+            : 'تأكيد العميل النهائي غير مسجل في التحليل المحفوظ.',
+      delivery: 'غير مثبت — «تم الإرسال» لا تثبت التسليم، ولا تثبته الفاتورة.',
+      branch: branchVerdict,
+      counting,
     },
     lines,
     counts,

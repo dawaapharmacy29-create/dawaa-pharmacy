@@ -3824,8 +3824,9 @@ function getInvoiceCustomerCode(row) {
 function getInvoiceCustomerName(row) {
   return cleanText2(firstValue2(row, ["customer_name"])) || null;
 }
+var INVOICE_NAME_COMMERCIAL_ANNOTATION = /[(（]\s*(?:p\s*-?\s*[0-9]{1,6}|[0-9]{1,6}\s*p|p|[0-9]{0,3}(?:\.[0-9]+)?\s*%|disc|points|بوينتس|vip|v)\s*[)）]/giu;
 function normalizeCustomerNameForInvoiceMatch(value) {
-  return String(value ?? "").replace(/[(（][^)）]*[)）]/g, " ").trim().toLowerCase().replace(/^(?:(?:د|دكتور|الدكتور|دكتورة|الدكتورة|دكتوره|الدكتوره|الحاج(?:ة)?|السيد(?:ة)?|استاذ(?:ة)?|الأستاذ(?:ة)?|الاستاذ(?:ة)?)(?:\s*[/.-]\s*|\s+))+/i, "").replace(/[أإآ]/g, "\u0627").replace(/ى/g, "\u064A").replace(/ة/g, "\u0647").replace(/[\u064B-\u065F]/g, "").replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+  return String(value ?? "").replace(INVOICE_NAME_COMMERCIAL_ANNOTATION, " ").trim().toLowerCase().replace(/^(?:(?:د|دكتور|الدكتور|دكتورة|الدكتورة|دكتوره|الدكتوره|الحاج(?:ة)?|السيد(?:ة)?|استاذ(?:ة)?|الأستاذ(?:ة)?|الاستاذ(?:ة)?)(?:\s*[/.-]\s*|\s+))+/i, "").replace(/[أإآ]/g, "\u0627").replace(/ى/g, "\u064A").replace(/ة/g, "\u0647").replace(/[\u064B-\u065F]/g, "").replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
 }
 function getInvoiceStaffId(row, resolveInvoiceStaffIdByName) {
   const staffId = cleanText2(firstValue2(row, ["staff_id"]));
@@ -9487,13 +9488,13 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v46-invoice-line-evidence";
+var PIPELINE_VERSION = "sales-intelligence-v47-scoped-name-annotations";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v13-open-service-need-continuity",
   historicalClosure: "historical-closure-v1",
   commercialConfirmation: "commercial-confirmation-v6-compact-total-interstitial-ack-safe",
   protocolApplicability: "protocol-applicability-v1",
-  attribution: "attribution-v12-compact-item-returns",
+  attribution: "attribution-v13-scoped-name-annotations",
   matching: "matching-v3-unresolved-product-evidence-safe",
   policyEvaluation: "policy-evaluation-v1"
 };
@@ -9909,6 +9910,7 @@ function readInvoiceItemCommercialMeta(rawData) {
       itemDiscountAmount: num(m.item_discount_amount),
       itemDiscountPercent: num(m.item_discount_percent),
       grossLineAmount: num(m.gross_line_amount),
+      effectiveGrossAfterReturn: num(m.effective_gross_after_return),
       netLineAmount: num(m.net_line_amount),
       invoiceDiscountAmount: num(m.invoice_discount_amount),
       allocatedInvoiceDiscountAmount: num(m.allocated_invoice_discount_amount),
@@ -9928,6 +9930,7 @@ function readInvoiceItemCommercialMeta(rawData) {
       itemDiscountAmount: null,
       itemDiscountPercent: null,
       grossLineAmount: null,
+      effectiveGrossAfterReturn: null,
       netLineAmount: null,
       invoiceDiscountAmount: null,
       allocatedInvoiceDiscountAmount: null,
@@ -9945,6 +9948,7 @@ function readInvoiceItemCommercialMeta(rawData) {
     itemDiscountAmount: num(raw.line_discount),
     itemDiscountPercent: num(raw.line_discount_pct),
     grossLineAmount: num(raw.gross_line),
+    effectiveGrossAfterReturn: null,
     // The net line value of a compact row is the row's line_total column.
     netLineAmount: null,
     invoiceDiscountAmount: null,
@@ -11230,6 +11234,27 @@ function reviewSourceRowToBatchConversation(row) {
     trustedInvoiceId: trustedEvidence.trustedInvoiceId,
     trustedInvoiceNumber: trustedEvidence.trustedInvoiceNumber
   };
+}
+
+// src/lib/salesIntelligence/persistence/followupPurchaseClosureGuard.ts
+var MESSAGE_TIME = /^(?:case:)?([0-9]{13})(?:-|$)/;
+function messageTimeKey(value) {
+  return MESSAGE_TIME.exec(String(value ?? "").trim())?.[1] ?? null;
+}
+function resolveActionCaseId(action, cases) {
+  const payloadCaseId = String(action.payloadCaseId ?? "").trim();
+  if (payloadCaseId) {
+    return cases.some((c) => c.caseId === payloadCaseId) ? { caseId: payloadCaseId, basis: "payload_case_id" } : { caseId: null, basis: "unresolved" };
+  }
+  const anchors = new Set(
+    (action.evidence ?? []).map(messageTimeKey).filter((key) => Boolean(key))
+  );
+  if (!anchors.size) return { caseId: null, basis: "unresolved" };
+  const matched = cases.filter(
+    (c) => c.messageIds.some((id) => anchors.has(messageTimeKey(id) ?? ""))
+  );
+  if (matched.length === 1) return { caseId: matched[0].caseId, basis: "evidence_message_time" };
+  return { caseId: null, basis: matched.length ? "ambiguous" : "unresolved" };
 }
 
 // src/lib/salesIntelligence/persistence/canonicalSourceGate.ts
@@ -15616,12 +15641,16 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
 }
 async function reconcileSoldCustomerRequestActions(service, sourceId, caseAnalyses) {
   const { data: actions, error: actionsError } = await service.from("whatsapp_conversation_actions").select(
-    "id,action_key,action_type,status,work_status,product_id,product_code,product_name,quantity,payload,confidence"
+    "id,action_key,action_type,status,work_status,product_id,product_code,product_name,quantity,payload,confidence,evidence"
   ).eq("source_id", sourceId).eq("action_type", "customer_request").in("status", ["proposed", "ready", "created"]);
   if (actionsError) throw actionsError;
   if (!actions?.length) return { reconciledActions: 0 };
   let reconciledActions = 0;
   const reconciledIds = /* @__PURE__ */ new Set();
+  const caseScopes = caseMessageScopes(caseAnalyses);
+  const actionCaseId = new Map(
+    actions.map((action) => [String(action.id), actionCaseIdFor(action, caseScopes)])
+  );
   for (const analysis of caseAnalyses) {
     const attribution = analysis?.attribution;
     const match = analysis?.basketInvoiceMatch;
@@ -15643,6 +15672,7 @@ async function reconcileSoldCustomerRequestActions(service, sourceId, caseAnalys
     for (const action of actions) {
       if (reconciledIds.has(String(action.id))) continue;
       if (!action.product_id) continue;
+      if (actionCaseId.get(String(action.id)) !== analysis.caseId) continue;
       const matchingLines = invoiceItems.filter(
         (row) => String(row.product_id || "") === String(action.product_id)
       );
@@ -15656,6 +15686,7 @@ async function reconcileSoldCustomerRequestActions(service, sourceId, caseAnalys
       const relatedActions = actions.filter((candidate) => {
         if (reconciledIds.has(String(candidate.id))) return false;
         if (String(candidate.id) === String(action.id)) return true;
+        if (actionCaseId.get(String(candidate.id)) !== analysis.caseId) return false;
         if (!requestPrefix) return false;
         return String(candidate.action_key || "").startsWith(requestPrefix) && !candidate.product_id;
       });
@@ -15695,31 +15726,48 @@ async function reconcileSoldCustomerRequestActions(service, sourceId, caseAnalys
   }
   return { reconciledActions };
 }
+function caseMessageScopes(caseAnalyses) {
+  return caseAnalyses.map((analysis) => ({
+    caseId: String(analysis?.caseId || ""),
+    // The case's own message set is the persisted case view's interaction (segmentation output).
+    messageIds: Array.isArray(analysis?.caseIntelligence?.interaction?.messageIds) ? analysis.caseIntelligence.interaction.messageIds.map(String) : []
+  })).filter((scope) => scope.caseId);
+}
+function actionCaseIdFor(action, scopes) {
+  const payload = action?.payload && typeof action.payload === "object" && !Array.isArray(action.payload) ? action.payload : {};
+  return resolveActionCaseId(
+    { payloadCaseId: payload.caseId ?? null, evidence: Array.isArray(action?.evidence) ? action.evidence : [] },
+    scopes
+  ).caseId;
+}
 async function enrichComplaintFollowupContext(service, source, caseAnalyses) {
   const sourceId = String(source.id || "");
   if (!sourceId) return { enrichedComplaintActions: 0 };
-  const { data: actions, error: actionError } = await service.from("whatsapp_conversation_actions").select("id,status,action_type,payload").eq("source_id", sourceId).eq("action_type", "complaint_followup").in("status", ["proposed", "ready", "created"]);
+  const { data: actions, error: actionError } = await service.from("whatsapp_conversation_actions").select("id,status,action_type,payload,evidence").eq("source_id", sourceId).eq("action_type", "complaint_followup").in("status", ["proposed", "ready", "created"]);
   if (actionError) throw actionError;
   if (!actions?.length) return { enrichedComplaintActions: 0 };
-  let invoiceId2 = "";
-  let linkageBasis = "";
+  const scopes = caseMessageScopes(caseAnalyses);
+  const invoiceByCase = /* @__PURE__ */ new Map();
   for (const analysis of caseAnalyses) {
     const attribution = analysis?.attribution;
     const level = String(attribution?.attributionLevel || "");
     const selected2 = String(attribution?.selectedInvoiceId || "").trim();
-    if (selected2 && ["proven", "strongly_inferred"].includes(level)) {
-      invoiceId2 = selected2;
-      linkageBasis = `canonical_${level}`;
-      break;
+    if (analysis?.caseId && selected2 && ["proven", "strongly_inferred"].includes(level)) {
+      invoiceByCase.set(String(analysis.caseId), { invoiceId: selected2, linkageBasis: `canonical_${level}` });
     }
   }
-  let invoice = null;
-  if (invoiceId2) {
-    invoice = await readInvoiceRecordById(invoiceId2, service);
-  }
-  if (!invoice) return { enrichedComplaintActions: 0 };
+  if (!invoiceByCase.size) return { enrichedComplaintActions: 0 };
+  const invoiceById = /* @__PURE__ */ new Map();
   let updated = 0;
   for (const action of actions) {
+    const caseId = actionCaseIdFor(action, scopes);
+    const link = caseId ? invoiceByCase.get(caseId) : void 0;
+    if (!link) continue;
+    if (!invoiceById.has(link.invoiceId)) {
+      invoiceById.set(link.invoiceId, await readInvoiceRecordById(link.invoiceId, service));
+    }
+    const invoice = invoiceById.get(link.invoiceId);
+    if (!invoice) continue;
     const existingPayload = action.payload && typeof action.payload === "object" && !Array.isArray(action.payload) ? action.payload : {};
     const deliveryContext = {
       invoice_id: String(invoice.id || ""),
@@ -15728,7 +15776,8 @@ async function enrichComplaintFollowupContext(service, source, caseAnalyses) {
       branch: invoice.branch || null,
       delivery_staff: invoice.delivery_staff || null,
       sale_staff: invoice.staff_name || invoice.seller_name || null,
-      linkage_basis: linkageBasis,
+      linkage_basis: link.linkageBasis,
+      case_id: caseId,
       review_required: true,
       responsibility_status: "context_only_not_fault_assignment",
       linked_at: (/* @__PURE__ */ new Date()).toISOString()

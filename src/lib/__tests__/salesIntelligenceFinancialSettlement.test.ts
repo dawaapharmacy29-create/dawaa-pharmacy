@@ -70,6 +70,56 @@ describe('Sales Intelligence financial settlement', () => {
     expect(result.needsHumanReview).toBe(false);
   });
 
+  describe('exact payment as corroboration of a statistical invoice (narrow path)', () => {
+    const statistical = (overrides: Record<string, unknown> = {}) =>
+      attribution({
+        isOfficialForStaffEvaluation: false,
+        needsHumanReview: true,
+        humanReviewReasons: ['statistical_invoice_lacks_transactional_corroboration'],
+        ...overrides,
+      });
+    const settle = (attr: any, customerIdentityStatus: any = 'resolved', netAmount = 778) =>
+      deriveFinancialSettlementAssessment({
+        caseId: 'case-1',
+        messages: normalized(RAW) as any,
+        attribution: attr,
+        selectedInvoiceRow: { id: 'inv-74884', invoice_number: '74884', net_amount: netAmount },
+        customerIdentityStatus,
+      });
+
+    it('settles only the lone missing-corroboration gap, and never touches the attribution itself', () => {
+      const attr = statistical();
+      const result = settle(attr);
+      expect(result.status).toBe('settled');
+      expect(result.ruleIds).toContain('financial_settlement.exact_payment_corroborates_statistical_invoice');
+      expect(attr.isOfficialForStaffEvaluation).toBe(false);
+      expect(attr.attributionLevel).toBe('strongly_inferred');
+    });
+    it('does not settle when any other review reason, a contradiction or a weaker level is present', () => {
+      expect(settle(statistical({ humanReviewReasons: ['statistical_invoice_lacks_transactional_corroboration', 'competing_invoice_candidate'] })).status).not.toBe('settled');
+      expect(settle(statistical({ contradictions: ['customer_name_mismatch'] })).status).not.toBe('settled');
+      expect(settle(statistical({ attributionLevel: 'weakly_inferred' })).status).not.toBe('settled');
+    });
+    it('payment never stands in for customer identity, and a different amount never settles', () => {
+      expect(settle(statistical(), 'unresolved').status).not.toBe('settled');
+      expect(settle(statistical(), 'ambiguous').status).not.toBe('settled');
+      expect(settle(statistical(), 'resolved', 790).status).not.toBe('settled');
+    });
+    it('a settled order stays uncountable: no sale and no revenue', () => {
+      const outcome = deriveCanonicalSalesOutcome({
+        caseId: 'case-1',
+        caseType: 'sales_opportunity',
+        commercialConfirmation: { currentState: 'commercial_confirmation_complete', customerConfirmed: true },
+        saleProof: { state: 'strongly_supported', needsHumanReview: false } as any,
+        financialSettlement: settle(statistical()) as any,
+        hasMeaningfulBasketItems: true,
+        needsHumanReview: false,
+      } as any);
+      expect(outcome.isSaleCountable).toBe(false);
+      expect(outcome.isRevenueCountable).toBe(false);
+    });
+  });
+
   it('does not treat a generic image as payment proof when staff never requested transfer proof', () => {
     const raw = `[9/28/26, 2:52:09 AM] You: اتفضل رقم التحويل يا فندم 01028308235
 [9/28/26, 3:08:09 AM] عميل: الحساب كام من فضلك

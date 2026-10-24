@@ -24,6 +24,7 @@ import {
   reviewSourceRowToBatchConversation,
 } from '../persistence/reviewSourceBatchAdapter';
 import { readInvoiceRecordById } from '../../readModels/invoiceRecordReadModel';
+import { resolveActionCaseId, type CaseMessageScope } from '../persistence/followupPurchaseClosureGuard';
 import {
   evaluateCanonicalSourceGate,
   loadCanonicalSourceGateContext,
@@ -676,7 +677,7 @@ export async function reconcileSoldCustomerRequestActions(
   const { data: actions, error: actionsError } = await service
     .from('whatsapp_conversation_actions')
     .select(
-      'id,action_key,action_type,status,work_status,product_id,product_code,product_name,quantity,payload,confidence'
+      'id,action_key,action_type,status,work_status,product_id,product_code,product_name,quantity,payload,confidence,evidence'
     )
     .eq('source_id', sourceId)
     .eq('action_type', 'customer_request')
@@ -687,6 +688,12 @@ export async function reconcileSoldCustomerRequestActions(
 
   let reconciledActions = 0;
   const reconciledIds = new Set<string>();
+  // A request belongs to ONE case of this conversation; only that case's proven invoice may
+  // close it. Unresolved or ambiguous case scope never closes a request.
+  const caseScopes = caseMessageScopes(caseAnalyses);
+  const actionCaseId = new Map<string, string | null>(
+    actions.map((action: any) => [String(action.id), actionCaseIdFor(action, caseScopes)])
+  );
 
   for (const analysis of caseAnalyses) {
     const attribution = analysis?.attribution;
@@ -721,6 +728,7 @@ export async function reconcileSoldCustomerRequestActions(
     for (const action of actions) {
       if (reconciledIds.has(String(action.id))) continue;
       if (!action.product_id) continue;
+      if (actionCaseId.get(String(action.id)) !== analysis.caseId) continue;
 
       const matchingLines = invoiceItems.filter(
         (row: any) => String(row.product_id || '') === String(action.product_id)
@@ -736,6 +744,7 @@ export async function reconcileSoldCustomerRequestActions(
       const relatedActions = actions.filter((candidate: any) => {
         if (reconciledIds.has(String(candidate.id))) return false;
         if (String(candidate.id) === String(action.id)) return true;
+        if (actionCaseId.get(String(candidate.id)) !== analysis.caseId) return false;
         if (!requestPrefix) return false;
         return (
           String(candidate.action_key || '').startsWith(requestPrefix) && !candidate.product_id
@@ -789,7 +798,30 @@ export async function reconcileSoldCustomerRequestActions(
   return { reconciledActions };
 }
 
-async function enrichComplaintFollowupContext(
+export function caseMessageScopes(caseAnalyses: any[]): CaseMessageScope[] {
+  return caseAnalyses
+    .map((analysis) => ({
+      caseId: String(analysis?.caseId || ''),
+      // The case's own message set is the persisted case view's interaction (segmentation output).
+      messageIds: Array.isArray(analysis?.caseIntelligence?.interaction?.messageIds)
+        ? analysis.caseIntelligence.interaction.messageIds.map(String)
+        : [],
+    }))
+    .filter((scope) => scope.caseId);
+}
+
+function actionCaseIdFor(action: any, scopes: CaseMessageScope[]): string | null {
+  const payload =
+    action?.payload && typeof action.payload === 'object' && !Array.isArray(action.payload)
+      ? action.payload
+      : {};
+  return resolveActionCaseId(
+    { payloadCaseId: payload.caseId ?? null, evidence: Array.isArray(action?.evidence) ? action.evidence : [] },
+    scopes
+  ).caseId;
+}
+
+export async function enrichComplaintFollowupContext(
   service: any,
   source: Record<string, unknown>,
   caseAnalyses: any[]
@@ -799,37 +831,39 @@ async function enrichComplaintFollowupContext(
 
   const { data: actions, error: actionError } = await service
     .from('whatsapp_conversation_actions')
-    .select('id,status,action_type,payload')
+    .select('id,status,action_type,payload,evidence')
     .eq('source_id', sourceId)
     .eq('action_type', 'complaint_followup')
     .in('status', ['proposed', 'ready', 'created']);
   if (actionError) throw actionError;
   if (!actions?.length) return { enrichedComplaintActions: 0 };
 
-  let invoiceId = '';
-  let linkageBasis = '';
+  // Only the complaint's OWN case attribution may name its delivery invoice. A sibling case's
+  // invoice in the same conversation (e.g. a later order after a customer-service outreach) is a
+  // different transaction, and a nearest-in-time invoice is a guess: neither is written.
+  const scopes = caseMessageScopes(caseAnalyses);
+  const invoiceByCase = new Map<string, { invoiceId: string; linkageBasis: string }>();
   for (const analysis of caseAnalyses) {
     const attribution = analysis?.attribution;
     const level = String(attribution?.attributionLevel || '');
     const selected = String(attribution?.selectedInvoiceId || '').trim();
-    if (selected && ['proven', 'strongly_inferred'].includes(level)) {
-      invoiceId = selected;
-      linkageBasis = `canonical_${level}`;
-      break;
+    if (analysis?.caseId && selected && ['proven', 'strongly_inferred'].includes(level)) {
+      invoiceByCase.set(String(analysis.caseId), { invoiceId: selected, linkageBasis: `canonical_${level}` });
     }
   }
+  if (!invoiceByCase.size) return { enrichedComplaintActions: 0 };
 
-  let invoice: any = null;
-  if (invoiceId) {
-    invoice = await readInvoiceRecordById(invoiceId, service);
-  }
-
-  // Only the case's own canonical attribution may name the delivery invoice. A nearest-in-time
-  // invoice for the same customer code is a guess, so no context is written without it.
-  if (!invoice) return { enrichedComplaintActions: 0 };
-
+  const invoiceById = new Map<string, any>();
   let updated = 0;
   for (const action of actions) {
+    const caseId = actionCaseIdFor(action, scopes);
+    const link = caseId ? invoiceByCase.get(caseId) : undefined;
+    if (!link) continue;
+    if (!invoiceById.has(link.invoiceId)) {
+      invoiceById.set(link.invoiceId, await readInvoiceRecordById(link.invoiceId, service));
+    }
+    const invoice = invoiceById.get(link.invoiceId);
+    if (!invoice) continue;
     const existingPayload =
       action.payload && typeof action.payload === 'object' && !Array.isArray(action.payload)
         ? action.payload
@@ -841,7 +875,8 @@ async function enrichComplaintFollowupContext(
       branch: invoice.branch || null,
       delivery_staff: invoice.delivery_staff || null,
       sale_staff: invoice.staff_name || invoice.seller_name || null,
-      linkage_basis: linkageBasis,
+      linkage_basis: link.linkageBasis,
+      case_id: caseId,
       review_required: true,
       responsibility_status: 'context_only_not_fault_assignment',
       linked_at: new Date().toISOString(),

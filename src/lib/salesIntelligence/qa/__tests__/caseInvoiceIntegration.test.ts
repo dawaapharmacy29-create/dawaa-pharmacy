@@ -325,8 +325,12 @@ describe('case invoice card', () => {
   it("classifies every recorded line against this case's conversation, with its evidence", () => {
     const card = buildCaseInvoiceCard(cardInput());
     const byCode = Object.fromEntries(card.lines.map((l) => [l.productCode, l]));
-    expect(byCode['78994']).toMatchObject({ match: 'explicit', matchLabel: 'مذكور صراحة' });
-    expect(byCode['78994'].evidence).toMatch(/أعاد الدكتور ذكره/);
+    // The doctor restated GASTROBIOTIC 550 and the customer confirmed it: not a customer request.
+    expect(byCode['78994']).toMatchObject({
+      match: 'staff_confirmed',
+      matchLabel: 'أكده العميل بعد عرض الدكتور',
+    });
+    expect(byCode['78994'].evidence).toMatch(/ذكره الدكتور وأكده العميل، وليس طلبًا بدأه العميل/);
     // «علبتين كولونا»: quantity agrees, strength/pack not settled by the text.
     expect(byCode['81948']).toMatchObject({ match: 'partial', matchLabel: 'تطابق جزئي' });
     expect(byCode['81948'].evidence).toMatch(/التركيز\/العبوة غير محسومة/);
@@ -336,7 +340,47 @@ describe('case invoice card', () => {
       match: 'invoice_only',
       matchLabel: 'موجود بالفاتورة فقط',
     });
-    expect(card.counts).toEqual({ explicit: 1, partial: 1, unresolved: 0, invoice_only: 1 });
+    expect(card.counts).toEqual({
+      explicit: 0,
+      staff_confirmed: 1,
+      partial: 1,
+      unresolved: 0,
+      invoice_only: 1,
+    });
+  });
+
+  it('who named the item decides the badge; matching code and quantity never promote it', () => {
+    const withSource = (mentionSource: string | undefined) => {
+      const input = cardInput();
+      input.view!.products[1] = { ...input.view!.products[1], mentionSource };
+      return buildCaseInvoiceCard(input).lines.find((l) => l.productCode === '78994')!;
+    };
+    expect(withSource('customer_explicit')).toMatchObject({ match: 'explicit', matchLabel: 'مذكور صراحة' });
+    // Negative: a staff restatement with the same product id and quantity is never customer_explicit.
+    const restated = withSource('staff_restatement');
+    expect(restated.match).toBe('staff_confirmed');
+    expect(restated.match).not.toBe('explicit');
+    // An engine inference is not a customer statement either.
+    const inferred = withSource('inferred');
+    expect(inferred.match).toBe('partial');
+    expect(inferred.evidence).toMatch(/لا يوجد تصريح من العميل/);
+    expect(inferred.evidence).toMatch(/استنتاج من المحرك/);
+    expect(withSource(undefined).match).toBe('partial');
+  });
+
+  it('an unresolved pack/strength is never a complete match, even with a code and quantity match', () => {
+    const input = cardInput();
+    input.view!.products[1] = {
+      ...input.view!.products[1],
+      mentionSource: 'customer_explicit',
+      catalogCandidates: [
+        { productId: 'p-g550', productCode: '78994', name: 'GASTROBIOTIC 550 MG 20 TAB' },
+        { productId: 'p-g250', productCode: '78993', name: 'GASTROBIOTIC 250 MG 20 TAB' },
+      ],
+    };
+    const line = buildCaseInvoiceCard(input).lines.find((l) => l.productCode === '78994')!;
+    expect(line.match).toBe('partial');
+    expect(line.evidence).toMatch(/التركيز\/العبوة غير محسومة/);
   });
 
   it('an ambiguous mention that could be two lines of the invoice stays unresolved for both', () => {
@@ -393,6 +437,19 @@ describe('case invoice card', () => {
       cardInput({ source: { branch: 'المخزن', customerId: 'cust-1', customerCode: '18663' } })
     ).customer;
     expect(linked.sourceLinkLabel).toMatch(/مربوط رسميًا بالعميل/);
+    expect(linked.analyticStatusLabel).toMatch(/مربوط رسميًا في سجل المحادثة فقط/);
+  });
+
+  it('after the approved link, source and invoice on the same customer are shown as one persisted identity', () => {
+    const input = cardInput({ source: { branch: 'المخزن', customerId: 'cust-1', customerCode: '18663' } });
+    input.invoice = { ...input.invoice!, customerId: 'cust-1' };
+    const { customer } = buildCaseInvoiceCard(input);
+    expect(customer.analyticStatusLabel).toMatch(/سجل المحادثة والفاتورة مربوطان رسميًا بنفس سجل العميل/);
+    expect(customer.analyticStatusLabel).not.toMatch(/ليس ربطًا محفوظًا/);
+    expect(customer.invoiceLinkLabel).toMatch(/الفاتورة مربوطة رسميًا/);
+    // A saved id that disagrees with the analysis is a visible conflict, never silently accepted.
+    input.invoice = { ...input.invoice!, customerId: 'cust-other' };
+    expect(buildCaseInvoiceCard(input).customer.analyticStatusLabel).toMatch(/تعارض/);
   });
 
   it('shows the invoice branch as the transaction branch without replacing the source branch', () => {
@@ -414,12 +471,29 @@ describe('case invoice card', () => {
     expect(buildCaseInvoiceCard(noDoctor).invoice.caseDoctors).toEqual([]);
   });
 
-  it('keeps the three verdicts separate: a linked invoice proves neither every line nor delivery', () => {
-    const { verdicts } = buildCaseInvoiceCard(cardInput());
+  it('keeps the five verdicts separate: a proven invoice proves neither confirmation, every line nor delivery', () => {
+    const { verdicts } = buildCaseInvoiceCard(
+      cardInput({
+        outcome: { isOrderConfirmed: false, saleProofState: 'proven', isSaleCountable: true, isRevenueCountable: true },
+        attribution: { attributionLevel: 'proven', selectedInvoiceId: 'inv-1', selectedInvoiceNumber: '74938', isOfficialForStaffEvaluation: true },
+      })
+    );
     expect(verdicts.invoiceBelongsToCase).toMatch(/قاعدة الإثبات الآلية المعتمدة/);
     expect(verdicts.invoiceBelongsToCase).toMatch(/ليس اعتمادًا بشريًا/);
+    expect(verdicts.customerFinalConfirmation).toMatch(/لا توجد رسالة تأكيد نهائي من العميل/);
+    expect(verdicts.customerFinalConfirmation).toMatch(/إثبات الفاتورة لا يعوّضها/);
     expect(verdicts.lineRequests).toMatch(/لا يعني أن كل بنودها طُلبت/);
-    expect(verdicts.orderAndDelivery).toMatch(/التسليم: غير مثبت/);
+    expect(verdicts.delivery).toMatch(/غير مثبت/);
+    expect(verdicts.branch).toMatch(/فرع المعاملة بالفاتورة: فرع شكري/);
+    expect(verdicts.branch).toMatch(/فرع الحالة: فرع شكري/);
+    expect(verdicts.branch).toMatch(/فرع مصدر المحادثة: المخزن \(لا يتغير بالفاتورة\)/);
+    // The proven invoice keeps the sale countable (no rule widened or narrowed) and says what it does not mean.
+    expect(verdicts.counting).toMatch(/البيع والإيراد محسوبان من إثبات ربط الفاتورة بهذه الحالة فقط/);
+    expect(verdicts.counting).toMatch(/معلّم رسميًا لتقييم الموظف/);
+    expect(verdicts.counting).toMatch(/لا يعني تأكيد العميل النهائي ولا التسليم ولا أن كل بنود الفاتورة طُلبت/);
+    const uncounted = buildCaseInvoiceCard(cardInput({ outcome: { isOrderConfirmed: null, saleProofState: 'unknown' } })).verdicts;
+    expect(uncounted.counting).toMatch(/لا يُحتسب بيع أو إيراد/);
+    expect(uncounted.customerFinalConfirmation).toMatch(/غير مسجل/);
     const candidate = buildCaseInvoiceCard(
       cardInput({
         attribution: {

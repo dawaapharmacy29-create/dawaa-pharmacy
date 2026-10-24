@@ -314,7 +314,7 @@ export const candidateRecommendationLabel = (value: string | null | undefined) =
   value ? CANDIDATE_LEVEL_LABELS[value] ?? 'غير محسوم' : 'غير محسوم';
 
 const BRANCH_STRENGTH_LABELS: Record<string, string> = {
-  decided: 'محدد بدليل مباشر من المحادثة أو المصدر (لا يغيّر الفرع الرسمي)',
+  decided: 'محدد بدليل مباشر لهذه الحالة: تعريف الدكتور، أو فرع مصدر تشغيلي، أو فاتورة مثبتة لها (لا يغيّر فرع المصدر)',
   strong_recommendation: 'ترشيح قوي يحتاج اعتمادًا',
   supporting_only: 'دليل مساند فقط',
   conflict: 'متعارض',
@@ -322,6 +322,46 @@ const BRANCH_STRENGTH_LABELS: Record<string, string> = {
 };
 export const branchRecommendationLabel = (value: string | null | undefined) =>
   value ? BRANCH_STRENGTH_LABELS[value] ?? 'غير محسوم' : 'غير محسوم';
+
+export interface CaseBranchFact {
+  label: 'القسم' | 'فرع الحالة';
+  value: string;
+  hint: string | null;
+  decided: boolean;
+}
+
+/**
+ * The one case-level branch every view shows. `branch.branchNameRaw` is the pre-attribution
+ * operational branch (explicit introduction or an operating source branch); the persisted
+ * recommendation can decide it later from a proven invoice of THIS case. Reading only the first
+ * left a decided case showing «غير معروف» next to a card that says «فرع شكري — محسوم».
+ * A customer-service case never gets a branch; a supporting signal is shown as a candidate only.
+ */
+export function caseBranchFact(view: Pick<CaseIntelligenceView, 'branch' | 'ownership'>): CaseBranchFact {
+  if (view.ownership?.department === 'customer_service') {
+    return { label: 'القسم', value: 'خدمة العملاء', hint: 'حالة خدمة عملاء؛ لا يُسند لها فرع بيع.', decided: false };
+  }
+  const recommendation = view.branch.recommendation;
+  const reason = recommendation?.reasons[recommendation.reasons.length - 1] ?? null;
+  if (recommendation?.strength === 'decided' && recommendation.branch) {
+    return { label: 'فرع الحالة', value: recommendation.branch, hint: reason, decided: true };
+  }
+  if (recommendation?.strength === 'conflict') {
+    return { label: 'فرع الحالة', value: 'غير محسوم', hint: reason ?? 'أدلة الفرع متعارضة؛ تحتاج مراجعة.', decided: false };
+  }
+  if (view.branch.branchNameRaw) {
+    return { label: 'فرع الحالة', value: view.branch.branchNameRaw, hint: reason, decided: true };
+  }
+  if (recommendation?.branch) {
+    return {
+      label: 'فرع الحالة',
+      value: 'غير محسوم',
+      hint: `مرشح: ${recommendation.branch} — ${branchRecommendationLabel(recommendation.strength)}${reason ? ` (${reason})` : ''}`,
+      decided: false,
+    };
+  }
+  return { label: 'فرع الحالة', value: 'غير محسوم', hint: reason, decided: false };
+}
 
 const STAFF_FUNCTION_LABELS: Record<string, string> = {
   customer_service: 'خدمة العملاء',

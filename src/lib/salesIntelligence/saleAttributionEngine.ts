@@ -233,12 +233,17 @@ function getInvoiceCustomerName(row: InvoiceLike): string | null {
   return cleanText(firstValue(row, ['customer_name'])) || null;
 }
 
+// B-Connect appends commercial annotations to the customer name in brackets: points codes
+// «(P 500)» / «(200p)» / «(P)», discount tiers «(10%)» / «(%)», «(DISC)», «(points)» / «(بوينتس)»,
+// «(VIP)» / «(V)». They are not part of the name; keeping them turned the same customer into a
+// name contradiction. Any OTHER bracketed text («(تبع ممدوح)», «(م السروجي)», «(بيت)») can tell two
+// people apart, so it stays in the name and a difference there still blocks automatic matching.
+const INVOICE_NAME_COMMERCIAL_ANNOTATION =
+  /[(（]\s*(?:p\s*-?\s*[0-9]{1,6}|[0-9]{1,6}\s*p|p|[0-9]{0,3}(?:\.[0-9]+)?\s*%|disc|points|بوينتس|vip|v)\s*[)）]/giu;
+
 function normalizeCustomerNameForInvoiceMatch(value: string | null | undefined): string {
   return String(value ?? '')
-    // B-Connect appends bracketed annotations to the customer name — discount tiers «(10%)»,
-    // points «(200p)», notes «( بيت )» (about 11% of recent invoices). They are not part of the
-    // name; keeping them turned the same customer into a name contradiction.
-    .replace(/[(（][^)）]*[)）]/g, ' ')
+    .replace(INVOICE_NAME_COMMERCIAL_ANNOTATION, ' ')
     .trim()
     .toLowerCase()
     // Invoice/customer display names may carry honorifics, but matching still requires

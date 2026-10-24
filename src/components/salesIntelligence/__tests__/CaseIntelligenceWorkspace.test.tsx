@@ -528,3 +528,48 @@ describe('V43 case evidence on the review screen (Arabic only)', () => {
     expect(html).toContain('سجل تاريخي، لا تُنشأ مهمة الآن');
   });
 });
+
+describe('case branch is one fact on every tab', () => {
+  const pharmacyOwnership = {
+    department: 'pharmacy' as const, sourceBranchNameRaw: 'المخزن', operationalBranch: null,
+    branchBasis: 'none' as const, suggestedStaffBranch: 'فرع شكري', introductionMessageIds: [], blockers: [],
+    owners: [{ staffId: 'shebl', name: 'د محمد شبل', homeBranch: 'فرع شكري', function: 'pharmacist' as const }],
+  };
+  const branchFactHtml = (html: string) => /data-testid="case-branch-fact">([^<]*)</.exec(html)?.[1];
+
+  it('an order case decided by its own proven invoice shows that branch in the overview, not «غير معروف»', () => {
+    const view = persisted(analyze(SALE).caseIntelligence)!;
+    view.branch.branchNameRaw = null;
+    view.ownership = pharmacyOwnership;
+    view.branch.recommendation = {
+      branch: 'فرع شكري', strength: 'decided',
+      reasons: ['فرع فاتورة مرتبطة ومثبتة لهذه الحالة؛ يحدد فرع العملية دون تعديل فرع المصدر'],
+    };
+    const html = render(view, 'conversation');
+    expect(branchFactHtml(html)).toBe('فرع شكري');
+    expect(html).toContain('دون تعديل فرع المصدر');
+    // Same fact as the review tab.
+    expect(render(view, 'review')).toContain('فرع شكري — ');
+  });
+
+  it('the doctor home branch alone stays a candidate; customer service never gets a branch', () => {
+    const view = persisted(analyze(SALE).caseIntelligence)!;
+    view.branch.branchNameRaw = null;
+    view.ownership = pharmacyOwnership;
+    view.branch.recommendation = {
+      branch: 'فرع شكري', strength: 'supporting_only',
+      reasons: ['الفرع الأساسي للدكتور المسؤول: فرع شكري', 'دليل واحد فقط؛ غير كافٍ لحسم الفرع'],
+    };
+    const html = render(view, 'conversation');
+    expect(branchFactHtml(html)).toBe('غير محسوم');
+    expect(html).toContain('مرشح: فرع شكري — دليل مساند فقط');
+
+    const service = persisted(analyze(SALE).caseIntelligence)!;
+    service.branch.branchNameRaw = null;
+    service.ownership = { ...pharmacyOwnership, department: 'customer_service', suggestedStaffBranch: null, owners: [] };
+    service.branch.recommendation = { branch: null, strength: 'none', reasons: ['حالة خدمة عملاء؛ لا تُنسب لفرع بيع'] };
+    const serviceHtml = render(service, 'conversation');
+    expect(branchFactHtml(serviceHtml)).toBe('خدمة العملاء');
+    expect(serviceHtml).not.toContain('فرع شكري');
+  });
+});

@@ -17,6 +17,8 @@ export interface InvoiceItemCommercialMeta {
   itemDiscountAmount: number | null;
   itemDiscountPercent: number | null;
   grossLineAmount: number | null;
+  /** Gross line value after returns, when the importer stored it. */
+  effectiveGrossAfterReturn: number | null;
   netLineAmount: number | null;
   invoiceDiscountAmount: number | null;
   allocatedInvoiceDiscountAmount: number | null;
@@ -49,6 +51,7 @@ export function readInvoiceItemCommercialMeta(rawData: unknown): InvoiceItemComm
       itemDiscountAmount: num(m.item_discount_amount),
       itemDiscountPercent: num(m.item_discount_percent),
       grossLineAmount: num(m.gross_line_amount),
+      effectiveGrossAfterReturn: num(m.effective_gross_after_return),
       netLineAmount: num(m.net_line_amount),
       invoiceDiscountAmount: num(m.invoice_discount_amount),
       allocatedInvoiceDiscountAmount: num(m.allocated_invoice_discount_amount),
@@ -68,6 +71,7 @@ export function readInvoiceItemCommercialMeta(rawData: unknown): InvoiceItemComm
       itemDiscountAmount: null,
       itemDiscountPercent: null,
       grossLineAmount: null,
+      effectiveGrossAfterReturn: null,
       netLineAmount: null,
       invoiceDiscountAmount: null,
       allocatedInvoiceDiscountAmount: null,
@@ -85,6 +89,7 @@ export function readInvoiceItemCommercialMeta(rawData: unknown): InvoiceItemComm
     itemDiscountAmount: num(raw.line_discount),
     itemDiscountPercent: num(raw.line_discount_pct),
     grossLineAmount: num(raw.gross_line),
+    effectiveGrossAfterReturn: null,
     // The net line value of a compact row is the row's line_total column.
     netLineAmount: null,
     invoiceDiscountAmount: null,

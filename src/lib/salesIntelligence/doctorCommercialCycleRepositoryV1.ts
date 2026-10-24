@@ -3,6 +3,7 @@ import { readInvoiceRecordsByIds } from '@/lib/readModels/invoiceRecordReadModel
 import { derivePricingExecutionAssessment } from './salesPricingExecutionV1';
 import { summarizeStaffCommercialPerformanceV1, type StaffCommercialSummaryV1 } from './staffCommercialAnalyticsV1';
 import { cairoDateBoundaryIso, cairoWallTimeDate } from '@/lib/time/cairoDateBoundary';
+import { readInvoiceItemCommercialMeta } from '@/lib/invoices/invoiceItemCommercialMeta';
 
 type AnyRow = Record<string, any>;
 
@@ -47,6 +48,76 @@ function chunks<T>(rows: T[], size: number): T[][] {
   const result: T[][] = [];
   for (let i = 0; i < rows.length; i += size) result.push(rows.slice(i, i + size));
   return result;
+}
+
+/**
+ * One invoice line as a commercial fact. Reads both stored raw_data shapes through the shared
+ * parser: the importer's `__dawaa_commercial` object and the compact B-Connect rows whose returns,
+ * line discount and gross sit at the top level (previously ignored here, so a compact return still
+ * counted as sold quantity). Nothing is derived that the row does not carry; no attribution or
+ * incentive rule lives here.
+ */
+export function buildDoctorCommercialLineFactV1(row: AnyRow, header: AnyRow | null, offers: AnyRow[]) {
+  const meta = readInvoiceItemCommercialMeta(row.raw_data);
+  const dawaa = row.raw_data?.__dawaa_commercial ?? {};
+  const branch = normalizeBranch(header?.branch_name ?? header?.branch);
+  const saleDay = String(header?.invoice_datetime ?? header?.sale_date ?? row.invoice_date ?? '').slice(0, 10);
+  const lineOffers = offers
+    .filter((offer) => {
+      if (String(offer.item_code ?? '') !== String(row.product_code ?? '')) return false;
+      if (offer.active === false) return false;
+      const offerBranch = normalizeBranch(offer.branch);
+      if (offerBranch && branch && offerBranch !== branch) return false;
+      const start = String(offer.start_date ?? '').slice(0, 10);
+      const end = String(offer.end_date ?? '').slice(0, 10);
+      if (saleDay && start && saleDay < start) return false;
+      if (saleDay && end && saleDay > end) return false;
+      return true;
+    })
+    .map((offer) => ({
+      id: String(offer.id),
+      title: offer.title == null ? null : String(offer.title),
+      finalPrice: offer.final_price == null ? null : Number(offer.final_price),
+    }));
+
+  const quantity = row.quantity == null ? null : Number(row.quantity);
+  const returned = Math.max(0, meta.returnedQuantity ?? 0);
+  const netLineAmount = meta.netLineAmount ?? (row.line_total == null ? null : Number(row.line_total));
+  const pricing = derivePricingExecutionAssessment(
+    {
+      quantity,
+      returnedQuantity: meta.returnedQuantity,
+      effectiveQuantity: meta.effectiveQuantity,
+      unitPrice: row.unit_price == null ? null : Number(row.unit_price),
+      itemDiscountAmount: meta.allocatedInvoiceDiscountAmount ?? meta.itemDiscountAmount,
+      itemDiscountPercent: meta.itemDiscountPercent,
+      grossLineAmount: meta.grossLineAmount,
+      netLineAmount,
+      invoiceDiscountAmount: meta.invoiceDiscountAmount,
+      allocatedInvoiceDiscountAmount: meta.allocatedInvoiceDiscountAmount,
+    },
+    lineOffers
+  );
+
+  return {
+    invoiceId: row.invoice_id == null ? null : String(row.invoice_id),
+    invoiceNumber: String(row.invoice_number ?? ''),
+    staffId: header?.staff_id == null ? null : String(header.staff_id),
+    staffName: header?.staff_name ?? header?.seller_name ?? header?.normalized_seller_name ?? dawaa.staff_name ?? null,
+    quantity: meta.effectiveQuantity ?? (quantity == null ? null : Math.max(0, quantity - returned)),
+    grossLineAmount:
+      meta.effectiveGrossAfterReturn ??
+      (quantity != null && quantity > 0 && meta.grossLineAmount != null
+        ? (meta.grossLineAmount * Math.max(0, quantity - returned)) / quantity
+        : meta.grossLineAmount),
+    netLineAmount,
+    itemDiscountAmount: meta.itemDiscountAmount,
+    returnedQuantity: meta.returnedQuantity,
+    pricingStatus: pricing.status,
+    quotedUnitPrice: null,
+    quotedPriceStatus: 'not_quoted' as const,
+    pricingNeedsHumanReview: pricing.needsHumanReview,
+  };
 }
 
 export interface DoctorCommercialCycleDataV1 {
@@ -96,78 +167,10 @@ export async function fetchDoctorCommercialCycleDataV1(
     const header = row.invoice_id ? headerById.get(String(row.invoice_id)) ?? null : null;
     if (header) linkedInvoiceLineCount += 1;
     else unmatchedInvoiceLineCount += 1;
-
-    const meta = row.raw_data?.__dawaa_commercial ?? {};
-    const branch = normalizeBranch(header?.branch_name ?? header?.branch);
-    const saleDay = String(header?.invoice_datetime ?? header?.sale_date ?? row.invoice_date ?? '').slice(0, 10);
-    const lineOffers = offers
-      .filter((offer) => {
-        if (String(offer.item_code ?? '') !== String(row.product_code ?? '')) return false;
-        if (offer.active === false) return false;
-        const offerBranch = normalizeBranch(offer.branch);
-        if (offerBranch && branch && offerBranch !== branch) return false;
-        const start = String(offer.start_date ?? '').slice(0, 10);
-        const end = String(offer.end_date ?? '').slice(0, 10);
-        if (saleDay && start && saleDay < start) return false;
-        if (saleDay && end && saleDay > end) return false;
-        return true;
-      })
-      .map((offer) => ({
-        id: String(offer.id),
-        title: offer.title == null ? null : String(offer.title),
-        finalPrice: offer.final_price == null ? null : Number(offer.final_price),
-      }));
-
-    const pricing = derivePricingExecutionAssessment(
-      {
-        quantity: row.quantity == null ? null : Number(row.quantity),
-        returnedQuantity: meta.returned_quantity == null ? null : Number(meta.returned_quantity),
-        effectiveQuantity: meta.effective_quantity == null ? null : Number(meta.effective_quantity),
-        unitPrice: row.unit_price == null ? null : Number(row.unit_price),
-        itemDiscountAmount:
-        meta.allocated_invoice_discount_amount == null
-          ? (meta.item_discount_amount == null ? null : Number(meta.item_discount_amount))
-          : Number(meta.allocated_invoice_discount_amount),
-        itemDiscountPercent: meta.item_discount_percent == null ? null : Number(meta.item_discount_percent),
-        grossLineAmount: meta.gross_line_amount == null ? null : Number(meta.gross_line_amount),
-        netLineAmount: meta.net_line_amount == null ? (row.line_total == null ? null : Number(row.line_total)) : Number(meta.net_line_amount),
-        invoiceDiscountAmount: meta.invoice_discount_amount == null ? null : Number(meta.invoice_discount_amount),
-        allocatedInvoiceDiscountAmount: meta.allocated_invoice_discount_amount == null ? null : Number(meta.allocated_invoice_discount_amount),
-      },
-      lineOffers
-    );
-    if (pricing.needsHumanReview) needsReviewLineCount += 1;
-
-    return {
-      invoiceId: row.invoice_id == null ? null : String(row.invoice_id),
-      invoiceNumber: String(row.invoice_number ?? ''),
-      staffId: header?.staff_id == null ? null : String(header.staff_id),
-      staffName: header?.staff_name ?? header?.seller_name ?? header?.normalized_seller_name ?? meta.staff_name ?? null,
-      quantity:
-        meta.effective_quantity == null
-          ? (
-              row.quantity == null
-                ? null
-                : Math.max(0, Number(row.quantity) - Math.max(0, Number(meta.returned_quantity ?? 0)))
-            )
-          : Number(meta.effective_quantity),
-      grossLineAmount:
-        meta.effective_gross_after_return == null
-          ? (
-              row.quantity != null && Number(row.quantity) > 0 && meta.gross_line_amount != null
-                ? Number(meta.gross_line_amount) *
-                  Math.max(0, Number(row.quantity) - Math.max(0, Number(meta.returned_quantity ?? 0))) /
-                  Number(row.quantity)
-                : (meta.gross_line_amount == null ? null : Number(meta.gross_line_amount))
-            )
-          : Number(meta.effective_gross_after_return),
-      netLineAmount: meta.net_line_amount == null ? (row.line_total == null ? null : Number(row.line_total)) : Number(meta.net_line_amount),
-      itemDiscountAmount: meta.item_discount_amount == null ? null : Number(meta.item_discount_amount),
-      returnedQuantity: meta.returned_quantity == null ? null : Number(meta.returned_quantity),
-      pricingStatus: pricing.status,
-      quotedUnitPrice: null,
-      quotedPriceStatus: 'not_quoted',
-    };
+    const fact = buildDoctorCommercialLineFactV1(row, header, offers);
+    if (fact.pricingNeedsHumanReview) needsReviewLineCount += 1;
+    const { pricingNeedsHumanReview: _review, ...line } = fact;
+    return line;
   });
 
   return {

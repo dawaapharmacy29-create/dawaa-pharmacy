@@ -96,14 +96,16 @@
 // compact B-Connect rows), so returned quantity on compact rows reduces the compared quantity
 // instead of being dropped. An unresolved case product carries the canonical resolver's tied
 // catalog candidates for review only (never an identity). No proof rule changes.
-export const PIPELINE_VERSION = 'sales-intelligence-v46-invoice-line-evidence';
+// v47: invoice customer-name matching ignores only documented B-Connect commercial annotations
+// («(P 500)», «(10%)», «(VIP)» …); other bracketed text stays part of the name.
+export const PIPELINE_VERSION = 'sales-intelligence-v47-scoped-name-annotations';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v13-open-service-need-continuity',
   historicalClosure: 'historical-closure-v1',
   commercialConfirmation: 'commercial-confirmation-v6-compact-total-interstitial-ack-safe',
   protocolApplicability: 'protocol-applicability-v1',
-  attribution: 'attribution-v12-compact-item-returns',
+  attribution: 'attribution-v13-scoped-name-annotations',
   matching: 'matching-v3-unresolved-product-evidence-safe',
   policyEvaluation: 'policy-evaluation-v1',
 } as const;
