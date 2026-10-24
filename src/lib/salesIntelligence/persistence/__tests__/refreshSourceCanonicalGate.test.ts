@@ -385,7 +385,8 @@ describe('canonical refresh — lifecycle then single proof writer (server trans
     expect(writes.filter((row) => row.table === 'whatsapp_conversation_actions')).toEqual([]);
 
     writes.length = 0;
-    mockProofRpcResult({ ok: true, status: 'reconciled' });
+    // The live proof writer always echoes the case it reconciled.
+    mockProofRpcResult({ ok: true, status: 'reconciled', salesCaseId: `${fine.id}:interaction:0` });
     await call(load, fine.id);
     const closed = writes.filter((row) => row.table === 'whatsapp_conversation_actions');
     expect(closed).toHaveLength(1);
@@ -407,6 +408,26 @@ describe('canonical refresh — lifecycle then single proof writer (server trans
     await call(load, fine.id);
     expect(writes.filter((row) => row.table === 'whatsapp_conversation_actions')).toEqual([]);
     expect(writes.filter((row) => row.table === 'whatsapp_review_sources')).toEqual([]);
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['null', null],
+    ['empty', ''],
+    ['whitespace', '   '],
+    ['another case', 'other-source:interaction:7'],
+  ])('an accepted status whose salesCaseId is %s closes no request and writes nothing on the source', async (_label, salesCaseId) => {
+    for (const status of ['reconciled', 'already_reconciled']) {
+      writes.length = 0;
+      actions = [
+        { id: 'a-1', action_type: 'customer_request', action_key: 'request:1:p', product_id: 'p-1', payload: { caseId: `${fine.id}:interaction:0` } },
+      ];
+      runBatchPersistence.mockResolvedValue(batchResult([analysis('sale_proven', 'proven', 'proven')]));
+      mockProofRpcResult(salesCaseId === undefined ? { ok: true, status } : { ok: true, status, salesCaseId });
+      await call(load, fine.id);
+      expect(writes.filter((row) => row.table === 'whatsapp_conversation_actions')).toEqual([]);
+      expect(writes.filter((row) => row.table === 'whatsapp_review_sources')).toEqual([]);
+    }
   });
 
   it('a proof owned by a sibling case of the same envelope closes nothing for this case', async () => {
@@ -632,6 +653,29 @@ describe('proof writer results the refresh may treat as accepted', () => {
       { caseId: 'c-new', ok: true, status: 'reconciled', salesCaseId: 'c-new' },
     ]);
     expect([...accepted].sort()).toEqual(['c-new', order].sort());
+  });
+
+  it('requires an echoed salesCaseId that is a non-blank string equal to the case for every accepted status', async () => {
+    const { proofAcceptedCaseIds } = await import('../../refresh/canonicalRefreshService');
+    const caseId = 'src:interaction:0:session:2';
+    for (const status of ['reconciled', 'already_reconciled']) {
+      const rejected: Array<Record<string, unknown>> = [
+        { caseId, ok: true, status },
+        { caseId, ok: true, status, salesCaseId: null },
+        { caseId, ok: true, status, salesCaseId: '' },
+        { caseId, ok: true, status, salesCaseId: '   ' },
+        { caseId, ok: true, status, salesCaseId: 'src:interaction:1:session:2' },
+        { caseId, ok: true, status, salesCaseId: ` ${caseId} ` },
+        { caseId, ok: true, status, salesCaseId: 42 },
+        { caseId, ok: true, status, salesCaseId: caseId, ownerSalesCaseId: 'src:interaction:1:session:2' },
+        { caseId, ok: false, status, salesCaseId: caseId },
+      ];
+      for (const row of rejected) {
+        expect(proofAcceptedCaseIds([row as any]).size, JSON.stringify(row)).toBe(0);
+      }
+      expect([...proofAcceptedCaseIds([{ caseId, ok: true, status, salesCaseId: caseId } as any])]).toEqual([caseId]);
+      expect([...proofAcceptedCaseIds([{ caseId, ok: true, status, salesCaseId: caseId, ownerSalesCaseId: caseId } as any])]).toEqual([caseId]);
+    }
   });
 
 });

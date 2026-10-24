@@ -15403,10 +15403,11 @@ function proofAcceptedCaseIds(rows) {
   return new Set(
     rows.filter((row) => {
       if (row.ok !== true || !PROOF_ACCEPTED_STATUSES.has(String(row.status))) return false;
-      const echoed = typeof row.salesCaseId === "string" ? row.salesCaseId : null;
-      if (echoed !== null && echoed !== row.caseId) return false;
-      const owner = typeof row.ownerSalesCaseId === "string" ? row.ownerSalesCaseId : null;
-      return owner === null || owner === row.caseId;
+      if (typeof row.caseId !== "string" || row.caseId.trim() === "") return false;
+      if (typeof row.salesCaseId !== "string" || row.salesCaseId.trim() === "") return false;
+      if (row.salesCaseId !== row.caseId) return false;
+      const owner = row.ownerSalesCaseId;
+      return owner === void 0 || owner === null || owner === row.caseId;
     }).map((row) => row.caseId)
   );
 }

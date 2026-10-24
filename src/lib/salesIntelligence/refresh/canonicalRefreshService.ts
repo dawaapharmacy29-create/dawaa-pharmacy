@@ -81,18 +81,20 @@ export const PROOF_ACCEPTED_STATUSES: ReadonlySet<string> = new Set(['reconciled
 
 /**
  * Cases whose proof the writer accepted for THEMSELVES. A row only counts when it is ok, carries an
- * accepted status, and — when the writer echoes salesCaseId — names this very case; an owner the
- * writer reports as someone else is never accepted.
+ * accepted status, and the writer echoes salesCaseId as a non-blank string exactly equal to this
+ * case (the proof writer always echoes it for reconciled/already_reconciled). A missing, null,
+ * blank or different salesCaseId, or an owner reported as someone else, is never accepted.
  */
 export function proofAcceptedCaseIds(rows: CanonicalProofReconciliation[]): Set<string> {
   return new Set(
     rows
       .filter((row) => {
         if (row.ok !== true || !PROOF_ACCEPTED_STATUSES.has(String(row.status))) return false;
-        const echoed = typeof row.salesCaseId === 'string' ? row.salesCaseId : null;
-        if (echoed !== null && echoed !== row.caseId) return false;
-        const owner = typeof row.ownerSalesCaseId === 'string' ? row.ownerSalesCaseId : null;
-        return owner === null || owner === row.caseId;
+        if (typeof row.caseId !== 'string' || row.caseId.trim() === '') return false;
+        if (typeof row.salesCaseId !== 'string' || row.salesCaseId.trim() === '') return false;
+        if (row.salesCaseId !== row.caseId) return false;
+        const owner = row.ownerSalesCaseId;
+        return owner === undefined || owner === null || owner === row.caseId;
       })
       .map((row) => row.caseId)
   );
