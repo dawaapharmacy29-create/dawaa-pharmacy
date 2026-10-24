@@ -19,6 +19,7 @@ import { parseWhatsAppExport, splitWhatsAppSessions } from '../../whatsappConver
 import { buildCaseInvoiceCard } from '../qa/caseInvoiceCard';
 import { careFollowUpDisposition } from '../careFollowUpEngine';
 import { mapCaseAnalysisRowContent } from '../persistence/mappers';
+import { projectCanonicalKpiCase, summarizeCanonicalWhatsappKpis } from '../canonicalKpiReadModel';
 import { fetchQaBranchOptions, filterCaseListRows, mergeCaseListRows } from '../qa/queries';
 import { DEFAULT_QA_LIST_FILTERS } from '../qa/types';
 import { caseBranchFact } from '../qa/caseIntelligencePresentation';
@@ -769,5 +770,43 @@ describe('V48 — identity, ownership and evaluation stay exactly where they wer
     }
     // Staff per case is unchanged: Heba only on the welfare case, Shibl on the order and nursing cases.
     expect(cases.map((c) => staffIds(c))).toEqual([['staff-heba'], ['staff-shebl'], ['staff-shebl']]);
+  });
+});
+
+describe('V48 — one shared V22 envelope, one countable sale: 849 never counted twice', () => {
+  it('only the proof-owning order case counts the sale and revenue; the welfare and nursing cases never inherit it', async () => {
+    const { cases } = await analyze({ conversationId: 'ee4f79b9-7a32-48c6-93b8-ecdfa01b6aed' });
+    const analyses = cases.map((analysis, index) => {
+      const content = mapCaseAnalysisRowContent(analysis);
+      return {
+        analysis_id: `a-${index}`, case_id: analysis.caseId, pipeline_version: 'v48', case_type: content.caseType,
+        case_started_at: content.caseStartedAt, identity_branch_name_raw: content.identityAtAnalysis.branchNameRaw,
+        identity_customer_id: content.identityAtAnalysis.customerId, identity_customer_phone: null,
+        evidence_snapshot: JSON.parse(JSON.stringify(content.evidenceSnapshot)),
+      };
+    });
+    // One operation envelope for the whole conversation; its proof names the order case only.
+    const v22 = {
+      id: 'v22-1', verified_invoice_id: 'inv-order', verified_invoice_number: '90938', verified_revenue: 849,
+      verified_sale_at: ORDER_INVOICE.invoice_datetime,
+      case_json: { canonicalSaleProof: { state: 'proven', salesCaseId: cases[1].caseId, invoiceId: 'inv-order', analysisId: 'a-1' } },
+    };
+    const attributionFor = (analysis: any, index: number) => ({
+      case_id: analysis.caseId, analysis_id: `a-${index}`, attribution_level: analysis.attribution.attributionLevel,
+      selected_invoice_id: analysis.attribution.selectedInvoiceId, selected_invoice_number: analysis.attribution.selectedInvoiceNumber,
+      is_official_for_staff_evaluation: analysis.attribution.isOfficialForStaffEvaluation,
+    });
+    const facts = analyses.map((row, index) =>
+      projectCanonicalKpiCase(row, { source_case_id_v22: 'v22-1' }, v22, attributionFor(cases[index], index))
+    );
+    expect(facts.map((f) => f.truth.ledger.state)).toEqual(['proof_belongs_to_other_case', 'proven', 'proof_belongs_to_other_case']);
+    expect(facts.map((f) => f.saleCountable)).toEqual([false, true, false]);
+    expect(facts.map((f) => f.revenue)).toEqual([null, 849, null]);
+    const summary = summarizeCanonicalWhatsappKpis(facts);
+    expect(summary.sales).toBe(1);
+    expect(summary.revenue).toBe(849);
+    expect(summary.invoiceEvidence).toBe(1);
+    // The invoice belongs to the order case only; nothing source-level carries it.
+    expect(cases.map((c) => c.attribution.selectedInvoiceId ?? null)).toEqual([null, 'inv-order', null]);
   });
 });

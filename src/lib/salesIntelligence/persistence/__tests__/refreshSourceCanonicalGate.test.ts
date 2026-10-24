@@ -394,6 +394,19 @@ describe('canonical refresh — lifecycle then single proof writer (server trans
     expect(closed[0].payload).toMatchObject({ outcome: 'sold', payload: { canonical_sale: { invoice_id: 'inv-1' } } });
     expect(closed[0].payload).not.toHaveProperty('target_id');
     expect(closed[0].payload).not.toHaveProperty('target_table');
+    // Case-level proof never becomes a source-level invoice link or branch.
+    expect(writes.filter((row) => row.table === 'whatsapp_review_sources')).toEqual([]);
+  });
+
+  it('a proof owned by a sibling case of the same envelope closes nothing for this case', async () => {
+    actions = [
+      { id: 'a-1', action_type: 'customer_request', action_key: 'request:1:p', product_id: 'p-1', payload: { caseId: `${fine.id}:interaction:0` } },
+    ];
+    runBatchPersistence.mockResolvedValue(batchResult([analysis('sale_proven', 'proven', 'proven')]));
+    mockProofRpcResult({ ok: false, status: 'canonical_proof_owned_by_other_case', ownerSalesCaseId: `${fine.id}:interaction:1` });
+    await call(load, fine.id);
+    expect(writes.filter((row) => row.table === 'whatsapp_conversation_actions')).toEqual([]);
+    expect(writes.filter((row) => row.table === 'whatsapp_review_sources')).toEqual([]);
   });
 
   it('reports a proof-bridge transport failure instead of success', async () => {
