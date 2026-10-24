@@ -47,7 +47,7 @@ def function_from(path, marker):
 MARKER = "CREATE OR REPLACE FUNCTION public.dawaa_reconcile_sales_intelligence_case_v22_v1(p_sales_case_id text)"
 LIVE = function_from("supabase/migrations/20261009200000_capture_production_canonical_si_writers_v1.sql", MARKER)
 CANDIDATE = function_from("docs/whatsapp-v48-canonical-proof-ownership/proof-writer-ownership-provenance-candidate.sql", MARKER)
-REPAIR = (ROOT / "supabase/migrations/20261024100000_v48_scoped_v22_envelope_identity_proof_provenance_repair.sql").read_text(encoding="utf8")
+REPAIR = (ROOT / "supabase/migrations/20261024093534_v48_scoped_v22_envelope_identity_proof_provenance_repair.sql").read_text(encoding="utf8")
 
 SOURCE = "ee4f79b9-7a32-48c6-93b8-ecdfa01b6aed"
 OTHER_SOURCE = "11111111-1111-4111-8111-111111111111"
