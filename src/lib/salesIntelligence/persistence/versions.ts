@@ -98,7 +98,10 @@
 // catalog candidates for review only (never an identity). No proof rule changes.
 // v47: invoice customer-name matching ignores only documented B-Connect commercial annotations
 // («(P 500)», «(10%)», «(VIP)» …); other bracketed text stays part of the name.
-export const PIPELINE_VERSION = 'sales-intelligence-v47-scoped-name-annotations';
+// v48: one canonical case branch (detail, list, filter, summary) persisted as
+// evidence_snapshot.caseBranch; a service case of the same operation may take the operation branch
+// of the one proven sale case of its conversation (never its invoice or sale). No proof rule changes.
+export const PIPELINE_VERSION = 'sales-intelligence-v48-canonical-case-branch';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v13-open-service-need-continuity',

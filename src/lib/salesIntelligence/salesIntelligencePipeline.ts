@@ -49,6 +49,10 @@ import {
   type PharmacyProductIndex,
 } from './pharmacyProducts/pharmacyProductResolverV2';
 import type { InvoiceLike } from '../invoices/invoiceCore';
+import {
+  canonicalCaseBranchFromRecommendation,
+  linkSiblingServiceCaseBranches,
+} from './canonicalCaseBranch';
 import type { InvoiceCandidateQueryContext, InvoiceCandidateRows } from './invoiceCandidateRetrieval';
 import type {
   CaseBasketItem,
@@ -826,6 +830,8 @@ export interface SegmentedCase {
   conversationTimeline: NormalizedConversationMessageV32[];
   /** The V32 interaction this case reads (segmentation owner) — carried for the read model only. */
   interaction: ConversationInteractionV32 | null;
+  /** Raw (coarse) WhatsApp sessions this case's messages fall in. */
+  coarseSessionIndexes?: number[];
 }
 
 export interface DeriveSegmentedCasesInput {
@@ -963,7 +969,7 @@ export function deriveSegmentedCases(input: DeriveSegmentedCasesInput): DeriveSe
       humanReviewReasons: [...new Set([...rawConversationCase.humanReviewReasons, ...ownership.blockers.filter((b) =>
         ['case_branch_evidence_conflict', 'multiple_staff_functions_require_review', 'multiple_staff_owners_require_review'].includes(b))])],
     };
-    cases.push({ conversationCase, scopedMessages, conversationTimeline: understanding.messages, interaction });
+    cases.push({ conversationCase, scopedMessages, conversationTimeline: understanding.messages, interaction, coarseSessionIndexes });
   });
 
   if (crossedCoarseBoundary) {
@@ -1057,9 +1063,10 @@ export function runSalesIntelligencePipeline(input: SalesIntelligencePipelineInp
       .map((name) => name.trim().toLocaleLowerCase('ar'))
   );
   const sourceHasMultipleIntroducedStaff = namedIntroductions.size > 1;
-  const caseAnalyses = segmented.cases.map(({ conversationCase, scopedMessages, conversationTimeline, interaction }) =>
+  const perCase = segmented.cases.map(({ conversationCase, scopedMessages, conversationTimeline, interaction }) =>
     analyzeOneCase(conversationCase, scopedMessages, input, interaction, conversationTimeline, sourceHasMultipleIntroducedStaff)
   );
+  const caseAnalyses = withCanonicalCaseBranches(perCase, segmented.cases, input.customerIdentityStatus);
 
   return {
     conversationId: input.conversationId,
@@ -1069,3 +1076,63 @@ export function runSalesIntelligencePipeline(input: SalesIntelligencePipelineInp
   };
 }
 
+
+/**
+ * Canonical case branch for every case of ONE conversation: per-case evidence first, then the
+ * source-level sibling pass (a service case may take the operation branch of the one proven sale
+ * case it belongs to). Attribution, sale proof and the source's historical branch are untouched.
+ */
+function withCanonicalCaseBranches(
+  analyses: SalesIntelligenceCaseAnalysis[],
+  segmentedCases: SegmentedCase[],
+  customerIdentityStatus: SalesIntelligencePipelineInput['customerIdentityStatus']
+): SalesIntelligenceCaseAnalysis[] {
+  const sessionsByCaseId = new Map(
+    segmentedCases.map((c) => [c.conversationCase.caseId, c.coarseSessionIndexes ?? []] as const)
+  );
+  const linkInputs = analyses.map((analysis) => {
+    const ownership = analysis.conversationCase.ownership;
+    const provenDirect =
+      analysis.attribution.attributionLevel === 'proven' &&
+      Boolean(analysis.attribution.selectedCandidate?.directInvoiceLink) &&
+      Boolean(analysis.attribution.selectedInvoiceId);
+    const caseBranch = canonicalCaseBranchFromRecommendation({
+      recommendation: analysis.branchRecommendation,
+      ownership,
+      provenInvoiceId: provenDirect ? analysis.attribution.selectedInvoiceId : null,
+    });
+    return {
+      caseId: analysis.caseId,
+      caseType: analysis.conversationCase.caseType,
+      department: ownership?.department ?? null,
+      customerId: analysis.conversationCase.customerId,
+      customerResolved: customerIdentityStatus === 'resolved' && Boolean(analysis.conversationCase.customerId),
+      startedAt: analysis.conversationCase.startedAt,
+      endedAt: analysis.conversationCase.endedAt,
+      coarseSessionIndexes: sessionsByCaseId.get(analysis.caseId) ?? [],
+      pharmacistOwnerIds: (ownership?.owners ?? []).filter((o) => o.function === 'pharmacist').map((o) => o.staffId),
+      ownerIds: (ownership?.owners ?? []).map((o) => o.staffId),
+      suggestedStaffBranch: ownership?.suggestedStaffBranch ?? null,
+      ownSelectedInvoiceId: analysis.attribution.selectedInvoiceId ?? null,
+      provenInvoice:
+        provenDirect && caseBranch.basis === 'proven_invoice'
+          ? {
+              invoiceId: String(analysis.attribution.selectedInvoiceId),
+              branch: analysis.attribution.selectedCandidate?.invoiceBranch ?? null,
+            }
+          : null,
+      caseBranch,
+    };
+  });
+  const branches = linkSiblingServiceCaseBranches(linkInputs);
+  return analyses.map((analysis) => {
+    const caseBranch = branches.get(analysis.caseId)!;
+    return {
+      ...analysis,
+      caseBranch,
+      caseIntelligence: analysis.caseIntelligence
+        ? { ...analysis.caseIntelligence, branch: { ...analysis.caseIntelligence.branch, caseBranch } }
+        : analysis.caseIntelligence,
+    };
+  });
+}

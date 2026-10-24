@@ -4054,13 +4054,13 @@ function qualifiesForAutomaticInvoiceLink(ctx, row, provider) {
   if (invoiceStaffId && caseStaffIds.length > 0 && !caseStaffIds.includes(invoiceStaffId)) return false;
   const branchMatch = classifyBranch(ctx, row);
   if (branchMatch === "mismatch") return false;
-  const time2 = classifyTime(ctx, row);
-  if (time2.temporalInversion) return false;
+  const time3 = classifyTime(ctx, row);
+  if (time3.temporalInversion) return false;
   const exactTransactionalIdentity = Boolean(
     invoiceCustomerId === ctx.customerId && (branchMatch === "exact_canonical" || branchMatch === "normalized_alias_match")
   );
-  const boundedTransactionTime = time2.timeMatchStrength === "strong" || time2.timeMatchStrength === "moderate";
-  if (time2.timeMatchStrength !== "very_strong" && !(exactTransactionalIdentity && boundedTransactionTime)) return false;
+  const boundedTransactionTime = time3.timeMatchStrength === "strong" || time3.timeMatchStrength === "moderate";
+  if (time3.timeMatchStrength !== "very_strong" && !(exactTransactionalIdentity && boundedTransactionTime)) return false;
   if (!getInvoiceRowNumber(row) || isDraftLikeZeroInvoice(row)) return false;
   if (!hasStableInvoiceRowId(row)) return false;
   if (ctx.commercialConfirmation.currentState === "rejected") return false;
@@ -4286,7 +4286,7 @@ function buildAttributionCandidate(ctx, row, itemEvidenceProvider = unavailableI
   const invoiceNumber2 = getInvoiceRowNumber(row);
   const identity = classifyIdentity(ctx, row);
   const branchMatch = classifyBranch(ctx, row);
-  const time2 = classifyTime(ctx, row);
+  const time3 = classifyTime(ctx, row);
   const invoiceAmount = getInvoiceAmount(row);
   const announcedTotalMatch = classifyAmountMatch(ctx.activeAnnouncedTotal?.amount ?? null, invoiceAmount);
   const basketValueMatch = classifyAmountMatch(ctx.activeBasketValue, invoiceAmount);
@@ -4303,8 +4303,8 @@ function buildAttributionCandidate(ctx, row, itemEvidenceProvider = unavailableI
     phoneMatch: identity.phoneMatch,
     identityConflict: identity.identityConflict,
     branchMatch,
-    timeMatchStrength: time2.timeMatchStrength,
-    temporalInversion: time2.temporalInversion,
+    timeMatchStrength: time3.timeMatchStrength,
+    temporalInversion: time3.temporalInversion,
     announcedTotalMatch,
     basketValueMatch,
     staffMatch,
@@ -4343,7 +4343,7 @@ function buildAttributionCandidate(ctx, row, itemEvidenceProvider = unavailableI
   const evidence = buildEvidenceItems({
     identity,
     branchMatch,
-    time: time2,
+    time: time3,
     announcedTotalMatch,
     basketValueMatch,
     staffMatch,
@@ -4368,8 +4368,8 @@ function buildAttributionCandidate(ctx, row, itemEvidenceProvider = unavailableI
     phoneMatch: identity.phoneMatch,
     identityConflict: identity.identityConflict,
     branchMatch,
-    timeDistanceMinutes: time2.timeDistanceMinutes,
-    timeMatchStrength: time2.timeMatchStrength,
+    timeDistanceMinutes: time3.timeDistanceMinutes,
+    timeMatchStrength: time3.timeMatchStrength,
     staffMatch,
     announcedTotalMatch,
     basketValueMatch,
@@ -7826,6 +7826,109 @@ function deriveCaseOperationalDisposition(input) {
   };
 }
 
+// src/lib/salesIntelligence/canonicalCaseBranch.ts
+function canonicalCaseBranchFromRecommendation(input) {
+  const { recommendation, ownership } = input;
+  const reasons = [...recommendation?.reasons ?? []];
+  const none = { linkedCaseId: null, linkedInvoiceId: null };
+  if (ownership?.department === "customer_service") {
+    return { branch: null, decided: false, basis: "customer_service", ...none, reasons };
+  }
+  if (recommendation?.strength === "conflict") {
+    return { branch: null, decided: false, basis: "conflict", ...none, reasons };
+  }
+  if (recommendation?.strength === "decided" && recommendation.branch) {
+    const basis = ownership?.operationalBranch && ownership.branchBasis === "explicit_introduction" ? "explicit_introduction" : ownership?.operationalBranch && ownership.branchBasis === "source" ? "operating_source" : "proven_invoice";
+    return {
+      branch: recommendation.branch,
+      decided: true,
+      basis,
+      linkedCaseId: null,
+      linkedInvoiceId: basis === "proven_invoice" ? input.provenInvoiceId : null,
+      reasons
+    };
+  }
+  return { branch: null, decided: false, basis: "unresolved", ...none, reasons };
+}
+var SERVICE_CASE_TYPES = /* @__PURE__ */ new Set(["follow_up", "complaint"]);
+var time = (value) => {
+  const t = value ? new Date(value).getTime() : NaN;
+  return Number.isFinite(t) ? t : null;
+};
+function linkSiblingServiceCaseBranches(cases) {
+  const result = new Map(cases.map((c) => [c.caseId, c.caseBranch]));
+  const saleCases = cases.filter(
+    (c) => c.caseBranch.basis === "proven_invoice" && c.caseBranch.decided && c.provenInvoice
+  );
+  for (const service of cases) {
+    if (!SERVICE_CASE_TYPES.has(service.caseType)) continue;
+    if (service.department !== "pharmacy") continue;
+    if (service.caseBranch.decided || service.caseBranch.basis !== "unresolved") continue;
+    if (!saleCases.length) continue;
+    const blocked = (reason) => result.set(service.caseId, {
+      ...service.caseBranch,
+      reasons: [...service.caseBranch.reasons, reason]
+    });
+    if (saleCases.length > 1) {
+      blocked(
+        "\u062A\u0648\u062C\u062F \u0623\u0643\u062B\u0631 \u0645\u0646 \u062D\u0627\u0644\u0629 \u0628\u064A\u0639 \u0628\u0641\u0627\u062A\u0648\u0631\u0629 \u0645\u062B\u0628\u062A\u0629 \u0641\u064A \u0646\u0641\u0633 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629\u061B \u0644\u0627 \u064A\u064F\u0646\u0642\u0644 \u0641\u0631\u0639 \u0627\u0644\u0639\u0645\u0644\u064A\u0629 \u062A\u0644\u0642\u0627\u0626\u064A\u064B\u0627."
+      );
+      continue;
+    }
+    const sale = saleCases[0];
+    if (sale.caseId === service.caseId) continue;
+    const invoiceBranch = isOperatingBranch(sale.provenInvoice.branch) ? normalizeBranchName(sale.provenInvoice.branch) : null;
+    if (!invoiceBranch || invoiceBranch !== sale.caseBranch.branch) {
+      blocked("\u0641\u0631\u0639 \u0641\u0627\u062A\u0648\u0631\u0629 \u062D\u0627\u0644\u0629 \u0627\u0644\u0628\u064A\u0639 \u0644\u064A\u0633 \u0641\u0631\u0639 \u062A\u0634\u063A\u064A\u0644 \u0645\u0639\u062A\u0645\u062F\u064B\u0627\u061B \u0644\u0627 \u064A\u064F\u0646\u0642\u0644 \u0641\u0631\u0639.");
+      continue;
+    }
+    if (!service.customerResolved || !sale.customerResolved || !service.customerId || service.customerId !== sale.customerId) {
+      blocked("\u0647\u0648\u064A\u0629 \u0627\u0644\u0639\u0645\u064A\u0644 \u063A\u064A\u0631 \u0645\u062D\u0633\u0648\u0645\u0629 \u0623\u0648 \u0645\u062E\u062A\u0644\u0641\u0629 \u0628\u064A\u0646 \u0627\u0644\u062D\u0627\u0644\u062A\u064A\u0646\u061B \u0644\u0627 \u064A\u064F\u0646\u0642\u0644 \u0641\u0631\u0639 \u0627\u0644\u0639\u0645\u0644\u064A\u0629.");
+      continue;
+    }
+    const sharedSession = service.coarseSessionIndexes.some(
+      (i) => sale.coarseSessionIndexes.includes(i)
+    );
+    const serviceStart = time(service.startedAt);
+    const saleStart = time(sale.startedAt);
+    if (!sharedSession || serviceStart == null || saleStart == null || serviceStart < saleStart) {
+      blocked(
+        "\u0644\u0627 \u064A\u0648\u062C\u062F \u0627\u0631\u062A\u0628\u0627\u0637 \u0632\u0645\u0646\u064A \u0645\u0628\u0627\u0634\u0631 \u0628\u062D\u0627\u0644\u0629 \u0627\u0644\u0628\u064A\u0639 (\u0644\u064A\u0633\u062A \u0641\u064A \u0646\u0641\u0633 \u062C\u0644\u0633\u0629 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629 \u0628\u0639\u062F \u0627\u0644\u0637\u0644\u0628)\u061B \u0644\u0627 \u064A\u064F\u0646\u0642\u0644 \u0641\u0631\u0639."
+      );
+      continue;
+    }
+    const salePharmacists = new Set(sale.pharmacistOwnerIds);
+    const sharedDoctor = service.pharmacistOwnerIds.length > 0 && service.pharmacistOwnerIds.every((id) => salePharmacists.has(id)) && service.ownerIds.every((id) => service.pharmacistOwnerIds.includes(id));
+    if (!sharedDoctor) {
+      blocked("\u0644\u0627 \u064A\u0648\u062C\u062F \u062F\u0643\u062A\u0648\u0631 \u0645\u0633\u0624\u0648\u0644 \u0645\u062D\u0633\u0648\u0645 \u0645\u0634\u062A\u0631\u0643 \u0628\u064A\u0646 \u062D\u0627\u0644\u0629 \u0627\u0644\u062E\u062F\u0645\u0629 \u0648\u062D\u0627\u0644\u0629 \u0627\u0644\u0628\u064A\u0639\u061B \u0644\u0627 \u064A\u064F\u0646\u0642\u0644 \u0641\u0631\u0639.");
+      continue;
+    }
+    if (service.ownSelectedInvoiceId && service.ownSelectedInvoiceId !== sale.provenInvoice.invoiceId) {
+      blocked("\u0644\u062D\u0627\u0644\u0629 \u0627\u0644\u062E\u062F\u0645\u0629 \u0641\u0627\u062A\u0648\u0631\u0629 \u0645\u0631\u0634\u062D\u0629 \u0623\u062E\u0631\u0649\u061B \u062A\u0639\u0627\u0631\u0636 \u064A\u062D\u062A\u0627\u062C \u0645\u0631\u0627\u062C\u0639\u0629.");
+      continue;
+    }
+    const homeBranch = isOperatingBranch(service.suggestedStaffBranch) ? normalizeBranchName(service.suggestedStaffBranch) : null;
+    if (homeBranch && homeBranch !== invoiceBranch) {
+      blocked(
+        `\u0641\u0631\u0639 \u0627\u0644\u062F\u0643\u062A\u0648\u0631 (${homeBranch}) \u064A\u062E\u0627\u0644\u0641 \u0641\u0631\u0639 \u0641\u0627\u062A\u0648\u0631\u0629 \u062D\u0627\u0644\u0629 \u0627\u0644\u0628\u064A\u0639 (${invoiceBranch})\u061B \u064A\u062D\u062A\u0627\u062C \u0645\u0631\u0627\u062C\u0639\u0629.`
+      );
+      continue;
+    }
+    result.set(service.caseId, {
+      branch: invoiceBranch,
+      decided: true,
+      basis: "linked_sale_case",
+      linkedCaseId: sale.caseId,
+      linkedInvoiceId: sale.provenInvoice.invoiceId,
+      reasons: [
+        ...service.caseBranch.reasons,
+        `\u0641\u0631\u0639 \u0627\u0644\u0639\u0645\u0644\u064A\u0629 \u0645\u0646 \u062D\u0627\u0644\u0629 \u0627\u0644\u0637\u0644\u0628 \u0627\u0644\u0645\u0631\u062A\u0628\u0637\u0629: \u0646\u0641\u0633 \u0627\u0644\u0639\u0645\u064A\u0644 \u0648\u0646\u0641\u0633 \u062C\u0644\u0633\u0629 \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629 \u0648\u0646\u0641\u0633 \u0627\u0644\u062F\u0643\u062A\u0648\u0631\u060C \u0648\u0641\u0627\u062A\u0648\u0631\u062A\u0647\u0627 \u0627\u0644\u0645\u062B\u0628\u062A\u0629 \u0627\u0644\u0648\u062D\u064A\u062F\u0629 \u0645\u0646 ${invoiceBranch}. \u0644\u0627 \u064A\u0639\u0646\u064A \u0630\u0644\u0643 \u0631\u0628\u0637 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0623\u0648 \u0627\u0644\u0628\u064A\u0639 \u0628\u0647\u0630\u0647 \u0627\u0644\u062D\u0627\u0644\u0629.`
+      ]
+    });
+  }
+  return result;
+}
+
 // src/lib/salesIntelligence/salesIntelligencePipeline.ts
 function messagesForMessageIds(understanding, messageIds) {
   const ids = new Set(messageIds);
@@ -8402,7 +8505,7 @@ function deriveSegmentedCases(input) {
       needsHumanReview: rawConversationCase.needsHumanReview || ownership.blockers.some((b) => ["case_branch_evidence_conflict", "multiple_staff_functions_require_review", "multiple_staff_owners_require_review"].includes(b)),
       humanReviewReasons: [.../* @__PURE__ */ new Set([...rawConversationCase.humanReviewReasons, ...ownership.blockers.filter((b) => ["case_branch_evidence_conflict", "multiple_staff_functions_require_review", "multiple_staff_owners_require_review"].includes(b))])]
     };
-    cases.push({ conversationCase, scopedMessages, conversationTimeline: understanding.messages, interaction });
+    cases.push({ conversationCase, scopedMessages, conversationTimeline: understanding.messages, interaction, coarseSessionIndexes });
   });
   if (crossedCoarseBoundary) {
     pipelineWarnings.push("semantic_interaction_crossed_coarse_session_boundary");
@@ -8440,15 +8543,58 @@ function runSalesIntelligencePipeline(input) {
     (segmented.cases[0]?.conversationTimeline ?? []).map((message) => extractIntroducedStaffName(message)).filter((name) => Boolean(name)).map((name) => name.trim().toLocaleLowerCase("ar"))
   );
   const sourceHasMultipleIntroducedStaff = namedIntroductions.size > 1;
-  const caseAnalyses = segmented.cases.map(
+  const perCase = segmented.cases.map(
     ({ conversationCase, scopedMessages, conversationTimeline, interaction }) => analyzeOneCase(conversationCase, scopedMessages, input, interaction, conversationTimeline, sourceHasMultipleIntroducedStaff)
   );
+  const caseAnalyses = withCanonicalCaseBranches(perCase, segmented.cases, input.customerIdentityStatus);
   return {
     conversationId: input.conversationId,
     sessionsProcessed: segmented.sessionsProcessed,
     caseAnalyses,
     pipelineWarnings: segmented.pipelineWarnings
   };
+}
+function withCanonicalCaseBranches(analyses, segmentedCases, customerIdentityStatus) {
+  const sessionsByCaseId = new Map(
+    segmentedCases.map((c) => [c.conversationCase.caseId, c.coarseSessionIndexes ?? []])
+  );
+  const linkInputs = analyses.map((analysis) => {
+    const ownership = analysis.conversationCase.ownership;
+    const provenDirect = analysis.attribution.attributionLevel === "proven" && Boolean(analysis.attribution.selectedCandidate?.directInvoiceLink) && Boolean(analysis.attribution.selectedInvoiceId);
+    const caseBranch = canonicalCaseBranchFromRecommendation({
+      recommendation: analysis.branchRecommendation,
+      ownership,
+      provenInvoiceId: provenDirect ? analysis.attribution.selectedInvoiceId : null
+    });
+    return {
+      caseId: analysis.caseId,
+      caseType: analysis.conversationCase.caseType,
+      department: ownership?.department ?? null,
+      customerId: analysis.conversationCase.customerId,
+      customerResolved: customerIdentityStatus === "resolved" && Boolean(analysis.conversationCase.customerId),
+      startedAt: analysis.conversationCase.startedAt,
+      endedAt: analysis.conversationCase.endedAt,
+      coarseSessionIndexes: sessionsByCaseId.get(analysis.caseId) ?? [],
+      pharmacistOwnerIds: (ownership?.owners ?? []).filter((o) => o.function === "pharmacist").map((o) => o.staffId),
+      ownerIds: (ownership?.owners ?? []).map((o) => o.staffId),
+      suggestedStaffBranch: ownership?.suggestedStaffBranch ?? null,
+      ownSelectedInvoiceId: analysis.attribution.selectedInvoiceId ?? null,
+      provenInvoice: provenDirect && caseBranch.basis === "proven_invoice" ? {
+        invoiceId: String(analysis.attribution.selectedInvoiceId),
+        branch: analysis.attribution.selectedCandidate?.invoiceBranch ?? null
+      } : null,
+      caseBranch
+    };
+  });
+  const branches = linkSiblingServiceCaseBranches(linkInputs);
+  return analyses.map((analysis) => {
+    const caseBranch = branches.get(analysis.caseId);
+    return {
+      ...analysis,
+      caseBranch,
+      caseIntelligence: analysis.caseIntelligence ? { ...analysis.caseIntelligence, branch: { ...analysis.caseIntelligence.branch, caseBranch } } : analysis.caseIntelligence
+    };
+  });
 }
 
 // src/lib/customers/canonicalCustomerIdentityResolver.ts
@@ -9488,7 +9634,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v47-scoped-name-annotations";
+var PIPELINE_VERSION = "sales-intelligence-v48-canonical-case-branch";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v13-open-service-need-continuity",
   historicalClosure: "historical-closure-v1",
@@ -9607,7 +9753,8 @@ function mapCaseAnalysisRowContent(analysis) {
       canonicalSalesOutcome: analysis.salesOutcome,
       canonicalComplaintAssessment: analysis.complaintAssessment,
       canonicalCustomerRequestAssessment: analysis.customerRequestAssessment,
-      financialSettlement: analysis.financialSettlement ?? null
+      financialSettlement: analysis.financialSettlement ?? null,
+      caseBranch: analysis.caseBranch ?? null
     }
   };
 }
@@ -11266,22 +11413,22 @@ var CANONICAL_SOURCE_GATE_CODES = {
 var SIBLING_LIMIT = 1e3;
 var V22_LOOKUP_CONCURRENCY = 4;
 var V22_ID_CHUNK = 40;
-function time(value) {
+function time2(value) {
   const parsed = value ? Date.parse(value) : NaN;
   return Number.isFinite(parsed) ? parsed : null;
 }
 function containedSiblingIds(source, siblings) {
   const fileName = String(source.source_filename || "");
   const rawText = String(source.raw_text || "");
-  const start = time(source.conversation_started_at);
-  const end = time(source.conversation_ended_at);
+  const start = time2(source.conversation_started_at);
+  const end = time2(source.conversation_ended_at);
   if (!fileName || !rawText || start === null || end === null) return [];
   return siblings.filter((row) => {
     if (row.id === source.id || row.source_filename !== fileName) return false;
     if (String(row.review_status || "") === "archived") return false;
     const siblingText = String(row.raw_text || "");
-    const siblingStart = time(row.conversation_started_at);
-    const siblingEnd = time(row.conversation_ended_at);
+    const siblingStart = time2(row.conversation_started_at);
+    const siblingEnd = time2(row.conversation_ended_at);
     if (!siblingText || siblingStart === null || siblingEnd === null) return false;
     return siblingStart >= start && siblingEnd <= end && rawText.includes(siblingText);
   }).map((row) => row.id);
@@ -11344,8 +11491,8 @@ async function loadCanonicalSourceGateContext(service, sources) {
   let siblings = [];
   for (const fileName of fileNames) {
     const fileRows = sources.filter((row) => String(row.source_filename || "") === fileName);
-    const fileStarts = fileRows.map((row) => time(row.conversation_started_at)).filter((x) => x !== null);
-    const fileEnds = fileRows.map((row) => time(row.conversation_ended_at)).filter((x) => x !== null);
+    const fileStarts = fileRows.map((row) => time2(row.conversation_started_at)).filter((x) => x !== null);
+    const fileEnds = fileRows.map((row) => time2(row.conversation_ended_at)).filter((x) => x !== null);
     if (!fileStarts.length || !fileEnds.length) continue;
     const { data, error } = await service.from("whatsapp_review_sources").select(
       "id,review_status,source_filename,conversation_started_at,conversation_ended_at,raw_text"
@@ -12999,8 +13146,8 @@ var FOLLOWUP_PROMISE_SLA = {
 };
 function toTime(value) {
   if (value == null || value === "") return null;
-  const time2 = value instanceof Date ? value.getTime() : new Date(value).getTime();
-  return Number.isFinite(time2) ? time2 : null;
+  const time3 = value instanceof Date ? value.getTime() : new Date(value).getTime();
+  return Number.isFinite(time3) ? time3 : null;
 }
 var MINUTE = 6e4;
 function evaluateFollowUpPromiseLifecycle(input) {

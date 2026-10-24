@@ -50,7 +50,7 @@ import {
   quantitySourceLabel,
   lineMatchedByLabel,
 } from '@/lib/salesIntelligence/qa/caseIntelligencePresentation';
-import { careFollowUpState } from '@/lib/salesIntelligence/careFollowUpEngine';
+import { careFollowUpDisposition } from '@/lib/salesIntelligence/careFollowUpEngine';
 
 export type CaseIntelligenceTab = 'conversation' | 'evaluation' | 'need' | 'products' | 'sale' | 'lost' | 'followup' | 'clinical' | 'review';
 
@@ -164,6 +164,7 @@ export function CaseIntelligenceWorkspace({
   conversationEvaluationLoading = false,
   conversationEvaluationRequested = false,
   conversationEvaluationWarning = null,
+  now = new Date(),
 }: {
   view: CaseIntelligenceView | null;
   initialTab?: CaseIntelligenceTab;
@@ -175,6 +176,8 @@ export function CaseIntelligenceWorkspace({
   conversationEvaluationLoading?: boolean;
   conversationEvaluationRequested?: boolean;
   conversationEvaluationWarning?: string | null;
+  /** Display clock for due/historical states (injectable for tests). */
+  now?: Date;
 }) {
   const [tab, setTab] = useState<CaseIntelligenceTab>(initialTab);
   const [evidence, setEvidence] = useState<EvidenceRequest | null>(null);
@@ -711,11 +714,18 @@ export function CaseIntelligenceWorkspace({
           {view.careFollowUp ? (
             <Block title="متابعة رعاية مقترحة (خدمة العملاء)">
               <div className="text-sm leading-7" data-testid="care-follow-up">{view.careFollowUp.reason}</div>
-              <div className="dawaa-muted text-xs">
-                {careFollowUpState(view.careFollowUp, new Date()) === 'was_due_historically'
-                  ? `كانت مستحقة بعد الواقعة (${formatTime(view.careFollowUp.dueAt)}) — سجل تاريخي، لا تُنشأ مهمة الآن.`
-                  : `موعد مقترح: ${formatTime(view.careFollowUp.dueAt)} — اقتراح فقط، لا يُنفذ ولا يُرسل تلقائيًا.`}
-              </div>
+              {(() => {
+                const disposition = careFollowUpDisposition(view.careFollowUp, now);
+                return (
+                  <div className="space-y-1 text-xs" data-testid="care-follow-up-disposition" data-kind={disposition.kind}>
+                    <div className="dawaa-muted">
+                      {disposition.kind === 'historical_suggestion' ? 'كان مستحقًا' : 'موعد مقترح'}: {formatTime(view.careFollowUp.dueAt)} — {disposition.label}
+                    </div>
+                    {disposition.humanReview ? <div className="dawaa-alert dawaa-alert--info">{disposition.humanReview}</div> : null}
+                    <div className="dawaa-muted">منفصل عن الشكوى والبيع وعن الإجراءات القديمة في المصدر.</div>
+                  </div>
+                );
+              })()}
               <WhyButton onClick={() => open({ title: 'متابعة الرعاية', reason: view.careFollowUp!.reason, confidence: null, messageIds: view.careFollowUp!.evidenceMessageIds })} />
             </Block>
           ) : null}

@@ -23,7 +23,14 @@ export interface QaCaseListRow {
   customerCode: string | null;
   customerPhone: string | null;
   conversationCaseCount: number;
+  /**
+   * The canonical operational CASE branch (canonicalCaseBranch.ts) — the same fact case detail
+   * shows; null while undecided. Never the source's historical branch. For analyses persisted
+   * before v48 (no caseBranch snapshot) it is the analysis-time operational branch.
+   */
   branchNameRaw: string | null;
+  /** How the case branch was decided (or why not); null for analyses persisted before v48. */
+  caseBranchBasis: import('../canonicalCaseBranch').CanonicalCaseBranchBasis | null;
   caseStartedAt: string;
   caseEndedAt: string | null;
   caseType: string;

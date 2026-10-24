@@ -544,7 +544,13 @@ export interface CaseIntelligenceView {
     identityStatus: 'resolved' | 'unresolved' | 'ambiguous' | 'contradicted' | 'not_provided';
     blockers: Array<'customer_identity_unresolved'>;
   };
-  branch: { branchId: string | null; branchNameRaw: string | null; recommendation?: CaseBranchRecommendation };
+  branch: {
+    branchId: string | null;
+    branchNameRaw: string | null;
+    recommendation?: CaseBranchRecommendation;
+    /** The canonical case branch shown by detail, list, filter and summary (canonicalCaseBranch.ts). */
+    caseBranch?: import('./canonicalCaseBranch').CanonicalCaseBranch;
+  };
   ownership?: CaseOwnershipContext;
   staff: {
     participants: Array<{ sender: string; staffId: string | null; messageIds: string[]; messageCount: number }>;
@@ -1619,6 +1625,11 @@ export interface SalesIntelligenceCaseAnalysis {
   careFollowUp?: import('./careFollowUpEngine').CareFollowUpSuggestion | null;
   /** Case-level branch recommendation from independent evidence; never changes the stored branch. */
   branchRecommendation?: CaseBranchRecommendation;
+  /**
+   * Canonical operational case branch (canonicalCaseBranch.ts), after the source-level sibling
+   * pass. Never the source's historical branch; optional only for analyses persisted before v48.
+   */
+  caseBranch?: import('./canonicalCaseBranch').CanonicalCaseBranch;
   /**
    * Canonical Operational Disposition (caseOperationalDispositionEngine) — the single owner of
    * "what is this case waiting on now". Always produced by the pipeline; optional only for

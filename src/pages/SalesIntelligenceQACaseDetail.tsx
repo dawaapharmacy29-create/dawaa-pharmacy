@@ -504,7 +504,7 @@ export default function SalesIntelligenceQACaseDetail() {
           <Field label="العميل" value={<span className="inline-flex items-center gap-2"><UserRound size={16} /> {conversation?.customerName || 'عميل غير مسمى'}</span>} />
           <Field label="كود العميل" value={<span className="inline-flex items-center gap-2"><Hash size={16} /> {conversation?.customerCode || 'غير متاح'}</span>} />
           <Field label="رقم الهاتف" value={<span className="inline-flex items-center gap-2"><Phone size={16} /> {conversation?.customerPhone || 'غير متاح'}</span>} />
-          <Field label="فرع مصدر المحادثة" value={<span className="inline-flex items-center gap-2"><Building2 size={16} /> {branchLabelFor(conversation?.branch ?? analysis.identity_branch_name_raw)}</span>} />
+          <Field label="فرع مصدر المحادثة" value={<span className="inline-flex items-center gap-2"><Building2 size={16} /> {branchLabelFor(conversation?.branch ?? null)}</span>} />
           <Field label="نوع الحالة" value={caseTypeLabelFor(analysis.case_type)} />
           <Field label="العملية البيعية" value={outcomeLabel} />
           <Field label="إثبات البيع" value={proofStateBadge} />
@@ -531,7 +531,7 @@ export default function SalesIntelligenceQACaseDetail() {
             <div className="dawaa-body mt-2 text-xs leading-6">
               الكود: {conversation?.customerCode || 'غير متاح'}<br />
               الهاتف: {conversation?.customerPhone || 'غير متاح'}<br />
-              فرع مصدر المحادثة: {branchLabelFor(conversation?.branch ?? analysis.identity_branch_name_raw)}
+              فرع مصدر المحادثة: {branchLabelFor(conversation?.branch ?? null)}
             </div>
           </div>
 

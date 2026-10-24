@@ -32,12 +32,66 @@ function Item({
   );
 }
 
+function ConversationItems({ card }: { card: CaseInvoiceCardModel }) {
+  return (
+    <div className="space-y-2" data-testid="case-conversation-items">
+      <h4 className="dawaa-heading text-sm font-black">الأصناف المذكورة أو المطلوبة في المحادثة</h4>
+      {!card.conversationItems.length ? (
+        <div className="dawaa-muted text-xs">لم يُذكر صنف محدد في رسائل هذه الحالة.</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-xs">
+            <thead>
+              <tr className="dawaa-muted border-b border-[var(--dawaa-theme-border)] text-right">
+                {['كما ورد في المحادثة', 'الصنف في الكتالوج', 'من ذكره', 'كمية المحادثة', 'مصدر الكمية', 'الرسائل', 'المقابلة بالفاتورة'].map((h) => (
+                  <th key={h} className="p-2">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {card.conversationItems.map((item) => (
+                <tr key={item.productKey} className="border-b border-[var(--dawaa-theme-border)]/60 align-top">
+                  <td className="p-2 font-bold" dir="auto">{item.nameInConversation}</td>
+                  <td className="p-2" dir="auto">
+                    {item.catalogName
+                      ? `${item.catalogName}${item.productCode ? ` (${item.productCode})` : ''}`
+                      : item.candidateNames.length
+                        ? `غير محسوم: ${item.candidateNames.join(' أو ')}`
+                        : 'غير محسوم'}
+                  </td>
+                  <td className="p-2">{item.mentionLabel}</td>
+                  <td className="p-2">{item.conversationQuantity ?? '—'}</td>
+                  <td className="p-2">{item.quantitySourceLabel}</td>
+                  <td className="max-w-[320px] p-2 leading-5">
+                    {item.evidenceMessages.map((m) => (
+                      <div key={m.id} dir="auto">
+                        <span className="dawaa-muted">{m.role === 'customer' ? 'العميل' : 'الموظف'} • {m.at}:</span> {m.text}
+                      </div>
+                    ))}
+                  </td>
+                  <td className="p-2">
+                    {item.linkLabel}
+                    {item.invoiceQuantity != null ? ` • كمية الفاتورة ${item.invoiceQuantity}` : ''}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** The invoice inside the selected case, in one card. Read-only; every value comes from the case page bundle. */
 export function CaseInvoiceCard({ card }: { card: CaseInvoiceCardModel }) {
   if (!card.available) {
     return (
-      <div className="dawaa-empty-state py-4 text-center" data-testid="case-invoice-card-empty">
-        {card.unavailableReason}
+      <div className="space-y-3">
+        <ConversationItems card={card} />
+        <div className="dawaa-empty-state py-4 text-center" data-testid="case-invoice-card-empty">
+          {card.unavailableReason}
+        </div>
       </div>
     );
   }
@@ -102,6 +156,14 @@ export function CaseInvoiceCard({ card }: { card: CaseInvoiceCardModel }) {
         </div>
       </div>
 
+      <ConversationItems card={card} />
+
+      <h4 className="dawaa-heading text-sm font-black" data-testid="case-invoice-sold-title">
+        الأصناف المباعة حسب الفاتورة {invoice.number ?? ''} — {invoice.transactionBranch ?? 'فرع غير متاح'}
+      </h4>
+      <div className="dawaa-muted text-[11px] leading-5">
+        من صفوف بنود الفاتورة نفسها. بند «بالفاتورة فقط» مباع حسب الفاتورة ولا يُنسب لطلب من العميل.
+      </div>
       <div className="overflow-x-auto">
         <table className="min-w-full text-xs" data-testid="case-invoice-lines">
           <thead>

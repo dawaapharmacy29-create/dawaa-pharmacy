@@ -105,6 +105,7 @@ export function mapCaseAnalysisRowContent(analysis: SalesIntelligenceCaseAnalysi
       canonicalComplaintAssessment: analysis.complaintAssessment,
       canonicalCustomerRequestAssessment: analysis.customerRequestAssessment,
       financialSettlement: analysis.financialSettlement ?? null,
+      caseBranch: analysis.caseBranch ?? null,
     },
   };
 }

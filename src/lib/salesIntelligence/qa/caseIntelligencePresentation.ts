@@ -4,6 +4,7 @@
 // business truth: every value shown comes from the canonical view; unknown codes render as
 // "غير محسوم" instead of being guessed. There is deliberately NO fallback to V6/V7/V22 fields.
 import type { CaseIntelligenceView, ConfidenceLevel } from '../types';
+import { CANONICAL_CASE_BRANCH_BASIS_LABELS } from '../canonicalCaseBranch';
 import { reviewReasonLabels as canonicalReviewReasonLabels } from './labels';
 
 export const SUPPORTED_CASE_INTELLIGENCE_VERSIONS = [
@@ -338,6 +339,32 @@ export interface CaseBranchFact {
  * A customer-service case never gets a branch; a supporting signal is shown as a candidate only.
  */
 export function caseBranchFact(view: Pick<CaseIntelligenceView, 'branch' | 'ownership'>): CaseBranchFact {
+  // v48+: the persisted canonical case branch is the single fact the list and filter also read.
+  // A customer-service case never shows a branch, whatever any branch field says.
+  const canonical = view.branch.caseBranch;
+  if (canonical) {
+    const last = canonical.reasons[canonical.reasons.length - 1] ?? null;
+    if (canonical.basis === 'customer_service' || view.ownership?.department === 'customer_service') {
+      return { label: 'القسم', value: 'خدمة العملاء', hint: 'حالة خدمة عملاء؛ لا يُسند لها فرع بيع.', decided: false };
+    }
+    if (canonical.decided && canonical.branch) {
+      return {
+        label: 'فرع الحالة',
+        value: canonical.branch,
+        hint: last ?? CANONICAL_CASE_BRANCH_BASIS_LABELS[canonical.basis],
+        decided: true,
+      };
+    }
+    const candidate = view.branch.recommendation?.branch;
+    return {
+      label: 'فرع الحالة',
+      value: 'غير محسوم',
+      hint: [candidate ? `مرشح: ${candidate} — ${branchRecommendationLabel(view.branch.recommendation?.strength)}` : null, last]
+        .filter(Boolean)
+        .join(' — ') || null,
+      decided: false,
+    };
+  }
   if (view.ownership?.department === 'customer_service') {
     return { label: 'القسم', value: 'خدمة العملاء', hint: 'حالة خدمة عملاء؛ لا يُسند لها فرع بيع.', decided: false };
   }

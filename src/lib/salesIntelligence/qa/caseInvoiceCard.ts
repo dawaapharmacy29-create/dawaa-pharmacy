@@ -53,10 +53,36 @@ export interface CaseInvoiceCardLine {
   /** Arabic explanation of why the line got its match state. */
   evidence: string;
   evidenceMessageIds: string[];
+  /** productKey of the conversation item this line was compared to; null for invoice-only lines. */
+  conversationProductKey: string | null;
+}
+
+/** One item the CONVERSATION names (never an invoice-only line), with its own evidence. */
+export interface CaseConversationItem {
+  productKey: string;
+  /** As said in the conversation. */
+  nameInConversation: string;
+  /** Resolved catalog identity, or null while the pack/strength is unresolved. */
+  catalogName: string | null;
+  productCode: string | null;
+  /** Unresolved: the tied catalog candidates (e.g. COLONA 30 / colona 40). */
+  candidateNames: string[];
+  /** Who named the item. */
+  mentionLabel: string;
+  /** The quantity the conversation carries, and where it comes from — never the invoice quantity. */
+  conversationQuantity: number | null;
+  quantitySourceLabel: string;
+  evidenceMessages: Array<{ id: string; at: string; sender: string; role: string; text: string }>;
+  /** The invoice line this item was compared to, as shown in the invoice table. */
+  invoiceLineNo: number | null;
+  invoiceQuantity: number | null;
+  linkLabel: string;
 }
 
 export interface CaseInvoiceCard {
   available: boolean;
+  /** Items named in the conversation — shown even when no invoice is linked. */
+  conversationItems: CaseConversationItem[];
   /** Arabic reason when no invoice can be shown for this case. */
   unavailableReason: string | null;
   customer: {
@@ -128,6 +154,13 @@ function cairoOffsetLabel(value: string | null | undefined): string {
 const sameCode = (a: string | null | undefined, b: string | null | undefined) =>
   Boolean(a && b && String(a).trim().toLowerCase() === String(b).trim().toLowerCase());
 
+const QUANTITY_SOURCE_LABEL: Record<string, string> = {
+  customer: 'ذكرها العميل',
+  staff_restatement: 'من صياغة الدكتور، لا من كلام العميل',
+  final_basket: 'من السلة النهائية في المحادثة',
+  unknown: 'غير محسومة في المحادثة',
+};
+
 const MENTION_LABEL: Record<string, string> = {
   customer_explicit: 'العميل ذكره صراحة',
   staff_restatement: 'أعاد الدكتور ذكره وردّ العميل عليه',
@@ -140,7 +173,7 @@ function classifyLine(
   item: QaCaseDetailBundle['invoiceItemFacts'][number],
   products: ViewProduct[],
   candidateLinesByProduct: Map<string, number>
-): Pick<CaseInvoiceCardLine, 'match' | 'evidence' | 'evidenceMessageIds'> {
+): Pick<CaseInvoiceCardLine, 'match' | 'evidence' | 'evidenceMessageIds' | 'conversationProductKey'> {
   // 1. A case product whose persisted invoice line is this exact invoice line.
   for (const product of products) {
     const line = product.invoiceLine;
@@ -157,13 +190,16 @@ function classifyLine(
       (line.matchedBy === 'product_id' || line.matchedBy === 'product_code') &&
       line.quantityAgrees === true &&
       !packUnresolved;
-    const same = `نفس ${line.matchedBy === 'product_id' ? 'المنتج في الكتالوج' : 'كود الصنف'} والكمية ${line.caseQuantity} = ${line.invoiceQuantity}`;
+    const quantityOrigin =
+      product.quantitySource === 'staff_restatement' ? ' (كمية المحادثة من صياغة الدكتور)' : '';
+    const same = `نفس ${line.matchedBy === 'product_id' ? 'المنتج في الكتالوج' : 'كود الصنف'}؛ الكمية في المحادثة ${line.caseQuantity}${quantityOrigin} وفي الفاتورة ${line.invoiceQuantity}`;
     // Who named the item decides the badge; the code/quantity agreement is reported, not promoted.
     if (identityAndQuantityAgree && product.mentionSource === 'customer_explicit') {
       return {
         match: 'explicit',
         evidence: `«${product.productNameRaw}» — ${who}؛ ${same}.`,
         evidenceMessageIds: ids,
+      conversationProductKey: product.productKey,
       };
     }
     if (identityAndQuantityAgree && product.mentionSource === 'staff_restatement') {
@@ -171,6 +207,7 @@ function classifyLine(
         match: 'staff_confirmed',
         evidence: `«${product.productNameRaw}» — ذكره الدكتور وأكده العميل، وليس طلبًا بدأه العميل؛ ${same}.`,
         evidenceMessageIds: ids,
+      conversationProductKey: product.productKey,
       };
     }
     const why = identityAndQuantityAgree
@@ -186,6 +223,7 @@ function classifyLine(
       match: 'partial',
       evidence: `«${product.productNameRaw}» — ${who}؛ ${why}.`,
       evidenceMessageIds: ids,
+      conversationProductKey: product.productKey,
     };
   }
   // 2. An unresolved case mention whose canonical catalog candidates include this line.
@@ -204,6 +242,7 @@ function classifyLine(
         match: 'unresolved',
         evidence: `«${product.productNameRaw}» قد يكون أكثر من بند في هذه الفاتورة (${names})؛ لا يمكن تحديد البند من المحادثة.`,
         evidenceMessageIds: ids,
+      conversationProductKey: product.productKey,
       };
     }
     const qty = product.requestedQuantity ?? product.finalQuantity ?? null;
@@ -217,6 +256,7 @@ function classifyLine(
       match: 'partial',
       evidence: `«${product.productNameRaw}» يطابق اسم الصنف لكن التركيز/العبوة غير محسومة من النص (المرشحون: ${names})؛ ${qtyText}.`,
       evidenceMessageIds: ids,
+      conversationProductKey: product.productKey,
     };
   }
   return {
@@ -224,6 +264,7 @@ function classifyLine(
     evidence:
       'لا يوجد ذكر لهذا الصنف في رسائل هذه الحالة؛ مسجل بالفاتورة فقط ولا يُنسب لطلب العميل.',
     evidenceMessageIds: [],
+    conversationProductKey: null,
   };
 }
 
@@ -413,8 +454,42 @@ export function buildCaseInvoiceCard(input: CaseInvoiceCardInput): CaseInvoiceCa
   const transactionBranch = invoice?.branch ?? null;
   const branchVerdict = `فرع المعاملة بالفاتورة: ${transactionBranch ?? 'غير متاح'} • ${branchFact?.label ?? 'فرع الحالة'}: ${branchFact?.value ?? 'غير محسوم'} • فرع مصدر المحادثة: ${input.source?.branch ?? 'غير متاح'} (لا يتغير بالفاتورة).`;
 
+  const messagesById = new Map((view?.interaction.messages ?? []).map((m) => [m.id, m]));
+  const conversationItems: CaseConversationItem[] = products.map((product) => {
+    // An ambiguous mention can be compared to two lines; the first one in invoice order is shown.
+    const line = lines.find((l) => l.conversationProductKey === product.productKey) ?? null;
+    const quantity = product.requestedQuantity ?? product.finalQuantity ?? null;
+    return {
+      productKey: product.productKey,
+      nameInConversation: product.productNameRaw,
+      catalogName: product.productId ? product.canonicalName : null,
+      productCode: product.productId ? product.productCode : null,
+      candidateNames: (product.catalogCandidates ?? []).map((candidate) => candidate.name),
+      mentionLabel: MENTION_LABEL[product.mentionSource ?? ''] ?? 'مصدر الذكر غير محدد',
+      conversationQuantity: quantity,
+      quantitySourceLabel:
+        quantity == null
+          ? QUANTITY_SOURCE_LABEL.unknown
+          : QUANTITY_SOURCE_LABEL[product.quantitySource ?? 'unknown'] ?? QUANTITY_SOURCE_LABEL.unknown,
+      evidenceMessages: (product.evidenceMessageIds ?? []).flatMap((id) => {
+        const message = messagesById.get(id);
+        return message
+          ? [{ id, at: cairo(message.at) ?? message.at, sender: message.sender, role: message.role, text: message.text }]
+          : [];
+      }),
+      invoiceLineNo: line?.lineNo ?? null,
+      invoiceQuantity: line?.quantity ?? null,
+      linkLabel: !invoice
+        ? 'لا توجد فاتورة للمقارنة'
+        : line
+          ? `${line.matchLabel} — بند ${line.lineNo ?? '—'} بالفاتورة`
+          : 'لم يُعثر على بند مقابل في الفاتورة',
+    };
+  });
+
   return {
     available: Boolean(invoice),
+    conversationItems,
     unavailableReason: invoice
       ? null
       : input.attribution?.selectedInvoiceId

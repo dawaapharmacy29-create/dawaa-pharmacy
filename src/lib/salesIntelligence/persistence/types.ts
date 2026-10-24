@@ -224,6 +224,8 @@ export interface SalesIntelligenceCaseAnalysisRow extends CaseAnalysisProvenance
     canonicalCustomerRequestAssessment?: import('../customerRequestQualificationEngine').CanonicalCustomerRequestAssessment;
     /** Invoice-backed payment reconciliation from this exact analysis run; optional for older rows. */
     financialSettlement?: FinancialSettlementAssessment;
+    /** v48+: canonical operational case branch read by detail, list, filter and summary. */
+    caseBranch?: import('../canonicalCaseBranch').CanonicalCaseBranch | null;
   };
 }
 

@@ -68,6 +68,34 @@ export function deriveCareFollowUpSuggestion(
   };
 }
 
+export type CareFollowUpDispositionKind = 'historical_suggestion' | 'pending_suggestion';
+
+/**
+ * What a care suggestion IS at display time. No path creates a task from it (no projector reads
+ * careFollowUp), so it is never an open operational task: a past due time is a historical
+ * suggestion whose present-day value is a human decision for customer service; a future due time
+ * is a pending suggestion. Neither sends a message or creates an action.
+ */
+export function careFollowUpDisposition(
+  suggestion: Pick<CareFollowUpSuggestion, 'dueAt'>,
+  now: Date
+): { kind: CareFollowUpDispositionKind; taskExists: false; label: string; humanReview: string | null } {
+  if (careFollowUpState(suggestion, now) === 'was_due_historically') {
+    return {
+      kind: 'historical_suggestion',
+      taskExists: false,
+      label: 'اقتراح تاريخي — كان مستحقًا بعد الواقعة، ولا توجد مهمة مفتوحة ولا تُنشأ مهمة بتاريخ قديم.',
+      humanReview: 'مراجعة بشرية مقترحة: يقرر فريق خدمة العملاء إن كان الاطمئنان على المريض ما زال مناسبًا الآن. لا يُرسل شيء تلقائيًا.',
+    };
+  }
+  return {
+    kind: 'pending_suggestion',
+    taskExists: false,
+    label: 'اقتراح فقط — لا توجد مهمة مفتوحة، ولا يُنفذ ولا يُرسل تلقائيًا.',
+    humanReview: null,
+  };
+}
+
 /** Display-time state: a past due time on an old case is history, never a new task. */
 export function careFollowUpState(suggestion: Pick<CareFollowUpSuggestion, 'dueAt'>, now: Date): 'due_now_or_later' | 'was_due_historically' {
   return new Date(suggestion.dueAt).getTime() < now.getTime() ? 'was_due_historically' : 'due_now_or_later';

@@ -38,6 +38,8 @@ interface RawCaseAnalysisRow {
   analysis_id: string;
   case_id: string;
   canonical_sales_outcome?: unknown;
+  /** evidence_snapshot->caseBranch (v48+). */
+  case_branch?: { branch?: string | null; decided?: boolean; basis?: string } | null;
   case_type: string;
   identity_branch_name_raw: string | null;
   case_started_at: string;
@@ -189,7 +191,7 @@ export function mergeCaseListRows(
       customerCode: displayIdentity.code,
       customerPhone: displayIdentity.phone,
       conversationCaseCount: conversationId ? (caseCountByConversationId.get(conversationId) ?? 1) : 1,
-      branchNameRaw: analysis.identity_branch_name_raw,
+      ...listCaseBranch(analysis),
       caseStartedAt: analysis.case_started_at,
       caseEndedAt: analysis.case_ended_at,
       caseType: analysis.case_type,
@@ -302,7 +304,7 @@ export async function fetchQaCaseList(supabaseClient: any): Promise<QaCaseListRo
     supabaseClient
       .from('sales_intelligence_current_case_analyses')
       .select(
-        'analysis_id, case_id, canonical_sales_outcome:evidence_snapshot->canonicalSalesOutcome, case_type, identity_branch_name_raw, case_started_at, case_ended_at, historical_closure_level, protocol_applicability, commercial_confirmation_state, attribution_level, integrity_evaluation_scope, needs_human_review, human_review_reasons'
+        'analysis_id, case_id, canonical_sales_outcome:evidence_snapshot->canonicalSalesOutcome, case_branch:evidence_snapshot->caseBranch, case_type, identity_branch_name_raw, case_started_at, case_ended_at, historical_closure_level, protocol_applicability, commercial_confirmation_state, attribution_level, integrity_evaluation_scope, needs_human_review, human_review_reasons'
       )
       .order('case_started_at', { ascending: false })
       .limit(MAX_LIST_ROWS),
@@ -344,19 +346,39 @@ export async function fetchQaCaseList(supabaseClient: any): Promise<QaCaseListRo
   );
 }
 
-export const QA_BRANCH_OPTIONS_QUERY = 'identity_branch_name_raw';
+export const QA_BRANCH_OPTIONS_QUERY = 'identity_branch_name_raw, case_branch:evidence_snapshot->caseBranch';
 
+/** Branch filter options = the canonical case branches the list rows actually carry. */
 export async function fetchQaBranchOptions(supabaseClient: any): Promise<string[]> {
   const { data, error } = await supabaseClient
     .from('sales_intelligence_current_case_analyses')
-    .select('identity_branch_name_raw')
+    .select(QA_BRANCH_OPTIONS_QUERY)
     .limit(MAX_LIST_ROWS);
   if (error) throw error;
   const set = new Set<string>();
   for (const row of data ?? []) {
-    if (row.identity_branch_name_raw) set.add(row.identity_branch_name_raw as string);
+    const branch = listCaseBranch(row as RawCaseAnalysisRow).branchNameRaw;
+    if (branch) set.add(branch);
   }
   return Array.from(set).sort();
+}
+
+/**
+ * The list's case branch is the persisted canonical caseBranch when the analysis has one (v48+):
+ * decided → its branch, undecided → null. Older analyses carry no caseBranch; their only case
+ * branch is identity_branch_name_raw (the analysis-time operational branch).
+ */
+export function listCaseBranch(
+  analysis: Pick<RawCaseAnalysisRow, 'case_branch' | 'identity_branch_name_raw'>
+): Pick<QaCaseListRow, 'branchNameRaw' | 'caseBranchBasis'> {
+  const caseBranch = analysis.case_branch;
+  if (caseBranch && typeof caseBranch === 'object') {
+    return {
+      branchNameRaw: caseBranch.decided && caseBranch.branch ? caseBranch.branch : null,
+      caseBranchBasis: (caseBranch.basis ?? 'unresolved') as QaCaseListRow['caseBranchBasis'],
+    };
+  }
+  return { branchNameRaw: analysis.identity_branch_name_raw ?? null, caseBranchBasis: null };
 }
 
 // ---------------------------------------------------------------------------

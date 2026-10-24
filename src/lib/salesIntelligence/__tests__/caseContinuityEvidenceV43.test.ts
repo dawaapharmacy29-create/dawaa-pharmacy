@@ -16,6 +16,19 @@ import { buildConversationUnderstandingV32 } from '../../whatsappConversationUnd
 import { buildCanonicalComplaintActionRows, projectCanonicalComplaintsToActions } from '../persistence/canonicalComplaintProjector';
 import { projectCanonicalFollowupsToActions } from '../persistence/canonicalFollowupProjector';
 import { parseWhatsAppExport, splitWhatsAppSessions } from '../../whatsappConversationParser';
+import { buildCaseInvoiceCard } from '../qa/caseInvoiceCard';
+import { careFollowUpDisposition } from '../careFollowUpEngine';
+import { mapCaseAnalysisRowContent } from '../persistence/mappers';
+import { fetchQaBranchOptions, filterCaseListRows, mergeCaseListRows } from '../qa/queries';
+import { DEFAULT_QA_LIST_FILTERS } from '../qa/types';
+import { caseBranchFact } from '../qa/caseIntelligencePresentation';
+import { buildCanonicalFollowupActionRows } from '../persistence/canonicalFollowupProjector';
+import { buildCanonicalCustomerRequestActionRows } from '../persistence/canonicalCustomerRequestProjector';
+import { caseMessageScopes, enrichComplaintFollowupContext, reconcileSoldCustomerRequestActions } from '../refresh/canonicalRefreshService';
+import { resolveActionCaseId } from '../persistence/followupPurchaseClosureGuard';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { CaseIntelligenceWorkspace } from '@/components/salesIntelligence/CaseIntelligenceWorkspace';
 
 // V43 acceptance on the real 38-message export shape (customer name, code and address replaced):
 // customer-service welfare check → medicine order with «د شبل» → nursing request + its chase.
@@ -506,5 +519,255 @@ describe('V46 — unresolved products carry their canonical catalog candidates f
         if (/محلول/.test(p.productNameRaw)) expect(p.catalogCandidates ?? []).toEqual([]);
       }
     }
+  });
+});
+
+describe('V48 — canonical case branch across linked cases of one conversation', () => {
+  it('1. the sale case shows its proven invoice branch; the linked nursing case inherits the operation branch only, never the invoice or sale', async () => {
+    const { cases } = await analyze();
+    const [service, order, nursing] = cases as any[];
+    expect(order.attribution.attributionLevel).toBe('proven');
+    expect(order.caseBranch).toMatchObject({ branch: 'فرع شكري', decided: true, basis: 'proven_invoice', linkedInvoiceId: 'inv-order' });
+    expect(nursing.caseBranch).toMatchObject({ branch: 'فرع شكري', decided: true, basis: 'linked_sale_case', linkedCaseId: order.caseId, linkedInvoiceId: 'inv-order' });
+    expect(nursing.caseBranch.reasons.at(-1)).toMatch(/لا يعني ذلك ربط الفاتورة أو البيع بهذه الحالة/);
+    // No sale link moves: the nursing case keeps no invoice, no proof, nothing countable.
+    expect(nursing.attribution.selectedInvoiceId ?? null).toBeNull();
+    expect(nursing.salesOutcome.saleProofState).not.toBe('proven');
+    expect(nursing.salesOutcome.isSaleCountable).toBe(false);
+    expect(nursing.salesOutcome.isRevenueCountable).toBe(false);
+    // The view the page reads carries the same canonical fact.
+    expect(nursing.caseIntelligence.branch.caseBranch).toEqual(nursing.caseBranch);
+    // The source historical branch is never rewritten.
+    expect(nursing.conversationCase.ownership.sourceBranchNameRaw).toBe('المخزن');
+    expect(order.conversationCase.ownership.sourceBranchNameRaw).toBe('المخزن');
+    expect(service.conversationCase.ownership.sourceBranchNameRaw).toBe('المخزن');
+  });
+
+  it('2. the customer-service welfare case of the same source inherits neither the branch nor the invoice', async () => {
+    const { cases } = await analyze();
+    const service = cases[0] as any;
+    expect(service.caseBranch).toMatchObject({ branch: null, decided: false, basis: 'customer_service', linkedCaseId: null, linkedInvoiceId: null });
+    expect(service.attribution.selectedInvoiceId ?? null).toBeNull();
+  });
+
+  it('5. a weak, unproven invoice decides no branch for the order, and so none for the nursing case', async () => {
+    const { cases } = await analyze({ lines: LINES_WITHOUT_REQUESTED });
+    const [, order, nursing] = cases as any[];
+    expect(order.attribution.attributionLevel).not.toBe('proven');
+    expect(order.caseBranch.decided).toBe(false);
+    expect(nursing.caseBranch).toMatchObject({ branch: null, decided: false, basis: 'unresolved' });
+  });
+
+  it('3. a different doctor on the nursing case blocks the transfer with an Arabic reason', async () => {
+    const swapped = EXPORT.replace(/(لو سمحت ي دكتور ممكن تبعت حد مالتمريض[\s\S]*?)مع حضرتك د شبل/, '$1مع حضرتك د عمر');
+    expect(swapped).not.toBe(EXPORT);
+    const context = buildSalesIntelligenceRuntimeContext({ productIndex, staffDirectory: DIRECTORY as any });
+    const [prepared] = await prepareSalesIntelligenceConversations(
+      clientWithCustomer(),
+      [{ conversationId: 'case-continuity', rawWhatsAppExportText: swapped, customerNameHint: 'عميل تجريبي', customerCodeHint: '90001', knownStaffIds: [] } as any],
+      context
+    );
+    const result = runSalesIntelligencePipeline({
+      ...pipelineBaseInputFor(prepared, context),
+      customerCodeHint: '90001', customerNameHint: 'عميل تجريبي', branchNameRawHint: 'المخزن',
+      resolveInvoiceCandidates: () => [ORDER_INVOICE, EARLIER_INVOICE],
+      itemEvidenceProvider: { getItemsForInvoice: (id: string) => (id === 'inv-order' ? ORDER_LINES : 'unavailable') },
+    } as any);
+    const nursing = result.caseAnalyses[2] as any;
+    expect(staffIds(nursing)).toContain('staff-omar');
+    expect(nursing.caseBranch.decided).toBe(false);
+    expect(nursing.caseBranch.reasons.at(-1)).toMatch(/لا يوجد دكتور مسؤول محسوم مشترك/);
+  });
+});
+
+describe('V48 — invoice lines are sold items, conversation items are requests; they never mix', () => {
+  const INVOICE_ONLY_CODES = ORDER_LINES.map((l) => l.productCode).filter((c) => c !== '78994' && c !== '81948');
+  async function orderCard() {
+    const { cases } = await analyze();
+    const order = cases[1] as any;
+    const items = ORDER_LINES.map((line, index) => ({
+      id: `line-${index + 1}`, lineNo: index + 1, productId: (line as any).productId ?? null, productCode: line.productCode,
+      productName: line.productNameRaw, quantity: line.quantity, returnedQuantity: 0, effectiveQuantity: line.quantity,
+      unitName: null, unitPrice: 10, grossLineAmount: 10 * line.quantity, itemDiscountAmount: 0, netLineAmount: 84.9,
+      bconnectInvoiceNetAmount: 849,
+    })) as any;
+    const card = buildCaseInvoiceCard({
+      view: order.caseIntelligence,
+      attribution: { attributionLevel: order.attribution.attributionLevel, selectedInvoiceId: order.attribution.selectedInvoiceId, selectedInvoiceNumber: order.attribution.selectedInvoiceNumber, isOfficialForStaffEvaluation: order.attribution.isOfficialForStaffEvaluation },
+      automaticProofRule: true, humanLinkConfirmed: false,
+      outcome: { isOrderConfirmed: order.salesOutcome.isOrderConfirmed, saleProofState: order.salesOutcome.saleProofState, isSaleCountable: order.salesOutcome.isSaleCountable, isRevenueCountable: order.salesOutcome.isRevenueCountable },
+      invoice: { id: 'inv-order', invoiceNumber: '90938', customerName: 'د عميل تجريبي', customerCode: '90001', customerId: null, branch: 'فرع شكري', staffName: 'د محمد شبل', invoiceDatetime: ORDER_INVOICE.invoice_datetime, total: 849 } as any,
+      items, invoiceStaff: null,
+      source: { branch: 'المخزن', customerId: null, customerCode: '90001' }, analysisCustomerId: order.conversationCase.customerId,
+    });
+    return { order, card };
+  }
+
+  it('7. the 10 invoice lines are shown as sold lines and never leak into the conversation basket or requests', async () => {
+    const { order, card } = await orderCard();
+    expect(card.lines).toHaveLength(10);
+    expect(card.counts.invoice_only).toBe(8);
+    const basketCodes = Object.values(order.itemsByBasketId ?? {}).flat().map((item: any) => item.productCode);
+    for (const code of INVOICE_ONLY_CODES) expect(basketCodes).not.toContain(code);
+    const mentioned = order.caseIntelligence.products.map((p: any) => p.productCode);
+    for (const code of INVOICE_ONLY_CODES) expect(mentioned).not.toContain(code);
+    expect(card.conversationItems.map((i) => i.nameInConversation)).toEqual(['كولونا', 'جاسترو بيوتيك 550']);
+  });
+
+  it('8. «علبتين كولونا» stays a conversation request ×2 with an unresolved pack; Gastro keeps its conversation quantity apart from the invoice', async () => {
+    const { card } = await orderCard();
+    const [colona, gastro] = card.conversationItems;
+    expect(colona).toMatchObject({ catalogName: null, productCode: null, conversationQuantity: 2, quantitySourceLabel: 'ذكرها العميل', mentionLabel: 'العميل ذكره صراحة' });
+    expect(colona.candidateNames.sort()).toEqual(['COLONA 30 TAB', 'colona 40 tab']);
+    expect(colona.evidenceMessages.some((m) => m.role === 'customer' && m.text.includes('علبتين كولونا'))).toBe(true);
+    expect(colona.linkLabel).toMatch(/تطابق جزئي/);
+    expect(gastro).toMatchObject({ productCode: '78994', conversationQuantity: 1, quantitySourceLabel: 'من صياغة الدكتور، لا من كلام العميل', invoiceQuantity: 1 });
+    expect(gastro.linkLabel).toMatch(/أكده العميل بعد عرض الدكتور/);
+    const gastroLine = card.lines.find((l) => l.productCode === '78994')!;
+    expect(gastroLine.evidence).toMatch(/الكمية في المحادثة 1 \(كمية المحادثة من صياغة الدكتور\) وفي الفاتورة 1/);
+    expect(card.verdicts.delivery).toMatch(/«تم الإرسال» لا تثبت التسليم/);
+  });
+});
+
+describe('V48 — care suggestion and the two legacy actions across a re-analysis', () => {
+  const SOURCE_ID = 'ee4f79b9-7a32-48c6-93b8-ecdfa01b6aed';
+  const NOW = new Date('2026-10-24T09:00:00Z');
+  // Synthetic copies of the two stored legacy actions (shape and state only; nothing is read or written).
+  const legacyActions = () => [
+    { id: 'b50f4b70', source_id: SOURCE_ID, action_key: 'complaint-followup', action_type: 'complaint_followup', status: 'ready',
+      work_status: 'completed', outcome: 'sold', recovered_invoice_number: '90938', created_at: '2026-09-28T05:18:05.097Z',
+      evidence: ['case:1790495647000-0'], payload: { journey_key: 'wa:x', delivery_context: { invoice_number: '90938', linked_at: '2026-10-22T13:41:44.777Z' } } },
+    { id: '46ec37bf', source_id: SOURCE_ID, action_key: 'manual-review', action_type: 'manual_review', status: 'proposed',
+      work_status: 'unassigned', outcome: null, created_at: '2026-09-28T05:18:05.097Z', evidence: [], payload: {} },
+  ];
+  function recording(rows: any[]) {
+    const writes: any[] = [];
+    const client = {
+      from(table: string) {
+        const filters: Array<(r: any) => boolean> = [];
+        let patch: any = null;
+        const b: any = {
+          select: () => b, limit: () => b, order: () => b,
+          eq: (k: string, v: unknown) => { filters.push((r) => r[k] === v); return b; },
+          in: (k: string, v: unknown[]) => { filters.push((r) => v.includes(r[k])); return b; },
+          update: (value: any) => { patch = value; writes.push({ table, value }); return b; },
+          insert: (value: any) => { writes.push({ table, insert: value }); return b; },
+          maybeSingle: async () => ({ data: null, error: null }),
+          then: (resolve: any) => resolve(patch ? { error: null } : { data: table === 'whatsapp_conversation_actions' ? rows.filter((r) => filters.every((f) => f(r))) : [], error: null }),
+        };
+        return b;
+      },
+      rpc: async () => ({ data: { ok: true }, error: null }),
+    };
+    return { client, writes };
+  }
+
+  it('9. the nursing care suggestion stays a historical suggestion with message evidence; it creates no task and its key is stable', async () => {
+    const first = (await analyze({ conversationId: SOURCE_ID })).cases;
+    const second = (await analyze({ conversationId: SOURCE_ID })).cases;
+    const care = first[2].careFollowUp!;
+    expect(care.kind).toBe('care_check_in');
+    expect(care.evidenceMessageIds.length).toBeGreaterThan(0);
+    expect(care.evidenceMessageIds.every((id) => first[2].caseIntelligence!.interaction.messageIds.includes(id))).toBe(true);
+    expect(second[2].careFollowUp!.key).toBe(care.key);
+    expect(first[0].careFollowUp ?? null).toBeNull();
+    expect(first[1].careFollowUp ?? null).toBeNull();
+    const disposition = careFollowUpDisposition(care, NOW);
+    expect(disposition).toMatchObject({ kind: 'historical_suggestion', taskExists: false });
+    expect(disposition.humanReview).toMatch(/مراجعة بشرية مقترحة/);
+    // No projector turns it into an action row.
+    const source = { id: SOURCE_ID, raw_text: EXPORT, customer_name: 'عميل تجريبي', customer_code: '90001' };
+    expect(buildCanonicalFollowupActionRows(first, [source]).rows).toEqual([]);
+    expect(buildCanonicalCustomerRequestActionRows(first, [source]).rows).toEqual([]);
+    expect(buildCanonicalComplaintActionRows(first, [source]).rows).toEqual([]);
+    // The page says so in Arabic.
+    const html = renderToStaticMarkup(createElement(CaseIntelligenceWorkspace, { view: first[2].caseIntelligence!, initialTab: 'followup', now: NOW }));
+    expect(html).toContain('data-kind="historical_suggestion"');
+    expect(html).toContain('اقتراح تاريخي');
+    expect(html).toContain('مراجعة بشرية مقترحة');
+    expect(html).not.toContain('مهمة مفتوحة الآن');
+  });
+
+  it('10. a re-analysis leaves both legacy actions untouched on every write path', async () => {
+    const { cases } = await analyze({ conversationId: SOURCE_ID });
+    const rows = legacyActions();
+    const before = JSON.parse(JSON.stringify(rows));
+    const { client, writes } = recording(rows);
+    const source = { id: SOURCE_ID, raw_text: EXPORT, customer_name: 'عميل تجريبي', customer_code: '90001' };
+    expect((await projectCanonicalComplaintsToActions(client, cases, [source])).rows).toEqual([]);
+    // b50f4b70 is a ready complaint action of the customer-service case: the order invoice is not its own.
+    expect(resolveActionCaseId({ evidence: rows[0].evidence }, caseMessageScopes(cases))).toEqual({ caseId: cases[0].caseId, basis: 'evidence_message_time' });
+    expect((await enrichComplaintFollowupContext(client, { id: SOURCE_ID }, cases)).enrichedComplaintActions).toBe(0);
+    expect((await reconcileSoldCustomerRequestActions(client, SOURCE_ID, cases)).reconciledActions).toBe(0);
+    expect(writes).toEqual([]);
+    expect(rows).toEqual(before);
+  });
+});
+
+describe('V48 — case list, filter, branch options and detail read one canonical case branch', () => {
+  it('6. the order and the linked nursing case show فرع شكري everywhere; the welfare case shows no branch; the source branch stays المخزن', async () => {
+    const { cases } = await analyze();
+    // Exactly what persistence writes, then exactly what the list query selects.
+    const persisted = cases.map((analysis, index) => {
+      const content = mapCaseAnalysisRowContent(analysis);
+      return {
+        analysis_id: `a-${index}`, case_id: analysis.caseId, case_type: content.caseType,
+        identity_branch_name_raw: content.identityAtAnalysis.branchNameRaw,
+        case_branch: JSON.parse(JSON.stringify(content.evidenceSnapshot.caseBranch)),
+        case_started_at: content.caseStartedAt, case_ended_at: content.caseEndedAt,
+        historical_closure_level: content.historicalClosureLevel, protocol_applicability: content.protocolApplicability,
+        attribution_level: content.attributionLevel, integrity_evaluation_scope: content.integrityEvaluationScope,
+        needs_human_review: content.needsHumanReview, human_review_reasons: content.humanReviewReasons,
+      };
+    });
+    // The historical analysis-time identity stays empty: no branch is written into it.
+    expect(persisted.map((row) => row.identity_branch_name_raw)).toEqual([null, null, null]);
+    const rows = mergeCaseListRows(persisted as any, []);
+    expect(rows.map((row) => row.branchNameRaw)).toEqual([null, 'فرع شكري', 'فرع شكري']);
+    expect(rows.map((row) => row.caseBranchBasis)).toEqual(['customer_service', 'proven_invoice', 'linked_sale_case']);
+    // Detail shows the same fact for every case.
+    const detail = cases.map((analysis) => caseBranchFact(analysis.caseIntelligence!));
+    expect(detail.map((fact) => fact.value)).toEqual(['خدمة العملاء', 'فرع شكري', 'فرع شكري']);
+    expect(detail.map((fact) => fact.decided)).toEqual([false, true, true]);
+    // The filter and the branch options come from the same field.
+    const shokry = filterCaseListRows(rows, { ...DEFAULT_QA_LIST_FILTERS, branch: 'فرع شكري' });
+    expect(shokry.map((row) => row.caseId)).toEqual([cases[1].caseId, cases[2].caseId]);
+    expect(filterCaseListRows(rows, { ...DEFAULT_QA_LIST_FILTERS, branch: 'المخزن' })).toEqual([]);
+    const optionsClient = { from: () => ({ select: () => ({ limit: async () => ({ data: persisted, error: null }) }) }) };
+    expect(await fetchQaBranchOptions(optionsClient)).toEqual(['فرع شكري']);
+    // A legacy analysis without the canonical snapshot keeps its analysis-time branch.
+    const legacy = mergeCaseListRows([{ ...persisted[1], case_branch: undefined, identity_branch_name_raw: 'فرع الشامي' } as any], []);
+    expect(legacy[0]).toMatchObject({ branchNameRaw: 'فرع الشامي', caseBranchBasis: null });
+  });
+});
+
+describe('V48 — identity, ownership and evaluation stay exactly where they were', () => {
+  it('11. the code-resolved customer keeps its real id on every case; no new or synthetic id appears', async () => {
+    const { prepared, cases } = await analyze();
+    expect(prepared.customerIdentityStatus).toBe('resolved');
+    expect(prepared.customerIdHint).toBe('customer-90001');
+    expect(new Set(cases.map((c) => c.conversationCase.customerId))).toEqual(new Set(['customer-90001']));
+  });
+
+  it('12. the canonical case branch changes no evaluation, points or staff-facing branch', async () => {
+    const { cases } = await analyze();
+    for (const c of cases) {
+      const view = c.caseIntelligence!;
+      const { caseBranch: _caseBranch, ...branchWithout } = view.branch;
+      const withoutCanonical = { ...view, branch: branchWithout };
+      expect(analyzeConversationEvaluation(view, null)).toEqual(analyzeConversationEvaluation(withoutCanonical as any, null));
+      const payload = buildCaseConversationReviewPayload({
+        sourceId: 'case-continuity', view, evaluation: analyzeConversationEvaluation(view, null),
+        staffRow: { id: 'staff-x', name: 'x', branch: null, role: null },
+      });
+      expect(payload.point_impact).toBe(0);
+      expect(payload.doctor_points_impact).toBe(0);
+      // The review row keeps the analysis-time branch (empty here); the KPI read model filters on the
+      // same unchanged column, so no case moves between branch KPIs.
+      expect(payload.branch ?? null).toBeNull();
+      expect(c.conversationCase.branchNameRaw).toBeNull();
+    }
+    // Staff per case is unchanged: Heba only on the welfare case, Shibl on the order and nursing cases.
+    expect(cases.map((c) => staffIds(c))).toEqual([['staff-heba'], ['staff-shebl'], ['staff-shebl']]);
   });
 });

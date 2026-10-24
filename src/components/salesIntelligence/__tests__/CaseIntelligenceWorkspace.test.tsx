@@ -525,7 +525,8 @@ describe('V43 case evidence on the review screen (Arabic only)', () => {
     const view = persisted(analyze(NURSING).caseIntelligence!)!;
     const html = render(view, 'followup');
     expect(html).toContain('متابعة رعاية مقترحة');
-    expect(html).toContain('سجل تاريخي، لا تُنشأ مهمة الآن');
+    expect(html).toContain('اقتراح تاريخي');
+    expect(html).toContain('لا تُنشأ مهمة بتاريخ قديم');
   });
 });
 
@@ -538,7 +539,9 @@ describe('case branch is one fact on every tab', () => {
   const branchFactHtml = (html: string) => /data-testid="case-branch-fact">([^<]*)</.exec(html)?.[1];
 
   it('an order case decided by its own proven invoice shows that branch in the overview, not «غير معروف»', () => {
+    // Legacy (pre-v48) view without the canonical caseBranch: the recommendation decides.
     const view = persisted(analyze(SALE).caseIntelligence)!;
+    delete view.branch.caseBranch;
     view.branch.branchNameRaw = null;
     view.ownership = pharmacyOwnership;
     view.branch.recommendation = {
@@ -554,6 +557,7 @@ describe('case branch is one fact on every tab', () => {
 
   it('the doctor home branch alone stays a candidate; customer service never gets a branch', () => {
     const view = persisted(analyze(SALE).caseIntelligence)!;
+    delete view.branch.caseBranch;
     view.branch.branchNameRaw = null;
     view.ownership = pharmacyOwnership;
     view.branch.recommendation = {
@@ -565,11 +569,29 @@ describe('case branch is one fact on every tab', () => {
     expect(html).toContain('مرشح: فرع شكري — دليل مساند فقط');
 
     const service = persisted(analyze(SALE).caseIntelligence)!;
+    delete service.branch.caseBranch;
     service.branch.branchNameRaw = null;
     service.ownership = { ...pharmacyOwnership, department: 'customer_service', suggestedStaffBranch: null, owners: [] };
     service.branch.recommendation = { branch: null, strength: 'none', reasons: ['حالة خدمة عملاء؛ لا تُنسب لفرع بيع'] };
     const serviceHtml = render(service, 'conversation');
     expect(branchFactHtml(serviceHtml)).toBe('خدمة العملاء');
     expect(serviceHtml).not.toContain('فرع شكري');
+  });
+});
+
+describe('v48 canonical case branch on the workspace', () => {
+  it('a persisted canonical branch is shown as is, and customer service never shows one', () => {
+    const view = persisted(analyze(SALE).caseIntelligence)!;
+    view.branch.branchNameRaw = null;
+    view.branch.caseBranch = {
+      branch: 'فرع شكري', decided: true, basis: 'linked_sale_case', linkedCaseId: 'order', linkedInvoiceId: 'inv-1',
+      reasons: ['فرع العملية من حالة الطلب المرتبطة… لا يعني ذلك ربط الفاتورة أو البيع بهذه الحالة.'],
+    };
+    const html = render(view, 'conversation');
+    expect(/data-testid="case-branch-fact">([^<]*)</.exec(html)?.[1]).toBe('فرع شكري');
+    expect(html).toContain('لا يعني ذلك ربط الفاتورة أو البيع بهذه الحالة');
+    view.ownership = { ...(view.ownership as any), department: 'customer_service' };
+    const service = render(view, 'conversation');
+    expect(/data-testid="case-branch-fact">([^<]*)</.exec(service)?.[1]).toBe('خدمة العملاء');
   });
 });
