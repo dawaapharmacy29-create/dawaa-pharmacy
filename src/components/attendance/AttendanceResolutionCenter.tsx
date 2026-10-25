@@ -744,52 +744,33 @@ export default function AttendanceResolutionCenter({
       return;
     }
     const linkedRequest = decision.requestKind && approvedRequests.find((request) => request.request_kind === decision.requestKind);
-    if (decision.requestKind && (requestsLoading || requestsError || !linkedRequest)) {
+    if (decision.requestKind && !decision.schedule && (requestsLoading || requestsError || !linkedRequest)) {
       toast.error('سجّل الطلب واعتمده في صفحة الإجازات والغياب أولًا، ثم راجع اليوم مجددًا.');
       return;
     }
-    if (decision.requestKind && decision.requestKind !== 'permission') {
+    if (decision.requestKind && !decision.schedule && decision.requestKind !== 'permission') {
       toast.warning('الطلب معتمد. حدّث حقيقة الحضور أولًا ليُحتسب بنوع الإجازة الصحيح بدل اعتماد صفر ساعات من هذه الشاشة.');
       return;
     }
     if (decision.schedule) {
-      if (selected.attendance_date < cairoToday() || !['shift_swap', 'schedule_error'].includes(decision.id)) {
-        toast.warning('لا يمكن تغيير جدول تاريخي من مسار نشر الجدول الأسبوعي. يحتاج اليوم التاريخي إلى تصحيح مؤرخ مستقل.');
-        return;
-      }
       const timeFormat = /^([01]\\d|2[0-3]):[0-5]\\d$/;
-      if (!timeFormat.test(revisedShiftIn) || !timeFormat.test(revisedShiftOut) || revisedShiftIn === revisedShiftOut || !note.trim()) {
-        toast.warning('حدد وقتي بداية ونهاية الشيفت واكتب سبب التعديل.');
+      if (!timeFormat.test(revisedShiftIn) || !timeFormat.test(revisedShiftOut) ||
+          revisedShiftIn === revisedShiftOut || note.trim().length < 5) {
+        toast.warning('حدد وقتي بداية ونهاية الشيفت واكتب سبب التعديل (5 أحرف على الأقل).');
         return;
       }
-      if (!window.confirm('سيتم تغيير موعد هذا اليوم من الأسبوع ابتداءً من التاريخ المحدد، وقد يتكرر التعديل في الأسابيع القادمة. هل تؤكد النشر؟')) return;
+      if (!window.confirm(`سيتم تعديل شيفت ${selected.staff_name} بتاريخ ${selected.attendance_date} فقط، دون تغيير الأسابيع التالية. ستعاد مراجعة البصمات ولن يعتمد اليوم تلقائيًا إذا بقي تعارض. هل تؤكد؟`)) return;
       setApproving(true);
-      let draftId = '';
       try {
-        const effectiveFrom = selected.attendance_date;
-        const { data: seed, error: seedError } = await supabase.rpc('schedule_draft_seed_v1', { p_staff_id: selected.staff_id, p_effective_from: effectiveFrom });
-        if (seedError) throw seedError;
-        const seedRows = (seed as { rows?: Array<{ day_name: string; is_off?: boolean }> })?.rows || [];
-        if (seedRows.length !== 7) throw new Error('الجدول الأسبوعي غير مكتمل؛ لا يمكن نشر تعديل جزئي.');
-        const weekday = arabicWeekday(effectiveFrom);
-        const matches = seedRows.filter((row) => row.day_name === weekday);
-        if (matches.length !== 1) throw new Error('تعذر تحديد يوم الشيفت داخل الجدول المعتمد.');
-        const updated = seedRows.map((row) => row.day_name === weekday
-          ? { ...row, shift_start: revisedShiftIn, shift_end: revisedShiftOut, is_off: false, is_day_off: false }
-          : row);
-        const { data: created, error: createError } = await supabase.rpc('create_schedule_draft_v1', {
-          p_staff_id: selected.staff_id, p_effective_from: effectiveFrom, p_rows: updated,
-          p_note: `قرار مركز الحضور ${selected.attendance_date}: ${note.trim()}`,
+        const { error } = await supabase.rpc('resolve_dated_shift_from_attendance_v1', {
+          p_staff_id: selected.staff_id,
+          p_date: selected.attendance_date,
+          p_start: revisedShiftIn,
+          p_end: revisedShiftOut,
+          p_note: note.trim(),
         });
-        if (createError) throw createError;
-        draftId = String((created as { draft_id?: string })?.draft_id || '');
-        if (!draftId) throw new Error('لم يتم إنشاء مسودة الجدول بنجاح.');
-        const { data: validation, error: validateError } = await supabase.rpc('validate_schedule_draft_v1', { p_draft_id: draftId });
-        if (validateError) throw validateError;
-        if (!(validation as { valid?: boolean })?.valid) throw new Error('لم تجتز المسودة فحص تعارضات الجدول.');
-        const { error: publishError } = await supabase.rpc('publish_schedule_draft_v1', { p_draft_id: draftId, p_note: note.trim() });
-        if (publishError) throw publishError;
-        toast.success('تم نشر تعديل الشيفت من مركز الحضور. سيتم تحديث قراءات الحضور من مصدر الجدول المعتمد.');
+        if (error) throw error;
+        toast.success('تم حفظ تعديل الشيفت لهذا اليوم وإعادة حساب أدلة الحضور. راجع نتيجة اليوم قبل الاعتماد.');
         setSelected(null);
         setReason('');
         setNote('');
@@ -798,7 +779,7 @@ export default function AttendanceResolutionCenter({
         await load();
         onDecisionSaved?.();
       } catch (error) {
-        toast.error(`لم يُعتمد التعديل: ${error instanceof Error ? error.message : 'تعذر إكمال العملية'}${draftId ? ` — مسودة ${draftId} للمراجعة` : ''}`);
+        toast.error('لم يتم تعديل الشيفت: ' + (error instanceof Error ? error.message : 'تعذر الحفظ'));
       } finally {
         setApproving(false);
       }
@@ -1560,7 +1541,7 @@ export default function AttendanceResolutionCenter({
                     : reason === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')
                       ? 'اعتماد تغيير يوم الراحة'
                       : ['shift_swap', 'schedule_error'].includes(reason)
-                        ? 'فحص ونشر تعديل الشيفت'
+                        ? 'حفظ شيفت هذا اليوم وإعادة مراجعة الحضور'
                         : ['forgot_in', 'forgot_out'].includes(reason)
                         ? applyMissingPunchPenalty ? 'تسجيل البصمة اليدوية + خصم 50ج' : 'تسجيل البصمة اليدوية'
                         : decisionsFor(selected).find((item) => item.id === reason)?.financial
