@@ -83,7 +83,7 @@ begin
  values (p_staff_id,p_date,to_jsonb(v_schedule),p_start,p_end,v_override_id,
  public.employee_operating_actor_id(),trim(p_note)) returning id into v_record_id;
  -- Recompute through the canonical guard. Do not approve unproven days here.
- v_result:=public.dawaa_materialize_attendance_day_internal_v2(p_staff_id,p_date);
+ v_result:=to_jsonb(public.dawaa_materialize_attendance_day_internal_v2(p_staff_id,p_date));
  return jsonb_build_object('success',true,'correction_id',v_record_id,
    'override_id',v_override_id,'date',p_date,'materialization',coalesce(v_result,'{}'::jsonb),
    'requires_review',true);
