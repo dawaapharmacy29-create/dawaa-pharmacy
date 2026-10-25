@@ -64,9 +64,10 @@ async function fetchSalesIntelligenceBranchOptions(): Promise<string[]> {
 
 export default function SalesIntelligenceQA() {
   const navigate = useNavigate();
-  const { user } = useAuth();
-  // UI mirror only; the trash RPCs require an active general manager in the database.
-  const canManageDeletions = canManageWhatsAppDeletions(user?.role);
+  const { user, checkPermission } = useAuth();
+  // Both canonical action permission and the narrow database role must agree.
+  // The trash RPCs independently verify an active general manager session.
+  const canManageDeletions = checkPermission('delete_reviews') && canManageWhatsAppDeletions(user?.role);
   const [rows, setRows] = useState<QaCaseListRow[]>([]);
   const [branches, setBranches] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
