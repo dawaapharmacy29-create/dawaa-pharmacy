@@ -1,6 +1,13 @@
 import { supabase } from './supabase';
 import { normalizeStaffName } from './staffDuplicateAudit';
 import { readUnlinkedInvoiceSellerNames } from './readModels/unlinkedSellerNamesReadModel';
+import { getCurrentUserProfile } from '@/hooks/useAuth';
+import { hasPermission } from './core/permissionSystem';
+
+function canManageStaffIdentity(): boolean {
+  try { return hasPermission(getCurrentUserProfile(), 'manage_staff_accounts'); }
+  catch { return false; }
+}
 
 export interface StaffIdentityAlias {
   id: string;
@@ -103,11 +110,11 @@ export async function createStaffAlias(
   confidence: number,
   createdBy: string
 ): Promise<StaffIdentityAlias | null> {
+  if (!canManageStaffIdentity()) return null;
   const normalized = normalizeStaffName(aliasName);
   if (!normalized || !staffId || !aliasName.trim()) return null;
 
-  // Fail closed before any browser write. A server-side atomic uniqueness
-  // constraint is still required to cover races between simultaneous clients.
+  // Advisory early validation; the database expression index arbitrates concurrent writes.
   const [targetResult, aliasesResult] = await Promise.all([
     supabase.from('staff').select('id,active,is_active').eq('id', staffId).maybeSingle(),
     supabase.from('staff_identity_aliases')
@@ -229,6 +236,7 @@ export async function confirmStaffAlias(
   aliasName: string,
   createdBy: string
 ): Promise<boolean> {
+  if (!canManageStaffIdentity()) return false;
   const normalized = normalizeStaffName(aliasName);
 
   const { data: existing, error: existingError } = await supabase

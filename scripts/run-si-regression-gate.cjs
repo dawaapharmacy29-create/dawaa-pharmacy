@@ -18,6 +18,9 @@ const SUITES = [
   // WhatsApp automatic review persistence (needs module mocks, so it cannot run in run-tests.cjs).
   'src/lib/__tests__/whatsappAutomaticReviewPersistence.test.ts',
   'src/lib/__tests__/whatsappConversationJourneyClassifier.test.ts',
+  // Shared alias authorization/fail-closed identity protects import and WhatsApp attribution.
+  'src/lib/__tests__/staffIdentityMapping.failClosed.test.ts',
+  'src/lib/__tests__/whatsappStaffIdentityResolver.test.ts',
   'src/lib/evaluations/__tests__/doctorPerformanceEye.test.ts',
   'src/components/salesIntelligence/__tests__/SalesIntelligenceManagementOverviewV1.test.ts',
 ];

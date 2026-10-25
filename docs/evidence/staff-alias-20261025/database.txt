@@ -1,0 +1,34 @@
+Synthetic isolated database: supabase_db_employee-core/alias_test_1792928951369
+Alias catalog fixture: committed staging policies
+PASS stale legacy metadata aborts migration without rewriting evidence
+PASS legacy duplicate ownership aborts migration atomically without selecting a winner
+PASS committed migration applies against staging alias schema and real token hash verifier
+PASS SQL normalization matches canonical TypeScript normalization on Arabic/prefix/whitespace fixtures
+PASS Shokry doctor and courier remain separate staff ids
+PASS exact pharmacist/courier short-name collision stays unresolved
+PASS similar normalized name cannot claim a second employee
+PASS nonmanager cannot insert
+PASS archived account cannot insert despite permission
+PASS unverified caller cannot insert
+PASS inactive staff cannot receive active alias
+PASS retired alias still requires an existing canonical staff id
+PASS nonmanager UPDATE changes zero aliases under RLS
+PASS security-definer RPC cannot bypass caller identity permission
+PASS owner reassignment forbidden
+PASS creation provenance cannot be rewritten
+PASS audit deletion forbidden
+PASS TRUNCATE cannot bypass RLS or row triggers
+PASS authenticated nonmanager UPDATE changes zero aliases under staging RLS
+PASS authorized authenticated caller may create an alias with verified session
+PASS authenticated role without verified token cannot insert
+PASS legacy authenticated identity without opaque staff session cannot mutate aliases
+PASS revoked session cannot write
+PASS expired session cannot write
+PASS branch transfer preserves alias owner
+PASS audit actor derived from verified session
+PASS authorized retirement and reactivation
+PASS UPDATE cannot forge the normalized reader key
+PASS reactivation cannot steal an occupied alias
+PASS two independent concurrent sessions: exactly one commits, other receives 23505
+PASS failed conflicting write leaves no audit ghost
+PASS ALL atomic alias database tests; synthetic database retained for inspection

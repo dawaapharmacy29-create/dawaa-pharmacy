@@ -5,7 +5,10 @@ const state = vi.hoisted(() => ({
   staff: [] as Array<{ id: string; name: string; active: boolean; is_active: boolean }>,
   inserts: 0,
   updates: 0,
+  role: 'general_manager',
 }));
+
+vi.mock('@/hooks/useAuth', () => ({ getCurrentUserProfile: () => ({ role: state.role }) }));
 
 vi.mock('@/lib/staffDuplicateAudit', () => ({
   normalizeStaffName: (name: string) => name.replace(/^د[\\/\\. ]*/, '').trim().replace(/[أإآ]/g, 'ا'),
@@ -47,6 +50,15 @@ describe('staff identity mapping fails closed', () => {
     state.staff = [];
     state.inserts = 0;
     state.updates = 0;
+    state.role = 'general_manager';
+  });
+
+  it('denies identity mutations without the central permission', async () => {
+    state.role = 'delivery';
+    expect(await createStaffAlias('doctor', 'اسلام', 'manual', 1, 'forged')).toBeNull();
+    expect(await confirmStaffAlias('doctor', 'اسلام', 'forged')).toBe(false);
+    expect(state.inserts).toBe(0);
+    expect(state.updates).toBe(0);
   });
 
   it('rejects active aliases that disagree on the employee', async () => {

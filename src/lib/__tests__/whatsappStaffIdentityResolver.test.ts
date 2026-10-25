@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { WhatsAppParticipantRoleModelV15 } from '@/lib/whatsappParticipantRoleResolverV15';
 
 const STAFF_TABLE = [
-  { id: 's1', name: 'اسلام محمد', branch: 'فرع الشامي', role: 'pharmacist', active: true },
-  { id: 's2', name: 'اسلام كريم', branch: 'فرع شكري', role: 'pharmacist', active: true },
+  { id: 's1', name: 'اسلام محمد', branch: 'فرع الشامي', role: 'pharmacist', active: true, is_active: true },
+  { id: 's2', name: 'اسلام كريم', branch: 'فرع شكري', role: 'pharmacist', active: true, is_active: true },
 ];
 const STAFF_ACCOUNTS_TABLE = [
   { id: 'a1', staff_id: 's1', staff_name: 'اسلام محمد', name: 'اسلام محمد', branch: 'فرع الشامي', role: 'pharmacist', active: true, is_active: true },

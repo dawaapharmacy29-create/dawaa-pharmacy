@@ -138,6 +138,15 @@ the pharmacist, while `اسلام` belongs to the courier; the legacy
 confirmed normalization collision, **not** evidence that either employee
 record is a duplicate. Role alone does not authorize credit.
 
+Local runtime clarification (atomic-alias follow-up): the existing JavaScript
+normalizer removes the first single-letter prefix alternative, so raw `د/ اسلام`
+becomes `/اسلام` and raw `دكتور اسلام` becomes `كتوراسلام`; `د اسلام` and
+`اسلام` collide as stated. The earlier statement about all four keys must not
+be used to rewrite stored aliases. Stored keys and raw-label normalization need
+separate inspection. The new migration refuses stale stored keys and conflicting
+active owners without changing either. See
+[local verification](STAFF_ALIAS_ATOMIC_LOCAL_20261025.md).
+
 Until source-scoped, time-bounded and role-verified decisions are implemented,
 an ambiguous alias key yields **unresolved**. Do not migrate the seller's
 historic invoice IDs or clear the conflict by guessing. The client-side
