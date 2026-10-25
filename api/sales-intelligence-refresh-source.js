@@ -1516,6 +1516,7 @@ function continuesOpenServiceNeed(current, next, gapMs) {
 var ADDITIVE_REQUEST_RX = /(?:^|\s)(?:وكمان|كمان|وزود|زود|ضيف|معاهم|معاه|مع\s*الطلب)(?:\s|$)/i;
 var STAFF_PENDING_REPLY_RX = /لحظات|ثواني|دقيق[ةه]|اشوف|أشوف|هشوف|هراجع|هتأكد|هاتأكد|جاري\s*(?:المراجعه|المراجعة|البحث)/i;
 var CLOSING_RX = /شكر(?:ا|ًا)?\s*لتواصلك|تحت\s*أمرك\s*دائم(?:ا|ًا)?|يومك\s*سعيد|في\s*خدمتك\s*دائم(?:ا|ًا)?/i;
+var BRANDED_COURTESY_SIGNATURE_RX = /صيدليات\s*دواء\s*تتشرف\s*بخدم[ةه]\s*حضرتك|الأقرب\s*إليك[^\n]*نهتم\s*بصحتك/u;
 var TOPIC_SHIFT_MARKER_RX = /بالمناسبة|كمان\s*حاجة|سؤال\s*تاني|بس\s*كمان\s*عايز|في\s*مشكلة\s*تاني[ةه]|حاجة\s*تانية\s*خالص/i;
 var CUSTOMER_COURTESY_RESPONSE_RX = /^(?:ولا\s*يهمك(?:\s+يا\s+(?:حبيبتي|حبيبي|فندم))?|العفو(?:\s+يا\s+فندم)?|شك(?:را|رًا)(?:\s+على\s+ذوق\s+حضرتك)?|ربنا\s+(?:يكرمك|يخليك)|تسلم(?:ي)?)[!.، ]*$/iu;
 function lastMeaningfulOfRole(current, role) {
@@ -1589,6 +1590,7 @@ function hasStrongSemanticContinuation(current, next, gapMs) {
   return false;
 }
 function shouldKeepSemanticContinuation(current, next, gapMs) {
+  if (current.length && gapMs >= 0 && gapMs <= SEMANTIC_CONTINUATION_MAX_GAP_MS && next.role === "staff" && BRANDED_COURTESY_SIGNATURE_RX.test(next.text) && !isOperationalServiceRequest(next) && !startsIndependentCommercialNeed(next)) return true;
   if (hasStrongSemanticContinuation(current, next, gapMs)) return true;
   return gapMs <= INTERACTION_GAP_MS && next.role === "customer" && next.isMeaningful && currentHasOrderCommitment(current) && ADDITIVE_REQUEST_RX.test(next.text);
 }
