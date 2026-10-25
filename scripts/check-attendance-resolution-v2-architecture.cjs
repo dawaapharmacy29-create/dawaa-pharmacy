@@ -9,6 +9,8 @@ const files = {
   service: 'src/lib/attendance/attendanceResolutionService.ts',
   center: 'src/components/attendance/AttendanceResolutionCenter.tsx',
   page: 'src/pages/AttendanceReport.tsx',
+  inlineApi: 'server/attendance-inline-command.ts',
+  inlineMigration: 'supabase/migrations/20261025140000_attendance_inline_command_security.sql',
 };
 
 for (const [name, path] of Object.entries(files)) {
@@ -22,6 +24,8 @@ if (!failures.length) {
   const service = fs.readFileSync(files.service, 'utf8');
   const center = fs.readFileSync(files.center, 'utf8');
   const page = fs.readFileSync(files.page, 'utf8');
+  const inlineApi = fs.readFileSync(files.inlineApi, 'utf8');
+  const inlineMigration = fs.readFileSync(files.inlineMigration, 'utf8');
 
   for (const token of ['attendance_resolution_audit', 'attendance_impact_ledger', 'review_required', 'resolution_origin']) {
     if (!schema.includes(token)) failures.push(`V2 schema missing ${token}.`);
@@ -65,11 +69,16 @@ if (!failures.length) {
   for (const rpc of [
     'get_attendance_resolution_queue_v4',
     'materialize_attendance_range_v2',
-    'approve_attendance_day_resolution_v2',
     'get_attendance_impact_ledger_v2',
   ]) {
     if (!service.includes(rpc)) failures.push(`Attendance resolution service missing RPC ${rpc}.`);
   }
+
+  // Inline final approval now crosses a restricted server command boundary, not a browser RPC.
+  if (!service.includes("fetch('/api/attendance-inline-command'")) failures.push('Attendance resolution service missing protected inline command transport.');
+  if (!inlineApi.includes("client.rpc('attendance_inline_command_v1'")) failures.push('Server inline command must invoke the restricted attendance RPC.');
+  if (!inlineMigration.includes('grant execute on function public.attendance_inline_command_v1(text,uuid,date,jsonb) to service_role;')) failures.push('Inline command must be service-role only.');
+  if (!inlineMigration.includes('public.approve_attendance_day_resolution_v2(p_staff_id,p_date,v_hours,v_note)')) failures.push('Inline command must preserve canonical approval semantics.');
 
   if (/\.from\(['"]attendance_daily_summary['"]\)|\.from\(['"]attendance_impact_ledger['"]\)/.test(center)) {
     failures.push('AttendanceResolutionCenter must use the service/RPC boundary, not direct table access.');
