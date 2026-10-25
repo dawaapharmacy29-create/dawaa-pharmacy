@@ -1,0 +1,18 @@
+{
+  "baselineHead": "53765835aa8a85f36a03db46269d2c4251b2f101",
+  "runtime": "PGlite 0.5.8",
+  "stepsPassed": 55,
+  "stepsFailed": 0,
+  "canonicalFollowup": {
+    "status": "CANDIDATE_VALIDATED_PRODUCTION_PARITY_BLOCKED",
+    "prerequisite": "20261009180000_customer_followup_one_open_case_contract_a_v1.sql",
+    "runtimeProblem": "cross_type_request_creates_hidden_duplicate_with_live_before_guards",
+    "productionWrites": 0
+  },
+  "scope": "Actual captured BEFORE triggers plus real session/permission/materializer domain rehearsal; no AFTER-trigger/incentive/browser claim.",
+  "sha256": {
+    "scripts/staging/canonical-followup-authorization-rehearsal.mjs": "7947d9cf0a102611b5f3811f0bef539512f82903ef3779e86eed2481cb469a02",
+    "scripts/staging/fixtures/canonical-followup-before-insert-guards.json": "35d98c02d29e9d60b7cb325199f18522f87e6da3e7e42756a8ef875016a77cc7",
+    "scripts/staging/fixtures/canonical-followup-daily-columns.json": "8fed6d4305f586df6ae830f726d50418e74250aeb5c295929ced94e28127c416"
+  }
+}

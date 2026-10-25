@@ -8,6 +8,7 @@ import { useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, CircleHelp, X } from 'lucide-react';
 import type { CaseIntelligenceView, ConfidenceAssessment } from '@/lib/salesIntelligence/types';
 import { buildConversationClinicalReview } from '@/lib/salesIntelligence/conversationClinicalReview';
+import { arabicExportMarkers } from './WhatsAppConversationPanel';
 import type { ConversationEvaluationResult } from '@/lib/salesIntelligence/conversationEvaluation';
 import {
   UNKNOWN_LABEL,
@@ -38,7 +39,18 @@ import {
   staffFactLabel,
   suppressionLabel,
   waitingOnLabel,
+  segmentationReasonLabel,
+  continuationReasonLabel,
+  candidateRecommendationLabel,
+  branchRecommendationLabel,
+  caseBranchFact,
+  staffFunctionLabel,
+  departmentLabel,
+  mentionSourceLabel,
+  quantitySourceLabel,
+  lineMatchedByLabel,
 } from '@/lib/salesIntelligence/qa/caseIntelligencePresentation';
+import { careFollowUpDisposition } from '@/lib/salesIntelligence/careFollowUpEngine';
 
 export type CaseIntelligenceTab = 'conversation' | 'evaluation' | 'need' | 'products' | 'sale' | 'lost' | 'followup' | 'clinical' | 'review';
 
@@ -47,6 +59,11 @@ export interface CaseInvoiceEvidence {
   /** How the exact invoice became trusted. */
   linkMethod?: 'automatic' | 'explicit' | null;
   invoiceNumber: string | null;
+  /** Invoice header facts; these never override source customer, branch or chat staff. */
+  invoiceCustomerCode?: string | null;
+  invoiceCustomerName?: string | null;
+  invoiceBranch?: string | null;
+  invoiceSellerName?: string | null;
   items: Array<{
     id: string;
     productName: string;
@@ -145,7 +162,9 @@ export function CaseIntelligenceWorkspace({
   staffDisplayName = null,
   conversationEvaluation = null,
   conversationEvaluationLoading = false,
+  conversationEvaluationRequested = false,
   conversationEvaluationWarning = null,
+  now = new Date(),
 }: {
   view: CaseIntelligenceView | null;
   initialTab?: CaseIntelligenceTab;
@@ -155,7 +174,10 @@ export function CaseIntelligenceWorkspace({
   staffDisplayName?: string | null;
   conversationEvaluation?: ConversationEvaluationResult | null;
   conversationEvaluationLoading?: boolean;
+  conversationEvaluationRequested?: boolean;
   conversationEvaluationWarning?: string | null;
+  /** Display clock for due/historical states (injectable for tests). */
+  now?: Date;
 }) {
   const [tab, setTab] = useState<CaseIntelligenceTab>(initialTab);
   const [evidence, setEvidence] = useState<EvidenceRequest | null>(null);
@@ -183,13 +205,21 @@ export function CaseIntelligenceWorkspace({
   const isTechnicalStaffSender = (value: string | null | undefined) =>
     technicalStaffSenders.has(String(value ?? '').trim().toLowerCase());
   const sourceStaffName = String(staffDisplayName ?? '').trim() || null;
-  const displayStaffSender = (sender: string | null | undefined) =>
-    isTechnicalStaffSender(sender)
+  const displayStaffSender = (sender: string | null | undefined) => {
+    const participant = view.staff.participants.find((p) => p.sender === sender);
+    const owner = view.ownership?.owners.find((p) => p.staffId === participant?.staffId);
+    if (owner?.name) return owner.name;
+    if (view.ownership) return isTechnicalStaffSender(sender) ? 'موظف الصيدلية — الهوية غير محسومة' : (String(sender ?? '').trim() || 'موظف الصيدلية');
+    return isTechnicalStaffSender(sender)
       ? (sourceStaffName || 'موظف الصيدلية')
       : (String(sender ?? '').trim() || sourceStaffName || 'موظف الصيدلية');
+  };
+  const branchFact = caseBranchFact(view);
   const staffNames = view.staff.participants.map((p) => displayStaffSender(p.sender));
   const rawMainStaff = view.staff.participants.slice().sort((a, b) => b.messageCount - a.messageCount)[0]?.sender ?? null;
-  const mainStaff = sourceStaffName || (rawMainStaff ? displayStaffSender(rawMainStaff) : null);
+  const mainStaff = view.ownership
+    ? (rawMainStaff ? displayStaffSender(rawMainStaff) : null)
+    : sourceStaffName || (rawMainStaff ? displayStaffSender(rawMainStaff) : null);
   const highlighted = new Set(evidence?.messageIds ?? view.evidenceSummary.evidenceMessageIds);
   const open = (request: EvidenceRequest) => {
     setEvidence(request);
@@ -234,8 +264,14 @@ export function CaseIntelligenceWorkspace({
             {view.customer.customerId ? identityStatusLabel(view.customer.identityStatus) : <Badge tone="warn">{identityStatusLabel(view.customer.identityStatus)}</Badge>}
           </Fact>
           <Fact label="وقت التفاعل">{formatTime(view.interaction.startedAt)}</Fact>
-          <Fact label="الفرع">{view.branch.branchNameRaw || UNKNOWN_LABEL}</Fact>
-          <Fact label="الموظف بالمحادثة">{mainStaff ?? 'لم يرد أحد'}{staffNames.length > 1 ? ` (+${staffNames.length - 1})` : ''}</Fact>
+          <Fact label={branchFact.label}>
+            <span data-testid="case-branch-fact">{branchFact.value}</span>
+            {branchFact.hint ? <div className="dawaa-muted text-xs">{branchFact.hint}</div> : null}
+            {!branchFact.decided && view.ownership?.department !== 'customer_service' && view.ownership?.suggestedStaffBranch ? (
+              <div className="dawaa-muted text-xs">فرع الموظف: {view.ownership.suggestedStaffBranch} — يحتاج تأكيد فرع العملية</div>
+            ) : null}
+          </Fact>
+          <Fact label={view.ownership || view.staff.participants.some((p) => p.staffId) ? 'الموظف بالمحادثة' : 'الموظف المرتبط بالمصدر'}>{mainStaff ?? 'لم يرد أحد'}{staffNames.length > 1 ? ` (+${staffNames.length - 1})` : ''}</Fact>
           <Fact label="مرحلة البيع">{journeyStateLabel(view.journey.currentState)}</Fact>
           <Fact label="نتيجة البيع">{saleOutcomeLabel(view.sale.outcome)}</Fact>
           <Fact label="حالة الفرصة">
@@ -274,10 +310,10 @@ export function CaseIntelligenceWorkspace({
                   data-evidence={highlighted.has(m.id) ? 'true' : undefined}
                 >
                   <div className="dawaa-muted flex justify-between text-xs">
-                    <span className="font-bold">{m.role === 'staff' ? `الصيدلية — ${m.sender}` : m.role === 'customer' ? 'العميل' : 'النظام'}</span>
+                    <span className="font-bold">{m.role === 'staff' ? `الصيدلية — ${displayStaffSender(m.sender)}` : m.role === 'customer' ? 'العميل' : 'النظام'}</span>
                     <span>{formatTime(m.at)}</span>
                   </div>
-                  <div className="mt-1 whitespace-pre-wrap leading-7">{m.text}</div>
+                  <div className="mt-1 whitespace-pre-wrap leading-7">{arabicExportMarkers(m.text)}</div>
                 </li>
               ))}
             </ol>
@@ -383,7 +419,7 @@ export function CaseIntelligenceWorkspace({
             </>
           ) : (
             <div className="dawaa-alert dawaa-alert--info text-sm">
-              تحليل المحادثة النهائي غير متاح لهذه الحالة بعد.
+              {conversationEvaluationRequested ? (conversationEvaluationWarning || 'لم يكتمل تحميل تقييم المحادثة؛ أعد فتح الحالة للمحاولة من جديد.') : 'اضغط «تحميل تفاصيل تقييم المحادثة» أعلى الصفحة لعرض التقييم من الأدلة الحالية.'}
             </div>
           )}
         </div>
@@ -399,7 +435,9 @@ export function CaseIntelligenceWorkspace({
           </div>
           <ul className="space-y-1 text-sm">
             {view.products.filter((p) => p.roles.includes('requested')).map((p) => (
-              <li key={p.productKey}>• {p.productNameRaw} — الكمية: {p.requestedQuantity ?? UNKNOWN_LABEL}</li>
+              <li key={p.productKey}>
+                • «{p.productNameRaw}»{p.productCode ? ` ← ${p.canonicalName ?? ''} (كود ${p.productCode})` : ' ← صنف غير محدد في الكتالوج'} — الكمية: {p.requestedQuantity ?? p.finalQuantity ?? UNKNOWN_LABEL}
+              </li>
             ))}
           </ul>
 
@@ -411,10 +449,10 @@ export function CaseIntelligenceWorkspace({
               <div className="dawaa-muted text-xs leading-6">
                 {automaticInvoiceLink ? (
                   <>
-                    اسم الصنف غير ظاهر في نص المحادثة لأن الطلب مرتبط بصورة/فويس. وجد التحليل تلقائيًا
+                    تفاصيل الطلب غير مكتملة في التحليل المحفوظ. وجد التحليل تلقائيًا
                     {invoiceEvidence.invoiceNumber ? ` فاتورة ${invoiceEvidence.invoiceNumber}` : ' فاتورة'}
                     {' '}لنفس كود واسم العميل داخل التوقيت القريب للمحادثة، وبها {trustedInvoiceItemCount} أصناف.
-                    الأصناف التالية هي ما تم صرفه فعليًا، وليست ادعاءً بأن الصورة/الفويس تم قراءته.
+                    الأصناف التالية مصدرها الفاتورة وتوضح ما تم صرفه فعليًا؛ ولا تستكمل تلقائيًا التفاصيل الناقصة من المحادثة أو الميديا.
                   </>
                 ) : (
                   <>
@@ -495,8 +533,37 @@ export function CaseIntelligenceWorkspace({
               )}
             </div>
           ) : invoiceEvidence?.status === 'candidate' ? (
-            <div className="dawaa-alert dawaa-alert--warning text-xs leading-6" data-testid="candidate-invoice-products-blocked">
-              توجد فاتورة مرشحة{invoiceEvidence.invoiceNumber ? ` رقم ${invoiceEvidence.invoiceNumber}` : ''}، لكن الربط غير موثوق بما يكفي لاستخدام أصنافها بدل محتوى الصورة/الفويس.
+            <div className="dawaa-card space-y-3" data-testid="candidate-invoice-products-blocked">
+              <div className="dawaa-alert dawaa-alert--warning text-xs leading-6">
+                فاتورة مرشحة{invoiceEvidence.invoiceNumber ? ` رقم ${invoiceEvidence.invoiceNumber}` : ''}، وارتباطها بالمحادثة لم يثبت بعد.
+                البنود أدناه من الفاتورة الرسمية المرشحة فقط؛ لا تُستخدم لتفسير الصورة أو الفويس أو اعتماد بيع أو إسناد موظف.
+              </div>
+              {(invoiceEvidence.invoiceCustomerCode || invoiceEvidence.invoiceCustomerName || invoiceEvidence.invoiceBranch || invoiceEvidence.invoiceSellerName) ? (
+                <div className="grid gap-2 sm:grid-cols-2 text-xs" data-testid="candidate-invoice-header-facts">
+                  {invoiceEvidence.invoiceCustomerName ? <div><strong>اسم العميل على الفاتورة:</strong> {invoiceEvidence.invoiceCustomerName}</div> : null}
+                  {invoiceEvidence.invoiceCustomerCode ? <div><strong>كود العميل على الفاتورة:</strong> {invoiceEvidence.invoiceCustomerCode}</div> : null}
+                  {invoiceEvidence.invoiceBranch ? <div><strong>فرع الفاتورة (دليل مستقل):</strong> {invoiceEvidence.invoiceBranch}</div> : null}
+                  {invoiceEvidence.invoiceSellerName ? <div><strong>بائع الفاتورة (ليس بالضرورة مسؤول المحادثة):</strong> {invoiceEvidence.invoiceSellerName}</div> : null}
+                </div>
+              ) : null}
+              {invoiceEvidence.items.length ? (
+                <div data-testid="candidate-invoice-evidence-lines">
+                  <div className="dawaa-muted mb-2 text-xs">بنود الفاتورة المرشحة للمراجعة فقط ({invoiceEvidence.items.length}) — منفصلة عن الأصناف المستخرجة من المحادثة</div>
+                  <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                    {invoiceEvidence.items.map((item) => (
+                      <div key={item.id} className="rounded-xl bg-[var(--dawaa-theme-soft)] p-3" data-candidate-invoice-line={item.id}>
+                        <div className="dawaa-heading text-sm font-black">{item.productName || 'صنف بدون اسم'}</div>
+                        <div className="dawaa-muted mt-1 text-xs">
+                          {item.productCode ? `كود: ${item.productCode} • ` : ''}
+                          الكمية في الفاتورة: {item.quantity ?? UNKNOWN_LABEL}{item.unitName ? ` ${item.unitName}` : ''}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="dawaa-muted text-xs">بنود الفاتورة المرشحة غير متاحة حاليًا.</div>
+              )}
             </div>
           ) : null}
 
@@ -513,12 +580,23 @@ export function CaseIntelligenceWorkspace({
                   <Badge tone={status.tone}>{status.label}</Badge>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs">
-                  <Fact label="الكمية المطلوبة">{p.requestedQuantity ?? UNKNOWN_LABEL}</Fact>
+                  <Fact label="الصنف في الكتالوج">
+                    {p.productCode ? `${p.canonicalName ?? ''} • كود ${p.productCode}` : 'غير محسوم من المحادثة — الاسم قد يطابق أكثر من صنف أو حجم عبوة؛ يحتاج مراجعة. الكمية مستقلة عن هذا الحسم.'}
+                  </Fact>
+                  <Fact label="الكمية المذكورة في المحادثة">{p.requestedQuantity ?? UNKNOWN_LABEL}</Fact>
+                  <Fact label="الكمية في الطلب النهائي">{p.finalQuantity ?? UNKNOWN_LABEL}</Fact>
                   <Fact label="التوفر">{availabilityLabel(p.availability === 'unknown' ? null : p.availability)}</Fact>
                   <Fact label="البديل">{need?.alternatives.map((a) => a.productNameRaw || 'بديل غير مسمى').join('، ') || 'لا يوجد'}</Fact>
                   <Fact label="رد العميل">{p.alternativeResponses.length ? p.alternativeResponses.map((r) => alternativeResponseLabel(r)).join('، ') : '—'}</Fact>
                   <Fact label="في الطلب النهائي">{p.inFinalBasket ? 'نعم' : 'لا'}</Fact>
                   <Fact label="المتابعة">{followUps.length ? followUps.map((o) => `${followUpReasonLabel(o.reason)} (${followUpStatusLabel(o.status)})`).join('، ') : 'لا يوجد'}</Fact>
+                  <Fact label="مصدر ذكر الصنف">{mentionSourceLabel(p.mentionSource)}</Fact>
+                  <Fact label="مصدر الكمية">{quantitySourceLabel(p.quantitySource)}</Fact>
+                  <Fact label="بند الفاتورة المرشحة المقابل">
+                    {p.invoiceLine
+                      ? `${p.invoiceLine.invoiceProductNameRaw}${p.invoiceLine.invoiceProductCode ? ` • كود ${p.invoiceLine.invoiceProductCode}` : ''} • الكمية ${p.invoiceLine.invoiceQuantity ?? UNKNOWN_LABEL} — ${lineMatchedByLabel(p.invoiceLine.matchedBy)}${p.invoiceLine.quantityAgrees === false ? ' — الكمية مختلفة' : ''}`
+                      : 'لا يوجد بند مقابل محسوم'}
+                  </Fact>
                 </div>
                 {demand ? (
                   <WhyButton
@@ -542,18 +620,34 @@ export function CaseIntelligenceWorkspace({
 
       {tab === 'sale' ? (
         <div className="space-y-3">
+          {view.sale.candidateRecommendation && view.sale.selectedInvoiceNumber ? (
+            <Block title={`الفاتورة المرشحة ${view.sale.selectedInvoiceNumber}: ${candidateRecommendationLabel(view.sale.candidateRecommendation.level)}`}>
+              <div className="dawaa-muted text-xs leading-6" data-testid="invoice-candidate-recommendation">
+                ترشيح للمراجعة فقط: لا يثبت البيع أو التسليم، ولا يُحتسب إيرادًا أو تقييمًا قبل الاعتماد.
+              </div>
+              <ul className="list-disc space-y-1 ps-6 text-sm">
+                {view.sale.candidateRecommendation.reasons.map((reason) => <li key={reason}>{reason}</li>)}
+              </ul>
+              {view.sale.candidateRecommendation.missing.length ? (
+                <ul className="dawaa-muted list-disc space-y-1 ps-6 text-xs">
+                  {view.sale.candidateRecommendation.missing.map((reason) => <li key={reason}>ناقص: {reason}</li>)}
+                </ul>
+              ) : null}
+            </Block>
+          ) : null}
           {automaticInvoiceLink ? (
             <div className="dawaa-alert dawaa-alert--success text-sm leading-7" data-testid="automatic-invoice-link-summary">
               تم ربط الفاتورة تلقائيًا
               {invoiceEvidence?.invoiceNumber ? ` — فاتورة ${invoiceEvidence.invoiceNumber}` : ''}
-              {' '}— نفس كود واسم العميل وفي توقيت قريب جدًا من المحادثة
+              {' '}— نفس كود واسم العميل وداخل النافذة الزمنية المعتمدة للمطابقة
               {trustedInvoiceItemCount ? ` — ${trustedInvoiceItemCount} أصناف` : ''}
               {trustedInvoiceTotalQuantity ? ` بإجمالي كمية ${trustedInvoiceTotalQuantity}` : ''}.
             </div>
           ) : null}
           <Block title="الطلب (السلة)">
             <div className="grid gap-3 sm:grid-cols-3">
-              <Fact label="حالة التأكيد">{confirmationStateLabel(view.sale.confirmationState)}</Fact>
+              <Fact label="تأكيد السلة بالبروتوكول">{confirmationStateLabel(view.sale.confirmationState)}</Fact>
+              <Fact label="قبول العميل للإرسال">{view.sale.customerAcceptanceDetected == null ? UNKNOWN_LABEL : view.sale.customerAcceptanceDetected ? 'نعم — قبول إرسال، وليس تأكيد إجمالي السلة' : 'لم يُرصد'}</Fact>
               <Fact label="الإجمالي المعلن">{view.basket.announcedTotal != null ? `${view.basket.announcedTotal} جنيه` : 'لم يُعلن'}</Fact>
               <Fact label="نسخ السلة">{view.basket.versions.length}</Fact>
             </div>
@@ -569,7 +663,7 @@ export function CaseIntelligenceWorkspace({
               <Fact label="نتيجة البيع">{saleOutcomeLabel(view.sale.outcome)}</Fact>
               <Fact label="إثبات البيع">{saleProofLabel(view.sale.proofState === 'unknown' ? null : view.sale.proofState)}</Fact>
               <Fact label="الفاتورة المختارة">{view.sale.selectedInvoiceNumber || 'لا توجد'}</Fact>
-              <Fact label="فواتير مرشحة">{view.sale.invoiceCandidateIds.length} (مرشحة فقط — ليست بيعًا)</Fact>
+              <Fact label="الفواتير المفحوصة">{view.sale.invoiceCandidateIds.length}{view.sale.proofState === 'proven' ? ' — الفاتورة المختارة مثبتة' : ' — الترشيح وحده لا يثبت البيع'}</Fact>
             </div>
             {view.sale.contradictions.length ? (
               <div className="dawaa-alert dawaa-alert--warning text-xs">يوجد تعارض في الإسناد يحتاج مراجعة.</div>
@@ -617,6 +711,24 @@ export function CaseIntelligenceWorkspace({
 
       {tab === 'followup' ? (
         <div className="space-y-3">
+          {view.careFollowUp ? (
+            <Block title="متابعة رعاية مقترحة (خدمة العملاء)">
+              <div className="text-sm leading-7" data-testid="care-follow-up">{view.careFollowUp.reason}</div>
+              {(() => {
+                const disposition = careFollowUpDisposition(view.careFollowUp, now);
+                return (
+                  <div className="space-y-1 text-xs" data-testid="care-follow-up-disposition" data-kind={disposition.kind}>
+                    <div className="dawaa-muted">
+                      {disposition.kind === 'historical_suggestion' ? 'كان مستحقًا' : 'موعد مقترح'}: {formatTime(view.careFollowUp.dueAt)} — {disposition.label}
+                    </div>
+                    {disposition.humanReview ? <div className="dawaa-alert dawaa-alert--info">{disposition.humanReview}</div> : null}
+                    <div className="dawaa-muted">منفصل عن الشكوى والبيع وعن الإجراءات القديمة في المصدر.</div>
+                  </div>
+                );
+              })()}
+              <WhyButton onClick={() => open({ title: 'متابعة الرعاية', reason: view.careFollowUp!.reason, confidence: null, messageIds: view.careFollowUp!.evidenceMessageIds })} />
+            </Block>
+          ) : null}
           <div className="dawaa-muted text-sm">{followUpDecisionLabel(view.followUp.decision)}{view.followUp.notNeededReason ? ` — ${suppressionLabel(view.followUp.notNeededReason)}` : ''}</div>
           {view.followUp.opportunities.map((o) => (
             <div key={o.followUpKey} className="dawaa-card space-y-2" data-followup={o.status}>
@@ -629,7 +741,7 @@ export function CaseIntelligenceWorkspace({
                 <Fact label="الصنف">{o.productRaw || '—'}</Fact>
                 <Fact label="الأولوية">{o.priority === 'high' ? 'عالية' : o.priority === 'medium' ? 'متوسطة' : 'منخفضة'}</Fact>
                 <Fact label="الموعد">{duePolicyLabel(o.duePolicy)}{o.dueAt ? ` — ${formatTime(o.dueAt)}` : ''}</Fact>
-                <Fact label="المسؤول">{o.assignedStaffName ? `${o.assignedStaffName} (${assignedRoleLabel(o.assignedRole)})` : assignedRoleLabel(o.assignedRole)}</Fact>
+                <Fact label="المسؤول">{o.assignedStaffId && o.assignedStaffName ? `${o.assignedStaffName} (${assignedRoleLabel(o.assignedRole)})` : `${assignedRoleLabel(o.assignedRole)} — هوية الموظف غير محسومة`}</Fact>
                 <Fact label="لماذا متوقفة/معطلة">{o.blocker ? 'هوية العميل غير محسومة' : o.suppressedBy ? suppressionLabel(o.suppressedBy) : '—'}</Fact>
               </div>
               <WhyButton onClick={() => open({ title: nextBestActionLabel(o.nextBestAction), reason: followUpReasonLabel(o.reason), confidence: o.confidence, messageIds: o.evidenceMessageIds })} />
@@ -708,6 +820,43 @@ export function CaseIntelligenceWorkspace({
 
       {tab === 'review' ? (
         <div className="space-y-3">
+          <Block title="قرارات الحالة وأدلتها">
+            <div className="grid gap-3 sm:grid-cols-2" data-testid="case-decisions">
+              <Fact label="سبب بداية الحالة">{segmentationReasonLabel(view.interaction.segmentationReason)}</Fact>
+              <Fact label="القسم">{departmentLabel(view.ownership?.department)}</Fact>
+              <Fact label="فرع الحالة">
+                {view.branch.recommendation
+                  ? `${view.branch.recommendation.branch ?? UNKNOWN_LABEL} — ${branchRecommendationLabel(view.branch.recommendation.strength)}`
+                  : UNKNOWN_LABEL}
+              </Fact>
+              <Fact label="عدد رسائل الحالة">{view.interaction.messageCount}</Fact>
+            </div>
+            {view.branch.recommendation?.reasons.length ? (
+              <ul className="dawaa-muted list-disc space-y-1 ps-6 text-xs">
+                {view.branch.recommendation.reasons.map((reason) => <li key={reason}>{reason}</li>)}
+              </ul>
+            ) : null}
+            {view.interaction.continuationEvidence?.length ? (
+              <ul className="list-disc space-y-1 ps-6 text-xs">
+                {view.interaction.continuationEvidence.map((item) => (
+                  <li key={item.messageId} className="flex items-center justify-between gap-2">
+                    <span>{continuationReasonLabel(item.reason)}</span>
+                    <WhyButton onClick={() => open({ title: 'سبب بقاء الرسالة في الحالة', reason: continuationReasonLabel(item.reason), confidence: null, messageIds: [item.messageId] })} />
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {view.ownership?.contributions?.length ? (
+              <ul className="space-y-1 text-sm" data-testid="staff-contributions">
+                {view.ownership.contributions.map((c) => (
+                  <li key={c.staffId ?? 'unresolved'} className="flex items-center justify-between gap-2">
+                    <span>{c.name ?? 'موظف غير محسوم الهوية'} — {staffFunctionLabel(c.function)} — {c.messageIds.length} رسالة</span>
+                    <WhyButton onClick={() => open({ title: 'رسائل الموظف في هذه الحالة', reason: staffFunctionLabel(c.function), confidence: null, messageIds: c.messageIds })} />
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </Block>
           <Block title={`يحتاج مراجعة؟ ${view.review.required ? 'نعم' : 'لا'}`}>
             {view.review.reasons.length ? (
               <ul className="list-disc space-y-1 ps-6 text-sm">
@@ -744,7 +893,7 @@ export function CaseIntelligenceWorkspace({
               <div>المعرف: <span className="font-mono">{view.caseId}</span></div>
               <div>المحادثة: <span className="font-mono">{view.conversationId}</span></div>
               <div>نسخة العرض: <span className="font-mono">{view.version}</span></div>
-              <div>سبب تقسيم التفاعل: <span className="font-mono">{view.interaction.segmentationReason ?? '—'}</span></div>
+              <div>سبب تقسيم التفاعل: {segmentationReasonLabel(view.interaction.segmentationReason)}</div>
               <div>قواعد الفرصة: <span className="font-mono">{view.lostOpportunity.explanation}</span></div>
             </div>
           ) : null}
@@ -776,3 +925,5 @@ export function CaseIntelligenceWorkspace({
 }
 
 export default CaseIntelligenceWorkspace;
+
+

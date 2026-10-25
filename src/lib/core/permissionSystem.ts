@@ -1127,3 +1127,10 @@ export function canAccessHRRoute(pathname: string, role: unknown): boolean {
 export function canManageBiometricOperations(role: unknown): boolean {
   return ['general_manager', 'executive_manager', 'branches_manager'].includes(String(role || ''));
 }
+
+// Mirrors dawaa_whatsapp_deletion_actor_v1: soft delete/restore of WhatsApp cases and
+// conversations belongs to the raw general_manager (or legacy admin) staff role only. The
+// database is the authority; this only decides whether the buttons are shown.
+export function canManageWhatsAppDeletions(role: unknown): boolean {
+  return ['general_manager', 'admin'].includes(String(role || '').trim().toLowerCase());
+}

@@ -1,0 +1,1031 @@
+{
+  "baselineCommit": "d87f153928b97a9576336efc054f0440f3e8c4ff",
+  "classificationUnit": "the 14 missing cases; source-scoped prerequisites are included",
+  "totals": {
+    "SAFE_TO_REPUBLISH_EXISTING": 0,
+    "NEEDS_REANALYSIS": 2,
+    "NEEDS_RESEGMENTATION": 7,
+    "SHOULD_BE_RETIRED": 5,
+    "HUMAN_REVIEW_REQUIRED": 0
+  },
+  "total": 14,
+  "priorRemainingThreeIdentity": "Prior handoff did not preserve the three IDs; cannot prove which three Claude left. All 14 were therefore checked under the corrected user instruction, including the three longest persisted sources. No guessed historical provenance.",
+  "threeLongestSources": [
+    {
+      "sourceId": "6a8fee97-8d7a-4a42-a525-e3768b8f714f",
+      "classification": "SHOULD_BE_RETIRED",
+      "sourceChars": 5817
+    },
+    {
+      "sourceId": "0d1e5874-d1d6-427a-9b35-7ce8fb70c5f7",
+      "classification": "NEEDS_RESEGMENTATION",
+      "sourceChars": 5017
+    },
+    {
+      "sourceId": "bb4aac31-6a21-45bb-87ba-5d3a72d8e95a",
+      "classification": "SHOULD_BE_RETIRED",
+      "sourceChars": 3842
+    }
+  ],
+  "cases": [
+    {
+      "caseId": "063030d2-1f64-4fb9-ba2b-30de4146e22c:interaction:3",
+      "sourceId": "063030d2-1f64-4fb9-ba2b-30de4146e22c",
+      "classification": "NEEDS_RESEGMENTATION",
+      "sourceChars": 2102,
+      "sourceCaseSetMatches": false,
+      "oldStart": "2026-08-29T13:42:54+00:00",
+      "oldEnd": "2026-08-29T13:42:54+00:00",
+      "derived": [
+        {
+          "caseId": "063030d2-1f64-4fb9-ba2b-30de4146e22c:interaction:0",
+          "start": "2026-08-29T08:52:19.000Z",
+          "end": "2026-08-29T09:30:36.000Z"
+        },
+        {
+          "caseId": "063030d2-1f64-4fb9-ba2b-30de4146e22c:interaction:1",
+          "start": "2026-08-29T11:03:35.000Z",
+          "end": "2026-08-29T11:03:57.000Z"
+        },
+        {
+          "caseId": "063030d2-1f64-4fb9-ba2b-30de4146e22c:interaction:2",
+          "start": "2026-08-29T12:29:25.000Z",
+          "end": "2026-08-29T13:04:51.000Z"
+        },
+        {
+          "caseId": "063030d2-1f64-4fb9-ba2b-30de4146e22c:interaction:3",
+          "start": "2026-08-29T13:42:54.000Z",
+          "end": "2026-08-29T13:42:54.000Z"
+        }
+      ],
+      "warnings": [],
+      "v22Dependencies": 1,
+      "historyCount": 5,
+      "latestPipeline": "sales-intelligence-v1",
+      "published": null,
+      "currentCount": 0,
+      "latestSuperseded": "2026-09-30T09:28:31.125+00:00",
+      "sourceStart": "2026-08-29T08:52:19+00:00",
+      "sourceEnd": "2026-08-29T13:42:54+00:00",
+      "reason": "The case survives but at least one source-wide boundary/ID differs; resegment and analyze the complete source set before publication.",
+      "sourceCoverage": "Complete persisted raw_text processed in memory without truncation; trusted source date anchor and canonical staff/alias identity used. No Production pipeline/RPC writer invoked.",
+      "missingPointerCause": "Historical analysis superseded; current removed and published pointer absent. Direct client retirement and source reconciliation skip are code-confirmed hazards; per-row actor causality is not proven by durable logs.",
+      "existingSourceCases": [
+        {
+          "caseId": "063030d2-1f64-4fb9-ba2b-30de4146e22c:interaction:0",
+          "start": "2026-08-29 08:52:19+00",
+          "end": "2026-08-29 09:30:36+00",
+          "isActive": true
+        },
+        {
+          "caseId": "063030d2-1f64-4fb9-ba2b-30de4146e22c:interaction:1",
+          "start": "2026-08-29 11:03:35+00",
+          "end": "2026-08-29 13:04:51+00",
+          "isActive": true
+        },
+        {
+          "caseId": "063030d2-1f64-4fb9-ba2b-30de4146e22c:interaction:2",
+          "start": "2026-08-29 13:42:54+00",
+          "end": "2026-08-29 13:42:54+00",
+          "isActive": true
+        },
+        {
+          "caseId": "063030d2-1f64-4fb9-ba2b-30de4146e22c:interaction:3",
+          "start": "2026-08-29 13:42:54+00",
+          "end": "2026-08-29 13:42:54+00",
+          "isActive": true
+        }
+      ],
+      "latestAnalysisId": "4489cc2f-f48c-4e07-8aa7-85e8f1768bec",
+      "latestAnalysisVersion": 5,
+      "latestHistoryStart": "2026-08-29T13:42:54+00:00",
+      "latestHistoryEnd": "2026-08-29T13:42:54+00:00",
+      "latestEngineVersions": {
+        "engine_version_case_segmentation": "case-segmentation-v5-v32-continuity",
+        "engine_version_historical_closure": "historical-closure-v1",
+        "engine_version_protocol_applicability": "protocol-applicability-v1",
+        "engine_version_commercial_confirmation": "commercial-confirmation-v4-natural-arabic-basket-quantities"
+      },
+      "historicalSnapshotKeys": [
+        "conversationCaseConfidence",
+        "evidenceCompleteness",
+        "historicalClosureEvidence",
+        "protocolApplicabilityRuleIds"
+      ],
+      "coverageCheck": {
+        "caseId": "063030d2-1f64-4fb9-ba2b-30de4146e22c:interaction:3",
+        "recordedMessages": 34,
+        "parsedMessages": 34,
+        "first": "2026-08-29T08:52:19.000Z",
+        "last": "2026-08-29T13:42:54.000Z"
+      }
+    },
+    {
+      "caseId": "0d1e5874-d1d6-427a-9b35-7ce8fb70c5f7:interaction:1",
+      "sourceId": "0d1e5874-d1d6-427a-9b35-7ce8fb70c5f7",
+      "classification": "NEEDS_RESEGMENTATION",
+      "sourceChars": 5017,
+      "sourceCaseSetMatches": false,
+      "oldStart": "2026-08-18T06:37:31+00:00",
+      "oldEnd": "2026-08-18T06:48:47+00:00",
+      "derived": [
+        {
+          "caseId": "0d1e5874-d1d6-427a-9b35-7ce8fb70c5f7:interaction:0",
+          "start": "2026-08-18T05:17:54.000Z",
+          "end": "2026-08-18T05:54:27.000Z"
+        },
+        {
+          "caseId": "0d1e5874-d1d6-427a-9b35-7ce8fb70c5f7:interaction:1",
+          "start": "2026-08-18T06:37:31.000Z",
+          "end": "2026-08-18T06:48:47.000Z"
+        }
+      ],
+      "warnings": [],
+      "v22Dependencies": 1,
+      "historyCount": 5,
+      "latestPipeline": "sales-intelligence-v1",
+      "published": null,
+      "currentCount": 0,
+      "latestSuperseded": "2026-09-30T09:28:16.141+00:00",
+      "sourceStart": "2026-08-18T05:17:54+00:00",
+      "sourceEnd": "2026-08-18T06:48:47+00:00",
+      "reason": "The case survives but at least one source-wide boundary/ID differs; resegment and analyze the complete source set before publication.",
+      "sourceCoverage": "Complete persisted raw_text processed in memory without truncation; trusted source date anchor and canonical staff/alias identity used. No Production pipeline/RPC writer invoked.",
+      "missingPointerCause": "Historical analysis superseded; current removed and published pointer absent. Direct client retirement and source reconciliation skip are code-confirmed hazards; per-row actor causality is not proven by durable logs.",
+      "existingSourceCases": [
+        {
+          "caseId": "0d1e5874-d1d6-427a-9b35-7ce8fb70c5f7:interaction:0",
+          "start": "2026-08-18 05:17:54+00",
+          "end": "2026-08-18 06:48:47+00",
+          "isActive": true
+        },
+        {
+          "caseId": "0d1e5874-d1d6-427a-9b35-7ce8fb70c5f7:interaction:1",
+          "start": "2026-08-18 06:37:31+00",
+          "end": "2026-08-18 06:48:47+00",
+          "isActive": true
+        }
+      ],
+      "latestAnalysisId": "ff19ba76-cf5f-4c8c-afdf-b579967c3920",
+      "latestAnalysisVersion": 5,
+      "latestHistoryStart": "2026-08-18T06:37:31+00:00",
+      "latestHistoryEnd": "2026-08-18T06:48:47+00:00",
+      "latestEngineVersions": {
+        "engine_version_case_segmentation": "case-segmentation-v5-v32-continuity",
+        "engine_version_historical_closure": "historical-closure-v1",
+        "engine_version_protocol_applicability": "protocol-applicability-v1",
+        "engine_version_commercial_confirmation": "commercial-confirmation-v4-natural-arabic-basket-quantities"
+      },
+      "historicalSnapshotKeys": [
+        "conversationCaseConfidence",
+        "evidenceCompleteness",
+        "historicalClosureEvidence",
+        "protocolApplicabilityRuleIds"
+      ],
+      "coverageCheck": {
+        "caseId": "0d1e5874-d1d6-427a-9b35-7ce8fb70c5f7:interaction:1",
+        "recordedMessages": 77,
+        "parsedMessages": 77,
+        "first": "2026-08-18T05:17:54.000Z",
+        "last": "2026-08-18T06:48:47.000Z"
+      }
+    },
+    {
+      "caseId": "4e63af46-6bfe-4fa8-b12b-af50513d4489:interaction:1",
+      "sourceId": "4e63af46-6bfe-4fa8-b12b-af50513d4489",
+      "classification": "NEEDS_RESEGMENTATION",
+      "sourceChars": 1278,
+      "sourceCaseSetMatches": false,
+      "oldStart": "2026-04-17T12:50:46+00:00",
+      "oldEnd": "2026-04-17T13:13:17+00:00",
+      "derived": [
+        {
+          "caseId": "4e63af46-6bfe-4fa8-b12b-af50513d4489:interaction:0",
+          "start": "2026-04-17T11:54:59.000Z",
+          "end": "2026-04-17T12:20:00.000Z"
+        },
+        {
+          "caseId": "4e63af46-6bfe-4fa8-b12b-af50513d4489:interaction:1",
+          "start": "2026-04-17T12:50:46.000Z",
+          "end": "2026-04-17T13:13:17.000Z"
+        }
+      ],
+      "warnings": [],
+      "v22Dependencies": 1,
+      "historyCount": 3,
+      "latestPipeline": "sales-intelligence-v1",
+      "published": null,
+      "currentCount": 0,
+      "latestSuperseded": "2026-09-30T09:26:09.264+00:00",
+      "sourceStart": "2026-04-17T11:54:59+00:00",
+      "sourceEnd": "2026-04-17T13:13:17+00:00",
+      "reason": "The case survives but at least one source-wide boundary/ID differs; resegment and analyze the complete source set before publication.",
+      "sourceCoverage": "Complete persisted raw_text processed in memory without truncation; trusted source date anchor and canonical staff/alias identity used. No Production pipeline/RPC writer invoked.",
+      "missingPointerCause": "Historical analysis superseded; current removed and published pointer absent. Direct client retirement and source reconciliation skip are code-confirmed hazards; per-row actor causality is not proven by durable logs.",
+      "existingSourceCases": [
+        {
+          "caseId": "4e63af46-6bfe-4fa8-b12b-af50513d4489:interaction:0",
+          "start": "2026-04-17 11:54:59+00",
+          "end": "2026-04-17 13:13:17+00",
+          "isActive": true
+        },
+        {
+          "caseId": "4e63af46-6bfe-4fa8-b12b-af50513d4489:interaction:1",
+          "start": "2026-04-17 12:50:46+00",
+          "end": "2026-04-17 13:13:17+00",
+          "isActive": true
+        }
+      ],
+      "latestAnalysisId": "b802d8c7-c86c-49e0-9d44-c87d82cb6a3d",
+      "latestAnalysisVersion": 3,
+      "latestHistoryStart": "2026-04-17T12:50:46+00:00",
+      "latestHistoryEnd": "2026-04-17T13:13:17+00:00",
+      "latestEngineVersions": {
+        "engine_version_case_segmentation": "case-segmentation-v5-v32-continuity",
+        "engine_version_historical_closure": "historical-closure-v1",
+        "engine_version_protocol_applicability": "protocol-applicability-v1",
+        "engine_version_commercial_confirmation": "commercial-confirmation-v4-natural-arabic-basket-quantities"
+      },
+      "historicalSnapshotKeys": [
+        "conversationCaseConfidence",
+        "evidenceCompleteness",
+        "historicalClosureEvidence",
+        "protocolApplicabilityRuleIds"
+      ],
+      "coverageCheck": {
+        "caseId": "4e63af46-6bfe-4fa8-b12b-af50513d4489:interaction:1",
+        "recordedMessages": 15,
+        "parsedMessages": 15,
+        "first": "2026-04-17T11:54:59.000Z",
+        "last": "2026-04-17T13:13:17.000Z"
+      }
+    },
+    {
+      "caseId": "66fe13b7-7ebc-48a9-8180-033bfb34cd4b:interaction:1",
+      "sourceId": "66fe13b7-7ebc-48a9-8180-033bfb34cd4b",
+      "classification": "NEEDS_RESEGMENTATION",
+      "sourceChars": 979,
+      "sourceCaseSetMatches": false,
+      "oldStart": "2026-09-01T09:49:27+00:00",
+      "oldEnd": "2026-09-01T09:49:27+00:00",
+      "derived": [
+        {
+          "caseId": "66fe13b7-7ebc-48a9-8180-033bfb34cd4b:interaction:0",
+          "start": "2026-09-01T08:38:04.000Z",
+          "end": "2026-09-01T09:01:14.000Z"
+        },
+        {
+          "caseId": "66fe13b7-7ebc-48a9-8180-033bfb34cd4b:interaction:1",
+          "start": "2026-09-01T09:49:27.000Z",
+          "end": "2026-09-01T09:49:27.000Z"
+        }
+      ],
+      "warnings": [],
+      "v22Dependencies": 1,
+      "historyCount": 5,
+      "latestPipeline": "sales-intelligence-v1",
+      "published": null,
+      "currentCount": 0,
+      "latestSuperseded": "2026-09-30T09:28:27.593+00:00",
+      "sourceStart": "2026-09-01T08:38:04+00:00",
+      "sourceEnd": "2026-09-01T09:49:27+00:00",
+      "reason": "The case survives but at least one source-wide boundary/ID differs; resegment and analyze the complete source set before publication.",
+      "sourceCoverage": "Complete persisted raw_text processed in memory without truncation; trusted source date anchor and canonical staff/alias identity used. No Production pipeline/RPC writer invoked.",
+      "missingPointerCause": "Historical analysis superseded; current removed and published pointer absent. Direct client retirement and source reconciliation skip are code-confirmed hazards; per-row actor causality is not proven by durable logs.",
+      "existingSourceCases": [
+        {
+          "caseId": "66fe13b7-7ebc-48a9-8180-033bfb34cd4b:interaction:0",
+          "start": "2026-09-01 08:38:04+00",
+          "end": "2026-09-01 09:49:27+00",
+          "isActive": true
+        },
+        {
+          "caseId": "66fe13b7-7ebc-48a9-8180-033bfb34cd4b:interaction:1",
+          "start": "2026-09-01 09:49:27+00",
+          "end": "2026-09-01 09:49:27+00",
+          "isActive": true
+        }
+      ],
+      "latestAnalysisId": "c07efedd-9250-43fb-bbf0-0eebc4593bae",
+      "latestAnalysisVersion": 5,
+      "latestHistoryStart": "2026-09-01T09:49:27+00:00",
+      "latestHistoryEnd": "2026-09-01T09:49:27+00:00",
+      "latestEngineVersions": {
+        "engine_version_case_segmentation": "case-segmentation-v5-v32-continuity",
+        "engine_version_historical_closure": "historical-closure-v1",
+        "engine_version_protocol_applicability": "protocol-applicability-v1",
+        "engine_version_commercial_confirmation": "commercial-confirmation-v4-natural-arabic-basket-quantities"
+      },
+      "historicalSnapshotKeys": [
+        "conversationCaseConfidence",
+        "evidenceCompleteness",
+        "historicalClosureEvidence",
+        "protocolApplicabilityRuleIds"
+      ],
+      "coverageCheck": {
+        "caseId": "66fe13b7-7ebc-48a9-8180-033bfb34cd4b:interaction:1",
+        "recordedMessages": 13,
+        "parsedMessages": 13,
+        "first": "2026-09-01T08:38:04.000Z",
+        "last": "2026-09-01T09:49:27.000Z"
+      }
+    },
+    {
+      "caseId": "6a8fee97-8d7a-4a42-a525-e3768b8f714f:interaction:3",
+      "sourceId": "6a8fee97-8d7a-4a42-a525-e3768b8f714f",
+      "classification": "SHOULD_BE_RETIRED",
+      "sourceChars": 5817,
+      "sourceCaseSetMatches": false,
+      "oldStart": "2026-08-15T10:39:27+00:00",
+      "oldEnd": "2026-08-15T12:06:19+00:00",
+      "derived": [
+        {
+          "caseId": "6a8fee97-8d7a-4a42-a525-e3768b8f714f:interaction:0",
+          "start": "2026-08-15T07:43:20.000Z",
+          "end": "2026-08-15T07:57:23.000Z"
+        },
+        {
+          "caseId": "6a8fee97-8d7a-4a42-a525-e3768b8f714f:interaction:1",
+          "start": "2026-08-15T08:45:42.000Z",
+          "end": "2026-08-15T09:56:52.000Z"
+        },
+        {
+          "caseId": "6a8fee97-8d7a-4a42-a525-e3768b8f714f:interaction:2",
+          "start": "2026-08-15T10:39:27.000Z",
+          "end": "2026-08-15T12:06:19.000Z"
+        }
+      ],
+      "warnings": [],
+      "v22Dependencies": 1,
+      "historyCount": 5,
+      "latestPipeline": "sales-intelligence-v1",
+      "published": null,
+      "currentCount": 0,
+      "latestSuperseded": "2026-09-30T09:28:19.121+00:00",
+      "sourceStart": "2026-08-15T07:43:20+00:00",
+      "sourceEnd": "2026-08-15T12:06:19+00:00",
+      "reason": "The missing historical case ID is absent from the complete current derived set; retire this case only after its replacement source set is successfully analyzed/published.",
+      "sourceCoverage": "Complete persisted raw_text processed in memory without truncation; trusted source date anchor and canonical staff/alias identity used. No Production pipeline/RPC writer invoked.",
+      "missingPointerCause": "Historical analysis superseded; current removed and published pointer absent. Direct client retirement and source reconciliation skip are code-confirmed hazards; per-row actor causality is not proven by durable logs.",
+      "existingSourceCases": [
+        {
+          "caseId": "6a8fee97-8d7a-4a42-a525-e3768b8f714f:interaction:0",
+          "start": "2026-08-15 07:43:20+00",
+          "end": "2026-08-15 09:56:52+00",
+          "isActive": true
+        },
+        {
+          "caseId": "6a8fee97-8d7a-4a42-a525-e3768b8f714f:interaction:1",
+          "start": "2026-08-15 10:39:27+00",
+          "end": "2026-08-15 11:04:15+00",
+          "isActive": true
+        },
+        {
+          "caseId": "6a8fee97-8d7a-4a42-a525-e3768b8f714f:interaction:2",
+          "start": "2026-08-15 11:04:30+00",
+          "end": "2026-08-15 12:06:19+00",
+          "isActive": true
+        },
+        {
+          "caseId": "6a8fee97-8d7a-4a42-a525-e3768b8f714f:interaction:3",
+          "start": "2026-08-15 10:39:27+00",
+          "end": "2026-08-15 12:06:19+00",
+          "isActive": true
+        }
+      ],
+      "latestAnalysisId": "845b4a41-f161-4262-86c4-856a1669b8d4",
+      "latestAnalysisVersion": 5,
+      "latestHistoryStart": "2026-08-15T10:39:27+00:00",
+      "latestHistoryEnd": "2026-08-15T12:06:19+00:00",
+      "latestEngineVersions": {
+        "engine_version_case_segmentation": "case-segmentation-v5-v32-continuity",
+        "engine_version_historical_closure": "historical-closure-v1",
+        "engine_version_protocol_applicability": "protocol-applicability-v1",
+        "engine_version_commercial_confirmation": "commercial-confirmation-v4-natural-arabic-basket-quantities"
+      },
+      "historicalSnapshotKeys": [
+        "conversationCaseConfidence",
+        "evidenceCompleteness",
+        "historicalClosureEvidence",
+        "protocolApplicabilityRuleIds"
+      ],
+      "coverageCheck": {
+        "caseId": "6a8fee97-8d7a-4a42-a525-e3768b8f714f:interaction:3",
+        "recordedMessages": 95,
+        "parsedMessages": 95,
+        "first": "2026-08-15T07:43:20.000Z",
+        "last": "2026-08-15T12:06:19.000Z"
+      }
+    },
+    {
+      "caseId": "74b0b726-ce78-49b7-a80d-8eba809f5b2d:interaction:1",
+      "sourceId": "74b0b726-ce78-49b7-a80d-8eba809f5b2d",
+      "classification": "NEEDS_RESEGMENTATION",
+      "sourceChars": 3010,
+      "sourceCaseSetMatches": false,
+      "oldStart": "2026-09-15T16:50:32+00:00",
+      "oldEnd": "2026-09-15T17:07:51+00:00",
+      "derived": [
+        {
+          "caseId": "74b0b726-ce78-49b7-a80d-8eba809f5b2d:interaction:0",
+          "start": "2026-09-15T15:14:37.000Z",
+          "end": "2026-09-15T15:46:43.000Z"
+        },
+        {
+          "caseId": "74b0b726-ce78-49b7-a80d-8eba809f5b2d:interaction:1",
+          "start": "2026-09-15T16:50:32.000Z",
+          "end": "2026-09-15T17:07:51.000Z"
+        }
+      ],
+      "warnings": [],
+      "v22Dependencies": 1,
+      "historyCount": 3,
+      "latestPipeline": "sales-intelligence-v1",
+      "published": null,
+      "currentCount": 0,
+      "latestSuperseded": "2026-10-03T09:08:41.474+00:00",
+      "sourceStart": "2026-09-15T15:14:37+00:00",
+      "sourceEnd": "2026-09-15T17:07:51+00:00",
+      "reason": "The case survives but at least one source-wide boundary/ID differs; resegment and analyze the complete source set before publication.",
+      "sourceCoverage": "Complete persisted raw_text processed in memory without truncation; trusted source date anchor and canonical staff/alias identity used. No Production pipeline/RPC writer invoked.",
+      "missingPointerCause": "Historical analysis superseded; current removed and published pointer absent. Direct client retirement and source reconciliation skip are code-confirmed hazards; per-row actor causality is not proven by durable logs.",
+      "existingSourceCases": [
+        {
+          "caseId": "74b0b726-ce78-49b7-a80d-8eba809f5b2d:interaction:0",
+          "start": "2026-09-15 15:14:37+00",
+          "end": "2026-09-15 17:07:51+00",
+          "isActive": true
+        },
+        {
+          "caseId": "74b0b726-ce78-49b7-a80d-8eba809f5b2d:interaction:1",
+          "start": "2026-09-15 16:50:32+00",
+          "end": "2026-09-15 17:07:51+00",
+          "isActive": true
+        }
+      ],
+      "latestAnalysisId": "fc710c95-48fe-493f-b0e8-ffc04651a2a1",
+      "latestAnalysisVersion": 3,
+      "latestHistoryStart": "2026-09-15T16:50:32+00:00",
+      "latestHistoryEnd": "2026-09-15T17:07:51+00:00",
+      "latestEngineVersions": {
+        "engine_version_case_segmentation": "case-segmentation-v5-v32-continuity",
+        "engine_version_historical_closure": "historical-closure-v1",
+        "engine_version_protocol_applicability": "protocol-applicability-v1",
+        "engine_version_commercial_confirmation": "commercial-confirmation-v4-natural-arabic-basket-quantities"
+      },
+      "historicalSnapshotKeys": [
+        "conversationCaseConfidence",
+        "evidenceCompleteness",
+        "historicalClosureEvidence",
+        "protocolApplicabilityRuleIds"
+      ],
+      "coverageCheck": {
+        "caseId": "74b0b726-ce78-49b7-a80d-8eba809f5b2d:interaction:1",
+        "recordedMessages": 34,
+        "parsedMessages": 34,
+        "first": "2026-09-15T15:14:37.000Z",
+        "last": "2026-09-15T17:07:51.000Z"
+      }
+    },
+    {
+      "caseId": "83a34d22-8c27-44a5-8052-380040a72656:interaction:1",
+      "sourceId": "83a34d22-8c27-44a5-8052-380040a72656",
+      "classification": "SHOULD_BE_RETIRED",
+      "sourceChars": 713,
+      "sourceCaseSetMatches": false,
+      "oldStart": "2026-01-05T13:03:42+00:00",
+      "oldEnd": "2026-01-05T13:28:16+00:00",
+      "derived": [
+        {
+          "caseId": "83a34d22-8c27-44a5-8052-380040a72656:interaction:0",
+          "start": "2026-01-05T12:26:30.000Z",
+          "end": "2026-01-05T13:28:16.000Z"
+        }
+      ],
+      "warnings": [],
+      "v22Dependencies": 1,
+      "historyCount": 3,
+      "latestPipeline": "sales-intelligence-v1",
+      "published": null,
+      "currentCount": 0,
+      "latestSuperseded": "2026-09-30T09:25:41.241+00:00",
+      "sourceStart": "2026-01-05T12:26:30+00:00",
+      "sourceEnd": "2026-01-05T13:28:16+00:00",
+      "reason": "The missing historical case ID is absent from the complete current derived set; retire this case only after its replacement source set is successfully analyzed/published.",
+      "sourceCoverage": "Complete persisted raw_text processed in memory without truncation; trusted source date anchor and canonical staff/alias identity used. No Production pipeline/RPC writer invoked.",
+      "missingPointerCause": "Historical analysis superseded; current removed and published pointer absent. Direct client retirement and source reconciliation skip are code-confirmed hazards; per-row actor causality is not proven by durable logs.",
+      "existingSourceCases": [
+        {
+          "caseId": "83a34d22-8c27-44a5-8052-380040a72656:interaction:0",
+          "start": "2026-01-05 12:26:30+00",
+          "end": "2026-01-05 13:28:16+00",
+          "isActive": true
+        },
+        {
+          "caseId": "83a34d22-8c27-44a5-8052-380040a72656:interaction:1",
+          "start": "2026-01-05 13:03:42+00",
+          "end": "2026-01-05 13:28:16+00",
+          "isActive": true
+        }
+      ],
+      "latestAnalysisId": "111e926c-3688-45df-b523-48d125310332",
+      "latestAnalysisVersion": 3,
+      "latestHistoryStart": "2026-01-05T13:03:42+00:00",
+      "latestHistoryEnd": "2026-01-05T13:28:16+00:00",
+      "latestEngineVersions": {
+        "engine_version_case_segmentation": "case-segmentation-v5-v32-continuity",
+        "engine_version_historical_closure": "historical-closure-v1",
+        "engine_version_protocol_applicability": "protocol-applicability-v1",
+        "engine_version_commercial_confirmation": "commercial-confirmation-v4-natural-arabic-basket-quantities"
+      },
+      "historicalSnapshotKeys": [
+        "conversationCaseConfidence",
+        "evidenceCompleteness",
+        "historicalClosureEvidence",
+        "protocolApplicabilityRuleIds"
+      ],
+      "coverageCheck": {
+        "caseId": "83a34d22-8c27-44a5-8052-380040a72656:interaction:1",
+        "recordedMessages": 12,
+        "parsedMessages": 12,
+        "first": "2026-01-05T12:26:30.000Z",
+        "last": "2026-01-05T13:28:16.000Z"
+      }
+    },
+    {
+      "caseId": "8c63fef4-40b9-4f2b-b027-4699ca6155c0:interaction:1",
+      "sourceId": "8c63fef4-40b9-4f2b-b027-4699ca6155c0",
+      "classification": "NEEDS_RESEGMENTATION",
+      "sourceChars": 1727,
+      "sourceCaseSetMatches": false,
+      "oldStart": "2026-05-15T08:00:12+00:00",
+      "oldEnd": "2026-05-15T08:00:12+00:00",
+      "derived": [
+        {
+          "caseId": "8c63fef4-40b9-4f2b-b027-4699ca6155c0:interaction:0",
+          "start": "2026-05-15T06:00:49.000Z",
+          "end": "2026-05-15T06:42:06.000Z"
+        },
+        {
+          "caseId": "8c63fef4-40b9-4f2b-b027-4699ca6155c0:interaction:1",
+          "start": "2026-05-15T06:48:01.000Z",
+          "end": "2026-05-15T08:00:12.000Z"
+        }
+      ],
+      "warnings": [],
+      "v22Dependencies": 1,
+      "historyCount": 3,
+      "latestPipeline": "sales-intelligence-v1",
+      "published": null,
+      "currentCount": 0,
+      "latestSuperseded": "2026-10-03T09:05:18.869+00:00",
+      "sourceStart": "2026-05-15T06:00:49+00:00",
+      "sourceEnd": "2026-05-15T08:00:12+00:00",
+      "reason": "The case survives but at least one source-wide boundary/ID differs; resegment and analyze the complete source set before publication.",
+      "sourceCoverage": "Complete persisted raw_text processed in memory without truncation; trusted source date anchor and canonical staff/alias identity used. No Production pipeline/RPC writer invoked.",
+      "missingPointerCause": "Historical analysis superseded; current removed and published pointer absent. Direct client retirement and source reconciliation skip are code-confirmed hazards; per-row actor causality is not proven by durable logs.",
+      "existingSourceCases": [
+        {
+          "caseId": "8c63fef4-40b9-4f2b-b027-4699ca6155c0:interaction:0",
+          "start": "2026-05-15 06:00:49+00",
+          "end": "2026-05-15 08:00:12+00",
+          "isActive": true
+        },
+        {
+          "caseId": "8c63fef4-40b9-4f2b-b027-4699ca6155c0:interaction:1",
+          "start": "2026-05-15 08:00:12+00",
+          "end": "2026-05-15 08:00:12+00",
+          "isActive": true
+        }
+      ],
+      "latestAnalysisId": "0c8c74ed-3b46-4262-b82b-07f40a8fac84",
+      "latestAnalysisVersion": 3,
+      "latestHistoryStart": "2026-05-15T08:00:12+00:00",
+      "latestHistoryEnd": "2026-05-15T08:00:12+00:00",
+      "latestEngineVersions": {
+        "engine_version_case_segmentation": "case-segmentation-v5-v32-continuity",
+        "engine_version_historical_closure": "historical-closure-v1",
+        "engine_version_protocol_applicability": "protocol-applicability-v1",
+        "engine_version_commercial_confirmation": "commercial-confirmation-v4-natural-arabic-basket-quantities"
+      },
+      "historicalSnapshotKeys": [
+        "conversationCaseConfidence",
+        "evidenceCompleteness",
+        "historicalClosureEvidence",
+        "protocolApplicabilityRuleIds"
+      ],
+      "coverageCheck": {
+        "caseId": "8c63fef4-40b9-4f2b-b027-4699ca6155c0:interaction:1",
+        "recordedMessages": 29,
+        "parsedMessages": 29,
+        "first": "2026-05-15T06:00:49.000Z",
+        "last": "2026-05-15T08:00:12.000Z"
+      }
+    },
+    {
+      "caseId": "9a59338b-f1ca-4b68-bd3b-c081fee914a8:interaction:1",
+      "sourceId": "9a59338b-f1ca-4b68-bd3b-c081fee914a8",
+      "classification": "SHOULD_BE_RETIRED",
+      "sourceChars": 911,
+      "sourceCaseSetMatches": false,
+      "oldStart": "2026-09-15T19:29:31+00:00",
+      "oldEnd": "2026-09-15T19:30:18+00:00",
+      "derived": [
+        {
+          "caseId": "9a59338b-f1ca-4b68-bd3b-c081fee914a8:interaction:0",
+          "start": "2026-09-15T18:30:55.000Z",
+          "end": "2026-09-15T19:30:18.000Z"
+        }
+      ],
+      "warnings": [],
+      "v22Dependencies": 1,
+      "historyCount": 1,
+      "latestPipeline": "sales-intelligence-v1",
+      "published": null,
+      "currentCount": 0,
+      "latestSuperseded": "2026-09-27T02:02:26.959+00:00",
+      "sourceStart": "2026-09-15T18:30:55+00:00",
+      "sourceEnd": "2026-09-15T19:30:18+00:00",
+      "reason": "The missing historical case ID is absent from the complete current derived set; retire this case only after its replacement source set is successfully analyzed/published.",
+      "sourceCoverage": "Complete persisted raw_text processed in memory without truncation; trusted source date anchor and canonical staff/alias identity used. No Production pipeline/RPC writer invoked.",
+      "missingPointerCause": "Historical analysis superseded; current removed and published pointer absent. Direct client retirement and source reconciliation skip are code-confirmed hazards; per-row actor causality is not proven by durable logs.",
+      "existingSourceCases": [
+        {
+          "caseId": "9a59338b-f1ca-4b68-bd3b-c081fee914a8:interaction:0",
+          "start": "2026-09-15 18:30:55+00",
+          "end": "2026-09-15 19:30:18+00",
+          "isActive": true
+        },
+        {
+          "caseId": "9a59338b-f1ca-4b68-bd3b-c081fee914a8:interaction:1",
+          "start": "2026-09-15 19:29:31+00",
+          "end": "2026-09-15 19:30:18+00",
+          "isActive": true
+        }
+      ],
+      "latestAnalysisId": "c94cb966-7667-47d2-bd60-b2f9f405bc92",
+      "latestAnalysisVersion": 1,
+      "latestHistoryStart": "2026-09-15T22:28:27+00:00",
+      "latestHistoryEnd": "2026-09-15T22:30:18+00:00",
+      "latestEngineVersions": {
+        "engine_version_case_segmentation": "case-segmentation-v1",
+        "engine_version_historical_closure": "historical-closure-v1",
+        "engine_version_protocol_applicability": "protocol-applicability-v1",
+        "engine_version_commercial_confirmation": "commercial-confirmation-v1"
+      },
+      "historicalSnapshotKeys": [
+        "conversationCaseConfidence",
+        "evidenceCompleteness",
+        "historicalClosureEvidence",
+        "protocolApplicabilityRuleIds"
+      ],
+      "coverageCheck": {
+        "caseId": "9a59338b-f1ca-4b68-bd3b-c081fee914a8:interaction:1",
+        "recordedMessages": 12,
+        "parsedMessages": 12,
+        "first": "2026-09-15T18:30:55.000Z",
+        "last": "2026-09-15T19:30:18.000Z"
+      }
+    },
+    {
+      "caseId": "a2b52b43-ff49-4ed8-a967-48133e18691e:interaction:1",
+      "sourceId": "a2b52b43-ff49-4ed8-a967-48133e18691e",
+      "classification": "SHOULD_BE_RETIRED",
+      "sourceChars": 1331,
+      "sourceCaseSetMatches": false,
+      "oldStart": "2026-08-28T05:43:55+00:00",
+      "oldEnd": "2026-08-28T05:43:55+00:00",
+      "derived": [
+        {
+          "caseId": "a2b52b43-ff49-4ed8-a967-48133e18691e:interaction:0",
+          "start": "2026-08-28T05:01:14.000Z",
+          "end": "2026-08-28T05:43:55.000Z"
+        }
+      ],
+      "warnings": [],
+      "v22Dependencies": 1,
+      "historyCount": 5,
+      "latestPipeline": "sales-intelligence-v1",
+      "published": null,
+      "currentCount": 0,
+      "latestSuperseded": "2026-09-30T09:28:27.746+00:00",
+      "sourceStart": "2026-08-28T05:01:14+00:00",
+      "sourceEnd": "2026-08-28T05:43:55+00:00",
+      "reason": "The missing historical case ID is absent from the complete current derived set; retire this case only after its replacement source set is successfully analyzed/published.",
+      "sourceCoverage": "Complete persisted raw_text processed in memory without truncation; trusted source date anchor and canonical staff/alias identity used. No Production pipeline/RPC writer invoked.",
+      "missingPointerCause": "Historical analysis superseded; current removed and published pointer absent. Direct client retirement and source reconciliation skip are code-confirmed hazards; per-row actor causality is not proven by durable logs.",
+      "existingSourceCases": [
+        {
+          "caseId": "a2b52b43-ff49-4ed8-a967-48133e18691e:interaction:0",
+          "start": "2026-08-28 05:01:14+00",
+          "end": "2026-08-28 05:43:55+00",
+          "isActive": true
+        },
+        {
+          "caseId": "a2b52b43-ff49-4ed8-a967-48133e18691e:interaction:1",
+          "start": "2026-08-28 05:43:55+00",
+          "end": "2026-08-28 05:43:55+00",
+          "isActive": true
+        }
+      ],
+      "latestAnalysisId": "cc81fa06-3820-471f-9cc9-d41d23c1d26a",
+      "latestAnalysisVersion": 5,
+      "latestHistoryStart": "2026-08-28T05:43:55+00:00",
+      "latestHistoryEnd": "2026-08-28T05:43:55+00:00",
+      "latestEngineVersions": {
+        "engine_version_case_segmentation": "case-segmentation-v5-v32-continuity",
+        "engine_version_historical_closure": "historical-closure-v1",
+        "engine_version_protocol_applicability": "protocol-applicability-v1",
+        "engine_version_commercial_confirmation": "commercial-confirmation-v4-natural-arabic-basket-quantities"
+      },
+      "historicalSnapshotKeys": [
+        "conversationCaseConfidence",
+        "evidenceCompleteness",
+        "historicalClosureEvidence",
+        "protocolApplicabilityRuleIds"
+      ],
+      "coverageCheck": {
+        "caseId": "a2b52b43-ff49-4ed8-a967-48133e18691e:interaction:1",
+        "recordedMessages": 20,
+        "parsedMessages": 20,
+        "first": "2026-08-28T05:01:14.000Z",
+        "last": "2026-08-28T05:43:55.000Z"
+      }
+    },
+    {
+      "caseId": "bb4aac31-6a21-45bb-87ba-5d3a72d8e95a:interaction:1",
+      "sourceId": "bb4aac31-6a21-45bb-87ba-5d3a72d8e95a",
+      "classification": "SHOULD_BE_RETIRED",
+      "sourceChars": 3842,
+      "sourceCaseSetMatches": false,
+      "oldStart": "2026-08-09T08:07:35+00:00",
+      "oldEnd": "2026-08-09T08:07:35+00:00",
+      "derived": [
+        {
+          "caseId": "bb4aac31-6a21-45bb-87ba-5d3a72d8e95a:interaction:0",
+          "start": "2026-08-09T06:08:56.000Z",
+          "end": "2026-08-09T08:07:35.000Z"
+        }
+      ],
+      "warnings": [],
+      "v22Dependencies": 1,
+      "historyCount": 5,
+      "latestPipeline": "sales-intelligence-v1",
+      "published": null,
+      "currentCount": 0,
+      "latestSuperseded": "2026-09-30T09:28:05.958+00:00",
+      "sourceStart": "2026-08-09T06:08:56+00:00",
+      "sourceEnd": "2026-08-09T08:07:35+00:00",
+      "reason": "The missing historical case ID is absent from the complete current derived set; retire this case only after its replacement source set is successfully analyzed/published.",
+      "sourceCoverage": "Complete persisted raw_text processed in memory without truncation; trusted source date anchor and canonical staff/alias identity used. No Production pipeline/RPC writer invoked.",
+      "missingPointerCause": "Historical analysis superseded; current removed and published pointer absent. Direct client retirement and source reconciliation skip are code-confirmed hazards; per-row actor causality is not proven by durable logs.",
+      "existingSourceCases": [
+        {
+          "caseId": "bb4aac31-6a21-45bb-87ba-5d3a72d8e95a:interaction:0",
+          "start": "2026-08-09 06:08:56+00",
+          "end": "2026-08-09 08:07:35+00",
+          "isActive": true
+        },
+        {
+          "caseId": "bb4aac31-6a21-45bb-87ba-5d3a72d8e95a:interaction:1",
+          "start": "2026-08-09 08:07:35+00",
+          "end": "2026-08-09 08:07:35+00",
+          "isActive": true
+        }
+      ],
+      "latestAnalysisId": "75dfa6e2-1006-47b0-9344-134e6b7021a6",
+      "latestAnalysisVersion": 5,
+      "latestHistoryStart": "2026-08-09T08:07:35+00:00",
+      "latestHistoryEnd": "2026-08-09T08:07:35+00:00",
+      "latestEngineVersions": {
+        "engine_version_case_segmentation": "case-segmentation-v5-v32-continuity",
+        "engine_version_historical_closure": "historical-closure-v1",
+        "engine_version_protocol_applicability": "protocol-applicability-v1",
+        "engine_version_commercial_confirmation": "commercial-confirmation-v4-natural-arabic-basket-quantities"
+      },
+      "historicalSnapshotKeys": [
+        "conversationCaseConfidence",
+        "evidenceCompleteness",
+        "historicalClosureEvidence",
+        "protocolApplicabilityRuleIds"
+      ],
+      "coverageCheck": {
+        "caseId": "bb4aac31-6a21-45bb-87ba-5d3a72d8e95a:interaction:1",
+        "recordedMessages": 62,
+        "parsedMessages": 62,
+        "first": "2026-08-09T06:08:56.000Z",
+        "last": "2026-08-09T08:07:35.000Z"
+      }
+    },
+    {
+      "caseId": "c835bd69-5996-42ae-9a3a-34120b5bbe94:interaction:1",
+      "sourceId": "c835bd69-5996-42ae-9a3a-34120b5bbe94",
+      "classification": "NEEDS_RESEGMENTATION",
+      "sourceChars": 855,
+      "sourceCaseSetMatches": false,
+      "oldStart": "2026-08-11T12:27:41+00:00",
+      "oldEnd": "2026-08-11T12:39:31+00:00",
+      "derived": [
+        {
+          "caseId": "c835bd69-5996-42ae-9a3a-34120b5bbe94:interaction:0",
+          "start": "2026-08-11T10:24:48.000Z",
+          "end": "2026-08-11T10:43:55.000Z"
+        },
+        {
+          "caseId": "c835bd69-5996-42ae-9a3a-34120b5bbe94:interaction:1",
+          "start": "2026-08-11T12:27:41.000Z",
+          "end": "2026-08-11T12:39:31.000Z"
+        }
+      ],
+      "warnings": [],
+      "v22Dependencies": 1,
+      "historyCount": 5,
+      "latestPipeline": "sales-intelligence-v1",
+      "published": null,
+      "currentCount": 0,
+      "latestSuperseded": "2026-10-03T08:39:30.94+00:00",
+      "sourceStart": "2026-08-11T10:24:48+00:00",
+      "sourceEnd": "2026-08-11T12:39:31+00:00",
+      "reason": "The case survives but at least one source-wide boundary/ID differs; resegment and analyze the complete source set before publication.",
+      "sourceCoverage": "Complete persisted raw_text processed in memory without truncation; trusted source date anchor and canonical staff/alias identity used. No Production pipeline/RPC writer invoked.",
+      "missingPointerCause": "Historical analysis superseded; current removed and published pointer absent. Direct client retirement and source reconciliation skip are code-confirmed hazards; per-row actor causality is not proven by durable logs.",
+      "existingSourceCases": [
+        {
+          "caseId": "c835bd69-5996-42ae-9a3a-34120b5bbe94:interaction:0",
+          "start": "2026-08-11 10:24:48+00",
+          "end": "2026-08-11 12:39:31+00",
+          "isActive": true
+        },
+        {
+          "caseId": "c835bd69-5996-42ae-9a3a-34120b5bbe94:interaction:1",
+          "start": "2026-08-11 12:27:41+00",
+          "end": "2026-08-11 12:39:31+00",
+          "isActive": true
+        }
+      ],
+      "latestAnalysisId": "2baf6a93-f868-41ac-81ad-e5b714a198e4",
+      "latestAnalysisVersion": 5,
+      "latestHistoryStart": "2026-08-11T12:27:41+00:00",
+      "latestHistoryEnd": "2026-08-11T12:39:31+00:00",
+      "latestEngineVersions": {
+        "engine_version_case_segmentation": "case-segmentation-v5-v32-continuity",
+        "engine_version_historical_closure": "historical-closure-v1",
+        "engine_version_protocol_applicability": "protocol-applicability-v1",
+        "engine_version_commercial_confirmation": "commercial-confirmation-v4-natural-arabic-basket-quantities"
+      },
+      "historicalSnapshotKeys": [
+        "conversationCaseConfidence",
+        "evidenceCompleteness",
+        "historicalClosureEvidence",
+        "protocolApplicabilityRuleIds"
+      ],
+      "coverageCheck": {
+        "caseId": "c835bd69-5996-42ae-9a3a-34120b5bbe94:interaction:1",
+        "recordedMessages": 13,
+        "parsedMessages": 13,
+        "first": "2026-08-11T10:24:48.000Z",
+        "last": "2026-08-11T12:39:31.000Z"
+      }
+    },
+    {
+      "caseId": "d564c02c-0b79-4bee-b5e8-9254fea1291b:interaction:1",
+      "sourceId": "d564c02c-0b79-4bee-b5e8-9254fea1291b",
+      "classification": "NEEDS_REANALYSIS",
+      "sourceChars": 455,
+      "sourceCaseSetMatches": true,
+      "oldStart": "2026-03-02T22:54:37+00:00",
+      "oldEnd": "2026-03-02T22:54:37+00:00",
+      "derived": [
+        {
+          "caseId": "d564c02c-0b79-4bee-b5e8-9254fea1291b:interaction:0",
+          "start": "2026-03-02T21:57:46.000Z",
+          "end": "2026-03-02T22:23:06.000Z"
+        },
+        {
+          "caseId": "d564c02c-0b79-4bee-b5e8-9254fea1291b:interaction:1",
+          "start": "2026-03-02T22:54:37.000Z",
+          "end": "2026-03-02T22:54:37.000Z"
+        }
+      ],
+      "warnings": [],
+      "v22Dependencies": 1,
+      "historyCount": 5,
+      "latestPipeline": "sales-intelligence-v1",
+      "published": null,
+      "currentCount": 0,
+      "latestSuperseded": "2026-09-30T09:26:00.619+00:00",
+      "sourceStart": "2026-03-02T21:57:46+00:00",
+      "sourceEnd": "2026-03-02T22:54:37+00:00",
+      "reason": "Current full segmentation matches, but latest available historical analysis is superseded and uses an older semantic contract; fresh analysis required, no blind republish.",
+      "sourceCoverage": "Complete persisted raw_text processed in memory without truncation; trusted source date anchor and canonical staff/alias identity used. No Production pipeline/RPC writer invoked.",
+      "missingPointerCause": "Historical analysis superseded; current removed and published pointer absent. Direct client retirement and source reconciliation skip are code-confirmed hazards; per-row actor causality is not proven by durable logs.",
+      "existingSourceCases": [
+        {
+          "caseId": "d564c02c-0b79-4bee-b5e8-9254fea1291b:interaction:0",
+          "start": "2026-03-02 21:57:46+00",
+          "end": "2026-03-02 22:23:06+00",
+          "isActive": true
+        },
+        {
+          "caseId": "d564c02c-0b79-4bee-b5e8-9254fea1291b:interaction:1",
+          "start": "2026-03-02 22:54:37+00",
+          "end": "2026-03-02 22:54:37+00",
+          "isActive": true
+        }
+      ],
+      "latestAnalysisId": "32cff7ed-c965-467e-abd3-cf37fbcaba80",
+      "latestAnalysisVersion": 5,
+      "latestHistoryStart": "2026-03-02T22:54:37+00:00",
+      "latestHistoryEnd": "2026-03-02T22:54:37+00:00",
+      "latestEngineVersions": {
+        "engine_version_case_segmentation": "case-segmentation-v5-v32-continuity",
+        "engine_version_historical_closure": "historical-closure-v1",
+        "engine_version_protocol_applicability": "protocol-applicability-v1",
+        "engine_version_commercial_confirmation": "commercial-confirmation-v4-natural-arabic-basket-quantities"
+      },
+      "historicalSnapshotKeys": [
+        "conversationCaseConfidence",
+        "evidenceCompleteness",
+        "historicalClosureEvidence",
+        "protocolApplicabilityRuleIds"
+      ],
+      "coverageCheck": {
+        "caseId": "d564c02c-0b79-4bee-b5e8-9254fea1291b:interaction:1",
+        "recordedMessages": 7,
+        "parsedMessages": 7,
+        "first": "2026-03-02T21:57:46.000Z",
+        "last": "2026-03-02T22:54:37.000Z"
+      }
+    },
+    {
+      "caseId": "f35c5632-991f-489e-98fa-f237cb592b87:interaction:1",
+      "sourceId": "f35c5632-991f-489e-98fa-f237cb592b87",
+      "classification": "NEEDS_REANALYSIS",
+      "sourceChars": 602,
+      "sourceCaseSetMatches": true,
+      "oldStart": "2026-09-14T15:47:10+00:00",
+      "oldEnd": "2026-09-14T15:47:10+00:00",
+      "derived": [
+        {
+          "caseId": "f35c5632-991f-489e-98fa-f237cb592b87:interaction:0",
+          "start": "2026-09-14T15:10:10.000Z",
+          "end": "2026-09-14T15:16:08.000Z"
+        },
+        {
+          "caseId": "f35c5632-991f-489e-98fa-f237cb592b87:interaction:1",
+          "start": "2026-09-14T15:47:10.000Z",
+          "end": "2026-09-14T15:47:10.000Z"
+        }
+      ],
+      "warnings": [],
+      "v22Dependencies": 1,
+      "historyCount": 5,
+      "latestPipeline": "sales-intelligence-v1",
+      "published": null,
+      "currentCount": 0,
+      "latestSuperseded": "2026-09-30T09:29:19.179+00:00",
+      "sourceStart": "2026-09-14T15:10:10+00:00",
+      "sourceEnd": "2026-09-14T15:47:10+00:00",
+      "reason": "Current full segmentation matches, but latest available historical analysis is superseded and uses an older semantic contract; fresh analysis required, no blind republish.",
+      "sourceCoverage": "Complete persisted raw_text processed in memory without truncation; trusted source date anchor and canonical staff/alias identity used. No Production pipeline/RPC writer invoked.",
+      "missingPointerCause": "Historical analysis superseded; current removed and published pointer absent. Direct client retirement and source reconciliation skip are code-confirmed hazards; per-row actor causality is not proven by durable logs.",
+      "existingSourceCases": [
+        {
+          "caseId": "f35c5632-991f-489e-98fa-f237cb592b87:interaction:0",
+          "start": "2026-09-14 15:10:10+00",
+          "end": "2026-09-14 15:16:08+00",
+          "isActive": true
+        },
+        {
+          "caseId": "f35c5632-991f-489e-98fa-f237cb592b87:interaction:1",
+          "start": "2026-09-14 15:47:10+00",
+          "end": "2026-09-14 15:47:10+00",
+          "isActive": true
+        }
+      ],
+      "latestAnalysisId": "2d739904-c43c-4dcd-b471-335d2bad7188",
+      "latestAnalysisVersion": 5,
+      "latestHistoryStart": "2026-09-14T15:47:10+00:00",
+      "latestHistoryEnd": "2026-09-14T15:47:10+00:00",
+      "latestEngineVersions": {
+        "engine_version_case_segmentation": "case-segmentation-v5-v32-continuity",
+        "engine_version_historical_closure": "historical-closure-v1",
+        "engine_version_protocol_applicability": "protocol-applicability-v1",
+        "engine_version_commercial_confirmation": "commercial-confirmation-v4-natural-arabic-basket-quantities"
+      },
+      "historicalSnapshotKeys": [
+        "conversationCaseConfidence",
+        "evidenceCompleteness",
+        "historicalClosureEvidence",
+        "protocolApplicabilityRuleIds"
+      ],
+      "coverageCheck": {
+        "caseId": "f35c5632-991f-489e-98fa-f237cb592b87:interaction:1",
+        "recordedMessages": 3,
+        "parsedMessages": 3,
+        "first": "2026-09-14T15:10:10.000Z",
+        "last": "2026-09-14T15:47:10.000Z"
+      }
+    }
+  ]
+}

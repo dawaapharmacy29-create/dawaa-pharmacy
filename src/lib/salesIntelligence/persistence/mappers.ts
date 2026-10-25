@@ -102,7 +102,10 @@ export function mapCaseAnalysisRowContent(analysis: SalesIntelligenceCaseAnalysi
       // choice, not a guess.
       protocolApplicabilityRuleIds: analysis.historicalClosure.ruleIds,
       canonicalSalesOutcome: analysis.salesOutcome,
+      canonicalComplaintAssessment: analysis.complaintAssessment,
+      canonicalCustomerRequestAssessment: analysis.customerRequestAssessment,
       financialSettlement: analysis.financialSettlement ?? null,
+      caseBranch: analysis.caseBranch ?? null,
     },
   };
 }
@@ -236,3 +239,4 @@ export function invoiceRowLookupId(row: InvoiceLike): string {
   const value = (row as Record<string, unknown>).id ?? (row as Record<string, unknown>).invoice_number ?? (row as Record<string, unknown>).invoice_no;
   return String(value ?? '').trim();
 }
+

@@ -6,7 +6,7 @@
 // are supplied via `resolveInvoiceCandidates`, a caller-injected SYNCHRONOUS callback (see
 // invoiceCandidateRetrieval.ts for the actual read-only I/O boundary) so this module stays fully
 // pure and unit-testable, exactly like every engine it composes.
-import { parseWhatsAppExport, splitWhatsAppSessions } from '../whatsappConversationParser';
+import { extractIntroducedStaffName, parseWhatsAppExport, splitWhatsAppSessions } from '../whatsappConversationParser';
 import {
   buildConversationUnderstandingV32,
   type ConversationInteractionV32,
@@ -14,6 +14,8 @@ import {
   type NormalizedConversationMessageV32,
 } from '../whatsappConversationUnderstandingV32';
 import { deriveConversationCases } from './conversationCaseEngine';
+import { deriveCaseOwnershipContext, recommendCaseBranch, type CaseStaffProfile } from './caseOwnershipContext';
+import { deriveCareFollowUpSuggestion } from './careFollowUpEngine';
 import { buildCaseBaskets } from './caseBasketEngine';
 import {
   assessOrderConfirmationProtocol,
@@ -32,6 +34,8 @@ import { deriveHistoricalCommercialClosureAssessment } from './historicalCommerc
 import { deriveFinancialSettlementAssessment } from './financialSettlementEngine';
 import { deriveSaleProofState } from './saleProofState';
 import { deriveCanonicalSalesOutcome } from './canonicalSalesOutcomeEngine';
+import { deriveCanonicalComplaintAssessment } from './complaintAssessmentEngine';
+import { deriveCanonicalCustomerRequestAssessment } from './customerRequestQualificationEngine';
 import { deriveCustomerNeedModel } from './customerNeedModel';
 import { deriveCommercialJourneyState } from './commercialJourneyStateMachine';
 import { deriveUnavailableDemand } from './unavailableDemandEngine';
@@ -45,7 +49,11 @@ import {
   type PharmacyProductIndex,
 } from './pharmacyProducts/pharmacyProductResolverV2';
 import type { InvoiceLike } from '../invoices/invoiceCore';
-import type { InvoiceCandidateQueryContext } from './invoiceCandidateRetrieval';
+import {
+  canonicalCaseBranchFromRecommendation,
+  linkSiblingServiceCaseBranches,
+} from './canonicalCaseBranch';
+import type { InvoiceCandidateQueryContext, InvoiceCandidateRows } from './invoiceCandidateRetrieval';
 import type {
   CaseBasketItem,
   ConversationCase,
@@ -84,6 +92,7 @@ export interface SalesIntelligencePipelineInput {
   staffIdBySender?: Record<string, string>;
   /** Exact canonical staff ids resolved from explicit outbound self-introductions, keyed by message id. */
   staffIdByIntroductionMessageId?: Record<string, string>;
+  staffProfilesById?: Record<string, CaseStaffProfile>;
   /** Exact-name/active-alias resolver supplied by the canonical staff identity boundary. */
   resolveInvoiceStaffIdByName?: (name: string) => string | null;
   /** From an existing legacy adapter's own matched-invoice fields (e.g. whatsapp_review_sources.matched_invoice_id) — evidence only, never trusted as canonical. */
@@ -100,7 +109,7 @@ export interface SalesIntelligencePipelineInput {
    * typically pre-fetches via buildInvoiceCandidateQuery()/fetchInvoiceCandidates()
    * (invoiceCandidateRetrieval.ts) before invoking this pipeline.
    */
-  resolveInvoiceCandidates: (context: InvoiceCandidateQueryContext) => InvoiceLike[];
+  resolveInvoiceCandidates: (context: InvoiceCandidateQueryContext) => InvoiceCandidateRows;
   itemEvidenceProvider?: InvoiceItemEvidenceProvider;
   /** Optional canonical pharmacy catalog index. Used only to enrich basket item identity. */
   productIndex?: PharmacyProductIndex;
@@ -223,7 +232,9 @@ function enrichBasketProductIdentities(
         const resolution = resolveProductMention(item.productNameRaw, productIndex);
         const selected = resolution.selected;
         if (!selected || !isBasketEligibleProductResolution(selected)) {
-          return item;
+          // The wording and quantity were stated, but the catalog could not settle WHICH product
+          // (e.g. "كولونا" = 30 or 40 tablets). A line without identity is never "proven".
+          return item.resolutionStatus === 'proven' ? { ...item, resolutionStatus: 'partially_proven' } : item;
         }
 
         return {
@@ -272,12 +283,35 @@ function analyzeOneCase(
   scopedMessages: NormalizedConversationMessageV32[],
   input: SalesIntelligencePipelineInput,
   interaction: ConversationInteractionV32 | null = null,
-  conversationTimeline: NormalizedConversationMessageV32[] = scopedMessages
+  conversationTimeline: NormalizedConversationMessageV32[] = scopedMessages,
+  sourceHasMultipleIntroducedStaff = false
 ): SalesIntelligenceCaseAnalysis {
   const pipelineWarnings: string[] = [];
   const caseStaffIdBySender = staffEvidenceForCase(input, scopedMessages);
+  // One exported source may contain multiple employees (customer service, then a
+  // pharmacist). An exact outbound introduction inside THIS case outranks the
+  // source-wide staff hint; otherwise the earlier employee can be incorrectly
+  // credited to the invoice seller or source's default staff member.
+  const scopedIntroducedStaffIds = new Set(
+    scopedMessages
+      .filter((message) => message.direction === 'outbound')
+      .map((message) => input.staffIdByIntroductionMessageId?.[message.id])
+      .filter((id): id is string => Boolean(id))
+  );
+  // An introduction can be real but not exactly match the canonical directory (e.g.
+  // "مع حضرتك د شبل" vs "د محمد شبل"). Its absence from the resolved-ID map is NOT
+  // permission to fill this case with the source-wide default employee.
+  const caseHasNamedIntroduction = scopedMessages.some((message) => Boolean(extractIntroducedStaffName(message)));
+  const sourceStaffFallbackAllowed = !sourceHasMultipleIntroducedStaff && !caseHasNamedIntroduction;
   const caseKnownStaffIds = [
-    ...new Set([...(input.knownStaffIds ?? []), ...Object.values(caseStaffIdBySender)]),
+    ...new Set([
+      ...(scopedIntroducedStaffIds.size === 1
+        ? [...scopedIntroducedStaffIds]
+        : sourceStaffFallbackAllowed && scopedIntroducedStaffIds.size === 0
+          ? (input.knownStaffIds ?? [])
+          : []), // Multiple or unresolved introductions never inherit a different employee.
+      ...Object.values(caseStaffIdBySender),
+    ]),
   ];
 
   const {
@@ -310,6 +344,15 @@ function analyzeOneCase(
   const hasMeaningfulBasketItems = baskets.some((basket) => (itemsByBasketId[basket.basketId] ?? []).length > 0);
 
   const activeItems = activeBasket ? (itemsByBasketId[activeBasket.basketId] ?? []) : [];
+  const complaintAssessment = deriveCanonicalComplaintAssessment({
+    caseId: conversationCase.caseId,
+    messages: scopedMessages.map((message) => ({
+      id: message.id,
+      role: message.role,
+      text: message.text,
+      meaningful: message.isMeaningful,
+    })),
+  });
   const customerNeed = deriveCustomerNeedModel({
     caseId: conversationCase.caseId,
     messages: scopedMessages,
@@ -317,6 +360,7 @@ function analyzeOneCase(
     itemsByBasketId,
     activeBasket,
     staffIdBySender: caseStaffIdBySender,
+    complaintAssessment,
     productIndex: input.productIndex,
   });
   const unavailableDemand = deriveUnavailableDemand({
@@ -361,6 +405,7 @@ function analyzeOneCase(
     caseEndedAt: conversationCase.endedAt,
   };
   const invoiceCandidates = input.resolveInvoiceCandidates(candidateContext);
+  const invoiceCandidatePoolComplete = invoiceCandidates.candidatePoolComplete !== false;
 
   const attributionCtx: CaseAttributionContext = {
     caseId: conversationCase.caseId,
@@ -369,6 +414,7 @@ function analyzeOneCase(
     customerCode: input.customerCodeHint ?? null,
     customerName: input.customerNameHint ?? null,
     branchNameRaw: conversationCase.branchNameRaw,
+    branchEvidenceConflict: conversationCase.ownership?.branchBasis === 'conflict',
     // Same rule as candidateContext above — this exact segmented case interval, never coarse
     // whole-thread timestamps.
     caseStartedAt: conversationCase.startedAt,
@@ -379,11 +425,13 @@ function analyzeOneCase(
     activeBasketItems: activeItems.map((item) => ({
       productNameRaw: item.productNameRaw,
       productId: item.productId,
+      productCode: item.productCode ?? null,
       quantity: item.quantity,
       resolutionStatus: item.resolutionStatus,
     })),
     knownStaffIds: caseKnownStaffIds,
     resolveInvoiceStaffIdByName: input.resolveInvoiceStaffIdByName,
+    invoiceCandidatePoolComplete,
     legacyMatchedInvoiceId: input.legacyMatchedInvoiceId ?? null,
     legacyMatchedInvoiceNumber: input.legacyMatchedInvoiceNumber ?? null,
     trustedInvoiceId: input.trustedInvoiceId ?? null,
@@ -461,18 +509,17 @@ function analyzeOneCase(
     overallEvidenceLevel: computeOverallEvidenceLevel(evidenceCompletenessBase),
   };
 
+  // Product uncertainty is a review condition in its own right, even when no invoice was selected.
+  // A diagnostic failure reason alone must never leave a weak-SKU case looking review-complete.
+  const unresolvedActiveBasketProductIdentity = activeItems.some(
+    (item) => item.resolutionStatus !== 'proven' || (Boolean(input.productIndex) && !item.productId)
+  );
+
   const failureReasons: PipelineFailureReason[] = [];
   if (conversationCase.needsHumanReview && financialSettlement.status !== 'settled') failureReasons.push('case_segmentation_uncertain');
   if (!conversationCase.customerId && !conversationCase.customerPhone) failureReasons.push('customer_identity_unresolved');
   if (!evidenceCompleteness.basketDetected) failureReasons.push('basket_not_detected');
-  if (
-    activeItems.some(
-      (item) =>
-        item.resolutionStatus === 'unknown' ||
-        item.resolutionStatus === 'contradicted' ||
-        (Boolean(input.productIndex) && !item.productId)
-    )
-  ) {
+  if (unresolvedActiveBasketProductIdentity) {
     failureReasons.push('product_identity_unresolved');
   }
   if (activeItems.some((item) => item.quantity == null)) failureReasons.push('quantity_unknown');
@@ -510,6 +557,7 @@ function analyzeOneCase(
     commercialConfirmation.needsHumanReview ||
     rawAttribution.needsHumanReview ||
     basketInvoiceMatch.needsHumanReview ||
+    unresolvedActiveBasketProductIdentity ||
     financialSettlement.needsHumanReview ||
     (!isGenuinelyInformationOnly && integrityAssessment.needsHumanReview) ||
     activeBasketResolution.outcome === 'needs_human_review';
@@ -520,6 +568,7 @@ function analyzeOneCase(
       ...commercialConfirmation.humanReviewReasons,
       ...rawAttribution.humanReviewReasons,
       ...basketInvoiceMatch.humanReviewReasons,
+      ...(unresolvedActiveBasketProductIdentity ? ['product_identity_unresolved'] : []),
       ...(financialSettlement.needsHumanReview ? financialSettlement.ruleIds : []),
       ...(isGenuinelyInformationOnly ? [] : integrityAssessment.humanReviewReasons),
       ...(activeBasketResolution.outcome === 'needs_human_review' ? ['active_basket_conflict'] : []),
@@ -536,16 +585,22 @@ function analyzeOneCase(
   // contradicted identity is a real contradiction.
   const identityStatus = input.customerIdentityStatus;
   const identityBlocked = identityStatus !== undefined && identityStatus !== 'resolved';
+  const noncommercialCase = conversationCase.caseType === 'follow_up';
+  const attributionBlocked = identityBlocked || noncommercialCase;
   const identityReason = `customer_identity_${identityStatus}`;
-  const attribution = identityBlocked
+  const blockedReasons = [
+    ...(identityBlocked ? [identityReason] : []),
+    ...(noncommercialCase ? ['noncommercial_followup_not_attributable'] : []),
+  ];
+  const attribution = attributionBlocked
     ? {
         ...rawAttribution,
         isOfficialForStaffEvaluation: false,
-        humanReviewReasons: Array.from(new Set([...rawAttribution.humanReviewReasons, identityReason])),
+        humanReviewReasons: Array.from(new Set([...rawAttribution.humanReviewReasons, ...blockedReasons])),
       }
     : rawAttribution;
   const saleProof =
-    identityBlocked && derivedSaleProof.state === 'proven'
+    attributionBlocked && derivedSaleProof.state === 'proven'
       ? {
           ...derivedSaleProof,
           state: identityStatus === 'contradicted' ? ('contradicted' as const) : ('strongly_supported' as const),
@@ -554,7 +609,11 @@ function analyzeOneCase(
             identityStatus === 'contradicted'
               ? Array.from(new Set([...derivedSaleProof.contradictions, 'customer_identity_contradicted']))
               : derivedSaleProof.contradictions,
-          ruleIds: Array.from(new Set([...derivedSaleProof.ruleIds, 'sale_proof.customer_identity_not_resolved'])),
+          ruleIds: Array.from(new Set([
+            ...derivedSaleProof.ruleIds,
+            ...(identityBlocked ? ['sale_proof.customer_identity_not_resolved'] : []),
+            ...(noncommercialCase ? ['sale_proof.noncommercial_followup_not_attributable'] : []),
+          ])),
           needsHumanReview: true,
         }
       : derivedSaleProof;
@@ -563,7 +622,13 @@ function analyzeOneCase(
   // commercial-confirmation evidence, but it is not a reason for a human task once the exact
   // transaction itself is proven by a trusted invoice.
   const reviewReasonsResolvedByProvenInvoice = new Set(['no_basket_state_for_case']);
-  const reviewReasonsResolvedByFinancialSettlement = new Set(['possible_unsegmented_multiple_requests']);
+  // An exact settled payment (proof + staff receipt + amount equal to the invoice) is the
+  // transactional corroboration a statistical invoice lacked. It closes the review only; it never
+  // makes the sale or revenue countable (see deriveCanonicalSalesOutcome).
+  const reviewReasonsResolvedByFinancialSettlement = new Set([
+    'possible_unsegmented_multiple_requests',
+    'statistical_invoice_lacks_transactional_corroboration',
+  ]);
   const invoiceBackedOrderClosure =
     commercialConfirmation.currentState === 'commercial_confirmation_complete' &&
     attribution.hasAttributedInvoice &&
@@ -572,7 +637,7 @@ function analyzeOneCase(
     attribution.contradictions.length === 0 &&
     saleProof.state === 'strongly_supported';
   const reviewReasonsResolvedByInvoiceBackedClosure = new Set([
-    'unresolved_product_identity',
+    'product_identity_unresolved',
     'customer_need_product_context_ambiguous',
   ]);
   let humanReviewReasons = saleProof.state === 'proven'
@@ -673,7 +738,17 @@ function analyzeOneCase(
     status = 'analyzed';
   }
 
+  const customerRequestAssessment = deriveCanonicalCustomerRequestAssessment({
+    caseId: conversationCase.caseId,
+    customerNeed,
+    unavailableDemand,
+    salesOutcome,
+    lostOpportunity,
+  });
+
   const analysis = {
+    complaintAssessment,
+    customerRequestAssessment,
     caseId: conversationCase.caseId,
     conversationId: input.conversationId,
     conversationCase: effectiveConversationCase,
@@ -701,6 +776,15 @@ function analyzeOneCase(
     needsHumanReview,
     humanReviewReasons,
     failureReasons,
+    careFollowUp: deriveCareFollowUpSuggestion(conversationCase, scopedMessages),
+    branchRecommendation: recommendCaseBranch({
+      ownership: conversationCase.ownership,
+      invoiceBranch: attribution.selectedCandidate?.invoiceBranch ?? null,
+      invoiceCandidateStrong: attribution.candidateRecommendation?.level === 'strong_candidate_requires_approval',
+      invoiceAttributionProven: attribution.attributionLevel === 'proven' && Boolean(attribution.selectedCandidate?.directInvoiceLink),
+      attributionUsedCaseBranch: Boolean(attribution.selectedCandidate?.ruleIds.some((rule) => rule.includes('branch_exact') || rule.includes('branch_alias'))),
+      invoiceSellerIsCaseStaff: attribution.selectedCandidate?.staffMatch === 'same',
+    }),
   };
   return {
     ...analysis,
@@ -711,8 +795,32 @@ function analyzeOneCase(
       customerNameHint: input.customerNameHint ?? null,
       customerCodeHint: input.customerCodeHint ?? null,
       staffIdBySender: caseStaffIdBySender,
+      catalogCandidatesFor: (name) => unresolvedCatalogCandidates(name, input.productIndex),
     }),
   };
+}
+
+/**
+ * The canonical resolver's top-tier tied candidates for a name it could not resolve safely —
+ * exactly the reason it stayed ambiguous. Bounded; empty when the resolver selects a product or
+ * finds nothing (e.g. «المحلول» names no catalog product).
+ */
+function unresolvedCatalogCandidates(
+  name: string,
+  productIndex: SalesIntelligencePipelineInput['productIndex']
+): Array<{ productId: string; productCode: string; name: string }> {
+  if (!productIndex || !name.trim()) return [];
+  const resolution = resolveProductMention(name, productIndex);
+  if (resolution.selected || !resolution.candidates.length) return [];
+  const top = resolution.candidates[0].confidence;
+  return resolution.candidates
+    .filter((candidate) => candidate.confidence === top)
+    .slice(0, 10)
+    .map((candidate) => ({
+      productId: candidate.product.productId,
+      productCode: candidate.product.productCode,
+      name: candidate.product.canonicalName,
+    }));
 }
 
 export interface SegmentedCase {
@@ -722,9 +830,14 @@ export interface SegmentedCase {
   conversationTimeline: NormalizedConversationMessageV32[];
   /** The V32 interaction this case reads (segmentation owner) — carried for the read model only. */
   interaction: ConversationInteractionV32 | null;
+  /** Raw (coarse) WhatsApp sessions this case's messages fall in. */
+  coarseSessionIndexes?: number[];
 }
 
 export interface DeriveSegmentedCasesInput {
+  staffIdBySender?: Record<string, string>;
+  staffIdByIntroductionMessageId?: Record<string, string>;
+  staffProfilesById?: Record<string, CaseStaffProfile>;
   conversationId: string;
   rawWhatsAppExportText: string;
   /** Trusted source date for time-only markdown; no fallback to created_at. */
@@ -791,7 +904,11 @@ export function deriveSegmentedCases(input: DeriveSegmentedCasesInput): DeriveSe
       new Set([...(semanticSession.outboundStaffNames || []), ...input.knownStaffSenders])
     );
   }
-  const understanding = buildConversationUnderstandingV32(semanticSession);
+  const customerServiceMessageIds = new Set(semanticSession.messages.filter((message) => {
+    const id = input.staffIdByIntroductionMessageId?.[message.id] || input.staffIdBySender?.[message.sender];
+    return id && input.staffProfilesById?.[id]?.function === 'customer_service';
+  }).map((message) => message.id));
+  const understanding = buildConversationUnderstandingV32(semanticSession, { customerServiceMessageIds });
   const rawCases = deriveConversationCases({
     understanding,
     conversationId: input.conversationId,
@@ -827,7 +944,7 @@ export function deriveSegmentedCases(input: DeriveSegmentedCasesInput): DeriveSe
     // multiple coarse sessions. Unchanged boundaries therefore keep the same ids, while a true
     // semantic continuation simply consumes the later coarse fragment instead of inventing a
     // duplicate case.
-    const conversationCase =
+    const rawConversationCase =
       coarseSessions.length > 1
         ? {
             ...rawCase,
@@ -835,7 +952,24 @@ export function deriveSegmentedCases(input: DeriveSegmentedCasesInput): DeriveSe
           }
         : rawCase;
     const scopedMessages = messagesForMessageIds(understanding, interaction.messageIds);
-    cases.push({ conversationCase, scopedMessages, conversationTimeline: understanding.messages, interaction });
+    const ownership = deriveCaseOwnershipContext({
+      messages: scopedMessages,
+      sourceBranch: input.branchNameRawHint,
+      staffIdBySender: input.staffIdBySender,
+      staffIdByIntroductionMessageId: input.staffIdByIntroductionMessageId,
+      staffProfilesById: input.staffProfilesById,
+    });
+    const conversationCase: ConversationCase = {
+      ...rawConversationCase,
+      branchNameRaw: ownership.operationalBranch,
+      branchId: ownership.branchBasis === 'source' ? rawConversationCase.branchId : null,
+      ownership,
+      needsHumanReview: rawConversationCase.needsHumanReview || ownership.blockers.some((b) =>
+        ['case_branch_evidence_conflict', 'multiple_staff_functions_require_review', 'multiple_staff_owners_require_review'].includes(b)),
+      humanReviewReasons: [...new Set([...rawConversationCase.humanReviewReasons, ...ownership.blockers.filter((b) =>
+        ['case_branch_evidence_conflict', 'multiple_staff_functions_require_review', 'multiple_staff_owners_require_review'].includes(b))])],
+    };
+    cases.push({ conversationCase, scopedMessages, conversationTimeline: understanding.messages, interaction, coarseSessionIndexes });
   });
 
   if (crossedCoarseBoundary) {
@@ -856,6 +990,8 @@ export type SalesIntelligenceSegmentationSource = Pick<
   | 'branchNameRawHint'
   | 'sessionSplitGapMinutes'
   | 'staffIdBySender'
+  | 'staffIdByIntroductionMessageId'
+  | 'staffProfilesById'
 >;
 
 /**
@@ -878,6 +1014,9 @@ export function segmentationInputFromPipelineInput(
     branchNameRawHint: input.branchNameRawHint ?? null,
     sessionSplitGapMinutes: input.sessionSplitGapMinutes,
     knownStaffSenders: Object.keys(input.staffIdBySender ?? {}),
+    staffIdBySender: input.staffIdBySender,
+    staffIdByIntroductionMessageId: input.staffIdByIntroductionMessageId,
+    staffProfilesById: input.staffProfilesById,
   };
 }
 
@@ -914,9 +1053,20 @@ export function deriveCasesOnly(input: DeriveSegmentedCasesInput): {
  */
 export function runSalesIntelligencePipeline(input: SalesIntelligencePipelineInput): SalesIntelligencePipelineResult {
   const segmented = deriveSegmentedCases(segmentationInputFromPipelineInput(input));
-  const caseAnalyses = segmented.cases.map(({ conversationCase, scopedMessages, conversationTimeline, interaction }) =>
-    analyzeOneCase(conversationCase, scopedMessages, input, interaction, conversationTimeline)
+  // A source with multiple named staff is not a single-employee conversation.
+  // Compute this once from the canonical timeline, using the same parser rule that
+  // produced the per-message introductions (no fuzzy surname-to-staff guesses).
+  const namedIntroductions = new Set(
+    (segmented.cases[0]?.conversationTimeline ?? [])
+      .map((message) => extractIntroducedStaffName(message))
+      .filter((name): name is string => Boolean(name))
+      .map((name) => name.trim().toLocaleLowerCase('ar'))
   );
+  const sourceHasMultipleIntroducedStaff = namedIntroductions.size > 1;
+  const perCase = segmented.cases.map(({ conversationCase, scopedMessages, conversationTimeline, interaction }) =>
+    analyzeOneCase(conversationCase, scopedMessages, input, interaction, conversationTimeline, sourceHasMultipleIntroducedStaff)
+  );
+  const caseAnalyses = withCanonicalCaseBranches(perCase, segmented.cases, input.customerIdentityStatus);
 
   return {
     conversationId: input.conversationId,
@@ -924,4 +1074,65 @@ export function runSalesIntelligencePipeline(input: SalesIntelligencePipelineInp
     caseAnalyses,
     pipelineWarnings: segmented.pipelineWarnings,
   };
+}
+
+
+/**
+ * Canonical case branch for every case of ONE conversation: per-case evidence first, then the
+ * source-level sibling pass (a service case may take the operation branch of the one proven sale
+ * case it belongs to). Attribution, sale proof and the source's historical branch are untouched.
+ */
+function withCanonicalCaseBranches(
+  analyses: SalesIntelligenceCaseAnalysis[],
+  segmentedCases: SegmentedCase[],
+  customerIdentityStatus: SalesIntelligencePipelineInput['customerIdentityStatus']
+): SalesIntelligenceCaseAnalysis[] {
+  const sessionsByCaseId = new Map(
+    segmentedCases.map((c) => [c.conversationCase.caseId, c.coarseSessionIndexes ?? []] as const)
+  );
+  const linkInputs = analyses.map((analysis) => {
+    const ownership = analysis.conversationCase.ownership;
+    const provenDirect =
+      analysis.attribution.attributionLevel === 'proven' &&
+      Boolean(analysis.attribution.selectedCandidate?.directInvoiceLink) &&
+      Boolean(analysis.attribution.selectedInvoiceId);
+    const caseBranch = canonicalCaseBranchFromRecommendation({
+      recommendation: analysis.branchRecommendation,
+      ownership,
+      provenInvoiceId: provenDirect ? analysis.attribution.selectedInvoiceId : null,
+    });
+    return {
+      caseId: analysis.caseId,
+      caseType: analysis.conversationCase.caseType,
+      department: ownership?.department ?? null,
+      customerId: analysis.conversationCase.customerId,
+      customerResolved: customerIdentityStatus === 'resolved' && Boolean(analysis.conversationCase.customerId),
+      startedAt: analysis.conversationCase.startedAt,
+      endedAt: analysis.conversationCase.endedAt,
+      coarseSessionIndexes: sessionsByCaseId.get(analysis.caseId) ?? [],
+      pharmacistOwnerIds: (ownership?.owners ?? []).filter((o) => o.function === 'pharmacist').map((o) => o.staffId),
+      ownerIds: (ownership?.owners ?? []).map((o) => o.staffId),
+      suggestedStaffBranch: ownership?.suggestedStaffBranch ?? null,
+      ownSelectedInvoiceId: analysis.attribution.selectedInvoiceId ?? null,
+      provenInvoice:
+        provenDirect && caseBranch.basis === 'proven_invoice'
+          ? {
+              invoiceId: String(analysis.attribution.selectedInvoiceId),
+              branch: analysis.attribution.selectedCandidate?.invoiceBranch ?? null,
+            }
+          : null,
+      caseBranch,
+    };
+  });
+  const branches = linkSiblingServiceCaseBranches(linkInputs);
+  return analyses.map((analysis) => {
+    const caseBranch = branches.get(analysis.caseId)!;
+    return {
+      ...analysis,
+      caseBranch,
+      caseIntelligence: analysis.caseIntelligence
+        ? { ...analysis.caseIntelligence, branch: { ...analysis.caseIntelligence.branch, caseBranch } }
+        : analysis.caseIntelligence,
+    };
+  });
 }

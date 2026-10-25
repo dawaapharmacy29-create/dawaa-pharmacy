@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parseWhatsAppExport, splitWhatsAppSessions } from '@/lib/whatsappConversationParser';
 import { buildConversationUnderstandingV32 } from '@/lib/whatsappConversationUnderstandingV32';
 import { deriveConversationCases } from '@/lib/salesIntelligence/conversationCaseEngine';
+import { runSalesIntelligencePipeline } from '@/lib/salesIntelligence/salesIntelligencePipeline';
 
 function understandingFor(raw: string) {
   const sessions = splitWhatsAppSessions(parseWhatsAppExport(raw), 120);
@@ -57,6 +58,117 @@ describe('ConversationCase Engine (Sales Intelligence Phase B.1) — Golden Case
     expect(cases[0].confidence.level).toBe('proven');
     expect(cases[1].caseType).toBe('sales_opportunity');
     expect(cases[1].status).toBe('basket_building');
+  });
+
+  it('classifies nursing visit request as noncommercial review', () => {
+    const raw = '[9/28/26, 2:17:35 AM] Customer: ممكن تبعت حد مالتمريض عشان الكانيولا اتحركت\n[9/28/26, 2:20:27 AM] You: عنيا هكلم الممرض';
+    const cases = deriveConversationCases({ understanding: understandingFor(raw), conversationId: 'service-1' });
+    expect(cases[0].caseType).toBe('follow_up');
+    expect(cases[0].needsHumanReview).toBe(true);
+    expect(cases[0].confidence.ruleIds).toContain('case.classification.nursing_visit_service_not_sale');
+  });
+
+  it('runs noncommercial nursing support through the canonical pipeline without revenue or recovery tasks', () => {
+    const raw = [
+      '[9/28/26, 2:17:35 AM] Customer: ممكن تبعت حد مالتمريض عشان الكانيولا',
+      '[9/28/26, 2:20:27 AM] You: حاضر هكلم الممرض',
+    ].join('\n');
+    const result = runSalesIntelligencePipeline({
+      conversationId: 'nursing-canonical',
+      rawWhatsAppExportText: raw,
+      customerIdHint: 'customer-1',
+      customerIdentityStatus: 'resolved',
+      branchNameRawHint: 'فرع شكري',
+      resolveInvoiceCandidates: () => [],
+    });
+    const analysis = result.caseAnalyses[0];
+    expect(analysis.conversationCase.caseType).toBe('follow_up');
+    expect(analysis.salesOutcome.isSaleCountable).toBe(false);
+    expect(analysis.salesOutcome.isRevenueCountable).toBe(false);
+    expect(analysis.lostOpportunity.state).toBe('no_commercial_opportunity');
+    expect(analysis.followUp.decision).toBe('review_required');
+    expect(analysis.followUp.opportunities).toHaveLength(0);
+    expect(analysis.operationalDisposition?.state).toBe('open_unknown');
+  });
+
+  it('a chase of an open nursing request is an event in the same case, not a second case', () => {
+    const raw = [
+      '[9/28/26, 2:17:35 AM] Customer: ممكن تبعت حد مالتمريض',
+      '[9/28/26, 2:20:27 AM] You: حاضر',
+      '[9/28/26, 3:39:59 AM] Customer: دكتور معلش شوفه تاني كده',
+      '[9/28/26, 3:40:13 AM] You: هكلمه',
+    ].join('\n');
+    const understanding = understandingFor(raw);
+    const cases = deriveConversationCases({ understanding, conversationId: 'service-then-chase' });
+    expect(cases).toHaveLength(1);
+    expect(cases[0].caseType).toBe('follow_up');
+    expect(cases[0].confidence.ruleIds).toContain('case.classification.nursing_visit_service_not_sale');
+    // The 80-minute gap did not split the case; the reason is recorded for review.
+    expect(understanding.interactions[0].continuationEvidence).toEqual([
+      expect.objectContaining({ reason: 'open_service_need_followup' }),
+    ]);
+  });
+
+  it('a new medicine request after a nursing request is its own case, even minutes later', () => {
+    const raw = [
+      '[9/28/26, 2:17:35 AM] Customer: ممكن تبعت حد مالتمريض',
+      '[9/28/26, 2:20:27 AM] You: حاضر',
+      '[9/28/26, 2:25:00 AM] Customer: وعايز علبة بانادول كمان',
+    ].join('\n');
+    const cases = deriveConversationCases({ understanding: understandingFor(raw), conversationId: 'service-then-medicine' });
+    expect(cases).toHaveLength(2);
+    expect(cases[0].caseType).toBe('follow_up');
+    expect(cases[1].caseType).not.toBe('follow_up');
+  });
+
+  it('a nurse request after a medicine order is a separate service case, even minutes later', () => {
+    const raw = [
+      '[9/28/26, 1:01:04 AM] Customer: عايز علبتين كولونا',
+      '[9/28/26, 1:02:11 AM] You: من عنيا جاري الارسال',
+      '[9/28/26, 1:10:00 AM] Customer: لو سمحت ممكن تبعت حد مالتمريض',
+    ].join('\n');
+    const cases = deriveConversationCases({ understanding: understandingFor(raw), conversationId: 'medicine-then-service' });
+    expect(cases).toHaveLength(2);
+    expect(cases[1].caseType).toBe('follow_up');
+  });
+
+  it('a closed nursing need does not absorb a later chase-like message', () => {
+    const raw = [
+      '[9/28/26, 2:17:35 AM] Customer: ممكن تبعت حد مالتمريض',
+      '[9/28/26, 2:20:27 AM] You: حاضر',
+      '[9/28/26, 2:50:00 AM] Customer: الممرض وصل شكرا',
+      '[9/28/26, 3:40:00 AM] Customer: دكتور معلش شوفه تاني كده',
+    ].join('\n');
+    const understanding = understandingFor(raw);
+    expect(understanding.interactions).toHaveLength(2);
+    expect(understanding.interactions[1].segmentationReason).toBe('time_gap');
+  });
+
+  it('a long gap alone never keeps a thank-you-free unrelated question in a closed case', () => {
+    const raw = [
+      '[9/28/26, 9:00:00 AM] Customer: عايز علبة بانادول',
+      '[9/28/26, 9:01:00 AM] You: من عنيا جاري الارسال',
+      '[9/28/26, 10:30:00 AM] Customer: هو الدكتور بيكشف النهارده؟',
+    ].join('\n');
+    expect(understandingFor(raw).interactions).toHaveLength(2);
+  });
+
+  it('a medicine order plus nursing service never disappears into the service-only category', () => {
+    const raw = '[9/28/26, 2:17:35 AM] Customer: عايز علبتين كولونا وممكن تبعت حد من التمريض';
+    const cases = deriveConversationCases({ understanding: understandingFor(raw), conversationId: 'medicine-and-service' });
+    expect(cases[0].caseType).not.toBe('follow_up');
+  });
+
+  it('retains a bare medicine brand in an additive nursing request', () => {
+    const raw = '[9/28/26, 2:17:35 AM] Customer: عايز جاستروبيوتيك وكمان ممرض';
+    const cases = deriveConversationCases({ understanding: understandingFor(raw), conversationId: 'brand-and-service' });
+    expect(cases[0].caseType).not.toBe('follow_up');
+  });
+
+  it('an unrelated vague message cannot invent an earlier nursing obligation', () => {
+    const raw = '[9/28/26, 2:17:35 AM] Customer: دكتور معلش شوفه تاني كده';
+    const cases = deriveConversationCases({ understanding: understandingFor(raw), conversationId: 'no-context' });
+    expect(cases[0].caseType).not.toBe('follow_up');
   });
 
   it('5. two distinct customer requests with no staff reply between them are flagged for human review, not silently merged', () => {

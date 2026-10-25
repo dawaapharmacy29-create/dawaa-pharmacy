@@ -59,6 +59,20 @@ export function deriveCanonicalSalesOutcome(
     };
   }
 
+  // A follow-up-only case is operational, not a separate medicine transaction. Even
+  // if another order's invoice is offered by a candidate resolver, never double-count it.
+  if (caseType === 'follow_up') {
+    return {
+      ...base,
+      needsHumanReview: true,
+      outcome: 'needs_review',
+      isSaleCountable: false,
+      isRevenueCountable: false,
+      isOrderConfirmed: false,
+      reasonCodes: ['outcome.noncommercial_followup_requires_review'],
+    };
+  }
+
   // `mixed` is reserved by the Conversation Case Engine for unresolved independent requests that
   // still occupy one analytical interaction. Payment or one invoice may belong to ONE of those
   // requests, but cannot safely close/count the whole mixed case. Resolve/split first, then rerun.

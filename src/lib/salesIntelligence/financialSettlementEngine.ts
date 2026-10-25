@@ -69,6 +69,21 @@ export function deriveFinancialSettlementAssessment(input: FinancialSettlementIn
     signals.completeSequence &&
     signals.paymentProofMessageId !== null &&
     signals.receiptAcknowledgementMessageId !== null;
+  // A clean statistical attribution whose ONLY gap is the missing transactional corroboration: an
+  // exact paid amount with payment proof and staff receipt IS that corroboration. Ambiguity,
+  // contradictions or any other review reason still block settlement. Settlement never counts a
+  // sale or revenue.
+  const onlyLacksTransactionalCorroboration =
+    input.attribution.humanReviewReasons.length > 0 &&
+    input.attribution.humanReviewReasons.every((reason) => reason === 'statistical_invoice_lacks_transactional_corroboration');
+  const statisticalAttributionCorroboratedByPayment =
+    Boolean(input.attribution.selectedInvoiceId) &&
+    input.attribution.attributionLevel === 'strongly_inferred' &&
+    input.attribution.contradictions.length === 0 &&
+    onlyLacksTransactionalCorroboration &&
+    selectedInvoiceMatchesRow &&
+    completePaymentEvidence &&
+    amountMatch === 'exact';
 
   let status: FinancialSettlementAssessment['status'] = 'not_detected';
   let needsHumanReview = false;
@@ -84,13 +99,15 @@ export function deriveFinancialSettlementAssessment(input: FinancialSettlementIn
     status = 'contradicted';
     needsHumanReview = true;
     ruleIds.push('financial_settlement.payment_amount_conflicts_with_selected_invoice');
-  } else if (completePaymentEvidence && amountMatch === 'exact' && attributionStrong && identitySafe) {
+  } else if (completePaymentEvidence && amountMatch === 'exact' && (attributionStrong || statisticalAttributionCorroboratedByPayment) && identitySafe) {
     status = 'settled';
     ruleIds.push(
       'financial_settlement.exact_invoice_amount',
       'financial_settlement.customer_payment_proof_present',
       'financial_settlement.staff_receipt_acknowledged',
-      'financial_settlement.strong_clean_invoice_attribution',
+      attributionStrong
+        ? 'financial_settlement.strong_clean_invoice_attribution'
+        : 'financial_settlement.exact_payment_corroborates_statistical_invoice',
       'financial_settlement.selected_invoice_row_identity_confirmed'
     );
   } else {

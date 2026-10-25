@@ -16,14 +16,15 @@
 // cases, while sales_intelligence_reconcile_case_set_v1 may only revoke proof owned by a case that
 // has just left the latest canonical segmentation set.
 import { runBatchPersistence } from '../persistence/batchPersistenceService';
+import { projectCanonicalFollowupsToActions, type CanonicalFollowupPublication } from '../persistence/canonicalFollowupProjector';
+import { projectCanonicalCustomerRequestsToActions } from '../persistence/canonicalCustomerRequestProjector';
+import { projectCanonicalComplaintsToActions } from '../persistence/canonicalComplaintProjector';
 import {
   REVIEW_SOURCE_BATCH_INPUT_COLUMNS,
   reviewSourceRowToBatchConversation,
 } from '../persistence/reviewSourceBatchAdapter';
-import {
-  readInvoiceRecordById,
-  readInvoiceRecordsByCustomerWindow,
-} from '../../readModels/invoiceRecordReadModel';
+import { readInvoiceRecordById } from '../../readModels/invoiceRecordReadModel';
+import { resolveActionCaseId, type CaseMessageScope } from '../persistence/followupPurchaseClosureGuard';
 import {
   evaluateCanonicalSourceGate,
   loadCanonicalSourceGateContext,
@@ -35,7 +36,7 @@ import { persistAutomaticCaseConversationReviewWithClient } from '../conversatio
 import { hasPaymentSettlementHandoffText } from '../../whatsappConversationUnderstandingV32';
 import { projectCanonicalSemanticsToV22, v22EnvelopeValue } from './v22SemanticProjection';
 
-export const CASE_SET_RECONCILE_RPC = 'sales_intelligence_reconcile_case_set_v1';
+export const CASE_SET_RECONCILE_RPC = 'sales_intelligence_reconcile_case_set_v2';
 export const CANONICAL_PROOF_WRITER_RPC = 'dawaa_reconcile_sales_intelligence_case_v22_v1';
 
 /** Columns every transport must load for a review source before calling the service. */
@@ -46,6 +47,7 @@ export const CANONICAL_REFRESH_SOURCE_COLUMNS = [
   'message_count',
   'created_at',
   'review_status',
+  'deleted_at',
 ].join(',');
 
 export type BlockedSource = {
@@ -73,6 +75,32 @@ export type CanonicalProofReconciliation = {
   [key: string]: unknown;
 };
 
+/** Proof-writer statuses that mean "this case owns the proven invoice". Everything else — including
+ * canonical_proof_owned_by_other_case, canonical_proof_owner_unknown_requires_review,
+ * not_proven_no_change, conflicts and transport errors — is not an accepted proof. */
+export const PROOF_ACCEPTED_STATUSES: ReadonlySet<string> = new Set(['reconciled', 'already_reconciled']);
+
+/**
+ * Cases whose proof the writer accepted for THEMSELVES. A row only counts when it is ok, carries an
+ * accepted status, and the writer echoes salesCaseId as a non-blank string exactly equal to this
+ * case (the proof writer always echoes it for reconciled/already_reconciled). A missing, null,
+ * blank or different salesCaseId, or an owner reported as someone else, is never accepted.
+ */
+export function proofAcceptedCaseIds(rows: CanonicalProofReconciliation[]): Set<string> {
+  return new Set(
+    rows
+      .filter((row) => {
+        if (row.ok !== true || !PROOF_ACCEPTED_STATUSES.has(String(row.status))) return false;
+        if (typeof row.caseId !== 'string' || row.caseId.trim() === '') return false;
+        if (typeof row.salesCaseId !== 'string' || row.salesCaseId.trim() === '') return false;
+        if (row.salesCaseId !== row.caseId) return false;
+        const owner = row.ownerSalesCaseId;
+        return owner === undefined || owner === null || owner === row.caseId;
+      })
+      .map((row) => row.caseId)
+  );
+}
+
 export interface CanonicalRefreshResult {
   status:
     | 'ok'
@@ -83,12 +111,20 @@ export interface CanonicalRefreshResult {
   dryRun: boolean;
   admittedSourceIds: string[];
   blockedSources: BlockedSource[];
+  /** Cases a general manager deleted: analyzed, but never published, proven, projected or evaluated. */
+  skippedDeletedCaseIds?: string[];
   batch: Awaited<ReturnType<typeof runBatchPersistence>> | null;
   persistenceFailures: Array<{ caseId: string; error: unknown }>;
   caseSetReconciliation: CaseSetReconciliation[];
   canonicalReconciliation: CanonicalProofReconciliation[];
   actionReconciliation: { reconciledActions: number };
   complaintEnrichment: { enrichedComplaintActions: number };
+  operationalProjection: {
+    followups: { inserted: number; existing: number; skipped: number; updated?: number; withdrawn?: number };
+    customerRequests: { inserted: number; existing: number; skipped: number };
+    complaints: { inserted: number; existing: number; skipped: number };
+    errors: string[];
+  };
   /** Follower: canonical meaning projected onto each touched V22 envelope (never fatal). */
   semanticProjection: Array<{ v22CaseId: string; status: string; reason: string | null; error?: string }>;
   conversationEvaluations: Array<{
@@ -268,6 +304,12 @@ export async function runCanonicalSalesIntelligenceRefresh(
     canonicalReconciliation: [],
     actionReconciliation: { reconciledActions: 0 },
     complaintEnrichment: { enrichedComplaintActions: 0 },
+    operationalProjection: {
+      followups: { inserted: 0, existing: 0, skipped: 0 },
+      customerRequests: { inserted: 0, existing: 0, skipped: 0 },
+      complaints: { inserted: 0, existing: 0, skipped: 0 },
+      errors: [],
+    },
     semanticProjection: [],
     conversationEvaluations: [],
   };
@@ -308,41 +350,64 @@ export async function runCanonicalSalesIntelligenceRefresh(
     v22CaseIdBySource,
     v22ContextByCaseId
   );
-  const batch = await runBatchPersistence(service, { conversations, dryRun: input.dryRun });
+  const batch = await runBatchPersistence(service, { conversations, dryRun: input.dryRun, deferPublication: true });
   if (input.dryRun) return { ...empty, status: 'ok', admittedSourceIds, blockedSources, batch };
 
-  const outcomes = batch.caseOutcomes || [];
+  // A deleted case stays deleted until an explicit restore: drop it before publication so it is
+  // neither reactivated, proven, projected into work lists nor evaluated (the DB guards agree).
+  const deletedCaseIds = await loadDeletedCaseIds(
+    service,
+    batch.caseAnalyses.map((row: any) => String(row.caseId))
+  );
+  const caseAnalyses = batch.caseAnalyses.filter((row: any) => !deletedCaseIds.has(String(row.caseId)));
+  const skippedDeletedCaseIds = Array.from(deletedCaseIds).sort();
+  const outcomes = (batch.caseOutcomes || []).filter((row) => !deletedCaseIds.has(row.caseId));
   const persistenceFailures = outcomes
     .filter((row) => !row.success)
     .map((row) => ({ caseId: row.caseId, error: row.error }));
-  if (persistenceFailures.length) {
-    return {
-      ...empty,
-      status: 'persistence_partial_failure',
-      admittedSourceIds,
-      blockedSources,
-      batch,
-      persistenceFailures,
-    };
-  }
-
   // 3. Publish the latest canonical case set for every admitted source BEFORE proof or evaluation
   // followers run. An empty active set is meaningful: if the new engine derives zero cases, every
   // previously-active case for that source must retire. The DB RPC owns lifecycle + proof revoke.
   const caseSetReconciliation: CaseSetReconciliation[] = [];
-  for (const source of admitted) {
+  const followupPublications: CanonicalFollowupPublication[] = [];
+  const hasIndependentInput = (sourceId: string) => conversations.some((row) => row.conversationId === sourceId);
+  const publicationOrder = [...admitted.filter((row) => hasIndependentInput(String(row.id))),
+    ...admitted.filter((row) => !hasIndependentInput(String(row.id)))];
+  for (const source of publicationOrder) {
     const sourceId = String(source.id || '');
-    const activeCaseIds = batch.caseAnalyses
+    const activeCaseIds = caseAnalyses
       .filter((row: any) => String(row.conversationId || '') === sourceId)
       .map((row: any) => String(row.caseId));
-    const { data, error } = await service.rpc(CASE_SET_RECONCILE_RPC, {
+    // Payment-continuation followers have no independent derived set. Do not retire them
+    // while any assembly anchor is incomplete; zero-case analyzed sources still reconcile.
+    const assemblyPending = !hasIndependentInput(sourceId)
+      && (caseAnalyses.some((row: any) => !outcomes.some((outcome) => outcome.caseId === row.caseId && outcome.success))
+        || caseSetReconciliation.some((row) => !row.ok));
+    const sourceOutcomes = outcomes.filter((row) => activeCaseIds.includes(row.caseId));
+    if (assemblyPending || activeCaseIds.some((id) => !sourceOutcomes.some((row) => row.caseId === id && row.success && row.analysis?.analysisId))) {
+      caseSetReconciliation.push({ sourceId, ok: false, status: assemblyPending ? 'dependency_pending_retry' : 'persistence_failed_pending_retry',
+        activeCaseIds, retiredCaseIds: [], reactivatedCaseIds: [], error: 'source_case_set_incomplete' });
+      continue;
+    }
+    let data: any = null;
+    let error: any = null;
+    try {
+      ({ data, error } = await service.rpc(CASE_SET_RECONCILE_RPC, {
       p_conversation_id: sourceId,
       p_active_case_ids: activeCaseIds,
-    });
+      p_analysis_ids: Object.fromEntries(sourceOutcomes.map((row) => [row.caseId, row.analysis!.analysisId])),
+      }));
+    } catch (caught) { error = { message: caught instanceof Error ? caught.message : String(caught) }; }
     const payload = data && typeof data === 'object' ? data : null;
+    if (!error && payload?.ok === true && payload?.status === 'reconciled') {
+      followupPublications.push({
+        sourceId,
+        analysisIds: Object.fromEntries(sourceOutcomes.map((row) => [row.caseId, row.analysis!.analysisId])),
+      });
+    }
     caseSetReconciliation.push({
       sourceId,
-      ok: !error && payload?.ok !== false,
+      ok: !error && payload?.ok === true && payload?.status === 'reconciled',
       status: error ? 'rpc_error' : String(payload?.status || 'empty_reconcile_result'),
       activeCaseIds,
       retiredCaseIds: Array.isArray(payload?.retiredCaseIds) ? payload.retiredCaseIds.map(String) : [],
@@ -352,22 +417,16 @@ export async function runCanonicalSalesIntelligenceRefresh(
       error: error?.message ?? null,
     });
   }
-  if (caseSetReconciliation.some((row) => !row.ok || row.status !== 'reconciled')) {
-    return {
-      ...empty,
-      status: 'case_set_reconciliation_failure',
-      admittedSourceIds,
-      blockedSources,
-      batch,
-      caseSetReconciliation,
-    };
-  }
+  const reconciledSources = new Set(caseSetReconciliation.filter((row) => row.ok).map((row) => row.sourceId));
+  const lifecycleStatus = persistenceFailures.length || caseSetReconciliation.some((row) => row.status === 'persistence_failed_pending_retry')
+    ? 'persistence_partial_failure' as const
+    : caseSetReconciliation.some((row) => !row.ok) ? 'case_set_reconciliation_failure' as const : 'ok' as const;
 
   // 4. Canonical proof bridge — the ONLY writer of Canonical Sale Proof into Customer Case V22
   // for active cases. Truth is bidirectional (V46): the RPC re-reads the CURRENT persisted
   // analysis and promotes, keeps, moves (invoice A -> B) or revokes the proof this case wrote.
   const persisted = new Set(outcomes.filter((row) => row.success).map((row) => row.caseId));
-  const reconcileCandidates = batch.caseAnalyses.filter((row: any) => persisted.has(row.caseId));
+  const reconcileCandidates = caseAnalyses.filter((row: any) => persisted.has(row.caseId) && reconciledSources.has(String(row.conversationId)));
   const canonicalReconciliation: CanonicalProofReconciliation[] = [];
   for (const analysis of reconcileCandidates) {
     const { data, error } = await service.rpc(CANONICAL_PROOF_WRITER_RPC, {
@@ -383,9 +442,11 @@ export async function runCanonicalSalesIntelligenceRefresh(
   if (canonicalReconciliation.some((row) => row.status === 'rpc_error')) {
     return {
       ...empty,
-      status: 'proof_bridge_transport_failure',
+      status: lifecycleStatus === 'ok' ? 'proof_bridge_transport_failure' : lifecycleStatus,
+      persistenceFailures,
       admittedSourceIds,
       blockedSources,
+      skippedDeletedCaseIds,
       batch,
       caseSetReconciliation,
       canonicalReconciliation,
@@ -407,6 +468,78 @@ export async function runCanonicalSalesIntelligenceRefresh(
     reason: row.reason,
     ...(row.error ? { error: row.error } : {}),
   }));
+
+  // 4c. Canonical operational projection. The semantic owners have already decided the work;
+  // these projectors only publish idempotent queue proposals. They never materialize
+  // customer_requests/daily_followups and a projection failure never rewrites canonical truth.
+  const projectionSources = admitted.map((source) => ({
+    id: String(source.id || ''),
+    raw_text: typeof source.raw_text === 'string' ? source.raw_text : null,
+    customer_name: source.customer_name ? String(source.customer_name) : null,
+    customer_code: source.customer_code ? String(source.customer_code) : null,
+    staff_id: source.staff_id ? String(source.staff_id) : null,
+  }));
+  const projectionErrors: string[] = [];
+  let followupProjection = { inserted: 0, existing: 0, skipped: 0, updated: 0, withdrawn: 0 };
+  let customerRequestProjection = { inserted: 0, existing: 0, skipped: 0 };
+  let complaintProjection = { inserted: 0, existing: 0, skipped: 0 };
+  try {
+    const result = await projectCanonicalFollowupsToActions(
+      service,
+      reconcileCandidates,
+      projectionSources,
+      followupPublications
+    );
+    followupProjection = {
+      inserted: result.inserted,
+      existing: result.existing,
+      skipped: result.skipped.length,
+      updated: result.updated,
+      withdrawn: result.withdrawn,
+    };
+  } catch (error) {
+    projectionErrors.push(
+      `canonical_followup_projection_failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  try {
+    const result = await projectCanonicalCustomerRequestsToActions(
+      service,
+      reconcileCandidates,
+      projectionSources
+    );
+    customerRequestProjection = {
+      inserted: result.inserted,
+      existing: result.existing,
+      skipped: result.skipped.length,
+    };
+  } catch (error) {
+    projectionErrors.push(
+      `canonical_customer_request_projection_failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  try {
+    const result = await projectCanonicalComplaintsToActions(
+      service,
+      reconcileCandidates,
+      projectionSources
+    );
+    complaintProjection = {
+      inserted: result.inserted,
+      existing: result.existing,
+      skipped: result.skipped.length,
+    };
+  } catch (error) {
+    projectionErrors.push(
+      `canonical_complaint_projection_failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  const operationalProjection = {
+    followups: followupProjection,
+    customerRequests: customerRequestProjection,
+    complaints: complaintProjection,
+    errors: projectionErrors,
+  };
 
   // 5. Conversation evaluation follower — only after Sales Intelligence persistence, case-set
   // reconciliation, and canonical proof reconciliation completed. This follower NEVER writes
@@ -472,16 +605,12 @@ export async function runCanonicalSalesIntelligenceRefresh(
   }
 
   // 6. Followers of proven truth: close customer requests only for cases the proof writer accepted.
-  const reconciledCaseIds = new Set(
-    canonicalReconciliation
-      .filter((row) => row.ok && ['reconciled', 'already_reconciled'].includes(String(row.status)))
-      .map((row) => row.caseId)
-  );
+  const reconciledCaseIds = proofAcceptedCaseIds(canonicalReconciliation);
   let reconciledActions = 0;
   let enrichedComplaintActions = 0;
   for (const source of admitted) {
     const sourceId = String(source.id);
-    const sourceAnalyses = batch.caseAnalyses.filter((row: any) => row.conversationId === sourceId);
+    const sourceAnalyses = reconcileCandidates.filter((row: any) => row.conversationId === sourceId);
     const provenAnalyses = sourceAnalyses.filter((row: any) => reconciledCaseIds.has(row.caseId));
     if (provenAnalyses.length) {
       reconciledActions += (
@@ -496,14 +625,17 @@ export async function runCanonicalSalesIntelligenceRefresh(
 
   return {
     ...empty,
-    status: 'ok',
+    status: lifecycleStatus,
+    persistenceFailures,
     admittedSourceIds,
     blockedSources,
+    skippedDeletedCaseIds,
     batch,
     caseSetReconciliation,
     canonicalReconciliation,
     actionReconciliation: { reconciledActions },
     complaintEnrichment: { enrichedComplaintActions },
+    operationalProjection,
     semanticProjection,
     conversationEvaluations,
   };
@@ -572,6 +704,24 @@ export async function runCanonicalSalesIntelligenceBackfill(
   return { mode: 'dry-run', gate, refresh: null, preview };
 }
 
+const DELETED_CASE_LOOKUP_CHUNK = 200;
+
+/** Case ids of this batch that a general manager deleted. Fails closed on a read error. */
+export async function loadDeletedCaseIds(service: any, caseIds: string[]): Promise<Set<string>> {
+  const unique = Array.from(new Set(caseIds.filter(Boolean)));
+  const deleted = new Set<string>();
+  for (let index = 0; index < unique.length; index += DELETED_CASE_LOOKUP_CHUNK) {
+    const { data, error } = await service
+      .from('sales_intelligence_cases')
+      .select('case_id')
+      .in('case_id', unique.slice(index, index + DELETED_CASE_LOOKUP_CHUNK))
+      .not('deleted_at', 'is', null);
+    if (error) throw new Error(`deleted_case_lookup_failed: ${error.message}`);
+    for (const row of data || []) deleted.add(String(row.case_id));
+  }
+  return deleted;
+}
+
 export async function reconcileSoldCustomerRequestActions(
   service: any,
   sourceId: string,
@@ -580,7 +730,7 @@ export async function reconcileSoldCustomerRequestActions(
   const { data: actions, error: actionsError } = await service
     .from('whatsapp_conversation_actions')
     .select(
-      'id,action_key,action_type,status,work_status,product_id,product_code,product_name,quantity,payload,confidence'
+      'id,action_key,action_type,status,work_status,product_id,product_code,product_name,quantity,payload,confidence,evidence'
     )
     .eq('source_id', sourceId)
     .eq('action_type', 'customer_request')
@@ -591,6 +741,12 @@ export async function reconcileSoldCustomerRequestActions(
 
   let reconciledActions = 0;
   const reconciledIds = new Set<string>();
+  // A request belongs to ONE case of this conversation; only that case's proven invoice may
+  // close it. Unresolved or ambiguous case scope never closes a request.
+  const caseScopes = caseMessageScopes(caseAnalyses);
+  const actionCaseId = new Map<string, string | null>(
+    actions.map((action: any) => [String(action.id), actionCaseIdFor(action, caseScopes)])
+  );
 
   for (const analysis of caseAnalyses) {
     const attribution = analysis?.attribution;
@@ -625,6 +781,7 @@ export async function reconcileSoldCustomerRequestActions(
     for (const action of actions) {
       if (reconciledIds.has(String(action.id))) continue;
       if (!action.product_id) continue;
+      if (actionCaseId.get(String(action.id)) !== analysis.caseId) continue;
 
       const matchingLines = invoiceItems.filter(
         (row: any) => String(row.product_id || '') === String(action.product_id)
@@ -640,6 +797,7 @@ export async function reconcileSoldCustomerRequestActions(
       const relatedActions = actions.filter((candidate: any) => {
         if (reconciledIds.has(String(candidate.id))) return false;
         if (String(candidate.id) === String(action.id)) return true;
+        if (actionCaseId.get(String(candidate.id)) !== analysis.caseId) return false;
         if (!requestPrefix) return false;
         return (
           String(candidate.action_key || '').startsWith(requestPrefix) && !candidate.product_id
@@ -693,7 +851,30 @@ export async function reconcileSoldCustomerRequestActions(
   return { reconciledActions };
 }
 
-async function enrichComplaintFollowupContext(
+export function caseMessageScopes(caseAnalyses: any[]): CaseMessageScope[] {
+  return caseAnalyses
+    .map((analysis) => ({
+      caseId: String(analysis?.caseId || ''),
+      // The case's own message set is the persisted case view's interaction (segmentation output).
+      messageIds: Array.isArray(analysis?.caseIntelligence?.interaction?.messageIds)
+        ? analysis.caseIntelligence.interaction.messageIds.map(String)
+        : [],
+    }))
+    .filter((scope) => scope.caseId);
+}
+
+function actionCaseIdFor(action: any, scopes: CaseMessageScope[]): string | null {
+  const payload =
+    action?.payload && typeof action.payload === 'object' && !Array.isArray(action.payload)
+      ? action.payload
+      : {};
+  return resolveActionCaseId(
+    { payloadCaseId: payload.caseId ?? null, evidence: Array.isArray(action?.evidence) ? action.evidence : [] },
+    scopes
+  ).caseId;
+}
+
+export async function enrichComplaintFollowupContext(
   service: any,
   source: Record<string, unknown>,
   caseAnalyses: any[]
@@ -703,69 +884,39 @@ async function enrichComplaintFollowupContext(
 
   const { data: actions, error: actionError } = await service
     .from('whatsapp_conversation_actions')
-    .select('id,status,action_type,payload')
+    .select('id,status,action_type,payload,evidence')
     .eq('source_id', sourceId)
     .eq('action_type', 'complaint_followup')
     .in('status', ['proposed', 'ready', 'created']);
   if (actionError) throw actionError;
   if (!actions?.length) return { enrichedComplaintActions: 0 };
 
-  let invoiceId = '';
-  let linkageBasis = '';
+  // Only the complaint's OWN case attribution may name its delivery invoice. A sibling case's
+  // invoice in the same conversation (e.g. a later order after a customer-service outreach) is a
+  // different transaction, and a nearest-in-time invoice is a guess: neither is written.
+  const scopes = caseMessageScopes(caseAnalyses);
+  const invoiceByCase = new Map<string, { invoiceId: string; linkageBasis: string }>();
   for (const analysis of caseAnalyses) {
     const attribution = analysis?.attribution;
     const level = String(attribution?.attributionLevel || '');
     const selected = String(attribution?.selectedInvoiceId || '').trim();
-    if (selected && ['proven', 'strongly_inferred'].includes(level)) {
-      invoiceId = selected;
-      linkageBasis = `canonical_${level}`;
-      break;
+    if (analysis?.caseId && selected && ['proven', 'strongly_inferred'].includes(level)) {
+      invoiceByCase.set(String(analysis.caseId), { invoiceId: selected, linkageBasis: `canonical_${level}` });
     }
   }
+  if (!invoiceByCase.size) return { enrichedComplaintActions: 0 };
 
-  let invoice: any = null;
-  if (invoiceId) {
-    invoice = await readInvoiceRecordById(invoiceId, service);
-  }
-
-  if (!invoice) {
-    const customerId = String(source.customer_id || '').trim();
-    const customerCode = String(source.customer_code || '').trim();
-    const startedAt = source.conversation_started_at
-      ? new Date(String(source.conversation_started_at))
-      : null;
-    const endedAt = source.conversation_ended_at
-      ? new Date(String(source.conversation_ended_at))
-      : startedAt;
-    if ((customerId || customerCode) && startedAt && !Number.isNaN(startedAt.getTime())) {
-      const from = new Date(startedAt.getTime() - 2 * 3600_000).toISOString();
-      const to = new Date(
-        (endedAt && !Number.isNaN(endedAt.getTime()) ? endedAt.getTime() : startedAt.getTime()) +
-          6 * 3600_000
-      ).toISOString();
-      const rows = await readInvoiceRecordsByCustomerWindow({
-        queryStartIso: from,
-        queryEndIso: to,
-        ...(customerId ? { customerId } : { customerCode }),
-        limit: 20,
-        client: service,
-      });
-      if (rows.length) {
-        const anchor = startedAt.getTime();
-        invoice = [...rows].sort((a: any, b: any) => {
-          const ad = Math.abs(new Date(String(a.invoice_datetime || 0)).getTime() - anchor);
-          const bd = Math.abs(new Date(String(b.invoice_datetime || 0)).getTime() - anchor);
-          return ad - bd;
-        })[0];
-        linkageBasis = 'customer_time_match';
-      }
-    }
-  }
-
-  if (!invoice) return { enrichedComplaintActions: 0 };
-
+  const invoiceById = new Map<string, any>();
   let updated = 0;
   for (const action of actions) {
+    const caseId = actionCaseIdFor(action, scopes);
+    const link = caseId ? invoiceByCase.get(caseId) : undefined;
+    if (!link) continue;
+    if (!invoiceById.has(link.invoiceId)) {
+      invoiceById.set(link.invoiceId, await readInvoiceRecordById(link.invoiceId, service));
+    }
+    const invoice = invoiceById.get(link.invoiceId);
+    if (!invoice) continue;
     const existingPayload =
       action.payload && typeof action.payload === 'object' && !Array.isArray(action.payload)
         ? action.payload
@@ -777,7 +928,8 @@ async function enrichComplaintFollowupContext(
       branch: invoice.branch || null,
       delivery_staff: invoice.delivery_staff || null,
       sale_staff: invoice.staff_name || invoice.seller_name || null,
-      linkage_basis: linkageBasis,
+      linkage_basis: link.linkageBasis,
+      case_id: caseId,
       review_required: true,
       responsibility_status: 'context_only_not_fault_assignment',
       linked_at: new Date().toISOString(),
@@ -794,3 +946,4 @@ async function enrichComplaintFollowupContext(
   }
   return { enrichedComplaintActions: updated };
 }
+

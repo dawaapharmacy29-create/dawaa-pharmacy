@@ -1,3 +1,7 @@
+import LifecycleExceptionsPanel from './LifecycleExceptionsPanel';
+import { loadCanonicalStaffRows } from '@/lib/salesIntelligence/canonicalKpiAdapters';
+import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
+import { nextDayYmdV1 } from '@/lib/salesIntelligence/dashboardScopeV1';
 import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowDownLeft,
@@ -20,6 +24,9 @@ import SalesIntelligenceCoveragePanelV1 from '@/components/salesIntelligence/Sal
 
 type StaffTruthRow = {
   case_id: string;
+  canonical_outcome_available: boolean;
+  is_sale_countable: boolean;
+  is_revenue_countable: boolean;
   invoice_datetime: string | null;
   invoice_branch: string | null;
   invoice_amount: number | string | null;
@@ -27,7 +34,7 @@ type StaffTruthRow = {
   canonical_staff_name: string | null;
   staff_resolution_status: string;
   is_staff_resolved: boolean;
-  item_evidence_available: boolean;
+  item_evidence_available: boolean | null;
 };
 
 function number(value: unknown): number {
@@ -142,11 +149,10 @@ export default function SalesIntelligenceManagementOverviewV1({
     let cancelled = false;
     async function load() {
       setTruthLoading(true);
-      const { data, error } = await supabase
-        .from('sales_intelligence_invoice_staff_truth_v1')
-        .select('case_id,invoice_datetime,invoice_branch,invoice_amount,canonical_staff_id,canonical_staff_name,staff_resolution_status,is_staff_resolved,item_evidence_available')
-        .order('invoice_datetime', { ascending: false })
-        .limit(2000);
+      const {data,error} = await loadCanonicalStaffRows(supabase,{
+        start:cairoDateBoundaryIso(previousCycle?.start ?? cycle.start),
+        endExclusive:cairoDateBoundaryIso(nextDayYmdV1(cycle.end)),branch,
+      });
       if (cancelled) return;
       if (error) {
         setTruthError(error.message);
@@ -159,7 +165,7 @@ export default function SalesIntelligenceManagementOverviewV1({
     }
     void load();
     return () => { cancelled = true; };
-  }, []);
+  }, [branch,cycle.start,cycle.end,previousCycle?.start]);
 
   const truthFor = (target: SalesIntelligenceCycleScopeV1 | null) => {
     if (!target) return [];
@@ -186,20 +192,20 @@ export default function SalesIntelligenceManagementOverviewV1({
     const confirmedSales = countConfirmedSales(sourceRows);
     const strong = sourceRows.filter((row) => row.saleProofState === 'strongly_supported').length;
     const contradicted = sourceRows.filter((row) => row.saleProofState === 'contradicted').length;
-    const officialSales = truthRows.length;
-    const officialRevenue = truthRows.reduce((sum, row) => sum + number(row.invoice_amount), 0);
-    const resolvedStaff = truthRows.filter((row) => row.is_staff_resolved).length;
+    const officialSales = truthRows.filter(row=>row.is_sale_countable).length;
+    const officialRevenue = truthRows.filter(row=>row.is_revenue_countable).reduce((sum,row)=>sum+number(row.invoice_amount),0);
+    const resolvedStaff = truthRows.filter(row=>row.is_sale_countable && row.is_staff_resolved).length;
     const unresolvedStaff = officialSales - resolvedStaff;
     return { total, withInvoice, itemReady, needsReview, confirmedSales, strong, contradicted, officialSales, officialRevenue, resolvedStaff, unresolvedStaff };
   };
 
   const metrics = useMemo(() => summarize(rows, currentTruth), [currentTruth, rows]);
   const previous = useMemo(() => summarize(previousRows, previousTruth), [previousRows, previousTruth]);
-  const currentCaseOfficialSales = currentCaseTruth.length;
+  const currentCaseOfficialSales = currentCaseTruth.filter(row=>row.is_sale_countable).length;
 
   const actions = useMemo(() => {
     const items: Array<{ title: string; detail: string; severity: 'warning' | 'info' }> = [];
-    if (metrics.unresolvedStaff) items.push({ title: 'حسم الموظف على الفواتير الرسمية', detail: `${metrics.unresolvedStaff.toLocaleString('ar-EG')} بيع رسمي لم يُنسب لموظف بصورة آمنة.`, severity: 'warning' });
+    if (metrics.unresolvedStaff) items.push({ title: 'مراجعة إسناد المحادثة', detail: `${metrics.unresolvedStaff.toLocaleString('ar-EG')} بيع رسمي لم يُنسب لموظف بصورة آمنة.`, severity: 'warning' });
     if (metrics.contradicted) items.push({ title: 'مراجعة الحالات المتناقضة', detail: `${metrics.contradicted.toLocaleString('ar-EG')} حالة بها تعارض في إثبات البيع أو الإسناد.`, severity: 'warning' });
     if (metrics.needsReview) items.push({ title: 'طابور المراجعة البشرية', detail: `${metrics.needsReview.toLocaleString('ar-EG')} حالة تحتاج مراجعة بشرية قبل الاستخدام التشغيلي.`, severity: 'info' });
 
@@ -278,7 +284,7 @@ export default function SalesIntelligenceManagementOverviewV1({
           <div>
             <div className="flex items-center gap-2 text-lg font-black"><TrendingUp size={20} />مركز قيادة ذكاء المبيعات</div>
             <p className="dawaa-muted mt-1 max-w-3xl text-sm leading-6">
-              دورة {cycle.label} • {branch === 'all' ? 'كل الفروع' : branch}. المقارنة المعروضة تلقائيًا مع الدورة السابقة.
+              دورة {cycle.label} • {branch === 'all' ? 'كل الفروع' : branch}. المقارنة المعروضة تلقائيًا مع الدورة السابقة. {staffTruth.some(row=>!row.canonical_outcome_available)?'بعض الحالات بلا نتيجة محفوظة؛ الأرقام للنتائج المتاحة فقط.':''}
             </p>
           </div>
           <div className="dawaa-badge dawaa-badge--success">الحقيقة الرسمية فقط</div>
@@ -288,7 +294,7 @@ export default function SalesIntelligenceManagementOverviewV1({
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard icon={MessageSquareMore} label="الحالات الحالية" value={metrics.total.toLocaleString('ar-EG')} hint="بعد آخر تحليل معتمد" current={metrics.total} previous={previous.total} />
         <MetricCard icon={ReceiptText} label="مرتبطة بفاتورة" value={metrics.withInvoice.toLocaleString('ar-EG')} hint={`${pct(metrics.withInvoice, metrics.total)} من الحالات`} current={metrics.withInvoice} previous={previous.withInvoice} />
-        <MetricCard icon={BadgeCheck} label="المبيعات الرسمية" value={truthLoading ? '…' : metrics.officialSales.toLocaleString('ar-EG')} hint={truthLoading ? 'جاري التحميل' : money(metrics.officialRevenue)} current={metrics.officialSales} previous={previous.officialSales} tone="success" />
+        <MetricCard icon={BadgeCheck} label="مبيعات المحادثات المعتمدة" value={truthError ? 'غير متاح' : truthLoading ? '…' : metrics.officialSales.toLocaleString('ar-EG')} hint={truthError ? 'تعذرت قراءة الحقيقة المحفوظة' : truthLoading ? 'جاري التحميل' : `إيراد معروف ${money(metrics.officialRevenue)}${currentTruth.some(row=>row.is_revenue_countable&&row.invoice_amount==null)?' — بعض القيم غير متاحة':''}`} current={metrics.officialSales} previous={previous.officialSales} tone="success" />
         <MetricCard icon={CircleAlert} label="تحتاج مراجعة" value={metrics.needsReview.toLocaleString('ar-EG')} hint={`${pct(metrics.needsReview, metrics.total)} من الحالات`} current={metrics.needsReview} previous={previous.needsReview} tone={metrics.needsReview ? 'warning' : 'success'} />
       </section>
 
@@ -307,9 +313,9 @@ export default function SalesIntelligenceManagementOverviewV1({
         </div>
 
         <div className="dawaa-card">
-          <div className="flex items-center gap-2 font-black"><ReceiptText size={18} />قيمة البيع الرسمي</div>
-          <div className="dawaa-heading mt-4 text-3xl font-black">{truthLoading ? '…' : money(metrics.officialRevenue)}</div>
-          {!truthLoading ? <div className="mt-2"><DeltaBadge current={metrics.officialRevenue} previous={previous.officialRevenue} moneyMode /></div> : null}
+          <div className="flex items-center gap-2 font-black"><ReceiptText size={18} />الإيراد المعروف القابل للعد</div>
+          <div className="dawaa-heading mt-4 text-3xl font-black">{truthError ? 'غير متاح' : truthLoading ? '…' : money(metrics.officialRevenue)}</div>
+          {!truthLoading && !truthError ? <div className="mt-2"><DeltaBadge current={metrics.officialRevenue} previous={previous.officialRevenue} moneyMode /></div> : null}
           <div className="dawaa-muted mt-4 text-[11px] leading-5">
             {metrics.resolvedStaff.toLocaleString('ar-EG')} بيع مرتبط بموظف بصورة آمنة، و{metrics.unresolvedStaff.toLocaleString('ar-EG')} غير محسوم الهوية.
           </div>
@@ -317,6 +323,7 @@ export default function SalesIntelligenceManagementOverviewV1({
         </div>
       </section>
 
+      <LifecycleExceptionsPanel />
       <SalesIntelligenceCoveragePanelV1 />
 
       <SalesIntelligenceOpportunityCenterV1 cycle={cycle} branch={branch} />

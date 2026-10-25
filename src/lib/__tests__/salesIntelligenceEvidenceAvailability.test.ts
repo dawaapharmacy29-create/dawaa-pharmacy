@@ -253,7 +253,7 @@ describe('Sales Intelligence evidence availability hardening', () => {
     expect(match.itemMatch).toBe('insufficient_data');
     expect(match.quantityMatch).toBe('insufficient_data');
     expect(match.differences.some((d) => d.type === 'missing_item' || d.type === 'extra_item')).toBe(false);
-    expect(match.humanReviewReasons).toContain('unresolved_product_identity');
+    expect(match.humanReviewReasons).toContain('product_identity_unresolved');
   });
 
   it('keeps a genuinely resolved but different product as a real mismatch', () => {

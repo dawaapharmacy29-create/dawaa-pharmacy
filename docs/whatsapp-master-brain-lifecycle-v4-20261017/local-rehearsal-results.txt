@@ -1,0 +1,54 @@
+PASS exact production v1 and analysis writer bodies
+PASS baseline v1 publishes current analysis
+PASS baseline exhibits archival inconsistency
+PASS candidate first case staged, not published
+PASS candidate first complete source publishes
+PASS candidate duplicate stage retry no duplicate analysis
+PASS candidate reanalysis stages without pointer/current drift
+PASS candidate partial failed source preserves old publication
+PASS candidate retry publishes full source and supersedes old
+PASS candidate duplicate reconcile is idempotent
+PASS candidate resegmentation retires stale case and clears pointer/current
+PASS candidate foreign case fails closed without unrelated changes
+PASS candidate superseded analysis cannot be republished
+PASS candidate malformed/missing mapping has no partial lifecycle writes
+PASS candidate duplicate case set rejected
+PASS candidate pointer drift repaired by exact candidate
+PASS candidate historical missing-current needs fresh staged analysis
+PASS candidate archived source never reactivated
+PASS candidate archived retry preserves history and retired timestamps
+PASS candidate zero-case source retires full previous set
+PASS candidate missing source rejected
+PASS archive also retires staged inactive cases and stale inactive pointers without deleting history
+PASS exact rollback to baseline
+PASS reapply candidate exact body
+PASS reapply first case staged, not published
+PASS reapply first complete source publishes
+PASS reapply duplicate stage retry no duplicate analysis
+PASS reapply reanalysis stages without pointer/current drift
+PASS reapply partial failed source preserves old publication
+PASS reapply retry publishes full source and supersedes old
+PASS reapply duplicate reconcile is idempotent
+PASS reapply resegmentation retires stale case and clears pointer/current
+PASS reapply foreign case fails closed without unrelated changes
+PASS reapply superseded analysis cannot be republished
+PASS reapply malformed/missing mapping has no partial lifecycle writes
+PASS reapply duplicate case set rejected
+PASS reapply pointer drift repaired by exact candidate
+PASS reapply historical missing-current needs fresh staged analysis
+PASS reapply archived source never reactivated
+PASS reapply archived retry preserves history and retired timestamps
+PASS reapply zero-case source retires full previous set
+PASS reapply missing source rejected
+PASS future archival routes atomically through canonical reconcile
+PASS archive trigger cannot recurse and retains historical analyses
+PASS real v35 archival path preserves SI case and analysis history
+PASS proof revoke failure rolls back source archival and lifecycle atomically
+PASS rollback restores exact owner ACL security and config as well as bodies
+PASS final reapply after full rollback restores all candidates
+PASS single transaction release bundle installs all candidates after rollback
+PASS read-only Phase A postcheck executes and validates all candidate hashes and unchanged data
+PASS read-only historical postcheck executes and detects no unrelated changes/history deletion in fixture
+PASS automatic reviews retire while human review and all history remain
+PASS strict Production precheck refuses different local PostgreSQL version
+{"passed":53,"failed":0,"baselineMd5":"9fd2f5976e2419ca7154d203b29da5fc","v2md5":"b1d51222a320d551aeb0034afae74211","postgres":"PostgreSQL 18.3 (PGlite 0.5.8) on wasm32-unknown-emscripten, compiled by emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 3.1.74 (1092ec30a3fb1d46b1782ff1b4db5094d3d06ae5), 32-bit"}

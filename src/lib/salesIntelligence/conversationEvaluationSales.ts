@@ -1,6 +1,6 @@
 import { REVIEW_CRITERIA } from '@/lib/conversationReviews';
 import type { CaseIntelligenceView } from './types';
-import { buildConversationEvaluationEvidence } from './conversationEvaluationEvidence';
+import { buildConversationEvaluationEvidence, hasSubstantiveBasket, salesCriteriaApplicable } from './conversationEvaluationEvidence';
 
 type SalesCriterionKey = 'sales_closing' | 'cross_sell_upsell';
 
@@ -59,12 +59,7 @@ function make(
 }
 
 function assessClosing(view: CaseIntelligenceView): SalesCriterionAssessment {
-  const salesApplicable =
-    view.interaction.caseType === 'sales_opportunity' ||
-    view.sale.isSaleCountable ||
-    view.basket.versions.length > 0;
-
-  if (!salesApplicable) {
+  if (!salesCriteriaApplicable(view)) {
     return make(
       'sales_closing',
       null,
@@ -139,7 +134,7 @@ function assessClosing(view: CaseIntelligenceView): SalesCriterionAssessment {
     }
   }
 
-  if (view.basket.versions.length > 0 || view.basket.activeItems.length > 0) {
+  if (hasSubstantiveBasket(view)) {
     return make(
       'sales_closing',
       'helped',
@@ -185,8 +180,46 @@ function assessCrossSell(view: CaseIntelligenceView): SalesCriterionAssessment {
       null,
       'not_applicable',
       100,
-      'لم يتم رصد اقتراح إضافي فعلي خارج طلب العميل؛ لا يتم افتراض أن هناك فرصة Cross-sell مهدرة.',
+      'لم يتم رصد اقتراح إضافي فعلي خارج طلب العميل؛ لا نفترض وجود فرصة بيع إضافي مهدرة.',
       []
+    );
+  }
+
+  // A basket role is not proof that the employee proposed an add-on. A final recap can introduce
+  // items that the customer may already have requested in image/voice media the export cannot read.
+  // Require a staff-authored recommendation attached to each candidate; unread earlier media keeps
+  // the criterion unscored until the original request can be reviewed.
+  const recommendationRx = /(?:أنصح|انصح|أرشح|ارشح|نرشح|ممكن\s+(?:تستخدم|تاخد|تاخدي)|ناخد|نستخدم|جرب(?:ي)?|خد(?:ي)?\s+كمان|تاخد(?:ي)?\s+كمان)/iu;
+  const staffRecommendationMessagesByProduct = new Map<string, string[]>();
+  for (const product of offeredExtra) {
+    const lifecycle = view.need.products.find((candidate) => candidate.key === product.productKey);
+    const evidenceIds = new Set(lifecycle?.evidenceMessageIds ?? []);
+    const recommendations = view.interaction.messages.filter(
+      (message) => message.role === 'staff' && evidenceIds.has(message.id) && recommendationRx.test(message.text)
+    );
+    if (recommendations.length) {
+      staffRecommendationMessagesByProduct.set(product.productKey, recommendations.map((message) => message.id));
+    }
+  }
+  const hasRecommendationEvidence = offeredExtra.every((product) => staffRecommendationMessagesByProduct.has(product.productKey));
+  const hasUnreadCustomerMediaBeforeOffer = offeredExtra.some((product) => {
+    const offerIds = new Set(staffRecommendationMessagesByProduct.get(product.productKey) ?? []);
+    if (!offerIds.size) return false;
+    const firstOfferIndex = view.interaction.messages.findIndex((message) => offerIds.has(message.id));
+    return view.interaction.messages.slice(0, firstOfferIndex).some(
+      (message) => message.role === 'customer' && /<(?:image|audio|voice message) omitted>|\[(?:image|audio|voice message) omitted\]/iu.test(message.text)
+    );
+  });
+  if (!hasRecommendationEvidence || hasUnreadCustomerMediaBeforeOffer) {
+    return make(
+      'cross_sell_upsell',
+      null,
+      'insufficient_evidence',
+      45,
+      hasUnreadCustomerMediaBeforeOffer
+        ? 'لا يمكن تحديد ما إذا كان الصنف إضافة خارج الطلب الأصلي لأن رسالة صورة/صوت سابقة غير مقروءة في التصدير.'
+        : 'وجود الصنف في تلخيص أو سلة لا يثبت أن الموظف اقترحه كإضافة؛ يلزم دليل اقتراح صريح مرتبط بالصنف.',
+      Array.from(staffRecommendationMessagesByProduct.values()).flat()
     );
   }
 
@@ -198,9 +231,7 @@ function assessCrossSell(view: CaseIntelligenceView): SalesCriterionAssessment {
   );
 
   if (accepted.length) {
-    const ids = offeredExtra.flatMap((product) =>
-      view.need.products.find((needProduct) => needProduct.key === product.productKey)?.evidenceMessageIds ?? []
-    );
+    const ids = accepted.flatMap((product) => staffRecommendationMessagesByProduct.get(product.productKey) ?? []);
     return make(
       'cross_sell_upsell',
       'useful',
@@ -212,9 +243,7 @@ function assessCrossSell(view: CaseIntelligenceView): SalesCriterionAssessment {
     );
   }
 
-  const ids = offeredExtra.flatMap((product) =>
-    view.need.products.find((needProduct) => needProduct.key === product.productKey)?.evidenceMessageIds ?? []
-  );
+  const ids = offeredExtra.flatMap((product) => staffRecommendationMessagesByProduct.get(product.productKey) ?? []);
   return make(
     'cross_sell_upsell',
     'partial',

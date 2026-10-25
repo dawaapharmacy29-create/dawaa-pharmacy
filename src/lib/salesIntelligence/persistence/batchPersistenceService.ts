@@ -19,8 +19,10 @@ import {
   CANDIDATE_RETRIEVAL_TIME_WINDOW,
   buildInvoiceCandidateQuery,
   fetchInvoiceCandidates,
+  withCandidatePoolCompleteness,
   type InvoiceCandidateQuery,
   type InvoiceCandidateQueryContext,
+  type InvoiceCandidateRows,
 } from '../invoiceCandidateRetrieval';
 import {
   deriveCasesOnly,
@@ -90,6 +92,8 @@ export interface RunBatchPersistenceInput {
   conversations: BatchConversationInput[];
   /** true (instruction #14): zero mutation, structured plan only. false: actually writes, per-case, reporting every outcome. */
   dryRun: boolean;
+  /** Stage analyses without changing current/published truth until the full source succeeds. */
+  deferPublication?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -306,16 +310,17 @@ async function fetchCandidatesForGroup(supabaseClient: any, group: CustomerGroup
  * candidate-retrieval-time filter, applied BEFORE attribution ever sees the pool, exactly mirroring
  * what a per-case fetch would have returned in the first place.
  */
-export function filterCandidatesToCaseWindow(candidates: InvoiceLike[], context: InvoiceCandidateQueryContext): InvoiceLike[] {
+export function filterCandidatesToCaseWindow(candidates: InvoiceCandidateRows, context: InvoiceCandidateQueryContext): InvoiceCandidateRows {
   const { windowStartIso, windowEndIso } = buildInvoiceCandidateQuery(context);
   const windowStartMs = new Date(windowStartIso).getTime();
   const windowEndMs = new Date(windowEndIso).getTime();
-  return candidates.filter((row) => {
+  const filtered = candidates.filter((row) => {
     const iso = parseInvoiceDateTime((row as Record<string, unknown>).invoice_datetime);
     if (!iso) return false;
     const ms = new Date(iso).getTime();
     return ms >= windowStartMs && ms <= windowEndMs;
   });
+  return withCandidatePoolCompleteness(filtered, candidates.candidatePoolComplete !== false);
 }
 
 // ---------------------------------------------------------------------------
@@ -413,7 +418,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
   // Step 2: group by canonical customer, one bounded time window + one candidate fetch per group
   // (instruction #12 steps 4-6).
   const groups = groupCasesByCustomer(segmented);
-  const candidatesByGroupKey = new Map<string, InvoiceLike[]>();
+  const candidatesByGroupKey = new Map<string, InvoiceCandidateRows>();
   for (const group of groups) {
     candidatesByGroupKey.set(group.key, await fetchCandidatesForGroup(supabaseClient, group));
   }
@@ -429,7 +434,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
   for (const group of groups) {
     for (const { conversationCase } of group.cases) groupKeyByCaseId.set(conversationCase.caseId, group.key);
   }
-  const conversationToGroupCandidates = (_conversation: BatchConversationInput, context: InvoiceCandidateQueryContext): InvoiceLike[] => {
+  const conversationToGroupCandidates = (_conversation: BatchConversationInput, context: InvoiceCandidateQueryContext): InvoiceCandidateRows => {
     const groupKey = groupKeyByCaseId.get(context.caseId);
     const groupCandidates = groupKey ? (candidatesByGroupKey.get(groupKey) ?? []) : [];
     return filterCandidatesToCaseWindow(groupCandidates, context);
@@ -465,7 +470,12 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
         resolveInvoiceCandidates: (context) => {
           const denied = deniedInvoiceIdsByCase.get(context.caseId);
           const rows = conversationToGroupCandidates(conversation, context);
-          return denied?.size ? rows.filter((row) => !denied.has(invoiceRowLookupId(row))) : rows;
+          return denied?.size
+            ? withCandidatePoolCompleteness(
+              rows.filter((row) => !denied.has(invoiceRowLookupId(row))),
+              rows.candidatePoolComplete !== false
+            )
+            : rows;
         },
         itemEvidenceProvider,
       };
@@ -534,6 +544,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
       rawWhatsAppExportText: conversationInput?.rawWhatsAppExportText ?? '',
       trustedConversationStartedAt: conversationInput?.trustedConversationStartedAt ?? null,
       branchIdentityMappingVersion: BRANCH_IDENTITY_MAPPING_VERSION,
+      caseOwnership: conversationCase.ownership,
       saleProofFingerprint: saleProofFingerprint(analysis),
     });
 
@@ -683,25 +694,8 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
       plan.warnings.push({ caseId: analysis.caseId, kind: 'pipeline_warning', detail: warning });
     }
 
-    // Real-run persistence — CHOSEN ATOMICITY BOUNDARY (instruction #13): per-CASE, not
-    // per-customer-group. A single Supabase JS client call cannot span a client-side multi-table
-    // transaction, and building one mega-RPC that writes all 5 tables for an entire customer group
-    // atomically would broaden the already-narrow, security-reviewed per-table RPCs (design doc
-    // §26/§27 — instruction #7 explicitly warns against broadening an RPC's responsibilities, and
-    // that reasoning applies just as much to inventing a NEW, much larger one). Instead: each
-    // case's own 5-table chain (case upsert -> analysis -> attribution -> match -> policy
-    // evaluation) is applied sequentially and its outcome recorded in full, success or failure,
-    // in `caseOutcomes`. A failure partway through ONE case's chain never rolls back that case's
-    // already-written rows (e.g. the case/analysis rows can legitimately exist even if the
-    // attribution write then fails) — but it also never silently proceeds past the failure: the
-    // remaining tables in THAT case's chain are simply not attempted, `outcome.success` is false,
-    // and the batch moves on to the NEXT case rather than aborting the whole group. This is the
-    // "safe staging/application strategy" instruction #13 accepts as an alternative to full
-    // group-level atomicity — every outcome is visible and reportable, never a silent partial
-    // write masquerading as success. A future phase could tighten this to per-case atomicity via
-    // one additional narrowly-scoped RPC if partial per-case writes prove operationally unsafe;
-    // H.1B does not build that RPC without evidence it's actually needed (instruction #7's own
-    // "do not create an RPC unless atomicity actually requires it").
+    // Per-case evidence is staged. Canonical refresh publishes only after every derived case
+    // in this source succeeded; failed chains remain retryable without moving current pointers.
     if (!input.dryRun) {
       const outcome: CasePersistenceOutcome = {
         caseId: analysis.caseId,
@@ -714,14 +708,15 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
         match: null,
       };
       try {
-        outcome.caseUpsert = await upsertSalesIntelligenceCase(supabaseClient, analysis.caseId, caseContent);
+        outcome.caseUpsert = await upsertSalesIntelligenceCase(supabaseClient, analysis.caseId, caseContent, input.deferPublication === true);
         outcome.analysis = await persistCaseAnalysis(
           supabaseClient,
           analysis.caseId,
           conversationInput?.rawWhatsAppExportText ?? '',
           caseAnalysisContent,
           conversationInput?.trustedConversationStartedAt ?? null,
-          saleProofFingerprint(analysis)
+          saleProofFingerprint(analysis),
+          input.deferPublication === true
         );
         outcome.attribution = await persistAttribution(
           supabaseClient,
@@ -772,49 +767,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
     }
   }
 
-  if (!input.dryRun) {
-    const derivedCaseIdsByConversation = new Map<string, Set<string>>();
-    for (const analysis of caseAnalyses) {
-      const set = derivedCaseIdsByConversation.get(analysis.conversationId) ?? new Set<string>();
-      set.add(analysis.caseId);
-      derivedCaseIdsByConversation.set(analysis.conversationId, set);
-    }
-
-    const outcomeByCaseId = new Map(caseOutcomes.map((outcome) => [outcome.caseId, outcome]));
-
-    for (const conversation of effectiveConversations) {
-      const derivedCaseIds =
-        derivedCaseIdsByConversation.get(conversation.conversationId) ?? new Set<string>();
-
-      const allDerivedCasesSucceeded = Array.from(derivedCaseIds).every(
-        (caseId) => outcomeByCaseId.get(caseId)?.success === true
-      );
-      if (!allDerivedCasesSucceeded) continue;
-
-      const { data: existingCases, error: existingCasesError } = await supabaseClient
-        .from('sales_intelligence_cases')
-        .select('case_id')
-        .eq('conversation_id', conversation.conversationId);
-      if (existingCasesError) throw existingCasesError;
-
-      const staleCaseIds = (existingCases ?? [])
-        .map((row: { case_id?: string | null }) => String(row.case_id ?? '').trim())
-        .filter((caseId: string) => caseId && !derivedCaseIds.has(caseId));
-
-      if (!staleCaseIds.length) continue;
-
-      const { error: retireError } = await supabaseClient
-        .from('sales_intelligence_case_analyses')
-        .update({
-          is_current: false,
-          superseded_at: new Date().toISOString(),
-          superseded_by_analysis_id: null,
-        })
-        .in('case_id', staleCaseIds)
-        .eq('is_current', true);
-      if (retireError) throw retireError;
-    }
-  }
+  // Lifecycle retirement/publication belongs exclusively to source reconciliation.
 
   const persistencePlanningMs = Date.now() - planningStart;
 

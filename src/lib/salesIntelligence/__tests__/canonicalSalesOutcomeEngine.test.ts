@@ -21,6 +21,21 @@ function proof(state: any, needsHumanReview = false): any {
 }
 
 describe('Canonical sales outcome engine', () => {
+  it('noncommercial follow-up is never countable even if invoice evidence is proven', () => {
+    const outcome = deriveCanonicalSalesOutcome({
+      caseId: 'service-followup',
+      caseType: 'follow_up',
+      commercialConfirmation: { currentState: 'commercial_confirmation_complete', customerConfirmed: true },
+      saleProof: proof('proven'),
+      hasMeaningfulBasketItems: true,
+      needsHumanReview: true,
+    });
+    expect(outcome.outcome).toBe('needs_review');
+    expect(outcome.isSaleCountable).toBe(false);
+    expect(outcome.isRevenueCountable).toBe(false);
+    expect(outcome.isOrderConfirmed).toBe(false);
+  });
+
   it('counts a sale only when canonical SaleProof is proven', () => {
     const result = deriveCanonicalSalesOutcome({
       caseId: 'case-1',

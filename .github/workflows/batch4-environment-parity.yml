@@ -1,0 +1,93 @@
+name: Batch 4 Environment Parity
+
+on:
+  push:
+    branches: ['fix/whatsapp-master-brain-lifecycle-v4-continuation-20261017']
+    paths:
+      - '.github/workflows/batch4-environment-parity.yml'
+      - 'scripts/test-si-lifecycle-batch4.mjs'
+      - 'scripts/verification/**'
+      - 'docs/whatsapp-master-brain-lifecycle-v4-20261017/sql/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: batch4-environment-parity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/fix/whatsapp-master-brain-lifecycle-v4-continuation-20261017'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: local-fixture-only
+          POSTGRES_DB: dawaa_batch4_verification
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d dawaa_batch4_verification"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      DAWAA_NATIVE_PG_URL: postgresql://postgres:local-fixture-only@127.0.0.1:5432/dawaa_batch4_verification
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install exact application lockfile
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Install isolated native test client
+        run: |
+          npm install --prefix "$RUNNER_TEMP/batch4-native-client" --ignore-scripts --no-audit --no-fund pg@8.16.3
+          echo "DAWAA_PG_MODULE=$RUNNER_TEMP/batch4-native-client/node_modules/pg/lib/index.js" >> "$GITHUB_ENV"
+          node --version | tee batch4-node-version.txt
+          sha256sum package-lock.json | tee batch4-lockfile-sha256.txt
+      - name: Exact SQL matrix, rollback, reapply and native concurrency
+        run: |
+          set -o pipefail
+          node scripts/test-si-lifecycle-batch4.mjs 2>&1 | tee batch4-native-pg17.log
+      - name: Targeted Batch 4 runtime tests
+        run: npx vitest run src/lib/salesIntelligence/persistence/__tests__/refreshSourceCanonicalGate.test.ts src/lib/salesIntelligence/persistence/__tests__/stagedCaseWriter.test.ts src/lib/salesIntelligence/refresh/__tests__/canonicalBackfill.test.ts src/lib/salesIntelligence/qa/__tests__/lifecycleExceptions.test.ts
+      - name: Full relevant tests including Cairo and UTC
+        run: npm test
+      - name: Existing quality script checks
+        run: |
+          python3 - <<'PY'
+          import pathlib,re,subprocess
+          workflow=pathlib.Path('.github/workflows/quality-gate.yml').read_text()
+          commands=list(dict.fromkeys(re.findall(r'run: (node scripts/[^\n]+)',workflow)))
+          assert len(commands)==29, 'quality command inventory changed'
+          for command in commands:
+              subprocess.run(command,shell=True,check=True)
+          PY
+      - name: Generated API parity
+        run: node scripts/build-sales-intelligence-refresh-api.cjs --check
+      - name: TypeScript
+        run: npm run typecheck
+      - name: Semantic ESLint
+        run: |
+          npx eslint . --ext .ts,.tsx --ignore-path .eslintignore --quiet --rule 'prettier/prettier: off' --format json --output-file batch4-semantic-eslint.json
+      - name: Production build
+        run: npm run build
+      - name: Performance budget
+        run: npm run perf:budget
+      - name: Verify checks did not mutate source
+        run: git diff --exit-code
+      - name: Preserve verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: batch4-environment-parity
+          path: |
+            batch4-native-pg17.log
+            batch4-node-version.txt
+            batch4-lockfile-sha256.txt
+            batch4-semantic-eslint.json
+          if-no-files-found: ignore

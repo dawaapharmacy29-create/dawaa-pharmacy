@@ -1,3 +1,4 @@
+import { reconcileWhatsAppSourcesAfterCustomerChange } from '@/lib/customers/whatsappSourceCustomerReconciliation';
 import { supabase } from '@/lib/supabase';
 
 export type CustomerSearchResult = {
@@ -106,7 +107,7 @@ export async function createCustomerFromSearch(input: {
   phone: string;
   code?: string;
   branch?: string;
-}) {
+}): Promise<CustomerSearchResult & { sourceLinkNote: string | null; sourceLinkFailed: boolean }> {
   const payload = {
     customer_name: input.name.trim(),
     name: input.name.trim(),
@@ -122,7 +123,16 @@ export async function createCustomerFromSearch(input: {
   let next: Record<string, unknown> = payload;
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const { data, error } = await supabase.from('customers').insert(next).select(CUSTOMER_SEARCH_FIELDS).single();
-    if (!error && data) return normalizeCustomerRow(data as Record<string, unknown>);
+    if (!error && data) {
+      // The customer is saved either way. Earlier WhatsApp conversations (this code, then any
+      // still-unlinked coded source) are linked with audit; the outcome is returned to show, never hidden.
+      const reconciliation = await reconcileWhatsAppSourcesAfterCustomerChange(supabase, [input.code]);
+      return {
+        ...normalizeCustomerRow(data as Record<string, unknown>),
+        sourceLinkNote: reconciliation.note,
+        sourceLinkFailed: Boolean(reconciliation.error) || reconciliation.outcomes.some((row) => row.status === 'failed' || row.status === 'linked_audit_missing'),
+      };
+    }
     const column =
       error?.message.match(/column "([^"]+)"/)?.[1] ||
       error?.message.match(/'([^']+)' column/)?.[1];

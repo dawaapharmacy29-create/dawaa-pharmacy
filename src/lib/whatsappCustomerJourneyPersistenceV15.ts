@@ -3,7 +3,6 @@ import type { WhatsAppCustomerJourneyIntelligenceV15 } from './whatsappCustomerJ
 import { syncPersistentCustomerStoryV16 } from './whatsappCustomerStoryV16';
 import { linkWhatsAppEvidenceJourneyV17 } from './whatsappEvidenceJourneyLinkV17';
 import type { WhatsAppConversationSession } from './whatsappConversationParser';
-import { writeWhatsAppOperationalActionsV6 } from './whatsappOperationalIntelligenceV6';
 
 // Journey V15 (+ Story V16, evidence links) is a SIDE PROJECTION of the canonical chain
 //   Source -> Customer Case V22 -> Sales Intelligence.
@@ -42,11 +41,6 @@ function errorText(error: unknown) {
   if (error instanceof Error) return error.message;
   if (error && typeof error === 'object' && 'message' in error) return String((error as { message: unknown }).message);
   return String(error);
-}
-
-function dueInHours(hours: number | null) {
-  if (hours == null) return null;
-  return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
 }
 
 export async function syncWhatsAppCustomerJourneyV15(
@@ -129,69 +123,8 @@ export async function syncWhatsAppCustomerJourneyV15(
   }
 
   const warnings: string[] = [];
-  const recoveryAction = model.actions.find((action) => action.key === 'journey-recovery-followup');
-  if (recoveryAction) {
-    // The recovery follow-up is an operation like any other: written through the same writer and
-    // the same Stable Operation Identity (evidence episode of the problem session), never through
-    // a separate source+key upsert that could duplicate or overwrite another operation.
-    const sessionById = new Map((context.sessions || []).map((session) => [session.id, session]));
-    const evidenceSession =
-      recoveryAction.evidenceSessionIds.map((id) => sessionById.get(id)).find(Boolean) ||
-      sessionById.get(rootMapping.sessionId) ||
-      null;
-    if (!evidenceSession) {
-      // Fail closed: without the conversation messages there is no stable identity to write under.
-      warnings.push('journey_recovery_followup_identity_unresolved');
-    } else {
-      const timelineSession = {
-        ...evidenceSession,
-        messages: (context.sessions || []).flatMap((session) => session.messages),
-      };
-      await writeWhatsAppOperationalActionsV6(
-        [
-          {
-            action_key: model.unresolvedComplaint ? 'complaint-followup' : 'customer-followup',
-            action_type: recoveryAction.type,
-            status: journey.customer_code ? 'ready' : 'proposed',
-            confidence: model.customerRisk === 'critical' ? 96 : model.customerRisk === 'high' ? 90 : 80,
-            auto_eligible: Boolean(journey.customer_code),
-            due_at: dueInHours(recoveryAction.dueInHours),
-            reason: recoveryAction.reason,
-            evidence: recoveryAction.evidenceSessionIds,
-            payload: {
-              journey_id: journey.id,
-              journey_key: journeyKey,
-              journey_version: model.version,
-              keep_open_until: recoveryAction.keepOpenUntil,
-              recovery_attempts: model.recoveryAttempts,
-              customer_state: model.customerState,
-              summary: model.summary,
-            },
-          },
-        ],
-        {
-          sourceId: String(journey.root_source_id),
-          branch: context.branch || root.branch || null,
-          customerId: root.customer_id || null,
-          customerCode: root.customer_code || null,
-          customerName: root.customer_name || null,
-          customerPhone: root.customer_phone || null,
-          staffId: root.staff_id || null,
-          staffName: root.staff_name || null,
-          createdBy: context.createdBy || null,
-          followupIdentity: {
-            session: timelineSession,
-            caseStartedAt: evidenceSession.startedAt,
-            legacy: {
-              customer: root.customer_id
-                ? { status: 'resolved', customerId: String(root.customer_id), normalizedPhone: null, customerCode: null }
-                : null,
-            },
-          },
-        }
-      );
-    }
-  }
+  // Journey V15 remains a story/evidence side projection only. Recovery task publication is
+  // owned exclusively by the canonical Sales Intelligence FollowUp/Complaint projectors.
 
   let story: Awaited<ReturnType<typeof syncPersistentCustomerStoryV16>> = null;
   let storyStatus: JourneySyncResultV15['story'] = { status: 'skipped', error: null };

@@ -754,53 +754,31 @@ describe('operational action writer: one row per real operation', () => {
     expect(db.writes.filter((w) => w.table === ACTIONS)).toHaveLength(0);
   });
 
-  it('Journey V15 (reachable from every file ingest) writes its recovery follow-up through the same identity', async () => {
+  it('Journey V15 is story/evidence only and never publishes recovery tasks beside canonical SI', async () => {
     const raw = `[9/15/26, 6:00:00 AM] Customer: عايز اوردر كونجستال
 [9/15/26, 6:05:00 AM] You: تمام
 [9/15/26, 9:30:00 AM] Customer: الاوردر ماوصلش ومحدش رد`;
     const contexts = segmentWhatsAppExportCanonical(parse(raw), 'chat.txt').caseContexts.contexts;
     const sessions = contexts.map((context) => context.mergedSession);
     const journeyModel = buildWhatsAppCustomerJourneyIntelligenceV15(sessions);
-    const recovery = journeyModel.actions.find((action) => action.key === 'journey-recovery-followup')!;
-    expect(recovery).toBeTruthy();
+    expect(journeyModel.actions.find((action) => action.key === 'journey-recovery-followup')).toBeTruthy();
     db.tables.whatsapp_review_sources = [{ id: 'source-fixture-a', branch: 'branch-fixture', customer_id: null }];
-    let sourceId = 'source-fixture-a';
+
     const run = () =>
       syncWhatsAppCustomerJourneyV15(journeyModel, {
-        sessionSources: sessions.map((session) => ({ sessionId: session.id, sourceId, contextOnly: false })),
+        sessionSources: sessions.map((session) => ({
+          sessionId: session.id,
+          sourceId: 'source-fixture-a',
+          contextOnly: false,
+        })),
         sessions,
       });
-    await run();
-    await run();
-    const firstRecovery = { ...rows()[0] };
-    for (const customer of [RESOLVED_B, UNRESOLVED, RESOLVED]) {
-      db.tables.whatsapp_review_sources[0].customer_id = customer.customerId;
-      await run();
-      expect(rows()).toHaveLength(1);
-      expect(rows()[0]).toMatchObject({ id: firstRecovery.id, followup_identity: firstRecovery.followup_identity, customer_id: customer.customerId });
-    }
-    for (const [index, customer] of [RESOLVED, RESOLVED_B, UNRESOLVED, RESOLVED].entries()) {
-      sourceId = `source-journey-${index}`;
-      db.tables.whatsapp_review_sources.push({ id: sourceId, branch: 'branch-fixture', customer_id: customer.customerId });
-      await run();
-      expect(rows()).toHaveLength(1);
-      expect(rows()[0]).toMatchObject({ id: firstRecovery.id, followup_identity: firstRecovery.followup_identity, customer_id: customer.customerId });
-    }
-    const actions = rows();
-    expect(actions).toHaveLength(1);
-    const evidenceSession = sessions.find((session) => recovery.evidenceSessionIds.includes(session.id))!;
-    const expected = stableOperationIdentity({
-      timeline: sessions.flatMap((session) => session.messages),
-      evidenceAt: evidenceSession.startedAt,
-      operationType: recovery.type,
-    }).identity;
-    expect(actions[0]).toMatchObject({ source_id: 'source-fixture-a', action_type: recovery.type, followup_identity: expected });
-    // Without the conversation messages it fails closed: no identity-less row is written.
-    db.tables[ACTIONS] = [];
-    const result = await syncWhatsAppCustomerJourneyV15(journeyModel, {
-      sessionSources: sessions.map((session) => ({ sessionId: session.id, sourceId: 'source-fixture-a', contextOnly: false })),
-    });
+
+    const first = await run();
+    const second = await run();
+    expect(first).toBeTruthy();
+    expect(second).toBeTruthy();
     expect(rows()).toHaveLength(0);
-    expect(result?.warnings).toContain('journey_recovery_followup_identity_unresolved');
+    expect(db.writes.filter((write) => write.table === ACTIONS)).toHaveLength(0);
   });
 });

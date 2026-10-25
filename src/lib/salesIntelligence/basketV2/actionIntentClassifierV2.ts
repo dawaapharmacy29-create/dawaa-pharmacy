@@ -25,6 +25,12 @@ const ORDER_VERB_RX = /هات[ي]?|عايز[ةه]?|عاوز[ةه]?|محتاج[ة
 // content, decided by the caller, not this pure per-message classifier).
 const ADD_MARKER_RX = /زود(?:ي)?|ضيف(?:ي)?|كمان\s*عايز|كمان\s*حاجة|نسيت/i;
 const REMOVE_MARKER_RX = /شيل(?:ي)?|الغ[يى](?:ي)?(?!\s*الطلب|\s*كل)/i;
+// A customer line that continues an order list with "و" + a pack/dosage-form noun ("وقطرة هاى فريش",
+// "وعلبة سويتال", "وشريط كيوتابكس") is another requested item, exactly like an order-verb line.
+// Narrowed to pack nouns so ordinary "و…" chatter never becomes an action. Without this, an
+// unresolved product on such a line had no action edge and silently vanished instead of surfacing
+// for human review (benchmark R16).
+const LIST_CONTINUATION_RX = /^و\s*(?:قطر[ةه]|علب[ةه]|شريط|شرايط|ازاز[ةه]|إزاز[ةه]|زجاج[ةه]|كريم|مرهم|جل|بخاخ|حقن[ةه]|امبول[ةه]?|أمبول[ةه]?|كبسول[ةه]?|اقراص|أقراص|برشام|فوار|شامبو|لبوس|نقط)(?=\s|$)/i;
 
 // Whole-order cancellation — deliberately a DIFFERENT, stronger pattern than a single-item
 // rejection (instruction #20: "مش عايز زوركال" must never be confused with cancelling the order).
@@ -167,6 +173,10 @@ export function classifyMessageActions(
         confidence: 0.75,
         ruleIds: [hasExistingBasketContent ? 'action.add.order_verb_with_existing_basket' : 'action.request_product.order_verb'],
       });
+      return actions;
+    }
+    if (hasExistingBasketContent && !isQuestion && LIST_CONTINUATION_RX.test(text.trim())) {
+      actions.push({ actionType: 'add', confidence: 0.6, ruleIds: ['action.add.list_continuation_with_existing_basket'] });
       return actions;
     }
   }

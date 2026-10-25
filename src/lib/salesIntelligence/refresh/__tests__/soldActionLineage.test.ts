@@ -3,12 +3,13 @@ import { reconcileSoldCustomerRequestActions } from '../canonicalRefreshService'
 
 const proof = {
   caseId: 'case-1',
+  caseIntelligence: { interaction: { messageIds: ['1790546187000-4-Customer', '1790546329000-5-You'] } },
   attribution: { selectedInvoiceId: 'invoice-1', selectedInvoiceNumber: '101', attributionLevel: 'proven', contradictions: [] },
   basketInvoiceMatch: { itemMatch: 'exact', itemEvidenceReady: true },
 };
 
 function fixture(target: Record<string, unknown> = {}, options: { readError?: boolean; writeError?: boolean; race?: boolean } = {}) {
-  const row: any = { id: 'action-1', action_key: 'request:1:product', action_type: 'customer_request', status: 'created', product_id: 'product-1', payload: { origin: 'fixture' }, ...target };
+  const row: any = { id: 'action-1', action_key: 'request:1:product', action_type: 'customer_request', status: 'created', product_id: 'product-1', payload: { origin: 'fixture', caseId: 'case-1' }, ...target };
   const writes: any[] = [];
   const filters: any[] = [];
   const service = { from(table: string) {
@@ -69,6 +70,24 @@ describe('canonical sold-action execution lineage', () => {
       {...proof, attribution:{...proof.attribution, contradictions:['mismatch']}},
     ]);
     expect(f.writes).toHaveLength(0);
+  });
+  it('never closes a request of a sibling case with another case invoice in the same conversation', async () => {
+    const sibling = { ...proof, caseId: 'case-2', caseIntelligence: { interaction: { messageIds: ['1790495647000-0-You'] } } };
+    const f = fixture({ payload: { origin: 'fixture', caseId: 'case-2' } });
+    await reconcileSoldCustomerRequestActions(f.service, 'source-1', [proof]);
+    expect(f.writes).toHaveLength(0);
+    // The request's own case closes it only with its own proven invoice.
+    await reconcileSoldCustomerRequestActions(f.service, 'source-1', [proof, sibling]);
+    expect(f.writes).toHaveLength(1);
+    expect(f.row.payload.canonical_sale.case_id).toBe('case-2');
+  });
+  it('fails closed when the request case cannot be identified', async () => {
+    const f = fixture({ payload: { origin: 'fixture' }, evidence: [] });
+    await reconcileSoldCustomerRequestActions(f.service, 'source-1', [proof]);
+    expect(f.writes).toHaveLength(0);
+    const legacy = fixture({ payload: { origin: 'fixture' }, evidence: ['case:1790546187000-0'] });
+    await reconcileSoldCustomerRequestActions(legacy.service, 'source-1', [proof]);
+    expect(legacy.writes).toHaveLength(1);
   });
   it('surfaces action read and write failures', async () => {
     for(const options of [{readError:true},{writeError:true}]) {

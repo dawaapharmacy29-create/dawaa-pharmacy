@@ -1,5 +1,6 @@
 import { normalizeBranchName } from '../branch';
 import { getInvoiceBranch, type InvoiceLike } from '../invoices/invoiceCore';
+import { readInvoiceItemCommercialMeta } from '../invoices/invoiceItemCommercialMeta';
 import type {
   InvoiceItemEvidenceProvider,
   InvoiceItemRecordForAttribution,
@@ -134,26 +135,27 @@ export function buildInvoiceItemEvidenceProvider(
     if (!productName) continue;
 
     const bucket = itemsByInvoiceId.get(resolvedId) ?? [];
-    const meta = row.raw_data?.__dawaa_commercial ?? {};
+    // Both stored raw_data shapes (importer object and compact B-Connect rows) carry returns.
+    const meta = readInvoiceItemCommercialMeta(row.raw_data);
     bucket.push({
       productNameRaw: productName,
       productId: clean(row.product_id) || null,
       productCode: clean(row.product_code) || null,
       quantity:
-        numberOrNull(meta.effective_quantity) ??
+        meta.effectiveQuantity ??
         (() => {
           const quantity = numberOrNull(row.quantity);
-          const returned = numberOrNull(meta.returned_quantity) ?? 0;
+          const returned = meta.returnedQuantity ?? 0;
           return quantity == null ? null : Math.max(0, quantity - Math.max(0, returned));
         })(),
-      unitName: clean(meta.unit_name) || null,
-      expiryRaw: clean(meta.expiry_raw) || null,
-      returnedQuantity: numberOrNull(meta.returned_quantity),
+      unitName: meta.unitName,
+      expiryRaw: meta.expiryRaw,
+      returnedQuantity: meta.returnedQuantity,
       unitPrice: numberOrNull(row.unit_price),
-      itemDiscountAmount: numberOrNull(meta.item_discount_amount),
-      itemDiscountPercent: numberOrNull(meta.item_discount_percent),
-      grossLineAmount: numberOrNull(meta.gross_line_amount),
-      netLineAmount: numberOrNull(meta.net_line_amount) ?? numberOrNull(row.line_total),
+      itemDiscountAmount: meta.itemDiscountAmount,
+      itemDiscountPercent: meta.itemDiscountPercent,
+      grossLineAmount: meta.grossLineAmount,
+      netLineAmount: meta.netLineAmount ?? numberOrNull(row.line_total),
       lineTotal: numberOrNull(row.line_total),
     });
     itemsByInvoiceId.set(resolvedId, bucket);

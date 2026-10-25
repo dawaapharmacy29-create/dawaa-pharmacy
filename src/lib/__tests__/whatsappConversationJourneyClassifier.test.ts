@@ -85,9 +85,9 @@ describe('classifyConversationJourney', () => {
 });
 
 describe('mapSaleState', () => {
-  it('chat suggests a sale but no matching invoice -> chat_sale_signal', () => {
+  it('legacy chat flags cannot create a sale signal without canonical truth', () => {
     const state = mapSaleState({ commercialEligible: true, chatSuggestedSold: true }, { status: 'not_found' });
-    expect(state).toBe('chat_sale_signal');
+    expect(state).toBe('no_verified_invoice');
   });
 
   it('a real matching invoice confirms the sale -> invoice_verified_sale', () => {

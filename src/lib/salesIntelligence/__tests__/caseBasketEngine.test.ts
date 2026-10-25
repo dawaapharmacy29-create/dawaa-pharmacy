@@ -152,7 +152,8 @@ describe('Case Basket Engine (Sales Intelligence Phase B.2) — Golden Cases', (
       const { baskets } = firstCaseWithBaskets(raw);
       expect(baskets.length).toBe(1);
       expect(baskets[0].status).toBe('confirmed');
-      expect(baskets[0].confirmedByCustomerAt).toBe('2026-09-15T09:02:00.000Z');
+      // 9:02 AM Africa/Cairo (UTC+3 on 2026-09-15) — WhatsApp wall-clock is Cairo time, not UTC.
+      expect(baskets[0].confirmedByCustomerAt).toBe('2026-09-15T06:02:00.000Z');
       expect(baskets[0].announcedTotal?.amount).toBe(180);
       expect(deriveCaseStatusFromBasket('basket_building', baskets[0])).toBe('customer_confirmed');
     });
@@ -198,7 +199,8 @@ describe('Case Basket Engine (Sales Intelligence Phase B.2) — Golden Cases', (
 [9/15/26, 9:02:00 AM] Customer: تمام`;
       const { baskets } = firstCaseWithBaskets(raw);
       expect(baskets[0].status).toBe('confirmed');
-      expect(baskets[0].confirmedByCustomerAt).toBe('2026-09-15T09:02:00.000Z');
+      // 9:02 AM Africa/Cairo (UTC+3 on 2026-09-15) — WhatsApp wall-clock is Cairo time, not UTC.
+      expect(baskets[0].confirmedByCustomerAt).toBe('2026-09-15T06:02:00.000Z');
     });
 
     it('C5. a generic "تمام" too far past the summary (outside the lookback window) is NOT linked or confirmed', () => {

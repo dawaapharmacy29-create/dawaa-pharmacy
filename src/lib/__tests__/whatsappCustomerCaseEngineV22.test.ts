@@ -291,7 +291,8 @@ describe('Sales Intelligence cross-script product regressions', () => {
       ? (analysis.itemsByBasketId[analysis.activeBasket.basketId] ?? [])
       : [];
     expect(activeItems.some((item) => item.productId === 'hero-3' && item.quantity === 2)).toBe(true);
-    expect(analysis.basketInvoiceMatch.quantityMatch).toBe('exact');
+    expect(activeItems.find((item) => item.productId === 'hero-3')?.resolutionStatus).toBe('partially_proven');
+    expect(analysis.basketInvoiceMatch.quantityMatch).toBe('insufficient_data');
     expect(analysis.basketInvoiceMatch.differences.some((difference) => difference.type === 'missing_item' && String(difference.key).includes('هيرو'))).toBe(false);
     expect(analysis.basketInvoiceMatch.differences.some((difference) => difference.type === 'extra_item' && String(difference.key).toLowerCase().includes('hero baby'))).toBe(false);
   });

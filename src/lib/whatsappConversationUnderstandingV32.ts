@@ -2,6 +2,7 @@
 // whatsappSmart*/whatsappCase*/whatsapp*V2x engine. Read-once, facts-only, no scoring.
 // See conversation history for the full V32 scope agreement (Phase A/B/C only).
 import type { WhatsAppConversationSession, WhatsAppParsedMessage } from './whatsappConversationParser';
+import { extractIntroducedStaffName, isCustomerServiceIntroduction } from './whatsappConversationParser';
 import {
   AUTOMATED_REPLY_RX,
   buildSemanticSignalsV32,
@@ -12,8 +13,12 @@ import {
   isAcceptanceOnly,
   isBareAcknowledgementOnly,
   isRejectionOnly,
+  isOperationalServiceClosure,
+  isOperationalServiceRequest,
   isRequestCandidate,
   isThanksOrClosingOnly,
+  startsIndependentCommercialNeed,
+  startsIndependentCommercialNeedDuringOpenService,
   type ConversationSemanticSignalV32,
 } from './whatsappSemanticSignalsV32';
 
@@ -25,6 +30,8 @@ export interface ParticipantIdentityV32 {
 }
 
 export interface NormalizedConversationMessageV32 {
+  /** Canonical directory context, supplied per message; never inferred from home branch. */
+  staffFunction?: 'customer_service';
   id: string;
   timestamp: Date;
   direction: 'inbound' | 'outbound' | 'system';
@@ -63,7 +70,14 @@ export interface ConversationInteractionV32 {
     | 'time_gap'
     | 'reopened_after_closing'
     | 'topic_shift_marker'
-    | 'new_commercial_need';
+    | 'new_commercial_need'
+    | 'customer_service_new_need'
+    | 'new_service_need';
+  /**
+   * Messages that stayed in this interaction across a time gap, and why. A gap alone never
+   * splits or merges; these are the semantic ties that kept the case together.
+   */
+  continuationEvidence?: Array<{ messageId: string; reason: 'open_service_need_followup' | 'semantic_continuation' }>;
 }
 
 export interface ConversationUnderstandingV32 {
@@ -119,6 +133,30 @@ const PAYMENT_SETTLEMENT_CONTINUATION_RX =
 export function hasPaymentSettlementHandoffText(text: string): boolean {
   return PAYMENT_SETTLEMENT_CONTINUATION_RX.test(text || '');
 }
+// An open operational need (a requested nurse visit) keeps its follow-ups in the same case for
+// up to 12 hours; past that, a chase needs its own explicit reference.
+const OPEN_SERVICE_NEED_MAX_GAP_MS = 12 * 60 * 60 * 1000;
+
+/** The latest service request in the current case that nothing has closed yet. */
+function openServiceNeed(current: NormalizedConversationMessageV32[]): NormalizedConversationMessageV32 | null {
+  let open: NormalizedConversationMessageV32 | null = null;
+  for (const message of current) {
+    if (isOperationalServiceRequest(message)) open = message;
+    else if (open && isOperationalServiceClosure(message)) open = null;
+  }
+  return open;
+}
+
+/** A customer turn that continues an open service need: anything that does not start a new need. */
+function continuesOpenServiceNeed(
+  current: NormalizedConversationMessageV32[],
+  next: NormalizedConversationMessageV32,
+  gapMs: number
+): boolean {
+  if (next.role !== 'customer' || !next.isMeaningful || gapMs > OPEN_SERVICE_NEED_MAX_GAP_MS) return false;
+  return Boolean(openServiceNeed(current)) && !startsIndependentCommercialNeedDuringOpenService(next);
+}
+
 const ADDITIVE_REQUEST_RX =
   /(?:^|\s)(?:وكمان|كمان|وزود|زود|ضيف|معاهم|معاه|مع\s*الطلب)(?:\s|$)/i;
 const STAFF_PENDING_REPLY_RX =
@@ -240,8 +278,13 @@ function hasStrongSemanticContinuation(
     return true;
   }
   if (next.role !== 'customer' || !next.isMeaningful) return false;
+  if (continuesOpenServiceNeed(current, next, gapMs)) return true;
   if (isSameOrderContinuation(current, next, gapMs)) return true;
   if (gapMs <= SEMANTIC_CONTINUATION_MAX_GAP_MS) {
+    // A bounded answer to explicit customer-service outreach stays with that
+    // outreach even after the transport time gap. A new request is excluded.
+    if (current.some(isServiceMessage) && !isExplicitCommercialRequest(next) &&
+        /الوالد|والدي|الخدم[ةه]|التمريض|الممرض|اتحسن|تحسن|الحمد\s*لله/u.test(next.text)) return true;
     if (hasResolvedProductReferenceContinuation(current, next)) return true;
     if (hasLinkedCorrectionContinuation(current, next)) return true;
     if (isCustomerResponseContinuation(current, next)) return true;
@@ -307,12 +350,35 @@ function normalizeMessage(
   };
 }
 
+/** A new explicit order/consultation after a welfare exchange is a new interaction,
+ * even within minutes. A physician handoff alone, or another answer to the welfare
+ * question, cannot split the same issue. Keep a preceding doctor introduction with
+ * the new need when it is the trailing staff-only part of the exchange. */
+function isServiceMessage(message: NormalizedConversationMessageV32): boolean {
+  return message.staffFunction === 'customer_service' || isCustomerServiceIntroduction(message);
+}
+
+function serviceToNewNeedBoundary(current: NormalizedConversationMessageV32[], next: NormalizedConversationMessageV32): number | null {
+  const consultation = (m: NormalizedConversationMessageV32) => m.role === 'customer' && m.isMeaningful &&
+    /(?:عايز|عاوز|محتاج|ممكن|عندي).{0,30}(?:استشار[ةه]|سؤال\s*طبي)|(?:ممكن|عايز|عاوز)\s*(?:اسأل|أسأل)\s*(?:ال)?دكتور/u.test(m.text);
+  if (!current.some(isServiceMessage) ||
+      !(isExplicitCommercialRequest(next) || consultation(next)) ||
+      current.some((m) => isExplicitCommercialRequest(m) || consultation(m))) return null;
+  let lastCustomerIndex = -1;
+  current.forEach((m, i) => { if (m.role === 'customer' && m.isMeaningful) lastCustomerIndex = i; });
+  if (lastCustomerIndex < 0) return null;
+  const trailingIntro = current.findIndex((m, i) => i > lastCustomerIndex &&
+    m.direction === 'outbound' && Boolean(extractIntroducedStaffName(m)) && !isCustomerServiceIntroduction(m));
+  return trailingIntro >= 0 ? trailingIntro : current.length;
+}
+
 function segmentInteractions(messages: NormalizedConversationMessageV32[]): ConversationInteractionV32[] {
   if (!messages.length) return [];
   const interactions: ConversationInteractionV32[] = [];
   let current: NormalizedConversationMessageV32[] = [];
   let reason: ConversationInteractionV32['segmentationReason'] = 'conversation_start';
   let sawClosingSinceLastMeaningfulInbound = false;
+  let continuationEvidence: NonNullable<ConversationInteractionV32['continuationEvidence']> = [];
 
   const flush = () => {
     if (!current.length) return;
@@ -334,21 +400,48 @@ function segmentInteractions(messages: NormalizedConversationMessageV32[]): Conv
       triggerMessageId: trigger?.id || null,
       primaryStaffNames: staffNames,
       segmentationReason: reason,
+      ...(continuationEvidence.length ? { continuationEvidence } : {}),
     });
     current = [];
+    continuationEvidence = [];
     sawClosingSinceLastMeaningfulInbound = false;
   };
 
   messages.forEach((message, i) => {
     const prev = messages[i - 1];
+    let longGapContinuation: NonNullable<ConversationInteractionV32['continuationEvidence']>[number] | null = null;
     if (prev && current.length) {
       const previousMeaningful = [...current].reverse().find((candidate) => candidate.isMeaningful) || prev;
       const gapMs = message.timestamp.getTime() - previousMeaningful.timestamp.getTime();
       const semanticContinuation = shouldKeepSemanticContinuation(current, message, gapMs);
       const fulfilledCurrentOrder = currentHasOrderCommitment(current);
       const additiveRequest = ADDITIVE_REQUEST_RX.test(message.text);
+      const serviceBoundary = serviceToNewNeedBoundary(current, message);
+      const interactionCountBefore = interactions.length;
+      if (gapMs > INTERACTION_GAP_MS && semanticContinuation && message.isMeaningful) {
+        longGapContinuation = {
+          messageId: message.id,
+          reason: continuesOpenServiceNeed(current, message, gapMs) ? 'open_service_need_followup' : 'semantic_continuation',
+        };
+      }
 
-      if (gapMs > INTERACTION_GAP_MS && !semanticContinuation) {
+      const openService = Boolean(openServiceNeed(current));
+      if (openService && startsIndependentCommercialNeedDuringOpenService(message)) {
+        // A medicine/price/availability request is its own case even minutes after a nurse request.
+        flush();
+        reason = 'new_commercial_need';
+      } else if (!openService && isOperationalServiceRequest(message) &&
+          current.some((m) => m.role === 'customer' && m.isMeaningful && startsIndependentCommercialNeed(m)) &&
+          !startsIndependentCommercialNeed(message)) {
+        // A nurse request after a medicine order is a separate service case, whatever the gap.
+        flush();
+        reason = 'new_service_need';
+      } else if (serviceBoundary !== null) {
+        const trailing = current.splice(serviceBoundary);
+        flush();
+        current = trailing;
+        reason = 'customer_service_new_need';
+      } else if (gapMs > INTERACTION_GAP_MS && !semanticContinuation) {
         flush();
         reason = 'time_gap';
       } else if (
@@ -377,6 +470,8 @@ function segmentInteractions(messages: NormalizedConversationMessageV32[]): Conv
         flush();
         reason = 'new_commercial_need';
       }
+      // Recorded only when the message really stayed in the same case.
+      if (longGapContinuation && interactions.length === interactionCountBefore) continuationEvidence.push(longGapContinuation);
     }
 
     if (message.role === 'staff' && message.isMeaningful && CLOSING_RX.test(message.text)) {
@@ -392,13 +487,17 @@ function segmentInteractions(messages: NormalizedConversationMessageV32[]): Conv
 }
 
 export function buildConversationUnderstandingV32(
-  session: WhatsAppConversationSession
+  session: WhatsAppConversationSession,
+  context: { customerServiceMessageIds?: ReadonlySet<string> } = {}
 ): ConversationUnderstandingV32 {
   const staffNames = new Set(session.outboundStaffNames || []);
   const messages = session.messages
     .slice()
     .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
     .map((message) => normalizeMessage(message, staffNames, session.customerName));
+  for (const message of messages) {
+    if (message.role === 'staff' && context.customerServiceMessageIds?.has(message.id)) message.staffFunction = 'customer_service';
+  }
 
   const interactions = segmentInteractions(messages);
 

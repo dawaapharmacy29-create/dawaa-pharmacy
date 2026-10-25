@@ -4,6 +4,7 @@
 // business truth: every value shown comes from the canonical view; unknown codes render as
 // "غير محسوم" instead of being guessed. There is deliberately NO fallback to V6/V7/V22 fields.
 import type { CaseIntelligenceView, ConfidenceLevel } from '../types';
+import { CANONICAL_CASE_BRANCH_BASIS_LABELS } from '../canonicalCaseBranch';
 import { reviewReasonLabels as canonicalReviewReasonLabels } from './labels';
 
 export const SUPPORTED_CASE_INTELLIGENCE_VERSIONS = [
@@ -285,3 +286,138 @@ export function productStatus(product: CaseIntelligenceView['products'][number],
   if (product.availability === 'unavailable') return { label: 'غير متوفر', tone: 'warn' };
   return { label: UNKNOWN_LABEL, tone: 'neutral' };
 }
+
+// ---- V43 evidence labels (Arabic only; internal values never reach the reviewer) ----
+const SEGMENTATION_REASON_LABELS: Record<string, string> = {
+  conversation_start: 'بداية المحادثة',
+  time_gap: 'فاصل زمني دون رابط بالموضوع السابق',
+  reopened_after_closing: 'العميل عاد بعد إغلاق المحادثة',
+  topic_shift_marker: 'العميل بدأ موضوعًا جديدًا صراحةً',
+  new_commercial_need: 'طلب دواء/سعر/توفر جديد مستقل',
+  customer_service_new_need: 'طلب جديد بعد متابعة خدمة العملاء',
+  new_service_need: 'طلب خدمة (تمريض) مستقل عن الطلب السابق',
+};
+export const segmentationReasonLabel = (value: string | null | undefined) =>
+  value ? SEGMENTATION_REASON_LABELS[value] ?? 'سبب تقسيم غير مترجم — يحتاج مراجعة' : UNKNOWN_LABEL;
+
+export const continuationReasonLabel = (value: string) =>
+  value === 'open_service_need_followup'
+    ? 'متابعة لطلب خدمة ما زال مفتوحًا (نفس الحالة رغم فرق الوقت)'
+    : 'استكمال لنفس الموضوع رغم فرق الوقت';
+
+const CANDIDATE_LEVEL_LABELS: Record<string, string> = {
+  strong_candidate_requires_approval: 'ترشيح قوي يحتاج اعتمادًا',
+  supported_candidate: 'مدعوم',
+  weak_candidate: 'ضعيف',
+  none: 'غير محسوم',
+};
+export const candidateRecommendationLabel = (value: string | null | undefined) =>
+  value ? CANDIDATE_LEVEL_LABELS[value] ?? 'غير محسوم' : 'غير محسوم';
+
+const BRANCH_STRENGTH_LABELS: Record<string, string> = {
+  decided: 'محدد بدليل مباشر لهذه الحالة: تعريف الدكتور، أو فرع مصدر تشغيلي، أو فاتورة مثبتة لها (لا يغيّر فرع المصدر)',
+  strong_recommendation: 'ترشيح قوي يحتاج اعتمادًا',
+  supporting_only: 'دليل مساند فقط',
+  conflict: 'متعارض',
+  none: 'غير محسوم',
+};
+export const branchRecommendationLabel = (value: string | null | undefined) =>
+  value ? BRANCH_STRENGTH_LABELS[value] ?? 'غير محسوم' : 'غير محسوم';
+
+export interface CaseBranchFact {
+  label: 'القسم' | 'فرع الحالة';
+  value: string;
+  hint: string | null;
+  decided: boolean;
+}
+
+/**
+ * The one case-level branch every view shows. `branch.branchNameRaw` is the pre-attribution
+ * operational branch (explicit introduction or an operating source branch); the persisted
+ * recommendation can decide it later from a proven invoice of THIS case. Reading only the first
+ * left a decided case showing «غير معروف» next to a card that says «فرع شكري — محسوم».
+ * A customer-service case never gets a branch; a supporting signal is shown as a candidate only.
+ */
+export function caseBranchFact(view: Pick<CaseIntelligenceView, 'branch' | 'ownership'>): CaseBranchFact {
+  // v48+: the persisted canonical case branch is the single fact the list and filter also read.
+  // A customer-service case never shows a branch, whatever any branch field says.
+  const canonical = view.branch.caseBranch;
+  if (canonical) {
+    const last = canonical.reasons[canonical.reasons.length - 1] ?? null;
+    if (canonical.basis === 'customer_service' || view.ownership?.department === 'customer_service') {
+      return { label: 'القسم', value: 'خدمة العملاء', hint: 'حالة خدمة عملاء؛ لا يُسند لها فرع بيع.', decided: false };
+    }
+    if (canonical.decided && canonical.branch) {
+      return {
+        label: 'فرع الحالة',
+        value: canonical.branch,
+        hint: last ?? CANONICAL_CASE_BRANCH_BASIS_LABELS[canonical.basis],
+        decided: true,
+      };
+    }
+    const candidate = view.branch.recommendation?.branch;
+    return {
+      label: 'فرع الحالة',
+      value: 'غير محسوم',
+      hint: [candidate ? `مرشح: ${candidate} — ${branchRecommendationLabel(view.branch.recommendation?.strength)}` : null, last]
+        .filter(Boolean)
+        .join(' — ') || null,
+      decided: false,
+    };
+  }
+  if (view.ownership?.department === 'customer_service') {
+    return { label: 'القسم', value: 'خدمة العملاء', hint: 'حالة خدمة عملاء؛ لا يُسند لها فرع بيع.', decided: false };
+  }
+  const recommendation = view.branch.recommendation;
+  const reason = recommendation?.reasons[recommendation.reasons.length - 1] ?? null;
+  if (recommendation?.strength === 'decided' && recommendation.branch) {
+    return { label: 'فرع الحالة', value: recommendation.branch, hint: reason, decided: true };
+  }
+  if (recommendation?.strength === 'conflict') {
+    return { label: 'فرع الحالة', value: 'غير محسوم', hint: reason ?? 'أدلة الفرع متعارضة؛ تحتاج مراجعة.', decided: false };
+  }
+  if (view.branch.branchNameRaw) {
+    return { label: 'فرع الحالة', value: view.branch.branchNameRaw, hint: reason, decided: true };
+  }
+  if (recommendation?.branch) {
+    return {
+      label: 'فرع الحالة',
+      value: 'غير محسوم',
+      hint: `مرشح: ${recommendation.branch} — ${branchRecommendationLabel(recommendation.strength)}${reason ? ` (${reason})` : ''}`,
+      decided: false,
+    };
+  }
+  return { label: 'فرع الحالة', value: 'غير محسوم', hint: reason, decided: false };
+}
+
+const STAFF_FUNCTION_LABELS: Record<string, string> = {
+  customer_service: 'خدمة العملاء',
+  pharmacist: 'صيدلي/دكتور',
+  other: 'موظف آخر',
+  unresolved: 'هوية غير محسومة',
+};
+export const staffFunctionLabel = (value: string | null | undefined) => (value ? STAFF_FUNCTION_LABELS[value] ?? 'غير محسوم' : 'غير محسوم');
+
+const DEPARTMENT_LABELS: Record<string, string> = {
+  customer_service: 'خدمة العملاء',
+  pharmacy: 'الصيدلية',
+  mixed: 'خدمة عملاء وصيدلية معًا — يحتاج مراجعة',
+  unresolved: 'غير محسوم',
+};
+export const departmentLabel = (value: string | null | undefined) => (value ? DEPARTMENT_LABELS[value] ?? 'غير محسوم' : 'غير محسوم');
+
+export const mentionSourceLabel = (value: string | null | undefined) =>
+  value === 'customer_explicit' ? 'العميل ذكره صراحة'
+    : value === 'staff_restatement' ? 'إعادة صياغة من الموظف (رد العميل عليها منفصل)'
+      : value === 'inferred' ? 'استنتاج من المحرك' : 'غير محسوم';
+
+export const quantitySourceLabel = (value: string | null | undefined) =>
+  value === 'customer' ? 'من كلام العميل'
+    : value === 'staff_restatement' ? 'من إعادة صياغة الموظف'
+      : value === 'final_basket' ? 'من السلة النهائية'
+        : 'غير محسومة';
+
+export const lineMatchedByLabel = (value: string | null | undefined) =>
+  value === 'product_id' ? 'نفس المنتج في الكتالوج'
+    : value === 'product_code' ? 'نفس كود الصنف'
+      : value === 'name' ? 'نفس الاسم بعد التطبيع' : 'غير محسوم';

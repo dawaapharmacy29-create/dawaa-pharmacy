@@ -86,6 +86,7 @@ function makeService() {
         gte: () => chain,
         lte: () => chain,
         in: () => chain,
+        not: () => chain,
         eq: (column: string, value: unknown) => {
           filters[column] = value;
           return chain;
@@ -122,7 +123,7 @@ function batch(conversations: any[]) {
     },
   }));
   return {
-    caseOutcomes: caseAnalyses.map((row) => ({ caseId: row.caseId, success: true })),
+    caseOutcomes: caseAnalyses.map((row) => ({ caseId: row.caseId, success: true, analysis: { analysisId: `analysis-${row.caseId}` } })),
     caseAnalyses,
   };
 }
@@ -147,7 +148,7 @@ beforeEach(() => {
   loadConversationEvaluationSystemEvidenceWithClient.mockResolvedValue({ version: 'conversation-evaluation-system-evidence-v1' });
   analyzeConversationEvaluation.mockReset();
   analyzeConversationEvaluation.mockImplementation((view: any) => ({
-    version: 'conversation-evaluation-v1',
+    version: 'conversation-evaluation-v2',
     caseId: view.caseId,
     items: [],
     summary: {
@@ -244,6 +245,7 @@ describe('manual backfill --apply uses the canonical boundary', () => {
     expect(rpc).toHaveBeenNthCalledWith(1, CASE_SET_RECONCILE_RPC, {
       p_conversation_id: 'fine',
       p_active_case_ids: ['fine:interaction:0'],
+      p_analysis_ids: { 'fine:interaction:0': 'analysis-fine:interaction:0' },
     });
     expect(rpc).toHaveBeenNthCalledWith(2, CANONICAL_PROOF_WRITER_RPC, {
       p_sales_case_id: 'fine:interaction:0',
@@ -298,7 +300,9 @@ describe('canonical refresh invoice read boundary', () => {
   it('never queries sales_invoices directly from the refresh service', () => {
     expect(serviceCode).not.toMatch(/\.from\(\s*['"]sales_invoices['"]\s*\)/);
     expect(serviceCode).toMatch(/readInvoiceRecordById\(/);
-    expect(serviceCode).toMatch(/readInvoiceRecordsByCustomerWindow\(/);
+    // Complaint delivery context comes only from the case's canonical attribution, never from a
+    // nearest-in-time invoice for the same customer code.
+    expect(serviceCode).not.toMatch(/readInvoiceRecordsByCustomerWindow\(/);
   });
 
   it('keeps delivery staff in the approved invoice projection used for complaint context', () => {
@@ -306,21 +310,33 @@ describe('canonical refresh invoice read boundary', () => {
   });
 });
 
-describe('backfill script has no bypass of the canonical boundary', () => {
-  const script = fs.readFileSync(
-    path.resolve(__dirname, '../../../../../scripts/run-sales-intelligence-backfill.cjs'),
-    'utf8'
-  );
-  const code = script.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+describe('backfill scripts have no bypass of the canonical boundary', () => {
+  // main ships no manual Sales Intelligence backfill script today (run-sales-intelligence-backfill.cjs
+  // only exists on unmerged branches). Every SI backfill script that DOES exist must route through
+  // runCanonicalSalesIntelligenceBackfill and never load the batch writer directly.
+  const scriptsDir = path.resolve(__dirname, '../../../../../scripts');
+  const backfillScripts = fs
+    .readdirSync(scriptsDir)
+    .filter((name) => /sales-intelligence.*backfill|backfill.*sales-intelligence/i.test(name))
+    .map((name) => ({
+      name,
+      code: fs
+        .readFileSync(path.join(scriptsDir, name), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\/.*$/gm, ''),
+    }));
 
   it('does not load the batch writer or adapter directly', () => {
-    expect(code).not.toMatch(
-      /batchPersistenceService|reviewSourceBatchAdapter|runBatchPersistence\(/
-    );
+    for (const script of backfillScripts) {
+      expect({ name: script.name, bypass: /batchPersistenceService|reviewSourceBatchAdapter|runBatchPersistence\(/.test(script.code) })
+        .toEqual({ name: script.name, bypass: false });
+    }
   });
 
   it('writes through runCanonicalSalesIntelligenceBackfill', () => {
-    expect(code).toMatch(/refresh\/canonicalRefreshService\.ts/);
-    expect(code).toMatch(/runCanonicalSalesIntelligenceBackfill\(supabase,/);
+    for (const script of backfillScripts) {
+      expect(script.code).toMatch(/refresh\/canonicalRefreshService\.ts/);
+      expect(script.code).toMatch(/runCanonicalSalesIntelligenceBackfill\(supabase,/);
+    }
   });
 });

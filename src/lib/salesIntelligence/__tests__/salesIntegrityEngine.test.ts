@@ -540,6 +540,8 @@ describe('Sales Integrity Engine (Sales Intelligence Phase F) — Golden Cases',
   });
 
   describe('End-to-end', () => {
+    // Chat timestamps are Africa/Cairo wall-clock (UTC+3 on 2026-09-15): 9:0x AM Cairo = 06:0xZ, so
+    // each invoice below is minutes after its conversation, as these cases intend.
     function runPipeline(raw: string, invoiceRows: Array<Record<string, unknown>>, extra: { invoiceStatusHint?: 'cancelled' | 'returned' | null } = {}) {
       const sessions = splitWhatsAppSessions(parseWhatsAppExport(raw), 120);
       const understanding = buildConversationUnderstandingV32(sessions[0]);
@@ -604,7 +606,7 @@ describe('Sales Integrity Engine (Sales Intelligence Phase F) — Golden Cases',
 [9/15/26, 9:02:00 AM] Customer: ايوه تمام
 [9/15/26, 9:03:00 AM] You: تمام يا فندم، تم تأكيد الطلب وجاري الإرسال`;
       const { integrity } = runPipeline(raw, [
-        { id: 'inv-1', customer_id: 'cust-1', invoice_datetime: '2026-09-15T09:05:00.000Z', net_amount: 180 },
+        { id: 'inv-1', customer_id: 'cust-1', invoice_datetime: '2026-09-15T06:05:00.000Z', net_amount: 180 },
       ]);
       expect(integrity.exceptions).toEqual([]);
       expect(integrity.needsHumanReview).toBe(false);
@@ -619,7 +621,7 @@ describe('Sales Integrity Engine (Sales Intelligence Phase F) — Golden Cases',
 [9/15/26, 9:02:00 AM] Customer: ايوه تمام
 [9/15/26, 9:03:00 AM] You: تمام يا فندم، تم تأكيد الطلب وجاري الإرسال`;
       const { integrity } = runPipeline(raw, [
-        { id: 'inv-1', customer_id: 'cust-1', invoice_datetime: '2026-09-15T09:05:00.000Z', net_amount: 900 },
+        { id: 'inv-1', customer_id: 'cust-1', invoice_datetime: '2026-09-15T06:05:00.000Z', net_amount: 900 },
       ]);
       expect(integrity.exceptions.some((e) => e.type === 'unexplained_total_difference')).toBe(true);
     });
@@ -640,7 +642,7 @@ describe('Sales Integrity Engine (Sales Intelligence Phase F) — Golden Cases',
 [9/15/26, 9:05:00 AM] Customer: ايوه تمام
 [9/15/26, 9:06:00 AM] You: تمام يا فندم، تم تأكيد الطلب وجاري الإرسال`;
       const { baskets, basketInvoiceMatch, integrity } = runPipeline(raw, [
-        { id: 'inv-new', customer_id: 'cust-1', invoice_datetime: '2026-09-15T09:07:00.000Z', net_amount: 250 },
+        { id: 'inv-new', customer_id: 'cust-1', invoice_datetime: '2026-09-15T06:07:00.000Z', net_amount: 250 },
       ]);
       expect(basketInvoiceMatch.basketVersion).toBe(baskets[baskets.length - 1].version);
       expect(integrity.exceptions).toEqual([]);
@@ -662,7 +664,7 @@ describe('Sales Integrity Engine (Sales Intelligence Phase F) — Golden Cases',
 [9/15/26, 9:05:00 AM] Customer: ايوه تمام
 [9/15/26, 9:06:00 AM] You: تمام يا فندم، تم تأكيد الطلب وجاري الإرسال`;
       const { integrity } = runPipeline(raw, [
-        { id: 'inv-old', customer_id: 'cust-1', invoice_datetime: '2026-09-15T09:07:00.000Z', net_amount: 180 },
+        { id: 'inv-old', customer_id: 'cust-1', invoice_datetime: '2026-09-15T06:07:00.000Z', net_amount: 180 },
       ]);
       const e = integrity.exceptions.find((x) => x.stage === 'invoice_header');
       expect(e).toBeDefined();
@@ -678,7 +680,7 @@ describe('Sales Integrity Engine (Sales Intelligence Phase F) — Golden Cases',
 [9/15/26, 9:02:00 AM] Customer: ايوه تمام
 [9/15/26, 9:03:00 AM] You: تمام يا فندم، تم تأكيد الطلب وجاري الإرسال`;
       const { basketInvoiceMatch, integrity } = runPipeline(raw, [
-        { id: 'inv-1', customer_id: 'cust-1', invoice_datetime: '2026-09-15T09:05:00.000Z', net_amount: 180 },
+        { id: 'inv-1', customer_id: 'cust-1', invoice_datetime: '2026-09-15T06:05:00.000Z', net_amount: 180 },
       ]);
       expect(basketInvoiceMatch.itemEvidenceReady).toBe(false);
       expect(integrity.exceptions.filter((e) => e.stage === 'invoice_items')).toEqual([]);

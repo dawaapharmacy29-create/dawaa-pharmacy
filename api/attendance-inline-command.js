@@ -82,7 +82,9 @@ function evaluateDeployEnvironment(env) {
         warnings.push(`${name} points to project ${ref}, not the production project`);
     }
   } else if (environment === "preview" || environment === "development") {
-    const expected = String(env.DAWAA_STAGING_SUPABASE_REF || "").trim().toLowerCase();
+    const approvedSha = String(env.DAWAA_APPROVED_PRODUCTION_PREVIEW_SHA || "").trim();
+    const productionReview = environment === "preview" && /^[a-f0-9]{40}$/.test(approvedSha) && approvedSha === env.VERCEL_GIT_COMMIT_SHA;
+    const expected = String(productionReview ? production : env.DAWAA_STAGING_SUPABASE_REF || "").trim().toLowerCase();
     if (!env.VITE_SUPABASE_URL)
       errors.push("VITE_SUPABASE_URL is missing: a preview must use the staging Supabase project");
     if (!env.VITE_SUPABASE_ANON_KEY)
@@ -93,9 +95,11 @@ function evaluateDeployEnvironment(env) {
       errors.push(
         "DAWAA_STAGING_SUPABASE_REF is missing: declare the staging project ref this preview must use"
       );
-    if (FORBIDDEN_OUTSIDE_PRODUCTION[expected])
+    if (productionReview) warnings.push(`Explicitly approved Preview ${approvedSha} uses Production data; normal application authorization remains required`);
+    if (!productionReview && FORBIDDEN_OUTSIDE_PRODUCTION[expected])
       errors.push(`DAWAA_STAGING_SUPABASE_REF is ${FORBIDDEN_OUTSIDE_PRODUCTION[expected]}`);
-    for (const name of pointsAtProduction) errors.push(`${name} points to the production project`);
+    if (!productionReview)
+      for (const name of pointsAtProduction) errors.push(`${name} points to the production project`);
     for (const [name, ref] of Object.entries(projectRefs)) {
       if (ref === DELIVERY_SUPABASE_PROJECT_REF)
         errors.push(`${name} points to the delivery project`);

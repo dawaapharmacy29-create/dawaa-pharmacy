@@ -39,10 +39,10 @@ const JOURNEY_LABELS: Record<ConversationJourneyType, string> = {
   checkin_ack_only: 'خدمة عملاء بدأت متابعة والعميل رد فقط (اطمئنان بدون طلب)',
   checkin_then_order: 'خدمة عملاء بدأت متابعة، وبعدها العميل طلب صنف/كمّل أوردر',
   checkin_then_consultation: 'متابعة بدأت من الصيدلية ثم تحوّلت لاستشارة',
-  checkin_then_verified_sale: 'متابعة بدأت من الصيدلية ثم تحوّلت لعملية بيع مؤكدة بالفاتورة',
+  checkin_then_verified_sale: 'متابعة مع دليل فاتورة تاريخي — نتيجة بيع المحادثة منفصلة',
   service_recovery_outreach: 'خدمة العملاء بدأت باعتذار/استعادة خدمة بسبب مشكلة أو تأخير سابق',
   service_recovery_then_request: 'اعتذار/استعادة خدمة ثم ظهر طلب جديد من العميل',
-  service_recovery_then_verified_sale: 'اعتذار/استعادة خدمة ثم تحولت المحادثة لبيع مؤكد',
+  service_recovery_then_verified_sale: 'استعادة خدمة مع دليل فاتورة تاريخي — نتيجة بيع المحادثة منفصلة',
   direct_customer_request: 'العميل بدأ المحادثة بطلب مباشر',
   other: 'نوع محادثة غير محسوم',
 };
@@ -51,8 +51,8 @@ const SERVICE_RECOVERY_RX = /(بنعتذر|نعتذر|متاسف|متأسف|اس
 
 const SALE_STATE_LABELS: Record<SaleState, string> = {
   chat_sale_signal: 'إشارة بيع من الشات فقط (غير مؤكدة)',
-  probable_sale: 'بيع مرجّح (تطابق فاتورة غير قوي بما يكفي)',
-  invoice_verified_sale: 'بيع مؤكد بمطابقة فاتورة فعلية',
+  probable_sale: 'مرشح فاتورة تاريخي — غير معتمد للبيع',
+  invoice_verified_sale: 'دليل فاتورة تاريخي — لا يثبت بيع المحادثة',
   no_verified_invoice: 'لا يوجد بيع أو إشارة بيع',
 };
 
@@ -62,7 +62,8 @@ export function mapSaleState(
 ): SaleState {
   if (invoiceVerification.status === 'verified') return 'invoice_verified_sale';
   if (invoiceVerification.status === 'probable') return 'probable_sale';
-  if (base.commercialEligible || base.chatSuggestedSold) return 'chat_sale_signal';
+  // Retired V4 inference: intent, courtesy and delivery acknowledgements are not sale proof.
+  void base;
   return 'no_verified_invoice';
 }
 

@@ -6,8 +6,9 @@
 // a humanized version of the raw value (underscores -> spaces) rather than throwing or hiding it,
 // since a QA tool must never silently drop a real engine output just because it's unmapped.
 
+// An internal value without an Arabic label is never shown in English to the reviewer.
 function humanize(value: string): string {
-  return value.replace(/_/g, ' ');
+  return /[A-Za-z]/.test(value) ? 'قيمة غير مترجمة — يحتاج مراجعة' : value;
 }
 
 export function labelOr(map: Record<string, string>, value: string | null | undefined, fallback = '—'): string {
@@ -150,6 +151,26 @@ export const itemResolutionStatusLabels: Record<string, string> = {
 
 /** Human-review / failure reason vocab actually observed across the engines — see salesIntegrityEngine.ts, saleAttributionEngine.ts, commercialConfirmationEngine.ts, conversationCaseEngine.ts. Never framed as an accusation. */
 export const reviewReasonLabels: Record<string, string> = {
+  independent_multiple_requests_require_review: 'طلبات مستقلة متتالية في نفس التفاعل؛ يحتاج مراجعة حدود كل طلب',
+  branch_conflict: 'أدلة الفرع متعارضة؛ فرع العملية يحتاج مراجعة',
+  source_branch_not_transaction_branch: 'فرع المصدر المسجل ليس فرع تشغيل (مثل «المخزن»)؛ فرع العملية غير محسوم',
+  service_case_does_not_inherit_source_branch: 'حالة خدمة عملاء؛ لا ترث فرع المصدر ولا تُنسب لفرع بيع',
+  introduced_staff_unresolved: 'موظف عرّف نفسه في الرسائل لكن هويته غير محسومة في دليل الموظفين',
+  explicit_branch_staff_unresolved: 'فرع مذكور في تعريف موظف غير محسوم الهوية؛ لا يُعتمد كفرع للعملية',
+  staff_home_branch_differs_from_operation: 'الفرع الأساسي للموظف يختلف عن فرع العملية؛ يحتاج تأكيد التغطية',
+  noncommercial_followup_not_attributable: 'متابعة خدمة غير تجارية؛ لا تُنسب لها فاتورة أو بيع',
+  case_segmentation_uncertain: 'حدود الحالة غير واضحة تمامًا؛ يحتاج مراجعة تقسيم الرسائل',
+  product_identity_unresolved: 'هوية الصنف غير محسومة من الكتالوج (الاسم أو العبوة يطابق أكثر من صنف)',
+  final_summary_missing: 'لا يوجد ملخص نهائي للطلب في المحادثة',
+  announced_total_missing: 'لم يُعلن إجمالي الطلب في المحادثة',
+  customer_confirmation_uncertain: 'تأكيد العميل للطلب غير واضح',
+  basket_not_detected: 'لا توجد سلة طلب في هذه الحالة',
+  quantity_unknown: 'الكمية غير مذكورة صراحة',
+  staff_identity_unresolved: 'هوية الموظف غير محسومة',
+  case_branch_evidence_conflict: 'تعريف الموظف داخل الحالة يتعارض مع فرع المصدر؛ فرع العملية يحتاج مراجعة',
+  multiple_staff_functions_require_review: 'الحالة تضم خدمة عملاء ودكتورًا؛ يلزم مراجعة حدود المسؤولية لكل جزء',
+  multiple_staff_owners_require_review: 'أكثر من موظف داخل الحالة؛ لا يُعتمد مسؤول واحد تلقائيًا',
+  noncommercial_nursing_service_requires_review: 'طلب تمريض أو متابعة خدمة يحتاج مراجعة تشغيلية، وليس فرصة بيع دواء',
   competing_case_attribution: 'منافسة على نفس الفاتورة مع حالة أخرى',
   possible_unsegmented_multiple_requests: 'احتمال وجود طلبات متعددة غير مقسّمة بوضوح',
   ambiguous_multiple_candidates: 'أكثر من فاتورة مرشحة دون ترجيح واضح',

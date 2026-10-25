@@ -29,7 +29,8 @@ export async function persistCaseAnalysis(
   rawWhatsAppExportText: string,
   content: CaseAnalysisRowContent,
   trustedConversationStartedAt?: string | null,
-  saleProofFingerprint?: string | null
+  saleProofFingerprint?: string | null,
+  deferPublication = false
 ): Promise<PersistCaseAnalysisResult> {
   const semanticSourceHash = await computeSemanticSourceHash({
     rawWhatsAppExportText,
@@ -38,7 +39,7 @@ export async function persistCaseAnalysis(
     saleProofFingerprint: saleProofFingerprint ?? null,
   });
 
-  const { data, error } = await supabaseClient.rpc('sales_intelligence_write_case_analysis', {
+  const { data, error } = await supabaseClient.rpc(deferPublication ? 'sales_intelligence_stage_case_analysis_v1' : 'sales_intelligence_write_case_analysis', {
     p_case_id: caseId,
     p_row: {
       pipeline_version: PIPELINE_VERSION,

@@ -6,6 +6,7 @@
  */
 
 /* xlsx will be imported statically here because callers expect synchronous parsing */
+import { reconcileWhatsAppSourcesAfterCustomerChange } from '@/lib/customers/whatsappSourceCustomerReconciliation';
 import * as XLSX from 'xlsx';
 import { supabase } from '@/lib/supabase';
 import { getCycleForDate } from '@/lib/pharmacy-cycle';
@@ -1437,6 +1438,16 @@ export async function importCustomersToDB(
         summary.summaryRefreshMessage =
           'تم تحديث العملاء، وتعذر إنشاء بعض مهام الرسائل الترحيبية تلقائيًا.';
       }
+    }
+
+    // WhatsApp conversations saved before their customer existed are linked once, by unique code:
+    // the imported codes, then every still-unlinked coded source (customers added earlier or by
+    // another path). A failed step is a visible warning; the next import or addition retries it.
+    const reconciliation = await reconcileWhatsAppSourcesAfterCustomerChange(supabase, uniqueCustomerCodes, { name: 'استيراد العملاء' });
+    if (reconciliation.error) {
+      summary.schemaWarnings = [...(summary.schemaWarnings || []), reconciliation.note ?? reconciliation.error];
+    } else if (reconciliation.note) {
+      summary.summaryRefreshMessage = [summary.summaryRefreshMessage, reconciliation.note].filter(Boolean).join(' ');
     }
 
     const refresh = await supabase.rpc('rebuild_customer_metrics_summary');

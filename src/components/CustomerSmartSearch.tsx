@@ -54,11 +54,12 @@ export default function CustomerSmartSearch({
       return toast.error('اسم العميل ورقم الهاتف مطلوبان');
     setLoading(true);
     try {
-      const created = await createCustomerFromSearch({ ...newCustomer, branch: branchFilter });
+      const { sourceLinkNote, sourceLinkFailed, ...created } = await createCustomerFromSearch({ ...newCustomer, branch: branchFilter });
       onSelect(created);
       setShowCreate(false);
       setResults([created]);
       toast.success('تم إضافة العميل واختياره');
+      if (sourceLinkNote) (sourceLinkFailed ? toast.warning : toast.message)(sourceLinkNote);
     } catch (error) {
       toast.error(`تعذر إضافة العميل: ${(error as Error).message}`);
     } finally {

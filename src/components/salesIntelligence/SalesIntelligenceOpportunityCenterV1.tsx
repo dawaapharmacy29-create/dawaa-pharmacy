@@ -1,3 +1,6 @@
+import { loadCanonicalOpportunityRows } from '@/lib/salesIntelligence/canonicalKpiAdapters';
+import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
+import { nextDayYmdV1 } from '@/lib/salesIntelligence/dashboardScopeV1';
 import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Boxes, CircleDollarSign, PackageX, Sparkles, UsersRound } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
@@ -81,36 +84,12 @@ export default function SalesIntelligenceOpportunityCenterV1({
     async function load() {
       setLoading(true);
 
-      let demandQuery = supabase
-        .from('whatsapp_product_demand_monthly_v22')
-        .select('branch,product_id,product_code,product_name,inquiry_opportunities,unique_customers,unavailable_count,accepted_or_later_count,acceptance_rate')
-        .eq('cycle_start', cycle.start)
-        .limit(500);
-
-      let leakageQuery = supabase
-        .from('whatsapp_sales_leakage_monthly_v22')
-        .select('branch,leakage_code,cases_count,unique_customers,unique_products,staff_attributed_cases')
-        .eq('cycle_start', cycle.start)
-        .limit(200);
-
-      let unresolvedQuery = supabase
-        .from('whatsapp_product_demand_unresolved_v22')
-        .select('branch,unresolved_type,unresolved_mentions,conversations_affected')
-        .eq('cycle_start', cycle.start)
-        .limit(200);
-
-      if (branch !== 'all') {
-        demandQuery = demandQuery.eq('branch', branch);
-        leakageQuery = leakageQuery.eq('branch', branch);
-        unresolvedQuery = unresolvedQuery.eq('branch', branch);
-      }
-
-      const [demandResult, leakageResult, unresolvedResult] = await Promise.all([
-        demandQuery,
-        leakageQuery,
-        unresolvedQuery,
-      ]);
-
+      let loaded;
+      try { loaded=await loadCanonicalOpportunityRows(supabase,{start:cairoDateBoundaryIso(cycle.start),endExclusive:cairoDateBoundaryIso(nextDayYmdV1(cycle.end)),branch}); }
+      catch(cause) {if(!cancelled){setLoadError(cause instanceof Error?cause.message:String(cause));setLoading(false);}return;}
+      const demandResult:{data:DemandRow[];error:Error|null}={data:loaded.demand,error:null};
+      const leakageResult:{data:LeakageRow[];error:Error|null}={data:loaded.leakage,error:null};
+      const unresolvedResult:{data:UnresolvedRow[];error:Error|null}={data:loaded.unresolved,error:null};
       if (cancelled) return;
 
       const failures = [
@@ -133,7 +112,7 @@ export default function SalesIntelligenceOpportunityCenterV1({
 
     void load();
     return () => { cancelled = true; };
-  }, [branch, cycle.start]);
+  }, [branch,cycle.start,cycle.end]);
 
   const signals = useMemo(() => {
     const topDemand = [...demand]
@@ -179,10 +158,10 @@ export default function SalesIntelligenceOpportunityCenterV1({
         <div className="flex items-start gap-3">
           <span className="dawaa-icon-tile h-10 w-10 shrink-0"><Sparkles size={18} /></span>
           <div>
-            <div className="font-black">Opportunity Center جاهز — مصدر V22 لم يُملأ بعد</div>
+            <div className="font-black">لا توجد بيانات قياسية كافية لهذه الفترة</div>
             <div className="dawaa-muted mt-1 text-xs leading-6">
               لا توجد حاليًا صفوف Product Demand / Lost Sales في الدورة المختارة. لذلك لن نعرض أرقام صفر على أنها أداء حقيقي.
-              بمجرد اكتمال الـV22 Backfill سيظهر هنا تلقائيًا أكثر الأصناف طلبًا، ضغط عدم التوفر، أسباب فقد البيع، وجودة الربط.
+              تظهر الأرقام من التحليل المنشور فقط؛ البيانات غير المحسومة تحتاج مراجعة ولا تُعد فقد بيع.
             </div>
           </div>
         </div>

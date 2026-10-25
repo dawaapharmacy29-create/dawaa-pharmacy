@@ -39,7 +39,7 @@ export default function WhatsAppFolderWatcher() {
       const candidates: LocalInboxCandidate[] = await getUnprocessedWhatsAppExports(handle, 10);
       for (const candidate of candidates) {
         try {
-          const result = await ingestWhatsAppExportFile(candidate.file, { accessToken });
+          const result = await ingestWhatsAppExportFile(candidate.file, { accessToken, sourceFolderName: candidate.folderName ?? null });
           // Processed only after the full canonical chain (Source -> V22 -> Sales Intelligence).
           // A partial file stays retryable and is never recorded as a full success.
           if (result.processing && shouldMarkWhatsAppFileProcessed(result.processing)) {

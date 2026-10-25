@@ -5,7 +5,7 @@
 //   -> Canonical Sales Outcome -> Canonical Sale Proof -> Story / Recovery / KPIs
 //
 // A whatsapp_review_sources row may be analyzed into a Sales Intelligence case only when:
-//   1. it is not archived;
+//   1. it is not archived and not deleted by a general manager (restore is the only way back);
 //   2. its messages are not already owned by another Customer Case V22 through finer sources
 //      of the same export (a coarse re-segmentation of an already represented conversation);
 //   3. exactly one Customer Case V22 owns it (root_source_id or source_ids).
@@ -28,6 +28,7 @@ export type CanonicalSourceGateDecision =
       code: (typeof CANONICAL_SOURCE_GATE_CODES)[keyof typeof CANONICAL_SOURCE_GATE_CODES];
       reason:
         | 'source_archived'
+        | 'source_deleted'
         | 'superseded_by_finer_canonical_sources'
         | 'no_customer_case_v22'
         | 'multiple_customer_cases_v22';
@@ -38,6 +39,7 @@ export type CanonicalSourceGateDecision =
 export interface CanonicalGateSourceRow {
   id: string;
   review_status?: string | null;
+  deleted_at?: string | null;
   source_filename?: string | null;
   conversation_started_at?: string | null;
   conversation_ended_at?: string | null;
@@ -89,6 +91,17 @@ export function evaluateCanonicalSourceGate(
 ): CanonicalSourceGateDecision {
   const sourceId = String(source.id);
   const ownCaseIds = context.v22CaseIdsBySource.get(sourceId) || [];
+
+  if (source.deleted_at) {
+    return {
+      allowed: false,
+      sourceId,
+      code: CANONICAL_SOURCE_GATE_CODES.nonCanonical,
+      reason: 'source_deleted',
+      v22CaseIds: ownCaseIds,
+      supersedingSourceIds: [],
+    };
+  }
 
   if (String(source.review_status || '') === 'archived') {
     return {

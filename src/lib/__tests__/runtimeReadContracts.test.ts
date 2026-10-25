@@ -184,12 +184,15 @@ describe('V22 ownership lookup (SI QA canonical source gate)', () => {
 });
 
 describe('stale responses never overwrite newer state', () => {
-  it('SI case detail cancels the previous case load when the case changes', () => {
+  it('SI case detail routes every async result through the selected-case gate', () => {
+    // Behaviour (A → B → C, confirm-then-reload, unmount) is proven in
+    // src/lib/salesIntelligence/qa/__tests__/selectedCaseStaleAsync.test.ts; this pins the wiring.
     const page = read('src/pages/SalesIntelligenceQACaseDetail.tsx');
-    const effect = page.slice(page.indexOf('async function load()') - 200, page.indexOf('}, [caseId]);') + 14);
-    expect(effect).toMatch(/let cancelled = false;/);
-    expect(effect).not.toMatch(/const cancelled = false;/);
-    expect(effect).toMatch(/return \(\) => \{\s*cancelled = true;\s*\};\s*\}, \[caseId\]\);/);
+    expect(page).toMatch(/return openSelectedCase\(gate, caseId, loadDetail, sink\);[\s\S]*?\}, \[caseId\]\);/);
+    expect(page).toMatch(/await confirmInvoiceThenReload\(\s*gate,/);
+    // No UI state is set directly after an await of the detail loader.
+    expect(page).not.toMatch(/setBundle\(await fetchQaCaseDetail/);
+    expect(page).not.toMatch(/await fetchQaCaseDetail\(supabase, caseId\);\s*setBundle/);
   });
 
   it('advanced review history: a newer (or unmounted) load stops the older paged loop', () => {

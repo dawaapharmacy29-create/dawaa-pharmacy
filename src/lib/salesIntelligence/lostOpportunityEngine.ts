@@ -145,6 +145,7 @@ export function deriveLostOpportunity(input: DeriveLostOpportunityInput): LostOp
   }
 
   const hasCommercialNeed =
+    !salesOutcome.reasonCodes.includes('outcome.noncommercial_followup_requires_review') &&
     salesOutcome.outcome !== 'information_only' &&
     journeyState.currentState !== 'information_only' &&
     (customerNeed.products.length > 0 || customerNeed.primaryNeedMessageId !== null);

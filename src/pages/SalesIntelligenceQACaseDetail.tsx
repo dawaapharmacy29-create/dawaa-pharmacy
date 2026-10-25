@@ -1,19 +1,26 @@
 // Sales Intelligence QA Case Detail — Phase H.2.
 //
-// READ ONLY. Shows the full reasoning chain for one case, in the order a human auditor would want
-// to check it: original conversation -> segmentation -> basket -> historical closure -> protocol ->
-// invoice attribution -> basket/invoice matching -> human review. Every section reads either the
-// PERSISTED row (source of truth for what was saved) or the live, in-memory conversation-only
-// re-derivation (source of truth for basket item detail, which was never persisted — see
-// src/lib/salesIntelligence/qa/queries.ts's module comment). Never both blended into one claim.
-import { useEffect, useState } from 'react';
+// Reads persisted canonical case truth. Full reanalysis runs only after an explicit command;
+// secondary conversation-evaluation evidence loads only when requested. No product search on open.
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowRight, Building2, Hash, Layers3, Phone, RefreshCw, UserRound } from 'lucide-react';
+import { ArrowRight, Building2, Hash, Layers3, Phone, RefreshCw, Trash2, UserRound } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { formatDateTime } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { getStaffSessionToken } from '@/lib/auth/staffSession';
 import { fetchQaCaseDetail, type QaCaseDetailBundle } from '@/lib/salesIntelligence/qa/queries';
+import { createSelectedCaseRequestGate, type SelectedCaseRequestGate } from '@/lib/salesIntelligence/qa/selectedCaseRequestGate';
+import {
+  confirmInvoiceThenReload,
+  openSelectedCase,
+  type SelectedCaseDetailSink,
+} from '@/lib/salesIntelligence/qa/selectedCaseDetailFlow';
+import {
+  canonicalTrustedInvoiceId,
+  describeCanonicalCaseSaleTruth,
+  NOT_ANALYZED_LABEL,
+} from '@/lib/salesIntelligence/qa/canonicalCaseTruthPresentation';
 import {
   buildInvoiceConfirmationDialogText,
   confirmInvoiceCandidateAndRefresh,
@@ -22,9 +29,23 @@ import {
 import { requestCanonicalSalesIntelligenceRefresh } from '@/lib/salesIntelligence/refresh/refreshClient';
 import { WhatsAppConversationPanel } from '@/components/salesIntelligence/WhatsAppConversationPanel';
 import { CaseIntelligenceWorkspace } from '@/components/salesIntelligence/CaseIntelligenceWorkspace';
+import { SourceOperationsPanel } from '@/components/salesIntelligence/SourceOperationsPanel';
 import { loadConversationEvaluation } from '@/lib/salesIntelligence/conversationEvaluationLoader';
 import type { ConversationEvaluationResult } from '@/lib/salesIntelligence/conversationEvaluation';
-import { readCaseIntelligence, selectCurrentCaseIntelligence } from '@/lib/salesIntelligence/qa/caseIntelligencePresentation';
+import { productDisplayStateLabel } from '@/lib/salesIntelligence/qa/persistedProductTruth';
+import { readCaseIntelligence } from '@/lib/salesIntelligence/qa/caseIntelligencePresentation';
+import { buildCaseInvoiceCard } from '@/lib/salesIntelligence/qa/caseInvoiceCard';
+import { CaseInvoiceCard } from '@/components/salesIntelligence/CaseInvoiceCard';
+import { WhatsAppDeletionDialog } from '@/components/salesIntelligence/WhatsAppDeletionDialog';
+import { canManageWhatsAppDeletions } from '@/lib/core/permissionSystem';
+import type { WhatsAppDeletionScope } from '@/lib/salesIntelligence/operations/whatsappDeletionService';
+
+const MATCH_DIFFERENCE_LABELS: Record<string, string> = {
+  missing_item: 'صنف في المحادثة غير موجود بالفاتورة',
+  extra_item: 'صنف بالفاتورة غير مذكور في المحادثة',
+  quantity_mismatch: 'اختلاف الكمية',
+  total_mismatch: 'اختلاف الإجمالي',
+};
 import {
   ambiguityStatusLabelFor,
   attributionLevelBadge,
@@ -44,7 +65,6 @@ import {
   unknownProofReason,
   ruleIdLabelFor,
   pipelineWarningLabelFor,
-  productMatchLabelFor,
   attributionLevelLabelFor,
   evidenceCompletenessLabelFor,
   evidenceLevelLabelFor,
@@ -138,44 +158,48 @@ export default function SalesIntelligenceQACaseDetail() {
   const { caseId: rawCaseId } = useParams<{ caseId: string }>();
   const caseId = rawCaseId ? decodeURIComponent(rawCaseId) : '';
   const navigate = useNavigate();
-  const { checkPermission } = useAuth();
+  const { checkPermission, user } = useAuth();
+  // Canonical action permission plus the narrow role; the RPC remains authoritative.
+  const canDelete = checkPermission('delete_reviews') && canManageWhatsAppDeletions(user?.role);
+  const [deletionScope, setDeletionScope] = useState<WhatsAppDeletionScope | null>(null);
   const [bundle, setBundle] = useState<QaCaseDetailBundle | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [invoiceConfirming, setInvoiceConfirming] = useState(false);
   const [invoiceConfirmationMessage, setInvoiceConfirmationMessage] = useState<string | null>(null);
   const [invoiceConfirmationError, setInvoiceConfirmationError] = useState<string | null>(null);
   const [legacyAuditOpen, setLegacyAuditOpen] = useState<boolean | null>(null);
+  const [evaluationRequestedFor, setEvaluationRequestedFor] = useState<string | null>(null);
   const [conversationEvaluation, setConversationEvaluation] = useState<ConversationEvaluationResult | null>(null);
   const [conversationEvaluationLoading, setConversationEvaluationLoading] = useState(false);
   const [conversationEvaluationWarning, setConversationEvaluationWarning] = useState<string | null>(null);
 
+  // The selected case id is authoritative: every async result (load, confirm, reload) commits
+  // through this gate and is dropped once the user has moved to another case or left the page.
+  const gateRef = useRef<SelectedCaseRequestGate | null>(null);
+  if (!gateRef.current) gateRef.current = createSelectedCaseRequestGate();
+  const gate = gateRef.current;
+  const sink: SelectedCaseDetailSink<QaCaseDetailBundle> = {
+    setBundle,
+    setError,
+    setConfirmationMessage: setInvoiceConfirmationMessage,
+    setConfirmationError: setInvoiceConfirmationError,
+    setConfirming: setInvoiceConfirming,
+  };
+  const loadDetail = (id: string, signal: AbortSignal) => fetchQaCaseDetail(supabase, id, { signal });
+
   useEffect(() => {
-    // Moving to a sibling case must not let the previous case's slower response overwrite this one.
-    let cancelled = false;
-    async function load() {
-      setBundle(undefined);
-      setError(null);
-      try {
-        const result = await fetchQaCaseDetail(supabase, caseId);
-        if (!cancelled) setBundle(result);
-      } catch (cause) {
-        if (!cancelled) setError(cause instanceof Error ? cause.message : 'تعذر تحميل تفاصيل الحالة.');
-      }
-    }
-    if (caseId) void load();
-    return () => {
-      cancelled = true;
-    };
+    setEvaluationRequestedFor(null);
+    if (!caseId) return undefined;
+    // gate, sink setters and loader are stable for the component's lifetime.
+    return openSelectedCase(gate, caseId, loadDetail, sink);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [caseId]);
 
   useEffect(() => {
     let cancelled = false;
-    const currentView = selectCurrentCaseIntelligence(
-      bundle?.liveEvidence?.caseIntelligence,
-      bundle?.persisted.analysisRow
-    );
+    const currentView = readCaseIntelligence(bundle?.persisted.analysisRow);
 
-    if (!currentView) {
+    if (!currentView || evaluationRequestedFor !== `${caseId}:${bundle?.persisted.analysisRow.analysis_id}`) {
       setConversationEvaluation(null);
       setConversationEvaluationLoading(false);
       setConversationEvaluationWarning(null);
@@ -197,7 +221,7 @@ export default function SalesIntelligenceQACaseDetail() {
     });
 
     return () => { cancelled = true; };
-  }, [bundle]);
+  }, [bundle, caseId, evaluationRequestedFor]);
 
   if (error) {
     return <div className="dawaa-alert dawaa-alert--danger text-sm font-bold" dir="rtl">{error}</div>;
@@ -209,62 +233,20 @@ export default function SalesIntelligenceQACaseDetail() {
     return <div className="dawaa-empty-state py-16 text-center" dir="rtl">لم يتم العثور على هذه الحالة.</div>;
   }
 
-  const { persisted, conversation, sourceSnapshot, siblingCases, transcript, liveEvidence, saleProof, salesOutcome, recommendationConversions, invoiceStaffTruth, invoiceItemFacts, catalogProductMatches } = bundle;
+  const { persisted, conversation, sourceSnapshot, siblingCases, transcript, canonicalTruth, persistedProofEvidence, conversationReread, conversationRereadError, recommendationConversions, invoiceStaffTruth, invoiceItemFacts, catalogProductMatches } = bundle;
+  const evaluationKey = `${caseId}:${persisted.analysisRow.analysis_id}`;
   const persistedAnalysis = persisted.analysisRow;
   const persistedAttribution = persisted.attributionRow;
   const persistedMatch = persisted.matchRow;
-  const analysis = liveEvidence ? {
-    ...persistedAnalysis,
-    case_type: liveEvidence.conversationCase.caseType,
-    case_started_at: liveEvidence.conversationCase.startedAt,
-    case_ended_at: liveEvidence.conversationCase.endedAt,
-    historical_closure_level: liveEvidence.historicalClosure.closureLevel,
-    protocol_applicability: liveEvidence.protocolAssessment.applicability,
-    commercial_confirmation_state: liveEvidence.commercialConfirmation.currentState,
-    attribution_level: liveEvidence.attribution.attributionLevel,
-    integrity_evaluation_scope: liveEvidence.basketInvoiceMatch.integrityEvaluationScope,
-    needs_human_review: liveEvidence.needsHumanReview,
-    human_review_reasons: liveEvidence.humanReviewReasons,
-    failure_reasons: liveEvidence.failureReasons,
-    overall_evidence_level: liveEvidence.evidenceCompleteness.overallEvidenceLevel,
-    evidence_snapshot: {
-      ...(persistedAnalysis.evidence_snapshot || {}),
-      conversationCaseConfidence: liveEvidence.conversationCase.confidence,
-      evidenceCompleteness: liveEvidence.evidenceCompleteness,
-    },
-  } : persistedAnalysis;
-  const attribution = liveEvidence ? {
-    ...(persistedAttribution || {}),
-    selected_invoice_id: liveEvidence.attribution.selectedInvoiceId,
-    selected_invoice_number: liveEvidence.attribution.selectedInvoiceNumber,
-    attribution_level: liveEvidence.attribution.attributionLevel,
-    confidence_score: liveEvidence.attribution.confidence.score,
-    candidate_count: liveEvidence.attribution.candidateCount,
-    competing_case_ids: liveEvidence.attribution.competingCaseIds,
-    is_official_for_staff_evaluation: liveEvidence.attribution.isOfficialForStaffEvaluation,
-    primary_evidence: liveEvidence.attribution.primaryEvidence,
-    contradictions: liveEvidence.attribution.contradictions,
-    rule_ids: liveEvidence.attribution.ruleIds,
-  } : persistedAttribution;
-  const match = liveEvidence ? {
-    ...(persistedMatch || {}),
-    invoice_id: liveEvidence.basketInvoiceMatch.invoiceId,
-    invoice_number: liveEvidence.basketInvoiceMatch.invoiceNumber,
-    integrity_evaluation_scope: liveEvidence.basketInvoiceMatch.integrityEvaluationScope,
-    item_evidence_ready: liveEvidence.basketInvoiceMatch.itemEvidenceReady,
-    header_evidence_ready: liveEvidence.basketInvoiceMatch.headerEvidenceReady,
-    total_match: liveEvidence.basketInvoiceMatch.totalMatch,
-    differences: liveEvidence.basketInvoiceMatch.differences,
-    needs_human_review: liveEvidence.basketInvoiceMatch.needsHumanReview,
-    human_review_reasons: liveEvidence.basketInvoiceMatch.humanReviewReasons,
-  } : persistedMatch;
+  const analysis = persistedAnalysis;
+  const attribution = persistedAttribution;
+  const match = persistedMatch;
   const policyEvaluation = persisted.policyEvaluationRow;
-  // The live deterministic re-derivation is the current QA truth. Persisted Case Intelligence is
-  // kept only as an audit fallback for rows that cannot be re-derived in the current session.
-  const caseIntelligence = selectCurrentCaseIntelligence(liveEvidence?.caseIntelligence, persistedAnalysis);
+  // Case Intelligence is read from the persisted current analysis only.
+  const caseIntelligence = readCaseIntelligence(persistedAnalysis);
   const showLegacyAudit = legacyAuditOpen ?? !caseIntelligence;
-  const activeBasket = liveEvidence?.activeBasket ?? null;
-  const basketItems = activeBasket ? liveEvidence?.itemsByBasketId[activeBasket.basketId] ?? [] : [];
+  const activeBasket = conversationReread?.activeBasket ?? null;
+  const basketItems = conversationReread?.basketItems ?? [];
   const unresolvedItems = basketItems.filter((item) => item.resolutionStatus !== 'proven' || item.quantity === null);
   const completeness = (analysis.evidence_snapshot?.evidenceCompleteness ?? {}) as Record<string, unknown>;
   const completenessEntries = Object.entries(completeness).filter(([key]) => key !== 'overallEvidenceLevel');
@@ -272,23 +254,26 @@ export default function SalesIntelligenceQACaseDetail() {
   const evidenceCoveragePercent = completenessEntries.length ? Math.round((availableEvidenceCount / completenessEntries.length) * 100) : 0;
   const attributionConfidencePercent = attribution?.confidence_score == null ? null : Math.round(Number(attribution.confidence_score) * 100);
   const classificationConfidencePercent = Math.round(Number(analysis.evidence_snapshot?.conversationCaseConfidence?.score ?? 0) * 100);
-  const commercial = liveEvidence?.commercialConfirmation ?? null;
-  const historical = liveEvidence?.historicalClosure ?? null;
   const basketKnownQuantities = basketItems.filter((item) => item.quantity != null).length;
-  const currentSalesOutcome = salesOutcome;
+  const currentSalesOutcome = canonicalTruth.outcome;
+  const canonicalTruthRows = describeCanonicalCaseSaleTruth(canonicalTruth);
+  const trustedInvoiceId = canonicalTrustedInvoiceId(canonicalTruth);
+  const outcomeLabel = currentSalesOutcome ? salesOutcomeLabel(currentSalesOutcome.outcome) : NOT_ANALYZED_LABEL;
+  const proofStateBadge = currentSalesOutcome ? saleProofStateBadge(currentSalesOutcome.saleProofState) : NOT_ANALYZED_LABEL;
+  const countableLabel = (value: boolean | undefined) => currentSalesOutcome ? (value ? 'نعم' : 'لا') : NOT_ANALYZED_LABEL;
   const priceQuotedRows = invoiceItemFacts.filter((item) => item.quotedUnitPrice != null);
   const priceExactRows = priceQuotedRows.filter((item) => item.quotedPriceStatus === 'exact' || item.quotedPriceStatus === 'near_match');
   const priceMismatchRows = priceQuotedRows.filter((item) => item.quotedPriceStatus === 'mismatch_review');
   const attributionRuleIds = Array.isArray(attribution?.rule_ids) ? attribution.rule_ids.map((value: unknown) => String(value)) : [];
-  const invoiceLinkMethod = saleProof.trustedInvoiceId
+  const invoiceLinkMethod = trustedInvoiceId
     ? (attributionRuleIds.includes('attribution.trusted.automatic_customer_code_name_time_items_unique') ? 'automatic' : 'explicit')
     : null;
   const quotedPriceAccuracyPercent = priceQuotedRows.length
     ? Math.round((priceExactRows.length / priceQuotedRows.length) * 100)
     : null;
   const candidateInvoice = bundle.candidateInvoice;
-  const candidateInvoiceId = liveEvidence?.attribution.selectedInvoiceId ?? attribution?.selected_invoice_id ?? null;
-  const candidateInvoiceNumber = candidateInvoice?.invoiceNumber || liveEvidence?.attribution.selectedInvoiceNumber || attribution?.selected_invoice_number || null;
+  const candidateInvoiceId = canonicalTruth.attribution?.selectedInvoiceId ?? null;
+  const candidateInvoiceNumber = candidateInvoice?.invoiceNumber || canonicalTruth.attribution?.selectedInvoiceNumber || null;
   const invoiceAlreadyConfirmed = Boolean(conversation?.invoiceLinkConfirmed);
   const invoiceConfirmationMatchesCandidate = Boolean(
     invoiceAlreadyConfirmed &&
@@ -296,7 +281,33 @@ export default function SalesIntelligenceQACaseDetail() {
     conversation.invoiceLinkConfirmedInvoiceId === candidateInvoiceId &&
     conversation.invoiceLinkConfirmedInvoiceNumber === candidateInvoiceNumber
   );
-  const invoiceAlreadyProven = Boolean(saleProof.trustedInvoiceId && saleProof.trustedInvoiceId === candidateInvoiceId);
+  const invoiceAlreadyProven = Boolean(trustedInvoiceId && trustedInvoiceId === candidateInvoiceId);
+  const invoiceCard = buildCaseInvoiceCard({
+    view: caseIntelligence,
+    attribution: canonicalTruth.attribution
+      ? {
+          attributionLevel: canonicalTruth.attribution.attributionLevel,
+          selectedInvoiceId: canonicalTruth.attribution.selectedInvoiceId,
+          selectedInvoiceNumber: canonicalTruth.attribution.selectedInvoiceNumber,
+          isOfficialForStaffEvaluation: canonicalTruth.attribution.isOfficialForStaffEvaluation,
+        }
+      : null,
+    automaticProofRule: invoiceLinkMethod === 'automatic',
+    humanLinkConfirmed: invoiceConfirmationMatchesCandidate,
+    outcome: currentSalesOutcome
+      ? {
+          isOrderConfirmed: currentSalesOutcome.isOrderConfirmed,
+          saleProofState: currentSalesOutcome.saleProofState,
+          isSaleCountable: currentSalesOutcome.isSaleCountable,
+          isRevenueCountable: currentSalesOutcome.isRevenueCountable,
+        }
+      : null,
+    invoice: candidateInvoice,
+    items: invoiceItemFacts,
+    invoiceStaff: invoiceStaffTruth,
+    source: conversation ? { branch: conversation.branch, customerId: conversation.customerId, customerCode: conversation.customerCode } : null,
+    analysisCustomerId: persistedAnalysis.identity_customer_id ?? null,
+  });
   const canConfirmInvoiceLink = Boolean(
     checkPermission('edit_reviews') ||
     checkPermission('approve_reviews') ||
@@ -311,6 +322,22 @@ export default function SalesIntelligenceQACaseDetail() {
     alreadyConfirmedInvoiceId: conversation?.invoiceLinkConfirmedInvoiceId,
     alreadyProven: invoiceAlreadyProven,
   }) && Boolean(candidateInvoice?.id === candidateInvoiceId && canConfirmInvoiceLink);
+
+  async function reanalyzeSelectedCase() {
+    if (!canConfirmInvoiceLink || !sourceSnapshot.isCanonical || !conversation || invoiceConfirming) return;
+    const token = getStaffSessionToken();
+    if (!token) { setInvoiceConfirmationError('جلسة الموظف الموثقة غير متاحة.'); return; }
+    const sourceId = conversation.id;
+    await confirmInvoiceThenReload(gate, async () => {
+      const result = await requestCanonicalSalesIntelligenceRefresh({sourceIds:[sourceId], accessToken:token});
+      const failure = result.errors.map(item => item.message).join('؛ ') ||
+        (result.bySource[sourceId]?.status !== 'allowed'
+          ? result.bySource[sourceId]?.reason || 'تعذر إكمال التحليل القياسي.'
+          : null);
+      if (failure) throw new Error(failure);
+      return { message: 'تمت إعادة التحليل وحفظ النتيجة القياسية.', refreshFailure: null };
+    }, loadDetail, sink);
+  }
 
   async function confirmSelectedInvoice() {
     if (!canConfirmCandidate || !conversation || !candidateInvoice || !candidateInvoiceNumber || !candidateInvoiceId) return;
@@ -337,59 +364,37 @@ export default function SalesIntelligenceQACaseDetail() {
       return;
     }
 
-    setInvoiceConfirming(true);
-    setInvoiceConfirmationError(null);
-    setInvoiceConfirmationMessage(null);
-    try {
-      const { confirmation, refresh } = await confirmInvoiceCandidateAndRefresh(supabase, {
-        sourceId: conversation.id,
-        invoiceId: candidateInvoiceId,
-        invoiceNumber: candidateInvoiceNumber,
-      }, (sourceId) => requestCanonicalSalesIntelligenceRefresh({
-        sourceIds: [sourceId],
-        accessToken: sessionToken,
-      }));
-      let refreshFailure: string | null = null;
-      const sourceStatus = refresh.bySource[conversation.id];
-      if (refresh.errors.length || sourceStatus?.status !== 'allowed') {
-        refreshFailure = refresh.errors.map((item) => item.message).join('؛ ') ||
-          sourceStatus?.reason ||
-          'canonical_refresh_not_completed';
-      }
-
-      try {
-        const refreshedBundle = await fetchQaCaseDetail(supabase, caseId);
-        setBundle(refreshedBundle);
-      } catch (reloadCause) {
-        refreshFailure = [
+    const sourceId = conversation.id;
+    const invoiceId = candidateInvoiceId;
+    const invoiceNumber = candidateInvoiceNumber;
+    await confirmInvoiceThenReload(
+      gate,
+      async () => {
+        const { confirmation, refresh } = await confirmInvoiceCandidateAndRefresh(supabase, {
+          sourceId,
+          invoiceId,
+          invoiceNumber,
+        }, (id) => requestCanonicalSalesIntelligenceRefresh({
+          sourceIds: [id],
+          accessToken: sessionToken,
+        }));
+        let refreshFailure: string | null = null;
+        const sourceStatus = refresh.bySource[sourceId];
+        if (refresh.errors.length || sourceStatus?.status !== 'allowed') {
+          refreshFailure = refresh.errors.map((item) => item.message).join('؛ ') ||
+            sourceStatus?.reason ||
+            'canonical_refresh_not_completed';
+        }
+        return {
+          message: confirmation.idempotent
+            ? 'رابط الفاتورة كان معتمدًا بالفعل.'
+            : 'تم اعتماد رابط الفاتورة؛ قرار إثبات البيع يظل صادرًا من المحرك فقط.',
           refreshFailure,
-          reloadCause instanceof Error ? reloadCause.message : String(reloadCause),
-        ].filter(Boolean).join('؛ ');
-      }
-
-      setInvoiceConfirmationMessage(
-        confirmation.idempotent
-          ? 'رابط الفاتورة كان معتمدًا بالفعل.'
-          : 'تم اعتماد رابط الفاتورة؛ قرار إثبات البيع يظل صادرًا من المحرك فقط.'
-      );
-      if (refreshFailure) {
-        setInvoiceConfirmationError(`تم حفظ التأكيد لكن تعذر إكمال إعادة التحليل/إعادة التحميل: ${refreshFailure}`);
-      }
-    } catch (confirmationCause) {
-      let failureMessage = confirmationCause instanceof Error
-        ? confirmationCause.message
-        : 'تعذر اعتماد رابط الفاتورة.';
-      try {
-        setBundle(await fetchQaCaseDetail(supabase, caseId));
-      } catch (reloadCause) {
-        failureMessage = `${failureMessage}؛ وتعذر تحديث الحالة لمعرفة وضع التأكيد المحفوظ: ${
-          reloadCause instanceof Error ? reloadCause.message : String(reloadCause)
-        }`;
-      }
-      setInvoiceConfirmationError(failureMessage);
-    } finally {
-      setInvoiceConfirming(false);
-    }
+        };
+      },
+      loadDetail,
+      sink
+    );
   }
 
   return (
@@ -401,12 +406,78 @@ export default function SalesIntelligenceQACaseDetail() {
         <div className="dawaa-muted max-w-full truncate font-mono text-xs" title={caseId}>{caseId}</div>
       </div>
 
+      <div className="flex flex-wrap gap-2">
+        {canConfirmInvoiceLink && sourceSnapshot.isCanonical && conversation ? (
+          <button type="button" className="dawaa-button dawaa-button--secondary" disabled={invoiceConfirming} onClick={() => void reanalyzeSelectedCase()}>
+            {invoiceConfirming ? 'جارٍ تنفيذ الطلب...' : 'إعادة التحليل الصريحة'}
+          </button>
+        ) : null}
+        {caseIntelligence && evaluationRequestedFor !== evaluationKey ? (
+          <button type="button" className="dawaa-button dawaa-button--ghost" onClick={() => setEvaluationRequestedFor(evaluationKey)}>تحميل تفاصيل تقييم المحادثة</button>
+        ) : null}
+        {canDelete ? (
+          <>
+            <button type="button" className="dawaa-button dawaa-button--secondary" onClick={() => setDeletionScope('case')}>
+              <Trash2 size={15} /> حذف هذه الحالة فقط
+            </button>
+            {conversation ? (
+              <button type="button" className="dawaa-button dawaa-button--secondary" onClick={() => setDeletionScope('conversation')}>
+                <Trash2 size={15} /> حذف المحادثة كاملةً مع كل حالاتها ({Math.max(siblingCases.length, 1).toLocaleString('ar-EG')} حالة)
+              </button>
+            ) : null}
+          </>
+        ) : null}
+      </div>
+      {deletionScope ? (
+        <WhatsAppDeletionDialog
+          scope={deletionScope}
+          target={deletionScope === 'case' ? caseId : conversation!.id}
+          onClose={() => setDeletionScope(null)}
+          onDeleted={() => {
+            setDeletionScope(null);
+            navigate('/sales-intelligence/qa');
+          }}
+        />
+      ) : null}
+      {conversationRereadError ? <div className="dawaa-alert dawaa-alert--warning text-sm">{conversationRereadError}</div> : null}
+      {invoiceConfirmationMessage ? <div className="dawaa-alert dawaa-alert--success text-sm">{invoiceConfirmationMessage}</div> : null}
+      {invoiceConfirmationError ? <div className="dawaa-alert dawaa-alert--danger text-sm">{invoiceConfirmationError}</div> : null}
+
       {!sourceSnapshot.isCanonical ? (
         <div className="dawaa-alert dawaa-alert--warning text-sm leading-7">
           هذه الحالة مبنية على لقطة واتساب أقدم تم احتواؤها لاحقًا داخل نسخة أشمل من نفس المحادثة. تُعرض هنا للـAudit فقط ولا ينبغي اعتمادها كالحالة الحالية.
           {sourceSnapshot.canonicalSourceId ? <span className="ms-1 font-mono text-xs">المصدر الأحدث: {sourceSnapshot.canonicalSourceId}</span> : null}
         </div>
       ) : null}
+
+      {conversation && sourceSnapshot.isCanonical ? (
+        <SourceOperationsPanel
+          sourceId={conversation.id}
+          analysisKey={persistedAnalysis.analysis_id}
+          permissions={{
+            // Mirrors the database commands, which remain the enforcing boundary.
+            canCorrect: checkPermission('approve_reviews'),
+            canApprove: checkPermission('approve_reviews') || checkPermission('manage_conversation_evaluations') || checkPermission('manage_customer_requests'),
+            canExecute: checkPermission('add_reviews') || checkPermission('edit_reviews') || checkPermission('manage_conversation_evaluations'),
+          }}
+        />
+      ) : null}
+
+      <Section title="الحقيقة البيعية المعتمدة لهذه الحالة">
+        <div className="dawaa-muted text-xs leading-6">
+          تُعرض القيم كما حفظها المحرك الرسمي لهذه الحالة فقط (التحليل الحالي + سجل البيع المعتمد). لا يُعاد حساب أي قرار بيعي في هذه الشاشة،
+          البيع المثبت بالفاتورة مستقل عن اكتمال تأكيد السلة في المحادثة وعن إثبات استلام العميل.
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          {canonicalTruthRows.map((row) => (
+            <Field
+              key={row.key}
+              label={row.label}
+              value={<span className={row.tone === 'success' ? 'dawaa-badge dawaa-badge--success' : row.tone === 'warning' ? 'dawaa-badge dawaa-badge--warning' : row.tone === 'danger' ? 'dawaa-badge dawaa-badge--danger' : ''}>{row.value}</span>}
+            />
+          ))}
+        </div>
+      </Section>
 
       <CaseIntelligenceWorkspace
         view={caseIntelligence}
@@ -419,19 +490,27 @@ export default function SalesIntelligenceQACaseDetail() {
             branch={conversation.branch}
             caseStartedAt={analysis.case_started_at}
             caseEndedAt={analysis.case_ended_at}
+            caseMessageIds={caseIntelligence?.interaction.messageIds ?? null}
           />
         ) : null}
         staffDisplayName={conversation?.staffId ? conversation.staffName : null}
-        conversationEvaluation={conversationEvaluation}
-        conversationEvaluationLoading={conversationEvaluationLoading}
-        conversationEvaluationWarning={conversationEvaluationWarning}
+        conversationEvaluation={evaluationRequestedFor === evaluationKey ? conversationEvaluation : null}
+        conversationEvaluationRequested={evaluationRequestedFor === evaluationKey}
+        conversationEvaluationLoading={evaluationRequestedFor === evaluationKey && conversationEvaluationLoading}
+        conversationEvaluationWarning={evaluationRequestedFor === evaluationKey ? conversationEvaluationWarning : null}
         invoiceEvidence={{
-          status: saleProof.trustedInvoiceId ? 'trusted' : saleProof.selectedInvoiceId ? 'candidate' : 'none',
+          status: trustedInvoiceId ? 'trusted' : candidateInvoiceId ? 'candidate' : 'none',
           linkMethod: invoiceLinkMethod,
-          invoiceNumber: saleProof.selectedInvoiceNumber,
-          items: saleProof.trustedInvoiceId
+          invoiceNumber: candidateInvoiceNumber,
+          invoiceCustomerName: candidateInvoice?.customerName ?? null,
+          invoiceCustomerCode: candidateInvoice?.customerCode ?? null,
+          invoiceBranch: candidateInvoice?.branch ?? null,
+          invoiceSellerName: candidateInvoice?.staffName ?? null,
+          // Read-only candidate lines stay visible as invoice evidence. The workspace
+          // decides whether they are trusted; they must never fill chat/media needs.
+          items: candidateInvoiceId
             ? invoiceItemFacts
-                .filter((item) => item.invoiceId === saleProof.trustedInvoiceId)
+                .filter((item) => item.invoiceId === candidateInvoiceId)
                 .map((item) => ({
                   id: item.id,
                   productName: item.productName,
@@ -454,19 +533,19 @@ export default function SalesIntelligenceQACaseDetail() {
           <Field label="العميل" value={<span className="inline-flex items-center gap-2"><UserRound size={16} /> {conversation?.customerName || 'عميل غير مسمى'}</span>} />
           <Field label="كود العميل" value={<span className="inline-flex items-center gap-2"><Hash size={16} /> {conversation?.customerCode || 'غير متاح'}</span>} />
           <Field label="رقم الهاتف" value={<span className="inline-flex items-center gap-2"><Phone size={16} /> {conversation?.customerPhone || 'غير متاح'}</span>} />
-          <Field label="الفرع" value={<span className="inline-flex items-center gap-2"><Building2 size={16} /> {branchLabelFor(conversation?.branch ?? analysis.identity_branch_name_raw)}</span>} />
+          <Field label="فرع مصدر المحادثة" value={<span className="inline-flex items-center gap-2"><Building2 size={16} /> {branchLabelFor(conversation?.branch ?? null)}</span>} />
           <Field label="نوع الحالة" value={caseTypeLabelFor(analysis.case_type)} />
-          <Field label="العملية البيعية" value={salesOutcomeLabel(currentSalesOutcome?.outcome)} />
-          <Field label="إثبات البيع" value={saleProofStateBadge(saleProof.state)} />
+          <Field label="العملية البيعية" value={outcomeLabel} />
+          <Field label="إثبات البيع" value={proofStateBadge} />
           <Field label="مستوى الإسناد" value={attributionLevelBadge(attribution?.attribution_level ?? analysis.attribution_level)} />
           <Field label="تقسيم المصدر" value={<span className="inline-flex items-center gap-2"><Layers3 size={16} /> {siblingCases.length > 1 ? `${siblingCases.length} أجزاء` : 'جزء واحد'}</span>} />
         </div>
       </section>
 
       <Section title="المراجعة الذكية الشاملة — ملخص الحالة بالكامل">
-        {liveEvidence ? (
-          <div className="dawaa-alert dawaa-alert--success mb-3 text-xs leading-6">
-            التفاصيل المعروضة هنا أُعيد حسابها الآن للقراءة فقط من المحادثة الأصلية + التوقيت الموثوق + مرشحي الفواتير الحاليين. الصفوف القديمة المحفوظة تُحتفظ بها للـAudit ولا تُستخدم لتغطية نتيجة أحدث.
+        {conversationRereadError ? (
+          <div className="dawaa-alert dawaa-alert--warning mb-3 text-xs leading-6">
+            حالة السلة المحفوظة ({conversationRereadError}). القيم البيعية المعروضة محفوظة ولا تتأثر بذلك.
           </div>
         ) : null}
         <div className="dawaa-alert dawaa-alert--info text-xs leading-6">
@@ -481,7 +560,7 @@ export default function SalesIntelligenceQACaseDetail() {
             <div className="dawaa-body mt-2 text-xs leading-6">
               الكود: {conversation?.customerCode || 'غير متاح'}<br />
               الهاتف: {conversation?.customerPhone || 'غير متاح'}<br />
-              الفرع: {branchLabelFor(conversation?.branch ?? analysis.identity_branch_name_raw)}
+              فرع مصدر المحادثة: {branchLabelFor(conversation?.branch ?? null)}
             </div>
           </div>
 
@@ -501,21 +580,19 @@ export default function SalesIntelligenceQACaseDetail() {
             <div className="dawaa-heading mt-2 font-black">{basketItems.length ? basketItems.length + ' صنف/طلب ظاهر' : 'لا توجد سلة مكتملة'}</div>
             <div className="dawaa-body mt-2 text-xs leading-6">
               كميات محسومة: {basketKnownQuantities} من {basketItems.length}<br />
-              تطابقات كتالوج: {catalogProductMatches.length}<br />
+              أصناف التحليل المحفوظ: {catalogProductMatches.length}<br />
               الإجمالي المعلن: {activeBasket?.announcedTotal?.amount ?? 'غير متاح'}
             </div>
           </div>
 
           <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] p-4">
             <div className="dawaa-muted text-xs">القرار الشرائي</div>
-            <div className="dawaa-heading mt-2 font-black">{salesOutcomeLabel(currentSalesOutcome?.outcome)}</div>
+            <div className="dawaa-heading mt-2 font-black">{outcomeLabel}</div>
             <div className="dawaa-body mt-1 text-xs text-[var(--dawaa-theme-muted)]">
-              حالة تأكيد الطلب: {commercialConfirmationStateLabelFor(commercial?.currentState ?? analysis.commercial_confirmation_state)}
+              حالة تأكيد الطلب: {commercialConfirmationStateLabelFor(analysis.commercial_confirmation_state)}
             </div>
             <div className="dawaa-body mt-2 text-xs leading-6">
-              نية شراء: {historical?.purchaseIntentDetected ? 'موجودة' : 'غير مؤكدة'}<br />
-              قبول العميل: {historical?.customerAcceptanceDetected ? 'موجود' : 'غير مؤكد'}<br />
-              نية التنفيذ من الصيدلية: {historical?.staffFulfillmentIntentDetected ? 'موجودة' : 'غير مؤكدة'}
+              مستوى الإغلاق التاريخي: {historicalClosureBadge(analysis.historical_closure_level)}
             </div>
           </div>
 
@@ -556,12 +633,12 @@ export default function SalesIntelligenceQACaseDetail() {
 
           <div className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] p-4">
             <div className="dawaa-muted text-xs">إثبات البيع وجودة الأدلة</div>
-            <div className="mt-2">{saleProofStateBadge(saleProof.state)}</div>
+            <div className="mt-2">{proofStateBadge}</div>
             <div className="dawaa-body mt-2 text-xs leading-6">
               تغطية الأدلة المتاحة: {evidenceCoveragePercent}٪<br />
               {evidenceLevelLabelFor(String(completeness.overallEvidenceLevel ?? analysis.overall_evidence_level))}<br />
-              بيع قابل للعد رسميًا: {currentSalesOutcome?.isSaleCountable ? 'نعم' : 'لا'}<br />
-              إيراد قابل للعد رسميًا: {currentSalesOutcome?.isRevenueCountable ? 'نعم' : 'لا'}<br />
+              بيع قابل للعد رسميًا: {countableLabel(currentSalesOutcome?.isSaleCountable)}<br />
+              إيراد قابل للعد رسميًا: {countableLabel(currentSalesOutcome?.isRevenueCountable)}<br />
               مراجعة بشرية: {analysis.needs_human_review ? 'مطلوبة' : 'غير مطلوبة'}
             </div>
           </div>
@@ -587,7 +664,7 @@ export default function SalesIntelligenceQACaseDetail() {
             <div>• هوية العميل: {conversation?.customerCode && conversation?.customerPhone ? 'مرتبطة ببيانات واضحة' : 'غير مكتملة'}</div>
             <div>• تصنيف الحالة: {caseTypeLabelFor(analysis.case_type)} — {classificationConfidencePercent}٪</div>
             <div>• الفاتورة: {attribution?.selected_invoice_number ? 'مرشحة رقم ' + attribution.selected_invoice_number : 'لا توجد فاتورة مرشحة'}</div>
-            <div>• الأصناف: {catalogProductMatches.length ? catalogProductMatches.length + ' تطابق كتالوج ظاهر' : 'لا توجد مطابقة كتالوج حاليًا'}</div>
+            <div>• الأصناف: {catalogProductMatches.length ? catalogProductMatches.length + ' صنف من التحليل المحفوظ' : 'لا توجد مطابقة كتالوج حاليًا'}</div>
           </div>
 
           <div className="rounded-xl border border-amber-700/30 bg-amber-950/10 p-3 text-xs leading-6">
@@ -682,7 +759,7 @@ export default function SalesIntelligenceQACaseDetail() {
                       <td className="p-2">{item.productNameRaw}</td>
                       <td className="p-2">{item.quantity ?? '—'}{item.unit ? ` ${item.unit}` : ''}</td>
                       <td className="p-2">{itemResolutionStatusLabelFor(item.resolutionStatus)}</td>
-                      <td className="p-2">{item.confidence?.level ?? '—'}</td>
+                      <td className="p-2">{item.confidence?.level ? attributionLevelLabelFor(item.confidence.level) : '—'}</td>
                       <td className="dawaa-muted p-2 font-mono">{item.sourceMessageId}</td>
                     </tr>
                   ))}
@@ -696,28 +773,28 @@ export default function SalesIntelligenceQACaseDetail() {
 
       <Section title="٣.ب. مطابقة أصناف المحادثة مع كتالوج الصيدلية">
         <div className="dawaa-muted text-xs">
-          مطابقة قراءة فقط مع جدول المنتجات الفعلي. النتيجة هنا مرشح كتالوج وليست إثبات بيع؛ التأكيد النهائي سيعتمد على بيانات الفاتورة وبنودها عند توفرها.
+          هوية الأصناف من التحليل القياسي المحفوظ لهذه الحالة. الصنف غير المحسوم يحتاج مراجعة بشرية؛ الهوية وحدها لا تثبت البيع.
         </div>
         {!catalogProductMatches.length ? (
-          <div className="dawaa-empty-state py-4 text-center">لم يظهر تطابق كتالوج من النص المتاح لهذه الحالة.</div>
+          <div className="dawaa-empty-state py-4 text-center">لا توجد هوية أصناف محفوظة لهذه الحالة. يمكن استخدام إعادة التحليل الصريحة.</div>
         ) : (
           <div className="mt-2 overflow-x-auto">
             <table className="min-w-full text-xs">
               <thead>
                 <tr className="dawaa-muted border-b border-[var(--dawaa-theme-border)] text-right">
-                  {['النص في المحادثة', 'الصنف الفعلي', 'كود الصنف', 'السعر الحالي', 'قوة المطابقة'].map((h) => <th key={h} className="p-2">{h}</th>)}
+                  {['النص في المحادثة', 'الصنف القياسي', 'كود الصنف', 'المصدر', 'حالة الهوية'].map((h) => <th key={h} className="p-2">{h}</th>)}
                 </tr>
               </thead>
               <tbody>
                 {catalogProductMatches.map((match) => (
-                  <tr key={`${match.sourceMessageId}:${match.productId}`} className="border-b border-[var(--dawaa-theme-border)]/60">
+                  <tr key={match.key} className="border-b border-[var(--dawaa-theme-border)]/60">
                     <td className="max-w-[360px] p-2">{match.rawPhrase}</td>
-                    <td className="p-2 font-bold">{match.productName}</td>
-                    <td className="p-2 font-mono">{match.productCode}</td>
-                    <td className="p-2">{match.price == null ? '—' : `${match.price} ج.م`}</td>
+                    <td className="p-2 font-bold">{match.productName ?? 'غير محسوم'}</td>
+                    <td className="p-2 font-mono">{match.productCode ?? '—'}</td>
+                    <td className="p-2">{match.source === 'persisted_need' ? 'احتياج محفوظ' : 'سلة محفوظة'}</td>
                     <td className="p-2">
-                      <span className={match.score >= 68 ? 'dawaa-badge dawaa-badge--success' : 'dawaa-badge dawaa-badge--warning'}>
-                        {productMatchLabelFor(match.label)} • {match.score}%
+                      <span className={match.state === 'CANONICAL_MATCH' ? 'dawaa-badge dawaa-badge--success' : 'dawaa-badge dawaa-badge--warning'}>
+                        {productDisplayStateLabel(match.state)}
                       </span>
                     </td>
                   </tr>
@@ -749,7 +826,7 @@ export default function SalesIntelligenceQACaseDetail() {
                     <td className="p-2">{item.productNameRaw}</td>
                     <td className="p-2">{item.quantity ?? <span className="dawaa-badge dawaa-badge--warning">غير معروفة</span>}{item.unit ? ` ${item.unit}` : ''}</td>
                     <td className="p-2">{itemResolutionStatusLabelFor(item.resolutionStatus)}</td>
-                    <td className="p-2">{item.confidence?.level ?? '—'}</td>
+                    <td className="p-2">{item.confidence?.level ? attributionLevelLabelFor(item.confidence.level) : '—'}</td>
                     <td className="dawaa-muted p-2 font-mono">{item.sourceMessageId}</td>
                   </tr>
                 ))}
@@ -823,15 +900,16 @@ export default function SalesIntelligenceQACaseDetail() {
         )}
       </Section>
 
-      <Section title="٦.ب. تفاصيل البيع الفعلية من B-Connect">
-        {!attribution?.selected_invoice_id ? (
-          <div className="dawaa-empty-state py-4 text-center">لا توجد فاتورة مختارة لعرض تفاصيل أصنافها.</div>
-        ) : !invoiceItemFacts.length ? (
+      <Section title="٦.ب. الفاتورة داخل هذه الحالة">
+        <CaseInvoiceCard card={invoiceCard} />
+        {!attribution?.selected_invoice_id ? null : !invoiceItemFacts.length ? (
           <div className="dawaa-alert dawaa-alert--warning text-xs leading-6">
             الفاتورة موجودة، لكن بنود B-Connect لم تُستورد لهذه الفاتورة بعد. لذلك لا يمكن الحكم على الصنف أو الكمية أو السعر أو تنفيذ العرض من هذه الحالة.
           </div>
         ) : (
-          <>
+          <details className="mt-3">
+            <summary className="dawaa-button dawaa-button--ghost cursor-pointer text-xs">تفاصيل التسعير والعروض لكل بند</summary>
+            <div className="mt-3">
             <div className="mb-3 grid gap-2 sm:grid-cols-4">
               <Field label="أصناف الفاتورة" value={invoiceItemFacts.length} />
               <Field label="أصناف لها سعر مذكور بالمحادثة" value={priceQuotedRows.length} />
@@ -906,7 +984,8 @@ export default function SalesIntelligenceQACaseDetail() {
                 </tbody>
               </table>
             </div>
-          </>
+            </div>
+          </details>
         )}
       </Section>
 
@@ -1000,35 +1079,35 @@ export default function SalesIntelligenceQACaseDetail() {
         </Section>
       ) : null}
 
-      {/* 7. Sale Proof State (NEW) — always from PERSISTED rows via deriveSaleProofStateFromPersisted(), never liveEvidence. */}
+      {/* 7. Sale Proof State — the state is the persisted canonical value; the explanation fields come from the persisted attribution/match rows. */}
       <Section title="٧. حالة إثبات البيع">
         <div className="flex flex-wrap items-center gap-3">
-          {saleProofStateBadge(saleProof.state)}
-          <span className="dawaa-muted text-xs">مصدر الإثبات: {saleProofSourceLabelFor(saleProof.proofSource)}</span>
+          {proofStateBadge}
+          <span className="dawaa-muted text-xs">مصدر الإثبات: {saleProofSourceLabelFor(persistedProofEvidence.proofSource)}</span>
         </div>
         <div className="mt-2 grid gap-2 sm:grid-cols-3">
-          <Field label="هل توجد فاتورة موثوقة مباشرة؟" value={saleProof.trustedInvoiceId ? 'نعم' : 'لا'} />
-          <Field label="الفاتورة المختارة" value={saleProof.selectedInvoiceNumber || 'لا توجد'} />
-          <Field label="نطاق أدلة الفاتورة" value={integrityScopeBadge(saleProof.invoiceEvidenceScope)} />
-          <Field label="أدلة الأصناف؟" value={saleProof.itemEvidenceReady ? 'متاحة' : 'غير متاحة'} />
-          <Field label="أدلة الكمية؟" value={saleProof.quantityEvidenceReady ? 'متاحة' : 'غير متاحة'} />
-          <Field label="تحتاج مراجعة بشرية؟" value={saleProof.needsHumanReview ? 'نعم' : 'لا'} />
+          <Field label="هل توجد فاتورة موثوقة مباشرة؟" value={trustedInvoiceId ? 'نعم' : 'لا'} />
+          <Field label="الفاتورة المختارة" value={candidateInvoiceNumber || 'لا توجد'} />
+          <Field label="نطاق أدلة الفاتورة" value={integrityScopeBadge(persistedProofEvidence.invoiceEvidenceScope)} />
+          <Field label="أدلة الأصناف؟" value={persistedProofEvidence.itemEvidenceReady ? 'متاحة' : 'غير متاحة'} />
+          <Field label="أدلة الكمية؟" value={persistedProofEvidence.quantityEvidenceReady ? 'متاحة' : 'غير متاحة'} />
+          <Field label="تحتاج مراجعة بشرية؟" value={persistedProofEvidence.needsHumanReview ? 'نعم' : 'لا'} />
         </div>
 
-        {!saleProof.itemEvidenceReady ? (
+        {!persistedProofEvidence.itemEvidenceReady ? (
           <div className="dawaa-alert dawaa-alert--info mt-2 text-xs">{ITEM_EVIDENCE_UNAVAILABLE_TEXT}</div>
         ) : null}
 
-        {saleProof.state === 'contradicted' ? (
+        {currentSalesOutcome?.saleProofState === 'contradicted' ? (
           <div className="dawaa-alert dawaa-alert--danger mt-2 text-xs">
             <div className="mb-1 font-bold">سبب التناقض:</div>
             <ul className="space-y-1">
-              {contradictionReasonsList(saleProof.contradictions).map((reason, i) => <li key={i}>• {reason}</li>)}
+              {contradictionReasonsList(persistedProofEvidence.contradictions).map((reason, i) => <li key={i}>• {reason}</li>)}
             </ul>
           </div>
         ) : null}
 
-        {saleProof.state === 'unknown' ? (
+        {(currentSalesOutcome?.saleProofState ?? 'unknown') === 'unknown' ? (
           <div className="dawaa-alert dawaa-alert--warning mt-2 text-xs">
             {unknownProofReason({
               candidateCount: attribution?.candidate_count ?? 0,
@@ -1038,9 +1117,9 @@ export default function SalesIntelligenceQACaseDetail() {
           </div>
         ) : null}
 
-        {saleProof.ruleIds.length ? (
+        {persistedProofEvidence.ruleIds.length ? (
           <Evidence>
-            <div className="dawaa-muted">قواعد التحليل: {saleProof.ruleIds.map(ruleIdLabelFor).join('، ')}</div>
+            <div className="dawaa-muted">قواعد التحليل: {persistedProofEvidence.ruleIds.map(ruleIdLabelFor).join('، ')}</div>
           </Evidence>
         ) : null}
       </Section>
@@ -1069,11 +1148,11 @@ export default function SalesIntelligenceQACaseDetail() {
 
       {/* 9. Integrity / contradictions (NEW, separated out from Human Review) */}
       <Section title="٩. التكامل والتناقضات">
-        {saleProof.contradictions.length ? (
+        {persistedProofEvidence.contradictions.length ? (
           <div className="dawaa-alert dawaa-alert--danger text-xs">
             <div className="mb-1 font-bold">تناقضات إثبات البيع (Sale Proof):</div>
             <ul className="space-y-1">
-              {contradictionReasonsList(saleProof.contradictions).map((reason, i) => <li key={i}>• {reason}</li>)}
+              {contradictionReasonsList(persistedProofEvidence.contradictions).map((reason, i) => <li key={i}>• {reason}</li>)}
             </ul>
           </div>
         ) : (
@@ -1083,7 +1162,7 @@ export default function SalesIntelligenceQACaseDetail() {
         {attribution?.contradictions?.length ? (
           <div className="mt-2 text-xs">
             <div className="dawaa-muted mb-1">تناقضات إسناد خام (كما سجّلها محرك الإسناد):</div>
-            <div className="text-amber-300">{attribution.contradictions.join('، ')}</div>
+            <div className="text-amber-300">{contradictionReasonsList(attribution.contradictions).join('، ')}</div>
           </div>
         ) : null}
 
@@ -1091,7 +1170,7 @@ export default function SalesIntelligenceQACaseDetail() {
           <Evidence>
             <div className="dawaa-muted mb-1">فروقات السلة/الفاتورة المسجّلة:</div>
             <ul className="space-y-1">
-              {match.differences.map((d: any, i: number) => <li key={i}>• {d.type} — {d.key}: {String(d.before)} ← {String(d.after)} ({d.explanation})</li>)}
+              {match.differences.map((d: any, i: number) => <li key={i}>• {MATCH_DIFFERENCE_LABELS[d.type] || 'فرق آخر'} — {d.key === 'total' ? 'الإجمالي' : d.key}: {d.before == null ? '—' : String(d.before)} ← {d.after == null ? '—' : String(d.after)}{d.explanation ? ` (${d.explanation})` : ''}</li>)}
             </ul>
           </Evidence>
         ) : null}
@@ -1119,3 +1198,4 @@ export default function SalesIntelligenceQACaseDetail() {
     </div>
   );
 }
+

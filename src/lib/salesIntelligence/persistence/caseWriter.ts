@@ -27,7 +27,8 @@ export interface CaseUpsertResult {
 export async function upsertSalesIntelligenceCase(
   supabaseClient: any,
   caseId: string,
-  content: CaseRowContent
+  content: CaseRowContent,
+  deferPublication = false
 ): Promise<CaseUpsertResult> {
   // Best-effort pre-read for the wasCreated/canonicalIdentityChanged REPORTING flags only — the
   // actual write below is atomic regardless of what this read saw. Under a genuine race between two
@@ -55,23 +56,28 @@ export async function upsertSalesIntelligenceCase(
   // absent from the upsert payload is never touched, so an existing case's first_seen_at can never
   // be overwritten. last_seen_at IS explicit and unconditional — "bumped every re-run" (design
   // doc's own SalesIntelligenceCaseRow field comment) applies on every upsert, insert or update.
-  const { error: upsertError } = await supabaseClient
-    .from('sales_intelligence_cases')
-    .upsert(
-      {
-        case_id: caseId,
-        conversation_id: content.conversationId,
-        source_case_id_v22: content.sourceCaseIdV22,
-        customer_id: content.customerId,
-        customer_phone: content.customerPhone,
-        branch_id: content.branchId,
-        branch_name_raw: content.branchNameRaw,
-        case_started_at: content.caseStartedAt,
-        case_ended_at: content.caseEndedAt,
-        last_seen_at: new Date().toISOString(),
-      },
-      { onConflict: 'case_id' }
-    );
+  const payload = {
+    case_id: caseId,
+    conversation_id: content.conversationId,
+    source_case_id_v22: content.sourceCaseIdV22,
+    customer_id: content.customerId,
+    customer_phone: content.customerPhone,
+    branch_id: content.branchId,
+    branch_name_raw: content.branchNameRaw,
+    case_started_at: content.caseStartedAt,
+    case_ended_at: content.caseEndedAt,
+    last_seen_at: new Date().toISOString(),
+  };
+  if (deferPublication) {
+    // INSERT ... ON CONFLICT DO NOTHING: never let a stale reporting pre-read reset an
+    // existing/published case to inactive during a concurrent retry. Only a new row is staged.
+    const { error } = await supabaseClient.from('sales_intelligence_cases')
+      .upsert({ ...payload, is_active: false }, { onConflict: 'case_id', ignoreDuplicates: true });
+    if (error) throw error;
+  }
+  const { error: upsertError } = deferPublication
+    ? await supabaseClient.from('sales_intelligence_cases').update(payload).eq('case_id', caseId)
+    : await supabaseClient.from('sales_intelligence_cases').upsert(payload, { onConflict: 'case_id' });
   if (upsertError) throw upsertError;
 
   return { caseId, wasCreated: !existing, canonicalIdentityChanged };

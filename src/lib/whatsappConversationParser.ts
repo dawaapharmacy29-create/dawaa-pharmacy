@@ -80,9 +80,11 @@ type ParsedPrefix = {
 };
 
 const STAFF_INTRO_PATTERNS = [
-  /مع حضرتك\s+(?:د\.?|دكتور(?:ة)?|دكتوره)\s*([^\n،,.]+)/i,
-  /معاك(?:ي)?\s+(?:د\.?|دكتور(?:ة)?|دكتوره)\s*([^\n،,.]+)/i,
-  /(?:د\.?|دكتور(?:ة)?|دكتوره)\s+([^\n،,.]+)\s+من\s+(?:خدمة عملاء|صيدليات)\s+دواء/i,
+  /(?:مع\s+حضرتك|معاك(?:ي)?)\s+(?:(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*)?([^\n،,.]+?)\s+من\s+فرع\s+(?:شكري|الشامي)(?=[\s،,.!?؟]|$)/i,
+  /مع\s+حضرتك\s+(?:(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*)?([^\n،,.]+?)\s+من\s+(?:خدمة\s*(?:ال)?عملاء(?:\s+(?:صيدليات\s+)?دواء)?|صيدليات\s+دواء)/i,
+  /مع حضرتك\s+(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*([^\n،,.]+)/i,
+  /معاك(?:ي)?\s+(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*([^\n،,.]+)/i,
+  /(?:د\.?|دكتور(?:ة)?|دكتوره)\s+([^\n،,.]+)\s+من\s+(?:خدمة (?:ال)?عملاء|صيدليات)\s+دواء/i,
 ];
 const PHARMACY_TEXT_RX =
   /(صيدليات دواء|مع حضرتك|تحت امر حضرتك|تحت أمر حضرتك|تم تأكيد الطلب|جاري الارسال|جاري الإرسال)/i;
@@ -505,7 +507,12 @@ export function parseWhatsAppExport(text: string, options: WhatsAppParseOptions 
   return rebaseTextTimelineToTrustedStart(parseTextExport(text), options.trustedConversationStartedAt);
 }
 
-export function extractIntroducedStaffName(message: WhatsAppParsedMessage): string | null {
+/** A department claim must belong to an outbound self-introduction, never a customer mention. */
+export function isCustomerServiceIntroduction(message: Pick<WhatsAppParsedMessage, 'direction' | 'text'>): boolean {
+  return Boolean(extractIntroducedStaffName(message)) && /من\s+خدمة\s*(?:ال)?عملاء/u.test(message.text);
+}
+
+export function extractIntroducedStaffName(message: Pick<WhatsAppParsedMessage, 'direction' | 'text'>): string | null {
   if (message.direction !== 'outbound') return null;
   for (const pattern of STAFF_INTRO_PATTERNS) {
     const match = message.text.match(pattern);
@@ -581,3 +588,5 @@ export function splitWhatsAppSessions(
   if (current.length) groups.push(current);
   return groups.map((group, index) => buildSession(group, index));
 }
+
+

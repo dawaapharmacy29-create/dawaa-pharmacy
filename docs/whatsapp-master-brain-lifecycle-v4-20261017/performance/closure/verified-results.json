@@ -1,0 +1,400 @@
+{
+  "decision": "PERFORMANCE_CLOSURE_PASS_READY_FOR_RUNTIME_ACTIVATION",
+  "finding": "NO_ADDITIONAL_MATERIAL_BOTTLENECK_PROVEN",
+  "startingHead": "50786734f51854665c714fca2c40bae41da0ab09",
+  "testedHead": "1373abd88629f8bd0cdbefe2cfa940b6cb1c0ca0",
+  "branch": "fix/whatsapp-master-brain-lifecycle-v4-continuation-20261017",
+  "workflowRun": 39046903455,
+  "workflowUrl": "https://github.com/dawaapharmacy29-create/dawaa-pharmacy/actions/runs/39046903455",
+  "job": 117437325204,
+  "jobConclusion": "success",
+  "steps": [
+    {
+      "name": "Set up job",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 1
+    },
+    {
+      "name": "Run actions/checkout@v4",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 2
+    },
+    {
+      "name": "Run actions/setup-node@v4",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 3
+    },
+    {
+      "name": "Install exact application lockfile",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 4
+    },
+    {
+      "name": "Resolve preinstalled system Chrome",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 5
+    },
+    {
+      "name": "Install browser controller only (no browser download, no lockfile mutation)",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 6
+    },
+    {
+      "name": "Measure analysis stages",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 7
+    },
+    {
+      "name": "Build real-component browser harness",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 8
+    },
+    {
+      "name": "Serve browser harness",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 9
+    },
+    {
+      "name": "Measure browser UX, rendering and retained memory",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 10
+    },
+    {
+      "name": "Regression suite",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 11
+    },
+    {
+      "name": "TypeScript",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 12
+    },
+    {
+      "name": "Semantic ESLint",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 13
+    },
+    {
+      "name": "Production build and performance budget",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 14
+    },
+    {
+      "name": "Verify source and lockfiles remain unchanged",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 15
+    },
+    {
+      "name": "Preserve closure evidence",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 16
+    },
+    {
+      "name": "Post Run actions/setup-node@v4",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 31
+    },
+    {
+      "name": "Post Run actions/checkout@v4",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 32
+    },
+    {
+      "name": "Complete job",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 33
+    }
+  ],
+  "artifacts": [
+    {
+      "id": 12106042235,
+      "name": "batch4-performance-browser-closure",
+      "size_in_bytes": 2255,
+      "url": "https://api.github.com/repos/dawaapharmacy29-create/dawaa-pharmacy/actions/artifacts/12106042235",
+      "archive_download_url": "https://api.github.com/repos/dawaapharmacy29-create/dawaa-pharmacy/actions/artifacts/12106042235/zip",
+      "expired": false,
+      "created_at": "2026-10-17T15:56:09Z",
+      "expires_at": "2027-01-15T15:51:43Z",
+      "updated_at": "2026-10-17T15:56:09Z",
+      "digest": "sha256:2d4baf2ba1db3286456552cc1d514d3ae171d3d905a4344b3766df1bb1232b8d",
+      "workflow_run": {
+        "id": 39046903455,
+        "repository_id": 1275303209,
+        "head_repository_id": 1275303209,
+        "head_branch": "fix/whatsapp-master-brain-lifecycle-v4-continuation-20261017",
+        "head_sha": "1373abd88629f8bd0cdbefe2cfa940b6cb1c0ca0"
+      }
+    }
+  ],
+  "browser": {
+    "model": "GitHub-hosted system Chrome + production-built synthetic fixture; not Production latency",
+    "chrome": "/usr/bin/google-chrome",
+    "startupMs": 737.613,
+    "warmNavigationMs": 41.287,
+    "masterBrainOpenMs": 85.522,
+    "evaluationFirstMs": 46.831,
+    "evaluationCachedMs": 51.102,
+    "searchRapidInputMs": 110.4,
+    "searchInputFrameMs": [
+      23.699999999982538,
+      18.5,
+      21.39999999999418
+    ],
+    "searchReadDelta": 0,
+    "searchRpcDelta": 0,
+    "tabTimings": {
+      "المحادثة": 46.932,
+      "طلب العميل": 46.996,
+      "الأصناف": 33.234,
+      "الطلب والبيع": 34.675,
+      "الفرصة": 32.126,
+      "المتابعة": 31.106,
+      "الأدلة والمراجعة": 35.689
+    },
+    "requests": 3,
+    "supabaseNetworkRequests": 0,
+    "memoryBefore": {
+      "usedJSHeapSize": 5616708,
+      "totalJSHeapSize": 6405396
+    },
+    "memoryAfter": {
+      "usedJSHeapSize": 5771684,
+      "totalJSHeapSize": 6606100
+    },
+    "memoryDelta": 154976,
+    "appMetrics": {
+      "fixturePreparationPipelineRuns": 1,
+      "detailOpenPipelineRuns": 0,
+      "profiler": {
+        "qa": {
+          "commits": 6,
+          "durationMs": 43.90000000005239
+        },
+        "brain": {
+          "commits": 31,
+          "durationMs": 63.80000000007567
+        }
+      },
+      "brainMounts": 21,
+      "longTasks": [
+        166
+      ],
+      "startedAt": 342.3999999999942
+    }
+  },
+  "analysisStages": {
+    "model": "Node22 synthetic canonical conversation; 5 warmups + 40 measured runs; not Production latency",
+    "firstColdMs": 2.4582,
+    "top3": [
+      {
+        "stage": "source_parse",
+        "medianMs": 0.186
+      },
+      {
+        "stage": "conversation_understanding",
+        "medianMs": 0.1032
+      },
+      {
+        "stage": "customer_need",
+        "medianMs": 0.0998
+      }
+    ],
+    "stages": {
+      "source_parse": {
+        "samples": 40,
+        "medianMs": 0.186,
+        "p95Ms": 0.314,
+        "maxMs": 0.3499
+      },
+      "session_split": {
+        "samples": 40,
+        "medianMs": 0.0244,
+        "p95Ms": 0.0576,
+        "maxMs": 2.5633
+      },
+      "conversation_understanding": {
+        "samples": 40,
+        "medianMs": 0.1032,
+        "p95Ms": 0.1542,
+        "maxMs": 2.0703
+      },
+      "case_segmentation": {
+        "samples": 40,
+        "medianMs": 0.0331,
+        "p95Ms": 0.0797,
+        "maxMs": 0.1259
+      },
+      "basket_derivation": {
+        "samples": 40,
+        "medianMs": 0.0967,
+        "p95Ms": 0.216,
+        "maxMs": 0.3117
+      },
+      "product_resolution": {
+        "samples": 40,
+        "medianMs": 0.0996,
+        "p95Ms": 0.1601,
+        "maxMs": 0.182
+      },
+      "active_basket": {
+        "samples": 40,
+        "medianMs": 0.0016,
+        "p95Ms": 0.0054,
+        "maxMs": 0.0082
+      },
+      "commercial_confirmation": {
+        "samples": 40,
+        "medianMs": 0.0099,
+        "p95Ms": 0.0255,
+        "maxMs": 0.1111
+      },
+      "customer_need": {
+        "samples": 40,
+        "medianMs": 0.0998,
+        "p95Ms": 0.176,
+        "maxMs": 0.6045
+      },
+      "unavailable_demand": {
+        "samples": 40,
+        "medianMs": 0.0035,
+        "p95Ms": 0.0075,
+        "maxMs": 0.0125
+      },
+      "historical_closure": {
+        "samples": 40,
+        "medianMs": 0.0219,
+        "p95Ms": 0.0417,
+        "maxMs": 0.0757
+      },
+      "invoice_attribution": {
+        "samples": 40,
+        "medianMs": 0.011,
+        "p95Ms": 0.0159,
+        "maxMs": 0.0186
+      },
+      "invoice_match": {
+        "samples": 40,
+        "medianMs": 0.002,
+        "p95Ms": 0.0103,
+        "maxMs": 0.0279
+      },
+      "financial_settlement": {
+        "samples": 40,
+        "medianMs": 0.0071,
+        "p95Ms": 0.0193,
+        "maxMs": 0.113
+      },
+      "sales_integrity": {
+        "samples": 40,
+        "medianMs": 0.0114,
+        "p95Ms": 0.0508,
+        "maxMs": 0.1656
+      },
+      "sale_proof": {
+        "samples": 40,
+        "medianMs": 0.0026,
+        "p95Ms": 0.0151,
+        "maxMs": 0.0173
+      },
+      "canonical_outcome": {
+        "samples": 40,
+        "medianMs": 0.0012,
+        "p95Ms": 0.0156,
+        "maxMs": 0.0566
+      },
+      "journey": {
+        "samples": 40,
+        "medianMs": 0.0145,
+        "p95Ms": 0.048,
+        "maxMs": 0.1286
+      },
+      "lost_opportunity": {
+        "samples": 40,
+        "medianMs": 0.0118,
+        "p95Ms": 0.0537,
+        "maxMs": 0.154
+      },
+      "followup_projection": {
+        "samples": 40,
+        "medianMs": 0.0309,
+        "p95Ms": 0.0633,
+        "maxMs": 0.2519
+      },
+      "operational_disposition": {
+        "samples": 40,
+        "medianMs": 0.0057,
+        "p95Ms": 0.0233,
+        "maxMs": 0.0851
+      },
+      "case_view": {
+        "samples": 40,
+        "medianMs": 0.0342,
+        "p95Ms": 0.0747,
+        "maxMs": 0.2497
+      },
+      "evaluation_projection": {
+        "samples": 40,
+        "medianMs": 0.5687,
+        "p95Ms": 0.928,
+        "maxMs": 9.4628
+      },
+      "full_pipeline_total": {
+        "samples": 40,
+        "medianMs": 0.9466,
+        "p95Ms": 2.4582,
+        "maxMs": 4.2342
+      }
+    }
+  },
+  "regression": {
+    "customPassed": 1047,
+    "siPassedPerZone": 1201,
+    "siSkippedPerZone": 1,
+    "siPassingFilesPerZone": 117,
+    "timezones": [
+      "Africa/Cairo",
+      "UTC"
+    ]
+  },
+  "checks": {
+    "typeScript": "PASS",
+    "semanticEslint": "PASS",
+    "build": "PASS",
+    "performanceBudget": "PASS",
+    "sourcePurity": "PASS",
+    "lockfilePurity": "PASS",
+    "initialGzipKiB": 202.1,
+    "initialChunks": 6,
+    "packageLockSha256": "9a899c693b295774718d84080211ae4fbff3f2bf4fc767b7e716f584ee6a7e37"
+  },
+  "safety": {
+    "productionWrites": 0,
+    "productionDataChanges": 0,
+    "productionReanalysis": 0,
+    "repair": 0,
+    "historicalRepair": 0,
+    "runtimeActivation": 0,
+    "deploy": 0,
+    "merge": 0,
+    "mainChanges": 0
+  }
+}

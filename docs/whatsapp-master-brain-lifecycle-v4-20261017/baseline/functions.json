@@ -1,0 +1,35 @@
+[
+  {
+    "proname": "sales_intelligence_reconcile_case_set_v1",
+    "args": "p_conversation_id uuid, p_active_case_ids text[]",
+    "body_md5": "9fd2f5976e2419ca7154d203b29da5fc",
+    "owner": "postgres",
+    "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+    "proconfig": [
+      "search_path=public, pg_catalog"
+    ],
+    "prosecdef": true
+  },
+  {
+    "proname": "sales_intelligence_write_case_analysis",
+    "args": "p_case_id text, p_row jsonb",
+    "body_md5": "c6c53c94a20cfdbf2946371398790d98",
+    "owner": "postgres",
+    "proacl": "{postgres=X/postgres,service_role=X/postgres}",
+    "proconfig": [
+      "search_path=public, pg_temp"
+    ],
+    "prosecdef": true
+  },
+  {
+    "proname": "dawaa_archive_superseded_whatsapp_source_v35",
+    "args": "p_source_filename text, p_full_started_at timestamp with time zone, p_full_ended_at timestamp with time zone, p_full_message_count integer, p_replacement_source_ids uuid[]",
+    "body_md5": "fd7b5e40f631e4633049147cb2933ee7",
+    "owner": "postgres",
+    "proacl": "{postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}",
+    "proconfig": [
+      "search_path=public"
+    ],
+    "prosecdef": true
+  }
+]

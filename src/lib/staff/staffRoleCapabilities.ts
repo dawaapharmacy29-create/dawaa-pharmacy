@@ -34,6 +34,16 @@ function token(value: unknown) {
     .replace(/\s+/g, ' ');
 }
 
+// The «فريق دواء ألفا» team is customer service for WhatsApp conversation analysis only. It is kept
+// out of canonicalStaffRole on purpose: that mapping drives evaluation profiles, capabilities and
+// incentive applicability, which this analysis-only label must not change.
+const CUSTOMER_SERVICE_TEAM_LABELS = ['team dawaa alpha', 'فريق دواء ألفا', 'فريق دواء الفا'];
+
+/** Analysis-only: does this staff role/type label name the customer-service team? */
+export function isCustomerServiceTeamLabel(value: unknown): boolean {
+  return CUSTOMER_SERVICE_TEAM_LABELS.includes(token(value)) || canonicalStaffRole(value) === 'customer_service';
+}
+
 export function canonicalStaffRole(value: unknown): CanonicalStaffRole {
   const role = token(value);
   if (!role) return 'other';

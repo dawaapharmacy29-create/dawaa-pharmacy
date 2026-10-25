@@ -3,12 +3,14 @@ import { BarChart3, MessageCircle, Star, TrendingUp, Users } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth';
 import { useEmployeeTransactions } from '@/hooks/useEmployeeTransactions';
 import { useStaffDirectory } from '@/hooks/useStaffDirectory';
-import { useSalesInvoiceTruth } from '@/hooks/useSalesInvoiceTruth';
+import { useCanonicalWhatsappKpis } from '@/hooks/useCanonicalWhatsappKpis';
+import { summarizeCanonicalWhatsappKpis } from '@/lib/salesIntelligence/canonicalKpiReadModel';
+import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
+import { nextDayYmdV1 } from '@/lib/salesIntelligence/dashboardScopeV1';
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import { normalizeBranchName } from '@/lib/branch';
 import { formatCycleDate, getCurrentCycle } from '@/lib/pharmacy-cycle';
 import { formatCurrency } from '@/lib/utils';
-import { getInvoiceKey } from '@/lib/dawaa2027';
 import {
   buildStaffIdentityMap,
   resolvePrimaryStaffForDoctor,
@@ -101,11 +103,10 @@ export default function WhatsappAnalytics() {
     limit: REVIEW_READ_LIMIT,
     realtimeEnabled: true,
   });
-  const { data: invoices, loading: invoicesLoading, error: invoicesError } = useSalesInvoiceTruth<Row>({
-    startDate,
-    endDate,
-    branch,
-  });
+  const canonical = useCanonicalWhatsappKpis({start:cairoDateBoundaryIso(startDate),endExclusive:cairoDateBoundaryIso(nextDayYmdV1(endDate)),
+    branch:branch===ALL_BRANCHES?'all':branch,staffId:doctor==='الكل'?undefined:doctor});
+  const invoicesLoading=canonical.loading;
+  const invoicesError=canonical.error;
   const { data: transactions, loading: txLoading, error: txError } = useEmployeeTransactions<Row>({
     startDate,
     endDate,
@@ -191,14 +192,14 @@ export default function WhatsappAnalytics() {
       current.score += score;
       if (score >= 85) current.excellent += 1;
       if (score > 0 && score < 60) current.weak += 1;
-      current.sales += num(row, ['generated_sales', 'sales_value', 'invoice_amount'], 0);
+      // Review flags/amounts are not WhatsApp revenue. Staff credit uses canonical persisted attribution.
       current.points += num(row, ['points_delta', 'points'], 0);
       map.set(staffId, current);
     }
     return Array.from(map.values())
-      .map((item) => ({ ...item, avg: item.count ? Math.round(item.score / item.count) : 0 }))
+      .map((item) => ({ ...item, sales:summarizeCanonicalWhatsappKpis(canonical.facts,item.staffId).knownRevenue, avg: item.count ? Math.round(item.score / item.count) : 0 }))
       .sort((a, b) => b.avg - a.avg);
-  }, [filtered, identityMap, staffRows]);
+  }, [filtered, identityMap, staffRows, canonical.facts]);
 
   const doctorOptions = useMemo(() => {
     const options = new Map<string, string>();
@@ -210,14 +211,9 @@ export default function WhatsappAnalytics() {
   }, [perDoctor]);
 
   const linkedInvoiceSales = useMemo(() => {
-    if (invoicesError || invoicesLoading) return null;
-    const invoiceNumbers = new Set(
-      filtered.map((row) => text(row, ['invoice_number', 'linked_invoice_number'])).filter(Boolean)
-    );
-    return (invoices || [])
-      .filter((invoice) => invoiceNumbers.has(getInvoiceKey(invoice)))
-      .reduce((sum, invoice) => sum + num(invoice, ['net_amount', 'amount', 'total'], 0), 0);
-  }, [filtered, invoices, invoicesError, invoicesLoading]);
+    if(canonical.loading || canonical.error) return null;
+    return summarizeCanonicalWhatsappKpis(canonical.facts,doctor==='الكل'?undefined:doctor).revenue;
+  },[canonical.facts,canonical.loading,canonical.error,doctor]);
 
   const relatedPoints = useMemo(() => {
     if (txError || txLoading) return null;
@@ -239,7 +235,7 @@ export default function WhatsappAnalytics() {
     reviewsTruncated
       ? `الفترة المختارة تحتوي أكثر من ${REVIEW_READ_LIMIT} تقييم؛ ضيّق الفترة لعرض كل التقييمات`
       : null,
-    invoicesError ? 'تعذر تحميل المبيعات المرتبطة مؤقتًا' : null,
+    invoicesError ? 'تعذر تحميل إيراد المحادثات القابل للعد مؤقتًا' : null,
     txError ? 'تعذر تحميل أثر النقاط مؤقتًا' : null,
   ].filter(Boolean) as string[];
 
@@ -329,7 +325,7 @@ export default function WhatsappAnalytics() {
             <Metric icon={Users} label="أفضل أداء" value={topDoctor || '—'} />
             <Metric
               icon={TrendingUp}
-              label="مبيعات مرتبطة"
+              label="إيراد قياسي معروف"
               value={invoicesLoading ? 'جاري التحميل…' : linkedInvoiceSales != null ? formatCurrency(linkedInvoiceSales) : '—'}
             />
             <Metric

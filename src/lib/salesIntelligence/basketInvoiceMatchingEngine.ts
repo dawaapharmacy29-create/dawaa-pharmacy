@@ -265,18 +265,20 @@ function classifyItemsAndQuantities(
   basketItems.forEach((item) => {
     const nameKey = normalizeProductNameForMatch(item.productNameRaw);
 
-    // A basket item Phase B never resolved a real identity for (e.g. a raw pronoun) is never
-    // trusted for a positive match, even if its raw text coincidentally equals an invoice item's.
-    if (item.resolutionStatus === 'unknown') {
-      // Missing identity (image/voice/deictic reference) is not negative product evidence.
-      // We cannot know which invoice line it corresponds to, so fail closed as unavailable/reviewable.
+    // A definitive item/invoice verdict requires an independently proven catalogue identity.
+    // Partial aliases (for example Arabic "كولونا" with 30/40-tablet variants) remain candidates
+    // and must not be promoted through an invoice's suggested product ID.
+    const identityIsProven = item.resolutionStatus === 'proven';
+    if (!identityIsProven) {
       unresolvedCount += 1;
-      humanReviewReasons.push('unresolved_product_identity');
-      return;
+      humanReviewReasons.push('product_identity_unresolved');
     }
 
-    // Canonical products.id match first — the only path to a proven identity match.
-    const canonicalCandidates = item.productId
+    // Unknown or contradicted wording cannot support even a text-level positive match.
+    if (item.resolutionStatus === 'unknown' || item.resolutionStatus === 'contradicted') return;
+
+    // Canonical products.id is decisive only when the conversation independently proved identity.
+    const canonicalCandidates = identityIsProven && item.productId
       ? invoiceGroupsByProductId.get(String(item.productId)) ?? []
       : [];
     if (canonicalCandidates.length === 1) {
@@ -299,7 +301,7 @@ function classifyItemsAndQuantities(
     } else if (nameCandidates.length > 1) {
       ambiguousCount += 1;
       humanReviewReasons.push('ambiguous_product_alias');
-    } else {
+    } else if (identityIsProven) {
       differences.push({
         type: 'missing_item',
         key: item.productNameRaw,

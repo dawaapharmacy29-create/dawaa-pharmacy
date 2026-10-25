@@ -54,6 +54,34 @@ const SALE = `[9/15/26, 9:00:00 AM] Customer: عايز 2 علبة فيتامين
 [9/15/26, 9:03:00 AM] You: تم تأكيد الطلب`;
 
 describe('Case Intelligence Workspace (display only)', () => {
+  it('unresolved request details do not imply a missing product name or unread media', () => {
+    const view = persisted(analyze(SALE).caseIntelligence)!;
+    view.need.unresolvedNeed = true;
+    const html = renderToStaticMarkup(createElement(CaseIntelligenceWorkspace, {
+      view, initialTab: 'need', invoiceEvidence: { status: 'trusted', linkMethod: 'automatic', invoiceNumber: '73006', items: [] },
+    }));
+    expect(html).toContain('تفاصيل الطلب غير مكتملة في التحليل المحفوظ');
+    expect(html).not.toContain('اسم الصنف غير ظاهر');
+  });
+
+  it('does not present a raw export sender as an assigned staff identity', () => {
+    const view = persisted(analyze(`[9/15/26, 9:00:00 AM] Customer: عايز كونجستال
+[9/15/26, 9:01:00 AM] You: كونجستال مش متوفر حاليا، لما يتوفر هكلم حضرتك`).caseIntelligence)!;
+    expect(view.followUp.opportunities.length).toBeGreaterThan(0);
+    for (const opportunity of view.followUp.opportunities) {
+      opportunity.assignedStaffName = 'You';
+      opportunity.assignedStaffId = null;
+    }
+    const html = render(view, 'followup');
+    expect(html).toContain('هوية الموظف غير محسومة');
+    expect(html).not.toContain('You (');
+    for (const opportunity of view.followUp.opportunities) {
+      opportunity.assignedStaffName = 'د نور';
+      opportunity.assignedStaffId = 'staff-1';
+    }
+    expect(render(view, 'followup')).toContain('د نور');
+  });
+
   it('A. successful sale: header answers need/stage/outcome; candidate invoices never shown as a sale', () => {
     const view = persisted(analyze(SALE).caseIntelligence)!;
     const header = render(view);
@@ -63,7 +91,19 @@ describe('Case Intelligence Workspace (display only)', () => {
     expect(header).toContain('رسائل هذا التفاعل فقط');
     const sale = render(view, 'sale');
     expect(sale).toContain('180 جنيه');
-    expect(sale).toContain('مرشحة فقط — ليست بيعًا');
+    expect(sale).toContain('الترشيح وحده لا يثبت البيع');
+  });
+
+  it('A1b. a proven invoice does not retain candidate-only wording or hide sending acceptance', () => {
+    const view = persisted(analyze(SALE).caseIntelligence)!;
+    view.sale.proofState = 'proven';
+    view.sale.outcome = 'sale_proven';
+    view.sale.customerAcceptanceDetected = true;
+    const html = render(view, 'sale');
+    expect(html).toContain('الفاتورة المختارة مثبتة');
+    expect(html).not.toContain('مرشحة فقط — ليست بيعًا');
+    expect(html).toContain('قبول العميل للإرسال');
+    expect(html).toContain('تأكيد السلة بالبروتوكول');
   });
 
   it('A2. conversation tab can render the WhatsApp-style transcript supplied by the case page', () => {
@@ -184,7 +224,7 @@ describe('Case Intelligence Workspace (display only)', () => {
     expect(warning).toContain('تعذر تحميل بعض أدلة النظام');
   });
 
-  it('A4. candidate invoice lines are never exposed as product truth', () => {
+  it('A4. candidate invoice lines are shown only as separately labeled review evidence', () => {
     const view = persisted(analyze(SALE).caseIntelligence)!;
     const html = renderToStaticMarkup(createElement(CaseIntelligenceWorkspace, {
       view,
@@ -192,11 +232,27 @@ describe('Case Intelligence Workspace (display only)', () => {
       invoiceEvidence: {
         status: 'candidate',
         invoiceNumber: '74966',
-        items: [{ id: 'line-1', productName: 'SHOULD-NOT-RENDER', productCode: null, quantity: 1, unitName: null, netLineAmount: null }],
+        invoiceCustomerName: 'د ابراهيم الخولي',
+        invoiceCustomerCode: '18663',
+        invoiceBranch: 'فرع شكري',
+        invoiceSellerName: 'د محمد شبل',
+        items: [{ id: 'line-1', productName: 'GASTROBIOTIC 550 MG', productCode: '78994', quantity: 1, unitName: null, netLineAmount: null }],
       },
     }));
     expect(html).toContain('candidate-invoice-products-blocked');
-    expect(html).not.toContain('SHOULD-NOT-RENDER');
+    expect(html).toContain('candidate-invoice-evidence-lines');
+    expect(html).toContain('candidate-invoice-header-facts');
+    expect(html).toContain('د ابراهيم الخولي');
+    expect(html).toContain('كود العميل على الفاتورة:');
+    expect(html).toContain('18663');
+    expect(html).toContain('فرع شكري');
+    expect(html).toContain('بائع الفاتورة (ليس بالضرورة مسؤول المحادثة):');
+    expect(html).toContain('GASTROBIOTIC 550 MG');
+    expect(html).toContain('78994');
+    expect(html).toContain('الكمية في الفاتورة:');
+    expect(html).toContain('لا تُستخدم لتفسير الصورة أو الفويس أو اعتماد بيع أو إسناد موظف');
+    expect(html).not.toContain('trusted-invoice-products');
+    expect(html).not.toContain('بيع مثبت بالفاتورة');
   });
 
   it('A5. unresolved media need can use only trusted invoice lines as execution reference', () => {
@@ -334,13 +390,15 @@ describe('Case Intelligence Workspace (display only)', () => {
     expect(review).toContain('د. أحمد: عرض بديلًا');
   });
 
-  it('F2. technical "You" is replaced by persisted source staff identity for display only', () => {
+  it('F2. a legacy view without case ownership retains labelled source staff display', () => {
     const view = persisted(analyze(SALE).caseIntelligence)!;
+    delete view.ownership;
     const header = renderToStaticMarkup(createElement(CaseIntelligenceWorkspace, {
       view,
       staffDisplayName: 'د محمد شبل',
     }));
-    expect(header).toContain('الموظف بالمحادثة');
+    expect(header).toContain('الموظف المرتبط بالمصدر');
+    expect(view.staff.participants.every((p) => p.staffId == null)).toBe(true);
     expect(header).toContain('د محمد شبل');
     expect(header).not.toContain('>You<');
 
@@ -417,5 +475,123 @@ describe('Case Intelligence Workspace (display only)', () => {
       const code = fs.readFileSync(path.resolve(__dirname, file), 'utf8').replace(/^\s*\/\/.*$/gm, '');
       expect(code, file).not.toMatch(/derive[A-Z]\w*\(|runSalesIntelligencePipeline|buildCaseIntelligenceView|OperationalIntelligenceV6|ProductJourneyV7|CustomerCaseEngineV22|CaseLostReasonV23|supabase|\.from\(|\.rpc\(|new RegExp|\/[^/\n]{2,}\/[gimsuy]*\.test\(/);
     }
+  });
+});
+
+
+
+describe('case ownership display never inherits a different source employee', () => {
+  it('prefers the case owner and customer-service department over the source employee and warehouse', () => {
+    const view = persisted(analyze(SALE).caseIntelligence)!;
+    view.branch.branchNameRaw = null;
+    view.ownership = {
+      department: 'customer_service', sourceBranchNameRaw: 'المخزن', operationalBranch: null,
+      branchBasis: 'none', suggestedStaffBranch: null, introductionMessageIds: [], blockers: [],
+      owners: [{ staffId: 'service-1', name: 'هبه محمد', homeBranch: 'المخزن', function: 'customer_service' }],
+    };
+    view.staff.participants = [{ sender: 'You', staffId: 'service-1', messageIds: [], messageCount: 2 }];
+    const html = renderToStaticMarkup(createElement(CaseIntelligenceWorkspace, { view, staffDisplayName: 'د محمد شبل' }));
+    expect(html).toContain('خدمة العملاء');
+    expect(html).toContain('هبه محمد');
+    expect(html).not.toContain('د محمد شبل');
+    expect(html).not.toContain('المخزن');
+  });
+
+  it('does not borrow the source employee when case-local ownership is unresolved', () => {
+    const view = persisted(analyze(SALE).caseIntelligence)!;
+    const html = renderToStaticMarkup(createElement(CaseIntelligenceWorkspace, { view, staffDisplayName: 'د محمد شبل' }));
+    expect(html).toContain('الهوية غير محسومة');
+    expect(html).not.toContain('د محمد شبل');
+  });
+});
+
+describe('V43 case evidence on the review screen (Arabic only)', () => {
+  const NURSING = [
+    '[9/28/26, 2:17:35 AM] Customer: لو سمحت ي دكتور ممكن تبعت حد مالتمريض لأن الكانيولا اتحركت والمحلول بيسرب',
+    '[9/28/26, 2:20:27 AM] You: عنيا حالا هبعته لحضرتك',
+    '[9/28/26, 3:39:59 AM] Customer: دكتورنا معلش شوفه تاني كده',
+    '[9/28/26, 3:41:26 AM] You: بيقولي عشر دقايق او ربع ساعه وييجي لحضرتك',
+  ].join('\n');
+
+  it('shows why the case starts, why the chase stayed in it, and the department — never raw codes', () => {
+    const view = persisted(analyze(NURSING).caseIntelligence!)!;
+    const html = render(view, 'review');
+    expect(html).toContain('قرارات الحالة وأدلتها');
+    expect(html).toContain('متابعة لطلب خدمة ما زال مفتوحًا');
+    expect(html).not.toMatch(/time_gap|open_service_need_followup|conversation_start|customer_service\b/);
+  });
+
+  it('shows the care check-in separately from sales follow-up and as history for an old case', () => {
+    const view = persisted(analyze(NURSING).caseIntelligence!)!;
+    const html = render(view, 'followup');
+    expect(html).toContain('متابعة رعاية مقترحة');
+    expect(html).toContain('اقتراح تاريخي');
+    expect(html).toContain('لا تُنشأ مهمة بتاريخ قديم');
+  });
+});
+
+describe('case branch is one fact on every tab', () => {
+  const pharmacyOwnership = {
+    department: 'pharmacy' as const, sourceBranchNameRaw: 'المخزن', operationalBranch: null,
+    branchBasis: 'none' as const, suggestedStaffBranch: 'فرع شكري', introductionMessageIds: [], blockers: [],
+    owners: [{ staffId: 'shebl', name: 'د محمد شبل', homeBranch: 'فرع شكري', function: 'pharmacist' as const }],
+  };
+  const branchFactHtml = (html: string) => /data-testid="case-branch-fact">([^<]*)</.exec(html)?.[1];
+
+  it('an order case decided by its own proven invoice shows that branch in the overview, not «غير معروف»', () => {
+    // Legacy (pre-v48) view without the canonical caseBranch: the recommendation decides.
+    const view = persisted(analyze(SALE).caseIntelligence)!;
+    delete view.branch.caseBranch;
+    view.branch.branchNameRaw = null;
+    view.ownership = pharmacyOwnership;
+    view.branch.recommendation = {
+      branch: 'فرع شكري', strength: 'decided',
+      reasons: ['فرع فاتورة مرتبطة ومثبتة لهذه الحالة؛ يحدد فرع العملية دون تعديل فرع المصدر'],
+    };
+    const html = render(view, 'conversation');
+    expect(branchFactHtml(html)).toBe('فرع شكري');
+    expect(html).toContain('دون تعديل فرع المصدر');
+    // Same fact as the review tab.
+    expect(render(view, 'review')).toContain('فرع شكري — ');
+  });
+
+  it('the doctor home branch alone stays a candidate; customer service never gets a branch', () => {
+    const view = persisted(analyze(SALE).caseIntelligence)!;
+    delete view.branch.caseBranch;
+    view.branch.branchNameRaw = null;
+    view.ownership = pharmacyOwnership;
+    view.branch.recommendation = {
+      branch: 'فرع شكري', strength: 'supporting_only',
+      reasons: ['الفرع الأساسي للدكتور المسؤول: فرع شكري', 'دليل واحد فقط؛ غير كافٍ لحسم الفرع'],
+    };
+    const html = render(view, 'conversation');
+    expect(branchFactHtml(html)).toBe('غير محسوم');
+    expect(html).toContain('مرشح: فرع شكري — دليل مساند فقط');
+
+    const service = persisted(analyze(SALE).caseIntelligence)!;
+    delete service.branch.caseBranch;
+    service.branch.branchNameRaw = null;
+    service.ownership = { ...pharmacyOwnership, department: 'customer_service', suggestedStaffBranch: null, owners: [] };
+    service.branch.recommendation = { branch: null, strength: 'none', reasons: ['حالة خدمة عملاء؛ لا تُنسب لفرع بيع'] };
+    const serviceHtml = render(service, 'conversation');
+    expect(branchFactHtml(serviceHtml)).toBe('خدمة العملاء');
+    expect(serviceHtml).not.toContain('فرع شكري');
+  });
+});
+
+describe('v48 canonical case branch on the workspace', () => {
+  it('a persisted canonical branch is shown as is, and customer service never shows one', () => {
+    const view = persisted(analyze(SALE).caseIntelligence)!;
+    view.branch.branchNameRaw = null;
+    view.branch.caseBranch = {
+      branch: 'فرع شكري', decided: true, basis: 'linked_sale_case', linkedCaseId: 'order', linkedInvoiceId: 'inv-1',
+      reasons: ['فرع العملية من حالة الطلب المرتبطة… لا يعني ذلك ربط الفاتورة أو البيع بهذه الحالة.'],
+    };
+    const html = render(view, 'conversation');
+    expect(/data-testid="case-branch-fact">([^<]*)</.exec(html)?.[1]).toBe('فرع شكري');
+    expect(html).toContain('لا يعني ذلك ربط الفاتورة أو البيع بهذه الحالة');
+    view.ownership = { ...(view.ownership as any), department: 'customer_service' };
+    const service = render(view, 'conversation');
+    expect(/data-testid="case-branch-fact">([^<]*)</.exec(service)?.[1]).toBe('خدمة العملاء');
   });
 });
