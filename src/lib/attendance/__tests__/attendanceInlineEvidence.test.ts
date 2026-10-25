@@ -72,7 +72,7 @@ describe('inline attendance evidence boundary', () => {
     const originalFetch = globalThis.fetch;
     try {
       globalThis.fetch = (async () => ({ ok: true, json: async () => ({ data: { success: false } }) })) as unknown as typeof fetch;
-      await failure(() => resolveDatedAttendanceShift({ staffId: 's1', date: '2026-10-24', start: '09:00', end: '17:00', note: 'evidence' }));
+      await withStaffSession(() => failure(() => resolveDatedAttendanceShift({ staffId: 's1', date: '2026-10-24', start: '09:00', end: '17:00', note: 'evidence' })));
     } finally { globalThis.fetch = originalFetch; }
   });
 });
