@@ -84,6 +84,10 @@ begin
  public.employee_operating_actor_id(),trim(p_note)) returning id into v_record_id;
  -- Recompute through the canonical guard. Do not approve unproven days here.
  v_result:=to_jsonb(public.dawaa_materialize_attendance_day_internal_v2(p_staff_id,p_date));
+ if exists (select 1 from public.attendance_daily_summary
+   where staff_id=p_staff_id and attendance_date=p_date and status='approved') then
+   raise exception 'date_shift_correction_requires_explicit_manager_attendance_approval' using errcode='55000';
+ end if;
  return jsonb_build_object('success',true,'correction_id',v_record_id,
    'override_id',v_override_id,'date',p_date,'materialization',coalesce(v_result,'{}'::jsonb),
    'requires_review',true);
