@@ -1,4 +1,19 @@
-import { supabase } from '@/lib/supabase';
+import { readStoredStaffSessionToken, supabase } from '@/lib/supabase';
+
+async function runAttendanceInlineCommand<T>(action: 'shift' | 'permission' | 'approve' | 'punch', staffId: string, date: string, payload: Record<string, unknown>): Promise<T> {
+  const token = readStoredStaffSessionToken();
+  if (!token) throw new Error('جلسة الدخول غير متاحة. أعد تسجيل الدخول.');
+  try {
+    const response = await fetch('/api/attendance-inline-command', {
+      method: 'POST', credentials: 'omit', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ action, staffId, date, payload }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result?.error || 'تعذر حفظ قرار الحضور');
+    if (!result?.data) throw new Error('لم تؤكد قاعدة البيانات حفظ القرار');
+    return result.data as T;
+  } finally { markAttendanceTruthChanged(); }
+}
 
 export type AttendanceResolutionRow = {
   id: string;
@@ -89,17 +104,12 @@ export async function approveAttendanceResolution(args: {
   staffId: string;
   date: string;
   payrollEligibleHours?: number | null;
+  requireCompleteEvidence?: boolean;
   note: string;
 }): Promise<AttendanceResolutionRow> {
-  const { data, error } = await supabase.rpc('approve_attendance_day_resolution_v2', {
-    p_staff_id: args.staffId,
-    p_attendance_date: args.date,
-    p_payroll_eligible_hours: args.payrollEligibleHours ?? null,
-    p_note: args.note || null,
+  return runAttendanceInlineCommand<AttendanceResolutionRow>('approve', args.staffId, args.date, {
+    hours: args.payrollEligibleHours ?? null, note: args.note, completeEvidence: args.requireCompleteEvidence ?? false,
   });
-  markAttendanceTruthChanged();
-  if (error) throw new Error(error.message);
-  return data as AttendanceResolutionRow;
 }
 
 export async function listAttendanceImpactLedger(args: {
@@ -450,17 +460,9 @@ export async function resolveMissingPunchIncidentV1(args: {
   reason?: string | null;
   applyDeduction?: boolean;
 }): Promise<Record<string, unknown>> {
-  const { data, error } = await supabase.rpc('resolve_missing_punch_incident_v1', {
-    p_staff_id: args.staffId,
-    p_date: args.date,
-    p_missing_type: args.missingType,
-    p_recorded_at: args.recordedAt || null,
-    p_reason: args.reason || null,
-    p_apply_deduction: Boolean(args.applyDeduction),
+  return runAttendanceInlineCommand<Record<string, unknown>>('punch', args.staffId, args.date, {
+    missingType: args.missingType, recordedAt: args.recordedAt || null, note: args.reason || '', applyDeduction: Boolean(args.applyDeduction),
   });
-  markAttendanceTruthChanged();
-  if (error) throw new Error(error.message);
-  return (data || {}) as Record<string, unknown>;
 }
 
 export type MissingPunchHistoryRowV1 = {
@@ -554,11 +556,16 @@ export async function getAttendanceDayEvidence(staffId: string, date: string): P
 }
 
 export async function resolveDatedAttendanceShift(args: { staffId: string; date: string; start: string; end: string; note: string }) {
-  const { data, error } = await supabase.rpc('resolve_dated_shift_from_attendance_v1', {
-    p_staff_id: args.staffId, p_date: args.date, p_start: args.start, p_end: args.end, p_note: args.note,
+  const data = await runAttendanceInlineCommand<{ success: boolean }>('shift', args.staffId, args.date, {
+    start: args.start, end: args.end, note: args.note,
   });
-  markAttendanceTruthChanged();
-  if (error) throw new Error(error.message);
   if (data?.success !== true) throw new Error('لم يتم تأكيد حفظ الشيفت');
   return data;
+}
+
+export async function resolveAttendancePermission(args: { staffId: string; date: string; start: string; end: string; note: string }) {
+  return runAttendanceInlineCommand<{
+    success: boolean; approved: boolean; request: import('@/lib/timeOffService').StaffTimeOffRequest;
+    preflight?: { blockers: Array<{ label: string }> }; day?: AttendanceResolutionRow;
+  }>('permission', args.staffId, args.date, { start: args.start, end: args.end, note: args.note });
 }

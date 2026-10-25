@@ -5,6 +5,7 @@ import {
   approveAttendanceResolution,
   getAttendanceDayEvidence,
   resolveDatedAttendanceShift,
+  resolveAttendancePermission,
   type AttendanceResolutionRow,
   getAttendanceCaseDiagnosticV1,
   getAttendanceDiagnosticSummaryV1,
@@ -30,9 +31,6 @@ import AttendanceCorrectionReviewPanel from '@/components/attendance/AttendanceC
 import AttendanceShiftMismatchReview from '@/components/attendance/AttendanceShiftMismatchReview';
 import {
   approveAttendanceFullDayTimeOffV1,
-  createStaffTimeOffRequest,
-  decideStaffTimeOffRequest,
-  getTimeOffRequestPreflightV3,
   getAnnualLeaveAttendancePreviewV1,
   listStaffTimeOffRequests,
   resolveAnnualLeaveFromAttendanceV1,
@@ -558,7 +556,7 @@ export default function AttendanceResolutionCenter({
         throw new Error('تغيرت أدلة اليوم أو بقي تعارض. حدّث الأدلة وراجع السبب قبل الاعتماد.');
       }
       const saved = await approveAttendanceResolution({ staffId: selected.staff_id,
-        date: selected.attendance_date, payrollEligibleHours: null, note: note.trim() });
+        date: selected.attendance_date, payrollEligibleHours: null, requireCompleteEvidence: true, note: note.trim() });
       if (saved?.status !== 'approved') throw new Error('لم تؤكد قاعدة البيانات الاعتماد');
       const verified = await getAttendanceDayEvidence(selected.staff_id, selected.attendance_date);
       if (verified.status !== 'approved') throw new Error('تعذر التحقق من حفظ الاعتماد');
@@ -576,6 +574,7 @@ export default function AttendanceResolutionCenter({
     if (mutationLock.current || evidenceBusy) return;
     mutationLock.current = true;
     try { await approveSelectedUnlocked(); }
+    catch (error) { const message = error instanceof Error ? error.message : 'تعذر حفظ القرار'; setEvidenceMessage(message); toast.error(message); }
     finally { mutationLock.current = false; }
   }
 
@@ -776,44 +775,18 @@ export default function AttendanceResolutionCenter({
         toast.warning('حدد بداية ونهاية الإذن في نفس اليوم، واكتب سببًا واضحًا قبل الحفظ.');
         return;
       }
-      const [startHour,startMinute] = permissionStart.split(':').map(Number);
-      const [endHour,endMinute] = permissionEnd.split(':').map(Number);
-      const duration = (endHour*60 + endMinute) - (startHour*60 + startMinute);
-      if (duration <= 0 || duration > 24*60) {
-        toast.error('مدة الإذن غير صحيحة.');
-        return;
-      }
       setApproving(true);
       setEvidenceReadError(true);
       try {
-        // Refetch immediately before creation, since a second tab can have saved
-        // the same employee's permission after this modal was opened.
-        const existing = await listStaffTimeOffRequests({
-          staffId: selected.staff_id, from: selected.attendance_date, to: selected.attendance_date, limit: 100,
-        });
-        const reusable = existing.find((request) => request.request_kind === 'permission'
-          && (request.status === 'pending' || request.status === 'approved'));
-        if (reusable && (reusable.start_time?.slice(0, 5) !== permissionStart || reusable.end_time?.slice(0, 5) !== permissionEnd)) {
-          setEvidenceMessage('يوجد إذن آخر لهذا اليوم بوقت مختلف. لم يتم إنشاء طلب جديد أو اعتماد الطلب المختلف؛ راجع تفاصيله في الأدلة.');
-          return;
-        }
-        const request = reusable || await createStaffTimeOffRequest({
-          staffId: selected.staff_id, kind: 'permission', startDate: selected.attendance_date,
-          startTime: permissionStart, endTime: permissionEnd, durationMinutes: duration, reason: note.trim(),
-        });
-        setRequiredPermissionId(request.id);
-        if (request.status === 'approved') {
-          await refreshSelectedEvidence('يوجد إذن معتمد لهذا اليوم. تم تحديث الأدلة دون إنشاء طلب جديد.'); return;
-        }
-        const preflight = await getTimeOffRequestPreflightV3(request.id);
-        if (!preflight.allowed) {
+        const result = await resolveAttendancePermission({ staffId: selected.staff_id,
+          date: selected.attendance_date, start: permissionStart, end: permissionEnd, note: note.trim() });
+        setRequiredPermissionId(result.request.id);
+        if (!result.approved) {
           const message = 'تم تسجيل طلب الإذن للمراجعة فقط، ولم يُعتمد: ' +
-            (preflight.blockers.map((item) => item.label).join('، ') || 'السياسة تمنع اعتماده');
+            (result.preflight?.blockers.map((item) => item.label).join('، ') || 'السياسة تمنع اعتماده');
           setEvidenceMessage(message); toast.warning(message);
-          await load();
-          return;
+          await load(); return;
         }
-        await decideStaffTimeOffRequest(request.id, 'approved', note.trim());
         await refreshSelectedEvidence('تم اعتماد الإذن عبر المسار الرسمي. راجع النتيجة قبل اعتماد اليوم.');
       } catch (error) {
         const message = 'تعذر إكمال الاعتماد: ' + (error instanceof Error ? error.message : 'راجع حالة الإذن قبل إعادة المحاولة');
@@ -830,6 +803,12 @@ export default function AttendanceResolutionCenter({
       return;
     }
     if (decision.id === 'permission' && linkedRequest) {
+      if (!note.trim() || !linkedRequest.start_time || !linkedRequest.end_time) {
+        toast.warning('اكتب سبب إعادة حساب الإذن وتأكد من وجود بدايته ونهايته.'); return;
+      }
+      setEvidenceReadError(true);
+      await resolveAttendancePermission({ staffId: selected.staff_id, date: selected.attendance_date,
+        start: linkedRequest.start_time.slice(0, 5), end: linkedRequest.end_time.slice(0, 5), note: note.trim() });
       setRequiredPermissionId(linkedRequest.id);
       await refreshSelectedEvidence('تم تحديث الإذن المرتبط. استخدم زر الاعتماد النهائي بعد مراجعة الأدلة.');
       return;
@@ -1382,7 +1361,7 @@ export default function AttendanceResolutionCenter({
               <div className="mt-3 rounded-xl border border-[var(--dawaa-theme-border)] p-3 text-xs" aria-live="polite">
                 {evidenceMessage && <p role="status" className="mb-2 font-bold">{evidenceMessage}</p>}
                 {refreshedDay?.status === 'approved' && <p>اليوم معتمد في قاعدة البيانات. لا يمكن تعديله من هذا المسار.</p>}
-                {refreshedDay && <p>الساعات المستحقة: {refreshedDay.payroll_eligible_hours ?? 'بانتظار الاعتماد'} · النتيجة: {refreshedDay.resolution_status}</p>}
+                {refreshedDay && <p>الساعات المستحقة: {refreshedDay.payroll_eligible_hours ?? 'بانتظار الاعتماد'} · النتيجة: {diagnostic?.title || 'جارٍ تحديث التشخيص'}</p>}
                 <button type="button" className="btn-secondary mt-2" disabled={approving || evidenceBusy}
                   onClick={() => { void refreshSelectedEvidence().catch(() => undefined); }}>تحديث أدلة اليوم</button>
                 {requiredPermissionId && refreshedDay?.resolution_snapshot?.permission_attached !== true && refreshedDay?.time_off_request_id !== requiredPermissionId && <p className="mt-2">بانتظار ظهور الإذن في نتيجة إعادة حساب الحضور؛ لا تعتمد الساعات القديمة.</p>}
