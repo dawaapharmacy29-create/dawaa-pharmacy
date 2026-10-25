@@ -39,7 +39,7 @@ vi.mock('@/lib/supabase', () => ({
   },
 }));
 
-import { confirmStaffAlias, resolveStaffNameToStaffId } from '@/lib/staffIdentityMapping';
+import { confirmStaffAlias, createStaffAlias, resolveStaffNameToStaffId } from '@/lib/staffIdentityMapping';
 
 describe('staff identity mapping fails closed', () => {
   beforeEach(() => {
@@ -72,6 +72,25 @@ describe('staff identity mapping fails closed', () => {
   it('resolves an unambiguous active normalized name', async () => {
     state.staff = [{ id: 'only', name: 'د دنيا', active: true, is_active: true }];
     expect(await resolveStaffNameToStaffId('د دنيا')).toBe('only');
+  });
+
+  it('never creates a second active staff owner for a normalized alias', async () => {
+    state.aliases = [{ staff_id: 'courier-islam' }];
+    state.staff = [{ id: 'doctor-islam', name: 'د اسلام فاروق', active: true, is_active: true }];
+    expect(await createStaffAlias('doctor-islam', 'د اسلام', 'manual', 1, 'manager')).toBeNull();
+    expect(state.inserts).toBe(0);
+  });
+
+  it('never creates aliases against a retired employee identity', async () => {
+    state.staff = [{ id: 'old', name: 'د دنيا', active: false, is_active: false }];
+    expect(await createStaffAlias('old', 'د دنيا', 'manual', 1, 'manager')).toBeNull();
+    expect(state.inserts).toBe(0);
+  });
+
+  it('allows a new alias only when the target is active and no alias owns the key', async () => {
+    state.staff = [{ id: 'doctor', name: 'د اسلام فاروق', active: true, is_active: true }];
+    expect(await createStaffAlias('doctor', 'د اسلام فاروق', 'manual', 1, 'manager')).not.toBeNull();
+    expect(state.inserts).toBe(1);
   });
 
   it('does not deactivate aliases when reassignment is requested', async () => {
