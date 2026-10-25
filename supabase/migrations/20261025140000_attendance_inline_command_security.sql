@@ -260,8 +260,8 @@ begin
       or public.dawaa_attendance_review_triage_v1(v_preview->>'resolution_status',v_preview) not in ('manager','auto') then
      raise exception 'attendance_inline_evidence_not_finalizable' using errcode='55000';
    end if;
-   if coalesce((p_payload->>'completeEvidence')::boolean,false) and
-     (nullif(v_preview->>'first_in','') is null or nullif(v_preview->>'last_out','') is null
+   -- The browser cannot opt out of complete evidence on this inline finalization route.
+   if (nullif(v_preview->>'first_in','') is null or nullif(v_preview->>'last_out','') is null
       or nullif(v_preview->>'scheduled_start_at','') is null or nullif(v_preview->>'scheduled_end_at','') is null
       or nullif(v_preview->>'candidate_hours','') is null) then
      raise exception 'attendance_inline_complete_evidence_required' using errcode='55000';
