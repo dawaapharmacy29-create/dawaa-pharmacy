@@ -159,8 +159,8 @@ export default function SalesIntelligenceQACaseDetail() {
   const caseId = rawCaseId ? decodeURIComponent(rawCaseId) : '';
   const navigate = useNavigate();
   const { checkPermission, user } = useAuth();
-  // UI mirror only; dawaa_whatsapp_deletion_actor_v1 decides in the database.
-  const canDelete = canManageWhatsAppDeletions(user?.role);
+  // Canonical action permission plus the narrow role; the RPC remains authoritative.
+  const canDelete = checkPermission('delete_reviews') && canManageWhatsAppDeletions(user?.role);
   const [deletionScope, setDeletionScope] = useState<WhatsAppDeletionScope | null>(null);
   const [bundle, setBundle] = useState<QaCaseDetailBundle | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
