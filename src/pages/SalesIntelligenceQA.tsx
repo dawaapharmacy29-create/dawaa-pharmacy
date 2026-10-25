@@ -19,6 +19,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { canManageWhatsAppDeletions } from '@/lib/core/permissionSystem';
 import { WhatsAppDeletionTrashPanel } from '@/components/salesIntelligence/WhatsAppDeletionTrashPanel';
+import { WhatsAppProtectedChangesPanel } from '@/components/salesIntelligence/WhatsAppProtectedChangesPanel';
 import { formatDateTime } from '@/lib/utils';
 import { fetchQaBranchOptions, fetchQaCaseList, filterCaseListRows } from '@/lib/salesIntelligence/qa/queries';
 import { DEFAULT_QA_LIST_FILTERS, type QaCaseListRow, type QaListFilters } from '@/lib/salesIntelligence/qa/types';
@@ -49,7 +50,7 @@ const QUICK_FILTERS: Array<{ key: QaListFilters['quickFilter']; label: string }>
   { key: 'has_invoice', label: 'بفاتورة' },
 ];
 
-type WorkspaceSection = 'overview' | 'demand' | 'staff' | 'qa' | 'trash';
+type WorkspaceSection = 'overview' | 'demand' | 'staff' | 'qa' | 'trash' | 'protected_changes';
 
 async function fetchSalesIntelligenceBranchOptions(): Promise<string[]> {
   const [qaBranches, sourceResult] = await Promise.all([
@@ -164,7 +165,10 @@ export default function SalesIntelligenceQA() {
     { key: 'staff' as const, label: 'أداء الفريق', hint: 'المبيعات الرسمية والموظف الحقيقي', Icon: UsersRound },
     { key: 'qa' as const, label: 'مراجعة الحالات', hint: 'التفاصيل الفنية والحالات الملتبسة', Icon: ListChecks },
     ...(canManageDeletions
-      ? [{ key: 'trash' as const, label: 'سلة المحذوفات', hint: 'محادثات وحالات حذفها المدير العام', Icon: Trash2 }]
+      ? [
+          { key: 'trash' as const, label: 'سلة المحذوفات', hint: 'محادثات وحالات حذفها المدير العام', Icon: Trash2 },
+          { key: 'protected_changes' as const, label: 'طلبات التصحيح المعتمدة', hint: 'موافقات المدير العام والتسويات المعلقة', Icon: ShieldCheck },
+        ]
       : []),
   ];
 
@@ -247,6 +251,7 @@ export default function SalesIntelligenceQA() {
       {selectedCycle && activeSection === 'demand' ? <ProductDemandLeakageV22 cycleStart={selectedCycle.start} branch={branchScope} /> : null}
       {selectedCycle && activeSection === 'staff' ? <SalesIntelligenceStaffPerformanceV1 cycle={selectedCycle} branch={branchScope} /> : null}
       {canManageDeletions && activeSection === 'trash' ? <WhatsAppDeletionTrashPanel /> : null}
+      {canManageDeletions && activeSection === 'protected_changes' ? <WhatsAppProtectedChangesPanel /> : null}
 
       {activeSection === 'qa' ? (
         <div className="space-y-4">
