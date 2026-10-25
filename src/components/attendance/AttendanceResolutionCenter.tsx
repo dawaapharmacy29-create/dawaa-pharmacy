@@ -1501,14 +1501,13 @@ export default function AttendanceResolutionCenter({
                 </div>}
                 {decision?.schedule && !(decision.id === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')) && (
                   <div className="mt-3 rounded-xl border border-[var(--dawaa-theme-border)] p-3 text-xs">
-                    {selected.attendance_date < cairoToday()
-                      ? <p className="font-bold text-[var(--dawaa-status-warning-text)]">تصحيح جدول يوم سابق يحتاج تعديلًا مؤرخًا خاصًا بهذا اليوم. لا يمكن نشر تعديل أسبوعي بأثر رجعي.</p>
-                      : <>
-                          <p className="mb-2 font-bold">تعديل مواعيد هذا اليوم من الأسبوع ابتداءً من {selected.attendance_date} (يشمل الأسابيع التالية حتى إصدار جدول أحدث).</p>
-                          <div className="grid grid-cols-2 gap-2">
-                            <label>بداية الشيفت<input type="time" className="input-dark mt-1 block w-full" value={revisedShiftIn} onChange={(event) => setRevisedShiftIn(event.target.value)} /></label>
-                            <label>نهاية الشيفت<input type="time" className="input-dark mt-1 block w-full" value={revisedShiftOut} onChange={(event) => setRevisedShiftOut(event.target.value)} /></label>
-                          </div>
+                    <p className="mb-2 font-bold">تعديل مواعيد يوم {selected.attendance_date} فقط. لن يتغير الجدول الأسبوعي أو أيام أخرى.</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label>بداية الشيفت<input type="time" className="input-dark mt-1 block w-full" value={revisedShiftIn} onChange={(event) => setRevisedShiftIn(event.target.value)} /></label>
+                      <label>نهاية الشيفت<input type="time" className="input-dark mt-1 block w-full" value={revisedShiftOut} onChange={(event) => setRevisedShiftOut(event.target.value)} /></label>
+                    </div>
+                    <p className="mt-2">اكتب سبب التعديل في الملاحظة. سيتم حفظ استثناء مؤرخ وإعادة فحص اليوم، دون اعتماد تلقائي إذا بقيت أدلة متعارضة.</p>
+                  </div>
                           <p className="mt-2">سبب التعديل إجباري. سيتم إنشاء مسودة من الجدول الحالي وفحصها ونشرها بصلاحية المدير.</p>
                         </>}
                   </div>
