@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+vi.mock('@/lib/supabase', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/supabase')>()), readStoredStaffSessionToken: () => 'test-staff-session-token' }));
 import { supabase } from '@/lib/supabase';
 import { getAttendanceDayEvidence, resolveDatedAttendanceShift } from '@/lib/attendance/attendanceResolutionService';
 
@@ -28,20 +29,36 @@ describe('inline attendance evidence boundary', () => {
   it('does not reuse another employee or an absent/truncated record', async () => {
     await withRpc({ data: [{ staff_id: 's2', attendance_date: '2026-10-24' }], error: null }, async () => { await failure(() => getAttendanceDayEvidence('s1', '2026-10-24')); });
   });
-  it('writes an overnight dated override through the existing authorized RPC only', async () => {
-    await withRpc({ data: { success: true }, error: null }, async (calls) => {
+  it('writes an overnight dated override through the restricted server command', async () => {
+    const originalFetch = globalThis.fetch;
+    const requests: Array<{ url: string; options: RequestInit }> = [];
+    try {
+      globalThis.fetch = vi.fn(async (url: string, options: RequestInit) => {
+        requests.push({ url, options });
+        return { ok: true, json: async () => ({ data: { success: true } }) } as Response;
+      }) as typeof fetch;
       await resolveDatedAttendanceShift({ staffId: 's1', date: '2026-10-24', start: '22:00', end: '06:00', note: 'documented evidence' });
-      expect(calls).toEqual([['resolve_dated_shift_from_attendance_v1', { p_staff_id: 's1', p_date: '2026-10-24', p_start: '22:00', p_end: '06:00', p_note: 'documented evidence' }]]);
-    });
+      expect(requests).toHaveLength(1);
+      expect(requests[0].url).toBe('/api/attendance-inline-command');
+      expect(JSON.parse(String(requests[0].options.body))).toEqual({
+        action: 'shift', staffId: 's1', date: '2026-10-24',
+        payload: { start: '22:00', end: '06:00', note: 'documented evidence' },
+      });
+      expect(requests[0].options.credentials).toBe('omit');
+    } finally { globalThis.fetch = originalFetch; }
   });
   it('preserves database rejection of approved or unauthorized changes', async () => {
-    await withRpc({ data: null, error: { message: 'approved_attendance_cannot_be_rewritten' } }, async () => {
+    const originalFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = vi.fn(async () => ({ ok: false, json: async () => ({ error: 'approved_attendance_cannot_be_rewritten' }) })) as unknown as typeof fetch;
       await failure(() => resolveDatedAttendanceShift({ staffId: 's1', date: '2026-10-24', start: '09:00', end: '17:00', note: 'evidence' }));
-    });
+    } finally { globalThis.fetch = originalFetch; }
   });
   it('requires an affirmative saved acknowledgement', async () => {
-    await withRpc({ data: null, error: null }, async () => {
+    const originalFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = vi.fn(async () => ({ ok: true, json: async () => ({ data: { success: false } }) })) as unknown as typeof fetch;
       await failure(() => resolveDatedAttendanceShift({ staffId: 's1', date: '2026-10-24', start: '09:00', end: '17:00', note: 'evidence' }));
-    });
+    } finally { globalThis.fetch = originalFetch; }
   });
 });
