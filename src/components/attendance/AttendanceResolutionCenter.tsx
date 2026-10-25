@@ -753,7 +753,7 @@ export default function AttendanceResolutionCenter({
       return;
     }
     if (decision.schedule) {
-      const timeFormat = /^([01]\\d|2[0-3]):[0-5]\\d$/;
+      const timeFormat = /^([01]\d|2[0-3]):[0-5]\d$/;
       if (!timeFormat.test(revisedShiftIn) || !timeFormat.test(revisedShiftOut) ||
           revisedShiftIn === revisedShiftOut || note.trim().length < 5) {
         toast.warning('حدد وقتي بداية ونهاية الشيفت واكتب سبب التعديل (5 أحرف على الأقل).');
