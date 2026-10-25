@@ -1508,9 +1508,6 @@ export default function AttendanceResolutionCenter({
                     </div>
                     <p className="mt-2">اكتب سبب التعديل في الملاحظة. سيتم حفظ استثناء مؤرخ وإعادة فحص اليوم، دون اعتماد تلقائي إذا بقيت أدلة متعارضة.</p>
                   </div>
-                          <p className="mt-2">سبب التعديل إجباري. سيتم إنشاء مسودة من الجدول الحالي وفحصها ونشرها بصلاحية المدير.</p>
-                        </>}
-                  </div>
                 )}
                 {decision?.financial && <label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">معامل الخصم المقترح للمراجعة المالية
                   <select value={multiplier} onChange={(e) => setMultiplier(e.target.value)} className="input-dark mt-1 w-full"><option value="">اختر المعامل</option><option value="1">×1</option><option value="2">×2</option><option value="4">×4</option></select>
