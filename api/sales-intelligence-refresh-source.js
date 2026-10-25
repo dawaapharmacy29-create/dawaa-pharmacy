@@ -11436,6 +11436,16 @@ function containedSiblingIds(source, siblings) {
 function evaluateCanonicalSourceGate(source, context) {
   const sourceId = String(source.id);
   const ownCaseIds = context.v22CaseIdsBySource.get(sourceId) || [];
+  if (source.deleted_at) {
+    return {
+      allowed: false,
+      sourceId,
+      code: CANONICAL_SOURCE_GATE_CODES.nonCanonical,
+      reason: "source_deleted",
+      v22CaseIds: ownCaseIds,
+      supersedingSourceIds: []
+    };
+  }
   if (String(source.review_status || "") === "archived") {
     return {
       allowed: false,
@@ -15396,7 +15406,8 @@ var CANONICAL_REFRESH_SOURCE_COLUMNS = [
   "conversation_ended_at",
   "message_count",
   "created_at",
-  "review_status"
+  "review_status",
+  "deleted_at"
 ].join(",");
 var PROOF_ACCEPTED_STATUSES = /* @__PURE__ */ new Set(["reconciled", "already_reconciled"]);
 function proofAcceptedCaseIds(rows) {
@@ -15553,7 +15564,13 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
   );
   const batch = await runBatchPersistence(service, { conversations, dryRun: input.dryRun, deferPublication: true });
   if (input.dryRun) return { ...empty, status: "ok", admittedSourceIds, blockedSources, batch };
-  const outcomes = batch.caseOutcomes || [];
+  const deletedCaseIds = await loadDeletedCaseIds(
+    service,
+    batch.caseAnalyses.map((row) => String(row.caseId))
+  );
+  const caseAnalyses = batch.caseAnalyses.filter((row) => !deletedCaseIds.has(String(row.caseId)));
+  const skippedDeletedCaseIds = Array.from(deletedCaseIds).sort();
+  const outcomes = (batch.caseOutcomes || []).filter((row) => !deletedCaseIds.has(row.caseId));
   const persistenceFailures = outcomes.filter((row) => !row.success).map((row) => ({ caseId: row.caseId, error: row.error }));
   const caseSetReconciliation = [];
   const followupPublications = [];
@@ -15564,8 +15581,8 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
   ];
   for (const source of publicationOrder) {
     const sourceId = String(source.id || "");
-    const activeCaseIds = batch.caseAnalyses.filter((row) => String(row.conversationId || "") === sourceId).map((row) => String(row.caseId));
-    const assemblyPending = !hasIndependentInput(sourceId) && (batch.caseAnalyses.some((row) => !outcomes.some((outcome) => outcome.caseId === row.caseId && outcome.success)) || caseSetReconciliation.some((row) => !row.ok));
+    const activeCaseIds = caseAnalyses.filter((row) => String(row.conversationId || "") === sourceId).map((row) => String(row.caseId));
+    const assemblyPending = !hasIndependentInput(sourceId) && (caseAnalyses.some((row) => !outcomes.some((outcome) => outcome.caseId === row.caseId && outcome.success)) || caseSetReconciliation.some((row) => !row.ok));
     const sourceOutcomes = outcomes.filter((row) => activeCaseIds.includes(row.caseId));
     if (assemblyPending || activeCaseIds.some((id) => !sourceOutcomes.some((row) => row.caseId === id && row.success && row.analysis?.analysisId))) {
       caseSetReconciliation.push({
@@ -15610,7 +15627,7 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
   const reconciledSources = new Set(caseSetReconciliation.filter((row) => row.ok).map((row) => row.sourceId));
   const lifecycleStatus = persistenceFailures.length || caseSetReconciliation.some((row) => row.status === "persistence_failed_pending_retry") ? "persistence_partial_failure" : caseSetReconciliation.some((row) => !row.ok) ? "case_set_reconciliation_failure" : "ok";
   const persisted = new Set(outcomes.filter((row) => row.success).map((row) => row.caseId));
-  const reconcileCandidates = batch.caseAnalyses.filter((row) => persisted.has(row.caseId) && reconciledSources.has(String(row.conversationId)));
+  const reconcileCandidates = caseAnalyses.filter((row) => persisted.has(row.caseId) && reconciledSources.has(String(row.conversationId)));
   const canonicalReconciliation = [];
   for (const analysis of reconcileCandidates) {
     const { data, error } = await service.rpc(CANONICAL_PROOF_WRITER_RPC, {
@@ -15628,6 +15645,7 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
       persistenceFailures,
       admittedSourceIds,
       blockedSources,
+      skippedDeletedCaseIds,
       batch,
       caseSetReconciliation,
       canonicalReconciliation
@@ -15787,6 +15805,7 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
     persistenceFailures,
     admittedSourceIds,
     blockedSources,
+    skippedDeletedCaseIds,
     batch,
     caseSetReconciliation,
     canonicalReconciliation,
@@ -15796,6 +15815,17 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
     semanticProjection,
     conversationEvaluations
   };
+}
+var DELETED_CASE_LOOKUP_CHUNK = 200;
+async function loadDeletedCaseIds(service, caseIds) {
+  const unique2 = Array.from(new Set(caseIds.filter(Boolean)));
+  const deleted = /* @__PURE__ */ new Set();
+  for (let index = 0; index < unique2.length; index += DELETED_CASE_LOOKUP_CHUNK) {
+    const { data, error } = await service.from("sales_intelligence_cases").select("case_id").in("case_id", unique2.slice(index, index + DELETED_CASE_LOOKUP_CHUNK)).not("deleted_at", "is", null);
+    if (error) throw new Error(`deleted_case_lookup_failed: ${error.message}`);
+    for (const row of data || []) deleted.add(String(row.case_id));
+  }
+  return deleted;
 }
 async function reconcileSoldCustomerRequestActions(service, sourceId, caseAnalyses) {
   const { data: actions, error: actionsError } = await service.from("whatsapp_conversation_actions").select(

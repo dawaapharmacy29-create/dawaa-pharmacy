@@ -86,6 +86,7 @@ function makeService() {
         gte: () => chain,
         lte: () => chain,
         in: () => chain,
+        not: () => chain,
         eq: (column: string, value: unknown) => {
           filters[column] = value;
           return chain;

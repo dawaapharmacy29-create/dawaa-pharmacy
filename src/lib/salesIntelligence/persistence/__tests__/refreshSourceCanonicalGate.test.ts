@@ -73,6 +73,7 @@ function query(table: string) {
   const chain: any = {
     select: () => chain,
     in: () => chain,
+    not: () => chain,
     gte: () => chain,
     lte: () => chain,
     contains: () => chain,

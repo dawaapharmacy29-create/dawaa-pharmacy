@@ -12,9 +12,13 @@ import {
   Search,
   ShieldCheck,
   SlidersHorizontal,
+  Trash2,
   UsersRound,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/hooks/useAuth';
+import { canManageWhatsAppDeletions } from '@/lib/core/permissionSystem';
+import { WhatsAppDeletionTrashPanel } from '@/components/salesIntelligence/WhatsAppDeletionTrashPanel';
 import { formatDateTime } from '@/lib/utils';
 import { fetchQaBranchOptions, fetchQaCaseList, filterCaseListRows } from '@/lib/salesIntelligence/qa/queries';
 import { DEFAULT_QA_LIST_FILTERS, type QaCaseListRow, type QaListFilters } from '@/lib/salesIntelligence/qa/types';
@@ -45,7 +49,7 @@ const QUICK_FILTERS: Array<{ key: QaListFilters['quickFilter']; label: string }>
   { key: 'has_invoice', label: 'بفاتورة' },
 ];
 
-type WorkspaceSection = 'overview' | 'demand' | 'staff' | 'qa';
+type WorkspaceSection = 'overview' | 'demand' | 'staff' | 'qa' | 'trash';
 
 async function fetchSalesIntelligenceBranchOptions(): Promise<string[]> {
   const [qaBranches, sourceResult] = await Promise.all([
@@ -60,6 +64,9 @@ async function fetchSalesIntelligenceBranchOptions(): Promise<string[]> {
 
 export default function SalesIntelligenceQA() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  // UI mirror only; the trash RPCs require an active general manager in the database.
+  const canManageDeletions = canManageWhatsAppDeletions(user?.role);
   const [rows, setRows] = useState<QaCaseListRow[]>([]);
   const [branches, setBranches] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -155,6 +162,9 @@ export default function SalesIntelligenceQA() {
     { key: 'demand' as const, label: 'الطلب وفقد البيع', hint: 'الأصناف والفرص والتسرب', Icon: BarChart3 },
     { key: 'staff' as const, label: 'أداء الفريق', hint: 'المبيعات الرسمية والموظف الحقيقي', Icon: UsersRound },
     { key: 'qa' as const, label: 'مراجعة الحالات', hint: 'التفاصيل الفنية والحالات الملتبسة', Icon: ListChecks },
+    ...(canManageDeletions
+      ? [{ key: 'trash' as const, label: 'سلة المحذوفات', hint: 'محادثات وحالات حذفها المدير العام', Icon: Trash2 }]
+      : []),
   ];
 
   return (
@@ -235,6 +245,7 @@ export default function SalesIntelligenceQA() {
       ) : null}
       {selectedCycle && activeSection === 'demand' ? <ProductDemandLeakageV22 cycleStart={selectedCycle.start} branch={branchScope} /> : null}
       {selectedCycle && activeSection === 'staff' ? <SalesIntelligenceStaffPerformanceV1 cycle={selectedCycle} branch={branchScope} /> : null}
+      {canManageDeletions && activeSection === 'trash' ? <WhatsAppDeletionTrashPanel /> : null}
 
       {activeSection === 'qa' ? (
         <div className="space-y-4">

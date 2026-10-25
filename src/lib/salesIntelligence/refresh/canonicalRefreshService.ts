@@ -47,6 +47,7 @@ export const CANONICAL_REFRESH_SOURCE_COLUMNS = [
   'message_count',
   'created_at',
   'review_status',
+  'deleted_at',
 ].join(',');
 
 export type BlockedSource = {
@@ -110,6 +111,8 @@ export interface CanonicalRefreshResult {
   dryRun: boolean;
   admittedSourceIds: string[];
   blockedSources: BlockedSource[];
+  /** Cases a general manager deleted: analyzed, but never published, proven, projected or evaluated. */
+  skippedDeletedCaseIds?: string[];
   batch: Awaited<ReturnType<typeof runBatchPersistence>> | null;
   persistenceFailures: Array<{ caseId: string; error: unknown }>;
   caseSetReconciliation: CaseSetReconciliation[];
@@ -350,7 +353,15 @@ export async function runCanonicalSalesIntelligenceRefresh(
   const batch = await runBatchPersistence(service, { conversations, dryRun: input.dryRun, deferPublication: true });
   if (input.dryRun) return { ...empty, status: 'ok', admittedSourceIds, blockedSources, batch };
 
-  const outcomes = batch.caseOutcomes || [];
+  // A deleted case stays deleted until an explicit restore: drop it before publication so it is
+  // neither reactivated, proven, projected into work lists nor evaluated (the DB guards agree).
+  const deletedCaseIds = await loadDeletedCaseIds(
+    service,
+    batch.caseAnalyses.map((row: any) => String(row.caseId))
+  );
+  const caseAnalyses = batch.caseAnalyses.filter((row: any) => !deletedCaseIds.has(String(row.caseId)));
+  const skippedDeletedCaseIds = Array.from(deletedCaseIds).sort();
+  const outcomes = (batch.caseOutcomes || []).filter((row) => !deletedCaseIds.has(row.caseId));
   const persistenceFailures = outcomes
     .filter((row) => !row.success)
     .map((row) => ({ caseId: row.caseId, error: row.error }));
@@ -364,13 +375,13 @@ export async function runCanonicalSalesIntelligenceRefresh(
     ...admitted.filter((row) => !hasIndependentInput(String(row.id)))];
   for (const source of publicationOrder) {
     const sourceId = String(source.id || '');
-    const activeCaseIds = batch.caseAnalyses
+    const activeCaseIds = caseAnalyses
       .filter((row: any) => String(row.conversationId || '') === sourceId)
       .map((row: any) => String(row.caseId));
     // Payment-continuation followers have no independent derived set. Do not retire them
     // while any assembly anchor is incomplete; zero-case analyzed sources still reconcile.
     const assemblyPending = !hasIndependentInput(sourceId)
-      && (batch.caseAnalyses.some((row) => !outcomes.some((outcome) => outcome.caseId === row.caseId && outcome.success))
+      && (caseAnalyses.some((row: any) => !outcomes.some((outcome) => outcome.caseId === row.caseId && outcome.success))
         || caseSetReconciliation.some((row) => !row.ok));
     const sourceOutcomes = outcomes.filter((row) => activeCaseIds.includes(row.caseId));
     if (assemblyPending || activeCaseIds.some((id) => !sourceOutcomes.some((row) => row.caseId === id && row.success && row.analysis?.analysisId))) {
@@ -415,7 +426,7 @@ export async function runCanonicalSalesIntelligenceRefresh(
   // for active cases. Truth is bidirectional (V46): the RPC re-reads the CURRENT persisted
   // analysis and promotes, keeps, moves (invoice A -> B) or revokes the proof this case wrote.
   const persisted = new Set(outcomes.filter((row) => row.success).map((row) => row.caseId));
-  const reconcileCandidates = batch.caseAnalyses.filter((row: any) => persisted.has(row.caseId) && reconciledSources.has(String(row.conversationId)));
+  const reconcileCandidates = caseAnalyses.filter((row: any) => persisted.has(row.caseId) && reconciledSources.has(String(row.conversationId)));
   const canonicalReconciliation: CanonicalProofReconciliation[] = [];
   for (const analysis of reconcileCandidates) {
     const { data, error } = await service.rpc(CANONICAL_PROOF_WRITER_RPC, {
@@ -435,6 +446,7 @@ export async function runCanonicalSalesIntelligenceRefresh(
       persistenceFailures,
       admittedSourceIds,
       blockedSources,
+      skippedDeletedCaseIds,
       batch,
       caseSetReconciliation,
       canonicalReconciliation,
@@ -617,6 +629,7 @@ export async function runCanonicalSalesIntelligenceRefresh(
     persistenceFailures,
     admittedSourceIds,
     blockedSources,
+    skippedDeletedCaseIds,
     batch,
     caseSetReconciliation,
     canonicalReconciliation,
@@ -689,6 +702,24 @@ export async function runCanonicalSalesIntelligenceBackfill(
       })
     : null;
   return { mode: 'dry-run', gate, refresh: null, preview };
+}
+
+const DELETED_CASE_LOOKUP_CHUNK = 200;
+
+/** Case ids of this batch that a general manager deleted. Fails closed on a read error. */
+export async function loadDeletedCaseIds(service: any, caseIds: string[]): Promise<Set<string>> {
+  const unique = Array.from(new Set(caseIds.filter(Boolean)));
+  const deleted = new Set<string>();
+  for (let index = 0; index < unique.length; index += DELETED_CASE_LOOKUP_CHUNK) {
+    const { data, error } = await service
+      .from('sales_intelligence_cases')
+      .select('case_id')
+      .in('case_id', unique.slice(index, index + DELETED_CASE_LOOKUP_CHUNK))
+      .not('deleted_at', 'is', null);
+    if (error) throw new Error(`deleted_case_lookup_failed: ${error.message}`);
+    for (const row of data || []) deleted.add(String(row.case_id));
+  }
+  return deleted;
 }
 
 export async function reconcileSoldCustomerRequestActions(

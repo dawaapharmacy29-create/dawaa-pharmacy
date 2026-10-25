@@ -4,7 +4,7 @@
 // secondary conversation-evaluation evidence loads only when requested. No product search on open.
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowRight, Building2, Hash, Layers3, Phone, RefreshCw, UserRound } from 'lucide-react';
+import { ArrowRight, Building2, Hash, Layers3, Phone, RefreshCw, Trash2, UserRound } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { formatDateTime } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -36,6 +36,9 @@ import { productDisplayStateLabel } from '@/lib/salesIntelligence/qa/persistedPr
 import { readCaseIntelligence } from '@/lib/salesIntelligence/qa/caseIntelligencePresentation';
 import { buildCaseInvoiceCard } from '@/lib/salesIntelligence/qa/caseInvoiceCard';
 import { CaseInvoiceCard } from '@/components/salesIntelligence/CaseInvoiceCard';
+import { WhatsAppDeletionDialog } from '@/components/salesIntelligence/WhatsAppDeletionDialog';
+import { canManageWhatsAppDeletions } from '@/lib/core/permissionSystem';
+import type { WhatsAppDeletionScope } from '@/lib/salesIntelligence/operations/whatsappDeletionService';
 
 const MATCH_DIFFERENCE_LABELS: Record<string, string> = {
   missing_item: 'صنف في المحادثة غير موجود بالفاتورة',
@@ -155,7 +158,10 @@ export default function SalesIntelligenceQACaseDetail() {
   const { caseId: rawCaseId } = useParams<{ caseId: string }>();
   const caseId = rawCaseId ? decodeURIComponent(rawCaseId) : '';
   const navigate = useNavigate();
-  const { checkPermission } = useAuth();
+  const { checkPermission, user } = useAuth();
+  // UI mirror only; dawaa_whatsapp_deletion_actor_v1 decides in the database.
+  const canDelete = canManageWhatsAppDeletions(user?.role);
+  const [deletionScope, setDeletionScope] = useState<WhatsAppDeletionScope | null>(null);
   const [bundle, setBundle] = useState<QaCaseDetailBundle | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [invoiceConfirming, setInvoiceConfirming] = useState(false);
@@ -409,7 +415,30 @@ export default function SalesIntelligenceQACaseDetail() {
         {caseIntelligence && evaluationRequestedFor !== evaluationKey ? (
           <button type="button" className="dawaa-button dawaa-button--ghost" onClick={() => setEvaluationRequestedFor(evaluationKey)}>تحميل تفاصيل تقييم المحادثة</button>
         ) : null}
+        {canDelete ? (
+          <>
+            <button type="button" className="dawaa-button dawaa-button--secondary" onClick={() => setDeletionScope('case')}>
+              <Trash2 size={15} /> حذف هذه الحالة فقط
+            </button>
+            {conversation ? (
+              <button type="button" className="dawaa-button dawaa-button--secondary" onClick={() => setDeletionScope('conversation')}>
+                <Trash2 size={15} /> حذف المحادثة كاملةً مع كل حالاتها ({Math.max(siblingCases.length, 1).toLocaleString('ar-EG')} حالة)
+              </button>
+            ) : null}
+          </>
+        ) : null}
       </div>
+      {deletionScope ? (
+        <WhatsAppDeletionDialog
+          scope={deletionScope}
+          target={deletionScope === 'case' ? caseId : conversation!.id}
+          onClose={() => setDeletionScope(null)}
+          onDeleted={() => {
+            setDeletionScope(null);
+            navigate('/sales-intelligence/qa');
+          }}
+        />
+      ) : null}
       {conversationRereadError ? <div className="dawaa-alert dawaa-alert--warning text-sm">{conversationRereadError}</div> : null}
       {invoiceConfirmationMessage ? <div className="dawaa-alert dawaa-alert--success text-sm">{invoiceConfirmationMessage}</div> : null}
       {invoiceConfirmationError ? <div className="dawaa-alert dawaa-alert--danger text-sm">{invoiceConfirmationError}</div> : null}
