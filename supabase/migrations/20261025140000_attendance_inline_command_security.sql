@@ -280,7 +280,9 @@ end;
 $$;
 revoke all on function public.attendance_inline_command_v1(text,uuid,date,jsonb) from public,anon,authenticated;
 grant execute on function public.attendance_inline_command_v1(text,uuid,date,jsonb) to service_role;
--- All browser callers of these two commands live in attendanceResolutionService and now use the server boundary.
-revoke execute on function public.approve_attendance_day_resolution_v2(uuid,date,numeric,text) from anon,authenticated;
-revoke execute on function public.resolve_missing_punch_incident_v1(uuid,date,text,timestamptz,text,boolean) from anon,authenticated;
+-- Preserve the existing legacy RPC grants until every independent caller has been
+-- audited and migrated. Removing their EXECUTE permissions here could break
+-- existing attendance flows outside the new inline dialog.
+-- The new attendance_inline_command_v1 and dated-shift RPC remain service_role-only.
+-- The scoped attendance_inline_approval_guard still protects explicitly held days.
 notify pgrst,'reload schema';
