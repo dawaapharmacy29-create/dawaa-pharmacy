@@ -104,6 +104,23 @@ export async function createStaffAlias(
   createdBy: string
 ): Promise<StaffIdentityAlias | null> {
   const normalized = normalizeStaffName(aliasName);
+  if (!normalized || !staffId || !aliasName.trim()) return null;
+
+  // Fail closed before any browser write. A server-side atomic uniqueness
+  // constraint is still required to cover races between simultaneous clients.
+  const [targetResult, aliasesResult] = await Promise.all([
+    supabase.from('staff').select('id,active,is_active').eq('id', staffId).maybeSingle(),
+    supabase.from('staff_identity_aliases')
+      .select('staff_id')
+      .eq('normalized_alias', normalized)
+      .eq('active', true)
+      .limit(1000),
+  ]);
+  const target = targetResult.data;
+  if (targetResult.error || !target || !target.active || !target.is_active ||
+      aliasesResult.error || (aliasesResult.data || []).length > 0) {
+    return null;
+  }
 
   const { data, error } = await supabase
     .from('staff_identity_aliases')
