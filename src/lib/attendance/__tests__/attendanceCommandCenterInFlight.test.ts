@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+vi.mock('@/lib/supabase', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/supabase')>()), readStoredStaffSessionToken: () => 'test-staff-session-token' }));
 import { supabase } from '@/lib/supabase';
 import { approveAttendanceResolution, getAttendanceCommandCenterBundleV1, getAttendanceDiagnosticSummaryV1 } from '@/lib/attendance/attendanceResolutionService';
 
@@ -25,9 +26,11 @@ describe('attendance command center in-flight sharing', () => {
   it('a read after a mutation never joins a request that started before it', async () => {
     const client = supabase as unknown as { rpc: Rpc };
     const original = client.rpc;
+    const originalFetch = globalThis.fetch;
     let release: (v: unknown) => void = () => undefined;
     let bundleCalls = 0;
     try {
+      globalThis.fetch = vi.fn(async () => ({ ok: true, json: async () => ({ data: { status: 'approved' } }) })) as unknown as typeof fetch;
       client.rpc = async (fn) => {
         if (fn === 'get_attendance_command_center_bundle_v1') {
           bundleCalls += 1;
@@ -48,6 +51,7 @@ describe('attendance command center in-flight sharing', () => {
       expect((await before).summary.total_cases).toBe(1);
     } finally {
       client.rpc = original;
+      globalThis.fetch = originalFetch;
     }
   });
 });
