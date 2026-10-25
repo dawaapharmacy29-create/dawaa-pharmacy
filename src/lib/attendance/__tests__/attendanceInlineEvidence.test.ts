@@ -1,5 +1,19 @@
-import { describe, it, expect, vi } from 'vitest';
-vi.mock('@/lib/supabase', async (importOriginal) => ({ ...(await importOriginal<typeof import('@/lib/supabase')>()), readStoredStaffSessionToken: () => 'test-staff-session-token' }));
+import { describe, it, expect } from 'vitest';
+// The repository's lightweight test runner does not provide vi.mock or vi.fn.
+async function withStaffSession<T>(run: () => Promise<T>): Promise<T> {
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  const storage = { getItem: (_key: string) => 'test-staff-session-token-0123456789abcdef0123456789abcdef' };
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { localStorage: storage } });
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: storage });
+  try { return await run(); }
+  finally {
+    if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow);
+    else Reflect.deleteProperty(globalThis, 'window');
+    if (previousStorage) Object.defineProperty(globalThis, 'localStorage', previousStorage);
+    else Reflect.deleteProperty(globalThis, 'localStorage');
+  }
+}
 import { supabase } from '@/lib/supabase';
 import { getAttendanceDayEvidence, resolveDatedAttendanceShift } from '@/lib/attendance/attendanceResolutionService';
 
@@ -33,11 +47,11 @@ describe('inline attendance evidence boundary', () => {
     const originalFetch = globalThis.fetch;
     const requests: Array<{ url: string; options: RequestInit }> = [];
     try {
-      globalThis.fetch = vi.fn(async (url: string, options: RequestInit) => {
+      globalThis.fetch = (async (url: string, options: RequestInit) => {
         requests.push({ url, options });
         return { ok: true, json: async () => ({ data: { success: true } }) } as Response;
       }) as typeof fetch;
-      await resolveDatedAttendanceShift({ staffId: 's1', date: '2026-10-24', start: '22:00', end: '06:00', note: 'documented evidence' });
+      await withStaffSession(() => resolveDatedAttendanceShift({ staffId: 's1', date: '2026-10-24', start: '22:00', end: '06:00', note: 'documented evidence' }));
       expect(requests).toHaveLength(1);
       expect(requests[0].url).toBe('/api/attendance-inline-command');
       expect(JSON.parse(String(requests[0].options.body))).toEqual({
@@ -50,14 +64,14 @@ describe('inline attendance evidence boundary', () => {
   it('preserves database rejection of approved or unauthorized changes', async () => {
     const originalFetch = globalThis.fetch;
     try {
-      globalThis.fetch = vi.fn(async () => ({ ok: false, json: async () => ({ error: 'approved_attendance_cannot_be_rewritten' }) })) as unknown as typeof fetch;
-      await failure(() => resolveDatedAttendanceShift({ staffId: 's1', date: '2026-10-24', start: '09:00', end: '17:00', note: 'evidence' }));
+      globalThis.fetch = (async () => ({ ok: false, json: async () => ({ error: 'approved_attendance_cannot_be_rewritten' }) })) as unknown as typeof fetch;
+      await withStaffSession(() => failure(() => resolveDatedAttendanceShift({ staffId: 's1', date: '2026-10-24', start: '09:00', end: '17:00', note: 'evidence' })));
     } finally { globalThis.fetch = originalFetch; }
   });
   it('requires an affirmative saved acknowledgement', async () => {
     const originalFetch = globalThis.fetch;
     try {
-      globalThis.fetch = vi.fn(async () => ({ ok: true, json: async () => ({ data: { success: false } }) })) as unknown as typeof fetch;
+      globalThis.fetch = (async () => ({ ok: true, json: async () => ({ data: { success: false } }) })) as unknown as typeof fetch;
       await failure(() => resolveDatedAttendanceShift({ staffId: 's1', date: '2026-10-24', start: '09:00', end: '17:00', note: 'evidence' }));
     } finally { globalThis.fetch = originalFetch; }
   });
