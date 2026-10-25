@@ -544,3 +544,21 @@ export async function adjustAttendanceDeductionV2(args: {
   if (error) throw new Error(error.message);
   return (data || {}) as Record<string, unknown>;
 }
+
+/** Live, bounded staff/day read. Missing data is never evidence of absence. */
+export async function getAttendanceDayEvidence(staffId: string, date: string): Promise<AttendanceResolutionRow> {
+  const records = await listAttendanceResolutionQueue({ start: date, end: date, limit: 1000 });
+  const day = records.find((record) => record.staff_id === staffId && record.attendance_date === date);
+  if (!day) throw new Error('تعذر التحقق من سجل اليوم بعد الحفظ');
+  return day;
+}
+
+export async function resolveDatedAttendanceShift(args: { staffId: string; date: string; start: string; end: string; note: string }) {
+  const { data, error } = await supabase.rpc('resolve_dated_shift_from_attendance_v1', {
+    p_staff_id: args.staffId, p_date: args.date, p_start: args.start, p_end: args.end, p_note: args.note,
+  });
+  markAttendanceTruthChanged();
+  if (error) throw new Error(error.message);
+  if (data?.success !== true) throw new Error('لم يتم تأكيد حفظ الشيفت');
+  return data;
+}
