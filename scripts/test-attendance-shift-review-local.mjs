@@ -73,7 +73,7 @@ try {
   assert.equal(hold.reason,'shift');
   const schedule = (await db.query("select hours,shift_date from shift_schedules where source='attendance_dated_shift_correction_v1'")).rows[0];
   assert.equal(Number(schedule.hours),8);
-  assert.equal(schedule.shift_date,'2026-10-18');
+  assert.equal(schedule.shift_date instanceof Date ? schedule.shift_date.toISOString().slice(0,10) : schedule.shift_date,'2026-10-18');
   assert.equal((await db.query("select count(*)::int n from attendance_dated_shift_corrections_v1")).rows[0].n,1);
   await reject(call('2026-10-18'),'dated_shift_correction_already_exists_review_first');
   await db.exec(`insert into attendance_daily_summary(staff_id,attendance_date,status) values('${staff}','2026-10-17','approved')`);
