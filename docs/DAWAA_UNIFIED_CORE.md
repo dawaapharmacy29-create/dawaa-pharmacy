@@ -127,6 +127,24 @@ A table count or a similar column name alone is not retirement evidence.
   make account deletion convenient; reconcile by approved administrative
   workflow that preserves legal/accounting evidence.
 
+## Confirmed case: Islam Farouk vs Islam El-Sabaa (25 October 2026)
+
+Production currently has two distinct active employees, a pharmacist **د اسلام فاروق**
+and a courier **اسلام السبع**. Their legal/canonical staff IDs must never merge.
+
+The active alias rows `د اسلام`, `د/ اسلام`, `دكتور اسلام` belong to
+the pharmacist, while `اسلام` belongs to the courier; the legacy
+`normalizeStaffName` folds **all four** into the same `اسلام` key. This is a
+confirmed normalization collision, **not** evidence that either employee
+record is a duplicate. Role alone does not authorize credit.
+
+Until source-scoped, time-bounded and role-verified decisions are implemented,
+an ambiguous alias key yields **unresolved**. Do not migrate the seller's
+historic invoice IDs or clear the conflict by guessing. The client-side
+preflight prevents avoidable new collisions but cannot serialize concurrent
+writes. A future migration must enforce the invariant atomically on the server,
+preserving audit/history and reporting existing incompatible active rows first.
+
 ## Immediate tracked risks
 
 - Name-based and alias-based fallback paths in imported sales and review flows.
