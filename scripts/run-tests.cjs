@@ -225,6 +225,7 @@ for (const ext of ['.ts', '.tsx']) {
 }
 
 const testFiles = [
+  'src/lib/attendance/__tests__/attendanceInlineEvidence.test.ts',
   'src/lib/__tests__/applicationNavigation.test.ts',
   'src/lib/__tests__/appRoutes.test.ts',
   'src/lib/__tests__/applicationDataContracts.test.ts',
