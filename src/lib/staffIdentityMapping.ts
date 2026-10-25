@@ -33,48 +33,66 @@ export async function resolveStaffNameToStaffId(
   const normalized = normalizeStaffName(rawName);
   if (!normalized) return null;
 
+  // A name is evidence, not identity: never choose the first of conflicting aliases.
   const { data: aliases, error: aliasError } = await supabase
     .from('staff_identity_aliases')
-    .select('*')
+    .select('staff_id')
     .eq('normalized_alias', normalized)
     .eq('active', true)
-    .order('confidence', { ascending: false })
-    .limit(1);
+    .limit(1000);
 
   if (aliasError) {
     console.error('Error resolving staff name:', aliasError);
     return null;
   }
 
-  if (aliases && aliases.length > 0) {
-    return aliases[0].staff_id;
+  const aliasStaffIds = [...new Set((aliases || []).map((alias) => alias.staff_id).filter(Boolean))];
+  if (aliasStaffIds.length > 1) {
+    console.warn('Ambiguous staff alias; identity requires review:', normalized);
+    return null;
+  }
+
+  if (aliasStaffIds.length === 1) {
+    const { data: linkedStaff, error: linkedError } = await supabase
+      .from('staff')
+      .select('id, active, is_active')
+      .eq('id', aliasStaffIds[0])
+      .maybeSingle();
+
+    if (linkedError || !linkedStaff || !linkedStaff.active || !linkedStaff.is_active) {
+      console.warn('Alias points to missing or inactive staff; identity requires review:', normalized);
+      return null;
+    }
+    return linkedStaff.id;
   }
 
   const { data: staff, error: staffError } = await supabase
     .from('staff')
     .select('id, name')
     .eq('active', true)
-    .limit(100);
+    .eq('is_active', true)
+    .limit(500);
 
-  if (staffError) {
+  if (staffError || !staff) {
     console.error('Error searching staff:', staffError);
     return null;
   }
 
-  if (staff && staff.length > 0) {
-    for (const s of staff) {
-      const staffName = s.name || '';
-      const staffNormalized = normalizeStaffName(staffName);
-      if (staffNormalized === normalized) {
-        if (options?.createAutoAlias) {
-          await createStaffAlias(s.id, rawName, options.source || 'auto-resolve', 0.9, 'system');
-        }
-        return s.id;
-      }
+  const matchingStaff = staff.filter((candidate) =>
+    normalizeStaffName(candidate.name || '') === normalized
+  );
+  if (matchingStaff.length !== 1) {
+    if (matchingStaff.length > 1) {
+      console.warn('Ambiguous normalized staff name; identity requires review:', normalized);
     }
+    return null;
   }
 
-  return null;
+  const matched = matchingStaff[0];
+  if (options?.createAutoAlias) {
+    await createStaffAlias(matched.id, rawName, options.source || 'auto-resolve', 0.9, 'system');
+  }
+  return matched.id;
 }
 
 /** إنشاء alias جديد للموظف */
@@ -208,9 +226,9 @@ export async function confirmStaffAlias(
   }
 
   if (existing && existing.length > 0) {
-    for (const alias of existing) {
-      await supabase.from('staff_identity_aliases').update({ active: false }).eq('id', alias.id);
-    }
+    // Reassignment must be an audited, atomic server-side operation.
+    // Never deactivate valid aliases before the replacement is committed.
+    return existing.every((alias) => alias.staff_id === staffId);
   }
 
   const result = await createStaffAlias(staffId, aliasName, 'manual-confirm', 1.0, createdBy);
