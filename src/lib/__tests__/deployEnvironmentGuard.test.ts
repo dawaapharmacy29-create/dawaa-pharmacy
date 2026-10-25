@@ -118,9 +118,9 @@ describe('deploy environment isolation', () => {
 
   it('every build runs the gate and the server has no production fallback', () => {
     const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
-    expect(pkg.scripts.prebuild.startsWith('node scripts/check-deploy-environment.cjs && ')).toBe(
-      true
-    );
+    expect(pkg.scripts.prebuild).toContain('node scripts/check-deploy-environment.cjs && ');
+    expect(pkg.scripts.prebuild).toContain('node scripts/build-attendance-inline-api.cjs --check && ');
+    expect(pkg.scripts.prebuild.indexOf('node scripts/check-deploy-environment.cjs')).toBeLessThan(pkg.scripts.prebuild.indexOf('node scripts/check-build-source-purity.cjs'));
     const server = readFileSync('server/sales-intelligence-refresh-source.ts', 'utf8');
     expect(server).not.toContain(PROD);
     expect(server).toContain('evaluateDeployEnvironment(process.env)');

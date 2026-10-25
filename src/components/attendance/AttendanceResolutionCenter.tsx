@@ -3,6 +3,10 @@ import { AlertTriangle, CheckCircle2, Clock3, RefreshCw, ShieldCheck, Wrench } f
 import { toast } from 'sonner';
 import {
   approveAttendanceResolution,
+  getAttendanceDayEvidence,
+  resolveDatedAttendanceShift,
+  resolveAttendancePermission,
+  type AttendanceResolutionRow,
   getAttendanceCaseDiagnosticV1,
   getAttendanceDiagnosticSummaryV1,
   getMissingPunchContextV1,
@@ -18,16 +22,15 @@ import {
   type MissingPunchContextV1,
   type MissingPunchHistoryRowV1,
 } from '@/lib/attendance/attendanceResolutionService';
-import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/hooks/useAuth';
+import { hasPermission } from '@/lib/core/permissionSystem';
+import { cairoWallClockToDate } from '@/lib/time/cairoDateBoundary';
 import EmployeeProfileDrawer from '@/components/attendance/EmployeeProfileDrawer';
 import { cairoToday, startOfMonth } from '@/lib/attendance/period';
 import AttendanceCorrectionReviewPanel from '@/components/attendance/AttendanceCorrectionReviewPanel';
 import AttendanceShiftMismatchReview from '@/components/attendance/AttendanceShiftMismatchReview';
 import {
   approveAttendanceFullDayTimeOffV1,
-  createStaffTimeOffRequest,
-  decideStaffTimeOffRequest,
-  getTimeOffRequestPreflightV3,
   getAnnualLeaveAttendancePreviewV1,
   listStaffTimeOffRequests,
   resolveAnnualLeaveFromAttendanceV1,
@@ -143,12 +146,19 @@ const BULK_SAFE_DECISION_IDS = new Set([
   'time_deduction',
 ]);
 
-function decisionsFor(row: AttendanceExceptionRow): Decision[] {
+function baseDecisionsFor(row: AttendanceExceptionRow): Decision[] {
   if (row.issue_group === 'absence' || row.resolution_status === 'absence_review') return ABSENCE_DECISIONS;
   if (row.resolution_status === 'missing_checkin') return PUNCH_DECISIONS.filter((item) => item.id !== 'forgot_out');
   if (row.resolution_status === 'missing_checkout') return PUNCH_DECISIONS.filter((item) => item.id !== 'forgot_in');
   if (row.issue_group === 'missing_punch' || row.resolution_status?.startsWith('missing_')) return PUNCH_DECISIONS;
   return TIME_DECISIONS;
+}
+
+function decisionsFor(row: AttendanceExceptionRow): Decision[] {
+  const base = baseDecisionsFor(row);
+  // The same existing actions remain available while resolving any manager case.
+  return [...base, ...TIME_DECISIONS.filter((item) =>
+    ['permission', 'schedule_error'].includes(item.id) && !base.some((existing) => existing.id === item.id))];
 }
 
 export default function AttendanceResolutionCenter({
@@ -168,6 +178,8 @@ export default function AttendanceResolutionCenter({
   embedded?: boolean;
   onDecisionSaved?: () => void;
 }) {
+  const { user } = useAuth();
+  const canApproveDay = hasPermission(user, 'manage_payroll');
   const [start, setStart] = useState(() => initialCurrentCycle ? startOfMonth(cairoToday()) : initialDate || cairoDate(-7));
   const [end, setEnd] = useState(() => initialCurrentCycle ? cairoToday() : initialDate || cairoDate());
   const [branch, setBranch] = useState(defaultBranch || 'الكل');
@@ -209,6 +221,14 @@ export default function AttendanceResolutionCenter({
   const [permissionStart, setPermissionStart] = useState('');
   const [permissionEnd, setPermissionEnd] = useState('');
   const [approving, setApproving] = useState(false);
+  const mutationLock = useRef(false);
+  const evidenceRefreshLock = useRef(false);
+  const [requiredPermissionId, setRequiredPermissionId] = useState<string | null>(null);
+  const [evidenceVersion, setEvidenceVersion] = useState(0);
+  const [refreshedDay, setRefreshedDay] = useState<AttendanceResolutionRow | null>(null);
+  const [evidenceMessage, setEvidenceMessage] = useState('');
+  const [evidenceBusy, setEvidenceBusy] = useState(false);
+  const [evidenceReadError, setEvidenceReadError] = useState(false);
   const [showDecisionEvidence, setShowDecisionEvidence] = useState(false);
   const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(() => new Set());
   const [bulkDecision, setBulkDecision] = useState('');
@@ -231,6 +251,13 @@ export default function AttendanceResolutionCenter({
     setStart(initialDate);
     setEnd(initialDate);
   }, [initialDate, initialTriage, initialCurrentCycle, initialStaffId]);
+
+  useEffect(() => {
+    setRevisedShiftIn(toCairoDateTimeLocal(selected?.scheduled_start_at).slice(11));
+    setRevisedShiftOut(toCairoDateTimeLocal(selected?.scheduled_end_at).slice(11));
+    setPermissionStart('');
+    setPermissionEnd('');
+  }, [selected?.staff_id, selected?.attendance_date]);
 
   // Only the latest load may write: a slower response for previous dates or branch never overwrites a newer one.
   const loadGeneration = useRef(0);
@@ -283,7 +310,7 @@ export default function AttendanceResolutionCenter({
       .catch(() => { if (active) setDiagnosticError(true); })
       .finally(() => { if (active) setDiagnosticLoading(false); });
     return () => { active = false; };
-  }, [selected]);
+  }, [selected, evidenceVersion]);
 
   useEffect(() => {
     const missingType = selected?.resolution_status === 'missing_checkin'
@@ -329,7 +356,7 @@ export default function AttendanceResolutionCenter({
       .finally(() => { if (active) setMissingPunchLoading(false); });
 
     return () => { active = false; };
-  }, [selected]);
+  }, [selected, evidenceVersion]);
 
   useEffect(() => {
     if (!selected) { setApprovedRequests([]); return; }
@@ -342,7 +369,7 @@ export default function AttendanceResolutionCenter({
       .catch(() => { if (active) setRequestsError(true); })
       .finally(() => { if (active) setRequestsLoading(false); });
     return () => { active = false; };
-  }, [selected]);
+  }, [selected, evidenceVersion]);
 
   useEffect(() => {
     if (!selected || reason !== 'annual_leave') {
@@ -480,8 +507,79 @@ export default function AttendanceResolutionCenter({
     }
   }
 
+  async function refreshSelectedEvidence(message = 'تم تحديث الأدلة من قاعدة البيانات') {
+    if (!selected || evidenceRefreshLock.current) return;
+    evidenceRefreshLock.current = true;
+    setEvidenceBusy(true);
+    setEvidenceReadError(true);
+    setRefreshedDay(null);
+    try {
+      const day = await getAttendanceDayEvidence(selected.staff_id, selected.attendance_date);
+      setRefreshedDay(day);
+      setSelected({ ...selected, ...day });
+      setHours(day.candidate_hours == null ? '' : String(day.candidate_hours));
+      setEvidenceVersion((version) => version + 1);
+      setEvidenceReadError(false);
+      setEvidenceMessage(message);
+      await load();
+    } catch (error) {
+      setEvidenceMessage('تعذر التحقق من الأدلة. أعد التحديث قبل الاعتماد: ' + (error instanceof Error ? error.message : 'خطأ قراءة'));
+      throw error;
+    } finally { evidenceRefreshLock.current = false; setEvidenceBusy(false); }
+  }
+
+  const finalApprovalReady = Boolean(canApproveDay && refreshedDay && !evidenceReadError && !evidenceBusy
+    && !diagnosticLoading && !diagnosticError && diagnostic
+    && diagnostic.evidence.canonical_finalizable === true
+    && diagnostic.evidence.canonical_route === 'standard_v2'
+    && (diagnostic.owner === 'manager' || diagnostic.evidence.canonical_system_resolvable === true)
+    && (!requiredPermissionId || refreshedDay.time_off_request_id === requiredPermissionId
+      || refreshedDay.resolution_snapshot?.permission_attached === true)
+    && refreshedDay.first_in && refreshedDay.last_out
+    && refreshedDay.scheduled_start_at && refreshedDay.scheduled_end_at
+    && refreshedDay.candidate_hours != null && Number.isFinite(refreshedDay.candidate_hours)
+    && refreshedDay.status !== 'approved');
+
+  async function approveRefreshedDay() {
+    if (!selected || !finalApprovalReady || mutationLock.current || !note.trim()) return;
+    mutationLock.current = true;
+    setApproving(true);
+    try {
+      const [fresh, latestDay] = await Promise.all([
+        getAttendanceCaseDiagnosticV1(selected.staff_id, selected.attendance_date),
+        getAttendanceDayEvidence(selected.staff_id, selected.attendance_date),
+      ]);
+      if (!latestDay.first_in || !latestDay.last_out || latestDay.candidate_hours == null
+        || latestDay.status === 'approved') throw new Error('بيانات اليوم تغيرت أو لم تكتمل البصمات؛ حدّث الأدلة قبل الاعتماد.');
+      if (fresh.evidence.canonical_finalizable !== true || fresh.evidence.canonical_route !== 'standard_v2'
+        || (fresh.owner !== 'manager' && fresh.evidence.canonical_system_resolvable !== true)) {
+        throw new Error('تغيرت أدلة اليوم أو بقي تعارض. حدّث الأدلة وراجع السبب قبل الاعتماد.');
+      }
+      const saved = await approveAttendanceResolution({ staffId: selected.staff_id,
+        date: selected.attendance_date, payrollEligibleHours: null, requireCompleteEvidence: true, note: note.trim() });
+      if (saved?.status !== 'approved') throw new Error('لم تؤكد قاعدة البيانات الاعتماد');
+      const verified = await getAttendanceDayEvidence(selected.staff_id, selected.attendance_date);
+      if (verified.status !== 'approved') throw new Error('تعذر التحقق من حفظ الاعتماد');
+      await load();
+      setSelected(null);
+      toast.success('تم التحقق من اعتماد اليوم وتحديث قائمة المراجعات.');
+      onDecisionSaved?.();
+    } catch (error) {
+      setEvidenceReadError(true);
+      setEvidenceMessage(error instanceof Error ? error.message : 'تعذر اعتماد اليوم');
+    } finally { mutationLock.current = false; setApproving(false); }
+  }
+
   async function approveSelected() {
-    if (!selected) return;
+    if (mutationLock.current || evidenceBusy) return;
+    mutationLock.current = true;
+    try { await approveSelectedUnlocked(); }
+    catch (error) { const message = error instanceof Error ? error.message : 'تعذر حفظ القرار'; setEvidenceMessage(message); toast.error(message); }
+    finally { mutationLock.current = false; }
+  }
+
+  async function approveSelectedUnlocked() {
+    if (!selected || refreshedDay?.status === 'approved' || evidenceReadError) return;
     if (selected.queue_lane !== 'manager') {
       toast.warning('هذه مشكلة نظام وليست قرار موظف. أصلح السبب النظامي أولًا.');
       return;
@@ -628,7 +726,11 @@ export default function AttendanceResolutionCenter({
         return;
       }
 
-      const manualIso = new Date(manualPunchAt).toISOString();
+      const parts = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(manualPunchAt);
+      const manualDate = parts && cairoWallClockToDate(+parts[1], +parts[2], +parts[3], +parts[4], +parts[5]);
+      if (!manualDate || !note.trim()) { toast.warning('حدد وقت بصمة صالحًا بتوقيت القاهرة واكتب الدليل وسبب التصحيح.'); return; }
+      const manualIso = manualDate.toISOString();
+      setEvidenceReadError(true);
       setApproving(true);
       try {
         const result = await resolveMissingPunchIncidentV1({
@@ -645,17 +747,7 @@ export default function AttendanceResolutionCenter({
             ? `تم تسجيل البصمة اليدوية وتسجيل واقعة النسيان رقم ${occurrence} وتنفيذ خصم 50 جنيه.`
             : `تم تسجيل البصمة اليدوية وواقعة النسيان رقم ${occurrence} في سجل الموظف.`
         );
-        setSelected(null);
-        setNote('');
-        setReason('');
-        setMultiplier('');
-        setHours('');
-        setManualPunchAt('');
-        setApplyMissingPunchPenalty(false);
-        setMissingPunchContext(null);
-        setMissingPunchHistory([]);
-        await load();
-        onDecisionSaved?.();
+        await refreshSelectedEvidence('تم حفظ البصمة. راجع النتيجة قبل الاعتماد النهائي.');
       } catch (error) {
         const message = error instanceof Error ? error.message : 'تعذر معالجة البصمة المفقودة';
         if (message.includes('missing_punch_allowance_not_exhausted')) {
@@ -683,60 +775,22 @@ export default function AttendanceResolutionCenter({
         toast.warning('حدد بداية ونهاية الإذن في نفس اليوم، واكتب سببًا واضحًا قبل الحفظ.');
         return;
       }
-      const [startHour,startMinute] = permissionStart.split(':').map(Number);
-      const [endHour,endMinute] = permissionEnd.split(':').map(Number);
-      const duration = (endHour*60 + endMinute) - (startHour*60 + startMinute);
-      if (duration <= 0 || duration > 24*60) {
-        toast.error('مدة الإذن غير صحيحة.');
-        return;
-      }
       setApproving(true);
+      setEvidenceReadError(true);
       try {
-        // Refetch immediately before creation, since a second tab can have saved
-        // the same employee's permission after this modal was opened.
-        const existing = await listStaffTimeOffRequests({
-          staffId: selected.staff_id, from: selected.attendance_date, to: selected.attendance_date, limit: 100,
-        });
-        if (existing.some((request) => request.request_kind === 'permission'
-          && (request.status === 'pending' || request.status === 'approved'))) {
-          toast.warning('يوجد إذن مسجل بالفعل لهذا اليوم. حدّث المراجعات قبل اتخاذ قرار جديد.');
-          await load();
-          return;
+        const result = await resolveAttendancePermission({ staffId: selected.staff_id,
+          date: selected.attendance_date, start: permissionStart, end: permissionEnd, note: note.trim() });
+        setRequiredPermissionId(result.request.id);
+        if (!result.approved) {
+          const message = 'تم تسجيل طلب الإذن للمراجعة فقط، ولم يُعتمد: ' +
+            (result.preflight?.blockers.map((item) => item.label).join('، ') || 'السياسة تمنع اعتماده');
+          setEvidenceMessage(message); toast.warning(message);
+          await load(); return;
         }
-        const request = await createStaffTimeOffRequest({
-          staffId: selected.staff_id,
-          kind: 'permission',
-          startDate: selected.attendance_date,
-          startTime: permissionStart,
-          endTime: permissionEnd,
-          durationMinutes: duration,
-          reason: note.trim(),
-        });
-        const preflight = await getTimeOffRequestPreflightV3(request.id);
-        if (!preflight.allowed) {
-          toast.warning('تم تسجيل طلب الإذن للمراجعة فقط، ولم يُعتمد: ' +
-            (preflight.blockers.map((item) => item.label).join('، ') || 'السياسة تمنع اعتماده'));
-          await load();
-          return;
-        }
-        await decideStaffTimeOffRequest(request.id, 'approved', note.trim());
-        await approveAttendanceResolution({
-          staffId: selected.staff_id,
-          date: selected.attendance_date,
-          payrollEligibleHours: hours.trim() ? Number(hours) : selected.candidate_hours,
-          note: `تصنيف مراجعة الحضور: إذن معتمد | طلب معتمد: ${request.id} | تفاصيل المدير: ${note.trim()}`,
-        });
-        toast.success('تم تسجيل الإذن واعتماده وحفظ ملاحظة القرار وتحديث الحضور.');
-        setSelected(null);
-        setNote('');
-        setReason('');
-        setPermissionStart('');
-        setPermissionEnd('');
-        setHours('');
-        await load();
-        onDecisionSaved?.();
+        await refreshSelectedEvidence('تم اعتماد الإذن عبر المسار الرسمي. راجع النتيجة قبل اعتماد اليوم.');
       } catch (error) {
-        toast.error('تعذر إكمال الاعتماد: ' + (error instanceof Error ? error.message : 'راجع حالة الإذن قبل إعادة المحاولة'));
+        const message = 'تعذر إكمال الاعتماد: ' + (error instanceof Error ? error.message : 'راجع حالة الإذن قبل إعادة المحاولة');
+        setEvidenceMessage(message); toast.error(message);
         await load();
       } finally {
         setApproving(false);
@@ -744,61 +798,43 @@ export default function AttendanceResolutionCenter({
       return;
     }
     const linkedRequest = decision.requestKind && approvedRequests.find((request) => request.request_kind === decision.requestKind);
-    if (decision.requestKind && (requestsLoading || requestsError || !linkedRequest)) {
+    if (decision.requestKind && !decision.schedule && (requestsLoading || requestsError || !linkedRequest)) {
       toast.error('سجّل الطلب واعتمده في صفحة الإجازات والغياب أولًا، ثم راجع اليوم مجددًا.');
       return;
     }
-    if (decision.requestKind && decision.requestKind !== 'permission') {
+    if (decision.id === 'permission' && linkedRequest) {
+      if (!note.trim() || !linkedRequest.start_time || !linkedRequest.end_time) {
+        toast.warning('اكتب سبب إعادة حساب الإذن وتأكد من وجود بدايته ونهايته.'); return;
+      }
+      setEvidenceReadError(true);
+      await resolveAttendancePermission({ staffId: selected.staff_id, date: selected.attendance_date,
+        start: linkedRequest.start_time.slice(0, 5), end: linkedRequest.end_time.slice(0, 5), note: note.trim() });
+      setRequiredPermissionId(linkedRequest.id);
+      await refreshSelectedEvidence('تم تحديث الإذن المرتبط. استخدم زر الاعتماد النهائي بعد مراجعة الأدلة.');
+      return;
+    }
+    if (decision.requestKind && !decision.schedule && decision.requestKind !== 'permission') {
       toast.warning('الطلب معتمد. حدّث حقيقة الحضور أولًا ليُحتسب بنوع الإجازة الصحيح بدل اعتماد صفر ساعات من هذه الشاشة.');
       return;
     }
     if (decision.schedule) {
-      if (selected.attendance_date < cairoToday() || !['shift_swap', 'schedule_error'].includes(decision.id)) {
-        toast.warning('لا يمكن تغيير جدول تاريخي من مسار نشر الجدول الأسبوعي. يحتاج اليوم التاريخي إلى تصحيح مؤرخ مستقل.');
+      const timeFormat = /^([01]\d|2[0-3]):[0-5]\d$/;
+      if (!timeFormat.test(revisedShiftIn) || !timeFormat.test(revisedShiftOut) ||
+          revisedShiftIn === revisedShiftOut || note.trim().length < 5) {
+        toast.warning('حدد وقتي بداية ونهاية الشيفت واكتب سبب التعديل (5 أحرف على الأقل).');
         return;
       }
-      const timeFormat = /^([01]\\d|2[0-3]):[0-5]\\d$/;
-      if (!timeFormat.test(revisedShiftIn) || !timeFormat.test(revisedShiftOut) || revisedShiftIn === revisedShiftOut || !note.trim()) {
-        toast.warning('حدد وقتي بداية ونهاية الشيفت واكتب سبب التعديل.');
-        return;
-      }
-      if (!window.confirm('سيتم تغيير موعد هذا اليوم من الأسبوع ابتداءً من التاريخ المحدد، وقد يتكرر التعديل في الأسابيع القادمة. هل تؤكد النشر؟')) return;
+      if (!window.confirm(`سيتم تعديل شيفت ${selected.staff_name} بتاريخ ${selected.attendance_date} فقط، دون تغيير الأسابيع التالية. ستعاد مراجعة البصمات ولن يعتمد اليوم تلقائيًا إذا بقي تعارض. هل تؤكد؟`)) return;
       setApproving(true);
-      let draftId = '';
       try {
-        const effectiveFrom = selected.attendance_date;
-        const { data: seed, error: seedError } = await supabase.rpc('schedule_draft_seed_v1', { p_staff_id: selected.staff_id, p_effective_from: effectiveFrom });
-        if (seedError) throw seedError;
-        const seedRows = (seed as { rows?: Array<{ day_name: string; is_off?: boolean }> })?.rows || [];
-        if (seedRows.length !== 7) throw new Error('الجدول الأسبوعي غير مكتمل؛ لا يمكن نشر تعديل جزئي.');
-        const weekday = arabicWeekday(effectiveFrom);
-        const matches = seedRows.filter((row) => row.day_name === weekday);
-        if (matches.length !== 1) throw new Error('تعذر تحديد يوم الشيفت داخل الجدول المعتمد.');
-        const updated = seedRows.map((row) => row.day_name === weekday
-          ? { ...row, shift_start: revisedShiftIn, shift_end: revisedShiftOut, is_off: false, is_day_off: false }
-          : row);
-        const { data: created, error: createError } = await supabase.rpc('create_schedule_draft_v1', {
-          p_staff_id: selected.staff_id, p_effective_from: effectiveFrom, p_rows: updated,
-          p_note: `قرار مركز الحضور ${selected.attendance_date}: ${note.trim()}`,
-        });
-        if (createError) throw createError;
-        draftId = String((created as { draft_id?: string })?.draft_id || '');
-        if (!draftId) throw new Error('لم يتم إنشاء مسودة الجدول بنجاح.');
-        const { data: validation, error: validateError } = await supabase.rpc('validate_schedule_draft_v1', { p_draft_id: draftId });
-        if (validateError) throw validateError;
-        if (!(validation as { valid?: boolean })?.valid) throw new Error('لم تجتز المسودة فحص تعارضات الجدول.');
-        const { error: publishError } = await supabase.rpc('publish_schedule_draft_v1', { p_draft_id: draftId, p_note: note.trim() });
-        if (publishError) throw publishError;
-        toast.success('تم نشر تعديل الشيفت من مركز الحضور. سيتم تحديث قراءات الحضور من مصدر الجدول المعتمد.');
-        setSelected(null);
+        setEvidenceReadError(true);
+        await resolveDatedAttendanceShift({ staffId: selected.staff_id, date: selected.attendance_date,
+          start: revisedShiftIn, end: revisedShiftOut, note: note.trim() });
+        await refreshSelectedEvidence('تم حفظ شيفت هذا اليوم. راجع الأدلة والساعات ثم اعتمد القرار النهائي.');
         setReason('');
-        setNote('');
-        setRevisedShiftIn('');
-        setRevisedShiftOut('');
-        await load();
-        onDecisionSaved?.();
       } catch (error) {
-        toast.error(`لم يُعتمد التعديل: ${error instanceof Error ? error.message : 'تعذر إكمال العملية'}${draftId ? ` — مسودة ${draftId} للمراجعة` : ''}`);
+        const message = 'لم يتم تأكيد تعديل الشيفت أو تحديث أدلته: ' + (error instanceof Error ? error.message : 'تعذر الحفظ');
+        setEvidenceMessage(message); toast.error(message);
       } finally {
         setApproving(false);
       }
@@ -971,7 +1007,7 @@ export default function AttendanceResolutionCenter({
                   </div>
                 </div>
                 <button type="button" className="btn-secondary text-xs"
-                  onClick={() => { setSelected(row); setHours(row.candidate_hours == null ? '' : String(row.candidate_hours)); setNote(''); setReason(''); setMultiplier(''); }}>
+                  disabled={approving || evidenceBusy} onClick={() => { setRequiredPermissionId(null); setRefreshedDay(null); setEvidenceMessage(''); setEvidenceReadError(false); setSelected(row); setHours(row.candidate_hours == null ? '' : String(row.candidate_hours)); setNote(''); setReason(''); setMultiplier(''); }}>
                   {row.queue_lane === 'system' ? 'عرض السبب' : 'مراجعة الحالة'}
                 </button>
               </div>
@@ -1261,7 +1297,7 @@ export default function AttendanceResolutionCenter({
                     onChange={(event) => setSelectedRowIds((current) => { const next = new Set(current); if (event.target.checked) next.add(row.id); else next.delete(row.id); return next; })} />
                   تحديد
                 </label>
-                <button type="button" onClick={() => { setSelected(row); setHours(row.candidate_hours == null ? '' : String(row.candidate_hours)); setNote(''); setReason(''); setMultiplier(''); }} className="btn-secondary text-xs">
+                <button type="button" disabled={approving || evidenceBusy} onClick={() => { setRequiredPermissionId(null); setRefreshedDay(null); setEvidenceMessage(''); setEvidenceReadError(false); setSelected(row); setHours(row.candidate_hours == null ? '' : String(row.candidate_hours)); setNote(''); setReason(''); setMultiplier(''); }} className="btn-secondary text-xs">
                   {row.queue_lane === 'manager' ? 'اتخاذ قرار' : 'تشخيص الحالة'}
                 </button>
               </div>
@@ -1322,10 +1358,19 @@ export default function AttendanceResolutionCenter({
                 هذا اعتماد لحقيقة الحضور، وليس خصمًا ماليًا تلقائيًا.
               </div>
 
-              <fieldset className="mt-3">
+              <div className="mt-3 rounded-xl border border-[var(--dawaa-theme-border)] p-3 text-xs" aria-live="polite">
+                {evidenceMessage && <p role="status" className="mb-2 font-bold">{evidenceMessage}</p>}
+                {refreshedDay?.status === 'approved' && <p>اليوم معتمد في قاعدة البيانات. لا يمكن تعديله من هذا المسار.</p>}
+                {refreshedDay && <p>الساعات المستحقة: {refreshedDay.payroll_eligible_hours ?? 'بانتظار الاعتماد'} · النتيجة: {diagnostic?.title || 'جارٍ تحديث التشخيص'}</p>}
+                <button type="button" className="btn-secondary mt-2" disabled={approving || evidenceBusy}
+                  onClick={() => { void refreshSelectedEvidence().catch(() => undefined); }}>تحديث أدلة اليوم</button>
+                {requiredPermissionId && refreshedDay?.resolution_snapshot?.permission_attached !== true && refreshedDay?.time_off_request_id !== requiredPermissionId && <p className="mt-2">بانتظار ظهور الإذن في نتيجة إعادة حساب الحضور؛ لا تعتمد الساعات القديمة.</p>}
+                {refreshedDay && !finalApprovalReady && refreshedDay.status !== 'approved' && <p className="mt-2">الاعتماد النهائي غير متاح حتى اكتمال فحص السياسة والأدلة. {diagnostic?.blocking_reason}</p>}
+              </div>
+              <fieldset className="mt-3" disabled={approving || evidenceBusy || refreshedDay?.status === 'approved'}>
                 <legend className="text-xs font-black text-[var(--dawaa-theme-muted)]">نوع القرار</legend>
                 <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  {decisionsFor(selected).filter((item) => !embedded || (!item.schedule || (item.id === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')))).map((item) => (
+                  {decisionsFor(selected).map((item) => (
                     <label key={item.id} className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-3 text-xs font-black transition-colors ${reason === item.id ? 'border-[var(--dawaa-theme-primary)] bg-[var(--dawaa-theme-primary-soft)] text-[var(--dawaa-theme-heading)]' : 'border-[var(--dawaa-theme-border)] text-[var(--dawaa-theme-muted)]'}`}>
                       <input type="radio" name="attendance-case-decision" value={item.id} checked={reason === item.id} onChange={() => setReason(item.id)} />
                       <span>{item.label}</span>
@@ -1515,21 +1560,17 @@ export default function AttendanceResolutionCenter({
                     ) : 'جارٍ تجهيز بيانات الأسبوع...'}
                   </div>
                 )}
-                {decision?.requestKind && !['annual_leave', 'sick_leave', 'exceptional_leave', 'approved_absence'].includes(decision.id) && !(decision.id === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')) && <div className="mt-3 text-xs font-bold text-[var(--dawaa-theme-muted)]">
+                {decision?.requestKind && !decision.schedule && !['annual_leave', 'sick_leave', 'exceptional_leave', 'approved_absence'].includes(decision.id) && !(decision.id === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')) && <div className="mt-3 text-xs font-bold text-[var(--dawaa-theme-muted)]">
                   {requestsLoading ? 'جارٍ التحقق من الطلب المعتمد...' : requestsError ? 'تعذر التحقق من سجل الإجازات. أعد فتح القرار.' : linked ? `الطلب المعتمد المرتبط: ${linked.request_label || linked.request_kind} (${linked.id}). ${decision.requestKind === 'permission' ? 'راجع ساعات اليوم قبل الاعتماد.' : 'اضغط تحديث حقيقة الحضور من أعلى الصفحة بعد إغلاق القرار.'}` : <>لا يوجد طلب معتمد من هذا النوع لهذا اليوم. {embedded ? 'لا يمكن اعتماده بدون توثيق الطلب المطلوب.' : <a className="underline" href="/time-off">افتح الإجازات والغياب</a>} </>}
                 </div>}
                 {decision?.schedule && !(decision.id === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')) && (
                   <div className="mt-3 rounded-xl border border-[var(--dawaa-theme-border)] p-3 text-xs">
-                    {selected.attendance_date < cairoToday()
-                      ? <p className="font-bold text-[var(--dawaa-status-warning-text)]">تصحيح جدول يوم سابق يحتاج تعديلًا مؤرخًا خاصًا بهذا اليوم. لا يمكن نشر تعديل أسبوعي بأثر رجعي.</p>
-                      : <>
-                          <p className="mb-2 font-bold">تعديل مواعيد هذا اليوم من الأسبوع ابتداءً من {selected.attendance_date} (يشمل الأسابيع التالية حتى إصدار جدول أحدث).</p>
-                          <div className="grid grid-cols-2 gap-2">
-                            <label>بداية الشيفت<input type="time" className="input-dark mt-1 block w-full" value={revisedShiftIn} onChange={(event) => setRevisedShiftIn(event.target.value)} /></label>
-                            <label>نهاية الشيفت<input type="time" className="input-dark mt-1 block w-full" value={revisedShiftOut} onChange={(event) => setRevisedShiftOut(event.target.value)} /></label>
-                          </div>
-                          <p className="mt-2">سبب التعديل إجباري. سيتم إنشاء مسودة من الجدول الحالي وفحصها ونشرها بصلاحية المدير.</p>
-                        </>}
+                    <p className="mb-2 font-bold">تعديل مواعيد يوم {selected.attendance_date} فقط. لن يتغير الجدول الأسبوعي أو أيام أخرى.</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label>بداية الشيفت<input type="time" className="input-dark mt-1 block w-full" value={revisedShiftIn} onChange={(event) => setRevisedShiftIn(event.target.value)} /></label>
+                      <label>نهاية الشيفت<input type="time" className="input-dark mt-1 block w-full" value={revisedShiftOut} onChange={(event) => setRevisedShiftOut(event.target.value)} /></label>
+                    </div>
+                    <p className="mt-2">اكتب سبب التعديل في الملاحظة. سيتم حفظ استثناء مؤرخ وإعادة فحص اليوم، دون اعتماد تلقائي إذا بقيت أدلة متعارضة.</p>
                   </div>
                 )}
                 {decision?.financial && <label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">معامل الخصم المقترح للمراجعة المالية
@@ -1541,14 +1582,14 @@ export default function AttendanceResolutionCenter({
             <label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">
               ملاحظة القرار
               <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} className="input-dark mt-1 w-full resize-none"
-                placeholder={['custom', 'outside_work', 'absence_deduction', 'time_deduction'].includes(reason) ? 'مطلوب: اكتب سبب القرار والدليل' : 'اختياري: تفاصيل إضافية توثق القرار'} />
+                placeholder={['custom', 'outside_work', 'absence_deduction', 'time_deduction', 'permission', 'schedule_error', 'shift_swap', 'forgot_in', 'forgot_out'].includes(reason) ? 'مطلوب: اكتب سبب القرار والدليل' : 'اختياري: تفاصيل إضافية توثق القرار'} />
             </label>
             <p className="mt-2 text-[10px] text-[var(--dawaa-theme-muted)]">الأدلة محفوظة في السجل ويمكن فتحها عند الحاجة بدون إطالة نافذة القرار.</p>
             </div>
-            <div className="sticky bottom-0 flex gap-2 border-t border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-4">
+            <div className="sticky bottom-0 flex flex-wrap gap-2 border-t border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-4">
               <button
                 onClick={() => void approveSelected()}
-                disabled={selected.queue_lane !== 'manager' || approving || (reason === 'annual_leave' && annualLeavePreviewLoading) || (reason === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review') && weeklyOffSwapLoading)}
+                disabled={selected.queue_lane !== 'manager' || approving || evidenceBusy || refreshedDay?.status === 'approved' || (reason === 'annual_leave' && annualLeavePreviewLoading) || (reason === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review') && weeklyOffSwapLoading)}
                 className="btn-primary flex-1"
               >
                 {selected.queue_lane !== 'manager'
@@ -1560,14 +1601,19 @@ export default function AttendanceResolutionCenter({
                     : reason === 'shift_swap' && (selected.issue_group === 'absence' || selected.resolution_status === 'absence_review')
                       ? 'اعتماد تغيير يوم الراحة'
                       : ['shift_swap', 'schedule_error'].includes(reason)
-                        ? 'فحص ونشر تعديل الشيفت'
+                        ? 'حفظ شيفت هذا اليوم وإعادة مراجعة الحضور'
                         : ['forgot_in', 'forgot_out'].includes(reason)
                         ? applyMissingPunchPenalty ? 'تسجيل البصمة اليدوية + خصم 50ج' : 'تسجيل البصمة اليدوية'
+                        : reason === 'permission' && !approvedRequests.some((request) => request.request_kind === 'permission')
+                          ? 'حفظ الإذن وتحديث الأدلة'
                         : decisionsFor(selected).find((item) => item.id === reason)?.financial
                           ? 'اعتماد الحضور وتوثيق اقتراح الخصم'
                           : 'حفظ قرار الحضور'}
               </button>
-              <button onClick={() => { setSelected(null); setNote(''); setReason(''); setMultiplier(''); setHours(''); setSwapWithDate(''); setWeeklyOffSwapPreview(null); setManualPunchAt(''); setApplyMissingPunchPenalty(false); setMissingPunchContext(null); setMissingPunchHistory([]); setShowDecisionEvidence(false); }} className="btn-secondary">{embedded ? 'إغلاق المراجعة' : 'إلغاء'}</button>
+              <button type="button" onClick={() => void approveRefreshedDay()}
+                disabled={!finalApprovalReady || approving || !note.trim()}
+                className="btn-primary flex-1">اعتماد القرار النهائي</button>
+              <button disabled={approving || evidenceBusy} onClick={() => { setSelected(null); setNote(''); setReason(''); setMultiplier(''); setHours(''); setSwapWithDate(''); setWeeklyOffSwapPreview(null); setManualPunchAt(''); setApplyMissingPunchPenalty(false); setMissingPunchContext(null); setMissingPunchHistory([]); setShowDecisionEvidence(false); }} className="btn-secondary">{embedded ? 'إغلاق المراجعة' : 'إلغاء'}</button>
             </div>
           </div>
         </div>
