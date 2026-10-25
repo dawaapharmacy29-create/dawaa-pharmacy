@@ -164,7 +164,8 @@ export async function loadMonthlyPerformance360(args: {
     fetchSalesInvoicesPagedSafe({
       startDate,
       endDate,
-      branch: employeeBranch,
+      // Employees may work at a second branch during this cycle. Attribution
+      // is by canonical staff_id, never today's staff.branch snapshot.
       pageSize: 1000,
       maxPages: 50,
       errors: salesErrors,
