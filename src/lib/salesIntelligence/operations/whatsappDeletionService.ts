@@ -66,6 +66,14 @@ const ERROR_LABELS: Record<string, string> = {
   whatsapp_source_not_found: 'المحادثة غير موجودة.',
   whatsapp_deletion_not_found: 'سجل الحذف غير موجود.',
   whatsapp_deletion_scope_invalid: 'نطاق الحذف غير صالح.',
+  whatsapp_candidate_reason_required: 'اكتب سبب تصحيح ربط الفاتورة (10 أحرف على الأقل).',
+  whatsapp_candidate_confirmation_required: 'للتأكيد اكتب «تصحيح ربط الفاتورة» كما هي.',
+  whatsapp_candidate_request_key_invalid: 'مُعرّف عملية التصحيح غير صالح.',
+  whatsapp_candidate_request_key_conflict: 'هذا الطلب مرتبط بمحادثة أخرى.',
+  whatsapp_candidate_confirmed_link_requires_financial_review: 'هذا الارتباط معتمد بالفعل ويحتاج مصالحة مالية موثقة.',
+  whatsapp_candidate_changed_since_preview: 'تغيّر مرشح الفاتورة؛ أعد المعاينة.',
+  whatsapp_candidate_other_protected_work: 'توجد أدلة مالية أو مراجعات معتمدة أخرى؛ لا يمكن فصل المرشح آليًا.',
+  whatsapp_candidate_case_attribution_requires_review: 'توجد نسبة فاتورة على مستوى الحالة؛ يلزم تدقيق مستقل.',
 };
 
 export function deletionErrorMessage(error: unknown): string {
@@ -84,6 +92,26 @@ export function newDeletionRequestKey(): string {
     ? crypto.randomUUID()
     : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   return `del-${random}`;
+}
+
+/** Only removes an unconfirmed automatic candidate. Never edits an invoice or a proven attribution. */
+export async function clearUnconfirmedWhatsAppInvoiceCandidate(
+  client: Client,
+  input: { sourceId: string; expectedId: string; expectedNumber: string; reason: string; requestKey: string }
+): Promise<{ auditId: string; status: 'corrected' | 'replayed' | 'already_clear' }> {
+  const data = await call(client, 'dawaa_clear_whatsapp_unconfirmed_invoice_candidate_v1', {
+    p_source_id: input.sourceId,
+    p_expected_candidate_id: input.expectedId,
+    p_expected_invoice_number: input.expectedNumber,
+    p_reason: input.reason,
+    p_confirmation: 'تصحيح ربط الفاتورة',
+    p_request_key: input.requestKey,
+  });
+  if (data.ok !== true || !['corrected', 'replayed', 'already_clear'].includes(data.status)) {
+    throw new Error('لم يؤكد الخادم تصحيح المرشح.');
+  }
+  if (data.status !== 'already_clear' && !data.auditId) throw new Error('لم يرجع الخادم سجل تدقيق التصحيح.');
+  return { auditId: String(data.auditId ?? ''), status: data.status };
 }
 
 export interface DeletionBlocker {

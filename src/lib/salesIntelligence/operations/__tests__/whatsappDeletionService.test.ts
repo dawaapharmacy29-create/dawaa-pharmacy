@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   canSubmitDeletion,
+  clearUnconfirmedWhatsAppInvoiceCandidate,
   DELETION_BLOCKER_LABELS,
   DELETION_CONFIRMATION_PHRASES,
   deleteWhatsAppScope,
@@ -59,6 +60,30 @@ describe('whatsapp deletion service', () => {
       scope: 'case', target: 'x', reason: 'سبب واضح للحذف', confirmation: 'حذف الحالة', fingerprint: 'fp', requestKey: 'del-1234567890',
     });
     expect(result).toEqual({ kind: 'blocked', blockers: [{ code: 'canonical_sale_proof_in_scope', ref: 'v22' }] });
+  });
+
+  it('corrects only a named unconfirmed candidate through a separate audited RPC', async () => {
+    const c = client({ ok: true, status: 'corrected', auditId: 'audit-1' });
+    const result = await clearUnconfirmedWhatsAppInvoiceCandidate(c, {
+      sourceId: 'source-1', expectedId: 'invoice-1', expectedNumber: '77773',
+      reason: 'الفاتورة تخص طلبًا سابقًا وليست بيعًا في المحادثة', requestKey: 'del-1234567890',
+    });
+    expect(result).toEqual({ status: 'corrected', auditId: 'audit-1' });
+    expect(c.rpc).toHaveBeenCalledWith('dawaa_clear_whatsapp_unconfirmed_invoice_candidate_v1', {
+      p_source_id: 'source-1', p_expected_candidate_id: 'invoice-1',
+      p_expected_invoice_number: '77773', p_reason: 'الفاتورة تخص طلبًا سابقًا وليست بيعًا في المحادثة',
+      p_confirmation: 'تصحيح ربط الفاتورة', p_request_key: 'del-1234567890',
+    });
+  });
+
+  it('rejects candidate corrections without an auditable confirmed result', async () => {
+    const input = { sourceId: 's', expectedId: 'i', expectedNumber: '77773', reason: 'سبب موثق ومفصل', requestKey: 'del-1234567890' };
+    await expect(clearUnconfirmedWhatsAppInvoiceCandidate(client({ ok: true, status: 'corrected' }), input))
+      .rejects.toThrow('سجل تدقيق');
+    await expect(clearUnconfirmedWhatsAppInvoiceCandidate(client({ ok: true, status: 'removed', auditId: 'a' }), input))
+      .rejects.toThrow('لم يؤكد الخادم');
+    await expect(clearUnconfirmedWhatsAppInvoiceCandidate(client(null, { message: 'whatsapp_candidate_confirmed_link_requires_financial_review' }), input))
+      .rejects.toThrow('مصالحة مالية');
   });
 
   it('never treats an unexpected response as success', async () => {
