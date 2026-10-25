@@ -98,8 +98,21 @@ try {
   const confirmationReplay = await database.query(`select public.dawaa_confirm_whatsapp_gm_change_v1(
     '${reqId}','أؤكد التصحيح المعتمد','أراجع الأثر قبل التسوية المالية','confirm-gm-001') as result`);
   assert.equal(confirmationReplay.rows[0].result.replayed, true);
+  await assert.rejects(database.exec(`update public.whatsapp_gm_change_requests_v1
+    set status='applied' where id='${reqId}'`), /whatsapp_gm_change_requires_command/);
+  await assert.rejects(database.exec(`delete from public.whatsapp_gm_change_requests_v1 where id='${reqId}'`),
+    /whatsapp_gm_change_requires_command/);
+  const cancellation = await database.query(`select public.dawaa_cancel_whatsapp_gm_change_v1(
+    '${reqId}','الطلب لم يعد مطلوبًا بعد مراجعة الأثر') as result`);
+  assert.equal(cancellation.rows[0].result.status, 'cancelled');
+  const cancellationReplay = await database.query(`select public.dawaa_cancel_whatsapp_gm_change_v1(
+    '${reqId}','الطلب لم يعد مطلوبًا بعد مراجعة الأثر') as result`);
+  assert.equal(cancellationReplay.rows[0].result.replayed,true);
+  await assert.rejects(database.exec(`select public.dawaa_confirm_whatsapp_gm_change_v1(
+    '${reqId}','أؤكد التصحيح المعتمد','سبب واضح لإعادة التأكيد','confirm-gm-002')`),
+    /whatsapp_gm_change_not_pending/);
   const auditEvents = await database.query(`select count(*)::integer as count from public.whatsapp_gm_change_request_audit_v1`);
-  assert.equal(auditEvents.rows[0].count, 2);
+  assert.equal(auditEvents.rows[0].count, 3);
   await assert.rejects(database.exec(`delete from public.whatsapp_gm_change_request_audit_v1 where request_id='${reqId}'`),
     /whatsapp_gm_change_audit_is_immutable/);
   await assert.rejects(database.exec(`update public.whatsapp_gm_change_request_audit_v1 set actor_name='changed' where request_id='${reqId}'`),
@@ -113,6 +126,8 @@ try {
     /whatsapp_deletion_general_manager_required/);
   await assert.rejects(database.exec(`select public.dawaa_list_whatsapp_gm_changes_v1(5)`),
     /whatsapp_deletion_general_manager_required/);
+  await assert.rejects(database.exec(`select public.dawaa_cancel_whatsapp_gm_change_v1(
+    '${reqId}','الطلب لم يعد مطلوبًا بعد مراجعة الأثر')`), /whatsapp_deletion_general_manager_required/);
   await assert.rejects(database.exec(`select public.dawaa_request_whatsapp_gm_change_v1(
     'delete_conversation','${source}',null,'{}'::jsonb,'طلب موظف غير مصرح به',
     '${fp}','req-gm-forbidden-001')`), /whatsapp_deletion_general_manager_required/);

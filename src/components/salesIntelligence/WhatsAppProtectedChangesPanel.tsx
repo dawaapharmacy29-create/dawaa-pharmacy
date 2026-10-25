@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AlertCircle, CheckCircle2, Clock3, RefreshCw, ShieldCheck } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { listProtectedWhatsAppChanges, type ProtectedWhatsAppChangeRow } from '@/lib/salesIntelligence/operations/whatsappDeletionService';
+import { cancelProtectedWhatsAppChange, listProtectedWhatsAppChanges, type ProtectedWhatsAppChangeRow } from '@/lib/salesIntelligence/operations/whatsappDeletionService';
 
 const STATUS: Record<ProtectedWhatsAppChangeRow['status'], string> = {
   pending_confirmation: 'بانتظار التأكيد الإضافي',
@@ -21,6 +21,9 @@ export function WhatsAppProtectedChangesPanel() {
   const [rows, setRows] = useState<ProtectedWhatsAppChangeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [cancelId, setCancelId] = useState<string | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelling, setCancelling] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -31,6 +34,20 @@ export function WhatsAppProtectedChangesPanel() {
   }
 
   useEffect(() => { void load(); }, []);
+
+  async function cancelRequest(requestId: string) {
+    if (cancelling || cancelId !== requestId || cancelReason.trim().length < 10) return;
+    setCancelling(true);
+    setError(null);
+    try {
+      await cancelProtectedWhatsAppChange(supabase, { requestId, reason: cancelReason.trim() });
+      setCancelId(null);
+      setCancelReason('');
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'تعذر إلغاء الطلب.');
+    } finally { setCancelling(false); }
+  }
 
   return (
     <section className="dawaa-card space-y-4" dir="rtl">
@@ -66,6 +83,31 @@ export function WhatsAppProtectedChangesPanel() {
             </div>
             {row.status === 'approved_pending_reconciliation' && (
               <div className="dawaa-alert dawaa-alert--warning mt-3 text-xs">مُعتمد إداريًا فقط؛ لا يوجد خصم أو استرجاع أو حذف منفّذ على البيانات الأصلية.</div>
+            )}
+            {(row.status === 'pending_confirmation' || row.status === 'approved_pending_reconciliation') && (
+              <div className="mt-3 space-y-2">
+                {cancelId === row.id ? (
+                  <>
+                    <label className="block font-bold">سبب إلغاء طلب التصحيح
+                      <textarea className="dawaa-input mt-1 w-full min-h-16" value={cancelReason}
+                        onChange={(event) => setCancelReason(event.target.value)}
+                        placeholder="اشرح سبب الإلغاء؛ سيبقى الطلب في سجل التدقيق" />
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" className="dawaa-button dawaa-button--secondary"
+                        disabled={cancelling || cancelReason.trim().length < 10}
+                        onClick={() => void cancelRequest(row.id)}>
+                        {cancelling ? 'جارٍ الإلغاء...' : 'تأكيد إلغاء الطلب'}
+                      </button>
+                      <button type="button" className="dawaa-button dawaa-button--secondary"
+                        disabled={cancelling} onClick={() => { setCancelId(null); setCancelReason(''); }}>تراجع</button>
+                    </div>
+                  </>
+                ) : (
+                  <button type="button" className="dawaa-button dawaa-button--secondary"
+                    onClick={() => { setCancelId(row.id); setCancelReason(''); }}>إلغاء الطلب قبل التنفيذ</button>
+                )}
+              </div>
             )}
           </article>
         ))}

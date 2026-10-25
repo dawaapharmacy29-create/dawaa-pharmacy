@@ -84,6 +84,8 @@ const ERROR_LABELS: Record<string, string> = {
   whatsapp_gm_change_confirmation_required: 'للتأكيد اكتب «أؤكد التصحيح المعتمد» كما هي.',
   whatsapp_gm_change_already_confirmed: 'تم تأكيد التصحيح مسبقًا بمُعرّف مختلف.',
   whatsapp_gm_change_not_pending: 'هذا الطلب لم يعد معلقًا للتأكيد.',
+  whatsapp_gm_change_not_cancellable: 'لا يمكن إلغاء هذا الطلب بعد بدء التنفيذ.',
+  whatsapp_gm_change_requires_command: 'لا يمكن تغيير حالة الطلب خارج أمر المدير العام المؤمّن.',
 };
 
 export function deletionErrorMessage(error: unknown): string {
@@ -183,6 +185,20 @@ export async function listProtectedWhatsAppChanges(client: Client): Promise<Prot
   if (error) throw new Error(deletionErrorMessage(error));
   if (!Array.isArray(data)) throw new Error('استجابة غير متوقعة من سجل طلبات التصحيح.');
   return data as ProtectedWhatsAppChangeRow[];
+}
+
+/** Cancels a pending/approved-but-unapplied request, preserving the immutable audit trail. */
+export async function cancelProtectedWhatsAppChange(client: Client, input: {
+  requestId: string; reason: string;
+}): Promise<{ requestId: string; status: 'cancelled' }> {
+  const data = await call(client, 'dawaa_cancel_whatsapp_gm_change_v1', {
+    p_request_id: input.requestId,
+    p_reason: input.reason,
+  });
+  if (data.ok !== true || data.status !== 'cancelled' || !data.requestId) {
+    throw new Error('لم يؤكد الخادم إلغاء طلب التصحيح.');
+  }
+  return { requestId: String(data.requestId), status: 'cancelled' };
 }
 
 export interface DeletionBlocker {

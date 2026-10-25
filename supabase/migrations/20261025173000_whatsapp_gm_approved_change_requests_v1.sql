@@ -30,7 +30,7 @@ create table if not exists public.whatsapp_gm_change_requests_v1 (
 create table if not exists public.whatsapp_gm_change_request_audit_v1 (
   id uuid primary key default gen_random_uuid(),
   request_id uuid not null references public.whatsapp_gm_change_requests_v1(id) on delete restrict,
-  event_type text not null check (event_type in ('requested','confirmed')),
+  event_type text not null check (event_type in ('requested','confirmed','cancelled')),
   actor_id uuid not null,
   actor_name text,
   event_payload jsonb not null,
@@ -57,6 +57,29 @@ create trigger whatsapp_gm_change_audit_immutable_v1
   before update or delete on public.whatsapp_gm_change_request_audit_v1
   for each row execute function public.dawaa_whatsapp_gm_change_audit_append_only_v1();
 revoke all on function public.dawaa_whatsapp_gm_change_audit_append_only_v1() from public,anon,authenticated;
+
+-- Prevent even privileged integration clients from fabricating an applied status.
+-- Only a privileged, audited command may change request lifecycle fields.
+create or replace function public.dawaa_whatsapp_gm_change_update_guard_v1()
+returns trigger language plpgsql set search_path to 'public','pg_catalog'
+as $fn$
+begin
+  if current_setting('dawaa.whatsapp_gm_change_command',true) is distinct from old.id::text then
+    raise exception 'whatsapp_gm_change_requires_command';
+  end if;
+  if old.status not in ('pending_confirmation','approved_pending_reconciliation')
+    or new.status not in ('approved_pending_reconciliation','cancelled')
+    or (new.status='approved_pending_reconciliation' and old.status <> 'pending_confirmation') then
+    raise exception 'whatsapp_gm_change_invalid_transition';
+  end if;
+  return new;
+end;
+$fn$;
+drop trigger if exists whatsapp_gm_change_update_guard_v1 on public.whatsapp_gm_change_requests_v1;
+create trigger whatsapp_gm_change_update_guard_v1
+  before update or delete on public.whatsapp_gm_change_requests_v1
+  for each row execute function public.dawaa_whatsapp_gm_change_update_guard_v1();
+revoke all on function public.dawaa_whatsapp_gm_change_update_guard_v1() from public,anon,authenticated;
 
 -- The approval queue deliberately lacks any function that changes protected case/review/ledger data.
 create or replace function public.dawaa_request_whatsapp_gm_change_v1(
@@ -172,11 +195,13 @@ begin
   if v_now->>'fingerprint' is distinct from v_request.impact_fingerprint then
     raise exception 'whatsapp_gm_change_preview_stale';
   end if;
+  perform set_config('dawaa.whatsapp_gm_change_command',v_request.id::text,true);
   update public.whatsapp_gm_change_requests_v1 set
     status='approved_pending_reconciliation',confirmation_key=p_request_key,
     confirmed_by=v_actor.actor_id,confirmed_by_name=v_actor.actor_name,
     confirmed_at=now(),confirmation_reason=btrim(p_reason)
   where id=v_request.id;
+  perform set_config('dawaa.whatsapp_gm_change_command','',true);
   insert into public.whatsapp_gm_change_request_audit_v1
     (request_id,event_type,actor_id,actor_name,event_payload)
   values (v_request.id,'confirmed',v_actor.actor_id,v_actor.actor_name,
@@ -184,6 +209,35 @@ begin
       'impactFingerprint',v_request.impact_fingerprint,'settlementRequired',true));
   return jsonb_build_object('ok',true,'status','approved_pending_reconciliation',
     'requestId',v_request.id,'applied',false,'settlementRequired',true);
+end;
+$fn$;
+
+create or replace function public.dawaa_cancel_whatsapp_gm_change_v1(
+  p_request_id uuid,p_reason text
+) returns jsonb language plpgsql security definer set search_path to 'public','pg_catalog'
+as $fn$
+declare
+  v_actor record;
+  v_request public.whatsapp_gm_change_requests_v1%rowtype;
+begin
+  select * into v_actor from public.dawaa_whatsapp_deletion_actor_v1();
+  if length(btrim(coalesce(p_reason,''))) < 10 then raise exception 'whatsapp_gm_change_reason_required'; end if;
+  select * into v_request from public.whatsapp_gm_change_requests_v1 where id=p_request_id for update;
+  if not found then raise exception 'whatsapp_gm_change_not_found'; end if;
+  if v_request.status='cancelled' then
+    return jsonb_build_object('ok',true,'status','cancelled','requestId',v_request.id,'replayed',true);
+  end if;
+  if v_request.status not in ('pending_confirmation','approved_pending_reconciliation') then
+    raise exception 'whatsapp_gm_change_not_cancellable';
+  end if;
+  perform set_config('dawaa.whatsapp_gm_change_command',v_request.id::text,true);
+  update public.whatsapp_gm_change_requests_v1 set status='cancelled' where id=v_request.id;
+  perform set_config('dawaa.whatsapp_gm_change_command','',true);
+  insert into public.whatsapp_gm_change_request_audit_v1
+    (request_id,event_type,actor_id,actor_name,event_payload)
+  values (v_request.id,'cancelled',v_actor.actor_id,v_actor.actor_name,
+    jsonb_build_object('reason',btrim(p_reason),'previousStatus',v_request.status));
+  return jsonb_build_object('ok',true,'status','cancelled','requestId',v_request.id);
 end;
 $fn$;
 
@@ -213,6 +267,10 @@ revoke all on function public.dawaa_confirm_whatsapp_gm_change_v1(uuid,text,text
 grant execute on function public.dawaa_request_whatsapp_gm_change_v1(text,uuid,text,jsonb,text,text,text)
   to anon,authenticated,service_role;
 grant execute on function public.dawaa_confirm_whatsapp_gm_change_v1(uuid,text,text,text)
+  to anon,authenticated,service_role;
+revoke all on function public.dawaa_cancel_whatsapp_gm_change_v1(uuid,text)
+  from public,anon,authenticated;
+grant execute on function public.dawaa_cancel_whatsapp_gm_change_v1(uuid,text)
   to anon,authenticated,service_role;
 revoke all on function public.dawaa_list_whatsapp_gm_changes_v1(integer)
   from public,anon,authenticated;

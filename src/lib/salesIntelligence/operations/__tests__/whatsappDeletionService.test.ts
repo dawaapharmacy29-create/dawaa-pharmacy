@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   canSubmitDeletion,
+  cancelProtectedWhatsAppChange,
   clearUnconfirmedWhatsAppInvoiceCandidate,
   confirmProtectedWhatsAppChange,
   DELETION_BLOCKER_LABELS,
@@ -109,6 +110,19 @@ describe('whatsapp deletion service', () => {
       requestId: 'req-1', applied: true, settlementRequired: true }), {
         requestId: 'req-1', confirmation: 'أؤكد التصحيح المعتمد', reason: 'سبب مراجعة موثق', requestKey: 'key-confirm-1',
       })).rejects.toThrow('لم يؤكد الخادم');
+  });
+
+  it('cancels a protected request through an audited server command, not local-only state', async () => {
+    const c = client({ ok: true, status: 'cancelled', requestId: 'req-1' });
+    await expect(cancelProtectedWhatsAppChange(c, {
+      requestId: 'req-1', reason: 'لا توجد حاجة لهذا التصحيح بعد التدقيق',
+    })).resolves.toEqual({ requestId: 'req-1', status: 'cancelled' });
+    expect(c.rpc).toHaveBeenCalledWith('dawaa_cancel_whatsapp_gm_change_v1', {
+      p_request_id: 'req-1', p_reason: 'لا توجد حاجة لهذا التصحيح بعد التدقيق',
+    });
+    await expect(cancelProtectedWhatsAppChange(client({ ok: true, status: 'applied' }), {
+      requestId: 'req-1', reason: 'سبب إلغاء مفصل',
+    })).rejects.toThrow('لم يؤكد الخادم');
   });
 
   it('never treats an unexpected response as success', async () => {
