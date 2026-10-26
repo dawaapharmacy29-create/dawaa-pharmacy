@@ -1,6 +1,8 @@
 import { supabase } from './supabase';
 import { normalizeStaffName } from './staffDuplicateAudit';
 import { readUnlinkedInvoiceSellerNames } from './readModels/unlinkedSellerNamesReadModel';
+import { loadStaffDirectoryFrom, type StaffDirectoryIdentity } from './readModels/staffDirectoryReadModel';
+import { resolvePrimaryStaffForDoctor, staffDirectoryRowsFromIdentities } from './staff/staffIdentityResolver';
 
 export interface StaffIdentityAlias {
   id: string;
@@ -29,52 +31,25 @@ export async function resolveStaffNameToStaffId(
   options?: { createAutoAlias?: boolean; source?: string }
 ): Promise<string | null> {
   if (!rawName) return null;
-
-  const normalized = normalizeStaffName(rawName);
-  if (!normalized) return null;
-
-  const { data: aliases, error: aliasError } = await supabase
-    .from('staff_identity_aliases')
-    .select('*')
-    .eq('normalized_alias', normalized)
-    .eq('active', true)
-    .order('confidence', { ascending: false })
-    .limit(1);
-
-  if (aliasError) {
-    console.error('Error resolving staff name:', aliasError);
-    return null;
-  }
-
-  if (aliases && aliases.length > 0) {
-    return aliases[0].staff_id;
-  }
-
-  const { data: staff, error: staffError } = await supabase
-    .from('staff')
-    .select('id, name')
-    .eq('active', true)
-    .limit(100);
-
-  if (staffError) {
-    console.error('Error searching staff:', staffError);
-    return null;
-  }
-
-  if (staff && staff.length > 0) {
-    for (const s of staff) {
-      const staffName = s.name || '';
-      const staffNormalized = normalizeStaffName(staffName);
-      if (staffNormalized === normalized) {
-        if (options?.createAutoAlias) {
-          await createStaffAlias(s.id, rawName, options.source || 'auto-resolve', 0.9, 'system');
-        }
-        return s.id;
-      }
+  try {
+    // The shared directory excludes retired staff, deduplicates aliases by canonical ID,
+    // and refuses a partial directory (including an exhausted read cap).
+    const identities: StaffDirectoryIdentity[] = await loadStaffDirectoryFrom(supabase, {
+      requireComplete: true,
+    });
+    const resolved = resolvePrimaryStaffForDoctor(
+      { staff_name: rawName },
+      staffDirectoryRowsFromIdentities(identities)
+    );
+    if (!resolved) return null;
+    if (options?.createAutoAlias) {
+      await createStaffAlias(resolved.staffId, rawName, options.source || 'auto-resolve', 0.9, 'system');
     }
+    return resolved.staffId;
+  } catch (error) {
+    console.error('Error resolving canonical staff name:', error);
+    return null;
   }
-
-  return null;
 }
 
 /** إنشاء alias جديد للموظف */
