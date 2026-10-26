@@ -9240,7 +9240,8 @@ function staffDirectoryRowsFromIdentities(rows) {
     status: row.status,
     active: row.active,
     is_active: row.active,
-    source: row.source
+    source: row.source,
+    normalizedAlias: row.normalizedAlias
   }));
 }
 function buildStaffIdentityMap(staffRows) {

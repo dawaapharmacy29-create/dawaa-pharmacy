@@ -19,7 +19,7 @@ import { clearCustomerProfileCache } from '@/lib/customerProfileService';
 import { clearCustomersCache } from '@/lib/api/customers';
 import { clearCustomerServiceCommandCenterCache } from '@/lib/api/customerServiceCommandCenter';
 import { clearStaffPerformanceProfileCache } from '@/lib/staff/staffPerformanceProfileService';
-import { resolveStaffNameToStaffId } from '@/lib/staffIdentityMapping';
+import { resolveStaffNamesToStaffIds } from '@/lib/staffIdentityMapping';
 import { getInvoiceKey } from '@/lib/dawaa2027';
 import {
   getInvoiceAmount as getCoreInvoiceAmount,
@@ -1800,44 +1800,6 @@ async function refreshCustomerAnalysisForImportedRows(
   }
 }
 
-async function linkSellerToStaffId(sellerName: string, branch: string): Promise<string | null> {
-  if (!sellerName) return null;
-
-  // استخدام staffIdentityMapping لربط اسم البائع بـ staff_id
-  const staffId = await resolveStaffNameToStaffId(sellerName);
-  if (staffId) return staffId;
-
-  // الرجوع للطريقة القديمة إذا لم يتم العثور على الربط
-  const normalizedSeller = normalizeName(sellerName);
-
-  // محاولة العثور على الموظف بالاسم المباشر
-  const { data: staffByName } = await supabase
-    .from('staff')
-    .select('id')
-    .eq('name', sellerName)
-    .maybeSingle();
-
-  if (staffByName?.id) return staffByName.id;
-
-  // محاولة العثور على الموظف بالاسم المُطابق
-  const { data: allStaff } = await supabase
-    .from('staff')
-    .select('id, name')
-    .eq('branch', branch)
-    .limit(500);
-
-  if (allStaff) {
-    for (const staff of allStaff) {
-      const normalizedStaffName = normalizeName(staff.name);
-      if (normalizedStaffName === normalizedSeller) {
-        return staff.id;
-      }
-    }
-  }
-
-  return null;
-}
-
 async function refreshImportSummaries(summary: ImportSummary) {
   invalidateInvoiceCache();
   clearExecutiveDashboardCache();
@@ -2108,13 +2070,8 @@ export async function importInvoicesToDB(
   summary.zeroAmountRows = rows.filter((row) => row.importValidationStatus === 'zero_amount').length;
 
   // ربط seller_name بـ staff_id
-  const staffIdMap = new Map<string, string | null>();
   const uniqueSellers = new Set(rows.map((r) => r.seller).filter(Boolean));
-
-  for (const seller of uniqueSellers) {
-    const staffId = await linkSellerToStaffId(seller, branch);
-    staffIdMap.set(seller, staffId);
-  }
+  const staffIdMap = await resolveStaffNamesToStaffIds([...uniqueSellers]);
   if ([...staffIdMap.values()].some(Boolean)) {
     summary.staffLinkingMode = 'staff_id';
   }
@@ -2322,7 +2279,8 @@ export async function importInvoicesToDB(
           seller_name: row.seller,
           normalized_seller_name: normalizeName(row.seller),
           staff_name: row.seller,
-          staff_id: staffIdMap.get(row.seller) || null,
+          // Re-imports may correct invoice facts, never historical employee ownership.
+          // Omit staff_id so a concurrent approved attribution is preserved as well.
           close_time: row.closeTime || null,
           shift_name: getShiftFromDateTime(row.analysisDateTime),
           delivery_staff: row.deliveryStaff,

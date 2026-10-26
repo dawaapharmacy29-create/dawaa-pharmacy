@@ -30,6 +30,17 @@ export interface StaffIdentityMatch {
   source: string;
 }
 
+/** One complete snapshot for an import batch; no per-seller directory requests. */
+export async function resolveStaffNamesToStaffIds(rawNames: string[]): Promise<Map<string, string | null>> {
+  const names = [...new Set(rawNames.filter(name => name.trim()))];
+  if (!names.length) return new Map();
+  const directory = await readStaffDirectory({ requireComplete: true });
+  return new Map(names.map(name => {
+    const decision = resolveStaffDirectoryName(name, directory);
+    return [name, decision.status === 'resolved' ? decision.staff?.id || null : null];
+  }));
+}
+
 /**
  * حل اسم الموظف الخام إلى staff_id باستخدام خريطة الهويات
  */
@@ -39,13 +50,12 @@ export async function resolveStaffNameToStaffId(
 ): Promise<string | null> {
   if (!rawName) return null;
 
-  const directory = await readStaffDirectory({ requireComplete: true });
-  const decision = resolveStaffDirectoryName(rawName, directory);
-  if (decision.status !== 'resolved' || !decision.staff?.id) return null;
+  const staffId = (await resolveStaffNamesToStaffIds([rawName])).get(rawName) || null;
+  if (!staffId) return null;
   if (options?.createAutoAlias) {
-    await createStaffAlias(decision.staff.id, rawName, options.source || 'auto-resolve', 0.9, 'system');
+    await createStaffAlias(staffId, rawName, options.source || 'auto-resolve', 0.9, 'system');
   }
-  return decision.staff.id;
+  return staffId;
 }
 
 /** إنشاء alias جديد للموظف */

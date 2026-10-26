@@ -16,6 +16,10 @@ let lastInsertPayload = [];
 let lastSalesInvoiceInsertPayload = [];
 let lastUpdatePayload = null;
 let isUpdateChain = false;
+let mockIdentityStaffRows: any[] = [];
+let mockIdentityAliasRows: any[] = [];
+let mockIdentityError: { message: string } | null = null;
+let mockIdentityReads = 0;
 
 const chain = {
   select(select) {
@@ -79,9 +83,22 @@ const chain = {
 };
 
 vi.mock('@/lib/supabase', () => ({
+  isSupabaseConfigured: true,
   supabase: {
     rpc: vi.fn(async () => ({ data: null, error: null })),
     from: (table: string) => {
+      if (table === 'staff' || table === 'staff_identity_aliases') {
+        const identityQuery = {
+          select: () => identityQuery,
+          eq: () => identityQuery,
+          limit: async () => ({
+            data: table === 'staff' ? mockIdentityStaffRows : mockIdentityAliasRows,
+            error: mockIdentityError,
+          }),
+        };
+        mockIdentityReads++;
+        return identityQuery;
+      }
       currentTable = table;
       return chain;
     },
@@ -130,6 +147,10 @@ function makeInvoiceRow(overrides: Partial<any> = {}) {
 }
 
 beforeEach(() => {
+  mockIdentityStaffRows = [];
+  mockIdentityAliasRows = [];
+  mockIdentityError = null;
+  mockIdentityReads = 0;
   mockSelect.mockReset();
   mockGte.mockReset();
   mockLt.mockReset();
@@ -221,6 +242,46 @@ describe('invoiceCore helpers', () => {
 });
 
 describe('loadDatabaseDayComparison', () => {
+  it('re-import corrects invoice value without replacing its historical employee from the current seller name', async () => {
+    const row = makeInvoiceRow({ seller: 'اسلام السبع', branch: 'فرع شكري', amount: 125, date: '2026-10-25', invoiceNumber: 'HISTORICAL-OWNER' });
+    mockIdentityStaffRows = [{ id: 'current-courier', name: 'اسلام السبع', active: true, is_active: true, role: 'delivery' }];
+    mockExistingInvoiceRows = [{ id: 'saved-invoice', staff_id: 'historical-employee', branch: row.branch,
+      invoice_date: row.date, invoice_number: row.invoiceNumber, invoice_no: row.invoiceNumber, net_amount: 200, amount: 200 }];
+    mockDatabaseRows = mockExistingInvoiceRows;
+    const summary = await importInvoicesToDB([row], row.branch, 'synthetic-historical-identity');
+    expect(summary.updatedInvoices).toBe(1);
+    expect(lastUpdatePayload).toMatchObject({ net_amount: 125, branch: row.branch });
+    expect(lastUpdatePayload).not.toHaveProperty('staff_id');
+    expect(mockExistingInvoiceRows[0].staff_id).toBe('historical-employee');
+  });
+  it('loads one complete identity snapshot for all sellers instead of one directory per seller', async () => {
+    await importInvoicesToDB([
+      makeInvoiceRow({ seller: 'اسم أول' }),
+      makeInvoiceRow({ rowIndex: 2, seller: 'اسم آخر' }),
+    ], 'فرع شكري', 'synthetic-batch-directory');
+    // Staff and aliases once each; the safe account directory RPC is the third source.
+    expect(mockIdentityReads).toBe(2);
+  });
+  it('preserves an ambiguous seller as unlinked without changing transactional branch or amount', async () => {
+    mockIdentityStaffRows = [
+      { id: 'doctor', name: 'د اسلام فاروق', active: true, is_active: true, branch: 'فرع شكري', role: 'pharmacist' },
+      { id: 'courier', name: 'اسلام السبع', active: true, is_active: true, branch: 'فرع شكري', role: 'delivery' },
+    ];
+    mockIdentityAliasRows = [
+      { staff_id: 'doctor', alias_name: 'د اسلام', normalized_alias: 'اسلام', active: true },
+      { staff_id: 'courier', alias_name: 'اسلام', normalized_alias: 'اسلام', active: true },
+    ];
+    const row = makeInvoiceRow({ seller: 'اسلام', branch: 'فرع الشامي', amount: 125, date: '2026-10-25' });
+    await importInvoicesToDB([row], row.branch, 'synthetic-conflicting-seller');
+    expect(lastSalesInvoiceInsertPayload[0]).toMatchObject({ staff_id: null, branch: row.branch, net_amount: 125 });
+  });
+
+  it('an identity directory outage aborts import before invoice writes rather than claiming no employee', async () => {
+    mockIdentityError = { message: 'identity unavailable' };
+    await expect(importInvoicesToDB([makeInvoiceRow()], 'فرع شكري', 'synthetic-identity-outage'))
+      .rejects.toThrow('staff_directory_incomplete');
+    expect(lastSalesInvoiceInsertPayload).toHaveLength(0);
+  });
   beforeEach(() => {
     mockSelect.mockReset();
     mockGte.mockReset();
