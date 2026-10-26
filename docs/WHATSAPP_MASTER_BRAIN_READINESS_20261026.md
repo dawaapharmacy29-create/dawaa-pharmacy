@@ -162,7 +162,7 @@ outcome; a stale complaint after reanalysis cannot be executed.
 
 | Criterion | Status and evidence |
 | --- | --- |
-| All official paths agree | **Met for scored/financial paths**: TS register gate + `official_v1` single SQL fix point. **Open (documented):** doctor-eye conversion RPC; SQL readers still date by `created_at`/UTC inside `calculate_weekly_manager_metrics(_v2)`, `get_doctor_cycle_reviews_v1`, `get_manager_doctor_alerts` (official set is correct, day boundary is not). |
+| All official paths agree | **Met for scored/financial paths**: TS register gate + `official_v1` single SQL fix point. Manager metrics base/v2 now use the Cairo conversation day in the same pending migration `20261026094000` (verified via PGlite). `get_doctor_cycle_reviews_v1` was already correct in Production. **Open (documented):** doctor-eye conversion RPC; the non-payroll `get_manager_doctor_alerts` repeat-error alert still uses `created_at` for its rolling window. |
 | No unapproved score is financially effective | **Met in code** (guard + sync + FOR SHARE, native tests). **Production still holds 7 payable rows (45 pts)** until the repair is approved. |
 | No lost or duplicate follow-up | **Met** in native PostgreSQL (retry, concurrency, close race, merge). |
 | No invoice proven by circular evidence or guesswork | **Met** (human confirmation or independent code+name+time+line; competing invoices abstain). |
@@ -174,7 +174,7 @@ outcome; a stale complaint after reanalysis cannot be executed.
 
 1. 7 payable points rows on pending reviews — repair script ready, needs approval.
 2. Doctor-eye conversion definition (RPC) differs from canonical KPI — owner decision.
-3. Day-boundary (UTC/`created_at`) inside several SQL readers listed above.
+3. `get_manager_doctor_alerts` still scopes repeat-error notifications using review-entry time. Manager weekly score readers have been corrected to Cairo conversation date in the pending migration; `get_doctor_cycle_reviews_v1` was already correct.
 4. Automatic vs human calibration: no paired data yet; approved human reviews show a strong
    ceiling (80–90 % at 100).
 5. Obligations are enforced in the database; the follow-up screens do not yet list obligations

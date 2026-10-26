@@ -51,6 +51,25 @@ try {
     await db.exec(readFileSync(`supabase/migrations/${filename}`, 'utf8'));
   }
 
+  // An October 25 conversation reviewed on October 26 remains in the closing
+  // cycle of the 25th, irrespective of when the reviewer submitted the score.
+  // The manager financial path must use the same Cairo event-day expression.
+  for (const name of ['calculate_weekly_manager_metrics', 'calculate_weekly_manager_metrics_v2']) {
+    const definition = await db.query(`select pg_get_functiondef(p.oid) as ddl
+      from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+      where n.nspname='public' and p.proname=$1`, [name]);
+    assert.equal(definition.rows.length, 1, `missing ${name}`);
+    assert.match(definition.rows[0].ddl, /conversation_date at time zone 'Africa\/Cairo'/i);
+    assert.match(definition.rows[0].ddl, /review_date/i);
+  }
+  const dateBoundary = await db.query(`select
+    to_char(('2026-10-25T21:30:00Z'::timestamptz at time zone 'Africa/Cairo')::date,
+      'YYYY-MM-DD') as conversation_day,
+    to_char(('2026-10-25T20:30:00Z'::timestamptz at time zone 'Africa/Cairo')::date,
+      'YYYY-MM-DD') as before_midnight`);
+  assert.equal(dateBoundary.rows[0].conversation_day, '2026-10-26');
+  assert.equal(dateBoundary.rows[0].before_midnight, '2026-10-25');
+
   const staleReward = '10000000-0000-4000-8000-000000000092';
   await review(staleReward, 'pending', -20);
   await points(staleReward, 'pending', 6);
