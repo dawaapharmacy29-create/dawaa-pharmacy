@@ -1,6 +1,7 @@
 import { normalizeBranchName } from '@/lib/branch';
 import { normalizeRole } from '@/lib/permissionMatrix';
-import { readStaffDirectory } from '@/lib/readModels/staffDirectoryReadModel';
+import { readStaffDirectory, type StaffDirectoryIdentity } from '@/lib/readModels/staffDirectoryReadModel';
+import { normalizeDoctorName, resolveStaffDirectoryName } from '@/lib/staff/staffIdentityResolver';
 import type { StaffSalesSummary } from '@/lib/dashboardSummaryService';
 
 export type StaffIdentityRow = {
@@ -9,6 +10,8 @@ export type StaffIdentityRow = {
   branch: string | null;
   role: string | null;
   active: boolean;
+  source?: StaffDirectoryIdentity['source'];
+  normalizedAlias?: string | null;
 };
 
 export type GroupedStaffSalesPerformance = {
@@ -29,33 +32,11 @@ function text(value: unknown) {
   return String(value ?? '').trim();
 }
 
-export function normalizeStaffName(value: unknown) {
-  return text(value)
-    .replace(/[\u064b-\u065f]/g, '')
-    .replace(/[\u0623\u0625\u0622]/g, '\u0627')
-    .replace(/\u0624/g, '\u0648')
-    .replace(/\u0626/g, '\u064a')
-    .replace(/\u0649/g, '\u064a')
-    .replace(/\u0629/g, '\u0647')
-    .replace(/^(?:\u062f\.?|\u062f\/|\u062f\u0643\u062a\u0648\u0631|dr\.?|doctor)\s*/i, '')
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase();
-}
-
-function uniqueIdentities(rows: StaffIdentityRow[]) {
-  const map = new Map<string, StaffIdentityRow>();
-  for (const row of rows.filter(Boolean)) {
-    const key = row.id || `${normalizeStaffName(row.name)}|${normalizeBranchName(row.branch) || ''}|${row.role || ''}`;
-    if (!map.has(key)) map.set(key, row);
-  }
-  return [...map.values()];
-}
+export function normalizeStaffName(value: unknown) { return normalizeDoctorName(value); }
 
 export async function fetchStaffIdentityRows(): Promise<StaffIdentityRow[]> {
-  const rows = await readStaffDirectory();
-  return rows.map(({ id, name, branch, role, active }) => ({ id, name, branch, role, active }));
+  const rows = await readStaffDirectory({ requireComplete: true });
+  return rows.map(({ id, name, branch, role, active, source, normalizedAlias }) => ({ id, name, branch, role, active, source, normalizedAlias }));
 }
 
 export function findStaffIdentityForSalesRow(
@@ -63,32 +44,11 @@ export function findStaffIdentityForSalesRow(
   staffRows: StaffIdentityRow[]
 ) {
   if (!row) return null;
-  const sellerName = row.sellerName || '';
-  const normalized = normalizeStaffName(sellerName);
-  const branch = normalizeBranchName(row.branch);
-  if (!normalized) return null;
-
-  const salesStaffRows = staffRows.filter(Boolean).filter(isSalesIdentityRole);
-  const sameBranch = uniqueIdentities(
-    salesStaffRows.filter(
-      (staff) =>
-        normalizeStaffName(staff.name) === normalized &&
-        (!branch || !staff.branch || staff.branch === branch || staff.branch === 'كل الفروع')
-    )
-  );
-  if (sameBranch.length === 1) return sameBranch[0];
-  if (sameBranch.length > 1) {
-    const pharmacist = sameBranch.find((staff) =>
-      /صيد|دكتور|doctor|pharmacist/i.test(staff.role || '')
-    );
-    return pharmacist || sameBranch[0];
-  }
-
-  const anyBranch = uniqueIdentities(
-    salesStaffRows.filter((staff) => normalizeStaffName(staff.name) === normalized)
-  );
-  if (anyBranch.length === 1) return anyBranch[0];
-  return null;
+  const decision = resolveStaffDirectoryName(row.sellerName || '', staffRows.map(staff => ({
+    ...staff, source: staff.source || 'staff', username: null, status: null,
+  })));
+  if (decision.status !== 'resolved' || !decision.staff || !isSalesIdentityRole(decision.staff)) return null;
+  return staffRows.find(staff => staff.id === decision.staff!.id && (!staff.source || staff.source === 'staff')) || null;
 }
 
 function isSalesIdentityRole(staff: StaffIdentityRow) {

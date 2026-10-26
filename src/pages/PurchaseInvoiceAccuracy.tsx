@@ -11,7 +11,6 @@ import {
   listPendingPurchaseInvoiceReviews,
   listPurchaseInvoiceReviewHistory,
   logManualPurchaseInvoiceReview,
-  resolvePurchaseInvoiceAlias,
   searchPurchaseInvoiceAccuracy,
 } from '@/features/purchaseInvoiceAccuracy/api';
 import { FiltersPanel } from '@/features/purchaseInvoiceAccuracy/components/FiltersPanel';
@@ -248,15 +247,6 @@ export default function PurchaseInvoiceAccuracy() {
     }
   }, [markDerivedDataStale]);
 
-  const resolveAndSaveAlias = useCallback(async (row: QueueRow, staff: StaffOption) => {
-    if (!row.entered_by_raw) return;
-    try {
-      await resolvePurchaseInvoiceAlias(row.entered_by_raw, staff.id);
-    } catch {
-      // حفظ اختيار الفاتورة نفسها لا يعتمد على نجاح alias العام.
-    }
-  }, []);
-
   const persistManualStaffAssignment = useCallback(async (row: QueueRow, staff: StaffOption) => {
     setActingRowId(row.id);
     try {
@@ -278,14 +268,13 @@ export default function PurchaseInvoiceAccuracy() {
       setResolvingId(null);
       setResolveSearch('');
       setResolveOptions([]);
-      if (row.entered_by_raw && row.match_status === 'unmatched') void resolveAndSaveAlias(row, staff);
       toast.success(`اتحفظ إن ${staff.name} هو مدخل الفاتورة`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'تعذّر حفظ مدخل الفاتورة');
     } finally {
       setActingRowId(null);
     }
-  }, [resolveAndSaveAlias]);
+  }, []);
 
   const handleSubmit = useCallback(async () => {
     if (!selectedStaff) {

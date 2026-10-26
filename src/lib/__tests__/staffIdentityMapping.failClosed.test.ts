@@ -9,6 +9,12 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock('@/hooks/useAuth', () => ({ getCurrentUserProfile: () => ({ role: state.role }) }));
+vi.mock('@/lib/readModels/staffDirectoryReadModel', () => ({
+  readStaffDirectory: async () => [
+    ...state.staff.map(row => ({ ...row, active: row.active && row.is_active, source: 'staff', branch: null, role: null, username: null, status: null })),
+    ...state.aliases.map(row => ({ id: row.staff_id, name: 'د دنيا', normalizedAlias: 'دنيا', active: true, source: 'alias', branch: null, role: null, username: null, status: null })),
+  ],
+}));
 
 vi.mock('@/lib/staffDuplicateAudit', () => ({
   normalizeStaffName: (name: string) => name.replace(/^د[\\/\\. ]*/, '').trim().replace(/[أإآ]/g, 'ا'),

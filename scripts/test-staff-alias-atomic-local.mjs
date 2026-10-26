@@ -74,7 +74,7 @@ pass('committed migration applies against staging alias schema and real token ha
 const normalizerSource = file('src/lib/staffDuplicateAudit.ts').split('export function normalizeStaffName')[1].split('async function loadStaffAccountsByStaffId')[0];
 const normalizerJs = ts.transpileModule(`function normalizeStaffName${normalizerSource}`, {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
 const normalize = new Function(`${normalizerJs}; return normalizeStaffName;`)();
-for(const name of ['د إسلام فاروق','إسلام السبع','د/ إسلام فاروق','د. دنيا','دكتور أحمد','أستاذ محمد','م/ علي','  أماني  ','دنيا','دُنيا','A_B-C.,،','\tاسم  موظف\n','']) {
+for(const name of ['د إسلام فاروق','إسلام السبع','د/ إسلام فاروق','د. دنيا','دكتور أحمد','أستاذ محمد','م/ علي','  أماني  ','دنيا','دُنيا','A_B-C.,،','\tاسم  موظف\n','اسم\u00a0موظف','اسم\u2003موظف','اسم\ufeffموظف','اسم\u0085موظف','']) {
  const escaped = name.replaceAll("'","''");
  assert.equal(sql(`select public.dawaa_normalize_staff_alias_v1('${escaped}')`).stdout.trim(),normalize(name),name);
 }
@@ -91,6 +91,17 @@ assert.equal(sql('select count(distinct staff_id) from staff_identity_aliases').
 pass('Shokry doctor and courier remain separate staff ids');
 sql(actor('m') + insert(1,'د اسلام'));
 denied('exact pharmacist/courier short-name collision stays unresolved',actor('m')+insert(2,'اسلام'),'23505');
+const beforeIgnoredConflict = sql('select count(*) from staff_alias_audit_v1').stdout.trim();
+sql(actor('m')+insert(2,'اسلام').replace(/;$/,' on conflict do nothing;'));
+assert.equal(sql('select count(*) from staff_alias_audit_v1').stdout.trim(),beforeIgnoredConflict);
+pass('ON CONFLICT DO NOTHING emits no audit ghost');
+sql(`create table public.base44_purchase_invoice_sync(id integer primary key,entered_by_staff_id uuid,review_id uuid);
+ insert into public.base44_purchase_invoice_sync values(1,'${id(2)}',null);`);
+denied('purchase alias RPC rejects a conflicting owner',actor('m')+`select public.resolve_base44_entered_by_alias_v1('د اسلام','${id(2)}');`,'23505');
+denied('purchase alias RPC rejects a nonmanager',actor('u')+`select public.resolve_base44_entered_by_alias_v1('د اسلام','${id(1)}');`,'42501');
+assert.equal(sql(actor('m')+`select public.resolve_base44_entered_by_alias_v1('د اسلام','${id(1)}');`).stdout.trim().split('\n').at(-1),'0');
+assert.equal(sql('select entered_by_staff_id from base44_purchase_invoice_sync where id=1').stdout.trim(),id(2));
+pass('idempotent alias RPC never rewrites an existing purchase attribution');
 denied('similar normalized name cannot claim a second employee', actor('m') + insert(3,'د إسلام فاروق'), '23505');
 denied('nonmanager cannot insert', actor('u') + insert(2,'غير مخول'), '42501');
 denied('archived account cannot insert despite permission', actor('a') + insert(2,'مؤرشف'), '42501');
@@ -109,6 +120,10 @@ sql('drop function public.alias_test_privileged_update();');
 denied('owner reassignment forbidden', actor('m') + `update staff_identity_aliases set staff_id='${id(2)}' where staff_id='${id(1)}';`, '23514');
 denied('creation provenance cannot be rewritten',actor('m')+"update staff_identity_aliases set created_by='forged';",'23514');
 denied('audit deletion forbidden', actor('m') + 'delete from staff_alias_audit_v1;', '42501');
+denied('privileged audit UPDATE is forbidden',"update staff_alias_audit_v1 set actor_id='forged';",'42501');
+denied('privileged audit DELETE is forbidden','delete from staff_alias_audit_v1;','42501');
+denied('privileged audit TRUNCATE is forbidden','truncate staff_alias_audit_v1;','42501');
+denied('service role cannot append forged audit records',"set role service_role; insert into staff_alias_audit_v1(alias_id,operation) values (gen_random_uuid(),'forged');",'42501');
 denied('TRUNCATE cannot bypass RLS or row triggers',actor('m')+'truncate staff_identity_aliases;','42501');
 if(legacy) {
  denied('authenticated permissive legacy UPDATE still cannot bypass permission',actor('u').replace('role anon','role authenticated')+'update staff_identity_aliases set active=false;','42501');

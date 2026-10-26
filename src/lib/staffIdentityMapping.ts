@@ -3,6 +3,8 @@ import { normalizeStaffName } from './staffDuplicateAudit';
 import { readUnlinkedInvoiceSellerNames } from './readModels/unlinkedSellerNamesReadModel';
 import { getCurrentUserProfile } from '@/hooks/useAuth';
 import { hasPermission } from './core/permissionSystem';
+import { readStaffDirectory } from './readModels/staffDirectoryReadModel';
+import { resolveStaffDirectoryName } from './staff/staffIdentityResolver';
 
 function canManageStaffIdentity(): boolean {
   try { return hasPermission(getCurrentUserProfile(), 'manage_staff_accounts'); }
@@ -37,69 +39,13 @@ export async function resolveStaffNameToStaffId(
 ): Promise<string | null> {
   if (!rawName) return null;
 
-  const normalized = normalizeStaffName(rawName);
-  if (!normalized) return null;
-
-  // A name is evidence, not identity: never choose the first of conflicting aliases.
-  const { data: aliases, error: aliasError } = await supabase
-    .from('staff_identity_aliases')
-    .select('staff_id')
-    .eq('normalized_alias', normalized)
-    .eq('active', true)
-    .limit(1000);
-
-  if (aliasError) {
-    console.error('Error resolving staff name:', aliasError);
-    return null;
-  }
-
-  const aliasStaffIds = [...new Set((aliases || []).map((alias) => alias.staff_id).filter(Boolean))];
-  if (aliasStaffIds.length > 1) {
-    console.warn('Ambiguous staff alias; identity requires review:', normalized);
-    return null;
-  }
-
-  if (aliasStaffIds.length === 1) {
-    const { data: linkedStaff, error: linkedError } = await supabase
-      .from('staff')
-      .select('id, active, is_active')
-      .eq('id', aliasStaffIds[0])
-      .maybeSingle();
-
-    if (linkedError || !linkedStaff || !linkedStaff.active || !linkedStaff.is_active) {
-      console.warn('Alias points to missing or inactive staff; identity requires review:', normalized);
-      return null;
-    }
-    return linkedStaff.id;
-  }
-
-  const { data: staff, error: staffError } = await supabase
-    .from('staff')
-    .select('id, name')
-    .eq('active', true)
-    .eq('is_active', true)
-    .limit(500);
-
-  if (staffError || !staff) {
-    console.error('Error searching staff:', staffError);
-    return null;
-  }
-
-  const matchingStaff = staff.filter((candidate) =>
-    normalizeStaffName(candidate.name || '') === normalized
-  );
-  if (matchingStaff.length !== 1) {
-    if (matchingStaff.length > 1) {
-      console.warn('Ambiguous normalized staff name; identity requires review:', normalized);
-    }
-    return null;
-  }
-
-  const matched = matchingStaff[0];
+  const directory = await readStaffDirectory({ requireComplete: true });
+  const decision = resolveStaffDirectoryName(rawName, directory);
+  if (decision.status !== 'resolved' || !decision.staff?.id) return null;
   if (options?.createAutoAlias) {
-    await createStaffAlias(matched.id, rawName, options.source || 'auto-resolve', 0.9, 'system');
+    await createStaffAlias(decision.staff.id, rawName, options.source || 'auto-resolve', 0.9, 'system');
   }
-  return matched.id;
+  return decision.staff.id;
 }
 
 /** إنشاء alias جديد للموظف */

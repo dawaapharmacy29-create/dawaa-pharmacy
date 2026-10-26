@@ -1,4 +1,5 @@
-import { supabase } from '@/lib/supabase';
+import { readStaffDirectory } from '@/lib/readModels/staffDirectoryReadModel';
+import { normalizeDoctorName, resolveStaffDirectoryName } from '@/lib/staff/staffIdentityResolver';
 import type { WhatsAppConversationSession, WhatsAppParsedMessage } from './whatsappConversationParser';
 
 export type WhatsAppParticipantRoleV15 = 'customer' | 'pharmacist' | 'customer_service' | 'delivery' | 'management' | 'pharmacy_unknown' | 'system';
@@ -24,45 +25,14 @@ export interface WhatsAppParticipantRoleModelV15 {
   staff: Array<{ accountId: string | null; staffId: string | null; staffName: string; role: WhatsAppParticipantRoleV15; branch: string | null; confidence: number }>;
 }
 
-const STAFF_DIRECTORY_CACHE_TTL_MS = 5 * 60_000;
-let staffDirectoryCache: { rows: any[]; expiresAt: number } | null = null;
-let staffDirectoryRequest: Promise<any[]> | null = null;
-
-async function getStaffDirectoryRows() {
-  const now = Date.now();
-  if (staffDirectoryCache && staffDirectoryCache.expiresAt > now) return staffDirectoryCache.rows;
-  if (staffDirectoryRequest) return staffDirectoryRequest;
-
-  staffDirectoryRequest = (async () => {
-    const { data } = await supabase
-      .from('staff_accounts')
-      .select('id,staff_id,staff_name,name,username,role,staff_role,job_title,role_label,branch,active,is_active')
-      .limit(800);
-    const rows = data || [];
-    staffDirectoryCache = { rows, expiresAt: Date.now() + STAFF_DIRECTORY_CACHE_TTL_MS };
-    return rows;
-  })();
-
-  try {
-    return await staffDirectoryRequest;
-  } finally {
-    staffDirectoryRequest = null;
-  }
-}
-
-const normalize = (value: unknown) => String(value ?? '')
-  .trim().toLowerCase()
-  .replace(/^(?:د\s*[/.-]?\s*|دكتور(?:ه|ة)?\s+|أستاذ(?:ه|ة)?\s+|استاذ(?:ه|ة)?\s+)/i, '')
-  .replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه')
-  .replace(/[\u064B-\u065F]/g, '').replace(/[^\p{L}\p{N}\s]/gu, ' ')
-  .replace(/\s+/g, ' ').trim();
+const normalize = normalizeDoctorName;
 
 function cleanCandidateName(value: unknown) {
   return String(value ?? '')
     .replace(/\[[0-9]{1,2}[/.-][0-9]{1,2}[/.-][0-9]{2,4}[\s\S]*$/g, '')
-    .replace(/\bمن\s+(?:خدمه|خدمة)\s+عملاء\s+صيدليات\s+دواء[\s\S]*$/i, '')
-    .replace(/\bمن\s+صيدليات\s+دواء[\s\S]*$/i, '')
-    .replace(/\bصيدليات\s+دواء[\s\S]*$/i, '')
+    .replace(/(?:^|\s)من\s+(?:خدمه|خدمة)\s+(?:ال)?عملاء\s+صيدليات\s+دواء[\s\S]*$/i, '')
+    .replace(/(?:^|\s)من\s+صيدليات\s+دواء[\s\S]*$/i, '')
+    .replace(/(?:^|\s)صيدليات\s+دواء[\s\S]*$/i, '')
     .trim();
 }
 
@@ -91,8 +61,8 @@ function roleFromStaff(row: any): WhatsAppParticipantRoleV15 {
 
 function introName(text: string) {
   const patterns = [
-    /مع حضرتك\s+(?:د\s*[/.-]?|دكتور(?:ه|ة)?|أ\.?|استاذ(?:ه|ة)?)?\s*([^\n،,.\u005B]{2,45})(?:\s+من\s+(?:خدمه|خدمة|صيدليات)|[،,.\u005B]|$)/i,
-    /معاك(?:ي)?\s+(?:د\s*[/.-]?|دكتور(?:ه|ة)?)?\s*([^\n،,.\u005B]{2,45})(?:\s+من\s+(?:خدمه|خدمة|صيدليات)|[،,.\u005B]|$)/i,
+    /مع حضرتك\s+(?:دكتور(?:ه|ة)?|د\s*[/.-]?|أ\.?|استاذ(?:ه|ة)?)?\s*([^\n،,.\u005B]{2,45})(?:\s+من\s+(?:خدمه|خدمة|صيدليات)|[،,.\u005B]|$)/i,
+    /معاك(?:ي)?\s+(?:دكتور(?:ه|ة)?|د\s*[/.-]?)?\s*([^\n،,.\u005B]{2,45})(?:\s+من\s+(?:خدمه|خدمة|صيدليات)|[،,.\u005B]|$)/i,
   ];
   for (const rx of patterns) {
     const match = text.match(rx);
@@ -110,41 +80,6 @@ function lexicalRole(message: WhatsAppParsedMessage): { role: WhatsAppParticipan
   return null;
 }
 
-function currentnessScore(staff: any) {
-  let score = 0;
-  if (staff?.active === true && staff?.is_active !== false) score += 12;
-  else if (staff?.active === true) score += 9;
-  else if (staff?.is_active === true) score += 3;
-  if (staff?.active === false) score -= 8;
-  if (staff?.staff_id) score += 4;
-  if (staff?.job_title) score += 2;
-  return score;
-}
-
-function scoreName(candidate: string, staff: any, expectedRole?: WhatsAppParticipantRoleV15 | null) {
-  const target = normalize(cleanCandidateName(candidate));
-  if (!target) return 0;
-  const values = [staff.staff_name, staff.name, staff.username].map((x) => normalize(cleanCandidateName(x))).filter(Boolean);
-  let best = 0;
-  for (const value of values) {
-    if (value === target) best = Math.max(best, 100);
-    else if (value.startsWith(`${target} `) || target.startsWith(`${value} `)) best = Math.max(best, 91);
-    else if (value.includes(target) || target.includes(value)) best = Math.max(best, 84);
-    else {
-      const a = new Set(value.split(' '));
-      const b = target.split(' ');
-      const overlap = b.filter((x) => a.has(x)).length;
-      if (overlap >= 2) best = Math.max(best, 79);
-      else if (overlap === 1 && b.length === 1) best = Math.max(best, 76);
-    }
-  }
-  if (!best) return 0;
-  const staffRole = roleFromStaff(staff);
-  const roleBonus = expectedRole && expectedRole !== 'pharmacy_unknown' && staffRole === expectedRole ? 7 : 0;
-  const rolePenalty = expectedRole && expectedRole !== 'pharmacy_unknown' && staffRole !== expectedRole ? -4 : 0;
-  return best + currentnessScore(staff) + roleBonus + rolePenalty;
-}
-
 function canonicalDisplayName(row: any, fallback?: string | null) {
   return String(row?.staff_name || row?.name || fallback || '').trim() || null;
 }
@@ -159,25 +94,19 @@ export async function resolveWhatsAppParticipantRolesV15(session: WhatsAppConver
   }
   session.outboundStaffNames.forEach((name) => { if (isPlausibleName(name)) candidateNames.add(cleanCandidateName(name)); });
 
-  const staffRows: any[] = candidateNames.size ? await getStaffDirectoryRows() : [];
-
-  const resolvedByName = new Map<string, { row: any; score: number; margin: number }>();
-  for (const candidate of candidateNames) {
-    const scored = staffRows
-      .map((row) => ({ row, score: scoreName(candidate, row, null) }))
-      .filter((x) => x.score >= 76)
-      .sort((a, b) => b.score - a.score);
-    const top = scored[0];
-    const second = scored[1];
-    if (!top) continue;
-    const sameCanonicalDuplicate = second && normalize(canonicalDisplayName(second.row)) === normalize(canonicalDisplayName(top.row));
-    const margin = top.score - (second?.score || 0);
-    if (!second || margin >= 6 || (sameCanonicalDuplicate && currentnessScore(top.row) > currentnessScore(second.row))) {
-      resolvedByName.set(normalize(candidate), { row: top.row, score: top.score, margin });
-    }
-  }
-
-  let activeStaff: { row: any; score: number; margin?: number } | null = null;
+  // One complete canonical read per session; never retain another user's directory cache.
+  const directory = candidateNames.size ? await readStaffDirectory({ requireComplete: true }) : [];
+  type Match = { row: any; score: number };
+  const match = (candidate: string): Match | null => {
+    const decision = resolveStaffDirectoryName(cleanCandidateName(candidate), directory);
+    if (decision.status !== 'resolved' || !decision.staff?.id) return null;
+    const person = decision.staff;
+    const account = directory.find(row => row.source === 'staff_account' && row.id === person.id && row.active);
+    return { row: { id: account?.accountId || null, staff_id: person.id, staff_name: person.name,
+      role: account?.role || person.role, branch: person.branch }, score: 94 };
+  };
+  const known = new Map([...candidateNames].map(name => [normalize(name), match(name)]));
+  let activeStaff: Match | null = null;
   const messages: WhatsAppMessageRoleV15[] = [];
   for (const message of session.messages) {
     const lexical = lexicalRole(message);
@@ -185,39 +114,21 @@ export async function resolveWhatsAppParticipantRolesV15(session: WhatsAppConver
       messages.push({ messageId: message.id, sender: message.sender, role: lexical.role, accountId: null, staffId: null, staffName: null, branch: null, confidence: lexical.confidence, reason: lexical.reason });
       continue;
     }
-
     const intro = introName(message.text);
-    const candidates = [intro, message.sender, ...session.outboundStaffNames].filter((x): x is string => Boolean(x) && isPlausibleName(x));
-    let resolved: { row: any; score: number; margin?: number } | null = null;
-    for (const candidate of candidates) {
-      const key = normalize(cleanCandidateName(candidate));
-      const direct = resolvedByName.get(key);
-      if (direct && (!resolved || direct.score > resolved.score)) resolved = direct;
-
-      if (lexical?.role && (!direct || lexical.role === 'customer_service')) {
-        const roleScored = staffRows
-          .map((row) => ({ row, score: scoreName(candidate, row, lexical.role) }))
-          .filter((x) => x.score >= 82)
-          .sort((a, b) => b.score - a.score);
-        if (roleScored[0] && (!roleScored[1] || roleScored[0].score - roleScored[1].score >= 6) && (!resolved || roleScored[0].score > resolved.score)) {
-          resolved = { ...roleScored[0], margin: roleScored[0].score - (roleScored[1]?.score || 0) };
-        }
-      }
-    }
-    if (intro && resolved) activeStaff = resolved;
-    else if (!resolved && activeStaff) resolved = activeStaff;
-
-    if (lexical?.role === 'customer_service') {
-      messages.push({ messageId: message.id, sender: message.sender, role: 'customer_service', accountId: resolved?.row?.id || null, staffId: resolved?.row?.staff_id || null, staffName: canonicalDisplayName(resolved?.row, intro), branch: resolved?.row?.branch || null, confidence: Math.min(99, Math.max(lexical.confidence, resolved?.score || 0)), reason: resolved ? `${lexical.reason} تم توحيد الهوية مع الحساب الحالي.` : lexical.reason });
-      continue;
-    }
-    if (resolved) {
-      const role = roleFromStaff(resolved.row);
-      const confidence = Math.max(72, Math.min(99, Math.round(resolved.score - Math.max(0, 6 - (resolved.margin || 6)))));
-      messages.push({ messageId: message.id, sender: message.sender, role, accountId: resolved.row.id || null, staffId: resolved.row.staff_id || null, staffName: canonicalDisplayName(resolved.row, intro), branch: resolved.row.branch || null, confidence, reason: `تم توحيد اسم المرسل وربطه بالحساب الأنسب (${resolved.row.role || resolved.row.staff_role || resolved.row.job_title || 'غير محدد'}).` });
-    } else {
-      messages.push({ messageId: message.id, sender: message.sender, role: lexical?.role || 'pharmacy_unknown', accountId: null, staffId: null, staffName: intro || null, branch: null, confidence: lexical?.confidence || 52, reason: lexical?.reason || 'رسالة خارجة من الصيدلية لكن هوية الموظف/دوره غير محسومة.' });
-    }
+    const explicitSender = message.sender && !/^(you|me|انت|أنت|انا|أنا)$/i.test(message.sender.trim()) && isPlausibleName(message.sender)
+      ? cleanCandidateName(message.sender) : null;
+    const candidate = intro || explicitSender || (session.outboundStaffNames.length === 1 ? cleanCandidateName(session.outboundStaffNames[0]) : null);
+    let resolved = candidate ? known.get(normalize(candidate)) || match(candidate) : activeStaff;
+    // An explicit unresolved new speaker must never inherit the preceding doctor's identity.
+    if (intro || explicitSender) activeStaff = resolved || null;
+    if (lexical && resolved && lexical.role !== roleFromStaff(resolved.row)) resolved = null;
+    if (intro) activeStaff = resolved;
+    const role = lexical?.role || (resolved ? roleFromStaff(resolved.row) : 'pharmacy_unknown');
+    messages.push({ messageId: message.id, sender: message.sender, role,
+      accountId: resolved?.row.id || null, staffId: resolved?.row.staff_id || null,
+      staffName: resolved ? canonicalDisplayName(resolved.row, intro) : intro,
+      branch: resolved?.row.branch || null, confidence: resolved ? 94 : lexical?.confidence || 52,
+      reason: resolved ? 'مطابقة دقيقة غير متعارضة لهوية موظف ثابتة من الدليل الكامل.' : lexical?.reason || 'الهوية معلقة للمراجعة؛ لا تُعتمد بالمطابقة الجزئية.' });
   }
 
   const uniqueStaff = new Map<string, { accountId: string | null; staffId: string | null; staffName: string; role: WhatsAppParticipantRoleV15; branch: string | null; confidence: number }>();

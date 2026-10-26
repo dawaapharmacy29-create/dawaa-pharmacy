@@ -36,7 +36,9 @@ export function normalizeArabicName(value: unknown): string {
     .replace(/[\u0623\u0625\u0622]/g, '\u0627')
     .replace(/\u0649/g, '\u064A')
     .replace(/\u0629/g, '\u0647')
-    .replace(/^(?:\s*(?:دكتور|الدكتور|د\.?|د\/)\s*)+/i, '')
+    // A title has an explicit separator; a person's name such as دنيا starts
+    // with the same letter but must never lose it or collapse into another name.
+    .replace(/^(?:\s*(?:الدكتور|دكتور(?:ه|ة)?)(?=\s|[./]|$)[./]?\s*|\s*د(?:[./]\s*|\s+))+/i, '')
     .replace(/[.,،;:()[\]{}_\-/\\|]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()

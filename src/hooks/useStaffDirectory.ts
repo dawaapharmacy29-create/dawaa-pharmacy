@@ -14,7 +14,7 @@ const STANDARD_GC_MS = 15 * 60_000;
 export function useStaffDirectory() {
   return useQuery<StaffDirectoryIdentity[]>({
     queryKey: STAFF_DIRECTORY_QUERY_KEY,
-    queryFn: readStaffDirectory,
+    queryFn: () => readStaffDirectory(),
     staleTime: STANDARD_STALE_MS,
     gcTime: STANDARD_GC_MS,
     refetchOnMount: true,

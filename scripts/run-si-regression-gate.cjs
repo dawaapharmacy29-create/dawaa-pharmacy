@@ -20,6 +20,8 @@ const SUITES = [
   'src/lib/__tests__/whatsappConversationJourneyClassifier.test.ts',
   // Shared alias authorization/fail-closed identity protects import and WhatsApp attribution.
   'src/lib/__tests__/staffIdentityMapping.failClosed.test.ts',
+  'src/lib/__tests__/unifiedEmployeeCore.regression.test.ts',
+  'src/lib/readModels/__tests__/staffDirectoryCompleteness.test.ts',
   'src/lib/__tests__/whatsappStaffIdentityResolver.test.ts',
   'src/lib/evaluations/__tests__/doctorPerformanceEye.test.ts',
   'src/components/salesIntelligence/__tests__/SalesIntelligenceManagementOverviewV1.test.ts',

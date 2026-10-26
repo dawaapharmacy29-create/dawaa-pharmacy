@@ -6,11 +6,16 @@ create or replace function public.dawaa_normalize_staff_alias_v1(value text)
 returns text language sql immutable strict parallel safe
 set search_path = pg_catalog
 as $$
-  select lower(regexp_replace(regexp_replace(translate(btrim(regexp_replace(value,
+  select lower(translate(regexp_replace(translate(btrim(regexp_replace(value,
     -- JS alternation selects the first single-letter alternative; POSIX selects longest.
     -- Preserve the existing JS identity key exactly rather than silently repairing prefixes.
     '^[دأم]', '', 'i')),
-    'أإآةي', 'اااهى'), '[.,،\-_]', '', 'g'), '\s+', '', 'g'));
+    'أإآةي', 'اااهى'), '[.,،\-_]', '', 'g'),
+    -- Exact ECMAScript whitespace, including BOM; PostgreSQL \s differs.
+    chr(9)||chr(10)||chr(11)||chr(12)||chr(13)||chr(32)||chr(160)||chr(5760)||
+    chr(8192)||chr(8193)||chr(8194)||chr(8195)||chr(8196)||chr(8197)||chr(8198)||
+    chr(8199)||chr(8200)||chr(8201)||chr(8202)||chr(8232)||chr(8233)||chr(8239)||
+    chr(8287)||chr(12288)||chr(65279), ''));
 $$;
 
 -- A migration must not silently repair historical labels or leave readers using stale keys.
@@ -40,7 +45,21 @@ create table public.staff_alias_audit_v1 (
   new_record jsonb
 );
 alter table public.staff_alias_audit_v1 enable row level security;
-revoke all on public.staff_alias_audit_v1 from public, anon, authenticated;
+revoke all on public.staff_alias_audit_v1 from public, anon, authenticated, service_role;
+
+-- Row RLS is bypassed by SECURITY DEFINER/server roles; audit history still cannot
+-- be changed or truncated through a privileged RPC. Alias trigger owns appends.
+create or replace function public.dawaa_protect_staff_alias_audit_v1()
+returns trigger language plpgsql
+set search_path = pg_catalog
+as $$ begin
+  raise exception 'Staff alias audit is append-only' using errcode = '42501';
+end $$;
+revoke all on function public.dawaa_protect_staff_alias_audit_v1() from public, anon, authenticated, service_role;
+create trigger staff_alias_audit_immutable_v1 before update or delete
+on public.staff_alias_audit_v1 for each row execute function public.dawaa_protect_staff_alias_audit_v1();
+create trigger staff_alias_audit_no_truncate_v1 before truncate
+on public.staff_alias_audit_v1 for each statement execute function public.dawaa_protect_staff_alias_audit_v1();
 
 create or replace function public.dawaa_guard_staff_alias_v1()
 returns trigger language plpgsql security definer
@@ -81,8 +100,6 @@ begin
     raise exception 'Alias requires canonical staff, active for new live attribution' using errcode = '23514';
   end if;
   if tg_op = 'INSERT' and actor is not null then new.created_by := actor; end if;
-  insert into public.staff_alias_audit_v1(alias_id, actor_id, operation, old_record, new_record)
-  values (new.id, actor, tg_op, case when tg_op = 'UPDATE' then to_jsonb(old) end, to_jsonb(new));
   return new;
 end;
 $$;
@@ -90,6 +107,50 @@ revoke all on function public.dawaa_guard_staff_alias_v1() from public, anon, au
 -- Run after the catalog-confirmed trg_staff_identity_aliases_fill_defaults trigger.
 create trigger zz_staff_alias_guard_v1 before insert or update or delete
 on public.staff_identity_aliases for each row execute function public.dawaa_guard_staff_alias_v1();
+
+-- AFTER avoids audit ghosts when a legacy caller uses ON CONFLICT DO NOTHING.
+create or replace function public.dawaa_audit_staff_alias_v1()
+returns trigger language plpgsql security definer
+set search_path = pg_catalog, public
+as $$ begin
+  insert into public.staff_alias_audit_v1(alias_id, actor_id, operation, old_record, new_record)
+  values (new.id, public.dawaa_current_staff_account_id_strict()::text, tg_op,
+    case when tg_op = 'UPDATE' then to_jsonb(old) end, to_jsonb(new));
+  return new;
+end $$;
+revoke all on function public.dawaa_audit_staff_alias_v1() from public, anon, authenticated, service_role;
+create trigger staff_alias_audit_after_v1 after insert or update
+on public.staff_identity_aliases for each row execute function public.dawaa_audit_staff_alias_v1();
+
+-- Compatibility signature now creates metadata only. A name-wide UPDATE must
+-- never reassign historical purchase rows; their separate per-record command remains.
+create or replace function public.resolve_base44_entered_by_alias_v1(p_raw_name text, p_staff_id uuid)
+returns integer language plpgsql security definer
+set search_path = pg_catalog, public
+as $$
+declare
+  actor uuid := public.dawaa_current_staff_account_id_strict();
+  alias_key text := public.dawaa_normalize_staff_alias_v1(p_raw_name);
+begin
+  if actor is null or public.dawaa_session_account_id_v1() is distinct from actor
+    or not coalesce(public.dawaa_current_actor_can(array['manage_staff_accounts']), false) then
+    raise exception 'Staff identity management permission required' using errcode = '42501';
+  end if;
+  if alias_key is null or alias_key='' then
+    raise exception 'Nonempty alias required' using errcode = '23514';
+  end if;
+  insert into public.staff_identity_aliases(staff_id,alias_name,normalized_alias,source,confidence,active,created_by)
+  values(p_staff_id,p_raw_name,alias_key,'base44_purchase_invoice',1,true,actor::text)
+  on conflict do nothing;
+  if not exists (select 1 from public.staff_identity_aliases
+    where public.dawaa_normalize_staff_alias_v1(alias_name)=alias_key
+      and coalesce(active,true) and staff_id=p_staff_id) then
+    raise exception 'Alias is owned by a different or retired identity' using errcode='23505';
+  end if;
+  return 0;
+end $$;
+revoke all on function public.resolve_base44_entered_by_alias_v1(text,uuid) from public,anon,authenticated;
+grant execute on function public.resolve_base44_entered_by_alias_v1(text,uuid) to anon,authenticated;
 
 alter table public.staff_identity_aliases enable row level security;
 -- RLS does not protect TRUNCATE. Remove legacy ALL grants; no physical deletion API.

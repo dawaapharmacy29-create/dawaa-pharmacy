@@ -8884,7 +8884,7 @@ async function loadStaffDirectoryFrom(client, options = {}) {
   const [staffResult, accountResult, aliasResult] = await Promise.all([
     client.from("staff").select("id,name,username,branch,role,type,status,active,is_active").limit(800),
     client.rpc("get_staff_accounts_directory"),
-    client.from("staff_identity_aliases").select("staff_id,alias_name,active,confidence,priority").eq("active", true).limit(2e3)
+    client.from("staff_identity_aliases").select("staff_id,alias_name,normalized_alias,active,confidence,priority").eq("active", true).limit(2e3)
   ]);
   if (options.requireComplete) {
     const failed = [
@@ -8908,15 +8908,27 @@ async function loadStaffDirectoryFrom(client, options = {}) {
   const accountRows = accountResult.error ? [] : (accountResult.data ?? []).map(
     (row) => identityFromRow(row, ["staff_id"], ["staff_name", "name"], "staff_account")
   );
-  const baseRows = uniqueBaseIdentities([...staffRows, ...accountRows]);
+  const baseRows = options.requireComplete ? staffRows : uniqueBaseIdentities([...staffRows, ...accountRows]);
   const byId = new Map(baseRows.filter((row) => row.id).map((row) => [row.id, row]));
+  const accountEvidence = options.requireComplete && !accountResult.error ? (accountResult.data ?? []).flatMap((raw) => {
+    const row = identityFromRow(raw, ["staff_id"], ["staff_name", "name"], "staff_account");
+    const base = byId.get(row.id || "");
+    if (!base || !row.active || !base.active) return [];
+    return [{ ...row, branch: base.branch, accountId: text(raw.account_id || raw.id) || null }];
+  }) : [];
   const aliases = aliasResult.error ? [] : (aliasResult.data ?? []).flatMap((alias) => {
     const base = byId.get(text(alias.staff_id));
     const aliasName = text(alias.alias_name);
-    if (!base || !aliasName || base.active === false) return [];
-    return [{ ...base, name: aliasName, source: "alias" }];
+    if (!aliasName) return [];
+    if (!options.requireComplete && (!base || base.active === false)) return [];
+    return [{
+      ...base || { id: text(alias.staff_id) || null, branch: null, role: null, username: null, status: null, active: false },
+      name: aliasName,
+      normalizedAlias: text(alias.normalized_alias) || null,
+      source: "alias"
+    }];
   });
-  return [...baseRows, ...aliases];
+  return [...baseRows, ...accountEvidence, ...aliases];
 }
 
 // src/lib/core/permissionSystem.ts
@@ -9158,7 +9170,7 @@ var PERMISSION_MAP = Object.fromEntries(
 
 // src/lib/security/userDataScope.ts
 function normalizeArabicName(value) {
-  return String(value ?? "").replace(/[\u064B-\u065F\u0640]/g, "").replace(/[\u0623\u0625\u0622]/g, "\u0627").replace(/\u0649/g, "\u064A").replace(/\u0629/g, "\u0647").replace(/^(?:\s*(?:دكتور|الدكتور|د\.?|د\/)\s*)+/i, "").replace(/[.,،;:()[\]{}_\-/\\|]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+  return String(value ?? "").replace(/[\u064B-\u065F\u0640]/g, "").replace(/[\u0623\u0625\u0622]/g, "\u0627").replace(/\u0649/g, "\u064A").replace(/\u0629/g, "\u0647").replace(/^(?:\s*(?:الدكتور|دكتور(?:ه|ة)?)(?=\s|[./]|$)[./]?\s*|\s*د(?:[./]\s*|\s+))+/i, "").replace(/[.,،;:()[\]{}_\-/\\|]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 // src/lib/staff/staffIdentityResolver.ts

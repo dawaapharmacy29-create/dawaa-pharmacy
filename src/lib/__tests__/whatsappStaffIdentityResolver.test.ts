@@ -1,137 +1,69 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { StaffDirectoryIdentity } from '@/lib/readModels/staffDirectoryReadModel';
 import type { WhatsAppParticipantRoleModelV15 } from '@/lib/whatsappParticipantRoleResolverV15';
-
-const STAFF_TABLE = [
-  { id: 's1', name: 'اسلام محمد', branch: 'فرع الشامي', role: 'pharmacist', active: true, is_active: true },
-  { id: 's2', name: 'اسلام كريم', branch: 'فرع شكري', role: 'pharmacist', active: true, is_active: true },
-];
-const STAFF_ACCOUNTS_TABLE = [
-  { id: 'a1', staff_id: 's1', staff_name: 'اسلام محمد', name: 'اسلام محمد', branch: 'فرع الشامي', role: 'pharmacist', active: true, is_active: true },
-  { id: 'a2', staff_id: 's2', staff_name: 'اسلام كريم', name: 'اسلام كريم', branch: 'فرع شكري', role: 'pharmacist', active: true, is_active: true },
-];
-let ALIASES_TABLE: any[] = [];
-
-function makeChain(table: string) {
-  const eqs: Record<string, unknown> = {};
-  const chain: any = {
-    select: () => chain,
-    or: () => chain,
-    order: () => chain,
-    eq: (field: string, value: unknown) => {
-      eqs[field] = value;
-      return chain;
-    },
-    limit: async () => {
-      if (table === 'staff') {
-        let rows = STAFF_TABLE;
-        if ('id' in eqs) rows = rows.filter((r) => r.id === eqs.id);
-        return { data: rows, error: null };
-      }
-      if (table === 'staff_accounts') return { data: STAFF_ACCOUNTS_TABLE, error: null };
-      if (table === 'staff_identity_aliases') {
-        let rows = ALIASES_TABLE;
-        if ('normalized_alias' in eqs) rows = rows.filter((r) => r.normalized_alias === eqs.normalized_alias);
-        return { data: rows, error: null };
-      }
-      return { data: [], error: null };
-    },
-    maybeSingle: async () => {
-      if (table === 'staff') {
-        const row = STAFF_TABLE.find((r) => r.id === eqs.id);
-        return { data: row || null, error: null };
-      }
-      return { data: null, error: null };
-    },
-  };
-  return chain;
-}
-
-vi.mock('@/lib/supabase', () => ({
-  supabase: { from: (table: string) => makeChain(table) },
-}));
-
-function roleModel(entries: Array<{ messageId: string; staffId: string | null; staffName: string | null; branch: string | null; confidence: number; role?: string }>): WhatsAppParticipantRoleModelV15 {
-  return {
-    version: 'whatsapp-participant-role-v15',
-    messages: entries.map((e) => ({
-      messageId: e.messageId, sender: 'staff', role: (e.role as any) || 'pharmacist',
-      accountId: e.staffId ? `acc-${e.staffId}` : null, staffId: e.staffId, staffName: e.staffName,
-      branch: e.branch, confidence: e.confidence, reason: 'test',
-    })),
-    staff: [],
-  };
-}
-
-describe('resolveStaffIdentity', () => {
-  it('tier 1: V15 already resolved a real staff_id for the owner episode ("اسلام" in chat -> اسلام محمد in DB) — used directly, no guessing by name', async () => {
-    const { resolveStaffIdentity } = await import('@/lib/whatsappStaffIdentityResolver');
-    const roles = roleModel([{ messageId: 'm1', staffId: 's1', staffName: 'اسلام محمد', branch: 'فرع الشامي', confidence: 91 }]);
-    const result = await resolveStaffIdentity('اسلام', roles, ['m1'], null);
-    expect(result.staffId).toBe('s1');
+const state = vi.hoisted(() => ({ rows: [] as StaffDirectoryIdentity[], error: false }));
+vi.mock('@/lib/readModels/staffDirectoryReadModel', () => ({ readStaffDirectory: vi.fn(async () => {
+  if(state.error) throw new Error('directory outage'); return state.rows;
+}) }));
+vi.mock('@/lib/supabase', () => ({ supabase: {}, isSupabaseConfigured: true }));
+import { resolveStaffIdentity } from '@/lib/whatsappStaffIdentityResolver';
+import { resolveWhatsAppStaffV6 } from '@/lib/whatsappStaffResolverV6';
+import { resolveStaffDirectoryName } from '@/lib/staff/staffIdentityResolver';
+const person = (id: string, name: string, role = 'pharmacist', branch = 'شكري'): StaffDirectoryIdentity => ({
+  id, name, role, branch, username: null, status: 'active', active: true, source: 'staff',
+});
+const alias = (id: string, name: string, normalizedAlias: string): StaffDirectoryIdentity => ({ ...person(id,name), source:'alias', normalizedAlias });
+const roles = (id?:string): WhatsAppParticipantRoleModelV15 => ({ version:'whatsapp-participant-role-v15', staff:[], messages:id ? [{
+  messageId:'m',sender:'staff',role:'pharmacist',accountId:'account',staffId:id,staffName:'د اسلام فاروق',branch:'شكري',confidence:99,reason:'old inference',
+}] : [] });
+beforeEach(() => { state.error=false; state.rows=[person('doctor','د اسلام فاروق'),person('courier','اسلام السبع','delivery')]; });
+describe('one fail-closed employee decision across WhatsApp and seller attribution', () => {
+  for(const name of ['اسلام','د اسلام','د/ اسلام','دكتور اسلام','د. إسلام']) {
+    it('preserves conflict for '+name+' even with pharmacist episode evidence and branch hint',async()=>{
+      state.rows.push(alias('doctor','د اسلام','اسلام'),alias('doctor','د/ اسلام','اسلام'),alias('courier','اسلام','اسلام'));
+      expect((await resolveStaffIdentity(name,roles('doctor'),['m'],'شكري')).staffId).toBeNull();
+      expect((await resolveWhatsAppStaffV6([name],'شكري')).strategy).toBe('ambiguous');
+    });
+  }
+  it('retains the full doctor name without moving invoice branch',async()=>{
+    const result=await resolveStaffIdentity('د إسلام فاروق',roles('doctor'),['m'],'الشامي');
+    expect(result.staffId).toBe('doctor'); expect(result.branch).toBe('شكري');
     expect(result.identitySource).toBe('v15_resolved_id');
-    expect(result.canonicalStaffName).toBe('اسلام محمد');
-    expect(result.branch).toBe('فرع الشامي');
-    expect(result.ambiguous).toBe(false);
   });
-
-  it('V15 resolving two different staff_ids for the same owner episode is a real conflict -> ambiguous, never guessed', async () => {
-    const { resolveStaffIdentity } = await import('@/lib/whatsappStaffIdentityResolver');
-    const roles = roleModel([
-      { messageId: 'm1', staffId: 's1', staffName: 'اسلام محمد', branch: 'فرع الشامي', confidence: 85 },
-      { messageId: 'm2', staffId: 's2', staffName: 'اسلام كريم', branch: 'فرع شكري', confidence: 80 },
-    ]);
-    const result = await resolveStaffIdentity('اسلام', roles, ['m1', 'm2'], null);
-    expect(result.staffId).toBeNull();
-    expect(result.ambiguous).toBe(true);
-    expect(result.candidates).toHaveLength(2);
+  it('retains courier identity separately',async()=>{
+    expect((await resolveStaffIdentity('اسلام السبع',roles(),[],null)).staffId).toBe('courier');
   });
-
-  it('same name across two branches with a branch hint resolves uniquely via the branch-aware staff resolver (tier 2)', async () => {
-    const { resolveStaffIdentity } = await import('@/lib/whatsappStaffIdentityResolver');
-    const roles = roleModel([]); // V15 found nothing
-    const result = await resolveStaffIdentity('اسلام محمد', roles, [], 'فرع الشامي');
-    expect(result.staffId).toBe('s1');
-    expect(result.identitySource).toBe('staff_resolver_branch_aware');
+  it('never resolves a unique partial first name',async()=>{
+    state.rows=[person('doctor','د اسلام فاروق')];
+    expect((await resolveStaffIdentity('اسلام',roles(),[],null)).status).toBe('unresolved');
   });
-
-  it('same name across two branches with NO branch hint stays ambiguous rather than guessing', async () => {
-    const { resolveStaffIdentity } = await import('@/lib/whatsappStaffIdentityResolver');
-    const roles = roleModel([]);
-    // "اسلام" alone matches neither staff row exactly (rows are "اسلام محمد"/"اسلام كريم"),
-    // so tier 2/3/4 all miss and we land in the fuzzy fallback — which itself must go ambiguous
-    // for two equally plausible prefix matches, not silently pick one.
-    const result = await resolveStaffIdentity('اسلام', roles, [], null);
-    expect(result.staffId).toBeNull();
-    expect(result.ambiguous).toBe(true);
-    expect(result.candidates.length).toBeGreaterThanOrEqual(2);
+  it('a branch hint cannot select one of two identical names',async()=>{
+    state.rows=[person('one','احمد محمد','pharmacist','شكري'),person('two','احمد محمد','pharmacist','الشامي')];
+    expect((await resolveStaffIdentity('احمد محمد',roles(),[],'شكري')).ambiguous).toBe(true);
   });
-
-  it('tier 3: an existing account/staff alias mapping resolves a nickname the other tiers cannot', async () => {
-    ALIASES_TABLE = [{ id: 'al1', staff_id: 's1', alias_name: 'اسلام', normalized_alias: 'اسلام', active: true, confidence: 0.9 }];
-    try {
-      const { resolveStaffIdentity } = await import('@/lib/whatsappStaffIdentityResolver');
-      const roles = roleModel([]);
-      const result = await resolveStaffIdentity('اسلام', roles, [], null);
-      expect(result.staffId).toBe('s1');
-      expect(result.identitySource).toBe('account_staff_mapping');
-    } finally {
-      ALIASES_TABLE = [];
-    }
+  it('retired identity and orphan account cannot become a different active person',async()=>{
+    state.rows=[{...person('old','د احمد'),active:false},alias('old','احمد','احمد')];
+    expect((await resolveWhatsAppStaffV6(['احمد'])).strategy).toBe('retired');
+    state.rows=[{...person('account','لقب'),source:'staff_account'}];
+    expect(resolveStaffDirectoryName('لقب',state.rows).staff).toBeNull();
   });
-
-  it('tier 5 (fuzzy fallback) resolves a genuine unambiguous partial name when nothing stronger matched', async () => {
-    const { resolveStaffIdentity } = await import('@/lib/whatsappStaffIdentityResolver');
-    const roles = roleModel([]);
-    const result = await resolveStaffIdentity('اسلام محمد', roles, [], null);
-    // "اسلام محمد" matches s1 exactly via V6 (tier 4, no branch) before ever reaching fuzzy.
-    expect(result.staffId).toBe('s1');
+  it('alias outage is unavailable and a later healthy read retries immediately',async()=>{
+    state.error=true;
+    expect((await resolveWhatsAppStaffV6(['د اسلام فاروق'])).strategy).toBe('unavailable');
+    expect((await resolveStaffIdentity('د اسلام فاروق',roles(),[],null)).status).toBe('unavailable');
+    state.error=false;
+    expect((await resolveWhatsAppStaffV6(['د اسلام فاروق'])).staff?.id).toBe('doctor');
   });
-
-  it('the "د" prefix / nickname does not by itself confuse a confident V15 resolution', async () => {
-    const { resolveStaffIdentity } = await import('@/lib/whatsappStaffIdentityResolver');
-    const roles = roleModel([{ messageId: 'm1', staffId: 's1', staffName: 'اسلام محمد', branch: 'فرع الشامي', confidence: 96 }]);
-    const result = await resolveStaffIdentity('د اسلام', roles, ['m1'], null);
-    expect(result.staffId).toBe('s1');
-    expect(result.identitySource).toBe('v15_resolved_id');
+  it('no completed identity cache survives archival',async()=>{
+    expect((await resolveWhatsAppStaffV6(['د اسلام فاروق'])).staff?.id).toBe('doctor');
+    state.rows[0].active=false;
+    expect((await resolveWhatsAppStaffV6(['د اسلام فاروق'])).staff).toBeNull();
+  });
+  it('a mismatched episode id remains conflict rather than overriding the canonical name',async()=>{
+    expect((await resolveStaffIdentity('د اسلام فاروق',roles('courier'),['m'],null)).status).toBe('conflict');
+  });
+  it('duplicate aliases for the same employee are one identity, not two people',()=>{
+    state.rows.push(alias('doctor','اسلام فاروق','اسلامفاروق'),alias('doctor','د. اسلام فاروق','اسلامفاروق'));
+    expect(resolveStaffDirectoryName('اسلام فاروق',state.rows).staff?.id).toBe('doctor');
   });
 });

@@ -95,6 +95,58 @@ export function normalizeDoctorName(value: unknown): string {
   return normalizeStaffName(String(value ?? ''));
 }
 
+/** Live name-only decision. Branch and role never break a conflicting identity claim. */
+export function resolveStaffDirectoryName(value: string, rows: StaffDirectoryIdentity[]): {
+  status: 'resolved' | 'conflict' | 'retired' | 'unresolved';
+  staff: StaffDirectoryIdentity | null;
+  candidates: StaffDirectoryIdentity[];
+  source: 'name' | 'alias' | 'account';
+} {
+  const key = (name: unknown) => normalizeDoctorName(name).replace(/\s+/g, '');
+  const target = key(value);
+  const empty = { staff: null, candidates: [], source: 'name' as const };
+  if (!target) return { ...empty, status: 'unresolved' };
+  const claims = rows.filter(row => row.source !== 'staff_account' || row.active);
+  const matched = new Set<StaffDirectoryIdentity>();
+  // Raw labels and legacy stored keys form one claim graph. Inconsistent keys
+  // cannot hide another owner merely because a different normalizer was used.
+  const byKey = new Map<string, StaffDirectoryIdentity[]>();
+  const keysByRow = new Map<StaffDirectoryIdentity, string[]>();
+  for (const row of claims) {
+    const rowKeys = [key(row.name), row.source === 'alias' ? key(row.normalizedAlias) : ''].filter(Boolean);
+    keysByRow.set(row, rowKeys);
+    for (const k of rowKeys) {
+      const bucket = byKey.get(k) || [];
+      bucket.push(row);
+      byKey.set(k, bucket);
+    }
+  }
+  const queue = [target];
+  const visited = new Set<string>();
+  for (let i = 0; i < queue.length; i++) {
+    const k = queue[i];
+    if (visited.has(k)) continue;
+    visited.add(k);
+    for (const row of byKey.get(k) || []) {
+      if (matched.has(row)) continue;
+      matched.add(row);
+      queue.push(...(keysByRow.get(row) || []));
+    }
+  }
+  const canonical = new Map(rows.filter(row => row.source === 'staff' && row.id).map(row => [row.id, row]));
+  const ids = [...new Set([...matched].map(row => row.id))];
+  const candidates = ids.flatMap(id => canonical.get(id) ? [canonical.get(id)!] : []);
+  const source = [...matched].some(row => row.source === 'alias') ? 'alias' :
+    [...matched].some(row => row.source === 'staff_account') ? 'account' : 'name';
+  if (!ids.length) return { ...empty, status: 'unresolved' };
+  if (ids.length > 1) return { status: 'conflict', staff: null, candidates, source };
+  const staff = canonical.get(ids[0]);
+  if (!staff || !staff.active || (staff.status && !['active', 'نشط'].includes(staff.status.toLowerCase()))) {
+    return { status: 'retired', staff: null, candidates, source };
+  }
+  return { status: 'resolved', staff, candidates, source };
+}
+
 function normalizeIdentifier(value: unknown): string {
   return String(value ?? '').trim();
 }
