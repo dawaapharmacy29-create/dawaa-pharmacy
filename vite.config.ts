@@ -72,6 +72,18 @@ export default defineConfig({
         // route-only dependencies (PDF tools, niche editors, etc.) inside lazy graphs.
         // A catch-all `vendor` chunk previously made lazy-only packages part of startup.
         manualChunks(id) {
+          const normalizedId = id.replace(/\\/g, '/');
+
+          // Reviews and App both use these runtime modules. Keep them in small shared chunks
+          // so the lazy Reviews chunk never has to import the App chunk that imports Reviews.
+          if (normalizedId.includes('/src/contexts/NavigationGuardContext'))
+            return 'navigation-guard';
+          if (normalizedId.includes('/src/lib/security/userDataScope')) return 'user-data-scope';
+          if (normalizedId.includes('/src/lib/pharmacy-cycle')) return 'pharmacy-cycle';
+          if (normalizedId.includes('/src/lib/notificationService')) return 'notification-service';
+          if (normalizedId.includes('/src/lib/activityLog')) return 'activity-log';
+          if (normalizedId.includes('/src/lib/utils')) return 'app-utils';
+
           if (id.includes('node_modules')) {
             if (id.includes('react-dom') || id.includes('react/') || id.includes('scheduler'))
               return 'react-core';
