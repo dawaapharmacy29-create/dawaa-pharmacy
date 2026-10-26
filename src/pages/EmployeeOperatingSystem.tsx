@@ -17,7 +17,7 @@ import {
 } from '@/lib/employeeDailyTasks';
 import { EMPLOYEE_OPERATING_ROLE_KEYS, getEmployeeRoleOperatingProfile } from '@/lib/employeeRoleOperatingProfiles';
 import { staffProfilePath } from '@/lib/staff/staffIdentityResolver';
-import { readStaffDirectory } from '@/lib/readModels/staffDirectoryReadModel';
+import { canonicalActiveStaff, readStaffDirectory } from '@/lib/readModels/staffDirectoryReadModel';
 
 const ALL = 'all';
 const PAGE_SIZE = 50;
@@ -206,8 +206,7 @@ export default function EmployeeOperatingSystem() {
 
   async function loadStaffForGeneration() {
     if (!isSupabaseConfigured) return [] as StaffRow[];
-    return (await readStaffDirectory())
-      .filter((row) => row.active)
+    return canonicalActiveStaff(await readStaffDirectory({ requireComplete: true }))
       .filter((row) => !scopedBranch || scopedBranch === ALL || normalizeBranchName(row.branch || '') === normalizeBranchName(scopedBranch))
       .filter((row) => !role || role === ALL || row.role === role)
       .slice(0, 200) as StaffRow[];

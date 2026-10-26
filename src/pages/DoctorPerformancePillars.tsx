@@ -41,7 +41,7 @@ export default function DoctorPerformancePillars() {
     () =>
       mergeStaffChoices(
         staffDirectory.filter(
-          (staff) => staff.source !== 'alias' && staff.active && Boolean(staff.id) && Boolean(staff.name)
+          (staff) => staff.source === 'staff' && staff.active && Boolean(staff.id) && Boolean(staff.name)
         )
       ),
     [staffDirectory]

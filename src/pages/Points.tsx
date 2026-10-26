@@ -59,6 +59,7 @@ import { logActivity, useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import { supabase } from '@/lib/supabase';
 import { canViewAllBranches, isDoctorRole, rowMatchesCurrentDoctor, rowMatchesCurrentUserScope } from '@/lib/security/userDataScope';
 import { staffProfilePath } from '@/lib/staff/staffIdentityResolver';
+import { buildUniquePointsStaffNames, resolvePointsStaffId } from '@/lib/pointsStaffIdentity';
 /* recharts will be dynamically imported inside the component to reduce initial bundle size */
 
 interface StaffMember {
@@ -227,36 +228,7 @@ export default function Points() {
     () => new Set(staffChoices.map((staff) => staff.id)),
     [staffChoices]
   );
-  const validStaffNames = useMemo(() => {
-    const set = new Set<string>();
-    for (const staff of staffChoices) {
-      const names = [staff.name, staff.original_name, staff.display_name].filter(
-        Boolean
-      ) as string[];
-      for (const rawName of names) {
-        const name = rawName.trim();
-        if (!name) continue;
-        set.add(name);
-        set.add(normalizeStaffLookupKey(name));
-      }
-    }
-    return set;
-  }, [staffChoices]);
-  const staffIdByName = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const staff of staffChoices) {
-      const names = [staff.name, staff.original_name, staff.display_name].filter(
-        Boolean
-      ) as string[];
-      for (const rawName of names) {
-        const name = rawName.trim();
-        if (name && !map.has(name)) map.set(name, staff.id);
-        const normalizedName = normalizeStaffLookupKey(name);
-        if (normalizedName && !map.has(normalizedName)) map.set(normalizedName, staff.id);
-      }
-    }
-    return map;
-  }, [staffChoices]);
+  const staffIdByName = useMemo(() => buildUniquePointsStaffNames(staffChoices), [staffChoices]);
   const canonicalRecords = useMemo(
     () =>
       (records || []).map((row) => {
@@ -311,17 +283,21 @@ export default function Points() {
 
   const validRecords = useMemo(
     () =>
-      canonicalRecords.filter((row) => {
-        const employeeId = String(row.employee_id || '').trim();
-        const employeeName = String(row.employee_name || '').trim();
-        return (
-          rowMatchesCurrentUserScope(user, row as unknown as Record<string, unknown>) &&
-          (validStaffIds.has(employeeId) ||
-            validStaffNames.has(employeeName) ||
-            validStaffNames.has(normalizeStaffLookupKey(employeeName)))
-        );
+      canonicalRecords.flatMap((row) => {
+        if (!rowMatchesCurrentUserScope(user, row as unknown as Record<string, unknown>)) return [];
+        const resolvedId = resolvePointsStaffId(row, validStaffIds, staffIdByName);
+        if (!resolvedId) return [];
+        // Display-only projection: do not write inferred ids back to historic records.
+        // Prevent downstream incentive functions from falling back to an ambiguous name.
+        return [{ ...row, staff_id: resolvedId, employee_id: resolvedId }];
       }),
-    [canonicalRecords, user, validStaffIds, validStaffNames]
+    [canonicalRecords, user, validStaffIds, staffIdByName]
+  );
+  const reviewOnlyRecords = useMemo(
+    () => canViewAllBranches(user)
+      ? canonicalRecords.filter((row) => rowMatchesCurrentUserScope(user, row as unknown as Record<string, unknown>) && !resolvePointsStaffId(row, validStaffIds, staffIdByName))
+      : [],
+    [canonicalRecords, user, validStaffIds, staffIdByName]
   );
   const cycleRecords = useMemo(
     () => validRecords.filter((row) => isRecordInCycle(row, cycle)) as PointRecord[],
@@ -357,18 +333,7 @@ export default function Points() {
   const myCycleRecords = approvedCycleRecords.filter((row) => rowMatchesCurrentDoctor(user, row as unknown as Record<string, unknown>));
 
   const staffCycleRecords = (staff: StaffMember) => {
-    const normalizedName = normalizeStaffLookupKey(staff.original_name || staff.name);
-    return approvedCycleRecords.filter((row) => {
-      const employeeName = String(row.employee_name || '').trim();
-      return (
-        row.employee_id === staff.id ||
-        row.staff_id === staff.id ||
-        employeeName === staff.name.trim() ||
-        employeeName === (staff.original_name || '').trim() ||
-        employeeName === (staff.display_name || '').trim() ||
-        normalizeStaffLookupKey(employeeName) === normalizedName
-      );
-    });
+    return approvedCycleRecords.filter((row) => resolvePointsStaffId(row, validStaffIds, staffIdByName) === staff.id);
   };
 
   const staffIncentiveSummary = (staff: StaffMember) => {
@@ -1058,11 +1023,15 @@ export default function Points() {
       )}
 
       {tab === 'records' && (
-        <RecordsTable
-          records={validRecords}
-          staffIdByName={staffIdByName}
-          validStaffIds={validStaffIds}
-        />
+        <div className="space-y-4">
+          <RecordsTable records={validRecords} staffIdByName={staffIdByName} validStaffIds={validStaffIds} />
+          {reviewOnlyRecords.length > 0 && (
+            <section className="space-y-2">
+              <p className="text-amber-300 text-sm">{reviewOnlyRecords.length} سجل هوية موظفه غير محسومة؛ معروض للمراجعة فقط وغير منسوب تلقائيًا إلى موظف.</p>
+              <RecordsTable records={reviewOnlyRecords} staffIdByName={staffIdByName} validStaffIds={validStaffIds} />
+            </section>
+          )}
+        </div>
       )}
       {tab === 'rules' && (
         <div className="space-y-5">
@@ -1156,13 +1125,7 @@ function RecordsTable({
           <tbody>
             {(records || []).map((row) => {
               const source = row.source_type || row.source;
-              const rawEmployeeId = String(row.employee_id || '').trim();
-              const employeeName = String(row.employee_name || '').trim();
-              const resolvedEmployeeId = validStaffIds.has(rawEmployeeId)
-                ? rawEmployeeId
-                : staffIdByName.get(employeeName) ||
-                  staffIdByName.get(normalizeStaffLookupKey(employeeName)) ||
-                  rawEmployeeId;
+              const resolvedEmployeeId = resolvePointsStaffId(row, validStaffIds, staffIdByName);
               const isConversationReview =
                 (source === 'conversation_evaluation' ||
                   source === 'conversation_review' ||
@@ -1174,7 +1137,7 @@ function RecordsTable({
               const isNeutral = !isBonusRecord(row) && !isDeductionRecord(row);
               return (
                 <tr key={row.id}>
-                  <td className="text-white font-medium">{row.employee_name}</td>
+                  <td className="text-white font-medium">{row.employee_name}{!resolvedEmployeeId && <span className="block text-amber-300 text-xs">هوية غير محسومة — مراجعة مطلوبة</span>}</td>
                   <td>
                     <span
                       className={

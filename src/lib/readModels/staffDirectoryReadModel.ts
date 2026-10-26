@@ -11,7 +11,43 @@ export type StaffDirectoryIdentity = {
   status: string | null;
   active: boolean;
   source: 'staff' | 'staff_account' | 'alias';
+  normalizedAlias?: string | null;
+  accountId?: string | null;
 };
+
+/**
+ * Decision/selection lists contain employees, never login accounts or search aliases.
+ * Keep the complete directory separately for identity matching and ambiguity checks.
+ */
+export function canonicalActiveStaff(rows: StaffDirectoryIdentity[]): StaffDirectoryIdentity[] {
+  const byId = new Map<string, StaffDirectoryIdentity>();
+  for (const row of rows) {
+    if (row.source !== 'staff' || !row.id || !row.name || !row.active) continue;
+    if (!byId.has(row.id)) byId.set(row.id, row);
+  }
+  return [...byId.values()];
+}
+
+/**
+ * Accept a canonical staff id, or a VERIFIED linked login-account id.
+ * A bare username or a similar name can never be promoted to a staff id here.
+ */
+export function canonicalStaffFromReference(
+  reference: string | null | undefined,
+  rows: StaffDirectoryIdentity[],
+): StaffDirectoryIdentity | null {
+  const input = String(reference || '').trim();
+  if (!input) return null;
+  const canonical = canonicalActiveStaff(rows);
+  const direct = canonical.find((row) => row.id === input);
+  if (direct) return direct;
+
+  const linkedIds = new Set(rows
+    .filter((row) => row.source === 'staff_account' && row.active && row.accountId === input && row.id)
+    .map((row) => row.id as string));
+  if (linkedIds.size !== 1) return null;
+  return canonical.find((row) => linkedIds.has(row.id as string)) || null;
+}
 
 type Row = Record<string, unknown>;
 let inFlightDirectoryRead: Promise<StaffDirectoryIdentity[]> | null = null;
@@ -89,7 +125,7 @@ export async function loadStaffDirectoryFrom(
     client.rpc('get_staff_accounts_directory'),
     client
       .from('staff_identity_aliases')
-      .select('staff_id,alias_name,active,confidence,priority')
+      .select('staff_id,alias_name,normalized_alias,active,confidence,priority')
       .eq('active', true)
       .limit(2000),
   ]);
@@ -127,19 +163,31 @@ export async function loadStaffDirectoryFrom(
         identityFromRow(row, ['staff_id'], ['staff_name', 'name'], 'staff_account')
       );
 
-  const baseRows = uniqueBaseIdentities([...staffRows, ...accountRows]);
+  // Complete identity decisions cannot manufacture a person from an orphan login.
+  const baseRows = options.requireComplete ? staffRows : uniqueBaseIdentities([...staffRows, ...accountRows]);
   const byId = new Map(baseRows.filter((row) => row.id).map((row) => [row.id as string, row]));
+  const accountEvidence = options.requireComplete && !accountResult.error
+    ? ((accountResult.data ?? []) as Row[]).flatMap((raw) => {
+        const row = identityFromRow(raw, ['staff_id'], ['staff_name', 'name'], 'staff_account');
+        const base = byId.get(row.id || '');
+        if (!base || !row.active || !base.active) return [];
+        return [{ ...row, branch: base.branch, accountId: text(raw.account_id || raw.id) || null }];
+      })
+    : [];
 
   const aliases: StaffDirectoryIdentity[] = aliasResult.error
     ? []
     : ((aliasResult.data ?? []) as Row[]).flatMap((alias) => {
         const base = byId.get(text(alias.staff_id));
         const aliasName = text(alias.alias_name);
-        if (!base || !aliasName || base.active === false) return [];
-        return [{ ...base, name: aliasName, source: 'alias' as const }];
+        if (!aliasName) return [];
+        if (!options.requireComplete && (!base || base.active === false)) return [];
+        // Retired/orphan claims remain blockers for live name-only attribution.
+        return [{ ...(base || { id: text(alias.staff_id) || null, branch: null, role: null, username: null, status: null, active: false }),
+          name: aliasName, normalizedAlias: text(alias.normalized_alias) || null, source: 'alias' as const }];
       });
 
-  return [...baseRows, ...aliases];
+  return [...baseRows, ...accountEvidence, ...aliases];
 }
 
 /**
@@ -151,7 +199,11 @@ export async function loadStaffDirectoryFrom(
  * the same three directory requests repeatedly during a single render wave.
  * No completed-result cache is retained, preserving fresh RLS/session semantics.
  */
-export async function readStaffDirectory(): Promise<StaffDirectoryIdentity[]> {
+export async function readStaffDirectory(options: { requireComplete?: boolean } = {}): Promise<StaffDirectoryIdentity[]> {
+  if (options.requireComplete) {
+    if (!isSupabaseConfigured) throw new Error('staff_directory_incomplete: not_configured');
+    return loadStaffDirectoryFrom(supabase, options);
+  }
   if (!isSupabaseConfigured) return [];
   if (inFlightDirectoryRead) return inFlightDirectoryRead;
 

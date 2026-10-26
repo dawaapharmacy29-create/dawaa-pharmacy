@@ -65,7 +65,7 @@ export default function TimeOff() {
   const canConfigureAnnualLeave = ['general_manager', 'executive_manager', 'branches_manager'].includes(user?.role || '');
   const { data: staffDirectory = [] } = useStaffDirectory();
   const staffChoices = useMemo(
-    () => mergeStaffChoices(staffDirectory.filter((item) => item.source !== 'alias' && item.active && Boolean(item.id) && Boolean(item.name))),
+    () => mergeStaffChoices(staffDirectory.filter((item) => item.source === 'staff' && item.active && Boolean(item.id) && Boolean(item.name))),
     [staffDirectory]
   );
   const availableStaff = useMemo(() => {
