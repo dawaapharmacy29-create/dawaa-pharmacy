@@ -3,27 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const hasSupabaseConfig = Boolean(supabaseUrl && supabaseAnonKey);
-const AUTH_STORAGE_KEY = 'dawaa_auth_user_v2';
 // Owned here (not in auth/staffSession) so the fetch wrapper has no circular import.
 export const STAFF_SESSION_STORAGE_KEY = 'dawaa_staff_session_token_v1';
-
-function readStoredUserId(): string | null {
-  if (typeof window === 'undefined' || typeof localStorage === 'undefined') return null;
-
-  try {
-    const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as { id?: unknown; username?: unknown; staff_id?: unknown };
-    const candidate = [parsed.id, parsed.staff_id, parsed.username].find(
-      (value) => typeof value === 'string' && value.trim().length > 0
-    );
-    if (typeof candidate !== 'string') return null;
-    const normalized = candidate.trim();
-    return normalized.length <= 160 ? normalized : null;
-  } catch {
-    return null;
-  }
-}
 
 export function readStoredStaffSessionToken(): string | null {
   if (typeof window === 'undefined' || typeof localStorage === 'undefined') return null;
@@ -35,15 +16,13 @@ export function readStoredStaffSessionToken(): string | null {
   }
 }
 
-// Identity contract: the database trusts only `x-dawaa-session-token` (verified against
-// staff_login_sessions). `x-dawaa-user-id` is a non-authoritative hint kept for the rollout window
-// before migration 20261008120000; the server no longer reads it after that migration.
+// Identity contract: the only identity the browser sends is the opaque `x-dawaa-session-token`,
+// verified by the database against staff_login_sessions. No client-chosen identity header is sent
+// (20261017090000/090100 removed the last database readers of the former user-id hint header).
 export function buildDawaaRequestHeaders(initHeaders?: HeadersInit): Headers {
   const headers = new Headers(initHeaders);
   const sessionToken = readStoredStaffSessionToken();
   if (sessionToken) headers.set('x-dawaa-session-token', sessionToken);
-  const userId = readStoredUserId();
-  if (userId) headers.set('x-dawaa-user-id', userId);
   return headers;
 }
 

@@ -1,0 +1,413 @@
+{
+ "phase": "pre",
+ "pass": 58,
+ "fail": 0,
+ "results": [
+  {
+   "group": "C no-session",
+   "name": "statements visible",
+   "ctx": "{}",
+   "value": "0",
+   "ok": true
+  },
+  {
+   "group": "C no-session",
+   "name": "compensation visible",
+   "ctx": "{}",
+   "value": "0",
+   "ok": true
+  },
+  {
+   "group": "C no-session",
+   "name": "staff visible",
+   "ctx": "{}",
+   "value": "0",
+   "ok": true
+  },
+  {
+   "group": "C no-session",
+   "name": "weekly evaluations visible",
+   "ctx": "{}",
+   "value": "0",
+   "ok": true
+  },
+  {
+   "group": "C no-session",
+   "name": "insert monthly statement",
+   "ctx": "{}",
+   "value": "ERROR: new row violates row-level security policy for table \"employee_monthly_statements\"",
+   "ok": true
+  },
+  {
+   "group": "C no-session",
+   "name": "has_active_app_session()",
+   "ctx": "{}",
+   "value": "f",
+   "ok": true
+  },
+  {
+   "group": "D forged-header",
+   "name": "current_staff_id_v1 = GM staff id",
+   "ctx": "{\"forged\":\"a1000000-0000-4000-8000-000000000001\"}",
+   "value": "51000000-0000-4000-8000-000000000001",
+   "ok": true
+  },
+  {
+   "group": "D forged-header",
+   "name": "notification account = GM",
+   "ctx": "{\"forged\":\"a1000000-0000-4000-8000-000000000001\"}",
+   "value": "a1000000-0000-4000-8000-000000000001",
+   "ok": true
+  },
+  {
+   "group": "D forged-header",
+   "name": "has_active_app_session",
+   "ctx": "{\"forged\":\"a1000000-0000-4000-8000-000000000001\"}",
+   "value": "t",
+   "ok": true
+  },
+  {
+   "group": "D forged-header",
+   "name": "payroll statement of impersonated victim readable",
+   "ctx": "{\"forged\":\"a1000000-0000-4000-8000-000000000001\"}",
+   "value": "51000000-0000-4000-8000-000000000001",
+   "ok": true
+  },
+  {
+   "group": "D forged-header",
+   "name": "compensation of impersonated victim readable",
+   "ctx": "{\"forged\":\"a1000000-0000-4000-8000-000000000001\"}",
+   "value": "1",
+   "ok": true
+  },
+  {
+   "group": "D forged-header",
+   "name": "employee events of victim readable",
+   "ctx": "{\"forged\":\"a1000000-0000-4000-8000-000000000001\"}",
+   "value": "1",
+   "ok": true
+  },
+  {
+   "group": "D forged-header",
+   "name": "staff readable",
+   "ctx": "{\"forged\":\"a1000000-0000-4000-8000-000000000001\"}",
+   "value": "5",
+   "ok": true
+  },
+  {
+   "group": "D forged-header",
+   "name": "weekly evaluations of victim readable",
+   "ctx": "{\"forged\":\"a1000000-0000-4000-8000-000000000001\"}",
+   "value": "1",
+   "ok": true
+  },
+  {
+   "group": "D forged-header",
+   "name": "insert monthly statement (write)",
+   "ctx": "{\"forged\":\"a1000000-0000-4000-8000-000000000001\"}",
+   "value": "ERROR: new row violates row-level security policy for table \"employee_monthly_statements\"",
+   "ok": true
+  },
+  {
+   "group": "D forged-header",
+   "name": "update victim daily checklist (write)",
+   "ctx": "{\"forged\":\"a1000000-0000-4000-8000-000000000001\"}",
+   "value": "1",
+   "ok": true
+  },
+  {
+   "group": "D forged-header",
+   "name": "delete weekly evaluations (write)",
+   "ctx": "{\"forged\":\"a1000000-0000-4000-8000-000000000001\"}",
+   "value": "0",
+   "ok": true
+  },
+  {
+   "group": "D forged-header+session",
+   "name": "PH2 session + GM header: whose statement",
+   "ctx": "{\"session\":\"ph2\",\"forged\":\"a1000000-0000-4000-8000-000000000001\"}",
+   "value": "51000000-0000-4000-8000-000000000001",
+   "ok": true
+  },
+  {
+   "group": "D forged-header+session",
+   "name": "PH2 session + GM header: identity",
+   "ctx": "{\"session\":\"ph2\",\"forged\":\"a1000000-0000-4000-8000-000000000001\"}",
+   "value": "51000000-0000-4000-8000-000000000001",
+   "ok": true
+  },
+  {
+   "group": "A manager",
+   "name": "GM identity from session only",
+   "ctx": "{\"session\":\"gm\"}",
+   "value": "<null>",
+   "ok": true
+  },
+  {
+   "group": "A manager",
+   "name": "GM notification account",
+   "ctx": "{\"session\":\"gm\"}",
+   "value": "",
+   "ok": true
+  },
+  {
+   "group": "A manager",
+   "name": "GM has_active_app_session",
+   "ctx": "{\"session\":\"gm\"}",
+   "value": "f",
+   "ok": true
+  },
+  {
+   "group": "A manager",
+   "name": "GM reads all statements",
+   "ctx": "{\"session\":\"gm\"}",
+   "value": "0",
+   "ok": true
+  },
+  {
+   "group": "A manager",
+   "name": "GM reads all compensation",
+   "ctx": "{\"session\":\"gm\"}",
+   "value": "0",
+   "ok": true
+  },
+  {
+   "group": "A manager",
+   "name": "GM reads all weekly evaluations",
+   "ctx": "{\"session\":\"gm\"}",
+   "value": "0",
+   "ok": true
+  },
+  {
+   "group": "A manager",
+   "name": "GM inserts monthly statement",
+   "ctx": "{\"session\":\"gm\"}",
+   "value": "ERROR: new row violates row-level security policy for table \"employee_monthly_statements\"",
+   "ok": true
+  },
+  {
+   "group": "A manager",
+   "name": "GM sets branch sales target",
+   "ctx": "{\"session\":\"gm\"}",
+   "value": "123456",
+   "ok": true
+  },
+  {
+   "group": "A manager",
+   "name": "GM sets target with p_actor_id NULL",
+   "ctx": "{\"session\":\"gm\"}",
+   "value": "123457",
+   "ok": true
+  },
+  {
+   "group": "A manager",
+   "name": "GM queue scope",
+   "ctx": "{\"session\":\"gm\"}",
+   "value": "ALL",
+   "ok": true
+  },
+  {
+   "group": "B staff",
+   "name": "PH1 reads own statement only",
+   "ctx": "{\"session\":\"ph1\"}",
+   "value": "0",
+   "ok": true
+  },
+  {
+   "group": "B staff",
+   "name": "PH1 reads own compensation only",
+   "ctx": "{\"session\":\"ph1\"}",
+   "value": "0",
+   "ok": true
+  },
+  {
+   "group": "B staff",
+   "name": "PH1 reads own weekly evaluation only",
+   "ctx": "{\"session\":\"ph1\"}",
+   "value": "0",
+   "ok": true
+  },
+  {
+   "group": "B staff",
+   "name": "PH1 cannot insert statement",
+   "ctx": "{\"session\":\"ph1\"}",
+   "value": "ERROR: new row violates row-level security policy for table \"employee_monthly_statements\"",
+   "ok": true
+  },
+  {
+   "group": "B staff",
+   "name": "PH1 cannot set sales target",
+   "ctx": "{\"session\":\"ph1\"}",
+   "value": "ERROR: ليس لديك صلاحية تعديل تارجت الفروع",
+   "ok": true
+  },
+  {
+   "group": "B staff",
+   "name": "PH1 updates only own checklist",
+   "ctx": "{\"session\":\"ph1\"}",
+   "value": "0",
+   "ok": true
+  },
+  {
+   "group": "E forged-actor",
+   "name": "PH1 session + p_actor_id=GM sets sales target",
+   "ctx": "{\"session\":\"ph1\"}",
+   "value": "999",
+   "ok": true
+  },
+  {
+   "group": "E forged-actor",
+   "name": "no session + p_actor_id=GM sets sales target",
+   "ctx": "{}",
+   "value": "998",
+   "ok": true
+  },
+  {
+   "group": "E forged-actor",
+   "name": "no session save_branch_sales_target_v2(GM)",
+   "ctx": "{}",
+   "value": "t",
+   "ok": true
+  },
+  {
+   "group": "E forged-actor",
+   "name": "PH2 session queue scope as GM",
+   "ctx": "{\"session\":\"ph2\"}",
+   "value": "ALL",
+   "ok": true
+  },
+  {
+   "group": "E forged-actor",
+   "name": "PH2 session queue scope equals own scope",
+   "ctx": "{\"session\":\"ph2\"}",
+   "value": "f",
+   "ok": true
+  },
+  {
+   "group": "E forged-actor",
+   "name": "no session app_staff_role(GM)",
+   "ctx": "{}",
+   "value": "general_manager",
+   "ok": true
+  },
+  {
+   "group": "E forged-actor",
+   "name": "no session app_role_allowed(GM, managers)",
+   "ctx": "{}",
+   "value": "t",
+   "ok": true
+  },
+  {
+   "group": "E forged-actor",
+   "name": "PH1 can_manage_customer_intelligence(GM)",
+   "ctx": "{\"session\":\"ph1\"}",
+   "value": "t",
+   "ok": true
+  },
+  {
+   "group": "E forged-actor",
+   "name": "PH1 can_manage_branch_targets(GM)",
+   "ctx": "{\"session\":\"ph1\"}",
+   "value": "t",
+   "ok": true
+  },
+  {
+   "group": "E forged-actor",
+   "name": "no session review_row_v2(GM, other staff)",
+   "ctx": "{}",
+   "value": "t",
+   "ok": true
+  },
+  {
+   "group": "E forged-actor",
+   "name": "no session set_branch_daily_task_status approve",
+   "ctx": "{}",
+   "value": "approved",
+   "ok": true
+  },
+  {
+   "group": "E forged-actor",
+   "name": "no session submit loyalty internal (GM)",
+   "ctx": "{}",
+   "value": "ERROR: إعداد نقاط العميل غير موجود أو غير مفعل.",
+   "ok": true
+  },
+  {
+   "group": "E forged-actor",
+   "name": "no session calculate loyalty internal (GM)",
+   "ctx": "{}",
+   "value": "ERROR: إعداد نقاط العميل غير موجود أو غير مفعل.",
+   "ok": true
+  },
+  {
+   "group": "E forged-actor",
+   "name": "no session insert points ledger internal",
+   "ctx": "{}",
+   "value": "(cf6a28e9-a896-4af0-9ecb-370ee009ca41,,,,,,,credit,manual,,,,,a1000000-0000-4000-8000-000000000001,,\"2026-10-16 21:03:14.914232+00\",,,,,,,,{},,f,,)",
+   "ok": true
+  },
+  {
+   "group": "E forged-actor",
+   "name": "no session upsert loyalty setting internal",
+   "ctx": "{}",
+   "value": "(956d9e50-e7cd-45dc-8c7f-b590bb07137c,,,,,,0.05,3,automatic,2026-10-16,,,,t,a1000000-0000-4000-8000-000000000001,,\"2026-10-16 21:03:15.159708+00\",\"2026-10-16 21",
+   "ok": true
+  },
+  {
+   "group": "E forged-actor",
+   "name": "PH2 weekly subjects as GM",
+   "ctx": "{\"session\":\"ph2\"}",
+   "value": "0",
+   "ok": true
+  },
+  {
+   "group": "F cross-branch",
+   "name": "PH2 (shamy) reads shokry statements",
+   "ctx": "{\"session\":\"ph2\"}",
+   "value": "0",
+   "ok": true
+  },
+  {
+   "group": "F cross-branch",
+   "name": "BM (shokry) cannot update PH2 checklist",
+   "ctx": "{\"session\":\"bm\"}",
+   "value": "0",
+   "ok": true
+  },
+  {
+   "group": "F cross-branch",
+   "name": "BM (shokry) cannot insert weekly evaluation",
+   "ctx": "{\"session\":\"bm\"}",
+   "value": "ERROR: new row violates row-level security policy for table \"manager_weekly_evaluations\"",
+   "ok": true
+  },
+  {
+   "group": "F cross-branch",
+   "name": "PH2 queue scope is own branch only",
+   "ctx": "{\"session\":\"ph2\"}",
+   "value": "فرع الشامي",
+   "ok": true
+  },
+  {
+   "group": "S server",
+   "name": "service_role bind passthrough uuid",
+   "ctx": "{\"role\":\"service_role\"}",
+   "value": "ERROR: function public.dawaa_bind_actor_v1(uuid) does not exist",
+   "ok": true
+  },
+  {
+   "group": "S server",
+   "name": "service_role bind passthrough text",
+   "ctx": "{\"role\":\"service_role\"}",
+   "value": "ERROR: function public.dawaa_bind_actor_v1(text) does not exist",
+   "ok": true
+  },
+  {
+   "group": "S server",
+   "name": "service_role can still call loyalty internal",
+   "ctx": "{\"role\":\"service_role\"}",
+   "value": "t",
+   "ok": true
+  }
+ ]
+}
