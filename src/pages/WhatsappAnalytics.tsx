@@ -117,7 +117,7 @@ export default function WhatsappAnalytics() {
   const staffRows = useMemo(
     () =>
       staffDirectory.filter(
-        (staff) => staff.source !== 'alias' && staff.active && Boolean(staff.id) && Boolean(staff.name)
+        (staff) => staff.source === 'staff' && staff.active && Boolean(staff.id) && Boolean(staff.name)
       ) as StaffDirectoryRow[],
     [staffDirectory]
   );

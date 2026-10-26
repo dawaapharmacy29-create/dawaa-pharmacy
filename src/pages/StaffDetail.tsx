@@ -29,7 +29,7 @@ export default function StaffDetail() {
   useEffect(() => {
     let active = true;
     readStaffDirectory()
-      .then((rows) => { if (active) setStaffOptions(rows.filter((row) => row.id && row.active)); })
+      .then((rows) => { if (active) setStaffOptions(rows.filter((row) => row.source === 'staff' && row.id && row.active)); })
       .catch(() => { if (active) setStaffOptions([]); });
     return () => { active = false; };
   }, []);

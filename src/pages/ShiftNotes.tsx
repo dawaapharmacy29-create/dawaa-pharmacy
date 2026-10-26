@@ -87,7 +87,7 @@ export default function ShiftNotesV2() {
   const staffChoices = useMemo(
     () =>
       selectableStaffChoices(
-        staffDirectory.filter((item) => item.source !== 'alias' && item.active) as unknown as Record<string, unknown>[]
+        staffDirectory.filter((item) => item.source === 'staff' && item.active) as unknown as Record<string, unknown>[]
       ),
     [staffDirectory]
   );
