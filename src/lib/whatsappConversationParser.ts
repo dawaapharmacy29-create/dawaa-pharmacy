@@ -48,6 +48,8 @@ export interface WhatsAppParsedMessage {
 
 export interface WhatsAppConversationSession {
   id: string;
+  /** Verified new issue boundary from canonical segmentation, not merely an idle gap. */
+  startsNewCase?: boolean;
   startedAt: Date;
   endedAt: Date;
   messages: WhatsAppParsedMessage[];
@@ -82,8 +84,8 @@ type ParsedPrefix = {
 const STAFF_INTRO_PATTERNS = [
   /(?:مع\s+حضرتك|معاك(?:ي)?)\s+(?:(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*)?([^\n،,.]+?)\s+من\s+فرع\s+(?:شكري|الشامي)(?=[\s،,.!?؟]|$)/i,
   /مع\s+حضرتك\s+(?:(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*)?([^\n،,.]+?)\s+من\s+(?:خدمة\s*(?:ال)?عملاء(?:\s+(?:صيدليات\s+)?دواء)?|صيدليات\s+دواء)/i,
-  /مع حضرتك\s+(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*([^\n،,.]+)/i,
-  /معاك(?:ي)?\s+(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*([^\n،,.]+)/i,
+  /مع حضرتك\s+(?:دكتور(?:ة)?\s+|دكتوره\s+|د(?:[./-]\s*|\s+))([^\n،,.]+)/i,
+  /معاك(?:ي)?\s+(?:دكتور(?:ة)?\s+|دكتوره\s+|د(?:[./-]\s*|\s+))([^\n،,.]+)/i,
   /(?:د\.?|دكتور(?:ة)?|دكتوره)\s+([^\n،,.]+)\s+من\s+(?:خدمة (?:ال)?عملاء|صيدليات)\s+دواء/i,
 ];
 const PHARMACY_TEXT_RX =

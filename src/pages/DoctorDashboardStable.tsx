@@ -25,6 +25,7 @@ import { loadSalesAnalyticsSummary, type SalesAnalyticsSummary } from '@/lib/sal
 import DoctorRequestedFollowups from '@/components/doctor/DoctorRequestedFollowups';
 import DoctorVouchers from '@/components/doctor/DoctorVouchers';
 import { getEmployeeEvents } from '@/lib/employeeEventService';
+import { isOfficialConversationReview } from '@/lib/evaluations/officialConversationReview';
 import {
   listStaffNotifications,
   markAllStaffNotificationsRead,
@@ -42,6 +43,8 @@ type PersonalReview = {
   id: string; createdAt: string; kind: string; score: number; impact: number;
   positive: string; negative: string; notes: string; training: string; reviewer: string;
   repeatCount: number; repeatedErrorType: string;
+  /** Officially approved (human or manager-approved automatic) — the only reviews that score. */
+  official: boolean;
 };
 type EmployeeEvent = { id: string; title?: string; description?: string; category?: string; actor_name?: string; points_delta?: number; money_delta?: number; route?: string; event_at?: string };
 
@@ -383,6 +386,7 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
       positive: text(row.main_positive_reason), negative: text(row.main_negative_reason), notes: text(row.reviewer_notes),
       training: text(row.training_recommendation), reviewer: text(reviewerDisplayName(row, 'مراجع خدمة العملاء')),
       repeatCount: number(row.repeat_count), repeatedErrorType: text(row.repeated_error_type),
+      official: isOfficialConversationReview(row),
     })));
     setPart('reviews', 'success');
     } catch {
@@ -596,7 +600,9 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
     const days = (new Date(expiry).getTime() - Date.now()) / 86400000;
     return Number.isFinite(days) && days <= 30;
   });
-  const reviewAverage = reviews.length ? reviews.reduce((sum, item) => sum + item.score, 0) / reviews.length : 0;
+  // Every review stays listed; only officially approved ones form the average (null = under review).
+  const officialReviews = reviews.filter((item) => item.official);
+  const reviewAverage = officialReviews.length ? officialReviews.reduce((sum, item) => sum + item.score, 0) / officialReviews.length : null;
   const moreHasAttention = openAssignments.length > 0;
   const activeInMore = MORE_TABS.some(([key]) => key === tab);
 
@@ -757,7 +763,7 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
             </button>
             <button onClick={() => selectTab('reviews')} className="rounded-2xl border p-4 text-right transition" style={surface}>
               <div className="flex items-center gap-2 font-black text-teal-200"><ClipboardCheck size={18} /> متوسط تقييماتي</div>
-              <div className="mt-2 text-2xl font-black text-white">{reviews.length ? `${reviewAverage.toFixed(1)}%` : 'افتح التقييمات'}</div>
+              <div className="mt-2 text-2xl font-black text-white">{reviewAverage != null ? `${reviewAverage.toFixed(1)}%` : reviews.length ? 'قيد المراجعة' : 'افتح التقييمات'}</div>
               <p className="mt-1 text-xs" style={mutedText}>كل تقييم جديد يظهر لك مع نقاط القوة والتحسين.</p>
             </button>
             <button
@@ -980,7 +986,7 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
           {reviews.length ? (
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
               <Metric label="عدد التقييمات" value={String(reviews.length)} icon={ClipboardCheck} />
-              <Metric label="متوسط التقييم" value={`${reviewAverage.toFixed(1)}%`} icon={Star} progress={reviewAverage} />
+              <Metric label="متوسط التقييم" value={reviewAverage != null ? `${reviewAverage.toFixed(1)}%` : 'قيد المراجعة'} icon={Star} progress={reviewAverage ?? 0} />
               <Metric label="إجمالي تأثير النقاط" value={String(reviews.reduce((sum, item) => sum + item.impact, 0))} icon={Award} />
             </div>
           ) : null}

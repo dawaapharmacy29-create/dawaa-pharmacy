@@ -53,6 +53,32 @@ describe('ConversationUnderstandingV32 (Shadow Mode, read-only, facts-only)', ()
     expect(shampooTrigger?.text).toContain('شامبو');
   });
 
+  it('keeps a delayed branded pharmacy farewell in the complaint case without inventing an information-only case', () => {
+    const raw = `[9/27/26, 7:10:00 PM] Customer: المندوب اتكلم معايا بطريقة مش مقبولة
+[9/27/26, 7:13:00 PM] You: صعدت الموضوع للإدارة وهنكلم حضرتك في أقرب فرصة
+[9/27/26, 7:22:00 PM] You: هستأذن حضرتك في أقرب فرصة أتصل على حضرتك
+[9/27/26, 11:12:43 PM] You: صيدليات دواء تتشرف بخدمة حضرتك دائما 💚\nالأقرب إليك… ونهتم بصحتك دائمًا. 🌿`;
+    const session = oneSession(raw, Number.MAX_SAFE_INTEGER);
+    const understanding = buildConversationUnderstandingV32(session);
+    expect(understanding.interactions).toHaveLength(1);
+    expect(understanding.interactions[0].messageIds).toHaveLength(4);
+  });
+
+  it('still opens a new interaction for a genuine customer request after a long gap', () => {
+    const raw = `[9/27/26, 7:10:00 PM] Customer: المندوب اتكلم معايا بطريقة مش مقبولة
+[9/27/26, 7:13:00 PM] You: صعدت الموضوع للإدارة
+[9/27/26, 11:12:43 PM] Customer: عايزة علبة لبن هيرو بيبي 2`;
+    const session = oneSession(raw, Number.MAX_SAFE_INTEGER);
+    expect(buildConversationUnderstandingV32(session).interactions).toHaveLength(2);
+  });
+
+  it('does not attach branded courtesy to an unrelated case several days later', () => {
+    const raw = `[9/27/26, 7:10:00 PM] Customer: المندوب اتكلم معايا بطريقة مش مقبولة
+[9/30/26, 11:12:43 PM] You: صيدليات دواء تتشرف بخدمة حضرتك دائما 💚`;
+    const session = oneSession(raw, Number.MAX_SAFE_INTEGER);
+    expect(buildConversationUnderstandingV32(session).interactions).toHaveLength(2);
+  });
+
   it('keeps a single interaction when messages are close in time with no topic gap', () => {
     const raw = `[9/15/26, 9:00:00 AM] Customer: عايز فيتامين د
 [9/15/26, 9:01:00 AM] You: متوفر بسعر 250 جنيه

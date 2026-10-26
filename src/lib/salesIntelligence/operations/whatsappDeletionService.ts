@@ -66,6 +66,26 @@ const ERROR_LABELS: Record<string, string> = {
   whatsapp_source_not_found: 'المحادثة غير موجودة.',
   whatsapp_deletion_not_found: 'سجل الحذف غير موجود.',
   whatsapp_deletion_scope_invalid: 'نطاق الحذف غير صالح.',
+  whatsapp_candidate_reason_required: 'اكتب سبب تصحيح ربط الفاتورة (10 أحرف على الأقل).',
+  whatsapp_candidate_confirmation_required: 'للتأكيد اكتب «تصحيح ربط الفاتورة» كما هي.',
+  whatsapp_candidate_request_key_invalid: 'مُعرّف عملية التصحيح غير صالح.',
+  whatsapp_candidate_request_key_conflict: 'هذا الطلب مرتبط بمحادثة أخرى.',
+  whatsapp_candidate_confirmed_link_requires_financial_review: 'هذا الارتباط معتمد بالفعل ويحتاج مصالحة مالية موثقة.',
+  whatsapp_candidate_changed_since_preview: 'تغيّر مرشح الفاتورة؛ أعد المعاينة.',
+  whatsapp_candidate_other_protected_work: 'توجد أدلة مالية أو مراجعات معتمدة أخرى؛ لا يمكن فصل المرشح آليًا.',
+  whatsapp_candidate_case_attribution_requires_review: 'توجد نسبة فاتورة على مستوى الحالة؛ يلزم تدقيق مستقل.',
+  whatsapp_gm_change_invalid_operation: 'نوع التصحيح المطلوب غير صالح.',
+  whatsapp_gm_change_reason_required: 'يلزم سبب تفصيلي لا يقل عن 10 أحرف.',
+  whatsapp_gm_change_invalid_request_key: 'مُعرّف عملية التصحيح غير صالح.',
+  whatsapp_gm_change_request_key_conflict: 'رقم الطلب مستخدم لتصحيح آخر.',
+  whatsapp_gm_change_invalid_payload: 'تفاصيل التعديل غير صالحة.',
+  whatsapp_gm_change_preview_stale: 'تغيّر الأثر منذ المعاينة؛ أعد المعاينة قبل التأكيد.',
+  whatsapp_gm_change_not_found: 'طلب التصحيح غير موجود.',
+  whatsapp_gm_change_confirmation_required: 'للتأكيد اكتب «أؤكد التصحيح المعتمد» كما هي.',
+  whatsapp_gm_change_already_confirmed: 'تم تأكيد التصحيح مسبقًا بمُعرّف مختلف.',
+  whatsapp_gm_change_not_pending: 'هذا الطلب لم يعد معلقًا للتأكيد.',
+  whatsapp_gm_change_not_cancellable: 'لا يمكن إلغاء هذا الطلب بعد بدء التنفيذ.',
+  whatsapp_gm_change_requires_command: 'لا يمكن تغيير حالة الطلب خارج أمر المدير العام المؤمّن.',
 };
 
 export function deletionErrorMessage(error: unknown): string {
@@ -84,6 +104,101 @@ export function newDeletionRequestKey(): string {
     ? crypto.randomUUID()
     : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   return `del-${random}`;
+}
+
+/** Only removes an unconfirmed automatic candidate. Never edits an invoice or a proven attribution. */
+export async function clearUnconfirmedWhatsAppInvoiceCandidate(
+  client: Client,
+  input: { sourceId: string; expectedId: string; expectedNumber: string; reason: string; requestKey: string }
+): Promise<{ auditId: string; status: 'corrected' | 'replayed' | 'already_clear' }> {
+  const data = await call(client, 'dawaa_clear_whatsapp_unconfirmed_invoice_candidate_v1', {
+    p_source_id: input.sourceId,
+    p_expected_candidate_id: input.expectedId,
+    p_expected_invoice_number: input.expectedNumber,
+    p_reason: input.reason,
+    p_confirmation: 'تصحيح ربط الفاتورة',
+    p_request_key: input.requestKey,
+  });
+  if (data.ok !== true || !['corrected', 'replayed', 'already_clear'].includes(data.status)) {
+    throw new Error('لم يؤكد الخادم تصحيح المرشح.');
+  }
+  if (data.status !== 'already_clear' && !data.auditId) throw new Error('لم يرجع الخادم سجل تدقيق التصحيح.');
+  return { auditId: String(data.auditId ?? ''), status: data.status };
+}
+
+/** First approval: stores immutable impact and intent. Does not delete/edit approved evidence. */
+export async function requestProtectedWhatsAppChange(client: Client, input: {
+  scope: WhatsAppDeletionScope; sourceId: string; caseId?: string | null;
+  expectedFingerprint: string; reason: string; requestKey: string;
+}): Promise<{ requestId: string; status: 'pending_confirmation'; replayed: boolean }> {
+  const data = await call(client, 'dawaa_request_whatsapp_gm_change_v1', {
+    p_operation: input.scope === 'case' ? 'delete_case' : 'delete_conversation',
+    p_source_id: input.sourceId,
+    p_case_id: input.scope === 'case' ? input.caseId : null,
+    p_proposed_values: {},
+    p_reason: input.reason,
+    p_expected_fingerprint: input.expectedFingerprint,
+    p_request_key: input.requestKey,
+  });
+  if (data.ok !== true || data.status !== 'pending_confirmation' || !data.requestId) {
+    throw new Error('لم يؤكد الخادم تسجيل طلب التصحيح المعتمد.');
+  }
+  return { requestId: String(data.requestId), status: data.status, replayed: data.replayed === true };
+}
+
+/** Second explicit confirmation. Still pending reconciliation: never a financial execution. */
+export async function confirmProtectedWhatsAppChange(client: Client, input: {
+  requestId: string; reason: string; confirmation: string; requestKey: string;
+}): Promise<{ requestId: string; status: 'approved_pending_reconciliation'; applied: false }> {
+  const data = await call(client, 'dawaa_confirm_whatsapp_gm_change_v1', {
+    p_request_id: input.requestId,
+    p_confirmation: input.confirmation,
+    p_reason: input.reason,
+    p_request_key: input.requestKey,
+  });
+  if (data.ok !== true || data.status !== 'approved_pending_reconciliation' || data.applied !== false
+      || data.settlementRequired !== true || !data.requestId) {
+    throw new Error('لم يؤكد الخادم تسجيل الموافقة المعلقة للتسوية.');
+  }
+  return { requestId: String(data.requestId), status: data.status, applied: false };
+}
+
+export interface ProtectedWhatsAppChangeRow {
+  id: string;
+  sourceId: string;
+  caseId: string | null;
+  operation: 'delete_case' | 'delete_conversation' | 'edit_case' | 'edit_conversation';
+  status: 'pending_confirmation' | 'approved_pending_reconciliation' | 'cancelled' | 'applied';
+  reason: string;
+  requestedBy: string | null;
+  requestedAt: string;
+  confirmedBy: string | null;
+  confirmedAt: string | null;
+  caseCount: number;
+  blockerCount: number;
+  customerName: string | null;
+  customerCode: string | null;
+}
+
+export async function listProtectedWhatsAppChanges(client: Client): Promise<ProtectedWhatsAppChangeRow[]> {
+  const { data, error } = await client.rpc('dawaa_list_whatsapp_gm_changes_v1', { p_limit: 100 });
+  if (error) throw new Error(deletionErrorMessage(error));
+  if (!Array.isArray(data)) throw new Error('استجابة غير متوقعة من سجل طلبات التصحيح.');
+  return data as ProtectedWhatsAppChangeRow[];
+}
+
+/** Cancels a pending/approved-but-unapplied request, preserving the immutable audit trail. */
+export async function cancelProtectedWhatsAppChange(client: Client, input: {
+  requestId: string; reason: string;
+}): Promise<{ requestId: string; status: 'cancelled' }> {
+  const data = await call(client, 'dawaa_cancel_whatsapp_gm_change_v1', {
+    p_request_id: input.requestId,
+    p_reason: input.reason,
+  });
+  if (data.ok !== true || data.status !== 'cancelled' || !data.requestId) {
+    throw new Error('لم يؤكد الخادم إلغاء طلب التصحيح.');
+  }
+  return { requestId: String(data.requestId), status: 'cancelled' };
 }
 
 export interface DeletionBlocker {

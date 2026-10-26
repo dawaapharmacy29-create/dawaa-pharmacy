@@ -84,6 +84,13 @@ interface RawAssessment {
 
 const criterionByKey = new Map(REVIEW_CRITERIA.map((criterion) => [criterion.key, criterion]));
 
+/** Criteria that judge what the pharmacy said or did inside the interaction. */
+const STAFF_BEHAVIOUR_CRITERIA = new Set<ReviewCriterionKey>([
+  'first_response_speed', 'greeting', 'doctor_name', 'customer_name', 'tone', 'understanding',
+  'followup_after_wait', 'unavailable_items', 'sales_closing', 'cross_sell_upsell', 'angry_customer',
+  'order_confirmation', 'order_delay_handling', 'closing_message',
+]);
+
 function clamp(value:number,min=0,max=100){
   return Math.max(min,Math.min(max,Math.round(value)));
 }
@@ -207,9 +214,25 @@ export function analyzeConversationEvaluation(
     byKey.set(item.key,item);
   }
 
+  // A case with no pharmacy message at all carries no evidence of staff behaviour: the export may
+  // end before the reply, or the reply happened by phone/in person. Absence is never a deduction;
+  // these criteria become insufficient evidence (visible for human review), not zero.
+  const staffSpoke=view.interaction.messages.some((message)=>message.role==='staff'&&message.meaningful);
   const items=REVIEW_CRITERIA.map((criterion)=>{
     const item=byKey.get(criterion.key);
     if(!item) throw new Error(`Missing conversation evaluation criterion: ${criterion.key}`);
+    if(!staffSpoke&&item.source==='automatic'&&item.status==='assessed'&&STAFF_BEHAVIOUR_CRITERIA.has(item.key)){
+      return{
+        ...item,
+        status:'insufficient_evidence' as const,
+        selectedOption:null,
+        selectedLabel:'لا يوجد رد موظف داخل هذا التفاعل',
+        pointsEarned:null,
+        normalizedScore10:null,
+        performanceBand:null,
+        reason:'لا توجد أي رسالة من الصيدلية داخل هذا التفاعل؛ غياب الرد داخل الملف ليس دليلًا كافيًا على تقصير، ويُعرض للمراجعة البشرية دون خصم.',
+      };
+    }
     return item;
   });
   if(items.length!==19) throw new Error(`Conversation evaluation must contain exactly 19 criteria, got ${items.length}`);

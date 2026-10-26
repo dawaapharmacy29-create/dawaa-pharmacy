@@ -5,6 +5,7 @@ export type WhatsAppCaseStateV22 = 'open' | 'awaiting_customer' | 'awaiting_phar
 
 export interface WhatsAppCaseSessionSignalV22 {
   sessionId: string;
+  startsNewCase?: boolean;
   startedAt: string;
   endedAt: string;
   orderIntent: boolean;
@@ -66,9 +67,12 @@ export interface WhatsAppCustomerCaseEngineV22 {
 }
 
 const ORDER_RX = /(عايز|عاوز|محتاج|ابعت|ابعث|هات|اطلب|أطلب|متوفر|موجود عندكم|عندكم|اوردر|أوردر|طلب)/i;
+// Sending evidence of a complaint is not a new commercial order.
+const NON_ORDER_EVIDENCE_RX = /مش\s+مجبر[هة]\s+(?:ا|أ)?بعت(?:لكم|لك|لهم)/i;
+const hasOrderIntent = (value: string) => ORDER_RX.test(value) && !NON_ORDER_EVIDENCE_RX.test(value);
 const ORDER_CONFIRM_RX = /(تم تأكيد|تم التاكيد|الأوردر اتأكد|الاوردر اتاكد|جاري الارسال|جاري الإرسال|خرج لحضرتك|اتعملت الفاتوره|اتعملت الفاتورة|الفاتوره اتعملت|الفاتورة اتعملت)/i;
 const FAILURE_RX = /(ماوصلش|موصلش|الاوردر ماطلعش|الأوردر ماطلعش|الطلب ماطلعش|محدش جه|ماجاش|مجاش|اتلغى|اتلغي|لم يتم|ما تمش|مش هينفع يتبعت)/i;
-const COMPLAINT_RX = /(شكوي|شكوى|زعلت|اتضايقت|مش راضي|مش مبسوط|خدمه سيئه|خدمة سيئة|مشكله|مشكلة|محدش رد|التأخير|التاخير)/i;
+const COMPLAINT_RX = /(شكوي|شكوى|زعلت|اتضايقت|مش راضي|مش مبسوط|خدمه سيئه|خدمة سيئة|مشكله|مشكلة|محدش رد|التأخير|التاخير|(?:ال)?طريق[هة].{0,12}سخيف[هة]|اسلوب سيئ|أسلوب سيئ|قلة ذوق)/i;
 const APOLOGY_RX = /(بنعتذر|نعتذر|متاسف|متأسف|آسفين|اسفين|حق حضرتك علينا|نعتذر لحضرتك|نعوض حضرتك)/i;
 const FOLLOWUP_RX = /(حابين نطمن|حبيت اطمن|حبيت أطمن|متابعه|متابعة|بنطمن|نطمن|هتابع|هتواصل|اول ما|أول ما)/i;
 const FEEDBACK_RX = /(راضي عن الخدمه|راضي عن الخدمة|كانت الخدمه|كانت الخدمة|تقييم الخدمه|تقييم الخدمة|على مستوى رضا|رأي حضرتك|راي حضرتك)/i;
@@ -117,15 +121,16 @@ function signalForSession(session: WhatsAppConversationSession): WhatsAppCaseSes
   const mediaAvailable = mediaRows.filter((m) => m.mediaAvailable).length;
   const paymentCompleted = PAYMENT_CONTEXT_RX.test(allText) && PAYMENT_RECEIVED_RX.test(outText) && inbound.length > 0;
   const evidenceMessageIds = session.messages
-    .filter((m) => ORDER_RX.test(m.text) || ORDER_CONFIRM_RX.test(m.text) || FAILURE_RX.test(m.text) || COMPLAINT_RX.test(m.text) || APOLOGY_RX.test(m.text) || FOLLOWUP_RX.test(m.text) || FEEDBACK_RX.test(m.text) || RECOMMEND_RX.test(m.text) || PAYMENT_CONTEXT_RX.test(m.text) || PAYMENT_RECEIVED_RX.test(m.text))
+    .filter((m) => hasOrderIntent(m.text) || ORDER_CONFIRM_RX.test(m.text) || FAILURE_RX.test(m.text) || COMPLAINT_RX.test(m.text) || APOLOGY_RX.test(m.text) || FOLLOWUP_RX.test(m.text) || FEEDBACK_RX.test(m.text) || RECOMMEND_RX.test(m.text) || PAYMENT_CONTEXT_RX.test(m.text) || PAYMENT_RECEIVED_RX.test(m.text))
     .map((m) => m.id)
     .slice(0, 30);
 
   return {
     sessionId: session.id,
+    startsNewCase: session.startsNewCase === true,
     startedAt: session.startedAt.toISOString(),
     endedAt: session.endedAt.toISOString(),
-    orderIntent: ORDER_RX.test(inText),
+    orderIntent: inbound.some((m) => hasOrderIntent(m.text)),
     orderConfirmed: ORDER_CONFIRM_RX.test(allText),
     failure: FAILURE_RX.test(allText),
     complaint: COMPLAINT_RX.test(allText),
@@ -153,6 +158,8 @@ function isFollowupOnly(s: WhatsAppCaseSessionSignalV22) {
 }
 
 function shouldAttach(caseRows: WhatsAppCaseSessionSignalV22[], next: WhatsAppCaseSessionSignalV22) {
+  // An evidence-backed independent issue must never be rejoined by the broad 18h continuity rule.
+  if (next.startsNewCase) return false;
   const last = caseRows.at(-1)!;
   const gapHours = hoursBetween(last.endedAt, next.startedAt);
   const hasProblem = caseRows.some((x) => x.failure || x.complaint);

@@ -121,7 +121,10 @@ describe('Sales Intelligence Pipeline (Phase G) — Golden Cases', () => {
     // Same customer + same window is not Sale Proof: the image's products cannot be matched to the
     // invoice lines, so the link stays statistical and a reviewer confirms it.
     expect(a.attribution.selectedCandidate?.directInvoiceLink).toBe(false);
-    expect(a.attribution.attributionLevel).toBe('strongly_inferred');
+    // customer_id, phone, code and name are ONE identity and are weighted once: identity + time
+    // without any product evidence is weak support, not a strong statistical link.
+    expect(a.attribution.attributionLevel).toBe('weakly_inferred');
+    expect(a.attribution.isOfficialForStaffEvaluation).toBe(false);
     expect(a.salesOutcome.outcome).not.toBe('sale_proven');
     expect(a.salesOutcome.isSaleCountable).toBe(false);
     expect(a.followUp.decision).toBe('review_required');
@@ -787,6 +790,17 @@ describe('Protocol Applicability + Historical Closure (Sales Intelligence Phase 
 });
 
 describe('Sales Intelligence semantic interaction ownership across coarse transport sessions', () => {
+  it('does not publish a phantom case for a delayed branded courtesy after a delivery complaint', () => {
+    const raw = `[9/27/26, 7:10:00 PM] Customer: المندوب اتكلم معايا بطريقة مش مقبولة
+[9/27/26, 7:13:00 PM] You: صعدت الموضوع للإدارة وهنكلم حضرتك في أقرب فرصة
+[9/27/26, 7:22:00 PM] You: هستأذن حضرتك في أقرب فرصة أتصل على حضرتك
+[9/27/26, 11:12:43 PM] You: صيدليات دواء تتشرف بخدمة حضرتك دائما 💚\nالأقرب إليك… ونهتم بصحتك دائمًا. 🌿`;
+    const result = runSalesIntelligencePipeline(baseInput({ rawWhatsAppExportText: raw }));
+    expect(result.sessionsProcessed).toBe(2);
+    expect(result.caseAnalyses).toHaveLength(1);
+    expect(result.caseAnalyses[0].caseId).toContain(':session:0');
+  });
+
   it('lets V32 keep the same-order follow-up across the old 120-minute coarse split', () => {
     const raw = `[9/15/26, 9:00:00 AM] Customer: عايز فيتامين د
 [9/15/26, 9:02:00 AM] Customer: اه ابعته

@@ -1,9 +1,12 @@
 name: WhatsApp Canonical Verification
 
 on:
+  pull_request:
+    branches: [main]
   push:
     branches:
       - fix/whatsapp-master-brain-lifecycle-v4-continuation-20261017
+      - integrate/whatsapp-gm-financial-readiness-20261026
 
 concurrency:
   group: whatsapp-continuation-${{ github.ref }}
@@ -13,6 +16,32 @@ permissions:
   contents: read
 
 jobs:
+  master-brain-native-pg17:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Start disposable network-isolated PostgreSQL 17
+        run: |
+          docker run -d --name dawaa-mb-verify-pg --network none \
+            -e POSTGRES_USER=supabase_admin -e POSTGRES_PASSWORD=isolated-test-only postgres:17
+          for attempt in {1..30}; do
+            if docker exec dawaa-mb-verify-pg pg_isready -U supabase_admin; then exit 0; fi
+            sleep 1
+          done
+          docker logs dawaa-mb-verify-pg
+          exit 1
+      - name: Financial approval and lifecycle concurrency scenarios
+        run: npm run test:db:master-brain:native
+      - name: Remove disposable database
+        if: always()
+        run: docker rm -f dawaa-mb-verify-pg
+
   followup-concurrency:
     runs-on: ubuntu-latest
     timeout-minutes: 8

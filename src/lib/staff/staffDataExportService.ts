@@ -167,7 +167,9 @@ function exportToCsv(profile: StaffPerformanceProfile, options: ExportOptions): 
     );
     lines.push(
       'Customer Service,Evaluation Average,' +
-        profile.customerService.conversationEvaluationAverage.toFixed(2)
+        (profile.customerService.conversationEvaluationAverage == null
+          ? 'under review'
+          : profile.customerService.conversationEvaluationAverage.toFixed(2))
     );
   }
 

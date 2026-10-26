@@ -218,11 +218,14 @@ describe('legacy complaint action is neither duplicated nor withdrawn by a new a
   });
 });
 
-describe('competition average rule (explicit, unchanged)', () => {
-  it('every current review row in the cycle with a positive score feeds avgReview — point_impact does not exclude it', () => {
+describe('competition average rule (explicit)', () => {
+  it('every officially approved current review in the cycle with a positive score feeds avgReview — point_impact does not exclude it', () => {
     const source = readFileSync('src/lib/doctorCompetitionMetrics.ts', 'utf8');
     // Documented on purpose: if this rule changes, the incentive owner must approve and this test changes with it.
+    // 2026-10-26 owner instruction: unapproved (pending or automatic) reviews never enter incentives, so only
+    // officially approved reviews score; the positive-score rule and the 15-point weight are unchanged.
     expect(source).toMatch(/\.eq\('is_current', true\)/);
+    expect(source).toMatch(/if \(!isOfficialConversationReview\(row\)\) continue;/);
     expect(source).toMatch(/if \(score > 0\) \{\s*current\.reviewCount \+= 1;/);
     expect(source).toMatch(/const reviewScore = row\.reviewCount \? \(avgReview\(row\) \/ 100\) \* 15 : 0;/);
     expect(source).not.toMatch(/point_impact/);

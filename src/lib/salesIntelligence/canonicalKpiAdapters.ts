@@ -127,16 +127,20 @@ export function canonicalDoctorImpact(
   cycleStart = start.slice(0, 10)
 ) {
   const relevant = facts.filter((f) => f.startedAt >= start && f.startedAt < endExclusive);
-  const own = facts.filter(
-    (f) => f.startedAt >= start && f.startedAt < endExclusive && f.creditedStaffId === staffId
-  );
   if (!relevant.length) return null;
-  const summary = summarizeCanonicalWhatsappKpis(own, staffId);
+  // Population = cases this doctor handled; credit decides only the sale numerator.
+  const summary = summarizeCanonicalWhatsappKpis(relevant, staffId);
   return {
     cycle_start: cycleStart,
     cycle_end: endExclusive,
+    // Unknown while a commercial case has no resolved owner at all (it could be this doctor's), or
+    // while a proven sale this doctor took part in still waits for closer attribution.
     commercial_conversations: relevant.some(
-      (f) => CONVERSION_ELIGIBLE_CASE_TYPES.has(f.caseType) && !f.creditedStaffId
+      (f) =>
+        CONVERSION_ELIGIBLE_CASE_TYPES.has(f.caseType) &&
+        !f.creditedStaffId &&
+        (!f.participants.some((p) => p.staffId) ||
+          (f.saleCountable && f.participants.some((p) => p.staffId === staffId)))
     )
       ? null
       : summary.conversion.eligibleCases,

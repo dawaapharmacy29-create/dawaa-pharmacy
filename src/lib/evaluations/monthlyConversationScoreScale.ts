@@ -32,13 +32,21 @@ export const CONVERSATION_DIMENSION_MAX_POINTS: Record<ConversationDimensionScal
 /**
  * conversation_sales_reviews stores raw criterion points, not a universal /10 score.
  * Normalize every dimension to the common 0..10 scale before monthly aggregation.
+ * The row-level final/total score is a separate 0..100 scale (see officialConversationReview.ts).
+ * Invalid input is missing evidence (null) — never a valid-looking 0 that would drag an average.
  */
 export function normalizeConversationDimensionScore(
   key: ConversationDimensionScaleKey,
   rawScore: number
-) {
+): number | null {
   const maxPoints = CONVERSATION_DIMENSION_MAX_POINTS[key];
-  if (!Number.isFinite(rawScore) || !Number.isFinite(maxPoints) || maxPoints <= 0) return 0;
+  if (!Number.isFinite(rawScore) || !Number.isFinite(maxPoints) || maxPoints <= 0) return null;
+  if (rawScore < 0 || rawScore > maxPoints) return null;
   const normalized = (rawScore / maxPoints) * 10;
-  return Math.round(Math.max(0, Math.min(10, normalized)) * 10) / 10;
+  return Math.round(normalized * 10) / 10;
+}
+
+/** Converts a 0..10 dimension average to the 0..100 row-score scale used for display/thresholds. */
+export function dimensionScoreToPercent(score: number | null): number | null {
+  return score == null || !Number.isFinite(score) ? null : Math.round(score * 100) / 10;
 }

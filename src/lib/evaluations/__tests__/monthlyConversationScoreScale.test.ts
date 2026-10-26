@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeConversationDimensionScore } from '@/lib/evaluations/monthlyConversationScoreScale';
+import { dimensionScoreToPercent, normalizeConversationDimensionScore } from '@/lib/evaluations/monthlyConversationScoreScale';
 
 describe('monthly conversation score normalization', () => {
   it('normalizes consultation from its native 15-point scale to /10', () => {
@@ -17,8 +17,17 @@ describe('monthly conversation score normalization', () => {
     expect(normalizeConversationDimensionScore('sales_quality', 8)).toBe(8);
   });
 
-  it('clamps malformed historical values to the 0..10 display range', () => {
-    expect(normalizeConversationDimensionScore('consultation_quality', 30)).toBe(10);
-    expect(normalizeConversationDimensionScore('closing_message', -2)).toBe(0);
+  // Clamping turned malformed values into valid-looking 10/0 scores that moved monthly averages.
+  // Out-of-scale or non-numeric input is missing evidence instead.
+  it('treats out-of-scale or non-numeric values as missing evidence, never a clamped score', () => {
+    expect(normalizeConversationDimensionScore('consultation_quality', 30)).toBeNull();
+    expect(normalizeConversationDimensionScore('closing_message', -2)).toBeNull();
+    expect(normalizeConversationDimensionScore('greeting', Number.NaN)).toBeNull();
+    expect(normalizeConversationDimensionScore('greeting', 0)).toBe(0);
+  });
+
+  it('converts a 0..10 dimension average onto the 0..100 row-score scale', () => {
+    expect(dimensionScoreToPercent(8.5)).toBe(85);
+    expect(dimensionScoreToPercent(null)).toBeNull();
   });
 });
