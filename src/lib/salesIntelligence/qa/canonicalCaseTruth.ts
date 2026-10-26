@@ -228,6 +228,9 @@ export function readCanonicalCaseSaleTruth(input: CanonicalCaseTruthInput): Cano
     attributionRow &&
     analysisBelongsToCase &&
     String(attributionRow.case_id ?? caseId) === caseId &&
+    // A superseded attribution is history, not this case's current credit/selection.
+    attributionRow.is_current_evaluation !== false &&
+    attributionRow.superseded_at == null &&
     (attributionRow.analysis_id == null ||
       String(attributionRow.analysis_id) === String(analysisRow?.analysis_id))
   );

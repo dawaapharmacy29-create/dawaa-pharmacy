@@ -121,7 +121,10 @@ describe('Sales Intelligence Pipeline (Phase G) — Golden Cases', () => {
     // Same customer + same window is not Sale Proof: the image's products cannot be matched to the
     // invoice lines, so the link stays statistical and a reviewer confirms it.
     expect(a.attribution.selectedCandidate?.directInvoiceLink).toBe(false);
-    expect(a.attribution.attributionLevel).toBe('strongly_inferred');
+    // customer_id, phone, code and name are ONE identity and are weighted once: identity + time
+    // without any product evidence is weak support, not a strong statistical link.
+    expect(a.attribution.attributionLevel).toBe('weakly_inferred');
+    expect(a.attribution.isOfficialForStaffEvaluation).toBe(false);
     expect(a.salesOutcome.outcome).not.toBe('sale_proven');
     expect(a.salesOutcome.isSaleCountable).toBe(false);
     expect(a.followUp.decision).toBe('review_required');

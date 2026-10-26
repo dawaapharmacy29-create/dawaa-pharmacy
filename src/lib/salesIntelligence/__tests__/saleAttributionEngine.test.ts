@@ -190,8 +190,11 @@ describe('Sale Attribution Engine (Sales Intelligence Phase D) — Golden Cases'
         ...row,
         staff_id: 'staff-other',
       }], provider);
-      expect(conflictingSeller.selectedCandidate?.directInvoiceLink).toBe(false);
-      expect(conflictingSeller.isOfficialForStaffEvaluation).toBe(false);
+      // The invoice seller is not a link condition: one pharmacist may close the WhatsApp order
+      // while another issues the invoice. Credit is decided from the case's own closer evidence.
+      expect(conflictingSeller.selectedCandidate?.directInvoiceLink).toBe(true);
+      expect(conflictingSeller.attributionLevel).toBe('proven');
+      expect(conflictingSeller.selectedCandidate?.staffMatch).toBe('different');
 
       const matchingSeller = deriveSaleAttributionAssessment({
         ...context,

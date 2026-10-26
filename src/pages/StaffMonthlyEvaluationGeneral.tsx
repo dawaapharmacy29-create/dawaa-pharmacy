@@ -75,7 +75,9 @@ type EvaluationRow = Record<string, unknown>;
 
 type Metrics = {
   review_count: number;
-  review_average: number;
+  review_average: number | null;
+  reviews_points_pending_approval?: number;
+  reviews_automatic_unapproved?: number;
   completed_followups: number;
   followup_count: number;
   conversation_positive_points: number;
@@ -87,7 +89,7 @@ type Metrics = {
 
 const EMPTY_METRICS: Metrics = {
   review_count: 0,
-  review_average: 0,
+  review_average: null,
   completed_followups: 0,
   followup_count: 0,
   conversation_positive_points: 0,
@@ -100,6 +102,8 @@ const EMPTY_METRICS: Metrics = {
 const METRIC_LABELS: Record<keyof Omit<Metrics, 'engine_version'>, string> = {
   review_count: 'عدد مراجعات المحادثات',
   review_average: 'متوسط تقييم المحادثات',
+  reviews_points_pending_approval: 'مراجعات نقاطها بانتظار الاعتماد',
+  reviews_automatic_unapproved: 'تحليلات آلية غير معتمدة',
   completed_followups: 'متابعات مكتملة',
   followup_count: 'إجمالي المتابعات',
   conversation_positive_points: 'نقاط إيجابية من المحادثات',

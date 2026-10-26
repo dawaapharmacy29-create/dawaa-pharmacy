@@ -52,3 +52,17 @@ export function legacyComplaintReviewReason(action: { actionType: string; status
   if (action.createdBy === CANONICAL_COMPLAINT_CREATOR) return null;
   return 'متابعة شكوى من محرك سابق لم يؤكدها التحليل الحالي؛ راجع الرسائل وقرر يدويًا قبل أي تنفيذ.';
 }
+
+/**
+ * `ready` is a proposal; only `created` WITH a linked operational record is executed work. A
+ * `created` row without lineage is an inconsistency to review, never shown as done.
+ */
+export type OperationalActionLifecycle = 'proposal' | 'materialized' | 'materialized_without_target' | 'withdrawn' | 'error' | 'unknown';
+
+export function operationalActionLifecycle(action: { status: string; targetTable: string | null; targetId: string | null }): OperationalActionLifecycle {
+  if (action.status === 'proposed' || action.status === 'ready') return 'proposal';
+  if (action.status === 'created') return action.targetTable && action.targetId ? 'materialized' : 'materialized_without_target';
+  if (action.status === 'dismissed') return 'withdrawn';
+  if (action.status === 'error') return 'error';
+  return 'unknown';
+}
