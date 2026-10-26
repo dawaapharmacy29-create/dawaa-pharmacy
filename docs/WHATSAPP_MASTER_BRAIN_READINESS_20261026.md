@@ -155,6 +155,10 @@ outcome; a stale complaint after reanalysis cannot be executed.
   all five pending migrations into an isolated, disposable local database and verifies these
   transitions, including approval revocation and matching re-approval. This is included in
   `npm run verify`; it does not replace native PostgreSQL concurrency coverage.
+* **Owner-approved historic protection:** automatic review-to-points status sync is bounded to
+  ledger cycles `2026-10` and newer. Earlier cycles can have manually paid payroll without formal
+  snapshot rows, so a later edit of a historical review must not rewrite the older ledger.
+  The seven old anomalies remain visible and unresolved; any compensating settlement is separate.
 * Incentive settlement (`settle_manager_evaluation_incentive`) uses only submitted human manager
   evaluations; its review metrics come through the corrected `official_v1`.
 

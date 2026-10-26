@@ -22,6 +22,10 @@
 --      pending points become 'approved'. Points values are never edited (ledger payload stays frozen).
 --   3. Existing mismatched rows are NOT repaired here: see
 --      supabase/sql/REPAIR_20261026_conversation_points_follow_review_approval.sql (needs approval).
+--   4. Activation floor: the automatic sync only alters ledger cycles >= 2026-10.
+--      Historical cycles through 2026-09 may have been paid outside the formal
+--      snapshot tables. Their ledger rows remain untouched even if a historical
+--      review is edited; separate compensating settlement requires owner approval.
 --
 -- Rollback: drop trigger dawaa_sync_conversation_review_points_v1 on public.conversation_sales_reviews;
 -- drop function public.dawaa_sync_conversation_review_points_v1(); then restore the previous guard
@@ -135,12 +139,14 @@ begin
        set status = case when v_retired then 'cancelled' else 'pending' end, updated_at = now()
      where t.source in ('whatsapp_automatic_review','conversation_evaluation','conversation_review','conversation_sales_reviews')
        and t.source_id = new.id
+       and t.month_cycle >= '2026-10'
        and lower(coalesce(t.status, '')) in (case when v_retired then 'pending' else 'active' end, 'active', 'approved');
   elsif not v_was then
     update public.employee_transactions t
        set status = 'approved', updated_at = now()
      where t.source in ('whatsapp_automatic_review','conversation_evaluation','conversation_review','conversation_sales_reviews')
        and t.source_id = new.id
+       and t.month_cycle >= '2026-10'
        and lower(coalesce(t.status, '')) = 'pending'
        and t.points_delta is not null
        and new.doctor_points_impact is not null
@@ -154,6 +160,7 @@ begin
        set status = 'pending', updated_at = now()
      where t.source in ('whatsapp_automatic_review','conversation_evaluation','conversation_review','conversation_sales_reviews')
        and t.source_id = new.id
+       and t.month_cycle >= '2026-10'
        and lower(coalesce(t.status, '')) in ('active','approved')
        and (t.points_delta is null or new.doctor_points_impact is null
             or t.points_delta is distinct from new.doctor_points_impact);

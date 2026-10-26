@@ -22,11 +22,11 @@ async function review(id, impactStatus, pointsImpact) {
   [id, staffId, impactStatus, pointsImpact]);
 }
 
-async function points(reviewId, status, delta, source = 'conversation_evaluation') {
+async function points(reviewId, status, delta, source = 'conversation_evaluation', cycle = '2026-10') {
   await db.query(`insert into public.employee_transactions
     (staff_id,type,points,points_delta,source,source_id,status,month_cycle)
-    values ($1,$2,$3,$4,$5,$6,$7,'2026-10')`,
-  [staffId, delta < 0 ? 'penalty' : 'reward', Math.abs(delta), delta, source, reviewId, status]);
+    values ($1,$2,$3,$4,$5,$6,$7,$8)`,
+  [staffId, delta < 0 ? 'penalty' : 'reward', Math.abs(delta), delta, source, reviewId, status, cycle]);
 }
 
 async function statuses(reviewId, source = 'conversation_evaluation') {
@@ -108,6 +108,14 @@ try {
   }
   await rejects(points(null, 'approved', 3, 'conversation_review'), /conversation_review_points_require_source_id/);
   await rejects(points(null, 'pending', 3, 'whatsapp_automatic_review'), /conversation_review_points_require_source_id/);
+
+  // Older cycles may already have been paid manually even where the formal
+  // finalized snapshot table is empty. Approval changes cannot rewrite them.
+  const legacyReview = '10000000-0000-4000-8000-000000000099';
+  await review(legacyReview, 'approved', -3);
+  await points(legacyReview, 'approved', -3, 'conversation_evaluation', '2026-09');
+  await db.query('update public.conversation_sales_reviews set impact_status=$1 where id=$2', ['pending', legacyReview]);
+  assert.deepEqual(await statuses(legacyReview), [{ status: 'approved', delta: -3 }]);
 
   const revokedReview = '10000000-0000-4000-8000-000000000094';
   await review(revokedReview, 'approved', -4);
