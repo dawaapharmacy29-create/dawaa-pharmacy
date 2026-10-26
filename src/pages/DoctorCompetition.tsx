@@ -16,6 +16,8 @@ import { loadSalesAnalyticsSummary } from '@/lib/salesAnalyticsSummaryService';
 import { supabase } from '@/lib/supabase';
 import { calculateCompositeScore } from '@/lib/incentives/compositeScoreService';
 import { monthCycleFromDate } from '@/lib/conversationReviews';
+import { conversationReviewScore100, isOfficialConversationReview, OFFICIAL_REVIEW_COLUMNS } from '@/lib/evaluations/officialConversationReview';
+import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
 
 const ALL_BRANCHES = 'كل الفروع';
 type RankingMode = 'points' | 'sales' | 'invoices' | 'average';
@@ -248,8 +250,10 @@ function applyLiveReviews(rows: DoctorCompetitionScore[], reviews: ReviewRow[]) 
     const index = (directId && byStaff.get(directId)) ?? byBranchAndName.get(`${branch}|${name}`) ?? byUniqueName.get(name);
     if (index === undefined) return;
 
-    const score = Number(review.final_score ?? review.total_score ?? review.score ?? 0);
-    if (!Number.isFinite(score) || score <= 0) return;
+    // Same official contract as doctorCompetitionMetrics: approved, current reviews on 0..100.
+    if (!isOfficialConversationReview(review as Record<string, unknown>)) return;
+    const score = conversationReviewScore100(review as Record<string, unknown>) ?? 0;
+    if (score <= 0) return;
 
     const current = aggregates.get(index) || { count: 0, total: 0, excellent: 0, negative: 0 };
     current.count += 1;
@@ -309,10 +313,10 @@ export default function DoctorCompetition() {
 
       let reviewQuery = supabase
         .from('conversation_sales_reviews')
-        .select('staff_id,doctor_id,staff_name,doctor_name,branch,final_score,total_score')
+        .select(['staff_id', 'doctor_id', 'staff_name', 'doctor_name', 'branch', ...OFFICIAL_REVIEW_COLUMNS].join(','))
         .eq('is_current', true)
-        .gte('conversation_date', competitionRange.start)
-        .lte('conversation_date', `${competitionRange.end}T23:59:59`)
+        .gte('conversation_date', cairoDateBoundaryIso(competitionRange.start))
+        .lte('conversation_date', cairoDateBoundaryIso(competitionRange.end, true))
         .limit(10000);
 
       if (effectiveBranch) reviewQuery = reviewQuery.eq('branch', effectiveBranch);

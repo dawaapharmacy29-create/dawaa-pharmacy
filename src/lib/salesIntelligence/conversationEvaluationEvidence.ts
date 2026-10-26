@@ -218,9 +218,21 @@ export function hasSubstantiveBasket(view: CaseIntelligenceView): boolean {
  * service/nursing follow-up is never scored on selling, even when an invoice exists nearby; a
  * proven countable sale is the only thing that makes such a case commercial.
  */
+// An existing order's whereabouts ("الطلب وصل فين؟", "المندوب اتأخر") is service, not a new sale.
+const ORDER_STATUS_INQUIRY_RX =
+  /(?:الطلب|الاوردر|الأوردر|المندوب|الدليفري|التوصيل)[^\n]{0,30}(?:فين|امتى|إمتى|هيوصل|هيجي|اتأخر|اتاخر|متأخر|لسه|مجاش|موصلش)/u;
+
+function isOrderStatusServiceOnly(view: CaseIntelligenceView): boolean {
+  if (view.products.length > 0 || hasSubstantiveBasket(view)) return false;
+  const customerTurns = view.interaction.messages.filter((message) => message.role === 'customer' && message.meaningful);
+  return customerTurns.some((message) => ORDER_STATUS_INQUIRY_RX.test(message.text));
+}
+
 export function salesCriteriaApplicable(view: CaseIntelligenceView): boolean {
   if (view.sale.isSaleCountable) return true;
   if (view.interaction.caseType === 'follow_up' || view.interaction.caseType === 'information_only') return false;
+  // No product, no basket and the customer only asked about an existing order: never a sales test.
+  if (isOrderStatusServiceOnly(view)) return false;
   return view.interaction.caseType === 'sales_opportunity' || view.interaction.caseType === 'mixed' || hasSubstantiveBasket(view);
 }
 

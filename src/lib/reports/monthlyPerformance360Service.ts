@@ -1,4 +1,6 @@
 import { supabase } from '@/lib/supabase';
+import { averageOfficialConversationScore, OFFICIAL_REVIEW_COLUMNS, selectOfficialConversationReviews } from '@/lib/evaluations/officialConversationReview';
+import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
 import { fetchSalesInvoicesPagedSafe } from '@/lib/salesInvoiceQueries';
 import { computeStaffSalesMetrics } from '@/lib/salesInvoiceSource';
 import { readAttendanceRange } from '@/lib/readModels/attendanceReadModel';
@@ -88,11 +90,6 @@ function clampScore(value: number) {
   return Math.max(0, Math.min(100, value));
 }
 
-function normalizeReviewScore(value: number) {
-  if (value <= 0) return 0;
-  return clampScore(value <= 5 ? value * 20 : value);
-}
-
 function completedFollowup(row: Record<string, unknown>) {
   const status = String(row.followup_status ?? row.status ?? '').trim().toLowerCase();
   return Boolean(row.completed_at) || ['completed', 'done', 'closed', 'تم', 'مكتمل', 'تمت'].some((token) => status.includes(token));
@@ -171,12 +168,13 @@ export async function loadMonthlyPerformance360(args: {
     readAttendanceRange({ staffId, startDate, endDateExclusive, limit: 400 }),
     supabase
       .from('conversation_sales_reviews')
-      // `score` is not a column of this table: selecting it failed the whole query (42703).
-      .select('total_score,final_score,created_at')
+      // Official-review contract columns only (no `score` column exists). Dated by the operational
+      // conversation day on the Cairo calendar, not by when the review was typed.
+      .select(OFFICIAL_REVIEW_COLUMNS.join(','))
       .eq('staff_id', staffId)
       .eq('is_current', true)
-      .gte('created_at', startDate)
-      .lt('created_at', endDateExclusive)
+      .gte('conversation_date', cairoDateBoundaryIso(startDate))
+      .lt('conversation_date', cairoDateBoundaryIso(endDateExclusive))
       .limit(1000),
     supabase
       .from('daily_followups')
@@ -257,13 +255,13 @@ export async function loadMonthlyPerformance360(args: {
     if (result.error) {
       warnings.push(`تعذر تحميل تقييمات المحادثات: ${result.error.message}`);
     } else {
-      const rows = (result.data || []) as Record<string, unknown>[];
-      conversationCount = rows.length;
-      const scores = rows
-        .map((row) => numberOrZero(row.final_score ?? row.total_score ?? row.score))
-        .filter((value) => value > 0)
-        .map(normalizeReviewScore);
-      averageConversationScore = scores.length ? scores.reduce((sum, value) => sum + value, 0) / scores.length : null;
+      // Scores are stored on 0..100; only officially approved reviews count (pending/automatic do not).
+      const official = selectOfficialConversationReviews((result.data || []) as Record<string, unknown>[], {
+        startDay: startDate,
+        endDayExclusive: endDateExclusive,
+      }).rows;
+      conversationCount = official.length;
+      averageConversationScore = averageOfficialConversationScore(official);
       conversationStatus = 'available';
     }
   } else {

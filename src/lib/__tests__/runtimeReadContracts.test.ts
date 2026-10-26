@@ -97,7 +97,7 @@ describe('oversized selects', () => {
 
   it('the monthly 360 review read no longer selects the non-existent `score` column', () => {
     const service = read('src/lib/reports/monthlyPerformance360Service.ts');
-    expect(service).toMatch(/\.select\('total_score,final_score,created_at'\)/);
+    expect(service).toMatch(/\.select\(OFFICIAL_REVIEW_COLUMNS\.join\(','\)\)/);
   });
 
   it('SI coverage panel projects analysis_json.productDemandTruthVersion instead of the full JSON', () => {

@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { getCurrentCycle, getCycleForDate, isDateInCycle, type PharmacyCycle } from '@/lib/pharmacy-cycle';
 import { reviewerDisplayName } from '@/lib/conversationReviews';
+import { averageOfficialConversationScore, isOfficialConversationReview, isPayableConversationReview } from '@/lib/evaluations/officialConversationReview';
 
 type Row = Record<string, any>;
 
@@ -98,8 +99,10 @@ export default function DoctorReviewDetails() {
 
   const cycleStats = useMemo(() => cycles.map((cycle, i) => {
     const list = rowsByCycle[i] || [];
-    const avg = list.length ? list.reduce((sum, row) => sum + num(row.final_score ?? row.total_score), 0) / list.length : null;
-    const impact = list.reduce((sum, row) => sum + num(row.doctor_points_impact ?? row.point_impact), 0);
+    // All reviews stay listed; the cycle score uses official reviews, points only payable ones.
+    const official = list.filter((row) => isOfficialConversationReview(row));
+    const avg = averageOfficialConversationScore(official);
+    const impact = list.filter((row) => isPayableConversationReview(row)).reduce((sum, row) => sum + num(row.doctor_points_impact ?? row.point_impact), 0);
     return { cycle, count: list.length, avg, impact };
   }), [cycles, rowsByCycle]);
 

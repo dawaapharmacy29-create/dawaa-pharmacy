@@ -1,5 +1,5 @@
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import { getCurrentCycle, type PharmacyCycle } from '@/lib/pharmacy-cycle';
+import { formatCycleDate, getCurrentCycle, type PharmacyCycle } from '@/lib/pharmacy-cycle';
 import { getStaffCycleIncentive, type StaffCycleIncentive } from '@/lib/staffIncentiveService';
 import { normalizeStaffName } from '@/lib/staffIdentityService';
 import { staffRowIsActive } from '@/lib/staffActiveFilter';
@@ -12,6 +12,8 @@ import { STAFF_DETAIL_SECTION_TIMEOUT_MS, type StaffBaseProfile } from '@/lib/st
 import { getStaffCycleInvoices } from '@/lib/staffSalesService';
 import { getStaffInvoiceTruth, type StaffInvoiceTruth } from '@/lib/staffInvoiceTruthService';
 import { resolveCanonicalStaffIdentifier } from '@/lib/staff/staffIdentityResolver';
+import { averageOfficialConversationScore } from '@/lib/evaluations/officialConversationReview';
+import { cairoDateBoundaryIso, cairoDayOf } from '@/lib/time/cairoDateBoundary';
 import {
   getCustomerRequestDoctorPointsSummary,
   type CustomerRequestDoctorPointsSummary,
@@ -20,6 +22,12 @@ import {
   generateStaffRecommendations as generateRecommendations,
   type StaffRecommendation,
 } from './staffPerformanceRecommendations';
+
+/** Cycle bounds are Cairo calendar days; the instant boundaries never depend on the machine timezone. */
+function cairoCycleBoundary(value: string, end: boolean) {
+  const day = cairoDayOf(value);
+  return day ? cairoDateBoundaryIso(day, end) : value;
+}
 
 type Row = Record<string, unknown>;
 
@@ -222,7 +230,8 @@ export interface StaffCustomerServiceMetrics {
   followupsMissed: number;
   complaintCount: number;
   resolvedComplaints: number;
-  conversationEvaluationAverage: number;
+  /** 0..100 official (human-approved) average; null = under review / unavailable, never 0. */
+  conversationEvaluationAverage: number | null;
   missingCustomerClassification: number;
   missingInvoiceClassification: number;
   bothClassificationsMissing: number;
@@ -321,8 +330,9 @@ export async function loadStaffPerformanceProfile(
   }
 
   const cycle = getCurrentCycle();
-  const cycleStart = params.cycleStart || cycle.start.toISOString().slice(0, 10);
-  const cycleEnd = params.cycleEnd || cycle.end.toISOString().slice(0, 10);
+  // Local calendar parts, not toISOString(): local midnight of the 26th is the 25th in UTC.
+  const cycleStart = params.cycleStart || formatCycleDate(cycle.start);
+  const cycleEnd = params.cycleEnd || formatCycleDate(cycle.end);
   const quarterStart = params.quarterStart || cycleStart;
   const quarterEnd = params.quarterEnd || cycleEnd;
 
@@ -1566,14 +1576,14 @@ async function loadStaffCustomerServiceMetrics(
     const followupsCompleted = staffFollowups.filter((row) => isCompletedFollowup(row)).length;
     const followupsMissed = staffFollowups.filter((row) => isMissedFollowup(row)).length;
 
-    // Load conversation reviews
-    const { data: reviewData } = await supabase
+    // Load conversation reviews by OPERATIONAL conversation date (not when the review was typed).
+    const { data: reviewData, error: reviewError } = await supabase
       .from('conversation_sales_reviews')
       .select('*')
       .eq('staff_id', staffId)
       .eq('is_current', true)
-      .gte('created_at', cycleStart)
-      .lte('created_at', cycleEnd)
+      .gte('conversation_date', cairoCycleBoundary(cycleStart, false))
+      .lte('conversation_date', cairoCycleBoundary(cycleEnd, true))
       .limit(200);
     const safeReviewData = ((reviewData || []) as Array<Row | null | undefined>).filter(Boolean) as Row[];
 
@@ -1584,13 +1594,11 @@ async function loadStaffCustomerServiceMetrics(
       (row) => row.has_complaint && row.complaint_resolved
     ).length;
 
-    // Calculate average conversation evaluation score
-    const scoredReviews = safeReviewData.filter((row) => row.final_score != null);
-    const conversationEvaluationAverage =
-      scoredReviews.length > 0
-        ? scoredReviews.reduce((sum, row) => sum + (Number(row.final_score) || 0), 0) /
-          scoredReviews.length
-        : 0;
+    // Official 0..100 average: human-approved, current rows only. A failed read or a cycle with no
+    // approved review is "under review" (null) — never a 0 that reads as a bad month.
+    const conversationEvaluationAverage = reviewError
+      ? null
+      : averageOfficialConversationScore(safeReviewData);
 
     // Load invoices for classification quality check
     const invoiceData = await getStaffCycleInvoices(

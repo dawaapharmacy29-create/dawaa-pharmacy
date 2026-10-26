@@ -16,7 +16,7 @@ import { Panel, SectionTitle, KpiCard, MiniBox } from '@/components/dashboard/Da
 
 type DoctorRow = { id: string; name: string; role?: string | null; branch?: string | null; status?: string | null };
 type Section = { key: string; title: string; description: string; weight: number; score: number; notes: string };
-type Metrics = { review_count: number; review_average: number; followup_count: number; completed_followups: number };
+type Metrics = { review_count: number; review_average: number | null; followup_count: number; completed_followups: number };
 
 const DEFAULT_SECTIONS: Section[] = [
   { key: 'service_style', title: 'أسلوب وسرعة خدمة العميل', description: 'الترحيب، سرعة الاستجابة، الاحترام والاحتواء حتى مع ضغط العمل.', weight: 30, score: 0, notes: '' },
@@ -26,7 +26,7 @@ const DEFAULT_SECTIONS: Section[] = [
   { key: 'team_cooperation', title: 'التعاون مع خدمة العملاء', description: 'الاستجابة لطلبات فريق خدمة العملاء، وضوح المعلومات، وتسليم المتابعة بدون تعطيل.', weight: 10, score: 0, notes: '' },
 ];
 
-const EMPTY_METRICS: Metrics = { review_count: 0, review_average: 0, followup_count: 0, completed_followups: 0 };
+const EMPTY_METRICS: Metrics = { review_count: 0, review_average: null, followup_count: 0, completed_followups: 0 };
 
 function n(value: unknown) { const x = Number(value || 0); return Number.isFinite(x) ? x : 0; }
 function pointsForScore(score: number) {
@@ -249,7 +249,7 @@ export default function CustomerServiceDoctorEvaluation() {
               ) : null}
               <div className="grid gap-2 sm:grid-cols-4">
                 <MiniBox label="محادثات مقيمة" value={String(metrics.review_count)} tone="cyan" />
-                <MiniBox label="متوسط المحادثات" value={`${metrics.review_average}%`} tone="cyan" />
+                <MiniBox label="متوسط المحادثات" value={metrics.review_average == null ? 'قيد المراجعة' : `${metrics.review_average}%`} tone="cyan" />
                 <MiniBox label="متابعات" value={String(metrics.followup_count)} tone="cyan" />
                 <MiniBox label="متابعات مكتملة" value={String(metrics.completed_followups)} tone="cyan" />
               </div>

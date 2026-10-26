@@ -236,7 +236,10 @@ export function generateNotifications(
       });
     }
 
-    if (profile.customerService.conversationEvaluationAverage < 70) {
+    if (
+      profile.customerService.conversationEvaluationAverage != null &&
+      profile.customerService.conversationEvaluationAverage < 70
+    ) {
       notifications.push({
         id: `low-evaluation-${profile.staff.id}`,
         type: 'customer_service',

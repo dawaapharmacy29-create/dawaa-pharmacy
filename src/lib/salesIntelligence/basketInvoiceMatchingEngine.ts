@@ -410,6 +410,20 @@ function rollupOverallMatch(totalMatch: FieldMatchStatus, itemMatch: FieldMatchS
  * comment — a real field. `header_only` can support total-vs-invoiced-total and invoice-status
  * findings; it can NEVER support a missing/extra-product or wrong-quantity finding.
  */
+/**
+ * Item + quantity, customer and timing evidence that ties the selected invoice to this case
+ * without an announced total. Read from Phase D's candidate as-is; never re-derived here.
+ */
+function hasStrongNonTotalInvoiceEvidence(attribution: BasketInvoiceMatchingInput['attribution']): boolean {
+  const candidate = attribution.selectedCandidate;
+  if (!candidate || candidate.invoiceId !== attribution.selectedInvoiceId) return false;
+  if (candidate.identityConflict !== 'none') return false;
+  if (attribution.contradictions.length > 0 || attribution.competingCaseIds.length > 0) return false;
+  const customer = candidate.customerIdMatch || candidate.customerCodeMatch === true;
+  const timing = candidate.timeMatchStrength === 'very_strong' || candidate.timeMatchStrength === 'strong';
+  return customer && timing && candidate.hasUniqueCanonicalProductQuantityMatch === true;
+}
+
 function resolveIntegrityScope(headerEvidenceReady: boolean, itemEvidenceReady: boolean): IntegrityEvaluationScope {
   if (!headerEvidenceReady) return 'insufficient';
   return itemEvidenceReady ? 'header_and_items' : 'header_only';
@@ -493,7 +507,13 @@ export function deriveBasketInvoiceMatch(input: BasketInvoiceMatchingInput): Bas
   const adjustments = input.documentedAdjustments ?? [];
 
   const { status: totalMatch, basketAmount, invoiceAmount } = classifyTotalMatch(activeBasket, input.invoiceRow);
-  const headerEvidenceReady = basketAmount != null && invoiceAmount != null;
+  // The invoice header is evaluable when its total is known and EITHER the conversation announced
+  // a total to compare, OR the invoice is independently tied to this case by item+quantity,
+  // customer and timing evidence. A conversation that never stated a total must not hide an
+  // otherwise well-identified invoice. Without an announced total, totalMatch stays
+  // insufficient_data, so no total-gap finding can be produced from a missing number.
+  const headerEvidenceReady =
+    invoiceAmount != null && (basketAmount != null || hasStrongNonTotalInvoiceEvidence(attribution));
   const {
     itemMatch,
     quantityMatch,

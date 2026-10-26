@@ -619,12 +619,10 @@ function qualifiesForAutomaticInvoiceLink(
   const invoiceCustomerId = getInvoiceCustomerId(row);
   if (invoiceCustomerId && invoiceCustomerId !== ctx.customerId) return false;
 
-  // A uniquely identified invoice can prove this case only when its resolved seller does not
-  // contradict the staff actually attributed to the case. Missing seller identity is neutral;
-  // a different canonical staff member is a hard stop for automatic proof.
-  const invoiceStaffId = getInvoiceStaffId(row, ctx.resolveInvoiceStaffIdByName);
-  const caseStaffIds = [...new Set(ctx.knownStaffIds.filter(Boolean))];
-  if (invoiceStaffId && caseStaffIds.length > 0 && !caseStaffIds.includes(invoiceStaffId)) return false;
+  // The invoice seller is deliberately NOT a condition here. One pharmacist may advise and close
+  // in WhatsApp while another (or the cashier) issues the invoice; the seller proves who keyed the
+  // invoice, not which conversation produced it. Who earns staff credit is decided downstream from
+  // the case's own contribution evidence, never from this link.
 
   const branchMatch = classifyBranch(ctx, row);
   if (branchMatch === 'mismatch') return false;
@@ -709,12 +707,13 @@ function scoreCandidate(input: ScoreInput): { score: number; disqualifiers: stri
     factors.push('customer_id_match');
   }
   if (input.phoneMatch) {
-    score += W.phoneMatch;
+    if (!input.customerIdMatch) score += W.phoneMatch;
     factors.push('phone_match');
   }
   // customer_id, phone, code and name all describe ONE customer identity. Each is recorded as a
-  // factor, but only the strongest matching rung adds weight: code only without an id/phone match,
-  // name only without any of them. One identity is never counted twice into a staff-evaluation level.
+  // factor, but only the strongest matching rung adds weight: phone only without an id match, code
+  // only without an id/phone match, name only without any of them. One identity is never counted
+  // twice into a staff-evaluation level.
   const strongerIdentityMatched = Boolean(input.customerIdMatch || input.phoneMatch);
   if (input.customerCodeMatch) {
     if (!strongerIdentityMatched) score += W.customerCodeExact;
@@ -841,7 +840,7 @@ function buildEvidenceItems(input: {
       detail: input.identity.phoneMatch
         ? 'تطابق تام لرقم الهاتف بعد التطبيع المصري.'
         : 'لا يوجد تطابق لرقم الهاتف.',
-      weight: input.identity.phoneMatch ? W.phoneMatch : 0,
+      weight: input.identity.phoneMatch && !input.identity.customerIdMatch ? W.phoneMatch : 0,
     },
     {
       kind: 'same_branch',
@@ -1137,11 +1136,13 @@ export function recommendInvoiceCandidate(
     ? 'كل أصناف الحالة المحسومة موجودة في الفاتورة دون تعارض كمية'
     : 'صنف واحد على الأقل من الحالة مطابق في الفاتورة (بالكود أو المنتج) دون تعارض كمية',
   top.productMatch === 'unavailable' ? 'لا توجد أصناف محسومة كافية للمقارنة (صورة/صوت غير متاح أو اسم غير محسوم)' : 'أصناف الحالة لا تطابق بنود الفاتورة أو الكمية متعارضة');
-  check(top.staffMatch !== 'different', top.staffMatch === 'same' ? 'بائع الفاتورة هو نفس الموظف المشارك في هذه الحالة' : 'لا يوجد تعارض في البائع', 'بائع الفاتورة موظف مختلف عن المشارك في الحالة');
+  // The seller is context, not a link condition: a different pharmacist may issue the invoice.
+  if (top.staffMatch === 'same') reasons.push('بائع الفاتورة هو نفس الموظف المشارك في هذه الحالة');
+  else if (top.staffMatch === 'different') reasons.push('بائع الفاتورة موظف آخر — لا يمنع ربط الفاتورة بالحالة، ولا يحدد وحده صاحب الإسناد');
   const clean = top.disqualifiers.length === 0 && top.identityConflict === 'none' && !context.ambiguous && context.competingCaseIds.length === 0 && context.candidatePoolComplete !== false;
   check(clean, 'لا توجد تعارضات هوية أو حالات منافسة على نفس الفاتورة', 'يوجد تعارض أو حالة أخرى تنافس على الفاتورة');
   check(lead >= STRONG_CANDIDATE_MIN_LEAD, 'تفوق واضح على أي فاتورة مرشحة أخرى', 'فاتورة أخرى قريبة في القوة؛ يلزم ترجيح بشري');
-  const strong = uniqueCode && Boolean(top.customerNameMatch) && closeTime && productOk && top.staffMatch !== 'different' && clean && lead >= STRONG_CANDIDATE_MIN_LEAD;
+  const strong = uniqueCode && Boolean(top.customerNameMatch) && closeTime && productOk && clean && lead >= STRONG_CANDIDATE_MIN_LEAD;
   // Customer code + time alone (no product content, no seller, no total) is never more than weak.
   const supported = !strong && Boolean(top.customerCodeMatch) && closeTime && clean &&
     (productOk || top.staffMatch === 'same' || top.announcedTotalMatch === 'exact');
@@ -1300,6 +1301,15 @@ export function deriveSaleAttributionAssessment(
     ambiguous = true;
     contradictions.push('ambiguous_multiple_candidates');
     humanReviewReasons.push('ambiguous_multiple_candidates');
+  }
+  // Two or more invoices independently pass the strict automatic gate (same customer code, name,
+  // close time and a canonical item+quantity line): the evidence cannot tell which one this
+  // conversation produced. Abstain — never let a score lead pick one of two equally real invoices.
+  const competingInvoices = !directLinked && automaticMatches.length > 1;
+  if (competingInvoices) {
+    ambiguous = true;
+    if (!contradictions.includes('ambiguous_multiple_candidates')) contradictions.push('ambiguous_multiple_candidates');
+    humanReviewReasons.push('competing_invoices_for_case');
   }
 
   const competingCaseIds = Array.from(

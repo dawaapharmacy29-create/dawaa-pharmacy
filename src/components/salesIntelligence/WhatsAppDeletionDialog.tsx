@@ -5,6 +5,8 @@ import { AlertTriangle, Trash2, X } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import {
   canSubmitDeletion,
+  clearUnconfirmedWhatsAppInvoiceCandidate,
+  confirmProtectedWhatsAppChange,
   DELETION_CONFIRMATION_PHRASES,
   DELETION_REASON_MIN_LENGTH,
   DELETION_UNTOUCHED_RECORDS,
@@ -13,6 +15,7 @@ import {
   deletionErrorMessage,
   newDeletionRequestKey,
   previewWhatsAppDeletion,
+  requestProtectedWhatsAppChange,
   summarizeDeletionPreview,
   type DeletionBlocker,
   type DeletionPreview,
@@ -37,6 +40,17 @@ export function WhatsAppDeletionDialog({
   const [reason, setReason] = useState('');
   const [confirmation, setConfirmation] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [candidateReason, setCandidateReason] = useState('');
+  const [candidateConfirmation, setCandidateConfirmation] = useState('');
+  const [correctingCandidate, setCorrectingCandidate] = useState(false);
+  const [protectedReason, setProtectedReason] = useState('');
+  const [protectedConfirmation, setProtectedConfirmation] = useState('');
+  const [protectedRequestId, setProtectedRequestId] = useState<string | null>(null);
+  const [protectedRequestStatus, setProtectedRequestStatus] = useState<'pending' | 'confirmed' | null>(null);
+  const [submittingProtected, setSubmittingProtected] = useState(false);
+  const protectedRequestKey = useRef(newDeletionRequestKey());
+  const protectedConfirmationKey = useRef(newDeletionRequestKey());
+  const candidateRequestKey = useRef(newDeletionRequestKey());
   // One key for this dialog: a double click or retry replays the same server request.
   const requestKey = useRef(newDeletionRequestKey());
   const phrase = DELETION_CONFIRMATION_PHRASES[scope];
@@ -86,6 +100,67 @@ export function WhatsAppDeletionDialog({
     } finally {
       setSubmitting(false);
     }
+  }
+
+  const candidate = preview?.conversation;
+  const canCorrectCandidate = scope === 'conversation' && preview?.status === 'preview'
+    && blockers.length === 1 && blockers[0].code === 'conversation_has_invoice_link'
+    && candidate?.matchedInvoiceId && candidate?.matchedInvoiceNumber
+    && candidate?.invoiceLinkConfirmed === false && !candidate?.invoiceLinkConfirmedInvoiceNumber
+    && preview.attributions.every((a) => !a.invoiceId && a.official !== true && a.level !== 'proven')
+    && preview.v22Envelopes.every((e) => e.proofState !== 'proven' && !e.verifiedInvoiceNumber && !e.verifiedRevenue);
+
+  async function correctCandidate() {
+    if (!canCorrectCandidate || correctingCandidate || candidateReason.trim().length < 10
+      || candidateConfirmation.trim() !== 'تصحيح ربط الفاتورة') return;
+    setCorrectingCandidate(true);
+    setError(null);
+    try {
+      await clearUnconfirmedWhatsAppInvoiceCandidate(supabase, {
+        sourceId: preview!.sourceId,
+        expectedId: String(candidate!.matchedInvoiceId),
+        expectedNumber: String(candidate!.matchedInvoiceNumber),
+        reason: candidateReason.trim(),
+        requestKey: candidateRequestKey.current,
+      });
+      await loadPreview();
+    } catch (cause) {
+      setError(deletionErrorMessage(cause));
+    } finally {
+      setCorrectingCandidate(false);
+    }
+  }
+
+  async function submitProtectedRequest() {
+    if (!preview || preview.status !== 'preview' || protectedReason.trim().length < 10
+      || submittingProtected || protectedRequestId) return;
+    setSubmittingProtected(true);
+    setError(null);
+    try {
+      const result = await requestProtectedWhatsAppChange(supabase, {
+        scope, sourceId: preview.sourceId, caseId: scope === 'case' ? target : null,
+        expectedFingerprint: preview.fingerprint, reason: protectedReason.trim(),
+        requestKey: protectedRequestKey.current,
+      });
+      setProtectedRequestId(result.requestId);
+      setProtectedRequestStatus('pending');
+    } catch (cause) { setError(deletionErrorMessage(cause)); }
+    finally { setSubmittingProtected(false); }
+  }
+
+  async function confirmProtectedRequest() {
+    if (!protectedRequestId || protectedRequestStatus !== 'pending' || submittingProtected
+      || protectedConfirmation.trim() !== 'أؤكد التصحيح المعتمد' || protectedReason.trim().length < 10) return;
+    setSubmittingProtected(true);
+    setError(null);
+    try {
+      await confirmProtectedWhatsAppChange(supabase, {
+        requestId: protectedRequestId, confirmation: protectedConfirmation.trim(),
+        reason: protectedReason.trim(), requestKey: protectedConfirmationKey.current,
+      });
+      setProtectedRequestStatus('confirmed');
+    } catch (cause) { setError(deletionErrorMessage(cause)); }
+    finally { setSubmittingProtected(false); }
   }
 
   const summary = preview && preview.status === 'preview' ? summarizeDeletionPreview(preview) : null;
@@ -145,6 +220,60 @@ export function WhatsAppDeletionDialog({
               ))}
             </ul>
             <div className="mt-1 text-xs">لم يتم تعديل أي سجل. راجع هذه السجلات يدويًا أولًا.</div>
+          </div>
+        ) : null}
+
+        {canCorrectCandidate ? (
+          <div className="dawaa-alert dawaa-alert--warning mt-3 space-y-3 text-sm">
+            <div className="font-black">ترشيح فاتورة غير معتمد — تصحيح مستقل</div>
+            <p>الفاتورة {candidate!.matchedInvoiceNumber} مرشح آلي فقط، ولم يعتمد ربطها بالمحادثة. يمكنك إزالة الترشيح بسجل تدقيق مستقل، ثم إعادة معاينة الحذف. لن تُعدّل الفاتورة أو أي نقاط أو حوافز.</p>
+            <label className="block font-bold">سبب تصحيح الترشيح
+              <textarea className="dawaa-input mt-1 w-full min-h-16" value={candidateReason} onChange={(e) => setCandidateReason(e.target.value)} placeholder="اشرح لماذا هذا المرشح غير صحيح" />
+            </label>
+            <label className="block font-bold">اكتب للتأكيد: تصحيح ربط الفاتورة
+              <input className="dawaa-input mt-1 w-full" value={candidateConfirmation} onChange={(e) => setCandidateConfirmation(e.target.value)} />
+            </label>
+            <button type="button" className="dawaa-button dawaa-button--secondary" disabled={correctingCandidate || candidateReason.trim().length < 10 || candidateConfirmation.trim() !== 'تصحيح ربط الفاتورة'} onClick={() => void correctCandidate()}>
+              {correctingCandidate ? 'جارٍ التصحيح...' : 'تصحيح المرشح وإعادة المعاينة'}
+            </button>
+          </div>
+        ) : null}
+
+        {summary && preview!.blocked && !canCorrectCandidate ? (
+          <div className="mt-3 space-y-3 rounded-xl border border-[var(--dawaa-status-warning-border)] p-3 text-sm">
+            <div className="font-black">طلب استثناء للمدير العام — سجلات معتمدة</div>
+            <p>يمكنك تسجيل طلب تصحيح أو حذف هذه البيانات، ثم تأكيده مرة ثانية مع حفظ الأثر وسجل التدقيق. <strong>الموافقة لا تحذف الحالة الآن</strong>؛ يظل التنفيذ معلقًا إلى أن تُراجَع وتُسوّى جميع آثار المبيعات والنقاط والرواتب.</p>
+            {protectedRequestStatus === 'confirmed' ? (
+              <div className="dawaa-alert dawaa-alert--info">تم توثيق موافقة المدير العام على الطلب {protectedRequestId}. الحالة ما زالت موجودة ولم تتغير الفواتير أو النقاط. التسوية مطلوبة قبل التنفيذ.</div>
+            ) : (
+              <>
+                <label className="block font-bold">سبب الاستثناء المعتمد
+                  <textarea className="dawaa-input mt-1 w-full min-h-16" value={protectedReason}
+                    disabled={Boolean(protectedRequestId)} onChange={(e) => setProtectedReason(e.target.value)}
+                    placeholder="اشرح سبب تعديل أو حذف بيانات معتمدة وأثرها المتوقع" />
+                </label>
+                {!protectedRequestId ? (
+                  <button type="button" className="dawaa-button dawaa-button--secondary"
+                    disabled={submittingProtected || protectedReason.trim().length < 10}
+                    onClick={() => void submitProtectedRequest()}>
+                    {submittingProtected ? 'جارٍ تسجيل الطلب...' : 'تسجيل طلب استثناء معتمد'}
+                  </button>
+                ) : (
+                  <>
+                    <div className="dawaa-alert dawaa-alert--warning">تم تسجيل الطلب {protectedRequestId}. لتأكيده رسميًا، اكتب العبارة المطلوبة. لن يبدأ أي تغيير مالي تلقائيًا.</div>
+                    <label className="block font-bold">اكتب: أؤكد التصحيح المعتمد
+                      <input className="dawaa-input mt-1 w-full" value={protectedConfirmation}
+                        onChange={(e) => setProtectedConfirmation(e.target.value)} />
+                    </label>
+                    <button type="button" className="dawaa-button dawaa-button--secondary"
+                      disabled={submittingProtected || protectedConfirmation.trim() !== 'أؤكد التصحيح المعتمد'}
+                      onClick={() => void confirmProtectedRequest()}>
+                      {submittingProtected ? 'جارٍ التأكيد...' : 'تأكيد الطلب وإرساله للتسوية'}
+                    </button>
+                  </>
+                )}
+              </>
+            )}
           </div>
         ) : null}
 

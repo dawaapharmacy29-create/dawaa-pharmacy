@@ -27,6 +27,14 @@ interface FailedInboxItem {
   reason: string;
 }
 
+export interface LocalWhatsAppFailedExport {
+  key: string;
+  name: string;
+  attempts: number;
+  reason: string;
+  retryAt: number | null;
+}
+
 interface StoredHandleRow {
   id: string;
   handle: any;
@@ -163,7 +171,37 @@ export function resetLocalWhatsAppProcessedLedger() {
   localStorage.removeItem(FAILED_KEY);
 }
 
-export async function getUnprocessedWhatsAppExports(handle: any, limit = 10): Promise<LocalInboxCandidate[]> {
+/** Retry one failed export explicitly without resetting processed files or unrelated failures. */
+export function retryLocalWhatsAppFailedExport(key: string): boolean {
+  const failed = readFailedLedger();
+  if (!failed.some((item) => item.key === key)) return false;
+  localStorage.setItem(FAILED_KEY, JSON.stringify(failed.filter((item) => item.key !== key)));
+  return true;
+}
+
+/** Reports suppressed failed files so a scan cannot describe them as an empty folder. */
+export async function getLocalWhatsAppFailedExports(handle: any): Promise<LocalWhatsAppFailedExport[]> {
+  const permission = await queryLocalWhatsAppFolderPermission(handle, false);
+  if (permission !== 'granted') throw new Error('local_whatsapp_folder_permission_not_granted');
+  const failed = new Map(readFailedLedger().map((item) => [item.key, item]));
+  const processed = new Set(readStringLedger(LEDGER_KEY));
+  const result: LocalWhatsAppFailedExport[] = [];
+  for await (const entry of handle.values()) {
+    if (!entry || entry.kind !== 'file' || !isSupportedExportName(String(entry.name || ''))) continue;
+    const file = await entry.getFile();
+    const key = candidateKey(file);
+    const state = failed.get(key);
+    if (!state || processed.has(key)) continue;
+    result.push({
+      key, name: file.name, attempts: state.attempts, reason: state.reason,
+      retryAt: state.attempts >= MAX_FAILED_ATTEMPTS ? null : state.failedAt + FAILED_RETRY_MS,
+    });
+    if (result.length >= 25) break;
+  }
+  return result;
+}
+
+export async function getUnprocessedWhatsAppExports(handle: any, limit = 10, onlyKey?: string): Promise<LocalInboxCandidate[]> {
   const permission = await queryLocalWhatsAppFolderPermission(handle, false);
   if (permission !== 'granted') {
     throw new Error('local_whatsapp_folder_permission_not_granted');
@@ -176,6 +214,7 @@ export async function getUnprocessedWhatsAppExports(handle: any, limit = 10): Pr
     if (!entry || entry.kind !== 'file' || !isSupportedExportName(String(entry.name || ''))) continue;
     const file = await entry.getFile();
     const key = candidateKey(file);
+    if (onlyKey && key !== onlyKey) continue;
     if (processed.has(key)) continue;
     const failedItem = failed.get(key);
     if (failedItem) {

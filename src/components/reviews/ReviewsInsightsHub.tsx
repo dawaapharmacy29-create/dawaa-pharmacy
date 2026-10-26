@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BarChart3, ClipboardCheck, FileSpreadsheet, Filter, MessageSquareText, RefreshCw, Star, Users } from 'lucide-react';
+import { isOfficialConversationReview, OFFICIAL_REVIEW_COLUMNS } from '@/lib/evaluations/officialConversationReview';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -38,7 +39,8 @@ const REVIEW_COLUMNS = [
   'reviewer_name', 'evaluation_kind', 'conversation_type',
   'final_score', 'total_score', 'doctor_points_impact', 'point_impact',
   'main_positive_reason', 'main_negative_reason', 'training_recommendation',
-  'reviewer_notes', 'conversation_date', 'created_at',
+  'reviewer_notes', 'created_at',
+  ...OFFICIAL_REVIEW_COLUMNS,
 ].join(',');
 
 // daily_followups فيها أكتر من 120 عمود، والصفحة دي محتاجة 13 بس منهم.
@@ -289,6 +291,8 @@ export default function ReviewsInsightsHub() {
   // الشهر بقى بيتفلتر جوه الاستعلام نفسه (شوف load أعلاه)، فمحتاجين هنا بس
   // نفلتر الفرع والدكتور على الداتا اللي اتحملت بالفعل للشهر المختار.
   const filtered = useMemo(() => reviews.filter((row) => {
+    // Staff rankings use officially approved reviews only (officialConversationReview.ts).
+    if (!isOfficialConversationReview(row as Record<string, unknown>)) return false;
     if (branch !== ALL && normalizeBranchName(row.branch || '') !== branch) return false;
     if (doctor !== ALL && resolveStaff(row).name !== doctor) return false;
     return true;
