@@ -122,6 +122,34 @@ describe('canonical invoice seller and self-introduction identity', () => {
     expect(resolveCanonicalStaffIdByName('اسم غير معروف', context.staffIdentityMap)).toBeNull();
   });
 
+  it('ignores an archived same-name account when the active pharmacist is unique', () => {
+    const context = buildSalesIntelligenceRuntimeContext({
+      staffDirectory: [
+        staff('staff-donia-shokry', 'د دنيا', { branch: 'فرع شكري' }),
+        staff('staff-donia-archive', 'د/ دنيا', {
+          branch: 'المخزن', status: 'archived', active: false,
+        }),
+      ],
+      productIndex: buildPharmacyProductIndex([]),
+    });
+    expect(resolveCanonicalStaffIdByName('د دنيا', context.staffIdentityMap)).toBe('staff-donia-shokry');
+    expect(resolveCanonicalStaffIdByName('د/ دنيا', context.staffIdentityMap)).toBe('staff-donia-shokry');
+    expect(resolveCanonicalStaffIdByName('دنيا', context.staffIdentityMap)).toBe('staff-donia-shokry');
+    expect(context.staffProfilesById?.['staff-donia-archive']).toBeUndefined();
+  });
+
+  it('does not choose a winner if two active records normalize to the same name', () => {
+    const context = buildSalesIntelligenceRuntimeContext({
+      staffDirectory: [
+        staff('staff-donia-shokry', 'د دنيا', { branch: 'فرع شكري' }),
+        staff('staff-donia-other', 'د/ دنيا', { branch: 'المخزن' }),
+      ],
+      productIndex: buildPharmacyProductIndex([]),
+    });
+    expect(resolveCanonicalStaffIdByName('د دنيا', context.staffIdentityMap)).toBeNull();
+    expect(resolveCanonicalStaffIdByName('د/ دنيا', context.staffIdentityMap)).toBeNull();
+  });
+
   it('keeps customer-service staff separate from a source-wide invoice-seller hint', async () => {
     const directory = buildSalesIntelligenceRuntimeContext({
       staffDirectory: [
