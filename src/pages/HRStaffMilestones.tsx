@@ -38,7 +38,7 @@ export default function HRStaffMilestones() {
     readStaffDirectory().then((items) => {
       if (!active) return;
       const branch = normalizeBranchName(user?.branch || '');
-      setStaff(items.filter((item) => item.source === 'staff' && item.id &&
+      setStaff(items.filter((item) => item.source === 'staff' && item.active && item.id &&
         (central || normalizeBranchName(item.branch || '') === branch)));
     }).catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : 'تعذر تحميل الموظفين'); });
     return () => { active = false; };

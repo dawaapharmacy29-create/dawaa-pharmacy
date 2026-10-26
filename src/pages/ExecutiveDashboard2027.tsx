@@ -56,7 +56,7 @@ import {
   type DashboardSalesReconciliation,
 } from '@/lib/dashboard/dashboardTruthService';
 import { resolveStaffLink, getStaffNavigationTarget, staffProfilePath } from '@/lib/staff/staffIdentityResolver';
-import { readStaffDirectory } from '@/lib/readModels/staffDirectoryReadModel';
+import { canonicalActiveStaff, readStaffDirectory } from '@/lib/readModels/staffDirectoryReadModel';
 import {
   avgReview,
   getDoctorCompetitionMetrics,
@@ -1317,8 +1317,8 @@ export default function ExecutiveDashboard2027() {
             data: StaffDirectoryRow[] | null;
             error: { message?: string } | null;
           }>(
-            readStaffDirectory().then((rows) => ({
-              data: rows.slice(0, 700).map((row) => ({
+            readStaffDirectory({ requireComplete: true }).then((rows) => ({
+              data: canonicalActiveStaff(rows).slice(0, 700).map((row) => ({
                 id: row.id,
                 name: row.name,
                 role: row.role,

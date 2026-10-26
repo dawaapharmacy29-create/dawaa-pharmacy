@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeBranchName } from '@/lib/branch';
-import { readStaffDirectory } from '@/lib/readModels/staffDirectoryReadModel';
+import { canonicalStaffFromReference, readStaffDirectory, type StaffDirectoryIdentity } from '@/lib/readModels/staffDirectoryReadModel';
 import { reviewerDisplayName } from '@/lib/conversationReviews';
 
 type ReviewRow = Record<string, any>;
@@ -73,7 +73,7 @@ function normalizeName(value: unknown) {
     .toLowerCase();
 }
 
-type StaffRow = { id: string; name: string; branch: string | null; active: boolean | null; is_active: boolean | null };
+type StaffRow = StaffDirectoryIdentity;
 
 // نفس المشكلة اللي ظهرت في الجدول: تقييمات قديمة كتير متسجلة بالاسم النصي بس من غير
 // staff_id (169 من 736 تقييم)، فلو حد اسمه اتكتب بشكلين مختلفين ("د اميرة"/"د/ اميرة")
@@ -81,31 +81,36 @@ type StaffRow = { id: string; name: string; branch: string | null; active: boole
 // النشط من قائمة الموظفين (staff) وقت العرض، بدل ما نعتمد على الاسم أو staff_id
 // المخزّن وقت إنشاء التقييم، ونستبعد أي موظف اتأرشف من التقارير الحالية.
 function buildStaffResolver(staffRows: StaffRow[]) {
-  const byId = new Map(staffRows.map((row) => [row.id, row]));
+  const byId = new Map(staffRows.filter((row) => row.source === 'staff').map((row) => [row.id, row]));
   const byNormalizedName = new Map<string, StaffRow[]>();
   staffRows.forEach((row) => {
     const key = normalizeName(row.name);
     if (!key) return;
-    byNormalizedName.set(key, [...(byNormalizedName.get(key) || []), row]);
+    // Repeated spelling aliases for one person are not competing employees.
+    // Inactive/retired alias owners must still block uncertain name-only claims.
+    const owner = byId.get(row.id);
+    const evidence = owner || row;
+    const existing = byNormalizedName.get(key) || [];
+    if (!existing.some((candidate) => candidate.id === row.id)) byNormalizedName.set(key, [...existing, evidence]);
   });
 
   return function resolve(row: ReviewRow): { key: string; name: string; active: boolean } {
     const rawName = String(row.staff_name || row.doctor_name || 'غير محدد');
     const storedId = String(row.staff_id || '');
-    const byIdMatch = storedId ? byId.get(storedId) : undefined;
+    const byIdMatch = canonicalStaffFromReference(storedId, staffRows);
     if (byIdMatch) {
-      const isActive = byIdMatch.active !== false && byIdMatch.is_active !== false;
-      return { key: `id:${byIdMatch.id}`, name: byIdMatch.name, active: isActive };
+      return { key: `id:${byIdMatch.id}`, name: byIdMatch.name || rawName, active: true };
     }
+    // A present but invalid identifier must never be overridden by a plausible name.
+    if (storedId) return { key: `unlinked:${storedId}`, name: rawName, active: false };
     const candidates = byNormalizedName.get(normalizeName(rawName));
     if (candidates?.length === 1) {
-      const isActive = candidates[0].active !== false && candidates[0].is_active !== false;
-      return { key: `id:${candidates[0].id}`, name: candidates[0].name, active: isActive };
+      const owner = byId.get(candidates[0].id);
+      if (owner?.active) return { key: `id:${owner.id}`, name: owner.name || rawName, active: true };
     }
-    // مفيش تطابق مؤكد (اسم مش موجود حاليًا في قائمة الموظفين، أو نفس الاسم لأكتر من
-    // شخص) — نسيبه بهويته النصية القديمة بدل ما نخمّن، ونعتبره "نشط" افتراضيًا عشان
-    // منخفيش بيانات حقيقية لمجرد إننا معرفناش نربطها.
-    return { key: `name:${normalizeName(rawName) || 'unknown'}`, name: rawName, active: true };
+    // Keep unresolved history accessible for audit, but never make it a current
+    // employee in rankings, incentives, or decision dropdowns.
+    return { key: `name:${normalizeName(rawName) || 'unknown'}`, name: rawName, active: false };
   };
 }
 
@@ -246,17 +251,11 @@ export default function ReviewsInsightsHub() {
           )
           .order('created_at', { ascending: false })
           .limit(3000),
-        readStaffDirectory(),
+        readStaffDirectory({ requireComplete: true }),
       ]);
       if (reviewResult.error) throw reviewResult.error;
       setReviews((reviewResult.data || []) as ReviewRow[]);
-      setStaffRows(staffResult.map((row) => ({
-        id: row.id,
-        name: row.name,
-        branch: row.branch,
-        active: row.active,
-        is_active: row.active,
-      })) as StaffRow[]);
+      setStaffRows(staffResult);
 
       if (followupRequest) {
         const result = await followupRequest;
@@ -281,16 +280,25 @@ export default function ReviewsInsightsHub() {
     () => [ALL, ...Array.from(new Set(reviews.map((row) => normalizeBranchName(row.branch || '')).filter((name) => Boolean(name) && !EXCLUDED_BRANCHES_FROM_RANKING.has(name))))],
     [reviews]
   );
-  const doctors = useMemo(
-    () => [ALL, ...Array.from(new Set(reviews.map((row) => resolveStaff(row)).filter((identity) => identity.active && identity.name !== 'غير محدد').map((identity) => identity.name)))],
-    [reviews, resolveStaff]
-  );
+  const doctors = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const row of reviews) {
+      const identity = resolveStaff(row);
+      if (identity.active && identity.key.startsWith('id:')) byId.set(identity.key, identity.name);
+    }
+    const nameCounts = new Map<string, number>();
+    for (const name of byId.values()) nameCounts.set(name, (nameCounts.get(name) || 0) + 1);
+    return [{ key: ALL, label: ALL }, ...[...byId.entries()].map(([key, name]) => ({
+      key,
+      label: (nameCounts.get(name) || 0) > 1 ? `${name} (${key.slice(3, 11)})` : name,
+    }))];
+  }, [reviews, resolveStaff]);
 
   // الشهر بقى بيتفلتر جوه الاستعلام نفسه (شوف load أعلاه)، فمحتاجين هنا بس
   // نفلتر الفرع والدكتور على الداتا اللي اتحملت بالفعل للشهر المختار.
   const filtered = useMemo(() => reviews.filter((row) => {
     if (branch !== ALL && normalizeBranchName(row.branch || '') !== branch) return false;
-    if (doctor !== ALL && resolveStaff(row).name !== doctor) return false;
+    if (doctor !== ALL && resolveStaff(row).key !== doctor) return false;
     return true;
   }), [branch, doctor, reviews, resolveStaff]);
 
@@ -418,7 +426,7 @@ export default function ReviewsInsightsHub() {
         <div className="mt-3 grid gap-3 md:grid-cols-3">
           <input type="month" className="input-dark" value={month} onChange={(event) => { setMonth(event.target.value); setBranch(ALL); setDoctor(ALL); }} />
           <select className="input-dark" value={branch} onChange={(event) => setBranch(event.target.value)}>{branches.map((item) => <option key={item}>{item}</option>)}</select>
-          <select className="input-dark" value={doctor} onChange={(event) => setDoctor(event.target.value)}>{doctors.map((item) => <option key={item}>{item}</option>)}</select>
+          <select className="input-dark" value={doctor} onChange={(event) => setDoctor(event.target.value)}>{doctors.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}</select>
         </div>
       </div>
 

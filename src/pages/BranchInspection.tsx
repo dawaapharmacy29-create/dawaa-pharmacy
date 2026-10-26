@@ -292,7 +292,7 @@ export default function BranchInspection() {
       }
 
       const staffRows = staffDirectory.filter((row) => {
-        if (row.source === 'alias' || !row.active || !branchMatches(form.branch, row.branch)) return false;
+        if (row.source !== 'staff' || !row.active || !row.id || !row.name || !branchMatches(form.branch, row.branch)) return false;
         const status = normalizeIdentityPart(row.status);
         return !status.includes('terminated') && !status.includes('archiv') && !status.includes('مؤرشف') && !status.includes('غير نشط');
       });
