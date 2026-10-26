@@ -9158,7 +9158,7 @@ var PERMISSION_MAP = Object.fromEntries(
 
 // src/lib/security/userDataScope.ts
 function normalizeArabicName(value) {
-  return String(value ?? "").replace(/[\u064B-\u065F\u0640]/g, "").replace(/[\u0623\u0625\u0622]/g, "\u0627").replace(/\u0649/g, "\u064A").replace(/\u0629/g, "\u0647").replace(/^(?:\s*(?:دكتور|الدكتور|د\.?|د\/)\s*)+/i, "").replace(/[.,،;:()[\]{}_\-/\\|]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+  return String(value ?? "").replace(/[\u064B-\u065F\u0640]/g, "").replace(/[\u0623\u0625\u0622]/g, "\u0627").replace(/\u0649/g, "\u064A").replace(/\u0629/g, "\u0647").replace(/^(?:\s*(?:(?:دكتور|الدكتور)(?=\s|[./])|د(?:[./]\s*|\s+))\s*)+/i, "").replace(/[.,،;:()[\]{}_\-/\\|]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 // src/lib/staff/staffIdentityResolver.ts

@@ -2390,8 +2390,8 @@ export default function Invoices() {
                 <div className="font-bold text-[var(--dawaa-status-info-text)]">ربط الدكاترة</div>
                 <div className="mt-2 text-sm text-[var(--dawaa-status-info-text)]">
                   {importSummary.staffLinkingMode === 'staff_id'
-                    ? 'تم الربط عبر staff_id عندما كان متاحًا، مع الاحتفاظ باسم الدكتور.'
-                    : 'staff_id غير متاح أو غير مطابق، يتم الربط مؤقتًا بالاسم بعد التطبيع والفرع.'}
+                    ? 'تم ربط البائعين ذوي الهوية المؤكدة عبر staff_id، مع الاحتفاظ بأسمائهم الأصلية للبحث.'
+                    : 'الهوية غير محسومة لبعض البائعين؛ تُحفظ للمراجعة دون نسب البيع لموظف بالاسم فقط.'}
                 </div>
               </div>
             </div>

@@ -4,6 +4,8 @@ import type { WhatsAppParticipantRoleModelV15 } from '@/lib/whatsappParticipantR
 const STAFF_TABLE = [
   { id: 's1', name: 'اسلام محمد', branch: 'فرع الشامي', role: 'pharmacist', active: true },
   { id: 's2', name: 'اسلام كريم', branch: 'فرع شكري', role: 'pharmacist', active: true },
+  { id: 's3', name: 'د/ دنيا', branch: 'المخزن', role: 'pharmacist', active: false },
+  { id: 's4', name: 'د دنيا', branch: 'فرع شكري', role: 'pharmacist', active: true },
 ];
 const STAFF_ACCOUNTS_TABLE = [
   { id: 'a1', staff_id: 's1', staff_name: 'اسلام محمد', name: 'اسلام محمد', branch: 'فرع الشامي', role: 'pharmacist', active: true, is_active: true },
@@ -47,7 +49,12 @@ function makeChain(table: string) {
 }
 
 vi.mock('@/lib/supabase', () => ({
-  supabase: { from: (table: string) => makeChain(table) },
+  supabase: {
+    from: (table: string) => makeChain(table),
+    rpc: async (name: string) => name === 'get_staff_accounts_directory'
+      ? { data: STAFF_ACCOUNTS_TABLE, error: null }
+      : { data: null, error: { message: `unexpected RPC: ${name}` } },
+  },
 }));
 
 function roleModel(entries: Array<{ messageId: string; staffId: string | null; staffName: string | null; branch: string | null; confidence: number; role?: string }>): WhatsAppParticipantRoleModelV15 {
@@ -63,6 +70,27 @@ function roleModel(entries: Array<{ messageId: string; staffId: string | null; s
 }
 
 describe('resolveStaffIdentity', () => {
+  it('ignores a still-active alias pointing to an archived employee', async () => {
+    ALIASES_TABLE = [{ id: 'legacy', staff_id: 's3', alias_name: 'د دنيا', active: true, confidence: 1 }];
+    try {
+      const { resolveStaffNameToStaffId } = await import('@/lib/staffIdentityMapping');
+      expect(await resolveStaffNameToStaffId('د/ دنيا')).toBe('s4');
+      expect(await resolveStaffNameToStaffId('دنيا')).toBe('s4');
+    } finally {
+      ALIASES_TABLE = [];
+    }
+  });
+
+  it('abstains when two active employees have the same canonical name', async () => {
+    STAFF_TABLE.push({ id: 's5', name: 'د/ دنيا', branch: 'فرع الشامي', role: 'pharmacist', active: true });
+    try {
+      const { resolveStaffNameToStaffId } = await import('@/lib/staffIdentityMapping');
+      expect(await resolveStaffNameToStaffId('دنيا')).toBeNull();
+    } finally {
+      STAFF_TABLE.pop();
+    }
+  });
+
   it('tier 1: V15 already resolved a real staff_id for the owner episode ("اسلام" in chat -> اسلام محمد in DB) — used directly, no guessing by name', async () => {
     const { resolveStaffIdentity } = await import('@/lib/whatsappStaffIdentityResolver');
     const roles = roleModel([{ messageId: 'm1', staffId: 's1', staffName: 'اسلام محمد', branch: 'فرع الشامي', confidence: 91 }]);
