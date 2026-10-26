@@ -22,16 +22,16 @@ async function review(id, impactStatus, pointsImpact) {
   [id, staffId, impactStatus, pointsImpact]);
 }
 
-async function points(reviewId, status, delta) {
+async function points(reviewId, status, delta, source = 'conversation_evaluation') {
   await db.query(`insert into public.employee_transactions
     (staff_id,type,points,points_delta,source,source_id,status,month_cycle)
-    values ($1,$2,$3,$4,'conversation_evaluation',$5,$6,'2026-10')`,
-  [staffId, delta < 0 ? 'penalty' : 'reward', Math.abs(delta), delta, reviewId, status]);
+    values ($1,$2,$3,$4,$5,$6,$7,'2026-10')`,
+  [staffId, delta < 0 ? 'penalty' : 'reward', Math.abs(delta), delta, source, reviewId, status]);
 }
 
-async function statuses(reviewId) {
+async function statuses(reviewId, source = 'conversation_evaluation') {
   const result = await db.query(`select status,points_delta from public.employee_transactions
-    where source='conversation_evaluation' and source_id=$1 order by created_at,id`, [reviewId]);
+    where source=$2 and source_id=$1 order by created_at,id`, [reviewId, source]);
   return result.rows.map(({ status, points_delta }) => ({ status, delta: Number(points_delta) }));
 }
 
@@ -70,6 +70,25 @@ try {
   assert.deepEqual(await statuses(revisedReview), [{ status: 'pending', delta: 5 }]);
   await rejects(points(revisedReview, 'active', 5), /conversation_review_points_delta_mismatch/);
   await points(revisedReview, 'approved', -3);
+
+  // Every review source listed by the official guard must obey the same
+  // approval, signed-delta and revocation lifecycle. Older source names must
+  // never become a financial bypass around conversation_evaluation.
+  for (const [i, source] of [
+    'whatsapp_automatic_review', 'conversation_review', 'conversation_sales_reviews',
+  ].entries()) {
+    const sourceReview = `10000000-0000-4000-8000-${String(95 + i).padStart(12, '0')}`;
+    await review(sourceReview, 'pending', -3);
+    await points(sourceReview, 'pending', -3, source);
+    await rejects(points(sourceReview, 'approved', -3, source), /conversation_review_points_require_approved_review/);
+    await db.query('update public.conversation_sales_reviews set impact_status=$1 where id=$2', ['approved', sourceReview]);
+    assert.deepEqual(await statuses(sourceReview, source), [{ status: 'approved', delta: -3 }]);
+    await rejects(points(sourceReview, 'approved', 4, source), /conversation_review_points_delta_mismatch/);
+    await db.query('update public.conversation_sales_reviews set impact_status=$1 where id=$2', ['pending', sourceReview]);
+    assert.deepEqual(await statuses(sourceReview, source), [{ status: 'pending', delta: -3 }]);
+  }
+  await rejects(points(null, 'approved', 3, 'conversation_review'), /conversation_review_points_require_source_id/);
+  await rejects(points(null, 'pending', 3, 'whatsapp_automatic_review'), /conversation_review_points_require_source_id/);
 
   const revokedReview = '10000000-0000-4000-8000-000000000094';
   await review(revokedReview, 'approved', -4);

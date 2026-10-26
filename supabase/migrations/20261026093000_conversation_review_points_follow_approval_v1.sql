@@ -69,9 +69,14 @@ declare
   v_status text := lower(coalesce(new.status, 'active'));
 begin
   if coalesce(new.source, '') not in ('whatsapp_automatic_review','conversation_evaluation','conversation_review','conversation_sales_reviews')
-     or new.source_id is null
      or v_status not in ('active','approved','pending') then
     return new;
+  end if;
+
+  -- A review-origin ledger row without provenance cannot become payable or
+  -- masquerade as a legitimate pending review. Production has no such rows.
+  if new.source_id is null then
+    raise exception using errcode = '23514', message = 'conversation_review_points_require_source_id';
   end if;
 
   -- FOR SHARE: a concurrent approval change on the review must commit (and run its sync) before
@@ -91,10 +96,10 @@ begin
     raise exception using errcode = '23514', message = 'conversation_review_points_require_approved_review';
   end if;
   -- The review's approved points effect, not a separately created reward/penalty,
-  -- is the only authority for a conversation_evaluation ledger delta. An older
+  -- is the only authority for every supported review-ledger source. An older
   -- reward of +6 was linked to a review whose actual impact was -20; approval
   -- must never make that inconsistent record payable.
-  if new.source = 'conversation_evaluation' and v_status in ('active','approved')
+  if v_status in ('active','approved')
      and (new.points_delta is null or r.doctor_points_impact is null
           or new.points_delta is distinct from r.doctor_points_impact) then
     raise exception using errcode = '23514', message = 'conversation_review_points_delta_mismatch';
@@ -128,13 +133,13 @@ begin
   if not v_is then
     update public.employee_transactions t
        set status = case when v_retired then 'cancelled' else 'pending' end, updated_at = now()
-     where t.source = 'conversation_evaluation'
+     where t.source in ('whatsapp_automatic_review','conversation_evaluation','conversation_review','conversation_sales_reviews')
        and t.source_id = new.id
        and lower(coalesce(t.status, '')) in (case when v_retired then 'pending' else 'active' end, 'active', 'approved');
   elsif not v_was then
     update public.employee_transactions t
        set status = 'approved', updated_at = now()
-     where t.source = 'conversation_evaluation'
+     where t.source in ('whatsapp_automatic_review','conversation_evaluation','conversation_review','conversation_sales_reviews')
        and t.source_id = new.id
        and lower(coalesce(t.status, '')) = 'pending'
        and t.points_delta is not null
@@ -147,7 +152,7 @@ begin
   if v_is then
     update public.employee_transactions t
        set status = 'pending', updated_at = now()
-     where t.source = 'conversation_evaluation'
+     where t.source in ('whatsapp_automatic_review','conversation_evaluation','conversation_review','conversation_sales_reviews')
        and t.source_id = new.id
        and lower(coalesce(t.status, '')) in ('active','approved')
        and (t.points_delta is null or new.doctor_points_impact is null
