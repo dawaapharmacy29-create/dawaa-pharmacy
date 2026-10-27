@@ -90,6 +90,27 @@ describe('customer display profile enrichment is batched', () => {
     await expect(loadCustomerDisplayProfile({ customer_id: uuid(1) })).resolves.toBeNull();
   });
 
+  it('returns only display columns, so the rendered row keeps its own identity and branch', async () => {
+    const { loadCustomerDisplayProfile, resolveCustomerBranch, getCustomerFlagChips } =
+      await import('../customerDisplay');
+    transport.rows = [{ id: uuid(7), customer_flags: ['vip'], customer_notes: 'يفضل التوصيل' }];
+    const row = { customer_id: uuid(7), customer_code: '7661', branch: 'فرع شكري' };
+    const profile = await loadCustomerDisplayProfile(row);
+    expect(profile).toEqual({ customer_flags: ['vip'], customer_notes: 'يفضل التوصيل' });
+    const merged = { ...profile, ...row, customer_flags: profile?.customer_flags };
+    expect(resolveCustomerBranch(merged)).toEqual(resolveCustomerBranch(row));
+    expect(getCustomerFlagChips(merged).length).toBeGreaterThan(0);
+  });
+
+  it('rows without id, code or phone, or already carrying display data, send no request', async () => {
+    const { loadCustomerDisplayProfile } = await import('../customerDisplay');
+    expect(await loadCustomerDisplayProfile({ customer_name: 'بدون بيانات' })).toBeNull();
+    expect(
+      await loadCustomerDisplayProfile({ customer_id: uuid(3), customer_flags: ['vip'] })
+    ).toBeNull();
+    expect(transport.calls).toHaveLength(0);
+  });
+
   it('bounds each query to 50 values', async () => {
     const { loadCustomerDisplayProfile } = await import('../customerDisplay');
     await Promise.all(

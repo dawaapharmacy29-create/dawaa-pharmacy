@@ -148,7 +148,11 @@ async function fetchProfileChunk(column: LookupColumn, values: string[]) {
   for (const row of (data ?? []) as AnyRow[]) {
     const value = text(row[column]);
     // Same as the former per-row `.limit(1)`: the first matching customer wins.
-    if (value && !byValue.has(value)) byValue.set(value, row as CustomerDisplayProfile);
+    if (!value || byValue.has(value)) continue;
+    // The lookup key is selected only to route results; the profile merged into the
+    // rendered row keeps exactly the former display columns.
+    const { [column]: _lookupKey, ...profile } = row;
+    byValue.set(value, profile as CustomerDisplayProfile);
   }
   return byValue;
 }
