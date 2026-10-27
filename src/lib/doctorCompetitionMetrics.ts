@@ -7,6 +7,7 @@ import { getInvoiceAmount, getInvoiceBranch, getInvoiceDay, getInvoiceId, getInv
 import { supabase } from '@/lib/supabase';
 import { conversationReviewScore100, isOfficialConversationReview, OFFICIAL_REVIEW_COLUMNS } from '@/lib/evaluations/officialConversationReview';
 import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
+import { fetchAllOrderedPages, type PageQuery } from '@/lib/fetchAllOrderedPages';
 
 // سقف داخلي قصير لخطوة التجميع السريع (RPC) لوحدها. لو الـRPC اتأخر أو علّق، بنعدّي
 // بسرعة على مسار الفواتير الاحتياطي بدل ما نستهلك أغلب مهلة الـ20 ثانية الكلية
@@ -313,6 +314,22 @@ async function safeSelect(table: string, build: (query: ReturnType<typeof supaba
   }
 }
 
+// Period-filtered reads can exceed the API's per-response cap (1000 rows): the last
+// 3 months held 1,566 current reviews on 2026-10-27. Same result shape as safeSelect,
+// but every page is read in id order and a failed/oversized read is an error.
+async function safeSelectAll(table: string, build: (query: ReturnType<typeof supabase.from>) => unknown) {
+  try {
+    const result = await fetchAllOrderedPages<Row>(
+      () => build(supabase.from(table)) as PageQuery,
+      { orderColumn: 'id', maxRows: 20000, limitError: `${table}_competition_limit_reached` }
+    );
+    if (result.error) return { data: [] as Row[], error: result.error.message || `تعذر تحميل ${table}` };
+    return { data: (result.data || []).filter(Boolean), error: null };
+  } catch (error) {
+    return { data: [] as Row[], error: error instanceof Error ? error.message : `تعذر تحميل ${table}` };
+  }
+}
+
 async function safeSelectRpc(fn: string) {
   try {
     const result = await supabase.rpc(fn);
@@ -505,8 +522,8 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     salesSource === 'invoice_fallback' ? fetchDoctorSalesRows(range, selectedBranch, salesErrors).catch(() => [] as Row[]) : Promise.resolve([] as Row[]),
     // Only the columns the score loop reads (identity, branch, score): select('*') pulled the
     // evidence JSON (~15 KB/row, ~9 MB per full cycle) into every dashboard load.
-    safeSelect('conversation_sales_reviews', (query) => query.select(COMPETITION_REVIEW_COLUMNS).eq('is_current', true).gte('conversation_date', cairoDateBoundaryIso(range.start)).lte('conversation_date', cairoDateBoundaryIso(range.end, true)).limit(5000)),
-    safeSelect('daily_followups', (query) => query.select('*').gte('created_at', range.start).lte('created_at', `${range.end}T23:59:59`).limit(5000)),
+    safeSelectAll('conversation_sales_reviews', (query) => query.select(COMPETITION_REVIEW_COLUMNS).eq('is_current', true).gte('conversation_date', cairoDateBoundaryIso(range.start)).lte('conversation_date', cairoDateBoundaryIso(range.end, true))),
+    safeSelectAll('daily_followups', (query) => query.select('*').gte('created_at', range.start).lte('created_at', `${range.end}T23:59:59`)),
     safeSelect('stagnant_medicine_dispenses', (query) => query.select('*').limit(5000)),
     safeSelect('incentive_medicine_sales', (query) => query.select('*').limit(5000)),
   ]);
