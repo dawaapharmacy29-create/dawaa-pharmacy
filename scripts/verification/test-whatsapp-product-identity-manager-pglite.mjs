@@ -20,6 +20,7 @@ try {
     create schema if not exists public;
     create table public.staff_accounts (id uuid primary key, staff_name text, name text, active boolean, can_login boolean);
     create table public.whatsapp_review_sources (id uuid primary key, invoice_link_confirmed boolean, invoice_link_confirmed_invoice_id text, source_hash text);
+    create table public.sales_intelligence_cases(case_id text primary key,published_analysis_id uuid);
     create table public.products (id uuid primary key, product_code text, name text);
     create table public.sales_invoice_items_v21 (
       id uuid primary key, invoice_id text, product_id text, product_code text,
@@ -40,6 +41,7 @@ try {
   await db.query('insert into public.whatsapp_review_sources values ($1,true,$2,$3)', [uuid.source, 'invoice-1', 'immutable-source-hash']);
   await db.query('insert into public.products values ($1,$2,$3)', [uuid.product, '47797', 'HERO BABY MILK 2']);
   await db.query('insert into public.sales_invoice_items_v21 values ($1,$2,$3,$4,$5,$6)', [uuid.line, 'invoice-1', uuid.product, '47797', 1, JSON.stringify({ returned: 0 })]);
+  await db.query('insert into public.sales_intelligence_cases values ($1,$2)',[caseId,uuid.analysis]);
   await db.query('insert into public.sales_intelligence_current_case_analyses values ($1,$2,$3)', [caseId, uuid.analysis, JSON.stringify(snapshot)]);
   await db.query('insert into public.sales_intelligence_current_attributions values ($1,$2,$3)', [caseId, uuid.analysis, 'invoice-1']);
 
@@ -83,6 +85,21 @@ try {
     has_table_privilege('authenticated','public.whatsapp_product_identity_manager_reviews_v1','update') as update_allowed,
     has_table_privilege('anon','public.whatsapp_product_identity_manager_reviews_v1','select') as read_allowed`);
   if (Object.values(acl.rows[0]).some(Boolean)) throw new Error('public table privilege leaked');
+  const original = (await db.query('select * from public.whatsapp_product_identity_manager_reviews_v1')).rows[0];
+  const lifecycle = readFileSync(fileURLToPath(new URL('../../supabase/migrations/20261027103443_whatsapp_product_identity_review_history_v2.sql', import.meta.url)), 'utf8');
+  await db.exec(lifecycle);
+  if ((await call()).rows[0].result.review_id !== first.review_id) throw Error('upgrade changed unchanged approval');
+  await db.exec("update whatsapp_review_sources set source_hash='changed-source'");
+  const renewed = (await call()).rows[0].result;
+  if (renewed.idempotent || renewed.review_id === first.review_id) throw Error('source renewal failed');
+  const old = (await db.query('select * from public.whatsapp_product_identity_manager_reviews_v1 where id=$1',[first.review_id])).rows[0];
+  for (const key of Object.keys(original)) if (String(old[key]) !== String(original[key])) throw Error('history changed: '+key);
+  if (old.is_current !== false) throw Error('old decision remains current');
+  await db.exec(lifecycle);
+  const heads = await db.query('select count(*)::int n from public.whatsapp_product_identity_manager_reviews_v1 where is_current');
+  if (heads.rows[0].n !== 1) throw Error('multiple current decisions');
+  await expectFailure('immutable history',()=>db.exec("delete from public.whatsapp_product_identity_manager_reviews_v1"),'product_identity_history_immutable');
+  console.log('PASS: lifecycle upgrade + preserved history + source renewal + one current head + immutable evidence');
   console.log('PASS: migration + manager decision + refusal + idempotency + restricted table ACL');
 } finally {
   await db.close();

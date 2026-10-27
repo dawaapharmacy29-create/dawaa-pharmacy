@@ -10009,7 +10009,7 @@ function readInvoiceItemCommercialMeta(rawData) {
 async function fetchVerifiedProductIdentityReviews(client, sourceIds) {
   const ids = [...new Set(sourceIds.filter(Boolean))];
   if (!ids.length) return {};
-  const { data: reviewRows, error: reviewError } = await client.from("whatsapp_product_identity_manager_reviews_v1").select("id,source_id,source_hash,case_id,basket_item_id,source_message_id,raw_phrase,catalog_product_id,catalog_product_code,invoice_id,invoice_item_id,quantity,decision").in("source_id", ids).limit(5001);
+  const { data: reviewRows, error: reviewError } = await client.from("whatsapp_product_identity_manager_reviews_v1").select("id,source_id,source_hash,case_id,basket_item_id,source_message_id,raw_phrase,catalog_product_id,catalog_product_code,invoice_id,invoice_item_id,quantity,decision,is_current").eq("is_current", true).in("source_id", ids).limit(5001);
   if (reviewError) throw new Error(`product_identity_review_read_failed: ${reviewError.message}`);
   if ((reviewRows ?? []).length >= 5001) throw new Error("product_identity_review_read_limit_reached");
   if (!reviewRows?.length) return {};
@@ -10034,7 +10034,7 @@ async function fetchVerifiedProductIdentityReviews(client, sourceIds) {
     const matchingLineCount = (lines ?? []).filter(
       (candidate) => candidate.invoice_id === review.invoice_id && (candidate.product_id === review.catalog_product_id || candidate.product_code === review.catalog_product_code)
     ).length;
-    if (!source || !line || review.decision !== "identity_confirmed" || source.source_hash !== review.source_hash || source.invoice_link_confirmed !== true || source.invoice_link_confirmed_invoice_id !== review.invoice_id || line.invoice_id !== review.invoice_id || line.product_id !== review.catalog_product_id || line.product_code !== review.catalog_product_code || matchingLineCount !== 1 || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(lineQuantity) || !Number.isFinite(returnedQuantity) || !Number.isFinite(effectiveQuantity) || effectiveQuantity !== quantity) continue;
+    if (!source || !line || review.decision !== "identity_confirmed" || review.is_current !== true || source.source_hash !== review.source_hash || source.invoice_link_confirmed !== true || source.invoice_link_confirmed_invoice_id !== review.invoice_id || line.invoice_id !== review.invoice_id || line.product_id !== review.catalog_product_id || line.product_code !== review.catalog_product_code || matchingLineCount !== 1 || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(lineQuantity) || !Number.isFinite(returnedQuantity) || !Number.isFinite(effectiveQuantity) || effectiveQuantity !== quantity) continue;
     const confirmed = {
       reviewId: String(review.id),
       sourceId,

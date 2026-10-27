@@ -4,7 +4,7 @@ import { fetchVerifiedProductIdentityReviews } from '../persistence/productIdent
 const review = {
   id: 'review-1', source_id: 'source-1', source_hash: 'hash-1', case_id: 'case-1', basket_item_id: 'item-1',
   source_message_id: 'message-1', raw_phrase: 'لبن هيرو بيبي 2', catalog_product_id: 'product-1',
-  catalog_product_code: '47797', invoice_id: 'invoice-1', invoice_item_id: 'line-1', quantity: 1, decision: 'identity_confirmed',
+  catalog_product_code: '47797', invoice_id: 'invoice-1', invoice_item_id: 'line-1', quantity: 1, decision: 'identity_confirmed', is_current: true,
 };
 const source = { id: 'source-1', source_hash: 'hash-1', invoice_link_confirmed: true, invoice_link_confirmed_invoice_id: 'invoice-1' };
 const line = { id: 'line-1', invoice_id: 'invoice-1', product_id: 'product-1', product_code: '47797', quantity: 1, raw_data: { returned: 0 } };
@@ -28,6 +28,7 @@ function fakeClient(overrides: {
       return {
         select() {
           return {
+            eq() { return this; },
             in() {
               return {
                 limit: async () => ({ data: rows[table], error: null }),
@@ -57,6 +58,7 @@ describe('server-side product identity decisions are independently revalidated',
     ['quantity returned', { line: { raw_data: { returned: 1 } } }],
     ['line quantity changed', { line: { quantity: 2 } }],
     ['duplicate invoice product imported later', { extraLine: { id: 'line-2' } }],
+    ['superseded decision', { review: { is_current: false } }],
     ['unapproved row', { review: { decision: 'rejected' } }],
   ] as const)('discards stale/contradicted decision: %s', async (_label, changes) => {
     expect(await fetchVerifiedProductIdentityReviews(fakeClient(changes), ['source-1'])).toEqual({});

@@ -371,7 +371,7 @@ export async function loadStaffPerformanceProfile(
 
   if (!staff) {
     const account = resolution.account;
-    if (account?.active !== false) {
+    if (account && account.active !== false) {
       const accountCanLogin = account.can_login !== false;
       staff = {
         id: String(account.staff_id || account.id || params.staffId),

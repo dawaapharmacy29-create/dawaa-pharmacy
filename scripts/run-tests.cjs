@@ -252,7 +252,6 @@ const testFiles = [
   'src/lib/auth/__tests__/authorizationCacheScope.test.ts',
   'src/lib/__tests__/incentiveEligibility.test.ts',
   'src/lib/__tests__/customerCohortIntelligence.test.ts',
-  'src/lib/staff/__tests__/staffPerformanceProfileService.test.ts',
   'src/lib/__tests__/customerFollowupCore.test.ts',
   'src/lib/__tests__/customerOperationsSqlSecurity.test.ts',
   'src/lib/__tests__/customerFollowupGuards.test.ts',

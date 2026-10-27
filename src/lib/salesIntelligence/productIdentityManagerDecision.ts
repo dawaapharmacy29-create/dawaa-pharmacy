@@ -11,6 +11,8 @@ export interface ProductIdentityManagerReview {
   reviewerNote: string;
   reviewedAt: string;
   decision: 'identity_confirmed';
+  isCurrent: boolean;
+  supersedesReviewId: string | null;
 }
 
 export async function loadProductIdentityManagerReviews(client: RpcClient, caseId: string): Promise<ProductIdentityManagerReview[]> {

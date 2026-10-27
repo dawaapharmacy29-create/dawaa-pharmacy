@@ -885,7 +885,8 @@ export default function SalesIntelligenceQACaseDetail() {
                 sourceCanonical: sourceSnapshot.isCanonical,
                 invoiceLines: invoiceItemFacts,
               });
-              const savedReview = productIdentityReviews?.find((review) => review.basketItemId === item.itemId);
+              const itemReviews = productIdentityReviews?.filter((review) => review.basketItemId === item.itemId) ?? [];
+              const savedReview = itemReviews.find((review) => review.isCurrent) ?? itemReviews[0];
               const appliedInCurrentAnalysis = Boolean(savedReview &&
                 Array.isArray(persistedAnalysis.evidence_snapshot?.managerProductIdentityReviewIds) &&
                 persistedAnalysis.evidence_snapshot.managerProductIdentityReviewIds.includes(savedReview.id));
@@ -913,10 +914,18 @@ export default function SalesIntelligenceQACaseDetail() {
                       موانع الاعتماد: {readiness.blockers.map((blocker) => identityReviewBlockerLabels[blocker]).join('؛ ')}
                     </div>
                   )}
-                  {!savedReview && readiness.evidenceReady && canReviewProductIdentity && productIdentityReviews !== null && readiness.supportingLine ? (
+                  {itemReviews.length > 1 ? (
+                    <details className="mt-2">
+                      <summary>سجل قرارات هوية الصنف ({itemReviews.length})</summary>
+                      {itemReviews.map((review) => <div key={review.id} className="mt-1">
+                        {review.isCurrent ? 'آخر قرار' : 'قرار سابق'} — {review.reviewerName} — {formatDateTime(review.reviewedAt)}: {review.reviewerNote}
+                      </div>)}
+                    </details>
+                  ) : null}
+                  {!appliedInCurrentAnalysis && readiness.evidenceReady && canReviewProductIdentity && productIdentityReviews !== null && readiness.supportingLine ? (
                     <button type="button" className="dawaa-button dawaa-button--secondary mt-2 text-xs" disabled={productIdentityReviewSaving}
                       onClick={() => void approveProductIdentity(item.itemId, readiness.supportingLine!.id, item.productNameRaw)}>
-                      {productIdentityReviewSaving ? 'جارٍ حفظ القرار...' : 'اعتماد هوية هذا الصنف وتسجيل السبب'}
+                      {productIdentityReviewSaving ? 'جارٍ حفظ القرار...' : savedReview ? 'إعادة التحقق واعتماد هوية الصنف بالأدلة الحالية' : 'اعتماد هوية هذا الصنف وتسجيل السبب'}
                     </button>
                   ) : null}
                 </div>
