@@ -302,6 +302,22 @@ export default function DoctorCompetition() {
     try {
       const competitionRange = rangeForDoctorCompetition(period);
 
+      // The per-branch sales summaries depend only on the period and branch, so they run
+      // alongside the eligibility/competition/review reads instead of after them. Only
+      // doctorRows are used here, so the customer-card counts are not requested.
+      const branchesToLoad = effectiveBranch ? [effectiveBranch] : BRANCHES;
+      const summariesPromise = Promise.all(branchesToLoad.map(async (branch) => {
+        try {
+          return await loadSalesAnalyticsSummary({
+            startDate: competitionRange.start,
+            endDate: competitionRange.end,
+            branch,
+          }, true, { includeCustomerCards: false });
+        } catch {
+          return null;
+        }
+      }));
+
       // مصدر ثقة واحد بيقول مين فعلًا "دكتور مؤهل للمسابقة" — بيتطبق على كل
       // المصادر المدموجة (المسابقة نفسها + المبيعات المنفصلة) عشان عامل نظافة
       // أو مساعد أو أي حد تاني ميرجعش يظهر من مصدر تاني حتى لو اتفلتر صح من الأول.
@@ -339,18 +355,7 @@ export default function DoctorCompetition() {
         }),
       ]);
 
-      const branchesToLoad = effectiveBranch ? [effectiveBranch] : BRANCHES;
-      const summaries = await Promise.all(branchesToLoad.map(async (branch) => {
-        try {
-          return await loadSalesAnalyticsSummary({
-            startDate: competitionRange.start,
-            endDate: competitionRange.end,
-            branch,
-          }, true);
-        } catch {
-          return null;
-        }
-      }));
+      const summaries = await summariesPromise;
 
       const salesRows = summaries.flatMap((summary, summaryIndex) => summary?.doctorRows
         .filter((doctor) => doctor.staffId && eligibleStaffIds.has(String(doctor.staffId)))
