@@ -42,6 +42,10 @@ jobs:
         env:
           DAWAA_NATIVE_PG_CONTAINER: dawaa-mb-verify-pg
         run: npm run test:db:product-identity:native
+      - name: Dashboard monthly sales v171/v172 parity
+        env:
+          DAWAA_NATIVE_PG_CONTAINER: dawaa-mb-verify-pg
+        run: npm run test:db:dashboard-monthly:native
       - name: Data-health snapshot read path and compensation coverage
         env:
           DAWAA_NATIVE_PG_CONTAINER: dawaa-mb-verify-pg
