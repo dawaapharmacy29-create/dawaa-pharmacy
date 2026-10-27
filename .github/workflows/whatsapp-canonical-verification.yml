@@ -18,7 +18,7 @@ permissions:
 jobs:
   master-brain-native-pg17:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -54,6 +54,10 @@ jobs:
         env:
           DAWAA_NATIVE_PG_CONTAINER: dawaa-mb-verify-pg
         run: npm run test:db:purchase-promotion:native
+      - name: Customer requests RLS scope evaluated once (visibility parity)
+        env:
+          DAWAA_NATIVE_PG_CONTAINER: dawaa-mb-verify-pg
+        run: npm run test:db:customer-requests-rls:native
       - name: Financial approval and lifecycle concurrency scenarios
         run: npm run test:db:master-brain:native
       - name: Remove disposable database
