@@ -43,7 +43,8 @@
     "test:whatsapp-product-identity": "node scripts/verification/test-whatsapp-product-identity-manager-pglite.mjs",
     "test:db:product-identity:native": "vitest run scripts/verification/whatsapp-product-identity-native.test.ts --maxWorkers=1 --minWorkers=1",
     "test:db:dashboard-monthly:native": "node scripts/verification/test-dashboard-monthly-sales-parity-native.mjs",
-    "test:db:data-health:native": "node scripts/verification/test-data-health-parity-native.mjs"
+    "test:db:data-health:native": "node scripts/verification/test-data-health-parity-native.mjs",
+    "test:db:purchase-promotion:native": "node scripts/verification/test-purchase-promotion-undated-native.mjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8",
