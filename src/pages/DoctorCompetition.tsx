@@ -18,6 +18,7 @@ import { calculateCompositeScore } from '@/lib/incentives/compositeScoreService'
 import { monthCycleFromDate } from '@/lib/conversationReviews';
 import { conversationReviewScore100, isOfficialConversationReview, OFFICIAL_REVIEW_COLUMNS } from '@/lib/evaluations/officialConversationReview';
 import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
+import { fetchAllOrderedPages } from '@/lib/fetchAllOrderedPages';
 
 const ALL_BRANCHES = 'كل الفروع';
 type RankingMode = 'points' | 'sales' | 'invoices' | 'average';
@@ -311,15 +312,16 @@ export default function DoctorCompetition() {
         (eligibleAccountsResult.data || []).map((row: { staff_id: string }) => String(row.staff_id))
       );
 
-      let reviewQuery = supabase
-        .from('conversation_sales_reviews')
-        .select(['staff_id', 'doctor_id', 'staff_name', 'doctor_name', 'branch', ...OFFICIAL_REVIEW_COLUMNS].join(','))
-        .eq('is_current', true)
-        .gte('conversation_date', cairoDateBoundaryIso(competitionRange.start))
-        .lte('conversation_date', cairoDateBoundaryIso(competitionRange.end, true))
-        .limit(10000);
-
-      if (effectiveBranch) reviewQuery = reviewQuery.eq('branch', effectiveBranch);
+      const buildReviewQuery = () => {
+        let query = supabase
+          .from('conversation_sales_reviews')
+          .select(['staff_id', 'doctor_id', 'staff_name', 'doctor_name', 'branch', ...OFFICIAL_REVIEW_COLUMNS].join(','))
+          .eq('is_current', true)
+          .gte('conversation_date', cairoDateBoundaryIso(competitionRange.start))
+          .lte('conversation_date', cairoDateBoundaryIso(competitionRange.end, true));
+        if (effectiveBranch) query = query.eq('branch', effectiveBranch);
+        return query;
+      };
 
       const [competition, reviewResponse] = await Promise.all([
         getDoctorCompetitionMetrics({
@@ -328,7 +330,13 @@ export default function DoctorCompetition() {
           userBranch: user?.branch,
           canSeeAllBranches: true,
         }),
-        reviewQuery,
+        // Last 3 months held 1,566 current reviews on 2026-10-27 — above the 1000-row
+        // response cap — so the former single `.limit(10000)` read was truncated.
+        fetchAllOrderedPages<ReviewRow>(buildReviewQuery, {
+          orderColumn: 'id',
+          maxRows: 20000,
+          limitError: 'conversation_reviews_competition_limit_reached',
+        }),
       ]);
 
       const branchesToLoad = effectiveBranch ? [effectiveBranch] : BRANCHES;
