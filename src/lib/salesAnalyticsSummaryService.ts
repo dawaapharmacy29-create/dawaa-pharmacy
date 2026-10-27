@@ -228,7 +228,8 @@ function normalizeRpcPayload(data: unknown, fallbackDate: string) {
 
 async function loadSalesAnalyticsSummaryOnce(
   filters: SalesAnalyticsFilters,
-  cached: SalesAnalyticsSummary | undefined
+  cached: SalesAnalyticsSummary | undefined,
+  includeCustomerCards: boolean
 ): Promise<SalesAnalyticsSummary> {
   const errorsBySection: Record<string, string> = {};
   const branchParam = isAll(filters.branch) ? null : normalizeBranchName(filters.branch);
@@ -246,14 +247,16 @@ async function loadSalesAnalyticsSummaryOnce(
       return normalizeRpcPayload(data, filters.endDate);
     })(),
     fetchStaffIdentityRows(),
-    Promise.all([
-      countCustomers((query) => query.in('segment', ['مهم جدًا', 'مهم'])),
-      countCustomers((query) => query.eq('customer_status', 'متوقف')),
-      countCustomers((query) => query.eq('customer_status', 'مهدد بالتوقف')),
-      countCustomers((query) =>
-        query.or('customer_phone.is.null,customer_phone.eq.,customer_phone.ilike.code:%')
-      ),
-    ]),
+    includeCustomerCards
+      ? Promise.all([
+          countCustomers((query) => query.in('segment', ['مهم جدًا', 'مهم'])),
+          countCustomers((query) => query.eq('customer_status', 'متوقف')),
+          countCustomers((query) => query.eq('customer_status', 'مهدد بالتوقف')),
+          countCustomers((query) =>
+            query.or('customer_phone.is.null,customer_phone.eq.,customer_phone.ilike.code:%')
+          ),
+        ])
+      : Promise.resolve([null, null, null, null] as const),
   ]);
 
   if (salesResult.status === 'rejected') {
@@ -332,10 +335,17 @@ async function loadSalesAnalyticsSummaryOnce(
 
 export async function loadSalesAnalyticsSummary(
   filters: SalesAnalyticsFilters,
-  forceRefresh = false
+  forceRefresh = false,
+  // Callers that only read sales/doctor rows (e.g. the doctor competition) can skip
+  // the four customer-card count queries; such results are cached under their own key
+  // so pages that show the cards never receive a summary without them.
+  options: { includeCustomerCards?: boolean } = {}
 ): Promise<SalesAnalyticsSummary> {
   if (!isSupabaseConfigured) throw new Error('إعدادات Supabase غير موجودة.');
-  const key = JSON.stringify(filters);
+  const includeCustomerCards = options.includeCustomerCards !== false;
+  const key = includeCustomerCards
+    ? JSON.stringify(filters)
+    : JSON.stringify({ ...filters, customerCards: false });
   const cacheEntry = cache.get(key);
   const cached = cacheEntry?.data;
   const cacheFresh =
@@ -347,7 +357,7 @@ export async function loadSalesAnalyticsSummary(
     if (existing) return existing;
   }
 
-  const load = loadSalesAnalyticsSummaryOnce(filters, cached).then((result) => {
+  const load = loadSalesAnalyticsSummaryOnce(filters, cached, includeCustomerCards).then((result) => {
     cache.set(key, { data: result, savedAt: Date.now() });
     return result;
   });
