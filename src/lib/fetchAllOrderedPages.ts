@@ -1,6 +1,6 @@
 const PAGE_SIZE = 1000;
 
-type PageQuery = {
+export type PageQuery = {
   order: (
     column: string,
     options: { ascending: boolean }
