@@ -1,5 +1,6 @@
 -- Forward-only lifecycle extension of the existing audited ledger. No financial writes.
-begin;
+-- No explicit BEGIN/COMMIT: the migration runner applies this file atomically, and a
+-- nested COMMIT would end that transaction before the history row is recorded.
 
 alter table public.whatsapp_product_identity_manager_reviews_v1
   add column if not exists is_current boolean not null default true,
@@ -229,4 +230,3 @@ grant execute on function public.dawaa_list_whatsapp_product_identity_reviews_v1
   to anon, authenticated;
 
 notify pgrst, 'reload schema';
-commit;
