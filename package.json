@@ -41,7 +41,8 @@
     "test:db:master-brain:native": "node scripts/verification/test-master-brain-native-pg.mjs",
     "test:staff-profile": "vitest run src/lib/staff/__tests__/staffPerformanceProfileService.test.ts --maxWorkers=2 --minWorkers=1",
     "test:whatsapp-product-identity": "node scripts/verification/test-whatsapp-product-identity-manager-pglite.mjs",
-    "test:db:product-identity:native": "vitest run scripts/verification/whatsapp-product-identity-native.test.ts --maxWorkers=1 --minWorkers=1"
+    "test:db:product-identity:native": "vitest run scripts/verification/whatsapp-product-identity-native.test.ts --maxWorkers=1 --minWorkers=1",
+    "test:db:data-health:native": "node scripts/verification/test-data-health-parity-native.mjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8",
