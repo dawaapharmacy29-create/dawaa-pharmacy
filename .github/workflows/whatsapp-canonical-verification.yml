@@ -62,6 +62,10 @@ jobs:
         env:
           DAWAA_NATIVE_PG_CONTAINER: dawaa-mb-verify-pg
         run: npm run test:db:sales-invoices-autovacuum:native
+      - name: Close table writes without a verified session (policy guard)
+        env:
+          DAWAA_NATIVE_PG_CONTAINER: dawaa-mb-verify-pg
+        run: npm run test:db:close-unauthenticated-writes:native
       - name: Financial approval and lifecycle concurrency scenarios
         run: npm run test:db:master-brain:native
       - name: Remove disposable database
