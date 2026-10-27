@@ -86,7 +86,85 @@ function hasDisplayData(row: AnyRow) {
   );
 }
 
-async function loadCustomerDisplayProfile(row: AnyRow): Promise<CustomerDisplayProfile | null> {
+const PROFILE_COLUMNS = 'customer_flags,customer_notes,notes,service_notes,team_notes,handling_notes,whatsapp_notes';
+const PROFILE_BATCH_SIZE = 50;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+type LookupColumn = 'id' | 'customer_code';
+type QueuedLookup = {
+  column: LookupColumn;
+  value: string;
+  resolve: (profile: CustomerDisplayProfile | null) => void;
+  reject: (error: Error) => void;
+};
+
+let queuedLookups: QueuedLookup[] = [];
+let flushScheduled = false;
+
+// Unregistered customers carry a composite display key ("name:…|branch:…"), never a
+// customers.customer_code; looking it up can only return nothing.
+function isSyntheticCustomerKey(code: string) {
+  return code.startsWith('name:') || code.includes('|branch:');
+}
+
+// Rows rendered together (one table page) share one bounded `in` query per column
+// instead of one request per row.
+function queueProfileLookup(column: LookupColumn, value: string) {
+  return new Promise<CustomerDisplayProfile | null>((resolve, reject) => {
+    queuedLookups.push({ column, value, resolve, reject });
+    if (!flushScheduled) {
+      flushScheduled = true;
+      setTimeout(flushProfileLookups, 0);
+    }
+  });
+}
+
+function flushProfileLookups() {
+  const lookups = queuedLookups;
+  queuedLookups = [];
+  flushScheduled = false;
+  for (const column of ['id', 'customer_code'] as const) {
+    const forColumn = lookups.filter((lookup) => lookup.column === column);
+    const values = [...new Set(forColumn.map((lookup) => lookup.value))];
+    for (let start = 0; start < values.length; start += PROFILE_BATCH_SIZE) {
+      const chunk = values.slice(start, start + PROFILE_BATCH_SIZE);
+      const waiting = forColumn.filter((lookup) => chunk.includes(lookup.value));
+      void fetchProfileChunk(column, chunk).then(
+        (byValue) => waiting.forEach((lookup) => lookup.resolve(byValue.get(lookup.value) ?? null)),
+        (error: Error) => waiting.forEach((lookup) => lookup.reject(error))
+      );
+    }
+  }
+}
+
+async function fetchProfileChunk(column: LookupColumn, values: string[]) {
+  const { data, error } = await supabase
+    .from('customers')
+    .select(`${column},${PROFILE_COLUMNS}`)
+    .in(column, values)
+    .limit(values.length * 10);
+  if (error) throw new Error(error.message);
+  const byValue = new Map<string, CustomerDisplayProfile>();
+  for (const row of (data ?? []) as AnyRow[]) {
+    const value = text(row[column]);
+    // Same as the former per-row `.limit(1)`: the first matching customer wins.
+    if (value && !byValue.has(value)) byValue.set(value, row as CustomerDisplayProfile);
+  }
+  return byValue;
+}
+
+async function loadProfileByPhone(phone: string) {
+  const { data, error } = await supabase
+    .from('customers')
+    .select(PROFILE_COLUMNS)
+    .or(`phone.eq.${phone},mobile.eq.${phone},whatsapp.eq.${phone}`)
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data || null) as CustomerDisplayProfile | null;
+}
+
+export async function loadCustomerDisplayProfile(row: AnyRow): Promise<CustomerDisplayProfile | null> {
   const key = customerIdentity(row);
   if (!key || hasDisplayData(row)) return null;
   if (profileCache.has(key)) return profileCache.get(key) ?? null;
@@ -94,26 +172,19 @@ async function loadCustomerDisplayProfile(row: AnyRow): Promise<CustomerDisplayP
   if (pending) return pending;
 
   const request = (async () => {
-    let query = supabase
-      .from('customers')
-      .select('customer_flags,customer_notes,notes,service_notes,team_notes,handling_notes,whatsapp_notes')
-      .limit(1);
-
     const customerId = text(row.customer_id);
     const code = getCustomerCodeSafe(row);
     const phone = text(row.customer_phone ?? row.phone);
-    if (customerId) query = query.eq('id', customerId);
-    else if (code) query = query.eq('customer_code', code);
-    else if (phone) query = query.or(`phone.eq.${phone},mobile.eq.${phone},whatsapp.eq.${phone}`);
-    else return null;
-
-    const { data, error } = await query.maybeSingle();
-    if (error) {
-      if (import.meta.env.DEV) console.warn('[customer-display] profile enrichment failed', error.message);
-      profileCache.set(key, null);
-      return null;
+    let profile: CustomerDisplayProfile | null;
+    try {
+      if (customerId) profile = UUID_PATTERN.test(customerId) ? await queueProfileLookup('id', customerId) : null;
+      else if (code) profile = isSyntheticCustomerKey(code) ? null : await queueProfileLookup('customer_code', code);
+      else if (phone) profile = await loadProfileByPhone(phone);
+      else return null;
+    } catch (error) {
+      if (import.meta.env.DEV) console.warn('[customer-display] profile enrichment failed', (error as Error).message);
+      profile = null;
     }
-    const profile = (data || null) as CustomerDisplayProfile | null;
     profileCache.set(key, profile);
     return profile;
   })().finally(() => pendingProfiles.delete(key));
