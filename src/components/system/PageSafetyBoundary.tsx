@@ -44,7 +44,7 @@ export default class PageSafetyBoundary extends Component<
     // أو الموظف مايحسش أصلًا إن حاجة اتعطلت.
     if (isStaleChunkMessage(this.state.message)) {
       this.setState({ recovering: true });
-      void recoverFromStaleChunkOnce(this.props.pageName).then((attempted) => {
+      void recoverFromStaleChunkOnce(this.props.pageName, error).then((attempted) => {
         if (!attempted) this.setState({ recovering: false });
       });
     }
