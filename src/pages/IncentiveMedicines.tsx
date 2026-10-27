@@ -26,6 +26,7 @@ import { useSupabaseQuery, logActivity } from '@/hooks/useSupabaseQuery';
 import { canViewAllBranches, canViewBranchData } from '@/lib/security/userDataScope';
 import { formatCurrency } from '@/lib/utils';
 import { getCurrentCycle } from '@/lib/pharmacy-cycle';
+import { isPrivilegedRole } from '@/lib/core/permissionSystem';
 import IncentiveDoctorSummary, { type IncentiveDoctorSaleRow } from '@/pages/IncentiveDoctorSummary';
 
 interface IncentiveMedicine {
@@ -89,6 +90,9 @@ function branchKey(value?: string | null) {
   return String(value || '').trim() || 'كل الفروع';
 }
 
+const ALL_BRANCH_VALUES = new Set(['', 'الكل', 'كل الفروع']);
+const INCENTIVE_ALL_BRANCH_PERMISSIONS = ['manage_incentive_medicines', 'create_incentive_medicine', 'edit_incentive_medicine'];
+
 function incentivePerUnit(item: IncentiveMedicine) {
   if (item.incentive_type === 'percent') {
     return (Number(item.product_price || 0) * Number(item.incentive_percent || 0)) / 100;
@@ -100,6 +104,14 @@ export default function IncentiveMedicines() {
   const { user, canManage } = useAuth();
   const canCreate = canManage || user?.permissions?.create_incentive_medicine === true;
   const canEdit = canManage || user?.permissions?.edit_incentive_medicine === true;
+  // Mirrors the incentive_medicines write policy: these values feed payroll, so all-branch
+  // items need a senior role or an explicit incentive permission; other managers write only
+  // their own branch.
+  const canWriteAllBranches =
+    isPrivilegedRole(user?.role) || INCENTIVE_ALL_BRANCH_PERMISSIONS.some((key) => user?.permissions?.[key] === true);
+  const canWriteBranch = (branch?: string | null) =>
+    canWriteAllBranches || (canManage && !ALL_BRANCH_VALUES.has(String(branch || '').trim()) && canViewBranchData(user, branch));
+  const branchWriteError = 'تعديل أصناف كل الفروع أو فرع آخر متاح للإدارة العليا أو لمن لديه صلاحية أصناف الحافز.';
 
   const [activeTab, setActiveTab] = useState<PageTab>('catalog');
   const [showForm, setShowForm] = useState(false);
@@ -265,6 +277,7 @@ export default function IncentiveMedicines() {
     if (Number(form.incentive_value) <= 0) return toast.error('حافز الوحدة يجب أن يكون أكبر من صفر');
     const duplicate = existingByKey.get(`${code}::${branchKey(form.branch)}`);
     if (duplicate && duplicate.id !== editing?.id) return toast.error('هذا الكود موجود بالفعل لنفس نطاق الفرع');
+    if (!canWriteBranch(branchKey(form.branch)) || (editing && !canWriteBranch(editing.branch))) return toast.error(branchWriteError);
 
     const profile = getCurrentUserProfile();
     const payload = {
@@ -297,6 +310,7 @@ export default function IncentiveMedicines() {
   }
 
   async function toggleActive(item: IncentiveMedicine) {
+    if (!canWriteBranch(item.branch)) return toast.error(branchWriteError);
     const { error } = await supabase.from('incentive_medicines').update({ active: item.active === false }).eq('id', item.id);
     if (error) return toast.error(error.message);
     toast.success(item.active === false ? 'تم تفعيل الصنف' : 'تم إيقاف الصنف');
@@ -344,6 +358,7 @@ export default function IncentiveMedicines() {
     const valid = preview.filter((row) => row.action !== 'error');
     if (!valid.length) return toast.error('لا توجد صفوف صالحة للاستيراد');
     if (preview.some((row) => row.action === 'error')) return toast.error('عالج الصفوف التي عليها خطأ قبل الحفظ');
+    if (!canWriteBranch(branchKey(importBranch))) return toast.error(branchWriteError);
     setImporting(true);
     try {
       const profile = getCurrentUserProfile();
@@ -467,7 +482,7 @@ export default function IncentiveMedicines() {
                 <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="mb-2 flex flex-wrap gap-2"><span className="rounded-full border border-white/10 bg-black/10 px-2.5 py-1 font-mono text-[11px] text-slate-300">#{cleanCode(item.product_code) || 'بدون كود'}</span><span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${item.active === false ? 'bg-slate-500/15 text-slate-400' : 'bg-emerald-400/12 text-emerald-300'}`}>{item.active === false ? 'موقوف' : 'نشط'}</span>{isTopMover && <span className="flex items-center gap-1 rounded-full bg-cyan-400/10 px-2.5 py-1 text-[11px] font-bold text-cyan-200"><Trophy size={12} /> الأكثر حركة</span>}{isNoMovement && <span className="flex items-center gap-1 rounded-full bg-amber-400/10 px-2.5 py-1 text-[11px] font-bold text-amber-200"><CircleAlert size={12} /> يحتاج متابعة</span>}{isHighIncentive && <span className="rounded-full bg-violet-400/10 px-2.5 py-1 text-[11px] font-bold text-violet-200">أعلى حافز</span>}</div><h3 className="text-lg font-black leading-7 text-white">{item.product_name}</h3><div className="mt-2 text-xs text-slate-400">{item.product_type || 'بدون تصنيف'} · {item.branch}</div></div><div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.08] ${isNoMovement ? 'text-amber-300' : 'text-emerald-300'}`}><Package size={22} /></div></div>
                 <div className="mt-5 grid grid-cols-2 gap-3"><Mini label="حافز الوحدة" value={formatCurrency(incentive)} tone="text-emerald-300" emphasis /><Mini label="المباع بالدورة" value={`${sale.quantity} وحدة`} tone={sale.quantity > 0 ? 'text-cyan-300' : 'text-amber-300'} emphasis /><Mini label="سعر البيع" value={formatCurrency(price)} /><Mini label="الحافز المحقق" value={formatCurrency(sale.money)} tone="text-cyan-300" /></div>
                 <div className="mt-4 grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-black/10 p-3 text-xs"><div><div className="text-slate-500">نسبة الحافز</div><div className="mt-1 font-bold text-white">{ratio ? `${ratio.toFixed(1)}%` : '—'}</div></div><div><div className="text-slate-500">قرار المتابعة</div><div className={`mt-1 font-bold ${item.active === false ? 'text-slate-400' : isNoMovement ? 'text-amber-300' : 'text-emerald-300'}`}>{item.active === false ? 'موقوف' : isNoMovement ? 'تابع الحركة' : 'يتحرك بالدورة'}</div></div></div>
-                <div className="mt-4 flex items-center justify-between gap-3 border-t border-white/10 pt-4"><div className="text-[11px] text-slate-500">ساري من {item.effective_date || 'غير محدد'}{item.expiry_date ? ` حتى ${item.expiry_date}` : ''}</div><div className="flex items-center gap-2">{canEdit && <button onClick={() => toggleActive(item)} className={`rounded-xl border px-3 py-2 ${item.active === false ? 'border-slate-500/20 text-slate-400' : 'border-emerald-400/15 text-emerald-300'}`}>{item.active === false ? <ToggleLeft size={17} /> : <ToggleRight size={17} />}</button>}{canEdit && <button className="btn-secondary px-3 py-2" onClick={() => openEdit(item)}><Edit size={15} /></button>}</div></div>
+                <div className="mt-4 flex items-center justify-between gap-3 border-t border-white/10 pt-4"><div className="text-[11px] text-slate-500">ساري من {item.effective_date || 'غير محدد'}{item.expiry_date ? ` حتى ${item.expiry_date}` : ''}</div><div className="flex items-center gap-2">{canEdit && canWriteBranch(item.branch) && <button onClick={() => toggleActive(item)} className={`rounded-xl border px-3 py-2 ${item.active === false ? 'border-slate-500/20 text-slate-400' : 'border-emerald-400/15 text-emerald-300'}`}>{item.active === false ? <ToggleLeft size={17} /> : <ToggleRight size={17} />}</button>}{canEdit && canWriteBranch(item.branch) && <button className="btn-secondary px-3 py-2" onClick={() => openEdit(item)}><Edit size={15} /></button>}</div></div>
               </article>;
             })}</div>}
           </section>
