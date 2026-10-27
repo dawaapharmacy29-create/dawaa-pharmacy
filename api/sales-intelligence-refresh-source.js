@@ -7851,6 +7851,26 @@ function deriveCaseOperationalDisposition(input) {
   };
 }
 
+// src/lib/salesIntelligence/productIdentityReviewClosure.ts
+function evaluateAuditedProductIdentityClosure(input) {
+  if (input.saleProofState !== "proven" || !input.invoiceId || !input.activeItems.length) {
+    return { resolved: false, reviewIds: [] };
+  }
+  const unresolved = input.activeItems.filter((item) => item.resolutionStatus !== "proven" || !item.productId);
+  if (!unresolved.length) return { resolved: false, reviewIds: [] };
+  const used = /* @__PURE__ */ new Set();
+  const accepted = [];
+  for (const item of unresolved) {
+    const matching = input.reviews.filter(
+      (review) => review.sourceId === input.sourceId && review.caseId === input.caseId && review.invoiceId === input.invoiceId && review.basketItemId === item.itemId && review.sourceMessageId === item.sourceMessageId && review.rawPhrase === item.productNameRaw && review.catalogProductId === item.productId && review.catalogProductCode === item.productCode && item.quantity !== null && review.quantity === item.quantity && !used.has(review.reviewId)
+    );
+    if (matching.length !== 1) return { resolved: false, reviewIds: [] };
+    used.add(matching[0].reviewId);
+    accepted.push(matching[0].reviewId);
+  }
+  return { resolved: true, reviewIds: accepted.sort() };
+}
+
 // src/lib/salesIntelligence/canonicalCaseBranch.ts
 function canonicalCaseBranchFromRecommendation(input) {
   const { recommendation, ownership } = input;
@@ -8315,6 +8335,17 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
       (reason) => !reviewReasonsResolvedByInvoiceBackedClosure.has(reason)
     );
   }
+  const auditedProductIdentity = evaluateAuditedProductIdentityClosure({
+    sourceId: input.conversationId,
+    caseId: conversationCase.caseId,
+    invoiceId: saleProof.trustedInvoiceId,
+    saleProofState: saleProof.state,
+    activeItems,
+    reviews: input.verifiedProductIdentityReviews ?? []
+  });
+  if (auditedProductIdentity.resolved) {
+    humanReviewReasons = humanReviewReasons.filter((reason) => reason !== "product_identity_unresolved");
+  }
   if (identityBlocked && !humanReviewReasons.includes(identityReason)) humanReviewReasons.push(identityReason);
   const unexplainedBooleanReviewFlag = rawNeedsHumanReview && rawHumanReviewReasons.length === 0;
   let needsHumanReview = humanReviewReasons.length > 0 || unexplainedBooleanReviewFlag;
@@ -8419,7 +8450,8 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     pipelineWarnings,
     needsHumanReview,
     humanReviewReasons,
-    failureReasons,
+    failureReasons: auditedProductIdentity.resolved ? failureReasons.filter((reason) => reason !== "product_identity_unresolved") : failureReasons,
+    managerProductIdentityReviewIds: auditedProductIdentity.reviewIds,
     careFollowUp: deriveCareFollowUpSuggestion(conversationCase, scopedMessages),
     branchRecommendation: recommendCaseBranch({
       ownership: conversationCase.ownership,
@@ -9636,7 +9668,8 @@ async function computeSemanticSourceHash(input) {
     trustedConversationStartedAt: input.trustedConversationStartedAt ?? null,
     branchIdentityMappingVersion: input.branchIdentityMappingVersion,
     ...input.caseOwnership ? { caseOwnership: input.caseOwnership } : {},
-    ...input.saleProofFingerprint ? { saleProofFingerprint: input.saleProofFingerprint } : {}
+    ...input.saleProofFingerprint ? { saleProofFingerprint: input.saleProofFingerprint } : {},
+    ...input.managerProductIdentityReviewIds?.length ? { managerProductIdentityReviewIds: [...input.managerProductIdentityReviewIds].sort() } : {}
   });
 }
 async function computeAttributionInputHash(input) {
@@ -9671,7 +9704,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v48-canonical-case-branch";
+var PIPELINE_VERSION = "sales-intelligence-v49-audited-product-identity-review";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v13-open-service-need-continuity",
   historicalClosure: "historical-closure-v1",
@@ -9779,6 +9812,7 @@ function mapCaseAnalysisRowContent(analysis) {
       evidenceCompleteness: analysis.evidenceCompleteness,
       // v5+: one consolidated read model instead of separate need/demand/lost/follow-up/journey keys.
       caseIntelligence: analysis.caseIntelligence,
+      managerProductIdentityReviewIds: analysis.managerProductIdentityReviewIds ?? [],
       historicalClosureEvidence: analysis.historicalClosure.confidence.evidence,
       // No dedicated applicability-rule-id field exists on OrderConfirmationProtocolAssessment —
       // applicability is DERIVED from historicalClosure + commercialConfirmation (see
@@ -9898,6 +9932,125 @@ async function persistPolicyEvaluation(supabaseClient, analysisId, caseId, analy
     isNew: data.is_new,
     policyInputHash
   };
+}
+
+// src/lib/invoices/invoiceItemCommercialMeta.ts
+function num(value) {
+  if (value == null || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+function text2(value) {
+  const s = String(value ?? "").trim();
+  return s && s !== "." ? s : null;
+}
+function readInvoiceItemCommercialMeta(rawData) {
+  const raw = rawData && typeof rawData === "object" ? rawData : {};
+  const commercial = raw.__dawaa_commercial;
+  if (commercial && typeof commercial === "object") {
+    const m = commercial;
+    return {
+      format: "dawaa_commercial",
+      effectiveQuantity: num(m.effective_quantity),
+      returnedQuantity: num(m.returned_quantity),
+      unitName: text2(m.unit_name),
+      expiryRaw: text2(m.expiry_raw),
+      itemDiscountAmount: num(m.item_discount_amount),
+      itemDiscountPercent: num(m.item_discount_percent),
+      grossLineAmount: num(m.gross_line_amount),
+      effectiveGrossAfterReturn: num(m.effective_gross_after_return),
+      netLineAmount: num(m.net_line_amount),
+      invoiceDiscountAmount: num(m.invoice_discount_amount),
+      allocatedInvoiceDiscountAmount: num(m.allocated_invoice_discount_amount),
+      invoiceNetAmount: num(m.invoice_net_amount)
+    };
+  }
+  const isCompact = ["gross_line", "line_discount", "returned", "invoice_net", "unit"].some(
+    (key) => key in raw
+  );
+  if (!isCompact) {
+    return {
+      format: "none",
+      effectiveQuantity: null,
+      returnedQuantity: null,
+      unitName: null,
+      expiryRaw: null,
+      itemDiscountAmount: null,
+      itemDiscountPercent: null,
+      grossLineAmount: null,
+      effectiveGrossAfterReturn: null,
+      netLineAmount: null,
+      invoiceDiscountAmount: null,
+      allocatedInvoiceDiscountAmount: null,
+      invoiceNetAmount: null
+    };
+  }
+  return {
+    format: "compact_import",
+    // The compact row stores the sold quantity and the returned quantity; callers derive the
+    // effective quantity from the row's own quantity column.
+    effectiveQuantity: null,
+    returnedQuantity: num(raw.returned),
+    unitName: text2(raw.unit),
+    expiryRaw: text2(raw.expiry),
+    itemDiscountAmount: num(raw.line_discount),
+    itemDiscountPercent: num(raw.line_discount_pct),
+    grossLineAmount: num(raw.gross_line),
+    effectiveGrossAfterReturn: null,
+    // The net line value of a compact row is the row's line_total column.
+    netLineAmount: null,
+    invoiceDiscountAmount: null,
+    allocatedInvoiceDiscountAmount: null,
+    invoiceNetAmount: num(raw.invoice_net)
+  };
+}
+
+// src/lib/salesIntelligence/persistence/productIdentityReviewEvidenceRepository.ts
+async function fetchVerifiedProductIdentityReviews(client, sourceIds) {
+  const ids = [...new Set(sourceIds.filter(Boolean))];
+  if (!ids.length) return {};
+  const { data: reviewRows, error: reviewError } = await client.from("whatsapp_product_identity_manager_reviews_v1").select("id,source_id,source_hash,case_id,basket_item_id,source_message_id,raw_phrase,catalog_product_id,catalog_product_code,invoice_id,invoice_item_id,quantity,decision").in("source_id", ids).limit(5001);
+  if (reviewError) throw new Error(`product_identity_review_read_failed: ${reviewError.message}`);
+  if ((reviewRows ?? []).length >= 5001) throw new Error("product_identity_review_read_limit_reached");
+  if (!reviewRows?.length) return {};
+  const [{ data: sources, error: sourceError }, { data: lines, error: lineError }] = await Promise.all([
+    client.from("whatsapp_review_sources").select("id,source_hash,invoice_link_confirmed,invoice_link_confirmed_invoice_id").in("id", [...new Set(reviewRows.map((row) => row.source_id))]),
+    client.from("sales_invoice_items_v21").select("id,invoice_id,product_id,product_code,quantity,raw_data").in("invoice_id", [...new Set(reviewRows.map((row) => row.invoice_id))]).limit(10001)
+  ]);
+  if (sourceError || lineError) throw new Error(`product_identity_review_proof_read_failed: ${sourceError?.message || lineError?.message}`);
+  if ((lines ?? []).length >= 10001) throw new Error("product_identity_invoice_line_read_limit_reached");
+  const sourceById = new Map((sources ?? []).map((row) => [String(row.id), row]));
+  const lineById = new Map((lines ?? []).map((row) => [String(row.id), row]));
+  const result = {};
+  for (const review of reviewRows) {
+    const sourceId = String(review.source_id);
+    const source = sourceById.get(sourceId);
+    const line = lineById.get(String(review.invoice_item_id));
+    const quantity = Number(review.quantity);
+    const commercial = readInvoiceItemCommercialMeta(line?.raw_data);
+    const lineQuantity = line?.quantity == null ? NaN : Number(line.quantity);
+    const returnedQuantity = commercial.returnedQuantity ?? 0;
+    const effectiveQuantity = commercial.effectiveQuantity ?? lineQuantity - returnedQuantity;
+    const matchingLineCount = (lines ?? []).filter(
+      (candidate) => candidate.invoice_id === review.invoice_id && (candidate.product_id === review.catalog_product_id || candidate.product_code === review.catalog_product_code)
+    ).length;
+    if (!source || !line || review.decision !== "identity_confirmed" || source.source_hash !== review.source_hash || source.invoice_link_confirmed !== true || source.invoice_link_confirmed_invoice_id !== review.invoice_id || line.invoice_id !== review.invoice_id || line.product_id !== review.catalog_product_id || line.product_code !== review.catalog_product_code || matchingLineCount !== 1 || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(lineQuantity) || !Number.isFinite(returnedQuantity) || !Number.isFinite(effectiveQuantity) || effectiveQuantity !== quantity) continue;
+    const confirmed = {
+      reviewId: String(review.id),
+      sourceId,
+      caseId: String(review.case_id),
+      basketItemId: String(review.basket_item_id),
+      sourceMessageId: String(review.source_message_id),
+      rawPhrase: String(review.raw_phrase),
+      catalogProductId: String(review.catalog_product_id),
+      catalogProductCode: String(review.catalog_product_code),
+      quantity,
+      invoiceId: String(review.invoice_id),
+      invoiceItemId: String(review.invoice_item_id)
+    };
+    (result[sourceId] ??= []).push(confirmed);
+  }
+  return result;
 }
 
 // src/lib/salesIntelligence/persistence/attributionWriter.ts
@@ -10068,77 +10221,6 @@ function mergeDeniedInvoiceMaps(target, incoming) {
     target.set(caseId, bucket);
   }
   return added;
-}
-
-// src/lib/invoices/invoiceItemCommercialMeta.ts
-function num(value) {
-  if (value == null || value === "") return null;
-  const n = Number(value);
-  return Number.isFinite(n) ? n : null;
-}
-function text2(value) {
-  const s = String(value ?? "").trim();
-  return s && s !== "." ? s : null;
-}
-function readInvoiceItemCommercialMeta(rawData) {
-  const raw = rawData && typeof rawData === "object" ? rawData : {};
-  const commercial = raw.__dawaa_commercial;
-  if (commercial && typeof commercial === "object") {
-    const m = commercial;
-    return {
-      format: "dawaa_commercial",
-      effectiveQuantity: num(m.effective_quantity),
-      returnedQuantity: num(m.returned_quantity),
-      unitName: text2(m.unit_name),
-      expiryRaw: text2(m.expiry_raw),
-      itemDiscountAmount: num(m.item_discount_amount),
-      itemDiscountPercent: num(m.item_discount_percent),
-      grossLineAmount: num(m.gross_line_amount),
-      effectiveGrossAfterReturn: num(m.effective_gross_after_return),
-      netLineAmount: num(m.net_line_amount),
-      invoiceDiscountAmount: num(m.invoice_discount_amount),
-      allocatedInvoiceDiscountAmount: num(m.allocated_invoice_discount_amount),
-      invoiceNetAmount: num(m.invoice_net_amount)
-    };
-  }
-  const isCompact = ["gross_line", "line_discount", "returned", "invoice_net", "unit"].some(
-    (key) => key in raw
-  );
-  if (!isCompact) {
-    return {
-      format: "none",
-      effectiveQuantity: null,
-      returnedQuantity: null,
-      unitName: null,
-      expiryRaw: null,
-      itemDiscountAmount: null,
-      itemDiscountPercent: null,
-      grossLineAmount: null,
-      effectiveGrossAfterReturn: null,
-      netLineAmount: null,
-      invoiceDiscountAmount: null,
-      allocatedInvoiceDiscountAmount: null,
-      invoiceNetAmount: null
-    };
-  }
-  return {
-    format: "compact_import",
-    // The compact row stores the sold quantity and the returned quantity; callers derive the
-    // effective quantity from the row's own quantity column.
-    effectiveQuantity: null,
-    returnedQuantity: num(raw.returned),
-    unitName: text2(raw.unit),
-    expiryRaw: text2(raw.expiry),
-    itemDiscountAmount: num(raw.line_discount),
-    itemDiscountPercent: num(raw.line_discount_pct),
-    grossLineAmount: num(raw.gross_line),
-    effectiveGrossAfterReturn: null,
-    // The net line value of a compact row is the row's line_total column.
-    netLineAmount: null,
-    invoiceDiscountAmount: null,
-    allocatedInvoiceDiscountAmount: null,
-    invoiceNetAmount: num(raw.invoice_net)
-  };
 }
 
 // src/lib/salesIntelligence/invoiceItemEvidenceRepository.ts
@@ -10416,6 +10498,7 @@ async function runBatchPersistence(supabaseClient, input) {
     input.conversations,
     runtimeContext
   );
+  const managerReviewsBySource = input.applyManagerProductIdentityReviews ? await fetchVerifiedProductIdentityReviews(supabaseClient, effectiveConversations.map((c) => c.conversationId)) : {};
   const baseInputByConversationId = new Map(
     effectiveConversations.map((conversation) => [
       conversation.conversationId,
@@ -10456,7 +10539,8 @@ async function runBatchPersistence(supabaseClient, input) {
       ...baseInputFor(conversation),
       competingSelections: [],
       resolveInvoiceCandidates: (context) => conversationToGroupCandidates(conversation, context),
-      itemEvidenceProvider
+      itemEvidenceProvider,
+      verifiedProductIdentityReviews: managerReviewsBySource[conversation.conversationId] ?? []
     };
     const result = runSalesIntelligencePipeline(pipelineInput);
     pass1ByConversation.set(conversation.conversationId, result.caseAnalyses);
@@ -10479,7 +10563,8 @@ async function runBatchPersistence(supabaseClient, input) {
             rows.candidatePoolComplete !== false
           ) : rows;
         },
-        itemEvidenceProvider
+        itemEvidenceProvider,
+        verifiedProductIdentityReviews: managerReviewsBySource[conversation.conversationId] ?? []
       };
       analyses.push(...runSalesIntelligencePipeline(pipelineInput).caseAnalyses);
     }
@@ -10536,7 +10621,8 @@ async function runBatchPersistence(supabaseClient, input) {
       trustedConversationStartedAt: conversationInput?.trustedConversationStartedAt ?? null,
       branchIdentityMappingVersion: BRANCH_IDENTITY_MAPPING_VERSION,
       caseOwnership: conversationCase.ownership,
-      saleProofFingerprint: saleProofFingerprint(analysis)
+      saleProofFingerprint: saleProofFingerprint(analysis),
+      managerProductIdentityReviewIds: analysis.managerProductIdentityReviewIds ?? []
     });
     const casePlan = await planCase(supabaseClient, analysis.caseId);
     const planCaseEntry = { caseId: analysis.caseId, conversationId: analysis.conversationId, customerGroupKey: groupKey };
@@ -15646,7 +15732,12 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
     v22CaseIdBySource,
     v22ContextByCaseId
   );
-  const batch = await runBatchPersistence(service, { conversations, dryRun: input.dryRun, deferPublication: true });
+  const batch = await runBatchPersistence(service, {
+    conversations,
+    dryRun: input.dryRun,
+    deferPublication: true,
+    applyManagerProductIdentityReviews: true
+  });
   if (input.dryRun) return { ...empty, status: "ok", admittedSourceIds, blockedSources, batch };
   const deletedCaseIds = await loadDeletedCaseIds(
     service,

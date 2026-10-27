@@ -213,6 +213,8 @@ export interface SalesIntelligenceCaseAnalysisRow extends CaseAnalysisProvenance
     followUp?: FollowUpAssessment;
     /** v5+: unified Case Intelligence read model (supersedes the separate keys above for new rows). */
     caseIntelligence?: CaseIntelligenceView;
+    /** v49+: manager review IDs independently reverified during this exact canonical analysis. */
+    managerProductIdentityReviewIds?: string[];
     /** Derived state-machine projection; optional for historical v1 rows. */
     journeyState?: CommercialJourneyStateAssessment;
     historicalClosureEvidence: EvidenceRef[];

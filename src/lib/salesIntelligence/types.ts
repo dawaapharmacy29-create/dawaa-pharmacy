@@ -1607,6 +1607,8 @@ export type PipelineFailureReason =
  * score), so a reviewer can see exactly which stage a conclusion came from.
  */
 export interface SalesIntelligenceCaseAnalysis {
+  /** Verified, case-scoped manager decisions consumed solely to close product identity review. */
+  managerProductIdentityReviewIds?: string[];
   /** Canonical pipeline decisions. Absent only on historical snapshots; projectors fail closed. */
   complaintAssessment?: import('./complaintAssessmentEngine').CanonicalComplaintAssessment;
   customerRequestAssessment?: import('./customerRequestQualificationEngine').CanonicalCustomerRequestAssessment;
