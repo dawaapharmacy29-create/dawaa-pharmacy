@@ -48,10 +48,11 @@ export default function OperationalReadinessPanel() {
 
   const load = async () => {
     setLoading(true);
-    const [openFollowups, unreadNotifications, pendingAssignments, draftPayroll, activeOffers] = await Promise.all([
+    // staff_assignments was never created in production (see DoctorDashboardStable), so the
+    // former "open staff assignments" check only ever produced a 404 and a warning.
+    const [openFollowups, unreadNotifications, draftPayroll, activeOffers] = await Promise.all([
       countRows('daily_followups', (q) => q.not('status', 'in', '(completed,closed,cancelled)')),
       countRows('notifications', (q) => q.eq('is_read', false)),
-      countRows('staff_assignments', (q) => q.not('status', 'in', '(completed,cancelled)')),
       countRows('employee_monthly_statements', (q) => q.in('status', ['draft','pending_review','manager_review'])),
       countRows('offers', (q) => q.eq('status', 'active')),
     ]);
@@ -59,7 +60,6 @@ export default function OperationalReadinessPanel() {
     setChecks([
       { key: 'followups', label: 'متابعات مفتوحة', value: openFollowups, status: openFollowups === null ? 'warning' : 'ready', note: 'تعكس ضغط العمل الحالي على خدمة العملاء.' },
       { key: 'notifications', label: 'إشعارات غير مقروءة', value: unreadNotifications, status: unreadNotifications === null ? 'warning' : unreadNotifications > 100 ? 'warning' : 'ready', note: 'ارتفاع العدد يعني أن التنبيهات تحتاج ترتيبًا ومتابعة.' },
-      { key: 'assignments', label: 'مهام موظفين مفتوحة', value: pendingAssignments, status: pendingAssignments === null ? 'warning' : 'ready', note: 'يجب أن يكون لكل مهمة مسؤول وموعد واضح.' },
       { key: 'payroll', label: 'كشوف قبض تحت المراجعة', value: draftPayroll, status: draftPayroll === null ? 'warning' : 'ready', note: 'تظل المسودات غير معتمدة حتى إغلاق الدورة.' },
       { key: 'offers', label: 'عروض نشطة', value: activeOffers, status: activeOffers === null ? 'warning' : 'ready', note: 'تظهر للدكاترة في مساحة العروض والاستوريز.' },
     ]);
