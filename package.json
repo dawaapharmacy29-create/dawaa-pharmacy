@@ -45,6 +45,7 @@
     "test:db:dashboard-monthly:native": "node scripts/verification/test-dashboard-monthly-sales-parity-native.mjs",
     "test:db:data-health:native": "node scripts/verification/test-data-health-parity-native.mjs",
     "test:db:purchase-promotion:native": "node scripts/verification/test-purchase-promotion-undated-native.mjs",
+    "test:db:customer-requests-rls:native": "node scripts/verification/test-customer-requests-rls-scope-native.mjs",
     "test:db:sales-invoices-autovacuum:native": "node scripts/verification/test-sales-invoices-autovacuum-native.mjs"
   },
   "devDependencies": {
