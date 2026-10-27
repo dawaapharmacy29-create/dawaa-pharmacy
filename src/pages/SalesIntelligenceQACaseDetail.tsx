@@ -33,6 +33,8 @@ import { SourceOperationsPanel } from '@/components/salesIntelligence/SourceOper
 import { loadConversationEvaluation } from '@/lib/salesIntelligence/conversationEvaluationLoader';
 import type { ConversationEvaluationResult } from '@/lib/salesIntelligence/conversationEvaluation';
 import { productDisplayStateLabel } from '@/lib/salesIntelligence/qa/persistedProductTruth';
+import { assessProductIdentityReview, identityReviewBlockerLabels } from '@/lib/salesIntelligence/qa/productIdentityReviewReadiness';
+import { confirmProductIdentityManagerDecision, loadProductIdentityManagerReviews, type ProductIdentityManagerReview } from '@/lib/salesIntelligence/productIdentityManagerDecision';
 import { readCaseIntelligence } from '@/lib/salesIntelligence/qa/caseIntelligencePresentation';
 import { buildCaseInvoiceCard } from '@/lib/salesIntelligence/qa/caseInvoiceCard';
 import { CaseInvoiceCard } from '@/components/salesIntelligence/CaseInvoiceCard';
@@ -161,6 +163,7 @@ export default function SalesIntelligenceQACaseDetail() {
   const { checkPermission, user } = useAuth();
   // Canonical action permission plus the narrow role; the RPC remains authoritative.
   const canDelete = checkPermission('delete_reviews') && canManageWhatsAppDeletions(user?.role);
+  const canReviewProductIdentity = checkPermission('approve_reviews') && canManageWhatsAppDeletions(user?.role);
   const [deletionScope, setDeletionScope] = useState<WhatsAppDeletionScope | null>(null);
   const [bundle, setBundle] = useState<QaCaseDetailBundle | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
@@ -172,6 +175,10 @@ export default function SalesIntelligenceQACaseDetail() {
   const [conversationEvaluation, setConversationEvaluation] = useState<ConversationEvaluationResult | null>(null);
   const [conversationEvaluationLoading, setConversationEvaluationLoading] = useState(false);
   const [conversationEvaluationWarning, setConversationEvaluationWarning] = useState<string | null>(null);
+  const [productIdentityReviews, setProductIdentityReviews] = useState<ProductIdentityManagerReview[] | null>(null);
+  const [productIdentityReviewError, setProductIdentityReviewError] = useState<string | null>(null);
+  const [productIdentityReviewMessage, setProductIdentityReviewMessage] = useState<string | null>(null);
+  const [productIdentityReviewSaving, setProductIdentityReviewSaving] = useState(false);
 
   // The selected case id is authoritative: every async result (load, confirm, reload) commits
   // through this gate and is dropped once the user has moved to another case or left the page.
@@ -186,6 +193,8 @@ export default function SalesIntelligenceQACaseDetail() {
     setConfirming: setInvoiceConfirming,
   };
   const loadDetail = (id: string, signal: AbortSignal) => fetchQaCaseDetail(supabase, id, { signal });
+
+  useEffect(() => { setProductIdentityReviewMessage(null); }, [caseId]);
 
   useEffect(() => {
     setEvaluationRequestedFor(null);
@@ -222,6 +231,17 @@ export default function SalesIntelligenceQACaseDetail() {
 
     return () => { cancelled = true; };
   }, [bundle, caseId, evaluationRequestedFor]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setProductIdentityReviews(null);
+    setProductIdentityReviewError(null);
+    if (!canReviewProductIdentity || !caseId || !bundle) return () => { cancelled = true; };
+    void loadProductIdentityManagerReviews(supabase, caseId)
+      .then((rows) => { if (!cancelled) setProductIdentityReviews(rows); })
+      .catch((cause) => { if (!cancelled) setProductIdentityReviewError(cause instanceof Error ? cause.message : 'تعذر تحميل سجل الاعتماد.'); });
+    return () => { cancelled = true; };
+  }, [bundle, canReviewProductIdentity, caseId]);
 
   if (error) {
     return <div className="dawaa-alert dawaa-alert--danger text-sm font-bold" dir="rtl">{error}</div>;
@@ -322,6 +342,47 @@ export default function SalesIntelligenceQACaseDetail() {
     alreadyConfirmedInvoiceId: conversation?.invoiceLinkConfirmedInvoiceId,
     alreadyProven: invoiceAlreadyProven,
   }) && Boolean(candidateInvoice?.id === candidateInvoiceId && canConfirmInvoiceLink);
+
+  async function approveProductIdentity(basketItemId: string, invoiceItemId: string, description: string) {
+    if (!canReviewProductIdentity || !conversation || !sourceSnapshot.isCanonical || productIdentityReviewSaving ||
+        productIdentityReviews === null) return;
+    const note = window.prompt(`اعتماد هوية الصنف: ${description}\nاكتب سبب القرار بعد مراجعة رسالة العميل والفاتورة (٨ حروف على الأقل):`);
+    if (note === null) return;
+    setProductIdentityReviewSaving(true);
+    setProductIdentityReviewError(null);
+    setProductIdentityReviewMessage(null);
+    try {
+      await confirmProductIdentityManagerDecision(supabase, {
+        sourceId: conversation.id,
+        caseId,
+        analysisId: String(persistedAnalysis.analysis_id),
+        basketItemId,
+        invoiceItemId,
+        note,
+      });
+      const saved = await loadProductIdentityManagerReviews(supabase, caseId);
+      // A navigation while the request is pending must never display a decision on another case.
+      if (gate.selectedCaseId() === caseId) setProductIdentityReviews(saved);
+      const token = getStaffSessionToken();
+      if (!token) throw new Error('تم حفظ القرار، لكن جلسة إعادة التحليل غير متاحة. اضغط «إعادة التحليل الصريحة» بعد تجديد الجلسة.');
+      const refresh = await requestCanonicalSalesIntelligenceRefresh({ sourceIds: [conversation.id], accessToken: token });
+      const status = refresh.bySource[conversation.id];
+      if (refresh.errors.length || status?.status !== 'allowed') {
+        throw new Error(`تم حفظ القرار لكن إعادة التحليل لم تكتمل: ${refresh.errors.map((row) => row.message).join('؛ ') || status?.reason || 'غير معروف'}`);
+      }
+      if (gate.selectedCaseId() === caseId) {
+        const latest = await loadDetail(caseId, new AbortController().signal);
+        if (gate.selectedCaseId() === caseId) {
+          setBundle(latest);
+          setProductIdentityReviewMessage('تم توثيق قرار الصنف وإعادة التحليل القياسي. أسباب المراجعة الأخرى تظل مستقلة.');
+        }
+      }
+    } catch (cause) {
+      if (gate.selectedCaseId() === caseId) setProductIdentityReviewError(cause instanceof Error ? cause.message : 'تعذر حفظ قرار هوية الصنف.');
+    } finally {
+      setProductIdentityReviewSaving(false);
+    }
+  }
 
   async function reanalyzeSelectedCase() {
     if (!canConfirmInvoiceLink || !sourceSnapshot.isCanonical || !conversation || invoiceConfirming) return;
@@ -801,6 +862,78 @@ export default function SalesIntelligenceQACaseDetail() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+      </Section>
+
+      <Section title="٣.ج. جاهزية مراجعة هوية الصنف — بالأدلة">
+        <div className="dawaa-alert dawaa-alert--info text-xs">
+          تطابق الصنف والكمية مع فاتورة معتمدة لا يعني اعتماد هوية الطلب تلقائيًا.
+          قرار المدير يُحفظ كسجل مستقل، ولا يغيّر إثبات البيع أو نقاط الموظف أو التقييم الشهري تلقائيًا.
+        </div>
+        {productIdentityReviewError ? <div className="dawaa-alert dawaa-alert--danger text-xs">تعذر إكمال خطوة من خطوات المراجعة: {productIdentityReviewError}</div> : null}
+        {productIdentityReviewMessage ? <div className="dawaa-alert dawaa-alert--success text-xs">{productIdentityReviewMessage}</div> : null}
+        {!basketItems.length ? (
+          <div className="dawaa-muted text-xs">لا توجد سلة محفوظة لمراجعة أصنافها.</div>
+        ) : (
+          <div className="space-y-3">
+            {basketItems.filter((item) => item.resolutionStatus !== 'proven').map((item) => {
+              const readiness = assessProductIdentityReview({
+                basketItem: item,
+                invoiceId: trustedInvoiceId,
+                invoiceConfirmed: invoiceConfirmationMatchesCandidate,
+                sourceCanonical: sourceSnapshot.isCanonical,
+                invoiceLines: invoiceItemFacts,
+              });
+              const itemReviews = productIdentityReviews?.filter((review) => review.basketItemId === item.itemId) ?? [];
+              const savedReview = itemReviews.find((review) => review.isCurrent) ?? itemReviews[0];
+              const appliedInCurrentAnalysis = Boolean(savedReview &&
+                Array.isArray(persistedAnalysis.evidence_snapshot?.managerProductIdentityReviewIds) &&
+                persistedAnalysis.evidence_snapshot.managerProductIdentityReviewIds.includes(savedReview.id));
+              return (
+                <div key={item.itemId} className="rounded-xl border border-[var(--dawaa-theme-border)] p-3 text-xs">
+                  <div className="font-bold">نص العميل: {item.productNameRaw}</div>
+                  <div className="dawaa-muted mt-1">المرشح القياسي: {item.canonicalName || 'غير معروف'} — الكود: {item.productCode || 'غير معروف'} — الكمية المطلوبة: {item.quantity ?? 'غير معروفة'}</div>
+                  {readiness.supportingLine ? (
+                    <div className="mt-2">سطر الفاتورة: {readiness.supportingLine.productName} — الكود: {readiness.supportingLine.productCode} — الكمية الصافية: {readiness.supportingLine.effectiveQuantity ?? 'غير معروفة'}</div>
+                  ) : null}
+                  {savedReview ? (
+                    <div className="dawaa-alert dawaa-alert--success mt-2 text-xs">
+                      {appliedInCurrentAnalysis
+                        ? 'قرار هوية موثّق أُعيد التحقق منه في التحليل الحالي'
+                        : savedReview.analysisId === String(persistedAnalysis.analysis_id)
+                          ? 'قرار هوية موثّق ينتظر تحديث التحليل'
+                          : 'قرار هوية تاريخي، غير مطبّق في التحليل الحالي'} باسم {savedReview.reviewerName} بتاريخ {formatDateTime(savedReview.reviewedAt)}.
+                      <div>سبب القرار: {savedReview.reviewerNote}</div>
+                      <div>هذا القرار منفصل عن نتيجة تحليل المحادثة الحالي؛ لا يمنح نقاطًا تلقائيًا.</div>
+                    </div>
+                  ) : readiness.evidenceReady ? (
+                    <div className="dawaa-alert dawaa-alert--warning mt-2 text-xs">الأدلة المبدئية متسقة، وتحتاج قرار مدير مسجّل.</div>
+                  ) : (
+                    <div className="dawaa-alert dawaa-alert--warning mt-2 text-xs">
+                      موانع الاعتماد: {readiness.blockers.map((blocker) => identityReviewBlockerLabels[blocker]).join('؛ ')}
+                    </div>
+                  )}
+                  {itemReviews.length > 1 ? (
+                    <details className="mt-2">
+                      <summary>سجل قرارات هوية الصنف ({itemReviews.length})</summary>
+                      {itemReviews.map((review) => <div key={review.id} className="mt-1">
+                        {review.isCurrent ? 'آخر قرار' : 'قرار سابق'} — {review.reviewerName} — {formatDateTime(review.reviewedAt)}: {review.reviewerNote}
+                      </div>)}
+                    </details>
+                  ) : null}
+                  {!appliedInCurrentAnalysis && readiness.evidenceReady && canReviewProductIdentity && productIdentityReviews !== null && readiness.supportingLine ? (
+                    <button type="button" className="dawaa-button dawaa-button--secondary mt-2 text-xs" disabled={productIdentityReviewSaving}
+                      onClick={() => void approveProductIdentity(item.itemId, readiness.supportingLine!.id, item.productNameRaw)}>
+                      {productIdentityReviewSaving ? 'جارٍ حفظ القرار...' : savedReview ? 'إعادة التحقق واعتماد هوية الصنف بالأدلة الحالية' : 'اعتماد هوية هذا الصنف وتسجيل السبب'}
+                    </button>
+                  ) : null}
+                </div>
+              );
+            })}
+            {basketItems.every((item) => item.resolutionStatus === 'proven') ? (
+              <div className="dawaa-alert dawaa-alert--success text-xs">كل أصناف السلة مثبتة الهوية من المحرك؛ لا توجد هوية معلقة للمراجعة.</div>
+            ) : null}
           </div>
         )}
       </Section>

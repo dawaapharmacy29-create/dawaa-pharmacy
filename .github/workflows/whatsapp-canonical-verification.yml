@@ -36,6 +36,12 @@ jobs:
           done
           docker logs dawaa-mb-verify-pg
           exit 1
+      - name: Install locked dependencies for product identity verification
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Product identity renewal, Hero reanalysis and concurrent approvals
+        env:
+          DAWAA_NATIVE_PG_CONTAINER: dawaa-mb-verify-pg
+        run: npm run test:db:product-identity:native
       - name: Financial approval and lifecycle concurrency scenarios
         run: npm run test:db:master-brain:native
       - name: Remove disposable database

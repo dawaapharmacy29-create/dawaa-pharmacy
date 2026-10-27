@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // End-to-end contract for the canonical refresh transport(s):
 //   HTTP transport -> authenticate actor -> load source -> Canonical Source Gate
@@ -210,6 +210,12 @@ const transports = [
     () => import('../../../../../api/sales-intelligence-refresh-source.js'),
   ],
 ] as const;
+
+// Load both transports once up front: their cold module import is not under test and
+// must not consume the first case's per-test timeout on a loaded machine.
+beforeAll(async () => {
+  await Promise.all(transports.map(([, load]) => load()));
+}, 60_000);
 
 beforeEach(() => {
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-key';

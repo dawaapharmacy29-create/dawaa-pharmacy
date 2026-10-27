@@ -2,19 +2,50 @@
  * Validation Tests for Staff Performance Profile Service
  *
  * This file contains validation tests to ensure the staff performance profile service
- * works correctly with real data from the database.
+ * works with deterministic synthetic transport data and visible read failures.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { loadStaffPerformanceProfile } from '../staffPerformanceProfileService';
 import { checkStaffDataHealth } from '../staffDataHealthService';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+
+
+import { clearStaffCache } from '../staffIdentityResolver';
+
+// Offline transport fixture: execute the real profile/resolver services against
+// synthetic responses. No production keys, real staff, or network are required.
+const fixture = vi.hoisted(() => ({ unavailable: false }));
+vi.mock('@/lib/supabase', () => {
+  const staff = { id: '10000000-0000-4000-8000-000000000001', name: 'Synthetic Pharmacist',
+    branch: 'فرع اختبار', role: 'pharmacist', active: true, is_active: true, status: 'active', points: 0 };
+  function query(table: string) {
+    let rows: Record<string, unknown>[] = table === 'staff' ? [{ ...staff }, { ...staff, id: '10000000-0000-4000-8000-000000000002', name: 'Synthetic Inactive', active:false,is_active:false,status:'inactive' }] : [];
+    const result = (single = false) => ({ data: fixture.unavailable ? null : single ? rows[0] ?? null : rows,
+      error: fixture.unavailable ? { message: 'synthetic_directory_outage' } : null, count: rows.length });
+    const chain = {
+      select() { return chain; }, eq(key: string, value: unknown) { rows = rows.filter(row => row[key] === value); return chain; },
+      in(key: string, values: unknown[]) { rows = rows.filter(row => values.includes(row[key])); return chain; },
+      gte() { return chain; }, lte() { return chain; }, gt() { return chain; }, lt() { return chain; },
+      or() { return chain; }, order() { return chain; }, limit() { return chain; }, range() { return chain; },
+      is() { return chain; }, not() { return chain; }, ilike() { return chain; },
+      maybeSingle: async () => result(true), single: async () => result(true),
+      then: (resolve: (v: unknown) => unknown) => Promise.resolve(result()).then(resolve),
+    };
+    return chain;
+  }
+  return { isSupabaseConfigured: true, supabase: { from: query, rpc: async () => ({
+    data: fixture.unavailable ? null : [], error: fixture.unavailable ? {message:'synthetic_directory_outage'} : null,
+  }) } };
+});
 
 describe('Staff Performance Profile Service - Validation', () => {
   let testStaffId: string | null = null;
   let testStaffName: string | null = null;
 
   beforeEach(async () => {
+    fixture.unavailable = false;
+    clearStaffCache();
     if (!isSupabaseConfigured) {
       return;
     }
@@ -232,12 +263,16 @@ describe('Staff Performance Profile Service - Validation', () => {
       return;
     }
 
-    const profile = await loadStaffPerformanceProfile({
-      staffId: 'invalid-staff-id-12345',
-    });
+    await expect(loadStaffPerformanceProfile({
+      staffId: 'invalid-staff-id-12345', forceRefresh: true,
+    })).rejects.toThrow('Staff not found');
+  });
 
-    // Should return null or handle error gracefully
-    expect(profile).toBeDefined();
+  it('distinguishes a directory outage from a missing employee', async () => {
+    fixture.unavailable = true;
+    clearStaffCache();
+    await expect(loadStaffPerformanceProfile({ staffId: 'unavailable-staff', forceRefresh: true }))
+      .rejects.toThrow('تعذر تحميل دليل الموظفين');
   });
 
   it('should include charts data', async () => {

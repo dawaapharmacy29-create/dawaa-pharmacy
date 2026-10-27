@@ -101,7 +101,10 @@
 // v48: one canonical case branch (detail, list, filter, summary) persisted as
 // evidence_snapshot.caseBranch; a service case of the same operation may take the operation branch
 // of the one proven sale case of its conversation (never its invoice or sale). No proof rule changes.
-export const PIPELINE_VERSION = 'sales-intelligence-v48-canonical-case-branch';
+// v49: an audited, still-valid manager product identity decision closes only the product-identity
+// review reason after the canonical refresh revalidates source hash, invoice line, and basket item.
+// No invoice, staff-credit, payroll, or sale-proof rule is changed.
+export const PIPELINE_VERSION = 'sales-intelligence-v49-audited-product-identity-review';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v13-open-service-need-continuity',

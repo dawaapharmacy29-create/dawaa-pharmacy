@@ -12,7 +12,7 @@ const path = require('node:path');
 
 const ROOT = process.cwd();
 const SRC = path.join(ROOT, 'src');
-const CANONICAL_FILE = path.normalize('src/components/dashboard/DashboardPrimitives.tsx');
+const CANONICAL_FILE = 'src/components/dashboard/DashboardPrimitives.tsx';
 const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx']);
 
 // Primitive name -> baseline set of files still allowed to define it locally.
@@ -43,7 +43,7 @@ function walk(dir, out = []) {
 }
 
 function repoPath(file) {
-  return path.normalize(path.relative(ROOT, file));
+  return path.relative(ROOT, file).replace(/\\/g, '/');
 }
 
 const violations = [];

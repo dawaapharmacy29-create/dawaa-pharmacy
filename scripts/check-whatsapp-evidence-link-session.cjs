@@ -108,7 +108,7 @@ const walk = (dir) =>
 for (const file of walk(path.join(ROOT, 'src'))) {
   if (!/\.(ts|tsx)$/.test(file) || file.includes('__tests__')) continue;
   const text = fs.readFileSync(file, 'utf8');
-  const rel = path.relative(ROOT, file);
+  const rel = path.relative(ROOT, file).replace(/\\/g, '/');
   if (text.includes('dawaa_link_whatsapp_evidence_journey_v17'))
     failures.push(`${rel}: must not call the legacy V17 RPC; use whatsappEvidenceJourneyLinkV17.`);
   if (text.includes(COMMAND) && rel !== 'src/lib/whatsappEvidenceJourneyLinkV17.ts')
