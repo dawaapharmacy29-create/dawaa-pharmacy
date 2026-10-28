@@ -19,6 +19,14 @@ export type InventoryEvidenceSufficiency = {
   reasons: string[];
 };
 
+/**
+ * Monthly scoring is a documented manager judgement even when automated weekly
+ * coverage is incomplete. Insufficiency still blocks automatic strength claims.
+ */
+export function monthlyInventoryAxisEvidenceStatus(): 'manual' {
+  return 'manual';
+}
+
 export function getInventoryEvidenceSufficiency(input: InventoryStrengthEvidenceInput): InventoryEvidenceSufficiency {
   const measuredWeeks = Math.max(0, Number(input.measuredWeeks || 0));
   const assignedItems = Math.max(0, Number(input.assignedItems || 0));

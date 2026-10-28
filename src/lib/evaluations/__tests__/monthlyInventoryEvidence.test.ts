@@ -4,6 +4,7 @@ import {
   INVENTORY_STRENGTH_MIN_STAGNANT_TARGET_PCT,
   hasStrongInventoryEvidence,
   getInventoryEvidenceSufficiency,
+  monthlyInventoryAxisEvidenceStatus,
   isStagnantAssignmentRelevantForCycle,
 } from '@/lib/evaluations/monthlyInventoryEvidence';
 
@@ -98,6 +99,12 @@ describe('monthly inventory strength evidence gate', () => {
 });
 
 describe('monthly inventory evidence sufficiency', () => {
+  it('permits a documented manual axis rating without treating partial data as automatic strength', () => {
+    const insufficient = getInventoryEvidenceSufficiency({ ...cleanBase, sourceStatus: 'partial', measuredWeeks: 1 });
+    expect(insufficient.sufficient).toBe(false);
+    expect(monthlyInventoryAxisEvidenceStatus()).toBe('manual');
+    expect(hasStrongInventoryEvidence({ ...cleanBase, sourceStatus: 'partial', measuredWeeks: 1 })).toBe(false);
+  });
   it('distinguishes unavailable evidence from weak performance', () => {
     expect(getInventoryEvidenceSufficiency({ ...cleanBase, sourceStatus: 'unavailable' })).toEqual({
       status: 'unavailable',
