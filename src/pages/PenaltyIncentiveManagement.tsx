@@ -190,7 +190,10 @@ function statusMeta(s: RecordStatus): { label: string; cls: string } {
 
 export default function PenaltyIncentiveManagement() {
   const manualSaveIdentityRef = useRef<string | null>(null);
-  const { user, canManage } = useAuth();
+  const { user, canManage, checkPermission } = useAuth();
+  // Changing a decided record (approved/rejected) is the branches-manager level
+  // (edit_points_transaction); branch managers decide pending records only.
+  const canChangeDecided = checkPermission('edit_points_transaction');
   const navigate = useNavigate();
   const cycle = getCurrentCycle();
 
@@ -725,6 +728,9 @@ export default function PenaltyIncentiveManagement() {
                     </td>
                     {canManage && (
                       <td>
+                        {st !== 'pending' && !canChangeDecided ? (
+                          <span className="text-xs text-slate-500">تعديله لمدير الفروع</span>
+                        ) : (
                         <div className="flex flex-wrap gap-1">
                           {st !== 'approved' && (
                             <button
@@ -775,6 +781,7 @@ export default function PenaltyIncentiveManagement() {
                             مسح
                           </button>
                         </div>
+                        )}
                       </td>
                     )}
                   </tr>
