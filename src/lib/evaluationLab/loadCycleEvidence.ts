@@ -68,6 +68,48 @@ function cairoShift(value: unknown): string | null {
   return Number.isFinite(at) ? invoiceShiftOf(Number(CAIRO_HOUR.format(at))) : null;
 }
 
+/**
+ * Cycle invoices read one Cairo day at a time (bounded concurrency) instead of deep offset pages:
+ * each day is a short index range, so columns outside the covering index (invoice_datetime,
+ * line_items_count) never force the database to walk every earlier row. A day larger than one
+ * page continues with offset pages inside that day only. The total must match one exact count.
+ */
+async function dailyInvoiceWindows(cycle: LabCycle, columns: string, maxRows: number): Promise<Row[]> {
+  const startAt = cairoDateBoundaryIso(cycle.start);
+  const endAt = cairoDateBoundaryIso(cycle.endExclusive);
+  const counted = await (selectInvoiceCycleWindow('id', { count: 'exact', head: true }, startAt, endAt) as unknown as CountedQuery);
+  if (counted.error) throw new Error(`sales_invoices: ${counted.error.message || 'تعذر العدّ'}`);
+  const total = counted.count ?? 0;
+  if (total > maxRows) throw new Error('sales_invoices_limit_reached');
+  const days: string[] = [];
+  for (let at = Date.parse(`${cycle.start}T00:00:00Z`); at < Date.parse(`${cycle.endExclusive}T00:00:00Z`); at += 864e5) {
+    days.push(new Date(at).toISOString().slice(0, 10));
+  }
+  const nextDay = (day: string) => new Date(Date.parse(`${day}T00:00:00Z`) + 864e5).toISOString().slice(0, 10);
+  const chunks: Row[][] = new Array(days.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, days.length) }, async () => {
+    while (next < days.length) {
+      const index = next++;
+      const from = cairoDateBoundaryIso(days[index]);
+      const to = cairoDateBoundaryIso(nextDay(days[index]));
+      const rows: Row[] = [];
+      for (let offset = 0; ; offset += PAGE) {
+        const { data, error } = await (selectInvoiceCycleWindow(columns, undefined, from, to) as unknown as RangedQuery)
+          .order('invoice_date', { ascending: true }).order('id', { ascending: true }).range(offset, offset + PAGE - 1);
+        if (error) throw new Error(`sales_invoices: ${error.message || 'تعذر التحميل'}`);
+        const page = (data || []) as Row[];
+        rows.push(...page);
+        if (page.length < PAGE) break;
+      }
+      chunks[index] = rows;
+    }
+  }));
+  const rows = [...new Map(chunks.flat().map((row) => [text(row.id), row])).values()];
+  if (rows.length !== total) throw new Error(`sales_invoices: عدد الصفوف تغيّر أثناء التحميل (${rows.length}/${total})`);
+  return rows;
+}
+
 export interface LabCycle {
   /** Inclusive start (the 26th). */
   start: string;
@@ -99,10 +141,8 @@ export async function loadCycleEvidence(cycle: LabCycle): Promise<LabEvidence> {
   const [staffRows, aliasRows, invoiceRows, reviewRows, attendanceRows, requestRows, purchaseRows, targetRows, followupProbe, checklistProbe, ratingProbe] = await Promise.all([
     pages(() => supabase.from('staff').select('id,name,role,branch,active,is_active') as unknown as PageQuery, 2000, 'staff'),
     pages(() => supabase.from('staff_identity_aliases').select('id,staff_id,normalized_alias,active').eq('active', true) as unknown as PageQuery, 5000, 'aliases'),
-    // invoice_date (Cairo boundaries) + (invoice_date, id) order uses the covering dashboard index;
-    // verified identical to sale_date for this table (0 rows differ).
-    parallelPages((columns, options) => selectInvoiceCycleWindow(columns, options, startAt, endAt),
-      'id,staff_id,net_amount,total_amount,customer_code,branch,delivery_staff,sale_date,invoice_datetime,line_items_count', 30000, 'sales_invoices', ['invoice_date', 'id']),
+    // invoice_date (Cairo boundaries), verified identical to sale_date for this table (0 rows differ).
+    dailyInvoiceWindows(cycle, 'id,staff_id,net_amount,total_amount,customer_code,branch,delivery_staff,sale_date,invoice_datetime,line_items_count', 30000),
     pages(() => supabase.from('conversation_sales_reviews_canonical_v2')
       .select(['id', 'staff_id', 'doctor_id', ...OFFICIAL_REVIEW_COLUMNS].join(','))
       .gte('conversation_date', startAt).lt('conversation_date', endAt) as unknown as PageQuery, 10000, 'reviews'),
