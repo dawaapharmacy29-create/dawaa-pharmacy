@@ -1,0 +1,38 @@
+Command: npm run verify
+Final exit code: 0
+
+> dawaa@1.0.0 verify
+> dawaa@1.0.0 doctor
+> dawaa@1.0.0 test
+[attendance-api] PASS: canonical transport verified
+Test result: 1070 passed, 0 failed
+[si-regression-gate] TZ=Africa/Cairo
+ Test Files  157 passed | 1 skipped (158)
+      Tests  1714 passed | 1 skipped (1715)
+[si-regression-gate] TZ=UTC
+ Test Files  157 passed | 1 skipped (158)
+      Tests  1714 passed | 1 skipped (1715)
+[si-regression-gate] PASS
+> dawaa@1.0.0 typecheck
+> dawaa@1.0.0 prebuild
+[attendance-api] PASS: canonical transport verified
+[deploy-env] PASS
+[attendance-payroll-readiness] PASS: fingerprint promotion is canonical, trigger-only, live Workspace V2 exposes scoped read-only readiness, and biometric hours remain structurally separate from the monthly-hour-unit compensation formula.
+[attendance-dated-shift-review] PASS: hold before review-only projection, authorized/audited correction, no auto-finalization or payroll write
+[attendance-shift-review-local] PASS: 8-hour 16:00–00:00 correction, audit, manager hold, pending recomputation, duplicate/approved guards, no auto materialization
+[attendance-resolution] PASS: canonical schedule identity, immutable approved snapshot, and no direct payroll writes.
+[payroll-attendance-eligibility] PASS: manual rollout default, resolved snapshots gate approval, and no raw-attendance bypass.
+[payroll-adjustment-ledger] PASS: post-paid corrections are append-only, reversible by entry, and isolated from frozen payroll rows.
+[payroll-atomic-settlement] PASS: post-paid adjustments settle exactly once into a later frozen payroll snapshot.
+[payroll-transparency] OK
+Monthly Evaluation V5 architecture check passed.
+Final evaluation architecture gate passed.
+[db-authorization-architecture] PASS: protected writes, notification commands, active workflow RLS, review/points role ceilings, branch inspection authorization, employee transaction authorization, append-only activity/coaching streams and boolean permission truth remain centralized.
+Verified session identity check passed.
+Manager evaluation finality architecture check passed.
+> dawaa@1.0.0 build
+✓ built in 1m 38s
+> dawaa@1.0.0 perf:budget
+[perf-budget] initial static JS: 202.6 KiB gzip across 6 chunks
+[perf-budget] initial files: assets/index-Cs2Ca44U.js, assets/react-core-sVZIX5q9.js, assets/query-B-I_Qcjy.js, assets/ui-feedback-CXFP8nfu.js, assets/supabase-B-WKDbgh.js, assets/router-D8Jrnwas.js
+[perf-budget] PASS: heavy tools remain lazy and bundle budgets are within limits.

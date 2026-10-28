@@ -1,0 +1,19 @@
+RUN  v2.1.9 C:/Users/PoWeR/OneDrive/Documents/GitHub/dawaa-pharmacy
+
+stderr | src/lib/__tests__/staffIdentityMapping.failClosed.test.ts > staff identity mapping fails closed > rejects active aliases that disagree on the employee
+Ambiguous staff alias; identity requires review: دنيا
+
+stderr | src/lib/__tests__/staffIdentityMapping.failClosed.test.ts > staff identity mapping fails closed > rejects an alias pointing to an inactive staff account
+Alias points to missing or inactive staff; identity requires review: دنيا
+
+stderr | src/lib/__tests__/staffIdentityMapping.failClosed.test.ts > staff identity mapping fails closed > rejects ambiguous normalized active names
+Ambiguous normalized staff name; identity requires review: دنيا
+
+ ✓ src/lib/__tests__/staffIdentityMapping.failClosed.test.ts (9 tests) 25ms
+ ✓ src/lib/__tests__/whatsappStaffIdentityResolver.test.ts (7 tests) 750ms
+   ✓ resolveStaffIdentity > tier 1: V15 already resolved a real staff_id for the owner episode ("اسلام" in chat -> اسلام محمد in DB) — used directly, no guessing by name 722ms
+
+ Test Files  2 passed (2)
+      Tests  16 passed (16)
+   Start at  14:33:31
+   Duration  3.01s (transform 1.23s, setup 0ms, collect 852ms, tests 775ms, environment 2ms, prepare 1.92s)

@@ -19,8 +19,8 @@ import { clearCustomerProfileCache } from '@/lib/customerProfileService';
 import { clearCustomersCache } from '@/lib/api/customers';
 import { clearCustomerServiceCommandCenterCache } from '@/lib/api/customerServiceCommandCenter';
 import { clearStaffPerformanceProfileCache } from '@/lib/staff/staffPerformanceProfileService';
-import { loadStaffDirectoryFrom } from '@/lib/readModels/staffDirectoryReadModel';
-import { mustPreserveInvoiceStaffId, resolveInvoiceSellerIdentity, retainExistingInvoiceStaffId } from '@/lib/invoices/invoiceSellerIdentity';
+import { resolveStaffNamesToStaffIds } from '@/lib/staffIdentityMapping';
+import { mustPreserveInvoiceStaffId } from '@/lib/invoices/invoiceSellerIdentity';
 import { getInvoiceKey } from '@/lib/dawaa2027';
 import {
   getInvoiceAmount as getCoreInvoiceAmount,
@@ -2092,16 +2092,12 @@ export async function importInvoicesToDB(
     const sellerBranch = row.branch || branch;
     distinctSellers.set(`${row.seller}\u0000${sellerBranch}`, { seller: row.seller, branch: sellerBranch });
   }
-  try {
-    // One complete canonical directory snapshot per batch; no first-match legacy fallback.
-    const directory = await loadStaffDirectoryFrom(supabase, { requireComplete: true });
-    for (const [key, { seller, branch: sellerBranch }] of distinctSellers) {
-      staffIdMap.set(key, resolveInvoiceSellerIdentity(seller, sellerBranch, directory));
-    }
-  } catch (error) {
-    summary.schemaWarnings ??= [];
-    summary.schemaWarnings.push(`تعذر التحقق من دليل الموظفين؛ لن يتم تخمين هوية البائع: ${String(error)}`);
-  }
+  // One fail-closed directory decision per seller name: conflicting, retired or orphan
+  // claims resolve to no identity, and the invoice branch never breaks a name tie.
+  // A directory outage aborts the import before any invoice write instead of saving
+  // valid-looking invoices without their employee.
+  const byName = await resolveStaffNamesToStaffIds([...new Set([...distinctSellers.values()].map((s) => s.seller))]);
+  for (const [key, { seller }] of distinctSellers) staffIdMap.set(key, byName.get(seller) || null);
   const unresolved = [...distinctSellers].filter(([key]) => !staffIdMap.get(key));
   if (unresolved.length) {
     summary.schemaWarnings ??= [];
@@ -2323,7 +2319,8 @@ export async function importInvoicesToDB(
           seller_name: row.seller,
           normalized_seller_name: normalizeName(row.seller),
           staff_name: row.seller,
-          staff_id: retainExistingInvoiceStaffId(existingStaffId, proposedStaffId),
+          // Re-imports may correct invoice facts, never historical employee ownership.
+          // Omit staff_id so a concurrent approved attribution is preserved as well.
           close_time: row.closeTime || null,
           shift_name: getShiftFromDateTime(row.analysisDateTime),
           delivery_staff: row.deliveryStaff,

@@ -22,3 +22,5 @@ supabase/.temp/
 .vercel
 tsconfig.tsbuildinfo
 
+
+.local/

@@ -115,6 +115,31 @@ export function computeStaffSalesMetrics(staffName: string, invoices: InvoiceLik
   };
 }
 
+/**
+ * Canonical employee-sales read boundary. Only an explicit staff_id is proof of
+ * attribution; seller display names remain unverified evidence, never credit.
+ * An empty staff_id is excluded even when its seller name is an exact match.
+ */
+export function computeVerifiedStaffSalesMetrics(staffId: string, invoices: InvoiceLike[]) {
+  const id = String(staffId || '').trim();
+  const verified = id
+    ? invoices.filter((invoice) => String(invoice.staff_id ?? '').trim() === id)
+    : [];
+  const totalSales = verified.reduce((sum, invoice) => sum + getInvoiceAmount(invoice), 0);
+  return {
+    totalSales,
+    invoiceCount: verified.length,
+    averageInvoice: verified.length ? totalSales / verified.length : 0,
+    customersHandled: new Set(
+      verified
+        .map((invoice) => normalizeInvoice(invoice))
+        .map((invoice) => invoice.customerCode || invoice.customerPhone || normalizeText(invoice.customerName))
+        .filter(Boolean)
+    ).size,
+    linkedInvoices: verified.filter((invoice) => cleanCustomerCode(pickFirst(invoice, ['customer_code', 'code'], ''))).length,
+  };
+}
+
 export function getInvoicesForCustomer(customer: CustomerLike, invoices: InvoiceLike[]) {
   return invoices.filter((invoice) => matchCustomerInvoice(customer, invoice));
 }

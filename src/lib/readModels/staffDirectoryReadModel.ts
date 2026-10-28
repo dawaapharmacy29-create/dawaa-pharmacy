@@ -139,7 +139,7 @@ export async function loadStaffDirectoryFrom(
       ['aliases', aliasResult.error],
     ].filter(([, error]) => Boolean(error));
     if (failed.length) {
-      throw new Error(`staff_directory_incomplete: ${failed.map(([source]) => source).join(',')}`);
+      throw new Error(`تعذر تحميل دليل الموظفين (staff_directory_incomplete: ${failed.map(([source]) => source).join(',')})`);
     }
     // At the bounded read cap we cannot prove the directory is complete or a name
     // is unique. Refuse canonical analysis rather than hide a competing identity.

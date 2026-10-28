@@ -8950,7 +8950,7 @@ async function loadStaffDirectoryFrom(client, options = {}) {
       ["aliases", aliasResult.error]
     ].filter(([, error]) => Boolean(error));
     if (failed.length) {
-      throw new Error(`staff_directory_incomplete: ${failed.map(([source]) => source).join(",")}`);
+      throw new Error(`\u062A\u0639\u0630\u0631 \u062A\u062D\u0645\u064A\u0644 \u062F\u0644\u064A\u0644 \u0627\u0644\u0645\u0648\u0638\u0641\u064A\u0646 (staff_directory_incomplete: ${failed.map(([source]) => source).join(",")})`);
     }
     if ((staffResult.data?.length ?? 0) >= 800 || (aliasResult.data?.length ?? 0) >= 2e3) {
       throw new Error("staff_directory_incomplete: read_limit_reached");
@@ -9227,7 +9227,7 @@ var PERMISSION_MAP = Object.fromEntries(
 
 // src/lib/security/userDataScope.ts
 function normalizeArabicName(value) {
-  return String(value ?? "").replace(/[\u064B-\u065F\u0640]/g, "").replace(/[\u0623\u0625\u0622]/g, "\u0627").replace(/\u0649/g, "\u064A").replace(/\u0629/g, "\u0647").replace(/^(?:\s*(?:(?:دكتور|الدكتور)(?=\s|[./])|د(?:[./]\s*|\s+))\s*)+/i, "").replace(/[.,،;:()[\]{}_\-/\\|]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+  return String(value ?? "").replace(/[\u064B-\u065F\u0640]/g, "").replace(/[\u0623\u0625\u0622]/g, "\u0627").replace(/\u0649/g, "\u064A").replace(/\u0629/g, "\u0647").replace(/^(?:\s*(?:الدكتور|دكتور(?:ه|ة)?)(?=\s|[./]|$)[./]?\s*|\s*د(?:[./]\s*|\s+))+/i, "").replace(/[.,،;:()[\]{}_\-/\\|]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 // src/lib/staff/staffIdentityResolver.ts
@@ -9297,7 +9297,8 @@ function staffDirectoryRowsFromIdentities(rows) {
     status: row.status,
     active: row.active,
     is_active: row.active,
-    source: row.source
+    source: row.source,
+    normalizedAlias: row.normalizedAlias
   }));
 }
 function buildStaffIdentityMap(staffRows) {

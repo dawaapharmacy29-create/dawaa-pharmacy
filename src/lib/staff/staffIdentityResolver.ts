@@ -12,6 +12,7 @@
 import { normalizeBranchName } from '@/lib/branch';
 import { readStaffDirectory, type StaffDirectoryIdentity } from '@/lib/readModels/staffDirectoryReadModel';
 import { normalizeArabicName } from '@/lib/security/userDataScope';
+import { staffIdentityKey } from '@/lib/staff/staffIdentityKey';
 import { resolveStaffAccountSafe } from '@/lib/staff/staffAccountsApi';
 
 export interface ResolvedStaff {
@@ -34,6 +35,7 @@ export interface StaffDirectoryRow {
   active?: boolean | null;
   is_active?: boolean | null;
   source?: 'staff' | 'staff_account' | 'alias' | null;
+  normalizedAlias?: string | null;
 }
 
 export interface CanonicalStaffResolution {
@@ -84,7 +86,6 @@ export type StaffIdentityMap = Map<string, StaffIdentityMapEntry>;
 const PHARMACIST_ROLE_PATTERN = /صيدلاني|pharmacist|دكتور|doctor/i;
 
 let directoryPromise: Promise<StaffDirectoryRow[]> | null = null;
-const staffCache = new Map<string, ResolvedStaff | null>();
 
 export function normalizeStaffName(name: string | null | undefined): string {
   if (!name) return '';
@@ -93,6 +94,58 @@ export function normalizeStaffName(name: string | null | undefined): string {
 
 export function normalizeDoctorName(value: unknown): string {
   return normalizeStaffName(String(value ?? ''));
+}
+
+/** Live name-only decision. Branch and role never break a conflicting identity claim. */
+export function resolveStaffDirectoryName(value: string, rows: StaffDirectoryIdentity[]): {
+  status: 'resolved' | 'conflict' | 'retired' | 'unresolved';
+  staff: StaffDirectoryIdentity | null;
+  candidates: StaffDirectoryIdentity[];
+  source: 'name' | 'alias' | 'account';
+} {
+  const key = staffIdentityKey;
+  const target = key(value);
+  const empty = { staff: null, candidates: [], source: 'name' as const };
+  if (!target) return { ...empty, status: 'unresolved' };
+  const claims = rows.filter(row => row.source !== 'staff_account' || row.active);
+  const matched = new Set<StaffDirectoryIdentity>();
+  // Raw labels and legacy stored keys form one claim graph. Inconsistent keys
+  // cannot hide another owner merely because a different normalizer was used.
+  const byKey = new Map<string, StaffDirectoryIdentity[]>();
+  const keysByRow = new Map<StaffDirectoryIdentity, string[]>();
+  for (const row of claims) {
+    const rowKeys = [key(row.name), row.source === 'alias' ? key(row.normalizedAlias) : ''].filter(Boolean);
+    keysByRow.set(row, rowKeys);
+    for (const k of rowKeys) {
+      const bucket = byKey.get(k) || [];
+      bucket.push(row);
+      byKey.set(k, bucket);
+    }
+  }
+  const queue = [target];
+  const visited = new Set<string>();
+  for (let i = 0; i < queue.length; i++) {
+    const k = queue[i];
+    if (visited.has(k)) continue;
+    visited.add(k);
+    for (const row of byKey.get(k) || []) {
+      if (matched.has(row)) continue;
+      matched.add(row);
+      queue.push(...(keysByRow.get(row) || []));
+    }
+  }
+  const canonical = new Map(rows.filter(row => row.source === 'staff' && row.id).map(row => [row.id, row]));
+  const ids = [...new Set([...matched].map(row => row.id))];
+  const candidates = ids.flatMap(id => canonical.get(id) ? [canonical.get(id)!] : []);
+  const source = [...matched].some(row => row.source === 'alias') ? 'alias' :
+    [...matched].some(row => row.source === 'staff_account') ? 'account' : 'name';
+  if (!ids.length) return { ...empty, status: 'unresolved' };
+  if (ids.length > 1) return { status: 'conflict', staff: null, candidates, source };
+  const staff = canonical.get(ids[0]);
+  if (!staff || !staff.active || (staff.status && !['active', 'نشط'].includes(staff.status.toLowerCase()))) {
+    return { status: 'retired', staff: null, candidates, source };
+  }
+  return { status: 'resolved', staff, candidates, source };
 }
 
 function normalizeIdentifier(value: unknown): string {
@@ -162,30 +215,18 @@ function uniqueByStaffId(rows: StaffDirectoryRow[]): StaffDirectoryRow[] {
   });
 }
 
-function exactNameCandidates(name: string, rows: StaffDirectoryRow[]): StaffDirectoryRow[] {
-  const normalized = normalizeDoctorName(name);
-  if (!normalized) return [];
-  return uniqueByStaffId(
-    rows.filter(
-      (row) => isStaffRowActive(row) && normalizeDoctorName(staffRowDisplayName(row)) === normalized
-    )
-  );
-}
-
-function applyBranchHint(rows: StaffDirectoryRow[], branchHint: unknown): StaffDirectoryRow[] {
-  const branch = normalizedBranch(branchHint);
-  if (!branch) return rows;
-  const matches = rows.filter((row) => normalizedBranch(row.branch) === branch);
-  return matches.length ? matches : rows;
-}
-
 function resolveUniqueName(
   name: string,
   rows: StaffDirectoryRow[],
-  branchHint?: unknown
+  _branchHint?: unknown
 ): StaffDirectoryRow | null {
-  const candidates = applyBranchHint(exactNameCandidates(name, rows), branchHint);
-  return candidates.length === 1 ? candidates[0] : null;
+  const decision = resolveStaffDirectoryName(name, rows.map(row => ({
+    id: staffRowId(row) || null, name: staffRowDisplayName(row),
+    branch: row.branch || null, role: row.role || null, username: row.username || null,
+    status: row.status || null, active: isStaffRowActive(row), source: row.source || 'staff',
+    normalizedAlias: row.normalizedAlias,
+  })));
+  return decision.staff ? rows.find(row => staffRowId(row) === decision.staff!.id && (!row.source || row.source === 'staff')) || null : null;
 }
 
 /** The one mapping from the canonical staff-directory read model into resolver rows. */
@@ -202,12 +243,16 @@ export function staffDirectoryRowsFromIdentities(rows: StaffDirectoryIdentity[])
     active: row.active,
     is_active: row.active,
     source: row.source,
+    normalizedAlias: row.normalizedAlias,
   }));
 }
 
 async function loadDirectoryRows(): Promise<StaffDirectoryRow[]> {
   if (!directoryPromise) {
-    directoryPromise = readStaffDirectory().then(staffDirectoryRowsFromIdentities);
+    const request = readStaffDirectory({ requireComplete: true }).then(staffDirectoryRowsFromIdentities).finally(() => {
+      if (directoryPromise === request) directoryPromise = null;
+    });
+    directoryPromise = request;
   }
   return directoryPromise;
 }
@@ -371,8 +416,7 @@ async function fetchAccount(identifier: string) {
     return (
       account.id === value ||
       account.staff_id === value ||
-      normalizeIdentifier(account.username).toLowerCase() === value.toLowerCase() ||
-      normalizeStaffName(account.name || account.staff_name) === normalizeStaffName(value)
+      normalizeIdentifier(account.username).toLowerCase() === value.toLowerCase()
     );
   });
   return exact.length === 1 ? (exact[0] as CanonicalStaffResolution['account']) : null;
@@ -393,8 +437,9 @@ export async function resolveCanonicalStaffIdentifier(
   if (!input) return unresolved();
 
   const directory = await loadDirectoryRows();
-  const direct = matchStaffInDirectory(input, directory);
-  if (direct && staffRowId(direct) === input) {
+  // Stable explicit IDs remain valid for historical profiles, including archived people.
+  const direct = directory.find(row => row.source === 'staff' && staffRowId(row) === input);
+  if (direct) {
     const staff = staffFromRow(direct);
     if (staff) {
       return {
@@ -411,16 +456,16 @@ export async function resolveCanonicalStaffIdentifier(
   const account = await fetchAccount(input);
   if (account) {
     const linked = account.staff_id
-      ? directory.find((row) => staffRowId(row) === account.staff_id && row.source !== 'alias') || null
+      ? directory.find((row) => staffRowId(row) === account.staff_id && row.source === 'staff') || null
       : null;
     const linkedStaff = staffFromRow(linked);
     return {
       input,
-      canonicalStaffId: linkedStaff?.id || account.staff_id || null,
-      routeIdentifier: linkedStaff?.id || account.staff_id || account.username || account.id,
+      canonicalStaffId: linkedStaff?.id || null,
+      routeIdentifier: linkedStaff?.id || account.username || account.id,
       staff: linkedStaff,
       account,
-      source: account.staff_id
+      source: linkedStaff
         ? 'staff_accounts.staff_id'
         : input === account.id
           ? 'staff_accounts.id'
@@ -465,13 +510,9 @@ export async function resolveStaffBySellerName(
 ): Promise<ResolvedStaff | null> {
   const value = normalizeIdentifier(sellerName);
   if (!value) return null;
-  const key = normalizeStaffName(value);
-  if (staffCache.has(key)) return staffCache.get(key) ?? null;
-
   const directory = await loadDirectoryRows();
   const match = resolveUniqueName(value, directory);
   const resolved = staffFromRow(match);
-  staffCache.set(key, resolved);
   return resolved;
 }
 
@@ -494,6 +535,5 @@ export async function getStaffNavigationTarget(sellerName: string): Promise<Staf
 }
 
 export function clearStaffCache(): void {
-  staffCache.clear();
   directoryPromise = null;
 }

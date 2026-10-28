@@ -18,23 +18,44 @@ const SUITES = [
   // WhatsApp automatic review persistence (needs module mocks, so it cannot run in run-tests.cjs).
   'src/lib/__tests__/whatsappAutomaticReviewPersistence.test.ts',
   'src/lib/__tests__/whatsappConversationJourneyClassifier.test.ts',
+  // Shared alias authorization/fail-closed identity protects import and WhatsApp attribution.
+  'src/lib/__tests__/staffIdentityMapping.failClosed.test.ts',
+  'src/lib/__tests__/invoiceImporter.test.ts',
+  'src/lib/__tests__/staffIdentityResolver.live.test.ts',
+  'src/lib/__tests__/unifiedEmployeeCore.regression.test.ts',
+  'src/lib/readModels/__tests__/staffDirectoryCompleteness.test.ts',
+  'src/lib/__tests__/whatsappStaffIdentityResolver.test.ts',
   'src/lib/evaluations/__tests__/doctorPerformanceEye.test.ts',
   'src/components/salesIntelligence/__tests__/SalesIntelligenceManagementOverviewV1.test.ts',
 ];
 const ZONES = ['Africa/Cairo', 'UTC'];
+// These files assert wall-clock budgets/cold-load deadlines. Execute them without
+// concurrent PGlite/catalog suites competing for the same CPU; keep every test
+// and every original deadline/threshold, in both zones.
+const TIMING_SUITES = [
+  'src/lib/salesIntelligence/basketV2/__tests__/performance.ib3_1.test.ts',
+  'src/lib/salesIntelligence/persistence/__tests__/refreshSourceCanonicalGate.test.ts',
+];
 
 const vitest = path.join(ROOT, 'node_modules', 'vitest', 'vitest.mjs');
 let failed = false;
 for (const zone of ZONES) {
   console.log(`\n[si-regression-gate] TZ=${zone}`);
-  const run = spawnSync(process.execPath, [vitest, 'run', '--reporter=dot', ...SUITES], {
-    cwd: ROOT,
-    stdio: 'inherit',
-    env: { ...process.env, TZ: zone },
-  });
-  if (run.status !== 0) {
-    failed = true;
-    console.error(`[si-regression-gate] FAILED under TZ=${zone}`);
+  const phases = [
+    ['regression', [...SUITES, ...TIMING_SUITES.flatMap(file => ['--exclude', file])]],
+    ['isolated timing', ['--maxWorkers', '1', '--minWorkers', '1', '--no-file-parallelism', ...TIMING_SUITES]],
+  ];
+  for (const [label, args] of phases) {
+    console.log(`[si-regression-gate] ${label}`);
+    const run = spawnSync(process.execPath, [vitest, 'run', '--reporter=dot', ...args], {
+      cwd: ROOT,
+      stdio: 'inherit',
+      env: { ...process.env, TZ: zone },
+    });
+    if (run.status !== 0) {
+      failed = true;
+      console.error(`[si-regression-gate] FAILED ${label} under TZ=${zone}`);
+    }
   }
 }
 if (failed) process.exit(1);

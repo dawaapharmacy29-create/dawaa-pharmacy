@@ -2,7 +2,9 @@ import { supabase } from '@/lib/supabase';
 import { averageOfficialConversationScore, OFFICIAL_REVIEW_COLUMNS, selectOfficialConversationReviews } from '@/lib/evaluations/officialConversationReview';
 import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
 import { fetchSalesInvoicesPagedSafe } from '@/lib/salesInvoiceQueries';
-import { computeStaffSalesMetrics } from '@/lib/salesInvoiceSource';
+import { computeVerifiedStaffSalesMetrics } from '@/lib/salesInvoiceSource';
+import { getInvoiceDoctor } from '@/lib/dawaa2027';
+import { normalizeText } from '@/lib/customerMetrics';
 import { readAttendanceRange } from '@/lib/readModels/attendanceReadModel';
 import { getStaffPointsDashboardV3, type StaffPointsDashboardV3 } from '@/lib/staff/staffPointsDashboardService';
 import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
@@ -159,7 +161,8 @@ export async function loadMonthlyPerformance360(args: {
     fetchSalesInvoicesPagedSafe({
       startDate,
       endDate,
-      branch: employeeBranch,
+      // Employees may work at a second branch during this cycle. Attribution
+      // is by canonical staff_id, never today's staff.branch snapshot.
       pageSize: 1000,
       maxPages: 50,
       errors: salesErrors,
@@ -199,19 +202,26 @@ export async function loadMonthlyPerformance360(args: {
   let linkingRate: number | null = null;
   if (salesSettled.status === 'fulfilled') {
     const rows = salesSettled.value;
-    const metrics = computeStaffSalesMetrics(employeeName, rows);
+    const metrics = computeVerifiedStaffSalesMetrics(staffId, rows);
     totalSales = metrics.totalSales;
     invoiceCount = metrics.invoiceCount;
     averageInvoice = metrics.averageInvoice;
     customersHandled = metrics.customersHandled;
-    const normalizedName = employeeName.trim().toLowerCase();
-    const ownRows = rows.filter((row) => {
-      const seller = String(row.normalized_seller_name ?? row.seller_name ?? row.staff_name ?? '').trim().toLowerCase();
-      return seller === normalizedName;
-    });
-    linkedInvoices = ownRows.filter((row) => String(row.customer_code || '').trim()).length;
-    linkingRate = invoiceCount > 0 ? clampScore((linkedInvoices / invoiceCount) * 100) : null;
-    salesStatus = salesErrors.length ? 'partial' : 'available';
+    linkedInvoices = metrics.linkedInvoices;
+    // Same-name unlinked invoices are unresolved, not proof that the named employee sold them.
+    // Their presence makes the quality-of-coding score unavailable until reviewed.
+    const normalizedName = normalizeText(employeeName);
+    const unresolvedNameCandidates = rows.filter((row) =>
+      !String(row.staff_id ?? '').trim() && normalizeText(getInvoiceDoctor(row)) === normalizedName
+    );
+    const attributionComplete = unresolvedNameCandidates.length === 0;
+    linkingRate = attributionComplete && invoiceCount > 0
+      ? clampScore((linkedInvoices / invoiceCount) * 100)
+      : null;
+    salesStatus = salesErrors.length || !attributionComplete ? 'partial' : 'available';
+    if (!attributionComplete) warnings.push(
+      `توجد ${unresolvedNameCandidates.length} فاتورة باسم مشابه بلا هوية موظف معتمدة؛ استُبعدت من المبيعات والتقييم حتى مراجعة الربط.`
+    );
     if (salesErrors.length) warnings.push(...salesErrors);
   } else {
     warnings.push(`تعذر تحميل المبيعات: ${salesSettled.reason instanceof Error ? salesSettled.reason.message : 'خطأ غير معروف'}`);

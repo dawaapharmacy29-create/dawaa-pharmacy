@@ -1,0 +1,24 @@
+RUN  v2.1.9 C:/Users/PoWeR/OneDrive/Documents/GitHub/dawaa-pharmacy
+
+ ✓ src/lib/salesIntelligence/persistence/__tests__/refreshSourceCanonicalGate.test.ts (41 tests) 2563ms
+   ✓ server/sales-intelligence-refresh-source.ts — identical gate and auth behavior > authenticates with the staff session only (no Supabase auth fallback) 1195ms
+   ✓ api/sales-intelligence-refresh-source.js — identical gate and auth behavior > authenticates with the staff session only (no Supabase auth fallback) 578ms
+   ✓ generated transport > api/*.js is exactly the build output of the canonical server implementation 587ms
+stdout | src/lib/salesIntelligence/basketV2/__tests__/performance.ib3_1.test.ts > I.B.3.1 — performance (instruction #20) > catalog index build time stays practical at real catalog size (10,767 rows)
+[I.B.3.1 performance] catalog index build (10767 rows): 630.8ms
+
+stdout | src/lib/salesIntelligence/basketV2/__tests__/performance.ib3_1.test.ts > I.B.3.1 — performance (instruction #20) > per-message product resolution stays practical at real catalog size (batch of 100 phrases)
+[I.B.3.1 performance] resolveProductMention: 1756.6ms for 100 calls (17.57ms/call) at 10767 rows
+
+stdout | src/lib/salesIntelligence/basketV2/__tests__/performance.ib3_1.test.ts > I.B.3.1 — performance (instruction #20) > per-case graph build time stays practical for a typical multi-message conversation
+[I.B.3.1 performance] buildProductMentions: 110.9ms; full graph build: 203.8ms (8-message case, 10767-row catalog)
+
+ ✓ src/lib/salesIntelligence/basketV2/__tests__/performance.ib3_1.test.ts (3 tests) 4163ms
+   ✓ I.B.3.1 — performance (instruction #20) > catalog index build time stays practical at real catalog size (10,767 rows) 652ms
+   ✓ I.B.3.1 — performance (instruction #20) > per-message product resolution stays practical at real catalog size (batch of 100 phrases) 2437ms
+   ✓ I.B.3.1 — performance (instruction #20) > per-case graph build time stays practical for a typical multi-message conversation 1073ms
+
+ Test Files  2 passed (2)
+      Tests  44 passed (44)
+   Start at  11:40:15
+   Duration  6.87s (transform 1.99s, setup 0ms, collect 1.59s, tests 6.73s, environment 1ms, prepare 1.18s)

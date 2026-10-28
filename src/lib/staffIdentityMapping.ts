@@ -1,8 +1,15 @@
 import { supabase } from './supabase';
-import { normalizeStaffName } from './staffDuplicateAudit';
+import { staffIdentityKey } from './staff/staffIdentityKey';
 import { readUnlinkedInvoiceSellerNames } from './readModels/unlinkedSellerNamesReadModel';
-import { loadStaffDirectoryFrom, type StaffDirectoryIdentity } from './readModels/staffDirectoryReadModel';
-import { resolvePrimaryStaffForDoctor, staffDirectoryRowsFromIdentities } from './staff/staffIdentityResolver';
+import { getCurrentUserProfile } from '@/hooks/useAuth';
+import { hasPermission } from './core/permissionSystem';
+import { readStaffDirectory } from './readModels/staffDirectoryReadModel';
+import { resolveStaffDirectoryName } from './staff/staffIdentityResolver';
+
+function canManageStaffIdentity(): boolean {
+  try { return hasPermission(getCurrentUserProfile(), 'manage_staff_accounts'); }
+  catch { return false; }
+}
 
 export interface StaffIdentityAlias {
   id: string;
@@ -23,6 +30,17 @@ export interface StaffIdentityMatch {
   source: string;
 }
 
+/** One complete snapshot for an import batch; no per-seller directory requests. */
+export async function resolveStaffNamesToStaffIds(rawNames: string[]): Promise<Map<string, string | null>> {
+  const names = [...new Set(rawNames.filter(name => name.trim()))];
+  if (!names.length) return new Map();
+  const directory = await readStaffDirectory({ requireComplete: true });
+  return new Map(names.map(name => {
+    const decision = resolveStaffDirectoryName(name, directory);
+    return [name, decision.status === 'resolved' ? decision.staff?.id || null : null];
+  }));
+}
+
 /**
  * حل اسم الموظف الخام إلى staff_id باستخدام خريطة الهويات
  */
@@ -31,25 +49,13 @@ export async function resolveStaffNameToStaffId(
   options?: { createAutoAlias?: boolean; source?: string }
 ): Promise<string | null> {
   if (!rawName) return null;
-  try {
-    // The shared directory excludes retired staff, deduplicates aliases by canonical ID,
-    // and refuses a partial directory (including an exhausted read cap).
-    const identities: StaffDirectoryIdentity[] = await loadStaffDirectoryFrom(supabase, {
-      requireComplete: true,
-    });
-    const resolved = resolvePrimaryStaffForDoctor(
-      { staff_name: rawName },
-      staffDirectoryRowsFromIdentities(identities)
-    );
-    if (!resolved) return null;
-    if (options?.createAutoAlias) {
-      await createStaffAlias(resolved.staffId, rawName, options.source || 'auto-resolve', 0.9, 'system');
-    }
-    return resolved.staffId;
-  } catch (error) {
-    console.error('Error resolving canonical staff name:', error);
-    return null;
+
+  const staffId = (await resolveStaffNamesToStaffIds([rawName])).get(rawName) || null;
+  if (!staffId) return null;
+  if (options?.createAutoAlias) {
+    await createStaffAlias(staffId, rawName, options.source || 'auto-resolve', 0.9, 'system');
   }
+  return staffId;
 }
 
 /** إنشاء alias جديد للموظف */
@@ -60,7 +66,24 @@ export async function createStaffAlias(
   confidence: number,
   createdBy: string
 ): Promise<StaffIdentityAlias | null> {
-  const normalized = normalizeStaffName(aliasName);
+  if (!canManageStaffIdentity()) return null;
+  const normalized = staffIdentityKey(aliasName);
+  if (!normalized || !staffId || !aliasName.trim()) return null;
+
+  // Advisory early validation; database key ownership arbitrates concurrent writes.
+  const [targetResult, aliasesResult] = await Promise.all([
+    supabase.from('staff').select('id,active,is_active').eq('id', staffId).maybeSingle(),
+    supabase.from('staff_identity_aliases')
+      .select('staff_id')
+      .eq('normalized_alias', normalized)
+      .eq('active', true)
+      .limit(1000),
+  ]);
+  const target = targetResult.data;
+  if (targetResult.error || !target || !target.active || !target.is_active ||
+      aliasesResult.error || (aliasesResult.data || []).length > 0) {
+    return null;
+  }
 
   const { data, error } = await supabase
     .from('staff_identity_aliases')
@@ -101,14 +124,14 @@ export async function suggestStaffAliases(
   }
 
   for (const rawName of rawNames) {
-    const normalized = normalizeStaffName(rawName);
+    const normalized = staffIdentityKey(rawName);
     if (!normalized) continue;
 
     const matches: StaffIdentityMatch[] = [];
 
     for (const s of staff) {
       const staffName = s.name || '';
-      const staffNormalized = normalizeStaffName(staffName);
+      const staffNormalized = staffIdentityKey(staffName);
 
       if (staffNormalized === normalized) {
         matches.push({
@@ -169,7 +192,8 @@ export async function confirmStaffAlias(
   aliasName: string,
   createdBy: string
 ): Promise<boolean> {
-  const normalized = normalizeStaffName(aliasName);
+  if (!canManageStaffIdentity()) return false;
+  const normalized = staffIdentityKey(aliasName);
 
   const { data: existing, error: existingError } = await supabase
     .from('staff_identity_aliases')
@@ -183,9 +207,9 @@ export async function confirmStaffAlias(
   }
 
   if (existing && existing.length > 0) {
-    for (const alias of existing) {
-      await supabase.from('staff_identity_aliases').update({ active: false }).eq('id', alias.id);
-    }
+    // Reassignment must be an audited, atomic server-side operation.
+    // Never deactivate valid aliases before the replacement is committed.
+    return existing.every((alias) => alias.staff_id === staffId);
   }
 
   const result = await createStaffAlias(staffId, aliasName, 'manual-confirm', 1.0, createdBy);
