@@ -117,3 +117,30 @@ Open decisions:
   `(invoice_date, id)` → sales 19.3 s → 1.3 s, total 21.6 s → 8.3 s. The remaining ~6 s is
   `attendance_daily_summary` RLS evaluating its permission functions per row (same pattern fixed for
   customer requests): a migration wrapping them in `(select …)` needs separate approval.
+
+## 8. v6.1 — owner review proposal (2026-10-28)
+
+The lab computes v6.1 and shows each person's change against v6.0 (`buildCycleScores(evidence, 'v6.0')`).
+
+| Family | Axes and weights |
+|---|---|
+| Doctor | fair-share sales 30 · discipline & punches 25 · conversation quality 20 · **valid** customer requests 15 · coding **gate** (weight 0) |
+| Assistant | discipline & punches 40 · daily checklist 35 · purchase entry 25 |
+| Delivery | discipline & punches 40 · **fair share** of branch deliveries 45 · delivery rating 15 |
+| Branch manager | target 30 · request execution/closure 25 · team discipline 15 · **team punch follow-up** 15 · **team quality** (conversations + branch coding) 15 · decision backlog (information) |
+| Branches manager | target 35 · branch managers 25 · request closure 25 · team discipline 15 · decision backlog (information) |
+
+Rules:
+- **Coding gate:** saturated (96–99% for everyone), so no weight. Below 95%, 2 points off per percentage point, at most 10, shown as an adjustment next to the base total.
+- **Missing punches:** a `missing_checkin` / `missing_checkout` day that was never corrected is the employee's own zero-credit day. Days waiting for a decision (`*_review`, `invalid_schedule_time`) stay excluded.
+- **Valid requests:** cancelled, duplicate and rejected requests are neither credited to the recorder nor counted in the branch closure rate.
+- **Couriers:** the same fair-share rule as sales, applied to deliveries; part-timers are compared on their own days.
+- **Decision backlog** (attendance days waiting for a decision) is shown with weight 0. In cycle 2026-09-26 → 2026-10-25 most attendance and time-off decisions were taken by the general manager or the automatic system, not by branch managers, so ownership must be agreed before it is weighted.
+
+Data facts (Production, cycle 2026-09-26 → 2026-10-25):
+- `staff_daily_checklist_submissions` and `ratings` have **never** had a row. Assistant checklist and delivery rating are therefore "not measurable" until the teams start recording.
+- `ratings` has RLS with no select policy, so the production projection must read it server-side.
+- Customer requests: 278 recorded (all with `source_recorded_staff_id`); 20 cancelled; 162 still `new`.
+- Attendance: 176 days still waiting for a decision (فرع الشامي 89, فرع شكري 78).
+
+Production keeps: a manager adjustment of at most ±10 with a mandatory written reason, visible to the employee and open to appeal (not part of the read-only lab).

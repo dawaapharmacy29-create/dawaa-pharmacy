@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aggregate, deviationScore, disciplineScore, notMeasurable, measured, percentileAmong, shrunkMean, targetScore } from '../scoring';
+import { aggregate, codingGatePenalty, deviationScore, disciplineScore, notMeasurable, measured, percentileAmong, shrunkMean, targetScore } from '../scoring';
 import { buildCycleScores, type LabEvidence } from '../buildCycleScores';
 import { closedCycles } from '../loadCycleEvidence';
 
@@ -58,9 +58,9 @@ describe('evaluation lab scoring primitives', () => {
   });
 
   it('missing data is never a zero: weights are redistributed and coverage drops', () => {
-    const full = aggregate('delivery', [measured('discipline', 1, 80, ''), measured('deliveries_per_day', 1, 60, '')]);
+    const full = aggregate('delivery', [measured('discipline', 1, 80, ''), measured('deliveries_per_day', 1, 60, '')], { version: 'v6.0' });
     expect(full).toMatchObject({ total: 70, coverage: 1, readiness: 'ready' });
-    const half = aggregate('delivery', [measured('discipline', 1, 80, ''), notMeasurable('deliveries_per_day', 'لا بيانات')]);
+    const half = aggregate('delivery', [measured('discipline', 1, 80, ''), notMeasurable('deliveries_per_day', 'لا بيانات')], { version: 'v6.0' });
     expect(half.total).toBe(80);
     expect(half.coverage).toBe(0.5);
     expect(half.readiness).toBe('partial');
@@ -68,8 +68,8 @@ describe('evaluation lab scoring primitives', () => {
   });
 });
 
-describe('buildCycleScores', () => {
-  const results = buildCycleScores(evidence());
+describe('buildCycleScores (v6.0 baseline)', () => {
+  const results = buildCycleScores(evidence(), 'v6.0');
   const byId = (id: string) => results.find((r) => r.staffId === id)!;
 
   it('conversation quality needs three official reviews and ranks the shrunk mean', () => {
@@ -87,7 +87,7 @@ describe('buildCycleScores', () => {
   });
 
   it('punctuality comes from late minutes on scheduled days, not status names', () => {
-    const scoreOf = (attendance: LabEvidence['attendance']) => buildCycleScores(evidence({ attendance: [...evidence().attendance.filter((d) => d.staffId !== 'd1'), ...attendance] }))
+    const scoreOf = (attendance: LabEvidence['attendance']) => buildCycleScores(evidence({ attendance: [...evidence().attendance.filter((d) => d.staffId !== 'd1'), ...attendance] }), 'v6.0')
       .find((r) => r.staffId === 'd1')!.axes.find((a) => a.key === 'discipline')!;
     // A manager-approved day with 0 late minutes is on time; a 30-minute day is half credit; no-schedule days do not count.
     expect(scoreOf([...days('d1', 10, 'manager_approved_actual_punches', 0), ...days('d1', 10, 'approved_late', 30), ...days('d1', 5, 'no_schedule', 0)]).value).toBe(75);
@@ -114,7 +114,7 @@ describe('buildCycleScores', () => {
         ...Array.from({ length: 5 }, (_, i) => ({ staffId: 'p', net: 1000, date: `2026-10-${String(i + 1).padStart(2, '0')}`, coded: true, branch: 'فرع شكري', deliveryStaffId: null })),
       ],
       reviews: [], requests: [],
-    }));
+    }), 'v6.0');
     const axis = (id: string) => share.find((r) => r.staffId === id)!.axes.find((a) => a.key === 'sales_per_day')!;
     // Days 1-5: branch 2000/day, 2 present → expected 1000; p sold 1000/day → share 1.0 (score 50).
     expect(axis('p').value).toBe(1);
@@ -144,11 +144,88 @@ describe('buildCycleScores', () => {
       invoices: [...evidence().invoices,
         ...Array.from({ length: 40 }, () => ({ staffId: null, net: 0, date: '2026-10-01', coded: true, branch: 'فرع شكري', deliveryStaffId: 'c1' })),
         ...Array.from({ length: 10 }, () => ({ staffId: null, net: 0, date: '2026-10-01', coded: true, branch: 'فرع شكري', deliveryStaffId: 'c2' }))],
-    }));
+    }), 'v6.0');
     const c1 = withDeliveries.find((r) => r.staffId === 'c1')!.axes.find((a) => a.key === 'deliveries_per_day')!;
     const c3 = withDeliveries.find((r) => r.staffId === 'c3')!.axes.find((a) => a.key === 'deliveries_per_day')!;
     expect(c1.value).toBe(2);
     expect(c1.score!).toBeGreaterThan(c3.score!);
+  });
+});
+
+describe('buildCycleScores v6.1 (owner review 2026-10-28)', () => {
+  const v61 = buildCycleScores(evidence({ dormantSources: ['followups', 'assistant_checklist', 'delivery_ratings'] }));
+  const byId = (id: string) => v61.find((r) => r.staffId === id)!;
+  const axis = (id: string, key: string) => byId(id).axes.find((a) => a.key === key)!;
+
+  it('coding is a gate: no weight, points off only below 95%', () => {
+    expect(codingGatePenalty(0.96)).toBe(0);
+    expect(codingGatePenalty(0.94)).toBe(-2);
+    expect(codingGatePenalty(0.5)).toBe(-10);
+    expect(axis('d1', 'coding_quality').weight).toBe(0);
+    expect(byId('d1').adjustments).toEqual([]);
+    // d2 coded 90/100: 5 points below the floor → −10, shown with the base total.
+    expect(byId('d2').adjustments).toEqual([expect.objectContaining({ points: -10 })]);
+    expect(byId('d2').total).toBeCloseTo(Math.max(0, (byId('d2').baseTotal as number) - 10), 1);
+  });
+
+  it('an uncorrected missing punch is an employee-owned zero-credit day', () => {
+    // d3: 10 on-time days + 6 missing checkouts → 10/16 credit; v6.0 ignored the 6 days (100%).
+    expect(axis('d3', 'discipline').value).toBe(62.5);
+    expect(axis('d3', 'discipline').basis).toContain('6 بصمة ناقصة');
+    expect(buildCycleScores(evidence(), 'v6.0').find((r) => r.staffId === 'd3')!.axes.find((a) => a.key === 'discipline')!.value).toBe(100);
+  });
+
+  it('cancelled customer requests are not credited to the recorder nor counted for closure', () => {
+    const withCancelled = buildCycleScores(evidence({
+      requests: [
+        { recordedStaffId: 'd1', branch: 'فرع شكري', createdAt: '2026-10-01T08:00:00Z', closedAt: '2026-10-02T08:00:00Z', status: 'delivered' },
+        { recordedStaffId: 'd1', branch: 'فرع شكري', createdAt: '2026-10-01T08:00:00Z', closedAt: '2026-10-01T09:00:00Z', status: 'cancelled' },
+        { recordedStaffId: 'd2', branch: 'فرع شكري', createdAt: '2026-10-01T08:00:00Z', closedAt: null, status: 'new' },
+      ],
+    }));
+    const m1 = withCancelled.find((r) => r.staffId === 'm1')!.axes.find((a) => a.key === 'requests_closure')!;
+    expect(m1.value).toBe(50);
+    expect(m1.basis).toContain('1 مفتوح');
+    expect(withCancelled.find((r) => r.staffId === 'd1')!.axes.find((a) => a.key === 'customer_requests')!.basis).toContain('1 ملغي لا يُحتسب');
+  });
+
+  it('couriers are compared by fair share of the branch deliveries on their own days', () => {
+    const run = buildCycleScores(evidence({
+      staff: [{ id: 'c1', name: 'أ', role: 'توصيل', branch: 'فرع شكري' }, { id: 'c2', name: 'ب', role: 'delivery', branch: 'فرع شكري' }],
+      attendance: [...days('c1', 10), ...days('c2', 5)],
+      invoices: Array.from({ length: 10 }, (_, i) => [
+        { staffId: null, net: 0, date: `2026-10-${String(i + 1).padStart(2, '0')}`, coded: true, branch: 'فرع شكري', deliveryStaffId: 'c1' },
+        ...(i < 5 ? [{ staffId: null, net: 0, date: `2026-10-${String(i + 1).padStart(2, '0')}`, coded: true, branch: 'فرع شكري', deliveryStaffId: 'c2' }] : []),
+      ]).flat(),
+      reviews: [], requests: [],
+      dormantSources: ['delivery_ratings'],
+    }));
+    // Days 1-5: 2 deliveries/day, 2 couriers → expected 1 each, both delivered 1. Days 6-10: c1 alone.
+    expect(run.find((r) => r.staffId === 'c2')!.axes.find((a) => a.key === 'deliveries_per_day')!.value).toBe(1);
+    expect(run.find((r) => r.staffId === 'c1')!.axes.find((a) => a.key === 'deliveries_per_day')!.value).toBe(1);
+    expect(run.find((r) => r.staffId === 'c1')!.axes.find((a) => a.key === 'delivery_rating')).toMatchObject({ status: 'not_measurable', weight: 15 });
+  });
+
+  it('branch manager: team follow-up of missing punches and team quality; decision backlog is information only', () => {
+    expect(axis('m1', 'team_followup')).toMatchObject({ status: 'measured' });
+    expect(axis('m1', 'team_followup').basis).toContain('6 بصمة ناقصة');
+    expect(axis('m1', 'team_quality')).toMatchObject({ status: 'measured', weight: 15 });
+    expect(axis('m1', 'decision_backlog')).toMatchObject({ weight: 0 });
+    expect(axis('h1', 'decision_backlog')).toMatchObject({ weight: 0 });
+  });
+
+  it('dormant assistant checklist and delivery ratings are not measurable, never zero', () => {
+    const run = buildCycleScores(evidence({
+      staff: [...evidence().staff, { id: 'a1', name: 'مساعد', role: 'مساعد صيدلي', branch: 'فرع شكري' }],
+      attendance: [...evidence().attendance, ...days('a1', 20)],
+      dormantSources: ['assistant_checklist', 'delivery_ratings'],
+    }));
+    const a1 = run.find((r) => r.staffId === 'a1')!;
+    expect(a1.axes.find((a) => a.key === 'assistant_checklist')).toMatchObject({ status: 'not_measurable', score: null });
+    expect(a1.total).toBe(100);
+    // Only discipline (40 of 100) is measurable: the assistant is "partial", not scored as zero elsewhere.
+    expect(a1.coverage).toBeCloseTo(0.4, 2);
+    expect(a1.readiness).toBe('partial');
   });
 });
 

@@ -1,9 +1,12 @@
 import { normalizeBranchName } from '@/lib/branch';
-import { ABSENCE_WITH_DEDUCTION, LAB_THRESHOLDS, NON_PUNCTUALITY_ATTENDANCE, PUNCTUALITY_BANDS, UNRESOLVED_ATTENDANCE, labFamilyOf, type LabFamily } from './catalog';
+import {
+  ABSENCE_WITH_DEDUCTION, INVALID_REQUEST_STATUS, LAB_CURRENT_VERSION, LAB_THRESHOLDS, MISSING_PUNCH, NON_PUNCTUALITY_ATTENDANCE,
+  PENDING_DECISION, PUNCTUALITY_BANDS, UNRESOLVED_ATTENDANCE, labFamilyOf, type LabFamily, type LabVersion,
+} from './catalog';
 import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 import {
-  aggregate, bandScore, closureScore, deviationScore, disciplineScore, measured, median, notMeasurable,
-  percentileAmong, shrunkMean, targetScore, type AxisResult, type LabScore,
+  aggregate, bandScore, closureScore, codingGatePenalty, disciplineScore, measured, median, notMeasurable,
+  percentileAmong, shrunkMean, targetScore, type AxisResult, type LabAdjustment, type LabScore,
 } from './scoring';
 
 // Pure cycle computation: canonical evidence in, one score per employee out. No I/O.
@@ -14,11 +17,11 @@ export interface LabEvidence {
   /** Official conversation reviews only (0..100). */
   reviews: Array<{ staffId: string; score: number }>;
   attendance: Array<{ staffId: string; date: string; status: string | null; hasFirstIn: boolean; scheduled: boolean; lateMinutes: number }>;
-  requests: Array<{ recordedStaffId: string | null; branch: string | null; createdAt: string; closedAt: string | null }>;
+  requests: Array<{ recordedStaffId: string | null; branch: string | null; createdAt: string; closedAt: string | null; status?: string | null }>;
   /** null when the source cannot be read by this session (its axis becomes not measurable). */
   purchases: Array<{ enteredByStaffId: string | null }> | null;
   targets: Array<{ branch: string; targetAmount: number }>;
-  /** Sources with no rows in the cycle (e.g. follow-ups): shown as dormant. */
+  /** Sources with no rows in the cycle (followups, assistant_checklist, delivery_ratings): shown as dormant. */
   dormantSources: string[];
 }
 
@@ -34,6 +37,7 @@ export interface LabPersonScore extends LabScore {
 type AxisDraft = Omit<AxisResult, 'label' | 'weight'>;
 const round = (value: number, digits = 1) => Math.round(value * 10 ** digits) / 10 ** digits;
 const branchKey = (value: string | null | undefined) => normalizeBranchName(value || '') || '';
+const egp = (value: number) => Math.round(value).toLocaleString('ar-EG');
 
 interface PersonFacts {
   workedDays: number;
@@ -42,21 +46,27 @@ interface PersonFacts {
   halfDays: number;
   lateMinutes: number;
   unresolvedDays: number;
+  /** v6.1: scheduled days whose missing punch was never corrected. */
+  missingPunchDays: number;
+  /** Days waiting for a manager/administration decision. */
+  pendingDecisionDays: number;
   invoices: number;
   coded: number;
   net: number;
   reviews: number[];
   requests: number;
+  invalidRequests: number;
   purchases: number;
   deliveries: number;
 }
 
-function factsFor(evidence: LabEvidence): Map<string, PersonFacts> {
+function factsFor(evidence: LabEvidence, version: LabVersion): Map<string, PersonFacts> {
   const facts = new Map<string, PersonFacts>();
   const get = (id: string) => {
     let row = facts.get(id);
     if (!row) {
-      row = { workedDays: 0, resolvedDays: 0, onTimeDays: 0, halfDays: 0, lateMinutes: 0, unresolvedDays: 0, invoices: 0, coded: 0, net: 0, reviews: [], requests: 0, purchases: 0, deliveries: 0 };
+      row = { workedDays: 0, resolvedDays: 0, onTimeDays: 0, halfDays: 0, lateMinutes: 0, unresolvedDays: 0, missingPunchDays: 0, pendingDecisionDays: 0,
+        invoices: 0, coded: 0, net: 0, reviews: [], requests: 0, invalidRequests: 0, purchases: 0, deliveries: 0 };
       facts.set(id, row);
     }
     return row;
@@ -66,6 +76,13 @@ function factsFor(evidence: LabEvidence): Map<string, PersonFacts> {
     const row = get(day.staffId);
     if (day.hasFirstIn) row.workedDays += 1;
     const status = String(day.status || '');
+    if (PENDING_DECISION.test(status)) row.pendingDecisionDays += 1;
+    if (version === 'v6.1' && MISSING_PUNCH.test(status) && day.scheduled) {
+      // The employee's own miss: a resolved day with zero credit.
+      row.missingPunchDays += 1;
+      row.resolvedDays += 1;
+      continue;
+    }
     if (!status || UNRESOLVED_ATTENDANCE.test(status)) {
       if (day.hasFirstIn || status) row.unresolvedDays += 1;
       continue;
@@ -88,7 +105,13 @@ function factsFor(evidence: LabEvidence): Map<string, PersonFacts> {
     if (invoice.deliveryStaffId) get(invoice.deliveryStaffId).deliveries += 1;
   }
   for (const review of evidence.reviews) get(review.staffId).reviews.push(review.score);
-  for (const request of evidence.requests) if (request.recordedStaffId) get(request.recordedStaffId).requests += 1;
+  for (const request of evidence.requests) {
+    if (!request.recordedStaffId) continue;
+    const row = get(request.recordedStaffId);
+    // v6.1 counts only valid requests (a cancelled/duplicate request is not credited).
+    if (version === 'v6.1' && INVALID_REQUEST_STATUS.test(String(request.status || '').toLowerCase())) row.invalidRequests += 1;
+    else row.requests += 1;
+  }
   for (const purchase of evidence.purchases || []) if (purchase.enteredByStaffId) get(purchase.enteredByStaffId).purchases += 1;
   return facts;
 }
@@ -100,10 +123,11 @@ function disciplineAxis(f: PersonFacts): AxisDraft {
     return notMeasurable('discipline', `${f.resolvedDays} يوم محسوم فقط (الحد ${LAB_THRESHOLDS.minResolvedDays})`, `${f.unresolvedDays} يوم ينتظر المراجعة`);
   }
   const credit = (f.onTimeDays + f.halfDays / 2) / f.resolvedDays;
-  const late = f.lateMinutes / f.resolvedDays;
-  const beyond = f.resolvedDays - f.onTimeDays - f.halfDays;
+  const late = f.lateMinutes / Math.max(1, f.resolvedDays - f.missingPunchDays);
+  const beyond = f.resolvedDays - f.onTimeDays - f.halfDays - f.missingPunchDays;
+  const missing = f.missingPunchDays ? ` · ${f.missingPunchDays} بصمة ناقصة لم تُصحَّح` : '';
   return measured('discipline', round(credit * 100), disciplineScore(credit),
-    `${f.onTimeDays} يوم ≤${PUNCTUALITY_BANDS.graceMinutes}د · ${f.halfDays} يوم حتى ${PUNCTUALITY_BANDS.halfCreditMinutes}د · ${beyond} يوم أكثر · متوسط ${round(late)} د/يوم · ${f.unresolvedDays} يوم بانتظار المراجعة`);
+    `${f.onTimeDays} يوم ≤${PUNCTUALITY_BANDS.graceMinutes}د · ${f.halfDays} يوم حتى ${PUNCTUALITY_BANDS.halfCreditMinutes}د · ${beyond} يوم أكثر${missing} · متوسط ${round(late)} د/يوم · ${f.unresolvedDays} يوم بانتظار المراجعة`);
 }
 
 /** Percentile axis over a per-worked-day rate among the family's measurable members. */
@@ -112,6 +136,7 @@ function rateAxis(
   members: Array<{ id: string; f: PersonFacts }>,
   pick: (f: PersonFacts) => number,
   unit: string,
+  note: (f: PersonFacts) => string = () => '',
 ): Map<string, AxisDraft> {
   const out = new Map<string, AxisDraft>();
   const eligible = members.filter((member) => member.f.workedDays >= LAB_THRESHOLDS.minWorkedDays);
@@ -126,82 +151,94 @@ function rateAxis(
     const pct = percentileAmong(rate, peers);
     out.set(member.id, pct === null
       ? notMeasurable(key, `زملاء قابلون للمقارنة أقل من ${LAB_THRESHOLDS.minPeersForPercentile}`, `${round(rate, 2)} ${unit}`)
-      : measured(key, round(rate, 2), pct, `${round(rate, 2)} ${unit} · ترتيب ${round(pct)}٪ بين ${peers.length}`));
+      : measured(key, round(rate, 2), pct, `${round(rate, 2)} ${unit} · ترتيب ${round(pct)}٪ بين ${peers.length}${note(member.f)}`));
   }
   return out;
 }
 
 /**
- * Fair share of branch sales on the days the doctor actually worked: for each worked day the
- * expected sales are the branch's sales that day divided by the doctors present. Part-time
- * doctors are compared on their own days only; branch size and busy days cancel out.
+ * Fair share of the branch's daily volume on the days the person actually worked: for each worked
+ * day the expected volume is the branch's volume that day divided by the people of the same family
+ * present. Part-timers are compared on their own days only; branch size and busy days cancel out.
  */
 function fairShareAxis(
+  key: 'sales_per_day' | 'deliveries_per_day',
+  members: Array<{ id: string; branch: string | null }>,
   evidence: LabEvidence,
-  people: Array<{ id: string; branch: string | null; family: LabFamily }>,
+  /** The person credited by an invoice and the invoice's volume (net for sales, 1 for a delivery). */
+  ownerOf: (invoice: LabEvidence['invoices'][number]) => string | null,
+  volumeOf: (invoice: LabEvidence['invoices'][number]) => number,
+  describe: (own: number, expected: number, days: number, share: number) => string,
 ): Map<string, AxisDraft> {
   const out = new Map<string, AxisDraft>();
-  const doctors = people.filter((p) => p.family === 'doctor');
-  const doctorBranch = new Map(doctors.map((d) => [d.id, branchKey(d.branch)]));
+  const memberBranch = new Map(members.map((m) => [m.id, branchKey(m.branch)]));
   const workedDays = new Map<string, Set<string>>();
   const onDuty = new Map<string, number>();
   const markWorked = (staffId: string, date: string) => {
-    const branch = doctorBranch.get(staffId);
+    const branch = memberBranch.get(staffId);
     if (branch === undefined || !date) return;
     const set = workedDays.get(staffId) || new Set<string>();
     if (set.has(date)) return;
     workedDays.set(staffId, set.add(date));
     onDuty.set(`${branch}|${date}`, (onDuty.get(`${branch}|${date}`) || 0) + 1);
   };
-  // A worked day is a punched day OR a day the doctor sold: missing punches never erase sales.
+  // A worked day is a punched day OR a day with own volume: missing punches never erase work.
   for (const day of evidence.attendance) if (day.hasFirstIn) markWorked(day.staffId, day.date);
-  for (const invoice of evidence.invoices) if (invoice.staffId) markWorked(invoice.staffId, invoice.date);
-  const branchDayNet = new Map<string, number>();
-  const ownDayNet = new Map<string, number>();
+  for (const invoice of evidence.invoices) { const owner = ownerOf(invoice); if (owner) markWorked(owner, invoice.date); }
+  const branchDay = new Map<string, number>();
+  const ownDay = new Map<string, number>();
   for (const invoice of evidence.invoices) {
+    const volume = volumeOf(invoice);
+    if (!volume) continue;
     const key = `${branchKey(invoice.branch)}|${invoice.date}`;
-    branchDayNet.set(key, (branchDayNet.get(key) || 0) + invoice.net);
-    if (invoice.staffId) ownDayNet.set(`${invoice.staffId}|${invoice.date}`, (ownDayNet.get(`${invoice.staffId}|${invoice.date}`) || 0) + invoice.net);
+    branchDay.set(key, (branchDay.get(key) || 0) + volume);
+    const owner = ownerOf(invoice);
+    if (owner) ownDay.set(`${owner}|${invoice.date}`, (ownDay.get(`${owner}|${invoice.date}`) || 0) + volume);
   }
-  for (const doctor of doctors) {
-    const days = [...(workedDays.get(doctor.id) || [])];
+  for (const member of members) {
+    const days = [...(workedDays.get(member.id) || [])];
     if (days.length < LAB_THRESHOLDS.minWorkedDays) {
-      out.set(doctor.id, notMeasurable('sales_per_day', `${days.length} يوم عمل فقط (الحد ${LAB_THRESHOLDS.minWorkedDays})`));
+      out.set(member.id, notMeasurable(key, `${days.length} يوم عمل فقط (الحد ${LAB_THRESHOLDS.minWorkedDays})`));
       continue;
     }
-    const branch = doctorBranch.get(doctor.id) || '';
+    const branch = memberBranch.get(member.id) || '';
     let own = 0;
     let expected = 0;
     for (const date of days) {
       const present = onDuty.get(`${branch}|${date}`) || 1;
-      expected += (branchDayNet.get(`${branch}|${date}`) || 0) / present;
-      own += ownDayNet.get(`${doctor.id}|${date}`) || 0;
+      expected += (branchDay.get(`${branch}|${date}`) || 0) / present;
+      own += ownDay.get(`${member.id}|${date}`) || 0;
     }
     if (expected <= 0) {
-      out.set(doctor.id, notMeasurable('sales_per_day', 'لا توجد مبيعات للفرع في أيام عمله'));
+      out.set(member.id, notMeasurable(key, 'لا يوجد حجم عمل للفرع في أيام عمله'));
       continue;
     }
     const share = own / expected;
-    out.set(doctor.id, measured('sales_per_day', round(share, 2),
-      bandScore(share, LAB_THRESHOLDS.fairShareFloor, LAB_THRESHOLDS.fairShareCeiling),
-      `باع ${Math.round(own).toLocaleString('ar-EG')} من نصيب متوقع ${Math.round(expected).toLocaleString('ar-EG')} ج في ${days.length} يوم عمل (×${round(share, 2)})`));
+    out.set(member.id, measured(key, round(share, 2),
+      bandScore(share, LAB_THRESHOLDS.fairShareFloor, LAB_THRESHOLDS.fairShareCeiling), describe(own, expected, days.length, share)));
   }
   return out;
 }
 
-export function buildCycleScores(evidence: LabEvidence): LabPersonScore[] {
-  const facts = factsFor(evidence);
+const dormant = (evidence: LabEvidence, source: string) => evidence.dormantSources.includes(source);
+
+export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LAB_CURRENT_VERSION): LabPersonScore[] {
+  const facts = factsFor(evidence, version);
   const people = evidence.staff
     .map((person) => ({ ...person, family: labFamilyOf(canonicalStaffRole(person.role)) }))
     .filter((person): person is typeof person & { family: LabFamily } => person.family !== null);
-  const familyMembers = (family: LabFamily) => people.filter((p) => p.family === family).map((p) => ({ id: p.id, f: facts.get(p.id)! }));
+  const familyMembers = (family: LabFamily) => people.filter((p) => p.family === family).map((p) => ({ id: p.id, branch: p.branch, f: facts.get(p.id)! }));
   const axes = new Map<string, AxisDraft[]>();
+  const adjustments = new Map<string, LabAdjustment[]>();
   const push = (id: string, axis: AxisDraft) => axes.set(id, [...(axes.get(id) || []), axis]);
+  const invalidNote = (f: PersonFacts) => (f.invalidRequests ? ` · ${f.invalidRequests} ملغي لا يُحتسب` : '');
 
   // Doctors.
   const doctors = familyMembers('doctor');
-  fairShareAxis(evidence, people).forEach((axis, id) => push(id, axis));
-  rateAxis('customer_requests', doctors, (f) => f.requests, 'طلب/يوم').forEach((axis, id) => push(id, axis));
+  fairShareAxis('sales_per_day', doctors, evidence, (inv) => inv.staffId, (inv) => inv.net,
+    (own, expected, days, share) => `باع ${egp(own)} من نصيب متوقع ${egp(expected)} ج في ${days} يوم عمل (×${round(share, 2)})`)
+    .forEach((axis, id) => push(id, axis));
+  rateAxis('customer_requests', doctors, (f) => f.requests, 'طلب/يوم', invalidNote).forEach((axis, id) => push(id, axis));
   const doctorRates = doctors.filter((d) => d.f.invoices >= LAB_THRESHOLDS.minInvoicesForCoding).map((d) => d.f.coded / d.f.invoices);
   const doctorRateMedian = median(doctorRates);
   const allReviews = doctors.flatMap((d) => d.f.reviews);
@@ -211,10 +248,15 @@ export function buildCycleScores(evidence: LabEvidence): LabPersonScore[] {
   const shrunkPeers = [...shrunk.values()];
   for (const { id, f } of doctors) {
     push(id, disciplineAxis(f));
-    push(id, f.invoices < LAB_THRESHOLDS.minInvoicesForCoding || doctorRateMedian === null
-      ? notMeasurable('coding_quality', `${f.invoices} فاتورة فقط (الحد ${LAB_THRESHOLDS.minInvoicesForCoding})`)
-      : measured('coding_quality', round((f.coded / f.invoices) * 100), bandScore(f.coded / f.invoices, 0.9, 1),
-        `${f.coded}/${f.invoices} مكوّدة · وسيط الزملاء ${round(doctorRateMedian * 100)}٪`));
+    if (f.invoices < LAB_THRESHOLDS.minInvoicesForCoding || doctorRateMedian === null) {
+      push(id, notMeasurable('coding_quality', `${f.invoices} فاتورة فقط (الحد ${LAB_THRESHOLDS.minInvoicesForCoding})`));
+    } else {
+      const rate = f.coded / f.invoices;
+      const penalty = version === 'v6.1' ? codingGatePenalty(rate) : 0;
+      push(id, measured('coding_quality', round(rate * 100), bandScore(rate, 0.9, 1),
+        `${f.coded}/${f.invoices} مكوّدة · وسيط الزملاء ${round(doctorRateMedian * 100)}٪${version === 'v6.1' ? ` · الحد الأدنى ${LAB_THRESHOLDS.codingGateFloor * 100}٪${penalty ? ` (خصم ${-penalty})` : ' (مستوفى)'}` : ''}`));
+      if (penalty) adjustments.set(id, [{ label: 'تكويد أقل من الحد الأدنى', points: penalty, reason: `${round(rate * 100)}٪ من ${f.invoices} فاتورة` }]);
+    }
     const s = shrunk.get(id);
     const pct = s === undefined ? null : percentileAmong(s, shrunkPeers);
     push(id, s === undefined
@@ -222,26 +264,41 @@ export function buildCycleScores(evidence: LabEvidence): LabPersonScore[] {
       : pct === null
         ? notMeasurable('conversation_quality', 'زملاء قابلون للمقارنة غير كافين', `${round(s)}/100`)
         : measured('conversation_quality', round(s), bandScore(s, 90, 100), `${f.reviews.length} مراجعة · متوسط معدّل ${round(s)}/100 · ترتيب ${round(pct)}٪ بين الزملاء`));
-    if (evidence.dormantSources.includes('followups')) push(id, notMeasurable('followups', 'لا توجد متابعات مسجلة في هذه الدورة (المصدر متوقف)'));
+    if (dormant(evidence, 'followups')) push(id, notMeasurable('followups', 'لا توجد متابعات مسجلة في هذه الدورة (المصدر متوقف)'));
   }
 
-  // Assistants and delivery.
+  // Assistants.
   const assistants = familyMembers('assistant');
   if (evidence.purchases === null) {
     for (const { id } of assistants) push(id, notMeasurable('purchase_entry', 'فواتير المشتريات غير متاحة للقراءة من هذه الجلسة'));
   } else {
     rateAxis('purchase_entry', assistants, (f) => f.purchases, 'فاتورة/يوم').forEach((axis, id) => push(id, axis));
   }
-  rateAxis('customer_requests', assistants, (f) => f.requests, 'طلب/يوم').forEach((axis, id) => push(id, axis));
-  for (const { id, f } of assistants) push(id, disciplineAxis(f));
+  rateAxis('customer_requests', assistants, (f) => f.requests, 'طلب/يوم', invalidNote).forEach((axis, id) => push(id, axis));
+  for (const { id, f } of assistants) {
+    push(id, disciplineAxis(f));
+    if (dormant(evidence, 'assistant_checklist')) push(id, notMeasurable('assistant_checklist', 'لا توجد تسليمات لقائمة المهام اليومية في هذه الدورة (المصدر متوقف)'));
+  }
+
+  // Delivery.
   const couriers = familyMembers('delivery');
-  rateAxis('deliveries_per_day', couriers, (f) => f.deliveries, 'توصيلة/يوم').forEach((axis, id) => push(id, axis));
-  for (const { id, f } of couriers) push(id, disciplineAxis(f));
+  if (version === 'v6.1') {
+    fairShareAxis('deliveries_per_day', couriers, evidence, (inv) => inv.deliveryStaffId, (inv) => (inv.deliveryStaffId ? 1 : 0),
+      (own, expected, days, share) => `${own} توصيلة من نصيب متوقع ${round(expected)} في ${days} يوم عمل (×${round(share, 2)})`)
+      .forEach((axis, id) => push(id, axis));
+  } else {
+    rateAxis('deliveries_per_day', couriers, (f) => f.deliveries, 'توصيلة/يوم').forEach((axis, id) => push(id, axis));
+  }
+  for (const { id, f } of couriers) {
+    push(id, disciplineAxis(f));
+    if (dormant(evidence, 'delivery_ratings')) push(id, notMeasurable('delivery_rating', 'لا توجد تقييمات توصيل مسجلة في هذه الدورة (المصدر متوقف)'));
+  }
 
   const scored = new Map<string, LabPersonScore>();
   for (const person of people) {
     if (person.family === 'branch_manager' || person.family === 'branches_manager') continue;
-    scored.set(person.id, { staffId: person.id, name: person.name, branch: person.branch, family: person.family, ...aggregate(person.family, axes.get(person.id) || []) });
+    scored.set(person.id, { staffId: person.id, name: person.name, branch: person.branch, family: person.family,
+      ...aggregate(person.family, axes.get(person.id) || [], { version, adjustments: adjustments.get(person.id) }) });
   }
 
   // Branch-level evidence for managers.
@@ -256,34 +313,60 @@ export function buildCycleScores(evidence: LabEvidence): LabPersonScore[] {
     .map((key) => { const rows = evidence.invoices.filter((inv) => branchKey(inv.branch) === key); return rows.length ? rows.filter((r) => r.coded).length / rows.length : null; })
     .filter((rate): rate is number => rate !== null);
   const branchRateMedian = median(allBranchRates);
+  const measuredScores = (team: LabPersonScore[], key: string) =>
+    team.map((p) => p.axes.find((a) => a.key === key)).filter((a): a is AxisResult => a?.status === 'measured');
+  const mean = (values: number[]) => values.reduce((s, v) => s + v, 0) / values.length;
 
   const managerAxes = (keys: Set<string>, family: 'branch_manager' | 'branches_manager'): AxisDraft[] => {
     const b = branchFacts(keys);
     const out: AxisDraft[] = [];
     const net = b.invoices.reduce((s, inv) => s + inv.net, 0);
     out.push(b.target > 0
-      ? measured('branch_target', round((net / b.target) * 100), targetScore(net / b.target), `${Math.round(net).toLocaleString('ar-EG')} من ${Math.round(b.target).toLocaleString('ar-EG')} ج`)
+      ? measured('branch_target', round((net / b.target) * 100), targetScore(net / b.target), `${egp(net)} من ${egp(b.target)} ج`)
       : notMeasurable('branch_target', 'لا يوجد تارجت مسجل للفرع'));
-    const closed = b.requests.filter((r) => r.closedAt);
+    const requests = version === 'v6.1' ? b.requests.filter((r) => !INVALID_REQUEST_STATUS.test(String(r.status || '').toLowerCase())) : b.requests;
+    const closed = requests.filter((r) => r.closedAt);
     const hours = closed.map((r) => (Date.parse(r.closedAt as string) - Date.parse(r.createdAt)) / 36e5).filter((h) => Number.isFinite(h) && h >= 0);
     const medianHours = median(hours);
-    out.push(b.requests.length
-      ? measured('requests_closure', round((closed.length / b.requests.length) * 100), closureScore(closed.length / b.requests.length, medianHours),
-        `${closed.length}/${b.requests.length} مغلق · وسيط ${medianHours === null ? '—' : round(medianHours)} ساعة`)
+    out.push(requests.length
+      ? measured('requests_closure', round((closed.length / requests.length) * 100), closureScore(closed.length / requests.length, medianHours),
+        `${closed.length}/${requests.length} تم تنفيذه · ${requests.length - closed.length} مفتوح · وسيط ${medianHours === null ? '—' : round(medianHours)} ساعة`)
       : notMeasurable('requests_closure', 'لا توجد طلبات عملاء في الدورة'));
-    const disciplineScores = b.team.map((p) => p.axes.find((a) => a.key === 'discipline')).filter((a): a is AxisResult => a?.status === 'measured');
-    out.push(disciplineScores.length
-      ? measured('team_discipline', disciplineScores.length, disciplineScores.reduce((s, a) => s + (a.score as number), 0) / disciplineScores.length, `متوسط ${disciplineScores.length} موظف`)
+    const discipline = measuredScores(b.team, 'discipline');
+    out.push(discipline.length
+      ? measured('team_discipline', discipline.length, mean(discipline.map((a) => a.score as number)), `متوسط ${discipline.length} موظف`)
       : notMeasurable('team_discipline', 'لا يوجد أعضاء بانضباط قابل للقياس'));
+    const teamFacts = b.team.map((p) => facts.get(p.staffId)!).filter(Boolean);
+    const pending = teamFacts.reduce((s, f) => s + f.pendingDecisionDays, 0);
+    const worked = teamFacts.reduce((s, f) => s + f.workedDays, 0);
+    if (version === 'v6.1') {
+      out.push(worked
+        ? measured('decision_backlog', pending, bandScore(1 - pending / worked, 0.85, 1), `${pending} يوم حضور بانتظار قرار من ${worked} يوم عمل — للمعلومة حتى يُحدَّد صاحب القرار`)
+        : notMeasurable('decision_backlog', 'لا توجد أيام حضور للفريق'));
+    }
     if (family === 'branch_manager') {
-      const conv = b.team.map((p) => p.axes.find((a) => a.key === 'conversation_quality')).filter((a): a is AxisResult => a?.status === 'measured');
+      const conv = measuredScores(b.team, 'conversation_quality');
       out.push(conv.length
-        ? measured('team_conversations', conv.length, conv.reduce((s, a) => s + (a.score as number), 0) / conv.length, `متوسط ${conv.length} صيدلي`)
+        ? measured('team_conversations', conv.length, mean(conv.map((a) => a.score as number)), `متوسط ${conv.length} صيدلي`)
         : notMeasurable('team_conversations', 'لا توجد مراجعات رسمية كافية للفريق'));
       const rate = b.invoices.length ? b.invoices.filter((inv) => inv.coded).length / b.invoices.length : null;
+      const codingScore = rate === null ? null : bandScore(rate, 0.9, 1);
       out.push(rate === null || branchRateMedian === null
         ? notMeasurable('branch_coding', 'لا توجد فواتير للفرع')
-        : measured('branch_coding', round(rate * 100), bandScore(rate, 0.9, 1), `${round(rate * 100)}٪ · وسيط الفروع ${round(branchRateMedian * 100)}٪`));
+        : measured('branch_coding', round(rate * 100), codingScore as number, `${round(rate * 100)}٪ · وسيط الفروع ${round(branchRateMedian * 100)}٪`));
+      if (version === 'v6.1') {
+        const parts = [...(conv.length ? [mean(conv.map((a) => a.score as number))] : []), ...(codingScore === null ? [] : [codingScore])];
+        out.push(parts.length
+          ? measured('team_quality', parts.length, mean(parts),
+            `محادثات ${conv.length ? round(mean(conv.map((a) => a.score as number))) : '—'} · تكويد الفرع ${rate === null ? '—' : `${round(rate * 100)}٪`}`)
+          : notMeasurable('team_quality', 'لا توجد مراجعات ولا فواتير للفرع'));
+        const missing = teamFacts.reduce((s, f) => s + f.missingPunchDays, 0);
+        const scheduled = teamFacts.reduce((s, f) => s + f.resolvedDays, 0);
+        out.push(scheduled
+          ? measured('team_followup', round((1 - missing / scheduled) * 100), bandScore(1 - missing / scheduled, LAB_THRESHOLDS.followupFloor, 1),
+            `${missing} بصمة ناقصة لم تُصحَّح من ${scheduled} يوم شيفت للفريق`)
+          : notMeasurable('team_followup', 'لا توجد أيام شيفت محسومة للفريق'));
+      }
     }
     return out;
   };
@@ -293,7 +376,8 @@ export function buildCycleScores(evidence: LabEvidence): LabPersonScore[] {
   for (const manager of branchManagers) {
     const keys = new Set([branchKey(manager.branch)].filter(Boolean));
     const team = branchFacts(keys).team.map((p) => ({ staffId: p.staffId, name: p.name, total: p.total }));
-    results.push({ staffId: manager.id, name: manager.name, branch: manager.branch, family: 'branch_manager', team, ...aggregate('branch_manager', managerAxes(keys, 'branch_manager')) });
+    results.push({ staffId: manager.id, name: manager.name, branch: manager.branch, family: 'branch_manager', team,
+      ...aggregate('branch_manager', managerAxes(keys, 'branch_manager'), { version }) });
   }
   const managerResults = results.filter((r) => r.family === 'branch_manager');
   for (const head of people.filter((p) => p.family === 'branches_manager')) {
@@ -301,10 +385,10 @@ export function buildCycleScores(evidence: LabEvidence): LabPersonScore[] {
     const axesForHead = managerAxes(keys, 'branches_manager');
     const managerTotals = managerResults.filter((m) => m.total !== null);
     axesForHead.push(managerTotals.length
-      ? measured('branch_managers', managerTotals.length, managerTotals.reduce((s, m) => s + (m.total as number), 0) / managerTotals.length, `متوسط ${managerTotals.length} مدير فرع`)
+      ? measured('branch_managers', managerTotals.length, mean(managerTotals.map((m) => m.total as number)), `متوسط ${managerTotals.length} مدير فرع`)
       : notMeasurable('branch_managers', 'لا توجد نتائج لمديري الفروع'));
     results.push({ staffId: head.id, name: head.name, branch: head.branch, family: 'branches_manager',
-      team: managerResults.map((m) => ({ staffId: m.staffId, name: m.name, total: m.total })), ...aggregate('branches_manager', axesForHead) });
+      team: managerResults.map((m) => ({ staffId: m.staffId, name: m.name, total: m.total })), ...aggregate('branches_manager', axesForHead, { version }) });
   }
   return results.sort((a, b) => (b.total ?? -1) - (a.total ?? -1));
 }

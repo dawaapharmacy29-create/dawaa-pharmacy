@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, ChevronDown, ChevronUp, Database, FlaskConical, Users } from 'lucide-react';
-import { LAB_FAMILY_LABELS, type LabFamily } from '@/lib/evaluationLab/catalog';
+import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronUp, Database, FlaskConical, MinusCircle, Users } from 'lucide-react';
+import { LAB_CURRENT_VERSION, LAB_FAMILY_LABELS, type LabFamily } from '@/lib/evaluationLab/catalog';
 import { buildCycleScores, type LabEvidence, type LabPersonScore } from '@/lib/evaluationLab/buildCycleScores';
 import { closedCycles, loadCycleEvidence, type LabCycle } from '@/lib/evaluationLab/loadCycleEvidence';
 import type { AxisResult, Readiness } from '@/lib/evaluationLab/scoring';
@@ -79,7 +79,23 @@ function AxisRow({ axis }: { axis: AxisResult }) {
   );
 }
 
-function PersonCard({ person, rank }: { person: LabPersonScore; rank: number | null }) {
+/** Change against the previous lab version (v6.0), so every proposal is reviewed by its effect. */
+function BaselineDelta({ total, baseline }: { total: number | null; baseline: number | null | undefined }) {
+  if (baseline === undefined) return null;
+  if (total === null || baseline === null) {
+    return <span className="dawaa-theme-muted text-[11px] font-bold">v6.0: {baseline === null ? 'غير محسوب' : Math.round(baseline)}</span>;
+  }
+  const delta = Math.round(total - baseline);
+  if (delta === 0) return <span className="dawaa-theme-muted text-[11px] font-bold">بدون تغيير عن v6.0</span>;
+  const Icon = delta > 0 ? ArrowUp : ArrowDown;
+  return (
+    <span className={`flex items-center gap-0.5 text-[11px] font-black ${delta > 0 ? 'dawaa-status-success-text' : 'dawaa-status-danger-text'}`} title={`v6.0: ${Math.round(baseline)}`}>
+      <Icon size={11} /> {Math.abs(delta)} عن v6.0
+    </span>
+  );
+}
+
+function PersonCard({ person, rank, baseline }: { person: LabPersonScore; rank: number | null; baseline?: number | null }) {
   const [open, setOpen] = useState(false);
   const readiness = READINESS[person.readiness];
   return (
@@ -93,6 +109,7 @@ function PersonCard({ person, rank }: { person: LabPersonScore; rank: number | n
             <span className="dawaa-theme-muted text-xs font-bold">{person.branch || '—'}</span>
             <span className={`rounded-full border px-2 py-0.5 text-[11px] font-black ${readiness.className}`}>{readiness.label}</span>
             <CoverageBar coverage={person.coverage} />
+            <BaselineDelta total={person.total} baseline={baseline} />
           </div>
         </div>
         {open ? <ChevronUp size={18} className="dawaa-theme-muted" /> : <ChevronDown size={18} className="dawaa-theme-muted" />}
@@ -102,6 +119,16 @@ function PersonCard({ person, rank }: { person: LabPersonScore; rank: number | n
           <div className="divide-y divide-[var(--dawaa-theme-divider)]">
             {person.axes.map((axis) => <AxisRow key={axis.key} axis={axis} />)}
           </div>
+          {person.adjustments.length ? (
+            <div className="dawaa-status-danger-bg dawaa-status-danger-border mt-3 space-y-1 rounded-xl border p-3">
+              {person.adjustments.map((adjustment) => (
+                <div key={adjustment.label} className="dawaa-status-danger-text flex items-center gap-2 text-xs font-black">
+                  <MinusCircle size={14} /> {adjustment.label}: {adjustment.points} درجة · {adjustment.reason}
+                  <span className="dawaa-theme-muted font-bold">(قبل الخصم {Math.round(person.baseTotal as number)})</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
           {person.team?.length ? (
             <div className="mt-3 rounded-xl bg-[var(--dawaa-theme-bg-soft)] p-3">
               <div className="mb-2 flex items-center gap-2 text-xs font-black text-[var(--dawaa-theme-heading)]"><Users size={14} /> الفريق الذي يدخل في التقييم</div>
@@ -120,6 +147,12 @@ function PersonCard({ person, rank }: { person: LabPersonScore; rank: number | n
   );
 }
 
+const DORMANT_LABELS: Array<[string, string]> = [
+  ['followups', 'متابعة العملاء'],
+  ['assistant_checklist', 'قائمة مهام المساعدين'],
+  ['delivery_ratings', 'تقييم التوصيل'],
+];
+
 function SourceStrip({ evidence }: { evidence: LabEvidence }) {
   const sources = [
     { label: 'فواتير مرتبطة بموظف', count: evidence.invoices.filter((i) => i.staffId).length },
@@ -136,11 +169,11 @@ function SourceStrip({ evidence }: { evidence: LabEvidence }) {
           <Database size={12} className="dawaa-theme-muted" /> {source.label}: {source.count === null ? 'غير متاح' : source.count.toLocaleString('ar-EG')}
         </span>
       ))}
-      {evidence.dormantSources.includes('followups') && (
-        <span className="dawaa-status-warning-text dawaa-status-warning-bg dawaa-status-warning-border flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-black">
-          <AlertTriangle size={12} /> متابعة العملاء: لا توجد بيانات في الدورة (لا تُحسب صفرًا)
+      {DORMANT_LABELS.filter(([key]) => evidence.dormantSources.includes(key)).map(([key, label]) => (
+        <span key={key} className="dawaa-status-warning-text dawaa-status-warning-bg dawaa-status-warning-border flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-black">
+          <AlertTriangle size={12} /> {label}: لا توجد بيانات في الدورة (لا تُحسب صفرًا)
         </span>
-      )}
+      ))}
     </div>
   );
 }
@@ -155,7 +188,8 @@ export default function EvaluationLab() {
     queryKey: ['evaluation-lab-v6', cycle.start, cycle.endExclusive],
     queryFn: async () => {
       const evidence = await loadCycleEvidence(cycle);
-      return { evidence, scores: buildCycleScores(evidence) };
+      const baseline = new Map(buildCycleScores(evidence, 'v6.0').map((person) => [person.staffId, person.total]));
+      return { evidence, scores: buildCycleScores(evidence), baseline };
     },
     staleTime: 5 * 60_000,
   });
@@ -177,7 +211,7 @@ export default function EvaluationLab() {
           <div className="flex items-start gap-3">
             <div className="grid h-11 w-11 place-items-center rounded-2xl bg-[var(--dawaa-theme-accent-soft)] text-[var(--dawaa-theme-primary)]"><FlaskConical size={22} /></div>
             <div>
-              <h1 className="text-xl font-black text-[var(--dawaa-theme-heading)]">مختبر التقييم الشهري v6</h1>
+              <h1 className="text-xl font-black text-[var(--dawaa-theme-heading)]">مختبر التقييم الشهري {LAB_CURRENT_VERSION}</h1>
               <p className="dawaa-theme-muted mt-1 text-sm leading-6">
                 تقييم محسوب من البيانات الفعلية للدورة. المحور الذي ليس له بيانات لا يُحسب صفرًا، ويُعاد توزيع وزنه.
               </p>
@@ -239,7 +273,9 @@ export default function EvaluationLab() {
           <div className="space-y-2">
             {visible.length === 0
               ? <div className="dawaa-card dawaa-surface rounded-2xl p-6 text-center text-sm font-bold">لا يوجد موظفون نشطون في هذه الفئة.</div>
-              : visible.map((person, index) => <PersonCard key={person.staffId} person={person} rank={rankable(person) ? index + 1 : null} />)}
+              : visible.map((person, index) => (
+                <PersonCard key={person.staffId} person={person} rank={rankable(person) ? index + 1 : null} baseline={query.data.baseline.get(person.staffId)} />
+              ))}
           </div>
         </>
       )}

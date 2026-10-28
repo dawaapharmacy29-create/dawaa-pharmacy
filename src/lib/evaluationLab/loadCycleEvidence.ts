@@ -87,7 +87,7 @@ export async function loadCycleEvidence(cycle: LabCycle): Promise<LabEvidence> {
   const startAt = cairoDateBoundaryIso(cycle.start);
   const endAt = cairoDateBoundaryIso(cycle.endExclusive);
 
-  const [staffRows, aliasRows, invoiceRows, reviewRows, attendanceRows, requestRows, purchaseRows, targetRows, followupProbe] = await Promise.all([
+  const [staffRows, aliasRows, invoiceRows, reviewRows, attendanceRows, requestRows, purchaseRows, targetRows, followupProbe, checklistProbe, ratingProbe] = await Promise.all([
     pages(() => supabase.from('staff').select('id,name,role,branch,active,is_active') as unknown as PageQuery, 2000, 'staff'),
     pages(() => supabase.from('staff_identity_aliases').select('id,staff_id,normalized_alias,active').eq('active', true) as unknown as PageQuery, 5000, 'aliases'),
     // invoice_date (Cairo boundaries) + (invoice_date, id) order uses the covering dashboard index;
@@ -102,7 +102,7 @@ export async function loadCycleEvidence(cycle: LabCycle): Promise<LabEvidence> {
       .gte('attendance_date', cycle.start).lt('attendance_date', cycle.endExclusive),
       'id,staff_id,attendance_date,resolution_status,first_in,late_minutes,scheduled_start_at,total_hours', 10000, 'attendance', ['staff_id', 'attendance_date']),
     pages(() => supabase.from('customer_requests')
-      .select('id,source_recorded_staff_id,branch,created_at,closed_at')
+      .select('id,source_recorded_staff_id,branch,created_at,closed_at,status')
       .gte('created_at', startAt).lt('created_at', endAt) as unknown as PageQuery, 10000, 'customer_requests'),
     // Client sessions may not read this table; its axis then reports "not measurable" instead of failing the cycle.
     pages(() => supabase.from('base44_purchase_invoice_sync')
@@ -110,8 +110,13 @@ export async function loadCycleEvidence(cycle: LabCycle): Promise<LabEvidence> {
       .gte('invoice_date', cycle.start).lt('invoice_date', cycle.endExclusive) as unknown as PageQuery, 20000, 'purchases').catch(() => null),
     pages(() => supabase.from('branch_sales_targets').select('id,branch_name,target_amount,active').eq('active', true) as unknown as PageQuery, 100, 'targets'),
     supabase.from('daily_followups').select('id', { count: 'exact', head: true }).gte('created_at', startAt).lt('created_at', endAt),
+    // Activity probes: a source with no rows in the cycle is dormant (its axis is not measurable, never 0).
+    supabase.from('staff_daily_checklist_submissions').select('id', { count: 'exact', head: true }).gte('submission_date', cycle.start).lt('submission_date', cycle.endExclusive),
+    supabase.from('ratings').select('id', { count: 'exact', head: true }).gte('created_at', startAt).lt('created_at', endAt),
   ]);
-  if (followupProbe.error) throw new Error(`followups: ${followupProbe.error.message}`);
+  for (const [label, probe] of [['followups', followupProbe], ['assistant_checklist', checklistProbe], ['delivery_ratings', ratingProbe]] as const) {
+    if (probe.error) throw new Error(`${label}: ${probe.error.message}`);
+  }
 
   const staff = staffRows
     .filter((row) => row.active !== false && row.is_active !== false)
@@ -160,9 +165,14 @@ export async function loadCycleEvidence(cycle: LabCycle): Promise<LabEvidence> {
       branch: text(row.branch) || null,
       createdAt: text(row.created_at),
       closedAt: text(row.closed_at) || null,
+      status: text(row.status) || null,
     })),
     purchases: purchaseRows ? purchaseRows.map((row) => ({ enteredByStaffId: text(row.entered_by_staff_id) || null })) : null,
     targets: targetRows.map((row) => ({ branch: text(row.branch_name), targetAmount: num(row.target_amount) })),
-    dormantSources: (followupProbe.count ?? 0) === 0 ? ['followups'] : [],
+    dormantSources: [
+      ...((followupProbe.count ?? 0) === 0 ? ['followups'] : []),
+      ...((checklistProbe.count ?? 0) === 0 ? ['assistant_checklist'] : []),
+      ...((ratingProbe.count ?? 0) === 0 ? ['delivery_ratings'] : []),
+    ],
   };
 }

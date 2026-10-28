@@ -4,6 +4,10 @@ import type { CanonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 
 export type LabFamily = 'doctor' | 'assistant' | 'delivery' | 'branch_manager' | 'branches_manager';
 
+/** v6.0 is kept so the lab can show what each change moved; v6.1 is the proposal under review. */
+export type LabVersion = 'v6.0' | 'v6.1';
+export const LAB_CURRENT_VERSION: LabVersion = 'v6.1';
+
 export type LabAxisKey =
   | 'sales_per_day'
   | 'coding_quality'
@@ -12,18 +16,23 @@ export type LabAxisKey =
   | 'customer_requests'
   | 'followups'
   | 'purchase_entry'
+  | 'assistant_checklist'
   | 'deliveries_per_day'
+  | 'delivery_rating'
   | 'branch_target'
   | 'team_discipline'
   | 'team_conversations'
+  | 'team_quality'
+  | 'team_followup'
   | 'branch_coding'
   | 'requests_closure'
+  | 'decision_backlog'
   | 'branch_managers';
 
 export interface LabAxisDefinition {
   key: LabAxisKey;
   label: string;
-  /** 0 for informational axes whose source is dormant (shown, never weighted). */
+  /** 0 = shown for information (dormant source, gate, or ownership not agreed), never weighted. */
   weight: number;
 }
 
@@ -35,7 +44,7 @@ export const LAB_FAMILY_LABELS: Record<LabFamily, string> = {
   branches_manager: 'مدير الفروع',
 };
 
-export const LAB_AXES: Record<LabFamily, LabAxisDefinition[]> = {
+const V60: Record<LabFamily, LabAxisDefinition[]> = {
   doctor: [
     { key: 'sales_per_day', label: 'نصيب المبيعات في أيام العمل', weight: 30 },
     { key: 'discipline', label: 'الانضباط', weight: 25 },
@@ -68,6 +77,47 @@ export const LAB_AXES: Record<LabFamily, LabAxisDefinition[]> = {
   ],
 };
 
+// v6.1 (owner review 2026-10-28): saturated rates become gates, counts only valid records,
+// fair share for couriers, branch-manager follow-up of the team's missing punches.
+const V61: Record<LabFamily, LabAxisDefinition[]> = {
+  doctor: [
+    { key: 'sales_per_day', label: 'نصيب المبيعات في أيام العمل', weight: 30 },
+    { key: 'discipline', label: 'الانضباط والبصمات', weight: 25 },
+    { key: 'conversation_quality', label: 'جودة المحادثات', weight: 20 },
+    { key: 'customer_requests', label: 'طلبات العملاء الصالحة', weight: 15 },
+    { key: 'coding_quality', label: 'تكويد الفواتير (حد أدنى)', weight: 0 },
+    { key: 'followups', label: 'متابعة العملاء', weight: 0 },
+  ],
+  assistant: [
+    { key: 'discipline', label: 'الانضباط والبصمات', weight: 40 },
+    { key: 'assistant_checklist', label: 'قائمة المهام اليومية', weight: 35 },
+    { key: 'purchase_entry', label: 'إدخال فواتير المشتريات', weight: 25 },
+  ],
+  delivery: [
+    { key: 'discipline', label: 'الانضباط والبصمات', weight: 40 },
+    { key: 'deliveries_per_day', label: 'نصيب التوصيلات في أيام العمل', weight: 45 },
+    { key: 'delivery_rating', label: 'تقييم العملاء للتوصيل', weight: 15 },
+  ],
+  branch_manager: [
+    { key: 'branch_target', label: 'تحقيق تارجت الفرع', weight: 30 },
+    { key: 'requests_closure', label: 'تنفيذ وإغلاق طلبات العملاء', weight: 25 },
+    { key: 'team_discipline', label: 'انضباط الفريق', weight: 15 },
+    { key: 'team_followup', label: 'متابعة بصمات الفريق', weight: 15 },
+    { key: 'team_quality', label: 'جودة الفريق (محادثات وتكويد)', weight: 15 },
+    { key: 'decision_backlog', label: 'قرارات حضور معلّقة في الفرع', weight: 0 },
+  ],
+  branches_manager: [
+    { key: 'branch_target', label: 'تحقيق تارجت الفرعين', weight: 35 },
+    { key: 'branch_managers', label: 'أداء مديري الفروع', weight: 25 },
+    { key: 'requests_closure', label: 'تنفيذ وإغلاق طلبات العملاء', weight: 25 },
+    { key: 'team_discipline', label: 'انضباط الفرق', weight: 15 },
+    { key: 'decision_backlog', label: 'قرارات حضور معلّقة', weight: 0 },
+  ],
+};
+
+export const LAB_AXES_BY_VERSION: Record<LabVersion, Record<LabFamily, LabAxisDefinition[]>> = { 'v6.0': V60, 'v6.1': V61 };
+export const LAB_AXES = LAB_AXES_BY_VERSION[LAB_CURRENT_VERSION];
+
 export function labFamilyOf(role: CanonicalStaffRole): LabFamily | null {
   if (role === 'doctor' || role === 'assistant' || role === 'delivery' || role === 'branch_manager' || role === 'branches_manager') return role;
   return null;
@@ -83,13 +133,25 @@ export const LAB_THRESHOLDS = {
   reviewShrinkK: 5,
   readyCoverage: 0.7,
   partialCoverage: 0.4,
-  /** Fair share of branch sales: 0.4 → 0, 1.0 → 50, 1.6 → 100. */
+  /** Fair share of branch sales (and deliveries): 0.4 → 0, 1.0 → 50, 1.6 → 100. */
   fairShareFloor: 0.4,
   fairShareCeiling: 1.6,
+  /** Coding gate (v6.1): no credit above the floor, 2 points off per point below it, at most 10. */
+  codingGateFloor: 0.95,
+  codingGatePointsPerPercent: 2,
+  codingGateMaxPenalty: 10,
+  /** Team follow-up of missing punches (v6.1): 85% corrected → 0, 100% → 100. */
+  followupFloor: 0.85,
 } as const;
 
 /** Attendance statuses that are still waiting for a decision: shown, never scored. */
 export const UNRESOLVED_ATTENDANCE = /^(.*_review|missing_checkin|missing_checkout|invalid_schedule_time)$/;
+/** v6.1: a punch the employee never corrected is the employee's own miss (zero credit that day). */
+export const MISSING_PUNCH = /^(missing_checkin|missing_checkout)$/;
+/** Days waiting for a manager/administration decision. */
+export const PENDING_DECISION = /^(.*_review|invalid_schedule_time)$/;
+/** Customer requests that do not count for the recording employee. */
+export const INVALID_REQUEST_STATUS = /^(cancelled|canceled|duplicate|rejected)$/;
 /** Approved absence with a deduction: a real missed shift, zero punctuality credit. */
 export const ABSENCE_WITH_DEDUCTION = /absence_deduction/;
 /**

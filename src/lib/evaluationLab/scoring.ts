@@ -1,4 +1,4 @@
-import { LAB_AXES, LAB_THRESHOLDS, type LabAxisKey, type LabFamily } from './catalog';
+import { LAB_AXES_BY_VERSION, LAB_CURRENT_VERSION, LAB_THRESHOLDS, type LabAxisKey, type LabFamily, type LabVersion } from './catalog';
 
 // Pure scoring of the Evaluation Lab. No I/O: every input is an explicit, already-loaded value.
 
@@ -21,8 +21,18 @@ export interface AxisResult {
 
 export type Readiness = 'ready' | 'partial' | 'insufficient';
 
+/** A gate that removes points from the weighted total (e.g. coding below its floor). */
+export interface LabAdjustment {
+  label: string;
+  points: number;
+  reason: string;
+}
+
 export interface LabScore {
   total: number | null;
+  /** Weighted total before adjustments. */
+  baseTotal: number | null;
+  adjustments: LabAdjustment[];
   coverage: number;
   readiness: Readiness;
   axes: AxisResult[];
@@ -72,6 +82,13 @@ export function closureScore(closedShare: number, medianHoursToClose: number | n
   return clamp100(100 * closedShare - delay);
 }
 
+/** Coding gate: 0 at or above the floor, otherwise minus N points per percentage point, capped. */
+export function codingGatePenalty(rate: number): number {
+  const gap = (LAB_THRESHOLDS.codingGateFloor - rate) * 100;
+  if (gap <= 0) return 0;
+  return -Math.min(LAB_THRESHOLDS.codingGateMaxPenalty, Math.round(gap * LAB_THRESHOLDS.codingGatePointsPerPercent * 10) / 10);
+}
+
 /** Target achievement (fraction), capped at 120% → 100. */
 export function targetScore(achievement: number): number {
   return clamp100((Math.min(1.2, Math.max(0, achievement)) / 1.2) * 100);
@@ -86,9 +103,14 @@ export function notMeasurable(key: LabAxisKey, reason: string, basis = ''): Omit
 }
 
 /** Weighted total over measured axes only; coverage and readiness from the weights. */
-export function aggregate(family: LabFamily, results: ReadonlyArray<Omit<AxisResult, 'label' | 'weight'>>): LabScore {
+export function aggregate(
+  family: LabFamily,
+  results: ReadonlyArray<Omit<AxisResult, 'label' | 'weight'>>,
+  options: { version?: LabVersion; adjustments?: LabAdjustment[] } = {},
+): LabScore {
   const byKey = new Map(results.map((result) => [result.key, result]));
-  const axes: AxisResult[] = LAB_AXES[family].map((definition) => {
+  const adjustments = (options.adjustments || []).filter((adjustment) => adjustment.points !== 0);
+  const axes: AxisResult[] = LAB_AXES_BY_VERSION[options.version || LAB_CURRENT_VERSION][family].map((definition) => {
     const result = byKey.get(definition.key) ?? notMeasurable(definition.key, 'لا يوجد مصدر بيانات لهذا المحور');
     return { ...result, label: definition.label, weight: definition.weight };
   });
@@ -96,10 +118,13 @@ export function aggregate(family: LabFamily, results: ReadonlyArray<Omit<AxisRes
   const measuredAxes = axes.filter((axis) => axis.status === 'measured' && axis.weight > 0);
   const measuredWeight = measuredAxes.reduce((sum, axis) => sum + axis.weight, 0);
   const coverage = totalWeight ? measuredWeight / totalWeight : 0;
-  const total = measuredWeight
+  const baseTotal = measuredWeight
     ? Math.round((measuredAxes.reduce((sum, axis) => sum + axis.weight * (axis.score as number), 0) / measuredWeight) * 10) / 10
     : null;
+  const total = baseTotal === null
+    ? null
+    : Math.round(clamp100(baseTotal + adjustments.reduce((sum, adjustment) => sum + adjustment.points, 0)) * 10) / 10;
   const readiness: Readiness =
     coverage >= LAB_THRESHOLDS.readyCoverage ? 'ready' : coverage >= LAB_THRESHOLDS.partialCoverage ? 'partial' : 'insufficient';
-  return { total, coverage, readiness, axes };
+  return { total, baseTotal, adjustments, coverage, readiness, axes };
 }
