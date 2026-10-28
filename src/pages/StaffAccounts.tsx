@@ -97,7 +97,8 @@ export default function StaffAccountsSecureAdmin() {
   const { user, checkPermission } = useAuth();
   const queryClient = useQueryClient();
   const currentUserId = getSafeCurrentUserId();
-  const canEdit = canManageStaffAccounts(user?.role, checkPermission);
+  // Canonical permission first; top-management roles mirror dawaa_can_manage_staff_accounts_strict.
+  const canEdit = checkPermission('manage_staff_accounts') || canManageStaffAccounts(user?.role, checkPermission);
   const canView = checkPermission('view_staff_accounts') || canEdit;
   // أمان: أي مدير — حتى لو عنده صلاحية "manage_staff_accounts" — لا يقدر يمنح دورًا أعلى من دوره
   // (رقم مستوى أقل = أرفع)، ولا يفتح حساب موظف أرفع منه أصلًا (زي المدير العام).
