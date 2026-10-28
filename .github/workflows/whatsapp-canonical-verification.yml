@@ -66,6 +66,10 @@ jobs:
         env:
           DAWAA_NATIVE_PG_CONTAINER: dawaa-mb-verify-pg
         run: npm run test:db:close-unauthenticated-writes:native
+      - name: Attendance summary read scope evaluated once (same visible rows)
+        env:
+          DAWAA_NATIVE_PG_CONTAINER: dawaa-mb-verify-pg
+        run: npm run test:db:attendance-summary-rls:native
       - name: Financial approval and lifecycle concurrency scenarios
         run: npm run test:db:master-brain:native
       - name: Remove disposable database
