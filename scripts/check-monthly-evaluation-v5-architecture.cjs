@@ -90,7 +90,7 @@ if (!page.includes('expected_updated_at: evaluationUpdatedAt')) failures.push('E
 if (!page.includes('setEvaluationUpdatedAt(String(canonicalSaved.updated_at')) failures.push('Evaluation page must refresh the canonical row version after save.');
 if (!page.includes('pointsForSave = await getStaffPointsDashboardV3(savingStaffId, cycleLabel)')) failures.push('Final approval must refresh canonical points truth immediately before save.');
 if (!page.includes('points_truth: pointsForSave ?')) failures.push('Final approval snapshot must use the freshly loaded points truth.');
-if (!page.includes('Date.now() - evidenceLoadedAt > 5 * 60_000')) failures.push('Final approval must reject stale client evidence state.');
+if (!page.includes('const APPROVAL_EVIDENCE_MAX_AGE_MS = 60 * 60_000') || !page.includes('Date.now() - evidenceLoadedAt > APPROVAL_EVIDENCE_MAX_AGE_MS')) failures.push('Final approval must reject client evidence older than one hour.');
 if (!page.includes('Promise.resolve({ value: cachedEvidence.value, loadedAt: cachedEvidence.at })')) failures.push('Evidence cache hits must preserve the original freshness timestamp.');
 if (!page.includes('setEvidenceLoadedAt(evidenceEnvelope.loadedAt)')) failures.push('Approval freshness must use the actual evidence load timestamp, not revisit time.');
 if (!page.includes('const approvalTimeIncentive = publishedPointsTruth?.final_incentive_egp')) failures.push('Published evaluation view must preserve approval-time incentive truth separately from settlement.');
