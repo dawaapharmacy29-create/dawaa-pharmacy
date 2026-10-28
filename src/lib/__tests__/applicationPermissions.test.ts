@@ -3,6 +3,8 @@ import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import {
   ROLES,
+  canManageBranchTargets,
+  canManageStaffAccounts,
   getRoleLandingPath,
   getRoutePermissions,
   hasPermission,
@@ -40,5 +42,35 @@ describe('application consolidation — permission alignment', () => {
         .toEqual({ role: key, landing, allowed: true });
     }
     expect(getRoleLandingPath('customer_service')).toBe('/customer-service');
+  });
+
+  it('branch manager runs one branch: no account admin, system health, audit log or procurement', () => {
+    const opens = (path: string) => (getRoutePermissions(path) || []).some((p) => hasPermission('branch_manager', p));
+    for (const path of ['/staff-accounts', '/staff-duplicate-audit', '/data-health', '/activity-log', '/purchases',
+      '/purchase-returns', '/purchase-cycle-report', '/supplier-accounts', '/supplier-performance', '/purchase-order-log']) {
+      expect({ path, open: opens(path) }).toEqual({ path, open: false });
+    }
+    for (const path of ['/', '/team', '/schedule', '/attendance', '/customers', '/customer-requests', '/reviews',
+      '/shift-performance', '/staff-monthly-evaluation', '/daily-manager-checklist', '/points', '/stagnant-medicines',
+      '/shortages', '/inventory-counts', '/delivery', '/shift-handovers']) {
+      expect({ path, open: opens(path) }).toEqual({ path, open: true });
+    }
+    // Procurement keeps its pages and shift handovers.
+    expect(['/purchases', '/shift-handovers'].every((path) =>
+      (getRoutePermissions(path) || []).some((p) => hasPermission('procurement_manager', p)))).toBe(true);
+  });
+
+  it('branch targets and account edits follow the database authority (top management only)', () => {
+    const none = () => false;
+    for (const role of ['general_manager', 'executive_manager', 'branches_manager']) {
+      expect(canManageBranchTargets(role, none)).toBe(true);
+      expect(canManageStaffAccounts(role, none)).toBe(true);
+    }
+    for (const role of ['branch_manager', 'customer_service_manager', 'pharmacist']) {
+      expect(canManageBranchTargets(role, none)).toBe(false);
+      expect(canManageStaffAccounts(role, none)).toBe(false);
+    }
+    expect(read('supabase/migrations/20261028160000_branch_targets_top_management_only_v1.sql'))
+      .toContain("if v_role in ('general_manager','executive_manager','branches_manager') then return true;");
   });
 });

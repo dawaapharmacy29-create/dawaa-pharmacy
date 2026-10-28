@@ -8,7 +8,7 @@ import { useStaffDirectory } from '@/hooks/useStaffDirectory';
 import { useAuth, getSafeCurrentUserId } from '@/hooks/useAuth';
 import { listStaffAccountsSafe, type SafeStaffAccountRow } from '@/lib/staff/staffAccountsApi';
 import { BRANCHES } from '@/lib/constants';
-import { ROLES, getRoleLabel, getRoleLevel, normalizeRole, type RoleKey } from '@/lib/core/permissionSystem';
+import { ROLES, canManageStaffAccounts, getRoleLabel, getRoleLevel, normalizeRole, type RoleKey } from '@/lib/core/permissionSystem';
 import { logActivity } from '@/lib/activityLog';
 
 interface StaffRow {
@@ -94,11 +94,11 @@ function friendlyError(error: unknown) {
 }
 
 export default function StaffAccountsSecureAdmin() {
-  const { user, canManage, checkPermission } = useAuth();
+  const { user, checkPermission } = useAuth();
   const queryClient = useQueryClient();
   const currentUserId = getSafeCurrentUserId();
-  const canView = checkPermission('view_staff_accounts') || canManage;
-  const canEdit = checkPermission('manage_staff_accounts') || canManage;
+  const canEdit = canManageStaffAccounts(user?.role, checkPermission);
+  const canView = checkPermission('view_staff_accounts') || canEdit;
   // أمان: أي مدير — حتى لو عنده صلاحية "manage_staff_accounts" — لا يقدر يمنح دورًا أعلى من دوره
   // (رقم مستوى أقل = أرفع)، ولا يفتح حساب موظف أرفع منه أصلًا (زي المدير العام).
   const actorRoleLevel = getRoleLevel(user?.role);

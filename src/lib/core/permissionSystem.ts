@@ -150,6 +150,20 @@ export function isPrivilegedRole(role?: string | null): boolean {
   return getRoleLevel(role) <= 4; // general_manager, executive_manager, branches_manager, procurement_manager
 }
 
+// Mirrors dawaa_can_manage_branch_targets in the database. Branch targets drive the branch
+// manager's own evaluation and incentives, so they are set by top management only.
+export function canManageBranchTargets(role: unknown, checkPermission: (permission: string) => boolean): boolean {
+  return ['general_manager', 'executive_manager', 'branches_manager'].includes(normalizeRole(role))
+    || checkPermission('manage_settings');
+}
+
+// Mirrors dawaa_can_manage_staff_accounts_strict: account edits are top management only, so the
+// buttons are not offered to roles whose writes the database would reject.
+export function canManageStaffAccounts(role: unknown, checkPermission: (permission: string) => boolean): boolean {
+  return ['general_manager', 'executive_manager', 'branches_manager'].includes(normalizeRole(role))
+    || checkPermission('manage_staff_accounts');
+}
+
 export function isBranchManagerRole(role?: string | null): boolean {
   const level = getRoleLevel(role);
   return level >= 3 && level <= 7; // branches_manager down to shift_supervisors
@@ -615,15 +629,10 @@ const BRANCH_MANAGER_BASE = [
   'view_invoices',
   'view_operations',
   'view_supplies',
-  'view_purchases',
   'view_incentives',
   'view_quarterly_incentives',
   'view_penalty_management',
-  'view_activity_log',
-  'view_activity_logs',
-  'view_staff_accounts',
   'view_settings',
-  'view_data_health',
 ];
 
 const CS_MANAGER_BASE = [
@@ -1018,7 +1027,7 @@ export const ROUTE_PERMISSION_MAP: Record<string, string | string[]> = {
   '/purchase-cycle-report': 'view_purchases',
   '/supplier-accounts': 'view_purchases',
   '/purchase-order-log': 'view_purchases',
-  '/shift-handovers': 'view_purchases',
+  '/shift-handovers': ['view_purchases', 'manage_schedule'],
   '/staff-payroll': 'manage_payroll',
   '/incentive-governance': 'manage_incentives',
   '/payroll': 'view_salary_calculator',
