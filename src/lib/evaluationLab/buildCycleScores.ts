@@ -1,8 +1,8 @@
 import { normalizeBranchName } from '@/lib/branch';
-import { LAB_THRESHOLDS, ON_TIME_ATTENDANCE, UNRESOLVED_ATTENDANCE, labFamilyOf, type LabFamily } from './catalog';
+import { ABSENCE_WITH_DEDUCTION, LAB_THRESHOLDS, NON_PUNCTUALITY_ATTENDANCE, PUNCTUALITY_BANDS, UNRESOLVED_ATTENDANCE, labFamilyOf, type LabFamily } from './catalog';
 import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 import {
-  aggregate, closureScore, deviationScore, disciplineScore, measured, median, notMeasurable,
+  aggregate, bandScore, closureScore, deviationScore, disciplineScore, measured, median, notMeasurable,
   percentileAmong, shrunkMean, targetScore, type AxisResult, type LabScore,
 } from './scoring';
 
@@ -13,9 +13,10 @@ export interface LabEvidence {
   invoices: Array<{ staffId: string | null; net: number; coded: boolean; branch: string | null; deliveryStaffId: string | null }>;
   /** Official conversation reviews only (0..100). */
   reviews: Array<{ staffId: string; score: number }>;
-  attendance: Array<{ staffId: string; date: string; status: string | null; hasFirstIn: boolean; lateMinutes: number }>;
+  attendance: Array<{ staffId: string; date: string; status: string | null; hasFirstIn: boolean; scheduled: boolean; lateMinutes: number }>;
   requests: Array<{ recordedStaffId: string | null; branch: string | null; createdAt: string; closedAt: string | null }>;
-  purchases: Array<{ enteredByStaffId: string | null }>;
+  /** null when the source cannot be read by this session (its axis becomes not measurable). */
+  purchases: Array<{ enteredByStaffId: string | null }> | null;
   targets: Array<{ branch: string; targetAmount: number }>;
   /** Sources with no rows in the cycle (e.g. follow-ups): shown as dormant. */
   dormantSources: string[];
@@ -38,6 +39,7 @@ interface PersonFacts {
   workedDays: number;
   resolvedDays: number;
   onTimeDays: number;
+  halfDays: number;
   lateMinutes: number;
   unresolvedDays: number;
   invoices: number;
@@ -54,7 +56,7 @@ function factsFor(evidence: LabEvidence): Map<string, PersonFacts> {
   const get = (id: string) => {
     let row = facts.get(id);
     if (!row) {
-      row = { workedDays: 0, resolvedDays: 0, onTimeDays: 0, lateMinutes: 0, unresolvedDays: 0, invoices: 0, coded: 0, net: 0, reviews: [], requests: 0, purchases: 0, deliveries: 0 };
+      row = { workedDays: 0, resolvedDays: 0, onTimeDays: 0, halfDays: 0, lateMinutes: 0, unresolvedDays: 0, invoices: 0, coded: 0, net: 0, reviews: [], requests: 0, purchases: 0, deliveries: 0 };
       facts.set(id, row);
     }
     return row;
@@ -68,10 +70,13 @@ function factsFor(evidence: LabEvidence): Map<string, PersonFacts> {
       if (day.hasFirstIn || status) row.unresolvedDays += 1;
       continue;
     }
-    if (status === 'off_day' || status === 'approved_time_off') continue;
+    if (ABSENCE_WITH_DEDUCTION.test(status)) { row.resolvedDays += 1; continue; }
+    if (NON_PUNCTUALITY_ATTENDANCE.test(status) || !day.scheduled || !day.hasFirstIn) continue;
     row.resolvedDays += 1;
-    if (ON_TIME_ATTENDANCE.has(status)) row.onTimeDays += 1;
-    row.lateMinutes += Math.max(0, day.lateMinutes || 0);
+    const late = Math.max(0, day.lateMinutes || 0);
+    row.lateMinutes += late;
+    if (late <= PUNCTUALITY_BANDS.graceMinutes) row.onTimeDays += 1;
+    else if (late <= PUNCTUALITY_BANDS.halfCreditMinutes) row.halfDays += 1;
   }
   for (const invoice of evidence.invoices) {
     if (invoice.staffId) {
@@ -84,7 +89,7 @@ function factsFor(evidence: LabEvidence): Map<string, PersonFacts> {
   }
   for (const review of evidence.reviews) get(review.staffId).reviews.push(review.score);
   for (const request of evidence.requests) if (request.recordedStaffId) get(request.recordedStaffId).requests += 1;
-  for (const purchase of evidence.purchases) if (purchase.enteredByStaffId) get(purchase.enteredByStaffId).purchases += 1;
+  for (const purchase of evidence.purchases || []) if (purchase.enteredByStaffId) get(purchase.enteredByStaffId).purchases += 1;
   return facts;
 }
 
@@ -94,10 +99,11 @@ function disciplineAxis(f: PersonFacts): AxisDraft {
   if (f.resolvedDays < LAB_THRESHOLDS.minResolvedDays) {
     return notMeasurable('discipline', `${f.resolvedDays} يوم محسوم فقط (الحد ${LAB_THRESHOLDS.minResolvedDays})`, `${f.unresolvedDays} يوم ينتظر المراجعة`);
   }
-  const onTime = f.onTimeDays / f.resolvedDays;
+  const credit = (f.onTimeDays + f.halfDays / 2) / f.resolvedDays;
   const late = f.lateMinutes / f.resolvedDays;
-  return measured('discipline', round(onTime * 100), disciplineScore(onTime, late),
-    `${f.onTimeDays}/${f.resolvedDays} يوم في الموعد · تأخير ${round(late)} د/يوم · ${f.unresolvedDays} يوم بانتظار المراجعة`);
+  const beyond = f.resolvedDays - f.onTimeDays - f.halfDays;
+  return measured('discipline', round(credit * 100), disciplineScore(credit),
+    `${f.onTimeDays} يوم ≤${PUNCTUALITY_BANDS.graceMinutes}د · ${f.halfDays} يوم حتى ${PUNCTUALITY_BANDS.halfCreditMinutes}د · ${beyond} يوم أكثر · متوسط ${round(late)} د/يوم · ${f.unresolvedDays} يوم بانتظار المراجعة`);
 }
 
 /** Percentile axis over a per-worked-day rate among the family's measurable members. */
@@ -149,7 +155,7 @@ export function buildCycleScores(evidence: LabEvidence): LabPersonScore[] {
     push(id, disciplineAxis(f));
     push(id, f.invoices < LAB_THRESHOLDS.minInvoicesForCoding || doctorRateMedian === null
       ? notMeasurable('coding_quality', `${f.invoices} فاتورة فقط (الحد ${LAB_THRESHOLDS.minInvoicesForCoding})`)
-      : measured('coding_quality', round((f.coded / f.invoices) * 100), deviationScore(f.coded / f.invoices, doctorRateMedian),
+      : measured('coding_quality', round((f.coded / f.invoices) * 100), bandScore(f.coded / f.invoices, 0.9, 1),
         `${f.coded}/${f.invoices} مكوّدة · وسيط الزملاء ${round(doctorRateMedian * 100)}٪`));
     const s = shrunk.get(id);
     const pct = s === undefined ? null : percentileAmong(s, shrunkPeers);
@@ -157,13 +163,17 @@ export function buildCycleScores(evidence: LabEvidence): LabPersonScore[] {
       ? notMeasurable('conversation_quality', `${f.reviews.length} مراجعة رسمية فقط (الحد ${LAB_THRESHOLDS.minOfficialReviews})`)
       : pct === null
         ? notMeasurable('conversation_quality', 'زملاء قابلون للمقارنة غير كافين', `${round(s)}/100`)
-        : measured('conversation_quality', round(s), pct, `${f.reviews.length} مراجعة · متوسط معدّل ${round(s)}/100 · ترتيب ${round(pct)}٪`));
+        : measured('conversation_quality', round(s), bandScore(s, 90, 100), `${f.reviews.length} مراجعة · متوسط معدّل ${round(s)}/100 · ترتيب ${round(pct)}٪ بين الزملاء`));
     if (evidence.dormantSources.includes('followups')) push(id, notMeasurable('followups', 'لا توجد متابعات مسجلة في هذه الدورة (المصدر متوقف)'));
   }
 
   // Assistants and delivery.
   const assistants = familyMembers('assistant');
-  rateAxis('purchase_entry', assistants, (f) => f.purchases, 'فاتورة/يوم').forEach((axis, id) => push(id, axis));
+  if (evidence.purchases === null) {
+    for (const { id } of assistants) push(id, notMeasurable('purchase_entry', 'فواتير المشتريات غير متاحة للقراءة من هذه الجلسة'));
+  } else {
+    rateAxis('purchase_entry', assistants, (f) => f.purchases, 'فاتورة/يوم').forEach((axis, id) => push(id, axis));
+  }
   rateAxis('customer_requests', assistants, (f) => f.requests, 'طلب/يوم').forEach((axis, id) => push(id, axis));
   for (const { id, f } of assistants) push(id, disciplineAxis(f));
   const couriers = familyMembers('delivery');
@@ -215,7 +225,7 @@ export function buildCycleScores(evidence: LabEvidence): LabPersonScore[] {
       const rate = b.invoices.length ? b.invoices.filter((inv) => inv.coded).length / b.invoices.length : null;
       out.push(rate === null || branchRateMedian === null
         ? notMeasurable('branch_coding', 'لا توجد فواتير للفرع')
-        : measured('branch_coding', round(rate * 100), deviationScore(rate, branchRateMedian), `${round(rate * 100)}٪ · وسيط الفروع ${round(branchRateMedian * 100)}٪`));
+        : measured('branch_coding', round(rate * 100), bandScore(rate, 0.9, 1), `${round(rate * 100)}٪ · وسيط الفروع ${round(branchRateMedian * 100)}٪`));
     }
     return out;
   };

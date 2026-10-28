@@ -82,3 +82,24 @@ managers) 25 · requests_closure 25.
 2. Move the computation to one server read projection (`evaluation_cycle_scores_v6`) with parity
    tests against the lab; v5 manual sections become the bounded manager adjustment (≤15%).
 3. Replace dormant task generators with an exception agenda that closes from data.
+
+## 6. Calibration after the first real-data trial (cycle 2026-09-26 → 2026-10-25)
+
+| Finding | Change |
+|---|---|
+| 60+ attendance resolution statuses; most manager approvals carry real late minutes, so status-name matching scored approved on-time days as late | Discipline = mean per-day credit from `late_minutes` on resolved **scheduled** days: ≤15 min 1, ≤60 min 0.5, beyond 0; approved absence with deduction 0; no-schedule/flexible/leave/ended days excluded |
+| Unresolved pattern matched resolved approvals containing "absence" | Unresolved = `*_review`, `missing_checkin/checkout`, `invalid_schedule_time` only |
+| Review averages ≈96–99: percentile turned 96.8 vs 99.1 into 9 vs 100 | Conversation quality = absolute band 90→0 … 100→100 on the shrunk mean |
+| Coding ≈96–99%: deviation scoring was too steep | Coding = absolute band 90% → 0 … 100% → 100 |
+| An "insufficient" person ranked 4th on 20% coverage | Only ready/partial people are ranked; insufficient listed last, unranked |
+| `base44_purchase_invoice_sync` is not readable by client sessions; accuracy reviews: 0 in the cycle | Purchase entry axis is "not measurable" with its reason; the cycle still computes |
+
+Result: doctors' median 38 → 61; assistants 67; delivery 60; branch managers 67 / 56; branches manager 60.
+
+Open decisions:
+1. Doctors with very few invoices (e.g. 4 in a cycle) get the lowest sales percentile — confirm whether
+   non-selling duties need their own family or an exemption.
+2. Customer requests per worked day rewards volume only; closure belongs to the recording doctor or
+   to the branch?
+3. Conversation quality still discriminates weakly; consider critical-error rate as the main signal.
+4. Loading takes ~20 s client-side (9.4k invoices); production must use one server projection.

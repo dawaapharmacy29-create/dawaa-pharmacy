@@ -4,7 +4,7 @@ import { buildCycleScores, type LabEvidence } from '../buildCycleScores';
 import { closedCycles } from '../loadCycleEvidence';
 
 const days = (staffId: string, n: number, status = 'on_time', late = 0) =>
-  Array.from({ length: n }, (_, i) => ({ staffId, date: `2026-10-${String(i + 1).padStart(2, '0')}`, status, hasFirstIn: true, lateMinutes: late }));
+  Array.from({ length: n }, (_, i) => ({ staffId, date: `2026-10-${String(i + 1).padStart(2, '0')}`, status, hasFirstIn: true, scheduled: true, lateMinutes: late }));
 const invoices = (staffId: string, n: number, net: number, coded = n) =>
   Array.from({ length: n }, (_, i) => ({ staffId, net, coded: i < coded, branch: 'فرع شكري', deliveryStaffId: null }));
 
@@ -53,7 +53,8 @@ describe('evaluation lab scoring primitives', () => {
     expect(deviationScore(0.97, 0.96)).toBeCloseTo(60);
     expect(targetScore(1.2)).toBe(100);
     expect(targetScore(0.6)).toBe(50);
-    expect(disciplineScore(1, 0)).toBe(100);
+    expect(disciplineScore(1)).toBe(100);
+    expect(disciplineScore(0.5)).toBe(50);
   });
 
   it('missing data is never a zero: weights are redistributed and coverage drops', () => {
@@ -83,6 +84,17 @@ describe('buildCycleScores', () => {
     expect(d4.readiness).toBe('insufficient');
     expect(d4.total).toBeNull();
     expect(d4.axes.every((a) => a.score === null || a.weight === 0)).toBe(true);
+  });
+
+  it('punctuality comes from late minutes on scheduled days, not status names', () => {
+    const scoreOf = (attendance: LabEvidence['attendance']) => buildCycleScores(evidence({ attendance: [...evidence().attendance.filter((d) => d.staffId !== 'd1'), ...attendance] }))
+      .find((r) => r.staffId === 'd1')!.axes.find((a) => a.key === 'discipline')!;
+    // A manager-approved day with 0 late minutes is on time; a 30-minute day is half credit; no-schedule days do not count.
+    expect(scoreOf([...days('d1', 10, 'manager_approved_actual_punches', 0), ...days('d1', 10, 'approved_late', 30), ...days('d1', 5, 'no_schedule', 0)]).value).toBe(75);
+    // Approved absence with deduction is a real missed shift.
+    expect(scoreOf([...days('d1', 9, 'on_time'), ...days('d1', 1, 'manager_approved_absence_deduction_x2')]).value).toBe(90);
+    // Unscheduled days carry no punctuality signal.
+    expect(scoreOf(days('d1', 12, 'on_time').map((d) => ({ ...d, scheduled: false }))).status).toBe('not_measurable');
   });
 
   it('unresolved attendance days are excluded from discipline and reported', () => {

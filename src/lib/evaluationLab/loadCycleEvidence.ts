@@ -57,14 +57,15 @@ export async function loadCycleEvidence(cycle: LabCycle): Promise<LabEvidence> {
       .select(['id', 'staff_id', 'doctor_id', ...OFFICIAL_REVIEW_COLUMNS].join(','))
       .gte('conversation_date', startAt).lt('conversation_date', endAt) as unknown as PageQuery, 10000, 'reviews'),
     pages(() => supabase.from('attendance_daily_summary')
-      .select('id,staff_id,attendance_date,resolution_status,first_in,late_minutes')
+      .select('id,staff_id,attendance_date,resolution_status,first_in,late_minutes,scheduled_start_at')
       .gte('attendance_date', cycle.start).lt('attendance_date', cycle.endExclusive) as unknown as PageQuery, 10000, 'attendance'),
     pages(() => supabase.from('customer_requests')
       .select('id,source_recorded_staff_id,branch,created_at,closed_at')
       .gte('created_at', startAt).lt('created_at', endAt) as unknown as PageQuery, 10000, 'customer_requests'),
+    // Client sessions may not read this table; its axis then reports "not measurable" instead of failing the cycle.
     pages(() => supabase.from('base44_purchase_invoice_sync')
       .select('id,entered_by_staff_id,invoice_date')
-      .gte('invoice_date', cycle.start).lt('invoice_date', cycle.endExclusive) as unknown as PageQuery, 20000, 'purchases'),
+      .gte('invoice_date', cycle.start).lt('invoice_date', cycle.endExclusive) as unknown as PageQuery, 20000, 'purchases').catch(() => null),
     pages(() => supabase.from('branch_sales_targets').select('id,branch_name,target_amount,active').eq('active', true) as unknown as PageQuery, 100, 'targets'),
     supabase.from('daily_followups').select('id', { count: 'exact', head: true }).gte('created_at', startAt).lt('created_at', endAt),
   ]);
@@ -107,6 +108,7 @@ export async function loadCycleEvidence(cycle: LabCycle): Promise<LabEvidence> {
       date: text(row.attendance_date),
       status: text(row.resolution_status) || null,
       hasFirstIn: text(row.first_in) !== '',
+      scheduled: text(row.scheduled_start_at) !== '',
       lateMinutes: num(row.late_minutes),
     })),
     requests: requestRows.map((row) => ({
@@ -116,7 +118,7 @@ export async function loadCycleEvidence(cycle: LabCycle): Promise<LabEvidence> {
       createdAt: text(row.created_at),
       closedAt: text(row.closed_at) || null,
     })),
-    purchases: purchaseRows.map((row) => ({ enteredByStaffId: text(row.entered_by_staff_id) || null })),
+    purchases: purchaseRows ? purchaseRows.map((row) => ({ enteredByStaffId: text(row.entered_by_staff_id) || null })) : null,
     targets: targetRows.map((row) => ({ branch: text(row.branch_name), targetAmount: num(row.target_amount) })),
     dormantSources: (followupProbe.count ?? 0) === 0 ? ['followups'] : [],
   };

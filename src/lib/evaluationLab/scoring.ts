@@ -56,9 +56,14 @@ export function deviationScore(rate: number, peerMedian: number): number {
   return clamp100(50 + (rate - peerMedian) * 1000);
 }
 
-/** Discipline from resolved days only. */
-export function disciplineScore(onTimeShare: number, lateMinutesPerDay: number): number {
-  return clamp100(100 * onTimeShare - Math.min(30, lateMinutesPerDay / 2));
+/** Discipline: mean per-day punctuality credit (1, 0.5 or 0) over resolved scheduled days. */
+export function disciplineScore(meanDayCredit: number): number {
+  return clamp100(100 * meanDayCredit);
+}
+
+/** Absolute band: value at `floor` scores 0, at `ceiling` 100 (saturated quality rates). */
+export function bandScore(value: number, floor: number, ceiling: number): number {
+  return clamp100(((value - floor) / (ceiling - floor)) * 100);
 }
 
 /** Request closure: closed share minus a bounded delay penalty. */

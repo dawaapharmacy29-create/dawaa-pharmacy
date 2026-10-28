@@ -79,13 +79,13 @@ function AxisRow({ axis }: { axis: AxisResult }) {
   );
 }
 
-function PersonCard({ person, rank }: { person: LabPersonScore; rank: number }) {
+function PersonCard({ person, rank }: { person: LabPersonScore; rank: number | null }) {
   const [open, setOpen] = useState(false);
   const readiness = READINESS[person.readiness];
   return (
     <div className="dawaa-card dawaa-surface rounded-2xl border border-[var(--dawaa-theme-border)]">
       <button type="button" onClick={() => setOpen((v) => !v)} className="flex w-full items-center gap-3 p-3 text-start sm:p-4" aria-expanded={open}>
-        <span className="dawaa-theme-muted w-6 text-center text-sm font-black">{person.total === null ? '—' : rank}</span>
+        <span className="dawaa-theme-muted w-6 text-center text-sm font-black">{rank ?? "—"}</span>
         <ScoreRing score={person.total} />
         <div className="min-w-0 flex-1">
           <div className="truncate text-base font-black text-[var(--dawaa-theme-heading)]">{person.name}</div>
@@ -126,14 +126,14 @@ function SourceStrip({ evidence }: { evidence: LabEvidence }) {
     { label: 'مراجعات محادثات رسمية', count: evidence.reviews.length },
     { label: 'أيام حضور', count: evidence.attendance.length },
     { label: 'طلبات عملاء', count: evidence.requests.length },
-    { label: 'فواتير مشتريات', count: evidence.purchases.length },
+    { label: 'فواتير مشتريات', count: evidence.purchases ? evidence.purchases.length : null },
     { label: 'توصيلات مرتبطة', count: evidence.invoices.filter((i) => i.deliveryStaffId).length },
   ];
   return (
     <div className="flex flex-wrap gap-2">
       {sources.map((source) => (
         <span key={source.label} className="flex items-center gap-1.5 rounded-full border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] px-3 py-1 text-xs font-bold">
-          <Database size={12} className="dawaa-theme-muted" /> {source.label}: {source.count.toLocaleString('ar-EG')}
+          <Database size={12} className="dawaa-theme-muted" /> {source.label}: {source.count === null ? 'غير متاح' : source.count.toLocaleString('ar-EG')}
         </span>
       ))}
       {evidence.dormantSources.includes('followups') && (
@@ -161,10 +161,14 @@ export default function EvaluationLab() {
   });
 
   const scores = query.data?.scores || [];
-  const visible = scores.filter((person) => person.family === family);
+  // Only people with enough data are ranked; "insufficient" scores are listed last, unranked.
+  const rankable = (p: LabPersonScore) => p.total !== null && p.readiness !== 'insufficient';
+  const visible = scores
+    .filter((person) => person.family === family)
+    .sort((a, b) => Number(rankable(b)) - Number(rankable(a)) || (b.total ?? -1) - (a.total ?? -1));
   const counts = (key: LabFamily) => scores.filter((person) => person.family === key).length;
   const ready = visible.filter((p) => p.readiness === 'ready').length;
-  const ranked = visible.filter((p) => p.total !== null);
+  const ranked = visible.filter(rankable);
 
   return (
     <div className="mx-auto max-w-5xl space-y-4" dir="rtl">
@@ -235,7 +239,7 @@ export default function EvaluationLab() {
           <div className="space-y-2">
             {visible.length === 0
               ? <div className="dawaa-card dawaa-surface rounded-2xl p-6 text-center text-sm font-bold">لا يوجد موظفون نشطون في هذه الفئة.</div>
-              : visible.map((person, index) => <PersonCard key={person.staffId} person={person} rank={index + 1} />)}
+              : visible.map((person, index) => <PersonCard key={person.staffId} person={person} rank={rankable(person) ? index + 1 : null} />)}
           </div>
         </>
       )}

@@ -86,5 +86,14 @@ export const LAB_THRESHOLDS = {
 } as const;
 
 /** Attendance statuses that are still waiting for a decision: shown, never scored. */
-export const UNRESOLVED_ATTENDANCE = /review|missing|absence|invalid/;
-export const ON_TIME_ATTENDANCE = new Set(['on_time', 'on_time_with_permission', 'flexible_present', 'worked_on_off']);
+export const UNRESOLVED_ATTENDANCE = /^(.*_review|missing_checkin|missing_checkout|invalid_schedule_time)$/;
+/** Approved absence with a deduction: a real missed shift, zero punctuality credit. */
+export const ABSENCE_WITH_DEDUCTION = /absence_deduction/;
+/**
+ * Days that carry no punctuality signal: no shift, flexible, leave, off day, employment ended.
+ * Production uses 60+ resolution statuses (most manager approvals carry real late minutes), so
+ * punctuality is read from late_minutes on scheduled days, never from the status name.
+ */
+export const NON_PUNCTUALITY_ATTENDANCE = /^(off_day|approved_time_off|approved_leave|manager_approved_leave|employment_ended|no_schedule|flexible_.*|time_off_with_events|approved_absence_permission|manager_not_currently_working.*)$/;
+/** Late-minute bands per scheduled day: ≤15 full credit, ≤60 half, beyond 0. */
+export const PUNCTUALITY_BANDS = { graceMinutes: 15, halfCreditMinutes: 60 } as const;
