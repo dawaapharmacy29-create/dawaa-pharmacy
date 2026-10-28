@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { normalizeBranchName } from '@/lib/branch';
-import { normalizeRole } from '@/lib/core/permissionSystem';
+import { canManageBranchTargets } from '@/lib/core/permissionSystem';
 import { formatCycleDate, getCurrentCycle } from '@/lib/pharmacy-cycle';
 import { clearDashboardCache } from '@/lib/dashboard/dashboardOptimizations';
 
@@ -41,9 +41,7 @@ export default function BranchTargetEditor({ compact = false }: { compact?: bool
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState<string | null>(null);
-  const role = normalizeRole(user?.role);
-  const allowed = ['general_manager', 'executive_manager', 'branches_manager', 'branch_manager'].includes(role)
-    || checkPermission('manage_settings');
+  const allowed = canManageBranchTargets(user?.role, checkPermission);
 
   const load = useCallback(async () => {
     if (!allowed) return;

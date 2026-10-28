@@ -48,7 +48,8 @@
     "test:db:customer-requests-rls:native": "node scripts/verification/test-customer-requests-rls-scope-native.mjs",
     "test:db:sales-invoices-autovacuum:native": "node scripts/verification/test-sales-invoices-autovacuum-native.mjs",
     "test:db:close-unauthenticated-writes:native": "node scripts/verification/test-close-unauthenticated-writes-native.mjs",
-    "test:db:attendance-summary-rls:native": "node scripts/verification/test-attendance-summary-rls-scope-native.mjs"
+    "test:db:attendance-summary-rls:native": "node scripts/verification/test-attendance-summary-rls-scope-native.mjs",
+    "test:db:branch-targets-top-management:native": "node scripts/verification/test-branch-targets-top-management-native.mjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8",

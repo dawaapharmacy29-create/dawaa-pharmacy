@@ -32,7 +32,7 @@ import { formatCycleDate, getCurrentCycle, getPreviousCycle, getPharmacyCycleRan
 import { normalizeBranchName } from '@/lib/branch';
 import { useAuth } from '@/hooks/useAuth';
 import { getDashboardBranchOverride, isDoctorRole, isManagerRole } from '@/lib/security/userDataScope';
-import { normalizeRole } from '@/lib/core/permissionSystem';
+import { canManageBranchTargets, normalizeRole } from '@/lib/core/permissionSystem';
 import {
   type DailyChartMetric,
   type DailyChartRow,
@@ -1872,13 +1872,13 @@ export default function ExecutiveDashboard2027() {
                   </option>
                 ))}
               </select>
-              <button
+              {canManageBranchTargets(user?.role, checkPermission) ? <button
                 type="button"
                 onClick={() => navigate('/analytics#branch-targets')}
                 className="rounded-2xl border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] px-4 py-3 text-sm font-black text-[var(--dawaa-status-success-text)] hover:bg-[var(--dawaa-status-success-bg)]"
               >
                 تعديل تارجت الفروع
-              </button>
+              </button> : null}
               <button
                 onClick={() => {
                   setStartDate(formatCycleDate(currentCycle.start));

@@ -130,7 +130,7 @@ export const GROUPS: NavGroup[] = [
     { path: '/purchase-cycle-report', icon: PackageSearch, label: 'تقرير دورة المشتريات', permission: 'view_purchases' },
     { path: '/supplier-accounts', icon: WalletCards, label: 'حسابات الموردين', permission: 'view_purchases' },
     { path: '/purchase-order-log', icon: ClipboardList, label: 'سجل الطلبيات', permission: 'view_purchases' },
-    { path: '/shift-handovers', icon: Clock, label: 'تسليم الشيفتات', permission: 'view_purchases' },
+    { path: '/shift-handovers', icon: Clock, label: 'تسليم الشيفتات' },
   ]},
 
   { title: 'المخزون وتشغيل الصيدلية', icon: Store, items: [
