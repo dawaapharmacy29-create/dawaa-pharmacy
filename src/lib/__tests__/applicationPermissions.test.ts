@@ -73,4 +73,18 @@ describe('application consolidation — permission alignment', () => {
     expect(read('supabase/migrations/20261028160000_branch_targets_top_management_only_v1.sql'))
       .toContain("if v_role in ('general_manager','executive_manager','branches_manager') then return true;");
   });
+
+  it('owner decisions 2026-10-28: points edits, WhatsApp tools, own attendance', () => {
+    const opens = (role: string, path: string) => (getRoutePermissions(path) || []).some((p) => hasPermission(role, p));
+    const rolesWith = (key: string) => ROLES.map((r) => r.key).filter((role) => hasPermission(role, key)).sort();
+    expect(rolesWith('edit_points_transaction')).toEqual(['branches_manager', 'executive_manager', 'general_manager']);
+    for (const path of ['/whatsapp-smart-folder-watcher', '/whatsapp-folder-watcher', '/sales-intelligence/qa', '/sales-intelligence/qa/case-1']) {
+      expect({ path, roles: ROLES.map((r) => r.key).filter((role) => opens(role, path)).sort() }).toEqual({
+        path,
+        roles: ['branch_manager', 'branches_manager', 'customer_service', 'customer_service_manager', 'general_manager'],
+      });
+    }
+    expect(opens('pharmacist', '/reviews')).toBe(true);
+    expect(opens('branch_manager', '/my-attendance')).toBe(true);
+  });
 });
