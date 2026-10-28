@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronUp, Database, FlaskConical, MinusCircle, Users } from 'lucide-react';
-import { LAB_CURRENT_VERSION, LAB_FAMILY_LABELS, type LabFamily } from '@/lib/evaluationLab/catalog';
+import { LAB_CURRENT_VERSION, LAB_FAMILY_LABELS, LAB_PREVIOUS_VERSION, type LabFamily } from '@/lib/evaluationLab/catalog';
+
+const BASELINE_VERSION = LAB_PREVIOUS_VERSION[LAB_CURRENT_VERSION] ?? LAB_CURRENT_VERSION;
 import { buildCycleScores, type LabEvidence, type LabPersonScore } from '@/lib/evaluationLab/buildCycleScores';
 import { closedCycles, loadCycleEvidence, type LabCycle } from '@/lib/evaluationLab/loadCycleEvidence';
 import type { AxisResult, Readiness } from '@/lib/evaluationLab/scoring';
@@ -79,18 +81,18 @@ function AxisRow({ axis }: { axis: AxisResult }) {
   );
 }
 
-/** Change against the previous lab version (v6.0), so every proposal is reviewed by its effect. */
+/** Change against the previous lab version, so every proposal is reviewed by its effect. */
 function BaselineDelta({ total, baseline }: { total: number | null; baseline: number | null | undefined }) {
   if (baseline === undefined) return null;
   if (total === null || baseline === null) {
-    return <span className="dawaa-theme-muted text-[11px] font-bold">v6.0: {baseline === null ? 'غير محسوب' : Math.round(baseline)}</span>;
+    return <span className="dawaa-theme-muted text-[11px] font-bold">{BASELINE_VERSION}: {baseline === null ? 'غير محسوب' : Math.round(baseline)}</span>;
   }
   const delta = Math.round(total - baseline);
-  if (delta === 0) return <span className="dawaa-theme-muted text-[11px] font-bold">بدون تغيير عن v6.0</span>;
+  if (delta === 0) return <span className="dawaa-theme-muted text-[11px] font-bold">بدون تغيير عن {BASELINE_VERSION}</span>;
   const Icon = delta > 0 ? ArrowUp : ArrowDown;
   return (
-    <span className={`flex items-center gap-0.5 text-[11px] font-black ${delta > 0 ? 'dawaa-status-success-text' : 'dawaa-status-danger-text'}`} title={`v6.0: ${Math.round(baseline)}`}>
-      <Icon size={11} /> {Math.abs(delta)} عن v6.0
+    <span className={`flex items-center gap-0.5 text-[11px] font-black ${delta > 0 ? 'dawaa-status-success-text' : 'dawaa-status-danger-text'}`} title={`${BASELINE_VERSION}: ${Math.round(baseline)}`}>
+      <Icon size={11} /> {Math.abs(delta)} عن {BASELINE_VERSION}
     </span>
   );
 }
@@ -188,7 +190,7 @@ export default function EvaluationLab() {
     queryKey: ['evaluation-lab-v6', cycle.start, cycle.endExclusive],
     queryFn: async () => {
       const evidence = await loadCycleEvidence(cycle);
-      const baseline = new Map(buildCycleScores(evidence, 'v6.0').map((person) => [person.staffId, person.total]));
+      const baseline = new Map(buildCycleScores(evidence, BASELINE_VERSION).map((person) => [person.staffId, person.total]));
       return { evidence, scores: buildCycleScores(evidence), baseline };
     },
     staleTime: 5 * 60_000,

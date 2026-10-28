@@ -13,7 +13,11 @@ import {
 
 export interface LabEvidence {
   staff: Array<{ id: string; name: string; role: string; branch: string | null }>;
-  invoices: Array<{ staffId: string | null; net: number; date: string; coded: boolean; branch: string | null; deliveryStaffId: string | null; deliveryLabeled?: boolean }>;
+  invoices: Array<{
+    staffId: string | null; net: number; date: string; coded: boolean; branch: string | null; deliveryStaffId: string | null; deliveryLabeled?: boolean;
+    /** Cairo shift of invoice_datetime and the invoice's line count (v6.2 basket metrics). */
+    shift?: string | null; items?: number | null;
+  }>;
   /** Official conversation reviews only (0..100). */
   reviews: Array<{ staffId: string; score: number }>;
   attendance: Array<{ staffId: string; date: string; status: string | null; hasFirstIn: boolean; scheduled: boolean; lateMinutes: number }>;
@@ -77,7 +81,7 @@ function factsFor(evidence: LabEvidence, version: LabVersion): Map<string, Perso
     if (day.hasFirstIn) row.workedDays += 1;
     const status = String(day.status || '');
     if (PENDING_DECISION.test(status)) row.pendingDecisionDays += 1;
-    if (version === 'v6.1' && MISSING_PUNCH.test(status) && day.scheduled) {
+    if (version !== 'v6.0' && MISSING_PUNCH.test(status) && day.scheduled) {
       // The employee's own miss: a resolved day with zero credit.
       row.missingPunchDays += 1;
       row.resolvedDays += 1;
@@ -109,7 +113,7 @@ function factsFor(evidence: LabEvidence, version: LabVersion): Map<string, Perso
     if (!request.recordedStaffId) continue;
     const row = get(request.recordedStaffId);
     // v6.1 counts only valid requests (a cancelled/duplicate request is not credited).
-    if (version === 'v6.1' && INVALID_REQUEST_STATUS.test(String(request.status || '').toLowerCase())) row.invalidRequests += 1;
+    if (version !== 'v6.0' && INVALID_REQUEST_STATUS.test(String(request.status || '').toLowerCase())) row.invalidRequests += 1;
     else row.requests += 1;
   }
   for (const purchase of evidence.purchases || []) if (purchase.enteredByStaffId) get(purchase.enteredByStaffId).purchases += 1;
@@ -162,7 +166,7 @@ function rateAxis(
  * present. Part-timers are compared on their own days only; branch size and busy days cancel out.
  */
 function fairShareAxis(
-  key: 'sales_per_day' | 'deliveries_per_day',
+  key: 'sales_per_day' | 'deliveries_per_day' | 'invoice_share',
   members: Array<{ id: string; branch: string | null }>,
   evidence: LabEvidence,
   /** The person credited by an invoice and the invoice's volume (net for sales, 1 for a delivery). */
@@ -222,6 +226,53 @@ function fairShareAxis(
 
 const dormant = (evidence: LabEvidence, source: string) => evidence.dormantSources.includes(source);
 
+/**
+ * Basket metric against the same branch, day and shift: for every invoice the doctor closed, the
+ * expected value is the average of that metric over all of the branch's invoices in the same
+ * day and shift. Ratio = own total ÷ expected total, so the shift mix and branch size cancel out.
+ * Returns and zero invoices are excluded.
+ */
+function basketAxis(
+  key: 'avg_invoice' | 'basket_items',
+  members: Array<{ id: string }>,
+  evidence: LabEvidence,
+  metric: (invoice: LabEvidence['invoices'][number]) => number | null,
+  floor: number,
+  ceiling: number,
+  describe: (own: number, expected: number, count: number, ratio: number) => string,
+): Map<string, AxisDraft> {
+  const out = new Map<string, AxisDraft>();
+  const slotOf = (invoice: LabEvidence['invoices'][number]) => `${branchKey(invoice.branch)}|${invoice.date}|${invoice.shift || ''}`;
+  const valid = evidence.invoices.filter((invoice) => invoice.net > 0 && invoice.shift && metric(invoice) !== null);
+  const slots = new Map<string, { sum: number; n: number }>();
+  for (const invoice of valid) {
+    const slot = slots.get(slotOf(invoice)) || { sum: 0, n: 0 };
+    slot.sum += metric(invoice) as number;
+    slot.n += 1;
+    slots.set(slotOf(invoice), slot);
+  }
+  const own = new Map<string, { value: number; expected: number; n: number }>();
+  for (const invoice of valid) {
+    if (!invoice.staffId) continue;
+    const slot = slots.get(slotOf(invoice))!;
+    const row = own.get(invoice.staffId) || { value: 0, expected: 0, n: 0 };
+    row.value += metric(invoice) as number;
+    row.expected += slot.sum / slot.n;
+    row.n += 1;
+    own.set(invoice.staffId, row);
+  }
+  for (const member of members) {
+    const row = own.get(member.id);
+    if (!row || row.n < LAB_THRESHOLDS.minInvoicesForBasket) {
+      out.set(member.id, notMeasurable(key, `${row?.n ?? 0} فاتورة فقط (الحد ${LAB_THRESHOLDS.minInvoicesForBasket})`));
+      continue;
+    }
+    const ratio = row.value / row.expected;
+    out.set(member.id, measured(key, round(ratio, 2), bandScore(ratio, floor, ceiling), describe(row.value / row.n, row.expected / row.n, row.n, ratio)));
+  }
+  return out;
+}
+
 export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LAB_CURRENT_VERSION): LabPersonScore[] {
   const facts = factsFor(evidence, version);
   const people = evidence.staff
@@ -239,6 +290,17 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
     (own, expected, days, share) => `باع ${egp(own)} من نصيب متوقع ${egp(expected)} ج في ${days} يوم عمل (×${round(share, 2)})`)
     .forEach((axis, id) => push(id, axis));
   rateAxis('customer_requests', doctors, (f) => f.requests, 'طلب/يوم', invalidNote).forEach((axis, id) => push(id, axis));
+  if (version === 'v6.2') {
+    fairShareAxis('invoice_share', doctors, evidence, (inv) => inv.staffId, (inv) => (inv.net > 0 ? 1 : 0),
+      (own, expected, days, share) => `${egp(own)} فاتورة من نصيب متوقع ${egp(expected)} في ${days} يوم عمل (×${round(share, 2)})`)
+      .forEach((axis, id) => push(id, axis));
+    basketAxis('avg_invoice', doctors, evidence, (inv) => inv.net, LAB_THRESHOLDS.avgInvoiceFloor, LAB_THRESHOLDS.avgInvoiceCeiling,
+      (own, expected, n, ratio) => `متوسط ${egp(own)} ج مقابل ${egp(expected)} ج للفرع في نفس اليوم والشيفت · ${n} فاتورة (×${round(ratio, 2)})`)
+      .forEach((axis, id) => push(id, axis));
+    basketAxis('basket_items', doctors, evidence, (inv) => (inv.items && inv.items > 0 ? inv.items : null), LAB_THRESHOLDS.basketFloor, LAB_THRESHOLDS.basketCeiling,
+      (own, expected, n, ratio) => `${round(own, 2)} صنف/فاتورة مقابل ${round(expected, 2)} للفرع في نفس اليوم والشيفت · ${n} فاتورة (×${round(ratio, 2)})`)
+      .forEach((axis, id) => push(id, axis));
+  }
   const doctorRates = doctors.filter((d) => d.f.invoices >= LAB_THRESHOLDS.minInvoicesForCoding).map((d) => d.f.coded / d.f.invoices);
   const doctorRateMedian = median(doctorRates);
   const allReviews = doctors.flatMap((d) => d.f.reviews);
@@ -252,9 +314,9 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
       push(id, notMeasurable('coding_quality', `${f.invoices} فاتورة فقط (الحد ${LAB_THRESHOLDS.minInvoicesForCoding})`));
     } else {
       const rate = f.coded / f.invoices;
-      const penalty = version === 'v6.1' ? codingGatePenalty(rate) : 0;
+      const penalty = version !== 'v6.0' ? codingGatePenalty(rate) : 0;
       push(id, measured('coding_quality', round(rate * 100), bandScore(rate, 0.9, 1),
-        `${f.coded}/${f.invoices} مكوّدة · وسيط الزملاء ${round(doctorRateMedian * 100)}٪${version === 'v6.1' ? ` · الحد الأدنى ${LAB_THRESHOLDS.codingGateFloor * 100}٪${penalty ? ` (خصم ${-penalty})` : ' (مستوفى)'}` : ''}`));
+        `${f.coded}/${f.invoices} مكوّدة · وسيط الزملاء ${round(doctorRateMedian * 100)}٪${version !== 'v6.0' ? ` · الحد الأدنى ${LAB_THRESHOLDS.codingGateFloor * 100}٪${penalty ? ` (خصم ${-penalty})` : ' (مستوفى)'}` : ''}`));
       if (penalty) adjustments.set(id, [{ label: 'تكويد أقل من الحد الأدنى', points: penalty, reason: `${round(rate * 100)}٪ من ${f.invoices} فاتورة` }]);
     }
     const s = shrunk.get(id);
@@ -282,7 +344,7 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
 
   // Delivery.
   const couriers = familyMembers('delivery');
-  if (version === 'v6.1') {
+  if (version !== 'v6.0') {
     // Delivery evidence quality per branch: labelled share and the share of labels resolved to a courier.
     const courierBranchQuality = new Map<string, { labelled: number; resolved: number; total: number }>();
     for (const invoice of evidence.invoices) {
@@ -345,7 +407,7 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
     out.push(b.target > 0
       ? measured('branch_target', round((net / b.target) * 100), targetScore(net / b.target), `${egp(net)} من ${egp(b.target)} ج`)
       : notMeasurable('branch_target', 'لا يوجد تارجت مسجل للفرع'));
-    const requests = version === 'v6.1' ? b.requests.filter((r) => !INVALID_REQUEST_STATUS.test(String(r.status || '').toLowerCase())) : b.requests;
+    const requests = version !== 'v6.0' ? b.requests.filter((r) => !INVALID_REQUEST_STATUS.test(String(r.status || '').toLowerCase())) : b.requests;
     const closed = requests.filter((r) => r.closedAt);
     const hours = closed.map((r) => (Date.parse(r.closedAt as string) - Date.parse(r.createdAt)) / 36e5).filter((h) => Number.isFinite(h) && h >= 0);
     const medianHours = median(hours);
@@ -360,7 +422,7 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
     const teamFacts = b.team.map((p) => facts.get(p.staffId)!).filter(Boolean);
     const pending = teamFacts.reduce((s, f) => s + f.pendingDecisionDays, 0);
     const worked = teamFacts.reduce((s, f) => s + f.workedDays, 0);
-    if (version === 'v6.1') {
+    if (version !== 'v6.0') {
       out.push(worked
         ? measured('decision_backlog', pending, bandScore(1 - pending / worked, 0.85, 1), `${pending} يوم حضور بانتظار قرار من ${worked} يوم عمل — للمعلومة حتى يُحدَّد صاحب القرار`)
         : notMeasurable('decision_backlog', 'لا توجد أيام حضور للفريق'));
@@ -375,7 +437,7 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
       out.push(rate === null || branchRateMedian === null
         ? notMeasurable('branch_coding', 'لا توجد فواتير للفرع')
         : measured('branch_coding', round(rate * 100), codingScore as number, `${round(rate * 100)}٪ · وسيط الفروع ${round(branchRateMedian * 100)}٪`));
-      if (version === 'v6.1') {
+      if (version !== 'v6.0') {
         const parts = [...(conv.length ? [mean(conv.map((a) => a.score as number))] : []), ...(codingScore === null ? [] : [codingScore])];
         out.push(parts.length
           ? measured('team_quality', parts.length, mean(parts),

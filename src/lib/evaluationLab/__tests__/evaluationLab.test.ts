@@ -153,7 +153,7 @@ describe('buildCycleScores (v6.0 baseline)', () => {
 });
 
 describe('buildCycleScores v6.1 (owner review 2026-10-28)', () => {
-  const v61 = buildCycleScores(evidence({ dormantSources: ['followups', 'assistant_checklist', 'delivery_ratings'] }));
+  const v61 = buildCycleScores(evidence({ dormantSources: ['followups', 'assistant_checklist', 'delivery_ratings'] }), 'v6.1');
   const byId = (id: string) => v61.find((r) => r.staffId === id)!;
   const axis = (id: string, key: string) => byId(id).axes.find((a) => a.key === key)!;
 
@@ -241,6 +241,51 @@ describe('buildCycleScores v6.1 (owner review 2026-10-28)', () => {
     // Only discipline (40 of 100) is measurable: the assistant is "partial", not scored as zero elsewhere.
     expect(a1.coverage).toBeCloseTo(0.4, 2);
     expect(a1.readiness).toBe('partial');
+  });
+});
+
+describe('buildCycleScores v6.2 sales metrics', () => {
+  // Two doctors on the same branch, day and shift. a: 10 invoices of 300 with 3 items; b: 10 of 100 with 1 item.
+  const sale = (staffId: string, net: number, items: number, day = 1, shift = 'مسائي') =>
+    ({ staffId, net, items, shift, date: `2026-10-${String(day).padStart(2, '0')}`, coded: true, branch: 'فرع شكري', deliveryStaffId: null });
+  const run = (invoices: LabEvidence['invoices']) => buildCycleScores(evidence({
+    staff: [{ id: 'a', name: 'أ', role: 'صيدلاني', branch: 'فرع شكري' }, { id: 'b', name: 'ب', role: 'صيدلاني', branch: 'فرع شكري' }],
+    attendance: [...days('a', 10), ...days('b', 10)],
+    invoices,
+    reviews: [], requests: [],
+  }), 'v6.2');
+  const axis = (rows: ReturnType<typeof run>, id: string, key: string) => rows.find((r) => r.staffId === id)!.axes.find((x) => x.key === key)!;
+  const same = Array.from({ length: 40 }, (_, i) => [sale('a', 300, 3, (i % 10) + 1), sale('b', 100, 1, (i % 10) + 1)]).flat();
+
+  it('average invoice and basket are compared with the same branch, day and shift', () => {
+    const rows = run(same);
+    // Slot average 200 / 2 items: a ×1.5 → 100, b ×0.5 → 0.
+    expect(axis(rows, 'a', 'avg_invoice')).toMatchObject({ value: 1.5, score: 100 });
+    expect(axis(rows, 'b', 'avg_invoice')).toMatchObject({ value: 0.5, score: 0 });
+    expect(axis(rows, 'a', 'basket_items').value).toBe(1.5);
+    // Same number of customers on the same days: an equal invoice share.
+    expect(axis(rows, 'a', 'invoice_share').value).toBe(1);
+    expect(axis(rows, 'b', 'invoice_share').value).toBe(1);
+  });
+
+  it('a night shift is not compared with an evening shift', () => {
+    // b works nights where every invoice is 100: on his own slot he is exactly average.
+    const rows = run([...Array.from({ length: 40 }, (_, i) => sale('a', 300, 3, (i % 10) + 1, 'مسائي')),
+      ...Array.from({ length: 40 }, (_, i) => sale('b', 100, 1, (i % 10) + 1, 'ليلي'))]);
+    expect(axis(rows, 'b', 'avg_invoice')).toMatchObject({ value: 1, score: 50 });
+  });
+
+  it('returns are excluded and a small sample is not measurable', () => {
+    const rows = run([...same, sale('a', -500, 2, 1)]);
+    expect(axis(rows, 'a', 'avg_invoice').value).toBe(1.5);
+    const few = run([sale('a', 300, 3), sale('b', 100, 1)]);
+    expect(axis(few, 'a', 'avg_invoice')).toMatchObject({ status: 'not_measurable' });
+  });
+
+  it('dormant follow-ups keep their weight visible and are redistributed', () => {
+    const rows = run(same);
+    expect(axis(rows, 'a', 'followups')).toMatchObject({ status: 'not_measurable', weight: 15 });
+    expect(rows.find((r) => r.staffId === 'a')!.coverage).toBeLessThan(1);
   });
 });
 

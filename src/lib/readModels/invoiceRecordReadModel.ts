@@ -144,3 +144,11 @@ export async function readInternalCodeLedgerPage(codes: string[], fromIso: strin
  if(result.error)throw new Error(result.error.message);
  return result.data || [];
 }
+
+/**
+ * Approved read boundary: one closed cycle of invoices for the evaluation lab (read-only, paged by
+ * the caller). invoice_date with Cairo boundaries, ordered by the covering (invoice_date, id) index.
+ */
+export function selectInvoiceCycleWindow(columns: string, options: { count: 'exact'; head: true } | undefined, fromIso: string, toIso: string) {
+  return supabase.from('sales_invoices').select(columns, options).gte('invoice_date', fromIso).lt('invoice_date', toIso);
+}

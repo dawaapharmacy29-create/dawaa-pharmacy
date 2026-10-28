@@ -5,6 +5,8 @@ import { staffIdentityKey } from '@/lib/staff/staffIdentityKey';
 import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
 import type { LabEvidence } from './buildCycleScores';
+import { selectInvoiceCycleWindow } from '@/lib/readModels/invoiceRecordReadModel';
+import { invoiceShiftOf } from './catalog';
 
 // Read-only, bounded evidence for one 26→25 cycle. Every read is filtered by the cycle and
 // capped; a failed read throws (the lab shows the outage instead of scoring zeros).
@@ -59,6 +61,13 @@ async function parallelPages(
   return rows;
 }
 
+const CAIRO_HOUR = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Cairo', hour: '2-digit', hourCycle: 'h23' });
+/** Shift of the invoice's real timestamp (invoice_date is often a date at midnight). */
+function cairoShift(value: unknown): string | null {
+  const at = Date.parse(text(value));
+  return Number.isFinite(at) ? invoiceShiftOf(Number(CAIRO_HOUR.format(at))) : null;
+}
+
 export interface LabCycle {
   /** Inclusive start (the 26th). */
   start: string;
@@ -92,9 +101,8 @@ export async function loadCycleEvidence(cycle: LabCycle): Promise<LabEvidence> {
     pages(() => supabase.from('staff_identity_aliases').select('id,staff_id,normalized_alias,active').eq('active', true) as unknown as PageQuery, 5000, 'aliases'),
     // invoice_date (Cairo boundaries) + (invoice_date, id) order uses the covering dashboard index;
     // verified identical to sale_date for this table (0 rows differ).
-    parallelPages((columns, options) => supabase.from('sales_invoices').select(columns, options)
-      .gte('invoice_date', startAt).lt('invoice_date', endAt),
-      'id,staff_id,net_amount,total_amount,customer_code,branch,delivery_staff,sale_date', 30000, 'sales_invoices', ['invoice_date', 'id']),
+    parallelPages((columns, options) => selectInvoiceCycleWindow(columns, options, startAt, endAt),
+      'id,staff_id,net_amount,total_amount,customer_code,branch,delivery_staff,sale_date,invoice_datetime,line_items_count', 30000, 'sales_invoices', ['invoice_date', 'id']),
     pages(() => supabase.from('conversation_sales_reviews_canonical_v2')
       .select(['id', 'staff_id', 'doctor_id', ...OFFICIAL_REVIEW_COLUMNS].join(','))
       .gte('conversation_date', startAt).lt('conversation_date', endAt) as unknown as PageQuery, 10000, 'reviews'),
@@ -146,6 +154,8 @@ export async function loadCycleEvidence(cycle: LabCycle): Promise<LabEvidence> {
       branch: text(row.branch) || null,
       deliveryStaffId: text(row.delivery_staff) ? courierFor(row.delivery_staff) : null,
       deliveryLabeled: text(row.delivery_staff) !== '',
+      shift: cairoShift(row.invoice_datetime),
+      items: row.line_items_count === null || row.line_items_count === undefined ? null : num(row.line_items_count),
     })),
     reviews: official.flatMap((row) => {
       const score = conversationReviewScore100(row);

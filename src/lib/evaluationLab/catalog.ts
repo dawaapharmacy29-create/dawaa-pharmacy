@@ -5,11 +5,16 @@ import type { CanonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 export type LabFamily = 'doctor' | 'assistant' | 'delivery' | 'branch_manager' | 'branches_manager';
 
 /** v6.0 is kept so the lab can show what each change moved; v6.1 is the proposal under review. */
-export type LabVersion = 'v6.0' | 'v6.1';
-export const LAB_CURRENT_VERSION: LabVersion = 'v6.1';
+/** Each version keeps every rule of the one before it; the lab shows the change against the previous one. */
+export type LabVersion = 'v6.0' | 'v6.1' | 'v6.2';
+export const LAB_CURRENT_VERSION: LabVersion = 'v6.2';
+export const LAB_PREVIOUS_VERSION: Record<LabVersion, LabVersion | null> = { 'v6.0': null, 'v6.1': 'v6.0', 'v6.2': 'v6.1' };
 
 export type LabAxisKey =
   | 'sales_per_day'
+  | 'invoice_share'
+  | 'avg_invoice'
+  | 'basket_items'
   | 'coding_quality'
   | 'conversation_quality'
   | 'discipline'
@@ -115,7 +120,25 @@ const V61: Record<LabFamily, LabAxisDefinition[]> = {
   ],
 };
 
-export const LAB_AXES_BY_VERSION: Record<LabVersion, Record<LabFamily, LabAxisDefinition[]>> = { 'v6.0': V60, 'v6.1': V61 };
+// v6.2 (owner focus 2026-10-28): sales split into value share, customers served, average invoice
+// and basket size, each compared with the same branch, day and shift; conversations, requests and
+// follow-ups next; punctuality lighter (policy breaches move to the incentive compliance factor).
+const V62: Record<LabFamily, LabAxisDefinition[]> = {
+  ...V61,
+  doctor: [
+    { key: 'sales_per_day', label: 'نصيب المبيعات', weight: 15 },
+    { key: 'invoice_share', label: 'نصيب عدد الفواتير (عملاء خدمهم)', weight: 10 },
+    { key: 'avg_invoice', label: 'متوسط الفاتورة مقابل الفرع والشيفت', weight: 10 },
+    { key: 'basket_items', label: 'الأصناف في الفاتورة مقابل الفرع والشيفت', weight: 5 },
+    { key: 'conversation_quality', label: 'جودة المحادثات', weight: 20 },
+    { key: 'customer_requests', label: 'طلبات العملاء الصالحة', weight: 15 },
+    { key: 'followups', label: 'متابعات العملاء', weight: 15 },
+    { key: 'discipline', label: 'الانضباط والبصمات', weight: 10 },
+    { key: 'coding_quality', label: 'تكويد الفواتير (حد أدنى)', weight: 0 },
+  ],
+};
+
+export const LAB_AXES_BY_VERSION: Record<LabVersion, Record<LabFamily, LabAxisDefinition[]>> = { 'v6.0': V60, 'v6.1': V61, 'v6.2': V62 };
 export const LAB_AXES = LAB_AXES_BY_VERSION[LAB_CURRENT_VERSION];
 
 export function labFamilyOf(role: CanonicalStaffRole): LabFamily | null {
@@ -147,6 +170,13 @@ export const LAB_THRESHOLDS = {
    */
   minCourierLabelShare: 0.25,
   minCourierLabelResolved: 0.8,
+  /** v6.2 basket metrics: ratio to the same branch/day/shift average. 0.7 → 0, 1.0 → 50, 1.3 → 100. */
+  minInvoicesForBasket: 30,
+  avgInvoiceFloor: 0.7,
+  avgInvoiceCeiling: 1.3,
+  /** Items per invoice move less: 0.85 → 0, 1.0 → 50, 1.15 → 100. */
+  basketFloor: 0.85,
+  basketCeiling: 1.15,
   /** Team follow-up of missing punches (v6.1): 85% corrected → 0, 100% → 100. */
   followupFloor: 0.85,
 } as const;
@@ -167,5 +197,10 @@ export const ABSENCE_WITH_DEDUCTION = /absence_deduction/;
  * punctuality is read from late_minutes on scheduled days, never from the status name.
  */
 export const NON_PUNCTUALITY_ATTENDANCE = /^(off_day|approved_time_off|approved_leave|manager_approved_leave|employment_ended|no_schedule|flexible_.*|time_off_with_events|approved_absence_permission|manager_not_currently_working.*)$/;
+/** Cairo shift buckets for invoices (from invoice_datetime): night 0–8, morning 8–16, evening 16–24. */
+export function invoiceShiftOf(cairoHour: number): 'ليلي' | 'صباحي' | 'مسائي' {
+  return cairoHour < 8 ? 'ليلي' : cairoHour < 16 ? 'صباحي' : 'مسائي';
+}
+
 /** Late-minute bands per scheduled day: ≤15 full credit, ≤60 half, beyond 0. */
 export const PUNCTUALITY_BANDS = { graceMinutes: 15, halfCreditMinutes: 60 } as const;
