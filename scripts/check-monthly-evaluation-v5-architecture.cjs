@@ -73,6 +73,8 @@ if (!page.includes('leadershipEvidenceRequirement')) failures.push('Leadership a
 if (!page.includes('axis_evidence_snapshot')) failures.push('Per-axis evidence state must be persisted with the evaluation snapshot.');
 if (!page.includes('leadershipSectionsMissingNotes')) failures.push('Leadership manual evidence must require documented axis notes before approval.');
 if (!page.includes('manualEvidenceSectionsMissingNotes')) failures.push('All manually-evidenced axes must require documented rationale before approval.');
+if (!/if \(options\.submit && inventoryRequiresBranchesManagerApproval && sections\.some\(/.test(page)) failures.push('Inventory rationale must block submission, not draft saving.');
+if (page.includes('قبل حفظ المسودة.')) failures.push('Incomplete inventory rationale must not prevent saving a draft.');
 if (!page.includes('criticalGateMissingRationales')) failures.push('Critical gates must require a separate documented rationale per gate.');
 if (!inventoryEvidence.includes('getInventoryEvidenceSufficiency')) failures.push('Inventory evidence sufficiency helper is missing.');
 if (!salesEvidence.includes('getSalesQualityEvidenceSufficiency')) failures.push('Sales-quality evidence sufficiency helper is missing.');
@@ -90,7 +92,7 @@ if (!page.includes('expected_updated_at: evaluationUpdatedAt')) failures.push('E
 if (!page.includes('setEvaluationUpdatedAt(String(canonicalSaved.updated_at')) failures.push('Evaluation page must refresh the canonical row version after save.');
 if (!page.includes('pointsForSave = await getStaffPointsDashboardV3(savingStaffId, cycleLabel)')) failures.push('Final approval must refresh canonical points truth immediately before save.');
 if (!page.includes('points_truth: pointsForSave ?')) failures.push('Final approval snapshot must use the freshly loaded points truth.');
-if (!page.includes('Date.now() - evidenceLoadedAt > 5 * 60_000')) failures.push('Final approval must reject stale client evidence state.');
+if (!page.includes('const APPROVAL_EVIDENCE_MAX_AGE_MS = 60 * 60_000') || !page.includes('Date.now() - evidenceLoadedAt > APPROVAL_EVIDENCE_MAX_AGE_MS')) failures.push('Final approval must reject client evidence older than one hour.');
 if (!page.includes('Promise.resolve({ value: cachedEvidence.value, loadedAt: cachedEvidence.at })')) failures.push('Evidence cache hits must preserve the original freshness timestamp.');
 if (!page.includes('setEvidenceLoadedAt(evidenceEnvelope.loadedAt)')) failures.push('Approval freshness must use the actual evidence load timestamp, not revisit time.');
 if (!page.includes('const approvalTimeIncentive = publishedPointsTruth?.final_incentive_egp')) failures.push('Published evaluation view must preserve approval-time incentive truth separately from settlement.');

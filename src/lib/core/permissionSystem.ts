@@ -150,6 +150,20 @@ export function isPrivilegedRole(role?: string | null): boolean {
   return getRoleLevel(role) <= 4; // general_manager, executive_manager, branches_manager, procurement_manager
 }
 
+// Mirrors dawaa_can_manage_branch_targets in the database. Branch targets drive the branch
+// manager's own evaluation and incentives, so they are set by top management only.
+export function canManageBranchTargets(role: unknown, checkPermission: (permission: string) => boolean): boolean {
+  return ['general_manager', 'executive_manager', 'branches_manager'].includes(normalizeRole(role))
+    || checkPermission('manage_settings');
+}
+
+// Mirrors dawaa_can_manage_staff_accounts_strict: account edits are top management only, so the
+// buttons are not offered to roles whose writes the database would reject.
+export function canManageStaffAccounts(role: unknown, checkPermission: (permission: string) => boolean): boolean {
+  return ['general_manager', 'executive_manager', 'branches_manager'].includes(normalizeRole(role))
+    || checkPermission('manage_staff_accounts');
+}
+
 export function isBranchManagerRole(role?: string | null): boolean {
   const level = getRoleLevel(role);
   return level >= 3 && level <= 7; // branches_manager down to shift_supervisors
@@ -307,6 +321,7 @@ export const PERMISSION_CATEGORIES: PermissionCategory[] = [
       { key: 'edit_reviews',              label: 'تعديل تقييم', sensitive: true },
       { key: 'delete_reviews',            label: 'حذف تقييم', sensitive: true },
       { key: 'approve_reviews',           label: 'اعتماد التقييمات', sensitive: true },
+      { key: 'manage_whatsapp_capture',   label: 'التقاط محادثات واتساب ومراجعة حالات ذكاء المبيعات', sensitive: true },
     ],
   },
   {
@@ -580,6 +595,7 @@ const BRANCH_MANAGER_BASE = [
   'view_schedule',
   'manage_schedule',
   'view_attendance_leaves',
+  'record_attendance',
   'create_leave_request',
   'approve_leave_request',
   'manage_time_off',
@@ -588,7 +604,6 @@ const BRANCH_MANAGER_BASE = [
   'approve_points',
   'create_reward',
   'create_deduction',
-  'edit_points_transaction',
   'export_points_report',
   'view_salary_calculator',
   'manage_payroll',
@@ -615,15 +630,11 @@ const BRANCH_MANAGER_BASE = [
   'view_invoices',
   'view_operations',
   'view_supplies',
-  'view_purchases',
   'view_incentives',
   'view_quarterly_incentives',
   'view_penalty_management',
-  'view_activity_log',
-  'view_activity_logs',
-  'view_staff_accounts',
   'view_settings',
-  'view_data_health',
+  'manage_whatsapp_capture',
 ];
 
 const CS_MANAGER_BASE = [
@@ -669,6 +680,7 @@ const CS_MANAGER_BASE = [
   'view_shift_performance',
   'create_leave_request',
   'record_attendance',
+  'manage_whatsapp_capture',
 ];
 
 const SHIFT_SUPERVISOR_BASE = [
@@ -750,6 +762,7 @@ const CUSTOMER_SERVICE_BASE = [
   'view_activity_log',
   'create_leave_request',
   'record_attendance',
+  'manage_whatsapp_capture',
 ];
 
 const DELIVERY_BASE = ['view_dashboard', 'view_delivery', 'create_leave_request', 'record_attendance'];
@@ -978,9 +991,11 @@ export const ROUTE_PERMISSION_MAP: Record<string, string | string[]> = {
   '/customer-health': 'view_customer_details',
   '/reviews': 'view_reviews',
   '/whatsapp-analytics': 'view_reviews',
-  '/whatsapp-smart-folder-watcher': 'view_reviews',
-  '/sales-intelligence/qa': 'view_reviews',
-  '/whatsapp-folder-watcher': 'view_reviews',
+  // WhatsApp capture and sales-intelligence QA tools (owner decision 2026-10-28): branch manager,
+  // customer service, branches manager and general manager. Every change is audited in the database.
+  '/whatsapp-smart-folder-watcher': 'manage_whatsapp_capture',
+  '/sales-intelligence/qa': 'manage_whatsapp_capture',
+  '/whatsapp-folder-watcher': 'manage_whatsapp_capture',
   '/whatsapp-followup-requests': 'view_reviews',
   '/whatsapp-doctor-performance': 'view_reviews',
   '/whatsapp-customer-history': 'view_reviews',
@@ -1018,7 +1033,7 @@ export const ROUTE_PERMISSION_MAP: Record<string, string | string[]> = {
   '/purchase-cycle-report': 'view_purchases',
   '/supplier-accounts': 'view_purchases',
   '/purchase-order-log': 'view_purchases',
-  '/shift-handovers': 'view_purchases',
+  '/shift-handovers': ['view_purchases', 'manage_schedule'],
   '/staff-payroll': 'manage_payroll',
   '/incentive-governance': 'manage_incentives',
   '/payroll': 'view_salary_calculator',
@@ -1103,6 +1118,7 @@ export function getRoutePermissions(pathname: string): string[] | undefined {
   if (pathname.startsWith('/customers/')) return ['view_customer_360'];
   if (pathname.startsWith('/customer-health/')) return ['view_customer_details'];
   if (pathname.startsWith('/weekly-evaluation/')) return ['view_team'];
+  if (pathname.startsWith('/sales-intelligence/qa/')) return ['manage_whatsapp_capture'];
   return undefined;
 }
 

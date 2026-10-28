@@ -66,6 +66,18 @@ jobs:
         env:
           DAWAA_NATIVE_PG_CONTAINER: dawaa-mb-verify-pg
         run: npm run test:db:close-unauthenticated-writes:native
+      - name: Attendance summary read scope evaluated once (same visible rows)
+        env:
+          DAWAA_NATIVE_PG_CONTAINER: dawaa-mb-verify-pg
+        run: npm run test:db:attendance-summary-rls:native
+      - name: Branch targets writable by top management only
+        env:
+          DAWAA_NATIVE_PG_CONTAINER: dawaa-mb-verify-pg
+        run: npm run test:db:branch-targets-top-management:native
+      - name: Points decisions and WhatsApp tool audit
+        env:
+          DAWAA_NATIVE_PG_CONTAINER: dawaa-mb-verify-pg
+        run: npm run test:db:points-edit-whatsapp-audit:native
       - name: Financial approval and lifecycle concurrency scenarios
         run: npm run test:db:master-brain:native
       - name: Remove disposable database

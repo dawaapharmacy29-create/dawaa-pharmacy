@@ -98,8 +98,8 @@ export const GROUPS: NavGroup[] = [
   // للفولدر، طلبات المتابعة الآلية، أداء الدكاترة، سجل العميل، الفرص الضائعة، مقارنة الفروع)
   // تبقى بروابطها المباشرة فقط لأنها تحسب تحويلًا موازيًا غير معتمد وتحتاج صلاحية مقيِّم خاصة.
   { title: 'واتساب وذكاء المبيعات', icon: Sparkles, items: [
-    { path: '/whatsapp-smart-folder-watcher', icon: MessageCircle, label: 'التقاط وتحليل محادثات واتساب', permission: 'view_reviews' },
-    { path: '/sales-intelligence/qa', icon: ShieldCheck, label: 'مراجعة حالات ذكاء المبيعات', permission: 'view_reviews' },
+    { path: '/whatsapp-smart-folder-watcher', icon: MessageCircle, label: 'التقاط وتحليل محادثات واتساب', permission: 'manage_whatsapp_capture' },
+    { path: '/sales-intelligence/qa', icon: ShieldCheck, label: 'مراجعة حالات ذكاء المبيعات', permission: 'manage_whatsapp_capture' },
     { path: '/reviews', icon: ClipboardCheck, label: 'تقييم المحادثات', permission: 'view_reviews' },
     { path: '/whatsapp-analytics', icon: BarChart3, label: 'تحليلات واتساب', permission: 'view_reviews' },
   ]},
@@ -131,7 +131,7 @@ export const GROUPS: NavGroup[] = [
     { path: '/purchase-cycle-report', icon: PackageSearch, label: 'تقرير دورة المشتريات', permission: 'view_purchases' },
     { path: '/supplier-accounts', icon: WalletCards, label: 'حسابات الموردين', permission: 'view_purchases' },
     { path: '/purchase-order-log', icon: ClipboardList, label: 'سجل الطلبيات', permission: 'view_purchases' },
-    { path: '/shift-handovers', icon: Clock, label: 'تسليم الشيفتات', permission: 'view_purchases' },
+    { path: '/shift-handovers', icon: Clock, label: 'تسليم الشيفتات' },
   ]},
 
   { title: 'المخزون وتشغيل الصيدلية', icon: Store, items: [
