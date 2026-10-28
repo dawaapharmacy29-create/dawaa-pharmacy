@@ -104,11 +104,14 @@ Re-check after the changes (resolver key over staff names and active aliases):
 
 - «اسلام»: one owner (د اسلام فاروق). **Resolved.**
 - «دنيا»: one owner (د دنيا). **Resolved** — her new invoices keep linking after #556.
-- «علا» and «اعبدالحميد»: still in conflict because the archived duplicates still own 4 active
-  aliases each («علا», «د علا», «د/ علا», «دكتور علا» / «ا عبد الحميد», «د ا عبد الحميد»,
-  «د/ ا عبد الحميد», «دكتور ا عبد الحميد»). Neither key has seller invoices since 2026-07-26.
-  **Pending decision:** retire those 8 aliases (audited) so the keys belong to the active records.
-- «محمدخالد», «ضحي»: retired-only owners; left unresolved by design.
+- «علا» and «اعبدالحميد»: the archived duplicates owned 4 active aliases each («علا», «د علا»,
+  «د/ علا», «دكتور علا» / «ا عبد الحميد», «د ا عبد الحميد», «د/ ا عبد الحميد»,
+  «دكتور ا عبد الحميد»). **Retired (approved, 8 aliases, `activity_log` `retire_staff_alias`).**
+  Both keys now belong to the active records. Neither key had seller invoices since 2026-07-26.
+- «محمدخالد», «ضحي»: retired-only owners; left unresolved by design (no live employee).
 
-Merge gate status: the TypeScript gate for «دنيا» is cleared. The migration preflight (alias level)
-still aborts on «علا» while the archived «د/ علا» record owns active aliases of that key.
+Final check (2026-10-28): migration preflight (alias level) — **no key with two owners**;
+resolver — only the two retired-only keys above; 128 active aliases; 11 audit rows today.
+
+Merge gate status: identity conflicts cleared. Remaining before merge: final review and explicit
+approval; the migration needs its own backup check and `apply_migration` approval.
