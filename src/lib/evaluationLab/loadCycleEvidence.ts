@@ -145,6 +145,7 @@ export async function loadCycleEvidence(cycle: LabCycle): Promise<LabEvidence> {
       coded: text(row.customer_code) !== '',
       branch: text(row.branch) || null,
       deliveryStaffId: text(row.delivery_staff) ? courierFor(row.delivery_staff) : null,
+      deliveryLabeled: text(row.delivery_staff) !== '',
     })),
     reviews: official.flatMap((row) => {
       const score = conversationReviewScore100(row);

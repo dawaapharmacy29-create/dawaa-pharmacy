@@ -13,7 +13,7 @@ import {
 
 export interface LabEvidence {
   staff: Array<{ id: string; name: string; role: string; branch: string | null }>;
-  invoices: Array<{ staffId: string | null; net: number; date: string; coded: boolean; branch: string | null; deliveryStaffId: string | null }>;
+  invoices: Array<{ staffId: string | null; net: number; date: string; coded: boolean; branch: string | null; deliveryStaffId: string | null; deliveryLabeled?: boolean }>;
   /** Official conversation reviews only (0..100). */
   reviews: Array<{ staffId: string; score: number }>;
   attendance: Array<{ staffId: string; date: string; status: string | null; hasFirstIn: boolean; scheduled: boolean; lateMinutes: number }>;
@@ -283,7 +283,28 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
   // Delivery.
   const couriers = familyMembers('delivery');
   if (version === 'v6.1') {
-    fairShareAxis('deliveries_per_day', couriers, evidence, (inv) => inv.deliveryStaffId, (inv) => (inv.deliveryStaffId ? 1 : 0),
+    // Delivery evidence quality per branch: labelled share and the share of labels resolved to a courier.
+    const courierBranchQuality = new Map<string, { labelled: number; resolved: number; total: number }>();
+    for (const invoice of evidence.invoices) {
+      const key = branchKey(invoice.branch);
+      const row = courierBranchQuality.get(key) || { labelled: 0, resolved: 0, total: 0 };
+      row.total += 1;
+      if (invoice.deliveryLabeled ?? Boolean(invoice.deliveryStaffId)) row.labelled += 1;
+      if (invoice.deliveryStaffId) row.resolved += 1;
+      courierBranchQuality.set(key, row);
+    }
+    const deliveryGap = (branch: string | null) => {
+      const q = courierBranchQuality.get(branchKey(branch));
+      if (!q || !q.total) return 'لا توجد فواتير للفرع';
+      const labelled = q.labelled / q.total;
+      const resolved = q.labelled ? q.resolved / q.labelled : 0;
+      if (labelled < LAB_THRESHOLDS.minCourierLabelShare) return `الفرع يكتب اسم الدليفري على ${round(labelled * 100)}٪ فقط من الفواتير (الحد ${LAB_THRESHOLDS.minCourierLabelShare * 100}٪)`;
+      if (resolved < LAB_THRESHOLDS.minCourierLabelResolved) return `${round(resolved * 100)}٪ فقط من أسماء الدليفري على الفواتير مربوطة بموظف توصيل (الحد ${LAB_THRESHOLDS.minCourierLabelResolved * 100}٪)`;
+      return null;
+    };
+    const gaps = new Map(couriers.map((c) => [c.id, deliveryGap(c.branch)]));
+    for (const { id } of couriers) { const gap = gaps.get(id); if (gap) push(id, notMeasurable('deliveries_per_day', gap)); }
+    fairShareAxis('deliveries_per_day', couriers.filter((c) => !gaps.get(c.id)), evidence, (inv) => inv.deliveryStaffId, (inv) => (inv.deliveryStaffId ? 1 : 0),
       (own, expected, days, share) => `${own} توصيلة من نصيب متوقع ${round(expected)} في ${days} يوم عمل (×${round(share, 2)})`)
       .forEach((axis, id) => push(id, axis));
   } else {

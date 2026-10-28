@@ -189,6 +189,21 @@ describe('buildCycleScores v6.1 (owner review 2026-10-28)', () => {
     expect(withCancelled.find((r) => r.staffId === 'd1')!.axes.find((a) => a.key === 'customer_requests')!.basis).toContain('1 ملغي لا يُحتسب');
   });
 
+  it('deliveries are not scored where the branch does not record or link courier names', () => {
+    const run = buildCycleScores(evidence({
+      staff: [{ id: 'c1', name: 'أ', role: 'توصيل', branch: 'فرع شكري' }],
+      attendance: days('c1', 10),
+      invoices: [
+        ...Array.from({ length: 10 }, () => ({ staffId: null, net: 0, date: '2026-10-01', coded: true, branch: 'فرع شكري', deliveryStaffId: 'c1', deliveryLabeled: true })),
+        ...Array.from({ length: 10 }, () => ({ staffId: null, net: 0, date: '2026-10-01', coded: true, branch: 'فرع شكري', deliveryStaffId: null, deliveryLabeled: true })),
+      ],
+      reviews: [], requests: [], dormantSources: ['delivery_ratings'],
+    }));
+    const axis = run[0].axes.find((a) => a.key === 'deliveries_per_day')!;
+    expect(axis.status).toBe('not_measurable');
+    expect(axis.reason).toContain('50٪ فقط من أسماء الدليفري');
+  });
+
   it('couriers are compared by fair share of the branch deliveries on their own days', () => {
     const run = buildCycleScores(evidence({
       staff: [{ id: 'c1', name: 'أ', role: 'توصيل', branch: 'فرع شكري' }, { id: 'c2', name: 'ب', role: 'delivery', branch: 'فرع شكري' }],

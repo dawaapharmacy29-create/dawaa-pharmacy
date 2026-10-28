@@ -144,3 +144,16 @@ Data facts (Production, cycle 2026-09-26 → 2026-10-25):
 - Attendance: 176 days still waiting for a decision (فرع الشامي 89, فرع شكري 78).
 
 Production keeps: a manager adjustment of at most ±10 with a mandatory written reason, visible to the employee and open to appeal (not part of the read-only lab).
+
+### v6.1 first real run (cycle 2026-09-26 → 2026-10-25)
+
+- **Deliveries cannot rank couriers yet.**
+  - فرع الشامي writes a courier name on about 9% of its invoices.
+  - Labels such as «ا محمد عاطف» (391 invoices) and «ا محمد الديب» do not resolve, because of the honorific prefix.
+  - Assistants' names also appear as couriers.
+  - The delivery axis is therefore gated: it is not measurable until a branch labels ≥25% of invoices and ≥80% of its labels resolve to a courier. The fix belongs to identity aliases and to recording at the counter, not to the lab.
+- **Customer request execution is the weakest branch signal:**
+  - فرع شكري: 45 of 194 valid requests closed, median 44 h.
+  - فرع الشامي: 9 of 63 closed, median 80 h.
+  - Most open requests are still `new`.
+- **Branch targets are a standing per-branch value** (`branch_sales_targets`, no cycle history). The production projection must snapshot the target used for each closed cycle.

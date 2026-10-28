@@ -140,6 +140,13 @@ export const LAB_THRESHOLDS = {
   codingGateFloor: 0.95,
   codingGatePointsPerPercent: 2,
   codingGateMaxPenalty: 10,
+  /**
+   * Delivery evidence gate (v6.1): a branch's deliveries are scored only when it writes a courier
+   * name on enough invoices and those names resolve to couriers; otherwise the axis measures the
+   * recording, not the courier.
+   */
+  minCourierLabelShare: 0.25,
+  minCourierLabelResolved: 0.8,
   /** Team follow-up of missing punches (v6.1): 85% corrected → 0, 100% → 100. */
   followupFloor: 0.85,
 } as const;
