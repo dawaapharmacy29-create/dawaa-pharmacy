@@ -13,6 +13,7 @@ export default function EvaluationAxisCardV1(props:{
 }){
  const weak=props.score>0&&props.score<=2;
  const manualEvidence=props.evidence.status==='manual';
+ const manualSalesQuality=manualEvidence&&props.axisKey==='sales_quality';
  const noteMissing=weak&&!props.note.trim();
  const manualNoteMissing=manualEvidence&&props.score>0&&props.note.trim().length<12;
  const decisionNoteMissing=noteMissing||manualNoteMissing;
@@ -96,12 +97,13 @@ export default function EvaluationAxisCardV1(props:{
 
    <div className="rounded-xl border p-3" style={{borderColor:'var(--dawaa-theme-border)',background:'var(--dawaa-theme-surface)'}}>
     <div className="mb-2 text-xs font-black" style={{color:'var(--dawaa-theme-muted)'}}>قرار المدير</div>
+    {manualSalesQuality?<div className="mb-2 rounded-lg border p-2 text-[11px] font-bold leading-5" style={{borderColor:'var(--dawaa-status-warning-border)',background:'var(--dawaa-status-warning-bg)',color:'var(--dawaa-status-warning-text)'}}>تقييم يدوي استثنائي لعدم اكتمال العينة الآلية. اكتب واقعة أو نتيجة محددة تبرر الدرجة؛ مدير الفروع يراجع ويعدل قبل الاعتماد النهائي.</div>:null}
     <div className="flex gap-0.5">{[1,2,3,4,5].map(n=><button type="button" aria-label={`اختيار ${n} نجوم`} disabled={!props.canEdit||evidenceBlocksDecision} key={n} onClick={()=>props.onScore(n)} className="rounded-md p-0.5 disabled:cursor-not-allowed disabled:opacity-45"><Star className={n<=props.score?'fill-current':''} size={21} style={{color:n<=props.score?'var(--dawaa-status-warning-text)':'var(--dawaa-theme-border)'}}/></button>)}</div>
     {props.score?<div className="mt-1 text-xs font-black" style={{color:'var(--dawaa-theme-text)'}}>{props.score}/5{props.rubricText?` · ${props.rubricText}`:''}</div>:null}
    </div>
   </div>
 
-  <textarea disabled={!props.canEdit} value={props.note} onChange={e=>props.onNote(e.target.value)} rows={2} placeholder={manualEvidence?'مطلوب واقعة أو نتيجة موثقة تبرر الدرجة':weak?'مطلوب سبب واضح للدرجة الضعيفة':'ملاحظة مختصرة عند الحاجة'} className="mt-3 w-full rounded-xl border px-3 py-2.5 text-xs leading-5 disabled:opacity-70" style={{borderColor:decisionNoteMissing?'var(--dawaa-status-danger-border)':'var(--dawaa-theme-border)',background:decisionNoteMissing?'var(--dawaa-status-danger-bg)':'var(--dawaa-theme-surface)',color:'var(--dawaa-theme-text)'}}/>
+  <textarea disabled={!props.canEdit} value={props.note} onChange={e=>props.onNote(e.target.value)} rows={2} placeholder={manualSalesQuality?'إجباري: اذكر موقف بيع أو فاتورة محددة وسبب اختيار الدرجة (12 حرفًا على الأقل)':manualEvidence?'مطلوب واقعة أو نتيجة موثقة تبرر الدرجة':weak?'مطلوب سبب واضح للدرجة الضعيفة':'ملاحظة مختصرة عند الحاجة'} className="mt-3 w-full rounded-xl border px-3 py-2.5 text-xs leading-5 disabled:opacity-70" style={{borderColor:decisionNoteMissing?'var(--dawaa-status-danger-border)':'var(--dawaa-theme-border)',background:decisionNoteMissing?'var(--dawaa-status-danger-bg)':'var(--dawaa-theme-surface)',color:'var(--dawaa-theme-text)'}}/>
   {evidenceBlocksDecision?<div className="mt-1 text-xs font-black" style={{color:'var(--dawaa-status-warning-text)'}}>لا يمكن اتخاذ قرار على هذا المحور قبل اكتمال الدليل المطلوب.</div>:null}
   {noteMissing?<div className="mt-1 text-xs font-black" style={{color:'var(--dawaa-status-danger-text)'}}>الدرجة الضعيفة لا تُعتمد بدون سبب مكتوب.</div>:null}
   {manualNoteMissing?<div className="mt-1 text-xs font-black" style={{color:'var(--dawaa-status-danger-text)'}}>هذا المحور يعتمد على دليل يدوي؛ اكتب واقعة أو نتيجة واضحة (12 حرفًا على الأقل) قبل الاعتماد.</div>:null}
