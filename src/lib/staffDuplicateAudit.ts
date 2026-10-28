@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { staffIdentityKey } from './staff/staffIdentityKey';
 
 export interface StaffDuplicateGroup {
   normalized_name: string;
@@ -70,17 +71,10 @@ export interface StaffDuplicateAuditClient {
 
 const defaultClient = supabase as unknown as StaffDuplicateAuditClient;
 
+// Duplicate detection groups by the canonical identity key. The former local rule
+// stripped any leading د/أ/م letter, so محمد and أحمد collapsed into one key.
 export function normalizeStaffName(name: string): string {
-  if (!name) return '';
-  return name
-    .replace(/^(د|د\/|د\.|دكتور|أ|أ\/|أ\.|أستاذ|م|م\/|م\.|مهندس)/i, '')
-    .trim()
-    .replace(/[أإآ]/g, 'ا')
-    .replace(/[ة]/g, 'ه')
-    .replace(/[ي]/g, 'ى')
-    .replace(/[.,،\-_]/g, '')
-    .replace(/\s+/g, '')
-    .toLowerCase();
+  return staffIdentityKey(name);
 }
 
 async function loadStaffAccountsByStaffId(client: StaffDuplicateAuditClient): Promise<Map<string, string>> {

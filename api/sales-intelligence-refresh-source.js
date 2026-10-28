@@ -465,8 +465,8 @@ function cairoCalendarParts(date) {
 var STAFF_INTRO_PATTERNS = [
   /(?:مع\s+حضرتك|معاك(?:ي)?)\s+(?:(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*)?([^\n،,.]+?)\s+من\s+فرع\s+(?:شكري|الشامي)(?=[\s،,.!?؟]|$)/i,
   /مع\s+حضرتك\s+(?:(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*)?([^\n،,.]+?)\s+من\s+(?:خدمة\s*(?:ال)?عملاء(?:\s+(?:صيدليات\s+)?دواء)?|صيدليات\s+دواء)/i,
-  /مع حضرتك\s+(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*([^\n،,.]+)/i,
-  /معاك(?:ي)?\s+(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*([^\n،,.]+)/i,
+  /مع حضرتك\s+(?:دكتور(?:ة)?\s+|دكتوره\s+|د(?:[./-]\s*|\s+))([^\n،,.]+)/i,
+  /معاك(?:ي)?\s+(?:دكتور(?:ة)?\s+|دكتوره\s+|د(?:[./-]\s*|\s+))([^\n،,.]+)/i,
   /(?:د\.?|دكتور(?:ة)?|دكتوره)\s+([^\n،,.]+)\s+من\s+(?:خدمة (?:ال)?عملاء|صيدليات)\s+دواء/i
 ];
 var PHARMACY_TEXT_RX = /(صيدليات دواء|مع حضرتك|تحت امر حضرتك|تحت أمر حضرتك|تم تأكيد الطلب|جاري الارسال|جاري الإرسال)/i;
@@ -1516,6 +1516,13 @@ function continuesOpenServiceNeed(current, next, gapMs) {
 var ADDITIVE_REQUEST_RX = /(?:^|\s)(?:وكمان|كمان|وزود|زود|ضيف|معاهم|معاه|مع\s*الطلب)(?:\s|$)/i;
 var STAFF_PENDING_REPLY_RX = /لحظات|ثواني|دقيق[ةه]|اشوف|أشوف|هشوف|هراجع|هتأكد|هاتأكد|جاري\s*(?:المراجعه|المراجعة|البحث)/i;
 var CLOSING_RX = /شكر(?:ا|ًا)?\s*لتواصلك|تحت\s*أمرك\s*دائم(?:ا|ًا)?|يومك\s*سعيد|في\s*خدمتك\s*دائم(?:ا|ًا)?/i;
+var BRANDED_COURTESY_SIGNATURE_RX = /صيدليات\s*دواء\s*تتشرف\s*بخدم[ةه]\s*حضرتك|الأقرب\s*إليك[^\n]*نهتم\s*بصحتك/u;
+var CUSTOMER_FULFILMENT_CONFIRMATION_RX = /(?:^|\s)(?:وصل(?:ت|ني)?|اتسلم(?:ت)?|استلمت(?:ه|ها)?|(?:المشكل[ةه]|الموضوع)\s*اتحل(?:ت)?)(?:\s|$|[!.،])/u;
+var NEW_PROBLEM_OR_REQUEST_RX = /ناقص|غلط|مكسور|مفتوح|بايظ|متأخر|متاخر|اتأخر|اتاخر|مجاش|ماجاش|موصلش|ماوصلش|مش\s*(?:هو|ده|دي|كامل)|بس\s|لكن|عايز|عايزه|محتاج|ممكن|\?|؟/u;
+function isCustomerFulfilmentConfirmationOnly(text6) {
+  const value = (text6 || "").trim();
+  return CUSTOMER_FULFILMENT_CONFIRMATION_RX.test(value) && !NEW_PROBLEM_OR_REQUEST_RX.test(value);
+}
 var TOPIC_SHIFT_MARKER_RX = /بالمناسبة|كمان\s*حاجة|سؤال\s*تاني|بس\s*كمان\s*عايز|في\s*مشكلة\s*تاني[ةه]|حاجة\s*تانية\s*خالص/i;
 var CUSTOMER_COURTESY_RESPONSE_RX = /^(?:ولا\s*يهمك(?:\s+يا\s+(?:حبيبتي|حبيبي|فندم))?|العفو(?:\s+يا\s+فندم)?|شك(?:را|رًا)(?:\s+على\s+ذوق\s+حضرتك)?|ربنا\s+(?:يكرمك|يخليك)|تسلم(?:ي)?)[!.، ]*$/iu;
 function lastMeaningfulOfRole(current, role) {
@@ -1589,6 +1596,8 @@ function hasStrongSemanticContinuation(current, next, gapMs) {
   return false;
 }
 function shouldKeepSemanticContinuation(current, next, gapMs) {
+  if (current.length && gapMs >= 0 && gapMs <= SEMANTIC_CONTINUATION_MAX_GAP_MS && next.role === "staff" && BRANDED_COURTESY_SIGNATURE_RX.test(next.text) && !isOperationalServiceRequest(next) && !startsIndependentCommercialNeed(next)) return true;
+  if (current.length && gapMs >= 0 && gapMs <= SEMANTIC_CONTINUATION_MAX_GAP_MS && next.role === "customer" && current.some((message) => message.role === "staff" && message.isMeaningful) && isCustomerFulfilmentConfirmationOnly(next.text) && !startsIndependentCommercialNeed(next)) return true;
   if (hasStrongSemanticContinuation(current, next, gapMs)) return true;
   return gapMs <= INTERACTION_GAP_MS && next.role === "customer" && next.isMeaningful && currentHasOrderCommitment(current) && ADDITIVE_REQUEST_RX.test(next.text);
 }
@@ -4049,9 +4058,6 @@ function qualifiesForAutomaticInvoiceLink(ctx, row, provider) {
   if (!caseName || !invoiceName || caseName !== invoiceName) return false;
   const invoiceCustomerId = getInvoiceCustomerId(row);
   if (invoiceCustomerId && invoiceCustomerId !== ctx.customerId) return false;
-  const invoiceStaffId = getInvoiceStaffId(row, ctx.resolveInvoiceStaffIdByName);
-  const caseStaffIds = [...new Set(ctx.knownStaffIds.filter(Boolean))];
-  if (invoiceStaffId && caseStaffIds.length > 0 && !caseStaffIds.includes(invoiceStaffId)) return false;
   const branchMatch = classifyBranch(ctx, row);
   if (branchMatch === "mismatch") return false;
   const time3 = classifyTime(ctx, row);
@@ -4088,7 +4094,7 @@ function scoreCandidate(input) {
     factors.push("customer_id_match");
   }
   if (input.phoneMatch) {
-    score += W.phoneMatch;
+    if (!input.customerIdMatch) score += W.phoneMatch;
     factors.push("phone_match");
   }
   const strongerIdentityMatched = Boolean(input.customerIdMatch || input.phoneMatch);
@@ -4184,7 +4190,7 @@ function buildEvidenceItems(input) {
       kind: "same_phone",
       matched: input.identity.phoneMatch,
       detail: input.identity.phoneMatch ? "\u062A\u0637\u0627\u0628\u0642 \u062A\u0627\u0645 \u0644\u0631\u0642\u0645 \u0627\u0644\u0647\u0627\u062A\u0641 \u0628\u0639\u062F \u0627\u0644\u062A\u0637\u0628\u064A\u0639 \u0627\u0644\u0645\u0635\u0631\u064A." : "\u0644\u0627 \u064A\u0648\u062C\u062F \u062A\u0637\u0627\u0628\u0642 \u0644\u0631\u0642\u0645 \u0627\u0644\u0647\u0627\u062A\u0641.",
-      weight: input.identity.phoneMatch ? W.phoneMatch : 0
+      weight: input.identity.phoneMatch && !input.identity.customerIdMatch ? W.phoneMatch : 0
     },
     {
       kind: "same_branch",
@@ -4416,11 +4422,12 @@ function recommendInvoiceCandidate(top, second, context) {
     top.productCoverage === "full" ? "\u0643\u0644 \u0623\u0635\u0646\u0627\u0641 \u0627\u0644\u062D\u0627\u0644\u0629 \u0627\u0644\u0645\u062D\u0633\u0648\u0645\u0629 \u0645\u0648\u062C\u0648\u062F\u0629 \u0641\u064A \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u062F\u0648\u0646 \u062A\u0639\u0627\u0631\u0636 \u0643\u0645\u064A\u0629" : "\u0635\u0646\u0641 \u0648\u0627\u062D\u062F \u0639\u0644\u0649 \u0627\u0644\u0623\u0642\u0644 \u0645\u0646 \u0627\u0644\u062D\u0627\u0644\u0629 \u0645\u0637\u0627\u0628\u0642 \u0641\u064A \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 (\u0628\u0627\u0644\u0643\u0648\u062F \u0623\u0648 \u0627\u0644\u0645\u0646\u062A\u062C) \u062F\u0648\u0646 \u062A\u0639\u0627\u0631\u0636 \u0643\u0645\u064A\u0629",
     top.productMatch === "unavailable" ? "\u0644\u0627 \u062A\u0648\u062C\u062F \u0623\u0635\u0646\u0627\u0641 \u0645\u062D\u0633\u0648\u0645\u0629 \u0643\u0627\u0641\u064A\u0629 \u0644\u0644\u0645\u0642\u0627\u0631\u0646\u0629 (\u0635\u0648\u0631\u0629/\u0635\u0648\u062A \u063A\u064A\u0631 \u0645\u062A\u0627\u062D \u0623\u0648 \u0627\u0633\u0645 \u063A\u064A\u0631 \u0645\u062D\u0633\u0648\u0645)" : "\u0623\u0635\u0646\u0627\u0641 \u0627\u0644\u062D\u0627\u0644\u0629 \u0644\u0627 \u062A\u0637\u0627\u0628\u0642 \u0628\u0646\u0648\u062F \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0623\u0648 \u0627\u0644\u0643\u0645\u064A\u0629 \u0645\u062A\u0639\u0627\u0631\u0636\u0629"
   );
-  check(top.staffMatch !== "different", top.staffMatch === "same" ? "\u0628\u0627\u0626\u0639 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0647\u0648 \u0646\u0641\u0633 \u0627\u0644\u0645\u0648\u0638\u0641 \u0627\u0644\u0645\u0634\u0627\u0631\u0643 \u0641\u064A \u0647\u0630\u0647 \u0627\u0644\u062D\u0627\u0644\u0629" : "\u0644\u0627 \u064A\u0648\u062C\u062F \u062A\u0639\u0627\u0631\u0636 \u0641\u064A \u0627\u0644\u0628\u0627\u0626\u0639", "\u0628\u0627\u0626\u0639 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0645\u0648\u0638\u0641 \u0645\u062E\u062A\u0644\u0641 \u0639\u0646 \u0627\u0644\u0645\u0634\u0627\u0631\u0643 \u0641\u064A \u0627\u0644\u062D\u0627\u0644\u0629");
+  if (top.staffMatch === "same") reasons.push("\u0628\u0627\u0626\u0639 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0647\u0648 \u0646\u0641\u0633 \u0627\u0644\u0645\u0648\u0638\u0641 \u0627\u0644\u0645\u0634\u0627\u0631\u0643 \u0641\u064A \u0647\u0630\u0647 \u0627\u0644\u062D\u0627\u0644\u0629");
+  else if (top.staffMatch === "different") reasons.push("\u0628\u0627\u0626\u0639 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0645\u0648\u0638\u0641 \u0622\u062E\u0631 \u2014 \u0644\u0627 \u064A\u0645\u0646\u0639 \u0631\u0628\u0637 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0628\u0627\u0644\u062D\u0627\u0644\u0629\u060C \u0648\u0644\u0627 \u064A\u062D\u062F\u062F \u0648\u062D\u062F\u0647 \u0635\u0627\u062D\u0628 \u0627\u0644\u0625\u0633\u0646\u0627\u062F");
   const clean4 = top.disqualifiers.length === 0 && top.identityConflict === "none" && !context.ambiguous && context.competingCaseIds.length === 0 && context.candidatePoolComplete !== false;
   check(clean4, "\u0644\u0627 \u062A\u0648\u062C\u062F \u062A\u0639\u0627\u0631\u0636\u0627\u062A \u0647\u0648\u064A\u0629 \u0623\u0648 \u062D\u0627\u0644\u0627\u062A \u0645\u0646\u0627\u0641\u0633\u0629 \u0639\u0644\u0649 \u0646\u0641\u0633 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629", "\u064A\u0648\u062C\u062F \u062A\u0639\u0627\u0631\u0636 \u0623\u0648 \u062D\u0627\u0644\u0629 \u0623\u062E\u0631\u0649 \u062A\u0646\u0627\u0641\u0633 \u0639\u0644\u0649 \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629");
   check(lead >= STRONG_CANDIDATE_MIN_LEAD, "\u062A\u0641\u0648\u0642 \u0648\u0627\u0636\u062D \u0639\u0644\u0649 \u0623\u064A \u0641\u0627\u062A\u0648\u0631\u0629 \u0645\u0631\u0634\u062D\u0629 \u0623\u062E\u0631\u0649", "\u0641\u0627\u062A\u0648\u0631\u0629 \u0623\u062E\u0631\u0649 \u0642\u0631\u064A\u0628\u0629 \u0641\u064A \u0627\u0644\u0642\u0648\u0629\u061B \u064A\u0644\u0632\u0645 \u062A\u0631\u062C\u064A\u062D \u0628\u0634\u0631\u064A");
-  const strong = uniqueCode && Boolean(top.customerNameMatch) && closeTime && productOk && top.staffMatch !== "different" && clean4 && lead >= STRONG_CANDIDATE_MIN_LEAD;
+  const strong = uniqueCode && Boolean(top.customerNameMatch) && closeTime && productOk && clean4 && lead >= STRONG_CANDIDATE_MIN_LEAD;
   const supported = !strong && Boolean(top.customerCodeMatch) && closeTime && clean4 && (productOk || top.staffMatch === "same" || top.announcedTotalMatch === "exact");
   return {
     level: strong ? "strong_candidate_requires_approval" : supported ? "supported_candidate" : "weak_candidate",
@@ -4523,6 +4530,12 @@ function deriveSaleAttributionAssessment(ctx, invoiceRows, itemEvidenceProvider 
     ambiguous = true;
     contradictions.push("ambiguous_multiple_candidates");
     humanReviewReasons.push("ambiguous_multiple_candidates");
+  }
+  const competingInvoices = !directLinked && automaticMatches.length > 1;
+  if (competingInvoices) {
+    ambiguous = true;
+    if (!contradictions.includes("ambiguous_multiple_candidates")) contradictions.push("ambiguous_multiple_candidates");
+    humanReviewReasons.push("competing_invoices_for_case");
   }
   const competingCaseIds = Array.from(
     new Set(
@@ -4777,6 +4790,15 @@ function rollupOverallMatch(totalMatch, itemMatch, quantityMatch, itemEvidenceRe
   }
   return "partial";
 }
+function hasStrongNonTotalInvoiceEvidence(attribution) {
+  const candidate = attribution.selectedCandidate;
+  if (!candidate || candidate.invoiceId !== attribution.selectedInvoiceId) return false;
+  if (candidate.identityConflict !== "none") return false;
+  if (attribution.contradictions.length > 0 || attribution.competingCaseIds.length > 0) return false;
+  const customer = candidate.customerIdMatch || candidate.customerCodeMatch === true;
+  const timing = candidate.timeMatchStrength === "very_strong" || candidate.timeMatchStrength === "strong";
+  return customer && timing && candidate.hasUniqueCanonicalProductQuantityMatch === true;
+}
 function resolveIntegrityScope(headerEvidenceReady, itemEvidenceReady) {
   if (!headerEvidenceReady) return "insufficient";
   return itemEvidenceReady ? "header_and_items" : "header_only";
@@ -4847,7 +4869,7 @@ function deriveBasketInvoiceMatch(input) {
   const basketItems = input.itemsByBasketId[activeBasket.basketId] || [];
   const adjustments = input.documentedAdjustments ?? [];
   const { status: totalMatch, basketAmount, invoiceAmount } = classifyTotalMatch(activeBasket, input.invoiceRow);
-  const headerEvidenceReady = basketAmount != null && invoiceAmount != null;
+  const headerEvidenceReady = invoiceAmount != null && (basketAmount != null || hasStrongNonTotalInvoiceEvidence(attribution));
   const {
     itemMatch,
     quantityMatch,
@@ -5859,7 +5881,10 @@ function deriveCanonicalSalesOutcome(input) {
 // src/lib/salesIntelligence/complaintAssessmentEngine.ts
 var COMPLAINT_RX = /(?:زعلان|متضايق|غاضب|شكوى|مشكله|مشكلة|مش\s*راضي|سيئ|وحش|خدمة\s*وحشه|خدمة\s*سيئه|كل\s*مرة|كل\s*مره|بشتكي|ليه\s*كده|(?:طريق[ةه]|[أا]سلوب|معامل[ةه]).{0,35}(?:سخيف|سيئ|وحش|مش\s*لائق)|(?:المندوب|الدليفري).{0,25}(?:بيزعق|بيشخط|شتمني|[أا]هانني))/i;
 var APOLOGY_RX = /(?:متاسف|متأسف|آسف|اسف|بنعتذر|نعتذر|بعتذر|[أا]عتذر|حقك\s*علينا|معلش)/i;
-var REMEDY_RX = /(?:هحل|هنحل|هنبدل|هبدل|هنرجع|هرجع\s*المبلغ|هتابع|هراجع|هكلم|هنكلم|هنوفر|هشوف|هراجع\s*بنفسي|(?:صعدت|هصعد)\s*(?:الموضوع|الشكوى|الموقف)|تم\s*تصعيد\s*(?:الموضوع|الشكوى))/i;
+var REMEDY_RX = (
+  // Sending the missing/replacement item is a concrete remedy ("هنبعت العلبة الناقصة حالا").
+  /(?:هحل|هنحل|هنبدل|هبدل|هنرجع|هنبعت|هبعت|هنبعتل|هبعتل|هنرسل|هرسل|هنستبدل|هستبدل|هنعوض|هعوض|هرجع\s*المبلغ|هتابع|هراجع|هكلم|هنكلم|هنوفر|هشوف|هراجع\s*بنفسي|(?:صعدت|هصعد)\s*(?:الموضوع|الشكوى|الموقف)|تم\s*تصعيد\s*(?:الموضوع|الشكوى))/i
+);
 var HOSTILE_RX = /(?:لو\s*مش\s*عاجبك|مش\s*مشكلتي|مش\s*شغلي|بلاش\s*زن|ما\s*تزنش|انت\s*غلطان|إنت\s*غلطان|روح\s*اشتكي|اخرس|اخرسي)/i;
 var STAFF_RESOLUTION_RX = /(?:اتحل(?:ت)?\s*(?:المشكله|المشكلة|الموضوع)?|تم\s*(?:حل|معالجة)\s*(?:المشكله|المشكلة|الموضوع)?|اتظبط(?:ت)?\s*(?:المشكله|المشكلة|الموضوع)?)/i;
 var CUSTOMER_RESOLUTION_RX = /(?:المشكله\s*اتحلت|المشكلة\s*اتحلت|الموضوع\s*اتحل|كده\s*تمام|كدا\s*تمام|تمام\s*كده|تمام\s*كدا|شكرا.*(?:اتحل|اتظبط|تمام))/i;
@@ -7826,6 +7851,26 @@ function deriveCaseOperationalDisposition(input) {
   };
 }
 
+// src/lib/salesIntelligence/productIdentityReviewClosure.ts
+function evaluateAuditedProductIdentityClosure(input) {
+  if (input.saleProofState !== "proven" || !input.invoiceId || !input.activeItems.length) {
+    return { resolved: false, reviewIds: [] };
+  }
+  const unresolved = input.activeItems.filter((item) => item.resolutionStatus !== "proven" || !item.productId);
+  if (!unresolved.length) return { resolved: false, reviewIds: [] };
+  const used = /* @__PURE__ */ new Set();
+  const accepted = [];
+  for (const item of unresolved) {
+    const matching = input.reviews.filter(
+      (review) => review.sourceId === input.sourceId && review.caseId === input.caseId && review.invoiceId === input.invoiceId && review.basketItemId === item.itemId && review.sourceMessageId === item.sourceMessageId && review.rawPhrase === item.productNameRaw && review.catalogProductId === item.productId && review.catalogProductCode === item.productCode && item.quantity !== null && review.quantity === item.quantity && !used.has(review.reviewId)
+    );
+    if (matching.length !== 1) return { resolved: false, reviewIds: [] };
+    used.add(matching[0].reviewId);
+    accepted.push(matching[0].reviewId);
+  }
+  return { resolved: true, reviewIds: accepted.sort() };
+}
+
 // src/lib/salesIntelligence/canonicalCaseBranch.ts
 function canonicalCaseBranchFromRecommendation(input) {
   const { recommendation, ownership } = input;
@@ -8290,6 +8335,17 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
       (reason) => !reviewReasonsResolvedByInvoiceBackedClosure.has(reason)
     );
   }
+  const auditedProductIdentity = evaluateAuditedProductIdentityClosure({
+    sourceId: input.conversationId,
+    caseId: conversationCase.caseId,
+    invoiceId: saleProof.trustedInvoiceId,
+    saleProofState: saleProof.state,
+    activeItems,
+    reviews: input.verifiedProductIdentityReviews ?? []
+  });
+  if (auditedProductIdentity.resolved) {
+    humanReviewReasons = humanReviewReasons.filter((reason) => reason !== "product_identity_unresolved");
+  }
   if (identityBlocked && !humanReviewReasons.includes(identityReason)) humanReviewReasons.push(identityReason);
   const unexplainedBooleanReviewFlag = rawNeedsHumanReview && rawHumanReviewReasons.length === 0;
   let needsHumanReview = humanReviewReasons.length > 0 || unexplainedBooleanReviewFlag;
@@ -8394,7 +8450,8 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
     pipelineWarnings,
     needsHumanReview,
     humanReviewReasons,
-    failureReasons,
+    failureReasons: auditedProductIdentity.resolved ? failureReasons.filter((reason) => reason !== "product_identity_unresolved") : failureReasons,
+    managerProductIdentityReviewIds: auditedProductIdentity.reviewIds,
     careFollowUp: deriveCareFollowUpSuggestion(conversationCase, scopedMessages),
     branchRecommendation: recommendCaseBranch({
       ownership: conversationCase.ownership,
@@ -8893,7 +8950,7 @@ async function loadStaffDirectoryFrom(client, options = {}) {
       ["aliases", aliasResult.error]
     ].filter(([, error]) => Boolean(error));
     if (failed.length) {
-      throw new Error(`staff_directory_incomplete: ${failed.map(([source]) => source).join(",")}`);
+      throw new Error(`\u062A\u0639\u0630\u0631 \u062A\u062D\u0645\u064A\u0644 \u062F\u0644\u064A\u0644 \u0627\u0644\u0645\u0648\u0638\u0641\u064A\u0646 (staff_directory_incomplete: ${failed.map(([source]) => source).join(",")})`);
     }
     if ((staffResult.data?.length ?? 0) >= 800 || (aliasResult.data?.length ?? 0) >= 2e3) {
       throw new Error("staff_directory_incomplete: read_limit_reached");
@@ -9612,7 +9669,8 @@ async function computeSemanticSourceHash(input) {
     trustedConversationStartedAt: input.trustedConversationStartedAt ?? null,
     branchIdentityMappingVersion: input.branchIdentityMappingVersion,
     ...input.caseOwnership ? { caseOwnership: input.caseOwnership } : {},
-    ...input.saleProofFingerprint ? { saleProofFingerprint: input.saleProofFingerprint } : {}
+    ...input.saleProofFingerprint ? { saleProofFingerprint: input.saleProofFingerprint } : {},
+    ...input.managerProductIdentityReviewIds?.length ? { managerProductIdentityReviewIds: [...input.managerProductIdentityReviewIds].sort() } : {}
   });
 }
 async function computeAttributionInputHash(input) {
@@ -9647,7 +9705,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v48-canonical-case-branch";
+var PIPELINE_VERSION = "sales-intelligence-v49-audited-product-identity-review";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v13-open-service-need-continuity",
   historicalClosure: "historical-closure-v1",
@@ -9755,6 +9813,7 @@ function mapCaseAnalysisRowContent(analysis) {
       evidenceCompleteness: analysis.evidenceCompleteness,
       // v5+: one consolidated read model instead of separate need/demand/lost/follow-up/journey keys.
       caseIntelligence: analysis.caseIntelligence,
+      managerProductIdentityReviewIds: analysis.managerProductIdentityReviewIds ?? [],
       historicalClosureEvidence: analysis.historicalClosure.confidence.evidence,
       // No dedicated applicability-rule-id field exists on OrderConfirmationProtocolAssessment —
       // applicability is DERIVED from historicalClosure + commercialConfirmation (see
@@ -9874,6 +9933,125 @@ async function persistPolicyEvaluation(supabaseClient, analysisId, caseId, analy
     isNew: data.is_new,
     policyInputHash
   };
+}
+
+// src/lib/invoices/invoiceItemCommercialMeta.ts
+function num(value) {
+  if (value == null || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+function text2(value) {
+  const s = String(value ?? "").trim();
+  return s && s !== "." ? s : null;
+}
+function readInvoiceItemCommercialMeta(rawData) {
+  const raw = rawData && typeof rawData === "object" ? rawData : {};
+  const commercial = raw.__dawaa_commercial;
+  if (commercial && typeof commercial === "object") {
+    const m = commercial;
+    return {
+      format: "dawaa_commercial",
+      effectiveQuantity: num(m.effective_quantity),
+      returnedQuantity: num(m.returned_quantity),
+      unitName: text2(m.unit_name),
+      expiryRaw: text2(m.expiry_raw),
+      itemDiscountAmount: num(m.item_discount_amount),
+      itemDiscountPercent: num(m.item_discount_percent),
+      grossLineAmount: num(m.gross_line_amount),
+      effectiveGrossAfterReturn: num(m.effective_gross_after_return),
+      netLineAmount: num(m.net_line_amount),
+      invoiceDiscountAmount: num(m.invoice_discount_amount),
+      allocatedInvoiceDiscountAmount: num(m.allocated_invoice_discount_amount),
+      invoiceNetAmount: num(m.invoice_net_amount)
+    };
+  }
+  const isCompact = ["gross_line", "line_discount", "returned", "invoice_net", "unit"].some(
+    (key) => key in raw
+  );
+  if (!isCompact) {
+    return {
+      format: "none",
+      effectiveQuantity: null,
+      returnedQuantity: null,
+      unitName: null,
+      expiryRaw: null,
+      itemDiscountAmount: null,
+      itemDiscountPercent: null,
+      grossLineAmount: null,
+      effectiveGrossAfterReturn: null,
+      netLineAmount: null,
+      invoiceDiscountAmount: null,
+      allocatedInvoiceDiscountAmount: null,
+      invoiceNetAmount: null
+    };
+  }
+  return {
+    format: "compact_import",
+    // The compact row stores the sold quantity and the returned quantity; callers derive the
+    // effective quantity from the row's own quantity column.
+    effectiveQuantity: null,
+    returnedQuantity: num(raw.returned),
+    unitName: text2(raw.unit),
+    expiryRaw: text2(raw.expiry),
+    itemDiscountAmount: num(raw.line_discount),
+    itemDiscountPercent: num(raw.line_discount_pct),
+    grossLineAmount: num(raw.gross_line),
+    effectiveGrossAfterReturn: null,
+    // The net line value of a compact row is the row's line_total column.
+    netLineAmount: null,
+    invoiceDiscountAmount: null,
+    allocatedInvoiceDiscountAmount: null,
+    invoiceNetAmount: num(raw.invoice_net)
+  };
+}
+
+// src/lib/salesIntelligence/persistence/productIdentityReviewEvidenceRepository.ts
+async function fetchVerifiedProductIdentityReviews(client, sourceIds) {
+  const ids = [...new Set(sourceIds.filter(Boolean))];
+  if (!ids.length) return {};
+  const { data: reviewRows, error: reviewError } = await client.from("whatsapp_product_identity_manager_reviews_v1").select("id,source_id,source_hash,case_id,basket_item_id,source_message_id,raw_phrase,catalog_product_id,catalog_product_code,invoice_id,invoice_item_id,quantity,decision,is_current").eq("is_current", true).in("source_id", ids).limit(5001);
+  if (reviewError) throw new Error(`product_identity_review_read_failed: ${reviewError.message}`);
+  if ((reviewRows ?? []).length >= 5001) throw new Error("product_identity_review_read_limit_reached");
+  if (!reviewRows?.length) return {};
+  const [{ data: sources, error: sourceError }, { data: lines, error: lineError }] = await Promise.all([
+    client.from("whatsapp_review_sources").select("id,source_hash,invoice_link_confirmed,invoice_link_confirmed_invoice_id").in("id", [...new Set(reviewRows.map((row) => row.source_id))]),
+    client.from("sales_invoice_items_v21").select("id,invoice_id,product_id,product_code,quantity,raw_data").in("invoice_id", [...new Set(reviewRows.map((row) => row.invoice_id))]).limit(10001)
+  ]);
+  if (sourceError || lineError) throw new Error(`product_identity_review_proof_read_failed: ${sourceError?.message || lineError?.message}`);
+  if ((lines ?? []).length >= 10001) throw new Error("product_identity_invoice_line_read_limit_reached");
+  const sourceById = new Map((sources ?? []).map((row) => [String(row.id), row]));
+  const lineById = new Map((lines ?? []).map((row) => [String(row.id), row]));
+  const result = {};
+  for (const review of reviewRows) {
+    const sourceId = String(review.source_id);
+    const source = sourceById.get(sourceId);
+    const line = lineById.get(String(review.invoice_item_id));
+    const quantity = Number(review.quantity);
+    const commercial = readInvoiceItemCommercialMeta(line?.raw_data);
+    const lineQuantity = line?.quantity == null ? NaN : Number(line.quantity);
+    const returnedQuantity = commercial.returnedQuantity ?? 0;
+    const effectiveQuantity = commercial.effectiveQuantity ?? lineQuantity - returnedQuantity;
+    const matchingLineCount = (lines ?? []).filter(
+      (candidate) => candidate.invoice_id === review.invoice_id && (candidate.product_id === review.catalog_product_id || candidate.product_code === review.catalog_product_code)
+    ).length;
+    if (!source || !line || review.decision !== "identity_confirmed" || review.is_current !== true || source.source_hash !== review.source_hash || source.invoice_link_confirmed !== true || source.invoice_link_confirmed_invoice_id !== review.invoice_id || line.invoice_id !== review.invoice_id || line.product_id !== review.catalog_product_id || line.product_code !== review.catalog_product_code || matchingLineCount !== 1 || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(lineQuantity) || !Number.isFinite(returnedQuantity) || !Number.isFinite(effectiveQuantity) || effectiveQuantity !== quantity) continue;
+    const confirmed = {
+      reviewId: String(review.id),
+      sourceId,
+      caseId: String(review.case_id),
+      basketItemId: String(review.basket_item_id),
+      sourceMessageId: String(review.source_message_id),
+      rawPhrase: String(review.raw_phrase),
+      catalogProductId: String(review.catalog_product_id),
+      catalogProductCode: String(review.catalog_product_code),
+      quantity,
+      invoiceId: String(review.invoice_id),
+      invoiceItemId: String(review.invoice_item_id)
+    };
+    (result[sourceId] ??= []).push(confirmed);
+  }
+  return result;
 }
 
 // src/lib/salesIntelligence/persistence/attributionWriter.ts
@@ -10044,77 +10222,6 @@ function mergeDeniedInvoiceMaps(target, incoming) {
     target.set(caseId, bucket);
   }
   return added;
-}
-
-// src/lib/invoices/invoiceItemCommercialMeta.ts
-function num(value) {
-  if (value == null || value === "") return null;
-  const n = Number(value);
-  return Number.isFinite(n) ? n : null;
-}
-function text2(value) {
-  const s = String(value ?? "").trim();
-  return s && s !== "." ? s : null;
-}
-function readInvoiceItemCommercialMeta(rawData) {
-  const raw = rawData && typeof rawData === "object" ? rawData : {};
-  const commercial = raw.__dawaa_commercial;
-  if (commercial && typeof commercial === "object") {
-    const m = commercial;
-    return {
-      format: "dawaa_commercial",
-      effectiveQuantity: num(m.effective_quantity),
-      returnedQuantity: num(m.returned_quantity),
-      unitName: text2(m.unit_name),
-      expiryRaw: text2(m.expiry_raw),
-      itemDiscountAmount: num(m.item_discount_amount),
-      itemDiscountPercent: num(m.item_discount_percent),
-      grossLineAmount: num(m.gross_line_amount),
-      effectiveGrossAfterReturn: num(m.effective_gross_after_return),
-      netLineAmount: num(m.net_line_amount),
-      invoiceDiscountAmount: num(m.invoice_discount_amount),
-      allocatedInvoiceDiscountAmount: num(m.allocated_invoice_discount_amount),
-      invoiceNetAmount: num(m.invoice_net_amount)
-    };
-  }
-  const isCompact = ["gross_line", "line_discount", "returned", "invoice_net", "unit"].some(
-    (key) => key in raw
-  );
-  if (!isCompact) {
-    return {
-      format: "none",
-      effectiveQuantity: null,
-      returnedQuantity: null,
-      unitName: null,
-      expiryRaw: null,
-      itemDiscountAmount: null,
-      itemDiscountPercent: null,
-      grossLineAmount: null,
-      effectiveGrossAfterReturn: null,
-      netLineAmount: null,
-      invoiceDiscountAmount: null,
-      allocatedInvoiceDiscountAmount: null,
-      invoiceNetAmount: null
-    };
-  }
-  return {
-    format: "compact_import",
-    // The compact row stores the sold quantity and the returned quantity; callers derive the
-    // effective quantity from the row's own quantity column.
-    effectiveQuantity: null,
-    returnedQuantity: num(raw.returned),
-    unitName: text2(raw.unit),
-    expiryRaw: text2(raw.expiry),
-    itemDiscountAmount: num(raw.line_discount),
-    itemDiscountPercent: num(raw.line_discount_pct),
-    grossLineAmount: num(raw.gross_line),
-    effectiveGrossAfterReturn: null,
-    // The net line value of a compact row is the row's line_total column.
-    netLineAmount: null,
-    invoiceDiscountAmount: null,
-    allocatedInvoiceDiscountAmount: null,
-    invoiceNetAmount: num(raw.invoice_net)
-  };
 }
 
 // src/lib/salesIntelligence/invoiceItemEvidenceRepository.ts
@@ -10392,6 +10499,7 @@ async function runBatchPersistence(supabaseClient, input) {
     input.conversations,
     runtimeContext
   );
+  const managerReviewsBySource = input.applyManagerProductIdentityReviews ? await fetchVerifiedProductIdentityReviews(supabaseClient, effectiveConversations.map((c) => c.conversationId)) : {};
   const baseInputByConversationId = new Map(
     effectiveConversations.map((conversation) => [
       conversation.conversationId,
@@ -10432,7 +10540,8 @@ async function runBatchPersistence(supabaseClient, input) {
       ...baseInputFor(conversation),
       competingSelections: [],
       resolveInvoiceCandidates: (context) => conversationToGroupCandidates(conversation, context),
-      itemEvidenceProvider
+      itemEvidenceProvider,
+      verifiedProductIdentityReviews: managerReviewsBySource[conversation.conversationId] ?? []
     };
     const result = runSalesIntelligencePipeline(pipelineInput);
     pass1ByConversation.set(conversation.conversationId, result.caseAnalyses);
@@ -10455,7 +10564,8 @@ async function runBatchPersistence(supabaseClient, input) {
             rows.candidatePoolComplete !== false
           ) : rows;
         },
-        itemEvidenceProvider
+        itemEvidenceProvider,
+        verifiedProductIdentityReviews: managerReviewsBySource[conversation.conversationId] ?? []
       };
       analyses.push(...runSalesIntelligencePipeline(pipelineInput).caseAnalyses);
     }
@@ -10512,7 +10622,8 @@ async function runBatchPersistence(supabaseClient, input) {
       trustedConversationStartedAt: conversationInput?.trustedConversationStartedAt ?? null,
       branchIdentityMappingVersion: BRANCH_IDENTITY_MAPPING_VERSION,
       caseOwnership: conversationCase.ownership,
-      saleProofFingerprint: saleProofFingerprint(analysis)
+      saleProofFingerprint: saleProofFingerprint(analysis),
+      managerProductIdentityReviewIds: analysis.managerProductIdentityReviewIds ?? []
     });
     const casePlan = await planCase(supabaseClient, analysis.caseId);
     const planCaseEntry = { caseId: analysis.caseId, conversationId: analysis.conversationId, customerGroupKey: groupKey };
@@ -11086,7 +11197,8 @@ function buildCanonicalComplaintActionRows(analyses, sources) {
   const sourceById = new Map(sources.map((source) => [text5(source.id), source]));
   const byIdentity = /* @__PURE__ */ new Map();
   const skipped = [];
-  for (const analysis of analyses) {
+  const ordered4 = [...analyses].sort((a, b) => String(a.conversationId).localeCompare(String(b.conversationId)) || String(a.caseId).localeCompare(String(b.caseId)));
+  for (const analysis of ordered4) {
     const complaint = analysis.complaintAssessment;
     if (!complaint || complaint.caseId !== analysis.caseId) {
       skipped.push({ caseId: analysis.caseId, reason: "missing_canonical_assessment" });
@@ -11124,19 +11236,29 @@ function buildCanonicalComplaintActionRows(analyses, sources) {
       skipped.push({ caseId: analysis.caseId, reason: "missing_complaint_time" });
       continue;
     }
-    const operation = stableOperationIdentity({
-      timeline: timeline.map((message) => ({
-        timestamp: message.timestamp,
-        direction: message.direction,
-        sender: message.sender,
-        text: message.text,
-        kind: message.kind,
-        mediaPlaceholder: message.mediaPlaceholder
-      })),
+    const operationTimeline = timeline.map((message) => ({
+      timestamp: message.timestamp,
+      direction: message.direction,
+      sender: message.sender,
+      text: message.text,
+      kind: message.kind,
+      mediaPlaceholder: message.mediaPlaceholder
+    }));
+    let operation = stableOperationIdentity({
+      timeline: operationTimeline,
       evidenceAt,
       operationType: "complaint_followup",
       reasonKey: null
     });
+    const claimed = byIdentity.get(operation.identity);
+    if (claimed && claimed.source_id === sourceId && claimed.payload.caseId !== analysis.caseId) {
+      operation = stableOperationIdentity({
+        timeline: operationTimeline,
+        evidenceAt,
+        operationType: "complaint_followup",
+        reasonKey: `complaint-at-${evidenceAt.toISOString()}`
+      });
+    }
     const customerId = uuidOrNull3(analysis.conversationCase.customerId);
     const row = {
       source_id: sourceId,
@@ -12447,9 +12569,16 @@ var CONVERSATION_EVALUATION_CONTRACT = {
 function hasSubstantiveBasket(view) {
   return view.basket.activeItems.length > 0 || view.basket.confirmed || view.basket.announcedTotal != null || view.basket.versions.some((version) => version.itemCount > 0 || Boolean(version.confirmedAt) || version.announcedTotal != null);
 }
+var ORDER_STATUS_INQUIRY_RX = /(?:الطلب|الاوردر|الأوردر|المندوب|الدليفري|التوصيل)[^\n]{0,30}(?:فين|امتى|إمتى|هيوصل|هيجي|اتأخر|اتاخر|متأخر|لسه|مجاش|موصلش)/u;
+function isOrderStatusServiceOnly(view) {
+  if (view.products.length > 0 || hasSubstantiveBasket(view)) return false;
+  const customerTurns = view.interaction.messages.filter((message) => message.role === "customer" && message.meaningful);
+  return customerTurns.some((message) => ORDER_STATUS_INQUIRY_RX.test(message.text));
+}
 function salesCriteriaApplicable(view) {
   if (view.sale.isSaleCountable) return true;
   if (view.interaction.caseType === "follow_up" || view.interaction.caseType === "information_only") return false;
+  if (isOrderStatusServiceOnly(view)) return false;
   return view.interaction.caseType === "sales_opportunity" || view.interaction.caseType === "mixed" || hasSubstantiveBasket(view);
 }
 function uniq2(values) {
@@ -14501,6 +14630,22 @@ function analyzeConversationEvaluationClosing(view) {
 
 // src/lib/salesIntelligence/conversationEvaluation.ts
 var criterionByKey = new Map(REVIEW_CRITERIA.map((criterion5) => [criterion5.key, criterion5]));
+var STAFF_BEHAVIOUR_CRITERIA = /* @__PURE__ */ new Set([
+  "first_response_speed",
+  "greeting",
+  "doctor_name",
+  "customer_name",
+  "tone",
+  "understanding",
+  "followup_after_wait",
+  "unavailable_items",
+  "sales_closing",
+  "cross_sell_upsell",
+  "angry_customer",
+  "order_confirmation",
+  "order_delay_handling",
+  "closing_message"
+]);
 function clamp(value, min = 0, max = 100) {
   return Math.max(min, Math.min(max, Math.round(value)));
 }
@@ -14612,9 +14757,22 @@ function analyzeConversationEvaluation(view, systemEvidence = null) {
     if (byKey.has(item.key)) throw new Error(`Duplicate conversation evaluation criterion: ${item.key}`);
     byKey.set(item.key, item);
   }
+  const staffSpoke = view.interaction.messages.some((message) => message.role === "staff" && message.meaningful);
   const items = REVIEW_CRITERIA.map((criterion5) => {
     const item = byKey.get(criterion5.key);
     if (!item) throw new Error(`Missing conversation evaluation criterion: ${criterion5.key}`);
+    if (!staffSpoke && item.source === "automatic" && item.status === "assessed" && STAFF_BEHAVIOUR_CRITERIA.has(item.key)) {
+      return {
+        ...item,
+        status: "insufficient_evidence",
+        selectedOption: null,
+        selectedLabel: "\u0644\u0627 \u064A\u0648\u062C\u062F \u0631\u062F \u0645\u0648\u0638\u0641 \u062F\u0627\u062E\u0644 \u0647\u0630\u0627 \u0627\u0644\u062A\u0641\u0627\u0639\u0644",
+        pointsEarned: null,
+        normalizedScore10: null,
+        performanceBand: null,
+        reason: "\u0644\u0627 \u062A\u0648\u062C\u062F \u0623\u064A \u0631\u0633\u0627\u0644\u0629 \u0645\u0646 \u0627\u0644\u0635\u064A\u062F\u0644\u064A\u0629 \u062F\u0627\u062E\u0644 \u0647\u0630\u0627 \u0627\u0644\u062A\u0641\u0627\u0639\u0644\u061B \u063A\u064A\u0627\u0628 \u0627\u0644\u0631\u062F \u062F\u0627\u062E\u0644 \u0627\u0644\u0645\u0644\u0641 \u0644\u064A\u0633 \u062F\u0644\u064A\u0644\u064B\u0627 \u0643\u0627\u0641\u064A\u064B\u0627 \u0639\u0644\u0649 \u062A\u0642\u0635\u064A\u0631\u060C \u0648\u064A\u064F\u0639\u0631\u0636 \u0644\u0644\u0645\u0631\u0627\u062C\u0639\u0629 \u0627\u0644\u0628\u0634\u0631\u064A\u0629 \u062F\u0648\u0646 \u062E\u0635\u0645."
+      };
+    }
     return item;
   });
   if (items.length !== 19) throw new Error(`Conversation evaluation must contain exactly 19 criteria, got ${items.length}`);
@@ -15575,7 +15733,12 @@ async function runCanonicalSalesIntelligenceRefresh(service, input) {
     v22CaseIdBySource,
     v22ContextByCaseId
   );
-  const batch = await runBatchPersistence(service, { conversations, dryRun: input.dryRun, deferPublication: true });
+  const batch = await runBatchPersistence(service, {
+    conversations,
+    dryRun: input.dryRun,
+    deferPublication: true,
+    applyManagerProductIdentityReviews: true
+  });
   if (input.dryRun) return { ...empty, status: "ok", admittedSourceIds, blockedSources, batch };
   const deletedCaseIds = await loadDeletedCaseIds(
     service,

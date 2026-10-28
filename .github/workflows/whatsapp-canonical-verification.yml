@@ -1,9 +1,12 @@
 name: WhatsApp Canonical Verification
 
 on:
+  pull_request:
+    branches: [main]
   push:
     branches:
       - fix/whatsapp-master-brain-lifecycle-v4-continuation-20261017
+      - integrate/whatsapp-gm-financial-readiness-20261026
 
 concurrency:
   group: whatsapp-continuation-${{ github.ref }}
@@ -13,6 +16,62 @@ permissions:
   contents: read
 
 jobs:
+  master-brain-native-pg17:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Start disposable network-isolated PostgreSQL 17
+        run: |
+          docker run -d --name dawaa-mb-verify-pg --network none \
+            -e POSTGRES_USER=supabase_admin -e POSTGRES_PASSWORD=isolated-test-only postgres:17
+          for attempt in {1..30}; do
+            if docker exec dawaa-mb-verify-pg pg_isready -U supabase_admin; then exit 0; fi
+            sleep 1
+          done
+          docker logs dawaa-mb-verify-pg
+          exit 1
+      - name: Install locked dependencies for product identity verification
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Product identity renewal, Hero reanalysis and concurrent approvals
+        env:
+          DAWAA_NATIVE_PG_CONTAINER: dawaa-mb-verify-pg
+        run: npm run test:db:product-identity:native
+      - name: Dashboard monthly sales v171/v172 parity
+        env:
+          DAWAA_NATIVE_PG_CONTAINER: dawaa-mb-verify-pg
+        run: npm run test:db:dashboard-monthly:native
+      - name: Data-health snapshot read path and compensation coverage
+        env:
+          DAWAA_NATIVE_PG_CONTAINER: dawaa-mb-verify-pg
+        run: npm run test:db:data-health:native
+      - name: Purchase promotion skips undated sync rows
+        env:
+          DAWAA_NATIVE_PG_CONTAINER: dawaa-mb-verify-pg
+        run: npm run test:db:purchase-promotion:native
+      - name: Customer requests RLS scope evaluated once (visibility parity)
+        env:
+          DAWAA_NATIVE_PG_CONTAINER: dawaa-mb-verify-pg
+        run: npm run test:db:customer-requests-rls:native
+      - name: sales_invoices autovacuum thresholds (storage parameters only)
+        env:
+          DAWAA_NATIVE_PG_CONTAINER: dawaa-mb-verify-pg
+        run: npm run test:db:sales-invoices-autovacuum:native
+      - name: Close table writes without a verified session (policy guard)
+        env:
+          DAWAA_NATIVE_PG_CONTAINER: dawaa-mb-verify-pg
+        run: npm run test:db:close-unauthenticated-writes:native
+      - name: Financial approval and lifecycle concurrency scenarios
+        run: npm run test:db:master-brain:native
+      - name: Remove disposable database
+        if: always()
+        run: docker rm -f dawaa-mb-verify-pg
+
   followup-concurrency:
     runs-on: ubuntu-latest
     timeout-minutes: 8

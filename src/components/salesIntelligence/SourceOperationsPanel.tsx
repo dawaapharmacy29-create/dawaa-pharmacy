@@ -21,7 +21,7 @@ import {
   type SourceAuditEntry,
   type SourceOperationalAction,
 } from '@/lib/salesIntelligence/operations/sourceOperationsService';
-import { customerRequestApprovalBlockers, legacyComplaintReviewReason } from '@/lib/salesIntelligence/operations/proposalApprovalReadiness';
+import { customerRequestApprovalBlockers, legacyComplaintReviewReason, operationalActionLifecycle } from '@/lib/salesIntelligence/operations/proposalApprovalReadiness';
 
 // Source-scoped operations for one canonical case: audited attribution correction, explicit
 // approval of a customer-request proposal, and explicit execution through the authorized
@@ -42,14 +42,19 @@ const TYPE_LABELS: Record<string, string> = {
 };
 const STATUS_LABELS: Record<string, string> = {
   proposed: 'مقترح — يحتاج اعتماد',
-  ready: 'جاهز للتنفيذ',
+  // `ready` is still a proposal: nothing exists in the operational follow-up list until executed.
+  ready: 'جاهز للتنفيذ — لم يُنشأ سجل تشغيلي بعد',
   created: 'تم التنفيذ',
   dismissed: 'مسحوب/مرفوض',
   error: 'خطأ',
 };
 // Internal values never reach the reviewer: an unmapped type/status/event reads as Arabic.
 const typeLabel = (value: string) => TYPE_LABELS[value] || 'إجراء آخر — يحتاج مراجعة';
-const statusLabel = (value: string) => STATUS_LABELS[value] || 'حالة غير معروفة — يحتاج مراجعة';
+// "Executed" is shown only with operational lineage; a bare status flip is an inconsistency.
+const actionStatusLabel = (action: SourceOperationalAction) =>
+  operationalActionLifecycle(action) === 'materialized_without_target'
+    ? 'منفذ بدون سجل مرتبط — يحتاج مراجعة'
+    : STATUS_LABELS[action.status] || 'حالة غير معروفة — يحتاج مراجعة';
 const AUDIT_LABELS: Record<string, string> = {
   source_attribution_corrected_v1: 'تصحيح نسبة المصدر',
   customer_request_action_approved_v2: 'اعتماد طلب عميل',
@@ -235,7 +240,7 @@ export function SourceOperationsPanel({ sourceId, permissions, analysisKey }: Pr
                   <tr key={action.id} className={`border-t border-[var(--dawaa-theme-border)] ${retired ? 'opacity-60' : ''}`}>
                     <td className="p-2">{typeLabel(action.actionType)}</td>
                     <td className="p-2">
-                      {statusLabel(action.status)}
+                      {actionStatusLabel(action)}
                       {action.withdrawalReason === 'source_attribution_corrected' ? <div className="dawaa-muted text-xs">سُحب بعد تصحيح المصدر</div> : null}
                       {action.approvedByName && action.status === 'ready' ? <div className="dawaa-muted text-xs">اعتمده: {action.approvedByName}</div> : null}
                     </td>

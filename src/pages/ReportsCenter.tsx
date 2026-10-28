@@ -9,6 +9,8 @@ import { formatCycleDate, getCurrentCycle, getPharmacyCycleRange } from '@/lib/p
 import { loadSalesAnalyticsSummary } from '@/lib/salesAnalyticsSummaryService';
 import { canViewAllBranches, getScopedBranch } from '@/lib/security/userDataScope';
 import { normalizeBranchName } from '@/lib/branch';
+import { isOfficialConversationReview } from '@/lib/evaluations/officialConversationReview';
+import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
 import { normalizeDoctorName } from '@/lib/staff/staffIdentityResolver';
 
 type ReportType =
@@ -460,14 +462,17 @@ async function fetchConversationReviewRows(
     .from('conversation_sales_reviews')
     .select('*')
     .eq('is_current', true)
-    .gte('review_date', startDate)
-    .lte('review_date', endDate)
-    .order('review_date', { ascending: false })
+    // Operational conversation day (Cairo), the same date the monthly evaluation uses.
+    .gte('conversation_date', cairoDateBoundaryIso(startDate))
+    .lte('conversation_date', cairoDateBoundaryIso(endDate, true))
+    .order('conversation_date', { ascending: false })
     .limit(5000);
   if (error) throw new Error(error.message);
 
   const normalizedStaffFilter = staffFilter !== 'الكل' ? normalizeDoctorName(staffFilter) : '';
+  // Management reports rank staff on officially approved reviews only (officialConversationReview.ts).
   return ((data || []) as ReviewRow[]).filter((row) => {
+    if (!isOfficialConversationReview(row as Record<string, unknown>)) return false;
     const branchMatches = !scopedBranch || branchOf(row) === scopedBranch;
     const staffMatches =
       !normalizedStaffFilter ||

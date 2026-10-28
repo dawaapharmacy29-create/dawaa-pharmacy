@@ -43,7 +43,7 @@ function walk(dir, out = []) {
 }
 
 function repoPath(file) {
-  return path.relative(ROOT, file).split(path.sep).join('/');
+  return path.relative(ROOT, file).replace(/\\/g, '/');
 }
 
 const violations = [];

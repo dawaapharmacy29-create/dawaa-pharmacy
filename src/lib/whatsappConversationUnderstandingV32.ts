@@ -162,6 +162,22 @@ const ADDITIVE_REQUEST_RX =
 const STAFF_PENDING_REPLY_RX =
   /لحظات|ثواني|دقيق[ةه]|اشوف|أشوف|هشوف|هراجع|هتأكد|هاتأكد|جاري\s*(?:المراجعه|المراجعة|البحث)/i;
 const CLOSING_RX = /شكر(?:ا|ًا)?\s*لتواصلك|تحت\s*أمرك\s*دائم(?:ا|ًا)?|يومك\s*سعيد|في\s*خدمتك\s*دائم(?:ا|ًا)?/i;
+// A branded staff-only courtesy signature is not a fresh customer need, even if
+// sent hours after the final operational reply. Retain it as evidence on the
+// preceding interaction instead of publishing a phantom information-only case.
+const BRANDED_COURTESY_SIGNATURE_RX = /صيدليات\s*دواء\s*تتشرف\s*بخدم[ةه]\s*حضرتك|الأقرب\s*إليك[^\n]*نهتم\s*بصحتك/u;
+// A delayed customer confirmation that the order arrived / the problem was solved closes the
+// SAME operation. Split into its own case it became a staff-less "case" scored as ignored, and the
+// real case lost its resolution evidence. Anything that reports a new problem or asks for
+// something is not a pure confirmation and keeps the normal segmentation.
+const CUSTOMER_FULFILMENT_CONFIRMATION_RX =
+  /(?:^|\s)(?:وصل(?:ت|ني)?|اتسلم(?:ت)?|استلمت(?:ه|ها)?|(?:المشكل[ةه]|الموضوع)\s*اتحل(?:ت)?)(?:\s|$|[!.،])/u;
+const NEW_PROBLEM_OR_REQUEST_RX =
+  /ناقص|غلط|مكسور|مفتوح|بايظ|متأخر|متاخر|اتأخر|اتاخر|مجاش|ماجاش|موصلش|ماوصلش|مش\s*(?:هو|ده|دي|كامل)|بس\s|لكن|عايز|عايزه|محتاج|ممكن|\?|؟/u;
+function isCustomerFulfilmentConfirmationOnly(text: string): boolean {
+  const value = (text || '').trim();
+  return CUSTOMER_FULFILMENT_CONFIRMATION_RX.test(value) && !NEW_PROBLEM_OR_REQUEST_RX.test(value);
+}
 const TOPIC_SHIFT_MARKER_RX = /بالمناسبة|كمان\s*حاجة|سؤال\s*تاني|بس\s*كمان\s*عايز|في\s*مشكلة\s*تاني[ةه]|حاجة\s*تانية\s*خالص/i;
 const CUSTOMER_COURTESY_RESPONSE_RX =
   /^(?:ولا\s*يهمك(?:\s+يا\s+(?:حبيبتي|حبيبي|فندم))?|العفو(?:\s+يا\s+فندم)?|شك(?:را|رًا)(?:\s+على\s+ذوق\s+حضرتك)?|ربنا\s+(?:يكرمك|يخليك)|تسلم(?:ي)?)[!.، ]*$/iu;
@@ -297,6 +313,12 @@ function shouldKeepSemanticContinuation(
   next: NormalizedConversationMessageV32,
   gapMs: number
 ): boolean {
+  if (current.length && gapMs >= 0 && gapMs <= SEMANTIC_CONTINUATION_MAX_GAP_MS && next.role === 'staff' &&
+      BRANDED_COURTESY_SIGNATURE_RX.test(next.text) &&
+      !isOperationalServiceRequest(next) && !startsIndependentCommercialNeed(next)) return true;
+  if (current.length && gapMs >= 0 && gapMs <= SEMANTIC_CONTINUATION_MAX_GAP_MS && next.role === 'customer' &&
+      current.some((message) => message.role === 'staff' && message.isMeaningful) &&
+      isCustomerFulfilmentConfirmationOnly(next.text) && !startsIndependentCommercialNeed(next)) return true;
   if (hasStrongSemanticContinuation(current, next, gapMs)) return true;
   return (
     gapMs <= INTERACTION_GAP_MS &&

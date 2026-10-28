@@ -15,6 +15,40 @@ export type StaffDirectoryIdentity = {
   accountId?: string | null;
 };
 
+/**
+ * Decision/selection lists contain employees, never login accounts or search aliases.
+ * Keep the complete directory separately for identity matching and ambiguity checks.
+ */
+export function canonicalActiveStaff(rows: StaffDirectoryIdentity[]): StaffDirectoryIdentity[] {
+  const byId = new Map<string, StaffDirectoryIdentity>();
+  for (const row of rows) {
+    if (row.source !== 'staff' || !row.id || !row.name || !row.active) continue;
+    if (!byId.has(row.id)) byId.set(row.id, row);
+  }
+  return [...byId.values()];
+}
+
+/**
+ * Accept a canonical staff id, or a VERIFIED linked login-account id.
+ * A bare username or a similar name can never be promoted to a staff id here.
+ */
+export function canonicalStaffFromReference(
+  reference: string | null | undefined,
+  rows: StaffDirectoryIdentity[],
+): StaffDirectoryIdentity | null {
+  const input = String(reference || '').trim();
+  if (!input) return null;
+  const canonical = canonicalActiveStaff(rows);
+  const direct = canonical.find((row) => row.id === input);
+  if (direct) return direct;
+
+  const linkedIds = new Set(rows
+    .filter((row) => row.source === 'staff_account' && row.active && row.accountId === input && row.id)
+    .map((row) => row.id as string));
+  if (linkedIds.size !== 1) return null;
+  return canonical.find((row) => linkedIds.has(row.id as string)) || null;
+}
+
 type Row = Record<string, unknown>;
 let inFlightDirectoryRead: Promise<StaffDirectoryIdentity[]> | null = null;
 
@@ -105,7 +139,7 @@ export async function loadStaffDirectoryFrom(
       ['aliases', aliasResult.error],
     ].filter(([, error]) => Boolean(error));
     if (failed.length) {
-      throw new Error(`staff_directory_incomplete: ${failed.map(([source]) => source).join(',')}`);
+      throw new Error(`تعذر تحميل دليل الموظفين (staff_directory_incomplete: ${failed.map(([source]) => source).join(',')})`);
     }
     // At the bounded read cap we cannot prove the directory is complete or a name
     // is unique. Refuse canonical analysis rather than hide a competing identity.

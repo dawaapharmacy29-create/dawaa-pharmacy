@@ -177,22 +177,41 @@ export async function loadCanonicalWhatsappKpis(
     : facts;
 }
 
+/**
+ * A staff member's KPI POPULATION is every case they handled (credited closer or persisted
+ * participant), not only the cases already credited to them. Filtering the population by credit
+ * removed every unconverted case and made any staff conversion ~100%. Sales and revenue still
+ * count only cases credited to this staff member; a proven sale credited to nobody yet is pending
+ * attribution (left out of the denominator), and a case credited to another closer is theirs.
+ */
+export function staffKpiPopulation(facts: CanonicalKpiCase[], staffId: string) {
+  return facts.filter(
+    (f) =>
+      f.creditedStaffId === staffId ||
+      (f.creditedStaffId == null && f.participants.some((p) => p.staffId === staffId))
+  );
+}
+
 export function summarizeCanonicalWhatsappKpis(facts: CanonicalKpiCase[], staffId?: string) {
-  const visible = staffId ? facts.filter((f) => f.creditedStaffId === staffId) : facts;
-  const countable = visible.filter((f) => f.saleCountable);
-  const revenueFacts = visible.filter((f) => f.revenueCountable);
+  const visible = staffId ? staffKpiPopulation(facts, staffId) : facts;
+  const credited = (f: CanonicalKpiCase) => !staffId || f.creditedStaffId === staffId;
+  const countable = visible.filter((f) => f.saleCountable && credited(f));
+  const revenueFacts = visible.filter((f) => f.revenueCountable && credited(f));
   const unknownRevenue = revenueFacts.filter((f) => f.revenue == null).length;
   const knownRevenue = revenueFacts.reduce((sum, f) => sum + (f.revenue ?? 0), 0);
   const conversion = deriveCanonicalSalesConversion(
     visible.map((f) => ({
       caseId: f.caseId,
       caseType: f.caseType,
-      outcome: f.saleCountable
-        ? 'sale_proven'
-        : f.truth.outcome?.outcome === 'sale_proven'
-          ? 'needs_review'
-          : (f.truth.outcome?.outcome ?? 'unknown'),
-      invoiceEvidenceAvailable: f.evidenceAvailable && f.truth.outcome != null,
+      outcome:
+        f.saleCountable && credited(f)
+          ? 'sale_proven'
+          : f.truth.outcome?.outcome === 'sale_proven'
+            ? 'needs_review'
+            : (f.truth.outcome?.outcome ?? 'unknown'),
+      // A proven sale not (yet) credited to this staff member is pending attribution, not a miss.
+      invoiceEvidenceAvailable:
+        f.evidenceAvailable && f.truth.outcome != null && !(f.saleCountable && !credited(f)),
     }))
   );
   return {

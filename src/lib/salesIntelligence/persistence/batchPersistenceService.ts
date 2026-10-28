@@ -39,6 +39,7 @@ import type { ConversationCase, SalesIntelligenceCaseAnalysis } from '../types';
 import { upsertSalesIntelligenceCase, type CaseUpsertResult } from './caseWriter';
 import { persistCaseAnalysis, type PersistCaseAnalysisResult } from './analysisWriter';
 import { fetchCurrentPolicyConfig, persistPolicyEvaluation, type PersistPolicyEvaluationResult } from './policyEvaluationWriter';
+import { fetchVerifiedProductIdentityReviews } from './productIdentityReviewEvidenceRepository';
 import { persistAttribution, type PersistAttributionResult } from './attributionWriter';
 import { persistBasketInvoiceMatch, type PersistBasketInvoiceMatchResult } from './basketInvoiceMatchWriter';
 import { computeAttributionInputHash, computeMatchingInputHash, computePolicyInputHash, computeSemanticSourceHash, saleProofFingerprint } from './hashing';
@@ -94,6 +95,8 @@ export interface RunBatchPersistenceInput {
   dryRun: boolean;
   /** Stage analyses without changing current/published truth until the full source succeeds. */
   deferPublication?: boolean;
+  /** Service-role canonical refresh only: loads audited decisions with fresh source/invoice proof. */
+  applyManagerProductIdentityReviews?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -390,6 +393,9 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
     input.conversations,
     runtimeContext
   );
+  const managerReviewsBySource = input.applyManagerProductIdentityReviews
+    ? await fetchVerifiedProductIdentityReviews(supabaseClient, effectiveConversations.map((c) => c.conversationId))
+    : {};
   const baseInputByConversationId = new Map(
     effectiveConversations.map((conversation) => [
       conversation.conversationId,
@@ -446,6 +452,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
       competingSelections: [],
       resolveInvoiceCandidates: (context) => conversationToGroupCandidates(conversation, context),
       itemEvidenceProvider,
+      verifiedProductIdentityReviews: managerReviewsBySource[conversation.conversationId] ?? [],
     };
     const result = runSalesIntelligencePipeline(pipelineInput);
     pass1ByConversation.set(conversation.conversationId, result.caseAnalyses);
@@ -478,6 +485,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
             : rows;
         },
         itemEvidenceProvider,
+        verifiedProductIdentityReviews: managerReviewsBySource[conversation.conversationId] ?? [],
       };
       analyses.push(...runSalesIntelligencePipeline(pipelineInput).caseAnalyses);
     }
@@ -546,6 +554,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
       branchIdentityMappingVersion: BRANCH_IDENTITY_MAPPING_VERSION,
       caseOwnership: conversationCase.ownership,
       saleProofFingerprint: saleProofFingerprint(analysis),
+      managerProductIdentityReviewIds: analysis.managerProductIdentityReviewIds ?? [],
     });
 
     const casePlan = await planCase(supabaseClient, analysis.caseId);

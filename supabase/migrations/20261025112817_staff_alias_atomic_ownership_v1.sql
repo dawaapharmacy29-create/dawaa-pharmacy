@@ -1,39 +1,62 @@
--- No historical repair: index creation aborts atomically if existing active names collide.
+-- Atomic, audited staff alias ownership keyed by the single identity key.
+-- Derived alias keys are recomputed with audit evidence; ownership is never chosen:
+-- the migration aborts while any key is claimed by two employees.
 begin;
 
--- Parity with normalizeStaffName in staffDuplicateAudit.ts (including its legacy prefix rules).
+-- Parity with staffIdentityKey (src/lib/staff/staffIdentityKey.ts) = normalizeArabicName with
+-- whitespace removed. Titles are stripped only with an explicit separator, so no first letter
+-- of a name is ever dropped (محمد and أحمد stay distinct; دنيا keeps its د).
+-- ECMAScript whitespace is mapped to a plain space first and literal spaces are used after,
+-- because PostgreSQL \s differs from JavaScript \s (for example U+0085).
 create or replace function public.dawaa_normalize_staff_alias_v1(value text)
 returns text language sql immutable strict parallel safe
 set search_path = pg_catalog
 as $$
-  select lower(translate(regexp_replace(translate(btrim(regexp_replace(value,
-    -- JS alternation selects the first single-letter alternative; POSIX selects longest.
-    -- Preserve the existing JS identity key exactly rather than silently repairing prefixes.
-    '^[دأم]', '', 'i')),
-    'أإآةي', 'اااهى'), '[.,،\-_]', '', 'g'),
-    -- Exact ECMAScript whitespace, including BOM; PostgreSQL \s differs.
-    chr(9)||chr(10)||chr(11)||chr(12)||chr(13)||chr(32)||chr(160)||chr(5760)||
-    chr(8192)||chr(8193)||chr(8194)||chr(8195)||chr(8196)||chr(8197)||chr(8198)||
-    chr(8199)||chr(8200)||chr(8201)||chr(8202)||chr(8232)||chr(8233)||chr(8239)||
-    chr(8287)||chr(12288)||chr(65279), ''));
+  select replace(lower(
+    regexp_replace(
+      regexp_replace(
+        regexp_replace(
+          translate(translate(translate(
+            regexp_replace(translate(value, chr(9)||chr(10)||chr(11)||chr(12)||chr(13)||chr(160)||chr(5760)||chr(8192)||chr(8193)||chr(8194)||chr(8195)||chr(8196)||chr(8197)||chr(8198)||chr(8199)||chr(8200)||chr(8201)||chr(8202)||chr(8232)||chr(8233)||chr(8239)||chr(8287)||chr(12288)||chr(65279), repeat(' ', 24)), '[\u064B-\u065F\u0640]', '', 'g'),
+            'أإآ', 'ااا'), 'ى', 'ي'), 'ة', 'ه'),
+          -- "[/.]" not "[./]": "[." opens a POSIX collating element.
+          '^(?: *(?:الدكتور|دكتور(?:ه)?)(?= |[/.]|$)[/.]? *| *د(?:[/.] *| +))+', ''),
+        '[]،.,;:(){}_/\\|[-]+', ' ', 'g'),
+      ' +', ' ', 'g')), ' ', '');
 $$;
 
--- A migration must not silently repair historical labels or leave readers using stale keys.
+-- Ownership is never selected here: missing owners, empty keys and keys claimed by two
+-- employees need an explicit, evidence-backed identity decision first.
 do $$
+declare v_conflicts text;
 begin
   if exists (select 1 from public.staff_identity_aliases
-    where coalesce(active, true) and (
-      staff_id is null or public.dawaa_normalize_staff_alias_v1(alias_name) is null
-      or public.dawaa_normalize_staff_alias_v1(alias_name) = ''
-      or normalized_alias is distinct from public.dawaa_normalize_staff_alias_v1(alias_name))) then
-    raise exception 'Active alias metadata needs explicit identity review before migration' using errcode = '23514';
+    where coalesce(active, true) and (staff_id is null
+      or coalesce(public.dawaa_normalize_staff_alias_v1(alias_name), '') = '')) then
+    raise exception 'Active alias without owner or name needs explicit identity review before migration' using errcode = '23514';
+  end if;
+  select string_agg(k, ', ' order by k) into v_conflicts from (
+    select public.dawaa_normalize_staff_alias_v1(alias_name) k
+    from public.staff_identity_aliases where coalesce(active, true)
+    group by 1 having count(distinct staff_id) > 1) c;
+  if v_conflicts is not null then
+    raise exception 'Alias keys claimed by more than one employee need an identity decision: %', v_conflicts using errcode = '23505';
   end if;
 end $$;
 
--- Expression index protects against forged/stale normalized_alias values and concurrent writers.
-create unique index staff_alias_active_name_owner_v1
-on public.staff_identity_aliases (public.dawaa_normalize_staff_alias_v1(alias_name))
-where coalesce(active, true);
+-- One owner per key; one employee may hold several spellings of the same key. The primary key
+-- arbitrates concurrent claims. Ownership is sticky: retiring an alias does not free its name
+-- for another employee (a retired claim still blocks name-only resolution).
+create table public.staff_alias_key_owner_v1 (
+  alias_key text primary key,
+  staff_id uuid not null,
+  claimed_at timestamptz not null default clock_timestamp()
+);
+alter table public.staff_alias_key_owner_v1 enable row level security;
+revoke all on public.staff_alias_key_owner_v1 from public, anon, authenticated, service_role;
+insert into public.staff_alias_key_owner_v1(alias_key, staff_id)
+select distinct public.dawaa_normalize_staff_alias_v1(alias_name), staff_id
+from public.staff_identity_aliases where coalesce(active, true);
 
 create table public.staff_alias_audit_v1 (
   id bigint generated always as identity primary key,
@@ -60,6 +83,26 @@ create trigger staff_alias_audit_immutable_v1 before update or delete
 on public.staff_alias_audit_v1 for each row execute function public.dawaa_protect_staff_alias_audit_v1();
 create trigger staff_alias_audit_no_truncate_v1 before truncate
 on public.staff_alias_audit_v1 for each statement execute function public.dawaa_protect_staff_alias_audit_v1();
+
+-- AFTER avoids audit ghosts when a legacy caller uses ON CONFLICT DO NOTHING.
+create or replace function public.dawaa_audit_staff_alias_v1()
+returns trigger language plpgsql security definer
+set search_path = pg_catalog, public
+as $$ begin
+  insert into public.staff_alias_audit_v1(alias_id, actor_id, operation, old_record, new_record)
+  values (new.id, public.dawaa_current_staff_account_id_strict()::text, tg_op,
+    case when tg_op = 'UPDATE' then to_jsonb(old) end, to_jsonb(new));
+  return new;
+end $$;
+revoke all on function public.dawaa_audit_staff_alias_v1() from public, anon, authenticated, service_role;
+create trigger staff_alias_audit_after_v1 after insert or update
+on public.staff_identity_aliases for each row execute function public.dawaa_audit_staff_alias_v1();
+
+-- Recompute stale derived keys (alias_name, owner and provenance unchanged). Each change is
+-- appended to staff_alias_audit_v1 with the previous key as evidence.
+update public.staff_identity_aliases
+set normalized_alias = public.dawaa_normalize_staff_alias_v1(alias_name)
+where normalized_alias is distinct from public.dawaa_normalize_staff_alias_v1(alias_name);
 
 create or replace function public.dawaa_guard_staff_alias_v1()
 returns trigger language plpgsql security definer
@@ -99,6 +142,15 @@ begin
   if not found then
     raise exception 'Alias requires canonical staff, active for new live attribution' using errcode = '23514';
   end if;
+  -- Claim the key for this employee (or confirm the existing claim) whenever the alias is live.
+  if coalesce(new.active, true) then
+    insert into public.staff_alias_key_owner_v1(alias_key, staff_id)
+    values (new.normalized_alias, new.staff_id) on conflict (alias_key) do nothing;
+    if not exists (select 1 from public.staff_alias_key_owner_v1
+      where alias_key = new.normalized_alias and staff_id = new.staff_id) then
+      raise exception 'Alias key is owned by a different or retired identity' using errcode = '23505';
+    end if;
+  end if;
   if tg_op = 'INSERT' and actor is not null then new.created_by := actor; end if;
   return new;
 end;
@@ -107,20 +159,6 @@ revoke all on function public.dawaa_guard_staff_alias_v1() from public, anon, au
 -- Run after the catalog-confirmed trg_staff_identity_aliases_fill_defaults trigger.
 create trigger zz_staff_alias_guard_v1 before insert or update or delete
 on public.staff_identity_aliases for each row execute function public.dawaa_guard_staff_alias_v1();
-
--- AFTER avoids audit ghosts when a legacy caller uses ON CONFLICT DO NOTHING.
-create or replace function public.dawaa_audit_staff_alias_v1()
-returns trigger language plpgsql security definer
-set search_path = pg_catalog, public
-as $$ begin
-  insert into public.staff_alias_audit_v1(alias_id, actor_id, operation, old_record, new_record)
-  values (new.id, public.dawaa_current_staff_account_id_strict()::text, tg_op,
-    case when tg_op = 'UPDATE' then to_jsonb(old) end, to_jsonb(new));
-  return new;
-end $$;
-revoke all on function public.dawaa_audit_staff_alias_v1() from public, anon, authenticated, service_role;
-create trigger staff_alias_audit_after_v1 after insert or update
-on public.staff_identity_aliases for each row execute function public.dawaa_audit_staff_alias_v1();
 
 -- Compatibility signature now creates metadata only. A name-wide UPDATE must
 -- never reassign historical purchase rows; their separate per-record command remains.
@@ -139,13 +177,16 @@ begin
   if alias_key is null or alias_key='' then
     raise exception 'Nonempty alias required' using errcode = '23514';
   end if;
-  insert into public.staff_identity_aliases(staff_id,alias_name,normalized_alias,source,confidence,active,created_by)
-  values(p_staff_id,p_raw_name,alias_key,'base44_purchase_invoice',1,true,actor::text)
-  on conflict do nothing;
-  if not exists (select 1 from public.staff_identity_aliases
-    where public.dawaa_normalize_staff_alias_v1(alias_name)=alias_key
-      and coalesce(active,true) and staff_id=p_staff_id) then
-    raise exception 'Alias is owned by a different or retired identity' using errcode='23505';
+  if exists (select 1 from public.staff_alias_key_owner_v1 o
+    where o.alias_key = public.dawaa_normalize_staff_alias_v1(p_raw_name) and o.staff_id is distinct from p_staff_id) then
+    raise exception 'Alias key is owned by a different or retired identity' using errcode='23505';
+  end if;
+  -- Idempotent for the owner: an existing live (staff_id, alias_name) row is left as it is.
+  if not exists (select 1 from public.staff_identity_aliases a
+    where a.staff_id = p_staff_id and a.alias_name = p_raw_name and coalesce(a.active, true)) then
+    insert into public.staff_identity_aliases(staff_id,alias_name,normalized_alias,source,confidence,active,created_by)
+    values(p_staff_id,p_raw_name,alias_key,'base44_purchase_invoice',1,true,actor::text)
+    on conflict do nothing;
   end if;
   return 0;
 end $$;

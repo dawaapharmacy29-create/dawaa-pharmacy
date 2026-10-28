@@ -16,6 +16,9 @@ import { loadSalesAnalyticsSummary } from '@/lib/salesAnalyticsSummaryService';
 import { supabase } from '@/lib/supabase';
 import { calculateCompositeScore } from '@/lib/incentives/compositeScoreService';
 import { monthCycleFromDate } from '@/lib/conversationReviews';
+import { conversationReviewScore100, isOfficialConversationReview, OFFICIAL_REVIEW_COLUMNS } from '@/lib/evaluations/officialConversationReview';
+import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
+import { fetchAllOrderedPages } from '@/lib/fetchAllOrderedPages';
 
 const ALL_BRANCHES = 'كل الفروع';
 type RankingMode = 'points' | 'sales' | 'invoices' | 'average';
@@ -248,8 +251,10 @@ function applyLiveReviews(rows: DoctorCompetitionScore[], reviews: ReviewRow[]) 
     const index = (directId && byStaff.get(directId)) ?? byBranchAndName.get(`${branch}|${name}`) ?? byUniqueName.get(name);
     if (index === undefined) return;
 
-    const score = Number(review.final_score ?? review.total_score ?? review.score ?? 0);
-    if (!Number.isFinite(score) || score <= 0) return;
+    // Same official contract as doctorCompetitionMetrics: approved, current reviews on 0..100.
+    if (!isOfficialConversationReview(review as Record<string, unknown>)) return;
+    const score = conversationReviewScore100(review as Record<string, unknown>) ?? 0;
+    if (score <= 0) return;
 
     const current = aggregates.get(index) || { count: 0, total: 0, excellent: 0, negative: 0 };
     current.count += 1;
@@ -297,6 +302,22 @@ export default function DoctorCompetition() {
     try {
       const competitionRange = rangeForDoctorCompetition(period);
 
+      // The per-branch sales summaries depend only on the period and branch, so they run
+      // alongside the eligibility/competition/review reads instead of after them. Only
+      // doctorRows are used here, so the customer-card counts are not requested.
+      const branchesToLoad = effectiveBranch ? [effectiveBranch] : BRANCHES;
+      const summariesPromise = Promise.all(branchesToLoad.map(async (branch) => {
+        try {
+          return await loadSalesAnalyticsSummary({
+            startDate: competitionRange.start,
+            endDate: competitionRange.end,
+            branch,
+          }, true, { includeCustomerCards: false });
+        } catch {
+          return null;
+        }
+      }));
+
       // مصدر ثقة واحد بيقول مين فعلًا "دكتور مؤهل للمسابقة" — بيتطبق على كل
       // المصادر المدموجة (المسابقة نفسها + المبيعات المنفصلة) عشان عامل نظافة
       // أو مساعد أو أي حد تاني ميرجعش يظهر من مصدر تاني حتى لو اتفلتر صح من الأول.
@@ -307,15 +328,16 @@ export default function DoctorCompetition() {
         (eligibleAccountsResult.data || []).map((row: { staff_id: string }) => String(row.staff_id))
       );
 
-      let reviewQuery = supabase
-        .from('conversation_sales_reviews')
-        .select('staff_id,doctor_id,staff_name,doctor_name,branch,final_score,total_score')
-        .eq('is_current', true)
-        .gte('conversation_date', competitionRange.start)
-        .lte('conversation_date', `${competitionRange.end}T23:59:59`)
-        .limit(10000);
-
-      if (effectiveBranch) reviewQuery = reviewQuery.eq('branch', effectiveBranch);
+      const buildReviewQuery = () => {
+        let query = supabase
+          .from('conversation_sales_reviews')
+          .select(['staff_id', 'doctor_id', 'staff_name', 'doctor_name', 'branch', ...OFFICIAL_REVIEW_COLUMNS].join(','))
+          .eq('is_current', true)
+          .gte('conversation_date', cairoDateBoundaryIso(competitionRange.start))
+          .lte('conversation_date', cairoDateBoundaryIso(competitionRange.end, true));
+        if (effectiveBranch) query = query.eq('branch', effectiveBranch);
+        return query;
+      };
 
       const [competition, reviewResponse] = await Promise.all([
         getDoctorCompetitionMetrics({
@@ -324,21 +346,16 @@ export default function DoctorCompetition() {
           userBranch: user?.branch,
           canSeeAllBranches: true,
         }),
-        reviewQuery,
+        // Last 3 months held 1,566 current reviews on 2026-10-27 — above the 1000-row
+        // response cap — so the former single `.limit(10000)` read was truncated.
+        fetchAllOrderedPages<ReviewRow>(buildReviewQuery, {
+          orderColumn: 'id',
+          maxRows: 20000,
+          limitError: 'conversation_reviews_competition_limit_reached',
+        }),
       ]);
 
-      const branchesToLoad = effectiveBranch ? [effectiveBranch] : BRANCHES;
-      const summaries = await Promise.all(branchesToLoad.map(async (branch) => {
-        try {
-          return await loadSalesAnalyticsSummary({
-            startDate: competitionRange.start,
-            endDate: competitionRange.end,
-            branch,
-          }, true);
-        } catch {
-          return null;
-        }
-      }));
+      const summaries = await summariesPromise;
 
       const salesRows = summaries.flatMap((summary, summaryIndex) => summary?.doctorRows
         .filter((doctor) => doctor.staffId && eligibleStaffIds.has(String(doctor.staffId)))

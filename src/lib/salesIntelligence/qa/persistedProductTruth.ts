@@ -67,7 +67,9 @@ export function readPersistedProductTruth(
       }));
   const products: PersistedProductDisplay[] = inputs.map((p) => {
     const facts = normalizePharmacyText(p.name ?? '');
-    const trusted = p.confidence?.level === 'proven' || p.confidence?.level === 'strongly_inferred';
+    // A strong inference is a catalog candidate, not independent product-identity proof.
+    // Keep this display aligned with the stricter basket/invoice matching engine.
+    const trusted = p.confidence?.level === 'proven';
     const reasons = p.confidence?.ruleIds ?? [];
     const ambiguous = p.ambiguous || reasons.some((r) => /ambiguous|tie|conflict/.test(r));
     const state: ProductDisplayState = ambiguous

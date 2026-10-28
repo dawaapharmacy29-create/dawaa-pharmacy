@@ -341,7 +341,11 @@ export function generateStaffRecommendations(
       });
     }
 
-    if (context.customerService.conversationEvaluationAverage < 3) {
+    // The average is on the 0..100 row-score scale (a /10 threshold of 3 never fired).
+    if (
+      context.customerService.conversationEvaluationAverage != null &&
+      context.customerService.conversationEvaluationAverage < 30
+    ) {
       recommendations.push({
         priority: 'high',
         category: 'customer_service',

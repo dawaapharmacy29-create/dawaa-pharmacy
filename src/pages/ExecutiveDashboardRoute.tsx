@@ -121,7 +121,7 @@ export default function ExecutiveDashboardRoute() {
         console.warn('[ExecutiveDashboardRoute] advanced dashboard import failed', error);
 
         if (isStaleChunkImportError(error)) {
-          const recovering = await recoverFromStaleChunkOnce(DASHBOARD_RECOVERY_SCOPE);
+          const recovering = await recoverFromStaleChunkOnce(DASHBOARD_RECOVERY_SCOPE, error);
           if (recovering) return;
         }
 

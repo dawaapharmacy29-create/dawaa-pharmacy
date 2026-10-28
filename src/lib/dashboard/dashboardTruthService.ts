@@ -132,21 +132,26 @@ function monthKey(date: Date) {
 export async function fetchMonthlySalesFromTruth(endDate: string, branch: string, months = 5): Promise<RpcRow[]> {
   const anchor = new Date(`${endDate}T12:00:00`);
   if (Number.isNaN(anchor.getTime())) return [];
-  const jobs = Array.from({ length: Math.max(1, months) }, (_, index) => {
-    const monthDate = new Date(anchor.getFullYear(), anchor.getMonth() - (months - 1 - index), 1, 12);
-    const key = monthKey(monthDate);
-    const lastDay = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0, 12);
-    const naturalEnd = `${monthKey(lastDay)}-${String(lastDay.getDate()).padStart(2, '0')}`;
-    return { key, start: `${key}-01`, end: key === endDate.slice(0, 7) && endDate < naturalEnd ? endDate : naturalEnd };
-  });
+  const expectedKeys = Array.from({ length: Math.max(1, months) }, (_, index) =>
+    monthKey(new Date(anchor.getFullYear(), anchor.getMonth() - (months - 1 - index), 1, 12))
+  );
 
-  return Promise.all(jobs.map(async ({ key, start, end }) => {
-    const rows = await rpcRows<RpcRow>('get_dashboard_sales_summary_v171', { p_start: start, p_end: end, p_branch: branch });
-    const summary = rows[0] || {};
+  // One pass for every month (same month windows and per-month totals as
+  // get_dashboard_sales_summary_v171) instead of one concurrent RPC per month.
+  const rows = await rpcRows<RpcRow>('get_dashboard_monthly_sales_v172', {
+    p_end: endDate,
+    p_branch: branch,
+    p_months: Math.max(1, months),
+  });
+  const byKey = new Map(rows.map((row) => [String(row.month_start ?? '').slice(0, 7), row]));
+  if (expectedKeys.some((key) => !byKey.has(key))) throw new Error('monthly_sales_months_incomplete');
+
+  return expectedKeys.map((key) => {
+    const summary = byKey.get(key) as RpcRow;
     const invoices = numberRow(summary, 'invoices_count');
     const sales = numberRow(summary, 'sales_total');
     return { month_start: `${key}-01`, month_label: key, branch, sales_total: sales, invoices_count: invoices, avg_invoice: invoices ? sales / invoices : 0 };
-  }));
+  });
 }
 
 function mapDoctorRows(rows: RpcRow[]) {

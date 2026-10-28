@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { normalizeStaffName } from './staffDuplicateAudit';
+import { staffIdentityKey } from './staff/staffIdentityKey';
 import { readUnlinkedInvoiceSellerNames } from './readModels/unlinkedSellerNamesReadModel';
 import { getCurrentUserProfile } from '@/hooks/useAuth';
 import { hasPermission } from './core/permissionSystem';
@@ -67,10 +67,10 @@ export async function createStaffAlias(
   createdBy: string
 ): Promise<StaffIdentityAlias | null> {
   if (!canManageStaffIdentity()) return null;
-  const normalized = normalizeStaffName(aliasName);
+  const normalized = staffIdentityKey(aliasName);
   if (!normalized || !staffId || !aliasName.trim()) return null;
 
-  // Advisory early validation; the database expression index arbitrates concurrent writes.
+  // Advisory early validation; database key ownership arbitrates concurrent writes.
   const [targetResult, aliasesResult] = await Promise.all([
     supabase.from('staff').select('id,active,is_active').eq('id', staffId).maybeSingle(),
     supabase.from('staff_identity_aliases')
@@ -124,14 +124,14 @@ export async function suggestStaffAliases(
   }
 
   for (const rawName of rawNames) {
-    const normalized = normalizeStaffName(rawName);
+    const normalized = staffIdentityKey(rawName);
     if (!normalized) continue;
 
     const matches: StaffIdentityMatch[] = [];
 
     for (const s of staff) {
       const staffName = s.name || '';
-      const staffNormalized = normalizeStaffName(staffName);
+      const staffNormalized = staffIdentityKey(staffName);
 
       if (staffNormalized === normalized) {
         matches.push({
@@ -193,7 +193,7 @@ export async function confirmStaffAlias(
   createdBy: string
 ): Promise<boolean> {
   if (!canManageStaffIdentity()) return false;
-  const normalized = normalizeStaffName(aliasName);
+  const normalized = staffIdentityKey(aliasName);
 
   const { data: existing, error: existingError } = await supabase
     .from('staff_identity_aliases')

@@ -57,28 +57,42 @@ const migration = file('supabase/migrations/20261025112817_staff_alias_atomic_ow
 const legacy = process.argv.includes('--legacy-catalog');
 if(legacy) sql(file('supabase/tests/fixtures/staff_alias_legacy_catalog.sql'));
 console.log(`Alias catalog fixture: ${legacy ? 'observed legacy policies/default trigger/indexes' : 'committed staging policies'}`);
-sql("insert into staff_identity_aliases(staff_id,alias_name,normalized_alias) values ('00000000-0000-4000-8000-000000000001','historic','stale');");
-assert.notEqual(sql(migration, {fail:true}).status,0);
-assert.equal(sql("select normalized_alias from staff_identity_aliases").stdout.trim(),'stale');
-assert.equal(sql("select to_regclass('public.staff_alias_audit_v1') is null").stdout.trim(),'t');
-sql('delete from staff_identity_aliases;');
-pass('stale legacy metadata aborts migration without rewriting evidence');
-sql("insert into staff_identity_aliases(staff_id,alias_name,normalized_alias) values ('00000000-0000-4000-8000-000000000001','collision','collision'),('00000000-0000-4000-8000-000000000002','collision','collision');");
-assert.notEqual(sql(migration,{fail:true}).status,0);
+// Production shape: the same person under a title and a bare name ("د اسلام" / "اسلام") is one
+// key; two employees on it is a decision, never a migration-time winner.
+sql("insert into staff_identity_aliases(staff_id,alias_name,normalized_alias) values ('00000000-0000-4000-8000-000000000001','د تصادم','x'),('00000000-0000-4000-8000-000000000002','تصادم','x');");
+const collision = sql(migration,{fail:true});
+assert.notEqual(collision.status,0); assert.match(collision.stderr,/claimed by more than one employee need an identity decision: تصادم/);
 assert.equal(sql('select count(*) from staff_identity_aliases').stdout.trim(),'2');
 assert.equal(sql("select to_regclass('public.staff_alias_audit_v1') is null").stdout.trim(),'t');
+assert.equal(sql("select to_regclass('public.staff_alias_key_owner_v1') is null").stdout.trim(),'t');
 sql('delete from staff_identity_aliases;');
-pass('legacy duplicate ownership aborts migration atomically without selecting a winner');
+pass('a key claimed by two employees aborts the migration atomically and names the key');
+// Stale derived keys from the former first-letter-stripping normalizer (Production: 52 of 137).
+sql(`insert into staff_identity_aliases(staff_id,alias_name,normalized_alias,active) values
+ ('00000000-0000-4000-8000-000000000004','محمد قديم','حمدقديم',false),
+ ('00000000-0000-4000-8000-000000000004','دكتور محمد قديم','stale',false);`);
 sql(migration);
-pass('committed migration applies against staging alias schema and real token hash verifier');
-const normalizerSource = file('src/lib/staffDuplicateAudit.ts').split('export function normalizeStaffName')[1].split('async function loadStaffAccountsByStaffId')[0];
-const normalizerJs = ts.transpileModule(`function normalizeStaffName${normalizerSource}`, {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
-const normalize = new Function(`${normalizerJs}; return normalizeStaffName;`)();
-for(const name of ['د إسلام فاروق','إسلام السبع','د/ إسلام فاروق','د. دنيا','دكتور أحمد','أستاذ محمد','م/ علي','  أماني  ','دنيا','دُنيا','A_B-C.,،','\tاسم  موظف\n','اسم\u00a0موظف','اسم\u2003موظف','اسم\ufeffموظف','اسم\u0085موظف','']) {
+assert.equal(sql("select string_agg(normalized_alias, ',' order by alias_name) from staff_identity_aliases").stdout.trim(),'محمدقديم,محمدقديم');
+assert.equal(sql("select count(*) from staff_alias_audit_v1 where operation='UPDATE' and old_record->>'normalized_alias' in ('حمدقديم','stale')").stdout.trim(),'2');
+assert.equal(sql("select count(*) from staff_alias_key_owner_v1").stdout.trim(),'0');
+pass('migration recomputes stale derived keys (first letter restored) with audited old values; retired aliases claim nothing');
+const arabicSource = file('src/lib/security/userDataScope.ts').split('export function normalizeArabicName(value: unknown): string {')[1].split('\n}\n')[0];
+const arabicJs = ts.transpileModule(`function normalizeArabicName(value) {${arabicSource}\n}`, {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
+const normalizeArabicName = new Function(`${arabicJs}; return normalizeArabicName;`)();
+// staffIdentityKey (src/lib/staff/staffIdentityKey.ts)
+assert.match(file('src/lib/staff/staffIdentityKey.ts'), /return normalizeArabicName\(String\(value \?\? ''\)\.trim\(\)\)\.replace\(\/\\s\+\/g, ''\);/);
+const normalize = (value) => normalizeArabicName(String(value ?? '').trim()).replace(/\s+/g, '');
+for(const name of ['د إسلام فاروق','إسلام السبع','د/ إسلام فاروق','د. دنيا','د.دنيا','دكتور أحمد','دكتورة منى','الدكتور يوسف','دكتور','أستاذ محمد','م/ علي','  أماني  ','دنيا','دُنيا','ـدنيا',
+  'محمد علي','أحمد علي','مصطفي','مصطفى','دعاء ابراهيم','مدحت','محمود القطري','ضحى','د/ ضحي','ا عبد الحميد ','د ا عبد الحميد ',
+  'A_B-C.,،','(علا)','علا|2','\tاسم  موظف\n','اسم\u00a0موظف','اسم\u2003موظف','اسم\ufeffموظف','اسم\u0085موظف','اسم\u1680موظف','']) {
  const escaped = name.replaceAll("'","''");
  assert.equal(sql(`select public.dawaa_normalize_staff_alias_v1('${escaped}')`).stdout.trim(),normalize(name),name);
 }
-pass('SQL normalization matches canonical TypeScript normalization on Arabic/prefix/whitespace fixtures');
+pass('SQL key matches canonical TypeScript staffIdentityKey on Arabic/title/first-letter/whitespace fixtures');
+assert.notEqual(normalize('محمد علي'), normalize('أحمد علي'));
+assert.equal(normalize('دنيا'), 'دنيا');
+assert.equal(normalize('د/ دنيا'), normalize('دكتور دنيا'));
+pass('first letters are kept: محمد/أحمد stay distinct, دنيا keeps its د, titles still collapse');
 const actor = token => `set role anon; set request.headers='{"x-dawaa-session-token":"${token.repeat(40)}"}';`;
 const id = n => `00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const insert = (n, name, extra = '') => `insert into staff_identity_aliases(staff_id,alias_name,normalized_alias${extra ? ',created_by' : ''}) values ('${id(n)}','${name}','forged'${extra ? ",'forged'" : ''});`;
@@ -87,14 +101,17 @@ function denied(label, query, code) {
  assert.notEqual(r.status,0,label); assert.match(r.stderr, new RegExp(code),r.stderr); pass(label);
 }
 sql(actor('m') + insert(1,'د إسلام فاروق','actor') + insert(2,'إسلام السبع'));
-assert.equal(sql('select count(distinct staff_id) from staff_identity_aliases').stdout.trim(),'2');
+assert.equal(sql('select count(distinct staff_id) from staff_identity_aliases where active').stdout.trim(),'2');
 pass('Shokry doctor and courier remain separate staff ids');
 sql(actor('m') + insert(1,'د اسلام'));
 denied('exact pharmacist/courier short-name collision stays unresolved',actor('m')+insert(2,'اسلام'),'23505');
 const beforeIgnoredConflict = sql('select count(*) from staff_alias_audit_v1').stdout.trim();
-sql(actor('m')+insert(2,'اسلام').replace(/;$/,' on conflict do nothing;'));
+denied('ON CONFLICT DO NOTHING cannot launder a key owned by another employee',actor('m')+insert(2,'اسلام').replace(/;$/,' on conflict do nothing;'),'23505');
 assert.equal(sql('select count(*) from staff_alias_audit_v1').stdout.trim(),beforeIgnoredConflict);
-pass('ON CONFLICT DO NOTHING emits no audit ghost');
+pass('rejected foreign claim emits no audit ghost');
+sql(actor('m')+insert(1,'دكتور إسلام فاروق'));
+assert.equal(sql("select count(*) from staff_identity_aliases where active and normalized_alias='اسلامفاروق'").stdout.trim(),'2');
+pass('one employee may hold several spellings of the same key');
 sql(`create table public.base44_purchase_invoice_sync(id integer primary key,entered_by_staff_id uuid,review_id uuid);
  insert into public.base44_purchase_invoice_sync values(1,'${id(2)}',null);`);
 denied('purchase alias RPC rejects a conflicting owner',actor('m')+`select public.resolve_base44_entered_by_alias_v1('د اسلام','${id(2)}');`,'23505');
@@ -110,7 +127,7 @@ denied('inactive staff cannot receive active alias', actor('m') + insert(4,'قد
 denied('retired alias still requires an existing canonical staff id',actor('m')+`insert into staff_identity_aliases(staff_id,alias_name,active) values ('${id(999)}','مفقود',false);`,'23514');
 // RLS may filter UPDATE to zero rows rather than throw: verify persisted state, not error shape.
 sql(actor('u') + "update staff_identity_aliases set active=false;");
-assert.equal(sql('select count(*) from staff_identity_aliases where active').stdout.trim(),'3');
+assert.equal(sql('select count(*) from staff_identity_aliases where active').stdout.trim(),'4');
 pass('nonmanager UPDATE changes zero aliases under RLS');
 sql(`create function public.alias_test_privileged_update() returns void language plpgsql security definer
  set search_path=pg_catalog,public as $$ begin update public.staff_identity_aliases set active=false; end $$;
@@ -129,7 +146,7 @@ if(legacy) {
  denied('authenticated permissive legacy UPDATE still cannot bypass permission',actor('u').replace('role anon','role authenticated')+'update staff_identity_aliases set active=false;','42501');
 } else {
  sql(actor('u').replace('role anon','role authenticated')+'update staff_identity_aliases set active=false;');
- assert.equal(sql('select count(*) from staff_identity_aliases where active').stdout.trim(),'3');
+ assert.equal(sql('select count(*) from staff_identity_aliases where active').stdout.trim(),'4');
  pass('authenticated nonmanager UPDATE changes zero aliases under staging RLS');
 }
 sql(actor('m').replace('role anon','role authenticated')+insert(2,'مخول موثق'));
@@ -157,8 +174,10 @@ pass('authorized retirement and reactivation');
 sql(actor('m') + "update staff_identity_aliases set normalized_alias='forged';");
 assert.equal(sql("select count(*) from staff_identity_aliases where normalized_alias='forged'").stdout.trim(),'0');
 pass('UPDATE cannot forge the normalized reader key');
-sql(actor('m')+insert(1,'اسم متقاعد')+"update staff_identity_aliases set active=false where alias_name='اسم متقاعد';"+insert(2,'اسم متقاعد'));
-denied('reactivation cannot steal an occupied alias',actor('m')+`update staff_identity_aliases set active=true where alias_name='اسم متقاعد' and staff_id='${id(1)}';`,'23505');
+sql(actor('m')+insert(1,'اسم متقاعد')+"update staff_identity_aliases set active=false where alias_name='اسم متقاعد';");
+denied('a retired name stays owned: another employee cannot claim it',actor('m')+insert(2,'اسم متقاعد'),'23505');
+sql(actor('m')+`update staff_identity_aliases set active=true where alias_name='اسم متقاعد' and staff_id='${id(1)}';`);
+pass('the owner can reactivate its own retired alias');
 
 function asyncSql(query) {
  const child = spawn('docker',['exec','-i',container,'psql','-X','-At','-v','ON_ERROR_STOP=1','-U','postgres','-d',database]);
@@ -167,7 +186,7 @@ function asyncSql(query) {
  child.stdin.end(query); return done;
 }
 const first = asyncSql(`begin; ${actor('m')} ${insert(1,'سباق ذري')} select pg_sleep(3); commit;`);
-// Wait for the first uncommitted insert to hold its unique-index transaction lock.
+// Wait for the first uncommitted insert to hold its key-ownership row lock.
 let ready=false;
 for(let n=0;n<50;n++) {
  if(sql("select count(*) from pg_stat_activity where datname=current_database() and wait_event='PgSleep'").stdout.trim()==='1'){ready=true;break;}

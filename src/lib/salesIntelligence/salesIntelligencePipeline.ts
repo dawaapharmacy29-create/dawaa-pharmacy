@@ -43,6 +43,7 @@ import { deriveLostOpportunity } from './lostOpportunityEngine';
 import { deriveFollowUpOpportunities } from './followUpOpportunityEngine';
 import { buildCaseIntelligenceView } from './caseIntelligenceView';
 import { deriveCaseOperationalDisposition } from './caseOperationalDispositionEngine';
+import { evaluateAuditedProductIdentityClosure, type VerifiedProductIdentityReview } from './productIdentityReviewClosure';
 import {
   isBasketEligibleProductResolution,
   resolveProductMention,
@@ -113,6 +114,8 @@ export interface SalesIntelligencePipelineInput {
   itemEvidenceProvider?: InvoiceItemEvidenceProvider;
   /** Optional canonical pharmacy catalog index. Used only to enrich basket item identity. */
   productIndex?: PharmacyProductIndex;
+  /** Canonical server-validated, source-scoped evidence only. Never an unverified UI decision. */
+  verifiedProductIdentityReviews?: VerifiedProductIdentityReview[];
   documentedAdjustments?: DocumentedAdjustment[];
   invoiceCancelledOrReturned?: boolean;
   /** Caller-CONFIRMED only — never inferred here from ambiguous free-text status columns (mirrors Phase F's own field). */
@@ -653,6 +656,19 @@ function analyzeOneCase(
       (reason) => !reviewReasonsResolvedByInvoiceBackedClosure.has(reason)
     );
   }
+  const auditedProductIdentity = evaluateAuditedProductIdentityClosure({
+    sourceId: input.conversationId,
+    caseId: conversationCase.caseId,
+    invoiceId: saleProof.trustedInvoiceId,
+    saleProofState: saleProof.state,
+    activeItems,
+    reviews: input.verifiedProductIdentityReviews ?? [],
+  });
+  if (auditedProductIdentity.resolved) {
+    // An independently verified manager decision closes ONLY identity uncertainty.
+    // Never rewrite the basket, attribution, conversation/doctor credit or sale proof.
+    humanReviewReasons = humanReviewReasons.filter((reason) => reason !== 'product_identity_unresolved');
+  }
   if (identityBlocked && !humanReviewReasons.includes(identityReason)) humanReviewReasons.push(identityReason);
 
   const unexplainedBooleanReviewFlag = rawNeedsHumanReview && rawHumanReviewReasons.length === 0;
@@ -775,7 +791,10 @@ function analyzeOneCase(
     pipelineWarnings,
     needsHumanReview,
     humanReviewReasons,
-    failureReasons,
+    failureReasons: auditedProductIdentity.resolved
+      ? failureReasons.filter((reason) => reason !== 'product_identity_unresolved')
+      : failureReasons,
+    managerProductIdentityReviewIds: auditedProductIdentity.reviewIds,
     careFollowUp: deriveCareFollowUpSuggestion(conversationCase, scopedMessages),
     branchRecommendation: recommendCaseBranch({
       ownership: conversationCase.ownership,

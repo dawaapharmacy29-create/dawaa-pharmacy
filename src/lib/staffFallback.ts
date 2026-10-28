@@ -115,7 +115,8 @@ function withDuplicateDisplayNames(rows: StaffChoice[]) {
     if (group.length <= 1) return row;
     const branch = row.branch && row.branch !== UNKNOWN_BRANCH ? row.branch : '';
     const role = row.role || '';
-    const suffix = [branch, role].filter(Boolean).join(' - ') || row.id.slice(0, 8);
+    // Even two people in the same branch/role need distinct visible labels.
+    const suffix = [...[branch, role].filter(Boolean), row.id].join(' - ');
     return {
       ...row,
       display_name: `${row.original_name || row.name} (${suffix})`,
@@ -126,12 +127,9 @@ function withDuplicateDisplayNames(rows: StaffChoice[]) {
 function mergeDuplicateStaffRows(rows: StaffChoice[]) {
   const groups = new Map<string, StaffChoice[]>();
   for (const row of rows) {
-    const key = [
-      normalizeDuplicateNameKey(row.original_name || row.name),
-      row.branch || UNKNOWN_BRANCH,
-      row.role || '',
-    ].join('|');
-    if (!key.trim()) continue;
+    // Only multiple representations of the SAME canonical record can collapse.
+    // Equal names, branches and roles do not prove two staff IDs are one person.
+    const key = row.id;
     const group = groups.get(key) || [];
     group.push(row);
     groups.set(key, group);
@@ -165,7 +163,7 @@ function mergeDuplicateStaffRows(rows: StaffChoice[]) {
     merged.push({
       ...primary,
       aliases,
-      duplicate_ids: Array.from(new Set(group.map((row) => row.id).filter(Boolean))),
+      duplicate_ids: [primary.id],
       duplicate_count: group.length,
       display_name: `${primary.original_name || primary.name} (${primary.branch}${primary.role ? ` - ${primary.role}` : ''})`,
     });
@@ -180,7 +178,7 @@ function isActiveRealStaff(row: unknown): row is Record<string, unknown> {
   const id = String(next.id || next.staff_id || '').trim();
   const name = String(next.name || next.staff_name || next.employee_name || '').trim();
   if (!id || !name || id.startsWith('fallback-')) return false;
-  if (next.deleted_at || next.is_deleted === true || next.active === false) return false;
+  if (next.deleted_at || next.is_deleted === true || next.active === false || next.is_active === false) return false;
   return true;
 }
 

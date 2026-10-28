@@ -4,6 +4,11 @@
    branch names stored in the management database. */
 (function () {
   var INTERVAL_MS = 45000;
+  // Returning to the tab fires both visibilitychange and focus, and switching apps on a
+  // phone repeats it often; each one reloaded the list and summary. One automatic
+  // refresh per window is enough; the تحديث button itself is never throttled.
+  var MIN_AUTO_REFRESH_GAP_MS = 15000;
+  var lastAutoRefreshAt = 0;
   var timer = null;
   var observer = null;
 
@@ -44,6 +49,9 @@
 
   function triggerExistingRefresh() {
     if (!onCustomerRequestsPage() || document.hidden) return;
+    var now = Date.now();
+    if (now - lastAutoRefreshAt < MIN_AUTO_REFRESH_GAP_MS) return;
+    lastAutoRefreshAt = now;
     normalizeBranchOptions();
     var buttons = Array.prototype.slice.call(document.querySelectorAll('button'));
     var refresh = buttons.find(function (button) {

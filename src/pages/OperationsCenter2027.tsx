@@ -242,7 +242,7 @@ export default function OperationsCenter2027() {
     if (!canCreateTasks) return [];
     const byId = new Map<string, StaffOption>();
     for (const identity of staffDirectory) {
-      if (!identity.id || !identity.name || !identity.active || identity.source === 'alias') continue;
+      if (!identity.id || !identity.name || !identity.active || identity.source !== 'staff') continue;
       if (!canSeeAllBranches && user?.branch && identity.branch !== user.branch) continue;
       if (!byId.has(identity.id)) {
         byId.set(identity.id, { id: identity.id, name: identity.name, role: identity.role, branch: identity.branch });

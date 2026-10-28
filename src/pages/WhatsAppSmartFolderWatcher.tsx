@@ -14,7 +14,11 @@ import {
   resetLocalWhatsAppProcessedLedger,
   loadLocalWhatsAppAnalysisHistory,
   saveLocalWhatsAppAnalysisHistory,
+  getLocalWhatsAppFailedExports,
+  retryLocalWhatsAppFailedExport,
+  type LocalWhatsAppFailedExport,
 } from '@/lib/localWhatsAppInbox';
+import { describeWhatsAppIngestError } from '@/lib/whatsappIngestError';
 import { readWhatsAppExportFile } from '@/lib/whatsappExportFileReader';
 import { parseWhatsAppExport } from '@/lib/whatsappConversationParser';
 import { segmentWhatsAppExportCanonical } from '@/lib/whatsappCanonicalSegmentation';
@@ -269,9 +273,21 @@ export default function WhatsAppSmartFolderWatcher() {
   const [detailTab, setDetailTab] = useState<'overview' | 'conversation' | 'review'>('overview');
   const [expandedRuns, setExpandedRuns] = useState<Record<string, boolean>>({});
   const [runQuery, setRunQuery] = useState('');
+  const [failedExports, setFailedExports] = useState<LocalWhatsAppFailedExport[]>([]);
+
+  const refreshFailedExports = useCallback(async () => {
+    if (!handleRef.current) return [];
+    const failures = await getLocalWhatsAppFailedExports(handleRef.current);
+    setFailedExports(failures);
+    return failures;
+  }, []);
 
 
-  const analyzeFile = useCallback(async (file: File, mode: PersistSessionMode = 'ingest', sourceFolderName: string | null = null): Promise<FileRun> => {
+  const analyzeFile = useCallback(async (
+    file: File, mode: PersistSessionMode = 'ingest', sourceFolderName: string | null = null,
+    onStage?: (stage: WhatsAppFilePipelineStage) => void
+  ): Promise<FileRun> => {
+    onStage?.('parsed');
     const read = await readWhatsAppExportFile(file);
     const messages = parseWhatsAppExport(read.text);
     if (!messages.length) throw new Error('لم يتم التعرف على رسائل WhatsApp داخل الملف');
@@ -290,6 +306,7 @@ export default function WhatsAppSmartFolderWatcher() {
 
     // Canonical Customer Identity for every case unit in one bounded batch (same resolver as
     // automatic ingest and Sales Intelligence). A lookup outage fails the file visibly.
+    onStage?.('identity_resolved');
     const customerContexts = await resolveCanonicalCustomerContexts(
       analysisUnits.map((context) => context.mergedSession),
       file.name
@@ -525,6 +542,7 @@ export default function WhatsAppSmartFolderWatcher() {
 
     // التحليل يتم على مستوى الـCase لا الـraw session. كده الـhandoff بين دكتورين
     // لا يخلق قصتين منفصلتين لنفس الأوردر، ومع ذلك كل دكتور يأخذ Scope رسائله فقط.
+    onStage?.('source_saved');
     const CASE_CONCURRENCY = 2;
     for (let index = 0; index < analysisUnits.length; index += CASE_CONCURRENCY) {
       const batch = analysisUnits.slice(index, index + CASE_CONCURRENCY);
@@ -539,6 +557,7 @@ export default function WhatsAppSmartFolderWatcher() {
     // Canonical chain through the SAME orchestrator as automatic ingest:
     //   Case Graph (Journey/Story side projection + Customer Case V22) -> ONE Sales Intelligence refresh.
     // Journey/Story failures are warnings; V22 or Sales Intelligence failures keep the file retryable.
+    onStage?.('case_graph_saved');
     const pipeline = await runCanonicalWhatsAppFilePipeline({
       sourceFileName: file.name,
       caseContexts,
@@ -577,14 +596,14 @@ export default function WhatsAppSmartFolderWatcher() {
     };
   }, [actorName, user?.id]);
 
-  const scanOnce = useCallback(async (mode: PersistSessionMode = 'ingest') => {
+  const scanOnce = useCallback(async (mode: PersistSessionMode = 'ingest', onlyFileKey?: string) => {
     if (!handleRef.current || scanningRef.current) return;
     scanningRef.current = true;
     setScanning(true);
     try {
       let candidates: Awaited<ReturnType<typeof getUnprocessedWhatsAppExports>>;
       try {
-        candidates = await getUnprocessedWhatsAppExports(handleRef.current, 10);
+        candidates = await getUnprocessedWhatsAppExports(handleRef.current, 10, onlyFileKey);
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
         if (reason === 'local_whatsapp_folder_permission_not_granted') {
@@ -597,13 +616,20 @@ export default function WhatsAppSmartFolderWatcher() {
         return;
       }
       if (!candidates.length) {
-        toast.message('لا توجد ملفات جديدة في الفولدر');
+        const failures = await refreshFailedExports();
+        if (failures.length) {
+          toast.warning(`يوجد ${failures.length} ملف فشل سابقًا أو ينتظر إعادة المحاولة — راجع القائمة أدناه`);
+        } else {
+          toast.message('لا توجد ملفات جديدة في الفولدر');
+        }
         return;
       }
 
       const processCandidate = async (candidate: (typeof candidates)[number]): Promise<FileRun> => {
+        let currentStage: WhatsAppFilePipelineStage = 'parsed';
         try {
-          const result = await analyzeFile(candidate.file, mode, candidate.folderName ?? null);
+          const result = await analyzeFile(candidate.file, mode, candidate.folderName ?? null, (stage) => { currentStage = stage; });
+          currentStage = 'review_ready';
           await saveLocalWhatsAppAnalysisHistory<FileRun>(candidate.key, candidate.name, result);
           // "Processed" is recorded only after Source -> V22 -> Sales Intelligence all succeeded.
           // Anything less stays retryable (failed ledger with backoff) and is shown as needs-attention.
@@ -624,7 +650,7 @@ export default function WhatsAppSmartFolderWatcher() {
           }
           return result;
         } catch (error) {
-          const reason = error instanceof Error ? error.message : 'خطأ غير معروف';
+          const reason = `${STAGE_LABELS[currentStage]}: ${describeWhatsAppIngestError(error)}`;
           markLocalWhatsAppFileFailed(candidate.key, reason);
           return {
             fileName: candidate.name,
@@ -649,11 +675,12 @@ export default function WhatsAppSmartFolderWatcher() {
           await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
         }
       }
+      await refreshFailedExports();
     } finally {
       scanningRef.current = false;
       setScanning(false);
     }
-  }, [analyzeFile]);
+  }, [analyzeFile, refreshFailedExports]);
 
   useEffect(() => {
     void (async () => {
@@ -676,8 +703,9 @@ export default function WhatsAppSmartFolderWatcher() {
       if (await queryLocalWhatsAppFolderPermission(handle, false) !== 'granted') return;
       handleRef.current = handle;
       setConnected(true);
+      await refreshFailedExports();
     })();
-  }, []);
+  }, [refreshFailedExports]);
 
   useEffect(() => {
     if (!connected) return;
@@ -699,6 +727,7 @@ export default function WhatsAppSmartFolderWatcher() {
       return;
     }
     resetLocalWhatsAppProcessedLedger();
+    setFailedExports([]);
     setRuns([]);
     toast.success('إعادة تحليل حقيقية: نفس المصادر، تحليل مشتق محدث، بدون تكرار وبدون لمس الاعتماد البشري');
     await scanOnce('reanalyze');
@@ -709,11 +738,22 @@ export default function WhatsAppSmartFolderWatcher() {
       const handle = await connectLocalWhatsAppFolder();
       handleRef.current = handle;
       setConnected(true);
+      await refreshFailedExports();
       toast.success('تم ربط فولدر محادثات واتساب');
       void scanOnce();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'تعذر ربط الفولدر');
     }
+  }
+
+  async function retryFailedFile(key: string) {
+    if (scanningRef.current) return;
+    if (!retryLocalWhatsAppFailedExport(key)) {
+      toast.message('الملف لم يعد في قائمة الملفات الفاشلة');
+      await refreshFailedExports();
+      return;
+    }
+    await scanOnce('ingest', key);
   }
 
   function openOfficialReview(item: StaffRun) {
@@ -846,6 +886,23 @@ export default function WhatsAppSmartFolderWatcher() {
           ))}
         </div>
         {connected ? <div className="border-t border-slate-800 px-4 py-2 text-[11px] font-bold text-emerald-300">● الفولدر متصل — فحص تلقائي كل دقيقة أثناء فتح التطبيق</div> : null}
+        {connected && failedExports.length ? (
+          <div className="space-y-2 border-t border-amber-800/50 bg-amber-950/15 p-4" data-testid="whatsapp-failed-exports">
+            <div className="text-sm font-black text-amber-200">ملفات لم يكتمل تحليلها ({failedExports.length}) — ليست ملفات جديدة، ولا يوجد اعتماد تلقائي</div>
+            {failedExports.map((item) => (
+              <div key={item.key} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-800/30 p-2 text-xs">
+                <div className="min-w-0 flex-1">
+                  <div className="break-all font-bold text-white">{item.name}</div>
+                  <div className="mt-1 text-amber-200">فشل {item.attempts} مرة — {item.retryAt === null ? 'توقفت المحاولات التلقائية' : Date.now() < item.retryAt ? 'بانتظار انتهاء مهلة المحاولة' : 'جاهز لإعادة المحاولة'}</div>
+                  <div className="mt-1 break-words text-rose-200">{item.reason}</div>
+                </div>
+                <button type="button" disabled={scanning} onClick={() => void retryFailedFile(item.key)} className="rounded-lg border border-cyan-700 px-3 py-2 font-black text-cyan-100 disabled:opacity-50">
+                  إعادة محاولة هذا الملف
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </section>
 
       <section className="dawaa-card overflow-hidden">
@@ -926,7 +983,7 @@ export default function WhatsAppSmartFolderWatcher() {
                     <div className="border-t border-slate-800 bg-slate-950/15 p-3">
                       {run.processing && run.processing.outcome !== 'complete' ? (
                         <div className="mb-3 rounded-xl border border-rose-800/40 bg-rose-950/20 p-3 text-xs leading-6 text-rose-100">
-                          <div className="font-black">يحتاج متابعة — المسار الرسمي غير مكتمل ({run.processing.outcome})، والملف سيُعاد محاولته تلقائيًا.</div>
+                          <div className="font-black">يحتاج متابعة — المسار الرسمي غير مكتمل ({run.processing.outcome}). يمكن إعادة المحاولة من قائمة الملفات الفاشلة؛ وتتوقف المحاولات التلقائية بعد 3 مرات.</div>
                           {run.processing.blockingErrors.map((error) => <div key={error}>• {error}</div>)}
                         </div>
                       ) : null}

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { readStaffDirectory, type StaffDirectoryIdentity } from '@/lib/readModels/staffDirectoryReadModel';
+import { canonicalActiveStaff, readStaffDirectory, type StaffDirectoryIdentity } from '@/lib/readModels/staffDirectoryReadModel';
 
 export const STAFF_DIRECTORY_QUERY_KEY = ['staff-directory'] as const;
 
@@ -14,7 +14,8 @@ const STANDARD_GC_MS = 15 * 60_000;
 export function useStaffDirectory() {
   return useQuery<StaffDirectoryIdentity[]>({
     queryKey: STAFF_DIRECTORY_QUERY_KEY,
-    queryFn: () => readStaffDirectory(),
+    // Operational pickers must never expose orphan login rows or spelling aliases.
+    queryFn: async () => canonicalActiveStaff(await readStaffDirectory()),
     staleTime: STANDARD_STALE_MS,
     gcTime: STANDARD_GC_MS,
     refetchOnMount: true,

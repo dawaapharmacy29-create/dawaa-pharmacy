@@ -350,7 +350,12 @@ export async function runCanonicalSalesIntelligenceRefresh(
     v22CaseIdBySource,
     v22ContextByCaseId
   );
-  const batch = await runBatchPersistence(service, { conversations, dryRun: input.dryRun, deferPublication: true });
+  const batch = await runBatchPersistence(service, {
+    conversations,
+    dryRun: input.dryRun,
+    deferPublication: true,
+    applyManagerProductIdentityReviews: true,
+  });
   if (input.dryRun) return { ...empty, status: 'ok', admittedSourceIds, blockedSources, batch };
 
   // A deleted case stays deleted until an explicit restore: drop it before publication so it is

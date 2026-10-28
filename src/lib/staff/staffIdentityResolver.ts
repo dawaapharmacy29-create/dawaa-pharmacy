@@ -12,6 +12,7 @@
 import { normalizeBranchName } from '@/lib/branch';
 import { readStaffDirectory, type StaffDirectoryIdentity } from '@/lib/readModels/staffDirectoryReadModel';
 import { normalizeArabicName } from '@/lib/security/userDataScope';
+import { staffIdentityKey } from '@/lib/staff/staffIdentityKey';
 import { resolveStaffAccountSafe } from '@/lib/staff/staffAccountsApi';
 
 export interface ResolvedStaff {
@@ -102,7 +103,7 @@ export function resolveStaffDirectoryName(value: string, rows: StaffDirectoryIde
   candidates: StaffDirectoryIdentity[];
   source: 'name' | 'alias' | 'account';
 } {
-  const key = (name: unknown) => normalizeDoctorName(name).replace(/\s+/g, '');
+  const key = staffIdentityKey;
   const target = key(value);
   const empty = { staff: null, candidates: [], source: 'name' as const };
   if (!target) return { ...empty, status: 'unresolved' };

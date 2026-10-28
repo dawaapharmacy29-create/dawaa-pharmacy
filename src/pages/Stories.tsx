@@ -62,7 +62,7 @@ export default function Stories() {
   const staffRows = useMemo(
     () =>
       staffDirectory
-        .filter((item) => item.source !== 'alias' && item.active)
+        .filter((item) => item.source === 'staff' && item.active && Boolean(item.id) && Boolean(item.name))
         .map((item) => ({
           id: item.id || undefined,
           name: item.name,

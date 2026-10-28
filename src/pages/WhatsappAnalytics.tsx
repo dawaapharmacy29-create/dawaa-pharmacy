@@ -12,6 +12,12 @@ import { normalizeBranchName } from '@/lib/branch';
 import { formatCycleDate, getCurrentCycle } from '@/lib/pharmacy-cycle';
 import { formatCurrency } from '@/lib/utils';
 import {
+  averageOfficialConversationScore,
+  conversationReviewOperationalDay,
+  conversationReviewScore100,
+  isOfficialConversationReview,
+} from '@/lib/evaluations/officialConversationReview';
+import {
   buildStaffIdentityMap,
   resolvePrimaryStaffForDoctor,
   type StaffDirectoryRow,
@@ -46,8 +52,9 @@ function num(row: Row, keys: string[], fallback = 0) {
   return fallback;
 }
 
+// The operational conversation day on the Cairo calendar (the same date the monthly evaluation uses).
 function day(row: Row) {
-  return text(row, ['review_date', 'conversation_date', 'created_at', 'date']).slice(0, 10);
+  return conversationReviewOperationalDay(row) || '';
 }
 
 function rowBranch(row: Row) {
@@ -96,10 +103,10 @@ export default function WhatsappAnalytics() {
     // browser, which silently truncates the period once the table grows past the limit.
     filters: [
       { column: 'is_current', operator: 'eq', value: true },
-      { column: 'review_date', operator: 'gte', value: startDate },
-      { column: 'review_date', operator: 'lte', value: endDate },
+      { column: 'conversation_date', operator: 'gte', value: cairoDateBoundaryIso(startDate) },
+      { column: 'conversation_date', operator: 'lte', value: cairoDateBoundaryIso(endDate, true) },
     ],
-    orderBy: { column: 'review_date', ascending: false },
+    orderBy: { column: 'conversation_date', ascending: false },
     limit: REVIEW_READ_LIMIT,
     realtimeEnabled: true,
   });
@@ -117,7 +124,7 @@ export default function WhatsappAnalytics() {
   const staffRows = useMemo(
     () =>
       staffDirectory.filter(
-        (staff) => staff.source !== 'alias' && staff.active && Boolean(staff.id) && Boolean(staff.name)
+        (staff) => staff.source === 'staff' && staff.active && Boolean(staff.id) && Boolean(staff.name)
       ) as StaffDirectoryRow[],
     [staffDirectory]
   );
@@ -126,6 +133,9 @@ export default function WhatsappAnalytics() {
 
   const scopeFilteredReviews = useMemo(() => {
     return (reviews || []).filter((row) => {
+      // Analytics show the same official reviews the monthly evaluation scores: pending human
+      // reviews and unapproved automatic analyses are not performance evidence.
+      if (!isOfficialConversationReview(row)) return false;
       const rowBr = rowBranch(row);
       if (!rowBr || rowBr === WAREHOUSE_BRANCH) return false;
       if (canAllBranches) return true;
@@ -176,7 +186,8 @@ export default function WhatsappAnalytics() {
       const staffId = resolved?.staffId || `unresolved:${text(row, ['doctor_name', 'staff_name', 'employee_name'])}`;
       const name = resolved?.displayName || text(row, ['doctor_name', 'staff_name', 'employee_name'], 'غير محدد');
       const branchName = resolved?.branch || rowBranch(row) || 'غير محدد';
-      const score = num(row, ['score', 'total_score', 'final_score', 'rating'], 0);
+      const score = conversationReviewScore100(row);
+      if (score == null) continue;
       const current = map.get(staffId) || {
         staffId,
         name,
@@ -239,14 +250,8 @@ export default function WhatsappAnalytics() {
     txError ? 'تعذر تحميل أثر النقاط مؤقتًا' : null,
   ].filter(Boolean) as string[];
 
-  const avgScore = hasData
-    ? Math.round(
-        filtered.reduce(
-          (sum, row) => sum + num(row, ['score', 'total_score', 'final_score', 'rating'], 0),
-          0
-        ) / filtered.length
-      )
-    : null;
+  const officialAverage = averageOfficialConversationScore(filtered);
+  const avgScore = officialAverage == null ? null : Math.round(officialAverage);
   const topDoctor = perDoctor[0]?.name || null;
 
   return (

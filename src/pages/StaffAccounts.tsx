@@ -113,7 +113,7 @@ export default function StaffAccountsSecureAdmin() {
   const staffList = useMemo<StaffRow[]>(
     () =>
       staffDirectory.flatMap((item) => {
-        if (item.source === 'alias' || !item.active || !item.id || !item.name) return [];
+        if (item.source !== 'staff' || !item.active || !item.id || !item.name) return [];
         return [{
           id: item.id,
           name: item.name,

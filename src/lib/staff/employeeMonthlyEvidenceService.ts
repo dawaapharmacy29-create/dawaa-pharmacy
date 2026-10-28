@@ -6,6 +6,12 @@ import { hasStrongDevelopmentEvidence, trainingCompletionTiming } from '@/lib/ev
 import { hasStrongAttendanceEvidence } from '@/lib/evaluations/monthlyAttendanceEvidence';
 import { normalizeConversationDimensionScore } from '@/lib/evaluations/monthlyConversationScoreScale';
 import {
+  averageOfficialConversationScore,
+  isPayableConversationReview,
+  OFFICIAL_REVIEW_COLUMNS,
+  selectOfficialConversationReviews,
+} from '@/lib/evaluations/officialConversationReview';
+import {
   isActionableDevelopmentIssue,
   isActionableTrainingRecommendation,
 } from '@/lib/evaluations/monthlyDevelopmentTextEvidence';
@@ -17,8 +23,14 @@ import type { EvaluationMetricProjection } from '@/lib/evaluations/evaluationMet
 import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
 
 export type EmployeeMonthlyEvidenceMetrics = {
+  /** Officially approved, current reviews whose operational Cairo date is in the cycle. */
   review_count: number;
-  review_average: number;
+  /** 0..100 mean of official reviews; null = no approved review yet ("under review"), never 0. */
+  review_average: number | null;
+  /** Official reviews counted in the score whose points still await approval (not yet payable). */
+  reviews_points_pending_approval: number;
+  /** Automatic analyses never approved by a manager: excluded from the score and points. */
+  reviews_automatic_unapproved: number;
   completed_followups: number;
   followup_count: number;
   conversation_positive_points: number;
@@ -308,10 +320,8 @@ const REVIEW_SELECT = [
   'id',
   'staff_id',
   'doctor_id',
-  'conversation_date',
   'created_at',
-  'final_score',
-  'total_score',
+  ...OFFICIAL_REVIEW_COLUMNS,
   'doctor_points_impact',
   'point_impact',
   'main_positive_reason',
@@ -369,7 +379,8 @@ function dimensionEvidence(rows: Record<string, unknown>[], minSamples: number) 
     const values = rows
       .map((row) => nullableNumber(row[dimension.column]))
       .filter((value): value is number => value !== null)
-      .map((value) => normalizeConversationDimensionScore(dimension.key, value));
+      .map((value) => normalizeConversationDimensionScore(dimension.key, value))
+      .filter((value): value is number => value !== null);
 
     if (!values.length) return null;
     const average = Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 10) / 10;
@@ -1439,6 +1450,8 @@ async function loadConversationReviews(args: {
   if (byStaff.error && byDoctor.error) {
     return {
       rows: [] as Record<string, unknown>[],
+      pointsPendingApproval: 0,
+      automaticUnapproved: 0,
       error: [byStaff.error.message, byDoctor.error.message].filter(Boolean).join(' | '),
     };
   }
@@ -1450,9 +1463,18 @@ async function loadConversationReviews(args: {
     const key = text(record.id) || `${text(record.created_at)}:${unique.size}`;
     unique.set(key, record);
   });
+  // Only official, current reviews whose OPERATIONAL Cairo date is in the cycle feed the
+  // monthly evaluation. Unapproved automatic analyses are counted, never scored; a human review whose
+  // points await approval is scored but its points are not payable.
+  const official = selectOfficialConversationReviews([...unique.values()], {
+    startDay: args.startDate,
+    endDayExclusive: args.endDateExclusive,
+  });
 
   return {
-    rows: [...unique.values()],
+    rows: official.rows,
+    pointsPendingApproval: official.pointsPendingApproval,
+    automaticUnapproved: official.automaticUnapproved,
     error: conversationRowsTruncated
       ? 'conversation_reviews_truncated: more than 500 review rows matched one identity path; monthly evidence is incomplete'
       : byStaff.error?.message || byDoctor.error?.message || '',
@@ -1482,7 +1504,11 @@ export async function loadBranchConversationReviewRows(args: {
   if (error) return { rows: [], error: error.message || 'branch_conversation_reviews_unavailable' };
   const rows = (data || []) as unknown as Record<string, unknown>[];
   if (rows.length > limit) return { rows: [], error: 'branch_conversation_reviews_truncated' };
-  return { rows, error: '' };
+  // Peers are compared on the same official rows the employee is scored on.
+  return {
+    rows: selectOfficialConversationReviews(rows, { startDay: args.startDate, endDayExclusive: args.endDateExclusive }).rows,
+    error: '',
+  };
 }
 
 /**
@@ -1543,7 +1569,7 @@ export async function loadEmployeeMonthlyEvidence(args: {
     : Promise.resolve(null);
 
   const [reviewResult, followupResult, attendanceResult, attendanceImpactResult, inventoryResult, trainingResult, invoicePerformanceResult, taskEvaluation] = await Promise.all([
-    needsConversationEvidence ? loadConversationReviews(args) : Promise.resolve({ rows: [] as Record<string, unknown>[], error: '' }),
+    needsConversationEvidence ? loadConversationReviews(args) : Promise.resolve({ rows: [] as Record<string, unknown>[], pointsPendingApproval: 0, automaticUnapproved: 0, error: '' }),
     needsFollowupEvidence ? supabase
       .from('customer_followup_operations_v2')
       .select('id,status,followup_status,followup_result,followup_summary,notes,completed_at,closed_at,needs_next_followup,next_followup_date,purchase_after_followup,created_at,staff_id,assigned_staff_id,requested_by_staff_id,assigned_to_staff_id,handled_by_staff_id,is_hidden,archived_at')
@@ -1599,9 +1625,7 @@ export async function loadEmployeeMonthlyEvidence(args: {
     errors.attendance = [errors.attendance, attendanceImpactResult.error].filter(Boolean).join(' | ');
   }
 
-  const reviewAverage = reviewRows.length
-    ? reviewRows.reduce((sum, row) => sum + safeNumber(row.final_score ?? row.total_score), 0) / reviewRows.length
-    : 0;
+  const reviewAverage = averageOfficialConversationScore(reviewRows);
 
   const completedFollowups = followupRows.filter(
     (row) =>
@@ -1609,7 +1633,8 @@ export async function loadEmployeeMonthlyEvidence(args: {
       /completed|مكتمل|تم/i.test(String(row.status || row.followup_status || ''))
   ).length;
 
-  const reviewImpacts = reviewRows.map((row) =>
+  // Points come only from reviews whose points effect is approved (payable), never pending ones.
+  const reviewImpacts = reviewRows.filter((row) => isPayableConversationReview(row)).map((row) =>
     safeNumber(row.doctor_points_impact ?? row.point_impact)
   );
   const positivePoints = reviewImpacts
@@ -1641,7 +1666,9 @@ export async function loadEmployeeMonthlyEvidence(args: {
   return {
     metrics: {
       review_count: reviewRows.length,
-      review_average: Math.round(reviewAverage * 10) / 10,
+      review_average: reviewAverage,
+      reviews_points_pending_approval: reviewResult.pointsPendingApproval,
+      reviews_automatic_unapproved: reviewResult.automaticUnapproved,
       completed_followups: completedFollowups,
       followup_count: followupRows.length,
       conversation_positive_points: positivePoints,

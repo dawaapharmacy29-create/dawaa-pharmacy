@@ -20,6 +20,7 @@ import { clearCustomersCache } from '@/lib/api/customers';
 import { clearCustomerServiceCommandCenterCache } from '@/lib/api/customerServiceCommandCenter';
 import { clearStaffPerformanceProfileCache } from '@/lib/staff/staffPerformanceProfileService';
 import { resolveStaffNamesToStaffIds } from '@/lib/staffIdentityMapping';
+import { mustPreserveInvoiceStaffId } from '@/lib/invoices/invoiceSellerIdentity';
 import { getInvoiceKey } from '@/lib/dawaa2027';
 import {
   getInvoiceAmount as getCoreInvoiceAmount,
@@ -219,7 +220,7 @@ export interface ImportSummary {
   invoicesWithoutDoctor?: number;
   invoicesWithoutBranch?: number;
   schemaWarnings?: string[];
-  staffLinkingMode?: 'staff_id' | 'name_fallback';
+  staffLinkingMode?: 'staff_id' | 'unresolved';
   summaryRefreshStatus?: 'refreshed' | 'manual_required' | 'skipped' | 'unavailable';
   summaryRefreshMessage?: string;
   postImportRefreshSteps?: PostImportRefreshStep[];
@@ -1012,6 +1013,13 @@ async function insertRowsWithOptionalColumns(table: string, rows: Array<Record<s
       return { error, removedColumns: [...removedColumns] };
     }
 
+    if (mustPreserveInvoiceStaffId(table, missingColumn)) {
+      return {
+        error: { ...error, message: 'تعذر الحفظ بأمان: عمود staff_id غير متاح في قاعدة البيانات أو في schema cache. لم يتم إسقاط ربط الموظف؛ يرجى معالجة العمود ثم إعادة الاستيراد.' },
+        removedColumns: [...removedColumns],
+      };
+    }
+
     removedColumns.add(missingColumn);
     nextRows = nextRows.map((row) => {
       const copy = { ...row };
@@ -1043,6 +1051,13 @@ async function updateRowWithOptionalColumns(
     const missingColumn = schemaCacheMissingColumn(error.message);
     if (!missingColumn || removedColumns.has(missingColumn)) {
       return { error, removedColumns: [...removedColumns] };
+    }
+
+    if (mustPreserveInvoiceStaffId(table, missingColumn)) {
+      return {
+        error: { ...error, message: 'تعذر تحديث الفاتورة بأمان: عمود staff_id غير متاح. لم يتم إسقاط هوية الموظف من التعديل.' },
+        removedColumns: [...removedColumns],
+      };
     }
 
     removedColumns.add(missingColumn);
@@ -1967,7 +1982,7 @@ export async function importInvoicesToDB(
     skippedDuplicateInvoices: [],
     schemaWarnings: [],
     valueChangedUpdates: 0,
-    staffLinkingMode: 'name_fallback',
+    staffLinkingMode: 'unresolved',
     firstInvoiceDate:
       rows
         .map((row) => row.date)
@@ -2070,8 +2085,24 @@ export async function importInvoicesToDB(
   summary.zeroAmountRows = rows.filter((row) => row.importValidationStatus === 'zero_amount').length;
 
   // ربط seller_name بـ staff_id
-  const uniqueSellers = new Set(rows.map((r) => r.seller).filter(Boolean));
-  const staffIdMap = await resolveStaffNamesToStaffIds([...uniqueSellers]);
+  const staffIdMap = new Map<string, string | null>();
+  const distinctSellers = new Map<string, { seller: string; branch: string }>();
+  for (const row of rows) {
+    if (!row.seller) continue;
+    const sellerBranch = row.branch || branch;
+    distinctSellers.set(`${row.seller}\u0000${sellerBranch}`, { seller: row.seller, branch: sellerBranch });
+  }
+  // One fail-closed directory decision per seller name: conflicting, retired or orphan
+  // claims resolve to no identity, and the invoice branch never breaks a name tie.
+  // A directory outage aborts the import before any invoice write instead of saving
+  // valid-looking invoices without their employee.
+  const byName = await resolveStaffNamesToStaffIds([...new Set([...distinctSellers.values()].map((s) => s.seller))]);
+  for (const [key, { seller }] of distinctSellers) staffIdMap.set(key, byName.get(seller) || null);
+  const unresolved = [...distinctSellers].filter(([key]) => !staffIdMap.get(key));
+  if (unresolved.length) {
+    summary.schemaWarnings ??= [];
+    summary.schemaWarnings.push(`يوجد ${unresolved.length} اسم بائع/فرع بدون staff_id مؤكد؛ يحتاج مراجعة هوية.`);
+  }
   if ([...staffIdMap.values()].some(Boolean)) {
     summary.staffLinkingMode = 'staff_id';
   }
@@ -2082,7 +2113,7 @@ export async function importInvoicesToDB(
 
   const existingInvoices: Array<Record<string, unknown>> = [];
   const existingSelect =
-    'id, branch, invoice_no, invoice_number, invoice_date, sale_date, date, amount, net_amount, discounted_amount, gross_amount, customer_code, customer_name, customer_phone, seller_name, save_status, invoice_type';
+    'id, branch, invoice_no, invoice_number, invoice_date, sale_date, date, amount, net_amount, discounted_amount, gross_amount, customer_code, customer_name, customer_phone, seller_name, staff_id, save_status, invoice_type';
 
   for (const numberChunk of chunkArray(invoiceNumbers, 500)) {
     const seenExistingIds = new Set(
@@ -2249,6 +2280,15 @@ export async function importInvoicesToDB(
           return false;
         }
 
+        const existingStaffId = String(sameBranchAndDate.staff_id || '').trim() || null;
+        const proposedStaffId = staffIdMap.get(`${row.seller}\u0000${row.branch || branch}`) || null;
+        if (existingStaffId && proposedStaffId && existingStaffId !== proposedStaffId) {
+          summary.schemaWarnings?.push(`فاتورة ${row.invoiceNumber}: هوية الموظف المحفوظة تختلف عن المرشح من الملف؛ تم الحفاظ على staff_id الحالي ويجب مراجعة التعارض يدويًا.`);
+        }
+        if (existingStaffId && !proposedStaffId &&
+          normalizeName(String(sameBranchAndDate.seller_name || '')) !== normalizeName(row.seller)) {
+          summary.schemaWarnings?.push(`فاتورة ${row.invoiceNumber}: اسم البائع الجديد غير محسوم ويختلف عن الاسم المحفوظ؛ تم الاحتفاظ بهوية الموظف المعتمدة للمراجعة.`);
+        }
         const recordForUpdate: Record<string, unknown> = {
           import_batch: importBatch,
           branch: rowBranch,
@@ -2463,7 +2503,7 @@ export async function importInvoicesToDB(
     seller_name: row.seller,
     normalized_seller_name: normalizeName(row.seller),
     staff_name: row.seller,
-    staff_id: staffIdMap.get(row.seller) || null,
+    staff_id: staffIdMap.get(`${row.seller}\u0000${row.branch || branch}`) || null,
     close_time: row.closeTime || null,
     shift_name: getShiftFromDateTime(row.analysisDateTime),
     delivery_staff: row.deliveryStaff,
@@ -2688,8 +2728,8 @@ export async function importInvoicesToDB(
 
   if (optionalColumnsRemoved.size > 0) {
     if (optionalColumnsRemoved.has('staff_id')) {
-      summary.staffLinkingMode = 'name_fallback';
-      summary.schemaWarnings?.push('staff_id غير متاح، يتم الربط مؤقتًا بالاسم بعد التطبيع');
+      summary.staffLinkingMode = 'unresolved';
+      summary.schemaWarnings?.push('تعذر حفظ staff_id؛ يلزم إصلاح schema cache قبل إعادة المحاولة، ولا يُعتمد الاسم بديلًا لهوية الموظف.');
     }
     const otherColumns = [...optionalColumnsRemoved].filter((column) => column !== 'staff_id');
     if (otherColumns.length > 0) {

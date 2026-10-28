@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   canSubmitDeletion,
+  cancelProtectedWhatsAppChange,
+  clearUnconfirmedWhatsAppInvoiceCandidate,
+  confirmProtectedWhatsAppChange,
   DELETION_BLOCKER_LABELS,
   DELETION_CONFIRMATION_PHRASES,
   deleteWhatsAppScope,
@@ -8,6 +11,7 @@ import {
   listWhatsAppDeletions,
   newDeletionRequestKey,
   previewWhatsAppDeletion,
+  requestProtectedWhatsAppChange,
   restoreWhatsAppDeletion,
   summarizeDeletionPreview,
 } from '../whatsappDeletionService';
@@ -59,6 +63,66 @@ describe('whatsapp deletion service', () => {
       scope: 'case', target: 'x', reason: 'سبب واضح للحذف', confirmation: 'حذف الحالة', fingerprint: 'fp', requestKey: 'del-1234567890',
     });
     expect(result).toEqual({ kind: 'blocked', blockers: [{ code: 'canonical_sale_proof_in_scope', ref: 'v22' }] });
+  });
+
+  it('corrects only a named unconfirmed candidate through a separate audited RPC', async () => {
+    const c = client({ ok: true, status: 'corrected', auditId: 'audit-1' });
+    const result = await clearUnconfirmedWhatsAppInvoiceCandidate(c, {
+      sourceId: 'source-1', expectedId: 'invoice-1', expectedNumber: '77773',
+      reason: 'الفاتورة تخص طلبًا سابقًا وليست بيعًا في المحادثة', requestKey: 'del-1234567890',
+    });
+    expect(result).toEqual({ status: 'corrected', auditId: 'audit-1' });
+    expect(c.rpc).toHaveBeenCalledWith('dawaa_clear_whatsapp_unconfirmed_invoice_candidate_v1', {
+      p_source_id: 'source-1', p_expected_candidate_id: 'invoice-1',
+      p_expected_invoice_number: '77773', p_reason: 'الفاتورة تخص طلبًا سابقًا وليست بيعًا في المحادثة',
+      p_confirmation: 'تصحيح ربط الفاتورة', p_request_key: 'del-1234567890',
+    });
+  });
+
+  it('rejects candidate corrections without an auditable confirmed result', async () => {
+    const input = { sourceId: 's', expectedId: 'i', expectedNumber: '77773', reason: 'سبب موثق ومفصل', requestKey: 'del-1234567890' };
+    await expect(clearUnconfirmedWhatsAppInvoiceCandidate(client({ ok: true, status: 'corrected' }), input))
+      .rejects.toThrow('سجل تدقيق');
+    await expect(clearUnconfirmedWhatsAppInvoiceCandidate(client({ ok: true, status: 'removed', auditId: 'a' }), input))
+      .rejects.toThrow('لم يؤكد الخادم');
+    await expect(clearUnconfirmedWhatsAppInvoiceCandidate(client(null, { message: 'whatsapp_candidate_confirmed_link_requires_financial_review' }), input))
+      .rejects.toThrow('مصالحة مالية');
+  });
+
+  it('submits an approved-case change request and separately confirms it without pretending deletion occurred', async () => {
+    const requestClient = client({ ok: true, status: 'pending_confirmation', requestId: 'req-1' });
+    const request = await requestProtectedWhatsAppChange(requestClient, {
+      scope: 'case', sourceId: 'src', caseId: 'case-a', expectedFingerprint: 'hash-a',
+      reason: 'حالة محتاجة تصحيح بعد مراجعة الإيراد', requestKey: 'req-safe-00001',
+    });
+    expect(request.status).toBe('pending_confirmation');
+    expect(requestClient.rpc).toHaveBeenCalledWith('dawaa_request_whatsapp_gm_change_v1',
+      expect.objectContaining({ p_operation: 'delete_case', p_case_id: 'case-a', p_expected_fingerprint: 'hash-a' }));
+
+    const confirmClient = client({ ok: true, status: 'approved_pending_reconciliation',
+      requestId: 'req-1', applied: false, settlementRequired: true });
+    const result = await confirmProtectedWhatsAppChange(confirmClient, {
+      requestId: 'req-1', confirmation: 'أؤكد التصحيح المعتمد',
+      reason: 'مراجعة التأثير على النقاط والإيرادات قبل التنفيذ', requestKey: 'confirm-safe-00001',
+    });
+    expect(result).toEqual({ requestId: 'req-1', status: 'approved_pending_reconciliation', applied: false });
+    await expect(confirmProtectedWhatsAppChange(client({ ok: true, status: 'approved_pending_reconciliation',
+      requestId: 'req-1', applied: true, settlementRequired: true }), {
+        requestId: 'req-1', confirmation: 'أؤكد التصحيح المعتمد', reason: 'سبب مراجعة موثق', requestKey: 'key-confirm-1',
+      })).rejects.toThrow('لم يؤكد الخادم');
+  });
+
+  it('cancels a protected request through an audited server command, not local-only state', async () => {
+    const c = client({ ok: true, status: 'cancelled', requestId: 'req-1' });
+    await expect(cancelProtectedWhatsAppChange(c, {
+      requestId: 'req-1', reason: 'لا توجد حاجة لهذا التصحيح بعد التدقيق',
+    })).resolves.toEqual({ requestId: 'req-1', status: 'cancelled' });
+    expect(c.rpc).toHaveBeenCalledWith('dawaa_cancel_whatsapp_gm_change_v1', {
+      p_request_id: 'req-1', p_reason: 'لا توجد حاجة لهذا التصحيح بعد التدقيق',
+    });
+    await expect(cancelProtectedWhatsAppChange(client({ ok: true, status: 'applied' }), {
+      requestId: 'req-1', reason: 'سبب إلغاء مفصل',
+    })).rejects.toThrow('لم يؤكد الخادم');
   });
 
   it('never treats an unexpected response as success', async () => {

@@ -98,6 +98,25 @@ describe('canonical identity discriminators (shared resolver)', () => {
 });
 
 describe('conversation → canonical pipeline → persistence mapper → selected loader → display state', () => {
+  it('never labels a strongly inferred cross-script product as a proven canonical match', () => {
+    const truth = readPersistedProductTruth('A', {
+      case_id: 'A',
+      evidence_snapshot: {
+        caseIntelligence: {
+          version: 'case-intelligence-v3',
+          caseId: 'A',
+          need: { products: [{
+            key: 'item-1', productNameRaw: 'لبن هيرو بيبي 2',
+            productId: 'catalog-47797', productCode: '47797', canonicalName: 'HERO BABY MILK 2',
+            confidence: { level: 'strongly_inferred', ruleIds: [] }, evidenceMessageIds: ['message-1'],
+          }] },
+          basket: { activeItems: [] },
+          interaction: { messageIds: ['message-1'] },
+        },
+      },
+    });
+    expect(truth.products[0].state).toBe('HUMAN_REVIEW');
+  });
   it.each([
     'CODE0',
     'ALPHA 100 mg 20 tablets',

@@ -97,7 +97,11 @@ export function buildCanonicalComplaintActionRows(
   const byIdentity = new Map<string, CanonicalComplaintActionRow>();
   const skipped: CanonicalComplaintProjectionSkip[] = [];
 
-  for (const analysis of analyses) {
+  // Deterministic order: the earliest case of a conversation keeps the stable episode identity.
+  const ordered = [...analyses].sort((a, b) =>
+    String(a.conversationId).localeCompare(String(b.conversationId)) ||
+    String(a.caseId).localeCompare(String(b.caseId)));
+  for (const analysis of ordered) {
     const complaint = analysis.complaintAssessment;
     if (!complaint || complaint.caseId !== analysis.caseId) {
       skipped.push({ caseId: analysis.caseId, reason: 'missing_canonical_assessment' });
@@ -140,19 +144,33 @@ export function buildCanonicalComplaintActionRows(
       continue;
     }
 
-    const operation = stableOperationIdentity({
-      timeline: timeline.map((message) => ({
-        timestamp: message.timestamp,
-        direction: message.direction,
-        sender: message.sender,
-        text: message.text,
-        kind: message.kind,
-        mediaPlaceholder: message.mediaPlaceholder,
-      })),
+    const operationTimeline = timeline.map((message) => ({
+      timestamp: message.timestamp,
+      direction: message.direction,
+      sender: message.sender,
+      text: message.text,
+      kind: message.kind,
+      mediaPlaceholder: message.mediaPlaceholder,
+    }));
+    let operation = stableOperationIdentity({
+      timeline: operationTimeline,
       evidenceAt,
       operationType: 'complaint_followup',
       reasonKey: null,
     });
+    // Two independent complaint cases can share one conversation episode (e.g. a separated
+    // post-fulfillment service complaint). The episode identity alone would fold the second into
+    // the first. The first keeps the stable episode key (existing rows stay idempotent); every
+    // further complaint case is keyed by its own first complaint message time instead.
+    const claimed = byIdentity.get(operation.identity);
+    if (claimed && claimed.source_id === sourceId && claimed.payload.caseId !== analysis.caseId) {
+      operation = stableOperationIdentity({
+        timeline: operationTimeline,
+        evidenceAt,
+        operationType: 'complaint_followup',
+        reasonKey: `complaint-at-${evidenceAt.toISOString()}`,
+      });
+    }
 
     const customerId = uuidOrNull(analysis.conversationCase.customerId);
     const row: CanonicalComplaintActionRow = {

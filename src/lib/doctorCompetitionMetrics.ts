@@ -5,6 +5,9 @@ import { withTimeout } from '@/lib/performance';
 import { fetchSalesInvoicesPagedSafe } from '@/lib/salesInvoiceQueries';
 import { getInvoiceAmount, getInvoiceBranch, getInvoiceDay, getInvoiceId, getInvoiceSellerName } from '@/lib/invoices/invoiceCore';
 import { supabase } from '@/lib/supabase';
+import { conversationReviewScore100, isOfficialConversationReview, OFFICIAL_REVIEW_COLUMNS } from '@/lib/evaluations/officialConversationReview';
+import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
+import { fetchAllOrderedPages, type PageQuery } from '@/lib/fetchAllOrderedPages';
 
 // سقف داخلي قصير لخطوة التجميع السريع (RPC) لوحدها. لو الـRPC اتأخر أو علّق، بنعدّي
 // بسرعة على مسار الفواتير الاحتياطي بدل ما نستهلك أغلب مهلة الـ20 ثانية الكلية
@@ -196,8 +199,9 @@ function isUnknownDoctorName(value: unknown) {
 }
 
 /** Every conversation_sales_reviews column the competition score loop reads (rowStaffId,
- * invoiceDoctor via staff_name/doctor_name, branch, final_score). */
-export const COMPETITION_REVIEW_COLUMNS = 'id,staff_id,doctor_id,staff_name,doctor_name,branch,final_score,conversation_date';
+ * invoiceDoctor via staff_name/doctor_name, branch) plus the official-review contract columns:
+ * only officially approved, current reviews score (officialConversationReview.ts). */
+export const COMPETITION_REVIEW_COLUMNS = ['id', 'staff_id', 'doctor_id', 'staff_name', 'doctor_name', 'branch', ...OFFICIAL_REVIEW_COLUMNS].join(',');
 
 function rowStaffId(row: Row) {
   return text(row.staff_id || row.doctor_id || row.seller_id || row.employee_id || row.responsible_staff_id || row.reviewed_staff_id || row.assigned_staff_id);
@@ -305,6 +309,22 @@ async function safeSelect(table: string, build: (query: ReturnType<typeof supaba
     const result = await (build(supabase.from(table)) as PromiseLike<{ data: unknown; error: { message?: string } | null }>);
     if (result.error) return { data: [] as Row[], error: result.error.message || `تعذر تحميل ${table}` };
     return { data: ((result.data || []) as Row[]).filter(Boolean), error: null };
+  } catch (error) {
+    return { data: [] as Row[], error: error instanceof Error ? error.message : `تعذر تحميل ${table}` };
+  }
+}
+
+// Period-filtered reads can exceed the API's per-response cap (1000 rows): the last
+// 3 months held 1,566 current reviews on 2026-10-27. Same result shape as safeSelect,
+// but every page is read in id order and a failed/oversized read is an error.
+async function safeSelectAll(table: string, build: (query: ReturnType<typeof supabase.from>) => unknown) {
+  try {
+    const result = await fetchAllOrderedPages<Row>(
+      () => build(supabase.from(table)) as PageQuery,
+      { orderColumn: 'id', maxRows: 20000, limitError: `${table}_competition_limit_reached` }
+    );
+    if (result.error) return { data: [] as Row[], error: result.error.message || `تعذر تحميل ${table}` };
+    return { data: (result.data || []).filter(Boolean), error: null };
   } catch (error) {
     return { data: [] as Row[], error: error instanceof Error ? error.message : `تعذر تحميل ${table}` };
   }
@@ -502,8 +522,8 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     salesSource === 'invoice_fallback' ? fetchDoctorSalesRows(range, selectedBranch, salesErrors).catch(() => [] as Row[]) : Promise.resolve([] as Row[]),
     // Only the columns the score loop reads (identity, branch, score): select('*') pulled the
     // evidence JSON (~15 KB/row, ~9 MB per full cycle) into every dashboard load.
-    safeSelect('conversation_sales_reviews', (query) => query.select(COMPETITION_REVIEW_COLUMNS).eq('is_current', true).gte('conversation_date', range.start).lte('conversation_date', `${range.end}T23:59:59`).limit(5000)),
-    safeSelect('daily_followups', (query) => query.select('*').gte('created_at', range.start).lte('created_at', `${range.end}T23:59:59`).limit(5000)),
+    safeSelectAll('conversation_sales_reviews', (query) => query.select(COMPETITION_REVIEW_COLUMNS).eq('is_current', true).gte('conversation_date', cairoDateBoundaryIso(range.start)).lte('conversation_date', cairoDateBoundaryIso(range.end, true))),
+    safeSelectAll('daily_followups', (query) => query.select('*').gte('created_at', range.start).lte('created_at', `${range.end}T23:59:59`)),
     safeSelect('stagnant_medicine_dispenses', (query) => query.select('*').limit(5000)),
     safeSelect('incentive_medicine_sales', (query) => query.select('*').limit(5000)),
   ]);
@@ -577,8 +597,10 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     if (!allowBranch(branch)) continue;
     const doctor = resolveDoctor({ ...row, normalized_seller_name: row.staff_name || row.doctor_name || row.employee_name }, branch);
     if (!doctor) continue;
+    // Pending human reviews and unapproved automatic analyses never enter a ranking score.
+    if (!isOfficialConversationReview(row)) continue;
+    const score = conversationReviewScore100(row) ?? 0;
     const { current } = upsert(doctor);
-    const score = num(row.final_score || row.score || row.quality_rating);
     if (score > 0) {
       current.reviewCount += 1;
       current.reviewTotal += score;

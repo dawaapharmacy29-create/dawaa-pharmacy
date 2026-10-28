@@ -30,7 +30,7 @@ export function isStaleChunkImportError(error: unknown) {
   return /Failed to fetch dynamically imported module|Loading chunk|dynamically imported module|error loading dynamically imported module/i.test(message);
 }
 
-export async function recoverFromStaleChunkOnce(scope = 'global') {
+export async function recoverFromStaleChunkOnce(scope = 'global', error?: unknown) {
   if (typeof window === 'undefined') return false;
   const recoveryKey = staleChunkRecoveryKey(scope);
 
@@ -42,7 +42,7 @@ export async function recoverFromStaleChunkOnce(scope = 'global') {
     // If sessionStorage is unavailable, still attempt one cache-clean reload for this execution.
   }
 
-  await startRecoveryCleanup();
+  await startRecoveryCleanup({ error });
   const url = new URL(window.location.href);
   url.searchParams.set('_r', Date.now().toString());
   window.location.replace(url.toString());
@@ -91,8 +91,72 @@ export function diagnosticsUrl(reason = 'recovery') {
   return url.toString();
 }
 
-export async function startRecoveryCleanup(options: { clearAppStorage?: boolean } = {}) {
+/**
+ * Same-origin /assets/ URLs that failed to load: recorded by index.html, named in a
+ * dynamic-import error, or reported by Resource Timing with an error status.
+ */
+export function collectFailedAssetUrls(error?: unknown): string[] {
+  if (typeof window === 'undefined') return [];
+  const origin = window.location.origin;
+  const urls = new Set<string>();
+  const add = (value: unknown) => {
+    try {
+      const parsed = new URL(String(value || ''), origin);
+      if (parsed.origin === origin && parsed.pathname.startsWith('/assets/')) urls.add(parsed.toString());
+    } catch {
+      // Not a URL.
+    }
+  };
+  try {
+    (JSON.parse(window.sessionStorage.getItem('dawaa_failed_assets') || '[]') as unknown[]).forEach(add);
+  } catch {
+    // Storage unavailable or malformed.
+  }
+  const message = String((error as Error)?.message || error || '');
+  (message.match(/https?:\/\/[^\s'"]+/g) || []).forEach(add);
+  try {
+    for (const entry of window.performance?.getEntriesByType?.('resource') || []) {
+      const status = (entry as PerformanceResourceTiming & { responseStatus?: number }).responseStatus;
+      if (typeof status === 'number' && status >= 400) add(entry.name);
+    }
+  } catch {
+    // Resource Timing unavailable.
+  }
+  return [...urls];
+}
+
+/**
+ * Hashed /assets/ files are cached for a year as immutable, and the CDN applies that to
+ * 404s too, so a 404 seen during a deploy would be replayed forever. cache: 'reload'
+ * bypasses the HTTP cache and stores the fresh response in its place.
+ */
+export async function refreshFailedAssetCache(error?: unknown) {
+  if (typeof window === 'undefined' || typeof window.fetch !== 'function') return 0;
+  const urls = collectFailedAssetUrls(error);
+  const results = await Promise.all(
+    urls.map((url) =>
+      window
+        .fetch(url, { cache: 'reload', credentials: 'same-origin' })
+        .then((response) => response.ok)
+        .catch(() => false)
+    )
+  );
+  try {
+    window.sessionStorage.removeItem('dawaa_failed_assets');
+  } catch {
+    // Storage unavailable.
+  }
+  return results.filter(Boolean).length;
+}
+
+export async function startRecoveryCleanup(options: { clearAppStorage?: boolean; error?: unknown } = {}) {
   if (typeof window === 'undefined') return;
+
+  try {
+    await refreshFailedAssetCache(options.error);
+  } catch (error) {
+    logRuntimeError('recovery asset cache refresh failed', error);
+  }
 
   try {
     if ('caches' in window) {

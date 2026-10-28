@@ -80,6 +80,17 @@ function placeholderProtocolAssessment(): OrderConfirmationProtocolAssessment {
   };
 }
 
+/**
+ * A persisted evaluation row is usable only for its own case and while it is the current
+ * evaluation. Rows written before the versioning columns existed carry neither flag and stay usable.
+ */
+export function isCurrentPersistedEvaluation(row: Record<string, any> | null, caseId: string): boolean {
+  if (!row) return false;
+  if (row.case_id != null && String(row.case_id) !== caseId) return false;
+  if (row.is_current_evaluation === false) return false;
+  return row.superseded_at == null;
+}
+
 /** Pure — no I/O. See module header for the exact reconstruction rules. */
 export function projectSaleAttributionFromPersistedRow(
   attributionRow: Record<string, any> | null,
@@ -225,8 +236,17 @@ export function deriveSaleProofStateFromPersisted(
   attributionRow: Record<string, any> | null,
   matchRow: Record<string, any> | null
 ): SaleProofAssessment {
-  const attribution = projectSaleAttributionFromPersistedRow(attributionRow, caseId);
-  const basketInvoiceMatch = projectBasketInvoiceMatchFromPersistedRow(matchRow, caseId);
+  const currentAttribution = isCurrentPersistedEvaluation(attributionRow, caseId) ? attributionRow : null;
+  // A basket/invoice match is evidence about ONE invoice. A superseded match, or one computed for
+  // a different invoice than the current attribution selects, says nothing about this selection.
+  const currentMatch =
+    isCurrentPersistedEvaluation(matchRow, caseId) &&
+    (matchRow?.invoice_id == null ||
+      String(matchRow.invoice_id) === String(currentAttribution?.selected_invoice_id ?? ''))
+      ? matchRow
+      : null;
+  const attribution = projectSaleAttributionFromPersistedRow(currentAttribution, caseId);
+  const basketInvoiceMatch = projectBasketInvoiceMatchFromPersistedRow(currentMatch, caseId);
   const integrityAssessment = deriveSalesIntegrityAssessment({
     caseId,
     commercialConfirmation: placeholderCommercialConfirmation(caseId, analysisRow?.commercial_confirmation_state ?? null),
