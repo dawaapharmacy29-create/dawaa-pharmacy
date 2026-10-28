@@ -99,6 +99,11 @@ const EMPTY_METRICS: Metrics = {
   engine_version: 3,
 };
 
+// Managers often need substantially longer than five minutes to review a full
+// monthly evaluation. Keep the freshness check for final approval, but allow
+// a complete review session before asking for fresh evidence.
+const APPROVAL_EVIDENCE_MAX_AGE_MS = 60 * 60_000;
+
 const METRIC_LABELS: Record<keyof Omit<Metrics, 'engine_version'>, string> = {
   review_count: 'عدد مراجعات المحادثات',
   review_average: 'متوسط تقييم المحادثات',
@@ -1355,10 +1360,12 @@ export default function StaffMonthlyEvaluation() {
       if (!options.auto) toast.error('المسودة أُرسلت لمدير الفروع ولا يمكن تعديلها إلا بعد إرجاعها.');
       return;
     }
-    if (!options.auto && inventoryRequiresBranchesManagerApproval && sections.some((item) =>
+    // Incomplete evaluations must remain saveable as drafts. A rationale is
+    // mandatory only when submitting the draft for branches-manager review.
+    if (options.submit && inventoryRequiresBranchesManagerApproval && sections.some((item) =>
       item.key === 'inventory' && item.score > 0 && item.notes.trim().length < 12
     )) {
-      toast.error('تقييم الجرد اليدوي يحتاج سببًا موثقًا من 12 حرفًا على الأقل قبل حفظ المسودة.');
+      toast.error('تقييم الجرد اليدوي يحتاج سببًا موثقًا من 12 حرفًا على الأقل قبل إرسال المسودة للاعتماد.');
       return;
     }
     if (options.submit && (actorRole !== 'branch_manager' || status !== 'draft' || !approvalReady)) {
@@ -1414,8 +1421,8 @@ export default function StaffMonthlyEvaluation() {
       toast.error('اكتب خلاصة قرار المخالفة الحرجة في ملاحظات المدير قبل الاعتماد.');
       return;
     }
-    if (nextStatus === 'sent' && (!evidenceLoadedAt || Date.now() - evidenceLoadedAt > 5 * 60_000)) {
-      toast.error('أدلة التقييم المفتوحة قديمة لأكثر من 5 دقائق. أعد فتح الموظف أو حدّث الصفحة لمراجعة أحدث الأدلة قبل الاعتماد.');
+    if (nextStatus === 'sent' && (!evidenceLoadedAt || Date.now() - evidenceLoadedAt > APPROVAL_EVIDENCE_MAX_AGE_MS)) {
+      toast.error('مرّ أكثر من ساعة على تحميل أدلة التقييم. احفظ المسودة وحدّث الصفحة لمراجعة أحدث الأدلة قبل الاعتماد.');
       return;
     }
 
