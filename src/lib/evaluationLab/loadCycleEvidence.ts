@@ -1,0 +1,123 @@
+import { supabase } from '@/lib/supabase';
+import { fetchAllOrderedPages, type PageQuery } from '@/lib/fetchAllOrderedPages';
+import { OFFICIAL_REVIEW_COLUMNS, conversationReviewScore100, selectOfficialConversationReviews } from '@/lib/evaluations/officialConversationReview';
+import { staffIdentityKey } from '@/lib/staff/staffIdentityKey';
+import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
+import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
+import type { LabEvidence } from './buildCycleScores';
+
+// Read-only, bounded evidence for one 26→25 cycle. Every read is filtered by the cycle and
+// capped; a failed read throws (the lab shows the outage instead of scoring zeros).
+
+type Row = Record<string, unknown>;
+const text = (value: unknown) => String(value ?? '').trim();
+const num = (value: unknown) => (Number.isFinite(Number(value)) ? Number(value) : 0);
+
+async function pages(build: () => PageQuery, maxRows: number, label: string): Promise<Row[]> {
+  const { data, error } = await fetchAllOrderedPages<Row>(build, { orderColumn: 'id', maxRows, limitError: `${label}_limit_reached` });
+  if (error) throw new Error(`${label}: ${error.message || 'تعذر التحميل'}`);
+  return data || [];
+}
+
+export interface LabCycle {
+  /** Inclusive start (the 26th). */
+  start: string;
+  /** Exclusive end (the next 26th). */
+  endExclusive: string;
+}
+
+export function closedCycles(count: number, today = new Date()): LabCycle[] {
+  const cairo = new Date(today.toLocaleString('en-US', { timeZone: 'Africa/Cairo' }));
+  // The current cycle ends on the next 26th; the newest closed cycle ended on the latest 26th <= today.
+  let endYear = cairo.getFullYear();
+  let endMonth = cairo.getMonth() + (cairo.getDate() >= 26 ? 0 : -1);
+  const cycles: LabCycle[] = [];
+  for (let i = 0; i < count; i += 1) {
+    const end = new Date(Date.UTC(endYear, endMonth, 26));
+    const start = new Date(Date.UTC(endYear, endMonth - 1, 26));
+    cycles.push({ start: start.toISOString().slice(0, 10), endExclusive: end.toISOString().slice(0, 10) });
+    endMonth -= 1;
+    if (endMonth < 0) { endMonth += 12; endYear -= 1; }
+  }
+  return cycles;
+}
+
+export async function loadCycleEvidence(cycle: LabCycle): Promise<LabEvidence> {
+  // Cairo wall-clock boundaries (summer time aware) for timestamp columns.
+  const startAt = cairoDateBoundaryIso(cycle.start);
+  const endAt = cairoDateBoundaryIso(cycle.endExclusive);
+
+  const [staffRows, aliasRows, invoiceRows, reviewRows, attendanceRows, requestRows, purchaseRows, targetRows, followupProbe] = await Promise.all([
+    pages(() => supabase.from('staff').select('id,name,role,branch,active,is_active') as unknown as PageQuery, 2000, 'staff'),
+    pages(() => supabase.from('staff_identity_aliases').select('id,staff_id,normalized_alias,active').eq('active', true) as unknown as PageQuery, 5000, 'aliases'),
+    pages(() => supabase.from('sales_invoices')
+      .select('id,staff_id,net_amount,total_amount,customer_code,branch,delivery_staff,sale_date')
+      .gte('sale_date', cycle.start).lt('sale_date', cycle.endExclusive) as unknown as PageQuery, 30000, 'sales_invoices'),
+    pages(() => supabase.from('conversation_sales_reviews_canonical_v2')
+      .select(['id', 'staff_id', 'doctor_id', ...OFFICIAL_REVIEW_COLUMNS].join(','))
+      .gte('conversation_date', startAt).lt('conversation_date', endAt) as unknown as PageQuery, 10000, 'reviews'),
+    pages(() => supabase.from('attendance_daily_summary')
+      .select('id,staff_id,attendance_date,resolution_status,first_in,late_minutes')
+      .gte('attendance_date', cycle.start).lt('attendance_date', cycle.endExclusive) as unknown as PageQuery, 10000, 'attendance'),
+    pages(() => supabase.from('customer_requests')
+      .select('id,source_recorded_staff_id,branch,created_at,closed_at')
+      .gte('created_at', startAt).lt('created_at', endAt) as unknown as PageQuery, 10000, 'customer_requests'),
+    pages(() => supabase.from('base44_purchase_invoice_sync')
+      .select('id,entered_by_staff_id,invoice_date')
+      .gte('invoice_date', cycle.start).lt('invoice_date', cycle.endExclusive) as unknown as PageQuery, 20000, 'purchases'),
+    pages(() => supabase.from('branch_sales_targets').select('id,branch_name,target_amount,active').eq('active', true) as unknown as PageQuery, 100, 'targets'),
+    supabase.from('daily_followups').select('id', { count: 'exact', head: true }).gte('created_at', startAt).lt('created_at', endAt),
+  ]);
+  if (followupProbe.error) throw new Error(`followups: ${followupProbe.error.message}`);
+
+  const staff = staffRows
+    .filter((row) => row.active !== false && row.is_active !== false)
+    .map((row) => ({ id: text(row.id), name: text(row.name), role: text(row.role), branch: text(row.branch) || null }));
+
+  // Delivery labels carry a name, not an id: resolve only to a unique active courier.
+  const couriers = staff.filter((person) => canonicalStaffRole(person.role) === 'delivery');
+  const courierIds = new Set(couriers.map((c) => c.id));
+  const ownersByKey = new Map<string, Set<string>>();
+  const claim = (key: string, id: string) => { if (key) ownersByKey.set(key, (ownersByKey.get(key) || new Set()).add(id)); };
+  for (const courier of couriers) claim(staffIdentityKey(courier.name), courier.id);
+  for (const alias of aliasRows) if (courierIds.has(text(alias.staff_id))) claim(text(alias.normalized_alias), text(alias.staff_id));
+  const courierFor = (label: unknown) => {
+    const owners = ownersByKey.get(staffIdentityKey(String(label ?? '').replace(/\*+$/, '')));
+    return owners && owners.size === 1 ? [...owners][0] : null;
+  };
+
+  const official = selectOfficialConversationReviews(reviewRows, { startDay: cycle.start, endDayExclusive: cycle.endExclusive }).rows;
+
+  return {
+    staff,
+    invoices: invoiceRows.map((row) => ({
+      staffId: text(row.staff_id) || null,
+      net: num(row.net_amount ?? row.total_amount),
+      coded: text(row.customer_code) !== '',
+      branch: text(row.branch) || null,
+      deliveryStaffId: text(row.delivery_staff) ? courierFor(row.delivery_staff) : null,
+    })),
+    reviews: official.flatMap((row) => {
+      const score = conversationReviewScore100(row);
+      const staffId = text(row.staff_id) || text(row.doctor_id);
+      return score === null || !staffId ? [] : [{ staffId, score }];
+    }),
+    attendance: attendanceRows.map((row) => ({
+      staffId: text(row.staff_id),
+      date: text(row.attendance_date),
+      status: text(row.resolution_status) || null,
+      hasFirstIn: text(row.first_in) !== '',
+      lateMinutes: num(row.late_minutes),
+    })),
+    requests: requestRows.map((row) => ({
+      // The recording employee; created_by is not a staff id.
+      recordedStaffId: text(row.source_recorded_staff_id) || null,
+      branch: text(row.branch) || null,
+      createdAt: text(row.created_at),
+      closedAt: text(row.closed_at) || null,
+    })),
+    purchases: purchaseRows.map((row) => ({ enteredByStaffId: text(row.entered_by_staff_id) || null })),
+    targets: targetRows.map((row) => ({ branch: text(row.branch_name), targetAmount: num(row.target_amount) })),
+    dormantSources: (followupProbe.count ?? 0) === 0 ? ['followups'] : [],
+  };
+}

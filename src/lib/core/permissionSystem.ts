@@ -1054,6 +1054,7 @@ export const ROUTE_PERMISSION_MAP: Record<string, string | string[]> = {
   '/welcome-messages': 'customer_welcome_messages_view',
   '/diagnostics': 'view_diagnostics',
   '/evaluation-rules': 'manage_evaluation_rules',
+  '/evaluation-lab': 'manage_evaluation_rules',
   // صفحات كانت من غير أي فحص صلاحية لأنها مش موجودة في الخريطة أصلًا —
   // ده كان بيخلي أي حساب مسجّل دخول (بما فيهم الدكاترة) يقدر يفتحها لو عرف الرابط،
   // مع إنها صفحات إدارية بحتة أو مراجعة مجمّعة لأداء كل الدكاترة.
