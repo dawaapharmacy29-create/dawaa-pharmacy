@@ -33,7 +33,7 @@ import {
 import { hasStrongDispensingEvidence } from '@/lib/evaluations/monthlyDispensingEvidence';
 import { getSalesQualityEvidenceSufficiency, hasStrongSalesQualityEvidence } from '@/lib/evaluations/monthlySalesQualityEvidence';
 import { hasStrongFollowupEvidence } from '@/lib/evaluations/monthlyFollowupEvidence';
-import { getInventoryEvidenceSufficiency, hasStrongInventoryEvidence } from '@/lib/evaluations/monthlyInventoryEvidence';
+import { getInventoryEvidenceSufficiency, hasStrongInventoryEvidence, monthlyInventoryAxisEvidenceStatus } from '@/lib/evaluations/monthlyInventoryEvidence';
 import { hasStrongDevelopmentEvidence } from '@/lib/evaluations/monthlyDevelopmentEvidence';
 import { hasStrongAttendanceEvidence } from '@/lib/evaluations/monthlyAttendanceEvidence';
 import { hasStrongConversationEvidence } from '@/lib/evaluations/monthlyConversationEvidence';
@@ -474,10 +474,12 @@ function sectionEvidenceFor(
     ].filter(Boolean);
 
     return {
-      status: sufficiency.sufficient ? 'manual' as const : 'insufficient' as const,
+      // Partial inventory coverage is a reason to request a documented manual judgement,
+      // not to prevent the manager from completing the monthly evaluation.
+      status: monthlyInventoryAxisEvidenceStatus(),
       summary: sufficiency.sufficient
         ? (summaryParts.join(' · ') || 'لا توجد مسؤوليات مخزون أو رواكد قابلة للقياس لهذه الدورة')
-        : 'بيانات المخزون موجودة لكن التغطية لا تكفي لإصدار درجة شهرية عادلة',
+        : 'الدليل الآلي جزئي؛ يلزم تقييم يدوي مسبب ثم اعتماد مدير الفروع',
       details: [
         ...sufficiency.reasons.map((reason) => inventorySufficiencyLabels[reason] || reason),
         weekly.totalItems > 0 ? `أصناف الجرد: ${weekly.countedItems}/${weekly.totalItems} تم عدّها` : '',
@@ -747,6 +749,8 @@ export default function StaffMonthlyEvaluation() {
   const evaluationRequestRef = useRef(0);
   const staffRequestRef = useRef(0);
   const saveInFlightRef = useRef(false);
+  const lastSavedDraftSignatureRef = useRef('');
+  const failedDraftSignatureRef = useRef('');
   const selectedIdRef = useRef('');
   selectedIdRef.current = selectedId;
   const evidenceCacheRef = useRef(new Map<string, { at: number; value: EmployeeMonthlyEvidence }>());
@@ -758,6 +762,9 @@ export default function StaffMonthlyEvaluation() {
   const [developmentText, setDevelopmentText] = useState('');
   const [managerNotes, setManagerNotes] = useState('');
   const [status, setStatus] = useState('draft');
+  const [reviewState, setReviewState] = useState<'editing' | 'submitted' | 'returned'>('editing');
+  const [reviewReturnReason, setReviewReturnReason] = useState('');
+  const [draftAutoSaveState, setDraftAutoSaveState] = useState<'saved' | 'pending' | 'saving' | 'error'>('saved');
   const [previouslySent, setPreviouslySent] = useState(false);
   const [sentAtIso, setSentAtIso] = useState('');
   const [evaluationId, setEvaluationId] = useState<string | null>(null);
@@ -789,7 +796,9 @@ export default function StaffMonthlyEvaluation() {
   const isEditingSelf = Boolean(
     selected && (selected.id === user?.staffId || selected.id === user?.id)
   );
-  const canEdit = managerMode && !isEditingSelf && !evaluationLoading && !evaluationLoadError;
+  const branchSubmittedLocked = actorRole === 'branch_manager' && reviewState === 'submitted' && status === 'draft';
+  const canEdit = managerMode && !isEditingSelf && !evaluationLoading && !evaluationLoadError && !branchSubmittedLocked;
+  const draftSignature = JSON.stringify({ sections, strengthsText, developmentText, managerNotes, activeGates, criticalGateRationales });
   const employeeView = !managerMode;
   const employeeEvaluationPublished = employeeView && ['sent', 'approved'].includes(status) && Boolean(evaluationId);
   const overallScore = useMemo(
@@ -911,6 +920,9 @@ export default function StaffMonthlyEvaluation() {
       setDevelopmentText('');
       setManagerNotes('');
       setStatus('draft');
+      setReviewState('editing');
+      setReviewReturnReason('');
+      setDraftAutoSaveState('saved');
       setSentAtIso('');
       setPreviouslySent(false);
       setActiveGates([]);
@@ -1016,6 +1028,10 @@ export default function StaffMonthlyEvaluation() {
           const savedStatus = String(saved.status || 'draft');
           const savedSentAt = String(saved.sent_at || '');
           const metricsSnapshot = saved.metrics_snapshot as Record<string, unknown> | null;
+          const reviewWorkflow = metricsSnapshot?.review_workflow as Record<string, unknown> | undefined;
+          const savedReviewState = String(reviewWorkflow?.state || 'editing');
+          setReviewState(savedReviewState === 'submitted' || savedReviewState === 'returned' ? savedReviewState : 'editing');
+          setReviewReturnReason(String(reviewWorkflow?.return_reason || ''));
           const finalSnapshotRaw = metricsSnapshot?.final_approval_snapshot;
           const finalSnapshot =
             finalSnapshotRaw && typeof finalSnapshotRaw === 'object' && !Array.isArray(finalSnapshotRaw)
@@ -1026,10 +1042,14 @@ export default function StaffMonthlyEvaluation() {
 
           setPublishedSnapshot(published ? finalSnapshot : null);
           setPublishedSnapshotHash(published ? String(metricsSnapshot?.final_approval_hash || '') : '');
-          setSections(normalizeSavedSections(content.sections, freshSections));
-          setStrengthsText(Array.isArray(content.strengths) ? content.strengths.map(String).join('\n') : '');
-          setDevelopmentText(Array.isArray(content.development_points) ? content.development_points.map(String).join('\n') : '');
-          setManagerNotes(String(content.manager_notes || ''));
+          const loadedSections = normalizeSavedSections(content.sections, freshSections);
+          const loadedStrengths = Array.isArray(content.strengths) ? content.strengths.map(String).join('\n') : '';
+          const loadedDevelopment = Array.isArray(content.development_points) ? content.development_points.map(String).join('\n') : '';
+          const loadedNotes = String(content.manager_notes || '');
+          setSections(loadedSections);
+          setStrengthsText(loadedStrengths);
+          setDevelopmentText(loadedDevelopment);
+          setManagerNotes(loadedNotes);
           setStatus(savedStatus);
           setSentAtIso(savedSentAt);
           setPreviouslySent(
@@ -1049,6 +1069,11 @@ export default function StaffMonthlyEvaluation() {
               .map((gate) => [gate, String(savedGateRationales[gate] || '')])
               .filter(([, rationale]) => rationale.trim())
           ) as Partial<Record<CriticalGateType, string>>);
+          lastSavedDraftSignatureRef.current = JSON.stringify({
+            sections: loadedSections, strengthsText: loadedStrengths, developmentText: loadedDevelopment,
+            managerNotes: loadedNotes, activeGates: validSavedGates,
+            criticalGateRationales: Object.fromEntries(validSavedGates.map((gate) => [gate, String(savedGateRationales[gate] || '')]).filter(([, rationale]) => rationale.trim())),
+          });
         } else {
           setEvaluationId(null);
           setEvaluationUpdatedAt(null);
@@ -1059,10 +1084,13 @@ export default function StaffMonthlyEvaluation() {
           setDevelopmentText('');
           setManagerNotes('');
           setStatus('draft');
+          setReviewState('editing');
+          setReviewReturnReason('');
           setSentAtIso('');
           setPreviouslySent(false);
           setActiveGates([]);
-      setCriticalGateRationales({});
+          setCriticalGateRationales({});
+          lastSavedDraftSignatureRef.current = JSON.stringify({ sections: freshSections, strengthsText: '', developmentText: '', managerNotes: '', activeGates: [], criticalGateRationales: {} });
         }
       } catch (cause) {
         if (evaluationRequestRef.current !== requestId) return;
@@ -1301,10 +1329,10 @@ export default function StaffMonthlyEvaluation() {
     }
   }
 
-  async function save(nextStatus = status) {
+  async function save(nextStatus = status, options: { auto?: boolean; submit?: boolean; returnDraft?: boolean } = {}) {
     if (!selected || !user?.id) return;
     if (saveInFlightRef.current) {
-      toast.info('جاري حفظ التقييم الحالي بالفعل.');
+      if (!options.auto) toast.info('جاري حفظ التقييم الحالي بالفعل.');
       return;
     }
     const savingStaffId = selected.id;
@@ -1318,6 +1346,28 @@ export default function StaffMonthlyEvaluation() {
     }
     if (isEditingSelf) {
       toast.error('لا يمكنك اعتماد أو تعديل تقييمك الشهري لنفسك.');
+      return;
+    }
+    if (branchSubmittedLocked) {
+      if (!options.auto) toast.error('المسودة أُرسلت لمدير الفروع ولا يمكن تعديلها إلا بعد إرجاعها.');
+      return;
+    }
+    if (!options.auto && inventoryRequiresBranchesManagerApproval && sections.some((item) =>
+      item.key === 'inventory' && item.score > 0 && item.notes.trim().length < 12
+    )) {
+      toast.error('تقييم الجرد اليدوي يحتاج سببًا موثقًا من 12 حرفًا على الأقل قبل حفظ المسودة.');
+      return;
+    }
+    if (options.submit && (actorRole !== 'branch_manager' || status !== 'draft' || !approvalReady)) {
+      toast.error('أكمل كل محاور التقييم والملاحظات قبل إرسال المسودة إلى مدير الفروع.');
+      return;
+    }
+    if (options.returnDraft && (actorRole === 'branch_manager' || reviewState !== 'submitted' || reviewReturnReason.trim().length < 12)) {
+      toast.error('إرجاع المسودة لمدير الفرع يتطلب سببًا واضحًا من 12 حرفًا على الأقل.');
+      return;
+    }
+    if (nextStatus === 'sent' && inventoryRequiresBranchesManagerApproval) {
+      toast.error('احفظ تقييم الجرد كمسودة موثقة؛ اعتماد هذا المحور من صلاحية مدير الفروع.');
       return;
     }
     if (nextStatus === 'sent' && !roleEvidenceReady) {
@@ -1368,6 +1418,7 @@ export default function StaffMonthlyEvaluation() {
 
     saveInFlightRef.current = true;
     setSaving(true);
+    if (options.auto) setDraftAutoSaveState('saving');
     try {
       let pointsForSave = pointsTruth;
       if (nextStatus === 'sent') {
@@ -1394,6 +1445,7 @@ export default function StaffMonthlyEvaluation() {
         metrics_snapshot: {
           ...metrics,
           expected_updated_at: evaluationUpdatedAt,
+          review_workflow: { state: options.submit ? 'submitted' : options.returnDraft ? 'returned' : reviewState, return_reason: options.returnDraft ? reviewReturnReason.trim() : undefined },
           evaluation_engine_version: 5,
           evidence_ready: roleEvidenceReady,
           evidence_health: evidenceHealth,
@@ -1444,6 +1496,11 @@ export default function StaffMonthlyEvaluation() {
       const savedEvaluationId = String(saveResult.evaluation_id || evaluationId || '');
       setEvaluationId(savedEvaluationId);
       setStatus(nextStatus);
+      if (options.submit) setReviewState('submitted');
+      if (options.returnDraft) setReviewState('returned');
+      lastSavedDraftSignatureRef.current = draftSignature;
+      failedDraftSignatureRef.current = '';
+      setDraftAutoSaveState('saved');
       setAuditRefreshKey((value) => value + 1);
       for (const key of evidenceCacheRef.current.keys()) {
         if (key.startsWith(`${savingStaffId}:`)) evidenceCacheRef.current.delete(key);
@@ -1534,9 +1591,14 @@ export default function StaffMonthlyEvaluation() {
           }
         : item));
 
-      toast.success(nextStatus === 'sent' ? 'تم اعتماد التقييم' : 'تم حفظ المسودة');
+      if (!options.auto) toast.success(options.submit ? 'اكتمل التقييم وتم إرسال المسودة لمدير الفروع' : options.returnDraft ? 'تم إرجاع المسودة لمدير الفرع مع السبب' : nextStatus === 'sent' ? 'تم اعتماد التقييم' : 'تم حفظ المسودة');
     } catch (cause) {
+      if (options.auto && onSavedTarget()) {
+        failedDraftSignatureRef.current = draftSignature;
+        setDraftAutoSaveState('error');
+      }
       const rawMessage = cause instanceof Error ? cause.message : String(cause || '');
+      if (options.auto) return;
       if (rawMessage.includes('monthly_evaluation_stale_write_reload_required')) {
         toast.error('التقييم اتعدل من جلسة أخرى؛ تم إيقاف الحفظ لحماية النسخة الأحدث. أعد تحميل تقييم الموظف قبل أي تعديل جديد.');
       } else if (rawMessage.includes('monthly_evaluation_final_decision_immutable')) {
@@ -1548,8 +1610,38 @@ export default function StaffMonthlyEvaluation() {
       }
     } finally {
       saveInFlightRef.current = false;
-      if (selectedIdRef.current === savingStaffId) setSaving(false);
+      setSaving(false);
     }
+  }
+
+  // Debounced server-side autosave. A failed write remains visibly unsaved;
+  // never claim success before the RPC has committed and returned its version.
+  useEffect(() => {
+    if (!canEdit || status !== 'draft' || evaluationLoading || saving || !selectedId) return;
+    if (draftSignature === lastSavedDraftSignatureRef.current) return;
+    if (draftSignature === failedDraftSignatureRef.current) return;
+    setDraftAutoSaveState('pending');
+    const timer = window.setTimeout(() => { void save('draft', { auto: true }); }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [draftSignature, canEdit, status, evaluationLoading, saving, selectedId]);
+
+  useEffect(() => {
+    if (status !== 'draft' || draftSignature === lastSavedDraftSignatureRef.current) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [draftSignature, status]);
+
+  function confirmLeaveDraft(): boolean {
+    if (status === 'draft' && (saving || draftSignature !== lastSavedDraftSignatureRef.current)) {
+      if (!saving) void save('draft', { auto: true });
+      toast.info('بنحفظ آخر التعديلات الأول لحمايتها. انتظر ظهور «محفوظة على الخادم» ثم انتقل.');
+      return false;
+    }
+    return true;
   }
 
   const publishedStaff = staff.filter((item) =>
@@ -1798,6 +1890,10 @@ export default function StaffMonthlyEvaluation() {
     && !feedbackMissingDevelopment
     && !criticalGateMissingReason
     && !criticalGateGeneralNoteMissing;
+  // Inventory is proposed by the branch manager and signed off by the branches manager.
+  // The database enforces the same restriction; this flag only guides the UI.
+  const inventoryRequiresBranchesManagerApproval = actorRole === 'branch_manager'
+    && sections.some((item) => item.key === 'inventory');
 
   const strongestSections = evaluationComplete
     ? [...ratedSections]
@@ -2027,7 +2123,7 @@ export default function StaffMonthlyEvaluation() {
             <div className="flex overflow-hidden rounded-xl border" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
               <button
                 type="button"
-                onClick={() => setCycleLabel(latestClosedCycleLabel)}
+                onClick={() => { if (confirmLeaveDraft()) setCycleLabel(latestClosedCycleLabel); }}
                 className="px-3 py-2 text-[11px] font-black"
                 style={cycleLabel === latestClosedCycleLabel
                   ? { background: 'var(--dawaa-theme-primary)', color: 'var(--dawaa-theme-primary-text)' }
@@ -2037,7 +2133,7 @@ export default function StaffMonthlyEvaluation() {
               </button>
               <button
                 type="button"
-                onClick={() => setCycleLabel(activeCycleLabel)}
+                onClick={() => { if (confirmLeaveDraft()) setCycleLabel(activeCycleLabel); }}
                 className="px-3 py-2 text-[11px] font-black"
                 style={cycleLabel === activeCycleLabel
                   ? { background: 'var(--dawaa-theme-primary)', color: 'var(--dawaa-theme-primary-text)' }
@@ -2050,7 +2146,7 @@ export default function StaffMonthlyEvaluation() {
             {globalScope ? (
               <select
                 value={branch}
-                onChange={(event) => setBranch(event.target.value)}
+                onChange={(event) => { if (confirmLeaveDraft()) setBranch(event.target.value); }}
                 className="rounded-xl border px-3 py-2 text-xs font-black"
                 style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)', color: 'var(--dawaa-theme-text)' }}
               >
@@ -2219,7 +2315,7 @@ export default function StaffMonthlyEvaluation() {
                   {showGroup ? <div className="px-1 pb-1 pt-2 text-[10px] font-black" style={{color:'var(--dawaa-theme-muted)'}}>{groupKey}</div> : null}
                   <button
                     key={item.id}
-                    onClick={() => { setSelectedId(item.id); setSidebarOpen(false); }}
+                    onClick={() => { if (item.id !== selectedId && !confirmLeaveDraft()) return; setSelectedId(item.id); setSidebarOpen(false); }}
                     className="w-full rounded-xl border px-3 py-2.5 text-right transition"
                     style={selectedId === item.id
                       ? { borderColor: 'var(--dawaa-theme-accent-border)', background: 'var(--dawaa-theme-accent-soft)' }
@@ -2826,6 +2922,15 @@ export default function StaffMonthlyEvaluation() {
 
               {!employeeView && activeStep === 2 ? (
                 <section className="space-y-2">
+                  {status === 'draft' && managerMode ? (
+                    <div className="rounded-xl border px-3 py-2 text-xs font-bold" style={{ borderColor: 'var(--dawaa-theme-border)' }} aria-live="polite">
+                      {branchSubmittedLocked ? 'المسودة مرسلة لمدير الفروع — للعرض فقط'
+                        : draftAutoSaveState === 'saving' ? 'جارٍ حفظ الدرجات تلقائيًا…'
+                        : draftAutoSaveState === 'pending' ? 'تم تسجيل التعديل، وجارٍ التحضير لحفظه…'
+                        : draftAutoSaveState === 'error' ? 'فشل الحفظ التلقائي — لا تغادر قبل إعادة الحفظ'
+                        : 'الدرجات والملاحظات محفوظة على الخادم'}
+                    </div>
+                  ) : null}
                   {sections.map((item) => {
                     const sectionEvidence = sectionEvidenceFor(item.key, selected?.job_title || selected?.role, metrics, evidenceHealth, pointsTruth, coaching, taskEvaluation);
                     const conversationEvidence = isConversationSectionKey(item.key) ? coaching?.conversation : null;
@@ -3483,6 +3588,27 @@ export default function StaffMonthlyEvaluation() {
                   />
 
                   <Panel className="p-4">
+                    {status === 'draft' && managerMode ? (
+                      <div className="mb-3 rounded-xl border px-3 py-2 text-xs font-bold" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
+                        {branchSubmittedLocked
+                          ? 'تم إرسال المسودة لمدير الفروع. التقييم الآن للعرض فقط إلى حين إرجاعه.'
+                          : reviewState === 'returned' && actorRole === 'branch_manager'
+                            ? `أعاد مدير الفروع المسودة لاستكمال المراجعة. السبب: ${reviewReturnReason || 'راجع الملاحظات'}`
+                          : reviewState === 'submitted'
+                            ? 'المسودة بانتظار اعتماد مدير الفروع؛ يمكنك مراجعتها واعتمادها أو إرجاعها.'
+                            : draftAutoSaveState === 'saving' ? 'جارٍ حفظ آخر التعديلات تلقائيًا على الخادم…'
+                            : draftAutoSaveState === 'pending' ? 'تعديلات جديدة — سيجري حفظها تلقائيًا…'
+                            : draftAutoSaveState === 'error' ? 'تعذر الحفظ التلقائي. اضغط «حفظ مسودة» قبل مغادرة الصفحة.'
+                            : 'آخر التعديلات محفوظة على الخادم.'}
+                      </div>
+                    ) : null}
+                    {reviewState === 'submitted' && actorRole !== 'branch_manager' && status === 'draft' ? (
+                      <div className="mb-3 flex flex-col gap-2">
+                        <label htmlFor="monthly-evaluation-return-reason" className="text-xs font-bold">سبب إرجاع التقييم لمدير الفرع (عند الحاجة)</label>
+                        <textarea id="monthly-evaluation-return-reason" value={reviewReturnReason} onChange={(event) => setReviewReturnReason(event.target.value)} rows={2} className="w-full rounded-xl border p-2 text-sm" style={{ borderColor: 'var(--dawaa-theme-border)', background: 'var(--dawaa-theme-surface)' }} />
+                        <button type="button" className="btn-secondary self-start" disabled={saving || reviewReturnReason.trim().length < 12} onClick={() => void save('draft', { returnDraft: true })}>إرجاع لمدير الفرع للتعديل</button>
+                      </div>
+                    ) : null}
                     {canEdit ? (
                       <div className="mt-4 flex flex-wrap justify-end gap-2 border-t pt-3" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
                         <button type="button" disabled={exportingPdf || !publishedSnapshot || !publishedSnapshotHash} onClick={() => void handleExportPdf()} className="btn-secondary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-45">
@@ -3499,10 +3625,22 @@ export default function StaffMonthlyEvaluation() {
                             <Send size={16} /> {incompleteActionLabel}
                           </button>
                         ) : null}
-                        <button type="button" disabled={saving || !approvalReady} onClick={() => void save('sent')} className="btn-primary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-45">
-                          {saving ? <Loader2 size={16} className="animate-spin" /> : <UserCheck size={16} />}
-                          {requiresPostCycleReapproval ? 'إعادة اعتماد' : previouslySent ? 'تحديث الاعتماد' : 'اعتماد وإرسال'}
-                        </button>
+                        {actorRole === 'branch_manager' ? (
+                          <span className="self-center text-xs font-bold" style={{ color: 'var(--dawaa-status-warning-text)' }}>
+                            مدير الفرع يُكمل المحاور ويرسل المسودة؛ مدير الفروع يراجع ويعدل ويعتمد.
+                          </span>
+                        ) : null}
+                        {actorRole === 'branch_manager' ? (
+                          <button type="button" disabled={saving || !approvalReady} onClick={() => void save('draft', { submit: true })} className="btn-primary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-45">
+                            {saving ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                            اكتمل التقييم وإرسال المسودة لمدير الفروع
+                          </button>
+                        ) : (
+                          <button type="button" disabled={saving || !approvalReady} onClick={() => void save('sent')} className="btn-primary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-45">
+                            {saving ? <Loader2 size={16} className="animate-spin" /> : <UserCheck size={16} />}
+                            {requiresPostCycleReapproval ? 'إعادة اعتماد' : previouslySent ? 'تحديث الاعتماد' : 'اعتماد وإرسال'}
+                          </button>
+                        )}
                       </div>
                     ) : null}
                   </Panel>
