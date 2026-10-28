@@ -73,6 +73,8 @@ if (!page.includes('leadershipEvidenceRequirement')) failures.push('Leadership a
 if (!page.includes('axis_evidence_snapshot')) failures.push('Per-axis evidence state must be persisted with the evaluation snapshot.');
 if (!page.includes('leadershipSectionsMissingNotes')) failures.push('Leadership manual evidence must require documented axis notes before approval.');
 if (!page.includes('manualEvidenceSectionsMissingNotes')) failures.push('All manually-evidenced axes must require documented rationale before approval.');
+if (!/if \(options\.submit && inventoryRequiresBranchesManagerApproval && sections\.some\(/.test(page)) failures.push('Inventory rationale must block submission, not draft saving.');
+if (page.includes('قبل حفظ المسودة.')) failures.push('Incomplete inventory rationale must not prevent saving a draft.');
 if (!page.includes('criticalGateMissingRationales')) failures.push('Critical gates must require a separate documented rationale per gate.');
 if (!inventoryEvidence.includes('getInventoryEvidenceSufficiency')) failures.push('Inventory evidence sufficiency helper is missing.');
 if (!salesEvidence.includes('getSalesQualityEvidenceSufficiency')) failures.push('Sales-quality evidence sufficiency helper is missing.');
