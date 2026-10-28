@@ -103,3 +103,17 @@ Open decisions:
    to the branch?
 3. Conversation quality still discriminates weakly; consider critical-error rate as the main signal.
 4. Loading takes ~20 s client-side (9.4k invoices); production must use one server projection.
+
+## 7. Owner decisions and second calibration (2026-10-28)
+
+- **Part-time doctors** (e.g. present a few days a month): sales are now a **fair share of branch sales on
+  the doctor's own worked days** — per day, expected = branch sales ÷ doctors present; score 0.4→0,
+  1.0→50, 1.6→100. A worked day is a punched day **or** a day with own invoices, so missing punches never
+  erase sales. Branch size and busy days cancel out.
+- **Customer requests**: the doctor is credited for the **number recorded**; execution/closure is the
+  **branch manager's** responsibility (`requests_closure` on the branch-manager card).
+- **Conversation quality**: kept as is until the Master Brain evaluations are approved; then replaced.
+- **Speed** (client-side, no DB change): sales pages now load in parallel ordered by the covering index
+  `(invoice_date, id)` → sales 19.3 s → 1.3 s, total 21.6 s → 8.3 s. The remaining ~6 s is
+  `attendance_daily_summary` RLS evaluating its permission functions per row (same pattern fixed for
+  customer requests): a migration wrapping them in `(select …)` needs separate approval.

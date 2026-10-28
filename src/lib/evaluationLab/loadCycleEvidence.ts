@@ -19,6 +19,46 @@ async function pages(build: () => PageQuery, maxRows: number, label: string): Pr
   return data || [];
 }
 
+type CountedQuery = PromiseLike<{ count: number | null; error: { message?: string } | null }>;
+type RangedQuery = { order: (column: string, options: { ascending: boolean }) => RangedQuery; range: (from: number, to: number) => PromiseLike<{ data: unknown; error: { message?: string } | null }> };
+
+const PAGE = 1000;
+const CONCURRENCY = 6;
+
+/**
+ * Closed-cycle rows fetched page-parallel: one exact count, then every page at once (bounded
+ * concurrency) instead of 1000-row pages one after another. A closed cycle does not change, so
+ * the pages are consistent; rows are de-duplicated by id and the total must match the count.
+ */
+async function parallelPages(
+  select: (columns: string, options?: { count: 'exact'; head: true }) => unknown,
+  columns: string,
+  maxRows: number,
+  label: string,
+  /** Deterministic order matching an index, so each page is an index range, not a table scan. */
+  orderColumns: string[] = ['id'],
+): Promise<Row[]> {
+  const counted = await (select('id', { count: 'exact', head: true }) as CountedQuery);
+  if (counted.error) throw new Error(`${label}: ${counted.error.message || 'تعذر العدّ'}`);
+  const total = counted.count ?? 0;
+  if (total > maxRows) throw new Error(`${label}_limit_reached`);
+  const offsets = Array.from({ length: Math.ceil(total / PAGE) }, (_, i) => i * PAGE);
+  const chunks: Row[][] = new Array(offsets.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, offsets.length) }, async () => {
+    while (next < offsets.length) {
+      const index = next++;
+      const ordered = orderColumns.reduce((query, column) => query.order(column, { ascending: true }), select(columns) as RangedQuery);
+      const { data, error } = await ordered.range(offsets[index], offsets[index] + PAGE - 1);
+      if (error) throw new Error(`${label}: ${error.message || 'تعذر التحميل'}`);
+      chunks[index] = (data || []) as Row[];
+    }
+  }));
+  const rows = [...new Map(chunks.flat().map((row) => [text(row.id), row])).values()];
+  if (rows.length !== total) throw new Error(`${label}: عدد الصفوف تغيّر أثناء التحميل (${rows.length}/${total})`);
+  return rows;
+}
+
 export interface LabCycle {
   /** Inclusive start (the 26th). */
   start: string;
@@ -50,15 +90,17 @@ export async function loadCycleEvidence(cycle: LabCycle): Promise<LabEvidence> {
   const [staffRows, aliasRows, invoiceRows, reviewRows, attendanceRows, requestRows, purchaseRows, targetRows, followupProbe] = await Promise.all([
     pages(() => supabase.from('staff').select('id,name,role,branch,active,is_active') as unknown as PageQuery, 2000, 'staff'),
     pages(() => supabase.from('staff_identity_aliases').select('id,staff_id,normalized_alias,active').eq('active', true) as unknown as PageQuery, 5000, 'aliases'),
-    pages(() => supabase.from('sales_invoices')
-      .select('id,staff_id,net_amount,total_amount,customer_code,branch,delivery_staff,sale_date')
-      .gte('sale_date', cycle.start).lt('sale_date', cycle.endExclusive) as unknown as PageQuery, 30000, 'sales_invoices'),
+    // invoice_date (Cairo boundaries) + (invoice_date, id) order uses the covering dashboard index;
+    // verified identical to sale_date for this table (0 rows differ).
+    parallelPages((columns, options) => supabase.from('sales_invoices').select(columns, options)
+      .gte('invoice_date', startAt).lt('invoice_date', endAt),
+      'id,staff_id,net_amount,total_amount,customer_code,branch,delivery_staff,sale_date', 30000, 'sales_invoices', ['invoice_date', 'id']),
     pages(() => supabase.from('conversation_sales_reviews_canonical_v2')
       .select(['id', 'staff_id', 'doctor_id', ...OFFICIAL_REVIEW_COLUMNS].join(','))
       .gte('conversation_date', startAt).lt('conversation_date', endAt) as unknown as PageQuery, 10000, 'reviews'),
-    pages(() => supabase.from('attendance_daily_summary')
-      .select('id,staff_id,attendance_date,resolution_status,first_in,late_minutes,scheduled_start_at')
-      .gte('attendance_date', cycle.start).lt('attendance_date', cycle.endExclusive) as unknown as PageQuery, 10000, 'attendance'),
+    parallelPages((columns, options) => supabase.from('attendance_daily_summary').select(columns, options)
+      .gte('attendance_date', cycle.start).lt('attendance_date', cycle.endExclusive),
+      'id,staff_id,attendance_date,resolution_status,first_in,late_minutes,scheduled_start_at,total_hours', 10000, 'attendance', ['staff_id', 'attendance_date']),
     pages(() => supabase.from('customer_requests')
       .select('id,source_recorded_staff_id,branch,created_at,closed_at')
       .gte('created_at', startAt).lt('created_at', endAt) as unknown as PageQuery, 10000, 'customer_requests'),
@@ -94,6 +136,7 @@ export async function loadCycleEvidence(cycle: LabCycle): Promise<LabEvidence> {
     invoices: invoiceRows.map((row) => ({
       staffId: text(row.staff_id) || null,
       net: num(row.net_amount ?? row.total_amount),
+      date: text(row.sale_date).slice(0, 10),
       coded: text(row.customer_code) !== '',
       branch: text(row.branch) || null,
       deliveryStaffId: text(row.delivery_staff) ? courierFor(row.delivery_staff) : null,

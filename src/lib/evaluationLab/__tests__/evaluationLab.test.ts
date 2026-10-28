@@ -6,7 +6,7 @@ import { closedCycles } from '../loadCycleEvidence';
 const days = (staffId: string, n: number, status = 'on_time', late = 0) =>
   Array.from({ length: n }, (_, i) => ({ staffId, date: `2026-10-${String(i + 1).padStart(2, '0')}`, status, hasFirstIn: true, scheduled: true, lateMinutes: late }));
 const invoices = (staffId: string, n: number, net: number, coded = n) =>
-  Array.from({ length: n }, (_, i) => ({ staffId, net, coded: i < coded, branch: 'فرع شكري', deliveryStaffId: null }));
+  Array.from({ length: n }, (_, i) => ({ staffId, net, date: `2026-10-${String((i % 20) + 1).padStart(2, '0')}`, coded: i < coded, branch: 'فرع شكري', deliveryStaffId: null }));
 
 function evidence(overrides: Partial<LabEvidence> = {}): LabEvidence {
   return {
@@ -104,6 +104,25 @@ describe('buildCycleScores', () => {
     expect(byId('d2').axes.find((a) => a.key === 'discipline')!.score!).toBeLessThan(d3.score!);
   });
 
+  it('fair share compares a part-timer only with the branch on his own days', () => {
+    // Two doctors present on days 1-10; a part-timer present on days 1-5 only, selling his share.
+    const share = buildCycleScores(evidence({
+      staff: [{ id: 'a', name: 'أ', role: 'صيدلاني', branch: 'فرع شكري' }, { id: 'p', name: 'بارت', role: 'صيدلاني', branch: 'فرع شكري' }],
+      attendance: [...days('a', 10), ...days('p', 5)],
+      invoices: [
+        ...Array.from({ length: 10 }, (_, i) => ({ staffId: 'a', net: 1000, date: `2026-10-${String(i + 1).padStart(2, '0')}`, coded: true, branch: 'فرع شكري', deliveryStaffId: null })),
+        ...Array.from({ length: 5 }, (_, i) => ({ staffId: 'p', net: 1000, date: `2026-10-${String(i + 1).padStart(2, '0')}`, coded: true, branch: 'فرع شكري', deliveryStaffId: null })),
+      ],
+      reviews: [], requests: [],
+    }));
+    const axis = (id: string) => share.find((r) => r.staffId === id)!.axes.find((a) => a.key === 'sales_per_day')!;
+    // Days 1-5: branch 2000/day, 2 present → expected 1000; p sold 1000/day → share 1.0 (score 50).
+    expect(axis('p').value).toBe(1);
+    expect(axis('p').score).toBe(50);
+    // Days 6-10: a is alone, so the whole branch is his share; he sold exactly that.
+    expect(axis('a').value).toBeCloseTo(1, 1);
+  });
+
   it('dormant follow-ups are visible but never weighted', () => {
     const followups = byId('d1').axes.find((a) => a.key === 'followups')!;
     expect(followups).toMatchObject({ status: 'not_measurable', weight: 0 });
@@ -123,8 +142,8 @@ describe('buildCycleScores', () => {
       staff: [...evidence().staff, { id: 'c2', name: 'دليفري ٢', role: 'delivery', branch: 'فرع شكري' }, { id: 'c3', name: 'دليفري ٣', role: 'delivery', branch: 'فرع شكري' }],
       attendance: [...evidence().attendance, ...days('c2', 20), ...days('c3', 20)],
       invoices: [...evidence().invoices,
-        ...Array.from({ length: 40 }, () => ({ staffId: null, net: 0, coded: true, branch: 'فرع شكري', deliveryStaffId: 'c1' })),
-        ...Array.from({ length: 10 }, () => ({ staffId: null, net: 0, coded: true, branch: 'فرع شكري', deliveryStaffId: 'c2' }))],
+        ...Array.from({ length: 40 }, () => ({ staffId: null, net: 0, date: '2026-10-01', coded: true, branch: 'فرع شكري', deliveryStaffId: 'c1' })),
+        ...Array.from({ length: 10 }, () => ({ staffId: null, net: 0, date: '2026-10-01', coded: true, branch: 'فرع شكري', deliveryStaffId: 'c2' }))],
     }));
     const c1 = withDeliveries.find((r) => r.staffId === 'c1')!.axes.find((a) => a.key === 'deliveries_per_day')!;
     const c3 = withDeliveries.find((r) => r.staffId === 'c3')!.axes.find((a) => a.key === 'deliveries_per_day')!;

@@ -37,7 +37,7 @@ export const LAB_FAMILY_LABELS: Record<LabFamily, string> = {
 
 export const LAB_AXES: Record<LabFamily, LabAxisDefinition[]> = {
   doctor: [
-    { key: 'sales_per_day', label: 'المبيعات لكل يوم عمل', weight: 30 },
+    { key: 'sales_per_day', label: 'نصيب المبيعات في أيام العمل', weight: 30 },
     { key: 'discipline', label: 'الانضباط', weight: 25 },
     { key: 'conversation_quality', label: 'جودة المحادثات', weight: 20 },
     { key: 'customer_requests', label: 'تسجيل طلبات العملاء', weight: 15 },
@@ -83,6 +83,9 @@ export const LAB_THRESHOLDS = {
   reviewShrinkK: 5,
   readyCoverage: 0.7,
   partialCoverage: 0.4,
+  /** Fair share of branch sales: 0.4 → 0, 1.0 → 50, 1.6 → 100. */
+  fairShareFloor: 0.4,
+  fairShareCeiling: 1.6,
 } as const;
 
 /** Attendance statuses that are still waiting for a decision: shown, never scored. */

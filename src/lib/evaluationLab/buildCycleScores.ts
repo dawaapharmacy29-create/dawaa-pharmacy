@@ -10,7 +10,7 @@ import {
 
 export interface LabEvidence {
   staff: Array<{ id: string; name: string; role: string; branch: string | null }>;
-  invoices: Array<{ staffId: string | null; net: number; coded: boolean; branch: string | null; deliveryStaffId: string | null }>;
+  invoices: Array<{ staffId: string | null; net: number; date: string; coded: boolean; branch: string | null; deliveryStaffId: string | null }>;
   /** Official conversation reviews only (0..100). */
   reviews: Array<{ staffId: string; score: number }>;
   attendance: Array<{ staffId: string; date: string; status: string | null; hasFirstIn: boolean; scheduled: boolean; lateMinutes: number }>;
@@ -131,6 +131,64 @@ function rateAxis(
   return out;
 }
 
+/**
+ * Fair share of branch sales on the days the doctor actually worked: for each worked day the
+ * expected sales are the branch's sales that day divided by the doctors present. Part-time
+ * doctors are compared on their own days only; branch size and busy days cancel out.
+ */
+function fairShareAxis(
+  evidence: LabEvidence,
+  people: Array<{ id: string; branch: string | null; family: LabFamily }>,
+): Map<string, AxisDraft> {
+  const out = new Map<string, AxisDraft>();
+  const doctors = people.filter((p) => p.family === 'doctor');
+  const doctorBranch = new Map(doctors.map((d) => [d.id, branchKey(d.branch)]));
+  const workedDays = new Map<string, Set<string>>();
+  const onDuty = new Map<string, number>();
+  const markWorked = (staffId: string, date: string) => {
+    const branch = doctorBranch.get(staffId);
+    if (branch === undefined || !date) return;
+    const set = workedDays.get(staffId) || new Set<string>();
+    if (set.has(date)) return;
+    workedDays.set(staffId, set.add(date));
+    onDuty.set(`${branch}|${date}`, (onDuty.get(`${branch}|${date}`) || 0) + 1);
+  };
+  // A worked day is a punched day OR a day the doctor sold: missing punches never erase sales.
+  for (const day of evidence.attendance) if (day.hasFirstIn) markWorked(day.staffId, day.date);
+  for (const invoice of evidence.invoices) if (invoice.staffId) markWorked(invoice.staffId, invoice.date);
+  const branchDayNet = new Map<string, number>();
+  const ownDayNet = new Map<string, number>();
+  for (const invoice of evidence.invoices) {
+    const key = `${branchKey(invoice.branch)}|${invoice.date}`;
+    branchDayNet.set(key, (branchDayNet.get(key) || 0) + invoice.net);
+    if (invoice.staffId) ownDayNet.set(`${invoice.staffId}|${invoice.date}`, (ownDayNet.get(`${invoice.staffId}|${invoice.date}`) || 0) + invoice.net);
+  }
+  for (const doctor of doctors) {
+    const days = [...(workedDays.get(doctor.id) || [])];
+    if (days.length < LAB_THRESHOLDS.minWorkedDays) {
+      out.set(doctor.id, notMeasurable('sales_per_day', `${days.length} يوم عمل فقط (الحد ${LAB_THRESHOLDS.minWorkedDays})`));
+      continue;
+    }
+    const branch = doctorBranch.get(doctor.id) || '';
+    let own = 0;
+    let expected = 0;
+    for (const date of days) {
+      const present = onDuty.get(`${branch}|${date}`) || 1;
+      expected += (branchDayNet.get(`${branch}|${date}`) || 0) / present;
+      own += ownDayNet.get(`${doctor.id}|${date}`) || 0;
+    }
+    if (expected <= 0) {
+      out.set(doctor.id, notMeasurable('sales_per_day', 'لا توجد مبيعات للفرع في أيام عمله'));
+      continue;
+    }
+    const share = own / expected;
+    out.set(doctor.id, measured('sales_per_day', round(share, 2),
+      bandScore(share, LAB_THRESHOLDS.fairShareFloor, LAB_THRESHOLDS.fairShareCeiling),
+      `باع ${Math.round(own).toLocaleString('ar-EG')} من نصيب متوقع ${Math.round(expected).toLocaleString('ar-EG')} ج في ${days.length} يوم عمل (×${round(share, 2)})`));
+  }
+  return out;
+}
+
 export function buildCycleScores(evidence: LabEvidence): LabPersonScore[] {
   const facts = factsFor(evidence);
   const people = evidence.staff
@@ -142,7 +200,7 @@ export function buildCycleScores(evidence: LabEvidence): LabPersonScore[] {
 
   // Doctors.
   const doctors = familyMembers('doctor');
-  rateAxis('sales_per_day', doctors, (f) => f.net, 'ج/يوم').forEach((axis, id) => push(id, axis));
+  fairShareAxis(evidence, people).forEach((axis, id) => push(id, axis));
   rateAxis('customer_requests', doctors, (f) => f.requests, 'طلب/يوم').forEach((axis, id) => push(id, axis));
   const doctorRates = doctors.filter((d) => d.f.invoices >= LAB_THRESHOLDS.minInvoicesForCoding).map((d) => d.f.coded / d.f.invoices);
   const doctorRateMedian = median(doctorRates);
