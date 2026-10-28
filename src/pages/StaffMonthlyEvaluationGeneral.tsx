@@ -572,10 +572,13 @@ function sectionEvidenceFor(
     return {
       status: salesSufficiency.sufficient
         ? (sales.sourceStatus === 'available' ? 'available' as const : 'manual' as const)
-        : 'insufficient' as const,
+        // Insufficient samples must not invent an automated score. The branch
+        // manager may instead record an accountable, reasoned manual decision;
+        // the branches manager owns the final review and approval.
+        : 'manual' as const,
       summary: salesSufficiency.sufficient
         ? (summaryParts.join(' · ') || 'لا يوجد دليل آلي كافٍ؛ استخدم واقعة موثقة')
-        : 'بيانات البيع موجودة لكن العينة لا تكفي لإصدار درجة شهرية عادلة',
+        : 'العينة الآلية غير كافية؛ التقييم اليدوي متاح بسبب مكتوب، ويخضع لمراجعة واعتماد مدير الفروع',
       details: [
         ...salesSufficiency.reasons.map((reason) => salesSufficiencyLabels[reason] || reason),
         sales.conversation.samples > 0 ? `عينة مراجعات البيع: ${sales.conversation.samples}` : '',
