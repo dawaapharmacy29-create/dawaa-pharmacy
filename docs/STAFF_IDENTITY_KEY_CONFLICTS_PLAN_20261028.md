@@ -88,3 +88,27 @@ them changes sales, points and possibly incentives for closed cycles, so it need
 2. Re-run the preflight query: zero keys with two owners.
 3. Merge PR #556 → deploy; apply its migration (backup check first; no `supabase db push`).
 4. Decision 3 as its own reviewed change.
+
+## Applied on Production (2026-10-28, approved by the general manager)
+
+| Change | Rows | Audit |
+|---|---|---|
+| Retired the courier's bare alias «اسلام» (`8eac4c61…`); he keeps «اسلام السبع» | 1 alias | `activity_log` action `retire_staff_alias` (before/after + evidence) |
+| Renamed archived duplicate «د/ دنيا» (`e6b0dfe1…`) → «د/ دنيا (سجل مكرر تم دمجه)» | 1 staff | `activity_log` action `mark_duplicate_staff_record` |
+| Renamed archived duplicate «د/ علا» (`93e2076d…`, المخزن) → «د/ علا (سجل مكرر تم دمجه)» | 1 staff | `activity_log` action `mark_duplicate_staff_record` |
+
+No invoice, transaction, point or evaluation was moved. The archived Donia record keeps its two
+transactions (one cancelled, one +5 reward in the closed 2026-07 cycle).
+
+Re-check after the changes (resolver key over staff names and active aliases):
+
+- «اسلام»: one owner (د اسلام فاروق). **Resolved.**
+- «دنيا»: one owner (د دنيا). **Resolved** — her new invoices keep linking after #556.
+- «علا» and «اعبدالحميد»: still in conflict because the archived duplicates still own 4 active
+  aliases each («علا», «د علا», «د/ علا», «دكتور علا» / «ا عبد الحميد», «د ا عبد الحميد»,
+  «د/ ا عبد الحميد», «دكتور ا عبد الحميد»). Neither key has seller invoices since 2026-07-26.
+  **Pending decision:** retire those 8 aliases (audited) so the keys belong to the active records.
+- «محمدخالد», «ضحي»: retired-only owners; left unresolved by design.
+
+Merge gate status: the TypeScript gate for «دنيا» is cleared. The migration preflight (alias level)
+still aborts on «علا» while the archived «د/ علا» record owns active aliases of that key.
