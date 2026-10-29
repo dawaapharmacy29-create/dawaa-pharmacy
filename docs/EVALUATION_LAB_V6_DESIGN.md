@@ -186,6 +186,6 @@ Measurability and scoring:
 
 **Prerequisites before this axis is used for money:**
 1. **Full coverage:** the Master Brain must analyse every conversation. Production holds 2 analysed sources and 0 `customer_request` actions today, so the axis is "not measurable".
-2. **Unlinked requests:** `canonicalCustomerRequestProjector` skips requests without a product identity or code. A found request the brain cannot link to a product is dropped from the denominator. Persist every detected demand, even unlinked ones, for the capture measure.
-3. **Request time:** the action row does not store the customer's request time (`demand.requestedAt`). The lab uses the conversation window; storing `requestedAt` in the payload would tighten the match.
+2. **Unlinked requests:** fixed in PR #582 (`canonicalCustomerRequestProjector`). Requests whose only blockers are identity are persisted as identity-pending proposals and completed in place once identity resolves.
+3. **Request time:** fixed in PR #582. `payload.requestedAt` is stored, and the lab uses it (2 h before → 48 h after the request) when present; older rows fall back to the conversation window.
 4. **Dry run:** one full cycle without money, with disputes reviewed by a person.

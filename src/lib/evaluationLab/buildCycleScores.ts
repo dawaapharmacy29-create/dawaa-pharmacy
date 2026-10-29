@@ -51,6 +51,8 @@ export interface BrainRequest {
   targetId: string | null;
   conversationStartedAt: string;
   conversationEndedAt: string | null;
+  /** When the customer asked (projector payload.requestedAt); preferred over the conversation window. */
+  requestedAt?: string | null;
 }
 
 const phoneKey = (value: string | null | undefined) => String(value ?? '').replace(/\D/g, '').slice(-10);
@@ -63,8 +65,9 @@ const productKey = (value: string | null | undefined) => String(value ?? '').tri
  */
 export function isSelfRecorded(detected: BrainRequest, requests: LabEvidence['requests']): boolean {
   if (!detected.staffId) return false;
-  const from = Date.parse(detected.conversationStartedAt) - LAB_THRESHOLDS.captureLeadHours * 36e5;
-  const to = Date.parse(detected.conversationEndedAt || detected.conversationStartedAt) + LAB_THRESHOLDS.captureWindowHours * 36e5;
+  const askedAt = detected.requestedAt && Number.isFinite(Date.parse(detected.requestedAt)) ? Date.parse(detected.requestedAt) : null;
+  const from = (askedAt ?? Date.parse(detected.conversationStartedAt)) - LAB_THRESHOLDS.captureLeadHours * 36e5;
+  const to = (askedAt ?? Date.parse(detected.conversationEndedAt || detected.conversationStartedAt)) + LAB_THRESHOLDS.captureWindowHours * 36e5;
   const phone = phoneKey(detected.customerPhone);
   const product = productKey(detected.productName);
   return requests.some((request) => {

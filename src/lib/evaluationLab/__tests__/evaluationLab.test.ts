@@ -307,6 +307,10 @@ describe('buildCycleScores v6.3 request capture', () => {
     expect(isSelfRecorded(detected(1), [recorded(1, 'd1', '2026-10-05T11:00:00Z', { status: 'cancelled' })])).toBe(false);
     // The request created by approving the Master Brain proposal is not self-recorded.
     expect(isSelfRecorded(detected(1, 'd1', { targetId: 'r1' }), [recorded(1)])).toBe(false);
+    // The exact request time narrows the window: a conversation spanning days no longer widens it.
+    const longChat = { conversationStartedAt: '2026-10-01T10:00:00Z', conversationEndedAt: '2026-10-05T10:30:00Z' };
+    expect(isSelfRecorded(detected(1, 'd1', longChat), [recorded(1, 'd1', '2026-10-03T10:00:00Z')])).toBe(true);
+    expect(isSelfRecorded(detected(1, 'd1', { ...longChat, requestedAt: '2026-10-05T10:00:00Z' }), [recorded(1, 'd1', '2026-10-03T10:00:00Z')])).toBe(false);
     // Phone match (last 10 digits) and a longer product name still match.
     expect(isSelfRecorded(detected(1, 'd1', { customerCode: null, customerPhone: '+20 100 123 4567' }),
       [recorded(1, 'd1', '2026-10-05T11:00:00Z', { customerCode: null, customerPhone: '01001234567', medicineName: 'صنف 1 شريط' })])).toBe(true);

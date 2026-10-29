@@ -126,7 +126,7 @@ async function loadBrainRequests(startAt: string, endAt: string): Promise<BrainR
     for (let i = 0; i < ids.length; i += 200) {
       const chunk = ids.slice(i, i + 200);
       const actions = await pages(() => supabase.from('whatsapp_conversation_actions')
-        .select('id,source_id,staff_id,customer_id,customer_code,customer_phone,product_code,product_name,status,target_table,target_id')
+        .select('id,source_id,staff_id,customer_id,customer_code,customer_phone,product_code,product_name,status,target_table,target_id,payload')
         .eq('action_type', 'customer_request').in('source_id', chunk) as unknown as PageQuery, 20000, 'brain_requests');
       for (const row of actions) {
         const source = bySource.get(text(row.source_id));
@@ -143,6 +143,8 @@ async function loadBrainRequests(startAt: string, endAt: string): Promise<BrainR
           targetId: text(row.target_table) === 'customer_requests' ? text(row.target_id) || null : null,
           conversationStartedAt: text(source.conversation_started_at),
           conversationEndedAt: text(source.conversation_ended_at) || null,
+          // Stored by the projector since identity-pending persistence; older rows fall back to the conversation window.
+          requestedAt: text((row.payload as Record<string, unknown> | null)?.requestedAt) || null,
         });
       }
     }
