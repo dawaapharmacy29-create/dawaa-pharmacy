@@ -1,4 +1,7 @@
+import { buildCanonicalProduct, countNormalizedNames, type RawProductRow } from '@/lib/salesIntelligence/pharmacyProducts/canonicalProduct';
+import { normalizePharmacyText } from '@/lib/salesIntelligence/pharmacyProducts/pharmacyNormalization';
 import {
+  buildPharmacyProductIndex,
   isBasketEligibleProductResolution,
   resolveProductMention,
   type PharmacyProductIndex,
@@ -8,10 +11,16 @@ import {
 // buying the same catalog product after the request. The request's free-text medicine name is
 // resolved with the canonical product resolver restricted to the products this customer actually
 // bought in the window, so Arabic/colloquial names match catalog (often Latin) names safely.
+// The product identity is the invoice line's product code; the resolver index is built from the
+// loaded invoice lines themselves (the products table is not readable from client sessions).
 
 export const FULFILLMENT_WINDOW_DAYS = 14;
-/** A sale recorded up to an hour before the request still belongs to it (clock and entry order). */
-const FULFILLMENT_LEAD_MS = 36e5;
+
+// Invoice item dates are stored as a day (midnight), requests carry a time: compare Cairo days.
+// A sale on the request day or within the next 14 days belongs to it.
+const CAIRO_DAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' });
+const cairoDay = (at: number) => CAIRO_DAY.format(at);
+const addDays = (day: string, days: number) => new Date(Date.parse(`${day}T00:00:00Z`) + days * 864e5).toISOString().slice(0, 10);
 
 export interface FulfillmentRequest {
   id: string;
@@ -112,20 +121,33 @@ function transliterationMatch(phrase: string, candidates: Array<{ productId: str
   return hits.size === 1 ? [...hits][0] : null;
 }
 
+/** Resolver index of the products present on the loaded invoice lines (identity = product code). */
+export function buildInvoiceLineProductIndex(items: readonly FulfillmentItem[]): PharmacyProductIndex {
+  const rows = new Map<string, RawProductRow>();
+  for (const item of items) {
+    const code = text(item.productCode);
+    const name = text(item.productName);
+    if (!code || !name || rows.has(code)) continue;
+    rows.set(code, { id: code, name, product_code: code, normalized_name: name, category: null, price: null, source: 'sales_invoice_items_v21' } as RawProductRow);
+  }
+  const list = [...rows.values()];
+  const counts = countNormalizedNames(list);
+  return buildPharmacyProductIndex(list.map((row) => buildCanonicalProduct(row, counts, normalizePharmacyText)));
+}
+
 export function matchRequestFulfillment(
   requests: readonly FulfillmentRequest[],
   items: readonly FulfillmentItem[],
-  index: PharmacyProductIndex,
   asOf: Date = new Date(),
 ): FulfillmentResult[] {
+  const index = buildInvoiceLineProductIndex(items);
   const byCustomer = new Map<string, FulfillmentItem[]>();
   for (const item of items) {
     const code = text(item.customerCode);
     if (!code) continue;
     byCustomer.set(code, [...(byCustomer.get(code) || []), item]);
   }
-  const productIdOf = (item: FulfillmentItem) =>
-    text(item.productId) || index.byCode.get(text(item.productCode).toLowerCase())?.productId || null;
+  const productIdOf = (item: FulfillmentItem) => text(item.productCode) || null;
 
   return requests.map((request) => {
     const base = { requestId: request.id, matchedQuantity: 0, firstSaleAt: null, basis: null };
@@ -133,30 +155,21 @@ export function matchRequestFulfillment(
     const code = text(request.customerCode);
     if (!code || /^[0\s.-]*$/.test(code)) return { ...base, state: 'no_customer' as const };
 
-    const createdAt = Date.parse(request.createdAt);
-    const windowEnd = createdAt + FULFILLMENT_WINDOW_DAYS * 864e5;
-    const windowOpen = asOf.getTime() < windowEnd;
+    const requestDay = cairoDay(Date.parse(request.createdAt));
+    const lastDay = addDays(requestDay, FULFILLMENT_WINDOW_DAYS);
+    const today = cairoDay(asOf.getTime());
+    const windowOpen = today <= lastDay;
     const candidates = (byCustomer.get(code) || []).filter((item) => {
-      const at = Date.parse(item.invoiceAt);
-      return at >= createdAt - FULFILLMENT_LEAD_MS && at <= Math.min(windowEnd, asOf.getTime());
+      const day = cairoDay(Date.parse(item.invoiceAt));
+      return day >= requestDay && day <= lastDay && day <= today;
     });
     const unmatched = { ...base, state: windowOpen ? 'window_open' as const : 'not_found' as const };
     if (!candidates.length) return unmatched;
 
-    let productId: string | null = null;
-    let basis: string | null = null;
     const requestedCode = text(request.productCode).toLowerCase();
     if (requestedCode) {
-      productId = index.byCode.get(requestedCode)?.productId || null;
-      basis = 'request_product_code';
-      if (!productId) {
-        const direct = candidates.filter((item) => text(item.productCode).toLowerCase() === requestedCode);
-        if (direct.length) return summarize(base, direct, request, 'request_product_code');
-      }
-    }
-    if (productId) {
-      const matched = candidates.filter((item) => productIdOf(item) === productId);
-      return matched.length ? summarize(base, matched, request, basis) : unmatched;
+      const direct = candidates.filter((item) => text(item.productCode).toLowerCase() === requestedCode);
+      return direct.length ? summarize(base, direct, request, 'request_product_code') : unmatched;
     }
 
     const candidateIds = [...new Set(candidates.map(productIdOf).filter((id): id is string => Boolean(id)))];

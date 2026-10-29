@@ -1,31 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { buildCanonicalProduct, countNormalizedNames, type RawProductRow } from '@/lib/salesIntelligence/pharmacyProducts/canonicalProduct';
-import { normalizePharmacyText } from '@/lib/salesIntelligence/pharmacyProducts/pharmacyNormalization';
-import { buildPharmacyProductIndex } from '@/lib/salesIntelligence/pharmacyProducts/pharmacyProductResolverV2';
 import {
   consonantSkeleton, matchRequestFulfillment, splitRequestedProducts, summarizeFulfillment,
   type FulfillmentItem, type FulfillmentRequest,
 } from '../requestFulfillment';
 
-const ROWS: RawProductRow[] = [
-  { id: 'aug', name: 'AUGMENTIN 1GM TAB', product_code: '1001', normalized_name: 'augmentin 1gm tab', category: null, price: '100', source: 'catalog_import' },
-  { id: 'she', name: 'sheport 30 cap', product_code: '1002', normalized_name: 'sheport 30 cap', category: null, price: '100', source: 'catalog_import' },
-  { id: 'ora', name: 'oratrypsin 30 caps', product_code: '1003', normalized_name: 'oratrypsin 30 caps', category: null, price: '100', source: 'catalog_import' },
-  { id: 'amb', name: 'AMBISOME VIAL', product_code: '1004', normalized_name: 'ambisome vial', category: null, price: '100', source: 'catalog_import' },
-  { id: 'amr', name: 'AMBISOM CREAM', product_code: '1005', normalized_name: 'ambisom cream', category: null, price: '100', source: 'catalog_import' },
-];
-const counts = countNormalizedNames(ROWS);
-const index = buildPharmacyProductIndex(ROWS.map((row) => buildCanonicalProduct(row, counts, normalizePharmacyText)));
 
 const request = (overrides: Partial<FulfillmentRequest> = {}): FulfillmentRequest => ({
   id: 'r1', customerCode: '17', medicineName: 'اوجمنتين', productCode: null, quantity: 1,
   createdAt: '2026-10-05T10:00:00Z', status: 'new', ...overrides,
 });
+const CODES: Record<string, string> = { aug: '1001', she: '1002', ora: '1003', amb: '1004', amr: '1005' };
 const item = (productId: string, productName: string, invoiceAt = '2026-10-06T12:00:00Z', overrides: Partial<FulfillmentItem> = {}): FulfillmentItem => ({
-  customerCode: '17', invoiceAt, invoiceId: 'i1', productId, productCode: null, productName, quantity: 1, ...overrides,
+  customerCode: '17', invoiceAt, invoiceId: 'i1', productId: null, productCode: CODES[productId], productName, quantity: 1, ...overrides,
 });
 const asOf = new Date('2026-11-05T00:00:00Z');
-const one = (req: FulfillmentRequest, items: FulfillmentItem[], at = asOf) => matchRequestFulfillment([req], items, index, at)[0];
+const one = (req: FulfillmentRequest, items: FulfillmentItem[], at = asOf) => matchRequestFulfillment([req], items, at)[0];
 
 describe('request fulfillment', () => {
   it('splits a free-text line naming several products', () => {
@@ -53,6 +42,10 @@ describe('request fulfillment', () => {
     expect(one(request({ quantity: 3 }), [item('aug', 'AUGMENTIN 1GM TAB', undefined, { quantity: 2 })])).toMatchObject({ state: 'partial', matchedQuantity: 2 });
   });
 
+  it('a sale dated the request day (stored at midnight) belongs to the request', () => {
+    expect(one(request({ createdAt: '2026-10-05T10:00:00Z' }), [item('aug', 'AUGMENTIN 1GM TAB', '2026-10-05T00:00:00Z')]).state).toBe('fulfilled');
+  });
+
   it('only the same customer, after the request, within 14 days', () => {
     expect(one(request(), [item('aug', 'AUGMENTIN 1GM TAB', undefined, { customerCode: '99' })]).state).toBe('not_found');
     expect(one(request(), [item('aug', 'AUGMENTIN 1GM TAB', '2026-10-01T10:00:00Z')]).state).toBe('not_found');
@@ -72,7 +65,7 @@ describe('request fulfillment', () => {
       request({ id: 'c', status: 'cancelled' }),
       request({ id: 'd', quantity: 2 }),
       request({ id: 'e', customerCode: '55' }),
-    ], [item('aug', 'AUGMENTIN 1GM TAB')], index, asOf);
+    ], [item('aug', 'AUGMENTIN 1GM TAB')], asOf);
     expect(results.map((r) => r.state)).toEqual(['fulfilled', 'no_customer', 'invalid', 'partial', 'not_found']);
     expect(summarizeFulfillment(results)).toMatchObject({ judged: 3, fulfilled: 1, partial: 1, notFound: 1, noCustomer: 1, share: 0.5 });
   });

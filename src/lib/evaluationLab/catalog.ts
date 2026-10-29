@@ -216,10 +216,10 @@ export const LAB_THRESHOLDS = {
   captureWindowHours: 48,
   captureFloor: 0.7,
   captureCeiling: 0.95,
-  /** v6.4 fulfilment proven by an invoice: share of judged requests (partial = half). */
+  /** v6.4 fulfilment proven by an invoice (partial = half). Calibrated on cycle 2026-09-26 → 10-25: 20% overall (lower bound: free-text names), 10% → 0, 60% → 100. */
   minJudgedRequests: 10,
-  fulfillmentFloor: 0.2,
-  fulfillmentCeiling: 0.8,
+  fulfillmentFloor: 0.1,
+  fulfillmentCeiling: 0.6,
   /** Team follow-up of missing punches (v6.1): 85% corrected → 0, 100% → 100. */
   followupFloor: 0.85,
 } as const;

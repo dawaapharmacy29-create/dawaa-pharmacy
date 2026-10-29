@@ -189,3 +189,27 @@ Measurability and scoring:
 2. **Unlinked requests:** fixed in PR #582 (`canonicalCustomerRequestProjector`). Requests whose only blockers are identity are persisted as identity-pending proposals and completed in place once identity resolves.
 3. **Request time:** fixed in PR #582. `payload.requestedAt` is stored, and the lab uses it (2 h before → 48 h after the request) when present; older rows fall back to the conversation window.
 4. **Dry run:** one full cycle without money, with disputes reviewed by a person.
+
+## 10. v6.4 — execution proven by the sale (owner decision 2026-10-29)
+
+**Rule.** A customer request is fulfilled only when the same customer (by code) bought the same product from the request day to 14 days after it. This is checked against `sales_invoice_items_v21`.
+
+**How the product is matched:**
+- **Request carries a product code:** the code wins.
+- **Free text:** the text is split into products. Each product is resolved with the canonical product resolver, restricted to what that customer bought; the resolver index is built from the invoice lines, because `products` is not readable by client sessions. As a last, unique-only resort, the first word of the request and of the bought product are matched by consonant skeleton (Arabic ↔ Latin).
+- **Quantity or a missing product:** less than requested, or only some of several named products bought, makes the request partial.
+
+**Branch manager scoring.** "Requests fulfilled by invoice" has weight 10, taken from request closure (25 → 15). Band: 10% → 0, 60% → 100, measurable from 10 judged requests.
+
+**First run, cycle 2026-09-26 → 2026-10-25:**
+
+| Measure | Result |
+|---|---|
+| Cancelled (excluded) | 20 |
+| No customer code (not judged) | 82 |
+| Still inside the 14-day window | 58 |
+| Fulfilled / partial / not found (of 117 judged) | 22 / 3 / 92 → 20% |
+| Of judged requests marked `delivered` | 19 matched a sale, 21 did not |
+| Matched a sale while still `new` | 3 (closure could be automatic) |
+
+20% is a lower bound: free-text names, several products in one line and requests without a customer code limit matching. Structured requests (catalog pick, quantities, multi-product orders, phase 3) remove that limit.

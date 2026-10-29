@@ -8,7 +8,6 @@ import type { BrainRequest, LabEvidence } from './buildCycleScores';
 import { selectInvoiceCycleWindow } from '@/lib/readModels/invoiceRecordReadModel';
 import { invoiceShiftOf } from './catalog';
 import { FULFILLMENT_WINDOW_DAYS, matchRequestFulfillment, type FulfillmentItem, type FulfillmentResult } from './requestFulfillment';
-import { fetchPharmacyProductIndex } from '@/lib/salesIntelligence/pharmacyProductCatalogRepository';
 
 // Read-only, bounded evidence for one 26→25 cycle. Every read is filtered by the cycle and
 // capped; a failed read throws (the lab shows the outage instead of scoring zeros).
@@ -184,7 +183,6 @@ async function loadFulfillment(requestRows: Row[], startAt: string, endAt: strin
         });
       }
     }
-    const index = await fetchPharmacyProductIndex(supabase);
     return matchRequestFulfillment(requestRows.map((row) => ({
       id: text(row.id),
       customerCode: text(row.customer_code) || null,
@@ -193,7 +191,7 @@ async function loadFulfillment(requestRows: Row[], startAt: string, endAt: strin
       quantity: row.quantity == null ? null : num(row.quantity),
       createdAt: text(row.created_at),
       status: text(row.status) || null,
-    })), items, index);
+    })), items);
   } catch {
     return null;
   }
