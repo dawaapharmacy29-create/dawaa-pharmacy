@@ -25,6 +25,7 @@ import { loadSalesAnalyticsSummary, type SalesAnalyticsSummary } from '@/lib/sal
 import { readStaffCycleSales } from '@/lib/readModels/invoiceRecordReadModel';
 import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
 import DoctorRequestedFollowups from '@/components/doctor/DoctorRequestedFollowups';
+import DoctorAttentionStrip from '@/components/doctor/DoctorAttentionStrip';
 import DoctorVouchers from '@/components/doctor/DoctorVouchers';
 import { getEmployeeEvents } from '@/lib/employeeEventService';
 import { isOfficialConversationReview } from '@/lib/evaluations/officialConversationReview';
@@ -253,7 +254,7 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
   const [summary, setSummary] = useState<SalesAnalyticsSummary | null>(null);
   const [doctorTrend, setDoctorTrend] = useState<SalesAnalyticsSummary['dailyTrend']>([]);
   // The doctor's own cycle sales, read by staff_id (never by a seller-name match). null = read failed.
-  const [mySales, setMySales] = useState<{ netSales: number; invoicesCount: number; avgInvoice: number } | null | undefined>(undefined);
+  const [mySales, setMySales] = useState<{ netSales: number; invoicesCount: number; avgInvoice: number; uncodedInvoices: number } | null | undefined>(undefined);
   const [error, setError] = useState('');
   const [reviews, setReviews] = useState<PersonalReview[]>([]);
   const [notifications, setNotifications] = useState<StaffNotification[]>([]);
@@ -544,7 +545,8 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
         slot.invoicesCount += 1;
         byDay.set(day, slot);
       }
-      setMySales({ netSales, invoicesCount: rows.length, avgInvoice: rows.length ? netSales / rows.length : 0 });
+      const uncodedInvoices = rows.filter((row) => !text(row.customer_code)).length;
+      setMySales({ netSales, invoicesCount: rows.length, avgInvoice: rows.length ? netSales / rows.length : 0, uncodedInvoices });
       setDoctorTrend([...byDay.entries()]
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([date, slot]) => ({ date, netSales: slot.netSales, invoicesCount: slot.invoicesCount, avgInvoice: slot.invoicesCount ? slot.netSales / slot.invoicesCount : 0, uniqueCustomers: 0 })));
@@ -658,6 +660,13 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
 
       {tab === 'overview' ? (
         <>
+          <DoctorAttentionStrip
+            staffId={staffId}
+            branch={branch}
+            cycleStart={formatCycleDate(cycle.start)}
+            uncodedInvoices={mySales ? mySales.uncodedInvoices : null}
+            invoicesCount={mySales ? mySales.invoicesCount : null}
+          />
           <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-1">
             <StatChip
               icon={DollarSign}
