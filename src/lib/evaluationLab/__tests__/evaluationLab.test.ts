@@ -352,6 +352,58 @@ describe('buildCycleScores v6.4 fulfilment', () => {
   });
 });
 
+describe('buildCycleScores v6.5 branch scorecard', () => {
+  const build = (overrides: Partial<LabEvidence> = {}) => buildCycleScores(evidence({
+    previousBranchSales: [{ branch: 'فرع شكري', invoices: 200, net: 80000 }],
+    teamEvaluations: [
+      { staffId: 'd1', branch: 'فرع شكري', status: 'sent', sentAt: '2026-10-26T10:00:00Z' },
+      { staffId: 'd2', branch: 'فرع شكري', status: 'draft', sentAt: null },
+      { staffId: 'd3', branch: 'فرع شكري', status: 'draft', sentAt: null },
+      { staffId: 'd4', branch: 'فرع شكري', status: 'draft', sentAt: null },
+    ],
+    purchaseInvoices: Array.from({ length: 40 }, (_, i) => ({ branch: 'فرع شكري', enteredByStaffId: 'd1', reviewed: i < 10 })),
+    ...overrides,
+  }), 'v6.5');
+  const axisOf = (staffId: string, key: string, overrides: Partial<LabEvidence> = {}) =>
+    build(overrides).find((r) => r.staffId === staffId)!.axes.find((a) => a.key === key)!;
+
+  it('the branch manager card is grouped in pillars that sum to 100', () => {
+    const m1 = build().find((r) => r.staffId === 'm1')!;
+    expect(m1.axes.reduce((s, a) => s + a.weight, 0)).toBe(100);
+    expect(m1.axes.every((a) => a.pillar)).toBe(true);
+    const h1 = build().find((r) => r.staffId === 'h1')!;
+    expect(h1.axes.reduce((s, a) => s + a.weight, 0)).toBe(100);
+  });
+
+  it('growth compares the branch with its previous cycle', () => {
+    // 262 valid invoices against 200 → ×1.31, capped at 100.
+    expect(axisOf('m1', 'customers_growth')).toMatchObject({ status: 'measured', score: 100 });
+    expect(axisOf('m1', 'customers_growth', { previousBranchSales: null })).toMatchObject({ status: 'not_measurable', score: null });
+  });
+
+  it('evaluations sent and purchase invoices reviewed are shares', () => {
+    expect(axisOf('m1', 'team_evaluations')).toMatchObject({ status: 'measured', score: 25 });
+    expect(axisOf('m1', 'purchase_review')).toMatchObject({ status: 'measured', score: 25 });
+    expect(axisOf('m1', 'purchase_review', { purchaseInvoices: null })).toMatchObject({ status: 'not_measurable' });
+    expect(axisOf('m1', 'team_evaluations', { teamEvaluations: null })).toMatchObject({ status: 'not_measurable' });
+  });
+
+  it('axes without a data path are pending with their reason, never zero', () => {
+    for (const key of ['inventory_counts', 'standards_submissions', 'agenda_closure', 'discount_policy']) {
+      const axis = axisOf('m1', key);
+      expect(axis).toMatchObject({ status: 'not_measurable', score: null });
+      expect(axis.reason).toBeTruthy();
+    }
+  });
+
+  it('the branches manager carries the branch cards weighted by sales', () => {
+    const m1 = build().find((r) => r.staffId === 'm1')!;
+    const card = axisOf('h1', 'branches_scorecard');
+    expect(card.status).toBe('measured');
+    expect(card.score).toBeCloseTo(m1.total as number, 5);
+  });
+});
+
 describe('closedCycles', () => {
   it('returns closed 26→25 cycles in Cairo time', () => {
     expect(closedCycles(2, new Date('2026-10-28T10:00:00Z'))).toEqual([

@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronUp, Database, FlaskConical, MinusCircle, Users } from 'lucide-react';
-import { LAB_CURRENT_VERSION, LAB_FAMILY_LABELS, LAB_PREVIOUS_VERSION, type LabFamily } from '@/lib/evaluationLab/catalog';
+import { LAB_CURRENT_VERSION, LAB_FAMILY_LABELS, LAB_PILLAR_LABELS, LAB_PREVIOUS_VERSION, type LabFamily, type LabPillar } from '@/lib/evaluationLab/catalog';
+import { useAuth } from '@/hooks/useAuth';
 
 const BASELINE_VERSION = LAB_PREVIOUS_VERSION[LAB_CURRENT_VERSION] ?? LAB_CURRENT_VERSION;
 import { buildCycleScores, type LabEvidence, type LabPersonScore } from '@/lib/evaluationLab/buildCycleScores';
@@ -119,7 +120,12 @@ function PersonCard({ person, rank, baseline }: { person: LabPersonScore; rank: 
       {open && (
         <div className="border-t border-[var(--dawaa-theme-border)] px-3 pb-3 sm:px-4">
           <div className="divide-y divide-[var(--dawaa-theme-divider)]">
-            {person.axes.map((axis) => <AxisRow key={axis.key} axis={axis} />)}
+            {groupByPillar(person.axes).map(({ pillar, axes }) => (
+              <div key={pillar || 'all'}>
+                {pillar ? <PillarHeader pillar={pillar} axes={axes} /> : null}
+                {axes.map((axis) => <AxisRow key={axis.key} axis={axis} />)}
+              </div>
+            ))}
           </div>
           {person.adjustments.length ? (
             <div className="dawaa-status-danger-bg dawaa-status-danger-border mt-3 space-y-1 rounded-xl border p-3">
@@ -155,6 +161,33 @@ const DORMANT_LABELS: Array<[string, string]> = [
   ['delivery_ratings', 'تقييم التوصيل'],
 ];
 
+function groupByPillar(axes: AxisResult[]): Array<{ pillar: LabPillar | null; axes: AxisResult[] }> {
+  if (!axes.some((axis) => axis.pillar)) return [{ pillar: null, axes }];
+  const groups: Array<{ pillar: LabPillar | null; axes: AxisResult[] }> = [];
+  for (const axis of axes) {
+    const pillar = axis.pillar ?? null;
+    const group = groups.find((g) => g.pillar === pillar);
+    if (group) group.axes.push(axis); else groups.push({ pillar, axes: [axis] });
+  }
+  return groups;
+}
+
+/** Pillar header: its weight, the measured share of that weight and its weighted score. */
+function PillarHeader({ pillar, axes }: { pillar: LabPillar; axes: AxisResult[] }) {
+  const weight = axes.reduce((s, a) => s + a.weight, 0);
+  const measuredAxes = axes.filter((a) => a.status === 'measured' && a.weight > 0);
+  const measuredWeight = measuredAxes.reduce((s, a) => s + a.weight, 0);
+  const score = measuredWeight ? measuredAxes.reduce((s, a) => s + a.weight * (a.score as number), 0) / measuredWeight : null;
+  return (
+    <div className="mt-3 flex items-center justify-between rounded-xl bg-[var(--dawaa-theme-bg-soft)] px-3 py-2">
+      <span className="text-sm font-black text-[var(--dawaa-theme-heading)]">{LAB_PILLAR_LABELS[pillar]} · وزن {weight}</span>
+      <span className="dawaa-theme-muted text-xs font-bold">
+        {score === null ? 'غير قابل للقياس بعد' : `${Math.round(score)}/100`} · مُقاس {measuredWeight} من {weight}
+      </span>
+    </div>
+  );
+}
+
 function SourceStrip({ evidence }: { evidence: LabEvidence }) {
   const sources = [
     { label: 'فواتير مرتبطة بموظف', count: evidence.invoices.filter((i) => i.staffId).length },
@@ -182,6 +215,7 @@ function SourceStrip({ evidence }: { evidence: LabEvidence }) {
 
 export default function EvaluationLab() {
   const cycles = useMemo(() => closedCycles(6), []);
+  const { user } = useAuth();
   const [cycleIndex, setCycleIndex] = useState(0);
   const [family, setFamily] = useState<LabFamily>('doctor');
   const cycle = cycles[cycleIndex];
@@ -189,7 +223,7 @@ export default function EvaluationLab() {
   const query = useQuery({
     queryKey: ['evaluation-lab-v6', cycle.start, cycle.endExclusive],
     queryFn: async () => {
-      const evidence = await loadCycleEvidence(cycle);
+      const evidence = await loadCycleEvidence(cycle, { actorId: user?.id ?? null });
       const baseline = new Map(buildCycleScores(evidence, BASELINE_VERSION).map((person) => [person.staffId, person.total]));
       return { evidence, scores: buildCycleScores(evidence), baseline };
     },

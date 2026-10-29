@@ -1,4 +1,4 @@
-import { LAB_AXES_BY_VERSION, LAB_CURRENT_VERSION, LAB_THRESHOLDS, type LabAxisKey, type LabFamily, type LabVersion } from './catalog';
+import { LAB_AXES_BY_VERSION, LAB_CURRENT_VERSION, LAB_THRESHOLDS, type LabAxisKey, type LabFamily, type LabPillar, type LabVersion } from './catalog';
 
 // Pure scoring of the Evaluation Lab. No I/O: every input is an explicit, already-loaded value.
 
@@ -8,6 +8,7 @@ export interface AxisResult {
   key: LabAxisKey;
   label: string;
   weight: number;
+  pillar?: LabPillar;
   status: AxisStatus;
   /** Raw value in its own unit (EGP/day, %, count/day…), null when not measurable. */
   value: number | null;
@@ -112,7 +113,7 @@ export function aggregate(
   const adjustments = (options.adjustments || []).filter((adjustment) => adjustment.points !== 0);
   const axes: AxisResult[] = LAB_AXES_BY_VERSION[options.version || LAB_CURRENT_VERSION][family].map((definition) => {
     const result = byKey.get(definition.key) ?? notMeasurable(definition.key, 'لا يوجد مصدر بيانات لهذا المحور');
-    return { ...result, label: definition.label, weight: definition.weight };
+    return { ...result, label: definition.label, weight: definition.weight, ...(definition.pillar ? { pillar: definition.pillar } : {}) };
   });
   const totalWeight = axes.reduce((sum, axis) => sum + axis.weight, 0);
   const measuredAxes = axes.filter((axis) => axis.status === 'measured' && axis.weight > 0);

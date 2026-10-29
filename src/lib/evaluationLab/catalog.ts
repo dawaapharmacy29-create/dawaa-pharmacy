@@ -6,9 +6,10 @@ export type LabFamily = 'doctor' | 'assistant' | 'delivery' | 'branch_manager' |
 
 /** v6.0 is kept so the lab can show what each change moved; v6.1 is the proposal under review. */
 /** Each version keeps every rule of the one before it; the lab shows the change against the previous one. */
-export type LabVersion = 'v6.0' | 'v6.1' | 'v6.2' | 'v6.3' | 'v6.4';
-export const LAB_CURRENT_VERSION: LabVersion = 'v6.4';
-export const LAB_PREVIOUS_VERSION: Record<LabVersion, LabVersion | null> = { 'v6.0': null, 'v6.1': 'v6.0', 'v6.2': 'v6.1', 'v6.3': 'v6.2', 'v6.4': 'v6.3' };
+export type LabVersion = 'v6.0' | 'v6.1' | 'v6.2' | 'v6.3' | 'v6.4' | 'v6.5';
+export const LAB_CURRENT_VERSION: LabVersion = 'v6.5';
+export const LAB_PREVIOUS_VERSION: Record<LabVersion, LabVersion | null> = { 'v6.0': null, 'v6.1': 'v6.0', 'v6.2': 'v6.1', 'v6.3': 'v6.2', 'v6.4': 'v6.3', 'v6.5': 'v6.4' };
+export const LAB_VERSION_ORDER: LabVersion[] = ['v6.0', 'v6.1', 'v6.2', 'v6.3', 'v6.4', 'v6.5'];
 
 export type LabAxisKey =
   | 'sales_per_day'
@@ -33,12 +34,52 @@ export type LabAxisKey =
   | 'branch_coding'
   | 'requests_closure'
   | 'requests_fulfilled'
+  | 'customers_growth'
+  | 'avg_invoice_growth'
+  | 'team_capture'
+  | 'team_evaluations'
+  | 'purchase_review'
+  | 'inventory_counts'
+  | 'fast_movers'
+  | 'stagnant_expiry'
+  | 'shortages'
+  | 'standards_submissions'
+  | 'standards_audit'
+  | 'discount_policy'
+  | 'agenda_closure'
+  | 'team_violations'
+  | 'branches_scorecard'
+  | 'request_data_quality'
+  | 'cs_followups'
+  | 'complaints'
+  | 'org_evaluations'
+  | 'audits'
+  | 'bm_trend'
   | 'decision_backlog'
   | 'branch_managers';
+
+/** Scorecard pillars (v6.5): the branch manager owns the whole branch, the branches manager the system. */
+export type LabPillar =
+  | 'sales' | 'customers' | 'team' | 'inventory' | 'standards' | 'compliance'
+  | 'branches' | 'customer_service' | 'purchasing' | 'oversight';
+
+export const LAB_PILLAR_LABELS: Record<LabPillar, string> = {
+  sales: 'المبيعات والنمو',
+  customers: 'العملاء والطلبات',
+  team: 'الفريق والانضباط',
+  inventory: 'المخزون والمشتريات',
+  standards: 'البيئة والمعايير (النظافة والرص)',
+  compliance: 'الالتزام وجودة الشغل',
+  branches: 'أداء الفروع',
+  customer_service: 'أداء خدمة العملاء',
+  purchasing: 'أداء المشتريات',
+  oversight: 'جودة الإشراف',
+};
 
 export interface LabAxisDefinition {
   key: LabAxisKey;
   label: string;
+  pillar?: LabPillar;
   /** 0 = shown for information (dormant source, gate, or ownership not agreed), never weighted. */
   weight: number;
 }
@@ -167,7 +208,55 @@ const V64: Record<LabFamily, LabAxisDefinition[]> = {
   branches_manager: withFulfillment(V63.branches_manager),
 };
 
-export const LAB_AXES_BY_VERSION: Record<LabVersion, Record<LabFamily, LabAxisDefinition[]>> = { 'v6.0': V60, 'v6.1': V61, 'v6.2': V62, 'v6.3': V63, 'v6.4': V64 };
+// v6.5 (owner decision 2026-10-29): the branch manager is accountable for the whole branch, so the
+// evaluation is the branch scorecard; the branches manager owns the branches, customer service,
+// purchasing and the quality of supervision. Axes without data yet are shown "not measurable"
+// with their reason and their weight is redistributed (never a zero).
+const ax = (pillar: LabPillar, key: LabAxisKey, label: string, weight: number): LabAxisDefinition => ({ key, label, weight, pillar });
+const V65: Record<LabFamily, LabAxisDefinition[]> = {
+  ...V64,
+  branch_manager: [
+    ax('sales', 'branch_target', 'تحقيق تارجت الفرع', 15),
+    ax('sales', 'customers_growth', 'عدد العملاء المخدومين مقابل الدورة السابقة', 5),
+    ax('sales', 'avg_invoice_growth', 'متوسط فاتورة الفرع مقابل الدورة السابقة', 5),
+    ax('customers', 'branch_coding', 'تكويد العملاء على فواتير الفرع', 7),
+    ax('customers', 'requests_closure', 'سرعة تنفيذ طلبات العملاء', 5),
+    ax('customers', 'requests_fulfilled', 'تنفيذ فعلي بفاتورة (العميل اشترى الصنف)', 5),
+    ax('customers', 'team_capture', 'تسجيل الفريق لطلبات الواتساب (العقل المدبر)', 3),
+    ax('team', 'team_discipline', 'انضباط مواعيد الفريق', 5),
+    ax('team', 'team_followup', 'متابعة بصمات الفريق', 3),
+    ax('team', 'team_evaluations', 'تقييمات الفريق الشهرية اتبعتت', 4),
+    ax('team', 'team_conversations', 'جودة محادثات الفريق', 3),
+    ax('team', 'decision_backlog', 'قرارات حضور معلّقة في الفرع', 0),
+    ax('inventory', 'purchase_review', 'مراجعة ومطابقة فواتير الشراء', 5),
+    ax('inventory', 'inventory_counts', 'دقة الجرد الدوري', 5),
+    ax('inventory', 'fast_movers', 'الأصناف السريعة اللي خلصت من الفرع', 4),
+    ax('inventory', 'stagnant_expiry', 'تصريف الرواكد قبل الصلاحية', 3),
+    ax('inventory', 'shortages', 'النواقص اللي اتسجلت واتحلت', 3),
+    ax('standards', 'standards_submissions', 'تسليم صور الافتتاح والقفل وتقييم المناطق', 6),
+    ax('standards', 'standards_audit', 'نتيجة مراجعة مدير الفروع بالعينة', 4),
+    ax('compliance', 'discount_policy', 'الخصومات في حدود السياسة', 4),
+    ax('compliance', 'agenda_closure', 'قفل أجندة الاستثناءات في وقتها', 4),
+    ax('compliance', 'team_violations', 'تجاوز سماح البصمات في الفريق', 2),
+  ],
+  branches_manager: [
+    ax('branches', 'branches_scorecard', 'بطاقات الفروع (مرجّحة بالمبيعات)', 40),
+    ax('customer_service', 'requests_closure', 'سرعة توفير وتنفيذ طلبات العملاء', 8),
+    ax('customer_service', 'request_data_quality', 'جودة بيانات العميل في الطلبات', 6),
+    ax('customer_service', 'cs_followups', 'تنفيذ متابعات خدمة العملاء', 3),
+    ax('customer_service', 'complaints', 'حل الشكاوى', 3),
+    ax('purchasing', 'purchase_review', 'مراجعة ومطابقة فواتير الشراء', 8),
+    ax('purchasing', 'requests_fulfilled', 'التنفيذ الفعلي لطلبات الفرعين', 6),
+    ax('purchasing', 'fast_movers', 'الأصناف السريعة اللي خلصت', 3),
+    ax('purchasing', 'stagnant_expiry', 'قيمة الرواكد وقرب الصلاحية', 3),
+    ax('oversight', 'decision_backlog', 'القرارات المعلّقة في المنظومة', 6),
+    ax('oversight', 'org_evaluations', 'تقييمات المنظومة الشهرية اتبعتت', 6),
+    ax('oversight', 'audits', 'زيارات المراجعة الأسبوعية ومطابقتها', 4),
+    ax('oversight', 'bm_trend', 'تطور درجات مديري الفروع', 4),
+  ],
+};
+
+export const LAB_AXES_BY_VERSION: Record<LabVersion, Record<LabFamily, LabAxisDefinition[]>> = { 'v6.0': V60, 'v6.1': V61, 'v6.2': V62, 'v6.3': V63, 'v6.4': V64, 'v6.5': V65 };
 export const LAB_AXES = LAB_AXES_BY_VERSION[LAB_CURRENT_VERSION];
 
 export function labFamilyOf(role: CanonicalStaffRole): LabFamily | null {
@@ -220,6 +309,17 @@ export const LAB_THRESHOLDS = {
   minJudgedRequests: 10,
   fulfillmentFloor: 0.1,
   fulfillmentCeiling: 0.6,
+  /** v6.5 growth bands: invoices 0.85 → 0, 1.15 → 100; average invoice 0.9 → 0, 1.1 → 100. */
+  customersGrowthFloor: 0.85,
+  customersGrowthCeiling: 1.15,
+  avgInvoiceGrowthFloor: 0.9,
+  avgInvoiceGrowthCeiling: 1.1,
+  /** Purchase invoices reviewed: measurable from 20 invoices in the cycle. */
+  minPurchaseInvoices: 20,
+  /** Request customer data (code or 8+ digit phone): 70% → 0, 100% → 100. */
+  requestDataFloor: 0.7,
+  /** Missing punches above the allowance per employee (attendance policy: 2 per cycle). */
+  missingPunchAllowance: 2,
   /** Team follow-up of missing punches (v6.1): 85% corrected → 0, 100% → 100. */
   followupFloor: 0.85,
 } as const;

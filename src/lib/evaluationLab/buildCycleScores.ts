@@ -1,6 +1,6 @@
 import { normalizeBranchName } from '@/lib/branch';
 import {
-  ABSENCE_WITH_DEDUCTION, INVALID_REQUEST_STATUS, LAB_CURRENT_VERSION, LAB_THRESHOLDS, MISSING_PUNCH, NON_PUNCTUALITY_ATTENDANCE,
+  ABSENCE_WITH_DEDUCTION, INVALID_REQUEST_STATUS, LAB_CURRENT_VERSION, LAB_VERSION_ORDER, LAB_THRESHOLDS, MISSING_PUNCH, NON_PUNCTUALITY_ATTENDANCE,
   PENDING_DECISION, PUNCTUALITY_BANDS, UNRESOLVED_ATTENDANCE, labFamilyOf, type LabFamily, type LabVersion,
 } from './catalog';
 import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
@@ -18,6 +18,8 @@ export interface LabEvidence {
     staffId: string | null; net: number; date: string; coded: boolean; branch: string | null; deliveryStaffId: string | null; deliveryLabeled?: boolean;
     /** Cairo shift of invoice_datetime and the invoice's line count (v6.2 basket metrics). */
     shift?: string | null; items?: number | null;
+    /** Discount on the invoice (v6.5 discount statistics). */
+    discount?: number | null;
   }>;
   /** Official conversation reviews only (0..100). */
   reviews: Array<{ staffId: string; score: number }>;
@@ -30,6 +32,12 @@ export interface LabEvidence {
   }>;
   /** v6.4: each request matched to the customer's invoice items (null when unreadable). */
   fulfillment?: FulfillmentResult[] | null;
+  /** v6.5: the previous cycle per branch (valid invoices and net), for growth. */
+  previousBranchSales?: Array<{ branch: string; invoices: number; net: number }> | null;
+  /** v6.5: monthly evaluation status of each staff member for this cycle (official RPC). */
+  teamEvaluations?: Array<{ staffId: string; branch: string | null; status: string | null; sentAt: string | null }> | null;
+  /** v6.5: purchase invoices of the cycle (review state per branch). */
+  purchaseInvoices?: Array<{ branch: string | null; enteredByStaffId: string | null; reviewed: boolean }> | null;
   /**
    * Customer requests the Master Brain found in WhatsApp conversations of the cycle (v6.3).
    * null when the source cannot be read by this session.
@@ -290,9 +298,9 @@ function fairShareAxis(
 }
 
 const dormant = (evidence: LabEvidence, source: string) => evidence.dormantSources.includes(source);
-const VERSION_ORDER: LabVersion[] = ['v6.0', 'v6.1', 'v6.2', 'v6.3', 'v6.4'];
 /** Every version keeps the rules of the ones before it. */
-const atLeast = (version: LabVersion, minimum: LabVersion) => VERSION_ORDER.indexOf(version) >= VERSION_ORDER.indexOf(minimum);
+const atLeast = (version: LabVersion, minimum: LabVersion) => LAB_VERSION_ORDER.indexOf(version) >= LAB_VERSION_ORDER.indexOf(minimum);
+const share = (part: number, whole: number) => (whole ? part / whole : null);
 
 /**
  * Basket metric against the same branch, day and shift: for every invoice the doctor closed, the
@@ -369,6 +377,7 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
       (own, expected, n, ratio) => `${round(own, 2)} صنف/فاتورة مقابل ${round(expected, 2)} للفرع في نفس اليوم والشيفت · ${n} فاتورة (×${round(ratio, 2)})`)
       .forEach((axis, id) => push(id, axis));
   }
+  const captureByStaff = new Map<string, { found: number; self: number }>();
   if (atLeast(version, 'v6.3')) {
     const detectedFor = new Map<string, BrainRequest[]>();
     for (const detected of evidence.brainRequests || []) {
@@ -377,6 +386,7 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
     }
     for (const { id } of doctors) {
       const found = detectedFor.get(id) || [];
+      captureByStaff.set(id, { found: found.length, self: found.filter((detected) => isSelfRecorded(detected, evidence.requests)).length });
       if (evidence.brainRequests == null) {
         push(id, notMeasurable('request_capture', 'طلبات العقل المدبر غير متاحة للقراءة من هذه الجلسة'));
       } else if (found.length < LAB_THRESHOLDS.minDetectedRequests) {
@@ -489,6 +499,109 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
     team.map((p) => p.axes.find((a) => a.key === key)).filter((a): a is AxisResult => a?.status === 'measured');
   const mean = (values: number[]) => values.reduce((s, v) => s + v, 0) / values.length;
 
+  const pending = (key: Parameters<typeof notMeasurable>[0], reason: string) => notMeasurable(key, reason);
+  const DORMANT: Record<string, string> = {
+    inventory_counts: 'لم يُسجَّل أي جرد في النظام بعد — يحتاج تحديد دورية الجرد ومسؤوله',
+    fast_movers: 'يحتاج تعريف الأصناف السريعة وربط الرصيد اليومي بالفرع',
+    stagnant_expiry: 'قوائم الرواكد والصلاحية فاضية — تحتاج رفعًا دوريًا',
+    shortages: 'سجل النواقص غير مستخدم حاليًا',
+    standards_submissions: 'مسار صور النظافة والرص قيد البناء',
+    standards_audit: 'مراجعة مدير الفروع بالعينة قيد البناء',
+    agenda_closure: 'أجندة الاستثناءات اليومية قيد البناء',
+    cs_followups: 'قائمة متابعات خدمة العملاء متوقفة منذ يوليو',
+    complaints: 'لا توجد شكاوى مسجلة في النظام — يحتاج مسار تسجيل الشكاوى',
+    audits: 'زيارات المراجعة الأسبوعية قيد البناء',
+    bm_trend: 'يُحسب بعد إغلاق دورتين بنفس البطاقة',
+  };
+
+  /** v6.5 scorecard axes from data available today; the rest are pending with their reason. */
+  const scorecardAxes = (
+    keys: Set<string>,
+    family: 'branch_manager' | 'branches_manager',
+    b: ReturnType<typeof branchFacts>,
+  ): AxisDraft[] => {
+    const out: AxisDraft[] = [];
+    const valid = b.invoices.filter((inv) => inv.net > 0);
+    const net = valid.reduce((s, inv) => s + inv.net, 0);
+    const previous = (evidence.previousBranchSales || []).filter((row) => keys.has(branchKey(row.branch)));
+    const prevInvoices = previous.reduce((s, row) => s + row.invoices, 0);
+    const prevNet = previous.reduce((s, row) => s + row.net, 0);
+    const teamIds = new Set(b.team.map((p) => p.staffId));
+
+    if (family === 'branch_manager') {
+      // Sales and growth.
+      if (evidence.previousBranchSales == null || !prevInvoices) {
+        out.push(notMeasurable('customers_growth', 'مبيعات الدورة السابقة غير متاحة'));
+        out.push(notMeasurable('avg_invoice_growth', 'مبيعات الدورة السابقة غير متاحة'));
+      } else {
+        const growth = valid.length / prevInvoices;
+        out.push(measured('customers_growth', round(growth * 100), bandScore(growth, LAB_THRESHOLDS.customersGrowthFloor, LAB_THRESHOLDS.customersGrowthCeiling),
+          `${egp(valid.length)} فاتورة مقابل ${egp(prevInvoices)} في الدورة السابقة (×${round(growth, 2)})`));
+        const avgNow = valid.length ? net / valid.length : 0;
+        const avgPrev = prevNet / prevInvoices;
+        const ratio = avgPrev ? avgNow / avgPrev : 0;
+        out.push(measured('avg_invoice_growth', round(ratio * 100), bandScore(ratio, LAB_THRESHOLDS.avgInvoiceGrowthFloor, LAB_THRESHOLDS.avgInvoiceGrowthCeiling),
+          `متوسط ${egp(avgNow)} ج مقابل ${egp(avgPrev)} ج في الدورة السابقة (×${round(ratio, 2)})`));
+      }
+      // Team WhatsApp request capture (Master Brain).
+      const capture = [...teamIds].map((id) => captureByStaff.get(id)).filter(Boolean) as Array<{ found: number; self: number }>;
+      const found = capture.reduce((s, c) => s + c.found, 0);
+      const self = capture.reduce((s, c) => s + c.self, 0);
+      out.push(evidence.brainRequests == null || found < LAB_THRESHOLDS.minDetectedRequests
+        ? notMeasurable('team_capture', `العقل المدبر وجد ${found} طلب للفريق (الحد ${LAB_THRESHOLDS.minDetectedRequests}) — يُقاس بعد اعتماد تحليل كل المحادثات`)
+        : measured('team_capture', round((self / found) * 100), bandScore(self / found, LAB_THRESHOLDS.captureFloor, LAB_THRESHOLDS.captureCeiling),
+          `الفريق سجّل ${self} من ${found} طلب وجدها العقل المدبر`));
+      // Monthly evaluations of the team sent.
+      const evals = evidence.teamEvaluations == null ? null : evidence.teamEvaluations.filter((row) => keys.has(branchKey(row.branch)));
+      const sent = evals ? evals.filter((row) => row.sentAt || /^(sent|approved)$/i.test(String(row.status || ''))).length : 0;
+      out.push(!evals || !evals.length
+        ? notMeasurable('team_evaluations', 'حالة التقييمات الشهرية غير متاحة لهذه الجلسة')
+        : measured('team_evaluations', round((sent / evals.length) * 100), (sent / evals.length) * 100,
+          `اتبعت ${sent} من ${evals.length} تقييم · ${evals.filter((row) => /^draft$/i.test(String(row.status || ''))).length} مسودة`));
+      // Policy breaches: employees above the missing-punch allowance.
+      const over = [...teamIds].filter((id) => (facts.get(id)?.missingPunchDays || 0) > LAB_THRESHOLDS.missingPunchAllowance).length;
+      out.push(teamIds.size
+        ? measured('team_violations', over, Math.max(0, 100 - over * 25), `${over} موظف تجاوز سماح البصمات الناقصة (${LAB_THRESHOLDS.missingPunchAllowance} في الدورة)`)
+        : notMeasurable('team_violations', 'لا يوجد فريق للفرع'));
+      // Discounts: shown, scored once the owner sets the policy limit.
+      const discount = valid.reduce((s, inv) => s + Math.max(0, Number(inv.discount) || 0), 0);
+      out.push(notMeasurable('discount_policy', 'سياسة الحد الأقصى للخصم لم تُحدَّد بعد',
+        `الخصم ${round((discount / Math.max(1, net + discount)) * 100, 2)}٪ من قيمة الفواتير · ${valid.filter((inv) => (Number(inv.discount) || 0) > 0).length} فاتورة بخصم`));
+      for (const key of ['inventory_counts', 'fast_movers', 'stagnant_expiry', 'shortages', 'standards_submissions', 'standards_audit', 'agenda_closure'] as const) {
+        out.push(pending(key, DORMANT[key]));
+      }
+    } else {
+      // Customer service: customer data quality of the requests.
+      const requests = b.requests.filter((r) => !INVALID_REQUEST_STATUS.test(String(r.status || '').toLowerCase()));
+      const identified = requests.filter((r) => (r.customerCode && !/^[0\s.-]*$/.test(r.customerCode))
+        || String(r.customerPhone || '').replace(/\D/g, '').length >= 8).length;
+      const quality = share(identified, requests.length);
+      out.push(quality === null
+        ? notMeasurable('request_data_quality', 'لا توجد طلبات في الدورة')
+        : measured('request_data_quality', round(quality * 100), bandScore(quality, LAB_THRESHOLDS.requestDataFloor, 1),
+          `${identified} من ${requests.length} طلب فيه كود أو موبايل العميل`));
+      // Monthly evaluations across the system.
+      const evals = evidence.teamEvaluations;
+      const sent = evals ? evals.filter((row) => row.sentAt || /^(sent|approved)$/i.test(String(row.status || ''))).length : 0;
+      out.push(!evals || !evals.length
+        ? notMeasurable('org_evaluations', 'حالة التقييمات الشهرية غير متاحة لهذه الجلسة')
+        : measured('org_evaluations', round((sent / evals.length) * 100), (sent / evals.length) * 100, `اتبعت ${sent} من ${evals.length} تقييم في الفرعين`));
+      for (const key of ['cs_followups', 'complaints', 'fast_movers', 'stagnant_expiry', 'audits', 'bm_trend'] as const) {
+        out.push(pending(key, DORMANT[key]));
+      }
+    }
+    // Purchase invoices reviewed (branch for the manager, all branches for the head).
+    const purchases = evidence.purchaseInvoices == null ? null : evidence.purchaseInvoices.filter((row) => keys.has(branchKey(row.branch)));
+    const reviewed = purchases ? purchases.filter((row) => row.reviewed).length : 0;
+    out.push(!purchases
+      ? notMeasurable('purchase_review', 'فواتير الشراء غير متاحة للقراءة من هذه الجلسة')
+      : purchases.length < LAB_THRESHOLDS.minPurchaseInvoices
+        ? notMeasurable('purchase_review', `${purchases.length} فاتورة شراء فقط (الحد ${LAB_THRESHOLDS.minPurchaseInvoices})`)
+        : measured('purchase_review', round((reviewed / purchases.length) * 100), (reviewed / purchases.length) * 100,
+          `اتراجع ${reviewed} من ${egp(purchases.length)} فاتورة شراء · ${egp(purchases.length - reviewed)} بانتظار المراجعة`));
+    return out;
+  };
+
   const managerAxes = (keys: Set<string>, family: 'branch_manager' | 'branches_manager'): AxisDraft[] => {
     const b = branchFacts(keys);
     const out: AxisDraft[] = [];
@@ -528,6 +641,7 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
         ? measured('decision_backlog', pending, bandScore(1 - pending / worked, 0.85, 1), `${pending} يوم حضور بانتظار قرار من ${worked} يوم عمل — للمعلومة حتى يُحدَّد صاحب القرار`)
         : notMeasurable('decision_backlog', 'لا توجد أيام حضور للفريق'));
     }
+    if (atLeast(version, 'v6.5')) out.push(...scorecardAxes(keys, family, b));
     if (family === 'branch_manager') {
       const conv = measuredScores(b.team, 'conversation_quality');
       out.push(conv.length
@@ -568,6 +682,17 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
     const keys = new Set(evidence.targets.map((t) => branchKey(t.branch)).filter(Boolean));
     const axesForHead = managerAxes(keys, 'branches_manager');
     const managerTotals = managerResults.filter((m) => m.total !== null);
+    if (atLeast(version, 'v6.5')) {
+      const weighted = managerTotals.map((m) => {
+        const salesOf = evidence.invoices.filter((inv) => branchKey(inv.branch) === branchKey(m.branch) && inv.net > 0).reduce((s, inv) => s + inv.net, 0);
+        return { total: m.total as number, weight: salesOf, name: m.name, branch: m.branch };
+      }).filter((row) => row.weight > 0);
+      const weightSum = weighted.reduce((s, row) => s + row.weight, 0);
+      axesForHead.push(weightSum
+        ? measured('branches_scorecard', weighted.length, weighted.reduce((s, row) => s + row.total * row.weight, 0) / weightSum,
+          weighted.map((row) => `${row.branch || row.name}: ${Math.round(row.total)} (${round((row.weight / weightSum) * 100)}٪ من المبيعات)`).join(' · '))
+        : notMeasurable('branches_scorecard', 'لا توجد بطاقات فروع محسوبة'));
+    }
     axesForHead.push(managerTotals.length
       ? measured('branch_managers', managerTotals.length, mean(managerTotals.map((m) => m.total as number)), `متوسط ${managerTotals.length} مدير فرع`)
       : notMeasurable('branch_managers', 'لا توجد نتائج لمديري الفروع'));

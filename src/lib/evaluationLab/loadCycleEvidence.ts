@@ -197,6 +197,63 @@ async function loadFulfillment(requestRows: Row[], startAt: string, endAt: strin
   }
 }
 
+/** The cycle before this one, per branch: valid invoices and net (growth). null when unreadable. */
+async function loadPreviousBranchSales(cycle: LabCycle): Promise<Array<{ branch: string; invoices: number; net: number }> | null> {
+  try {
+    const shift = (day: string) => { const d = new Date(`${day}T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() - 1); return d.toISOString().slice(0, 10); };
+    const rows = await dailyInvoiceWindows({ start: shift(cycle.start), endExclusive: cycle.start }, 'id,branch,net_amount,total_amount', 30000);
+    const byBranch = new Map<string, { branch: string; invoices: number; net: number }>();
+    for (const row of rows) {
+      const net = num(row.net_amount ?? row.total_amount);
+      if (net <= 0) continue;
+      const branch = text(row.branch);
+      const entry = byBranch.get(branch) || { branch, invoices: 0, net: 0 };
+      entry.invoices += 1;
+      entry.net += net;
+      byBranch.set(branch, entry);
+    }
+    return [...byBranch.values()];
+  } catch {
+    return null;
+  }
+}
+
+/** Monthly evaluation status per staff member for this cycle, from the official v5 RPC. */
+async function loadTeamEvaluations(cycle: LabCycle, actorId: string | null, branches: string[]) {
+  if (!actorId || !branches.length) return null;
+  try {
+    const month = `${cycle.endExclusive.slice(0, 7)}-01`;
+    const rows: Array<{ staffId: string; branch: string | null; status: string | null; sentAt: string | null }> = [];
+    for (const branch of branches) {
+      const { data, error } = await supabase.rpc('list_staff_for_monthly_evaluation_v5', { p_actor_id: actorId, p_branch: branch, p_month: month });
+      if (error) throw error;
+      for (const row of (data || []) as Row[]) {
+        if (text(row.staff_status) && !/^(active|نشط)$/i.test(text(row.staff_status))) continue;
+        rows.push({ staffId: text(row.id), branch: text(row.branch) || branch, status: text(row.evaluation_status) || null, sentAt: text(row.sent_at) || null });
+      }
+    }
+    return rows;
+  } catch {
+    return null;
+  }
+}
+
+/** Purchase invoices of the cycle (excluded ones left out). null when unreadable. */
+async function loadPurchaseInvoices(cycle: LabCycle) {
+  try {
+    const rows = await pages(() => supabase.from('purchase_invoices')
+      .select('id,branch,entered_by_staff_id,reviewed_at,status,excluded_at')
+      .gte('invoice_date', cycle.start).lt('invoice_date', cycle.endExclusive) as unknown as PageQuery, 20000, 'purchase_invoices');
+    return rows.filter((row) => !text(row.excluded_at)).map((row) => ({
+      branch: text(row.branch) || null,
+      enteredByStaffId: text(row.entered_by_staff_id) || null,
+      reviewed: Boolean(text(row.reviewed_at)) || !/بانتظار المراجعة|pending/i.test(text(row.status)),
+    }));
+  } catch {
+    return null;
+  }
+}
+
 export interface LabCycle {
   /** Inclusive start (the 26th). */
   start: string;
@@ -220,7 +277,7 @@ export function closedCycles(count: number, today = new Date()): LabCycle[] {
   return cycles;
 }
 
-export async function loadCycleEvidence(cycle: LabCycle): Promise<LabEvidence> {
+export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: string | null } = {}): Promise<LabEvidence> {
   // Cairo wall-clock boundaries (summer time aware) for timestamp columns.
   const startAt = cairoDateBoundaryIso(cycle.start);
   const endAt = cairoDateBoundaryIso(cycle.endExclusive);
@@ -229,7 +286,7 @@ export async function loadCycleEvidence(cycle: LabCycle): Promise<LabEvidence> {
     pages(() => supabase.from('staff').select('id,name,role,branch,active,is_active') as unknown as PageQuery, 2000, 'staff'),
     pages(() => supabase.from('staff_identity_aliases').select('id,staff_id,normalized_alias,active').eq('active', true) as unknown as PageQuery, 5000, 'aliases'),
     // invoice_date (Cairo boundaries), verified identical to sale_date for this table (0 rows differ).
-    dailyInvoiceWindows(cycle, 'id,staff_id,net_amount,total_amount,customer_code,branch,delivery_staff,sale_date,invoice_datetime,line_items_count', 30000),
+    dailyInvoiceWindows(cycle, 'id,staff_id,net_amount,total_amount,customer_code,branch,delivery_staff,sale_date,invoice_datetime,line_items_count,discount_amount', 30000),
     pages(() => supabase.from('conversation_sales_reviews_canonical_v2')
       .select(['id', 'staff_id', 'doctor_id', ...OFFICIAL_REVIEW_COLUMNS].join(','))
       .gte('conversation_date', startAt).lt('conversation_date', endAt) as unknown as PageQuery, 10000, 'reviews'),
@@ -255,6 +312,11 @@ export async function loadCycleEvidence(cycle: LabCycle): Promise<LabEvidence> {
 
   const brainRequests = await loadBrainRequests(startAt, endAt);
   const fulfillment = await loadFulfillment(requestRows, startAt, endAt);
+  const [previousBranchSales, teamEvaluations, purchaseInvoices] = await Promise.all([
+    loadPreviousBranchSales(cycle),
+    loadTeamEvaluations(cycle, options.actorId || null, [...new Set(targetRows.map((row) => text(row.branch_name)).filter(Boolean))]),
+    loadPurchaseInvoices(cycle),
+  ]);
 
   const staff = staffRows
     .filter((row) => row.active !== false && row.is_active !== false)
@@ -286,6 +348,7 @@ export async function loadCycleEvidence(cycle: LabCycle): Promise<LabEvidence> {
       deliveryLabeled: text(row.delivery_staff) !== '',
       shift: cairoShift(row.invoice_datetime),
       items: row.line_items_count === null || row.line_items_count === undefined ? null : num(row.line_items_count),
+      discount: row.discount_amount == null ? null : num(row.discount_amount),
     })),
     reviews: official.flatMap((row) => {
       const score = conversationReviewScore100(row);
@@ -317,7 +380,12 @@ export async function loadCycleEvidence(cycle: LabCycle): Promise<LabEvidence> {
     })),
     brainRequests,
     fulfillment,
-    purchases: purchaseRows ? purchaseRows.map((row) => ({ enteredByStaffId: text(row.entered_by_staff_id) || null })) : null,
+    previousBranchSales,
+    teamEvaluations,
+    purchaseInvoices,
+    purchases: purchaseInvoices
+      ? purchaseInvoices.map((row) => ({ enteredByStaffId: row.enteredByStaffId }))
+      : purchaseRows ? purchaseRows.map((row) => ({ enteredByStaffId: text(row.entered_by_staff_id) || null })) : null,
     targets: targetRows.map((row) => ({ branch: text(row.branch_name), targetAmount: num(row.target_amount) })),
     dormantSources: [
       ...((followupProbe.count ?? 0) === 0 ? ['followups'] : []),
