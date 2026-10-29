@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { deriveCanonicalCustomerRequestAssessment } from '../../customerRequestQualificationEngine';
-import { buildCanonicalCustomerRequestActionRows } from '../canonicalCustomerRequestProjector';
+import { buildCanonicalCustomerRequestActionRows, projectCanonicalCustomerRequestsToActions } from '../canonicalCustomerRequestProjector';
 
 const CUSTOMER_ID = '33333333-3333-4333-8333-333333333333';
 const STAFF_ID = '44444444-4444-4444-8444-444444444444';
@@ -233,4 +233,64 @@ describe('canonical customer request projector', () => {
     expect(result.skipped[0]).toMatchObject({ reason: 'non_transaction_branch' });
   });
 
+
+  it('stores when the customer asked, for request capture matching', () => {
+    const [row] = buildCanonicalCustomerRequestActionRows([analysis()], [source()]).rows;
+    expect(row.payload).toMatchObject({ requestedAt: '2026-10-17T07:00:00.000Z', qualification: 'qualified', identityBlockers: [] });
+  });
+
+  it('persists a real request whose catalog or customer identity is not linked yet, as identity-pending', () => {
+    const canonical = analysis();
+    canonical.customerNeed.products[0].productId = null;
+    canonical.customerNeed.products[0].productCode = '';
+    canonical.unavailableDemand[0].resolvedProductId = null;
+    canonical.unavailableDemand[0].customerId = null;
+    canonical.unavailableDemand[0].customerIdentityStatus = 'unresolved';
+    canonical.customerRequestAssessment = deriveCanonicalCustomerRequestAssessment(canonical);
+    expect(canonical.customerRequestAssessment.requests[0]).toMatchObject({ status: 'review_required' });
+
+    const result = buildCanonicalCustomerRequestActionRows([canonical], [source()]);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({
+      status: 'proposed',
+      auto_eligible: false,
+      customer_id: null,
+      product_id: null,
+      product_code: null,
+      staff_id: STAFF_ID,
+    });
+    expect(result.rows[0].payload).toMatchObject({
+      qualification: 'review_required',
+      identityBlockers: ['customer_identity_unresolved', 'product_identity_unresolved', 'product_code_missing'],
+      requestedAt: '2026-10-17T07:00:00.000Z',
+    });
+    // Same operation identity as the resolved proposal, so it is completed in place later.
+    expect(result.rows[0].followup_identity).toBe(buildCanonicalCustomerRequestActionRows([analysis()], [source()]).rows[0].followup_identity);
+  });
+
+  it('completes an identity-pending proposal in place once identity resolves, never an approved one', async () => {
+    const resolved = buildCanonicalCustomerRequestActionRows([analysis()], [source()]).rows[0];
+    const updates: Array<{ values: Record<string, unknown>; filters: Array<[string, unknown]> }> = [];
+    const client = (existing: Record<string, unknown>) => ({
+      from: () => ({
+        select: () => ({ in: async () => ({ data: [existing], error: null }) }),
+        insert: async () => ({ error: null }),
+        update: (values: Record<string, unknown>) => {
+          const entry = { values, filters: [] as Array<[string, unknown]> };
+          updates.push(entry);
+          const chain = { eq: (column: string, value: unknown) => { entry.filters.push([column, value]); return entry.filters.length >= 2 ? Promise.resolve({ error: null }) : chain; } };
+          return chain;
+        },
+      }),
+    });
+    const pending = { id: 'a1', followup_identity: resolved.followup_identity, status: 'proposed', customer_id: null, product_id: null, product_code: null, payload: { identityBlockers: ['product_identity_unresolved'] } };
+    await projectCanonicalCustomerRequestsToActions(client(pending), [analysis()], [source()]);
+    expect(updates).toHaveLength(1);
+    expect(updates[0].values).toMatchObject({ customer_id: CUSTOMER_ID, product_id: PRODUCT_ID, product_code: 'P1' });
+    expect(updates[0].filters).toEqual([['id', 'a1'], ['status', 'proposed']]);
+
+    updates.length = 0;
+    await projectCanonicalCustomerRequestsToActions(client({ ...pending, status: 'ready' }), [analysis()], [source()]);
+    expect(updates).toHaveLength(0);
+  });
 });
