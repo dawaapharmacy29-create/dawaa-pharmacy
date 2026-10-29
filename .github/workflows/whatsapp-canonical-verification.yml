@@ -82,6 +82,10 @@ jobs:
         env:
           DAWAA_NATIVE_PG_CONTAINER: dawaa-mb-verify-pg
         run: npm run test:db:customer-request-registrar:native
+      - name: Customer request points eligibility v2 and bounded backfill
+        env:
+          DAWAA_NATIVE_PG_CONTAINER: dawaa-mb-verify-pg
+        run: npm run test:db:customer-request-points:native
       - name: Financial approval and lifecycle concurrency scenarios
         run: npm run test:db:master-brain:native
       - name: Remove disposable database
