@@ -11010,6 +11010,10 @@ function uuidOrNull2(value) {
   const raw = text4(value);
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw) ? raw : null;
 }
+var IDENTITY_PENDING_BLOCKERS = /* @__PURE__ */ new Set(["product_identity_unresolved", "customer_identity_unresolved", "quantity_conflict"]);
+function isIdentityPending(request) {
+  return request.status === "review_required" && Boolean(request.blockers?.length) && request.blockers.every((blocker) => IDENTITY_PENDING_BLOCKERS.has(blocker));
+}
 function confidencePercent(score) {
   const numeric = Number(score);
   if (!Number.isFinite(numeric)) return 0;
@@ -11029,7 +11033,7 @@ function buildCanonicalCustomerRequestActionRows(analyses, sources) {
     const sourceId = text4(analysis.conversationId);
     const source = sourceById.get(sourceId);
     for (const request of assessment7.requests) {
-      if (request.status !== "qualified") {
+      if (request.status !== "qualified" && !isIdentityPending(request)) {
         skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: "not_qualified" });
         continue;
       }
@@ -11067,12 +11071,14 @@ function buildCanonicalCustomerRequestActionRows(analyses, sources) {
         skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: "staff_evidence_conflict" });
         continue;
       }
-      if (!customerId || !productId) {
+      const identityBlockers = [
+        ...customerId ? [] : ["customer_identity_unresolved"],
+        ...productId ? [] : ["product_identity_unresolved"],
+        ...productCode ? [] : ["product_code_missing"],
+        ...(request.blockers || []).filter((blocker) => blocker === "quantity_conflict")
+      ];
+      if (!productName) {
         skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: "missing_product_identity" });
-        continue;
-      }
-      if (!productCode) {
-        skipped.push({ caseId: analysis.caseId, requestKey: request.requestKey, reason: "missing_product_code" });
         continue;
       }
       const timeline = parseWhatsAppExport(text4(source.raw_text));
@@ -11114,11 +11120,11 @@ function buildCanonicalCustomerRequestActionRows(analyses, sources) {
         staff_id: staffId,
         staff_name: null,
         product_id: productId,
-        product_code: productCode,
+        product_code: productCode || null,
         product_name: productName,
         quantity: request.quantity == null ? null : Number(request.quantity),
         due_at: null,
-        reason: "\u0635\u0646\u0641 \u0645\u0637\u0644\u0648\u0628 \u0645\u0646 \u0627\u0644\u0639\u0645\u064A\u0644 \u0648\u062B\u0628\u062A \u0639\u062F\u0645 \u062A\u0648\u0641\u0631\u0647 \u0648\u064A\u062D\u062A\u0627\u062C \u0627\u0639\u062A\u0645\u0627\u062F \u062A\u0633\u062C\u064A\u0644 \u0627\u0644\u0637\u0644\u0628.",
+        reason: identityBlockers.length ? "\u0635\u0646\u0641 \u0645\u0637\u0644\u0648\u0628 \u0645\u0646 \u0627\u0644\u0639\u0645\u064A\u0644 \u0648\u062B\u0628\u062A \u0639\u062F\u0645 \u062A\u0648\u0641\u0631\u0647\u061B \u064A\u062D\u062A\u0627\u062C \u0631\u0628\u0637 \u0627\u0644\u0635\u0646\u0641 \u0623\u0648 \u0627\u0644\u0639\u0645\u064A\u0644 \u0642\u0628\u0644 \u0627\u0639\u062A\u0645\u0627\u062F \u062A\u0633\u062C\u064A\u0644 \u0627\u0644\u0637\u0644\u0628." : "\u0635\u0646\u0641 \u0645\u0637\u0644\u0648\u0628 \u0645\u0646 \u0627\u0644\u0639\u0645\u064A\u0644 \u0648\u062B\u0628\u062A \u0639\u062F\u0645 \u062A\u0648\u0641\u0631\u0647 \u0648\u064A\u062D\u062A\u0627\u062C \u0627\u0639\u062A\u0645\u0627\u062F \u062A\u0633\u062C\u064A\u0644 \u0627\u0644\u0637\u0644\u0628.",
         evidence: [...request.evidenceMessageIds],
         payload: {
           canonicalProjectionVersion: CANONICAL_CUSTOMER_REQUEST_PROJECTION_VERSION,
@@ -11129,7 +11135,11 @@ function buildCanonicalCustomerRequestActionRows(analyses, sources) {
           priority: request.priority,
           evidenceMessageIds: [...request.evidenceMessageIds],
           confidenceLevel: request.confidence.level,
-          approvalRequired: true
+          approvalRequired: true,
+          // When the customer asked, from the conversation timeline (request capture matching).
+          requestedAt: evidenceAt.toISOString(),
+          qualification: request.status,
+          identityBlockers
         },
         followup_identity: operation.identity,
         created_by: CANONICAL_CUSTOMER_REQUEST_PROJECTION_VERSION
@@ -11150,14 +11160,31 @@ async function projectCanonicalCustomerRequestsToActions(supabaseClient, analyse
   const built = buildCanonicalCustomerRequestActionRows(analyses, sources);
   if (!built.rows.length) return { ...built, inserted: 0, existing: 0 };
   const identities = built.rows.map((row) => row.followup_identity);
-  const { data: existingRows, error: existingError } = await supabaseClient.from("whatsapp_conversation_actions").select("id,followup_identity,status,target_table,target_id").in("followup_identity", identities);
+  const { data: existingRows, error: existingError } = await supabaseClient.from("whatsapp_conversation_actions").select("id,followup_identity,status,target_table,target_id,customer_id,product_id,product_code,payload").in("followup_identity", identities);
   if (existingError) throw existingError;
-  const existing = new Set(
-    (existingRows || []).map((row) => text4(row.followup_identity)).filter(Boolean)
+  const existingByIdentity = new Map(
+    (existingRows || []).filter((row) => text4(row.followup_identity)).map((row) => [text4(row.followup_identity), row])
   );
+  const existing = new Set(existingByIdentity.keys());
   let inserted = 0;
   for (const row of built.rows) {
-    if (existing.has(row.followup_identity)) continue;
+    const current = existingByIdentity.get(row.followup_identity);
+    if (current) {
+      const pending = text4(current.status) === "proposed" && (!text4(current.customer_id) || !text4(current.product_id) || !text4(current.product_code));
+      const resolvesMore = !text4(current.customer_id) && row.customer_id || !text4(current.product_id) && row.product_id || !text4(current.product_code) && row.product_code;
+      if (pending && resolvesMore) {
+        const { error: fillError } = await supabaseClient.from("whatsapp_conversation_actions").update({
+          customer_id: row.customer_id,
+          product_id: row.product_id,
+          product_code: row.product_code,
+          product_name: row.product_name,
+          reason: row.reason,
+          payload: { ...current.payload || {}, ...row.payload }
+        }).eq("id", text4(current.id)).eq("status", "proposed");
+        if (fillError) throw fillError;
+      }
+      continue;
+    }
     const { error } = await supabaseClient.from("whatsapp_conversation_actions").insert(row);
     if (!error) {
       inserted += 1;
