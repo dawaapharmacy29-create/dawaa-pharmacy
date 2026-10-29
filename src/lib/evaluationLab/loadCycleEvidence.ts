@@ -4,7 +4,7 @@ import { OFFICIAL_REVIEW_COLUMNS, conversationReviewScore100, selectOfficialConv
 import { staffIdentityKey } from '@/lib/staff/staffIdentityKey';
 import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
-import type { LabEvidence } from './buildCycleScores';
+import type { BrainRequest, LabEvidence } from './buildCycleScores';
 import { selectInvoiceCycleWindow } from '@/lib/readModels/invoiceRecordReadModel';
 import { invoiceShiftOf } from './catalog';
 
@@ -110,6 +110,48 @@ async function dailyInvoiceWindows(cycle: LabCycle, columns: string, maxRows: nu
   return rows;
 }
 
+/**
+ * Customer requests the Master Brain proposed from WhatsApp conversations that started in the
+ * cycle. Read-only and bounded; null when this session cannot read the sources (the axis then
+ * reports "not measurable" instead of failing the cycle).
+ */
+async function loadBrainRequests(startAt: string, endAt: string): Promise<BrainRequest[] | null> {
+  try {
+    const sources = await pages(() => supabase.from('whatsapp_review_sources')
+      .select('id,conversation_started_at,conversation_ended_at')
+      .gte('conversation_started_at', startAt).lt('conversation_started_at', endAt) as unknown as PageQuery, 20000, 'brain_sources');
+    const bySource = new Map(sources.map((row) => [text(row.id), row]));
+    const ids = [...bySource.keys()];
+    const out: BrainRequest[] = [];
+    for (let i = 0; i < ids.length; i += 200) {
+      const chunk = ids.slice(i, i + 200);
+      const actions = await pages(() => supabase.from('whatsapp_conversation_actions')
+        .select('id,source_id,staff_id,customer_id,customer_code,customer_phone,product_code,product_name,status,target_table,target_id')
+        .eq('action_type', 'customer_request').in('source_id', chunk) as unknown as PageQuery, 20000, 'brain_requests');
+      for (const row of actions) {
+        const source = bySource.get(text(row.source_id));
+        if (!source || !text(source.conversation_started_at)) continue;
+        out.push({
+          id: text(row.id),
+          staffId: text(row.staff_id) || null,
+          customerId: text(row.customer_id) || null,
+          customerCode: text(row.customer_code) || null,
+          customerPhone: text(row.customer_phone) || null,
+          productCode: text(row.product_code) || null,
+          productName: text(row.product_name) || null,
+          status: text(row.status) || null,
+          targetId: text(row.target_table) === 'customer_requests' ? text(row.target_id) || null : null,
+          conversationStartedAt: text(source.conversation_started_at),
+          conversationEndedAt: text(source.conversation_ended_at) || null,
+        });
+      }
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
 export interface LabCycle {
   /** Inclusive start (the 26th). */
   start: string;
@@ -150,7 +192,7 @@ export async function loadCycleEvidence(cycle: LabCycle): Promise<LabEvidence> {
       .gte('attendance_date', cycle.start).lt('attendance_date', cycle.endExclusive),
       'id,staff_id,attendance_date,resolution_status,first_in,late_minutes,scheduled_start_at,total_hours', 10000, 'attendance', ['staff_id', 'attendance_date']),
     pages(() => supabase.from('customer_requests')
-      .select('id,source_recorded_staff_id,branch,created_at,closed_at,status')
+      .select('id,source_recorded_staff_id,branch,created_at,closed_at,status,customer_id,customer_code,customer_phone,medicine_name,product_code')
       .gte('created_at', startAt).lt('created_at', endAt) as unknown as PageQuery, 10000, 'customer_requests'),
     // Client sessions may not read this table; its axis then reports "not measurable" instead of failing the cycle.
     pages(() => supabase.from('base44_purchase_invoice_sync')
@@ -165,6 +207,8 @@ export async function loadCycleEvidence(cycle: LabCycle): Promise<LabEvidence> {
   for (const [label, probe] of [['followups', followupProbe], ['assistant_checklist', checklistProbe], ['delivery_ratings', ratingProbe]] as const) {
     if (probe.error) throw new Error(`${label}: ${probe.error.message}`);
   }
+
+  const brainRequests = await loadBrainRequests(startAt, endAt);
 
   const staff = staffRows
     .filter((row) => row.active !== false && row.is_active !== false)
@@ -217,7 +261,14 @@ export async function loadCycleEvidence(cycle: LabCycle): Promise<LabEvidence> {
       createdAt: text(row.created_at),
       closedAt: text(row.closed_at) || null,
       status: text(row.status) || null,
+      id: text(row.id),
+      customerId: text(row.customer_id) || null,
+      customerCode: text(row.customer_code) || null,
+      customerPhone: text(row.customer_phone) || null,
+      medicineName: text(row.medicine_name) || null,
+      productCode: text(row.product_code) || null,
     })),
+    brainRequests,
     purchases: purchaseRows ? purchaseRows.map((row) => ({ enteredByStaffId: text(row.entered_by_staff_id) || null })) : null,
     targets: targetRows.map((row) => ({ branch: text(row.branch_name), targetAmount: num(row.target_amount) })),
     dormantSources: [

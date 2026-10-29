@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { aggregate, codingGatePenalty, deviationScore, disciplineScore, notMeasurable, measured, percentileAmong, shrunkMean, targetScore } from '../scoring';
-import { buildCycleScores, type LabEvidence } from '../buildCycleScores';
+import { buildCycleScores, isSelfRecorded, type BrainRequest, type LabEvidence } from '../buildCycleScores';
 import { closedCycles } from '../loadCycleEvidence';
 
 const days = (staffId: string, n: number, status = 'on_time', late = 0) =>
@@ -286,6 +286,43 @@ describe('buildCycleScores v6.2 sales metrics', () => {
     const rows = run(same);
     expect(axis(rows, 'a', 'followups')).toMatchObject({ status: 'not_measurable', weight: 15 });
     expect(rows.find((r) => r.staffId === 'a')!.coverage).toBeLessThan(1);
+  });
+});
+
+describe('buildCycleScores v6.3 request capture', () => {
+  const detected = (n: number, staffId = 'd1', overrides: Partial<BrainRequest> = {}): BrainRequest => ({
+    id: `b${n}`, staffId, customerId: null, customerCode: `C${n}`, customerPhone: null, productCode: null,
+    productName: `صنف ${n}`, status: 'proposed', targetId: null,
+    conversationStartedAt: '2026-10-05T10:00:00Z', conversationEndedAt: '2026-10-05T10:30:00Z', ...overrides,
+  });
+  const recorded = (n: number, staffId = 'd1', createdAt = '2026-10-05T11:00:00Z', overrides: Partial<LabEvidence['requests'][number]> = {}) => ({
+    id: `r${n}`, recordedStaffId: staffId, branch: 'فرع شكري', createdAt, closedAt: null, status: 'new',
+    customerId: null, customerCode: `C${n}`, customerPhone: null, medicineName: `صنف ${n}`, productCode: null, ...overrides,
+  });
+
+  it('a request counts as self-recorded only by the same doctor, customer, product and time window', () => {
+    expect(isSelfRecorded(detected(1), [recorded(1)])).toBe(true);
+    expect(isSelfRecorded(detected(1), [recorded(1, 'd2')])).toBe(false);
+    expect(isSelfRecorded(detected(1), [recorded(1, 'd1', '2026-10-09T10:00:00Z')])).toBe(false);
+    expect(isSelfRecorded(detected(1), [recorded(1, 'd1', '2026-10-05T11:00:00Z', { status: 'cancelled' })])).toBe(false);
+    // The request created by approving the Master Brain proposal is not self-recorded.
+    expect(isSelfRecorded(detected(1, 'd1', { targetId: 'r1' }), [recorded(1)])).toBe(false);
+    // Phone match (last 10 digits) and a longer product name still match.
+    expect(isSelfRecorded(detected(1, 'd1', { customerCode: null, customerPhone: '+20 100 123 4567' }),
+      [recorded(1, 'd1', '2026-10-05T11:00:00Z', { customerCode: null, customerPhone: '01001234567', medicineName: 'صنف 1 شريط' })])).toBe(true);
+  });
+
+  it('capture share is scored once the Master Brain found enough requests, never zero below that', () => {
+    const run = (brainRequests: BrainRequest[] | null, requests: LabEvidence['requests']) =>
+      buildCycleScores(evidence({ brainRequests, requests }), 'v6.3').find((r) => r.staffId === 'd1')!.axes;
+    const axis = (axes: ReturnType<typeof run>, key: string) => axes.find((a) => a.key === key)!;
+    const ten = Array.from({ length: 10 }, (_, i) => detected(i + 1));
+    const nine = Array.from({ length: 9 }, (_, i) => recorded(i + 1));
+    expect(axis(run(ten, nine), 'request_capture')).toMatchObject({ status: 'measured', value: 90, weight: 15 });
+    expect(axis(run(ten, nine), 'request_capture').score).toBeCloseTo(80, 0);
+    expect(axis(run(ten.slice(0, 3), nine), 'request_capture')).toMatchObject({ status: 'not_measurable', score: null });
+    expect(axis(run(null, nine), 'request_capture')).toMatchObject({ status: 'not_measurable' });
+    expect(axis(run(ten, nine), 'customer_requests')).toMatchObject({ weight: 0 });
   });
 });
 

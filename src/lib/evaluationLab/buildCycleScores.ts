@@ -21,12 +21,70 @@ export interface LabEvidence {
   /** Official conversation reviews only (0..100). */
   reviews: Array<{ staffId: string; score: number }>;
   attendance: Array<{ staffId: string; date: string; status: string | null; hasFirstIn: boolean; scheduled: boolean; lateMinutes: number }>;
-  requests: Array<{ recordedStaffId: string | null; branch: string | null; createdAt: string; closedAt: string | null; status?: string | null }>;
+  requests: Array<{
+    recordedStaffId: string | null; branch: string | null; createdAt: string; closedAt: string | null; status?: string | null;
+    /** v6.3 matching with the Master Brain's detected requests. */
+    id?: string; customerId?: string | null; customerCode?: string | null; customerPhone?: string | null; medicineName?: string | null; productCode?: string | null;
+  }>;
+  /**
+   * Customer requests the Master Brain found in WhatsApp conversations of the cycle (v6.3).
+   * null when the source cannot be read by this session.
+   */
+  brainRequests?: BrainRequest[] | null;
   /** null when the source cannot be read by this session (its axis becomes not measurable). */
   purchases: Array<{ enteredByStaffId: string | null }> | null;
   targets: Array<{ branch: string; targetAmount: number }>;
   /** Sources with no rows in the cycle (followups, assistant_checklist, delivery_ratings): shown as dormant. */
   dormantSources: string[];
+}
+
+export interface BrainRequest {
+  id: string;
+  staffId: string | null;
+  customerId: string | null;
+  customerCode: string | null;
+  customerPhone: string | null;
+  productCode: string | null;
+  productName: string | null;
+  status: string | null;
+  /** The customer request created by approving this proposal (not self-recorded). */
+  targetId: string | null;
+  conversationStartedAt: string;
+  conversationEndedAt: string | null;
+}
+
+const phoneKey = (value: string | null | undefined) => String(value ?? '').replace(/\D/g, '').slice(-10);
+const productKey = (value: string | null | undefined) => String(value ?? '').trim().toLowerCase().replace(/[\s\-_.]+/g, ' ');
+
+/**
+ * Was this Master Brain request already recorded by the same doctor? Same customer (id, code or
+ * phone), same product (code, or one name containing the other), recorded from captureLeadHours
+ * before the conversation to captureWindowHours after it, and not the request the approval created.
+ */
+export function isSelfRecorded(detected: BrainRequest, requests: LabEvidence['requests']): boolean {
+  if (!detected.staffId) return false;
+  const from = Date.parse(detected.conversationStartedAt) - LAB_THRESHOLDS.captureLeadHours * 36e5;
+  const to = Date.parse(detected.conversationEndedAt || detected.conversationStartedAt) + LAB_THRESHOLDS.captureWindowHours * 36e5;
+  const phone = phoneKey(detected.customerPhone);
+  const product = productKey(detected.productName);
+  return requests.some((request) => {
+    if (request.recordedStaffId !== detected.staffId) return false;
+    if (detected.targetId && request.id === detected.targetId) return false;
+    if (INVALID_REQUEST_STATUS.test(String(request.status || '').toLowerCase())) return false;
+    const at = Date.parse(request.createdAt);
+    if (!(at >= from && at <= to)) return false;
+    const sameCustomer = Boolean(
+      (detected.customerId && request.customerId === detected.customerId)
+      || (detected.customerCode && request.customerCode && request.customerCode.trim() === detected.customerCode.trim())
+      || (phone.length >= 8 && phoneKey(request.customerPhone) === phone),
+    );
+    if (!sameCustomer) return false;
+    const requested = productKey(request.medicineName);
+    return Boolean(
+      (detected.productCode && request.productCode && request.productCode.trim() === detected.productCode.trim())
+      || (product && requested && (requested.includes(product) || product.includes(requested))),
+    );
+  });
 }
 
 export interface LabPersonScore extends LabScore {
@@ -290,7 +348,7 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
     (own, expected, days, share) => `باع ${egp(own)} من نصيب متوقع ${egp(expected)} ج في ${days} يوم عمل (×${round(share, 2)})`)
     .forEach((axis, id) => push(id, axis));
   rateAxis('customer_requests', doctors, (f) => f.requests, 'طلب/يوم', invalidNote).forEach((axis, id) => push(id, axis));
-  if (version === 'v6.2') {
+  if (version === 'v6.2' || version === 'v6.3') {
     fairShareAxis('invoice_share', doctors, evidence, (inv) => inv.staffId, (inv) => (inv.net > 0 ? 1 : 0),
       (own, expected, days, share) => `${egp(own)} فاتورة من نصيب متوقع ${egp(expected)} في ${days} يوم عمل (×${round(share, 2)})`)
       .forEach((axis, id) => push(id, axis));
@@ -300,6 +358,27 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
     basketAxis('basket_items', doctors, evidence, (inv) => (inv.items && inv.items > 0 ? inv.items : null), LAB_THRESHOLDS.basketFloor, LAB_THRESHOLDS.basketCeiling,
       (own, expected, n, ratio) => `${round(own, 2)} صنف/فاتورة مقابل ${round(expected, 2)} للفرع في نفس اليوم والشيفت · ${n} فاتورة (×${round(ratio, 2)})`)
       .forEach((axis, id) => push(id, axis));
+  }
+  if (version === 'v6.3') {
+    const detectedFor = new Map<string, BrainRequest[]>();
+    for (const detected of evidence.brainRequests || []) {
+      if (!detected.staffId || /^(rejected|dismissed|cancelled)$/i.test(String(detected.status || ''))) continue;
+      detectedFor.set(detected.staffId, [...(detectedFor.get(detected.staffId) || []), detected]);
+    }
+    for (const { id } of doctors) {
+      const found = detectedFor.get(id) || [];
+      if (evidence.brainRequests == null) {
+        push(id, notMeasurable('request_capture', 'طلبات العقل المدبر غير متاحة للقراءة من هذه الجلسة'));
+      } else if (found.length < LAB_THRESHOLDS.minDetectedRequests) {
+        push(id, notMeasurable('request_capture',
+          `العقل المدبر وجد ${found.length} طلب فقط في محادثاته (الحد ${LAB_THRESHOLDS.minDetectedRequests}) — يُقاس بعد اعتماد تحليل كل المحادثات`));
+      } else {
+        const self = found.filter((detected) => isSelfRecorded(detected, evidence.requests)).length;
+        const share = self / found.length;
+        push(id, measured('request_capture', round(share * 100), bandScore(share, LAB_THRESHOLDS.captureFloor, LAB_THRESHOLDS.captureCeiling),
+          `سجّل بنفسه ${self} من ${found.length} طلب وجدها العقل المدبر · فاته ${found.length - self}`));
+      }
+    }
   }
   const doctorRates = doctors.filter((d) => d.f.invoices >= LAB_THRESHOLDS.minInvoicesForCoding).map((d) => d.f.coded / d.f.invoices);
   const doctorRateMedian = median(doctorRates);

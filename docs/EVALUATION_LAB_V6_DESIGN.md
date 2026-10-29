@@ -157,3 +157,35 @@ Production keeps: a manager adjustment of at most ±10 with a mandatory written 
   - فرع الشامي: 9 of 63 closed, median 80 h.
   - Most open requests are still `new`.
 - **Branch targets are a standing per-branch value** (`branch_sales_targets`, no cycle history). The production projection must snapshot the target used for each closed cycle.
+
+## 9. v6.3 — customer requests measured by completeness (owner decision 2026-10-29)
+
+**Request capture (doctor, weight 15) replaces the request count, which stays visible with weight 0.**
+
+Formula: self-recorded ÷ requests the Master Brain found in the doctor's WhatsApp conversations of the cycle.
+
+A found request counts as self-recorded when a request exists that matches all of the following:
+- recorded by the same doctor;
+- same customer (id, code or the last 10 phone digits);
+- same product (code, or one name containing the other);
+- recorded from 2 h before the conversation started to 48 h after it ended;
+- not the request created by approving the Master Brain proposal (`target_id`).
+
+Measurability and scoring:
+- The axis is measurable from 5 found requests per doctor.
+- Scoring band: 70% → 0, 95% → 100. 95% is the owner's full-incentive line.
+
+**Incentive tiers proposed by the owner** (money stays outside the lab):
+
+| Capture | Incentive |
+|---|---|
+| ≥ 95% | 300 EGP |
+| 85–95% | 180 EGP |
+| 70–85% | 90 EGP |
+| below 70% | 0 |
+
+**Prerequisites before this axis is used for money:**
+1. **Full coverage:** the Master Brain must analyse every conversation. Production holds 2 analysed sources and 0 `customer_request` actions today, so the axis is "not measurable".
+2. **Unlinked requests:** `canonicalCustomerRequestProjector` skips requests without a product identity or code. A found request the brain cannot link to a product is dropped from the denominator. Persist every detected demand, even unlinked ones, for the capture measure.
+3. **Request time:** the action row does not store the customer's request time (`demand.requestedAt`). The lab uses the conversation window; storing `requestedAt` in the payload would tighten the match.
+4. **Dry run:** one full cycle without money, with disputes reviewed by a person.

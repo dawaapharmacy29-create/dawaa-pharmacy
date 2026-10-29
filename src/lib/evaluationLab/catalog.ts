@@ -6,9 +6,9 @@ export type LabFamily = 'doctor' | 'assistant' | 'delivery' | 'branch_manager' |
 
 /** v6.0 is kept so the lab can show what each change moved; v6.1 is the proposal under review. */
 /** Each version keeps every rule of the one before it; the lab shows the change against the previous one. */
-export type LabVersion = 'v6.0' | 'v6.1' | 'v6.2';
-export const LAB_CURRENT_VERSION: LabVersion = 'v6.2';
-export const LAB_PREVIOUS_VERSION: Record<LabVersion, LabVersion | null> = { 'v6.0': null, 'v6.1': 'v6.0', 'v6.2': 'v6.1' };
+export type LabVersion = 'v6.0' | 'v6.1' | 'v6.2' | 'v6.3';
+export const LAB_CURRENT_VERSION: LabVersion = 'v6.3';
+export const LAB_PREVIOUS_VERSION: Record<LabVersion, LabVersion | null> = { 'v6.0': null, 'v6.1': 'v6.0', 'v6.2': 'v6.1', 'v6.3': 'v6.2' };
 
 export type LabAxisKey =
   | 'sales_per_day'
@@ -19,6 +19,7 @@ export type LabAxisKey =
   | 'conversation_quality'
   | 'discipline'
   | 'customer_requests'
+  | 'request_capture'
   | 'followups'
   | 'purchase_entry'
   | 'assistant_checklist'
@@ -138,7 +139,20 @@ const V62: Record<LabFamily, LabAxisDefinition[]> = {
   ],
 };
 
-export const LAB_AXES_BY_VERSION: Record<LabVersion, Record<LabFamily, LabAxisDefinition[]>> = { 'v6.0': V60, 'v6.1': V61, 'v6.2': V62 };
+// v6.3 (owner decision 2026-10-29): customer requests are measured by completeness, not volume —
+// the share of the requests the Master Brain found in the doctor's WhatsApp conversations that the
+// doctor had already recorded. The request count stays visible for information.
+const V63: Record<LabFamily, LabAxisDefinition[]> = {
+  ...V62,
+  doctor: V62.doctor.flatMap((axis) => axis.key === 'customer_requests'
+    ? [
+      { key: 'request_capture', label: 'نسبة تسجيل الطلبات (العقل المدبر)', weight: 15 },
+      { key: 'customer_requests', label: 'عدد طلبات العملاء الصالحة', weight: 0 },
+    ]
+    : [axis]),
+};
+
+export const LAB_AXES_BY_VERSION: Record<LabVersion, Record<LabFamily, LabAxisDefinition[]>> = { 'v6.0': V60, 'v6.1': V61, 'v6.2': V62, 'v6.3': V63 };
 export const LAB_AXES = LAB_AXES_BY_VERSION[LAB_CURRENT_VERSION];
 
 export function labFamilyOf(role: CanonicalStaffRole): LabFamily | null {
@@ -177,6 +191,16 @@ export const LAB_THRESHOLDS = {
   /** Items per invoice move less: 0.85 → 0, 1.0 → 50, 1.15 → 100. */
   basketFloor: 0.85,
   basketCeiling: 1.15,
+  /**
+   * v6.3 request capture: at least N requests found by the Master Brain in the cycle; a request
+   * counts as self-recorded when the doctor recorded it from 2 h before the conversation started
+   * up to 48 h after it ended. 70% → 0, 95% → 100 (the owner's full-incentive line).
+   */
+  minDetectedRequests: 5,
+  captureLeadHours: 2,
+  captureWindowHours: 48,
+  captureFloor: 0.7,
+  captureCeiling: 0.95,
   /** Team follow-up of missing punches (v6.1): 85% corrected → 0, 100% → 100. */
   followupFloor: 0.85,
 } as const;
