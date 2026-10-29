@@ -7,6 +7,8 @@ import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
 import type { BrainRequest, LabEvidence } from './buildCycleScores';
 import { selectInvoiceCycleWindow } from '@/lib/readModels/invoiceRecordReadModel';
 import { invoiceShiftOf } from './catalog';
+import { FULFILLMENT_WINDOW_DAYS, matchRequestFulfillment, type FulfillmentItem, type FulfillmentResult } from './requestFulfillment';
+import { fetchPharmacyProductIndex } from '@/lib/salesIntelligence/pharmacyProductCatalogRepository';
 
 // Read-only, bounded evidence for one 26→25 cycle. Every read is filtered by the cycle and
 // capped; a failed read throws (the lab shows the outage instead of scoring zeros).
@@ -154,6 +156,49 @@ async function loadBrainRequests(startAt: string, endAt: string): Promise<BrainR
   }
 }
 
+/**
+ * Customer requests of the cycle matched to the invoice items of the same customers, from the
+ * request time up to 14 days after the cycle end (read-only, bounded, chunked by customer code).
+ * null when this session cannot read the items or the catalog.
+ */
+async function loadFulfillment(requestRows: Row[], startAt: string, endAt: string): Promise<FulfillmentResult[] | null> {
+  try {
+    const codes = [...new Set(requestRows.map((row) => text(row.customer_code)).filter((code) => code && !/^[0\s.-]*$/.test(code)))];
+    const until = new Date(Math.min(Date.now(), Date.parse(endAt) + FULFILLMENT_WINDOW_DAYS * 864e5)).toISOString();
+    const items: FulfillmentItem[] = [];
+    for (let i = 0; i < codes.length; i += 100) {
+      const chunk = codes.slice(i, i + 100);
+      const rows = await pages(() => supabase.from('sales_invoice_items_v21')
+        .select('id,invoice_id,invoice_date,customer_code,product_id,product_code,product_name,quantity')
+        .in('customer_code', chunk).gte('invoice_date', new Date(Date.parse(startAt) - 36e5).toISOString()).lt('invoice_date', until) as unknown as PageQuery,
+        20000, 'request_fulfillment_items');
+      for (const row of rows) {
+        items.push({
+          customerCode: text(row.customer_code) || null,
+          invoiceAt: text(row.invoice_date),
+          invoiceId: text(row.invoice_id) || null,
+          productId: text(row.product_id) || null,
+          productCode: text(row.product_code) || null,
+          productName: text(row.product_name) || null,
+          quantity: row.quantity == null ? null : num(row.quantity),
+        });
+      }
+    }
+    const index = await fetchPharmacyProductIndex(supabase);
+    return matchRequestFulfillment(requestRows.map((row) => ({
+      id: text(row.id),
+      customerCode: text(row.customer_code) || null,
+      medicineName: text(row.medicine_name) || null,
+      productCode: text(row.product_code) || null,
+      quantity: row.quantity == null ? null : num(row.quantity),
+      createdAt: text(row.created_at),
+      status: text(row.status) || null,
+    })), items, index);
+  } catch {
+    return null;
+  }
+}
+
 export interface LabCycle {
   /** Inclusive start (the 26th). */
   start: string;
@@ -194,7 +239,7 @@ export async function loadCycleEvidence(cycle: LabCycle): Promise<LabEvidence> {
       .gte('attendance_date', cycle.start).lt('attendance_date', cycle.endExclusive),
       'id,staff_id,attendance_date,resolution_status,first_in,late_minutes,scheduled_start_at,total_hours', 10000, 'attendance', ['staff_id', 'attendance_date']),
     pages(() => supabase.from('customer_requests')
-      .select('id,source_recorded_staff_id,branch,created_at,closed_at,status,customer_id,customer_code,customer_phone,medicine_name,product_code')
+      .select('id,source_recorded_staff_id,branch,created_at,closed_at,status,customer_id,customer_code,customer_phone,medicine_name,product_code,quantity')
       .gte('created_at', startAt).lt('created_at', endAt) as unknown as PageQuery, 10000, 'customer_requests'),
     // Client sessions may not read this table; its axis then reports "not measurable" instead of failing the cycle.
     pages(() => supabase.from('base44_purchase_invoice_sync')
@@ -211,6 +256,7 @@ export async function loadCycleEvidence(cycle: LabCycle): Promise<LabEvidence> {
   }
 
   const brainRequests = await loadBrainRequests(startAt, endAt);
+  const fulfillment = await loadFulfillment(requestRows, startAt, endAt);
 
   const staff = staffRows
     .filter((row) => row.active !== false && row.is_active !== false)
@@ -269,8 +315,10 @@ export async function loadCycleEvidence(cycle: LabCycle): Promise<LabEvidence> {
       customerPhone: text(row.customer_phone) || null,
       medicineName: text(row.medicine_name) || null,
       productCode: text(row.product_code) || null,
+      quantity: row.quantity == null ? null : num(row.quantity),
     })),
     brainRequests,
+    fulfillment,
     purchases: purchaseRows ? purchaseRows.map((row) => ({ enteredByStaffId: text(row.entered_by_staff_id) || null })) : null,
     targets: targetRows.map((row) => ({ branch: text(row.branch_name), targetAmount: num(row.target_amount) })),
     dormantSources: [

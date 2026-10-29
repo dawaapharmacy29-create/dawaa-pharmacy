@@ -6,9 +6,9 @@ export type LabFamily = 'doctor' | 'assistant' | 'delivery' | 'branch_manager' |
 
 /** v6.0 is kept so the lab can show what each change moved; v6.1 is the proposal under review. */
 /** Each version keeps every rule of the one before it; the lab shows the change against the previous one. */
-export type LabVersion = 'v6.0' | 'v6.1' | 'v6.2' | 'v6.3';
-export const LAB_CURRENT_VERSION: LabVersion = 'v6.3';
-export const LAB_PREVIOUS_VERSION: Record<LabVersion, LabVersion | null> = { 'v6.0': null, 'v6.1': 'v6.0', 'v6.2': 'v6.1', 'v6.3': 'v6.2' };
+export type LabVersion = 'v6.0' | 'v6.1' | 'v6.2' | 'v6.3' | 'v6.4';
+export const LAB_CURRENT_VERSION: LabVersion = 'v6.4';
+export const LAB_PREVIOUS_VERSION: Record<LabVersion, LabVersion | null> = { 'v6.0': null, 'v6.1': 'v6.0', 'v6.2': 'v6.1', 'v6.3': 'v6.2', 'v6.4': 'v6.3' };
 
 export type LabAxisKey =
   | 'sales_per_day'
@@ -32,6 +32,7 @@ export type LabAxisKey =
   | 'team_followup'
   | 'branch_coding'
   | 'requests_closure'
+  | 'requests_fulfilled'
   | 'decision_backlog'
   | 'branch_managers';
 
@@ -152,7 +153,21 @@ const V63: Record<LabFamily, LabAxisDefinition[]> = {
     : [axis]),
 };
 
-export const LAB_AXES_BY_VERSION: Record<LabVersion, Record<LabFamily, LabAxisDefinition[]>> = { 'v6.0': V60, 'v6.1': V61, 'v6.2': V62, 'v6.3': V63 };
+// v6.4 (owner decision 2026-10-29): execution is proven by the sale, not by a status. Part of the
+// request-closure weight moves to the share of requests the customer actually bought.
+const withFulfillment = (axes: LabAxisDefinition[]) => axes.flatMap((axis) => axis.key === 'requests_closure'
+  ? [
+    { ...axis, weight: 15 },
+    { key: 'requests_fulfilled' as const, label: 'تنفيذ فعلي بفاتورة (العميل اشترى الصنف)', weight: 10 },
+  ]
+  : [axis]);
+const V64: Record<LabFamily, LabAxisDefinition[]> = {
+  ...V63,
+  branch_manager: withFulfillment(V63.branch_manager),
+  branches_manager: withFulfillment(V63.branches_manager),
+};
+
+export const LAB_AXES_BY_VERSION: Record<LabVersion, Record<LabFamily, LabAxisDefinition[]>> = { 'v6.0': V60, 'v6.1': V61, 'v6.2': V62, 'v6.3': V63, 'v6.4': V64 };
 export const LAB_AXES = LAB_AXES_BY_VERSION[LAB_CURRENT_VERSION];
 
 export function labFamilyOf(role: CanonicalStaffRole): LabFamily | null {
@@ -201,6 +216,10 @@ export const LAB_THRESHOLDS = {
   captureWindowHours: 48,
   captureFloor: 0.7,
   captureCeiling: 0.95,
+  /** v6.4 fulfilment proven by an invoice: share of judged requests (partial = half). */
+  minJudgedRequests: 10,
+  fulfillmentFloor: 0.2,
+  fulfillmentCeiling: 0.8,
   /** Team follow-up of missing punches (v6.1): 85% corrected → 0, 100% → 100. */
   followupFloor: 0.85,
 } as const;

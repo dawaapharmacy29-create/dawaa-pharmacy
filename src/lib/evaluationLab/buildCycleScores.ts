@@ -4,6 +4,7 @@ import {
   PENDING_DECISION, PUNCTUALITY_BANDS, UNRESOLVED_ATTENDANCE, labFamilyOf, type LabFamily, type LabVersion,
 } from './catalog';
 import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
+import { summarizeFulfillment, type FulfillmentResult } from './requestFulfillment';
 import {
   aggregate, bandScore, closureScore, codingGatePenalty, disciplineScore, measured, median, notMeasurable,
   percentileAmong, shrunkMean, targetScore, type AxisResult, type LabAdjustment, type LabScore,
@@ -25,7 +26,10 @@ export interface LabEvidence {
     recordedStaffId: string | null; branch: string | null; createdAt: string; closedAt: string | null; status?: string | null;
     /** v6.3 matching with the Master Brain's detected requests. */
     id?: string; customerId?: string | null; customerCode?: string | null; customerPhone?: string | null; medicineName?: string | null; productCode?: string | null;
+    quantity?: number | null;
   }>;
+  /** v6.4: each request matched to the customer's invoice items (null when unreadable). */
+  fulfillment?: FulfillmentResult[] | null;
   /**
    * Customer requests the Master Brain found in WhatsApp conversations of the cycle (v6.3).
    * null when the source cannot be read by this session.
@@ -286,6 +290,9 @@ function fairShareAxis(
 }
 
 const dormant = (evidence: LabEvidence, source: string) => evidence.dormantSources.includes(source);
+const VERSION_ORDER: LabVersion[] = ['v6.0', 'v6.1', 'v6.2', 'v6.3', 'v6.4'];
+/** Every version keeps the rules of the ones before it. */
+const atLeast = (version: LabVersion, minimum: LabVersion) => VERSION_ORDER.indexOf(version) >= VERSION_ORDER.indexOf(minimum);
 
 /**
  * Basket metric against the same branch, day and shift: for every invoice the doctor closed, the
@@ -351,7 +358,7 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
     (own, expected, days, share) => `باع ${egp(own)} من نصيب متوقع ${egp(expected)} ج في ${days} يوم عمل (×${round(share, 2)})`)
     .forEach((axis, id) => push(id, axis));
   rateAxis('customer_requests', doctors, (f) => f.requests, 'طلب/يوم', invalidNote).forEach((axis, id) => push(id, axis));
-  if (version === 'v6.2' || version === 'v6.3') {
+  if (atLeast(version, 'v6.2')) {
     fairShareAxis('invoice_share', doctors, evidence, (inv) => inv.staffId, (inv) => (inv.net > 0 ? 1 : 0),
       (own, expected, days, share) => `${egp(own)} فاتورة من نصيب متوقع ${egp(expected)} في ${days} يوم عمل (×${round(share, 2)})`)
       .forEach((axis, id) => push(id, axis));
@@ -362,7 +369,7 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
       (own, expected, n, ratio) => `${round(own, 2)} صنف/فاتورة مقابل ${round(expected, 2)} للفرع في نفس اليوم والشيفت · ${n} فاتورة (×${round(ratio, 2)})`)
       .forEach((axis, id) => push(id, axis));
   }
-  if (version === 'v6.3') {
+  if (atLeast(version, 'v6.3')) {
     const detectedFor = new Map<string, BrainRequest[]>();
     for (const detected of evidence.brainRequests || []) {
       if (!detected.staffId || /^(rejected|dismissed|cancelled)$/i.test(String(detected.status || ''))) continue;
@@ -504,6 +511,18 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
     const teamFacts = b.team.map((p) => facts.get(p.staffId)!).filter(Boolean);
     const pending = teamFacts.reduce((s, f) => s + f.pendingDecisionDays, 0);
     const worked = teamFacts.reduce((s, f) => s + f.workedDays, 0);
+    if (atLeast(version, 'v6.4')) {
+      const ids = new Set(b.requests.map((r) => r.id).filter(Boolean));
+      const results = evidence.fulfillment == null ? null : evidence.fulfillment.filter((result) => ids.has(result.requestId));
+      const s = results ? summarizeFulfillment(results) : null;
+      out.push(!s
+        ? notMeasurable('requests_fulfilled', 'أصناف الفواتير أو الكتالوج غير متاحة للقراءة من هذه الجلسة')
+        : s.judged < LAB_THRESHOLDS.minJudgedRequests || s.share === null
+          ? notMeasurable('requests_fulfilled', `${s.judged} طلب قابل للحكم فقط (الحد ${LAB_THRESHOLDS.minJudgedRequests})`,
+            `${s.noCustomer} بدون كود عميل · ${s.windowOpen} لسه في مهلة الـ14 يوم`)
+          : measured('requests_fulfilled', round(s.share * 100), bandScore(s.share, LAB_THRESHOLDS.fulfillmentFloor, LAB_THRESHOLDS.fulfillmentCeiling),
+            `اشترى العميل ${s.fulfilled} طلب كامل و${s.partial} جزئي من ${s.judged} · لم يُشترَ ${s.notFound} · ${s.noCustomer} بدون كود عميل لا يُحكم عليها`));
+    }
     if (version !== 'v6.0') {
       out.push(worked
         ? measured('decision_backlog', pending, bandScore(1 - pending / worked, 0.85, 1), `${pending} يوم حضور بانتظار قرار من ${worked} يوم عمل — للمعلومة حتى يُحدَّد صاحب القرار`)

@@ -330,6 +330,28 @@ describe('buildCycleScores v6.3 request capture', () => {
   });
 });
 
+describe('buildCycleScores v6.4 fulfilment', () => {
+  const fulfillment = (states: string[]) => states.map((state, i) => ({ requestId: `q${i}`, state, matchedQuantity: 0, firstSaleAt: null, basis: null })) as never;
+  const requests = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `q${i}`, recordedStaffId: 'd1', branch: 'فرع شكري', createdAt: '2026-10-01T08:00:00Z', closedAt: null, status: 'new' }));
+  const m1 = (states: string[]) => buildCycleScores(evidence({ requests: requests(states.length), fulfillment: fulfillment(states) }), 'v6.4').find((r) => r.staffId === 'm1')!;
+
+  it('keeps every earlier rule and adds proven fulfilment for the branch manager', () => {
+    const states = [...Array(6).fill('fulfilled'), ...Array(2).fill('partial'), ...Array(4).fill('not_found'), 'no_customer', 'window_open'];
+    const axis = m1(states).axes.find((a) => a.key === 'requests_fulfilled')!;
+    // (6 + 2/2) / 12 judged = 58.3%.
+    expect(axis).toMatchObject({ status: 'measured', value: 58.3, weight: 10 });
+    expect(axis.basis).toContain('1 بدون كود عميل');
+    expect(m1(states).axes.find((a) => a.key === 'requests_closure')!.weight).toBe(15);
+    expect(buildCycleScores(evidence(), 'v6.4').find((r) => r.staffId === 'd1')!.axes.some((a) => a.key === 'invoice_share')).toBe(true);
+  });
+
+  it('too few judged requests or an unreadable source is not measurable, never zero', () => {
+    expect(m1(['fulfilled', 'not_found']).axes.find((a) => a.key === 'requests_fulfilled')).toMatchObject({ status: 'not_measurable', score: null });
+    const unread = buildCycleScores(evidence({ fulfillment: null }), 'v6.4').find((r) => r.staffId === 'm1')!;
+    expect(unread.axes.find((a) => a.key === 'requests_fulfilled')).toMatchObject({ status: 'not_measurable' });
+  });
+});
+
 describe('closedCycles', () => {
   it('returns closed 26→25 cycles in Cairo time', () => {
     expect(closedCycles(2, new Date('2026-10-28T10:00:00Z'))).toEqual([
