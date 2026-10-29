@@ -144,3 +144,29 @@ export async function readInternalCodeLedgerPage(codes: string[], fromIso: strin
  if(result.error)throw new Error(result.error.message);
  return result.data || [];
 }
+
+export type StaffCycleSaleRow = { id: string; invoice_date: string | null; sale_date: string | null; net_amount: number | null; total_amount: number | null };
+
+/**
+ * Approved read boundary: the invoices credited to one employee (staff_id) in a cycle window,
+ * ordered by the (staff_id, invoice_date) index. Bounded: throws instead of returning a partial cycle.
+ */
+export async function readStaffCycleSales(staffId: string, fromIso: string, toIso: string, maxRows = 5000): Promise<StaffCycleSaleRow[]> {
+  const pageSize = 1000;
+  const rows: StaffCycleSaleRow[] = [];
+  for (let offset = 0; offset < maxRows; offset += pageSize) {
+    const { data, error } = await supabase
+      .from('sales_invoices')
+      .select('id,invoice_date,sale_date,net_amount,total_amount')
+      .eq('staff_id', staffId)
+      .gte('invoice_date', fromIso)
+      .lt('invoice_date', toIso)
+      .order('invoice_date', { ascending: true })
+      .order('id', { ascending: true })
+      .range(offset, offset + pageSize - 1);
+    if (error) throw new Error(error.message);
+    rows.push(...((data || []) as StaffCycleSaleRow[]));
+    if ((data || []).length < pageSize) return rows;
+  }
+  throw new Error('staff_cycle_sales_limit_reached');
+}

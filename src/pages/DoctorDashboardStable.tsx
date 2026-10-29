@@ -22,6 +22,8 @@ import { monthCycleFromDate, reviewerDisplayName } from '@/lib/conversationRevie
 import { calculateTargetAchievementBonus } from '@/lib/incentives/targetAchievementBonus';
 import { normalizeBranchName } from '@/lib/branch';
 import { loadSalesAnalyticsSummary, type SalesAnalyticsSummary } from '@/lib/salesAnalyticsSummaryService';
+import { readStaffCycleSales } from '@/lib/readModels/invoiceRecordReadModel';
+import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
 import DoctorRequestedFollowups from '@/components/doctor/DoctorRequestedFollowups';
 import DoctorVouchers from '@/components/doctor/DoctorVouchers';
 import { getEmployeeEvents } from '@/lib/employeeEventService';
@@ -250,6 +252,8 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
   const [state, setState] = useState<LoadState>('idle');
   const [summary, setSummary] = useState<SalesAnalyticsSummary | null>(null);
   const [doctorTrend, setDoctorTrend] = useState<SalesAnalyticsSummary['dailyTrend']>([]);
+  // The doctor's own cycle sales, read by staff_id (never by a seller-name match). null = read failed.
+  const [mySales, setMySales] = useState<{ netSales: number; invoicesCount: number; avgInvoice: number } | null | undefined>(undefined);
   const [error, setError] = useState('');
   const [reviews, setReviews] = useState<PersonalReview[]>([]);
   const [notifications, setNotifications] = useState<StaffNotification[]>([]);
@@ -519,40 +523,36 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
   }, []);
 
   const loadDoctorTrend = useCallback(async () => {
-    if (!branch || !doctorName) return;
+    if (!staffId) return;
     try {
-      // الرسم اليومي يعتمد على staff_sales_summary لأنه نفس مصدر مبيعات الدكتور
-      // الذي نجح في بطاقة المبيعات والترتيب، وهو مبني على حقيقة الفواتير النظيفة.
-      // نقرأ كل أسماء الفرع ثم نطابق محليًا بعد التطبيع حتى اختلاف "د/ بسنت" / "د بسنت"
-      // لا يحذف الرسم أو يحوله إلى صفر.
-      const { data, error } = await supabase
-        .from('staff_sales_summary')
-        .select('sale_date,net_total,branch,seller_name')
-        .eq('branch', branch)
-        .gte('sale_date', formatCycleDate(cycle.start))
-        .lt('sale_date', formatCycleDate(new Date(cycle.end.getTime() + 86400000)))
-        .limit(5000);
-      if (error) throw error;
-      const target = normalizeName(doctorName);
-      const mine = (data || []).filter((row: Row) => {
-        const candidates = [row.seller_name].map((v) => normalizeName(text(v)));
-        return candidates.includes(target);
-      });
-      const byDay = new Map<string, number>();
-      for (const row of mine) {
-        const day = text(row.sale_date).slice(0, 10);
+      // The doctor's own invoices by staff_id in the 26→25 cycle (Cairo boundaries): the same
+      // ownership the evaluation uses. A seller-name match could merge two similar names.
+      const rows = await readStaffCycleSales(
+        staffId,
+        cairoDateBoundaryIso(formatCycleDate(cycle.start)),
+        cairoDateBoundaryIso(formatCycleDate(new Date(cycle.end.getTime() + 86400000))),
+      );
+      const byDay = new Map<string, { netSales: number; invoicesCount: number }>();
+      let netSales = 0;
+      for (const row of rows) {
+        const day = text(row.sale_date || row.invoice_date).slice(0, 10);
+        const amount = number(row.net_amount ?? row.total_amount);
+        netSales += amount;
         if (!day) continue;
-        const amount = number(row.net_total);
-        byDay.set(day, (byDay.get(day) || 0) + amount);
+        const slot = byDay.get(day) || { netSales: 0, invoicesCount: 0 };
+        slot.netSales += amount;
+        slot.invoicesCount += 1;
+        byDay.set(day, slot);
       }
-      const trend = [...byDay.entries()]
+      setMySales({ netSales, invoicesCount: rows.length, avgInvoice: rows.length ? netSales / rows.length : 0 });
+      setDoctorTrend([...byDay.entries()]
         .sort(([a], [b]) => a.localeCompare(b))
-        .map(([date, netSales]) => ({ date, netSales, invoicesCount: 0, avgInvoice: 0, uniqueCustomers: 0 }));
-      setDoctorTrend(trend);
+        .map(([date, slot]) => ({ date, netSales: slot.netSales, invoicesCount: slot.invoicesCount, avgInvoice: slot.invoicesCount ? slot.netSales / slot.invoicesCount : 0, uniqueCustomers: 0 })));
     } catch {
+      setMySales(null);
       setDoctorTrend([]);
     }
-  }, [branch, cycle.end, cycle.start, doctorName]);
+  }, [cycle.end, cycle.start, staffId]);
 
   const loadActivity = useCallback(async () => {
     setPart('activity', 'loading');
@@ -580,7 +580,7 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
     if (tab === 'offers' && !personalState.offers) void loadOffers();
   }, [loadActivity, loadAssignments, loadNotifications, loadOffers, loadPayroll, loadReviews, personalState, tab]);
 
-  const doctorRow = useMemo<DoctorRow | null>(() => summary?.doctorRows.find((row) => row.staffId === staffId) || summary?.doctorRows.find((row) => normalizeName(row.doctor) === normalizeName(doctorName)) || null, [doctorName, staffId, summary]);
+  const doctorRow = useMemo<DoctorRow | null>(() => summary?.doctorRows.find((row) => row.staffId === staffId) || null, [staffId, summary]);
   const ranking = useMemo(() => summary ? [...summary.doctorRows].sort((a, b) => b.netSales - a.netSales) : [], [summary]);
   const doctorRank = doctorRow ? ranking.findIndex((row) => row.staffId === doctorRow.staffId && row.doctor === doctorRow.doctor) + 1 : 0;
   const branchSales = branchCycleTruth?.sales_total ?? summary?.kpis.netSales ?? 0;
@@ -659,11 +659,16 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
       {tab === 'overview' ? (
         <>
           <div className="-mx-1 flex gap-3 overflow-x-auto px-1 pb-1">
-            <StatChip icon={DollarSign} label="مبيعاتي في الدورة" value={doctorRow ? formatCurrency(doctorRow.netSales) : 'غير مرتبط'} hint={doctorRow ? `${doctorRow.invoicesCount} فاتورة` : 'راجع staff_id'} />
+            <StatChip
+              icon={DollarSign}
+              label="مبيعاتي في الدورة"
+              value={mySales ? formatCurrency(mySales.netSales) : mySales === null ? 'تعذر التحميل' : '—'}
+              hint={mySales ? (mySales.invoicesCount ? `${mySales.invoicesCount} فاتورة` : 'لا توجد فواتير مسجلة لك في الدورة بعد') : mySales === null ? 'أعد المحاولة بعد قليل' : 'جاري التحميل'}
+            />
             <StatChip
               icon={TrendingUp}
               label="متوسط فاتورتي"
-              value={doctorRow ? formatCurrency(doctorRow.avgInvoice) : '—'}
+              value={mySales?.invoicesCount ? formatCurrency(mySales.avgInvoice) : '—'}
               hint={`متوسط الفرع ${formatCurrency(summary?.kpis.avgInvoice || 0)}`}
               trend={
                 doctorRow && summary?.kpis.avgInvoice
@@ -926,9 +931,9 @@ export default function DoctorDashboardStable({ hideReviews = false }: { hideRev
       {tab === 'performance' ? (
         <section className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            <Metric label="مبيعاتي" value={formatCurrency(doctorRow?.netSales || 0)} icon={DollarSign} />
-            <Metric label="عدد الفواتير" value={String(doctorRow?.invoicesCount || 0)} icon={BarChart3} />
-            <Metric label="متوسط البيع" value={formatCurrency(doctorRow?.avgInvoice || 0)} icon={TrendingUp} />
+            <Metric label="مبيعاتي" value={mySales ? formatCurrency(mySales.netSales) : '—'} icon={DollarSign} />
+            <Metric label="عدد الفواتير" value={mySales ? String(mySales.invoicesCount) : '—'} icon={BarChart3} />
+            <Metric label="متوسط البيع" value={mySales?.invoicesCount ? formatCurrency(mySales.avgInvoice) : '—'} icon={TrendingUp} />
             <Metric label="تقدم الفرع" value={`${achievement.toFixed(1)}%`} hint={`المتبقي ${formatCurrency(Math.max(0, target - branchSales))}`} icon={Target} progress={achievement} />
             <Metric label="حافز التارجت الإضافي" value={doctorTargetBonus.amountEgp === null ? 'غير قابل للحساب' : formatCurrency(doctorTargetBonus.amountEgp)} hint={`${doctorTargetBonus.tierLabel} — منفصل عن حافز الأداء`} icon={Trophy} progress={achievement} />
           </div>

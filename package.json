@@ -50,7 +50,8 @@
     "test:db:close-unauthenticated-writes:native": "node scripts/verification/test-close-unauthenticated-writes-native.mjs",
     "test:db:attendance-summary-rls:native": "node scripts/verification/test-attendance-summary-rls-scope-native.mjs",
     "test:db:branch-targets-top-management:native": "node scripts/verification/test-branch-targets-top-management-native.mjs",
-    "test:db:points-edit-whatsapp-audit:native": "node scripts/verification/test-points-edit-and-whatsapp-audit-native.mjs"
+    "test:db:points-edit-whatsapp-audit:native": "node scripts/verification/test-points-edit-and-whatsapp-audit-native.mjs",
+    "test:db:customer-request-registrar:native": "node scripts/verification/test-customer-request-registrar-native.mjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8",

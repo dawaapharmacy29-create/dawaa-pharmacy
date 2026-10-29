@@ -86,14 +86,23 @@ export async function fetchMyRequestedFollowups(
   identity: DoctorIdentity,
   filters: DoctorFollowupFilters = {}
 ): Promise<FollowupRow[]> {
+  // Filtered on the server to this doctor's rows (new rows by staff/account id, older rows by the
+  // exact display name), instead of reading the latest 1000 follow-ups of everyone and filtering
+  // in the browser. isMine below stays as the final ownership check.
+  const ids = [...new Set([identity.staffId, identity.userId].map(text).filter((value) => /^[0-9a-f-]{36}$/i.test(value)))];
+  const name = text(identity.doctorName).replace(/"/g, '');
+  const owners = [
+    ...ids.flatMap((id) => [`requested_by_staff_id.eq.${id}`, `staff_id.eq.${id}`, `created_by.eq.${id}`]),
+    ...(name ? [`assigned_doctor.eq."${name}"`, `created_by_name.eq."${name}"`] : []),
+  ];
+  if (!owners.length) return [];
   let query = supabase
     .from('daily_followups')
     .select('*')
+    .or(owners.join(','))
     .order('created_at', { ascending: false })
     .limit(1000);
 
-  // لا نقيد الاستعلام بـ created_by فقط؛ السجلات القديمة والجديدة قد تكون
-  // مرتبطة بالدكتور عبر user id أو staff id أو الاسم الموحد.
   if (filters.from) query = query.gte('created_at', `${filters.from}T00:00:00`);
   if (filters.to) query = query.lte('created_at', `${filters.to}T23:59:59`);
 

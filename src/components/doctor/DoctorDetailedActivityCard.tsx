@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Headphones, MessageSquare, PackageSearch, Timer, UserRound } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { formatCycleDate, getCurrentCycle } from '@/lib/pharmacy-cycle';
+import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
 
 type ConversationReview = {
   review_date: string;
@@ -24,9 +26,9 @@ type FollowupRow = { id: string; customer_name: string | null; followup_reason: 
 type PillarRow = { pillar_key: string; points: number };
 type TabKey = 'conversations' | 'stock' | 'requests' | 'followups';
 
-function monthCycleNow() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+/** Start of the current 26→25 cycle (Cairo), not the calendar month. */
+function cycleStartIso() {
+  return cairoDateBoundaryIso(formatCycleDate(getCurrentCycle().start));
 }
 
 function scoreBadge(score: number) {
@@ -46,31 +48,32 @@ export default function DoctorDetailedActivityCard({ staffId, doctorName }: { st
 
   useEffect(() => {
     if (!staffId) return;
-    const month = monthCycleNow();
+    const since = cycleStartIso();
     void supabase
       .rpc('get_doctor_conversation_reviews_list', { p_doctor_id: staffId, p_limit: 20 })
       .then(({ data }) => setReviews((data as ConversationReview[]) || []));
     void supabase
       .rpc('get_doctor_priority_stock_items', { p_doctor_id: staffId })
       .then(({ data }) => setStock(data as { list_priority: StockItem[]; expiry_priority: StockItem[] }));
+    // The recording employee is source_recorded_staff_id (doctor_id is never filled by the
+    // DawaaWael sync, so it always returned nothing).
     void supabase
       .from('customer_requests')
       .select('id,medicine_name,status,points_awarded')
-      .eq('doctor_id', staffId)
-      .gte('created_at', `${month}-01`)
+      .eq('source_recorded_staff_id', staffId)
+      .gte('created_at', since)
       .order('created_at', { ascending: false })
       .limit(50)
       .then(({ data }) => setRequests((data as CustomerRequestRow[]) || []));
-    if (doctorName) {
-      void supabase
-        .from('daily_followups')
-        .select('id,customer_name,followup_reason,points_value')
-        .eq('assigned_doctor', doctorName)
-        .gte('created_at', `${month}-01`)
-        .order('created_at', { ascending: false })
-        .limit(50)
-        .then(({ data }) => setFollowups((data as FollowupRow[]) || []));
-    }
+    // Follow-ups the doctor requested, by staff id (a name match missed spelling variants).
+    void supabase
+      .from('daily_followups')
+      .select('id,customer_name,followup_reason,points_value')
+      .eq('requested_by_staff_id', staffId)
+      .gte('created_at', since)
+      .order('created_at', { ascending: false })
+      .limit(50)
+      .then(({ data }) => setFollowups((data as FollowupRow[]) || []));
     void supabase
       .rpc('get_doctor_pillar_breakdown', { p_staff_id: staffId })
       .then(({ data, error }) => setPillars(error ? null : (data as PillarRow[]) || []));
