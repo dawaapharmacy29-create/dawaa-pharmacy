@@ -35,12 +35,13 @@ export const QUICK_REPLY_SCRIPT_TYPES = [
   'substitute_unavailable','missing_info_request','partial_order_apology','review_request',
   'order_confirmation','wrong_item_delivered','return_refund_request',
   'drug_interaction_concern','side_effect_report','dosage_clarification',
-  'escalation_notice','goodwill_gesture'
+  'escalation_notice','goodwill_gesture','doctor_welcome','order_preparation',
+  'order_cancellation','service_welcome'
 ] as const;
 
 export const SCRIPT_TYPE_GROUPS: Array<{ label: string; types: string[] }> = [
-  { label: '1) خدمة العملاء والولاء', types: ['welcome','no_purchase_welcome','referral_welcome','first_purchase_thanks','followup','vip_active_checkin','vip_winback','retention','loyalty_thanks','review_request','points_reminder'] },
-  { label: '2) الطلبات والنواقص', types: ['reorder_reminder','order_confirmation','order_status_followup','delivery_delay','missing_info_request','partial_order_apology','wrong_item_delivered','substitute_unavailable','restock_notice','return_refund_request'] },
+  { label: '1) خدمة العملاء والولاء', types: ['welcome','doctor_welcome','service_welcome','no_purchase_welcome','referral_welcome','first_purchase_thanks','followup','vip_active_checkin','vip_winback','retention','loyalty_thanks','review_request','points_reminder'] },
+  { label: '2) الطلبات والنواقص', types: ['reorder_reminder','order_confirmation','order_preparation','order_cancellation','order_status_followup','delivery_delay','missing_info_request','partial_order_apology','wrong_item_delivered','substitute_unavailable','restock_notice','return_refund_request'] },
   { label: '3) الشكاوى واستعادة الرضا', types: ['complaint','angry_customer','escalation_notice','goodwill_gesture','complaint_followup','no_answer'] },
   { label: '4) المتابعة الصحية', types: ['monthly_refill','post_treatment_checkin','elderly_care','family_kids','cold_flu','drug_interaction_concern','dosage_clarification','side_effect_report'] },
   { label: '5) العمليات البيعية', types: ['price_objection','up_sell','cross_sell','cosmetics_interest','supplements_interest'] },
@@ -148,12 +149,17 @@ export async function incrementQuickReplyUsage(id:string) {
   await supabase.rpc('increment_quick_reply_usage',{p_id:id});
 }
 
-export function renderQuickReplyTemplate(message:string, values:{ customer_name?:string|null; doctor_name?:string|null; branch?:string|null; last_purchase?:string|null; referrer_name?:string|null; last_product_category?:string|null; product_name?:string|null; points_balance?:string|number|null; order_status?:string|null; missing_info?:string|null; storage_condition?:string|null; followup_window?:string|null; goodwill_offer?:string|null; unavailability_reason?:string|null; alternative_branch?:string|null; use_customer_name?:boolean }) {
+export function renderQuickReplyTemplate(message:string, values:{ customer_name?:string|null; doctor_name?:string|null; branch?:string|null; last_purchase?:string|null; referrer_name?:string|null; last_product_category?:string|null; product_name?:string|null; points_balance?:string|number|null; order_items?:string|null; order_total?:string|number|null; order_status?:string|null; missing_info?:string|null; storage_condition?:string|null; followup_window?:string|null; goodwill_offer?:string|null; unavailability_reason?:string|null; alternative_branch?:string|null; use_customer_name?:boolean }) {
   const safeCustomerName = values.use_customer_name && values.customer_name && !/^\d+$|عميل|غير محدد|بدون/i.test(values.customer_name) ? values.customer_name : '';
   const replacements: Array<[string,string]> = [
-    ['customer_name',safeCustomerName],['doctor_name',values.doctor_name||'فريق صيدليات دواء'],['branch',values.branch||'صيدليات دواء'],['last_purchase',values.last_purchase||'آخر تعامل'],['referrer_name',values.referrer_name||'أحد عملائنا'],['last_product_category',values.last_product_category||'احتياجاتك المعتادة'],['product_name',values.product_name||'الصنف المطلوب'],['points_balance',values.points_balance!=null?String(values.points_balance):'المتاح'],['order_status',values.order_status||'قيد التجهيز'],['missing_info',values.missing_info||'البيانات المطلوبة'],['storage_condition',values.storage_condition||'طريقة الحفظ الموصى بها'],['followup_window',values.followup_window||'الوقت المحدد للمتابعة'],['goodwill_offer',values.goodwill_offer||'لفتة تقدير معتمدة'],['unavailability_reason',values.unavailability_reason||'غير متاح مؤقتًا'],['alternative_branch',values.alternative_branch||'الفرع الآخر']
+    ['customer_name',safeCustomerName],['doctor_name',values.doctor_name?.trim()||'{{doctor_name}}'],['branch',values.branch||'صيدليات دواء'],['last_purchase',values.last_purchase||'آخر تعامل'],['referrer_name',values.referrer_name||'أحد عملائنا'],['last_product_category',values.last_product_category||'احتياجاتك المعتادة'],['product_name',values.product_name||'الصنف المطلوب'],['points_balance',values.points_balance!=null?String(values.points_balance):'المتاح'],['order_items',values.order_items?.trim()||'{{order_items}}'],['order_total',values.order_total!=null&&String(values.order_total).trim()?String(values.order_total):'{{order_total}}'],['order_status',values.order_status||'قيد التجهيز'],['missing_info',values.missing_info||'البيانات المطلوبة'],['storage_condition',values.storage_condition||'طريقة الحفظ الموصى بها'],['followup_window',values.followup_window||'الوقت المحدد للمتابعة'],['goodwill_offer',values.goodwill_offer||'لفتة تقدير معتمدة'],['unavailability_reason',values.unavailability_reason||'غير متاح مؤقتًا'],['alternative_branch',values.alternative_branch||'الفرع الآخر']
   ];
   let rendered=message;
   for (const [key,value] of replacements) rendered=rendered.replaceAll(`{{${key}}}`,value).replaceAll(`{${key}}`,value);
-  return rendered.replace(/\s{2,}/g,' ').replace(/\s+([،,.!?])/g,'$1').trim();
+  return rendered.replace(/[^\S\r\n]{2,}/g,' ').replace(/[^\S\r\n]+([،,.!?])/g,'$1').replace(/\n{3,}/g,'\n\n').trim();
+}
+
+/** Never let a customer-facing channel copy or send an unfinished template. */
+export function hasUnresolvedQuickReplyFields(message: string): boolean {
+  return /\{\{\s*[a-z_]+\s*\}\}|(?<!\{)\{[a-z_]+\}(?!\})/i.test(message);
 }
