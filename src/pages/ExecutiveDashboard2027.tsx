@@ -1,5 +1,5 @@
 /* eslint-disable no-useless-escape */
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { clearInvoiceCache } from '@/lib/invoiceCache';
 import {
   Download,
@@ -1778,6 +1778,122 @@ export default function ExecutiveDashboard2027() {
     );
   }
 
+  // Branch manager / branches manager: a short page — today's list and exceptions first, the period
+  // numbers next, and the long analysis folded. The executive view keeps the full layout.
+  const managerMode = role === 'branch_manager' || role === 'branches_manager';
+  const salesKpiSection = (
+    <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+      <KpiCard
+        title="صافي مبيعات الفترة"
+        value={getSectionValue({
+          value: `${money(summary.sales_total)} جنيه`,
+          loading: salesKPILoading,
+          error: salesKPIError,
+          loadedAt: salesKPILoadedAt,
+          timedOut: salesKPITimedOut,
+        })}
+        subtitle="عن الفترة المختارة"
+        icon={<Wallet className="h-6 w-6" />}
+        tone="amber"
+        onClick={() => navigate(`/analytics?${dashboardQuery}`)}
+        showAction={Boolean(salesKPIError || salesKPITimedOut)}
+        onAction={reloadDashboard}
+        loading={salesKPILoading && !salesKPILoadedAt}
+        stale={Boolean((salesKPIError || salesKPITimedOut) && salesKPILoadedAt)}
+      />
+      <KpiCard
+        title="عدد الفواتير"
+        value={getSectionValue({
+          value: count(summary.invoices_count),
+          loading: salesKPILoading,
+          error: salesKPIError,
+          loadedAt: salesKPILoadedAt,
+          timedOut: salesKPITimedOut,
+        })}
+        subtitle="كل الفواتير داخل الفترة"
+        icon={<FileText className="h-6 w-6" />}
+        tone="green"
+        onClick={() => navigate(`/invoices?${new URLSearchParams({ from: startDate, to: endDate }).toString()}`)}
+        showAction={Boolean(salesKPIError || salesKPITimedOut)}
+        onAction={reloadDashboard}
+        loading={salesKPILoading && !salesKPILoadedAt}
+        stale={Boolean((salesKPIError || salesKPITimedOut) && salesKPILoadedAt)}
+      />
+      <KpiCard
+        title="متوسط الفاتورة"
+        value={getSectionValue({
+          value: `${money(summary.avg_invoice, 2)} جنيه`,
+          loading: salesKPILoading,
+          error: salesKPIError,
+          loadedAt: salesKPILoadedAt,
+          timedOut: salesKPITimedOut,
+        })}
+        subtitle="قيمة الفاتورة"
+        icon={<ClipboardList className="h-6 w-6" />}
+        tone="cyan"
+        onClick={() => navigate(`/analytics?metric=avg-invoice&${dashboardQuery}`)}
+        showAction={Boolean(salesKPIError || salesKPITimedOut)}
+        onAction={reloadDashboard}
+        loading={salesKPILoading && !salesKPILoadedAt}
+        stale={Boolean((salesKPIError || salesKPITimedOut) && salesKPILoadedAt)}
+      />
+      <KpiCard
+        title="العملاء المشترين"
+        value={getSectionValue({
+          value: count(summary.linked_customers),
+          loading: salesKPILoading,
+          error: salesKPIError,
+          loadedAt: salesKPILoadedAt,
+          timedOut: salesKPITimedOut,
+        })}
+        subtitle="عملاء لهم كود"
+        icon={<Users className="h-6 w-6" />}
+        tone="blue"
+        onClick={() => navigate(`/customers?${dashboardQuery}`)}
+        showAction={Boolean(salesKPIError || salesKPITimedOut)}
+        onAction={reloadDashboard}
+        loading={salesKPILoading && !salesKPILoadedAt}
+        stale={Boolean((salesKPIError || salesKPITimedOut) && salesKPILoadedAt)}
+      />
+      <KpiCard
+        title="نسبة ربط العملاء"
+        value={getSectionValue({
+          value: pct(summary.customer_link_rate_percent),
+          loading: salesKPILoading,
+          error: salesKPIError,
+          loadedAt: salesKPILoadedAt,
+          timedOut: salesKPITimedOut,
+        })}
+        subtitle={`${count(summary.linked_invoices)} فاتورة مرتبطة`}
+        icon={<ShieldCheck className="h-6 w-6" />}
+        tone="purple"
+        onClick={() => navigate(`/customer-data-review?${dashboardQuery}`)}
+        showAction={Boolean(salesKPIError || salesKPITimedOut)}
+        onAction={reloadDashboard}
+        loading={salesKPILoading && !salesKPILoadedAt}
+        stale={Boolean((salesKPIError || salesKPITimedOut) && salesKPILoadedAt)}
+      />
+      <KpiCard
+        title="الفواتير غير المسجلة"
+        value={getSectionValue({
+          value: count(summary.unregistered_customer_invoices),
+          loading: salesKPILoading,
+          error: salesKPIError,
+          loadedAt: salesKPILoadedAt,
+          timedOut: salesKPITimedOut,
+        })}
+        subtitle={`${money(summary.unregistered_customer_sales)} جنيه`}
+        icon={<FileText className="h-6 w-6" />}
+        tone="red"
+        onClick={() => navigate(`/customer-data-review?status=unregistered&${dashboardQuery}`)}
+        showAction={Boolean(salesKPIError || salesKPITimedOut)}
+        onAction={reloadDashboard}
+        loading={salesKPILoading && !salesKPILoadedAt}
+        stale={Boolean((salesKPIError || salesKPITimedOut) && salesKPILoadedAt)}
+      />
+    </section>
+  );
+
   return (
     <div dir="rtl" className="executive-dashboard-page dawaa-page min-h-screen">
       <main className="relative mx-auto max-w-[1920px] space-y-4 px-5 py-5">
@@ -1832,17 +1948,17 @@ export default function ExecutiveDashboard2027() {
         )}
 
         <Panel className="p-5">
-          <div className="grid gap-5 xl:grid-cols-[1.3fr_1fr] xl:items-center">
+          <div className={`grid gap-5 ${managerMode ? '' : 'xl:grid-cols-[1.3fr_1fr]'} xl:items-center`}>
             <div className="order-2 xl:order-1">
               <button
                 type="button"
                 onClick={() => setFiltersOpen((value) => !value)}
-                className="mb-3 flex w-full items-center justify-between gap-2 rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] px-4 py-3 text-sm font-black text-[var(--dawaa-theme-primary-strong)] xl:hidden"
+                className={`mb-3 flex w-full items-center justify-between gap-2 rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] px-4 py-3 text-sm font-black text-[var(--dawaa-theme-primary-strong)] ${managerMode ? '' : 'xl:hidden'}`}
               >
-                <span className="flex items-center gap-2"><SlidersHorizontal className="h-4 w-4" /> الفلاتر والفترة والفرع</span>
+                <span className="flex items-center gap-2"><SlidersHorizontal className="h-4 w-4" /> {managerMode ? `الفترة: ${startDate} إلى ${endDate} · ${branchScopeLabel}` : 'الفلاتر والفترة والفرع'}</span>
                 <ChevronDown className={`h-4 w-4 transition-transform ${filtersOpen ? 'rotate-180' : ''}`} />
               </button>
-              <div className={`${filtersOpen ? 'grid' : 'hidden'} gap-3 md:grid-cols-2 xl:grid xl:grid-cols-6`}>
+              <div className={`${filtersOpen ? 'grid' : 'hidden'} gap-3 md:grid-cols-2 ${managerMode ? '' : 'xl:grid'} xl:grid-cols-6`}>
               <button className="inline-flex items-center justify-center gap-2 rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] px-4 py-3 text-sm font-black text-[var(--dawaa-theme-primary-strong)] hover:bg-[var(--dawaa-theme-accent-soft)]">
                 <Download className="h-4 w-4" />
                 تصدير
@@ -1932,7 +2048,7 @@ export default function ExecutiveDashboard2027() {
             </div>
             </div>
 
-            <div className="order-1 text-right xl:order-2">
+            <div className={`order-1 text-right xl:order-2 ${managerMode ? 'hidden' : ''}`}>
               <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] px-4 py-1 text-xs font-black text-[var(--dawaa-theme-primary-strong)]">
                 <Sparkles className="h-4 w-4" />
                 Dawaa Pharmacy 2027
@@ -1947,7 +2063,9 @@ export default function ExecutiveDashboard2027() {
           </div>
         </Panel>
 
-        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        {managerMode ? salesKpiSection : null}
+
+        {managerMode ? null : <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           {navCards.map((card) => (
             <KpiCard
               key={card.id}
@@ -1963,9 +2081,9 @@ export default function ExecutiveDashboard2027() {
               }
             />
           ))}
-        </section>
+        </section>}
 
-        <Panel className="p-5">
+        {managerMode ? null : <Panel className="p-5">
           <SectionTitle
             title="مهام الفريق اليوم"
             subtitle="ملخص مهام التشغيل اليومية حسب الدور والفرع والحالة"
@@ -2007,7 +2125,7 @@ export default function ExecutiveDashboard2027() {
               </button>
             </div>
           )}
-        </Panel>
+        </Panel>}
 
         <Panel className="p-5">
           <SectionTitle
@@ -2060,7 +2178,7 @@ export default function ExecutiveDashboard2027() {
           </div>
         </Panel>
 
-        <StaffAccountsHealthPanel />
+        {managerMode ? null : <StaffAccountsHealthPanel />}
 
         {!!state.errors.length && (
           <div className="rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-5 py-3 text-sm font-bold text-[var(--dawaa-status-warning-text)]">
@@ -2154,117 +2272,9 @@ export default function ExecutiveDashboard2027() {
           </Panel>
         )}
 
-        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-          <KpiCard
-            title="صافي مبيعات الفترة"
-            value={getSectionValue({
-              value: `${money(summary.sales_total)} جنيه`,
-              loading: salesKPILoading,
-              error: salesKPIError,
-              loadedAt: salesKPILoadedAt,
-              timedOut: salesKPITimedOut,
-            })}
-            subtitle="عن الفترة المختارة"
-            icon={<Wallet className="h-6 w-6" />}
-            tone="amber"
-            onClick={() => navigate(`/analytics?${dashboardQuery}`)}
-            showAction={Boolean(salesKPIError || salesKPITimedOut)}
-            onAction={reloadDashboard}
-            loading={salesKPILoading && !salesKPILoadedAt}
-            stale={Boolean((salesKPIError || salesKPITimedOut) && salesKPILoadedAt)}
-          />
-          <KpiCard
-            title="عدد الفواتير"
-            value={getSectionValue({
-              value: count(summary.invoices_count),
-              loading: salesKPILoading,
-              error: salesKPIError,
-              loadedAt: salesKPILoadedAt,
-              timedOut: salesKPITimedOut,
-            })}
-            subtitle="كل الفواتير داخل الفترة"
-            icon={<FileText className="h-6 w-6" />}
-            tone="green"
-            onClick={() => navigate(`/invoices?${new URLSearchParams({ from: startDate, to: endDate }).toString()}`)}
-            showAction={Boolean(salesKPIError || salesKPITimedOut)}
-            onAction={reloadDashboard}
-            loading={salesKPILoading && !salesKPILoadedAt}
-            stale={Boolean((salesKPIError || salesKPITimedOut) && salesKPILoadedAt)}
-          />
-          <KpiCard
-            title="متوسط الفاتورة"
-            value={getSectionValue({
-              value: `${money(summary.avg_invoice, 2)} جنيه`,
-              loading: salesKPILoading,
-              error: salesKPIError,
-              loadedAt: salesKPILoadedAt,
-              timedOut: salesKPITimedOut,
-            })}
-            subtitle="قيمة الفاتورة"
-            icon={<ClipboardList className="h-6 w-6" />}
-            tone="cyan"
-            onClick={() => navigate(`/analytics?metric=avg-invoice&${dashboardQuery}`)}
-            showAction={Boolean(salesKPIError || salesKPITimedOut)}
-            onAction={reloadDashboard}
-            loading={salesKPILoading && !salesKPILoadedAt}
-            stale={Boolean((salesKPIError || salesKPITimedOut) && salesKPILoadedAt)}
-          />
-          <KpiCard
-            title="العملاء المشترين"
-            value={getSectionValue({
-              value: count(summary.linked_customers),
-              loading: salesKPILoading,
-              error: salesKPIError,
-              loadedAt: salesKPILoadedAt,
-              timedOut: salesKPITimedOut,
-            })}
-            subtitle="عملاء لهم كود"
-            icon={<Users className="h-6 w-6" />}
-            tone="blue"
-            onClick={() => navigate(`/customers?${dashboardQuery}`)}
-            showAction={Boolean(salesKPIError || salesKPITimedOut)}
-            onAction={reloadDashboard}
-            loading={salesKPILoading && !salesKPILoadedAt}
-            stale={Boolean((salesKPIError || salesKPITimedOut) && salesKPILoadedAt)}
-          />
-          <KpiCard
-            title="نسبة ربط العملاء"
-            value={getSectionValue({
-              value: pct(summary.customer_link_rate_percent),
-              loading: salesKPILoading,
-              error: salesKPIError,
-              loadedAt: salesKPILoadedAt,
-              timedOut: salesKPITimedOut,
-            })}
-            subtitle={`${count(summary.linked_invoices)} فاتورة مرتبطة`}
-            icon={<ShieldCheck className="h-6 w-6" />}
-            tone="purple"
-            onClick={() => navigate(`/customer-data-review?${dashboardQuery}`)}
-            showAction={Boolean(salesKPIError || salesKPITimedOut)}
-            onAction={reloadDashboard}
-            loading={salesKPILoading && !salesKPILoadedAt}
-            stale={Boolean((salesKPIError || salesKPITimedOut) && salesKPILoadedAt)}
-          />
-          <KpiCard
-            title="الفواتير غير المسجلة"
-            value={getSectionValue({
-              value: count(summary.unregistered_customer_invoices),
-              loading: salesKPILoading,
-              error: salesKPIError,
-              loadedAt: salesKPILoadedAt,
-              timedOut: salesKPITimedOut,
-            })}
-            subtitle={`${money(summary.unregistered_customer_sales)} جنيه`}
-            icon={<FileText className="h-6 w-6" />}
-            tone="red"
-            onClick={() => navigate(`/customer-data-review?status=unregistered&${dashboardQuery}`)}
-            showAction={Boolean(salesKPIError || salesKPITimedOut)}
-            onAction={reloadDashboard}
-            loading={salesKPILoading && !salesKPILoadedAt}
-            stale={Boolean((salesKPIError || salesKPITimedOut) && salesKPILoadedAt)}
-          />
-        </section>
+        {managerMode ? null : salesKpiSection}
 
+        <ManagerAnalysisFold folded={managerMode}>
         <DashboardDoctorCompetitionPanel
           metrics={doctorCompetition}
           loading={doctorCompetitionLoading}
@@ -2273,7 +2283,7 @@ export default function ExecutiveDashboard2027() {
           onRetry={() => setDoctorCompetitionRetryToken((token) => token + 1)}
         />
 
-        <Panel className="p-4">
+        {managerMode ? null : <Panel className="p-4">
           <button
             type="button"
             onClick={() => setDiagnosticsOpen((open) => !open)}
@@ -2318,7 +2328,7 @@ export default function ExecutiveDashboard2027() {
               </div>
             </div>
           ) : null}
-        </Panel>
+        </Panel>}
 
         <Panel className="p-5">
           <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -2782,8 +2792,26 @@ export default function ExecutiveDashboard2027() {
             )}
           </div>
         </Panel>
+        </ManagerAnalysisFold>
       </main>
     </div>
+  );
+}
+
+/** For the managers the period analysis is folded under one bar; everyone else sees it as before. */
+function ManagerAnalysisFold({ folded, children }: { folded: boolean; children: ReactNode }) {
+  if (!folded) return <>{children}</>;
+  return (
+    <details className="dawaa-card dawaa-card--raised group rounded-3xl p-4">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-right">
+        <span>
+          <span className="dawaa-title block text-lg">تحليل الفترة</span>
+          <span className="dawaa-caption text-xs font-bold">مسابقة الدكاترة، المبيعات يوم بيوم، آخر 5 شهور، أداء كل دكتور</span>
+        </span>
+        <ChevronDown className="h-5 w-5 transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="mt-4 space-y-4">{children}</div>
+    </details>
   );
 }
 

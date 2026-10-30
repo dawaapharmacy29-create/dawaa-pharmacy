@@ -13,24 +13,34 @@ const money = (value: unknown) => `${Math.round(Number(value) || 0).toLocaleStri
 const shortDay = (value?: string | null) =>
   value ? new Date(`${value.slice(0, 10)}T12:00:00`).toLocaleDateString('ar-EG', { weekday: 'long', day: 'numeric', month: 'numeric' }) : '—';
 
-/** «قائمة اليوم» for the branch manager. `branch` null = the manager's own branch. */
+const PICK_BRANCHES = ['فرع شكري', 'فرع الشامي'] as const;
+
+/**
+ * «قائمة اليوم». `branch` null = the manager's own branch. With `allowBranchPick` (branches manager and
+ * top management) both branches load together and the tabs show each branch's progress.
+ */
 export function BranchManagerDailyAgenda({ branch, allowBranchPick = false }: { branch: string | null; allowBranchPick?: boolean }) {
-  const [picked, setPicked] = useState<string | null>(branch ?? (allowBranchPick ? 'فرع شكري' : null));
-  const [agenda, setAgenda] = useState<BranchManagerAgenda | null>(null);
+  const [picked, setPicked] = useState<string | null>(branch ?? (allowBranchPick ? PICK_BRANCHES[0] : null));
+  const [agendas, setAgendas] = useState<Record<string, BranchManagerAgenda>>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const agenda = agendas[picked ?? ''] ?? null;
 
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      setAgenda(await loadBranchManagerAgenda(picked));
+      const names = allowBranchPick ? [...PICK_BRANCHES] : [branch];
+      const loaded = await Promise.all(names.map((name) => loadBranchManagerAgenda(name)));
+      const next: Record<string, BranchManagerAgenda> = {};
+      loaded.forEach((item, index) => { next[names[index] ?? ''] = item; });
+      setAgendas(next);
       setError(null);
     } catch (err) {
       setError(agendaErrorMessage(err));
     } finally {
       setLoading(false);
     }
-  }, [picked]);
+  }, [allowBranchPick, branch]);
 
   useEffect(() => { void reload(); }, [reload]);
 
@@ -50,14 +60,21 @@ export function BranchManagerDailyAgenda({ branch, allowBranchPick = false }: { 
         </div>
         <div className="flex items-center gap-3">
           {allowBranchPick ? (
-            <select
-              value={picked ?? ''}
-              onChange={(event) => setPicked(event.target.value)}
-              className="dawaa-theme-surface dawaa-theme-border rounded-xl border px-3 py-2 text-sm font-bold"
-            >
-              <option value="فرع شكري">فرع شكري</option>
-              <option value="فرع الشامي">فرع الشامي</option>
-            </select>
+            <div className="flex gap-2">
+              {PICK_BRANCHES.map((name) => {
+                const item = agendas[name];
+                return (
+                  <button
+                    key={name}
+                    type="button"
+                    onClick={() => setPicked(name)}
+                    className={`dawaa-badge ${picked === name ? 'dawaa-badge--info' : ''} rounded-xl px-3 py-2 text-xs font-black`}
+                  >
+                    {name}{item ? ` · ${item.done}/${item.total}` : ''}
+                  </button>
+                );
+              })}
+            </div>
           ) : null}
           {agenda ? (
             <div className="min-w-[140px]">
