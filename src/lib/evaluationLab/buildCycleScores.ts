@@ -1,4 +1,5 @@
 import { normalizeBranchName } from '@/lib/branch';
+import { inventoryAccuracy, type InventoryItemEvidence, type InventorySessionEvidence } from './inventoryAccuracy';
 import {
   ABSENCE_WITH_DEDUCTION, INVALID_REQUEST_STATUS, LAB_CURRENT_VERSION, LAB_VERSION_ORDER, LAB_THRESHOLDS, MISSING_PUNCH, NON_PUNCTUALITY_ATTENDANCE,
   PENDING_DECISION, PUNCTUALITY_BANDS, UNRESOLVED_ATTENDANCE, labFamilyOf, type LabFamily, type LabVersion,
@@ -38,6 +39,12 @@ export interface LabEvidence {
   teamEvaluations?: Array<{ staffId: string; branch: string | null; status: string | null; sentAt: string | null }> | null;
   /** v6.5: purchase invoices of the cycle (review state per branch). */
   purchaseInvoices?: Array<{ branch: string | null; enteredByStaffId: string | null; reviewed: boolean }> | null;
+  /** v6.5: weekly inventory counts of the cycle (stock accuracy), null when unreadable. */
+  inventoryCounts?: {
+    sessions: InventorySessionEvidence[];
+    items: InventoryItemEvidence[];
+    expectedWeeks: Array<{ branch: string; weeks: number }>;
+  } | null;
   /**
    * Customer requests the Master Brain found in WhatsApp conversations of the cycle (v6.3).
    * null when the source cannot be read by this session.
@@ -514,6 +521,23 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
     bm_trend: 'يُحسب بعد إغلاق دورتين بنفس البطاقة',
   };
 
+  /** Stock accuracy (60%) and counts approved on time (40%) from the weekly inventory counts. */
+  const inventoryAxis = (keys: Set<string>): AxisDraft => {
+    const counts = evidence.inventoryCounts;
+    if (counts == null) return notMeasurable('inventory_counts', 'الجرد الأسبوعي غير متاح للقراءة من هذه الجلسة');
+    const sessions = counts.sessions.filter((s) => keys.has(branchKey(s.branch)));
+    const ids = new Set(sessions.map((s) => s.id));
+    const weeks = counts.expectedWeeks.filter((row) => keys.has(branchKey(row.branch))).reduce((s, row) => s + row.weeks, 0);
+    const result = inventoryAccuracy(sessions, counts.items.filter((item) => ids.has(item.sessionId)), weeks);
+    if (!sessions.length) return notMeasurable('inventory_counts', 'لم يبدأ الجرد الأسبوعي للفرع في هذه الدورة');
+    if (result.score === null) return notMeasurable('inventory_counts', `${sessions.length} جرد في الدورة ولم يُعتمد أي جرد بأصناف بعد`);
+    return measured('inventory_counts', round((result.accuracy as number) * 100), result.score,
+      `دقة الأرصدة ${round((result.accuracy as number) * 100)}٪ (${result.matching} من ${result.counted} صنف مظبوط) · `
+      + `اتعتمد في ميعاده ${result.approvedOnTime} من ${result.expectedWeeks} أسبوع`
+      + (result.differenceValue ? ` · قيمة الفروقات ${egp(result.differenceValue)} ج` : '')
+      + (result.repeatedMismatches ? ` · ${result.repeatedMismatches} صنف رصيده اتلخبط أكتر من مرة` : ''));
+  };
+
   /** v6.5 scorecard axes from data available today; the rest are pending with their reason. */
   const scorecardAxes = (
     keys: Set<string>,
@@ -567,7 +591,8 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
       const discount = valid.reduce((s, inv) => s + Math.max(0, Number(inv.discount) || 0), 0);
       out.push(notMeasurable('discount_policy', 'سياسة الحد الأقصى للخصم لم تُحدَّد بعد',
         `الخصم ${round((discount / Math.max(1, net + discount)) * 100, 2)}٪ من قيمة الفواتير · ${valid.filter((inv) => (Number(inv.discount) || 0) > 0).length} فاتورة بخصم`));
-      for (const key of ['inventory_counts', 'fast_movers', 'stagnant_expiry', 'shortages', 'standards_submissions', 'standards_audit', 'agenda_closure'] as const) {
+      out.push(inventoryAxis(keys));
+      for (const key of ['fast_movers', 'stagnant_expiry', 'shortages', 'standards_submissions', 'standards_audit', 'agenda_closure'] as const) {
         out.push(pending(key, DORMANT[key]));
       }
     } else {

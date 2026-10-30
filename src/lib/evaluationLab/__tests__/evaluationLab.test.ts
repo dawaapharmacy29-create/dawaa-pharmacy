@@ -388,6 +388,19 @@ describe('buildCycleScores v6.5 branch scorecard', () => {
     expect(axisOf('m1', 'team_evaluations', { teamEvaluations: null })).toMatchObject({ status: 'not_measurable' });
   });
 
+  it('stock accuracy comes from the approved weekly counts of the branch', () => {
+    const inventoryCounts = {
+      sessions: [{ id: 's1', branch: 'فرع شكري', weekStart: '2026-10-01', dueDate: '2026-10-04', status: 'closed', closedDay: '2026-10-04' }],
+      items: Array.from({ length: 10 }, (_, i) => ({ sessionId: 's1', productCode: String(i), itemName: null, expected: 5, actual: i < 9 ? 5 : 4, reviewedQty: null, reviewResult: null, unitPrice: null })),
+      expectedWeeks: [{ branch: 'فرع شكري', weeks: 4 }],
+    };
+    const axis = axisOf('m1', 'inventory_counts', { inventoryCounts });
+    // 90% right → band (0.9-0.8)/0.18 = 55.6 × 0.6 + 1/4 on time × 40.
+    expect(axis).toMatchObject({ status: 'measured', value: 90 });
+    expect(axis.score).toBeCloseTo(0.6 * ((0.9 - 0.8) / 0.18) * 100 + 0.4 * 25, 1);
+    expect(axisOf('m1', 'inventory_counts', { inventoryCounts: { ...inventoryCounts, sessions: [] } })).toMatchObject({ status: 'not_measurable' });
+  });
+
   it('axes without a data path are pending with their reason, never zero', () => {
     for (const key of ['inventory_counts', 'standards_submissions', 'agenda_closure', 'discount_policy']) {
       const axis = axisOf('m1', key);

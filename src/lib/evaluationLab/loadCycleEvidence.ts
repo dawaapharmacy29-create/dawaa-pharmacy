@@ -7,6 +7,7 @@ import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
 import type { BrainRequest, LabEvidence } from './buildCycleScores';
 import { selectInvoiceCycleWindow } from '@/lib/readModels/invoiceRecordReadModel';
 import { invoiceShiftOf } from './catalog';
+import { expectedInventoryWeeks, type InventoryItemEvidence, type InventorySessionEvidence } from './inventoryAccuracy';
 import { FULFILLMENT_WINDOW_DAYS, matchRequestFulfillment, type FulfillmentItem, type FulfillmentResult } from './requestFulfillment';
 
 // Read-only, bounded evidence for one 26→25 cycle. Every read is filtered by the cycle and
@@ -238,6 +239,65 @@ async function loadTeamEvaluations(cycle: LabCycle, actorId: string | null, bran
   }
 }
 
+const CAIRO_DAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' });
+
+/** Weekly inventory counts of the cycle per branch, with the weeks expected since each branch started. */
+async function loadInventoryCounts(cycle: LabCycle): Promise<LabEvidence['inventoryCounts']> {
+  try {
+    const { data: sessionRows, error } = await supabase
+      .from('inventory_count_sessions')
+      .select('id,branch,week_start,due_date,status,closed_at')
+      .eq('count_type', 'weekly_items')
+      .lt('week_start', cycle.endExclusive)
+      .order('week_start', { ascending: true })
+      .limit(2000);
+    if (error) throw error;
+    const all = (sessionRows || []) as Row[];
+    const firstWeek = new Map<string, string>();
+    for (const row of all) {
+      const branch = text(row.branch);
+      if (!firstWeek.has(branch)) firstWeek.set(branch, text(row.week_start));
+    }
+    const sessions: InventorySessionEvidence[] = all
+      .filter((row) => text(row.week_start) >= cycle.start)
+      .map((row) => ({
+        id: text(row.id),
+        branch: text(row.branch) || null,
+        weekStart: text(row.week_start),
+        dueDate: text(row.due_date) || null,
+        status: text(row.status) || null,
+        closedDay: text(row.closed_at) ? CAIRO_DAY.format(new Date(text(row.closed_at))) : null,
+      }));
+    const items: InventoryItemEvidence[] = [];
+    const ids = sessions.map((s) => s.id);
+    for (let i = 0; i < ids.length; i += 50) {
+      const { data, error: itemError } = await supabase
+        .from('inventory_count_items')
+        .select('session_id,product_code,item_name,expected_qty,actual_qty,reviewed_qty,review_result,unit_price')
+        .in('session_id', ids.slice(i, i + 50))
+        .limit(20000);
+      if (itemError) throw itemError;
+      for (const row of (data || []) as Row[]) {
+        const n = (value: unknown) => (value === null || value === undefined || value === '' ? null : Number(value));
+        items.push({
+          sessionId: text(row.session_id),
+          productCode: text(row.product_code) || null,
+          itemName: text(row.item_name) || null,
+          expected: n(row.expected_qty),
+          actual: n(row.actual_qty),
+          reviewedQty: n(row.reviewed_qty),
+          reviewResult: text(row.review_result) || null,
+          unitPrice: n(row.unit_price),
+        });
+      }
+    }
+    const expectedWeeks = [...firstWeek.entries()].map(([branch, first]) => ({ branch, weeks: expectedInventoryWeeks(cycle, first) }));
+    return { sessions, items, expectedWeeks };
+  } catch {
+    return null;
+  }
+}
+
 /** Purchase invoices of the cycle (excluded ones left out). null when unreadable. */
 async function loadPurchaseInvoices(cycle: LabCycle) {
   try {
@@ -312,10 +372,11 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
 
   const brainRequests = await loadBrainRequests(startAt, endAt);
   const fulfillment = await loadFulfillment(requestRows, startAt, endAt);
-  const [previousBranchSales, teamEvaluations, purchaseInvoices] = await Promise.all([
+  const [previousBranchSales, teamEvaluations, purchaseInvoices, inventoryCounts] = await Promise.all([
     loadPreviousBranchSales(cycle),
     loadTeamEvaluations(cycle, options.actorId || null, [...new Set(targetRows.map((row) => text(row.branch_name)).filter(Boolean))]),
     loadPurchaseInvoices(cycle),
+    loadInventoryCounts(cycle),
   ]);
 
   const staff = staffRows
@@ -383,6 +444,7 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
     previousBranchSales,
     teamEvaluations,
     purchaseInvoices,
+    inventoryCounts,
     purchases: purchaseInvoices
       ? purchaseInvoices.map((row) => ({ enteredByStaffId: row.enteredByStaffId }))
       : purchaseRows ? purchaseRows.map((row) => ({ enteredByStaffId: text(row.entered_by_staff_id) || null })) : null,
