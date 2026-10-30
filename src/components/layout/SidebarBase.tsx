@@ -72,8 +72,9 @@ export const GROUPS: NavGroup[] = [
   ]},
 
   { title: 'الأداء والتقييمات', icon: ClipboardCheck, items: [
-    { path: '/employee-kpi', icon: BarChart3, label: 'مؤشرات الموظفين' },
-    { path: '/performance-pillars', icon: BarChart3, label: 'مؤشر الأداء الشامل', excludeRoles: ['customer_service_manager'] },
+    { path: '/employee-kpi', icon: BarChart3, label: 'مؤشرات الموظفين', excludeRoles: ['branch_manager'] },
+    { path: '/evaluation-lab', icon: ClipboardCheck, label: 'مختبر التقييم v6 (تجريبي)', permission: 'manage_evaluation_rules' },
+    { path: '/performance-pillars', icon: BarChart3, label: 'مؤشر الأداء الشامل', excludeRoles: ['customer_service_manager', 'branch_manager'] },
     { path: '/doctor-quality-summary', icon: Star, label: 'ملخص أداء الدكاترة', excludeRoles: ['pharmacist', 'customer_service_manager'] },
     { path: '/shift-performance', icon: ClipboardList, label: 'تقييم أداء الشيفتات', permission: 'view_shift_performance', excludeRoles: ['customer_service_manager'] },
     { path: '/staff-monthly-evaluation', icon: Star, label: 'التقييم الشهري للدكاترة وخدمة العملاء', permission: 'view_shift_performance', excludeRoles: ['customer_service_manager'] },
@@ -130,7 +131,7 @@ export const GROUPS: NavGroup[] = [
     { path: '/purchase-cycle-report', icon: PackageSearch, label: 'تقرير دورة المشتريات', permission: 'view_purchases' },
     { path: '/supplier-accounts', icon: WalletCards, label: 'حسابات الموردين', permission: 'view_purchases' },
     { path: '/purchase-order-log', icon: ClipboardList, label: 'سجل الطلبيات', permission: 'view_purchases' },
-    { path: '/shift-handovers', icon: Clock, label: 'تسليم الشيفتات' },
+    { path: '/shift-handovers', icon: Clock, label: 'تسليم الشيفتات', excludeRoles: ['branch_manager'] },
   ]},
 
   { title: 'المخزون وتشغيل الصيدلية', icon: Store, items: [
@@ -138,18 +139,18 @@ export const GROUPS: NavGroup[] = [
     { path: '/stagnant-medicines', icon: Package, label: 'الرواكد', permission: 'view_stagnant_medicines' },
     { path: '/medicine-expiry', icon: AlertTriangle, label: 'متابعة الصلاحية', permission: 'view_expiry_tracker' },
     { path: '/inventory-counts', icon: ClipboardList, label: 'الجرد', permission: 'view_inventory' },
-    { path: '/shelf-organization', icon: ClipboardList, label: 'تنظيم ورص الأرفف', permission: ['view_inventory','view_operations'] },
+    { path: '/shelf-organization', icon: ClipboardList, label: 'تنظيم ورص الأرفف', permission: ['view_inventory','view_operations'], excludeRoles: ['branch_manager'] },
     { path: '/supplies', icon: PackageSearch, label: 'متابعة المستلزمات', permission: ['view_supplies','view_inventory'] },
     { path: '/accessories', icon: Package, label: 'متابعة الإكسسوارات', permission: ['view_operations','view_inventory'] },
     { path: '/pharmacy-zone-tasks', icon: ClipboardList, label: 'الرص والجرد اليومي', allowedRoles: ['assistant', 'delivery'] },
-    { path: '/branch-checklist-review', icon: ClipboardCheck, label: 'مراجعة النظافة والرص والجرد', excludeRoles: ['pharmacist', 'assistant', 'customer_service_manager'] },
+    { path: '/branch-checklist-review', icon: ClipboardCheck, label: 'مراجعة النظافة والرص والجرد', excludeRoles: ['pharmacist', 'assistant', 'customer_service_manager', 'branch_manager'] },
   ]},
 
   { title: 'المهام والتشغيل اليومي', icon: ClipboardList, items: [
     { path: '/employee-operating-system', icon: ClipboardList, label: 'مهام الفريق', permission: 'employee_operating_system_view', excludeRoles: ['customer_service_manager'] },
     { path: '/my-daily-checklist', icon: ClipboardCheck, label: 'مهامي اليومية', allowedRoles: ['assistant', 'cleaning_supervisor'] },
     { path: '/assistant-operational-log', icon: PackageSearch, label: 'سجل أعمال المساعد', allowedRoles: ['assistant'] },
-    { path: '/daily-manager-checklist', icon: ClipboardList, label: 'مهام الإدارة اليومية', excludeRoles: ['general_manager', 'executive_manager', 'customer_service_manager'] },
+    { path: '/daily-manager-checklist', icon: ClipboardList, label: 'مهام الإدارة اليومية', excludeRoles: ['general_manager', 'executive_manager', 'customer_service_manager', 'branch_manager'] },
   ]},
 
   { title: 'إدارة النظام', icon: ShieldCheck, items: [
