@@ -39,6 +39,7 @@ const REGISTER = {
   'src/components/reviews/ReviewsInsightsHub.tsx': 'official_scored',
   'src/components/doctor/DoctorReviewDetails.tsx': 'official_scored',
   'src/lib/evaluations/officialConversationReview.ts': 'official_scored',
+  'src/lib/evaluationLab/loadCycleEvidence.ts': 'official_scored',
   // canonical_si
   'src/lib/salesIntelligence/canonicalKpiReadModel.ts': 'canonical_si',
   'src/lib/salesIntelligence/qa/canonicalCaseTruth.ts': 'canonical_si',

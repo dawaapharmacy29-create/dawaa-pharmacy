@@ -30,6 +30,7 @@ const Login = lazy(() => import('@/pages/Login'));
 const BranchComparison = lazy(() => import('@/pages/BranchComparison'));
 const BranchInspection = lazy(() => import('@/pages/BranchInspection'));
 const EvaluationRules2027 = lazy(() => import('@/pages/EvaluationRules2027'));
+const EvaluationLab = lazy(() => import('@/pages/EvaluationLab'));
 const QuarterlyIncentives2027 = lazy(() => import('@/pages/QuarterlyIncentives2027'));
 const OperationsCenter2027 = lazy(() => import('@/pages/OperationsCenter2027'));
 const DataHealthCenter = lazy(() => import('@/pages/DataHealthCenter'));
@@ -366,6 +367,10 @@ function AppRoutes() {
         element={
           <ProtectedRoute>{routeSuspense(<EvaluationRules2027 />, 'قواعد التقييم')}</ProtectedRoute>
         }
+      />
+      <Route
+        path="/evaluation-lab"
+        element={<ProtectedRoute>{routeSuspense(<EvaluationLab />, 'مختبر التقييم')}</ProtectedRoute>}
       />
       <Route
         path="/point-appeals"
