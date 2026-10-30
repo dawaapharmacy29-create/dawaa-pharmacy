@@ -39,6 +39,7 @@ import {
 } from '@/components/dashboard/DailySalesChart';
 import MonthlySalesChart from '@/components/dashboard/MonthlySalesChart';
 import { BranchesManagerExceptionsPanel } from '@/components/evaluations/BranchesManagerExceptionsPanel';
+import { BranchManagerDailyAgenda } from '@/components/dashboard/BranchManagerDailyAgenda';
 import { ManagerLiveIncentiveCard } from '@/components/evaluations/ManagerLiveIncentiveCard';
 import { canSeeAllBranches, effectiveBranchFilter } from '@/lib/security/permissionScopes';
 import { DAYS_AR } from '@/lib/constants';
@@ -1811,6 +1812,13 @@ export default function ExecutiveDashboard2027() {
             </div>
           </Panel>
         ) : null}
+
+        {['branch_manager', 'branches_manager', 'general_manager', 'executive_manager'].includes(role) && (
+          <BranchManagerDailyAgenda
+            branch={role === 'branch_manager' ? null : (scopedBranch === ALL_BRANCHES ? null : scopedBranch)}
+            allowBranchPick={role !== 'branch_manager' && scopedBranch === ALL_BRANCHES}
+          />
+        )}
 
         {['branch_manager', 'branches_manager'].includes(role) && (
           <div className="grid gap-4 lg:grid-cols-2">
