@@ -73,6 +73,7 @@ export const GROUPS: NavGroup[] = [
 
   { title: 'الأداء والتقييمات', icon: ClipboardCheck, items: [
     { path: '/employee-kpi', icon: BarChart3, label: 'مؤشرات الموظفين' },
+    { path: '/evaluation-lab', icon: ClipboardCheck, label: 'مختبر التقييم v6 (تجريبي)', permission: 'manage_evaluation_rules' },
     { path: '/performance-pillars', icon: BarChart3, label: 'مؤشر الأداء الشامل', excludeRoles: ['customer_service_manager'] },
     { path: '/doctor-quality-summary', icon: Star, label: 'ملخص أداء الدكاترة', excludeRoles: ['pharmacist', 'customer_service_manager'] },
     { path: '/shift-performance', icon: ClipboardList, label: 'تقييم أداء الشيفتات', permission: 'view_shift_performance', excludeRoles: ['customer_service_manager'] },
