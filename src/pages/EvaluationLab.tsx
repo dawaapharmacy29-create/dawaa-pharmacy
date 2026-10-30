@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronUp, Database, FlaskConical, MinusCircle, Users } from 'lucide-react';
 import { LAB_CURRENT_VERSION, LAB_FAMILY_LABELS, LAB_PILLAR_LABELS, LAB_PREVIOUS_VERSION, type LabFamily, type LabPillar } from '@/lib/evaluationLab/catalog';
 import { useAuth } from '@/hooks/useAuth';
@@ -213,6 +214,48 @@ function SourceStrip({ evidence }: { evidence: LabEvidence }) {
   );
 }
 
+// Every evaluation track and where it lives today. The current monthly evaluation stays the official
+// one for everybody; the lab only adds a trial reading for the families it covers.
+const EVALUATION_TRACKS: { label: string; inLab: boolean; current: { path: string; label: string }[] }[] = [
+  { label: 'الصيادلة', inLab: true, current: [{ path: '/staff-monthly-evaluation', label: 'التقييم الشهري' }] },
+  { label: 'المساعدون', inLab: true, current: [{ path: '/staff-monthly-evaluation', label: 'التقييم الشهري' }] },
+  { label: 'الدليفري', inLab: true, current: [{ path: '/staff-monthly-evaluation', label: 'التقييم الشهري' }] },
+  { label: 'مديرو الفروع', inLab: true, current: [{ path: '/weekly-evaluation/branch_manager', label: 'تقييم مدير الفرع' }] },
+  { label: 'مدير الفروع', inLab: true, current: [{ path: '/weekly-evaluation/branches_manager', label: 'تقييم مدير الفروع' }] },
+  { label: 'خدمة العملاء ودواء ألفا', inLab: false, current: [
+    { path: '/weekly-evaluation/customer_service', label: 'تقييم الفريق' },
+    { path: '/staff-monthly-evaluation', label: 'التقييم الشهري' },
+  ] },
+  { label: 'مسؤول الشيفت والمشتريات', inLab: false, current: [{ path: '/staff-monthly-evaluation', label: 'التقييم الشهري' }] },
+];
+
+function TrackCoverage() {
+  const navigate = useNavigate();
+  return (
+    <details className="mt-4 rounded-xl border border-[var(--dawaa-theme-border)] px-3 py-2">
+      <summary className="cursor-pointer text-xs font-black text-[var(--dawaa-theme-heading)]">
+        مسارات التقييم — التقييم الشهري الحالي شغال لكل الوظائف، والمختبر قراءة تجريبية بجانبه
+      </summary>
+      <div className="mt-2 grid gap-1.5">
+        {EVALUATION_TRACKS.map((track) => (
+          <div key={track.label} className="flex flex-wrap items-center gap-2 text-xs font-bold">
+            <span className="min-w-[150px] text-[var(--dawaa-theme-heading)]">{track.label}</span>
+            <span className={`dawaa-badge ${track.inLab ? 'dawaa-badge--success' : ''} rounded-full px-2 py-0.5`}>
+              {track.inLab ? `في المختبر ${LAB_CURRENT_VERSION}` : 'لسه مش في المختبر'}
+            </span>
+            {track.current.map((link) => (
+              <button key={link.path} type="button" onClick={() => navigate(link.path)}
+                className="dawaa-badge dawaa-badge--info rounded-full px-2 py-0.5">
+                {link.label}
+              </button>
+            ))}
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
 export default function EvaluationLab() {
   const cycles = useMemo(() => closedCycles(6), []);
   const { user } = useAuth();
@@ -266,6 +309,7 @@ export default function EvaluationLab() {
           تجريبي للقراءة فقط: لا يكتب أي بيانات، ولا يغيّر التقييم الحالي أو النقاط أو الحوافز أو المرتبات.
         </div>
         {query.data && <div className="mt-4"><SourceStrip evidence={query.data.evidence} /></div>}
+        <TrackCoverage />
       </section>
 
       <div className="flex gap-2 overflow-x-auto pb-1" role="tablist">
