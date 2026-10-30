@@ -25,13 +25,13 @@ begin
 end $test$;
 
 insert into public.whatsapp_customer_stories(id,story_key,story_started_at)
-values ('00000000-0000-4000-8000-000000000071','SYN-STORY-SYNC','2026-09-15T06:00:00Z');
+values ('00000000-0000-4000-8000-000000000071','SYN-STORY-SYNC',now()-interval '2 days');
 insert into public.whatsapp_customer_journeys(id,story_id,journey_key,root_source_id,customer_state,journey_started_at,journey_ended_at)
 values ('00000000-0000-4000-8000-000000000072','00000000-0000-4000-8000-000000000071','SYN-JOURNEY-SYNC',
-  '00000000-0000-4000-8000-000000000051','reengaged','2026-09-15T06:00:00Z','2026-09-15T07:00:00Z');
+  '00000000-0000-4000-8000-000000000051','reengaged',now()-interval '2 days',now()-interval '2 days'+interval '1 hour');
 insert into public.whatsapp_customer_journey_sessions(journey_id,source_id,session_id,sequence_no,session_role)
 values ('00000000-0000-4000-8000-000000000072','00000000-0000-4000-8000-000000000051','SYN-SESSION-SYNC',1,'root');
-update public.whatsapp_review_sources set conversation_ended_at='2026-09-15T07:00:00Z',analysis_json=
+update public.whatsapp_review_sources set conversation_ended_at=now()-interval '2 days'+interval '1 hour',analysis_json=
  '{"operational":{"productJourney":{"journeys":[{"followupCandidate":true,"productName":"Synthetic Product","productCode":"SYN-P1","events":[{"stage":"accepted","confidence":95}]},{"followupCandidate":true,"productName":"Low Confidence","events":[{"stage":"accepted","confidence":89}]},{"followupCandidate":false,"productName":"No Followup","events":[{"stage":"accepted","confidence":99}]}]}}}'::jsonb
 where id='00000000-0000-4000-8000-000000000051';
 
