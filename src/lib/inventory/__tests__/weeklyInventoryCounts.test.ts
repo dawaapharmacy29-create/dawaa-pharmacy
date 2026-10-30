@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseWeeklyCountRows, weeklyCountErrorMessage } from '../weeklyInventoryCounts';
+import { matchCountedFileRows, parseWeeklyCountRows, weeklyCountErrorMessage } from '../weeklyInventoryCounts';
 
 describe('weekly inventory count file', () => {
   it('reads the program columns by their Arabic names, Arabic digits and thousands separators', () => {
@@ -24,6 +24,24 @@ describe('weekly inventory count file', () => {
     ]);
     expect(parsed.items.map((item) => item.item_name)).toEqual(['A']);
     expect(parsed).toMatchObject({ skipped: 2, duplicates: 1 });
+  });
+
+  it('matches the counted file by code, then by name, and never reads the balance as the count', () => {
+    const items = [
+      { id: 'a', product_code: '1001', item_name: 'AUGMENTIN 1GM' },
+      { id: 'b', product_code: null, item_name: 'PANADOL' },
+      { id: 'c', product_code: '1003', item_name: 'CATAFLAM' },
+    ];
+    const match = matchCountedFileRows([
+      { 'كود الصنف': '1001', 'اسم الصنف': 'AUGMENTIN 1GM', 'الرصيد': '10', 'الفعلي': '٩' },
+      { 'كود الصنف': '', 'اسم الصنف': 'panadol', 'الرصيد': '5', 'الفعلي': '5' },
+      { 'كود الصنف': '9999', 'اسم الصنف': 'صنف مش في الأسبوع', 'الرصيد': '1', 'الفعلي': '1' },
+      { 'كود الصنف': '1003', 'اسم الصنف': 'CATAFLAM', 'الرصيد': '4', 'الفعلي': '' },
+    ], items);
+    expect(match.countedColumn).toBe('الفعلي');
+    expect(match.counts).toEqual([{ item_id: 'a', actual_qty: '9' }, { item_id: 'b', actual_qty: '5' }]);
+    expect(match).toMatchObject({ unmatched: ['صنف مش في الأسبوع'], missing: 1 });
+    expect(matchCountedFileRows([{ 'اسم الصنف': 'PANADOL', 'الرصيد': '5' }], items)).toMatchObject({ countedColumn: null, counts: [] });
   });
 
   it('maps the RPC errors to Arabic messages', () => {

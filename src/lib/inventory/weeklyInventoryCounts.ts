@@ -130,6 +130,80 @@ export async function readWeeklyCountFile(file: File): Promise<ParsedWeeklyCount
   return parseWeeklyCountRows(XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' }));
 }
 
+const COUNTED_ALIASES = ['الفعلي', 'الكمية الفعلية', 'الجرد', 'الجرد الفعلي', 'العدد', 'المعدود', 'counted', 'actual', 'actual_qty']
+  .map((alias) => normalizeHeader(alias));
+
+export interface CountedFileMatch {
+  counts: Array<{ item_id: string; actual_qty: string }>;
+  /** Rows of the file that match no item of the week. */
+  unmatched: string[];
+  /** Week items the file does not count. */
+  missing: number;
+  countedColumn: string | null;
+}
+
+/**
+ * Pure: the counted file (after the count) → quantities for the week's items. A row matches by
+ * product code, else by exact item name; the counted column is never the program balance column.
+ */
+export function matchCountedFileRows(
+  rows: Array<Record<string, unknown>>,
+  items: ReadonlyArray<Pick<WeeklyCountItem, 'id' | 'product_code' | 'item_name'>>,
+): CountedFileMatch {
+  const headers = rows.length ? Object.keys(rows[0]) : [];
+  const pick = (aliases: string[]) => aliases.map((alias) => headers.find((header) => normalizeHeader(header) === alias)).find(Boolean) ?? null;
+  const countedColumn = pick(COUNTED_ALIASES);
+  if (!countedColumn) return { counts: [], unmatched: [], missing: items.length, countedColumn };
+  const codeColumn = pick(ALIAS_INDEX.code);
+  const nameColumn = pick(ALIAS_INDEX.name);
+  const byCode = new Map(items.filter((item) => item.product_code).map((item) => [String(item.product_code).trim().toLowerCase(), item.id]));
+  const byName = new Map(items.filter((item) => item.item_name).map((item) => [String(item.item_name).trim().toLowerCase(), item.id]));
+  const found = new Map<string, string>();
+  const unmatched: string[] = [];
+  for (const row of rows) {
+    const qty = toNumberText(row[countedColumn]);
+    if (qty === null || Number(qty) < 0) continue;
+    const code = codeColumn ? String(row[codeColumn] ?? '').trim() : '';
+    const name = nameColumn ? String(row[nameColumn] ?? '').trim() : '';
+    const id = (code && byCode.get(code.toLowerCase())) || (name && byName.get(name.toLowerCase())) || null;
+    if (id) found.set(id, qty);
+    else if (code || name) unmatched.push(name || code);
+  }
+  return {
+    counts: [...found.entries()].map(([item_id, actual_qty]) => ({ item_id, actual_qty })),
+    unmatched,
+    missing: items.filter((item) => !found.has(item.id)).length,
+    countedColumn,
+  };
+}
+
+export async function readCountedFile(file: File, items: ReadonlyArray<Pick<WeeklyCountItem, 'id' | 'product_code' | 'item_name'>>) {
+  const XLSX = await import('xlsx');
+  const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  return matchCountedFileRows(XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' }), items);
+}
+
+export interface InventoryCounter {
+  staff_account_id: string;
+  name: string | null;
+  branch_scope: 'shokry' | 'elshamy' | 'ALL';
+  active: boolean;
+  can_login: boolean;
+}
+
+export const COUNTER_SCOPE_LABELS: Record<InventoryCounter['branch_scope'], string> = {
+  shokry: 'فرع شكري',
+  elshamy: 'فرع الشامي',
+  ALL: 'كل الفروع',
+};
+
+export async function listInventoryCounters(): Promise<InventoryCounter[]> {
+  const { data, error } = await supabase.rpc('list_inventory_counters_v1');
+  if (error) throw error;
+  return (data || []) as InventoryCounter[];
+}
+
 export async function listWeeklyCountSessions(branch: string | null): Promise<WeeklyCountSession[]> {
   let query = supabase
     .from('inventory_count_sessions')

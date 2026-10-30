@@ -13,6 +13,9 @@ import {
   createWeeklyCount,
   listWeeklyCountItems,
   listWeeklyCountSessions,
+  COUNTER_SCOPE_LABELS,
+  listInventoryCounters,
+  readCountedFile,
   readWeeklyCountFile,
   reviewWeeklyCount,
   saveCountedQuantities,
@@ -94,6 +97,8 @@ export default function InventoryCounts() {
 
       {canManage ? <PlanWeek branch={branch} onCreated={(id) => setOpenId(id)} /> : null}
 
+      {canManage ? <CountersList /> : null}
+
       <Panel className="p-5">
         <SectionTitle title="جرد الأسابيع" subtitle="اضغط على الأسبوع عشان تفتح أصنافه" />
         {sessions.isLoading ? <Loader2 className="mx-auto h-6 w-6 animate-spin" /> : null}
@@ -118,6 +123,28 @@ export default function InventoryCounts() {
         </div>
       </Panel>
     </div>
+  );
+}
+
+/** The named inventory counters: only they count (enforced by the database). */
+function CountersList() {
+  const counters = useQuery({ queryKey: ['inventory-counters'], queryFn: listInventoryCounters });
+  if (!counters.data?.length) return null;
+  return (
+    <Panel className="p-5">
+      <SectionTitle title="المسئولين عن الجرد" subtitle="هما بس اللي يقدروا يسجلوا كميات الجرد" />
+      <div className="flex flex-wrap gap-2">
+        {counters.data.map((counter) => (
+          <span
+            key={counter.staff_account_id}
+            className={`dawaa-badge ${counter.active && counter.can_login ? 'dawaa-badge--info' : 'dawaa-badge--warning'}`}
+          >
+            {counter.name} · {COUNTER_SCOPE_LABELS[counter.branch_scope]}
+            {!counter.can_login ? ' · الحساب من غير دخول' : ''}
+          </span>
+        ))}
+      </div>
+    </Panel>
   );
 }
 
@@ -224,6 +251,28 @@ function SessionDetail({ session, canManage }: { session: WeeklyCountSession; ca
     },
     onError: fail,
   });
+  // The counted file (the program sheet with the counted column filled) fills every matched item at once.
+  const uploadCounted = useMutation({
+    mutationFn: async (file: File) => {
+      const match = await readCountedFile(file, items.data || []);
+      if (!match.countedColumn) throw new Error('counted_column_missing');
+      const saved = match.counts.length ? await saveCountedQuantities(session.id, match.counts) : 0;
+      return { ...match, saved };
+    },
+    onSuccess: (result) => {
+      toast.success(
+        `اتسجل ${result.saved} صنف من الملف` +
+          (result.missing ? ` · ${result.missing} صنف لسه من غير كمية` : '') +
+          (result.unmatched.length ? ` · ${result.unmatched.length} سطر مش من أصناف الأسبوع` : '')
+      );
+      setCounts({});
+      refresh();
+    },
+    onError: (error) =>
+      error instanceof Error && error.message === 'counted_column_missing'
+        ? toast.error('مش لاقي عمود الكمية الفعلية في الملف (اكتب عنوانه «الفعلي» أو «الكمية الفعلية»)')
+        : fail(error),
+  });
   const submit = useMutation({
     mutationFn: async () => {
       const unsaved = pendingCounts();
@@ -321,6 +370,21 @@ function SessionDetail({ session, canManage }: { session: WeeklyCountSession; ca
       <div className="flex flex-wrap gap-2">
         {open ? (
           <>
+            <label className={`${buttonClass} cursor-pointer`}>
+              {uploadCounted.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
+              رفع ملف الجرد بعد ما يخلص
+              <input
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+                disabled={uploadCounted.isPending}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = '';
+                  if (file) uploadCounted.mutate(file);
+                }}
+              />
+            </label>
             <button type="button" className={buttonClass} disabled={save.isPending || !pendingCounts().length} onClick={() => save.mutate()}>
               حفظ الكميات
             </button>
