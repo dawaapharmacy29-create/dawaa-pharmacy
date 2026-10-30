@@ -27,6 +27,7 @@ import {
 import {
   DEFAULT_QUICK_REPLY_SCRIPTS,
   fetchQuickReplyScripts,
+  hasUnresolvedQuickReplyFields,
   renderQuickReplyTemplate,
   saveQuickReplyScript,
   suggestScriptTypesForCustomer,
@@ -304,6 +305,10 @@ export default function WelcomeMessages() {
   };
 
   const save = async (openWhatsapp = false) => {
+    if (hasUnresolvedQuickReplyFields(form.message_body)) {
+      toast.error('الرسالة فيها بيانات ناقصة. أكمل المتغيرات الظاهرة قبل حفظها أو إرسالها.');
+      return;
+    }
     try {
       let nextStatus = form.status;
       const waUrl = whatsappWelcomeUrl(form.customer_phone, form.message_body);
