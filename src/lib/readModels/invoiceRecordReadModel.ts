@@ -145,6 +145,45 @@ export async function readInternalCodeLedgerPage(codes: string[], fromIso: strin
  return result.data || [];
 }
 
+export type StaffCycleSaleRow = { id: string; invoice_date: string | null; sale_date: string | null; net_amount: number | null; total_amount: number | null; customer_code: string | null };
+
+/**
+ * Approved read boundary: the invoices credited to one employee (staff_id) in a cycle window,
+ * ordered by the (staff_id, invoice_date) index. Bounded: throws instead of returning a partial cycle.
+ */
+export async function readStaffCycleSales(staffId: string, fromIso: string, toIso: string, maxRows = 5000): Promise<StaffCycleSaleRow[]> {
+  const pageSize = 1000;
+  const rows: StaffCycleSaleRow[] = [];
+  for (let offset = 0; offset < maxRows; offset += pageSize) {
+    const { data, error } = await supabase
+      .from('sales_invoices')
+      .select('id,invoice_date,sale_date,net_amount,total_amount,customer_code')
+      .eq('staff_id', staffId)
+      .gte('invoice_date', fromIso)
+      .lt('invoice_date', toIso)
+      .order('invoice_date', { ascending: true })
+      .order('id', { ascending: true })
+      .range(offset, offset + pageSize - 1);
+    if (error) throw new Error(error.message);
+    rows.push(...((data || []) as StaffCycleSaleRow[]));
+    if ((data || []).length < pageSize) return rows;
+  }
+  throw new Error('staff_cycle_sales_limit_reached');
+}
+
+/** Approved read boundary: the newest invoice timestamp of a branch (data freshness banner). */
+export async function readLatestBranchInvoiceAt(branch: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('sales_invoices')
+    .select('invoice_date')
+    .eq('branch', branch)
+    .order('invoice_date', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data as { invoice_date?: string | null } | null)?.invoice_date ?? null;
+}
+
 /**
  * Approved read boundary: one closed cycle of invoices for the evaluation lab (read-only, paged by
  * the caller). invoice_date with Cairo boundaries, ordered by the covering (invoice_date, id) index.
