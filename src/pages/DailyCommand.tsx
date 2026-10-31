@@ -32,6 +32,9 @@ function safeString(value: unknown, fallback = ''): string {
   return String(value);
 }
 import { CommandHeader, MetricCard, SectionState } from '@/components/command/CommandUI';
+import { GmDailyReviewPanel } from '@/components/dashboard/GmDailyReviewPanel';
+
+const GM_REVIEW_ROLES = ['general_manager', 'admin', 'executive_manager'];
 
 type Row = Record<string, unknown>;
 const today = () => new Date().toISOString().slice(0, 10);
@@ -197,6 +200,7 @@ export default function DailyCommand() {
         title="مركز القيادة اليومي"
         description="صورة تشغيلية موحدة لليوم: المبيعات، المخاطر، والقرارات التي تحتاج تدخلًا."
       />
+      {GM_REVIEW_ROLES.includes(String(user?.role || '')) ? <GmDailyReviewPanel /> : null}
       <div className="flex justify-end">
         <button
           onClick={() => void load()}
