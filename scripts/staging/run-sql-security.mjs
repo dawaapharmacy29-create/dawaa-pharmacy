@@ -15,7 +15,7 @@ const suites = [
   ['staff_compliance_violations_v1', ['20261031100000_staff_compliance_violations_v1.sql']],
   ['staff_account_suspension_sync_v1', ['20261031120000_staff_account_suspension_sync_v1.sql']],
   ['dashboard_speed_v1', ['20261031140000_dashboard_speed_v1.sql']],
-  ['gm_daily_review_v1', ['20261029120000_branch_inventory_weekly_counts_v1.sql', '20261030140000_branch_manager_daily_agenda_v1.sql', '20261031160000_gm_daily_review_v1.sql']],
+  ['gm_daily_review_v1', ['20261029120000_branch_inventory_weekly_counts_v1.sql', '20261030140000_branch_manager_daily_agenda_v1.sql', '20261031160000_gm_daily_review_v1.sql', '20261031170000_gm_daily_review_speed_v1.sql']],
   ['whatsapp_invoice_link_confirmation_v1', [
     '../migrations/20261012121500_whatsapp_invoice_link_confirmation_v1.sql',
   ]],
