@@ -1465,6 +1465,8 @@ export async function importCustomersToDB(
       summary.summaryRefreshMessage = [summary.summaryRefreshMessage, reconciliation.note].filter(Boolean).join(' ');
     }
 
+    // Preserve the existing immediate metadata refresh on customer-file imports.
+    // Invoice-file imports use the bounded database queue instead.
     const refresh = await supabase.rpc('rebuild_customer_metrics_summary');
     summary.summaryRefreshStatus = refresh.error ? 'unavailable' : 'refreshed';
     if (refresh.error && !summary.summaryRefreshMessage) {
@@ -3031,9 +3033,9 @@ export async function importInvoicesToDB(
   clearCustomerServiceCommandCenterCache();
   clearCustomerProfileCache();
   clearStaffPerformanceProfileCache();
-  // مهم: استيراد الفواتير (بعكس استيراد ملف العملاء) كان بيسيب customer_metrics_summary
-  // من غير تحديث خالص. مش بننتظر النتيجة عشان الاستيراد يفضل سريع، بس لازم تتبعت.
-  void supabase.rpc('rebuild_customer_metrics_summary');
+  // The database INSERT statement trigger queues affected customer codes.
+  // A bounded cron worker refreshes them without rewriting every customer's
+  // financial summary after each import. The nightly rebuild remains a fallback.
   // كاش باك العملاء كان محتاج ضغطة يدوية منفصلة كل مرة تستورد فواتير جديدة —
   // بنحسب الربع (Quarter) اللي فواتير الدفعة دي واقعة فيه، ونشغّل نفس دالة
   // الحساب اللي بيستخدمها الزرار اليدوي، تلقائيًا وبدون ما نستنى النتيجة.
