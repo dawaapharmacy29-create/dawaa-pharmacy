@@ -18,6 +18,13 @@ begin
   v := public.get_gm_daily_review_v1();
   if (v->>'total')::int <> 8 then raise exception 'review_shape: %', v; end if;
 
+  -- Sales file: Shokry's newest invoice is two days old, so yesterday's file is not in yet.
+  select i into v_item from jsonb_array_elements(v->'items') i where i->>'key' = 'sales_upload';
+  if (v_item->>'ok')::boolean or (v_item->'detail'->1->>'last_day')::date <> (current_date - 2)
+     or v_item->'detail'->0->>'last_day' is null then
+    raise exception 'sales_upload_wrong: %', v_item;
+  end if;
+
   select i into v_item from jsonb_array_elements(v->'items') i where i->>'key' = 'attendance';
   if (v_item->>'ok')::boolean or (v_item->'detail'->1->>'pending')::int <> 1 or (v_item->'detail'->1->>'late')::int <> 1 then
     raise exception 'attendance_wrong: %', v_item;
