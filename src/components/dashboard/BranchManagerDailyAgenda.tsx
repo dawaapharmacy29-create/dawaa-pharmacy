@@ -162,6 +162,9 @@ function AgendaRow({ item, branch, onChanged }: { item: AgendaItem; branch: stri
             {showCount ? <span className={`dawaa-badge ${tone} rounded-full px-2 py-0.5 text-xs font-black`}>{item.count}</span> : null}
           </div>
           {action ? <p className="dawaa-caption mt-0.5 text-xs font-bold">{action}</p> : null}
+          {item.before_cycle ? (
+            <p className="dawaa-caption mt-0.5 text-xs font-bold">+ {item.before_cycle} طلب مفتوح من قبل الدورة (مش محسوب هنا)</p>
+          ) : null}
           {item.note ? <p className="mt-1 text-xs font-bold">📝 {item.note}{item.marked_by ? ` — ${item.marked_by}` : ''}</p> : null}
 
           {item.rows.length > 0 && !item.done ? (
