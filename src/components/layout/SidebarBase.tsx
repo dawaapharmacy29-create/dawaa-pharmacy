@@ -37,7 +37,8 @@ const CUSTOMER_CODING_ITEM: NavItem = { path: '/customer-coding', icon: UserPlus
 export const GROUPS: NavGroup[] = [
   { title: 'الرئيسية والإدارة', icon: Crown, items: [
     { path: '/', icon: LayoutDashboard, label: 'لوحة القيادة', permission: 'view_dashboard', excludeRoles: ['customer_service_manager', 'procurement_manager', 'inventory_assistant', 'customer_service', 'delivery', 'cleaning_supervisor'] },
-    { path: '/daily-command', icon: Target, label: 'الأمر اليومي', allowedRoles: ['general_manager', 'admin', 'executive_manager', 'branches_manager'] },
+    { path: '/daily-command', icon: Target, label: 'مراجعتي اليومية', allowedRoles: ['general_manager', 'admin', 'executive_manager'] },
+    { path: '/daily-command', icon: Target, label: 'الأمر اليومي', allowedRoles: ['branches_manager'] },
     { path: '/operations-center', icon: BellRing, label: 'مركز المهام والتنبيهات', permission: 'view_operations' },
     { path: '/branch-inspection', icon: ClipboardList, label: 'متابعة ومرور الفروع', permission: 'view_branch_inspection' },
   ]},
