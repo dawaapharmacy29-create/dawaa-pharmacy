@@ -9,6 +9,7 @@ import { selectInvoiceCycleWindow } from '@/lib/readModels/invoiceRecordReadMode
 import { invoiceShiftOf } from './catalog';
 import { expectedInventoryWeeks, type InventoryItemEvidence, type InventorySessionEvidence } from './inventoryAccuracy';
 import { FULFILLMENT_WINDOW_DAYS, matchRequestFulfillment, type FulfillmentItem, type FulfillmentResult } from './requestFulfillment';
+import type { ViolationCategory } from './complianceFactor';
 
 // Read-only, bounded evidence for one 26→25 cycle. Every read is filtered by the cycle and
 // capped; a failed read throws (the lab shows the outage instead of scoring zeros).
@@ -239,6 +240,21 @@ async function loadTeamEvaluations(cycle: LabCycle, actorId: string | null, bran
   }
 }
 
+/** Compliance violations of the cycle (not withdrawn), through the scoped RPC; null when unreadable. */
+async function loadViolations(cycle: LabCycle): Promise<LabEvidence['violations']> {
+  try {
+    const last = new Date(`${cycle.endExclusive}T12:00:00Z`);
+    last.setUTCDate(last.getUTCDate() - 1);
+    const { data, error } = await supabase.rpc('list_staff_violations_v1', { p_from: cycle.start, p_to: last.toISOString().slice(0, 10), p_branch: null });
+    if (error) throw error;
+    return ((data || []) as Row[])
+      .filter((row) => !row.withdrawn)
+      .map((row) => ({ staffId: text(row.staff_account_id), category: text(row.category) as ViolationCategory, points: num(row.points) }));
+  } catch {
+    return null;
+  }
+}
+
 const CAIRO_DAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' });
 
 /** Weekly inventory counts of the cycle per branch, with the weeks expected since each branch started. */
@@ -372,11 +388,12 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
 
   const brainRequests = await loadBrainRequests(startAt, endAt);
   const fulfillment = await loadFulfillment(requestRows, startAt, endAt);
-  const [previousBranchSales, teamEvaluations, purchaseInvoices, inventoryCounts] = await Promise.all([
+  const [previousBranchSales, teamEvaluations, purchaseInvoices, inventoryCounts, violations] = await Promise.all([
     loadPreviousBranchSales(cycle),
     loadTeamEvaluations(cycle, options.actorId || null, [...new Set(targetRows.map((row) => text(row.branch_name)).filter(Boolean))]),
     loadPurchaseInvoices(cycle),
     loadInventoryCounts(cycle),
+    loadViolations(cycle),
   ]);
 
   const staff = staffRows
@@ -445,6 +462,7 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
     teamEvaluations,
     purchaseInvoices,
     inventoryCounts,
+    violations,
     purchases: purchaseInvoices
       ? purchaseInvoices.map((row) => ({ enteredByStaffId: row.enteredByStaffId }))
       : purchaseRows ? purchaseRows.map((row) => ({ enteredByStaffId: text(row.entered_by_staff_id) || null })) : null,

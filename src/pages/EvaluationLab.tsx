@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/useAuth';
 
 const BASELINE_VERSION = LAB_PREVIOUS_VERSION[LAB_CURRENT_VERSION] ?? LAB_CURRENT_VERSION;
 import { buildCycleScores, type LabEvidence, type LabPersonScore } from '@/lib/evaluationLab/buildCycleScores';
+import { VIOLATION_LABELS, type ComplianceResult, type ViolationCategory } from '@/lib/evaluationLab/complianceFactor';
 import { closedCycles, loadCycleEvidence, type LabCycle } from '@/lib/evaluationLab/loadCycleEvidence';
 import type { AxisResult, Readiness } from '@/lib/evaluationLab/scoring';
 
@@ -99,6 +100,29 @@ function BaselineDelta({ total, baseline }: { total: number | null; baseline: nu
   );
 }
 
+function ComplianceBadge({ compliance }: { compliance: ComplianceResult }) {
+  const tone = compliance.factor >= 1 ? 'dawaa-badge--success' : compliance.factor >= 0.75 ? 'dawaa-badge--warning' : 'dawaa-badge--danger';
+  return (
+    <span className={`dawaa-badge ${tone} rounded-full px-2 py-0.5 text-[11px] font-black`} title="معامل الالتزام × شريحة الحافز">
+      الالتزام ×{Math.round(compliance.factor * 100)}٪{compliance.payout !== null ? ` · الحافز ${compliance.payout}٪` : ''}
+    </span>
+  );
+}
+
+function ComplianceDetails({ compliance }: { compliance: ComplianceResult }) {
+  const parts = Object.entries(compliance.byCategory).map(([key, n]) => `${VIOLATION_LABELS[key as ViolationCategory]} ×${n}`);
+  if (compliance.punchOverPoints) parts.push(`بصمات ناقصة فوق المسموح ×${compliance.punchOverPoints}`);
+  return (
+    <div className="mt-3 rounded-xl border border-[var(--dawaa-theme-border)] p-3 text-xs font-bold">
+      <div className="font-black text-[var(--dawaa-theme-heading)]">
+        الالتزام: {compliance.points} نقطة → معامل {Math.round(compliance.factor * 100)}٪
+        {compliance.tierPayout !== null ? ` · شريحة الأداء ${compliance.tierPayout}٪ × المعامل = ${compliance.payout}٪` : ''}
+      </div>
+      <div className="dawaa-theme-muted mt-1">{parts.length ? parts.join(' · ') : 'مفيش مخالفات مسجلة في الدورة'}</div>
+    </div>
+  );
+}
+
 function PersonCard({ person, rank, baseline }: { person: LabPersonScore; rank: number | null; baseline?: number | null }) {
   const [open, setOpen] = useState(false);
   const readiness = READINESS[person.readiness];
@@ -114,6 +138,7 @@ function PersonCard({ person, rank, baseline }: { person: LabPersonScore; rank: 
             <span className={`rounded-full border px-2 py-0.5 text-[11px] font-black ${readiness.className}`}>{readiness.label}</span>
             <CoverageBar coverage={person.coverage} />
             <BaselineDelta total={person.total} baseline={baseline} />
+            {person.compliance ? <ComplianceBadge compliance={person.compliance} /> : null}
           </div>
         </div>
         {open ? <ChevronUp size={18} className="dawaa-theme-muted" /> : <ChevronDown size={18} className="dawaa-theme-muted" />}
@@ -128,6 +153,7 @@ function PersonCard({ person, rank, baseline }: { person: LabPersonScore; rank: 
               </div>
             ))}
           </div>
+          {person.compliance ? <ComplianceDetails compliance={person.compliance} /> : null}
           {person.adjustments.length ? (
             <div className="dawaa-status-danger-bg dawaa-status-danger-border mt-3 space-y-1 rounded-xl border p-3">
               {person.adjustments.map((adjustment) => (

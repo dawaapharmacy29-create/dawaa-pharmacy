@@ -6,6 +6,7 @@ import {
 } from './catalog';
 import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 import { summarizeFulfillment, type FulfillmentResult } from './requestFulfillment';
+import { personCompliance, type ComplianceResult, type ViolationCategory } from './complianceFactor';
 import {
   aggregate, bandScore, closureScore, codingGatePenalty, disciplineScore, measured, median, notMeasurable,
   percentileAmong, shrunkMean, targetScore, type AxisResult, type LabAdjustment, type LabScore,
@@ -37,6 +38,8 @@ export interface LabEvidence {
   previousBranchSales?: Array<{ branch: string; invoices: number; net: number }> | null;
   /** v6.5: monthly evaluation status of each staff member for this cycle (official RPC). */
   teamEvaluations?: Array<{ staffId: string; branch: string | null; status: string | null; sentAt: string | null }> | null;
+  /** Compliance violations recorded in the cycle (withdrawn ones excluded); null when unreadable. */
+  violations?: Array<{ staffId: string; category: ViolationCategory; points: number }> | null;
   /** v6.5: purchase invoices of the cycle (review state per branch). */
   purchaseInvoices?: Array<{ branch: string | null; enteredByStaffId: string | null; reviewed: boolean }> | null;
   /** v6.5: weekly inventory counts of the cycle (stock accuracy), null when unreadable. */
@@ -116,6 +119,8 @@ export interface LabPersonScore extends LabScore {
   family: LabFamily;
   /** Members whose scores feed a manager's team axes. */
   team?: Array<{ staffId: string; name: string; total: number | null }>;
+  /** Compliance factor on the incentive tier (the score itself is unchanged). */
+  compliance?: ComplianceResult;
 }
 
 type AxisDraft = Omit<AxisResult, 'label' | 'weight'>;
@@ -723,6 +728,10 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
       : notMeasurable('branch_managers', 'لا توجد نتائج لمديري الفروع'));
     results.push({ staffId: head.id, name: head.name, branch: head.branch, family: 'branches_manager',
       team: managerResults.map((m) => ({ staffId: m.staffId, name: m.name, total: m.total })), ...aggregate('branches_manager', axesForHead, { version }) });
+  }
+  for (const result of results) {
+    const own = (evidence.violations || []).filter((v) => v.staffId === result.staffId);
+    result.compliance = personCompliance(own, facts.get(result.staffId)?.missingPunchDays || 0, LAB_THRESHOLDS.missingPunchAllowance, result.total);
   }
   return results.sort((a, b) => (b.total ?? -1) - (a.total ?? -1));
 }
