@@ -85,7 +85,8 @@ begin
     end if;
     perform cron.schedule(
       'dawaa-customer-metrics-dirty-queue-v1',
-      '*/5 * * * *',
+      -- Offset from the existing 03:30 UTC nightly reconciliation job.
+      '2-59/5 * * * *',
       'select public.process_customer_metrics_dirty_queue_v1(150)'
     );
   end if;
