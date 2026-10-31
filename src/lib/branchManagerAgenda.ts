@@ -22,11 +22,15 @@ export interface AgendaItem {
   data_day?: string | null;
   inventory_status?: 'not_planned' | 'late' | 'planned' | 'counting' | 'submitted' | 'closed';
   due_date?: string | null;
+  /** open_requests: requests still open from before the current cycle (not part of today's count). */
+  before_cycle?: number;
 }
 
 export interface BranchManagerAgenda {
   branch: 'shokry' | 'elshamy';
   day: string;
+  /** Start of the current 26 -> 25 cycle. */
+  cycle_start?: string | null;
   sales_day: string | null;
   purchase_day: string | null;
   items: AgendaItem[];
@@ -41,7 +45,7 @@ export const AGENDA_GROUP_LABELS: Record<AgendaGroup, { title: string; hint: str
 };
 
 export const AGENDA_ITEM_LABELS: Record<AgendaItemKey, { title: string; action: string; link?: string }> = {
-  open_requests: { title: 'طلبات عملاء مفتوحة أكتر من يوم', action: 'كلّم العميل أو حدّث حالة الطلب', link: '/customer-requests' },
+  open_requests: { title: 'طلبات عملاء الدورة مفتوحة أكتر من يوم', action: 'كلّم العميل أو حدّث حالة الطلب', link: '/customer-requests' },
   uncoded_invoices: { title: 'فواتير من غير كود عميل', action: 'راجع مع الدكتور وسجّل الكود', link: '/customers' },
   purchases_review: { title: 'فواتير مشتريات مستنية مراجعتك', action: 'راجع الفاتورة واعتمدها', link: '/purchase-invoice-review' },
   weekly_inventory: { title: 'جرد الأسبوع', action: '', link: '/inventory-counts' },
@@ -106,4 +110,29 @@ export async function markAgendaItem(branch: string | null, key: AgendaItemKey, 
     p_branch: branch, p_item_key: key, p_state: state, p_note: note ?? null,
   });
   if (error) throw error;
+}
+
+export interface AgendaComplianceDay {
+  branch: 'shokry' | 'elshamy';
+  day: string;
+  checks_done: number;
+  checks_total: number;
+  marked: number;
+  issues: Array<{ item: AgendaItemKey; note: string | null }>;
+  first_marked_at: string | null;
+  marked_by: string | null;
+}
+
+/** Cycle compliance for top management: per branch per day, from the agenda marks. */
+export async function loadAgendaCompliance(branch: string | null) {
+  const { data, error } = await supabase.rpc('get_branch_manager_agenda_compliance_v1', { p_branch: branch });
+  if (error) throw error;
+  return data as { cycle_start: string; today: string; days: AgendaComplianceDay[] };
+}
+
+/** Days of the cycle (today excluded, it is still running) with all floor checks closed. */
+export function agendaComplianceSummary(days: AgendaComplianceDay[], today: string) {
+  const past = days.filter((day) => day.day < today);
+  const full = past.filter((day) => day.checks_done >= day.checks_total).length;
+  return { full, past: past.length, issues: days.reduce((sum, day) => sum + day.issues.length, 0) };
 }
