@@ -6,7 +6,7 @@ const MGMT_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const reply = (status: number, data: unknown) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
 function pattern(input: string) {
   const cleaned = input.trim().replace(/[%,.()\\]/g, " ").replace(/\s+/g, " ");
-  return cleaned.replace(/[*\s]/g, "") ? (cleaned.includes("*") ? cleaned : `*${cleaned}*`) : null;
+  return cleaned.replace(/[*\s]/g, "") ? `*${cleaned.replace(/^\*+|\*+$/g, "")}*` : null;
 }
 Deno.serve(async (request: Request) => {
   if (request.method !== "POST") return reply(405, { ok: false, error: "method_not_allowed" });
@@ -27,6 +27,17 @@ Deno.serve(async (request: Request) => {
     if (!auth.ok) return reply(502, { ok: false, error: "session_check_unavailable" });
     const validation = await auth.json();
     if (!validation?.ok || !validation.account?.id) return reply(401, { ok: false, error: "invalid_session" });
+    // Prefer an exact customer code over a broad wildcard list.
+    if (mode === "customer" && /^[0-9A-Za-z_-]{2,40}$/.test(query)) {
+      const exactUrl = new URL("/rest/v1/customers", MGMT_URL);
+      exactUrl.searchParams.set("select", "customer_code,code,name,phone");
+      exactUrl.searchParams.set("or", `(customer_code.eq.${query},code.eq.${query})`);
+      exactUrl.searchParams.set("limit", "2");
+      const exactResponse = await fetch(exactUrl, { headers: { apikey: MGMT_SERVICE_KEY, Authorization: `Bearer ${MGMT_SERVICE_KEY}` }, signal: AbortSignal.timeout(4000) });
+      if (!exactResponse.ok) return reply(502, { ok: false, error: "management_lookup_unavailable" });
+      const exact = await exactResponse.json();
+      if (Array.isArray(exact) && exact.length) return reply(200, { ok: true, data: exact.map(c => ({ customer_code: c.customer_code || c.code, customer_name: c.name, phone: c.phone || "" })) });
+    }
     const url = new URL(mode === "customer" ? "/rest/v1/customers" : "/rest/v1/products", MGMT_URL);
     url.searchParams.set("select", mode === "customer" ? "customer_code,code,name,phone" : "product_code,name");
     url.searchParams.set("or", mode === "customer"
