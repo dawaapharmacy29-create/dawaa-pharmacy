@@ -11,6 +11,7 @@ const suites = [
   ['branch_inventory_weekly_counts_v1', ['20261029120000_branch_inventory_weekly_counts_v1.sql']],
   ['inventory_counters_v1', ['20261029120000_branch_inventory_weekly_counts_v1.sql', '20261030100000_inventory_counters_v1.sql']],
   ['branch_manager_daily_agenda_v1', ['20261029120000_branch_inventory_weekly_counts_v1.sql', '20261030140000_branch_manager_daily_agenda_v1.sql', '20261030160000_branch_manager_daily_agenda_date_range_v1.sql']],
+  ['staff_compliance_violations_v1', ['20261031100000_staff_compliance_violations_v1.sql']],
   ['whatsapp_invoice_link_confirmation_v1', [
     '../migrations/20261012121500_whatsapp_invoice_link_confirmation_v1.sql',
   ]],

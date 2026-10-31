@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CheckCircle2, ChevronDown, Circle, ClipboardCheck, Loader2, TriangleAlert } from 'lucide-react';
 import { Panel } from '@/components/dashboard/DashboardPrimitives';
+import { StaffViolationsPanel } from '@/components/dashboard/StaffViolationsPanel';
 import {
   AGENDA_GROUP_LABELS, AGENDA_ITEM_LABELS, INVENTORY_STATUS_LABELS, REQUEST_STATUS_SHORT,
   agendaErrorMessage, agendaNoteRequired, groupAgendaItems, loadBranchManagerAgenda, markAgendaItem,
@@ -111,6 +112,7 @@ export function BranchManagerDailyAgenda({ branch, allowBranchPick = false }: { 
           ))}
         </div>
       ) : null}
+      {agenda ? <StaffViolationsPanel branch={picked} /> : null}
     </Panel>
   );
 }
