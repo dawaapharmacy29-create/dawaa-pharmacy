@@ -6,10 +6,10 @@ export type LabFamily = 'doctor' | 'assistant' | 'delivery' | 'branch_manager' |
 
 /** v6.0 is kept so the lab can show what each change moved; v6.1 is the proposal under review. */
 /** Each version keeps every rule of the one before it; the lab shows the change against the previous one. */
-export type LabVersion = 'v6.0' | 'v6.1' | 'v6.2' | 'v6.3' | 'v6.4' | 'v6.5';
-export const LAB_CURRENT_VERSION: LabVersion = 'v6.5';
-export const LAB_PREVIOUS_VERSION: Record<LabVersion, LabVersion | null> = { 'v6.0': null, 'v6.1': 'v6.0', 'v6.2': 'v6.1', 'v6.3': 'v6.2', 'v6.4': 'v6.3', 'v6.5': 'v6.4' };
-export const LAB_VERSION_ORDER: LabVersion[] = ['v6.0', 'v6.1', 'v6.2', 'v6.3', 'v6.4', 'v6.5'];
+export type LabVersion = 'v6.0' | 'v6.1' | 'v6.2' | 'v6.3' | 'v6.4' | 'v6.5' | 'v6.6';
+export const LAB_CURRENT_VERSION: LabVersion = 'v6.6';
+export const LAB_PREVIOUS_VERSION: Record<LabVersion, LabVersion | null> = { 'v6.0': null, 'v6.1': 'v6.0', 'v6.2': 'v6.1', 'v6.3': 'v6.2', 'v6.4': 'v6.3', 'v6.5': 'v6.4', 'v6.6': 'v6.5' };
+export const LAB_VERSION_ORDER: LabVersion[] = ['v6.0', 'v6.1', 'v6.2', 'v6.3', 'v6.4', 'v6.5', 'v6.6'];
 
 export type LabAxisKey =
   | 'sales_per_day'
@@ -56,7 +56,9 @@ export type LabAxisKey =
   | 'audits'
   | 'bm_trend'
   | 'decision_backlog'
-  | 'branch_managers';
+  | 'branch_managers'
+  | 'shift_target'
+  | 'invoice_attribution';
 
 /** Scorecard pillars (v6.5): the branch manager owns the whole branch, the branches manager the system. */
 export type LabPillar =
@@ -256,7 +258,33 @@ const V65: Record<LabFamily, LabAxisDefinition[]> = {
   ],
 };
 
-export const LAB_AXES_BY_VERSION: Record<LabVersion, Record<LabFamily, LabAxisDefinition[]>> = { 'v6.0': V60, 'v6.1': V61, 'v6.2': V62, 'v6.3': V63, 'v6.4': V64, 'v6.5': V65 };
+// v6.6 (owner request 2026-10-31): the doctor's sales are a target of their own hours. The branch target
+// is spread over the hours by the sales curve, each hour's target is split among the doctors on duty by
+// their weight, and the score blends the shift's achievement (40%) with the doctor's own (60%) so nobody
+// fights over who rings an invoice. Invoices above the cap count at the cap. The day-level fair share
+// stays visible for comparison. The branch manager sees how many invoices were rung with no punch.
+const V66: Record<LabFamily, LabAxisDefinition[]> = {
+  ...V65,
+  doctor: [
+    { key: 'shift_target', label: 'تحقيق تارجت ساعاته (40٪ الشيفت + 60٪ هو)', weight: 20 },
+    { key: 'invoice_share', label: 'نصيب عدد الفواتير في ساعاته', weight: 5 },
+    { key: 'avg_invoice', label: 'متوسط الفاتورة مقابل الفرع في نفس الساعة', weight: 10 },
+    { key: 'basket_items', label: 'الأصناف في الفاتورة مقابل الفرع في نفس الساعة', weight: 5 },
+    { key: 'conversation_quality', label: 'جودة المحادثات', weight: 20 },
+    { key: 'request_capture', label: 'نسبة تسجيل الطلبات (العقل المدبر)', weight: 15 },
+    { key: 'followups', label: 'متابعات العملاء', weight: 15 },
+    { key: 'discipline', label: 'الانضباط والبصمات', weight: 10 },
+    { key: 'sales_per_day', label: 'نصيب المبيعات باليوم (الطريقة القديمة، للمقارنة)', weight: 0 },
+    { key: 'customer_requests', label: 'عدد طلبات العملاء الصالحة', weight: 0 },
+    { key: 'coding_quality', label: 'تكويد الفواتير (حد أدنى)', weight: 0 },
+  ],
+  branch_manager: [
+    ...V65.branch_manager,
+    ax('compliance', 'invoice_attribution', 'فواتير اتسجلت على حد مش باصم', 0),
+  ],
+};
+
+export const LAB_AXES_BY_VERSION: Record<LabVersion, Record<LabFamily, LabAxisDefinition[]>> = { 'v6.0': V60, 'v6.1': V61, 'v6.2': V62, 'v6.3': V63, 'v6.4': V64, 'v6.5': V65, 'v6.6': V66 };
 export const LAB_AXES = LAB_AXES_BY_VERSION[LAB_CURRENT_VERSION];
 
 export function labFamilyOf(role: CanonicalStaffRole): LabFamily | null {
@@ -322,7 +350,29 @@ export const LAB_THRESHOLDS = {
   missingPunchAllowance: 2,
   /** Team follow-up of missing punches (v6.1): 85% corrected → 0, 100% → 100. */
   followupFloor: 0.85,
+  /** v6.6 hourly target: invoices above the cap count at the cap (one big order must not decide a month). */
+  bigInvoiceCap: 3000,
+  /** Share of the score taken from the shift's achievement on the doctor's hours; the rest is the doctor's own. */
+  shiftTeamShare: 0.4,
+  minShiftHours: 40,
+  /** Sales curve: weekday × hour blended with hour only (fewer samples per weekday). */
+  curveWeekdayBlend: 0.7,
+  /** An hour counts as worked from 30 minutes of punch; an own invoice counts it too. */
+  presenceMinMinutes: 30,
+  /** An invoice is "with no punch" when the seller has no punch within 30 minutes of it. */
+  punchGraceMinutes: 30,
+  defaultShiftHours: 8,
+  /** The hourly target needs the seller on at least 90% of the branch's invoices. */
+  minSellerCoverage: 0.9,
+  maxShiftHours: 16,
 } as const;
+
+/** v6.6 doctor weights on a shared hour (owner sets each doctor's level in the lab). */
+export const DOCTOR_LEVELS = [
+  { key: 'primary', label: 'صيدلي أساسي', weight: 1 },
+  { key: 'doctor', label: 'صيدلي', weight: 0.55 },
+  { key: 'trainee', label: 'متدرب', weight: 0.3 },
+] as const;
 
 /** Attendance statuses that are still waiting for a decision: shown, never scored. */
 export const UNRESOLVED_ATTENDANCE = /^(.*_review|missing_checkin|missing_checkout|invalid_schedule_time)$/;

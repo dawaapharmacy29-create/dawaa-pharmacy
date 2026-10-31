@@ -6,6 +6,7 @@ import {
 } from './catalog';
 import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 import { summarizeFulfillment, type FulfillmentResult } from './requestFulfillment';
+import { hourlyTargets, cairoHourKey, type HourlyInvoice, type HourlyOutput } from './hourlyTarget';
 import { personCompliance, type ComplianceResult, type ViolationCategory } from './complianceFactor';
 import {
   aggregate, bandScore, closureScore, codingGatePenalty, disciplineScore, measured, median, notMeasurable,
@@ -15,17 +16,30 @@ import {
 // Pure cycle computation: canonical evidence in, one score per employee out. No I/O.
 
 export interface LabEvidence {
-  staff: Array<{ id: string; name: string; role: string; branch: string | null }>;
+  /** active=false: no score of their own, but their days and sales stay in the doctors' fair share. */
+  staff: Array<{ id: string; name: string; role: string; branch: string | null; active?: boolean }>;
   invoices: Array<{
     staffId: string | null; net: number; date: string; coded: boolean; branch: string | null; deliveryStaffId: string | null; deliveryLabeled?: boolean;
     /** Cairo shift of invoice_datetime and the invoice's line count (v6.2 basket metrics). */
     shift?: string | null; items?: number | null;
     /** Discount on the invoice (v6.5 discount statistics). */
     discount?: number | null;
+    /** invoice_datetime (v6.6 hourly target). */
+    at?: string | null;
   }>;
+  /** v6.6: the cycle itself (the hours its target is spread over). */
+  cycle?: { start: string; endExclusive: string } | null;
+  /** v6.6: the previous cycle's invoices (sales curve and the doctors' share of the branch). null when unreadable. */
+  previousInvoices?: HourlyInvoice[] | null;
+  /** v6.6: weight of each doctor on a shared hour (1 when not set). */
+  doctorWeights?: Record<string, number>;
   /** Official conversation reviews only (0..100). */
   reviews: Array<{ staffId: string; score: number }>;
-  attendance: Array<{ staffId: string; date: string; status: string | null; hasFirstIn: boolean; scheduled: boolean; lateMinutes: number }>;
+  attendance: Array<{
+    staffId: string; date: string; status: string | null; hasFirstIn: boolean; scheduled: boolean; lateMinutes: number;
+    /** v6.6 punch window (timestamps). */
+    firstInAt?: string | null; lastOutAt?: string | null; scheduledEndAt?: string | null;
+  }>;
   requests: Array<{
     recordedStaffId: string | null; branch: string | null; createdAt: string; closedAt: string | null; status?: string | null;
     /** v6.3 matching with the Master Brain's detected requests. */
@@ -258,9 +272,15 @@ function fairShareAxis(
   ownerOf: (invoice: LabEvidence['invoices'][number]) => string | null,
   volumeOf: (invoice: LabEvidence['invoices'][number]) => number,
   describe: (own: number, expected: number, days: number, share: number) => string,
+  /**
+   * Everyone of the family who worked in the cycle, scored or not (staff who left since). When given,
+   * the branch volume is only the volume this pool owns: sales by managers, purchasing or assistants
+   * are nobody's share, and a colleague who left still takes his part of the days he worked.
+   */
+  pool?: Array<{ id: string; branch: string | null }>,
 ): Map<string, AxisDraft> {
   const out = new Map<string, AxisDraft>();
-  const memberBranch = new Map(members.map((m) => [m.id, branchKey(m.branch)]));
+  const memberBranch = new Map((pool || members).map((m) => [m.id, branchKey(m.branch)]));
   const workedDays = new Map<string, Set<string>>();
   const onDuty = new Map<string, number>();
   const markWorked = (staffId: string, date: string) => {
@@ -279,6 +299,7 @@ function fairShareAxis(
   for (const invoice of evidence.invoices) {
     const volume = volumeOf(invoice);
     if (!volume) continue;
+    if (pool && !memberBranch.has(ownerOf(invoice) || '')) continue;
     const key = `${branchKey(invoice.branch)}|${invoice.date}`;
     branchDay.set(key, (branchDay.get(key) || 0) + volume);
     const owner = ownerOf(invoice);
@@ -328,9 +349,13 @@ function basketAxis(
   floor: number,
   ceiling: number,
   describe: (own: number, expected: number, count: number, ratio: number) => string,
+  /** v6.6: compare with the same branch and Cairo hour instead of the same day and shift. */
+  byHour = false,
 ): Map<string, AxisDraft> {
   const out = new Map<string, AxisDraft>();
-  const slotOf = (invoice: LabEvidence['invoices'][number]) => `${branchKey(invoice.branch)}|${invoice.date}|${invoice.shift || ''}`;
+  const slotOf = (invoice: LabEvidence['invoices'][number]) => byHour && invoice.at
+    ? `${branchKey(invoice.branch)}|${cairoHourKey(invoice.at) || invoice.date}`
+    : `${branchKey(invoice.branch)}|${invoice.date}|${invoice.shift || ''}`;
   const valid = evidence.invoices.filter((invoice) => invoice.net > 0 && invoice.shift && metric(invoice) !== null);
   const slots = new Map<string, { sum: number; n: number }>();
   for (const invoice of valid) {
@@ -361,9 +386,62 @@ function basketAxis(
   return out;
 }
 
+/** v6.6 hourly target of the doctors; null when the cycle or the previous cycle's curve is missing. */
+function hourlyFor(evidence: LabEvidence, pool: LabEvidence['staff']): HourlyOutput | null {
+  if (!evidence.cycle || !evidence.previousInvoices) return null;
+  const out = hourlyTargets({
+    cycle: evidence.cycle,
+    targets: evidence.targets,
+    previousInvoices: evidence.previousInvoices,
+    invoices: evidence.invoices,
+    attendance: evidence.attendance,
+    pool: pool.map((p) => ({ id: p.id, branch: p.branch, weight: evidence.doctorWeights?.[p.id] ?? 1 })),
+  });
+  return out.ready ? out : null;
+}
+
+function hourlyAxes(hourly: HourlyOutput | null, id: string): AxisDraft[] {
+  if (!hourly) {
+    const reason = 'مبيعات الدورة السابقة بالساعة غير متاحة — منحنى التارجت لا يُبنى';
+    return [notMeasurable('shift_target', reason), notMeasurable('invoice_share', reason)];
+  }
+  const r = hourly.people.get(id);
+  if (r && r.sellerCoverage < LAB_THRESHOLDS.minSellerCoverage) {
+    const reason = `اسم البائع موجود على ${round(r.sellerCoverage * 100)}٪ بس من فواتير الفرع في الدورة (الحد ${LAB_THRESHOLDS.minSellerCoverage * 100}٪) — نصيب كل صيدلي ما يتقريش`;
+    return [notMeasurable('shift_target', reason), notMeasurable('invoice_share', reason)];
+  }
+  if (!r || r.hours < LAB_THRESHOLDS.minShiftHours) {
+    const reason = `${r?.hours ?? 0} ساعة عمل فقط (الحد ${LAB_THRESHOLDS.minShiftHours})`;
+    return [notMeasurable('shift_target', reason), notMeasurable('invoice_share', reason)];
+  }
+  const out: AxisDraft[] = [];
+  if (r.target > 0 && r.teamTarget > 0) {
+    const own = r.own / r.target;
+    const team = r.teamSales / r.teamTarget;
+    const score = LAB_THRESHOLDS.shiftTeamShare * targetScore(team) + (1 - LAB_THRESHOLDS.shiftTeamShare) * targetScore(own);
+    const flags = [
+      r.cappedInvoices ? `${r.cappedInvoices} فاتورة فوق ${egp(LAB_THRESHOLDS.bigInvoiceCap)} اتحسبت ${egp(LAB_THRESHOLDS.bigInvoiceCap)}` : '',
+      r.outsidePunch ? `${r.outsidePunch} فاتورة باسمه وهو مش باصم` : '',
+    ].filter(Boolean);
+    out.push(measured('shift_target', round(own * 100), score,
+      `باع ${egp(r.own)} من تارجت ساعاته ${egp(r.target)} ج (${round(own * 100)}٪) · الشيفت حقق ${round(team * 100)}٪ في نفس الساعات · ${r.hours} ساعة${flags.length ? ` · ${flags.join(' · ')}` : ''}`));
+  } else {
+    out.push(notMeasurable('shift_target', 'لا يوجد تارجت للفرع في ساعات عمله'));
+  }
+  if (r.expectedInvoices > 0) {
+    const share = r.ownInvoices / r.expectedInvoices;
+    out.push(measured('invoice_share', round(share, 2), bandScore(share, LAB_THRESHOLDS.fairShareFloor, LAB_THRESHOLDS.fairShareCeiling),
+      `${egp(r.ownInvoices)} فاتورة من نصيب متوقع ${egp(r.expectedInvoices)} في ${r.hours} ساعة (×${round(share, 2)})`));
+  } else {
+    out.push(notMeasurable('invoice_share', 'لا توجد فواتير للفرع في ساعات عمله'));
+  }
+  return out;
+}
+
 export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LAB_CURRENT_VERSION): LabPersonScore[] {
   const facts = factsFor(evidence, version);
   const people = evidence.staff
+    .filter((person) => person.active !== false)
     .map((person) => ({ ...person, family: labFamilyOf(canonicalStaffRole(person.role)) }))
     .filter((person): person is typeof person & { family: LabFamily } => person.family !== null);
   const familyMembers = (family: LabFamily) => people.filter((p) => p.family === family).map((p) => ({ id: p.id, branch: p.branch, f: facts.get(p.id)! }));
@@ -374,19 +452,23 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
 
   // Doctors.
   const doctors = familyMembers('doctor');
+  const doctorPool = evidence.staff.filter((person) => labFamilyOf(canonicalStaffRole(person.role)) === 'doctor');
   fairShareAxis('sales_per_day', doctors, evidence, (inv) => inv.staffId, (inv) => inv.net,
-    (own, expected, days, share) => `باع ${egp(own)} من نصيب متوقع ${egp(expected)} ج في ${days} يوم عمل (×${round(share, 2)})`)
+    (own, expected, days, share) => `باع ${egp(own)} من نصيب متوقع ${egp(expected)} ج في ${days} يوم عمل (×${round(share, 2)})`, doctorPool)
     .forEach((axis, id) => push(id, axis));
   rateAxis('customer_requests', doctors, (f) => f.requests, 'طلب/يوم', invalidNote).forEach((axis, id) => push(id, axis));
+  const hourly = atLeast(version, 'v6.6') ? hourlyFor(evidence, doctorPool) : null;
+  const attributionOf = () => hourly?.attribution ?? null;
+  if (atLeast(version, 'v6.6')) for (const { id } of doctors) for (const axis of hourlyAxes(hourly, id)) push(id, axis);
   if (atLeast(version, 'v6.2')) {
-    fairShareAxis('invoice_share', doctors, evidence, (inv) => inv.staffId, (inv) => (inv.net > 0 ? 1 : 0),
-      (own, expected, days, share) => `${egp(own)} فاتورة من نصيب متوقع ${egp(expected)} في ${days} يوم عمل (×${round(share, 2)})`)
+    if (!atLeast(version, 'v6.6')) fairShareAxis('invoice_share', doctors, evidence, (inv) => inv.staffId, (inv) => (inv.net > 0 ? 1 : 0),
+      (own, expected, days, share) => `${egp(own)} فاتورة من نصيب متوقع ${egp(expected)} في ${days} يوم عمل (×${round(share, 2)})`, doctorPool)
       .forEach((axis, id) => push(id, axis));
     basketAxis('avg_invoice', doctors, evidence, (inv) => inv.net, LAB_THRESHOLDS.avgInvoiceFloor, LAB_THRESHOLDS.avgInvoiceCeiling,
-      (own, expected, n, ratio) => `متوسط ${egp(own)} ج مقابل ${egp(expected)} ج للفرع في نفس اليوم والشيفت · ${n} فاتورة (×${round(ratio, 2)})`)
+      (own, expected, n, ratio) => `متوسط ${egp(own)} ج مقابل ${egp(expected)} ج للفرع في نفس ${hourly ? 'الساعة' : 'اليوم والشيفت'} · ${n} فاتورة (×${round(ratio, 2)})`, Boolean(hourly))
       .forEach((axis, id) => push(id, axis));
     basketAxis('basket_items', doctors, evidence, (inv) => (inv.items && inv.items > 0 ? inv.items : null), LAB_THRESHOLDS.basketFloor, LAB_THRESHOLDS.basketCeiling,
-      (own, expected, n, ratio) => `${round(own, 2)} صنف/فاتورة مقابل ${round(expected, 2)} للفرع في نفس اليوم والشيفت · ${n} فاتورة (×${round(ratio, 2)})`)
+      (own, expected, n, ratio) => `${round(own, 2)} صنف/فاتورة مقابل ${round(expected, 2)} للفرع في نفس ${hourly ? 'الساعة' : 'اليوم والشيفت'} · ${n} فاتورة (×${round(ratio, 2)})`, Boolean(hourly))
       .forEach((axis, id) => push(id, axis));
   }
   const captureByStaff = new Map<string, { found: number; self: number }>();
@@ -597,6 +679,13 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
       out.push(notMeasurable('discount_policy', 'سياسة الحد الأقصى للخصم لم تُحدَّد بعد',
         `الخصم ${round((discount / Math.max(1, net + discount)) * 100, 2)}٪ من قيمة الفواتير · ${valid.filter((inv) => (Number(inv.discount) || 0) > 0).length} فاتورة بخصم`));
       out.push(inventoryAxis(keys));
+      if (atLeast(version, 'v6.6')) {
+        const a = [...(attributionOf()?.entries() || [])].filter(([b]) => keys.has(b)).reduce((s, [, v]) => ({ outside: s.outside + v.outside, total: s.total + v.total }), { outside: 0, total: 0 });
+        out.push(a.total
+          ? measured('invoice_attribution', round((a.outside / a.total) * 100), 100 * (1 - a.outside / a.total),
+            `${egp(a.outside)} من ${egp(a.total)} فاتورة اتسجلت على موظف مالوش بصمة حواليها (±${LAB_THRESHOLDS.punchGraceMinutes} دقيقة) — للمعلومة لحد ما يتحدد وزنه`)
+          : notMeasurable('invoice_attribution', 'لا توجد فواتير بتوقيت وبائع للفرع'));
+      }
       for (const key of ['fast_movers', 'stagnant_expiry', 'shortages', 'standards_submissions', 'standards_audit', 'agenda_closure'] as const) {
         out.push(pending(key, DORMANT[key]));
       }
