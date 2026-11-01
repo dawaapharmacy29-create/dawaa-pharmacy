@@ -167,12 +167,20 @@ async function loadFulfillment(requestRows: Row[], startAt: string, endAt: strin
     const codes = [...new Set(requestRows.map((row) => text(row.customer_code)).filter((code) => code && !/^[0\s.-]*$/.test(code)))];
     const until = new Date(Math.min(Date.now(), Date.parse(endAt) + FULFILLMENT_WINDOW_DAYS * 864e5)).toISOString();
     const items: FulfillmentItem[] = [];
-    for (let i = 0; i < codes.length; i += 100) {
-      const chunk = codes.slice(i, i + 100);
-      const rows = await pages(() => supabase.from('sales_invoice_items_v21')
-        .select('id,invoice_id,invoice_date,customer_code,product_id,product_code,product_name,quantity')
-        .in('customer_code', chunk).gte('invoice_date', new Date(Date.parse(startAt) - 36e5).toISOString()).lt('invoice_date', until) as unknown as PageQuery,
-        20000, 'request_fulfillment_items');
+    // Chunks of customer codes read side by side (each one walks the same date range).
+    const chunks = Array.from({ length: Math.ceil(codes.length / 100) }, (_, i) => codes.slice(i * 100, i * 100 + 100));
+    const results: Row[][] = new Array(chunks.length);
+    let next = 0;
+    await Promise.all(Array.from({ length: Math.min(3, chunks.length) }, async () => {
+      while (next < chunks.length) {
+        const index = next++;
+        results[index] = await pages(() => supabase.from('sales_invoice_items_v21')
+          .select('id,invoice_id,invoice_date,customer_code,product_id,product_code,product_name,quantity')
+          .in('customer_code', chunks[index]).gte('invoice_date', new Date(Date.parse(startAt) - 36e5).toISOString()).lt('invoice_date', until) as unknown as PageQuery,
+          20000, 'request_fulfillment_items');
+      }
+    }));
+    for (const rows of results) {
       for (const row of rows) {
         items.push({
           customerCode: text(row.customer_code) || null,
@@ -328,9 +336,10 @@ async function loadInventoryCounts(cycle: LabCycle): Promise<LabEvidence['invent
 /** Purchase invoices of the cycle (excluded ones left out). null when unreadable. */
 async function loadPurchaseInvoices(cycle: LabCycle) {
   try {
-    const rows = await pages(() => supabase.from('purchase_invoices')
-      .select('id,branch,entered_by_staff_id,reviewed_at,status,excluded_at')
-      .gte('invoice_date', cycle.start).lt('invoice_date', cycle.endExclusive) as unknown as PageQuery, 20000, 'purchase_invoices');
+    // One count, then the pages side by side (a closed cycle does not change).
+    const rows = await parallelPages((columns, options) => supabase.from('purchase_invoices').select(columns, options)
+      .gte('invoice_date', cycle.start).lt('invoice_date', cycle.endExclusive),
+      'id,branch,entered_by_staff_id,reviewed_at,status,excluded_at', 20000, 'purchase_invoices');
     return rows.filter((row) => !text(row.excluded_at)).map((row) => ({
       branch: text(row.branch) || null,
       enteredByStaffId: text(row.entered_by_staff_id) || null,
@@ -369,6 +378,15 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
   const startAt = cairoDateBoundaryIso(cycle.start);
   const endAt = cairoDateBoundaryIso(cycle.endExclusive);
 
+  // Sources that need nothing from the cycle's first reads start at once, alongside them.
+  const independent = Promise.all([
+    loadBrainRequests(startAt, endAt),
+    loadPreviousCycle(cycle),
+    loadPurchaseInvoices(cycle),
+    loadInventoryCounts(cycle),
+    loadViolations(cycle),
+  ]);
+
   const [staffRows, aliasRows, invoiceRows, reviewRows, attendanceRows, requestRows, purchaseRows, targetRows, followupProbe, checklistProbe, ratingProbe] = await Promise.all([
     pages(() => supabase.from('staff').select('id,name,role,branch,active,is_active') as unknown as PageQuery, 2000, 'staff'),
     pages(() => supabase.from('staff_identity_aliases').select('id,staff_id,normalized_alias,active').eq('active', true) as unknown as PageQuery, 5000, 'aliases'),
@@ -397,14 +415,10 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
     if (probe.error) throw new Error(`${label}: ${probe.error.message}`);
   }
 
-  const brainRequests = await loadBrainRequests(startAt, endAt);
-  const fulfillment = await loadFulfillment(requestRows, startAt, endAt);
-  const [previous, teamEvaluations, purchaseInvoices, inventoryCounts, violations] = await Promise.all([
-    loadPreviousCycle(cycle),
+  const [fulfillment, teamEvaluations, [brainRequests, previous, purchaseInvoices, inventoryCounts, violations]] = await Promise.all([
+    loadFulfillment(requestRows, startAt, endAt),
     loadTeamEvaluations(cycle, options.actorId || null, [...new Set(targetRows.map((row) => text(row.branch_name)).filter(Boolean))]),
-    loadPurchaseInvoices(cycle),
-    loadInventoryCounts(cycle),
-    loadViolations(cycle),
+    independent,
   ]);
 
   // Inactive staff are kept (not scored): their days and sales still belong to the cycle's fair shares.
