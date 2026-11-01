@@ -249,6 +249,7 @@ function SourceStrip({ evidence }: { evidence: LabEvidence }) {
     { label: 'فواتير مشتريات', count: evidence.purchases ? evidence.purchases.length : null },
     { label: 'توصيلات مرتبطة', count: evidence.invoices.filter((i) => i.deliveryStaffId).length },
   ];
+  const internal = evidence.excludedInternal;
   return (
     <div className="flex flex-wrap gap-2">
       {sources.map((source) => (
@@ -256,6 +257,12 @@ function SourceStrip({ evidence }: { evidence: LabEvidence }) {
           <Database size={12} className="dawaa-theme-muted" /> {source.label}: {source.count === null ? 'غير متاح' : source.count.toLocaleString('ar-EG')}
         </span>
       ))}
+      {internal?.invoices ? (
+        <span className="dawaa-status-info-text flex items-center gap-1.5 rounded-full border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] px-3 py-1 text-xs font-black"
+          title="تحويلات الشامي وأبو العزم، الزكاة، عجز الرصيد، التوالف، استعمال الصيدلية والمخزن">
+          <MinusCircle size={12} /> أكواد داخلية مستثناة: {internal.invoices.toLocaleString('ar-EG')} فاتورة بـ {Math.round(internal.net).toLocaleString('ar-EG')} ج
+        </span>
+      ) : null}
       {DORMANT_LABELS.filter(([key]) => evidence.dormantSources.includes(key)).map(([key, label]) => (
         <span key={key} className="dawaa-status-warning-text dawaa-status-warning-bg dawaa-status-warning-border flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-black">
           <AlertTriangle size={12} /> {label}: لا توجد بيانات في الدورة (لا تُحسب صفرًا)

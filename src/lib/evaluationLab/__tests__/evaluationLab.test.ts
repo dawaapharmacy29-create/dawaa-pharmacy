@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { aggregate, codingGatePenalty, deviationScore, disciplineScore, notMeasurable, measured, percentileAmong, shrunkMean, targetScore } from '../scoring';
 import { buildCycleScores, isSelfRecorded, type BrainRequest, type LabEvidence } from '../buildCycleScores';
 import { closedCycles } from '../loadCycleEvidence';
+import { isInternalCustomerCode } from '../catalog';
 
 const days = (staffId: string, n: number, status = 'on_time', late = 0) =>
   Array.from({ length: n }, (_, i) => ({ staffId, date: `2026-10-${String(i + 1).padStart(2, '0')}`, status, hasFirstIn: true, scheduled: true, lateMinutes: late }));
@@ -504,5 +505,12 @@ describe('buildCycleScores v6.6 hourly target', () => {
     const a = m1.axes.find((x) => x.key === 'invoice_attribution')!;
     expect(a.weight).toBe(0);
     expect(a.value).toBe(0);
+  });
+});
+
+describe('internal customer codes', () => {
+  it('transfers, zakat, shortage, damaged, pharmacy use and warehouse are not customer sales', () => {
+    for (const code of ['5', '10', '20', '54', '170', '4902', ' 12820 ']) expect(isInternalCustomerCode(code)).toBe(true);
+    for (const code of ['7', '90', '', null]) expect(isInternalCustomerCode(code)).toBe(false);
   });
 });

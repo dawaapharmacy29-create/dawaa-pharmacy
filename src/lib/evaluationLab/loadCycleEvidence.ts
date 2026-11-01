@@ -6,7 +6,7 @@ import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
 import type { BrainRequest, LabEvidence } from './buildCycleScores';
 import { selectInvoiceCycleWindow } from '@/lib/readModels/invoiceRecordReadModel';
-import { invoiceShiftOf } from './catalog';
+import { invoiceShiftOf, isInternalCustomerCode } from './catalog';
 import { expectedInventoryWeeks, type InventoryItemEvidence, type InventorySessionEvidence } from './inventoryAccuracy';
 import { FULFILLMENT_WINDOW_DAYS, matchRequestFulfillment, type FulfillmentItem, type FulfillmentResult } from './requestFulfillment';
 import type { ViolationCategory } from './complianceFactor';
@@ -209,7 +209,8 @@ async function loadPreviousCycle(cycle: LabCycle): Promise<{
 } | null> {
   try {
     const shift = (day: string) => { const d = new Date(`${day}T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() - 1); return d.toISOString().slice(0, 10); };
-    const rows = await dailyInvoiceWindows({ start: shift(cycle.start), endExclusive: cycle.start }, 'id,branch,net_amount,total_amount,staff_id,invoice_datetime', 30000);
+    const rows = (await dailyInvoiceWindows({ start: shift(cycle.start), endExclusive: cycle.start }, 'id,branch,net_amount,total_amount,staff_id,invoice_datetime,customer_code', 30000))
+      .filter((row) => !isInternalCustomerCode(row.customer_code));
     const byBranch = new Map<string, { branch: string; invoices: number; net: number }>();
     for (const row of rows) {
       const net = num(row.net_amount ?? row.total_amount);
@@ -423,11 +424,16 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
     return owners && owners.size === 1 ? [...owners][0] : null;
   };
 
+  // Internal codes are moved out before anything is scored (and their total is shown).
+  const internalRows = invoiceRows.filter((row) => isInternalCustomerCode(row.customer_code));
+  const saleRows = invoiceRows.filter((row) => !isInternalCustomerCode(row.customer_code));
+
   const official = selectOfficialConversationReviews(reviewRows, { startDay: cycle.start, endDayExclusive: cycle.endExclusive }).rows;
 
   return {
     staff,
-    invoices: invoiceRows.map((row) => ({
+    excludedInternal: { invoices: internalRows.length, net: internalRows.reduce((s, row) => s + num(row.net_amount ?? row.total_amount), 0) },
+    invoices: saleRows.map((row) => ({
       staffId: text(row.staff_id) || null,
       net: num(row.net_amount ?? row.total_amount),
       date: text(row.sale_date).slice(0, 10),

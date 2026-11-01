@@ -374,6 +374,14 @@ export const DOCTOR_LEVELS = [
   { key: 'trainee', label: 'متدرب', weight: 0.3 },
 ] as const;
 
+/**
+ * Internal customer codes (transfers to Al-Shami and Abu El-Azm, zakat, stock shortage, damaged,
+ * pharmacy use, warehouse): not customer sales, so they never count for a doctor or a branch target.
+ * Same list as the target exclusion of the internal codes page.
+ */
+export const INTERNAL_CUSTOMER_CODES = new Set(['5', '10', '20', '54', '170', '4902', '12820']);
+export const isInternalCustomerCode = (code: unknown) => INTERNAL_CUSTOMER_CODES.has(String(code ?? '').trim());
+
 /** Attendance statuses that are still waiting for a decision: shown, never scored. */
 export const UNRESOLVED_ATTENDANCE = /^(.*_review|missing_checkin|missing_checkout|invalid_schedule_time)$/;
 /** v6.1: a punch the employee never corrected is the employee's own miss (zero credit that day). */

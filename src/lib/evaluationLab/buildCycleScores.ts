@@ -31,6 +31,8 @@ export interface LabEvidence {
   cycle?: { start: string; endExclusive: string } | null;
   /** v6.6: the previous cycle's invoices (sales curve and the doctors' share of the branch). null when unreadable. */
   previousInvoices?: HourlyInvoice[] | null;
+  /** Invoices on internal customer codes moved out of the cycle (shown, never scored). */
+  excludedInternal?: { invoices: number; net: number };
   /** v6.6: weight of each doctor on a shared hour (1 when not set). */
   doctorWeights?: Record<string, number>;
   /** Official conversation reviews only (0..100). */
