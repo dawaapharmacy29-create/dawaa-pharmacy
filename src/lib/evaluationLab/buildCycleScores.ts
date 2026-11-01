@@ -840,7 +840,9 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
   }
   for (const result of results) {
     const own = (evidence.violations || []).filter((v) => v.staffId === result.staffId);
-    result.compliance = personCompliance(own, facts.get(result.staffId)?.missingPunchDays || 0, LAB_THRESHOLDS.missingPunchAllowance, result.total);
+    // Too little of the card was measured for its total to set an incentive tier.
+    const tierTotal = result.readiness === 'insufficient' ? null : result.total;
+    result.compliance = personCompliance(own, facts.get(result.staffId)?.missingPunchDays || 0, LAB_THRESHOLDS.missingPunchAllowance, tierTotal);
   }
   return results.sort((a, b) => (b.total ?? -1) - (a.total ?? -1));
 }

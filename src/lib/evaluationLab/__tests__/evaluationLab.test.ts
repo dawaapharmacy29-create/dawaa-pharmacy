@@ -101,6 +101,15 @@ describe('buildCycleScores (v6.0 baseline)', () => {
     expect(d4.axes.every((a) => a.score === null || a.weight === 0)).toBe(true);
   });
 
+  it('a card with too little measured sets no incentive, even with a total', () => {
+    // Only punctuality is measured for the new doctor: a total of 100 on 10% of the card.
+    const d4 = buildCycleScores(evidence({ attendance: [...evidence().attendance, ...days('d4', 10, 'manager_approved_actual_punches', 0)] }))
+      .find((r) => r.staffId === 'd4')!;
+    expect(d4.readiness).toBe('insufficient');
+    expect(d4.total).not.toBeNull();
+    expect(d4.compliance).toMatchObject({ tierPayout: null, payout: null });
+  });
+
   it('punctuality comes from late minutes on scheduled days, not status names', () => {
     const scoreOf = (attendance: LabEvidence['attendance']) => buildCycleScores(evidence({ attendance: [...evidence().attendance.filter((d) => d.staffId !== 'd1'), ...attendance] }), 'v6.0')
       .find((r) => r.staffId === 'd1')!.axes.find((a) => a.key === 'discipline')!;

@@ -128,7 +128,7 @@ function ComplianceBadge({ compliance }: { compliance: ComplianceResult }) {
   const tone = compliance.factor >= 1 ? 'dawaa-badge--success' : compliance.factor >= 0.75 ? 'dawaa-badge--warning' : 'dawaa-badge--danger';
   return (
     <span className={`dawaa-badge ${tone} rounded-full px-2 py-0.5 text-[11px] font-black`} title="معامل الالتزام × شريحة الحافز">
-      الالتزام ×{Math.round(compliance.factor * 100)}٪{compliance.payout !== null ? ` · الحافز ${compliance.payout}٪` : ''}
+      الالتزام ×{Math.round(compliance.factor * 100)}٪{compliance.payout !== null ? ` · الحافز ${compliance.payout}٪` : ' · الحافز: بيانات غير كافية'}
     </span>
   );
 }
@@ -140,7 +140,7 @@ function ComplianceDetails({ compliance }: { compliance: ComplianceResult }) {
     <div className="mt-3 rounded-xl border border-[var(--dawaa-theme-border)] p-3 text-xs font-bold">
       <div className="font-black text-[var(--dawaa-theme-heading)]">
         الالتزام: {compliance.points} نقطة → معامل {Math.round(compliance.factor * 100)}٪
-        {compliance.tierPayout !== null ? ` · شريحة الأداء ${compliance.tierPayout}٪ × المعامل = ${compliance.payout}٪` : ''}
+        {compliance.tierPayout !== null ? ` · شريحة الأداء ${compliance.tierPayout}٪ × المعامل = ${compliance.payout}٪` : ' · الحافز ما يتحددش لحد ما تتقاس بنود كفاية'}
       </div>
       <div className="dawaa-theme-muted mt-1">{parts.length ? parts.join(' · ') : 'مفيش مخالفات مسجلة في الدورة'}</div>
     </div>
