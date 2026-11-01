@@ -85,6 +85,15 @@ describe('buildCycleScores (v6.0 baseline)', () => {
     expect(conv('d2').value!).toBeLessThan(100);
   });
 
+  it('v6.8 reads conversation quality on the official scale: 95+ is full marks', () => {
+    const conv = (version: 'v6.7' | 'v6.8', id: string) => buildCycleScores(evidence(), version).find((r) => r.staffId === id)!.axes.find((a) => a.key === 'conversation_quality')!;
+    for (const id of ['d1', 'd2', 'd3']) {
+      const value = conv('v6.8', id).value!;
+      expect(conv('v6.8', id).score).toBeCloseTo(Math.max(0, Math.min(100, ((value - 80) / 15) * 100)), 0);
+      expect(conv('v6.8', id).score!).toBeGreaterThanOrEqual(conv('v6.7', id).score!);
+    }
+  });
+
   it('a new doctor below every threshold is insufficient, not punished', () => {
     const d4 = byId('d4');
     expect(d4.readiness).toBe('insufficient');

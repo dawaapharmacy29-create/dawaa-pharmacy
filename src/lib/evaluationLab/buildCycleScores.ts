@@ -341,10 +341,17 @@ const share = (part: number, whole: number) => (whole ? part / whole : null);
 interface ScoreShape {
   target: (achievement: number) => number;
   benchmark: (ratio: number, floor: number, ceiling: number) => number;
+  /** Adjusted conversation review average (0..100); v6.8 reads it on the official scale. */
+  conversation: (average: number) => number;
 }
-const shapeOf = (version: LabVersion): ScoreShape => atLeast(version, 'v6.7')
-  ? { target: metTargetScore, benchmark: (ratio, floor) => bandScore(ratio, floor, 1) }
-  : { target: targetScore, benchmark: bandScore };
+const shapeOf = (version: LabVersion): ScoreShape => ({
+  ...(atLeast(version, 'v6.7')
+    ? { target: metTargetScore, benchmark: (ratio: number, floor: number) => bandScore(ratio, floor, 1) }
+    : { target: targetScore, benchmark: bandScore }),
+  conversation: atLeast(version, 'v6.8')
+    ? (average) => bandScore(average, LAB_THRESHOLDS.conversationFloor, LAB_THRESHOLDS.conversationFull)
+    : (average) => bandScore(average, 90, 100),
+});
 
 /**
  * Basket metric against the same branch, day and shift: for every invoice the doctor closed, the
@@ -531,7 +538,7 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
       ? notMeasurable('conversation_quality', `${f.reviews.length} مراجعة رسمية فقط (الحد ${LAB_THRESHOLDS.minOfficialReviews})`)
       : pct === null
         ? notMeasurable('conversation_quality', 'زملاء قابلون للمقارنة غير كافين', `${round(s)}/100`)
-        : measured('conversation_quality', round(s), bandScore(s, 90, 100), `${f.reviews.length} مراجعة · متوسط معدّل ${round(s)}/100 · ترتيب ${round(pct)}٪ بين الزملاء`));
+        : measured('conversation_quality', round(s), shape.conversation(s), `${f.reviews.length} مراجعة · متوسط معدّل ${round(s)}/100 · ترتيب ${round(pct)}٪ بين الزملاء`));
     if (dormant(evidence, 'followups')) push(id, notMeasurable('followups', 'لا توجد متابعات مسجلة في هذه الدورة (المصدر متوقف)'));
   }
 
