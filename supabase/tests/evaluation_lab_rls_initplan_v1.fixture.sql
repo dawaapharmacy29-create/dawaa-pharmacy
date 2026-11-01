@@ -38,3 +38,9 @@ create policy purchase_invoices_select on public.purchase_invoices for select us
 create policy sales_invoice_items_v21_select on public.sales_invoice_items_v21 for select using (
   dawaa_current_sales_invoice_scope_v1(array['view_sales']) = 'ALL' or branch = dawaa_current_sales_invoice_scope_v1(array['view_sales']));
 grant select on public.purchase_invoices, public.sales_invoice_items_v21, public.staff_accounts to anon;
+
+-- The write policy as on Production (FOR ALL: also OR-ed into reads).
+create policy purchase_invoices_write on public.purchase_invoices for all
+  using (dawaa_actor_is_top_management_v1() or dawaa_current_actor_can(array['manage_purchases']) or entered_by_staff_id = dawaa_current_staff_subject_uuid_v1())
+  with check (dawaa_actor_is_top_management_v1() or dawaa_current_actor_can(array['manage_purchases']) or entered_by_staff_id = dawaa_current_staff_subject_uuid_v1());
+grant insert on public.purchase_invoices to anon;
