@@ -27,7 +27,8 @@ Deno.serve(async (_req: Request) => {
 
     const listUrl = `${BASE44_API_BASE}/${BASE44_APP_ID}/entities/PurchaseInvoice?sort=-created_date&limit=300`;
     const base44Res = await fetch(listUrl, {
-      headers: { api_key: base44ApiKey, "Content-Type": "application/json" },
+      // Base44 refuses account API keys since 2026-10-28; the stored secret is a personal access token.
+      headers: { Authorization: `Bearer ${base44ApiKey}`, "Content-Type": "application/json" },
     });
     if (!base44Res.ok) {
       const body = await base44Res.text();

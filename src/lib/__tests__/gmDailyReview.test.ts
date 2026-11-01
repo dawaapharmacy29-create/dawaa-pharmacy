@@ -14,6 +14,19 @@ describe('gm daily review', () => {
     expect(gmReviewSummary({ key: 'delivery', detail: {} })).toEqual([]);
   });
 
+  it('lists the shifts still open per branch and a stopped sync', () => {
+    const synced = new Date().toISOString();
+    expect(gmReviewSummary({ key: 'shifts', detail: { synced_at: synced, branches: [
+      { branch: 'elshamy', yesterday_done: 3, missing: [] },
+      { branch: 'shokry', yesterday_done: 2, missing: [{ day: '2026-11-01', shift: 'مسائي' }] },
+    ] } })).toEqual([
+      'الشامي: امبارح 3/3',
+      `شكري: امبارح 2/3 · ما اتقفلش: ${new Date('2026-11-01T12:00:00').toLocaleDateString('ar-EG', { weekday: 'short', day: 'numeric', month: 'numeric' })} مسائي`,
+    ]);
+    const stale = gmReviewSummary({ key: 'shifts', detail: { synced_at: null, branches: [] } });
+    expect(stale).toEqual(['⚠️ المزامنة مع تطبيق المشتريات متوقفة']);
+  });
+
   it('maps the RPC errors to Arabic messages', () => {
     expect(gmReviewErrorMessage({ message: 'not_authorized' })).toBe('الصفحة دي للمدير العام بس');
     expect(gmReviewErrorMessage({ message: 'invalid_url' })).toBe('الرابط لازم يبدأ بـ https://');

@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 
 export type GmReviewKey =
   | 'sales_upload' | 'attendance' | 'managers' | 'cleaning' | 'inventory'
-  | 'purchases_handover' | 'delivery' | 'customers';
+  | 'purchases_handover' | 'shifts' | 'delivery' | 'customers';
 
 export interface GmReviewItem {
   key: GmReviewKey;
@@ -36,7 +36,8 @@ export const GM_REVIEW_LABELS: Record<GmReviewKey, { title: string; question: st
   managers: { title: 'مديرين الفروع', question: 'كل مدير قفل لفة الفرع امبارح؟', link: '/' },
   cleaning: { title: 'النظافة', question: 'النظافة اتقيمت امبارح في الفرعين؟', link: '/branch-checklist-review' },
   inventory: { title: 'الجرد الأسبوعي', question: 'جرد الأسبوع متخطط وماشي في ميعاده؟', link: '/inventory-counts' },
-  purchases_handover: { title: 'المشتريات وتسليم الشيفتات', question: 'ابعت ملف المطابقة وراجع الفواتير وتسليم الشيفتات' },
+  purchases_handover: { title: 'المشتريات', question: 'ابعت ملف المطابقة وراجع الفواتير' },
+  shifts: { title: 'تسليم الشيفتات', question: 'كل فرع قفل الـ 3 شيفتات في ميعادها؟', link: '/shift-handovers' },
   delivery: { title: 'المناديب', question: 'ارفع الفواتير وراجع المشاوير واعتمد الأوردرات' },
   customers: { title: 'العملاء', question: 'طلبات الدورة المفتوحة وعملاء الـ 500 ج', link: '/customer-requests' },
 };
@@ -49,6 +50,7 @@ const shortDay = (value?: string | null) =>
   value ? new Date(`${value.slice(0, 10)}T12:00:00`).toLocaleDateString('ar-EG', { day: 'numeric', month: 'numeric' }) : '—';
 
 type Row = Record<string, unknown>;
+const SHIFT_DAY = (value: string) => new Date(`${value}T12:00:00`).toLocaleDateString('ar-EG', { weekday: 'short', day: 'numeric', month: 'numeric' });
 const rows = (detail: unknown) => (Array.isArray(detail) ? (detail as Row[]) : []);
 
 /** One short line per branch (or for the whole item) describing what the data says. */
@@ -68,8 +70,18 @@ export function gmReviewSummary(item: Pick<GmReviewItem, 'key' | 'detail'>): str
     case 'purchases_handover':
       return [
         `${d?.unreviewed_yesterday ?? 0} فاتورة مشتريات امبارح من غير مراجعة هنا`,
-        `آخر تسليم شيفت وصل هنا: ${shortDay(d?.last_handover as string)}`,
       ];
+    case 'shifts': {
+      const lines = rows(d?.branches).map((r) => {
+        const missing = rows(r.missing).map((m) => `${SHIFT_DAY(m.day as string)} ${m.shift}`);
+        return `${BRANCH[String(r.branch)]}: امبارح ${r.yesterday_done}/3${missing.length ? ` · ما اتقفلش: ${missing.join('، ')}` : ''}`;
+      });
+      const synced = d?.synced_at ? new Date(String(d.synced_at)) : null;
+      if (!synced || Date.now() - synced.getTime() > 3600e3) {
+        lines.push(`⚠️ المزامنة مع تطبيق المشتريات متوقفة${synced ? ` من ${synced.toLocaleString('ar-EG', { day: 'numeric', month: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ''}`);
+      }
+      return lines;
+    }
     case 'customers':
       return [`${d?.open_requests ?? 0} طلب مفتوح أكتر من يوم · ${d?.big_customers_yesterday ?? 0} عميل اشترى بـ 500 ج امبارح`];
     default:
