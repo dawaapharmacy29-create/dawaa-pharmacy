@@ -48,3 +48,27 @@ begin
   end if;
 end;
 $$;
+
+-- Writes: a purchasing manager may insert; nobody else may.
+set role anon;
+do $$
+begin
+  perform set_config('test.can', 'manage_purchases', true);
+  insert into public.purchase_invoices values ('10000000-0000-4000-8000-000000000009', 'فرع شكري', null, current_date);
+  perform set_config('test.can', '', true);
+  begin
+    insert into public.purchase_invoices values ('10000000-0000-4000-8000-00000000000a', 'فرع شكري', null, current_date);
+    raise exception 'write_without_permission';
+  exception when insufficient_privilege then null;
+  end;
+end;
+$$;
+reset role;
+do $$
+begin
+  if not exists (select 1 from pg_policies where policyname = 'purchase_invoices_write'
+                 and qual ilike '%SELECT dawaa_current_actor_can%' and with_check ilike '%SELECT dawaa_current_actor_can%') then
+    raise exception 'write_policy_not_wrapped';
+  end if;
+end;
+$$;
