@@ -13,6 +13,7 @@ const suites = [
   ['branch_manager_daily_agenda_v1', ['20261029120000_branch_inventory_weekly_counts_v1.sql', '20261030140000_branch_manager_daily_agenda_v1.sql', '20261030160000_branch_manager_daily_agenda_date_range_v1.sql']],
   ['branch_manager_agenda_cycle_v1', ['20261029120000_branch_inventory_weekly_counts_v1.sql', '20261030140000_branch_manager_daily_agenda_v1.sql', '20261030160000_branch_manager_daily_agenda_date_range_v1.sql', '20261031130000_branch_manager_agenda_cycle_v1.sql']],
   ['staff_compliance_violations_v1', ['20261031100000_staff_compliance_violations_v1.sql']],
+  ['staff_violations_staff_id_v1', ['20261031100000_staff_compliance_violations_v1.sql', '20261031180000_staff_violations_staff_id_v1.sql']],
   ['staff_account_suspension_sync_v1', ['20261031120000_staff_account_suspension_sync_v1.sql']],
   ['dashboard_speed_v1', ['20261031140000_dashboard_speed_v1.sql']],
   ['gm_daily_review_v1', ['20261029120000_branch_inventory_weekly_counts_v1.sql', '20261030140000_branch_manager_daily_agenda_v1.sql', '20261031160000_gm_daily_review_v1.sql', '20261031170000_gm_daily_review_speed_v1.sql']],

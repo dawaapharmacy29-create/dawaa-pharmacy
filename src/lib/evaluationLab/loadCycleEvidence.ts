@@ -6,7 +6,7 @@ import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
 import type { BrainRequest, LabEvidence } from './buildCycleScores';
 import { selectInvoiceCycleWindow } from '@/lib/readModels/invoiceRecordReadModel';
-import { invoiceShiftOf } from './catalog';
+import { invoiceShiftOf, isInternalCustomerCode } from './catalog';
 import { expectedInventoryWeeks, type InventoryItemEvidence, type InventorySessionEvidence } from './inventoryAccuracy';
 import { FULFILLMENT_WINDOW_DAYS, matchRequestFulfillment, type FulfillmentItem, type FulfillmentResult } from './requestFulfillment';
 import type { ViolationCategory } from './complianceFactor';
@@ -199,11 +199,18 @@ async function loadFulfillment(requestRows: Row[], startAt: string, endAt: strin
   }
 }
 
-/** The cycle before this one, per branch: valid invoices and net (growth). null when unreadable. */
-async function loadPreviousBranchSales(cycle: LabCycle): Promise<Array<{ branch: string; invoices: number; net: number }> | null> {
+/**
+ * The cycle before this one: per branch valid invoices and net (growth), and its dated invoices
+ * (v6.6 sales curve by hour). null when unreadable.
+ */
+async function loadPreviousCycle(cycle: LabCycle): Promise<{
+  branchSales: Array<{ branch: string; invoices: number; net: number }>;
+  invoices: Array<{ staffId: string | null; branch: string | null; net: number; at: string | null }>;
+} | null> {
   try {
     const shift = (day: string) => { const d = new Date(`${day}T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() - 1); return d.toISOString().slice(0, 10); };
-    const rows = await dailyInvoiceWindows({ start: shift(cycle.start), endExclusive: cycle.start }, 'id,branch,net_amount,total_amount', 30000);
+    const rows = (await dailyInvoiceWindows({ start: shift(cycle.start), endExclusive: cycle.start }, 'id,branch,net_amount,total_amount,staff_id,invoice_datetime,customer_code', 30000))
+      .filter((row) => !isInternalCustomerCode(row.customer_code));
     const byBranch = new Map<string, { branch: string; invoices: number; net: number }>();
     for (const row of rows) {
       const net = num(row.net_amount ?? row.total_amount);
@@ -214,7 +221,10 @@ async function loadPreviousBranchSales(cycle: LabCycle): Promise<Array<{ branch:
       entry.net += net;
       byBranch.set(branch, entry);
     }
-    return [...byBranch.values()];
+    return {
+      branchSales: [...byBranch.values()],
+      invoices: rows.map((row) => ({ staffId: text(row.staff_id) || null, branch: text(row.branch) || null, net: num(row.net_amount ?? row.total_amount), at: text(row.invoice_datetime) || null })),
+    };
   } catch {
     return null;
   }
@@ -249,7 +259,8 @@ async function loadViolations(cycle: LabCycle): Promise<LabEvidence['violations'
     if (error) throw error;
     return ((data || []) as Row[])
       .filter((row) => !row.withdrawn)
-      .map((row) => ({ staffId: text(row.staff_account_id), category: text(row.category) as ViolationCategory, points: num(row.points) }));
+      // The evaluation scores staff row ids; violations are recorded on the login account.
+      .map((row) => ({ staffId: text(row.staff_id) || text(row.staff_account_id), category: text(row.category) as ViolationCategory, points: num(row.points) }));
   } catch {
     return null;
   }
@@ -353,7 +364,7 @@ export function closedCycles(count: number, today = new Date()): LabCycle[] {
   return cycles;
 }
 
-export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: string | null } = {}): Promise<LabEvidence> {
+export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: string | null; doctorWeights?: Record<string, number> } = {}): Promise<LabEvidence> {
   // Cairo wall-clock boundaries (summer time aware) for timestamp columns.
   const startAt = cairoDateBoundaryIso(cycle.start);
   const endAt = cairoDateBoundaryIso(cycle.endExclusive);
@@ -368,7 +379,7 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
       .gte('conversation_date', startAt).lt('conversation_date', endAt) as unknown as PageQuery, 10000, 'reviews'),
     parallelPages((columns, options) => supabase.from('attendance_daily_summary').select(columns, options)
       .gte('attendance_date', cycle.start).lt('attendance_date', cycle.endExclusive),
-      'id,staff_id,attendance_date,resolution_status,first_in,late_minutes,scheduled_start_at,total_hours', 10000, 'attendance', ['staff_id', 'attendance_date']),
+      'id,staff_id,attendance_date,resolution_status,first_in,last_out,late_minutes,scheduled_start_at,scheduled_end_at,total_hours', 10000, 'attendance', ['staff_id', 'attendance_date']),
     pages(() => supabase.from('customer_requests')
       .select('id,source_recorded_staff_id,branch,created_at,closed_at,status,customer_id,customer_code,customer_phone,medicine_name,product_code,quantity')
       .gte('created_at', startAt).lt('created_at', endAt) as unknown as PageQuery, 10000, 'customer_requests'),
@@ -388,20 +399,21 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
 
   const brainRequests = await loadBrainRequests(startAt, endAt);
   const fulfillment = await loadFulfillment(requestRows, startAt, endAt);
-  const [previousBranchSales, teamEvaluations, purchaseInvoices, inventoryCounts, violations] = await Promise.all([
-    loadPreviousBranchSales(cycle),
+  const [previous, teamEvaluations, purchaseInvoices, inventoryCounts, violations] = await Promise.all([
+    loadPreviousCycle(cycle),
     loadTeamEvaluations(cycle, options.actorId || null, [...new Set(targetRows.map((row) => text(row.branch_name)).filter(Boolean))]),
     loadPurchaseInvoices(cycle),
     loadInventoryCounts(cycle),
     loadViolations(cycle),
   ]);
 
+  // Inactive staff are kept (not scored): their days and sales still belong to the cycle's fair shares.
   const staff = staffRows
-    .filter((row) => row.active !== false && row.is_active !== false)
-    .map((row) => ({ id: text(row.id), name: text(row.name), role: text(row.role), branch: text(row.branch) || null }));
+    .map((row) => ({ id: text(row.id), name: text(row.name), role: text(row.role), branch: text(row.branch) || null,
+      active: row.active !== false && row.is_active !== false }));
 
   // Delivery labels carry a name, not an id: resolve only to a unique active courier.
-  const couriers = staff.filter((person) => canonicalStaffRole(person.role) === 'delivery');
+  const couriers = staff.filter((person) => person.active && canonicalStaffRole(person.role) === 'delivery');
   const courierIds = new Set(couriers.map((c) => c.id));
   const ownersByKey = new Map<string, Set<string>>();
   const claim = (key: string, id: string) => { if (key) ownersByKey.set(key, (ownersByKey.get(key) || new Set()).add(id)); };
@@ -412,11 +424,16 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
     return owners && owners.size === 1 ? [...owners][0] : null;
   };
 
+  // Internal codes are moved out before anything is scored (and their total is shown).
+  const internalRows = invoiceRows.filter((row) => isInternalCustomerCode(row.customer_code));
+  const saleRows = invoiceRows.filter((row) => !isInternalCustomerCode(row.customer_code));
+
   const official = selectOfficialConversationReviews(reviewRows, { startDay: cycle.start, endDayExclusive: cycle.endExclusive }).rows;
 
   return {
     staff,
-    invoices: invoiceRows.map((row) => ({
+    excludedInternal: { invoices: internalRows.length, net: internalRows.reduce((s, row) => s + num(row.net_amount ?? row.total_amount), 0) },
+    invoices: saleRows.map((row) => ({
       staffId: text(row.staff_id) || null,
       net: num(row.net_amount ?? row.total_amount),
       date: text(row.sale_date).slice(0, 10),
@@ -427,6 +444,7 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
       shift: cairoShift(row.invoice_datetime),
       items: row.line_items_count === null || row.line_items_count === undefined ? null : num(row.line_items_count),
       discount: row.discount_amount == null ? null : num(row.discount_amount),
+      at: text(row.invoice_datetime) || null,
     })),
     reviews: official.flatMap((row) => {
       const score = conversationReviewScore100(row);
@@ -440,6 +458,9 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
       hasFirstIn: text(row.first_in) !== '',
       scheduled: text(row.scheduled_start_at) !== '',
       lateMinutes: num(row.late_minutes),
+      firstInAt: text(row.first_in) || null,
+      lastOutAt: text(row.last_out) || null,
+      scheduledEndAt: text(row.scheduled_end_at) || null,
     })),
     requests: requestRows.map((row) => ({
       // The recording employee; created_by is not a staff id.
@@ -458,7 +479,10 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
     })),
     brainRequests,
     fulfillment,
-    previousBranchSales,
+    previousBranchSales: previous?.branchSales ?? null,
+    previousInvoices: previous?.invoices ?? null,
+    cycle,
+    doctorWeights: options.doctorWeights,
     teamEvaluations,
     purchaseInvoices,
     inventoryCounts,

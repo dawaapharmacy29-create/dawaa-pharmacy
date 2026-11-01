@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronUp, Database, FlaskConical, MinusCircle, Users } from 'lucide-react';
-import { LAB_CURRENT_VERSION, LAB_FAMILY_LABELS, LAB_PILLAR_LABELS, LAB_PREVIOUS_VERSION, type LabFamily, type LabPillar } from '@/lib/evaluationLab/catalog';
+import { DOCTOR_LEVELS, LAB_CURRENT_VERSION, LAB_FAMILY_LABELS, LAB_PILLAR_LABELS, LAB_PREVIOUS_VERSION, type LabFamily, type LabPillar } from '@/lib/evaluationLab/catalog';
 import { useAuth } from '@/hooks/useAuth';
 
 const BASELINE_VERSION = LAB_PREVIOUS_VERSION[LAB_CURRENT_VERSION] ?? LAB_CURRENT_VERSION;
@@ -19,6 +19,30 @@ const READINESS: Record<Readiness, { label: string; className: string }> = {
   partial: { label: 'بيانات جزئية', className: 'dawaa-status-warning-text dawaa-status-warning-bg dawaa-status-warning-border' },
   insufficient: { label: 'بيانات غير كافية', className: 'dawaa-status-danger-text dawaa-status-danger-bg dawaa-status-danger-border' },
 };
+
+/** Doctor levels (v6.6 shared-hour weights): kept in this browser only while the trial runs. */
+const LEVELS_KEY = 'dawaa_evaluation_lab_doctor_levels_v1';
+type DoctorLevel = (typeof DOCTOR_LEVELS)[number]['key'];
+function readLevels(): Record<string, DoctorLevel> {
+  try { return JSON.parse(localStorage.getItem(LEVELS_KEY) || '{}') || {}; } catch { return {}; }
+}
+function writeLevels(levels: Record<string, DoctorLevel>) {
+  try { localStorage.setItem(LEVELS_KEY, JSON.stringify(levels)); } catch { /* the choice still applies to this view */ }
+}
+
+function LevelPicker({ value, onChange }: { value: DoctorLevel; onChange: (level: DoctorLevel) => void }) {
+  return (
+    <select
+      value={value}
+      onChange={(event) => onChange(event.target.value as DoctorLevel)}
+      className="rounded-full border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-input)] px-2 py-0.5 text-[11px] font-black"
+      aria-label="مستوى الصيدلي في الشيفت"
+      title="وزنه لما يشارك زميل في نفس الساعة"
+    >
+      {DOCTOR_LEVELS.map((level) => <option key={level.key} value={level.key}>{level.label} ×{level.weight}</option>)}
+    </select>
+  );
+}
 
 const cycleLabel = (cycle: LabCycle) => {
   const end = new Date(`${cycle.endExclusive}T00:00:00Z`);
@@ -123,7 +147,7 @@ function ComplianceDetails({ compliance }: { compliance: ComplianceResult }) {
   );
 }
 
-function PersonCard({ person, rank, baseline }: { person: LabPersonScore; rank: number | null; baseline?: number | null }) {
+function PersonCard({ person, rank, baseline, control }: { person: LabPersonScore; rank: number | null; baseline?: number | null; control?: ReactNode }) {
   const [open, setOpen] = useState(false);
   const readiness = READINESS[person.readiness];
   return (
@@ -143,6 +167,7 @@ function PersonCard({ person, rank, baseline }: { person: LabPersonScore; rank: 
         </div>
         {open ? <ChevronUp size={18} className="dawaa-theme-muted" /> : <ChevronDown size={18} className="dawaa-theme-muted" />}
       </button>
+      {control ? <div className="-mt-1 flex items-center gap-2 px-3 pb-3 ps-[4.5rem] text-[11px] font-bold sm:px-4 sm:ps-[5rem]"><span className="dawaa-theme-muted">مستواه في الشيفت:</span>{control}</div> : null}
       {open && (
         <div className="border-t border-[var(--dawaa-theme-border)] px-3 pb-3 sm:px-4">
           <div className="divide-y divide-[var(--dawaa-theme-divider)]">
@@ -224,6 +249,7 @@ function SourceStrip({ evidence }: { evidence: LabEvidence }) {
     { label: 'فواتير مشتريات', count: evidence.purchases ? evidence.purchases.length : null },
     { label: 'توصيلات مرتبطة', count: evidence.invoices.filter((i) => i.deliveryStaffId).length },
   ];
+  const internal = evidence.excludedInternal;
   return (
     <div className="flex flex-wrap gap-2">
       {sources.map((source) => (
@@ -231,6 +257,12 @@ function SourceStrip({ evidence }: { evidence: LabEvidence }) {
           <Database size={12} className="dawaa-theme-muted" /> {source.label}: {source.count === null ? 'غير متاح' : source.count.toLocaleString('ar-EG')}
         </span>
       ))}
+      {internal?.invoices ? (
+        <span className="dawaa-status-info-text flex items-center gap-1.5 rounded-full border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] px-3 py-1 text-xs font-black"
+          title="تحويلات الشامي وأبو العزم، الزكاة، عجز الرصيد، التوالف، استعمال الصيدلية والمخزن">
+          <MinusCircle size={12} /> أكواد داخلية مستثناة: {internal.invoices.toLocaleString('ar-EG')} فاتورة بـ {Math.round(internal.net).toLocaleString('ar-EG')} ج
+        </span>
+      ) : null}
       {DORMANT_LABELS.filter(([key]) => evidence.dormantSources.includes(key)).map(([key, label]) => (
         <span key={key} className="dawaa-status-warning-text dawaa-status-warning-bg dawaa-status-warning-border flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-black">
           <AlertTriangle size={12} /> {label}: لا توجد بيانات في الدورة (لا تُحسب صفرًا)
@@ -288,18 +320,28 @@ export default function EvaluationLab() {
   const [cycleIndex, setCycleIndex] = useState(0);
   const [family, setFamily] = useState<LabFamily>('doctor');
   const cycle = cycles[cycleIndex];
+  const [levels, setLevels] = useState<Record<string, DoctorLevel>>(readLevels);
+  const setLevel = (staffId: string, level: DoctorLevel) => {
+    const next = { ...levels, [staffId]: level };
+    setLevels(next);
+    writeLevels(next);
+  };
 
   const query = useQuery({
     queryKey: ['evaluation-lab-v6', cycle.start, cycle.endExclusive],
     queryFn: async () => {
       const evidence = await loadCycleEvidence(cycle, { actorId: user?.id ?? null });
       const baseline = new Map(buildCycleScores(evidence, BASELINE_VERSION).map((person) => [person.staffId, person.total]));
-      return { evidence, scores: buildCycleScores(evidence), baseline };
+      return { evidence, baseline };
     },
     staleTime: 5 * 60_000,
   });
-
-  const scores = query.data?.scores || [];
+  // Levels change the shared-hour weights only: scored again without reloading the cycle.
+  const scores = useMemo(() => {
+    if (!query.data) return [];
+    const doctorWeights = Object.fromEntries(Object.entries(levels).map(([id, key]) => [id, DOCTOR_LEVELS.find((l) => l.key === key)?.weight ?? 1]));
+    return buildCycleScores({ ...query.data.evidence, doctorWeights });
+  }, [query.data, levels]);
   // Only people with enough data are ranked; "insufficient" scores are listed last, unranked.
   const rankable = (p: LabPersonScore) => p.total !== null && p.readiness !== 'insufficient';
   const visible = scores
@@ -380,7 +422,8 @@ export default function EvaluationLab() {
             {visible.length === 0
               ? <div className="dawaa-card dawaa-surface rounded-2xl p-6 text-center text-sm font-bold">لا يوجد موظفون نشطون في هذه الفئة.</div>
               : visible.map((person, index) => (
-                <PersonCard key={person.staffId} person={person} rank={rankable(person) ? index + 1 : null} baseline={query.data.baseline.get(person.staffId)} />
+                <PersonCard key={person.staffId} person={person} rank={rankable(person) ? index + 1 : null} baseline={query.data.baseline.get(person.staffId)}
+                  control={person.family === 'doctor' ? <LevelPicker value={levels[person.staffId] || 'primary'} onChange={(level) => setLevel(person.staffId, level)} /> : undefined} />
               ))}
           </div>
         </>

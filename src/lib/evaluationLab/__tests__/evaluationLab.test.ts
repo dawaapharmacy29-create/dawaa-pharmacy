@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { aggregate, codingGatePenalty, deviationScore, disciplineScore, notMeasurable, measured, percentileAmong, shrunkMean, targetScore } from '../scoring';
 import { buildCycleScores, isSelfRecorded, type BrainRequest, type LabEvidence } from '../buildCycleScores';
 import { closedCycles } from '../loadCycleEvidence';
+import { isInternalCustomerCode } from '../catalog';
 
 const days = (staffId: string, n: number, status = 'on_time', late = 0) =>
   Array.from({ length: n }, (_, i) => ({ staffId, date: `2026-10-${String(i + 1).padStart(2, '0')}`, status, hasFirstIn: true, scheduled: true, lateMinutes: late }));
@@ -121,6 +122,30 @@ describe('buildCycleScores (v6.0 baseline)', () => {
     expect(axis('p').score).toBe(50);
     // Days 6-10: a is alone, so the whole branch is his share; he sold exactly that.
     expect(axis('a').value).toBeCloseTo(1, 1);
+  });
+
+  it('fair share counts only sales by doctors and keeps a doctor who left in the days he worked', () => {
+    // Days 1-10: a, b and x (left since, inactive) each sell 1000/day; the branch manager sells 3000/day.
+    const sale = (staffId: string, net: number, i: number) => ({ staffId, net, date: `2026-10-${String(i + 1).padStart(2, '0')}`, coded: true, branch: 'فرع شكري', deliveryStaffId: null });
+    const share = buildCycleScores(evidence({
+      staff: [
+        { id: 'a', name: 'أ', role: 'صيدلاني', branch: 'فرع شكري' },
+        { id: 'b', name: 'ب', role: 'صيدلاني', branch: 'فرع شكري' },
+        { id: 'x', name: 'سابق', role: 'صيدلاني', branch: 'فرع شكري', active: false },
+        { id: 'm1', name: 'مدير', role: 'مدير فرع', branch: 'فرع شكري' },
+      ],
+      attendance: [...days('a', 10), ...days('b', 10), ...days('x', 10), ...days('m1', 10)],
+      invoices: Array.from({ length: 10 }, (_, i) => [sale('a', 1000, i), sale('b', 1000, i), sale('x', 1000, i), sale('m1', 3000, i)]).flat(),
+      reviews: [], requests: [],
+    }), 'v6.5');
+    const axis = (id: string, key: string) => share.find((r) => r.staffId === id)!.axes.find((a) => a.key === key)!;
+    // Expected = doctors' 3000/day ÷ 3 doctors on duty = 1000: each sold exactly his share.
+    expect(axis('a', 'sales_per_day').value).toBe(1);
+    expect(axis('a', 'sales_per_day').score).toBe(50);
+    expect(axis('b', 'invoice_share').value).toBe(1);
+    // The doctor who left is not scored, and the manager's sales still count for the branch target.
+    expect(share.find((r) => r.staffId === 'x')).toBeUndefined();
+    expect(axis('m1', 'branch_target').value).toBe(60);
   });
 
   it('dormant follow-ups are visible but never weighted', () => {
@@ -424,5 +449,68 @@ describe('closedCycles', () => {
       { start: '2026-08-26', endExclusive: '2026-09-26' },
     ]);
     expect(closedCycles(1, new Date('2026-10-20T10:00:00Z'))[0]).toEqual({ start: '2026-08-26', endExclusive: '2026-09-26' });
+  });
+});
+
+describe('buildCycleScores v6.6 hourly target', () => {
+  const at = (day: number, utcHour: number) => `2026-12-${String(day).padStart(2, '0')}T${String(utcHour).padStart(2, '0')}:30:00Z`;
+  const hourly = (weights?: Record<string, number>): LabEvidence => evidence({
+    cycle: { start: '2026-12-01', endExclusive: '2026-12-11' },
+    targets: [{ branch: 'فرع شكري', targetAmount: 30000 }],
+    staff: [
+      { id: 'd1', name: 'أ', role: 'صيدلاني', branch: 'فرع شكري' },
+      { id: 'd2', name: 'ب', role: 'صيدلاني', branch: 'فرع شكري' },
+      { id: 'm1', name: 'مدير', role: 'مدير فرع', branch: 'فرع شكري' },
+    ],
+    previousInvoices: Array.from({ length: 10 }, (_, i) => ({ staffId: 'd1', branch: 'فرع شكري', net: 3000, at: `2026-11-${String(i + 1).padStart(2, '0')}T16:30:00Z` })),
+    // Both doctors 15:00-21:00 Cairo every day; d1 sells 2000 and d2 1000 at 18:30 Cairo.
+    attendance: Array.from({ length: 10 }, (_, i) => ['d1', 'd2'].map((staffId) => ({
+      staffId, date: `2026-12-${String(i + 1).padStart(2, '0')}`, status: 'on_time', hasFirstIn: true, scheduled: true, lateMinutes: 0,
+      firstInAt: at(i + 1, 13).replace(':30:', ':00:'), lastOutAt: at(i + 1, 19).replace(':30:', ':00:'),
+    }))).flat(),
+    invoices: Array.from({ length: 10 }, (_, i) => [
+      { staffId: 'd1', net: 2000, date: `2026-12-${String(i + 1).padStart(2, '0')}`, coded: true, branch: 'فرع شكري', deliveryStaffId: null, at: at(i + 1, 16) },
+      { staffId: 'd2', net: 1000, date: `2026-12-${String(i + 1).padStart(2, '0')}`, coded: true, branch: 'فرع شكري', deliveryStaffId: null, at: at(i + 1, 16) },
+    ]).flat(),
+    reviews: [], requests: [], doctorWeights: weights,
+  });
+  const axis = (scores: ReturnType<typeof buildCycleScores>, id: string, key: string) => scores.find((r) => r.staffId === id)!.axes.find((a) => a.key === key)!;
+
+  it('doctor weights sum to 100 and the old day share stays for comparison only', () => {
+    const d1 = buildCycleScores(hourly()).find((r) => r.staffId === 'd1')!;
+    expect(d1.axes.reduce((s, a) => s + a.weight, 0)).toBe(100);
+    expect(axis([d1], 'd1', 'sales_per_day').weight).toBe(0);
+  });
+
+  it('a primary doctor carries more of the shared hour; the shift result is common', () => {
+    // Equal weights: each owns 15000; d1 sold 20000 (133%), d2 10000 (67%); the shift made 100%.
+    const equal = buildCycleScores(hourly());
+    expect(axis(equal, 'd1', 'shift_target').value).toBe(133.3);
+    expect(axis(equal, 'd2', 'shift_target').value).toBe(66.7);
+    // d1 primary (1) and d2 at 0.5: targets 20000 / 10000, both at 100%.
+    const weighted = buildCycleScores(hourly({ d1: 1, d2: 0.5 }));
+    expect(axis(weighted, 'd1', 'shift_target').value).toBe(100);
+    expect(axis(weighted, 'd2', 'shift_target').value).toBe(100);
+    expect(axis(weighted, 'd2', 'shift_target').score).toBeCloseTo(83.3, 1);
+  });
+
+  it('without the previous cycle the hourly axes are not measurable, never zero', () => {
+    const scores = buildCycleScores({ ...hourly(), previousInvoices: null });
+    expect(axis(scores, 'd1', 'shift_target').status).toBe('not_measurable');
+    expect(axis(scores, 'd1', 'invoice_share').status).toBe('not_measurable');
+  });
+
+  it('the branch manager sees invoices rung with no punch, for information', () => {
+    const m1 = buildCycleScores(hourly()).find((r) => r.staffId === 'm1')!;
+    const a = m1.axes.find((x) => x.key === 'invoice_attribution')!;
+    expect(a.weight).toBe(0);
+    expect(a.value).toBe(0);
+  });
+});
+
+describe('internal customer codes', () => {
+  it('transfers, zakat, shortage, damaged, pharmacy use and warehouse are not customer sales', () => {
+    for (const code of ['5', '10', '20', '54', '170', '4902', ' 12820 ']) expect(isInternalCustomerCode(code)).toBe(true);
+    for (const code of ['7', '90', '', null]) expect(isInternalCustomerCode(code)).toBe(false);
   });
 });
