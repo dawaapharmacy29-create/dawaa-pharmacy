@@ -6,10 +6,10 @@ export type LabFamily = 'doctor' | 'assistant' | 'delivery' | 'branch_manager' |
 
 /** v6.0 is kept so the lab can show what each change moved; v6.1 is the proposal under review. */
 /** Each version keeps every rule of the one before it; the lab shows the change against the previous one. */
-export type LabVersion = 'v6.0' | 'v6.1' | 'v6.2' | 'v6.3' | 'v6.4' | 'v6.5' | 'v6.6' | 'v6.7';
-export const LAB_CURRENT_VERSION: LabVersion = 'v6.7';
-export const LAB_PREVIOUS_VERSION: Record<LabVersion, LabVersion | null> = { 'v6.0': null, 'v6.1': 'v6.0', 'v6.2': 'v6.1', 'v6.3': 'v6.2', 'v6.4': 'v6.3', 'v6.5': 'v6.4', 'v6.6': 'v6.5', 'v6.7': 'v6.6' };
-export const LAB_VERSION_ORDER: LabVersion[] = ['v6.0', 'v6.1', 'v6.2', 'v6.3', 'v6.4', 'v6.5', 'v6.6', 'v6.7'];
+export type LabVersion = 'v6.0' | 'v6.1' | 'v6.2' | 'v6.3' | 'v6.4' | 'v6.5' | 'v6.6' | 'v6.7' | 'v6.8';
+export const LAB_CURRENT_VERSION: LabVersion = 'v6.8';
+export const LAB_PREVIOUS_VERSION: Record<LabVersion, LabVersion | null> = { 'v6.0': null, 'v6.1': 'v6.0', 'v6.2': 'v6.1', 'v6.3': 'v6.2', 'v6.4': 'v6.3', 'v6.5': 'v6.4', 'v6.6': 'v6.5', 'v6.7': 'v6.6', 'v6.8': 'v6.7' };
+export const LAB_VERSION_ORDER: LabVersion[] = ['v6.0', 'v6.1', 'v6.2', 'v6.3', 'v6.4', 'v6.5', 'v6.6', 'v6.7', 'v6.8'];
 
 export type LabAxisKey =
   | 'sales_per_day'
@@ -288,7 +288,11 @@ const V66: Record<LabFamily, LabAxisDefinition[]> = {
 // weights are v6.6's; only the score shapes change (see metTargetFloor and the benchmark bands).
 const V67 = V66;
 
-export const LAB_AXES_BY_VERSION: Record<LabVersion, Record<LabFamily, LabAxisDefinition[]>> = { 'v6.0': V60, 'v6.1': V61, 'v6.2': V62, 'v6.3': V63, 'v6.4': V64, 'v6.5': V65, 'v6.6': V66, 'v6.7': V67 };
+// v6.8 (owner request 2026-11-01): conversation quality follows the official review scale, where 95+
+// is "excellent": an adjusted average of 95 scores 100, 80 scores 0. Axes and weights are v6.7's.
+const V68 = V67;
+
+export const LAB_AXES_BY_VERSION: Record<LabVersion, Record<LabFamily, LabAxisDefinition[]>> = { 'v6.0': V60, 'v6.1': V61, 'v6.2': V62, 'v6.3': V63, 'v6.4': V64, 'v6.5': V65, 'v6.6': V66, 'v6.7': V67, 'v6.8': V68 };
 export const LAB_AXES = LAB_AXES_BY_VERSION[LAB_CURRENT_VERSION];
 
 export function labFamilyOf(role: CanonicalStaffRole): LabFamily | null {
@@ -374,6 +378,9 @@ export const LAB_THRESHOLDS = {
    * (fair share, average invoice, basket, growth) end at ×1.0 instead of their ceiling.
    */
   metTargetFloor: 0.5,
+  /** v6.8 conversation quality on the official scale: 80 ("acceptable") → 0, 95 ("excellent") → 100. */
+  conversationFloor: 80,
+  conversationFull: 95,
 } as const;
 
 /** v6.6 doctor weights on a shared hour (owner sets each doctor's level in the lab). */
