@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aggregate, codingGatePenalty, deviationScore, disciplineScore, notMeasurable, measured, percentileAmong, shrunkMean, targetScore } from '../scoring';
+import { aggregate, codingGatePenalty, deviationScore, disciplineScore, metTargetScore, notMeasurable, measured, percentileAmong, shrunkMean, targetScore } from '../scoring';
 import { buildCycleScores, isSelfRecorded, type BrainRequest, type LabEvidence } from '../buildCycleScores';
 import { closedCycles } from '../loadCycleEvidence';
 import { isInternalCustomerCode } from '../catalog';
@@ -54,6 +54,11 @@ describe('evaluation lab scoring primitives', () => {
     expect(deviationScore(0.97, 0.96)).toBeCloseTo(60);
     expect(targetScore(1.2)).toBe(100);
     expect(targetScore(0.6)).toBe(50);
+    // v6.7: a met target is full marks, exceeding it adds nothing, half of it is 0.
+    expect(metTargetScore(1)).toBe(100);
+    expect(metTargetScore(1.3)).toBe(100);
+    expect(metTargetScore(0.95)).toBeCloseTo(90);
+    expect(metTargetScore(0.5)).toBe(0);
     expect(disciplineScore(1)).toBe(100);
     expect(disciplineScore(0.5)).toBe(50);
   });
@@ -491,7 +496,18 @@ describe('buildCycleScores v6.6 hourly target', () => {
     const weighted = buildCycleScores(hourly({ d1: 1, d2: 0.5 }));
     expect(axis(weighted, 'd1', 'shift_target').value).toBe(100);
     expect(axis(weighted, 'd2', 'shift_target').value).toBe(100);
-    expect(axis(weighted, 'd2', 'shift_target').score).toBeCloseTo(83.3, 1);
+    // v6.6 put 100% at 83.3; v6.7 gives the met target its 100.
+    expect(axis(buildCycleScores(hourly({ d1: 1, d2: 0.5 }), 'v6.6'), 'd2', 'shift_target').score).toBeCloseTo(83.3, 1);
+    expect(axis(weighted, 'd2', 'shift_target').score).toBe(100);
+    expect(axis(equal, 'd1', 'shift_target').score).toBe(100);
+    // d2 at 67% alone with the shift at 100%: 0.4 × 100 + 0.6 × 33.3.
+    expect(axis(equal, 'd2', 'shift_target').score).toBeCloseTo(60, 0);
+  });
+
+  it('v6.7: matching the branch benchmark is 100, v6.6 put it at 50', () => {
+    const at = (version: 'v6.6' | 'v6.7') => axis(buildCycleScores(hourly({ d1: 1, d2: 0.5 }), version), 'd2', 'invoice_share');
+    expect(at('v6.6').value).toBe(at('v6.7').value);
+    expect(at('v6.7').score).toBeGreaterThan(at('v6.6').score as number);
   });
 
   it('without the previous cycle the hourly axes are not measurable, never zero', () => {

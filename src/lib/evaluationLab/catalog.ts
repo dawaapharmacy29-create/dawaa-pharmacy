@@ -6,10 +6,10 @@ export type LabFamily = 'doctor' | 'assistant' | 'delivery' | 'branch_manager' |
 
 /** v6.0 is kept so the lab can show what each change moved; v6.1 is the proposal under review. */
 /** Each version keeps every rule of the one before it; the lab shows the change against the previous one. */
-export type LabVersion = 'v6.0' | 'v6.1' | 'v6.2' | 'v6.3' | 'v6.4' | 'v6.5' | 'v6.6';
-export const LAB_CURRENT_VERSION: LabVersion = 'v6.6';
-export const LAB_PREVIOUS_VERSION: Record<LabVersion, LabVersion | null> = { 'v6.0': null, 'v6.1': 'v6.0', 'v6.2': 'v6.1', 'v6.3': 'v6.2', 'v6.4': 'v6.3', 'v6.5': 'v6.4', 'v6.6': 'v6.5' };
-export const LAB_VERSION_ORDER: LabVersion[] = ['v6.0', 'v6.1', 'v6.2', 'v6.3', 'v6.4', 'v6.5', 'v6.6'];
+export type LabVersion = 'v6.0' | 'v6.1' | 'v6.2' | 'v6.3' | 'v6.4' | 'v6.5' | 'v6.6' | 'v6.7';
+export const LAB_CURRENT_VERSION: LabVersion = 'v6.7';
+export const LAB_PREVIOUS_VERSION: Record<LabVersion, LabVersion | null> = { 'v6.0': null, 'v6.1': 'v6.0', 'v6.2': 'v6.1', 'v6.3': 'v6.2', 'v6.4': 'v6.3', 'v6.5': 'v6.4', 'v6.6': 'v6.5', 'v6.7': 'v6.6' };
+export const LAB_VERSION_ORDER: LabVersion[] = ['v6.0', 'v6.1', 'v6.2', 'v6.3', 'v6.4', 'v6.5', 'v6.6', 'v6.7'];
 
 export type LabAxisKey =
   | 'sales_per_day'
@@ -284,7 +284,11 @@ const V66: Record<LabFamily, LabAxisDefinition[]> = {
   ],
 };
 
-export const LAB_AXES_BY_VERSION: Record<LabVersion, Record<LabFamily, LabAxisDefinition[]>> = { 'v6.0': V60, 'v6.1': V61, 'v6.2': V62, 'v6.3': V63, 'v6.4': V64, 'v6.5': V65, 'v6.6': V66 };
+// v6.7 (owner request 2026-11-01): meeting a target or the branch benchmark scores 100. The axes and
+// weights are v6.6's; only the score shapes change (see metTargetFloor and the benchmark bands).
+const V67 = V66;
+
+export const LAB_AXES_BY_VERSION: Record<LabVersion, Record<LabFamily, LabAxisDefinition[]>> = { 'v6.0': V60, 'v6.1': V61, 'v6.2': V62, 'v6.3': V63, 'v6.4': V64, 'v6.5': V65, 'v6.6': V66, 'v6.7': V67 };
 export const LAB_AXES = LAB_AXES_BY_VERSION[LAB_CURRENT_VERSION];
 
 export function labFamilyOf(role: CanonicalStaffRole): LabFamily | null {
@@ -365,6 +369,11 @@ export const LAB_THRESHOLDS = {
   /** The hourly target needs the seller on at least 90% of the branch's invoices. */
   minSellerCoverage: 0.9,
   maxShiftHours: 16,
+  /**
+   * v6.7: a target met scores 100, 50% → 0 (2 points per point short). The benchmark bands
+   * (fair share, average invoice, basket, growth) end at ×1.0 instead of their ceiling.
+   */
+  metTargetFloor: 0.5,
 } as const;
 
 /** v6.6 doctor weights on a shared hour (owner sets each doctor's level in the lab). */

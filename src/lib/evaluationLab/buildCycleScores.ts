@@ -10,7 +10,7 @@ import { hourlyTargets, cairoHourKey, type HourlyInvoice, type HourlyOutput } fr
 import { personCompliance, type ComplianceResult, type ViolationCategory } from './complianceFactor';
 import {
   aggregate, bandScore, closureScore, codingGatePenalty, disciplineScore, measured, median, notMeasurable,
-  percentileAmong, shrunkMean, targetScore, type AxisResult, type LabAdjustment, type LabScore,
+  metTargetScore, percentileAmong, shrunkMean, targetScore, type AxisResult, type LabAdjustment, type LabScore,
 } from './scoring';
 
 // Pure cycle computation: canonical evidence in, one score per employee out. No I/O.
@@ -337,6 +337,15 @@ const dormant = (evidence: LabEvidence, source: string) => evidence.dormantSourc
 const atLeast = (version: LabVersion, minimum: LabVersion) => LAB_VERSION_ORDER.indexOf(version) >= LAB_VERSION_ORDER.indexOf(minimum);
 const share = (part: number, whole: number) => (whole ? part / whole : null);
 
+/** How a target and a ratio to the branch benchmark become a score; v6.7 gives 100 once either is met. */
+interface ScoreShape {
+  target: (achievement: number) => number;
+  benchmark: (ratio: number, floor: number, ceiling: number) => number;
+}
+const shapeOf = (version: LabVersion): ScoreShape => atLeast(version, 'v6.7')
+  ? { target: metTargetScore, benchmark: (ratio, floor) => bandScore(ratio, floor, 1) }
+  : { target: targetScore, benchmark: bandScore };
+
 /**
  * Basket metric against the same branch, day and shift: for every invoice the doctor closed, the
  * expected value is the average of that metric over all of the branch's invoices in the same
@@ -353,6 +362,7 @@ function basketAxis(
   describe: (own: number, expected: number, count: number, ratio: number) => string,
   /** v6.6: compare with the same branch and Cairo hour instead of the same day and shift. */
   byHour = false,
+  shape: ScoreShape = shapeOf('v6.0'),
 ): Map<string, AxisDraft> {
   const out = new Map<string, AxisDraft>();
   const slotOf = (invoice: LabEvidence['invoices'][number]) => byHour && invoice.at
@@ -383,7 +393,7 @@ function basketAxis(
       continue;
     }
     const ratio = row.value / row.expected;
-    out.set(member.id, measured(key, round(ratio, 2), bandScore(ratio, floor, ceiling), describe(row.value / row.n, row.expected / row.n, row.n, ratio)));
+    out.set(member.id, measured(key, round(ratio, 2), shape.benchmark(ratio, floor, ceiling), describe(row.value / row.n, row.expected / row.n, row.n, ratio)));
   }
   return out;
 }
@@ -402,7 +412,7 @@ function hourlyFor(evidence: LabEvidence, pool: LabEvidence['staff']): HourlyOut
   return out.ready ? out : null;
 }
 
-function hourlyAxes(hourly: HourlyOutput | null, id: string): AxisDraft[] {
+function hourlyAxes(hourly: HourlyOutput | null, id: string, shape: ScoreShape): AxisDraft[] {
   if (!hourly) {
     const reason = 'مبيعات الدورة السابقة بالساعة غير متاحة — منحنى التارجت لا يُبنى';
     return [notMeasurable('shift_target', reason), notMeasurable('invoice_share', reason)];
@@ -420,7 +430,7 @@ function hourlyAxes(hourly: HourlyOutput | null, id: string): AxisDraft[] {
   if (r.target > 0 && r.teamTarget > 0) {
     const own = r.own / r.target;
     const team = r.teamSales / r.teamTarget;
-    const score = LAB_THRESHOLDS.shiftTeamShare * targetScore(team) + (1 - LAB_THRESHOLDS.shiftTeamShare) * targetScore(own);
+    const score = LAB_THRESHOLDS.shiftTeamShare * shape.target(team) + (1 - LAB_THRESHOLDS.shiftTeamShare) * shape.target(own);
     const flags = [
       r.cappedInvoices ? `${r.cappedInvoices} فاتورة فوق ${egp(LAB_THRESHOLDS.bigInvoiceCap)} اتحسبت ${egp(LAB_THRESHOLDS.bigInvoiceCap)}` : '',
       r.outsidePunch ? `${r.outsidePunch} فاتورة باسمه وهو مش باصم` : '',
@@ -432,7 +442,7 @@ function hourlyAxes(hourly: HourlyOutput | null, id: string): AxisDraft[] {
   }
   if (r.expectedInvoices > 0) {
     const share = r.ownInvoices / r.expectedInvoices;
-    out.push(measured('invoice_share', round(share, 2), bandScore(share, LAB_THRESHOLDS.fairShareFloor, LAB_THRESHOLDS.fairShareCeiling),
+    out.push(measured('invoice_share', round(share, 2), shape.benchmark(share, LAB_THRESHOLDS.fairShareFloor, LAB_THRESHOLDS.fairShareCeiling),
       `${egp(r.ownInvoices)} فاتورة من نصيب متوقع ${egp(r.expectedInvoices)} في ${r.hours} ساعة (×${round(share, 2)})`));
   } else {
     out.push(notMeasurable('invoice_share', 'لا توجد فواتير للفرع في ساعات عمله'));
@@ -442,6 +452,7 @@ function hourlyAxes(hourly: HourlyOutput | null, id: string): AxisDraft[] {
 
 export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LAB_CURRENT_VERSION): LabPersonScore[] {
   const facts = factsFor(evidence, version);
+  const shape = shapeOf(version);
   const people = evidence.staff
     .filter((person) => person.active !== false)
     .map((person) => ({ ...person, family: labFamilyOf(canonicalStaffRole(person.role)) }))
@@ -461,16 +472,16 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
   rateAxis('customer_requests', doctors, (f) => f.requests, 'طلب/يوم', invalidNote).forEach((axis, id) => push(id, axis));
   const hourly = atLeast(version, 'v6.6') ? hourlyFor(evidence, doctorPool) : null;
   const attributionOf = () => hourly?.attribution ?? null;
-  if (atLeast(version, 'v6.6')) for (const { id } of doctors) for (const axis of hourlyAxes(hourly, id)) push(id, axis);
+  if (atLeast(version, 'v6.6')) for (const { id } of doctors) for (const axis of hourlyAxes(hourly, id, shape)) push(id, axis);
   if (atLeast(version, 'v6.2')) {
     if (!atLeast(version, 'v6.6')) fairShareAxis('invoice_share', doctors, evidence, (inv) => inv.staffId, (inv) => (inv.net > 0 ? 1 : 0),
       (own, expected, days, share) => `${egp(own)} فاتورة من نصيب متوقع ${egp(expected)} في ${days} يوم عمل (×${round(share, 2)})`, doctorPool)
       .forEach((axis, id) => push(id, axis));
     basketAxis('avg_invoice', doctors, evidence, (inv) => inv.net, LAB_THRESHOLDS.avgInvoiceFloor, LAB_THRESHOLDS.avgInvoiceCeiling,
-      (own, expected, n, ratio) => `متوسط ${egp(own)} ج مقابل ${egp(expected)} ج للفرع في نفس ${hourly ? 'الساعة' : 'اليوم والشيفت'} · ${n} فاتورة (×${round(ratio, 2)})`, Boolean(hourly))
+      (own, expected, n, ratio) => `متوسط ${egp(own)} ج مقابل ${egp(expected)} ج للفرع في نفس ${hourly ? 'الساعة' : 'اليوم والشيفت'} · ${n} فاتورة (×${round(ratio, 2)})`, Boolean(hourly), shape)
       .forEach((axis, id) => push(id, axis));
     basketAxis('basket_items', doctors, evidence, (inv) => (inv.items && inv.items > 0 ? inv.items : null), LAB_THRESHOLDS.basketFloor, LAB_THRESHOLDS.basketCeiling,
-      (own, expected, n, ratio) => `${round(own, 2)} صنف/فاتورة مقابل ${round(expected, 2)} للفرع في نفس ${hourly ? 'الساعة' : 'اليوم والشيفت'} · ${n} فاتورة (×${round(ratio, 2)})`, Boolean(hourly))
+      (own, expected, n, ratio) => `${round(own, 2)} صنف/فاتورة مقابل ${round(expected, 2)} للفرع في نفس ${hourly ? 'الساعة' : 'اليوم والشيفت'} · ${n} فاتورة (×${round(ratio, 2)})`, Boolean(hourly), shape)
       .forEach((axis, id) => push(id, axis));
   }
   const captureByStaff = new Map<string, { found: number; self: number }>();
@@ -648,12 +659,12 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
         out.push(notMeasurable('avg_invoice_growth', 'مبيعات الدورة السابقة غير متاحة'));
       } else {
         const growth = valid.length / prevInvoices;
-        out.push(measured('customers_growth', round(growth * 100), bandScore(growth, LAB_THRESHOLDS.customersGrowthFloor, LAB_THRESHOLDS.customersGrowthCeiling),
+        out.push(measured('customers_growth', round(growth * 100), shape.benchmark(growth, LAB_THRESHOLDS.customersGrowthFloor, LAB_THRESHOLDS.customersGrowthCeiling),
           `${egp(valid.length)} فاتورة مقابل ${egp(prevInvoices)} في الدورة السابقة (×${round(growth, 2)})`));
         const avgNow = valid.length ? net / valid.length : 0;
         const avgPrev = prevNet / prevInvoices;
         const ratio = avgPrev ? avgNow / avgPrev : 0;
-        out.push(measured('avg_invoice_growth', round(ratio * 100), bandScore(ratio, LAB_THRESHOLDS.avgInvoiceGrowthFloor, LAB_THRESHOLDS.avgInvoiceGrowthCeiling),
+        out.push(measured('avg_invoice_growth', round(ratio * 100), shape.benchmark(ratio, LAB_THRESHOLDS.avgInvoiceGrowthFloor, LAB_THRESHOLDS.avgInvoiceGrowthCeiling),
           `متوسط ${egp(avgNow)} ج مقابل ${egp(avgPrev)} ج في الدورة السابقة (×${round(ratio, 2)})`));
       }
       // Team WhatsApp request capture (Master Brain).
@@ -728,7 +739,7 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
     const out: AxisDraft[] = [];
     const net = b.invoices.reduce((s, inv) => s + inv.net, 0);
     out.push(b.target > 0
-      ? measured('branch_target', round((net / b.target) * 100), targetScore(net / b.target), `${egp(net)} من ${egp(b.target)} ج`)
+      ? measured('branch_target', round((net / b.target) * 100), shape.target(net / b.target), `${egp(net)} من ${egp(b.target)} ج`)
       : notMeasurable('branch_target', 'لا يوجد تارجت مسجل للفرع'));
     const requests = version !== 'v6.0' ? b.requests.filter((r) => !INVALID_REQUEST_STATUS.test(String(r.status || '').toLowerCase())) : b.requests;
     const closed = requests.filter((r) => r.closedAt);
