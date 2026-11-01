@@ -19,6 +19,7 @@ const suites = [
   ['dashboard_speed_v1', ['20261031140000_dashboard_speed_v1.sql']],
   ['gm_daily_review_v1', ['20261029120000_branch_inventory_weekly_counts_v1.sql', '20261030140000_branch_manager_daily_agenda_v1.sql', '20261031160000_gm_daily_review_v1.sql', '20261031170000_gm_daily_review_speed_v1.sql']],
   ['base44_shift_handover_sync_v1', ['20261029120000_branch_inventory_weekly_counts_v1.sql', '20261030140000_branch_manager_daily_agenda_v1.sql', '20261031160000_gm_daily_review_v1.sql', '20261031170000_gm_daily_review_speed_v1.sql', '20261101130000_base44_shift_handover_sync_v1.sql']],
+  ['shift_handover_on_duty_corrections_v1', ['20261029120000_branch_inventory_weekly_counts_v1.sql', '20261030140000_branch_manager_daily_agenda_v1.sql', '20261031160000_gm_daily_review_v1.sql', '20261031170000_gm_daily_review_speed_v1.sql', '20261101130000_base44_shift_handover_sync_v1.sql', '20261101150000_shift_handover_on_duty_corrections_v1.sql']],
   ['whatsapp_invoice_link_confirmation_v1', [
     '../migrations/20261012121500_whatsapp_invoice_link_confirmation_v1.sql',
   ]],

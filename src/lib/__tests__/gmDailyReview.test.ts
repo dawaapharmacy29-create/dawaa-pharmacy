@@ -23,6 +23,17 @@ describe('gm daily review', () => {
       'الشامي: امبارح 3/3',
       `شكري: امبارح 2/3 · ما اتقفلش: ${new Date('2026-11-01T12:00:00').toLocaleDateString('ar-EG', { weekday: 'short', day: 'numeric', month: 'numeric' })} مسائي`,
     ]);
+    expect(gmReviewSummary({ key: 'shifts', detail: { synced_at: synced, branches: [
+      { branch: 'elshamy', yesterday_done: 2, missing: [
+        { day: '2026-11-01', shift: 'ليلي', doctors: [{ staff_id: '1', name: 'د عمر', source: 'schedule' }] },
+        { day: '2026-11-01', shift: 'مسائي', doctors: [{ staff_id: '2', name: 'د وليد', source: 'punch' }, { staff_id: '3', name: 'د علياء', source: 'punch' }] },
+        { day: '2026-11-02', shift: 'ليلي', doctors: [] },
+      ] },
+    ] } })[0]).toBe(`الشامي: امبارح 2/3 · ما اتقفلش: ${[
+      `${new Date('2026-11-01T12:00:00').toLocaleDateString('ar-EG', { weekday: 'short', day: 'numeric', month: 'numeric' })} ليلي (د عمر (جدول من غير بصمة))`,
+      `${new Date('2026-11-01T12:00:00').toLocaleDateString('ar-EG', { weekday: 'short', day: 'numeric', month: 'numeric' })} مسائي (د وليد، د علياء)`,
+      `${new Date('2026-11-02T12:00:00').toLocaleDateString('ar-EG', { weekday: 'short', day: 'numeric', month: 'numeric' })} ليلي (مفيش بصمة ولا جدول)`,
+    ].join('، ')}`);
     const stale = gmReviewSummary({ key: 'shifts', detail: { synced_at: null, branches: [] } });
     expect(stale).toEqual(['⚠️ المزامنة مع تطبيق المشتريات متوقفة']);
   });

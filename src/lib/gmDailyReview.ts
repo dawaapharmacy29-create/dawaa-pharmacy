@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { onDutyLabel, type OnDutyDoctor } from '@/lib/shiftHandoverCoverage';
 
 // «مراجعتي اليومية» for the general manager (migration 20261031160000). Items with data here turn green on
 // their own; items worked in the purchasing and delivery apps open that app and are closed by hand.
@@ -73,7 +74,10 @@ export function gmReviewSummary(item: Pick<GmReviewItem, 'key' | 'detail'>): str
       ];
     case 'shifts': {
       const lines = rows(d?.branches).map((r) => {
-        const missing = rows(r.missing).map((m) => `${SHIFT_DAY(m.day as string)} ${m.shift}`);
+        const missing = rows(r.missing).map((m) => {
+          const who = onDutyLabel(m.doctors as OnDutyDoctor[] | undefined);
+          return `${SHIFT_DAY(m.day as string)} ${m.shift}${who ? ` (${who})` : ''}`;
+        });
         return `${BRANCH[String(r.branch)]}: امبارح ${r.yesterday_done}/3${missing.length ? ` · ما اتقفلش: ${missing.join('، ')}` : ''}`;
       });
       const synced = d?.synced_at ? new Date(String(d.synced_at)) : null;
