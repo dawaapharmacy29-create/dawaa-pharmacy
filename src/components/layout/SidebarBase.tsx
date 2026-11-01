@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ElementType } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   Activity, ActivitySquare, AlertTriangle, BarChart3, BellRing, Calendar, ChevronDown, ChevronLeft,
-  ClipboardCheck, ClipboardList, Clock, Crown, FileSpreadsheet, HeadphonesIcon, LayoutDashboard, LogOut,
+  ClipboardCheck, ClipboardList, Clock, Crown, FileSpreadsheet, HeadphonesIcon, Landmark, LayoutDashboard, LogOut,
   MessageCircle, Package, PackageSearch, PackageX, ShieldCheck, Sparkles, Star, Store, Target, TrendingDown, Truck, UserCheck,
   UserPlus, Users, Wallet, WalletCards, X,
 } from 'lucide-react';
@@ -37,6 +37,7 @@ const CUSTOMER_CODING_ITEM: NavItem = { path: '/customer-coding', icon: UserPlus
 export const GROUPS: NavGroup[] = [
   { title: 'الرئيسية والإدارة', icon: Crown, items: [
     { path: '/', icon: LayoutDashboard, label: 'لوحة القيادة', permission: 'view_dashboard', excludeRoles: ['customer_service_manager', 'procurement_manager', 'inventory_assistant', 'customer_service', 'delivery', 'cleaning_supervisor'] },
+    { path: '/consolidated-reports', icon: Landmark, label: 'التقارير المجمعة', allowedRoles: ['general_manager', 'admin', 'executive_manager'] },
     { path: '/daily-command', icon: Target, label: 'مراجعتي اليومية', allowedRoles: ['general_manager', 'admin', 'executive_manager'] },
     { path: '/daily-command', icon: Target, label: 'الأمر اليومي', allowedRoles: ['branches_manager'] },
     { path: '/operations-center', icon: BellRing, label: 'مركز المهام والتنبيهات', permission: 'view_operations' },

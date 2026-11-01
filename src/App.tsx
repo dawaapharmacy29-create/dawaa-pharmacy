@@ -112,6 +112,7 @@ const Shortages = lazy(() => import('@/pages/Shortages'));
 const Supplies = lazy(() => import('@/pages/Supplies'));
 const Purchases = lazy(() => import('@/pages/Purchases'));
 const ShiftHandovers = lazy(() => import('@/pages/ShiftHandovers'));
+const ConsolidatedReports = lazy(() => import('@/pages/ConsolidatedReports'));
 const Accessories = lazy(() => import('@/pages/Accessories'));
 const Offers = lazy(() => import('@/pages/Offers'));
 const Stories = lazy(() => import('@/pages/Stories'));
@@ -670,6 +671,10 @@ function AppRoutes() {
             {routeSuspense(<PurchaseOrderLog />, 'سجل الطلبيات')}
           </ProtectedRoute>
         }
+      />
+      <Route
+        path="/consolidated-reports"
+        element={<ProtectedRoute>{routeSuspense(<ConsolidatedReports />, 'التقارير المجمعة')}</ProtectedRoute>}
       />
       <Route
         path="/shift-handovers"

@@ -1059,6 +1059,7 @@ export const ROUTE_PERMISSION_MAP: Record<string, string | string[]> = {
   '/stories': 'manage_operations',
   '/training': 'manage_operations',
   '/daily-command': 'view_dashboard',
+  '/consolidated-reports': 'view_dashboard',
   '/daily-target': 'view_dashboard',
   '/today-brief': 'view_dashboard',
   '/activity-log': 'view_activity_log',
