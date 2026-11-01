@@ -60,3 +60,36 @@ export function shiftCoverage<T extends ShiftHandoverRow>(rows: T[], days: numbe
   }
   return slots;
 }
+
+/** A doctor on duty at a closing (migration 20261101150000, shift_on_duty_doctors_v1). */
+export interface OnDutyDoctor {
+  staff_id: string;
+  name: string;
+  role?: string | null;
+  source: 'punch' | 'schedule';
+}
+
+/** "د أ، د ب" — doctors known only from the schedule are marked; nobody at all says so. */
+export function onDutyLabel(doctors: OnDutyDoctor[] | null | undefined): string {
+  if (!doctors) return '';
+  if (!doctors.length) return 'مفيش بصمة ولا جدول';
+  return doctors.map((d) => (d.source === 'schedule' ? `${d.name} (جدول من غير بصمة)` : d.name)).join('، ');
+}
+
+export interface ShiftHandoverCorrection {
+  id: string;
+  handover_id: string;
+  changes: Record<string, unknown>;
+  previous: Record<string, unknown>;
+  reason: string;
+  corrected_by_name: string | null;
+  created_at: string;
+}
+
+/** The handover with its corrections applied in order (the latest value of a field wins). */
+export function applyCorrections<T extends { id: string }>(row: T, corrections: ShiftHandoverCorrection[]): T {
+  return corrections
+    .filter((c) => c.handover_id === row.id)
+    .sort((a, b) => a.created_at.localeCompare(b.created_at))
+    .reduce((acc, c) => ({ ...acc, ...c.changes }), row);
+}

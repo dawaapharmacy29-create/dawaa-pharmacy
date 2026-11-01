@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarCheck, Clock, Loader2 } from 'lucide-react';
+import { CalendarCheck, Clock, Loader2, Pencil } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { formatCurrency } from '@/lib/utils';
 import { Panel, SectionTitle, EmptyState, MiniBox } from '@/components/dashboard/DashboardPrimitives';
 import {
-  SHIFT_HANDOVER_BRANCHES, SHIFT_TYPES, shiftCoverage, type ShiftSlot, type ShiftSlotStatus,
+  SHIFT_HANDOVER_BRANCHES, SHIFT_TYPES, applyCorrections, onDutyLabel, shiftCoverage,
+  type OnDutyDoctor, type ShiftHandoverCorrection, type ShiftSlot, type ShiftSlotStatus,
 } from '@/lib/shiftHandoverCoverage';
 
 const BRANCHES = ['الكل', ...SHIFT_HANDOVER_BRANCHES] as const;
@@ -12,6 +13,24 @@ const COVERAGE_DAYS = 14;
 const PAYMENTS = [
   ['cash_sales', 'كاش'], ['visa_sales', 'فيزا'], ['insta_sales', 'إنستا'], ['vodafone_sales', 'فودافون'], ['other_sales', 'أخرى'],
 ] as const;
+// The fields top management can correct here (correct_shift_handover_v1); Base44 keeps its own copy.
+const EDIT_FIELDS = [
+  ['submitted_by', 'اللي قفل', 'text'], ['total_sales', 'إجمالي المبيعات', 'number'], ['cash_sales', 'كاش', 'number'],
+  ['visa_sales', 'فيزا', 'number'], ['insta_sales', 'إنستا', 'number'], ['vodafone_sales', 'فودافون', 'number'],
+  ['other_sales', 'أخرى', 'number'], ['total_expenses', 'المصروفات', 'number'], ['net_amount', 'صافي التسليم', 'number'],
+  ['cash_handover', 'الكاش المسلّم', 'number'], ['cash_variance', 'فرق الكاش', 'number'], ['notes', 'ملاحظات', 'text'],
+] as const;
+type EditKey = (typeof EDIT_FIELDS)[number][0];
+const EDIT_LABEL = Object.fromEntries(EDIT_FIELDS.map(([key, label]) => [key, label])) as Record<string, string>;
+const CORRECT_ERRORS: Record<string, string> = {
+  not_authorized: 'التعديل للمدير العام والتنفيذي بس',
+  reason_required: 'اكتب سبب التعديل',
+  no_changes: 'مفيش حاجة اتغيرت',
+  invalid_amount: 'المبالغ لازم تبقى أرقام',
+};
+
+type OnDutySlot = { branch: string; shift_date: string; shift_type: string; doctors: OnDutyDoctor[] };
+
 const STATUS: Record<ShiftSlotStatus, { label: string; tone: string }> = {
   closed: { label: '✓', tone: 'dawaa-badge--success' },
   duplicate: { label: '×2', tone: 'dawaa-badge--warning' },
@@ -34,6 +53,7 @@ type ShiftRow = {
   insta_sales: number | null;
   vodafone_sales: number | null;
   other_sales: number | null;
+  cash_handover: number | null;
   cash_variance: number | null;
   notes: string | null;
   is_archived: boolean | null;
@@ -51,8 +71,71 @@ const dayLabel = (value: string) =>
 const timeLabel = (value: string | null) =>
   value ? new Date(value).toLocaleString('ar-EG', { day: 'numeric', month: 'numeric', hour: 'numeric', minute: '2-digit' }) : '-';
 
+function EditHandover({ row, onDone, onCancel }: { row: ShiftRow; onDone: () => void; onCancel: () => void }) {
+  const initial = Object.fromEntries(EDIT_FIELDS.map(([key]) => [key, row[key] == null ? '' : String(row[key])])) as Record<EditKey, string>;
+  const [values, setValues] = useState(initial);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const save = async () => {
+    const changes: Record<string, string | number | null> = {};
+    for (const [key, , kind] of EDIT_FIELDS) {
+      if (values[key] === initial[key]) continue;
+      const raw = values[key].trim();
+      if (kind === 'number') {
+        const value = raw === '' ? null : Number(raw);
+        if (value !== null && !Number.isFinite(value)) return setError(`${EDIT_LABEL[key]}: لازم رقم`);
+        changes[key] = value;
+      } else {
+        changes[key] = raw || null;
+      }
+    }
+    setBusy(true);
+    setError('');
+    const { error: rpcError } = await supabase.rpc('correct_shift_handover_v1', {
+      p_handover_id: row.id, p_changes: changes, p_reason: reason,
+    });
+    setBusy(false);
+    if (rpcError) {
+      const code = Object.keys(CORRECT_ERRORS).find((k) => rpcError.message?.includes(k));
+      return setError(code ? CORRECT_ERRORS[code] : 'تعذّر الحفظ');
+    }
+    onDone();
+  };
+
+  return (
+    <div className="mt-3 space-y-2 rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
+      <p className="dawaa-caption text-xs font-bold">التعديل بيتحفظ هنا بس، والتقفيلة في تطبيق المشتريات زي ما هي.</p>
+      <div className="grid gap-2 sm:grid-cols-3">
+        {EDIT_FIELDS.map(([key, label, kind]) => (
+          <label key={key} className="text-xs font-bold">
+            {label}
+            <input
+              className="dawaa-input mt-1 w-full"
+              inputMode={kind === 'number' ? 'decimal' : undefined}
+              value={values[key]}
+              onChange={(e) => setValues((v) => ({ ...v, [key]: e.target.value }))}
+            />
+          </label>
+        ))}
+      </div>
+      <input className="dawaa-input w-full" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="سبب التعديل (لازم)" />
+      {error ? <p className="text-xs font-bold" style={{ color: 'var(--dawaa-status-danger-text)' }}>{error}</p> : null}
+      <div className="flex gap-2">
+        <button type="button" disabled={busy || !reason.trim()} onClick={() => void save()}
+          className="dawaa-badge dawaa-badge--success rounded-xl px-3 py-1 text-xs font-black disabled:opacity-50">حفظ التعديل</button>
+        <button type="button" disabled={busy} onClick={onCancel} className="dawaa-caption text-xs font-black underline">إلغاء</button>
+      </div>
+    </div>
+  );
+}
+
 export default function ShiftHandovers() {
   const [rows, setRows] = useState<ShiftRow[]>([]);
+  const [corrections, setCorrections] = useState<ShiftHandoverCorrection[]>([]);
+  const [onDuty, setOnDuty] = useState<OnDutySlot[] | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [branchFilter, setBranchFilter] = useState<(typeof BRANCHES)[number]>('الكل');
@@ -61,13 +144,23 @@ export default function ShiftHandovers() {
     setLoading(true);
     setLoadError(false);
     const since = new Date(Date.now() - 45 * 864e5).toISOString().slice(0, 10);
-    const { data, error } = await supabase
-      .from('shift_handovers')
-      .select('*')
-      .gte('shift_date', since)
-      .order('shift_date', { ascending: false })
-      .order('recorded_at', { ascending: false })
-      .limit(1000);
+    // The on-duty range is capped at 45 days; tomorrow covers the Cairo day after UTC midnight.
+    const dutyFrom = new Date(Date.now() - 44 * 864e5).toISOString().slice(0, 10);
+    const dutyTo = new Date(Date.now() + 864e5).toISOString().slice(0, 10);
+    const [{ data, error }, fixes, duty] = await Promise.all([
+      supabase
+        .from('shift_handovers')
+        .select('*')
+        .gte('shift_date', since)
+        .order('shift_date', { ascending: false })
+        .order('recorded_at', { ascending: false })
+        .limit(1000),
+      supabase.from('shift_handover_corrections_v1').select('*').gte('created_at', since).order('created_at').limit(1000),
+      // Top management only; everyone else sees the page without the names.
+      supabase.rpc('shift_handover_on_duty_v1', { p_from: dutyFrom, p_to: dutyTo }),
+    ]);
+    setCorrections(fixes.error ? [] : ((fixes.data || []) as ShiftHandoverCorrection[]));
+    setOnDuty(duty.error ? null : ((duty.data || []) as OnDutySlot[]));
     if (error) {
       setLoadError(true);
       setLoading(false);
@@ -81,7 +174,13 @@ export default function ShiftHandovers() {
     void load();
   }, [load]);
 
-  const live = useMemo(() => rows.filter((r) => !r.is_archived), [rows]);
+  const live = useMemo(
+    () => rows.filter((r) => !r.is_archived).map((r) => applyCorrections(r, corrections)),
+    [rows, corrections]
+  );
+  const fixesOf = (id: string) => corrections.filter((c) => c.handover_id === id);
+  const doctorsAt = (branch: string, day: string, shift: string) =>
+    onDuty?.find((d) => d.branch === branch && d.shift_date === day && d.shift_type === shift)?.doctors;
   const filtered = useMemo(
     () => (branchFilter === 'الكل' ? live : live.filter((r) => r.branch === branchFilter)),
     [live, branchFilter]
@@ -135,8 +234,18 @@ export default function ShiftHandovers() {
         </p>
         {late.length ? (
           <div className="dawaa-alert dawaa-alert--danger mb-3 text-sm font-bold">
-            {late.length} شيفت ما اتقفلش: {late.slice(0, 8).map((slot) => `${slot.branch.replace('فرع ', '')} ${dayLabel(slot.day)} ${slot.shift}`).join(' · ')}
-            {late.length > 8 ? ' …' : ''}
+            <p>{late.length} شيفت ما اتقفلش:</p>
+            <ul className="mt-1 space-y-0.5">
+              {late.slice(0, 12).map((slot) => {
+                const who = onDutyLabel(doctorsAt(slot.branch, slot.day, slot.shift));
+                return (
+                  <li key={`${slot.branch}${slot.day}${slot.shift}`}>
+                    {slot.branch.replace('فرع ', '')} {dayLabel(slot.day)} {slot.shift}{who ? ` — الموجود وقت التقفيل: ${who}` : ''}
+                  </li>
+                );
+              })}
+            </ul>
+            {late.length > 12 ? <p>…</p> : null}
           </div>
         ) : null}
         {loading ? null : (
@@ -157,7 +266,11 @@ export default function ShiftHandovers() {
                     {visibleBranches.map((branch) => SHIFT_TYPES.map((shift) => {
                       const slot = slotOf(day, branch, shift);
                       const status = STATUS[slot.status];
-                      const who = slot.rows.map((r) => `${r.submitted_by || '-'} · ${formatCurrency(n(r.net_amount))}`).join('\n');
+                      const onDutyNow = onDutyLabel(doctorsAt(branch, day, shift));
+                      const who = [
+                        ...slot.rows.map((r) => `${r.submitted_by || '-'} · ${formatCurrency(n(r.net_amount))}`),
+                        ...(onDutyNow ? [`الموجود وقت التقفيل: ${onDutyNow}`] : []),
+                      ].join('\n');
                       return (
                         <td key={`${branch}${shift}`} className="p-1">
                           <span className={`dawaa-badge ${status.tone} rounded-md px-2 py-0.5`} title={who || undefined}>{status.label}</span>
@@ -198,7 +311,13 @@ export default function ShiftHandovers() {
                     </p>
                     <p className="dawaa-caption mt-0.5 text-xs font-bold">
                       بواسطة {row.submitted_by || '-'} · اتسجل {timeLabel(row.recorded_at)}
+                      {fixesOf(row.id).length ? <span className="dawaa-badge dawaa-badge--warning mr-2">متعدّل</span> : null}
                     </p>
+                    {onDuty ? (
+                      <p className="dawaa-caption mt-0.5 text-xs font-bold">
+                        الموجود وقت التقفيل: {onDutyLabel(doctorsAt(row.branch, row.shift_date, row.shift_type)) || '-'}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="text-left">
                     <p className="font-black" style={{ color: 'var(--dawaa-status-success-text)' }}>
@@ -223,6 +342,20 @@ export default function ShiftHandovers() {
                   ))}
                 </div>
                 {row.notes ? <p className="mt-2 text-xs font-bold">📝 {row.notes}</p> : null}
+                {fixesOf(row.id).map((c) => (
+                  <p key={c.id} className="dawaa-caption mt-1 text-xs font-bold">
+                    ✏️ {c.corrected_by_name || '-'} · {timeLabel(c.created_at)} · {c.reason}:{' '}
+                    {Object.entries(c.changes).map(([key, value]) => `${EDIT_LABEL[key] ?? key} ${c.previous[key] ?? '-'} ← ${value ?? '-'}`).join('، ')}
+                  </p>
+                ))}
+                {onDuty && editing !== row.id ? (
+                  <button type="button" onClick={() => setEditing(row.id)} className="dawaa-caption mt-2 inline-flex items-center gap-1 text-xs font-black underline">
+                    <Pencil size={12} /> تعديل
+                  </button>
+                ) : null}
+                {editing === row.id ? (
+                  <EditHandover row={row} onCancel={() => setEditing(null)} onDone={() => { setEditing(null); void load(); }} />
+                ) : null}
               </div>
             ))}
           </div>

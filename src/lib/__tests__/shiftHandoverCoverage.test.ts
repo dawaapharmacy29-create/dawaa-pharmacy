@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { shiftCoverage, shiftDeadline } from '../shiftHandoverCoverage';
+import { applyCorrections, onDutyLabel, shiftCoverage, shiftDeadline } from '../shiftHandoverCoverage';
 
 // 2026-11-02 is winter time in Cairo (UTC+2).
 const row = (id: string, branch: string, shift_type: string, shift_date: string, is_archived = false) =>
@@ -30,5 +30,20 @@ describe('shift handover coverage', () => {
     // An archived handover does not close the shift.
     expect(at('2026-11-02', 'فرع الشامي', 'ليلي')).toBe('late');
     expect(at('2026-11-01', 'فرع الشامي', 'صباحي')).toBe('late');
+  });
+
+  it('names the doctors on duty and applies corrections in order', () => {
+    expect(onDutyLabel(undefined)).toBe('');
+    expect(onDutyLabel([])).toBe('مفيش بصمة ولا جدول');
+    expect(onDutyLabel([{ staff_id: '1', name: 'د أ', source: 'punch' }, { staff_id: '2', name: 'د ب', source: 'schedule' }]))
+      .toBe('د أ، د ب (جدول من غير بصمة)');
+    const base = { id: 'h1', net_amount: 900, submitted_by: 'د غلط', cash_variance: -50 };
+    const fix = (id: string, created_at: string, changes: Record<string, unknown>, handover_id = 'h1') =>
+      ({ id, handover_id, changes, previous: {}, reason: 'x', corrected_by_name: null, created_at });
+    expect(applyCorrections(base, [
+      fix('2', '2026-11-01T12:00:00Z', { cash_variance: -20 }),
+      fix('1', '2026-11-01T10:00:00Z', { submitted_by: 'د صح', cash_variance: 0 }),
+      fix('3', '2026-11-01T13:00:00Z', { net_amount: 1 }, 'other'),
+    ])).toEqual({ id: 'h1', net_amount: 900, submitted_by: 'د صح', cash_variance: -20 });
   });
 });
