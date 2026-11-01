@@ -386,6 +386,11 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
     loadInventoryCounts(cycle),
     loadViolations(cycle),
   ]);
+  // The invoice items behind fulfilment need only the requests, so they start as soon as those arrive.
+  const requestsLoad = pages(() => supabase.from('customer_requests')
+    .select('id,source_recorded_staff_id,branch,created_at,closed_at,status,customer_id,customer_code,customer_phone,medicine_name,product_code,quantity')
+    .gte('created_at', startAt).lt('created_at', endAt) as unknown as PageQuery, 10000, 'customer_requests');
+  const fulfillmentLoad = requestsLoad.then((rows) => loadFulfillment(rows, startAt, endAt));
 
   const [staffRows, aliasRows, invoiceRows, reviewRows, attendanceRows, requestRows, purchaseRows, targetRows, followupProbe, checklistProbe, ratingProbe] = await Promise.all([
     pages(() => supabase.from('staff').select('id,name,role,branch,active,is_active') as unknown as PageQuery, 2000, 'staff'),
@@ -398,9 +403,7 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
     parallelPages((columns, options) => supabase.from('attendance_daily_summary').select(columns, options)
       .gte('attendance_date', cycle.start).lt('attendance_date', cycle.endExclusive),
       'id,staff_id,attendance_date,resolution_status,first_in,last_out,late_minutes,scheduled_start_at,scheduled_end_at,total_hours', 10000, 'attendance', ['staff_id', 'attendance_date']),
-    pages(() => supabase.from('customer_requests')
-      .select('id,source_recorded_staff_id,branch,created_at,closed_at,status,customer_id,customer_code,customer_phone,medicine_name,product_code,quantity')
-      .gte('created_at', startAt).lt('created_at', endAt) as unknown as PageQuery, 10000, 'customer_requests'),
+    requestsLoad,
     // Client sessions may not read this table; its axis then reports "not measurable" instead of failing the cycle.
     pages(() => supabase.from('base44_purchase_invoice_sync')
       .select('id,entered_by_staff_id,invoice_date')
@@ -416,7 +419,7 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
   }
 
   const [fulfillment, teamEvaluations, [brainRequests, previous, purchaseInvoices, inventoryCounts, violations]] = await Promise.all([
-    loadFulfillment(requestRows, startAt, endAt),
+    fulfillmentLoad,
     loadTeamEvaluations(cycle, options.actorId || null, [...new Set(targetRows.map((row) => text(row.branch_name)).filter(Boolean))]),
     independent,
   ]);

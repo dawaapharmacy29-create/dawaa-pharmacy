@@ -95,6 +95,11 @@ export function targetScore(achievement: number): number {
   return clamp100((Math.min(1.2, Math.max(0, achievement)) / 1.2) * 100);
 }
 
+/** v6.7 target achievement: met (100%+) → 100, half of it → 0. */
+export function metTargetScore(achievement: number): number {
+  return bandScore(achievement, LAB_THRESHOLDS.metTargetFloor, 1);
+}
+
 export function measured(key: LabAxisKey, value: number, score: number, basis: string): Omit<AxisResult, 'label' | 'weight'> {
   return { key, status: 'measured', value, score: Math.round(clamp100(score) * 10) / 10, basis };
 }
