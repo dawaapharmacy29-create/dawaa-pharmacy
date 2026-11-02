@@ -74,6 +74,26 @@ const dayLabel = (value: string) =>
 const timeLabel = (value: string | null) =>
   value ? new Date(value).toLocaleString('ar-EG', { day: 'numeric', month: 'numeric', hour: 'numeric', minute: '2-digit' }) : '-';
 
+async function fetchAllShiftRows(): Promise<{ rows: ShiftRow[]; error: boolean }> {
+  const all: ShiftRow[] = [];
+  const PAGE_SIZE = 500;
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from('shift_handovers')
+      .select('*')
+      .gte('shift_date', MIN_SOURCE_DATE)
+      .order('shift_date', { ascending: false })
+      .order('recorded_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(offset, offset + PAGE_SIZE - 1);
+    if (error) return { rows: [], error: true };
+    const page = (data || []) as ShiftRow[];
+    all.push(...page);
+    if (page.length < PAGE_SIZE) break;
+  }
+  return { rows: all, error: false };
+}
+
 function EditHandover({ row, onDone, onCancel }: { row: ShiftRow; onDone: () => void; onCancel: () => void }) {
   const initial = Object.fromEntries(EDIT_FIELDS.map(([key]) => [key, row[key] == null ? '' : String(row[key])])) as Record<EditKey, string>;
   const [values, setValues] = useState(initial);
@@ -109,7 +129,7 @@ function EditHandover({ row, onDone, onCancel }: { row: ShiftRow; onDone: () => 
 
   return (
     <div className="mt-3 space-y-2 rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
-      <p className="dawaa-caption text-xs font-bold">التعديل بيتحفظ هنا بس، والتقفيلة في تطبيق المشتريات زي ما هي.</p>
+      <p className="dawaa-caption text-xs font-bold">المراجعة تُسجل داخل الإدارة فقط؛ بيانات دواء وائل الأصلية لا تتغير، ولا تتأثر بها إجماليات التقرير.</p>
       <div className="grid gap-2 sm:grid-cols-3">
         {EDIT_FIELDS.map(([key, label, kind]) => (
           <label key={key} className="text-xs font-bold">
@@ -156,26 +176,20 @@ export default function ShiftHandovers() {
     // The on-duty range is capped at 45 days; tomorrow covers the Cairo day after UTC midnight.
     const dutyFrom = new Date(Date.now() - 44 * 864e5).toISOString().slice(0, 10);
     const dutyTo = new Date(Date.now() + 864e5).toISOString().slice(0, 10);
-    const [{ data, error }, fixes, duty] = await Promise.all([
-      supabase
-        .from('shift_handovers')
-        .select('*')
-        .gte('shift_date', since)
-        .order('shift_date', { ascending: false })
-        .order('recorded_at', { ascending: false })
-        .limit(1000),
+    const [source, fixes, duty] = await Promise.all([
+      fetchAllShiftRows(),
       supabase.from('shift_handover_corrections_v1').select('*').gte('created_at', since).order('created_at').limit(1000),
       // Top management only; everyone else sees the page without the names.
       supabase.rpc('shift_handover_on_duty_v1', { p_from: dutyFrom, p_to: dutyTo }),
     ]);
     setCorrections(fixes.error ? [] : ((fixes.data || []) as ShiftHandoverCorrection[]));
     setOnDuty(duty.error ? null : ((duty.data || []) as OnDutySlot[]));
-    if (error) {
+    if (source.error) {
       setLoadError(true);
       setLoading(false);
       return;
     }
-    setRows((data || []) as ShiftRow[]);
+    setRows(source.rows);
     setLoading(false);
   }, []);
 
@@ -386,7 +400,7 @@ export default function ShiftHandovers() {
                     </p>
                     <p className="dawaa-caption mt-0.5 text-xs font-bold">
                       بواسطة {row.submitted_by || '-'} · اتسجل {timeLabel(row.recorded_at)}
-                      {fixesOf(row.id).length ? <span className="dawaa-badge dawaa-badge--warning mr-2">متعدّل</span> : null}
+                      {fixesOf(row.id).length ? <span className="dawaa-badge dawaa-badge--warning mr-2">ملاحظة مراجعة</span> : null}
                     </p>
                     {onDuty ? (
                       <p className="dawaa-caption mt-0.5 text-xs font-bold">
@@ -432,7 +446,7 @@ export default function ShiftHandovers() {
                 ))}
                 {onDuty && editing !== row.id ? (
                   <button type="button" onClick={() => setEditing(row.id)} className="dawaa-caption mt-2 inline-flex items-center gap-1 text-xs font-black underline">
-                    <Pencil size={12} /> تعديل
+                    <Pencil size={12} /> تسجيل مراجعة
                   </button>
                 ) : null}
                 {editing === row.id ? (
