@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarCheck, Clock, Loader2, Pencil } from 'lucide-react';
+import { CalendarCheck, Clock, Loader2, Pencil, Download, RefreshCw, Search, Filter, Wallet, CreditCard, Receipt, AlertTriangle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { formatCurrency } from '@/lib/utils';
 import { Panel, SectionTitle, EmptyState, MiniBox } from '@/components/dashboard/DashboardPrimitives';
@@ -10,6 +10,9 @@ import {
 
 const BRANCHES = ['الكل', ...SHIFT_HANDOVER_BRANCHES] as const;
 const COVERAGE_DAYS = 14;
+const MIN_SOURCE_DATE = '2026-10-01';
+const SHIFT_FILTERS = ['الكل', ...SHIFT_TYPES] as const;
+const money = (value: number) => Number(value || 0).toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ج';
 const PAYMENTS = [
   ['cash_sales', 'كاش'], ['visa_sales', 'فيزا'], ['insta_sales', 'إنستا'], ['vodafone_sales', 'فودافون'], ['other_sales', 'أخرى'],
 ] as const;
@@ -139,11 +142,17 @@ export default function ShiftHandovers() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [branchFilter, setBranchFilter] = useState<(typeof BRANCHES)[number]>('الكل');
+  const [shiftFilter, setShiftFilter] = useState<(typeof SHIFT_FILTERS)[number]>('الكل');
+  const [dateFrom, setDateFrom] = useState(MIN_SOURCE_DATE);
+  const [dateTo, setDateTo] = useState('');
+  const [query, setQuery] = useState('');
+  const [showCoverage, setShowCoverage] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setLoadError(false);
-    const since = new Date(Date.now() - 45 * 864e5).toISOString().slice(0, 10);
+    const since = MIN_SOURCE_DATE;
     // The on-duty range is capped at 45 days; tomorrow covers the Cairo day after UTC midnight.
     const dutyFrom = new Date(Date.now() - 44 * 864e5).toISOString().slice(0, 10);
     const dutyTo = new Date(Date.now() + 864e5).toISOString().slice(0, 10);
@@ -182,8 +191,14 @@ export default function ShiftHandovers() {
   const doctorsAt = (branch: string, day: string, shift: string) =>
     onDuty?.find((d) => d.branch === branch && d.shift_date === day && d.shift_type === shift)?.doctors;
   const filtered = useMemo(
-    () => (branchFilter === 'الكل' ? live : live.filter((r) => r.branch === branchFilter)),
-    [live, branchFilter]
+    () => live.filter((r) =>
+      (branchFilter === 'الكل' || r.branch === branchFilter) &&
+      (shiftFilter === 'الكل' || r.shift_type === shiftFilter) &&
+      r.shift_date >= (dateFrom || MIN_SOURCE_DATE) &&
+      (!dateTo || r.shift_date <= dateTo) &&
+      (!query.trim() || [r.submitted_by, r.notes, r.branch].some((v) => String(v || '').includes(query.trim())))
+    ),
+    [live, branchFilter, shiftFilter, dateFrom, dateTo, query]
   );
   const coverage = useMemo(() => shiftCoverage(live, COVERAGE_DAYS), [live]);
   const late = useMemo(
@@ -209,26 +224,53 @@ export default function ShiftHandovers() {
   const slotOf = (day: string, branch: string, shift: string) =>
     coverage.find((slot) => slot.day === day && slot.branch === branch && slot.shift === shift) as ShiftSlot<ShiftRow>;
   const visibleBranches = branchFilter === 'الكل' ? SHIFT_HANDOVER_BRANCHES : [branchFilter];
+  const exportCsv = () => {
+    const header = ['التاريخ', 'الفرع', 'الشيفت', 'المسؤول', 'المبيعات', 'كاش', 'فيزا', 'إنستا', 'فودافون', 'أخرى', 'المصروفات', 'الصافي', 'الكاش المسلم', 'فرق الكاش', 'ملاحظات'];
+    const values = filtered.map((r) => [
+      r.shift_date, r.branch, r.shift_type, r.submitted_by, r.total_sales, r.cash_sales, r.visa_sales,
+      r.insta_sales, r.vodafone_sales, r.other_sales, r.total_expenses, r.net_amount,
+      r.cash_handover, r.cash_variance, r.notes,
+    ]);
+    const esc = (value: unknown) => '"' + String(value ?? '').replace(/"/g, '""') + '"';
+    const csv = '\uFEFF' + [header, ...values].map((line) => line.map(esc).join(',')).join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'dawaa-wael-shift-handovers.csv'; a.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="space-y-5" dir="rtl">
-      <section className="dawaa-card dawaa-card--raised">
-        <h1 className="dawaa-title text-2xl">تسليم الشيفتات</h1>
-        <p className="dawaa-caption mt-1 font-bold">
-          بتتزامن كل 15 دقيقة من تسليمات الشيفت في تطبيق المشتريات · آخر مزامنة {timeLabel(lastSync)}
-        </p>
+      <section className="rounded-2xl border border-teal-100 bg-gradient-to-l from-teal-50 via-white to-slate-50 p-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div><h1 className="dawaa-title text-2xl">تسليمات الشيفتات ومراجعة التحصيل</h1>
+            <p className="dawaa-caption mt-1 font-bold">المصدر المالي: دواء وائل حصريًا · السجلات من أكتوبر 2026 وما بعده</p>
+            <p className="mt-1 text-xs text-slate-500">آخر مزامنة: {timeLabel(lastSync)} · التعديلات المحلية في الإدارة لا تغيّر أصل دواء وائل</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="dawaa-tab inline-flex items-center gap-2" onClick={() => void load()}><RefreshCw size={16}/> تحديث</button>
+            <button type="button" className="dawaa-tab inline-flex items-center gap-2" onClick={exportCsv} disabled={!filtered.length}><Download size={16}/> Excel / CSV</button>
+          </div>
+        </div>
       </section>
 
-      <div className="flex flex-wrap gap-2">
-        {BRANCHES.map((b) => (
-          <button key={b} type="button" onClick={() => setBranchFilter(b)} className={`dawaa-tab ${branchFilter === b ? 'is-active' : ''}`}>
-            {b}
-          </button>
-        ))}
-      </div>
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" aria-label="فلاتر التسليمات">
+        <div className="mb-3 flex items-center gap-2 font-bold text-slate-700"><Filter size={17}/> البحث والفلاتر</div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <label className="text-xs font-bold">الفرع<select className="dawaa-input mt-1 w-full" value={branchFilter} onChange={e => setBranchFilter(e.target.value as typeof branchFilter)}>{BRANCHES.map(v=><option key={v}>{v}</option>)}</select></label>
+          <label className="text-xs font-bold">الشيفت<select className="dawaa-input mt-1 w-full" value={shiftFilter} onChange={e => setShiftFilter(e.target.value as typeof shiftFilter)}>{SHIFT_FILTERS.map(v=><option key={v}>{v}</option>)}</select></label>
+          <label className="text-xs font-bold">من تاريخ<input className="dawaa-input mt-1 w-full" type="date" min={MIN_SOURCE_DATE} value={dateFrom} onChange={e => setDateFrom(e.target.value < MIN_SOURCE_DATE ? MIN_SOURCE_DATE : e.target.value)}/></label>
+          <label className="text-xs font-bold">إلى تاريخ<input className="dawaa-input mt-1 w-full" type="date" min={MIN_SOURCE_DATE} value={dateTo} onChange={e => setDateTo(e.target.value)}/></label>
+          <label className="text-xs font-bold">الدكتور أو الملاحظات<div className="relative mt-1"><Search size={15} className="absolute right-3 top-3 text-slate-400"/><input className="dawaa-input w-full pr-9" value={query} onChange={e => setQuery(e.target.value)} placeholder="ابحث في السجل"/></div></label>
+        </div>
+      </section>
 
       <Panel className="p-4">
-        <SectionTitle title={`الشيفتات في آخر ${COVERAGE_DAYS} يوم`} icon={<CalendarCheck size={18} />} />
+        <button type="button" onClick={() => setShowCoverage(v => !v)} className="flex w-full items-center justify-between rounded-xl bg-slate-50 p-3 text-right font-black text-slate-800">
+          <span className="inline-flex items-center gap-2"><CalendarCheck size={18}/> متابعة اكتمال الشيفتات (آخر {COVERAGE_DAYS} يوم)</span>
+          <span className="dawaa-badge dawaa-badge--warning">{late.length} حالة تحتاج مراجعة · {showCoverage ? 'إخفاء' : 'عرض'}</span>
+        </button>
+        {showCoverage && <>
         <p className="dawaa-caption mb-3 text-xs font-bold">
           كل فرع بيقفل 3 شيفتات في اليوم. الشيفت بيبقى «ناقص» بعد ميعاده بساعتين: الليلي 10 الصبح، الصباحي 7 بالليل، المسائي 3 الفجر.
         </p>
@@ -283,17 +325,20 @@ export default function ShiftHandovers() {
             </table>
           </div>
         )}
+        </>}
       </Panel>
 
       <div className="grid gap-3 md:grid-cols-4">
-        <MiniBox label="عدد التسليمات (45 يوم)" value={totals.count.toLocaleString('ar-EG')} />
+        <MiniBox label="عدد التسليمات في الفترة المختارة" value={totals.count.toLocaleString('ar-EG')} />
         <MiniBox label="إجمالي المبيعات" value={formatCurrency(totals.totalSales)} />
         <MiniBox label="إجمالي المصروفات" value={formatCurrency(totals.totalExpenses)} tone="amber" />
         <MiniBox label="صافي التسليم" value={formatCurrency(totals.totalNet)} tone="green" />
       </div>
 
       <Panel className="p-4">
-        <SectionTitle title="تفاصيل التقفيلات" icon={<Clock size={18} />} />
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3"><SectionTitle title="سجل التسليمات التفصيلي" icon={<Clock size={18} />} />
+          <span className="text-xs font-bold text-slate-500">سجل مقروء من دواء وائل، مع إظهار أي تعديلات إدارة موثقة</span>
+        </div>
         {loading ? (
           <div className="flex justify-center py-6"><Loader2 className="animate-spin" style={{ color: 'var(--dawaa-theme-muted)' }} /></div>
         ) : loadError ? (
@@ -303,7 +348,7 @@ export default function ShiftHandovers() {
         ) : (
           <div className="space-y-2">
             {filtered.map((row) => (
-              <div key={row.id} className="rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
+              <div key={row.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:border-teal-200 transition-colors">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <p className="font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>
@@ -328,7 +373,14 @@ export default function ShiftHandovers() {
                     </p>
                   </div>
                 </div>
-                <div className="mt-2 flex flex-wrap gap-2 text-xs font-bold">
+                <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl bg-slate-50 p-3 text-xs font-bold sm:grid-cols-4">
+                  <div className="flex items-center gap-1 text-slate-700"><Wallet size={14}/> صافي التسليم <strong>{money(n(row.net_amount))}</strong></div>
+                  <div className="flex items-center gap-1 text-slate-700"><CreditCard size={14}/> النقدي المسلم <strong>{money(n(row.cash_handover))}</strong></div>
+                  <div className="flex items-center gap-1 text-slate-700"><Receipt size={14}/> المصروفات <strong>{money(n(row.total_expenses))}</strong></div>
+                  <div className={`flex items-center gap-1 ${Math.abs(n(row.cash_variance)) > 1 ? 'text-red-700' : 'text-teal-700'}`}><AlertTriangle size={14}/> فرق النقدية <strong>{money(n(row.cash_variance))}</strong></div>
+                </div>
+                <button type="button" className="mt-3 text-sm font-bold text-teal-700 underline" onClick={() => setExpanded(v => v === row.id ? null : row.id)}>{expanded === row.id ? 'إخفاء تفاصيل طرق الدفع والمصروفات' : 'عرض طرق الدفع والمصروفات والملاحظات'}</button>
+                {expanded === row.id && <div className="mt-2 flex flex-wrap gap-2 text-xs font-bold">
                   {PAYMENTS.filter(([key]) => n(row[key])).map(([key, label]) => (
                     <span key={key} className="dawaa-badge dawaa-badge--neutral">{label}: {formatCurrency(n(row[key]))}</span>
                   ))}
@@ -341,7 +393,8 @@ export default function ShiftHandovers() {
                     </span>
                   ))}
                 </div>
-                {row.notes ? <p className="mt-2 text-xs font-bold">📝 {row.notes}</p> : null}
+                {row.notes && expanded === row.id ? <p className="mt-2 text-xs font-bold">📝 {row.notes}</p> : null}
+                </div>
                 {fixesOf(row.id).map((c) => (
                   <p key={c.id} className="dawaa-caption mt-1 text-xs font-bold">
                     ✏️ {c.corrected_by_name || '-'} · {timeLabel(c.created_at)} · {c.reason}:{' '}
