@@ -220,6 +220,17 @@ export default function ShiftHandovers() {
     [filtered]
   );
 
+  const dailySummary = useMemo(() => {
+    const groups = new Map<string, { day: string; branch: string; count: number; sales: number; expenses: number; net: number }>();
+    for (const r of filtered) {
+      const key = r.shift_date + '|' + r.branch;
+      const g = groups.get(key) || { day: r.shift_date, branch: r.branch, count: 0, sales: 0, expenses: 0, net: 0 };
+      g.count += 1; g.sales += n(r.total_sales); g.expenses += n(r.total_expenses); g.net += n(r.net_amount);
+      groups.set(key, g);
+    }
+    return [...groups.values()].sort((a, b) => b.day.localeCompare(a.day) || a.branch.localeCompare(b.branch));
+  }, [filtered]);
+
   const days = useMemo(() => [...new Set(coverage.map((slot) => slot.day))], [coverage]);
   const slotOf = (day: string, branch: string, shift: string) =>
     coverage.find((slot) => slot.day === day && slot.branch === branch && slot.shift === shift) as ShiftSlot<ShiftRow>;
@@ -334,6 +345,23 @@ export default function ShiftHandovers() {
         <MiniBox label="إجمالي المصروفات" value={formatCurrency(totals.totalExpenses)} tone="amber" />
         <MiniBox label="صافي التسليم" value={formatCurrency(totals.totalNet)} tone="green" />
       </div>
+
+      <Panel className="p-4">
+        <SectionTitle title="تقرير يومي حسب الفرع" icon={<Receipt size={18}/>} />
+        <p className="dawaa-caption mb-3 text-xs">التجميع حسب يوم التسليم المسجل في دواء وائل؛ يحتوي التكرارات كما هي حتى تتم مراجعتها.</p>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[650px] text-right text-sm">
+            <thead className="bg-slate-50 text-slate-700"><tr>
+              {['اليوم','الفرع','التسليمات','المبيعات','المصروفات','الصافي'].map(h => <th key={h} className="p-3 font-black">{h}</th>)}
+            </tr></thead>
+            <tbody>{dailySummary.map(g => <tr key={g.day + g.branch} className="border-t border-slate-100">
+              <td className="p-3">{dayLabel(g.day)}</td><td className="p-3 font-bold">{g.branch}</td>
+              <td className="p-3">{g.count}</td><td className="p-3">{money(g.sales)}</td>
+              <td className="p-3">{money(g.expenses)}</td><td className="p-3 font-black text-teal-700">{money(g.net)}</td>
+            </tr>)}</tbody>
+          </table>
+        </div>
+      </Panel>
 
       <Panel className="p-4">
         <div className="flex flex-wrap items-center justify-between gap-2 mb-3"><SectionTitle title="سجل التسليمات التفصيلي" icon={<Clock size={18} />} />
