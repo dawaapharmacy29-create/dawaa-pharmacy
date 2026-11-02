@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { formatCurrency } from '@/lib/utils';
 import { Panel, SectionTitle, EmptyState, MiniBox } from '@/components/dashboard/DashboardPrimitives';
 import {
-  SHIFT_HANDOVER_BRANCHES, SHIFT_TYPES, applyCorrections, onDutyLabel, shiftCoverage,
+  SHIFT_HANDOVER_BRANCHES, SHIFT_TYPES, onDutyLabel, shiftCoverage,
   type OnDutyDoctor, type ShiftHandoverCorrection, type ShiftSlot, type ShiftSlotStatus,
 } from '@/lib/shiftHandoverCoverage';
 
@@ -183,9 +183,11 @@ export default function ShiftHandovers() {
     void load();
   }, [load]);
 
+  // Base44/DawaaWael values remain authoritative. Local management corrections are displayed
+  // as separate audit notes only and never change the source totals or financial reports.
   const live = useMemo(
-    () => rows.filter((r) => !r.is_archived).map((r) => applyCorrections(r, corrections)),
-    [rows, corrections]
+    () => rows.filter((r) => !r.is_archived),
+    [rows]
   );
   const fixesOf = (id: string) => corrections.filter((c) => c.handover_id === id);
   const doctorsAt = (branch: string, day: string, shift: string) =>
@@ -256,7 +258,7 @@ export default function ShiftHandovers() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div><h1 className="dawaa-title text-2xl">تسليمات الشيفتات ومراجعة التحصيل</h1>
             <p className="dawaa-caption mt-1 font-bold">المصدر المالي: دواء وائل حصريًا · السجلات من أكتوبر 2026 وما بعده</p>
-            <p className="mt-1 text-xs text-slate-500">آخر مزامنة: {timeLabel(lastSync)} · التعديلات المحلية في الإدارة لا تغيّر أصل دواء وائل</p>
+            <p className="mt-1 text-xs text-slate-500">آخر مزامنة: {timeLabel(lastSync)} · التعديلات المحلية تُعرض كسجل تدقيق، ولا تدخل في إجماليات مصدر دواء وائل</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button type="button" className="dawaa-tab inline-flex items-center gap-2" onClick={() => void load()}><RefreshCw size={16}/> تحديث</button>
