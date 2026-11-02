@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
+import { DeliveryInvoiceSyncStatus } from '@/components/invoices/DeliveryInvoiceSyncStatus';
 import { useEscapeKey } from '@/hooks/useEscapeKey';
 import {
   Upload,
@@ -2215,6 +2216,7 @@ export default function Invoices() {
               )}
             </div>
           )}
+          {importKind === 'sales' && isAdmin && <DeliveryInvoiceSyncStatus />}
           <div
             className={`grid gap-3 ${importKind === 'sales' ? 'grid-cols-2 md:grid-cols-6' : 'grid-cols-2 md:grid-cols-4'}`}
           >
