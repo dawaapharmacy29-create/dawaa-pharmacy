@@ -420,9 +420,8 @@ export default function ShiftHandovers() {
                       {e.category || e.description || '-'}: {formatCurrency(n(e.amount))}
                     </span>
                   ))}
-                </div>
-                {row.notes && expanded === row.id ? <p className="mt-2 text-xs font-bold">📝 {row.notes}</p> : null}
-                </div>
+                  {row.notes ? <p className="mt-2 text-xs font-bold">📝 {row.notes}</p> : null}
+                </div>}
                 {fixesOf(row.id).map((c) => (
                   <p key={c.id} className="dawaa-caption mt-1 text-xs font-bold">
                     ✏️ {c.corrected_by_name || '-'} · {timeLabel(c.created_at)} · {c.reason}:{' '}
