@@ -11,7 +11,7 @@ describe('gm daily review', () => {
       .toEqual(['شكري: ما اتخططش']);
     expect(gmReviewSummary({ key: 'customers', detail: { open_requests: 4, big_customers_yesterday: 7 } }))
       .toEqual(['4 طلب مفتوح أكتر من يوم · 7 عميل اشترى بـ 500 ج امبارح']);
-    expect(gmReviewSummary({ key: 'delivery', detail: {} })).toEqual([]);
+    expect(gmReviewSummary({ key: 'delivery', detail: {} })).toEqual(['⚠️ المزامنة مع دواء بيلز متوقفة']);
   });
 
   it('lists the shifts still open per branch and a stopped sync', () => {
@@ -36,6 +36,30 @@ describe('gm daily review', () => {
     ].join('، ')}`);
     const stale = gmReviewSummary({ key: 'shifts', detail: { synced_at: null, branches: [] } });
     expect(stale).toEqual(['⚠️ المزامنة مع تطبيق المشتريات متوقفة']);
+  });
+
+  it('reads purchases, riders and collection transfers from the other apps', () => {
+    const synced = new Date().toISOString();
+    const oldest = new Date('2026-11-01T12:00:00').toLocaleDateString('ar-EG', { day: 'numeric', month: 'numeric' });
+    expect(gmReviewSummary({ key: 'purchases_handover', detail: { synced_at: synced, branches: [
+      { branch: 'elshamy', pending: 0, value: 0, oldest: null, yesterday: 17 },
+      { branch: 'shokry', pending: 3, value: 2500, oldest: '2026-11-01', yesterday: 20 },
+    ] } })).toEqual([
+      'الشامي: مفيش فواتير مستنية · امبارح 17 فاتورة',
+      `شكري: 3 فاتورة مستنية مراجعة (${(2500).toLocaleString('ar-EG')} ج) من ${oldest} · امبارح 20 فاتورة`,
+    ]);
+    expect(gmReviewSummary({ key: 'delivery', detail: { synced_at: synced, branches: [
+      { branch: 'فرع زكريا', orders: 40, errands: 12, pending: 2, open_trips: 1 },
+      { branch: 'فرع بسيسة', orders: 15, errands: 3, pending: 0, open_trips: 0 },
+    ] } })).toEqual(['زكريا: امبارح 40 أوردر · 12 مشوار · 2 حركة مستنية اعتماد · 1 رحلة مفتوحة', 'بسيسة: امبارح 15 أوردر · 3 مشوار']);
+    expect(gmReviewSummary({ key: 'collection_transfers', detail: {
+      synced_at: synced, balance: 36445, pending: 2, pending_amount: 18270, late: 2, oldest_days: 3,
+    } })).toEqual([
+      `لسه ما اتحولش للمحاسب: ${(36445).toLocaleString('ar-EG')} ج`,
+      `2 تحويل مستني تأكيد المحاسب (${(18270).toLocaleString('ar-EG')} ج) · 2 متأخر، أقدمهم 3 يوم`,
+    ]);
+    expect(gmReviewSummary({ key: 'collection_transfers', detail: { synced_at: synced, balance: 0, pending: 0 } })[1])
+      .toBe('كل التحويلات اتأكدت');
   });
 
   it('maps the RPC errors to Arabic messages', () => {

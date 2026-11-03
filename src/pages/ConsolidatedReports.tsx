@@ -51,6 +51,7 @@ import {
   type AccountantReport,
   type AccountantTransaction,
 } from '@/lib/accountantReport';
+import CollectionSettlementPanel from '@/components/dashboard/CollectionSettlementPanel';
 import './ConsolidatedReports.css';
 
 const ALL = 'all',
@@ -472,6 +473,7 @@ export default function ConsolidatedReports() {
           ['overview', 'نظرة عامة والتصنيفات'],
           ['ledger', 'كشف الحركات'],
           ['history', 'مقارنة ٦ أشهر'],
+          ['collections', 'تسوية التحصيلات'],
         ].map(([id, label]) => (
           <button
             key={id}
@@ -484,7 +486,8 @@ export default function ConsolidatedReports() {
           </button>
         ))}
       </nav>
-      {tab !== 'history' && (
+      {tab === 'collections' && <CollectionSettlementPanel />}
+      {tab !== 'history' && tab !== 'collections' && (
         <>
           <div className="grid sm:grid-cols-4 gap-3">
             <MiniBox label="وارد الفترة المعروضة" value={money(totals.incoming)} tone="green" />
