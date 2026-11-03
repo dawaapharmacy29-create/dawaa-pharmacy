@@ -11,6 +11,7 @@ import {
   summarizeEmployee,
   todayByBranch,
   workDayRows,
+  workingWeekDays,
   type DrWaelDay,
   type DrWaelEmployee,
 } from '../drWaelFingerprints';
@@ -326,5 +327,25 @@ describe('بصمات د وائل', () => {
     });
     expect(result).toEqual([50, 10, 40, 20, 30]);
     expect(peak).toBe(2);
+  });
+
+  it('lists the working days of the week Saturday first, from the resolved week', () => {
+    // 2026-10-28 is a Wednesday; Friday 2026-10-30 is off.
+    const week = Array.from({ length: 7 }, (_, i) => ({
+      date: addDays('2026-10-28', i),
+      start: '09:00:00',
+      end: '17:00:00',
+      off: addDays('2026-10-28', i) === '2026-10-30',
+      scheduled: true,
+    }));
+    expect(workingWeekDays(week)).toEqual([
+      'السبت',
+      'الأحد',
+      'الاثنين',
+      'الثلاثاء',
+      'الأربعاء',
+      'الخميس',
+    ]);
+    expect(workingWeekDays([])).toEqual([]);
   });
 });

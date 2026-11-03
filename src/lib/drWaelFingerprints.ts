@@ -20,6 +20,7 @@ export interface DrWaelEmployee {
   type: string | null;
   active: boolean;
   delivery: boolean;
+  roaming?: boolean;
   join_date: string | null;
   week: DrWaelScheduleDay[];
 }
@@ -132,6 +133,95 @@ export async function fetchDrWaelDayPunches(date: string): Promise<DrWaelPunch[]
   const punches = (data as { punches?: unknown } | null)?.punches;
   if (!Array.isArray(punches)) throw new Error('dr_wael_day_punches_unavailable');
   return punches as DrWaelPunch[];
+}
+
+// Smart insights (migration 20261103190000): what the last two weeks of punches say about each employee.
+export interface DrWaelShiftSuggestion {
+  start: string;
+  end: string;
+  since: string;
+  days: number;
+  sample: Array<{
+    date: string;
+    first_in: string;
+    last_out: string;
+    scheduled_start: string | null;
+    scheduled_end: string | null;
+  }>;
+}
+
+export interface DrWaelInsight {
+  staff_id: string;
+  branch: string;
+  roaming: boolean;
+  shift: DrWaelShiftSuggestion | null;
+  device_branches: Record<string, number> | null;
+  device_branch: string | null;
+  today_branch: string | null;
+  branch_suggestion: string | null;
+}
+
+export type DrWaelShiftMode = 'permanent' | 'day' | 'period';
+
+export const WEEK_DAYS = ['السبت', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة'];
+
+export async function fetchDrWaelSmartInsights(): Promise<DrWaelInsight[]> {
+  const { data, error } = await supabase.rpc('get_dr_wael_smart_insights_v1');
+  if (error) throw new Error(error.message);
+  const employees = (data as { employees?: unknown } | null)?.employees;
+  if (!Array.isArray(employees)) throw new Error('dr_wael_insights_unavailable');
+  return employees as DrWaelInsight[];
+}
+
+export async function applyDrWaelShiftChange(args: {
+  staffId: string;
+  start: string;
+  end: string;
+  mode: DrWaelShiftMode;
+  from: string;
+  to?: string | null;
+  days?: string[] | null;
+  note?: string | null;
+}): Promise<{ rows_written: number; days_rebuilt: number; days_kept_manager_approved: number }> {
+  const { data, error } = await supabase.rpc('dr_wael_apply_shift_change_v1', {
+    p_staff_id: args.staffId,
+    p_start: args.start,
+    p_end: args.end,
+    p_mode: args.mode,
+    p_from: args.from,
+    p_to: args.to || null,
+    p_days: args.days && args.days.length ? args.days : null,
+    p_note: args.note || null,
+  });
+  if (error) throw new Error(error.message);
+  return data as { rows_written: number; days_rebuilt: number; days_kept_manager_approved: number };
+}
+
+export async function applyDrWaelBranchChange(staffId: string, branch: string): Promise<void> {
+  const { error } = await supabase.rpc('dr_wael_apply_branch_change_v1', {
+    p_staff_id: staffId,
+    p_branch: branch,
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function setDrWaelRoaming(staffId: string, roaming: boolean): Promise<void> {
+  const { error } = await supabase.rpc('dr_wael_set_roaming_v1', {
+    p_staff_id: staffId,
+    p_roaming: roaming,
+  });
+  if (error) throw new Error(error.message);
+}
+
+// Working days of the week the page shows (Saturday first), from the employee's last 7 resolved days.
+export function workingWeekDays(week: DrWaelScheduleDay[]): string[] {
+  const names = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+  const working = new Set(
+    week
+      .filter((day) => !day.off)
+      .map((day) => names[new Date(`${day.date}T12:00:00Z`).getUTCDay()])
+  );
+  return WEEK_DAYS.filter((day) => working.has(day));
 }
 
 const MONTHS = [

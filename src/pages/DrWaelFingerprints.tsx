@@ -14,31 +14,40 @@ import { EmptyState } from '@/components/dashboard/DashboardPrimitives';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import {
   DAY_KIND_LABELS,
+  WEEK_DAYS,
   addDays,
+  applyDrWaelBranchChange,
+  applyDrWaelShiftChange,
   cairoTime,
   cycleLabel,
   dayKind,
   employeeMoney,
   fetchDrWaelDayPunches,
   fetchDrWaelFingerprints,
+  fetchDrWaelSmartInsights,
   mapWithConcurrency,
   minutesLabel,
   openShifts,
   recentExceptions,
+  setDrWaelRoaming,
   shiftCycle,
   summarizeEmployee,
   todayByBranch,
   workDayRows,
+  workingWeekDays,
   type DayKind,
   type DrWaelDay,
   type DrWaelEmployee,
   type DrWaelFingerprints as Data,
+  type DrWaelInsight,
   type DrWaelPunch,
+  type DrWaelShiftMode,
 } from '@/lib/drWaelFingerprints';
 import {
   getEmployeePayrollFinancialComposition,
   type EmployeePayrollFinancialCompositionV2,
 } from '@/lib/payroll/payrollFinancialCompositionService';
+import PayrollTransparencyPanel from '@/components/payroll/PayrollTransparencyPanel';
 
 // The look follows the Base44 fingerprint app (fingdawaa): white rounded cards on a light page, an
 // indigo → violet accent, branch cards, employee cards with a days drawer and a compact payroll sheet.
@@ -241,6 +250,35 @@ function dayFlags(day: DrWaelDay) {
   );
 }
 
+// What the punches say about one employee, as a card highlight.
+function insightFlags(insight: DrWaelInsight | undefined) {
+  if (!insight) return null;
+  return (
+    <div className="mt-1.5 flex flex-wrap gap-1">
+      {insight.shift ? (
+        <Pill tone="amber">
+          بيبصم {insight.shift.start}–{insight.shift.end} من {insight.shift.since.slice(5)}
+        </Pill>
+      ) : null}
+      {insight.branch_suggestion ? (
+        <Pill tone="blue">بيبصم في {insight.branch_suggestion}</Pill>
+      ) : null}
+      {insight.roaming ? (
+        <Pill tone="violet">
+          جرد{insight.today_branch ? ` · النهارده في ${insight.today_branch}` : ''}
+        </Pill>
+      ) : null}
+    </div>
+  );
+}
+
+const insightRing = (insight: DrWaelInsight | undefined) =>
+  insight?.shift
+    ? 'border-amber-300 ring-2 ring-amber-300/60 dark:border-amber-500/60 dark:ring-amber-500/30'
+    : insight?.branch_suggestion
+      ? 'border-sky-300 ring-2 ring-sky-300/60 dark:border-sky-500/60 dark:ring-sky-500/30'
+      : 'border-gray-100 dark:border-slate-800';
+
 export default function DrWaelFingerprints() {
   const [tab, setTab] = useState<Tab>('dashboard');
   const [cycle, setCycle] = useState<string | null>(null);
@@ -248,26 +286,41 @@ export default function DrWaelFingerprints() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [branch, setBranch] = useState<string>('الكل');
+  const [insights, setInsights] = useState<Map<string, DrWaelInsight>>(new Map());
+  const [smart, setSmart] = useState<DrWaelEmployee | null>(null);
   const request = useRef(0);
 
-  const load = useCallback(async (target: string | null) => {
-    const id = ++request.current;
-    setLoading(true);
-    setError(null);
+  const loadInsights = useCallback(async () => {
     try {
-      const next = await fetchDrWaelFingerprints(target);
-      if (id === request.current) setData(next);
-    } catch (e) {
-      if (id === request.current)
-        setError(
-          e instanceof Error && e.message.includes('not_authorized')
-            ? 'الصفحة دي للمدير العام ود. وائل بس.'
-            : 'تعذر تحميل البصمات؛ حاول تاني.'
-        );
-    } finally {
-      if (id === request.current) setLoading(false);
+      const rows = await fetchDrWaelSmartInsights();
+      setInsights(new Map(rows.map((row) => [row.staff_id, row])));
+    } catch {
+      setInsights(new Map());
     }
   }, []);
+
+  const load = useCallback(
+    async (target: string | null) => {
+      const id = ++request.current;
+      setLoading(true);
+      setError(null);
+      void loadInsights();
+      try {
+        const next = await fetchDrWaelFingerprints(target);
+        if (id === request.current) setData(next);
+      } catch (e) {
+        if (id === request.current)
+          setError(
+            e instanceof Error && e.message.includes('not_authorized')
+              ? 'الصفحة دي للمدير العام ود. وائل بس.'
+              : 'تعذر تحميل البصمات؛ حاول تاني.'
+          );
+      } finally {
+        if (id === request.current) setLoading(false);
+      }
+    },
+    [loadInsights]
+  );
 
   useEffect(() => {
     void load(cycle);
@@ -359,17 +412,377 @@ export default function DrWaelFingerprints() {
         </div>
       ) : null}
 
-      {tab === 'dashboard' ? <DashboardTab data={data} branch={branch} names={names} /> : null}
-      {tab === 'attendance' ? <AttendanceTab data={data} employees={employees} /> : null}
+      {tab === 'dashboard' ? (
+        <DashboardTab
+          data={data}
+          branch={branch}
+          names={names}
+          insights={insights}
+          onSmart={setSmart}
+        />
+      ) : null}
+      {tab === 'attendance' ? (
+        <AttendanceTab data={data} employees={employees} insights={insights} onSmart={setSmart} />
+      ) : null}
       {tab === 'workday' ? <WorkDayTab data={data} branch={branch} names={names} /> : null}
-      {tab === 'employees' ? <EmployeesTab employees={employees} /> : null}
+      {tab === 'employees' ? (
+        <EmployeesTab employees={employees} insights={insights} onSmart={setSmart} />
+      ) : null}
       {tab === 'adjustments' ? (
         <AdjustmentsTab data={data} employees={employees} names={names} />
       ) : null}
       {tab === 'leaves' ? <LeavesTab data={data} employees={employees} /> : null}
       {tab === 'salaries' ? <SalariesTab cycle={current} employees={employees} /> : null}
       {tab === 'reports' ? <ReportsTab data={data} employees={employees} /> : null}
+      <Sheet open={Boolean(smart)} onOpenChange={(next) => !next && setSmart(null)}>
+        <SheetContent
+          side="left"
+          className="w-full overflow-y-auto bg-white text-gray-800 dark:bg-slate-950 dark:text-slate-200 sm:max-w-lg"
+          dir="rtl"
+        >
+          {smart ? (
+            <SmartEditor
+              key={smart.staff_id}
+              employee={smart}
+              insight={insights.get(smart.staff_id)}
+              today={data.today}
+              branches={data.branches}
+              onSaved={() => void load(cycle)}
+            />
+          ) : null}
+        </SheetContent>
+      </Sheet>
     </div>
+  );
+}
+
+// Quick edit from what the fingerprints say: the shift (permanent from a date, one day, or a period) and
+// the branch (move with the device, or mark as inventory staff who punch wherever they count).
+function SmartEditor({
+  employee,
+  insight,
+  today,
+  branches,
+  onSaved,
+}: {
+  employee: DrWaelEmployee;
+  insight: DrWaelInsight | undefined;
+  today: string;
+  branches: string[];
+  onSaved: () => void;
+}) {
+  const suggestion = insight?.shift || null;
+  const current = employee.week.find((d) => d.date === today && d.scheduled && !d.off);
+  const [start, setStart] = useState(
+    suggestion?.start || hhmm(current?.start || null).replace('—', '')
+  );
+  const [end, setEnd] = useState(suggestion?.end || hhmm(current?.end || null).replace('—', ''));
+  const [mode, setMode] = useState<DrWaelShiftMode>('permanent');
+  const [from, setFrom] = useState(suggestion?.since || today);
+  const [to, setTo] = useState(addDays(today, 6));
+  const [days, setDays] = useState<string[]>(() => {
+    const working = workingWeekDays(employee.week);
+    return working.length ? working : WEEK_DAYS;
+  });
+  const [moveTo, setMoveTo] = useState(insight?.branch_suggestion || employee.branch);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ tone: Tone; text: string } | null>(null);
+
+  const run = async (key: string, action: () => Promise<string>) => {
+    setBusy(key);
+    setMessage(null);
+    try {
+      setMessage({ tone: 'green', text: await action() });
+      onSaved();
+    } catch (e) {
+      const text = e instanceof Error ? e.message : '';
+      setMessage({
+        tone: 'red',
+        text: text.includes('not_authorized')
+          ? 'مفيش صلاحية'
+          : text.includes('period')
+            ? 'الفترة لازم تكون من يوم لحد 62 يوم'
+            : text.includes('18_hours')
+              ? 'الشيفت أطول من 18 ساعة'
+              : 'ماتسجلش، راجع البيانات وحاول تاني',
+      });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const saveShift = () =>
+    run('shift', async () => {
+      const result = await applyDrWaelShiftChange({
+        staffId: employee.staff_id,
+        start,
+        end,
+        mode,
+        from,
+        to: mode === 'period' ? to : null,
+        days: mode === 'permanent' ? days : null,
+      });
+      return `اتسجل الميعاد · اتعاد حساب ${result.days_rebuilt} يوم${result.days_kept_manager_approved ? ` · ${result.days_kept_manager_approved} يوم معتمد من مدير ماتغيرش` : ''}`;
+    });
+
+  const device = Object.entries(insight?.device_branches || {}).sort((a, b) => b[1] - a[1]);
+  const input = `rounded-lg px-2 py-1 text-xs ${IDLE}`;
+  return (
+    <div className="space-y-4 text-sm text-gray-800 dark:text-slate-200">
+      <div>
+        <SheetTitle className="text-lg font-bold text-gray-900 dark:text-slate-100">
+          {employee.name}
+        </SheetTitle>
+        <p className={`text-xs ${MUTED}`}>
+          {employee.branch} · {roleTag(employee).label}
+        </p>
+      </div>
+      {message ? (
+        <div
+          role="status"
+          className={`rounded-xl px-3 py-2 text-xs font-bold ${TONES[message.tone]}`}
+        >
+          {message.text}
+        </div>
+      ) : null}
+
+      <section className={`${CARD} space-y-3 p-3`}>
+        <h3 className="flex items-center gap-1 font-bold text-gray-900 dark:text-slate-100">
+          <Clock size={15} /> ميعاد الشيفت
+        </h3>
+        {suggestion ? (
+          <div className={`rounded-xl px-3 py-2 text-xs ${TONES.amber}`}>
+            البصمة بتقول إنه بيشتغل{' '}
+            <b>
+              {suggestion.start}–{suggestion.end}
+            </b>{' '}
+            من {suggestion.since} ({suggestion.days} يوم) بدل الجدول المسجل.
+            <ul className="mt-1 space-y-0.5 opacity-90">
+              {suggestion.sample.slice(0, 4).map((day) => (
+                <li key={day.date}>
+                  {day.date}: {cairoTime(day.first_in)} ← {cairoTime(day.last_out)}
+                  {day.scheduled_start
+                    ? ` (الجدول ${hhmm(day.scheduled_start)}–${hhmm(day.scheduled_end)})`
+                    : ' (مالوش جدول)'}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <p className={`text-xs ${MUTED}`}>مفيش اختلاف واضح بين البصمة والجدول؛ تقدر تعدل يدوي.</p>
+        )}
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <label className="flex items-center gap-1">
+            من
+            <input
+              type="time"
+              value={start}
+              onChange={(e) => setStart(e.target.value)}
+              className={input}
+            />
+          </label>
+          <label className="flex items-center gap-1">
+            لحد
+            <input
+              type="time"
+              value={end}
+              onChange={(e) => setEnd(e.target.value)}
+              className={input}
+            />
+          </label>
+        </div>
+        <Chips<DrWaelShiftMode>
+          label="مدة التعديل"
+          value={mode}
+          onChange={setMode}
+          options={[
+            ['permanent', 'ميعاد جديد باستمرار'],
+            ['day', 'يوم واحد'],
+            ['period', 'فترة'],
+          ]}
+        />
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <label className="flex items-center gap-1">
+            {mode === 'day' ? 'اليوم' : 'من يوم'}
+            <input
+              type="date"
+              value={from}
+              min={addDays(today, -40)}
+              onChange={(e) => e.target.value && setFrom(e.target.value)}
+              className={input}
+            />
+          </label>
+          {mode === 'period' ? (
+            <label className="flex items-center gap-1">
+              لحد يوم
+              <input
+                type="date"
+                value={to}
+                min={from}
+                onChange={(e) => e.target.value && setTo(e.target.value)}
+                className={input}
+              />
+            </label>
+          ) : null}
+        </div>
+        {mode === 'permanent' ? (
+          <div className="space-y-1">
+            <div className={`text-[11px] ${MUTED}`}>
+              الأيام اللي هتاخد الميعاد الجديد (الباقي يفضل زي ما هو)
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {WEEK_DAYS.map((day) => {
+                const on = days.includes(day);
+                return (
+                  <button
+                    key={day}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() =>
+                      setDays((list) => (on ? list.filter((d) => d !== day) : [...list, day]))
+                    }
+                    className={`rounded-lg px-2 py-1 text-[11px] font-bold ${on ? ACTIVE : IDLE}`}
+                  >
+                    {day}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+        <p className={`text-[11px] ${MUTED}`}>
+          الأيام اللي فاتت في المدة دي بيتعاد حسابها تلقائي؛ اليوم اللي اعتمده مدير بيفضل زي ما هو.
+          {mode === 'period' ? ' أيام الراحة في الفترة بتفضل راحة.' : ''}
+        </p>
+        <button
+          type="button"
+          disabled={
+            Boolean(busy) ||
+            !start ||
+            !end ||
+            start === end ||
+            (mode === 'permanent' && !days.length)
+          }
+          onClick={() => void saveShift()}
+          className={`w-full rounded-xl px-3 py-2 text-xs font-bold disabled:opacity-50 ${ACTIVE}`}
+        >
+          {busy === 'shift' ? 'جارٍ الحفظ…' : 'اعتمد الميعاد'}
+        </button>
+      </section>
+
+      <section className={`${CARD} space-y-3 p-3`}>
+        <h3 className="flex items-center gap-1 font-bold text-gray-900 dark:text-slate-100">
+          <Users size={15} /> الفرع حسب جهاز البصمة
+        </h3>
+        <div className="flex flex-wrap gap-1 text-[11px]">
+          {device.length ? (
+            device.map(([name, count]) => (
+              <Pill key={name} tone={name === employee.branch ? 'green' : 'blue'}>
+                {name}: {count} يوم
+              </Pill>
+            ))
+          ) : (
+            <span className={MUTED}>مفيش بصمات على الأجهزة آخر أسبوعين</span>
+          )}
+          {insight?.today_branch ? (
+            <Pill tone="violet">النهارده: {insight.today_branch}</Pill>
+          ) : null}
+        </div>
+        <label className="flex items-center justify-between gap-2 text-xs">
+          <span>
+            <b>بيجرد الفروع</b>
+            <span className={`block text-[11px] ${MUTED}`}>
+              يبصم في أي فرع من غير ما يتقترح نقله (زي فريق المخزن)
+            </span>
+          </span>
+          <input
+            type="checkbox"
+            checked={Boolean(insight?.roaming ?? employee.roaming)}
+            disabled={Boolean(busy)}
+            onChange={(e) => {
+              const next = e.target.checked;
+              void run('roaming', async () => {
+                await setDrWaelRoaming(employee.staff_id, next);
+                return next ? 'اتسجل إنه بيجرد الفروع' : 'اتشال من فريق الجرد';
+              });
+            }}
+            className="h-4 w-4 accent-violet-600"
+          />
+        </label>
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <select
+            value={moveTo}
+            onChange={(e) => setMoveTo(e.target.value)}
+            className={input}
+            aria-label="الفرع"
+          >
+            {branches.map((b) => (
+              <option key={b} value={b}>
+                {b}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            disabled={Boolean(busy) || moveTo === employee.branch}
+            onClick={() =>
+              void run('branch', async () => {
+                await applyDrWaelBranchChange(employee.staff_id, moveTo);
+                return `اتنقل لـ ${moveTo} (والحساب بتاعه كمان)`;
+              })
+            }
+            className={`rounded-lg px-3 py-1.5 font-bold disabled:opacity-50 ${ACTIVE}`}
+          >
+            {busy === 'branch' ? 'جارٍ النقل…' : 'انقل للفرع'}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function SmartAlerts({
+  employees,
+  insights,
+  onSmart,
+}: {
+  employees: DrWaelEmployee[];
+  insights: Map<string, DrWaelInsight>;
+  onSmart: (employee: DrWaelEmployee) => void;
+}) {
+  const list = employees.filter((e) => {
+    const insight = insights.get(e.staff_id);
+    return insight?.shift || insight?.branch_suggestion;
+  });
+  if (!list.length) return null;
+  return (
+    <Section
+      title="تنبيهات البصمة الذكية"
+      subtitle="موظفين بيبصموا في ميعاد أو فرع غير المسجل · آخر أسبوعين"
+    >
+      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+        {list.map((employee) => {
+          const insight = insights.get(employee.staff_id);
+          return (
+            <button
+              key={employee.staff_id}
+              type="button"
+              onClick={() => onSmart(employee)}
+              className={`${CARD} border p-3 text-right transition hover:shadow-md ${insightRing(insight)}`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-gray-900 dark:text-slate-100">{employee.name}</span>
+                <span className={`text-[11px] ${MUTED}`}>{employee.branch}</span>
+              </div>
+              {insightFlags(insight)}
+              <div className="mt-2 text-[11px] font-bold text-indigo-600 dark:text-indigo-400">
+                {insight?.shift ? 'اعتمد الميعاد الجديد ←' : 'انقله للفرع ←'}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </Section>
   );
 }
 
@@ -377,10 +790,14 @@ function DashboardTab({
   data,
   branch,
   names,
+  insights,
+  onSmart,
 }: {
   data: Data;
   branch: string;
   names: Map<string, DrWaelEmployee>;
+  insights: Map<string, DrWaelInsight>;
+  onSmart: (employee: DrWaelEmployee) => void;
 }) {
   const branches = data.branches.filter((b) => matches(branch, b));
   const open = openShifts(data.days, data.today);
@@ -399,6 +816,11 @@ function DashboardTab({
         <Kpi label="يحتاج مراجعة" value={sum('review')} tone="violet" />
         <Kpi label="غياب" value={sum('absent')} tone="red" />
       </div>
+      <SmartAlerts
+        employees={data.employees.filter((e) => e.active && matches(branch, e.branch))}
+        insights={insights}
+        onSmart={onSmart}
+      />
       <Section title="الحاضرون الآن" subtitle="بصمة حضور النهارده أو امبارح بالليل من غير انصراف">
         <div className="grid gap-3 md:grid-cols-3">
           {branches.map((b) => {
@@ -500,15 +922,32 @@ function DashboardTab({
   );
 }
 
-function AttendanceTab({ data, employees }: { data: Data; employees: DrWaelEmployee[] }) {
+function AttendanceTab({
+  data,
+  employees,
+  insights,
+  onSmart,
+}: {
+  data: Data;
+  employees: DrWaelEmployee[];
+  insights: Map<string, DrWaelInsight>;
+  onSmart: (employee: DrWaelEmployee) => void;
+}) {
   const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState<'all' | 'review'>('all');
+  const [filter, setFilter] = useState<'all' | 'review' | 'smart'>('all');
   const [open, setOpen] = useState<DrWaelEmployee | null>(null);
+  const flagged = (staffId: string) => {
+    const insight = insights.get(staffId);
+    return Boolean(insight?.shift || insight?.branch_suggestion);
+  };
   const rows = employees
     .map((employee) => ({ employee, summary: summarizeEmployee(employee.staff_id, data.days) }))
     .filter(
       ({ employee, summary }) =>
-        employee.name.includes(query.trim()) && (filter === 'all' || summary.reviewDays > 0)
+        employee.name.includes(query.trim()) &&
+        (filter === 'all' ||
+          (filter === 'review' && summary.reviewDays > 0) ||
+          (filter === 'smart' && flagged(employee.staff_id)))
     );
   const branches = data.branches.filter((b) => rows.some((row) => row.employee.branch === b));
   return (
@@ -524,13 +963,14 @@ function AttendanceTab({ data, employees }: { data: Data; employees: DrWaelEmplo
             className="w-full bg-transparent text-xs outline-none"
           />
         </label>
-        <Chips<'all' | 'review'>
+        <Chips<'all' | 'review' | 'smart'>
           label="الحالة"
           value={filter}
           onChange={setFilter}
           options={[
             ['all', 'الكل'],
             ['review', 'يحتاج مراجعة'],
+            ['smart', 'ميعاد أو فرع مختلف'],
           ]}
         />
       </div>
@@ -548,45 +988,62 @@ function AttendanceTab({ data, employees }: { data: Data; employees: DrWaelEmplo
                 </span>
               </summary>
               <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                {list.map(({ employee, summary }) => (
-                  <div
-                    key={employee.staff_id}
-                    className="rounded-xl border border-gray-100 p-2.5 dark:border-slate-800"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <div className="font-bold text-gray-900 dark:text-slate-100">
-                          {employee.name}
+                {list.map(({ employee, summary }) => {
+                  const insight = insights.get(employee.staff_id);
+                  return (
+                    <div
+                      key={employee.staff_id}
+                      className={`rounded-xl border p-2.5 ${insightRing(insight)}`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="font-bold text-gray-900 dark:text-slate-100">
+                            {employee.name}
+                          </div>
+                          <div className={`text-[11px] ${MUTED}`}>{roleTag(employee).label}</div>
                         </div>
-                        <div className={`text-[11px] ${MUTED}`}>{roleTag(employee).label}</div>
+                        {summary.reviewDays ? (
+                          <Pill tone="amber">{summary.reviewDays} يوم يحتاج مراجعة</Pill>
+                        ) : (
+                          <Pill tone="green">مكتمل</Pill>
+                        )}
                       </div>
-                      {summary.reviewDays ? (
-                        <Pill tone="amber">{summary.reviewDays} يوم يحتاج مراجعة</Pill>
-                      ) : (
-                        <Pill tone="green">مكتمل</Pill>
-                      )}
+                      {insightFlags(insight)}
+                      <div className="mt-2 flex items-center justify-between text-[11px]">
+                        <span className={MUTED}>
+                          {summary.workedDays} يوم حضور · {hoursText(summary.hours)} ساعة
+                        </span>
+                        <span className="flex gap-3">
+                          <button
+                            type="button"
+                            onClick={() => onSmart(employee)}
+                            className="font-bold text-amber-600 hover:underline dark:text-amber-400"
+                          >
+                            تعديل الميعاد/الفرع
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setOpen(employee)}
+                            className="font-bold text-indigo-600 hover:underline dark:text-indigo-400"
+                          >
+                            عرض الأيام ←
+                          </button>
+                        </span>
+                      </div>
                     </div>
-                    <div className="mt-2 flex items-center justify-between text-[11px]">
-                      <span className={MUTED}>
-                        {summary.workedDays} يوم حضور · {hoursText(summary.hours)} ساعة
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setOpen(employee)}
-                        className="font-bold text-indigo-600 hover:underline dark:text-indigo-400"
-                      >
-                        عرض الأيام ←
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </details>
           );
         })}
       </Section>
       <Sheet open={Boolean(open)} onOpenChange={(next) => !next && setOpen(null)}>
-        <SheetContent side="left" className="w-full overflow-y-auto sm:max-w-xl" dir="rtl">
+        <SheetContent
+          side="left"
+          className="w-full overflow-y-auto bg-white text-gray-800 dark:bg-slate-950 dark:text-slate-200 sm:max-w-xl"
+          dir="rtl"
+        >
           {open ? <EmployeeDays employee={open} data={data} /> : null}
         </SheetContent>
       </Sheet>
@@ -600,7 +1057,9 @@ function EmployeeDays({ employee, data }: { employee: DrWaelEmployee; data: Data
     .sort((a, b) => a.date.localeCompare(b.date));
   return (
     <div className="space-y-3 text-sm">
-      <SheetTitle className="text-lg font-bold">{employee.name}</SheetTitle>
+      <SheetTitle className="text-lg font-bold text-gray-900 dark:text-slate-100">
+        {employee.name}
+      </SheetTitle>
       <p className={`text-xs ${MUTED}`}>
         {employee.branch} · {cycleLabel(data.month_cycle)}
       </p>
@@ -764,7 +1223,15 @@ function WorkDayTab({
   );
 }
 
-function EmployeesTab({ employees }: { employees: DrWaelEmployee[] }) {
+function EmployeesTab({
+  employees,
+  insights,
+  onSmart,
+}: {
+  employees: DrWaelEmployee[];
+  insights: Map<string, DrWaelInsight>;
+  onSmart: (employee: DrWaelEmployee) => void;
+}) {
   if (!employees.length) return <Empty label="مفيش موظفين" />;
   return (
     <Section title="الموظفين" subtitle={`${employees.length} موظف · جدول آخر 7 أيام لحد النهارده`}>
@@ -781,10 +1248,15 @@ function EmployeesTab({ employees }: { employees: DrWaelEmployee[] }) {
                     {employee.name.trim().charAt(0)}
                   </span>
                   <div>
-                    <div className="font-bold text-gray-900 dark:text-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => onSmart(employee)}
+                      className="font-bold text-gray-900 hover:text-indigo-600 dark:text-slate-100"
+                    >
                       {employee.name}
-                    </div>
+                    </button>
                     <div className={`text-[11px] ${MUTED}`}>{tag.label}</div>
+                    {insightFlags(insights.get(employee.staff_id))}
                   </div>
                 </div>
               </Td>
@@ -1191,9 +1663,25 @@ function SalariesTab({ cycle, employees }: { cycle: string; employees: DrWaelEmp
         </>
       )}
       <Sheet open={Boolean(picked)} onOpenChange={(next) => !next && setSelected(null)}>
-        <SheetContent side="left" className="w-full overflow-y-auto sm:max-w-md" dir="rtl">
+        <SheetContent
+          side="left"
+          className="w-full overflow-y-auto bg-white text-gray-800 dark:bg-slate-950 dark:text-slate-200 sm:max-w-3xl"
+          dir="rtl"
+        >
           {picked && selected ? (
-            <Payslip name={byId.get(selected)?.name || ''} cycle={cycle} row={picked} />
+            <div className="space-y-4">
+              <Payslip name={byId.get(selected)?.name || ''} cycle={cycle} row={picked} />
+              <div>
+                <h3 className="text-sm font-bold text-gray-900 dark:text-slate-100">
+                  الكشف الكامل من تطبيق الإدارة
+                </h3>
+                <p className={`mb-2 text-[11px] ${MUTED}`}>
+                  سعر الساعة والأوفر تايم، رصيد الإجازة السنوية، رصيد البصمة المنسية، الأذونات،
+                  وللدليفري: دقايق الانضباط والأوردرات والمشاوير — نفس اللي في صفحة المرتبات.
+                </p>
+                <PayrollTransparencyPanel staffId={selected} monthCycle={cycle} />
+              </div>
+            </div>
           ) : null}
         </SheetContent>
       </Sheet>
@@ -1231,7 +1719,9 @@ function Payslip({
   ];
   return (
     <div className="space-y-3 text-sm">
-      <SheetTitle className="text-lg font-bold">قسيمة مرتب · {name}</SheetTitle>
+      <SheetTitle className="text-lg font-bold text-gray-900 dark:text-slate-100">
+        قسيمة مرتب · {name}
+      </SheetTitle>
       <p className={`flex items-center gap-1 text-xs ${MUTED}`}>
         <CalendarDays size={13} /> {cycleLabel(cycle)}
       </p>
