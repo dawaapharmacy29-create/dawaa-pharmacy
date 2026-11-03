@@ -112,12 +112,23 @@ export const accountantSyncStale = (syncedAt: string | null, now = Date.now()) =
   !Number.isFinite(Date.parse(syncedAt)) ||
   now - new Date(syncedAt).getTime() > 3600e3;
 
-export async function loadAccountantReport(month: string | null): Promise<AccountantReport> {
-  const { data, error } = await supabase.rpc('get_accountant_report_v1', { p_month: month });
+export type AccountantReportScope = 'all' | 'shokry';
+
+/** «shokry» is خزنة شكري only, for the «بصمات د وائل» viewers (migration 20261103220000). */
+export async function loadAccountantReport(
+  month: string | null,
+  scope: AccountantReportScope = 'all'
+): Promise<AccountantReport> {
+  const { data, error } = await supabase.rpc(
+    scope === 'shokry' ? 'get_dr_wael_shokry_report_v1' : 'get_accountant_report_v1',
+    { p_month: month }
+  );
   if (error)
     throw new Error(
       error.message?.includes('not_authorized')
-        ? 'الصفحة دي للمدير العام والتنفيذي بس'
+        ? scope === 'shokry'
+          ? 'الصفحة دي لد وائل والمدير العام بس'
+          : 'الصفحة دي للمدير العام والتنفيذي بس'
         : 'تعذّر التحميل'
     );
   if (

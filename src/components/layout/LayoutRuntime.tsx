@@ -13,6 +13,7 @@ const ReviewsInsightsHub = lazy(() => import('@/components/reviews/ReviewsInsigh
 const PAGE_TITLES: Record<string, string> = {
   '/': 'لوحة القيادة 2027',
   '/dr-wael-fingerprints': 'بصمات د وائل',
+  '/dr-wael-shokry-reports': 'تقارير شكري',
   '/customers': 'إدارة العملاء',
   '/customer-service': 'مركز خدمة العملاء',
   '/customer-data-review': 'مراجعة بيانات العملاء',

@@ -683,6 +683,10 @@ function AppRoutes() {
         element={<ProtectedRoute>{routeSuspense(<ConsolidatedReports />, 'التقارير المجمعة')}</ProtectedRoute>}
       />
       <Route
+        path="/dr-wael-shokry-reports"
+        element={<ProtectedRoute>{routeSuspense(<ConsolidatedReports scope="shokry" />, 'تقارير شكري')}</ProtectedRoute>}
+      />
+      <Route
         path="/shift-handovers"
         element={
           <ProtectedRoute>

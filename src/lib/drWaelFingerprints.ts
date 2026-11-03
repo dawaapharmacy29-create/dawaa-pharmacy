@@ -554,3 +554,28 @@ export async function mapWithConcurrency<T, R>(
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
   return results;
 }
+
+// Salaries of named managers outside the three attendance branches (migration 20261103220000).
+export type DrWaelPayrollStaff = Pick<
+  DrWaelEmployee,
+  'staff_id' | 'name' | 'branch' | 'role' | 'active'
+>;
+
+export async function fetchDrWaelPayrollExtra(): Promise<DrWaelPayrollStaff[]> {
+  const { data, error } = await supabase.rpc('get_dr_wael_payroll_extra_v1');
+  if (error) throw new Error(error.message);
+  if (!Array.isArray(data)) throw new Error('dr_wael_payroll_extra_unavailable');
+  return data as DrWaelPayrollStaff[];
+}
+
+/** The page's active employees, then the extra payroll staff that are not already listed. */
+export function payrollStaff(
+  employees: DrWaelPayrollStaff[],
+  extra: DrWaelPayrollStaff[]
+): DrWaelPayrollStaff[] {
+  const listed = new Set(employees.map((e) => e.staff_id));
+  return [
+    ...employees.filter((e) => e.active),
+    ...extra.filter((e) => e.active && !listed.has(e.staff_id)),
+  ];
+}

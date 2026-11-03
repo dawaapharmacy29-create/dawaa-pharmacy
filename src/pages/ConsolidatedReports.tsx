@@ -49,6 +49,7 @@ import {
   accountantSyncStale,
   loadAccountantReport,
   type AccountantReport,
+  type AccountantReportScope,
   type AccountantTransaction,
 } from '@/lib/accountantReport';
 import CollectionSettlementPanel from '@/components/dashboard/CollectionSettlementPanel';
@@ -79,7 +80,10 @@ const groupIcons: Record<string, LucideIcon> = {
   'غير مصنف': CircleHelp,
 };
 
-export default function ConsolidatedReports() {
+// scope «shokry» is the «تقارير شكري» page under «بصمات د وائل»: خزنة شكري only, no cross-branch collections.
+export default function ConsolidatedReports({
+  scope = 'all',
+}: { scope?: AccountantReportScope } = {}) {
   const [report, setReport] = useState<AccountantReport | null>(null);
   const [month, setMonth] = useState<string | null>(null),
     [vault, setVault] = useState(ALL);
@@ -96,19 +100,23 @@ export default function ConsolidatedReports() {
     [error, setError] = useState(''),
     [exporting, setExporting] = useState(false);
   const request = useRef(0);
-  const load = useCallback(async (target: string | null) => {
-    const id = ++request.current;
-    setLoading(true);
-    setError('');
-    try {
-      const next = await loadAccountantReport(target);
-      if (id === request.current) setReport(next);
-    } catch (e) {
-      if (id === request.current) setError(e instanceof Error ? e.message : 'تعذّر تحميل التقرير');
-    } finally {
-      if (id === request.current) setLoading(false);
-    }
-  }, []);
+  const load = useCallback(
+    async (target: string | null) => {
+      const id = ++request.current;
+      setLoading(true);
+      setError('');
+      try {
+        const next = await loadAccountantReport(target, scope);
+        if (id === request.current) setReport(next);
+      } catch (e) {
+        if (id === request.current)
+          setError(e instanceof Error ? e.message : 'تعذّر تحميل التقرير');
+      } finally {
+        if (id === request.current) setLoading(false);
+      }
+    },
+    [scope]
+  );
   useEffect(() => {
     void load(month);
     return () => {
@@ -285,10 +293,16 @@ export default function ConsolidatedReports() {
             <Landmark size={28} />
           </span>
           <div>
-            <p className="treasury-eyebrow">دواء بيلز / دفتر الخزن</p>
-            <h1 className="text-2xl md:text-3xl font-black mt-1">التقارير المجمعة</h1>
+            <p className="treasury-eyebrow">
+              {scope === 'shokry' ? 'بصمات د وائل / دفتر خزنة شكري' : 'دواء بيلز / دفتر الخزن'}
+            </p>
+            <h1 className="text-2xl md:text-3xl font-black mt-1">
+              {scope === 'shokry' ? 'تقارير شكري' : 'التقارير المجمعة'}
+            </h1>
             <p className="dawaa-caption mt-2">
-              صورة مالية واحدة للخزن الثلاثة، من الملخص إلى تفاصيل كل حركة.
+              {scope === 'shokry'
+                ? 'خزنة شكري القوتلي بس، من الملخص إلى تفاصيل كل حركة.'
+                : 'صورة مالية واحدة للخزن الثلاثة، من الملخص إلى تفاصيل كل حركة.'}
             </p>
           </div>
         </div>
@@ -474,19 +488,21 @@ export default function ConsolidatedReports() {
           ['ledger', 'كشف الحركات'],
           ['history', 'مقارنة ٦ أشهر'],
           ['collections', 'تسوية التحصيلات'],
-        ].map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setTab(id)}
-            aria-pressed={tab === id}
-            className={`dawaa-tab whitespace-nowrap ${tab === id ? 'is-active' : ''}`}
-          >
-            {label}
-          </button>
-        ))}
+        ]
+          .filter(([id]) => scope !== 'shokry' || id !== 'collections')
+          .map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setTab(id)}
+              aria-pressed={tab === id}
+              className={`dawaa-tab whitespace-nowrap ${tab === id ? 'is-active' : ''}`}
+            >
+              {label}
+            </button>
+          ))}
       </nav>
-      {tab === 'collections' && <CollectionSettlementPanel />}
+      {tab === 'collections' && scope !== 'shokry' && <CollectionSettlementPanel />}
       {tab !== 'history' && tab !== 'collections' && (
         <>
           <div className="grid sm:grid-cols-4 gap-3">

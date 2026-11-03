@@ -1142,13 +1142,24 @@ export function canAccessHRRoute(pathname: string, role: unknown): boolean {
 // «بصمات د وائل» opens for two staff accounts only: the general manager (د/ معاذ) and Dr. Wael. Mirrors
 // dr_wael_fingerprints_viewers_v1; the database refuses every other account whatever this says.
 export const DR_WAEL_FINGERPRINTS_PATH = '/dr-wael-fingerprints';
+// «تقارير شكري»: the consolidated reports limited to فرع شكري (get_dr_wael_shokry_report_v1), same two accounts.
+export const DR_WAEL_SHOKRY_REPORTS_PATH = '/dr-wael-shokry-reports';
+const DR_WAEL_ACCOUNT = 'e1454077-98eb-4f54-8fa8-2e4094991435';
 const ACCOUNT_ROUTE_ACCOUNTS: Record<string, string[]> = {
-  [DR_WAEL_FINGERPRINTS_PATH]: ['748fad73-5aab-4e61-bfd6-8be299af8aa9', 'e1454077-98eb-4f54-8fa8-2e4094991435'],
+  [DR_WAEL_FINGERPRINTS_PATH]: ['748fad73-5aab-4e61-bfd6-8be299af8aa9', DR_WAEL_ACCOUNT],
+  [DR_WAEL_SHOKRY_REPORTS_PATH]: ['748fad73-5aab-4e61-bfd6-8be299af8aa9', DR_WAEL_ACCOUNT],
+};
+// Accounts kept out of a route their role would open. Mirrors accountant_report_vault_only_v1: Dr. Wael reads
+// the accountant book of فرع شكري only, so the full «التقارير المجمعة» is closed to him.
+const ACCOUNT_ROUTE_EXCLUDED: Record<string, string[]> = {
+  '/consolidated-reports': [DR_WAEL_ACCOUNT],
 };
 
 export function canAccessAccountRoute(pathname: string, accountId: unknown): boolean {
+  const account = String(accountId || '').trim().toLowerCase();
+  if (ACCOUNT_ROUTE_EXCLUDED[pathname]?.includes(account)) return false;
   const allowed = ACCOUNT_ROUTE_ACCOUNTS[pathname];
-  return !allowed || allowed.includes(String(accountId || '').trim().toLowerCase());
+  return !allowed || allowed.includes(account);
 }
 
 // Matches dawaa_can_manage_biometric_mapping_v1 in the database. The legacy

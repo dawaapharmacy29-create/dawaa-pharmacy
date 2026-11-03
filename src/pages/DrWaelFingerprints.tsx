@@ -24,6 +24,9 @@ import {
   employeeMoney,
   fetchDrWaelDayPunches,
   fetchDrWaelFingerprints,
+  fetchDrWaelPayrollExtra,
+  payrollStaff,
+  type DrWaelPayrollStaff,
   fetchDrWaelSmartInsights,
   mapWithConcurrency,
   minutesLabel,
@@ -1519,13 +1522,17 @@ function SalariesTab({ cycle, employees }: { cycle: string; employees: DrWaelEmp
   const [rows, setRows] = useState<PayrollRow[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
+  const [staff, setStaff] = useState<DrWaelPayrollStaff[]>([]);
   const request = useRef(0);
-  const active = useMemo(() => employees.filter((e) => e.active), [employees]);
 
   const load = useCallback(async () => {
     const id = ++request.current;
     setLoading(true);
     setRows(null);
+    // Managers outside the three branches (د/ علا، د وائل…) join the list; a failed read keeps the rest.
+    const extra = await fetchDrWaelPayrollExtra().catch(() => []);
+    const active = payrollStaff(employees, extra);
+    if (id === request.current) setStaff(active);
     const result = await mapWithConcurrency(active, 3, async (e): Promise<PayrollRow> => {
       try {
         return {
@@ -1545,13 +1552,13 @@ function SalariesTab({ cycle, employees }: { cycle: string; employees: DrWaelEmp
       setRows(result);
       setLoading(false);
     }
-  }, [active, cycle]);
+  }, [employees, cycle]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const byId = new Map(active.map((e) => [e.staff_id, e]));
+  const byId = new Map(staff.map((e) => [e.staff_id, e]));
   const ok = (rows || []).flatMap((r) => (r.row ? [r.row] : []));
   const sum = (pick: (row: EmployeePayrollFinancialCompositionV2) => number) =>
     money(ok.reduce((total, row) => total + Number(pick(row) || 0), 0));
