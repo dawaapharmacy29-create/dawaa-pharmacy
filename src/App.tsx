@@ -4,7 +4,7 @@ import { Component, lazy, Suspense, useEffect, useState, type ReactNode } from '
 import { isIOSWebKit } from '@/lib/mobileSafariCompat';
 import { Toaster } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
-import { canAccessHRRoute, getRoleLandingPath, getRoutePermissions } from '@/lib/core/permissionSystem';
+import { canAccessAccountRoute, canAccessHRRoute, getRoleLandingPath, getRoutePermissions } from '@/lib/core/permissionSystem';
 import Layout from '@/components/layout/Layout';
 import PWABanner from '@/components/features/PWABanner';
 import { isDoctorRole, isManagerRole } from '@/lib/security/userDataScope';
@@ -113,6 +113,7 @@ const Supplies = lazy(() => import('@/pages/Supplies'));
 const Purchases = lazy(() => import('@/pages/Purchases'));
 const ShiftHandovers = lazy(() => import('@/pages/ShiftHandovers'));
 const ConsolidatedReports = lazy(() => import('@/pages/ConsolidatedReports'));
+const DrWaelFingerprints = lazy(() => import('@/pages/DrWaelFingerprints'));
 const Accessories = lazy(() => import('@/pages/Accessories'));
 const Offers = lazy(() => import('@/pages/Offers'));
 const Stories = lazy(() => import('@/pages/Stories'));
@@ -234,6 +235,7 @@ function ProtectedRoute({ children, permission }: { children: ReactNode; permiss
   }
   if (
     !canAccessHRRoute(location.pathname, user.role) ||
+    !canAccessAccountRoute(location.pathname, user.id) ||
     (effectivePermissions &&
       (Array.isArray(effectivePermissions)
         ? !effectivePermissions.some((item) => checkPermission(item))
@@ -671,6 +673,10 @@ function AppRoutes() {
             {routeSuspense(<PurchaseOrderLog />, 'سجل الطلبيات')}
           </ProtectedRoute>
         }
+      />
+      <Route
+        path="/dr-wael-fingerprints"
+        element={<ProtectedRoute>{routeSuspense(<DrWaelFingerprints />, 'بصمات د وائل')}</ProtectedRoute>}
       />
       <Route
         path="/consolidated-reports"

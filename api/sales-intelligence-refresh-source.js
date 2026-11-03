@@ -9225,6 +9225,10 @@ var ALL_PERMISSION_KEYS = PERMISSION_CATEGORIES.flatMap(
 var PERMISSION_MAP = Object.fromEntries(
   PERMISSION_CATEGORIES.flatMap((cat) => cat.permissions.map((p) => [p.key, p]))
 );
+var DR_WAEL_FINGERPRINTS_PATH = "/dr-wael-fingerprints";
+var ACCOUNT_ROUTE_ACCOUNTS = {
+  [DR_WAEL_FINGERPRINTS_PATH]: ["748fad73-5aab-4e61-bfd6-8be299af8aa9", "e1454077-98eb-4f54-8fa8-2e4094991435"]
+};
 
 // src/lib/security/userDataScope.ts
 function normalizeArabicName(value) {

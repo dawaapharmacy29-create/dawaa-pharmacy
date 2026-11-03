@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ElementType } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   Activity, ActivitySquare, AlertTriangle, BarChart3, BellRing, Calendar, ChevronDown, ChevronLeft,
-  ClipboardCheck, ClipboardList, Clock, Crown, FileSpreadsheet, HeadphonesIcon, Landmark, LayoutDashboard, LogOut,
+  ClipboardCheck, ClipboardList, Clock, Crown, FileSpreadsheet, Fingerprint, HeadphonesIcon, Landmark, LayoutDashboard, LogOut,
   MessageCircle, Package, PackageSearch, PackageX, ShieldCheck, Sparkles, Star, Store, Target, TrendingDown, Truck, UserCheck,
   UserPlus, Users, Wallet, WalletCards, X,
 } from 'lucide-react';
@@ -12,7 +12,7 @@ import { usePendingShiftNotesCount } from '@/hooks/usePendingShiftNotesCount';
 import { LOGO_URL } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 import { getVisibleSectionsForPath } from '@/lib/permissionMatrix';
-import { canAccessHRRoute, canManageBiometricOperations, getRoutePermissions, normalizeRole } from '@/lib/core/permissionSystem';
+import { DR_WAEL_FINGERPRINTS_PATH, canAccessAccountRoute, canAccessHRRoute, canManageBiometricOperations, getRoutePermissions, normalizeRole } from '@/lib/core/permissionSystem';
 
 export type NavItem = {
   path: string;
@@ -37,6 +37,7 @@ const CUSTOMER_CODING_ITEM: NavItem = { path: '/customer-coding', icon: UserPlus
 export const GROUPS: NavGroup[] = [
   { title: 'الرئيسية والإدارة', icon: Crown, items: [
     { path: '/', icon: LayoutDashboard, label: 'لوحة القيادة', permission: 'view_dashboard', excludeRoles: ['customer_service_manager', 'procurement_manager', 'inventory_assistant', 'customer_service', 'delivery', 'cleaning_supervisor'] },
+    { path: DR_WAEL_FINGERPRINTS_PATH, icon: Fingerprint, label: 'بصمات د وائل' },
     { path: '/consolidated-reports', icon: Landmark, label: 'التقارير المجمعة', allowedRoles: ['general_manager', 'admin', 'executive_manager'] },
     { path: '/daily-command', icon: Target, label: 'مراجعتي اليومية', allowedRoles: ['general_manager', 'admin', 'executive_manager'] },
     { path: '/daily-command', icon: Target, label: 'الأمر اليومي', allowedRoles: ['branches_manager'] },
@@ -211,6 +212,7 @@ export function activeItem(itemPath: string, pathname: string, search: string, n
 
 export type NavVisibilityContext = {
   rawRole: unknown;
+  accountId?: unknown;
   role: string;
   privileged: boolean;
   checkPermission: (permission: string) => boolean;
@@ -219,8 +221,9 @@ export type NavVisibilityContext = {
 // Nav visibility = the same central route permission that ProtectedRoute enforces, narrowed by
 // the item's own role/permission hints. A visible item is never a denied page.
 export function isNavItemVisible(item: NavItem, context: NavVisibilityContext) {
-  const { rawRole, role, privileged, checkPermission } = context;
+  const { rawRole, accountId, role, privileged, checkPermission } = context;
   if (!canAccessHRRoute(basePath(item.path), rawRole)) return false;
+  if (!canAccessAccountRoute(basePath(item.path), accountId)) return false;
   if (item.biometricOnly && !canManageBiometricOperations(rawRole)) return false;
   if (item.adminOnly && !privileged) return false;
   if (item.allowedRoles?.length && !item.allowedRoles.includes(role)) return false;
@@ -253,7 +256,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
   const pharmacistView = ['pharmacist', 'shift_supervisor_morning', 'shift_supervisor_evening'].includes(role)
     && !checkPermission('view_executive_dashboard');
 
-  const canAccess = (item: NavItem) => isNavItemVisible(item, { rawRole: user?.role, role, privileged, checkPermission });
+  const canAccess = (item: NavItem) => isNavItemVisible(item, { rawRole: user?.role, accountId: user?.id, role, privileged, checkPermission });
 
   const canQuickFollowup = pharmacistView
     ? checkPermission('view_doctor_dashboard')
@@ -264,7 +267,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
   const groups = useMemo(() => (pharmacistView ? PHARMACIST_GROUPS : GROUPS)
     .filter((group) => group.title !== 'التوصيل' || ENABLE_INTERNAL_DELIVERY_MODULE)
     .map((group) => ({ ...group, items: group.items.filter(canAccess) }))
-    .filter((group) => group.items.length), [checkPermission, pharmacistView, privileged, role]);
+    .filter((group) => group.items.length), [checkPermission, pharmacistView, privileged, role, user?.id]);
 
   const navPaths = useMemo(() => groups.flatMap((group) => group.items.map((item) => item.path)), [groups]);
 
