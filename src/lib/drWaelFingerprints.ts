@@ -297,6 +297,38 @@ export function todayByBranch(
   });
 }
 
+export function addDays(date: string, days: number): string {
+  const value = new Date(`${date}T12:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+}
+
+// «الحاضرون الآن»: a check-in today or last night with no check-out yet.
+export function openShifts(days: DrWaelDay[], today: string): DrWaelDay[] {
+  const dates = new Set([today, addDays(today, -1)]);
+  return days
+    .filter((day) => dates.has(day.date) && day.first_in && !day.last_out)
+    .sort((a, b) => Date.parse(a.first_in || '') - Date.parse(b.first_in || ''));
+}
+
+// «يحتاج مراجعة — آخر 5 أيام»: the days before today that are late, early, absent or still under review.
+export function recentExceptions(
+  days: DrWaelDay[],
+  today: string,
+  count = 5
+): Array<{ date: string; days: DrWaelDay[] }> {
+  return Array.from({ length: count }, (_, i) => addDays(today, -(i + 1))).map((date) => ({
+    date,
+    days: days.filter((day) => {
+      const kind = dayKind(day);
+      return (
+        day.date === date &&
+        (kind === 'review' || kind === 'late' || kind === 'absent' || day.early_leave_minutes > 0)
+      );
+    }),
+  }));
+}
+
 export interface WorkSession {
   start: string;
   end: string | null;

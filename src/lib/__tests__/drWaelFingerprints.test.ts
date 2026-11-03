@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  addDays,
   cycleLabel,
   dayKind,
   employeeMoney,
   mapWithConcurrency,
+  openShifts,
+  recentExceptions,
   shiftCycle,
   summarizeEmployee,
   todayByBranch,
@@ -157,6 +160,34 @@ describe('بصمات د وائل', () => {
     expect(todayByBranch(data, '2026-11-01')).toEqual([
       { branch: 'فرع شكري', employees: 2, present: 2, late: 1, review: 0, absent: 0, off: 0 },
       { branch: 'فرع الشامي', employees: 0, present: 1, late: 0, review: 1, absent: 0, off: 0 },
+    ]);
+  });
+
+  it('lists who is still in (today or last night) and the exception days of the last five days', () => {
+    expect(addDays('2026-11-01', -1)).toBe('2026-10-31');
+    expect(addDays('2026-12-31', 1)).toBe('2027-01-01');
+    const days = [
+      day({ staff_id: 'night', date: '2026-10-31', first_in: '2026-10-31T20:00:00Z' }),
+      day({ staff_id: 'morning', first_in: '2026-11-01T06:00:00Z' }),
+      day({ staff_id: 'left', first_in: '2026-11-01T06:00:00Z', last_out: '2026-11-01T14:00:00Z' }),
+      day({ staff_id: 'old', date: '2026-10-30', first_in: '2026-10-30T06:00:00Z' }),
+    ];
+    expect(openShifts(days, '2026-11-01').map((d) => d.staff_id)).toEqual(['night', 'morning']);
+    const recent = recentExceptions(
+      [
+        day({ date: '2026-10-31', late_minutes: 20, resolution: 'late' }),
+        day({ date: '2026-10-31', staff_id: 'ok', hours: 8, first_in: 'x' }),
+        day({ date: '2026-10-30', early_leave_minutes: 15, hours: 7, first_in: 'x' }),
+        day({ date: '2026-11-01', review: true }),
+      ],
+      '2026-11-01'
+    );
+    expect(recent.map((g) => [g.date, g.days.length])).toEqual([
+      ['2026-10-31', 1],
+      ['2026-10-30', 1],
+      ['2026-10-29', 0],
+      ['2026-10-28', 0],
+      ['2026-10-27', 0],
     ]);
   });
 
