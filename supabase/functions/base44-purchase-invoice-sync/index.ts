@@ -7,6 +7,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 // بدل تمرير x-dawaa-user-id قديم لم يعد مقبولًا بعد تشديد هوية الجلسة.
 const BASE44_APP_ID = "6a11bdb86cda73e6c2a7fde4";
 const BASE44_API_BASE = "https://app.base44.com/api/apps";
+const PAGE = 500;
 
 function mapBranch(raw: string | null | undefined): string | null {
   if (!raw) return null;
@@ -25,16 +26,25 @@ Deno.serve(async (_req: Request) => {
     if (keyError || !keyData) throw new Error(`تعذر جلب مفتاح بيز٤٤: ${keyError?.message || "مفيش مفتاح مخزن"}`);
     const base44ApiKey = keyData as string;
 
-    const listUrl = `${BASE44_API_BASE}/${BASE44_APP_ID}/entities/PurchaseInvoice?sort=-created_date&limit=300`;
-    const base44Res = await fetch(listUrl, {
-      // Base44 refuses account API keys since 2026-10-28; the stored secret is a personal access token.
-      headers: { Authorization: `Bearer ${base44ApiKey}`, "Content-Type": "application/json" },
-    });
-    if (!base44Res.ok) {
-      const body = await base44Res.text();
-      throw new Error(`Base44 API error ${base44Res.status}: ${body.slice(0, 300)}`);
+    // The latest changed invoices, so a review in DawaaWael (status) reaches older invoices too;
+    // {"full": true} reads every invoice once.
+    const { full } = (await _req.json().catch(() => ({}))) as { full?: boolean };
+    const invoices: Array<Record<string, unknown>> = [];
+    for (let skip = 0; ; skip += PAGE) {
+      const sort = full ? "id" : "-updated_date";
+      const listUrl = `${BASE44_API_BASE}/${BASE44_APP_ID}/entities/PurchaseInvoice?sort=${sort}&limit=${PAGE}&skip=${skip}`;
+      const base44Res = await fetch(listUrl, {
+        // Base44 refuses account API keys since 2026-10-28; the stored secret is a personal access token.
+        headers: { Authorization: `Bearer ${base44ApiKey}`, "Content-Type": "application/json" },
+      });
+      if (!base44Res.ok) {
+        const body = await base44Res.text();
+        throw new Error(`Base44 API error ${base44Res.status}: ${body.slice(0, 300)}`);
+      }
+      const page = (await base44Res.json()) as Array<Record<string, unknown>>;
+      invoices.push(...page);
+      if (!full || page.length < PAGE || skip > 100000) break;
     }
-    const invoices = (await base44Res.json()) as Array<Record<string, unknown>>;
 
     const records = invoices.map((inv) => ({
       id: inv.id,

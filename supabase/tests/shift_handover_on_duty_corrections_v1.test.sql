@@ -74,8 +74,9 @@ begin
   end if;
   -- A second correction records the first correction's value as the previous one.
   perform public.correct_shift_handover_v1(v_id, '{"cash_variance": -20}', 'الفرق الحقيقي 20');
+  -- Both corrections share now() inside this transaction, so pick the second one by its reason.
   if (select previous->>'cash_variance' from public.shift_handover_corrections_v1
-       where handover_id = v_id order by created_at desc, id desc limit 1) <> '0' then
+       where handover_id = v_id and reason = 'الفرق الحقيقي 20') <> '0' then
     raise exception 'previous_wrong';
   end if;
   if (select previous->>'submitted_by' from public.shift_handover_corrections_v1
