@@ -254,6 +254,18 @@ function TableSkeleton() {
 export default function AttendanceReport() {
   const { user, checkPermission, canManage } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
+  const draftStaff = searchParams.get('punch_staff') ?? '';
+  const draftDay = searchParams.get('punch_day') ?? '';
+  const draftTime = searchParams.get('punch_time') ?? '';
+  const draftType = searchParams.get('punch_type');
+  const punchDraft = user?.role === 'general_manager'
+    && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(draftStaff)
+    && /^\d{4}-\d{2}-\d{2}$/.test(draftDay)
+    && /^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d$/.test(draftTime)
+    && (draftType === 'check_in' || draftType === 'check_out')
+    ? { staffId: draftStaff, day: draftDay, time: draftTime, type: draftType }
+    : null;
+
   const canAllBranches = canSeeAllBranches(user?.role);
   const normalizedUserBranch = normalizeBranchName(user?.branch || '');
   const isOperationalManager = MANAGER_TODAY_ROLES.has(user?.role || '');
@@ -618,10 +630,11 @@ export default function AttendanceReport() {
           {isOperationalManager && <TabsTrigger value="overtime" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-[var(--dawaa-theme-primary-text)] data-[state=active]:shadow-md"><Timer size={16} /> الأوفر تايم <TabBadge value={approvalsSummary?.pendingOvertime} /></TabsTrigger>}
           {canViewTimeOff && <TabsTrigger value="timeoff" className="gap-1.5 rounded-xl px-3 py-2 font-black text-[var(--dawaa-theme-muted)] data-[state=active]:bg-[var(--dawaa-theme-primary)] data-[state=active]:text-[var(--dawaa-theme-primary-text)] data-[state=active]:shadow-md"><CalendarClock size={16} /> الأذونات والإجازات <TabBadge value={approvalsSummary?.pendingTimeOff} /></TabsTrigger>}
         </TabsList></Tabs>
-        {decisionSubTab === 'resolution' && isOperationalManager && <Suspense fallback={<TableSkeleton />}><AttendanceResolutionCenter defaultBranch={scopedReviewStaff ? 'الكل' : effectiveBranch}
-              initialDate={scopedReviewStaff ? null : resolutionFocusDate}
-              initialTriage={scopedReviewStaff ? 'all' : resolutionFocusTriage}
-              initialStaffId={scopedReviewStaff} initialCurrentCycle={!!scopedReviewStaff} /></Suspense>}
+        {decisionSubTab === 'resolution' && isOperationalManager && <Suspense fallback={<TableSkeleton />}><AttendanceResolutionCenter defaultBranch={punchDraft || scopedReviewStaff ? 'الكل' : effectiveBranch}
+              initialDate={punchDraft?.day ?? (scopedReviewStaff ? null : resolutionFocusDate)}
+              initialTriage={punchDraft || scopedReviewStaff ? 'all' : resolutionFocusTriage}
+              initialStaffId={punchDraft?.staffId ?? scopedReviewStaff} initialCurrentCycle={!punchDraft && !!scopedReviewStaff}
+              draftPunchTime={punchDraft?.time} draftPunchType={punchDraft?.type} draftPunchDay={punchDraft?.day} /></Suspense>}
         {decisionSubTab === 'overtime' && isOperationalManager && <Suspense fallback={<TableSkeleton />}><OvertimeApprovalCenter defaultBranch={effectiveBranch === 'الكل' ? '' : effectiveBranch} /></Suspense>}
         {decisionSubTab === 'timeoff' && canViewTimeOff && <Suspense fallback={<TableSkeleton />}><TimeOffPanel /></Suspense>}
       </>}
