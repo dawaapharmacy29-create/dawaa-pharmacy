@@ -59,14 +59,30 @@ Deno.serve(async (req: Request) => {
           await fetchPages(key, 'TripStop', '-updated_date', RECENT),
         ];
 
-    const { data: rpcJson, error: rpcError } = await admin.rpc('import_base44_bills_ops_v1', {
-      p_batches: batches,
-      p_trips: trips,
-      p_stops: stops,
-    });
-    if (rpcError) throw new Error(`import_base44_bills_ops_v1 error: ${rpcError.message}`);
-
-    const result = (rpcJson || {}) as Record<string, unknown>;
+    // The ledger first, then trips and stops a page at a time: the whole history in one statement runs
+    // past the statement timeout. An empty ledger argument leaves the ledger as it is.
+    const result: Record<string, number> = {};
+    type Rows = Array<Record<string, unknown>>;
+    const calls: Array<{ p_batches: Rows; p_trips: Rows; p_stops: Rows }> = [
+      { p_batches: batches, p_trips: [], p_stops: [] },
+    ];
+    for (let i = 0; i < Math.max(trips.length, stops.length); i += PAGE) {
+      calls.push({
+        p_batches: [],
+        p_trips: trips.slice(i, i + PAGE),
+        p_stops: stops.slice(i, i + PAGE),
+      });
+    }
+    for (const args of calls) {
+      const { data: rpcJson, error: rpcError } = await admin.rpc(
+        'import_base44_bills_ops_v1',
+        args
+      );
+      if (rpcError) throw new Error(`import_base44_bills_ops_v1 error: ${rpcError.message}`);
+      for (const [name, value] of Object.entries((rpcJson || {}) as Record<string, number>)) {
+        result[name] = (result[name] ?? 0) + Number(value || 0);
+      }
+    }
     await admin.from('base44_sync_run_log').insert({
       source: 'bills_ops',
       status: 'success',
