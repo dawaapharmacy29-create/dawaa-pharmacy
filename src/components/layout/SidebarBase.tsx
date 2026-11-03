@@ -12,7 +12,7 @@ import { usePendingShiftNotesCount } from '@/hooks/usePendingShiftNotesCount';
 import { LOGO_URL } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 import { getVisibleSectionsForPath } from '@/lib/permissionMatrix';
-import { DR_WAEL_FINGERPRINTS_PATH, canAccessAccountRoute, canAccessHRRoute, canManageBiometricOperations, getRoutePermissions, normalizeRole } from '@/lib/core/permissionSystem';
+import { DR_WAEL_FINGERPRINTS_PATH, DR_WAEL_SHOKRY_REPORTS_PATH, canAccessAccountRoute, canAccessHRRoute, canManageBiometricOperations, getRoutePermissions, normalizeRole } from '@/lib/core/permissionSystem';
 
 export type NavItem = {
   path: string;
@@ -38,6 +38,7 @@ export const GROUPS: NavGroup[] = [
   { title: 'الرئيسية والإدارة', icon: Crown, items: [
     { path: '/', icon: LayoutDashboard, label: 'لوحة القيادة', permission: 'view_dashboard', excludeRoles: ['customer_service_manager', 'procurement_manager', 'inventory_assistant', 'customer_service', 'delivery', 'cleaning_supervisor'] },
     { path: DR_WAEL_FINGERPRINTS_PATH, icon: Fingerprint, label: 'بصمات د وائل' },
+    { path: DR_WAEL_SHOKRY_REPORTS_PATH, icon: Landmark, label: 'تقارير شكري' },
     { path: '/consolidated-reports', icon: Landmark, label: 'التقارير المجمعة', allowedRoles: ['general_manager', 'admin', 'executive_manager'] },
     { path: '/daily-command', icon: Target, label: 'مراجعتي اليومية', allowedRoles: ['general_manager', 'admin', 'executive_manager'] },
     { path: '/daily-command', icon: Target, label: 'الأمر اليومي', allowedRoles: ['branches_manager'] },

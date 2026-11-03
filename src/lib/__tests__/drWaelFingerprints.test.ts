@@ -6,6 +6,7 @@ import {
   employeeMoney,
   mapWithConcurrency,
   openShifts,
+  payrollStaff,
   recentExceptions,
   shiftCycle,
   summarizeEmployee,
@@ -15,7 +16,11 @@ import {
   type DrWaelDay,
   type DrWaelEmployee,
 } from '../drWaelFingerprints';
-import { DR_WAEL_FINGERPRINTS_PATH, canAccessAccountRoute } from '../core/permissionSystem';
+import {
+  DR_WAEL_FINGERPRINTS_PATH,
+  DR_WAEL_SHOKRY_REPORTS_PATH,
+  canAccessAccountRoute,
+} from '../core/permissionSystem';
 import { GROUPS, isNavItemVisible } from '../../components/layout/SidebarBase';
 
 const day = (patch: Partial<DrWaelDay>): DrWaelDay => ({
@@ -347,5 +352,37 @@ describe('بصمات د وائل', () => {
       'الخميس',
     ]);
     expect(workingWeekDays([])).toEqual([]);
+  });
+
+  it('lists the extra managers once, after the active page employees', () => {
+    const e = (staff_id: string, active = true) => ({
+      staff_id,
+      name: staff_id,
+      branch: 'b',
+      role: null,
+      active,
+    });
+    expect(
+      payrollStaff(
+        [e('a'), e('b', false), e('amira')],
+        [e('amira'), e('ola'), e('gone', false)]
+      ).map((x) => x.staff_id)
+    ).toEqual(['a', 'amira', 'ola']);
+  });
+
+  it('opens «تقارير شكري» for the two accounts and closes the full report to Dr. Wael only', () => {
+    const gm = '748fad73-5aab-4e61-bfd6-8be299af8aa9';
+    const wael = 'E1454077-98EB-4F54-8FA8-2E4094991435';
+    expect(canAccessAccountRoute(DR_WAEL_SHOKRY_REPORTS_PATH, gm)).toBe(true);
+    expect(canAccessAccountRoute(DR_WAEL_SHOKRY_REPORTS_PATH, wael)).toBe(true);
+    expect(
+      canAccessAccountRoute(DR_WAEL_SHOKRY_REPORTS_PATH, '00000000-0000-4000-8000-000000000009')
+    ).toBe(false);
+    expect(canAccessAccountRoute('/consolidated-reports', wael)).toBe(false);
+    expect(canAccessAccountRoute('/consolidated-reports', gm)).toBe(true);
+    expect(GROUPS[0].items[2]).toMatchObject({
+      path: DR_WAEL_SHOKRY_REPORTS_PATH,
+      label: 'تقارير شكري',
+    });
   });
 });

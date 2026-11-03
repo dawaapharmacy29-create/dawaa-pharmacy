@@ -27,6 +27,7 @@ const suites = [
   ['dr_wael_fingerprints_v1', ['20261103150000_dr_wael_fingerprints_v1.sql']],
   ['biometric_device_clock_auto_correction_v1', ['20261103170000_biometric_device_clock_auto_correction_v1.sql']],
   ['dr_wael_smart_shift_branch_v1', ['20261103150000_dr_wael_fingerprints_v1.sql', '20261103190000_dr_wael_smart_shift_branch_v1.sql']],
+  ['dr_wael_payroll_extra_shokry_reports_v1', ['20261103150000_dr_wael_fingerprints_v1.sql', '20261103220000_dr_wael_payroll_extra_shokry_reports_v1.sql']],
   ['whatsapp_invoice_link_confirmation_v1', [
     '../migrations/20261012121500_whatsapp_invoice_link_confirmation_v1.sql',
   ]],
