@@ -353,7 +353,7 @@ export default function DrWaelFingerprints() {
             >
               الفترة السابقة
             </button>
-            <span className="rounded-lg bg-gray-900 px-3 py-1 text-xs font-bold text-white dark:bg-white dark:text-gray-900">
+            <span className={`rounded-lg px-3 py-1 text-xs font-bold ${ACTIVE}`}>
               {isCurrent ? 'الفترة الحالية' : cycleLabel(current)}
             </span>
             <button
