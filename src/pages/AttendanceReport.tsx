@@ -263,7 +263,7 @@ export default function AttendanceReport() {
     && /^\d{4}-\d{2}-\d{2}$/.test(draftDay)
     && /^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d$/.test(draftTime)
     && (draftType === 'check_in' || draftType === 'check_out')
-    ? { staffId: draftStaff, day: draftDay, time: draftTime, type: draftType }
+    ? { staffId: draftStaff, day: draftDay, time: draftTime, type: draftType === 'check_in' ? 'check_in' as const : 'check_out' as const }
     : null;
 
   const canAllBranches = canSeeAllBranches(user?.role);
