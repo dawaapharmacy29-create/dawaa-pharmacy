@@ -25,6 +25,7 @@ const suites = [
   ['gm_review_bills_purchases_links_v1', ['20261029120000_branch_inventory_weekly_counts_v1.sql', '20261030140000_branch_manager_daily_agenda_v1.sql', '20261031160000_gm_daily_review_v1.sql', '20261031170000_gm_daily_review_speed_v1.sql', '20261101130000_base44_shift_handover_sync_v1.sql', '20261101150000_shift_handover_on_duty_corrections_v1.sql', '20261101160000_base44_accountant_reports_v1.sql', '20261101170000_base44_reports_anon_session_grants_v1.sql', '20261103100000_gm_review_bills_purchases_links_v1.sql']],
   ['base44_purchase_invoices_missing_v1', ['20261029120000_branch_inventory_weekly_counts_v1.sql', '20261030140000_branch_manager_daily_agenda_v1.sql', '20261031160000_gm_daily_review_v1.sql', '20261031170000_gm_daily_review_speed_v1.sql', '20261101130000_base44_shift_handover_sync_v1.sql', '20261101150000_shift_handover_on_duty_corrections_v1.sql', '20261101160000_base44_accountant_reports_v1.sql', '20261101170000_base44_reports_anon_session_grants_v1.sql', '20261103100000_gm_review_bills_purchases_links_v1.sql', '20261103120000_base44_purchase_invoices_missing_v1.sql']],
   ['dr_wael_fingerprints_v1', ['20261103150000_dr_wael_fingerprints_v1.sql']],
+  ['biometric_device_clock_auto_correction_v1', ['20261103170000_biometric_device_clock_auto_correction_v1.sql']],
   ['whatsapp_invoice_link_confirmation_v1', [
     '../migrations/20261012121500_whatsapp_invoice_link_confirmation_v1.sql',
   ]],
