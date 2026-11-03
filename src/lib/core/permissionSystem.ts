@@ -1139,6 +1139,18 @@ export function canAccessHRRoute(pathname: string, role: unknown): boolean {
   return !allowed || allowed.includes(normalizeRole(role));
 }
 
+// «بصمات د وائل» opens for two staff accounts only: the general manager (د/ معاذ) and Dr. Wael. Mirrors
+// dr_wael_fingerprints_viewers_v1; the database refuses every other account whatever this says.
+export const DR_WAEL_FINGERPRINTS_PATH = '/dr-wael-fingerprints';
+const ACCOUNT_ROUTE_ACCOUNTS: Record<string, string[]> = {
+  [DR_WAEL_FINGERPRINTS_PATH]: ['748fad73-5aab-4e61-bfd6-8be299af8aa9', 'e1454077-98eb-4f54-8fa8-2e4094991435'],
+};
+
+export function canAccessAccountRoute(pathname: string, accountId: unknown): boolean {
+  const allowed = ACCOUNT_ROUTE_ACCOUNTS[pathname];
+  return !allowed || allowed.includes(String(accountId || '').trim().toLowerCase());
+}
+
 // Matches dawaa_can_manage_biometric_mapping_v1 in the database. The legacy
 // "admin" alias normalizes to general_manager for navigation, but that raw
 // database role is not granted biometric operations.
