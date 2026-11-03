@@ -29,6 +29,7 @@ Deno.serve(async (_req: Request) => {
     // The latest changed invoices, so a review in DawaaWael (status) reaches older invoices too;
     // {"full": true} reads every invoice once.
     const { full } = (await _req.json().catch(() => ({}))) as { full?: boolean };
+    const startedAt = new Date().toISOString();
     const invoices: Array<Record<string, unknown>> = [];
     for (let skip = 0; ; skip += PAGE) {
       const sort = full ? "id" : "-updated_date";
@@ -66,12 +67,26 @@ Deno.serve(async (_req: Request) => {
       transfer_authorization_number: inv.transfer_authorization_number ?? null,
     }));
 
-    const { data: rpcJson, error: rpcError } = await admin.rpc("import_base44_purchase_invoices_v1", {
-      p_records: records,
-    });
-    if (rpcError) throw new Error(`import_base44_purchase_invoices_v1 error: ${rpcError.message}`);
-
-    const result = (rpcJson || {}) as Record<string, unknown>;
+    // One call per page: the whole book in one statement runs past the statement timeout.
+    const result: Record<string, number> = {};
+    for (let i = 0; i < records.length; i += PAGE) {
+      const { data: rpcJson, error: rpcError } = await admin.rpc("import_base44_purchase_invoices_v1", {
+        p_records: records.slice(i, i + PAGE),
+      });
+      if (rpcError) throw new Error(`import_base44_purchase_invoices_v1 error: ${rpcError.message}`);
+      for (const [key, value] of Object.entries((rpcJson || {}) as Record<string, number>)) {
+        result[key] = (result[key] ?? 0) + Number(value || 0);
+      }
+    }
+    // A full read holds every invoice DawaaWael still has: the ones it did not return were deleted there.
+    if (full) {
+      const { data: missing, error: missingError } = await admin.rpc("mark_base44_purchase_invoices_missing_v1", {
+        p_since: startedAt,
+        p_seen: records.length,
+      });
+      if (missingError) throw new Error(`mark_base44_purchase_invoices_missing_v1 error: ${missingError.message}`);
+      result.missing = Number(missing || 0);
+    }
     await admin.from("base44_sync_run_log").insert({
       status: "success",
       total: result.total ?? records.length,
