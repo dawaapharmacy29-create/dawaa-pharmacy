@@ -167,6 +167,9 @@ export default function AttendanceResolutionCenter({
   initialTriage = 'manager',
   initialStaffId = null,
   initialCurrentCycle = false,
+  draftPunchTime,
+  draftPunchType,
+  draftPunchDay,
   embedded = false,
   onDecisionSaved,
 }: {
@@ -175,6 +178,9 @@ export default function AttendanceResolutionCenter({
   initialTriage?: 'all' | 'manager' | 'system';
   initialStaffId?: string | null;
   initialCurrentCycle?: boolean;
+  draftPunchTime?: string;
+  draftPunchType?: 'check_in' | 'check_out';
+  draftPunchDay?: string;
   embedded?: boolean;
   onDecisionSaved?: () => void;
 }) {
@@ -333,7 +339,11 @@ export default function AttendanceResolutionCenter({
     const suggested = missingType === 'check_in'
       ? selected.scheduled_start_at
       : selected.scheduled_end_at;
-    setManualPunchAt(toCairoDateTimeLocal(suggested));
+    const matchesDraft = user?.role === 'general_manager'
+      && selected.staff_id === initialStaffId
+      && selected.attendance_date === draftPunchDay
+      && missingType === draftPunchType;
+    setManualPunchAt(matchesDraft && draftPunchTime ? draftPunchTime : toCairoDateTimeLocal(suggested));
 
     void Promise.all([
       getMissingPunchContextV1({
@@ -356,7 +366,7 @@ export default function AttendanceResolutionCenter({
       .finally(() => { if (active) setMissingPunchLoading(false); });
 
     return () => { active = false; };
-  }, [selected, evidenceVersion]);
+  }, [selected, evidenceVersion, user?.role, initialStaffId, draftPunchDay, draftPunchType, draftPunchTime]);
 
   useEffect(() => {
     if (!selected) { setApprovedRequests([]); return; }
