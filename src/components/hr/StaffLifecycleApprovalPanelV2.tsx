@@ -13,7 +13,7 @@ const stateLabel = {
   archived: 'أرشفة',
 } as const;
 
-export default function StaffLifecycleApprovalPanelV2({ enabled }: { enabled: boolean }) {
+export default function StaffLifecycleApprovalPanelV2({ enabled, staffId, onDecisionSaved }: { enabled: boolean; staffId?: string; onDecisionSaved?: () => void }) {
   const [rows, setRows] = useState<PendingStaffLifecycleChangeV2[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -23,7 +23,8 @@ export default function StaffLifecycleApprovalPanelV2({ enabled }: { enabled: bo
     if (!enabled) return;
     setLoading(true);
     try {
-      setRows(await listPendingStaffLifecycleChangesV2());
+      const pending = await listPendingStaffLifecycleChangesV2();
+      setRows(staffId ? pending.filter((row) => row.staff_id === staffId) : pending);
       setLoadError(null);
     } catch (error) {
       // A failed read is not "no pending requests": keep the empty state hidden and show the failure.
@@ -31,7 +32,7 @@ export default function StaffLifecycleApprovalPanelV2({ enabled }: { enabled: bo
     } finally {
       setLoading(false);
     }
-  }, [enabled]);
+  }, [enabled, staffId]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -49,6 +50,7 @@ export default function StaffLifecycleApprovalPanelV2({ enabled }: { enabled: bo
     setLoading(true);
     try {
       await decideStaffLifecycleChangeV2(row.id, decision, decisionNote || null);
+      onDecisionSaved?.();
       toast.success(decision === 'approve' ? 'تم اعتماد الطلب.' : decision === 'cancel' ? 'تم إلغاء الطلب.' : 'تم رفض الطلب.');
       setNote((current) => ({ ...current, [row.id]: '' }));
       await load();
