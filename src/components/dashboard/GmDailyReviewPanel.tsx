@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   CheckCircle2,
+  ChevronDown,
   Circle,
   ExternalLink,
   ListChecks,
@@ -11,12 +12,10 @@ import {
 import { Panel } from '@/components/dashboard/DashboardPrimitives';
 import {
   GM_REVIEW_LABELS,
-  type GmReviewLinkKey,
   gmReviewErrorMessage,
   gmReviewSummary,
   loadGmDailyReview,
   markGmReviewItem,
-  setGmReviewLink,
   type GmDailyReview,
   type GmReviewItem,
 } from '@/lib/gmDailyReview';
@@ -28,10 +27,17 @@ const dayLabel = (value: string) =>
     month: 'numeric',
   });
 
+/** Problems first, then what is still open, then what is done. */
+export function gmReviewOrder(items: GmReviewItem[]) {
+  const rank = (item: GmReviewItem) => (item.state === 'issue' ? 0 : item.done ? 2 : 1);
+  return [...items].sort((a, b) => rank(a) - rank(b));
+}
+
 /** «مراجعتي اليومية»: the general manager's daily pass over the pharmacy, in one list. */
 export function GmDailyReviewPanel() {
   const [review, setReview] = useState<GmDailyReview | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showDone, setShowDone] = useState(false);
 
   const reload = useCallback(async () => {
     try {
@@ -44,9 +50,15 @@ export function GmDailyReviewPanel() {
 
   useEffect(() => {
     void reload();
+    // Data in the other apps keeps moving (sync every 15 minutes): refresh while the page is open.
+    const timer = window.setInterval(() => void reload(), 5 * 60 * 1000);
+    return () => window.clearInterval(timer);
   }, [reload]);
 
   const percent = review ? Math.round((review.done / Math.max(review.total, 1)) * 100) : 0;
+  const ordered = review ? gmReviewOrder(review.items) : [];
+  const open = ordered.filter((item) => !item.done || item.state === 'issue');
+  const done = ordered.filter((item) => item.done && item.state !== 'issue');
 
   return (
     <Panel className="p-5">
@@ -73,6 +85,15 @@ export function GmDailyReviewPanel() {
         ) : null}
       </div>
 
+      {review ? (
+        <div className="dawaa-theme-border mb-3 h-2 overflow-hidden rounded-full border">
+          <div
+            className="h-full rounded-full bg-[var(--dawaa-status-success-text)] transition-all"
+            style={{ width: `${percent}%` }}
+          />
+        </div>
+      ) : null}
+
       {!review && !error ? <Loader2 className="h-5 w-5 animate-spin" /> : null}
       {error ? (
         <p className="text-sm font-bold text-[var(--dawaa-status-danger-text)]">{error}</p>
@@ -80,11 +101,42 @@ export function GmDailyReviewPanel() {
 
       {review ? (
         <>
-          <div className="grid gap-2 lg:grid-cols-2">
-            {review.items.map((item) => (
-              <ReviewRow key={item.key} item={item} onChanged={reload} />
-            ))}
-          </div>
+          <p className="dawaa-caption mb-3 text-[11px] font-bold">
+            البند بيخضر لوحده لما بياناته تبقى سليمة. «راجعت» بس للحاجة اللي البيانات مش شايفاها.
+          </p>
+          {open.length ? (
+            <div className="grid gap-2 lg:grid-cols-2">
+              {open.map((item) => (
+                <ReviewRow key={item.key} item={item} onChanged={reload} />
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm font-black text-[var(--dawaa-status-success-text)]">
+              كل بنود النهارده خلصت ✓
+            </p>
+          )}
+
+          {done.length ? (
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={() => setShowDone((v) => !v)}
+                className="dawaa-caption inline-flex items-center gap-1 text-xs font-black"
+              >
+                <ChevronDown className={`h-4 w-4 transition ${showDone ? 'rotate-180' : ''}`} />
+                {done.length} بند خلص:{' '}
+                {done.map((item) => GM_REVIEW_LABELS[item.key].title).join('، ')}
+              </button>
+              {showDone ? (
+                <div className="mt-2 grid gap-2 lg:grid-cols-2">
+                  {done.map((item) => (
+                    <ReviewRow key={item.key} item={item} onChanged={reload} />
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="mt-4 flex flex-wrap items-center gap-1 text-[11px] font-bold">
             <span className="dawaa-caption">آخر ١٤ يوم:</span>
             {review.history.map((day) => (
@@ -108,8 +160,6 @@ function ReviewRow({ item, onChanged }: { item: GmReviewItem; onChanged: () => P
   const label = GM_REVIEW_LABELS[item.key];
   const [noteFor, setNoteFor] = useState(false);
   const [note, setNote] = useState('');
-  const [editLink, setEditLink] = useState(false);
-  const [link, setLink] = useState(item.url ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -118,7 +168,6 @@ function ReviewRow({ item, onChanged }: { item: GmReviewItem; onChanged: () => P
     try {
       await action();
       setNoteFor(false);
-      setEditLink(false);
       setNote('');
       setError(null);
       await onChanged();
@@ -129,11 +178,13 @@ function ReviewRow({ item, onChanged }: { item: GmReviewItem; onChanged: () => P
     }
   };
 
-  const external = item.kind === 'external';
   const lines = gmReviewSummary(item);
+  const autoDone = item.done && !item.state;
 
   return (
-    <div className={`dawaa-theme-border rounded-2xl border p-3 ${item.done ? 'opacity-80' : ''}`}>
+    <div
+      className={`dawaa-theme-border rounded-2xl border p-3 ${item.state === 'issue' ? 'border-[var(--dawaa-status-warning-text)]' : ''}`}
+    >
       <div className="flex items-start gap-3">
         {item.state === 'issue' ? (
           <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-[var(--dawaa-status-warning-text)]" />
@@ -145,9 +196,19 @@ function ReviewRow({ item, onChanged }: { item: GmReviewItem; onChanged: () => P
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-black">{label.title}</span>
-            {external ? (
+            {label.app ? (
               <span className="dawaa-badge dawaa-badge--info rounded-full px-2 py-0.5 text-[10px] font-black">
-                تطبيق تاني
+                من {label.app.name}
+              </span>
+            ) : null}
+            {autoDone ? (
+              <span className="dawaa-badge dawaa-badge--success rounded-full px-2 py-0.5 text-[10px] font-black">
+                خلص لوحده من البيانات
+              </span>
+            ) : null}
+            {item.state === 'done' ? (
+              <span className="dawaa-caption text-[10px] font-black">
+                علّمه {item.marked_by ?? 'انت'}
               </span>
             ) : null}
           </div>
@@ -165,14 +226,14 @@ function ReviewRow({ item, onChanged }: { item: GmReviewItem; onChanged: () => P
           ) : null}
 
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            {external && item.url ? (
+            {label.app ? (
               <a
-                href={item.url}
+                href={label.app.url}
                 target="_blank"
                 rel="noreferrer"
                 className="dawaa-badge dawaa-badge--info inline-flex items-center gap-1 rounded-xl px-3 py-1 text-xs font-black"
               >
-                <ExternalLink className="h-3 w-3" /> افتح التطبيق
+                <ExternalLink className="h-3 w-3" /> افتح {label.app.name}
               </a>
             ) : null}
             {label.link ? (
@@ -182,15 +243,6 @@ function ReviewRow({ item, onChanged }: { item: GmReviewItem; onChanged: () => P
                 className="dawaa-theme-border rounded-xl border px-3 py-1 text-xs font-black"
               >
                 افتح
-              </button>
-            ) : null}
-            {external ? (
-              <button
-                type="button"
-                onClick={() => setEditLink((v) => !v)}
-                className="dawaa-caption text-xs font-black underline"
-              >
-                {item.url ? 'غيّر الرابط' : 'ضيف رابط التطبيق'}
               </button>
             ) : null}
             {item.state ? (
@@ -204,14 +256,16 @@ function ReviewRow({ item, onChanged }: { item: GmReviewItem; onChanged: () => P
               </button>
             ) : (
               <>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void run(() => markGmReviewItem(item.key, 'done'))}
-                  className="dawaa-badge dawaa-badge--success rounded-xl px-3 py-1 text-xs font-black"
-                >
-                  راجعت ✓
-                </button>
+                {!item.done ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void run(() => markGmReviewItem(item.key, 'done'))}
+                    className="dawaa-badge dawaa-badge--success rounded-xl px-3 py-1 text-xs font-black"
+                  >
+                    راجعت ✓
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   disabled={busy}
@@ -239,25 +293,6 @@ function ReviewRow({ item, onChanged }: { item: GmReviewItem; onChanged: () => P
                 disabled={busy || !note.trim()}
                 onClick={() => void run(() => markGmReviewItem(item.key, 'issue', note))}
                 className="dawaa-badge dawaa-badge--warning rounded-xl px-3 py-1 text-xs font-black disabled:opacity-50"
-              >
-                حفظ
-              </button>
-            </div>
-          ) : null}
-          {editLink && external ? (
-            <div className="mt-2 flex gap-2">
-              <input
-                dir="ltr"
-                value={link}
-                onChange={(event) => setLink(event.target.value)}
-                placeholder="https://"
-                className="dawaa-theme-surface dawaa-theme-border flex-1 rounded-xl border px-3 py-1.5 text-left text-xs font-bold"
-              />
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void run(() => setGmReviewLink(item.key as GmReviewLinkKey, link))}
-                className="dawaa-badge dawaa-badge--info rounded-xl px-3 py-1 text-xs font-black"
               >
                 حفظ
               </button>

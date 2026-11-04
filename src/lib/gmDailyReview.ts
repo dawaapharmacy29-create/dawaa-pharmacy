@@ -1,8 +1,9 @@
 import { supabase } from '@/lib/supabase';
 import { onDutyLabel, type OnDutyDoctor } from '@/lib/shiftHandoverCoverage';
 
-// «مراجعتي اليومية» for the general manager (migration 20261031160000). Items with data here turn green on
-// their own; items worked in the purchasing and delivery apps open that app and are closed by hand.
+// «مراجعتي اليومية» for the general manager (migration 20261031160000, sources 20261104120000). Every item
+// turns green on its own once its data is clean; «راجعت» is for what the data can't see. Purchases, shifts,
+// collection transfers and customer orders come from DawaaWael; riders from the delivery app.
 
 export type GmReviewKey =
   | 'sales_upload'
@@ -15,7 +16,6 @@ export type GmReviewKey =
   | 'delivery'
   | 'collection_transfers'
   | 'customers';
-export type GmReviewLinkKey = 'purchases_handover' | 'delivery' | 'collection_transfers';
 
 export interface GmReviewItem {
   key: GmReviewKey;
@@ -24,7 +24,6 @@ export interface GmReviewItem {
   done: boolean;
   detail: unknown;
   data_day?: string | null;
-  url?: string | null;
   state: 'done' | 'issue' | null;
   note: string | null;
   marked_by: string | null;
@@ -40,9 +39,13 @@ export interface GmDailyReview {
   history: Array<{ day: string; marked: number }>;
 }
 
+const DAWAA_WAEL = 'https://dawaawael.base44.app';
+const DELIVERY_APP = 'https://dawaa-pharmacy-delivery.vercel.app';
+
+/** Where each item is worked: a page in this app (`link`) and/or the app its data comes from (`app`). */
 export const GM_REVIEW_LABELS: Record<
   GmReviewKey,
-  { title: string; question: string; link?: string }
+  { title: string; question: string; link?: string; app?: { name: string; url: string } }
 > = {
   sales_upload: { title: 'ملف المبيعات', question: 'ملف امبارح وصل للفرعين؟', link: '/invoices' },
   attendance: {
@@ -63,23 +66,31 @@ export const GM_REVIEW_LABELS: Record<
   },
   purchases_handover: {
     title: 'المشتريات',
-    question: 'فواتير دواء وائل اللي لسه «انتظار المراجعة»',
+    question: 'فواتير الشراء اللي لسه «انتظار المراجعة» في دواء وائل',
+    app: { name: 'دواء وائل', url: `${DAWAA_WAEL}/pending-invoices` },
   },
   shifts: {
     title: 'تسليم الشيفتات',
     question: 'كل فرع قفل الـ 3 شيفتات في ميعادها؟',
     link: '/shift-handovers',
+    app: { name: 'دواء وائل', url: `${DAWAA_WAEL}/shift-delivery` },
   },
-  delivery: { title: 'المناديب', question: 'حركات دواء بيلز اتعتمدت ومفيش رحلة مفتوحة؟' },
+  delivery: {
+    title: 'المناديب',
+    question: 'مشاوير امبارح اتعتمدت ومفيش أوردر متعلق؟',
+    app: { name: 'تطبيق الدليفري', url: `${DELIVERY_APP}/admin/trips` },
+  },
   collection_transfers: {
     title: 'تحويلات التحصيل',
-    question: 'فودافون وإنستا والفيزا اتحولوا للمحاسب واتأكدوا؟',
-    link: '/consolidated-reports',
+    question: 'فودافون وإنستا والفيزا ونقدي المحاسب في تسليمات امبارح',
+    link: '/shift-handovers',
+    app: { name: 'دواء وائل', url: `${DAWAA_WAEL}/shift-delivery` },
   },
   customers: {
     title: 'العملاء',
     question: 'طلبات الدورة المفتوحة وعملاء الـ 500 ج',
     link: '/customer-requests',
+    app: { name: 'دواء وائل', url: `${DAWAA_WAEL}/customer-orders` },
   },
 };
 
@@ -116,6 +127,12 @@ const SHIFT_DAY = (value: string) =>
     day: 'numeric',
     month: 'numeric',
   });
+const WALLETS = [
+  ['vodafone', 'فودافون'],
+  ['insta', 'إنستا'],
+  ['visa', 'فيزا'],
+  ['other', 'أخرى'],
+] as const;
 const rows = (detail: unknown) => (Array.isArray(detail) ? (detail as Row[]) : []);
 
 /** One short line per branch (or for the whole item) describing what the data says. */
@@ -157,20 +174,27 @@ export function gmReviewSummary(item: Pick<GmReviewItem, 'key' | 'detail'>): str
       return [
         ...rows(d?.branches).map((r) => {
           const issues = [
-            Number(r.pending) ? `${r.pending} حركة مستنية اعتماد` : '',
-            Number(r.open_trips) ? `${r.open_trips} رحلة مفتوحة` : '',
+            Number(r.pending_errands)
+              ? `${r.pending_errands} مشوار مستني اعتماد من ${shortDay(r.oldest_pending as string)}`
+              : '',
+            Number(r.stuck) ? `${r.stuck} أوردر لسه «متسجل» من قبل النهارده` : '',
           ].filter(Boolean);
-          return `${String(r.branch).replace('فرع ', '')}: امبارح ${r.orders} أوردر · ${r.errands} مشوار${issues.length ? ` · ${issues.join(' · ')}` : ''}`;
+          return `${String(r.branch).replace('فرع ', '')}: امبارح ${r.delivered} أوردر اتسلم · ${r.errands} مشوار${Number(r.failed) ? ` · ${r.failed} فشل` : ''}${issues.length ? ` · ${issues.join(' · ')}` : ''}`;
         }),
-        ...syncWarning(d?.synced_at, 'دواء بيلز'),
+        ...syncWarning(d?.synced_at, 'تطبيق الدليفري'),
       ];
     case 'collection_transfers':
       return [
-        `لسه ما اتحولش للمحاسب: ${money(d?.balance)}`,
-        Number(d?.pending)
-          ? `${d?.pending} تحويل مستني تأكيد المحاسب (${money(d?.pending_amount)})${Number(d?.late) ? ` · ${d?.late} متأخر، أقدمهم ${d?.oldest_days} يوم` : ''}`
-          : 'كل التحويلات اتأكدت',
-        ...syncWarning(d?.synced_at, 'دواء بيلز'),
+        ...rows(d?.branches).map((r) => {
+          const name = BRANCH[String(r.branch)];
+          if (!Number(r.shifts)) return `${name}: مفيش تسليمات امبارح`;
+          const wallets = WALLETS.filter(([key]) => Number(r[key])).map(
+            ([key, label]) => `${label} ${money(r[key])}`
+          );
+          const transfers = WALLETS.reduce((sum, [key]) => sum + Number(r[key] || 0), 0);
+          return `${name}: تحويلات ${money(transfers)}${wallets.length ? ` (${wallets.join('، ')})` : ''} · نقدي للمحاسب ${money(r.cash)}${Number(r.variance) ? ` · ⚠️ ${r.variance} شيفت فيه فرق نقدية` : ''}`;
+        }),
+        ...syncWarning(d?.synced_at, 'دواء وائل'),
       ];
     case 'shifts': {
       const lines = rows(d?.branches).map((r) => {
@@ -183,7 +207,7 @@ export function gmReviewSummary(item: Pick<GmReviewItem, 'key' | 'detail'>): str
       const synced = d?.synced_at ? new Date(String(d.synced_at)) : null;
       if (!synced || Date.now() - synced.getTime() > 3600e3) {
         lines.push(
-          `⚠️ المزامنة مع تطبيق المشتريات متوقفة${synced ? ` من ${synced.toLocaleString('ar-EG', { day: 'numeric', month: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ''}`
+          `⚠️ المزامنة مع دواء وائل متوقفة${synced ? ` من ${synced.toLocaleString('ar-EG', { day: 'numeric', month: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ''}`
         );
       }
       return lines;
@@ -201,7 +225,6 @@ export function gmReviewErrorMessage(error: unknown) {
   const message = String((error as { message?: string })?.message ?? error ?? '');
   if (message.includes('not_authorized')) return 'الصفحة دي للمدير العام بس';
   if (message.includes('note_required')) return 'اكتب المشكلة في سطر';
-  if (message.includes('invalid_url')) return 'الرابط لازم يبدأ بـ https://';
   if (message.includes('Could not find the function') || message.includes('PGRST202'))
     return 'المراجعة اليومية لسه مش متفعلة على قاعدة البيانات';
   return 'حصلت مشكلة، جرّب تاني';
@@ -222,14 +245,6 @@ export async function markGmReviewItem(
     p_item_key: key,
     p_state: state,
     p_note: note ?? null,
-  });
-  if (error) throw error;
-}
-
-export async function setGmReviewLink(key: GmReviewLinkKey, url: string) {
-  const { error } = await supabase.rpc('set_gm_daily_review_link_v1', {
-    p_item_key: key,
-    p_url: url,
   });
   if (error) throw error;
 }
