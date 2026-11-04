@@ -35,7 +35,7 @@ export default function StaffLifecycleApprovalPanelV2({ enabled }: { enabled: bo
 
   useEffect(() => { void load(); }, [load]);
 
-  async function decide(row: PendingStaffLifecycleChangeV2, decision: 'approve' | 'reject') {
+  async function decide(row: PendingStaffLifecycleChangeV2, decision: 'approve' | 'reject' | 'cancel') {
     const decisionNote = (note[row.id] || '').trim();
     if (decision === 'reject' && !decisionNote) {
       toast.warning('سبب الرفض مطلوب.');
@@ -49,13 +49,13 @@ export default function StaffLifecycleApprovalPanelV2({ enabled }: { enabled: bo
     setLoading(true);
     try {
       await decideStaffLifecycleChangeV2(row.id, decision, decisionNote || null);
-      toast.success(decision === 'approve' ? 'تم اعتماد Lifecycle وتسجيل تاريخ السريان.' : 'تم رفض الطلب.');
+      toast.success(decision === 'approve' ? 'تم اعتماد الطلب.' : decision === 'cancel' ? 'تم إلغاء الطلب.' : 'تم رفض الطلب.');
       setNote((current) => ({ ...current, [row.id]: '' }));
       await load();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'تعذر تسجيل القرار';
       if (message.includes('requester_cannot_approve_own_request')) {
-        toast.error('من أنشأ طلب Lifecycle لا يمكنه اعتماد طلبه بنفسه.');
+        toast.error('طلب تغيير حالة الموظف يحتاج مديرًا آخر. لو المقصود نقل فرع، ألغِ الطلب وسجّل النقل من ملف الموظف.');
       } else {
         toast.error(message);
       }
@@ -71,7 +71,7 @@ export default function StaffLifecycleApprovalPanelV2({ enabled }: { enabled: bo
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2 font-black text-[var(--dawaa-theme-heading)]"><UserMinus size={17} /> Lifecycle الموظفين المعلق</div>
-          <div className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">Active / Leaving / Archived بتاريخ سريان وموافقة منفصلة.</div>
+          <div className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">تفعيل أو مغادرة أو أرشفة. لنقل الموظف لفرع آخر، استخدم طلب تغيير الفرع من ملفه.</div>
         </div>
         <button onClick={() => void load()} className="btn-secondary"><RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> تحديث</button>
       </div>
@@ -102,6 +102,7 @@ export default function StaffLifecycleApprovalPanelV2({ enabled }: { enabled: bo
                   {row.target_state === 'archived' ? <Archive size={14} /> : <CheckCircle2 size={14} />} اعتماد
                 </button>
                 <button onClick={() => void decide(row, 'reject')} disabled={loading} className="btn-secondary"><XCircle size={14} /> رفض</button>
+                <button type="button" onClick={() => void decide(row, 'cancel')} disabled={loading} className="btn-secondary">إلغاء الطلب</button>
               </div>
             </div>
           </div>

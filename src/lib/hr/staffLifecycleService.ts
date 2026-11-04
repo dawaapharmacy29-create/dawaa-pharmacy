@@ -100,7 +100,7 @@ export async function listPendingStaffLifecycleChangesV2(): Promise<PendingStaff
 
 export async function decideStaffLifecycleChangeV2(
   changeId: string,
-  decision: 'approve' | 'reject',
+  decision: 'approve' | 'reject' | 'cancel',
   note?: string | null
 ) {
   const { data, error } = await supabase.rpc('hr_staff_lifecycle_change_v2', {
@@ -113,8 +113,8 @@ export async function decideStaffLifecycleChangeV2(
   return data as {
     success: boolean;
     id: string;
-    state: 'approved' | 'rejected';
-    effective_from: string;
-    target_state: StaffLifecycleStateV2;
+    state: 'approved' | 'rejected' | 'cancelled';
+    effective_from?: string;
+    target_state?: StaffLifecycleStateV2;
   };
 }
