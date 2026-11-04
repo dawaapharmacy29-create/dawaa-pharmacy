@@ -118,3 +118,22 @@ export async function decideStaffLifecycleChangeV2(
     target_state?: StaffLifecycleStateV2;
   };
 }
+
+export async function archiveStaffFromFingerprints(args: {
+  staffId: string;
+  lastWorkingDate: string;
+  separationKind: SeparationKindV2;
+  reason: string;
+}) {
+  const { error } = await supabase.rpc('hr_staff_lifecycle_change_v2', {
+    p_action: 'archive_now',
+    p_staff_id: args.staffId,
+    p_change_id: null,
+    p_payload: {
+      last_working_date: args.lastWorkingDate,
+      separation_kind: args.separationKind,
+      reason: args.reason,
+    },
+  });
+  if (error) throw new Error(error.message);
+}
