@@ -418,7 +418,7 @@ function Segmented<T extends string>({
 }: {
   options: { id: T; label: string }[];
   value: T;
-  onChange: (value: T) => void;
+  onChange: (value: NoInfer<T>) => void;
 }) {
   return (
     <div

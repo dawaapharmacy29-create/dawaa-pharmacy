@@ -224,7 +224,7 @@ function Pills<T extends string>({
   label: string;
   options: readonly T[];
   value: T;
-  onChange: (value: T) => void;
+  onChange: (value: NoInfer<T>) => void;
 }) {
   return (
     <div role="group" aria-label={label} className="flex flex-wrap items-center gap-1">
