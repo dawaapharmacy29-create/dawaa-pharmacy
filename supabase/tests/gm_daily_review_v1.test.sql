@@ -61,10 +61,9 @@ begin
     raise exception 'bad_url_saved';
   exception when raise_exception then if sqlerrm <> 'invalid_url' then raise; end if;
   end;
+  -- (The review stopped returning these links in 20261104120000; the app links live in the front end.)
   perform public.set_gm_daily_review_link_v1('delivery', 'https://delivery.example.app');
-  v := public.get_gm_daily_review_v1();
-  select i into v_item from jsonb_array_elements(v->'items') i where i->>'key' = 'delivery';
-  if v_item->>'url' <> 'https://delivery.example.app' then raise exception 'link_not_saved: %', v_item; end if;
+  if not exists (select 1 from public.gm_daily_review_links) then raise exception 'link_not_saved'; end if;
   perform public.set_gm_daily_review_link_v1('delivery', '');
   if exists (select 1 from public.gm_daily_review_links) then raise exception 'link_not_removed'; end if;
 

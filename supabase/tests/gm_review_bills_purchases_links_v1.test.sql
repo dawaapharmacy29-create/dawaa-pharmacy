@@ -79,7 +79,7 @@ begin
   v := public.get_gm_daily_review_v1();
 
   select i into v_item from jsonb_array_elements(v->'items') i where i->>'key' = 'purchases_handover';
-  if (v_item->>'ok')::boolean or v_item->>'url' <> 'https://dawaawael.base44.app'
+  if (v_item->>'ok')::boolean or v_item ? 'url'
      or (v_item->'detail'->'branches'->0->>'pending')::int <> 0
      or (v_item->'detail'->'branches'->1->>'pending')::int <> 1
      or (v_item->'detail'->'branches'->1->>'value')::numeric <> 1500
@@ -87,27 +87,23 @@ begin
     raise exception 'purchases: %', v_item;
   end if;
 
+  -- Since 20261104120000 the daily review no longer reads Dawaa Bills: riders come from the delivery app
+  -- snapshot (none stored here → not ok, no branches) and transfers from DawaaWael shift handovers.
   select i into v_item from jsonb_array_elements(v->'items') i where i->>'key' = 'delivery';
-  if (v_item->>'ok')::boolean or v_item->>'url' <> 'https://dawaabill.base44.app'
-     or (v_item->'detail'->'branches'->0->>'pending')::int <> 1 or (v_item->'detail'->'branches'->0->>'open_trips')::int <> 1
-     or (v_item->'detail'->'branches'->1->>'orders')::int <> 1 or (v_item->'detail'->'branches'->1->>'errands')::int <> 0
-     or (v_item->'detail'->'branches'->1->>'pending')::int <> 0 then
+  if (v_item->>'ok')::boolean or v_item ? 'url' or jsonb_array_length(v_item->'detail'->'branches') <> 0 then
     raise exception 'delivery: %', v_item;
   end if;
 
   select i into v_item from jsonb_array_elements(v->'items') i where i->>'key' = 'collection_transfers';
-  if (v_item->>'ok')::boolean or (v_item->'detail'->>'balance')::numeric <> 1450 or (v_item->'detail'->>'late')::int <> 1
-     or (v_item->'detail'->>'pending')::int <> 2 or (v_item->'detail'->>'pending_amount')::numeric <> 450 then
+  if (v_item->>'ok')::boolean or v_item->'detail' ? 'balance' then
     raise exception 'collections: %', v_item;
   end if;
   if (v->>'total')::int <> 10 then raise exception 'total: %', v->>'total'; end if;
 
-  -- The new item closes by hand like the other external ones, and its link can change.
   perform public.mark_gm_daily_review_item_v1('collection_transfers', 'done');
-  perform public.set_gm_daily_review_link_v1('collection_transfers', 'https://dawaabill.base44.app/x');
   v := public.get_gm_daily_review_v1();
   select i into v_item from jsonb_array_elements(v->'items') i where i->>'key' = 'collection_transfers';
-  if not (v_item->>'done')::boolean or v_item->>'url' <> 'https://dawaabill.base44.app/x' then
+  if not (v_item->>'done')::boolean then
     raise exception 'collections_marked: %', v_item;
   end if;
 
