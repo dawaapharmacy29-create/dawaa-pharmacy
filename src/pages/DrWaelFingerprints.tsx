@@ -64,6 +64,12 @@ import { useAuth } from '@/hooks/useAuth';
 import { hasPermission } from '@/lib/core/permissionSystem';
 import { cairoDayOf } from '@/lib/time/cairoDateBoundary';
 
+const StaffLifecycleTimeline = lazy(() => import('@/components/hr/StaffLifecycleTimelineV2'));
+const StaffLifecycleApprovalPanel = lazy(
+  () => import('@/components/hr/StaffLifecycleApprovalPanelV2')
+);
+const StaffTimeOff = lazy(() => import('@/pages/TimeOff'));
+
 const AttendanceResolutionCenter = lazy(
   () => import('@/components/attendance/AttendanceResolutionCenter')
 );
@@ -508,6 +514,14 @@ function SmartEditor({
   branches: string[];
   onSaved: () => void;
 }) {
+  const { user, checkPermission, canManage } = useAuth();
+  const canArchive = ['general_manager', 'admin', 'executive_manager', 'branches_manager'].includes(
+    user?.role || ''
+  );
+  const canApproveArchive = ['general_manager', 'executive_manager'].includes(user?.role || '');
+  const canSetLeave =
+    canManage || checkPermission('approve_leave_request') || checkPermission('manage_time_off');
+  const [archiveVersion, setArchiveVersion] = useState(0);
   const suggestion = insight?.shift || null;
   const current = employee.week.find((d) => d.date === today && d.scheduled && !d.off);
   const [start, setStart] = useState(
@@ -574,6 +588,33 @@ function SmartEditor({
           {employee.branch} · {roleTag(employee).label}
         </p>
       </div>
+      {canArchive ? (
+        <details className={`${CARD} p-3`}>
+          <summary className="cursor-pointer font-bold">أرشفة الموظف</summary>
+          <Suspense fallback={<Spinner label="جارٍ تجهيز الأرشفة" />}>
+            <StaffLifecycleTimeline
+              staffId={employee.staff_id}
+              canWrite
+              archiveOnly
+              onRequested={() => setArchiveVersion((version) => version + 1)}
+            />
+            <StaffLifecycleApprovalPanel
+              key={archiveVersion}
+              enabled={canApproveArchive}
+              staffId={employee.staff_id}
+              onDecisionSaved={onSaved}
+            />
+          </Suspense>
+        </details>
+      ) : null}
+      {canSetLeave ? (
+        <details className={`${CARD} p-3`}>
+          <summary className="cursor-pointer font-bold">إجازة لفترة</summary>
+          <Suspense fallback={<Spinner label="جارٍ تجهيز الإجازات" />}>
+            <StaffTimeOff staffId={employee.staff_id} onDecisionSaved={onSaved} />
+          </Suspense>
+        </details>
+      ) : null}
       {message ? (
         <div
           role="status"
@@ -936,14 +977,16 @@ function DashboardTab({
                           : ''}
                       </div>
                       <div className="mt-1 text-[11px] text-gray-700 dark:text-slate-300">
-                        {day.first_in ? (
+                        {day.first_in || day.last_out ? (
                           <>
                             الحضور: <b className="text-emerald-600">{cairoTime(day.first_in)}</b> ·
                             الانصراف: <b className="text-rose-600">{cairoTime(day.last_out)}</b> ·
                             مدة العمل: <b>{minutesLabel(Number(day.hours || 0) * 60)}</b>
                           </>
+                        ) : day.punches ? (
+                          `بصمات الجهاز: ${day.punches} · تحتاج مراجعة قبل الاحتساب`
                         ) : (
-                          'لا يوجد سجل حضور'
+                          'لا توجد بصمات مرتبطة بهذا اليوم'
                         )}
                       </div>
                       <div className="mt-1.5 flex flex-wrap items-center gap-2">
