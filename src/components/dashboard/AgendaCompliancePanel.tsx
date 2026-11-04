@@ -31,7 +31,7 @@ export function AgendaCompliancePanel({ branch }: { branch: string | null }) {
         <div>
           <h2 className="dawaa-title text-lg">التزام المديرين بقائمة اليوم</h2>
           <p className="dawaa-caption mt-1 text-xs font-bold">
-            {data ? `الدورة من ${dayLabel(data.cycle_start)} · لفة الفرع 3 بنود كل يوم` : 'من علامات مدير الفرع على القائمة'}
+            {data ? `الدورة من ${dayLabel(data.cycle_start)} · لفة الفرع ${data.days[0]?.checks_total ?? 4} بنود كل يوم` : 'من علامات مدير الفرع على القائمة'}
           </p>
         </div>
       </div>

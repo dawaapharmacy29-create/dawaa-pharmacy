@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  CheckCircle2,
-  ChevronDown,
-  Circle,
-  ExternalLink,
-  ListChecks,
-  Loader2,
-  TriangleAlert,
-} from 'lucide-react';
+import { ChevronDown, ExternalLink, ListChecks, Loader2 } from 'lucide-react';
 import { Panel } from '@/components/dashboard/DashboardPrimitives';
+import {
+  DoneRow,
+  ProgressRing,
+  StatusCounters,
+  TONE_ACCENT,
+  ToneIcon,
+  type DailyItemTone,
+} from '@/components/dashboard/DailyListParts';
 import {
   GM_REVIEW_LABELS,
   gmReviewErrorMessage,
@@ -33,7 +33,14 @@ export function gmReviewOrder(items: GmReviewItem[]) {
   return [...items].sort((a, b) => rank(a) - rank(b));
 }
 
-/** «مراجعتي اليومية»: the general manager's daily pass over the pharmacy, in one list. */
+const gmTone = (item: GmReviewItem): DailyItemTone =>
+  item.state === 'issue' ? 'issue' : item.done ? 'done' : 'open';
+
+/**
+ * «مراجعتي اليومية»: the general manager's daily pass over the pharmacy, in one list.
+ * Progress ring and counters on top; problems and open items as cards with a colored edge; finished items
+ * folded into one line each; the last 14 days as a strip.
+ */
 export function GmDailyReviewPanel() {
   const [review, setReview] = useState<GmDailyReview | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -55,103 +62,145 @@ export function GmDailyReviewPanel() {
     return () => window.clearInterval(timer);
   }, [reload]);
 
-  const percent = review ? Math.round((review.done / Math.max(review.total, 1)) * 100) : 0;
   const ordered = review ? gmReviewOrder(review.items) : [];
-  const open = ordered.filter((item) => !item.done || item.state === 'issue');
-  const done = ordered.filter((item) => item.done && item.state !== 'issue');
+  const open = ordered.filter((item) => gmTone(item) !== 'done');
+  const done = ordered.filter((item) => gmTone(item) === 'done');
+  const issues = ordered.filter((item) => gmTone(item) === 'issue').length;
 
   return (
-    <Panel className="p-5">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="dawaa-icon-tile p-3">
+    <Panel className="p-4 sm:p-5">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="dawaa-icon-tile shrink-0 p-3">
             <ListChecks className="h-5 w-5" />
           </div>
-          <div>
+          <div className="min-w-0">
             <h2 className="dawaa-title text-xl">مراجعتي اليومية</h2>
             <p className="dawaa-caption mt-1 text-xs font-bold">
-              {review
-                ? `${dayLabel(review.day)} · بيانات امبارح ${dayLabel(review.yesterday)}`
-                : 'البنود اللي تراجعها كل يوم'}
+              {review ? dayLabel(review.day) : 'البنود اللي تراجعها كل يوم'}
             </p>
+            {review ? (
+              <p className="dawaa-caption text-[11px] font-bold">
+                بيانات امبارح {dayLabel(review.yesterday)}
+              </p>
+            ) : null}
           </div>
         </div>
-        {review ? (
-          <span
-            className={`dawaa-badge ${review.done === review.total ? 'dawaa-badge--success' : 'dawaa-badge--warning'} rounded-full px-3 py-1 text-sm font-black`}
-          >
-            {review.done} من {review.total} · {percent}%
-          </span>
-        ) : null}
+        {review ? <ProgressRing done={review.done} total={review.total} /> : null}
       </div>
 
-      {review ? (
-        <div className="dawaa-theme-border mb-3 h-2 overflow-hidden rounded-full border">
-          <div
-            className="h-full rounded-full bg-[var(--dawaa-status-success-text)] transition-all"
-            style={{ width: `${percent}%` }}
-          />
+      {!review && !error ? (
+        <div className="dawaa-caption mt-4 flex items-center gap-2 text-sm font-bold">
+          <Loader2 className="h-4 w-4 animate-spin" /> بنجهز المراجعة…
         </div>
       ) : null}
-
-      {!review && !error ? <Loader2 className="h-5 w-5 animate-spin" /> : null}
       {error ? (
-        <p className="text-sm font-bold text-[var(--dawaa-status-danger-text)]">{error}</p>
+        <p className="mt-4 text-sm font-bold text-[var(--dawaa-status-danger-text)]">{error}</p>
       ) : null}
 
       {review ? (
         <>
-          <p className="dawaa-caption mb-3 text-[11px] font-bold">
-            البند بيخضر لوحده لما بياناته تبقى سليمة. «راجعت» بس للحاجة اللي البيانات مش شايفاها.
-          </p>
-          {open.length ? (
-            <div className="grid gap-2 lg:grid-cols-2">
-              {open.map((item) => (
-                <ReviewRow key={item.key} item={item} onChanged={reload} />
-              ))}
+          <div className="mt-4">
+            <StatusCounters open={open.length - issues} issues={issues} done={done.length} />
+          </div>
+
+          <section className="mt-4">
+            <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+              <h3 className="dawaa-theme-heading text-sm font-black">محتاجة انتباهك</h3>
+              <p className="dawaa-caption text-[11px] font-bold">
+                البند بيخضر لوحده لما بياناته تبقى سليمة · «راجعت» للي البيانات مش شايفاه
+              </p>
             </div>
-          ) : (
-            <p className="text-sm font-black text-[var(--dawaa-status-success-text)]">
-              كل بنود النهارده خلصت ✓
-            </p>
-          )}
+            {open.length ? (
+              <div className="grid gap-2 lg:grid-cols-2">
+                {open.map((item) => (
+                  <ReviewRow key={item.key} item={item} onChanged={reload} />
+                ))}
+              </div>
+            ) : (
+              <p className="dawaa-badge dawaa-badge--success rounded-2xl p-3 text-sm font-black">
+                كل بنود النهارده خلصت ✓
+              </p>
+            )}
+          </section>
 
           {done.length ? (
-            <div className="mt-3">
+            <section className="dawaa-theme-border mt-3 rounded-2xl border p-3">
               <button
                 type="button"
                 onClick={() => setShowDone((v) => !v)}
-                className="dawaa-caption inline-flex items-center gap-1 text-xs font-black"
+                aria-expanded={showDone}
+                className="flex w-full items-center justify-between gap-2 text-start"
               >
-                <ChevronDown className={`h-4 w-4 transition ${showDone ? 'rotate-180' : ''}`} />
-                {done.length} بند خلص:{' '}
-                {done.map((item) => GM_REVIEW_LABELS[item.key].title).join('، ')}
+                <span className="flex items-center gap-2 text-sm font-black">
+                  <ToneIcon tone="done" className="h-4 w-4" />
+                  خلصت ({done.length})
+                </span>
+                <ChevronDown
+                  className={`dawaa-caption h-5 w-5 transition-transform ${showDone ? 'rotate-180' : ''}`}
+                />
               </button>
               {showDone ? (
-                <div className="mt-2 grid gap-2 lg:grid-cols-2">
+                <ul className="mt-1 divide-y divide-[var(--dawaa-theme-border,rgba(148,163,184,0.25))]">
                   {done.map((item) => (
-                    <ReviewRow key={item.key} item={item} onChanged={reload} />
+                    <FinishedReviewRow key={item.key} item={item} onChanged={reload} />
                   ))}
-                </div>
-              ) : null}
-            </div>
+                </ul>
+              ) : (
+                <p className="dawaa-caption mt-1 truncate text-[11px] font-bold">
+                  {done.map((item) => GM_REVIEW_LABELS[item.key].title).join(' · ')}
+                </p>
+              )}
+            </section>
           ) : null}
 
-          <div className="mt-4 flex flex-wrap items-center gap-1 text-[11px] font-bold">
-            <span className="dawaa-caption">آخر ١٤ يوم:</span>
-            {review.history.map((day) => (
-              <span
-                key={day.day}
-                title={`${dayLabel(day.day)}: ${day.marked} بند`}
-                className={`dawaa-badge rounded-md px-1.5 py-0.5 ${day.marked ? 'dawaa-badge--success' : 'dawaa-theme-border border'}`}
-              >
-                {new Date(`${day.day}T12:00:00`).getDate()}
-              </span>
-            ))}
+          <div className="mt-4">
+            <p className="dawaa-caption mb-1.5 text-[11px] font-bold">آخر ١٤ يوم</p>
+            <div className="grid grid-cols-7 gap-1 sm:grid-cols-[repeat(14,minmax(0,1fr))]">
+              {review.history.map((day) => (
+                <span
+                  key={day.day}
+                  title={`${dayLabel(day.day)}: ${day.marked} بند`}
+                  className={`dawaa-badge flex flex-col items-center rounded-lg px-1 py-1 text-[11px] font-black ${day.marked ? 'dawaa-badge--success' : 'dawaa-theme-border border opacity-60'}`}
+                >
+                  {new Date(`${day.day}T12:00:00`).getDate()}
+                  <span className="text-[9px] font-bold">
+                    {day.marked ? `${day.marked}✓` : '—'}
+                  </span>
+                </span>
+              ))}
+            </div>
           </div>
         </>
       ) : null}
     </Panel>
+  );
+}
+
+function FinishedReviewRow({
+  item,
+  onChanged,
+}: {
+  item: GmReviewItem;
+  onChanged: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <DoneRow
+      title={GM_REVIEW_LABELS[item.key].title}
+      detail={item.state ? `علّمه ${item.marked_by ?? 'انت'}` : 'خلص لوحده من البيانات'}
+      busy={busy}
+      onUndo={
+        item.state
+          ? () => {
+              setBusy(true);
+              void markGmReviewItem(item.key, 'clear')
+                .then(onChanged)
+                .finally(() => setBusy(false));
+            }
+          : undefined
+      }
+    />
   );
 }
 
@@ -183,16 +232,10 @@ function ReviewRow({ item, onChanged }: { item: GmReviewItem; onChanged: () => P
 
   return (
     <div
-      className={`dawaa-theme-border rounded-2xl border p-3 ${item.state === 'issue' ? 'border-[var(--dawaa-status-warning-text)]' : ''}`}
+      className={`dawaa-theme-surface dawaa-theme-border rounded-2xl border p-3 ${TONE_ACCENT[gmTone(item)]}`}
     >
       <div className="flex items-start gap-3">
-        {item.state === 'issue' ? (
-          <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-[var(--dawaa-status-warning-text)]" />
-        ) : item.done ? (
-          <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-[var(--dawaa-status-success-text)]" />
-        ) : (
-          <Circle className="mt-0.5 h-5 w-5 shrink-0 text-[var(--dawaa-status-danger-text)]" />
-        )}
+        <ToneIcon tone={gmTone(item)} className="mt-0.5 h-5 w-5" />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-black">{label.title}</span>
