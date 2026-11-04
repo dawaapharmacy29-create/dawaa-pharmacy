@@ -36,14 +36,18 @@ const separationLabels: Record<SeparationKindV2, string> = {
 export default function StaffLifecycleTimelineV2({
   staffId,
   canWrite,
+  archiveOnly = false,
+  onRequested,
 }: {
   staffId: string;
   canWrite: boolean;
+  archiveOnly?: boolean;
+  onRequested?: () => void;
 }) {
   const [asOf, setAsOf] = useState(cairoToday());
   const [data, setData] = useState<StaffLifecycleSnapshotV2 | null>(null);
   const [loading, setLoading] = useState(false);
-  const [targetState, setTargetState] = useState<StaffLifecycleStateV2>('active');
+  const [targetState, setTargetState] = useState<StaffLifecycleStateV2>(archiveOnly ? 'archived' : 'active');
   const [effectiveFrom, setEffectiveFrom] = useState(cairoToday());
   const [lastWorkingDate, setLastWorkingDate] = useState('');
   const [separationKind, setSeparationKind] = useState<SeparationKindV2>('resignation');
@@ -57,14 +61,14 @@ export default function StaffLifecycleTimelineV2({
         if (!active) return;
         setData(result);
         const effectiveState = result.current?.effective_state || result.current?.target_state || 'active';
-        setTargetState(effectiveState);
+        if (!archiveOnly) setTargetState(effectiveState);
       })
       .catch((error) => {
         if (active) toast.error(error instanceof Error ? error.message : 'تعذر تحميل Lifecycle الموظف');
       })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [asOf, staffId]);
+  }, [archiveOnly, asOf, staffId]);
 
   async function submit() {
     if (!effectiveFrom || reason.trim().length < 3) {
@@ -85,6 +89,7 @@ export default function StaffLifecycleTimelineV2({
         separationKind: targetState === 'active' ? null : separationKind,
         reason: reason.trim(),
       });
+      onRequested?.();
       setReason('');
       setData(await getStaffLifecycleSnapshotV2(staffId, asOf));
       toast.success('تم إنشاء طلب Lifecycle للمراجعة. لم يتم تغيير حالة الموظف مباشرة.');
@@ -151,7 +156,7 @@ export default function StaffLifecycleTimelineV2({
           </div>
           <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <label className="text-sm font-bold">الحالة الجديدة
-              <select value={targetState} onChange={(e) => setTargetState(e.target.value as StaffLifecycleStateV2)} className="input-dark mt-1 w-full">
+              <select disabled={archiveOnly} value={targetState} onChange={(e) => setTargetState(e.target.value as StaffLifecycleStateV2)} className="input-dark mt-1 w-full">
                 <option value="active">نشط</option>
                 <option value="leaving">قيد المغادرة</option>
                 <option value="archived">مؤرشف</option>
