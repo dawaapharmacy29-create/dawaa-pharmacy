@@ -19,6 +19,7 @@ import {
 import {
   DR_WAEL_FINGERPRINTS_PATH,
   DR_WAEL_SHOKRY_REPORTS_PATH,
+  accountDashboardBranch,
   canAccessAccountRoute,
 } from '../core/permissionSystem';
 import { GROUPS, isNavItemVisible } from '../../components/layout/SidebarBase';
@@ -384,5 +385,28 @@ describe('بصمات د وائل', () => {
       path: DR_WAEL_SHOKRY_REPORTS_PATH,
       label: 'تقارير شكري',
     });
+  });
+
+  it('keeps Dr. Wael to the Shokry dashboard and his two pages, every other page closed', () => {
+    const wael = 'e1454077-98eb-4f54-8fa8-2e4094991435';
+    const gm = '748fad73-5aab-4e61-bfd6-8be299af8aa9';
+    const context = (accountId: string) => ({
+      rawRole: 'executive_manager',
+      accountId,
+      role: 'executive_manager',
+      privileged: true,
+      checkPermission: () => true,
+    });
+    const visible = (accountId: string) =>
+      GROUPS.flatMap((group) => group.items)
+        .filter((item) => isNavItemVisible(item, context(accountId)))
+        .map((item) => item.path);
+    expect(visible(wael)).toEqual(['/', DR_WAEL_FINGERPRINTS_PATH, DR_WAEL_SHOKRY_REPORTS_PATH]);
+    expect(visible(gm).length).toBeGreaterThan(3);
+    for (const path of ['/attendance-report', '/team', '/payroll', '/staff/1'])
+      expect(canAccessAccountRoute(path, wael)).toBe(false);
+    expect(canAccessAccountRoute('/', wael)).toBe(true);
+    expect(accountDashboardBranch(wael.toUpperCase())).toBe('فرع شكري');
+    expect(accountDashboardBranch(gm)).toBeNull();
   });
 });

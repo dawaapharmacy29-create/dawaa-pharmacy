@@ -1155,8 +1155,24 @@ const ACCOUNT_ROUTE_EXCLUDED: Record<string, string[]> = {
   '/consolidated-reports': [DR_WAEL_ACCOUNT],
 };
 
+// Accounts that open only the listed routes, whatever their role grants. Dr. Wael works three pages: the
+// dashboard locked to فرع شكري, «بصمات د وائل» and «تقارير شكري».
+const ACCOUNT_ROUTE_ONLY: Record<string, string[]> = {
+  [DR_WAEL_ACCOUNT]: ['/', DR_WAEL_FINGERPRINTS_PATH, DR_WAEL_SHOKRY_REPORTS_PATH],
+};
+// The dashboard branch an account is locked to, ignoring its staff account's own branch.
+const ACCOUNT_DASHBOARD_BRANCH: Record<string, string> = {
+  [DR_WAEL_ACCOUNT]: 'فرع شكري',
+};
+
+export function accountDashboardBranch(accountId: unknown): string | null {
+  return ACCOUNT_DASHBOARD_BRANCH[String(accountId || '').trim().toLowerCase()] ?? null;
+}
+
 export function canAccessAccountRoute(pathname: string, accountId: unknown): boolean {
   const account = String(accountId || '').trim().toLowerCase();
+  const only = ACCOUNT_ROUTE_ONLY[account];
+  if (only && !only.includes(pathname)) return false;
   if (ACCOUNT_ROUTE_EXCLUDED[pathname]?.includes(account)) return false;
   const allowed = ACCOUNT_ROUTE_ACCOUNTS[pathname];
   return !allowed || allowed.includes(account);
