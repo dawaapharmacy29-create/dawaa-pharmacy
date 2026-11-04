@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import {
+  Archive,
   Bike,
   CalendarDays,
   ChevronDown,
@@ -30,6 +31,12 @@ import {
   cairoTime,
   cycleLabel,
   dayKind,
+  endDrWaelLeave,
+  isOpenEnded,
+  runningLeaves,
+  setDrWaelLeave,
+  type DrWaelLeaveKind,
+  type DrWaelTimeOff,
   employeeMoney,
   fetchDrWaelDayPunches,
   fetchDrWaelFingerprints,
@@ -63,6 +70,13 @@ import PayrollTransparencyPanel from '@/components/payroll/PayrollTransparencyPa
 import { useAuth } from '@/hooks/useAuth';
 import { hasPermission } from '@/lib/core/permissionSystem';
 import { cairoDayOf } from '@/lib/time/cairoDateBoundary';
+import {
+  decideStaffLifecycleChangeV2,
+  listPendingStaffLifecycleChangesV2,
+  requestStaffLifecycleChangeV2,
+  type PendingStaffLifecycleChangeV2,
+  type SeparationKindV2,
+} from '@/lib/hr/staffLifecycleService';
 
 const AttendanceResolutionCenter = lazy(
   () => import('@/components/attendance/AttendanceResolutionCenter')
@@ -484,6 +498,7 @@ export default function DrWaelFingerprints() {
               insight={insights.get(smart.staff_id)}
               today={data.today}
               branches={data.branches}
+              timeOff={data.time_off}
               onSaved={() => void load(cycle)}
             />
           ) : null}
@@ -500,12 +515,14 @@ function SmartEditor({
   insight,
   today,
   branches,
+  timeOff,
   onSaved,
 }: {
   employee: DrWaelEmployee;
   insight: DrWaelInsight | undefined;
   today: string;
   branches: string[];
+  timeOff: DrWaelTimeOff[];
   onSaved: () => void;
 }) {
   const suggestion = insight?.shift || null;
@@ -774,7 +791,296 @@ function SmartEditor({
           </button>
         </div>
       </section>
+
+      <LeaveArchivePanel employee={employee} today={today} timeOff={timeOff} onSaved={onSaved} />
     </div>
+  );
+}
+
+const LEAVE_KINDS: Array<[DrWaelLeaveKind, string]> = [
+  ['approved_absence', 'إجازة بإذن الإدارة'],
+  ['annual_leave', 'اعتيادية'],
+  ['sick_leave', 'مرضي'],
+  ['exceptional_leave', 'استثنائية'],
+];
+const SEPARATION_KINDS: Array<[SeparationKindV2, string]> = [
+  ['resignation', 'استقالة'],
+  ['termination', 'إنهاء خدمة'],
+  ['contract_end', 'انتهاء عقد'],
+  ['other', 'سبب آخر'],
+];
+
+function leaveError(text: string): string {
+  if (text.includes('requester_cannot_approve_own')) return 'لازم المدير التاني هو اللي يعتمد الأرشفة';
+  if (text.includes('not_authorized')) return 'مفيش صلاحية';
+  if (text.includes('pending_staff_lifecycle_change_already_exists'))
+    return 'فيه طلب أرشفة مفتوح للموظف ده بالفعل';
+  if (text.includes('annual_leave_cancel_and_reenter'))
+    return 'الإجازة الاعتيادية ماتتقصرش من هنا؛ الغيها من الإجازات واعمل واحدة بالمدة الصح';
+  if (text.includes('preflight_blocked')) return 'سياسة الإجازات رفضت الطلب (غالبًا الرصيد مايكفيش)';
+  if (text.includes('out_of_range')) return 'التاريخ بعيد قوي؛ الفترة لحد 3 شهور ومن آخر 40 يوم';
+  return 'ماتسجلش، راجع البيانات وحاول تاني';
+}
+
+// Leave for a period, «رجع للشغل» on a running leave, and archiving (request by one manager, approval by the other).
+function LeaveArchivePanel({
+  employee,
+  today,
+  timeOff,
+  onSaved,
+}: {
+  employee: DrWaelEmployee;
+  today: string;
+  timeOff: DrWaelTimeOff[];
+  onSaved: () => void;
+}) {
+  const running = runningLeaves(timeOff, employee.staff_id, today);
+  const [returnDate, setReturnDate] = useState(today);
+  const [kind, setKind] = useState<DrWaelLeaveKind>('approved_absence');
+  const [from, setFrom] = useState(today);
+  const [to, setTo] = useState(addDays(today, 6));
+  const [reason, setReason] = useState('');
+  const [lastDay, setLastDay] = useState(today);
+  const [separation, setSeparation] = useState<SeparationKindV2>('resignation');
+  const [archiveReason, setArchiveReason] = useState('');
+  const [pending, setPending] = useState<PendingStaffLifecycleChangeV2[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ tone: Tone; text: string } | null>(null);
+
+  const loadPending = useCallback(async () => {
+    try {
+      const rows = await listPendingStaffLifecycleChangesV2();
+      setPending(rows.filter((row) => row.staff_id === employee.staff_id));
+    } catch {
+      setPending([]);
+    }
+  }, [employee.staff_id]);
+  useEffect(() => {
+    void loadPending();
+  }, [loadPending]);
+
+  const run = async (key: string, action: () => Promise<string>) => {
+    setBusy(key);
+    setMessage(null);
+    try {
+      setMessage({ tone: 'green', text: await action() });
+      onSaved();
+      void loadPending();
+    } catch (e) {
+      setMessage({ tone: 'red', text: leaveError(e instanceof Error ? e.message : '') });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const input = `rounded-lg px-2 py-1 text-xs ${IDLE}`;
+  const days = Math.round((Date.parse(to) - Date.parse(from)) / 864e5) + 1;
+  return (
+    <section className={`${CARD} space-y-3 p-3`}>
+      <h3 className="flex items-center gap-1 font-bold text-gray-900 dark:text-slate-100">
+        <CalendarDays size={15} /> إجازة أو أرشفة
+      </h3>
+      {message ? (
+        <div
+          role="status"
+          className={`rounded-xl px-3 py-2 text-xs font-bold ${TONES[message.tone]}`}
+        >
+          {message.text}
+        </div>
+      ) : null}
+
+      {running.map((leave) => (
+        <div key={leave.id} className={`space-y-2 rounded-xl px-3 py-2 text-xs ${TONES.blue}`}>
+          <div>
+            <b>{leave.label || TIME_OFF_KINDS[leave.kind] || leave.kind}</b> من {leave.start_date}{' '}
+            {isOpenEnded(leave.end_date) ? 'ولسه مفتوحة (لحد ما يرجع)' : `لحد ${leave.end_date}`}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-1">
+              رجع للشغل يوم
+              <input
+                type="date"
+                value={returnDate}
+                min={addDays(today, -40)}
+                onChange={(e) => e.target.value && setReturnDate(e.target.value)}
+                className={input}
+              />
+            </label>
+            <button
+              type="button"
+              disabled={Boolean(busy)}
+              onClick={() =>
+                void run(`end:${leave.id}`, async () => {
+                  const result = await endDrWaelLeave(leave.id, returnDate);
+                  return result.cancelled
+                    ? 'الإجازة اتلغت (رجع قبل ما تبدأ)'
+                    : `الإجازة خلصت يوم ${addDays(returnDate, -1)} · اتعاد حساب ${result.days_rebuilt} يوم من البصمات`;
+                })
+              }
+              className={`rounded-lg px-3 py-1.5 font-bold disabled:opacity-50 ${ACTIVE}`}
+            >
+              {busy === `end:${leave.id}` ? 'جارٍ الحفظ…' : 'إنهاء الإجازة'}
+            </button>
+          </div>
+        </div>
+      ))}
+
+      <div className="space-y-2">
+        <div className="text-xs font-bold">إجازة لفترة</div>
+        <Chips<DrWaelLeaveKind> label="النوع" value={kind} onChange={setKind} options={LEAVE_KINDS} />
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <label className="flex items-center gap-1">
+            من
+            <input
+              type="date"
+              value={from}
+              min={addDays(today, -40)}
+              onChange={(e) => {
+                const next = e.target.value;
+                if (!next) return;
+                setFrom(next);
+                if (to < next) setTo(next);
+              }}
+              className={input}
+            />
+          </label>
+          <label className="flex items-center gap-1">
+            لحد
+            <input
+              type="date"
+              value={to}
+              min={from}
+              onChange={(e) => e.target.value && setTo(e.target.value)}
+              className={input}
+            />
+          </label>
+          <span className={MUTED}>{days > 0 ? `${days} يوم` : ''}</span>
+        </div>
+        <input
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="السبب (اختياري)"
+          className={`w-full ${input}`}
+        />
+        <button
+          type="button"
+          disabled={Boolean(busy) || !from || !to || to < from || days > 93}
+          onClick={() =>
+            void run('leave', async () => {
+              await setDrWaelLeave({ staffId: employee.staff_id, kind, from, to, reason });
+              return `اتسجلت ${LEAVE_KINDS.find(([k]) => k === kind)?.[1] || 'الإجازة'} من ${from} لحد ${to}`;
+            })
+          }
+          className={`w-full rounded-xl px-3 py-2 text-xs font-bold disabled:opacity-50 ${ACTIVE}`}
+        >
+          {busy === 'leave' ? 'جارٍ الحفظ…' : 'سجّل الإجازة'}
+        </button>
+      </div>
+
+      <div className="space-y-2 border-t border-gray-100 pt-3 dark:border-slate-800">
+        <div className="flex items-center gap-1 text-xs font-bold">
+          <Archive size={14} /> أرشفة الموظف
+        </div>
+        {pending.length ? (
+          pending.map((row) => (
+            <div key={row.id} className={`space-y-2 rounded-xl px-3 py-2 text-xs ${TONES.amber}`}>
+              <div>
+                طلب أرشفة — آخر يوم شغل {row.last_working_date || row.effective_from}
+                {row.requested_by_name ? ` · طلبه ${row.requested_by_name}` : ''}
+                <span className="block opacity-80">{row.reason}</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={Boolean(busy)}
+                  onClick={() =>
+                    void run('approve', async () => {
+                      await decideStaffLifecycleChangeV2(row.id, 'approve');
+                      return 'اتعتمدت الأرشفة';
+                    })
+                  }
+                  className={`rounded-lg px-3 py-1.5 font-bold disabled:opacity-50 ${ACTIVE}`}
+                >
+                  اعتمد الأرشفة
+                </button>
+                <button
+                  type="button"
+                  disabled={Boolean(busy)}
+                  onClick={() =>
+                    void run('cancel', async () => {
+                      await decideStaffLifecycleChangeV2(row.id, 'cancel', 'اتلغى من بصمات د وائل');
+                      return 'اتلغى طلب الأرشفة';
+                    })
+                  }
+                  className={`rounded-lg px-3 py-1.5 font-bold disabled:opacity-50 ${IDLE}`}
+                >
+                  الغِ الطلب
+                </button>
+              </div>
+            </div>
+          ))
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <label className="flex items-center gap-1">
+                آخر يوم شغل
+                <input
+                  type="date"
+                  value={lastDay}
+                  min={addDays(today, -40)}
+                  onChange={(e) => e.target.value && setLastDay(e.target.value)}
+                  className={input}
+                />
+              </label>
+              <select
+                value={separation}
+                onChange={(e) => setSeparation(e.target.value as SeparationKindV2)}
+                className={input}
+                aria-label="سبب الخروج"
+              >
+                {SEPARATION_KINDS.map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <input
+              value={archiveReason}
+              onChange={(e) => setArchiveReason(e.target.value)}
+              placeholder="ملاحظة (اختياري)"
+              className={`w-full ${input}`}
+            />
+            <p className={`text-[11px] ${MUTED}`}>
+              الحضور والمرتب لحد آخر يوم بيفضلوا زي ما هم. الطلب بيروح للمدير التاني (د معاذ / د وائل)
+              يعتمده.
+            </p>
+            <button
+              type="button"
+              disabled={Boolean(busy) || !lastDay}
+              onClick={() => {
+                if (!window.confirm(`أرشفة ${employee.name} بعد يوم ${lastDay}؟`)) return;
+                void run('archive', async () => {
+                  const label = SEPARATION_KINDS.find(([k]) => k === separation)?.[1] || '';
+                  await requestStaffLifecycleChangeV2({
+                    staffId: employee.staff_id,
+                    effectiveFrom: lastDay < today ? lastDay : today,
+                    targetState: 'leaving',
+                    lastWorkingDate: lastDay,
+                    separationKind: separation,
+                    reason: archiveReason.trim() || `${label} — من بصمات د وائل`,
+                  });
+                  return 'اتبعت طلب الأرشفة؛ المدير التاني يعتمده من هنا';
+                });
+              }}
+              className="w-full rounded-xl bg-rose-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"
+            >
+              {busy === 'archive' ? 'جارٍ الإرسال…' : 'أرشف الموظف'}
+            </button>
+          </>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -1633,7 +1939,15 @@ function LeavesTab({ data, employees }: { data: Data; employees: DrWaelEmployee[
                   <b className="text-sm">
                     {approved
                       .filter((row) => !row.minutes)
-                      .reduce((sum, row) => sum + days(row.start_date, row.end_date), 0)}
+                      .reduce(
+                        (sum, row) =>
+                          sum +
+                          days(
+                            row.start_date < data.cycle_start ? data.cycle_start : row.start_date,
+                            row.end_date > data.cycle_end ? data.cycle_end : row.end_date
+                          ),
+                        0
+                      )}
                   </b>
                 </div>
                 <div className={`${SOFT} px-2 py-1`}>
@@ -1650,7 +1964,9 @@ function LeavesTab({ data, employees }: { data: Data; employees: DrWaelEmployee[
                     <span>
                       {row.start_date === row.end_date
                         ? row.start_date
-                        : `${row.start_date} ← ${row.end_date}`}
+                        : isOpenEnded(row.end_date)
+                          ? `من ${row.start_date} (مفتوحة لحد ما يرجع)`
+                          : `${row.start_date} ← ${row.end_date}`}
                       {row.minutes ? ` · ${minutesLabel(row.minutes)}` : ''}
                     </span>
                     {row.status === 'approved' ? null : (
