@@ -191,3 +191,9 @@ export async function readLatestBranchInvoiceAt(branch: string): Promise<string 
 export function selectInvoiceCycleWindow(columns: string, options: { count: 'exact'; head: true } | undefined, fromIso: string, toIso: string) {
   return supabase.from('sales_invoices').select(columns, options).gte('invoice_date', fromIso).lt('invoice_date', toIso);
 }
+
+/** Read invoice headers for matching an item import within one branch and sale day. */
+export function readInvoiceHeadersForItemImport(branch: string, day: string, invoiceNumbers: string[]) {
+  return supabase.from('sales_invoices').select('id,invoice_number,invoice_date,customer_code')
+    .eq('branch', branch).eq('sale_date', day).in('invoice_number', invoiceNumbers).limit(1000);
+}
