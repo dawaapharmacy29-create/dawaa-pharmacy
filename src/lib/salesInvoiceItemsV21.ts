@@ -252,9 +252,11 @@ export async function saveSalesInvoiceItemsV21(
   rows: RawSalesInvoiceItemV21[],
   branches: readonly string[],
   sourceFile: string,
+  confirmed: readonly SalesItemPreviewRow[],
 ) {
   const current = await previewSalesInvoiceItemsV21(rows, branches);
-  const ready = current.filter((entry) => entry.status === 'ready' && entry.invoice);
+  const ready = current.filter((entry, index) => entry.status === 'ready' && entry.invoice
+    && confirmed[index]?.status === 'ready' && confirmed[index]?.invoice?.id === entry.invoice.id);
   const batch = `bconnect-items-${crypto.randomUUID()}`;
   const payload = await Promise.all(ready.map(async ({ row, invoice }) => ({
     item_identity: await sha256(JSON.stringify(['bconnect-items', invoice!.id, row.lineNo, row.productCode])),
