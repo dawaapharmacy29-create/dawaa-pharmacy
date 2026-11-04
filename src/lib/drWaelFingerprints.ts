@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { cairoDayOf } from '@/lib/time/cairoDateBoundary';
 
 // «بصمات د وائل» (migration 20261103150000): the views of the Base44 fingerprint app (fingdawaa) fed from this
 // app's attendance days, punches, schedules, time off and incentive ledgers for شكري / الشامي / المخزن.
@@ -23,6 +24,12 @@ export interface DrWaelEmployee {
   roaming?: boolean;
   join_date: string | null;
   week: DrWaelScheduleDay[];
+  /** staff.status, e.g. «نشط» / «موقوف» / «قيد المغادرة» (migration 20261104220000). */
+  status?: string | null;
+  /** From the active flexible hour rule: joker / part_time / flexible; null = regular schedule. */
+  work_mode?: 'joker' | 'part_time' | 'flexible' | null;
+  /** His last punch on any device, ever. */
+  last_punch?: string | null;
 }
 
 export interface DrWaelDay {
@@ -596,7 +603,11 @@ export function payrollStaff(
 }
 
 // Leave for a period / ending a leave on the return day (migration 20261104170000).
-export type DrWaelLeaveKind = 'approved_absence' | 'annual_leave' | 'sick_leave' | 'exceptional_leave';
+export type DrWaelLeaveKind =
+  | 'approved_absence'
+  | 'annual_leave'
+  | 'sick_leave'
+  | 'exceptional_leave';
 
 export async function setDrWaelLeave(args: {
   staffId: string;
@@ -631,7 +642,11 @@ export async function endDrWaelLeave(
 }
 
 /** A leave still running on (or after) a day: approved, a full-day kind, ending on or after it. */
-export function runningLeaves(rows: DrWaelTimeOff[], staffId: string, today: string): DrWaelTimeOff[] {
+export function runningLeaves(
+  rows: DrWaelTimeOff[],
+  staffId: string,
+  today: string
+): DrWaelTimeOff[] {
   return rows.filter(
     (row) =>
       row.staff_id === staffId &&
@@ -662,7 +677,11 @@ const punchKind = (punch: DrWaelPunch): 'check_in' | 'check_out' | null => {
 
 // «الحاضرون الآن» straight from the punches of last night and today: the employee's last punch is a check-in made in
 // the last `maxHours`. The resolved days are built only after the shift ends, so they cannot answer «who is in now».
-export function presentNow(punches: DrWaelPunch[], now: Date = new Date(), maxHours = 16): PresentNow[] {
+export function presentNow(
+  punches: DrWaelPunch[],
+  now: Date = new Date(),
+  maxHours = 16
+): PresentNow[] {
   const byStaff = new Map<string, DrWaelPunch[]>();
   for (const punch of punches) {
     if (!punch.staff_id || punch.interpretation_status === 'rejected') continue;
@@ -678,9 +697,118 @@ export function presentNow(punches: DrWaelPunch[], now: Date = new Date(), maxHo
     if (!last || punchKind(last) !== 'check_in' || Date.parse(last.punch_time) < limit) continue;
     // The open session starts at the first check-in after the last check-out.
     let start = sorted.length - 1;
-    while (start > 0 && punchKind(sorted[start - 1]) === 'check_in' && Date.parse(sorted[start - 1].punch_time) >= limit)
+    while (
+      start > 0 &&
+      punchKind(sorted[start - 1]) === 'check_in' &&
+      Date.parse(sorted[start - 1].punch_time) >= limit
+    )
       start -= 1;
-    rows.push({ staffId, name: last.name || '—', punchBranch: last.branch, since: sorted[start].punch_time });
+    rows.push({
+      staffId,
+      name: last.name || '—',
+      punchBranch: last.branch,
+      since: sorted[start].punch_time,
+    });
   }
   return rows.sort((a, b) => Date.parse(a.since) - Date.parse(b.since));
+}
+
+// «ترك عمل» and «نظام الشغل» (migration 20261104220000).
+export type DrWaelSeparationKind = 'resignation' | 'termination' | 'contract_end' | 'other';
+
+/** One tap: the employee leaves after `lastDay`. Days up to it stay for payroll; empty days after it are closed. */
+export async function endDrWaelEmployment(args: {
+  staffId: string;
+  lastDay: string;
+  kind: DrWaelSeparationKind;
+  note?: string | null;
+}): Promise<{ last_day: string; archived: boolean; days_closed: number }> {
+  const { data, error } = await supabase.rpc('dr_wael_end_employment_v1', {
+    p_staff_id: args.staffId,
+    p_last_day: args.lastDay,
+    p_kind: args.kind,
+    p_note: args.note || null,
+  });
+  if (error) throw new Error(error.message);
+  return data as { last_day: string; archived: boolean; days_closed: number };
+}
+
+export type DrWaelWorkMode = 'regular' | 'part_time' | 'joker';
+
+export const WORK_MODE_LABELS: Record<DrWaelWorkMode, string> = {
+  regular: 'عادي',
+  part_time: 'بارت تايم',
+  joker: 'جوكر',
+};
+
+/** The chip to light: a flexible rule set elsewhere (no part-time / joker note) has no chip of its own. */
+export function employeeWorkMode(
+  employee: Pick<DrWaelEmployee, 'work_mode'>
+): DrWaelWorkMode | null {
+  if (employee.work_mode === 'joker' || employee.work_mode === 'part_time')
+    return employee.work_mode;
+  return employee.work_mode === 'flexible' ? null : 'regular';
+}
+
+/** Part-time and joker are paid by actual hours; a joker's punches count in any branch. */
+export async function setDrWaelWorkMode(
+  staffId: string,
+  mode: DrWaelWorkMode
+): Promise<{ days_rebuilt: number; days_kept_manager_approved: number }> {
+  const { data, error } = await supabase.rpc('dr_wael_set_work_mode_v1', {
+    p_staff_id: staffId,
+    p_mode: mode,
+  });
+  if (error) throw new Error(error.message);
+  return data as { days_rebuilt: number; days_kept_manager_approved: number };
+}
+
+export interface IdleEmployee {
+  employee: DrWaelEmployee;
+  /** Cairo day of his last punch, null when he never punched. */
+  lastPunchDay: string | null;
+  /** Days since that punch (null when never). */
+  daysAway: number | null;
+  stopped: boolean;
+}
+
+/**
+ * «موظفين مش بيحضروا»: active employees marked «موقوف», or whose last punch is `minDays` days old or more.
+ * Someone on a running leave, already leaving, part-time / joker / flexible (no fixed days) is left out.
+ */
+export function idleEmployees(
+  employees: DrWaelEmployee[],
+  timeOff: DrWaelTimeOff[],
+  today: string,
+  minDays = 5
+): IdleEmployee[] {
+  const rows: IdleEmployee[] = [];
+  for (const employee of employees) {
+    if (!employee.active) continue;
+    const status = String(employee.status || '').trim();
+    if (status === 'قيد المغادرة') continue;
+    const stopped = status === 'موقوف';
+    if (!stopped && employee.work_mode) continue;
+    // Before migration 20261104220000 the field is missing: nothing to judge by.
+    if (!stopped && employee.last_punch === undefined) continue;
+    if (runningLeaves(timeOff, employee.staff_id, today).some((leave) => leave.start_date <= today))
+      continue;
+    const lastPunchDay = employee.last_punch ? cairoDayOf(employee.last_punch) : null;
+    const daysAway = lastPunchDay
+      ? Math.round(
+          (Date.parse(`${today}T12:00:00Z`) - Date.parse(`${lastPunchDay}T12:00:00Z`)) / 864e5
+        )
+      : null;
+    if (!stopped && daysAway != null && daysAway < minDays) continue;
+    if (
+      !stopped &&
+      daysAway == null &&
+      (!employee.join_date || employee.join_date > addDays(today, -minDays))
+    )
+      continue;
+    rows.push({ employee, lastPunchDay, daysAway, stopped });
+  }
+  return rows.sort(
+    (a, b) => Number(b.stopped) - Number(a.stopped) || (b.daysAway ?? 9999) - (a.daysAway ?? 9999)
+  );
 }
