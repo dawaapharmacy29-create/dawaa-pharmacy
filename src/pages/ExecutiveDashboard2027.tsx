@@ -32,7 +32,7 @@ import { formatCycleDate, getCurrentCycle, getPreviousCycle, getPharmacyCycleRan
 import { normalizeBranchName } from '@/lib/branch';
 import { useAuth } from '@/hooks/useAuth';
 import { getDashboardBranchOverride, isDoctorRole, isManagerRole } from '@/lib/security/userDataScope';
-import { canManageBranchTargets, normalizeRole } from '@/lib/core/permissionSystem';
+import { accountDashboardBranch, canManageBranchTargets, normalizeRole } from '@/lib/core/permissionSystem';
 import {
   type DailyChartMetric,
   type DailyChartRow,
@@ -875,6 +875,8 @@ export default function ExecutiveDashboard2027() {
     checkPermission('view_executive_dashboard') ||
     checkPermission('view_branch_dashboard');
   const role = normalizeRole(user?.role);
+  // Accounts locked to one branch (Dr. Wael → فرع شكري) see that branch only, whatever their role covers.
+  const lockedBranch = accountDashboardBranch(user?.id);
   const redirectPath = roleHomePath(user);
   useEffect(() => {
     if (!canViewExecutive) navigate(redirectPath, { replace: true });
@@ -895,6 +897,7 @@ export default function ExecutiveDashboard2027() {
   const [startDate, setStartDate] = useState(() => formatCycleDate(currentCycle.start));
   const [endDate, setEndDate] = useState(() => formatCycleDate(currentCycle.end));
   const [branch, setBranch] = useState(() => {
+    if (lockedBranch) return lockedBranch;
     const overrideBranch = getDashboardBranchOverride(user as any);
     const branchValue = effectiveBranchFilter(user, overrideBranch, ALL_BRANCHES) || ALL_BRANCHES;
     return normalizeBranchName(branchValue) || ALL_BRANCHES;
@@ -1037,8 +1040,9 @@ export default function ExecutiveDashboard2027() {
     return value;
   }
 
-  const canAllBranches = canSeeAllBranches(user?.role);
-  const scopedBranch = effectiveBranchFilter(user, branch, ALL_BRANCHES) || ALL_BRANCHES;
+  const canAllBranches = !lockedBranch && canSeeAllBranches(user?.role);
+  const scopedBranch = lockedBranch || effectiveBranchFilter(user, branch, ALL_BRANCHES) || ALL_BRANCHES;
+  const homeBranch = lockedBranch || user?.branch;
   const effectiveBranchLabel = normalizeBranchName(scopedBranch || ALL_BRANCHES) || ALL_BRANCHES;
 
   const [R, setR] = useState<any>(null);
@@ -1072,9 +1076,9 @@ export default function ExecutiveDashboard2027() {
   const LabelList = R?.LabelList ?? ((props: any) => null);
 
   useEffect(() => {
-    const next = effectiveBranchFilter(user, branch, ALL_BRANCHES);
+    const next = lockedBranch || effectiveBranchFilter(user, branch, ALL_BRANCHES);
     if (!canAllBranches && next && branch !== next) setBranch(next);
-  }, [branch, canAllBranches, user]);
+  }, [branch, canAllBranches, lockedBranch, user]);
 
   useEffect(() => {
     let mounted = true;
@@ -1089,7 +1093,7 @@ export default function ExecutiveDashboard2027() {
         getDoctorCompetitionMetrics({
           ...doctorCompetitionParams,
           branch: scopedBranch === ALL_BRANCHES ? null : scopedBranch,
-          userBranch: user?.branch,
+          userBranch: homeBranch,
           canSeeAllBranches: canAllBranches,
         }),
         20000,
@@ -1122,7 +1126,7 @@ export default function ExecutiveDashboard2027() {
     return () => {
       mounted = false;
     };
-  }, [canAllBranches, scopedBranch, startDate, endDate, user?.branch, doctorCompetitionRetryToken]);
+  }, [canAllBranches, scopedBranch, startDate, endDate, homeBranch, doctorCompetitionRetryToken]);
 
   useEffect(() => {
     let mounted = true;
@@ -1488,12 +1492,12 @@ export default function ExecutiveDashboard2027() {
       ...state.targets.map((r) => branchName(r.branch)),
     ].filter((b) => b !== 'غير محدد');
     const unique = [...new Set([...fromData, 'فرع شكري', 'فرع الشامي'])];
-    return canAllBranches ? [ALL_BRANCHES, ...unique] : [branchName(user?.branch || '')];
-  }, [canAllBranches, state.branchDistribution, state.targets, user?.branch]);
+    return canAllBranches ? [ALL_BRANCHES, ...unique] : [branchName(homeBranch || '')];
+  }, [canAllBranches, state.branchDistribution, state.targets, homeBranch]);
 
   const branchScopeLabel = canAllBranches
     ? `نطاق العرض: ${effectiveBranchLabel === ALL_BRANCHES ? 'كل الفروع' : effectiveBranchLabel}`
-    : `نطاق العرض: فرع ${branchName(user?.branch || '')}`;
+    : `نطاق العرض: فرع ${branchName(homeBranch || '')}`;
 
   const summary = state.summary || {};
   // customerService/staffOps summaries are never populated by any fetch path
@@ -1933,7 +1937,7 @@ export default function ExecutiveDashboard2027() {
 
         {/* Top management works its own daily review; the branch managers' lists are followed through the
             compliance panel below, never ticked on their behalf. */}
-        {['general_manager', 'executive_manager'].includes(role) && <GmDailyReviewPanel />}
+        {!lockedBranch && ['general_manager', 'executive_manager'].includes(role) && <GmDailyReviewPanel />}
 
         {['branch_manager', 'branches_manager'].includes(role) && (
           <BranchManagerDailyAgenda
@@ -2188,7 +2192,7 @@ export default function ExecutiveDashboard2027() {
           </div>
         </Panel>
 
-        {managerMode ? null : <StaffAccountsHealthPanel />}
+        {managerMode || lockedBranch ? null : <StaffAccountsHealthPanel />}
 
         {!!state.errors.length && (
           <div className="rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-5 py-3 text-sm font-bold text-[var(--dawaa-status-warning-text)]">
