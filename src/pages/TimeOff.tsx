@@ -57,7 +57,7 @@ function statusClass(status: TimeOffStatus) {
   return 'border-amber-500/40 bg-amber-500/10 text-amber-300';
 }
 
-export default function TimeOff() {
+export default function TimeOff({ staffId, onDecisionSaved }: { staffId?: string; onDecisionSaved?: () => void } = {}) {
   const { user, checkPermission, canManage } = useAuth();
   const canCreate = checkPermission('create_leave_request') || canManage;
   const canApprove = checkPermission('approve_leave_request') || checkPermission('manage_time_off') || canManage;
@@ -82,8 +82,8 @@ export default function TimeOff() {
   const [entitlementDays, setEntitlementDays] = useState('');
   const [configuringEntitlement, setConfiguringEntitlement] = useState(false);
   const [form, setForm] = useState({
-    staffId: user?.staffId || '',
-    typeLabel: TYPE_OPTIONS[0].label,
+    staffId: staffId || user?.staffId || '',
+    typeLabel: (staffId ? TYPE_OPTIONS.find((option) => option.kind === 'annual_leave') : null)?.label || TYPE_OPTIONS[0].label,
     startDate: new Date().toISOString().slice(0, 10),
     endDate: new Date().toISOString().slice(0, 10),
     startTime: '',
@@ -100,14 +100,14 @@ export default function TimeOff() {
   const loadRows = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await listStaffTimeOffRequests({ status: statusFilter === 'all' ? null : statusFilter, limit: 300 });
+      const data = await listStaffTimeOffRequests({ staffId, status: statusFilter === 'all' ? null : statusFilter, limit: 300 });
       setRows(data);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'تعذر تحميل سجل الإذونات والإجازات');
     } finally {
       setLoading(false);
     }
-  }, [statusFilter]);
+  }, [staffId, statusFilter]);
 
   useEffect(() => { void loadRows(); }, [loadRows]);
 
@@ -187,6 +187,7 @@ export default function TimeOff() {
     if (decision === 'rejected' && !note.trim()) return toast.error('سبب الرفض مطلوب.');
     try {
       await decideStaffTimeOffRequest(row.id, decision, note);
+      onDecisionSaved?.();
       toast.success(decision === 'approved' ? 'تم اعتماد الطلب بعد Policy Preflight V3.' : 'تم رفض الطلب.');
       await loadRows();
     } catch (error) {
@@ -279,7 +280,7 @@ export default function TimeOff() {
       </div>
 
       {canCreate && <form onSubmit={submit} className="grid grid-cols-1 gap-3 rounded-2xl border border-slate-700 bg-slate-900/50 p-4 md:grid-cols-6">
-        <select value={form.staffId} onChange={(e) => setForm((f) => ({ ...f, staffId: e.target.value }))} className="input-dark" required><option value="">اختار الموظف</option>{availableStaff.map((item) => <option key={item.id} value={item.id}>{item.name} - {item.role} - {item.branch}</option>)}</select>
+        <select disabled={Boolean(staffId)} value={form.staffId} onChange={(e) => setForm((f) => ({ ...f, staffId: e.target.value }))} className="input-dark" required><option value="">اختار الموظف</option>{availableStaff.map((item) => <option key={item.id} value={item.id}>{item.name} - {item.role} - {item.branch}</option>)}</select>
         <select value={form.typeLabel} onChange={(e) => { const next = TYPE_OPTIONS.find((item) => item.label === e.target.value) || TYPE_OPTIONS[0]; setForm((f) => ({ ...f, typeLabel: next.label, durationMinutes: String(next.defaultMinutes || '') })); }} className="input-dark">{TYPE_OPTIONS.map((item) => <option key={item.label}>{item.label}</option>)}</select>
         <input type="date" value={form.startDate} onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value, endDate: f.endDate < e.target.value ? e.target.value : f.endDate }))} className="input-dark" />
         {isRangeLeave ? <input type="date" min={form.startDate} value={form.endDate} onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))} className="input-dark" /> : <div className="input-dark flex items-center text-sm text-slate-400"><CalendarDays size={15} className="ml-2" /> يوم واحد</div>}
