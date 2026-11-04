@@ -305,18 +305,8 @@ export function avgReview(row?: Pick<DoctorCompetitionScore, 'reviewCount' | 're
   return row?.reviewCount ? row.reviewTotal / row.reviewCount : 0;
 }
 
-async function safeSelect(table: string, build: (query: ReturnType<typeof supabase.from>) => unknown) {
-  try {
-    const result = await (build(supabase.from(table)) as PromiseLike<{ data: unknown; error: { message?: string } | null }>);
-    if (result.error) return { data: [] as Row[], error: result.error.message || `تعذر تحميل ${table}` };
-    return { data: ((result.data || []) as Row[]).filter(Boolean), error: null };
-  } catch (error) {
-    return { data: [] as Row[], error: error instanceof Error ? error.message : `تعذر تحميل ${table}` };
-  }
-}
-
 // Period-filtered reads can exceed the API's per-response cap (1000 rows): the last
-// 3 months held 1,566 current reviews on 2026-10-27. Same result shape as safeSelect,
+// 3 months held 1,566 current reviews on 2026-10-27. Each result is bounded,
 // but every page is read in id order and a failed/oversized read is an error.
 async function safeSelectAll(table: string, build: (query: ReturnType<typeof supabase.from>) => unknown) {
   try {
@@ -331,9 +321,9 @@ async function safeSelectAll(table: string, build: (query: ReturnType<typeof sup
   }
 }
 
-async function safeSelectRpc(fn: string) {
+async function safeSelectRpc(fn: string, args?: Record<string, unknown>) {
   try {
-    const result = await supabase.rpc(fn);
+    const result = await supabase.rpc(fn, args);
     if (result.error) return { data: [] as Row[], error: result.error.message || `تعذر تحميل ${fn}` };
     return { data: ((result.data || []) as Row[]).filter(Boolean), error: null };
   } catch (error) {
@@ -523,14 +513,17 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
   // لأن الحقل ده مش معروض في أي مكان في اللوحة حاليًا؛ مفيش داعي لمضاعفة حجم
   // الفواتير الخام المطلوب تحميلها وقت استخدام مسار الفواتير الاحتياطي.
   const salesErrors: string[] = [];
-  const [salesRows, reviewResult, followupResult, stagnantResult, listResult] = await Promise.all([
+  const [salesRows, reviewResult, followupResult, incentiveResult] = await Promise.all([
     salesSource === 'invoice_fallback' ? fetchDoctorSalesRows(range, selectedBranch, salesErrors).catch(() => [] as Row[]) : Promise.resolve([] as Row[]),
     // Only the columns the score loop reads (identity, branch, score): select('*') pulled the
     // evidence JSON (~15 KB/row, ~9 MB per full cycle) into every dashboard load.
     safeSelectAll('conversation_sales_reviews', (query) => query.select(COMPETITION_REVIEW_COLUMNS).eq('is_current', true).gte('conversation_date', cairoDateBoundaryIso(range.start)).lte('conversation_date', cairoDateBoundaryIso(range.end, true))),
     safeSelectAll('daily_followups', (query) => query.select('*').gte('created_at', range.start).lte('created_at', `${range.end}T23:59:59`)),
-    safeSelect('stagnant_medicine_dispenses', (query) => query.select('*').limit(5000)),
-    safeSelect('incentive_medicine_sales', (query) => query.select('*').limit(5000)),
+    safeSelectRpc('get_doctor_competition_invoice_incentives_v1', {
+      p_start: range.start,
+      p_end: range.end,
+      p_branch: selectedBranch || (!canSeeAll ? userBranch : '') || null,
+    }),
   ]);
 
   if (salesErrors.length) errors.sales_invoices = salesErrors.join(' | ');
@@ -635,20 +628,18 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     }
   }
 
-  const incentiveAvailable = !stagnantResult.error && !listResult.error && Boolean(stagnantResult.data.length || listResult.data.length);
-  sourceHealth.stagnant_medicine_dispenses = stagnantResult.error ? 'unavailable' : stagnantResult.data.length ? 'ready' : 'empty';
-  sourceHealth.incentive_medicine_sales = listResult.error ? 'unavailable' : listResult.data.length ? 'ready' : 'empty';
-  for (const row of [...stagnantResult.data, ...listResult.data]) {
-    const branch = normalizeBranchName(row.branch) || text(row.branch);
-    if (!allowBranch(branch)) continue;
-    const doctor = resolveDoctor({ ...row, normalized_seller_name: row.staff_name || row.doctor_name || row.responsible_doctor_name || row.responsible_doctor }, branch);
-    if (!doctor) continue;
-    const { current } = upsert(doctor);
-    current.stagnantStatus = 'available';
-    if (stagnantResult.data.includes(row)) current.stagnantItems += 1;
-    else current.listItems += 1;
-    current.totalQuantity += num(row.quantity || row.sold_quantity || row.dispensed_quantity);
-    current.incentiveValue += num(row.incentive_amount || row.reward_amount || row.total_incentive || row.amount);
+  const incentiveAvailable = !incentiveResult.error;
+  if (incentiveResult.error) errors.invoice_item_incentives = incentiveResult.error;
+  sourceHealth.invoice_item_incentives = incentiveResult.error ? 'unavailable' : incentiveResult.data.length ? 'ready' : 'empty';
+  for (const row of incentiveResult.data) {
+    const branch = normalizeBranchName(row.branch);
+    const doctor = byStaff.get(text(row.staff_id));
+    if (!doctor || !allowBranch(branch)) continue;
+    const { current } = upsert({ ...doctor, branch });
+    current.listItems += num(row.list_units);
+    current.stagnantItems += num(row.stagnant_units);
+    current.totalQuantity += num(row.list_units) + num(row.stagnant_units);
+    current.incentiveValue += num(row.incentive_egp);
   }
 
   const rawRows = [...map.entries()].map(([key, row]) => {
@@ -657,7 +648,7 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     row.avgInvoiceEligible = row.invoices >= MIN_AVG_INVOICE_THRESHOLD;
     row.growthRate = previousTotal ? ((row.totalSales - previousTotal) / previousTotal) * 100 : null;
     row.growthRateStatus = previousTotal ? 'available' : 'unavailable';
-    row.stagnantStatus = incentiveAvailable ? row.stagnantStatus : 'disabled';
+    row.stagnantStatus = incentiveAvailable ? 'available' : 'disabled';
     row.leaderboardEligible = !isUnknownDoctorName(row.name);
     row.ineligibleReasons = row.leaderboardEligible ? [] : ['دكتور غير محدد'];
     return row;

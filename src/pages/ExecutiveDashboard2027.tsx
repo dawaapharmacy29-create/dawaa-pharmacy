@@ -1620,7 +1620,11 @@ export default function ExecutiveDashboard2027() {
     );
   }, [monthlyTrend]);
 
-  const activeDaysCount = dailyChart.length || 1;
+  const cairoToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo' }).format(new Date());
+  const averageEndDate = endDate < cairoToday ? endDate : cairoToday;
+  const elapsedSalesDays = startDate && averageEndDate >= startDate
+    ? Math.round((Date.parse(averageEndDate) - Date.parse(startDate)) / 86_400_000) + 1
+    : 0;
 
   const lowDoctors = useMemo(() => [...state.doctorSales].slice(-6).reverse(), [state.doctorSales]);
   const doctorsByBranch = useMemo(() => {
@@ -2542,7 +2546,7 @@ export default function ExecutiveDashboard2027() {
           <Panel id="branch-performance" className="xl:col-span-12 p-5 scroll-mt-24">
             <SectionTitle
               title="تحليل أداء كل فرع"
-              subtitle="التارجت، المحقق، المتوقع، متوسط الشيفت اليومي، وأداء كل دكتور داخل الفرع"
+              subtitle="التارجت، المحقق، المتوقع، متوسط مبيعات اليوم، وأداء كل دكتور داخل الفرع"
               icon={<Target className="h-5 w-5" />}
             />
             <div className="space-y-4">
@@ -2624,10 +2628,11 @@ export default function ExecutiveDashboard2027() {
                       </div>
                       <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">
                         <span>
-                          متوسط الشيفت اليومي:{' '}
+                          متوسط مبيعات اليوم:{' '}
                           <b className="text-[var(--dawaa-theme-heading)]">
-                            {money(n(target.sales_total) / Math.max(1, activeDaysCount))}
+                            {elapsedSalesDays > 0 ? money(n(target.sales_total) / elapsedSalesDays) : '—'}
                           </b>
+                          {elapsedSalesDays > 0 && <span> · {count(elapsedSalesDays)} يوم</span>}
                         </span>
                         <span>
                           متوسط الفاتورة:{' '}

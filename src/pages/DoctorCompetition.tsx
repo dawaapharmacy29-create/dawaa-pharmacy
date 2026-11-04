@@ -419,6 +419,7 @@ export default function DoctorCompetition() {
       }
 
       const warnings: string[] = [];
+      if (competition.errors.invoice_item_incentives) warnings.push('تعذر تحميل حوافز الأصناف من الفواتير.');
       if (competition.status === 'partial') warnings.push('تم استكمال قائمة الدكاترة من بيانات المبيعات.');
       if (reviewResponse.error) warnings.push('تعذر تحديث تقييمات المحادثات من المصدر الحي؛ تم استخدام البيانات المجمعة المتاحة.');
       setWarning(warnings.join(' '));
@@ -577,11 +578,17 @@ export default function DoctorCompetition() {
                 <span>متوسط: {money(row.avgInvoice)}</span>
                 <span>تقييم: {review === null ? 'غير متاح' : `${review.toFixed(1)}/100`}</span>
                 <span>متابعات: {row.completedFollowups}</span>
+                {row.stagnantStatus === 'available' && <>
+                  <span>وحدات اللستة: {row.listItems.toLocaleString('ar-EG')}</span>
+                  <span>وحدات الرواكد: {row.stagnantItems.toLocaleString('ar-EG')}</span>
+                  <span>حافز الأصناف: {row.incentiveValue.toLocaleString('ar-EG', { maximumFractionDigits: 2 })} جنيه</span>
+                </>}
               </div>
             </article>
           );
         })}
       </div>
+      <p className="mt-2 px-4 text-xs" style={mutedText}>حافز الأصناف مبني على تفاصيل الفواتير المستوردة للفترة المختارة.</p>
       {!loading && !visibleRows.length ? <div className="p-8 text-center"><div className="text-lg font-black text-white">لا توجد بيانات للمسابقة</div><p className="mt-2 text-sm" style={mutedText}>لا توجد فواتير مرتبطة بالفترة المختارة.</p></div> : null}
     </section>
   </div>;
