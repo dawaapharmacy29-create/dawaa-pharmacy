@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Download,
   Eye,
+  GitCompareArrows,
   Loader2,
   Pencil,
   PieChart,
@@ -16,7 +17,9 @@ import {
   Smartphone,
   Wallet,
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/hooks/useAuth';
 import { formatCurrency } from '@/lib/utils';
 import { cairoDayOf } from '@/lib/time/cairoDateBoundary';
 import {
@@ -382,7 +385,11 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
   );
 }
 
+// The same roles as «التقارير المجمعة» in the sidebar.
+const TREASURY_ROLES = ['general_manager', 'admin', 'executive_manager'];
+
 export default function ShiftHandovers() {
+  const { user } = useAuth();
   const today = cairoDayOf(new Date().toISOString()) as string;
   const thisMonth = today.slice(0, 7);
   const [rows, setRows] = useState<ShiftRow[]>([]);
@@ -1382,13 +1389,23 @@ export default function ShiftHandovers() {
               دواء وائل
             </p>
           </div>
-          <button
-            type="button"
-            className="dawaa-tab inline-flex items-center gap-2 print:hidden"
-            onClick={() => void load()}
-          >
-            <RefreshCw size={16} /> تحديث
-          </button>
+          <div className="flex flex-wrap gap-2 print:hidden">
+            {TREASURY_ROLES.includes(String(user?.role ?? '')) ? (
+              <Link
+                to="/consolidated-reports?tab=shifts"
+                className="dawaa-tab inline-flex items-center gap-2"
+              >
+                <GitCompareArrows size={16} /> قارن بالتقارير المجمعة
+              </Link>
+            ) : null}
+            <button
+              type="button"
+              className="dawaa-tab inline-flex items-center gap-2"
+              onClick={() => void load()}
+            >
+              <RefreshCw size={16} /> تحديث
+            </button>
+          </div>
         </div>
         {late.length ? (
           <button

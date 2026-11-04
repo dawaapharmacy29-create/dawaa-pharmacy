@@ -167,3 +167,22 @@
     grid-template-columns: 100px 1fr;
   }
 }
+.treasury-warning-text {
+  color: var(--dawaa-status-warning-text, #d97706);
+}
+.treasury-compare th {
+  text-align: center;
+}
+.treasury-compare tbody tr.is-mismatch {
+  background: rgba(245, 158, 11, 0.07);
+  box-shadow: inset -3px 0 0 #f59e0b;
+}
+.treasury-shift {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--dawaa-theme-border);
+  border-radius: 12px;
+  background: var(--dawaa-theme-surface);
+}

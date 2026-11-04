@@ -53,6 +53,8 @@ import {
   type AccountantTransaction,
 } from '@/lib/accountantReport';
 import CollectionSettlementPanel from '@/components/dashboard/CollectionSettlementPanel';
+import ShiftLedgerComparisonPanel from '@/components/dashboard/ShiftLedgerComparisonPanel';
+import { useSearchParams } from 'react-router-dom';
 import './ConsolidatedReports.css';
 
 const ALL = 'all',
@@ -87,7 +89,11 @@ export default function ConsolidatedReports({
   const [report, setReport] = useState<AccountantReport | null>(null);
   const [month, setMonth] = useState<string | null>(null),
     [vault, setVault] = useState(ALL);
-  const [tab, setTab] = useState('overview'),
+  // ?tab=shifts opens the shift handover comparison (linked from «تسليم الشيفتات»).
+  const [params] = useSearchParams();
+  const [tab, setTab] = useState(() =>
+      scope !== 'shokry' && params.get('tab') === 'shifts' ? 'shifts' : 'overview'
+    ),
     [direction, setDirection] = useState(''),
     [category, setCategory] = useState('');
   const [itemName, setItemName] = useState('');
@@ -488,8 +494,9 @@ export default function ConsolidatedReports({
           ['ledger', 'كشف الحركات'],
           ['history', 'مقارنة ٦ أشهر'],
           ['collections', 'تسوية التحصيلات'],
+          ['shifts', 'مقارنة تسليم الشيفتات'],
         ]
-          .filter(([id]) => scope !== 'shokry' || id !== 'collections')
+          .filter(([id]) => scope !== 'shokry' || (id !== 'collections' && id !== 'shifts'))
           .map(([id, label]) => (
             <button
               key={id}
@@ -503,7 +510,16 @@ export default function ConsolidatedReports({
           ))}
       </nav>
       {tab === 'collections' && scope !== 'shokry' && <CollectionSettlementPanel />}
-      {tab !== 'history' && tab !== 'collections' && (
+      {tab === 'shifts' && scope !== 'shokry' && (
+        <ShiftLedgerComparisonPanel
+          month={report.month}
+          today={report.today}
+          vaults={chosenVaults.map((v) => v.code)}
+          transactions={report.transactions}
+          vaultName={name}
+        />
+      )}
+      {tab !== 'history' && tab !== 'collections' && tab !== 'shifts' && (
         <>
           <div className="grid sm:grid-cols-4 gap-3">
             <MiniBox label="وارد الفترة المعروضة" value={money(totals.incoming)} tone="green" />
