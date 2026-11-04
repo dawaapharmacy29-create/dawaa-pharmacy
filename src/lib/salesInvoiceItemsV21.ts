@@ -164,8 +164,8 @@ async function sha256(value: string) {
   return `fallback-${(h >>> 0).toString(16)}`;
 }
 
-type InvoiceMatch = { id: string; invoice_number: string; invoice_date: string | null };
-type PreviewStatus = 'ready' | 'existing' | 'duplicate' | 'conflict' | 'missing' | 'ambiguous' | 'wrong_branch';
+type InvoiceMatch = { id: string; invoice_number: string; invoice_date: string | null; customer_code: string | null };
+type PreviewStatus = 'ready' | 'existing' | 'duplicate' | 'conflict' | 'missing' | 'ambiguous' | 'wrong_branch' | 'customer_mismatch';
 
 export type SalesItemPreviewRow = {
   row: RawSalesInvoiceItemV21;
@@ -193,7 +193,7 @@ async function previewBranch(rows: RawSalesInvoiceItemV21[], branch: string) {
       const batch = numbers.slice(offset, offset + 30);
       const selected = new Set(batch);
       const [{ data: invoices, error: invoiceError }, { data: items, error: itemError }] = await Promise.all([
-        supabase.from('sales_invoices').select('id,invoice_number,invoice_date')
+        supabase.from('sales_invoices').select('id,invoice_number,invoice_date,customer_code')
           .eq('branch', branch).eq('sale_date', day).in('invoice_number', batch).limit(1000),
         supabase.from('sales_invoice_items_v21').select('invoice_number,line_no,product_code')
           .eq('branch', branch).in('invoice_number', batch)
@@ -216,6 +216,10 @@ async function previewBranch(rows: RawSalesInvoiceItemV21[], branch: string) {
           continue;
         }
         entry.row = { ...row, sourceBranch: row.branch, branch };
+        if (row.customerCode && matches[0].customer_code && row.customerCode !== matches[0].customer_code) {
+          entry.status = 'customer_mismatch';
+          continue;
+        }
         const key = itemKey(row.invoiceNumber, row.lineNo, row.productCode);
         if (existing.has(key)) {
           entry.status = 'existing';
