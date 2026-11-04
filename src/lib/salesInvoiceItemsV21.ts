@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { supabase } from '@/lib/supabase';
+import { readInvoiceHeadersForItemImport } from '@/lib/readModels/invoiceRecordReadModel';
 import { normalizeBranchName } from '@/lib/branch';
 import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
 
@@ -193,8 +194,7 @@ async function previewBranch(rows: RawSalesInvoiceItemV21[], branch: string) {
       const batch = numbers.slice(offset, offset + 30);
       const selected = new Set(batch);
       const [{ data: invoices, error: invoiceError }, { data: items, error: itemError }] = await Promise.all([
-        supabase.from('sales_invoices').select('id,invoice_number,invoice_date,customer_code')
-          .eq('branch', branch).eq('sale_date', day).in('invoice_number', batch).limit(1000),
+        readInvoiceHeadersForItemImport(branch, day, batch),
         supabase.from('sales_invoice_items_v21').select('invoice_number,line_no,product_code')
           .eq('branch', branch).in('invoice_number', batch)
           .gte('invoice_date', cairoDateBoundaryIso(day))
