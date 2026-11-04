@@ -43,6 +43,8 @@ export interface DrWaelDay {
   scheduled_end: string | null;
   time_off: boolean;
   punches: number;
+  /** The other branch(es) whose device he punched on that day (migration 20261104190000); null when only his own. */
+  other_branch?: string | null;
 }
 
 export interface DrWaelTimeOff {

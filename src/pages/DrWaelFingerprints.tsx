@@ -279,6 +279,7 @@ function dayFlags(day: DrWaelDay) {
       {day.missing_punch && day.punches === 1 ? <Pill tone="amber">بصمة واحدة فقط</Pill> : null}
       {kind === 'absent' ? <Pill tone="red">غائب</Pill> : null}
       {kind === 'review' ? <Pill tone="amber">يحتاج مراجعة</Pill> : null}
+      {day.other_branch ? <Pill tone="blue">بصم في {day.other_branch}</Pill> : null}
     </div>
   );
 }
@@ -1477,6 +1478,11 @@ function EmployeeDays({
                   {day.missing_punch && day.punches === 1 ? (
                     <span className="mr-1">
                       <Pill tone="amber">بصمة واحدة</Pill>
+                    </span>
+                  ) : null}
+                  {day.other_branch ? (
+                    <span className="mr-1">
+                      <Pill tone="blue">بصم في {day.other_branch}</Pill>
                     </span>
                   ) : null}
                 </Td>
