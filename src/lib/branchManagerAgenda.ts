@@ -8,7 +8,7 @@ export type AgendaGroup = 'auto' | 'decide' | 'check';
 export type AgendaItemKey =
   | 'open_requests' | 'uncoded_invoices' | 'purchases_review' | 'weekly_inventory'
   | 'big_customers' | 'high_discount'
-  | 'cash_reconciliation' | 'appearance_cleanliness' | 'shelves_fridge';
+  | 'cash_reconciliation' | 'appearance_cleanliness' | 'shelves_fridge' | 'stories_upload';
 
 export interface AgendaItem {
   key: AgendaItemKey;
@@ -54,6 +54,7 @@ export const AGENDA_ITEM_LABELS: Record<AgendaItemKey, { title: string; action: 
   cash_reconciliation: { title: 'مطابقة الخزنة', action: 'الدرج مطابق للسيستم' },
   appearance_cleanliness: { title: 'اللبس والنظافة', action: 'الفريق بالزي والفرع نضيف' },
   shelves_fridge: { title: 'الرفوف والتلاجة', action: 'الرفوف مترتبة والتلاجة في درجتها' },
+  stories_upload: { title: 'تنزيل الاستوريز', action: 'استوريز النهارده نزلت على صفحات الفرع' },
 };
 
 export const INVENTORY_STATUS_LABELS: Record<NonNullable<AgendaItem['inventory_status']>, string> = {

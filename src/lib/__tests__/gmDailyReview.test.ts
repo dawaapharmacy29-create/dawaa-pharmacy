@@ -35,6 +35,25 @@ describe('gm daily review', () => {
     ]);
   });
 
+  it('shows each branch manager stories mark', () => {
+    expect(
+      gmReviewSummary({
+        key: 'stories',
+        detail: [
+          { branch: 'elshamy', state: null },
+          { branch: 'shokry', state: 'done', marked_by: 'د أحمد' },
+        ],
+      })
+    ).toEqual(['الشامي: لسه ما اتعلّمتش', 'شكري: نزلت ✓ · د أحمد']);
+    expect(
+      gmReviewSummary({
+        key: 'stories',
+        detail: [{ branch: 'elshamy', state: 'issue', note: 'النت واقع' }],
+      })
+    ).toEqual(['الشامي: فيه مشكلة — النت واقع']);
+    expect(GM_REVIEW_LABELS.stories.title).toBe('الاستوريز');
+  });
+
   it('lists the shifts still open per branch and a stopped sync', () => {
     const synced = new Date().toISOString();
     expect(

@@ -3,7 +3,8 @@ import { onDutyLabel, type OnDutyDoctor } from '@/lib/shiftHandoverCoverage';
 
 // «مراجعتي اليومية» for the general manager (migration 20261031160000, sources 20261104120000). Every item
 // turns green on its own once its data is clean; «راجعت» is for what the data can't see. Purchases, shifts,
-// collection transfers and customer orders come from DawaaWael; riders from the delivery app.
+// collection transfers and customer orders come from DawaaWael; riders from the delivery app. Stories are
+// marked by each branch manager in «قائمة اليوم» (migration 20261104210000).
 
 export type GmReviewKey =
   | 'sales_upload'
@@ -15,7 +16,8 @@ export type GmReviewKey =
   | 'shifts'
   | 'delivery'
   | 'collection_transfers'
-  | 'customers';
+  | 'customers'
+  | 'stories';
 
 export interface GmReviewItem {
   key: GmReviewKey;
@@ -91,6 +93,11 @@ export const GM_REVIEW_LABELS: Record<
     question: 'طلبات الدورة المفتوحة وعملاء الـ 500 ج',
     link: '/customer-requests',
     app: { name: 'دواء وائل', url: `${DAWAA_WAEL}/customer-orders` },
+  },
+  stories: {
+    title: 'الاستوريز',
+    question: 'الفرعين نزّلوا استوريز النهارده؟',
+    link: '/',
   },
 };
 
@@ -212,6 +219,14 @@ export function gmReviewSummary(item: Pick<GmReviewItem, 'key' | 'detail'>): str
       }
       return lines;
     }
+    case 'stories':
+      return rows(item.detail).map((r) => {
+        const by = r.marked_by ? ` · ${r.marked_by}` : '';
+        if (r.state === 'done') return `${BRANCH[String(r.branch)]}: نزلت ✓${by}`;
+        if (r.state === 'issue')
+          return `${BRANCH[String(r.branch)]}: فيه مشكلة — ${r.note ?? ''}${by}`;
+        return `${BRANCH[String(r.branch)]}: لسه ما اتعلّمتش`;
+      });
     case 'customers':
       return [
         `${d?.open_requests ?? 0} طلب مفتوح أكتر من يوم · ${d?.big_customers_yesterday ?? 0} عميل اشترى بـ 500 ج امبارح`,
