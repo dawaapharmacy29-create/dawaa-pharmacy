@@ -73,6 +73,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { hasPermission } from '@/lib/core/permissionSystem';
 import { cairoDayOf } from '@/lib/time/cairoDateBoundary';
 import {
+  archiveStaffFromFingerprints,
   decideStaffLifecycleChangeV2,
   listPendingStaffLifecycleChangesV2,
   requestStaffLifecycleChangeV2,
@@ -821,7 +822,7 @@ function leaveError(text: string): string {
   if (text.includes('annual_leave_cancel_and_reenter'))
     return 'الإجازة الاعتيادية ماتتقصرش من هنا؛ الغيها من الإجازات واعمل واحدة بالمدة الصح';
   if (text.includes('preflight_blocked')) return 'سياسة الإجازات رفضت الطلب (غالبًا الرصيد مايكفيش)';
-  if (text.includes('out_of_range')) return 'التاريخ بعيد قوي؛ الفترة لحد 3 شهور ومن آخر 40 يوم';
+  if (text.includes('out_of_range')) return 'راجع تاريخ بداية الإجازة ونهايتها. الحد الأقصى 365 يوم';
   return 'ماتسجلش، راجع البيانات وحاول تاني';
 }
 
@@ -837,13 +838,15 @@ function LeaveArchivePanel({
   timeOff: DrWaelTimeOff[];
   onSaved: () => void;
 }) {
+  const { user } = useAuth();
+  const canArchiveDirectly = user?.role === 'general_manager';
   const running = runningLeaves(timeOff, employee.staff_id, today);
   const [returnDate, setReturnDate] = useState(today);
   const [kind, setKind] = useState<DrWaelLeaveKind>('approved_absence');
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(addDays(today, 6));
   const [reason, setReason] = useState('');
-  const [lastDay, setLastDay] = useState(today);
+  const [lastDay, setLastDay] = useState(canArchiveDirectly ? addDays(today, -1) : today);
   const [separation, setSeparation] = useState<SeparationKindV2>('resignation');
   const [archiveReason, setArchiveReason] = useState('');
   const [pending, setPending] = useState<PendingStaffLifecycleChangeV2[]>([]);
@@ -957,7 +960,7 @@ function LeaveArchivePanel({
               className={input}
             />
           </label>
-          <span className={MUTED}>{days > 0 ? `${days} يوم` : ''}</span>
+          <span className={MUTED}>{days > 0 ? `${days} يوم · الحد الأقصى 365` : ''}</span>
         </div>
         <input
           value={reason}
@@ -967,7 +970,7 @@ function LeaveArchivePanel({
         />
         <button
           type="button"
-          disabled={Boolean(busy) || !from || !to || to < from || days > 93}
+          disabled={Boolean(busy) || !from || !to || to < from || days > 365}
           onClick={() =>
             void run('leave', async () => {
               await setDrWaelLeave({ staffId: employee.staff_id, kind, from, to, reason });
@@ -1030,6 +1033,7 @@ function LeaveArchivePanel({
                 <input
                   type="date"
                   value={lastDay}
+                  max={canArchiveDirectly ? addDays(today, -1) : undefined}
                   min={addDays(today, -40)}
                   onChange={(e) => e.target.value && setLastDay(e.target.value)}
                   className={input}
@@ -1055,16 +1059,26 @@ function LeaveArchivePanel({
               className={`w-full ${input}`}
             />
             <p className={`text-[11px] ${MUTED}`}>
-              الحضور والمرتب لحد آخر يوم بيفضلوا زي ما هم. الطلب بيروح للمدير التاني (د معاذ / د وائل)
-              يعتمده.
+              {canArchiveDirectly
+                ? 'الأرشفة بتتطبق فورًا من اليوم اللي بعد آخر يوم شغل، مع حفظ سجل الحضور والمرتب السابق.'
+                : 'الطلب بيروح للمدير التاني عشان يعتمده.'}
             </p>
             <button
               type="button"
-              disabled={Boolean(busy) || !lastDay}
+              disabled={Boolean(busy) || !lastDay || (canArchiveDirectly && lastDay >= today)}
               onClick={() => {
                 if (!window.confirm(`أرشفة ${employee.name} بعد يوم ${lastDay}؟`)) return;
                 void run('archive', async () => {
                   const label = SEPARATION_KINDS.find(([k]) => k === separation)?.[1] || '';
+                  if (canArchiveDirectly) {
+                    await archiveStaffFromFingerprints({
+                      staffId: employee.staff_id,
+                      lastWorkingDate: lastDay,
+                      separationKind: separation,
+                      reason: archiveReason.trim() || `${label} — من بصمات د وائل`,
+                    });
+                    return 'تمت أرشفة الموظف';
+                  }
                   await requestStaffLifecycleChangeV2({
                     staffId: employee.staff_id,
                     effectiveFrom: lastDay < today ? lastDay : today,
@@ -1078,7 +1092,7 @@ function LeaveArchivePanel({
               }}
               className="w-full rounded-xl bg-rose-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"
             >
-              {busy === 'archive' ? 'جارٍ الإرسال…' : 'أرشف الموظف'}
+              {busy === 'archive' ? 'جارٍ الإرسال…' : (canArchiveDirectly ? 'أرشف الموظف الآن' : 'اطلب الأرشفة')}
             </button>
           </>
         )}
@@ -1574,6 +1588,7 @@ function DayReviewSheet({
               initialStaffId={review.staffId}
               initialTriage="all"
               embedded
+              optionalDecisionNotes
               onDecisionSaved={onDecisionSaved}
             />
           </Suspense>

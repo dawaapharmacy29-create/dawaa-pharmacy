@@ -171,6 +171,7 @@ export default function AttendanceResolutionCenter({
   draftPunchType,
   draftPunchDay,
   embedded = false,
+  optionalDecisionNotes = false,
   onDecisionSaved,
 }: {
   defaultBranch?: string;
@@ -182,6 +183,7 @@ export default function AttendanceResolutionCenter({
   draftPunchType?: 'check_in' | 'check_out';
   draftPunchDay?: string;
   embedded?: boolean;
+  optionalDecisionNotes?: boolean;
   onDecisionSaved?: () => void;
 }) {
   const { user } = useAuth();
@@ -597,7 +599,7 @@ export default function AttendanceResolutionCenter({
       return;
     }
     const decision = decisionsFor(selected).find((item) => item.id === reason);
-    if (!decision || (['custom', 'outside_work'].includes(decision.id) && !note.trim())) {
+    if (!decision || (!optionalDecisionNotes && ['custom', 'outside_work'].includes(decision.id) && !note.trim())) {
       toast.warning('اختر نوع القرار، واكتب التفاصيل فقط عند إثبات عمل خارج الفرع أو اختيار سبب آخر.');
       return;
     }
@@ -740,7 +742,7 @@ export default function AttendanceResolutionCenter({
 
       const parts = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(manualPunchAt);
       const manualDate = parts && cairoWallClockToDate(+parts[1], +parts[2], +parts[3], +parts[4], +parts[5]);
-      if (!manualDate || !note.trim()) { toast.warning('حدد وقت بصمة صالحًا بتوقيت القاهرة واكتب الدليل وسبب التصحيح.'); return; }
+      if (!manualDate || (!optionalDecisionNotes && !note.trim())) { toast.warning(optionalDecisionNotes ? 'حدد وقت بصمة صالحًا بتوقيت القاهرة.' : 'حدد وقت بصمة صالحًا بتوقيت القاهرة واكتب الدليل وسبب التصحيح.'); return; }
       const manualIso = manualDate.toISOString();
       setEvidenceReadError(true);
       setApproving(true);
@@ -783,15 +785,15 @@ export default function AttendanceResolutionCenter({
         return;
       }
       const validClock = /^([01]\d|2[0-3]):[0-5]\d$/;
-      if (!validClock.test(permissionStart) || !validClock.test(permissionEnd) || permissionEnd <= permissionStart || !note.trim()) {
-        toast.warning('حدد بداية ونهاية الإذن في نفس اليوم، واكتب سببًا واضحًا قبل الحفظ.');
+      if (!validClock.test(permissionStart) || !validClock.test(permissionEnd) || permissionEnd <= permissionStart || (!optionalDecisionNotes && !note.trim())) {
+        toast.warning(optionalDecisionNotes ? 'حدد بداية ونهاية الإذن في نفس اليوم.' : 'حدد بداية ونهاية الإذن في نفس اليوم، واكتب سببًا واضحًا قبل الحفظ.');
         return;
       }
       setApproving(true);
       setEvidenceReadError(true);
       try {
         const result = await resolveAttendancePermission({ staffId: selected.staff_id,
-          date: selected.attendance_date, start: permissionStart, end: permissionEnd, note: note.trim() });
+          date: selected.attendance_date, start: permissionStart, end: permissionEnd, note: note.trim() || decision.label });
         setRequiredPermissionId(result.request.id);
         if (!result.approved) {
           const message = 'تم تسجيل طلب الإذن للمراجعة فقط، ولم يُعتمد: ' +
@@ -815,12 +817,12 @@ export default function AttendanceResolutionCenter({
       return;
     }
     if (decision.id === 'permission' && linkedRequest) {
-      if (!note.trim() || !linkedRequest.start_time || !linkedRequest.end_time) {
+      if ((!optionalDecisionNotes && !note.trim()) || !linkedRequest.start_time || !linkedRequest.end_time) {
         toast.warning('اكتب سبب إعادة حساب الإذن وتأكد من وجود بدايته ونهايته.'); return;
       }
       setEvidenceReadError(true);
       await resolveAttendancePermission({ staffId: selected.staff_id, date: selected.attendance_date,
-        start: linkedRequest.start_time.slice(0, 5), end: linkedRequest.end_time.slice(0, 5), note: note.trim() });
+        start: linkedRequest.start_time.slice(0, 5), end: linkedRequest.end_time.slice(0, 5), note: note.trim() || decision.label });
       setRequiredPermissionId(linkedRequest.id);
       await refreshSelectedEvidence('تم تحديث الإذن المرتبط. استخدم زر الاعتماد النهائي بعد مراجعة الأدلة.');
       return;
@@ -856,7 +858,7 @@ export default function AttendanceResolutionCenter({
       }
       return;
     }
-    if (decision.financial && !note.trim()) {
+    if (!optionalDecisionNotes && decision.financial && !note.trim()) {
       toast.warning('اكتب سبب اقتراح الخصم ودليل المخالفة قبل حفظ القرار.');
       return;
     }
@@ -911,11 +913,11 @@ export default function AttendanceResolutionCenter({
       toast.warning('اختر قرارًا جماعيًا متاحًا لكل الحالات المحددة.');
       return;
     }
-    if (['custom', 'outside_work'].includes(decision.id) && !bulkNote.trim()) {
+    if (!optionalDecisionNotes && ['custom', 'outside_work'].includes(decision.id) && !bulkNote.trim()) {
       toast.warning('اكتب ملاحظة موحدة توضح سبب القرار للحالات المحددة.');
       return;
     }
-    if (decision.financial && !bulkNote.trim()) {
+    if (!optionalDecisionNotes && decision.financial && !bulkNote.trim()) {
       toast.warning('اكتب سببًا موثقًا للخصم المقترح قبل الاعتماد الجماعي.');
       return;
     }
@@ -1258,7 +1260,7 @@ export default function AttendanceResolutionCenter({
               value={bulkNote}
               disabled={!selectedRows.length || bulkBusy}
               onChange={(event) => setBulkNote(event.target.value)}
-              placeholder={commonBulkDecisions.find((decision) => decision.id === bulkDecision)?.financial ? 'إجباري: سبب الخصم والدليل' : 'إجباري للسبب الآخر أو العمل الخارجي'}
+              placeholder={optionalDecisionNotes ? 'اختياري: تفاصيل إضافية' : commonBulkDecisions.find((decision) => decision.id === bulkDecision)?.financial ? 'إجباري: سبب الخصم والدليل' : 'إجباري للسبب الآخر أو العمل الخارجي'}
               className="input-dark mt-1 w-full"
             />
           </label>
@@ -1599,7 +1601,7 @@ export default function AttendanceResolutionCenter({
             <label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">
               الملاحظة اليدوية للقرار
               <textarea ref={decisionNoteRef} value={note} onChange={(e) => setNote(e.target.value)} rows={2} className="input-dark mt-1 w-full resize-none"
-                placeholder={['custom', 'outside_work', 'absence_deduction', 'time_deduction', 'permission', 'forgot_in', 'forgot_out'].includes(reason) ? 'مطلوب: اكتب سبب القرار والدليل' : 'اختياري: تفاصيل إضافية توثق القرار'} />
+                placeholder={!optionalDecisionNotes && ['custom', 'outside_work', 'absence_deduction', 'time_deduction', 'permission', 'forgot_in', 'forgot_out'].includes(reason) ? 'مطلوب: اكتب سبب القرار والدليل' : 'اختياري: تفاصيل إضافية توثق القرار'} />
             </label>
             <p className="mt-2 text-[10px] text-[var(--dawaa-theme-muted)]">الأدلة محفوظة في السجل ويمكن فتحها عند الحاجة بدون إطالة نافذة القرار.</p>
             </div>
