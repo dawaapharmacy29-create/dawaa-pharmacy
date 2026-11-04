@@ -168,6 +168,12 @@ const shiftMonth = (month: string, delta: number) => {
 const monthEnd = (month: string) => addDays(`${shiftMonth(month, 1)}-01`, -1);
 const shortBranch = (branch: string) => branch.replace('فرع ', '');
 const collectedOf = (r: ShiftRow) => n(r.vodafone_sales) + n(r.insta_sales) + n(r.visa_sales);
+// As DawaaWael shows a handover: the cash the accountant receives, and everything that came by transfer.
+const accountantCashOf = (r: Pick<ShiftRow, 'cash_handover' | 'cash_sales'>) =>
+  n(r.cash_handover ?? r.cash_sales);
+const transfersOf = (
+  r: Pick<ShiftRow, 'vodafone_sales' | 'insta_sales' | 'visa_sales' | 'other_sales'>
+) => n(r.vodafone_sales) + n(r.insta_sales) + n(r.visa_sales) + n(r.other_sales);
 
 const dayLabel = (value: string) =>
   new Date(`${value}T12:00:00`).toLocaleDateString('ar-EG', {
@@ -203,7 +209,44 @@ function sumUp(rows: ShiftRow[]) {
     net: rows.reduce((a, r) => a + n(r.net_amount), 0),
     cash: rows.reduce((a, r) => a + n(r.cash_sales), 0),
     collected: rows.reduce((a, r) => a + collectedOf(r), 0),
+    toAccountant: rows.reduce((a, r) => a + accountantCashOf(r), 0),
+    transfers: rows.reduce((a, r) => a + transfersOf(r), 0),
   };
+}
+
+/** Segmented control (Dawaa Bills style): one tap instead of opening a dropdown. */
+function Pills<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: readonly T[];
+  value: T;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div role="group" aria-label={label} className="flex flex-wrap items-center gap-1">
+      <span className="dawaa-caption ml-1 text-xs font-bold">{label}</span>
+      <div
+        className="flex gap-1 rounded-xl p-1"
+        style={{ background: 'var(--dawaa-theme-surface-raised)' }}
+      >
+        {options.map((option) => (
+          <button
+            key={option}
+            type="button"
+            aria-pressed={value === option}
+            className={`dawaa-tab px-3 py-1 text-xs ${value === option ? 'is-active' : ''}`}
+            onClick={() => onChange(option)}
+          >
+            {option.replace('فرع ', '')}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 async function fetchAllShiftRows(): Promise<{ rows: ShiftRow[]; error: boolean }> {
@@ -618,9 +661,13 @@ export default function ShiftHandovers() {
               <span>{formatCurrency(n(row.total_expenses))}</span>
             </>
           ) : null}
-          <span className="dawaa-caption">الصافي</span>
+          <span className="dawaa-caption">نقدي للمحاسب</span>
           <span style={{ color: 'var(--dawaa-status-success-text)' }}>
-            {formatCurrency(n(row.net_amount))}
+            {formatCurrency(accountantCashOf(row))}
+          </span>
+          <span className="dawaa-caption">التحويلات</span>
+          <span style={{ color: 'var(--dawaa-status-info-text)' }}>
+            {formatCurrency(transfersOf(row))}
           </span>
         </div>
         {Math.abs(n(row.cash_variance)) > 1 ? (
@@ -758,30 +805,13 @@ export default function ShiftHandovers() {
             <ChevronLeft size={16} />
           </button>
         </div>
-        <label className="text-xs font-bold">
-          الفرع
-          <select
-            className="dawaa-input mt-1 block"
-            value={branchFilter}
-            onChange={(e) => setBranchFilter(e.target.value as typeof branchFilter)}
-          >
-            {BRANCHES.map((v) => (
-              <option key={v}>{v}</option>
-            ))}
-          </select>
-        </label>
-        <label className="text-xs font-bold">
-          الشيفت
-          <select
-            className="dawaa-input mt-1 block"
-            value={shiftFilter}
-            onChange={(e) => setShiftFilter(e.target.value as typeof shiftFilter)}
-          >
-            {SHIFT_FILTERS.map((v) => (
-              <option key={v}>{v}</option>
-            ))}
-          </select>
-        </label>
+        <Pills label="الفرع" options={BRANCHES} value={branchFilter} onChange={setBranchFilter} />
+        <Pills
+          label="الشيفت"
+          options={SHIFT_FILTERS}
+          value={shiftFilter}
+          onChange={setShiftFilter}
+        />
         <label className="text-xs font-bold">
           الدكتور اللي قفل
           <select
@@ -801,18 +831,18 @@ export default function ShiftHandovers() {
 
   const handoversTab = (
     <div className="space-y-4">
-      <div className="grid gap-3 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <MiniBox
-          label={`عدد التسليمات · ${monthLabel(month)}`}
-          value={monthTotals.count.toLocaleString('ar-EG')}
+          label={`المبيعات · ${monthTotals.count.toLocaleString('ar-EG')} تسليم`}
+          value={formatCurrency(monthTotals.sales)}
         />
-        <MiniBox label="إجمالي المبيعات" value={formatCurrency(monthTotals.sales)} />
         <MiniBox
-          label="إجمالي المصروفات"
-          value={formatCurrency(monthTotals.expenses)}
-          tone="amber"
+          label="النقدي المطلوب للمحاسب"
+          value={formatCurrency(monthTotals.toAccountant)}
+          tone="green"
         />
-        <MiniBox label="صافي التسليم" value={formatCurrency(monthTotals.net)} tone="green" />
+        <MiniBox label="التحويلات" value={formatCurrency(monthTotals.transfers)} tone="blue" />
+        <MiniBox label="المصروفات" value={formatCurrency(monthTotals.expenses)} tone="amber" />
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2 print:hidden">
         <div
@@ -865,12 +895,17 @@ export default function ShiftHandovers() {
                   <span className="dawaa-badge dawaa-badge--neutral">
                     مبيعات {formatCurrency(t.sales)}
                   </span>
-                  <span className="dawaa-badge dawaa-badge--warning">
-                    مصروفات {formatCurrency(t.expenses)}
-                  </span>
                   <span className="dawaa-badge dawaa-badge--success">
-                    صافي {formatCurrency(t.net)}
+                    للمحاسب {formatCurrency(t.toAccountant)}
                   </span>
+                  <span className="dawaa-badge dawaa-badge--info">
+                    تحويلات {formatCurrency(t.transfers)}
+                  </span>
+                  {t.expenses ? (
+                    <span className="dawaa-badge dawaa-badge--warning">
+                      مصروفات {formatCurrency(t.expenses)}
+                    </span>
+                  ) : null}
                 </div>
               </div>
               <div className={`grid gap-3 ${visibleBranches.length > 1 ? 'md:grid-cols-2' : ''}`}>
@@ -898,11 +933,13 @@ export default function ShiftHandovers() {
                           );
                         })}
                       </div>
-                      <p
-                        className="mt-2 text-left text-xs font-black"
-                        style={{ color: 'var(--dawaa-status-success-text)' }}
-                      >
-                        صافي الفرع: {formatCurrency(sumUp(own).net)}
+                      <p className="mt-2 flex flex-wrap justify-between gap-2 text-xs font-black">
+                        <span style={{ color: 'var(--dawaa-status-success-text)' }}>
+                          نقدي للمحاسب: {formatCurrency(sumUp(own).toAccountant)}
+                        </span>
+                        <span style={{ color: 'var(--dawaa-status-info-text)' }}>
+                          تحويلات: {formatCurrency(sumUp(own).transfers)}
+                        </span>
                       </p>
                     </div>
                   );
