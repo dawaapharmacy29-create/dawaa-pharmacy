@@ -58,7 +58,7 @@ export function SalesInvoiceItemsImport({ branches }: { branches: readonly strin
     if (!file || !preview || !ready || busy) return;
     setBusy(true);
     try {
-      const result = await saveSalesInvoiceItemsV21(preview.map(({ row }) => ({ ...row, branch: row.sourceBranch ?? row.branch })), selectedBranches, file.name);
+      const result = await saveSalesInvoiceItemsV21(preview.map(({ row }) => ({ ...row, branch: row.sourceBranch ?? row.branch })), selectedBranches, file.name, preview);
       setPreview(null);
       setMessage(`تم حفظ ${result.saved} سطر. تم تخطي ${result.skipped + invalid} سطر. تعذر حفظ ${result.failed} سطر.${result.failed ? ' يمكنك معاينة نفس الملف مرة أخرى وإعادة محاولة السطور المتبقية.' : ''}`);
     } catch (error) {
