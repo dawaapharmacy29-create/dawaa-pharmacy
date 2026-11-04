@@ -47,6 +47,8 @@ import {
   mapWithConcurrency,
   minutesLabel,
   openShifts,
+  presentNow,
+  type PresentNow,
   recentExceptions,
   setDrWaelRoaming,
   shiftCycle,
@@ -1148,10 +1150,44 @@ function DashboardTab({
   const [review, setReview] = useState<DayReview | null>(null);
   const canReview = useDayReviewAccess();
   const branches = data.branches.filter((b) => matches(branch, b));
-  const open = openShifts(data.days, data.today);
+  // «Who is in now» and «present today» come from the punches themselves: a day is resolved only after its
+  // shift ends, so the resolved days miss everyone still on shift.
+  const [punches, setPunches] = useState<{ today: DrWaelPunch[]; all: DrWaelPunch[] } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    Promise.all([fetchDrWaelDayPunches(data.today), fetchDrWaelDayPunches(addDays(data.today, -1))])
+      .then(([todays, yesterdays]) => {
+        if (alive) setPunches({ today: todays, all: [...yesterdays, ...todays] });
+      })
+      .catch(() => {
+        if (alive) setPunches(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [data]);
+  const homeBranch = (staffId: string, fallback: string | null) =>
+    names.get(staffId)?.branch || fallback || '';
+  const open: PresentNow[] = punches
+    ? presentNow(punches.all)
+    : openShifts(data.days, data.today).map((day) => ({
+        staffId: day.staff_id,
+        name: names.get(day.staff_id)?.name || '—',
+        punchBranch: day.branch,
+        since: day.first_in || '',
+      }));
   const today = todayByBranch(data, data.today).filter((row) => matches(branch, row.branch));
+  const presentToday = punches
+    ? new Set(
+        punches.today
+          .filter((p) => p.staff_id && matches(branch, homeBranch(p.staff_id, p.branch)))
+          .map((p) => p.staff_id)
+      ).size
+    : null;
   const sum = (key: 'present' | 'late' | 'review' | 'absent') =>
-    String(today.reduce((total, row) => total + row[key], 0));
+    key === 'present' && presentToday != null
+      ? String(presentToday)
+      : String(today.reduce((total, row) => total + row[key], 0));
   const groups = recentExceptions(
     data.days.filter((day) => matches(branch, day.branch)),
     data.today
@@ -1172,7 +1208,7 @@ function DashboardTab({
       <Section title="الحاضرون الآن" subtitle="بصمة حضور النهارده أو امبارح بالليل من غير انصراف">
         <div className="grid gap-3 md:grid-cols-3">
           {branches.map((b) => {
-            const list = open.filter((day) => day.branch === b);
+            const list = open.filter((row) => homeBranch(row.staffId, row.punchBranch) === b);
             return (
               <div key={b} className={`${CARD} p-3`}>
                 <div className="flex items-center justify-between">
@@ -1189,20 +1225,22 @@ function DashboardTab({
                 </div>
                 {list.length ? (
                   <ul className="mt-2 divide-y divide-gray-50 border-t border-gray-100 dark:divide-slate-800 dark:border-slate-800">
-                    {list.map((day) => {
-                      const employee = names.get(day.staff_id);
+                    {list.map((row) => {
+                      const employee = names.get(row.staffId);
+                      const away = row.punchBranch && row.punchBranch !== b ? row.punchBranch : null;
                       return (
                         <li
-                          key={`${day.staff_id}-${day.date}`}
+                          key={row.staffId}
                           className="flex items-center justify-between py-1.5 text-xs"
                         >
                           <span className="flex items-center gap-1 font-bold text-gray-800 dark:text-slate-200">
-                            {employee?.name || '—'}
+                            {employee?.name || row.name}
                             {employee?.delivery ? (
                               <Bike size={12} className="text-emerald-500" />
                             ) : null}
+                            {away ? <Pill tone="blue">بصم في {away}</Pill> : null}
                           </span>
-                          <span className={MUTED}>{cairoTime(day.first_in)}</span>
+                          <span className={MUTED}>{cairoTime(row.since)}</span>
                         </li>
                       );
                     })}
