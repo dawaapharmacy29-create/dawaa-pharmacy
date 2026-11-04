@@ -113,6 +113,11 @@ export interface DrWaelPunch {
   punch_time: string;
   punch_type: string | null;
   device_id: string | null;
+  provider?: string | null;
+  event_id?: string;
+  interpreted_type?: string | null;
+  interpretation_status?: string | null;
+  interpretation_reason?: string | null;
 }
 
 export async function fetchDrWaelFingerprints(
@@ -431,6 +436,7 @@ export interface WorkDayRow {
   name: string;
   branch: string | null;
   punches: string[];
+  events: DrWaelPunch[];
   sessions: WorkSession[];
   grossMinutes: number;
   workMinutes: number;
@@ -445,7 +451,13 @@ export interface WorkDayRow {
 export function workDayRows(punches: DrWaelPunch[]): WorkDayRow[] {
   const groups = new Map<string, DrWaelPunch[]>();
   for (const punch of punches) {
-    const key = punch.staff_id || `code:${punch.biometric_user_id || '?'}`;
+    const key =
+      punch.staff_id ||
+      `code:${JSON.stringify([
+        punch.provider,
+        punch.device_id,
+        punch.biometric_user_id || punch.event_id,
+      ])}`;
     groups.set(key, [...(groups.get(key) || []), punch]);
   }
   const rows: WorkDayRow[] = [];
@@ -474,6 +486,7 @@ export function workDayRows(punches: DrWaelPunch[]): WorkDayRow[] {
       name: list[0].name || `كود بصمة ${list[0].biometric_user_id || '?'}`,
       branch: list[0].branch,
       punches: times,
+      events: list,
       sessions,
       grossMinutes,
       workMinutes,
