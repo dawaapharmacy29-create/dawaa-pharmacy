@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
+import { SalesInvoiceItemsImport } from '@/components/invoices/SalesInvoiceItemsImport';
+import { normalizeBranchName } from '@/lib/branch';
+import { canViewAllBranches } from '@/lib/security/userDataScope';
 import { DeliveryInvoiceSyncStatus } from '@/components/invoices/DeliveryInvoiceSyncStatus';
 import { useEscapeKey } from '@/hooks/useEscapeKey';
 import {
@@ -1278,6 +1281,10 @@ export default function Invoices() {
 
   return (
     <div className="space-y-5 max-w-5xl">
+      {canManageBatches && (
+        <SalesInvoiceItemsImport branches={isAdmin || canViewAllBranches(user) ? BRANCHES : BRANCHES.filter((name) => name === normalizeBranchName(user?.branch))} />
+      )}
+
       {sellerNameFilter && (
         <div className="bg-[var(--dawaa-theme-accent-soft)] border border-[var(--dawaa-theme-accent-border)] rounded-xl p-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
