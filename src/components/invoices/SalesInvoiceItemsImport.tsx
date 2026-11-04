@@ -14,6 +14,7 @@ const statusLabels = {
   missing: 'الفاتورة غير موجودة',
   ambiguous: 'أكثر من فاتورة مطابقة',
   wrong_branch: 'الفرع مختلف',
+  customer_mismatch: 'كود العميل مختلف عن الفاتورة',
 };
 
 export function SalesInvoiceItemsImport({ branches }: { branches: readonly string[] }) {
