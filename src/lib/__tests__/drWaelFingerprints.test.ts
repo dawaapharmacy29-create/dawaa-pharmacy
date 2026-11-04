@@ -216,6 +216,7 @@ describe('بصمات د وائل', () => {
       punch('b', '2026-11-01T07:00:00Z'),
       punch(null, '2026-11-01T08:00:00Z', '77'),
       punch(null, '2026-11-01T09:00:00Z', '77'),
+      { ...punch(null, '2026-11-01T09:00:00Z', '77'), device_id: 'another-device' },
       punch('c', '2026-11-01T08:00:00Z'),
       punch('c', '2026-11-01T09:00:00Z'),
       punch('c', '2026-11-01T10:00:00Z'),
@@ -238,10 +239,9 @@ describe('بصمات د وائل', () => {
       workMinutes: 60,
       singlePunch: false,
     });
-    expect(rows.find((r) => r.key === 'code:77')).toMatchObject({
-      name: 'كود بصمة 77',
-      workMinutes: 60,
-    });
+    const unmatched = rows.filter((r) => r.name === 'كود بصمة 77');
+    expect(unmatched.map((r) => r.workMinutes).sort((a, b) => a - b)).toEqual([0, 60]);
+    expect(new Set(unmatched.map((r) => r.key)).size).toBe(2);
   });
 
   it('adds up the incentive and deduction ledgers of one employee', () => {

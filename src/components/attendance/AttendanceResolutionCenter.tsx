@@ -983,15 +983,16 @@ export default function AttendanceResolutionCenter({
     if (embedded && selected) selectedPanelRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [embedded, selected?.id]);
 
+  const embeddedTitle = initialDate && !initialCurrentCycle ? 'مراجعة يوم العمل' : 'مراجعات الدورة الحالية';
   const currentLaneMeta = lane === 'system' ? laneMeta('system') : laneMeta('manager');
 
   return (
     <div className="space-y-4">
       {!embedded && <AttendanceShiftMismatchReview start={start} end={end} branch={branch} staffId={staffFilter} />}
       {embedded ? (
-        <section className="space-y-3" aria-label="مراجعات الموظف في الدورة الحالية">
+        <section className="space-y-3" aria-label={embeddedTitle}>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-base font-black text-[var(--dawaa-theme-heading)]">مراجعات الدورة الحالية</h3>
+            <h3 className="text-base font-black text-[var(--dawaa-theme-heading)]">{embeddedTitle}</h3>
             <button type="button" onClick={() => void load()} disabled={loading} className="btn-secondary text-xs">
               <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> تحديث الحالات
             </button>
@@ -1023,7 +1024,7 @@ export default function AttendanceResolutionCenter({
               </div>
             ))}
             {!baseRows.length && <p role="status" className="rounded-xl border border-[var(--dawaa-theme-border)] p-4 text-xs font-bold text-[var(--dawaa-theme-muted)]">
-              لا توجد مراجعات ظاهرة لهذا الموظف في الدورة الحالية.
+              لا توجد مراجعات ظاهرة لهذا الموظف في الفترة المحددة.
             </p>}
           </div>}
         </section>
