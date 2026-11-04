@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import {
   Bike,
   CalendarDays,
@@ -51,6 +60,13 @@ import {
   type EmployeePayrollFinancialCompositionV2,
 } from '@/lib/payroll/payrollFinancialCompositionService';
 import PayrollTransparencyPanel from '@/components/payroll/PayrollTransparencyPanel';
+import { useAuth } from '@/hooks/useAuth';
+import { hasPermission } from '@/lib/core/permissionSystem';
+import { cairoDayOf } from '@/lib/time/cairoDateBoundary';
+
+const AttendanceResolutionCenter = lazy(
+  () => import('@/components/attendance/AttendanceResolutionCenter')
+);
 
 // The look follows the Base44 fingerprint app (fingdawaa): white rounded cards on a light page, an
 // indigo → violet accent, branch cards, employee cards with a days drawer and a compact payroll sheet.
@@ -427,7 +443,14 @@ export default function DrWaelFingerprints() {
       {tab === 'attendance' ? (
         <AttendanceTab data={data} employees={employees} insights={insights} onSmart={setSmart} />
       ) : null}
-      {tab === 'workday' ? <WorkDayTab data={data} branch={branch} names={names} /> : null}
+      {tab === 'workday' ? (
+        <WorkDayTab
+          data={data}
+          branch={branch}
+          names={names}
+          onDecisionSaved={() => void load(cycle)}
+        />
+      ) : null}
       {tab === 'employees' ? (
         <EmployeesTab employees={employees} insights={insights} onSmart={setSmart} />
       ) : null}
@@ -1100,12 +1123,19 @@ function WorkDayTab({
   data,
   branch,
   names,
+  onDecisionSaved,
 }: {
   data: Data;
   branch: string;
   names: Map<string, DrWaelEmployee>;
+  onDecisionSaved: () => void;
 }) {
+  const { user } = useAuth();
+  const canReview = hasPermission(user, 'manage_payroll');
   const [date, setDate] = useState(data.today);
+  const [review, setReview] = useState<{ staffId: string; name: string; date: string } | null>(
+    null
+  );
   const [punches, setPunches] = useState<DrWaelPunch[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -1122,9 +1152,26 @@ function WorkDayTab({
         if (id === request.current) setError('تعذر تحميل بصمات اليوم');
       });
   }, [date, attempt]);
-  const rows = workDayRows(punches || [])
+  const days = new Map(
+    data.days.filter((day) => day.date === date).map((day) => [day.staff_id, day])
+  );
+  const rawRows = workDayRows(punches || []);
+  const rawStaffIds = new Set(rawRows.map((row) => row.staffId));
+  const resolvedOnly = [...days.values()]
+    .filter((day) => !rawStaffIds.has(day.staff_id) && (day.first_in || day.last_out || day.review))
+    .map((day) => ({
+      key: day.staff_id,
+      staffId: day.staff_id,
+      name: names.get(day.staff_id)?.name || 'موظف',
+      branch: day.branch,
+      punches: [],
+      events: [],
+    }));
+  const rows = [...rawRows, ...resolvedOnly]
     .filter((row) => matches(branch, row.branch))
-    .sort((a, b) => Date.parse(a.punches[0]) - Date.parse(b.punches[0]));
+    .sort(
+      (a, b) => (Date.parse(a.punches[0]) || Infinity) - (Date.parse(b.punches[0]) || Infinity)
+    );
   const quick = [
     [data.today, 'النهارده'],
     [addDays(data.today, -1), 'أمس'],
@@ -1152,20 +1199,20 @@ function WorkDayTab({
         <span className={`font-bold ${PAGE_HEADING}`}>
           {weekday(date)}، {date}
         </span>
-        <span className={PAGE_MUTED}>بالترتيب من أول بصمة · البصمات لحد 8 الصبح اليوم التالي</span>
+        <span className={PAGE_MUTED}>البصمات حسب يوم الشيفت · البصمات غير المصنفة حسب تاريخها</span>
       </div>
       {error ? (
         <EmptyState label={error} error onRetry={() => setAttempt((n) => n + 1)} />
       ) : !punches ? (
         <Spinner label="جارٍ تحميل البصمات" />
       ) : !rows.length ? (
-        <Empty label="مفيش بصمات في اليوم ده" />
+        <Empty label="مفيش سجلات حضور أو بصمات في اليوم ده" />
       ) : (
         <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
           {rows.map((row) => {
             const employee = row.staffId ? names.get(row.staffId) : undefined;
             const tag = roleTag(employee);
-            const day = data.days.find((d) => d.staff_id === row.staffId && d.date === date);
+            const day = row.staffId ? days.get(row.staffId) : undefined;
             return (
               <div key={row.key} className={`${CARD} p-3`}>
                 <div className="flex items-center justify-between">
@@ -1179,22 +1226,18 @@ function WorkDayTab({
                 <div className={`${SOFT} mt-2 flex justify-between px-3 py-1.5 text-xs`}>
                   <span>
                     <span className={MUTED}>الحضور: </span>
-                    <b>{cairoTime(row.punches[0])}</b>
+                    <b>{cairoTime(day?.first_in)}</b>
                   </span>
                   <span>
                     <span className={MUTED}>الانصراف: </span>
-                    <b>
-                      {row.punches.length > 1
-                        ? cairoTime(row.punches[row.punches.length - 1])
-                        : '—'}
-                    </b>
+                    <b>{cairoTime(day?.last_out)}</b>
                   </span>
                 </div>
                 <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
                   <div>
-                    <div className={MUTED}>المدة بين الحضور والانصراف</div>
+                    <div className={MUTED}>ساعات الحضور المسجلة</div>
                     <b className="text-sm">
-                      {row.grossMinutes ? minutesLabel(row.grossMinutes) : 'غير مكتمل'}
+                      {day?.hours == null ? '—' : minutesLabel(Math.round(day.hours * 60))}
                     </b>
                   </div>
                   <div>
@@ -1202,26 +1245,82 @@ function WorkDayTab({
                     <b className="text-sm">{day ? `${day.late_minutes} دقيقة` : '—'}</b>
                   </div>
                 </div>
-                {row.punches.length > 2 ? (
-                  <div className={`mt-1.5 text-[11px] ${MUTED}`}>
-                    البصمات: {row.punches.map((p) => cairoTime(p)).join(' · ')} · صافي الشغل{' '}
-                    {minutesLabel(row.workMinutes)}
-                  </div>
+                <div className={`mt-2 flex flex-wrap items-center gap-2 text-xs ${MUTED}`}>
+                  <span>
+                    الجدول: {cairoTime(day?.scheduled_start)} — {cairoTime(day?.scheduled_end)}
+                  </span>
+                  {day?.status === 'approved' ? (
+                    <Pill tone="green">معتمد</Pill>
+                  ) : day ? (
+                    <Pill tone={day.review ? 'amber' : 'blue'}>
+                      {DAY_KIND_LABELS[dayKind(day)]}
+                    </Pill>
+                  ) : (
+                    <Pill tone="amber">لا يوجد سجل حضور في عرض الدورة</Pill>
+                  )}
+                </div>
+                {row.punches.length > 0 ? (
+                  <details className={`mt-2 text-[11px] ${MUTED}`}>
+                    <summary className="cursor-pointer">
+                      بصمات الجهاز ({row.punches.length})
+                    </summary>
+                    <ul className="mt-1 space-y-1">
+                      {row.events.map((event, index) => (
+                        <li key={event.event_id ?? index}>
+                          <bdi>
+                            {cairoDayOf(event.punch_time)} {cairoTime(event.punch_time)}
+                          </bdi>
+                          {' · '}
+                          {event.interpretation_status === 'rejected'
+                            ? 'مستبعدة من الاحتساب'
+                            : event.interpreted_type === 'check_in'
+                              ? 'دخول'
+                              : event.interpreted_type === 'check_out'
+                                ? 'خروج'
+                                : 'تحتاج تفسير'}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
                 ) : null}
-                {row.singlePunch ? (
-                  <div className="mt-1.5">
-                    <Pill tone="red">بصمة واحدة فقط (نسي الحضور أو الانصراف)</Pill>
-                  </div>
-                ) : row.unpaired ? (
-                  <div className="mt-1.5">
-                    <Pill tone="amber">آخر بصمة من غير انصراف</Pill>
-                  </div>
+                {canReview && row.staffId && day?.review ? (
+                  <button
+                    type="button"
+                    className="btn-secondary mt-2 text-xs"
+                    onClick={() =>
+                      row.staffId && setReview({ staffId: row.staffId, name: row.name, date })
+                    }
+                  >
+                    تعديل أو اعتماد اليوم
+                  </button>
                 ) : null}
               </div>
             );
           })}
         </div>
       )}
+      <Sheet open={Boolean(canReview && review)} onOpenChange={(open) => !open && setReview(null)}>
+        {canReview && review ? (
+          <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-4xl" dir="rtl">
+            <SheetTitle className="mb-4 pe-8">
+              {review.name} · {review.date}
+            </SheetTitle>
+            <Suspense fallback={<Spinner label="جارٍ تجهيز مراجعة اليوم" />}>
+              <AttendanceResolutionCenter
+                key={`${review.staffId}:${review.date}`}
+                initialDate={review.date}
+                initialStaffId={review.staffId}
+                initialTriage="all"
+                embedded
+                onDecisionSaved={() => {
+                  onDecisionSaved();
+                  setAttempt((current) => current + 1);
+                }}
+              />
+            </Suspense>
+          </SheetContent>
+        ) : null}
+      </Sheet>
     </div>
   );
 }
