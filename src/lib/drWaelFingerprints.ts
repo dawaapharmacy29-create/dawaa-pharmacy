@@ -592,3 +592,53 @@ export function payrollStaff(
     ...extra.filter((e) => e.active && !listed.has(e.staff_id)),
   ];
 }
+
+// Leave for a period / ending a leave on the return day (migration 20261104170000).
+export type DrWaelLeaveKind = 'approved_absence' | 'annual_leave' | 'sick_leave' | 'exceptional_leave';
+
+export async function setDrWaelLeave(args: {
+  staffId: string;
+  kind: DrWaelLeaveKind;
+  from: string;
+  to: string;
+  reason?: string | null;
+}): Promise<{ request_id: string; from: string; to: string }> {
+  const { data, error } = await supabase.rpc('dr_wael_set_leave_v1', {
+    p_staff_id: args.staffId,
+    p_kind: args.kind,
+    p_from: args.from,
+    p_to: args.to,
+    p_reason: args.reason || null,
+  });
+  if (error) throw new Error(error.message);
+  return data as { request_id: string; from: string; to: string };
+}
+
+export async function endDrWaelLeave(
+  requestId: string,
+  returnDate: string,
+  note?: string | null
+): Promise<{ cancelled: boolean; days_rebuilt: number; days_kept_manager_approved: number }> {
+  const { data, error } = await supabase.rpc('dr_wael_end_leave_v1', {
+    p_request_id: requestId,
+    p_return_date: returnDate,
+    p_note: note || null,
+  });
+  if (error) throw new Error(error.message);
+  return data as { cancelled: boolean; days_rebuilt: number; days_kept_manager_approved: number };
+}
+
+/** A leave still running on (or after) a day: approved, a full-day kind, ending on or after it. */
+export function runningLeaves(rows: DrWaelTimeOff[], staffId: string, today: string): DrWaelTimeOff[] {
+  return rows.filter(
+    (row) =>
+      row.staff_id === staffId &&
+      row.status === 'approved' &&
+      row.kind !== 'permission' &&
+      row.kind !== 'shift_swap' &&
+      row.end_date >= today
+  );
+}
+
+/** «9999-12-31» is how an open-ended leave («لحد ما يرجع») is stored. */
+export const isOpenEnded = (endDate: string) => endDate >= '9000-01-01';

@@ -552,7 +552,8 @@ export default function AttendanceResolutionCenter({
     && refreshedDay.status !== 'approved');
 
   async function approveRefreshedDay() {
-    if (!selected || !finalApprovalReady || mutationLock.current || !note.trim()) return;
+    if (!selected || !finalApprovalReady || mutationLock.current) return;
+    const approvalNote = note.trim() || 'اعتماد بعد مراجعة أدلة البصمات والشيفت';
     mutationLock.current = true;
     setApproving(true);
     try {
@@ -567,7 +568,7 @@ export default function AttendanceResolutionCenter({
         throw new Error('تغيرت أدلة اليوم أو بقي تعارض. حدّث الأدلة وراجع السبب قبل الاعتماد.');
       }
       const saved = await approveAttendanceResolution({ staffId: selected.staff_id,
-        date: selected.attendance_date, payrollEligibleHours: null, requireCompleteEvidence: true, note: note.trim() });
+        date: selected.attendance_date, payrollEligibleHours: null, requireCompleteEvidence: true, note: approvalNote });
       if (saved?.status !== 'approved') throw new Error('لم تؤكد قاعدة البيانات الاعتماد');
       const verified = await getAttendanceDayEvidence(selected.staff_id, selected.attendance_date);
       if (verified.status !== 'approved') throw new Error('تعذر التحقق من حفظ الاعتماد');
@@ -835,12 +836,10 @@ export default function AttendanceResolutionCenter({
         toast.warning('حدد وقتين مختلفين لبداية الشيفت ونهايته.');
         return;
       }
-      const decisionNote = note.trim();
-      if (decisionNote.length < 5) {
-        toast.warning(decisionNote ? 'كمّل الملاحظة اليدوية لخمسة أحرف على الأقل.' : 'اكتب سبب تعديل الشيفت في الملاحظة اليدوية.');
-        decisionNoteRef.current?.focus();
-        return;
-      }
+      // The note is optional: when left short we document the change itself.
+      const typedNote = note.trim();
+      const decisionNote = typedNote.length >= 5 ? typedNote
+        : `تعديل شيفت يوم ${selected.attendance_date} إلى ${revisedShiftIn}–${revisedShiftOut} من مراجعة الحضور${typedNote ? ` (${typedNote})` : ''}`;
       if (!window.confirm(`سيتم تعديل شيفت ${selected.staff_name} بتاريخ ${selected.attendance_date} فقط، دون تغيير الأسابيع التالية. ستعاد مراجعة البصمات ولن يعتمد اليوم تلقائيًا إذا بقي تعارض. هل تؤكد؟`)) return;
       setApproving(true);
       try {
@@ -1600,7 +1599,7 @@ export default function AttendanceResolutionCenter({
             <label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">
               الملاحظة اليدوية للقرار
               <textarea ref={decisionNoteRef} value={note} onChange={(e) => setNote(e.target.value)} rows={2} className="input-dark mt-1 w-full resize-none"
-                placeholder={['custom', 'outside_work', 'absence_deduction', 'time_deduction', 'permission', 'schedule_error', 'shift_swap', 'forgot_in', 'forgot_out'].includes(reason) ? 'مطلوب: اكتب سبب القرار والدليل' : 'اختياري: تفاصيل إضافية توثق القرار'} />
+                placeholder={['custom', 'outside_work', 'absence_deduction', 'time_deduction', 'permission', 'forgot_in', 'forgot_out'].includes(reason) ? 'مطلوب: اكتب سبب القرار والدليل' : 'اختياري: تفاصيل إضافية توثق القرار'} />
             </label>
             <p className="mt-2 text-[10px] text-[var(--dawaa-theme-muted)]">الأدلة محفوظة في السجل ويمكن فتحها عند الحاجة بدون إطالة نافذة القرار.</p>
             </div>
@@ -1629,7 +1628,7 @@ export default function AttendanceResolutionCenter({
                           : 'حفظ قرار الحضور'}
               </button>
               <button type="button" onClick={() => void approveRefreshedDay()}
-                disabled={!finalApprovalReady || approving || !note.trim()}
+                disabled={!finalApprovalReady || approving}
                 className="btn-primary flex-1">اعتماد القرار النهائي</button>
               <button disabled={approving || evidenceBusy} onClick={() => { setSelected(null); setNote(''); setReason(''); setMultiplier(''); setHours(''); setSwapWithDate(''); setWeeklyOffSwapPreview(null); setManualPunchAt(''); setApplyMissingPunchPenalty(false); setMissingPunchContext(null); setMissingPunchHistory([]); setShowDecisionEvidence(false); }} className="btn-secondary">{embedded ? 'إغلاق المراجعة' : 'إلغاء'}</button>
             </div>
