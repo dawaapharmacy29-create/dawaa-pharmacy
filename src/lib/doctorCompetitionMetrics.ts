@@ -29,6 +29,7 @@ const ACCOUNTS_TIMEOUT_MS = 6000;
 export type DoctorCompetitionPeriod = 'last30' | 'last90' | 'last_3_months' | 'cycle' | 'custom';
 
 export type DoctorCompetitionParams = {
+  includeActiveRoster?: boolean;
   period?: DoctorCompetitionPeriod;
   branch?: string | null;
   customStart?: string | null;
@@ -479,7 +480,11 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     byNameBranch.set(`${doctor.branch}|${nameKey}`, doctor);
     const first = firstNameKey(doctor.name);
     if (first) firstNameGroups.set(`${doctor.branch}|${first}`, [...(firstNameGroups.get(`${doctor.branch}|${first}`) || []), doctor]);
-    if (allowBranch(doctor.branch)) map.set(scoreKey(doctor), emptyDoctor(doctor));
+    const rosterBranch = selectedBranch || (!canSeeAll ? userBranch : '');
+    const rosterDoctor = params.includeActiveRoster && doctor.branch === ALL_BRANCHES && rosterBranch
+      ? { ...doctor, branch: rosterBranch }
+      : doctor;
+    if (allowBranch(rosterDoctor.branch)) map.set(scoreKey(rosterDoctor), emptyDoctor(rosterDoctor));
   }
 
   const resolveDoctor = (row: Row, branch: string): EligibleDoctor | null => {
@@ -659,7 +664,7 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
   });
 
   const rows = calculateScores(rawRows)
-    .filter((row) => row.leaderboardEligible && row.totalSales > MINIMUM_SALES_FOR_LEADERBOARD)
+    .filter((row) => row.leaderboardEligible && (params.includeActiveRoster || row.totalSales > MINIMUM_SALES_FOR_LEADERBOARD))
     .sort((a, b) => b.competitionPoints - a.competitionPoints || b.totalSales - a.totalSales);
   const eligibleRows = rows;
   const reviewRows = rows.filter(
