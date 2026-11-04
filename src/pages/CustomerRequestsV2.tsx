@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
-import { BarChart3, Boxes, DatabaseZap, ListChecks, PackageSearch, ShieldAlert, ShoppingCart, UsersRound } from 'lucide-react';
+import { BarChart3, Boxes, DatabaseZap, ExternalLink, ListChecks, PackageSearch, ShieldAlert, UsersRound } from 'lucide-react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import type { CustomerRequest } from '@/lib/api/customerRequests';
 import { useAuth } from '@/hooks/useAuth';
@@ -63,21 +63,19 @@ export default function CustomerRequestsV2() {
 
   return (
     <div className="mx-auto w-full max-w-[1680px] space-y-3 pb-6" dir="rtl">
-      <section className="rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface)] p-2.5 shadow-sm">
-        <div className="flex flex-col gap-2.5 xl:flex-row xl:items-center xl:justify-between">
-          <nav className="grid flex-1 grid-cols-2 gap-1.5 lg:grid-cols-4">
-            <WorkspaceTab active={tab === 'operations'} onClick={() => selectTab('operations')} icon={ListChecks} title="التنفيذ" description="التسجيل والمتابعة والتسليم" />
-            <WorkspaceTab active={tab === 'sourcing'} onClick={() => selectTab('sourcing')} icon={PackageSearch} title="التوفير" description="النواقص والمخازن ودورة التوفير" />
-            <WorkspaceTab active={tab === 'analytics'} onClick={() => selectTab('analytics')} icon={BarChart3} title="التحليلات" description="معدلات التوفير والأصناف والفروع" />
-            <WorkspaceTab active={tab === 'quality'} onClick={() => selectTab('quality')} icon={ShieldAlert} title="جودة البيانات" description="العملاء والأكواد وهوية الموظفين" />
-          </nav>
+      <section className="flex flex-wrap items-center justify-between gap-2">
+        <nav className="flex gap-1 overflow-x-auto rounded-xl bg-[var(--dawaa-theme-surface)] p-1" aria-label="أقسام طلبات العملاء">
+          <WorkspaceTab active={tab === 'operations'} onClick={() => selectTab('operations')} icon={ListChecks} title="التنفيذ" />
+          <WorkspaceTab active={tab === 'sourcing'} onClick={() => selectTab('sourcing')} icon={PackageSearch} title="التوفير" />
+          <WorkspaceTab active={tab === 'analytics'} onClick={() => selectTab('analytics')} icon={BarChart3} title="التحليلات" />
+          <WorkspaceTab active={tab === 'quality'} onClick={() => selectTab('quality')} icon={ShieldAlert} title="جودة البيانات" />
+        </nav>
 
-          <div className="flex flex-wrap gap-1.5 text-[11px] font-black">
-            <Link to="/customers" className="btn-secondary flex items-center gap-1.5 !py-1.5"><UsersRound size={13} /> العملاء</Link>
-            <Link to="/shortages" className="btn-secondary flex items-center gap-1.5 !py-1.5"><Boxes size={13} /> النواقص</Link>
-            <Link to="/purchases" className="btn-secondary flex items-center gap-1.5 !py-1.5"><ShoppingCart size={13} /> المشتريات</Link>
-            <Link to="/points" className="btn-secondary flex items-center gap-1.5 !py-1.5"><DatabaseZap size={13} /> النقاط</Link>
-          </div>
+        <div className="flex flex-wrap gap-1 text-[11px] font-black">
+          <a href="https://dawaawael.base44.app/customer-orders" target="_blank" rel="noreferrer" className="dawaa-tab inline-flex items-center gap-1.5 !py-1"><ExternalLink size={13} /> دواء وائل</a>
+          <Link to="/customers" className="dawaa-tab inline-flex items-center gap-1.5 !py-1"><UsersRound size={13} /> العملاء</Link>
+          <Link to="/shortages" className="dawaa-tab inline-flex items-center gap-1.5 !py-1"><Boxes size={13} /> النواقص</Link>
+          <Link to="/points" className="dawaa-tab inline-flex items-center gap-1.5 !py-1"><DatabaseZap size={13} /> النقاط</Link>
         </div>
       </section>
 
@@ -136,8 +134,8 @@ export default function CustomerRequestsV2() {
   );
 }
 
-function WorkspaceTab({ active, onClick, icon: Icon, title, description }: { active: boolean; onClick: () => void; icon: typeof ListChecks; title: string; description: string }) {
-  return <button type="button" onClick={onClick} className={`rounded-xl border px-3 py-2 text-right transition ${active ? 'border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] text-[var(--dawaa-theme-primary)]' : 'border-[var(--dawaa-theme-border)] text-[var(--dawaa-theme-text)] hover:border-[var(--dawaa-theme-accent-border)]'}`}><span className="flex items-center gap-2 text-xs font-black"><Icon size={15} /> {title}</span><small className="mt-0.5 block text-[9px] font-bold opacity-70">{description}</small></button>;
+function WorkspaceTab({ active, onClick, icon: Icon, title }: { active: boolean; onClick: () => void; icon: typeof ListChecks; title: string }) {
+  return <button type="button" role="tab" aria-selected={active} onClick={onClick} className={`dawaa-tab inline-flex items-center gap-2 whitespace-nowrap text-xs ${active ? 'is-active' : ''}`}><Icon size={15} /> {title}</button>;
 }
 
 function ScopeBranch({ value, onChange, canAccessAll, ownBranch }: { value: string; onChange: (value: string) => void; canAccessAll: boolean; ownBranch: string }) {
