@@ -438,10 +438,17 @@ export default function DrWaelFingerprints() {
           names={names}
           insights={insights}
           onSmart={setSmart}
+          onDecisionSaved={() => void load(cycle)}
         />
       ) : null}
       {tab === 'attendance' ? (
-        <AttendanceTab data={data} employees={employees} insights={insights} onSmart={setSmart} />
+        <AttendanceTab
+          data={data}
+          employees={employees}
+          insights={insights}
+          onSmart={setSmart}
+          onDecisionSaved={() => void load(cycle)}
+        />
       ) : null}
       {tab === 'workday' ? (
         <WorkDayTab
@@ -452,7 +459,11 @@ export default function DrWaelFingerprints() {
         />
       ) : null}
       {tab === 'employees' ? (
-        <EmployeesTab employees={employees} insights={insights} onSmart={setSmart} />
+        <EmployeesTab
+          employees={employees.filter((employee) => employee.active)}
+          insights={insights}
+          onSmart={setSmart}
+        />
       ) : null}
       {tab === 'adjustments' ? (
         <AdjustmentsTab data={data} employees={employees} names={names} />
@@ -818,13 +829,17 @@ function DashboardTab({
   names,
   insights,
   onSmart,
+  onDecisionSaved,
 }: {
   data: Data;
   branch: string;
   names: Map<string, DrWaelEmployee>;
   insights: Map<string, DrWaelInsight>;
   onSmart: (employee: DrWaelEmployee) => void;
+  onDecisionSaved: () => void;
 }) {
+  const [review, setReview] = useState<DayReview | null>(null);
+  const canReview = useDayReviewAccess();
   const branches = data.branches.filter((b) => matches(branch, b));
   const open = openShifts(data.days, data.today);
   const today = todayByBranch(data, data.today).filter((row) => matches(branch, row.branch));
@@ -931,7 +946,24 @@ function DashboardTab({
                           'لا يوجد سجل حضور'
                         )}
                       </div>
-                      <div className="mt-1.5">{dayFlags(day)}</div>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                        {dayFlags(day)}
+                        {canReview && day.review ? (
+                          <button
+                            type="button"
+                            className="btn-secondary text-xs"
+                            onClick={() =>
+                              setReview({
+                                staffId: day.staff_id,
+                                name: names.get(day.staff_id)?.name || 'موظف',
+                                date: day.date,
+                              })
+                            }
+                          >
+                            تعديل البصمة أو مراجعة اليوم
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -944,6 +976,11 @@ function DashboardTab({
           ))}
         </div>
       </Section>
+      <DayReviewSheet
+        review={canReview ? review : null}
+        onClose={() => setReview(null)}
+        onDecisionSaved={onDecisionSaved}
+      />
     </div>
   );
 }
@@ -953,11 +990,13 @@ function AttendanceTab({
   employees,
   insights,
   onSmart,
+  onDecisionSaved,
 }: {
   data: Data;
   employees: DrWaelEmployee[];
   insights: Map<string, DrWaelInsight>;
   onSmart: (employee: DrWaelEmployee) => void;
+  onDecisionSaved: () => void;
 }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | 'review' | 'smart'>('all');
@@ -1070,14 +1109,26 @@ function AttendanceTab({
           className="w-full overflow-y-auto bg-white text-gray-800 dark:bg-slate-950 dark:text-slate-200 sm:max-w-xl"
           dir="rtl"
         >
-          {open ? <EmployeeDays employee={open} data={data} /> : null}
+          {open ? (
+            <EmployeeDays employee={open} data={data} onDecisionSaved={onDecisionSaved} />
+          ) : null}
         </SheetContent>
       </Sheet>
     </div>
   );
 }
 
-function EmployeeDays({ employee, data }: { employee: DrWaelEmployee; data: Data }) {
+function EmployeeDays({
+  employee,
+  data,
+  onDecisionSaved,
+}: {
+  employee: DrWaelEmployee;
+  data: Data;
+  onDecisionSaved: () => void;
+}) {
+  const canReview = useDayReviewAccess();
+  const [review, setReview] = useState<DayReview | null>(null);
   const days = data.days
     .filter((day) => day.staff_id === employee.staff_id)
     .sort((a, b) => a.date.localeCompare(b.date));
@@ -1102,6 +1153,21 @@ function EmployeeDays({ employee, data }: { employee: DrWaelEmployee; data: Data
                 <Td>{day.hours ? hoursText(day.hours) : '—'}</Td>
                 <Td>
                   <Pill tone={KIND_TONE[kind]}>{DAY_KIND_LABELS[kind]}</Pill>
+                  {canReview && day.review ? (
+                    <button
+                      type="button"
+                      className="btn-secondary mt-1 text-xs"
+                      onClick={() =>
+                        setReview({
+                          staffId: employee.staff_id,
+                          name: employee.name,
+                          date: day.date,
+                        })
+                      }
+                    >
+                      مراجعة البصمة
+                    </button>
+                  ) : null}
                   {day.missing_punch && day.punches === 1 ? (
                     <span className="mr-1">
                       <Pill tone="amber">بصمة واحدة</Pill>
@@ -1115,7 +1181,55 @@ function EmployeeDays({ employee, data }: { employee: DrWaelEmployee; data: Data
       ) : (
         <Empty label="مفيش أيام في الفترة دي" />
       )}
+      <DayReviewSheet
+        review={canReview ? review : null}
+        onClose={() => setReview(null)}
+        onDecisionSaved={onDecisionSaved}
+      />
     </div>
+  );
+}
+
+type DayReview = { staffId: string; name: string; date: string };
+
+function useDayReviewAccess() {
+  const { user } = useAuth();
+  return (
+    user?.role === 'general_manager' ||
+    user?.role === 'executive_manager' ||
+    hasPermission(user, 'manage_payroll')
+  );
+}
+
+function DayReviewSheet({
+  review,
+  onClose,
+  onDecisionSaved,
+}: {
+  review: DayReview | null;
+  onClose: () => void;
+  onDecisionSaved: () => void;
+}) {
+  return (
+    <Sheet open={Boolean(review)} onOpenChange={(open) => !open && onClose()}>
+      {review ? (
+        <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-4xl" dir="rtl">
+          <SheetTitle className="mb-4 pe-8">
+            {review.name} · {review.date}
+          </SheetTitle>
+          <Suspense fallback={<Spinner label="جارٍ تجهيز مراجعة اليوم" />}>
+            <AttendanceResolutionCenter
+              key={`${review.staffId}:${review.date}`}
+              initialDate={review.date}
+              initialStaffId={review.staffId}
+              initialTriage="all"
+              embedded
+              onDecisionSaved={onDecisionSaved}
+            />
+          </Suspense>
+        </SheetContent>
+      ) : null}
+    </Sheet>
   );
 }
 
@@ -1130,12 +1244,9 @@ function WorkDayTab({
   names: Map<string, DrWaelEmployee>;
   onDecisionSaved: () => void;
 }) {
-  const { user } = useAuth();
-  const canReview = hasPermission(user, 'manage_payroll');
+  const canReview = useDayReviewAccess();
   const [date, setDate] = useState(data.today);
-  const [review, setReview] = useState<{ staffId: string; name: string; date: string } | null>(
-    null
-  );
+  const [review, setReview] = useState<DayReview | null>(null);
   const [punches, setPunches] = useState<DrWaelPunch[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -1299,28 +1410,14 @@ function WorkDayTab({
           })}
         </div>
       )}
-      <Sheet open={Boolean(canReview && review)} onOpenChange={(open) => !open && setReview(null)}>
-        {canReview && review ? (
-          <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-4xl" dir="rtl">
-            <SheetTitle className="mb-4 pe-8">
-              {review.name} · {review.date}
-            </SheetTitle>
-            <Suspense fallback={<Spinner label="جارٍ تجهيز مراجعة اليوم" />}>
-              <AttendanceResolutionCenter
-                key={`${review.staffId}:${review.date}`}
-                initialDate={review.date}
-                initialStaffId={review.staffId}
-                initialTriage="all"
-                embedded
-                onDecisionSaved={() => {
-                  onDecisionSaved();
-                  setAttempt((current) => current + 1);
-                }}
-              />
-            </Suspense>
-          </SheetContent>
-        ) : null}
-      </Sheet>
+      <DayReviewSheet
+        review={canReview ? review : null}
+        onClose={() => setReview(null)}
+        onDecisionSaved={() => {
+          onDecisionSaved();
+          setAttempt((current) => current + 1);
+        }}
+      />
     </div>
   );
 }
@@ -1355,7 +1452,7 @@ function EmployeesTab({
                       onClick={() => onSmart(employee)}
                       className="font-bold text-gray-900 hover:text-indigo-600 dark:text-slate-100"
                     >
-                      {employee.name}
+                      {employee.name} · تعديل الموظف
                     </button>
                     <div className={`text-[11px] ${MUTED}`}>{tag.label}</div>
                     {insightFlags(insights.get(employee.staff_id))}
