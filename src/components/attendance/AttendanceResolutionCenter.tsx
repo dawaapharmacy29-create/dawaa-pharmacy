@@ -202,6 +202,7 @@ export default function AttendanceResolutionCenter({
   const [materializing, setMaterializing] = useState(false);
   const [selected, setSelected] = useState<AttendanceExceptionRow | null>(null);
   const [profileStaffId, setProfileStaffId] = useState<string | null>(null);
+  const decisionNoteRef = useRef<HTMLTextAreaElement>(null);
   const [note, setNote] = useState('');
   const [reason, setReason] = useState('');
   const [multiplier, setMultiplier] = useState('');
@@ -830,8 +831,14 @@ export default function AttendanceResolutionCenter({
     if (decision.schedule) {
       const timeFormat = /^([01]\d|2[0-3]):[0-5]\d$/;
       if (!timeFormat.test(revisedShiftIn) || !timeFormat.test(revisedShiftOut) ||
-          revisedShiftIn === revisedShiftOut || note.trim().length < 5) {
-        toast.warning('حدد وقتي بداية ونهاية الشيفت واكتب سبب التعديل (5 أحرف على الأقل).');
+          revisedShiftIn === revisedShiftOut) {
+        toast.warning('حدد وقتين مختلفين لبداية الشيفت ونهايته.');
+        return;
+      }
+      const decisionNote = note.trim();
+      if (decisionNote.length < 5) {
+        toast.warning(decisionNote ? 'كمّل الملاحظة اليدوية لخمسة أحرف على الأقل.' : 'اكتب سبب تعديل الشيفت في الملاحظة اليدوية.');
+        decisionNoteRef.current?.focus();
         return;
       }
       if (!window.confirm(`سيتم تعديل شيفت ${selected.staff_name} بتاريخ ${selected.attendance_date} فقط، دون تغيير الأسابيع التالية. ستعاد مراجعة البصمات ولن يعتمد اليوم تلقائيًا إذا بقي تعارض. هل تؤكد؟`)) return;
@@ -839,7 +846,7 @@ export default function AttendanceResolutionCenter({
       try {
         setEvidenceReadError(true);
         await resolveDatedAttendanceShift({ staffId: selected.staff_id, date: selected.attendance_date,
-          start: revisedShiftIn, end: revisedShiftOut, note: note.trim() });
+          start: revisedShiftIn, end: revisedShiftOut, note: decisionNote });
         await refreshSelectedEvidence('تم حفظ شيفت هذا اليوم. راجع الأدلة والساعات ثم اعتمد القرار النهائي.');
         setReason('');
       } catch (error) {
@@ -1581,7 +1588,7 @@ export default function AttendanceResolutionCenter({
                       <label>بداية الشيفت<input type="time" className="input-dark mt-1 block w-full" value={revisedShiftIn} onChange={(event) => setRevisedShiftIn(event.target.value)} /></label>
                       <label>نهاية الشيفت<input type="time" className="input-dark mt-1 block w-full" value={revisedShiftOut} onChange={(event) => setRevisedShiftOut(event.target.value)} /></label>
                     </div>
-                    <p className="mt-2">اكتب سبب التعديل في الملاحظة. سيتم حفظ استثناء مؤرخ وإعادة فحص اليوم، دون اعتماد تلقائي إذا بقيت أدلة متعارضة.</p>
+                    <p className="mt-2">الملاحظة اليدوية تُستخدم لحفظ الشيفت واعتماد القرار النهائي. سيتم حفظ استثناء مؤرخ وإعادة فحص اليوم، دون اعتماد تلقائي إذا بقيت أدلة متعارضة.</p>
                   </div>
                 )}
                 {decision?.financial && <label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">معامل الخصم المقترح للمراجعة المالية
@@ -1591,8 +1598,8 @@ export default function AttendanceResolutionCenter({
               </>;
             })()}
             <label className="mt-3 block text-xs font-black text-[var(--dawaa-theme-muted)]">
-              ملاحظة القرار
-              <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} className="input-dark mt-1 w-full resize-none"
+              الملاحظة اليدوية للقرار
+              <textarea ref={decisionNoteRef} value={note} onChange={(e) => setNote(e.target.value)} rows={2} className="input-dark mt-1 w-full resize-none"
                 placeholder={['custom', 'outside_work', 'absence_deduction', 'time_deduction', 'permission', 'schedule_error', 'shift_swap', 'forgot_in', 'forgot_out'].includes(reason) ? 'مطلوب: اكتب سبب القرار والدليل' : 'اختياري: تفاصيل إضافية توثق القرار'} />
             </label>
             <p className="mt-2 text-[10px] text-[var(--dawaa-theme-muted)]">الأدلة محفوظة في السجل ويمكن فتحها عند الحاجة بدون إطالة نافذة القرار.</p>
