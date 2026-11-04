@@ -644,3 +644,43 @@ export function runningLeaves(rows: DrWaelTimeOff[], staffId: string, today: str
 
 /** «9999-12-31» is how an open-ended leave («لحد ما يرجع») is stored. */
 export const isOpenEnded = (endDate: string) => endDate >= '9000-01-01';
+
+export interface PresentNow {
+  staffId: string;
+  name: string;
+  /** The device branch of his last check-in (may differ from his own branch). */
+  punchBranch: string | null;
+  since: string;
+}
+
+const punchKind = (punch: DrWaelPunch): 'check_in' | 'check_out' | null => {
+  const value = String(punch.interpreted_type || punch.punch_type || '').toLowerCase();
+  if (value === 'check_in' || value === 'in') return 'check_in';
+  if (value === 'check_out' || value === 'out') return 'check_out';
+  return null;
+};
+
+// «الحاضرون الآن» straight from the punches of last night and today: the employee's last punch is a check-in made in
+// the last `maxHours`. The resolved days are built only after the shift ends, so they cannot answer «who is in now».
+export function presentNow(punches: DrWaelPunch[], now: Date = new Date(), maxHours = 16): PresentNow[] {
+  const byStaff = new Map<string, DrWaelPunch[]>();
+  for (const punch of punches) {
+    if (!punch.staff_id || punch.interpretation_status === 'rejected') continue;
+    byStaff.set(punch.staff_id, [...(byStaff.get(punch.staff_id) || []), punch]);
+  }
+  const limit = now.getTime() - maxHours * 3600_000;
+  const rows: PresentNow[] = [];
+  for (const [staffId, list] of byStaff) {
+    const sorted = [...new Map(list.map((p) => [p.event_id || p.punch_time, p])).values()].sort(
+      (a, b) => Date.parse(a.punch_time) - Date.parse(b.punch_time)
+    );
+    const last = sorted[sorted.length - 1];
+    if (!last || punchKind(last) !== 'check_in' || Date.parse(last.punch_time) < limit) continue;
+    // The open session starts at the first check-in after the last check-out.
+    let start = sorted.length - 1;
+    while (start > 0 && punchKind(sorted[start - 1]) === 'check_in' && Date.parse(sorted[start - 1].punch_time) >= limit)
+      start -= 1;
+    rows.push({ staffId, name: last.name || '—', punchBranch: last.branch, since: sorted[start].punch_time });
+  }
+  return rows.sort((a, b) => Date.parse(a.since) - Date.parse(b.since));
+}
