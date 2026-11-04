@@ -8,6 +8,7 @@ export interface RawSalesInvoiceItemV21 {
   rowIndex: number;
   invoiceNumber: string;
   branch: string;
+  sourceBranch?: string;
   invoiceDate: string | null;
   customerCode: string | null;
   lineNo: number | null;
@@ -172,10 +173,10 @@ export type SalesItemPreviewRow = {
   invoice?: InvoiceMatch;
 };
 
-export async function previewSalesInvoiceItemsV21(rows: RawSalesInvoiceItemV21[], branch: string) {
+async function previewBranch(rows: RawSalesInvoiceItemV21[], branch: string) {
   const preview: SalesItemPreviewRow[] = rows.map((row) => ({
     row,
-    status: normalizeBranchName(row.branch) === branch ? 'missing' : 'wrong_branch',
+    status: !row.branch || normalizeBranchName(row.branch) === branch ? 'missing' : 'wrong_branch',
   }));
   const days = new Map<string, SalesItemPreviewRow[]>();
   for (const entry of preview) {
@@ -214,6 +215,7 @@ export async function previewSalesInvoiceItemsV21(rows: RawSalesInvoiceItemV21[]
           entry.status = matches.length ? 'ambiguous' : 'missing';
           continue;
         }
+        entry.row = { ...row, sourceBranch: row.branch, branch };
         const key = itemKey(row.invoiceNumber, row.lineNo, row.productCode);
         if (existing.has(key)) {
           entry.status = 'existing';
@@ -235,19 +237,30 @@ export async function previewSalesInvoiceItemsV21(rows: RawSalesInvoiceItemV21[]
   return preview;
 }
 
+export async function previewSalesInvoiceItemsV21(rows: RawSalesInvoiceItemV21[], branches: readonly string[]) {
+  if (!branches.length) throw new Error('اختار فرع الملف.');
+  const results = await Promise.all(branches.map((branch) => previewBranch(rows, branch)));
+  return rows.map((row, index): SalesItemPreviewRow => {
+    const checked = results.map((result) => result[index]);
+    const matched = checked.filter(({ status }) => status !== 'missing' && status !== 'wrong_branch');
+    if (matched.length > 1) return { row, status: 'ambiguous' };
+    return matched[0] ?? checked.find(({ status }) => status === 'missing') ?? checked[0];
+  });
+}
+
 export async function saveSalesInvoiceItemsV21(
   rows: RawSalesInvoiceItemV21[],
-  branch: string,
+  branches: readonly string[],
   sourceFile: string,
 ) {
-  const current = await previewSalesInvoiceItemsV21(rows, branch);
+  const current = await previewSalesInvoiceItemsV21(rows, branches);
   const ready = current.filter((entry) => entry.status === 'ready' && entry.invoice);
   const batch = `bconnect-items-${crypto.randomUUID()}`;
   const payload = await Promise.all(ready.map(async ({ row, invoice }) => ({
     item_identity: await sha256(JSON.stringify(['bconnect-items', invoice!.id, row.lineNo, row.productCode])),
     invoice_id: invoice!.id,
     invoice_number: row.invoiceNumber,
-    branch,
+    branch: row.branch,
     invoice_date: invoice!.invoice_date ?? cairoDateBoundaryIso(row.invoiceDate!),
     customer_code: row.customerCode,
     line_no: row.lineNo,
