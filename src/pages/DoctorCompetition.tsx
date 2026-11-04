@@ -324,6 +324,7 @@ export default function DoctorCompetition() {
       // staff_accounts محمي بـ RLS فمينفعش يتقرا مباشرة من هنا — استخدمنا دالة
       // آمنة بترجع الـ IDs المؤهلة بس.
       const eligibleAccountsResult = await supabase.rpc('get_eligible_doctor_staff_ids');
+      if (eligibleAccountsResult.error) throw eligibleAccountsResult.error;
       const eligibleStaffIds = new Set(
         (eligibleAccountsResult.data || []).map((row: { staff_id: string }) => String(row.staff_id))
       );
@@ -345,6 +346,7 @@ export default function DoctorCompetition() {
           branch: effectiveBranch || ALL_BRANCHES,
           userBranch: user?.branch,
           canSeeAllBranches: true,
+          includeActiveRoster: true,
         }),
         // Last 3 months held 1,566 current reviews on 2026-10-27 — above the 1000-row
         // response cap — so the former single `.limit(10000)` read was truncated.
