@@ -213,16 +213,26 @@ async function loadFulfillment(requestRows: Row[], startAt: string, endAt: strin
  */
 async function loadPreviousCycle(cycle: LabCycle): Promise<{
   branchSales: Array<{ branch: string; invoices: number; net: number }>;
+  /** branchSales covers only as many days as this cycle has so far (a running cycle). */
+  branchSalesPartial: boolean;
   invoices: Array<{ staffId: string | null; branch: string | null; net: number; at: string | null }>;
 } | null> {
   try {
     const shift = (day: string) => { const d = new Date(`${day}T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() - 1); return d.toISOString().slice(0, 10); };
     const rows = (await dailyInvoiceWindows({ start: shift(cycle.start), endExclusive: cycle.start }, 'id,branch,net_amount,total_amount,staff_id,invoice_datetime,customer_code', 30000))
       .filter((row) => !isInternalCustomerCode(row.customer_code));
+    // Growth compares like for like: the same number of days from the previous cycle's start, so a
+    // running cycle is not measured against a whole month.
+    const day = (value: string) => Date.parse(`${value}T00:00:00Z`);
+    const length = Math.round((day(cycle.endExclusive) - day(cycle.start)) / 86_400_000);
+    const likeEndAt = new Date(day(shift(cycle.start)) + length * 86_400_000).toISOString().slice(0, 10);
+    const likeEnd = likeEndAt < cycle.start ? likeEndAt : cycle.start;
+    const cairoDay = (at: unknown) => new Date(String(at)).toLocaleString('sv-SE', { timeZone: 'Africa/Cairo' }).slice(0, 10);
     const byBranch = new Map<string, { branch: string; invoices: number; net: number }>();
     for (const row of rows) {
       const net = num(row.net_amount ?? row.total_amount);
       if (net <= 0) continue;
+      if (likeEnd < cycle.start && row.invoice_datetime && cairoDay(row.invoice_datetime) >= likeEnd) continue;
       const branch = text(row.branch);
       const entry = byBranch.get(branch) || { branch, invoices: 0, net: 0 };
       entry.invoices += 1;
@@ -231,6 +241,7 @@ async function loadPreviousCycle(cycle: LabCycle): Promise<{
     }
     return {
       branchSales: [...byBranch.values()],
+      branchSalesPartial: likeEnd < cycle.start,
       invoices: rows.map((row) => ({ staffId: text(row.staff_id) || null, branch: text(row.branch) || null, net: num(row.net_amount ?? row.total_amount), at: text(row.invoice_datetime) || null })),
     };
   } catch {
@@ -497,6 +508,7 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
     brainRequests,
     fulfillment,
     previousBranchSales: previous?.branchSales ?? null,
+    previousBranchSalesPartial: previous?.branchSalesPartial ?? false,
     previousInvoices: previous?.invoices ?? null,
     cycle,
     doctorWeights: options.doctorWeights,
