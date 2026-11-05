@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   addDays,
   cycleLabel,
+  quickDayOptions,
   dayKind,
   employeeMoney,
   mapWithConcurrency,
@@ -408,5 +409,72 @@ describe('بصمات د وائل', () => {
     expect(canAccessAccountRoute('/', wael)).toBe(true);
     expect(accountDashboardBranch(wael.toUpperCase())).toBe('فرع شكري');
     expect(accountDashboardBranch(gm)).toBeNull();
+  });
+});
+
+describe('one-click decisions next to a day under review', () => {
+  const base = {
+    staff_id: 's1',
+    date: '2026-11-04',
+    branch: 'فرع شكري',
+    first_in: null,
+    last_out: null,
+    hours: null,
+    payable_hours: null,
+    late_minutes: 0,
+    early_leave_minutes: 0,
+    missing_punch: false,
+    status: 'pending_review',
+    resolution: null,
+    review: true,
+    scheduled_start: '2026-11-04T07:00:00Z',
+    scheduled_end: '2026-11-04T15:00:00Z',
+    time_off: false,
+    punches: 0,
+  };
+  const pick = (
+    day: Partial<typeof base> & {
+      resolution: string;
+      first_in?: string | null;
+      last_out?: string | null;
+      hours?: number | null;
+    }
+  ) =>
+    quickDayOptions({ ...base, ...day } as Parameters<typeof quickDayOptions>[0]).map(
+      (o) => o.decision
+    );
+
+  it('offers the fitting decision for each case', () => {
+    expect(pick({ resolution: 'missing_checkout', first_in: '2026-11-04T07:05:00Z' })).toEqual([
+      'to_shift_end',
+    ]);
+    expect(pick({ resolution: 'missing_checkin', last_out: '2026-11-04T15:05:00Z' })).toEqual([
+      'from_shift_start',
+    ]);
+    expect(pick({ resolution: 'absence_review' })).toEqual(['absent', 'off']);
+    expect(pick({ resolution: 'no_schedule' })).toEqual(['as_is']);
+    expect(
+      pick({
+        resolution: 'early_leave_review',
+        first_in: '2026-11-04T07:00:00Z',
+        last_out: '2026-11-04T13:00:00Z',
+        hours: 6,
+      })
+    ).toEqual(['as_is']);
+  });
+
+  it('offers nothing for what needs the detailed review', () => {
+    expect(pick({ resolution: 'worked_on_off', first_in: '2026-11-04T07:00:00Z' })).toEqual([]);
+    expect(pick({ resolution: 'absence_review', first_in: '2026-11-04T07:00:00Z' })).toEqual([]);
+    expect(
+      pick({
+        resolution: 'missing_checkout',
+        first_in: '2026-11-04T07:05:00Z',
+        scheduled_end: null,
+      } as never)
+    ).toEqual([]);
+    expect(
+      quickDayOptions({ ...base, resolution: 'absence_review', review: false } as never)
+    ).toEqual([]);
   });
 });

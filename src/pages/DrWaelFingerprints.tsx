@@ -30,6 +30,9 @@ import {
   applyDrWaelShiftChange,
   cairoTime,
   cycleLabel,
+  decideQuickDay,
+  quickDayOptions,
+  type QuickDayDecision,
   dayKind,
   endDrWaelEmployment,
   endDrWaelLeave,
@@ -273,22 +276,6 @@ function roleTag(employee: DrWaelEmployee | undefined): { tone: Tone; label: str
   if (text.includes('pharmac') || text.includes('صيدلي')) return { tone: 'blue', label: 'صيدلي' };
   if (text.includes('warehouse') || text.includes('مخزن')) return { tone: 'amber', label: 'مخزن' };
   return { tone: 'gray', label: employee?.type || employee?.role || 'موظف' };
-}
-
-function dayFlags(day: DrWaelDay) {
-  const kind = dayKind(day);
-  return (
-    <div className="flex flex-wrap gap-1">
-      {day.late_minutes > 0 ? <Pill tone="red">متأخر {day.late_minutes} دقيقة</Pill> : null}
-      {day.early_leave_minutes > 0 ? (
-        <Pill tone="red">انصرف قبل الموعد بـ {day.early_leave_minutes} دقيقة</Pill>
-      ) : null}
-      {day.missing_punch && day.punches === 1 ? <Pill tone="amber">بصمة واحدة فقط</Pill> : null}
-      {kind === 'absent' ? <Pill tone="red">غائب</Pill> : null}
-      {kind === 'review' ? <Pill tone="amber">يحتاج مراجعة</Pill> : null}
-      {day.other_branch ? <Pill tone="blue">بصم في {day.other_branch}</Pill> : null}
-    </div>
-  );
 }
 
 // What the punches say about one employee, as a card highlight.
@@ -1442,76 +1429,19 @@ function DashboardTab({
           })}
         </div>
       </Section>
-      <Section
-        title="حضور وانصراف يحتاج مراجعة — آخر 5 أيام"
-        subtitle={`${groups[groups.length - 1]?.date} ← ${groups[0]?.date}`}
-      >
-        <div className="space-y-3">
-          {groups.map((group) => (
-            <div key={group.date} className={`${CARD} p-3`}>
-              <div className="mb-2 flex items-center justify-between text-xs">
-                <span className="font-bold text-gray-900 dark:text-slate-100">
-                  {group.date} · {weekday(group.date)}
-                </span>
-                <span className={MUTED}>{group.days.length} حالة</span>
-              </div>
-              {group.days.length ? (
-                <div className="grid gap-2 md:grid-cols-2">
-                  {group.days.map((day) => (
-                    <div
-                      key={`${day.staff_id}-${day.date}`}
-                      className="rounded-xl border border-gray-100 p-2.5 dark:border-slate-800"
-                    >
-                      <div className="font-bold text-gray-900 dark:text-slate-100">
-                        {names.get(day.staff_id)?.name || '—'}
-                      </div>
-                      <div className={`text-[11px] ${MUTED}`}>
-                        {day.branch}
-                        {day.scheduled_start
-                          ? ` · الشيفت ${cairoTime(day.scheduled_start)} — ${cairoTime(day.scheduled_end)}`
-                          : ''}
-                      </div>
-                      <div className="mt-1 text-[11px] text-gray-700 dark:text-slate-300">
-                        {day.first_in ? (
-                          <>
-                            الحضور: <b className="text-emerald-600">{cairoTime(day.first_in)}</b> ·
-                            الانصراف: <b className="text-rose-600">{cairoTime(day.last_out)}</b> ·
-                            مدة العمل: <b>{minutesLabel(Number(day.hours || 0) * 60)}</b>
-                          </>
-                        ) : (
-                          'لا يوجد سجل حضور'
-                        )}
-                      </div>
-                      <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                        {dayFlags(day)}
-                        {canReview && day.review ? (
-                          <button
-                            type="button"
-                            className="btn-secondary text-xs"
-                            onClick={() =>
-                              setReview({
-                                staffId: day.staff_id,
-                                name: names.get(day.staff_id)?.name || 'موظف',
-                                date: day.date,
-                              })
-                            }
-                          >
-                            تعديل البصمة أو مراجعة اليوم
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-center text-xs font-bold text-emerald-600">
-                  لا توجد حالات متبقية للمراجعة ✓
-                </p>
-              )}
-            </div>
-          ))}
-        </div>
-      </Section>
+      <ReviewQueue
+        groups={groups}
+        names={names}
+        canReview={canReview}
+        onOpen={(day) =>
+          setReview({
+            staffId: day.staff_id,
+            name: names.get(day.staff_id)?.name || 'موظف',
+            date: day.date,
+          })
+        }
+        onDecisionSaved={onDecisionSaved}
+      />
       <DayReviewSheet
         review={canReview ? review : null}
         onClose={() => setReview(null)}
@@ -1739,6 +1669,198 @@ function useDayReviewAccess() {
     user?.role === 'general_manager' ||
     user?.role === 'executive_manager' ||
     hasPermission(user, 'manage_payroll')
+  );
+}
+
+// What happened on a day under review, in one plain sentence.
+function dayStory(day: DrWaelDay): string {
+  switch (day.resolution) {
+    case 'missing_checkout':
+      return `بصم حضور ${cairoTime(day.first_in)} ونسي يبصم انصراف`;
+    case 'missing_checkin':
+      return `بصم انصراف ${cairoTime(day.last_out)} ونسي يبصم حضور`;
+    case 'absence_review':
+      return 'كان في الجدول وما بصمش خالص';
+    case 'early_leave_review':
+      return `مشي قبل الميعاد بـ ${day.early_leave_minutes} دقيقة (اشتغل ${minutesLabel(Number(day.hours || 0) * 60)})`;
+    case 'late':
+      return `اتأخر ${day.late_minutes} دقيقة`;
+    case 'no_schedule':
+      return 'مش في الجدول ومفيش بصمة';
+    case 'off_day':
+    case 'approved_time_off':
+      return 'يوم أوف / إجازة ومستني اعتماد';
+    case 'worked_on_off':
+      return 'بصم في يوم أوف — محتاج تقرر يتحسب ولا لأ';
+    case 'needs_event_review':
+      return 'بصمات متلخبطة — محتاج تراجعها';
+    default:
+      return day.first_in
+        ? `حضر ${cairoTime(day.first_in)} · انصرف ${cairoTime(day.last_out)}`
+        : 'مفيش بصمة';
+  }
+}
+
+// Days waiting for a decision, newest first, each with its one-click decision; late-only days are folded.
+function ReviewQueue({
+  groups,
+  names,
+  canReview,
+  onOpen,
+  onDecisionSaved,
+}: {
+  groups: Array<{ date: string; days: DrWaelDay[] }>;
+  names: Map<string, DrWaelEmployee>;
+  canReview: boolean;
+  onOpen: (day: DrWaelDay) => void;
+  onDecisionSaved: () => void;
+}) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [done, setDone] = useState<Record<string, string>>({});
+  const [failed, setFailed] = useState<Record<string, string>>({});
+  const [showInfo, setShowInfo] = useState(false);
+  const key = (day: DrWaelDay) => `${day.staff_id}-${day.date}`;
+  const pending = groups.flatMap((g) => g.days.filter((d) => d.review && !done[key(d)]));
+  const infoOnly = groups.flatMap((g) => g.days.filter((d) => !d.review));
+  const decide = async (day: DrWaelDay, decision: QuickDayDecision, label: string) => {
+    const k = key(day);
+    setBusy(k);
+    setFailed((f) => ({ ...f, [k]: '' }));
+    try {
+      const result = await decideQuickDay(day.staff_id, day.date, decision);
+      setDone((d) => ({
+        ...d,
+        [k]: result.approved === false ? `${label} · اتسجلت البصمة واليوم لسه للمراجعة` : label,
+      }));
+      onDecisionSaved();
+    } catch (error) {
+      setFailed((f) => ({
+        ...f,
+        [k]: error instanceof Error ? error.message : 'تعذّر حفظ القرار',
+      }));
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <Section
+      title={`قرارات الحضور المستنية — ${pending.length} يوم`}
+      subtitle="آخر 5 أيام · جنب كل يوم القرار المناسب بضغطة، و«تفاصيل» للحالات المعقدة"
+    >
+      {pending.length === 0 ? (
+        <p className="text-center text-xs font-bold text-emerald-600">مفيش قرارات مستنية ✓</p>
+      ) : (
+        <div className="space-y-3">
+          {groups.map((group) => {
+            const days = group.days.filter((d) => d.review && !done[key(d)]);
+            if (!days.length) return null;
+            return (
+              <div key={group.date} className={`${CARD} p-3`}>
+                <div className="mb-2 flex items-center justify-between text-xs">
+                  <span className="font-bold text-gray-900 dark:text-slate-100">
+                    {weekday(group.date)} · {group.date}
+                  </span>
+                  <span className={MUTED}>{days.length} قرار</span>
+                </div>
+                <ul className="divide-y divide-gray-100 dark:divide-slate-800">
+                  {days.map((day) => {
+                    const k = key(day);
+                    const employee = names.get(day.staff_id);
+                    const options = canReview ? quickDayOptions(day) : [];
+                    return (
+                      <li
+                        key={k}
+                        className="flex flex-wrap items-center justify-between gap-2 py-2"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-1 text-sm font-bold text-gray-900 dark:text-slate-100">
+                            {employee?.name || '—'}
+                            {employee && !employee.active ? (
+                              <Pill tone="gray">ساب الشغل</Pill>
+                            ) : null}
+                            {day.other_branch ? (
+                              <Pill tone="blue">بصم في {day.other_branch}</Pill>
+                            ) : null}
+                            <span className={`text-[11px] font-normal ${MUTED}`}>
+                              {day.branch.replace('فرع ', '')}
+                              {day.scheduled_start
+                                ? ` · ${cairoTime(day.scheduled_start)}–${cairoTime(day.scheduled_end)}`
+                                : ''}
+                            </span>
+                          </div>
+                          <div className="text-xs text-gray-700 dark:text-slate-300">
+                            {dayStory(day)}
+                          </div>
+                          {failed[k] ? (
+                            <div className="text-[11px] font-bold text-rose-600">{failed[k]}</div>
+                          ) : null}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {options.map((option) => (
+                            <button
+                              key={option.decision}
+                              type="button"
+                              disabled={busy === k}
+                              onClick={() => void decide(day, option.decision, option.label)}
+                              className={
+                                option.tone === 'primary'
+                                  ? 'btn-primary text-xs'
+                                  : option.tone === 'danger'
+                                    ? 'btn-secondary text-xs text-rose-600'
+                                    : 'btn-secondary text-xs'
+                              }
+                            >
+                              {busy === k ? '…' : option.label}
+                            </button>
+                          ))}
+                          {canReview ? (
+                            <button
+                              type="button"
+                              className={`text-xs underline ${MUTED}`}
+                              onClick={() => onOpen(day)}
+                            >
+                              تفاصيل
+                            </button>
+                          ) : null}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {Object.keys(done).length ? (
+        <p className="mt-2 text-[11px] font-bold text-emerald-600">
+          اتعمل {Object.keys(done).length} قرار: {Object.values(done).slice(-3).join('، ')}
+        </p>
+      ) : null}
+      {infoOnly.length ? (
+        <div className="mt-3">
+          <button
+            type="button"
+            className={`text-xs font-bold underline ${MUTED}`}
+            onClick={() => setShowInfo((v) => !v)}
+          >
+            {showInfo ? 'إخفاء' : 'اعرض'} {infoOnly.length} يوم فيه تأخير بس (اتحسب تلقائي، مش محتاج
+            قرار)
+          </button>
+          {showInfo ? (
+            <ul className="mt-1 grid gap-1 text-[11px] md:grid-cols-2">
+              {infoOnly.map((day) => (
+                <li key={key(day)} className={MUTED}>
+                  {day.date.slice(5)} · {names.get(day.staff_id)?.name || '—'} ·{' '}
+                  {day.late_minutes > 0 ? `متأخر ${day.late_minutes} د` : ''}
+                  {day.early_leave_minutes > 0 ? ` · مشي بدري ${day.early_leave_minutes} د` : ''}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
+    </Section>
   );
 }
 

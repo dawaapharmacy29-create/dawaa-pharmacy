@@ -812,3 +812,87 @@ export function idleEmployees(
     (a, b) => Number(b.stopped) - Number(a.stopped) || (b.daysAway ?? 9999) - (a.daysAway ?? 9999)
   );
 }
+
+// One-click decisions next to a day waiting for review (migration 20261105230000,
+// dr_wael_quick_day_decision_v1). The server re-checks the day and refuses anything that needs the
+// detailed review; the buttons only offer what fits the day's state.
+export type QuickDayDecision = 'to_shift_end' | 'from_shift_start' | 'absent' | 'off' | 'as_is';
+
+export interface QuickDayOption {
+  decision: QuickDayDecision;
+  label: string;
+  tone: 'primary' | 'danger' | 'neutral';
+}
+
+export function quickDayOptions(day: DrWaelDay): QuickDayOption[] {
+  if (!day.review || day.status === 'approved') return [];
+  const noPunch = !day.first_in && !day.last_out;
+  switch (day.resolution) {
+    case 'missing_checkout':
+      return day.first_in && day.scheduled_end
+        ? [
+            {
+              decision: 'to_shift_end',
+              label: `انصرف على الميعاد (${cairoTime(day.scheduled_end)})`,
+              tone: 'primary',
+            },
+          ]
+        : [];
+    case 'missing_checkin':
+      return day.last_out && day.scheduled_start
+        ? [
+            {
+              decision: 'from_shift_start',
+              label: `حضر على الميعاد (${cairoTime(day.scheduled_start)})`,
+              tone: 'primary',
+            },
+          ]
+        : [];
+    case 'absence_review':
+      return noPunch
+        ? [
+            { decision: 'absent', label: 'غياب', tone: 'danger' },
+            { decision: 'off', label: 'أوف / بإذن', tone: 'neutral' },
+          ]
+        : [];
+    case 'no_schedule':
+    case 'off_day':
+    case 'approved_time_off':
+      return noPunch ? [{ decision: 'as_is', label: 'أوف — اعتمد', tone: 'neutral' }] : [];
+    case 'late':
+    case 'early_leave_review':
+      return day.first_in && day.last_out
+        ? [
+            {
+              decision: 'as_is',
+              label: `اعتمد اللي اشتغله (${minutesLabel(Number(day.hours || 0) * 60)})`,
+              tone: 'primary',
+            },
+          ]
+        : [];
+    default:
+      return [];
+  }
+}
+
+const QUICK_ERRORS: Array<[string, string]> = [
+  ['quick_decision_needs_details', 'اليوم ده محتاج المراجعة التفصيلية'],
+  ['not_authorized', 'مالكش صلاحية تعتمد اليوم ده'],
+  ['invalid_or_expired_staff_session', 'الجلسة خلصت، ادخل تاني'],
+  ['cycle_locked', 'الدورة دي اتقفلت في المرتبات'],
+];
+
+export async function decideQuickDay(staffId: string, date: string, decision: QuickDayDecision) {
+  const { data, error } = await supabase.rpc('dr_wael_quick_day_decision_v1', {
+    p_staff_id: staffId,
+    p_date: date,
+    p_decision: decision,
+  });
+  if (error) {
+    const message = String(error.message || '');
+    throw new Error(
+      QUICK_ERRORS.find(([code]) => message.includes(code))?.[1] ?? 'تعذّر حفظ القرار'
+    );
+  }
+  return (data || {}) as { approved?: boolean; already?: boolean };
+}
