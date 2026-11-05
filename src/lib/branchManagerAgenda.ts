@@ -6,9 +6,16 @@ import { supabase } from '@/lib/supabase';
 
 export type AgendaGroup = 'auto' | 'decide' | 'check';
 export type AgendaItemKey =
-  | 'open_requests' | 'uncoded_invoices' | 'purchases_review' | 'weekly_inventory'
-  | 'big_customers' | 'high_discount'
-  | 'cash_reconciliation' | 'appearance_cleanliness' | 'shelves_fridge' | 'stories_upload';
+  | 'open_requests'
+  | 'uncoded_invoices'
+  | 'purchases_review'
+  | 'weekly_inventory'
+  | 'big_customers'
+  | 'high_discount'
+  | 'cash_reconciliation'
+  | 'appearance_cleanliness'
+  | 'shelves_fridge'
+  | 'stories_upload';
 
 export interface AgendaItem {
   key: AgendaItemKey;
@@ -44,20 +51,38 @@ export const AGENDA_GROUP_LABELS: Record<AgendaGroup, { title: string; hint: str
   check: { title: 'لفة على الفرع', hint: 'ضغطة واحدة، والملاحظة لو فيه مشكلة بس' },
 };
 
-export const AGENDA_ITEM_LABELS: Record<AgendaItemKey, { title: string; action: string; link?: string }> = {
-  open_requests: { title: 'طلبات عملاء الدورة مفتوحة أكتر من يوم', action: 'كلّم العميل أو حدّث حالة الطلب', link: '/customer-requests' },
-  uncoded_invoices: { title: 'فواتير من غير كود عميل', action: 'راجع مع الدكتور وسجّل الكود', link: '/customers' },
-  purchases_review: { title: 'فواتير مشتريات مستنية مراجعتك', action: 'راجع الفاتورة واعتمدها', link: '/purchase-invoice-review' },
+export const AGENDA_ITEM_LABELS: Record<
+  AgendaItemKey,
+  { title: string; action: string; link?: string }
+> = {
+  open_requests: {
+    title: 'طلبات عملاء الدورة مفتوحة أكتر من يوم',
+    action: 'كلّم العميل أو حدّث حالة الطلب',
+    link: '/customer-requests',
+  },
+  uncoded_invoices: {
+    title: 'فواتير من غير كود عميل',
+    action: 'راجع مع الدكتور وسجّل الكود',
+    link: '/customers',
+  },
+  purchases_review: {
+    title: 'فواتير مشتريات مستنية مراجعتك',
+    action: 'راجع الفاتورة واعتمدها',
+    link: '/purchase-invoice-review',
+  },
   weekly_inventory: { title: 'جرد الأسبوع', action: '', link: '/inventory-counts' },
-  big_customers: { title: 'عملاء اشتروا بـ 500 ج أو أكتر', action: 'مكالمة شكر ومتابعة', },
-  high_discount: { title: 'خصم أكبر من 10%', action: 'اكتب سبب الخصم', },
+  big_customers: { title: 'عملاء اشتروا بـ 500 ج أو أكتر', action: 'مكالمة شكر ومتابعة' },
+  high_discount: { title: 'خصم أكبر من 10%', action: 'اكتب سبب الخصم' },
   cash_reconciliation: { title: 'مطابقة الخزنة', action: 'الدرج مطابق للسيستم' },
   appearance_cleanliness: { title: 'اللبس والنظافة', action: 'الفريق بالزي والفرع نضيف' },
   shelves_fridge: { title: 'الرفوف والتلاجة', action: 'الرفوف مترتبة والتلاجة في درجتها' },
   stories_upload: { title: 'تنزيل الاستوريز', action: 'استوريز النهارده نزلت على صفحات الفرع' },
 };
 
-export const INVENTORY_STATUS_LABELS: Record<NonNullable<AgendaItem['inventory_status']>, string> = {
+export const INVENTORY_STATUS_LABELS: Record<
+  NonNullable<AgendaItem['inventory_status']>,
+  string
+> = {
   not_planned: 'لسه ما اتخططش — ارفع ملف أصناف الأسبوع',
   late: 'متأخر عن ميعاده — تابع مع المسؤولين عن الجرد',
   planned: 'متخطط ومستني الجرد',
@@ -106,9 +131,17 @@ export async function loadBranchManagerAgenda(branch: string | null) {
   return data as BranchManagerAgenda;
 }
 
-export async function markAgendaItem(branch: string | null, key: AgendaItemKey, state: 'done' | 'issue' | 'clear', note?: string) {
+export async function markAgendaItem(
+  branch: string | null,
+  key: AgendaItemKey,
+  state: 'done' | 'issue' | 'clear',
+  note?: string
+) {
   const { error } = await supabase.rpc('mark_branch_manager_agenda_item_v1', {
-    p_branch: branch, p_item_key: key, p_state: state, p_note: note ?? null,
+    p_branch: branch,
+    p_item_key: key,
+    p_state: state,
+    p_note: note ?? null,
   });
   if (error) throw error;
 }
@@ -126,7 +159,9 @@ export interface AgendaComplianceDay {
 
 /** Cycle compliance for top management: per branch per day, from the agenda marks. */
 export async function loadAgendaCompliance(branch: string | null) {
-  const { data, error } = await supabase.rpc('get_branch_manager_agenda_compliance_v1', { p_branch: branch });
+  const { data, error } = await supabase.rpc('get_branch_manager_agenda_compliance_v1', {
+    p_branch: branch,
+  });
   if (error) throw error;
   return data as { cycle_start: string; today: string; days: AgendaComplianceDay[] };
 }
@@ -136,4 +171,31 @@ export function agendaComplianceSummary(days: AgendaComplianceDay[], today: stri
   const past = days.filter((day) => day.day < today);
   const full = past.filter((day) => day.checks_done >= day.checks_total).length;
   return { full, past: past.length, issues: days.reduce((sum, day) => sum + day.issues.length, 0) };
+}
+
+/** How an item reads in the list: a reported problem, still open, or done. */
+export function agendaItemTone(
+  item: Pick<AgendaItem, 'done' | 'state'>
+): 'issue' | 'open' | 'done' {
+  if (item.state === 'issue') return 'issue';
+  return item.done ? 'done' : 'open';
+}
+
+/** Problems first, then open items, then done ones (stable within each). */
+export function sortAgendaItems<T extends Pick<AgendaItem, 'done' | 'state'>>(items: T[]): T[] {
+  const rank = { issue: 0, open: 1, done: 2 } as const;
+  return [...items].sort((a, b) => rank[agendaItemTone(a)] - rank[agendaItemTone(b)]);
+}
+
+/** Counters for a list or a section. done follows the server (a reported problem may count as handled). */
+export function agendaStats(items: Array<Pick<AgendaItem, 'done' | 'state'>>) {
+  const tones = items.map(agendaItemTone);
+  return {
+    total: items.length,
+    done: items.filter((item) => item.done).length,
+    open: tones.filter((tone) => tone === 'open').length,
+    issues: tones.filter((tone) => tone === 'issue').length,
+    /** Done without a problem. */
+    finished: tones.filter((tone) => tone === 'done').length,
+  };
 }
