@@ -436,7 +436,7 @@ function PendingPurchasesList() {
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
-    loadGmPendingPurchases()
+    loadGmPendingPurchases(200)
       .then((data) => alive && setRows(data))
       .catch(() => alive && setError('تعذّر تحميل الفواتير'));
     return () => {
