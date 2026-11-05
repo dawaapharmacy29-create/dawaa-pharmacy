@@ -59,3 +59,53 @@ describe('كارت المراجعة اليومية', () => {
     expect(card.warning).toContain('المزامنة');
   });
 });
+
+describe('مراجعة v3', () => {
+  const now = new Date('2026-11-05T10:00:00Z');
+
+  it('sales file counts only when uploaded today', () => {
+    const card = gmReviewCard(
+      {
+        key: 'sales_upload',
+        done: false,
+        detail: [
+          { branch: 'shokry', last_day: '2026-11-04', uploaded_at: '2026-11-04T05:39:00Z' },
+          { branch: 'elshamy', last_day: '2026-11-05', uploaded_at: '2026-11-05T06:00:00Z' },
+        ],
+      },
+      now
+    );
+    expect(card.chips.map((chip) => chip.bad)).toEqual([true, false]);
+    expect(card.headline).toContain('لسه');
+  });
+
+  it('customers: new coded per branch and the pace to cycle end', () => {
+    const card = gmReviewCard(
+      {
+        key: 'customers',
+        done: false,
+        detail: {
+          open_requests: 3,
+          big_customers_yesterday: 2,
+          days_done: 10,
+          cycle_days: 31,
+          branches: [
+            {
+              branch: 'shokry',
+              new_yesterday: 2,
+              new_cycle: 100,
+              buyers_yesterday: 29,
+              buyers_cycle: 500,
+              invoices_yesterday: 40,
+              coded_invoices_yesterday: 30,
+            },
+          ],
+        },
+      },
+      now
+    );
+    expect(card.chips[0]).toMatchObject({ label: 'شكري' });
+    expect(card.table?.rows[0]?.[2]).toBe((310).toLocaleString('ar-EG'));
+    expect(card.table?.rows[0]?.[4]).toBe('75%');
+  });
+});

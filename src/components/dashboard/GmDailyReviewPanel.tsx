@@ -13,7 +13,9 @@ import {
   GM_REVIEW_LABELS,
   gmReviewErrorMessage,
   loadGmDailyReview,
+  loadGmPendingPurchases,
   markGmReviewItem,
+  type GmPendingPurchase,
   type GmDailyReview,
   type GmReviewItem,
 } from '@/lib/gmDailyReview';
@@ -238,10 +240,13 @@ function ReviewCard({ item, onChanged }: { item: GmReviewItem; onChanged: () => 
     }
   };
 
+  // Inside this app first; the other app only when there is no page here.
   const openPlace = () => {
-    if (label.app) window.open(label.app.url, '_blank', 'noopener,noreferrer');
-    else if (label.link) navigate(label.link);
+    if (label.link) navigate(label.link);
+    else if (label.app) window.open(label.app.url, '_blank', 'noopener,noreferrer');
   };
+  const inlinePurchases = item.key === 'purchases_handover';
+  const [showList, setShowList] = useState(false);
 
   return (
     <div
@@ -283,6 +288,43 @@ function ReviewCard({ item, onChanged }: { item: GmReviewItem; onChanged: () => 
         </div>
       ) : null}
 
+      {card.table ? (
+        <div className="dawaa-theme-border mt-2 overflow-x-auto rounded-xl border">
+          <table className="w-full text-[10px] font-bold">
+            <thead className="dawaa-caption">
+              <tr>
+                {card.table.head.map((cell, index) => (
+                  <th key={index} className="whitespace-nowrap px-2 py-1 text-start">
+                    {cell}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="tabular-nums">
+              {card.table.rows.map((row) => (
+                <tr key={row[0]} className="dawaa-theme-border border-t">
+                  {row.map((cell, index) => (
+                    <td
+                      key={index}
+                      className={`whitespace-nowrap px-2 py-1 ${index === 0 ? 'font-black' : ''}`}
+                    >
+                      {cell}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+      {card.lines?.map((line) => (
+        <p
+          key={line}
+          className={`mt-1 text-[11px] font-bold ${line.startsWith('⚠️') ? 'text-[var(--dawaa-status-warning-text)]' : 'dawaa-caption'}`}
+        >
+          {line}
+        </p>
+      ))}
       {card.warning ? (
         <p className="mt-1.5 text-[11px] font-bold text-[var(--dawaa-status-warning-text)]">
           {card.warning}
@@ -296,14 +338,23 @@ function ReviewCard({ item, onChanged }: { item: GmReviewItem; onChanged: () => 
       ) : null}
 
       <div className="mt-2 flex items-center gap-1.5">
-        {label.app || label.link ? (
+        {inlinePurchases ? (
+          <button
+            type="button"
+            onClick={() => setShowList((value) => !value)}
+            aria-expanded={showList}
+            className="dawaa-badge dawaa-badge--info inline-flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-xl px-3 text-xs font-black"
+          >
+            {showList ? 'اخفي الفواتير' : 'اعرض الفواتير المستنية'}
+          </button>
+        ) : label.app || label.link ? (
           <button
             type="button"
             onClick={openPlace}
             className="dawaa-badge dawaa-badge--info inline-flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-xl px-3 text-xs font-black"
           >
-            {label.app ? <ExternalLink className="h-3.5 w-3.5" /> : null}
-            افتح {label.app ? label.app.name : label.title}
+            {label.link ? null : <ExternalLink className="h-3.5 w-3.5" />}
+            افتح {label.link ? label.title : label.app?.name}
           </button>
         ) : (
           <span className="flex-1" />
@@ -349,6 +400,7 @@ function ReviewCard({ item, onChanged }: { item: GmReviewItem; onChanged: () => 
         )}
       </div>
 
+      {inlinePurchases && showList ? <PendingPurchasesList /> : null}
       {noteFor ? (
         <div className="mt-2 flex gap-2">
           <input
@@ -372,5 +424,57 @@ function ReviewCard({ item, onChanged }: { item: GmReviewItem; onChanged: () => 
         <p className="mt-1 text-xs font-bold text-[var(--dawaa-status-danger-text)]">{error}</p>
       ) : null}
     </div>
+  );
+}
+
+const purchaseDay = (value: string) =>
+  new Date(`${value}T12:00:00`).toLocaleDateString('ar-EG', { day: 'numeric', month: 'numeric' });
+
+/** The invoices still «انتظار المراجعة» in دواء وائل, read here so the manager doesn't open the other app. */
+function PendingPurchasesList() {
+  const [rows, setRows] = useState<GmPendingPurchase[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    loadGmPendingPurchases()
+      .then((data) => alive && setRows(data))
+      .catch(() => alive && setError('تعذّر تحميل الفواتير'));
+    return () => {
+      alive = false;
+    };
+  }, []);
+  if (error)
+    return <p className="mt-2 text-xs font-bold text-[var(--dawaa-status-danger-text)]">{error}</p>;
+  if (!rows) return <Loader2 className="dawaa-caption mt-2 h-4 w-4 animate-spin" />;
+  if (!rows.length)
+    return <p className="dawaa-caption mt-2 text-xs font-bold">مفيش فواتير مستنية</p>;
+  return (
+    <ul className="dawaa-theme-border mt-2 max-h-72 divide-y divide-[var(--dawaa-theme-border,rgba(148,163,184,0.25))] overflow-y-auto rounded-xl border text-[11px] font-bold">
+      {rows.map((row, index) => (
+        <li
+          key={`${row.system_invoice_number}-${index}`}
+          className="flex items-start gap-2 px-2.5 py-1.5"
+        >
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-black">{row.supplier}</p>
+            <p className="dawaa-caption truncate text-[10px]">
+              {row.branch.replace(/^فرعs*/, '')} · {purchaseDay(row.invoice_date)}
+              {row.supplier_invoice_number ? ` · فاتورة ${row.supplier_invoice_number}` : ''}
+              {row.entered_by ? ` · ${row.entered_by}` : ''}
+            </p>
+          </div>
+          <div className="shrink-0 text-end">
+            <p className="tabular-nums font-black">
+              {Math.round(row.total_value).toLocaleString('ar-EG')} ج
+            </p>
+            <p
+              className={`text-[10px] ${row.days_waiting > 3 ? 'text-[var(--dawaa-status-danger-text)]' : 'dawaa-caption'}`}
+            >
+              من {row.days_waiting.toLocaleString('ar-EG')} يوم
+            </p>
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }

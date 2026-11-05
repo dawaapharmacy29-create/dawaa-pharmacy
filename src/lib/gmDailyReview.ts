@@ -3,8 +3,9 @@ import { onDutyLabel, type OnDutyDoctor } from '@/lib/shiftHandoverCoverage';
 
 // «مراجعتي اليومية» for the general manager (migration 20261031160000, sources 20261104120000). Every item
 // turns green on its own once its data is clean; «راجعت» is for what the data can't see. Purchases, shifts,
-// collection transfers and customer orders come from DawaaWael; riders from the delivery app. Stories are
-// marked by each branch manager in «قائمة اليوم» (migration 20261104210000).
+// customer orders come from DawaaWael; riders from the delivery app. Stories are marked by each branch manager
+// in «قائمة اليوم» (migration 20261104210000). v3 (20261105160000): the sales file must be uploaded today,
+// «تحويلات التحصيل» is no longer sent (the key stays for old marks), customers carry per-branch coded counts.
 
 export type GmReviewKey =
   | 'sales_upload'
@@ -49,7 +50,11 @@ export const GM_REVIEW_LABELS: Record<
   GmReviewKey,
   { title: string; question: string; link?: string; app?: { name: string; url: string } }
 > = {
-  sales_upload: { title: 'ملف المبيعات', question: 'ملف امبارح وصل للفرعين؟', link: '/invoices' },
+  sales_upload: {
+    title: 'ملف المبيعات',
+    question: 'ملف النهارده اترفع للفرعين؟',
+    link: '/invoices',
+  },
   attendance: {
     title: 'البصمات والحضور',
     question: 'مين غاب أو اتأخر أو ما بصمش امبارح؟',
@@ -262,4 +267,27 @@ export async function markGmReviewItem(
     p_note: note ?? null,
   });
   if (error) throw error;
+}
+
+/** One invoice still «انتظار المراجعة» in دواء وائل (migration 20261105160000). */
+export interface GmPendingPurchase {
+  branch: string;
+  invoice_date: string;
+  total_value: number;
+  system_invoice_number: string | null;
+  supplier_invoice_number: string | null;
+  supplier: string;
+  entered_by: string | null;
+  transaction_type: string | null;
+  days_waiting: number;
+}
+
+export async function loadGmPendingPurchases(limit = 60): Promise<GmPendingPurchase[]> {
+  const { data, error } = await supabase.rpc('get_gm_pending_purchases_v1', { p_limit: limit });
+  if (error) throw error;
+  return ((data as GmPendingPurchase[]) || []).map((row) => ({
+    ...row,
+    total_value: Number(row.total_value) || 0,
+    days_waiting: Number(row.days_waiting) || 0,
+  }));
 }

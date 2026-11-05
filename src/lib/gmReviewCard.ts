@@ -11,10 +11,19 @@ export interface GmCardChip {
   bad?: boolean;
 }
 
+/** A small table under the chips, e.g. today / cycle counts per branch. */
+export interface GmCardTable {
+  head: string[];
+  rows: string[][];
+}
+
 export interface GmReviewCard {
   headline: string;
   chips: GmCardChip[];
   warning?: string;
+  /** Extra short lines under the chips. */
+  lines?: string[];
+  table?: GmCardTable;
 }
 
 type Row = Record<string, unknown>;
@@ -34,6 +43,22 @@ const shortDay = (value: unknown) =>
         month: 'numeric',
       })
     : '—';
+const cairoDay = (value: unknown) =>
+  value
+    ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo' }).format(new Date(String(value)))
+    : '';
+const uploadLabel = (value: unknown) =>
+  value
+    ? new Date(String(value)).toLocaleString('ar-EG', {
+        timeZone: 'Africa/Cairo',
+        day: 'numeric',
+        month: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      })
+    : '—';
+const percent = (part: number, total: number) =>
+  total ? `${Math.round((part / total) * 100)}%` : '—';
 const daysSince = (value: unknown, now: Date) => {
   if (!value) return 0;
   const then = new Date(`${String(value).slice(0, 10)}T12:00:00`).getTime();
@@ -47,7 +72,6 @@ const INVENTORY: Record<string, string> = {
   submitted: 'مستني',
   closed: 'اتقفل',
 };
-const WALLET_KEYS = ['vodafone', 'insta', 'visa', 'other'];
 
 function syncWarning(value: unknown, app: string, now: Date) {
   const synced = value ? new Date(String(value)) : null;
@@ -66,15 +90,19 @@ export function gmReviewCard(
   const d = (item.detail ?? {}) as Row;
   switch (item.key) {
     case 'sales_upload': {
+      // Done only when the file was uploaded today (Cairo).
       const list = rows(item.detail);
-      const late = list.filter((r) => daysSince(r.last_day, now) > 1).length;
+      const today = cairoDay(now);
+      const missing = list.filter((r) => cairoDay(r.uploaded_at) !== today).length;
       return {
-        headline: late ? `${num(late)} فرع ملفه ما وصلش` : 'ملف امبارح وصل',
+        headline: missing
+          ? `ملف النهارده لسه ما اترفعش (${num(missing)} فرع)`
+          : 'ملف النهارده اترفع',
         chips: list.map((r) => ({
           label: branchName(r.branch),
-          value: shortDay(r.last_day),
-          note: 'آخر يوم',
-          bad: daysSince(r.last_day, now) > 1,
+          value: cairoDay(r.uploaded_at) === today ? 'اترفع ✓' : 'لسه',
+          note: `آخر رفع ${uploadLabel(r.uploaded_at)}`,
+          bad: cairoDay(r.uploaded_at) !== today,
         })),
       };
     }
@@ -152,29 +180,35 @@ export function gmReviewCard(
     case 'delivery': {
       const list = rows(d.branches);
       const pending = list.reduce((s, r) => s + n(r.pending_errands) + n(r.stuck), 0);
+      const sync = (d.invoice_sync ?? null) as Row | null;
+      const syncLine = sync?.last_error
+        ? `⚠️ مطابقة الأوردرات بفواتير المبيعات واقفة من ${uploadLabel(sync.last_success_at)}`
+        : sync?.last_success_at
+          ? `مطابقة الأوردرات بالفواتير: آخر تحديث ${uploadLabel(sync.last_success_at)}`
+          : undefined;
       return {
-        headline: pending ? `${num(pending)} مشوار أو أوردر محتاج قرار` : 'مشاوير امبارح اتعتمدت',
+        headline: pending
+          ? `${num(pending)} مشوار أو أوردر معلّق`
+          : 'مفيش مشاوير ولا أوردرات معلّقة',
         chips: list.map((r) => ({
           label: branchName(r.branch),
           value: num(n(r.pending_errands) + n(r.stuck)),
-          note: `امبارح ${num(n(r.delivered))} اتسلم${n(r.failed) ? ` · ${num(n(r.failed))} فشل` : ''}`,
+          note: `${num(n(r.pending_errands))} مشوار · ${num(n(r.stuck))} أوردر متعلّق`,
           bad: n(r.pending_errands) + n(r.stuck) > 0,
         })),
+        table: list.some((r) => r.cycle_delivered !== undefined)
+          ? {
+              head: ['', 'النهارده', 'الدورة', 'من غير فاتورة'],
+              rows: list.map((r) => [
+                branchName(r.branch),
+                `${num(n(r.today_delivered))} أوردر · ${num(n(r.today_errands))} مشوار`,
+                `${num(n(r.cycle_delivered))} أوردر · ${num(n(r.cycle_errands))} مشوار`,
+                num(n(r.unmatched)),
+              ]),
+            }
+          : undefined,
+        lines: syncLine ? [syncLine] : undefined,
         warning: syncWarning(d.synced_at, 'تطبيق الدليفري', now),
-      };
-    }
-    case 'collection_transfers': {
-      const list = rows(d.branches);
-      const variance = list.reduce((s, r) => s + n(r.variance), 0);
-      return {
-        headline: variance ? `${num(variance)} شيفت فيه فرق نقدية` : 'تحويلات امبارح',
-        chips: list.map((r) => ({
-          label: branchName(r.branch),
-          value: n(r.shifts) ? money(WALLET_KEYS.reduce((s, key) => s + n(r[key]), 0)) : '—',
-          note: n(r.shifts) ? `نقدي ${money(n(r.cash))}` : 'مفيش تسليمات',
-          bad: n(r.variance) > 0 || !n(r.shifts),
-        })),
-        warning: syncWarning(d.synced_at, 'دواء وائل', now),
       };
     }
     case 'shifts': {
@@ -211,12 +245,41 @@ export function gmReviewCard(
     }
     case 'customers': {
       const open = n(d.open_requests);
+      const list = rows(d.branches);
+      const fresh = list.reduce((s, r) => s + n(r.new_yesterday), 0);
+      const daysDone = n(d.days_done);
+      const cycleDays = n(d.cycle_days);
+      const pace = (value: number) => (daysDone ? Math.round((value / daysDone) * cycleDays) : 0);
       return {
-        headline: open ? `${num(open)} طلب مفتوح أكتر من يوم` : 'مفيش طلبات متأخرة',
-        chips: [
-          { label: 'طلبات مفتوحة', value: num(open), bad: open > 0 },
-          { label: 'عملاء 500 ج امبارح', value: num(n(d.big_customers_yesterday)) },
-        ],
+        headline: `${num(fresh)} عميل اتكوّد جديد امبارح${open ? ` · ${num(open)} طلب مفتوح` : ''}`,
+        chips: list.length
+          ? list.map((r) => ({
+              label: branchName(r.branch),
+              value: num(n(r.new_yesterday)),
+              note: `جديد · اشترى ${num(n(r.buyers_yesterday))} عميل`,
+            }))
+          : [
+              { label: 'طلبات مفتوحة', value: num(open), bad: open > 0 },
+              { label: 'عملاء 500 ج امبارح', value: num(n(d.big_customers_yesterday)) },
+            ],
+        table: list.length
+          ? {
+              head: ['', 'جداد الدورة', 'لو كمّلنا كده', 'اشتروا الدورة', 'فواتير مكوّدة امبارح'],
+              rows: list.map((r) => [
+                branchName(r.branch),
+                num(n(r.new_cycle)),
+                num(pace(n(r.new_cycle))),
+                num(n(r.buyers_cycle)),
+                percent(n(r.coded_invoices_yesterday), n(r.invoices_yesterday)),
+              ]),
+            }
+          : undefined,
+        lines: list.length
+          ? [
+              `${num(open)} طلب عميل مفتوح أكتر من يوم · ${num(n(d.big_customers_yesterday))} فاتورة 500 ج أو أكتر امبارح`,
+              daysDone ? `عدّى ${num(daysDone)} يوم من ${num(cycleDays)} في الدورة` : '',
+            ].filter(Boolean)
+          : undefined,
       };
     }
     default:
