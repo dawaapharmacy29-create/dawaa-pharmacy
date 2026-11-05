@@ -1,9 +1,10 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronUp, Database, FlaskConical, MinusCircle, Users } from 'lucide-react';
 import { DOCTOR_LEVELS, LAB_CURRENT_VERSION, LAB_FAMILY_LABELS, LAB_PILLAR_LABELS, LAB_PREVIOUS_VERSION, type LabFamily, type LabPillar } from '@/lib/evaluationLab/catalog';
 import { useAuth } from '@/hooks/useAuth';
+import { loadDoctorLevels, saveDoctorLevel } from '@/lib/doctorEvaluation';
 
 const BASELINE_VERSION = LAB_PREVIOUS_VERSION[LAB_CURRENT_VERSION] ?? LAB_CURRENT_VERSION;
 import { buildCycleScores, type LabEvidence, type LabPersonScore } from '@/lib/evaluationLab/buildCycleScores';
@@ -20,7 +21,7 @@ const READINESS: Record<Readiness, { label: string; className: string }> = {
   insufficient: { label: 'بيانات غير كافية', className: 'dawaa-status-danger-text dawaa-status-danger-bg dawaa-status-danger-border' },
 };
 
-/** Doctor levels (v6.6 shared-hour weights): kept in this browser only while the trial runs. */
+/** Doctor levels (v6.6 shared-hour weights): saved in the database (the doctor dashboard scores with them); this browser keeps a copy. */
 const LEVELS_KEY = 'dawaa_evaluation_lab_doctor_levels_v1';
 type DoctorLevel = (typeof DOCTOR_LEVELS)[number]['key'];
 function readLevels(): Record<string, DoctorLevel> {
@@ -325,7 +326,23 @@ export default function EvaluationLab() {
     const next = { ...levels, [staffId]: level };
     setLevels(next);
     writeLevels(next);
+    void saveDoctorLevel(staffId, level).catch(() => { /* kept in this browser; saved again on the next change */ });
   };
+  // The saved levels win; levels chosen before they were saved are sent once.
+  useEffect(() => {
+    let cancelled = false;
+    void loadDoctorLevels().then((saved) => {
+      if (cancelled) return;
+      const local = readLevels();
+      if (!Object.keys(saved).length && Object.keys(local).length) {
+        for (const [id, level] of Object.entries(local)) void saveDoctorLevel(id, level).catch(() => undefined);
+        return;
+      }
+      setLevels(saved);
+      writeLevels(saved);
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
 
   const query = useQuery({
     queryKey: ['evaluation-lab-v6', cycle.start, cycle.endExclusive],
@@ -374,7 +391,7 @@ export default function EvaluationLab() {
           </select>
         </div>
         <div className="dawaa-status-info-text mt-4 rounded-xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] px-3 py-2 text-xs font-bold">
-          تجريبي للقراءة فقط: لا يكتب أي بيانات، ولا يغيّر التقييم الحالي أو النقاط أو الحوافز أو المرتبات.
+          نفس الحسبة دي بتظهر لكل دكتور في لوحته (تقييمه هو بس). المختبر مش بيغيّر النقاط أو الحوافز أو المرتبات، والحاجة الوحيدة اللي بتتحفظ هي مستوى الصيدلي في الشيفت.
         </div>
         {query.data && <div className="mt-4"><SourceStrip evidence={query.data.evidence} /></div>}
         <TrackCoverage />

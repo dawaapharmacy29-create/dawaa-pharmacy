@@ -41,8 +41,9 @@ describe('runtime closure — links, error states and identity context', () => {
     for (const source of ['conversation_sales_reviews', 'stagnant_medicines', 'incentive_medicines', 'staff_payroll_summary', 'offers', 'whatsapp_stories']) {
       expect(page).not.toMatch(new RegExp(`safeRows\\(\\s*supabase\\s*\\.from\\('${source}'\\)`));
     }
-    // a failed ledger/profile read never becomes a live incentive built from zero points
-    expect(page).toMatch(/if \(txResult\.error \|\| profileResult\.error\) throw/);
+    // the old points-based live incentive is gone: the monthly evaluation (lab engine) replaces it
+    expect(page).not.toMatch(/calculateMonthlyIncentive|get_doctor_incentive_breakdown/);
+    expect(page).toMatch(/<DoctorMonthlyEvaluationCard \/>/);
   });
 
   it('/quarterly-incentives data checks use canonical sources and report unreadable checks as unavailable', () => {
