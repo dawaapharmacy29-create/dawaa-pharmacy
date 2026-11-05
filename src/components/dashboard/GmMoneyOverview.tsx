@@ -194,8 +194,13 @@ function Purchases() {
             {money(totals.net)} <span className="dawaa-caption text-xs font-black">ج</span>
           </p>
           <p className="dawaa-caption text-[11px] font-bold">
-            {shortDate(summary.from)} ← {shortDate(summary.to)} · بعد شيل التحويلات والمستثنى
+            {shortDate(summary.from)} ← {shortDate(summary.to)} · الفواتير المتحفظة بس، بعد شيل التحويلات والمستثنى
           </p>
+          {totals.pending_invoices ? (
+            <p className="mt-0.5 text-[11px] font-bold text-[var(--dawaa-status-warning-text)]">
+              مش محسوب: {totals.pending_invoices.toLocaleString('ar-EG')} فاتورة بـ {money(totals.pending_value)} ج لسه «انتظار المراجعة» في تطبيق المشتريات
+            </p>
+          ) : null}
           <div className="mt-2 grid grid-cols-2 gap-2">
             {summary.branches.map((row) => (
               <BranchChip
