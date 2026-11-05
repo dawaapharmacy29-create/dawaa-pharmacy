@@ -210,24 +210,7 @@ import { createClient } from "@supabase/supabase-js";
 var supabaseUrl = process.env.VITE_SUPABASE_URL;
 var supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
 var hasSupabaseConfig = Boolean(supabaseUrl && supabaseAnonKey);
-var AUTH_STORAGE_KEY = "dawaa_auth_user_v2";
 var STAFF_SESSION_STORAGE_KEY = "dawaa_staff_session_token_v1";
-function readStoredUserId() {
-  if (typeof window === "undefined" || typeof localStorage === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    const candidate = [parsed.id, parsed.staff_id, parsed.username].find(
-      (value) => typeof value === "string" && value.trim().length > 0
-    );
-    if (typeof candidate !== "string") return null;
-    const normalized = candidate.trim();
-    return normalized.length <= 160 ? normalized : null;
-  } catch {
-    return null;
-  }
-}
 function readStoredStaffSessionToken() {
   if (typeof window === "undefined" || typeof localStorage === "undefined") return null;
   try {
@@ -241,8 +224,6 @@ function buildDawaaRequestHeaders(initHeaders) {
   const headers = new Headers(initHeaders);
   const sessionToken = readStoredStaffSessionToken();
   if (sessionToken) headers.set("x-dawaa-session-token", sessionToken);
-  const userId = readStoredUserId();
-  if (userId) headers.set("x-dawaa-user-id", userId);
   return headers;
 }
 var supabaseFetch = (input, init) => fetch(input, {

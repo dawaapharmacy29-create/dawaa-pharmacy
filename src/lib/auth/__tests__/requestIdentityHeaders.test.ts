@@ -41,6 +41,18 @@ describe('request identity headers', () => {
     });
   });
 
+  it('never sends a client-chosen identity header, even when a user record is stored', () => {
+    withBrowserStorage({ [STAFF_SESSION_STORAGE_KEY]: TOKEN, dawaa_auth_user_v2: USER }, () => {
+      const headers = buildDawaaRequestHeaders({ 'x-dawaa-user-id': 'forged' });
+      expect(headers.get('x-dawaa-session-token')).toBe(TOKEN);
+      // A caller-provided value passes through untouched; the client itself never adds one.
+      expect(buildDawaaRequestHeaders().get('x-dawaa-user-id')).toBe(null);
+    });
+    withBrowserStorage({ dawaa_auth_user_v2: USER }, () => {
+      expect(buildDawaaRequestHeaders().get('x-dawaa-user-id')).toBe(null);
+    });
+  });
+
   it('never invents a session token when none is stored', () => {
     withBrowserStorage({ dawaa_auth_user_v2: USER }, () => {
       expect(buildDawaaRequestHeaders().get('x-dawaa-session-token')).toBe(null);

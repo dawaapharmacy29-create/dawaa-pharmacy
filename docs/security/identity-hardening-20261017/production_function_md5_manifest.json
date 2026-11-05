@@ -1,0 +1,590 @@
+[
+ {
+  "sig": "app_actor_is_team_dawaa(text)",
+  "md5": "636c59f79b5abcdbbb38d5fa67589d80"
+ },
+ {
+  "sig": "app_role_allowed(text,text[])",
+  "md5": "e0ec2ed796231665b7c5685443431b17"
+ },
+ {
+  "sig": "app_staff_role(text)",
+  "md5": "a354a12c1a405ce53473a8600d2da3dc"
+ },
+ {
+  "sig": "calculate_customer_loyalty_cycle(uuid,date,date,numeric,text,te",
+  "md5": "605ad221c5f87f759d1ef21a1594baa2"
+ },
+ {
+  "sig": "calculate_customer_loyalty_cycle_internal_v1(uuid,date,date,num",
+  "md5": "01a227de22bcc64ddb5259fda29c90b3"
+ },
+ {
+  "sig": "calculate_weekly_manager_metrics_v5(text,text,date,date)",
+  "md5": "13ca1f7145f4e195d460e2dac33767ee"
+ },
+ {
+  "sig": "can_view_monthly_performance_360_safe(uuid,uuid)",
+  "md5": "a451601a274a6ac7a99c9b956cc3b0ad"
+ },
+ {
+  "sig": "canonical_notification_type_v2(text)",
+  "md5": "f5123fd87326e4cfcd34f5a770e1f89f"
+ },
+ {
+  "sig": "create_product_catalog_item(text,text,numeric)",
+  "md5": "e73e4da6fdf88c824227f9614207a404"
+ },
+ {
+  "sig": "customer_followup_performance_v1(text,text,date,date)",
+  "md5": "b4a8e71e916b97c707a7cb6e7a30fb2e"
+ },
+ {
+  "sig": "dawaa_actor_is_top_management_v1()",
+  "md5": "55e150b54288a5926d79431b6e9051bb"
+ },
+ {
+  "sig": "dawaa_assert_customer_intelligence_branch_v2(text,uuid)",
+  "md5": "7130e273055253ba120d48a79572c350"
+ },
+ {
+  "sig": "dawaa_can_access_customer_intelligence_branch_v2(text,uuid)",
+  "md5": "5d92cdc7ee246bbe52631600f796bd9e"
+ },
+ {
+  "sig": "dawaa_can_access_customer_points_branch_v1(text,boolean)",
+  "md5": "246de950e19f3020e7282b425d586909"
+ },
+ {
+  "sig": "dawaa_can_access_customer_points_branch_v1(text[],text)",
+  "md5": "31e85a6cddede7b04a81cf8ce4df2a3e"
+ },
+ {
+  "sig": "dawaa_can_access_review_coverage_branch_v1(uuid,text,boolean)",
+  "md5": "acda1b3934da6fc6139c70b1e075de29"
+ },
+ {
+  "sig": "dawaa_can_manage_branch_targets(uuid)",
+  "md5": "ca5970f82041f63431d283175c0e8242"
+ },
+ {
+  "sig": "dawaa_can_manage_customer_intelligence_v2(uuid)",
+  "md5": "c3bb57002f9789010b4669937ab2a8dc"
+ },
+ {
+  "sig": "dawaa_can_read_conversation_review_row_v2(uuid,uuid,uuid,text,u",
+  "md5": "176b724f11132d1d7e448e3f01e04106"
+ },
+ {
+  "sig": "dawaa_cancel_customer_followup_v1(text,text,text,text)",
+  "md5": "bbaad8a957eba5de18e218ac4159e3d5"
+ },
+ {
+  "sig": "dawaa_clean_customer_name(text)",
+  "md5": "b99f8708b909d1eb7d7eb51b64369fd3"
+ },
+ {
+  "sig": "dawaa_complete_customer_followup_v1(text,text,text,numeric,text",
+  "md5": "ef919d18dc8e64e0218c883ee43b9391"
+ },
+ {
+  "sig": "dawaa_current_actor_can(text[])",
+  "md5": "4468e976f60159ae46863cc0141bae8a"
+ },
+ {
+  "sig": "dawaa_current_actor_staff_id_v1()",
+  "md5": "d32785052092a250af0954a0fe64fd18"
+ },
+ {
+  "sig": "dawaa_current_followup_actor_v2(text)",
+  "md5": "00c70f8082916126c7d8810017ef213b"
+ },
+ {
+  "sig": "dawaa_current_notification_account_id_v1()",
+  "md5": "c2ccb8b7f9af65dc13159fbde8e0af1b"
+ },
+ {
+  "sig": "dawaa_current_notification_branch_v1()",
+  "md5": "7993c3fe35275e4309563789d526a48c"
+ },
+ {
+  "sig": "dawaa_current_notification_name_v1()",
+  "md5": "70f69634a6d2c7b3ba325e3875411717"
+ },
+ {
+  "sig": "dawaa_current_notification_role_v1()",
+  "md5": "e8aa9838468581270cf579a47cef0be1"
+ },
+ {
+  "sig": "dawaa_current_points_actor_v1()",
+  "md5": "993dc59fdbd05fc9a922c6c2d0a0de99"
+ },
+ {
+  "sig": "dawaa_current_points_cycle_label_v1()",
+  "md5": "0444cbe03256f0e637aad38761cfb42e"
+ },
+ {
+  "sig": "dawaa_current_staff_account_id_strict()",
+  "md5": "bdfb21e6a066f00b471329bbe77bc4d5"
+ },
+ {
+  "sig": "dawaa_current_staff_id_v1()",
+  "md5": "8d4fcc6d3ac39338fcb69b476580d370"
+ },
+ {
+  "sig": "dawaa_customer_request_branch_key(text)",
+  "md5": "e70be6fa5e43d2b553d4fb716720c845"
+ },
+ {
+  "sig": "dawaa_customer_request_permission_allowed(uuid,text)",
+  "md5": "3f38c7d40a8f11ee37d5f6c4191cb600"
+ },
+ {
+  "sig": "dawaa_customer_service_queue_scope_v2()",
+  "md5": "9fc668a4d999970229b431d6bbc642d4"
+ },
+ {
+  "sig": "dawaa_customer_service_queue_scope_v3(uuid)",
+  "md5": "6e875ddce9009ffe337c06bd048416c9"
+ },
+ {
+  "sig": "dawaa_enforce_notification_audience_v1()",
+  "md5": "8bfc9db13a19e43b520d342933069ac7"
+ },
+ {
+  "sig": "dawaa_has_active_app_session()",
+  "md5": "0d0846c25d2bff26859cd1639e7f730c"
+ },
+ {
+  "sig": "dawaa_is_cleaning_role_v1(text)",
+  "md5": "950257501043f6608a8e28a1ff5f9bcc"
+ },
+ {
+  "sig": "dawaa_is_customer_service_evaluator_v1(uuid,text)",
+  "md5": "5426d1ffa0d1634403d047acf3ae32a4"
+ },
+ {
+  "sig": "dawaa_jsonb_has_true_any(jsonb,text[])",
+  "md5": "c0908ec385705f7513ed0c8443da1c73"
+ },
+ {
+  "sig": "dawaa_log_customer_followup_event_v1(text,text,text,text,text,j",
+  "md5": "907c7f8e731cd0ea7b4d48515bfc0d3f"
+ },
+ {
+  "sig": "dawaa_monthly_evaluation_branch_manager_subject_allowed_v5(text",
+  "md5": "aa0db021cc15d3774c7e52157ee4f531"
+ },
+ {
+  "sig": "dawaa_monthly_evaluation_canonical_role_v5(text)",
+  "md5": "3b2d46620dc3572381e0dbe99ae97dd5"
+ },
+ {
+  "sig": "dawaa_monthly_evaluation_evidence_drift_v5(uuid,date,jsonb)",
+  "md5": "5255840917a3a7bd9c7ca66fc5ee6f9e"
+ },
+ {
+  "sig": "dawaa_notification_inbox_visible_v1(text,text,text,text,text,te",
+  "md5": "62ac3ac88038c173b7a5e59676b436d1"
+ },
+ {
+  "sig": "dawaa_notification_inbox_visible_v2(text,text,text,text,text,te",
+  "md5": "7b44884a852a0e42c44bc7c8dee8a84d"
+ },
+ {
+  "sig": "dawaa_notification_inbox_visible_v3(text,text,text,text,text,te",
+  "md5": "dba15764e31a8860d7d2be6022da8036"
+ },
+ {
+  "sig": "dawaa_notification_visible_to_current_user_v2(text,text,text,te",
+  "md5": "4bdd6734d7ac66bb18e47f5cd86edd1c"
+ },
+ {
+  "sig": "dawaa_refresh_staff_points_snapshot_v1(uuid)",
+  "md5": "51cf0cd78b052cabce81a15d2f58326e"
+ },
+ {
+  "sig": "dawaa_request_staff_id()",
+  "md5": "e4d359c228750d38517d3c659dbe9d17"
+ },
+ {
+  "sig": "dawaa_request_staff_identifier()",
+  "md5": "ea34ea843b16e5e411201f710bbe13da"
+ },
+ {
+  "sig": "dawaa_require_customer_service_actor_v1(boolean)",
+  "md5": "2136922f064c6fcf4f78290a645a1a84"
+ },
+ {
+  "sig": "dawaa_review_coverage_branch_key_v1(text)",
+  "md5": "1decb9bee5a62c3eaa430c63425d975e"
+ },
+ {
+  "sig": "dawaa_session_account_id_v1()",
+  "md5": "edba3bedf32fb7b7b43de630530d140c"
+ },
+ {
+  "sig": "dawaa_shortage_permission_allowed_v1(uuid,text)",
+  "md5": "4bfdb51a954125e4f27bf5f64ebbac3f"
+ },
+ {
+  "sig": "dawaa_task_manage_current_user_v1()",
+  "md5": "fde9e2d12c101feb328c0f88610b5677"
+ },
+ {
+  "sig": "dawaa_task_visible_to_current_user_v1(uuid,text,text,text,text,",
+  "md5": "7adacca629f38e5a959131bfe8bcb4d6"
+ },
+ {
+  "sig": "dawaa_team_alpha_my_track_v1(uuid,date)",
+  "md5": "75519afd8580cac2e1b1a834868980bc"
+ },
+ {
+  "sig": "disable_notification_push_subscription_v1(text,uuid)",
+  "md5": "ecf4843f63e6a90a56fdd8affdad9815"
+ },
+ {
+  "sig": "employee_operating_actor_branch()",
+  "md5": "e2536373f0da55638b7633eec9348d58"
+ },
+ {
+  "sig": "employee_operating_actor_id()",
+  "md5": "ecc32f4927ed2a00df89087350ea31df"
+ },
+ {
+  "sig": "employee_operating_actor_role()",
+  "md5": "3a9a3c7fd94406e86381aff81c907c17"
+ },
+ {
+  "sig": "fetch_customer_welcome_message_logs(text,text,text,text,text,te",
+  "md5": "441579db9f1fdf57672e536a5fe4f349"
+ },
+ {
+  "sig": "get_cleaning_cycle_rating_summary_v1(uuid,text)",
+  "md5": "85f7897b181b9183b3db8815b8ed274a"
+ },
+ {
+  "sig": "get_cleaning_day_checklist_summary_v2(uuid,date)",
+  "md5": "2588a56315ecc3cd82a2d103522cae24"
+ },
+ {
+  "sig": "get_customer_followup_records_v1(text,text,text,text,date,date,",
+  "md5": "3a062f9bd527d3607b29eb40f1339ad5"
+ },
+ {
+  "sig": "get_customer_points_daily20_core(date,text)",
+  "md5": "0ef30d43d1911950478565acd7676747"
+ },
+ {
+  "sig": "get_customer_points_daily20_v2(date,uuid)",
+  "md5": "21c2e8335dd29f29c2b26eff689bd7f5"
+ },
+ {
+  "sig": "get_customer_service_at_risk_completion_v1(date,uuid)",
+  "md5": "2a9bdbbf06945aec117421c747bd6a07"
+ },
+ {
+  "sig": "get_customer_service_at_risk_daily_core(date,text)",
+  "md5": "db08ff324a273d5dc56f5bc28430c3a0"
+ },
+ {
+  "sig": "get_customer_service_at_risk_daily_v2(date,uuid)",
+  "md5": "91272257173d96f142ea4d99eb675c34"
+ },
+ {
+  "sig": "get_customer_service_cycle_cohorts(text,date,integer,uuid)",
+  "md5": "05f1b52581f039053edb22e5a7481321"
+ },
+ {
+  "sig": "get_customer_service_daily_queue_completion_core(date,text)",
+  "md5": "6cf4024d24b63b3eb56aeca2f58553cd"
+ },
+ {
+  "sig": "get_customer_service_daily_queue_completion_v1(date,uuid)",
+  "md5": "1d3920fcb08864629ef866c59640023d"
+ },
+ {
+  "sig": "get_customer_service_daily_vip7_core(date,text)",
+  "md5": "88a85ffcde603857152f46bced930265"
+ },
+ {
+  "sig": "get_customer_service_daily_vip7_v2(date,uuid)",
+  "md5": "dce1b6bbf0bcfb60af677e1e326f0422"
+ },
+ {
+  "sig": "get_customer_service_first_purchase_save_core(date,text)",
+  "md5": "4298577824a6147920e1b4de5fdd4d08"
+ },
+ {
+  "sig": "get_customer_service_first_purchase_save_v2(date,uuid)",
+  "md5": "a695dab454695c616998a1c2d03a2d55"
+ },
+ {
+  "sig": "get_customer_service_plus500_core(date,text)",
+  "md5": "cfd4d04f430a4a4ceb809735ed763691"
+ },
+ {
+  "sig": "get_customer_service_plus500_v2(date,uuid)",
+  "md5": "61b92e1e43e94d040e6c6bcec6fde4c4"
+ },
+ {
+  "sig": "get_customer_service_recent_top50_cached(text)",
+  "md5": "ecb8f0633b8d7ce62a55b1ea3a2eb529"
+ },
+ {
+  "sig": "get_customer_service_recent_top50_v2(integer,uuid)",
+  "md5": "55ca01707e144a5dc7665e74e5c62641"
+ },
+ {
+  "sig": "get_customer_service_three_cycle_intelligence_v1(date,uuid)",
+  "md5": "00d889dfd217b46de628435d7cd339ff"
+ },
+ {
+  "sig": "get_customer_service_watchlist_performance(text,date,integer,uu",
+  "md5": "f52f208e75e65af3263bbb4e693d6f09"
+ },
+ {
+  "sig": "get_doctor_customer_service_evaluation_safe(uuid,uuid,date)",
+  "md5": "e97fa279574f095cfb09560b00346442"
+ },
+ {
+  "sig": "get_doctor_incentive_dashboard_v3(uuid)",
+  "md5": "f8868688fb27163d442149eea8e82829"
+ },
+ {
+  "sig": "get_doctor_live_incentive_total(uuid)",
+  "md5": "8ced7b03affb15ccb414275bb045b88d"
+ },
+ {
+  "sig": "get_doctor_pillar_breakdown(uuid,text)",
+  "md5": "7780699577ae1955e283cb2a8d9aedc1"
+ },
+ {
+  "sig": "get_employee_workspace_dashboard_v3(uuid,text,text,text,text,te",
+  "md5": "9f655aa58d95a21c12a5d19ada65381f"
+ },
+ {
+  "sig": "get_my_notification_push_health_v1()",
+  "md5": "626e09de3b004df995e88566ee81b150"
+ },
+ {
+  "sig": "get_my_official_whatsapp_sales_v1(date,date)",
+  "md5": "3b0c6861a48730d5afbdb18d8e569f74"
+ },
+ {
+  "sig": "get_notification_push_bootstrap_v1()",
+  "md5": "65019dd2730ca705a809af47c45c5f1e"
+ },
+ {
+  "sig": "get_staff_monthly_evaluation_audit_v5(uuid,uuid,date)",
+  "md5": "4476c78592c702dddd8b32fa593cce8b"
+ },
+ {
+  "sig": "get_staff_monthly_evaluation_employee_response_v5(uuid,uuid,dat",
+  "md5": "2e142263553d19d2dea733539328a6e7"
+ },
+ {
+  "sig": "get_staff_monthly_evaluation_evidence_drift_v5(uuid,uuid,date)",
+  "md5": "0340ba6a634b8e5bd57265831b8a9b96"
+ },
+ {
+  "sig": "get_staff_monthly_evaluation_safe(uuid,uuid,date)",
+  "md5": "2bd50733223b7f4279185433f4f74d38"
+ },
+ {
+  "sig": "get_staff_monthly_evaluation_v5(uuid,uuid,date)",
+  "md5": "f4299ccb86a74524de241c3f1353c077"
+ },
+ {
+  "sig": "get_staff_points_dashboard_v3(uuid,text)",
+  "md5": "a683d492469ea73f70022729b7d1cfc4"
+ },
+ {
+  "sig": "get_user_permissions(uuid)",
+  "md5": "48daba240653e3af672e4c52eaab6da0"
+ },
+ {
+  "sig": "get_weekly_manager_metrics_cached_v1(uuid,text,text,date,date)",
+  "md5": "5d065214ee5ac82949a0a4956c54af1a"
+ },
+ {
+  "sig": "get_weekly_manager_metrics_fast_v1(uuid,text,text,date,date,int",
+  "md5": "5b14b3a342f5aaa855be37c6d183dd27"
+ },
+ {
+  "sig": "import_customer_followup_results_legacy_v1(uuid,text,text,jsonb",
+  "md5": "098380a2f442e989b3a6377423d839ba"
+ },
+ {
+  "sig": "import_customer_followup_results_v1(uuid,text,text,jsonb)",
+  "md5": "1cbd50b60e60756cb8e05a0b2db7f13a"
+ },
+ {
+  "sig": "import_customer_service_queue_results_legacy_v4(uuid,text,text,",
+  "md5": "3aac2293b9173919d8bd0dbebc54ab06"
+ },
+ {
+  "sig": "import_customer_service_queue_results_v2(uuid,text,text,jsonb)",
+  "md5": "8c9111901dccb587b746a3b5c40b63f3"
+ },
+ {
+  "sig": "import_customer_service_queue_results_v3(uuid,text,text,jsonb)",
+  "md5": "4965e49875cb3d3193c690a743a84433"
+ },
+ {
+  "sig": "import_customer_service_queue_results_v4(uuid,text,text,jsonb)",
+  "md5": "60a8a117a5eff72f3d80a789b02b24d1"
+ },
+ {
+  "sig": "list_doctors_for_customer_service_evaluation_safe(uuid)",
+  "md5": "1f14d995dc8ab6d16b76148aa1f05544"
+ },
+ {
+  "sig": "list_staff_for_monthly_evaluation_safe(uuid,text)",
+  "md5": "a7602a68fa9a473cd2337e49fbaaf526"
+ },
+ {
+  "sig": "list_staff_for_monthly_evaluation_v5(uuid,text,date)",
+  "md5": "593a519922eb6da5e002b8d70da556e3"
+ },
+ {
+  "sig": "list_staff_for_monthly_performance_360_safe(uuid)",
+  "md5": "a2c7328814dca30caa394080fbc6ae7e"
+ },
+ {
+  "sig": "list_staff_monthly_evaluation_response_status_v5(uuid,text,date",
+  "md5": "f2a350ebafecc46e52281f92a95887d9"
+ },
+ {
+  "sig": "list_weekly_manager_evaluation_subjects_v1(uuid,text)",
+  "md5": "cf097ae247c99eb2672e0f51a27849be"
+ },
+ {
+  "sig": "log_at_risk_snapshot_v1(date,text)",
+  "md5": "dbd50a2fb6a98b3144c0623e17032975"
+ },
+ {
+  "sig": "log_first_purchase_snapshot_v1(date,text)",
+  "md5": "1836881764ed53449170200e90b8d363"
+ },
+ {
+  "sig": "mark_all_my_notifications_read_v1()",
+  "md5": "ba84c86c604318e3e5ef165d639952e1"
+ },
+ {
+  "sig": "mark_customer_points_contacted_v2(text,text,text)",
+  "md5": "69c8b911c12d7a5335e55f61e5e7661b"
+ },
+ {
+  "sig": "mark_customer_points_contacted_v2(text,text,text,uuid)",
+  "md5": "201dbb5b45ee2002479273ae22073094"
+ },
+ {
+  "sig": "mark_my_notification_read_v1(uuid)",
+  "md5": "e4d3cccad7375fb2537e90a76adaa92c"
+ },
+ {
+  "sig": "monthly_eval_actor(uuid)",
+  "md5": "e3c7a7d0fed7b5439486a6dc6784b723"
+ },
+ {
+  "sig": "normalize_customer_followup_branch(text)",
+  "md5": "31d67af6b1fcb1216d9e80c7c527d5b1"
+ },
+ {
+  "sig": "normalize_loyalty_branch(text)",
+  "md5": "904d5a22c4837ba8f7f5d90e1a565a8a"
+ },
+ {
+  "sig": "normalize_product_name(text)",
+  "md5": "5874461ef980ab82b65afcb29101659b"
+ },
+ {
+  "sig": "record_warehouse_shortage_dispatch(text,jsonb,jsonb,text,text)",
+  "md5": "df9736d55411f7fef119b7a8564a3f66"
+ },
+ {
+  "sig": "register_notification_push_subscription_v1(text,text,text,text,",
+  "md5": "3bf78d353bce1475966e0bfed58f175b"
+ },
+ {
+  "sig": "respond_staff_monthly_evaluation_v5(uuid,uuid,date,text,text)",
+  "md5": "683f53843f9cdada399f40ec341d7c6a"
+ },
+ {
+  "sig": "review_customer_loyalty_approval(uuid,text,text,text)",
+  "md5": "195e68ac879313ee091f643e121f510e"
+ },
+ {
+  "sig": "review_customer_loyalty_approval_internal_v1(uuid,text,text,tex",
+  "md5": "b837065674294d58e61fc68060e51540"
+ },
+ {
+  "sig": "run_due_customer_loyalty_cycles(text,text)",
+  "md5": "32909ae2465ca03a70732b627e1e4956"
+ },
+ {
+  "sig": "run_due_customer_loyalty_cycles_internal_v1(text,text)",
+  "md5": "e3ea0b564e9e9ef6ebea560e83b8867a"
+ },
+ {
+  "sig": "save_branch_sales_target_safe(uuid,text,numeric)",
+  "md5": "64373fddeb862703d98b09417a0fac81"
+ },
+ {
+  "sig": "save_branch_sales_target_v2(uuid,text,numeric)",
+  "md5": "8c6f6f0e3a1729256a0f0368350d9807"
+ },
+ {
+  "sig": "save_doctor_customer_service_evaluation_safe(uuid,jsonb)",
+  "md5": "8ec8a099a0588a328b990f94115823a3"
+ },
+ {
+  "sig": "save_quick_reply_script(uuid,text,text,text,text,text,text,text",
+  "md5": "522783421165413ae587dffb4731ecca"
+ },
+ {
+  "sig": "save_staff_monthly_evaluation_safe(uuid,jsonb)",
+  "md5": "000f40c0df3ba24887623f74c818671a"
+ },
+ {
+  "sig": "save_staff_monthly_evaluation_v5(uuid,jsonb)",
+  "md5": "6886048635261e9301e2941e70d37f24"
+ },
+ {
+  "sig": "search_products_catalog(text,integer)",
+  "md5": "c8791f6a8ebb16e261bfa04935a3c6eb"
+ },
+ {
+  "sig": "set_branch_daily_task_status(uuid,text,uuid,text,text,text)",
+  "md5": "a549b0a78b7bbee0f99e21dda9b18e17"
+ },
+ {
+  "sig": "set_branch_sales_target(text,numeric,uuid)",
+  "md5": "cb70382f1cf94cc5269ecd5ede505e73"
+ },
+ {
+  "sig": "submit_customer_loyalty_approval(uuid,date,date,numeric,text,te",
+  "md5": "cd4b526966a4dfeb115b31345192fcee"
+ },
+ {
+  "sig": "submit_customer_loyalty_approval_internal_v1(uuid,date,date,num",
+  "md5": "d5bf5d2ce8f67223efa34546500d3670"
+ },
+ {
+  "sig": "touch_notification_push_subscription_v1(text)",
+  "md5": "c333198b59e41ef90f72cfd8d3818658"
+ },
+ {
+  "sig": "update_customer_welcome_message_status(uuid,text,text,text)",
+  "md5": "8e01753eb3b2f3a4e42ba8b286577c50"
+ },
+ {
+  "sig": "upsert_customer_service_overdue_incident_v1(text,text,integer,i",
+  "md5": "4e0090aab2bc5c17976780319ab90c73"
+ },
+ {
+  "sig": "user_has_permission(uuid,text)",
+  "md5": "2aebcd151b078309e17e93aa6fb8f52d"
+ }
+]
