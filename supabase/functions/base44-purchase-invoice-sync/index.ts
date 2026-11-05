@@ -65,6 +65,10 @@ Deno.serve(async (_req: Request) => {
       payment_type: inv.payment_type ?? null,
       notes: inv.notes ?? null,
       transfer_authorization_number: inv.transfer_authorization_number ?? null,
+      // The app's net purchases rules: returns on the invoice, and invoices excluded one by one.
+      returned_value: inv.returned_value ?? null,
+      net_purchase_mode: inv.net_purchase_mode ?? null,
+      exclusion_reason: inv.exclusion_reason ?? null,
     }));
 
     // One call per page: the whole book in one statement runs past the statement timeout.
@@ -78,6 +82,23 @@ Deno.serve(async (_req: Request) => {
         result[key] = (result[key] ?? 0) + Number(value || 0);
       }
     }
+    // Suppliers excluded from net purchases, as the app has them (a short list, read every run).
+    const suppliers: Array<Record<string, unknown>> = [];
+    for (let skip = 0; ; skip += PAGE) {
+      const res = await fetch(`${BASE44_API_BASE}/${BASE44_APP_ID}/entities/Supplier?sort=id&limit=${PAGE}&skip=${skip}`, {
+        headers: { Authorization: `Bearer ${base44ApiKey}`, "Content-Type": "application/json" },
+      });
+      if (!res.ok) throw new Error(`Base44 Supplier API error ${res.status}: ${(await res.text()).slice(0, 300)}`);
+      const page = (await res.json()) as Array<Record<string, unknown>>;
+      suppliers.push(...page);
+      if (page.length < PAGE || skip > 20000) break;
+    }
+    const { error: supplierError } = await admin.rpc("import_base44_purchase_suppliers_v1", {
+      p_records: suppliers.map((s) => ({ id: s.id, name: s.name ?? null, exclude_from_net_purchases: s.exclude_from_net_purchases === true })),
+    });
+    if (supplierError) throw new Error(`import_base44_purchase_suppliers_v1 error: ${supplierError.message}`);
+    result.suppliers = suppliers.length;
+
     // A full read holds every invoice DawaaWael still has: the ones it did not return were deleted there.
     if (full) {
       const { data: missing, error: missingError } = await admin.rpc("mark_base44_purchase_invoices_missing_v1", {

@@ -2,13 +2,16 @@ import { supabase } from '@/lib/supabase';
 
 // Purchases of the «دواء وائل» purchases app per branch for any period (migration 20261105120000).
 // Saved invoices only, like the purchases app (migration 20261105200000); invoices still waiting for review are pending_*.
-// net = gross − transfers between the two branches − agreed excluded suppliers − invoices excluded one by one.
+// net = gross − transfers between the two branches − returns on each invoice − excluded suppliers and invoices,
+// the same rules as the purchases app (migration 20261105210000).
 
 export interface GmPurchasesBranch {
   branch: string;
   invoices: number;
   gross: number;
   transfers: number;
+  /** Returns written on the invoices themselves (returned_value in the app). */
+  returns: number;
   excluded: number;
   net: number;
   /** Purchases still «انتظار المراجعة» in the app: not in the net. */
@@ -47,6 +50,7 @@ export async function loadGmPurchasesSummary(
       invoices: Number(row.invoices) || 0,
       gross: Number(row.gross) || 0,
       transfers: Number(row.transfers) || 0,
+      returns: Number(row.returns) || 0,
       excluded: Number(row.excluded) || 0,
       net: Number(row.net) || 0,
       pending_invoices: Number(row.pending_invoices) || 0,
@@ -78,11 +82,12 @@ export function purchasesTotals(branches: GmPurchasesBranch[]) {
       invoices: sum.invoices + row.invoices,
       gross: sum.gross + row.gross,
       transfers: sum.transfers + row.transfers,
+      returns: sum.returns + (row.returns || 0),
       excluded: sum.excluded + row.excluded,
       net: sum.net + row.net,
       pending_invoices: sum.pending_invoices + (row.pending_invoices || 0),
       pending_value: sum.pending_value + (row.pending_value || 0),
     }),
-    { invoices: 0, gross: 0, transfers: 0, excluded: 0, net: 0, pending_invoices: 0, pending_value: 0 }
+    { invoices: 0, gross: 0, transfers: 0, returns: 0, excluded: 0, net: 0, pending_invoices: 0, pending_value: 0 }
   );
 }
