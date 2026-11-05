@@ -12,6 +12,7 @@ import {
   Archive,
   Bike,
   CalendarDays,
+  Check,
   ChevronDown,
   Clock,
   Loader2,
@@ -1701,7 +1702,45 @@ function dayStory(day: DrWaelDay): string {
   }
 }
 
-// Days waiting for a decision, newest first, each with its one-click decision; late-only days are folded.
+// The kind of decision a day needs, for the filter chips and the colour of its card.
+type QueueKind = 'forgot' | 'absent' | 'early' | 'off' | 'other';
+const QUEUE_KINDS: Record<QueueKind, { label: string; tone: Tone; edge: string }> = {
+  forgot: { label: 'نسي بصمة', tone: 'amber', edge: 'border-r-amber-400' },
+  absent: { label: 'ما بصمش', tone: 'red', edge: 'border-r-rose-400' },
+  early: { label: 'مشي بدري / اتأخر', tone: 'violet', edge: 'border-r-violet-400' },
+  off: { label: 'أوف من غير جدول', tone: 'gray', edge: 'border-r-slate-400' },
+  other: { label: 'محتاج مراجعة', tone: 'blue', edge: 'border-r-sky-400' },
+};
+function queueKind(day: DrWaelDay): QueueKind {
+  switch (day.resolution) {
+    case 'missing_checkout':
+    case 'missing_checkin':
+      return 'forgot';
+    case 'absence_review':
+      return 'absent';
+    case 'early_leave_review':
+    case 'late':
+      return 'early';
+    case 'no_schedule':
+    case 'off_day':
+    case 'approved_time_off':
+      return 'off';
+    default:
+      return 'other';
+  }
+}
+
+const BUTTON_TONE = {
+  primary:
+    'bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-500 dark:text-slate-950 dark:hover:bg-emerald-400',
+  danger:
+    'border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-300 dark:hover:bg-rose-500/20',
+  neutral:
+    'border border-gray-200 bg-white text-gray-800 hover:bg-gray-50 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700',
+} as const;
+
+// Days waiting for a decision, newest first. One click decides a plain day and the card leaves the
+// list at once (it comes back with the reason if the save fails); late-only days are folded.
 function ReviewQueue({
   groups,
   names,
@@ -1715,114 +1754,256 @@ function ReviewQueue({
   onOpen: (day: DrWaelDay) => void;
   onDecisionSaved: () => void;
 }) {
-  const [busy, setBusy] = useState<string | null>(null);
-  const [done, setDone] = useState<Record<string, string>>({});
+  const [gone, setGone] = useState<Record<string, string>>({});
   const [failed, setFailed] = useState<Record<string, string>>({});
+  const [kindFilter, setKindFilter] = useState<QueueKind | 'all'>('all');
   const [showInfo, setShowInfo] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState<string | null>(null);
+  const refreshTimer = useRef<number | null>(null);
   const key = (day: DrWaelDay) => `${day.staff_id}-${day.date}`;
-  const pending = groups.flatMap((g) => g.days.filter((d) => d.review && !done[key(d)]));
+
+  // Reload the page data once the decisions stop, not after every click.
+  const scheduleRefresh = () => {
+    if (refreshTimer.current) window.clearTimeout(refreshTimer.current);
+    refreshTimer.current = window.setTimeout(() => onDecisionSaved(), 2500);
+  };
+  useEffect(
+    () => () => {
+      if (refreshTimer.current) window.clearTimeout(refreshTimer.current);
+    },
+    []
+  );
+
+  const open = groups.flatMap((g) => g.days.filter((d) => d.review && !gone[key(d)]));
   const infoOnly = groups.flatMap((g) => g.days.filter((d) => !d.review));
+  const counts = open.reduce<Record<string, number>>((acc, day) => {
+    const kind = queueKind(day);
+    acc[kind] = (acc[kind] || 0) + 1;
+    return acc;
+  }, {});
+  const doneCount = Object.keys(gone).length;
+  const total = open.length + doneCount;
+
   const decide = async (day: DrWaelDay, decision: QuickDayDecision, label: string) => {
     const k = key(day);
-    setBusy(k);
+    const who = names.get(day.staff_id)?.name || 'موظف';
+    setGone((g) => ({ ...g, [k]: `${who}: ${label}` }));
     setFailed((f) => ({ ...f, [k]: '' }));
     try {
       const result = await decideQuickDay(day.staff_id, day.date, decision);
-      setDone((d) => ({
-        ...d,
-        [k]: result.approved === false ? `${label} · اتسجلت البصمة واليوم لسه للمراجعة` : label,
-      }));
-      onDecisionSaved();
+      if (result.approved === false) {
+        setGone((g) => ({ ...g, [k]: `${who}: ${label} (البصمة اتسجلت، واليوم فاضل للمراجعة)` }));
+      }
+      scheduleRefresh();
+      return true;
     } catch (error) {
+      setGone((g) => {
+        const next = { ...g };
+        delete next[k];
+        return next;
+      });
       setFailed((f) => ({
         ...f,
         [k]: error instanceof Error ? error.message : 'تعذّر حفظ القرار',
       }));
-    } finally {
-      setBusy(null);
+      return false;
     }
   };
+
+  // The clear cases of a day: one obvious decision (forgot a punch → shift time; worked → approve).
+  const obvious = (days: DrWaelDay[]) =>
+    days
+      .map((day) => ({ day, options: quickDayOptions(day) }))
+      .filter(({ options }) => options.length === 1 && options[0].tone === 'primary');
+  const decideAll = async (date: string, items: ReturnType<typeof obvious>) => {
+    if (!window.confirm(`هيتنفّذ ${items.length} قرار واضح ليوم ${date}. تكمل؟`)) return;
+    setBulkBusy(date);
+    for (const { day, options } of items) await decide(day, options[0].decision, options[0].label);
+    setBulkBusy(null);
+  };
+
+  const recent = Object.values(gone).slice(-3).reverse();
+
   return (
     <Section
-      title={`قرارات الحضور المستنية — ${pending.length} يوم`}
-      subtitle="آخر 5 أيام · جنب كل يوم القرار المناسب بضغطة، و«تفاصيل» للحالات المعقدة"
+      title="قرارات الحضور المستنية"
+      subtitle="آخر 5 أيام · كل يوم جنبه القرار المناسب بضغطة، و«تفاصيل» للحالات المعقدة"
     >
-      {pending.length === 0 ? (
-        <p className="text-center text-xs font-bold text-emerald-600">مفيش قرارات مستنية ✓</p>
-      ) : (
-        <div className="space-y-3">
-          {groups.map((group) => {
-            const days = group.days.filter((d) => d.review && !done[key(d)]);
-            if (!days.length) return null;
+      <div className={`${CARD} space-y-3 p-4`}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-baseline gap-2">
+            <span className="text-3xl font-black text-gray-900 dark:text-slate-100">
+              {open.length}
+            </span>
+            <span className={`text-sm font-bold ${MUTED}`}>يوم مستني قرار</span>
+          </div>
+          {doneCount ? (
+            <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 dark:text-emerald-400">
+              <Check size={14} /> خلّصت {doneCount} من {total}
+            </span>
+          ) : null}
+        </div>
+        {total ? (
+          <div className="h-1.5 overflow-hidden rounded-full bg-gray-100 dark:bg-slate-800">
+            <div
+              className="h-full rounded-full bg-emerald-500 transition-all duration-500"
+              style={{ width: `${Math.round((doneCount / total) * 100)}%` }}
+            />
+          </div>
+        ) : null}
+        <div className="flex flex-wrap gap-1.5">
+          {(['all', ...(Object.keys(QUEUE_KINDS) as QueueKind[])] as const).map((kind) => {
+            const count = kind === 'all' ? open.length : counts[kind] || 0;
+            if (kind !== 'all' && !count) return null;
+            const active = kindFilter === kind;
             return (
-              <div key={group.date} className={`${CARD} p-3`}>
-                <div className="mb-2 flex items-center justify-between text-xs">
-                  <span className="font-bold text-gray-900 dark:text-slate-100">
-                    {weekday(group.date)} · {group.date}
+              <button
+                key={kind}
+                type="button"
+                onClick={() => setKindFilter(kind)}
+                className={`rounded-full px-3 py-1 text-xs font-bold transition ${active ? ACTIVE : IDLE}`}
+              >
+                {kind === 'all' ? 'الكل' : QUEUE_KINDS[kind].label} · {count}
+              </button>
+            );
+          })}
+        </div>
+        {!canReview ? (
+          <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+            القرارات للمدير العام أو اللي معاه صلاحية المرتبات — تقدر تشوف الحالات بس.
+          </p>
+        ) : null}
+        {recent.length ? (
+          <ul className="space-y-0.5 text-[11px] font-bold text-emerald-700 dark:text-emerald-300">
+            {recent.map((line) => (
+              <li key={line} className="flex items-center gap-1">
+                <Check size={12} /> {line}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+
+      {open.length === 0 ? (
+        <div className={`${CARD} flex flex-col items-center gap-1 p-6 text-center`}>
+          <Check className="text-emerald-500" size={28} />
+          <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
+            مفيش قرارات مستنية
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {groups.map((group) => {
+            const days = group.days.filter(
+              (d) =>
+                d.review && !gone[key(d)] && (kindFilter === 'all' || queueKind(d) === kindFilter)
+            );
+            if (!days.length) return null;
+            const clear = canReview ? obvious(days) : [];
+            return (
+              <div key={group.date} className="space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+                  <span className={`text-sm font-black ${PAGE_HEADING}`}>
+                    {weekday(group.date)} · {group.date.slice(8, 10)}/{group.date.slice(5, 7)}
+                    <span className={`ms-2 text-xs font-bold ${PAGE_MUTED}`}>
+                      {days.length} قرار
+                    </span>
                   </span>
-                  <span className={MUTED}>{days.length} قرار</span>
+                  {clear.length > 1 ? (
+                    <button
+                      type="button"
+                      disabled={bulkBusy !== null}
+                      onClick={() => void decideAll(group.date, clear)}
+                      className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 hover:bg-emerald-100 disabled:opacity-60 dark:bg-emerald-500/10 dark:text-emerald-300"
+                    >
+                      {bulkBusy === group.date ? (
+                        <Loader2 size={13} className="animate-spin" />
+                      ) : (
+                        <Check size={13} />
+                      )}
+                      نفّذ الواضح ({clear.length})
+                    </button>
+                  ) : null}
                 </div>
-                <ul className="divide-y divide-gray-100 dark:divide-slate-800">
+                <ul className="space-y-2">
                   {days.map((day) => {
                     const k = key(day);
                     const employee = names.get(day.staff_id);
+                    const kind = QUEUE_KINDS[queueKind(day)];
                     const options = canReview ? quickDayOptions(day) : [];
+                    const name = employee?.name || '—';
                     return (
                       <li
                         key={k}
-                        className="flex flex-wrap items-center justify-between gap-2 py-2"
+                        className={`${CARD} border-r-4 ${kind.edge} flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between`}
                       >
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-1 text-sm font-bold text-gray-900 dark:text-slate-100">
-                            {employee?.name || '—'}
-                            {employee && !employee.active ? (
-                              <Pill tone="gray">ساب الشغل</Pill>
-                            ) : null}
-                            {day.other_branch ? (
-                              <Pill tone="blue">بصم في {day.other_branch}</Pill>
-                            ) : null}
-                            <span className={`text-[11px] font-normal ${MUTED}`}>
-                              {day.branch.replace('فرع ', '')}
-                              {day.scheduled_start
-                                ? ` · ${cairoTime(day.scheduled_start)}–${cairoTime(day.scheduled_end)}`
-                                : ''}
-                            </span>
-                          </div>
-                          <div className="text-xs text-gray-700 dark:text-slate-300">
-                            {dayStory(day)}
-                          </div>
-                          {failed[k] ? (
-                            <div className="text-[11px] font-bold text-rose-600">{failed[k]}</div>
-                          ) : null}
-                        </div>
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          {options.map((option) => (
-                            <button
-                              key={option.decision}
-                              type="button"
-                              disabled={busy === k}
-                              onClick={() => void decide(day, option.decision, option.label)}
-                              className={
-                                option.tone === 'primary'
-                                  ? 'btn-primary text-xs'
-                                  : option.tone === 'danger'
-                                    ? 'btn-secondary text-xs text-rose-600'
-                                    : 'btn-secondary text-xs'
-                              }
+                        <div className="flex min-w-0 items-start gap-3">
+                          <span
+                            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-black ${TONES[kind.tone]}`}
+                          >
+                            {name
+                              .replace(/^د\s*\/?\s*/, '')
+                              .trim()
+                              .charAt(0) || '؟'}
+                          </span>
+                          <div className="min-w-0 space-y-1">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="text-sm font-black text-gray-900 dark:text-slate-100">
+                                {name}
+                              </span>
+                              <Pill tone={kind.tone}>{kind.label}</Pill>
+                              {employee && !employee.active ? (
+                                <Pill tone="gray">ساب الشغل</Pill>
+                              ) : null}
+                              {day.other_branch ? (
+                                <Pill tone="blue">
+                                  بصم في {day.other_branch.replace('فرع ', '')}
+                                </Pill>
+                              ) : null}
+                            </div>
+                            <div className="text-[13px] text-gray-700 dark:text-slate-300">
+                              {dayStory(day)}
+                            </div>
+                            <div
+                              className={`flex flex-wrap items-center gap-x-2 text-[11px] ${MUTED}`}
                             >
-                              {busy === k ? '…' : option.label}
-                            </button>
-                          ))}
-                          {canReview ? (
+                              <span>{day.branch.replace('فرع ', '')}</span>
+                              {day.scheduled_start ? (
+                                <span className="inline-flex items-center gap-0.5">
+                                  <Clock size={11} /> {cairoTime(day.scheduled_start)}–
+                                  {cairoTime(day.scheduled_end)}
+                                </span>
+                              ) : null}
+                            </div>
+                            {failed[k] ? (
+                              <div className="rounded-lg bg-rose-50 px-2 py-1 text-[11px] font-bold text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
+                                ما اتحفظش: {failed[k]}
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                        {canReview ? (
+                          <div className="grid shrink-0 grid-cols-2 gap-2 sm:flex sm:items-center">
+                            {options.map((option) => (
+                              <button
+                                key={option.decision}
+                                type="button"
+                                disabled={bulkBusy !== null}
+                                onClick={() => void decide(day, option.decision, option.label)}
+                                className={`min-h-[40px] rounded-xl px-4 text-sm font-bold transition disabled:opacity-60 ${BUTTON_TONE[option.tone]} ${options.length === 1 ? 'col-span-2' : ''}`}
+                              >
+                                {option.label}
+                              </button>
+                            ))}
                             <button
                               type="button"
-                              className={`text-xs underline ${MUTED}`}
                               onClick={() => onOpen(day)}
+                              className={`min-h-[40px] rounded-xl px-3 text-sm font-bold ${options.length ? `text-xs underline ${MUTED}` : `col-span-2 ${BUTTON_TONE.neutral}`}`}
                             >
-                              تفاصيل
+                              {options.length ? 'تفاصيل' : 'راجع التفاصيل'}
                             </button>
-                          ) : null}
-                        </div>
+                          </div>
+                        ) : null}
                       </li>
                     );
                   })}
@@ -1832,16 +2013,12 @@ function ReviewQueue({
           })}
         </div>
       )}
-      {Object.keys(done).length ? (
-        <p className="mt-2 text-[11px] font-bold text-emerald-600">
-          اتعمل {Object.keys(done).length} قرار: {Object.values(done).slice(-3).join('، ')}
-        </p>
-      ) : null}
+
       {infoOnly.length ? (
         <div className="mt-3">
           <button
             type="button"
-            className={`text-xs font-bold underline ${MUTED}`}
+            className={`text-xs font-bold underline ${PAGE_MUTED}`}
             onClick={() => setShowInfo((v) => !v)}
           >
             {showInfo ? 'إخفاء' : 'اعرض'} {infoOnly.length} يوم فيه تأخير بس (اتحسب تلقائي، مش محتاج
@@ -1850,7 +2027,7 @@ function ReviewQueue({
           {showInfo ? (
             <ul className="mt-1 grid gap-1 text-[11px] md:grid-cols-2">
               {infoOnly.map((day) => (
-                <li key={key(day)} className={MUTED}>
+                <li key={key(day)} className={PAGE_MUTED}>
                   {day.date.slice(5)} · {names.get(day.staff_id)?.name || '—'} ·{' '}
                   {day.late_minutes > 0 ? `متأخر ${day.late_minutes} د` : ''}
                   {day.early_leave_minutes > 0 ? ` · مشي بدري ${day.early_leave_minutes} د` : ''}
