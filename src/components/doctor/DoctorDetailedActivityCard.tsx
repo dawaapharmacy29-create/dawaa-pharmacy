@@ -23,7 +23,6 @@ type StockItem = {
 
 type CustomerRequestRow = { id: string; medicine_name: string | null; status: string | null; points_awarded: number | null };
 type FollowupRow = { id: string; customer_name: string | null; followup_reason: string | null; points_value: number | null };
-type PillarRow = { pillar_key: string; points: number };
 type TabKey = 'conversations' | 'stock' | 'requests' | 'followups';
 
 /** Start of the current 26→25 cycle (Cairo), not the calendar month. */
@@ -42,8 +41,6 @@ export default function DoctorDetailedActivityCard({ staffId, doctorName }: { st
   const [stock, setStock] = useState<{ list_priority: StockItem[]; expiry_priority: StockItem[] } | null>(null);
   const [requests, setRequests] = useState<CustomerRequestRow[]>([]);
   const [followups, setFollowups] = useState<FollowupRow[]>([]);
-  // null = the pillar read failed; it must not render as a valid zero.
-  const [pillars, setPillars] = useState<PillarRow[] | null>([]);
   const [tab, setTab] = useState<TabKey | null>(null);
 
   useEffect(() => {
@@ -74,19 +71,14 @@ export default function DoctorDetailedActivityCard({ staffId, doctorName }: { st
       .order('created_at', { ascending: false })
       .limit(50)
       .then(({ data }) => setFollowups((data as FollowupRow[]) || []));
-    void supabase
-      .rpc('get_doctor_pillar_breakdown', { p_staff_id: staffId })
-      .then(({ data, error }) => setPillars(error ? null : (data as PillarRow[]) || []));
   }, [staffId, doctorName]);
 
-  const pillarPoints = (key: string): number | null =>
-    pillars === null ? null : pillars.find((p) => p.pillar_key === key)?.points ?? 0;
-
-  const tabs: Array<{ key: TabKey; icon: typeof MessageSquare; label: string; count: number; points: number | null }> = [
-    { key: 'conversations', icon: MessageSquare, label: 'المحادثات', count: reviews.length, points: pillarPoints('محادثات') },
-    { key: 'stock', icon: PackageSearch, label: 'اللستة والرواكد', count: (stock?.list_priority?.length || 0) + (stock?.expiry_priority?.length || 0), points: pillarPoints('الرواكد') },
-    { key: 'requests', icon: UserRound, label: 'طلبات العملاء', count: requests.length, points: pillarPoints('طلبات العملاء') },
-    { key: 'followups', icon: Headphones, label: 'طلبات المتابعة', count: followups.length, points: pillarPoints('متابعات') },
+  // Activity lists only: the old points per pillar are gone (the monthly evaluation replaced them).
+  const tabs: Array<{ key: TabKey; icon: typeof MessageSquare; label: string; count: number; unit: string }> = [
+    { key: 'conversations', icon: MessageSquare, label: 'المحادثات', count: reviews.length, unit: 'مراجعة' },
+    { key: 'stock', icon: PackageSearch, label: 'اللستة والرواكد', count: (stock?.list_priority?.length || 0) + (stock?.expiry_priority?.length || 0), unit: 'صنف' },
+    { key: 'requests', icon: UserRound, label: 'طلبات العملاء', count: requests.length, unit: 'طلب في الدورة' },
+    { key: 'followups', icon: Headphones, label: 'طلبات المتابعة', count: followups.length, unit: 'متابعة في الدورة' },
   ];
 
   return (
@@ -105,7 +97,7 @@ export default function DoctorDetailedActivityCard({ staffId, doctorName }: { st
             >
               <Icon size={16} className={active ? 'dawaa-heading' : 'dawaa-muted'} />
               <span className="dawaa-title text-xs">{t.label}</span>
-              <span className="dawaa-caption text-[11px] font-bold">{t.count} · {t.points === null ? 'النقاط غير متاحة' : `${t.points} نقطة`}</span>
+              <span className="dawaa-caption text-[11px] font-bold">{t.count} {t.unit}</span>
             </button>
           );
         })}
@@ -126,9 +118,6 @@ export default function DoctorDetailedActivityCard({ staffId, doctorName }: { st
                 </div>
                 <div className="flex flex-col items-end gap-1">
                   <span className={`dawaa-badge ${scoreBadge(r.total_score)}`}>{r.total_score}/100</span>
-                  {r.points_value != null ? (
-                    <span className="dawaa-badge dawaa-badge--info">{r.points_value > 0 ? '+' : ''}{r.points_value} نقطة</span>
-                  ) : null}
                 </div>
               </div>
             ))
@@ -184,7 +173,6 @@ export default function DoctorDetailedActivityCard({ staffId, doctorName }: { st
                   <p className="dawaa-title text-sm">{r.medicine_name || 'صنف غير محدد'}</p>
                   <p className="dawaa-caption mt-1 text-xs font-bold">{r.status || '—'}</p>
                 </div>
-                {r.points_awarded != null ? <span className="dawaa-badge dawaa-badge--info">+{r.points_awarded} نقطة</span> : null}
               </div>
             ))
           )}
@@ -202,7 +190,6 @@ export default function DoctorDetailedActivityCard({ staffId, doctorName }: { st
                   <p className="dawaa-title text-sm">{f.customer_name || 'عميل غير محدد'}</p>
                   <p className="dawaa-caption mt-1 text-xs font-bold">{f.followup_reason || '—'}</p>
                 </div>
-                {f.points_value != null ? <span className="dawaa-badge dawaa-badge--info">+{f.points_value} نقطة</span> : null}
               </div>
             ))
           )}

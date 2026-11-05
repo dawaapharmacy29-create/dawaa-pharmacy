@@ -22,3 +22,13 @@ describe('doctor evaluation cycles', () => {
     });
   });
 });
+
+describe('discipline on a running cycle', () => {
+  it('needs resolved days in proportion to the days that passed, never fewer than 3', async () => {
+    const { minResolvedDaysFor } = await import('@/lib/evaluationLab/buildCycleScores');
+    expect(minResolvedDaysFor(1)).toBe(8);
+    expect(minResolvedDaysFor(10 / 31)).toBe(3);
+    expect(minResolvedDaysFor(20 / 31)).toBe(6);
+    expect(minResolvedDaysFor()).toBe(8);
+  });
+});

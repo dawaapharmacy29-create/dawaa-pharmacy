@@ -53,7 +53,7 @@ export async function computeCycleScores(cycle: ServerCycle, levels: Record<stri
   // the hours worked so far are measured against their own part of the target.
   const share = cycle.totalDays ? cycle.elapsedDays / cycle.totalDays : 1;
   const targets = share < 1 ? evidence.targets.map((t) => ({ ...t, targetAmount: t.targetAmount * share })) : evidence.targets;
-  return buildCycleScores({ ...evidence, targets, doctorWeights }, LAB_CURRENT_VERSION);
+  return buildCycleScores({ ...evidence, targets, doctorWeights, cycleShare: share }, LAB_CURRENT_VERSION);
 }
 
 export { LAB_CURRENT_VERSION };
