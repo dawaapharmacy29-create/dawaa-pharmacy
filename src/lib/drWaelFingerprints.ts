@@ -880,6 +880,10 @@ const QUICK_ERRORS: Array<[string, string]> = [
   ['not_authorized', 'مالكش صلاحية تعتمد اليوم ده'],
   ['invalid_or_expired_staff_session', 'الجلسة خلصت، ادخل تاني'],
   ['cycle_locked', 'الدورة دي اتقفلت في المرتبات'],
+  ['permission denied for function', 'القرار السريع مش متاح لحسابك دلوقتي — كلم الإدارة'],
+  ['attendance_resolution_not_finalizable_yet', 'اليوم لسه ما خلصش — استنى لحد آخر الشيفت'],
+  ['missing_punch_truth_mismatch', 'البصمات اتغيرت — حدّث الصفحة'],
+  ['Failed to fetch', 'النت فصل — جرّب تاني'],
 ];
 
 export async function decideQuickDay(staffId: string, date: string, decision: QuickDayDecision) {
