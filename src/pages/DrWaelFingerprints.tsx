@@ -31,8 +31,15 @@ import {
   cairoTime,
   cycleLabel,
   dayKind,
+  endDrWaelEmployment,
   endDrWaelLeave,
+  employeeWorkMode,
+  idleEmployees,
   isOpenEnded,
+  setDrWaelWorkMode,
+  WORK_MODE_LABELS,
+  type DrWaelSeparationKind,
+  type DrWaelWorkMode,
   runningLeaves,
   setDrWaelLeave,
   type DrWaelLeaveKind,
@@ -75,9 +82,7 @@ import { cairoDayOf } from '@/lib/time/cairoDateBoundary';
 import {
   decideStaffLifecycleChangeV2,
   listPendingStaffLifecycleChangesV2,
-  requestStaffLifecycleChangeV2,
   type PendingStaffLifecycleChangeV2,
-  type SeparationKindV2,
 } from '@/lib/hr/staffLifecycleService';
 
 const AttendanceResolutionCenter = lazy(
@@ -795,8 +800,77 @@ function SmartEditor({
         </div>
       </section>
 
+      <WorkModePanel employee={employee} onSaved={onSaved} />
       <LeaveArchivePanel employee={employee} today={today} timeOff={timeOff} onSaved={onSaved} />
     </div>
+  );
+}
+
+const WORK_MODE_HINTS: Record<DrWaelWorkMode, string> = {
+  regular: 'شيفت ثابت؛ اليوم اللي مايبصمش فيه بيتحسب غياب.',
+  part_time:
+    'بيتحاسب على الأيام والساعات اللي حضرها فعلًا؛ اليوم اللي مايجيش فيه مش غياب ومش معلق.',
+  joker: 'زي البارت تايم بالساعات الفعلية، وبصمته بتتحسب في أي فرع.',
+};
+
+// «نظام الشغل»: regular schedule, part-time or joker (both paid by actual hours).
+function WorkModePanel({ employee, onSaved }: { employee: DrWaelEmployee; onSaved: () => void }) {
+  const [mode, setMode] = useState<DrWaelWorkMode | null>(employeeWorkMode(employee));
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ tone: Tone; text: string } | null>(null);
+  const choose = async (next: DrWaelWorkMode) => {
+    if (next === mode || busy) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const result = await setDrWaelWorkMode(employee.staff_id, next);
+      setMode(next);
+      setMessage({
+        tone: 'green',
+        text: `بقى ${WORK_MODE_LABELS[next]} · اتعاد حساب ${result.days_rebuilt} يوم من أول الشهر`,
+      });
+      onSaved();
+    } catch (e) {
+      const text = e instanceof Error ? e.message : '';
+      setMessage({
+        tone: 'red',
+        text: text.includes('not_authorized') ? 'مفيش صلاحية' : 'ماتسجلش، حاول تاني',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className={`${CARD} space-y-2 p-3`}>
+      <h3 className="flex items-center gap-1 font-bold text-gray-900 dark:text-slate-100">
+        <Clock size={15} /> نظام الشغل
+      </h3>
+      {message ? (
+        <div
+          role="status"
+          className={`rounded-xl px-3 py-2 text-xs font-bold ${TONES[message.tone]}`}
+        >
+          {message.text}
+        </div>
+      ) : null}
+      <div className="flex flex-wrap gap-1.5">
+        {(Object.keys(WORK_MODE_LABELS) as DrWaelWorkMode[]).map((value) => (
+          <button
+            key={value}
+            type="button"
+            disabled={busy}
+            aria-pressed={mode === value}
+            onClick={() => void choose(value)}
+            className={`rounded-lg px-3 py-1.5 text-xs font-bold disabled:opacity-50 ${mode === value ? ACTIVE : IDLE}`}
+          >
+            {WORK_MODE_LABELS[value]}
+          </button>
+        ))}
+      </div>
+      <p className={`text-[11px] ${MUTED}`}>
+        {mode ? WORK_MODE_HINTS[mode] : 'مسجل بساعات مرنة (بالساعات الفعلية) من مكان تاني.'}
+      </p>
+    </section>
   );
 }
 
@@ -806,7 +880,7 @@ const LEAVE_KINDS: Array<[DrWaelLeaveKind, string]> = [
   ['sick_leave', 'مرضي'],
   ['exceptional_leave', 'استثنائية'],
 ];
-const SEPARATION_KINDS: Array<[SeparationKindV2, string]> = [
+const SEPARATION_KINDS: Array<[DrWaelSeparationKind, string]> = [
   ['resignation', 'استقالة'],
   ['termination', 'إنهاء خدمة'],
   ['contract_end', 'انتهاء عقد'],
@@ -814,18 +888,33 @@ const SEPARATION_KINDS: Array<[SeparationKindV2, string]> = [
 ];
 
 function leaveError(text: string): string {
-  if (text.includes('requester_cannot_approve_own')) return 'لازم المدير التاني هو اللي يعتمد الأرشفة';
+  if (text.includes('cannot_end_viewer')) return 'ماينفعش تعمل ترك عمل لحد من مديري الصفحة';
+  if (text.includes('later_lifecycle_change_exists'))
+    return 'فيه قرار متسجل للموظف ده بعد اليوم ده؛ راجعه من الموارد البشرية';
+  if (text.includes('invalid_last_day')) return 'آخر يوم لازم يكون من آخر 4 شهور لحد شهرين قدام';
+  if (text.includes('requester_cannot_approve_own'))
+    return 'لازم المدير التاني هو اللي يعتمد الأرشفة';
   if (text.includes('not_authorized')) return 'مفيش صلاحية';
   if (text.includes('pending_staff_lifecycle_change_already_exists'))
     return 'فيه طلب أرشفة مفتوح للموظف ده بالفعل';
   if (text.includes('annual_leave_cancel_and_reenter'))
     return 'الإجازة الاعتيادية ماتتقصرش من هنا؛ الغيها من الإجازات واعمل واحدة بالمدة الصح';
-  if (text.includes('preflight_blocked')) return 'سياسة الإجازات رفضت الطلب (غالبًا الرصيد مايكفيش)';
+  if (text.includes('preflight_blocked'))
+    return 'سياسة الإجازات رفضت الطلب (غالبًا الرصيد مايكفيش)';
   if (text.includes('out_of_range')) return 'التاريخ بعيد قوي؛ الفترة لحد 3 شهور ومن آخر 40 يوم';
   return 'ماتسجلش، راجع البيانات وحاول تاني';
 }
 
-// Leave for a period, «رجع للشغل» on a running leave, and archiving (request by one manager, approval by the other).
+const endEmploymentText = (
+  name: string,
+  result: { last_day: string; archived: boolean; days_closed: number }
+) =>
+  `${name}: ترك عمل بعد ${result.last_day}` +
+  (result.archived ? ' · اتشال من الحضور' : ' · هيتشال من الحضور بعد آخر يوم') +
+  (result.days_closed ? ` · اتقفل ${result.days_closed} يوم معلق` : '');
+
+// Leave for a period, «رجع للشغل» on a running leave, and «ترك عمل» in one tap (an old two-step archive request
+// still shows here to approve or cancel).
 function LeaveArchivePanel({
   employee,
   today,
@@ -843,8 +932,11 @@ function LeaveArchivePanel({
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(addDays(today, 6));
   const [reason, setReason] = useState('');
-  const [lastDay, setLastDay] = useState(today);
-  const [separation, setSeparation] = useState<SeparationKindV2>('resignation');
+  const [lastDay, setLastDay] = useState(() => {
+    const last = employee.last_punch ? cairoDayOf(employee.last_punch) : null;
+    return last && last < today ? last : today;
+  });
+  const [separation, setSeparation] = useState<DrWaelSeparationKind>('resignation');
   const [archiveReason, setArchiveReason] = useState('');
   const [pending, setPending] = useState<PendingStaffLifecycleChangeV2[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
@@ -881,7 +973,7 @@ function LeaveArchivePanel({
   return (
     <section className={`${CARD} space-y-3 p-3`}>
       <h3 className="flex items-center gap-1 font-bold text-gray-900 dark:text-slate-100">
-        <CalendarDays size={15} /> إجازة أو أرشفة
+        <CalendarDays size={15} /> إجازة أو ترك عمل
       </h3>
       {message ? (
         <div
@@ -930,7 +1022,12 @@ function LeaveArchivePanel({
 
       <div className="space-y-2">
         <div className="text-xs font-bold">إجازة لفترة</div>
-        <Chips<DrWaelLeaveKind> label="النوع" value={kind} onChange={setKind} options={LEAVE_KINDS} />
+        <Chips<DrWaelLeaveKind>
+          label="النوع"
+          value={kind}
+          onChange={setKind}
+          options={LEAVE_KINDS}
+        />
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <label className="flex items-center gap-1">
             من
@@ -982,7 +1079,7 @@ function LeaveArchivePanel({
 
       <div className="space-y-2 border-t border-gray-100 pt-3 dark:border-slate-800">
         <div className="flex items-center gap-1 text-xs font-bold">
-          <Archive size={14} /> أرشفة الموظف
+          <Archive size={14} /> ترك عمل
         </div>
         {pending.length ? (
           pending.map((row) => (
@@ -1030,14 +1127,15 @@ function LeaveArchivePanel({
                 <input
                   type="date"
                   value={lastDay}
-                  min={addDays(today, -40)}
+                  min={addDays(today, -120)}
+                  max={addDays(today, 60)}
                   onChange={(e) => e.target.value && setLastDay(e.target.value)}
                   className={input}
                 />
               </label>
               <select
                 value={separation}
-                onChange={(e) => setSeparation(e.target.value as SeparationKindV2)}
+                onChange={(e) => setSeparation(e.target.value as DrWaelSeparationKind)}
                 className={input}
                 aria-label="سبب الخروج"
               >
@@ -1055,30 +1153,28 @@ function LeaveArchivePanel({
               className={`w-full ${input}`}
             />
             <p className={`text-[11px] ${MUTED}`}>
-              الحضور والمرتب لحد آخر يوم بيفضلوا زي ما هم. الطلب بيروح للمدير التاني (د معاذ / د وائل)
-              يعتمده.
+              بيتنفذ على طول: الحضور والمرتب لحد آخر يوم بيفضلوا ويظهروا في مرتبات الشهر، والأيام
+              الفاضية بعده بتتقفل «خارج الخدمة» من غير خصم ومش هتظهر معلقة تاني.
+              {employee.last_punch ? ` آخر بصمة: ${cairoDayOf(employee.last_punch)}.` : ''}
             </p>
             <button
               type="button"
               disabled={Boolean(busy) || !lastDay}
               onClick={() => {
-                if (!window.confirm(`أرشفة ${employee.name} بعد يوم ${lastDay}؟`)) return;
+                if (!window.confirm(`${employee.name} ساب الشغل — آخر يوم ${lastDay}؟`)) return;
                 void run('archive', async () => {
-                  const label = SEPARATION_KINDS.find(([k]) => k === separation)?.[1] || '';
-                  await requestStaffLifecycleChangeV2({
+                  const result = await endDrWaelEmployment({
                     staffId: employee.staff_id,
-                    effectiveFrom: lastDay < today ? lastDay : today,
-                    targetState: 'leaving',
-                    lastWorkingDate: lastDay,
-                    separationKind: separation,
-                    reason: archiveReason.trim() || `${label} — من بصمات د وائل`,
+                    lastDay,
+                    kind: separation,
+                    note: archiveReason.trim() || null,
                   });
-                  return 'اتبعت طلب الأرشفة؛ المدير التاني يعتمده من هنا';
+                  return endEmploymentText(employee.name, result);
                 });
               }}
               className="w-full rounded-xl bg-rose-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"
             >
-              {busy === 'archive' ? 'جارٍ الإرسال…' : 'أرشف الموظف'}
+              {busy === 'archive' ? 'جارٍ الحفظ…' : 'ترك عمل'}
             </button>
           </>
         )}
@@ -1125,6 +1221,94 @@ function SmartAlerts({
                 {insight?.shift ? 'اعتمد الميعاد الجديد ←' : 'انقله للفرع ←'}
               </div>
             </button>
+          );
+        })}
+      </div>
+    </Section>
+  );
+}
+
+// «موظفين مش بيحضروا»: «موقوف» or no punch for 5 days and more — close with «ترك عمل» (last day = last punch)
+// or open the card to set a leave, part-time or joker.
+function IdleStaffPanel({
+  data,
+  employees,
+  onSmart,
+  onSaved,
+}: {
+  data: Data;
+  employees: DrWaelEmployee[];
+  onSmart: (employee: DrWaelEmployee) => void;
+  onSaved: () => void;
+}) {
+  const rows = idleEmployees(employees, data.time_off, data.today);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ tone: Tone; text: string } | null>(null);
+  if (!rows.length && !message) return null;
+  const end = async (employee: DrWaelEmployee, lastDay: string) => {
+    if (!window.confirm(`${employee.name} ساب الشغل — آخر يوم ${lastDay}؟`)) return;
+    setBusy(employee.staff_id);
+    setMessage(null);
+    try {
+      const result = await endDrWaelEmployment({
+        staffId: employee.staff_id,
+        lastDay,
+        kind: 'resignation',
+      });
+      setMessage({ tone: 'green', text: endEmploymentText(employee.name, result) });
+      onSaved();
+    } catch (e) {
+      setMessage({ tone: 'red', text: leaveError(e instanceof Error ? e.message : '') });
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <Section
+      title="موظفين مش بيحضروا"
+      subtitle="موقوف أو مابصمش من 5 أيام وأكتر · ترك العمل بيشيله من الحضور ويفضل في مرتبات الشهر"
+    >
+      {message ? (
+        <div
+          role="status"
+          className={`mb-2 rounded-xl px-3 py-2 text-xs font-bold ${TONES[message.tone]}`}
+        >
+          {message.text}
+        </div>
+      ) : null}
+      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+        {rows.map(({ employee, lastPunchDay, daysAway, stopped }) => {
+          const lastDay = lastPunchDay && lastPunchDay < data.today ? lastPunchDay : data.today;
+          return (
+            <div key={employee.staff_id} className={`${CARD} space-y-2 p-3`}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-bold text-gray-900 dark:text-slate-100">{employee.name}</span>
+                <span className={`text-[11px] ${MUTED}`}>{employee.branch}</span>
+              </div>
+              <div className="flex flex-wrap gap-1 text-[11px]">
+                {stopped ? <Pill tone="red">موقوف</Pill> : null}
+                <Pill tone="amber">
+                  {lastPunchDay ? `آخر بصمة ${lastPunchDay} · من ${daysAway} يوم` : 'مابصمش خالص'}
+                </Pill>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={Boolean(busy)}
+                  onClick={() => void end(employee, lastDay)}
+                  className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
+                >
+                  {busy === employee.staff_id ? 'جارٍ الحفظ…' : `ترك عمل (آخر يوم ${lastDay})`}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSmart(employee)}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-bold ${IDLE}`}
+                >
+                  إجازة / بارت تايم / جوكر
+                </button>
+              </div>
+            </div>
           );
         })}
       </div>
@@ -1205,6 +1389,12 @@ function DashboardTab({
         insights={insights}
         onSmart={onSmart}
       />
+      <IdleStaffPanel
+        data={data}
+        employees={data.employees.filter((e) => matches(branch, e.branch))}
+        onSmart={onSmart}
+        onSaved={onDecisionSaved}
+      />
       <Section title="الحاضرون الآن" subtitle="بصمة حضور النهارده أو امبارح بالليل من غير انصراف">
         <div className="grid gap-3 md:grid-cols-3">
           {branches.map((b) => {
@@ -1227,7 +1417,8 @@ function DashboardTab({
                   <ul className="mt-2 divide-y divide-gray-50 border-t border-gray-100 dark:divide-slate-800 dark:border-slate-800">
                     {list.map((row) => {
                       const employee = names.get(row.staffId);
-                      const away = row.punchBranch && row.punchBranch !== b ? row.punchBranch : null;
+                      const away =
+                        row.punchBranch && row.punchBranch !== b ? row.punchBranch : null;
                       return (
                         <li
                           key={row.staffId}
