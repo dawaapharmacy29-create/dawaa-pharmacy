@@ -1,4 +1,5 @@
 import type { GmReviewItem } from '@/lib/gmDailyReview';
+import { shiftWithDay } from '@/lib/shiftHandoverCoverage';
 
 // The compact mobile card of one «مراجعتي اليومية» item: one status sentence, one chip per branch with a
 // big number, and an optional warning line (e.g. a stopped sync). Built from the same `detail` the server
@@ -219,7 +220,10 @@ export function gmReviewCard(
         chips: list.map((r) => ({
           label: branchName(r.branch),
           value: `${num(n(r.yesterday_done))}/٣`,
-          note: rows(r.missing).length ? `${num(rows(r.missing).length)} ناقص` : undefined,
+          // The chip counts yesterday; a missing shift may be older, so it is named with its day.
+          note: rows(r.missing).length
+            ? `ناقص: ${rows(r.missing).map((m) => shiftWithDay(String(m.day), String(m.shift))).join('، ')}`
+            : undefined,
           bad: rows(r.missing).length > 0,
         })),
         warning: syncWarning(d.synced_at, 'دواء وائل', now),

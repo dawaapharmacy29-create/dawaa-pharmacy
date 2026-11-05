@@ -61,19 +61,64 @@ export function shiftCoverage<T extends ShiftHandoverRow>(rows: T[], days: numbe
   return slots;
 }
 
-/** A doctor on duty at a closing (migration 20261101150000, shift_on_duty_doctors_v1). */
+/**
+ * Someone on duty at a closing, from the fingerprints (shift_on_duty_doctors_v1, migration
+ * 20261105220000): doctors, assistants and the branch manager. The schedule stands in only when nobody
+ * punched, and only for staff still working here.
+ */
 export interface OnDutyDoctor {
   staff_id: string;
   name: string;
   role?: string | null;
+  kind?: 'doctor' | 'assistant' | 'manager' | null;
   source: 'punch' | 'schedule';
 }
 
-/** "د أ، د ب" — doctors known only from the schedule are marked; nobody at all says so. */
+/** "د أ، محمد (مساعد)" — assistants and schedule-only people are marked; nobody at all says so. */
 export function onDutyLabel(doctors: OnDutyDoctor[] | null | undefined): string {
   if (!doctors) return '';
   if (!doctors.length) return 'مفيش بصمة ولا جدول';
-  return doctors.map((d) => (d.source === 'schedule' ? `${d.name} (جدول من غير بصمة)` : d.name)).join('، ');
+  return doctors
+    .map((d) => {
+      const name = d.kind === 'assistant' ? `${d.name} (مساعد)` : d.name;
+      return d.source === 'schedule' ? `${name} (جدول من غير بصمة)` : name;
+    })
+    .join('، ');
+}
+
+/** "د/ أحمد" and "د احمد" are one person: drop the title, unify alef/yaa/taa marbuta and spaces. */
+export function personKey(name: string | null | undefined): string {
+  return String(name ?? '')
+    .replace(/^\s*(دكتوره|دكتور|د\.|د)\s*\/?\s*/u, '')
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه')
+    .replace(/ـ/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Was the person who closed the shift fingerprinted in it? 'unknown' when there are no punches to
+ * compare with (or the names are not loaded).
+ */
+export function closerOnShift(
+  closer: { name?: string | null; staffId?: string | null },
+  people: OnDutyDoctor[] | null | undefined
+): 'yes' | 'no' | 'unknown' {
+  const punched = (people ?? []).filter((p) => p.source === 'punch');
+  if (!punched.length || !(closer.name || closer.staffId)) return 'unknown';
+  const key = personKey(closer.name);
+  const found = punched.some(
+    (p) => (closer.staffId && p.staff_id === closer.staffId) || (key && personKey(p.name) === key)
+  );
+  return found ? 'yes' : 'no';
+}
+
+/** "صباحي التلات ٣/١١" — a shift with its day, so an older missing shift is never read as yesterday's. */
+export function shiftWithDay(day: string, shift: string): string {
+  const label = new Date(`${day}T12:00:00`).toLocaleDateString('ar-EG', { weekday: 'short', day: 'numeric', month: 'numeric' });
+  return `${shift} ${label}`;
 }
 
 export interface ShiftHandoverCorrection {

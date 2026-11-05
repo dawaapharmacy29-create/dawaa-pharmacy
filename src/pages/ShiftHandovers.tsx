@@ -31,6 +31,7 @@ import {
 import {
   SHIFT_HANDOVER_BRANCHES,
   SHIFT_TYPES,
+  closerOnShift,
   onDutyLabel,
   shiftCoverage,
   shiftDeadline,
@@ -136,6 +137,7 @@ type ShiftRow = {
   shift_type: string;
   shift_date: string;
   submitted_by: string | null;
+  submitted_by_staff_id?: string | null;
   total_sales: number;
   total_expenses: number;
   net_amount: number;
@@ -659,6 +661,23 @@ export default function ShiftHandovers() {
             <span className="dawaa-badge dawaa-badge--warning mr-2">ملاحظة مراجعة</span>
           ) : null}
         </p>
+        {onDuty ? (() => {
+          // Who the fingerprints put on this shift when it was closed, and whether the closer is one of them.
+          const people = doctorsAt(row.branch, row.shift_date, row.shift_type);
+          const check = closerOnShift({ name: row.submitted_by, staffId: row.submitted_by_staff_id }, people);
+          return (
+            <>
+              <p className="dawaa-caption mt-0.5 text-[11px] font-bold">
+                في الشيفت (بصمات): {onDutyLabel(people) || '-'}
+              </p>
+              {check === 'no' ? (
+                <span className="dawaa-badge dawaa-badge--warning mt-1 text-[10px]">
+                  اللي قفل مش باصم في الشيفت ده
+                </span>
+              ) : null}
+            </>
+          );
+        })() : null}
         <div className="mt-2 grid grid-cols-2 gap-1 text-xs font-bold">
           <span className="dawaa-caption">مبيعات</span>
           <span>{formatCurrency(n(row.total_sales))}</span>
