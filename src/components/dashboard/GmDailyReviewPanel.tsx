@@ -250,7 +250,7 @@ function ReviewCard({ item, onChanged }: { item: GmReviewItem; onChanged: () => 
 
   return (
     <div
-      className={`dawaa-theme-surface dawaa-theme-border rounded-2xl border p-3 ${TONE_ACCENT[gmTone(item)]}`}
+      className={`dawaa-theme-surface dawaa-theme-border min-w-0 rounded-2xl border p-3 ${TONE_ACCENT[gmTone(item)]}`}
     >
       <div className="flex items-center gap-2">
         <ToneIcon tone={gmTone(item)} className="h-4 w-4" />
