@@ -194,7 +194,7 @@ function Purchases() {
             {money(totals.net)} <span className="dawaa-caption text-xs font-black">ج</span>
           </p>
           <p className="dawaa-caption text-[11px] font-bold">
-            {shortDate(summary.from)} ← {shortDate(summary.to)} · الفواتير المتحفظة بس، بعد شيل التحويلات والمستثنى
+            {shortDate(summary.from)} ← {shortDate(summary.to)} · زي تطبيق المشتريات: المتحفظ بس، بعد التحويلات والمرتجعات والمستثنى
           </p>
           {totals.pending_invoices ? (
             <p className="mt-0.5 text-[11px] font-bold text-[var(--dawaa-status-warning-text)]">
@@ -231,6 +231,7 @@ function Purchases() {
                     <th className="px-2 py-1.5 text-start">الفرع</th>
                     <th className="px-2 py-1.5 text-start">الإجمالي</th>
                     <th className="px-2 py-1.5 text-start">− تحويلات</th>
+                    <th className="px-2 py-1.5 text-start">− مرتجعات</th>
                     <th className="px-2 py-1.5 text-start">− مستثنى</th>
                     <th className="px-2 py-1.5 text-start">= الصافي</th>
                   </tr>
@@ -241,6 +242,7 @@ function Purchases() {
                       <td className="px-2 py-1.5">{branchShort(row.branch)}</td>
                       <td className="px-2 py-1.5">{money(row.gross)}</td>
                       <td className="px-2 py-1.5">{money(row.transfers)}</td>
+                      <td className="px-2 py-1.5">{money(row.returns)}</td>
                       <td className="px-2 py-1.5">{money(row.excluded)}</td>
                       <td className="dawaa-theme-heading px-2 py-1.5 font-black">
                         {money(row.net)}
