@@ -41,6 +41,7 @@ import MonthlySalesChart from '@/components/dashboard/MonthlySalesChart';
 import { BranchesManagerExceptionsPanel } from '@/components/evaluations/BranchesManagerExceptionsPanel';
 import { BranchManagerDailyAgenda } from '@/components/dashboard/BranchManagerDailyAgenda';
 import { GmDailyReviewPanel } from '@/components/dashboard/GmDailyReviewPanel';
+import { GmMoneyOverview } from '@/components/dashboard/GmMoneyOverview';
 import { AgendaCompliancePanel } from '@/components/dashboard/AgendaCompliancePanel';
 import { ManagerLiveIncentiveCard } from '@/components/evaluations/ManagerLiveIncentiveCard';
 import { canSeeAllBranches, effectiveBranchFilter } from '@/lib/security/permissionScopes';
@@ -1907,6 +1908,9 @@ export default function ExecutiveDashboard2027() {
   return (
     <div dir="rtl" className="executive-dashboard-page dawaa-page min-h-screen">
       <main className="relative mx-auto max-w-[1920px] space-y-4 px-5 py-5">
+        {!lockedBranch && ['general_manager', 'executive_manager'].includes(role) && (
+          <GmMoneyOverview />
+        )}
         {initialLoadTimedOut && loading && !state.loadedAt ? (
           <Panel className="border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-4">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
