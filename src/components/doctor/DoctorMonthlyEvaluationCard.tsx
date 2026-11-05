@@ -72,7 +72,7 @@ function AxisRow({ axis, impact, tip }: { axis: AxisResult; impact?: AxisImpact;
       </p>
       {impact ? (
         <p className="dawaa-caption mt-1 text-[11px] font-bold leading-5">
-          قيمته {impact.share} درجة من الـ 100{impact.lost >= 0.5 ? ` · بيخصم منك ${impact.lost} درجة` : ' · واخد درجته كاملة'}
+          قيمته {impact.share} درجة من الـ 100{impact.lost >= 0.5 ? ` · بيخصم منك ${impact.lost} درجة` : axis.score! >= 99.5 ? ' · واخد درجته كاملة' : ' · تقريبًا مش بيخصم حاجة'}
           {impact.gainTo80 >= 0.5 ? ` · لو وصل 80 تكسب +${impact.gainTo80}` : ''}
         </p>
       ) : null}

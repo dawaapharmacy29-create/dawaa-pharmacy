@@ -90,3 +90,15 @@ describe('evaluationSignals', () => {
     expect(evaluationSignals(now, null, cycle).some((s) => s.tone === 'danger')).toBe(true);
   });
 });
+
+describe('evaluationSignals order', () => {
+  it('puts the most serious signal first', () => {
+    const cycle = { kind: 'running' as const, elapsedDays: 10, totalDays: 30 };
+    const now = person(
+      [axis('team_followup', 3, 23), axis('purchase_review', 5, 0, 'اتراجع 0 من ١٬٦٦٨')],
+      60
+    );
+    const before = person([axis('team_followup', 3, 64), axis('purchase_review', 5, 0)], 62);
+    expect(evaluationSignals(now, before, cycle)[0].tone).toBe('danger');
+  });
+});
