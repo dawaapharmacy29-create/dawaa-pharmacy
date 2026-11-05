@@ -148,7 +148,7 @@ const WALLETS = [
 const rows = (detail: unknown) => (Array.isArray(detail) ? (detail as Row[]) : []);
 
 /** One short line per branch (or for the whole item) describing what the data says. */
-export function gmReviewSummary(item: Pick<GmReviewItem, 'key' | 'detail'>): string[] {
+export function gmReviewSummary(item: Pick<GmReviewItem, 'key' | 'detail'> & { data_day?: string | null }): string[] {
   const d = item.detail as Row;
   switch (item.key) {
     case 'sales_upload':
@@ -210,11 +210,15 @@ export function gmReviewSummary(item: Pick<GmReviewItem, 'key' | 'detail'>): str
       ];
     case 'shifts': {
       const lines = rows(d?.branches).map((r) => {
-        const missing = rows(r.missing).map((m) => {
+        const label = (m: Row) => {
           const who = onDutyLabel(m.doctors as OnDutyDoctor[] | undefined);
           return `${SHIFT_DAY(m.day as string)} ${m.shift}${who ? ` (${who})` : ''}`;
-        });
-        return `${BRANCH[String(r.branch)]}: امبارح ${r.yesterday_done}/3${missing.length ? ` · ما اتقفلش: ${missing.join('، ')}` : ''}`;
+        };
+        // "امبارح" counts yesterday only; a shift still open from another day is said apart.
+        const missing = rows(r.missing);
+        const ofYesterday = missing.filter((m) => !item.data_day || m.day === item.data_day).map(label);
+        const other = missing.filter((m) => item.data_day && m.day !== item.data_day).map(label);
+        return `${BRANCH[String(r.branch)]}: امبارح ${r.yesterday_done}/3${ofYesterday.length ? ` · ما اتقفلش: ${ofYesterday.join('، ')}` : ''}${other.length ? ` · ناقص من يوم تاني: ${other.join('، ')}` : ''}`;
       });
       const synced = d?.synced_at ? new Date(String(d.synced_at)) : null;
       if (!synced || Date.now() - synced.getTime() > 3600e3) {
