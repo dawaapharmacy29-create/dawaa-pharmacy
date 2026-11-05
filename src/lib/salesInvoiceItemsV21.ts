@@ -28,29 +28,63 @@ export interface SalesInvoiceItemsParseResultV21 {
   warnings: string[];
 }
 
-const normalize = (value: unknown) => String(value ?? '')
-  .trim().toLowerCase().replace(/\s+/g, ' ')
-  .replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه');
+const normalize = (value: unknown) =>
+  String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ى/g, 'ي')
+    .replace(/ة/g, 'ه');
 
 const text = (value: unknown) => String(value ?? '').trim();
 const numberOrNull = (value: unknown) => {
   if (value === null || value === undefined || value === '') return null;
   if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-  const n = Number(String(value).replace(/,/g, '').replace(/[^0-9.+-]/g, ''));
+  const n = Number(
+    String(value)
+      .replace(/,/g, '')
+      .replace(/[^0-9.+-]/g, '')
+  );
   return Number.isFinite(n) ? n : null;
 };
 
 const HEADER_ALIASES = {
-  invoice: ['فاتورة','رقم الفاتوره','رقم فاتوره','الفاتوره','الرقم','invoice number','invoice no','invoice_no'],
-  branch: ['المخزن','الفرع','branch','branch name'],
-  date: ['تاريخ','التاريخ','تاريخ الفاتوره','invoice date','date'],
-  customerCode: ['كود','كود العميل','الكود','customer code','customer_code'],
-  lineNo: ['م','رقم السطر','مسلسل','line no','line number','line_no'],
-  productCode: ['ك.صنف','كود الصنف','كود المنتج','item code','product code','product_code','barcode'],
-  productName: ['صنف','اسم الصنف','الصنف','اسم المنتج','item name','product name','description'],
-  quantity: ['الكميه','كمية','qty','quantity'],
-  unitPrice: ['سعر بيع','سعر البيع','السعر','سعر الوحده','unit price','price'],
-  lineTotal: ['اجمالي البيع','اجمالي السطر','الاجمالي','line total','total value','total'],
+  invoice: [
+    'فاتورة',
+    'رقم الفاتوره',
+    'رقم فاتوره',
+    'الفاتوره',
+    'الرقم',
+    'invoice number',
+    'invoice no',
+    'invoice_no',
+  ],
+  branch: ['المخزن', 'الفرع', 'branch', 'branch name'],
+  date: ['تاريخ', 'التاريخ', 'تاريخ الفاتوره', 'invoice date', 'date'],
+  customerCode: ['كود', 'كود العميل', 'الكود', 'customer code', 'customer_code'],
+  lineNo: ['م', 'رقم السطر', 'مسلسل', 'line no', 'line number', 'line_no'],
+  productCode: [
+    'ك.صنف',
+    'كود الصنف',
+    'كود المنتج',
+    'item code',
+    'product code',
+    'product_code',
+    'barcode',
+  ],
+  productName: [
+    'صنف',
+    'اسم الصنف',
+    'الصنف',
+    'اسم المنتج',
+    'item name',
+    'product name',
+    'description',
+  ],
+  quantity: ['الكميه', 'كمية', 'qty', 'quantity'],
+  unitPrice: ['سعر بيع', 'سعر البيع', 'السعر', 'سعر الوحده', 'unit price', 'price'],
+  lineTotal: ['اجمالي البيع', 'اجمالي السطر', 'الاجمالي', 'line total', 'total value', 'total'],
 };
 
 function indexOfAlias(headers: string[], aliases: string[]) {
@@ -92,18 +126,25 @@ function excelSaleDay(value: unknown): string | null {
   if (typeof value === 'number' && Number.isFinite(value)) {
     const parsed = XLSX.SSF.parse_date_code(value);
     if (!parsed) return null;
-    day = [parsed.y, parsed.m, parsed.d].map((part, index) => String(part).padStart(index === 0 ? 4 : 2, '0')).join('-');
+    day = [parsed.y, parsed.m, parsed.d]
+      .map((part, index) => String(part).padStart(index === 0 ? 4 : 2, '0'))
+      .join('-');
   } else {
     const raw = text(value);
     const iso = /^(\d{4}-\d{2}-\d{2})(?:$|[T ])/.exec(raw);
     const local = /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:$|\s)/.exec(raw);
-    day = iso?.[1] ?? (local ? `${local[3]}-${local[2].padStart(2, '0')}-${local[1].padStart(2, '0')}` : '');
+    day =
+      iso?.[1] ??
+      (local ? `${local[3]}-${local[2].padStart(2, '0')}-${local[1].padStart(2, '0')}` : '');
   }
   const utc = new Date(`${day}T00:00:00Z`);
   return Number.isFinite(utc.getTime()) && utc.toISOString().slice(0, 10) === day ? day : null;
 }
 
-export function parseSalesInvoiceItemsV21(buffer: ArrayBuffer, fallbackBranch: string): SalesInvoiceItemsParseResultV21 {
+export function parseSalesInvoiceItemsV21(
+  buffer: ArrayBuffer,
+  fallbackBranch: string
+): SalesInvoiceItemsParseResultV21 {
   const workbook = XLSX.read(buffer, { type: 'array', cellDates: false, raw: true });
   const rows: RawSalesInvoiceItemV21[] = [];
   const detectedSheets: string[] = [];
@@ -127,7 +168,16 @@ export function parseSalesInvoiceItemsV21(buffer: ArrayBuffer, fallbackBranch: s
       if (!row.some((cell) => text(cell))) continue;
       const saleDay = idx.date >= 0 ? excelSaleDay(row[idx.date]) : null;
       const lineNo = idx.lineNo >= 0 ? numberOrNull(row[idx.lineNo]) : null;
-      if (!invoiceNumber || !productName || !productCode || quantity == null || !saleDay || lineNo == null || !Number.isSafeInteger(lineNo) || lineNo < 1) {
+      if (
+        !invoiceNumber ||
+        !productName ||
+        !productCode ||
+        quantity == null ||
+        !saleDay ||
+        lineNo == null ||
+        !Number.isSafeInteger(lineNo) ||
+        lineNo < 1
+      ) {
         invalidRows += 1;
         continue;
       }
@@ -150,23 +200,40 @@ export function parseSalesInvoiceItemsV21(buffer: ArrayBuffer, fallbackBranch: s
     }
   }
 
-  if (!detectedSheets.length) warnings.push('الملف الحالي لا يحتوي Sheet واضح لتفاصيل أصناف الفواتير');
-  if (detectedSheets.length && !rows.length) warnings.push('تم اكتشاف أعمدة تفاصيل أصناف لكن لم توجد صفوف صالحة للاستيراد.');
+  if (!detectedSheets.length)
+    warnings.push('الملف الحالي لا يحتوي Sheet واضح لتفاصيل أصناف الفواتير');
+  if (detectedSheets.length && !rows.length)
+    warnings.push('تم اكتشاف أعمدة تفاصيل أصناف لكن لم توجد صفوف صالحة للاستيراد.');
   return { rows, detectedSheets, warnings, invalidRows };
 }
 
 async function sha256(value: string) {
   if (typeof crypto !== 'undefined' && crypto.subtle && typeof TextEncoder !== 'undefined') {
     const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
-    return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+    return Array.from(new Uint8Array(digest))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
   }
   let h = 2166136261;
   for (let i = 0; i < value.length; i += 1) h = Math.imul(h ^ value.charCodeAt(i), 16777619);
   return `fallback-${(h >>> 0).toString(16)}`;
 }
 
-type InvoiceMatch = { id: string; invoice_number: string; invoice_date: string | null; customer_code: string | null };
-type PreviewStatus = 'ready' | 'existing' | 'duplicate' | 'conflict' | 'missing' | 'ambiguous' | 'wrong_branch' | 'customer_mismatch';
+type InvoiceMatch = {
+  id: string;
+  invoice_number: string;
+  invoice_date: string | null;
+  customer_code: string | null;
+};
+type PreviewStatus =
+  | 'ready'
+  | 'existing'
+  | 'duplicate'
+  | 'conflict'
+  | 'missing'
+  | 'ambiguous'
+  | 'wrong_branch'
+  | 'customer_mismatch';
 
 export type SalesItemPreviewRow = {
   row: RawSalesInvoiceItemV21;
@@ -193,36 +260,75 @@ async function previewBranch(rows: RawSalesInvoiceItemV21[], branch: string) {
     for (let offset = 0; offset < numbers.length; offset += 30) {
       const batch = numbers.slice(offset, offset + 30);
       const selected = new Set(batch);
-      const [{ data: invoices, error: invoiceError }, { data: items, error: itemError }] = await Promise.all([
-        readInvoiceHeadersForItemImport(branch, day, batch),
-        supabase.from('sales_invoice_items_v21').select('invoice_number,line_no,product_code')
-          .eq('branch', branch).in('invoice_number', batch)
-          .gte('invoice_date', cairoDateBoundaryIso(day))
-          .lte('invoice_date', cairoDateBoundaryIso(day, true)).limit(1000),
-      ]);
+      const [{ data: invoices, error: invoiceError }, { data: items, error: itemError }] =
+        await Promise.all([
+          readInvoiceHeadersForItemImport(branch, day, batch),
+          supabase
+            .from('sales_invoice_items_v21')
+            .select('invoice_number,line_no,product_code,quantity,unit_price,line_total')
+            .eq('branch', branch)
+            .in('invoice_number', batch)
+            .gte('invoice_date', cairoDateBoundaryIso(day))
+            .lte('invoice_date', cairoDateBoundaryIso(day, true))
+            .limit(1000),
+        ]);
       if (invoiceError || itemError || invoices?.length === 1000 || items?.length === 1000) {
-        throw new Error('تعذرت مطابقة تفاصيل الأصناف مع فواتير الفرع. جرّب ملفًا بفترة أقصر أو راجع صلاحية الاستيراد.');
+        throw new Error(
+          'تعذرت مطابقة تفاصيل الأصناف مع فواتير الفرع. جرّب ملفًا بفترة أقصر أو راجع صلاحية الاستيراد.'
+        );
       }
 
-      const itemKey = (number: string, line: number | null, code: string | null) => JSON.stringify([number, line, code]);
-      const existing = new Set((items ?? []).map((item) => itemKey(item.invoice_number, item.line_no, item.product_code)));
+      const itemKey = (number: string, line: number | null, code: string | null) =>
+        JSON.stringify([number, line, code]);
+      const existing = new Map<
+        string,
+        { quantity: number | null; unit_price: number | null; line_total: number | null }
+      >(
+        (items ?? []).map((item) => [
+          itemKey(item.invoice_number, item.line_no, item.product_code),
+          item,
+        ])
+      );
       const seen = new Map<string, SalesItemPreviewRow>();
       for (const entry of entries) {
         const { row } = entry;
         if (!selected.has(row.invoiceNumber)) continue;
-        const matches = (invoices ?? []).filter((invoice) => invoice.invoice_number === row.invoiceNumber);
+        const matches = (invoices ?? []).filter(
+          (invoice) => invoice.invoice_number === row.invoiceNumber
+        );
         if (matches.length !== 1) {
           entry.status = matches.length ? 'ambiguous' : 'missing';
           continue;
         }
         entry.row = { ...row, sourceBranch: row.branch, branch };
-        if (row.customerCode && matches[0].customer_code && row.customerCode !== matches[0].customer_code) {
+        if (
+          row.customerCode &&
+          matches[0].customer_code &&
+          row.customerCode !== matches[0].customer_code
+        ) {
           entry.status = 'customer_mismatch';
           continue;
         }
         const key = itemKey(row.invoiceNumber, row.lineNo, row.productCode);
-        if (existing.has(key)) {
-          entry.status = 'existing';
+        const savedItem = existing.get(key);
+        if (savedItem) {
+          // An identical identity with changed values must not be silently labelled "already saved".
+          // Reject the row for review; any correction needs the canonical correction workflow.
+          const changed = (['quantity', 'unitPrice', 'lineTotal'] as const).some((field) => {
+            const incoming = row[field];
+            const persisted =
+              field === 'unitPrice'
+                ? savedItem.unit_price
+                : field === 'lineTotal'
+                  ? savedItem.line_total
+                  : savedItem.quantity;
+            return (
+              incoming != null &&
+              persisted != null &&
+              Math.abs(Number(incoming) - Number(persisted)) > 0.0001
+            );
+          });
+          entry.status = changed ? 'conflict' : 'existing';
           continue;
         }
         const previous = seen.get(key);
@@ -241,12 +347,17 @@ async function previewBranch(rows: RawSalesInvoiceItemV21[], branch: string) {
   return preview;
 }
 
-export async function previewSalesInvoiceItemsV21(rows: RawSalesInvoiceItemV21[], branches: readonly string[]) {
+export async function previewSalesInvoiceItemsV21(
+  rows: RawSalesInvoiceItemV21[],
+  branches: readonly string[]
+) {
   if (!branches.length) throw new Error('اختار فرع الملف.');
   const results = await Promise.all(branches.map((branch) => previewBranch(rows, branch)));
   return rows.map((row, index): SalesItemPreviewRow => {
     const checked = results.map((result) => result[index]);
-    const matched = checked.filter(({ status }) => status !== 'missing' && status !== 'wrong_branch');
+    const matched = checked.filter(
+      ({ status }) => status !== 'missing' && status !== 'wrong_branch'
+    );
     if (matched.length > 1) return { row, status: 'ambiguous' };
     return matched[0] ?? checked.find(({ status }) => status === 'missing') ?? checked[0];
   });
@@ -256,45 +367,56 @@ export async function saveSalesInvoiceItemsV21(
   rows: RawSalesInvoiceItemV21[],
   branches: readonly string[],
   sourceFile: string,
-  confirmed: readonly SalesItemPreviewRow[],
+  confirmed: readonly SalesItemPreviewRow[]
 ) {
   const current = await previewSalesInvoiceItemsV21(rows, branches);
-  const ready = current.filter((entry, index) => entry.status === 'ready' && entry.invoice
-    && confirmed[index]?.status === 'ready' && confirmed[index]?.invoice?.id === entry.invoice.id);
+  const ready = current.filter(
+    (entry, index) =>
+      entry.status === 'ready' &&
+      entry.invoice &&
+      confirmed[index]?.status === 'ready' &&
+      confirmed[index]?.invoice?.id === entry.invoice.id
+  );
   const batch = `bconnect-items-${crypto.randomUUID()}`;
-  const payload = await Promise.all(ready.map(async ({ row, invoice }) => ({
-    item_identity: await sha256(JSON.stringify(['bconnect-items', invoice!.id, row.lineNo, row.productCode])),
-    invoice_id: invoice!.id,
-    invoice_number: row.invoiceNumber,
-    branch: row.branch,
-    invoice_date: invoice!.invoice_date ?? cairoDateBoundaryIso(row.invoiceDate!),
-    customer_code: row.customerCode,
-    line_no: row.lineNo,
-    product_code: row.productCode,
-    product_name: row.productName,
-    quantity: row.quantity,
-    unit_price: row.unitPrice,
-    line_total: row.lineTotal,
-    source_file: sourceFile,
-    import_batch: batch,
-    raw_data: {
-      invoice_net: numberOrNull(row.raw['صافى الفاتورة']),
-      unit: text(row.raw['وحدة']),
-      expiry: text(row.raw['صلاحية']),
-      returned: numberOrNull(row.raw['مرتجع']),
-      line_discount: numberOrNull(row.raw['خصم صنف']),
-      source_row: row.rowIndex,
-      source_sheet: row.sheetName,
-      source_columns: row.raw,
-    },
-  })));
+  const payload = await Promise.all(
+    ready.map(async ({ row, invoice }) => ({
+      item_identity: await sha256(
+        JSON.stringify(['bconnect-items', invoice!.id, row.lineNo, row.productCode])
+      ),
+      invoice_id: invoice!.id,
+      invoice_number: row.invoiceNumber,
+      branch: row.branch,
+      invoice_date: invoice!.invoice_date ?? cairoDateBoundaryIso(row.invoiceDate!),
+      customer_code: row.customerCode,
+      line_no: row.lineNo,
+      product_code: row.productCode,
+      product_name: row.productName,
+      quantity: row.quantity,
+      unit_price: row.unitPrice,
+      line_total: row.lineTotal,
+      source_file: sourceFile,
+      import_batch: batch,
+      raw_data: {
+        invoice_net: numberOrNull(row.raw['صافى الفاتورة']),
+        unit: text(row.raw['وحدة']),
+        expiry: text(row.raw['صلاحية']),
+        returned: numberOrNull(row.raw['مرتجع']),
+        line_discount: numberOrNull(row.raw['خصم صنف']),
+        source_row: row.rowIndex,
+        source_sheet: row.sheetName,
+        source_columns: row.raw,
+      },
+    }))
+  );
 
   let saved = 0;
   let failed = 0;
   for (let offset = 0; offset < payload.length; offset += 200) {
     const chunk = payload.slice(offset, offset + 200);
-    const { data, error } = await supabase.from('sales_invoice_items_v21')
-      .upsert(chunk, { onConflict: 'item_identity', ignoreDuplicates: true }).select('id');
+    const { data, error } = await supabase
+      .from('sales_invoice_items_v21')
+      .upsert(chunk, { onConflict: 'item_identity', ignoreDuplicates: true })
+      .select('id');
     if (error) failed += chunk.length;
     else saved += data?.length ?? 0;
   }
