@@ -14,12 +14,14 @@ describe('دورة المشتريات 26 → 25', () => {
   });
 
   it('adds the branches up', () => {
-    const row = { branch: 'x', invoices: 2, gross: 10, transfers: 3, excluded: 1, net: 6 };
+    const row = { branch: 'x', invoices: 2, gross: 10, transfers: 3, excluded: 1, net: 6, pending_invoices: 1, pending_value: 5 };
     expect(purchasesTotals([row, row])).toEqual({
       invoices: 4,
       gross: 20,
       transfers: 6,
       excluded: 2,
+      pending_invoices: 2,
+      pending_value: 10,
       net: 12,
     });
   });
