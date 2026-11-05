@@ -71,6 +71,7 @@ import {
 } from '@/lib/doctorCompetitionMetrics';
 import { loadAppDataHealthSummary, summarizeDataHealth, type DataHealthIssue } from '@/lib/dataHealth/appDataHealthService';
 import { summarizeTeamTasks, type EmployeeTaskSummary } from '@/lib/employeeDailyTasks';
+import DoctorMonthlyEvaluationCard from '@/components/doctor/DoctorMonthlyEvaluationCard';
 
 const ALL_BRANCHES = DASHBOARD_ALL_BRANCHES;
 const COLORS = ['var(--dawaa-chart-series-1)', 'var(--dawaa-chart-series-2)', 'var(--dawaa-chart-series-3)', 'var(--dawaa-chart-series-4)', 'var(--dawaa-chart-series-5)', 'var(--dawaa-chart-series-6)'];
@@ -908,6 +909,7 @@ export default function ExecutiveDashboard2027() {
   const [dailyChartMetric, setDailyChartMetric] = useState<DailyChartMetric>('sales');
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [evaluationOpen, setEvaluationOpen] = useState(false);
   const [initialLoadTimedOut, setInitialLoadTimedOut] = useState(false);
   // Per-section loading / error / loadedAt
   const [salesKPILoading, setSalesKPILoading] = useState(false);
@@ -2086,6 +2088,12 @@ export default function ExecutiveDashboard2027() {
         </Panel>
 
         {managerMode ? salesKpiSection : null}
+
+        {managerMode ? (
+          evaluationOpen
+            ? <DoctorMonthlyEvaluationCard />
+            : <DoctorMonthlyEvaluationCard compact onOpen={() => setEvaluationOpen(true)} />
+        ) : null}
 
         {managerMode ? null : <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           {navCards.map((card) => (

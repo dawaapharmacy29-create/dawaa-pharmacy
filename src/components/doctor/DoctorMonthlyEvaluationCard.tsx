@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, Award, CalendarCheck, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Award, CalendarCheck, ChevronDown, ChevronUp, Lightbulb, RefreshCw, Sparkles } from 'lucide-react';
 import { loadMyEvaluation, type MyEvaluation } from '@/lib/doctorEvaluation';
 import type { LabAttendanceSummary } from '@/lib/evaluationLab/buildCycleScores';
 import type { AxisResult, Readiness } from '@/lib/evaluationLab/scoring';
+import { axisImpacts, axisTip, evaluationSignals, familyLabel, type AxisImpact, type CycleDays, type EvaluationSignal } from '@/lib/evaluationInsights';
 
 // The doctor's monthly evaluation, same engine and rules as /evaluation-lab (v6.8).
 // compact: the overview card (score, rank, what to work on). full: every axis with its evidence.
@@ -30,7 +31,28 @@ function cycleLine(data: MyEvaluation) {
 
 const scoreColor = (score: number) => (score >= 80 ? 'bg-emerald-400' : score >= 60 ? 'bg-amber-400' : 'bg-rose-400');
 
-function AxisRow({ axis }: { axis: AxisResult }) {
+const SIGNAL_TONE: Record<EvaluationSignal['tone'], string> = {
+  danger: 'border-rose-400/40 bg-rose-400/10',
+  warning: 'border-amber-400/40 bg-amber-400/10',
+  info: 'border-sky-400/40 bg-sky-400/10',
+  success: 'border-emerald-400/40 bg-emerald-400/10',
+};
+
+function SignalsPanel({ signals }: { signals: EvaluationSignal[] }) {
+  if (!signals.length) return null;
+  return (
+    <div className="mt-4">
+      <h3 className="dawaa-title flex items-center gap-1.5 text-sm"><Sparkles size={15} /> ملاحظات على الدورة</h3>
+      <ul className="mt-2 space-y-1.5">
+        {signals.map((signal) => (
+          <li key={signal.text} className={`rounded-xl border px-3 py-2 text-xs font-bold leading-5 ${SIGNAL_TONE[signal.tone]}`}>{signal.text}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function AxisRow({ axis, impact, tip }: { axis: AxisResult; impact?: AxisImpact; tip?: string | null }) {
   const measured = axis.status === 'measured' && axis.score !== null;
   return (
     <div className="dawaa-surface-soft rounded-xl p-3">
@@ -48,6 +70,13 @@ function AxisRow({ axis }: { axis: AxisResult }) {
       <p className="dawaa-caption mt-1.5 text-[11px] font-bold leading-5">
         {measured ? axis.basis : `مش بيتقاس دلوقتي: ${axis.reason || 'مفيش بيانات كفاية'}${axis.weight ? ' — وزنه بيتوزع على باقي البنود، مش بيتحسب صفر' : ''}`}
       </p>
+      {impact ? (
+        <p className="dawaa-caption mt-1 text-[11px] font-bold leading-5">
+          قيمته {impact.share} درجة من الـ 100{impact.lost >= 0.5 ? ` · بيخصم منك ${impact.lost} درجة` : ' · واخد درجته كاملة'}
+          {impact.gainTo80 >= 0.5 ? ` · لو وصل 80 تكسب +${impact.gainTo80}` : ''}
+        </p>
+      ) : null}
+      {tip ? <p className="mt-1 flex gap-1 text-[11px] font-bold leading-5 text-amber-300"><Lightbulb size={13} className="mt-0.5 shrink-0" />{tip}</p> : null}
     </div>
   );
 }
@@ -95,8 +124,17 @@ export default function DoctorMonthlyEvaluationCard({ compact = false, onOpen }:
     staleTime: 10 * 60_000,
     retry: 1,
   });
+  // The previous cycle, to spot drops (only needed while looking at the running cycle).
+  const previousQuery = useQuery({
+    queryKey: ['doctor-evaluation-v6', 'closed'],
+    queryFn: () => loadMyEvaluation('closed'),
+    staleTime: 60 * 60_000,
+    retry: 0,
+    enabled: kind === 'running' && !!query.data?.me,
+  });
   const data = query.data;
   const me = data?.me ?? null;
+  const previous = kind === 'running' ? previousQuery.data?.me ?? null : null;
 
   const header = (
     <div className="flex items-center justify-between gap-3">
@@ -146,6 +184,13 @@ export default function DoctorMonthlyEvaluationCard({ compact = false, onOpen }:
     const focus = weighted.filter((axis) => axis.status === 'measured' && axis.score !== null && axis.score < 80)
       .sort((a, b) => (a.score ?? 0) - (b.score ?? 0)).slice(0, 2);
     const readiness = READINESS[me.readiness];
+    const cycleDays: CycleDays = { kind: data.cycle.kind, elapsedDays: data.cycle.elapsedDays, totalDays: data.cycle.totalDays };
+    const impacts = axisImpacts(me.axes);
+    const signals = evaluationSignals(me, previous, cycleDays);
+    // Where the points go: the measured axes that cost the most, each with its per-day action.
+    const costly = weighted.filter((axis) => (impacts[axis.key]?.lost ?? 0) >= 1)
+      .sort((a, b) => (impacts[b.key]?.lost ?? 0) - (impacts[a.key]?.lost ?? 0)).slice(0, 3);
+    const topTip = costly.map((axis) => axisTip(axis, cycleDays)).find(Boolean) || null;
     const payout = me.compliance?.payout ?? null;
     content = (
       <>
@@ -156,15 +201,9 @@ export default function DoctorMonthlyEvaluationCard({ compact = false, onOpen }:
         </div>
         <div className="mt-2 grid grid-cols-3 gap-2 text-center text-xs font-bold">
           <div className="dawaa-surface-soft rounded-xl p-2"><div className="dawaa-caption">ترتيبك</div><div className="dawaa-title mt-0.5 text-sm">{data.rank ? `${data.rank} من ${data.rankOf}` : '—'}</div></div>
-          <div className="dawaa-surface-soft rounded-xl p-2"><div className="dawaa-caption">وسيط الصيادلة</div><div className="dawaa-title mt-0.5 text-sm">{data.familyMedian === null ? '—' : Math.round(data.familyMedian)}</div></div>
+          <div className="dawaa-surface-soft rounded-xl p-2"><div className="dawaa-caption">وسيط {familyLabel(me.family)}</div><div className="dawaa-title mt-0.5 text-sm">{data.familyMedian === null ? '—' : Math.round(data.familyMedian)}</div></div>
           <div className="dawaa-surface-soft rounded-xl p-2"><div className="dawaa-caption">شريحة الحافز</div><div className="dawaa-title mt-0.5 text-sm">{payout === null ? '—' : `${payout}٪`}</div></div>
         </div>
-        {me.adjustments.length ? (
-          <div className="dawaa-alert dawaa-alert--warning mt-3 p-2.5 text-xs font-bold">
-            <AlertTriangle size={15} />
-            <span>{me.adjustments.map((a) => `${a.label}: ${a.points} درجة (${a.reason})`).join(' · ')}</span>
-          </div>
-        ) : null}
         {compact && me.attendance ? (
           <p className="dawaa-caption mt-3 text-xs font-bold leading-5">
             الحضور: {me.attendance.workedDays} يوم من {data.cycle.elapsedDays} يوم عدّوا من الدورة
@@ -173,9 +212,13 @@ export default function DoctorMonthlyEvaluationCard({ compact = false, onOpen }:
           </p>
         ) : null}
         {compact ? (
-          focus.length ? (
-            <p className="dawaa-caption mt-3 text-xs font-bold leading-5">ركّز على: {focus.map((axis) => `${axis.label} (${Math.round(axis.score!)})`).join(' · ')}</p>
-          ) : <p className="dawaa-caption mt-3 text-xs font-bold">كل البنود اللي بتتقاس فوق 80 👏</p>
+          <>
+            {focus.length ? (
+              <p className="dawaa-caption mt-3 text-xs font-bold leading-5">ركّز على: {focus.map((axis) => `${axis.label} (${Math.round(axis.score!)}${impacts[axis.key]?.gainTo80 ? `، +${impacts[axis.key].gainTo80} لو وصل 80` : ''})`).join(' · ')}</p>
+            ) : <p className="dawaa-caption mt-3 text-xs font-bold">كل البنود اللي بتتقاس فوق 80 👏</p>}
+            {topTip ? <p className="mt-2 flex gap-1 text-xs font-bold leading-5 text-amber-300"><Lightbulb size={14} className="mt-0.5 shrink-0" />{topTip}</p> : null}
+            {signals[0] ? <p className={`mt-2 rounded-xl border px-2.5 py-1.5 text-[11px] font-bold leading-5 ${SIGNAL_TONE[signals[0].tone]}`}>{signals[0].text}{signals.length > 1 ? ` (+${signals.length - 1} ملاحظة)` : ''}</p> : null}
+          </>
         ) : (
           <>
             {me.compliance ? (
@@ -184,9 +227,19 @@ export default function DoctorMonthlyEvaluationCard({ compact = false, onOpen }:
                 {me.compliance.tierPayout !== null ? ` · شريحة الأداء ${me.compliance.tierPayout}٪ × المعامل = ${me.compliance.payout}٪` : ''}
               </p>
             ) : null}
+            {costly.length ? (
+              <div className="mt-4">
+                <h3 className="dawaa-title text-sm">الدرجات راحت فين؟</h3>
+                <p className="dawaa-caption mt-1 text-[11px] font-bold leading-5">
+                  {costly.map((axis) => `${axis.label}: −${impacts[axis.key].lost}`).join(' · ')}
+                  {me.total !== null && me.total < 100 ? ` — من أصل ${Math.round(100 - me.total)} درجة ناقصة` : ''}
+                </p>
+              </div>
+            ) : null}
+            <SignalsPanel signals={signals} />
             {me.attendance ? <AttendancePanel a={me.attendance} elapsedDays={data.cycle.elapsedDays} /> : null}
             <h3 className="dawaa-title mt-4 text-sm">البنود اللي بتتحسب</h3>
-            <div className="mt-2 space-y-2">{weighted.map((axis) => <AxisRow key={axis.key} axis={axis} />)}</div>
+            <div className="mt-2 space-y-2">{weighted.map((axis) => <AxisRow key={axis.key} axis={axis} impact={impacts[axis.key]} tip={axisTip(axis, cycleDays)} />)}</div>
             {info.length ? (
               <>
                 <button type="button" onClick={() => setShowInfo((v) => !v)} className="dawaa-caption mt-3 flex items-center gap-1 text-xs font-black">

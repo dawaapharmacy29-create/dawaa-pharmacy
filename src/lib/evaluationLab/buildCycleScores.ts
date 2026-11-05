@@ -54,6 +54,8 @@ export interface LabEvidence {
   fulfillment?: FulfillmentResult[] | null;
   /** v6.5: the previous cycle per branch (valid invoices and net), for growth. */
   previousBranchSales?: Array<{ branch: string; invoices: number; net: number }> | null;
+  /** previousBranchSales covers the same days so far, not the whole previous cycle. */
+  previousBranchSalesPartial?: boolean;
   /** v6.5: monthly evaluation status of each staff member for this cycle (official RPC). */
   teamEvaluations?: Array<{ staffId: string; branch: string | null; status: string | null; sentAt: string | null }> | null;
   /** Compliance violations recorded in the cycle (withdrawn ones excluded); null when unreadable. */
@@ -708,13 +710,14 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
         out.push(notMeasurable('avg_invoice_growth', 'مبيعات الدورة السابقة غير متاحة'));
       } else {
         const growth = valid.length / prevInvoices;
+        const prevLabel = evidence.previousBranchSalesPartial ? 'في نفس الأيام من الدورة السابقة' : 'في الدورة السابقة';
         out.push(measured('customers_growth', round(growth * 100), shape.benchmark(growth, LAB_THRESHOLDS.customersGrowthFloor, LAB_THRESHOLDS.customersGrowthCeiling),
-          `${egp(valid.length)} فاتورة مقابل ${egp(prevInvoices)} في الدورة السابقة (×${round(growth, 2)})`));
+          `${egp(valid.length)} فاتورة مقابل ${egp(prevInvoices)} ${prevLabel} (×${round(growth, 2)})`));
         const avgNow = valid.length ? net / valid.length : 0;
         const avgPrev = prevNet / prevInvoices;
         const ratio = avgPrev ? avgNow / avgPrev : 0;
         out.push(measured('avg_invoice_growth', round(ratio * 100), shape.benchmark(ratio, LAB_THRESHOLDS.avgInvoiceGrowthFloor, LAB_THRESHOLDS.avgInvoiceGrowthCeiling),
-          `متوسط ${egp(avgNow)} ج مقابل ${egp(avgPrev)} ج في الدورة السابقة (×${round(ratio, 2)})`));
+          `متوسط ${egp(avgNow)} ج مقابل ${egp(avgPrev)} ج ${prevLabel} (×${round(ratio, 2)})`));
       }
       // Team WhatsApp request capture (Master Brain).
       const capture = [...teamIds].map((id) => captureByStaff.get(id)).filter(Boolean) as Array<{ found: number; self: number }>;
