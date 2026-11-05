@@ -237,7 +237,9 @@ export function evaluationSignals(
       text: `${adjustment.label}: ${adjustment.points} درجة (${adjustment.reason}).`,
     });
   }
-  return out;
+  // Most serious first, so the compact card shows the one that matters.
+  const order = { danger: 0, warning: 1, success: 2, info: 3 } as const;
+  return out.sort((a, b) => order[a.tone] - order[b.tone]);
 }
 
 /** "Doctors' median" etc., by role family. */
