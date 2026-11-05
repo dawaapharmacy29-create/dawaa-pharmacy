@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronDown, ExternalLink, ListChecks, Loader2 } from 'lucide-react';
+import { Check, ExternalLink, ListChecks, Loader2, TriangleAlert } from 'lucide-react';
 import { Panel } from '@/components/dashboard/DashboardPrimitives';
 import {
   DoneRow,
-  ProgressRing,
-  StatusCounters,
+  MiniBar,
   TONE_ACCENT,
   ToneIcon,
   type DailyItemTone,
@@ -13,12 +12,12 @@ import {
 import {
   GM_REVIEW_LABELS,
   gmReviewErrorMessage,
-  gmReviewSummary,
   loadGmDailyReview,
   markGmReviewItem,
   type GmDailyReview,
   type GmReviewItem,
 } from '@/lib/gmDailyReview';
+import { gmReviewCard } from '@/lib/gmReviewCard';
 
 const dayLabel = (value: string) =>
   new Date(`${value}T12:00:00`).toLocaleDateString('ar-EG', {
@@ -36,15 +35,19 @@ export function gmReviewOrder(items: GmReviewItem[]) {
 const gmTone = (item: GmReviewItem): DailyItemTone =>
   item.state === 'issue' ? 'issue' : item.done ? 'done' : 'open';
 
+/** Cards shown before «اعرض كمان», so the list stays short on a phone. */
+const VISIBLE_CARDS = 3;
+
 /**
- * «مراجعتي اليومية»: the general manager's daily pass over the pharmacy, in one list.
- * Progress ring and counters on top; problems and open items as cards with a colored edge; finished items
- * folded into one line each; the last 14 days as a strip.
+ * «مراجعتي اليومية»: the general manager's daily pass over the pharmacy.
+ * A bar with «فاضل N من M», two tabs (needs attention / done), and one short card per open item:
+ * a status sentence, a chip per branch with its number and one wide button to the place it is worked.
  */
 export function GmDailyReviewPanel() {
   const [review, setReview] = useState<GmDailyReview | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [showDone, setShowDone] = useState(false);
+  const [tab, setTab] = useState<'open' | 'done'>('open');
+  const [showAll, setShowAll] = useState(false);
 
   const reload = useCallback(async () => {
     try {
@@ -65,28 +68,50 @@ export function GmDailyReviewPanel() {
   const ordered = review ? gmReviewOrder(review.items) : [];
   const open = ordered.filter((item) => gmTone(item) !== 'done');
   const done = ordered.filter((item) => gmTone(item) === 'done');
-  const issues = ordered.filter((item) => gmTone(item) === 'issue').length;
+  const visible = showAll ? open : open.slice(0, VISIBLE_CARDS);
+
+  const tabButton = (value: 'open' | 'done', label: string, count: number) => (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={tab === value}
+      onClick={() => setTab(value)}
+      className={`flex-1 rounded-xl px-3 py-2 text-xs font-black transition ${
+        tab === value
+          ? 'dawaa-theme-heading bg-[var(--dawaa-status-info-bg)] shadow-sm'
+          : 'dawaa-caption'
+      }`}
+    >
+      {label} {count}
+    </button>
+  );
 
   return (
     <Panel className="p-4 sm:p-5">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="dawaa-icon-tile shrink-0 p-3">
-            <ListChecks className="h-5 w-5" />
-          </div>
-          <div className="min-w-0">
-            <h2 className="dawaa-title text-xl">مراجعتي اليومية</h2>
-            <p className="dawaa-caption mt-1 text-xs font-bold">
-              {review ? dayLabel(review.day) : 'البنود اللي تراجعها كل يوم'}
-            </p>
+      <div className="flex items-center gap-3">
+        <div className="dawaa-icon-tile shrink-0 p-2.5">
+          <ListChecks className="h-5 w-5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+            <h2 className="dawaa-title text-lg">مراجعتي اليومية</h2>
             {review ? (
-              <p className="dawaa-caption text-[11px] font-bold">
-                بيانات امبارح {dayLabel(review.yesterday)}
-              </p>
+              <span className="dawaa-caption text-[11px] font-bold">
+                {dayLabel(review.day)} · بيانات امبارح
+              </span>
             ) : null}
           </div>
+          {review ? (
+            <>
+              <p className="mt-0.5 text-xs font-black">
+                {open.length ? `فاضل ${open.length} بنود من ${review.total}` : 'كل البنود خلصت ✓'}
+              </p>
+              <div className="mt-1.5">
+                <MiniBar done={review.done} total={review.total} />
+              </div>
+            </>
+          ) : null}
         </div>
-        {review ? <ProgressRing done={review.done} total={review.total} /> : null}
       </div>
 
       {!review && !error ? (
@@ -100,77 +125,62 @@ export function GmDailyReviewPanel() {
 
       {review ? (
         <>
-          <div className="mt-4">
-            <StatusCounters open={open.length - issues} issues={issues} done={done.length} />
+          <div role="tablist" className="dawaa-theme-border mt-3 flex gap-1 rounded-2xl border p-1">
+            {tabButton('open', 'محتاج انتباهك', open.length)}
+            {tabButton('done', 'خلص', done.length)}
           </div>
 
-          <section className="mt-4">
-            <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-              <h3 className="dawaa-theme-heading text-sm font-black">محتاجة انتباهك</h3>
-              <p className="dawaa-caption text-[11px] font-bold">
-                البند بيخضر لوحده لما بياناته تبقى سليمة · «راجعت» للي البيانات مش شايفاه
-              </p>
+          {tab === 'open' ? (
+            <div className="mt-3">
+              {open.length ? (
+                <div className="grid gap-2 lg:grid-cols-3">
+                  {visible.map((item) => (
+                    <ReviewCard key={item.key} item={item} onChanged={reload} />
+                  ))}
+                </div>
+              ) : (
+                <p className="dawaa-badge dawaa-badge--success rounded-2xl p-3 text-sm font-black">
+                  كل بنود النهارده خلصت ✓
+                </p>
+              )}
+              {open.length > VISIBLE_CARDS ? (
+                <button
+                  type="button"
+                  onClick={() => setShowAll((value) => !value)}
+                  className="dawaa-theme-border dawaa-caption mt-2 w-full rounded-xl border py-2 text-xs font-black"
+                >
+                  {showAll ? 'اعرض أقل' : `اعرض ${open.length - VISIBLE_CARDS} كمان`}
+                </button>
+              ) : null}
             </div>
-            {open.length ? (
-              <div className="grid gap-2 lg:grid-cols-2">
-                {open.map((item) => (
-                  <ReviewRow key={item.key} item={item} onChanged={reload} />
-                ))}
-              </div>
-            ) : (
-              <p className="dawaa-badge dawaa-badge--success rounded-2xl p-3 text-sm font-black">
-                كل بنود النهارده خلصت ✓
-              </p>
-            )}
-          </section>
-
-          {done.length ? (
-            <section className="dawaa-theme-border mt-3 rounded-2xl border p-3">
-              <button
-                type="button"
-                onClick={() => setShowDone((v) => !v)}
-                aria-expanded={showDone}
-                className="flex w-full items-center justify-between gap-2 text-start"
-              >
-                <span className="flex items-center gap-2 text-sm font-black">
-                  <ToneIcon tone="done" className="h-4 w-4" />
-                  خلصت ({done.length})
-                </span>
-                <ChevronDown
-                  className={`dawaa-caption h-5 w-5 transition-transform ${showDone ? 'rotate-180' : ''}`}
-                />
-              </button>
-              {showDone ? (
-                <ul className="mt-1 divide-y divide-[var(--dawaa-theme-border,rgba(148,163,184,0.25))]">
+          ) : (
+            <div className="mt-3">
+              {done.length ? (
+                <ul className="divide-y divide-[var(--dawaa-theme-border,rgba(148,163,184,0.25))]">
                   {done.map((item) => (
                     <FinishedReviewRow key={item.key} item={item} onChanged={reload} />
                   ))}
                 </ul>
               ) : (
-                <p className="dawaa-caption mt-1 truncate text-[11px] font-bold">
-                  {done.map((item) => GM_REVIEW_LABELS[item.key].title).join(' · ')}
-                </p>
+                <p className="dawaa-caption text-xs font-bold">لسه مفيش بنود خلصت النهارده</p>
               )}
-            </section>
-          ) : null}
-
-          <div className="mt-4">
-            <p className="dawaa-caption mb-1.5 text-[11px] font-bold">آخر ١٤ يوم</p>
-            <div className="grid grid-cols-7 gap-1 sm:grid-cols-[repeat(14,minmax(0,1fr))]">
-              {review.history.map((day) => (
-                <span
-                  key={day.day}
-                  title={`${dayLabel(day.day)}: ${day.marked} بند`}
-                  className={`dawaa-badge flex flex-col items-center rounded-lg px-1 py-1 text-[11px] font-black ${day.marked ? 'dawaa-badge--success' : 'dawaa-theme-border border opacity-60'}`}
-                >
-                  {new Date(`${day.day}T12:00:00`).getDate()}
-                  <span className="text-[9px] font-bold">
-                    {day.marked ? `${day.marked}✓` : '—'}
+              <p className="dawaa-caption mb-1.5 mt-3 text-[11px] font-bold">آخر ١٤ يوم</p>
+              <div className="grid grid-cols-7 gap-1 sm:grid-cols-[repeat(14,minmax(0,1fr))]">
+                {review.history.map((day) => (
+                  <span
+                    key={day.day}
+                    title={`${dayLabel(day.day)}: ${day.marked} بند`}
+                    className={`dawaa-badge flex flex-col items-center rounded-lg px-1 py-1 text-[11px] font-black ${day.marked ? 'dawaa-badge--success' : 'dawaa-theme-border border opacity-60'}`}
+                  >
+                    {new Date(`${day.day}T12:00:00`).getDate()}
+                    <span className="text-[9px] font-bold">
+                      {day.marked ? `${day.marked}✓` : '—'}
+                    </span>
                   </span>
-                </span>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </>
       ) : null}
     </Panel>
@@ -204,9 +214,10 @@ function FinishedReviewRow({
   );
 }
 
-function ReviewRow({ item, onChanged }: { item: GmReviewItem; onChanged: () => Promise<void> }) {
+function ReviewCard({ item, onChanged }: { item: GmReviewItem; onChanged: () => Promise<void> }) {
   const navigate = useNavigate();
   const label = GM_REVIEW_LABELS[item.key];
+  const card = gmReviewCard(item);
   const [noteFor, setNoteFor] = useState(false);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
@@ -227,125 +238,139 @@ function ReviewRow({ item, onChanged }: { item: GmReviewItem; onChanged: () => P
     }
   };
 
-  const lines = gmReviewSummary(item);
-  const autoDone = item.done && !item.state;
+  const openPlace = () => {
+    if (label.app) window.open(label.app.url, '_blank', 'noopener,noreferrer');
+    else if (label.link) navigate(label.link);
+  };
 
   return (
     <div
       className={`dawaa-theme-surface dawaa-theme-border rounded-2xl border p-3 ${TONE_ACCENT[gmTone(item)]}`}
     >
-      <div className="flex items-start gap-3">
-        <ToneIcon tone={gmTone(item)} className="mt-0.5 h-5 w-5" />
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-black">{label.title}</span>
-            {label.app ? (
-              <span className="dawaa-badge dawaa-badge--info rounded-full px-2 py-0.5 text-[10px] font-black">
-                من {label.app.name}
-              </span>
-            ) : null}
-            {autoDone ? (
-              <span className="dawaa-badge dawaa-badge--success rounded-full px-2 py-0.5 text-[10px] font-black">
-                خلص لوحده من البيانات
-              </span>
-            ) : null}
-            {item.state === 'done' ? (
-              <span className="dawaa-caption text-[10px] font-black">
-                علّمه {item.marked_by ?? 'انت'}
-              </span>
-            ) : null}
-          </div>
-          <p className="dawaa-caption mt-0.5 text-xs font-bold">{label.question}</p>
-          {lines.map((line) => (
-            <p key={line} className="mt-0.5 text-xs font-bold">
-              {line}
-            </p>
-          ))}
-          {item.note ? (
-            <p className="mt-1 text-xs font-bold">
-              📝 {item.note}
-              {item.marked_by ? ` — ${item.marked_by}` : ''}
-            </p>
-          ) : null}
+      <div className="flex items-center gap-2">
+        <ToneIcon tone={gmTone(item)} className="h-4 w-4" />
+        <span className="dawaa-caption min-w-0 flex-1 truncate text-[11px] font-black">
+          {label.title}
+        </span>
+        {label.app ? (
+          <span className="dawaa-caption shrink-0 text-[10px] font-bold">من {label.app.name}</span>
+        ) : null}
+      </div>
+      <p className="mt-1 text-sm font-black leading-snug">{card.headline || label.question}</p>
 
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            {label.app ? (
-              <a
-                href={label.app.url}
-                target="_blank"
-                rel="noreferrer"
-                className="dawaa-badge dawaa-badge--info inline-flex items-center gap-1 rounded-xl px-3 py-1 text-xs font-black"
+      {card.chips.length ? (
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          {card.chips.map((chip) => (
+            <div
+              key={chip.label}
+              className={`min-w-0 rounded-xl px-2.5 py-1.5 ${
+                chip.bad ? 'bg-[var(--dawaa-status-danger-bg)]' : 'dawaa-theme-border border'
+              }`}
+            >
+              <p className="dawaa-caption truncate text-[10px] font-black">{chip.label}</p>
+              <p
+                className={`truncate text-lg font-black leading-tight tabular-nums ${
+                  chip.bad ? 'text-[var(--dawaa-status-danger-text)]' : 'dawaa-theme-heading'
+                }`}
               >
-                <ExternalLink className="h-3 w-3" /> افتح {label.app.name}
-              </a>
-            ) : null}
-            {label.link ? (
-              <button
-                type="button"
-                onClick={() => navigate(label.link!)}
-                className="dawaa-theme-border rounded-xl border px-3 py-1 text-xs font-black"
-              >
-                افتح
-              </button>
-            ) : null}
-            {item.state ? (
+                {chip.value}
+              </p>
+              {chip.note ? (
+                <p className="dawaa-caption truncate text-[10px] font-bold">{chip.note}</p>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {card.warning ? (
+        <p className="mt-1.5 text-[11px] font-bold text-[var(--dawaa-status-warning-text)]">
+          {card.warning}
+        </p>
+      ) : null}
+      {item.note ? (
+        <p className="mt-1.5 text-[11px] font-bold">
+          📝 {item.note}
+          {item.marked_by ? ` — ${item.marked_by}` : ''}
+        </p>
+      ) : null}
+
+      <div className="mt-2 flex items-center gap-1.5">
+        {label.app || label.link ? (
+          <button
+            type="button"
+            onClick={openPlace}
+            className="dawaa-badge dawaa-badge--info inline-flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-xl px-3 text-xs font-black"
+          >
+            {label.app ? <ExternalLink className="h-3.5 w-3.5" /> : null}
+            افتح {label.app ? label.app.name : label.title}
+          </button>
+        ) : (
+          <span className="flex-1" />
+        )}
+        {item.state ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void run(() => markGmReviewItem(item.key, 'clear'))}
+            className="dawaa-theme-border dawaa-caption min-h-[40px] rounded-xl border px-3 text-xs font-black"
+          >
+            تراجع
+          </button>
+        ) : (
+          <>
+            {!item.done ? (
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => void run(() => markGmReviewItem(item.key, 'clear'))}
-                className="dawaa-caption text-xs font-black underline"
+                aria-label="راجعت"
+                title="راجعت"
+                onClick={() => void run(() => markGmReviewItem(item.key, 'done'))}
+                className="dawaa-badge dawaa-badge--success inline-flex h-10 w-10 items-center justify-center rounded-xl"
               >
-                تراجع
+                {busy ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Check className="h-5 w-5" />
+                )}
               </button>
-            ) : (
-              <>
-                {!item.done ? (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void run(() => markGmReviewItem(item.key, 'done'))}
-                    className="dawaa-badge dawaa-badge--success rounded-xl px-3 py-1 text-xs font-black"
-                  >
-                    راجعت ✓
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => setNoteFor(true)}
-                  className="dawaa-badge dawaa-badge--warning rounded-xl px-3 py-1 text-xs font-black"
-                >
-                  فيه مشكلة
-                </button>
-              </>
-            )}
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-          </div>
-
-          {noteFor ? (
-            <div className="mt-2 flex gap-2">
-              <input
-                autoFocus
-                value={note}
-                onChange={(event) => setNote(event.target.value)}
-                placeholder="المشكلة إيه؟"
-                className="dawaa-theme-surface dawaa-theme-border flex-1 rounded-xl border px-3 py-1.5 text-xs font-bold"
-              />
-              <button
-                type="button"
-                disabled={busy || !note.trim()}
-                onClick={() => void run(() => markGmReviewItem(item.key, 'issue', note))}
-                className="dawaa-badge dawaa-badge--warning rounded-xl px-3 py-1 text-xs font-black disabled:opacity-50"
-              >
-                حفظ
-              </button>
-            </div>
-          ) : null}
-          {error ? (
-            <p className="mt-1 text-xs font-bold text-[var(--dawaa-status-danger-text)]">{error}</p>
-          ) : null}
-        </div>
+            ) : null}
+            <button
+              type="button"
+              disabled={busy}
+              aria-label="فيه مشكلة"
+              title="فيه مشكلة"
+              onClick={() => setNoteFor((value) => !value)}
+              className="dawaa-badge dawaa-badge--warning inline-flex h-10 w-10 items-center justify-center rounded-xl"
+            >
+              <TriangleAlert className="h-4 w-4" />
+            </button>
+          </>
+        )}
       </div>
+
+      {noteFor ? (
+        <div className="mt-2 flex gap-2">
+          <input
+            autoFocus
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            placeholder="المشكلة إيه؟"
+            className="dawaa-theme-surface dawaa-theme-border min-w-0 flex-1 rounded-xl border px-3 py-1.5 text-xs font-bold"
+          />
+          <button
+            type="button"
+            disabled={busy || !note.trim()}
+            onClick={() => void run(() => markGmReviewItem(item.key, 'issue', note))}
+            className="dawaa-badge dawaa-badge--warning rounded-xl px-3 py-1 text-xs font-black disabled:opacity-50"
+          >
+            حفظ
+          </button>
+        </div>
+      ) : null}
+      {error ? (
+        <p className="mt-1 text-xs font-bold text-[var(--dawaa-status-danger-text)]">{error}</p>
+      ) : null}
     </div>
   );
 }
