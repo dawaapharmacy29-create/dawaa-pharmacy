@@ -27,6 +27,8 @@ export interface LabEvidence {
     /** invoice_datetime (v6.6 hourly target). */
     at?: string | null;
   }>;
+  /** Share of the cycle the evidence covers (a running cycle cut at today); minimum-day rules shrink with it. Default 1. */
+  cycleShare?: number;
   /** v6.6: the cycle itself (the hours its target is spread over). */
   cycle?: { start: string; endExclusive: string } | null;
   /** v6.6: the previous cycle's invoices (sales curve and the doctors' share of the branch). null when unreadable. */
@@ -137,6 +139,27 @@ export interface LabPersonScore extends LabScore {
   team?: Array<{ staffId: string; name: string; total: number | null }>;
   /** Compliance factor on the incentive tier (the score itself is unchanged). */
   compliance?: ComplianceResult;
+  /** Attendance of the cycle behind the discipline axis (shown to the person). */
+  attendance?: LabAttendanceSummary;
+}
+
+export interface LabAttendanceSummary {
+  /** Days with a first punch. */
+  workedDays: number;
+  /** Days with a final status that count for punctuality (pending reviews excluded). */
+  resolvedDays: number;
+  onTimeDays: number;
+  halfDays: number;
+  lateDays: number;
+  missingPunchDays: number;
+  absentDays: number;
+  /** Days still waiting for a review or a decision (never punished). */
+  pendingDays: number;
+  avgLateMinutes: number;
+  /** On time = 1, up to an hour late = ½, over an hour / absence / uncorrected punch = 0; null with no resolved day. */
+  creditPct: number | null;
+  /** Resolved days needed before the discipline axis is scored. */
+  minDays: number;
 }
 
 type AxisDraft = Omit<AxisResult, 'label' | 'weight'>;
@@ -153,6 +176,7 @@ interface PersonFacts {
   unresolvedDays: number;
   /** v6.1: scheduled days whose missing punch was never corrected. */
   missingPunchDays: number;
+  absentDays: number;
   /** Days waiting for a manager/administration decision. */
   pendingDecisionDays: number;
   invoices: number;
@@ -170,7 +194,7 @@ function factsFor(evidence: LabEvidence, version: LabVersion): Map<string, Perso
   const get = (id: string) => {
     let row = facts.get(id);
     if (!row) {
-      row = { workedDays: 0, resolvedDays: 0, onTimeDays: 0, halfDays: 0, lateMinutes: 0, unresolvedDays: 0, missingPunchDays: 0, pendingDecisionDays: 0,
+      row = { workedDays: 0, resolvedDays: 0, onTimeDays: 0, halfDays: 0, lateMinutes: 0, unresolvedDays: 0, missingPunchDays: 0, absentDays: 0, pendingDecisionDays: 0,
         invoices: 0, coded: 0, net: 0, reviews: [], requests: 0, invalidRequests: 0, purchases: 0, deliveries: 0 };
       facts.set(id, row);
     }
@@ -192,7 +216,7 @@ function factsFor(evidence: LabEvidence, version: LabVersion): Map<string, Perso
       if (day.hasFirstIn || status) row.unresolvedDays += 1;
       continue;
     }
-    if (ABSENCE_WITH_DEDUCTION.test(status)) { row.resolvedDays += 1; continue; }
+    if (ABSENCE_WITH_DEDUCTION.test(status)) { row.resolvedDays += 1; row.absentDays += 1; continue; }
     if (NON_PUNCTUALITY_ATTENDANCE.test(status) || !day.scheduled || !day.hasFirstIn) continue;
     row.resolvedDays += 1;
     const late = Math.max(0, day.lateMinutes || 0);
@@ -223,9 +247,26 @@ function factsFor(evidence: LabEvidence, version: LabVersion): Map<string, Perso
 
 const perDay = (count: number, days: number) => count / days;
 
-function disciplineAxis(f: PersonFacts): AxisDraft {
-  if (f.resolvedDays < LAB_THRESHOLDS.minResolvedDays) {
-    return notMeasurable('discipline', `${f.resolvedDays} يوم محسوم فقط (الحد ${LAB_THRESHOLDS.minResolvedDays})`, `${f.unresolvedDays} يوم ينتظر المراجعة`);
+/** Resolved days needed for the discipline axis: the full rule for a whole cycle, proportional for a running one. */
+export function minResolvedDaysFor(cycleShare = 1) {
+  const share = Math.min(1, Math.max(0, cycleShare));
+  return share >= 1 ? LAB_THRESHOLDS.minResolvedDays : Math.max(3, Math.ceil(LAB_THRESHOLDS.minResolvedDays * share));
+}
+
+function attendanceSummary(f: PersonFacts, minDays: number): LabAttendanceSummary {
+  const lateDays = Math.max(0, f.resolvedDays - f.onTimeDays - f.halfDays - f.missingPunchDays - f.absentDays);
+  return {
+    workedDays: f.workedDays, resolvedDays: f.resolvedDays, onTimeDays: f.onTimeDays, halfDays: f.halfDays, lateDays,
+    missingPunchDays: f.missingPunchDays, absentDays: f.absentDays, pendingDays: f.unresolvedDays,
+    avgLateMinutes: round(f.lateMinutes / Math.max(1, f.resolvedDays - f.missingPunchDays - f.absentDays)),
+    creditPct: f.resolvedDays ? round(((f.onTimeDays + f.halfDays / 2) / f.resolvedDays) * 100) : null,
+    minDays,
+  };
+}
+
+function disciplineAxis(f: PersonFacts, minDays: number = LAB_THRESHOLDS.minResolvedDays): AxisDraft {
+  if (f.resolvedDays < minDays) {
+    return notMeasurable('discipline', `${f.resolvedDays} يوم محسوم فقط (الحد ${minDays})`, `${f.unresolvedDays} يوم ينتظر المراجعة`);
   }
   const credit = (f.onTimeDays + f.halfDays / 2) / f.resolvedDays;
   const late = f.lateMinutes / Math.max(1, f.resolvedDays - f.missingPunchDays);
@@ -460,6 +501,7 @@ function hourlyAxes(hourly: HourlyOutput | null, id: string, shape: ScoreShape):
 export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LAB_CURRENT_VERSION): LabPersonScore[] {
   const facts = factsFor(evidence, version);
   const shape = shapeOf(version);
+  const minResolved = minResolvedDaysFor(evidence.cycleShare ?? 1);
   const people = evidence.staff
     .filter((person) => person.active !== false)
     .map((person) => ({ ...person, family: labFamilyOf(canonicalStaffRole(person.role)) }))
@@ -522,7 +564,7 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
     .map((d) => [d.id, shrunkMean(d.f.reviews.reduce((s, v) => s + v, 0) / d.f.reviews.length, d.f.reviews.length, populationMean)]));
   const shrunkPeers = [...shrunk.values()];
   for (const { id, f } of doctors) {
-    push(id, disciplineAxis(f));
+    push(id, disciplineAxis(f, minResolved));
     if (f.invoices < LAB_THRESHOLDS.minInvoicesForCoding || doctorRateMedian === null) {
       push(id, notMeasurable('coding_quality', `${f.invoices} فاتورة فقط (الحد ${LAB_THRESHOLDS.minInvoicesForCoding})`));
     } else {
@@ -551,7 +593,7 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
   }
   rateAxis('customer_requests', assistants, (f) => f.requests, 'طلب/يوم', invalidNote).forEach((axis, id) => push(id, axis));
   for (const { id, f } of assistants) {
-    push(id, disciplineAxis(f));
+    push(id, disciplineAxis(f, minResolved));
     if (dormant(evidence, 'assistant_checklist')) push(id, notMeasurable('assistant_checklist', 'لا توجد تسليمات لقائمة المهام اليومية في هذه الدورة (المصدر متوقف)'));
   }
 
@@ -586,7 +628,7 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
     rateAxis('deliveries_per_day', couriers, (f) => f.deliveries, 'توصيلة/يوم').forEach((axis, id) => push(id, axis));
   }
   for (const { id, f } of couriers) {
-    push(id, disciplineAxis(f));
+    push(id, disciplineAxis(f, minResolved));
     if (dormant(evidence, 'delivery_ratings')) push(id, notMeasurable('delivery_rating', 'لا توجد تقييمات توصيل مسجلة في هذه الدورة (المصدر متوقف)'));
   }
 
@@ -842,6 +884,8 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
     const own = (evidence.violations || []).filter((v) => v.staffId === result.staffId);
     // Too little of the card was measured for its total to set an incentive tier.
     const tierTotal = result.readiness === 'insufficient' ? null : result.total;
+    const ownFacts = facts.get(result.staffId);
+    if (ownFacts) result.attendance = attendanceSummary(ownFacts, minResolved);
     result.compliance = personCompliance(own, facts.get(result.staffId)?.missingPunchDays || 0, LAB_THRESHOLDS.missingPunchAllowance, tierTotal);
   }
   return results.sort((a, b) => (b.total ?? -1) - (a.total ?? -1));

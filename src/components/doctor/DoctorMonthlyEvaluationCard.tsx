@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, Award, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Award, CalendarCheck, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react';
 import { loadMyEvaluation, type MyEvaluation } from '@/lib/doctorEvaluation';
+import type { LabAttendanceSummary } from '@/lib/evaluationLab/buildCycleScores';
 import type { AxisResult, Readiness } from '@/lib/evaluationLab/scoring';
 
 // The doctor's monthly evaluation, same engine and rules as /evaluation-lab (v6.8).
@@ -47,6 +48,40 @@ function AxisRow({ axis }: { axis: AxisResult }) {
       <p className="dawaa-caption mt-1.5 text-[11px] font-bold leading-5">
         {measured ? axis.basis : `مش بيتقاس دلوقتي: ${axis.reason || 'مفيش بيانات كفاية'}${axis.weight ? ' — وزنه بيتوزع على باقي البنود، مش بيتحسب صفر' : ''}`}
       </p>
+    </div>
+  );
+}
+
+function AttendancePanel({ a, elapsedDays }: { a: LabAttendanceSummary; elapsedDays: number }) {
+  const tiles: Array<[string, string, string?]> = [
+    ['أيام الحضور', `${a.workedDays} من ${elapsedDays}`, 'يوم عدّوا من الدورة'],
+    ['الالتزام بالمواعيد', a.creditPct === null ? '—' : `${Math.round(a.creditPct)}٪`, `من ${a.resolvedDays} يوم محسوم`],
+    ['متوسط التأخير', `${Math.round(a.avgLateMinutes)} د`, 'في اليوم'],
+  ];
+  const details = [
+    `في الميعاد (لحد 15 د): ${a.onTimeDays}`,
+    `تأخير لحد ساعة: ${a.halfDays}`,
+    `تأخير أكتر من ساعة: ${a.lateDays}`,
+    a.missingPunchDays ? `بصمة ناقصة ما اتصلحتش: ${a.missingPunchDays}` : '',
+    a.absentDays ? `غياب بخصم: ${a.absentDays}` : '',
+    a.pendingDays ? `بانتظار المراجعة (مش محسوبة عليك): ${a.pendingDays}` : '',
+  ].filter(Boolean);
+  return (
+    <div className="mt-4">
+      <h3 className="dawaa-title flex items-center gap-1.5 text-sm"><CalendarCheck size={15} /> الحضور والانتظام في الدورة</h3>
+      <div className="mt-2 grid grid-cols-3 gap-2 text-center text-xs font-bold">
+        {tiles.map(([label, value, hint]) => (
+          <div key={label} className="dawaa-surface-soft rounded-xl p-2">
+            <div className="dawaa-caption">{label}</div>
+            <div className="dawaa-title mt-0.5 text-sm">{value}</div>
+            {hint ? <div className="dawaa-caption mt-0.5 text-[10px]">{hint}</div> : null}
+          </div>
+        ))}
+      </div>
+      <p className="dawaa-caption mt-2 text-[11px] font-bold leading-5">{details.join(' · ')}</p>
+      {a.resolvedDays < a.minDays ? (
+        <p className="dawaa-caption mt-1 text-[11px] font-bold">بند الانضباط بيدخل الدرجة من {a.minDays} أيام محسومة.</p>
+      ) : null}
     </div>
   );
 }
@@ -130,6 +165,13 @@ export default function DoctorMonthlyEvaluationCard({ compact = false, onOpen }:
             <span>{me.adjustments.map((a) => `${a.label}: ${a.points} درجة (${a.reason})`).join(' · ')}</span>
           </div>
         ) : null}
+        {compact && me.attendance ? (
+          <p className="dawaa-caption mt-3 text-xs font-bold leading-5">
+            الحضور: {me.attendance.workedDays} يوم من {data.cycle.elapsedDays} يوم عدّوا من الدورة
+            {me.attendance.creditPct !== null ? ` · الالتزام بالمواعيد ${Math.round(me.attendance.creditPct)}٪` : ''}
+            {me.attendance.pendingDays ? ` · ${me.attendance.pendingDays} يوم بانتظار المراجعة` : ''}
+          </p>
+        ) : null}
         {compact ? (
           focus.length ? (
             <p className="dawaa-caption mt-3 text-xs font-bold leading-5">ركّز على: {focus.map((axis) => `${axis.label} (${Math.round(axis.score!)})`).join(' · ')}</p>
@@ -142,6 +184,7 @@ export default function DoctorMonthlyEvaluationCard({ compact = false, onOpen }:
                 {me.compliance.tierPayout !== null ? ` · شريحة الأداء ${me.compliance.tierPayout}٪ × المعامل = ${me.compliance.payout}٪` : ''}
               </p>
             ) : null}
+            {me.attendance ? <AttendancePanel a={me.attendance} elapsedDays={data.cycle.elapsedDays} /> : null}
             <h3 className="dawaa-title mt-4 text-sm">البنود اللي بتتحسب</h3>
             <div className="mt-2 space-y-2">{weighted.map((axis) => <AxisRow key={axis.key} axis={axis} />)}</div>
             {info.length ? (
