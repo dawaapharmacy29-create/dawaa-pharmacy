@@ -5,6 +5,8 @@ import {
   creditAlerts,
   cycleLabel,
   dayCreditNote,
+  datesInPeriod,
+  readOpenDay,
   deliveryCreditView,
   knownShifts,
   matchesEmployeeSearch,
@@ -12,6 +14,7 @@ import {
   weekdayPatterns,
   type DrWaelCreditLedger,
   type DrWaelDeliveryCredit,
+  type DrWaelOpenDay,
   type DrWaelShiftSample,
   quickDayOptions,
   dayKind,
@@ -719,5 +722,148 @@ describe('a shift that repeats on one weekday', () => {
     const profile = shiftProfiles(weeks, '2026-11-06').get('s');
     expect(profile?.weekly).toHaveLength(1);
     expect(profile?.mismatches).toEqual([]);
+  });
+});
+
+describe('readOpenDay', () => {
+  const day = (over: Partial<DrWaelOpenDay> = {}): DrWaelOpenDay => ({
+    staff_id: 's1',
+    date: '2026-11-04',
+    resolution: 'missing_checkout',
+    late: 0,
+    early: 0,
+    scheduled_in: '13:00',
+    scheduled_out: '21:00',
+    ...over,
+  });
+  const known = { start: '09:00', end: '17:00', source: 'known' as const };
+
+  it('reads two punches on another of his shifts (real case: schedule 13-21, punches 09:26 and 16:59)', () => {
+    const reading = readOpenDay(day(), ['2026-11-04T09:26', '2026-11-04T16:59'], [known]);
+    expect(reading).toMatchObject({
+      start: '09:00',
+      end: '17:00',
+      source: 'known',
+      inAt: '2026-11-04T09:26',
+      outAt: '2026-11-04T16:59',
+      late: 26,
+      early: 1,
+    });
+  });
+
+  it('prefers the suggested shift when two shifts fit equally', () => {
+    const reading = readOpenDay(
+      day(),
+      ['2026-11-04T09:00', '2026-11-04T17:00'],
+      [known, { start: '09:00', end: '17:00', source: 'suggested' }]
+    );
+    expect(reading?.source).toBe('suggested');
+  });
+
+  it('follows an overnight shift to its leaving punch on the next date', () => {
+    const reading = readOpenDay(
+      day({
+        date: '2026-10-30',
+        resolution: 'worked_on_off',
+        scheduled_in: null,
+        scheduled_out: null,
+      }),
+      ['2026-10-30T01:38', '2026-10-30T17:18', '2026-10-31T00:45'],
+      [{ start: '17:00', end: '00:00', source: 'known' }]
+    );
+    expect(reading).toMatchObject({
+      inAt: '2026-10-30T17:18',
+      outAt: '2026-10-31T00:45',
+      late: 18,
+      early: 0,
+    });
+  });
+
+  it('takes the punch before a midnight start from the evening before (real case: off Thursdays he works)', () => {
+    const reading = readOpenDay(
+      day({
+        date: '2026-11-05',
+        resolution: 'worked_on_off',
+        scheduled_in: null,
+        scheduled_out: null,
+      }),
+      ['2026-11-04T23:17', '2026-11-05T09:39', '2026-11-05T23:13'],
+      [{ start: '00:00', end: '09:00', source: 'known' }]
+    );
+    expect(reading).toMatchObject({
+      inAt: '2026-11-04T23:17',
+      outAt: '2026-11-05T09:39',
+      early: 0,
+    });
+  });
+
+  it('reads one punch only on a day with no schedule', () => {
+    const shift = [{ start: '14:00', end: '22:00', source: 'known' as const }];
+    expect(
+      readOpenDay(
+        day({ resolution: 'worked_on_off', scheduled_in: null, scheduled_out: null }),
+        ['2026-11-04T14:13'],
+        shift
+      )
+    ).toMatchObject({ inAt: '2026-11-04T14:13', outAt: null, late: 13 });
+    expect(
+      readOpenDay(
+        day({ scheduled_in: '10:00', scheduled_out: '18:00' }),
+        ['2026-11-04T14:13'],
+        shift
+      )
+    ).toBeNull();
+  });
+
+  it('keeps a late arrival on his own shift as late, even when a nearby shift exists (real case: 15:14-20:05 on 14:30-20:30)', () => {
+    expect(
+      readOpenDay(
+        day({ resolution: 'early_leave_review', scheduled_in: '14:30', scheduled_out: '20:30' }),
+        ['2026-11-04T15:14', '2026-11-04T20:05'],
+        [{ start: '15:00', end: '20:00', source: 'known' }]
+      )
+    ).toBeNull();
+  });
+
+  it('says nothing when the schedule already is that shift', () => {
+    expect(
+      readOpenDay(
+        day({ scheduled_in: '09:00', scheduled_out: '17:00' }),
+        ['2026-11-04T09:26'],
+        [known]
+      )
+    ).toBeNull();
+  });
+
+  it('does not take a late day for another shift when only arrival and leaving do not fit', () => {
+    expect(
+      readOpenDay(
+        day({ resolution: 'early_leave_review' }),
+        ['2026-11-04T13:05', '2026-11-04T18:00'],
+        [known]
+      )
+    ).toBeNull();
+  });
+
+  it('builds a shift from the punches only for an unpaired day, never for a late or early one', () => {
+    const punches = ['2026-10-27T15:34', '2026-10-28T00:24'];
+    expect(
+      readOpenDay(day({ date: '2026-10-27', resolution: 'missing_checkin' }), punches, [])
+    ).toMatchObject({ source: 'punches', start: '15:30', end: '00:30' });
+    expect(
+      readOpenDay(day({ date: '2026-10-27', resolution: 'early_leave_review' }), punches, [])
+    ).toBeNull();
+  });
+
+  it('does not build a shift from a double punch', () => {
+    expect(readOpenDay(day(), ['2026-11-04T07:58', '2026-11-04T07:59'], [])).toBeNull();
+  });
+});
+
+describe('datesInPeriod', () => {
+  it('counts every day, or only the chosen weekday', () => {
+    expect(datesInPeriod('2026-11-01', '2026-11-07', null)).toBe(7);
+    expect(datesInPeriod('2026-11-01', '2026-11-30', ['الخميس'])).toBe(4);
+    expect(datesInPeriod('2026-11-07', '2026-11-01', null)).toBe(0);
   });
 });

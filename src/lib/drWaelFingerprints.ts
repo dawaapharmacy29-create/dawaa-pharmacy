@@ -1344,3 +1344,216 @@ export function shiftProfiles(
   }
   return profiles;
 }
+
+// ---------------------------------------------------------------------------------------------------------
+// Punch reading (migration 20261106140000): the open days read against the shifts he really works, the suggested
+// shift included. It only reads: nothing changes until a manager applies the shift for the scope he chooses.
+export interface DrWaelOpenDay {
+  staff_id: string;
+  date: string;
+  resolution: string | null;
+  late: number;
+  early: number;
+  scheduled_in: string | null;
+  scheduled_out: string | null;
+}
+
+export interface DrWaelOpenPunches {
+  days: DrWaelOpenDay[];
+  punches: Array<{ staff_id: string; at: string }>;
+}
+
+export async function fetchDrWaelOpenPunches(): Promise<DrWaelOpenPunches> {
+  const { data, error } = await supabase.rpc('get_dr_wael_open_day_punches_v1');
+  if (error) throw new Error(error.message);
+  const result = data as Partial<DrWaelOpenPunches> | null;
+  if (!Array.isArray(result?.days) || !Array.isArray(result?.punches))
+    throw new Error('dr_wael_open_punches_unavailable');
+  return { days: result.days, punches: result.punches };
+}
+
+export type ReadingSource = 'suggested' | 'known' | 'punches';
+
+export interface PunchReading {
+  staff_id: string;
+  /** The open day this reading explains. */
+  date: string;
+  start: string;
+  end: string;
+  source: ReadingSource;
+  /** Cairo wall clock, null when that punch is the missing one. */
+  inAt: string | null;
+  outAt: string | null;
+  late: number;
+  early: number;
+  /** What the day carries now on the schedule. */
+  nowMinutes: number;
+}
+
+// Wall-clock minutes, so a date and a clock add up without a timezone in the way.
+const wallMinutes = (at: string) => Math.round(Date.parse(`${at}:00Z`) / 60000);
+const clockValue = (text: string) => {
+  const [h, m] = text.split(':').map(Number);
+  return h * 60 + m;
+};
+
+const READ_START_TOLERANCE = 90;
+const READ_END_TOLERANCE = 120;
+const MIN_PAIR_MINUTES = 180;
+const MAX_PAIR_MINUTES = 16 * 60;
+// The resolutions where a pair of punches can be trusted to be one shift without a known shift behind it.
+const UNPAIRED = new Set([
+  'missing_checkin',
+  'missing_checkout',
+  'worked_on_off',
+  'needs_event_review',
+]);
+
+const nearest = (points: number[], target: number, tolerance: number) => {
+  let best: number | null = null;
+  for (const point of points) {
+    if (Math.abs(point - target) > tolerance) continue;
+    if (best == null || Math.abs(point - target) < Math.abs(best - target)) best = point;
+  }
+  return best;
+};
+
+const wallText = (minutes: number) => new Date(minutes * 60000).toISOString().slice(0, 16);
+
+interface ShiftCandidate {
+  start: string;
+  end: string;
+  source: ReadingSource;
+}
+
+export function readOpenDay(
+  day: DrWaelOpenDay,
+  punchTimes: string[],
+  candidates: ShiftCandidate[]
+): PunchReading | null {
+  const dayStart = wallMinutes(`${day.date}T00:00`);
+  const points = punchTimes
+    .map(wallMinutes)
+    .filter((point) => point >= dayStart - 480 && point < dayStart + 1440 + 720);
+  if (!points.length) return null;
+  const planned =
+    day.scheduled_in && day.scheduled_out
+      ? { in: clockValue(day.scheduled_in), out: clockValue(day.scheduled_out) }
+      : null;
+  const nowMinutes = day.late + day.early;
+  type Found = PunchReading & { score: number };
+  let best: Found | null = null;
+
+  // A day on the schedule counts as another shift only when arrival AND leaving both moved, the same rule as
+  // shiftMismatches: someone who came late on his own shift is late, whatever other shifts he has.
+  const movedFromSchedule = (first: number, last: number) =>
+    !planned ||
+    (clockDistance((first - dayStart + 1440) % 1440, planned.in) >= END_TOLERANCE &&
+      clockDistance((last - dayStart + 2880) % 1440, planned.out) >= END_TOLERANCE);
+  // One punch can only be read on a day with no schedule to read it against.
+  const onePunchAllowed = day.resolution === 'worked_on_off' && !planned;
+
+  for (const candidate of candidates) {
+    const startClock = clockValue(candidate.start);
+    const endClock = clockValue(candidate.end);
+    const start = dayStart + startClock;
+    const end = start + ((endClock - startClock + 1440) % 1440 || 1440);
+    const first = nearest(points, start, READ_START_TOLERANCE);
+    const last = nearest(points, end, READ_END_TOLERANCE);
+    const whole = first != null && last != null;
+    if (!whole && !(onePunchAllowed && (first != null || last != null))) continue;
+    if (whole && (last - first < MIN_PAIR_MINUTES || !movedFromSchedule(first, last))) continue;
+    const score =
+      (whole ? 1000 : 0) +
+      (candidate.source === 'suggested' ? 50 : 0) -
+      (first != null ? Math.abs(first - start) : 60) -
+      (last != null ? Math.abs(last - end) : 60);
+    if (best && best.score >= score) continue;
+    best = {
+      staff_id: day.staff_id,
+      date: day.date,
+      start: candidate.start,
+      end: candidate.end,
+      source: candidate.source,
+      inAt: first != null ? wallText(first) : null,
+      outAt: last != null ? wallText(last) : null,
+      late: first != null ? Math.max(0, first - start) : 0,
+      early: last != null ? Math.max(0, end - last) : 0,
+      nowMinutes,
+      score,
+    };
+  }
+  if (best) {
+    const { score: _score, ...reading } = best;
+    return reading;
+  }
+
+  // No shift of his fits, but two punches hours apart are one working shift: the hours come from the punches.
+  if (!day.resolution || !UNPAIRED.has(day.resolution)) return null;
+  const own = points
+    .filter((point) => point >= dayStart && point < dayStart + 1440 + 480)
+    .sort((a, b) => a - b);
+  for (let i = 0; i < own.length - 1; i += 1) {
+    if (own[i] >= dayStart + 1440) break;
+    const gap = own[i + 1] - own[i];
+    if (gap < MIN_PAIR_MINUTES || gap > MAX_PAIR_MINUTES || !movedFromSchedule(own[i], own[i + 1]))
+      continue;
+    const start = roundToHalfHour(own[i] - dayStart);
+    const end = roundToHalfHour(own[i + 1] - dayStart);
+    return {
+      staff_id: day.staff_id,
+      date: day.date,
+      start: clockText(start),
+      end: clockText(end),
+      source: 'punches',
+      inAt: wallText(own[i]),
+      outAt: wallText(own[i + 1]),
+      late: 0,
+      early: 0,
+      nowMinutes,
+    };
+  }
+  return null;
+}
+
+// Every open day that the punches explain, keyed `${staff_id}-${date}`.
+export function punchReadings(
+  open: DrWaelOpenPunches | null,
+  profiles: Map<string, ShiftProfile>,
+  insights: Map<string, DrWaelInsight>
+): Map<string, PunchReading> {
+  const result = new Map<string, PunchReading>();
+  if (!open) return result;
+  const byStaff = new Map<string, string[]>();
+  for (const punch of open.punches) {
+    const list = byStaff.get(punch.staff_id) || [];
+    list.push(punch.at);
+    byStaff.set(punch.staff_id, list);
+  }
+  for (const day of open.days) {
+    const suggested = insights.get(day.staff_id)?.shift;
+    const candidates: ShiftCandidate[] = [
+      ...(suggested
+        ? [{ start: suggested.start, end: suggested.end, source: 'suggested' as const }]
+        : []),
+      ...(profiles.get(day.staff_id)?.known || []).map((shift) => ({
+        start: shift.start,
+        end: shift.end,
+        source: 'known' as const,
+      })),
+    ];
+    const reading = readOpenDay(day, byStaff.get(day.staff_id) || [], candidates);
+    if (reading) result.set(`${day.staff_id}-${day.date}`, reading);
+  }
+  return result;
+}
+
+// The dates a weekday falls on inside a period, to show how many days a change will touch.
+export function datesInPeriod(from: string, to: string, weekDays: string[] | null): number {
+  if (!from || !to || to < from) return 0;
+  let count = 0;
+  for (let date = from; date <= to; date = addDays(date, 1)) {
+    if (!weekDays || weekDays.includes(WEEKDAY_NAMES[weekdayOf(date)])) count += 1;
+  }
+  return count;
+}
