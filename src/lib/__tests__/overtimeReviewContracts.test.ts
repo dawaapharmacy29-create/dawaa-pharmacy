@@ -49,3 +49,11 @@ describe('overtime review — stale approvals reach a manager decision and block
     expect(page).toMatch(/overtime: \{ tab: 'decisions', decisionSub: 'overtime' \}/);
   });
 });
+
+describe('overtimeErrorMessage', () => {
+  it('explains a database timeout and leaves other messages alone', async () => {
+    const { overtimeErrorMessage } = await import('@/lib/attendance/attendanceBreakdownService');
+    expect(overtimeErrorMessage('canceling statement due to statement timeout')).toContain('جرّب تاني');
+    expect(overtimeErrorMessage('overtime_no_longer_eligible')).toBe('overtime_no_longer_eligible');
+  });
+});
