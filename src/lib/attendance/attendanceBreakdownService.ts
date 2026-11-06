@@ -165,17 +165,24 @@ export interface OvertimeDecisionEvidenceV3 {
   generated_at: string;
 }
 
+/** A database timeout in plain words; any other message stays as it is. */
+export function overtimeErrorMessage(message: string): string {
+  return /statement timeout|canceling statement|57014/i.test(message)
+    ? 'الطلب أخد وقت طويل وما اتحفظش حاجة — جرّب تاني كمان شوية'
+    : message;
+}
+
 export async function getOvertimeDecisionEvidenceV3(id: string): Promise<OvertimeDecisionEvidenceV3> {
   const { data, error } = await supabase.rpc('overtime_decision_evidence_v3', {
     p_overtime_id: id,
   });
-  if (error) throw new Error(error.message);
+  if (error) throw new Error(overtimeErrorMessage(error.message));
   return data as OvertimeDecisionEvidenceV3;
 }
 
 export async function decideOvertimeApproval(id: string, decision: 'approved' | 'rejected', note?: string) {
   const { error } = await supabase.rpc('decide_overtime_approval_v3', { p_id: id, p_decision: decision, p_note: note || null });
-  if (error) throw error;
+  if (error) throw new Error(overtimeErrorMessage(error.message));
 }
 
 export type StaleOvertimeReason =
