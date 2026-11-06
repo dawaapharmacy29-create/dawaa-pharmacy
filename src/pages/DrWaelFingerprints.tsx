@@ -7,6 +7,8 @@ import {
   useRef,
   useState,
   type ReactNode,
+  createContext,
+  useContext,
 } from 'react';
 import {
   Archive,
@@ -35,15 +37,18 @@ import {
   deliveryCreditView,
   fetchDrWaelCreditLedger,
   fetchDrWaelShiftPatterns,
+  fetchDrWaelOpenPunches,
+  punchReadings,
+  datesInPeriod,
   limitFingerprintsToStaff,
   matchesEmployeeSearch,
   shiftProfiles,
   type DrWaelCreditLedger,
   type DrWaelCreditRow,
   type DrWaelShiftSample,
-  type ShiftMismatch,
   type ShiftProfile,
-  type WeekdayPattern,
+  type PunchReading,
+  type DrWaelOpenPunches,
   addDays,
   applyDrWaelBranchChange,
   applyDrWaelShiftChange,
@@ -328,6 +333,15 @@ const insightRing = (insight: DrWaelInsight | undefined) =>
       ? 'border-sky-300 ring-2 ring-sky-300/60 dark:border-sky-500/60 dark:ring-sky-500/30'
       : 'border-gray-100 dark:border-slate-800';
 
+// What the punches say about the open days, and opening the shift editor on one date. Shared with the decision
+// cards so the tabs in between do not have to carry them.
+const ReadingContext = createContext<{
+  readings: Map<string, PunchReading>;
+  openAt: (employee: DrWaelEmployee, date: string) => void;
+  today: string;
+  reload: () => void;
+}>({ readings: new Map(), openAt: () => undefined, today: '', reload: () => undefined });
+
 export default function DrWaelFingerprints() {
   const [tab, setTab] = useState<Tab>('dashboard');
   const [cycle, setCycle] = useState<string | null>(null);
@@ -340,6 +354,8 @@ export default function DrWaelFingerprints() {
   const [search, setSearch] = useState('');
   const [ledger, setLedger] = useState<DrWaelCreditLedger | null>(null);
   const [samples, setSamples] = useState<DrWaelShiftSample[]>([]);
+  const [smartDate, setSmartDate] = useState<string | null>(null);
+  const [openPunches, setOpenPunches] = useState<DrWaelOpenPunches | null>(null);
   const request = useRef(0);
 
   const loadInsights = useCallback(async () => {
@@ -371,6 +387,13 @@ export default function DrWaelFingerprints() {
         })
         .catch(() => {
           if (id === request.current) setSamples([]);
+        });
+      fetchDrWaelOpenPunches()
+        .then((next) => {
+          if (id === request.current) setOpenPunches(next);
+        })
+        .catch(() => {
+          if (id === request.current) setOpenPunches(null);
         });
       try {
         const next = await fetchDrWaelFingerprints(target);
@@ -422,6 +445,24 @@ export default function DrWaelFingerprints() {
     () => (data ? shiftProfiles(samples, data.today) : new Map<string, ShiftProfile>()),
     [samples, data]
   );
+  const readings = useMemo(
+    () => punchReadings(openPunches, profiles, insights),
+    [openPunches, profiles, insights]
+  );
+  const openSmart = useCallback((employee: DrWaelEmployee, date?: string) => {
+    setSmart(employee);
+    setSmartDate(date || null);
+  }, []);
+  const reading = useMemo(
+    () => ({
+      readings,
+      openAt: openSmart,
+      today: data?.today || '',
+      reload: () => void load(cycle),
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [readings, openSmart, data?.today, cycle]
+  );
 
   if (loading && !data) return <Spinner label="جارٍ تحميل البصمات" />;
   if (!data || !scoped)
@@ -432,186 +473,189 @@ export default function DrWaelFingerprints() {
   const current = data.month_cycle;
   const isCurrent = data.today >= data.cycle_start && data.today <= data.cycle_end;
   return (
-    <div className="space-y-4 text-sm" dir="rtl" aria-busy={loading}>
-      <div className={`${CARD} space-y-2 p-2`}>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-1 rounded-xl bg-gray-100 p-1 dark:bg-slate-800">
-            <button
-              type="button"
-              onClick={() => setCycle(shiftCycle(current, -1))}
-              disabled={loading}
-              className="rounded-lg px-3 py-1 text-xs font-bold text-gray-600 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-900"
-            >
-              الفترة السابقة
-            </button>
-            <span className={`rounded-lg px-3 py-1 text-xs font-bold ${ACTIVE}`}>
-              {isCurrent ? 'الفترة الحالية' : cycleLabel(current)}
-            </span>
-            <button
-              type="button"
-              onClick={() => setCycle(shiftCycle(current, 1))}
-              disabled={loading || isCurrent || data.today <= data.cycle_end}
-              className="rounded-lg px-3 py-1 text-xs font-bold text-gray-600 hover:bg-white disabled:opacity-40 dark:text-slate-300 dark:hover:bg-slate-900"
-            >
-              التالية
-            </button>
+    <ReadingContext.Provider value={reading}>
+      <div className="space-y-4 text-sm" dir="rtl" aria-busy={loading}>
+        <div className={`${CARD} space-y-2 p-2`}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-1 rounded-xl bg-gray-100 p-1 dark:bg-slate-800">
+              <button
+                type="button"
+                onClick={() => setCycle(shiftCycle(current, -1))}
+                disabled={loading}
+                className="rounded-lg px-3 py-1 text-xs font-bold text-gray-600 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-900"
+              >
+                الفترة السابقة
+              </button>
+              <span className={`rounded-lg px-3 py-1 text-xs font-bold ${ACTIVE}`}>
+                {isCurrent ? 'الفترة الحالية' : cycleLabel(current)}
+              </span>
+              <button
+                type="button"
+                onClick={() => setCycle(shiftCycle(current, 1))}
+                disabled={loading || isCurrent || data.today <= data.cycle_end}
+                className="rounded-lg px-3 py-1 text-xs font-bold text-gray-600 hover:bg-white disabled:opacity-40 dark:text-slate-300 dark:hover:bg-slate-900"
+              >
+                التالية
+              </button>
+            </div>
+            <div className={`flex items-center gap-2 text-xs ${MUTED}`}>
+              <span>
+                {data.cycle_start} ← {data.cycle_end}
+              </span>
+              <button
+                type="button"
+                onClick={() => void load(cycle)}
+                disabled={loading}
+                aria-label="تحديث"
+                className={`rounded-lg p-1.5 ${IDLE}`}
+              >
+                <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+              </button>
+            </div>
           </div>
-          <div className={`flex items-center gap-2 text-xs ${MUTED}`}>
-            <span>
-              {data.cycle_start} ← {data.cycle_end}
-            </span>
-            <button
-              type="button"
-              onClick={() => void load(cycle)}
-              disabled={loading}
-              aria-label="تحديث"
-              className={`rounded-lg p-1.5 ${IDLE}`}
-            >
-              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-            </button>
-          </div>
-        </div>
-        <nav className="flex gap-1 overflow-x-auto" aria-label="أقسام البصمات">
-          {TABS.map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setTab(key)}
-              aria-pressed={tab === key}
-              className={`shrink-0 whitespace-nowrap rounded-xl px-3 py-1.5 text-xs font-bold transition ${tab === key ? ACTIVE : 'text-gray-600 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-800'}`}
-            >
-              {label}
-            </button>
-          ))}
-        </nav>
-        <Chips
-          label="الفرع"
-          value={branch}
-          onChange={setBranch}
-          options={[['الكل', 'كل الفروع'], ...data.branches.map((b) => [b, b] as const)]}
-        />
-        <label className="flex items-center gap-2 rounded-xl bg-gray-50 px-3 py-2 dark:bg-slate-800">
-          <Search size={15} className="shrink-0 text-gray-400" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="دور على موظف في كل الصفحات… مثال: احمد*نور"
-            title={getWildcardSearchHint()}
-            aria-label="بحث باسم الموظف في كل الصفحات"
-            className="w-full bg-transparent text-xs text-gray-900 outline-none placeholder:text-gray-400 dark:text-slate-100"
+          <nav className="flex gap-1 overflow-x-auto" aria-label="أقسام البصمات">
+            {TABS.map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setTab(key)}
+                aria-pressed={tab === key}
+                className={`shrink-0 whitespace-nowrap rounded-xl px-3 py-1.5 text-xs font-bold transition ${tab === key ? ACTIVE : 'text-gray-600 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-800'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
+          <Chips
+            label="الفرع"
+            value={branch}
+            onChange={setBranch}
+            options={[['الكل', 'كل الفروع'], ...data.branches.map((b) => [b, b] as const)]}
           />
-          {search ? (
-            <button
-              type="button"
-              onClick={() => setSearch('')}
-              aria-label="مسح البحث"
-              className="shrink-0 text-gray-400 hover:text-gray-700 dark:hover:text-slate-200"
-            >
-              <X size={15} />
-            </button>
-          ) : null}
-        </label>
-      </div>
-      {found ? (
-        <SearchResults
-          employees={employees}
-          ledger={ledger}
-          credit={credit}
-          profiles={profiles}
-          onSmart={setSmart}
-        />
-      ) : null}
-      {error ? (
-        <div
-          role="alert"
-          className={`flex justify-between gap-3 rounded-xl px-3 py-2 text-xs font-bold ${TONES.red}`}
-        >
-          {error}
-          <button type="button" onClick={() => void load(cycle)} className="underline">
-            إعادة المحاولة
-          </button>
-        </div>
-      ) : null}
-
-      {tab === 'dashboard' ? (
-        <DashboardTab
-          data={scoped}
-          branch={branch}
-          names={names}
-          insights={insights}
-          onlyStaff={found}
-          ledger={ledger}
-          credit={credit}
-          profiles={profiles}
-          onSmart={setSmart}
-          onDecisionSaved={() => void load(cycle)}
-        />
-      ) : null}
-      {tab === 'attendance' ? (
-        <AttendanceTab
-          data={scoped}
-          employees={employees}
-          insights={insights}
-          onSmart={setSmart}
-          onDecisionSaved={() => void load(cycle)}
-        />
-      ) : null}
-      {tab === 'workday' ? (
-        <WorkDayTab
-          data={scoped}
-          branch={branch}
-          names={names}
-          onlyStaff={found}
-          onDecisionSaved={() => void load(cycle)}
-        />
-      ) : null}
-      {tab === 'employees' ? (
-        <EmployeesTab
-          employees={employees.filter((employee) => employee.active)}
-          insights={insights}
-          onSmart={setSmart}
-        />
-      ) : null}
-      {tab === 'credit' ? (
-        <CreditTab
-          ledger={ledger}
-          employees={employees}
-          credit={credit}
-          profiles={profiles}
-          onSmart={setSmart}
-        />
-      ) : null}
-      {tab === 'adjustments' ? (
-        <AdjustmentsTab data={scoped} employees={employees} names={names} />
-      ) : null}
-      {tab === 'leaves' ? <LeavesTab data={scoped} employees={employees} /> : null}
-      {tab === 'salaries' ? (
-        <SalariesTab cycle={current} employees={branchEmployees} search={search} />
-      ) : null}
-      {tab === 'reports' ? <ReportsTab data={scoped} employees={employees} /> : null}
-      <Sheet open={Boolean(smart)} onOpenChange={(next) => !next && setSmart(null)}>
-        <SheetContent
-          side="left"
-          className="w-full overflow-y-auto bg-white text-gray-800 dark:bg-slate-950 dark:text-slate-200 sm:max-w-lg"
-          dir="rtl"
-        >
-          {smart ? (
-            <SmartEditor
-              key={smart.staff_id}
-              employee={smart}
-              insight={insights.get(smart.staff_id)}
-              today={data.today}
-              branches={data.branches}
-              timeOff={data.time_off}
-              ledger={ledger}
-              credit={credit.get(smart.staff_id)}
-              profile={profiles.get(smart.staff_id)}
-              onSaved={() => void load(cycle)}
+          <label className="flex items-center gap-2 rounded-xl bg-gray-50 px-3 py-2 dark:bg-slate-800">
+            <Search size={15} className="shrink-0 text-gray-400" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="دور على موظف في كل الصفحات… مثال: احمد*نور"
+              title={getWildcardSearchHint()}
+              aria-label="بحث باسم الموظف في كل الصفحات"
+              className="w-full bg-transparent text-xs text-gray-900 outline-none placeholder:text-gray-400 dark:text-slate-100"
             />
-          ) : null}
-        </SheetContent>
-      </Sheet>
-    </div>
+            {search ? (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                aria-label="مسح البحث"
+                className="shrink-0 text-gray-400 hover:text-gray-700 dark:hover:text-slate-200"
+              >
+                <X size={15} />
+              </button>
+            ) : null}
+          </label>
+        </div>
+        {found ? (
+          <SearchResults
+            employees={employees}
+            ledger={ledger}
+            credit={credit}
+            profiles={profiles}
+            onSmart={openSmart}
+          />
+        ) : null}
+        {error ? (
+          <div
+            role="alert"
+            className={`flex justify-between gap-3 rounded-xl px-3 py-2 text-xs font-bold ${TONES.red}`}
+          >
+            {error}
+            <button type="button" onClick={() => void load(cycle)} className="underline">
+              إعادة المحاولة
+            </button>
+          </div>
+        ) : null}
+
+        {tab === 'dashboard' ? (
+          <DashboardTab
+            data={scoped}
+            branch={branch}
+            names={names}
+            insights={insights}
+            onlyStaff={found}
+            ledger={ledger}
+            credit={credit}
+            profiles={profiles}
+            onSmart={openSmart}
+            onDecisionSaved={() => void load(cycle)}
+          />
+        ) : null}
+        {tab === 'attendance' ? (
+          <AttendanceTab
+            data={scoped}
+            employees={employees}
+            insights={insights}
+            onSmart={openSmart}
+            onDecisionSaved={() => void load(cycle)}
+          />
+        ) : null}
+        {tab === 'workday' ? (
+          <WorkDayTab
+            data={scoped}
+            branch={branch}
+            names={names}
+            onlyStaff={found}
+            onDecisionSaved={() => void load(cycle)}
+          />
+        ) : null}
+        {tab === 'employees' ? (
+          <EmployeesTab
+            employees={employees.filter((employee) => employee.active)}
+            insights={insights}
+            onSmart={openSmart}
+          />
+        ) : null}
+        {tab === 'credit' ? (
+          <CreditTab
+            ledger={ledger}
+            employees={employees}
+            credit={credit}
+            profiles={profiles}
+            onSmart={openSmart}
+          />
+        ) : null}
+        {tab === 'adjustments' ? (
+          <AdjustmentsTab data={scoped} employees={employees} names={names} />
+        ) : null}
+        {tab === 'leaves' ? <LeavesTab data={scoped} employees={employees} /> : null}
+        {tab === 'salaries' ? (
+          <SalariesTab cycle={current} employees={branchEmployees} search={search} />
+        ) : null}
+        {tab === 'reports' ? <ReportsTab data={scoped} employees={employees} /> : null}
+        <Sheet open={Boolean(smart)} onOpenChange={(next) => !next && setSmart(null)}>
+          <SheetContent
+            side="left"
+            className="w-full overflow-y-auto bg-white text-gray-800 dark:bg-slate-950 dark:text-slate-200 sm:max-w-lg"
+            dir="rtl"
+          >
+            {smart ? (
+              <SmartEditor
+                key={`${smart.staff_id}-${smartDate || ''}`}
+                employee={smart}
+                focusDate={smartDate}
+                insight={insights.get(smart.staff_id)}
+                today={data.today}
+                branches={data.branches}
+                timeOff={data.time_off}
+                ledger={ledger}
+                credit={credit.get(smart.staff_id)}
+                profile={profiles.get(smart.staff_id)}
+                onSaved={() => void load(cycle)}
+              />
+            ) : null}
+          </SheetContent>
+        </Sheet>
+      </div>
+    </ReadingContext.Provider>
   );
 }
 
@@ -626,9 +670,11 @@ function SmartEditor({
   ledger,
   credit,
   profile,
+  focusDate,
   onSaved,
 }: {
   employee: DrWaelEmployee;
+  focusDate: string | null;
   insight: DrWaelInsight | undefined;
   today: string;
   branches: string[];
@@ -644,9 +690,16 @@ function SmartEditor({
     suggestion?.start || hhmm(current?.start || null).replace('—', '')
   );
   const [end, setEnd] = useState(suggestion?.end || hhmm(current?.end || null).replace('—', ''));
-  const [mode, setMode] = useState<DrWaelShiftMode>('permanent');
-  const [from, setFrom] = useState(suggestion?.since || today);
-  const [to, setTo] = useState(addDays(today, 6));
+  const firstDay = focusDate || today;
+  const [mode, setMode] = useState<DrWaelShiftMode>('day');
+  const [from, setFrom] = useState(firstDay);
+  const [to, setTo] = useState(addDays(firstDay, 6));
+  // Permanent starts where the punches changed; a day or a period starts from the day he is looking at.
+  const chooseMode = (next: DrWaelShiftMode) => {
+    setMode(next);
+    setFrom(next === 'permanent' ? suggestion?.since || firstDay : firstDay);
+    if (next === 'period') setTo(addDays(firstDay, 6));
+  };
   const [days, setDays] = useState<string[]>(() => {
     const working = workingWeekDays(employee.week);
     return working.length ? working : WEEK_DAYS;
@@ -687,7 +740,7 @@ function SmartEditor({
         mode,
         from,
         to: mode === 'period' ? to : null,
-        days: mode === 'permanent' ? days : null,
+        days: mode === 'day' ? null : days,
       });
       return `اتسجل الميعاد · اتعاد حساب ${result.days_rebuilt} يوم${result.days_kept_manager_approved ? ` · ${result.days_kept_manager_approved} يوم معتمد من مدير ماتغيرش` : ''}`;
     });
@@ -787,11 +840,11 @@ function SmartEditor({
         <Chips<DrWaelShiftMode>
           label="مدة التعديل"
           value={mode}
-          onChange={setMode}
+          onChange={chooseMode}
           options={[
-            ['permanent', 'ميعاد جديد باستمرار'],
-            ['day', 'يوم واحد'],
-            ['period', 'فترة'],
+            ['day', 'يوم واحد بس'],
+            ['period', 'فترة من… لحد…'],
+            ['permanent', 'باستمرار'],
           ]}
         />
         <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -812,13 +865,14 @@ function SmartEditor({
                 type="date"
                 value={to}
                 min={from}
+                max={addDays(from, 62)}
                 onChange={(e) => e.target.value && setTo(e.target.value)}
                 className={input}
               />
             </label>
           ) : null}
         </div>
-        {mode === 'permanent' ? (
+        {mode !== 'day' ? (
           <div className="space-y-1">
             <div className={`text-[11px] ${MUTED}`}>
               الأيام اللي هتاخد الميعاد الجديد (الباقي يفضل زي ما هو)
@@ -845,7 +899,10 @@ function SmartEditor({
         ) : null}
         <p className={`text-[11px] ${MUTED}`}>
           الأيام اللي فاتت في المدة دي بيتعاد حسابها تلقائي؛ اليوم اللي اعتمده مدير بيفضل زي ما هو.
-          {mode === 'period' ? ' أيام الراحة في الفترة بتفضل راحة.' : ''}
+          {mode === 'period' ? ` هيتعدل ${datesInPeriod(from, to, days)} يوم في الفترة.` : ''}
+          {mode === 'permanent'
+            ? ' الميعاد ده هيفضل ماشي لحد ما تغيره، وممكن يغيّر التصنيف والمرتب.'
+            : ''}
         </p>
         <button
           type="button"
@@ -854,7 +911,8 @@ function SmartEditor({
             !start ||
             !end ||
             start === end ||
-            (mode === 'permanent' && !days.length)
+            (mode !== 'day' && !days.length) ||
+            (mode === 'period' && (to < from || datesInPeriod(from, to, null) > 63))
           }
           onClick={() => void saveShift()}
           className={`w-full rounded-xl px-3 py-2 text-xs font-bold disabled:opacity-50 ${ACTIVE}`}
@@ -1569,6 +1627,200 @@ function CreditCard({ row, ledger }: { row: DrWaelCreditRow; ledger: DrWaelCredi
   );
 }
 
+// A correction asks how far it goes: one day, a period, or from now on. For a weekday, each of those is that weekday.
+function ShiftScopePicker({
+  staffId,
+  start,
+  end,
+  date,
+  weekDay,
+  firstDate,
+  label,
+  note,
+  onApplied,
+}: {
+  staffId: string;
+  start: string;
+  end: string;
+  /** The day a «one day» correction lands on. */
+  date: string;
+  weekDay?: string;
+  /** Where «from now on» starts, the first day the punches show it. */
+  firstDate?: string;
+  label: string;
+  note: string;
+  onApplied: (text: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<DrWaelShiftMode>('day');
+  // For a weekday the period starts on the days the punches already show.
+  const [from, setFrom] = useState(weekDay ? firstDate || date : date);
+  const [to, setTo] = useState(weekDay ? date : addDays(date, 6));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const weekDays = weekDay ? [weekDay] : null;
+  const name = weekDay ? weekDay.replace(/^ال/, '') : '';
+  const input = `rounded-lg px-2 py-1 text-xs ${IDLE}`;
+  const count = datesInPeriod(from, to, weekDays);
+  const apply = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const startFrom = mode === 'day' ? date : mode === 'period' ? from : firstDate || date;
+      const result = await applyDrWaelShiftChange({
+        staffId,
+        start,
+        end,
+        mode,
+        from: startFrom,
+        to: mode === 'period' ? to : null,
+        days: mode === 'day' ? null : weekDays,
+        note,
+      });
+      onApplied(
+        `بقى ${start}–${end} · اتعاد حساب ${result.days_rebuilt} يوم${result.days_kept_manager_approved ? ` · ${result.days_kept_manager_approved} يوم معتمد من مدير ماتغيرش` : ''}`
+      );
+      setOpen(false);
+    } catch (e) {
+      const text = e instanceof Error ? e.message : '';
+      setError(text.includes('period') ? 'الفترة لازم تكون من يوم لحد 62 يوم' : shiftFixError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (!open)
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className={`rounded-lg px-3 py-1 text-[11px] font-bold ${ACTIVE}`}
+      >
+        {label}
+      </button>
+    );
+  return (
+    <div className="w-full space-y-2 rounded-xl border border-violet-200 p-2 dark:border-violet-500/30">
+      <Chips<DrWaelShiftMode>
+        label="التعديل لمدة إيه؟"
+        value={mode}
+        onChange={setMode}
+        options={[
+          ['day', `يوم ${date.slice(5)} بس`],
+          ['period', weekDay ? `كل ${name} في فترة` : 'فترة من… لحد…'],
+          ['permanent', weekDay ? `كل ${name} باستمرار` : 'باستمرار'],
+        ]}
+      />
+      {mode === 'period' ? (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <label className="flex items-center gap-1">
+            من
+            <input
+              type="date"
+              value={from}
+              onChange={(e) => e.target.value && setFrom(e.target.value)}
+              className={input}
+            />
+          </label>
+          <label className="flex items-center gap-1">
+            لحد
+            <input
+              type="date"
+              value={to}
+              min={from}
+              max={addDays(from, 62)}
+              onChange={(e) => e.target.value && setTo(e.target.value)}
+              className={input}
+            />
+          </label>
+          <span className={MUTED}>{count} يوم</span>
+        </div>
+      ) : null}
+      {mode === 'permanent' ? (
+        <p className="text-[11px] font-bold text-amber-700 dark:text-amber-300">
+          الجدول هيتغير من {firstDate || date} ولحد ما تغيره، والأيام اللي فاتت هيتعاد حسابها وممكن
+          التصنيف والمرتب يتغيروا.
+        </p>
+      ) : null}
+      {error ? (
+        <p role="alert" className="text-[11px] font-bold text-rose-700 dark:text-rose-300">
+          {error}
+        </p>
+      ) : null}
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          disabled={busy || (mode === 'period' && !count)}
+          onClick={() => void apply()}
+          className={`rounded-lg px-3 py-1 text-[11px] font-bold disabled:opacity-50 ${ACTIVE}`}
+        >
+          {busy ? 'جارٍ الحفظ…' : `طبّق ${start}–${end}`}
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => setOpen(false)}
+          className={`text-[11px] underline ${MUTED}`}
+        >
+          إلغاء
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// The decision card's reading: which of his shifts these punches are, and what the day would be on it.
+function PunchReadingNote({ day }: { day: DrWaelDay }) {
+  const { readings, reload } = useContext(ReadingContext);
+  const [applied, setApplied] = useState<string | null>(null);
+  const reading = readings.get(`${day.staff_id}-${day.date}`);
+  if (!reading) return null;
+  if (applied)
+    return (
+      <div className={`rounded-lg px-2 py-1 text-[11px] font-bold ${TONES.green}`}>{applied}</div>
+    );
+  const clock = (at: string | null) => (at ? at.slice(11) : 'ناقصة');
+  const minutes = reading.late + reading.early;
+  return (
+    <div className="space-y-1 rounded-lg bg-violet-50 px-2 py-1.5 text-[11px] text-violet-900 dark:bg-violet-500/10 dark:text-violet-200">
+      <div className="flex items-center gap-1 font-bold">
+        <Sparkles size={12} /> البصمة بتقول شيفت {reading.start}–{reading.end}
+        <span className="font-normal">
+          ·{' '}
+          {reading.source === 'suggested'
+            ? 'الشيفت المقترح ليه'
+            : reading.source === 'known'
+              ? 'من شيفتاته المعروفة'
+              : 'من البصمة بس، مش من شيفتاته'}
+        </span>
+      </div>
+      <div>
+        حضور {clock(reading.inAt)} · انصراف {clock(reading.outAt)}
+        {reading.source !== 'punches'
+          ? ` · على الشيفت ده ${minutes ? `${minutesLabel(minutes)} تأخير/انصراف` : 'مظبوط'}`
+          : ''}
+        {reading.nowMinutes ? ` (دلوقتي ${minutesLabel(reading.nowMinutes)})` : ''}
+      </div>
+      {reading.source === 'punches' ? (
+        <div className="font-bold text-amber-700 dark:text-amber-300">
+          اتأكد إنه مش تأخير أو خروج بدري قبل ما تعتبره شيفت.
+        </div>
+      ) : null}
+      <ShiftScopePicker
+        staffId={day.staff_id}
+        start={reading.start}
+        end={reading.end}
+        date={reading.date}
+        label="اقراها على الشيفت ده"
+        note="قراءة البصمة على شيفت الموظف"
+        onApplied={(text) => {
+          setApplied(text);
+          reload();
+        }}
+      />
+    </div>
+  );
+}
+
 // What the punches say about how this employee really works, with one-click corrections.
 function ShiftUnderstanding({
   employee,
@@ -1579,65 +1831,12 @@ function ShiftUnderstanding({
   profile: ShiftProfile;
   onSaved: () => void;
 }) {
-  const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ tone: Tone; text: string } | null>(null);
   const [done, setDone] = useState<string[]>([]);
-  const fixDay = async (mismatch: ShiftMismatch) => {
-    const key = mismatch.sample.date;
-    setBusy(key);
-    setMessage(null);
-    try {
-      await applyDrWaelShiftChange({
-        staffId: employee.staff_id,
-        start: mismatch.shift.start,
-        end: mismatch.shift.end,
-        mode: 'day',
-        from: key,
-        note: 'تصحيح من نمط البصمة',
-      });
-      setDone((list) => [...list, key]);
-      setMessage({
-        tone: 'green',
-        text: `يوم ${key} بقى ${mismatch.shift.start}–${mismatch.shift.end}`,
-      });
-      onSaved();
-    } catch (e) {
-      setMessage({ tone: 'red', text: shiftFixError(e) });
-    } finally {
-      setBusy(null);
-    }
-  };
-  const fixWeekday = async (pattern: WeekdayPattern) => {
-    if (
-      !window.confirm(
-        `${pattern.day} يبقى ${pattern.start}–${pattern.end} باستمرار من ${pattern.from}؟ الأيام اللي فاتت هيتعاد حسابها.`
-      )
-    )
-      return;
-    const key = pattern.day;
-    setBusy(key);
-    setMessage(null);
-    try {
-      const result = await applyDrWaelShiftChange({
-        staffId: employee.staff_id,
-        start: pattern.start,
-        end: pattern.end,
-        mode: 'permanent',
-        from: pattern.from,
-        days: [pattern.day],
-        note: 'تصحيح يوم الأسبوع من نمط البصمة',
-      });
-      setDone((list) => [...list, key]);
-      setMessage({
-        tone: 'green',
-        text: `${pattern.day} اتعدل · اتعاد حساب ${result.days_rebuilt} يوم`,
-      });
-      onSaved();
-    } catch (e) {
-      setMessage({ tone: 'red', text: shiftFixError(e) });
-    } finally {
-      setBusy(null);
-    }
+  const applied = (key: string, text: string) => {
+    setDone((list) => [...list, key]);
+    setMessage({ tone: 'green', text });
+    onSaved();
   };
   const days = profile.mismatches.filter((m) => !done.includes(m.sample.date));
   const weekly = profile.weekly.filter((p) => !done.includes(p.day));
@@ -1672,14 +1871,17 @@ function ShiftUnderstanding({
             <span className={MUTED}>
               الجدول محمّل الأيام دي {minutesLabel(pattern.minutes)} تأخير/انصراف
             </span>
-            <button
-              type="button"
-              disabled={Boolean(busy)}
-              onClick={() => void fixWeekday(pattern)}
-              className={`rounded-lg px-3 py-1 text-[11px] font-bold disabled:opacity-50 ${ACTIVE}`}
-            >
-              {busy === pattern.day ? 'جارٍ الحفظ…' : `عدّل ${pattern.day}`}
-            </button>
+            <ShiftScopePicker
+              staffId={employee.staff_id}
+              start={pattern.start}
+              end={pattern.end}
+              date={pattern.dates[pattern.dates.length - 1]}
+              weekDay={pattern.day}
+              firstDate={pattern.from}
+              label={`عدّل ${pattern.day}`}
+              note="تصحيح يوم الأسبوع من نمط البصمة"
+              onApplied={(text) => applied(pattern.day, `${pattern.day}: ${text}`)}
+            />
           </div>
         </div>
       ))}
@@ -1702,14 +1904,17 @@ function ShiftUnderstanding({
               </span>
             ) : null}
           </span>
-          <button
-            type="button"
-            disabled={Boolean(busy)}
-            onClick={() => void fixDay(mismatch)}
-            className={`rounded-lg px-3 py-1 text-[11px] font-bold disabled:opacity-50 ${IDLE}`}
-          >
-            {busy === mismatch.sample.date ? 'جارٍ الحفظ…' : 'اعتبره الشيفت ده'}
-          </button>
+          <ShiftScopePicker
+            staffId={employee.staff_id}
+            start={mismatch.shift.start}
+            end={mismatch.shift.end}
+            date={mismatch.sample.date}
+            label="اعتبره الشيفت ده"
+            note="تصحيح من نمط البصمة"
+            onApplied={(text) =>
+              applied(mismatch.sample.date, `يوم ${mismatch.sample.date}: ${text}`)
+            }
+          />
         </div>
       ))}
       {days.length > 8 ? (
@@ -2166,7 +2371,6 @@ function DashboardTab({
         canReview={canReview}
         ledger={ledger}
         credit={credit}
-        onSmart={onSmart}
         onOpen={(day) =>
           setReview({
             staffId: day.staff_id,
@@ -2468,7 +2672,6 @@ function ReviewQueue({
   canReview,
   ledger,
   credit,
-  onSmart,
   onOpen,
   onDecisionSaved,
 }: {
@@ -2477,10 +2680,10 @@ function ReviewQueue({
   canReview: boolean;
   ledger: DrWaelCreditLedger | null;
   credit: Map<string, DrWaelCreditRow>;
-  onSmart: (employee: DrWaelEmployee) => void;
   onOpen: (day: DrWaelDay) => void;
   onDecisionSaved: () => void;
 }) {
+  const { openAt } = useContext(ReadingContext);
   const [gone, setGone] = useState<Record<string, string>>({});
   const [failed, setFailed] = useState<Record<string, string>>({});
   const [kindFilter, setKindFilter] = useState<QueueKind | 'all'>('all');
@@ -2712,13 +2915,14 @@ function ReviewQueue({
                               {employee ? (
                                 <button
                                   type="button"
-                                  onClick={() => onSmart(employee)}
+                                  onClick={() => openAt(employee, day.date)}
                                   className="font-bold text-indigo-600 hover:underline dark:text-indigo-400"
                                 >
                                   عدّل الشيفت
                                 </button>
                               ) : null}
                             </div>
+                            {canReview ? <PunchReadingNote day={day} /> : null}
                             {note ? (
                               <div className="inline-flex items-center gap-1 text-[11px] font-bold text-violet-700 dark:text-violet-300">
                                 <Gauge size={12} /> {note}
