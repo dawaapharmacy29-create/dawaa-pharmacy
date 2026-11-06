@@ -15,17 +15,35 @@ import {
   Check,
   ChevronDown,
   Clock,
+  Gauge,
   Loader2,
   RefreshCw,
   Search,
+  Sparkles,
   Users,
   Wallet,
+  X,
 } from 'lucide-react';
 import { EmptyState } from '@/components/dashboard/DashboardPrimitives';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import {
+  CREDIT_BAND_LABELS,
   DAY_KIND_LABELS,
   WEEK_DAYS,
+  creditAlerts,
+  dayCreditNote,
+  deliveryCreditView,
+  fetchDrWaelCreditLedger,
+  fetchDrWaelShiftPatterns,
+  limitFingerprintsToStaff,
+  matchesEmployeeSearch,
+  shiftProfiles,
+  type DrWaelCreditLedger,
+  type DrWaelCreditRow,
+  type DrWaelShiftSample,
+  type ShiftMismatch,
+  type ShiftProfile,
+  type WeekdayPattern,
   addDays,
   applyDrWaelBranchChange,
   applyDrWaelShiftChange,
@@ -80,6 +98,7 @@ import {
   type EmployeePayrollFinancialCompositionV2,
 } from '@/lib/payroll/payrollFinancialCompositionService';
 import PayrollTransparencyPanel from '@/components/payroll/PayrollTransparencyPanel';
+import { getWildcardSearchHint } from '@/lib/appSearch';
 import { useAuth } from '@/hooks/useAuth';
 import { hasPermission } from '@/lib/core/permissionSystem';
 import { cairoDayOf } from '@/lib/time/cairoDateBoundary';
@@ -102,6 +121,7 @@ const TABS = [
   ['attendance', 'الحضور والانصراف'],
   ['workday', 'يوم عمل'],
   ['employees', 'الموظفين'],
+  ['credit', 'الكريديت'],
   ['adjustments', 'الحوافز والسلف والخصومات'],
   ['leaves', 'الإجازات'],
   ['salaries', 'الرواتب'],
@@ -317,6 +337,9 @@ export default function DrWaelFingerprints() {
   const [branch, setBranch] = useState<string>('الكل');
   const [insights, setInsights] = useState<Map<string, DrWaelInsight>>(new Map());
   const [smart, setSmart] = useState<DrWaelEmployee | null>(null);
+  const [search, setSearch] = useState('');
+  const [ledger, setLedger] = useState<DrWaelCreditLedger | null>(null);
+  const [samples, setSamples] = useState<DrWaelShiftSample[]>([]);
   const request = useRef(0);
 
   const loadInsights = useCallback(async () => {
@@ -334,6 +357,21 @@ export default function DrWaelFingerprints() {
       setLoading(true);
       setError(null);
       void loadInsights();
+      // Both are extras on top of the page: if one fails the page still works without it.
+      fetchDrWaelCreditLedger(target)
+        .then((next) => {
+          if (id === request.current) setLedger(next);
+        })
+        .catch(() => {
+          if (id === request.current) setLedger(null);
+        });
+      fetchDrWaelShiftPatterns()
+        .then((next) => {
+          if (id === request.current) setSamples(next);
+        })
+        .catch(() => {
+          if (id === request.current) setSamples([]);
+        });
       try {
         const next = await fetchDrWaelFingerprints(target);
         if (id === request.current) setData(next);
@@ -356,13 +394,37 @@ export default function DrWaelFingerprints() {
   }, [cycle, load]);
 
   const names = useMemo(() => new Map((data?.employees || []).map((e) => [e.staff_id, e])), [data]);
+  // One search box for every tab: «scoped» is the page data of the employees it finds.
+  const found = useMemo(() => {
+    if (!data || !search.trim()) return null;
+    return new Set(
+      data.employees.filter((e) => matchesEmployeeSearch(e.name, search)).map((e) => e.staff_id)
+    );
+  }, [data, search]);
+  const scoped = useMemo(
+    () => (data && found ? limitFingerprintsToStaff(data, found) : data),
+    [data, found]
+  );
   const employees = useMemo(
+    () => (scoped?.employees || []).filter((e) => matches(branch, e.branch)),
+    [scoped, branch]
+  );
+  // Salaries are heavy to compute, so that tab keeps its list and only hides rows while searching.
+  const branchEmployees = useMemo(
     () => (data?.employees || []).filter((e) => matches(branch, e.branch)),
     [data, branch]
   );
+  const credit = useMemo(
+    () => new Map((ledger?.rows || []).map((row) => [row.staff_id, row])),
+    [ledger]
+  );
+  const profiles = useMemo(
+    () => (data ? shiftProfiles(samples, data.today) : new Map<string, ShiftProfile>()),
+    [samples, data]
+  );
 
   if (loading && !data) return <Spinner label="جارٍ تحميل البصمات" />;
-  if (!data)
+  if (!data || !scoped)
     return (
       <EmptyState label={error || 'تعذر تحميل البصمات'} error onRetry={() => void load(cycle)} />
     );
@@ -428,7 +490,37 @@ export default function DrWaelFingerprints() {
           onChange={setBranch}
           options={[['الكل', 'كل الفروع'], ...data.branches.map((b) => [b, b] as const)]}
         />
+        <label className="flex items-center gap-2 rounded-xl bg-gray-50 px-3 py-2 dark:bg-slate-800">
+          <Search size={15} className="shrink-0 text-gray-400" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="دور على موظف في كل الصفحات… مثال: احمد*نور"
+            title={getWildcardSearchHint()}
+            aria-label="بحث باسم الموظف في كل الصفحات"
+            className="w-full bg-transparent text-xs text-gray-900 outline-none placeholder:text-gray-400 dark:text-slate-100"
+          />
+          {search ? (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              aria-label="مسح البحث"
+              className="shrink-0 text-gray-400 hover:text-gray-700 dark:hover:text-slate-200"
+            >
+              <X size={15} />
+            </button>
+          ) : null}
+        </label>
       </div>
+      {found ? (
+        <SearchResults
+          employees={employees}
+          ledger={ledger}
+          credit={credit}
+          profiles={profiles}
+          onSmart={setSmart}
+        />
+      ) : null}
       {error ? (
         <div
           role="alert"
@@ -443,17 +535,21 @@ export default function DrWaelFingerprints() {
 
       {tab === 'dashboard' ? (
         <DashboardTab
-          data={data}
+          data={scoped}
           branch={branch}
           names={names}
           insights={insights}
+          onlyStaff={found}
+          ledger={ledger}
+          credit={credit}
+          profiles={profiles}
           onSmart={setSmart}
           onDecisionSaved={() => void load(cycle)}
         />
       ) : null}
       {tab === 'attendance' ? (
         <AttendanceTab
-          data={data}
+          data={scoped}
           employees={employees}
           insights={insights}
           onSmart={setSmart}
@@ -462,9 +558,10 @@ export default function DrWaelFingerprints() {
       ) : null}
       {tab === 'workday' ? (
         <WorkDayTab
-          data={data}
+          data={scoped}
           branch={branch}
           names={names}
+          onlyStaff={found}
           onDecisionSaved={() => void load(cycle)}
         />
       ) : null}
@@ -475,12 +572,23 @@ export default function DrWaelFingerprints() {
           onSmart={setSmart}
         />
       ) : null}
-      {tab === 'adjustments' ? (
-        <AdjustmentsTab data={data} employees={employees} names={names} />
+      {tab === 'credit' ? (
+        <CreditTab
+          ledger={ledger}
+          employees={employees}
+          credit={credit}
+          profiles={profiles}
+          onSmart={setSmart}
+        />
       ) : null}
-      {tab === 'leaves' ? <LeavesTab data={data} employees={employees} /> : null}
-      {tab === 'salaries' ? <SalariesTab cycle={current} employees={employees} /> : null}
-      {tab === 'reports' ? <ReportsTab data={data} employees={employees} /> : null}
+      {tab === 'adjustments' ? (
+        <AdjustmentsTab data={scoped} employees={employees} names={names} />
+      ) : null}
+      {tab === 'leaves' ? <LeavesTab data={scoped} employees={employees} /> : null}
+      {tab === 'salaries' ? (
+        <SalariesTab cycle={current} employees={branchEmployees} search={search} />
+      ) : null}
+      {tab === 'reports' ? <ReportsTab data={scoped} employees={employees} /> : null}
       <Sheet open={Boolean(smart)} onOpenChange={(next) => !next && setSmart(null)}>
         <SheetContent
           side="left"
@@ -495,6 +603,9 @@ export default function DrWaelFingerprints() {
               today={data.today}
               branches={data.branches}
               timeOff={data.time_off}
+              ledger={ledger}
+              credit={credit.get(smart.staff_id)}
+              profile={profiles.get(smart.staff_id)}
               onSaved={() => void load(cycle)}
             />
           ) : null}
@@ -512,6 +623,9 @@ function SmartEditor({
   today,
   branches,
   timeOff,
+  ledger,
+  credit,
+  profile,
   onSaved,
 }: {
   employee: DrWaelEmployee;
@@ -519,6 +633,9 @@ function SmartEditor({
   today: string;
   branches: string[];
   timeOff: DrWaelTimeOff[];
+  ledger: DrWaelCreditLedger | null;
+  credit: DrWaelCreditRow | undefined;
+  profile: ShiftProfile | undefined;
   onSaved: () => void;
 }) {
   const suggestion = insight?.shift || null;
@@ -596,10 +713,36 @@ function SmartEditor({
         </div>
       ) : null}
 
+      {ledger && credit ? <CreditCard row={credit} ledger={ledger} /> : null}
+      {profile && !employee.work_mode ? (
+        <ShiftUnderstanding employee={employee} profile={profile} onSaved={onSaved} />
+      ) : null}
+
       <section className={`${CARD} space-y-3 p-3`}>
         <h3 className="flex items-center gap-1 font-bold text-gray-900 dark:text-slate-100">
-          <Clock size={15} /> ميعاد الشيفت
+          <Clock size={15} /> تعديل الشيفت
         </h3>
+        {profile?.known.length ? (
+          <div className="space-y-1">
+            <div className={`text-[11px] ${MUTED}`}>شيفتاته المعروفة (اضغط تتملى تحت)</div>
+            <div className="flex flex-wrap gap-1">
+              {profile.known.map((shift) => (
+                <button
+                  key={`${shift.start}-${shift.end}`}
+                  type="button"
+                  aria-pressed={start === shift.start && end === shift.end}
+                  onClick={() => {
+                    setStart(shift.start);
+                    setEnd(shift.end);
+                  }}
+                  className={`rounded-lg px-2 py-1 text-[11px] font-bold ${start === shift.start && end === shift.end ? ACTIVE : IDLE}`}
+                >
+                  {shift.start}–{shift.end} · {shift.days} يوم
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
         {suggestion ? (
           <div className={`rounded-xl px-3 py-2 text-xs ${TONES.amber}`}>
             البصمة بتقول إنه بيشتغل{' '}
@@ -1304,11 +1447,576 @@ function IdleStaffPanel({
   );
 }
 
+const BAND_TONE = { committed: 'green', regular: 'amber', low: 'red' } as const;
+
+const shiftFixError = (e: unknown) => {
+  const text = e instanceof Error ? e.message : '';
+  if (text.includes('not_authorized')) return 'مفيش صلاحية';
+  if (text.includes('date_out_of_range')) return 'اليوم أقدم من 40 يوم';
+  return 'ماتسجلش، حاول تاني';
+};
+
+// One employee's credit: delivery discipline minutes (the numbers payroll uses) and the missing-punch allowance.
+function CreditCard({ row, ledger }: { row: DrWaelCreditRow; ledger: DrWaelCreditLedger }) {
+  const taken = row.missing_used + row.missing_open;
+  const delivery = row.delivery;
+  const view = delivery ? deliveryCreditView(delivery, ledger.today, ledger.cycle_end) : null;
+  return (
+    <section className={`${CARD} space-y-3 p-3`}>
+      <h3 className="flex items-center gap-1 font-bold text-gray-900 dark:text-slate-100">
+        <Gauge size={15} /> الكريديت في الفترة دي
+      </h3>
+      <div className={`${SOFT} space-y-1 px-3 py-2 text-xs`}>
+        <div className="flex items-center justify-between gap-2">
+          <b>سماح نسيان البصمة</b>
+          <Pill
+            tone={
+              taken > ledger.missing_limit
+                ? 'red'
+                : taken === ledger.missing_limit
+                  ? 'amber'
+                  : 'green'
+            }
+          >
+            {row.missing_used} من {ledger.missing_limit}
+          </Pill>
+        </div>
+        {row.missing_open ? (
+          <div className={MUTED}>و{row.missing_open} يوم بصمة ناقصة لسه مستني قرار</div>
+        ) : null}
+        {row.missing_penalized ? (
+          <div className="font-bold text-rose-600 dark:text-rose-400">
+            {row.missing_penalized} مرة اتخصم عليها {ledger.missing_penalty} ج
+          </div>
+        ) : null}
+      </div>
+      {delivery && view ? (
+        <div className={`${SOFT} space-y-2 px-3 py-2 text-xs`}>
+          <div className="flex items-center justify-between gap-2">
+            <b className="flex items-center gap-1">
+              <Bike size={13} /> دقايق الدليفري
+            </b>
+            <Pill tone={BAND_TONE[view.band]}>
+              {view.final ? delivery.band_ar : `لحد دلوقتي: ${CREDIT_BAND_LABELS[view.band]}`}
+            </Pill>
+          </div>
+          <div className="grid grid-cols-3 gap-1.5 text-center text-[11px]">
+            <div>
+              <div className={MUTED}>المستخدم</div>
+              <b className="text-sm">{delivery.minutes} د</b>
+            </div>
+            <div>
+              <div className={MUTED}>كريديت ملتزم</div>
+              <b className="text-sm">{delivery.committed_credit} د</b>
+            </div>
+            <div>
+              <div className={MUTED}>كريديت عادي</div>
+              <b className="text-sm">{delivery.regular_credit} د</b>
+            </div>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-gray-200 dark:bg-slate-700">
+            <div
+              className={`h-full rounded-full ${view.band === 'committed' ? 'bg-emerald-500' : view.band === 'regular' ? 'bg-amber-500' : 'bg-rose-500'}`}
+              style={{
+                width: `${Math.min(100, delivery.regular_credit ? (delivery.minutes / delivery.regular_credit) * 100 : 100)}%`,
+              }}
+            />
+          </div>
+          <div className={MUTED}>
+            حضور {delivery.attended_days} يوم معتمد
+            {delivery.pending_days ? ` + ${delivery.pending_days} مستني قرار` : ''} من{' '}
+            {delivery.minimum_days} · الكريديت {delivery.committed_per_day} د ملتزم و
+            {delivery.regular_per_day} د عادي لكل يوم حضور
+          </div>
+          {delivery.excused_minutes ? (
+            <div className={MUTED}>{delivery.excused_minutes} د اتشالوا بإذن معتمد</div>
+          ) : null}
+          {!view.canReachMinimum ? (
+            <div className="font-bold text-rose-600 dark:text-rose-400">
+              أقصى حضور ممكن {view.reachableDays} يوم، أقل من {delivery.minimum_days}
+            </div>
+          ) : null}
+          {view.bestBand !== 'committed' ? (
+            <div className="font-bold text-amber-700 dark:text-amber-300">
+              أحسن تصنيف ممكن دلوقتي: {CREDIT_BAND_LABELS[view.bestBand]} حتى لو حضر كل الباقي
+            </div>
+          ) : null}
+          {delivery.days.length ? (
+            <details>
+              <summary className="cursor-pointer font-bold text-indigo-600 dark:text-indigo-400">
+                الأيام اللي سحبت من الكريديت ({delivery.days.length})
+              </summary>
+              <ul className="mt-1 space-y-0.5">
+                {delivery.days.map((day) => (
+                  <li key={day.date} className="flex justify-between gap-2">
+                    <span>
+                      {weekday(day.date)} {day.date.slice(5)}
+                    </span>
+                    <span className={day.exempt ? MUTED : 'font-bold'}>
+                      {day.late ? `تأخير ${day.late}` : ''}
+                      {day.late && day.early ? ' · ' : ''}
+                      {day.early ? `بدري ${day.early}` : ''}
+                      {day.exempt ? ' (بإذن)' : ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+// What the punches say about how this employee really works, with one-click corrections.
+function ShiftUnderstanding({
+  employee,
+  profile,
+  onSaved,
+}: {
+  employee: DrWaelEmployee;
+  profile: ShiftProfile;
+  onSaved: () => void;
+}) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ tone: Tone; text: string } | null>(null);
+  const [done, setDone] = useState<string[]>([]);
+  const fixDay = async (mismatch: ShiftMismatch) => {
+    const key = mismatch.sample.date;
+    setBusy(key);
+    setMessage(null);
+    try {
+      await applyDrWaelShiftChange({
+        staffId: employee.staff_id,
+        start: mismatch.shift.start,
+        end: mismatch.shift.end,
+        mode: 'day',
+        from: key,
+        note: 'تصحيح من نمط البصمة',
+      });
+      setDone((list) => [...list, key]);
+      setMessage({
+        tone: 'green',
+        text: `يوم ${key} بقى ${mismatch.shift.start}–${mismatch.shift.end}`,
+      });
+      onSaved();
+    } catch (e) {
+      setMessage({ tone: 'red', text: shiftFixError(e) });
+    } finally {
+      setBusy(null);
+    }
+  };
+  const fixWeekday = async (pattern: WeekdayPattern) => {
+    if (
+      !window.confirm(
+        `${pattern.day} يبقى ${pattern.start}–${pattern.end} باستمرار من ${pattern.from}؟ الأيام اللي فاتت هيتعاد حسابها.`
+      )
+    )
+      return;
+    const key = pattern.day;
+    setBusy(key);
+    setMessage(null);
+    try {
+      const result = await applyDrWaelShiftChange({
+        staffId: employee.staff_id,
+        start: pattern.start,
+        end: pattern.end,
+        mode: 'permanent',
+        from: pattern.from,
+        days: [pattern.day],
+        note: 'تصحيح يوم الأسبوع من نمط البصمة',
+      });
+      setDone((list) => [...list, key]);
+      setMessage({
+        tone: 'green',
+        text: `${pattern.day} اتعدل · اتعاد حساب ${result.days_rebuilt} يوم`,
+      });
+      onSaved();
+    } catch (e) {
+      setMessage({ tone: 'red', text: shiftFixError(e) });
+    } finally {
+      setBusy(null);
+    }
+  };
+  const days = profile.mismatches.filter((m) => !done.includes(m.sample.date));
+  const weekly = profile.weekly.filter((p) => !done.includes(p.day));
+  if (!profile.rotating && !days.length && !weekly.length && !message) return null;
+  return (
+    <section className={`${CARD} space-y-2 p-3`}>
+      <h3 className="flex items-center gap-1 font-bold text-gray-900 dark:text-slate-100">
+        <Sparkles size={15} /> فهم الشيفتات المتغيرة
+      </h3>
+      <p className={`text-[11px] ${MUTED}`}>
+        {profile.rotating ? `بيتناوب على ${profile.known.length} شيفتات حسب بصمة آخر 45 يوم. ` : ''}
+        التصحيح قرارك: ولا يوم بيتغير لوحده، واليوم اللي اعتمده مدير مش بيتعرض هنا.
+      </p>
+      {message ? (
+        <div
+          role="status"
+          className={`rounded-xl px-3 py-2 text-xs font-bold ${TONES[message.tone]}`}
+        >
+          {message.text}
+        </div>
+      ) : null}
+      {weekly.map((pattern) => (
+        <div key={pattern.day} className={`${SOFT} space-y-1 px-3 py-2 text-xs`}>
+          <div>
+            كل <b>{pattern.day.replace(/^ال/, '')}</b> بيشتغل تقريبًا{' '}
+            <b>
+              {pattern.start}–{pattern.end}
+            </b>{' '}
+            والجدول {pattern.scheduledStart}–{pattern.scheduledEnd} ({pattern.days} مرات)
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className={MUTED}>
+              الجدول محمّل الأيام دي {minutesLabel(pattern.minutes)} تأخير/انصراف
+            </span>
+            <button
+              type="button"
+              disabled={Boolean(busy)}
+              onClick={() => void fixWeekday(pattern)}
+              className={`rounded-lg px-3 py-1 text-[11px] font-bold disabled:opacity-50 ${ACTIVE}`}
+            >
+              {busy === pattern.day ? 'جارٍ الحفظ…' : `عدّل ${pattern.day}`}
+            </button>
+          </div>
+        </div>
+      ))}
+      {days.slice(0, 8).map((mismatch) => (
+        <div
+          key={mismatch.sample.date}
+          className={`${SOFT} flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-xs`}
+        >
+          <span>
+            {weekday(mismatch.sample.date)} {mismatch.sample.date.slice(5)}: اشتغل{' '}
+            <b>
+              {mismatch.shift.start}–{mismatch.shift.end}
+            </b>
+            {mismatch.minutes ? (
+              <span className={MUTED}> · عليه {minutesLabel(mismatch.minutes)} بسبب الجدول</span>
+            ) : null}
+            {!mismatch.shift.scheduled ? (
+              <span className="block text-[11px] text-amber-700 dark:text-amber-300">
+                الشيفت ده من البصمة بس ومش موجود في جدوله: اتأكد إنه مش تأخير
+              </span>
+            ) : null}
+          </span>
+          <button
+            type="button"
+            disabled={Boolean(busy)}
+            onClick={() => void fixDay(mismatch)}
+            className={`rounded-lg px-3 py-1 text-[11px] font-bold disabled:opacity-50 ${IDLE}`}
+          >
+            {busy === mismatch.sample.date ? 'جارٍ الحفظ…' : 'اعتبره الشيفت ده'}
+          </button>
+        </div>
+      ))}
+      {days.length > 8 ? (
+        <p className={`text-[11px] ${MUTED}`}>و{days.length - 8} يوم أقدم.</p>
+      ) : null}
+    </section>
+  );
+}
+
+// Employees whose punches follow another shift than the schedule, with the minutes that is costing them.
+function ShiftFixesPanel({
+  employees,
+  profiles,
+  credit,
+  onSmart,
+}: {
+  employees: DrWaelEmployee[];
+  profiles: Map<string, ShiftProfile>;
+  credit: Map<string, DrWaelCreditRow>;
+  onSmart: (employee: DrWaelEmployee) => void;
+}) {
+  const rows = employees
+    .filter((e) => !e.work_mode)
+    .map((employee) => {
+      const profile = profiles.get(employee.staff_id);
+      const days = profile?.mismatches.length || 0;
+      const weekly = profile?.weekly || [];
+      const minutes =
+        (profile?.mismatches.reduce((sum, m) => sum + m.minutes, 0) || 0) +
+        weekly.reduce((sum, p) => sum + p.minutes, 0);
+      return { employee, days, weekly, minutes };
+    })
+    .filter((row) => row.days || row.weekly.length)
+    .sort((a, b) => b.minutes - a.minutes);
+  if (!rows.length) return null;
+  return (
+    <Section
+      title="البصمة ماشية على شيفت غير الجدول"
+      subtitle="آخر 40 يوم · الدقايق دي ممكن تكون محسوبة عليه بسبب جدول مش مظبوط، راجعها قبل ما تأثر على التصنيف"
+    >
+      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+        {rows.map(({ employee, days, weekly, minutes }) => (
+          <button
+            key={employee.staff_id}
+            type="button"
+            onClick={() => onSmart(employee)}
+            className={`${CARD} border-r-4 border-r-violet-400 p-3 text-right transition hover:shadow-md`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-1 font-bold text-gray-900 dark:text-slate-100">
+                {employee.name}
+                {credit.get(employee.staff_id)?.delivery ? (
+                  <Bike size={12} className="text-emerald-500" />
+                ) : null}
+              </span>
+              <span className={`text-[11px] ${MUTED}`}>{employee.branch}</span>
+            </div>
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {weekly.map((pattern) => (
+                <Pill key={pattern.day} tone="violet">
+                  كل {pattern.day.replace(/^ال/, '')} {pattern.start}–{pattern.end}
+                </Pill>
+              ))}
+              {days ? <Pill tone="amber">{days} يوم على شيفت تاني</Pill> : null}
+              {minutes ? <Pill tone="red">{minutesLabel(minutes)}</Pill> : null}
+            </div>
+            <div className="mt-2 text-[11px] font-bold text-indigo-600 dark:text-indigo-400">
+              راجع وصحّح ←
+            </div>
+          </button>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
+function CreditAlertsPanel({
+  ledger,
+  employees,
+  onSmart,
+}: {
+  ledger: DrWaelCreditLedger | null;
+  employees: DrWaelEmployee[];
+  onSmart: (employee: DrWaelEmployee) => void;
+}) {
+  if (!ledger) return null;
+  const byId = new Map(employees.map((e) => [e.staff_id, e]));
+  const alerts = creditAlerts(ledger).filter((alert) => byId.has(alert.staffId));
+  if (!alerts.length) return null;
+  return (
+    <Section title="تنبيهات الكريديت" subtitle="اللي محتاج متابعة قبل ما الفترة تتقفل">
+      <ul className={`${CARD} divide-y divide-gray-50 dark:divide-slate-800`}>
+        {alerts.slice(0, 12).map((alert) => {
+          const employee = byId.get(alert.staffId) as DrWaelEmployee;
+          return (
+            <li key={`${alert.staffId}-${alert.text}`}>
+              <button
+                type="button"
+                onClick={() => onSmart(employee)}
+                className="flex w-full flex-wrap items-center justify-between gap-2 px-3 py-2 text-right text-xs hover:bg-gray-50 dark:hover:bg-slate-800/60"
+              >
+                <span className="font-bold text-gray-900 dark:text-slate-100">{employee.name}</span>
+                <Pill tone={alert.severity === 'danger' ? 'red' : 'amber'}>{alert.text}</Pill>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      {alerts.length > 12 ? (
+        <p className={`text-[11px] ${PAGE_MUTED}`}>وكمان {alerts.length - 12} في تبويب الكريديت.</p>
+      ) : null}
+    </Section>
+  );
+}
+
+// Quick answers under the search box: who, their credit, and the way to edit.
+function SearchResults({
+  employees,
+  ledger,
+  credit,
+  profiles,
+  onSmart,
+}: {
+  employees: DrWaelEmployee[];
+  ledger: DrWaelCreditLedger | null;
+  credit: Map<string, DrWaelCreditRow>;
+  profiles: Map<string, ShiftProfile>;
+  onSmart: (employee: DrWaelEmployee) => void;
+}) {
+  if (!employees.length)
+    return <Empty label="مفيش موظف بالاسم ده. جرّب جزء من الاسم أو استخدم * مثل احمد*نور" />;
+  return (
+    <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+      {employees.slice(0, 6).map((employee) => {
+        const row = credit.get(employee.staff_id);
+        const view =
+          ledger && row?.delivery
+            ? deliveryCreditView(row.delivery, ledger.today, ledger.cycle_end)
+            : null;
+        const profile = profiles.get(employee.staff_id);
+        return (
+          <div key={employee.staff_id} className={`${CARD} space-y-2 p-3`}>
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-bold text-gray-900 dark:text-slate-100">{employee.name}</span>
+              <span className={`text-[11px] ${MUTED}`}>{employee.branch}</span>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {ledger && row ? (
+                <Pill
+                  tone={row.missing_used + row.missing_open > ledger.missing_limit ? 'red' : 'gray'}
+                >
+                  سماح البصمة {row.missing_used}/{ledger.missing_limit}
+                </Pill>
+              ) : null}
+              {view && row?.delivery ? (
+                <Pill tone={BAND_TONE[view.band]}>
+                  دليفري {row.delivery.minutes}/{row.delivery.committed_credit} د
+                </Pill>
+              ) : null}
+              {profile?.rotating ? (
+                <Pill tone="violet">بيتناوب {profile.known.length} شيفتات</Pill>
+              ) : null}
+              {profile?.mismatches.length || profile?.weekly.length ? (
+                <Pill tone="amber">فيه تصحيح مقترح</Pill>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              onClick={() => onSmart(employee)}
+              className={`w-full rounded-lg px-3 py-1.5 text-xs font-bold ${ACTIVE}`}
+            >
+              الشيفت والكريديت
+            </button>
+          </div>
+        );
+      })}
+      {employees.length > 6 ? (
+        <p className={`text-[11px] ${PAGE_MUTED}`}>و{employees.length - 6} كمان تحت في الصفحة.</p>
+      ) : null}
+    </div>
+  );
+}
+
+// All the credit of the cycle in one table.
+function CreditTab({
+  ledger,
+  employees,
+  credit,
+  profiles,
+  onSmart,
+}: {
+  ledger: DrWaelCreditLedger | null;
+  employees: DrWaelEmployee[];
+  credit: Map<string, DrWaelCreditRow>;
+  profiles: Map<string, ShiftProfile>;
+  onSmart: (employee: DrWaelEmployee) => void;
+}) {
+  if (!ledger) return <Empty label="الكريديت مش متاح دلوقتي؛ حدّث الصفحة وحاول تاني." />;
+  const rows = employees
+    .map((employee) => ({ employee, row: credit.get(employee.staff_id) }))
+    .filter((item): item is { employee: DrWaelEmployee; row: DrWaelCreditRow } =>
+      Boolean(item.row)
+    );
+  const delivery = rows
+    .filter((item) => item.row.delivery)
+    .sort(
+      (a, b) =>
+        (b.row.delivery as NonNullable<DrWaelCreditRow['delivery']>).minutes -
+        (a.row.delivery as NonNullable<DrWaelCreditRow['delivery']>).minutes
+    );
+  const missing = rows
+    .filter((item) => item.row.missing_used + item.row.missing_open > 0)
+    .sort(
+      (a, b) => b.row.missing_used + b.row.missing_open - (a.row.missing_used + a.row.missing_open)
+    );
+  return (
+    <div className="space-y-5">
+      <CreditAlertsPanel ledger={ledger} employees={employees} onSmart={onSmart} />
+      <ShiftFixesPanel
+        employees={employees.filter((e) => e.active)}
+        profiles={profiles}
+        credit={credit}
+        onSmart={onSmart}
+      />
+      <Section
+        title="كريديت دقايق الدليفري"
+        subtitle="نفس أرقام محرك المرتبات · التصنيف بيتحسم لما يوصل الحد الأدنى للحضور"
+      >
+        {delivery.length ? (
+          <DataTable head={['الموظف', 'الحضور', 'المستخدم', 'ملتزم', 'عادي', 'التصنيف']}>
+            {delivery.map(({ employee, row }) => {
+              const d = row.delivery as NonNullable<DrWaelCreditRow['delivery']>;
+              const view = deliveryCreditView(d, ledger.today, ledger.cycle_end);
+              return (
+                <tr key={employee.staff_id}>
+                  <Td>
+                    <button
+                      type="button"
+                      onClick={() => onSmart(employee)}
+                      className="font-bold text-indigo-600 hover:underline dark:text-indigo-400"
+                    >
+                      {employee.name}
+                    </button>
+                  </Td>
+                  <Td>
+                    {d.attended_days}
+                    {d.pending_days ? ` + ${d.pending_days}` : ''} / {d.minimum_days}
+                  </Td>
+                  <Td className="font-bold">{d.minutes} د</Td>
+                  <Td>{d.committed_credit} د</Td>
+                  <Td>{d.regular_credit} د</Td>
+                  <Td>
+                    <Pill tone={BAND_TONE[view.band]}>
+                      {view.final ? d.band_ar : `لحد دلوقتي: ${CREDIT_BAND_LABELS[view.band]}`}
+                    </Pill>
+                  </Td>
+                </tr>
+              );
+            })}
+          </DataTable>
+        ) : (
+          <Empty label="مفيش موظفين دليفري بالفلتر ده" />
+        )}
+      </Section>
+      <Section
+        title="سماح نسيان البصمة"
+        subtitle={`أول ${ledger.missing_limit} مرات في الفترة سماح، وبعدها ممكن خصم ${ledger.missing_penalty} ج للمرة`}
+      >
+        {missing.length ? (
+          <DataTable head={['الموظف', 'الفرع', 'اتسجل', 'مستني قرار', 'اتخصم']}>
+            {missing.map(({ employee, row }) => (
+              <tr key={employee.staff_id}>
+                <Td>
+                  <button
+                    type="button"
+                    onClick={() => onSmart(employee)}
+                    className="font-bold text-indigo-600 hover:underline dark:text-indigo-400"
+                  >
+                    {employee.name}
+                  </button>
+                </Td>
+                <Td className={MUTED}>{employee.branch}</Td>
+                <Td className="font-bold">
+                  {row.missing_used} / {ledger.missing_limit}
+                </Td>
+                <Td>{row.missing_open || '—'}</Td>
+                <Td>{row.missing_penalized || '—'}</Td>
+              </tr>
+            ))}
+          </DataTable>
+        ) : (
+          <Empty label="مفيش بصمات ناقصة في الفترة دي" />
+        )}
+      </Section>
+    </div>
+  );
+}
+
 function DashboardTab({
   data,
   branch,
   names,
   insights,
+  onlyStaff,
+  ledger,
+  credit,
+  profiles,
   onSmart,
   onDecisionSaved,
 }: {
@@ -1316,6 +2024,10 @@ function DashboardTab({
   branch: string;
   names: Map<string, DrWaelEmployee>;
   insights: Map<string, DrWaelInsight>;
+  onlyStaff: ReadonlySet<string> | null;
+  ledger: DrWaelCreditLedger | null;
+  credit: Map<string, DrWaelCreditRow>;
+  profiles: Map<string, ShiftProfile>;
   onSmart: (employee: DrWaelEmployee) => void;
   onDecisionSaved: () => void;
 }) {
@@ -1340,19 +2052,26 @@ function DashboardTab({
   }, [data]);
   const homeBranch = (staffId: string, fallback: string | null) =>
     names.get(staffId)?.branch || fallback || '';
-  const open: PresentNow[] = punches
-    ? presentNow(punches.all)
-    : openShifts(data.days, data.today).map((day) => ({
-        staffId: day.staff_id,
-        name: names.get(day.staff_id)?.name || '—',
-        punchBranch: day.branch,
-        since: day.first_in || '',
-      }));
+  const open: PresentNow[] = (
+    punches
+      ? presentNow(punches.all)
+      : openShifts(data.days, data.today).map((day) => ({
+          staffId: day.staff_id,
+          name: names.get(day.staff_id)?.name || '—',
+          punchBranch: day.branch,
+          since: day.first_in || '',
+        }))
+  ).filter((row) => !onlyStaff || onlyStaff.has(row.staffId));
   const today = todayByBranch(data, data.today).filter((row) => matches(branch, row.branch));
   const presentToday = punches
     ? new Set(
         punches.today
-          .filter((p) => p.staff_id && matches(branch, homeBranch(p.staff_id, p.branch)))
+          .filter(
+            (p) =>
+              p.staff_id &&
+              (!onlyStaff || onlyStaff.has(p.staff_id)) &&
+              matches(branch, homeBranch(p.staff_id, p.branch))
+          )
           .map((p) => p.staff_id)
       ).size
     : null;
@@ -1375,6 +2094,17 @@ function DashboardTab({
       <SmartAlerts
         employees={data.employees.filter((e) => e.active && matches(branch, e.branch))}
         insights={insights}
+        onSmart={onSmart}
+      />
+      <ShiftFixesPanel
+        employees={data.employees.filter((e) => e.active && matches(branch, e.branch))}
+        profiles={profiles}
+        credit={credit}
+        onSmart={onSmart}
+      />
+      <CreditAlertsPanel
+        ledger={ledger}
+        employees={data.employees.filter((e) => matches(branch, e.branch))}
         onSmart={onSmart}
       />
       <IdleStaffPanel
@@ -1434,6 +2164,9 @@ function DashboardTab({
         groups={groups}
         names={names}
         canReview={canReview}
+        ledger={ledger}
+        credit={credit}
+        onSmart={onSmart}
         onOpen={(day) =>
           setReview({
             staffId: day.staff_id,
@@ -1465,7 +2198,6 @@ function AttendanceTab({
   onSmart: (employee: DrWaelEmployee) => void;
   onDecisionSaved: () => void;
 }) {
-  const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | 'review' | 'smart'>('all');
   const [open, setOpen] = useState<DrWaelEmployee | null>(null);
   const flagged = (staffId: string) => {
@@ -1476,25 +2208,14 @@ function AttendanceTab({
     .map((employee) => ({ employee, summary: summarizeEmployee(employee.staff_id, data.days) }))
     .filter(
       ({ employee, summary }) =>
-        employee.name.includes(query.trim()) &&
-        (filter === 'all' ||
-          (filter === 'review' && summary.reviewDays > 0) ||
-          (filter === 'smart' && flagged(employee.staff_id)))
+        filter === 'all' ||
+        (filter === 'review' && summary.reviewDays > 0) ||
+        (filter === 'smart' && flagged(employee.staff_id))
     );
   const branches = data.branches.filter((b) => rows.some((row) => row.employee.branch === b));
   return (
     <div className="space-y-3">
       <div className={`${CARD} flex flex-wrap items-center gap-2 p-2`}>
-        <label className="flex flex-1 items-center gap-2 rounded-xl bg-gray-50 px-3 py-1.5 dark:bg-slate-800">
-          <Search size={14} className="text-gray-400" />
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="اسم الموظف…"
-            aria-label="بحث باسم الموظف"
-            className="w-full bg-transparent text-xs outline-none"
-          />
-        </label>
         <Chips<'all' | 'review' | 'smart'>
           label="الحالة"
           value={filter}
@@ -1551,7 +2272,7 @@ function AttendanceTab({
                             onClick={() => onSmart(employee)}
                             className="font-bold text-amber-600 hover:underline dark:text-amber-400"
                           >
-                            تعديل الميعاد/الفرع
+                            عدّل الشيفت/الفرع
                           </button>
                           <button
                             type="button"
@@ -1745,12 +2466,18 @@ function ReviewQueue({
   groups,
   names,
   canReview,
+  ledger,
+  credit,
+  onSmart,
   onOpen,
   onDecisionSaved,
 }: {
   groups: Array<{ date: string; days: DrWaelDay[] }>;
   names: Map<string, DrWaelEmployee>;
   canReview: boolean;
+  ledger: DrWaelCreditLedger | null;
+  credit: Map<string, DrWaelCreditRow>;
+  onSmart: (employee: DrWaelEmployee) => void;
   onOpen: (day: DrWaelDay) => void;
   onDecisionSaved: () => void;
 }) {
@@ -1932,6 +2659,14 @@ function ReviewQueue({
                     const kind = QUEUE_KINDS[queueKind(day)];
                     const options = canReview ? quickDayOptions(day) : [];
                     const name = employee?.name || '—';
+                    const note = ledger
+                      ? dayCreditNote(
+                          day,
+                          credit.get(day.staff_id),
+                          ledger.missing_limit,
+                          ledger.missing_penalty
+                        )
+                      : null;
                     return (
                       <li
                         key={k}
@@ -1974,7 +2709,21 @@ function ReviewQueue({
                                   {cairoTime(day.scheduled_end)}
                                 </span>
                               ) : null}
+                              {employee ? (
+                                <button
+                                  type="button"
+                                  onClick={() => onSmart(employee)}
+                                  className="font-bold text-indigo-600 hover:underline dark:text-indigo-400"
+                                >
+                                  عدّل الشيفت
+                                </button>
+                              ) : null}
                             </div>
+                            {note ? (
+                              <div className="inline-flex items-center gap-1 text-[11px] font-bold text-violet-700 dark:text-violet-300">
+                                <Gauge size={12} /> {note}
+                              </div>
+                            ) : null}
                             {failed[k] ? (
                               <div className="rounded-lg bg-rose-50 px-2 py-1 text-[11px] font-bold text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
                                 ما اتحفظش: {failed[k]}
@@ -2077,11 +2826,13 @@ function WorkDayTab({
   data,
   branch,
   names,
+  onlyStaff,
   onDecisionSaved,
 }: {
   data: Data;
   branch: string;
   names: Map<string, DrWaelEmployee>;
+  onlyStaff: ReadonlySet<string> | null;
   onDecisionSaved: () => void;
 }) {
   const canReview = useDayReviewAccess();
@@ -2119,7 +2870,11 @@ function WorkDayTab({
       events: [],
     }));
   const rows = [...rawRows, ...resolvedOnly]
-    .filter((row) => matches(branch, row.branch))
+    .filter(
+      (row) =>
+        matches(branch, row.branch) &&
+        (!onlyStaff || (row.staffId ? onlyStaff.has(row.staffId) : false))
+    )
     .sort(
       (a, b) => (Date.parse(a.punches[0]) || Infinity) - (Date.parse(b.punches[0]) || Infinity)
     );
@@ -2292,9 +3047,16 @@ function EmployeesTab({
                       onClick={() => onSmart(employee)}
                       className="font-bold text-gray-900 hover:text-indigo-600 dark:text-slate-100"
                     >
-                      {employee.name} · تعديل الموظف
+                      {employee.name}
                     </button>
                     <div className={`text-[11px] ${MUTED}`}>{tag.label}</div>
+                    <button
+                      type="button"
+                      onClick={() => onSmart(employee)}
+                      className="text-[11px] font-bold text-indigo-600 hover:underline dark:text-indigo-400"
+                    >
+                      عدّل الشيفت والبيانات
+                    </button>
                     {insightFlags(insights.get(employee.staff_id))}
                   </div>
                 </div>
@@ -2564,8 +3326,16 @@ type PayrollRow = {
   error: string | null;
 };
 
-function SalariesTab({ cycle, employees }: { cycle: string; employees: DrWaelEmployee[] }) {
-  const [rows, setRows] = useState<PayrollRow[] | null>(null);
+function SalariesTab({
+  cycle,
+  employees,
+  search,
+}: {
+  cycle: string;
+  employees: DrWaelEmployee[];
+  search: string;
+}) {
+  const [allRows, setRows] = useState<PayrollRow[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [staff, setStaff] = useState<DrWaelPayrollStaff[]>([]);
@@ -2605,6 +3375,9 @@ function SalariesTab({ cycle, employees }: { cycle: string; employees: DrWaelEmp
   }, [load]);
 
   const byId = new Map(staff.map((e) => [e.staff_id, e]));
+  const rows = allRows
+    ? allRows.filter((r) => matchesEmployeeSearch(byId.get(r.staffId)?.name, search))
+    : null;
   const ok = (rows || []).flatMap((r) => (r.row ? [r.row] : []));
   const sum = (pick: (row: EmployeePayrollFinancialCompositionV2) => number) =>
     money(ok.reduce((total, row) => total + Number(pick(row) || 0), 0));

@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { matchesAppSearch } from '@/lib/appSearch';
 import { cairoDayOf } from '@/lib/time/cairoDateBoundary';
 
 // «بصمات د وائل» (migration 20261103150000): the views of the Base44 fingerprint app (fingdawaa) fed from this
@@ -899,4 +900,447 @@ export async function decideQuickDay(staffId: string, date: string, decision: Qu
     );
   }
   return (data || {}) as { approved?: boolean; already?: boolean };
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// Employee search across the page: «*» matches anything, a space works like «*» («د علياء» finds «د/ علياء»)
+// and أ / ة spelling differences are ignored.
+const searchSpelling = (value: string) => value.replace(/ة/g, 'ه');
+
+export function matchesEmployeeSearch(name: string | null | undefined, search: string): boolean {
+  const query = searchSpelling(search.trim()).replace(/\s+/g, '*');
+  if (!query) return true;
+  return matchesAppSearch(searchSpelling(String(name ?? '')), query);
+}
+
+// The page data limited to some employees, so every tab shows only them.
+export function limitFingerprintsToStaff(
+  data: DrWaelFingerprints,
+  staffIds: ReadonlySet<string>
+): DrWaelFingerprints {
+  const keep = <T extends { staff_id: string }>(rows: T[]) =>
+    rows.filter((row) => staffIds.has(row.staff_id));
+  return {
+    ...data,
+    employees: keep(data.employees),
+    days: keep(data.days),
+    time_off: keep(data.time_off),
+    incentives: keep(data.incentives),
+    movements: keep(data.movements),
+    manual_entries: keep(data.manual_entries),
+  };
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// Credit (migration 20261106100000): delivery discipline minutes from the payroll classification and the
+// missing-punch allowance of the cycle.
+export interface DrWaelDeliveryCredit {
+  status: string | null;
+  band: string | null;
+  band_ar: string | null;
+  attended_days: number;
+  minimum_days: number;
+  pending_days: number;
+  minutes: number;
+  late_minutes: number;
+  early_minutes: number;
+  excused_minutes: number;
+  committed_credit: number;
+  regular_credit: number;
+  committed_per_day: number;
+  regular_per_day: number;
+  days: Array<{ date: string; minutes: number; late: number; early: number; exempt: boolean }>;
+}
+
+export interface DrWaelCreditRow {
+  staff_id: string;
+  missing_used: number;
+  missing_penalized: number;
+  missing_open: number;
+  delivery: DrWaelDeliveryCredit | null;
+}
+
+export interface DrWaelCreditLedger {
+  month_cycle: string;
+  cycle_start: string;
+  cycle_end: string;
+  today: string;
+  missing_limit: number;
+  missing_penalty: number;
+  rows: DrWaelCreditRow[];
+}
+
+export async function fetchDrWaelCreditLedger(
+  monthCycle?: string | null
+): Promise<DrWaelCreditLedger> {
+  const { data, error } = await supabase.rpc('get_dr_wael_credit_ledger_v1', {
+    p_month_cycle: monthCycle || null,
+  });
+  if (error) throw new Error(error.message);
+  if (!data || !Array.isArray((data as { rows?: unknown }).rows))
+    throw new Error('dr_wael_credit_unavailable');
+  return data as DrWaelCreditLedger;
+}
+
+export type CreditBand = 'committed' | 'regular' | 'low';
+export const CREDIT_BAND_LABELS: Record<CreditBand, string> = {
+  committed: 'ملتزم',
+  regular: 'عادي',
+  low: 'منخفض',
+};
+
+export interface DeliveryCreditView {
+  /** The band of the minutes used against the credit earned so far (same rule as payroll). */
+  band: CreditBand;
+  /** Payroll has classified him (he has the minimum days); otherwise the band is only the pace so far. */
+  final: boolean;
+  committedLeft: number;
+  regularLeft: number;
+  daysLeft: number;
+  /** The most attended days he can still reach: approved + waiting for a decision + every day left. */
+  reachableDays: number;
+  canReachMinimum: boolean;
+  /** The best band still possible if he attends every day left without one more minute. */
+  bestBand: CreditBand;
+}
+
+const bandFor = (minutes: number, committed: number, regular: number): CreditBand =>
+  minutes <= committed ? 'committed' : minutes <= regular ? 'regular' : 'low';
+
+export function deliveryCreditView(
+  credit: DrWaelDeliveryCredit,
+  today: string,
+  cycleEnd: string
+): DeliveryCreditView {
+  const daysLeft =
+    today > cycleEnd
+      ? 0
+      : Math.round(
+          (Date.parse(`${cycleEnd}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`)) / 864e5
+        ) + 1;
+  const reachableDays = credit.attended_days + credit.pending_days + daysLeft;
+  return {
+    band: bandFor(credit.minutes, credit.committed_credit, credit.regular_credit),
+    final: credit.status === 'classified',
+    committedLeft: credit.committed_credit - credit.minutes,
+    regularLeft: credit.regular_credit - credit.minutes,
+    daysLeft,
+    reachableDays,
+    canReachMinimum: reachableDays >= credit.minimum_days,
+    bestBand: bandFor(
+      credit.minutes,
+      reachableDays * credit.committed_per_day,
+      reachableDays * credit.regular_per_day
+    ),
+  };
+}
+
+export interface CreditAlert {
+  staffId: string;
+  severity: 'danger' | 'warning';
+  text: string;
+}
+
+// Who needs attention before the cycle closes; the worst first.
+export function creditAlerts(ledger: DrWaelCreditLedger): CreditAlert[] {
+  const alerts: CreditAlert[] = [];
+  for (const row of ledger.rows) {
+    const taken = row.missing_used + row.missing_open;
+    if (taken > ledger.missing_limit) {
+      alerts.push({
+        staffId: row.staff_id,
+        severity: 'danger',
+        text: `${taken} بصمات ناقصة والسماح ${ledger.missing_limit} · كل مرة زيادة ممكن عليها خصم ${ledger.missing_penalty} ج`,
+      });
+    } else if (taken === ledger.missing_limit) {
+      alerts.push({
+        staffId: row.staff_id,
+        severity: 'warning',
+        text: `خلّص سماح البصمات (${ledger.missing_limit}) · المرة الجاية ممكن عليها خصم ${ledger.missing_penalty} ج`,
+      });
+    }
+    if (!row.delivery) continue;
+    const view = deliveryCreditView(row.delivery, ledger.today, ledger.cycle_end);
+    if (!view.canReachMinimum) {
+      alerts.push({
+        staffId: row.staff_id,
+        severity: 'danger',
+        text: `مش هيوصل ${row.delivery.minimum_days} يوم حضور حتى لو حضر كل الباقي (أقصاه ${view.reachableDays})`,
+      });
+    }
+    if (view.bestBand !== 'committed') {
+      alerts.push({
+        staffId: row.staff_id,
+        severity: view.bestBand === 'low' ? 'danger' : 'warning',
+        text: `${row.delivery.minutes} دقيقة تأخير/انصراف · أحسن تصنيف ممكن دلوقتي «${CREDIT_BAND_LABELS[view.bestBand]}» حتى لو حضر كل الباقي`,
+      });
+    }
+  }
+  return alerts.sort((a, b) => Number(b.severity === 'danger') - Number(a.severity === 'danger'));
+}
+
+// What a day under review means for his credit, in one line.
+export function dayCreditNote(
+  day: DrWaelDay,
+  row: DrWaelCreditRow | undefined,
+  limit: number,
+  penalty: number
+): string | null {
+  if (!row) return null;
+  if (day.resolution === 'missing_checkin' || day.resolution === 'missing_checkout') {
+    const taken = row.missing_used + row.missing_open;
+    return taken > limit
+      ? `بصمات ناقصة ${taken} والسماح ${limit} · ممكن خصم ${penalty} ج`
+      : `بصمات ناقصة ${taken} من سماح ${limit}`;
+  }
+  const minutes = day.late_minutes + day.early_leave_minutes;
+  if (!row.delivery || minutes <= 0) return null;
+  const left = row.delivery.committed_credit - row.delivery.minutes;
+  return `${minutes} د على كريديت الدليفري · ${left >= 0 ? `فاضل ${left} د ملتزم` : `عدى الملتزم بـ ${-left} د`}`;
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// Rotating shifts (migration 20261106100000): many employees work 09–17 some weeks and 13–21 others, so one
+// «suggested shift» cannot describe them. The shifts they really work are found from the resolved days, and a
+// day is flagged when the whole shift (arrival AND leaving) follows another of his shifts, not the schedule.
+export interface DrWaelShiftSample {
+  staff_id: string;
+  date: string;
+  in: number;
+  out: number;
+  scheduled_in: number | null;
+  scheduled_out: number | null;
+  late: number;
+  early: number;
+  locked: boolean;
+}
+
+export async function fetchDrWaelShiftPatterns(): Promise<DrWaelShiftSample[]> {
+  const { data, error } = await supabase.rpc('get_dr_wael_shift_patterns_v1');
+  if (error) throw new Error(error.message);
+  const samples = (data as { samples?: unknown } | null)?.samples;
+  if (!Array.isArray(samples)) throw new Error('dr_wael_patterns_unavailable');
+  return samples as DrWaelShiftSample[];
+}
+
+// The distance between two clock times, across midnight (23:50 and 00:10 are 20 minutes apart).
+export function clockDistance(a: number, b: number): number {
+  const diff = Math.abs(a - b) % 1440;
+  return diff > 720 ? 1440 - diff : diff;
+}
+
+const clockText = (minutes: number) => {
+  const value = ((Math.round(minutes) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`;
+};
+
+export interface KnownShift {
+  start: string;
+  end: string;
+  in: number;
+  out: number;
+  days: number;
+  /** The same hours are in his schedule, not only in the punches. */
+  scheduled: boolean;
+}
+
+const START_TOLERANCE = 60;
+const END_TOLERANCE = 90;
+const MIN_SHIFT_DAYS = 3;
+
+const roundToHalfHour = (minutes: number) => Math.round(minutes / 30) * 30;
+
+export function knownShifts(samples: DrWaelShiftSample[]): KnownShift[] {
+  const clusters: Array<{ in: number; out: number; rows: DrWaelShiftSample[] }> = [];
+  for (const sample of samples) {
+    const cluster = clusters.find(
+      (c) =>
+        clockDistance(c.in, sample.in) <= START_TOLERANCE &&
+        clockDistance(c.out, sample.out) <= END_TOLERANCE
+    );
+    if (cluster) cluster.rows.push(sample);
+    else clusters.push({ in: sample.in, out: sample.out, rows: [sample] });
+  }
+  return clusters
+    .filter((cluster) => cluster.rows.length >= MIN_SHIFT_DAYS)
+    .map((cluster) => {
+      const onSchedule = cluster.rows.filter(
+        (row) =>
+          row.scheduled_in != null &&
+          row.scheduled_out != null &&
+          clockDistance(row.in, row.scheduled_in) <= START_TOLERANCE &&
+          clockDistance(row.out, row.scheduled_out) <= END_TOLERANCE
+      );
+      const counts = new Map<string, { n: number; in: number; out: number }>();
+      for (const row of onSchedule) {
+        const key = `${row.scheduled_in}-${row.scheduled_out}`;
+        const entry = counts.get(key) || {
+          n: 0,
+          in: row.scheduled_in as number,
+          out: row.scheduled_out as number,
+        };
+        entry.n += 1;
+        counts.set(key, entry);
+      }
+      const planned = [...counts.values()].sort((a, b) => b.n - a.n)[0];
+      const start = planned ? planned.in : roundToHalfHour(cluster.in);
+      const end = planned ? planned.out : roundToHalfHour(cluster.out);
+      return {
+        start: clockText(start),
+        end: clockText(end),
+        in: start,
+        out: end,
+        days: cluster.rows.length,
+        scheduled: Boolean(planned),
+      };
+    })
+    .sort((a, b) => b.days - a.days);
+}
+
+export interface ShiftMismatch {
+  sample: DrWaelShiftSample;
+  shift: KnownShift;
+  /** The late + early minutes the day carries now because of the other schedule. */
+  minutes: number;
+}
+
+// Days whose whole shift follows another of his shifts. A plain late arrival is not one: the leaving time must
+// have moved too. Days a manager approved stay out, the shift edit would not change them anyway.
+export function shiftMismatches(
+  samples: DrWaelShiftSample[],
+  known: KnownShift[],
+  today: string
+): ShiftMismatch[] {
+  const oldest = addDays(today, -40);
+  const result: ShiftMismatch[] = [];
+  for (const sample of samples) {
+    if (sample.locked || sample.scheduled_in == null || sample.scheduled_out == null) continue;
+    if (sample.date < oldest) continue;
+    if (clockDistance(sample.in, sample.scheduled_in) < END_TOLERANCE) continue;
+    if (clockDistance(sample.out, sample.scheduled_out) < END_TOLERANCE) continue;
+    const shift = known.find(
+      (k) =>
+        clockDistance(k.in, sample.in) <= START_TOLERANCE &&
+        clockDistance(k.out, sample.out) <= END_TOLERANCE
+    );
+    if (shift) result.push({ sample, shift, minutes: sample.late + sample.early });
+  }
+  return result.sort((a, b) => b.sample.date.localeCompare(a.sample.date));
+}
+
+// A shift that repeats on one weekday and differs from the schedule of that weekday, e.g. every Thursday he
+// leaves at 04:00 and the schedule says 08:00. It only counts when his other days do not have the same gap, so
+// someone who is late every day is not read as a «Thursday shift».
+export interface WeekdayPattern {
+  day: string;
+  start: string;
+  end: string;
+  scheduledStart: string;
+  scheduledEnd: string;
+  days: number;
+  /** The late + early minutes those days carry now. */
+  minutes: number;
+  /** The first of those days that a correction can still reach. */
+  from: string;
+  dates: string[];
+}
+
+const WEEKDAY_NAMES = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+const weekdayOf = (date: string) => new Date(`${date}T12:00:00Z`).getUTCDay();
+const PATTERN_GAP = 45;
+const MIN_PATTERN_DAYS = 3;
+
+// Signed distance on the clock, -720…720.
+const clockOffset = (value: number, from: number) => {
+  const diff = (((value - from) % 1440) + 1440) % 1440;
+  return diff > 720 ? diff - 1440 : diff;
+};
+
+const median = (values: number[]) => {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor((sorted.length - 1) / 2)];
+};
+
+export function weekdayPatterns(samples: DrWaelShiftSample[], today: string): WeekdayPattern[] {
+  const oldest = addDays(today, -40);
+  const scheduled = samples.filter(
+    (row) => row.scheduled_in != null && row.scheduled_out != null && row.date >= oldest
+  );
+  const result: WeekdayPattern[] = [];
+  for (let dow = 0; dow < 7; dow += 1) {
+    const rows = scheduled.filter((row) => weekdayOf(row.date) === dow);
+    if (rows.length < MIN_PATTERN_DAYS) continue;
+    const latest = rows.reduce((a, b) => (a.date > b.date ? a : b));
+    const planIn = latest.scheduled_in as number;
+    const planOut = latest.scheduled_out as number;
+    const offsetIn = median(rows.map((row) => clockOffset(row.in, planIn)));
+    const offsetOut = median(rows.map((row) => clockOffset(row.out, planOut)));
+    if (Math.abs(offsetIn) < PATTERN_GAP && Math.abs(offsetOut) < PATTERN_GAP) continue;
+    const near = rows.filter(
+      (row) =>
+        Math.abs(clockOffset(row.in, planIn) - offsetIn) <= START_TOLERANCE &&
+        Math.abs(clockOffset(row.out, planOut) - offsetOut) <= END_TOLERANCE
+    );
+    if (near.length < MIN_PATTERN_DAYS || near.length / rows.length < 0.7) continue;
+    // The same gap on his other days means a habit, not a shift of this weekday.
+    const others = scheduled.filter((row) => weekdayOf(row.date) !== dow);
+    if (others.length) {
+      const otherIn = median(others.map((row) => clockOffset(row.in, row.scheduled_in as number)));
+      const otherOut = median(
+        others.map((row) => clockOffset(row.out, row.scheduled_out as number))
+      );
+      const sameGap = (gap: number, other: number) =>
+        Math.abs(gap) >= PATTERN_GAP && Math.abs(gap - other) < PATTERN_GAP;
+      if (sameGap(offsetIn, otherIn) || sameGap(offsetOut, otherOut)) continue;
+    }
+    const start = Math.abs(offsetIn) < PATTERN_GAP ? planIn : roundToHalfHour(planIn + offsetIn);
+    const end = Math.abs(offsetOut) < PATTERN_GAP ? planOut : roundToHalfHour(planOut + offsetOut);
+    const open = near.filter((row) => !row.locked);
+    if (!open.length) continue;
+    const dates = open.map((row) => row.date).sort();
+    result.push({
+      day: WEEKDAY_NAMES[dow],
+      start: clockText(start),
+      end: clockText(end),
+      scheduledStart: clockText(planIn),
+      scheduledEnd: clockText(planOut),
+      days: near.length,
+      minutes: open.reduce((sum, row) => sum + row.late + row.early, 0),
+      from: dates[0],
+      dates,
+    });
+  }
+  return result.sort((a, b) => b.minutes - a.minutes);
+}
+
+export interface ShiftProfile {
+  known: KnownShift[];
+  mismatches: ShiftMismatch[];
+  weekly: WeekdayPattern[];
+  rotating: boolean;
+}
+
+export function shiftProfiles(
+  samples: DrWaelShiftSample[],
+  today: string
+): Map<string, ShiftProfile> {
+  const byStaff = new Map<string, DrWaelShiftSample[]>();
+  for (const sample of samples) {
+    const list = byStaff.get(sample.staff_id) || [];
+    list.push(sample);
+    byStaff.set(sample.staff_id, list);
+  }
+  const profiles = new Map<string, ShiftProfile>();
+  for (const [staffId, rows] of byStaff) {
+    const known = knownShifts(rows);
+    const weekly = weekdayPatterns(rows, today);
+    const covered = new Set(weekly.flatMap((pattern) => pattern.dates));
+    profiles.set(staffId, {
+      known,
+      mismatches: shiftMismatches(rows, known, today).filter((m) => !covered.has(m.sample.date)),
+      weekly,
+      rotating: known.length >= 2,
+    });
+  }
+  return profiles;
 }

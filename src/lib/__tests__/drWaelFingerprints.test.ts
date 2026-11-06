@@ -1,7 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
   addDays,
+  clockDistance,
+  creditAlerts,
   cycleLabel,
+  dayCreditNote,
+  deliveryCreditView,
+  knownShifts,
+  matchesEmployeeSearch,
+  shiftProfiles,
+  weekdayPatterns,
+  type DrWaelCreditLedger,
+  type DrWaelDeliveryCredit,
+  type DrWaelShiftSample,
   quickDayOptions,
   dayKind,
   employeeMoney,
@@ -476,5 +487,237 @@ describe('one-click decisions next to a day under review', () => {
     expect(
       quickDayOptions({ ...base, resolution: 'absence_review', review: false } as never)
     ).toEqual([]);
+  });
+});
+
+describe('employee search with *', () => {
+  it('finds by part of the name, with * and with loose spelling', () => {
+    expect(matchesEmployeeSearch('د/ علياء', 'علياء')).toBe(true);
+    expect(matchesEmployeeSearch('د/ علياء', 'د علياء')).toBe(true);
+    expect(matchesEmployeeSearch('أحمد أبو نور', 'احمد*نور')).toBe(true);
+    expect(matchesEmployeeSearch('أحمد أبو نور', '*نور')).toBe(true);
+    expect(matchesEmployeeSearch('حبيبة تامر', 'حبيبه')).toBe(true);
+    expect(matchesEmployeeSearch('حبيبة تامر', 'تامر*حبيبة')).toBe(false);
+    expect(matchesEmployeeSearch('محمد', '   ')).toBe(true);
+  });
+});
+
+describe('delivery and missing-punch credit', () => {
+  const credit: DrWaelDeliveryCredit = {
+    status: 'insufficient_attendance_days',
+    band: null,
+    band_ar: 'غير مؤهل بعد',
+    attended_days: 10,
+    minimum_days: 26,
+    pending_days: 2,
+    minutes: 40,
+    late_minutes: 40,
+    early_minutes: 0,
+    excused_minutes: 0,
+    committed_credit: 50,
+    regular_credit: 300,
+    committed_per_day: 5,
+    regular_per_day: 30,
+    days: [],
+  };
+
+  it('uses the payroll rule on the minutes and looks ahead to the end of the cycle', () => {
+    const view = deliveryCreditView(credit, '2026-11-06', '2026-11-25');
+    expect(view.band).toBe('committed');
+    expect(view.final).toBe(false);
+    expect(view.committedLeft).toBe(10);
+    expect(view.daysLeft).toBe(20);
+    expect(view.reachableDays).toBe(32);
+    expect(view.canReachMinimum).toBe(true);
+    expect(view.bestBand).toBe('committed');
+  });
+
+  it('warns only about what can no longer be fixed', () => {
+    const ledger = (delivery: DrWaelDeliveryCredit, used = 0): DrWaelCreditLedger => ({
+      month_cycle: '2026-11',
+      cycle_start: '2026-10-26',
+      cycle_end: '2026-11-25',
+      today: '2026-11-06',
+      missing_limit: 2,
+      missing_penalty: 50,
+      rows: [
+        { staff_id: 's', missing_used: used, missing_penalized: 0, missing_open: 0, delivery },
+      ],
+    });
+    expect(creditAlerts(ledger(credit))).toEqual([]);
+    expect(creditAlerts(ledger({ ...credit, minutes: 200 }))[0].text).toContain('«عادي»');
+    expect(creditAlerts(ledger({ ...credit, minutes: 1000 }))[0].severity).toBe('danger');
+    expect(creditAlerts(ledger(credit, 2))[0].severity).toBe('warning');
+    expect(creditAlerts(ledger(credit, 3))[0].severity).toBe('danger');
+  });
+
+  it('explains what a day under review costs him', () => {
+    const row = {
+      staff_id: 's',
+      missing_used: 2,
+      missing_penalized: 0,
+      missing_open: 1,
+      delivery: credit,
+    };
+    const base = { late_minutes: 15, early_leave_minutes: 0, resolution: 'late' } as DrWaelDay;
+    expect(dayCreditNote(base, row, 2, 50)).toContain('فاضل 10 د ملتزم');
+    expect(dayCreditNote({ ...base, resolution: 'missing_checkout' }, row, 2, 50)).toContain(
+      'خصم 50'
+    );
+    expect(dayCreditNote(base, undefined, 2, 50)).toBeNull();
+  });
+});
+
+describe('rotating shifts', () => {
+  const day = (
+    date: string,
+    inAt: string,
+    outAt: string,
+    scheduled: [string, string] | null,
+    extra: Partial<DrWaelShiftSample> = {}
+  ): DrWaelShiftSample => {
+    const m = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3));
+    return {
+      staff_id: 's',
+      date,
+      in: m(inAt),
+      out: m(outAt),
+      scheduled_in: scheduled ? m(scheduled[0]) : null,
+      scheduled_out: scheduled ? m(scheduled[1]) : null,
+      late: 0,
+      early: 0,
+      locked: false,
+      ...extra,
+    };
+  };
+  const morning: [string, string] = ['09:00', '17:00'];
+  const noon: [string, string] = ['13:00', '21:00'];
+  const samples = [
+    day('2026-10-26', '09:27', '17:04', morning),
+    day('2026-10-27', '09:05', '17:00', morning),
+    day('2026-10-28', '09:17', '17:14', morning),
+    day('2026-10-31', '13:08', '21:04', noon),
+    day('2026-11-01', '13:30', '20:56', noon),
+    day('2026-11-02', '13:45', '21:12', noon),
+    day('2026-11-04', '09:26', '16:59', noon, { late: 0, early: 241 }),
+  ];
+
+  it('measures clock distance across midnight', () => {
+    expect(clockDistance(1430, 10)).toBe(20);
+    expect(clockDistance(540, 780)).toBe(240);
+  });
+
+  it('finds every shift he really works, with the planned hours', () => {
+    const known = knownShifts(samples);
+    expect(known.map((k) => `${k.start}-${k.end}`)).toEqual(['09:00-17:00', '13:00-21:00']);
+    expect(known[0].days).toBe(4);
+    expect(known.every((k) => k.scheduled)).toBe(true);
+  });
+
+  it('keeps a night shift across midnight together', () => {
+    const night = ['2026-10-01', '2026-10-02', '2026-10-03'].map((d, i) =>
+      day(d, i ? '00:05' : '23:50', '08:10', ['00:00', '08:00'])
+    );
+    expect(knownShifts(night).map((k) => `${k.start}-${k.end}`)).toEqual(['00:00-08:00']);
+  });
+
+  it('flags the day that followed another shift and what it costs', () => {
+    const profile = shiftProfiles(samples, '2026-11-06').get('s');
+    expect(profile?.rotating).toBe(true);
+    expect(profile?.mismatches).toHaveLength(1);
+    expect(profile?.mismatches[0].sample.date).toBe('2026-11-04');
+    expect(profile?.mismatches[0].shift.start).toBe('09:00');
+    expect(profile?.mismatches[0].minutes).toBe(241);
+  });
+
+  it('does not forgive a plain late arrival: the leaving time must move too', () => {
+    const late = [
+      ...samples,
+      day('2026-11-05', '11:00', '17:00', morning, { late: 120 }),
+      day('2026-11-05', '11:10', '17:05', morning, { late: 130 }),
+      day('2026-11-05', '11:05', '17:02', morning, { late: 125 }),
+    ];
+    const profile = shiftProfiles(late, '2026-11-06').get('s');
+    expect(profile?.mismatches.map((m) => m.sample.date)).toEqual(['2026-11-04']);
+  });
+
+  it('leaves manager-approved and too-old days alone', () => {
+    const locked = samples.map((s) => (s.date === '2026-11-04' ? { ...s, locked: true } : s));
+    expect(shiftProfiles(locked, '2026-11-06').get('s')?.mismatches).toEqual([]);
+    expect(shiftProfiles(samples, '2027-01-30').get('s')?.mismatches).toEqual([]);
+  });
+
+  it('a steady schedule is not rotating', () => {
+    const profile = shiftProfiles(samples.slice(0, 3), '2026-11-06').get('s');
+    expect(profile?.rotating).toBe(false);
+    expect(profile?.mismatches).toEqual([]);
+  });
+});
+
+describe('a shift that repeats on one weekday', () => {
+  const row = (
+    date: string,
+    inAt: number,
+    outAt: number,
+    plan: [number, number],
+    extra: Partial<DrWaelShiftSample> = {}
+  ): DrWaelShiftSample => ({
+    staff_id: 's',
+    date,
+    in: inAt,
+    out: outAt,
+    scheduled_in: plan[0],
+    scheduled_out: plan[1],
+    late: 0,
+    early: 0,
+    locked: false,
+    ...extra,
+  });
+  const usual: [number, number] = [1200, 240];
+  const thursday: [number, number] = [1200, 480];
+  // يوسف عيد's real weeks: 20:00–04:00, but Thursday's schedule says until 08:00.
+  const weeks = [
+    row('2026-10-08', 1185, 242, thursday, { early: 237 }),
+    row('2026-10-15', 1194, 181, thursday, { early: 298 }),
+    row('2026-10-22', 1182, 301, thursday, { early: 178 }),
+    row('2026-10-29', 1185, 238, thursday, { early: 241 }),
+    row('2026-11-05', 1192, 131, thursday, { early: 348 }),
+    row('2026-10-24', 1186, 248, usual),
+    row('2026-10-25', 1135, 254, usual),
+    row('2026-10-26', 1197, 241, usual),
+    row('2026-10-27', 1167, 243, usual),
+    row('2026-11-03', 1212, 253, usual, { late: 12 }),
+  ];
+
+  it('finds the wrong weekday in the schedule and what it costs', () => {
+    const [pattern] = weekdayPatterns(weeks, '2026-11-06');
+    expect(pattern.day).toBe('الخميس');
+    expect(pattern.start).toBe('20:00');
+    expect(pattern.end).toBe('04:00');
+    expect(pattern.scheduledEnd).toBe('08:00');
+    expect(pattern.minutes).toBe(954);
+    expect(pattern.from).toBe('2026-10-08');
+  });
+
+  it('does not read a daily habit as a weekday shift', () => {
+    const everyDay: DrWaelShiftSample[] = [];
+    for (let i = 0; i < 28; i += 1) {
+      everyDay.push(row(addDays('2026-10-05', i), 660, 1020, [540, 1020], { late: 120 }));
+    }
+    expect(weekdayPatterns(everyDay, '2026-11-06')).toEqual([]);
+  });
+
+  it('needs a real repeat, and leaves approved days out of the correction', () => {
+    expect(weekdayPatterns(weeks.slice(3), '2026-11-06')).toEqual([]);
+    const locked = weeks.map((w) => (w.date === '2026-10-08' ? { ...w, locked: true } : w));
+    const [pattern] = weekdayPatterns(locked, '2026-11-06');
+    expect(pattern.from).toBe('2026-10-15');
+    expect(pattern.minutes).toBe(717);
+  });
+
+  it('does not offer the same days twice', () => {
+    const profile = shiftProfiles(weeks, '2026-11-06').get('s');
+    expect(profile?.weekly).toHaveLength(1);
+    expect(profile?.mismatches).toEqual([]);
   });
 });
