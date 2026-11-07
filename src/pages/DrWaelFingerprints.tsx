@@ -58,6 +58,17 @@ import {
   applyDrWaelBranchChange,
   ALL_BRANCHES,
   applyDrWaelShiftChange,
+  fetchDrWaelStaffCredit,
+  setDrWaelShiftOrigin,
+  sortStaffCredit,
+  staffCreditLeaders,
+  staffCreditView,
+  SHIFT_ORIGINS,
+  SHIFT_ORIGIN_EFFECT,
+  type DrWaelShiftChange,
+  type DrWaelStaffCredit,
+  type DrWaelStaffCreditRow,
+  type ShiftOrigin,
   branchLabel,
   fetchDrWaelManualPunches,
   isOutsideEngine,
@@ -376,6 +387,7 @@ export default function DrWaelFingerprints() {
   const [openPunches, setOpenPunches] = useState<DrWaelOpenPunches | null>(null);
   const [manualPunches, setManualPunches] = useState<DrWaelManualPunches | null>(null);
   const [manualFailed, setManualFailed] = useState(false);
+  const [staffCredit, setStaffCredit] = useState<DrWaelStaffCredit | null>(null);
   const request = useRef(0);
 
   const loadInsights = useCallback(async () => {
@@ -413,6 +425,13 @@ export default function DrWaelFingerprints() {
         })
         .catch(() => {
           if (id === request.current) setLedger(null);
+        });
+      fetchDrWaelStaffCredit(target)
+        .then((next) => {
+          if (id === request.current) setStaffCredit(next);
+        })
+        .catch(() => {
+          if (id === request.current) setStaffCredit(null);
         });
       fetchDrWaelShiftPatterns()
         .then((next) => {
@@ -607,7 +626,10 @@ export default function DrWaelFingerprints() {
               label="الفرع"
               value={branch}
               onChange={setBranch}
-              options={[['الكل', 'كل الفروع'], ...data.branches.map((b) => [b, branchLabel(b)] as const)]}
+              options={[
+                ['الكل', 'كل الفروع'],
+                ...data.branches.map((b) => [b, branchLabel(b)] as const),
+              ]}
             />
             <label className="flex items-center gap-2 rounded-xl bg-gray-50 px-3 py-2 dark:bg-slate-800">
               <Search size={15} className="shrink-0 text-gray-400" />
@@ -715,7 +737,9 @@ export default function DrWaelFingerprints() {
             employees={employees}
             credit={credit}
             profiles={profiles}
+            staffCredit={staffCredit}
             onSmart={openSmart}
+            onSaved={() => void load(cycle)}
           />
         ) : null}
         {tab === 'adjustments' ? (
@@ -743,6 +767,7 @@ export default function DrWaelFingerprints() {
                 timeOff={data.time_off}
                 ledger={ledger}
                 credit={credit.get(smart.staff_id)}
+                staffCredit={staffCredit}
                 profile={profiles.get(smart.staff_id)}
                 onSaved={() => void load(cycle)}
               />
@@ -920,7 +945,8 @@ function ManualPunchEmployee({
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-2">
         <span className="text-sm font-bold text-gray-900 dark:text-slate-100">
-          {employee.name} · <span className={`text-[11px] ${MUTED}`}>{branchLabel(employee.branch)}</span>
+          {employee.name} ·{' '}
+          <span className={`text-[11px] ${MUTED}`}>{branchLabel(employee.branch)}</span>
         </span>
         <button type="button" onClick={onClose} className={`text-[11px] underline ${MUTED}`}>
           موظف تاني
@@ -930,9 +956,13 @@ function ManualPunchEmployee({
         <div className="flex flex-wrap gap-1">
           <Pill>يدوية {summary.total}</Pill>
           <Pill tone="green">محتسب {summary.counted}</Pill>
-          <Pill tone={summary.notCounted ? 'amber' : 'gray'}>لسه مش محتسب {summary.notCounted}</Pill>
+          <Pill tone={summary.notCounted ? 'amber' : 'gray'}>
+            لسه مش محتسب {summary.notCounted}
+          </Pill>
           <Pill>في السماح {summary.insideAllowance}</Pill>
-          <Pill tone={summary.overAllowance ? 'red' : 'gray'}>فوق السماح {summary.overAllowance}</Pill>
+          <Pill tone={summary.overAllowance ? 'red' : 'gray'}>
+            فوق السماح {summary.overAllowance}
+          </Pill>
           {summary.outsideCount ? <Pill>من غير عداد سماح {summary.outsideCount}</Pill> : null}
           {summary.penalized ? <Pill tone="red">اتخصم {summary.penalized}</Pill> : null}
         </div>
@@ -1010,16 +1040,22 @@ function ManualPunchEmployee({
           {error}
         </p>
       ) : null}
-      {saved ? <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300">{saved}</p> : null}
+      {saved ? (
+        <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300">{saved}</p>
+      ) : null}
       {rows.length ? (
         <ul className="space-y-1">
           {rows.slice(0, 5).map((row) => (
             <li key={row.id} className="flex flex-wrap items-center gap-1 text-[11px]">
               <span className="font-bold">
-                {row.date.slice(5)} · {row.type === 'check_in' ? 'حضور' : 'انصراف'} {cairoTime(row.at)}
+                {row.date.slice(5)} · {row.type === 'check_in' ? 'حضور' : 'انصراف'}{' '}
+                {cairoTime(row.at)}
               </span>
-              <Pill tone={row.counted ? 'green' : 'amber'}>{row.counted ? 'محتسب' : 'لسه مش محتسب'}</Pill>
-              {row.occurrence_no == null ? null : row.occurrence_no <= (row.allowance_limit ?? 2) ? (
+              <Pill tone={row.counted ? 'green' : 'amber'}>
+                {row.counted ? 'محتسب' : 'لسه مش محتسب'}
+              </Pill>
+              {row.occurrence_no == null ? null : row.occurrence_no <=
+                (row.allowance_limit ?? 2) ? (
                 <Pill>في السماح</Pill>
               ) : (
                 <Pill tone="red">{row.penalized ? 'فوق السماح · اتخصم' : 'فوق السماح'}</Pill>
@@ -1028,7 +1064,13 @@ function ManualPunchEmployee({
           ))}
         </ul>
       ) : null}
-      <QuickShift employee={employee} today={today} insight={insight} profile={profile} onSaved={onSaved} />
+      <QuickShift
+        employee={employee}
+        today={today}
+        insight={insight}
+        profile={profile}
+        onSaved={onSaved}
+      />
     </div>
   );
 }
@@ -1061,7 +1103,9 @@ function QuickShift({
       </p>
     );
   const presets = (profile?.known || [])
-    .filter((shift, i, all) => all.findIndex((x) => x.start === shift.start && x.end === shift.end) === i)
+    .filter(
+      (shift, i, all) => all.findIndex((x) => x.start === shift.start && x.end === shift.end) === i
+    )
     .slice(0, 3);
   return (
     <div className="space-y-2 border-t pt-2 dark:border-slate-700">
@@ -1087,11 +1131,21 @@ function QuickShift({
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <label className="flex items-center gap-1">
           من الساعة
-          <input type="time" value={start} onChange={(e) => setStart(e.target.value)} className={input} />
+          <input
+            type="time"
+            value={start}
+            onChange={(e) => setStart(e.target.value)}
+            className={input}
+          />
         </label>
         <label className="flex items-center gap-1">
           لحد
-          <input type="time" value={end} onChange={(e) => setEnd(e.target.value)} className={input} />
+          <input
+            type="time"
+            value={end}
+            onChange={(e) => setEnd(e.target.value)}
+            className={input}
+          />
         </label>
         <label className="flex items-center gap-1">
           ابتداءً من يوم
@@ -1121,7 +1175,9 @@ function QuickShift({
           }}
         />
       ) : null}
-      {done ? <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300">{done}</p> : null}
+      {done ? (
+        <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300">{done}</p>
+      ) : null}
     </div>
   );
 }
@@ -1136,6 +1192,7 @@ function SmartEditor({
   timeOff,
   ledger,
   credit,
+  staffCredit,
   profile,
   focusDate,
   onSaved,
@@ -1148,11 +1205,13 @@ function SmartEditor({
   timeOff: DrWaelTimeOff[];
   ledger: DrWaelCreditLedger | null;
   credit: DrWaelCreditRow | undefined;
+  staffCredit: DrWaelStaffCredit | null;
   profile: ShiftProfile | undefined;
   onSaved: () => void;
 }) {
   const suggestion = insight?.shift || null;
   const current = employee.week.find((d) => d.date === today && d.scheduled && !d.off);
+  const [origin, setOrigin] = useState<ShiftOrigin | null>(null);
   const [start, setStart] = useState(
     suggestion?.start || hhmm(current?.start || null).replace('—', '')
   );
@@ -1208,6 +1267,7 @@ function SmartEditor({
         from,
         to: mode === 'period' ? to : null,
         days: mode === 'day' ? null : days,
+        origin,
       });
       return `اتسجل الميعاد · اتعاد حساب ${result.days_rebuilt} يوم${result.days_kept_manager_approved ? ` · ${result.days_kept_manager_approved} يوم معتمد من مدير ماتغيرش` : ''}`;
     });
@@ -1233,6 +1293,14 @@ function SmartEditor({
         </div>
       ) : null}
 
+      {staffCredit ? (
+        <StaffCreditCard
+          employee={employee}
+          row={staffCredit.rows.find((row) => row.staff_id === employee.staff_id)}
+          credit={staffCredit}
+          onSaved={onSaved}
+        />
+      ) : null}
       {ledger && credit ? <CreditCard row={credit} ledger={ledger} /> : null}
       {profile && !employee.work_mode ? (
         <ShiftUnderstanding employee={employee} profile={profile} onSaved={onSaved} />
@@ -1371,10 +1439,12 @@ function SmartEditor({
             ? ' الميعاد ده هيفضل ماشي لحد ما تغيره، وممكن يغيّر التصنيف والمرتب.'
             : ''}
         </p>
+        <OriginChips value={origin} onChange={setOrigin} />
         <button
           type="button"
           disabled={
             Boolean(busy) ||
+            !origin ||
             !start ||
             !end ||
             start === end ||
@@ -2094,6 +2164,271 @@ function CreditCard({ row, ledger }: { row: DrWaelCreditRow; ledger: DrWaelCredi
   );
 }
 
+// Every shift change answers who asked for it: له, عليه, or neither.
+function OriginChips({
+  value,
+  onChange,
+  hideLabel = false,
+}: {
+  value: ShiftOrigin | null;
+  onChange: (origin: ShiftOrigin) => void;
+  hideLabel?: boolean;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+      {hideLabel ? null : <b>مين طلب التغيير؟</b>}
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label="مين طلب التغيير؟">
+        {SHIFT_ORIGINS.map(([key, text]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => onChange(key)}
+            aria-pressed={value === key}
+            className={`rounded-lg px-2 py-1 text-[11px] font-bold transition ${value === key ? ACTIVE : IDLE}`}
+          >
+            {text} · {SHIFT_ORIGIN_EFFECT[key]}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ShiftChangeLine({
+  change,
+  showName = false,
+  onSaved,
+}: {
+  change: DrWaelShiftChange;
+  showName?: boolean;
+  onSaved: () => void;
+}) {
+  const [origin, setOrigin] = useState<ShiftOrigin | null>(change.origin);
+  const [error, setError] = useState(false);
+  const scope =
+    change.mode === 'day'
+      ? `يوم ${change.from.slice(5)}`
+      : change.mode === 'period'
+        ? `من ${change.from.slice(5)} لحد ${(change.to || '').slice(5)}`
+        : `باستمرار من ${change.from.slice(5)}`;
+  const answer = async (next: ShiftOrigin) => {
+    const before = origin;
+    setOrigin(next);
+    setError(false);
+    try {
+      await setDrWaelShiftOrigin(change.id, next);
+      onSaved();
+    } catch {
+      setOrigin(before);
+      setError(true);
+    }
+  };
+  return (
+    <li className={`${SOFT} space-y-1 px-2 py-1.5 text-[11px]`}>
+      <div>
+        {showName && change.name ? <b>{change.name} · </b> : null}
+        {scope} ·{' '}
+        <span dir="ltr">
+          {hhmm(change.start)}–{hhmm(change.end)}
+        </span>
+        {change.old_start && change.old_end ? (
+          <span className={MUTED}>
+            {' '}
+            بدل{' '}
+            <span dir="ltr">
+              {hhmm(change.old_start)}–{hhmm(change.old_end)}
+            </span>
+          </span>
+        ) : null}
+        {change.old_hours != null &&
+        change.new_hours != null &&
+        change.new_hours < change.old_hours ? (
+          <b className="text-amber-700 dark:text-amber-300">
+            {' '}
+            · أقل {Math.round((change.old_hours - change.new_hours) * 10) / 10} س
+          </b>
+        ) : null}
+      </div>
+      <OriginChips value={origin} onChange={(next) => void answer(next)} hideLabel />
+      {error ? (
+        <div role="alert" className="font-bold text-rose-700 dark:text-rose-300">
+          ما اتحفظش، حاول تاني
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
+function StaffCreditCard({
+  employee,
+  row,
+  credit,
+  onSaved,
+}: {
+  employee: DrWaelEmployee;
+  row: DrWaelStaffCreditRow | undefined;
+  credit: DrWaelStaffCredit;
+  onSaved: () => void;
+}) {
+  if (!row) return null;
+  const view = staffCreditView(row, credit);
+  return (
+    <section className={`${CARD} space-y-2 p-3 text-xs`}>
+      <h3 className="flex items-center gap-1 font-bold text-gray-900 dark:text-slate-100">
+        <Gauge size={15} /> الالتزام والمرونة في الفترة دي
+      </h3>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {employee.work_mode ? (
+          <Pill>جدول مرن</Pill>
+        ) : view.band ? (
+          <Pill tone={BAND_TONE[view.band]}>{CREDIT_BAND_LABELS[view.band]}</Pill>
+        ) : (
+          <Pill>لسه مفيش أيام معتمدة</Pill>
+        )}
+        <Pill tone={view.balance > 0 ? 'green' : view.balance < 0 ? 'red' : 'gray'}>
+          {view.flexLabel}
+        </Pill>
+      </div>
+      <div className="grid grid-cols-3 gap-1.5 text-center text-[11px]">
+        <div className={`${SOFT} py-1.5`}>
+          <div className={MUTED}>له</div>
+          <b className="text-sm text-emerald-600 dark:text-emerald-400">{row.management}</b>
+        </div>
+        <div className={`${SOFT} py-1.5`}>
+          <div className={MUTED}>عليه</div>
+          <b className="text-sm text-rose-600 dark:text-rose-400">{row.employee}</b>
+        </div>
+        <div className={`${SOFT} py-1.5`}>
+          <div className={MUTED}>تصحيح</div>
+          <b className="text-sm">{row.correction}</b>
+        </div>
+      </div>
+      <div className={MUTED}>
+        {row.attended_days} يوم حضور معتمد · {row.minutes} د تأخير وبدري
+        {row.excused_minutes ? ` · ${row.excused_minutes} د بإذن` : ''}
+        {row.absent_days ? ` · ${row.absent_days} غياب` : ''}
+        {row.missing_used ? ` · ${row.missing_used} نسيان بصمة` : ''}
+      </div>
+      {row.reduced ? (
+        <div className="font-bold text-amber-700 dark:text-amber-300">
+          قلّل ساعاته من نفسه في {row.reduced} تغيير
+        </div>
+      ) : null}
+      {row.changes.length ? (
+        <details open={row.unclassified > 0}>
+          <summary className="cursor-pointer font-bold text-indigo-600 dark:text-indigo-400">
+            تغييرات الميعاد ({row.changes.length})
+            {row.unclassified ? ` · ${row.unclassified} مستني تحديد` : ''}
+          </summary>
+          <ul className="mt-1 space-y-1">
+            {row.changes.map((change) => (
+              <ShiftChangeLine key={change.id} change={change} onSaved={onSaved} />
+            ))}
+          </ul>
+        </details>
+      ) : null}
+    </section>
+  );
+}
+
+function StaffCreditPanel({
+  credit,
+  employees,
+  onSmart,
+  onSaved,
+}: {
+  credit: DrWaelStaffCredit | null;
+  employees: DrWaelEmployee[];
+  onSmart: (employee: DrWaelEmployee) => void;
+  onSaved: () => void;
+}) {
+  if (!credit) return <Empty label="كريديت الالتزام والمرونة مش متاح دلوقتي؛ حدّث الصفحة." />;
+  const shown = new Map(employees.map((employee) => [employee.staff_id, employee]));
+  const rows = credit.rows.filter((row) => shown.get(row.staff_id)?.active);
+  const scheduled = rows.filter((row) => !shown.get(row.staff_id)?.work_mode);
+  const leaders = staffCreditLeaders(rows, credit);
+  const committed = staffCreditLeaders(scheduled, credit).committed;
+  const unclassified = credit.unclassified.filter((change) => shown.has(change.staff_id));
+  const names = (list: DrWaelStaffCreditRow[]) =>
+    list.length ? list.map((row) => row.name).join('، ') : 'لسه محدش';
+  return (
+    <Section
+      title="الالتزام والمرونة"
+      subtitle={`التغيير بطلب مننا له، ومن الموظف عليه، وتصحيح الجدول محايد · ملتزم لحد ${credit.committed_per_day} د في اليوم وعادي لحد ${credit.regular_per_day} د · للعرض بس ومش بيأثر على المرتب`}
+    >
+      <div className="mb-3 grid gap-2 md:grid-cols-2">
+        <div className={`${CARD} p-3 text-xs`}>
+          <div className={MUTED}>الأكتر التزامًا</div>
+          <b>{names(committed)}</b>
+        </div>
+        <div className={`${CARD} p-3 text-xs`}>
+          <div className={MUTED}>الأكتر تعاونًا</div>
+          <b>{names(leaders.flexible)}</b>
+        </div>
+      </div>
+      {unclassified.length ? (
+        <details open className={`${CARD} mb-3 p-3 text-xs`}>
+          <summary className="cursor-pointer font-bold text-amber-700 dark:text-amber-300">
+            {unclassified.length} تغيير قديم مستني تحديد مين طلبه، ومش محسوب لحد ما تحدده
+          </summary>
+          <ul className="mt-2 space-y-1">
+            {unclassified.map((change) => (
+              <ShiftChangeLine key={change.id} change={change} showName onSaved={onSaved} />
+            ))}
+          </ul>
+        </details>
+      ) : null}
+      {rows.length ? (
+        <DataTable
+          head={['الموظف', 'الفرع', 'الالتزام', 'د / يوم', 'غياب', 'له', 'عليه', 'الرصيد']}
+        >
+          {sortStaffCredit(rows, credit).map((row) => {
+            const employee = shown.get(row.staff_id) as DrWaelEmployee;
+            const view = staffCreditView(row, credit);
+            return (
+              <tr key={row.staff_id}>
+                <Td>
+                  <button
+                    type="button"
+                    onClick={() => onSmart(employee)}
+                    className="font-bold text-indigo-600 hover:underline dark:text-indigo-400"
+                  >
+                    {row.name}
+                  </button>
+                </Td>
+                <Td className={MUTED}>{employee.branch}</Td>
+                <Td>
+                  {employee.work_mode ? (
+                    <Pill>جدول مرن</Pill>
+                  ) : view.band ? (
+                    <Pill tone={BAND_TONE[view.band]}>{CREDIT_BAND_LABELS[view.band]}</Pill>
+                  ) : (
+                    '—'
+                  )}
+                </Td>
+                <Td>{employee.work_mode || !row.attended_days ? '—' : view.minutesPerDay}</Td>
+                <Td>{row.absent_days || '—'}</Td>
+                <Td className="font-bold text-emerald-600 dark:text-emerald-400">
+                  {row.management || '—'}
+                </Td>
+                <Td className="font-bold text-rose-600 dark:text-rose-400">
+                  {row.employee || '—'}
+                  {row.reduced ? ` (قلّل ${row.reduced})` : ''}
+                </Td>
+                <Td className="font-bold">
+                  <span dir="ltr">{view.balance > 0 ? `+${view.balance}` : view.balance}</span>
+                </Td>
+              </tr>
+            );
+          })}
+        </DataTable>
+      ) : (
+        <Empty label="مفيش موظفين بالفلتر ده" />
+      )}
+    </Section>
+  );
+}
+
 // A correction asks how far it goes: one day, a period, or from now on. For a weekday, each of those is that weekday.
 function ShiftScopePicker({
   staffId,
@@ -2125,6 +2460,7 @@ function ShiftScopePicker({
   const [to, setTo] = useState(weekDay ? date : addDays(date, 6));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [origin, setOrigin] = useState<ShiftOrigin | null>(null);
   const weekDays = weekDay ? [weekDay] : null;
   const name = weekDay ? weekDay.replace(/^ال/, '') : '';
   const input = `rounded-lg px-2 py-1 text-xs ${IDLE}`;
@@ -2143,6 +2479,7 @@ function ShiftScopePicker({
         to: mode === 'period' ? to : null,
         days: mode === 'day' ? null : weekDays,
         note,
+        origin,
       });
       onApplied(
         `بقى ${start}–${end} · اتعاد حساب ${result.days_rebuilt} يوم${result.days_kept_manager_approved ? ` · ${result.days_kept_manager_approved} يوم معتمد من مدير ماتغيرش` : ''}`
@@ -2213,10 +2550,11 @@ function ShiftScopePicker({
           {error}
         </p>
       ) : null}
+      <OriginChips value={origin} onChange={setOrigin} />
       <div className="flex items-center gap-2">
         <button
           type="button"
-          disabled={busy || (mode === 'period' && !count)}
+          disabled={busy || !origin || (mode === 'period' && !count)}
           onClick={() => void apply()}
           className={`rounded-lg px-3 py-1 text-[11px] font-bold disabled:opacity-50 ${ACTIVE}`}
         >
@@ -2571,13 +2909,17 @@ function CreditTab({
   employees,
   credit,
   profiles,
+  staffCredit,
   onSmart,
+  onSaved,
 }: {
   ledger: DrWaelCreditLedger | null;
   employees: DrWaelEmployee[];
   credit: Map<string, DrWaelCreditRow>;
   profiles: Map<string, ShiftProfile>;
+  staffCredit: DrWaelStaffCredit | null;
   onSmart: (employee: DrWaelEmployee) => void;
+  onSaved: () => void;
 }) {
   if (!ledger) return <Empty label="الكريديت مش متاح دلوقتي؛ حدّث الصفحة وحاول تاني." />;
   const rows = employees
@@ -2599,6 +2941,12 @@ function CreditTab({
     );
   return (
     <div className="space-y-5">
+      <StaffCreditPanel
+        credit={staffCredit}
+        employees={employees}
+        onSmart={onSmart}
+        onSaved={onSaved}
+      />
       <CreditAlertsPanel ledger={ledger} employees={employees} onSmart={onSmart} />
       <ShiftFixesPanel
         employees={employees.filter((e) => e.active)}
@@ -3540,6 +3888,7 @@ function QuickDecisions({
   const [bulk, setBulk] = useState<{ at: number; total: number } | null>(null);
   const [handled, setHandled] = useState(0);
   const [review, setReview] = useState<DayReview | null>(null);
+  const [origins, setOrigins] = useState<Record<string, ShiftOrigin>>({});
   const inFlight = useRef(new Set<string>());
   const refreshTimer = useRef<number | null>(null);
   const key = (day: DrWaelDay) => `${day.staff_id}-${day.date}`;
@@ -3609,6 +3958,7 @@ function QuickDecisions({
           mode: 'day',
           from: item.day.date,
           note: 'قرار سريع: اليوم على شيفت الموظف حسب البصمة',
+          origin: origins[k] || null,
         });
       } else {
         await decideQuickDay(item.day.staff_id, item.day.date, action.decision);
@@ -3647,6 +3997,14 @@ function QuickDecisions({
     .map((group) => ({ group, count: clear.filter((item) => item.group === group).length }))
     .filter((row) => row.count);
   const failures = plan.clear.filter((item) => failed[key(item.day)]);
+  // A shift decision never runs in bulk without the answer: it decides له or عليه.
+  const clearShifts = clear.filter((item) => item.primary.type === 'shift');
+  const unanswered = clearShifts.filter((item) => !origins[key(item.day)]).length;
+  const answerAll = (origin: ShiftOrigin) =>
+    setOrigins((current) => ({
+      ...current,
+      ...Object.fromEntries(clearShifts.map((item) => [key(item.day), origin])),
+    }));
   const actionText = (action: QuickAction) => action.label;
   const when = (date: string) => `${weekday(date)} ${date.slice(8, 10)}/${date.slice(5, 7)}`;
 
@@ -3690,12 +4048,28 @@ function QuickDecisions({
               </ul>
             ) : null}
           </div>
+          {confirming && clearShifts.length > 1 ? (
+            <div className={`${SOFT} space-y-1 px-2 py-2 text-xs`}>
+              <b>{clearShifts.length} تغيير شيفت، كلهم:</b>
+              <OriginChips value={null} onChange={answerAll} hideLabel />
+            </div>
+          ) : null}
           {confirming ? (
             <ul className="max-h-64 space-y-1 overflow-y-auto text-xs">
               {clear.map((item) => (
-                <li key={key(item.day)} className={`${SOFT} px-2 py-1.5`}>
-                  <b>{names.get(item.day.staff_id)?.name || '—'}</b> · {when(item.day.date)}:{' '}
-                  {actionText(item.primary)}
+                <li key={key(item.day)} className={`${SOFT} space-y-1 px-2 py-1.5`}>
+                  <div>
+                    <b>{names.get(item.day.staff_id)?.name || '—'}</b> · {when(item.day.date)}:{' '}
+                    {actionText(item.primary)}
+                  </div>
+                  {item.primary.type === 'shift' ? (
+                    <OriginChips
+                      value={origins[key(item.day)] || null}
+                      onChange={(origin) =>
+                        setOrigins((current) => ({ ...current, [key(item.day)]: origin }))
+                      }
+                    />
+                  ) : null}
                 </li>
               ))}
             </ul>
@@ -3706,10 +4080,13 @@ function QuickDecisions({
                 <>
                   <button
                     type="button"
+                    disabled={unanswered > 0}
                     onClick={() => void runClear()}
-                    className={`min-h-[44px] flex-1 rounded-xl px-4 text-sm font-bold ${BUTTON_TONE.primary}`}
+                    className={`min-h-[44px] flex-1 rounded-xl px-4 text-sm font-bold disabled:opacity-50 ${BUTTON_TONE.primary}`}
                   >
-                    تمام، نفّذ الـ {clear.length}
+                    {unanswered > 0
+                      ? `حدد مين طلب التغيير (فاضل ${unanswered})`
+                      : `تمام، نفّذ الـ ${clear.length}`}
                   </button>
                   <button
                     type="button"
@@ -3776,11 +4153,18 @@ function QuickDecisions({
               ما اتحفظش: {failed[key(current.day)]}
             </p>
           ) : null}
+          {current.primary.type === 'shift' ? (
+            <OriginChips
+              value={origins[key(current.day)] || null}
+              onChange={(origin) => setOrigins((all) => ({ ...all, [key(current.day)]: origin }))}
+            />
+          ) : null}
           <div className="grid gap-2 sm:grid-cols-2">
             <button
               type="button"
+              disabled={current.primary.type === 'shift' && !origins[key(current.day)]}
               onClick={() => void run(current, current.primary)}
-              className={`min-h-[48px] rounded-xl px-4 text-sm font-bold ${current.secondary ? '' : 'sm:col-span-2'} ${BUTTON_TONE[current.primary.type === 'decide' ? current.primary.tone : 'primary']}`}
+              className={`min-h-[48px] rounded-xl px-4 text-sm font-bold disabled:opacity-50 ${current.secondary ? '' : 'sm:col-span-2'} ${BUTTON_TONE[current.primary.type === 'decide' ? current.primary.tone : 'primary']}`}
             >
               {actionText(current.primary)}
             </button>
