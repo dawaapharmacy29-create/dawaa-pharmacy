@@ -767,7 +767,7 @@ const CUSTOMER_SERVICE_BASE = [
 
 const DELIVERY_BASE = ['view_dashboard', 'view_delivery', 'create_leave_request', 'record_attendance'];
 
-const ASSISTANT_BASE = ['view_dashboard', 'create_leave_request', 'record_attendance'];
+const ASSISTANT_BASE = ['view_dashboard', 'create_leave_request', 'record_attendance', 'view_schedule', 'view_points'];
 
 // مدير المشتريات: نطاق تشغيلي بحت (مخزون/موردين/مشتريات/نواقص/مستلزمات وتقاريرها)،
 // وليس نسخة من صلاحيات مدير الفروع الشاملة. لا يشمل بيانات العملاء أو التقييمات
