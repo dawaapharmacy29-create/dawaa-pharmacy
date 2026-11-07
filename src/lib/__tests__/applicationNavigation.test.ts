@@ -58,15 +58,6 @@ const LEGACY_WHATSAPP_ROUTES = [
   '/whatsapp-branch-comparison',
 ];
 
-const LEGACY_PAGE_FILES: Record<string, string> = {
-  '/whatsapp-folder-watcher': 'WhatsAppFolderWatcher',
-  '/whatsapp-followup-requests': 'WhatsAppAutoFollowupRequests',
-  '/whatsapp-doctor-performance': 'WhatsAppDoctorPerformance',
-  '/whatsapp-customer-history': 'WhatsAppCustomerHistory',
-  '/whatsapp-lost-opportunities': 'WhatsAppLostOpportunities',
-  '/whatsapp-branch-comparison': 'WhatsAppBranchComparison',
-};
-
 describe('application navigation consolidation', () => {
   const allNavPaths = [...GROUPS, ...PHARMACIST_GROUPS].flatMap((group) =>
     group.items.map((item) => item.path)
@@ -95,11 +86,10 @@ describe('application navigation consolidation', () => {
     expect(allNavPaths.filter((path) => path.includes('quickFollowup'))).toEqual([]);
   });
 
-  it('legacy WhatsApp surfaces stay routable but out of the menu', () => {
+  it('retired WhatsApp addresses forward to the page that replaced them, out of the menu', () => {
     for (const route of LEGACY_WHATSAPP_ROUTES) {
-      expect(appRoutes.has(route)).toBe(true);
+      expect(appSource).toMatch(new RegExp(`path="${route}" element=\\{<CompatibilityRedirect to="/`));
       expect(allNavPaths.map(basePath).includes(route)).toBe(false);
-      expect(read(`src/pages/${LEGACY_PAGE_FILES[route]}.tsx`)).toMatch(/<LegacySurfaceNotice/);
     }
   });
 
@@ -174,6 +164,8 @@ describe('short menu per role', () => {
       expect(new Set(paths(menu.main)).size).toBeLessThanOrEqual(26);
       expect(new Set([...paths(menu.main), ...paths(menu.more)])).toEqual(new Set(paths(GROUPS)));
       expect(paths(menu.main).filter((path) => paths(menu.more).includes(path))).toEqual([]);
+      const titles = [...menu.main, ...menu.more].map((group) => group.title);
+      expect(new Set(titles).size).toBe(titles.length);
     }
   });
 

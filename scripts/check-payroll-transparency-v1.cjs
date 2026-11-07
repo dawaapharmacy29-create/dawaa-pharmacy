@@ -7,7 +7,6 @@ const panel = fs.readFileSync(path.join(root, 'src/components/payroll/PayrollTra
 const deliveryPanel = fs.readFileSync(path.join(root, 'src/components/payroll/DeliveryPayrollBreakdownPanel.tsx'), 'utf8');
 const page = fs.readFileSync(path.join(root, 'src/pages/PayrollManagement.tsx'), 'utf8');
 const workspaceV2 = fs.readFileSync(path.join(root, 'src/pages/PayrollManagementV2.tsx'), 'utf8');
-const staffPayrollRoute = fs.readFileSync(path.join(root, 'src/pages/StaffPayroll.tsx'), 'utf8');
 const financialService = fs.readFileSync(path.join(root, 'src/lib/payroll/payrollFinancialCompositionService.ts'), 'utf8');
 const kpiService = fs.readFileSync(path.join(root, 'src/lib/payroll/payrollKpiContextService.ts'), 'utf8');
 const statementService = fs.readFileSync(path.join(root, 'src/lib/payroll/payrollStatementService.ts'), 'utf8');
@@ -40,7 +39,7 @@ function assertNotContains(text, needle, label) {
 
 // Live route: PayrollManagement is intentionally a tiny compatibility entrypoint to Workspace V2.
 assertContains(page, "export { default } from './PayrollManagementV2';", 'live PayrollManagement entrypoint routes Workspace V2');
-assertContains(staffPayrollRoute, "./PayrollManagementV2", 'StaffPayroll Workspace V2 route');
+assertContains(page, "./PayrollManagementV2", 'Payroll page routes to Workspace V2');
 
 // Workspace V2 must preserve progressive loading and stale-response protection.
 assertContains(workspaceV2, 'scopeRef.current !== requestScope', 'stale-response protection');

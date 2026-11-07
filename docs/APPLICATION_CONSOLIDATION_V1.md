@@ -99,7 +99,7 @@ Findings:
 | WhatsApp analytics | Sales Intelligence QA + `WhatsappAnalytics` | `WhatsAppDoctorPerformance`, `WhatsAppBranchComparison`, `WhatsAppLostOpportunities`, `WhatsAppCustomerHistory` (`whatsapp_*_v1` RPCs) | EXPERIMENTAL → hidden |
 | WhatsApp follow-ups | Customer service center | `WhatsAppAutoFollowupRequests` (21 rows, all untouched) | EXPERIMENTAL → hidden |
 | Executive dashboard | `ExecutiveDashboardRoute` (`/`) | `/executive-2027` alias | COMPATIBILITY → redirect |
-| Payroll | `PayrollManagementV2` via `PayrollManagement` | `StaffPayroll.tsx` re-export (unused import) | COMPAT |
+| Payroll | `PayrollManagementV2` via `PayrollManagement` | `StaffPayroll.tsx` removed | COMPAT |
 | Doctor dashboard | `DoctorDashboardStable` via `DoctorDashboardEnhanced` | — | CURRENT |
 | Staff detail | `StaffDetail` → `StaffDetailLegacy` | `StaffProfile2027` (orphan) | orphan removed |
 | Unreferenced UI | — | 24 `components/reviews/WhatsApp*V6…V24`, 15 customer-service panels, 3 staff panels, 6 hooks, 2 common components, `ExecutiveCustomerServiceKpiSync` (DOM-patching KPI, never mounted) | dead |
@@ -416,12 +416,12 @@ Page component files: 136 → 134.
 | `/customer-import` | استيراد العملاء | Customers/CS | — | import_customers | INTERNAL (URL-only) |
 | `/customer-service` | خدمة العملاء | Customers/CS | خدمة العملاء والمتابعات | view_customer_service | ACTIVE_PRIMARY |
 | `/customer-service-classic` | — | Customers/CS | — | — | LEGACY_HIDDEN (redirect → /customer-service) |
-| `/whatsapp-followup-requests` | طلبات المتابعة الآلية | WhatsApp/SI | — | view_reviews | LEGACY_HIDDEN |
-| `/whatsapp-folder-watcher` | المراقبة التلقائية للواتساب | WhatsApp/SI | — | view_reviews | LEGACY_HIDDEN |
-| `/whatsapp-doctor-performance` | أداء الدكاترة في الواتساب | WhatsApp/SI | — | view_reviews | LEGACY_HIDDEN |
-| `/whatsapp-customer-history` | سجل محادثات العميل | WhatsApp/SI | — | view_reviews | LEGACY_HIDDEN |
-| `/whatsapp-lost-opportunities` | الفرص الضائعة | WhatsApp/SI | — | view_reviews | LEGACY_HIDDEN |
-| `/whatsapp-branch-comparison` | مقارنة الفروع (واتساب) | WhatsApp/SI | — | view_reviews | LEGACY_HIDDEN |
+| `/whatsapp-followup-requests` | طلبات المتابعة الآلية | WhatsApp/SI | — | view_reviews | REDIRECT |
+| `/whatsapp-folder-watcher` | المراقبة التلقائية للواتساب | WhatsApp/SI | — | view_reviews | REDIRECT |
+| `/whatsapp-doctor-performance` | أداء الدكاترة في الواتساب | WhatsApp/SI | — | view_reviews | REDIRECT |
+| `/whatsapp-customer-history` | سجل محادثات العميل | WhatsApp/SI | — | view_reviews | REDIRECT |
+| `/whatsapp-lost-opportunities` | الفرص الضائعة | WhatsApp/SI | — | view_reviews | REDIRECT |
+| `/whatsapp-branch-comparison` | مقارنة الفروع (واتساب) | WhatsApp/SI | — | view_reviews | REDIRECT |
 | `/customer-requests` | طلبات العملاء | Customers/CS | خدمة العملاء والمتابعات | view_customer_requests | ACTIVE_PRIMARY |
 | `/customer-incubation` | احتضان العملاء | Customers/CS | — | view_customer_incubation | INTERNAL (URL-only) |
 | `/customer-data-review` | مراجعة بيانات العملاء | Customers/CS | العملاء ونقاط الولاء | view_customer_details | ACTIVE_PRIMARY |

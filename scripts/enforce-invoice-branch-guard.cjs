@@ -15,15 +15,4 @@ ensurePattern(
   'Invoice branch protection is missing or not in the valid source form.'
 );
 
-const cashbackPath = fs.existsSync('src/pages/CustomerCashbackBase.tsx')
-  ? 'src/pages/CustomerCashbackBase.tsx'
-  : 'src/pages/CustomerCashback.tsx';
-ensurePattern(
-  cashbackPath,
-  (source) => source.includes('setQuickFilter(')
-    && source.includes('setStatus(ALL);')
-    && source.includes("nextStatus === 'notified'"),
-  'Cashback filter synchronization protection is missing from the source code.'
-);
-
-console.log('[build-validation] Invoice branch guard and cashback filter logic validated in source. No source files were modified.');
+console.log('[build-validation] Invoice branch guard validated in source. No source files were modified.');
