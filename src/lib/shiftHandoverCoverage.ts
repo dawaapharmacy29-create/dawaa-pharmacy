@@ -293,3 +293,182 @@ export function missingByBranch<T extends ShiftHandoverRow>(
       ),
   })).filter((group) => group.slots.length);
 }
+
+// ---------------------------------------------------------------------------
+// Who was in a shift: only real punches, on that branch's device, during that shift's real window.
+// ---------------------------------------------------------------------------
+
+export interface PunchInterval {
+  staff_id: string;
+  name: string;
+  kind: 'doctor' | 'assistant' | 'manager' | null;
+  home_branch: string;
+  /** The devices that saw it; empty for a manual punch, which counts on home_branch. */
+  branches: string[];
+  first_in: string | null;
+  last_out: string | null;
+  scheduled_end: string | null;
+}
+
+export interface ShiftWindow {
+  from: number;
+  to: number;
+}
+
+export interface ShiftPresent {
+  staff_id: string;
+  name: string;
+  kind: PunchInterval['kind'];
+  first_in: string | null;
+  last_out: string | null;
+}
+
+const HOUR = 3600000;
+/** A window is clamped: a missing shift before it must not pull in two shifts, nor a double entry shrink it to nothing. */
+const WINDOW_MIN_HOURS = 6;
+const WINDOW_MAX_HOURS = 10;
+const USUAL_SHIFT_HOURS = 8;
+/** In the shift means at least this much of it: a handover overlap at the door does not count. */
+const MIN_OVERLAP_MINUTES = 60;
+
+export function handoverWindow(
+  closedAt: string | null,
+  previousClose: string | null
+): ShiftWindow | null {
+  const to = closedAt ? Date.parse(closedAt) : NaN;
+  if (Number.isNaN(to)) return null;
+  const previous = previousClose ? Date.parse(previousClose) : NaN;
+  const span = Number.isNaN(previous) ? USUAL_SHIFT_HOURS * HOUR : to - previous;
+  return {
+    from: to - Math.min(Math.max(span, WINDOW_MIN_HOURS * HOUR), WINDOW_MAX_HOURS * HOUR),
+    to,
+  };
+}
+
+/** A shift nobody closed: its usual hours, ending two hours before its deadline. */
+export function slotWindow(day: string, shift: (typeof SHIFT_TYPES)[number]): ShiftWindow {
+  const to = shiftDeadline(day, shift).getTime() - 2 * HOUR;
+  return { from: to - USUAL_SHIFT_HOURS * HOUR, to };
+}
+
+const seenAt = (interval: PunchInterval, branch: string) =>
+  interval.branches.length ? interval.branches.includes(branch) : interval.home_branch === branch;
+
+/** Start and end of a span. A missing checkout runs to the scheduled end, or 8 hours at most. */
+function spanOf(interval: PunchInterval): { start: number; end: number } | null {
+  const first = interval.first_in ? Date.parse(interval.first_in) : NaN;
+  const last = interval.last_out ? Date.parse(interval.last_out) : NaN;
+  if (Number.isNaN(first) && Number.isNaN(last)) return null;
+  if (Number.isNaN(first)) return { start: last, end: last };
+  if (!Number.isNaN(last)) return { start: first, end: last };
+  const scheduled = interval.scheduled_end ? Date.parse(interval.scheduled_end) : NaN;
+  const end =
+    !Number.isNaN(scheduled) && scheduled > first ? scheduled : first + USUAL_SHIFT_HOURS * HOUR;
+  return { start: first, end: Math.min(end, first + 12 * HOUR) };
+}
+
+const KIND_ORDER: Record<string, number> = { doctor: 0, assistant: 1, manager: 2 };
+
+export function presenceIn(
+  intervals: PunchInterval[],
+  branch: string,
+  window: ShiftWindow
+): ShiftPresent[] {
+  const best = new Map<string, { interval: PunchInterval; overlap: number }>();
+  for (const interval of intervals) {
+    if (!interval.kind || !seenAt(interval, branch)) continue;
+    const span = spanOf(interval);
+    if (!span) continue;
+    const onePunch = span.start === span.end;
+    const overlap = Math.min(span.end, window.to) - Math.max(span.start, window.from);
+    const inside = onePunch
+      ? span.start >= window.from && span.start <= window.to
+      : overlap >= MIN_OVERLAP_MINUTES * 60000;
+    if (!inside) continue;
+    const current = best.get(interval.staff_id);
+    if (!current || overlap > current.overlap) best.set(interval.staff_id, { interval, overlap });
+  }
+  return [...best.values()]
+    .map(({ interval }) => ({
+      staff_id: interval.staff_id,
+      name: interval.name,
+      kind: interval.kind,
+      first_in: interval.first_in,
+      last_out: interval.last_out,
+    }))
+    .sort(
+      (a, b) =>
+        (KIND_ORDER[a.kind ?? ''] ?? 3) - (KIND_ORDER[b.kind ?? ''] ?? 3) ||
+        String(a.first_in ?? a.last_out).localeCompare(String(b.first_in ?? b.last_out))
+    );
+}
+
+const clockOf = (value: string) =>
+  new Date(value).toLocaleTimeString('ar-EG', {
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'Africa/Cairo',
+  });
+
+export function punchTimesLabel(person: Pick<ShiftPresent, 'first_in' | 'last_out'>): string {
+  if (person.first_in && person.last_out)
+    return `${clockOf(person.first_in)} ← ${clockOf(person.last_out)}`;
+  if (person.first_in) return `دخل ${clockOf(person.first_in)} ومن غير انصراف`;
+  return person.last_out ? `خرج ${clockOf(person.last_out)} ومن غير حضور` : '';
+}
+
+/** "د أ (9:02 ص ← 5:10 م)، محمد، مساعد (…)"; nobody says so, and never falls back on the schedule. */
+export function presenceLabel(people: ShiftPresent[]): string {
+  if (!people.length) return 'مفيش بصمة';
+  return people
+    .map((p) => `${p.name}${p.kind === 'assistant' ? '، مساعد' : ''} (${punchTimesLabel(p)})`)
+    .join(' · ');
+}
+
+export type CloserPresence =
+  | { status: 'here' | 'unknown' | 'no_punch' | 'other_branch' }
+  | { status: 'other_time'; times: string };
+
+/**
+ * Was the person who closed it there when it closed? Around the close means from 3 hours before to an
+ * hour after. 'unknown' only when there is nothing to tell who they are.
+ */
+export function closerPresence(
+  closer: { name?: string | null; staffId?: string | null },
+  intervals: PunchInterval[],
+  branch: string,
+  closedAt: string | null
+): CloserPresence {
+  const at = closedAt ? Date.parse(closedAt) : NaN;
+  if (Number.isNaN(at) || !(closer.name || closer.staffId)) return { status: 'unknown' };
+  const key = personKey(closer.name);
+  const own = intervals.filter(
+    (i) => (closer.staffId && i.staff_id === closer.staffId) || (key && personKey(i.name) === key)
+  );
+  if (!own.length && !closer.staffId) return { status: 'unknown' };
+  const near = own
+    .map((interval) => ({ interval, span: spanOf(interval) }))
+    .filter(
+      (x): x is { interval: PunchInterval; span: { start: number; end: number } } =>
+        Boolean(x.span) &&
+        (x.span as { start: number }).start <= at + 12 * HOUR &&
+        (x.span as { end: number }).end >= at - 16 * HOUR
+    );
+  if (!near.length) return { status: 'no_punch' };
+  // A lone departure means they were there before it, as long as a usual shift.
+  const around = near.filter(
+    ({ interval, span }) =>
+      (interval.first_in ? span.start : span.end - USUAL_SHIFT_HOURS * HOUR) <= at + HOUR &&
+      span.end >= at - 3 * HOUR
+  );
+  if (around.some(({ interval }) => seenAt(interval, branch))) return { status: 'here' };
+  if (around.length) return { status: 'other_branch' };
+  return { status: 'other_time', times: punchTimesLabel(near[0].interval) };
+}
+
+export function closerPresenceText(presence: CloserPresence): string | null {
+  if (presence.status === 'no_punch') return 'اللي قفل مالوش بصمة اليوم ده';
+  if (presence.status === 'other_branch') return 'اللي قفل بصمته في فرع تاني وقت التقفيل';
+  if (presence.status === 'other_time') return `اللي قفل بصم في وقت تاني: ${presence.times}`;
+  return null;
+}

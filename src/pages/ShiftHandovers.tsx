@@ -31,15 +31,19 @@ import {
 import {
   SHIFT_HANDOVER_BRANCHES,
   SHIFT_TYPES,
-  closerOnShift,
+  closerPresence,
+  closerPresenceText,
+  handoverWindow,
   missingByBranch,
-  onDutyLabel,
+  presenceIn,
+  presenceLabel,
   readHandovers,
   shiftCoverage,
   shiftDeadline,
   shiftGapLabel,
   shiftGapTone,
-  type OnDutyDoctor,
+  slotWindow,
+  type PunchInterval,
   type ReadHandover,
   type ShiftHandoverCorrection,
   type ShiftSlot,
@@ -51,6 +55,8 @@ import {
 
 const BRANCHES = ['الكل', ...SHIFT_HANDOVER_BRANCHES] as const;
 const COVERAGE_DAYS = 14;
+// The range shift_presence_intervals_v1 takes; older shifts show no names rather than a false «مفيش بصمة».
+const PRESENCE_DAYS = 62;
 const MIN_SOURCE_DATE = '2026-10-01';
 const SHIFT_FILTERS = ['الكل', ...SHIFT_TYPES] as const;
 const money = (value: number) =>
@@ -121,13 +127,6 @@ const PERIODS = [
   ['picked', 'الشهر المختار'],
 ] as const;
 type PeriodId = (typeof PERIODS)[number][0];
-
-type OnDutySlot = {
-  branch: string;
-  shift_date: string;
-  shift_type: string;
-  doctors: OnDutyDoctor[];
-};
 
 const STATUS: Record<ShiftSlotStatus, { label: string; tone: string }> = {
   closed: { label: '✓', tone: 'dawaa-badge--success' },
@@ -415,7 +414,7 @@ export default function ShiftHandovers() {
   const thisMonth = today.slice(0, 7);
   const [rows, setRows] = useState<ShiftRow[]>([]);
   const [corrections, setCorrections] = useState<ShiftHandoverCorrection[]>([]);
-  const [onDuty, setOnDuty] = useState<OnDutySlot[] | null>(null);
+  const [punches, setPunches] = useState<PunchInterval[] | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -431,9 +430,8 @@ export default function ShiftHandovers() {
   const load = useCallback(async () => {
     setLoading(true);
     setLoadError(false);
-    // The on-duty range is capped at 45 days; tomorrow covers the Cairo day after UTC midnight.
-    const dutyFrom = new Date(Date.now() - 44 * 864e5).toISOString().slice(0, 10);
     const dutyTo = new Date(Date.now() + 864e5).toISOString().slice(0, 10);
+    const dutyFrom = addDays(dutyTo, -PRESENCE_DAYS);
     const [source, fixes, duty] = await Promise.all([
       fetchAllShiftRows(),
       supabase
@@ -443,10 +441,10 @@ export default function ShiftHandovers() {
         .order('created_at')
         .limit(1000),
       // Top management only; everyone else sees the page without the names.
-      supabase.rpc('shift_handover_on_duty_v1', { p_from: dutyFrom, p_to: dutyTo }),
+      supabase.rpc('shift_presence_intervals_v1', { p_from: dutyFrom, p_to: dutyTo }),
     ]);
     setCorrections(fixes.error ? [] : ((fixes.data || []) as ShiftHandoverCorrection[]));
-    setOnDuty(duty.error ? null : ((duty.data || []) as OnDutySlot[]));
+    setPunches(duty.error ? null : ((duty.data || []) as PunchInterval[]));
     if (source.error) {
       setLoadError(true);
       setLoading(false);
@@ -466,9 +464,11 @@ export default function ShiftHandovers() {
   const live = useMemo(() => readHandovers(rows.filter((r) => !r.is_archived)), [rows]);
   const rereadCount = useMemo(() => live.filter((r) => r.reread).length, [live]);
   const fixesOf = (id: string) => corrections.filter((c) => c.handover_id === id);
-  const doctorsAt = (branch: string, day: string, shift: string) =>
-    onDuty?.find((d) => d.branch === branch && d.shift_date === day && d.shift_type === shift)
-      ?.doctors;
+  const presenceFrom = addDays(today, 1 - PRESENCE_DAYS);
+  const slotPeople = (branch: string, day: string, shift: (typeof SHIFT_TYPES)[number]) =>
+    punches && day >= presenceFrom
+      ? presenceLabel(presenceIn(punches, branch, slotWindow(day, shift)))
+      : '';
   const people = useMemo(
     () =>
       [...new Set(live.map((r) => r.submitted_by?.trim()).filter(Boolean) as string[])].sort(
@@ -664,10 +664,19 @@ export default function ShiftHandovers() {
     const fixes = fixesOf(row.id);
     const open = expanded === row.id;
     const gapTone = shiftGapTone(row.gap_minutes);
-    const people = doctorsAt(row.branch, row.shift_date, row.shift_type);
-    const check = onDuty
-      ? closerOnShift({ name: row.submitted_by, staffId: row.submitted_by_staff_id }, people)
-      : 'unknown';
+    const known = Boolean(punches) && row.shift_date >= presenceFrom;
+    const shiftSpan = handoverWindow(row.recorded_at, row.previous_close);
+    const people = known && shiftSpan ? presenceIn(punches || [], row.branch, shiftSpan) : null;
+    const closerNote = known
+      ? closerPresenceText(
+          closerPresence(
+            { name: row.submitted_by, staffId: row.submitted_by_staff_id },
+            punches || [],
+            row.branch,
+            row.recorded_at
+          )
+        )
+      : null;
     return (
       <div
         key={row.id}
@@ -745,15 +754,13 @@ export default function ShiftHandovers() {
             </span>
           ) : null}
         </div>
-        {onDuty ? (
+        {people ? (
           <p className="dawaa-caption mt-2 text-xs font-bold">
-            في الشيفت (بصمات): {onDutyLabel(people) || '-'}
+            في الشيفت (بصمات): {presenceLabel(people)}
           </p>
         ) : null}
-        {check === 'no' ? (
-          <span className="dawaa-badge dawaa-badge--warning mt-1 text-[10px]">
-            اللي قفل مش باصم في الشيفت ده
-          </span>
+        {closerNote ? (
+          <span className="dawaa-badge dawaa-badge--warning mt-1 text-[10px]">{closerNote}</span>
         ) : null}
         {Math.abs(n(row.cash_variance)) > 1 ? (
           <p
@@ -774,7 +781,7 @@ export default function ShiftHandovers() {
               <Eye size={12} /> {open ? 'إخفاء' : 'بنود المصروفات والمراجعات'}
             </button>
           ) : null}
-          {onDuty && editing !== row.id ? (
+          {punches && editing !== row.id ? (
             <button
               type="button"
               onClick={() => {
@@ -830,7 +837,7 @@ export default function ShiftHandovers() {
   // A shift past its deadline with no handover, and who was on duty when it should have closed.
   const missingCard = (day: string, branch: string, shift: (typeof SHIFT_TYPES)[number]) => {
     if (person !== 'الكل' || new Date() < shiftDeadline(day, shift)) return null;
-    const who = onDutyLabel(doctorsAt(branch, day, shift));
+    const who = slotPeople(branch, day, shift);
     return (
       <div
         key={`missing-${shift}`}
@@ -841,7 +848,7 @@ export default function ShiftHandovers() {
         }}
       >
         <span className="dawaa-badge dawaa-badge--danger">{shift} · ناقص</span>
-        <p className="mt-1">ما اتقفلش{who ? ` — الموجود وقت التقفيل: ${who}` : ''}</p>
+        <p className="mt-1">ما اتقفلش{who ? ` — في الشيفت (بصمات): ${who}` : ''}</p>
       </div>
     );
   };
@@ -1395,7 +1402,7 @@ export default function ShiftHandovers() {
                     <span className="w-20 shrink-0">{shortDay(slot.day)}</span>
                     <span className={`dawaa-badge ${SHIFT_TONE[slot.shift]}`}>{slot.shift}</span>
                     <span className="dawaa-caption min-w-0 flex-1">
-                      {onDutyLabel(doctorsAt(slot.branch, slot.day, slot.shift)) || '-'}
+                      {slotPeople(slot.branch, slot.day, slot.shift) || '-'}
                     </span>
                   </li>
                 ))}
@@ -1430,7 +1437,7 @@ export default function ShiftHandovers() {
                   SHIFT_TYPES.map((shift) => {
                     const slot = slotOf(day, branch, shift);
                     const status = STATUS[slot.status];
-                    const onDutyNow = onDutyLabel(doctorsAt(branch, day, shift));
+                    const onDutyNow = slot.rows.length ? '' : slotPeople(branch, day, shift);
                     const who = [
                       ...slot.rows.map(
                         (r) =>
@@ -1438,7 +1445,7 @@ export default function ShiftHandovers() {
                             r.reread ? ` · مسجل ${r.source_type} ${r.source_date}` : ''
                           }`
                       ),
-                      ...(onDutyNow ? [`الموجود وقت التقفيل: ${onDutyNow}`] : []),
+                      ...(onDutyNow ? [`في الشيفت (بصمات): ${onDutyNow}`] : []),
                     ].join('\n');
                     return (
                       <td key={`${branch}${shift}`} className="p-1">
