@@ -1,0 +1,177 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { toast } from 'sonner';
+import { FolderOpen, RefreshCw, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import {
+  supportsLocalWhatsAppInbox,
+  connectLocalWhatsAppFolder,
+  restoreLocalWhatsAppFolder,
+  queryLocalWhatsAppFolderPermission,
+  getUnprocessedWhatsAppExports,
+  markLocalWhatsAppFileProcessed,
+  markLocalWhatsAppFileFailed,
+  resetLocalWhatsAppProcessedLedger,
+  type LocalInboxCandidate,
+} from '@/lib/localWhatsAppInbox';
+import { ingestWhatsAppExportFile, type IngestOneFileResult } from '@/lib/whatsappAutoIngestPipeline';
+import { shouldMarkWhatsAppFileProcessed } from '@/lib/whatsappWatcherCaseGraphSync';
+import { getStaffSessionToken } from '@/lib/auth/staffSession';
+import LegacySurfaceNotice from '@/components/system/LegacySurfaceNotice';
+
+const SCAN_INTERVAL_MS = 60_000;
+
+export default function WhatsAppFolderWatcher() {
+  const [connected, setConnected] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [log, setLog] = useState<(IngestOneFileResult & { at: string })[]>([]);
+  const handleRef = useRef<any>(null);
+
+  const scanOnce = useCallback(async () => {
+    const handle = handleRef.current;
+    if (!handle || scanning) return;
+    setScanning(true);
+    try {
+      const accessToken = getStaffSessionToken();
+      if (!accessToken) {
+        toast.error('جلسة التحليل الرسمي غير مفعلة. سجّل خروج ثم دخول مرة واحدة، وبعدها أعد المحاولة.');
+        return;
+      }
+
+      const candidates: LocalInboxCandidate[] = await getUnprocessedWhatsAppExports(handle, 10);
+      for (const candidate of candidates) {
+        try {
+          const result = await ingestWhatsAppExportFile(candidate.file, { accessToken, sourceFolderName: candidate.folderName ?? null });
+          // Processed only after the full canonical chain (Source -> V22 -> Sales Intelligence).
+          // A partial file stays retryable and is never recorded as a full success.
+          if (result.processing && shouldMarkWhatsAppFileProcessed(result.processing)) {
+            markLocalWhatsAppFileProcessed(candidate.key);
+          } else {
+            markLocalWhatsAppFileFailed(
+              candidate.key,
+              result.processing?.blockingErrors.join(' | ') || 'canonical_pipeline_incomplete'
+            );
+          }
+          setLog((prev) => [{ ...result, at: new Date().toLocaleTimeString('ar-EG') }, ...prev].slice(0, 50));
+          if (result.processing && !shouldMarkWhatsAppFileProcessed(result.processing)) {
+            toast.error(
+              `${candidate.name}: المعالجة غير مكتملة (${result.processing.outcome}) — ${result.processing.blockingErrors[0] || 'سيُعاد المحاولة'}`
+            );
+          } else if (result.errors.length) {
+            toast.warning(`${candidate.name}: ${result.errors[0]}`);
+          } else {
+            const autoReviewNote = result.autoReviewsCreated
+              ? `، ${result.autoReviewsCreated} تقييم آلي جديد`
+              : '';
+            toast.success(
+              `تم تحليل ${candidate.name} — ${result.sessionsSaved} محادثة جديدة، ${result.customersMatched} عميل متطابق، ${result.followupsCreated} طلب متابعة جديد${autoReviewNote}`,
+            );
+          }
+          if (result.autoReviewsPointsFailed) {
+            toast.error(
+              `${candidate.name}: ${result.autoReviewsPointsFailed} تقييم آلي اتسجل لكن ربط النقاط بتاعه فشل — يحتاج مراجعة يدوية`,
+            );
+          }
+        } catch (e) {
+          const reason = e instanceof Error ? e.message : 'خطأ غير معروف';
+          markLocalWhatsAppFileFailed(candidate.key, reason);
+          toast.error(`فشل تحليل ${candidate.name}: ${reason}`);
+        }
+      }
+    } finally {
+      setScanning(false);
+    }
+  }, [scanning]);
+
+  useEffect(() => {
+    (async () => {
+      const handle = await restoreLocalWhatsAppFolder();
+      if (handle && (await queryLocalWhatsAppFolderPermission(handle, false)) === 'granted') {
+        handleRef.current = handle;
+        setConnected(true);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!connected) return;
+    const id = window.setInterval(() => { if (!document.hidden) void scanOnce(); }, SCAN_INTERVAL_MS);
+    return () => window.clearInterval(id);
+  }, [connected, scanOnce]);
+
+  async function connect() {
+    try {
+      const handle = await connectLocalWhatsAppFolder();
+      handleRef.current = handle;
+      setConnected(true);
+      toast.success('تم ربط الفولدر — النظام هيراقبه تلقائيًا كل دقيقة');
+      void scanOnce();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'تعذر ربط الفولدر');
+    }
+  }
+
+  async function reanalyzeExisting() {
+    if (!handleRef.current || scanning) return;
+    resetLocalWhatsAppProcessedLedger();
+    setLog([]);
+    toast.success('تمت إعادة تهيئة سجل الملفات — سيعاد تحليل الملفات الحالية بالمحرك الرسمي، 10 ملفات في كل دفعة.');
+    await scanOnce();
+  }
+
+  return (
+    <div className="dawaa-text space-y-4 p-4" dir="rtl">
+      <LegacySurfaceNotice />
+      <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
+        <h1 className="text-xl font-black text-[var(--dawaa-theme-heading)]">المراقبة التلقائية لمحادثات الواتساب</h1>
+        <p className="mt-1 text-sm font-bold text-[var(--dawaa-theme-muted)]">
+          اربط فولدر تصدير محادثات الواتساب على كمبيوتر الصيدلية مرة واحدة — أي ملف جديد هيتحلل تلقائيًا، ويتربط بالعميل إن أمكن، ويتمنع تكرار المحادثات وطلبات المتابعة.
+        </p>
+
+        {!supportsLocalWhatsAppInbox() ? (
+          <div className="mt-3 rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-3 text-xs font-bold text-[var(--dawaa-status-warning-text)]">
+            المتصفح الحالي مش بيدعم الربط المباشر بفولدر — لازم تستخدم Chrome أو Edge على نفس كمبيوتر الصيدلية.
+          </div>
+        ) : !connected ? (
+          <button onClick={() => void connect()} className="btn-primary mt-3 flex items-center gap-2"><FolderOpen size={16} /> اختيار فولدر تصدير الواتساب</button>
+        ) : (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="flex items-center gap-1.5 rounded-full border border-[var(--dawaa-status-success-border)] bg-[var(--dawaa-status-success-bg)] px-3 py-1.5 text-xs font-black text-[var(--dawaa-status-success-text)]"><CheckCircle2 size={14} /> الفولدر متصل — بيتراقب كل دقيقة</span>
+            <button disabled={scanning} onClick={() => void scanOnce()} className="btn-secondary flex items-center gap-1.5 text-xs">{scanning ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} فحص الآن</button>
+            <button disabled={scanning} onClick={() => void reanalyzeExisting()} className="btn-secondary flex items-center gap-1.5 text-xs">
+              <RefreshCw size={14} /> إعادة تحليل الملفات الحالية
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-2xl border border-[var(--dawaa-theme-border)] dawaa-surface p-4 shadow-sm">
+        <h3 className="mb-2 font-black text-[var(--dawaa-theme-heading)]">سجل آخر عمليات التحليل</h3>
+        {!log.length ? <p className="text-xs font-bold text-[var(--dawaa-theme-muted)]">لسه مفيش ملفات اتحللت في هذه الجلسة.</p> : (
+          <div className="space-y-2">
+            {log.map((item, i) => (
+              <div key={i} className="rounded-xl border border-[var(--dawaa-theme-border)] p-3 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-black text-[var(--dawaa-theme-heading)]">{item.fileName}</span>
+                  <span className="font-bold text-[var(--dawaa-theme-muted)]">{item.at}</span>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-3 font-bold text-[var(--dawaa-theme-muted)]">
+                  <span>محادثات: {item.sessionsFound}</span>
+                  <span className="text-emerald-400">جديدة: {item.sessionsSaved}</span>
+                  <span>محادثات مكررة: {item.sessionsDuplicate}</span>
+                  <span className="text-violet-400">عملاء متطابقون: {item.customersMatched}</span>
+                  <span className="text-sky-400">متابعات جديدة: {item.followupsCreated}</span>
+                  <span>متابعات مكررة تم منعها: {item.followupsDuplicate}</span>
+                  <span className="text-teal-400">تقييمات آلية: {item.autoReviewsCreated}</span>
+                  {item.autoReviewsSkipped > 0 && <span>تقييمات آلية متجاهلة: {item.autoReviewsSkipped}</span>}
+                  {item.autoReviewsPointsFailed > 0 && (
+                    <span className="text-[var(--dawaa-status-danger-text)]">فشل ربط نقاط: {item.autoReviewsPointsFailed}</span>
+                  )}
+                </div>
+                {item.errors.map((err, j) => <div key={j} className="mt-1 flex items-center gap-1 text-[var(--dawaa-status-danger-text)]"><XCircle size={12} /> {err}</div>)}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

@@ -168,6 +168,7 @@ export const GROUPS: NavGroup[] = [
   { title: 'التوصيل', icon: Truck, items: [
     { path: '/delivery', icon: Truck, label: 'إدارة الدليفري', permission: 'view_delivery' },
   ]},
+  { title: 'للمراجعة', icon: ClipboardList, items: [{ path: '/review-pages', icon: ClipboardList, label: 'صفحات للمراجعة', allowedRoles: ['general_manager'] }] },
 ];
 
 // تبويبات لوحة الدكتور (تقييماتي، القبض والحوافز، إشعاراتي، سجل نشاطي) تُفتح من داخل اللوحة نفسها.
@@ -210,6 +211,7 @@ export const MANAGEMENT_GROUPS: NavGroup[] = [
   { title: 'العملاء', icon: HeadphonesIcon, items: managerItems('/customer-service', '/customers', '/reviews', '/customer-requests') },
   { title: 'المبيعات', icon: BarChart3, items: managerItems('/analytics', '/branch-comparison', '/reports', '/consolidated-reports') },
   { title: 'المشتريات والمخزون', icon: Store, items: managerItems('/purchases', '/supplier-accounts', '/shortages', '/inventory-counts') },
+  { title: 'للمراجعة', icon: ClipboardList, items: managerItems('/review-pages') },
 ];
 
 const MANAGEMENT_ROLES = ['general_manager', 'executive_manager', 'branches_manager'];

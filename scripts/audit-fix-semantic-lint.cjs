@@ -35,6 +35,10 @@ function addEslintDirective(path, rule) {
   });
 }
 
+patchFile('src/pages/CustomerService.tsx', (source) =>
+  source.includes('useQuickReply') ? source.replaceAll('useQuickReply', 'handleQuickReply') : source
+);
+
 for (const path of [
   'src/components/common/QuickShiftNotesModal.tsx',
   'src/hooks/useAuth.ts',
@@ -59,6 +63,7 @@ for (const path of [
   'src/lib/customers/buildCustomerLiveMetrics.ts',
   'src/lib/dawaa2027.ts',
   'src/lib/salesMetrics.ts',
+  'src/pages/CustomerService.tsx',
   'src/pages/ExecutiveDashboard2027.tsx',
 ]) {
   addEslintDirective(path, 'no-useless-escape');

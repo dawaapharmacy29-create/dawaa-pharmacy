@@ -60,6 +60,18 @@ describe('the sidebar each role really gets', () => {
     expect(html).not.toContain('إعدادات الموارد البشرية');
   });
 
+  it('shows the review pages to the general manager and to nobody else', () => {
+    expect(menu('general_manager')).toContain('صفحات للمراجعة');
+    const everything = Object.fromEntries(['view_reviews', 'view_team', 'view_customer_service'].map((key) => [key, true]));
+    for (const role of ['executive_manager', 'branches_manager', 'branch_manager', 'pharmacist', 'delivery']) {
+      expect(menu(role, everything)).not.toContain('صفحات للمراجعة');
+    }
+    vi.stubGlobal('window', { location: { pathname: '/', search: '' } });
+    expect(menu('assistant', everything)).not.toContain('صفحات للمراجعة');
+    expect(menu('team_dawaa_alpha', everything)).not.toContain('صفحات للمراجعة');
+    vi.unstubAllGlobals();
+  });
+
   it('keeps assistants and Team Dawaa Alpha on the assistant menu', () => {
     vi.stubGlobal('window', { location: { pathname: '/', search: '' } });
     expect(menu('assistant')).toContain('مساحة المساعد التشغيلية');

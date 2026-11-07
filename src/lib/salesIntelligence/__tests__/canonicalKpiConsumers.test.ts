@@ -16,4 +16,13 @@ describe('official KPI readers cannot return to legacy sales truth', () => {
     );
     expect(code).not.toMatch(/invoice_match_status\s*===\s*['"]verified['"]/);
   });
+  it.each([
+    'WhatsAppBranchComparison',
+    'WhatsAppLostOpportunities',
+    'WhatsAppCustomerHistory',
+  ])('%s is retired without querying its historical RPC', (name) => {
+    const code = readFileSync(new URL(`src/pages/${name}.tsx`, root), 'utf8');
+    expect(code).not.toMatch(/\.rpc\(/);
+    expect(code).toContain('LegacySurfaceNotice');
+  });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 import {
   BRANCH_MANAGER_GROUPS,
@@ -19,6 +19,24 @@ const appSource = read('src/App.tsx');
 const appRoutes = new Set([...appSource.matchAll(/path="([^"]+)"/g)].map((match) => match[1]));
 
 const basePath = (path: string) => path.split('?')[0];
+
+describe('review pages', () => {
+  it('guards both review routes for the general manager alone', () => {
+    for (const path of ['/review-pages', '/review-pages/:slug']) {
+      const route = appSource.slice(appSource.indexOf(`path="${path}"`)).split('/>\n      <Route')[0];
+      expect(route).toContain('<GeneralManagerRoute>');
+    }
+    expect(appSource).toContain("normalizeRole(user?.role) !== 'general_manager'");
+  });
+
+  it('lists every restored page exactly once', () => {
+    const source = read('src/pages/OwnerReviewPages.tsx');
+    const imports = [...source.matchAll(/import\('@\/pages\/([A-Za-z0-9]+)'\)/g)].map((match) => match[1]);
+    expect(imports).toHaveLength(12);
+    expect(new Set(imports).size).toBe(12);
+    for (const name of imports) expect(existsSync(resolve(root, `src/pages/${name}.tsx`))).toBe(true);
+  });
+});
 
 function routeExists(path: string) {
   const base = basePath(path);
@@ -161,7 +179,7 @@ describe('short menu per role', () => {
     const paths = (groups: NavGroup[]) => groups.flatMap((group) => group.items.map((item) => item.path));
     for (const role of ['general_manager', 'executive_manager', 'branches_manager']) {
       const menu = menuGroupsFor(role, false);
-      expect(new Set(paths(menu.main)).size).toBeLessThanOrEqual(26);
+      expect(new Set(paths(menu.main)).size).toBeLessThanOrEqual(27);
       expect(new Set([...paths(menu.main), ...paths(menu.more)])).toEqual(new Set(paths(GROUPS)));
       expect(paths(menu.main).filter((path) => paths(menu.more).includes(path))).toEqual([]);
       const titles = [...menu.main, ...menu.more].map((group) => group.title);
