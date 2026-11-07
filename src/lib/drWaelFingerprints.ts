@@ -726,7 +726,7 @@ export async function endDrWaelEmployment(args: {
   lastDay: string;
   kind: DrWaelSeparationKind;
   note?: string | null;
-}): Promise<{ last_day: string; archived: boolean; days_closed: number }> {
+}): Promise<EndEmploymentResult> {
   const { data, error } = await supabase.rpc('dr_wael_end_employment_v1', {
     p_staff_id: args.staffId,
     p_last_day: args.lastDay,
@@ -734,7 +734,117 @@ export async function endDrWaelEmployment(args: {
     p_note: args.note || null,
   });
   if (error) throw new Error(error.message);
-  return data as { last_day: string; archived: boolean; days_closed: number };
+  return data as EndEmploymentResult;
+}
+
+/** What a decision leaves open. Empty on a result from before migration 20261108120000. */
+export interface EndEmploymentLeft {
+  open_days?: string[];
+  punch_days_after?: string[];
+  pending_overtime?: number;
+  leave_after?: number;
+}
+
+export interface EndEmploymentResult extends EndEmploymentLeft {
+  last_day: string;
+  archived: boolean;
+  days_closed: number;
+  already?: boolean;
+}
+
+export interface EndEmploymentPreview extends EndEmploymentLeft {
+  last_punch_day: string | null;
+  days_to_close: number;
+  closes_now: boolean;
+  logins_open: number;
+  already: boolean;
+}
+
+export interface RecentEndEmployment extends EndEmploymentLeft {
+  change_id: string;
+  staff_id: string;
+  name: string;
+  branch: string;
+  last_day: string;
+  kind: DrWaelSeparationKind;
+  decided_at: string;
+  days_closed: number;
+  can_undo: boolean;
+}
+
+export async function previewEndEmployment(
+  staffId: string,
+  lastDay: string
+): Promise<EndEmploymentPreview> {
+  const { data, error } = await supabase.rpc('dr_wael_end_employment_preview_v1', {
+    p_staff_id: staffId,
+    p_last_day: lastDay,
+  });
+  if (error) throw new Error(error.message);
+  return data as EndEmploymentPreview;
+}
+
+export async function listRecentEndEmployments(): Promise<RecentEndEmployment[]> {
+  const { data, error } = await supabase.rpc('dr_wael_recent_end_employments_v1');
+  if (error) throw new Error(error.message);
+  return (data || []) as RecentEndEmployment[];
+}
+
+export async function undoEndEmployment(
+  changeId: string
+): Promise<{ days_reopened: number; days_kept: number; login_still_closed: boolean }> {
+  const { data, error } = await supabase.rpc('dr_wael_undo_end_employment_v1', {
+    p_change_id: changeId,
+  });
+  if (error) throw new Error(error.message);
+  return data as { days_reopened: number; days_kept: number; login_still_closed: boolean };
+}
+
+const dayMonth = (day: string) => {
+  const [, month, date] = day.split('-');
+  return `${Number(date)}/${Number(month)}`;
+};
+
+/** Up to 5 days, then how many more. */
+const daysList = (days: string[]) =>
+  days.slice(0, 5).map(dayMonth).join('، ') + (days.length > 5 ? ` و${days.length - 5} كمان` : '');
+
+/** What stays open after the decision, one line each. */
+export function endEmploymentLeftLines(left: EndEmploymentLeft): string[] {
+  const open = left.open_days ?? [];
+  const after = left.punch_days_after ?? [];
+  const lines: string[] = [];
+  if (after.length) lines.push(`فيه بصمات بعد آخر يوم (${daysList(after)}) ودي مش هتتقفل`);
+  if (open.length)
+    lines.push(`${open.length} يوم لسه محتاج مراجعة لحد آخر يوم (${daysList(open)})`);
+  if (left.pending_overtime) lines.push(`${left.pending_overtime} أوفر تايم مستني قرار`);
+  if (left.leave_after) lines.push(`${left.leave_after} إجازة معتمدة بتعدي آخر يوم`);
+  return lines;
+}
+
+export function endEmploymentResultText(name: string, result: EndEmploymentResult): string {
+  if (result.already) return `${name}: القرار ده متسجل قبل كده ومفيش حاجة اتغيرت`;
+  const left = endEmploymentLeftLines(result);
+  return (
+    `${name}: ترك عمل بعد ${result.last_day}` +
+    (result.archived ? ' · اتشال من الحضور' : ' · هيتشال من الحضور بعد آخر يوم') +
+    (result.days_closed ? ` · اتقفل ${result.days_closed} يوم معلق` : '') +
+    (left.length ? ` · لسه: ${left.join('، ')}` : '')
+  );
+}
+
+export function undoEndEmploymentText(
+  name: string,
+  result: { days_reopened: number; days_kept: number; login_still_closed: boolean }
+): string {
+  return (
+    `${name}: رجع زي ما كان` +
+    (result.days_reopened ? ` · اترجع ${result.days_reopened} يوم` : '') +
+    (result.days_kept ? ` · ${result.days_kept} يوم اتغير من وقتها وسيبته زي ما هو` : '') +
+    (result.login_still_closed
+      ? ' · الدخول على التطبيق لسه مقفول، افتحه من الحسابات لو محتاجه'
+      : '')
+  );
 }
 
 export type DrWaelWorkMode = 'regular' | 'part_time' | 'joker';
