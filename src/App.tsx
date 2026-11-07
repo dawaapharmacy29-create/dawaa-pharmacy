@@ -4,7 +4,7 @@ import { Component, lazy, Suspense, useEffect, useState, type ReactNode } from '
 import { isIOSWebKit } from '@/lib/mobileSafariCompat';
 import { Toaster } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
-import { canAccessAccountRoute, canAccessHRRoute, getRoleLandingPath, getRoutePermissions } from '@/lib/core/permissionSystem';
+import { canAccessAccountRoute, canAccessHRRoute, getRoleLandingPath, getRoutePermissions, normalizeRole } from '@/lib/core/permissionSystem';
 import Layout from '@/components/layout/Layout';
 import PWABanner from '@/components/features/PWABanner';
 import { isDoctorRole, isManagerRole } from '@/lib/security/userDataScope';
@@ -39,6 +39,7 @@ const Customer360 = lazy(() => import('@/pages/Customer360'));
 const CustomerImport = lazy(() => import('@/pages/CustomerImport'));
 const CustomerService = lazy(() => import('@/pages/SmartCustomerService'));
 const CustomerRequests = lazy(() => import('@/pages/CustomerRequests'));
+const OwnerReviewPages = lazy(() => import('@/pages/OwnerReviewPages'));
 const CustomerIncubation = lazy(() => import('@/pages/CustomerIncubation'));
 const CustomerDataReview = lazy(() => import('@/pages/CustomerDataReview'));
 const CRMPage = lazy(() => import('@/pages/CRMPage'));
@@ -264,6 +265,19 @@ function AdminRoute({ children, permission }: { children: ReactNode; permission?
   return <>{children}</>;
 }
 
+// The review pages open for the general manager alone: not executive or branches managers, whatever permissions
+// their accounts hold. The check runs before the page code loads.
+function GeneralManagerRoute({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  if (normalizeRole(user?.role) !== 'general_manager')
+    return (
+      <div className="dawaa-card dawaa-card--soft dawaa-body py-16 text-center" dir="rtl">
+        ليس لديك صلاحية للوصول إلى هذه الصفحة.
+      </div>
+    );
+  return <>{children}</>;
+}
+
 function isStaleChunkError(error: Error | undefined) {
   const message = String(error?.message || '');
   return /Failed to fetch dynamically imported module|Loading chunk|dynamically imported module|error loading dynamically imported module/i.test(
@@ -468,6 +482,22 @@ function AppRoutes() {
       <Route path="/whatsapp-customer-history" element={<CompatibilityRedirect to="/customers" />} />
       <Route path="/whatsapp-lost-opportunities" element={<CompatibilityRedirect to="/whatsapp-analytics" />} />
       <Route path="/whatsapp-branch-comparison" element={<CompatibilityRedirect to="/whatsapp-analytics" />} />
+      <Route
+        path="/review-pages"
+        element={
+          <ProtectedRoute>
+            <GeneralManagerRoute>{routeSuspense(<OwnerReviewPages />, 'صفحات للمراجعة')}</GeneralManagerRoute>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/review-pages/:slug"
+        element={
+          <ProtectedRoute>
+            <GeneralManagerRoute>{routeSuspense(<OwnerReviewPages />, 'صفحات للمراجعة')}</GeneralManagerRoute>
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/customer-requests"
         element={

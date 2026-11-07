@@ -623,3 +623,7 @@ ORPHAN_REAL = 0 after the micro-closure pass (both broken routes retired, see be
 | ID | Item | Evidence | Decision |
 |---|---|---|---|
 | APP-025 | 56 `conversation_sales_reviews` rows whose `month_cycle` disagrees with `review_date` (47 by more than 40 days) | read-only query during the closure pass; not a timezone effect | documented only; not fixed; not a blocker for real operational testing; any correction needs a separately approved, reviewed production data change |
+
+## Review pages (2026-11-07)
+
+The page files removed by #660 are back under `/review-pages`, open to the general manager only, until the owner reviews each one. The old WhatsApp addresses still redirect.

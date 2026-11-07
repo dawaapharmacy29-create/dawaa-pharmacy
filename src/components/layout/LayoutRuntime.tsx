@@ -24,6 +24,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/customer-cashback': 'نقاط العملاء / الكاش باك',
   '/customer-service-credit': 'كريديت خدمة العملاء',
   '/customer-requests': 'طلبات العملاء',
+  '/review-pages': 'صفحات للمراجعة',
   '/team': 'إدارة الفريق',
   '/schedule': 'الجدول الأسبوعي',
   '/time-off': 'الإذونات والإجازات',

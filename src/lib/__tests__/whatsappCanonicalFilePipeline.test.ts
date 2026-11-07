@@ -300,7 +300,7 @@ describe('canonical file pipeline — architecture guards', () => {
   });
 
   it('processed ledgers are written only through shouldMarkWhatsAppFileProcessed', () => {
-    for (const file of ['src/pages/WhatsAppSmartFolderWatcher.tsx']) {
+    for (const file of ['src/pages/WhatsAppSmartFolderWatcher.tsx', 'src/pages/WhatsAppFolderWatcher.tsx']) {
       const source = read(file);
       const marks = source.split('markLocalWhatsAppFileProcessed(candidate.key)').length - 1;
       expect(marks).toBe(1);
