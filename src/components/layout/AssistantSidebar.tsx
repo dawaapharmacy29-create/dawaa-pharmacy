@@ -8,7 +8,6 @@ import {
   HeadphonesIcon,
   LayoutDashboard,
   LogOut,
-  MessageCircle,
   PackageSearch,
   Star,
   UserPlus,
@@ -33,6 +32,7 @@ type AssistantNavItem = {
   icon: ElementType;
   permission?: string;
   excludeStaffIds?: readonly string[];
+  onlyStaffIds?: readonly string[];
 };
 
 type AssistantNavGroup = {
@@ -48,7 +48,7 @@ const TEAM_DAWAA_ALPHA_STAFF_IDS = [
   'dea91886-1ae8-4766-a166-9952866a5024', // هبه حماده
 ] as const;
 
-const GROUPS: AssistantNavGroup[] = [
+export const ASSISTANT_GROUPS: AssistantNavGroup[] = [
   {
     title: 'مساحة العمل',
     items: [
@@ -64,14 +64,9 @@ const GROUPS: AssistantNavGroup[] = [
       { path: '/customer-service', label: 'خدمة العملاء', icon: HeadphonesIcon, permission: 'view_customer_service' },
       { path: '/customer-service?quickFollowup=1', label: 'المتابعات', icon: ClipboardCheck, permission: 'view_customer_service' },
       { path: '/customer-requests', label: 'طلبات العملاء', icon: PackageSearch, permission: 'view_customer_requests' },
-      { path: '/reviews', label: 'تقييم المحادثات', icon: ClipboardCheck, permission: 'view_reviews' },
+      { path: '/reviews', label: 'تقييم المحادثات', icon: ClipboardCheck, permission: 'view_reviews', onlyStaffIds: TEAM_DAWAA_ALPHA_STAFF_IDS },
       { path: '/customers', label: 'قاعدة العملاء', icon: Users, permission: 'view_customers' },
       { path: '/customer-coding', label: 'تكويد عميل', icon: UserPlus, permission: 'view_customer_service' },
-      { path: '/customer-monthly-performance', label: 'أداء العملاء الشهري', icon: Users, permission: 'view_analytics' },
-      { path: '/customer-cashback', label: 'نقاط العملاء من الفواتير', icon: Star, permission: 'view_cashback' },
-      { path: '/customer-points-ledger', label: 'سجل حركات نقاط العملاء', icon: Star, permission: 'view_points' },
-      { path: '/quick-replies', label: 'الردود السريعة', icon: HeadphonesIcon, permission: 'whatsapp_customer' },
-      { path: '/welcome-messages', label: 'رسائل الترحيب', icon: MessageCircle, permission: 'customer_welcome_messages_view' },
     ],
   },
   {
@@ -79,7 +74,7 @@ const GROUPS: AssistantNavGroup[] = [
     items: [
       { path: '/purchases', label: 'المشتريات', icon: FileSpreadsheet, permission: 'view_purchases' },
       { path: '/purchase-invoice-entry', label: 'تسجيل فاتورة مشتريات', icon: FileSpreadsheet, permission: 'view_dashboard' },
-      { path: '/purchase-invoice-accuracy', label: 'دقة إدخال فواتير المشتريات', icon: FileSpreadsheet, permission: 'view_dashboard' },
+      { path: '/purchase-invoice-accuracy', label: 'دقة إدخال فواتير المشتريات', icon: FileSpreadsheet, permission: 'view_dashboard', onlyStaffIds: TEAM_DAWAA_ALPHA_STAFF_IDS },
     ],
   },
   {
@@ -102,21 +97,26 @@ function pathIsActive(itemPath: string, pathname: string, search: string) {
   return true;
 }
 
-export default function AssistantSidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: SidebarProps) {
-  const { user, logout, checkPermission } = useAuth();
-  const navigate = useNavigate();
-  const currentStaffId = user?.staffId || user?.id || '';
-
-  const groups = GROUPS
+export function assistantGroupsFor(checkPermission: (permission: string) => boolean, staffId: string) {
+  return ASSISTANT_GROUPS
     .map((group) => ({
       ...group,
       items: group.items.filter(
         (item) =>
           (!item.permission || checkPermission(item.permission)) &&
-          (!item.excludeStaffIds || !item.excludeStaffIds.includes(currentStaffId))
+          (!item.excludeStaffIds || !item.excludeStaffIds.includes(staffId)) &&
+          (!item.onlyStaffIds || item.onlyStaffIds.includes(staffId))
       ),
     }))
     .filter((group) => group.items.length > 0);
+}
+
+export default function AssistantSidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: SidebarProps) {
+  const { user, logout, checkPermission } = useAuth();
+  const navigate = useNavigate();
+  const currentStaffId = user?.staffId || user?.id || '';
+
+  const groups = assistantGroupsFor(checkPermission, currentStaffId);
 
   const content = (
     <div className="flex h-full flex-col">
