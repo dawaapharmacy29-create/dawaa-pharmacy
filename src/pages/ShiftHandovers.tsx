@@ -32,10 +32,15 @@ import {
   SHIFT_HANDOVER_BRANCHES,
   SHIFT_TYPES,
   closerOnShift,
+  missingByBranch,
   onDutyLabel,
+  readHandovers,
   shiftCoverage,
   shiftDeadline,
+  shiftGapLabel,
+  shiftGapTone,
   type OnDutyDoctor,
+  type ReadHandover,
   type ShiftHandoverCorrection,
   type ShiftSlot,
   type ShiftSlotStatus,
@@ -155,6 +160,14 @@ type ShiftRow = {
   synced_at: string | null;
 };
 
+type LiveRow = ReadHandover<ShiftRow>;
+
+const GAP_COLOR = {
+  normal: 'var(--dawaa-theme-muted)',
+  short: 'var(--dawaa-status-warning-text)',
+  long: 'var(--dawaa-status-warning-text)',
+} as const;
+
 function n(value: unknown) {
   const x = Number(value || 0);
   return Number.isFinite(x) ? x : 0;
@@ -204,7 +217,13 @@ const timeLabel = (value: string | null) =>
       })
     : '-';
 const clockLabel = (value: string | null) =>
-  value ? new Date(value).toLocaleTimeString('ar-EG', { hour: 'numeric', minute: '2-digit' }) : '-';
+  value
+    ? new Date(value).toLocaleTimeString('ar-EG', {
+        hour: 'numeric',
+        minute: '2-digit',
+        timeZone: 'Africa/Cairo',
+      })
+    : '-';
 
 function sumUp(rows: ShiftRow[]) {
   return {
@@ -443,7 +462,9 @@ export default function ShiftHandovers() {
 
   // Base44/DawaaWael values remain authoritative. Local management corrections are displayed
   // as separate audit notes only and never change the source totals or financial reports.
-  const live = useMemo(() => rows.filter((r) => !r.is_archived), [rows]);
+  // The date and shift come from when it was closed (readHandovers); the source values stay on the row.
+  const live = useMemo(() => readHandovers(rows.filter((r) => !r.is_archived)), [rows]);
+  const rereadCount = useMemo(() => live.filter((r) => r.reread).length, [live]);
   const fixesOf = (id: string) => corrections.filter((c) => c.handover_id === id);
   const doctorsAt = (branch: string, day: string, shift: string) =>
     onDuty?.find((d) => d.branch === branch && d.shift_date === day && d.shift_type === shift)
@@ -589,7 +610,7 @@ export default function ShiftHandovers() {
   const slotOf = (day: string, branch: string, shift: string) =>
     coverage.find(
       (slot) => slot.day === day && slot.branch === branch && slot.shift === shift
-    ) as ShiftSlot<ShiftRow>;
+    ) as ShiftSlot<LiveRow>;
 
   const exportCsv = () => {
     const header = [
@@ -608,6 +629,7 @@ export default function ShiftHandovers() {
       'الكاش المسلم',
       'فرق الكاش',
       'ملاحظات',
+      'المسجل في دواء وائل',
     ];
     const values = monthRows.map((r) => [
       r.shift_date,
@@ -625,6 +647,7 @@ export default function ShiftHandovers() {
       r.cash_handover,
       r.cash_variance,
       r.notes,
+      r.reread ? `${r.source_type} ${r.source_date}` : '',
     ]);
     const esc = (value: unknown) => '"' + String(value ?? '').replace(/"/g, '""') + '"';
     const csv = '﻿' + [header, ...values].map((line) => line.map(esc).join(',')).join('\r\n');
@@ -637,9 +660,14 @@ export default function ShiftHandovers() {
     URL.revokeObjectURL(url);
   };
 
-  const shiftCard = (row: ShiftRow) => {
+  const shiftCard = (row: LiveRow) => {
     const fixes = fixesOf(row.id);
     const open = expanded === row.id;
+    const gapTone = shiftGapTone(row.gap_minutes);
+    const people = doctorsAt(row.branch, row.shift_date, row.shift_type);
+    const check = onDuty
+      ? closerOnShift({ name: row.submitted_by, staffId: row.submitted_by_staff_id }, people)
+      : 'unknown';
     return (
       <div
         key={row.id}
@@ -649,69 +677,103 @@ export default function ShiftHandovers() {
           background: 'var(--dawaa-theme-surface)',
         }}
       >
-        <div className="flex items-center justify-between gap-2">
-          <span className={`dawaa-badge ${SHIFT_TONE[row.shift_type] || 'dawaa-badge--neutral'}`}>
-            {row.shift_type}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="inline-flex flex-wrap items-center gap-2">
+            <span className={`dawaa-badge ${SHIFT_TONE[row.shift_type] || 'dawaa-badge--neutral'}`}>
+              {row.shift_type}
+            </span>
+            <span className="text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>
+              {row.submitted_by || '-'}
+            </span>
+            {fixes.length ? (
+              <span className="dawaa-badge dawaa-badge--warning">ملاحظة مراجعة</span>
+            ) : null}
           </span>
-          <span className="dawaa-caption text-[11px] font-bold">{clockLabel(row.recorded_at)}</span>
+          <span className="text-xs font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>
+            {row.previous_close ? `${clockLabel(row.previous_close)} ← ` : 'اتقفل '}
+            {clockLabel(row.recorded_at)}
+          </span>
         </div>
-        <p className="mt-2 text-sm font-black" style={{ color: 'var(--dawaa-theme-heading)' }}>
-          {row.submitted_by || '-'}
-          {fixes.length ? (
-            <span className="dawaa-badge dawaa-badge--warning mr-2">ملاحظة مراجعة</span>
-          ) : null}
-        </p>
-        {onDuty ? (() => {
-          // Who the fingerprints put on this shift when it was closed, and whether the closer is one of them.
-          const people = doctorsAt(row.branch, row.shift_date, row.shift_type);
-          const check = closerOnShift({ name: row.submitted_by, staffId: row.submitted_by_staff_id }, people);
-          return (
-            <>
-              <p className="dawaa-caption mt-0.5 text-[11px] font-bold">
-                في الشيفت (بصمات): {onDutyLabel(people) || '-'}
-              </p>
-              {check === 'no' ? (
-                <span className="dawaa-badge dawaa-badge--warning mt-1 text-[10px]">
-                  اللي قفل مش باصم في الشيفت ده
-                </span>
-              ) : null}
-            </>
-          );
-        })() : null}
-        <div className="mt-2 grid grid-cols-2 gap-1 text-xs font-bold">
-          <span className="dawaa-caption">مبيعات</span>
-          <span>{formatCurrency(n(row.total_sales))}</span>
+        {row.gap_minutes != null ? (
+          <p className="mt-1 text-xs font-bold" style={{ color: GAP_COLOR[gapTone] }}>
+            {shiftGapLabel(row.gap_minutes)} من التسليم اللي قبله
+            {gapTone === 'short' ? ' · قصير: راجع لو اتسجل مرتين' : ''}
+            {gapTone === 'long' ? ' · طويل: ممكن فيه شيفت ما اتقفلش' : ''}
+          </p>
+        ) : null}
+        {row.entered_late_days ? (
+          <p className="mt-1 text-xs font-bold" style={{ color: GAP_COLOR.long }}>
+            اتسجل بعد شيفته بـ {row.entered_late_days} يوم ({timeLabel(row.recorded_at)})
+          </p>
+        ) : null}
+        {row.reread ? (
+          <p className="mt-1 text-xs font-bold" style={{ color: 'var(--dawaa-status-info-text)' }}>
+            مسجل في دواء وائل {row.source_type} {shortDay(row.source_date)}، واتحسب هنا من ميعاد
+            التقفيل
+          </p>
+        ) : null}
+        <dl className="mt-2 grid grid-cols-3 gap-2 text-center">
+          <div>
+            <dt className="dawaa-caption text-[11px] font-bold">مبيعات</dt>
+            <dd className="text-sm font-black">{formatCurrency(n(row.total_sales))}</dd>
+          </div>
+          <div>
+            <dt className="dawaa-caption text-[11px] font-bold">نقدي للمحاسب</dt>
+            <dd
+              className="text-sm font-black"
+              style={{ color: 'var(--dawaa-status-success-text)' }}
+            >
+              {formatCurrency(accountantCashOf(row))}
+            </dd>
+          </div>
+          <div>
+            <dt className="dawaa-caption text-[11px] font-bold">تحويلات</dt>
+            <dd className="text-sm font-black" style={{ color: 'var(--dawaa-status-info-text)' }}>
+              {formatCurrency(transfersOf(row))}
+            </dd>
+          </div>
+        </dl>
+        <div className="mt-2 flex flex-wrap gap-1 text-[11px] font-bold">
+          {PAYMENTS.filter(([key]) => n(row[key])).map(([key, label]) => (
+            <span key={key} className="dawaa-badge dawaa-badge--neutral">
+              {label} {formatCurrency(n(row[key]))}
+            </span>
+          ))}
           {n(row.total_expenses) ? (
-            <>
-              <span className="dawaa-caption">مصروفات</span>
-              <span>{formatCurrency(n(row.total_expenses))}</span>
-            </>
+            <span className="dawaa-badge dawaa-badge--warning">
+              مصروفات {formatCurrency(n(row.total_expenses))}
+            </span>
           ) : null}
-          <span className="dawaa-caption">نقدي للمحاسب</span>
-          <span style={{ color: 'var(--dawaa-status-success-text)' }}>
-            {formatCurrency(accountantCashOf(row))}
-          </span>
-          <span className="dawaa-caption">التحويلات</span>
-          <span style={{ color: 'var(--dawaa-status-info-text)' }}>
-            {formatCurrency(transfersOf(row))}
-          </span>
         </div>
+        {onDuty ? (
+          <p className="dawaa-caption mt-2 text-xs font-bold">
+            في الشيفت (بصمات): {onDutyLabel(people) || '-'}
+          </p>
+        ) : null}
+        {check === 'no' ? (
+          <span className="dawaa-badge dawaa-badge--warning mt-1 text-[10px]">
+            اللي قفل مش باصم في الشيفت ده
+          </span>
+        ) : null}
         {Math.abs(n(row.cash_variance)) > 1 ? (
           <p
-            className="mt-1 inline-flex items-center gap-1 text-xs font-black"
+            className="mt-1 flex items-center gap-1 text-xs font-black"
             style={{ color: 'var(--dawaa-status-danger-text)' }}
           >
             <AlertTriangle size={12} /> فرق كاش {formatCurrency(n(row.cash_variance))}
           </p>
         ) : null}
+        {row.notes ? <p className="mt-1 text-xs font-bold">📝 {row.notes}</p> : null}
         <div className="mt-2 flex gap-3 print:hidden">
-          <button
-            type="button"
-            className="dawaa-caption inline-flex items-center gap-1 text-xs font-black underline"
-            onClick={() => setExpanded((v) => (v === row.id ? null : row.id))}
-          >
-            <Eye size={12} /> {open ? 'إخفاء' : 'عرض'}
-          </button>
+          {row.expenses?.length || fixes.length ? (
+            <button
+              type="button"
+              className="dawaa-caption inline-flex items-center gap-1 text-xs font-black underline"
+              onClick={() => setExpanded((v) => (v === row.id ? null : row.id))}
+            >
+              <Eye size={12} /> {open ? 'إخفاء' : 'بنود المصروفات والمراجعات'}
+            </button>
+          ) : null}
           {onDuty && editing !== row.id ? (
             <button
               type="button"
@@ -730,28 +792,14 @@ export default function ShiftHandovers() {
             className="mt-2 space-y-1 border-t pt-2 text-xs font-bold"
             style={{ borderColor: 'var(--dawaa-theme-border)' }}
           >
-            <div className="flex flex-wrap gap-1">
-              {PAYMENTS.filter(([key]) => n(row[key])).map(([key, label]) => (
-                <span key={key} className="dawaa-badge dawaa-badge--neutral">
-                  {label}: {formatCurrency(n(row[key]))}
-                </span>
-              ))}
-            </div>
-            <p>الكاش المسلّم: {formatCurrency(n(row.cash_handover))}</p>
             {row.expenses?.map((e, idx) => (
               <p key={idx}>
                 • {e.category || 'مصروف'}
                 {e.description ? ` — ${e.description}` : ''}: {formatCurrency(n(e.amount))}
               </p>
             ))}
-            {onDuty ? (
-              <p className="dawaa-caption">
-                الموجود وقت التقفيل:{' '}
-                {onDutyLabel(doctorsAt(row.branch, row.shift_date, row.shift_type)) || '-'}
-              </p>
-            ) : null}
+            <p>الكاش المسلّم: {formatCurrency(n(row.cash_handover))}</p>
             <p className="dawaa-caption">اتسجل {timeLabel(row.recorded_at)}</p>
-            {row.notes ? <p>📝 {row.notes}</p> : null}
             {fixes.map((c) => (
               <p key={c.id} className="dawaa-caption">
                 ✏️ {c.corrected_by_name || '-'} · {timeLabel(c.created_at)} · {c.reason}:{' '}
@@ -1309,6 +1357,8 @@ export default function ShiftHandovers() {
     </div>
   );
 
+  const missingGroups = missingByBranch(late);
+
   const coverageTab = (
     <Panel className="p-4">
       <SectionTitle
@@ -1319,20 +1369,39 @@ export default function ShiftHandovers() {
         كل فرع بيقفل 3 شيفتات في اليوم. الشيفت بيبقى «ناقص» بعد ميعاده بساعتين: الليلي 10 الصبح،
         الصباحي 7 بالليل، المسائي 3 الفجر.
       </p>
+      {rereadCount ? (
+        <p className="dawaa-caption mb-3 text-xs font-bold">
+          {rereadCount.toLocaleString('ar-EG')} تسليم اتسجل بتاريخ أو شيفت مش مطابق لميعاد تقفيله،
+          فاتحسب هنا في مكانه الصح. المبالغ ماتغيرتش.
+        </p>
+      ) : null}
       {late.length ? (
-        <div className="dawaa-alert dawaa-alert--danger mb-3 text-sm font-bold">
-          <p>{late.length} شيفت ما اتقفلش:</p>
-          <ul className="mt-1 space-y-0.5">
-            {late.map((slot) => {
-              const who = onDutyLabel(doctorsAt(slot.branch, slot.day, slot.shift));
-              return (
-                <li key={`${slot.branch}${slot.day}${slot.shift}`}>
-                  {shortBranch(slot.branch)} {shortDay(slot.day)} {slot.shift}
-                  {who ? ` — الموجود وقت التقفيل: ${who}` : ''}
-                </li>
-              );
-            })}
-          </ul>
+        <div className={`mb-4 grid gap-3 ${missingGroups.length > 1 ? 'lg:grid-cols-2' : ''}`}>
+          {missingGroups.map((group) => (
+            <div
+              key={group.branch}
+              className="rounded-xl border p-3"
+              style={{ borderColor: 'var(--dawaa-status-danger-border)' }}
+            >
+              <p
+                className="mb-2 text-sm font-black"
+                style={{ color: 'var(--dawaa-status-danger-text)' }}
+              >
+                {group.branch} · {group.slots.length.toLocaleString('ar-EG')} ناقص
+              </p>
+              <ul className="space-y-1.5 text-xs font-bold">
+                {group.slots.map((slot) => (
+                  <li key={`${slot.day}${slot.shift}`} className="flex flex-wrap gap-x-2">
+                    <span className="w-20 shrink-0">{shortDay(slot.day)}</span>
+                    <span className={`dawaa-badge ${SHIFT_TONE[slot.shift]}`}>{slot.shift}</span>
+                    <span className="dawaa-caption min-w-0 flex-1">
+                      {onDutyLabel(doctorsAt(slot.branch, slot.day, slot.shift)) || '-'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
       ) : null}
       <div className="overflow-x-auto">
@@ -1364,7 +1433,10 @@ export default function ShiftHandovers() {
                     const onDutyNow = onDutyLabel(doctorsAt(branch, day, shift));
                     const who = [
                       ...slot.rows.map(
-                        (r) => `${r.submitted_by || '-'} · ${formatCurrency(n(r.net_amount))}`
+                        (r) =>
+                          `${r.submitted_by || '-'} · ${formatCurrency(n(r.net_amount))}${
+                            r.reread ? ` · مسجل ${r.source_type} ${r.source_date}` : ''
+                          }`
                       ),
                       ...(onDutyNow ? [`الموجود وقت التقفيل: ${onDutyNow}`] : []),
                     ].join('\n');
@@ -1376,6 +1448,12 @@ export default function ShiftHandovers() {
                         >
                           {status.label}
                         </span>
+                        {slot.rows[0] ? (
+                          <span className="dawaa-caption mt-0.5 block text-[10px]">
+                            {clockLabel(slot.rows[0].recorded_at)}
+                            {slot.rows.some((r) => r.reread) ? ' ↻' : ''}
+                          </span>
+                        ) : null}
                       </td>
                     );
                   })
@@ -1448,7 +1526,7 @@ export default function ShiftHandovers() {
             type="button"
             role="tab"
             aria-selected={tab === id}
-            className={`dawaa-tab inline-flex items-center gap-2 whitespace-nowrap ${tab === id ? 'is-active' : ''}`}
+            className={`dawaa-tab inline-flex shrink-0 items-center gap-2 whitespace-nowrap ${tab === id ? 'is-active' : ''}`}
             onClick={() => setTab(id)}
           >
             <Icon size={16} /> {label}
