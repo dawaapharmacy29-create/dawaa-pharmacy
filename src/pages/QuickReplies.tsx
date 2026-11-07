@@ -7,6 +7,7 @@ import {
   DEFAULT_QUICK_REPLY_SCRIPTS,
   QUICK_REPLY_SCRIPT_TYPES,
   fetchQuickReplyScripts,
+  hasUnresolvedQuickReplyFields,
   incrementQuickReplyUsage,
   renderQuickReplyTemplate,
   saveQuickReplyScript,
@@ -56,6 +57,9 @@ export default function QuickReplies() {
   const [libraryFilter, setLibraryFilter] = useState<LibraryFilter>('active');
   const [form, setForm] = useState<Partial<QuickReplyScript>>(emptyForm(user));
   const [useCustomerName, setUseCustomerName] = useState(false);
+  const [confirmedDoctorName, setConfirmedDoctorName] = useState('');
+  const [orderItems, setOrderItems] = useState('');
+  const [orderTotal, setOrderTotal] = useState('');
   const [saving, setSaving] = useState(false);
 
   const load = async () => {
@@ -99,7 +103,9 @@ export default function QuickReplies() {
 
   const renderedMessage = (script: Partial<QuickReplyScript>) => renderQuickReplyTemplate(script.message_body || '', {
     customer_name: 'عميل دواء',
-    doctor_name: script.doctor_name || user?.name || 'صيدليات دواء',
+    doctor_name: script.script_type === 'doctor_welcome' ? confirmedDoctorName : script.doctor_name || user?.name || '',
+    order_items: orderItems,
+    order_total: orderTotal,
     branch: script.branch && script.branch !== ALL ? script.branch : user?.branch || 'فرع الصيدلية',
     last_purchase: 'آخر تعامل',
     use_customer_name: useCustomerName,
@@ -137,8 +143,13 @@ export default function QuickReplies() {
   };
 
   const copy = async (script: QuickReplyScript) => {
+    const message = renderedMessage(script);
+    if (hasUnresolvedQuickReplyFields(message)) {
+      toast.error('الرد فيه بيانات ناقصة؛ أكمل اسم الدكتور أو تفاصيل الطلب أو باقي المتغيرات قبل النسخ.');
+      return;
+    }
     try {
-      await copyText(renderedMessage(script));
+      await copyText(message);
       await incrementQuickReplyUsage(script.id);
       setScripts((current) => current.map((item) => item.id === script.id ? { ...item, usage_count: item.usage_count + 1 } : item));
       toast.success('تم نسخ الرد');
@@ -222,13 +233,20 @@ export default function QuickReplies() {
       <select className="input-dark" value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}><option>{ALL}</option>{QUICK_REPLY_SCRIPT_TYPES.map((type) => <option key={type}>{type}</option>)}</select>
     </section>
 
+    <section className="dawaa-panel grid gap-3 md:grid-cols-3">
+      <div className="md:col-span-3 text-sm font-bold text-cyan-100">بيانات الرسالة قبل النسخ — أدخل القيم الفعلية فقط؛ لن يُنسخ أي رد به خانات ناقصة.</div>
+      <input className="input-dark" aria-label="اسم الدكتور الصيدلي المؤكد" placeholder="اسم الدكتور الصيدلي (لترحيب الدكتور)" value={confirmedDoctorName} onChange={(event) => setConfirmedDoctorName(event.target.value)}/>
+      <textarea className="input-dark" aria-label="أصناف الأوردر" rows={2} placeholder="أصناف الأوردر وكمياتها" value={orderItems} onChange={(event) => setOrderItems(event.target.value)}/>
+      <input className="input-dark" aria-label="إجمالي الأوردر" placeholder="إجمالي الأوردر الفعلي بالجنيه" value={orderTotal} onChange={(event) => setOrderTotal(event.target.value)}/>
+    </section>
+
     <div className="text-sm font-black text-cyan-200">المعروض الآن: {filtered.length} رد</div>
     <section className="grid gap-3 xl:grid-cols-2">
       {filtered.map((script) => <article key={script.id} className="rounded-3xl border border-white/10 bg-slate-950/45 p-5">
         <div className="flex items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-cyan-500/15 px-3 py-1 font-black text-cyan-200">{script.shortcut}</span><span className="text-xs font-bold text-slate-400">{script.category} · {script.script_type}</span>{isRecoveryRecord(script) ? <span className="rounded-full bg-red-500/15 px-3 py-1 text-xs font-black text-red-200">أرشيف استعادة</span> : null}</div><h2 className="mt-3 text-lg font-black text-white">{script.title}</h2></div><button className="btn-secondary" disabled={isRecoveryRecord(script)} onClick={() => void toggleActive(script)}>{script.active ? 'تعطيل' : 'تفعيل'}</button></div>
-        <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm leading-7 text-slate-200">{renderedMessage(script)}</div>
+        <div className="mt-4 whitespace-pre-line rounded-2xl border border-white/10 bg-black/20 p-4 text-sm leading-7 text-slate-200">{renderedMessage(script)}</div>
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs font-bold text-slate-400"><span>{script.branch || 'كل الفروع'} · {script.doctor_name || 'عام'}</span><span>الاستخدام: {script.usage_count || 0}</span></div>
-        <button className="btn-primary mt-4 w-full" disabled={isRecoveryRecord(script)} onClick={() => void copy(script)}><Clipboard className="ml-1 inline h-4 w-4"/> نسخ الرد</button>
+        <button className="btn-primary mt-4 w-full" disabled={isRecoveryRecord(script) || hasUnresolvedQuickReplyFields(renderedMessage(script))} onClick={() => void copy(script)}><Clipboard className="ml-1 inline h-4 w-4"/> {hasUnresolvedQuickReplyFields(renderedMessage(script)) ? 'أكمل بيانات الرسالة أولًا' : 'نسخ الرد'}</button>
       </article>)}
       {!loading && filtered.length === 0 ? <div className="rounded-3xl border border-emerald-400/20 bg-emerald-500/10 p-8 text-center font-black text-emerald-200 xl:col-span-2">لا توجد ردود مطابقة للفلاتر الحالية.</div> : null}
     </section>
