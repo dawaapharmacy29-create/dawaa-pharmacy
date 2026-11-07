@@ -1381,6 +1381,8 @@ export interface PunchReading {
   start: string;
   end: string;
   source: ReadingSource;
+  /** The suggested shift, or one that is really in his schedule, not only a repeating pattern. */
+  trusted: boolean;
   /** Cairo wall clock, null when that punch is the missing one. */
   inAt: string | null;
   outAt: string | null;
@@ -1424,6 +1426,7 @@ interface ShiftCandidate {
   start: string;
   end: string;
   source: ReadingSource;
+  trusted?: boolean;
 }
 
 export function readOpenDay(
@@ -1475,6 +1478,7 @@ export function readOpenDay(
       start: candidate.start,
       end: candidate.end,
       source: candidate.source,
+      trusted: candidate.trusted ?? candidate.source === 'suggested',
       inAt: first != null ? wallText(first) : null,
       outAt: last != null ? wallText(last) : null,
       late: first != null ? Math.max(0, first - start) : 0,
@@ -1506,6 +1510,7 @@ export function readOpenDay(
       start: clockText(start),
       end: clockText(end),
       source: 'punches',
+      trusted: false,
       inAt: wallText(own[i]),
       outAt: wallText(own[i + 1]),
       late: 0,
@@ -1540,6 +1545,7 @@ export function punchReadings(
         start: shift.start,
         end: shift.end,
         source: 'known' as const,
+        trusted: shift.scheduled,
       })),
     ];
     const reading = readOpenDay(day, byStaff.get(day.staff_id) || [], candidates);
@@ -1556,4 +1562,161 @@ export function datesInPeriod(from: string, to: string, weekDays: string[] | nul
     if (!weekDays || weekDays.includes(WEEKDAY_NAMES[weekdayOf(date)])) count += 1;
   }
   return count;
+}
+
+// ---------------------------------------------------------------------------------------------------------
+// Quick decisions: every open day becomes one sentence and one recommended action. The clear ones follow fixed
+// rules and go in one click; only the rest ask for an opinion, one at a time. Nothing runs without that click.
+export const QUICK_SMALL_MINUTES = 15;
+export const QUICK_SHIFT_MINUTES = 30;
+
+export type QuickAction =
+  | { type: 'decide'; decision: QuickDayDecision; label: string; tone: QuickDayOption['tone'] }
+  | { type: 'shift'; start: string; end: string; label: string }
+  | { type: 'details'; label: string };
+
+export type QuickGroup = 'forgot' | 'shift' | 'small' | 'absence' | 'minutes' | 'other';
+
+export interface QuickItem {
+  day: DrWaelDay;
+  group: QuickGroup;
+  /** One of the agreed rules covers it, so it can run with the others in one click. */
+  clear: boolean;
+  /** What the system understood, when it adds to what happened. */
+  why: string | null;
+  primary: QuickAction;
+  secondary: QuickAction | null;
+}
+
+export interface QuickPlan {
+  clear: QuickItem[];
+  ask: QuickItem[];
+}
+
+const DETAILS: QuickAction = { type: 'details', label: 'راجع التفاصيل' };
+
+const shiftAction = (reading: PunchReading): QuickAction => ({
+  type: 'shift',
+  start: reading.start,
+  end: reading.end,
+  label: `اعتبره شيفت ${reading.start}–${reading.end}`,
+});
+
+const fromOption = (option: QuickDayOption): QuickAction => ({ type: 'decide', ...option });
+
+function readingWhy(reading: PunchReading): string {
+  const minutes = reading.late + reading.early;
+  const onShift =
+    reading.source === 'punches'
+      ? 'الشيفت ده من البصمة بس ومش من شيفتاته، اتأكد إنه مش تأخير'
+      : minutes
+        ? `عليه ${minutes} د على الشيفت ده`
+        : 'مظبوط على الشيفت ده';
+  const now = reading.nowMinutes ? ` بدل ${reading.nowMinutes} د دلوقتي` : '';
+  return `البصمة ماشية على شيفت ${reading.start}–${reading.end}: ${onShift}${now}`;
+}
+
+// `readings` come from punchReadings, `allowance` is how many forgotten punches each employee still has.
+export function quickPlan(
+  days: DrWaelDay[],
+  today: string,
+  readings: Map<string, PunchReading>,
+  flexible: ReadonlySet<string>,
+  allowance: (staffId: string) => number
+): QuickPlan {
+  const left = new Map<string, number>();
+  const items: QuickItem[] = [];
+  // Oldest first, so the allowance goes to the first forgotten punches like it does in payroll.
+  const open = days
+    .filter((day) => day.review && day.status !== 'approved' && day.date < today)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  for (const day of open) {
+    const options = quickDayOptions(day);
+    const first = options[0] ? fromOption(options[0]) : null;
+    const second = options[1] ? fromOption(options[1]) : null;
+    const minutes = day.late_minutes + day.early_leave_minutes;
+    if (flexible.has(day.staff_id)) {
+      items.push({
+        day,
+        group: 'other',
+        clear: false,
+        why: null,
+        primary: DETAILS,
+        secondary: null,
+      });
+      continue;
+    }
+    const reading = readings.get(`${day.staff_id}-${day.date}`);
+    if (reading) {
+      const onShift = reading.late + reading.early;
+      const whole = Boolean(reading.inAt && reading.outAt);
+      items.push({
+        day,
+        group: 'shift',
+        clear:
+          reading.trusted &&
+          whole &&
+          onShift <= QUICK_SHIFT_MINUTES &&
+          reading.source !== 'punches',
+        why: readingWhy(reading),
+        primary: shiftAction(reading),
+        secondary: first || DETAILS,
+      });
+      continue;
+    }
+    if ((day.resolution === 'missing_checkin' || day.resolution === 'missing_checkout') && first) {
+      const remaining = left.has(day.staff_id)
+        ? (left.get(day.staff_id) as number)
+        : allowance(day.staff_id);
+      left.set(day.staff_id, remaining - 1);
+      items.push({
+        day,
+        group: 'forgot',
+        clear: remaining > 0,
+        why: remaining > 0 ? null : 'خلّص سماح نسيان البصمة، فالقرار ده ممكن يبقى عليه خصم',
+        primary: first,
+        secondary: DETAILS,
+      });
+      continue;
+    }
+    if (day.resolution === 'absence_review' && first) {
+      items.push({
+        day,
+        group: 'absence',
+        clear: false,
+        why: null,
+        primary: first,
+        secondary: second,
+      });
+      continue;
+    }
+    if ((day.resolution === 'late' || day.resolution === 'early_leave_review') && first) {
+      items.push({
+        day,
+        group: minutes <= QUICK_SMALL_MINUTES ? 'small' : 'minutes',
+        clear: minutes <= QUICK_SMALL_MINUTES,
+        why: null,
+        primary: first,
+        secondary: DETAILS,
+      });
+      continue;
+    }
+    items.push({
+      day,
+      group: 'other',
+      clear:
+        Boolean(first) &&
+        options.length === 1 &&
+        first?.type === 'decide' &&
+        first.tone === 'neutral',
+      why: null,
+      primary: first || DETAILS,
+      secondary: first ? DETAILS : null,
+    });
+  }
+  const newestFirst = (a: QuickItem, b: QuickItem) => b.day.date.localeCompare(a.day.date);
+  return {
+    clear: items.filter((item) => item.clear).sort(newestFirst),
+    ask: items.filter((item) => !item.clear).sort(newestFirst),
+  };
 }

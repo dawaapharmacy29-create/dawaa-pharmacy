@@ -6,6 +6,9 @@ import {
   cycleLabel,
   dayCreditNote,
   datesInPeriod,
+  quickPlan,
+  type DrWaelDay,
+  type PunchReading,
   readOpenDay,
   deliveryCreditView,
   knownShifts,
@@ -865,5 +868,105 @@ describe('datesInPeriod', () => {
     expect(datesInPeriod('2026-11-01', '2026-11-07', null)).toBe(7);
     expect(datesInPeriod('2026-11-01', '2026-11-30', ['الخميس'])).toBe(4);
     expect(datesInPeriod('2026-11-07', '2026-11-01', null)).toBe(0);
+  });
+});
+
+describe('quickPlan', () => {
+  const day = (over: Partial<DrWaelDay>): DrWaelDay => ({
+    staff_id: 's1',
+    date: '2026-11-04',
+    branch: 'فرع شكري',
+    first_in: '2026-11-04T11:00:00Z',
+    last_out: '2026-11-04T19:00:00Z',
+    hours: 8,
+    payable_hours: 8,
+    late_minutes: 0,
+    early_leave_minutes: 0,
+    missing_punch: false,
+    status: 'pending_review',
+    resolution: 'late',
+    review: true,
+    scheduled_start: '2026-11-04T11:00:00Z',
+    scheduled_end: '2026-11-04T19:00:00Z',
+    time_off: false,
+    punches: 2,
+    ...over,
+  });
+  const plan = (days: DrWaelDay[], readings: PunchReading[] = [], allowance = 2) =>
+    quickPlan(
+      days,
+      '2026-11-07',
+      new Map(readings.map((r) => [`${r.staff_id}-${r.date}`, r])),
+      new Set(['flex']),
+      () => allowance
+    );
+  const reading = (over: Partial<PunchReading> = {}): PunchReading => ({
+    staff_id: 's1',
+    date: '2026-11-04',
+    start: '09:00',
+    end: '17:00',
+    source: 'known',
+    trusted: true,
+    inAt: '2026-11-04T09:26',
+    outAt: '2026-11-04T16:59',
+    late: 26,
+    early: 1,
+    nowMinutes: 240,
+    ...over,
+  });
+
+  it('runs a forgotten punch while the allowance lasts, then asks, oldest first', () => {
+    const forgot = (date: string) => day({ date, resolution: 'missing_checkout', last_out: null });
+    const result = plan([forgot('2026-11-05'), forgot('2026-11-03'), forgot('2026-11-04')], [], 2);
+    expect(result.clear.map((i) => i.day.date)).toEqual(['2026-11-04', '2026-11-03']);
+    expect(result.ask.map((i) => i.day.date)).toEqual(['2026-11-05']);
+    expect(result.ask[0].why).toContain('سماح');
+  });
+
+  it('runs small minutes and asks about real ones', () => {
+    const result = plan([
+      day({ date: '2026-11-03', late_minutes: 10 }),
+      day({ date: '2026-11-04', resolution: 'early_leave_review', early_leave_minutes: 142 }),
+    ]);
+    expect(result.clear.map((i) => i.group)).toEqual(['small']);
+    expect(result.ask.map((i) => i.group)).toEqual(['minutes']);
+  });
+
+  it('never decides an absence on its own', () => {
+    const result = plan([
+      day({ resolution: 'absence_review', first_in: null, last_out: null, punches: 0 }),
+    ]);
+    expect(result.clear).toEqual([]);
+    expect(result.ask[0].primary).toMatchObject({ decision: 'absent' });
+    expect(result.ask[0].secondary).toMatchObject({ decision: 'off' });
+  });
+
+  it('prefers the shift when the punches explain the day, and runs it only when it is trusted', () => {
+    const open = day({ resolution: 'early_leave_review', early_leave_minutes: 240 });
+    expect(plan([open], [reading()]).clear[0].primary).toMatchObject({
+      type: 'shift',
+      start: '09:00',
+    });
+    expect(plan([open], [reading({ trusted: false })]).clear).toEqual([]);
+    expect(plan([open], [reading({ source: 'punches' })]).clear).toEqual([]);
+    expect(plan([open], [reading({ late: 40 })]).clear).toEqual([]);
+    expect(plan([open], [reading({ outAt: null })]).clear).toEqual([]);
+  });
+
+  it('leaves today, approved days and flexible staff out of the one-click rules', () => {
+    const result = plan([
+      day({ date: '2026-11-07', late_minutes: 5 }),
+      day({ status: 'approved', late_minutes: 5 }),
+      day({ staff_id: 'flex', late_minutes: 5 }),
+    ]);
+    expect(result.clear).toEqual([]);
+    expect(result.ask.map((i) => i.day.staff_id)).toEqual(['flex']);
+    expect(result.ask[0].primary.type).toBe('details');
+  });
+
+  it('sends what has no quick decision to the details', () => {
+    const result = plan([day({ resolution: 'worked_on_off', first_in: null })]);
+    expect(result.ask[0].primary.type).toBe('details');
+    expect(result.ask[0].secondary).toBeNull();
   });
 });
