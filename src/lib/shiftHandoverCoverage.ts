@@ -455,7 +455,12 @@ export function closerPresence(
         (x.span as { end: number }).end >= at - 16 * HOUR
     );
   if (!near.length) return { status: 'no_punch' };
-  const around = near.filter(({ span }) => span.start <= at + HOUR && span.end >= at - 3 * HOUR);
+  // A lone departure means they were there before it, as long as a usual shift.
+  const around = near.filter(
+    ({ interval, span }) =>
+      (interval.first_in ? span.start : span.end - USUAL_SHIFT_HOURS * HOUR) <= at + HOUR &&
+      span.end >= at - 3 * HOUR
+  );
   if (around.some(({ interval }) => seenAt(interval, branch))) return { status: 'here' };
   if (around.length) return { status: 'other_branch' };
   return { status: 'other_time', times: punchTimesLabel(near[0].interval) };

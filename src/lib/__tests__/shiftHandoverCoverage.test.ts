@@ -355,6 +355,11 @@ describe('who was in a shift, from real punches', () => {
       );
     });
 
+    it('here when their only punch is leaving after the close', () => {
+      const out = punch({ staff_id: 'x', first_in: null, last_out: '2026-11-07T19:00:00Z' });
+      expect(check([out], { staffId: 'x' }).status).toBe('here');
+    });
+
     it('no punch that day', () => {
       const yesterday = punch({
         staff_id: 'x',
