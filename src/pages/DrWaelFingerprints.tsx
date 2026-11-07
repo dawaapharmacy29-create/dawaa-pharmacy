@@ -56,7 +56,18 @@ import {
   type DrWaelOpenPunches,
   addDays,
   applyDrWaelBranchChange,
+  ALL_BRANCHES,
   applyDrWaelShiftChange,
+  branchLabel,
+  fetchDrWaelManualPunches,
+  isOutsideEngine,
+  manualPunchErrorText,
+  manualPunchFallsNextDay,
+  recordDrWaelManualPunch,
+  summarizeManualPunches,
+  type DrWaelManualPunch,
+  type DrWaelManualPunches,
+  type ManualPunchType,
   cairoTime,
   cycleLabel,
   decideQuickDay,
@@ -363,6 +374,8 @@ export default function DrWaelFingerprints() {
   const [samples, setSamples] = useState<DrWaelShiftSample[]>([]);
   const [smartDate, setSmartDate] = useState<string | null>(null);
   const [openPunches, setOpenPunches] = useState<DrWaelOpenPunches | null>(null);
+  const [manualPunches, setManualPunches] = useState<DrWaelManualPunches | null>(null);
+  const [manualFailed, setManualFailed] = useState(false);
   const request = useRef(0);
 
   const loadInsights = useCallback(async () => {
@@ -381,6 +394,19 @@ export default function DrWaelFingerprints() {
       setError(null);
       void loadInsights();
       // Both are extras on top of the page: if one fails the page still works without it.
+      fetchDrWaelManualPunches(target)
+        .then((next) => {
+          if (id === request.current) {
+            setManualPunches(next);
+            setManualFailed(false);
+          }
+        })
+        .catch(() => {
+          if (id === request.current) {
+            setManualPunches(null);
+            setManualFailed(true);
+          }
+        });
       fetchDrWaelCreditLedger(target)
         .then((next) => {
           if (id === request.current) setLedger(next);
@@ -482,6 +508,16 @@ export default function DrWaelFingerprints() {
   return (
     <ReadingContext.Provider value={reading}>
       <div className="space-y-4 text-sm" dir="rtl" aria-busy={loading}>
+        <ManualPunchPanel
+          employees={data.employees}
+          days={data.days}
+          today={data.today}
+          punches={manualPunches}
+          failed={manualFailed}
+          insights={insights}
+          profiles={profiles}
+          onSaved={() => void load(cycle)}
+        />
         {tab === 'quick' ? (
           <div className="mx-auto flex max-w-2xl items-center justify-between gap-2 px-1">
             <h1 className={`text-base font-black ${PAGE_HEADING}`}>
@@ -571,7 +607,7 @@ export default function DrWaelFingerprints() {
               label="الفرع"
               value={branch}
               onChange={setBranch}
-              options={[['الكل', 'كل الفروع'], ...data.branches.map((b) => [b, b] as const)]}
+              options={[['الكل', 'كل الفروع'], ...data.branches.map((b) => [b, branchLabel(b)] as const)]}
             />
             <label className="flex items-center gap-2 rounded-xl bg-gray-50 px-3 py-2 dark:bg-slate-800">
               <Search size={15} className="shrink-0 text-gray-400" />
@@ -703,7 +739,7 @@ export default function DrWaelFingerprints() {
                 focusDate={smartDate}
                 insight={insights.get(smart.staff_id)}
                 today={data.today}
-                branches={data.branches}
+                branches={data.branches.filter((b) => b !== ALL_BRANCHES)}
                 timeOff={data.time_off}
                 ledger={ledger}
                 credit={credit.get(smart.staff_id)}
@@ -715,6 +751,378 @@ export default function DrWaelFingerprints() {
         </Sheet>
       </div>
     </ReadingContext.Provider>
+  );
+}
+
+// «البصمات اليدوية»: from a name to a saved punch in seconds, with what that employee already has this cycle.
+function ManualPunchPanel({
+  employees,
+  days,
+  today,
+  punches,
+  failed,
+  insights,
+  profiles,
+  onSaved,
+}: {
+  employees: DrWaelEmployee[];
+  days: DrWaelDay[];
+  today: string;
+  punches: DrWaelManualPunches | null;
+  failed: boolean;
+  insights: Map<string, DrWaelInsight>;
+  profiles: Map<string, ShiftProfile>;
+  onSaved: () => void;
+}) {
+  const [search, setSearch] = useState('');
+  const [picked, setPicked] = useState<DrWaelEmployee | null>(null);
+  const rows = punches?.rows || [];
+  const matching = search.trim()
+    ? employees.filter((e) => e.active && matchesEmployeeSearch(e.name, search)).slice(0, 6)
+    : [];
+  return (
+    <div className={`${CARD} space-y-2 p-3`}>
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-sm font-black text-gray-900 dark:text-slate-100">البصمات اليدوية</h2>
+        {punches ? <Pill>{rows.length} في الفترة دي</Pill> : null}
+      </div>
+      {failed ? (
+        <p role="alert" className="text-[11px] font-bold text-rose-700 dark:text-rose-300">
+          تعذر تحميل البصمات اليدوية.
+        </p>
+      ) : null}
+      {picked ? null : (
+        <label className="flex items-center gap-2 rounded-xl bg-gray-50 px-3 py-2 dark:bg-slate-800">
+          <Search size={15} className="shrink-0 text-gray-400" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="اكتب اسم الموظف…"
+            aria-label="بحث باسم الموظف لتسجيل بصمة يدوية"
+            className="w-full bg-transparent text-xs text-gray-900 outline-none placeholder:text-gray-400 dark:text-slate-100"
+          />
+        </label>
+      )}
+      {!picked && search.trim() && !matching.length ? (
+        <p className={`text-[11px] ${MUTED}`}>مفيش موظف بالاسم ده.</p>
+      ) : null}
+      {picked ? null : (
+        <div className="flex flex-wrap gap-1.5">
+          {matching.map((employee) => (
+            <button
+              key={employee.staff_id}
+              type="button"
+              onClick={() => {
+                setPicked(employee);
+                setSearch('');
+              }}
+              className={`rounded-lg px-3 py-1 text-xs font-bold ${IDLE}`}
+            >
+              {employee.name} · {branchLabel(employee.branch)}
+            </button>
+          ))}
+        </div>
+      )}
+      {picked ? (
+        <ManualPunchEmployee
+          key={picked.staff_id}
+          employee={picked}
+          days={days.filter((d) => d.staff_id === picked.staff_id)}
+          today={today}
+          rows={rows.filter((row) => row.staff_id === picked.staff_id)}
+          loaded={Boolean(punches)}
+          insight={insights.get(picked.staff_id)}
+          profile={profiles.get(picked.staff_id)}
+          onClose={() => setPicked(null)}
+          onSaved={onSaved}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function ManualPunchEmployee({
+  employee,
+  days,
+  today,
+  rows,
+  loaded,
+  insight,
+  profile,
+  onClose,
+  onSaved,
+}: {
+  employee: DrWaelEmployee;
+  days: DrWaelDay[];
+  today: string;
+  rows: DrWaelManualPunch[];
+  loaded: boolean;
+  insight: DrWaelInsight | undefined;
+  profile: ShiftProfile | undefined;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [type, setType] = useState<ManualPunchType>('check_in');
+  const [date, setDate] = useState(today);
+  const [time, setTime] = useState('');
+  const [flipNextDay, setFlipNextDay] = useState(false);
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
+  const shift = employee.week.find((d) => d.date === date && d.scheduled && !d.off);
+  const flexible = Boolean(employee.work_mode) || isOutsideEngine(employee);
+  const day = days.find((d) => d.date === date);
+  const autoNextDay = manualPunchFallsNextDay({
+    type,
+    time,
+    firstIn: day?.first_in || null,
+    shiftStart: flexible ? null : shift?.start || null,
+    shiftEnd: flexible ? null : shift?.end || null,
+  });
+  const nextDay = flipNextDay ? !autoNextDay : autoNextDay;
+  const shiftTime = hhmm((type === 'check_in' ? shift?.start : shift?.end) || null);
+  const summary = summarizeManualPunches(rows);
+  const input = `rounded-lg px-2 py-1 text-xs ${IDLE}`;
+
+  const save = async () => {
+    setBusy(true);
+    setError(null);
+    setSaved(null);
+    try {
+      const result = await recordDrWaelManualPunch({
+        staffId: employee.staff_id,
+        date,
+        type,
+        time,
+        nextDay,
+        note,
+      });
+      setSaved(
+        `اتسجلت ${type === 'check_in' ? 'حضور' : 'انصراف'} ${time} · ${
+          result.over_allowance
+            ? `فوق السماح (رقم ${result.occurrence_no})`
+            : `في السماح (${result.occurrence_no}/${result.allowance_limit})`
+        }${result.day_status && result.day_status !== 'approved' ? ' · اليوم لسه محتاج قرار' : ''}`
+      );
+      setTime('');
+      setNote('');
+      setFlipNextDay(false);
+      onSaved();
+    } catch (e) {
+      setError(manualPunchErrorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm font-bold text-gray-900 dark:text-slate-100">
+          {employee.name} · <span className={`text-[11px] ${MUTED}`}>{branchLabel(employee.branch)}</span>
+        </span>
+        <button type="button" onClick={onClose} className={`text-[11px] underline ${MUTED}`}>
+          موظف تاني
+        </button>
+      </div>
+      {loaded ? (
+        <div className="flex flex-wrap gap-1">
+          <Pill>يدوية {summary.total}</Pill>
+          <Pill tone="green">محتسب {summary.counted}</Pill>
+          <Pill tone={summary.notCounted ? 'amber' : 'gray'}>لسه مش محتسب {summary.notCounted}</Pill>
+          <Pill>في السماح {summary.insideAllowance}</Pill>
+          <Pill tone={summary.overAllowance ? 'red' : 'gray'}>فوق السماح {summary.overAllowance}</Pill>
+          {summary.outsideCount ? <Pill>من غير عداد سماح {summary.outsideCount}</Pill> : null}
+          {summary.penalized ? <Pill tone="red">اتخصم {summary.penalized}</Pill> : null}
+        </div>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-2">
+        <Chips<ManualPunchType>
+          label="نوع البصمة"
+          value={type}
+          onChange={setType}
+          options={[
+            ['check_in', 'حضور'],
+            ['check_out', 'انصراف'],
+          ]}
+        />
+        <label className="flex items-center gap-1 text-xs">
+          يوم
+          <input
+            type="date"
+            value={date}
+            max={today}
+            min={addDays(today, -40)}
+            onChange={(e) => e.target.value && setDate(e.target.value)}
+            className={input}
+          />
+        </label>
+        <label className="flex items-center gap-1 text-xs">
+          الساعة
+          <input
+            type="time"
+            value={time}
+            onChange={(e) => setTime(e.target.value)}
+            aria-label="ساعة البصمة"
+            className={input}
+          />
+        </label>
+        {shiftTime !== '—' && !flexible ? (
+          <button
+            type="button"
+            onClick={() => setTime(shiftTime)}
+            className={`rounded-lg px-2 py-1 text-[11px] font-bold ${IDLE}`}
+          >
+            ميعاد الشيفت {shiftTime}
+          </button>
+        ) : null}
+      </div>
+      {time ? (
+        <label className="flex items-center gap-2 text-[11px]">
+          <input
+            type="checkbox"
+            checked={nextDay}
+            onChange={() => setFlipNextDay((value) => !value)}
+          />
+          الساعة دي صبح اليوم اللي بعده ({addDays(date, 1).slice(5)})
+        </label>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="السبب (اختياري)"
+          aria-label="سبب البصمة اليدوية"
+          className={`min-w-0 flex-1 ${input}`}
+        />
+        <button
+          type="button"
+          disabled={busy || !time}
+          onClick={() => void save()}
+          className={`rounded-lg px-4 py-1.5 text-xs font-bold disabled:opacity-50 ${ACTIVE}`}
+        >
+          {busy ? 'جارٍ الحفظ…' : 'سجّل البصمة'}
+        </button>
+      </div>
+      {error ? (
+        <p role="alert" className="text-[11px] font-bold text-rose-700 dark:text-rose-300">
+          {error}
+        </p>
+      ) : null}
+      {saved ? <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300">{saved}</p> : null}
+      {rows.length ? (
+        <ul className="space-y-1">
+          {rows.slice(0, 5).map((row) => (
+            <li key={row.id} className="flex flex-wrap items-center gap-1 text-[11px]">
+              <span className="font-bold">
+                {row.date.slice(5)} · {row.type === 'check_in' ? 'حضور' : 'انصراف'} {cairoTime(row.at)}
+              </span>
+              <Pill tone={row.counted ? 'green' : 'amber'}>{row.counted ? 'محتسب' : 'لسه مش محتسب'}</Pill>
+              {row.occurrence_no == null ? null : row.occurrence_no <= (row.allowance_limit ?? 2) ? (
+                <Pill>في السماح</Pill>
+              ) : (
+                <Pill tone="red">{row.penalized ? 'فوق السماح · اتخصم' : 'فوق السماح'}</Pill>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <QuickShift employee={employee} today={today} insight={insight} profile={profile} onSaved={onSaved} />
+    </div>
+  );
+}
+
+// The shift as one decision: pick the hours and how long they last. Staff on the flexible schedule have no shift.
+function QuickShift({
+  employee,
+  today,
+  insight,
+  profile,
+  onSaved,
+}: {
+  employee: DrWaelEmployee;
+  today: string;
+  insight: DrWaelInsight | undefined;
+  profile: ShiftProfile | undefined;
+  onSaved: () => void;
+}) {
+  const current = employee.week.find((d) => d.date === today && d.scheduled && !d.off);
+  const suggestion = insight?.shift || null;
+  const [start, setStart] = useState(suggestion?.start || '');
+  const [end, setEnd] = useState(suggestion?.end || '');
+  const [from, setFrom] = useState(suggestion?.since || today);
+  const [done, setDone] = useState<string | null>(null);
+  const input = `rounded-lg px-2 py-1 text-xs ${IDLE}`;
+  if (employee.work_mode || isOutsideEngine(employee))
+    return (
+      <p className={`border-t pt-2 text-[11px] dark:border-slate-700 ${MUTED}`}>
+        على الجدول المرن: بيتحسب من أول لآخر بصمة، من غير شيفت محدد.
+      </p>
+    );
+  const presets = (profile?.known || [])
+    .filter((shift, i, all) => all.findIndex((x) => x.start === shift.start && x.end === shift.end) === i)
+    .slice(0, 3);
+  return (
+    <div className="space-y-2 border-t pt-2 dark:border-slate-700">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="font-bold">
+          الشيفت{current ? ` دلوقتي ${hhmm(current.start)}–${hhmm(current.end)}` : ''}
+        </span>
+        {presets.map((shift) => (
+          <button
+            key={`${shift.start}-${shift.end}`}
+            type="button"
+            dir="ltr"
+            onClick={() => {
+              setStart(shift.start);
+              setEnd(shift.end);
+            }}
+            className={`rounded-lg px-2 py-1 text-[11px] font-bold ${IDLE}`}
+          >
+            {shift.start}–{shift.end}
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <label className="flex items-center gap-1">
+          من الساعة
+          <input type="time" value={start} onChange={(e) => setStart(e.target.value)} className={input} />
+        </label>
+        <label className="flex items-center gap-1">
+          لحد
+          <input type="time" value={end} onChange={(e) => setEnd(e.target.value)} className={input} />
+        </label>
+        <label className="flex items-center gap-1">
+          ابتداءً من يوم
+          <input
+            type="date"
+            value={from}
+            min={addDays(today, -40)}
+            max={addDays(today, 60)}
+            onChange={(e) => e.target.value && setFrom(e.target.value)}
+            className={input}
+          />
+        </label>
+      </div>
+      {start && end && start !== end ? (
+        <ShiftScopePicker
+          key={`${start}-${end}-${from}`}
+          staffId={employee.staff_id}
+          start={start}
+          end={end}
+          date={from}
+          firstDate={from}
+          label={`غيّر الشيفت لـ ${start}–${end}`}
+          note="قرار سريع من البصمات اليدوية"
+          onApplied={(text) => {
+            setDone(text);
+            onSaved();
+          }}
+        />
+      ) : null}
+      {done ? <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300">{done}</p> : null}
+    </div>
   );
 }
 

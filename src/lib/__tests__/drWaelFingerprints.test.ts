@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  manualPunchErrorText,
+  manualPunchFallsNextDay,
+  summarizeManualPunches,
+  type DrWaelManualPunch,
   addDays,
   clockDistance,
   creditAlerts,
@@ -968,5 +972,62 @@ describe('quickPlan', () => {
     const result = plan([day({ resolution: 'worked_on_off', first_in: null })]);
     expect(result.ask[0].primary.type).toBe('details');
     expect(result.ask[0].secondary).toBeNull();
+  });
+});
+
+describe('manual punches', () => {
+  const punch = (over: Partial<DrWaelManualPunch>): DrWaelManualPunch => ({
+    id: 'a',
+    staff_id: 's',
+    date: '2026-11-03',
+    type: 'check_in',
+    at: '2026-11-03T08:00:00Z',
+    reason: null,
+    by: null,
+    occurrence_no: 1,
+    allowance_limit: 2,
+    penalized: false,
+    day_status: 'approved',
+    resolution: 'on_time',
+    counted: true,
+    ...over,
+  });
+
+  it('counts what is counted and what falls inside the allowance, each on its own', () => {
+    expect(
+      summarizeManualPunches([
+        punch({}),
+        punch({ occurrence_no: 2, counted: false }),
+        punch({ occurrence_no: 3, penalized: true }),
+        punch({ occurrence_no: null, allowance_limit: null }),
+      ])
+    ).toEqual({
+      total: 4,
+      counted: 3,
+      notCounted: 1,
+      insideAllowance: 2,
+      overAllowance: 1,
+      outsideCount: 1,
+      penalized: 1,
+    });
+  });
+
+  const fall = (over: Partial<Parameters<typeof manualPunchFallsNextDay>[0]>) =>
+    manualPunchFallsNextDay({ type: 'check_out', time: '08:00', firstIn: null, shiftStart: null, shiftEnd: null, ...over });
+
+  it('puts the check-out of an overnight shift on the next morning', () => {
+    expect(fall({ shiftStart: '22:00', shiftEnd: '08:00' })).toBe(true);
+    expect(fall({ shiftStart: '09:00', shiftEnd: '19:00' })).toBe(false);
+    expect(fall({ type: 'check_in', shiftStart: '22:00', shiftEnd: '08:00' })).toBe(false);
+  });
+
+  it('puts a check-out earlier than that day\'s check-in on the next morning', () => {
+    expect(fall({ firstIn: '2026-11-03T20:53:00Z' })).toBe(true);
+    expect(fall({ time: '23:30', firstIn: '2026-11-03T20:53:00Z' })).toBe(false);
+  });
+
+  it('says why a punch was refused', () => {
+    expect(manualPunchErrorText(new Error('manual_punch_cycle_locked'))).toContain('اتقفل');
+    expect(manualPunchErrorText(new Error('something else'))).toBe('ماتسجلتش، حاول تاني');
   });
 });
