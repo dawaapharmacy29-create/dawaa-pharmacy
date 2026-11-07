@@ -163,7 +163,7 @@ select 'shift', c.staff_id,
         + case when (c.previous_schedule->>'shift_end')::time <= (c.previous_schedule->>'shift_start')::time then 24 else 0 end)::numeric, 2) end,
     'new_hours', round((extract(epoch from (c.shift_end - c.shift_start)) / 3600.0
         + case when c.shift_end <= c.shift_start then 24 else 0 end)::numeric, 2)),
-  c.actor_id, c.created_at
+  case when c.actor_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then c.actor_id::uuid end, c.created_at
 from public.attendance_dated_shift_corrections_v1 c
 where c.attendance_date >= date '2026-10-26'
   and not exists (
