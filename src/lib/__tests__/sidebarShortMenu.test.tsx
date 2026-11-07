@@ -58,7 +58,9 @@ describe('the sidebar each role really gets', () => {
   });
 
   it('keeps assistants and Team Dawaa Alpha on the assistant menu', () => {
+    vi.stubGlobal('window', { location: { pathname: '/', search: '' } });
     expect(menu('assistant')).toContain('مساحة المساعد التشغيلية');
     expect(menu('team_dawaa_alpha')).toContain('مساحة المساعد التشغيلية');
+    vi.unstubAllGlobals();
   });
 });
