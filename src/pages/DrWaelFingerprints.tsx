@@ -1,4 +1,9 @@
 import {
+  decideOvertimeApproval,
+  listPendingOvertime,
+  type PendingOvertimeRow,
+} from '@/lib/attendance/attendanceBreakdownService';
+import {
   lazy,
   Suspense,
   useCallback,
@@ -59,6 +64,10 @@ import {
   ALL_BRANCHES,
   applyDrWaelShiftChange,
   fetchDrWaelStaffCredit,
+  manualPunchQueue,
+  manualPunchSuggestion,
+  overtimePlan,
+  QUICK_OVERTIME_HOURS,
   setDrWaelShiftOrigin,
   sortStaffCredit,
   staffCreditLeaders,
@@ -671,6 +680,9 @@ export default function DrWaelFingerprints() {
             onReload={() => void load(cycle)}
           />
         ) : null}
+        {tab === 'quick' ? (
+          <OvertimeQuick days={data.days} cycleStart={data.cycle_start} cycleEnd={data.cycle_end} />
+        ) : null}
         {found && tab !== 'quick' ? (
           <SearchResults
             employees={employees}
@@ -801,6 +813,7 @@ function ManualPunchPanel({
 }) {
   const [search, setSearch] = useState('');
   const [picked, setPicked] = useState<DrWaelEmployee | null>(null);
+  const queue = useMemo(() => manualPunchQueue(employees, days, today), [employees, days, today]);
   const rows = punches?.rows || [];
   const matching = search.trim()
     ? employees.filter((e) => e.active && matchesEmployeeSearch(e.name, search)).slice(0, 6)
@@ -822,12 +835,34 @@ function ManualPunchPanel({
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && matching[0]) {
+                setPicked(matching[0]);
+                setSearch('');
+              }
+            }}
             placeholder="اكتب اسم الموظف…"
             aria-label="بحث باسم الموظف لتسجيل بصمة يدوية"
             className="w-full bg-transparent text-xs text-gray-900 outline-none placeholder:text-gray-400 dark:text-slate-100"
           />
         </label>
       )}
+      {!picked && !search.trim() && queue.length ? (
+        <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+          <span className={MUTED}>ناقصهم بصمة:</span>
+          {queue.slice(0, 6).map((item) => (
+            <button
+              key={item.employee.staff_id}
+              type="button"
+              onClick={() => setPicked(item.employee)}
+              className={`rounded-lg px-2 py-1 font-bold ${IDLE}`}
+            >
+              {item.employee.name} · {item.type === 'check_in' ? 'حضور' : 'انصراف'}{' '}
+              {item.date.slice(5)}
+            </button>
+          ))}
+        </div>
+      ) : null}
       {!picked && search.trim() && !matching.length ? (
         <p className={`text-[11px] ${MUTED}`}>مفيش موظف بالاسم ده.</p>
       ) : null}
@@ -887,9 +922,15 @@ function ManualPunchEmployee({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [type, setType] = useState<ManualPunchType>('check_in');
-  const [date, setDate] = useState(today);
-  const [time, setTime] = useState('');
+  const [suggestion] = useState(() => manualPunchSuggestion(days, today));
+  const [type, setType] = useState<ManualPunchType>(suggestion.type);
+  const [date, setDate] = useState(suggestion.date);
+  const [time, setTime] = useState(() => {
+    if (!suggestion.hint || employee.work_mode || isOutsideEngine(employee)) return '';
+    const open = days.find((d) => d.date === suggestion.date);
+    const at = suggestion.type === 'check_in' ? open?.scheduled_start : open?.scheduled_end;
+    return at ? cairoTime(at) : '';
+  });
   const [flipNextDay, setFlipNextDay] = useState(false);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
@@ -967,6 +1008,12 @@ function ManualPunchEmployee({
           {summary.penalized ? <Pill tone="red">اتخصم {summary.penalized}</Pill> : null}
         </div>
       ) : null}
+      {suggestion.hint ? (
+        <p className="flex items-center gap-1 text-[11px] font-bold text-violet-700 dark:text-violet-300">
+          <Sparkles size={13} /> {suggestion.hint}
+          {time ? ` · الساعة من ميعاد شيفته، غيّرها لو مختلفة` : ''}
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-center gap-2">
         <Chips<ManualPunchType>
           label="نوع البصمة"
@@ -994,6 +1041,10 @@ function ManualPunchEmployee({
             type="time"
             value={time}
             onChange={(e) => setTime(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && time && !busy) void save();
+            }}
+            autoFocus
             aria-label="ساعة البصمة"
             className={input}
           />
@@ -1005,6 +1056,15 @@ function ManualPunchEmployee({
             className={`rounded-lg px-2 py-1 text-[11px] font-bold ${IDLE}`}
           >
             ميعاد الشيفت {shiftTime}
+          </button>
+        ) : null}
+        {date === today ? (
+          <button
+            type="button"
+            onClick={() => setTime(cairoTime(new Date().toISOString()))}
+            className={`rounded-lg px-2 py-1 text-[11px] font-bold ${IDLE}`}
+          >
+            دلوقتي
           </button>
         ) : null}
       </div>
@@ -1968,18 +2028,20 @@ function IdleStaffPanel({
   onSaved: () => void;
 }) {
   const rows = idleEmployees(employees, data.time_off, data.today);
+  const [kind, setKind] = useState<DrWaelSeparationKind>('resignation');
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ tone: Tone; text: string } | null>(null);
   if (!rows.length && !message) return null;
   const end = async (employee: DrWaelEmployee, lastDay: string) => {
-    if (!window.confirm(`${employee.name} ساب الشغل — آخر يوم ${lastDay}؟`)) return;
+    const label = SEPARATION_KINDS.find(([value]) => value === kind)?.[1] || '';
+    if (!window.confirm(`${employee.name}: ${label} — آخر يوم ${lastDay}؟`)) return;
     setBusy(employee.staff_id);
     setMessage(null);
     try {
       const result = await endDrWaelEmployment({
         staffId: employee.staff_id,
         lastDay,
-        kind: 'resignation',
+        kind,
       });
       setMessage({ tone: 'green', text: endEmploymentText(employee.name, result) });
       onSaved();
@@ -2002,6 +2064,14 @@ function IdleStaffPanel({
           {message.text}
         </div>
       ) : null}
+      <div className="mb-2">
+        <Chips<DrWaelSeparationKind>
+          label="نوع ترك العمل"
+          value={kind}
+          onChange={setKind}
+          options={SEPARATION_KINDS}
+        />
+      </div>
       <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
         {rows.map(({ employee, lastPunchDay, daysAway, stopped }) => {
           const lastDay = lastPunchDay && lastPunchDay < data.today ? lastPunchDay : data.today;
@@ -2151,6 +2221,9 @@ function CreditCard({ row, ledger }: { row: DrWaelCreditRow; ledger: DrWaelCredi
                       {day.late ? `تأخير ${day.late}` : ''}
                       {day.late && day.early ? ' · ' : ''}
                       {day.early ? `بدري ${day.early}` : ''}
+                      {day.minutes > day.late + day.early
+                        ? `${day.late || day.early ? ' · ' : ''}قلّل ساعاته: ${day.minutes} د`
+                        : ''}
                       {day.exempt ? ' (بإذن)' : ''}
                     </span>
                   </li>
@@ -2227,6 +2300,11 @@ function ShiftChangeLine({
     <li className={`${SOFT} space-y-1 px-2 py-1.5 text-[11px]`}>
       <div>
         {showName && change.name ? <b>{change.name} · </b> : null}
+        {change.source ? (
+          <span className={MUTED}>
+            {change.source === 'team_schedule' ? 'من صفحة الموظفين · ' : 'من مراجعة اليوم · '}
+          </span>
+        ) : null}
         {scope} ·{' '}
         <span dir="ltr">
           {hhmm(change.start)}–{hhmm(change.end)}
@@ -3843,6 +3921,7 @@ function DayReviewSheet({
 
 // The daily screen: the clear decisions in one click, then the rest one at a time with one recommended action.
 const QUICK_GROUPS: Record<QuickGroup, string> = {
+  stopped: 'غياب موظف موقوف أو مش شغال، من غير بصمة',
   forgot: 'نسيان بصمة في حدود السماح',
   shift: 'اشتغل على شيفت تاني من شيفتاته',
   small: `دقايق بسيطة (${QUICK_SMALL_MINUTES} د أو أقل)`,
@@ -3852,6 +3931,7 @@ const QUICK_GROUPS: Record<QuickGroup, string> = {
 };
 // The same groups on the one-at-a-time card, where a rule did not cover the day.
 const QUICK_ASK_GROUPS: Record<QuickGroup, string> = {
+  stopped: 'موظف مش شغال',
   forgot: 'نسيان بصمة',
   shift: 'شيفت غير الجدول',
   small: 'دقايق بسيطة',
@@ -3859,6 +3939,197 @@ const QUICK_ASK_GROUPS: Record<QuickGroup, string> = {
   minutes: 'تأخير أو انصراف بدري',
   other: 'محتاج مراجعة',
 };
+
+const overtimeHours = (hours: number) => minutesLabel(Math.round(Number(hours || 0) * 60));
+
+// The pending overtime of this pay cycle: the clear ones in one click, the rest one by one with why.
+function OvertimeQuick({
+  days,
+  cycleStart,
+  cycleEnd,
+}: {
+  days: DrWaelDay[];
+  cycleStart: string;
+  cycleEnd: string;
+}) {
+  const [rows, setRows] = useState<PendingOvertimeRow[] | null>(null);
+  const [failedToLoad, setFailedToLoad] = useState(false);
+  const [gone, setGone] = useState<Record<string, true>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [confirming, setConfirming] = useState(false);
+  const [bulk, setBulk] = useState<{ at: number; total: number } | null>(null);
+  const [handled, setHandled] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    listPendingOvertime(null)
+      .then((next) => {
+        if (alive) setRows(next);
+      })
+      .catch(() => {
+        if (alive) setFailedToLoad(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const plan = useMemo(
+    () => overtimePlan(rows || [], days, cycleStart, cycleEnd).filter((i) => !gone[i.row.id]),
+    [rows, days, cycleStart, cycleEnd, gone]
+  );
+  if (failedToLoad)
+    return (
+      <p
+        role="alert"
+        className="mx-auto max-w-2xl text-xs font-bold text-rose-700 dark:text-rose-300"
+      >
+        تعذر تحميل الأوفر تايم.
+      </p>
+    );
+  if (!rows || (!plan.length && !handled)) return null;
+  const clear = plan.filter((item) => item.bucket === 'clear');
+  const ask = plan.filter((item) => item.bucket === 'ask');
+  const waiting = plan.filter((item) => item.bucket === 'day_first');
+  const total = clear.reduce((sum, item) => sum + Number(item.row.overtime_amount || 0), 0);
+  const older = rows.filter((row) => String(row.attendance_date).slice(0, 10) < cycleStart).length;
+  const when = (date: string) =>
+    `${weekday(date.slice(0, 10))} ${date.slice(8, 10)}/${date.slice(5, 7)}`;
+  const decide = async (row: PendingOvertimeRow, decision: 'approved' | 'rejected') => {
+    setErrors((current) => {
+      const next = { ...current };
+      delete next[row.id];
+      return next;
+    });
+    try {
+      await decideOvertimeApproval(
+        row.id,
+        decision,
+        decision === 'rejected' ? 'قرار سريع: مش بطلب مننا' : 'قرار سريع من البصمات'
+      );
+      setGone((current) => ({ ...current, [row.id]: true }));
+      setHandled((n) => n + 1);
+    } catch (e) {
+      setErrors((current) => ({
+        ...current,
+        [row.id]: e instanceof Error ? e.message : 'ما اتحفظش',
+      }));
+    }
+  };
+  const approveClear = async () => {
+    setConfirming(false);
+    const items = clear;
+    setBulk({ at: 0, total: items.length });
+    let at = 0;
+    for (const item of items) {
+      await decide(item.row, 'approved');
+      at += 1;
+      setBulk({ at, total: items.length });
+    }
+    setBulk(null);
+  };
+  return (
+    <section className={`${CARD} mx-auto max-w-2xl space-y-3 border-r-4 border-r-amber-400 p-4`}>
+      <div className="flex items-baseline justify-between gap-2">
+        <h2 className="text-base font-black text-gray-900 dark:text-slate-100">
+          أوفر تايم مستني · {clear.length + ask.length + waiting.length}
+        </h2>
+        {handled ? (
+          <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 dark:text-emerald-400">
+            <Check size={14} /> خلّصت {handled}
+          </span>
+        ) : null}
+      </div>
+      {bulk ? (
+        <p className={`text-xs font-bold ${MUTED}`}>
+          بيعتمد {bulk.at} من {bulk.total}…
+        </p>
+      ) : clear.length ? (
+        <div className={`${SOFT} space-y-2 p-3 text-xs`}>
+          <b>
+            {clear.length} واضح · {Math.round(total).toLocaleString('ar-EG')} ج
+          </b>
+          <p className={MUTED}>اليوم معتمد وعلى الميعاد، و{QUICK_OVERTIME_HOURS} ساعة أو أقل.</p>
+          {confirming ? (
+            <ul className="max-h-56 space-y-1 overflow-y-auto">
+              {clear.map(({ row }) => (
+                <li key={row.id}>
+                  <b>{row.staff_name}</b> · {when(row.attendance_date)} ·{' '}
+                  {overtimeHours(row.overtime_hours)} · {row.overtime_amount} ج
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => (confirming ? void approveClear() : setConfirming(true))}
+              className={`min-h-[40px] flex-1 rounded-xl px-3 text-sm font-bold ${BUTTON_TONE.primary}`}
+            >
+              {confirming ? `تمام، اعتمد الـ ${clear.length}` : 'شوف واعتمد'}
+            </button>
+            {confirming ? (
+              <button
+                type="button"
+                onClick={() => setConfirming(false)}
+                className={`min-h-[40px] rounded-xl px-3 text-sm font-bold ${BUTTON_TONE.neutral}`}
+              >
+                رجوع
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+      {ask.slice(0, 5).map(({ row, why }) => (
+        <div key={row.id} className={`${SOFT} space-y-1 p-2 text-xs`}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span>
+              <b>{row.staff_name}</b> · {when(row.attendance_date)} ·{' '}
+              {overtimeHours(row.overtime_hours)}
+              {row.overtime_amount != null ? ` · ${row.overtime_amount} ج` : ''}
+            </span>
+            <span className="flex gap-1.5">
+              <button
+                type="button"
+                onClick={() => void decide(row, 'approved')}
+                className={`rounded-lg px-3 py-1 font-bold ${BUTTON_TONE.primary}`}
+              >
+                اعتمد
+              </button>
+              <button
+                type="button"
+                onClick={() => void decide(row, 'rejected')}
+                className={`rounded-lg px-3 py-1 font-bold ${BUTTON_TONE.neutral}`}
+              >
+                ارفض
+              </button>
+            </span>
+          </div>
+          <div className="font-bold text-amber-700 dark:text-amber-300">{why}</div>
+        </div>
+      ))}
+      {ask.length > 5 ? <p className={`text-xs ${MUTED}`}>و{ask.length - 5} بعدهم.</p> : null}
+      {Object.keys(errors).length ? (
+        <ul
+          role="alert"
+          className="space-y-0.5 text-[11px] font-bold text-rose-700 dark:text-rose-300"
+        >
+          {plan
+            .filter((item) => errors[item.row.id])
+            .map((item) => (
+              <li key={item.row.id}>
+                {item.row.staff_name} · {when(item.row.attendance_date)}: {errors[item.row.id]}
+              </li>
+            ))}
+        </ul>
+      ) : null}
+      {waiting.length || older ? (
+        <p className={`text-xs ${MUTED}`}>
+          {waiting.length ? `${waiting.length} مستنيين اعتماد اليوم نفسه الأول. ` : ''}
+          {older ? `${older} من فترات قديمة، بيظهروا لما تفتح الفترة بتاعتهم.` : ''}
+        </p>
+      ) : null}
+    </section>
+  );
+}
 
 function QuickDecisions({
   days,
@@ -3914,13 +4185,29 @@ function QuickDecisions({
     () => new Set([...names.values()].filter((e) => e.work_mode).map((e) => e.staff_id)),
     [names]
   );
+  const stopped = useMemo(
+    () =>
+      new Set(
+        [...names.values()]
+          .filter((e) => !e.active || String(e.status || '').trim() === 'موقوف')
+          .map((e) => e.staff_id)
+      ),
+    [names]
+  );
   const plan = useMemo(
     () =>
-      quickPlan(days, today, readings, flexible, (staffId) => {
-        const row = credit.get(staffId);
-        return row ? missingLimit - row.missing_used : 0;
-      }),
-    [days, today, readings, flexible, credit, missingLimit]
+      quickPlan(
+        days,
+        today,
+        readings,
+        flexible,
+        (staffId) => {
+          const row = credit.get(staffId);
+          return row ? missingLimit - row.missing_used : 0;
+        },
+        stopped
+      ),
+    [days, today, readings, flexible, credit, missingLimit, stopped]
   );
   const clear = plan.clear.filter((item) => !done[key(item.day)]);
   const askAll = plan.ask.filter((item) => !done[key(item.day)]);

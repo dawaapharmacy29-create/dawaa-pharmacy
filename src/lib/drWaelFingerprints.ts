@@ -1577,7 +1577,7 @@ export type QuickAction =
   | { type: 'shift'; start: string; end: string; label: string }
   | { type: 'details'; label: string };
 
-export type QuickGroup = 'forgot' | 'shift' | 'small' | 'absence' | 'minutes' | 'other';
+export type QuickGroup = 'forgot' | 'shift' | 'small' | 'absence' | 'minutes' | 'other' | 'stopped';
 
 export interface QuickItem {
   day: DrWaelDay;
@@ -1624,7 +1624,9 @@ export function quickPlan(
   today: string,
   readings: Map<string, PunchReading>,
   flexible: ReadonlySet<string>,
-  allowance: (staffId: string) => number
+  allowance: (staffId: string) => number,
+  /** Stopped or inactive: a day with no punch is not a question, it closes with the others. */
+  stopped: ReadonlySet<string> = new Set()
 ): QuickPlan {
   const left = new Map<string, number>();
   const items: QuickItem[] = [];
@@ -1645,6 +1647,17 @@ export function quickPlan(
         why: null,
         primary: DETAILS,
         secondary: null,
+      });
+      continue;
+    }
+    if (stopped.has(day.staff_id) && day.resolution === 'absence_review' && first) {
+      items.push({
+        day,
+        group: 'stopped',
+        clear: true,
+        why: null,
+        primary: first,
+        secondary: second,
       });
       continue;
     }
@@ -1896,6 +1909,8 @@ export interface DrWaelShiftChange {
   new_hours: number | null;
   origin: ShiftOrigin | null;
   note: string | null;
+  /** Made outside this page: the day review or the employee form. */
+  source?: 'attendance_review' | 'team_schedule' | null;
 }
 
 export interface DrWaelStaffCreditRow {
@@ -2016,4 +2031,134 @@ export function sortStaffCredit(
       a.name.localeCompare(b.name, 'ar')
     );
   });
+}
+
+// ---------------------------------------------------------------------------
+// Faster manual punches: start on what is actually missing.
+// ---------------------------------------------------------------------------
+
+export interface ManualPunchSuggestion {
+  date: string;
+  type: ManualPunchType;
+  /** Why this one was picked; null when it is only the default. */
+  hint: string | null;
+}
+
+const OPEN_MISSING = new Set(['missing_checkin', 'missing_checkout']);
+
+const missingPunchDays = (days: DrWaelDay[], today: string, within: number) =>
+  days
+    .filter(
+      (day) =>
+        day.status !== 'approved' &&
+        day.date < today &&
+        day.date >= addDays(today, -within) &&
+        OPEN_MISSING.has(day.resolution || '')
+    )
+    .sort((a, b) => b.date.localeCompare(a.date));
+
+/** The newest day still missing a punch, else today's next punch. */
+export function manualPunchSuggestion(days: DrWaelDay[], today: string): ManualPunchSuggestion {
+  const open = missingPunchDays(days, today, 7)[0];
+  if (open) {
+    const type: ManualPunchType = open.resolution === 'missing_checkin' ? 'check_in' : 'check_out';
+    return {
+      date: open.date,
+      type,
+      hint: `ناقص ${type === 'check_in' ? 'حضور' : 'انصراف'} يوم ${open.date.slice(5)}`,
+    };
+  }
+  const now = days.find((day) => day.date === today);
+  return {
+    date: today,
+    type: now?.first_in && !now.last_out ? 'check_out' : 'check_in',
+    hint: null,
+  };
+}
+
+export interface ManualPunchQueueItem {
+  employee: DrWaelEmployee;
+  date: string;
+  type: ManualPunchType;
+}
+
+/** Active employees with a punch missing in the last days, newest first: one tap opens them. */
+export function manualPunchQueue(
+  employees: DrWaelEmployee[],
+  days: DrWaelDay[],
+  today: string,
+  within = 3
+): ManualPunchQueueItem[] {
+  const seen = new Set<string>();
+  const rows: ManualPunchQueueItem[] = [];
+  const byId = new Map(employees.map((employee) => [employee.staff_id, employee]));
+  for (const day of missingPunchDays(days, today, within)) {
+    const employee = byId.get(day.staff_id);
+    if (!employee?.active || employee.work_mode || seen.has(day.staff_id)) continue;
+    seen.add(day.staff_id);
+    rows.push({
+      employee,
+      date: day.date,
+      type: day.resolution === 'missing_checkin' ? 'check_in' : 'check_out',
+    });
+  }
+  return rows;
+}
+
+// ---------------------------------------------------------------------------
+// Overtime as quick decisions, on the same rows and the same approval as the old page.
+// ---------------------------------------------------------------------------
+
+export const QUICK_OVERTIME_HOURS = 2;
+
+export type OvertimeBucket = 'clear' | 'ask' | 'day_first';
+
+export interface OvertimeQuickRow {
+  id: string;
+  staff_id: string;
+  staff_name: string;
+  attendance_date: string;
+  overtime_hours: number;
+  overtime_amount: number | null;
+}
+
+export interface OvertimeQuickItem<T extends OvertimeQuickRow = OvertimeQuickRow> {
+  row: T;
+  bucket: OvertimeBucket;
+  /** Why it needs a look; null for the clear ones. */
+  why: string | null;
+}
+
+/**
+ * clear: the day is approved and on time, up to QUICK_OVERTIME_HOURS, with a known amount.
+ * day_first: the day itself is not approved yet, so the database refuses the approval.
+ * ask: everything else. Late then staying after the shift is usually another shift, not overtime.
+ */
+export function overtimePlan<T extends OvertimeQuickRow>(
+  rows: T[],
+  days: DrWaelDay[],
+  cycleStart: string,
+  cycleEnd: string
+): OvertimeQuickItem<T>[] {
+  const byDay = new Map(days.map((day) => [`${day.staff_id}-${day.date}`, day]));
+  return rows
+    .filter((row) => {
+      const date = String(row.attendance_date).slice(0, 10);
+      return date >= cycleStart && date <= cycleEnd;
+    })
+    .map((row): OvertimeQuickItem<T> => {
+      const day = byDay.get(`${row.staff_id}-${String(row.attendance_date).slice(0, 10)}`);
+      if (!day || day.status !== 'approved')
+        return { row, bucket: 'day_first', why: 'اعتمد اليوم نفسه الأول' };
+      if (day.resolution === 'late' || day.resolution === 'very_late')
+        return { row, bucket: 'ask', why: 'اتأخر وقعد بعد الميعاد: ممكن يكون شيفت تاني' };
+      if (day.resolution !== 'on_time' && day.resolution !== 'worked_on_off')
+        return { row, bucket: 'ask', why: 'اليوم مش مظبوط على الجدول' };
+      if (row.overtime_amount == null)
+        return { row, bucket: 'ask', why: 'مفيش سعر ساعة محسوب ليه' };
+      if (Number(row.overtime_hours) > QUICK_OVERTIME_HOURS)
+        return { row, bucket: 'ask', why: `أكتر من ${QUICK_OVERTIME_HOURS} ساعة` };
+      return { row, bucket: 'clear', why: null };
+    })
+    .sort((a, b) => String(b.row.attendance_date).localeCompare(String(a.row.attendance_date)));
 }

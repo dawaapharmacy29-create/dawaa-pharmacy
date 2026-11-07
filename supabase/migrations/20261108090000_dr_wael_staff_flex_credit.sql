@@ -139,7 +139,7 @@ begin
         'old_start', l.payload->>'old_start', 'old_end', l.payload->>'old_end',
         'old_hours', nullif(l.payload->>'old_hours', '')::numeric,
         'new_hours', nullif(l.payload->>'new_hours', '')::numeric,
-        'origin', l.payload->>'origin', 'note', l.payload->>'note') as item,
+        'origin', l.payload->>'origin', 'note', l.payload->>'note', 'source', l.payload->>'source') as item,
       l.created_at
     from latest l
   ),
@@ -200,7 +200,7 @@ begin
       'old_start', l.payload->>'old_start', 'old_end', l.payload->>'old_end',
       'old_hours', nullif(l.payload->>'old_hours', '')::numeric,
       'new_hours', nullif(l.payload->>'new_hours', '')::numeric,
-      'origin', null, 'note', l.payload->>'note'
+      'origin', null, 'note', l.payload->>'note', 'source', l.payload->>'source'
     ) order by l.created_at desc), '[]'::jsonb)
     into v_unclassified
   from latest l
