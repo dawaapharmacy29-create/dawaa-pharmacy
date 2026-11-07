@@ -1720,3 +1720,140 @@ export function quickPlan(
     ask: items.filter((item) => !item.clear).sort(newestFirst),
   };
 }
+
+// -------------------------------------------------------------------------------------------------
+// Manual punches (migration 20261107170000): one row per punch typed by hand in the cycle.
+export type ManualPunchType = 'check_in' | 'check_out';
+
+export interface DrWaelManualPunch {
+  id: string;
+  staff_id: string;
+  date: string;
+  type: ManualPunchType;
+  at: string;
+  reason: string | null;
+  by: string | null;
+  /** Its number in the cycle's missing-punch allowance; null when it never went through that count. */
+  occurrence_no: number | null;
+  allowance_limit: number | null;
+  penalized: boolean;
+  day_status: string | null;
+  resolution: string | null;
+  counted: boolean;
+}
+
+export interface DrWaelManualPunches {
+  month_cycle: string;
+  cycle_start: string;
+  cycle_end: string;
+  missing_limit: number;
+  rows: DrWaelManualPunch[];
+}
+
+export async function fetchDrWaelManualPunches(
+  monthCycle?: string | null
+): Promise<DrWaelManualPunches> {
+  const { data, error } = await supabase.rpc('get_dr_wael_manual_punches_v1', {
+    p_month_cycle: monthCycle || null,
+  });
+  if (error) throw new Error(error.message);
+  if (!data || !Array.isArray((data as { rows?: unknown }).rows))
+    throw new Error('dr_wael_manual_punches_unavailable');
+  return data as DrWaelManualPunches;
+}
+
+export interface RecordedManualPunch {
+  occurrence_no: number;
+  allowance_limit: number;
+  over_allowance: boolean;
+  day_status: string | null;
+}
+
+export async function recordDrWaelManualPunch(args: {
+  staffId: string;
+  date: string;
+  type: ManualPunchType;
+  time: string;
+  nextDay: boolean;
+  note?: string | null;
+}): Promise<RecordedManualPunch> {
+  const { data, error } = await supabase.rpc('dr_wael_record_manual_punch_v1', {
+    p_staff_id: args.staffId,
+    p_date: args.date,
+    p_type: args.type,
+    p_time: args.time,
+    p_next_day: args.nextDay,
+    p_note: args.note || null,
+  });
+  if (error) throw new Error(error.message);
+  return data as RecordedManualPunch;
+}
+
+const MANUAL_PUNCH_ERRORS: ReadonlyArray<readonly [string, string]> = [
+  ['not_authorized', 'مفيش صلاحية'],
+  ['manual_punch_date_out_of_range', 'اليوم لازم يكون في آخر 40 يوم ومش في المستقبل'],
+  ['manual_punch_in_future', 'الوقت ده لسه ماجاش'],
+  ['manual_punch_staff_not_active', 'الموظف مش نشط'],
+  ['manual_punch_cycle_locked', 'مرتب الفترة دي اتقفل، مينفعش تسجل فيها'],
+  ['manual_punch_day_approved', 'اليوم ده اتعتمد بقرار مدير، افتحه الأول من مراجعة اليوم'],
+  ['manual_punch_already_exists', 'فيه بصمة من النوع ده في اليوم ده بالفعل'],
+];
+
+export function manualPunchErrorText(error: unknown): string {
+  const text = error instanceof Error ? error.message : '';
+  return MANUAL_PUNCH_ERRORS.find(([key]) => text.includes(key))?.[1] || 'ماتسجلتش، حاول تاني';
+}
+
+export interface ManualPunchSummary {
+  total: number;
+  counted: number;
+  notCounted: number;
+  insideAllowance: number;
+  overAllowance: number;
+  outsideCount: number;
+  penalized: number;
+}
+
+export function summarizeManualPunches(rows: DrWaelManualPunch[]): ManualPunchSummary {
+  const summary: ManualPunchSummary = {
+    total: rows.length,
+    counted: 0,
+    notCounted: 0,
+    insideAllowance: 0,
+    overAllowance: 0,
+    outsideCount: 0,
+    penalized: 0,
+  };
+  for (const row of rows) {
+    if (row.counted) summary.counted += 1;
+    else summary.notCounted += 1;
+    if (row.occurrence_no == null) summary.outsideCount += 1;
+    else if (row.occurrence_no <= (row.allowance_limit ?? 2)) summary.insideAllowance += 1;
+    else summary.overAllowance += 1;
+    if (row.penalized) summary.penalized += 1;
+  }
+  return summary;
+}
+
+// A check-out on an overnight shift, or one earlier in the clock than that day's check-in, belongs to the morning
+// after the shift's day. Only a default: the screen shows the date and lets the manager flip it.
+export function manualPunchFallsNextDay(args: {
+  type: ManualPunchType;
+  time: string;
+  firstIn: string | null;
+  shiftStart: string | null;
+  shiftEnd: string | null;
+}): boolean {
+  if (args.type !== 'check_out' || !args.time) return false;
+  const time = args.time.slice(0, 5);
+  if (args.firstIn) return time < cairoTime(args.firstIn);
+  if (args.shiftStart && args.shiftEnd) return args.shiftEnd.slice(0, 5) <= args.shiftStart.slice(0, 5);
+  return false;
+}
+
+export const ALL_BRANCHES = 'كل الفروع';
+/** The name a branch reads by on the screen: staff of «كل الفروع» are the management, not a branch. */
+export const branchLabel = (branch: string) => (branch === ALL_BRANCHES ? 'الإدارة' : branch);
+/** Staff the attendance engine never reads: they have no shift to edit and their days come from punches. */
+export const isOutsideEngine = (employee: Pick<DrWaelEmployee, 'branch'>) =>
+  employee.branch === ALL_BRANCHES;
