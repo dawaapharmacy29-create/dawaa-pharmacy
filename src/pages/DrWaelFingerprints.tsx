@@ -1,6 +1,8 @@
 import {
   decideOvertimeApproval,
+  getOvertimeDecisionEvidenceV3,
   listPendingOvertime,
+  type OvertimeDecisionEvidenceV3,
   type PendingOvertimeRow,
 } from '@/lib/attendance/attendanceBreakdownService';
 import {
@@ -66,7 +68,14 @@ import {
   fetchDrWaelStaffCredit,
   manualPunchQueue,
   manualPunchSuggestion,
+  overtimeDayFacts,
+  overtimeDecisionErrorText,
+  overtimeOpenColleagues,
+  overtimeStayGap,
   overtimePlan,
+  overtimeVerdict,
+  type OvertimeVerdict,
+  type OvertimeVerdictTone,
   QUICK_OVERTIME_HOURS,
   setDrWaelShiftOrigin,
   sortStaffCredit,
@@ -681,7 +690,12 @@ export default function DrWaelFingerprints() {
           />
         ) : null}
         {tab === 'quick' ? (
-          <OvertimeQuick days={data.days} cycleStart={data.cycle_start} cycleEnd={data.cycle_end} />
+          <OvertimeQuick
+            days={data.days}
+            cycleStart={data.cycle_start}
+            cycleEnd={data.cycle_end}
+            employees={new Map(data.employees.map((e) => [e.staff_id, e]))}
+          />
         ) : null}
         {found && tab !== 'quick' ? (
           <SearchResults
@@ -3942,23 +3956,101 @@ const QUICK_ASK_GROUPS: Record<QuickGroup, string> = {
 
 const overtimeHours = (hours: number) => minutesLabel(Math.round(Number(hours || 0) * 60));
 
-// The pending overtime of this pay cycle: the clear ones in one click, the rest one by one with why.
+const VERDICT_TONE: Record<OvertimeVerdictTone, string> = {
+  ok: 'text-emerald-700 dark:text-emerald-300',
+  look: 'text-amber-700 dark:text-amber-300',
+  doubt: 'text-rose-700 dark:text-rose-300',
+};
+
+const salesLine = (window?: { invoice_count: number | null; invoice_value: number | null }) =>
+  window && window.invoice_count != null
+    ? `${Number(window.invoice_count).toLocaleString('ar-EG')} فاتورة · ${Math.round(
+        Number(window.invoice_value || 0)
+      ).toLocaleString('ar-EG')} ج`
+    : 'مش متاح';
+
+// Who was inside and what was sold during the overtime, in as few lines as a decision needs.
+function OvertimeEvidencePanel({
+  evidence,
+  openNames,
+}: {
+  evidence: OvertimeDecisionEvidenceV3;
+  openNames: string[];
+}) {
+  if (!evidence.evidence_available)
+    return (
+      <p className={MUTED}>
+        {evidence.warnings?.join(' · ') || evidence.reason || 'مفيش بيانات كفاية.'}
+      </p>
+    );
+  const others = (evidence.staffing?.people || []).filter((person) => !person.is_current_employee);
+  const sales = evidence.sales;
+  return (
+    <div className="space-y-1 rounded-lg border border-gray-200 p-2 dark:border-slate-700">
+      <div>
+        <b>مين كان معاه من فئته: </b>
+        {others.length
+          ? others
+              .map(
+                (person) =>
+                  `${person.name} (${person.covers_full_window ? 'طول الوقت' : minutesLabel(person.overlap_minutes)})`
+              )
+              .join('، ')
+          : 'محدش'}
+      </div>
+      {openNames.length ? (
+        <div className={VERDICT_TONE.look}>
+          <b>يومهم لسه مش معتمد: </b>
+          {openNames.join('، ')}
+        </div>
+      ) : null}
+      <div>
+        <b>الفرع وقت الأوفر تايم: </b>
+        {salesLine(sales?.branch_overtime)}
+      </div>
+      {sales?.employee_attribution_available ? (
+        <div>
+          <b>فواتيره: </b>
+          وقت الأوفر تايم {salesLine(sales.employee_overtime)} · الساعة اللي قبلها{' '}
+          {salesLine(sales.employee_last_hour)}
+        </div>
+      ) : (
+        <div className={MUTED}>فواتير الموظف نفسه مش متاحة لفئته.</div>
+      )}
+      {evidence.warnings?.length ? (
+        <div className={MUTED}>{evidence.warnings.join(' · ')}</div>
+      ) : null}
+    </div>
+  );
+}
+
+const OVERTIME_CHECK_AT_ONCE = 4;
+const OVERTIME_ROWS_STEP = 5;
+
+// The pending overtime of this pay cycle. Only what the evidence backs goes with the group; the rest one by one with why.
 function OvertimeQuick({
   days,
   cycleStart,
   cycleEnd,
+  employees,
 }: {
   days: DrWaelDay[];
   cycleStart: string;
   cycleEnd: string;
+  employees: ReadonlyMap<string, DrWaelEmployee>;
 }) {
   const [rows, setRows] = useState<PendingOvertimeRow[] | null>(null);
   const [failedToLoad, setFailedToLoad] = useState(false);
   const [gone, setGone] = useState<Record<string, true>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [evidence, setEvidence] = useState<Record<string, OvertimeDecisionEvidenceV3>>({});
+  const [evidenceFailed, setEvidenceFailed] = useState<Record<string, true>>({});
+  const [open, setOpen] = useState<Record<string, true>>({});
+  const [checking, setChecking] = useState<{ at: number; total: number } | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [bulk, setBulk] = useState<{ at: number; total: number } | null>(null);
   const [handled, setHandled] = useState(0);
+  const [shown, setShown] = useState(OVERTIME_ROWS_STEP);
   useEffect(() => {
     let alive = true;
     listPendingOvertime(null)
@@ -3976,6 +4068,10 @@ function OvertimeQuick({
     () => overtimePlan(rows || [], days, cycleStart, cycleEnd).filter((i) => !gone[i.row.id]),
     [rows, days, cycleStart, cycleEnd, gone]
   );
+  const dayByKey = useMemo(
+    () => new Map(days.map((day) => [`${day.staff_id}-${day.date}`, day])),
+    [days]
+  );
   if (failedToLoad)
     return (
       <p
@@ -3986,13 +4082,84 @@ function OvertimeQuick({
       </p>
     );
   if (!rows || (!plan.length && !handled)) return null;
-  const clear = plan.filter((item) => item.bucket === 'clear');
-  const ask = plan.filter((item) => item.bucket === 'ask');
+  const openOf = (id: string) => overtimeOpenColleagues(days, evidence[id], employees);
+  const dayFacts = (row: PendingOvertimeRow) =>
+    overtimeDayFacts(dayByKey.get(`${row.staff_id}-${String(row.attendance_date).slice(0, 10)}`));
+  const verdictOf = (row: PendingOvertimeRow): OvertimeVerdict | null => {
+    const id = row.id;
+    if (evidenceFailed[id]) return { tone: 'look', text: 'ماقدرناش نجيب مين كان موجود' };
+    if (!evidence[id]) return null;
+    const verdict = overtimeVerdict(evidence[id], openOf(id).length);
+    const gap = overtimeStayGap(row.overtime_hours, dayFacts(row).afterMinutes);
+    return verdict.tone === 'ok' && gap
+      ? { tone: 'look', text: `الأوفر تايم أكتر من اللي قعده بعد الشيفت بـ ${minutesLabel(gap)}` }
+      : verdict;
+  };
+  const candidates = plan.filter((item) => item.bucket === 'clear');
+  const unchecked = candidates.filter((item) => !verdictOf(item.row));
+  const clear = candidates.filter((item) => verdictOf(item.row)?.tone === 'ok');
+  const held = candidates.filter((item) => {
+    const tone = verdictOf(item.row)?.tone;
+    return tone === 'look' || tone === 'doubt';
+  });
+  const ask = [
+    ...held.filter((item) => verdictOf(item.row)?.tone === 'doubt'),
+    ...held.filter((item) => verdictOf(item.row)?.tone === 'look'),
+    ...plan.filter((item) => item.bucket === 'ask'),
+  ];
   const waiting = plan.filter((item) => item.bucket === 'day_first');
   const total = clear.reduce((sum, item) => sum + Number(item.row.overtime_amount || 0), 0);
   const older = rows.filter((row) => String(row.attendance_date).slice(0, 10) < cycleStart).length;
   const when = (date: string) =>
     `${weekday(date.slice(0, 10))} ${date.slice(8, 10)}/${date.slice(5, 7)}`;
+  const factsLine = (row: PendingOvertimeRow) => {
+    const facts = dayFacts(row);
+    return [
+      facts.shift ? `شيفته ${facts.shift}` : 'من غير شيفت محدد',
+      facts.leftAt ? `خرج ${facts.leftAt}` : null,
+      facts.afterMinutes != null ? `قعد بعده ${minutesLabel(facts.afterMinutes)}` : null,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+  };
+  const loadEvidence = async (id: string) => {
+    if (evidence[id]) return;
+    setEvidenceFailed((current) => {
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+    try {
+      const result = await getOvertimeDecisionEvidenceV3(id);
+      setEvidence((current) => ({ ...current, [id]: result }));
+    } catch {
+      setEvidenceFailed((current) => ({ ...current, [id]: true }));
+    }
+  };
+  const toggleDetails = (id: string) => {
+    if (open[id]) {
+      setOpen((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
+      return;
+    }
+    setOpen((current) => ({ ...current, [id]: true }));
+    void loadEvidence(id);
+  };
+  const checkCandidates = async () => {
+    const ids = unchecked.map((item) => item.row.id);
+    let at = 0;
+    setChecking({ at, total: ids.length });
+    for (let i = 0; i < ids.length; i += OVERTIME_CHECK_AT_ONCE) {
+      await Promise.all(ids.slice(i, i + OVERTIME_CHECK_AT_ONCE).map(loadEvidence));
+      at = Math.min(i + OVERTIME_CHECK_AT_ONCE, ids.length);
+      setChecking({ at, total: ids.length });
+    }
+    setChecking(null);
+    setConfirming(true);
+  };
   const decide = async (row: PendingOvertimeRow, decision: 'approved' | 'rejected') => {
     setErrors((current) => {
       const next = { ...current };
@@ -4008,10 +4175,7 @@ function OvertimeQuick({
       setGone((current) => ({ ...current, [row.id]: true }));
       setHandled((n) => n + 1);
     } catch (e) {
-      setErrors((current) => ({
-        ...current,
-        [row.id]: e instanceof Error ? e.message : 'ما اتحفظش',
-      }));
+      setErrors((current) => ({ ...current, [row.id]: overtimeDecisionErrorText(e) }));
     }
   };
   const approveClear = async () => {
@@ -4030,7 +4194,7 @@ function OvertimeQuick({
     <section className={`${CARD} mx-auto max-w-2xl space-y-3 border-r-4 border-r-amber-400 p-4`}>
       <div className="flex items-baseline justify-between gap-2">
         <h2 className="text-base font-black text-gray-900 dark:text-slate-100">
-          أوفر تايم مستني · {clear.length + ask.length + waiting.length}
+          أوفر تايم مستني · {plan.length}
         </h2>
         {handled ? (
           <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 dark:text-emerald-400">
@@ -4042,18 +4206,39 @@ function OvertimeQuick({
         <p className={`text-xs font-bold ${MUTED}`}>
           بيعتمد {bulk.at} من {bulk.total}…
         </p>
-      ) : clear.length ? (
+      ) : null}
+      {!bulk && unchecked.length ? (
+        <div className={`${SOFT} space-y-2 p-3 text-xs`}>
+          <b>{unchecked.length} شكلهم واضح</b>
+          <p className={MUTED}>
+            اليوم معتمد وعلى الميعاد، و{QUICK_OVERTIME_HOURS} ساعة أو أقل. لسه ماشوفناش مين كان
+            معاهم.
+          </p>
+          <button
+            type="button"
+            disabled={Boolean(checking)}
+            onClick={() => void checkCandidates()}
+            className={`min-h-[40px] w-full rounded-xl px-3 text-sm font-bold disabled:opacity-60 ${BUTTON_TONE.primary}`}
+          >
+            {checking ? `بيتأكد ${checking.at} من ${checking.total}…` : 'اتأكد وشوف'}
+          </button>
+        </div>
+      ) : null}
+      {!bulk && clear.length ? (
         <div className={`${SOFT} space-y-2 p-3 text-xs`}>
           <b>
-            {clear.length} واضح · {Math.round(total).toLocaleString('ar-EG')} ج
+            {clear.length} اتأكدنا منهم · {Math.round(total).toLocaleString('ar-EG')} ج
           </b>
-          <p className={MUTED}>اليوم معتمد وعلى الميعاد، و{QUICK_OVERTIME_HOURS} ساعة أو أقل.</p>
+          <p className={MUTED}>لوحدهم من فئتهم وقت الأوفر تايم، والفرع كان بيبيع.</p>
           {confirming ? (
-            <ul className="max-h-56 space-y-1 overflow-y-auto">
+            <ul className="max-h-72 space-y-1.5 overflow-y-auto">
               {clear.map(({ row }) => (
                 <li key={row.id}>
                   <b>{row.staff_name}</b> · {when(row.attendance_date)} ·{' '}
                   {overtimeHours(row.overtime_hours)} · {row.overtime_amount} ج
+                  <div className={MUTED}>
+                    {factsLine(row)} · الفرع {salesLine(evidence[row.id]?.sales?.branch_overtime)}
+                  </div>
                 </li>
               ))}
             </ul>
@@ -4078,35 +4263,80 @@ function OvertimeQuick({
           </div>
         </div>
       ) : null}
-      {ask.slice(0, 5).map(({ row, why }) => (
-        <div key={row.id} className={`${SOFT} space-y-1 p-2 text-xs`}>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span>
-              <b>{row.staff_name}</b> · {when(row.attendance_date)} ·{' '}
-              {overtimeHours(row.overtime_hours)}
-              {row.overtime_amount != null ? ` · ${row.overtime_amount} ج` : ''}
-            </span>
-            <span className="flex gap-1.5">
-              <button
-                type="button"
-                onClick={() => void decide(row, 'approved')}
-                className={`rounded-lg px-3 py-1 font-bold ${BUTTON_TONE.primary}`}
-              >
-                اعتمد
-              </button>
-              <button
-                type="button"
-                onClick={() => void decide(row, 'rejected')}
-                className={`rounded-lg px-3 py-1 font-bold ${BUTTON_TONE.neutral}`}
-              >
-                ارفض
-              </button>
-            </span>
+      {ask.slice(0, shown).map(({ row, why }) => {
+        const verdict = verdictOf(row);
+        const doubt = verdict?.tone === 'doubt';
+        const isOpen = Boolean(open[row.id]);
+        return (
+          <div key={row.id} className={`${SOFT} space-y-1.5 p-2 text-xs`}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span>
+                <b>{row.staff_name}</b> · {when(row.attendance_date)} ·{' '}
+                {overtimeHours(row.overtime_hours)}
+                {row.overtime_amount != null ? ` · ${row.overtime_amount} ج` : ''}
+              </span>
+              <span className="flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => void decide(row, 'approved')}
+                  className={`rounded-lg px-3 py-1 font-bold ${doubt ? BUTTON_TONE.neutral : BUTTON_TONE.primary}`}
+                >
+                  اعتمد
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void decide(row, 'rejected')}
+                  className={`rounded-lg px-3 py-1 font-bold ${doubt ? BUTTON_TONE.primary : BUTTON_TONE.neutral}`}
+                >
+                  ارفض
+                </button>
+              </span>
+            </div>
+            <div className={MUTED}>{factsLine(row)}</div>
+            {why ? <div className="font-bold text-amber-700 dark:text-amber-300">{why}</div> : null}
+            {verdict ? (
+              <div className={`font-bold ${VERDICT_TONE[verdict.tone]}`}>{verdict.text}</div>
+            ) : null}
+            <button
+              type="button"
+              aria-expanded={isOpen}
+              onClick={() => toggleDetails(row.id)}
+              className="font-bold text-emerald-700 underline underline-offset-2 dark:text-emerald-300"
+            >
+              {isOpen ? 'اخفي التفاصيل' : 'مين كان موجود؟'}
+            </button>
+            {isOpen ? (
+              evidence[row.id] ? (
+                <OvertimeEvidencePanel
+                  evidence={evidence[row.id]}
+                  openNames={openOf(row.id).map(
+                    (day) => employees.get(day.staff_id)?.name || 'موظف'
+                  )}
+                />
+              ) : evidenceFailed[row.id] ? (
+                <button
+                  type="button"
+                  onClick={() => void loadEvidence(row.id)}
+                  className="font-bold text-rose-700 underline dark:text-rose-300"
+                >
+                  تعذر التحميل، جرّب تاني
+                </button>
+              ) : (
+                <p className={MUTED}>بيحمل…</p>
+              )
+            ) : null}
           </div>
-          <div className="font-bold text-amber-700 dark:text-amber-300">{why}</div>
-        </div>
-      ))}
-      {ask.length > 5 ? <p className={`text-xs ${MUTED}`}>و{ask.length - 5} بعدهم.</p> : null}
+        );
+      })}
+      {ask.length > shown ? (
+        <button
+          type="button"
+          onClick={() => setShown((n) => n + OVERTIME_ROWS_STEP)}
+          className={`min-h-[36px] w-full rounded-xl px-3 text-xs font-bold ${BUTTON_TONE.neutral}`}
+        >
+          هات اللي بعدهم ({ask.length - shown})
+        </button>
+      ) : null}
       {Object.keys(errors).length ? (
         <ul
           role="alert"

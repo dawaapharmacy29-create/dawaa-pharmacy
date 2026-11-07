@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import type { OvertimeDecisionEvidenceV3 } from '../attendance/attendanceBreakdownService';
 import {
   manualPunchQueue,
   manualPunchSuggestion,
+  overtimeDayFacts,
+  overtimeDecisionErrorText,
+  overtimeOpenColleagues,
+  overtimeStayGap,
   overtimePlan,
+  overtimeVerdict,
   type DrWaelDay,
   type DrWaelEmployee,
   sortStaffCredit,
@@ -1276,5 +1282,137 @@ describe('faster decisions', () => {
     expect(clear.map((item) => item.group)).toEqual(['stopped']);
     expect(ask).toEqual([]);
     expect(quickPlan([absent], TODAY, new Map(), new Set(), () => 2).ask[0].group).toBe('absence');
+  });
+});
+
+describe('overtime evidence next to the decision', () => {
+  const win = (invoice_count: number | null, invoice_value = 0) => ({
+    start_at: '2026-11-01T16:00:00Z',
+    end_at: '2026-11-01T18:00:00Z',
+    invoice_count,
+    invoice_value,
+  });
+  const evidence = (over: {
+    full?: number;
+    any?: number;
+    branch?: number | null;
+    own?: number;
+    attributed?: boolean;
+    group?: 'doctor' | 'delivery';
+  }) =>
+    ({
+      evidence_available: true,
+      overtime_id: 'o1',
+      staff_id: 's1',
+      staff_name: 'أ',
+      branch: 'فرع شكري',
+      role: null,
+      role_group: over.group || 'doctor',
+      staffing: {
+        same_role_total_present_any: 1,
+        same_role_others_present_any: over.any ?? over.full ?? 0,
+        same_role_others_cover_full_window: over.full ?? 0,
+        people: [],
+      },
+      sales: {
+        timestamp_source: 'x',
+        employee_attribution_available: over.attributed ?? true,
+        employee_attribution_method: 'seller',
+        branch_overtime: win(over.branch === undefined ? 10 : over.branch, 1000),
+        employee_shift: win(3),
+        employee_last_hour: win(1),
+        employee_overtime: win(over.own ?? 2),
+      },
+      warnings: [],
+      generated_at: '2026-11-01T18:00:00Z',
+    }) as OvertimeDecisionEvidenceV3;
+  const openDay = (over: Partial<DrWaelDay>) =>
+    ({
+      staff_id: 's2',
+      date: '2026-11-01',
+      branch: 'فرع شكري',
+      first_in: '2026-11-01T10:00:00Z',
+      last_out: '2026-11-01T17:00:00Z',
+      status: 'pending_review',
+      ...over,
+    }) as DrWaelDay;
+
+  it('only lets through someone alone from their group while the branch was selling', () => {
+    expect(overtimeVerdict(evidence({})).tone).toBe('ok');
+    expect(overtimeVerdict(null).tone).toBe('look');
+    expect(overtimeVerdict(evidence({ attributed: false })).tone).toBe('ok');
+  });
+
+  it('doubts overtime with others of the same group there the whole time', () => {
+    expect(overtimeVerdict(evidence({ full: 3 }))).toEqual({
+      tone: 'doubt',
+      text: 'معاه 3 من نفس فئته طول الوقت',
+    });
+    expect(overtimeVerdict(evidence({ full: 1, own: 0 })).tone).toBe('doubt');
+    expect(overtimeVerdict(evidence({ full: 1, own: 4 })).tone).toBe('look');
+  });
+
+  it('asks for a look when the numbers are not enough to approve with the group', () => {
+    expect(overtimeVerdict(evidence({ any: 1 })).tone).toBe('look');
+    expect(overtimeVerdict(evidence({}), 2).tone).toBe('look');
+    expect(overtimeVerdict(evidence({ branch: 0 })).tone).toBe('look');
+    expect(overtimeVerdict(evidence({ branch: null })).tone).toBe('look');
+    expect(overtimeVerdict(evidence({ own: 0, group: 'delivery' })).tone).toBe('look');
+  });
+
+  it('counts colleagues inside on a day not approved yet, same branch and group only', () => {
+    const employees = new Map([
+      ['s2', { delivery: false }],
+      ['s3', { delivery: true }],
+    ]);
+    const days = [
+      openDay({}),
+      openDay({ staff_id: 's1' }),
+      openDay({ staff_id: 's3' }),
+      openDay({ staff_id: 's4', status: 'approved' }),
+      openDay({ staff_id: 's5', branch: 'فرع الشامي' }),
+      openDay({ staff_id: 's6', last_out: '2026-11-01T15:00:00Z' }),
+      openDay({ staff_id: 's7', last_out: null }),
+    ];
+    expect(overtimeOpenColleagues(days, evidence({}), employees).map((d) => d.staff_id)).toEqual([
+      's2',
+    ]);
+    expect(
+      overtimeOpenColleagues(days, evidence({ group: 'delivery' }), employees).map(
+        (d) => d.staff_id
+      )
+    ).toEqual(['s3']);
+    expect(overtimeOpenColleagues(days, null)).toEqual([]);
+  });
+
+  it('shows the shift and how long they stayed after it', () => {
+    expect(
+      overtimeDayFacts(
+        openDay({
+          scheduled_start: '2026-11-01T08:00:00Z',
+          scheduled_end: '2026-11-01T16:00:00Z',
+          last_out: '2026-11-01T17:30:00Z',
+        })
+      )
+    ).toEqual({ shift: '10:00–18:00', leftAt: '19:30', afterMinutes: 90 });
+    expect(overtimeDayFacts(null)).toEqual({ shift: null, leftAt: null, afterMinutes: null });
+  });
+
+  it('flags overtime longer than the stay after the shift', () => {
+    expect(overtimeStayGap(1.25, 15)).toBe(60);
+    expect(overtimeStayGap(0.75, 46)).toBe(0);
+    expect(overtimeStayGap(1, 45)).toBe(0);
+    expect(overtimeStayGap(1, 44)).toBe(16);
+    expect(overtimeStayGap(1, null)).toBe(0);
+  });
+
+  it('turns database refusals into a clear next step', () => {
+    expect(
+      overtimeDecisionErrorText(new Error('overtime_requires_approved_attendance_truth'))
+    ).toBe('اعتمد اليوم نفسه الأول');
+    expect(overtimeDecisionErrorText(new Error('overtime_source_resolution_drifted'))).toContain(
+      'حدّث'
+    );
+    expect(overtimeDecisionErrorText(new Error('حاجة تانية'))).toBe('حاجة تانية');
   });
 });
