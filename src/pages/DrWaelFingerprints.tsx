@@ -104,6 +104,14 @@ import {
   type QuickDayDecision,
   dayKind,
   endDrWaelEmployment,
+  endEmploymentLeftLines,
+  endEmploymentResultText,
+  listRecentEndEmployments,
+  previewEndEmployment,
+  undoEndEmployment,
+  undoEndEmploymentText,
+  type EndEmploymentPreview,
+  type RecentEndEmployment,
   endDrWaelLeave,
   employeeWorkMode,
   idleEmployees,
@@ -1689,6 +1697,14 @@ const SEPARATION_KINDS: Array<[DrWaelSeparationKind, string]> = [
 
 function leaveError(text: string): string {
   if (text.includes('cannot_end_viewer')) return 'ماينفعش تعمل ترك عمل لحد من مديري الصفحة';
+  if (text.includes('already_undone')) return 'القرار ده اترجع فيه بالفعل';
+  if (text.includes('undo_too_late'))
+    return 'عدى أكتر من 30 يوم؛ الرجوع في القرار بقى من الموارد البشرية';
+  if (text.includes('undo_not_available')) return 'القرار ده قديم؛ الرجوع فيه من الموارد البشرية';
+  if (text.includes('other_lifecycle_change_exists'))
+    return 'فيه قرار تاني متسجل للموظف ده؛ راجعه من الموارد البشرية';
+  if (text.includes('payroll_finalized'))
+    return 'مرتبات الشهر ده اتقفلت؛ الرجوع في القرار من الموارد البشرية';
   if (text.includes('later_lifecycle_change_exists'))
     return 'فيه قرار متسجل للموظف ده بعد اليوم ده؛ راجعه من الموارد البشرية';
   if (text.includes('invalid_last_day')) return 'آخر يوم لازم يكون من آخر 4 شهور لحد شهرين قدام';
@@ -1705,13 +1721,230 @@ function leaveError(text: string): string {
   return 'ماتسجلش، راجع البيانات وحاول تاني';
 }
 
-const endEmploymentText = (
-  name: string,
-  result: { last_day: string; archived: boolean; days_closed: number }
-) =>
-  `${name}: ترك عمل بعد ${result.last_day}` +
-  (result.archived ? ' · اتشال من الحضور' : ' · هيتشال من الحضور بعد آخر يوم') +
-  (result.days_closed ? ` · اتقفل ${result.days_closed} يوم معلق` : '');
+// Before «ترك عمل» runs: what closes, and what stays open for someone to finish.
+function EndEmploymentConfirm({
+  staffId,
+  name,
+  lastDay,
+  kindLabel,
+  busy,
+  onConfirm,
+  onCancel,
+}: {
+  staffId: string;
+  name: string;
+  lastDay: string;
+  kindLabel: string;
+  busy: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const [preview, setPreview] = useState<EndEmploymentPreview | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let live = true;
+    setPreview(null);
+    setFailed(false);
+    previewEndEmployment(staffId, lastDay)
+      .then((row) => live && setPreview(row))
+      .catch(() => live && setFailed(true));
+    return () => {
+      live = false;
+    };
+  }, [staffId, lastDay]);
+  const left = preview ? endEmploymentLeftLines(preview) : [];
+  return (
+    <div
+      role="alertdialog"
+      aria-label={`تأكيد ترك عمل ${name}`}
+      className={`${CARD} space-y-2 p-3 text-xs`}
+    >
+      <p className="font-bold text-gray-900 dark:text-slate-100">
+        {name}: {kindLabel}، آخر يوم {lastDay}
+      </p>
+      {failed ? <p className={MUTED}>مقدرتش أجيب التفاصيل، بس القرار ينفع يتنفذ.</p> : null}
+      {!preview && !failed ? <p className={MUTED}>بجيب التفاصيل…</p> : null}
+      {preview ? (
+        <>
+          {preview.already ? (
+            <p className="font-bold">القرار ده متسجل قبل كده بنفس آخر يوم، ومش هيتغير حاجة.</p>
+          ) : null}
+          <p className={MUTED}>آخر بصمة: {preview.last_punch_day ?? 'مفيش'}</p>
+          <div>
+            <p className="font-bold">هيحصل:</p>
+            <ul className="list-inside list-disc">
+              <li>
+                {preview.days_to_close
+                  ? `${preview.days_to_close} يوم فاضي بعد آخر يوم هيتقفل «خارج الخدمة» من غير خصم`
+                  : 'مفيش أيام فاضية بعد آخر يوم تتقفل'}
+              </li>
+              <li>
+                {preview.closes_now
+                  ? 'هيتشال من الحضور والجدول دلوقتي'
+                  : 'هيفضل في الحضور لحد آخر يوم، وبعده يتشال'}
+                {preview.logins_open
+                  ? preview.closes_now
+                    ? '، والدخول على التطبيق هيتقفل'
+                    : '، والدخول على التطبيق يتقفل معاه'
+                  : ''}
+              </li>
+              <li>حضوره ومرتبه لحد آخر يوم بيفضلوا في مرتبات الشهر</li>
+            </ul>
+          </div>
+          <div>
+            <p className="font-bold">هيفضل مفتوح:</p>
+            {left.length ? (
+              <ul className="list-inside list-disc">
+                {left.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className={MUTED}>مفيش حاجة</p>
+            )}
+          </div>
+        </>
+      ) : null}
+      <div className="flex gap-2">
+        <button
+          type="button"
+          disabled={busy || (!preview && !failed)}
+          onClick={onConfirm}
+          className="flex-1 rounded-xl bg-rose-600 px-3 py-2 font-bold text-white disabled:opacity-50"
+        >
+          {busy ? 'جارٍ الحفظ…' : 'تأكيد ترك العمل'}
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onCancel}
+          className={`rounded-xl px-3 py-2 font-bold ${IDLE}`}
+        >
+          رجوع
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// The last decisions, what each still has open, and taking one back.
+function RecentEndEmploymentsPanel({
+  data,
+  inBranch,
+  onSaved,
+}: {
+  data: Data;
+  inBranch: (branch: string) => boolean;
+  onSaved: () => void;
+}) {
+  const [rows, setRows] = useState<RecentEndEmployment[]>([]);
+  const [asking, setAsking] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ tone: Tone; text: string } | null>(null);
+  useEffect(() => {
+    let live = true;
+    listRecentEndEmployments()
+      .then((list) => live && setRows(list))
+      .catch(() => live && setRows([]));
+    return () => {
+      live = false;
+    };
+  }, [data]);
+  const shown = rows.filter((row) => inBranch(row.branch));
+  if (!shown.length && !message) return null;
+  const undo = async (row: RecentEndEmployment) => {
+    setBusy(row.change_id);
+    setMessage(null);
+    try {
+      setMessage({
+        tone: 'green',
+        text: undoEndEmploymentText(row.name, await undoEndEmployment(row.change_id)),
+      });
+      setAsking(null);
+      onSaved();
+    } catch (e) {
+      setMessage({ tone: 'red', text: leaveError(e instanceof Error ? e.message : '') });
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <Section title="قرارات ترك العمل" subtitle="آخر 45 يوم · اللي لسه مفتوح لكل قرار">
+      {message ? (
+        <div
+          role="status"
+          className={`mb-2 rounded-xl px-3 py-2 text-xs font-bold ${TONES[message.tone]}`}
+        >
+          {message.text}
+        </div>
+      ) : null}
+      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+        {shown.map((row) => {
+          const left = endEmploymentLeftLines(row);
+          return (
+            <div key={row.change_id} className={`${CARD} space-y-2 p-3 text-xs`}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-bold text-gray-900 dark:text-slate-100">{row.name}</span>
+                <span className={`text-[11px] ${MUTED}`}>{row.branch}</span>
+              </div>
+              <p className={MUTED}>
+                {SEPARATION_KINDS.find(([value]) => value === row.kind)?.[1] ?? ''} · آخر يوم{' '}
+                {row.last_day}
+                {row.days_closed ? ` · اتقفل ${row.days_closed} يوم` : ''}
+              </p>
+              {left.length ? (
+                <ul className="list-inside list-disc">
+                  {left.map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className={MUTED}>مفيش حاجة مفتوحة</p>
+              )}
+              {!row.can_undo ? (
+                <p className={`text-[11px] ${MUTED}`}>الرجوع في القرار ده من الموارد البشرية</p>
+              ) : asking === row.change_id ? (
+                <div className="space-y-1">
+                  <p>
+                    هيرجع زي ما كان قبل القرار والأيام اللي اتقفلت هترجع. الدخول على التطبيق مش
+                    هيتفتح لوحده.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      disabled={Boolean(busy)}
+                      onClick={() => void undo(row)}
+                      className="rounded-lg bg-rose-600 px-3 py-1.5 font-bold text-white disabled:opacity-50"
+                    >
+                      {busy === row.change_id ? 'جارٍ الحفظ…' : 'تأكيد الرجوع'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={Boolean(busy)}
+                      onClick={() => setAsking(null)}
+                      className={`rounded-lg px-3 py-1.5 font-bold ${IDLE}`}
+                    >
+                      لأ
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  disabled={Boolean(busy)}
+                  onClick={() => setAsking(row.change_id)}
+                  className={`rounded-lg px-3 py-1.5 font-bold ${IDLE}`}
+                >
+                  رجوع في القرار
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </Section>
+  );
+}
 
 // Leave for a period, «رجع للشغل» on a running leave, and «ترك عمل» in one tap (an old two-step archive request
 // still shows here to approve or cancel).
@@ -1738,6 +1971,7 @@ function LeaveArchivePanel({
   });
   const [separation, setSeparation] = useState<DrWaelSeparationKind>('resignation');
   const [archiveReason, setArchiveReason] = useState('');
+  const [confirmingEnd, setConfirmingEnd] = useState(false);
   const [pending, setPending] = useState<PendingStaffLifecycleChangeV2[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ tone: Tone; text: string } | null>(null);
@@ -1957,25 +2191,37 @@ function LeaveArchivePanel({
               الفاضية بعده بتتقفل «خارج الخدمة» من غير خصم ومش هتظهر معلقة تاني.
               {employee.last_punch ? ` آخر بصمة: ${cairoDayOf(employee.last_punch)}.` : ''}
             </p>
-            <button
-              type="button"
-              disabled={Boolean(busy) || !lastDay}
-              onClick={() => {
-                if (!window.confirm(`${employee.name} ساب الشغل — آخر يوم ${lastDay}؟`)) return;
-                void run('archive', async () => {
-                  const result = await endDrWaelEmployment({
-                    staffId: employee.staff_id,
-                    lastDay,
-                    kind: separation,
-                    note: archiveReason.trim() || null,
+            {confirmingEnd ? (
+              <EndEmploymentConfirm
+                staffId={employee.staff_id}
+                name={employee.name}
+                lastDay={lastDay}
+                kindLabel={SEPARATION_KINDS.find(([value]) => value === separation)?.[1] ?? ''}
+                busy={busy === 'archive'}
+                onCancel={() => setConfirmingEnd(false)}
+                onConfirm={() => {
+                  void run('archive', async () => {
+                    const result = await endDrWaelEmployment({
+                      staffId: employee.staff_id,
+                      lastDay,
+                      kind: separation,
+                      note: archiveReason.trim() || null,
+                    });
+                    setConfirmingEnd(false);
+                    return endEmploymentResultText(employee.name, result);
                   });
-                  return endEmploymentText(employee.name, result);
-                });
-              }}
-              className="w-full rounded-xl bg-rose-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"
-            >
-              {busy === 'archive' ? 'جارٍ الحفظ…' : 'ترك عمل'}
-            </button>
+                }}
+              />
+            ) : (
+              <button
+                type="button"
+                disabled={Boolean(busy) || !lastDay}
+                onClick={() => setConfirmingEnd(true)}
+                className="w-full rounded-xl bg-rose-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"
+              >
+                ترك عمل
+              </button>
+            )}
           </>
         )}
       </div>
@@ -2044,11 +2290,11 @@ function IdleStaffPanel({
   const rows = idleEmployees(employees, data.time_off, data.today);
   const [kind, setKind] = useState<DrWaelSeparationKind>('resignation');
   const [busy, setBusy] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<string | null>(null);
   const [message, setMessage] = useState<{ tone: Tone; text: string } | null>(null);
   if (!rows.length && !message) return null;
+  const kindLabel = SEPARATION_KINDS.find(([value]) => value === kind)?.[1] || '';
   const end = async (employee: DrWaelEmployee, lastDay: string) => {
-    const label = SEPARATION_KINDS.find(([value]) => value === kind)?.[1] || '';
-    if (!window.confirm(`${employee.name}: ${label} — آخر يوم ${lastDay}؟`)) return;
     setBusy(employee.staff_id);
     setMessage(null);
     try {
@@ -2057,7 +2303,8 @@ function IdleStaffPanel({
         lastDay,
         kind,
       });
-      setMessage({ tone: 'green', text: endEmploymentText(employee.name, result) });
+      setMessage({ tone: 'green', text: endEmploymentResultText(employee.name, result) });
+      setConfirming(null);
       onSaved();
     } catch (e) {
       setMessage({ tone: 'red', text: leaveError(e instanceof Error ? e.message : '') });
@@ -2101,15 +2348,28 @@ function IdleStaffPanel({
                   {lastPunchDay ? `آخر بصمة ${lastPunchDay} · من ${daysAway} يوم` : 'مابصمش خالص'}
                 </Pill>
               </div>
+              {confirming === employee.staff_id ? (
+                <EndEmploymentConfirm
+                  staffId={employee.staff_id}
+                  name={employee.name}
+                  lastDay={lastDay}
+                  kindLabel={kindLabel}
+                  busy={busy === employee.staff_id}
+                  onCancel={() => setConfirming(null)}
+                  onConfirm={() => void end(employee, lastDay)}
+                />
+              ) : null}
               <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={Boolean(busy)}
-                  onClick={() => void end(employee, lastDay)}
-                  className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
-                >
-                  {busy === employee.staff_id ? 'جارٍ الحفظ…' : `ترك عمل (آخر يوم ${lastDay})`}
-                </button>
+                {confirming === employee.staff_id ? null : (
+                  <button
+                    type="button"
+                    disabled={Boolean(busy)}
+                    onClick={() => setConfirming(employee.staff_id)}
+                    className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
+                  >
+                    {`ترك عمل (آخر يوم ${lastDay})`}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => onSmart(employee)}
@@ -3223,6 +3483,11 @@ function DashboardTab({
         data={data}
         employees={data.employees.filter((e) => matches(branch, e.branch))}
         onSmart={onSmart}
+        onSaved={onDecisionSaved}
+      />
+      <RecentEndEmploymentsPanel
+        data={data}
+        inBranch={(b) => matches(branch, b)}
         onSaved={onDecisionSaved}
       />
       <Section title="الحاضرون الآن" subtitle="بصمة حضور النهارده أو امبارح بالليل من غير انصراف">
