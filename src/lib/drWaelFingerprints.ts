@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { matchesAppSearch } from '@/lib/appSearch';
 import { cairoDayOf } from '@/lib/time/cairoDateBoundary';
+import type { OvertimeDecisionEvidenceV3 } from '@/lib/attendance/attendanceBreakdownService';
 
 // «بصمات د وائل» (migration 20261103150000): the views of the Base44 fingerprint app (fingdawaa) fed from this
 // app's attendance days, punches, schedules, time off and incentive ledgers for شكري / الشامي / المخزن.
@@ -2161,4 +2162,113 @@ export function overtimePlan<T extends OvertimeQuickRow>(
       return { row, bucket: 'clear', why: null };
     })
     .sort((a, b) => String(b.row.attendance_date).localeCompare(String(a.row.attendance_date)));
+}
+
+/** The shift of the overtime day and how long he stayed after it, from the same day row the page shows. */
+export function overtimeDayFacts(day: DrWaelDay | null | undefined): {
+  shift: string | null;
+  leftAt: string | null;
+  afterMinutes: number | null;
+} {
+  if (!day) return { shift: null, leftAt: null, afterMinutes: null };
+  const end = day.scheduled_end ? Date.parse(day.scheduled_end) : NaN;
+  const out = day.last_out ? Date.parse(day.last_out) : NaN;
+  return {
+    shift:
+      day.scheduled_start && day.scheduled_end
+        ? `${cairoTime(day.scheduled_start)}–${cairoTime(day.scheduled_end)}`
+        : null,
+    leftAt: day.last_out ? cairoTime(day.last_out) : null,
+    afterMinutes:
+      Number.isNaN(end) || Number.isNaN(out) ? null : Math.max(Math.round((out - end) / 60000), 0),
+  };
+}
+
+export const OVERTIME_STAY_GAP_MINUTES = 15;
+
+/** Overtime asked for beyond what he actually stayed after the shift, in minutes; 0 when they agree. */
+export function overtimeStayGap(hours: number, afterMinutes: number | null): number {
+  if (afterMinutes == null) return 0;
+  const gap = Math.round(Number(hours || 0) * 60) - afterMinutes;
+  return gap > OVERTIME_STAY_GAP_MINUTES ? gap : 0;
+}
+
+export type OvertimeVerdictTone = 'ok' | 'look' | 'doubt';
+
+export interface OvertimeVerdict {
+  tone: OvertimeVerdictTone;
+  text: string;
+}
+
+/**
+ * Only «ok» can be approved with the group; «look» and «doubt» stay for a decision one by one.
+ * doubt: others of his group were there the whole time, so the overtime was probably not needed.
+ * openColleagues: same group, day not approved yet. The evidence counts approved days only, so they may be missing from it.
+ */
+export function overtimeVerdict(
+  evidence: OvertimeDecisionEvidenceV3 | null | undefined,
+  openColleagues = 0
+): OvertimeVerdict {
+  const staffing = evidence?.staffing;
+  const sales = evidence?.sales;
+  if (!evidence?.evidence_available || !staffing || !sales)
+    return { tone: 'look', text: 'مفيش بيانات كفاية عن الوقت ده' };
+  const full = Number(staffing.same_role_others_cover_full_window || 0);
+  const any = Number(staffing.same_role_others_present_any || 0);
+  const own = sales.employee_attribution_available
+    ? Number(sales.employee_overtime?.invoice_count ?? 0)
+    : null;
+  if (full >= 2) return { tone: 'doubt', text: `معاه ${full} من نفس فئته طول الوقت` };
+  if (full === 1 && own === 0)
+    return { tone: 'doubt', text: 'معاه واحد من نفس فئته طول الوقت وماعليهوش فواتير' };
+  if (full === 1) return { tone: 'look', text: 'معاه واحد من نفس فئته طول الوقت' };
+  if (any > 0) return { tone: 'look', text: `معاه ${any} من نفس فئته جزء من الوقت` };
+  if (openColleagues > 0)
+    return { tone: 'look', text: `فيه ${openColleagues} من فئته يومهم لسه مش معتمد` };
+  if (sales.branch_overtime?.invoice_count == null)
+    return { tone: 'look', text: 'مبيعات الفرع في الوقت ده مش متاحة' };
+  if (Number(sales.branch_overtime.invoice_count) === 0)
+    return { tone: 'look', text: 'الفرع مابعش حاجة في الوقت ده' };
+  if (own === 0) return { tone: 'look', text: 'الفرع باع بس ماعليهوش فواتير في الوقت ده' };
+  return { tone: 'ok', text: 'لوحده من فئته والفرع شغال' };
+}
+
+/**
+ * Colleagues in the same branch and the same group (delivery with delivery, the rest together) who were
+ * inside during the overtime on a day not approved yet: the evidence does not count them.
+ */
+export function overtimeOpenColleagues(
+  days: DrWaelDay[],
+  evidence: OvertimeDecisionEvidenceV3 | null | undefined,
+  employees?: ReadonlyMap<string, Pick<DrWaelEmployee, 'delivery'>>
+): DrWaelDay[] {
+  const window = evidence?.sales?.branch_overtime;
+  if (!evidence || !window) return [];
+  const start = Date.parse(window.start_at);
+  const end = Date.parse(window.end_at);
+  if (Number.isNaN(start) || Number.isNaN(end)) return [];
+  const delivery = evidence.role_group === 'delivery';
+  return days.filter((day) => {
+    if (day.staff_id === evidence.staff_id || day.branch !== evidence.branch) return false;
+    if (day.status === 'approved' || !day.first_in || !day.last_out) return false;
+    const employee = employees?.get(day.staff_id);
+    if (employee && Boolean(employee.delivery) !== delivery) return false;
+    return Date.parse(day.first_in) < end && Date.parse(day.last_out) > start;
+  });
+}
+
+const OVERTIME_DECISION_ERRORS: [string, string][] = [
+  ['overtime_requires_approved_attendance_truth', 'اعتمد اليوم نفسه الأول'],
+  ['overtime_source_resolution', 'اليوم اتغير بعد ما الأوفر تايم اتحسب: حدّث الصفحة'],
+  ['overtime_compensation_profile_not_eligible', 'الموظف ده مش بياخد أوفر تايم'],
+  ['overtime_no_longer_eligible', 'مابقاش فيه أوفر تايم مستحق لليوم ده'],
+  ['overtime_not_found_or_already_decided', 'القرار اتاخد قبل كده'],
+  ['overtime_schedule_hours', 'ساعات الشيفت مش مظبوطة لليوم ده'],
+  ['not_authorized', 'مالكش صلاحية على القرار ده'],
+];
+
+export function overtimeDecisionErrorText(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  const known = OVERTIME_DECISION_ERRORS.find(([code]) => message.includes(code));
+  return known ? known[1] : message || 'ما اتحفظش';
 }
