@@ -38,12 +38,6 @@ const Customers = lazy(() => import('@/pages/Customers'));
 const Customer360 = lazy(() => import('@/pages/Customer360'));
 const CustomerImport = lazy(() => import('@/pages/CustomerImport'));
 const CustomerService = lazy(() => import('@/pages/SmartCustomerService'));
-const WhatsAppAutoFollowupRequests = lazy(() => import('@/pages/WhatsAppAutoFollowupRequests'));
-const WhatsAppFolderWatcher = lazy(() => import('@/pages/WhatsAppFolderWatcher'));
-const WhatsAppDoctorPerformance = lazy(() => import('@/pages/WhatsAppDoctorPerformance'));
-const WhatsAppCustomerHistory = lazy(() => import('@/pages/WhatsAppCustomerHistory'));
-const WhatsAppLostOpportunities = lazy(() => import('@/pages/WhatsAppLostOpportunities'));
-const WhatsAppBranchComparison = lazy(() => import('@/pages/WhatsAppBranchComparison'));
 const CustomerRequests = lazy(() => import('@/pages/CustomerRequests'));
 const CustomerIncubation = lazy(() => import('@/pages/CustomerIncubation'));
 const CustomerDataReview = lazy(() => import('@/pages/CustomerDataReview'));
@@ -468,54 +462,12 @@ function AppRoutes() {
         }
       />
       <Route path="/customer-service-classic" element={<CompatibilityRedirect to="/customer-service" />} />
-      <Route
-        path="/whatsapp-followup-requests"
-        element={
-          <ProtectedRoute>
-            {routeSuspense(<WhatsAppAutoFollowupRequests />, 'طلبات المتابعة الآلية')}
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/whatsapp-folder-watcher"
-        element={
-          <ProtectedRoute>
-            {routeSuspense(<WhatsAppFolderWatcher />, 'المراقبة التلقائية للواتساب')}
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/whatsapp-doctor-performance"
-        element={
-          <ProtectedRoute>
-            {routeSuspense(<WhatsAppDoctorPerformance />, 'أداء الدكاترة في الواتساب')}
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/whatsapp-customer-history"
-        element={
-          <ProtectedRoute>
-            {routeSuspense(<WhatsAppCustomerHistory />, 'سجل محادثات العميل')}
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/whatsapp-lost-opportunities"
-        element={
-          <ProtectedRoute>
-            {routeSuspense(<WhatsAppLostOpportunities />, 'الفرص الضائعة')}
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/whatsapp-branch-comparison"
-        element={
-          <ProtectedRoute>
-            {routeSuspense(<WhatsAppBranchComparison />, 'مقارنة الفروع (واتساب)')}
-          </ProtectedRoute>
-        }
-      />
+      <Route path="/whatsapp-followup-requests" element={<CompatibilityRedirect to="/customer-service" />} />
+      <Route path="/whatsapp-folder-watcher" element={<CompatibilityRedirect to="/whatsapp-smart-folder-watcher" />} />
+      <Route path="/whatsapp-doctor-performance" element={<CompatibilityRedirect to="/whatsapp-analytics" />} />
+      <Route path="/whatsapp-customer-history" element={<CompatibilityRedirect to="/customers" />} />
+      <Route path="/whatsapp-lost-opportunities" element={<CompatibilityRedirect to="/whatsapp-analytics" />} />
+      <Route path="/whatsapp-branch-comparison" element={<CompatibilityRedirect to="/whatsapp-analytics" />} />
       <Route
         path="/customer-requests"
         element={

@@ -208,7 +208,7 @@ export const MANAGEMENT_GROUPS: NavGroup[] = [
   { title: 'الفريق', icon: Users, items: managerItems('/team', '/schedule', '/attendance-report', '/time-off', '/staff-payroll') },
   { title: 'النقاط والأداء', icon: Star, items: managerItems('/points', '/point-appeals', '/penalty-incentive', '/shift-performance', '/performance-pillars') },
   { title: 'العملاء', icon: HeadphonesIcon, items: managerItems('/customer-service', '/customers', '/reviews', '/customer-requests') },
-  { title: 'المبيعات والتقارير', icon: BarChart3, items: managerItems('/analytics', '/branch-comparison', '/reports', '/consolidated-reports') },
+  { title: 'المبيعات', icon: BarChart3, items: managerItems('/analytics', '/branch-comparison', '/reports', '/consolidated-reports') },
   { title: 'المشتريات والمخزون', icon: Store, items: managerItems('/purchases', '/supplier-accounts', '/shortages', '/inventory-counts') },
 ];
 
