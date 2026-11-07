@@ -175,24 +175,30 @@ export const PHARMACIST_GROUPS: NavGroup[] = [
   { title: 'عملي اليومي', icon: UserCheck, items: [
     { path: '/doctor-dashboard', icon: LayoutDashboard, label: 'لوحة الدكتور', permission: 'view_doctor_dashboard' },
     { path: '/doctor-dashboard?tab=followups', icon: HeadphonesIcon, label: 'متابعاتي المطلوبة', permission: 'view_doctor_dashboard' },
+    { path: '/customers', icon: Users, label: 'بحث العملاء', permission: 'view_customers' },
     { path: '/schedule', icon: Calendar, label: 'الجدول والشيفتات', permission: 'view_schedule' },
   ]},
-  { title: 'العملاء والمحادثات', icon: HeadphonesIcon, items: [
-    { path: '/customers', icon: Users, label: 'بحث العملاء', permission: 'view_customers' },
-    { path: '/customer-points-ledger', icon: Star, label: 'نقاط العملاء', permission: 'view_customers' },
-    { path: '/quick-replies', icon: HeadphonesIcon, label: 'الردود السريعة', permission: 'whatsapp_customer' },
-    { path: '/welcome-messages', icon: MessageCircle, label: 'رسائل الترحيب', permission: 'customer_welcome_messages_view' },
-  ]},
-  { title: 'أدائي وحافزي', icon: Star, items: [
-    { path: '/monthly-report-360', icon: BarChart3, label: 'تقريري الشهري 360°', permission: 'view_doctor_dashboard' },
-    { path: '/doctor-competition', icon: Star, label: 'مسابقة الدكاترة', permission: 'view_doctor_dashboard' },
-    { path: '/points', icon: Star, label: 'نقاطي وحافزي', permission: 'view_points' },
-    { path: '/point-appeals', icon: AlertTriangle, label: 'اعتراضاتي على النقاط' },
-  ]},
-  { title: 'الأصناف والتشغيل', icon: Store, items: [
+  { title: 'الأصناف', icon: Store, items: [
     { path: '/stagnant-medicines', icon: Package, label: 'الرواكد', permission: 'view_stagnant_medicines' },
     { path: '/incentive-medicines', icon: Sparkles, label: 'أصناف الحافز', permission: 'view_incentive_medicines' },
   ]},
+  { title: 'أدائي وحافزي', icon: Star, items: [
+    { path: '/points', icon: Star, label: 'نقاطي وحافزي', permission: 'view_points' },
+    { path: '/monthly-report-360', icon: BarChart3, label: 'تقريري الشهري 360°', permission: 'view_doctor_dashboard' },
+    { path: '/point-appeals', icon: AlertTriangle, label: 'اعتراضاتي على النقاط' },
+  ]},
+];
+
+// The branch manager's short menu. Entries come from GROUPS, so a page keeps one label and one permission;
+// what is left out stays reachable from the pages that link to it and by its URL.
+const managerItems = (...paths: string[]) =>
+  paths.flatMap((path) => GROUPS.flatMap((group) => group.items).find((item) => item.path === path) ?? []);
+
+export const BRANCH_MANAGER_GROUPS: NavGroup[] = [
+  { title: 'يومي', icon: LayoutDashboard, items: managerItems('/', '/customer-service', '/customers', '/reviews') },
+  { title: 'فريقي', icon: Users, items: managerItems('/team', '/schedule', '/attendance-report', '/time-off', '/shift-performance') },
+  { title: 'النقاط', icon: Star, items: managerItems('/points', '/point-appeals') },
+  { title: 'الفرع', icon: Store, items: managerItems('/shortages', '/medicine-expiry', '/stagnant-medicines', '/monthly-report-360') },
 ];
 
 function basePath(path: string) { return path.split('?')[0]; }
@@ -265,7 +271,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
   const canQuickCoding = canAccess(CUSTOMER_CODING_ITEM);
   const quickFollowupPath = pharmacistView ? '/doctor-dashboard?tab=followups' : QUICK_FOLLOWUP_ITEM.path;
 
-  const groups = useMemo(() => (pharmacistView ? PHARMACIST_GROUPS : GROUPS)
+  const groups = useMemo(() => (pharmacistView ? PHARMACIST_GROUPS : role === 'branch_manager' ? BRANCH_MANAGER_GROUPS : GROUPS)
     .filter((group) => group.title !== 'التوصيل' || ENABLE_INTERNAL_DELIVERY_MODULE)
     .map((group) => ({ ...group, items: group.items.filter(canAccess) }))
     .filter((group) => group.items.length), [checkPermission, pharmacistView, privileged, role, user?.id]);

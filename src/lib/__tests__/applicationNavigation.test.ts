@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import {
+  BRANCH_MANAGER_GROUPS,
   GROUPS,
   PHARMACIST_GROUPS,
   activeItem,
   isNavItemVisible,
   type NavGroup,
 } from '@/components/layout/SidebarBase';
+import { ASSISTANT_GROUPS, assistantGroupsFor } from '@/components/layout/AssistantSidebar';
 import { ROLES, hasPermission } from '@/lib/core/permissionSystem';
 
 const root = resolve(__dirname, '../../..');
@@ -34,7 +36,7 @@ function visibleGroups(role: string): NavGroup[] {
   const pharmacistView =
     ['pharmacist', 'shift_supervisor_morning', 'shift_supervisor_evening'].includes(role) &&
     !checkPermission('view_executive_dashboard');
-  return (pharmacistView ? PHARMACIST_GROUPS : GROUPS)
+  return (pharmacistView ? PHARMACIST_GROUPS : role === 'branch_manager' ? BRANCH_MANAGER_GROUPS : GROUPS)
     .filter((group) => group.title !== 'التوصيل')
     .map((group) => ({
       ...group,
@@ -134,5 +136,59 @@ describe('application navigation consolidation', () => {
     }
     const appAndPages = [appSource, read('src/components/system/RetiredSurfacePage.tsx')].join('\n');
     expect(appAndPages).not.toMatch(/from\('return_orders'\)|rpc\('get_today_command_summary'/);
+  });
+});
+
+describe('short menu per role', () => {
+  const count = (groups: { items: unknown[] }[]) => groups.reduce((sum, group) => sum + group.items.length, 0);
+  const paths = (role: string) => visibleGroups(role).flatMap((group) => group.items.map((item) => item.path));
+  const assistantPaths = (permissions: string[], staffId = 'someone') =>
+    assistantGroupsFor((permission) => permissions.includes(permission), staffId).flatMap((group) =>
+      group.items.map((item) => item.path)
+    );
+  const allAssistant = ASSISTANT_GROUPS.flatMap((group) => group.items.map((item) => item.path));
+  const everyPermission = [
+    ...new Set(ASSISTANT_GROUPS.flatMap((group) => group.items.map((item) => item.permission as string))),
+  ];
+  const ALPHA = '82b9c2a1-6139-4b07-9937-ef80a6e926d8';
+
+  it('keeps every role to a short list of pages', () => {
+    expect(count(visibleGroups('pharmacist'))).toBeLessThanOrEqual(9);
+    expect(count(visibleGroups('branch_manager'))).toBeLessThanOrEqual(15);
+    expect(assistantPaths(everyPermission).length).toBeLessThanOrEqual(12);
+  });
+
+  it('builds the manager menu from the main one, with every page found', () => {
+    const items = BRANCH_MANAGER_GROUPS.flatMap((group) => group.items);
+    const main = GROUPS.flatMap((group) => group.items);
+    expect(items).toHaveLength(15);
+    for (const item of items) expect(main).toContain(item);
+  });
+
+  it('keeps the pages a role has no other way to reach', () => {
+    expect(paths('pharmacist')).toContain('/point-appeals');
+    expect(paths('pharmacist')).toContain('/monthly-report-360');
+    expect(paths('branch_manager')).toContain('/point-appeals');
+    expect(paths('branch_manager')).toContain('/monthly-report-360');
+  });
+
+  it('keeps the hidden pages as routes, so a link or a saved URL still opens', () => {
+    for (const path of ['/quick-replies', '/welcome-messages', '/doctor-competition', '/customer-points-ledger', '/staff-payroll']) {
+      expect(routeExists(path)).toBe(true);
+    }
+  });
+
+  it('gives the reviews and invoice accuracy pages to Team Dawaa Alpha only', () => {
+    expect(allAssistant).toContain('/reviews');
+    expect(assistantPaths(everyPermission)).not.toContain('/reviews');
+    expect(assistantPaths(everyPermission)).not.toContain('/purchase-invoice-accuracy');
+    expect(assistantPaths(everyPermission, ALPHA)).toContain('/reviews');
+    expect(assistantPaths(everyPermission, ALPHA)).toContain('/purchase-invoice-accuracy');
+    expect(assistantPaths(everyPermission, ALPHA)).not.toContain('/pharmacy-zone-tasks');
+  });
+
+  it('still narrows the short menu by the account permissions', () => {
+    expect(assistantPaths(['view_dashboard'])).not.toContain('/purchases');
+    expect(assistantPaths(['view_dashboard'])).toContain('/purchase-invoice-entry');
   });
 });
