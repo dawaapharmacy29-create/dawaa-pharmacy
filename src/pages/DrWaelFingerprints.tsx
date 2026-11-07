@@ -38,6 +38,11 @@ import {
   fetchDrWaelCreditLedger,
   fetchDrWaelShiftPatterns,
   fetchDrWaelOpenPunches,
+  quickPlan,
+  QUICK_SMALL_MINUTES,
+  type QuickAction,
+  type QuickGroup,
+  type QuickItem,
   punchReadings,
   datesInPeriod,
   limitFingerprintsToStaff,
@@ -122,6 +127,7 @@ const AttendanceResolutionCenter = lazy(
 // Every number is this app's own (شكري / الشامي / المخزن).
 
 const TABS = [
+  ['quick', 'قرارات سريعة'],
   ['dashboard', 'لوحة المعلومات'],
   ['attendance', 'الحضور والانصراف'],
   ['workday', 'يوم عمل'],
@@ -343,7 +349,8 @@ const ReadingContext = createContext<{
 }>({ readings: new Map(), openAt: () => undefined, today: '', reload: () => undefined });
 
 export default function DrWaelFingerprints() {
-  const [tab, setTab] = useState<Tab>('dashboard');
+  const canDecide = useDayReviewAccess();
+  const [tab, setTab] = useState<Tab>(canDecide ? 'quick' : 'dashboard');
   const [cycle, setCycle] = useState<string | null>(null);
   const [data, setData] = useState<Data | null>(null);
   const [loading, setLoading] = useState(true);
@@ -475,33 +482,21 @@ export default function DrWaelFingerprints() {
   return (
     <ReadingContext.Provider value={reading}>
       <div className="space-y-4 text-sm" dir="rtl" aria-busy={loading}>
-        <div className={`${CARD} space-y-2 p-2`}>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-1 rounded-xl bg-gray-100 p-1 dark:bg-slate-800">
-              <button
-                type="button"
-                onClick={() => setCycle(shiftCycle(current, -1))}
-                disabled={loading}
-                className="rounded-lg px-3 py-1 text-xs font-bold text-gray-600 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-900"
-              >
-                الفترة السابقة
-              </button>
-              <span className={`rounded-lg px-3 py-1 text-xs font-bold ${ACTIVE}`}>
-                {isCurrent ? 'الفترة الحالية' : cycleLabel(current)}
-              </span>
-              <button
-                type="button"
-                onClick={() => setCycle(shiftCycle(current, 1))}
-                disabled={loading || isCurrent || data.today <= data.cycle_end}
-                className="rounded-lg px-3 py-1 text-xs font-bold text-gray-600 hover:bg-white disabled:opacity-40 dark:text-slate-300 dark:hover:bg-slate-900"
-              >
-                التالية
-              </button>
-            </div>
-            <div className={`flex items-center gap-2 text-xs ${MUTED}`}>
-              <span>
-                {data.cycle_start} ← {data.cycle_end}
-              </span>
+        {tab === 'quick' ? (
+          <div className="mx-auto flex max-w-2xl items-center justify-between gap-2 px-1">
+            <h1 className={`text-base font-black ${PAGE_HEADING}`}>
+              قرارات البصمات{isCurrent ? '' : ` · ${cycleLabel(current)}`}
+            </h1>
+            <div className="flex items-center gap-2">
+              {!isCurrent ? (
+                <button
+                  type="button"
+                  onClick={() => setCycle(null)}
+                  className={`rounded-lg px-2 py-1 text-xs font-bold ${IDLE}`}
+                >
+                  الفترة الحالية
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => void load(cycle)}
@@ -511,50 +506,114 @@ export default function DrWaelFingerprints() {
               >
                 <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
               </button>
+              <button
+                type="button"
+                onClick={() => setTab('dashboard')}
+                className={`rounded-lg px-3 py-1 text-xs font-bold ${IDLE}`}
+              >
+                كل الأقسام
+              </button>
             </div>
           </div>
-          <nav className="flex gap-1 overflow-x-auto" aria-label="أقسام البصمات">
-            {TABS.map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setTab(key)}
-                aria-pressed={tab === key}
-                className={`shrink-0 whitespace-nowrap rounded-xl px-3 py-1.5 text-xs font-bold transition ${tab === key ? ACTIVE : 'text-gray-600 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-800'}`}
-              >
-                {label}
-              </button>
-            ))}
-          </nav>
-          <Chips
-            label="الفرع"
-            value={branch}
-            onChange={setBranch}
-            options={[['الكل', 'كل الفروع'], ...data.branches.map((b) => [b, b] as const)]}
-          />
-          <label className="flex items-center gap-2 rounded-xl bg-gray-50 px-3 py-2 dark:bg-slate-800">
-            <Search size={15} className="shrink-0 text-gray-400" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="دور على موظف في كل الصفحات… مثال: احمد*نور"
-              title={getWildcardSearchHint()}
-              aria-label="بحث باسم الموظف في كل الصفحات"
-              className="w-full bg-transparent text-xs text-gray-900 outline-none placeholder:text-gray-400 dark:text-slate-100"
+        ) : (
+          <div className={`${CARD} space-y-2 p-2`}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-1 rounded-xl bg-gray-100 p-1 dark:bg-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setCycle(shiftCycle(current, -1))}
+                  disabled={loading}
+                  className="rounded-lg px-3 py-1 text-xs font-bold text-gray-600 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-900"
+                >
+                  الفترة السابقة
+                </button>
+                <span className={`rounded-lg px-3 py-1 text-xs font-bold ${ACTIVE}`}>
+                  {isCurrent ? 'الفترة الحالية' : cycleLabel(current)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCycle(shiftCycle(current, 1))}
+                  disabled={loading || isCurrent || data.today <= data.cycle_end}
+                  className="rounded-lg px-3 py-1 text-xs font-bold text-gray-600 hover:bg-white disabled:opacity-40 dark:text-slate-300 dark:hover:bg-slate-900"
+                >
+                  التالية
+                </button>
+              </div>
+              <div className={`flex items-center gap-2 text-xs ${MUTED}`}>
+                <span>
+                  {data.cycle_start} ← {data.cycle_end}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void load(cycle)}
+                  disabled={loading}
+                  aria-label="تحديث"
+                  className={`rounded-lg p-1.5 ${IDLE}`}
+                >
+                  <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+                </button>
+              </div>
+            </div>
+            <nav className="flex gap-1 overflow-x-auto" aria-label="أقسام البصمات">
+              {TABS.map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setTab(key)}
+                  aria-pressed={tab === key}
+                  className={`shrink-0 whitespace-nowrap rounded-xl px-3 py-1.5 text-xs font-bold transition ${tab === key ? ACTIVE : 'text-gray-600 hover:bg-gray-100 dark:text-slate-300 dark:hover:bg-slate-800'}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </nav>
+            <Chips
+              label="الفرع"
+              value={branch}
+              onChange={setBranch}
+              options={[['الكل', 'كل الفروع'], ...data.branches.map((b) => [b, b] as const)]}
             />
-            {search ? (
-              <button
-                type="button"
-                onClick={() => setSearch('')}
-                aria-label="مسح البحث"
-                className="shrink-0 text-gray-400 hover:text-gray-700 dark:hover:text-slate-200"
-              >
-                <X size={15} />
-              </button>
-            ) : null}
-          </label>
-        </div>
-        {found ? (
+            <label className="flex items-center gap-2 rounded-xl bg-gray-50 px-3 py-2 dark:bg-slate-800">
+              <Search size={15} className="shrink-0 text-gray-400" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="دور على موظف في كل الصفحات… مثال: احمد*نور"
+                title={getWildcardSearchHint()}
+                aria-label="بحث باسم الموظف في كل الصفحات"
+                className="w-full bg-transparent text-xs text-gray-900 outline-none placeholder:text-gray-400 dark:text-slate-100"
+              />
+              {search ? (
+                <button
+                  type="button"
+                  onClick={() => setSearch('')}
+                  aria-label="مسح البحث"
+                  className="shrink-0 text-gray-400 hover:text-gray-700 dark:hover:text-slate-200"
+                >
+                  <X size={15} />
+                </button>
+              ) : null}
+            </label>
+          </div>
+        )}
+        {tab === 'quick' ? (
+          <QuickDecisions
+            days={data.days}
+            today={data.today}
+            readings={readings}
+            names={new Map(data.employees.map((e) => [e.staff_id, e]))}
+            credit={credit}
+            missingLimit={ledger?.missing_limit ?? 2}
+            olderCount={
+              isCurrent
+                ? (openPunches?.days || []).filter((d) => d.date < data.cycle_start).length
+                : 0
+            }
+            onOlder={isCurrent ? () => setCycle(shiftCycle(current, -1)) : null}
+            onReload={() => void load(cycle)}
+          />
+        ) : null}
+        {found && tab !== 'quick' ? (
           <SearchResults
             employees={employees}
             ledger={ledger}
@@ -3023,6 +3082,347 @@ function DayReviewSheet({
         </SheetContent>
       ) : null}
     </Sheet>
+  );
+}
+
+// The daily screen: the clear decisions in one click, then the rest one at a time with one recommended action.
+const QUICK_GROUPS: Record<QuickGroup, string> = {
+  forgot: 'نسيان بصمة في حدود السماح',
+  shift: 'اشتغل على شيفت تاني من شيفتاته',
+  small: `دقايق بسيطة (${QUICK_SMALL_MINUTES} د أو أقل)`,
+  absence: 'غياب',
+  minutes: 'تأخير أو انصراف بدري',
+  other: 'أوف من غير جدول ومن غير بصمة',
+};
+// The same groups on the one-at-a-time card, where a rule did not cover the day.
+const QUICK_ASK_GROUPS: Record<QuickGroup, string> = {
+  forgot: 'نسيان بصمة',
+  shift: 'شيفت غير الجدول',
+  small: 'دقايق بسيطة',
+  absence: 'غياب',
+  minutes: 'تأخير أو انصراف بدري',
+  other: 'محتاج مراجعة',
+};
+
+function QuickDecisions({
+  days,
+  today,
+  readings,
+  names,
+  credit,
+  missingLimit,
+  olderCount,
+  onOlder,
+  onReload,
+}: {
+  days: DrWaelDay[];
+  today: string;
+  readings: Map<string, PunchReading>;
+  names: Map<string, DrWaelEmployee>;
+  credit: Map<string, DrWaelCreditRow>;
+  missingLimit: number;
+  olderCount: number;
+  onOlder: (() => void) | null;
+  onReload: () => void;
+}) {
+  const [done, setDone] = useState<Record<string, true>>({});
+  const [failed, setFailed] = useState<Record<string, string>>({});
+  const [skipped, setSkipped] = useState<string[]>([]);
+  const [confirming, setConfirming] = useState(false);
+  const [bulk, setBulk] = useState<{ at: number; total: number } | null>(null);
+  const [handled, setHandled] = useState(0);
+  const [review, setReview] = useState<DayReview | null>(null);
+  const inFlight = useRef(new Set<string>());
+  const refreshTimer = useRef<number | null>(null);
+  const key = (day: DrWaelDay) => `${day.staff_id}-${day.date}`;
+
+  // Fresh data has the final word, except for what is still saving.
+  useEffect(() => {
+    setDone((current) =>
+      Object.fromEntries(
+        Object.keys(current)
+          .filter((k) => inFlight.current.has(k))
+          .map((k) => [k, true as const])
+      )
+    );
+  }, [days]);
+  useEffect(
+    () => () => {
+      if (refreshTimer.current) window.clearTimeout(refreshTimer.current);
+    },
+    []
+  );
+
+  const flexible = useMemo(
+    () => new Set([...names.values()].filter((e) => e.work_mode).map((e) => e.staff_id)),
+    [names]
+  );
+  const plan = useMemo(
+    () =>
+      quickPlan(days, today, readings, flexible, (staffId) => {
+        const row = credit.get(staffId);
+        return row ? missingLimit - row.missing_used : 0;
+      }),
+    [days, today, readings, flexible, credit, missingLimit]
+  );
+  const clear = plan.clear.filter((item) => !done[key(item.day)]);
+  const askAll = plan.ask.filter((item) => !done[key(item.day)]);
+  const ask = [
+    ...askAll.filter((item) => !skipped.includes(key(item.day))),
+    ...skipped.flatMap((k) => askAll.filter((item) => key(item.day) === k)),
+  ];
+  const current = ask[0];
+  const left = clear.length + ask.length;
+  const total = left + handled;
+
+  const run = async (item: QuickItem, action: QuickAction) => {
+    const k = key(item.day);
+    if (action.type === 'details') {
+      setReview({
+        staffId: item.day.staff_id,
+        name: names.get(item.day.staff_id)?.name || 'موظف',
+        date: item.day.date,
+      });
+      return false;
+    }
+    inFlight.current.add(k);
+    setDone((d) => ({ ...d, [k]: true }));
+    setFailed((f) => {
+      const next = { ...f };
+      delete next[k];
+      return next;
+    });
+    try {
+      if (action.type === 'shift') {
+        await applyDrWaelShiftChange({
+          staffId: item.day.staff_id,
+          start: action.start,
+          end: action.end,
+          mode: 'day',
+          from: item.day.date,
+          note: 'قرار سريع: اليوم على شيفت الموظف حسب البصمة',
+        });
+      } else {
+        await decideQuickDay(item.day.staff_id, item.day.date, action.decision);
+      }
+      setHandled((n) => n + 1);
+      if (refreshTimer.current) window.clearTimeout(refreshTimer.current);
+      refreshTimer.current = window.setTimeout(onReload, 2500);
+      return true;
+    } catch (e) {
+      setDone((d) => {
+        const next = { ...d };
+        delete next[k];
+        return next;
+      });
+      setFailed((f) => ({ ...f, [k]: e instanceof Error ? e.message : 'تعذّر حفظ القرار' }));
+      return false;
+    } finally {
+      inFlight.current.delete(k);
+    }
+  };
+
+  const runClear = async () => {
+    setConfirming(false);
+    const items = clear;
+    setBulk({ at: 0, total: items.length });
+    let at = 0;
+    for (const item of items) {
+      await run(item, item.primary);
+      at += 1;
+      setBulk({ at, total: items.length });
+    }
+    setBulk(null);
+  };
+
+  const groups = (Object.keys(QUICK_GROUPS) as QuickGroup[])
+    .map((group) => ({ group, count: clear.filter((item) => item.group === group).length }))
+    .filter((row) => row.count);
+  const failures = plan.clear.filter((item) => failed[key(item.day)]);
+  const actionText = (action: QuickAction) => action.label;
+  const when = (date: string) => `${weekday(date)} ${date.slice(8, 10)}/${date.slice(5, 7)}`;
+
+  return (
+    <div className="mx-auto max-w-2xl space-y-3">
+      <div className={`${CARD} space-y-2 p-4`}>
+        <div className="flex items-baseline justify-between gap-2">
+          <div className="flex items-baseline gap-2">
+            <span className="text-3xl font-black text-gray-900 dark:text-slate-100">{left}</span>
+            <span className={`text-sm font-bold ${MUTED}`}>قرار مستني منك</span>
+          </div>
+          {handled ? (
+            <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 dark:text-emerald-400">
+              <Check size={14} /> خلّصت {handled}
+            </span>
+          ) : null}
+        </div>
+        {total ? (
+          <div className="h-1.5 overflow-hidden rounded-full bg-gray-100 dark:bg-slate-800">
+            <div
+              className="h-full rounded-full bg-emerald-500 transition-all duration-500"
+              style={{ width: `${Math.round((handled / total) * 100)}%` }}
+            />
+          </div>
+        ) : null}
+      </div>
+
+      {clear.length || bulk ? (
+        <section className={`${CARD} space-y-3 border-r-4 border-r-emerald-400 p-4`}>
+          <div>
+            <h2 className="text-base font-black text-gray-900 dark:text-slate-100">
+              {bulk ? `بينفّذ ${bulk.at} من ${bulk.total}…` : `${clear.length} قرار واضح`}
+            </h2>
+            {!bulk ? (
+              <ul className={`mt-1 space-y-0.5 text-xs ${MUTED}`}>
+                {groups.map((row) => (
+                  <li key={row.group}>
+                    {row.count} · {QUICK_GROUPS[row.group]}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+          {confirming ? (
+            <ul className="max-h-64 space-y-1 overflow-y-auto text-xs">
+              {clear.map((item) => (
+                <li key={key(item.day)} className={`${SOFT} px-2 py-1.5`}>
+                  <b>{names.get(item.day.staff_id)?.name || '—'}</b> · {when(item.day.date)}:{' '}
+                  {actionText(item.primary)}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {!bulk ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {confirming ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void runClear()}
+                    className={`min-h-[44px] flex-1 rounded-xl px-4 text-sm font-bold ${BUTTON_TONE.primary}`}
+                  >
+                    تمام، نفّذ الـ {clear.length}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirming(false)}
+                    className={`min-h-[44px] rounded-xl px-4 text-sm font-bold ${BUTTON_TONE.neutral}`}
+                  >
+                    رجوع
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirming(true)}
+                  className={`min-h-[44px] flex-1 rounded-xl px-4 text-sm font-bold ${BUTTON_TONE.primary}`}
+                >
+                  شوف ونفّذ
+                </button>
+              )}
+            </div>
+          ) : null}
+          {failures.length ? (
+            <ul className="space-y-1 text-[11px] font-bold text-rose-700 dark:text-rose-300">
+              {failures.map((item) => (
+                <li key={key(item.day)}>
+                  {names.get(item.day.staff_id)?.name || '—'} · {when(item.day.date)}: ما اتحفظش (
+                  {failed[key(item.day)]})
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </section>
+      ) : null}
+
+      {current ? (
+        <section className={`${CARD} space-y-3 border-r-4 border-r-violet-400 p-4`}>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-xs font-bold text-violet-700 dark:text-violet-300">
+              محتاج رأيك · {ask.length}
+            </h2>
+            <span className={`text-xs ${MUTED}`}>{QUICK_ASK_GROUPS[current.group]}</span>
+          </div>
+          <div>
+            <div className="text-lg font-black text-gray-900 dark:text-slate-100">
+              {names.get(current.day.staff_id)?.name || '—'}
+            </div>
+            <div className={`text-xs ${MUTED}`}>
+              {when(current.day.date)} · {current.day.branch.replace('فرع ', '')}
+              {current.day.scheduled_start
+                ? ` · جدوله ${cairoTime(current.day.scheduled_start)}–${cairoTime(current.day.scheduled_end)}`
+                : ''}
+            </div>
+          </div>
+          <p className="text-sm text-gray-800 dark:text-slate-200">{dayStory(current.day)}</p>
+          {current.why ? (
+            <p className="flex items-start gap-1 rounded-lg bg-violet-50 px-2 py-1.5 text-xs font-bold text-violet-900 dark:bg-violet-500/10 dark:text-violet-200">
+              <Sparkles size={13} className="mt-0.5 shrink-0" /> {current.why}
+            </p>
+          ) : null}
+          {failed[key(current.day)] ? (
+            <p
+              role="alert"
+              className="rounded-lg bg-rose-50 px-2 py-1 text-xs font-bold text-rose-700 dark:bg-rose-500/10 dark:text-rose-300"
+            >
+              ما اتحفظش: {failed[key(current.day)]}
+            </p>
+          ) : null}
+          <div className="grid gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => void run(current, current.primary)}
+              className={`min-h-[48px] rounded-xl px-4 text-sm font-bold ${current.secondary ? '' : 'sm:col-span-2'} ${BUTTON_TONE[current.primary.type === 'decide' ? current.primary.tone : 'primary']}`}
+            >
+              {actionText(current.primary)}
+            </button>
+            {current.secondary ? (
+              <button
+                type="button"
+                onClick={() => void run(current, current.secondary as QuickAction)}
+                className={`min-h-[48px] rounded-xl px-4 text-sm font-bold ${BUTTON_TONE.neutral}`}
+              >
+                {actionText(current.secondary)}
+              </button>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            disabled={ask.length < 2}
+            onClick={() =>
+              setSkipped((list) => [
+                ...list.filter((k) => k !== key(current.day)),
+                key(current.day),
+              ])
+            }
+            className={`w-full text-center text-xs font-bold underline disabled:opacity-40 ${MUTED}`}
+          >
+            بعدين، هات اللي بعده
+          </button>
+        </section>
+      ) : null}
+
+      {!left && !bulk ? (
+        <div className={`${CARD} flex flex-col items-center gap-1 p-8 text-center`}>
+          <Check className="text-emerald-500" size={32} />
+          <p className="text-base font-black text-emerald-600 dark:text-emerald-400">
+            خلصت كل القرارات
+          </p>
+        </div>
+      ) : null}
+
+      {olderCount && onOlder ? (
+        <button
+          type="button"
+          onClick={onOlder}
+          className={`w-full rounded-xl px-3 py-2 text-xs font-bold ${IDLE}`}
+        >
+          فيه {olderCount} قرار من الفترة اللي فاتت، افتحهم
+        </button>
+      ) : null}
+
+      <DayReviewSheet review={review} onClose={() => setReview(null)} onDecisionSaved={onReload} />
+    </div>
   );
 }
 
