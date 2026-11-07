@@ -48,13 +48,16 @@ describe('the sidebar each role really gets', () => {
   it('gives a pharmacist the short menu', () => {
     const html = menu('pharmacist');
     expect(html).toContain('أدائي وحافزي');
+    expect(html).toContain('بحث العملاء');
     expect(html).not.toContain('العملاء والمحادثات');
   });
 
-  it('leaves the managers above a branch on the full menu', () => {
+  it('opens top management on a short menu, with the rest one click away', () => {
     const html = menu('branches_manager');
-    expect(html).toContain('الرواتب والنقاط والحوافز');
-    expect(html).not.toContain('فريقي');
+    expect(html).toContain('النقاط والأداء');
+    expect(html).toContain('دليل الموظفين');
+    expect(html).toContain('كل الصفحات');
+    expect(html).not.toContain('إعدادات الموارد البشرية');
   });
 
   it('keeps assistants and Team Dawaa Alpha on the assistant menu', () => {

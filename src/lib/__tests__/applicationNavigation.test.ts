@@ -7,6 +7,7 @@ import {
   PHARMACIST_GROUPS,
   activeItem,
   isNavItemVisible,
+  menuGroupsFor,
   type NavGroup,
 } from '@/components/layout/SidebarBase';
 import { ASSISTANT_GROUPS, assistantGroupsFor } from '@/components/layout/AssistantSidebar';
@@ -36,7 +37,8 @@ function visibleGroups(role: string): NavGroup[] {
   const pharmacistView =
     ['pharmacist', 'shift_supervisor_morning', 'shift_supervisor_evening'].includes(role) &&
     !checkPermission('view_executive_dashboard');
-  return (pharmacistView ? PHARMACIST_GROUPS : role === 'branch_manager' ? BRANCH_MANAGER_GROUPS : GROUPS)
+  const menu = menuGroupsFor(role, pharmacistView);
+  return [...menu.main, ...menu.more]
     .filter((group) => group.title !== 'التوصيل')
     .map((group) => ({
       ...group,
@@ -163,6 +165,16 @@ describe('short menu per role', () => {
     const main = GROUPS.flatMap((group) => group.items);
     expect(items).toHaveLength(15);
     for (const item of items) expect(main).toContain(item);
+  });
+
+  it('opens top management on a short menu and loses no page behind it', () => {
+    const paths = (groups: NavGroup[]) => groups.flatMap((group) => group.items.map((item) => item.path));
+    for (const role of ['general_manager', 'executive_manager', 'branches_manager']) {
+      const menu = menuGroupsFor(role, false);
+      expect(new Set(paths(menu.main)).size).toBeLessThanOrEqual(26);
+      expect(new Set([...paths(menu.main), ...paths(menu.more)])).toEqual(new Set(paths(GROUPS)));
+      expect(paths(menu.main).filter((path) => paths(menu.more).includes(path))).toEqual([]);
+    }
   });
 
   it('keeps the pages a role has no other way to reach', () => {
