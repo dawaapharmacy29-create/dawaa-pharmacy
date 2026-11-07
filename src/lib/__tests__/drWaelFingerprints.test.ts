@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+  manualPunchQueue,
+  manualPunchSuggestion,
+  overtimePlan,
+  type DrWaelDay,
+  type DrWaelEmployee,
+  sortStaffCredit,
+  staffCreditLeaders,
+  staffCreditView,
+  type DrWaelStaffCreditRow,
   manualPunchErrorText,
   manualPunchFallsNextDay,
   summarizeManualPunches,
@@ -1013,7 +1022,14 @@ describe('manual punches', () => {
   });
 
   const fall = (over: Partial<Parameters<typeof manualPunchFallsNextDay>[0]>) =>
-    manualPunchFallsNextDay({ type: 'check_out', time: '08:00', firstIn: null, shiftStart: null, shiftEnd: null, ...over });
+    manualPunchFallsNextDay({
+      type: 'check_out',
+      time: '08:00',
+      firstIn: null,
+      shiftStart: null,
+      shiftEnd: null,
+      ...over,
+    });
 
   it('puts the check-out of an overnight shift on the next morning', () => {
     expect(fall({ shiftStart: '22:00', shiftEnd: '08:00' })).toBe(true);
@@ -1021,7 +1037,7 @@ describe('manual punches', () => {
     expect(fall({ type: 'check_in', shiftStart: '22:00', shiftEnd: '08:00' })).toBe(false);
   });
 
-  it('puts a check-out earlier than that day\'s check-in on the next morning', () => {
+  it("puts a check-out earlier than that day's check-in on the next morning", () => {
     expect(fall({ firstIn: '2026-11-03T20:53:00Z' })).toBe(true);
     expect(fall({ time: '23:30', firstIn: '2026-11-03T20:53:00Z' })).toBe(false);
   });
@@ -1029,5 +1045,236 @@ describe('manual punches', () => {
   it('says why a punch was refused', () => {
     expect(manualPunchErrorText(new Error('manual_punch_cycle_locked'))).toContain('اتقفل');
     expect(manualPunchErrorText(new Error('something else'))).toBe('ماتسجلتش، حاول تاني');
+  });
+});
+
+describe('staff commitment and flexibility credit', () => {
+  const limits = { committed_per_day: 5, regular_per_day: 30 };
+  const row = (over: Partial<DrWaelStaffCreditRow> = {}): DrWaelStaffCreditRow => ({
+    staff_id: 's1',
+    name: 'موظف',
+    branch: 'فرع شكري',
+    attended_days: 10,
+    late_minutes: 0,
+    early_minutes: 0,
+    excused_minutes: 0,
+    minutes: 0,
+    absent_days: 0,
+    missing_used: 0,
+    management: 0,
+    employee: 0,
+    correction: 0,
+    unclassified: 0,
+    reduced: 0,
+    changes: [],
+    ...over,
+  });
+
+  it('uses the same minutes-per-day limits as delivery', () => {
+    expect(staffCreditView(row({ minutes: 50 }), limits).band).toBe('committed');
+    expect(staffCreditView(row({ minutes: 51 }), limits).band).toBe('regular');
+    expect(staffCreditView(row({ minutes: 300 }), limits).band).toBe('regular');
+    expect(staffCreditView(row({ minutes: 301 }), limits).band).toBe('low');
+  });
+
+  it('has no band before an attended day', () => {
+    expect(staffCreditView(row({ attended_days: 0 }), limits)).toMatchObject({
+      band: null,
+      minutesPerDay: 0,
+    });
+  });
+
+  it('does not call someone with an approved absence committed', () => {
+    expect(staffCreditView(row({ absent_days: 1 }), limits).band).toBe('regular');
+    expect(staffCreditView(row({ absent_days: 1, minutes: 400 }), limits).band).toBe('low');
+  });
+
+  it('counts a change for them when we asked and against them when they did', () => {
+    expect(staffCreditView(row({ management: 3, employee: 1 }), limits)).toMatchObject({
+      balance: 2,
+      flexLabel: 'متعاون',
+    });
+    expect(staffCreditView(row({ employee: 2 }), limits)).toMatchObject({
+      balance: -2,
+      flexLabel: 'بيغيّر من نفسه',
+    });
+    expect(staffCreditView(row({ management: 1, employee: 1 }), limits).flexLabel).toBe('متوازن');
+  });
+
+  it('leaves corrections and unanswered changes out of the balance', () => {
+    expect(staffCreditView(row({ correction: 4, unclassified: 3 }), limits)).toMatchObject({
+      balance: 0,
+      flexLabel: 'مفيش تغييرات',
+    });
+  });
+
+  it('names leaders only for a real reason', () => {
+    const rows = [
+      row({ staff_id: 'zero', minutes: 400 }),
+      row({ staff_id: 'clean', minutes: 10 }),
+      row({ staff_id: 'absent', absent_days: 2 }),
+      row({ staff_id: 'flex', minutes: 100, management: 2 }),
+      row({ staff_id: 'self', employee: 2 }),
+    ];
+    const leaders = staffCreditLeaders(rows, limits);
+    expect(leaders.committed.map((r) => r.staff_id)).toEqual(['self', 'clean']);
+    expect(leaders.flexible.map((r) => r.staff_id)).toEqual(['flex']);
+  });
+
+  it('sorts by balance, then by fewer minutes', () => {
+    const sorted = sortStaffCredit(
+      [
+        row({ staff_id: 'a', employee: 1 }),
+        row({ staff_id: 'b', minutes: 100 }),
+        row({ staff_id: 'c', minutes: 10 }),
+        row({ staff_id: 'd', management: 1, minutes: 200 }),
+      ],
+      limits
+    );
+    expect(sorted.map((r) => r.staff_id)).toEqual(['d', 'c', 'b', 'a']);
+  });
+});
+
+describe('faster decisions', () => {
+  const day = (over: Partial<DrWaelDay>): DrWaelDay =>
+    ({
+      staff_id: 's1',
+      date: '2026-11-06',
+      branch: 'فرع شكري',
+      first_in: null,
+      last_out: null,
+      hours: null,
+      payable_hours: null,
+      late_minutes: 0,
+      early_leave_minutes: 0,
+      missing_punch: false,
+      status: 'pending_review',
+      resolution: null,
+      review: true,
+      scheduled_start: null,
+      scheduled_end: null,
+      time_off: false,
+      punches: 0,
+      ...over,
+    }) as DrWaelDay;
+  const person = (over: Partial<DrWaelEmployee> = {}) =>
+    ({ staff_id: 's1', name: 'موظف', active: true, work_mode: null, ...over }) as DrWaelEmployee;
+  const TODAY = '2026-11-07';
+
+  describe('manualPunchSuggestion', () => {
+    it('starts on the newest day missing a punch', () => {
+      expect(
+        manualPunchSuggestion(
+          [
+            day({ date: '2026-11-03', resolution: 'missing_checkin' }),
+            day({ date: '2026-11-05', resolution: 'missing_checkout' }),
+          ],
+          TODAY
+        )
+      ).toMatchObject({ date: '2026-11-05', type: 'check_out' });
+    });
+
+    it('ignores an approved day and one older than a week', () => {
+      expect(
+        manualPunchSuggestion(
+          [
+            day({ date: '2026-11-05', resolution: 'missing_checkout', status: 'approved' }),
+            day({ date: '2026-10-20', resolution: 'missing_checkin' }),
+          ],
+          TODAY
+        )
+      ).toEqual({ date: TODAY, type: 'check_in', hint: null });
+    });
+
+    it('offers the leaving punch when today is already open', () => {
+      expect(
+        manualPunchSuggestion([day({ date: TODAY, first_in: '2026-11-07T07:00:00Z' })], TODAY)
+      ).toMatchObject({ date: TODAY, type: 'check_out' });
+    });
+  });
+
+  describe('manualPunchQueue', () => {
+    it('lists each active employee once, newest first', () => {
+      const queue = manualPunchQueue(
+        [person(), person({ staff_id: 's2' })],
+        [
+          day({ date: '2026-11-05', resolution: 'missing_checkin' }),
+          day({ date: '2026-11-06', resolution: 'missing_checkout' }),
+          day({ staff_id: 's2', date: '2026-11-05', resolution: 'missing_checkin' }),
+        ],
+        TODAY
+      );
+      expect(queue.map((row) => [row.employee.staff_id, row.date, row.type])).toEqual([
+        ['s1', '2026-11-06', 'check_out'],
+        ['s2', '2026-11-05', 'check_in'],
+      ]);
+    });
+
+    it('leaves out stopped and flexible employees', () => {
+      expect(
+        manualPunchQueue(
+          [person({ active: false }), person({ staff_id: 's2', work_mode: 'flexible' as never })],
+          [
+            day({ resolution: 'missing_checkout' }),
+            day({ staff_id: 's2', resolution: 'missing_checkout' }),
+          ],
+          TODAY
+        )
+      ).toEqual([]);
+    });
+  });
+
+  describe('overtimePlan', () => {
+    const row = (over = {}) => ({
+      id: 'o1',
+      staff_id: 's1',
+      staff_name: 'موظف',
+      attendance_date: '2026-11-06',
+      overtime_hours: 1,
+      overtime_amount: 40,
+      ...over,
+    });
+    const plan = (rowOver: object, dayOver: Partial<DrWaelDay>) =>
+      overtimePlan(
+        [row(rowOver)],
+        [day({ status: 'approved', resolution: 'on_time', ...dayOver })],
+        '2026-10-26',
+        '2026-11-25'
+      )[0];
+
+    it('clears an on-time approved day with a known amount', () => {
+      expect(plan({}, {}).bucket).toBe('clear');
+    });
+
+    it('asks when late, over the limit or with no rate', () => {
+      expect(plan({}, { resolution: 'very_late' }).bucket).toBe('ask');
+      expect(plan({ overtime_hours: 2.5 }, {}).bucket).toBe('ask');
+      expect(plan({ overtime_amount: null }, {}).bucket).toBe('ask');
+    });
+
+    it('waits for the day to be approved', () => {
+      expect(plan({}, { status: 'pending_review' }).bucket).toBe('day_first');
+    });
+
+    it('keeps other pay cycles out', () => {
+      expect(
+        overtimePlan([row({ attendance_date: '2026-10-20' })], [], '2026-10-26', '2026-11-25')
+      ).toEqual([]);
+    });
+  });
+
+  it('closes the no-punch days of a stopped employee with the clear decisions', () => {
+    const absent = day({ resolution: 'absence_review' });
+    const { clear, ask } = quickPlan(
+      [absent],
+      TODAY,
+      new Map(),
+      new Set(),
+      () => 2,
+      new Set(['s1'])
+    );
+    expect(clear.map((item) => item.group)).toEqual(['stopped']);
+    expect(ask).toEqual([]);
+    expect(quickPlan([absent], TODAY, new Map(), new Set(), () => 2).ask[0].group).toBe('absence');
   });
 });

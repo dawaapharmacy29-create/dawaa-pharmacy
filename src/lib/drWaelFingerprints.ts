@@ -197,6 +197,7 @@ export async function applyDrWaelShiftChange(args: {
   to?: string | null;
   days?: string[] | null;
   note?: string | null;
+  origin?: ShiftOrigin | null;
 }): Promise<{ rows_written: number; days_rebuilt: number; days_kept_manager_approved: number }> {
   const { data, error } = await supabase.rpc('dr_wael_apply_shift_change_v1', {
     p_staff_id: args.staffId,
@@ -207,6 +208,7 @@ export async function applyDrWaelShiftChange(args: {
     p_to: args.to || null,
     p_days: args.days && args.days.length ? args.days : null,
     p_note: args.note || null,
+    p_origin: args.origin || null,
   });
   if (error) throw new Error(error.message);
   return data as { rows_written: number; days_rebuilt: number; days_kept_manager_approved: number };
@@ -1575,7 +1577,7 @@ export type QuickAction =
   | { type: 'shift'; start: string; end: string; label: string }
   | { type: 'details'; label: string };
 
-export type QuickGroup = 'forgot' | 'shift' | 'small' | 'absence' | 'minutes' | 'other';
+export type QuickGroup = 'forgot' | 'shift' | 'small' | 'absence' | 'minutes' | 'other' | 'stopped';
 
 export interface QuickItem {
   day: DrWaelDay;
@@ -1622,7 +1624,9 @@ export function quickPlan(
   today: string,
   readings: Map<string, PunchReading>,
   flexible: ReadonlySet<string>,
-  allowance: (staffId: string) => number
+  allowance: (staffId: string) => number,
+  /** Stopped or inactive: a day with no punch is not a question, it closes with the others. */
+  stopped: ReadonlySet<string> = new Set()
 ): QuickPlan {
   const left = new Map<string, number>();
   const items: QuickItem[] = [];
@@ -1643,6 +1647,17 @@ export function quickPlan(
         why: null,
         primary: DETAILS,
         secondary: null,
+      });
+      continue;
+    }
+    if (stopped.has(day.staff_id) && day.resolution === 'absence_review' && first) {
+      items.push({
+        day,
+        group: 'stopped',
+        clear: true,
+        why: null,
+        primary: first,
+        secondary: second,
       });
       continue;
     }
@@ -1847,7 +1862,8 @@ export function manualPunchFallsNextDay(args: {
   if (args.type !== 'check_out' || !args.time) return false;
   const time = args.time.slice(0, 5);
   if (args.firstIn) return time < cairoTime(args.firstIn);
-  if (args.shiftStart && args.shiftEnd) return args.shiftEnd.slice(0, 5) <= args.shiftStart.slice(0, 5);
+  if (args.shiftStart && args.shiftEnd)
+    return args.shiftEnd.slice(0, 5) <= args.shiftStart.slice(0, 5);
   return false;
 }
 
@@ -1857,3 +1873,292 @@ export const branchLabel = (branch: string) => (branch === ALL_BRANCHES ? 'ال�
 /** Staff the attendance engine never reads: they have no shift to edit and their days come from punches. */
 export const isOutsideEngine = (employee: Pick<DrWaelEmployee, 'branch'>) =>
   employee.branch === ALL_BRANCHES;
+
+// ---------------------------------------------------------------------------
+// كريديت الالتزام والمرونة: who asked for each shift change, next to the punctuality numbers.
+// For the managers to read only: it does not touch pay, deductions or the delivery classification.
+// ---------------------------------------------------------------------------
+
+export type ShiftOrigin = 'management' | 'employee' | 'correction';
+
+export const SHIFT_ORIGINS: ReadonlyArray<readonly [ShiftOrigin, string]> = [
+  ['management', 'بطلب مننا'],
+  ['employee', 'من الموظف'],
+  ['correction', 'تصحيح جدول'],
+];
+
+export const SHIFT_ORIGIN_EFFECT: Record<ShiftOrigin, string> = {
+  management: 'له',
+  employee: 'عليه',
+  correction: 'محايد',
+};
+
+export interface DrWaelShiftChange {
+  id: string;
+  staff_id: string;
+  name?: string;
+  at: string;
+  mode: DrWaelShiftMode;
+  from: string;
+  to: string | null;
+  start: string;
+  end: string;
+  old_start: string | null;
+  old_end: string | null;
+  old_hours: number | null;
+  new_hours: number | null;
+  origin: ShiftOrigin | null;
+  note: string | null;
+  /** Made outside this page: the day review or the employee form. */
+  source?: 'attendance_review' | 'team_schedule' | null;
+}
+
+export interface DrWaelStaffCreditRow {
+  staff_id: string;
+  name: string;
+  branch: string;
+  attended_days: number;
+  late_minutes: number;
+  early_minutes: number;
+  excused_minutes: number;
+  minutes: number;
+  absent_days: number;
+  missing_used: number;
+  management: number;
+  employee: number;
+  correction: number;
+  unclassified: number;
+  reduced: number;
+  changes: DrWaelShiftChange[];
+}
+
+export interface DrWaelStaffCredit {
+  month_cycle: string;
+  cycle_start: string;
+  cycle_end: string;
+  today: string;
+  committed_per_day: number;
+  regular_per_day: number;
+  rows: DrWaelStaffCreditRow[];
+  unclassified: DrWaelShiftChange[];
+}
+
+export async function fetchDrWaelStaffCredit(
+  monthCycle?: string | null
+): Promise<DrWaelStaffCredit> {
+  const { data, error } = await supabase.rpc('get_dr_wael_staff_credit_v1', {
+    p_month_cycle: monthCycle || null,
+  });
+  if (error) throw new Error(error.message);
+  if (!data || !Array.isArray((data as { rows?: unknown }).rows))
+    throw new Error('dr_wael_staff_credit_unavailable');
+  return data as DrWaelStaffCredit;
+}
+
+export async function setDrWaelShiftOrigin(changeId: string, origin: ShiftOrigin): Promise<void> {
+  const { error } = await supabase.rpc('dr_wael_set_shift_origin_v1', {
+    p_change_id: changeId,
+    p_origin: origin,
+  });
+  if (error) throw new Error(error.message);
+}
+
+export interface StaffCreditView {
+  /** Null until there is an approved attended day to judge by. */
+  band: CreditBand | null;
+  minutesPerDay: number;
+  /** له minus عليه. */
+  balance: number;
+  flexLabel: string;
+}
+
+/** The delivery minutes-per-day limits applied to everyone; an approved absence rules out «ملتزم». */
+export function staffCreditView(
+  row: DrWaelStaffCreditRow,
+  limits: Pick<DrWaelStaffCredit, 'committed_per_day' | 'regular_per_day'>
+): StaffCreditView {
+  const days = row.attended_days;
+  let band: CreditBand | null = null;
+  if (days > 0) {
+    if (row.minutes <= days * limits.committed_per_day) band = 'committed';
+    else if (row.minutes <= days * limits.regular_per_day) band = 'regular';
+    else band = 'low';
+    if (band === 'committed' && row.absent_days > 0) band = 'regular';
+  }
+  const balance = row.management - row.employee;
+  const flexLabel =
+    !row.management && !row.employee
+      ? 'مفيش تغييرات'
+      : balance > 0
+        ? 'متعاون'
+        : balance < 0
+          ? 'بيغيّر من نفسه'
+          : 'متوازن';
+  return { band, minutesPerDay: days ? Math.round(row.minutes / days) : 0, balance, flexLabel };
+}
+
+/** Most flexible first, then the fewest minutes per day. Nobody leads a list on a zero. */
+export function staffCreditLeaders(
+  rows: DrWaelStaffCreditRow[],
+  limits: Pick<DrWaelStaffCredit, 'committed_per_day' | 'regular_per_day'>,
+  count = 3
+): { committed: DrWaelStaffCreditRow[]; flexible: DrWaelStaffCreditRow[] } {
+  const perDay = (row: DrWaelStaffCreditRow) => staffCreditView(row, limits).minutesPerDay;
+  return {
+    committed: rows
+      .filter((row) => staffCreditView(row, limits).band === 'committed')
+      .sort((a, b) => perDay(a) - perDay(b) || b.attended_days - a.attended_days)
+      .slice(0, count),
+    flexible: rows
+      .filter((row) => row.management - row.employee > 0)
+      .sort(
+        (a, b) => b.management - b.employee - (a.management - a.employee) || perDay(a) - perDay(b)
+      )
+      .slice(0, count),
+  };
+}
+
+export function sortStaffCredit(
+  rows: DrWaelStaffCreditRow[],
+  limits: Pick<DrWaelStaffCredit, 'committed_per_day' | 'regular_per_day'>
+): DrWaelStaffCreditRow[] {
+  return [...rows].sort((a, b) => {
+    const left = staffCreditView(a, limits);
+    const right = staffCreditView(b, limits);
+    return (
+      right.balance - left.balance ||
+      left.minutesPerDay - right.minutesPerDay ||
+      a.name.localeCompare(b.name, 'ar')
+    );
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Faster manual punches: start on what is actually missing.
+// ---------------------------------------------------------------------------
+
+export interface ManualPunchSuggestion {
+  date: string;
+  type: ManualPunchType;
+  /** Why this one was picked; null when it is only the default. */
+  hint: string | null;
+}
+
+const OPEN_MISSING = new Set(['missing_checkin', 'missing_checkout']);
+
+const missingPunchDays = (days: DrWaelDay[], today: string, within: number) =>
+  days
+    .filter(
+      (day) =>
+        day.status !== 'approved' &&
+        day.date < today &&
+        day.date >= addDays(today, -within) &&
+        OPEN_MISSING.has(day.resolution || '')
+    )
+    .sort((a, b) => b.date.localeCompare(a.date));
+
+/** The newest day still missing a punch, else today's next punch. */
+export function manualPunchSuggestion(days: DrWaelDay[], today: string): ManualPunchSuggestion {
+  const open = missingPunchDays(days, today, 7)[0];
+  if (open) {
+    const type: ManualPunchType = open.resolution === 'missing_checkin' ? 'check_in' : 'check_out';
+    return {
+      date: open.date,
+      type,
+      hint: `ناقص ${type === 'check_in' ? 'حضور' : 'انصراف'} يوم ${open.date.slice(5)}`,
+    };
+  }
+  const now = days.find((day) => day.date === today);
+  return {
+    date: today,
+    type: now?.first_in && !now.last_out ? 'check_out' : 'check_in',
+    hint: null,
+  };
+}
+
+export interface ManualPunchQueueItem {
+  employee: DrWaelEmployee;
+  date: string;
+  type: ManualPunchType;
+}
+
+/** Active employees with a punch missing in the last days, newest first: one tap opens them. */
+export function manualPunchQueue(
+  employees: DrWaelEmployee[],
+  days: DrWaelDay[],
+  today: string,
+  within = 3
+): ManualPunchQueueItem[] {
+  const seen = new Set<string>();
+  const rows: ManualPunchQueueItem[] = [];
+  const byId = new Map(employees.map((employee) => [employee.staff_id, employee]));
+  for (const day of missingPunchDays(days, today, within)) {
+    const employee = byId.get(day.staff_id);
+    if (!employee?.active || employee.work_mode || seen.has(day.staff_id)) continue;
+    seen.add(day.staff_id);
+    rows.push({
+      employee,
+      date: day.date,
+      type: day.resolution === 'missing_checkin' ? 'check_in' : 'check_out',
+    });
+  }
+  return rows;
+}
+
+// ---------------------------------------------------------------------------
+// Overtime as quick decisions, on the same rows and the same approval as the old page.
+// ---------------------------------------------------------------------------
+
+export const QUICK_OVERTIME_HOURS = 2;
+
+export type OvertimeBucket = 'clear' | 'ask' | 'day_first';
+
+export interface OvertimeQuickRow {
+  id: string;
+  staff_id: string;
+  staff_name: string;
+  attendance_date: string;
+  overtime_hours: number;
+  overtime_amount: number | null;
+}
+
+export interface OvertimeQuickItem<T extends OvertimeQuickRow = OvertimeQuickRow> {
+  row: T;
+  bucket: OvertimeBucket;
+  /** Why it needs a look; null for the clear ones. */
+  why: string | null;
+}
+
+/**
+ * clear: the day is approved and on time, up to QUICK_OVERTIME_HOURS, with a known amount.
+ * day_first: the day itself is not approved yet, so the database refuses the approval.
+ * ask: everything else. Late then staying after the shift is usually another shift, not overtime.
+ */
+export function overtimePlan<T extends OvertimeQuickRow>(
+  rows: T[],
+  days: DrWaelDay[],
+  cycleStart: string,
+  cycleEnd: string
+): OvertimeQuickItem<T>[] {
+  const byDay = new Map(days.map((day) => [`${day.staff_id}-${day.date}`, day]));
+  return rows
+    .filter((row) => {
+      const date = String(row.attendance_date).slice(0, 10);
+      return date >= cycleStart && date <= cycleEnd;
+    })
+    .map((row): OvertimeQuickItem<T> => {
+      const day = byDay.get(`${row.staff_id}-${String(row.attendance_date).slice(0, 10)}`);
+      if (!day || day.status !== 'approved')
+        return { row, bucket: 'day_first', why: 'اعتمد اليوم نفسه الأول' };
+      if (day.resolution === 'late' || day.resolution === 'very_late')
+        return { row, bucket: 'ask', why: 'اتأخر وقعد بعد الميعاد: ممكن يكون شيفت تاني' };
+      if (day.resolution !== 'on_time' && day.resolution !== 'worked_on_off')
+        return { row, bucket: 'ask', why: 'اليوم مش مظبوط على الجدول' };
+      if (row.overtime_amount == null)
+        return { row, bucket: 'ask', why: 'مفيش سعر ساعة محسوب ليه' };
+      if (Number(row.overtime_hours) > QUICK_OVERTIME_HOURS)
+        return { row, bucket: 'ask', why: `أكتر من ${QUICK_OVERTIME_HOURS} ساعة` };
+      return { row, bucket: 'clear', why: null };
+    })
+    .sort((a, b) => String(b.row.attendance_date).localeCompare(String(a.row.attendance_date)));
+}

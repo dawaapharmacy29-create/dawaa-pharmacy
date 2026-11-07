@@ -1,3 +1,4 @@
+import { DR_WAEL_FINGERPRINTS_PATH } from '@/lib/core/permissionSystem';
 import { supabase } from '@/lib/supabase';
 import { onDutyLabel, type OnDutyDoctor } from '@/lib/shiftHandoverCoverage';
 
@@ -58,7 +59,7 @@ export const GM_REVIEW_LABELS: Record<
   attendance: {
     title: 'البصمات والحضور',
     question: 'مين غاب أو اتأخر أو ما بصمش امبارح؟',
-    link: '/attendance-report',
+    link: DR_WAEL_FINGERPRINTS_PATH,
   },
   managers: { title: 'مديرين الفروع', question: 'كل مدير قفل لفة الفرع امبارح؟', link: '/' },
   cleaning: {
@@ -148,7 +149,9 @@ const WALLETS = [
 const rows = (detail: unknown) => (Array.isArray(detail) ? (detail as Row[]) : []);
 
 /** One short line per branch (or for the whole item) describing what the data says. */
-export function gmReviewSummary(item: Pick<GmReviewItem, 'key' | 'detail'> & { data_day?: string | null }): string[] {
+export function gmReviewSummary(
+  item: Pick<GmReviewItem, 'key' | 'detail'> & { data_day?: string | null }
+): string[] {
   const d = item.detail as Row;
   switch (item.key) {
     case 'sales_upload':
@@ -216,7 +219,9 @@ export function gmReviewSummary(item: Pick<GmReviewItem, 'key' | 'detail'> & { d
         };
         // "امبارح" counts yesterday only; a shift still open from another day is said apart.
         const missing = rows(r.missing);
-        const ofYesterday = missing.filter((m) => !item.data_day || m.day === item.data_day).map(label);
+        const ofYesterday = missing
+          .filter((m) => !item.data_day || m.day === item.data_day)
+          .map(label);
         const other = missing.filter((m) => item.data_day && m.day !== item.data_day).map(label);
         return `${BRANCH[String(r.branch)]}: امبارح ${r.yesterday_done}/3${ofYesterday.length ? ` · ما اتقفلش: ${ofYesterday.join('، ')}` : ''}${other.length ? ` · ناقص من يوم تاني: ${other.join('، ')}` : ''}`;
       });
