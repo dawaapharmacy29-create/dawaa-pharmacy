@@ -53,7 +53,7 @@ import {
   percent,
   toNumber,
 } from '@/lib/utils';
-import { useAuth, getCurrentUserProfile } from '@/hooks/useAuth';
+import { useAuth, getCurrentUserProfile, normalizeRole } from '@/hooks/useAuth';
 import { useEmployeeTransactions } from '@/hooks/useEmployeeTransactions';
 import { logActivity, useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import { supabase } from '@/lib/supabase';
@@ -214,7 +214,7 @@ export default function Points() {
   const staffChoices = useMemo(() => {
     const choices = mergeStaffChoices(staffList);
     if (canViewAllBranches(user)) return choices;
-    if (isDoctorRole(user)) {
+    if (isDoctorRole(user) || normalizeRole(user?.role) === 'assistant') {
       return choices.filter(
         (staff) =>
           staff.id === (user?.staffId || user?.id) ||

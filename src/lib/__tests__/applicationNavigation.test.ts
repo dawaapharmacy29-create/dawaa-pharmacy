@@ -191,8 +191,19 @@ describe('short menu per role', () => {
     expect(assistantPaths(everyPermission, ALPHA)).not.toContain('/pharmacy-zone-tasks');
   });
 
+  it('gives every assistant their own schedule and points', () => {
+    const own = assistantGroupsFor((permission) => hasPermission('assistant', permission), 'someone').flatMap((group) =>
+      group.items.map((item) => item.path)
+    );
+    expect(own).toContain('/schedule');
+    expect(own).toContain('/points');
+    expect(own).toHaveLength(6);
+    expect(read('src/pages/Points.tsx')).toMatch(/isDoctorRole(user) || normalizeRole(user?.role) === 'assistant'/);
+  });
+
   it('still narrows the short menu by the account permissions', () => {
     expect(assistantPaths(['view_dashboard'])).not.toContain('/purchases');
+    expect(assistantPaths(['view_dashboard'])).not.toContain('/points');
     expect(assistantPaths(['view_dashboard'])).toContain('/purchase-invoice-entry');
   });
 });
