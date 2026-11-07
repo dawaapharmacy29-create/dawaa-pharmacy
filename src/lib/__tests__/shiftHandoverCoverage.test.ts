@@ -2,14 +2,20 @@ import { describe, expect, it } from 'vitest';
 import {
   applyCorrections,
   closerOnShift,
+  closerPresence,
+  closerPresenceText,
+  handoverWindow,
   missingByBranch,
   onDutyLabel,
   personKey,
+  presenceIn,
+  presenceLabel,
   readHandovers,
   shiftCoverage,
   shiftDeadline,
   shiftGapLabel,
   shiftGapTone,
+  type PunchInterval,
 } from '../shiftHandoverCoverage';
 import { gmReviewSummary } from '../gmDailyReview';
 
@@ -247,5 +253,138 @@ describe('reading a handover by when it was closed', () => {
       '2026-11-01 صباحي',
       '2026-11-01 ليلي',
     ]);
+  });
+});
+
+describe('who was in a shift, from real punches', () => {
+  const punch = (over: Partial<PunchInterval> & { staff_id: string }): PunchInterval => ({
+    name: over.staff_id,
+    kind: 'doctor',
+    home_branch: 'فرع شكري',
+    branches: ['فرع شكري'],
+    first_in: '2026-11-07T07:00:00Z',
+    last_out: '2026-11-07T15:00:00Z',
+    scheduled_end: null,
+    ...over,
+  });
+  const window = {
+    from: Date.parse('2026-11-07T07:00:00Z'),
+    to: Date.parse('2026-11-07T15:00:00Z'),
+  };
+
+  it('clamps the window between 6 and 10 hours', () => {
+    const span = (close: string, previous: string | null) => {
+      const w = handoverWindow(close, previous)!;
+      return (w.to - w.from) / 3600000;
+    };
+    expect(span('2026-11-07T15:00:00Z', '2026-11-07T07:30:00Z')).toBe(7.5);
+    expect(span('2026-11-07T15:00:00Z', '2026-11-07T14:00:00Z')).toBe(6);
+    expect(span('2026-11-07T15:00:00Z', '2026-11-06T15:00:00Z')).toBe(10);
+    expect(span('2026-11-07T15:00:00Z', null)).toBe(8);
+    expect(handoverWindow(null, null)).toBeNull();
+  });
+
+  it('uses the device, not the home branch', () => {
+    const atShami = punch({ staff_id: 'heba', branches: ['فرع الشامي'] });
+    expect(presenceIn([atShami], 'فرع شكري', window)).toEqual([]);
+    expect(presenceIn([atShami], 'فرع الشامي', window).map((p) => p.staff_id)).toEqual(['heba']);
+  });
+
+  it('counts a manual punch with no device log on the home branch', () => {
+    const manual = punch({ staff_id: 'm', branches: [] });
+    expect(presenceIn([manual], 'فرع شكري', window)).toHaveLength(1);
+    expect(presenceIn([manual], 'فرع الشامي', window)).toEqual([]);
+  });
+
+  it('needs an hour inside the shift, and leaves out staff with no group', () => {
+    const atTheDoor = punch({
+      staff_id: 'next',
+      first_in: '2026-11-07T14:30:00Z',
+      last_out: '2026-11-07T22:00:00Z',
+    });
+    const delivery = punch({ staff_id: 'd', kind: null });
+    expect(presenceIn([atTheDoor, delivery], 'فرع شكري', window)).toEqual([]);
+  });
+
+  it('runs a missing checkout to the scheduled end, and keeps a lone checkout only inside the window', () => {
+    const noOut = punch({
+      staff_id: 'a',
+      first_in: '2026-11-07T01:00:00Z',
+      last_out: null,
+      scheduled_end: '2026-11-07T09:00:00Z',
+    });
+    const noOutEarly = punch({
+      staff_id: 'b',
+      first_in: '2026-11-06T22:00:00Z',
+      last_out: null,
+      scheduled_end: '2026-11-07T06:00:00Z',
+    });
+    const loneOut = punch({ staff_id: 'c', first_in: null, last_out: '2026-11-07T12:00:00Z' });
+    const loneOutBefore = punch({
+      staff_id: 'e',
+      first_in: null,
+      last_out: '2026-11-07T03:00:00Z',
+    });
+    expect(
+      presenceIn([noOut, noOutEarly, loneOut, loneOutBefore], 'فرع شكري', window).map(
+        (p) => p.staff_id
+      )
+    ).toEqual(['a', 'c']);
+  });
+
+  it('lists doctors before assistants, and says when nobody punched', () => {
+    const rows = [
+      punch({ staff_id: 'as', name: 'نور', kind: 'assistant' }),
+      punch({ staff_id: 'dr', name: 'د هدي' }),
+    ];
+    const people = presenceIn(rows, 'فرع شكري', window);
+    expect(people.map((p) => p.staff_id)).toEqual(['dr', 'as']);
+    expect(presenceLabel(people)).toContain('نور، مساعد');
+    expect(presenceLabel([])).toBe('مفيش بصمة');
+  });
+
+  describe('the person who closed it', () => {
+    const closedAt = '2026-11-07T15:30:00Z';
+    const check = (rows: PunchInterval[], closer: { name?: string; staffId?: string }) =>
+      closerPresence(closer, rows, 'فرع شكري', closedAt);
+
+    it('here, by id or by name', () => {
+      expect(check([punch({ staff_id: 'x' })], { staffId: 'x' }).status).toBe('here');
+      expect(check([punch({ staff_id: 'x', name: 'د/ أحمد' })], { name: 'د احمد' }).status).toBe(
+        'here'
+      );
+    });
+
+    it('no punch that day', () => {
+      const yesterday = punch({
+        staff_id: 'x',
+        first_in: '2026-11-05T07:00:00Z',
+        last_out: '2026-11-05T15:00:00Z',
+      });
+      expect(check([yesterday], { staffId: 'x' }).status).toBe('no_punch');
+      expect(check([], { staffId: 'x' }).status).toBe('no_punch');
+    });
+
+    it('punched at another branch', () => {
+      expect(
+        check([punch({ staff_id: 'x', branches: ['فرع الشامي'] })], { staffId: 'x' }).status
+      ).toBe('other_branch');
+    });
+
+    it('punched at another time, with the times', () => {
+      const later = punch({
+        staff_id: 'x',
+        first_in: '2026-11-07T18:00:00Z',
+        last_out: '2026-11-07T23:00:00Z',
+      });
+      const result = check([later], { staffId: 'x' });
+      expect(result.status).toBe('other_time');
+      expect(closerPresenceText(result)).toContain('وقت تاني');
+    });
+
+    it('unknown when the name matches nobody and there is no id', () => {
+      expect(check([punch({ staff_id: 'x' })], { name: 'حد تاني' })).toEqual({ status: 'unknown' });
+      expect(closerPresenceText({ status: 'unknown' })).toBeNull();
+    });
   });
 });
