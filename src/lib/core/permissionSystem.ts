@@ -1001,6 +1001,8 @@ export const ROUTE_PERMISSION_MAP: Record<string, string | string[]> = {
   '/whatsapp-customer-history': 'view_reviews',
   '/whatsapp-lost-opportunities': 'view_reviews',
   '/whatsapp-branch-comparison': 'view_reviews',
+  // Also role-guarded in App.tsx: the general manager alone.
+  '/review-pages': 'view_executive_dashboard',
   '/team': 'view_team',
   '/staff': 'view_team',
   '/staff/:id': 'view_staff_details',
