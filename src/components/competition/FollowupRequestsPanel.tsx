@@ -44,7 +44,8 @@ export default function FollowupRequestsPanel(props: {
 
   const requests = useMemo(() => messages.filter((message) => message.verdict === 'request'), [messages]);
   const review = useMemo(() => messages.filter((message) => message.verdict === 'review'), [messages]);
-  const ignored = messages.length - requests.length - review.length;
+  const ignored = messages.filter((message) => message.verdict === 'ignored').length;
+  const repeats = messages.filter((message) => message.verdict === 'repeat').length;
   const unmatched = senders.filter((sender) => !sender.staffId);
 
   const onFile = async (file?: File) => {
@@ -58,7 +59,7 @@ export default function FollowupRequestsPanel(props: {
       if (!parsed.length) throw new Error('chat_empty');
       setFileName(file.name);
       setMessages(parsed);
-      const names = [...new Set(parsed.filter((m) => m.verdict !== 'ignored').map((m) => m.sender))];
+      const names = [...new Set(parsed.filter((m) => m.verdict === 'request' || m.verdict === 'review').map((m) => m.sender))];
       const matches = names.length ? await resolveSenders(names) : [];
       setSenders(matches);
       const suggested: Record<string, string> = {};
@@ -158,7 +159,7 @@ export default function FollowupRequestsPanel(props: {
       {messages.length ? (
         <div className="space-y-3">
           <p className="text-sm font-bold text-white">
-            {requests.length.toLocaleString('ar-EG')} طلب مؤكد، {review.length.toLocaleString('ar-EG')} محتاجين مراجعتك، {ignored.toLocaleString('ar-EG')} كلام جانبي مش محسوب.
+            {requests.length.toLocaleString('ar-EG')} طلب مؤكد، {review.length.toLocaleString('ar-EG')} محتاجين مراجعتك، {ignored.toLocaleString('ar-EG')} كلام جانبي مش محسوب، {repeats.toLocaleString('ar-EG')} رسالة متكررة اتشالت.
           </p>
           {unmatched.map((sender) => (
             <label key={sender.sender} className="flex flex-wrap items-center gap-2 text-sm font-bold text-white">

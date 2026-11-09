@@ -1,4 +1,4 @@
-export type RequestVerdict = 'request' | 'review' | 'ignored';
+export type RequestVerdict = 'request' | 'review' | 'ignored' | 'repeat';
 
 export interface GroupChatMessage {
   sender: string;
@@ -22,12 +22,48 @@ const REQUEST_WORDS = ['نتابع', 'متابع', 'تابعو', 'نطمن', 'ن
 const normalize = (value: string) =>
   value.toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه');
 
+/** An invoice photo with one of these is news or a points question, not a case to follow up. */
+const NOT_A_CASE = /(^|\s)ا?توف(ت|ي)(\s|$)|كاش|نقاط|بوينت|مندوب/;
+
 function classify(body: string, hasImage: boolean): RequestVerdict {
   const text = normalize(body);
   const hasWords = REQUEST_WORDS.some((word) => text.includes(word));
   if (hasImage && hasWords) return 'request';
+  // Some doctors describe the case under the invoice photo without writing "نتطمن".
+  if (hasImage && text.split(/\s+/).filter(Boolean).length >= 2 && !NOT_A_CASE.test(text)) return 'request';
   if (hasImage || hasWords) return 'review';
   return 'ignored';
+}
+
+const REPEAT_WINDOW_SECONDS = 120;
+const BARE_LABEL_MIN_GAP_SECONDS = 10;
+const BARE_LABELS = new Set(['عميل جديد', 'مولود جديد', 'حاله جديده']);
+
+/**
+ * WhatsApp retries leave the same batch twice within seconds, and each copy has its own time, so
+ * the import's fingerprint cannot catch them. Bare labels can really be different customers:
+ * those only repeat 10+ seconds later, and each earlier one can be repeated once.
+ */
+function markRepeats(messages: GroupChatMessage[]) {
+  const seconds = (message: GroupChatMessage) => Date.parse(`${message.sentAtLocal}Z`) / 1000;
+  const earlier = new Map<string, Array<{ at: number; consumed: boolean }>>();
+  for (const message of messages) {
+    const text = normalize(message.body).replace(/\s+/g, ' ').trim();
+    if (message.verdict === 'ignored' || !text) continue;
+    const key = `${message.sender}|${text.replace(/\s/g, '')}`;
+    const at = seconds(message);
+    const copies = earlier.get(key) || [];
+    const bare = BARE_LABELS.has(text);
+    const original = copies.find((copy) => at - copy.at <= REPEAT_WINDOW_SECONDS && (!bare || (!copy.consumed && at - copy.at >= BARE_LABEL_MIN_GAP_SECONDS)));
+    if (original) {
+      original.consumed = true;
+      message.verdict = 'repeat';
+      if (!bare) copies.push({ at, consumed: true });
+    } else {
+      copies.push({ at, consumed: false });
+    }
+    earlier.set(key, copies);
+  }
 }
 
 interface RawMessage { a: number; b: number; c: number; hour: number; minute: number; second: number; meridiem: string; rest: string; lines: string[] }
@@ -83,5 +119,6 @@ export function parseGroupChat(content: string): GroupChatMessage[] {
     const body = full.replace(IMAGE_MARK, ' ').replace(/[ \t]+/g, ' ').trim();
     messages.push({ sender, sentAtLocal: localStamp(message, dayFirst), body, hasImage, verdict: classify(body, hasImage) });
   }
+  markRepeats(messages);
   return messages;
 }

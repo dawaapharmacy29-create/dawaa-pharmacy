@@ -39,3 +39,34 @@ describe('parseGroupChat', () => {
     expect(parseGroupChat('‎[11/8/26, 12:02:07 AM] Dr A: ‎<تم حذف الصورة> نتابع')[0].verdict).toBe('request');
   });
 });
+
+describe('parseGroupChat case descriptions and repeats', () => {
+  const line = (time: string, text: string, sender = 'Dr S') => `[11/5/26, 9:${time} AM] ${sender}: <تم حذف الصورة> ${text}`;
+  const verdicts = (...lines: string[]) => parseGroupChat(lines.join(String.fromCharCode(10))).map((message) => message.verdict);
+
+  it('counts a case described under an invoice photo', () => {
+    expect(verdicts(line('08:12', 'طلبت حاجه للديدان'))).toEqual(['request']);
+  });
+  it.each(['الحاله توفت', 'بتسأل عالكاش باك', 'بيسأل عالبوينتس', 'المندوب يروحلها بدري'])('keeps %s for review', (text) => {
+    expect(verdicts(line('08:12', text))).toEqual(['review']);
+  });
+  it('does not read متوفر as a death', () => {
+    expect(verdicts(line('08:12', 'محتاج علبه اول ما تتوفر'))).toEqual(['request']);
+  });
+  it('counts a batch sent twice once, even seconds apart', () => {
+    expect(verdicts(line('08:10', 'مسكن للاسنان'), line('08:15', 'مسكن للاسنان'))).toEqual(['request', 'repeat']);
+  });
+  it('counts a third send once as well', () => {
+    expect(verdicts(line('08:10', 'مسكن للاسنان'), line('08:40', 'مسكن للاسنان'), line('09:10', 'مسكن للاسنان'))).toEqual(['request', 'repeat', 'repeat']);
+  });
+  it('keeps the same text sent later as a new request', () => {
+    expect(verdicts(line('08:10', 'مسكن للاسنان'), line('12:10', 'مسكن للاسنان'))).toEqual(['request', 'request']);
+  });
+  it('does not merge two doctors', () => {
+    expect(verdicts(line('08:10', 'مسكن للاسنان'), line('08:15', 'مسكن للاسنان', 'Dr O'))).toEqual(['request', 'request']);
+  });
+  it('keeps bare labels seconds apart as different customers, and removes their resend', () => {
+    expect(verdicts(line('08:15', 'عميل جديد'), line('08:19', 'عميل جديد'), line('08:21', 'عميل جديد'), line('08:45', 'عميل جديد'), line('08:49', 'عميل جديد')))
+      .toEqual(['request', 'request', 'request', 'repeat', 'repeat']);
+  });
+});
