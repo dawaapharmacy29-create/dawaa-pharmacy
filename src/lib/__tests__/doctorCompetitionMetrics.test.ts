@@ -10,7 +10,7 @@ vi.mock('@/lib/salesInvoiceQueries', () => ({
 vi.mock('@/lib/supabase', () => ({
   supabase: {
     rpc: async (fn: string) => {
-      if (fn === 'get_eligible_doctor_accounts') {
+      if (fn === 'get_competition_doctor_accounts_v1') {
         return {
           data: [
             { staff_id: 'uuid-amira', name: 'د/ أميره', branch: 'فرع شكري' },
@@ -25,7 +25,7 @@ vi.mock('@/lib/supabase', () => ({
           error: null,
         };
       }
-      if (fn === 'get_dashboard_doctor_sales_v171') {
+      if (fn === 'get_competition_doctor_sales_v1') {
         return { data: null, error: { message: 'aggregate unavailable in invoice fallback tests' } };
       }
       return { data: [], error: null };

@@ -22,7 +22,7 @@ const AGGREGATE_TIMEOUT_MS = 8000;
 // تمامًا بمهلة أقصر، ولو فشلت أو اتأخرت بتوصل "غير متاحة" من غير ما تفعّل مسار
 // الفواتير الخام الأتقل خالص.
 const PREVIOUS_AGGREGATE_TIMEOUT_MS = 5000;
-// get_eligible_doctor_accounts كانت بتتنفذ من غير أي مهلة زمنية — لو تعلّقت لأي
+// get_competition_doctor_accounts_v1 كانت بتتنفذ من غير أي مهلة زمنية — لو تعلّقت لأي
 // سبب كانت قادرة تستهلك كل الـ20 ثانية بمفردها من غير أي مسار احتياطي.
 const ACCOUNTS_TIMEOUT_MS = 6000;
 
@@ -348,17 +348,17 @@ async function fetchDoctorSalesRows(range: { start: string; end: string }, branc
 }
 
 async function fetchDoctorSalesAggregates(range: { start: string; end: string }, branch: string) {
-  const { data, error } = await supabase.rpc('get_dashboard_doctor_sales_v171', {
+  const { data, error } = await supabase.rpc('get_competition_doctor_sales_v1', {
     p_start: range.start,
     p_end: range.end,
     p_branch: branch || ALL_BRANCHES,
   });
-  if (error) throw new Error(error.message || 'get_dashboard_doctor_sales_v171 failed');
+  if (error) throw new Error(error.message || 'get_competition_doctor_sales_v1 failed');
   return (Array.isArray(data) ? data : data ? [data] : []).filter(Boolean) as DoctorSalesAggregate[];
 }
 
 function doctorAccountFromRow(row: Row): EligibleDoctor | null {
-  // الدور والحالة (نشط/بيقدر يدخل) اتفلتروا فعلًا جوّه get_eligible_doctor_accounts
+  // الدور والحالة (نشط/بيقدر يدخل) اتفلتروا فعلًا جوّه get_competition_doctor_accounts_v1
   // نفسها — هنا بس بنستخرج ونتحقق من الاسم والفرع.
   const branch = normalizeBranchName(row.branch) || text(row.branch);
   const staffId = text(row.staff_id);
@@ -436,11 +436,11 @@ export async function getDoctorCompetitionMetrics(params: DoctorCompetitionParam
     promise.then((value) => ({ value, error: null as unknown })).catch((error) => ({ value: null as T | null, error }));
 
   const [accountResult, currentAggOutcome, previousAggOutcome] = await Promise.all([
-    withTimeout(safeSelectRpc('get_eligible_doctor_accounts'), ACCOUNTS_TIMEOUT_MS, 'get_eligible_doctor_accounts timed out').catch(
+    withTimeout(safeSelectRpc('get_competition_doctor_accounts_v1'), ACCOUNTS_TIMEOUT_MS, 'get_competition_doctor_accounts_v1 timed out').catch(
       (error) => ({ data: [] as Row[], error: error instanceof Error ? error.message : String(error) })
     ),
-    settled(withTimeout(fetchDoctorSalesAggregates(range, selectedBranch), AGGREGATE_TIMEOUT_MS, 'get_dashboard_doctor_sales_v171 timed out')),
-    settled(withTimeout(fetchDoctorSalesAggregates(previous, selectedBranch), PREVIOUS_AGGREGATE_TIMEOUT_MS, 'get_dashboard_doctor_sales_v171 (previous) timed out')),
+    settled(withTimeout(fetchDoctorSalesAggregates(range, selectedBranch), AGGREGATE_TIMEOUT_MS, 'get_competition_doctor_sales_v1 timed out')),
+    settled(withTimeout(fetchDoctorSalesAggregates(previous, selectedBranch), PREVIOUS_AGGREGATE_TIMEOUT_MS, 'get_competition_doctor_sales_v1 (previous) timed out')),
   ]);
 
   if (currentAggOutcome.value) {
