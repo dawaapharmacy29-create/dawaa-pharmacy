@@ -19,6 +19,7 @@ import { monthCycleFromDate } from '@/lib/conversationReviews';
 import { conversationReviewScore100, isOfficialConversationReview, OFFICIAL_REVIEW_COLUMNS } from '@/lib/evaluations/officialConversationReview';
 import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
 import { fetchAllOrderedPages } from '@/lib/fetchAllOrderedPages';
+import CompetitionDesignPackPanel from '@/components/competition/CompetitionDesignPackPanel';
 
 const ALL_BRANCHES = 'كل الفروع';
 type RankingMode = 'points' | 'sales' | 'invoices' | 'average';
@@ -520,6 +521,8 @@ export default function DoctorCompetition() {
       )}
       <select className="input-dark" value={mode} onChange={(event) => setMode(event.target.value as RankingMode)}><option value="points">الترتيب حسب نقاط المسابقة</option><option value="sales">الترتيب حسب المبيعات</option><option value="invoices">الترتيب حسب عدد الفواتير</option><option value="average">الترتيب حسب متوسط الفاتورة</option></select>
     </section>
+
+    {canViewAllBranches(user) ? <CompetitionDesignPackPanel branches={BRANCHES} branch={effectiveBranch || null} userBranch={user?.branch} /> : null}
 
     {warning ? <div className="rounded-2xl border border-amber-300/25 bg-amber-400/10 p-4 text-sm font-bold text-amber-100">{warning}</div> : null}
     {error ? <div className="rounded-2xl border border-red-300/25 bg-red-500/10 p-4 text-sm font-bold text-red-100">{error}</div> : null}
