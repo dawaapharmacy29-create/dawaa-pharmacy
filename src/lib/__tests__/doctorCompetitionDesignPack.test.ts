@@ -36,13 +36,15 @@ const metrics = (over: Partial<PackMetricsInput> = {}): PackMetricsInput => ({
   followups: false,
   ...over,
 });
-const build = (input: { facts?: PackFacts; metrics?: PackMetricsInput | null; eligible?: string[] } = {}) =>
+const build = (input: { facts?: PackFacts; metrics?: PackMetricsInput | null; eligible?: string[]; followup?: { staffId: string; branch: string; requests: number }[] | null } = {}) =>
   buildDesignPack({
     mode: 'day',
     windows: designPackWindows('day', '2026-11-08'),
     facts: input.facts ?? facts(),
     metrics: input.metrics === undefined ? metrics() : input.metrics,
     eligibleStaffIds: new Set(input.eligible ?? ['s1', 's2']),
+    followupRequests: input.followup === undefined ? [{ staffId: 's2', branch, requests: 40 }, { staffId: 's1', branch, requests: 10 }] : input.followup,
+    followupTargets: new Map([[branch, 1200]]),
     branches: [branch],
     generatedAt: '2026-11-09T12:00:00Z',
   });
@@ -93,10 +95,17 @@ describe('buildDesignPack', () => {
     expect(result.stars.map((s) => s.title)).not.toContain('بطل اللستة');
     expect(result.notes.join(' ')).toContain('تعذر تحميل');
   });
-  it('gives no follow-up star when no follow-ups exist', () => {
+  it('crowns the doctor with the most follow-up requests against the branch target', () => {
     const result = build().branches[0];
-    expect(result.stars.map((s) => s.title)).not.toContain('بطل المتابعات');
-    expect(result.notes.join(' ')).toContain('مفيش متابعات');
+    expect(result.totals).toMatchObject({ followup_requests: 50, followup_requests_target: 1200 });
+    expect(result.stars.find((s) => s.title === 'بطل طلبات المتابعة')).toMatchObject({ name: 'د عمر' });
+  });
+  it('reports failed follow-up requests instead of a zero', () => {
+    const result = build({ followup: null }).branches[0];
+    expect(result.totals.followup_requests).toBeNull();
+    expect(result.doctors[0].followup_requests).toBeNull();
+    expect(result.stars.map((s) => s.title)).not.toContain('بطل طلبات المتابعة');
+    expect(result.notes.join(' ')).toContain('طلبات المتابعة');
   });
   it('needs five invoices for the average-invoice star', () => {
     expect(build().branches[0].stars.find((s) => s.title === 'أعلى متوسط فاتورة')?.name).toBe('د عمر');
@@ -107,6 +116,6 @@ describe('buildDesignPack', () => {
     expect(message).toContain('نجم اليوم');
     expect(message).toContain('د اميرة');
     expect(message).toContain('المقارنة اليومية');
-    expect(message).not.toContain('بطل المتابعات');
+    expect(message).toContain('طلبات المتابعة في الدورة');
   });
 });

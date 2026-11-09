@@ -6,6 +6,12 @@ import {
 } from '@/lib/doctorCompetitionMetrics';
 import { getPharmacyCycleRange } from '@/lib/pharmacy-cycle';
 import { supabase } from '@/lib/supabase';
+import {
+  DEFAULT_BRANCH_REQUEST_TARGET,
+  loadFollowupRequestCounts,
+  loadFollowupRequestTargets,
+  type FollowupRequestCount,
+} from '@/lib/followupRequests/followupRequestService';
 
 export type DesignPackMode = 'day' | 'week' | 'cycle';
 
@@ -47,6 +53,7 @@ export interface PackDoctor {
   followups_completed: number | null;
   recovered_customers: number | null;
   competition_points: number | null;
+  followup_requests: number | null;
 }
 export interface PackStar { title: string; name: string; value: string }
 export interface PackDay { date: string; weekday: string; sales: number; invoices: number; average_invoice: number; top_doctor: string | null }
@@ -60,6 +67,8 @@ export interface PackBranch {
     average_change_percent: number | null;
     customer_requests: number;
     requests_fulfilled: number;
+    followup_requests: number | null;
+    followup_requests_target: number;
   };
   daily: PackDay[];
   best_day: PackDay | null;
@@ -155,6 +164,8 @@ function buildBranch(
   windows: PackWindows,
   metrics: PackMetricsInput | null,
   eligibleStaffIds: Set<string>,
+  followupRequests: FollowupRequestCount[] | null,
+  followupTarget: number,
 ): PackBranch {
   const belongs = (value: string) => (normalizeBranchName(value) || value) === branch;
   // Same rule as the competition list: a linked seller must be an eligible doctor.
@@ -195,6 +206,12 @@ function buildBranch(
     scoreRows.find((row) => normalizeDoctorName(row.name) === normalizeDoctorName(tally.name)) ||
     null;
 
+  const requestsOf = (staffId: string) =>
+    (followupRequests || []).filter((row) => row.staffId === staffId).reduce((total, row) => total + row.requests, 0);
+  const branchFollowupRequests = followupRequests === null
+    ? null
+    : followupRequests.filter((row) => belongs(row.branch)).reduce((total, row) => total + row.requests, 0);
+
   const doctors: PackDoctor[] = [...current.values()]
     .sort((a, b) => b.sales - a.sales)
     .map((tally, index) => {
@@ -218,6 +235,7 @@ function buildBranch(
         followups_completed: metrics?.followups && score ? score.completedFollowups : null,
         recovered_customers: metrics?.followups && score ? score.recoveredCustomers : null,
         competition_points: score ? score.competitionPoints : null,
+        followup_requests: followupRequests === null || !tally.staffId ? null : requestsOf(tally.staffId),
       };
     });
 
@@ -255,7 +273,7 @@ function buildBranch(
     ...star('بطل الرواكد', bestBy(doctors, (d) => d.stagnant_units), (d) => `${(d.stagnant_units ?? 0).toLocaleString('ar-EG')} وحدة`),
     ...star('أفضل تقييم', bestBy(doctors, (d) => ((d.review_count ?? 0) >= 3 ? d.review_average : null)), (d) => `${(d.review_average ?? 0).toLocaleString('ar-EG')}/١٠٠`),
     ...star('بطل طلبات العملاء', bestBy(doctors, (d) => d.customer_requests), (d) => `${(d.customer_requests ?? 0).toLocaleString('ar-EG')} طلب`),
-    ...star('بطل المتابعات', bestBy(doctors, (d) => d.followups_completed), (d) => `${(d.followups_completed ?? 0).toLocaleString('ar-EG')} متابعة`),
+    ...star('بطل طلبات المتابعة', bestBy(doctors, (d) => d.followup_requests), (d) => `${(d.followup_requests ?? 0).toLocaleString('ar-EG')} طلب`),
   ];
 
   const notes: string[] = [];
@@ -265,8 +283,8 @@ function buildBranch(
   } else {
     if (!metrics.reviews) notes.push('مفيش تقييمات محادثات متاحة للفترة دي.');
     if (!metrics.items) notes.push('حوافز اللستة والرواكد مش متاحة للفترة دي.');
-    if (!metrics.followups) notes.push('مفيش متابعات مسجلة للفترة دي، فمتتحسبش صفر على حد.');
   }
+  if (followupRequests === null) notes.push('تعذر تحميل طلبات المتابعة، فمش موجودة في الملف.');
   const unlinked = [...current.values()].filter((row) => !row.staffId).map((row) => row.name);
   if (unlinked.length) notes.push(`بائعين لسه مش مربوطين بموظف (طلبات العملاء مش محسوبة لهم): ${unlinked.join('، ')}.`);
 
@@ -281,6 +299,8 @@ function buildBranch(
         totalInvoices && previousInvoices ? change(totalSales / totalInvoices, previousSales / previousInvoices) : null,
       customer_requests: requests.reduce((total, row) => total + (Number(row.requests) || 0), 0),
       requests_fulfilled: requests.reduce((total, row) => total + (Number(row.fulfilled) || 0), 0),
+      followup_requests: branchFollowupRequests,
+      followup_requests_target: followupTarget,
     },
     daily,
     best_day: bestBy(daily, (day) => day.sales),
@@ -297,10 +317,12 @@ export function buildDesignPack(input: {
   facts: PackFacts;
   metrics: PackMetricsInput | null;
   eligibleStaffIds: Set<string>;
+  followupRequests: FollowupRequestCount[] | null;
+  followupTargets: Map<string, number>;
   branches: readonly string[];
   generatedAt: string;
 }): DesignPack {
-  const { mode, windows, facts, metrics, eligibleStaffIds, branches, generatedAt } = input;
+  const { mode, windows, facts, metrics, eligibleStaffIds, followupRequests, followupTargets, branches, generatedAt } = input;
   return {
     kind: 'dawaa_star_of_month_pack',
     version: 1,
@@ -311,7 +333,7 @@ export function buildDesignPack(input: {
     generated_at: generatedAt,
     last_invoice_date: facts.last_sale_date,
     last_import_at: facts.last_import_at,
-    branches: branches.map((branch) => buildBranch(branch, facts, windows, metrics, eligibleStaffIds)),
+    branches: branches.map((branch) => buildBranch(branch, facts, windows, metrics, eligibleStaffIds, followupRequests, followupTargets.get(branch) ?? DEFAULT_BRANCH_REQUEST_TARGET)),
   };
 }
 
@@ -328,6 +350,7 @@ export function buildBranchMessage(pack: DesignPack, branch: PackBranch): string
     `📈 متوسط الفاتورة: ${money(totals.average_invoice)} (${signed(totals.average_change_percent)})`,
     `🙋 طلبات العملاء: ${totals.customer_requests.toLocaleString('ar-EG')} (اتوفر منها ${totals.requests_fulfilled.toLocaleString('ar-EG')})`,
   ];
+  if (totals.followup_requests !== null) lines.push(`📝 طلبات المتابعة في الدورة: ${totals.followup_requests.toLocaleString('ar-EG')} من ${totals.followup_requests_target.toLocaleString('ar-EG')}`);
   if (branch.peak_hour) lines.push(`⏰ ساعة الذروة: ${branch.peak_hour.label}`);
   if (branch.best_day) lines.push(`🔥 أقوى يوم: ${branch.best_day.weekday} ${branch.best_day.date} — ${money(branch.best_day.sales)}`);
   if (branch.stars.length) {
@@ -373,7 +396,8 @@ export async function loadDesignPack(params: {
   const windows = designPackWindows(params.mode, params.anchor);
   const start = windows.previous.start < windows.series.start ? windows.previous.start : windows.series.start;
 
-  const [factsResult, eligibleResult, metricsResult] = await Promise.all([
+  const cycle = getPharmacyCycleRange(`${params.anchor}T12:00:00`);
+  const [factsResult, eligibleResult, metricsResult, followupRequests, followupTargets] = await Promise.all([
     supabase.rpc('get_doctor_competition_design_pack_v1', { p_start: start, p_end: windows.current.end, p_branch: params.branch }),
     supabase.rpc('get_eligible_doctor_staff_ids'),
     getDoctorCompetitionMetrics({
@@ -385,6 +409,8 @@ export async function loadDesignPack(params: {
       canSeeAllBranches: true,
       includeActiveRoster: true,
     }).catch(() => null),
+    loadFollowupRequestCounts(cycle.start, params.anchor).catch(() => null),
+    loadFollowupRequestTargets().catch(() => new Map<string, number>()),
   ]);
   if (factsResult.error) throw factsResult.error;
   if (eligibleResult.error) throw eligibleResult.error;
@@ -402,6 +428,8 @@ export async function loadDesignPack(params: {
         }
       : null,
     eligibleStaffIds: new Set((eligibleResult.data || []).map((row: { staff_id: string }) => String(row.staff_id))),
+    followupRequests,
+    followupTargets,
     branches: params.branches,
     generatedAt: new Date().toISOString(),
   });
