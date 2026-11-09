@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ClipboardList, Upload } from 'lucide-react';
 import { parseGroupChat, type GroupChatMessage } from '@/lib/followupRequests/groupChatRequests';
+import { matchSenderToDoctor } from '@/lib/followupRequests/matchSenderToDoctor';
 import {
   DEFAULT_BRANCH_REQUEST_TARGET,
   importFollowupRequests,
@@ -58,7 +59,14 @@ export default function FollowupRequestsPanel(props: {
       setFileName(file.name);
       setMessages(parsed);
       const names = [...new Set(parsed.filter((m) => m.verdict !== 'ignored').map((m) => m.sender))];
-      setSenders(names.length ? await resolveSenders(names) : []);
+      const matches = names.length ? await resolveSenders(names) : [];
+      setSenders(matches);
+      const suggested: Record<string, string> = {};
+      matches.filter((match) => !match.staffId).forEach((match) => {
+        const doctor = matchSenderToDoctor(match.sender, doctors);
+        if (doctor) suggested[match.sender] = doctor.staffId;
+      });
+      setChoices(suggested);
     } catch (fileError) {
       console.error('[FollowupRequests] file failed', fileError);
       setMessages([]);
@@ -159,6 +167,11 @@ export default function FollowupRequestsPanel(props: {
                 <option value="">اختار الدكتور</option>
                 {doctors.map((doctor) => <option key={doctor.staffId} value={doctor.staffId}>{doctor.name}</option>)}
               </select>
+              {choices[sender.sender] ? (
+                matchSenderToDoctor(sender.sender, doctors)?.staffId === choices[sender.sender]
+                  ? <span className="text-xs text-teal-300">اختيار تلقائي، غيّره لو غلط</span>
+                  : null
+              ) : <span className="text-xs text-amber-200">الاسم مش واضح، اختار الدكتور</span>}
             </label>
           ))}
           {review.length ? (
