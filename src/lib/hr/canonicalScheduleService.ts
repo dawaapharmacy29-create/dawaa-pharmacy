@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import type { ScheduleActualDay } from '@/lib/hr/scheduleActualCell';
 
 export type CanonicalScheduleDayV2 = {
   date: string;
@@ -102,4 +103,16 @@ export async function resolveWeeklyOffSwapFromAttendanceV1(args: {
   });
   if (error) throw new Error(error.message);
   return (data || {}) as Record<string, unknown>;
+}
+
+export async function getScheduleWeekActualsV1(args: {
+  weekStart: string;
+  branch?: string | null;
+}): Promise<ScheduleActualDay[]> {
+  const { data, error } = await supabase.rpc('hr_schedule_week_actual_v1', {
+    p_week_start: args.weekStart,
+    p_branch: args.branch || null,
+  });
+  if (error) throw new Error(error.message);
+  return (data || []) as ScheduleActualDay[];
 }

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   ArrowUpDown,
@@ -25,7 +25,8 @@ import { useAuth, getCurrentUserProfile } from '@/hooks/useAuth';
 import { useSupabaseQuery, logActivity } from '@/hooks/useSupabaseQuery';
 import { canViewAllBranches, canViewBranchData } from '@/lib/security/userDataScope';
 import { formatCurrency } from '@/lib/utils';
-import { getCurrentCycle } from '@/lib/pharmacy-cycle';
+import { formatCycleDate, getCurrentCycle } from '@/lib/pharmacy-cycle';
+import { getListIncentiveInvoiceLines, type ListIncentiveInvoiceLine } from '@/lib/incentives/listIncentiveSalesService';
 import { isPrivilegedRole } from '@/lib/core/permissionSystem';
 import IncentiveDoctorSummary, { type IncentiveDoctorSaleRow } from '@/pages/IncentiveDoctorSummary';
 
@@ -135,11 +136,8 @@ export default function IncentiveMedicines() {
     realtimeEnabled: true,
   });
 
-  const { data: saleRecords = [] } = useSupabaseQuery<IncentiveSaleRecord>({
-    table: 'incentive_medicine_sales',
-    orderBy: { column: 'sale_date', ascending: false },
-    realtimeEnabled: true,
-  });
+  const [invoiceLines, setInvoiceLines] = useState<ListIncentiveInvoiceLine[]>([]);
+  const [salesError, setSalesError] = useState<string | null>(null);
 
   const visibleMedicines = useMemo(
     () => medicines.filter((item) => canViewAllBranches(user) || canViewBranchData(user, item.branch)),
@@ -162,24 +160,52 @@ export default function IncentiveMedicines() {
   }, [medicines]);
 
   const cycle = getCurrentCycle();
-  const cycleSales = useMemo(
-    () => saleRecords
-      .filter((row) => {
-        if (!row.sale_date) return false;
-        const date = new Date(`${row.sale_date}T00:00:00`);
-        if (date < cycle.start || date > cycle.end) return false;
-        return canViewAllBranches(user) || canViewBranchData(user, row.branch);
-      })
-      .map((row) => {
-        const medicine = row.medicine_id ? medicineById.get(row.medicine_id) : undefined;
-        return {
-          ...row,
-          product_name: row.product_name || medicine?.product_name || 'صنف غير محدد',
-          incentive_per_unit: Number(row.incentive_per_unit || (medicine ? incentivePerUnit(medicine) : 0)),
-        };
-      }),
-    [saleRecords, cycle.start, cycle.end, user, medicineById]
+  const cycleStart = formatCycleDate(cycle.start);
+  const cycleEnd = formatCycleDate(cycle.end);
+  useEffect(() => {
+    let alive = true;
+    setSalesError(null);
+    void getListIncentiveInvoiceLines({ start: cycleStart, end: cycleEnd })
+      .then((rows) => { if (alive) setInvoiceLines(rows); })
+      .catch((error) => {
+        if (!alive) return;
+        setInvoiceLines([]);
+        setSalesError((error as Error).message);
+      });
+    return () => { alive = false; };
+  }, [cycleStart, cycleEnd]);
+
+  const scopedLines = useMemo(
+    () => invoiceLines.filter((row) => canViewAllBranches(user) || canViewBranchData(user, row.branch)),
+    [invoiceLines, user]
   );
+
+  // Only an invoice with a proven eligible doctor earns the incentive.
+  const cycleSales = useMemo<IncentiveSaleRecord[]>(
+    () => scopedLines
+      .filter((row) => row.attribution === 'eligible')
+      .map((row) => ({
+        id: `${row.invoice_id}-${row.line_no}`,
+        medicine_id: row.medicine_id,
+        product_name: (row.medicine_id ? medicineById.get(row.medicine_id)?.product_name : null) || 'صنف غير محدد',
+        doctor_name: row.seller_name || 'غير محدد',
+        branch: row.branch,
+        quantity: Number(row.units),
+        incentive_per_unit: Number(row.rate),
+        incentive_total: Number(row.units) * Number(row.rate),
+        sale_date: row.sale_date,
+      })),
+    [scopedLines, medicineById]
+  );
+
+  const unattributed = useMemo(() => {
+    const rows = scopedLines.filter((row) => row.attribution !== 'eligible');
+    return {
+      unlinked: rows.filter((row) => row.attribution === 'unlinked').length,
+      notEligible: rows.filter((row) => row.attribution === 'not_eligible').length,
+      value: rows.reduce((sum, row) => sum + Number(row.units) * Number(row.rate), 0),
+    };
+  }, [scopedLines]);
 
   const medicineSales = useMemo(() => {
     const map = new Map<string, { quantity: number; money: number }>();
@@ -430,6 +456,9 @@ export default function IncentiveMedicines() {
         <button onClick={() => setActiveTab('catalog')} className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition ${activeTab === 'catalog' ? 'bg-emerald-500/15 text-emerald-200 shadow-sm' : 'text-slate-400 hover:text-white'}`}><Package size={17} /> أصناف الليستة</button>
         <button onClick={() => setActiveTab('doctors')} className={`flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition ${activeTab === 'doctors' ? 'bg-emerald-500/15 text-emerald-200 shadow-sm' : 'text-slate-400 hover:text-white'}`}><UserRound size={17} /> حوافز الدكاترة</button>
       </div>
+
+      {salesError && <div className="rounded-2xl border border-red-400/30 bg-red-500/10 p-4 text-sm font-bold text-red-100">تعذر تحميل مبيعات اللستة من الفواتير: {salesError}. الأرقام الظاهرة ليست صفرًا حقيقيًا.</div>}
+      {!salesError && (unattributed.unlinked > 0 || unattributed.notEligible > 0) && <div className="rounded-2xl border border-amber-400/25 bg-amber-500/10 p-3 text-sm font-bold text-amber-100">غير محسوب في الحافز حاليًا: {unattributed.unlinked} سطر بانتظار ربط البائع و{unattributed.notEligible} سطر باعه غير صيدلي · قيمة {formatCurrency(unattributed.value)}</div>}
 
       {activeTab === 'doctors' ? (
         <IncentiveDoctorSummary rows={cycleSales} cycleLabel={cycle.shortLabel} />
