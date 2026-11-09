@@ -194,6 +194,6 @@ export function selectInvoiceCycleWindow(columns: string, options: { count: 'exa
 
 /** Read invoice headers for matching an item import within one branch and sale day. */
 export function readInvoiceHeadersForItemImport(branch: string, day: string, invoiceNumbers: string[]) {
-  return supabase.from('sales_invoices').select('id,invoice_number,invoice_date,customer_code')
+  return supabase.from('sales_invoices').select('id,invoice_number,invoice_date,customer_code,customer_id,staff_id,line_items_count')
     .eq('branch', branch).eq('sale_date', day).in('invoice_number', invoiceNumbers).limit(1000);
 }
