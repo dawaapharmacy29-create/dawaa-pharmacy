@@ -20,9 +20,13 @@ import { conversationReviewScore100, isOfficialConversationReview, OFFICIAL_REVI
 import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
 import { fetchAllOrderedPages } from '@/lib/fetchAllOrderedPages';
 import CompetitionDesignPackPanel from '@/components/competition/CompetitionDesignPackPanel';
+import FollowupRequestsPanel from '@/components/competition/FollowupRequestsPanel';
+import { loadFollowupRequestCounts, type FollowupRequestCount } from '@/lib/followupRequests/followupRequestService';
+import { getPharmacyCycleRange } from '@/lib/pharmacy-cycle';
+import { hasPermission } from '@/lib/core/permissionSystem';
 
 const ALL_BRANCHES = 'كل الفروع';
-type RankingMode = 'points' | 'sales' | 'invoices' | 'average';
+type RankingMode = 'points' | 'sales' | 'invoices' | 'average' | 'requests';
 type IdentityLookup = Map<string, string>;
 type ReviewRow = {
   staff_id?: string | null;
@@ -291,6 +295,8 @@ export default function DoctorCompetition() {
   const [error, setError] = useState('');
   const [warning, setWarning] = useState('');
   const [compositeScores, setCompositeScores] = useState<Record<string, number>>({});
+  const [requestCounts, setRequestCounts] = useState<FollowupRequestCount[] | null>(null);
+  const [requestsVersion, setRequestsVersion] = useState(0);
 
   const effectiveBranch = branchFilter === ALL_BRANCHES ? '' : normalizeBranchName(branchFilter);
   const mergeAllBranches = !effectiveBranch;
@@ -435,13 +441,34 @@ export default function DoctorCompetition() {
 
   useEffect(() => { void load(); }, [load]);
 
+  // Requests are ranked by the running cycle whatever period the sales list is showing.
+  useEffect(() => {
+    let current = true;
+    const cycle = getPharmacyCycleRange(new Date());
+    loadFollowupRequestCounts(cycle.start, cycle.end)
+      .then((counts) => { if (current) setRequestCounts(counts); })
+      .catch((requestError) => {
+        console.error('[DoctorCompetition] follow-up requests failed', requestError);
+        if (current) setRequestCounts(null);
+      });
+    return () => { current = false; };
+  }, [requestsVersion]);
+
+  const requestsByStaff = useMemo(() => {
+    const totals = new Map<string, number>();
+    (requestCounts || []).forEach((row) => totals.set(row.staffId, (totals.get(row.staffId) || 0) + row.requests));
+    return totals;
+  }, [requestCounts]);
+  const requestsFor = useCallback((row: DoctorCompetitionScore) => (row.staffId ? requestsByStaff.get(row.staffId) || 0 : 0), [requestsByStaff]);
+
   const visibleRows = useMemo(() => {
     const sorted = [...rows];
     if (mode === 'sales') return sorted.sort((a, b) => b.totalSales - a.totalSales || b.competitionPoints - a.competitionPoints);
     if (mode === 'invoices') return sorted.sort((a, b) => b.invoices - a.invoices || b.totalSales - a.totalSales);
     if (mode === 'average') return sorted.sort((a, b) => b.avgInvoice - a.avgInvoice || b.invoices - a.invoices);
+    if (mode === 'requests') return sorted.sort((a, b) => requestsFor(b) - requestsFor(a) || b.competitionPoints - a.competitionPoints);
     return sorted.sort((a, b) => b.competitionPoints - a.competitionPoints || b.totalSales - a.totalSales);
-  }, [mode, rows]);
+  }, [mode, requestsFor, rows]);
 
   const exportCsv = () => {
     const lines = [
@@ -519,8 +546,10 @@ export default function DoctorCompetition() {
       ) : (
         <div className="input-dark flex items-center text-slate-200">{branchFilter}</div>
       )}
-      <select className="input-dark" value={mode} onChange={(event) => setMode(event.target.value as RankingMode)}><option value="points">الترتيب حسب نقاط المسابقة</option><option value="sales">الترتيب حسب المبيعات</option><option value="invoices">الترتيب حسب عدد الفواتير</option><option value="average">الترتيب حسب متوسط الفاتورة</option></select>
+      <select className="input-dark" value={mode} onChange={(event) => setMode(event.target.value as RankingMode)}><option value="points">الترتيب حسب نقاط المسابقة</option><option value="sales">الترتيب حسب المبيعات</option><option value="invoices">الترتيب حسب عدد الفواتير</option><option value="average">الترتيب حسب متوسط الفاتورة</option><option value="requests">الترتيب حسب طلبات المتابعة</option></select>
     </section>
+
+    {canViewAllBranches(user) && hasPermission(user, 'manage_staff_accounts') ? <FollowupRequestsPanel branches={BRANCHES} doctors={rows.filter((row) => row.staffId).map((row) => ({ staffId: String(row.staffId), name: row.name }))} counts={requestCounts} onImported={() => setRequestsVersion((version) => version + 1)} /> : null}
 
     {canViewAllBranches(user) ? <CompetitionDesignPackPanel branches={BRANCHES} branch={effectiveBranch || null} userBranch={user?.branch} /> : null}
 
@@ -581,6 +610,7 @@ export default function DoctorCompetition() {
                 <span>متوسط: {money(row.avgInvoice)}</span>
                 <span>تقييم: {review === null ? 'غير متاح' : `${review.toFixed(1)}/100`}</span>
                 <span>متابعات: {row.completedFollowups}</span>
+                <span>طلبات متابعة: {requestCounts === null ? 'غير متاح' : requestsFor(row).toLocaleString('ar-EG')}</span>
                 {row.stagnantStatus === 'available' && <>
                   <span>وحدات اللستة: {row.listItems.toLocaleString('ar-EG')}</span>
                   <span>وحدات الرواكد: {row.stagnantItems.toLocaleString('ar-EG')}</span>

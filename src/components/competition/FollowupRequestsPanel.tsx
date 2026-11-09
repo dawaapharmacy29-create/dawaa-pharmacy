@@ -1,0 +1,189 @@
+import { useEffect, useMemo, useState } from 'react';
+import { ClipboardList, Upload } from 'lucide-react';
+import { parseGroupChat, type GroupChatMessage } from '@/lib/followupRequests/groupChatRequests';
+import {
+  DEFAULT_BRANCH_REQUEST_TARGET,
+  importFollowupRequests,
+  linkSender,
+  loadFollowupRequestTargets,
+  readChatFile,
+  resolveSenders,
+  saveFollowupRequestTarget,
+  type FollowupRequestCount,
+  type SenderMatch,
+} from '@/lib/followupRequests/followupRequestService';
+
+const surface = { background: 'var(--dawaa-theme-surface)', borderColor: 'var(--dawaa-theme-border)' };
+const mutedText = { color: 'var(--dawaa-theme-muted)' };
+
+interface Doctor { staffId: string; name: string }
+
+/** Uploads the follow-up group's export and shows each branch against its cycle target. */
+export default function FollowupRequestsPanel(props: {
+  branches: readonly string[];
+  doctors: Doctor[];
+  /** Null when the cycle's counts could not be read. */
+  counts: FollowupRequestCount[] | null;
+  onImported: () => void;
+}) {
+  const { branches, doctors, counts, onImported } = props;
+  const [fileName, setFileName] = useState('');
+  const [messages, setMessages] = useState<GroupChatMessage[]>([]);
+  const [approved, setApproved] = useState<Set<number>>(new Set());
+  const [senders, setSenders] = useState<SenderMatch[]>([]);
+  const [choices, setChoices] = useState<Record<string, string>>({});
+  const [targets, setTargets] = useState<Map<string, number> | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [result, setResult] = useState('');
+
+  useEffect(() => {
+    loadFollowupRequestTargets().then(setTargets).catch(() => setTargets(null));
+  }, []);
+
+  const requests = useMemo(() => messages.filter((message) => message.verdict === 'request'), [messages]);
+  const review = useMemo(() => messages.filter((message) => message.verdict === 'review'), [messages]);
+  const ignored = messages.length - requests.length - review.length;
+  const unmatched = senders.filter((sender) => !sender.staffId);
+
+  const onFile = async (file?: File) => {
+    if (!file) return;
+    setBusy(true);
+    setError('');
+    setResult('');
+    setApproved(new Set());
+    try {
+      const parsed = parseGroupChat(await readChatFile(file));
+      if (!parsed.length) throw new Error('chat_empty');
+      setFileName(file.name);
+      setMessages(parsed);
+      const names = [...new Set(parsed.filter((m) => m.verdict !== 'ignored').map((m) => m.sender))];
+      setSenders(names.length ? await resolveSenders(names) : []);
+    } catch (fileError) {
+      console.error('[FollowupRequests] file failed', fileError);
+      setMessages([]);
+      setSenders([]);
+      setError('تعذر قراءة الملف. ارفع ملف تصدير واتساب بصيغة zip أو txt.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const save = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      for (const sender of unmatched) {
+        if (choices[sender.sender]) await linkSender(sender.sender, choices[sender.sender]);
+      }
+      const chosen = [...requests, ...review.filter((_, index) => approved.has(index))];
+      const saved = await importFollowupRequests(fileName, chosen);
+      const repeated = saved.total - saved.inserted - chosen.filter((m) => saved.unmatchedSenders.includes(m.sender)).length;
+      setResult(`اتسجل ${saved.inserted.toLocaleString('ar-EG')} طلب جديد، واتجاهل ${Math.max(0, repeated).toLocaleString('ar-EG')} طلب متكرر.${saved.unmatchedSenders.length ? ` مش محسوب: ${saved.unmatchedSenders.join('، ')}.` : ''}`);
+      setMessages([]);
+      setSenders([]);
+      setChoices({});
+      onImported();
+    } catch (saveError) {
+      console.error('[FollowupRequests] save failed', saveError);
+      setError('تعذر حفظ الطلبات، ومفيش طلبات جديدة اتحسبت. جرب تاني.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const targetFor = (branch: string) => targets?.get(branch) ?? DEFAULT_BRANCH_REQUEST_TARGET;
+  const changeTarget = async (branch: string) => {
+    const typed = window.prompt(`هدف طلبات المتابعة في ${branch} للدورة`, String(targetFor(branch)));
+    if (typed === null) return;
+    const value = Number(typed);
+    if (!Number.isInteger(value) || value <= 0) {
+      setError('اكتب رقم صحيح أكبر من صفر.');
+      return;
+    }
+    try {
+      await saveFollowupRequestTarget(branch, value);
+      setTargets(new Map(targets || []).set(branch, value));
+    } catch {
+      setError('تعذر حفظ الهدف.');
+    }
+  };
+
+  return (
+    <section className="space-y-3 rounded-3xl border p-4" style={surface}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 text-lg font-black text-white">
+          <ClipboardList size={18} className="text-amber-300" /> طلبات المتابعة في الدورة
+        </h2>
+        <label className="btn-secondary cursor-pointer">
+          <Upload className="ml-1 inline h-4 w-4" /> {busy ? 'جارٍ…' : 'رفع ملف الجروب'}
+          <input type="file" accept=".zip,.txt" className="hidden" disabled={busy} onChange={(event) => { void onFile(event.target.files?.[0]); event.target.value = ''; }} />
+        </label>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        {branches.map((branch) => {
+          const total = counts ? counts.filter((row) => row.branch === branch).reduce((sum, row) => sum + row.requests, 0) : null;
+          const target = targetFor(branch);
+          return (
+            <div key={branch} className="rounded-2xl border p-3" style={surface}>
+              <div className="flex items-center justify-between text-sm font-black text-white">
+                <span>{branch}</span>
+                <button type="button" onClick={() => void changeTarget(branch)} className="text-xs underline" style={mutedText}>تعديل الهدف</button>
+              </div>
+              <div className="mt-1 text-lg font-black text-amber-200">
+                {total === null ? 'غير متاح' : `${total.toLocaleString('ar-EG')} من ${target.toLocaleString('ar-EG')}`}
+              </div>
+              {total !== null ? (
+                <div className="mt-2 h-2 overflow-hidden rounded-full" style={{ background: 'rgba(148,211,226,0.15)' }}>
+                  <div className="h-full bg-amber-300" style={{ width: `${Math.min(100, (total / target) * 100)}%` }} />
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+
+      {error ? <div role="alert" className="rounded-2xl border border-red-300/25 bg-red-500/10 p-3 text-sm font-bold text-red-100">{error}</div> : null}
+      {result ? <div className="rounded-2xl border border-teal-300/25 bg-teal-400/10 p-3 text-sm font-bold text-teal-100">{result}</div> : null}
+
+      {messages.length ? (
+        <div className="space-y-3">
+          <p className="text-sm font-bold text-white">
+            {requests.length.toLocaleString('ar-EG')} طلب مؤكد، {review.length.toLocaleString('ar-EG')} محتاجين مراجعتك، {ignored.toLocaleString('ar-EG')} كلام جانبي مش محسوب.
+          </p>
+          {unmatched.map((sender) => (
+            <label key={sender.sender} className="flex flex-wrap items-center gap-2 text-sm font-bold text-white">
+              <span dir="ltr">{sender.sender}</span> هو:
+              <select aria-label={`دكتور ${sender.sender}`} className="input-dark" value={choices[sender.sender] || ''} onChange={(event) => setChoices({ ...choices, [sender.sender]: event.target.value })}>
+                <option value="">اختار الدكتور</option>
+                {doctors.map((doctor) => <option key={doctor.staffId} value={doctor.staffId}>{doctor.name}</option>)}
+              </select>
+            </label>
+          ))}
+          {review.length ? (
+            <div className="max-h-64 space-y-1 overflow-y-auto">
+              {review.map((message, index) => (
+                <label key={`${message.sentAtLocal}-${index}`} className="flex items-start gap-2 text-xs" style={mutedText}>
+                  <input
+                    type="checkbox"
+                    checked={approved.has(index)}
+                    onChange={(event) => {
+                      const next = new Set(approved);
+                      if (event.target.checked) next.add(index); else next.delete(index);
+                      setApproved(next);
+                    }}
+                  />
+                  <span><b>{message.sender}:</b> {message.body || 'صورة من غير كلام'}</span>
+                </label>
+              ))}
+            </div>
+          ) : null}
+          <button type="button" onClick={() => void save()} disabled={busy} className="btn-secondary disabled:opacity-50">
+            احفظ {(requests.length + approved.size).toLocaleString('ar-EG')} طلب
+          </button>
+        </div>
+      ) : null}
+    </section>
+  );
+}
