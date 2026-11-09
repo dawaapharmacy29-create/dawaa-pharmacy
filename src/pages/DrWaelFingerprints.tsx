@@ -1,3 +1,4 @@
+import ManualPunchFromMessage from '@/components/attendance/ManualPunchFromMessage';
 import {
   decideOvertimeApproval,
   getOvertimeDecisionEvidenceV3,
@@ -1036,6 +1037,30 @@ function ManualPunchEmployee({
           {time ? ` · الساعة من ميعاد شيفته، غيّرها لو مختلفة` : ''}
         </p>
       ) : null}
+      <ManualPunchFromMessage
+        today={today}
+        fallbackDate={date}
+        shiftTimeFor={(targetDate, targetType) => {
+          if (flexible) return null;
+          const target = days.find((d) => d.date === targetDate);
+          const at = targetType === 'check_out' ? target?.scheduled_end : target?.scheduled_start;
+          if (at) return cairoTime(at);
+          const week = employee.week.find((d) => d.date === targetDate && d.scheduled && !d.off);
+          return (targetType === 'check_out' ? week?.end : week?.start) || null;
+        }}
+        onApply={(draft) => {
+          if (draft.type) setType(draft.type);
+          if (draft.date) setDate(draft.date);
+          setTime(draft.time || '');
+          setNote(draft.note);
+          setFlipNextDay(false);
+          setError(null);
+          setSaved(null);
+        }}
+        fieldClass={input}
+        buttonClass={IDLE}
+        mutedClass={MUTED}
+      />
       <div className="flex flex-wrap items-center gap-2">
         <Chips<ManualPunchType>
           label="نوع البصمة"
