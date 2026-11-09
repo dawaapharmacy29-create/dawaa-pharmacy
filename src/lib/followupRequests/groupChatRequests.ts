@@ -9,8 +9,8 @@ export interface GroupChatMessage {
   verdict: RequestVerdict;
 }
 
-const INVISIBLE = /[‎‏‪-‮⁦-⁩]/g;
-const SPACES = /[  ]/g;
+const INVISIBLE = /[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+const SPACES = /[\u00a0\u202f]/g;
 const IOS_HEADER = /^\[(\d{1,4})[/.-](\d{1,2})[/.-](\d{1,4}),?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AaPp][Mm]|ص|م)?\]\s*(.*)$/;
 const ANDROID_HEADER = /^(\d{1,4})[/.-](\d{1,2})[/.-](\d{1,4}),?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AaPp][Mm]|ص|م)?\s+-\s+(.*)$/;
 const IMAGE_MARK = /<\s*تم حذف الصورة\s*>|<\s*image omitted\s*>|<\s*تم استبعاد الصورة\s*>|<\s*الوسائط محذوفة\s*>|<\s*media omitted\s*>|<attached:[^>]*>|\[صورة\]/gi;
