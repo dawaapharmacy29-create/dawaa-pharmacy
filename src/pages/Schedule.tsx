@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Stethoscope, Truck } from 'lucide-react';
+import ScheduleWeekBoard from '@/components/attendance/ScheduleWeekBoard';
+import type { ScheduleActualDay } from '@/lib/hr/scheduleActualCell';
 import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
-import { DAYS_AR, BRANCHES } from '@/lib/constants';
+import { BRANCHES } from '@/lib/constants';
 import { useAuth } from '@/hooks/useAuth';
 import { canViewAllBranches } from '@/lib/security/userDataScope';
 import {
@@ -9,7 +11,6 @@ import {
   staffRowIsActive,
   staffRowVisibleInSchedule,
 } from '@/lib/staffActiveFilter';
-import { isCurrentlyOnShift } from '@/lib/utils';
 import { parseScheduleImport, type ParsedScheduleImport } from '@/lib/shiftParser';
 import { saveScheduleImport, type StaffingSaveReport } from '@/lib/api/staffing';
 import { toast } from 'sonner';
@@ -18,7 +19,7 @@ import ScheduleIdentityGovernance from '@/components/attendance/ScheduleIdentity
 import ScheduleGovernancePanel from '@/components/attendance/ScheduleGovernancePanel';
 import WorkforceScheduleCoverage from '@/components/attendance/WorkforceScheduleCoverage';
 import SchedulePublishingCenter from '@/components/attendance/SchedulePublishingCenter';
-import { getCanonicalScheduleWeekV2, type CanonicalScheduleWeekV2 } from '@/lib/hr/canonicalScheduleService';
+import { getCanonicalScheduleWeekV2, getScheduleWeekActualsV1, type CanonicalScheduleWeekV2 } from '@/lib/hr/canonicalScheduleService';
 
 interface Employee {
   id: string;
@@ -30,14 +31,6 @@ interface Employee {
   shift_end?: string | null;
   visible_in_schedule?: boolean | null;
 }
-
-const ROLE_COLORS: Record<string, string> = {
-  صيدلاني: 'bg-teal-500/15 border-teal-500/25 text-teal-300',
-  مساعد: 'bg-blue-500/15 border-blue-500/25 text-blue-300',
-  توصيل: 'bg-amber-500/15 border-amber-500/25 text-amber-300',
-  'خدمة عملاء': 'bg-purple-500/15 border-purple-500/25 text-purple-300',
-  'مدير فرع': 'bg-pink-500/15 border-pink-500/25 text-pink-300',
-};
 
 function normalizeBranch(branch?: string | null) {
   const value = String(branch || '');
@@ -61,12 +54,14 @@ function cairoDate(date = new Date()) {
   }).format(date);
 }
 
-function currentSunday() {
-  const now = new Date();
-  const cairo = cairoDate(now);
-  const base = new Date(`${cairo}T12:00:00+03:00`);
-  base.setDate(base.getDate() - base.getDay());
-  return cairoDate(base);
+function addDays(date: string, days: number) {
+  const base = new Date(`${date}T12:00:00Z`);
+  base.setUTCDate(base.getUTCDate() + days);
+  return base.toISOString().slice(0, 10);
+}
+
+function sundayOf(date: string) {
+  return addDays(date, -new Date(`${date}T12:00:00Z`).getUTCDay());
 }
 
 export default function Schedule() {
@@ -78,7 +73,8 @@ export default function Schedule() {
   const [parsing, setParsing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveReport, setSaveReport] = useState<StaffingSaveReport | null>(null);
-  const today = new Date().getDay();
+  const [weekOffset, setWeekOffset] = useState(0);
+  const todayDate = cairoDate();
 
   const { data: employees, loading } = useSupabaseQuery<Employee>({
     table: 'staff',
@@ -86,7 +82,8 @@ export default function Schedule() {
     orderBy: { column: 'name', ascending: true },
     realtimeEnabled: true,
   });
-  const weekStart = currentSunday();
+  const weekStart = addDays(sundayOf(todayDate), weekOffset * 7);
+  const weekDates = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
   const [canonicalWeek, setCanonicalWeek] = useState<CanonicalScheduleWeekV2 | null>(null);
   const [scheduleLoading, setScheduleLoading] = useState(true);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
@@ -109,6 +106,26 @@ export default function Schedule() {
       })
       .finally(() => {
         if (alive) setScheduleLoading(false);
+      });
+    return () => { alive = false; };
+  }, [branchFilter, weekStart]);
+
+  const [actuals, setActuals] = useState<Map<string, ScheduleActualDay>>(new Map());
+  const [actualsError, setActualsError] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    setActualsError(null);
+    void getScheduleWeekActualsV1({
+      weekStart,
+      branch: branchFilter === 'الكل' ? null : branchFilter,
+    })
+      .then((rows) => {
+        if (alive) setActuals(new Map(rows.map((row) => [`${row.staff_id}::${row.date}`, row])));
+      })
+      .catch((error) => {
+        if (!alive) return;
+        setActuals(new Map());
+        setActualsError((error as Error).message);
       });
     return () => { alive = false; };
   }, [branchFilter, weekStart]);
@@ -162,25 +179,6 @@ export default function Schedule() {
     }
 
     return canonical?.has_schedule ? canonical : null;
-  };
-
-  const normalShiftFor = (emp: Employee) => {
-    const staffWeek = canonicalWeek?.staff.find((item) => item.staff_id === emp.id);
-    const counts = new Map<string, number>();
-    (staffWeek?.days || [])
-      .filter((item) =>
-        item.has_schedule &&
-        item.source_kind !== 'date_override' &&
-        !item.is_off &&
-        !item.is_day_off &&
-        item.shift_start &&
-        item.shift_end
-      )
-      .forEach((item) => {
-        const key = `${item.shift_start}-${item.shift_end}`;
-        counts.set(key, (counts.get(key) || 0) + 1);
-      });
-    return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || '';
   };
 
   if (loading || scheduleLoading)
@@ -274,19 +272,6 @@ export default function Schedule() {
           تعذر تحميل الجدول المعتمد: {scheduleError}. لن يتم الرجوع تلقائيًا إلى قراءة raw shift_schedules حتى لا تظهر بيانات متعارضة.
         </div>
       )}
-      <WorkforceScheduleCoverage branch={branchFilter} />
-      <SchedulePublishingCenter
-        branch={branchFilter}
-        staff={employees
-          .filter((employee) => staffRowIsActive(employee) && staffRowVisibleInSchedule(employee))
-          .map((employee) => ({
-            id: employee.id,
-            name: employee.name,
-            role: employee.role,
-            branch: normalizeBranch(employee.branch),
-          }))}
-      />
-      <ScheduleGovernancePanel branch={branchFilter} />
       {/* Filter */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="section-title">الجدول الأسبوعي</div>
@@ -318,6 +303,35 @@ export default function Schedule() {
         ))}
       </div>
 
+      {actualsError && (
+        <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 p-3 text-sm font-bold text-amber-100">
+          تعذر تحميل البصمات: {actualsError}. الجدول يعرض المخطط فقط ولا يعني ذلك غياب أحد.
+        </div>
+      )}
+      <ScheduleWeekBoard
+        employees={filtered.map((employee) => ({ ...employee, branch: normalizeBranch(employee.branch) }))}
+        weekDates={weekDates}
+        today={todayDate}
+        planFor={(employee, day) => scheduleFor(employee as Employee, day)}
+        actuals={actuals}
+        actualsAvailable={!actualsError}
+        onPreviousWeek={() => setWeekOffset((value) => value - 1)}
+        onNextWeek={() => setWeekOffset((value) => value + 1)}
+        canGoNext={weekOffset < 1}
+      />
+      <WorkforceScheduleCoverage branch={branchFilter} />
+      <SchedulePublishingCenter
+        branch={branchFilter}
+        staff={employees
+          .filter((employee) => staffRowIsActive(employee) && staffRowVisibleInSchedule(employee))
+          .map((employee) => ({
+            id: employee.id,
+            name: employee.name,
+            role: employee.role,
+            branch: normalizeBranch(employee.branch),
+          }))}
+      />
+      <ScheduleGovernancePanel branch={branchFilter} />
       <div className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-4">
         <div className="flex flex-col md:flex-row md:items-center gap-3">
           <div className="flex-1">
@@ -468,174 +482,6 @@ export default function Schedule() {
       </div>
 
       {managerView && <ScheduleIdentityGovernance />}
-
-      {/* Desktop Table */}
-      <div className="hidden md:block bg-[#1B2B4B] border border-[#2d4063] rounded-2xl overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr>
-                <th className="text-right text-xs font-semibold text-slate-400 uppercase px-4 py-3 bg-[#152235] border-b border-[#2d4063] min-w-[160px]">
-                  الموظف
-                </th>
-                {DAYS_AR.map((day, i) => (
-                  <th
-                    key={day}
-                    className={`text-center text-xs font-semibold px-3 py-3 bg-[#152235] border-b border-[#2d4063] min-w-[100px] ${i === today ? 'text-white' : 'text-slate-400'}`}
-                  >
-                    {day}
-                    {i === today && (
-                      <div className="w-1.5 h-1.5 rounded-full bg-teal-400 mx-auto mt-0.5" />
-                    )}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((emp) => (
-                <tr
-                  key={emp.id}
-                  className="border-b border-[#2d4063]/50 last:border-0 hover:bg-white/2"
-                >
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-full bg-teal-500/15 flex items-center justify-center text-teal-400 text-xs font-bold flex-shrink-0">
-                        {emp.name[0]}
-                      </div>
-                      <div>
-                        <div className="text-white text-xs font-medium flex items-center gap-1.5">
-                          {emp.role === 'صيدلاني' && (
-                            <Stethoscope size={13} className="text-teal-300" />
-                          )}
-                          {emp.role === 'توصيل' && <Truck size={13} className="text-amber-300" />}
-                          {emp.name}
-                        </div>
-                        <span
-                          className={`text-xs px-2 py-0.5 rounded-full border ${ROLE_COLORS[emp.role] || ''}`}
-                        >
-                          {emp.role}
-                        </span>
-                        <div className="text-slate-500 text-[11px] mt-0.5">
-                          {normalizeBranch(emp.branch)}
-                        </div>
-                        <div className="mt-1 text-[10px] font-bold text-slate-500">
-                          التعديل من مركز نشر الجداول فقط
-                        </div>
-                      </div>
-                    </div>
-                  </td>
-                  {DAYS_AR.map((day, i) => {
-                    const shift = scheduleFor(emp, day);
-                    const isHoliday = shift?.is_off === true || shift?.is_day_off === true;
-                    const isToday = i === today;
-                    const onShift =
-                      isToday &&
-                      shift?.shift_start &&
-                      shift?.shift_end &&
-                      isCurrentlyOnShift(shift.shift_start, shift.shift_end) &&
-                      staffRowIsActive(emp);
-                    const normalShift = normalShiftFor(emp);
-                    const shiftKey =
-                      shift?.shift_start && shift?.shift_end
-                        ? `${shift.shift_start}-${shift.shift_end}`
-                        : '';
-                    const isDifferent = Boolean(
-                      shiftKey && normalShift && shiftKey !== normalShift
-                    );
-                    return (
-                      <td
-                        key={day}
-                        className={`px-2 py-3 text-center ${isToday ? 'bg-teal-500/3' : ''}`}
-                      >
-                        {isHoliday ? (
-                          <span className="inline-block bg-red-500/20 border-2 border-red-400/50 text-red-200 text-xs px-3 py-2 rounded-xl shadow-[0_0_0_1px_rgba(248,113,113,.15)]">
-                            إجازة
-                          </span>
-                        ) : !shift ? (
-                          <span className="inline-block bg-white/5 border border-[#2d4063] text-slate-500 text-xs px-2 py-1 rounded-lg">
-                            غير محدد
-                          </span>
-                        ) : (
-                          <div
-                            className={`inline-flex flex-col items-center gap-0.5 px-2.5 py-1.5 rounded-lg border text-xs ${isDifferent ? 'bg-amber-500/15 border-amber-400/40 text-amber-200' : onShift ? 'bg-teal-500/15 border-teal-500/30 text-teal-300' : 'bg-white/3 border-[#2d4063] text-slate-400'}`}
-                          >
-                            <span className="font-medium">{shift.shift_start || '-'}</span>
-                            <span className="text-slate-500">—</span>
-                            <span className="font-medium">{shift.shift_end || '-'}</span>
-                            {isDifferent && (
-                              <span className="text-amber-300 text-[10px] font-bold">مختلف</span>
-                            )}
-                            {onShift && (
-                              <span className="text-teal-400 text-[10px] font-bold">نشط ●</span>
-                            )}
-                          </div>
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {filtered.length === 0 && (
-          <div className="py-12 text-center text-slate-400">لا يوجد موظفون نشطون</div>
-        )}
-      </div>
-
-      {/* Mobile Cards */}
-      <div className="md:hidden space-y-4">
-        {filtered.map((emp) => (
-          <div key={emp.id} className="bg-[#1B2B4B] border border-[#2d4063] rounded-2xl p-4">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-full bg-teal-500/15 flex items-center justify-center text-teal-400 font-bold">
-                {emp.name[0]}
-              </div>
-              <div>
-                <div className="text-white font-bold text-sm">{emp.name}</div>
-                <div className="flex gap-2 mt-0.5">
-                  <span
-                    className={`text-xs px-2 py-0.5 rounded-full border ${ROLE_COLORS[emp.role] || ''}`}
-                  >
-                    {emp.role}
-                  </span>
-                  <span className="text-slate-400 text-xs">{emp.branch}</span>
-                </div>
-              </div>
-            </div>
-            <div className="grid grid-cols-4 gap-1.5">
-              {DAYS_AR.map((day, i) => {
-                const shift = scheduleFor(emp, day);
-                const isHoliday = shift?.is_off === true || shift?.is_day_off === true;
-                const isToday = i === today;
-                return (
-                  <div
-                    key={day}
-                    className={`rounded-xl p-2 text-center border ${isToday ? 'bg-teal-500/10 border-teal-500/25' : 'bg-white/3 border-[#2d4063]'}`}
-                  >
-                    <div
-                      className={`text-xs font-medium mb-1 ${isToday ? 'text-teal-400' : 'text-slate-400'}`}
-                    >
-                      {day.substring(0, 3)}
-                    </div>
-                    {isHoliday ? (
-                      <div className="text-red-400 text-xs">إجازة</div>
-                    ) : shift ? (
-                      <div className="text-xs text-slate-300 leading-tight">
-                        {shift.shift_start || '-'}
-                        <br />—<br />
-                        {shift.shift_end || '-'}
-                      </div>
-                    ) : (
-                      <div className="text-slate-500 text-xs">غير محدد</div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
