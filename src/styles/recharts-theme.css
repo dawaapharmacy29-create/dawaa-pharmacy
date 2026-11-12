@@ -1,0 +1,37 @@
+/* Shared Recharts theme bridge.
+ * Recharts components across dashboards still pass some legacy inline tooltip styles.
+ * These semantic rules keep tooltips, labels and hover cursors readable in every
+ * canonical theme until individual charts migrate to token props.
+ */
+
+.recharts-default-tooltip {
+  background: var(--dawaa-chart-tooltip-bg) !important;
+  border: 1px solid var(--dawaa-chart-tooltip-border) !important;
+  color: var(--dawaa-chart-tooltip-text) !important;
+  border-radius: var(--dawaa-radius-md, 0.75rem) !important;
+  box-shadow: var(--dawaa-theme-shadow-soft) !important;
+}
+
+.recharts-tooltip-label {
+  color: var(--dawaa-chart-tooltip-text) !important;
+  font-weight: 800;
+}
+
+.recharts-tooltip-item,
+.recharts-tooltip-item-name,
+.recharts-tooltip-item-value {
+  color: var(--dawaa-chart-tooltip-text) !important;
+}
+
+.recharts-tooltip-item-separator {
+  color: var(--dawaa-chart-tooltip-muted) !important;
+}
+
+.recharts-tooltip-cursor {
+  fill: var(--dawaa-theme-accent-soft) !important;
+  stroke: var(--dawaa-theme-accent-border) !important;
+}
+
+.recharts-legend-item-text {
+  color: var(--dawaa-theme-muted) !important;
+}
