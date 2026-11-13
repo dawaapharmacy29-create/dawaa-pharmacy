@@ -173,7 +173,7 @@ describe('buildDesignPack', () => {
     expect(result.doctors[0].name).toBe('د دنيا الخولي');
     expect(result.daily.find((day) => day.date === '2026-11-08')?.top_doctor).toBe('د دنيا الخولي');
   });
-  it('uses the scorecard facts: list value, day-branch follow-ups, recorded requests and attendance', () => {
+  it('uses the scorecard facts: list incentive, day-branch follow-ups, recorded requests and attendance', () => {
     const scorecard: ScorecardFacts = {
       list: [
         { staffId: 's1', branch, listUnits: 24.75, listValue: 287, listIncentive: 116.5, listProducts: 8, stagnantUnits: 0, stagnantValue: 0, stagnantIncentive: 0 },
@@ -203,13 +203,13 @@ describe('buildDesignPack', () => {
     const omar = result.doctors.find((d) => d.name === 'د عمر');
     expect(amira).toMatchObject({ list_value: 287, list_units: 24.75, customer_requests: 2, followup_requests: 0, commitment_percent: 100 });
     expect(omar).toMatchObject({ list_value: 1245, followup_requests: 7, customer_requests: 0, commitment_percent: 80 });
-    // The list is won on money, not units; the scorecard replaces the older follow-up and request sources.
-    expect(result.stars.find((s) => s.title === 'بطل اللستة')?.name).toBe('د عمر');
+    // The list is won on the incentive it earned, not units or sales; the scorecard replaces the older follow-up and request sources.
+    expect(result.stars.find((s) => s.title === 'بطل اللستة')?.name).toBe('د اميرة');
     expect(result.stars.find((s) => s.title === 'الأكتر التزامًا بالحضور')?.name).toBe('د اميرة');
-    expect(result.totals).toMatchObject({ customer_requests: 6, requests_fulfilled: 1, followup_requests: 7, list_value: 1532, late_days: 4 });
+    expect(result.totals).toMatchObject({ customer_requests: 6, requests_fulfilled: 1, followup_requests: 7, list_value: 1532, list_incentive: 183.5, late_days: 4 });
     expect(result.notes.join(' ')).toContain('تحت المراجعة');
     const message = buildBranchMessage(pack, result);
-    expect(message).toContain('مبيعات اللستة');
+    expect(message).toContain('حافز اللستة');
     expect(message).toContain('التزام');
     expect(message).toContain('🧮 النقط');
   });

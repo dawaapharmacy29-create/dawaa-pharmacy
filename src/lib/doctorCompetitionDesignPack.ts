@@ -118,6 +118,7 @@ export interface PackBranch {
     daily_average: number;
     daily_invoices: number;
     list_value: number | null;
+    list_incentive: number | null;
     list_units: number | null;
     late_days: number | null;
     absence_days: number | null;
@@ -324,7 +325,7 @@ function buildBranch(
       sales: tally.sales,
       invoices: tally.invoices,
       sellingDays: sellingDaysOf(tally.key),
-      listValue: scorecard ? (list?.listValue ?? 0) : null,
+      listIncentive: scorecard ? (list?.listIncentive ?? 0) : null,
       followupRequests: followupRows === null ? null : tally.staffId ? requestsOf(tally.staffId) : 0,
       customerRequests: tally.staffId ? requestsByStaff.get(tally.staffId)?.requests ?? 0 : 0,
       attendance: attendance && attendance.shiftDays + attendance.absenceDays > 0 ? attendance : null,
@@ -423,9 +424,9 @@ function buildBranch(
     ...star('أعلى متوسط فاتورة', bestBy(doctors, (d) => (d.invoices >= 5 ? d.average_invoice : null)), (d) => money(d.average_invoice)),
     ...star('الأكتر فواتير', bestBy(doctors, (d) => d.invoices), (d) => `${d.invoices.toLocaleString('ar-EG')} فاتورة`),
     ...star('أكبر قفزة', bestBy(doctors, (d) => (hasJumpBase(d) ? d.sales_change_percent : null)), (d) => signed(d.sales_change_percent)),
-    // The list is won on the money it brought in; the units are shown beside it.
+    // The list is won on the incentive it earned; the units and what they sold for are shown beside it.
     ...(scorecard
-      ? star('بطل اللستة', bestBy(doctors, (d) => d.list_value), (d) => `${money(d.list_value ?? 0)} · ${(d.list_units ?? 0).toLocaleString('ar-EG')} وحدة`)
+      ? star('بطل اللستة', bestBy(doctors, (d) => d.list_incentive), (d) => `حافز ${money(d.list_incentive ?? 0)} · ${(d.list_units ?? 0).toLocaleString('ar-EG')} وحدة`)
       : star('بطل اللستة', bestBy(doctors, (d) => d.list_units), (d) => `${(d.list_units ?? 0).toLocaleString('ar-EG')} وحدة`)),
     ...star('بطل الرواكد', bestBy(doctors, (d) => d.stagnant_units), (d) => `${(d.stagnant_units ?? 0).toLocaleString('ar-EG')} وحدة`),
     ...star('أفضل تقييم', bestBy(doctors, (d) => ((d.review_count ?? 0) >= 3 ? d.review_average : null)), (d) => `${(d.review_average ?? 0).toLocaleString('ar-EG')}/١٠٠`),
@@ -444,7 +445,7 @@ function buildBranch(
   }
   if (followupRows === null) notes.push('تعذر تحميل طلبات المتابعة، فمش موجودة في الملف.');
   if (!scorecard) {
-    notes.push('تفاصيل المسابقة الجديدة (قيمة اللستة والحضور وطلبات العملاء لكل دكتور) مش متاحة، فالنقط محسوبة من غيرها.');
+    notes.push('تفاصيل المسابقة الجديدة (حافز اللستة والحضور وطلبات العملاء لكل دكتور) مش متاحة، فالنقط محسوبة من غيرها.');
   } else if (scorecard.attendance === null) {
     notes.push('الحضور مش ظاهر لحسابك، فالنقط محسوبة من غير الالتزام بالحضور.');
   } else {
@@ -472,6 +473,7 @@ function buildBranch(
       daily_average: sellingDays ? round(totalSales / sellingDays) : 0,
       daily_invoices: sellingDays ? round(totalInvoices / sellingDays, 1) : 0,
       list_value: scorecard ? round(doctors.reduce((total, d) => total + (d.list_value ?? 0), 0)) : null,
+      list_incentive: scorecard ? round(doctors.reduce((total, d) => total + (d.list_incentive ?? 0), 0)) : null,
       list_units: scorecard ? round(doctors.reduce((total, d) => total + (d.list_units ?? 0), 0)) : null,
       late_days: scorecard?.attendance ? doctors.reduce((total, d) => total + (d.attendance?.late_days ?? 0), 0) : null,
       absence_days: scorecard?.attendance ? doctors.reduce((total, d) => total + (d.attendance?.absence_days ?? 0), 0) : null,
@@ -520,7 +522,7 @@ function doctorDetails(doctor: PackDoctor): string {
   const parts: string[] = [];
   if (doctor.working_days > 0) parts.push(`متوسط اليوم ${money(doctor.daily_average)}`);
   if (doctor.list_value !== null) {
-    parts.push(`لستة ${money(doctor.list_value)} (${(doctor.list_units ?? 0).toLocaleString('ar-EG')} وحدة)`);
+    parts.push(`حافز لستة ${money(doctor.list_incentive ?? 0)} (${(doctor.list_units ?? 0).toLocaleString('ar-EG')} وحدة بـ ${money(doctor.list_value)})`);
   } else if (doctor.list_units !== null) {
     parts.push(`لستة ${doctor.list_units.toLocaleString('ar-EG')} وحدة`);
   }
@@ -552,7 +554,7 @@ export function buildBranchMessage(pack: DesignPack, branch: PackBranch): string
   }
   lines.push(`🙋 طلبات العملاء: ${totals.customer_requests.toLocaleString('ar-EG')} (اتوفر منها ${totals.requests_fulfilled.toLocaleString('ar-EG')})`);
   if (totals.list_value !== null) {
-    lines.push(`💊 مبيعات اللستة: ${money(totals.list_value)} | ${(totals.list_units ?? 0).toLocaleString('ar-EG')} وحدة`);
+    lines.push(`💊 حافز اللستة: ${money(totals.list_incentive ?? 0)} | ${(totals.list_units ?? 0).toLocaleString('ar-EG')} وحدة بـ ${money(totals.list_value)}`);
   }
   if (totals.late_days !== null) {
     lines.push(`🕘 الحضور: ${totals.late_days.toLocaleString('ar-EG')} يوم تأخير | ${(totals.absence_days ?? 0).toLocaleString('ar-EG')} غياب`);
