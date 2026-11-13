@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ClipboardList, Upload } from 'lucide-react';
 import { parseGroupChat, type GroupChatMessage } from '@/lib/followupRequests/groupChatRequests';
 import { matchSenderToDoctor } from '@/lib/followupRequests/matchSenderToDoctor';
+import { findNamedDoctor } from '@/lib/followupRequests/namedDoctor';
 import {
   DEFAULT_BRANCH_REQUEST_TARGET,
   importFollowupRequests,
@@ -47,6 +48,17 @@ export default function FollowupRequestsPanel(props: {
   const ignored = messages.filter((message) => message.verdict === 'ignored').length;
   const repeats = messages.filter((message) => message.verdict === 'repeat').length;
   const unmatched = senders.filter((sender) => !sender.staffId);
+  // A shared account nobody is chosen for, such as the branch phone, still credits the doctor its message names.
+  const sharedSenders = useMemo(() => new Set(unmatched.filter((sender) => !choices[sender.sender]).map((sender) => sender.sender)), [unmatched, choices]);
+  const namedFor = (message: GroupChatMessage) => (sharedSenders.has(message.sender) ? findNamedDoctor(message.body, doctors) : null);
+  const namedCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    requests.forEach((message) => {
+      const doctor = sharedSenders.has(message.sender) ? findNamedDoctor(message.body, doctors) : null;
+      if (doctor) counts.set(doctor.name.trim(), (counts.get(doctor.name.trim()) || 0) + 1);
+    });
+    return [...counts.entries()];
+  }, [requests, sharedSenders, doctors]);
 
   const onFile = async (file?: File) => {
     if (!file) return;
@@ -85,9 +97,10 @@ export default function FollowupRequestsPanel(props: {
       for (const sender of unmatched) {
         if (choices[sender.sender]) await linkSender(sender.sender, choices[sender.sender]);
       }
-      const chosen = [...requests, ...review.filter((_, index) => approved.has(index))];
+      const chosen = [...requests, ...review.filter((_, index) => approved.has(index))]
+        .map((message) => ({ ...message, staffId: namedFor(message)?.staffId || null }));
       const saved = await importFollowupRequests(fileName, chosen);
-      const repeated = saved.total - saved.inserted - chosen.filter((m) => saved.unmatchedSenders.includes(m.sender)).length;
+      const repeated = saved.total - saved.inserted - chosen.filter((m) => !m.staffId && saved.unmatchedSenders.includes(m.sender)).length;
       setResult(`اتسجل ${saved.inserted.toLocaleString('ar-EG')} طلب جديد، واتجاهل ${Math.max(0, repeated).toLocaleString('ar-EG')} طلب متكرر.${saved.unmatchedSenders.length ? ` مش محسوب: ${saved.unmatchedSenders.join('، ')}.` : ''}`);
       setMessages([]);
       setSenders([]);
@@ -161,6 +174,11 @@ export default function FollowupRequestsPanel(props: {
           <p className="text-sm font-bold text-white">
             {requests.length.toLocaleString('ar-EG')} طلب مؤكد، {review.length.toLocaleString('ar-EG')} محتاجين مراجعتك، {ignored.toLocaleString('ar-EG')} كلام جانبي مش محسوب، {repeats.toLocaleString('ar-EG')} رسالة متكررة اتشالت.
           </p>
+          {namedCounts.length ? (
+            <p className="text-xs font-bold text-teal-200">
+              من حسابات مش دكاترة، رسايل فيها اسم الدكتور هتتحسبله: {namedCounts.map(([name, count]) => `${name} ${count.toLocaleString('ar-EG')}`).join('، ')}. لو اخترت دكتور للحساب نفسه، كل رسايله هتروحله هو.
+            </p>
+          ) : null}
           {unmatched.map((sender) => (
             <label key={sender.sender} className="flex flex-wrap items-center gap-2 text-sm font-bold text-white">
               <span dir="ltr">{sender.sender}</span> هو:
@@ -188,7 +206,7 @@ export default function FollowupRequestsPanel(props: {
                       setApproved(next);
                     }}
                   />
-                  <span><b>{message.sender}:</b> {message.body || 'صورة من غير كلام'}</span>
+                  <span><b>{message.sender}{namedFor(message) ? ` ← ${namedFor(message)!.name.trim()}` : ''}:</b> {message.body || 'صورة من غير كلام'}</span>
                 </label>
               ))}
             </div>

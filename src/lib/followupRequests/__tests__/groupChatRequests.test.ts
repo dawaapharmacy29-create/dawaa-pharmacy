@@ -70,3 +70,9 @@ describe('parseGroupChat case descriptions and repeats', () => {
       .toEqual(['request', 'request', 'request', 'repeat', 'repeat']);
   });
 });
+
+describe('parseGroupChat text-only follow-up wording', () => {
+  it.each(['عميل محترم واخد سينترم لبنته، نتواصل معاه', 'عميله جديده كودتها نهتم بيها', 'عميل جديد نكوده', 'عميل اول مره نسجله'])('sends %s to review', (text) => {
+    expect(parseGroupChat(`[11/5/26, 9:08:12 AM] Dr H: ${text}`)[0].verdict).toBe('review');
+  });
+});
