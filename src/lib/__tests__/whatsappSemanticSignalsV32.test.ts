@@ -180,3 +180,12 @@ describe('whatsappSemanticSignalsV32 — commitment is acceptance, not a new req
     });
   }
 });
+
+
+describe('real Saly 2606 dosage-form correction', () => {
+  it('does not turn nonexistent Brufen suppositories into a pharmacy stockout', () => {
+    expect(classifyAvailabilityStatementV32('هو بروفين مفيش منه لبوس')).toBeNull();
+    expect(classifyAvailabilityStatementV32('بروفين لبوس مش موجود عندنا')).toBe('unavailable');
+    expect(classifyAvailabilityStatementV32('بروفين مش متوفر حاليًا')).toBe('unavailable');
+  });
+});
