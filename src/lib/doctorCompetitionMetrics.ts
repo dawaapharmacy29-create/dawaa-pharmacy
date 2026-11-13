@@ -373,7 +373,16 @@ function scoreKey(doctor: EligibleDoctor) {
     : `name:${doctor.branch}|${comparableDoctorName(doctor.name)}`;
 }
 
-function calculateScores(rows: Array<Omit<DoctorCompetitionScore, 'overallScore' | 'competitionPoints'>>): DoctorCompetitionScore[] {
+type UnscoredRow = Omit<DoctorCompetitionScore, 'overallScore' | 'competitionPoints'>;
+
+/** Each branch is scored against its own best doctor, so a smaller branch is never measured against a bigger one. */
+function calculateScores(rows: UnscoredRow[]): DoctorCompetitionScore[] {
+  const byBranch = new Map<string, UnscoredRow[]>();
+  rows.forEach((row) => byBranch.set(row.branch, [...(byBranch.get(row.branch) || []), row]));
+  return [...byBranch.values()].flatMap(scoreBranch);
+}
+
+function scoreBranch(rows: UnscoredRow[]): DoctorCompetitionScore[] {
   const maxSales = Math.max(1, ...rows.map((row) => row.totalSales));
   const maxAvg = Math.max(1, ...rows.map((row) => row.avgInvoice));
   const maxIncentive = Math.max(1, ...rows.map((row) => row.incentiveValue + row.listItems * 20 + row.stagnantItems * 20));

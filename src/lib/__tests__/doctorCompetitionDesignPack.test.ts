@@ -10,6 +10,7 @@ import {
   type PackMetricsInput,
 } from '../doctorCompetitionDesignPack';
 import type { DoctorCompetitionScore } from '../doctorCompetitionMetrics';
+import type { ScorecardFacts } from '../doctorCompetitionScorecard';
 
 const branch = 'فرع شكري';
 const facts = (over: Partial<PackFacts> = {}): PackFacts => ({
@@ -71,10 +72,19 @@ describe('buildDesignPack', () => {
   it('totals the branch and compares it with the previous day', () => {
     expect(build().branches[0].totals).toMatchObject({ sales: 3000, invoices: 9, average_invoice: 333.33, sales_change_percent: 200 });
   });
-  it('ranks doctors and gives each their change and share', () => {
-    const [first, second] = build().branches[0].doctors;
-    expect(first).toMatchObject({ rank: 1, name: 'د اميرة', sales_change_percent: 100, share_of_branch_percent: 66.7, list_units: 6, review_average: 90 });
-    expect(second).toMatchObject({ rank: 2, name: 'د عمر', sales_change_percent: null, customer_requests: 3, requests_fulfilled: 1 });
+  it('gives each doctor their sales place, change and share', () => {
+    const doctors = build().branches[0].doctors;
+    const amira = doctors.find((d) => d.name === 'د اميرة');
+    const omar = doctors.find((d) => d.name === 'د عمر');
+    expect(amira).toMatchObject({ sales_rank: 1, sales_change_percent: 100, share_of_branch_percent: 66.7, list_units: 6, review_average: 90 });
+    expect(omar).toMatchObject({ sales_rank: 2, sales_change_percent: null, customer_requests: 3, requests_fulfilled: 1 });
+  });
+  it('ranks the competition by points, not by sales alone', () => {
+    // Omar sells half of Amira but brings four times the follow-up requests and all the customer requests.
+    const doctors = build().branches[0].doctors;
+    expect(doctors.map((d) => d.name)).toEqual(['د عمر', 'د اميرة']);
+    expect(doctors[0].rank).toBe(1);
+    expect(doctors[0].score_parts).toMatchObject({ followups: 15, requests: 5, list: null, attendance: null });
   });
   it('takes the peak hour from the chosen period only', () => {
     expect(build().branches[0].peak_hour).toMatchObject({ hour: 21, invoices: 7 });
@@ -116,6 +126,105 @@ describe('buildDesignPack', () => {
     expect(message).toContain('نجم اليوم');
     expect(message).toContain('د اميرة');
     expect(message).toContain('المقارنة اليومية');
-    expect(message).toContain('طلبات المتابعة في الدورة');
+    expect(message).toContain('طلبات المتابعة في اليوم: ٥٠');
+    expect(message).not.toContain('من ١٬٢٠٠');
+  });
+  it('measures follow-up requests against the target in the cycle view only', () => {
+    const pack = buildDesignPack({
+      mode: 'cycle',
+      windows: designPackWindows('cycle', '2026-11-08'),
+      facts: facts(),
+      metrics: metrics(),
+      eligibleStaffIds: new Set(['s1', 's2']),
+      followupRequests: [{ staffId: 's1', branch, requests: 10 }],
+      followupTargets: new Map([[branch, 1200]]),
+      branches: [branch],
+      generatedAt: '2026-11-09T12:00:00Z',
+    });
+    expect(buildBranchMessage(pack, pack.branches[0])).toContain('طلبات المتابعة في الدورة: ١٠ من ١٬٢٠٠');
+  });
+  it('counts a doctor\'s follow-up requests in their home branch only', () => {
+    const other = 'فرع الشامي';
+    const sale = (b: string, staff: string, seller: string) => ({ day: '2026-11-08', branch: b, seller, staff_id: staff, sales: 500, invoices: 2 });
+    const pack = buildDesignPack({
+      mode: 'day',
+      windows: designPackWindows('day', '2026-11-08'),
+      facts: facts({ sales: [sale(branch, 's1', 'د اميرة'), sale(branch, 's2', 'د عمر'), sale(other, 's2', 'د عمر')] }),
+      metrics: metrics(),
+      eligibleStaffIds: new Set(['s1', 's2']),
+      followupRequests: [{ staffId: 's2', branch: other, requests: 60 }, { staffId: 's1', branch, requests: 10 }],
+      followupTargets: new Map(),
+      branches: [branch, other],
+      generatedAt: '2026-11-09T12:00:00Z',
+    });
+    const [shokry, shamy] = pack.branches;
+    expect(shokry.doctors.find((d) => d.name === 'د عمر')?.followup_requests).toBe(0);
+    expect(shamy.doctors.find((d) => d.name === 'د عمر')?.followup_requests).toBe(60);
+    // The branch total now equals the sum of its doctors.
+    expect(shokry.totals.followup_requests).toBe(10);
+    expect(shamy.totals.followup_requests).toBe(60);
+  });
+  it('shows one name for a doctor typed differently on different invoices', () => {
+    const data = facts({ sales: [
+      { day: '2026-11-08', branch, seller: 'د دنيا', staff_id: 's1', sales: 900, invoices: 3 },
+      { day: '2026-11-07', branch, seller: 'د دنيا الخولي', staff_id: 's1', sales: 100, invoices: 1 },
+    ] });
+    const result = build({ facts: data }).branches[0];
+    expect(result.doctors[0].name).toBe('د دنيا الخولي');
+    expect(result.daily.find((day) => day.date === '2026-11-08')?.top_doctor).toBe('د دنيا الخولي');
+  });
+  it('uses the scorecard facts: list value, day-branch follow-ups, recorded requests and attendance', () => {
+    const scorecard: ScorecardFacts = {
+      list: [
+        { staffId: 's1', branch, listUnits: 24.75, listValue: 287, listIncentive: 116.5, listProducts: 8, stagnantUnits: 0, stagnantValue: 0, stagnantIncentive: 0 },
+        { staffId: 's2', branch, listUnits: 6, listValue: 1245, listIncentive: 67, listProducts: 5, stagnantUnits: 0, stagnantValue: 0, stagnantIncentive: 0 },
+      ],
+      followups: [{ staffId: 's2', branch, requests: 7, days: 1 }],
+      requests: [{ staffId: 's1', branch, requests: 2, fulfilled: 1 }, { staffId: 'other', branch, requests: 4, fulfilled: 0 }],
+      attendance: [
+        { staffId: 's1', shiftDays: 10, onTimeDays: 10, lateDays: 0, lateMinutes: 0, earlyLeaveDays: 0, absenceDays: 0, underReviewDays: 1 },
+        { staffId: 's2', shiftDays: 10, onTimeDays: 6, lateDays: 4, lateMinutes: 200, earlyLeaveDays: 0, absenceDays: 0, underReviewDays: 0 },
+      ],
+    };
+    const pack = buildDesignPack({
+      mode: 'day',
+      windows: designPackWindows('day', '2026-11-08'),
+      facts: facts(),
+      metrics: metrics(),
+      scorecard,
+      eligibleStaffIds: new Set(['s1', 's2']),
+      followupRequests: [{ staffId: 's2', branch, requests: 999 }],
+      followupTargets: new Map(),
+      branches: [branch],
+      generatedAt: '2026-11-09T12:00:00Z',
+    });
+    const result = pack.branches[0];
+    const amira = result.doctors.find((d) => d.name === 'د اميرة');
+    const omar = result.doctors.find((d) => d.name === 'د عمر');
+    expect(amira).toMatchObject({ list_value: 287, list_units: 24.75, customer_requests: 2, followup_requests: 0, commitment_percent: 100 });
+    expect(omar).toMatchObject({ list_value: 1245, followup_requests: 7, customer_requests: 0, commitment_percent: 80 });
+    // The list is won on money, not units; the scorecard replaces the older follow-up and request sources.
+    expect(result.stars.find((s) => s.title === 'بطل اللستة')?.name).toBe('د عمر');
+    expect(result.stars.find((s) => s.title === 'الأكتر التزامًا بالحضور')?.name).toBe('د اميرة');
+    expect(result.totals).toMatchObject({ customer_requests: 6, requests_fulfilled: 1, followup_requests: 7, list_value: 1532, late_days: 4 });
+    expect(result.notes.join(' ')).toContain('تحت المراجعة');
+    const message = buildBranchMessage(pack, result);
+    expect(message).toContain('مبيعات اللستة');
+    expect(message).toContain('التزام');
+    expect(message).toContain('🧮 النقط');
+  });
+  it('says so when the scorecard facts are unavailable', () => {
+    expect(build().branches[0].notes.join(' ')).toContain('تفاصيل المسابقة الجديدة');
+  });
+  it('skips the biggest-jump star for a doctor who barely sold last period', () => {
+    const data = facts({ sales: [
+      { day: '2026-11-08', branch, seller: 'د اميرة', staff_id: 's1', sales: 2000, invoices: 4 },
+      { day: '2026-11-07', branch, seller: 'د اميرة', staff_id: 's1', sales: 1900, invoices: 4 },
+      { day: '2026-11-08', branch, seller: 'د عمر', staff_id: 's2', sales: 1000, invoices: 5 },
+      { day: '2026-11-07', branch, seller: 'د عمر', staff_id: 's2', sales: 50, invoices: 1 },
+    ] });
+    const result = build({ facts: data }).branches[0];
+    expect(result.doctors.find((d) => d.name === 'د عمر')?.sales_change_percent).toBe(1900);
+    expect(result.stars.find((s) => s.title === 'أكبر قفزة')?.name).toBe('د اميرة');
   });
 });
