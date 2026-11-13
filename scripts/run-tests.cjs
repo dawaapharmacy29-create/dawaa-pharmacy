@@ -228,6 +228,7 @@ const testFiles = [
   'src/lib/attendance/__tests__/attendanceInlineEvidence.test.ts',
   'src/lib/__tests__/applicationNavigation.test.ts',
   'src/lib/__tests__/drWaelFingerprints.test.ts',
+  'src/lib/__tests__/shiftHandoverLedger.test.ts',
   'src/lib/__tests__/appRoutes.test.ts',
   'src/lib/__tests__/applicationDataContracts.test.ts',
   'src/lib/__tests__/runtimeClosureContracts.test.ts',
