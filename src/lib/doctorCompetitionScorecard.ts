@@ -24,7 +24,7 @@ export const SCORE_LABELS: Record<ScoreCriterion, string> = {
   daily: 'متوسط اليوم',
   invoices: 'عدد الفواتير',
   average: 'متوسط الفاتورة',
-  list: 'قيمة اللستة',
+  list: 'حافز اللستة',
   followups: 'طلبات المتابعة',
   requests: 'طلبات العملاء',
   attendance: 'الالتزام بالحضور',
@@ -54,8 +54,11 @@ export interface ScoreInput {
   invoices: number;
   /** Days with at least one invoice in the period. */
   sellingDays: number;
-  /** null: the list source is unavailable. */
-  listValue: number | null;
+  /**
+   * The list incentive earned (units x each product's incentive), not the money the units sold for:
+   * the list is competed on what it pays. null: the list source is unavailable.
+   */
+  listIncentive: number | null;
   /** null: the follow-up request log is unavailable. */
   followupRequests: number | null;
   /** null: customer requests are unavailable. */
@@ -119,7 +122,7 @@ export function scoreBranchDoctors(
   );
   const steady = doctors.filter((d) => d.invoices >= AVERAGE_FULL_AT_INVOICES);
   const maxAverage = max((steady.length ? steady : doctors).map(averageOf));
-  const maxList = max(doctors.map((d) => d.listValue ?? 0));
+  const maxList = max(doctors.map((d) => d.listIncentive ?? 0));
   const maxFollowups = max(doctors.map((d) => d.followupRequests ?? 0));
   const maxRequests = max(doctors.map((d) => d.customerRequests ?? 0));
   const branchDays = doctors.reduce((total, d) => total + workingDaysOf(d), 0);
@@ -136,7 +139,7 @@ export function scoreBranchDoctors(
       average:
         ratio(averageOf(doctor), maxAverage) *
         Math.min(1, doctor.invoices / AVERAGE_FULL_AT_INVOICES),
-      list: doctor.listValue === null ? null : ratio(doctor.listValue, maxList),
+      list: doctor.listIncentive === null ? null : ratio(doctor.listIncentive, maxList),
       // Against the doctor's own share of the target when there is one, else against the branch's best.
       followups:
         doctor.followupRequests === null

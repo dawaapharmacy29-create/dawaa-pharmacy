@@ -710,7 +710,7 @@ export default function DoctorCompetition() {
                 <span>طلبات متابعة: {entry?.doctor.followup_requests != null ? entry.doctor.followup_requests.toLocaleString('ar-EG') : requestCounts === null ? 'غير متاح' : requestsFor(row).toLocaleString('ar-EG')}</span>
                 {entry ? <>
                   <span>متوسط الشيفت: {money(entry.doctor.daily_average)}</span>
-                  {entry.doctor.list_value !== null ? <span>اللستة: {money(entry.doctor.list_value)} ({(entry.doctor.list_units ?? 0).toLocaleString('ar-EG')} وحدة)</span> : null}
+                  {entry.doctor.list_value !== null ? <span>حافز اللستة: {money(entry.doctor.list_incentive ?? 0)} ({(entry.doctor.list_units ?? 0).toLocaleString('ar-EG')} وحدة بـ {money(entry.doctor.list_value)})</span> : null}
                   {entry.doctor.customer_requests !== null ? <span>طلبات العملاء: {entry.doctor.customer_requests.toLocaleString('ar-EG')}</span> : null}
                   {entry.doctor.commitment_percent !== null ? <span>الالتزام: {entry.doctor.commitment_percent.toLocaleString('ar-EG')}%</span> : null}
                 </> : null}

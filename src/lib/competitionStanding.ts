@@ -88,9 +88,9 @@ function leverFor(
     }
     case 'list':
       return {
-        value: doctor.list_value ?? 0,
-        full: best((d) => d.list_value ?? 0),
-        action: (amount) => `بيع من اللستة بـ ${money(amount)} زيادة`,
+        value: doctor.list_incentive ?? 0,
+        full: best((d) => d.list_incentive ?? 0),
+        action: (amount) => `اكسب ${money(amount)} حافز لستة زيادة`,
         perDay: (amount) => `${money(amount)} في اليوم`,
       };
     case 'followups':
