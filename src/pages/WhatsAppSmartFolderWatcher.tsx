@@ -52,6 +52,7 @@ import {
 } from '@/lib/whatsappWatcherCaseGraphSync';
 import { getStaffSessionToken } from '@/lib/auth/staffSession';
 import type { CanonicalCaseSummary } from '@/lib/salesIntelligence/refresh/refreshClient';
+import WhatsAppStoredSourcesRefresh from '@/components/salesIntelligence/WhatsAppStoredSourcesRefresh';
 
 const OPERATIONAL_STATE_LABEL: Record<string, string> = {
   action_required_pharmacy: 'مطلوب إجراء من الصيدلية',
@@ -869,6 +870,7 @@ export default function WhatsAppSmartFolderWatcher() {
           )}
         </div>
 
+        <div className="border-t border-slate-800 p-3"><WhatsAppStoredSourcesRefresh /></div>
         <div className="grid grid-cols-2 gap-px bg-slate-800 sm:grid-cols-4 lg:grid-cols-7">
           {[
             ['ملفات', overview.files, 'text-white'],
