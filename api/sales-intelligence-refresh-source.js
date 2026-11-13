@@ -11434,7 +11434,7 @@ async function withdrawReplacedLegacyComplaints(client, rows) {
 }
 async function withdrawNoLongerActionableCanonicalComplaints(client, analyses) {
   const inactiveCases = analyses.filter(
-    (analysis) => analysis.complaintAssessment?.caseId === analysis.caseId && !["detected", "recovery_attempted", "unresolved"].includes(analysis.complaintAssessment.state)
+    (analysis) => uuidOrNull3(analysis.conversationId) !== null && analysis.complaintAssessment?.caseId === analysis.caseId && !["detected", "recovery_attempted", "unresolved"].includes(analysis.complaintAssessment.state)
   );
   for (const analysis of inactiveCases) {
     const { data, error } = await client.from("whatsapp_conversation_actions").select(LEGACY_SELECT + ",created_by,auto_eligible").eq("source_id", analysis.conversationId).eq("action_type", "complaint_followup").in("status", ["ready", "proposed"]);
