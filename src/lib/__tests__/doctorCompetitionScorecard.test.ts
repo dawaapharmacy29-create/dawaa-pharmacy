@@ -110,13 +110,20 @@ describe('scoreBranchDoctors', () => {
     expect(half.parts.followups).toBe(SCORE_WEIGHTS.followups / 2);
   });
 
-  it('uses attendance shifts, not selling days, for the daily average', () => {
-    const [result] = scoreBranchDoctors(
-      [doctor({ key: 'a', sales: 10000, sellingDays: 10, attendance: attendance(5) })],
+  it('uses the larger of approved shifts and selling days for the daily average', () => {
+    const [pending, idle] = scoreBranchDoctors(
+      [
+        // 5 approved shifts, the rest still under review: the 10 selling days count.
+        doctor({ key: 'a', sales: 10000, sellingDays: 10, attendance: attendance(5) }),
+        // 8 shifts, 4 of them without a sale: the 8 shifts count.
+        doctor({ key: 'b', sales: 8000, sellingDays: 4, attendance: attendance(8) }),
+      ],
       null
     );
-    expect(result.workingDays).toBe(5);
-    expect(result.dailyAverage).toBe(2000);
+    expect(pending.workingDays).toBe(10);
+    expect(pending.dailyAverage).toBe(1000);
+    expect(idle.workingDays).toBe(8);
+    expect(idle.dailyAverage).toBe(1000);
   });
 });
 
