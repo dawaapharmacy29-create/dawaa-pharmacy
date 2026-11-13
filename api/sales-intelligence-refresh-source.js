@@ -9723,7 +9723,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v49-audited-product-identity-review";
+var PIPELINE_VERSION = "sales-intelligence-v50-complaint-negation-guard";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v13-open-service-need-continuity",
   historicalClosure: "historical-closure-v1",
