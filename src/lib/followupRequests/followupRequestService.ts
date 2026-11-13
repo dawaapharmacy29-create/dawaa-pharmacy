@@ -54,9 +54,17 @@ export async function linkSender(sender: string, staffId: string): Promise<void>
 }
 
 /** `staffId` credits a shared account's message to the doctor it names; a linked sender still wins. */
-export async function importFollowupRequests(fileName: string, messages: Array<GroupChatMessage & { staffId?: string | null }>): Promise<ImportResult> {
+/** The branch whose group a WhatsApp export came from, when its file name says so. */
+export function branchFromFileName(fileName: string, branches: readonly string[]): string {
+  const name = fileName.toLowerCase();
+  const wanted = /shamy|shami|شامي/.test(name) ? 'فرع الشامي' : /shokry|shokri|shukri|شكري/.test(name) ? 'فرع شكري' : '';
+  return branches.includes(wanted) ? wanted : '';
+}
+
+export async function importFollowupRequests(fileName: string, messages: Array<GroupChatMessage & { staffId?: string | null }>, branch: string): Promise<ImportResult> {
   const { data, error } = await supabase.rpc('import_doctor_followup_requests_v1', {
     p_file_name: fileName,
+    p_branch: branch,
     p_rows: messages.map((message) => ({ sender: message.sender, sent_at_local: message.sentAtLocal, body: message.body, staff_id: message.staffId || null })),
   });
   if (error) throw error;

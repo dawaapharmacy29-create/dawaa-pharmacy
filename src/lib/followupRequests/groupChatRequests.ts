@@ -32,6 +32,8 @@ function classify(body: string, hasImage: boolean): RequestVerdict {
   // Some doctors describe the case under the invoice photo without writing "نتطمن".
   if (hasImage && text.split(/\s+/).filter(Boolean).length >= 2 && !NOT_A_CASE.test(text)) return 'request';
   if (hasImage || hasWords) return 'review';
+  // A long typed description of a customer is often a request written without the usual words.
+  if (text.split(/\s+/).filter(Boolean).length >= 7 && !NOT_A_CASE.test(text)) return 'review';
   return 'ignored';
 }
 
