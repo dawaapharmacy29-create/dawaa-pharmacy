@@ -5,6 +5,7 @@ import { matchSenderToDoctor } from '@/lib/followupRequests/matchSenderToDoctor'
 import { findNamedDoctor } from '@/lib/followupRequests/namedDoctor';
 import {
   DEFAULT_BRANCH_REQUEST_TARGET,
+  branchFromFileName,
   importFollowupRequests,
   linkSender,
   loadFollowupRequestTargets,
@@ -34,6 +35,9 @@ export default function FollowupRequestsPanel(props: {
   const [approved, setApproved] = useState<Set<number>>(new Set());
   const [senders, setSenders] = useState<SenderMatch[]>([]);
   const [choices, setChoices] = useState<Record<string, string>>({});
+  const [groupBranch, setGroupBranch] = useState('');
+  /** Doctor picked by hand for a shared account's request that names nobody, by its index in `messages`. */
+  const [picks, setPicks] = useState<Record<number, string>>({});
   const [targets, setTargets] = useState<Map<string, number> | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -59,6 +63,13 @@ export default function FollowupRequestsPanel(props: {
     });
     return [...counts.entries()];
   }, [requests, sharedSenders, doctors]);
+  const unnamed = useMemo(
+    () => messages
+      .map((message, index) => ({ message, index }))
+      .filter(({ message }) => message.verdict === 'request' && sharedSenders.has(message.sender) && !findNamedDoctor(message.body, doctors)),
+    [messages, sharedSenders, doctors],
+  );
+  const doctorFor = (message: GroupChatMessage) => namedFor(message)?.staffId || picks[messages.indexOf(message)] || null;
 
   const onFile = async (file?: File) => {
     if (!file) return;
@@ -66,10 +77,12 @@ export default function FollowupRequestsPanel(props: {
     setError('');
     setResult('');
     setApproved(new Set());
+    setPicks({});
     try {
       const parsed = parseGroupChat(await readChatFile(file));
       if (!parsed.length) throw new Error('chat_empty');
       setFileName(file.name);
+      setGroupBranch(branchFromFileName(file.name, branches));
       setMessages(parsed);
       const names = [...new Set(parsed.filter((m) => m.verdict === 'request' || m.verdict === 'review').map((m) => m.sender))];
       const matches = names.length ? await resolveSenders(names) : [];
@@ -98,13 +111,14 @@ export default function FollowupRequestsPanel(props: {
         if (choices[sender.sender]) await linkSender(sender.sender, choices[sender.sender]);
       }
       const chosen = [...requests, ...review.filter((_, index) => approved.has(index))]
-        .map((message) => ({ ...message, staffId: namedFor(message)?.staffId || null }));
-      const saved = await importFollowupRequests(fileName, chosen);
+        .map((message) => ({ ...message, staffId: doctorFor(message) }));
+      const saved = await importFollowupRequests(fileName, chosen, groupBranch);
       const repeated = saved.total - saved.inserted - chosen.filter((m) => !m.staffId && saved.unmatchedSenders.includes(m.sender)).length;
       setResult(`اتسجل ${saved.inserted.toLocaleString('ar-EG')} طلب جديد، واتجاهل ${Math.max(0, repeated).toLocaleString('ar-EG')} طلب متكرر.${saved.unmatchedSenders.length ? ` مش محسوب: ${saved.unmatchedSenders.join('، ')}.` : ''}`);
       setMessages([]);
       setSenders([]);
       setChoices({});
+      setPicks({});
       onImported();
     } catch (saveError) {
       console.error('[FollowupRequests] save failed', saveError);
@@ -174,6 +188,14 @@ export default function FollowupRequestsPanel(props: {
           <p className="text-sm font-bold text-white">
             {requests.length.toLocaleString('ar-EG')} طلب مؤكد، {review.length.toLocaleString('ar-EG')} محتاجين مراجعتك، {ignored.toLocaleString('ar-EG')} كلام جانبي مش محسوب، {repeats.toLocaleString('ar-EG')} رسالة متكررة اتشالت.
           </p>
+          <label className="flex flex-wrap items-center gap-2 text-sm font-bold text-white">
+            الملف ده جروب فرع:
+            <select aria-label="فرع الجروب" className="input-dark" value={groupBranch} onChange={(event) => setGroupBranch(event.target.value)}>
+              <option value="">اختار الفرع</option>
+              {branches.map((branch) => <option key={branch} value={branch}>{branch}</option>)}
+            </select>
+            <span className="text-xs" style={mutedText}>كل طلبات الملف هتتحسب للفرع ده، حتى لو الدكتور شغال في فرع تاني.</span>
+          </label>
           {namedCounts.length ? (
             <p className="text-xs font-bold text-teal-200">
               من حسابات مش دكاترة، رسايل فيها اسم الدكتور هتتحسبله: {namedCounts.map(([name, count]) => `${name} ${count.toLocaleString('ar-EG')}`).join('، ')}. لو اخترت دكتور للحساب نفسه، كل رسايله هتروحله هو.
@@ -193,6 +215,22 @@ export default function FollowupRequestsPanel(props: {
               ) : <span className="text-xs text-amber-200">الاسم مش واضح، اختار الدكتور</span>}
             </label>
           ))}
+          {unnamed.length ? (
+            <div className="space-y-1">
+              <p className="text-xs font-bold text-amber-200">طلبات من حساب مش دكتور ومفيهاش اسم دكتور. اختار مين كتبها، واللي تسيبه فاضي مش هيتحسب:</p>
+              <div className="max-h-64 space-y-1 overflow-y-auto">
+                {unnamed.map(({ message, index }) => (
+                  <label key={index} className="flex flex-wrap items-start gap-2 text-xs" style={mutedText}>
+                    <select aria-label={`دكتور طلب ${message.sentAtLocal}`} className="input-dark py-1 text-xs" value={picks[index] || ''} onChange={(event) => setPicks({ ...picks, [index]: event.target.value })}>
+                      <option value="">مش محسوب</option>
+                      {doctors.map((doctor) => <option key={doctor.staffId} value={doctor.staffId}>{doctor.name}</option>)}
+                    </select>
+                    <span className="min-w-0 flex-1"><b>{message.sender} {message.sentAtLocal.slice(5, 16).replace('T', ' ')}:</b> {message.body || 'صورة من غير كلام'}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          ) : null}
           {review.length ? (
             <div className="max-h-64 space-y-1 overflow-y-auto">
               {review.map((message, index) => (
@@ -211,7 +249,8 @@ export default function FollowupRequestsPanel(props: {
               ))}
             </div>
           ) : null}
-          <button type="button" onClick={() => void save()} disabled={busy} className="btn-secondary disabled:opacity-50">
+          {!groupBranch ? <p className="text-xs font-bold text-amber-200">اختار فرع الجروب الأول عشان تقدر تحفظ.</p> : null}
+          <button type="button" onClick={() => void save()} disabled={busy || !groupBranch} className="btn-secondary disabled:opacity-50">
             احفظ {(requests.length + approved.size).toLocaleString('ar-EG')} طلب
           </button>
         </div>

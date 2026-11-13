@@ -76,3 +76,16 @@ describe('parseGroupChat text-only follow-up wording', () => {
     expect(parseGroupChat(`[11/5/26, 9:08:12 AM] Dr H: ${text}`)[0].verdict).toBe('review');
   });
 });
+
+describe('parseGroupChat long typed descriptions', () => {
+  const verdict = (text: string) => parseGroupChat(`[11/5/26, 9:08:12 AM] Dr H: ${text}`)[0].verdict;
+  it('sends a long description of a customer to review', () => {
+    expect(verdict('عميل جديد طياري كان مستغلى سعر الباكت وان المقاس اللى قبله كان ارخص')).toBe('review');
+  });
+  it('still ignores short side talk', () => {
+    expect(verdict('الفلوس ف الدرج هي والروشته')).toBe('ignored');
+  });
+  it('still ignores a long death notice', () => {
+    expect(verdict('الحالة اللي تبع الاستاذ اللي كان بيجي كل يوم توفت امبارح بالليل')).toBe('ignored');
+  });
+});
