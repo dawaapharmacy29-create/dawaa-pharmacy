@@ -124,32 +124,6 @@ jobs:
       - name: Isolated PostgreSQL concurrent correction, approval, execution and stale projection
         run: python3 scripts/staging/test-source-attribution-concurrency.py '${{ job.services.postgres.id }}'
 
-  regenerate-v51-canonical-bundle-temporary:
-    if: github.event_name == 'pull_request' && github.head_ref == 'fix/whatsapp-v50-stale-complaint-proposal-20261113'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
-          persist-credentials: true
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci --legacy-peer-deps --no-audit --no-fund
-      - run: node scripts/build-sales-intelligence-refresh-api.cjs
-      - name: Commit generated artifact on this branch only
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add api/sales-intelligence-refresh-source.js
-          if ! git diff --cached --quiet; then
-            git commit -m 'build(whatsapp): regenerate V51 canonical refresh bundle'
-            git push origin HEAD:fix/whatsapp-v50-stale-complaint-proposal-20261113
-          fi
-
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 35
