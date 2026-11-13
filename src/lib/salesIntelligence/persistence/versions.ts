@@ -106,7 +106,10 @@
 // No invoice, staff-credit, payroll, or sale-proof rule is changed.
 // v50: explicit customer no-complaint assurance does not become a complaint merely because
 // it contains the noun «مشكله/مشكلة»; existing analyses change only upon authorized refresh.
-// v51: dosage-form nonexistence is not a stock shortage; an explicit answer later in the\n// same exported episode closes generic no-response recovery; stale untouched phantom-complaint\n// actions are reconciled only after an authorized canonical refresh. No sale proof rule changes.\nexport const PIPELINE_VERSION = 'sales-intelligence-v51-followup-evidence-reconciliation';
+// v51: dosage-form nonexistence is not a stock shortage; an explicit answer later in the 
+// same exported episode closes generic no-response recovery; stale untouched phantom-complaint 
+// actions are reconciled only after an authorized canonical refresh. No sale proof rule changes.
+export const PIPELINE_VERSION = 'sales-intelligence-v51-followup-evidence-reconciliation';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v13-open-service-need-continuity',
