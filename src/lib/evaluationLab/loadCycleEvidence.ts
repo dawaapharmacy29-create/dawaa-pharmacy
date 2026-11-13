@@ -269,6 +269,19 @@ async function loadTeamEvaluations(cycle: LabCycle, actorId: string | null, bran
   }
 }
 
+/** v6.9 follow-up requests per doctor and the branches' targets, through the scoped RPCs; null when unreadable. */
+async function loadFollowupRequests(cycle: LabCycle): Promise<{ counts: LabEvidence['followupRequests']; targets: LabEvidence['followupTargets'] }> {
+  const last = new Date(`${cycle.endExclusive}T12:00:00Z`);
+  last.setUTCDate(last.getUTCDate() - 1);
+  const [counts, targets] = await Promise.all([
+    supabase.rpc('get_doctor_followup_request_counts_v1', { p_start: cycle.start, p_end: last.toISOString().slice(0, 10) })
+      .then(({ data, error }) => (error ? null : ((data || []) as Row[]).map((row) => ({ staffId: text(row.staff_id), requests: num(row.requests) }))), () => null),
+    supabase.rpc('get_doctor_followup_request_targets_v1')
+      .then(({ data, error }) => (error ? null : ((data || []) as Row[]).map((row) => ({ branch: text(row.branch), target: num(row.target) }))), () => null),
+  ]);
+  return { counts, targets };
+}
+
 /** Compliance violations of the cycle (not withdrawn), through the scoped RPC; null when unreadable. */
 async function loadViolations(cycle: LabCycle): Promise<LabEvidence['violations']> {
   try {
@@ -396,6 +409,7 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
     loadPurchaseInvoices(cycle),
     loadInventoryCounts(cycle),
     loadViolations(cycle),
+    loadFollowupRequests(cycle),
   ]);
   // The invoice items behind fulfilment need only the requests, so they start as soon as those arrive.
   const requestsLoad = pages(() => supabase.from('customer_requests')
@@ -413,7 +427,7 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
       .gte('conversation_date', startAt).lt('conversation_date', endAt) as unknown as PageQuery, 10000, 'reviews'),
     parallelPages((columns, options) => supabase.from('attendance_daily_summary').select(columns, options)
       .gte('attendance_date', cycle.start).lt('attendance_date', cycle.endExclusive),
-      'id,staff_id,attendance_date,resolution_status,first_in,last_out,late_minutes,scheduled_start_at,scheduled_end_at,total_hours', 10000, 'attendance', ['staff_id', 'attendance_date']),
+      'id,staff_id,attendance_date,status,resolution_status,first_in,last_out,late_minutes,scheduled_start_at,scheduled_end_at,total_hours', 10000, 'attendance', ['staff_id', 'attendance_date']),
     requestsLoad,
     // Client sessions may not read this table; its axis then reports "not measurable" instead of failing the cycle.
     pages(() => supabase.from('base44_purchase_invoice_sync')
@@ -429,7 +443,7 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
     if (probe.error) throw new Error(`${label}: ${probe.error.message}`);
   }
 
-  const [fulfillment, teamEvaluations, [brainRequests, previous, purchaseInvoices, inventoryCounts, violations]] = await Promise.all([
+  const [fulfillment, teamEvaluations, [brainRequests, previous, purchaseInvoices, inventoryCounts, violations, followups]] = await Promise.all([
     fulfillmentLoad,
     loadTeamEvaluations(cycle, options.actorId || null, [...new Set(targetRows.map((row) => text(row.branch_name)).filter(Boolean))]),
     independent,
@@ -489,6 +503,7 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
       firstInAt: text(row.first_in) || null,
       lastOutAt: text(row.last_out) || null,
       scheduledEndAt: text(row.scheduled_end_at) || null,
+      approved: text(row.status) === 'approved',
     })),
     requests: requestRows.map((row) => ({
       // The recording employee; created_by is not a staff id.
@@ -516,6 +531,8 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
     purchaseInvoices,
     inventoryCounts,
     violations,
+    followupRequests: followups.counts,
+    followupTargets: followups.targets,
     purchases: purchaseInvoices
       ? purchaseInvoices.map((row) => ({ enteredByStaffId: row.enteredByStaffId }))
       : purchaseRows ? purchaseRows.map((row) => ({ enteredByStaffId: text(row.entered_by_staff_id) || null })) : null,
