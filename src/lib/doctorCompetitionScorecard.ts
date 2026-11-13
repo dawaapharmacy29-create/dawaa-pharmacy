@@ -70,7 +70,7 @@ export interface ScoreResult {
   total: number;
   /** Points earned per criterion (out of its weight); null when the criterion was left out. */
   parts: Record<ScoreCriterion, number | null>;
-  /** Working days used for the daily average and the follow-up share: attendance shifts, else selling days. */
+  /** Working days used for the daily average and the follow-up share: the larger of approved shifts and selling days. */
   workingDays: number;
   dailyAverage: number;
   /** This doctor's share of the branch follow-up target, by working days; null without a target. */
@@ -101,10 +101,10 @@ export function scoreBranchDoctors(
   doctors: ScoreInput[],
   followupTarget: number | null
 ): ScoreResult[] {
+  // The larger of approved shifts and selling days: shifts still under review are not counted as
+  // shifts yet, so shifts alone would inflate the daily average of a doctor whose days are pending.
   const workingDaysOf = (doctor: ScoreInput) =>
-    doctor.attendance && doctor.attendance.shiftDays > 0
-      ? doctor.attendance.shiftDays
-      : doctor.sellingDays;
+    Math.max(doctor.attendance?.shiftDays ?? 0, doctor.sellingDays);
   const dailyOf = (doctor: ScoreInput) => {
     const days = workingDaysOf(doctor);
     return days > 0 ? doctor.sales / days : 0;
