@@ -291,6 +291,7 @@ async function withdrawNoLongerActionableCanonicalComplaints(
   analyses: readonly SalesIntelligenceCaseAnalysis[]
 ): Promise<void> {
   const inactiveCases = analyses.filter((analysis) =>
+    uuidOrNull(analysis.conversationId) !== null &&
     analysis.complaintAssessment?.caseId === analysis.caseId &&
     !['detected', 'recovery_attempted', 'unresolved'].includes(analysis.complaintAssessment.state)
   );
