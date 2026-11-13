@@ -62,7 +62,7 @@ describe('canonical complaint owner', () => {
   it('does not invent a delivery complaint from a customer saying no problem', () => {
     const result = deriveCanonicalComplaintAssessment({ caseId:'shahd-6060', messages:[
       {id:'s1',role:'staff',text:'معلش المندوب برا وهيرجع وابعته لحضرتك',meaningful:true},
-      {id:'c1',role:'customer',text:'تمام مفيش مشكلة',meaningful:true},
+      {id:'c1',role:'customer',text:'تمام مفيش مشكله',meaningful:true},
       {id:'s2',role:'staff',text:'تم ارسال الطلب',meaningful:true},
     ]});
     expect(result.state).toBe('none');
