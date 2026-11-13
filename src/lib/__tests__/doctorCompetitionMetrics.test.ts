@@ -167,6 +167,23 @@ describe('doctorCompetitionMetrics eligibility', () => {
     expect(metrics.metadata.invoiceCountMethod).toContain('actual invoice branch');
   });
 
+  it('scores each branch against its own best doctor', async () => {
+    fetchSalesInvoicesPagedSafeMock
+      .mockResolvedValueOnce([
+        invoiceRow({ invoice_no: '1', staff_id: 'uuid-amira', normalized_seller_name: 'د/ أميره', branch: 'فرع شكري', net_amount: 100000 }),
+        invoiceRow({ invoice_no: '2', staff_id: 'uuid-3', normalized_seller_name: 'د/ أ', branch: 'فرع أ', net_amount: 10000 }),
+      ])
+      .mockResolvedValueOnce([]);
+
+    const metrics = await getDoctorCompetitionMetrics({ period: 'custom', customStart: '2026-01-01', customEnd: '2026-01-01' });
+    const amira = metrics.rows.find((row) => row.staffId === 'uuid-amira');
+    const smallBranchLeader = metrics.rows.find((row) => row.staffId === 'uuid-3');
+
+    // Each is the top seller of their own branch, so both get the full sales and average-invoice points.
+    expect(amira?.competitionPoints).toBe(70);
+    expect(smallBranchLeader?.competitionPoints).toBe(70);
+  });
+
   it('calculates average invoice from totalSales divided by invoicesCount', async () => {
     fetchSalesInvoicesPagedSafeMock
       .mockResolvedValueOnce([
