@@ -7,6 +7,8 @@ import { hasPermission } from '@/lib/core/permissionSystem';
 import { parseWhatsAppExport, extractIntroducedStaffName } from '@/lib/whatsappConversationParser';
 import { confirmStaffAlias, suggestStaffAliases, type StaffIdentityMatch } from '@/lib/staffIdentityMapping';
 import { getStaffSessionToken } from '@/lib/auth/staffSession';
+import { readStaffDirectory } from '@/lib/readModels/staffDirectoryReadModel';
+import { resolveStaffDirectoryName } from '@/lib/staff/staffIdentityResolver';
 import { requestCanonicalSalesIntelligenceRefresh } from '@/lib/salesIntelligence/refresh/refreshClient';
 
 type Source = { id: string; source_filename: string | null; raw_text: string | null };
@@ -44,6 +46,7 @@ export default function WhatsAppStaffIdentityReview() {
         .order('created_at', { ascending: false })
         .limit(50);
       if (error) throw error;
+      const directory = await readStaffDirectory({ requireComplete: true });
       const byName = new Map<string, {sourceIds: Set<string>; sourceLabels: Set<string>}>();
       for (const source of (data || []) as Source[]) {
         if (!source.raw_text) continue;
@@ -54,7 +57,7 @@ export default function WhatsAppStaffIdentityReview() {
           .filter((name): name is string => Boolean(name)));
         for (const name of names) {
           const key = name.trim();
-          if (!key) continue;
+          if (!key || resolveStaffDirectoryName(key, directory).status !== 'unresolved') continue;
           const prior = byName.get(key) || {sourceIds: new Set<string>(),sourceLabels: new Set<string>()};
           prior.sourceIds.add(source.id);
           prior.sourceLabels.add(source.source_filename || 'مصدر بدون اسم');
