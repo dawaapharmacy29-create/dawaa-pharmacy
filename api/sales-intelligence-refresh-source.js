@@ -913,6 +913,8 @@ var PRICE_RX = /(\d+(?:\.\d+)?)\s*(جنيه|جنيها|ج\.?م\.?|le|egp)/i;
 var DELIVERY_RX = /توصيل|دليفري|delivery/i;
 var PROMISE_RX = /هبعت(?:لك|لحضرتك)?|هيوصل|هجهز(?:لك|لحضرتك)?|هوصلك/i;
 var UNAVAILABLE_RX = /(?:مش|مو|غير)\s*(?:موجود|متوفر|متاح)[ةه]?|مفيش\s*(?:منه|منها|حاليا|حاليًا|عندنا)|مش\s*عندنا|(?:الصنف|المنتج|ده|دي|هو|هي)\s*(?:خلص|خلصان[ةه]?|نفذ|ناقص[ةه]?)|(?:خلص|نفذ|ناقص[ةه]?)\s*(?:من\s*(?:عندنا|السوق|الشركة)|حاليا|حاليًا)|ناقص\s*في\s*السوق/i;
+var NON_STOCK_FORM_NONEXISTENCE_RX = /مفيش\s+من[هة]\s+(?:لبوس|[أا]قراص|كبسولات|شراب|حقن|نقط|كريم|مرهم|جل|بخاخ)(?![\p{L}])/iu;
+var EXPLICIT_STOCK_SCOPE_RX = /(?:عندنا|في\s+(?:الصيدلية|المخزن|الفرع)|حالي[ًاأا]*|خلص|مش\s+(?:متوفر|موجود)|من\s+المخزن)/iu;
 var AVAILABLE_RX = /(?:^|[\s،,])(?:موجود|متوفر|متاح)[ةه]?(?:$|[\s،,!.])|عندنا\s*(?:منه|منها)|(?:اه|أه|آه|ايوه|أيوه|ايوا)\s*(?:موجود|متوفر)/i;
 var NON_STOCK_AVAILABILITY_CONTEXT_RX = /(?:خدمة\s*)?(?:التوصيل|الدليفري|delivery)|(?:لما\s*(?:يكون|يبقى)\s*|(?:فرص[ةه]|وقت|حضرتك)\s*)متاح[ةه]?\s*(?:(?:اننا|إننا|ان|أن)\s*)?(?:نتواصل|[اأ]تصل|[اأ]كلم)(?![\p{L}])|(?:الدفع|التحويل|فودافون\s*كاش|انستا\s*باي|instapay|visa|فيزا|mastercard|ماستر\s*كارد)/iu;
 var COMMIT_RECIPIENT = String.raw`(?:لك|ليك|ليكي|لكي|لكم|لحضرتك|لحضرتكم|لحضرتكو|حضرتك|معاك|معاكي|مع\s*حضرتك|عليك|عليكي|على\s*حضرتك)`;
@@ -1279,6 +1281,7 @@ function statementClauses(text6) {
 }
 function clauseAvailabilityState(clause) {
   if (NON_STOCK_AVAILABILITY_CONTEXT_RX.test(clause)) return null;
+  if (NON_STOCK_FORM_NONEXISTENCE_RX.test(clause) && !EXPLICIT_STOCK_SCOPE_RX.test(clause)) return null;
   if (UNAVAILABLE_RX.test(clause)) return "unavailable";
   const check = classifyStaffCommitmentsV32(clause).find((row) => row.kind === "availability_check");
   const outsideCommitment = check ? clause.replace(check.matchedText, " ") : clause;
@@ -7210,6 +7213,21 @@ var PROFILE = {
 };
 var EXPLICIT_OBLIGATIONS = /* @__PURE__ */ new Set(["customer_asked_to_wait", "callback_requested", "staff_promised_check", "delivery_unresolved"]);
 var DAY_MS = 24 * 60 * 60 * 1e3;
+function explicitCustomerAnswerLaterInSource(evidenceIds, scopedMessages, timeline) {
+  const ids = new Set(evidenceIds);
+  const offers = scopedMessages.filter(
+    (message) => message.role === "staff" && ids.has(message.id) && /(?:ابعت(?:هم|ها|ه|لحضرتك)?|أبعت(?:هم|ها|ه|لحضرتك)?|أجهز(?:ه|ها|هم)?|اجهز(?:ه|ها|هم)?)(?:[^؟?]{0,40})[؟?]/u.test(message.text)
+  );
+  if (!offers.length) return false;
+  const lastOfferAt = Math.max(...offers.map((message) => message.timestamp.getTime()));
+  const windowMs = 120 * 60 * 1e3;
+  return timeline.some((message) => {
+    const at = message.timestamp?.getTime?.();
+    if (!Number.isFinite(at) || at <= lastOfferAt || at - lastOfferAt > windowMs) return false;
+    if (message.direction !== "inbound") return false;
+    return /^(?:ايوا|ايوه|أيوه|اه|آه|نعم|موافق)\s*(?:(?:يا\s*)?(?:دكتور[ةه]?|فندم))?[!.،\s]*$/u.test(String(message.text || "").trim());
+  });
+}
 function deriveFollowUpOpportunities(input) {
   const { conversationCase, customerNeed, unavailableDemand, lostOpportunity, salesOutcome } = input;
   const caseId = conversationCase.caseId;
@@ -7350,7 +7368,10 @@ function deriveFollowUpOpportunities(input) {
   } else if (lostOpportunity.state === "recoverable" && lostOpportunity.reason === "price") {
     candidates.push({ reason: "price_objection", explicit: false, demand: null, evidence: lostEvidence, level: lostOpportunity.confidence.level, score: lostOpportunity.confidence.score });
   } else if (lostOpportunity.state === "recoverable" && lostOpportunity.reason === "customer_no_response") {
-    candidates.push({ reason: "customer_no_response", explicit: false, demand: null, evidence: lostEvidence, level: lostOpportunity.confidence.level, score: lostOpportunity.confidence.score });
+    const fullTimeline = input.conversationTimeline ?? messages;
+    if (!explicitCustomerAnswerLaterInSource(lostEvidence, messages, fullTimeline)) {
+      candidates.push({ reason: "customer_no_response", explicit: false, demand: null, evidence: lostEvidence, level: lostOpportunity.confidence.level, score: lostOpportunity.confidence.score });
+    }
   }
   for (const objection of customerNeed.objections.filter((o) => o.category === "delivery")) {
     const message = messages.find((m) => m.id === objection.messageId);
@@ -9723,7 +9744,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v50-complaint-negation-guard";
+var PIPELINE_VERSION = "sales-intelligence-v51-followup-evidence-reconciliation";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v13-open-service-need-continuity",
   historicalClosure: "historical-closure-v1",
@@ -11411,8 +11432,46 @@ async function withdrawReplacedLegacyComplaints(client, rows) {
     }
   }
 }
+async function withdrawNoLongerActionableCanonicalComplaints(client, analyses) {
+  const inactiveCases = analyses.filter(
+    (analysis) => uuidOrNull3(analysis.conversationId) !== null && analysis.complaintAssessment?.caseId === analysis.caseId && !["detected", "recovery_attempted", "unresolved"].includes(analysis.complaintAssessment.state)
+  );
+  for (const analysis of inactiveCases) {
+    const { data, error } = await client.from("whatsapp_conversation_actions").select(LEGACY_SELECT + ",created_by,auto_eligible").eq("source_id", analysis.conversationId).eq("action_type", "complaint_followup").in("status", ["ready", "proposed"]);
+    if (error) throw error;
+    for (const row of data || []) {
+      if (row.created_by !== CANONICAL_COMPLAINT_PROJECTION_VERSION || row.payload?.canonicalProjectionVersion !== CANONICAL_COMPLAINT_PROJECTION_VERSION || row.payload?.caseId !== analysis.caseId) continue;
+      if (row.work_status !== "unassigned" || LEGACY_WORK_FIELDS.some((key) => row[key] != null) || Number(row.followup_attempts || 0) !== 0) {
+        throw new Error("canonical_complaint_stale_proposal_has_human_work");
+      }
+      const updated = {
+        status: "dismissed",
+        auto_eligible: false,
+        updated_at: (/* @__PURE__ */ new Date()).toISOString(),
+        payload: {
+          ...row.payload,
+          canonicalLifecycle: "withdrawn",
+          canonicalWithdrawalReason: "canonical_complaint_no_longer_actionable"
+        }
+      };
+      let update = client.from("whatsapp_conversation_actions").update(updated).eq("id", row.id).eq("source_id", analysis.conversationId).eq("action_type", "complaint_followup").eq("status", row.status).eq("work_status", "unassigned").eq("updated_at", row.updated_at);
+      for (const key of LEGACY_WORK_FIELDS) update = update.is(key, null);
+      update = row.followup_attempts == null ? update.is("followup_attempts", null) : update.eq("followup_attempts", 0);
+      const { data: changed, error: updateError } = await update.select("id").maybeSingle();
+      if (updateError) throw updateError;
+      if (!changed) {
+        const { data: latest, error: latestError } = await client.from("whatsapp_conversation_actions").select("status,payload").eq("id", row.id).maybeSingle();
+        if (latestError) throw latestError;
+        if (latest?.status !== "dismissed" || latest.payload?.canonicalWithdrawalReason !== "canonical_complaint_no_longer_actionable") {
+          throw new Error("canonical_complaint_stale_proposal_concurrent_work_requires_review");
+        }
+      }
+    }
+  }
+}
 async function projectCanonicalComplaintsToActions(supabaseClient, analyses, sources) {
   const built = buildCanonicalComplaintActionRows(analyses, sources);
+  await withdrawNoLongerActionableCanonicalComplaints(supabaseClient, analyses);
   if (!built.rows.length) return { ...built, inserted: 0, existing: 0 };
   await withdrawReplacedLegacyComplaints(supabaseClient, built.rows);
   const identities = built.rows.map((row) => row.followup_identity);

@@ -280,12 +280,82 @@ async function withdrawReplacedLegacyComplaints(client: any, rows: CanonicalComp
   }
 }
 
+/**
+ * A canonical refresh can reverse a previously inferred complaint (e.g. the customer
+ * actually said «مفيش مشكله»). Retire only that same case's untouched, auto-created
+ * complaint proposal; a staff assignment, attempt, or linked operational task is
+ * never silently edited. This runs after canonical case publication, never at parse time.
+ */
+async function withdrawNoLongerActionableCanonicalComplaints(
+  client: any,
+  analyses: readonly SalesIntelligenceCaseAnalysis[]
+): Promise<void> {
+  const inactiveCases = analyses.filter((analysis) =>
+    uuidOrNull(analysis.conversationId) !== null &&
+    analysis.complaintAssessment?.caseId === analysis.caseId &&
+    !['detected', 'recovery_attempted', 'unresolved'].includes(analysis.complaintAssessment.state)
+  );
+  for (const analysis of inactiveCases) {
+    const { data, error } = await client.from('whatsapp_conversation_actions')
+      .select(LEGACY_SELECT + ',created_by,auto_eligible')
+      .eq('source_id', analysis.conversationId)
+      .eq('action_type', 'complaint_followup')
+      .in('status', ['ready', 'proposed']);
+    if (error) throw error;
+    for (const row of data || []) {
+      // Never touch unrelated case work, legacy rules, or human-owned actions.
+      if (row.created_by !== CANONICAL_COMPLAINT_PROJECTION_VERSION
+          || row.payload?.canonicalProjectionVersion !== CANONICAL_COMPLAINT_PROJECTION_VERSION
+          || row.payload?.caseId !== analysis.caseId) continue;
+      if (row.work_status !== 'unassigned'
+          || LEGACY_WORK_FIELDS.some((key) => row[key] != null)
+          || Number(row.followup_attempts || 0) !== 0) {
+        throw new Error('canonical_complaint_stale_proposal_has_human_work');
+      }
+      const updated = {
+        status: 'dismissed',
+        auto_eligible: false,
+        updated_at: new Date().toISOString(),
+        payload: {
+          ...row.payload,
+          canonicalLifecycle: 'withdrawn',
+          canonicalWithdrawalReason: 'canonical_complaint_no_longer_actionable',
+        },
+      };
+      let update = client.from('whatsapp_conversation_actions')
+        .update(updated)
+        .eq('id', row.id)
+        .eq('source_id', analysis.conversationId)
+        .eq('action_type', 'complaint_followup')
+        .eq('status', row.status)
+        .eq('work_status', 'unassigned')
+        .eq('updated_at', row.updated_at);
+      for (const key of LEGACY_WORK_FIELDS) update = update.is(key, null);
+      update = row.followup_attempts == null
+        ? update.is('followup_attempts', null)
+        : update.eq('followup_attempts', 0);
+      const { data: changed, error: updateError } = await update.select('id').maybeSingle();
+      if (updateError) throw updateError;
+      if (!changed) {
+        const { data: latest, error: latestError } = await client.from('whatsapp_conversation_actions')
+          .select('status,payload').eq('id', row.id).maybeSingle();
+        if (latestError) throw latestError;
+        if (latest?.status !== 'dismissed'
+            || latest.payload?.canonicalWithdrawalReason !== 'canonical_complaint_no_longer_actionable') {
+          throw new Error('canonical_complaint_stale_proposal_concurrent_work_requires_review');
+        }
+      }
+    }
+  }
+}
+
 export async function projectCanonicalComplaintsToActions(
   supabaseClient: any,
   analyses: readonly SalesIntelligenceCaseAnalysis[],
   sources: readonly CanonicalComplaintSourceMetadata[]
 ): Promise<CanonicalComplaintProjectionResult> {
   const built = buildCanonicalComplaintActionRows(analyses, sources);
+  await withdrawNoLongerActionableCanonicalComplaints(supabaseClient, analyses);
   if (!built.rows.length) return { ...built, inserted: 0, existing: 0 };
 
   await withdrawReplacedLegacyComplaints(supabaseClient, built.rows);

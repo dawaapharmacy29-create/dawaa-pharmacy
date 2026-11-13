@@ -230,6 +230,27 @@ describe('Canonical Follow-up Opportunity Engine', () => {
     expect(active[0].nextBestAction).toBe('send_single_recovery_followup');
   });
 
+  it('M2. later affirmative reply in the same export closes earlier no-response recovery', () => {
+    const first = `[11/13/26, 4:53:45 AM] Customer: لو سمحت الروشتة دي بكام
+[11/13/26, 4:54:08 AM] You: 178ج ان شاء الله
+[11/13/26, 4:55:59 AM] You: ابعتهم لحضرتك؟`;
+    const full = first + '\n[11/13/26, 5:59:54 AM] Customer: ايوا يا دكتور';
+    const result = analyze(first);
+    expect(result.followUp.opportunities.some((o) => o.reason === 'customer_no_response')).toBe(true);
+    const scoped = buildConversationUnderstandingV32(splitWhatsAppSessions(parseWhatsAppExport(first), 24 * 60)[0]).messages;
+    const followUp = deriveFollowUpOpportunities({
+      conversationCase: result.conversationCase,
+      messages: scoped,
+      customerNeed: result.customerNeed,
+      unavailableDemand: result.unavailableDemand,
+      lostOpportunity: result.lostOpportunity,
+      salesOutcome: result.salesOutcome,
+      customerIdentityStatus: 'resolved',
+      conversationTimeline: parseWhatsAppExport(full),
+    });
+    expect(followUp.opportunities.some((o) => o.reason === 'customer_no_response' && o.status === 'actionable')).toBe(false);
+  });
+
   it('N. courtesy closing only -> no follow-up', () => {
     const analysis = analyze(`[9/15/26, 9:00:00 AM] Customer: عايز 1 علبة فيتامين د
 [9/15/26, 9:01:00 AM] You: موجود يا فندم، تحت أمر حضرتك`);

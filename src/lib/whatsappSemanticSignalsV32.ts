@@ -155,6 +155,13 @@ const PROMISE_RX = /هبعت(?:لك|لحضرتك)?|هيوصل|هجهز(?:لك|ل
 // so "هو مش موجود؟" can never become `unavailable` even when a staff member types it.
 const UNAVAILABLE_RX =
   /(?:مش|مو|غير)\s*(?:موجود|متوفر|متاح)[ةه]?|مفيش\s*(?:منه|منها|حاليا|حاليًا|عندنا)|مش\s*عندنا|(?:الصنف|المنتج|ده|دي|هو|هي)\s*(?:خلص|خلصان[ةه]?|نفذ|ناقص[ةه]?)|(?:خلص|نفذ|ناقص[ةه]?)\s*(?:من\s*(?:عندنا|السوق|الشركة)|حاليا|حاليًا)|ناقص\s*في\s*السوق/i;
+// A pharmacist saying «بروفين مفيش منه لبوس» disputes whether the requested
+// *dosage form exists*, not whether the pharmacy has run out of an available SKU.
+// Do not create an inventory shortage/follow-up until a real stock assertion exists.
+const NON_STOCK_FORM_NONEXISTENCE_RX =
+  /مفيش\s+من[هة]\s+(?:لبوس|[أا]قراص|كبسولات|شراب|حقن|نقط|كريم|مرهم|جل|بخاخ)(?![\p{L}])/iu;
+const EXPLICIT_STOCK_SCOPE_RX =
+  /(?:عندنا|في\s+(?:الصيدلية|المخزن|الفرع)|حالي[ًاأا]*|خلص|مش\s+(?:متوفر|موجود)|من\s+المخزن)/iu;
 const AVAILABLE_RX =
   /(?:^|[\s،,])(?:موجود|متوفر|متاح)[ةه]?(?:$|[\s،,!.])|عندنا\s*(?:منه|منها)|(?:اه|أه|آه|ايوه|أيوه|ايوا)\s*(?:موجود|متوفر)/i;
 // "خدمة التوصيل متاحة" and similar service/payment statements are not product stock facts.
@@ -750,6 +757,7 @@ function statementClauses(text: string): string[] {
 /** Stock state asserted by one clause, or null. Unavailable wins over available, which wins over check_pending. */
 function clauseAvailabilityState(clause: string): AvailabilityStateV32 | null {
   if (NON_STOCK_AVAILABILITY_CONTEXT_RX.test(clause)) return null;
+  if (NON_STOCK_FORM_NONEXISTENCE_RX.test(clause) && !EXPLICIT_STOCK_SCOPE_RX.test(clause)) return null;
   if (UNAVAILABLE_RX.test(clause)) return 'unavailable';
   const check = classifyStaffCommitmentsV32(clause).find((row) => row.kind === 'availability_check');
   // "هشوف موجود ولا لا": the availability word belongs to the commitment's object, so it is a

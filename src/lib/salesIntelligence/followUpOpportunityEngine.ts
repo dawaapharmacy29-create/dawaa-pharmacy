@@ -102,6 +102,32 @@ interface Candidate {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+// The case may end at a semantic/time boundary while the customer explicitly
+// answers the exact preceding offer in a later segment of the SAME source export.
+// Do not create a generic no-response recovery when that answer is already present.
+// A new/unrelated request or a vague acknowledgement is not invented as a sale.
+function explicitCustomerAnswerLaterInSource(
+  evidenceIds: readonly string[],
+  scopedMessages: readonly NormalizedConversationMessageV32[],
+  timeline: readonly OperationTimelineMessage[]
+): boolean {
+  const ids = new Set(evidenceIds);
+  const offers = scopedMessages.filter((message) =>
+    message.role === 'staff' && ids.has(message.id) &&
+    /(?:ابعت(?:هم|ها|ه|لحضرتك)?|أبعت(?:هم|ها|ه|لحضرتك)?|أجهز(?:ه|ها|هم)?|اجهز(?:ه|ها|هم)?)(?:[^؟?]{0,40})[؟?]/u.test(message.text)
+  );
+  if (!offers.length) return false;
+  const lastOfferAt = Math.max(...offers.map((message) => message.timestamp.getTime()));
+  // The canonical operation episode ends after 120 minutes; never bridge different episodes.
+  const windowMs = 120 * 60 * 1000;
+  return timeline.some((message) => {
+    const at = message.timestamp?.getTime?.();
+    if (!Number.isFinite(at) || at <= lastOfferAt || at - lastOfferAt > windowMs) return false;
+    if (message.direction !== 'inbound') return false;
+    return /^(?:ايوا|ايوه|أيوه|اه|آه|نعم|موافق)\s*(?:(?:يا\s*)?(?:دكتور[ةه]?|فندم))?[!.،\s]*$/u.test(String(message.text || '').trim());
+  });
+}
+
 export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowUpAssessment {
   const { conversationCase, customerNeed, unavailableDemand, lostOpportunity, salesOutcome } = input;
   const caseId = conversationCase.caseId;
@@ -276,7 +302,12 @@ export function deriveFollowUpOpportunities(input: DeriveFollowUpInput): FollowU
   } else if (lostOpportunity.state === 'recoverable' && lostOpportunity.reason === 'price') {
     candidates.push({ reason: 'price_objection', explicit: false, demand: null, evidence: lostEvidence, level: lostOpportunity.confidence.level, score: lostOpportunity.confidence.score });
   } else if (lostOpportunity.state === 'recoverable' && lostOpportunity.reason === 'customer_no_response') {
-    candidates.push({ reason: 'customer_no_response', explicit: false, demand: null, evidence: lostEvidence, level: lostOpportunity.confidence.level, score: lostOpportunity.confidence.score });
+    // The first interaction may finish before an explicit answer logged in a later
+    // segment of the same source (real case 17750: offer -> «ايوا يا دكتور»).
+    const fullTimeline = input.conversationTimeline ?? messages;
+    if (!explicitCustomerAnswerLaterInSource(lostEvidence, messages, fullTimeline)) {
+      candidates.push({ reason: 'customer_no_response', explicit: false, demand: null, evidence: lostEvidence, level: lostOpportunity.confidence.level, score: lostOpportunity.confidence.score });
+    }
   }
   // Delivery/fulfilment complaint (Need owner's delivery objection) with no later staff reply: an
   // operational obligation that survives a proven sale — it never undoes the sale.
