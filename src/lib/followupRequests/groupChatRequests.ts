@@ -17,7 +17,7 @@ const IMAGE_MARK = /<\s*تم حذف الصورة\s*>|<\s*image omitted\s*>|<\s*�
 const DELETED = /تم حذف هذه الرسالة|this message was deleted|لقد حذفت هذه الرسالة/i;
 
 /** Words a doctor uses when asking the team to follow a customer up. */
-const REQUEST_WORDS = ['نتابع', 'متابع', 'تابعو', 'نطمن', 'نتطمن', 'اطمن', 'طمنو', 'فولو', 'follow', 'نسال', 'نباركل', 'نكلم', 'كلموها', 'كلموه', 'نكسب'];
+const REQUEST_WORDS = ['نتابع', 'متابع', 'تابعو', 'نطمن', 'نتطمن', 'اطمن', 'طمنو', 'فولو', 'follow', 'نسال', 'نباركل', 'نكلم', 'كلموها', 'كلموه', 'نكسب', 'نتواصل', 'نهتم', 'نكود', 'نسجل'];
 
 const normalize = (value: string) =>
   value.toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه');

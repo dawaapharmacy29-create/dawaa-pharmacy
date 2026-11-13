@@ -53,10 +53,11 @@ export async function linkSender(sender: string, staffId: string): Promise<void>
   if (error) throw error;
 }
 
-export async function importFollowupRequests(fileName: string, messages: GroupChatMessage[]): Promise<ImportResult> {
+/** `staffId` credits a shared account's message to the doctor it names; a linked sender still wins. */
+export async function importFollowupRequests(fileName: string, messages: Array<GroupChatMessage & { staffId?: string | null }>): Promise<ImportResult> {
   const { data, error } = await supabase.rpc('import_doctor_followup_requests_v1', {
     p_file_name: fileName,
-    p_rows: messages.map((message) => ({ sender: message.sender, sent_at_local: message.sentAtLocal, body: message.body })),
+    p_rows: messages.map((message) => ({ sender: message.sender, sent_at_local: message.sentAtLocal, body: message.body, staff_id: message.staffId || null })),
   });
   if (error) throw error;
   const result = data as { total: number; inserted: number; unmatched_senders: string[] };
