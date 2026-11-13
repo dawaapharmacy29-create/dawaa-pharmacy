@@ -159,9 +159,9 @@ const UNAVAILABLE_RX =
 // *dosage form exists*, not whether the pharmacy has run out of an available SKU.
 // Do not create an inventory shortage/follow-up until a real stock assertion exists.
 const NON_STOCK_FORM_NONEXISTENCE_RX =
-  /مفيش\\s+من[هة]\\s+(?:لبوس|[أا]قراص|كبسولات|شراب|حقن|نقط|كريم|مرهم|جل|بخاخ)(?![\\p{L}])/iu;
+  /مفيش\s+من[هة]\s+(?:لبوس|[أا]قراص|كبسولات|شراب|حقن|نقط|كريم|مرهم|جل|بخاخ)(?![\p{L}])/iu;
 const EXPLICIT_STOCK_SCOPE_RX =
-  /(?:عندنا|في\\s+(?:الصيدلية|المخزن|الفرع)|حالي[ًاأا]*|خلص|مش\\s+(?:متوفر|موجود)|من\\s+المخزن)/iu;
+  /(?:عندنا|في\s+(?:الصيدلية|المخزن|الفرع)|حالي[ًاأا]*|خلص|مش\s+(?:متوفر|موجود)|من\s+المخزن)/iu;
 const AVAILABLE_RX =
   /(?:^|[\s،,])(?:موجود|متوفر|متاح)[ةه]?(?:$|[\s،,!.])|عندنا\s*(?:منه|منها)|(?:اه|أه|آه|ايوه|أيوه|ايوا)\s*(?:موجود|متوفر)/i;
 // "خدمة التوصيل متاحة" and similar service/payment statements are not product stock facts.
