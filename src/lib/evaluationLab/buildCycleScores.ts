@@ -8,6 +8,7 @@ import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 import { summarizeFulfillment, type FulfillmentResult } from './requestFulfillment';
 import { hourlyTargets, cairoHourKey, type HourlyInvoice, type HourlyOutput } from './hourlyTarget';
 import { personCompliance, type ComplianceResult, type ViolationCategory } from './complianceFactor';
+import { EARNED_RULES, attendanceCounts, earnedDoctorAxes, earnedIncentive, isCompleteRequest, type EarnedIncentive } from './earnedIncentive';
 import {
   aggregate, bandScore, closureScore, codingGatePenalty, disciplineScore, measured, median, notMeasurable,
   metTargetScore, percentileAmong, shrunkMean, targetScore, type AxisResult, type LabAdjustment, type LabScore,
@@ -43,6 +44,8 @@ export interface LabEvidence {
     staffId: string; date: string; status: string | null; hasFirstIn: boolean; scheduled: boolean; lateMinutes: number;
     /** v6.6 punch window (timestamps). */
     firstInAt?: string | null; lastOutAt?: string | null; scheduledEndAt?: string | null;
+    /** v6.9: the day's attendance was approved (days under review never cost the incentive). */
+    approved?: boolean;
   }>;
   requests: Array<{
     recordedStaffId: string | null; branch: string | null; createdAt: string; closedAt: string | null; status?: string | null;
@@ -76,6 +79,10 @@ export interface LabEvidence {
   /** null when the source cannot be read by this session (its axis becomes not measurable). */
   purchases: Array<{ enteredByStaffId: string | null }> | null;
   targets: Array<{ branch: string; targetAmount: number }>;
+  /** v6.9: follow-up requests each doctor posted in the WhatsApp groups (null when unreadable). */
+  followupRequests?: Array<{ staffId: string; requests: number }> | null;
+  /** v6.9: each branch's monthly follow-up target (a branch without one uses the default). */
+  followupTargets?: Array<{ branch: string; target: number }> | null;
   /** Sources with no rows in the cycle (followups, assistant_checklist, delivery_ratings): shown as dormant. */
   dormantSources: string[];
 }
@@ -143,6 +150,8 @@ export interface LabPersonScore extends LabScore {
   compliance?: ComplianceResult;
   /** Attendance of the cycle behind the discipline axis (shown to the person). */
   attendance?: LabAttendanceSummary;
+  /** v6.9: the incentive the doctor earned (score tier × branch factor − absence cut, plus the branch bonus). */
+  earned?: EarnedIncentive;
 }
 
 export interface LabAttendanceSummary {
@@ -500,6 +509,56 @@ function hourlyAxes(hourly: HourlyOutput | null, id: string, shape: ScoreShape):
   return out;
 }
 
+/** v6.9 doctor items (earned incentive), from the cycle's evidence. */
+function earnedAxesFor(
+  evidence: LabEvidence,
+  doctors: Array<{ id: string; branch: string | null; f: PersonFacts }>,
+  pool: LabEvidence['staff'],
+  facts: Map<string, PersonFacts>,
+  minResolved: number,
+): Map<string, AxisDraft[]> {
+  // A working day is a punched day or a day with own invoices (a missing punch never erases work).
+  const poolIds = new Set(pool.map((p) => p.id));
+  const worked = new Map<string, Set<string>>();
+  const mark = (id: string | null, date: string) => { if (id && poolIds.has(id) && date) worked.set(id, (worked.get(id) || new Set()).add(date)); };
+  for (const day of evidence.attendance) if (day.hasFirstIn) mark(day.staffId, day.date);
+  for (const invoice of evidence.invoices) if (invoice.net > 0) mark(invoice.staffId, invoice.date);
+  const branchDays = new Map<string, number>();
+  for (const person of pool) {
+    const key = branchKey(person.branch);
+    branchDays.set(key, (branchDays.get(key) || 0) + (worked.get(person.id)?.size || 0));
+  }
+  const share = Math.min(1, Math.max(0, evidence.cycleShare ?? 1));
+  const trial = EARNED_RULES.trialCycleStarts.includes(evidence.cycle?.start || '');
+  const followups = evidence.followupRequests == null ? null : new Map<string, number>();
+  for (const row of evidence.followupRequests || []) followups?.set(row.staffId, (followups.get(row.staffId) || 0) + row.requests);
+  const out = new Map<string, AxisDraft[]>();
+  for (const { id, branch } of doctors) {
+    const key = branchKey(branch);
+    const target = (evidence.followupTargets || []).find((t) => branchKey(t.branch) === key)?.target ?? EARNED_RULES.defaultFollowupTarget;
+    const own = evidence.invoices.filter((inv) => inv.staffId === id && inv.net > 0);
+    const counts = attendanceCounts(evidence.attendance.filter((day) => day.staffId === id));
+    const violations = evidence.violations == null ? null : evidence.violations.filter((v) => v.staffId === id).length;
+    out.set(id, earnedDoctorAxes({
+      branch, cycleShare: share, trial,
+      workedDays: worked.get(id)?.size || 0,
+      branchDoctorDays: branchDays.get(key) || 0,
+      followups: followups ? followups.get(id) || 0 : null,
+      branchFollowupTarget: target,
+      completeRequests: evidence.requests.filter((r) => r.recordedStaffId === id && isCompleteRequest(r)).length,
+      attendance: { late: counts.late, early: counts.early, resolvedDays: facts.get(id)?.resolvedDays || 0, minDays: minResolved },
+      invoices: {
+        count: own.length, net: own.reduce((s, inv) => s + inv.net, 0), coded: own.filter((inv) => inv.coded).length,
+        minInvoices: Math.max(10, Math.round(LAB_THRESHOLDS.minInvoicesForCoding * Math.min(1, share || 1))), minDays: LAB_THRESHOLDS.minWorkedDays,
+      },
+      reviews: facts.get(id)?.reviews || [],
+      minReviews: LAB_THRESHOLDS.minOfficialReviews,
+      violations,
+    }));
+  }
+  return out;
+}
+
 export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LAB_CURRENT_VERSION): LabPersonScore[] {
   const facts = factsFor(evidence, version);
   const shape = shapeOf(version);
@@ -574,17 +633,19 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
       const penalty = version !== 'v6.0' ? codingGatePenalty(rate) : 0;
       push(id, measured('coding_quality', round(rate * 100), bandScore(rate, 0.9, 1),
         `${f.coded}/${f.invoices} مكوّدة · وسيط الزملاء ${round(doctorRateMedian * 100)}٪${version !== 'v6.0' ? ` · الحد الأدنى ${LAB_THRESHOLDS.codingGateFloor * 100}٪${penalty ? ` (خصم ${-penalty})` : ' (مستوفى)'}` : ''}`));
-      if (penalty) adjustments.set(id, [{ label: 'تكويد أقل من الحد الأدنى', points: penalty, reason: `${round(rate * 100)}٪ من ${f.invoices} فاتورة` }]);
+      // v6.9 moves the coding gate inside the two invoice items (halves them) instead of points off.
+      if (penalty && !atLeast(version, 'v6.9')) adjustments.set(id, [{ label: 'تكويد أقل من الحد الأدنى', points: penalty, reason: `${round(rate * 100)}٪ من ${f.invoices} فاتورة` }]);
     }
     const s = shrunk.get(id);
     const pct = s === undefined ? null : percentileAmong(s, shrunkPeers);
-    push(id, s === undefined
+    if (!atLeast(version, 'v6.9')) push(id, s === undefined
       ? notMeasurable('conversation_quality', `${f.reviews.length} مراجعة رسمية فقط (الحد ${LAB_THRESHOLDS.minOfficialReviews})`)
       : pct === null
         ? notMeasurable('conversation_quality', 'زملاء قابلون للمقارنة غير كافين', `${round(s)}/100`)
         : measured('conversation_quality', round(s), shape.conversation(s), `${f.reviews.length} مراجعة · متوسط معدّل ${round(s)}/100 · ترتيب ${round(pct)}٪ بين الزملاء`));
     if (dormant(evidence, 'followups')) push(id, notMeasurable('followups', 'لا توجد متابعات مسجلة في هذه الدورة (المصدر متوقف)'));
   }
+  if (atLeast(version, 'v6.9')) earnedAxesFor(evidence, doctors, doctorPool, facts, minResolved).forEach((list, id) => list.forEach((axis) => push(id, axis)));
 
   // Assistants.
   const assistants = familyMembers('assistant');
@@ -882,6 +943,17 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
       : notMeasurable('branch_managers', 'لا توجد نتائج لمديري الفروع'));
     results.push({ staffId: head.id, name: head.name, branch: head.branch, family: 'branches_manager',
       team: managerResults.map((m) => ({ staffId: m.staffId, name: m.name, total: m.total })), ...aggregate('branches_manager', axesForHead, { version }) });
+  }
+  if (atLeast(version, 'v6.9')) {
+    for (const result of results) {
+      if (result.family !== 'doctor') continue;
+      const key = branchKey(result.branch);
+      const target = evidence.targets.filter((t) => branchKey(t.branch) === key).reduce((s, t) => s + t.targetAmount, 0);
+      const net = evidence.invoices.filter((inv) => branchKey(inv.branch) === key).reduce((s, inv) => s + inv.net, 0);
+      const absent = attendanceCounts(evidence.attendance.filter((day) => day.staffId === result.staffId)).absent;
+      const score = result.readiness === 'insufficient' ? null : result.total;
+      result.earned = earnedIncentive(score, target > 0 ? round((net / target) * 100) : null, absent);
+    }
   }
   for (const result of results) {
     const own = (evidence.violations || []).filter((v) => v.staffId === result.staffId);

@@ -8,12 +8,31 @@ import {
 
 const CATEGORIES = Object.keys(VIOLATION_LABELS) as ViolationCategory[];
 const cairoToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo' }).format(new Date());
+/** First day of the running 26→25 evaluation cycle. */
+function cycleStartOf(day: string) {
+  const [y, m, d] = day.split('-').map(Number);
+  return new Date(Date.UTC(y, d >= 26 ? m - 1 : m - 2, 26)).toISOString().slice(0, 10);
+}
 
-/** «مخالفات الالتزام» inside «قائمة اليوم»: record one for an employee and see today's. */
+/** Active violations of the cycle per employee, most first. */
+function cycleSummary(rows: StaffViolationRow[]) {
+  const byStaff = new Map<string, { name: string; count: number; points: number }>();
+  for (const row of rows) {
+    if (row.withdrawn) continue;
+    const entry = byStaff.get(row.staff_account_id) || { name: row.staff_name, count: 0, points: 0 };
+    entry.count += 1;
+    entry.points += row.points;
+    byStaff.set(row.staff_account_id, entry);
+  }
+  return [...byStaff.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'ar'));
+}
+
+/** «مخالفات الالتزام» inside «قائمة اليوم»: record one for an employee, see today's and the cycle's total per employee. */
 export function StaffViolationsPanel({ branch }: { branch: string | null }) {
   const [open, setOpen] = useState(false);
   const [staff, setStaff] = useState<BranchStaffOption[]>([]);
   const [today, setToday] = useState<StaffViolationRow[]>([]);
+  const [cycle, setCycle] = useState<StaffViolationRow[]>([]);
   const [staffId, setStaffId] = useState('');
   const [category, setCategory] = useState<ViolationCategory>('uniform');
   const [note, setNote] = useState('');
@@ -23,7 +42,9 @@ export function StaffViolationsPanel({ branch }: { branch: string | null }) {
   const reload = useCallback(async () => {
     try {
       const day = cairoToday();
-      setToday(await listStaffViolations(day, day, branch));
+      const rows = await listStaffViolations(cycleStartOf(day), day, branch);
+      setCycle(rows);
+      setToday(rows.filter((row) => row.occurred_on === day));
       setError(null);
     } catch (err) {
       setError(violationErrorMessage(err));
@@ -64,6 +85,7 @@ export function StaffViolationsPanel({ branch }: { branch: string | null }) {
   };
 
   const active = today.filter((row) => !row.withdrawn);
+  const summary = cycleSummary(cycle);
 
   return (
     <div className="dawaa-theme-border mt-5 rounded-2xl border p-3">
@@ -72,7 +94,7 @@ export function StaffViolationsPanel({ branch }: { branch: string | null }) {
           <ShieldAlert className="h-4 w-4" />
           <span className="text-sm font-black">مخالفات الالتزام</span>
           <span className="dawaa-caption text-xs font-bold">
-            {error ? '' : active.length ? `${active.length} النهارده · ` : 'مفيش النهارده · '}الزي والمظهر نقطة، بي كونكت والتعليمات نقطتين
+            {error ? '' : active.length ? `${active.length} النهارده · ` : 'مفيش النهارده · '}الزي والمظهر والأذونات نقطة، بي كونكت والتعليمات نقطتين
           </span>
         </div>
         {!open ? (
@@ -115,6 +137,12 @@ export function StaffViolationsPanel({ branch }: { branch: string | null }) {
           ))}
         </ul>
       ) : null}
+      {summary.length ? (
+        <div className="mt-2 text-xs font-bold">
+          <span className="dawaa-caption">من أول الشهر ({cycleStartOf(cairoToday())}): </span>
+          {summary.map((entry) => `${entry.name} ${entry.count} مخالفة`).join(' · ')}
+        </div>
+      ) : !error ? <div className="dawaa-caption mt-2 text-xs font-bold">مفيش مخالفات من أول الشهر</div> : null}
       {error ? <p className="mt-1 text-xs font-bold text-[var(--dawaa-status-danger-text)]">{error}</p> : null}
     </div>
   );
