@@ -589,18 +589,20 @@ export default function ShiftHandovers() {
     </Panel>
   );
 
+  // Nothing is judged before the handovers arrive: an empty list would read as every shift missing.
+  const ready = !loading && !loadError;
   const alerts: { text: string; to: TabId }[] = [];
-  if (late.length)
+  if (ready && late.length)
     alerts.push({
       text: `${late.length.toLocaleString('ar-EG')} شيفت ناقص في آخر ${COVERAGE_DAYS.toLocaleString('ar-EG')} يوم`,
       to: 'coverage',
     });
-  if (doubled.length)
+  if (ready && doubled.length)
     alerts.push({
       text: `${doubled.length.toLocaleString('ar-EG')} شيفت متسجل مرتين`,
       to: 'coverage',
     });
-  if (varianceCount)
+  if (ready && varianceCount)
     alerts.push({
       text: `${varianceCount.toLocaleString('ar-EG')} تسليم فيه فرق كاش`,
       to: 'handovers',
@@ -622,11 +624,20 @@ export default function ShiftHandovers() {
             <p
               className="mt-1 text-xs font-bold"
               style={{
-                color: syncStale ? 'var(--dawaa-status-danger-text)' : 'var(--dawaa-theme-muted)',
+                color:
+                  ready && syncStale
+                    ? 'var(--dawaa-status-danger-text)'
+                    : 'var(--dawaa-theme-muted)',
               }}
             >
-              آخر مزامنة: {timeLabel(lastSync)}
-              {syncStale ? ' — المزامنة متأخرة، الأرقام ممكن تكون ناقصة' : ''}
+              {ready ? (
+                <>
+                  آخر مزامنة: {timeLabel(lastSync)}
+                  {syncStale ? ' — المزامنة متأخرة، الأرقام ممكن تكون ناقصة' : ''}
+                </>
+              ) : (
+                'جاري تحميل التسليمات…'
+              )}
             </p>
           </div>
           <div className="flex flex-wrap gap-2 print:hidden">
