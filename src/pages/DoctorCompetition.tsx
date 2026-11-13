@@ -24,8 +24,28 @@ import FollowupRequestsPanel from '@/components/competition/FollowupRequestsPane
 import { loadFollowupRequestCounts, type FollowupRequestCount } from '@/lib/followupRequests/followupRequestService';
 import { getPharmacyCycleRange } from '@/lib/pharmacy-cycle';
 import { hasPermission } from '@/lib/core/permissionSystem';
+import { loadDesignPack, type DesignPack, type PackDoctor } from '@/lib/doctorCompetitionDesignPack';
+import { competitionStanding } from '@/lib/competitionStanding';
+import CompetitionStandingCard from '@/components/competition/CompetitionStandingCard';
 
 const ALL_BRANCHES = 'كل الفروع';
+type PackEntry = { doctor: PackDoctor; branch: string; doctors: PackDoctor[] };
+
+const cairoToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo' }).format(new Date());
+const dayShift = (day: string, days: number) => {
+  const date = new Date(`${day}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+};
+const daysBetween = (from: string, to: string) =>
+  Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000);
+
+/** The points are counted up to yesterday (today is still selling), or today on a cycle's first day. */
+function competitionAnchor() {
+  const today = cairoToday();
+  const yesterday = dayShift(today, -1);
+  return yesterday < getPharmacyCycleRange(`${today}T12:00:00`).start ? today : yesterday;
+}
 type RankingMode = 'points' | 'sales' | 'invoices' | 'average' | 'requests';
 type IdentityLookup = Map<string, string>;
 type ReviewRow = {
@@ -297,6 +317,9 @@ export default function DoctorCompetition() {
   const [compositeScores, setCompositeScores] = useState<Record<string, number>>({});
   const [requestCounts, setRequestCounts] = useState<FollowupRequestCount[] | null>(null);
   const [requestsVersion, setRequestsVersion] = useState(0);
+  const [pack, setPack] = useState<DesignPack | null>(null);
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const pointsAvailable = period === 'cycle' && pack !== null;
 
   const effectiveBranch = branchFilter === ALL_BRANCHES ? '' : normalizeBranchName(branchFilter);
   const mergeAllBranches = !effectiveBranch;
@@ -308,6 +331,21 @@ export default function DoctorCompetition() {
 
     try {
       const competitionRange = rangeForDoctorCompetition(period);
+
+      // The competition's points: the same eight-criterion scorecard as the star-of-the-month pack,
+      // each doctor scored inside their own branch. They are kept per cycle, so other periods show none.
+      const packPromise = period === 'cycle'
+        ? loadDesignPack({
+            mode: 'cycle',
+            anchor: competitionAnchor(),
+            branches: effectiveBranch ? [effectiveBranch] : BRANCHES,
+            branch: effectiveBranch || null,
+            userBranch: user?.branch,
+          }).catch((packError) => {
+            console.error('[DoctorCompetition] points failed', packError);
+            return null;
+          })
+        : Promise.resolve(null);
 
       // The per-branch sales summaries depend only on the period and branch, so they run
       // alongside the eligibility/competition/review reads instead of after them. Only
@@ -403,7 +441,9 @@ export default function DoctorCompetition() {
       const reviewRows = reviewResponse.error ? [] : (reviewResponse.data || []) as ReviewRow[];
       const rowsWithLiveReviews = applyLiveReviews(mergedRows, reviewRows);
       const finalRows = recalculatePoints(rowsWithLiveReviews);
+      const loadedPack = await packPromise;
       setRows(finalRows);
+      setPack(loadedPack);
 
       // الدرجة المركّبة (5 محاور موزونة) محسوبة على أساس شهري (month_cycle)، فبتتوفر
       // بس لما الفترة المختارة = الدورة الحالية، عشان النطاق الزمني يتطابق فعليًا.
@@ -429,10 +469,12 @@ export default function DoctorCompetition() {
       if (competition.errors.invoice_item_incentives) warnings.push('تعذر تحميل حوافز الأصناف من الفواتير.');
       if (competition.status === 'partial') warnings.push('تم استكمال قائمة الدكاترة من بيانات المبيعات.');
       if (reviewResponse.error) warnings.push('تعذر تحديث تقييمات المحادثات من المصدر الحي؛ تم استخدام البيانات المجمعة المتاحة.');
+      if (period === 'cycle' && !loadedPack) warnings.push('تعذر تحميل نقط المسابقة دلوقتي؛ الترتيب ظاهر بالمبيعات.');
       setWarning(warnings.join(' '));
     } catch (loadError) {
       console.error('[DoctorCompetition] load failed', loadError);
       setRows([]);
+      setPack(null);
       setError(loadError instanceof Error ? loadError.message : 'تعذر تحميل مسابقة الدكاترة.');
     } finally {
       setLoading(false);
@@ -461,14 +503,56 @@ export default function DoctorCompetition() {
   }, [requestCounts]);
   const requestsFor = useCallback((row: DoctorCompetitionScore) => (row.staffId ? requestsByStaff.get(row.staffId) || 0 : 0), [requestsByStaff]);
 
+  // A doctor working in more than one branch is placed where they sold the most.
+  const packEntries = useMemo(() => {
+    const byStaff = new Map<string, PackEntry>();
+    const byName = new Map<string, PackEntry>();
+    const keep = (map: Map<string, PackEntry>, key: string, entry: PackEntry) => {
+      const kept = map.get(key);
+      if (!kept || entry.doctor.sales > kept.doctor.sales) map.set(key, entry);
+    };
+    (pack?.branches || []).forEach((branch) => branch.doctors.forEach((doctor) => {
+      const entry = { doctor, branch: branch.branch, doctors: branch.doctors };
+      if (doctor.staff_id) keep(byStaff, doctor.staff_id, entry);
+      keep(byName, normalizedIdentityName(doctor.name), entry);
+    }));
+    return { byStaff, byName };
+  }, [pack]);
+  const entryFor = useCallback((row: DoctorCompetitionScore): PackEntry | null => {
+    if (!pointsAvailable) return null;
+    return (row.staffId ? packEntries.byStaff.get(row.staffId) : undefined)
+      || packEntries.byName.get(normalizedIdentityName(row.name))
+      || null;
+  }, [packEntries, pointsAvailable]);
+  const pointsOf = useCallback((row: DoctorCompetitionScore) => entryFor(row)?.doctor.competition_points ?? null, [entryFor]);
+
+  const anchor = competitionAnchor();
+  const daysLeft = Math.max(0, daysBetween(anchor, getPharmacyCycleRange(`${anchor}T12:00:00`).end));
+  const standingOf = useCallback((entry: PackEntry | null) => (entry ? competitionStanding(entry.doctor, entry.doctors, daysLeft) : null), [daysLeft]);
+  const myEntry = pointsAvailable && user?.staffId ? packEntries.byStaff.get(user.staffId) ?? null : null;
+  const myStanding = standingOf(myEntry);
+
+  // Points exist for the running cycle only.
+  useEffect(() => {
+    if (period !== 'cycle' && mode === 'points') setMode('sales');
+  }, [mode, period]);
+
   const visibleRows = useMemo(() => {
     const sorted = [...rows];
+    if (mode === 'points' && pointsAvailable) {
+      return sorted.sort((a, b) => (pointsOf(b) ?? -1) - (pointsOf(a) ?? -1) || b.totalSales - a.totalSales);
+    }
     if (mode === 'sales') return sorted.sort((a, b) => b.totalSales - a.totalSales || b.competitionPoints - a.competitionPoints);
     if (mode === 'invoices') return sorted.sort((a, b) => b.invoices - a.invoices || b.totalSales - a.totalSales);
     if (mode === 'average') return sorted.sort((a, b) => b.avgInvoice - a.avgInvoice || b.invoices - a.invoices);
     if (mode === 'requests') return sorted.sort((a, b) => requestsFor(b) - requestsFor(a) || b.competitionPoints - a.competitionPoints);
-    return sorted.sort((a, b) => b.competitionPoints - a.competitionPoints || b.totalSales - a.totalSales);
-  }, [mode, requestsFor, rows]);
+    return sorted.sort((a, b) => b.totalSales - a.totalSales);
+  }, [mode, pointsAvailable, pointsOf, requestsFor, rows]);
+
+  const pointsText = (row: DoctorCompetitionScore) => {
+    const points = pointsOf(row);
+    return points === null ? 'غير متاح' : points.toFixed(1);
+  };
 
   const exportCsv = () => {
     const lines = [
@@ -483,7 +567,7 @@ export default function DoctorCompetition() {
         reviewAverage(row)?.toFixed(1) ?? 'غير متاح',
         row.reviewCount,
         row.completedFollowups,
-        row.competitionPoints.toFixed(1),
+        pointsText(row),
       ].map(csvCell).join(',')),
     ];
 
@@ -507,7 +591,7 @@ export default function DoctorCompetition() {
       'تقييم المحادثات': reviewAverage(row)?.toFixed(1) ?? 'غير متاح',
       'عدد التقييمات': row.reviewCount,
       'المتابعات المكتملة': row.completedFollowups,
-      'نقاط المسابقة': Number(row.competitionPoints.toFixed(1)),
+      'نقاط المسابقة': pointsOf(row) ?? 'غير متاح',
     }));
     if (!rows.length) return;
     const { exportToExcel } = await import('@/lib/exportExcel');
@@ -527,6 +611,11 @@ export default function DoctorCompetition() {
       <div className="flex items-center gap-2 text-amber-300"><Trophy size={20} /><span className="text-xs font-black uppercase tracking-wide">مسابقة الدكاترة</span></div>
       <h1 className="mt-1 text-xl font-black text-white">ترتيب جميع الدكاترة</h1>
       <p className="mt-2 text-xs font-bold text-slate-300">{mergeAllBranches ? 'يتم دمج مبيعات وفواتير نفس الدكتور في جميع الفروع ويظهر مرة واحدة.' : `يتم احتساب أداء كل دكتور داخل ${effectiveBranch} فقط.`}</p>
+      <p className="mt-1 text-xs font-bold text-amber-200">
+        {period === 'cycle'
+          ? `النقط من ١٠٠ لحد امبارح، وكل دكتور بيتقارن بزمايله في فرعه${mergeAllBranches ? ' (الدكتور اللي بيشتغل في فرعين بيظهر بنقط الفرع اللي باع فيه أكتر)' : ''}: ${(pack?.scoring || []).map((item) => `${item.label} ${item.weight.toLocaleString('ar-EG')}`).join(' · ')}`
+          : 'نقط المسابقة بتتحسب على الدورة الحالية بس.'}
+      </p>
       {period === 'cycle' && (
         <p className="mt-1 text-xs font-bold text-teal-300">
           «الدرجة المركّبة» الظاهرة تحت نقاط كل دكتور توزيع أدائه على 5 محاور (مبيعات، محادثات، خدمة عملاء، تصنيف بيانات، انضباط) —
@@ -546,12 +635,14 @@ export default function DoctorCompetition() {
       ) : (
         <div className="input-dark flex items-center text-slate-200">{branchFilter}</div>
       )}
-      <select className="input-dark" value={mode} onChange={(event) => setMode(event.target.value as RankingMode)}><option value="points">الترتيب حسب نقاط المسابقة</option><option value="sales">الترتيب حسب المبيعات</option><option value="invoices">الترتيب حسب عدد الفواتير</option><option value="average">الترتيب حسب متوسط الفاتورة</option><option value="requests">الترتيب حسب طلبات المتابعة</option></select>
+      <select className="input-dark" value={mode} onChange={(event) => setMode(event.target.value as RankingMode)}>{period === 'cycle' ? <option value="points">الترتيب حسب نقاط المسابقة</option> : null}<option value="sales">الترتيب حسب المبيعات</option><option value="invoices">الترتيب حسب عدد الفواتير</option><option value="average">الترتيب حسب متوسط الفاتورة</option><option value="requests">الترتيب حسب طلبات المتابعة</option></select>
     </section>
 
     {canViewAllBranches(user) && hasPermission(user, 'manage_staff_accounts') ? <FollowupRequestsPanel branches={BRANCHES} doctors={rows.filter((row) => row.staffId).map((row) => ({ staffId: String(row.staffId), name: row.name }))} counts={requestCounts} onImported={() => setRequestsVersion((version) => version + 1)} /> : null}
 
     {canViewAllBranches(user) ? <CompetitionDesignPackPanel branches={BRANCHES} branch={effectiveBranch || null} userBranch={user?.branch} /> : null}
+
+    {myStanding && myEntry ? <CompetitionStandingCard standing={myStanding} name={myEntry.doctor.name} branch={myEntry.branch} daysLeft={daysLeft} own /> : null}
 
     {warning ? <div className="rounded-2xl border border-amber-300/25 bg-amber-400/10 p-4 text-sm font-bold text-amber-100">{warning}</div> : null}
     {error ? <div className="rounded-2xl border border-red-300/25 bg-red-500/10 p-4 text-sm font-bold text-red-100">{error}</div> : null}
@@ -567,8 +658,14 @@ export default function DoctorCompetition() {
           const mine = currentDoctor(user, row);
           const review = reviewAverage(row);
           const medal = index === 0 ? '#fbbf24' : index === 1 ? '#cbd5e1' : index === 2 ? '#d97757' : null;
+          const entry = entryFor(row);
+          const points = pointsOf(row);
+          const rowKey = scoreKey(row);
+          const canExpand = Boolean(entry) && !mine && canViewAllBranches(user);
+          const expanded = canExpand && expandedKey === rowKey;
+          const expandedStanding = expanded ? standingOf(entry) : null;
           return (
-            <article key={scoreKey(row)} className="rounded-2xl border p-3" style={mine ? { borderColor: 'rgba(45,212,191,0.5)', background: 'rgba(45,212,191,0.1)' } : surfaceSoft}>
+            <article key={rowKey} className="rounded-2xl border p-3" style={mine ? { borderColor: 'rgba(45,212,191,0.5)', background: 'rgba(45,212,191,0.1)' } : surfaceSoft}>
               <div className="flex items-center gap-3">
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-black" style={{ background: medal || 'rgba(148,211,226,0.15)', color: medal ? '#1B2B4B' : 'var(--dawaa-theme-text)' }}>{index + 1}</span>
                 <div className="min-w-0 flex-1">
@@ -576,11 +673,11 @@ export default function DoctorCompetition() {
                     <span className="truncate font-black text-white">{row.name}</span>
                     {mine ? <span className="rounded-full bg-teal-400 px-2 py-0.5 text-[10px] font-black text-slate-950">أنت هنا</span> : null}
                   </div>
-                  <div className="text-xs" style={mutedText}>{row.branch}</div>
+                  <div className="text-xs" style={mutedText}>{entry && mergeAllBranches ? `${row.branch} · النقط من ${entry.branch}` : row.branch}</div>
                 </div>
                 <div className="shrink-0 text-left">
-                  <div className="text-lg font-black text-amber-200">{row.competitionPoints.toFixed(1)}</div>
-                  <div className="text-[10px]" style={mutedText}>نقطة</div>
+                  <div className="text-lg font-black text-amber-200">{points === null ? '—' : points.toFixed(1)}</div>
+                  <div className="text-[10px]" style={mutedText}>{points === null ? 'مفيش نقط' : 'نقطة من ١٠٠'}</div>
                   {row.staffId && compositeScores[row.staffId] !== undefined && (
                     <div
                       className="mt-1 rounded-full px-2 py-0.5 text-[10px] font-black"
@@ -610,13 +707,25 @@ export default function DoctorCompetition() {
                 <span>متوسط: {money(row.avgInvoice)}</span>
                 <span>تقييم: {review === null ? 'غير متاح' : `${review.toFixed(1)}/100`}</span>
                 <span>متابعات: {row.completedFollowups}</span>
-                <span>طلبات متابعة: {requestCounts === null ? 'غير متاح' : requestsFor(row).toLocaleString('ar-EG')}</span>
+                <span>طلبات متابعة: {entry?.doctor.followup_requests != null ? entry.doctor.followup_requests.toLocaleString('ar-EG') : requestCounts === null ? 'غير متاح' : requestsFor(row).toLocaleString('ar-EG')}</span>
+                {entry ? <>
+                  <span>متوسط الشيفت: {money(entry.doctor.daily_average)}</span>
+                  {entry.doctor.list_value !== null ? <span>اللستة: {money(entry.doctor.list_value)} ({(entry.doctor.list_units ?? 0).toLocaleString('ar-EG')} وحدة)</span> : null}
+                  {entry.doctor.customer_requests !== null ? <span>طلبات العملاء: {entry.doctor.customer_requests.toLocaleString('ar-EG')}</span> : null}
+                  {entry.doctor.commitment_percent !== null ? <span>الالتزام: {entry.doctor.commitment_percent.toLocaleString('ar-EG')}%</span> : null}
+                </> : null}
                 {row.stagnantStatus === 'available' && <>
                   <span>وحدات اللستة: {row.listItems.toLocaleString('ar-EG')}</span>
                   <span>وحدات الرواكد: {row.stagnantItems.toLocaleString('ar-EG')}</span>
                   <span>حافز الأصناف: {row.incentiveValue.toLocaleString('ar-EG', { maximumFractionDigits: 2 })} جنيه</span>
                 </>}
               </div>
+              {canExpand ? (
+                <button type="button" onClick={() => setExpandedKey(expanded ? null : rowKey)} aria-expanded={expanded} className="mt-2 text-xs font-black text-amber-300 underline">
+                  {expanded ? 'إخفاء مكانه ووصوله' : 'مكانه ووصوله'}
+                </button>
+              ) : null}
+              {expandedStanding && entry ? <div className="mt-2"><CompetitionStandingCard standing={expandedStanding} name={entry.doctor.name} branch={entry.branch} daysLeft={daysLeft} own={false} /></div> : null}
             </article>
           );
         })}

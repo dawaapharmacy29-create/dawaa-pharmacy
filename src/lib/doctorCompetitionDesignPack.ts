@@ -62,6 +62,8 @@ export interface PackDoctor {
   rank: number;
   /** Place by sales alone. */
   sales_rank: number;
+  /** The linked staff account; null for a seller not linked to one yet. */
+  staff_id: string | null;
   name: string;
   sales: number;
   invoices: number;
@@ -345,6 +347,7 @@ function buildBranch(
       return {
         rank: index + 1,
         sales_rank: salesRank.get(tally.key) ?? index + 1,
+        staff_id: tally.staffId,
         name: tally.name,
         sales: round(tally.sales),
         invoices: tally.invoices,
