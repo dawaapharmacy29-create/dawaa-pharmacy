@@ -54,7 +54,7 @@ const CUSTOMER_RESOLUTION_RX =
 // COMPLAINT_RX word «مشكلة» must not turn it into a complaint follow-up. Keep
 // this narrowly scoped: a mixed message that goes on to complain is still reviewed.
 const NO_COMPLAINT_ASSURANCE_RX =
-  /^\\s*(?:(?:تمام|حاضر|لا|لأ)\\s*[,،]?\\s*)?(?:مفيش|مافيش|ما\\s*فيش|مش\\s*فيه|لا\\s*توجد)\\s+(?:أي\\s+)?(?:مشكل[ةه]|مشاكل|شكوى)\\s*(?:(?:الحمد\\s*لله|شكرا|شكراً|خالص|يا\\s*دكتور)[\\s،,.!]*)*$/i;
+  /^\s*(?:(?:تمام|حاضر|لا|لأ)\s*[,،]?\s*)?(?:مفيش|مافيش|ما\s*فيش|مش\s*فيه|لا\s*توجد)\s+(?:أي\s+)?(?:مشكل[ةه]|مشاكل|شكوى)\s*(?:(?:الحمد\s*لله|شكرا|شكراً|خالص|يا\s*دكتور)[\s،,.!]*)*$/i;
 
 function isExplicitCustomerComplaint(message: ComplaintAssessmentMessage) {
   return message.role === 'customer' &&
