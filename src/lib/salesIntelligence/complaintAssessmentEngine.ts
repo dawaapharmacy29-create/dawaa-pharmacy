@@ -50,6 +50,18 @@ const STAFF_RESOLUTION_RX =
 const CUSTOMER_RESOLUTION_RX =
   /(?:المشكله\s*اتحلت|المشكلة\s*اتحلت|الموضوع\s*اتحل|كده\s*تمام|كدا\s*تمام|تمام\s*كده|تمام\s*كدا|شكرا.*(?:اتحل|اتظبط|تمام))/i;
 
+// A courteous reply such as «تمام مفيش مشكلة» denies a complaint; the bare
+// COMPLAINT_RX word «مشكلة» must not turn it into a complaint follow-up. Keep
+// this narrowly scoped: a mixed message that goes on to complain is still reviewed.
+const NO_COMPLAINT_ASSURANCE_RX =
+  /^\s*(?:(?:تمام|حاضر|لا|لأ)\s*[,،]?\s*)?(?:مفيش|مافيش|ما\s*فيش|مش\s*فيه|لا\s*توجد)\s+(?:أي\s+)?(?:مشكل[ةه]|مشاكل|شكوى)\s*(?:(?:الحمد\s*لله|شكرا|شكراً|خالص|يا\s*دكتور)[\s،,.!]*)*$/i;
+
+function isExplicitCustomerComplaint(message: ComplaintAssessmentMessage) {
+  return message.role === 'customer' &&
+    !NO_COMPLAINT_ASSURANCE_RX.test(message.text.trim()) &&
+    COMPLAINT_RX.test(message.text);
+}
+
 const unique = (ids: string[]) => Array.from(new Set(ids.filter(Boolean)));
 
 export function deriveCanonicalComplaintAssessment(input: {
@@ -58,7 +70,7 @@ export function deriveCanonicalComplaintAssessment(input: {
 }): CanonicalComplaintAssessment {
   const meaningful = input.messages.filter((message) => message.meaningful);
   const firstComplaintIndex = meaningful.findIndex(
-    (message) => message.role === 'customer' && COMPLAINT_RX.test(message.text)
+    (message) => isExplicitCustomerComplaint(message)
   );
 
   if (firstComplaintIndex < 0) {
@@ -81,7 +93,7 @@ export function deriveCanonicalComplaintAssessment(input: {
   const afterComplaint = meaningful.slice(firstComplaintIndex + 1);
   const complaintMessages = meaningful
     .slice(firstComplaintIndex)
-    .filter((message) => message.role === 'customer' && COMPLAINT_RX.test(message.text));
+    .filter((message) => isExplicitCustomerComplaint(message));
   const staffResponses = afterComplaint.filter((message) => message.role === 'staff');
   const apologies = staffResponses.filter((message) => APOLOGY_RX.test(message.text));
   const remedies = staffResponses.filter((message) => REMEDY_RX.test(message.text));

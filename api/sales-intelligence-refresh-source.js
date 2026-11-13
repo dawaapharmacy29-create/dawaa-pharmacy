@@ -5888,11 +5888,15 @@ var REMEDY_RX = (
 var HOSTILE_RX = /(?:لو\s*مش\s*عاجبك|مش\s*مشكلتي|مش\s*شغلي|بلاش\s*زن|ما\s*تزنش|انت\s*غلطان|إنت\s*غلطان|روح\s*اشتكي|اخرس|اخرسي)/i;
 var STAFF_RESOLUTION_RX = /(?:اتحل(?:ت)?\s*(?:المشكله|المشكلة|الموضوع)?|تم\s*(?:حل|معالجة)\s*(?:المشكله|المشكلة|الموضوع)?|اتظبط(?:ت)?\s*(?:المشكله|المشكلة|الموضوع)?)/i;
 var CUSTOMER_RESOLUTION_RX = /(?:المشكله\s*اتحلت|المشكلة\s*اتحلت|الموضوع\s*اتحل|كده\s*تمام|كدا\s*تمام|تمام\s*كده|تمام\s*كدا|شكرا.*(?:اتحل|اتظبط|تمام))/i;
+var NO_COMPLAINT_ASSURANCE_RX = /^\s*(?:(?:تمام|حاضر|لا|لأ)\s*[,،]?\s*)?(?:مفيش|مافيش|ما\s*فيش|مش\s*فيه|لا\s*توجد)\s+(?:أي\s+)?(?:مشكل[ةه]|مشاكل|شكوى)\s*(?:(?:الحمد\s*لله|شكرا|شكراً|خالص|يا\s*دكتور)[\s،,.!]*)*$/i;
+function isExplicitCustomerComplaint(message) {
+  return message.role === "customer" && !NO_COMPLAINT_ASSURANCE_RX.test(message.text.trim()) && COMPLAINT_RX.test(message.text);
+}
 var unique = (ids) => Array.from(new Set(ids.filter(Boolean)));
 function deriveCanonicalComplaintAssessment(input) {
   const meaningful = input.messages.filter((message) => message.meaningful);
   const firstComplaintIndex = meaningful.findIndex(
-    (message) => message.role === "customer" && COMPLAINT_RX.test(message.text)
+    (message) => isExplicitCustomerComplaint(message)
   );
   if (firstComplaintIndex < 0) {
     return {
@@ -5911,7 +5915,7 @@ function deriveCanonicalComplaintAssessment(input) {
     };
   }
   const afterComplaint = meaningful.slice(firstComplaintIndex + 1);
-  const complaintMessages = meaningful.slice(firstComplaintIndex).filter((message) => message.role === "customer" && COMPLAINT_RX.test(message.text));
+  const complaintMessages = meaningful.slice(firstComplaintIndex).filter((message) => isExplicitCustomerComplaint(message));
   const staffResponses = afterComplaint.filter((message) => message.role === "staff");
   const apologies = staffResponses.filter((message) => APOLOGY_RX.test(message.text));
   const remedies = staffResponses.filter((message) => REMEDY_RX.test(message.text));
@@ -9719,7 +9723,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v49-audited-product-identity-review";
+var PIPELINE_VERSION = "sales-intelligence-v50-complaint-negation-guard";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v13-open-service-need-continuity",
   historicalClosure: "historical-closure-v1",

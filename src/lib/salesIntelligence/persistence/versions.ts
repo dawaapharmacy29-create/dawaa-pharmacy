@@ -104,7 +104,9 @@
 // v49: an audited, still-valid manager product identity decision closes only the product-identity
 // review reason after the canonical refresh revalidates source hash, invoice line, and basket item.
 // No invoice, staff-credit, payroll, or sale-proof rule is changed.
-export const PIPELINE_VERSION = 'sales-intelligence-v49-audited-product-identity-review';
+// v50: explicit customer no-complaint assurance does not become a complaint merely because
+// it contains the noun «مشكله/مشكلة»; existing analyses change only upon authorized refresh.
+export const PIPELINE_VERSION = 'sales-intelligence-v50-complaint-negation-guard';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v13-open-service-need-continuity',
