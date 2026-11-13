@@ -59,6 +59,26 @@ const openLost = {
 } as LostOpportunityAssessment;
 
 describe('canonical complaint owner', () => {
+  it('does not invent a delivery complaint from a customer saying no problem', () => {
+    const result = deriveCanonicalComplaintAssessment({ caseId:'shahd-6060', messages:[
+      {id:'s1',role:'staff',text:'معلش المندوب برا وهيرجع وابعته لحضرتك',meaningful:true},
+      {id:'c1',role:'customer',text:'تمام مفيش مشكلة',meaningful:true},
+      {id:'s2',role:'staff',text:'تم ارسال الطلب',meaningful:true},
+    ]});
+    expect(result.state).toBe('none');
+    expect(result.complaintMessageIds).toEqual([]);
+  });
+
+  it('still detects a real complaint even if the customer first says no problem', () => {
+    const result = deriveCanonicalComplaintAssessment({ caseId:'case-mixed', messages:[
+      {id:'c1',role:'customer',text:'مفيش مشكلة',meaningful:true},
+      {id:'c2',role:'customer',text:'بس أنا متضايقة من معاملة المندوب',meaningful:true},
+    ]});
+    expect(result.state).toBe('unresolved');
+    expect(result.complaintMessageIds).toEqual(['c2']);
+  });
+
+
   it('does not treat dispatch/in-transit language as complaint resolution', () => {
     const result = deriveCanonicalComplaintAssessment({ caseId:'case-1', messages:[
       {id:'c1',role:'customer',text:'انا زعلان من مشكلة التوصيل',meaningful:true},
