@@ -1516,7 +1516,7 @@ function continuesOpenServiceNeed(current, next, gapMs) {
   if (next.role !== "customer" || !next.isMeaningful || gapMs > OPEN_SERVICE_NEED_MAX_GAP_MS) return false;
   return Boolean(openServiceNeed(current)) && !startsIndependentCommercialNeedDuringOpenService(next);
 }
-var ADDITIVE_REQUEST_RX = /(?:^|\s)(?:وكمان|كمان|وزود|زود|ضيف|معاهم|معاه|مع\s*الطلب)(?:\s|$)/i;
+var ADDITIVE_REQUEST_RX = /(?:^|\s)(?:وكمان|كمان|وزود|زود|ضيف|معاهم|معاه|مع\s*الطلب|وعايز[هة]?|وعاوز[هة]?|ومحتاج[هة]?)(?:\s|$)/i;
 var STAFF_PENDING_REPLY_RX = /لحظات|ثواني|دقيق[ةه]|اشوف|أشوف|هشوف|هراجع|هتأكد|هاتأكد|جاري\s*(?:المراجعه|المراجعة|البحث)/i;
 var CLOSING_RX = /شكر(?:ا|ًا)?\s*لتواصلك|تحت\s*أمرك\s*دائم(?:ا|ًا)?|يومك\s*سعيد|في\s*خدمتك\s*دائم(?:ا|ًا)?/i;
 var BRANDED_COURTESY_SIGNATURE_RX = /صيدليات\s*دواء\s*تتشرف\s*بخدم[ةه]\s*حضرتك|الأقرب\s*إليك[^\n]*نهتم\s*بصحتك/u;
@@ -9745,9 +9745,9 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v52-selection-evidence-guards";
+var PIPELINE_VERSION = "sales-intelligence-v53-customer-evidence-fairness";
 var ENGINE_VERSIONS = {
-  caseSegmentation: "case-segmentation-v13-open-service-need-continuity",
+  caseSegmentation: "case-segmentation-v14-addressed-additive-continuity",
   historicalClosure: "historical-closure-v1",
   commercialConfirmation: "commercial-confirmation-v6-compact-total-interstitial-ack-safe",
   protocolApplicability: "protocol-applicability-v1",
@@ -13069,9 +13069,13 @@ function assessCustomerName(view) {
   }
   const staffMessages2 = orderedMessages(view).filter((m) => m.role === "staff" && m.meaningful);
   const used = staffMessages2.find((message) => {
-    const normalized = normalizedArabic(message.text);
+    const normalized = normalizedArabic(message.text.replace(STAFF_INTRO_RX, " "));
     const words = new Set(normalized.split(" ").filter(Boolean));
-    return tokens.some((token2) => words.has(token2));
+    return tokens.some((token2) => {
+      if (!words.has(token2)) return false;
+      if (token2 === "\u0639\u0644\u064A") return /(?:^|\s)(?:يا\s+(?:(?:استاذ|دكتور|مدام|حاج)\s+)?|(?:استاذ|دكتور|مدام|حاج)\s+)علي(?=\s|$)/u.test(normalized);
+      return true;
+    });
   });
   if (used) {
     return officialChoice(

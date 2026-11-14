@@ -330,9 +330,18 @@ function assessCustomerName(view: CaseIntelligenceView): ConversationCriterionAs
 
   const staffMessages = orderedMessages(view).filter((m) => m.role === 'staff' && m.meaningful);
   const used = staffMessages.find((message) => {
-    const normalized = normalizedArabic(message.text);
+    // A doctor's own introduction is not evidence of addressing a same-named
+    // customer. Keep any separate greeting/address outside that introduction.
+    const normalized = normalizedArabic(message.text.replace(STAFF_INTRO_RX, ' '));
     const words = new Set(normalized.split(' ').filter(Boolean));
-    return tokens.some((token) => words.has(token));
+    return tokens.some((token) => {
+      if (!words.has(token)) return false;
+      // Arabic normalization merges the preposition «على» with the name «علي».
+      // An address marker is required for this ambiguous token; a distinct
+      // surname can still establish name use through the ordinary exact-word rule.
+      if (token === 'علي') return /(?:^|\s)(?:يا\s+(?:(?:استاذ|دكتور|مدام|حاج)\s+)?|(?:استاذ|دكتور|مدام|حاج)\s+)علي(?=\s|$)/u.test(normalized);
+      return true;
+    });
   });
   if (used) {
     return officialChoice(

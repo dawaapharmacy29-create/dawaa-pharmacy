@@ -154,6 +154,22 @@ describe('conversation evaluation foundation 9B', () => {
     });
   });
 
+  it.each([
+    ['د علي عميل', 'مع حضرتك د تجريبي\nخدمة التوصيل متاحة على مدار ٢٤ ساعة', 'not_used_good'],
+    ['د علي عميل', 'أهلا يا علي، تحت أمر حضرتك', 'used'],
+    ['د علي عميل', 'أهلا يا أستاذ علي، تحت أمر حضرتك', 'used'],
+    ['محمد عميل', 'أهلا بحضرتك\nمع حضرتك د محمد\nخدمة التوصيل متاحة', 'not_used_good'],
+    ['محمد عميل', 'أهلا يا محمد\nمع حضرتك د تجريبي', 'used'],
+  ])('requires customer-directed evidence for %s in %s', (name, text, option) => {
+    const messages = [
+      { id: 'customer', role: 'customer' as const, sender: 'Customer', at: '2026-09-28T09:00:00.000Z', text: 'لو سمحت محتاج دواء', meaningful: true },
+      { id: 'reply', role: 'staff' as const, sender: 'You', at: '2026-09-28T09:00:10.000Z', text, meaningful: true },
+    ];
+    const item = analyzeConversationEvaluationFoundation(viewWith(messages, name)).items.find(item => item.key === 'customer_name');
+    expect(item?.selectedOption).toBe(option);
+    expect(item?.evidenceMessageIds).toEqual(['reply']);
+  });
+
   it('never turns the customer greeting into a pharmacy greeting', () => {
     const messages = [
       { id: 'c1', role: 'customer' as const, sender: 'Customer', at: '2026-09-28T09:00:00.000Z', text: 'السلام عليكم', meaningful: true },
