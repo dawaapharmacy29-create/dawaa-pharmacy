@@ -118,7 +118,9 @@
 // Refresh updates only automatic proposals; historical manager decisions remain authoritative.
 // An adjacent explicit additive request («وعايزة») stays with the open committed
 // order under the existing time/service-boundary guards, retaining its doctor evidence.
-export const PIPELINE_VERSION = 'sales-intelligence-v53-customer-evidence-fairness';
+// v54: opening/response metadata includes an actual media arrival before a
+// visible greeting. No media content, product, clinical fact or sale is inferred.
+export const PIPELINE_VERSION = 'sales-intelligence-v54-media-opening-evidence';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v14-addressed-additive-continuity',

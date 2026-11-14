@@ -103,13 +103,19 @@ function isEmojiOnlyText(text: string): boolean {
   return !NON_EMOJI_MEANINGFUL_RX.test(trimmed);
 }
 
-const PLACEHOLDER_ONLY_RX =
-  /^<[^<>]*\bomitted>$|^\[(?:voice message|image|video|document|file|sticker)\]$|^(?:this message was deleted|you deleted this message)$/i;
+const MEDIA_PLACEHOLDER_ONLY_RX =
+  /^<[^<>]*\bomitted>$|^\[(?:voice message|image|video|document|file|sticker)\]$/i;
+const DELETED_MESSAGE_ONLY_RX = /^(?:this message was deleted|you deleted this message)$/i;
 const FORWARDED_PREFIX_RX = /^\[Forwarded\]\s*/i;
+
+/** Arrival metadata is observable even when media content is unavailable. */
+export function isUnavailableMediaPlaceholderText(text: string): boolean {
+  return MEDIA_PLACEHOLDER_ONLY_RX.test((text || '').trim().replace(FORWARDED_PREFIX_RX, '').trim());
+}
 
 function isPlaceholderOnlyText(text: string): boolean {
   const stripped = (text || '').trim().replace(FORWARDED_PREFIX_RX, '').trim();
-  return PLACEHOLDER_ONLY_RX.test(stripped);
+  return MEDIA_PLACEHOLDER_ONLY_RX.test(stripped) || DELETED_MESSAGE_ONLY_RX.test(stripped);
 }
 
 const INTERACTION_GAP_MS = 30 * 60 * 1000;

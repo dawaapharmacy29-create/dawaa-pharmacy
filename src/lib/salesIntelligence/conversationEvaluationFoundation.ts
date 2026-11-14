@@ -4,6 +4,7 @@ import {
 } from '@/lib/conversationReviews';
 import type { CaseIntelligenceView } from './types';
 import { buildConversationEvaluationEvidence } from './conversationEvaluationEvidence';
+import { isUnavailableMediaPlaceholderText } from '../whatsappConversationUnderstandingV32';
 
 export type FoundationCriterionKey =
   | 'first_response_speed'
@@ -128,7 +129,11 @@ function orderedMessages(view: CaseIntelligenceView) {
 
 function firstCustomerAndReply(view: CaseIntelligenceView) {
   const messages = orderedMessages(view);
-  const firstCustomerIndex = messages.findIndex((m) => m.role === 'customer' && m.meaningful);
+  // A real inbound media arrival can precede the doctor's visible greeting and
+  // the customer's textual question. Its timestamp is evidence of the opening,
+  // never evidence of the image/audio contents or of a commercial order.
+  const firstCustomerIndex = messages.findIndex((m) => m.role === 'customer' &&
+    (m.meaningful || isUnavailableMediaPlaceholderText(m.text)));
   if (firstCustomerIndex < 0) {
     return { messages, firstCustomer: null, firstStaff: null, firstStaffIndex: -1, openingStaff: [] as typeof messages };
   }
