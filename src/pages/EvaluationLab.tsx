@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronUp, Database, FlaskConical, MinusCircle, Users } from 'lucide-react';
 import { DOCTOR_LEVELS, LAB_CURRENT_VERSION, LAB_FAMILY_LABELS, LAB_PILLAR_LABELS, LAB_PREVIOUS_VERSION, type LabFamily, type LabPillar } from '@/lib/evaluationLab/catalog';
 import { useAuth } from '@/hooks/useAuth';
+import { canSeeAllBranches } from '@/lib/security/permissionScopes';
+import { BranchCycleLossesPanel } from '@/components/evaluation/BranchCycleLossesPanel';
 import { loadDoctorLevels, saveDoctorLevel } from '@/lib/doctorEvaluation';
 
 const BASELINE_VERSION = LAB_PREVIOUS_VERSION[LAB_CURRENT_VERSION] ?? LAB_CURRENT_VERSION;
@@ -396,6 +398,8 @@ export default function EvaluationLab() {
         {query.data && <div className="mt-4"><SourceStrip evidence={query.data.evidence} /></div>}
         <TrackCoverage />
       </section>
+
+      {canSeeAllBranches(user?.role) ? <BranchCycleLossesPanel /> : null}
 
       <div className="flex gap-2 overflow-x-auto pb-1" role="tablist">
         {FAMILIES.map((key) => (
