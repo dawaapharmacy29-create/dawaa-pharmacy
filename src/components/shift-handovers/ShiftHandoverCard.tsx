@@ -11,6 +11,7 @@ import {
   shiftGapTone,
   type PunchInterval,
   type ShiftHandoverCorrection,
+  type ShiftResponsible,
 } from '@/lib/shiftHandoverCoverage';
 import { EXPENSE_SOURCE_LABEL, num, shiftMoney } from '@/lib/shiftHandoverLedger';
 import {
@@ -20,6 +21,7 @@ import {
   money,
   shortDay,
   timeLabel,
+  ResponsibleLine,
   type LiveRow,
   type ShiftRow,
 } from './shared';
@@ -218,6 +220,7 @@ export default function ShiftHandoverCard({
   punches,
   presenceFrom,
   canReview,
+  responsible = null,
   onChanged,
 }: {
   row: LiveRow;
@@ -225,6 +228,7 @@ export default function ShiftHandoverCard({
   punches: PunchInterval[] | null;
   presenceFrom: string;
   canReview: boolean;
+  responsible?: ShiftResponsible | null;
   onChanged: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -260,6 +264,10 @@ export default function ShiftHandoverCard({
           اتقفل {clockLabel(row.recorded_at)}
         </span>
       </header>
+
+      <div className="mt-2">
+        <ResponsibleLine compact responsible={responsible} />
+      </div>
 
       {/* The two lines that explain every handover. */}
       <dl

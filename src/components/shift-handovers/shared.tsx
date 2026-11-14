@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import type { ReadHandover } from '@/lib/shiftHandoverCoverage';
+import { Fingerprint } from 'lucide-react';
+import type { ReadHandover, SHIFT_TYPES, ShiftResponsible } from '@/lib/shiftHandoverCoverage';
 import type { HandoverExpense } from '@/lib/shiftHandoverLedger';
 
 // Shared pieces of «تسليم الشيفتات». Rows are DawaaWael handovers (Base44 ShiftDelivery) synced
@@ -236,3 +237,52 @@ export const BRANCH_TONE: Record<string, 'info' | 'success'> = {
 
 /** "23س 24د" → "٢٣س ٢٤د". */
 export const arDigits = (text: string) => text.replace(/\d/g, (d) => '٠١٢٣٤٥٦٧٨٩'[Number(d)]);
+
+/** Who was on duty at a shift's handover; null when the punches are not loaded or the day is too old. */
+export type ResponsibleOf = (
+  branch: string,
+  day: string,
+  shift: (typeof SHIFT_TYPES)[number],
+  row?: LiveRow
+) => ShiftResponsible | null;
+
+/**
+ * «موجود وقت التسليم: د أ · ٩:١٦ ص» — the doctor answerable for the handover, from the fingerprints.
+ * `missing` turns it into who forgot it.
+ */
+export function ResponsibleLine({
+  responsible,
+  missing = false,
+  compact = false,
+}: {
+  responsible: ShiftResponsible | null;
+  missing?: boolean;
+  compact?: boolean;
+}) {
+  if (!responsible) return null;
+  const nobody = !responsible.people.length;
+  const tone = missing ? 'danger' : nobody ? 'warning' : 'info';
+  const label = missing ? 'كان موجود ونسي التسليم' : 'موجود وقت التسليم';
+  return (
+    <div
+      className={`flex items-start gap-1.5 rounded-lg font-bold ${compact ? 'p-1.5 text-[11px]' : 'p-2 text-xs'}`}
+      style={{
+        background: `var(--dawaa-status-${tone}-bg)`,
+        color: `var(--dawaa-status-${tone}-text)`,
+      }}
+      title={`البصمات ساعة ${clockLabel(responsible.at.toISOString())}`}
+    >
+      <Fingerprint size={compact ? 12 : 14} className="mt-0.5 shrink-0" />
+      <span className="min-w-0">
+        <span className="opacity-80">{label}: </span>
+        <span className="font-black">
+          {nobody
+            ? 'مفيش دكتور بصم في الفرع'
+            : responsible.people
+                .map((p) => (p.kind === 'assistant' ? `${p.name} (مساعد)` : p.name))
+                .join('، ')}
+        </span>
+      </span>
+    </div>
+  );
+}

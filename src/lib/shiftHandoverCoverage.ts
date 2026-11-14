@@ -308,6 +308,8 @@ export interface PunchInterval {
   first_in: string | null;
   last_out: string | null;
   scheduled_end: string | null;
+  /** Each device punch in the span with its branch, oldest first (migration 20261114120000). */
+  punches?: { at: string; branch: string }[] | null;
 }
 
 export interface ShiftWindow {
@@ -385,6 +387,14 @@ export function presenceIn(
       ? span.start >= window.from && span.start <= window.to
       : overlap >= MIN_OVERLAP_MINUTES * 60000;
     if (!inside) continue;
+    // Seen on both devices: count it where they were in the middle of the time they overlap the shift.
+    const devices = new Set((interval.punches ?? []).map((p) => p.branch));
+    if (devices.size > 1) {
+      const middle = onePunch
+        ? span.start
+        : (Math.max(span.start, window.from) + Math.min(span.end, window.to)) / 2;
+      if (branchAt(interval, middle) !== branch) continue;
+    }
     const current = best.get(interval.staff_id);
     if (!current || overlap > current.overlap) best.set(interval.staff_id, { interval, overlap });
   }
@@ -461,7 +471,12 @@ export function closerPresence(
       (interval.first_in ? span.start : span.end - USUAL_SHIFT_HOURS * HOUR) <= at + HOUR &&
       span.end >= at - 3 * HOUR
   );
-  if (around.some(({ interval }) => seenAt(interval, branch))) return { status: 'here' };
+  if (
+    around.some(({ interval }) =>
+      (interval.punches ?? []).length ? branchAt(interval, at) === branch : seenAt(interval, branch)
+    )
+  )
+    return { status: 'here' };
   if (around.length) return { status: 'other_branch' };
   return { status: 'other_time', times: punchTimesLabel(near[0].interval) };
 }
@@ -471,4 +486,111 @@ export function closerPresenceText(presence: CloserPresence): string | null {
   if (presence.status === 'other_branch') return 'اللي قفل بصمته في فرع تاني وقت التقفيل';
   if (presence.status === 'other_time') return `اللي قفل بصم في وقت تاني: ${presence.times}`;
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Who was there at the handover: the doctor answerable for closing the shift (owner, 2026-11-14:
+// a forgotten handover is deducted from whoever was on duty when it was due).
+// ---------------------------------------------------------------------------
+
+/** When a shift is normally handed over: an hour and a half before it counts as missing. */
+export function handoverMoment(day: string, shift: (typeof SHIFT_TYPES)[number]): Date {
+  return new Date(shiftDeadline(day, shift).getTime() - 1.5 * HOUR);
+}
+
+/**
+ * The branch someone was at, at a moment: the device of their last punch by then (or their first
+ * punch, if the moment is before it). Without per-punch devices, a span seen on one device is that
+ * branch, and one seen on both counts on their own branch.
+ */
+export function branchAt(interval: PunchInterval, at: number): string {
+  const punches = (interval.punches ?? []).filter(
+    (p) => p.branch && !Number.isNaN(Date.parse(p.at))
+  );
+  if (punches.length) {
+    const before = punches.filter((p) => Date.parse(p.at) <= at);
+    return (before.length ? before[before.length - 1] : punches[0]).branch;
+  }
+  if (interval.branches.length === 1) return interval.branches[0];
+  return interval.home_branch;
+}
+
+/**
+ * Worked at least this much of the usual shift before the handover: the night doctor who comes in at
+ * 11:30 pm is there when the evening is handed over at 1:30 am, but did not work the evening.
+ */
+const WORKED_SHIFT_MINUTES = 3 * 60;
+/** …and still there at the handover, or left at most this long before it. */
+const LEFT_BEFORE_MINUTES = 60;
+
+/** Everyone who worked the shift and was still in the branch at its handover, by real punches only. */
+export function onDutyAt(
+  intervals: PunchInterval[],
+  branch: string,
+  at: Date | string
+): ShiftPresent[] {
+  const moment = typeof at === 'string' ? Date.parse(at) : at.getTime();
+  if (Number.isNaN(moment)) return [];
+  const found = new Map<string, ShiftPresent & { start: number }>();
+  for (const interval of intervals) {
+    if (!interval.kind) continue;
+    const span = spanOf(interval);
+    if (!span) continue;
+    // A lone departure means they were there before it, as long as a usual shift.
+    const start = interval.first_in ? span.start : span.end - USUAL_SHIFT_HOURS * HOUR;
+    const worked = Math.min(span.end, moment) - Math.max(start, moment - USUAL_SHIFT_HOURS * HOUR);
+    if (worked < WORKED_SHIFT_MINUTES * 60000) continue;
+    if (span.end < moment - LEFT_BEFORE_MINUTES * 60000) continue;
+    if (branchAt(interval, moment) !== branch) continue;
+    if (found.has(interval.staff_id)) continue;
+    found.set(interval.staff_id, {
+      staff_id: interval.staff_id,
+      name: interval.name,
+      kind: interval.kind,
+      first_in: interval.first_in,
+      last_out: interval.last_out,
+      start,
+    });
+  }
+  return [...found.values()]
+    .sort(
+      (a, b) =>
+        (KIND_ORDER[a.kind ?? ''] ?? 3) - (KIND_ORDER[b.kind ?? ''] ?? 3) || a.start - b.start
+    )
+    .map(({ start: _start, ...person }) => person);
+}
+
+export interface ShiftResponsible {
+  /** The doctors (pharmacists and branch managers) there at the handover; assistants only when no doctor was. */
+  people: ShiftPresent[];
+  basis: 'doctor' | 'assistant' | 'none';
+  /** Everyone there, doctors first. */
+  everyone: ShiftPresent[];
+  at: Date;
+}
+
+export function shiftResponsible(
+  intervals: PunchInterval[],
+  branch: string,
+  at: Date | string
+): ShiftResponsible {
+  const moment = typeof at === 'string' ? new Date(at) : at;
+  const everyone = onDutyAt(intervals, branch, moment);
+  const doctors = everyone.filter((p) => p.kind === 'doctor' || p.kind === 'manager');
+  if (doctors.length) return { people: doctors, basis: 'doctor', everyone, at: moment };
+  const assistants = everyone.filter((p) => p.kind === 'assistant');
+  return {
+    people: assistants,
+    basis: assistants.length ? 'assistant' : 'none',
+    everyone,
+    at: moment,
+  };
+}
+
+/** "د أ، د ب" — or what there is to say when nobody punched. */
+export function responsibleNames(responsible: ShiftResponsible): string {
+  if (!responsible.people.length) return 'مفيش دكتور بصم';
+  return responsible.people
+    .map((p) => (p.kind === 'assistant' ? `${p.name} (مساعد)` : p.name))
+    .join('، ');
 }
