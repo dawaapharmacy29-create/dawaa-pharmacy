@@ -192,7 +192,6 @@ export default function DoctorMonthlyEvaluationCard({ compact = false, onOpen }:
     // Where the points go: the measured axes that cost the most, each with its per-day action.
     const costly = weighted.filter((axis) => (impacts[axis.key]?.lost ?? 0) >= 1)
       .sort((a, b) => (impacts[b.key]?.lost ?? 0) - (impacts[a.key]?.lost ?? 0)).slice(0, 3);
-    const topTip = costly.map((axis) => axisTip(axis, cycleDays)).find(Boolean) || null;
     const payout = me.compliance?.payout ?? null;
     content = (
       <>
@@ -206,22 +205,12 @@ export default function DoctorMonthlyEvaluationCard({ compact = false, onOpen }:
           <div className="dawaa-surface-soft rounded-xl p-2"><div className="dawaa-caption">وسيط {familyLabel(me.family)}</div><div className="dawaa-title mt-0.5 text-sm">{data.familyMedian === null ? '—' : Math.round(data.familyMedian)}</div></div>
           <div className="dawaa-surface-soft rounded-xl p-2"><div className="dawaa-caption">شريحة الحافز</div><div className="dawaa-title mt-0.5 text-sm">{payout === null ? '—' : `${payout}٪`}</div></div>
         </div>
-        {me.star ? <StarRace star={me.star} own /> : null}
-        {compact && me.attendance ? (
-          <p className="dawaa-caption mt-3 text-xs font-bold leading-5">
-            الحضور: {me.attendance.workedDays} يوم من {data.cycle.elapsedDays} يوم عدّوا من الدورة
-            {me.attendance.creditPct !== null ? ` · الالتزام بالمواعيد ${Math.round(me.attendance.creditPct)}٪` : ''}
-            {me.attendance.pendingDays ? ` · ${me.attendance.pendingDays} يوم بانتظار المراجعة` : ''}
-          </p>
-        ) : null}
+        {me.star ? <StarRace star={me.star} own compact={compact} /> : null}
         {compact ? (
-          <>
-            {focus.length ? (
-              <p className="dawaa-caption mt-3 text-xs font-bold leading-5">ركّز على: {focus.map((axis) => `${axis.label} (${Math.round(axis.score!)}${impacts[axis.key]?.gainTo80 ? `، +${impacts[axis.key].gainTo80} لو وصل 80` : ''})`).join(' · ')}</p>
-            ) : <p className="dawaa-caption mt-3 text-xs font-bold">كل البنود اللي بتتقاس فوق 80 👏</p>}
-            {topTip ? <p className="mt-2 flex gap-1 text-xs font-bold leading-5 text-amber-300"><Lightbulb size={14} className="mt-0.5 shrink-0" />{topTip}</p> : null}
-            {signals[0] ? <p className={`mt-2 rounded-xl border px-2.5 py-1.5 text-[11px] font-bold leading-5 ${SIGNAL_TONE[signals[0].tone]}`}>{signals[0].text}{signals.length > 1 ? ` (+${signals.length - 1} ملاحظة)` : ''}</p> : null}
-          </>
+          // The home page keeps one line; attendance, tips and notes are in التفاصيل (owner 2026-11-14).
+          focus.length ? (
+            <p className="dawaa-caption mt-3 text-xs font-bold leading-5">ركّز على: {focus.map((axis) => axis.label).join(' · ')}</p>
+          ) : null
         ) : (
           <>
             {me.compliance ? (
