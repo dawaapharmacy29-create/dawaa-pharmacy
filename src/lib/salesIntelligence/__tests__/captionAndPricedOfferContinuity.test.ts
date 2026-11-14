@@ -72,4 +72,10 @@ describe('visible captions and bounded priced-offer decisions', () => {
     const messages = buildConversationUnderstandingV32(splitWhatsAppSessions(parseWhatsAppExport(raw))[0]).messages;
     expect(extractPriceSignals(messages).map(s => s.messageId)).toEqual([messages[0].id, messages[2].id]);
   });
+
+  it('does not promote an unavailable attachment filename to readable content', () => {
+    const raw = '[9/15/26, 9:00:00 AM] Customer: IMG-20260915-WA0001.jpg (file attached)';
+    const message = buildConversationUnderstandingV32(splitWhatsAppSessions(parseWhatsAppExport(raw))[0]).messages[0];
+    expect(message).toMatchObject({ isMeaningful: false, isMediaPlaceholder: true });
+  });
 });

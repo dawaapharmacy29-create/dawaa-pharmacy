@@ -372,8 +372,9 @@ function normalizeMessage(
   // The parser flag records that an attachment is unavailable, not that its
   // visible caption is unavailable too. Preserve the raw text as evidence.
   const visibleText = (message.text || '').replace(/<[^<>]*\bomitted>|\[(?:voice message|image|video|document|file|sticker)\]/gi, '').trim();
+  const hasVisibleCaption = visibleText !== (message.text || '').trim() && NON_EMOJI_MEANINGFUL_RX.test(visibleText);
   const isMediaPlaceholder = isPlaceholderOnlyText(message.text) ||
-    (Boolean(message.mediaPlaceholder) && !NON_EMOJI_MEANINGFUL_RX.test(visibleText));
+    (Boolean(message.mediaPlaceholder) && !hasVisibleCaption);
   const hasRealContent = NON_EMOJI_MEANINGFUL_RX.test(visibleText);
   const isMeaningful =
     hasText && hasRealContent && !isSystemGenerated && !isAutomated && !isEmojiOnly && !isMediaPlaceholder;

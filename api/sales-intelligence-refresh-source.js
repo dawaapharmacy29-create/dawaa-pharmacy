@@ -1628,7 +1628,8 @@ function normalizeMessage(message, staffNames, customerName) {
   const isEmojiOnly = !isSystemGenerated && isEmojiOnlyText(message.text || "");
   const hasText = Boolean((message.text || "").trim());
   const visibleText = (message.text || "").replace(/<[^<>]*\bomitted>|\[(?:voice message|image|video|document|file|sticker)\]/gi, "").trim();
-  const isMediaPlaceholder = isPlaceholderOnlyText(message.text) || Boolean(message.mediaPlaceholder) && !NON_EMOJI_MEANINGFUL_RX.test(visibleText);
+  const hasVisibleCaption = visibleText !== (message.text || "").trim() && NON_EMOJI_MEANINGFUL_RX.test(visibleText);
+  const isMediaPlaceholder = isPlaceholderOnlyText(message.text) || Boolean(message.mediaPlaceholder) && !hasVisibleCaption;
   const hasRealContent = NON_EMOJI_MEANINGFUL_RX.test(visibleText);
   const isMeaningful = hasText && hasRealContent && !isSystemGenerated && !isAutomated && !isEmojiOnly && !isMediaPlaceholder;
   let role = "unknown";
