@@ -112,6 +112,7 @@
 // v52: a bare no to a selection/clarification question does not end the whole need;
 // age-only suitability answers never become products. Existing sources change only
 // through the authorized canonical refresh. No proof, approval or payroll rule changes.
+// An addressed acceptance ("ايوا يا دكتور") also stays with its bounded existing offer.
 export const PIPELINE_VERSION = 'sales-intelligence-v52-selection-evidence-guards';
 
 export const ENGINE_VERSIONS = {

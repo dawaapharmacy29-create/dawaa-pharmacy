@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { extractIntroducedStaffName, parseWhatsAppExport } from '@/lib/whatsappConversationParser';
 import { isGenericDeicticProductPhrase } from '@/lib/salesIntelligence/caseBasketEngine';
 import { runSalesIntelligencePipeline } from '@/lib/salesIntelligence/salesIntelligencePipeline';
+import { isAcceptanceOnly } from '@/lib/whatsappSemanticSignalsV32';
 
 // Synthetic examples only. Never commit customer exports or medical conversations.
 describe('real-chat semantic guard regressions', () => {
@@ -54,6 +55,27 @@ describe('real-chat semantic guard regressions', () => {
     });
     expect(result.caseAnalyses[0].customerNeed.needDeclined).toBe(true);
     expect(result.caseAnalyses[0].lostOpportunity.state).toBe('lost');
+  });
+
+  it('keeps a delayed addressed acceptance with its existing offer and doctor evidence', () => {
+    const raw = `[9/15/26, 9:00:00 AM] Customer: عايزة علبة فيتامين د
+[9/15/26, 9:00:10 AM] You: مع حضرتك د تجريبي
+[9/15/26, 9:01:00 AM] You: ابعتها لحضرتك؟
+[9/15/26, 10:05:00 AM] Customer: ايوا يا دكتور
+[9/15/26, 10:06:00 AM] You: تم الارسال`;
+    const introduction = parseWhatsAppExport(raw)[1];
+    const result = runSalesIntelligencePipeline({
+      conversationId: 'synthetic-delayed-acceptance',
+      rawWhatsAppExportText: raw,
+      staffIdByIntroductionMessageId: { [introduction.id]: 'synthetic-doctor' },
+      staffProfilesById: { 'synthetic-doctor': { staffId: 'synthetic-doctor', name: 'د تجريبي', function: 'pharmacist', homeBranch: 'فرع شكري' } },
+      resolveInvoiceCandidates: () => [],
+    });
+    expect(isAcceptanceOnly('ايوا يا دكتور')).toBe(true);
+    expect(isAcceptanceOnly('ايوا يا دكتور وعايزة علبة كمان')).toBe(false);
+    expect(result.caseAnalyses).toHaveLength(1);
+    expect(result.caseAnalyses[0].conversationCase.ownership?.owners[0]?.staffId).toBe('synthetic-doctor');
+    expect(result.caseAnalyses[0].followUp.opportunities.some(row => row.reason === 'customer_no_response')).toBe(false);
   });
   it.each(['شريط كيوتابكس', 'علبة هيرو بيبي 2', 'ديرما اكتيف', 'ببرونة من ٠-٣ شهور'])(
     'preserves named products: %s', (phrase) => {
