@@ -157,8 +157,8 @@ function Purchases() {
           {loading ? <Loader2 className="dawaa-caption h-3.5 w-3.5 animate-spin" /> : null}
         </div>
         <div className="flex gap-1.5">
-          {quick('الدورة دي', current)}
-          {quick('اللي فاتت', previous)}
+          {quick('الشهر ده', current)}
+          {quick('الشهر اللي فات', previous)}
         </div>
       </div>
 

@@ -20,6 +20,8 @@ import {
   type GmReviewItem,
 } from '@/lib/gmDailyReview';
 import { gmReviewCard } from '@/lib/gmReviewCard';
+import { loadPurchaseReview } from '@/lib/purchaseReview/api';
+import { purchaseReviewDaily, withPurchaseReview } from '@/lib/purchaseReview/dailyItem';
 
 const dayLabel = (value: string) =>
   new Date(`${value}T12:00:00`).toLocaleDateString('ar-EG', {
@@ -53,7 +55,17 @@ export function GmDailyReviewPanel() {
 
   const reload = useCallback(async () => {
     try {
-      setReview(await loadGmDailyReview());
+      // «مراجعة المشتريات» feeds the purchases card; until its data is there the old card stays.
+      const [base, purchases] = await Promise.all([
+        loadGmDailyReview(),
+        loadPurchaseReview(null).catch(() => null),
+      ]);
+      setReview(
+        withPurchaseReview(
+          base,
+          purchases?.lines.length ? purchaseReviewDaily(purchases) : null
+        )
+      );
       setError(null);
     } catch (err) {
       setError(gmReviewErrorMessage(err));
@@ -245,7 +257,8 @@ function ReviewCard({ item, onChanged }: { item: GmReviewItem; onChanged: () => 
     if (label.link) navigate(label.link);
     else if (label.app) window.open(label.app.url, '_blank', 'noopener,noreferrer');
   };
-  const inlinePurchases = item.key === 'purchases_handover';
+  const inlinePurchases =
+    item.key === 'purchases_handover' && !(item.detail as { review?: unknown } | null)?.review;
   const [showList, setShowList] = useState(false);
 
   return (

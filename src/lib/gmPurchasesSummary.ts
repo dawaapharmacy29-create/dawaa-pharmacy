@@ -62,16 +62,14 @@ export async function loadGmPurchasesSummary(
 const iso = (date: Date) => date.toISOString().slice(0, 10);
 
 /**
- * The 26 → 25 pay cycle that contains `today` (offset 0), or the one before it (offset -1).
- * The current cycle ends today; a past cycle ends on its 25th.
+ * The purchases cycle is the calendar month: the one that contains `today` (offset 0), or the one before
+ * it (offset -1). The current cycle ends today; a past cycle ends on its last day.
  */
 export function cycleRange(today: string, offset = 0): { from: string; to: string } {
-  const [y, m, d] = today.split('-').map(Number);
-  // Month index (0-based) in which the cycle starts.
-  let startMonth = d >= 26 ? m - 1 : m - 2;
-  startMonth += offset;
-  const from = new Date(Date.UTC(y, startMonth, 26));
-  const end = new Date(Date.UTC(y, startMonth + 1, 25));
+  const [y, m] = today.split('-').map(Number);
+  const startMonth = m - 1 + offset;
+  const from = new Date(Date.UTC(y, startMonth, 1));
+  const end = new Date(Date.UTC(y, startMonth + 1, 0));
   const to = offset === 0 ? today : iso(end);
   return { from: iso(from), to };
 }

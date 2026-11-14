@@ -59,6 +59,7 @@ const PurchaseInvoiceEntry = lazy(() => import('@/pages/PurchaseInvoiceEntry'));
 const PurchaseInvoiceReview = lazy(() => import('@/pages/PurchaseInvoiceReview'));
 const PurchaseReturns = lazy(() => import('@/pages/PurchaseReturns'));
 const PurchaseCycleReport = lazy(() => import('@/pages/PurchaseCycleReport'));
+const PurchaseReview = lazy(() => import('@/pages/PurchaseReview'));
 const SupplierAccounts = lazy(() => import('@/pages/SupplierAccounts'));
 const PurchaseOrderLog = lazy(() => import('@/pages/PurchaseOrderLog'));
 const BranchChecklistReview = lazy(() => import('@/pages/BranchChecklistReview'));
@@ -629,6 +630,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             {routeSuspense(<PurchaseReturns />, 'مرتجعات المشتريات')}
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/purchase-review"
+        element={
+          <ProtectedRoute>
+            {routeSuspense(<PurchaseReview />, 'مراجعة المشتريات')}
           </ProtectedRoute>
         }
       />

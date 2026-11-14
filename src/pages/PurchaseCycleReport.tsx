@@ -29,7 +29,7 @@ function n(value: unknown) {
 export default function PurchaseCycleReport() {
   const [rows, setRows] = useState<CycleRow[]>([]);
   const [leaders, setLeaders] = useState<LeaderRow[]>([]);
-  const [cycleDay, setCycleDay] = useState(10);
+  const [cycleDay, setCycleDay] = useState(1);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
 
