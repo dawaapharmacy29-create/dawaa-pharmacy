@@ -254,7 +254,7 @@ const PRICE_INQUIRY_RX = /بكام|عامل\s*كام|سعر(?:ه|ها)?|كام\s
 const STAFF_RECAP_CONTEXT_RX = /يعني\s*(?:كدا|كده|حضرتك)|حضرتك\s*محتاج|تكرر|كرر|تأمر|تحت\s*امر/i;
 
 function extractNaturalUnitItems(message: NormalizedConversationMessageV32): DraftItem[] {
-  if (!message.isMeaningful || /<(?:image|audio|voice message) omitted>/i.test(message.text)) return [];
+  if (!message.isMeaningful) return [];
   if (message.role === 'customer' && PRICE_INQUIRY_RX.test(message.text)) return [];
   if (message.role === 'staff' && !STAFF_RECAP_CONTEXT_RX.test(message.text)) return [];
 
@@ -683,7 +683,7 @@ function clarificationCourtesy(text: string): boolean {
 }
 
 function dialogueMeaningful(message: NormalizedConversationMessageV32): boolean {
-  return message.isMeaningful && !/<(?:image|audio|voice message) omitted>/iu.test(message.text);
+  return message.isMeaningful;
 }
 
 // At most eight meaningful turns in five minutes: never scan a whole long conversation

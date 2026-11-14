@@ -9,6 +9,7 @@ import {
   computeRequestBurstIds,
   extractCorrectionSignals,
   extractProductReferenceSignals,
+  extractPriceSignals,
   extractRequestSignals,
   isAcceptanceOnly,
   isBareAcknowledgementOnly,
@@ -261,6 +262,22 @@ function isCustomerResponseContinuation(
   return isCustomerCourtesyOrResponseOnly(next.text);
 }
 
+// A bounded quantity/deictic answer to the immediately preceding price exchange is
+// the customer's decision on that offer, not a new case with a missing doctor.
+// Named products, service requests and later-day turns do not qualify.
+function isPricedOfferQuantityContinuation(
+  current: NormalizedConversationMessageV32[],
+  next: NormalizedConversationMessageV32,
+  gapMs: number
+): boolean {
+  if (next.role !== 'customer' || !next.isMeaningful || gapMs < 0 || gapMs > 5 * 60_000) return false;
+  if (!/^(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?)\s+(?:واحد[ةه]?|واخ|1|١|ده|دي|دا)(?:\s+بس\s+ياريت\s+يكون\s+(?:مظبوط|كويس))?[.!،\s]*$/u.test(next.text.trim())) return false;
+  const customer = lastMeaningfulOfRole(current, 'customer');
+  const staff = lastMeaningfulOfRole(current, 'staff');
+  return Boolean(customer && staff && customer.timestamp <= staff.timestamp &&
+    /بكام|سعر(?:ه|ها)?|عامل\s*كام/u.test(customer.text) && extractPriceSignals([staff]).length);
+}
+
 function isSameOrderContinuation(
   current: NormalizedConversationMessageV32[],
   next: NormalizedConversationMessageV32,
@@ -300,6 +317,7 @@ function hasStrongSemanticContinuation(
     return true;
   }
   if (next.role !== 'customer' || !next.isMeaningful) return false;
+  if (isPricedOfferQuantityContinuation(current, next, gapMs)) return true;
   if (continuesOpenServiceNeed(current, next, gapMs)) return true;
   if (isSameOrderContinuation(current, next, gapMs)) return true;
   if (gapMs <= SEMANTIC_CONTINUATION_MAX_GAP_MS) {
@@ -351,8 +369,12 @@ function normalizeMessage(
   const isAutomated = !isSystemGenerated && AUTOMATED_REPLY_RX.test(message.text || '');
   const isEmojiOnly = !isSystemGenerated && isEmojiOnlyText(message.text || '');
   const hasText = Boolean((message.text || '').trim());
-  const isMediaPlaceholder = Boolean(message.mediaPlaceholder) || isPlaceholderOnlyText(message.text);
-  const hasRealContent = NON_EMOJI_MEANINGFUL_RX.test((message.text || '').trim());
+  // The parser flag records that an attachment is unavailable, not that its
+  // visible caption is unavailable too. Preserve the raw text as evidence.
+  const visibleText = (message.text || '').replace(/<[^<>]*\bomitted>|\[(?:voice message|image|video|document|file|sticker)\]/gi, '').trim();
+  const isMediaPlaceholder = isPlaceholderOnlyText(message.text) ||
+    (Boolean(message.mediaPlaceholder) && !NON_EMOJI_MEANINGFUL_RX.test(visibleText));
+  const hasRealContent = NON_EMOJI_MEANINGFUL_RX.test(visibleText);
   const isMeaningful =
     hasText && hasRealContent && !isSystemGenerated && !isAutomated && !isEmojiOnly && !isMediaPlaceholder;
 
