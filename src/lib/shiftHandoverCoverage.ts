@@ -472,3 +472,60 @@ export function closerPresenceText(presence: CloserPresence): string | null {
   if (presence.status === 'other_time') return `اللي قفل بصم في وقت تاني: ${presence.times}`;
   return null;
 }
+
+// ---------------------------------------------------------------------------
+// Who answers for the handovers of a cycle: closings, double entries and missing shifts per person.
+// ---------------------------------------------------------------------------
+
+export interface HandoverDuty {
+  key: string;
+  name: string;
+  /** Shifts this person closed. */
+  closed: number;
+  /** Shifts this person entered more than once. */
+  doubles: number;
+  /** Shifts left without a handover while this person was punched in them. */
+  missed: string[];
+}
+
+/**
+ * A missing shift is on the doctors punched in it (the branch manager counts as one); only when no
+ * doctor punched does it fall on the assistants. Shifts before `presenceFrom`, or with no punches
+ * loaded, blame nobody. People are matched by name, so «د/ عمر» and «د عمر» are one row.
+ */
+export function handoverDutyByPerson<T extends ShiftHandoverRow & { submitted_by?: string | null }>(
+  slots: ShiftSlot<T>[],
+  intervals: PunchInterval[] | null,
+  presenceFrom: string
+): HandoverDuty[] {
+  const people = new Map<string, HandoverDuty>();
+  const entry = (name: string) => {
+    const key = personKey(name) || 'غير معروف';
+    const found = people.get(key);
+    if (found) return found;
+    const fresh: HandoverDuty = { key, name: name.trim() || 'غير معروف', closed: 0, doubles: 0, missed: [] };
+    people.set(key, fresh);
+    return fresh;
+  };
+  for (const slot of slots) {
+    const closers = new Map<string, number>();
+    for (const row of slot.rows) {
+      const person = entry(row.submitted_by ?? '');
+      person.closed += 1;
+      closers.set(person.key, (closers.get(person.key) ?? 0) + 1);
+    }
+    for (const [key, count] of closers) if (count > 1) (people.get(key) as HandoverDuty).doubles += 1;
+    if (slot.status !== 'late' || !intervals || slot.day < presenceFrom) continue;
+    const present = presenceIn(intervals, slot.branch, slotWindow(slot.day, slot.shift));
+    const doctors = present.filter((p) => p.kind === 'doctor' || p.kind === 'manager');
+    for (const person of doctors.length ? doctors : present)
+      entry(person.name).missed.push(shiftWithDay(slot.day, slot.shift));
+  }
+  return [...people.values()].sort(
+    (a, b) =>
+      b.missed.length - a.missed.length ||
+      b.doubles - a.doubles ||
+      b.closed - a.closed ||
+      a.name.localeCompare(b.name, 'ar')
+  );
+}
