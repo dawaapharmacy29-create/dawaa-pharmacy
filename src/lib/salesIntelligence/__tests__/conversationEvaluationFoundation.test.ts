@@ -154,6 +154,21 @@ describe('conversation evaluation foundation 9B', () => {
     });
   });
 
+  it.each(['<image omitted>', '<voice message omitted>', '<video omitted>'])(
+    'keeps the visible opening after a media arrival without interpreting its content: %s', text => {
+      const messages = [
+        { id: 'media', role: 'customer' as const, sender: 'Customer', at: '2026-09-28T09:00:00.000Z', text, meaningful: false },
+        { id: 'opening', role: 'staff' as const, sender: 'You', at: '2026-09-28T09:00:02.000Z', text: 'أهلًا وسهلًا بحضرتك\nنورتنا في صيدليات دواء\nمع حضرتك د تجريبي\nخدمة التوصيل متاحة على مدار ٢٤ ساعة', meaningful: true },
+        { id: 'request', role: 'customer' as const, sender: 'Customer', at: '2026-09-28T09:00:07.000Z', text: 'الروشتة دي بكام', meaningful: true },
+        { id: 'answer', role: 'staff' as const, sender: 'You', at: '2026-09-28T09:00:30.000Z', text: '100 جنيه', meaningful: true },
+      ];
+      const items = analyzeConversationEvaluationFoundation(viewWith(messages)).items;
+      expect(items.find(i => i.key === 'first_response_speed')).toMatchObject({ measuredValue: 2, evidenceMessageIds: ['media', 'opening'] });
+      expect(items.find(i => i.key === 'greeting')?.selectedOption).toBe('official_full');
+      expect(items.find(i => i.key === 'doctor_name')?.selectedOption).toBe('start');
+    }
+  );
+
   it.each([
     ['د علي عميل', 'مع حضرتك د تجريبي\nخدمة التوصيل متاحة على مدار ٢٤ ساعة', 'not_used_good'],
     ['د علي عميل', 'أهلا يا علي، تحت أمر حضرتك', 'used'],
