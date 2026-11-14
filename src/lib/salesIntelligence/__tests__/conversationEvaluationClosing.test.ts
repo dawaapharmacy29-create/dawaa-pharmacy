@@ -86,6 +86,6 @@ describe('conversation evaluation closing 9K',()=>{
    {id:'c1',role:'customer',sender:'Customer',at:'2026-09-28T09:00:10Z',text:'ممكن كمان أعرف سعر صنف تاني؟',meaningful:true},
   ]);
   expect(analyzeConversationEvaluationClosing(x).item)
-   .toMatchObject({selectedOption:'none_completed',pointsEarned:0});
+   .toMatchObject({status:'not_applicable',selectedOption:null,pointsEarned:null});
  });
 });

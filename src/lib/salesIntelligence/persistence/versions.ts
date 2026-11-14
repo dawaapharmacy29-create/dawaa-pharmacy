@@ -123,12 +123,15 @@
 // v55: visible captions remain textual evidence, compact pound prices are recognized,
 // and a bounded quantity answer stays with its immediately preceding price offer.
 // Missing media contents and historical approvals remain untouched.
-export const PIPELINE_VERSION = 'sales-intelligence-v55-caption-offer-continuity';
+// v56: observable greetings/endings, waits and totals are scored from their own
+// messages, independently of sale proof or catalog completeness. Raw named offers
+// stay separate from customer orders; unavailable media never becomes a penalty.
+export const PIPELINE_VERSION = 'sales-intelligence-v56-observable-conversation-evidence';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v15-caption-priced-offer-continuity',
   historicalClosure: 'historical-closure-v1',
-  commercialConfirmation: 'commercial-confirmation-v6-compact-total-interstitial-ack-safe',
+  commercialConfirmation: 'commercial-confirmation-v7-independent-announced-total',
   protocolApplicability: 'protocol-applicability-v1',
   attribution: 'attribution-v13-scoped-name-annotations',
   matching: 'matching-v3-unresolved-product-evidence-safe',

@@ -207,6 +207,7 @@ const COMMIT_REPLY_RX = new RegExp(
   `${COMMIT_FUTURE}تابع(?![\\p{L}])|${COMMIT_FUTURE}تابع\\s*${COMMIT_RECIPIENT}|${COMMIT_FUTURE}${REPLY_VERB}(?:ك|كي|كم)(?![\\p{L}])|${COMMIT_FUTURE}${REPLY_VERB}${COMMIT_GAP}\\s*(?:على\\s*|ل)?${COMMIT_RECIPIENT}`,
   'iu'
 );
+const EXPLICIT_WAIT_REPLY_RX = /^(?:لحظ[ةه]|لحظات|ثواني|دقيق[ةه])(?:\s+واحد[ةه])?(?:\s+(?:يا\s*فندم|لو\s*سمحت))?$/iu;
 
 // Delivery commitments are distinct from stock checks and survive an invoiced sale.
 const DELIVERY_PROMISE_RX = /(?<![\p{L}])(?<!(?:مش|لن|لم)\s+)(?:و|ف)?ه(?:اتصل|تصل|كلم|تابع|راجع|شوف)[^.!؟?\n]{0,80}(?:المندوب|الدليفري|التوصيل|وصل\s*لفين)/iu;
@@ -249,12 +250,13 @@ export function classifyStaffCommitmentsV32(text: string): StaffCommitmentV32[] 
       });
     }
     const checkThenReply = clause.match(COMMIT_CHECK_THEN_REPLY_RX);
-    const reply = checkThenReply ? null : clause.match(COMMIT_REPLY_RX);
+    const waitReply = clause.match(EXPLICIT_WAIT_REPLY_RX);
+    const reply = checkThenReply ? null : clause.match(COMMIT_REPLY_RX) || waitReply;
     if (checkThenReply || reply) {
       out.push({
         kind: 'reply_back',
         matchedText: (checkThenReply || reply)![0].trim(),
-        ruleId: checkThenReply ? 'commitment.check_then_reply' : 'commitment.reply_back',
+        ruleId: checkThenReply ? 'commitment.check_then_reply' : waitReply ? 'commitment.explicit_wait_reply' : 'commitment.reply_back',
         confidence: 0.8,
       });
     }

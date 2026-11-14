@@ -84,9 +84,9 @@ const ANNOUNCED_TOTAL_RX =
 // A compact amount is accepted only as a contextual answer to the customer's own total question.
 // This intentionally does NOT turn every bare "90 جنيه" into an order total.
 const COMPACT_ANNOUNCED_TOTAL_RX =
-  /^\s*(\d+(?:\.\d+)?)\s*(?:جنيه|جنيها|ج(?:\.?م\.?)?)\s*(?:ان\s*شاء\s*الله)?[.!، ]*$/i;
+  /^\s*(\d+(?:\.\d+)?)\s*(?:جنيه|جنيها|ج(?:\.?م\.?)?)\s*(?:بالتوصيل\s*)?(?:ان\s*شاء\s*الله)?[.!، ]*$/i;
 const TOTAL_QUESTION_RX =
-  /(?:الحساب|الإجمالي|الاجمالي|المجموع).{0,16}كام|(?:كدا|كده)?\s*(?:هيبقا|هيبقى|يبقا|يبقى)\s*كام/i;
+  /(?:الحساب|الإجمالي|الاجمالي|المجموع).{0,16}كام|^(?:ممكن\s*)?(?:اعرف|أعرف)\s*(?:الحساب|الاجمالي|الإجمالي)[؟?!.\s]*$|(?:كدا|كده)\s*كام|(?:كدا|كده)?\s*(?:هيبقا|هيبقى|يبقا|يبقى)\s*كام|بكام\s*(?:الشريطين|العلبتين|دول|كلهم)/i;
 
 const ARABIC_NUMBER_WORDS: Record<string, number> = {
   واحد: 1, واحده: 1, واحدة: 1,
@@ -131,7 +131,7 @@ export function stripRequestPrefix(text: string): string {
     .replace(GREETING_LEAD_RX, '')
     .replace(LEAD_DISCOURSE_RX, '')
     .replace(ADDITIVE_CONNECTOR_RX, '')
-    .replace(/^\s*(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|ممكن|هات[ي]?|ابعت(?:لي|يلي)?)\s*/i, '')
+    .replace(/^\s*و?(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|ممكن|هات[ي]?|ابعت(?:لي|يلي)?)\s*/i, '')
     .replace(ADDITIVE_CONNECTOR_RX, '')
     .replace(TRAILING_ADDITIVE_RX, '')
     .trim()
@@ -153,9 +153,10 @@ export function isGenericDeicticProductPhrase(value: string): boolean {
   // Age alone describes suitability, never a catalog product. Keep named products
   // such as "ببرونة من ٠-٣ شهور" because this guard is anchored to the whole phrase.
   const ageOnly = /^(?:(?:من\s+)?[0-9٠-٩]+(?:\s*(?:-|–|إلى|الى)\s*[0-9٠-٩]+)?\s*(?:شهور|أشهر|اشهر|شهر|سنوات|سنين|سن[ةه])|شهرين|سنتين)[.!\s]*$/u;
-  return GENERIC_DEICTIC_PRODUCT_PHRASE_RX.test(phrase) || quantityOnly.test(phrase) || numberOnly.test(phrase) || colourOnly.test(phrase) || ageOnly.test(phrase);
+  const qualityOnly = /^(?:نوع|حاج[ةه])\s+(?:حلو|كويس|مريح|مناسب)(?:[ةه])?(?:\s+(?:له|لها|لي|للطفل))?$/u;
+  return GENERIC_DEICTIC_PRODUCT_PHRASE_RX.test(phrase) || quantityOnly.test(phrase) || numberOnly.test(phrase) || colourOnly.test(phrase) || ageOnly.test(phrase) || qualityOnly.test(phrase);
 }
-const EXPLICIT_REQUEST_VERB_RX = /(?<![\p{L}\p{N}])(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|هات(?:ي|لي)?|ابعت(?:لي|يلي)?)(?![\p{L}\p{N}])/u;
+const EXPLICIT_REQUEST_VERB_RX = /(?<![\p{L}\p{N}])و?(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|هات(?:ي|لي)?|ابعت(?:لي|يلي)?)(?![\p{L}\p{N}])/u;
 // "ابعت X بس" — the customer narrows the order to the named item(s).
 const ONLY_THIS_RX = /(?<![\p{L}\p{N}])(?:بس|فقط)[.!، ]*$/u;
 
@@ -184,6 +185,33 @@ export function explicitRequestProductPhrases(text: string): string[] {
     )
   ) return [];
   return parts;
+}
+
+/** Names explicitly proposed by staff; these are NOT customer orders or catalog identities. */
+export function explicitStaffOfferProductNames(text: string): string[] {
+  const visible = text.replace(/<[^<>]*omitted>/gi, '').trim();
+  if (/[؟?]/u.test(visible) || /المندوب|التوصيل|دليفري|صيدلي[ةه]|صيدليات|مخزن/u.test(visible)) return [];
+  const offer = visible.match(/(?:هبعت|هجيب|أرشح|ارشح)(?:لك|لحضرتك)?\s+(?:لحضرتك\s+)?([^\n]+)/u);
+  const available = visible.match(/^(?:موجود[ةه]?|متوفر[ةه]?)\s+([^\n]+)/u);
+  const formReply = visible.match(/^(?:في|فيه)\s+([^\n]+)/u);
+  const phrase = (offer?.[1] || available?.[1] || formReply?.[1] || '').replace(POLITENESS_RX, ' ')
+    .replace(/\s+ان\s*شاء\s*الله.*$/u, '').trim();
+  if (!phrase) return [];
+  const form = /(?:شراب|اقراص|أقراص|كبسولات|كريم|مرهم|نقط|قطر[ةه]|لبوس|امبول|أمبول)(?![\p{L}])/u;
+  const result: string[] = [];
+  for (const part of phrase.split(/\s+و(?=[\p{L}])/u)) {
+    const named = part.trim().replace(/^(?:علب[ةه]|شريط|عبو[ةه])\s+/u, '')
+      .replace(/\s+ل(?:لكح[ةه]|لسخوني[ةه]|لهمدان).*$/u, '').trim();
+    if (!named || named.split(/\s+/u).length > 4 || isGenericDeicticProductPhrase(named) ||
+        /^(?:اه|ايوه|تمام|حاضر|عندنا|عندي|ان شاء الله|حاليا|حاليًا|دلوقتي|دلوقت|النهارده|النهاردة|بكرا|الصنف|المنتج|الدواء|العلاج|له|لها|منه|منها|كلهم)$/u.test(named) ||
+        /^(?:في|على|عند|من)\s/u.test(named)) continue;
+    if (formReply && !form.test(named)) continue;
+    // A promise must contain a product form/unit; a short explicit "موجود X"
+    // statement may name a brand only, which remains unresolved.
+    if (offer && !form.test(named) && !/^(?:علب[ةه]|شريط|عبو[ةه])\s/u.test(part.trim())) continue;
+    result.push(named);
+  }
+  return [...new Set(result)];
 }
 
 
@@ -264,6 +292,7 @@ function extractNaturalUnitItems(message: NormalizedConversationMessageV32): Dra
     if (!quantityInfo) continue;
     let productNameRaw = match[2]
       .trim()
+      .replace(POLITENESS_RX, ' ')
       .replace(/^واحد[ةه]?\s+/i, '')
       .replace(/^(?:من\s+فضلك|لو\s*سمحت|ان\s*شاء\s*الله)\s*/i, '')
       .replace(/\s+(?:صح|مظبوط|ان\s*شاء\s*الله)\??$/i, '')
@@ -374,6 +403,20 @@ function extractDraftItemsFromScope(
     ? allMessages.filter((message) => restrictToIds.has(message.id))
     : allMessages;
   scopedMessages.forEach((message) => items.push(...extractNaturalUnitItems(message)));
+
+  // Preserve a named price enquiry as an unresolved mention, never as a catalog
+  // identity, a chosen quantity or an accepted sale. Basket-total/deictic queries
+  // carry no product name and are deliberately excluded.
+  scopedMessages.forEach(message => {
+    if (message.role !== 'customer' || !message.isMeaningful) return;
+    const match = message.text.trim().match(/^(?:(?:هو|هي)\s+)?(.+?)\s+بكام[؟?!.\s]*$/u);
+    const name = match?.[1].trim();
+    if (!name || name.split(/\s+/u).length > 4 || /روشت|رشت|حساب|اجمالي|إجمالي|توصيل|شريطين|علبتين/u.test(name) ||
+        isGenericDeicticProductPhrase(name) || /^(?:ده|دي|دا|دول|كله|كلهم|السعر)$/u.test(name)) return;
+    items.push({ productNameRaw:name, productId:null, quantity:null, unit:null, sourceMessageId:message.id,
+      confidence:assessment('weakly_inferred', .6, 'basket.item.named_price_inquiry', [refFor(message, 'اسم صنف ظاهر في سؤال السعر؛ الهوية والكمية والشراء غير مثبتة.')]),
+      resolutionStatus:'partially_proven' });
+  });
 
   const quantitySignals = extractQuantitySignals(allMessages).filter(
     (s) => !restrictToIds || restrictToIds.has(s.messageId)
@@ -545,7 +588,7 @@ function contextualCompactTotal(
   const candidateIndex = scopedMessages.findIndex((m) => m.id === candidate.id);
   if (summaryIndex < 0 || candidateIndex <= summaryIndex) return null;
   const prior = scopedMessages
-    .slice(summaryIndex + 1, candidateIndex)
+    .slice(summaryIndex, candidateIndex)
     .filter((m) => m.isMeaningful);
   const totalQuestion = [...prior].reverse().find(
     (m) => m.role === 'customer' && TOTAL_QUESTION_RX.test(m.text)
@@ -968,6 +1011,19 @@ export function buildCaseBaskets(
       return;
     }
 
+    // An announced amount answers a total question even without a formal basket
+    // recap. Record that one observed step, without inventing the other three.
+    if (message.role === 'staff' && message.isMeaningful && hasOpenBasket) {
+      const anchor = messages.find(m => m.timestamp.toISOString() === createdAt) ?? messages[0];
+      const explicit = message.text.match(ANNOUNCED_TOTAL_RX);
+      const amount = explicit ? Number(explicit[1]) : contextualCompactTotal(messages, anchor, message);
+      if (amount != null && Number.isFinite(amount)) {
+        announcedTotal = { amount, currency:'EGP', messageId:message.id, staffId:null,
+          announcedAt:message.timestamp.toISOString(), basketVersion:version, supersededByTotalId:null };
+        sourceMessageIds.push(message.id);
+      }
+    }
+
     if (message.role === 'customer' && message.isMeaningful) {
       const modification = classifyCustomerModification(message.text);
       if (modification && hasOpenBasket && (status === 'awaiting_confirmation' || status === 'confirmed')) {
@@ -1100,6 +1156,7 @@ export function buildCaseBaskets(
       }
       if (status === 'draft') {
         const newItems = extractDraftItemsFromScope(messages, new Set([message.id]));
+        if (newItems.length > 0) announcedTotal = null;
         // Accepting a staff alternative replaces the item the staff said was unavailable: a new
         // version without it (history kept), never both the unavailable original and its substitute.
         const replaced = newItems.length ? unavailableKeysReplacedBy(message) : [];

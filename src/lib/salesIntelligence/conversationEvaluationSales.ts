@@ -1,6 +1,6 @@
 import { REVIEW_CRITERIA } from '@/lib/conversationReviews';
 import type { CaseIntelligenceView } from './types';
-import { buildConversationEvaluationEvidence, hasSubstantiveBasket, salesCriteriaApplicable } from './conversationEvaluationEvidence';
+import { buildConversationEvaluationEvidence, extraOfferCandidates, hasSubstantiveBasket, salesCriteriaApplicable } from './conversationEvaluationEvidence';
 
 type SalesCriterionKey = 'sales_closing' | 'cross_sell_upsell';
 
@@ -167,12 +167,7 @@ function assessClosing(view: CaseIntelligenceView): SalesCriterionAssessment {
 }
 
 function assessCrossSell(view: CaseIntelligenceView): SalesCriterionAssessment {
-  const offeredExtra = view.products.filter(
-    (product) =>
-      product.roles.includes('offered') &&
-      !product.roles.includes('requested') &&
-      !product.roles.includes('alternative')
-  );
+  const offeredExtra = extraOfferCandidates(view);
 
   if (!offeredExtra.length) {
     return make(

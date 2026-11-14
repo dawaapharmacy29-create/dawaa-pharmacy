@@ -1,3 +1,4 @@
+import { closingAbsenceAssessable, observableClosing } from './conversationClosingEvidence';
 import type { ReviewCriterionKey } from '@/lib/conversationReviews';
 import { isStaffFollowUpPromiseV32 } from '../whatsappSemanticSignalsV32';
 import { buildConversationClinicalReview, type ConversationClinicalReview } from './conversationClinicalReview';
@@ -199,8 +200,8 @@ export const CONVERSATION_EVALUATION_CONTRACT: Record<
     key: 'closing_message',
     sources: ['interaction_text', 'journey'],
     externalSources: [],
-    question: 'هل انتهى التفاعل فعلًا، وإذا انتهى هل كان الختام مناسبًا؟',
-    forbiddenShortcuts: ['معاقبة محادثة ما زالت مفتوحة', 'اعتبار أي رسالة شكر ختامًا من الموظف'],
+    question: 'هل ورد ختام من الموظف في نهاية التبادل المتاح؟ وإذا غاب، هل توجد نهاية مثبتة تسمح بتقييم غيابه؟',
+    forbiddenShortcuts: ['معاقبة محادثة ما زالت مفتوحة', 'اعتبار أي رسالة شكر ختامًا من الموظف', 'اشتراط إثبات الفاتورة للاعتراف بعبارة الختام نفسها'],
   },
 };
 
@@ -211,6 +212,19 @@ export const CONVERSATION_EVALUATION_CONTRACT: Record<
 export function hasSubstantiveBasket(view: CaseIntelligenceView): boolean {
   return view.basket.activeItems.length > 0 || view.basket.confirmed || view.basket.announcedTotal != null ||
     view.basket.versions.some((version) => version.itemCount > 0 || Boolean(version.confirmedAt) || version.announcedTotal != null);
+}
+
+export function extraOfferCandidates(view: CaseIntelligenceView): CaseIntelligenceView['products'] {
+  return view.products.filter(product => {
+    if (!product.roles.includes('offered') || product.roles.includes('requested') || product.roles.includes('alternative')) return false;
+    const lifecycle = view.need.products.find(candidate => candidate.key === product.productKey);
+    if (!lifecycle?.confidence.ruleIds.includes('need.product.explicit_staff_offer')) return true;
+    // Naming treatment options for the customer's original symptoms is not an
+    // extra sale. A raw proposal needs an explicit add-on signal and a distinct request.
+    const ids = new Set(lifecycle.evidenceMessageIds);
+    return view.products.some(other => other.roles.includes('requested') && other.productKey !== product.productKey) &&
+      view.interaction.messages.some(message => message.role === 'staff' && ids.has(message.id) && /كمان|معاه|معاها|بجانب|إضاف|اضاف|مكمل/u.test(message.text));
+  });
 }
 
 /**
@@ -294,12 +308,7 @@ function criterionApplicable(
       return view.basket.confirmed || view.sale.summaryPresented || view.sale.customerConfirmed || view.sale.staffConfirmed;
     }
     case 'cross_sell_upsell':
-      return salesCriteriaApplicable(view) && view.products.some(
-        (product) =>
-          product.roles.includes('offered') &&
-          !product.roles.includes('requested') &&
-          !product.roles.includes('alternative')
-      );
+      return salesCriteriaApplicable(view) && extraOfferCandidates(view).length > 0;
     case 'angry_customer':
       return view.coachingEvidence.delayComplaintMessageIds.length > 0 ||
         view.interaction.messages.some((message) => /شكوى|زعلان|غاضب|مشكله|مشكلة|متأخر|تأخير/i.test(message.text));
@@ -312,10 +321,7 @@ function criterionApplicable(
     case 'purchase_history_usage':
       return view.customer.identityStatus === 'resolved';
     case 'closing_message':
-      return (
-        ['sale_proven', 'financially_settled', 'awaiting_invoice', 'customer_declined', 'information_only'].includes(view.journey.currentState) ||
-        (view.lostOpportunity.state === 'lost' && view.lostOpportunity.recoverability === 'none')
-      );
+      return Boolean(observableClosing(view)) || closingAbsenceAssessable(view) || view.journey.currentState === 'information_only';
     default:
       return true;
   }

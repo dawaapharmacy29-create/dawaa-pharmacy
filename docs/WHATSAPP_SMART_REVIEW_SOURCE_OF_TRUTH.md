@@ -137,6 +137,23 @@ The Smart Folder shows its own opportunities only as a labelled preliminary read
 
 ## 4. Review page contract
 
+### Observable conversation evidence (V56)
+
+* A staff closing phrase near the end of the available exchange is observable even when sale
+  proof, receipt or complaint resolution remain unresolved. Credit the phrase only in its own
+  interaction and retain those operational obligations separately. A later unanswered question or
+  unread inbound media invalidates an earlier signature as the end of the later exchange.
+* A final file timestamp or `information_only` classifier alone does not prove that a consultation
+  ended. Missing media or an unproven ending cannot become a zero closing/understanding score.
+* Catalog/basket incompleteness is not missing media. A textual symptom request and a visible
+  clarification can be evaluated as dialogue behaviour without claiming clinical correctness.
+* A context-bound answer to an order-total question records the announced-total step even without
+  a formal final recap. It never supplies that recap, customer confirmation, delivery or sale proof.
+* Staff-named proposals remain offered mentions, separate from customer requests, accepted items
+  and final baskets. A treatment proposal for the original symptoms is not automatically cross-sell.
+* A standalone staff wait such as «لحظة» is reply-back evidence, not a product-stock assertion.
+  Existing promise lifecycle and human-approval/zero-financial-impact boundaries remain in force.
+
 * One headline number: **الدرجة الرسمية المقترحة**. Quality score, evidence coverage, analysis
   confidence, journey axes and sale outcome are diagnostics. Legacy score is a muted comparison.
 * Points impact is a proposal and is applied only by the reviewer's explicit save.

@@ -55,8 +55,8 @@ function make(
 const STEP_LABELS:Record<string,string>={
   final_basket_summary:'تلخيص الطلب النهائي',
   announced_total:'إعلان الإجمالي',
-  customer_final_confirmation:'تأكيد العميل',
-  staff_final_confirmation:'التأكيد النهائي من الموظف',
+  customer_final_confirmation:'تأكيد العميل للسلة النهائية الملخصة',
+  staff_final_confirmation:'التأكيد النهائي المرتبط بالسلة الملخصة',
 };
 
 function labels(steps:string[]):string{
@@ -106,6 +106,16 @@ export function analyzeConversationEvaluationOrderConfirmation(
 
   const missing=view.coachingEvidence.missingProtocolSteps;
   const evidence=view.sale.confirmationMessageIds;
+
+  if (view.need.unresolvedNeed && missing.includes('final_basket_summary') &&
+      view.interaction.messages.some(message => /<[^<>]*omitted>/i.test(message.text))) {
+    return {
+      version:'conversation-evaluation-order-confirmation-v1', caseId:view.caseId,
+      item:make(null, 'insufficient_evidence', 90,
+        'بعض محتوى الطلب غير متاح في التصدير ولا يمكن مطابقة تلخيص السلة كاملة؛ لا يُخصم بند التأكيد من دليل ناقص. الإجمالي الظاهر وردود العميل تبقى أدلة مستقلة.',
+        [...evidence, ...view.interaction.messages.filter(message => /<[^<>]*omitted>/i.test(message.text)).map(message => message.id)], missing),
+    };
+  }
 
   if(view.coachingEvidence.protocolCompliant&&missing.length===0){
     return{
