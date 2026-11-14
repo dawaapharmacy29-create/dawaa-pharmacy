@@ -1,6 +1,6 @@
 import OperationalReadBoundary from '@/components/common/OperationalReadBoundary';
 import { useEffect, useMemo, useState } from 'react';
-import { BarChart3, Download, Filter, ListTree, Plus, RefreshCw, RotateCcw } from 'lucide-react';
+import { BarChart3, Download, Filter, ListTree, MessageCircle, Plus, RefreshCw, RotateCcw } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import type { CustomerRequest } from '@/lib/api/customerRequests';
@@ -12,6 +12,7 @@ import { useCustomerRequestsWorkspace, type CustomerRequestsWorkspaceFilters } f
 import CustomerRequestQueueStrip from './CustomerRequestQueueStrip';
 import CustomerRequestsOperationsTable, { type CustomerRequestProductMetric } from './CustomerRequestsOperationsTable';
 import CanonicalCreateRequestDialog from './CanonicalCreateRequestDialog';
+import GroupChatRequestsImport from '../groupImport/GroupChatRequestsImport';
 import CustomerRequestDetailsDrawer from './CustomerRequestDetailsDrawer';
 
 function filtersFromSearchParams(params: URLSearchParams): CustomerRequestsWorkspaceFilters {
@@ -47,6 +48,7 @@ export default function CustomerRequestsWorkspace() {
   const [initialFilters] = useState<CustomerRequestsWorkspaceFilters>(() => filtersFromSearchParams(searchParams));
   const workspace = useCustomerRequestsWorkspace({ initialFilters });
   const [createOpen, setCreateOpen] = useState(false);
+  const [groupOpen, setGroupOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [exportingItems, setExportingItems] = useState(false);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(() => Boolean(
@@ -214,6 +216,7 @@ export default function CustomerRequestsWorkspace() {
           </div>
           <div className="flex flex-wrap gap-2">
             {canManageRequests ? <button type="button" className="btn-primary flex items-center gap-2 !py-1.5 text-xs" onClick={() => setCreateOpen(true)}><Plus size={14} /> تسجيل طلب</button> : null}
+            {canManageRequests ? <button type="button" className="btn-secondary flex items-center gap-2 !py-1.5 text-xs" onClick={() => setGroupOpen(true)}><MessageCircle size={14} /> من جروب الواتساب</button> : null}
             <button type="button" className="btn-secondary flex items-center gap-2 !py-1.5 text-xs" onClick={() => void workspace.refresh()} disabled={workspace.loading}><RefreshCw size={14} className={workspace.loading ? 'animate-spin' : ''} /> تحديث</button>
             <button type="button" className="btn-secondary flex items-center gap-2 !py-1.5 text-xs" onClick={() => void exportFiltered()} disabled={exporting || workspace.count === 0}><Download size={14} /> {exporting ? 'جاري التصدير...' : 'تصدير Excel'}</button>
             <button type="button" className="btn-secondary flex items-center gap-2 !py-1.5 text-xs" onClick={() => void exportItemNames()} disabled={exportingItems || workspace.count === 0}><ListTree size={14} /> {exportingItems ? 'جاري التصدير...' : 'تصدير أسماء الأصناف'}</button>
@@ -241,6 +244,7 @@ export default function CustomerRequestsWorkspace() {
       </section>
 
       {canManageRequests && createOpen ? <CanonicalCreateRequestDialog onClose={() => setCreateOpen(false)} onCreated={onCreated} /> : null}
+      {canManageRequests && groupOpen ? <GroupChatRequestsImport onClose={() => setGroupOpen(false)} onCreated={() => workspace.refresh()} /> : null}
       {canManageRequests && workspace.selectedRequest ? <CustomerRequestDetailsDrawer request={workspace.selectedRequest} onClose={() => workspace.selectRequest(null)} onUpdated={onUpdated} /> : null}
     </section>
   );
