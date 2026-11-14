@@ -7,7 +7,7 @@ import {
 } from './ePlusReport';
 import type { PurchaseReviewData } from './ledger';
 
-// «مراجعة المشتريات» data (migration 20261114180000). Top management only.
+// «مراجعة المشتريات» data (migration 20261114153544). Top management only.
 
 const ERRORS: Record<string, string> = {
   not_authorized: 'الصفحة دي للمدير العام والتنفيذي بس',
