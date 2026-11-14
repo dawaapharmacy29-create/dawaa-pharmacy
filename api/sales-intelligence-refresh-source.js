@@ -2846,7 +2846,7 @@ function normalizeProductKey(name) {
   return name.trim().toLowerCase().replace(/[أإآ]/g, "\u0627").replace(/ى/g, "\u064A").replace(/ة/g, "\u0647").replace(/\s+/g, " ");
 }
 var ADDITIVE_CONNECTOR_RX = /^\s*(?:(?:و|وكمان|كمان|وبرضه|برضه|برضو|وأيضا|وايضا|أيضا|ايضا)(?=\s)\s*)+/i;
-var GREETING_LEAD_RX = /^\s*(?:(?:السلام\s*عليكم(?:\s*ورحمة\s*الله(?:\s*وبركاته)?)?|صباح\s*الخير|مساء\s*الخير|أهلا|اهلا)(?=[\s،,!]|$)[\s،,!]*)+/i;
+var GREETING_LEAD_RX = /^\s*(?:(?:(?:ال)?سلام\s*عليكم(?:\s*ورحمة\s*الله(?:\s*وبركاته)?)?|صباح\s*الخير|مساء\s*الخير|أهلا|اهلا)(?=[\s،,!]|$)[\s،,!]*)+/i;
 var LEAD_DISCOURSE_RX = /^\s*(?:(?:تمام|ماشي|اوك|ok|خلاص|طيب|ايوه|ايوا|اه|آه|بالمناسبة|على\s*فكرة)(?=[\s،,])[\s،,]*)+/i;
 var TRAILING_ADDITIVE_RX = /\s+(?:كمان|برضه|برضو|أيضا|ايضا)\s*$/i;
 var CONTACT_DETAIL_TAIL_RX = /[،,]\s*(?:رقم\s*(?:تليفوني|موبايلي|الهاتف|التليفون)|(?:تليفوني|موبايلي))\s*[:：-]?\s*[+0-9٠-٩()\s-]{7,}$/u;
@@ -2863,20 +2863,18 @@ function isGenericDeicticProductPhrase(value) {
   const numberOnly = /^(?:\d+|واحد[ةه]?|اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?)(?:\s+(?:بس|فقط))?[.!\s]*$/i;
   const ageOnly = /^(?:(?:من\s+)?[0-9٠-٩]+(?:\s*(?:-|–|إلى|الى)\s*[0-9٠-٩]+)?\s*(?:شهور|أشهر|اشهر|شهر|سنوات|سنين|سن[ةه])|شهرين|سنتين)[.!\s]*$/u;
   const qualityOnly = /^(?:نوع|حاج[ةه])\s+(?:حلو|كويس|مريح|مناسب)(?:[ةه])?(?:\s+(?:له|لها|لي|للطفل))?$/u;
-  return GENERIC_DEICTIC_PRODUCT_PHRASE_RX.test(phrase) || quantityOnly.test(phrase) || numberOnly.test(phrase) || colourOnly.test(phrase) || ageOnly.test(phrase) || qualityOnly.test(phrase);
+  const orderedReference = /^(?:نوع\s+)?(?:الدواء|الدوا|المضاد(?:\s+الحيوي)?|الصنف|المنتج)\s+(?:الأولاني|الاولاني|الأول|الاول|التاني|الثاني|ده|دي|دا)(?:\s+(?:ده|دي|دا))?$/u;
+  return GENERIC_DEICTIC_PRODUCT_PHRASE_RX.test(phrase) || quantityOnly.test(phrase) || numberOnly.test(phrase) || colourOnly.test(phrase) || ageOnly.test(phrase) || qualityOnly.test(phrase) || orderedReference.test(phrase);
 }
 var EXPLICIT_REQUEST_VERB_RX = /(?<![\p{L}\p{N}])و?(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|هات(?:ي|لي)?|ابعت(?:لي|يلي)?)(?![\p{L}\p{N}])/u;
 var ONLY_THIS_RX = /(?<![\p{L}\p{N}])(?:بس|فقط)[.!، ]*$/u;
 var INFO_QUESTION_LEAD_RX = /^(?:اعرف|أعرف|اسأل|أسأل|استفسر|أستفسر|افهم|أفهم|اشوف|أشوف|اتأكد|أتأكد)(?=\s|$)/;
 var POLITENESS_RX = /(?<![\p{L}\p{N}])(?:لو\s*سمحت|من\s*فضلك|يا\s*(?:دكتور[ةه]?|فندم)|بعد\s*اذنك|بعد\s*إذنك)(?![\p{L}\p{N}])/giu;
 function explicitRequestProductPhrases(text6) {
-  const phrase = stripRequestPrefix(text6.replace(POLITENESS_RX, " ")).replace(CONTACT_DETAIL_TAIL_RX, "").replace(/[؟?!.]+$/g, "").replace(/\s+/g, " ").trim();
+  const phrase = stripRequestPrefix(text6.replace(/<[^<>]*omitted>/gi, "").replace(POLITENESS_RX, " ")).replace(CONTACT_DETAIL_TAIL_RX, "").replace(/[؟?!.]+$/g, "").replace(/\s+/g, " ").trim();
   if (!phrase || /[؟?]/.test(text6) || INFO_QUESTION_LEAD_RX.test(phrase)) return [];
-  const parts = phrase.split(/\s+و\s+|\s*[،,+]\s*/).map((part) => stripRequestPrefix(part).trim()).filter((part) => part.length >= 2);
-  if (!parts.length || parts.some(
-    (part) => part.split(/\s+/).length > 4 || NON_PRODUCT_PHRASE_RX.test(part) || isGenericDeicticProductPhrase(part)
-  )) return [];
-  return parts;
+  const parts = phrase.split(/\s+و\s+|\s+و(?=(?:ال)?(?:مياه|ماي[ةه]|سرنج[ةه]|علب[ةه]|شريط|قطر[ةه]|فيتامين)(?:\s|$))|\s*[،,+]\s*/u).map((part) => stripRequestPrefix(part).trim()).filter((part) => part.length >= 2);
+  return parts.filter((part) => part.split(/\s+/).length <= 4 && !NON_PRODUCT_PHRASE_RX.test(part) && !isGenericDeicticProductPhrase(part));
 }
 function explicitStaffOfferProductNames(text6) {
   const visible = text6.replace(/<[^<>]*omitted>/gi, "").trim();

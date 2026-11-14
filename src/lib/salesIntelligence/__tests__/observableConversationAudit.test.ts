@@ -78,6 +78,16 @@ describe('observable conversation audit',()=>{
     expect(a.caseIntelligence!.sale.isSaleCountable).toBe(false);
   });
 
+  it('retains the named parts of a request without inventing the item in an unread image',()=>{
+    const a=run([['Customer','<image omitted> سلام عليكم عاوزه نوع الدوا الاولاني دا والمايه وسرنجه علاج'],['You',opening],['You','من عنيا حاضر']])[0];
+    const names=a.customerNeed.products.map(p=>p.productNameRaw);
+    expect(names).toContain('المايه');
+    expect(names).toContain('سرنجه علاج');
+    expect(names.some(name=>name.includes('الاولاني'))).toBe(false);
+    expect(a.customerNeed.products.every(p=>p.requestedQuantity===null && p.productId===null)).toBe(true);
+    expect(a.caseIntelligence!.sale.isSaleCountable).toBe(false);
+  });
+
   it('retains a named price inquiry with unknown identity and quantity',()=>{
     const a=run([['Customer','هو الترمومتر الرقمي بكام'],['You',opening],['You','سعره 60ج']])[0];
     const p=a.customerNeed.products.find(p=>p.productNameRaw==='الترمومتر الرقمي');

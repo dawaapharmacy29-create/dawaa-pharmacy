@@ -119,7 +119,7 @@ const ADDITIVE_CONNECTOR_RX = /^\s*(?:(?:و|وكمان|كمان|وبرضه|بر�
 // Acknowledgement / discourse openers before a request ("تمام هات X", "بالمناسبة عايز X") and a
 // trailing additive ("... كمان") — whole tokens only, never part of a product name.
 const GREETING_LEAD_RX =
-  /^\s*(?:(?:السلام\s*عليكم(?:\s*ورحمة\s*الله(?:\s*وبركاته)?)?|صباح\s*الخير|مساء\s*الخير|أهلا|اهلا)(?=[\s،,!]|$)[\s،,!]*)+/i;
+  /^\s*(?:(?:(?:ال)?سلام\s*عليكم(?:\s*ورحمة\s*الله(?:\s*وبركاته)?)?|صباح\s*الخير|مساء\s*الخير|أهلا|اهلا)(?=[\s،,!]|$)[\s،,!]*)+/i;
 const LEAD_DISCOURSE_RX =
   /^\s*(?:(?:تمام|ماشي|اوك|ok|خلاص|طيب|ايوه|ايوا|اه|آه|بالمناسبة|على\s*فكرة)(?=[\s،,])[\s،,]*)+/i;
 const TRAILING_ADDITIVE_RX = /\s+(?:كمان|برضه|برضو|أيضا|ايضا)\s*$/i;
@@ -154,7 +154,8 @@ export function isGenericDeicticProductPhrase(value: string): boolean {
   // such as "ببرونة من ٠-٣ شهور" because this guard is anchored to the whole phrase.
   const ageOnly = /^(?:(?:من\s+)?[0-9٠-٩]+(?:\s*(?:-|–|إلى|الى)\s*[0-9٠-٩]+)?\s*(?:شهور|أشهر|اشهر|شهر|سنوات|سنين|سن[ةه])|شهرين|سنتين)[.!\s]*$/u;
   const qualityOnly = /^(?:نوع|حاج[ةه])\s+(?:حلو|كويس|مريح|مناسب)(?:[ةه])?(?:\s+(?:له|لها|لي|للطفل))?$/u;
-  return GENERIC_DEICTIC_PRODUCT_PHRASE_RX.test(phrase) || quantityOnly.test(phrase) || numberOnly.test(phrase) || colourOnly.test(phrase) || ageOnly.test(phrase) || qualityOnly.test(phrase);
+  const orderedReference = /^(?:نوع\s+)?(?:الدواء|الدوا|المضاد(?:\s+الحيوي)?|الصنف|المنتج)\s+(?:الأولاني|الاولاني|الأول|الاول|التاني|الثاني|ده|دي|دا)(?:\s+(?:ده|دي|دا))?$/u;
+  return GENERIC_DEICTIC_PRODUCT_PHRASE_RX.test(phrase) || quantityOnly.test(phrase) || numberOnly.test(phrase) || colourOnly.test(phrase) || ageOnly.test(phrase) || qualityOnly.test(phrase) || orderedReference.test(phrase);
 }
 const EXPLICIT_REQUEST_VERB_RX = /(?<![\p{L}\p{N}])و?(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|هات(?:ي|لي)?|ابعت(?:لي|يلي)?)(?![\p{L}\p{N}])/u;
 // "ابعت X بس" — the customer narrows the order to the named item(s).
@@ -165,26 +166,20 @@ const POLITENESS_RX = /(?<![\p{L}\p{N}])(?:لو\s*سمحت|من\s*فضلك|يا\
 
 /** Product phrases named by an explicit request ("عايز X و Y"); [] when it is not a product request. */
 export function explicitRequestProductPhrases(text: string): string[] {
-  const phrase = stripRequestPrefix(text.replace(POLITENESS_RX, ' '))
+  const phrase = stripRequestPrefix(text.replace(/<[^<>]*omitted>/gi, '').replace(POLITENESS_RX, ' '))
     .replace(CONTACT_DETAIL_TAIL_RX, '')
     .replace(/[؟?!.]+$/g, '')
     .replace(/\s+/g, ' ')
     .trim();
   if (!phrase || /[؟?]/.test(text) || INFO_QUESTION_LEAD_RX.test(phrase)) return [];
   const parts = phrase
-    .split(/\s+و\s+|\s*[،,+]\s*/)
+    .split(/\s+و\s+|\s+و(?=(?:ال)?(?:مياه|ماي[ةه]|سرنج[ةه]|علب[ةه]|شريط|قطر[ةه]|فيتامين)(?:\s|$))|\s*[،,+]\s*/u)
     .map((part) => stripRequestPrefix(part).trim())
     .filter((part) => part.length >= 2);
-  if (
-    !parts.length ||
-    parts.some(
-      (part) =>
-        part.split(/\s+/).length > 4 ||
-        NON_PRODUCT_PHRASE_RX.test(part) ||
-        isGenericDeicticProductPhrase(part)
-    )
-  ) return [];
-  return parts;
+  // Unknown image references in one clause must not erase separately named
+  // items in the same request. Retain only each independently grounded phrase.
+  return parts.filter(part => part.split(/\s+/).length <= 4 &&
+    !NON_PRODUCT_PHRASE_RX.test(part) && !isGenericDeicticProductPhrase(part));
 }
 
 /** Names explicitly proposed by staff; these are NOT customer orders or catalog identities. */
