@@ -6,7 +6,7 @@ import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
 import type { BrainRequest, LabEvidence } from './buildCycleScores';
 import { selectInvoiceCycleWindow } from '@/lib/readModels/invoiceRecordReadModel';
-import { invoiceShiftOf, isInternalCustomerCode } from './catalog';
+import { invoiceShiftOf, isExcludedSeller, isInternalCustomerCode } from './catalog';
 import { expectedInventoryWeeks, type InventoryItemEvidence, type InventorySessionEvidence } from './inventoryAccuracy';
 import { FULFILLMENT_WINDOW_DAYS, matchRequestFulfillment, type FulfillmentItem, type FulfillmentResult } from './requestFulfillment';
 import type { ViolationCategory } from './complianceFactor';
@@ -220,7 +220,7 @@ async function loadPreviousCycle(cycle: LabCycle): Promise<{
   try {
     const shift = (day: string) => { const d = new Date(`${day}T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() - 1); return d.toISOString().slice(0, 10); };
     const rows = (await dailyInvoiceWindows({ start: shift(cycle.start), endExclusive: cycle.start }, 'id,branch,net_amount,total_amount,staff_id,invoice_datetime,customer_code', 30000))
-      .filter((row) => !isInternalCustomerCode(row.customer_code));
+      .filter((row) => !isInternalCustomerCode(row.customer_code) && !isExcludedSeller(row.staff_id));
     // Growth compares like for like: the same number of days from the previous cycle's start, so a
     // running cycle is not measured against a whole month.
     const day = (value: string) => Date.parse(`${value}T00:00:00Z`);
@@ -468,7 +468,7 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
 
   // Internal codes are moved out before anything is scored (and their total is shown).
   const internalRows = invoiceRows.filter((row) => isInternalCustomerCode(row.customer_code));
-  const saleRows = invoiceRows.filter((row) => !isInternalCustomerCode(row.customer_code));
+  const saleRows = invoiceRows.filter((row) => !isInternalCustomerCode(row.customer_code) && !isExcludedSeller(row.staff_id));
 
   const official = selectOfficialConversationReviews(reviewRows, { startDay: cycle.start, endDayExclusive: cycle.endExclusive }).rows;
 
