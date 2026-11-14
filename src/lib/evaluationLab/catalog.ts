@@ -405,8 +405,11 @@ export const LAB_THRESHOLDS = {
   missingPunchAllowance: 2,
   /** Team follow-up of missing punches (v6.1): 85% corrected → 0, 100% → 100. */
   followupFloor: 0.85,
-  /** v6.6 hourly target: invoices above the cap count at the cap (one big order must not decide a month). */
-  bigInvoiceCap: 3000,
+  /**
+   * v6.6 hourly target: invoices above the cap count at the cap. Owner decision 2026-11-14: every
+   * invoice counts in full, so there is no cap.
+   */
+  bigInvoiceCap: Number.POSITIVE_INFINITY,
   /** Share of the score taken from the shift's achievement on the doctor's hours; the rest is the doctor's own. */
   shiftTeamShare: 0.4,
   minShiftHours: 40,
@@ -444,6 +447,13 @@ export const DOCTOR_LEVELS = [
  */
 export const INTERNAL_CUSTOMER_CODES = new Set(['5', '10', '20', '54', '170', '4902', '12820']);
 export const isInternalCustomerCode = (code: unknown) => INTERNAL_CUSTOMER_CODES.has(String(code ?? '').trim());
+
+/**
+ * Sellers left out of the evaluation entirely (owner decision 2026-11-14): their invoices count for
+ * nobody, branch targets included. د وائل.
+ */
+export const EXCLUDED_SELLER_IDS = new Set(['2b034b1e-76dc-42f0-b150-45f4a71fe139']);
+export const isExcludedSeller = (staffId: unknown) => EXCLUDED_SELLER_IDS.has(String(staffId ?? '').trim());
 
 /** Attendance statuses that are still waiting for a decision: shown, never scored. */
 export const UNRESOLVED_ATTENDANCE = /^(.*_review|missing_checkin|missing_checkout|invalid_schedule_time)$/;

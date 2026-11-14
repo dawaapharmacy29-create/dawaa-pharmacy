@@ -3,10 +3,10 @@ import { cairoHourKey, hourlyTargets } from '../hourlyTarget';
 
 // December: Cairo is UTC+2. The previous cycle sold only at 18:00 and 19:00 Cairo, so the target of
 // 4000 lands on those two hours of each of the two cycle days (1000 per hour), scaled to the doctors'
-// share of this cycle: (1000 + 500 + 3000 capped) of 8500 with the manager's 2000.
+// share of this cycle: (1000 + 500 + 5000, every invoice in full) of 8500 with the manager's 2000.
 const B = 'فرع شكري';
 const sale = (staffId: string | null, net: number, at: string) => ({ staffId, branch: B, net, at });
-const F = 4500 / 8500;
+const F = 6500 / 8500;
 const input = () => ({
   cycle: { start: '2026-12-01', endExclusive: '2026-12-03' },
   targets: [{ branch: B, targetAmount: 4000 }],
@@ -45,14 +45,14 @@ describe('v6.6 hourly target', () => {
     expect(b.hours).toBe(2);
   });
 
-  it('caps a big invoice and reads the shift on the same hours, without non-doctor sales', () => {
+  it('counts a big invoice in full and reads the shift on the same hours, without non-doctor sales', () => {
     const out = hourlyTargets(input());
     const a = out.people.get('a')!;
     const b = out.people.get('b')!;
-    expect(a.own).toBe(4000);
-    expect(a.cappedInvoices).toBe(1);
+    expect(a.own).toBe(6000);
+    expect(a.cappedInvoices).toBe(0);
     // The manager's 2000 is nobody's share.
-    expect(a.teamSales).toBe(4500);
+    expect(a.teamSales).toBe(6500);
     expect(a.teamTarget).toBeCloseTo(4000 * F, 5);
     expect(b.teamSales).toBe(1500);
     expect(b.teamTarget).toBeCloseTo(2000 * F, 5);
