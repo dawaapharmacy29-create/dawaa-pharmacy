@@ -18,6 +18,8 @@ export interface ReviewLine {
   store: string;
   payment: 'credit' | 'cash';
   supplier_code: string;
+  /** Invoices taken out of the debt one by one. */
+  excluded?: boolean;
   invoices: number;
   net: number;
 }
@@ -39,6 +41,26 @@ export interface SupplierPayment {
   paid_on: string;
   note: string | null;
   by?: string | null;
+  /** «treasury» = cash out of the branch treasury in «التقارير المجمعة», linked to this supplier. */
+  source?: 'manual' | 'treasury';
+}
+
+/** Cash out of خزنة شكري / خزنة الشامي under «شركات» or «مخازن». */
+export interface TreasuryPayment {
+  id: string;
+  branch: PurchaseBranch;
+  category: string;
+  amount: number;
+  day: string;
+  description: string | null;
+  by?: string | null;
+}
+
+/** A treasury item linked to a supplier, or marked as not a supplier (ignored). */
+export interface TreasuryLink {
+  category: string;
+  supplier_code: string | null;
+  ignored: boolean;
 }
 
 export interface StoreUpload {
@@ -61,6 +83,116 @@ export interface PurchaseReviewData {
   suppliers: SupplierTerms[];
   payments: SupplierPayment[];
   uploads: StoreUpload[];
+  /** Debts are followed from this day: bills due before it count as settled, payments count from it. */
+  track_from?: string | null;
+  treasury?: TreasuryPayment[];
+  links?: TreasuryLink[];
+}
+
+/** Arabic names written differently in ePlus and in the treasury book compare equal. */
+export function normalizeName(name: string, dropCommonWords = true) {
+  let s = ` ${name
+    .normalize('NFC')
+    .replace(/[ً-ْـ]/g, '')
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .replace(/\s+/g, ' ')
+    .toLowerCase()} `;
+  if (dropCommonWords)
+    s = s.replace(/ (مخزن|شركه|للتوزيع|اكسسوار|فارم|فارما)(?= )/g, ' ').replace(/ ال/g, ' ');
+  return s.replace(/\s/g, '');
+}
+
+/** The supplier a treasury item most likely pays, by name; null when unsure. */
+export function suggestSupplier(category: string, suppliers: SupplierTerms[]) {
+  const candidates = suppliers.filter((s) => !s.excluded);
+  for (const drop of [false, true]) {
+    const key = normalizeName(category, drop);
+    if (key.length < 3) continue;
+    const exact = candidates.filter((s) => normalizeName(s.name, drop) === key);
+    if (exact.length === 1) return exact[0];
+    if (exact.length > 1) return null;
+  }
+  const key = normalizeName(category);
+  if (key.length < 3) return null;
+  const partial = candidates.filter((s) => {
+    const name = normalizeName(s.name);
+    return name.length >= 3 && (name.includes(key) || key.includes(name));
+  });
+  return partial.length === 1 ? partial[0] : null;
+}
+
+/** Treasury cash linked to a supplier, as payments of that supplier in that branch. */
+export function treasuryPayments(data: PurchaseReviewData): SupplierPayment[] {
+  const links = new Map((data.links ?? []).map((l) => [l.category, l]));
+  const out: SupplierPayment[] = [];
+  for (const t of data.treasury ?? []) {
+    const code = links.get(t.category)?.supplier_code;
+    if (!code) continue;
+    out.push({
+      id: `treasury:${t.id}`,
+      supplier_code: code,
+      branch: t.branch,
+      amount: t.amount,
+      paid_on: t.day,
+      note:
+        t.description && t.description !== t.category ? t.description : `من الخزنة: ${t.category}`,
+      by: t.by ?? null,
+      source: 'treasury',
+    });
+  }
+  return out;
+}
+
+/** Manual payments and old balances, plus the linked treasury cash. */
+export function allPayments(data: PurchaseReviewData): SupplierPayment[] {
+  return [
+    ...data.payments.map((p) => ({ ...p, source: p.source ?? ('manual' as const) })),
+    ...treasuryPayments(data),
+  ].sort((a, b) => a.paid_on.localeCompare(b.paid_on));
+}
+
+export interface TreasuryItem {
+  category: string;
+  /** Since track_from. */
+  total: number;
+  count: number;
+  last: string;
+  branches: Partial<Record<PurchaseBranch, number>>;
+  link: TreasuryLink | null;
+  suggestion: SupplierTerms | null;
+}
+
+/** Every treasury item paid since track_from: linked to a supplier, ignored, or still waiting. */
+export function treasuryItems(data: PurchaseReviewData): TreasuryItem[] {
+  const links = new Map((data.links ?? []).map((l) => [l.category, l]));
+  const since = data.track_from ?? '';
+  const items = new Map<string, TreasuryItem>();
+  for (const t of data.treasury ?? []) {
+    if (t.day < since) continue;
+    let item = items.get(t.category);
+    if (!item) {
+      const link = links.get(t.category) ?? null;
+      items.set(
+        t.category,
+        (item = {
+          category: t.category,
+          total: 0,
+          count: 0,
+          last: t.day,
+          branches: {},
+          link,
+          suggestion: link ? null : suggestSupplier(t.category, data.suppliers),
+        })
+      );
+    }
+    item.total += t.amount;
+    item.count += 1;
+    if (t.day > item.last) item.last = t.day;
+    item.branches[t.branch] = (item.branches[t.branch] ?? 0) + t.amount;
+  }
+  return [...items.values()].sort((a, b) => b.total - a.total);
 }
 
 const DAY = 864e5;
@@ -121,6 +253,8 @@ export interface SupplierBalance {
   terms: SupplierTerms | null;
   credit: number;
   paid: number;
+  /** The part of `paid` that came out of the treasury («التقارير المجمعة»). */
+  fromTreasury: number;
   /** > 0 we owe them, < 0 they owe us (paid more than the bills). */
   balance: number;
   bills: SupplierBill[];
@@ -132,6 +266,8 @@ export interface SupplierBalance {
 }
 
 export const DUE_SOON_DAYS = 7;
+/** A payment this long after a bill fell due is an advance on the next bill, not the old one paid late. */
+export const ADVANCE_AFTER_DAYS = 14;
 
 /** Every supplier's bills per branch, settled oldest first by its payments. */
 export function supplierBalances(data: PurchaseReviewData): SupplierBalance[] {
@@ -142,21 +278,34 @@ export function supplierBalances(data: PurchaseReviewData): SupplierBalance[] {
     if (!known || line.day < known) firstDay.set(line.branch, line.day);
   }
 
-  type Acc = { bills: Map<string, SupplierBill>; paid: number };
+  type Acc = {
+    bills: Map<string, SupplierBill>;
+    paid: number;
+    treasury: number;
+    lastSettledDue?: string;
+  };
   const acc = new Map<string, Acc>();
   const keyOf = (code: string, branch: string) => `${code}|${branch}`;
   const get = (code: string, branch: PurchaseBranch) => {
     const key = keyOf(code, branch);
     let a = acc.get(key);
-    if (!a) acc.set(key, (a = { bills: new Map(), paid: 0 }));
+    if (!a) acc.set(key, (a = { bills: new Map(), paid: 0, treasury: 0 }));
     return a;
   };
 
+  const since = data.track_from ?? '';
   for (const line of data.lines) {
-    if (line.payment !== 'credit' || isExcluded(line.supplier_code, terms)) continue;
+    if (line.payment !== 'credit' || line.excluded || isExcluded(line.supplier_code, terms))
+      continue;
     const t = terms.get(line.supplier_code);
     const bill = billOf(line.day, t?.month_start_day ?? 1);
+    const due = addDays(bill.to, 1 + (t?.pay_after_days ?? 0));
     const a = get(line.supplier_code, line.branch);
+    // Bills due before the tracking day count as settled.
+    if (due < since) {
+      if (!a.lastSettledDue || due > a.lastSettledDue) a.lastSettledDue = due;
+      continue;
+    }
     let b = a.bills.get(bill.from);
     if (!b) {
       b = {
@@ -164,7 +313,7 @@ export function supplierBalances(data: PurchaseReviewData): SupplierBalance[] {
         branch: line.branch,
         from: bill.from,
         to: bill.to,
-        due: addDays(bill.to, 1 + (t?.pay_after_days ?? 0)),
+        due,
         amount: 0,
         paid: 0,
         remaining: 0,
@@ -177,9 +326,20 @@ export function supplierBalances(data: PurchaseReviewData): SupplierBalance[] {
     b.amount += line.net;
     b.invoices += line.invoices;
   }
-  for (const p of data.payments) {
+  // Old balances (negative) always count; payments from the tracking day on, and the ones paid in
+  // advance: more than ADVANCE_AFTER_DAYS after the last bill settled before the tracking day fell due
+  // (earlier ones are that bill paid late), so they pay the next one.
+  for (const p of allPayments(data)) {
     if (isExcluded(p.supplier_code, terms)) continue;
-    get(p.supplier_code, p.branch).paid += p.amount;
+    const a = get(p.supplier_code, p.branch);
+    if (
+      p.amount > 0 &&
+      p.paid_on < since &&
+      !(a.lastSettledDue && p.paid_on > addDays(a.lastSettledDue, ADVANCE_AFTER_DAYS))
+    )
+      continue;
+    a.paid += p.amount;
+    if (p.source === 'treasury') a.treasury += p.amount;
   }
 
   const out: SupplierBalance[] = [];
@@ -187,6 +347,7 @@ export function supplierBalances(data: PurchaseReviewData): SupplierBalance[] {
     const [code, branch] = key.split('|') as [string, PurchaseBranch];
     const t = terms.get(code) ?? null;
     const bills = [...a.bills.values()].sort((x, y) => x.from.localeCompare(y.from));
+    if (!bills.length && Math.abs(a.paid) < 0.5) continue;
     let left = a.paid;
     for (const b of bills) {
       b.paid = Math.max(0, Math.min(b.amount, left));
@@ -215,6 +376,7 @@ export function supplierBalances(data: PurchaseReviewData): SupplierBalance[] {
       terms: t,
       credit,
       paid: a.paid,
+      fromTreasury: a.treasury,
       balance: credit - a.paid,
       bills,
       overdue: sum('overdue'),
@@ -269,7 +431,7 @@ export function monthSummary(data: PurchaseReviewData, range: { from: string; to
           invoices: 0,
         })
       );
-    if (isExcluded(line.supplier_code, terms)) {
+    if (line.excluded || isExcluded(line.supplier_code, terms)) {
       s.excluded += line.net;
       continue;
     }

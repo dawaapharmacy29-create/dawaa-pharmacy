@@ -9,6 +9,8 @@ import {
 } from 'lucide-react';
 import { EmptyState, Panel } from '@/components/dashboard/DashboardPrimitives';
 import CashPanel from '@/components/purchase-review/CashPanel';
+import PurchaseSearch from '@/components/purchase-review/PurchaseSearch';
+import TreasuryLinks from '@/components/purchase-review/TreasuryLinks';
 import SupplierLedger from '@/components/purchase-review/SupplierLedger';
 import {
   count,
@@ -18,10 +20,18 @@ import {
   shortBranch,
 } from '@/components/purchase-review/shared';
 import { loadAccountantReport } from '@/lib/accountantReport';
-import { importPurchaseReport, loadPurchaseReview, readEPlusFile } from '@/lib/purchaseReview/api';
 import {
+  importPurchaseReport,
+  loadPurchaseReview,
+  readEPlusFile,
+  saveTrackFrom,
+} from '@/lib/purchaseReview/api';
+import {
+  allPayments,
   cashPlan,
+  daysBetween,
   monthRange,
+  treasuryItems,
   monthSummary,
   supplierBalances,
   uploadFreshness,
@@ -38,35 +48,68 @@ export default function PurchaseReview() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [monthOffset, setMonthOffset] = useState(0);
+  const [custom, setCustom] = useState<{ from: string; to: string } | null>(null);
+  const [trackDraft, setTrackDraft] = useState('');
+  const [trackBusy, setTrackBusy] = useState(false);
+  const [trackError, setTrackError] = useState<string | null>(null);
   const [treasury, setTreasury] = useState<number | null>(null);
   const [treasuryError, setTreasuryError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadLog, setUploadLog] = useState<UploadLine[]>([]);
   const fileInput = useRef<HTMLInputElement>(null);
 
+  const [loadFrom, setLoadFrom] = useState<string | null>(null);
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setData(await loadPurchaseReview(null));
+      const next = await loadPurchaseReview(loadFrom);
+      setData(next);
+      setTrackDraft((d) => d || next.track_from || '');
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'تعذّر التحميل');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loadFrom]);
 
   useEffect(() => {
     void load();
+  }, [load]);
+
+  useEffect(() => {
     loadAccountantReport(null)
       .then((report) =>
         setTreasury(report.vaults.reduce((s, v) => s + (Number(v.balance) || 0), 0))
       )
       .catch((err) => setTreasuryError(err instanceof Error ? err.message : 'الخزنة مش متاحة'));
-  }, [load]);
+  }, []);
 
   const today = data?.today || new Date().toISOString().slice(0, 10);
-  const range = useMemo(() => monthRange(today, monthOffset), [today, monthOffset]);
+  const range = useMemo(
+    () => custom ?? monthRange(today, monthOffset),
+    [custom, today, monthOffset]
+  );
+  // A period starting before the loaded data asks the server for more.
+  useEffect(() => {
+    if (data && custom && custom.from < data.from) setLoadFrom(custom.from);
+  }, [custom, data]);
+  const payments = useMemo(() => (data ? allPayments(data) : []), [data]);
+  const treasuryList = useMemo(() => (data ? treasuryItems(data) : []), [data]);
+
+  const onSaveTrack = async () => {
+    if (!trackDraft) return;
+    setTrackBusy(true);
+    try {
+      await saveTrackFrom(trackDraft);
+      setTrackError(null);
+      await load();
+    } catch (err) {
+      setTrackError(err instanceof Error ? err.message : 'تعذّر الحفظ');
+    } finally {
+      setTrackBusy(false);
+    }
+  };
   const month = useMemo(() => (data ? monthSummary(data, range) : null), [data, range]);
   const balances = useMemo(() => (data ? supplierBalances(data) : []), [data]);
   const plan = useMemo(() => cashPlan(balances, today), [balances, today]);
@@ -190,6 +233,39 @@ export default function PurchaseReview() {
             ))}
           </ul>
         ) : null}
+
+        {data ? (
+          <div
+            className="mt-3 flex flex-wrap items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold"
+            style={{ background: 'var(--dawaa-theme-surface)' }}
+          >
+            <span className="font-black">بنتابع المديونية من</span>
+            <input
+              type="date"
+              value={trackDraft}
+              max={today}
+              onChange={(e) => setTrackDraft(e.target.value)}
+              className="dawaa-theme-surface dawaa-theme-border rounded-lg border px-2 py-1 font-bold"
+            />
+            {trackDraft && trackDraft !== data.track_from ? (
+              <button
+                type="button"
+                disabled={trackBusy}
+                onClick={() => void onSaveTrack()}
+                className="dawaa-badge dawaa-badge--info rounded-lg px-2.5 py-1 font-black"
+              >
+                {trackBusy ? 'بيتحفظ…' : 'احفظ التاريخ'}
+              </button>
+            ) : null}
+            <span className="dawaa-caption">
+              أي فاتورة آجل ميعاد دفعها قبل التاريخ ده بتتحسب اتدفعت، والدفعات بتتحسب منه
+              {data.track_from ? ` (${count(daysBetween(data.track_from, today))} يوم)` : ''}
+            </span>
+            {trackError ? (
+              <span className="text-[var(--dawaa-status-danger-text)]">{trackError}</span>
+            ) : null}
+          </div>
+        ) : null}
       </section>
 
       {error ? (
@@ -212,33 +288,68 @@ export default function PurchaseReview() {
             <Panel className="p-4">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <h2 className="dawaa-title text-lg">مشتريات {monthLabel(range.from)}</h2>
+                  <h2 className="dawaa-title text-lg">
+                    مشتريات {custom ? 'الفترة' : monthLabel(range.from)}
+                  </h2>
                   <p className="dawaa-caption text-xs font-bold">
-                    من {dayLabel(range.from)} لـ {dayLabel(monthOffset === 0 ? today : range.to)} ·
-                    مش محسوب: دواء الشامي ودواء ابو العزم والجرد
+                    من {dayLabel(range.from)} لـ {dayLabel(range.to > today ? today : range.to)} ·
+                    مش محسوب: الموردين والفواتير المستثناة
                   </p>
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex flex-wrap items-center gap-1">
+                  <input
+                    type="date"
+                    value={range.from}
+                    max={today}
+                    onChange={(e) =>
+                      e.target.value &&
+                      setCustom({
+                        from: e.target.value,
+                        to: range.to < e.target.value ? e.target.value : range.to,
+                      })
+                    }
+                    className="dawaa-theme-surface dawaa-theme-border rounded-lg border px-2 py-1 text-xs font-bold"
+                    aria-label="من"
+                  />
+                  <input
+                    type="date"
+                    value={range.to}
+                    min={range.from}
+                    onChange={(e) =>
+                      e.target.value && setCustom({ from: range.from, to: e.target.value })
+                    }
+                    className="dawaa-theme-surface dawaa-theme-border rounded-lg border px-2 py-1 text-xs font-bold"
+                    aria-label="لحد"
+                  />
                   <button
                     type="button"
                     className="dawaa-tab text-xs"
-                    onClick={() => setMonthOffset((m) => m - 1)}
+                    onClick={() => {
+                      setCustom(null);
+                      setMonthOffset((m) => m - 1);
+                    }}
                     aria-label="الشهر اللي قبله"
                   >
                     <ChevronRight className="h-4 w-4" />
                   </button>
                   <button
                     type="button"
-                    className={`dawaa-tab text-xs ${monthOffset === 0 ? 'is-active' : ''}`}
-                    onClick={() => setMonthOffset(0)}
+                    className={`dawaa-tab text-xs ${!custom && monthOffset === 0 ? 'is-active' : ''}`}
+                    onClick={() => {
+                      setCustom(null);
+                      setMonthOffset(0);
+                    }}
                   >
                     الشهر ده
                   </button>
                   <button
                     type="button"
                     className="dawaa-tab text-xs"
-                    disabled={monthOffset >= 0}
-                    onClick={() => setMonthOffset((m) => Math.min(0, m + 1))}
+                    disabled={!custom && monthOffset >= 0}
+                    onClick={() => {
+                      setCustom(null);
+                      setMonthOffset((m) => Math.min(0, m + 1));
+                    }}
                     aria-label="الشهر اللي بعده"
                   >
                     <ChevronLeft className="h-4 w-4" />
@@ -331,7 +442,7 @@ export default function PurchaseReview() {
                       {top.length ? (
                         <div className="mt-3">
                           <p className="dawaa-caption mb-1 text-[11px] font-black">
-                            أكبر الموردين الشهر ده
+                            أكبر الموردين في الفترة
                           </p>
                           {top.map((s) => (
                             <div key={s.code} className="mb-1">
@@ -362,10 +473,20 @@ export default function PurchaseReview() {
             </Panel>
           ) : null}
 
+          <PurchaseSearch suppliers={data.suppliers} balances={balances} onChanged={load} />
+
           <SupplierLedger
             balances={balances}
-            payments={data.payments}
+            payments={payments}
             today={today}
+            trackFrom={data.track_from ?? null}
+            onChanged={load}
+          />
+
+          <TreasuryLinks
+            items={treasuryList}
+            suppliers={data.suppliers}
+            trackFrom={data.track_from ?? null}
             onChanged={load}
           />
         </>

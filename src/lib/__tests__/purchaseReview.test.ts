@@ -12,6 +12,8 @@ import {
   monthRange,
   monthSummary,
   supplierBalances,
+  suggestSupplier,
+  treasuryItems,
   uploadFreshness,
   type PurchaseReviewData,
   type ReviewLine,
@@ -447,5 +449,167 @@ describe('كارت المشتريات في مراجعتي اليومية', () =>
 
   it('keeps the old card when there is no purchase review data', () => {
     expect(withPurchaseReview(review, null)).toBe(review);
+  });
+});
+
+describe('تاريخ المتابعة والاستثناء والدفع من الخزنة', () => {
+  const lines = [
+    line({ day: '2026-09-20', net: 800 }), // bill 16/9 → due 16/10
+    line({ day: '2026-10-20', net: 200 }), // bill 16/10 → due 16/11
+  ];
+
+  it('bills due before the tracking day count as settled, and so do payments before it', () => {
+    const [b] = supplierBalances(
+      data({
+        lines,
+        track_from: '2026-11-01',
+        payments: [
+          {
+            id: 'a',
+            supplier_code: '38',
+            branch: 'فرع شكري',
+            amount: 800,
+            paid_on: '2026-10-16',
+            note: null,
+          },
+          {
+            id: 'b',
+            supplier_code: '38',
+            branch: 'فرع شكري',
+            amount: -50,
+            paid_on: '2026-10-01',
+            note: null,
+          },
+        ],
+      })
+    );
+    expect(b.bills.map((x) => x.from)).toEqual(['2026-10-16']);
+    expect(b.credit).toBe(200);
+    // The 800 paid before the tracking day is ignored; the opening balance (-50) still counts.
+    expect(b.paid).toBe(-50);
+    expect(b.balance).toBe(250);
+  });
+
+  it('an excluded invoice leaves the debt and shows as excluded in the month', () => {
+    const withFlag = [...lines, line({ day: '2026-10-21', net: 70, excluded: true })];
+    const [b] = supplierBalances(data({ lines: withFlag }));
+    expect(b.credit).toBe(1000);
+    const month = monthSummary(data({ lines: withFlag }), { from: '2026-10-01', to: '2026-10-31' });
+    expect(month.total.excluded).toBe(70);
+    expect(month.total.credit).toBe(200);
+  });
+
+  it('treasury cash linked to a supplier pays that supplier in that branch only', () => {
+    const d = data({
+      lines,
+      track_from: '2026-10-01',
+      treasury: [
+        {
+          id: '1',
+          branch: 'فرع شكري',
+          category: 'فارما اوفر سيز',
+          amount: 800,
+          day: '2026-10-16',
+          description: null,
+        },
+        {
+          id: '2',
+          branch: 'فرع الشامي',
+          category: 'فارما اوفر سيز',
+          amount: 500,
+          day: '2026-10-16',
+          description: null,
+        },
+        {
+          id: '3',
+          branch: 'فرع شكري',
+          category: 'حسان',
+          amount: 40,
+          day: '2026-10-17',
+          description: null,
+        },
+        {
+          id: '4',
+          branch: 'فرع شكري',
+          category: 'فارما اوفر سيز',
+          amount: 999,
+          day: '2026-09-01',
+          description: null,
+        },
+      ],
+      links: [{ category: 'فارما اوفر سيز', supplier_code: '38', ignored: false }],
+    });
+    const balances = supplierBalances(d);
+    const shokry = balances.find((b) => b.branch === 'فرع شكري')!;
+    expect(shokry.paid).toBe(800);
+    expect(shokry.fromTreasury).toBe(800);
+    expect(shokry.balance).toBe(200);
+    expect(shokry.bills[0].state).toBe('paid');
+    // The Shami branch paid with no invoices there: it owes us.
+    expect(balances.find((b) => b.branch === 'فرع الشامي')!.balance).toBe(-500);
+
+    const items = treasuryItems(d);
+    expect(items.map((i) => [i.category, i.total, Boolean(i.link)])).toEqual([
+      ['فارما اوفر سيز', 1300, true],
+      ['حسان', 40, false],
+    ]);
+  });
+
+  it('suggests the supplier a treasury item pays, and stays quiet when unsure', () => {
+    const suppliers = [
+      ['322', 'مخزن المدينة'],
+      ['317', 'المدينة المنورة اكسسوار'],
+      ['295', 'كيان اكسسوار'],
+      ['74', 'المتحدة  للتوزيع'],
+      ['208', 'مخزن الحياه'],
+      ['290', 'الحياه اكسسوار'],
+      ['309', 'مخزن سونيستا فارما'],
+      ['471', 'مخزن المعداوي'],
+      ['301', 'سوفيكو فارم'],
+    ].map(([code, name]) => ({
+      code,
+      name,
+      month_start_day: 1,
+      pay_after_days: 0,
+      excluded: false,
+      note: null,
+    }));
+    const pick = (category: string) => suggestSupplier(category, suppliers)?.code ?? null;
+    expect(pick('مخزن المدينه')).toBe('322');
+    expect(pick('كيان')).toBe('295');
+    expect(pick('المتحده')).toBe('74');
+    expect(pick('مخزن الحياه')).toBe('208');
+    expect(pick('مخزن سونيستا')).toBe('309');
+    expect(pick('مخزن المعداوى')).toBe('471');
+    expect(pick('سوفيكو')).toBe('301');
+    expect(pick('حسان')).toBeNull();
+  });
+});
+
+describe('الدفع مقدّم قبل تاريخ المتابعة', () => {
+  it('a payment well after the last settled bill fell due pays the next bill; a late one does not', () => {
+    const pay = (amount: number, paid_on: string) => ({
+      id: paid_on,
+      supplier_code: '38',
+      branch: 'فرع شكري' as const,
+      amount,
+      paid_on,
+      note: null,
+    });
+    const [b] = supplierBalances(
+      data({
+        lines: [line({ day: '2026-09-20', net: 800 }), line({ day: '2026-10-20', net: 200 })],
+        track_from: '2026-11-01',
+        // 800 and 20 pay the bill due 16/10 (on time and late); 150 on 31/10 is an advance on the next one.
+        payments: [
+          pay(800, '2026-10-16'),
+          pay(20, '2026-10-25'),
+          pay(150, '2026-10-31'),
+          pay(30, '2026-09-01'),
+        ],
+      })
+    );
+    expect(b.paid).toBe(150);
+    expect(b.balance).toBe(50);
   });
 });

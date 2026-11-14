@@ -15,6 +15,7 @@ import {
   saveSupplierTerms,
   type ReviewInvoice,
 } from '@/lib/purchaseReview/api';
+import InvoiceRow from './InvoiceRow';
 import { billingLabel, count, dayLabel, money, shortBranch } from './shared';
 
 // «علينا ولينا»: every supplier per branch with what is overdue, due this week, still running, and its
@@ -34,11 +35,13 @@ export default function SupplierLedger({
   balances,
   payments,
   today,
+  trackFrom,
   onChanged,
 }: {
   balances: SupplierBalance[];
   payments: SupplierPayment[];
   today: string;
+  trackFrom: string | null;
   onChanged: () => Promise<void>;
 }) {
   const [filter, setFilter] = useState<Filter>('all');
@@ -48,37 +51,7 @@ export default function SupplierLedger({
     (b) => (filter === 'all' || b.branch === filter) && (!onlyOwed || Math.abs(b.balance) > 0.5)
   );
   const total = shown.reduce((s, b) => s + Math.max(0, b.balance), 0);
-  const overdue = balances.filter((b) => b.overdue > 0.5);
-  const overdueTotal = overdue.reduce((s, b) => s + b.overdue, 0);
-  const [settling, setSettling] = useState(false);
-  const [settleError, setSettleError] = useState<string | null>(null);
-
-  // First use: the files start mid-way, and what was paid before is not in the system yet.
-  const settleOverdue = async () => {
-    if (
-      !window.confirm(
-        `هيتسجل إن كل الشهور اللي ميعادها فات اتدفعت (${count(overdue.length)} مورد بـ ${money(overdueTotal)}). تكمّل؟`
-      )
-    )
-      return;
-    setSettling(true);
-    try {
-      for (const b of overdue)
-        await addSupplierPayment({
-          supplier_code: b.code,
-          branch: b.branch,
-          amount: Math.round(b.overdue * 100) / 100,
-          paid_on: today,
-          note: 'تسوية: اللي ميعاده فات اتدفع',
-        });
-      setSettleError(null);
-    } catch (err) {
-      setSettleError(err instanceof Error ? err.message : 'تعذّر التسجيل');
-    } finally {
-      setSettling(false);
-      await onChanged();
-    }
-  };
+  const credits = balances.filter((b) => b.balance < -0.5);
 
   return (
     <Panel className="p-4">
@@ -108,21 +81,20 @@ export default function SupplierLedger({
             />
             اللي ليه رصيد بس
           </label>
-          {overdue.length ? (
-            <button
-              type="button"
-              disabled={settling}
-              onClick={() => void settleOverdue()}
-              className="dawaa-badge dawaa-badge--warning rounded-lg px-2.5 py-1 text-xs font-black"
-            >
-              {settling ? 'بيتسجل…' : 'تسوية البداية: كل المتأخر اتدفع'}
-            </button>
-          ) : null}
         </div>
       </div>
-      {settleError ? (
-        <p className="mb-2 text-xs font-bold text-[var(--dawaa-status-danger-text)]">
-          {settleError}
+      {credits.length ? (
+        <p
+          className="mb-2 rounded-lg px-2.5 py-1.5 text-xs font-bold"
+          style={{ background: 'var(--dawaa-status-info-bg)' }}
+        >
+          {count(credits.length)} مورد طالع لينا عندهم (
+          {credits
+            .slice(0, 4)
+            .map((b) => `${b.name} ${shortBranch(b.branch)}`)
+            .join('، ')}
+          {credits.length > 4 ? '…' : ''}). ده غالبًا يعني إن الدفعة كانت لفواتير قبل تاريخ
+          المتابعة: سجّل «رصيد أول المدة» للمورد، أو رجّع تاريخ المتابعة لورا.
         </p>
       ) : null}
 
@@ -194,6 +166,7 @@ export default function SupplierLedger({
                             (p) => p.supplier_code === b.code && p.branch === b.branch
                           )}
                           today={today}
+                          trackFrom={trackFrom}
                           onChanged={onChanged}
                         />
                       </td>
@@ -262,6 +235,7 @@ export default function SupplierLedger({
                       (p) => p.supplier_code === b.code && p.branch === b.branch
                     )}
                     today={today}
+                    trackFrom={trackFrom}
                     onChanged={onChanged}
                   />
                 </div>
@@ -281,11 +255,13 @@ function SupplierDetails({
   balance,
   payments,
   today,
+  trackFrom,
   onChanged,
 }: {
   balance: SupplierBalance;
   payments: SupplierPayment[];
   today: string;
+  trackFrom: string | null;
   onChanged: () => Promise<void>;
 }) {
   const [bill, setBill] = useState<string | null>(null);
@@ -299,6 +275,9 @@ function SupplierDetails({
     }
     setBill(from);
     setInvoices(null);
+    await loadBill(from, to);
+  };
+  const loadBill = async (from: string, to: string) => {
     try {
       setInvoices(
         (
@@ -310,28 +289,15 @@ function SupplierDetails({
           })
         ).filter((i) => i.payment === 'credit')
       );
+      setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'تعذّر التحميل');
     }
   };
-
-  const [paying, setPaying] = useState<string | null>(null);
-  const markPaid = async (b: SupplierBalance['bills'][number]) => {
-    setPaying(b.from);
-    try {
-      await addSupplierPayment({
-        supplier_code: balance.code,
-        branch: balance.branch,
-        amount: Math.round(b.remaining * 100) / 100,
-        paid_on: b.due < today ? b.due : today,
-        note: `شهر ${dayLabel(b.from)} ← ${dayLabel(b.to)}`,
-      });
-      await onChanged();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'تعذّر التسجيل');
-    } finally {
-      setPaying(null);
-    }
+  const afterInvoiceChange = async () => {
+    await onChanged();
+    const b = balance.bills.find((x) => x.from === bill);
+    if (b) await loadBill(b.from, b.to);
   };
 
   return (
@@ -365,16 +331,6 @@ function SupplierDetails({
                     </span>
                   </span>
                 </button>
-                {b.remaining > 0.5 && b.to < today ? (
-                  <button
-                    type="button"
-                    disabled={paying !== null}
-                    onClick={() => void markPaid(b)}
-                    className="dawaa-badge dawaa-badge--success shrink-0 rounded-xl px-2.5 text-xs font-black"
-                  >
-                    {paying === b.from ? '…' : 'اتدفعت'}
-                  </button>
-                ) : null}
               </div>
               {bill === b.from ? (
                 <div className="px-2 py-1.5 text-[11px] font-bold">
@@ -383,16 +339,13 @@ function SupplierDetails({
                   ) : !invoices ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
-                    <ul className="max-h-60 space-y-1 overflow-y-auto">
+                    <ul className="max-h-72 space-y-1 overflow-y-auto">
                       {invoices.map((i) => (
-                        <li key={`${i.store}-${i.serial}`} className="flex justify-between gap-2">
-                          <span className="min-w-0 truncate">
-                            {dayLabel(i.invoice_at.slice(0, 10))} · {i.store} · مسلسل {i.serial}
-                            {i.supplier_invoice_no ? ` · فاتورة ${i.supplier_invoice_no}` : ''}
-                            {i.entered_by ? ` · ${i.entered_by}` : ''}
-                          </span>
-                          <span className="shrink-0 tabular-nums">{money(i.net)}</span>
-                        </li>
+                        <InvoiceRow
+                          key={`${i.store}-${i.serial}`}
+                          invoice={i}
+                          onChanged={afterInvoiceChange}
+                        />
                       ))}
                     </ul>
                   )}
@@ -403,7 +356,13 @@ function SupplierDetails({
         </div>
       </div>
       <div className="space-y-3">
-        <Payments balance={balance} payments={payments} today={today} onChanged={onChanged} />
+        <Payments
+          balance={balance}
+          payments={payments}
+          today={today}
+          trackFrom={trackFrom}
+          onChanged={onChanged}
+        />
         <TermsForm balance={balance} onChanged={onChanged} />
       </div>
     </div>
@@ -414,13 +373,19 @@ function Payments({
   balance,
   payments,
   today,
+  trackFrom,
   onChanged,
 }: {
   balance: SupplierBalance;
   payments: SupplierPayment[];
   today: string;
+  trackFrom: string | null;
   onChanged: () => Promise<void>;
 }) {
+  const shownPayments = payments
+    .filter((p) => p.amount < 0 || !trackFrom || p.paid_on >= trackFrom)
+    .slice()
+    .reverse();
   const [amount, setAmount] = useState('');
   const [day, setDay] = useState(today);
   const [note, setNote] = useState('');
@@ -453,7 +418,7 @@ function Payments({
         branch: balance.branch,
         amount: oldDebt ? -value : value,
         paid_on: day,
-        note: note.trim() || (oldDebt ? 'رصيد قديم' : null),
+        note: note.trim() || (oldDebt ? 'رصيد أول المدة' : null),
       });
       setAmount('');
       setNote('');
@@ -465,32 +430,44 @@ function Payments({
       className="dawaa-theme-border rounded-xl border p-3"
       style={{ background: 'var(--dawaa-theme-surface)' }}
     >
-      <p className="mb-2 text-xs font-black">
-        المدفوع {money(balance.paid)} من {money(balance.credit)}
+      <p className="mb-1 text-xs font-black">
+        فواتير آجل {money(balance.credit)} · اتدفع {money(balance.paid)}
+        {balance.fromTreasury > 0.5 ? ` (منه ${money(balance.fromTreasury)} من الخزنة)` : ''}
       </p>
-      {payments.length ? (
-        <ul className="mb-2 space-y-1 text-[11px] font-bold">
-          {payments.map((p) => (
+      <p className="dawaa-caption mb-2 text-[11px] font-bold">
+        من {trackFrom ? dayLabel(trackFrom) : 'أول الملفات'} · الدفعات من الخزنة بتيجي لوحدها من
+        التقارير المجمعة
+      </p>
+      {shownPayments.length ? (
+        <ul className="mb-2 max-h-48 space-y-1 overflow-y-auto text-[11px] font-bold">
+          {shownPayments.map((p) => (
             <li key={p.id} className="flex items-center justify-between gap-2">
               <span className="min-w-0 truncate">
-                {dayLabel(p.paid_on)} · {p.amount < 0 ? 'رصيد قديم' : 'دفعة'}
+                {dayLabel(p.paid_on)} ·{' '}
+                {p.amount < 0
+                  ? 'رصيد أول المدة'
+                  : p.source === 'treasury'
+                    ? 'من الخزنة'
+                    : 'دفعة برة الخزنة'}
                 {p.note ? ` · ${p.note}` : ''}
                 {p.by ? ` · ${p.by}` : ''}
               </span>
               <span className="flex shrink-0 items-center gap-1 tabular-nums">
                 {money(Math.abs(p.amount))}
-                <button
-                  type="button"
-                  aria-label="مسح الدفعة"
-                  disabled={busy}
-                  onClick={() => {
-                    if (window.confirm('تمسح الدفعة دي؟'))
-                      void run(() => deleteSupplierPayment(p.id));
-                  }}
-                  className="text-[var(--dawaa-status-danger-text)]"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
+                {p.source !== 'treasury' ? (
+                  <button
+                    type="button"
+                    aria-label="مسح الدفعة"
+                    disabled={busy}
+                    onClick={() => {
+                      if (window.confirm('تمسح الدفعة دي؟'))
+                        void run(() => deleteSupplierPayment(p.id));
+                    }}
+                    className="text-[var(--dawaa-status-danger-text)]"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                ) : null}
               </span>
             </li>
           ))}
@@ -519,7 +496,7 @@ function Payments({
         />
         <label className="col-span-2 inline-flex items-center gap-1 font-black">
           <input type="checkbox" checked={oldDebt} onChange={(e) => setOldDebt(e.target.checked)} />
-          ده رصيد قديم علينا من قبل أول ملف (مش دفعة)
+          ده رصيد أول المدة علينا (فلوس قديمة قبل تاريخ المتابعة، مش دفعة)
         </label>
         <button
           type="button"
@@ -527,7 +504,11 @@ function Payments({
           onClick={submit}
           className="dawaa-badge dawaa-badge--success col-span-2 justify-center rounded-lg py-1.5 font-black"
         >
-          {busy ? 'بيتسجل…' : oldDebt ? 'سجّل الرصيد القديم' : 'سجّل الدفعة'}
+          {busy
+            ? 'بيتسجل…'
+            : oldDebt
+              ? 'سجّل رصيد أول المدة'
+              : 'سجّل دفعة برة الخزنة (تحويل بنكي مثلاً)'}
         </button>
       </div>
       {error ? (

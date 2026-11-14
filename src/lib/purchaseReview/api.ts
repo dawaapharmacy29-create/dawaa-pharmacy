@@ -7,7 +7,7 @@ import {
 } from './ePlusReport';
 import type { PurchaseReviewData } from './ledger';
 
-// «مراجعة المشتريات» data (migration 20261114153544). Top management only.
+// «مراجعة المشتريات» data (migrations 20261114153544, 20261114160410). Top management only.
 
 const ERRORS: Record<string, string> = {
   not_authorized: 'الصفحة دي للمدير العام والتنفيذي بس',
@@ -17,6 +17,7 @@ const ERRORS: Record<string, string> = {
   unknown_supplier: 'المورد مش موجود',
   invalid_payment: 'المبلغ أو التاريخ مش صح',
   invalid_period: 'الفترة مش صح',
+  unknown_invoice: 'الفاتورة مش موجودة',
 };
 
 function fail(error: { message?: string } | null, fallback: string): never {
@@ -47,7 +48,20 @@ export async function loadPurchaseReview(from: string | null = null): Promise<Pu
       pay_after_days: num(s.pay_after_days),
       excluded: Boolean(s.excluded),
     })),
-    payments: (d.payments ?? []).map((p) => ({ ...p, amount: num(p.amount) })),
+    payments: (d.payments ?? []).map((p) => ({ ...p, amount: num(p.amount), source: 'manual' })),
+    track_from: d.track_from ? String(d.track_from) : null,
+    treasury: (d.treasury ?? []).map((t) => ({
+      ...t,
+      id: String(t.id),
+      category: String(t.category ?? '').trim(),
+      amount: num(t.amount),
+      day: String(t.day),
+    })),
+    links: (d.links ?? []).map((l) => ({
+      category: String(l.category),
+      supplier_code: l.supplier_code ? String(l.supplier_code) : null,
+      ignored: Boolean(l.ignored),
+    })),
     uploads: (d.uploads ?? []).map((u) => ({
       ...u,
       invoices: num(u.invoices),
@@ -148,6 +162,61 @@ export interface ReviewInvoice {
   net: number;
   entered_by: string | null;
   note: string | null;
+  excluded?: boolean;
+  excluded_note?: string | null;
+}
+
+const invoiceRows = (data: unknown): ReviewInvoice[] =>
+  ((data ?? []) as ReviewInvoice[]).map((r) => ({
+    ...r,
+    net: num(r.net),
+    gross: num(r.gross),
+    excluded: Boolean(r.excluded),
+  }));
+
+/** By our serial, the supplier's invoice number, or the supplier's name or code. */
+export async function searchReviewInvoices(query: string): Promise<ReviewInvoice[]> {
+  const { data, error } = await supabase.rpc('search_purchase_review_invoices_v1', {
+    p_query: query,
+  });
+  if (error) fail(error, 'تعذّر البحث');
+  return invoiceRows(data);
+}
+
+/** Takes one invoice out of the debt, or puts it back. */
+export async function setInvoiceExcluded(
+  invoice: { store: string; serial: string },
+  excluded: boolean,
+  note: string | null = null
+) {
+  const { error } = await supabase.rpc('set_purchase_invoice_excluded_v1', {
+    p_store: invoice.store,
+    p_serial: invoice.serial,
+    p_excluded: excluded,
+    p_note: note,
+  });
+  if (error) fail(error, 'تعذّر الحفظ');
+}
+
+export async function saveTrackFrom(day: string) {
+  const { error } = await supabase.rpc('save_purchase_review_track_from_v1', {
+    p_track_from: day,
+  });
+  if (error) fail(error, 'تعذّر الحفظ');
+}
+
+/** Links a treasury item to a supplier; `ignored` marks it as not a supplier; neither clears it. */
+export async function linkTreasuryItem(
+  category: string,
+  supplierCode: string | null,
+  ignored = false
+) {
+  const { error } = await supabase.rpc('link_purchase_treasury_item_v1', {
+    p_category: category,
+    p_supplier_code: supplierCode,
+    p_ignored: ignored,
+  });
+  if (error) fail(error, 'تعذّر الربط');
 }
 
 export async function listReviewInvoices(params: {
@@ -163,9 +232,5 @@ export async function listReviewInvoices(params: {
     p_branch: params.branch ?? null,
   });
   if (error) fail(error, 'تعذّر تحميل الفواتير');
-  return ((data ?? []) as ReviewInvoice[]).map((r) => ({
-    ...r,
-    net: num(r.net),
-    gross: num(r.gross),
-  }));
+  return invoiceRows(data);
 }
