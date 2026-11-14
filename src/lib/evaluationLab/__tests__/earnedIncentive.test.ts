@@ -135,4 +135,22 @@ describe('buildCycleScores v6.9', () => {
   it('the previous version is unchanged and has no earned incentive', () => {
     expect(buildCycleScores(evidence, 'v6.8').every((p) => p.earned === undefined)).toBe(true);
   });
+  it('v7.0: the branch manager races for the star with the doctors, sharing the follow-up target', () => {
+    const withManager: LabEvidence = {
+      ...evidence,
+      staff: [...evidence.staff, { id: 'm1', name: 'د مدير', role: 'branch_manager', branch: 'فرع شكري' }],
+      attendance: [...evidence.attendance, ...dates.map((date) => ({ staffId: 'm1', date, status: 'on_time', approved: true, hasFirstIn: true, scheduled: true, lateMinutes: 0 }))],
+      followupRequests: [...(evidence.followupRequests || []), { staffId: 'm1', requests: 400 }],
+    };
+    const scores = buildCycleScores(withManager, 'v7.0');
+    const m1 = scores.find((p) => p.staffId === 'm1')!;
+    expect(m1.family).toBe('branch_manager');
+    expect(m1.star).toBeDefined();
+    // 1000 shared over three people with 20 days each: 400 of a 333 share = 120%.
+    expect(m1.star!.parts.followups).toBeCloseTo(120, 5);
+    const d1 = scores.find((p) => p.staffId === 'd1')!;
+    expect(d1.star!.parts.followups).toBe(150);
+    // The doctors' own follow-up item still shares the target among the doctors only.
+    expect(scores.find((p) => p.staffId === 'd2')!.axes.find((a) => a.key === 'followup_requests')?.score).toBe(20);
+  });
 });

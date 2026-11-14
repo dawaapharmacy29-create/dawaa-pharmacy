@@ -445,7 +445,7 @@ export default function EvaluationLab() {
         <TrackCoverage />
       </section>
 
-      {scores.some((person) => person.star) ? <BranchStarsSummary people={scores.filter((person) => person.family === 'doctor')} /> : null}
+      {scores.some((person) => person.star) ? <BranchStarsSummary people={scores.filter((person) => person.star)} /> : null}
 
       {canSeeAllBranches(user?.role) ? <BranchCycleLossesPanel /> : null}
 

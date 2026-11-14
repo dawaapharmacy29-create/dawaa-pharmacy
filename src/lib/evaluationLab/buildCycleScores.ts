@@ -521,9 +521,11 @@ function earnedAxesFor(
   minResolved: number,
   version: LabVersion,
   starInputs: Map<string, Omit<StarInput, 'score' | 'salesPct'>>,
+  /** Branch managers: in the star race with the doctors (owner 2026-11-14), but scored on their own card. */
+  starOnly: Array<{ id: string; branch: string | null }> = [],
 ): Map<string, AxisDraft[]> {
   // A working day is a punched day or a day with own invoices (a missing punch never erases work).
-  const poolIds = new Set(pool.map((p) => p.id));
+  const poolIds = new Set([...pool.map((p) => p.id), ...starOnly.map((p) => p.id)]);
   const worked = new Map<string, Set<string>>();
   const mark = (id: string | null, date: string) => { if (id && poolIds.has(id) && date) worked.set(id, (worked.get(id) || new Set()).add(date)); };
   for (const day of evidence.attendance) if (day.hasFirstIn) mark(day.staffId, day.date);
@@ -532,6 +534,12 @@ function earnedAxesFor(
   for (const person of pool) {
     const key = branchKey(person.branch);
     branchDays.set(key, (branchDays.get(key) || 0) + (worked.get(person.id)?.size || 0));
+  }
+  // The star shares the branch follow-up target over everyone in the race, managers included.
+  const starBranchDays = new Map(branchDays);
+  for (const person of starOnly) {
+    const key = branchKey(person.branch);
+    starBranchDays.set(key, (starBranchDays.get(key) || 0) + (worked.get(person.id)?.size || 0));
   }
   const share = Math.min(1, Math.max(0, evidence.cycleShare ?? 1));
   // v7.0 counts conversations from the cycle of 26/10 (reviews are daily now); v6.9 kept it as a trial.
@@ -543,12 +551,35 @@ function earnedAxesFor(
   const followups = evidence.followupRequests == null ? null : new Map<string, number>();
   for (const row of evidence.followupRequests || []) followups?.set(row.staffId, (followups.get(row.staffId) || 0) + row.requests);
   const out = new Map<string, AxisDraft[]>();
+  const targetOf = (branch: string | null) => {
+    const key = branchKey(branch);
+    return (evidence.followupTargets || []).find((t) => branchKey(t.branch) === key)?.target ?? cycleTarget ?? EARNED_RULES.defaultFollowupTarget;
+  };
+  const violationsOf = (id: string) => (evidence.violations == null ? null : evidence.violations.filter((v) => v.staffId === id).length);
+  const addStar = (id: string, branch: string | null) => {
+    const workedDays = worked.get(id)?.size || 0;
+    const branchDoctorDays = starBranchDays.get(branchKey(branch)) || 0;
+    const projectedFollowups = followups ? (followups.get(id) || 0) / (share || 1) : 0;
+    const followupShare = workedDays && branchDoctorDays ? (targetOf(branch) * workedDays) / branchDoctorDays : 0;
+    const completeRequests = evidence.requests.filter((r) => r.recordedStaffId === id && isCompleteRequest(r)).length;
+    starInputs.set(id, {
+      staffId: id,
+      name: evidence.staff.find((p) => p.id === id)?.name || '',
+      branch,
+      followupPct: followups && followupShare ? (projectedFollowups / followupShare) * 100 : null,
+      requestsPct: ((completeRequests / (share || 1)) / EARNED_RULES.completeRequestsTarget) * 100,
+      followups: projectedFollowups,
+      workedDays,
+      absentDays: attendanceCounts(evidence.attendance.filter((day) => day.staffId === id)).absent,
+      violations: violationsOf(id) ?? 0,
+    });
+  };
   for (const { id, branch } of doctors) {
     const key = branchKey(branch);
-    const target = (evidence.followupTargets || []).find((t) => branchKey(t.branch) === key)?.target ?? cycleTarget ?? EARNED_RULES.defaultFollowupTarget;
+    const target = targetOf(branch);
     const own = evidence.invoices.filter((inv) => inv.staffId === id && inv.net > 0);
     const counts = attendanceCounts(evidence.attendance.filter((day) => day.staffId === id));
-    const violations = evidence.violations == null ? null : evidence.violations.filter((v) => v.staffId === id).length;
+    const violations = violationsOf(id);
     out.set(id, earnedDoctorAxes({
       branch, cycleShare: share, trial,
       workedDays: worked.get(id)?.size || 0,
@@ -565,23 +596,9 @@ function earnedAxesFor(
       minReviews,
       violations,
     }));
-    const workedDays = worked.get(id)?.size || 0;
-    const branchDoctorDays = branchDays.get(key) || 0;
-    const projectedFollowups = followups ? (followups.get(id) || 0) / (share || 1) : 0;
-    const followupShare = workedDays && branchDoctorDays ? (target * workedDays) / branchDoctorDays : 0;
-    const completeRequests = evidence.requests.filter((r) => r.recordedStaffId === id && isCompleteRequest(r)).length;
-    starInputs.set(id, {
-      staffId: id,
-      name: evidence.staff.find((p) => p.id === id)?.name || '',
-      branch,
-      followupPct: followups && followupShare ? (projectedFollowups / followupShare) * 100 : null,
-      requestsPct: ((completeRequests / (share || 1)) / EARNED_RULES.completeRequestsTarget) * 100,
-      followups: projectedFollowups,
-      workedDays,
-      absentDays: counts.absent,
-      violations: violations ?? 0,
-    });
+    addStar(id, branch);
   }
+  for (const { id, branch } of starOnly) addStar(id, branch);
   return out;
 }
 
@@ -672,7 +689,13 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
     if (dormant(evidence, 'followups')) push(id, notMeasurable('followups', 'لا توجد متابعات مسجلة في هذه الدورة (المصدر متوقف)'));
   }
   const starInputs = new Map<string, Omit<StarInput, 'score' | 'salesPct'>>();
-  if (atLeast(version, 'v6.9')) earnedAxesFor(evidence, doctors, doctorPool, facts, minResolved, version, starInputs).forEach((list, id) => list.forEach((axis) => push(id, axis)));
+  // v7.0: branch managers race for the star too. Their sales against their hours' target come from an
+  // hourly curve shared with the doctors of their branch (the doctors' own items keep the doctors' curve).
+  const starManagers = atLeast(version, 'v7.0') ? familyMembers('branch_manager').map(({ id, branch }) => ({ id, branch })) : [];
+  const starHourly = starManagers.length
+    ? hourlyFor(evidence, [...doctorPool, ...evidence.staff.filter((p) => starManagers.some((m) => m.id === p.id))])
+    : hourly;
+  if (atLeast(version, 'v6.9')) earnedAxesFor(evidence, doctors, doctorPool, facts, minResolved, version, starInputs, starManagers).forEach((list, id) => list.forEach((axis) => push(id, axis)));
 
   // Assistants.
   const assistants = familyMembers('assistant');
@@ -985,9 +1008,9 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
   if (atLeast(version, 'v7.0')) {
     const inputs: StarInput[] = [];
     for (const result of results) {
-      const base = result.family === 'doctor' ? starInputs.get(result.staffId) : undefined;
+      const base = result.family === 'doctor' || result.family === 'branch_manager' ? starInputs.get(result.staffId) : undefined;
       if (!base) continue;
-      const sales = result.axes.find((axis) => axis.key === 'shift_target');
+      const sales = hourlyAxes(starHourly, result.staffId, shape).find((axis) => axis.key === 'shift_target');
       inputs.push({
         ...base,
         score: result.readiness === 'insufficient' ? null : result.total,
