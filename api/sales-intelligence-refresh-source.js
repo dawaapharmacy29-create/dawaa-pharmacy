@@ -909,7 +909,7 @@ var QUANTITY_RX = /(\d+|واحد[ةه]?|اتنين|تلات[ةه]?|أربع[ةه
 var REFERENCE_QUANTITY_RX = /(?:منه|من\s*ده|من\s*دا)\s*(اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?|\d+)|(\d+|واحد[ةه]?|اتنين|تلات[ةه]?)\s*(?:منه|من\s*(?:ده|دا))(?:\s|$|[.!،؟?])/i;
 var PHONE_RX = /01[0-2,5]\d{8}/;
 var ADDRESS_RX = /العنوان\s*[:\-]?\s*\S+|عنوانك|هيوصل\s*ل(?:ـ|حضرتك)/i;
-var PRICE_RX = /(\d+(?:\.\d+)?)\s*(جنيه|جنيها|ج\.?م\.?|le|egp)/i;
+var PRICE_RX = /(\d+(?:\.\d+)?)\s*(جنيه|جنيها|ج\.?م\.?|ج(?=$|[\s.!،؟?])|le|egp)/i;
 var DELIVERY_RX = /توصيل|دليفري|delivery/i;
 var PROMISE_RX = /هبعت(?:لك|لحضرتك)?|هيوصل|هجهز(?:لك|لحضرتك)?|هوصلك/i;
 var UNAVAILABLE_RX = /(?:مش|مو|غير)\s*(?:موجود|متوفر|متاح)[ةه]?|مفيش\s*(?:منه|منها|حاليا|حاليًا|عندنا)|مش\s*عندنا|(?:الصنف|المنتج|ده|دي|هو|هي)\s*(?:خلص|خلصان[ةه]?|نفذ|ناقص[ةه]?)|(?:خلص|نفذ|ناقص[ةه]?)\s*(?:من\s*(?:عندنا|السوق|الشركة)|حاليا|حاليًا)|ناقص\s*في\s*السوق/i;
@@ -1576,6 +1576,13 @@ function isCustomerResponseContinuation(current, next) {
   if (next.role !== "customer" || !next.isMeaningful || !currentHasMeaningfulStaff(current)) return false;
   return isCustomerCourtesyOrResponseOnly(next.text);
 }
+function isPricedOfferQuantityContinuation(current, next, gapMs) {
+  if (next.role !== "customer" || !next.isMeaningful || gapMs < 0 || gapMs > 5 * 6e4) return false;
+  if (!/^(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?)\s+(?:واحد[ةه]?|واخ|1|١|ده|دي|دا)(?:\s+بس\s+ياريت\s+يكون\s+(?:مظبوط|كويس))?[.!،\s]*$/u.test(next.text.trim())) return false;
+  const customer = lastMeaningfulOfRole(current, "customer");
+  const staff = lastMeaningfulOfRole(current, "staff");
+  return Boolean(customer && staff && customer.timestamp <= staff.timestamp && /بكام|سعر(?:ه|ها)?|عامل\s*كام/u.test(customer.text) && extractPriceSignals([staff]).length);
+}
 function isSameOrderContinuation(current, next, gapMs) {
   if (gapMs > PRIOR_ORDER_REFERENCE_MAX_GAP_MS || next.role !== "customer" || !next.isMeaningful) return false;
   if (!currentHasOrderCommitment(current)) return false;
@@ -1592,6 +1599,7 @@ function hasStrongSemanticContinuation(current, next, gapMs) {
     return true;
   }
   if (next.role !== "customer" || !next.isMeaningful) return false;
+  if (isPricedOfferQuantityContinuation(current, next, gapMs)) return true;
   if (continuesOpenServiceNeed(current, next, gapMs)) return true;
   if (isSameOrderContinuation(current, next, gapMs)) return true;
   if (gapMs <= SEMANTIC_CONTINUATION_MAX_GAP_MS) {
@@ -1619,8 +1627,10 @@ function normalizeMessage(message, staffNames, customerName) {
   const isAutomated = !isSystemGenerated && AUTOMATED_REPLY_RX.test(message.text || "");
   const isEmojiOnly = !isSystemGenerated && isEmojiOnlyText(message.text || "");
   const hasText = Boolean((message.text || "").trim());
-  const isMediaPlaceholder = Boolean(message.mediaPlaceholder) || isPlaceholderOnlyText(message.text);
-  const hasRealContent = NON_EMOJI_MEANINGFUL_RX.test((message.text || "").trim());
+  const visibleText = (message.text || "").replace(/<[^<>]*\bomitted>|\[(?:voice message|image|video|document|file|sticker)\]/gi, "").trim();
+  const hasVisibleCaption = visibleText !== (message.text || "").trim() && NON_EMOJI_MEANINGFUL_RX.test(visibleText);
+  const isMediaPlaceholder = isPlaceholderOnlyText(message.text) || Boolean(message.mediaPlaceholder) && !hasVisibleCaption;
+  const hasRealContent = NON_EMOJI_MEANINGFUL_RX.test(visibleText);
   const isMeaningful = hasText && hasRealContent && !isSystemGenerated && !isAutomated && !isEmojiOnly && !isMediaPlaceholder;
   let role = "unknown";
   if (isSystemGenerated) role = "system";
@@ -2908,7 +2918,7 @@ function productNamedInAvailabilityQuestion(text6) {
 var PRICE_INQUIRY_RX = /بكام|عامل\s*كام|سعر(?:ه|ها)?|كام\s*(?:جنيه|العلبة|العلبه)|فيها\s*كام/i;
 var STAFF_RECAP_CONTEXT_RX = /يعني\s*(?:كدا|كده|حضرتك)|حضرتك\s*محتاج|تكرر|كرر|تأمر|تحت\s*امر/i;
 function extractNaturalUnitItems(message) {
-  if (!message.isMeaningful || /<(?:image|audio|voice message) omitted>/i.test(message.text)) return [];
+  if (!message.isMeaningful) return [];
   if (message.role === "customer" && PRICE_INQUIRY_RX.test(message.text)) return [];
   if (message.role === "staff" && !STAFF_RECAP_CONTEXT_RX.test(message.text)) return [];
   const items = [];
@@ -3195,7 +3205,7 @@ function clarificationCourtesy(text6) {
   return /^(?:(?:تمام|شكرا|شكرًا|يا\s*دكتور|يادكتور|لحضرتك|حضرتك|🙏|[.!،])\s*)+$/u.test(text6.trim());
 }
 function dialogueMeaningful(message) {
-  return message.isMeaningful && !/<(?:image|audio|voice message) omitted>/iu.test(message.text);
+  return message.isMeaningful;
 }
 function clarificationContext(messages, index) {
   const context = [];
@@ -9749,9 +9759,9 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v54-media-opening-evidence";
+var PIPELINE_VERSION = "sales-intelligence-v55-caption-offer-continuity";
 var ENGINE_VERSIONS = {
-  caseSegmentation: "case-segmentation-v14-addressed-additive-continuity",
+  caseSegmentation: "case-segmentation-v15-caption-priced-offer-continuity",
   historicalClosure: "historical-closure-v1",
   commercialConfirmation: "commercial-confirmation-v6-compact-total-interstitial-ack-safe",
   protocolApplicability: "protocol-applicability-v1",

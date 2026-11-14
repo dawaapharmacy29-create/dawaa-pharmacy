@@ -120,10 +120,13 @@
 // order under the existing time/service-boundary guards, retaining its doctor evidence.
 // v54: opening/response metadata includes an actual media arrival before a
 // visible greeting. No media content, product, clinical fact or sale is inferred.
-export const PIPELINE_VERSION = 'sales-intelligence-v54-media-opening-evidence';
+// v55: visible captions remain textual evidence, compact pound prices are recognized,
+// and a bounded quantity answer stays with its immediately preceding price offer.
+// Missing media contents and historical approvals remain untouched.
+export const PIPELINE_VERSION = 'sales-intelligence-v55-caption-offer-continuity';
 
 export const ENGINE_VERSIONS = {
-  caseSegmentation: 'case-segmentation-v14-addressed-additive-continuity',
+  caseSegmentation: 'case-segmentation-v15-caption-priced-offer-continuity',
   historicalClosure: 'historical-closure-v1',
   commercialConfirmation: 'commercial-confirmation-v6-compact-total-interstitial-ack-safe',
   protocolApplicability: 'protocol-applicability-v1',
