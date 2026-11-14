@@ -102,6 +102,22 @@ function evidenceClient(service: any) {
     get(target, prop) {
       if (prop === 'rpc') {
         return async (name: string, args: Record<string, unknown>) => {
+          // The follow-up RPCs refuse a caller with no signed-in account (the service key); read their tables.
+          if (name === 'get_doctor_followup_request_targets_v1') {
+            return target.from('doctor_followup_request_targets_v1').select('branch,target');
+          }
+          if (name === 'get_doctor_followup_request_counts_v1') {
+            const counts = new Map<string, number>();
+            for (let from = 0; ; from += 1000) {
+              const { data, error } = await target.from('doctor_followup_request_log_v1')
+                .select('staff_id').gte('request_day', args.p_start).lte('request_day', args.p_end)
+                .order('fingerprint').range(from, from + 999);
+              if (error) return { data: null, error };
+              for (const row of (data || []) as Array<{ staff_id: string }>) counts.set(row.staff_id, (counts.get(row.staff_id) || 0) + 1);
+              if (!data || data.length < 1000) break;
+            }
+            return { error: null, data: [...counts].map(([staff_id, requests]) => ({ staff_id, requests })) };
+          }
           if (name !== 'list_staff_violations_v1') return target.rpc(name, args);
           const { data, error } = await target.from('staff_compliance_violations')
             .select('staff_account_id,category,points,withdrawn_at')
