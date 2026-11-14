@@ -9745,7 +9745,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v52-selection-evidence-guards";
+var PIPELINE_VERSION = "sales-intelligence-v53-customer-name-evidence";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v13-open-service-need-continuity",
   historicalClosure: "historical-closure-v1",
@@ -13069,9 +13069,13 @@ function assessCustomerName(view) {
   }
   const staffMessages2 = orderedMessages(view).filter((m) => m.role === "staff" && m.meaningful);
   const used = staffMessages2.find((message) => {
-    const normalized = normalizedArabic(message.text);
+    const normalized = normalizedArabic(message.text.replace(STAFF_INTRO_RX, " "));
     const words = new Set(normalized.split(" ").filter(Boolean));
-    return tokens.some((token2) => words.has(token2));
+    return tokens.some((token2) => {
+      if (!words.has(token2)) return false;
+      if (token2 === "\u0639\u0644\u064A") return /(?:^|\s)(?:يا\s+(?:(?:استاذ|دكتور|مدام|حاج)\s+)?|(?:استاذ|دكتور|مدام|حاج)\s+)علي(?=\s|$)/u.test(normalized);
+      return true;
+    });
   });
   if (used) {
     return officialChoice(

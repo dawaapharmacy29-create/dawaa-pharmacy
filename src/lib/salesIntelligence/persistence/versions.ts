@@ -113,7 +113,10 @@
 // age-only suitability answers never become products. Existing sources change only
 // through the authorized canonical refresh. No proof, approval or payroll rule changes.
 // An addressed acceptance ("ايوا يا دكتور") also stays with its bounded existing offer.
-export const PIPELINE_VERSION = 'sales-intelligence-v52-selection-evidence-guards';
+// v53: customer-name scoring excludes staff self-introductions and requires a
+// customer-directed address for the ambiguous normalized token «علي/على».
+// Refresh updates only automatic proposals; historical manager decisions remain authoritative.
+export const PIPELINE_VERSION = 'sales-intelligence-v53-customer-name-evidence';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v13-open-service-need-continuity',
