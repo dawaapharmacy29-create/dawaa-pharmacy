@@ -109,7 +109,11 @@
 // v51: dosage-form nonexistence is not a stock shortage; an explicit answer later in the 
 // same exported episode closes generic no-response recovery; stale untouched phantom-complaint 
 // actions are reconciled only after an authorized canonical refresh. No sale proof rule changes.
-export const PIPELINE_VERSION = 'sales-intelligence-v51-followup-evidence-reconciliation';
+// v52: a bare no to a selection/clarification question does not end the whole need;
+// age-only suitability answers never become products. Existing sources change only
+// through the authorized canonical refresh. No proof, approval or payroll rule changes.
+// An addressed acceptance ("ايوا يا دكتور") also stays with its bounded existing offer.
+export const PIPELINE_VERSION = 'sales-intelligence-v52-selection-evidence-guards';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v13-open-service-need-continuity',

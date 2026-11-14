@@ -150,7 +150,10 @@ export function isGenericDeicticProductPhrase(value: string): boolean {
   const quantityOnly = /^(?:و\s*)?(?:(?:منهم|منه|منها)\s+)?(?:شريطين|علبتين|عبوتين|شريط|علب[ةه]|عبو[ةه])(?:\s*(?:و\s*)?(?:شريط|علب[ةه]|عبو[ةه]))?$/i;
   const colourOnly = /^(?:(?:كلها|كله|العلب[ةه])\s+)?لون(?:ها|ه)?\s+\S+$/i;
   const numberOnly = /^(?:\d+|واحد[ةه]?|اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?)(?:\s+(?:بس|فقط))?[.!\s]*$/i;
-  return GENERIC_DEICTIC_PRODUCT_PHRASE_RX.test(phrase) || quantityOnly.test(phrase) || numberOnly.test(phrase) || colourOnly.test(phrase);
+  // Age alone describes suitability, never a catalog product. Keep named products
+  // such as "ببرونة من ٠-٣ شهور" because this guard is anchored to the whole phrase.
+  const ageOnly = /^(?:(?:من\s+)?[0-9٠-٩]+(?:\s*(?:-|–|إلى|الى)\s*[0-9٠-٩]+)?\s*(?:شهور|أشهر|اشهر|شهر|سنوات|سنين|سن[ةه])|شهرين|سنتين)[.!\s]*$/u;
+  return GENERIC_DEICTIC_PRODUCT_PHRASE_RX.test(phrase) || quantityOnly.test(phrase) || numberOnly.test(phrase) || colourOnly.test(phrase) || ageOnly.test(phrase);
 }
 const EXPLICIT_REQUEST_VERB_RX = /(?<![\p{L}\p{N}])(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|هات(?:ي|لي)?|ابعت(?:لي|يلي)?)(?![\p{L}\p{N}])/u;
 // "ابعت X بس" — the customer narrows the order to the named item(s).
