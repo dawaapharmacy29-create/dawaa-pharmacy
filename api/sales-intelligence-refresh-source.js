@@ -12555,6 +12555,20 @@ function monthCycleFromDate(dateInput = /* @__PURE__ */ new Date()) {
   return `${cycleDate.getUTCFullYear()}-${String(cycleDate.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
+// src/lib/salesIntelligence/conversationDeliveryDelayEvidence.ts
+var ORDER_CONTEXT_RX = /(?:اوردر|أوردر|الاوردر|الأوردر|طلب|المندوب|توصيل|دليفري)/i;
+var DELAY_RX2 = /(?:اتأخر|اتاخر|متأخر|متاخر|تأخير|تاخير|لسه|فين|مجاش|ماجاش|موصلش|ماوصلش|هييجي\s*امتى|هيوصل\s*امتى)/i;
+var STAFF_DELAY_NOTICE_RX = /(?:(?:الطلب|الاوردر|الأوردر|المندوب|التوصيل)[^\n]{0,40}(?:ه?يتأخر|متأخر|في\s*تأخير|فيه\s*تأخير)|(?:في|فيه)\s*تأخير[^\n]{0,30}(?:الطلب|الاوردر|المندوب|التوصيل)|المندوب[^\n]{0,25}برا[^\n]{0,35}هيرجع[^\n]{0,35}(?:ابعته|أبعته|نبعته))/i;
+function orderDelayEvidenceIds(view) {
+  return view.interaction.messages.filter((m) => m.meaningful && (m.role === "staff" ? STAFF_DELAY_NOTICE_RX.test(m.text) : m.role === "customer" && ORDER_CONTEXT_RX.test(m.text) && DELAY_RX2.test(m.text))).map((m) => m.id);
+}
+function isStaffOrderDelayNotice(text6) {
+  return STAFF_DELAY_NOTICE_RX.test(text6);
+}
+function isCustomerOrderDelay(text6) {
+  return ORDER_CONTEXT_RX.test(text6) && DELAY_RX2.test(text6);
+}
+
 // src/lib/salesIntelligence/conversationClosingEvidence.ts
 var OFFICIAL = /(?:(?:نتشرف|تشرفنا)[^\n]{0,60}(?:ب\s*خدم(?:ة|ه)?|خدمت)[^\n]{0,40}(?:24|٢٤|أي\s*وقت|اى\s*وقت|اي\s*وقت)|صيدليات?\s*دواء[^\n]{0,60}(?:تحت\s*(?:أمر|امر)|نتشرف|تتشرف|في\s*خدمت)|(?:نتشرف|تشرفنا)\s*ب\s*خدم(?:ة|ه)\s*حضرتك\s*(?:دائم|في\s*أي\s*وقت)?)/i;
 var RESPECTFUL = /(?:تحت\s*(?:أمر|امر)\s*حضرتك|تحت\s*امرك|شكر(?:ا|ًا)\s*(?:لحضرتك|لتواصلك)|العفو\s*(?:يا\s*فندم)?|تشرفنا\s*(?:بخدمت|بالكلام)|في\s*(?:أي|اي|أى)\s*وقت|(?:ألف|الف)\s*سلام[ةه])/i;
@@ -12851,7 +12865,7 @@ function criterionApplicable(view, key, clinical) {
     case "dosage_explanation":
       return clinical.dosageUsage.present;
     case "unavailable_items":
-      return view.unavailableDemand.length > 0 || view.products.some((product) => product.availability === "unavailable");
+      return view.unavailableDemand.length > 0 || view.products.some((product) => product.availability === "unavailable") || view.need.unlinkedAvailability.some((item) => item.state === "unavailable");
     case "sales_closing":
       return salesCriteriaApplicable(view);
     case "order_confirmation": {
@@ -12864,7 +12878,7 @@ function criterionApplicable(view, key, clinical) {
     case "angry_customer":
       return view.coachingEvidence.delayComplaintMessageIds.length > 0 || view.interaction.messages.some((message) => /شكوى|زعلان|غاضب|مشكله|مشكلة|متأخر|تأخير/i.test(message.text));
     case "order_delay_handling":
-      return view.coachingEvidence.delayComplaintMessageIds.length > 0;
+      return orderDelayEvidenceIds(view).length > 0;
     case "customer_request_registration":
       return view.unavailableDemand.length > 0 || view.followUp.opportunities.length > 0;
     case "exceptional_followup_recognition":
@@ -12892,6 +12906,7 @@ function evidenceIdsFor(view, key, clinical) {
         ...view.followUp.opportunities.flatMap((item) => item.evidenceMessageIds)
       ]);
     case "order_delay_handling":
+      return orderDelayEvidenceIds(view);
     case "customer_request_registration":
     case "exceptional_followup_recognition":
       return uniq2(view.followUp.opportunities.flatMap((item) => item.evidenceMessageIds));
@@ -13831,6 +13846,21 @@ function assessDemand(view, demand) {
 function analyzeConversationEvaluationAvailability(view) {
   const contract = buildConversationEvaluationEvidence(view);
   const gate = contract.criteria.find((item) => item.key === "unavailable_items");
+  const unlinked = view.need.unlinkedAvailability.filter((item) => item.state === "unavailable");
+  if (view.unavailableDemand.length === 0 && unlinked.length) {
+    return {
+      version: "conversation-evaluation-availability-v1",
+      caseId: view.caseId,
+      item: make3(
+        null,
+        "insufficient_evidence",
+        70,
+        "\u0639\u062F\u0645 \u0627\u0644\u062A\u0648\u0641\u0631 \u0645\u0630\u0643\u0648\u0631 \u0635\u0631\u0627\u062D\u0629\u060C \u0644\u0643\u0646 \u0647\u0648\u064A\u0629 \u0627\u0644\u0635\u0646\u0641 \u0623\u0648 \u0631\u0628\u0637\u0647 \u0628\u0627\u0644\u0637\u0644\u0628 \u063A\u064A\u0631 \u0645\u062D\u0633\u0648\u0645\u0629. \u0644\u0627 \u064A\u062A\u0645 \u062A\u062E\u0645\u064A\u0646 \u0627\u0644\u0635\u0646\u0641 \u0623\u0648 \u062E\u0635\u0645 \u062F\u0631\u062C\u0627\u062A \u0628\u0633\u0628\u0628 \u0627\u0644\u062F\u0644\u064A\u0644 \u0627\u0644\u0646\u0627\u0642\u0635.",
+        unlinked.map((item) => item.messageId),
+        []
+      )
+    };
+  }
   if (gate?.readiness === "not_applicable" || view.unavailableDemand.length === 0) {
     return {
       version: "conversation-evaluation-availability-v1",
@@ -14077,9 +14107,6 @@ function analyzeConversationEvaluationSales(view) {
 // src/lib/salesIntelligence/conversationEvaluationServiceRecovery.ts
 var criteria2 = new Map(REVIEW_CRITERIA.map((criterion5) => [criterion5.key, criterion5]));
 var APOLOGY_RX3 = /(?:متاسف|متأسف|آسف|اسف|بنعتذر|نعتذر|حقك\s*علينا|معلش)/i;
-var ORDER_CONTEXT_RX = /(?:اوردر|أوردر|الاوردر|الأوردر|طلب|المندوب|توصيل|دليفري)/i;
-var DELAY_RX2 = /(?:اتأخر|اتاخر|متأخر|متاخر|تأخير|تاخير|لسه|فين|مجاش|ماجاش|موصلش|ماوصلش|هييجي\s*امتى|هيوصل\s*امتى)/i;
-var STAFF_DELAY_NOTICE_RX = /(?:(?:الطلب|الاوردر|الأوردر|المندوب|التوصيل)[^\n]{0,40}(?:ه?يتأخر|متأخر|في\s*تأخير|فيه\s*تأخير)|(?:في|فيه)\s*تأخير[^\n]{0,30}(?:الطلب|الاوردر|المندوب|التوصيل))/i;
 var ETA_RX = /(?:خلال\s*\d+\s*(?:دقيقه|دقيقة|دقائق|ساعه|ساعة|ساعات)|نص\s*ساعه|نصف\s*ساعه|هيوصل\s*(?:خلال|في)|هيكون\s*عند\s*حضرتك|موعد\s*جديد)/i;
 var DELIVERY_PROGRESS_RX = /(?:خرج\s*(?:مع|ل)\s*المندوب|في\s*الطريق|جاري\s*الارسال|جاري\s*الإرسال|تم\s*الارسال|تم\s*الإرسال)/i;
 var DELIVERY_CLOSURE_RX = /(?:تم\s*التسليم|اتسلم|استلم(?:ت|نا)?|وصل(?:ت)?\s*(?:تمام|الحمد|شكرا|شكرًا)|المشكله\s*اتحلت|المشكلة\s*اتحلت|تم\s*الحل)/i;
@@ -14198,10 +14225,10 @@ function assessComplaint(view) {
 function assessDelay(view) {
   const messages = ordered2(view);
   const customerDelayIndex = messages.findIndex(
-    (message) => message.role === "customer" && message.meaningful && ORDER_CONTEXT_RX.test(message.text) && DELAY_RX2.test(message.text)
+    (message) => message.role === "customer" && message.meaningful && isCustomerOrderDelay(message.text)
   );
   const proactiveNoticeIndex = messages.findIndex(
-    (message) => message.role === "staff" && message.meaningful && STAFF_DELAY_NOTICE_RX.test(message.text)
+    (message) => message.role === "staff" && message.meaningful && isStaffOrderDelayNotice(message.text)
   );
   if (customerDelayIndex < 0 && proactiveNoticeIndex < 0) {
     return make5(
@@ -14605,9 +14632,9 @@ function assessRegistration(view, system) {
     [match.row.id]
   );
 }
-var EXCEPTIONAL_SIGNAL_RX = /(?:مريض\s*مزمن|مزمن|ضغط|سكر|قلب|غده|غدة|سيوله|سيولة|كل\s*شهر|شهري|باخد[هة]?\s*باستمرار|باخده\s*بانتظام|روشت(?:ة|ه)\s*جديد(?:ة|ه)|بدأت\s*علاج|بدات\s*علاج|الدكتور\s*غير\s*العلاج|متابعة\s*خاصة)/i;
+var EXCEPTIONAL_SIGNAL_RX = /(?:^|[^\p{L}\p{N}])(?:مريض\s*(?:مزمن|ضغط|سكر|قلب)|عندي\s*(?:ضغط|سكر|سيولة)|كل\s*شهر|شهري(?:ا|اً)?|باخد[هة]?\s*باستمرار|باخده\s*بانتظام|روشت(?:ة|ه)\s*جديد(?:ة|ه)|بدأت\s*علاج|بدات\s*علاج|الدكتور\s*غير\s*العلاج|متابعة\s*خاصة)(?=$|[^\p{L}\p{N}])/iu;
 function exceptionalSignalIds(view) {
-  return view.interaction.messages.filter((m) => m.meaningful && EXCEPTIONAL_SIGNAL_RX.test(m.text)).map((m) => m.id);
+  return view.interaction.messages.filter((m) => m.meaningful && m.role === "customer" && !/[؟?]/.test(m.text) && !/(?:مش|لست|ماني|ما\s*عنديش)\s*(?:مريض|عندي|مزمن)/.test(m.text) && EXCEPTIONAL_SIGNAL_RX.test(m.text)).map((m) => m.id);
 }
 function bestExceptional(rows) {
   return rows.filter((match) => match.staffMatched !== false).sort((a, b) => {

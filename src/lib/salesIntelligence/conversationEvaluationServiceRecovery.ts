@@ -1,3 +1,4 @@
+import { isCustomerOrderDelay, isStaffOrderDelayNotice } from './conversationDeliveryDelayEvidence';
 import { REVIEW_CRITERIA } from '@/lib/conversationReviews';
 import { deriveCanonicalComplaintAssessment } from './complaintAssessmentEngine';
 import type { CaseIntelligenceView } from './types';
@@ -26,10 +27,6 @@ export interface ConversationEvaluationServiceRecovery {
 const criteria = new Map(REVIEW_CRITERIA.map((criterion) => [criterion.key, criterion]));
 
 const APOLOGY_RX = /(?:متاسف|متأسف|آسف|اسف|بنعتذر|نعتذر|حقك\s*علينا|معلش)/i;
-const ORDER_CONTEXT_RX = /(?:اوردر|أوردر|الاوردر|الأوردر|طلب|المندوب|توصيل|دليفري)/i;
-const DELAY_RX = /(?:اتأخر|اتاخر|متأخر|متاخر|تأخير|تاخير|لسه|فين|مجاش|ماجاش|موصلش|ماوصلش|هييجي\s*امتى|هيوصل\s*امتى)/i;
-const STAFF_DELAY_NOTICE_RX =
-  /(?:(?:الطلب|الاوردر|الأوردر|المندوب|التوصيل)[^\n]{0,40}(?:ه?يتأخر|متأخر|في\s*تأخير|فيه\s*تأخير)|(?:في|فيه)\s*تأخير[^\n]{0,30}(?:الطلب|الاوردر|المندوب|التوصيل))/i;
 const ETA_RX =
   /(?:خلال\s*\d+\s*(?:دقيقه|دقيقة|دقائق|ساعه|ساعة|ساعات)|نص\s*ساعه|نصف\s*ساعه|هيوصل\s*(?:خلال|في)|هيكون\s*عند\s*حضرتك|موعد\s*جديد)/i;
 const DELIVERY_PROGRESS_RX =
@@ -182,13 +179,12 @@ function assessDelay(view: CaseIntelligenceView): RecoveryCriterionAssessment {
     (message) =>
       message.role === 'customer' &&
       message.meaningful &&
-      ORDER_CONTEXT_RX.test(message.text) &&
-      DELAY_RX.test(message.text)
+      isCustomerOrderDelay(message.text)
   );
 
   const proactiveNoticeIndex = messages.findIndex(
     (message) =>
-      message.role === 'staff' && message.meaningful && STAFF_DELAY_NOTICE_RX.test(message.text)
+      message.role === 'staff' && message.meaningful && isStaffOrderDelayNotice(message.text)
   );
 
   if (customerDelayIndex < 0 && proactiveNoticeIndex < 0) {

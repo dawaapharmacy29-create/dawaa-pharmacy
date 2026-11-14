@@ -203,11 +203,11 @@ function assessRegistration(
 }
 
 const EXCEPTIONAL_SIGNAL_RX =
-  /(?:مريض\s*مزمن|مزمن|ضغط|سكر|قلب|غده|غدة|سيوله|سيولة|كل\s*شهر|شهري|باخد[هة]?\s*باستمرار|باخده\s*بانتظام|روشت(?:ة|ه)\s*جديد(?:ة|ه)|بدأت\s*علاج|بدات\s*علاج|الدكتور\s*غير\s*العلاج|متابعة\s*خاصة)/i;
+  /(?:^|[^\p{L}\p{N}])(?:مريض\s*(?:مزمن|ضغط|سكر|قلب)|عندي\s*(?:ضغط|سكر|سيولة)|كل\s*شهر|شهري(?:ا|اً)?|باخد[هة]?\s*باستمرار|باخده\s*بانتظام|روشت(?:ة|ه)\s*جديد(?:ة|ه)|بدأت\s*علاج|بدات\s*علاج|الدكتور\s*غير\s*العلاج|متابعة\s*خاصة)(?=$|[^\p{L}\p{N}])/iu;
 
 function exceptionalSignalIds(view:CaseIntelligenceView):string[]{
   return view.interaction.messages
-    .filter((m)=>m.meaningful&&EXCEPTIONAL_SIGNAL_RX.test(m.text))
+    .filter((m)=>m.meaningful&&m.role==='customer'&&!/[؟?]/.test(m.text)&&!/(?:مش|لست|ماني|ما\s*عنديش)\s*(?:مريض|عندي|مزمن)/.test(m.text)&&EXCEPTIONAL_SIGNAL_RX.test(m.text))
     .map((m)=>m.id);
 }
 

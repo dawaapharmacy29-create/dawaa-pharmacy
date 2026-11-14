@@ -96,4 +96,10 @@ describe('conversation evaluation availability 9F', () => {
     expect(analyzeConversationEvaluationAvailability(view([],{s1:'موجود يا فندم'})).item)
       .toMatchObject({status:'not_applicable',pointsEarned:null});
   });
+  it('preserves explicit unavailability with an unknown product as insufficient evidence, not a deduction',()=>{
+    const v=view([],{'s1':'الصنف مش موجود في الشركة'});
+    v.need.unlinkedAvailability=[{state:'unavailable',messageId:'s1',staffSender:'You',staffId:null,linkBasis:'unlinked',confidence:{level:'strongly_inferred',score:.9,evidence:[],ruleIds:[]}}];
+    expect(analyzeConversationEvaluationAvailability(v).item).toMatchObject({status:'insufficient_evidence',pointsEarned:null,evidenceMessageIds:['s1']});
+  });
+
 });

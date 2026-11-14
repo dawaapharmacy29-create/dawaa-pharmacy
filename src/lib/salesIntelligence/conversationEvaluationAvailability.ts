@@ -124,6 +124,15 @@ export function analyzeConversationEvaluationAvailability(
   const contract = buildConversationEvaluationEvidence(view);
   const gate = contract.criteria.find((item) => item.key === 'unavailable_items');
 
+  const unlinked = view.need.unlinkedAvailability.filter(item => item.state === 'unavailable');
+  if (view.unavailableDemand.length === 0 && unlinked.length) {
+    return {
+      version: 'conversation-evaluation-availability-v1', caseId: view.caseId,
+      item: make(null, 'insufficient_evidence', 70,
+        'عدم التوفر مذكور صراحة، لكن هوية الصنف أو ربطه بالطلب غير محسومة. لا يتم تخمين الصنف أو خصم درجات بسبب الدليل الناقص.',
+        unlinked.map(item => item.messageId), []),
+    };
+  }
   if (gate?.readiness === 'not_applicable' || view.unavailableDemand.length === 0) {
     return {
       version: 'conversation-evaluation-availability-v1',

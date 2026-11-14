@@ -1,3 +1,4 @@
+import { orderDelayEvidenceIds } from './conversationDeliveryDelayEvidence';
 import { closingAbsenceAssessable, observableClosing } from './conversationClosingEvidence';
 import type { ReviewCriterionKey } from '@/lib/conversationReviews';
 import { isStaffFollowUpPromiseV32 } from '../whatsappSemanticSignalsV32';
@@ -299,7 +300,7 @@ function criterionApplicable(
     case 'dosage_explanation':
       return clinical.dosageUsage.present;
     case 'unavailable_items':
-      return view.unavailableDemand.length > 0 || view.products.some((product) => product.availability === 'unavailable');
+      return view.unavailableDemand.length > 0 || view.products.some((product) => product.availability === 'unavailable') || view.need.unlinkedAvailability.some(item => item.state === 'unavailable');
     case 'sales_closing':
       return salesCriteriaApplicable(view);
     case 'order_confirmation': {
@@ -313,7 +314,7 @@ function criterionApplicable(
       return view.coachingEvidence.delayComplaintMessageIds.length > 0 ||
         view.interaction.messages.some((message) => /شكوى|زعلان|غاضب|مشكله|مشكلة|متأخر|تأخير/i.test(message.text));
     case 'order_delay_handling':
-      return view.coachingEvidence.delayComplaintMessageIds.length > 0;
+      return orderDelayEvidenceIds(view).length > 0;
     case 'customer_request_registration':
       return view.unavailableDemand.length > 0 || view.followUp.opportunities.length > 0;
     case 'exceptional_followup_recognition':
@@ -348,6 +349,7 @@ function evidenceIdsFor(
         ...view.followUp.opportunities.flatMap((item) => item.evidenceMessageIds),
       ]);
     case 'order_delay_handling':
+      return orderDelayEvidenceIds(view);
     case 'customer_request_registration':
     case 'exceptional_followup_recognition':
       return uniq(view.followUp.opportunities.flatMap((item) => item.evidenceMessageIds));
