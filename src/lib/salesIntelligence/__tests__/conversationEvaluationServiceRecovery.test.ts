@@ -88,4 +88,16 @@ describe('conversation evaluation service recovery 9H',()=>{
     expect(analyzeConversationEvaluationServiceRecovery(v).items.find(i=>i.key==='order_delay_handling'))
       .toMatchObject({status:'not_applicable',pointsEarned:null});
   });
+  it('recognizes proactive courier return notice without inventing complaint resolution or delivery',()=>{
+    const v=makeView([
+      {id:'s1',role:'staff',sender:'You',at:'2026-09-28T09:00:00Z',text:'معلش بس المندوب حاليا برا هيرجعلي وابعته لحضرتك فور',meaningful:true},
+      {id:'c1',role:'customer',sender:'Customer',at:'2026-09-28T09:01:00Z',text:'تمام مفيش مشكلة',meaningful:true},
+      {id:'s2',role:'staff',sender:'You',at:'2026-09-28T09:15:00Z',text:'تم الارسال نتشرف بخدمة حضرتك',meaningful:true},
+    ]);
+    expect(analyzeConversationEvaluationServiceRecovery(v).items.find(i=>i.key==='order_delay_handling'))
+      .toMatchObject({selectedOption:'informed_only'});
+    expect(analyzeConversationEvaluationServiceRecovery(v).items.find(i=>i.key==='angry_customer'))
+      .toMatchObject({status:'not_applicable'});
+  });
+
 });

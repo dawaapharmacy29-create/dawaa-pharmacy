@@ -67,4 +67,12 @@ describe('conversation evaluation operational 9J-B',()=>{
   expect(analyzeConversationEvaluationOperational(v,s).items.find(i=>i.key==='purchase_history_usage'))
    .toMatchObject({selectedOption:'ignored',pointsEarned:0});
  });
+ it('does not turn infant age or a staff disease question into an exceptional-followup penalty',()=>{
+  for (const [role,text] of [['customer','عنده شهرين'],['customer','مريض سكر؟'],['customer','مش مريض سكر'],['staff','عندك سكر']]) {
+   const v=view();v.interaction.messages[0].text=text;v.interaction.messages[0].role=role as 'customer'|'staff';
+   expect(analyzeConversationEvaluationOperational(v,sys()).items.find(i=>i.key==='exceptional_followup_recognition'))
+    .toMatchObject({status:'not_applicable',pointsEarned:null});
+  }
+ });
+
 });

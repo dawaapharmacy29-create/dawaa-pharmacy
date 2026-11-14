@@ -1,4 +1,5 @@
 import type { CanonicalComplaintAssessment } from './complaintAssessmentEngine';
+import { isNoComplaintAssurance } from './complaintAssessmentEngine';
 // Sales Intelligence — Customer Need Model.
 //
 // Pure semantic projection over the SAME V32 messages + CaseBasket history. It never reparses an
@@ -24,6 +25,7 @@ import {
 } from '../whatsappSemanticSignalsV32';
 import {
   explicitRequestProductPhrases,
+  explicitStaffOfferProductNames,
   isGenericDeicticProductPhrase,
   NATURAL_UNIT_QTY,
   normalizeProductKey,
@@ -132,7 +134,7 @@ const STOCK_QUESTION_WORDS_RX =
 const NON_PRODUCT_LEFTOVER_RX = /^(?:مش|لا|لأ|اه|آه|تمام|حاجة|حاجه|ده|دي|دا|منه|منها)?$/;
 
 function productPhraseFromStockQuestion(text: string): string | null {
-  const phrase = stripRequestPrefix(text.replace(STOCK_QUESTION_WORDS_RX, ' '))
+  const phrase = stripRequestPrefix(text.split(/[؟?]/u)[0].replace(STOCK_QUESTION_WORDS_RX, ' '))
     .replace(/[؟?!.،]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -149,6 +151,7 @@ function classifyObjectionCategory(
   explicitRejection: boolean,
   correction: boolean
 ): CustomerNeedObjectionCategory | null {
+  if (isNoComplaintAssurance(text)) return null;
   if (PRICE_OBJECTION_RX.test(text)) return 'price';
   if (AVAILABILITY_OBJECTION_RX.test(text)) return 'availability';
   if (DELIVERY_OBJECTION_RX.test(text)) return 'delivery';
@@ -402,6 +405,19 @@ export function deriveCustomerNeedModel(input: DeriveCustomerNeedModelInput): Cu
       const product = ensureProduct(part, assessment('weakly_inferred', 0.6, ['need.product.explicit_request_phrase'], [ref]));
       if (!product) continue;
       product.roles.add('requested');
+      product.evidenceMessageIds.add(message.id);
+    }
+  }
+
+  // Preserve what staff actually named, separately from requested/final/accepted items.
+  // A proposal alone never adds a basket line or proves a sale.
+  for (const message of messages) {
+    if (message.role !== 'staff' || !message.isMeaningful) continue;
+    for (const name of explicitStaffOfferProductNames(message.text)) {
+      const ref = evidenceRef(message.id, 'اسم صنف ورد صراحة في عرض/ترشيح الموظف؛ ليس إثبات طلب أو شراء من العميل.');
+      const product = ensureProduct(name, assessment('weakly_inferred', .6, ['need.product.explicit_staff_offer'], [ref]));
+      if (!product) continue;
+      product.roles.add('offered');
       product.evidenceMessageIds.add(message.id);
     }
   }

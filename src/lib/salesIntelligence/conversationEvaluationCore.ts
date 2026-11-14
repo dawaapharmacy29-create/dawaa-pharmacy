@@ -1,6 +1,7 @@
 import { REVIEW_CRITERIA } from '@/lib/conversationReviews';
 import type { CaseIntelligenceView } from './types';
 import { buildConversationEvaluationEvidence } from './conversationEvaluationEvidence';
+import { isUnavailableMediaPlaceholderText } from '../whatsappConversationUnderstandingV32';
 
 export type CoreCriterionKey = 'tone' | 'understanding';
 export type CoreAssessmentStatus = 'assessed' | 'not_applicable' | 'insufficient_evidence';
@@ -34,7 +35,7 @@ const STRONG_HOSTILITY_RX =
 const DISMISSIVE_RX =
   /(?:مش\s*فاضي|مش\s*شغلي|مش\s*مسؤوليتي|بلاش\s*زن|ما\s*تزنش|خلصنا\s*بقى|استنى\s*بقى)/i;
 const CLARIFICATION_RX =
-  /(?:تقصد|حضرتك\s*تقصد|كام\s*(?:علبة|علب|شريط)|الكمية|التركيز|سن\s*(?:الطفل|حضرتك)?|الوزن|الأعراض|الاعراض|حضرتك\s*(?:عايز|عاوزه|عايزة)|صح\s*[؟?]?|صحيح\s*[؟?]?)/i;
+  /(?:تقصد|حضرتك\s*تقصد|كام\s*(?:علبة|علب|شريط|سن[ةه])|الكمية|التركيز|(?:^|\s)سن\s*(?:كام|الطفل|حضرتك|[؟?]|$)|الوزن|الأعراض|الاعراض|حضرتك\s*(?:عايز|عاوزه|عايزة)|(?:علب|اقراص|أقراص|شرايط|حقن)\s*ولا\s*(?:علب|اقراص|أقراص|شرايط|حقن)|(?:^|\s)(?:صح|صحيح)\s*[؟?])/i;
 const CUSTOMER_CORRECTION_RX =
   /(?:(?:لا|لأ)\s*(?:قصدي|اقصد)|مش\s*(?:ده|دي|دا|هو)\s*(?:اللي\s*)?(?:طلبت|قصدي|عايز|عاوزه|عايزة)|انا\s*(?:قلت|قولت)|أنا\s*(?:قلت|قولت))/i;
 const CLARIFYING_QUESTION_RX = /(?:تقصد|حضرتك\s*تقصد|يعني\s*حضرتك|هل\s*تقصد|صح\s*[؟?]?|صحيح\s*[؟?]?)/i;
@@ -188,14 +189,18 @@ function precedingStaffMessage(view: CaseIntelligenceView, messageId: string) {
 }
 
 function assessUnderstanding(view: CaseIntelligenceView): CoreCriterionAssessment {
+  const unavailableMedia = view.interaction.messages.filter(message => message.role === 'customer' &&
+    (isUnavailableMediaPlaceholderText(message.text) || /<[^<>]*omitted>/i.test(message.text)));
   if (!view.need.primaryNeed) {
     return make(
       'understanding',
       null,
-      'not_applicable',
+      unavailableMedia.length ? 'insufficient_evidence' : 'not_applicable',
       95,
-      'لا يوجد احتياج عميل واضح في هذا التفاعل يجعل بند فهم الطلب قابلًا للتقييم.',
-      []
+      unavailableMedia.length
+        ? 'ورد طلب عبر وسيط غير متاح، فلا يمكن الحكم على فهم محتواه أو اعتباره بلا احتياج. لا يوجد خصم آلي.'
+        : 'لا يوجد احتياج عميل واضح في هذا التفاعل يجعل بند فهم الطلب قابلًا للتقييم.',
+      unavailableMedia.map(message => message.id)
     );
   }
 
@@ -227,18 +232,21 @@ function assessUnderstanding(view: CaseIntelligenceView): CoreCriterionAssessmen
   }
 
   // Missing image/voice product context is absence of evidence, never poor understanding.
-  if (view.need.unresolvedNeed && view.products.length === 0) {
+  if (view.need.unresolvedNeed && view.products.length === 0 && unavailableMedia.length > 0) {
     return make(
       'understanding',
       null,
       'insufficient_evidence',
       100,
       'الاحتياج مرتبط بمحتوى غير ظاهر في التصدير (مثل صورة/فويس) ولا توجد هوية صنف نصية موثوقة؛ لا يجوز مدح أو خصم فهم الموظف من دليل غير متاح.',
-      view.need.evidenceMessageIds
+      [...view.need.evidenceMessageIds, ...unavailableMedia.map(message => message.id)]
     );
   }
 
-  const clarification = staff.find((message) => CLARIFICATION_RX.test(message.text));
+  const needAt = view.interaction.messages.find(message => message.id === view.need.primaryNeedMessageId)?.at;
+  const replies = staff.filter(message => !needAt || new Date(message.at) >= new Date(needAt));
+  const clarification = replies.find((message) => CLARIFICATION_RX.test(message.text));
+  const response = replies.find(message => /حاضر|تحت\s*(?:أمر|امر)|هبعت|جاري|متوفر|موجود|تقصد|كام\s*سن[ةه]/i.test(message.text));
   const requested = view.products.filter((product) => product.roles.includes('requested'));
   const coveredKeys = new Set(
     view.staff.facts
@@ -248,9 +256,9 @@ function assessUnderstanding(view: CaseIntelligenceView): CoreCriterionAssessmen
       .map((fact) => fact.productKey)
       .filter((key): key is string => Boolean(key))
   );
-  const covered = requested.filter((product) => product.inFinalBasket || coveredKeys.has(product.productKey));
+  const covered = requested.filter((product) => coveredKeys.has(product.productKey));
 
-  if (requested.length > 0 && covered.length === requested.length && !view.need.unresolvedNeed) {
+  if (requested.length > 0 && covered.length === requested.length && unavailableMedia.length === 0 && !view.need.unresolvedNeed) {
     const evidence = [
       ...view.need.evidenceMessageIds,
       ...view.staff.facts
@@ -270,15 +278,16 @@ function assessUnderstanding(view: CaseIntelligenceView): CoreCriterionAssessmen
     );
   }
 
-  if (requested.length > 0 && covered.length > 0) {
+  if (requested.length > 0 && (covered.length > 0 || response)) {
     return make(
       'understanding',
       'acceptable',
       'assessed',
       82,
-      'تم التعامل مع جزء واضح من الطلب بشكل صحيح، لكن بعض عناصر الاحتياج ما زالت غير محسومة أو غير مغطاة بالكامل.',
+      'يوجد طلب نصي ورد عليه الموظف، لكن ربط جميع عناصره غير مكتمل. عدم حسم هوية الصنف أو الكتالوج لا يثبت سوء فهم الموظف، ولا يحسم صحة الاستشارة.',
       [
         ...view.need.evidenceMessageIds,
+        ...(response ? [response.id] : []),
         ...view.staff.facts
           .filter((fact) => fact.productKey && coveredKeys.has(fact.productKey))
           .map((fact) => fact.messageId),
@@ -286,7 +295,7 @@ function assessUnderstanding(view: CaseIntelligenceView): CoreCriterionAssessmen
     );
   }
 
-  if (!view.need.unresolvedNeed && clarification) {
+  if (clarification) {
     return make(
       'understanding',
       'acceptable',

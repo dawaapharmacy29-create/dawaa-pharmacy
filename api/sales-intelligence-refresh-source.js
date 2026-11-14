@@ -942,6 +942,7 @@ var COMMIT_REPLY_RX = new RegExp(
   `${COMMIT_FUTURE}\u062A\u0627\u0628\u0639(?![\\p{L}])|${COMMIT_FUTURE}\u062A\u0627\u0628\u0639\\s*${COMMIT_RECIPIENT}|${COMMIT_FUTURE}${REPLY_VERB}(?:\u0643|\u0643\u064A|\u0643\u0645)(?![\\p{L}])|${COMMIT_FUTURE}${REPLY_VERB}${COMMIT_GAP}\\s*(?:\u0639\u0644\u0649\\s*|\u0644)?${COMMIT_RECIPIENT}`,
   "iu"
 );
+var EXPLICIT_WAIT_REPLY_RX = /^(?:لحظ[ةه]|لحظات|ثواني|دقيق[ةه])(?:\s+واحد[ةه])?(?:\s+(?:يا\s*فندم|لو\s*سمحت))?$/iu;
 var DELIVERY_PROMISE_RX = /(?<![\p{L}])(?<!(?:مش|لن|لم)\s+)(?:و|ف)?ه(?:اتصل|تصل|كلم|تابع|راجع|شوف)[^.!؟?\n]{0,80}(?:المندوب|الدليفري|التوصيل|وصل\s*لفين)/iu;
 function isDeliveryFollowUpPromiseV32(text6) {
   return statementClauses(text6).some((clause) => DELIVERY_PROMISE_RX.test(clause));
@@ -966,12 +967,13 @@ function classifyStaffCommitmentsV32(text6) {
       });
     }
     const checkThenReply = clause.match(COMMIT_CHECK_THEN_REPLY_RX);
-    const reply = checkThenReply ? null : clause.match(COMMIT_REPLY_RX);
+    const waitReply = clause.match(EXPLICIT_WAIT_REPLY_RX);
+    const reply = checkThenReply ? null : clause.match(COMMIT_REPLY_RX) || waitReply;
     if (checkThenReply || reply) {
       out.push({
         kind: "reply_back",
         matchedText: (checkThenReply || reply)[0].trim(),
-        ruleId: checkThenReply ? "commitment.check_then_reply" : "commitment.reply_back",
+        ruleId: checkThenReply ? "commitment.check_then_reply" : waitReply ? "commitment.explicit_wait_reply" : "commitment.reply_back",
         confidence: 0.8
       });
     }
@@ -2823,8 +2825,8 @@ var SUBSTITUTION_MARKER_RX = /بدل(?:ها|منها|ه)?\s/i;
 var WHOLE_BASKET_REJECTION_RX = /مش\s*عايز\s*(?:ده|حاجه|أي\s*حاجه|الطلب)(?:\s*خالص)?|الغ[يى]\s*كل\s*حاجة|كنسل\s*الطلب/i;
 var QUANTITY_UNIT_ITEM_RX = /(\d+|واحد[ةه]?|اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?)\s*(علبة|علب|حبة|حبوب|شريط|عبوة|قطعة|كيس)\s+([^\n,،]+)/gi;
 var ANNOUNCED_TOTAL_RX = /(?:كده\s*)?(?:إجمالي\s*الحساب|الحساب\s*كل?ه|الإجمالي|المجموع|الحساب)\s*(?:كده\s*)?(\d+(?:\.\d+)?)\s*(?:جنيه|جنيها|ج\.?م\.?)?/i;
-var COMPACT_ANNOUNCED_TOTAL_RX = /^\s*(\d+(?:\.\d+)?)\s*(?:جنيه|جنيها|ج(?:\.?م\.?)?)\s*(?:ان\s*شاء\s*الله)?[.!، ]*$/i;
-var TOTAL_QUESTION_RX2 = /(?:الحساب|الإجمالي|الاجمالي|المجموع).{0,16}كام|(?:كدا|كده)?\s*(?:هيبقا|هيبقى|يبقا|يبقى)\s*كام/i;
+var COMPACT_ANNOUNCED_TOTAL_RX = /^\s*(\d+(?:\.\d+)?)\s*(?:جنيه|جنيها|ج(?:\.?م\.?)?)\s*(?:بالتوصيل\s*)?(?:ان\s*شاء\s*الله)?[.!، ]*$/i;
+var TOTAL_QUESTION_RX2 = /(?:الحساب|الإجمالي|الاجمالي|المجموع).{0,16}كام|^(?:ممكن\s*)?(?:اعرف|أعرف)\s*(?:الحساب|الاجمالي|الإجمالي)[؟?!.\s]*$|(?:كدا|كده)\s*كام|(?:كدا|كده)?\s*(?:هيبقا|هيبقى|يبقا|يبقى)\s*كام|بكام\s*(?:الشريطين|العلبتين|دول|كلهم)/i;
 var ARABIC_NUMBER_WORDS = {
   \u0648\u0627\u062D\u062F: 1,
   \u0648\u0627\u062D\u062F\u0647: 1,
@@ -2844,12 +2846,12 @@ function normalizeProductKey(name) {
   return name.trim().toLowerCase().replace(/[أإآ]/g, "\u0627").replace(/ى/g, "\u064A").replace(/ة/g, "\u0647").replace(/\s+/g, " ");
 }
 var ADDITIVE_CONNECTOR_RX = /^\s*(?:(?:و|وكمان|كمان|وبرضه|برضه|برضو|وأيضا|وايضا|أيضا|ايضا)(?=\s)\s*)+/i;
-var GREETING_LEAD_RX = /^\s*(?:(?:السلام\s*عليكم(?:\s*ورحمة\s*الله(?:\s*وبركاته)?)?|صباح\s*الخير|مساء\s*الخير|أهلا|اهلا)(?=[\s،,!]|$)[\s،,!]*)+/i;
+var GREETING_LEAD_RX = /^\s*(?:(?:(?:ال)?سلام\s*عليكم(?:\s*ورحمة\s*الله(?:\s*وبركاته)?)?|صباح\s*الخير|مساء\s*الخير|أهلا|اهلا)(?=[\s،,!]|$)[\s،,!]*)+/i;
 var LEAD_DISCOURSE_RX = /^\s*(?:(?:تمام|ماشي|اوك|ok|خلاص|طيب|ايوه|ايوا|اه|آه|بالمناسبة|على\s*فكرة)(?=[\s،,])[\s،,]*)+/i;
 var TRAILING_ADDITIVE_RX = /\s+(?:كمان|برضه|برضو|أيضا|ايضا)\s*$/i;
 var CONTACT_DETAIL_TAIL_RX = /[،,]\s*(?:رقم\s*(?:تليفوني|موبايلي|الهاتف|التليفون)|(?:تليفوني|موبايلي))\s*[:：-]?\s*[+0-9٠-٩()\s-]{7,}$/u;
 function stripRequestPrefix(text6) {
-  return text6.replace(GREETING_LEAD_RX, "").replace(LEAD_DISCOURSE_RX, "").replace(ADDITIVE_CONNECTOR_RX, "").replace(/^\s*(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|ممكن|هات[ي]?|ابعت(?:لي|يلي)?)\s*/i, "").replace(ADDITIVE_CONNECTOR_RX, "").replace(TRAILING_ADDITIVE_RX, "").trim().replace(/^[,،]+|[,،]+$/g, "").trim();
+  return text6.replace(GREETING_LEAD_RX, "").replace(LEAD_DISCOURSE_RX, "").replace(ADDITIVE_CONNECTOR_RX, "").replace(/^\s*و?(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|ممكن|هات[ي]?|ابعت(?:لي|يلي)?)\s*/i, "").replace(ADDITIVE_CONNECTOR_RX, "").replace(TRAILING_ADDITIVE_RX, "").trim().replace(/^[,،]+|[,،]+$/g, "").trim();
 }
 var NON_PRODUCT_PHRASE_RX = /^(?:مش|لا|لأ|اه|آه|تمام|حاجة|حاجه|ده|دي|دا|دول|منه|منها|بس)?$/;
 var GENERIC_DEICTIC_PRODUCT_PHRASE_RX = /^(?:(?:العلب[هة]|العبو[هة]|الشريط|الصنف)\s*(?:دي|ده|دا)|(?:الحاجات|الحاجه|الحاجة|الأشياء|الاشياء)\s*(?:دي|دول|ده|دا)?|(?:دول|دي|ده|دا)(?:\s*كلهم)?|اللي\s*(?:في|ف)\s*(?:الصوره|الصورة|الصور|الفويس|الصوت)|اللي\s*(?:بعت(?:ه|ها|هم)|مبعت(?:ه|ها|هم)))$/i;
@@ -2860,20 +2862,38 @@ function isGenericDeicticProductPhrase(value) {
   const colourOnly = /^(?:(?:كلها|كله|العلب[ةه])\s+)?لون(?:ها|ه)?\s+\S+$/i;
   const numberOnly = /^(?:\d+|واحد[ةه]?|اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?)(?:\s+(?:بس|فقط))?[.!\s]*$/i;
   const ageOnly = /^(?:(?:من\s+)?[0-9٠-٩]+(?:\s*(?:-|–|إلى|الى)\s*[0-9٠-٩]+)?\s*(?:شهور|أشهر|اشهر|شهر|سنوات|سنين|سن[ةه])|شهرين|سنتين)[.!\s]*$/u;
-  return GENERIC_DEICTIC_PRODUCT_PHRASE_RX.test(phrase) || quantityOnly.test(phrase) || numberOnly.test(phrase) || colourOnly.test(phrase) || ageOnly.test(phrase);
+  const qualityOnly = /^(?:نوع|حاج[ةه])\s+(?:حلو|كويس|مريح|مناسب)(?:[ةه])?(?:\s+(?:له|لها|لي|للطفل))?$/u;
+  const orderedReference = /^(?:نوع\s+)?(?:الدواء|الدوا|المضاد(?:\s+الحيوي)?|الصنف|المنتج)\s+(?:الأولاني|الاولاني|الأول|الاول|التاني|الثاني|ده|دي|دا)(?:\s+(?:ده|دي|دا))?$/u;
+  return GENERIC_DEICTIC_PRODUCT_PHRASE_RX.test(phrase) || quantityOnly.test(phrase) || numberOnly.test(phrase) || colourOnly.test(phrase) || ageOnly.test(phrase) || qualityOnly.test(phrase) || orderedReference.test(phrase);
 }
-var EXPLICIT_REQUEST_VERB_RX = /(?<![\p{L}\p{N}])(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|هات(?:ي|لي)?|ابعت(?:لي|يلي)?)(?![\p{L}\p{N}])/u;
+var EXPLICIT_REQUEST_VERB_RX = /(?<![\p{L}\p{N}])و?(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|هات(?:ي|لي)?|ابعت(?:لي|يلي)?)(?![\p{L}\p{N}])/u;
 var ONLY_THIS_RX = /(?<![\p{L}\p{N}])(?:بس|فقط)[.!، ]*$/u;
 var INFO_QUESTION_LEAD_RX = /^(?:اعرف|أعرف|اسأل|أسأل|استفسر|أستفسر|افهم|أفهم|اشوف|أشوف|اتأكد|أتأكد)(?=\s|$)/;
 var POLITENESS_RX = /(?<![\p{L}\p{N}])(?:لو\s*سمحت|من\s*فضلك|يا\s*(?:دكتور[ةه]?|فندم)|بعد\s*اذنك|بعد\s*إذنك)(?![\p{L}\p{N}])/giu;
 function explicitRequestProductPhrases(text6) {
-  const phrase = stripRequestPrefix(text6.replace(POLITENESS_RX, " ")).replace(CONTACT_DETAIL_TAIL_RX, "").replace(/[؟?!.]+$/g, "").replace(/\s+/g, " ").trim();
+  const phrase = stripRequestPrefix(text6.replace(/<[^<>]*omitted>/gi, "").replace(POLITENESS_RX, " ")).replace(CONTACT_DETAIL_TAIL_RX, "").replace(/[؟?!.]+$/g, "").replace(/\s+/g, " ").trim();
   if (!phrase || /[؟?]/.test(text6) || INFO_QUESTION_LEAD_RX.test(phrase)) return [];
-  const parts = phrase.split(/\s+و\s+|\s*[،,+]\s*/).map((part) => stripRequestPrefix(part).trim()).filter((part) => part.length >= 2);
-  if (!parts.length || parts.some(
-    (part) => part.split(/\s+/).length > 4 || NON_PRODUCT_PHRASE_RX.test(part) || isGenericDeicticProductPhrase(part)
-  )) return [];
-  return parts;
+  const parts = phrase.split(/\s+و\s+|\s+و(?=(?:ال)?(?:مياه|ماي[ةه]|سرنج[ةه]|علب[ةه]|شريط|قطر[ةه]|فيتامين)(?:\s|$))|\s*[،,+]\s*/u).map((part) => stripRequestPrefix(part).trim()).filter((part) => part.length >= 2);
+  return parts.filter((part) => part.split(/\s+/).length <= 4 && !NON_PRODUCT_PHRASE_RX.test(part) && !isGenericDeicticProductPhrase(part));
+}
+function explicitStaffOfferProductNames(text6) {
+  const visible = text6.replace(/<[^<>]*omitted>/gi, "").trim();
+  if (/[؟?]/u.test(visible) || /المندوب|التوصيل|دليفري|صيدلي[ةه]|صيدليات|مخزن/u.test(visible)) return [];
+  const offer = visible.match(/(?:هبعت|هجيب|أرشح|ارشح)(?:لك|لحضرتك)?\s+(?:لحضرتك\s+)?([^\n]+)/u);
+  const available = visible.match(/^(?:موجود[ةه]?|متوفر[ةه]?)\s+([^\n]+)/u);
+  const formReply = visible.match(/^(?:في|فيه)\s+([^\n]+)/u);
+  const phrase = (offer?.[1] || available?.[1] || formReply?.[1] || "").replace(POLITENESS_RX, " ").replace(/\s+ان\s*شاء\s*الله.*$/u, "").trim();
+  if (!phrase) return [];
+  const form = /(?:شراب|اقراص|أقراص|كبسولات|كريم|مرهم|نقط|قطر[ةه]|لبوس|امبول|أمبول)(?![\p{L}])/u;
+  const result = [];
+  for (const part of phrase.split(/\s+و(?=[\p{L}])/u)) {
+    const named = part.trim().replace(/^(?:علب[ةه]|شريط|عبو[ةه])\s+/u, "").replace(/\s+ل(?:لكح[ةه]|لسخوني[ةه]|لهمدان).*$/u, "").trim();
+    if (!named || named.split(/\s+/u).length > 4 || isGenericDeicticProductPhrase(named) || /^(?:اه|ايوه|تمام|حاضر|عندنا|عندي|ان شاء الله|حاليا|حاليًا|دلوقتي|دلوقت|النهارده|النهاردة|بكرا|الصنف|المنتج|الدواء|العلاج|له|لها|منه|منها|كلهم)$/u.test(named) || /^(?:في|على|عند|من)\s/u.test(named)) continue;
+    if (formReply && !form.test(named)) continue;
+    if (offer && !form.test(named) && !/^(?:علب[ةه]|شريط|عبو[ةه])\s/u.test(part.trim())) continue;
+    result.push(named);
+  }
+  return [...new Set(result)];
 }
 var QUANTITY_REVISION_RX = /^(?:(?:لا|لأ|طيب|خلاص)[،,\s]+)?(?:خلي(?:ه|ها|هم|هملي|هولي|هالي)|نزل(?:ه|ها|هم))\s+(?:ل)?(?:(\d+|واحد[ةه]?|اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?)\s*(?:علب[ةه]?|علب|شريط|عبو[ةه]|قطع[ةه]|حب[ةه])?|(?:علب[ةه]|شريط|عبو[ةه]|قطع[ةه]|حب[ةه])\s*(واحد[ةه]?|اتنين|\d+)|(علبتين|شريطين|عبوتين|حبتين))\s*(?:بس|فقط)?[.!، ]*$/i;
 function parseQuantityRevision(text6) {
@@ -2925,7 +2945,7 @@ function extractNaturalUnitItems(message) {
   for (const match of message.text.matchAll(NATURAL_UNIT_ITEM_RX)) {
     const quantityInfo = NATURAL_UNIT_QTY[match[1]];
     if (!quantityInfo) continue;
-    let productNameRaw = match[2].trim().replace(/^واحد[ةه]?\s+/i, "").replace(/^(?:من\s+فضلك|لو\s*سمحت|ان\s*شاء\s*الله)\s*/i, "").replace(/\s+(?:صح|مظبوط|ان\s*شاء\s*الله)\??$/i, "").trim();
+    let productNameRaw = match[2].trim().replace(POLITENESS_RX, " ").replace(/^واحد[ةه]?\s+/i, "").replace(/^(?:من\s+فضلك|لو\s*سمحت|ان\s*شاء\s*الله)\s*/i, "").replace(/\s+(?:صح|مظبوط|ان\s*شاء\s*الله)\??$/i, "").trim();
     if (UNNAMED_QUANTITY_TAIL_RX.test(productNameRaw)) {
       const named = productNamedInAvailabilityQuestion(message.text.slice(0, match.index));
       if (!named) continue;
@@ -2996,6 +3016,21 @@ function extractDraftItemsFromScope(allMessages, restrictToIds) {
   const items = [];
   const scopedMessages = restrictToIds ? allMessages.filter((message) => restrictToIds.has(message.id)) : allMessages;
   scopedMessages.forEach((message) => items.push(...extractNaturalUnitItems(message)));
+  scopedMessages.forEach((message) => {
+    if (message.role !== "customer" || !message.isMeaningful) return;
+    const match = message.text.trim().match(/^(?:(?:هو|هي)\s+)?(.+?)\s+بكام[؟?!.\s]*$/u);
+    const name = match?.[1].trim();
+    if (!name || name.split(/\s+/u).length > 4 || /روشت|رشت|حساب|اجمالي|إجمالي|توصيل|شريطين|علبتين/u.test(name) || isGenericDeicticProductPhrase(name) || /^(?:ده|دي|دا|دول|كله|كلهم|السعر)$/u.test(name)) return;
+    items.push({
+      productNameRaw: name,
+      productId: null,
+      quantity: null,
+      unit: null,
+      sourceMessageId: message.id,
+      confidence: assessment("weakly_inferred", 0.6, "basket.item.named_price_inquiry", [refFor(message, "\u0627\u0633\u0645 \u0635\u0646\u0641 \u0638\u0627\u0647\u0631 \u0641\u064A \u0633\u0624\u0627\u0644 \u0627\u0644\u0633\u0639\u0631\u061B \u0627\u0644\u0647\u0648\u064A\u0629 \u0648\u0627\u0644\u0643\u0645\u064A\u0629 \u0648\u0627\u0644\u0634\u0631\u0627\u0621 \u063A\u064A\u0631 \u0645\u062B\u0628\u062A\u0629.")]),
+      resolutionStatus: "partially_proven"
+    });
+  });
   const quantitySignals = extractQuantitySignals(allMessages).filter(
     (s) => !restrictToIds || restrictToIds.has(s.messageId)
   );
@@ -3122,7 +3157,7 @@ function contextualCompactTotal(scopedMessages, summaryMessage, candidate) {
   const summaryIndex = scopedMessages.findIndex((m) => m.id === summaryMessage.id);
   const candidateIndex = scopedMessages.findIndex((m) => m.id === candidate.id);
   if (summaryIndex < 0 || candidateIndex <= summaryIndex) return null;
-  const prior = scopedMessages.slice(summaryIndex + 1, candidateIndex).filter((m) => m.isMeaningful);
+  const prior = scopedMessages.slice(summaryIndex, candidateIndex).filter((m) => m.isMeaningful);
   const totalQuestion = [...prior].reverse().find(
     (m) => m.role === "customer" && TOTAL_QUESTION_RX2.test(m.text)
   );
@@ -3459,6 +3494,23 @@ function buildCaseBaskets(caseId, scopedMessages, productIndex) {
       });
       return;
     }
+    if (message.role === "staff" && message.isMeaningful && hasOpenBasket) {
+      const anchor = messages.find((m) => m.timestamp.toISOString() === createdAt) ?? messages[0];
+      const explicit = message.text.match(ANNOUNCED_TOTAL_RX);
+      const amount = explicit ? Number(explicit[1]) : contextualCompactTotal(messages, anchor, message);
+      if (amount != null && Number.isFinite(amount)) {
+        announcedTotal = {
+          amount,
+          currency: "EGP",
+          messageId: message.id,
+          staffId: null,
+          announcedAt: message.timestamp.toISOString(),
+          basketVersion: version,
+          supersededByTotalId: null
+        };
+        sourceMessageIds.push(message.id);
+      }
+    }
     if (message.role === "customer" && message.isMeaningful) {
       const modification = classifyCustomerModification(message.text);
       if (modification && hasOpenBasket && (status === "awaiting_confirmation" || status === "confirmed")) {
@@ -3571,6 +3623,7 @@ function buildCaseBaskets(caseId, scopedMessages, productIndex) {
       }
       if (status === "draft") {
         const newItems = extractDraftItemsFromScope(messages, /* @__PURE__ */ new Set([message.id]));
+        if (newItems.length > 0) announcedTotal = null;
         const replaced = newItems.length ? unavailableKeysReplacedBy(message) : [];
         const newKeys = new Set(newItems.map((item) => normalizeProductKey(item.productNameRaw)));
         const toRemove = replaced.filter((key) => !newKeys.has(key));
@@ -5907,8 +5960,11 @@ var HOSTILE_RX = /(?:لو\s*مش\s*عاجبك|مش\s*مشكلتي|مش\s*شغل�
 var STAFF_RESOLUTION_RX = /(?:اتحل(?:ت)?\s*(?:المشكله|المشكلة|الموضوع)?|تم\s*(?:حل|معالجة)\s*(?:المشكله|المشكلة|الموضوع)?|اتظبط(?:ت)?\s*(?:المشكله|المشكلة|الموضوع)?)/i;
 var CUSTOMER_RESOLUTION_RX = /(?:المشكله\s*اتحلت|المشكلة\s*اتحلت|الموضوع\s*اتحل|كده\s*تمام|كدا\s*تمام|تمام\s*كده|تمام\s*كدا|شكرا.*(?:اتحل|اتظبط|تمام))/i;
 var NO_COMPLAINT_ASSURANCE_RX = /^\s*(?:(?:تمام|حاضر|لا|لأ)\s*[,،]?\s*)?(?:مفيش|مافيش|ما\s*فيش|مش\s*فيه|لا\s*توجد)\s+(?:أي\s+)?(?:مشكل[ةه]|مشاكل|شكوى)\s*(?:(?:الحمد\s*لله|شكرا|شكراً|خالص|يا\s*دكتور)[\s،,.!]*)*$/i;
+function isNoComplaintAssurance(text6) {
+  return NO_COMPLAINT_ASSURANCE_RX.test(text6.trim());
+}
 function isExplicitCustomerComplaint(message) {
-  return message.role === "customer" && !NO_COMPLAINT_ASSURANCE_RX.test(message.text.trim()) && COMPLAINT_RX.test(message.text);
+  return message.role === "customer" && !isNoComplaintAssurance(message.text) && COMPLAINT_RX.test(message.text);
 }
 var unique = (ids) => Array.from(new Set(ids.filter(Boolean)));
 function deriveCanonicalComplaintAssessment(input) {
@@ -6082,11 +6138,12 @@ function strongestConfidence(current, next) {
 var STOCK_QUESTION_WORDS_RX = /(?<![\p{L}\p{N}])(?:هو|هي|هل|طيب|مش|مو|غير|عندكم|عندكو|عندك|موجود[ةه]?|متوفر[ةه]?|متاح[ةه]?|فيه|في|لو\s*سمحت|من\s*فضلك|ممكن|يا\s*(?:دكتور[ةه]?|فندم))(?![\p{L}\p{N}])/giu;
 var NON_PRODUCT_LEFTOVER_RX = /^(?:مش|لا|لأ|اه|آه|تمام|حاجة|حاجه|ده|دي|دا|منه|منها)?$/;
 function productPhraseFromStockQuestion(text6) {
-  const phrase = stripRequestPrefix(text6.replace(STOCK_QUESTION_WORDS_RX, " ")).replace(/[؟?!.،]+/g, " ").replace(/\s+/g, " ").trim();
+  const phrase = stripRequestPrefix(text6.split(/[؟?]/u)[0].replace(STOCK_QUESTION_WORDS_RX, " ")).replace(/[؟?!.،]+/g, " ").replace(/\s+/g, " ").trim();
   if (phrase.length < 3 || NON_PRODUCT_LEFTOVER_RX.test(phrase) || isGenericDeicticProductPhrase(phrase)) return null;
   return phrase;
 }
 function classifyObjectionCategory(text6, explicitRejection, correction) {
+  if (isNoComplaintAssurance(text6)) return null;
   if (PRICE_OBJECTION_RX.test(text6)) return "price";
   if (AVAILABILITY_OBJECTION_RX.test(text6)) return "availability";
   if (DELIVERY_OBJECTION_RX.test(text6)) return "delivery";
@@ -6282,6 +6339,16 @@ function deriveCustomerNeedModel(input) {
       const product = ensureProduct(part, assessment6("weakly_inferred", 0.6, ["need.product.explicit_request_phrase"], [ref3]));
       if (!product) continue;
       product.roles.add("requested");
+      product.evidenceMessageIds.add(message.id);
+    }
+  }
+  for (const message of messages) {
+    if (message.role !== "staff" || !message.isMeaningful) continue;
+    for (const name of explicitStaffOfferProductNames(message.text)) {
+      const ref3 = evidenceRef2(message.id, "\u0627\u0633\u0645 \u0635\u0646\u0641 \u0648\u0631\u062F \u0635\u0631\u0627\u062D\u0629 \u0641\u064A \u0639\u0631\u0636/\u062A\u0631\u0634\u064A\u062D \u0627\u0644\u0645\u0648\u0638\u0641\u061B \u0644\u064A\u0633 \u0625\u062B\u0628\u0627\u062A \u0637\u0644\u0628 \u0623\u0648 \u0634\u0631\u0627\u0621 \u0645\u0646 \u0627\u0644\u0639\u0645\u064A\u0644.");
+      const product = ensureProduct(name, assessment6("weakly_inferred", 0.6, ["need.product.explicit_staff_offer"], [ref3]));
+      if (!product) continue;
+      product.roles.add("offered");
       product.evidenceMessageIds.add(message.id);
     }
   }
@@ -9759,11 +9826,11 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v55-caption-offer-continuity";
+var PIPELINE_VERSION = "sales-intelligence-v56-observable-conversation-evidence";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v15-caption-priced-offer-continuity",
   historicalClosure: "historical-closure-v1",
-  commercialConfirmation: "commercial-confirmation-v6-compact-total-interstitial-ack-safe",
+  commercialConfirmation: "commercial-confirmation-v7-independent-announced-total",
   protocolApplicability: "protocol-applicability-v1",
   attribution: "attribution-v13-scoped-name-annotations",
   matching: "matching-v3-unresolved-product-evidence-safe",
@@ -12488,6 +12555,56 @@ function monthCycleFromDate(dateInput = /* @__PURE__ */ new Date()) {
   return `${cycleDate.getUTCFullYear()}-${String(cycleDate.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
+// src/lib/salesIntelligence/conversationDeliveryDelayEvidence.ts
+var ORDER_CONTEXT_RX = /(?:اوردر|أوردر|الاوردر|الأوردر|طلب|المندوب|توصيل|دليفري)/i;
+var DELAY_RX2 = /(?:اتأخر|اتاخر|متأخر|متاخر|تأخير|تاخير|لسه|فين|مجاش|ماجاش|موصلش|ماوصلش|هييجي\s*امتى|هيوصل\s*امتى)/i;
+var STAFF_DELAY_NOTICE_RX = /(?:(?:الطلب|الاوردر|الأوردر|المندوب|التوصيل)[^\n]{0,40}(?:ه?يتأخر|متأخر|في\s*تأخير|فيه\s*تأخير)|(?:في|فيه)\s*تأخير[^\n]{0,30}(?:الطلب|الاوردر|المندوب|التوصيل)|المندوب[^\n]{0,25}برا[^\n]{0,35}هيرجع[^\n]{0,35}(?:ابعته|أبعته|نبعته))/i;
+function orderDelayEvidenceIds(view) {
+  return view.interaction.messages.filter((m) => m.meaningful && (m.role === "staff" ? STAFF_DELAY_NOTICE_RX.test(m.text) : m.role === "customer" && ORDER_CONTEXT_RX.test(m.text) && DELAY_RX2.test(m.text))).map((m) => m.id);
+}
+function isStaffOrderDelayNotice(text6) {
+  return STAFF_DELAY_NOTICE_RX.test(text6);
+}
+function isCustomerOrderDelay(text6) {
+  return ORDER_CONTEXT_RX.test(text6) && DELAY_RX2.test(text6);
+}
+
+// src/lib/salesIntelligence/conversationClosingEvidence.ts
+var OFFICIAL = /(?:(?:نتشرف|تشرفنا)[^\n]{0,60}(?:ب\s*خدم(?:ة|ه)?|خدمت)[^\n]{0,40}(?:24|٢٤|أي\s*وقت|اى\s*وقت|اي\s*وقت)|صيدليات?\s*دواء[^\n]{0,60}(?:تحت\s*(?:أمر|امر)|نتشرف|تتشرف|في\s*خدمت)|(?:نتشرف|تشرفنا)\s*ب\s*خدم(?:ة|ه)\s*حضرتك\s*(?:دائم|في\s*أي\s*وقت)?)/i;
+var RESPECTFUL = /(?:تحت\s*(?:أمر|امر)\s*حضرتك|تحت\s*امرك|شكر(?:ا|ًا)\s*(?:لحضرتك|لتواصلك)|العفو\s*(?:يا\s*فندم)?|تشرفنا\s*(?:بخدمت|بالكلام)|في\s*(?:أي|اي|أى)\s*وقت|(?:ألف|الف)\s*سلام[ةه])/i;
+var THANKS = /شكرا|شكرًا|شكراً|متشكر|تسلم|تسلمى|تسلمي|جزاك|ربنا\s*يكرمك|الله\s*يخليك/i;
+var NEW_NEED = /عايز|عاوز|محتاج|ممكن|ينفع|بكام|سعر|موجود|متوفر|ابعت|ابعث|هات|لو\s*سمحت|سؤال|استفسار|كمان|[؟?]/i;
+var BARE_ACK = /^(?:تمام|ماشي|حاضر|اوكي|أوكي|اوك|ok|العفو)[\s🌷🌸✨💚🙏!.،]*$/iu;
+function isClosingCourtesy(text6) {
+  return BARE_ACK.test(text6.trim()) || THANKS.test(text6) && !NEW_NEED.test(text6);
+}
+function observableClosing(view) {
+  const messages = view.interaction.messages.filter((m) => m.role === "staff" || m.role === "customer").slice().sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+  const meaningful = messages.filter((m) => m.meaningful);
+  let respectful = null;
+  for (const candidate of meaningful.slice(-5).reverse()) {
+    if (candidate.role !== "staff") continue;
+    const index = messages.findIndex((m) => m.id === candidate.id);
+    const before = messages.slice(0, index);
+    if (!messages.some((m) => m.role === "customer")) continue;
+    const laterCustomer = messages.slice(index + 1).filter((m) => m.role === "customer");
+    if (laterCustomer.some((m) => !m.meaningful || !isClosingCourtesy(m.text))) continue;
+    if (OFFICIAL.test(candidate.text)) return { kind: "official", messageId: candidate.id };
+    if (!RESPECTFUL.test(candidate.text)) continue;
+    const lastCustomer = before.filter((m) => m.role === "customer" && m.meaningful).at(-1);
+    const explicitFarewell = /العفو|تشرفنا|في\s*(?:أي|اي|أى)\s*وقت|(?:ألف|الف)\s*سلام[ةه]/i.test(candidate.text);
+    if (explicitFarewell || lastCustomer && isClosingCourtesy(lastCustomer.text)) {
+      respectful ??= { kind: "respectful", messageId: candidate.id };
+    }
+  }
+  return respectful;
+}
+function closingAbsenceAssessable(view) {
+  const last = view.interaction.messages.filter((m) => m.role === "customer" || m.role === "staff" && m.meaningful).at(-1);
+  if (last?.role === "customer" && (!last.meaningful || !isClosingCourtesy(last.text))) return false;
+  return ["sale_proven", "financially_settled", "awaiting_invoice", "customer_declined"].includes(view.journey.currentState) || view.lostOpportunity.state === "lost" && view.lostOpportunity.recoverability === "none" || view.journey.currentState === "information_only" && last?.role === "customer" && isClosingCourtesy(last.text);
+}
+
 // src/lib/salesIntelligence/conversationClinicalReview.ts
 var CONSULTATION_CONTEXT_RX = /(?:استشار(?:ة|ه)|تشخيص|اعراض|أعراض|حامل|حمل|رضاع(?:ة|ه)|مرضع|طفل|رضيع|حساسي(?:ة|ه)|ضغط|سكر|حرار(?:ة|ه)|كح(?:ة|ه)|اسهال|إسهال|قيء|ترجيع|استفراغ|دوخ(?:ة|ه)|التهاب|صداع|وجع|ألم|الم(?=$|[\s،,.!?؟])|رشح|برد|جرح|تداخل|يتعارض|روشت(?:ة|ه)|تحليل|مناسب\s+(?:ل|مع)|آمن\s+(?:ل|مع)|امن\s+(?:ل|مع))/i;
 var DOSAGE_USAGE_RX = /(?:جرع(?:ة|ه)|طريق(?:ة|ه)\s*الاستخدام|طريقة\s*الإستخدام|(?:مرة|مره|مرتين|ثلاث\s*مرات|اربع\s*مرات|أربع\s*مرات)\s*(?:في|ف)?\s*(?:اليوم|يوميا|يوميًا)?|كل\s*\d+\s*(?:ساع(?:ة|ه)|ساعات)|(?:قبل|بعد)\s*(?:الاكل|الأكل)|على\s*الريق|لمد(?:ة|ه)\s*\d+\s*(?:يوم|ايام|أيام)|(?:خد|خدي|خدوا|ياخد|تاخد|تاخدي|يتاخد|تؤخذ|استخدم|استخدمي|يستخدم)\s+[^\n]{0,40}(?:قرص|كبسول(?:ة|ه)|مل|ملي|نقط(?:ة|ه)?|بخ(?:ة|ه)|بختين|ملعق(?:ة|ه)|معلق(?:ة|ه)))/i;
@@ -12528,7 +12645,7 @@ function section(messages, triggerMessageIds, kind) {
     evidenceMessageIds,
     triggerMessageIds,
     mediaContextMissing,
-    reason: kind === "consultation" ? "\u062A\u0645 \u0631\u0635\u062F \u0633\u064A\u0627\u0642 \u0627\u0633\u062A\u0634\u0627\u0631\u0629/\u062D\u0627\u0644\u0629 \u0635\u062D\u064A\u0629. \u064A\u064F\u0639\u0631\u0636 \u0644\u0644\u0645\u0631\u0627\u062C\u0639\u0629 \u0645\u0646\u0641\u0635\u0644\u064B\u0627 \u0648\u0644\u0627 \u064A\u0635\u062F\u0631 \u0639\u0646\u0647 \u062A\u0642\u064A\u064A\u0645 \u0637\u0628\u064A \u0622\u0644\u064A." : "\u062A\u0645 \u0631\u0635\u062F \u0634\u0631\u062D \u062C\u0631\u0639\u0629 \u0623\u0648 \u0637\u0631\u064A\u0642\u0629 \u0627\u0633\u062A\u062E\u062F\u0627\u0645 \u0641\u064A \u0631\u0633\u0627\u0644\u0629 \u0645\u0648\u0638\u0641. \u064A\u064F\u0639\u0631\u0636 \u0644\u0644\u0645\u0631\u0627\u062C\u0639\u0629 \u0645\u0646\u0641\u0635\u0644\u064B\u0627 \u0648\u0644\u0627 \u064A\u0635\u062F\u0631 \u0639\u0646\u0647 \u062A\u0642\u064A\u064A\u0645 \u0637\u0628\u064A \u0622\u0644\u064A."
+    reason: kind === "consultation" ? "\u062A\u0645 \u0631\u0635\u062F \u0633\u064A\u0627\u0642 \u0627\u0633\u062A\u0634\u0627\u0631\u0629/\u062D\u0627\u0644\u0629 \u0635\u062D\u064A\u0629. \u064A\u064F\u0639\u0631\u0636 \u0644\u0644\u0645\u0631\u0627\u062C\u0639\u0629 \u0645\u0646\u0641\u0635\u0644\u064B\u0627 \u0648\u0644\u0627 \u064A\u0635\u062F\u0631 \u0639\u0646\u0647 \u062A\u0642\u064A\u064A\u0645 \u0637\u0628\u064A \u0622\u0644\u064A." : "\u0648\u0631\u062F \u0633\u064A\u0627\u0642 \u062C\u0631\u0639\u0629 \u0623\u0648 \u0627\u0633\u062A\u062E\u062F\u0627\u0645 \u0641\u064A \u0631\u0633\u0627\u0644\u0629 \u0645\u0648\u0638\u0641\u061B \u0642\u062F \u064A\u0643\u0648\u0646 \u0633\u0624\u0627\u0644\u064B\u0627 \u0623\u0648 \u0634\u0631\u062D\u064B\u0627. \u064A\u064F\u0639\u0631\u0636 \u0627\u0644\u0646\u0635 \u0644\u0644\u0645\u0631\u0627\u062C\u0639 \u0648\u0644\u0627 \u064A\u0639\u0646\u064A \u0627\u0644\u0631\u0635\u062F \u0623\u0646 \u0634\u0631\u062D\u064B\u0627 \u0643\u0627\u0645\u0644\u064B\u0627 \u0623\u0648 \u0635\u062D\u064A\u062D\u064B\u0627 \u0642\u062F \u062A\u0645."
   };
 }
 function buildConversationClinicalReview(view) {
@@ -12681,12 +12798,21 @@ var CONVERSATION_EVALUATION_CONTRACT = {
     key: "closing_message",
     sources: ["interaction_text", "journey"],
     externalSources: [],
-    question: "\u0647\u0644 \u0627\u0646\u062A\u0647\u0649 \u0627\u0644\u062A\u0641\u0627\u0639\u0644 \u0641\u0639\u0644\u064B\u0627\u060C \u0648\u0625\u0630\u0627 \u0627\u0646\u062A\u0647\u0649 \u0647\u0644 \u0643\u0627\u0646 \u0627\u0644\u062E\u062A\u0627\u0645 \u0645\u0646\u0627\u0633\u0628\u064B\u0627\u061F",
-    forbiddenShortcuts: ["\u0645\u0639\u0627\u0642\u0628\u0629 \u0645\u062D\u0627\u062F\u062B\u0629 \u0645\u0627 \u0632\u0627\u0644\u062A \u0645\u0641\u062A\u0648\u062D\u0629", "\u0627\u0639\u062A\u0628\u0627\u0631 \u0623\u064A \u0631\u0633\u0627\u0644\u0629 \u0634\u0643\u0631 \u062E\u062A\u0627\u0645\u064B\u0627 \u0645\u0646 \u0627\u0644\u0645\u0648\u0638\u0641"]
+    question: "\u0647\u0644 \u0648\u0631\u062F \u062E\u062A\u0627\u0645 \u0645\u0646 \u0627\u0644\u0645\u0648\u0638\u0641 \u0641\u064A \u0646\u0647\u0627\u064A\u0629 \u0627\u0644\u062A\u0628\u0627\u062F\u0644 \u0627\u0644\u0645\u062A\u0627\u062D\u061F \u0648\u0625\u0630\u0627 \u063A\u0627\u0628\u060C \u0647\u0644 \u062A\u0648\u062C\u062F \u0646\u0647\u0627\u064A\u0629 \u0645\u062B\u0628\u062A\u0629 \u062A\u0633\u0645\u062D \u0628\u062A\u0642\u064A\u064A\u0645 \u063A\u064A\u0627\u0628\u0647\u061F",
+    forbiddenShortcuts: ["\u0645\u0639\u0627\u0642\u0628\u0629 \u0645\u062D\u0627\u062F\u062B\u0629 \u0645\u0627 \u0632\u0627\u0644\u062A \u0645\u0641\u062A\u0648\u062D\u0629", "\u0627\u0639\u062A\u0628\u0627\u0631 \u0623\u064A \u0631\u0633\u0627\u0644\u0629 \u0634\u0643\u0631 \u062E\u062A\u0627\u0645\u064B\u0627 \u0645\u0646 \u0627\u0644\u0645\u0648\u0638\u0641", "\u0627\u0634\u062A\u0631\u0627\u0637 \u0625\u062B\u0628\u0627\u062A \u0627\u0644\u0641\u0627\u062A\u0648\u0631\u0629 \u0644\u0644\u0627\u0639\u062A\u0631\u0627\u0641 \u0628\u0639\u0628\u0627\u0631\u0629 \u0627\u0644\u062E\u062A\u0627\u0645 \u0646\u0641\u0633\u0647\u0627"]
   }
 };
 function hasSubstantiveBasket(view) {
   return view.basket.activeItems.length > 0 || view.basket.confirmed || view.basket.announcedTotal != null || view.basket.versions.some((version) => version.itemCount > 0 || Boolean(version.confirmedAt) || version.announcedTotal != null);
+}
+function extraOfferCandidates(view) {
+  return view.products.filter((product) => {
+    if (!product.roles.includes("offered") || product.roles.includes("requested") || product.roles.includes("alternative")) return false;
+    const lifecycle = view.need.products.find((candidate) => candidate.key === product.productKey);
+    if (!lifecycle?.confidence.ruleIds.includes("need.product.explicit_staff_offer")) return true;
+    const ids = new Set(lifecycle.evidenceMessageIds);
+    return view.products.some((other) => other.roles.includes("requested") && other.productKey !== product.productKey) && view.interaction.messages.some((message) => message.role === "staff" && ids.has(message.id) && /كمان|معاه|معاها|بجانب|إضاف|اضاف|مكمل/u.test(message.text));
+  });
 }
 var ORDER_STATUS_INQUIRY_RX = /(?:الطلب|الاوردر|الأوردر|المندوب|الدليفري|التوصيل)[^\n]{0,30}(?:فين|امتى|إمتى|هيوصل|هيجي|اتأخر|اتاخر|متأخر|لسه|مجاش|موصلش)/u;
 function isOrderStatusServiceOnly(view) {
@@ -12739,7 +12865,7 @@ function criterionApplicable(view, key, clinical) {
     case "dosage_explanation":
       return clinical.dosageUsage.present;
     case "unavailable_items":
-      return view.unavailableDemand.length > 0 || view.products.some((product) => product.availability === "unavailable");
+      return view.unavailableDemand.length > 0 || view.products.some((product) => product.availability === "unavailable") || view.need.unlinkedAvailability.some((item) => item.state === "unavailable");
     case "sales_closing":
       return salesCriteriaApplicable(view);
     case "order_confirmation": {
@@ -12748,13 +12874,11 @@ function criterionApplicable(view, key, clinical) {
       return view.basket.confirmed || view.sale.summaryPresented || view.sale.customerConfirmed || view.sale.staffConfirmed;
     }
     case "cross_sell_upsell":
-      return salesCriteriaApplicable(view) && view.products.some(
-        (product) => product.roles.includes("offered") && !product.roles.includes("requested") && !product.roles.includes("alternative")
-      );
+      return salesCriteriaApplicable(view) && extraOfferCandidates(view).length > 0;
     case "angry_customer":
       return view.coachingEvidence.delayComplaintMessageIds.length > 0 || view.interaction.messages.some((message) => /شكوى|زعلان|غاضب|مشكله|مشكلة|متأخر|تأخير/i.test(message.text));
     case "order_delay_handling":
-      return view.coachingEvidence.delayComplaintMessageIds.length > 0;
+      return orderDelayEvidenceIds(view).length > 0;
     case "customer_request_registration":
       return view.unavailableDemand.length > 0 || view.followUp.opportunities.length > 0;
     case "exceptional_followup_recognition":
@@ -12762,7 +12886,7 @@ function criterionApplicable(view, key, clinical) {
     case "purchase_history_usage":
       return view.customer.identityStatus === "resolved";
     case "closing_message":
-      return ["sale_proven", "financially_settled", "awaiting_invoice", "customer_declined", "information_only"].includes(view.journey.currentState) || view.lostOpportunity.state === "lost" && view.lostOpportunity.recoverability === "none";
+      return Boolean(observableClosing(view)) || closingAbsenceAssessable(view) || view.journey.currentState === "information_only";
     default:
       return true;
   }
@@ -12782,6 +12906,7 @@ function evidenceIdsFor(view, key, clinical) {
         ...view.followUp.opportunities.flatMap((item) => item.evidenceMessageIds)
       ]);
     case "order_delay_handling":
+      return orderDelayEvidenceIds(view);
     case "customer_request_registration":
     case "exceptional_followup_recognition":
       return uniq2(view.followUp.opportunities.flatMap((item) => item.evidenceMessageIds));
@@ -13162,7 +13287,7 @@ var RESPECT_RX = /(?:حضرتك|يا\s*فندم|يا\s*افندم|تحت\s*(?:أ
 var APOLOGY_RX2 = /(?:معلش|متاسف|متأسف|آسف|اسف|بنعتذر|نعتذر)/i;
 var STRONG_HOSTILITY_RX = /(?:يا\s*(?:غبي|اهبل|أهبل|حمار)|اخرس|اخرسي|قليل\s*الادب|قليلة\s*الادب|مش\s*ناقصينك|لو\s*مش\s*عاجبك|روح\s*اشتكي)/i;
 var DISMISSIVE_RX = /(?:مش\s*فاضي|مش\s*شغلي|مش\s*مسؤوليتي|بلاش\s*زن|ما\s*تزنش|خلصنا\s*بقى|استنى\s*بقى)/i;
-var CLARIFICATION_RX = /(?:تقصد|حضرتك\s*تقصد|كام\s*(?:علبة|علب|شريط)|الكمية|التركيز|سن\s*(?:الطفل|حضرتك)?|الوزن|الأعراض|الاعراض|حضرتك\s*(?:عايز|عاوزه|عايزة)|صح\s*[؟?]?|صحيح\s*[؟?]?)/i;
+var CLARIFICATION_RX = /(?:تقصد|حضرتك\s*تقصد|كام\s*(?:علبة|علب|شريط|سن[ةه])|الكمية|التركيز|(?:^|\s)سن\s*(?:كام|الطفل|حضرتك|[؟?]|$)|الوزن|الأعراض|الاعراض|حضرتك\s*(?:عايز|عاوزه|عايزة)|(?:علب|اقراص|أقراص|شرايط|حقن)\s*ولا\s*(?:علب|اقراص|أقراص|شرايط|حقن)|(?:^|\s)(?:صح|صحيح)\s*[؟?])/i;
 var CUSTOMER_CORRECTION_RX = /(?:(?:لا|لأ)\s*(?:قصدي|اقصد)|مش\s*(?:ده|دي|دا|هو)\s*(?:اللي\s*)?(?:طلبت|قصدي|عايز|عاوزه|عايزة)|انا\s*(?:قلت|قولت)|أنا\s*(?:قلت|قولت))/i;
 var CLARIFYING_QUESTION_RX = /(?:تقصد|حضرتك\s*تقصد|يعني\s*حضرتك|هل\s*تقصد|صح\s*[؟?]?|صحيح\s*[؟?]?)/i;
 function make(key, option, status, confidence3, reason, evidenceMessageIds) {
@@ -13277,14 +13402,15 @@ function precedingStaffMessage(view, messageId2) {
   return null;
 }
 function assessUnderstanding(view) {
+  const unavailableMedia = view.interaction.messages.filter((message) => message.role === "customer" && (isUnavailableMediaPlaceholderText(message.text) || /<[^<>]*omitted>/i.test(message.text)));
   if (!view.need.primaryNeed) {
     return make(
       "understanding",
       null,
-      "not_applicable",
+      unavailableMedia.length ? "insufficient_evidence" : "not_applicable",
       95,
-      "\u0644\u0627 \u064A\u0648\u062C\u062F \u0627\u062D\u062A\u064A\u0627\u062C \u0639\u0645\u064A\u0644 \u0648\u0627\u0636\u062D \u0641\u064A \u0647\u0630\u0627 \u0627\u0644\u062A\u0641\u0627\u0639\u0644 \u064A\u062C\u0639\u0644 \u0628\u0646\u062F \u0641\u0647\u0645 \u0627\u0644\u0637\u0644\u0628 \u0642\u0627\u0628\u0644\u064B\u0627 \u0644\u0644\u062A\u0642\u064A\u064A\u0645.",
-      []
+      unavailableMedia.length ? "\u0648\u0631\u062F \u0637\u0644\u0628 \u0639\u0628\u0631 \u0648\u0633\u064A\u0637 \u063A\u064A\u0631 \u0645\u062A\u0627\u062D\u060C \u0641\u0644\u0627 \u064A\u0645\u0643\u0646 \u0627\u0644\u062D\u0643\u0645 \u0639\u0644\u0649 \u0641\u0647\u0645 \u0645\u062D\u062A\u0648\u0627\u0647 \u0623\u0648 \u0627\u0639\u062A\u0628\u0627\u0631\u0647 \u0628\u0644\u0627 \u0627\u062D\u062A\u064A\u0627\u062C. \u0644\u0627 \u064A\u0648\u062C\u062F \u062E\u0635\u0645 \u0622\u0644\u064A." : "\u0644\u0627 \u064A\u0648\u062C\u062F \u0627\u062D\u062A\u064A\u0627\u062C \u0639\u0645\u064A\u0644 \u0648\u0627\u0636\u062D \u0641\u064A \u0647\u0630\u0627 \u0627\u0644\u062A\u0641\u0627\u0639\u0644 \u064A\u062C\u0639\u0644 \u0628\u0646\u062F \u0641\u0647\u0645 \u0627\u0644\u0637\u0644\u0628 \u0642\u0627\u0628\u0644\u064B\u0627 \u0644\u0644\u062A\u0642\u064A\u064A\u0645.",
+      unavailableMedia.map((message) => message.id)
     );
   }
   const customers = customerMessages(view);
@@ -13313,25 +13439,28 @@ function assessUnderstanding(view) {
       );
     }
   }
-  if (view.need.unresolvedNeed && view.products.length === 0) {
+  if (view.need.unresolvedNeed && view.products.length === 0 && unavailableMedia.length > 0) {
     return make(
       "understanding",
       null,
       "insufficient_evidence",
       100,
       "\u0627\u0644\u0627\u062D\u062A\u064A\u0627\u062C \u0645\u0631\u062A\u0628\u0637 \u0628\u0645\u062D\u062A\u0648\u0649 \u063A\u064A\u0631 \u0638\u0627\u0647\u0631 \u0641\u064A \u0627\u0644\u062A\u0635\u062F\u064A\u0631 (\u0645\u062B\u0644 \u0635\u0648\u0631\u0629/\u0641\u0648\u064A\u0633) \u0648\u0644\u0627 \u062A\u0648\u062C\u062F \u0647\u0648\u064A\u0629 \u0635\u0646\u0641 \u0646\u0635\u064A\u0629 \u0645\u0648\u062B\u0648\u0642\u0629\u061B \u0644\u0627 \u064A\u062C\u0648\u0632 \u0645\u062F\u062D \u0623\u0648 \u062E\u0635\u0645 \u0641\u0647\u0645 \u0627\u0644\u0645\u0648\u0638\u0641 \u0645\u0646 \u062F\u0644\u064A\u0644 \u063A\u064A\u0631 \u0645\u062A\u0627\u062D.",
-      view.need.evidenceMessageIds
+      [...view.need.evidenceMessageIds, ...unavailableMedia.map((message) => message.id)]
     );
   }
-  const clarification = staff.find((message) => CLARIFICATION_RX.test(message.text));
+  const needAt = view.interaction.messages.find((message) => message.id === view.need.primaryNeedMessageId)?.at;
+  const replies = staff.filter((message) => !needAt || new Date(message.at) >= new Date(needAt));
+  const clarification = replies.find((message) => CLARIFICATION_RX.test(message.text));
+  const response = replies.find((message) => /حاضر|تحت\s*(?:أمر|امر)|هبعت|جاري|متوفر|موجود|تقصد|كام\s*سن[ةه]/i.test(message.text));
   const requested = view.products.filter((product) => product.roles.includes("requested"));
   const coveredKeys = new Set(
     view.staff.facts.filter(
       (fact) => ["stated_available", "stated_unavailable", "stated_check_pending", "offered_product", "offered_alternative", "confirmed_order"].includes(fact.fact)
     ).map((fact) => fact.productKey).filter((key) => Boolean(key))
   );
-  const covered = requested.filter((product) => product.inFinalBasket || coveredKeys.has(product.productKey));
-  if (requested.length > 0 && covered.length === requested.length && !view.need.unresolvedNeed) {
+  const covered = requested.filter((product) => coveredKeys.has(product.productKey));
+  if (requested.length > 0 && covered.length === requested.length && unavailableMedia.length === 0 && !view.need.unresolvedNeed) {
     const evidence = [
       ...view.need.evidenceMessageIds,
       ...view.staff.facts.filter((fact) => fact.productKey && coveredKeys.has(fact.productKey)).map((fact) => fact.messageId),
@@ -13346,20 +13475,21 @@ function assessUnderstanding(view) {
       evidence
     );
   }
-  if (requested.length > 0 && covered.length > 0) {
+  if (requested.length > 0 && (covered.length > 0 || response)) {
     return make(
       "understanding",
       "acceptable",
       "assessed",
       82,
-      "\u062A\u0645 \u0627\u0644\u062A\u0639\u0627\u0645\u0644 \u0645\u0639 \u062C\u0632\u0621 \u0648\u0627\u0636\u062D \u0645\u0646 \u0627\u0644\u0637\u0644\u0628 \u0628\u0634\u0643\u0644 \u0635\u062D\u064A\u062D\u060C \u0644\u0643\u0646 \u0628\u0639\u0636 \u0639\u0646\u0627\u0635\u0631 \u0627\u0644\u0627\u062D\u062A\u064A\u0627\u062C \u0645\u0627 \u0632\u0627\u0644\u062A \u063A\u064A\u0631 \u0645\u062D\u0633\u0648\u0645\u0629 \u0623\u0648 \u063A\u064A\u0631 \u0645\u063A\u0637\u0627\u0629 \u0628\u0627\u0644\u0643\u0627\u0645\u0644.",
+      "\u064A\u0648\u062C\u062F \u0637\u0644\u0628 \u0646\u0635\u064A \u0648\u0631\u062F \u0639\u0644\u064A\u0647 \u0627\u0644\u0645\u0648\u0638\u0641\u060C \u0644\u0643\u0646 \u0631\u0628\u0637 \u062C\u0645\u064A\u0639 \u0639\u0646\u0627\u0635\u0631\u0647 \u063A\u064A\u0631 \u0645\u0643\u062A\u0645\u0644. \u0639\u062F\u0645 \u062D\u0633\u0645 \u0647\u0648\u064A\u0629 \u0627\u0644\u0635\u0646\u0641 \u0623\u0648 \u0627\u0644\u0643\u062A\u0627\u0644\u0648\u062C \u0644\u0627 \u064A\u062B\u0628\u062A \u0633\u0648\u0621 \u0641\u0647\u0645 \u0627\u0644\u0645\u0648\u0638\u0641\u060C \u0648\u0644\u0627 \u064A\u062D\u0633\u0645 \u0635\u062D\u0629 \u0627\u0644\u0627\u0633\u062A\u0634\u0627\u0631\u0629.",
       [
         ...view.need.evidenceMessageIds,
+        ...response ? [response.id] : [],
         ...view.staff.facts.filter((fact) => fact.productKey && coveredKeys.has(fact.productKey)).map((fact) => fact.messageId)
       ]
     );
   }
-  if (!view.need.unresolvedNeed && clarification) {
+  if (clarification) {
     return make(
       "understanding",
       "acceptable",
@@ -13716,6 +13846,21 @@ function assessDemand(view, demand) {
 function analyzeConversationEvaluationAvailability(view) {
   const contract = buildConversationEvaluationEvidence(view);
   const gate = contract.criteria.find((item) => item.key === "unavailable_items");
+  const unlinked = view.need.unlinkedAvailability.filter((item) => item.state === "unavailable");
+  if (view.unavailableDemand.length === 0 && unlinked.length) {
+    return {
+      version: "conversation-evaluation-availability-v1",
+      caseId: view.caseId,
+      item: make3(
+        null,
+        "insufficient_evidence",
+        70,
+        "\u0639\u062F\u0645 \u0627\u0644\u062A\u0648\u0641\u0631 \u0645\u0630\u0643\u0648\u0631 \u0635\u0631\u0627\u062D\u0629\u060C \u0644\u0643\u0646 \u0647\u0648\u064A\u0629 \u0627\u0644\u0635\u0646\u0641 \u0623\u0648 \u0631\u0628\u0637\u0647 \u0628\u0627\u0644\u0637\u0644\u0628 \u063A\u064A\u0631 \u0645\u062D\u0633\u0648\u0645\u0629. \u0644\u0627 \u064A\u062A\u0645 \u062A\u062E\u0645\u064A\u0646 \u0627\u0644\u0635\u0646\u0641 \u0623\u0648 \u062E\u0635\u0645 \u062F\u0631\u062C\u0627\u062A \u0628\u0633\u0628\u0628 \u0627\u0644\u062F\u0644\u064A\u0644 \u0627\u0644\u0646\u0627\u0642\u0635.",
+        unlinked.map((item) => item.messageId),
+        []
+      )
+    };
+  }
   if (gate?.readiness === "not_applicable" || view.unavailableDemand.length === 0) {
     return {
       version: "conversation-evaluation-availability-v1",
@@ -13874,9 +14019,7 @@ function assessClosing(view) {
   );
 }
 function assessCrossSell(view) {
-  const offeredExtra = view.products.filter(
-    (product) => product.roles.includes("offered") && !product.roles.includes("requested") && !product.roles.includes("alternative")
-  );
+  const offeredExtra = extraOfferCandidates(view);
   if (!offeredExtra.length) {
     return make4(
       "cross_sell_upsell",
@@ -13964,9 +14107,6 @@ function analyzeConversationEvaluationSales(view) {
 // src/lib/salesIntelligence/conversationEvaluationServiceRecovery.ts
 var criteria2 = new Map(REVIEW_CRITERIA.map((criterion5) => [criterion5.key, criterion5]));
 var APOLOGY_RX3 = /(?:متاسف|متأسف|آسف|اسف|بنعتذر|نعتذر|حقك\s*علينا|معلش)/i;
-var ORDER_CONTEXT_RX = /(?:اوردر|أوردر|الاوردر|الأوردر|طلب|المندوب|توصيل|دليفري)/i;
-var DELAY_RX2 = /(?:اتأخر|اتاخر|متأخر|متاخر|تأخير|تاخير|لسه|فين|مجاش|ماجاش|موصلش|ماوصلش|هييجي\s*امتى|هيوصل\s*امتى)/i;
-var STAFF_DELAY_NOTICE_RX = /(?:(?:الطلب|الاوردر|الأوردر|المندوب|التوصيل)[^\n]{0,40}(?:ه?يتأخر|متأخر|في\s*تأخير|فيه\s*تأخير)|(?:في|فيه)\s*تأخير[^\n]{0,30}(?:الطلب|الاوردر|المندوب|التوصيل))/i;
 var ETA_RX = /(?:خلال\s*\d+\s*(?:دقيقه|دقيقة|دقائق|ساعه|ساعة|ساعات)|نص\s*ساعه|نصف\s*ساعه|هيوصل\s*(?:خلال|في)|هيكون\s*عند\s*حضرتك|موعد\s*جديد)/i;
 var DELIVERY_PROGRESS_RX = /(?:خرج\s*(?:مع|ل)\s*المندوب|في\s*الطريق|جاري\s*الارسال|جاري\s*الإرسال|تم\s*الارسال|تم\s*الإرسال)/i;
 var DELIVERY_CLOSURE_RX = /(?:تم\s*التسليم|اتسلم|استلم(?:ت|نا)?|وصل(?:ت)?\s*(?:تمام|الحمد|شكرا|شكرًا)|المشكله\s*اتحلت|المشكلة\s*اتحلت|تم\s*الحل)/i;
@@ -14085,10 +14225,10 @@ function assessComplaint(view) {
 function assessDelay(view) {
   const messages = ordered2(view);
   const customerDelayIndex = messages.findIndex(
-    (message) => message.role === "customer" && message.meaningful && ORDER_CONTEXT_RX.test(message.text) && DELAY_RX2.test(message.text)
+    (message) => message.role === "customer" && message.meaningful && isCustomerOrderDelay(message.text)
   );
   const proactiveNoticeIndex = messages.findIndex(
-    (message) => message.role === "staff" && message.meaningful && STAFF_DELAY_NOTICE_RX.test(message.text)
+    (message) => message.role === "staff" && message.meaningful && isStaffOrderDelayNotice(message.text)
   );
   if (customerDelayIndex < 0 && proactiveNoticeIndex < 0) {
     return make5(
@@ -14202,8 +14342,8 @@ function make6(option, status, confidence3, reason, evidenceMessageIds, missingP
 var STEP_LABELS = {
   final_basket_summary: "\u062A\u0644\u062E\u064A\u0635 \u0627\u0644\u0637\u0644\u0628 \u0627\u0644\u0646\u0647\u0627\u0626\u064A",
   announced_total: "\u0625\u0639\u0644\u0627\u0646 \u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A",
-  customer_final_confirmation: "\u062A\u0623\u0643\u064A\u062F \u0627\u0644\u0639\u0645\u064A\u0644",
-  staff_final_confirmation: "\u0627\u0644\u062A\u0623\u0643\u064A\u062F \u0627\u0644\u0646\u0647\u0627\u0626\u064A \u0645\u0646 \u0627\u0644\u0645\u0648\u0638\u0641"
+  customer_final_confirmation: "\u062A\u0623\u0643\u064A\u062F \u0627\u0644\u0639\u0645\u064A\u0644 \u0644\u0644\u0633\u0644\u0629 \u0627\u0644\u0646\u0647\u0627\u0626\u064A\u0629 \u0627\u0644\u0645\u0644\u062E\u0635\u0629",
+  staff_final_confirmation: "\u0627\u0644\u062A\u0623\u0643\u064A\u062F \u0627\u0644\u0646\u0647\u0627\u0626\u064A \u0627\u0644\u0645\u0631\u062A\u0628\u0637 \u0628\u0627\u0644\u0633\u0644\u0629 \u0627\u0644\u0645\u0644\u062E\u0635\u0629"
 };
 function labels(steps) {
   return steps.map((step) => STEP_LABELS[step] || step).join("\u060C ");
@@ -14243,6 +14383,20 @@ function analyzeConversationEvaluationOrderConfirmation(view) {
   }
   const missing = view.coachingEvidence.missingProtocolSteps;
   const evidence = view.sale.confirmationMessageIds;
+  if (view.need.unresolvedNeed && missing.includes("final_basket_summary") && view.interaction.messages.some((message) => /<[^<>]*omitted>/i.test(message.text))) {
+    return {
+      version: "conversation-evaluation-order-confirmation-v1",
+      caseId: view.caseId,
+      item: make6(
+        null,
+        "insufficient_evidence",
+        90,
+        "\u0628\u0639\u0636 \u0645\u062D\u062A\u0648\u0649 \u0627\u0644\u0637\u0644\u0628 \u063A\u064A\u0631 \u0645\u062A\u0627\u062D \u0641\u064A \u0627\u0644\u062A\u0635\u062F\u064A\u0631 \u0648\u0644\u0627 \u064A\u0645\u0643\u0646 \u0645\u0637\u0627\u0628\u0642\u0629 \u062A\u0644\u062E\u064A\u0635 \u0627\u0644\u0633\u0644\u0629 \u0643\u0627\u0645\u0644\u0629\u061B \u0644\u0627 \u064A\u064F\u062E\u0635\u0645 \u0628\u0646\u062F \u0627\u0644\u062A\u0623\u0643\u064A\u062F \u0645\u0646 \u062F\u0644\u064A\u0644 \u0646\u0627\u0642\u0635. \u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0638\u0627\u0647\u0631 \u0648\u0631\u062F\u0648\u062F \u0627\u0644\u0639\u0645\u064A\u0644 \u062A\u0628\u0642\u0649 \u0623\u062F\u0644\u0629 \u0645\u0633\u062A\u0642\u0644\u0629.",
+        [...evidence, ...view.interaction.messages.filter((message) => /<[^<>]*omitted>/i.test(message.text)).map((message) => message.id)],
+        missing
+      )
+    };
+  }
   if (view.coachingEvidence.protocolCompliant && missing.length === 0) {
     return {
       version: "conversation-evaluation-order-confirmation-v1",
@@ -14478,9 +14632,9 @@ function assessRegistration(view, system) {
     [match.row.id]
   );
 }
-var EXCEPTIONAL_SIGNAL_RX = /(?:مريض\s*مزمن|مزمن|ضغط|سكر|قلب|غده|غدة|سيوله|سيولة|كل\s*شهر|شهري|باخد[هة]?\s*باستمرار|باخده\s*بانتظام|روشت(?:ة|ه)\s*جديد(?:ة|ه)|بدأت\s*علاج|بدات\s*علاج|الدكتور\s*غير\s*العلاج|متابعة\s*خاصة)/i;
+var EXCEPTIONAL_SIGNAL_RX = /(?:^|[^\p{L}\p{N}])(?:مريض\s*(?:مزمن|ضغط|سكر|قلب)|عندي\s*(?:ضغط|سكر|سيولة)|كل\s*شهر|شهري(?:ا|اً)?|باخد[هة]?\s*باستمرار|باخده\s*بانتظام|روشت(?:ة|ه)\s*جديد(?:ة|ه)|بدأت\s*علاج|بدات\s*علاج|الدكتور\s*غير\s*العلاج|متابعة\s*خاصة)(?=$|[^\p{L}\p{N}])/iu;
 function exceptionalSignalIds(view) {
-  return view.interaction.messages.filter((m) => m.meaningful && EXCEPTIONAL_SIGNAL_RX.test(m.text)).map((m) => m.id);
+  return view.interaction.messages.filter((m) => m.meaningful && m.role === "customer" && !/[؟?]/.test(m.text) && !/(?:مش|لست|ماني|ما\s*عنديش)\s*(?:مريض|عندي|مزمن)/.test(m.text) && EXCEPTIONAL_SIGNAL_RX.test(m.text)).map((m) => m.id);
 }
 function bestExceptional(rows) {
   return rows.filter((match) => match.staffMatched !== false).sort((a, b) => {
@@ -14628,10 +14782,6 @@ function analyzeConversationEvaluationOperational(view, system) {
 // src/lib/salesIntelligence/conversationEvaluationClosing.ts
 var criterion4 = REVIEW_CRITERIA.find((item) => item.key === "closing_message");
 if (!criterion4) throw new Error("Missing closing_message criterion");
-var OFFICIAL_CLOSING_RX = /(?:(?:نتشرف|تشرفنا)[^\n]{0,60}(?:ب\s*خدم(?:ة|ه)?|خدمت)[^\n]{0,40}(?:24|٢٤|أي\s*وقت|اى\s*وقت|اي\s*وقت)|صيدليات?\s*دواء[^\n]{0,60}(?:تحت\s*(?:أمر|امر)|نتشرف|في\s*خدمت)|(?:نتشرف|تشرفنا)\s*ب\s*خدم(?:ة|ه)\s*حضرتك\s*(?:دائم|في\s*أي\s*وقت)?)/i;
-var RESPECTFUL_CLOSING_RX = /(?:تحت\s*(?:أمر|امر)\s*حضرتك|تحت\s*امرك|شكر(?:ا|ًا)\s*(?:لحضرتك|لتواصلك)|العفو\s*(?:يا\s*فندم)?|نتشرف\s*ب\s*خدم(?:ة|ه)\s*حضرتك|تشرفنا\s*(?:بخدمت|بالكلام)|في\s*أي\s*وقت\s*(?:يا\s*فندم)?)/i;
-var CUSTOMER_COURTESY_RX = /^(?:شكرا|شكرًا|متشكر|تسلم|تسلمي|ربنا\s*يكرمك|جزاك\s*الله\s*خيرا|تمام|ماشي|حاضر|اوكي|أوكي|ok|العفو|الله\s*يخليك|شكرا\s*يا\s*دكتور)[\s🌷🌸✨💚🙏!.،]*$/iu;
-var NEW_REQUEST_RX = /(?:عايز|عاوزه|عايزة|محتاج|ممكن|ينفع|بكام|سعر|موجود|متوفر|ابعت|ابعث|هات|هاتلي|لو\s*سمحت|سؤال|استفسار|كمان)/i;
 function make8(option, status, confidence3, reason, evidenceMessageIds) {
   const choice = option ? criterion4.choices.find((item) => item.value === option) ?? null : null;
   return {
@@ -14650,28 +14800,31 @@ function make8(option, status, confidence3, reason, evidenceMessageIds) {
 function ordered3(view) {
   return view.interaction.messages.filter((message) => message.meaningful && (message.role === "staff" || message.role === "customer")).slice().sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
 }
-function completed(view) {
-  if (["sale_proven", "financially_settled", "awaiting_invoice", "customer_declined", "information_only"].includes(view.journey.currentState)) return true;
-  return view.lostOpportunity.state === "lost" && view.lostOpportunity.recoverability === "none";
-}
-function candidateStillAtEnd(messages, candidateIndex) {
-  const after = messages.slice(candidateIndex + 1);
-  return !after.some(
-    (message) => message.role === "customer" && !CUSTOMER_COURTESY_RX.test(message.text.trim()) && NEW_REQUEST_RX.test(message.text)
-  );
-}
 function analyzeConversationEvaluationClosing(view) {
-  const contract = buildConversationEvaluationEvidence(view);
-  const gate = contract.criteria.find((item) => item.key === "closing_message");
-  if (gate?.readiness === "not_applicable" || !completed(view)) {
+  const ending = observableClosing(view);
+  if (ending) {
+    return {
+      version: "conversation-evaluation-closing-v1",
+      caseId: view.caseId,
+      item: make8(
+        ending.kind,
+        "assessed",
+        98,
+        ending.kind === "official" ? "\u0648\u0631\u062F\u062A \u0631\u0633\u0627\u0644\u0629 \u062E\u062A\u0627\u0645 \u0631\u0633\u0645\u064A\u0629 \u0641\u064A \u0646\u0647\u0627\u064A\u0629 \u0627\u0644\u062A\u0628\u0627\u062F\u0644 \u0627\u0644\u0645\u062A\u0627\u062D. \u0647\u0630\u0627 \u062A\u0642\u064A\u064A\u0645 \u0644\u0623\u0633\u0644\u0648\u0628 \u0627\u0644\u062E\u062A\u0627\u0645 \u0641\u0642\u0637\u060C \u0648\u0644\u0627 \u064A\u062B\u0628\u062A \u0627\u0644\u0628\u064A\u0639 \u0623\u0648 \u0627\u0644\u062A\u0633\u0644\u064A\u0645 \u0623\u0648 \u062D\u0644 \u0627\u0644\u0634\u0643\u0648\u0649." : "\u0648\u0631\u062F \u062E\u062A\u0627\u0645 \u0645\u062D\u062A\u0631\u0645 \u0641\u064A \u0646\u0647\u0627\u064A\u0629 \u0627\u0644\u062A\u0628\u0627\u062F\u0644 \u0627\u0644\u0645\u062A\u0627\u062D. \u0644\u0627 \u064A\u062A\u062D\u0648\u0644 \u0625\u0644\u0649 \u0625\u062B\u0628\u0627\u062A \u0628\u064A\u0639 \u0623\u0648 \u0625\u063A\u0644\u0627\u0642 \u0627\u0644\u062A\u0632\u0627\u0645 \u062A\u0634\u063A\u064A\u0644\u064A.",
+        [ending.messageId]
+      )
+    };
+  }
+  if (!closingAbsenceAssessable(view)) {
+    const unknownEnd = view.journey.currentState === "information_only";
     return {
       version: "conversation-evaluation-closing-v1",
       caseId: view.caseId,
       item: make8(
         null,
-        "not_applicable",
-        100,
-        "\u0627\u0644\u062A\u0641\u0627\u0639\u0644 \u0645\u0627 \u0632\u0627\u0644 \u0645\u0641\u062A\u0648\u062D\u064B\u0627 \u0623\u0648 \u0641\u064A \u0627\u0646\u062A\u0638\u0627\u0631 \u062E\u0637\u0648\u0629 \u062A\u062C\u0627\u0631\u064A\u0629\u061B \u0644\u0627 \u064A\u062C\u0648\u0632 \u062E\u0635\u0645 \u0631\u0633\u0627\u0644\u0629 \u062E\u062A\u0627\u0645 \u0642\u0628\u0644 \u0623\u0646 \u062A\u0646\u062A\u0647\u064A \u0627\u0644\u0645\u062D\u0627\u062F\u062B\u0629 \u0641\u0639\u0644\u064B\u0627.",
+        unknownEnd ? "insufficient_evidence" : "not_applicable",
+        90,
+        unknownEnd ? "\u0644\u0627 \u062A\u0648\u062C\u062F \u0639\u0644\u0627\u0645\u0629 \u0635\u0631\u064A\u062D\u0629 \u062A\u0643\u0641\u064A \u0644\u0625\u062B\u0628\u0627\u062A \u0627\u0646\u062A\u0647\u0627\u0621 \u0627\u0644\u0627\u0633\u062A\u0634\u0627\u0631\u0629\u061B \u0646\u0647\u0627\u064A\u0629 \u0627\u0644\u0645\u0644\u0641 \u0623\u0648 \u062A\u0635\u0646\u064A\u0641 \u0645\u0639\u0644\u0648\u0645\u0627\u062A \u0641\u0642\u0637 \u0644\u0627 \u064A\u062B\u0628\u062A\u0627\u0646 \u0627\u0646\u062A\u0647\u0627\u0621 \u0627\u0644\u062D\u0648\u0627\u0631\u060C \u0641\u0644\u0627 \u064A\u0648\u062C\u062F \u062E\u0635\u0645 \u0639\u0644\u0649 \u0627\u0644\u062E\u062A\u0627\u0645." : "\u0644\u0627 \u062A\u0648\u062C\u062F \u0646\u0647\u0627\u064A\u0629 \u062D\u0648\u0627\u0631 \u0645\u062B\u0628\u062A\u0629 \u062A\u0633\u0645\u062D \u0628\u0627\u0644\u062E\u0635\u0645 \u0639\u0644\u0649 \u063A\u064A\u0627\u0628 \u0627\u0644\u062E\u062A\u0627\u0645\u061B \u0627\u0644\u062A\u0641\u0627\u0639\u0644 \u0645\u0627 \u0632\u0627\u0644 \u0645\u0641\u062A\u0648\u062D\u064B\u0627 \u0623\u0648 \u064A\u0646\u062A\u0638\u0631 \u062E\u0637\u0648\u0629.",
         []
       )
     };
@@ -14690,54 +14843,6 @@ function analyzeConversationEvaluationClosing(view) {
     };
   }
   const messages = ordered3(view);
-  const staffCandidates = messages.map((message, index) => ({ message, index })).filter(({ message }) => message.role === "staff").filter(({ index }) => index >= Math.max(0, messages.length - 5));
-  const official = [...staffCandidates].reverse().find(
-    ({ message, index }) => OFFICIAL_CLOSING_RX.test(message.text) && candidateStillAtEnd(messages, index)
-  );
-  if (official) {
-    return {
-      version: "conversation-evaluation-closing-v1",
-      caseId: view.caseId,
-      item: make8(
-        "official",
-        "assessed",
-        98,
-        "\u062A\u0645 \u0631\u0635\u062F \u0631\u0633\u0627\u0644\u0629 \u062E\u062A\u0627\u0645 \u0631\u0633\u0645\u064A\u0629 \u0642\u0631\u0628 \u0646\u0647\u0627\u064A\u0629 \u0627\u0644\u062A\u0641\u0627\u0639\u0644 \u0648\u0628\u0639\u062F \u0627\u0643\u062A\u0645\u0627\u0644 \u0627\u0644\u0645\u0633\u0627\u0631\u060C \u0648\u0644\u0645 \u064A\u0641\u062A\u062D \u0627\u0644\u0639\u0645\u064A\u0644 \u0628\u0639\u062F\u0647\u0627 \u0637\u0644\u0628\u064B\u0627 \u062C\u062F\u064A\u062F\u064B\u0627.",
-        [official.message.id]
-      )
-    };
-  }
-  const respectful = [...staffCandidates].reverse().find(
-    ({ message, index }) => RESPECTFUL_CLOSING_RX.test(message.text) && candidateStillAtEnd(messages, index)
-  );
-  if (respectful) {
-    return {
-      version: "conversation-evaluation-closing-v1",
-      caseId: view.caseId,
-      item: make8(
-        "respectful",
-        "assessed",
-        95,
-        "\u062A\u0645 \u0631\u0635\u062F \u062E\u062A\u0627\u0645 \u0645\u062D\u062A\u0631\u0645 \u0642\u0631\u0628 \u0646\u0647\u0627\u064A\u0629 \u0627\u0644\u062A\u0641\u0627\u0639\u0644\u060C \u0644\u0643\u0646\u0647 \u0644\u0627 \u064A\u0637\u0627\u0628\u0642 \u0639\u0646\u0627\u0635\u0631 \u0627\u0644\u062E\u062A\u0627\u0645 \u0627\u0644\u0631\u0633\u0645\u064A \u0627\u0644\u0643\u0627\u0645\u0644\u0629.",
-        [respectful.message.id]
-      )
-    };
-  }
-  const last = messages[messages.length - 1] ?? null;
-  const unanswered = view.coachingEvidence.unansweredRequestMessageIds;
-  if (last?.role === "customer" && NEW_REQUEST_RX.test(last.text) && !CUSTOMER_COURTESY_RX.test(last.text.trim()) && unanswered.includes(last.id)) {
-    return {
-      version: "conversation-evaluation-closing-v1",
-      caseId: view.caseId,
-      item: make8(
-        "left_open",
-        "assessed",
-        98,
-        "\u0627\u0644\u062D\u0627\u0644\u0629 \u0645\u0635\u0646\u0641\u0629 \u0645\u0646\u062A\u0647\u064A\u0629 \u0644\u0643\u0646 \u0622\u062E\u0631 \u0637\u0644\u0628 \u0639\u0645\u064A\u0644 \u0638\u0644 \u0628\u0644\u0627 \u0631\u062F\u061B \u0647\u0630\u0647 \u0644\u064A\u0633\u062A \u0645\u062C\u0631\u062F \u0631\u0633\u0627\u0644\u0629 \u062E\u062A\u0627\u0645 \u0646\u0627\u0642\u0635\u0629 \u0628\u0644 \u062A\u0631\u0643 \u0644\u0644\u0645\u062D\u0627\u062F\u062B\u0629 \u0645\u0641\u062A\u0648\u062D\u0629.",
-        [last.id]
-      )
-    };
-  }
   return {
     version: "conversation-evaluation-closing-v1",
     caseId: view.caseId,
