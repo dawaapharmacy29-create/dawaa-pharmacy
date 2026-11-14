@@ -20,6 +20,7 @@ import { Panel, SectionTitle, EmptyState } from '@/components/dashboard/Dashboar
 import {
   SHIFT_HANDOVER_BRANCHES,
   SHIFT_TYPES,
+  handoverDutyByPerson,
   missingByBranch,
   presenceIn,
   presenceLabel,
@@ -35,6 +36,7 @@ import {
   PERIOD_LABELS,
   addDays,
   closerKey,
+  cycleOf,
   periodRange,
   previousRange,
   shiftMoney,
@@ -308,6 +310,17 @@ export default function ShiftHandovers() {
     [coverage, branchFilter]
   );
   const doubled = useMemo(() => coverage.filter((slot) => slot.status === 'duplicate'), [coverage]);
+  // The running cycle's closings, double entries and missing shifts per person: what the 50 EGP
+  // handover deduction of the deductions wallet is read from.
+  const cycleFrom = cycleOf(today).from;
+  const duty = useMemo(() => {
+    const days =
+      Math.round((Date.parse(`${today}T12:00:00Z`) - Date.parse(`${cycleFrom}T12:00:00Z`)) / 864e5) + 1;
+    const slots = shiftCoverage(live, days).filter(
+      (slot) => slot.day >= cycleFrom && (branchFilter === 'الكل' || slot.branch === branchFilter)
+    );
+    return handoverDutyByPerson(slots, punches, presenceFrom);
+  }, [live, today, cycleFrom, branchFilter, punches, presenceFrom]);
   const varianceCount = useMemo(
     () =>
       live.filter(
@@ -525,6 +538,44 @@ export default function ShiftHandovers() {
           كل الشيفتات اتقفلت في آخر {COVERAGE_DAYS.toLocaleString('ar-EG')} يوم ✓
         </p>
       )}
+      {duty.length ? (
+        <div className="mb-4 rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
+          <p className="text-sm font-black">مسؤولية التسليم من أول الدورة ({shortDay(cycleFrom)})</p>
+          <p className="dawaa-caption mb-2 text-xs font-bold">
+            الشيفت الناقص بيتحسب على الدكاترة اللي كانوا باصمين فيه، ولو مفيش دكتور على المساعد.
+            {punches ? '' : ' البصمات مش ظاهرة لحسابك، فالناقص مش متوزع على حد.'}
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[420px] text-right text-xs font-bold">
+              <thead>
+                <tr>
+                  <th className="p-1">الاسم</th>
+                  <th className="p-1 text-center">قفل</th>
+                  <th className="p-1 text-center">مكرر</th>
+                  <th className="p-1 text-center">ناقص وهو في الشيفت</th>
+                  <th className="p-1">الشيفتات الناقصة</th>
+                </tr>
+              </thead>
+              <tbody>
+                {duty.map((person) => (
+                  <tr key={person.key} className="border-t" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
+                    <td className="p-1">{person.name}</td>
+                    <td className="p-1 text-center">{person.closed.toLocaleString('ar-EG')}</td>
+                    <td className="p-1 text-center">{person.doubles ? person.doubles.toLocaleString('ar-EG') : '-'}</td>
+                    <td
+                      className="p-1 text-center"
+                      style={person.missed.length ? { color: 'var(--dawaa-status-danger-text)' } : undefined}
+                    >
+                      {person.missed.length ? person.missed.length.toLocaleString('ar-EG') : '-'}
+                    </td>
+                    <td className="dawaa-caption p-1">{person.missed.join('، ')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
       <div className="overflow-x-auto">
         <table className="w-full min-w-[480px] text-center text-xs font-bold">
           <thead>
