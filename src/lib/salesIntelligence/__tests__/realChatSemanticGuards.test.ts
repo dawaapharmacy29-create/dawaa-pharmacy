@@ -62,6 +62,7 @@ describe('real-chat semantic guard regressions', () => {
 [9/15/26, 9:00:10 AM] You: مع حضرتك د تجريبي
 [9/15/26, 9:01:00 AM] You: ابعتها لحضرتك؟
 [9/15/26, 10:05:00 AM] Customer: ايوا يا دكتور
+[9/15/26, 10:05:30 AM] Customer: وعايزة علبة فيتامين سي
 [9/15/26, 10:06:00 AM] You: تم الارسال`;
     const introduction = parseWhatsAppExport(raw)[1];
     const result = runSalesIntelligencePipeline({
@@ -74,6 +75,7 @@ describe('real-chat semantic guard regressions', () => {
     expect(isAcceptanceOnly('ايوا يا دكتور')).toBe(true);
     expect(isAcceptanceOnly('ايوا يا دكتور وعايزة علبة كمان')).toBe(false);
     expect(result.caseAnalyses).toHaveLength(1);
+    expect(result.caseAnalyses[0].caseIntelligence?.interaction.messageCount).toBe(6);
     expect(result.caseAnalyses[0].conversationCase.ownership?.owners[0]?.staffId).toBe('synthetic-doctor');
     expect(result.caseAnalyses[0].followUp.opportunities.some(row => row.reason === 'customer_no_response')).toBe(false);
   });

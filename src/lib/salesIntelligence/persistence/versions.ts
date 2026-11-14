@@ -116,10 +116,12 @@
 // v53: customer-name scoring excludes staff self-introductions and requires a
 // customer-directed address for the ambiguous normalized token «علي/على».
 // Refresh updates only automatic proposals; historical manager decisions remain authoritative.
-export const PIPELINE_VERSION = 'sales-intelligence-v53-customer-name-evidence';
+// An adjacent explicit additive request («وعايزة») stays with the open committed
+// order under the existing time/service-boundary guards, retaining its doctor evidence.
+export const PIPELINE_VERSION = 'sales-intelligence-v53-customer-evidence-fairness';
 
 export const ENGINE_VERSIONS = {
-  caseSegmentation: 'case-segmentation-v13-open-service-need-continuity',
+  caseSegmentation: 'case-segmentation-v14-addressed-additive-continuity',
   historicalClosure: 'historical-closure-v1',
   commercialConfirmation: 'commercial-confirmation-v6-compact-total-interstitial-ack-safe',
   protocolApplicability: 'protocol-applicability-v1',
