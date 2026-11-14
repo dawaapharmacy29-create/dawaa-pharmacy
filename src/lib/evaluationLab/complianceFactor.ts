@@ -5,13 +5,14 @@ import { resolveIncentiveTier } from '@/lib/evaluations/incentiveTiers';
 // branch manager records (uniform/appearance 1, PConnect/instructions 2) and from missing punches above the
 // agreed allowance (1 point each). Pure: no I/O.
 
-export type ViolationCategory = 'uniform' | 'appearance' | 'pconnect' | 'instructions';
+export type ViolationCategory = 'uniform' | 'appearance' | 'permission' | 'pconnect' | 'instructions';
 
-export const VIOLATION_POINTS: Record<ViolationCategory, number> = { uniform: 1, appearance: 1, pconnect: 2, instructions: 2 };
+export const VIOLATION_POINTS: Record<ViolationCategory, number> = { uniform: 1, appearance: 1, permission: 1, pconnect: 2, instructions: 2 };
 
 export const VIOLATION_LABELS: Record<ViolationCategory, string> = {
   uniform: 'الزي',
   appearance: 'المظهر',
+  permission: 'خروج أو دخول من غير إذن',
   pconnect: 'الحساب الشخصي على بي كونكت',
   instructions: 'تجاهل تعليمات الشغل',
 };

@@ -17,6 +17,7 @@ export function violationErrorMessage(error: unknown) {
   if (message.includes('note_required')) return 'اكتب حصل إيه بالظبط';
   if (message.includes('reason_required')) return 'اكتب سبب الإلغاء';
   if (message.includes('invalid_day')) return 'التاريخ لازم يكون خلال آخر 7 أيام';
+  if (message.includes('invalid_category')) return 'النوع ده لسه مش متفعل على قاعدة البيانات';
   if (message.includes('Could not find the function') || message.includes('PGRST202')) return 'تسجيل المخالفات لسه مش متفعل على قاعدة البيانات';
   return 'حصلت مشكلة، جرّب تاني';
 }

@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, ChevronUp, Database, FlaskConical, MinusCircle, Users } from 'lucide-react';
-import { DOCTOR_LEVELS, LAB_CURRENT_VERSION, LAB_FAMILY_LABELS, LAB_PILLAR_LABELS, LAB_PREVIOUS_VERSION, type LabFamily, type LabPillar } from '@/lib/evaluationLab/catalog';
+import { DOCTOR_LEVELS, LAB_CURRENT_VERSION, LAB_FAMILY_LABELS, LAB_PILLAR_LABELS, LAB_PREVIOUS_VERSION, LAB_PUBLISHED_VERSION, type LabFamily, type LabPillar } from '@/lib/evaluationLab/catalog';
+import { EARNED_POOL, type EarnedIncentive } from '@/lib/evaluationLab/earnedIncentive';
+import { serverCycle } from '@/lib/evaluationLab/server/cycleScores';
 import { useAuth } from '@/hooks/useAuth';
 import { loadDoctorLevels, saveDoctorLevel } from '@/lib/doctorEvaluation';
 
@@ -45,7 +47,11 @@ function LevelPicker({ value, onChange }: { value: DoctorLevel; onChange: (level
   );
 }
 
-const cycleLabel = (cycle: LabCycle) => {
+/** A lab cycle; `share` is set for the running cycle (cut at today, counts projected to its end). */
+type LabCycleOption = LabCycle & { share?: number };
+
+const cycleLabel = (cycle: LabCycleOption) => {
+  if (cycle.share !== undefined) return `الدورة الحالية ${cycle.start} → النهارده (متوقع لآخرها)`;
   const end = new Date(`${cycle.endExclusive}T00:00:00Z`);
   end.setUTCDate(end.getUTCDate() - 1);
   return `${cycle.start} → ${end.toISOString().slice(0, 10)}`;
@@ -125,6 +131,33 @@ function BaselineDelta({ total, baseline }: { total: number | null; baseline: nu
   );
 }
 
+const egp = (value: number) => Math.round(value).toLocaleString('ar-EG');
+
+function EarnedBadge({ earned }: { earned: EarnedIncentive }) {
+  const tone = earned.total <= 0 ? 'dawaa-badge--danger' : earned.tierPercent >= 85 ? 'dawaa-badge--success' : 'dawaa-badge--warning';
+  return (
+    <span className={`dawaa-badge ${tone} rounded-full px-2 py-0.5 text-[11px] font-black`} title="الحافز المكتسب (v6.9)">
+      {earned.score === null ? 'الحافز: بيانات غير كافية' : `${earned.tierLabel} · الحافز ${egp(earned.total)} ج`}
+    </span>
+  );
+}
+
+function EarnedDetails({ earned }: { earned: EarnedIncentive }) {
+  const lines = [
+    earned.score === null ? 'الدرجة ما اتحسبتش (بنود مقاسة قليلة)' : `الدرجة ${Math.round(earned.score)} → ${earned.tierLabel} = ${earned.tierPercent}٪ من ${egp(EARNED_POOL)} ج`,
+    earned.branchAchievement === null ? 'مفيش تارجت للفرع → معامل الفرع صفر' : `الفرع حقق ${earned.branchAchievement}٪ من التارجت → معامل ×${earned.branchFactor}`,
+    earned.absenceCut ? `غياب ${earned.absenceDays} يوم من غير إذن → خصم ${Math.round(earned.absenceCut * 100)}٪ من الحافز كله` : `غياب من غير إذن: ${earned.absenceDays} يوم (مفيش خصم)`,
+    `حافز الأداء ${egp(earned.performance)} ج + مكافأة تارجت الفرع ${egp(earned.bonus)} ج${earned.score !== null && earned.score < 60 ? ' (المكافأة لـ ٦٠ نقطة وأكتر)' : ''}`,
+  ];
+  return (
+    <div className="mt-3 rounded-xl border border-[var(--dawaa-theme-border)] p-3 text-xs font-bold">
+      <div className="font-black text-[var(--dawaa-theme-heading)]">الحافز المكتسب: {egp(earned.total)} ج</div>
+      <ul className="dawaa-theme-muted mt-1 space-y-0.5">{lines.map((line) => <li key={line}>{line}</li>)}</ul>
+      {earned.next ? <div className="dawaa-status-info-text mt-1">ناقصه {earned.next.points} نقطة ويوصل {earned.next.min} ({earned.next.percent}٪ من الحافز)</div> : null}
+    </div>
+  );
+}
+
 function ComplianceBadge({ compliance }: { compliance: ComplianceResult }) {
   const tone = compliance.factor >= 1 ? 'dawaa-badge--success' : compliance.factor >= 0.75 ? 'dawaa-badge--warning' : 'dawaa-badge--danger';
   return (
@@ -163,7 +196,7 @@ function PersonCard({ person, rank, baseline, control }: { person: LabPersonScor
             <span className={`rounded-full border px-2 py-0.5 text-[11px] font-black ${readiness.className}`}>{readiness.label}</span>
             <CoverageBar coverage={person.coverage} />
             <BaselineDelta total={person.total} baseline={baseline} />
-            {person.compliance ? <ComplianceBadge compliance={person.compliance} /> : null}
+            {person.earned ? <EarnedBadge earned={person.earned} /> : person.compliance ? <ComplianceBadge compliance={person.compliance} /> : null}
           </div>
         </div>
         {open ? <ChevronUp size={18} className="dawaa-theme-muted" /> : <ChevronDown size={18} className="dawaa-theme-muted" />}
@@ -179,7 +212,7 @@ function PersonCard({ person, rank, baseline, control }: { person: LabPersonScor
               </div>
             ))}
           </div>
-          {person.compliance ? <ComplianceDetails compliance={person.compliance} /> : null}
+          {person.earned ? <EarnedDetails earned={person.earned} /> : person.compliance ? <ComplianceDetails compliance={person.compliance} /> : null}
           {person.adjustments.length ? (
             <div className="dawaa-status-danger-bg dawaa-status-danger-border mt-3 space-y-1 rounded-xl border p-3">
               {person.adjustments.map((adjustment) => (
@@ -316,7 +349,11 @@ function TrackCoverage() {
 }
 
 export default function EvaluationLab() {
-  const cycles = useMemo(() => closedCycles(6), []);
+  const cycles = useMemo<LabCycleOption[]>(() => {
+    // The running cycle first (cut at yesterday, projected to its end), then the closed ones.
+    const running = serverCycle('running');
+    return [...(running ? [{ start: running.start, endExclusive: running.endExclusive, share: running.elapsedDays / running.totalDays }] : []), ...closedCycles(6)];
+  }, []);
   const { user } = useAuth();
   const [cycleIndex, setCycleIndex] = useState(0);
   const [family, setFamily] = useState<LabFamily>('doctor');
@@ -347,7 +384,10 @@ export default function EvaluationLab() {
   const query = useQuery({
     queryKey: ['evaluation-lab-v6', cycle.start, cycle.endExclusive],
     queryFn: async () => {
-      const evidence = await loadCycleEvidence(cycle, { actorId: user?.id ?? null });
+      const loaded = await loadCycleEvidence({ start: cycle.start, endExclusive: cycle.endExclusive }, { actorId: user?.id ?? null });
+      // A running cycle is measured against its own part of the monthly target.
+      const evidence = cycle.share === undefined ? loaded
+        : { ...loaded, cycleShare: cycle.share, targets: loaded.targets.map((t) => ({ ...t, targetAmount: t.targetAmount * (cycle.share as number) })) };
       const baseline = new Map(buildCycleScores(evidence, BASELINE_VERSION).map((person) => [person.staffId, person.total]));
       return { evidence, baseline };
     },
@@ -391,7 +431,10 @@ export default function EvaluationLab() {
           </select>
         </div>
         <div className="dawaa-status-info-text mt-4 rounded-xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-accent-soft)] px-3 py-2 text-xs font-bold">
-          نفس الحسبة دي بتظهر لكل دكتور في لوحته (تقييمه هو بس). المختبر مش بيغيّر النقاط أو الحوافز أو المرتبات، والحاجة الوحيدة اللي بتتحفظ هي مستوى الصيدلي في الشيفت.
+          {LAB_CURRENT_VERSION === LAB_PUBLISHED_VERSION
+            ? 'نفس الحسبة دي بتظهر لكل دكتور في لوحته (تقييمه هو بس).'
+            : `النسخة ${LAB_CURRENT_VERSION} تجريبية في المختبر بس؛ لوحة الدكتور لسه على ${LAB_PUBLISHED_VERSION} لحد ما تعتمدها.`}
+          {' '}المختبر مش بيغيّر النقاط أو الحوافز أو المرتبات، والحاجة الوحيدة اللي بتتحفظ هي مستوى الصيدلي في الشيفت.
         </div>
         {query.data && <div className="mt-4"><SourceStrip evidence={query.data.evidence} /></div>}
         <TrackCoverage />

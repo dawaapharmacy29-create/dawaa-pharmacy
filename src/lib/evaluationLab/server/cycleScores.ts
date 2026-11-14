@@ -1,5 +1,5 @@
 import { buildCycleScores, type LabPersonScore } from '../buildCycleScores';
-import { DOCTOR_LEVELS, LAB_CURRENT_VERSION } from '../catalog';
+import { DOCTOR_LEVELS, LAB_PUBLISHED_VERSION } from '../catalog';
 import { loadCycleEvidence, type LabCycle } from '../loadCycleEvidence';
 
 // The monthly evaluation (lab engine, current version) computed on the server for the doctor
@@ -53,7 +53,8 @@ export async function computeCycleScores(cycle: ServerCycle, levels: Record<stri
   // the hours worked so far are measured against their own part of the target.
   const share = cycle.totalDays ? cycle.elapsedDays / cycle.totalDays : 1;
   const targets = share < 1 ? evidence.targets.map((t) => ({ ...t, targetAmount: t.targetAmount * share })) : evidence.targets;
-  return buildCycleScores({ ...evidence, targets, doctorWeights, cycleShare: share }, LAB_CURRENT_VERSION);
+  return buildCycleScores({ ...evidence, targets, doctorWeights, cycleShare: share }, LAB_PUBLISHED_VERSION);
 }
 
-export { LAB_CURRENT_VERSION };
+// The dashboard shows the published version, not the one under trial in the lab.
+export { LAB_PUBLISHED_VERSION as LAB_CURRENT_VERSION };

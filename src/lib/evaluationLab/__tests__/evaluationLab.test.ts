@@ -230,7 +230,7 @@ describe('buildCycleScores v6.1 (owner review 2026-10-28)', () => {
         { recordedStaffId: 'd1', branch: 'فرع شكري', createdAt: '2026-10-01T08:00:00Z', closedAt: '2026-10-01T09:00:00Z', status: 'cancelled' },
         { recordedStaffId: 'd2', branch: 'فرع شكري', createdAt: '2026-10-01T08:00:00Z', closedAt: null, status: 'new' },
       ],
-    }));
+    }), 'v6.8');
     const m1 = withCancelled.find((r) => r.staffId === 'm1')!.axes.find((a) => a.key === 'requests_closure')!;
     expect(m1.value).toBe(50);
     expect(m1.basis).toContain('1 مفتوح');
@@ -500,7 +500,7 @@ describe('buildCycleScores v6.6 hourly target', () => {
   const axis = (scores: ReturnType<typeof buildCycleScores>, id: string, key: string) => scores.find((r) => r.staffId === id)!.axes.find((a) => a.key === key)!;
 
   it('doctor weights sum to 100 and the old day share stays for comparison only', () => {
-    const d1 = buildCycleScores(hourly()).find((r) => r.staffId === 'd1')!;
+    const d1 = buildCycleScores(hourly(), 'v6.8').find((r) => r.staffId === 'd1')!;
     expect(d1.axes.reduce((s, a) => s + a.weight, 0)).toBe(100);
     expect(axis([d1], 'd1', 'sales_per_day').weight).toBe(0);
   });
@@ -529,7 +529,7 @@ describe('buildCycleScores v6.6 hourly target', () => {
   });
 
   it('without the previous cycle the hourly axes are not measurable, never zero', () => {
-    const scores = buildCycleScores({ ...hourly(), previousInvoices: null });
+    const scores = buildCycleScores({ ...hourly(), previousInvoices: null }, 'v6.8');
     expect(axis(scores, 'd1', 'shift_target').status).toBe('not_measurable');
     expect(axis(scores, 'd1', 'invoice_share').status).toBe('not_measurable');
   });

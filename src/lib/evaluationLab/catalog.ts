@@ -6,10 +6,12 @@ export type LabFamily = 'doctor' | 'assistant' | 'delivery' | 'branch_manager' |
 
 /** v6.0 is kept so the lab can show what each change moved; v6.1 is the proposal under review. */
 /** Each version keeps every rule of the one before it; the lab shows the change against the previous one. */
-export type LabVersion = 'v6.0' | 'v6.1' | 'v6.2' | 'v6.3' | 'v6.4' | 'v6.5' | 'v6.6' | 'v6.7' | 'v6.8';
-export const LAB_CURRENT_VERSION: LabVersion = 'v6.8';
-export const LAB_PREVIOUS_VERSION: Record<LabVersion, LabVersion | null> = { 'v6.0': null, 'v6.1': 'v6.0', 'v6.2': 'v6.1', 'v6.3': 'v6.2', 'v6.4': 'v6.3', 'v6.5': 'v6.4', 'v6.6': 'v6.5', 'v6.7': 'v6.6', 'v6.8': 'v6.7' };
-export const LAB_VERSION_ORDER: LabVersion[] = ['v6.0', 'v6.1', 'v6.2', 'v6.3', 'v6.4', 'v6.5', 'v6.6', 'v6.7', 'v6.8'];
+export type LabVersion = 'v6.0' | 'v6.1' | 'v6.2' | 'v6.3' | 'v6.4' | 'v6.5' | 'v6.6' | 'v6.7' | 'v6.8' | 'v6.9';
+export const LAB_CURRENT_VERSION: LabVersion = 'v6.9';
+/** The version the doctor dashboard (doctor-evaluation-v6 edge function) is built from; moves only when the owner publishes a lab version. */
+export const LAB_PUBLISHED_VERSION: LabVersion = 'v6.8';
+export const LAB_PREVIOUS_VERSION: Record<LabVersion, LabVersion | null> = { 'v6.0': null, 'v6.1': 'v6.0', 'v6.2': 'v6.1', 'v6.3': 'v6.2', 'v6.4': 'v6.3', 'v6.5': 'v6.4', 'v6.6': 'v6.5', 'v6.7': 'v6.6', 'v6.8': 'v6.7', 'v6.9': 'v6.8' };
+export const LAB_VERSION_ORDER: LabVersion[] = ['v6.0', 'v6.1', 'v6.2', 'v6.3', 'v6.4', 'v6.5', 'v6.6', 'v6.7', 'v6.8', 'v6.9'];
 
 export type LabAxisKey =
   | 'sales_per_day'
@@ -58,7 +60,13 @@ export type LabAxisKey =
   | 'decision_backlog'
   | 'branch_managers'
   | 'shift_target'
-  | 'invoice_attribution';
+  | 'invoice_attribution'
+  | 'followup_requests'
+  | 'punctuality'
+  | 'complete_requests'
+  | 'avg_invoice_target'
+  | 'invoices_per_day'
+  | 'uniform_compliance';
 
 /** Scorecard pillars (v6.5): the branch manager owns the whole branch, the branches manager the system. */
 export type LabPillar =
@@ -292,7 +300,26 @@ const V67 = V66;
 // is "excellent": an adjusted average of 95 scores 100, 80 scores 0. Axes and weights are v6.7's.
 const V68 = V67;
 
-export const LAB_AXES_BY_VERSION: Record<LabVersion, Record<LabFamily, LabAxisDefinition[]>> = { 'v6.0': V60, 'v6.1': V61, 'v6.2': V62, 'v6.3': V63, 'v6.4': V64, 'v6.5': V65, 'v6.6': V66, 'v6.7': V67, 'v6.8': V68 };
+// v6.9 (owner decision 2026-11-13): the doctor's incentive is earned, not handed out. Seven items with
+// partial credit make the score; 60/70/80/90 buy 40/65/85/100% of the pool, the branch target multiplies
+// it and unexcused absence cuts it (see earnedIncentive.ts). Follow-ups carry the most weight. In the trial
+// cycle conversations and uniform are shown, not counted. Sales stay visible for information.
+const V69: Record<LabFamily, LabAxisDefinition[]> = {
+  ...V68,
+  doctor: [
+    { key: 'followup_requests', label: 'طلبات المتابعة (نصيبه من تارجت الفرع)', weight: 28 },
+    { key: 'punctuality', label: 'المواعيد (يومين تأخير مسموحين)', weight: 16 },
+    { key: 'conversation_quality', label: 'المحادثات (متوسط 90+ = كاملة)', weight: 16 },
+    { key: 'complete_requests', label: 'طلبات العملاء الكاملة (20 في الشهر)', weight: 12 },
+    { key: 'avg_invoice_target', label: 'متوسط الفاتورة مقابل تارجت الفرع', weight: 10 },
+    { key: 'invoices_per_day', label: 'عدد الفواتير في يوم الشغل', weight: 10 },
+    { key: 'uniform_compliance', label: 'الزي والأذونات والتعليمات', weight: 8 },
+    { key: 'shift_target', label: 'تحقيق تارجت ساعاته (للمعلومة)', weight: 0 },
+    { key: 'coding_quality', label: 'تكويد العملاء (أقل من 95٪ يقسم بندين الفواتير)', weight: 0 },
+  ],
+};
+
+export const LAB_AXES_BY_VERSION: Record<LabVersion, Record<LabFamily, LabAxisDefinition[]>> = { 'v6.0': V60, 'v6.1': V61, 'v6.2': V62, 'v6.3': V63, 'v6.4': V64, 'v6.5': V65, 'v6.6': V66, 'v6.7': V67, 'v6.8': V68, 'v6.9': V69 };
 export const LAB_AXES = LAB_AXES_BY_VERSION[LAB_CURRENT_VERSION];
 
 export function labFamilyOf(role: CanonicalStaffRole): LabFamily | null {
