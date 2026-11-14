@@ -31,12 +31,23 @@ function pointsText(preview: CanonicalCustomerRequestIncentivePreview | null) {
   return `تسجيل +${preview.registrationPoints} · تحقيق +${preview.achievementPoints}`;
 }
 
+/** Values the form opens with, e.g. a request read from the branch's WhatsApp group. */
+export interface CreateRequestInitial {
+  doctorId?: string | null;
+  channel?: string;
+  notes?: string;
+  /** Shown above the form: what the source said, so the customer and the item can be searched. */
+  hint?: string;
+}
+
 export default function CanonicalCreateRequestDialog({
   onClose,
   onCreated,
+  initial,
 }: {
   onClose: () => void;
   onCreated: (request: CustomerRequest) => void | Promise<void>;
+  initial?: CreateRequestInitial;
 }) {
   const { user } = useAuth();
   const { data: staff } = useSupabaseQuery<StaffOption>({
@@ -50,15 +61,15 @@ export default function CanonicalCreateRequestDialog({
 
   const [customer, setCustomer] = useState<CustomerSearchResult | null>(null);
   const [product, setProduct] = useState<CatalogProduct | null>(null);
-  const [doctorId, setDoctorId] = useState(selfDoctorId);
+  const [doctorId, setDoctorId] = useState(selfDoctorId || initial?.doctorId || '');
   const [quantity, setQuantity] = useState(1);
   const [urgency, setUrgency] = useState('normal');
   const [requestType, setRequestType] = useState('missing_medicine');
-  const [channel, setChannel] = useState('داخل الصيدلية');
+  const [channel, setChannel] = useState(initial?.channel || 'داخل الصيدلية');
   const [neededBy, setNeededBy] = useState('');
   const [expectedDays, setExpectedDays] = useState(1);
   const [supplierHint, setSupplierHint] = useState('');
-  const [notes, setNotes] = useState('');
+  const [notes, setNotes] = useState(initial?.notes || '');
   const [image, setImage] = useState({ publicUrl: '', path: '' });
   const [saving, setSaving] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -144,6 +155,7 @@ export default function CanonicalCreateRequestDialog({
         </header>
 
         <form onSubmit={submit} className="overflow-y-auto p-3 md:p-5">
+          {initial?.hint ? <div className="mb-4 whitespace-pre-wrap rounded-2xl border border-[var(--dawaa-status-info-border)] bg-[var(--dawaa-status-info-bg)] p-3 text-xs font-bold leading-6 text-[var(--dawaa-status-info-text)]">{initial.hint}</div> : null}
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_310px]">
             <div className="space-y-4">
               <section className="rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-4">
