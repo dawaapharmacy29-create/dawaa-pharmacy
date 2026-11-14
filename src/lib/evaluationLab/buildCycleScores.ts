@@ -9,6 +9,7 @@ import { summarizeFulfillment, type FulfillmentResult } from './requestFulfillme
 import { hourlyTargets, cairoHourKey, type HourlyInvoice, type HourlyOutput } from './hourlyTarget';
 import { personCompliance, type ComplianceResult, type ViolationCategory } from './complianceFactor';
 import { EARNED_RULES, attendanceCounts, earnedDoctorAxes, earnedIncentive, isCompleteRequest, type EarnedIncentive } from './earnedIncentive';
+import { branchStars, type BranchStar, type StarInput } from './branchStar';
 import {
   aggregate, bandScore, closureScore, codingGatePenalty, disciplineScore, measured, median, notMeasurable,
   metTargetScore, percentileAmong, shrunkMean, targetScore, type AxisResult, type LabAdjustment, type LabScore,
@@ -152,6 +153,8 @@ export interface LabPersonScore extends LabScore {
   attendance?: LabAttendanceSummary;
   /** v6.9: the incentive the doctor earned (score tier × branch factor − absence cut, plus the branch bonus). */
   earned?: EarnedIncentive;
+  /** v7.0: the doctor's place in the race for the branch star. */
+  star?: BranchStar;
 }
 
 export interface LabAttendanceSummary {
@@ -516,6 +519,8 @@ function earnedAxesFor(
   pool: LabEvidence['staff'],
   facts: Map<string, PersonFacts>,
   minResolved: number,
+  version: LabVersion,
+  starInputs: Map<string, Omit<StarInput, 'score' | 'salesPct'>>,
 ): Map<string, AxisDraft[]> {
   // A working day is a punched day or a day with own invoices (a missing punch never erases work).
   const poolIds = new Set(pool.map((p) => p.id));
@@ -529,13 +534,18 @@ function earnedAxesFor(
     branchDays.set(key, (branchDays.get(key) || 0) + (worked.get(person.id)?.size || 0));
   }
   const share = Math.min(1, Math.max(0, evidence.cycleShare ?? 1));
-  const trial = EARNED_RULES.trialCycleStarts.includes(evidence.cycle?.start || '');
+  // v7.0 counts conversations from the cycle of 26/10 (reviews are daily now); v6.9 kept it as a trial.
+  const trial = !atLeast(version, 'v7.0') && EARNED_RULES.trialCycleStarts.includes(evidence.cycle?.start || '');
+  const minReviews = atLeast(version, 'v7.0')
+    ? Math.max(LAB_THRESHOLDS.minOfficialReviews, Math.ceil(EARNED_RULES.minConversationReviews * (share || 1)))
+    : LAB_THRESHOLDS.minOfficialReviews;
+  const cycleTarget = atLeast(version, 'v7.0') ? EARNED_RULES.followupTargetByCycle[evidence.cycle?.start || ''] : undefined;
   const followups = evidence.followupRequests == null ? null : new Map<string, number>();
   for (const row of evidence.followupRequests || []) followups?.set(row.staffId, (followups.get(row.staffId) || 0) + row.requests);
   const out = new Map<string, AxisDraft[]>();
   for (const { id, branch } of doctors) {
     const key = branchKey(branch);
-    const target = (evidence.followupTargets || []).find((t) => branchKey(t.branch) === key)?.target ?? EARNED_RULES.defaultFollowupTarget;
+    const target = (evidence.followupTargets || []).find((t) => branchKey(t.branch) === key)?.target ?? cycleTarget ?? EARNED_RULES.defaultFollowupTarget;
     const own = evidence.invoices.filter((inv) => inv.staffId === id && inv.net > 0);
     const counts = attendanceCounts(evidence.attendance.filter((day) => day.staffId === id));
     const violations = evidence.violations == null ? null : evidence.violations.filter((v) => v.staffId === id).length;
@@ -552,9 +562,25 @@ function earnedAxesFor(
         minInvoices: Math.max(10, Math.round(LAB_THRESHOLDS.minInvoicesForCoding * Math.min(1, share || 1))), minDays: LAB_THRESHOLDS.minWorkedDays,
       },
       reviews: facts.get(id)?.reviews || [],
-      minReviews: LAB_THRESHOLDS.minOfficialReviews,
+      minReviews,
       violations,
     }));
+    const workedDays = worked.get(id)?.size || 0;
+    const branchDoctorDays = branchDays.get(key) || 0;
+    const projectedFollowups = followups ? (followups.get(id) || 0) / (share || 1) : 0;
+    const followupShare = workedDays && branchDoctorDays ? (target * workedDays) / branchDoctorDays : 0;
+    const completeRequests = evidence.requests.filter((r) => r.recordedStaffId === id && isCompleteRequest(r)).length;
+    starInputs.set(id, {
+      staffId: id,
+      name: evidence.staff.find((p) => p.id === id)?.name || '',
+      branch,
+      followupPct: followups && followupShare ? (projectedFollowups / followupShare) * 100 : null,
+      requestsPct: ((completeRequests / (share || 1)) / EARNED_RULES.completeRequestsTarget) * 100,
+      followups: projectedFollowups,
+      workedDays,
+      absentDays: counts.absent,
+      violations: violations ?? 0,
+    });
   }
   return out;
 }
@@ -645,7 +671,8 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
         : measured('conversation_quality', round(s), shape.conversation(s), `${f.reviews.length} مراجعة · متوسط معدّل ${round(s)}/100 · ترتيب ${round(pct)}٪ بين الزملاء`));
     if (dormant(evidence, 'followups')) push(id, notMeasurable('followups', 'لا توجد متابعات مسجلة في هذه الدورة (المصدر متوقف)'));
   }
-  if (atLeast(version, 'v6.9')) earnedAxesFor(evidence, doctors, doctorPool, facts, minResolved).forEach((list, id) => list.forEach((axis) => push(id, axis)));
+  const starInputs = new Map<string, Omit<StarInput, 'score' | 'salesPct'>>();
+  if (atLeast(version, 'v6.9')) earnedAxesFor(evidence, doctors, doctorPool, facts, minResolved, version, starInputs).forEach((list, id) => list.forEach((axis) => push(id, axis)));
 
   // Assistants.
   const assistants = familyMembers('assistant');
@@ -954,6 +981,23 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
       const score = result.readiness === 'insufficient' ? null : result.total;
       result.earned = earnedIncentive(score, target > 0 ? round((net / target) * 100) : null, absent);
     }
+  }
+  if (atLeast(version, 'v7.0')) {
+    const inputs: StarInput[] = [];
+    for (const result of results) {
+      const base = result.family === 'doctor' ? starInputs.get(result.staffId) : undefined;
+      if (!base) continue;
+      const sales = result.axes.find((axis) => axis.key === 'shift_target');
+      inputs.push({
+        ...base,
+        score: result.readiness === 'insufficient' ? null : result.total,
+        salesPct: sales && sales.status === 'measured' && typeof sales.value === 'number' ? sales.value : null,
+      });
+    }
+    branchStars(inputs, evidence.cycleShare ?? 1).forEach((star, id) => {
+      const result = results.find((row) => row.staffId === id);
+      if (result) result.star = star;
+    });
   }
   for (const result of results) {
     const own = (evidence.violations || []).filter((v) => v.staffId === result.staffId);

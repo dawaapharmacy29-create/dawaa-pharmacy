@@ -8,6 +8,7 @@ import { serverCycle } from '@/lib/evaluationLab/server/cycleScores';
 import { useAuth } from '@/hooks/useAuth';
 import { canSeeAllBranches } from '@/lib/security/permissionScopes';
 import { BranchCycleLossesPanel } from '@/components/evaluation/BranchCycleLossesPanel';
+import { BranchStarsSummary, StarBadge, StarRace } from '@/components/evaluation/BranchStarView';
 import { loadDoctorLevels, saveDoctorLevel } from '@/lib/doctorEvaluation';
 
 const BASELINE_VERSION = LAB_PREVIOUS_VERSION[LAB_CURRENT_VERSION] ?? LAB_CURRENT_VERSION;
@@ -138,7 +139,7 @@ const egp = (value: number) => Math.round(value).toLocaleString('ar-EG');
 function EarnedBadge({ earned }: { earned: EarnedIncentive }) {
   const tone = earned.total <= 0 ? 'dawaa-badge--danger' : earned.tierPercent >= 85 ? 'dawaa-badge--success' : 'dawaa-badge--warning';
   return (
-    <span className={`dawaa-badge ${tone} rounded-full px-2 py-0.5 text-[11px] font-black`} title="الحافز المكتسب (v6.9)">
+    <span className={`dawaa-badge ${tone} rounded-full px-2 py-0.5 text-[11px] font-black`} title="الحافز المكتسب">
       {earned.score === null ? 'الحافز: بيانات غير كافية' : `${earned.tierLabel} · الحافز ${egp(earned.total)} ج`}
     </span>
   );
@@ -199,6 +200,7 @@ function PersonCard({ person, rank, baseline, control }: { person: LabPersonScor
             <CoverageBar coverage={person.coverage} />
             <BaselineDelta total={person.total} baseline={baseline} />
             {person.earned ? <EarnedBadge earned={person.earned} /> : person.compliance ? <ComplianceBadge compliance={person.compliance} /> : null}
+            {person.star ? <StarBadge star={person.star} /> : null}
           </div>
         </div>
         {open ? <ChevronUp size={18} className="dawaa-theme-muted" /> : <ChevronDown size={18} className="dawaa-theme-muted" />}
@@ -215,6 +217,7 @@ function PersonCard({ person, rank, baseline, control }: { person: LabPersonScor
             ))}
           </div>
           {person.earned ? <EarnedDetails earned={person.earned} /> : person.compliance ? <ComplianceDetails compliance={person.compliance} /> : null}
+          {person.star ? <StarRace star={person.star} /> : null}
           {person.adjustments.length ? (
             <div className="dawaa-status-danger-bg dawaa-status-danger-border mt-3 space-y-1 rounded-xl border p-3">
               {person.adjustments.map((adjustment) => (
@@ -441,6 +444,8 @@ export default function EvaluationLab() {
         {query.data && <div className="mt-4"><SourceStrip evidence={query.data.evidence} /></div>}
         <TrackCoverage />
       </section>
+
+      {scores.some((person) => person.star) ? <BranchStarsSummary people={scores.filter((person) => person.family === 'doctor')} /> : null}
 
       {canSeeAllBranches(user?.role) ? <BranchCycleLossesPanel /> : null}
 
