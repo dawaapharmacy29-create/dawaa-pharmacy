@@ -4,9 +4,11 @@ import { AlertTriangle, Award, CalendarCheck, ChevronDown, ChevronUp, Lightbulb,
 import { loadMyEvaluation, type MyEvaluation } from '@/lib/doctorEvaluation';
 import type { LabAttendanceSummary } from '@/lib/evaluationLab/buildCycleScores';
 import type { AxisResult, Readiness } from '@/lib/evaluationLab/scoring';
+import { StarRace } from '@/components/evaluation/BranchStarView';
 import { axisImpacts, axisTip, evaluationSignals, familyLabel, type AxisImpact, type CycleDays, type EvaluationSignal } from '@/lib/evaluationInsights';
 
-// The doctor's monthly evaluation, same engine and rules as /evaluation-lab (v6.8).
+// The doctor's monthly evaluation, same engine and rules as /evaluation-lab (the published version), with his
+// place in the race for the branch star.
 // compact: the overview card (score, rank, what to work on). full: every axis with its evidence.
 
 const READINESS: Record<Readiness, { label: string; tone: string }> = {
@@ -204,6 +206,7 @@ export default function DoctorMonthlyEvaluationCard({ compact = false, onOpen }:
           <div className="dawaa-surface-soft rounded-xl p-2"><div className="dawaa-caption">وسيط {familyLabel(me.family)}</div><div className="dawaa-title mt-0.5 text-sm">{data.familyMedian === null ? '—' : Math.round(data.familyMedian)}</div></div>
           <div className="dawaa-surface-soft rounded-xl p-2"><div className="dawaa-caption">شريحة الحافز</div><div className="dawaa-title mt-0.5 text-sm">{payout === null ? '—' : `${payout}٪`}</div></div>
         </div>
+        {me.star ? <StarRace star={me.star} own /> : null}
         {compact && me.attendance ? (
           <p className="dawaa-caption mt-3 text-xs font-bold leading-5">
             الحضور: {me.attendance.workedDays} يوم من {data.cycle.elapsedDays} يوم عدّوا من الدورة

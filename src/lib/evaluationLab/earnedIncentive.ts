@@ -52,6 +52,10 @@ export const BRANCH_DOCTOR_TARGETS: Record<string, { avgInvoice: number; invoice
 export const EARNED_RULES = {
   /** Follow-up requests: the branch's monthly target (when none is set), split by the doctors' working days. */
   defaultFollowupTarget: 1000,
+  /** v7.0 ramp (owner 2026-11-14): 700 in the cycle that opened 26/10, 1000 from 26/11. */
+  followupTargetByCycle: { '2026-10-26': 700 } as Readonly<Record<string, number>>,
+  /** v7.0: official conversation reviews a doctor needs in a full cycle for the item to count. */
+  minConversationReviews: 30,
   /** Complete customer requests (customer number + item, not cancelled) for the full item. */
   completeRequestsTarget: 20,
   /** Late (>15 min) or early-leave days allowed; each day after costs an eighth, ten or more lose it all. */

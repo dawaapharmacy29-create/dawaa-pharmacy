@@ -13,15 +13,22 @@ const base: EarnedDoctorInput = {
 const score = (input: Partial<EarnedDoctorInput>, key: string) => earnedDoctorAxes({ ...base, ...input }).find((a) => a.key === key);
 
 describe('v6.9 catalog', () => {
-  it('doctor weights are 28/16/16/12/10/10/8 and sum to 100; the dashboard stays on the published version', () => {
+  it('doctor weights are 28/16/16/12/10/10/8 and sum to 100', () => {
     const doctor = LAB_AXES_BY_VERSION['v6.9'].doctor;
     expect(doctor.filter((a) => a.weight > 0).map((a) => [a.key, a.weight])).toEqual([
       ['followup_requests', 28], ['punctuality', 16], ['conversation_quality', 16], ['complete_requests', 12],
       ['avg_invoice_target', 10], ['invoices_per_day', 10], ['uniform_compliance', 8],
     ]);
     expect(doctor.reduce((s, a) => s + a.weight, 0)).toBe(100);
-    expect(LAB_CURRENT_VERSION).toBe('v6.9');
-    expect(LAB_PUBLISHED_VERSION).toBe('v6.8');
+  });
+
+  it('v7.0 doctor weights are follow-ups 35, conversations 35, requests 15, average invoice 15, and it is published', () => {
+    const doctor = LAB_AXES_BY_VERSION['v7.0'].doctor;
+    expect(doctor.filter((a) => a.weight > 0).map((a) => [a.key, a.weight])).toEqual([
+      ['followup_requests', 35], ['conversation_quality', 35], ['complete_requests', 15], ['avg_invoice_target', 15],
+    ]);
+    expect(LAB_CURRENT_VERSION).toBe('v7.0');
+    expect(LAB_PUBLISHED_VERSION).toBe('v7.0');
   });
 });
 

@@ -6,12 +6,12 @@ export type LabFamily = 'doctor' | 'assistant' | 'delivery' | 'branch_manager' |
 
 /** v6.0 is kept so the lab can show what each change moved; v6.1 is the proposal under review. */
 /** Each version keeps every rule of the one before it; the lab shows the change against the previous one. */
-export type LabVersion = 'v6.0' | 'v6.1' | 'v6.2' | 'v6.3' | 'v6.4' | 'v6.5' | 'v6.6' | 'v6.7' | 'v6.8' | 'v6.9';
-export const LAB_CURRENT_VERSION: LabVersion = 'v6.9';
+export type LabVersion = 'v6.0' | 'v6.1' | 'v6.2' | 'v6.3' | 'v6.4' | 'v6.5' | 'v6.6' | 'v6.7' | 'v6.8' | 'v6.9' | 'v7.0';
+export const LAB_CURRENT_VERSION: LabVersion = 'v7.0';
 /** The version the doctor dashboard (doctor-evaluation-v6 edge function) is built from; moves only when the owner publishes a lab version. */
-export const LAB_PUBLISHED_VERSION: LabVersion = 'v6.8';
-export const LAB_PREVIOUS_VERSION: Record<LabVersion, LabVersion | null> = { 'v6.0': null, 'v6.1': 'v6.0', 'v6.2': 'v6.1', 'v6.3': 'v6.2', 'v6.4': 'v6.3', 'v6.5': 'v6.4', 'v6.6': 'v6.5', 'v6.7': 'v6.6', 'v6.8': 'v6.7', 'v6.9': 'v6.8' };
-export const LAB_VERSION_ORDER: LabVersion[] = ['v6.0', 'v6.1', 'v6.2', 'v6.3', 'v6.4', 'v6.5', 'v6.6', 'v6.7', 'v6.8', 'v6.9'];
+export const LAB_PUBLISHED_VERSION: LabVersion = 'v7.0';
+export const LAB_PREVIOUS_VERSION: Record<LabVersion, LabVersion | null> = { 'v6.0': null, 'v6.1': 'v6.0', 'v6.2': 'v6.1', 'v6.3': 'v6.2', 'v6.4': 'v6.3', 'v6.5': 'v6.4', 'v6.6': 'v6.5', 'v6.7': 'v6.6', 'v6.8': 'v6.7', 'v6.9': 'v6.8', 'v7.0': 'v6.9' };
+export const LAB_VERSION_ORDER: LabVersion[] = ['v6.0', 'v6.1', 'v6.2', 'v6.3', 'v6.4', 'v6.5', 'v6.6', 'v6.7', 'v6.8', 'v6.9', 'v7.0'];
 
 export type LabAxisKey =
   | 'sales_per_day'
@@ -319,7 +319,27 @@ const V69: Record<LabFamily, LabAxisDefinition[]> = {
   ],
 };
 
-export const LAB_AXES_BY_VERSION: Record<LabVersion, Record<LabFamily, LabAxisDefinition[]>> = { 'v6.0': V60, 'v6.1': V61, 'v6.2': V62, 'v6.3': V63, 'v6.4': V64, 'v6.5': V65, 'v6.6': V66, 'v6.7': V67, 'v6.8': V68, 'v6.9': V69 };
+// v7.0 (owner decision 2026-11-14): four items carry the doctor's score: follow-ups 35, conversations 35,
+// complete customer requests 15, average invoice 15. Punctuality, invoice count and uniform are shown, not
+// weighted: lateness and violations move to the deductions wallet. Conversations count from this cycle (daily
+// reviews), with at least 30 official reviews a month. Follow-up target 700 this cycle, 1000 from 26/11.
+// Published to the doctors' dashboards together with the branch star (branchStar.ts).
+const V70: Record<LabFamily, LabAxisDefinition[]> = {
+  ...V69,
+  doctor: [
+    { key: 'followup_requests', label: 'طلبات المتابعة (نصيبه من تارجت الفرع)', weight: 35 },
+    { key: 'conversation_quality', label: 'المحادثات (متوسط 90+ = كاملة)', weight: 35 },
+    { key: 'complete_requests', label: 'طلبات العملاء الكاملة (20 في الشهر)', weight: 15 },
+    { key: 'avg_invoice_target', label: 'متوسط الفاتورة مقابل تارجت الفرع', weight: 15 },
+    { key: 'punctuality', label: 'المواعيد (للمعلومة — التأخير بيتخصم من المحفظة)', weight: 0 },
+    { key: 'invoices_per_day', label: 'عدد الفواتير في يوم الشغل (للمعلومة)', weight: 0 },
+    { key: 'uniform_compliance', label: 'الزي والأذونات والتعليمات (للمعلومة — بتتخصم من المحفظة)', weight: 0 },
+    { key: 'shift_target', label: 'تحقيق تارجت ساعاته (بيدخل في نجم الفرع)', weight: 0 },
+    { key: 'coding_quality', label: 'تكويد العملاء (أقل من 95٪ يقسم متوسط الفاتورة)', weight: 0 },
+  ],
+};
+
+export const LAB_AXES_BY_VERSION: Record<LabVersion, Record<LabFamily, LabAxisDefinition[]>> = { 'v6.0': V60, 'v6.1': V61, 'v6.2': V62, 'v6.3': V63, 'v6.4': V64, 'v6.5': V65, 'v6.6': V66, 'v6.7': V67, 'v6.8': V68, 'v6.9': V69, 'v7.0': V70 };
 export const LAB_AXES = LAB_AXES_BY_VERSION[LAB_CURRENT_VERSION];
 
 export function labFamilyOf(role: CanonicalStaffRole): LabFamily | null {
