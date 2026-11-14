@@ -1,5 +1,6 @@
 import type { GmReviewItem } from '@/lib/gmDailyReview';
 import { shiftWithDay } from '@/lib/shiftHandoverCoverage';
+import { purchaseReviewCard, type PurchaseReviewDaily } from '@/lib/purchaseReview/dailyItem';
 
 // The compact mobile card of one «مراجعتي اليومية» item: one status sentence, one chip per branch with a
 // big number, and an optional warning line (e.g. a stopped sync). Built from the same `detail` the server
@@ -159,6 +160,7 @@ export function gmReviewCard(
       };
     }
     case 'purchases_handover': {
+      if (d.review) return purchaseReviewCard(d.review as PurchaseReviewDaily);
       const list = rows(d.branches);
       const pending = list.reduce((s, r) => s + n(r.pending), 0);
       const oldest = Math.max(

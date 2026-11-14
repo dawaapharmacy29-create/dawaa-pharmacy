@@ -73,8 +73,9 @@ export const GM_REVIEW_LABELS: Record<
     link: '/inventory-counts',
   },
   purchases_handover: {
-    title: 'المشتريات',
-    question: 'فواتير الشراء اللي لسه «انتظار المراجعة» في دواء وائل',
+    title: 'مراجعة المشتريات',
+    question: 'مين من الموردين مستحق له فلوس، وملفات ePlus محدّثة؟',
+    link: '/purchase-review',
     app: { name: 'دواء وائل', url: `${DAWAA_WAEL}/pending-invoices` },
   },
   shifts: {
@@ -178,6 +179,10 @@ export function gmReviewSummary(
         (r) => `${BRANCH[String(r.branch)]}: ${INVENTORY[String(r.status)] ?? r.status}`
       );
     case 'purchases_handover':
+      if (d?.review) {
+        const r = d.review as { overdue: number; dueSoon: number; owed: number };
+        return [`متأخر ${money(r.overdue)} · مستحق الأسبوع ده ${money(r.dueSoon)} · علينا ${money(r.owed)}`];
+      }
       return [
         ...rows(d?.branches).map(
           (r) =>

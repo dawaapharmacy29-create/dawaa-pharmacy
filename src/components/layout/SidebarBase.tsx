@@ -128,6 +128,7 @@ export const GROUPS: NavGroup[] = [
     { path: '/invoices', icon: FileSpreadsheet, label: 'استيراد فواتير المبيعات', permission: 'view_invoices' },
     { path: '/internal-codes', icon: BarChart3, label: 'الأكواد الداخلية', permission: 'view_sales_reports' },
     { path: '/purchases', icon: FileSpreadsheet, label: 'المشتريات', permission: 'view_purchases' },
+    { path: '/purchase-review', icon: WalletCards, label: 'مراجعة المشتريات', allowedRoles: ['general_manager', 'executive_manager', 'admin'] },
     { path: '/purchase-invoice-entry', icon: FileSpreadsheet, label: 'إدخال فاتورة مشتريات', allowedRoles: ['assistant'] },
     { path: '/purchase-invoice-review', icon: ClipboardCheck, label: 'مراجعة فواتير المشتريات', excludeRoles: ['pharmacist', 'assistant', 'customer_service_manager'] },
     { path: '/purchase-invoice-accuracy', icon: FileSpreadsheet, label: 'دقة إدخال فواتير المشتريات', allowedRoles: ['assistant', 'customer_service_manager', 'general_manager', 'branches_manager'] },
@@ -212,7 +213,7 @@ export const MANAGEMENT_GROUPS: NavGroup[] = [
   { title: 'النقاط والأداء', icon: Star, items: managerItems('/points', '/point-appeals', '/penalty-incentive', '/shift-performance', '/performance-pillars') },
   { title: 'العملاء', icon: HeadphonesIcon, items: managerItems('/customer-service', '/customers', '/reviews', '/customer-requests') },
   { title: 'المبيعات', icon: BarChart3, items: managerItems('/analytics', '/branch-comparison', '/reports', '/consolidated-reports') },
-  { title: 'المشتريات والمخزون', icon: Store, items: managerItems('/purchases', '/supplier-accounts', '/shortages', '/inventory-counts') },
+  { title: 'المشتريات والمخزون', icon: Store, items: managerItems('/purchase-review', '/purchases', '/shortages', '/inventory-counts') },
   { title: 'للمراجعة', icon: ClipboardList, items: managerItems('/review-pages') },
 ];
 

@@ -2,15 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { cycleRange, purchasesTotals } from '../gmPurchasesSummary';
 import { gmReviewCard } from '../gmReviewCard';
 
-describe('دورة المشتريات 26 → 25', () => {
-  it('current cycle runs from the last 26th to today', () => {
-    expect(cycleRange('2026-11-05')).toEqual({ from: '2026-10-26', to: '2026-11-05' });
-    expect(cycleRange('2026-11-26')).toEqual({ from: '2026-11-26', to: '2026-11-26' });
+describe('دورة المشتريات من أول الشهر', () => {
+  it('current cycle runs from the 1st to today', () => {
+    expect(cycleRange('2026-11-05')).toEqual({ from: '2026-11-01', to: '2026-11-05' });
+    expect(cycleRange('2026-11-01')).toEqual({ from: '2026-11-01', to: '2026-11-01' });
+    expect(cycleRange('2026-11-30')).toEqual({ from: '2026-11-01', to: '2026-11-30' });
   });
 
-  it('previous cycle ends on its 25th, across a year boundary too', () => {
-    expect(cycleRange('2026-11-05', -1)).toEqual({ from: '2026-09-26', to: '2026-10-25' });
-    expect(cycleRange('2027-01-10', -1)).toEqual({ from: '2026-11-26', to: '2026-12-25' });
+  it('previous cycle is the whole month before, across a year boundary too', () => {
+    expect(cycleRange('2026-11-05', -1)).toEqual({ from: '2026-10-01', to: '2026-10-31' });
+    expect(cycleRange('2027-01-10', -1)).toEqual({ from: '2026-12-01', to: '2026-12-31' });
+    expect(cycleRange('2028-03-15', -1)).toEqual({ from: '2028-02-01', to: '2028-02-29' });
   });
 
   it('adds the branches up', () => {
