@@ -156,7 +156,11 @@ function classifyObjectionCategory(
   const fitText = text.replace(/(?:مش|لا)\s+(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?)\s+بديل/gi, '');
   if (PRODUCT_FIT_OBJECTION_RX.test(fitText)) return 'product_fit';
   if (TIMING_OBJECTION_RX.test(text)) return 'timing';
-  if (explicitRejection && fitText === text) return 'customer_declined';
+  // A bare "no" can answer age/price-range/other clarification questions. It is
+  // rejection evidence, but cannot by itself end the customer's whole need.
+  // A rejected presented basket is still owned by Commercial Confirmation;
+  // explicit final cancellation statements are handled below by the intent owner.
+  if (explicitRejection && fitText === text && !/^(?:لا|لأ)[!.،\s]*$/u.test(text.trim())) return 'customer_declined';
   if (correction) return 'unknown';
   return null;
 }
