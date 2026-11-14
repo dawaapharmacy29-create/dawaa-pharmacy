@@ -1500,7 +1500,7 @@ export default function ExecutiveDashboard2027() {
 
   const branchScopeLabel = canAllBranches
     ? `نطاق العرض: ${effectiveBranchLabel === ALL_BRANCHES ? 'كل الفروع' : effectiveBranchLabel}`
-    : `نطاق العرض: فرع ${branchName(homeBranch || '')}`;
+    : `نطاق العرض: ${branchName(homeBranch || '')}`;
 
   const summary = state.summary || {};
   // customerService/staffOps summaries are never populated by any fetch path
@@ -1794,6 +1794,21 @@ export default function ExecutiveDashboard2027() {
   // Branch manager / branches manager: a short page — today's list and exceptions first, the period
   // numbers next, and the long analysis folded. The executive view keeps the full layout.
   const managerMode = role === 'branch_manager' || role === 'branches_manager';
+  // The branch manager's home keeps four numbers of the running cycle (owner 2026-11-14).
+  const managerTarget = state.targets.find((row) => branchName(row.branch) === branchName(homeBranch || ''));
+  const kpiValue = (value: string) => getSectionValue({ value, loading: salesKPILoading, error: salesKPIError, loadedAt: salesKPILoadedAt, timedOut: salesKPITimedOut });
+  const managerKpiSection = (
+    <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+      <KpiCard title="مبيعات الدورة" value={kpiValue(`${money(summary.sales_total)} جنيه`)} subtitle="من غير الأكواد المستثناه" icon={<Wallet className="h-6 w-6" />} tone="amber"
+        loading={salesKPILoading && !salesKPILoadedAt} showAction={Boolean(salesKPIError || salesKPITimedOut)} onAction={reloadDashboard} />
+      <KpiCard title="تحقيق التارجت" value={managerTarget && managerTarget.target_amount !== null ? pct(managerTarget.achievement_percent) : '—'}
+        subtitle={managerTarget && managerTarget.target_amount !== null ? `المتوقع آخر الدورة ${pct(managerTarget.projected_achievement_percent)}` : 'مفيش تارجت متسجل'} icon={<Target className="h-6 w-6" />} tone="green" />
+      <KpiCard title="عدد الفواتير" value={kpiValue(count(summary.invoices_count))} subtitle="من أول الدورة" icon={<FileText className="h-6 w-6" />} tone="cyan"
+        loading={salesKPILoading && !salesKPILoadedAt} />
+      <KpiCard title="متوسط الفاتورة" value={kpiValue(`${money(summary.avg_invoice, 2)} جنيه`)} subtitle="من أول الدورة" icon={<ClipboardList className="h-6 w-6" />} tone="blue"
+        loading={salesKPILoading && !salesKPILoadedAt} />
+    </section>
+  );
   const salesKpiSection = (
     <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
       <KpiCard
@@ -1960,7 +1975,9 @@ export default function ExecutiveDashboard2027() {
           <AgendaCompliancePanel branch={scopedBranch === ALL_BRANCHES ? null : scopedBranch} />
         )}
 
-        {['branch_manager', 'branches_manager'].includes(role) && (
+        {/* The branch manager's exceptions repeat the daily list, and the weekly points card belongs to the old
+            system the monthly evaluation replaced (owner 2026-11-14). */}
+        {role === 'branches_manager' && (
           <div className="grid gap-4 lg:grid-cols-2">
             <BranchesManagerExceptionsPanel branchScope={scopedBranch === ALL_BRANCHES ? null : scopedBranch} />
             <ManagerLiveIncentiveCard
@@ -1971,7 +1988,7 @@ export default function ExecutiveDashboard2027() {
           </div>
         )}
 
-        <Panel className="p-5">
+        {managerMode ? null : <Panel className="p-5">
           <div className={`grid gap-5 ${managerMode ? '' : 'xl:grid-cols-[1.3fr_1fr]'} xl:items-center`}>
             <div className="order-2 xl:order-1">
               <button
@@ -2085,15 +2102,15 @@ export default function ExecutiveDashboard2027() {
               </p>
             </div>
           </div>
-        </Panel>
-
-        {managerMode ? salesKpiSection : null}
+        </Panel>}
 
         {managerMode ? (
           evaluationOpen
             ? <DoctorMonthlyEvaluationCard />
             : <DoctorMonthlyEvaluationCard compact onOpen={() => setEvaluationOpen(true)} />
         ) : null}
+
+        {managerMode ? managerKpiSection : null}
 
         {managerMode ? null : <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           {navCards.map((card) => (
@@ -2157,7 +2174,8 @@ export default function ExecutiveDashboard2027() {
           )}
         </Panel>}
 
-        <Panel className="p-5">
+        {/* Who is in now lives on the attendance page for the branch manager. */}
+        {managerMode ? null : <Panel className="p-5">
           <SectionTitle
             title="الموجودون الآن"
             subtitle="عرض واحد ذكي للحضور الحالي حسب الدور والفرع — التفاصيل الكاملة في صفحة الحضور"
@@ -2206,7 +2224,7 @@ export default function ExecutiveDashboard2027() {
               </div>
             ))}
           </div>
-        </Panel>
+        </Panel>}
 
         {managerMode || lockedBranch ? null : <StaffAccountsHealthPanel />}
 

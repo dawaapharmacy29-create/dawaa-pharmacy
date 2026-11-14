@@ -164,14 +164,14 @@ describe('short menu per role', () => {
 
   it('keeps every role to a short list of pages', () => {
     expect(count(visibleGroups('pharmacist'))).toBeLessThanOrEqual(9);
-    expect(count(visibleGroups('branch_manager'))).toBeLessThanOrEqual(15);
+    expect(count(visibleGroups('branch_manager'))).toBeLessThanOrEqual(9);
     expect(assistantPaths(everyPermission).length).toBeLessThanOrEqual(12);
   });
 
   it('builds the manager menu from the main one, with every page found', () => {
     const items = BRANCH_MANAGER_GROUPS.flatMap((group) => group.items);
     const main = GROUPS.flatMap((group) => group.items);
-    expect(items).toHaveLength(15);
+    expect(items).toHaveLength(9);
     for (const item of items) expect(main).toContain(item);
   });
 
@@ -190,7 +190,8 @@ describe('short menu per role', () => {
   it('keeps the pages a role has no other way to reach', () => {
     expect(paths('pharmacist')).toContain('/point-appeals');
     expect(paths('pharmacist')).toContain('/monthly-report-360');
-    expect(paths('branch_manager')).toContain('/point-appeals');
+    // Owner 2026-11-14: the weekly points pages left the branch manager's menu (the monthly evaluation replaced them).
+    expect(paths('branch_manager')).not.toContain('/point-appeals');
     expect(paths('branch_manager')).toContain('/monthly-report-360');
   });
 

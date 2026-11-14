@@ -19,7 +19,7 @@ export function StarBadge({ star }: { star: BranchStar }) {
 }
 
 /** The race explained: place, points per part, and what keeps the doctor out. */
-export function StarRace({ star, own = false }: { star: BranchStar; own?: boolean }) {
+export function StarRace({ star, own = false, compact = false }: { star: BranchStar; own?: boolean; compact?: boolean }) {
   const you = own ? 'إنت' : 'هو';
   const headline = !star.eligible
     ? `${you} لسه برة السباق`
@@ -45,14 +45,16 @@ export function StarRace({ star, own = false }: { star: BranchStar; own?: boolea
           </div>
         ))}
       </div>
-      <p className="dawaa-caption mt-2 text-[11px] font-bold leading-5">
+      {compact ? (
+        star.blockers.length ? <p className="dawaa-caption mt-2 text-[11px] font-bold leading-5">عشان {own ? 'تدخل' : 'يدخل'} السباق: {star.blockers.join(' · ')}.</p> : null
+      ) : <p className="dawaa-caption mt-2 text-[11px] font-bold leading-5">
         {star.eligible && star.leader && star.rank !== 1
           ? `الأول دلوقتي ${star.leader.name} بـ ${ar(star.leader.points)} نقطة · الفرق ${ar(star.gap ?? 0)} نقطة. `
           : ''}
         {star.blockers.length ? `عشان ${own ? 'تدخل' : 'يدخل'} السباق: ${star.blockers.join(' · ')}. ` : ''}
         النقاط = مبيعاتك من تارجت ساعاتك ٥٠٪ + متابعاتك من نصيبك ٣٥٪ + الطلبات الكاملة من ٢٠ ×١٥٪، وكل بند لحد {ar(STAR_RULES.cap)}٪.
         شروط الدخول: مفيش غياب من غير إذن، أقل من ٣ مخالفات، أيام شغل كفاية، وتقييم الشهر {ar(STAR_RULES.minScore)}+.
-      </p>
+      </p>}
     </div>
   );
 }

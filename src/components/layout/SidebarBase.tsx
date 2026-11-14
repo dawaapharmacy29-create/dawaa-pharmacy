@@ -196,10 +196,12 @@ const managerItems = (...paths: string[]) =>
   paths.flatMap((path) => GROUPS.flatMap((group) => group.items).filter((item) => item.path === path));
 
 export const BRANCH_MANAGER_GROUPS: NavGroup[] = [
-  { title: 'يومي', icon: LayoutDashboard, items: managerItems('/', '/customer-service', '/customers', '/reviews') },
-  { title: 'فريقي', icon: Users, items: managerItems('/team', '/schedule', '/attendance-report', '/time-off', '/shift-performance') },
-  { title: 'النقاط', icon: Star, items: managerItems('/points', '/point-appeals') },
-  { title: 'الفرع', icon: Store, items: managerItems('/shortages', '/medicine-expiry', '/stagnant-medicines', '/monthly-report-360') },
+  // Owner 2026-11-14: eight pages. Customers and the schedule open from customer service and attendance; the
+  // weekly points pages belong to the system the monthly evaluation replaced (hidden, not deleted).
+  // /monthly-report-360 stays for a manager given its permission (it has no other way in).
+  { title: 'يومي', icon: LayoutDashboard, items: managerItems('/', '/customer-service', '/reviews') },
+  { title: 'فريقي', icon: Users, items: managerItems('/attendance-report', '/time-off') },
+  { title: 'الفرع', icon: Store, items: managerItems('/shortages', '/stagnant-medicines', '/medicine-expiry', '/monthly-report-360') },
 ];
 
 // Top management works from a short menu too, but runs the whole application: everything else stays one click
