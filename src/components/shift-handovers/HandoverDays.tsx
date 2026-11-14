@@ -8,7 +8,15 @@ import {
 } from '@/lib/shiftHandoverCoverage';
 import { totalsOf } from '@/lib/shiftHandoverLedger';
 import ShiftHandoverCard, { closerNoteOf, handoverFlags } from './ShiftHandoverCard';
-import { dayLabel, money, shortDay, type LiveRow } from './shared';
+import {
+  ResponsibleLine,
+  SHIFT_TONE,
+  dayLabel,
+  money,
+  shortDay,
+  type LiveRow,
+  type ResponsibleOf,
+} from './shared';
 
 // «التسليمات»: day by day, branch by branch, the three shifts in their order. A shift past its deadline
 // with nothing closed shows as missing, so a gap is never hidden by an empty space.
@@ -22,7 +30,7 @@ export default function HandoverDays({
   fixesOf,
   punches,
   presenceFrom,
-  slotPeople,
+  responsibleOf,
   onChanged,
 }: {
   rows: LiveRow[];
@@ -33,7 +41,7 @@ export default function HandoverDays({
   fixesOf: (id: string) => ShiftHandoverCorrection[];
   punches: PunchInterval[] | null;
   presenceFrom: string;
-  slotPeople: (branch: string, day: string, shift: (typeof SHIFT_TYPES)[number]) => string;
+  responsibleOf: ResponsibleOf;
   onChanged: () => void;
 }) {
   const [view, setView] = useState<'detail' | 'table'>('detail');
@@ -150,28 +158,36 @@ export default function HandoverDays({
                                     punches={punches}
                                     presenceFrom={presenceFrom}
                                     canReview={Boolean(punches)}
+                                    responsible={responsibleOf(branch, day, shift, r)}
                                     onChanged={onChanged}
                                   />
                                 ))}
                               </Fragment>
                             );
                           if (onlyFlagged || !isMissing(day, branch, shift)) return null;
-                          const who = slotPeople(branch, day, shift);
                           return (
                             <div
                               key={shift}
-                              className="rounded-xl border border-dashed p-3 text-xs font-bold"
+                              className="space-y-2 rounded-xl border border-dashed p-3 text-xs font-bold"
                               style={{
                                 borderColor: 'var(--dawaa-status-danger-border)',
-                                color: 'var(--dawaa-status-danger-text)',
+                                background: 'var(--dawaa-theme-surface)',
+                                borderInlineStartWidth: 4,
                               }}
                             >
-                              <span className="dawaa-badge dawaa-badge--danger">
-                                {shift} · ناقص
-                              </span>
-                              <p className="mt-1">
-                                ما اتقفلش{who ? ` — في الشيفت (بصمات): ${who}` : ''}
-                              </p>
+                              <div className="flex items-center justify-between gap-2">
+                                <span className={`dawaa-badge ${SHIFT_TONE[shift]}`}>{shift}</span>
+                                <span
+                                  className="font-black"
+                                  style={{ color: 'var(--dawaa-status-danger-text)' }}
+                                >
+                                  ما اتسلّمش
+                                </span>
+                              </div>
+                              <ResponsibleLine
+                                missing
+                                responsible={responsibleOf(branch, day, shift)}
+                              />
                             </div>
                           );
                         })}

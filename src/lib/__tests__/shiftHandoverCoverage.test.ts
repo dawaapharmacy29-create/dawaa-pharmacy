@@ -4,6 +4,8 @@ import {
   closerOnShift,
   closerPresence,
   closerPresenceText,
+  branchAt,
+  handoverMoment,
   handoverWindow,
   missingByBranch,
   onDutyLabel,
@@ -11,10 +13,12 @@ import {
   presenceIn,
   presenceLabel,
   readHandovers,
+  responsibleNames,
   shiftCoverage,
   shiftDeadline,
   shiftGapLabel,
   shiftGapTone,
+  shiftResponsible,
   type PunchInterval,
 } from '../shiftHandoverCoverage';
 import { gmReviewSummary } from '../gmDailyReview';
@@ -391,5 +395,114 @@ describe('who was in a shift, from real punches', () => {
       expect(check([punch({ staff_id: 'x' })], { name: 'حد تاني' })).toEqual({ status: 'unknown' });
       expect(closerPresenceText({ status: 'unknown' })).toBeNull();
     });
+  });
+});
+
+describe('who was there at the handover', () => {
+  // Cairo winter time is UTC+2. The evening of 10/11 is handed over at 01:30 on 11/11 (23:30Z).
+  const base = (over: Partial<PunchInterval> & { staff_id: string }): PunchInterval => ({
+    name: over.staff_id,
+    kind: 'doctor',
+    home_branch: 'فرع شكري',
+    branches: ['فرع شكري'],
+    first_in: '2026-11-10T16:00:00Z',
+    last_out: '2026-11-11T00:00:00Z',
+    scheduled_end: null,
+    ...over,
+  });
+  const at = handoverMoment('2026-11-10', 'مسائي');
+  // د/ عمر: in at Shokry 18:16, then a punch on the Shami device at 02:52.
+  const omar = base({
+    staff_id: 'omar',
+    branches: ['فرع الشامي', 'فرع شكري'],
+    first_in: '2026-11-10T16:16:44Z',
+    last_out: '2026-11-11T00:52:04Z',
+    punches: [
+      { at: '2026-11-10T16:16:44Z', branch: 'فرع شكري' },
+      { at: '2026-11-10T16:18:44Z', branch: 'فرع شكري' },
+      { at: '2026-11-11T00:52:04Z', branch: 'فرع الشامي' },
+    ],
+  });
+
+  it('hands over an hour and a half before the shift counts as missing', () => {
+    expect(at.toISOString()).toBe('2026-11-10T23:30:00.000Z');
+    expect(handoverMoment('2026-11-11', 'ليلي').toISOString()).toBe('2026-11-11T06:30:00.000Z');
+  });
+
+  it('reads the branch from the last punch before the moment', () => {
+    expect(branchAt(omar, at.getTime())).toBe('فرع شكري');
+    expect(branchAt(omar, Date.parse('2026-11-11T01:00:00Z'))).toBe('فرع الشامي');
+    expect(branchAt(omar, Date.parse('2026-11-10T10:00:00Z'))).toBe('فرع شكري');
+    // Without per-punch devices: one device is that branch, both count on their own branch.
+    expect(branchAt(base({ staff_id: 'x', branches: ['فرع الشامي'] }), 0)).toBe('فرع الشامي');
+    expect(branchAt({ ...omar, punches: undefined }, 0)).toBe('فرع شكري');
+  });
+
+  it('puts someone seen on both devices in one branch only', () => {
+    expect(shiftResponsible([omar], 'فرع شكري', at).people.map((p) => p.staff_id)).toEqual([
+      'omar',
+    ]);
+    expect(shiftResponsible([omar], 'فرع الشامي', at).basis).toBe('none');
+  });
+
+  it('leaves out whoever just arrived for the next shift, or left long before', () => {
+    const arriving = base({ staff_id: 'next', first_in: '2026-11-10T23:00:00Z', last_out: null });
+    const leftEarly = base({ staff_id: 'early', last_out: '2026-11-10T21:00:00Z' });
+    const leftJustBefore = base({ staff_id: 'late', last_out: '2026-11-10T22:45:00Z' });
+    expect(
+      shiftResponsible([arriving, leftEarly, leftJustBefore], 'فرع شكري', at).people.map(
+        (p) => p.staff_id
+      )
+    ).toEqual(['late']);
+  });
+
+  it('names doctors and managers first, an assistant only when no doctor punched', () => {
+    const assistant = base({ staff_id: 'a', kind: 'assistant', name: 'محمد' });
+    const manager = base({ staff_id: 'm', kind: 'manager', name: 'د اميرة' });
+    const both = shiftResponsible([assistant, manager], 'فرع شكري', at);
+    expect(both.basis).toBe('doctor');
+    expect(responsibleNames(both)).toBe('د اميرة');
+    expect(both.everyone).toHaveLength(2);
+    const alone = shiftResponsible([assistant], 'فرع شكري', at);
+    expect(alone.basis).toBe('assistant');
+    expect(responsibleNames(alone)).toBe('محمد (مساعد)');
+    expect(responsibleNames(shiftResponsible([], 'فرع شكري', at))).toBe('مفيش دكتور بصم');
+  });
+
+  it('names who worked the evening of 10/11, not the night doctor who came in at 11:30', () => {
+    // The real punches at Shokry: د وائل 21:46–04:05, د/ عمر from 18:16, د دنيا 16:30–23:58,
+    // and the night doctor د محمد شبل from 23:36.
+    const wael = base({
+      staff_id: 'wael',
+      kind: 'manager',
+      first_in: '2026-11-10T19:46:01Z',
+      last_out: '2026-11-11T02:05:58Z',
+    });
+    const donia = base({
+      staff_id: 'donia',
+      first_in: '2026-11-10T14:30:06Z',
+      last_out: '2026-11-10T21:58:22Z',
+    });
+    const shebl = base({
+      staff_id: 'shebl',
+      first_in: '2026-11-10T21:36:38Z',
+      last_out: '2026-11-11T07:36:55Z',
+    });
+    expect(
+      shiftResponsible([omar, wael, donia, shebl], 'فرع شكري', at)
+        .people.map((p) => p.staff_id)
+        .sort()
+    ).toEqual(['omar', 'wael']);
+  });
+
+  it('counts a lone departure as a usual shift before it', () => {
+    const loneOut = base({ staff_id: 'out', first_in: null, last_out: '2026-11-11T00:30:00Z' });
+    expect(shiftResponsible([loneOut], 'فرع شكري', at).people).toHaveLength(1);
+  });
+
+  it('keeps the shift list to one branch too', () => {
+    const window = { from: Date.parse('2026-11-10T16:00:00Z'), to: at.getTime() };
+    expect(presenceIn([omar], 'فرع شكري', window)).toHaveLength(1);
+    expect(presenceIn([omar], 'فرع الشامي', window)).toEqual([]);
   });
 });

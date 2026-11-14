@@ -16,20 +16,17 @@ import { Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { cairoDayOf } from '@/lib/time/cairoDateBoundary';
-import { Panel, SectionTitle, EmptyState } from '@/components/dashboard/DashboardPrimitives';
+import { EmptyState } from '@/components/dashboard/DashboardPrimitives';
 import {
   SHIFT_HANDOVER_BRANCHES,
   SHIFT_TYPES,
-  missingByBranch,
-  presenceIn,
-  presenceLabel,
+  handoverMoment,
   readHandovers,
   shiftCoverage,
-  slotWindow,
+  shiftResponsible,
   type PunchInterval,
   type ShiftHandoverCorrection,
   type ShiftSlot,
-  type ShiftSlotStatus,
 } from '@/lib/shiftHandoverCoverage';
 import {
   PERIOD_LABELS,
@@ -44,15 +41,13 @@ import TodayBoard from '@/components/shift-handovers/TodayBoard';
 import HandoverDays from '@/components/shift-handovers/HandoverDays';
 import HandoverStats from '@/components/shift-handovers/HandoverStats';
 import HandoverExpenses from '@/components/shift-handovers/HandoverExpenses';
+import HandoverCoverage from '@/components/shift-handovers/HandoverCoverage';
 import {
   Pills,
-  SHIFT_TONE,
-  clockLabel,
-  money,
-  shortBranch,
   shortDay,
   timeLabel,
   type LiveRow,
+  type ResponsibleOf,
   type ShiftRow,
 } from '@/components/shift-handovers/shared';
 
@@ -79,13 +74,6 @@ const TABS = [
   ['coverage', 'اكتمال الشيفتات', CalendarCheck],
 ] as const;
 type TabId = (typeof TABS)[number][0];
-
-const STATUS: Record<ShiftSlotStatus, { label: string; tone: string }> = {
-  closed: { label: '✓', tone: 'dawaa-badge--success' },
-  duplicate: { label: '×2', tone: 'dawaa-badge--danger' },
-  late: { label: 'ناقص', tone: 'dawaa-badge--danger' },
-  pending: { label: '…', tone: 'dawaa-badge--info' },
-};
 
 async function fetchAllShiftRows(): Promise<{ rows: ShiftRow[]; error: boolean }> {
   const all: ShiftRow[] = [];
@@ -230,11 +218,15 @@ export default function ShiftHandovers() {
     [corrections]
   );
   const presenceFrom = addDays(today, 1 - PRESENCE_DAYS);
-  const slotPeople = useCallback(
-    (branch: string, day: string, shift: (typeof SHIFT_TYPES)[number]) =>
-      punches && day >= presenceFrom
-        ? presenceLabel(presenceIn(punches, branch, slotWindow(day, shift)))
-        : '',
+  // The doctor on duty when the shift was handed over (or was due): a closed one at its closing time,
+  // unless it was entered days later; a missing one at its usual handover time.
+  const responsibleOf = useCallback<ResponsibleOf>(
+    (branch, day, shift, row) => {
+      if (!punches || day < presenceFrom) return null;
+      const at =
+        row?.recorded_at && !row.entered_late_days ? row.recorded_at : handoverMoment(day, shift);
+      return shiftResponsible(punches, branch, at);
+    },
     [punches, presenceFrom]
   );
   const people = useMemo(() => {
@@ -292,6 +284,11 @@ export default function ShiftHandovers() {
   }, [range, today]);
 
   const coverage = useMemo(() => shiftCoverage(live, COVERAGE_DAYS), [live]);
+  // Back far enough for the previous cycle; nothing before the data starts counts as missing.
+  const longCoverage = useMemo(
+    () => shiftCoverage(live, PRESENCE_DAYS).filter((slot) => slot.day >= MIN_SOURCE_DATE),
+    [live]
+  );
   const slotOf = useCallback(
     (day: string, branch: string, shift: string) =>
       coverage.find(
@@ -317,7 +314,7 @@ export default function ShiftHandovers() {
   );
   const periodMissing = useMemo(
     () =>
-      shiftCoverage(live, 62).filter(
+      longCoverage.filter(
         (s) =>
           s.status === 'late' &&
           s.day >= range.from &&
@@ -325,7 +322,7 @@ export default function ShiftHandovers() {
           visibleBranches.includes(s.branch) &&
           (visibleShifts as string[]).includes(s.shift)
       ).length,
-    [live, range, visibleBranches, visibleShifts]
+    [longCoverage, range, visibleBranches, visibleShifts]
   );
   const lastSync = useMemo(
     () =>
@@ -478,115 +475,17 @@ export default function ShiftHandovers() {
   );
 
   const days = useMemo(() => [...new Set(coverage.map((slot) => slot.day))], [coverage]);
-  const missingGroups = missingByBranch(late);
   const coverageTab = (
-    <Panel className="p-4">
-      <SectionTitle
-        title={`اكتمال الشيفتات (آخر ${COVERAGE_DAYS.toLocaleString('ar-EG')} يوم)`}
-        icon={<CalendarCheck size={18} />}
-      />
-      <p className="dawaa-caption mb-3 text-xs font-bold">
-        كل فرع بيقفل ٣ شيفتات في اليوم. الشيفت بيتحسب «ناقص» بعد ميعاده بساعتين: الليلي ١٠ الصبح،
-        الصباحي ٧ بالليل، المسائي ٣ الفجر.
-      </p>
-      {late.length ? (
-        <div className={`mb-4 grid gap-3 ${missingGroups.length > 1 ? 'lg:grid-cols-2' : ''}`}>
-          {missingGroups.map((group) => (
-            <div
-              key={group.branch}
-              className="rounded-xl border p-3"
-              style={{ borderColor: 'var(--dawaa-status-danger-border)' }}
-            >
-              <p
-                className="mb-2 text-sm font-black"
-                style={{ color: 'var(--dawaa-status-danger-text)' }}
-              >
-                {group.branch} · {group.slots.length.toLocaleString('ar-EG')} ناقص
-              </p>
-              <ul className="space-y-1.5 text-xs font-bold">
-                {group.slots.map((slot) => (
-                  <li key={`${slot.day}${slot.shift}`} className="flex flex-wrap gap-x-2">
-                    <span className="w-20 shrink-0">{shortDay(slot.day)}</span>
-                    <span className={`dawaa-badge ${SHIFT_TONE[slot.shift]}`}>{slot.shift}</span>
-                    <span className="dawaa-caption min-w-0 flex-1">
-                      {slotPeople(slot.branch, slot.day, slot.shift) || '-'}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p
-          className="mb-3 text-sm font-black"
-          style={{ color: 'var(--dawaa-status-success-text)' }}
-        >
-          كل الشيفتات اتقفلت في آخر {COVERAGE_DAYS.toLocaleString('ar-EG')} يوم ✓
-        </p>
-      )}
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[480px] text-center text-xs font-bold">
-          <thead>
-            <tr>
-              <th className="p-1 text-right">اليوم</th>
-              {visibleBranches.map((branch) =>
-                SHIFT_TYPES.map((shift) => (
-                  <th key={`${branch}${shift}`} className="p-1">
-                    {shortBranch(branch)} · {shift}
-                  </th>
-                ))
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {days.map((day) => (
-              <tr
-                key={day}
-                className="border-t"
-                style={{ borderColor: 'var(--dawaa-theme-border)' }}
-              >
-                <td className="p-1 text-right">{shortDay(day)}</td>
-                {visibleBranches.map((branch) =>
-                  SHIFT_TYPES.map((shift) => {
-                    const slot = slotOf(day, branch, shift);
-                    if (!slot) return <td key={`${branch}${shift}`} />;
-                    const status = STATUS[slot.status];
-                    const onDutyNow = slot.rows.length ? '' : slotPeople(branch, day, shift);
-                    const who = [
-                      ...slot.rows.map(
-                        (r) =>
-                          `${r.submitted_by || '-'} · ${money(shiftMoney(r).sales)}${r.reread ? ` · مسجل ${r.source_type} ${r.source_date}` : ''}`
-                      ),
-                      ...(onDutyNow ? [`في الشيفت (بصمات): ${onDutyNow}`] : []),
-                    ].join('\n');
-                    return (
-                      <td key={`${branch}${shift}`} className="p-1">
-                        <span
-                          className={`dawaa-badge ${status.tone} rounded-md px-2 py-0.5`}
-                          title={who || undefined}
-                        >
-                          {status.label}
-                        </span>
-                        {slot.rows[0] ? (
-                          <span className="dawaa-caption mt-0.5 block text-[10px]">
-                            {clockLabel(slot.rows[0].recorded_at)}
-                            {slot.rows.some((r) => r.reread) ? ' ↻' : ''}
-                          </span>
-                        ) : null}
-                      </td>
-                    );
-                  })
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <p className="dawaa-caption mt-2 text-[11px] font-bold">
-        ↻ = اتحسب من وقت التقفيل مش من اليوم أو الشيفت المكتوب في دواء وائل.
-      </p>
-    </Panel>
+    <HandoverCoverage
+      slots={coverage}
+      longSlots={longCoverage}
+      days={days}
+      branches={visibleBranches}
+      today={today}
+      coverageDays={COVERAGE_DAYS}
+      responsibleOf={responsibleOf}
+      namesKnown={Boolean(punches)}
+    />
   );
 
   // Nothing is judged before the handovers arrive: an empty list would read as every shift missing.
@@ -706,7 +605,7 @@ export default function ShiftHandovers() {
         <TodayBoard
           days={[today, yesterday]}
           slotOf={slotOf}
-          slotPeople={slotPeople}
+          responsibleOf={responsibleOf}
           onOpenDay={(day) => {
             setPeriod('custom');
             setCustom({ from: day, to: day });
@@ -723,7 +622,7 @@ export default function ShiftHandovers() {
           fixesOf={fixesOf}
           punches={punches}
           presenceFrom={presenceFrom}
-          slotPeople={slotPeople}
+          responsibleOf={responsibleOf}
           onChanged={() => void load()}
         />
       ) : tab === 'stats' ? (
