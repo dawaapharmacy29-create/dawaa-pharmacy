@@ -8,6 +8,7 @@ import { supabase } from '@/lib/supabase';
 import { conversationReviewScore100, isOfficialConversationReview, OFFICIAL_REVIEW_COLUMNS } from '@/lib/evaluations/officialConversationReview';
 import { cairoDateBoundaryIso } from '@/lib/time/cairoDateBoundary';
 import { fetchAllOrderedPages, type PageQuery } from '@/lib/fetchAllOrderedPages';
+import { INTERNAL_CUSTOMER_CODES } from '@/lib/evaluationLab/catalog';
 
 // سقف داخلي قصير لخطوة التجميع السريع (RPC) لوحدها. لو الـRPC اتأخر أو علّق، بنعدّي
 // بسرعة على مسار الفواتير الاحتياطي بدل ما نستهلك أغلب مهلة الـ20 ثانية الكلية
@@ -146,7 +147,8 @@ type DoctorSalesAggregate = {
   invoices_count?: number | string | null;
 };
 
-const SYSTEM_GENERIC_CUSTOMER_CODES = new Set(['54', '12820', '10', '170', '5']);
+// Owner policy 2026-10-19: same 7 codes as the DB (dawaa_is_sales_target_excluded_customer_v1).
+const SYSTEM_GENERIC_CUSTOMER_CODES = INTERNAL_CUSTOMER_CODES;
 
 function text(value: unknown) {
   return String(value ?? '').trim();
