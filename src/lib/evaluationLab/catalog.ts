@@ -448,13 +448,6 @@ export const DOCTOR_LEVELS = [
 export const INTERNAL_CUSTOMER_CODES = new Set(['5', '10', '20', '54', '170', '4902', '12820']);
 export const isInternalCustomerCode = (code: unknown) => INTERNAL_CUSTOMER_CODES.has(String(code ?? '').trim());
 
-/**
- * Sellers left out of the evaluation entirely (owner decision 2026-11-14): their invoices count for
- * nobody, branch targets included. د وائل.
- */
-export const EXCLUDED_SELLER_IDS = new Set(['2b034b1e-76dc-42f0-b150-45f4a71fe139']);
-export const isExcludedSeller = (staffId: unknown) => EXCLUDED_SELLER_IDS.has(String(staffId ?? '').trim());
-
 /** Attendance statuses that are still waiting for a decision: shown, never scored. */
 export const UNRESOLVED_ATTENDANCE = /^(.*_review|missing_checkin|missing_checkout|invalid_schedule_time)$/;
 /** v6.1: a punch the employee never corrected is the employee's own miss (zero credit that day). */
