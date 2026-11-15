@@ -164,3 +164,9 @@ The Smart Folder shows its own opportunities only as a labelled preliminary read
 ### Approved identity renewal
 
 The batch planner and immutable analysis writer must hash the same per-case ownership and audited product-identity decision IDs. Approval can change derived ownership without changing raw text. A changed approved identity creates a new immutable analysis; identical repeated input is a no-op. Source text, historical confirmations, authorization and financial points remain unchanged. This is a persistence parity fix, not a change to V56 dialogue-scoring rules.
+
+### Canonical invoice confirmation parity
+
+An unconfirmed source-level legacy suggestion must not veto a manager's selection of the current published canonical invoice for that same source. The confirmation RPC permits this only with a live published case, current analysis and attribution, exact source/case/invoice customer IDs, matching invoice ID/number, and no identity/branch conflict. Verified-session, permission/scope, invoice identity and immutable previous-confirmation checks remain in force. Locks prevent publication drift during approval; the retained legacy suggestion and audit note preserve the correction trail. No invoice/item or financial-ledger row is changed. Optional reviewer notes are bound to the selected case and use the same official confirmation RPC.
+
+Rollback is function-only: restore the previous confirmation guard; preserve all confirmations already made. Existing manager approvals are never replaced by this migration.
