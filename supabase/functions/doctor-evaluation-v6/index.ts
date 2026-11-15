@@ -118,6 +118,18 @@ function evidenceClient(service: any) {
             }
             return { error: null, data: [...counts].map(([staff_id, requests]) => ({ staff_id, requests })) };
           }
+          if (name === 'get_customer_request_group_rows_v1') {
+            const rows: unknown[] = [];
+            for (let from = 0; ; from += 1000) {
+              const { data, error } = await target.from('customer_request_group_log_v1')
+                .select('staff_id,branch,request_day,customer_code,customer_phone').gte('request_day', args.p_start).lte('request_day', args.p_end)
+                .order('fingerprint').range(from, from + 999);
+              if (error) return { data: null, error };
+              rows.push(...(data || []));
+              if (!data || data.length < 1000) break;
+            }
+            return { error: null, data: rows };
+          }
           if (name !== 'list_staff_violations_v1') return target.rpc(name, args);
           const { data, error } = await target.from('staff_compliance_violations')
             .select('staff_account_id,category,points,withdrawn_at')
