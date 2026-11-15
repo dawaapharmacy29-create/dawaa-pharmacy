@@ -11601,13 +11601,13 @@ function resolveTrustedInvoiceEvidenceFromReviewSource(input) {
   const confirmedBy = String(input.confirmedBy || "").trim();
   const confirmedAt = String(input.confirmedAt || "").trim();
   const confirmedInvoiceNumber = String(input.confirmedInvoiceNumber || "").trim() || null;
-  const matchedInvoiceId = String(input.matchedInvoiceId || "").trim();
-  if (invoiceLinkConfirmed && confirmedInvoiceId && confirmedBy && confirmedAt && (!matchedInvoiceId || matchedInvoiceId === confirmedInvoiceId)) {
+  if (invoiceLinkConfirmed && confirmedInvoiceId && confirmedBy && confirmedAt) {
     const ruleIds2 = [
       "trusted_invoice.eligible.manual_invoice_link_confirmation",
       "trusted_invoice.rule.exact_invoice_id_confirmed",
       "trusted_invoice.rule.confirmed_by_present",
-      "trusted_invoice.rule.confirmed_at_present"
+      "trusted_invoice.rule.confirmed_at_present",
+      "trusted_invoice.rule.legacy_suggestion_does_not_override_manual_confirmation"
     ];
     return {
       trustedInvoiceId: confirmedInvoiceId,
@@ -11628,9 +11628,6 @@ function resolveTrustedInvoiceEvidenceFromReviewSource(input) {
   if (invoiceLinkConfirmed && !confirmedInvoiceId) ruleIds.push("trusted_invoice.ineligible.confirmed_invoice_id_missing");
   if (invoiceLinkConfirmed && !confirmedBy) ruleIds.push("trusted_invoice.ineligible.confirmed_by_missing");
   if (invoiceLinkConfirmed && !confirmedAt) ruleIds.push("trusted_invoice.ineligible.confirmed_at_missing");
-  if (invoiceLinkConfirmed && confirmedInvoiceId && matchedInvoiceId && confirmedInvoiceId !== matchedInvoiceId) {
-    ruleIds.push("trusted_invoice.ineligible.confirmed_invoice_differs_from_current_match");
-  }
   if (input.invoiceMatchStatus !== "verified") ruleIds.push("trusted_invoice.ineligible.match_status_not_verified");
   if (!reviewerConfirmed) {
     ruleIds.push("trusted_invoice.ineligible.reviewer_not_confirmed");
