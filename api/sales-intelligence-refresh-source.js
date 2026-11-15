@@ -9839,12 +9839,14 @@ var ENGINE_VERSIONS = {
 var BRANCH_IDENTITY_MAPPING_VERSION = "branch-identity-mapping-v2";
 
 // src/lib/salesIntelligence/persistence/analysisWriter.ts
-async function persistCaseAnalysis(supabaseClient, caseId, rawWhatsAppExportText, content, trustedConversationStartedAt, saleProofFingerprint2, deferPublication = false) {
+async function persistCaseAnalysis(supabaseClient, caseId, rawWhatsAppExportText, content, trustedConversationStartedAt, saleProofFingerprint2, deferPublication = false, semanticContext) {
   const semanticSourceHash = await computeSemanticSourceHash({
     rawWhatsAppExportText,
     trustedConversationStartedAt: trustedConversationStartedAt ?? null,
     branchIdentityMappingVersion: BRANCH_IDENTITY_MAPPING_VERSION,
-    saleProofFingerprint: saleProofFingerprint2 ?? null
+    saleProofFingerprint: saleProofFingerprint2 ?? null,
+    caseOwnership: semanticContext?.caseOwnership,
+    managerProductIdentityReviewIds: semanticContext?.managerProductIdentityReviewIds
   });
   const { data, error } = await supabaseClient.rpc(deferPublication ? "sales_intelligence_stage_case_analysis_v1" : "sales_intelligence_write_case_analysis", {
     p_case_id: caseId,
@@ -10884,7 +10886,8 @@ async function runBatchPersistence(supabaseClient, input) {
           caseAnalysisContent,
           conversationInput?.trustedConversationStartedAt ?? null,
           saleProofFingerprint(analysis),
-          input.deferPublication === true
+          input.deferPublication === true,
+          { caseOwnership: conversationCase.ownership, managerProductIdentityReviewIds: analysis.managerProductIdentityReviewIds ?? [] }
         );
         outcome.attribution = await persistAttribution(
           supabaseClient,

@@ -78,6 +78,25 @@ describe('Sales Intelligence Persistence — hashing determinism (instruction #2
     expect(client.__tables.sales_intelligence_case_analyses.length).toBe(1);
   });
 
+  it('renews an immutable analysis after approved ownership changes, using the exact planned hash, then becomes idempotent', async () => {
+    const client = createFakeSupabaseClient();
+    await client.from('sales_intelligence_cases').insert({ case_id: 'identity-renewal', conversation_id: 'identity-source', case_started_at: new Date().toISOString() });
+    const content = analysisContentFixture();
+    const unresolved = { caseOwnership: { owners: [], blockers: ['introduced_staff_unresolved'] }, managerProductIdentityReviewIds: [] };
+    const resolved = { caseOwnership: { owners: [{ staffId: 'synthetic-staff' }], blockers: [] }, managerProductIdentityReviewIds: ['synthetic-decision'] };
+    const first = await persistCaseAnalysis(client, 'identity-renewal', 'unchanged raw text', content, null, null, false, unresolved);
+    const second = await persistCaseAnalysis(client, 'identity-renewal', 'unchanged raw text', content, null, null, false, resolved);
+    const repeat = await persistCaseAnalysis(client, 'identity-renewal', 'unchanged raw text', content, null, null, false, resolved);
+    expect(second.isNew).toBe(true);
+    expect(second.analysisId).not.toBe(first.analysisId);
+    expect(repeat.analysisId).toBe(second.analysisId);
+    expect(repeat.isNew).toBe(false);
+    const { BRANCH_IDENTITY_MAPPING_VERSION } = await import('../versions');
+    expect(second.semanticSourceHash).toBe(await computeSemanticSourceHash({rawWhatsAppExportText:'unchanged raw text',trustedConversationStartedAt:null,branchIdentityMappingVersion:BRANCH_IDENTITY_MAPPING_VERSION,saleProofFingerprint:null,...resolved}));
+    expect(client.__tables.sales_intelligence_case_analyses).toHaveLength(2);
+    expect(client.__tables.sales_intelligence_case_analyses.filter((r:any)=>r.is_current)).toHaveLength(1);
+  });
+
   it('7. a new semantic pipeline version (same raw text) still produces a new analysis row', async () => {
     const client = createFakeSupabaseClient();
     await client.from('sales_intelligence_cases').insert({ case_id: 'case-2', conversation_id: 'conv-2', case_started_at: new Date().toISOString() });

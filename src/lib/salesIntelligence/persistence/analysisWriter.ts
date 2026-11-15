@@ -3,7 +3,7 @@
 // than a client-side read-then-write sequence — H.1B instruction #7 explicitly forbids improvising
 // a fragile multi-step transaction once a real concurrency hazard (two workers, same case_id) was
 // identified; the RPC is what makes "one current row per case_id, always" safe under real races.
-import { computeSemanticSourceHash } from './hashing';
+import { computeSemanticSourceHash, type SemanticSourceHashInput } from './hashing';
 import type { CaseAnalysisRowContent } from './mappers';
 import { BRANCH_IDENTITY_MAPPING_VERSION, ENGINE_VERSIONS, PIPELINE_VERSION } from './versions';
 
@@ -30,13 +30,16 @@ export async function persistCaseAnalysis(
   content: CaseAnalysisRowContent,
   trustedConversationStartedAt?: string | null,
   saleProofFingerprint?: string | null,
-  deferPublication = false
+  deferPublication = false,
+  semanticContext?: Pick<SemanticSourceHashInput, 'caseOwnership' | 'managerProductIdentityReviewIds'>
 ): Promise<PersistCaseAnalysisResult> {
   const semanticSourceHash = await computeSemanticSourceHash({
     rawWhatsAppExportText,
     trustedConversationStartedAt: trustedConversationStartedAt ?? null,
     branchIdentityMappingVersion: BRANCH_IDENTITY_MAPPING_VERSION,
     saleProofFingerprint: saleProofFingerprint ?? null,
+    caseOwnership: semanticContext?.caseOwnership,
+    managerProductIdentityReviewIds: semanticContext?.managerProductIdentityReviewIds,
   });
 
   const { data, error } = await supabaseClient.rpc(deferPublication ? 'sales_intelligence_stage_case_analysis_v1' : 'sales_intelligence_write_case_analysis', {

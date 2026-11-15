@@ -725,7 +725,8 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
           caseAnalysisContent,
           conversationInput?.trustedConversationStartedAt ?? null,
           saleProofFingerprint(analysis),
-          input.deferPublication === true
+          input.deferPublication === true,
+          { caseOwnership: conversationCase.ownership, managerProductIdentityReviewIds: analysis.managerProductIdentityReviewIds ?? [] }
         );
         outcome.attribution = await persistAttribution(
           supabaseClient,

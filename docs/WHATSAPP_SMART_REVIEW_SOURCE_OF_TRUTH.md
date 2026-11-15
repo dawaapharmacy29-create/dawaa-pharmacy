@@ -160,3 +160,7 @@ The Smart Folder shows its own opportunities only as a labelled preliminary read
 * Dirty state is baseline-based (`src/lib/reviews/reviewDraftLifecycle.ts`); autosave only after a
   meaningful change; "الانتقال بدون حفظ" clears the draft and the pending Smart transfer, resets the
   page and then navigates (`NavigationGuardContext` `onDiscard`).
+
+### Approved identity renewal
+
+The batch planner and immutable analysis writer must hash the same per-case ownership and audited product-identity decision IDs. Approval can change derived ownership without changing raw text. A changed approved identity creates a new immutable analysis; identical repeated input is a no-op. Source text, historical confirmations, authorization and financial points remain unchanged. This is a persistence parity fix, not a change to V56 dialogue-scoring rules.
