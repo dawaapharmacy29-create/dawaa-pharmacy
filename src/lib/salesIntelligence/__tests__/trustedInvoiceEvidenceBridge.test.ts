@@ -45,7 +45,7 @@ describe('Trusted invoice evidence bridge — invoice-specific provenance requir
     expect(result.confidence.level).toBe('proven');
   });
 
-  it('rejects a dedicated confirmation when it points to a different invoice than the current exact match', () => {
+  it('keeps an audited exact manual confirmation authoritative over a different unconfirmed legacy suggestion', () => {
     const result = resolveTrustedInvoiceEvidenceFromReviewSource({
       sourceId: 'source-manual-2',
       matchedInvoiceId: 'inv-current',
@@ -61,8 +61,18 @@ describe('Trusted invoice evidence bridge — invoice-specific provenance requir
       confirmedAt: '2026-09-28T12:00:00.000Z',
     });
 
+    expect(result.trustedInvoiceId).toBe('inv-other');
+    expect(result.ruleIds).toContain('trusted_invoice.rule.legacy_suggestion_does_not_override_manual_confirmation');
+  });
+
+  it.each(['confirmedBy', 'confirmedAt', 'confirmedInvoiceId'] as const)('does not trust a mismatched legacy suggestion without complete %s provenance', (missing) => {
+    const result = resolveTrustedInvoiceEvidenceFromReviewSource({
+      sourceId:'synthetic-source',matchedInvoiceId:'legacy',matchedInvoiceNumber:'1',
+      invoiceMatchStatus:'verified',reviewerConfirmed:true,reviewerId:'overall-reviewer',branch:'فرع اختبار',
+      invoiceLinkConfirmed:true,confirmedInvoiceId:'approved',confirmedInvoiceNumber:'2',
+      confirmedBy:'manager',confirmedAt:'2026-09-28T12:00:00.000Z',[missing]:null,
+    });
     expect(result.trustedInvoiceId).toBeNull();
-    expect(result.ruleIds).toContain('trusted_invoice.ineligible.confirmed_invoice_differs_from_current_match');
   });
 
   it('keeps verified automatic matching without reviewer confirmation untrusted', () => {
@@ -108,6 +118,21 @@ describe('Trusted invoice evidence bridge — invoice-specific provenance requir
     expect(input.legacyMatchedInvoiceNumber).toBe('32069');
     expect(input.trustedInvoiceId).toBeNull();
     expect(input.trustedInvoiceNumber).toBeNull();
+  });
+
+  it('passes the audited invoice ID through the adapter and pipeline, preserving the unrelated legacy suggestion', () => {
+    const source = reviewSourceRowToBatchConversation({id:'synthetic-source',raw_text:'[9/15/26, 9:00:00 AM] Customer: عايز علبة فيتامين',
+      conversation_started_at:'2026-09-15T06:00:00.000Z',customer_id:'cust-1',matched_invoice_id:'legacy',matched_invoice_number:'1',
+      invoice_link_confirmed:true,invoice_link_confirmed_invoice_id:'approved',invoice_link_confirmed_invoice_number:'2',
+      invoice_link_confirmed_by:'manager',invoice_link_confirmed_at:'2026-09-28T12:00:00.000Z'});
+    expect(source.legacyMatchedInvoiceId).toBe('legacy');
+    expect(source.trustedInvoiceId).toBe('approved');
+    const result = runSalesIntelligencePipeline({conversationId:source.conversationId,rawWhatsAppExportText:source.rawWhatsAppExportText,
+      trustedConversationStartedAt:source.trustedConversationStartedAt,customerIdHint:'cust-1',customerIdentityStatus:'resolved',
+      trustedInvoiceId:source.trustedInvoiceId,trustedInvoiceNumber:source.trustedInvoiceNumber,
+      resolveInvoiceCandidates:()=>[{id:'approved',invoice_number:'2',customer_id:'cust-1',invoice_datetime:'2026-09-15T06:01:00.000Z',net_amount:30}]});
+    expect(result.caseAnalyses[0].attribution.selectedInvoiceId).toBe('approved');
+    expect(result.caseAnalyses[0].salesOutcome.saleProofState).toBe('proven');
   });
 
   it('adapter passes dedicated invoice confirmation as trusted evidence', () => {
