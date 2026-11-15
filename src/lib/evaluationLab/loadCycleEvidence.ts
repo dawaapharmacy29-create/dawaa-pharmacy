@@ -282,6 +282,20 @@ async function loadFollowupRequests(cycle: LabCycle): Promise<{ counts: LabEvide
   return { counts, targets };
 }
 
+/** Customer requests posted in the branches' WhatsApp groups during the cycle; null when unreadable. */
+async function loadGroupRequests(cycle: LabCycle): Promise<LabEvidence['groupRequests']> {
+  const last = new Date(`${cycle.endExclusive}T12:00:00Z`);
+  last.setUTCDate(last.getUTCDate() - 1);
+  return supabase.rpc('get_customer_request_group_rows_v1', { p_start: cycle.start, p_end: last.toISOString().slice(0, 10) })
+    .then(({ data, error }) => (error ? null : ((data || []) as Row[]).map((row) => ({
+      staffId: text(row.staff_id) || null,
+      branch: text(row.branch) || null,
+      day: text(row.request_day),
+      customerCode: text(row.customer_code) || null,
+      customerPhone: text(row.customer_phone) || null,
+    }))), () => null);
+}
+
 /** Compliance violations of the cycle (not withdrawn), through the scoped RPC; null when unreadable. */
 async function loadViolations(cycle: LabCycle): Promise<LabEvidence['violations']> {
   try {
@@ -410,6 +424,7 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
     loadInventoryCounts(cycle),
     loadViolations(cycle),
     loadFollowupRequests(cycle),
+    loadGroupRequests(cycle),
   ]);
   // The invoice items behind fulfilment need only the requests, so they start as soon as those arrive.
   const requestsLoad = pages(() => supabase.from('customer_requests')
@@ -443,7 +458,7 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
     if (probe.error) throw new Error(`${label}: ${probe.error.message}`);
   }
 
-  const [fulfillment, teamEvaluations, [brainRequests, previous, purchaseInvoices, inventoryCounts, violations, followups]] = await Promise.all([
+  const [fulfillment, teamEvaluations, [brainRequests, previous, purchaseInvoices, inventoryCounts, violations, followups, groupRequests]] = await Promise.all([
     fulfillmentLoad,
     loadTeamEvaluations(cycle, options.actorId || null, [...new Set(targetRows.map((row) => text(row.branch_name)).filter(Boolean))]),
     independent,
@@ -533,6 +548,7 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
     violations,
     followupRequests: followups.counts,
     followupTargets: followups.targets,
+    groupRequests,
     purchases: purchaseInvoices
       ? purchaseInvoices.map((row) => ({ enteredByStaffId: row.enteredByStaffId }))
       : purchaseRows ? purchaseRows.map((row) => ({ enteredByStaffId: text(row.entered_by_staff_id) || null })) : null,

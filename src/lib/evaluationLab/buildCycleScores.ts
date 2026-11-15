@@ -8,7 +8,8 @@ import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 import { summarizeFulfillment, type FulfillmentResult } from './requestFulfillment';
 import { hourlyTargets, cairoHourKey, type HourlyInvoice, type HourlyOutput } from './hourlyTarget';
 import { personCompliance, type ComplianceResult, type ViolationCategory } from './complianceFactor';
-import { EARNED_RULES, attendanceCounts, earnedDoctorAxes, earnedIncentive, isCompleteRequest, type EarnedIncentive } from './earnedIncentive';
+import { EARNED_RULES, attendanceCounts, earnedDoctorAxes, earnedIncentive, type EarnedIncentive } from './earnedIncentive';
+import { completeRequestCounts, type GroupRequest } from './groupRequests';
 import { branchStars, type BranchStar, type StarInput } from './branchStar';
 import {
   aggregate, bandScore, closureScore, codingGatePenalty, disciplineScore, measured, median, notMeasurable,
@@ -84,6 +85,8 @@ export interface LabEvidence {
   followupRequests?: Array<{ staffId: string; requests: number }> | null;
   /** v6.9: each branch's monthly follow-up target (a branch without one uses the default). */
   followupTargets?: Array<{ branch: string; target: number }> | null;
+  /** Customer requests posted in the branches' WhatsApp groups (null when unreadable). */
+  groupRequests?: GroupRequest[] | null;
   /** Sources with no rows in the cycle (followups, assistant_checklist, delivery_ratings): shown as dormant. */
   dormantSources: string[];
 }
@@ -555,13 +558,15 @@ function earnedAxesFor(
     const key = branchKey(branch);
     return (evidence.followupTargets || []).find((t) => branchKey(t.branch) === key)?.target ?? cycleTarget ?? EARNED_RULES.defaultFollowupTarget;
   };
+  // App requests plus the WhatsApp groups' requests, the same customer on the same day once.
+  const completeOf = completeRequestCounts(evidence.requests, evidence.groupRequests);
   const violationsOf = (id: string) => (evidence.violations == null ? null : evidence.violations.filter((v) => v.staffId === id).length);
   const addStar = (id: string, branch: string | null) => {
     const workedDays = worked.get(id)?.size || 0;
     const branchDoctorDays = starBranchDays.get(branchKey(branch)) || 0;
     const projectedFollowups = followups ? (followups.get(id) || 0) / (share || 1) : 0;
     const followupShare = workedDays && branchDoctorDays ? (targetOf(branch) * workedDays) / branchDoctorDays : 0;
-    const completeRequests = evidence.requests.filter((r) => r.recordedStaffId === id && isCompleteRequest(r)).length;
+    const completeRequests = completeOf.get(id) || 0;
     starInputs.set(id, {
       staffId: id,
       name: evidence.staff.find((p) => p.id === id)?.name || '',
@@ -586,7 +591,7 @@ function earnedAxesFor(
       branchDoctorDays: branchDays.get(key) || 0,
       followups: followups ? followups.get(id) || 0 : null,
       branchFollowupTarget: target,
-      completeRequests: evidence.requests.filter((r) => r.recordedStaffId === id && isCompleteRequest(r)).length,
+      completeRequests: completeOf.get(id) || 0,
       attendance: { late: counts.late, early: counts.early, resolvedDays: facts.get(id)?.resolvedDays || 0, minDays: minResolved },
       invoices: {
         count: own.length, net: own.reduce((s, inv) => s + inv.net, 0), coded: own.filter((inv) => inv.coded).length,

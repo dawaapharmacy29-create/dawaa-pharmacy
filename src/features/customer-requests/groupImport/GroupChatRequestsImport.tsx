@@ -10,6 +10,7 @@ import CanonicalCreateRequestDialog from '../workspace/CanonicalCreateRequestDia
 import { customerRequestBranchKey, customerRequestBranchLabel } from '../domain/branch';
 import { DOCTOR_REASON_LABELS, extractRequestCandidates, type RequestCandidate } from './groupChatCustomerRequests';
 import { loadShiftWindows } from './shiftWindows';
+import { loggableCandidates, saveGroupRequests } from './groupRequestLog';
 
 type StaffOption = { id: string; name: string; role: string | null; branch: string | null };
 const doctorLike = (item: StaffOption) => [item.name, item.role].filter(Boolean).some((v) => /د\/|دكتور|صيدلي|صيدلاني|doctor|pharmacist|branch_manager|مدير فرع/i.test(String(v)));
@@ -38,6 +39,20 @@ export default function GroupChatRequestsImport({ onClose, onCreated }: { onClos
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState<RequestCandidate | null>(null);
   const [showHandled, setShowHandled] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  /** Saves every request of the export to the evaluation's log at once (the doctor chosen on each card). */
+  const saveAll = async () => {
+    setSaving(true);
+    try {
+      const r = await saveGroupRequests(fileName, branch, candidates, doctorFor);
+      toast.success(`اتحفظ ${r.saved} طلب جديد من ${r.sent} في سجل التقييم${r.withoutDoctor ? ` · ${r.withoutDoctor} من غير دكتور بيتحسبوا للفرع بس` : ''}`);
+    } catch (error) {
+      toast.error(String((error as Error)?.message).includes('not_authorized') ? 'الحفظ بالجملة للمدير العام بس' : 'تعذر الحفظ — جرّب تاني');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const doctors = useMemo(() => (staff || []).filter(doctorLike)
     .filter((d) => !branch || customerRequestBranchKey(d.branch) === customerRequestBranchKey(branch)), [staff, branch]);
@@ -108,6 +123,12 @@ export default function GroupChatRequestsImport({ onClose, onCreated }: { onClos
               {fileName} · {candidates.length} طلب · فاضل {pending}
               <button type="button" className="ms-2 underline" onClick={() => setShowHandled((v) => !v)}>{showHandled ? 'اخفي المتسجل' : 'اعرض المتسجل'}</button>
             </div>
+          ) : null}
+          {candidates.length ? (
+            <button type="button" className="btn-primary ms-auto flex items-center gap-2 !py-2 text-xs" disabled={saving} onClick={() => void saveAll()}
+              title="كل طلب فيه كود عميل أو موبايل بيتحفظ مرة واحدة ويتحسب في التقييم للدكتور المختار">
+              {saving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} احفظ الكل في التقييم ({loggableCandidates(candidates).length})
+            </button>
           ) : null}
         </div>
 
