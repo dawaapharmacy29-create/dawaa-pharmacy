@@ -170,6 +170,8 @@ export default function SalesIntelligenceQACaseDetail() {
   const [invoiceConfirming, setInvoiceConfirming] = useState(false);
   const [invoiceConfirmationMessage, setInvoiceConfirmationMessage] = useState<string | null>(null);
   const [invoiceConfirmationError, setInvoiceConfirmationError] = useState<string | null>(null);
+  const [invoiceLinkNoteDraft, setInvoiceLinkNoteDraft] = useState<{ caseId: string; note: string } | null>(null);
+  const invoiceConfirmationNote = invoiceLinkNoteDraft && invoiceLinkNoteDraft.caseId === caseId ? invoiceLinkNoteDraft.note : '';
   const [legacyAuditOpen, setLegacyAuditOpen] = useState<boolean | null>(null);
   const [evaluationRequestedFor, setEvaluationRequestedFor] = useState<string | null>(null);
   const [conversationEvaluation, setConversationEvaluation] = useState<ConversationEvaluationResult | null>(null);
@@ -435,6 +437,7 @@ export default function SalesIntelligenceQACaseDetail() {
           sourceId,
           invoiceId,
           invoiceNumber,
+          note: invoiceConfirmationNote,
         }, (id) => requestCanonicalSalesIntelligenceRefresh({
           sourceIds: [id],
           accessToken: sessionToken,
@@ -1187,6 +1190,19 @@ export default function SalesIntelligenceQACaseDetail() {
                     : `${Math.round(conversation.invoiceMatchConfidence * 100)}٪`} — ${conversation?.invoiceMatchReason || 'مرشح الإسناد الحالي في Sales Intelligence'}`}
                 />
               </div>
+              {canConfirmCandidate ? (
+                <label className="mt-3 block text-sm">
+                  سبب اعتماد الربط (اختياري)
+                  <textarea
+                    className="dawaa-input mt-1 w-full"
+                    placeholder="أدلة مطابقة العميل والتوقيت والأصناف"
+                    maxLength={2000}
+                    value={invoiceConfirmationNote}
+                    onChange={(event) => setInvoiceLinkNoteDraft({ caseId: caseId || '', note: event.target.value })}
+                    disabled={invoiceConfirming}
+                  />
+                </label>
+              ) : null}
               {canConfirmCandidate ? (
                 <button
                   type="button"
