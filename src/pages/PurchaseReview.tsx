@@ -1,70 +1,51 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ChevronLeft,
-  ChevronRight,
-  FileSpreadsheet,
-  Loader2,
-  RefreshCw,
-  Upload,
-} from 'lucide-react';
+import { Loader2, RefreshCw, Search, Upload } from 'lucide-react';
 import { EmptyState, Panel } from '@/components/dashboard/DashboardPrimitives';
-import CashPanel from '@/components/purchase-review/CashPanel';
+import MonthPurchases from '@/components/purchase-review/MonthPurchases';
+import NeedsReview, { readDismissed } from '@/components/purchase-review/NeedsReview';
+import PayNow from '@/components/purchase-review/PayNow';
 import PurchaseSearch from '@/components/purchase-review/PurchaseSearch';
-import TreasuryLinks from '@/components/purchase-review/TreasuryLinks';
 import SupplierLedger from '@/components/purchase-review/SupplierLedger';
-import {
-  count,
-  dayLabel,
-  money,
-  monthLabel,
-  shortBranch,
-} from '@/components/purchase-review/shared';
+import { count, dayLabel, money, shortBranch } from '@/components/purchase-review/shared';
 import { loadAccountantReport } from '@/lib/accountantReport';
-import {
-  importPurchaseReport,
-  loadPurchaseReview,
-  readEPlusFile,
-  saveTrackFrom,
-} from '@/lib/purchaseReview/api';
+import { importPurchaseReport, loadPurchaseReview, readEPlusFile } from '@/lib/purchaseReview/api';
 import {
   allPayments,
   cashPlan,
-  daysBetween,
-  monthRange,
-  treasuryItems,
-  monthSummary,
+  payList,
+  reviewIssues,
   supplierBalances,
+  treasuryItems,
   uploadFreshness,
   type PurchaseReviewData,
 } from '@/lib/purchaseReview/ledger';
 
-// «مراجعة المشتريات»: the ePlus purchase reports of the four stores, read month by month (from the 1st),
-// with what we owe every supplier, when it falls due, and how that sits against the cash in the treasury.
+// «مراجعة المشتريات»: the ePlus purchase reports of the four stores against the supplier payments in the
+// treasury reports. Four tabs, one question each: what to pay now, where each supplier stands, what we
+// bought, and what needs the owner's answer.
 
+type Tab = 'pay' | 'suppliers' | 'month' | 'review';
 type UploadLine = { file: string; ok: boolean; text: string };
 
 export default function PurchaseReview() {
   const [data, setData] = useState<PurchaseReviewData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [monthOffset, setMonthOffset] = useState(0);
-  const [custom, setCustom] = useState<{ from: string; to: string } | null>(null);
-  const [trackDraft, setTrackDraft] = useState('');
-  const [trackBusy, setTrackBusy] = useState(false);
-  const [trackError, setTrackError] = useState<string | null>(null);
+  const [loadFrom, setLoadFrom] = useState<string | null>(null);
+  const [tab, setTab] = useState<Tab>('pay');
+  const [query, setQuery] = useState('');
+  const [openCode, setOpenCode] = useState<string | null>(null);
+  const [dismissed, setDismissed] = useState<Set<string>>(readDismissed);
   const [treasury, setTreasury] = useState<number | null>(null);
   const [treasuryError, setTreasuryError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadLog, setUploadLog] = useState<UploadLine[]>([]);
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const [loadFrom, setLoadFrom] = useState<string | null>(null);
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const next = await loadPurchaseReview(loadFrom);
-      setData(next);
-      setTrackDraft((d) => d || next.track_from || '');
+      setData(await loadPurchaseReview(loadFrom));
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'تعذّر التحميل');
@@ -86,38 +67,28 @@ export default function PurchaseReview() {
   }, []);
 
   const today = data?.today || new Date().toISOString().slice(0, 10);
-  const range = useMemo(
-    () => custom ?? monthRange(today, monthOffset),
-    [custom, today, monthOffset]
-  );
-  // A period starting before the loaded data asks the server for more.
-  useEffect(() => {
-    if (data && custom && custom.from < data.from) setLoadFrom(custom.from);
-  }, [custom, data]);
-  const payments = useMemo(() => (data ? allPayments(data) : []), [data]);
-  const treasuryList = useMemo(() => (data ? treasuryItems(data) : []), [data]);
-
-  const onSaveTrack = async () => {
-    if (!trackDraft) return;
-    setTrackBusy(true);
-    try {
-      await saveTrackFrom(trackDraft);
-      setTrackError(null);
-      await load();
-    } catch (err) {
-      setTrackError(err instanceof Error ? err.message : 'تعذّر الحفظ');
-    } finally {
-      setTrackBusy(false);
-    }
-  };
-  const month = useMemo(() => (data ? monthSummary(data, range) : null), [data, range]);
   const balances = useMemo(() => (data ? supplierBalances(data) : []), [data]);
   const plan = useMemo(() => cashPlan(balances, today), [balances, today]);
+  const pay = useMemo(() => payList(balances, today), [balances, today]);
+  const issues = useMemo(() => reviewIssues(balances, today), [balances, today]);
+  const payments = useMemo(() => (data ? allPayments(data) : []), [data]);
+  const links = useMemo(() => (data ? treasuryItems(data) : []), [data]);
   const fresh = useMemo(() => (data ? uploadFreshness(data.uploads, today) : []), [data, today]);
-  const supplierName = useMemo(
-    () => new Map((data?.suppliers ?? []).map((s) => [s.code, s.name])),
-    [data]
+  const stale = fresh.filter((s) => s.daysBehind == null || s.daysBehind > 1);
+  const toReview =
+    issues.filter((i) => !dismissed.has(i.key)).length +
+    links.filter((i) => !i.link).length +
+    stale.length;
+  const needFrom = useCallback(
+    (from: string) => setLoadFrom((f) => (f && f <= from ? f : from)),
+    []
   );
+
+  const openSupplier = (code: string) => {
+    setQuery('');
+    setOpenCode(code);
+    setTab('suppliers');
+  };
 
   const onFiles = async (files: FileList | null) => {
     if (!files?.length) return;
@@ -134,7 +105,7 @@ export default function PurchaseReview() {
         log.push({
           file: file.name,
           ok: true,
-          text: `${report.store} (${shortBranch(report.branch)}): ${count(result.invoices)} فاتورة من ${dayLabel(result.first_day)} لـ ${dayLabel(result.last_day)} بصافي ${money(result.net)}${off ? ` · ⚠️ إجمالي التقرير ${money(report.reportNet ?? 0)}` : ''}`,
+          text: `${report.store} (${shortBranch(report.branch)}): ${count(result.invoices)} فاتورة لحد ${dayLabel(result.last_day)}${off ? ` · ⚠️ إجمالي التقرير ${money(report.reportNet ?? 0)}` : ''}`,
         });
       } catch (err) {
         log.push({
@@ -150,18 +121,29 @@ export default function PurchaseReview() {
     await load();
   };
 
+  const lastDay = fresh.reduce<string | null>(
+    (m, s) => (s.upload && (!m || s.upload.last_day < m) ? s.upload.last_day : m),
+    null
+  );
+  const TABS: [Tab, string, number?][] = [
+    ['pay', 'المطلوب دفعه'],
+    ['suppliers', 'الموردين'],
+    ['month', 'مشتريات الشهر'],
+    ['review', 'محتاج مراجعة', toReview],
+  ];
+
   return (
-    <div className="space-y-5" dir="rtl">
+    <div className="space-y-4" dir="rtl">
       <section className="dawaa-card dawaa-card--raised">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="dawaa-title text-2xl">مراجعة المشتريات</h1>
-            <p className="dawaa-caption mt-1 font-bold">
-              مشتريات كل فرع من ePlus · شكري = الإدارة + مخزن د.وائل · الشامي = الفرعية + مخزن
-              د.معاذ
+            <p className="dawaa-caption mt-1 text-xs font-bold">
+              {lastDay ? `فواتير ePlus لحد ${dayLabel(lastDay)}` : 'لسه مفيش ملفات'}
+              {stale.length ? ` · ${count(stale.length)} مخزن ناقصه أيام` : ''}
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2">
             <input
               ref={fileInput}
               type="file"
@@ -193,30 +175,6 @@ export default function PurchaseReview() {
             </button>
           </div>
         </div>
-
-        <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
-          {fresh.map((s) => (
-            <div
-              key={s.store}
-              className="dawaa-theme-border rounded-xl border px-3 py-2 text-xs font-bold"
-              style={{
-                background:
-                  s.daysBehind == null || s.daysBehind > 1
-                    ? 'var(--dawaa-status-warning-bg)'
-                    : 'var(--dawaa-theme-surface)',
-              }}
-            >
-              <p className="flex items-center gap-1 font-black">
-                <FileSpreadsheet className="h-3.5 w-3.5" /> {s.store}
-              </p>
-              <p className="dawaa-caption">
-                {s.upload
-                  ? `لحد ${dayLabel(s.upload.last_day)}${s.daysBehind > 1 ? ` · ناقص ${count(s.daysBehind - 1)} يوم` : ' · محدّث'}`
-                  : 'لسه ما اترفعش'}
-              </p>
-            </div>
-          ))}
-        </div>
         {uploadLog.length ? (
           <ul className="mt-3 space-y-1 text-xs font-bold">
             {uploadLog.map((l) => (
@@ -234,37 +192,24 @@ export default function PurchaseReview() {
           </ul>
         ) : null}
 
-        {data ? (
-          <div
-            className="mt-3 flex flex-wrap items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold"
-            style={{ background: 'var(--dawaa-theme-surface)' }}
-          >
-            <span className="font-black">بنتابع المديونية من</span>
-            <input
-              type="date"
-              value={trackDraft}
-              max={today}
-              onChange={(e) => setTrackDraft(e.target.value)}
-              className="dawaa-theme-surface dawaa-theme-border rounded-lg border px-2 py-1 font-bold"
-            />
-            {trackDraft && trackDraft !== data.track_from ? (
+        {data?.lines.length ? (
+          <nav className="mt-4 flex flex-wrap gap-1.5">
+            {TABS.map(([t, label, badge]) => (
               <button
+                key={t}
                 type="button"
-                disabled={trackBusy}
-                onClick={() => void onSaveTrack()}
-                className="dawaa-badge dawaa-badge--info rounded-lg px-2.5 py-1 font-black"
+                onClick={() => setTab(t)}
+                className={`dawaa-tab text-sm ${tab === t ? 'is-active' : ''}`}
               >
-                {trackBusy ? 'بيتحفظ…' : 'احفظ التاريخ'}
+                {label}
+                {badge ? (
+                  <span className="dawaa-badge dawaa-badge--warning ms-1 px-1.5 text-[10px]">
+                    {count(badge)}
+                  </span>
+                ) : null}
               </button>
-            ) : null}
-            <span className="dawaa-caption">
-              أي فاتورة آجل ميعاد دفعها قبل التاريخ ده بتتحسب اتدفعت، والدفعات بتتحسب منه
-              {data.track_from ? ` (${count(daysBetween(data.track_from, today))} يوم)` : ''}
-            </span>
-            {trackError ? (
-              <span className="text-[var(--dawaa-status-danger-text)]">{trackError}</span>
-            ) : null}
-          </div>
+            ))}
+          </nav>
         ) : null}
       </section>
 
@@ -280,216 +225,52 @@ export default function PurchaseReview() {
         <Panel className="p-6">
           <EmptyState label="ارفع ملفات المشتريات من ePlus للمخازن الأربعة عشان الأرقام تظهر" />
         </Panel>
-      ) : (
-        <>
-          <CashPanel plan={plan} treasury={treasury} treasuryError={treasuryError} today={today} />
-
-          {month ? (
-            <Panel className="p-4">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <h2 className="dawaa-title text-lg">
-                    مشتريات {custom ? 'الفترة' : monthLabel(range.from)}
-                  </h2>
-                  <p className="dawaa-caption text-xs font-bold">
-                    من {dayLabel(range.from)} لـ {dayLabel(range.to > today ? today : range.to)} ·
-                    مش محسوب: الموردين والفواتير المستثناة
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-1">
-                  <input
-                    type="date"
-                    value={range.from}
-                    max={today}
-                    onChange={(e) =>
-                      e.target.value &&
-                      setCustom({
-                        from: e.target.value,
-                        to: range.to < e.target.value ? e.target.value : range.to,
-                      })
-                    }
-                    className="dawaa-theme-surface dawaa-theme-border rounded-lg border px-2 py-1 text-xs font-bold"
-                    aria-label="من"
-                  />
-                  <input
-                    type="date"
-                    value={range.to}
-                    min={range.from}
-                    onChange={(e) =>
-                      e.target.value && setCustom({ from: range.from, to: e.target.value })
-                    }
-                    className="dawaa-theme-surface dawaa-theme-border rounded-lg border px-2 py-1 text-xs font-bold"
-                    aria-label="لحد"
-                  />
-                  <button
-                    type="button"
-                    className="dawaa-tab text-xs"
-                    onClick={() => {
-                      setCustom(null);
-                      setMonthOffset((m) => m - 1);
-                    }}
-                    aria-label="الشهر اللي قبله"
-                  >
-                    <ChevronRight className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    className={`dawaa-tab text-xs ${!custom && monthOffset === 0 ? 'is-active' : ''}`}
-                    onClick={() => {
-                      setCustom(null);
-                      setMonthOffset(0);
-                    }}
-                  >
-                    الشهر ده
-                  </button>
-                  <button
-                    type="button"
-                    className="dawaa-tab text-xs"
-                    disabled={!custom && monthOffset >= 0}
-                    onClick={() => {
-                      setCustom(null);
-                      setMonthOffset((m) => Math.min(0, m + 1));
-                    }}
-                    aria-label="الشهر اللي بعده"
-                  >
-                    <ChevronLeft className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-                {[
-                  [
-                    'صافي المشتريات',
-                    month.total.net,
-                    'var(--dawaa-theme-heading)',
-                    `${count(month.total.invoices)} فاتورة`,
-                  ],
-                  [
-                    'آجل (علينا)',
-                    month.total.credit,
-                    'var(--dawaa-status-danger-text)',
-                    'بيتدفع في ميعاد كل مورد',
-                  ],
-                  [
-                    'نقدي (اتدفع من الدرج)',
-                    month.total.cash,
-                    'var(--dawaa-status-success-text)',
-                    '',
-                  ],
-                  [
-                    'مستثنى',
-                    month.total.excluded,
-                    'var(--dawaa-theme-muted, inherit)',
-                    'تحويلات ما بينّا وجرد',
-                  ],
-                ].map(([label, value, color, note]) => (
-                  <div
-                    key={label as string}
-                    className="rounded-2xl p-3"
-                    style={{ background: 'var(--dawaa-theme-surface-raised)' }}
-                  >
-                    <p className="dawaa-caption text-[11px] font-black">{label}</p>
-                    <p
-                      className="text-2xl font-black tabular-nums"
-                      style={{ color: color as string }}
-                    >
-                      {money(value as number)}
-                    </p>
-                    {note ? <p className="dawaa-caption text-[11px] font-bold">{note}</p> : null}
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-4 grid gap-3 md:grid-cols-2">
-                {month.branches.map((b) => {
-                  const top = month.suppliers.filter((s) => s.branch === b.branch).slice(0, 5);
-                  return (
-                    <div
-                      key={b.branch}
-                      className="rounded-2xl p-3"
-                      style={{ background: 'var(--dawaa-theme-surface-raised)' }}
-                    >
-                      <div className="mb-2 flex items-baseline justify-between gap-2">
-                        <p
-                          className="text-base font-black"
-                          style={{ color: 'var(--dawaa-theme-heading)' }}
-                        >
-                          {b.branch}
-                        </p>
-                        <p className="text-lg font-black tabular-nums">{money(b.net)}</p>
-                      </div>
-                      <table className="w-full text-xs font-bold">
-                        <thead className="dawaa-caption">
-                          <tr>
-                            <th className="text-start">المخزن</th>
-                            <th className="text-start">آجل</th>
-                            <th className="text-start">نقدي</th>
-                            <th className="text-start">مستثنى</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {b.stores.map((s) => (
-                            <tr key={s.store}>
-                              <td className="py-1">{s.store}</td>
-                              <td className="tabular-nums">{money(s.credit)}</td>
-                              <td className="tabular-nums">{money(s.cash)}</td>
-                              <td className="dawaa-caption tabular-nums">{money(s.excluded)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                      {top.length ? (
-                        <div className="mt-3">
-                          <p className="dawaa-caption mb-1 text-[11px] font-black">
-                            أكبر الموردين في الفترة
-                          </p>
-                          {top.map((s) => (
-                            <div key={s.code} className="mb-1">
-                              <div className="flex justify-between text-[11px] font-bold">
-                                <span>{supplierName.get(s.code) ?? s.name}</span>
-                                <span className="tabular-nums">{money(s.net)}</span>
-                              </div>
-                              <div
-                                className="h-1.5 overflow-hidden rounded-full"
-                                style={{ background: 'var(--dawaa-theme-surface)' }}
-                              >
-                                <div
-                                  className="h-full rounded-full"
-                                  style={{
-                                    width: `${b.net ? Math.max(2, (s.net / b.net) * 100) : 0}%`,
-                                    background: 'var(--dawaa-status-info-text)',
-                                  }}
-                                />
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            </Panel>
-          ) : null}
-
-          <PurchaseSearch suppliers={data.suppliers} balances={balances} onChanged={load} />
-
+      ) : tab === 'pay' ? (
+        <PayNow
+          plan={plan}
+          items={pay}
+          treasury={treasury}
+          treasuryError={treasuryError}
+          today={today}
+          onOpenSupplier={openSupplier}
+        />
+      ) : tab === 'suppliers' ? (
+        <div className="space-y-3">
+          <label className="dawaa-theme-surface dawaa-theme-border flex items-center gap-2 rounded-xl border px-3 py-2">
+            <Search className="h-4 w-4 shrink-0 opacity-60" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="دوّر باسم المورد أو كوده، أو برقم فاتورة"
+              className="w-full bg-transparent text-sm font-bold outline-none"
+            />
+          </label>
           <SupplierLedger
             balances={balances}
             payments={payments}
             today={today}
             trackFrom={data.track_from ?? null}
+            query={query}
+            openCode={openCode}
+            onOpen={setOpenCode}
             onChanged={load}
           />
-
-          <TreasuryLinks
-            items={treasuryList}
-            suppliers={data.suppliers}
-            trackFrom={data.track_from ?? null}
-            onChanged={load}
-          />
-        </>
+          <PurchaseSearch query={query} onChanged={load} />
+        </div>
+      ) : tab === 'month' ? (
+        <MonthPurchases data={data} today={today} onNeedFrom={needFrom} />
+      ) : (
+        <NeedsReview
+          issues={issues}
+          dismissed={dismissed}
+          onDismiss={setDismissed}
+          treasuryItems={links}
+          suppliers={data.suppliers}
+          fresh={fresh}
+          trackFrom={data.track_from ?? null}
+          today={today}
+          onChanged={load}
+        />
       )}
     </div>
   );

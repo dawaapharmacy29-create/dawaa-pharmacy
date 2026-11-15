@@ -551,6 +551,158 @@ export function cashPlan(balances: SupplierBalance[], today: string): CashPlan {
   };
 }
 
+export interface PayItem {
+  code: string;
+  name: string;
+  /** Overdue plus what falls due within DUE_SOON_DAYS, both branches together. */
+  amount: number;
+  overdue: boolean;
+  /** The earliest due date among those bills. */
+  due: string;
+  branches: { branch: PurchaseBranch; amount: number }[];
+  /** One of the bills is still collecting invoices (closes on `runningTo`). */
+  running: boolean;
+  runningTo: string | null;
+  /** Another branch paid this supplier more than its bills; worth a look before paying. */
+  credits: { branch: PurchaseBranch; amount: number }[];
+}
+
+/** Who to pay this week: one row per supplier, overdue first (biggest first), then by due date. */
+export function payList(balances: SupplierBalance[], today: string): PayItem[] {
+  const out = new Map<string, PayItem>();
+  for (const s of balances) {
+    for (const b of s.bills) {
+      if (b.remaining <= 0.5 || (b.state !== 'overdue' && b.state !== 'due_soon')) continue;
+      let i = out.get(s.code);
+      if (!i)
+        out.set(
+          s.code,
+          (i = {
+            code: s.code,
+            name: s.name,
+            amount: 0,
+            overdue: false,
+            due: b.due,
+            branches: [],
+            running: false,
+            runningTo: null,
+            credits: balances
+              .filter((x) => x.code === s.code && x.balance < -0.5)
+              .map((x) => ({ branch: x.branch, amount: -x.balance })),
+          })
+        );
+      i.amount += b.remaining;
+      i.overdue ||= b.state === 'overdue';
+      if (b.due < i.due) i.due = b.due;
+      if (today <= b.to) {
+        i.running = true;
+        i.runningTo = b.to;
+      }
+      const br = i.branches.find((x) => x.branch === s.branch);
+      if (br) br.amount += b.remaining;
+      else i.branches.push({ branch: s.branch, amount: b.remaining });
+    }
+  }
+  return [...out.values()].sort(
+    (a, b) =>
+      Number(b.overdue) - Number(a.overdue) ||
+      (a.overdue ? b.amount - a.amount : a.due.localeCompare(b.due) || b.amount - a.amount)
+  );
+}
+
+export interface SupplierRow {
+  code: string;
+  name: string;
+  /** Both branches together: > 0 we owe them, < 0 they owe us. */
+  balance: number;
+  overdue: number;
+  dueSoon: number;
+  running: number;
+  nextDue: string | null;
+  branches: SupplierBalance[];
+}
+
+/** One row per supplier with its branches under it, biggest debt first and credits last. */
+export function supplierRows(balances: SupplierBalance[]): SupplierRow[] {
+  const out = new Map<string, SupplierRow>();
+  for (const b of balances) {
+    let r = out.get(b.code);
+    if (!r)
+      out.set(
+        b.code,
+        (r = {
+          code: b.code,
+          name: b.name,
+          balance: 0,
+          overdue: 0,
+          dueSoon: 0,
+          running: 0,
+          nextDue: null,
+          branches: [],
+        })
+      );
+    r.balance += b.balance;
+    r.overdue += b.overdue;
+    r.dueSoon += b.dueSoon;
+    r.running += b.running;
+    if (b.nextDue && (!r.nextDue || b.nextDue < r.nextDue)) r.nextDue = b.nextDue;
+    r.branches.push(b);
+  }
+  return [...out.values()].sort((a, b) => b.balance - a.balance);
+}
+
+/** Things only the owner can settle; each one comes with the answer that settles it. */
+export type ReviewIssue =
+  | {
+      kind: 'credit';
+      key: string;
+      balance: SupplierBalance;
+      /** The other branch owes this supplier: the payment may have gone to the wrong branch. */
+      otherBranchOwes: number;
+    }
+  | {
+      kind: 'unpaid';
+      key: string;
+      balance: SupplierBalance;
+      bill: SupplierBill;
+      /** Days since it fell due. */
+      late: number;
+    };
+
+/** A credit (we paid more than the bills) or an overdue bill with nothing paid on it in a long time. */
+export function reviewIssues(balances: SupplierBalance[], today: string): ReviewIssue[] {
+  const out: ReviewIssue[] = [];
+  for (const b of balances) {
+    if (b.balance < -100) {
+      const other = balances
+        .filter((x) => x.code === b.code && x.branch !== b.branch)
+        .reduce((s, x) => s + Math.max(0, x.balance), 0);
+      out.push({
+        kind: 'credit',
+        key: `credit|${b.code}|${b.branch}`,
+        balance: b,
+        otherBranchOwes: other,
+      });
+    }
+    for (const bill of b.bills) {
+      const late = daysBetween(bill.due, today);
+      if (bill.state === 'overdue' && bill.paid <= 0.5 && bill.remaining > 1000 && late > 7)
+        out.push({
+          kind: 'unpaid',
+          key: `unpaid|${b.code}|${b.branch}|${bill.from}`,
+          balance: b,
+          bill,
+          late,
+        });
+    }
+  }
+  return out.sort(
+    (a, b) =>
+      (b.kind === 'credit' ? -b.balance.balance : b.kind === 'unpaid' ? b.bill.remaining : 0) -
+      (a.kind === 'credit' ? -a.balance.balance : a.kind === 'unpaid' ? a.bill.remaining : 0)
+  );
+}
+
 /** Stores the page expects a report from, and how fresh each one is. */
 export const EXPECTED_STORES: { store: string; branch: PurchaseBranch }[] = [
   { store: 'الادارة فرع شكري', branch: 'فرع شكري' },

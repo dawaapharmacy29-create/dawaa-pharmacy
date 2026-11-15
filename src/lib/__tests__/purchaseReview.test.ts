@@ -11,6 +11,9 @@ import {
   cashPlan,
   monthRange,
   monthSummary,
+  payList,
+  reviewIssues,
+  supplierRows,
   supplierBalances,
   suggestSupplier,
   treasuryItems,
@@ -611,5 +614,66 @@ describe('الدفع مقدّم قبل تاريخ المتابعة', () => {
     );
     expect(b.paid).toBe(150);
     expect(b.balance).toBe(50);
+  });
+});
+
+describe('صفحة المراجعة المبسطة', () => {
+  // Today 13/11. فارما: الشامي bill 16/9 unpaid (due 16/10), شكري bill 16/10 still running (due 16/11).
+  // المدينة: both branches bill 10/10 (due 13/11); شكري paid 600 against 100 → لينا 500.
+  const d = data({
+    lines: [
+      line({ day: '2026-09-20', branch: 'فرع الشامي', store: 'مخزن د معاذ', net: 3000 }),
+      line({ day: '2026-10-20', net: 500 }),
+      line({ day: '2026-10-15', supplier_code: '322', net: 100 }),
+      line({
+        day: '2026-10-15',
+        supplier_code: '322',
+        branch: 'فرع الشامي',
+        store: 'مخزن د معاذ',
+        net: 4000,
+      }),
+    ],
+    payments: [
+      {
+        id: 'p',
+        supplier_code: '322',
+        branch: 'فرع شكري',
+        amount: 600,
+        paid_on: '2026-11-05',
+        note: null,
+      },
+    ],
+  });
+  const balances = supplierBalances(d);
+
+  it('lists who to pay this week, one row per supplier, overdue first', () => {
+    const list = payList(balances, d.today);
+    expect(list.map((i) => [i.code, i.amount, i.overdue, i.due])).toEqual([
+      ['38', 3500, true, '2026-10-16'],
+      ['322', 4000, false, '2026-11-13'],
+    ]);
+    expect(list[0].running).toBe(true);
+    expect(list[0].branches.map((b) => b.branch).sort()).toEqual(['فرع الشامي', 'فرع شكري']);
+    // The other branch's credit is shown next to what is due.
+    expect(list[1].credits).toEqual([{ branch: 'فرع شكري', amount: 500 }]);
+  });
+
+  it('puts both branches of a supplier in one row', () => {
+    const rows = supplierRows(balances);
+    expect(rows.map((r) => [r.code, r.balance, r.branches.length])).toEqual([
+      ['322', 3500, 2],
+      ['38', 3500, 2],
+    ]);
+  });
+
+  it('asks about a credit and about an old bill with nothing paid on it', () => {
+    const issues = reviewIssues(balances, d.today);
+    expect(issues.map((i) => i.kind)).toEqual(['unpaid', 'credit']);
+    const [unpaid, credit] = issues;
+    if (unpaid.kind !== 'unpaid' || credit.kind !== 'credit') throw new Error('kinds');
+    expect(unpaid.bill.remaining).toBe(3000);
+    expect(unpaid.late).toBe(28);
+    expect(credit.balance.balance).toBe(-500);
+    expect(credit.otherBranchOwes).toBe(4000);
   });
 });

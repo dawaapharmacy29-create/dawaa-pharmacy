@@ -1,10 +1,11 @@
-import { Fragment, useState } from 'react';
+import { useState } from 'react';
 import { ChevronDown, Loader2, Trash2 } from 'lucide-react';
 import { Panel } from '@/components/dashboard/DashboardPrimitives';
-import type { PurchaseBranch } from '@/lib/purchaseReview/ePlusReport';
 import {
-  PURCHASE_BRANCHES,
+  normalizeName,
+  supplierRows,
   type BillState,
+  type SupplierRow,
   type SupplierBalance,
   type SupplierPayment,
 } from '@/lib/purchaseReview/ledger';
@@ -18,8 +19,8 @@ import {
 import InvoiceRow from './InvoiceRow';
 import { billingLabel, count, dayLabel, money, shortBranch } from './shared';
 
-// «علينا ولينا»: every supplier per branch with what is overdue, due this week, still running, and its
-// bills; a row opens the bills, the payments and the supplier's payment terms.
+// «الموردين»: one row per supplier (both branches together) with one status; a row opens each branch's
+// bills, payments and the supplier's payment terms.
 
 const STATE: Record<BillState, { label: string; tone: string }> = {
   open: { label: 'شغّال', tone: 'info' },
@@ -29,223 +30,165 @@ const STATE: Record<BillState, { label: string; tone: string }> = {
   paid: { label: 'اتدفع', tone: 'success' },
 };
 
-type Filter = 'all' | PurchaseBranch;
+type Filter = 'owed' | 'overdue' | 'credit' | 'all';
+const FILTERS: [Filter, string][] = [
+  ['owed', 'عليه فلوس'],
+  ['overdue', 'متأخر'],
+  ['credit', 'لينا عنده'],
+  ['all', 'الكل'],
+];
+
+function status(r: SupplierRow) {
+  if (r.balance < -0.5) return { tone: 'success', text: `لينا ${money(-r.balance)}` };
+  if (r.overdue > 0.5) return { tone: 'danger', text: `متأخر ${money(r.overdue)}` };
+  if (r.dueSoon > 0.5 && r.nextDue)
+    return { tone: 'warning', text: `يستحق ${dayLabel(r.nextDue)}` };
+  if (r.running > 0.5) return { tone: 'info', text: 'فواتير الشهر بتتجمع' };
+  if (r.balance > 0.5 && r.nextDue)
+    return { tone: 'neutral', text: `ميعاده ${dayLabel(r.nextDue)}` };
+  return { tone: 'neutral', text: 'خالص' };
+}
 
 export default function SupplierLedger({
   balances,
   payments,
   today,
   trackFrom,
+  query,
+  openCode,
+  onOpen,
   onChanged,
 }: {
   balances: SupplierBalance[];
   payments: SupplierPayment[];
   today: string;
   trackFrom: string | null;
+  query: string;
+  openCode: string | null;
+  onOpen: (code: string | null) => void;
   onChanged: () => Promise<void>;
 }) {
-  const [filter, setFilter] = useState<Filter>('all');
-  const [open, setOpen] = useState<string | null>(null);
-  const [onlyOwed, setOnlyOwed] = useState(true);
-  const shown = balances.filter(
-    (b) => (filter === 'all' || b.branch === filter) && (!onlyOwed || Math.abs(b.balance) > 0.5)
+  const [filter, setFilter] = useState<Filter>('owed');
+  const rows = supplierRows(balances);
+  const q = query.trim();
+  const key = q.length >= 2 ? normalizeName(q, false) : '';
+  const shown = rows.filter((r) =>
+    key
+      ? r.code === q || normalizeName(r.name, false).includes(key)
+      : r.code === openCode ||
+        (filter === 'all'
+          ? true
+          : filter === 'owed'
+            ? r.balance > 0.5
+            : filter === 'overdue'
+              ? r.overdue > 0.5
+              : r.balance < -0.5)
   );
-  const total = shown.reduce((s, b) => s + Math.max(0, b.balance), 0);
-  const credits = balances.filter((b) => b.balance < -0.5);
+  // Same total as «المطلوب دفعه»: each branch on its own, a credit in one does not cut the other.
+  const owed = balances.reduce((s, b) => s + Math.max(0, b.balance), 0);
 
   return (
     <Panel className="p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h2 className="dawaa-title text-lg">علينا ولينا لكل مورد</h2>
-          <p className="dawaa-caption text-xs font-bold">
-            علينا {money(total)} · الآجل بيتقفل على شهر كل مورد، والدفعات بتقفل أقدم فاتورة الأول
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {(['all', ...PURCHASE_BRANCHES] as Filter[]).map((f) => (
-            <button
-              key={f}
-              type="button"
-              className={`dawaa-tab text-xs ${filter === f ? 'is-active' : ''}`}
-              onClick={() => setFilter(f)}
-            >
-              {f === 'all' ? 'الفرعين' : shortBranch(f)}
-            </button>
-          ))}
-          <label className="inline-flex items-center gap-1 text-xs font-black">
-            <input
-              type="checkbox"
-              checked={onlyOwed}
-              onChange={(e) => setOnlyOwed(e.target.checked)}
-            />
-            اللي ليه رصيد بس
-          </label>
-        </div>
-      </div>
-      {credits.length ? (
-        <p
-          className="mb-2 rounded-lg px-2.5 py-1.5 text-xs font-bold"
-          style={{ background: 'var(--dawaa-status-info-bg)' }}
-        >
-          {count(credits.length)} مورد طالع لينا عندهم (
-          {credits
-            .slice(0, 4)
-            .map((b) => `${b.name} ${shortBranch(b.branch)}`)
-            .join('، ')}
-          {credits.length > 4 ? '…' : ''}). ده غالبًا يعني إن الدفعة كانت لفواتير قبل تاريخ
-          المتابعة: سجّل «رصيد أول المدة» للمورد، أو رجّع تاريخ المتابعة لورا.
+        <p className="text-sm font-black">
+          علينا للموردين {money(owed)}{' '}
+          <span className="dawaa-caption text-xs">· {count(shown.length)} مورد</span>
         </p>
-      ) : null}
-
-      <div className="hidden overflow-x-auto md:block">
-        <table className="dawaa-table w-full min-w-[760px] text-right text-sm">
-          <thead>
-            <tr>
-              <th>المورد</th>
-              <th>الفرع</th>
-              <th>شهره</th>
-              <th>متأخر</th>
-              <th>مستحق قريب</th>
-              <th>شغّال</th>
-              <th>الرصيد</th>
-              <th>الدفعة الجاية</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {shown.map((b) => {
-              const key = `${b.code}|${b.branch}`;
-              const isOpen = open === key;
-              return (
-                <Fragment key={key}>
-                  <tr
-                    className="cursor-pointer"
-                    onClick={() => setOpen(isOpen ? null : key)}
-                    style={
-                      b.overdue > 0.5 ? { background: 'var(--dawaa-status-danger-bg)' } : undefined
-                    }
-                  >
-                    <td className="font-black">{b.name}</td>
-                    <td>{shortBranch(b.branch)}</td>
-                    <td className="dawaa-caption text-xs font-bold">
-                      {billingLabel(b.terms?.month_start_day ?? 1)}
-                      {b.terms?.pay_after_days ? ` + ${count(b.terms.pay_after_days)} يوم` : ''}
-                    </td>
-                    <td className="font-black text-[var(--dawaa-status-danger-text)]">
-                      {b.overdue > 0.5 ? money(b.overdue) : '—'}
-                    </td>
-                    <td className="font-black text-[var(--dawaa-status-warning-text)]">
-                      {b.dueSoon > 0.5 ? money(b.dueSoon) : '—'}
-                    </td>
-                    <td>{b.running > 0.5 ? money(b.running) : '—'}</td>
-                    <td
-                      className="font-black"
-                      style={{
-                        color:
-                          b.balance < -0.5
-                            ? 'var(--dawaa-status-success-text)'
-                            : 'var(--dawaa-theme-heading)',
-                      }}
-                    >
-                      {b.balance < -0.5 ? `لينا ${money(-b.balance)}` : money(b.balance)}
-                    </td>
-                    <td className="text-xs font-bold">{b.nextDue ? dayLabel(b.nextDue) : '—'}</td>
-                    <td>
-                      <ChevronDown
-                        className={`h-4 w-4 transition-transform ${isOpen ? 'rotate-180' : ''}`}
-                      />
-                    </td>
-                  </tr>
-                  {isOpen ? (
-                    <tr>
-                      <td colSpan={9} style={{ background: 'var(--dawaa-theme-surface-raised)' }}>
-                        <SupplierDetails
-                          balance={b}
-                          payments={payments.filter(
-                            (p) => p.supplier_code === b.code && p.branch === b.branch
-                          )}
-                          today={today}
-                          trackFrom={trackFrom}
-                          onChanged={onChanged}
-                        />
-                      </td>
-                    </tr>
-                  ) : null}
-                </Fragment>
-              );
-            })}
-          </tbody>
-        </table>
+        {!key ? (
+          <div className="flex flex-wrap gap-1">
+            {FILTERS.map(([f, label]) => (
+              <button
+                key={f}
+                type="button"
+                className={`dawaa-tab text-xs ${filter === f ? 'is-active' : ''}`}
+                onClick={() => setFilter(f)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        ) : null}
       </div>
 
-      {/* Phones: one card per supplier, its details open under it. */}
-      <div className="space-y-2 md:hidden">
-        {shown.map((b) => {
-          const key = `${b.code}|${b.branch}`;
-          const isOpen = open === key;
+      <ul className="space-y-1.5">
+        {shown.map((r) => {
+          const isOpen = openCode === r.code;
+          const st = status(r);
           return (
-            <div key={key}>
+            <li key={r.code}>
               <button
                 type="button"
-                onClick={() => setOpen(isOpen ? null : key)}
-                className="dawaa-theme-border w-full rounded-xl border p-2.5 text-start text-xs font-bold"
+                onClick={() => onOpen(isOpen ? null : r.code)}
+                className="dawaa-theme-border flex w-full flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-start"
                 style={{
-                  background:
-                    b.overdue > 0.5
-                      ? 'var(--dawaa-status-danger-bg)'
-                      : 'var(--dawaa-theme-surface)',
+                  background: isOpen
+                    ? 'var(--dawaa-theme-surface-raised)'
+                    : 'var(--dawaa-theme-surface)',
                 }}
               >
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="min-w-0 truncate text-sm font-black">
-                    {b.name} <span className="dawaa-caption">· {shortBranch(b.branch)}</span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-black">{r.name}</span>
+                  <span className="dawaa-caption block text-[11px] font-bold">
+                    {r.branches
+                      .map(
+                        (b) =>
+                          `${shortBranch(b.branch)} ${b.balance < -0.5 ? `لينا ${money(-b.balance)}` : money(b.balance)}`
+                      )
+                      .join(' · ')}
                   </span>
-                  <span
-                    className="shrink-0 text-sm font-black tabular-nums"
-                    style={{
-                      color:
-                        b.balance < -0.5
-                          ? 'var(--dawaa-status-success-text)'
-                          : 'var(--dawaa-theme-heading)',
-                    }}
-                  >
-                    {b.balance < -0.5 ? `لينا ${money(-b.balance)}` : money(b.balance)}
+                </span>
+                <span className="flex shrink-0 items-center gap-2">
+                  <span className={`dawaa-badge dawaa-badge--${st.tone} text-[11px]`}>
+                    {st.text}
                   </span>
-                </div>
-                <p className="dawaa-caption mt-1">
-                  {b.overdue > 0.5 ? (
-                    <span className="text-[var(--dawaa-status-danger-text)]">
-                      متأخر {money(b.overdue)} ·{' '}
-                    </span>
-                  ) : null}
-                  {b.dueSoon > 0.5 ? `قريب ${money(b.dueSoon)} · ` : ''}
-                  {b.running > 0.5 ? `شغّال ${money(b.running)} · ` : ''}
-                  {billingLabel(b.terms?.month_start_day ?? 1)}
-                </p>
+                  <span className="w-24 text-end text-base font-black tabular-nums">
+                    {r.balance < -0.5 ? '—' : money(r.balance)}
+                  </span>
+                  <ChevronDown
+                    className={`h-4 w-4 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                  />
+                </span>
               </button>
               {isOpen ? (
-                <div
-                  className="mt-1 rounded-xl"
-                  style={{ background: 'var(--dawaa-theme-surface-raised)' }}
-                >
-                  <SupplierDetails
-                    balance={b}
-                    payments={payments.filter(
-                      (p) => p.supplier_code === b.code && p.branch === b.branch
-                    )}
-                    today={today}
-                    trackFrom={trackFrom}
-                    onChanged={onChanged}
-                  />
+                <div className="mt-1 space-y-2">
+                  {r.branches.map((b) => (
+                    <div
+                      key={b.branch}
+                      className="rounded-xl p-2"
+                      style={{ background: 'var(--dawaa-theme-surface-raised)' }}
+                    >
+                      <p className="px-2 pt-1 text-xs font-black">
+                        {b.branch}:{' '}
+                        {b.balance < -0.5
+                          ? `لينا ${money(-b.balance)}`
+                          : `علينا ${money(b.balance)}`}
+                        <span className="dawaa-caption">
+                          {' '}
+                          · شهره {billingLabel(b.terms?.month_start_day ?? 1)}
+                          {b.terms?.pay_after_days ? ` + ${count(b.terms.pay_after_days)} يوم` : ''}
+                        </span>
+                      </p>
+                      <SupplierDetails
+                        balance={b}
+                        payments={payments.filter(
+                          (p) => p.supplier_code === b.code && p.branch === b.branch
+                        )}
+                        today={today}
+                        trackFrom={trackFrom}
+                        onChanged={onChanged}
+                      />
+                    </div>
+                  ))}
                 </div>
               ) : null}
-            </div>
+            </li>
           );
         })}
-      </div>
+      </ul>
       {!shown.length ? (
-        <p className="dawaa-caption p-3 text-xs font-bold">مفيش موردين عليهم رصيد</p>
+        <p className="dawaa-caption p-3 text-xs font-bold">
+          {key ? 'مفيش مورد بالاسم ده' : 'مفيش موردين هنا'}
+        </p>
       ) : null}
     </Panel>
   );
