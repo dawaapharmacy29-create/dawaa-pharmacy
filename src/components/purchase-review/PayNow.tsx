@@ -25,7 +25,8 @@ export default function PayNow({
   onOpenSupplier: (code: string) => void;
 }) {
   const [showSmall, setShowSmall] = useState(false);
-  const need = items.reduce((s, i) => s + i.amount, 0);
+  const need = items.reduce((s, i) => s + i.urgent, 0);
+  const canWait = items.reduce((s, i) => s + i.amount - i.urgent, 0);
   const small = items.filter((i) => i.amount < SMALL);
   const shown = showSmall ? items : items.filter((i) => i.amount >= SMALL);
   const gap = treasury == null ? null : treasury - need;
@@ -38,7 +39,12 @@ export default function PayNow({
         </Big>
         <Big
           label={`مطلوب تدفعه لحد ${count(DUE_SOON_DAYS)} أيام`}
-          note={plan.overdue > 0.5 ? `منه ${money(plan.overdue)} متأخر` : 'مفيش متأخر'}
+          note={[
+            plan.overdue > 0.5 ? `منه ${money(plan.overdue)} متأخر` : 'مفيش متأخر',
+            canWait > 0.5 ? `و${money(canWait)} ميعاده مفتوح وممكن يستنى` : '',
+          ]
+            .filter(Boolean)
+            .join(' · ')}
           tone={plan.overdue > 0.5 ? 'danger' : 'warning'}
         >
           {money(need)}
@@ -93,10 +99,16 @@ export default function PayNow({
                     >
                       {i.overdue ? (
                         <>
-                          <AlertTriangle className="h-3 w-3" /> متأخر من {dayLabel(i.due)}
+                          <AlertTriangle className="h-3 w-3" /> متأخر من {dayLabel(i.last)}
                         </>
-                      ) : i.due === today ? (
-                        'النهارده'
+                      ) : i.due <= today ? (
+                        i.last === today ? (
+                          'آخر يوم النهارده'
+                        ) : (
+                          `لحد ${dayLabel(i.last)}`
+                        )
+                      ) : i.last !== i.due ? (
+                        `${weekdayLabel(i.due)} لـ ${dayLabel(i.last)}`
                       ) : (
                         weekdayLabel(i.due)
                       )}

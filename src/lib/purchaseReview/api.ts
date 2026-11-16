@@ -46,6 +46,7 @@ export async function loadPurchaseReview(from: string | null = null): Promise<Pu
       code: String(s.code),
       month_start_day: num(s.month_start_day) || 1,
       pay_after_days: num(s.pay_after_days),
+      pay_until_days: s.pay_until_days == null ? null : num(s.pay_until_days),
       excluded: Boolean(s.excluded),
     })),
     payments: (d.payments ?? []).map((p) => ({ ...p, amount: num(p.amount), source: 'manual' })),
@@ -112,13 +113,15 @@ export async function saveSupplierTerms(terms: {
   code: string;
   month_start_day: number;
   pay_after_days: number;
+  pay_until_days: number | null;
   excluded: boolean;
   note: string | null;
 }) {
-  const { error } = await supabase.rpc('save_purchase_supplier_terms_v1', {
+  const { error } = await supabase.rpc('save_purchase_supplier_terms_v2', {
     p_code: terms.code,
     p_month_start_day: terms.month_start_day,
     p_pay_after_days: terms.pay_after_days,
+    p_pay_until_days: terms.pay_until_days,
     p_excluded: terms.excluded,
     p_note: terms.note,
   });

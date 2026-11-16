@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { ChevronDown, Loader2, Trash2 } from 'lucide-react';
 import { Panel } from '@/components/dashboard/DashboardPrimitives';
 import {
+  addDays,
+  billOf,
   normalizeName,
   supplierRows,
   type BillState,
@@ -165,7 +167,7 @@ export default function SupplierLedger({
                         <span className="dawaa-caption">
                           {' '}
                           · شهره {billingLabel(b.terms?.month_start_day ?? 1)}
-                          {b.terms?.pay_after_days ? ` + ${count(b.terms.pay_after_days)} يوم` : ''}
+                          {b.terms ? ` · ${payWindowLabel(b.terms, today)}` : ''}
                         </span>
                       </p>
                       <SupplierDetails
@@ -270,7 +272,11 @@ function SupplierDetails({
                     ) : null}
                     <span className={`dawaa-badge dawaa-badge--${STATE[b.state].tone}`}>
                       {STATE[b.state].label}
-                      {b.state !== 'paid' && b.state !== 'open' ? ` ${dayLabel(b.due)}` : ''}
+                      {b.state === 'overdue'
+                        ? ` من ${dayLabel(b.last)}`
+                        : b.state !== 'paid' && b.state !== 'open'
+                          ? ` ${dayLabel(b.due)}${b.last !== b.due ? ` لـ ${dayLabel(b.last)}` : ''}`
+                          : ''}
                     </span>
                   </span>
                 </button>
@@ -306,7 +312,7 @@ function SupplierDetails({
           trackFrom={trackFrom}
           onChanged={onChanged}
         />
-        <TermsForm balance={balance} onChanged={onChanged} />
+        <TermsForm balance={balance} today={today} onChanged={onChanged} />
       </div>
     </div>
   );
@@ -463,14 +469,17 @@ function Payments({
 
 function TermsForm({
   balance,
+  today,
   onChanged,
 }: {
   balance: SupplierBalance;
+  today: string;
   onChanged: () => Promise<void>;
 }) {
   const t = balance.terms;
   const [start, setStart] = useState(String(t?.month_start_day ?? 1));
   const [after, setAfter] = useState(String(t?.pay_after_days ?? 0));
+  const [until, setUntil] = useState(t?.pay_until_days == null ? '' : String(t.pay_until_days));
   const [note, setNote] = useState(t?.note ?? '');
   const [excluded, setExcluded] = useState(Boolean(t?.excluded));
   const [busy, setBusy] = useState(false);
@@ -479,8 +488,17 @@ function TermsForm({
   const save = async () => {
     const s = Number(start);
     const a = Number(after);
-    if (!Number.isInteger(s) || s < 1 || s > 28 || !Number.isInteger(a) || a < 0 || a > 120) {
-      setMsg('يوم البداية من ١ لـ ٢٨، والمهلة من ٠ لـ ١٢٠ يوم');
+    const u = until.trim() === '' ? null : Number(until);
+    if (
+      !Number.isInteger(s) ||
+      s < 1 ||
+      s > 28 ||
+      !Number.isInteger(a) ||
+      a < 0 ||
+      a > 120 ||
+      (u != null && (!Number.isInteger(u) || u < a || u > 120))
+    ) {
+      setMsg('يوم البداية من ١ لـ ٢٨، والأيام من ٠ لـ ١٢٠، وآخر يوم مش قبل أول يوم');
       return;
     }
     setBusy(true);
@@ -489,6 +507,7 @@ function TermsForm({
         code: balance.code,
         month_start_day: s,
         pay_after_days: a,
+        pay_until_days: u != null && u > a ? u : null,
         excluded,
         note: note || null,
       });
@@ -520,7 +539,7 @@ function TermsForm({
           />
         </label>
         <label className="font-bold">
-          بيتدفع بعد قفل الشهر بـ (يوم)
+          أول يوم للدفع (بعد قفل الشهر بكام يوم)
           <input
             type="number"
             min={0}
@@ -530,6 +549,25 @@ function TermsForm({
             className="dawaa-theme-surface dawaa-theme-border mt-1 w-full rounded-lg border px-2 py-1.5 font-bold"
           />
         </label>
+        <label className="col-span-2 font-bold">
+          آخر يوم للدفع قبل ما يبقى متأخر (بعد قفل الشهر بكام يوم، فاضي = نفس اليوم)
+          <input
+            type="number"
+            min={0}
+            max={120}
+            value={until}
+            onChange={(e) => setUntil(e.target.value)}
+            className="dawaa-theme-surface dawaa-theme-border mt-1 w-full rounded-lg border px-2 py-1.5 font-bold"
+          />
+        </label>
+        <p className="dawaa-caption col-span-2 font-bold">
+          {payWindowExample(
+            Number(start),
+            Number(after),
+            until.trim() === '' ? null : Number(until),
+            today
+          )}
+        </p>
         <input
           placeholder="تفاصيل الدفع (مثلاً: نص أول الشهر ونص يوم ١٥)"
           value={note}
@@ -556,4 +594,29 @@ function TermsForm({
       {msg ? <p className="mt-1 font-bold">{msg}</p> : null}
     </div>
   );
+}
+
+/** The last closed bill for these terms, to show what the numbers mean on real dates. */
+function exampleBill(start: number, today: string) {
+  const current = billOf(today, Math.min(28, Math.max(1, start || 1)));
+  return billOf(addDays(current.from, -1), Math.min(28, Math.max(1, start || 1)));
+}
+
+function payWindowExample(start: number, after: number, until: number | null, today: string) {
+  if (!Number.isInteger(start) || !Number.isInteger(after)) return '';
+  const bill = exampleBill(start, today);
+  const from = addDays(bill.to, 1 + Math.max(0, after));
+  const last =
+    until != null && Number.isInteger(until) && until > after ? addDays(bill.to, 1 + until) : from;
+  return `مثال: مشتريات ${dayLabel(bill.from)} لـ ${dayLabel(bill.to)} بتتدفع ${
+    last === from ? `يوم ${dayLabel(from)}` : `من ${dayLabel(from)} لحد ${dayLabel(last)}`
+  }`;
+}
+
+function payWindowLabel(t: NonNullable<SupplierBalance['terms']>, today: string) {
+  const bill = exampleBill(t.month_start_day, today);
+  const from = addDays(bill.to, 1 + t.pay_after_days);
+  const last = addDays(bill.to, 1 + Math.max(t.pay_after_days, t.pay_until_days ?? 0));
+  const day = (iso: string) => count(Number(iso.slice(8)));
+  return last === from ? `بيتدفع يوم ${day(from)}` : `بيتدفع من ${day(from)} لـ ${day(last)}`;
 }
