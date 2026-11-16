@@ -8,7 +8,7 @@ import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 import { summarizeFulfillment, type FulfillmentResult } from './requestFulfillment';
 import { hourlyTargets, cairoHourKey, type HourlyInvoice, type HourlyOutput } from './hourlyTarget';
 import { personCompliance, type ComplianceResult, type ViolationCategory } from './complianceFactor';
-import { EARNED_RULES, attendanceCounts, earnedDoctorAxes, earnedIncentive, type EarnedIncentive } from './earnedIncentive';
+import { EARNED_RULES, attendanceCounts, doctorTargetsFor, earnedDoctorAxes, earnedIncentive, type EarnedIncentive } from './earnedIncentive';
 import { completeRequestCounts, type GroupRequest } from './groupRequests';
 import { branchStars, type BranchStar, type StarInput } from './branchStar';
 import {
@@ -567,12 +567,21 @@ function earnedAxesFor(
     const projectedFollowups = followups ? (followups.get(id) || 0) / (share || 1) : 0;
     const followupShare = workedDays && branchDoctorDays ? (targetOf(branch) * workedDays) / branchDoctorDays : 0;
     const completeRequests = completeOf.get(id) || 0;
+    // Average invoice against the branch's fixed target, on the same invoices and coding gate as the monthly item.
+    const avgTarget = doctorTargetsFor(branch)?.avgInvoice;
+    const own = evidence.invoices.filter((inv) => inv.staffId === id && inv.net > 0);
+    const minInvoices = Math.max(10, Math.round(LAB_THRESHOLDS.minInvoicesForCoding * Math.min(1, share || 1)));
+    const coding = own.length ? own.filter((inv) => inv.coded).length / own.length : 1;
+    const avgInvoicePct = avgTarget && own.length >= minInvoices
+      ? (own.reduce((s, inv) => s + inv.net, 0) / own.length / avgTarget) * 100 * (coding < EARNED_RULES.codingFloor ? 0.5 : 1)
+      : null;
     starInputs.set(id, {
       staffId: id,
       name: evidence.staff.find((p) => p.id === id)?.name || '',
       branch,
       followupPct: followups && followupShare ? (projectedFollowups / followupShare) * 100 : null,
       requestsPct: ((completeRequests / (share || 1)) / EARNED_RULES.completeRequestsTarget) * 100,
+      avgInvoicePct,
       followups: projectedFollowups,
       workedDays,
       absentDays: attendanceCounts(evidence.attendance.filter((day) => day.staffId === id)).absent,

@@ -8,6 +8,7 @@ const doctor = (over: Partial<StarInput> & { staffId: string }): StarInput => ({
   salesPct: 100,
   followupPct: 100,
   requestsPct: 100,
+  avgInvoicePct: 100,
   followups: 300,
   workedDays: 22,
   absentDays: 0,
@@ -16,11 +17,13 @@ const doctor = (over: Partial<StarInput> & { staffId: string }): StarInput => ({
 });
 
 describe('branch star', () => {
-  it('weighs sales 50, follow-ups 35, requests 15, capped at 150, and moves a missing part to the rest', () => {
-    expect(starPoints({ salesPct: 100, followupPct: 100, requestsPct: 100 }).points).toBe(100);
-    expect(starPoints({ salesPct: 300, followupPct: 0, requestsPct: 0 }).points).toBe(75);
-    expect(starPoints({ salesPct: null, followupPct: 120, requestsPct: 60 }).points).toBe(102);
-    expect(starPoints({ salesPct: null, followupPct: null, requestsPct: null }).points).toBeNull();
+  it('weighs sales 40, follow-ups 30, requests 15, average invoice 15, capped at 150, and moves a missing part to the rest', () => {
+    expect(starPoints({ salesPct: 100, followupPct: 100, requestsPct: 100, avgInvoicePct: 100 }).points).toBe(100);
+    expect(starPoints({ salesPct: 300, followupPct: 0, requestsPct: 0, avgInvoicePct: 0 }).points).toBe(60);
+    expect(starPoints({ salesPct: 100, followupPct: 100, requestsPct: 100, avgInvoicePct: 200 }).points).toBe(107.5);
+    expect(starPoints({ salesPct: null, followupPct: 120, requestsPct: 60, avgInvoicePct: null }).points).toBe(100);
+    expect(starPoints({ salesPct: null, followupPct: null, requestsPct: null, avgInvoicePct: null }).points).toBeNull();
+    expect(starPoints({ salesPct: 122.7, followupPct: 179, requestsPct: 290, avgInvoicePct: 104.8 }).parts).toEqual({ sales: 122.7, followups: 150, requests: 150, avgInvoice: 104.8 });
   });
 
   it('ranks each branch on its own, with the gap to its leader', () => {
@@ -33,7 +36,7 @@ describe('branch star', () => {
       1
     );
     expect(stars.get('a')).toMatchObject({ rank: 1, of: 2, gap: 0 });
-    expect(stars.get('b')).toMatchObject({ rank: 2, of: 2, gap: 14 });
+    expect(stars.get('b')).toMatchObject({ rank: 2, of: 2, gap: 12 });
     expect(stars.get('c')).toMatchObject({ rank: 1, of: 1, leader: { name: 'c' } });
   });
 

@@ -1,8 +1,9 @@
 // نجم الفرع (owner decision 2026-11-14): one doctor per branch wins 1000 EGP a month.
 // Who may win (gates): no unexcused absence, fewer than 3 violations, enough working days, and the monthly
 // score passed the 60 line (so conversations and the rest still matter).
-// Points: own sales against his hours' target 50%, follow-ups against his share of the branch target 35%,
-// complete customer requests against 20 a month 15%. Each part is a percentage capped at 150, so going past
+// Points (owner 2026-11-16): own sales against his hours' target 40%, follow-ups against his share of the branch
+// target 30%, complete customer requests against 20 a month 15%, average invoice against the branch's target 15%
+// (halved under 95% customer coding, like the monthly item). Each part is a percentage capped at 150, so going past
 // the target still counts. A part that cannot be measured gives its weight to the others.
 // Ties: fewer violations, then more follow-ups. Pure: no I/O.
 
@@ -13,7 +14,7 @@ export const STAR_RULES = {
   minWorkedDays: 20,
   minScore: 60,
   cap: 150,
-  weights: { sales: 50, followups: 35, requests: 15 },
+  weights: { sales: 40, followups: 30, requests: 15, avgInvoice: 15 },
 } as const;
 
 export interface StarInput {
@@ -26,6 +27,7 @@ export interface StarInput {
   salesPct: number | null;
   followupPct: number | null;
   requestsPct: number | null;
+  avgInvoicePct: number | null;
   /** Projected follow-ups, for the tie-break. */
   followups: number;
   workedDays: number;
@@ -35,7 +37,7 @@ export interface StarInput {
 
 export interface BranchStar {
   points: number | null;
-  parts: { sales: number | null; followups: number | null; requests: number | null };
+  parts: { sales: number | null; followups: number | null; requests: number | null; avgInvoice: number | null };
   eligible: boolean;
   /** Why the doctor cannot win yet, in Arabic. */
   blockers: string[];
@@ -49,9 +51,9 @@ export interface BranchStar {
 
 const round1 = (value: number) => Math.round(value * 10) / 10;
 
-export function starPoints(input: Pick<StarInput, 'salesPct' | 'followupPct' | 'requestsPct'>) {
+export function starPoints(input: Pick<StarInput, 'salesPct' | 'followupPct' | 'requestsPct'> & { avgInvoicePct?: number | null }) {
   const cap = (value: number | null) => (value === null ? null : Math.max(0, Math.min(STAR_RULES.cap, value)));
-  const parts = { sales: cap(input.salesPct), followups: cap(input.followupPct), requests: cap(input.requestsPct) };
+  const parts = { sales: cap(input.salesPct), followups: cap(input.followupPct), requests: cap(input.requestsPct), avgInvoice: cap(input.avgInvoicePct ?? null) };
   const weighted = (Object.keys(parts) as Array<keyof typeof parts>)
     .filter((key) => parts[key] !== null)
     .map((key) => ({ value: parts[key] as number, weight: STAR_RULES.weights[key] }));
