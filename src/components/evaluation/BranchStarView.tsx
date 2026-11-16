@@ -32,12 +32,13 @@ export function StarRace({ star, own = false, compact = false }: { star: BranchS
         <p className="flex items-center gap-1.5 text-sm font-black"><Star size={16} className="text-amber-400" /> نجم الفرع · {ar(STAR_PRIZE)} ج</p>
         <span className="text-sm font-black">{headline}</span>
       </div>
-      <div className="mt-2 grid grid-cols-4 gap-2 text-center text-[11px] font-bold">
+      <div className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-5 text-center text-[11px] font-bold">
         {([
           ['النقاط', star.points === null ? '—' : ar(star.points)],
-          ['المبيعات (٥٠٪)', pct(star.parts.sales)],
-          ['المتابعات (٣٥٪)', pct(star.parts.followups)],
+          ['المبيعات (٤٠٪)', pct(star.parts.sales)],
+          ['المتابعات (٣٠٪)', pct(star.parts.followups)],
           ['الطلبات (١٥٪)', pct(star.parts.requests)],
+          ['متوسط الفاتورة (١٥٪)', pct(star.parts.avgInvoice ?? null)],
         ] as const).map(([label, value]) => (
           <div key={label} className="dawaa-surface-soft rounded-xl p-2">
             <div className="dawaa-caption">{label}</div>
@@ -52,7 +53,7 @@ export function StarRace({ star, own = false, compact = false }: { star: BranchS
           ? `الأول دلوقتي ${star.leader.name} بـ ${ar(star.leader.points)} نقطة · الفرق ${ar(star.gap ?? 0)} نقطة. `
           : ''}
         {star.blockers.length ? `عشان ${own ? 'تدخل' : 'يدخل'} السباق: ${star.blockers.join(' · ')}. ` : ''}
-        النقاط = مبيعاتك من تارجت ساعاتك ٥٠٪ + متابعاتك من نصيبك ٣٥٪ + الطلبات الكاملة من ٢٠ ×١٥٪، وكل بند لحد {ar(STAR_RULES.cap)}٪.
+        النقاط = مبيعاتك من تارجت ساعاتك ٤٠٪ + متابعاتك من نصيبك ٣٠٪ + الطلبات الكاملة من ٢٠ ×١٥٪ + متوسط فاتورتك من تارجت الفرع ×١٥٪، وكل بند لحد {ar(STAR_RULES.cap)}٪.
         شروط الدخول: مفيش غياب من غير إذن، أقل من ٣ مخالفات، أيام شغل كفاية، وتقييم الشهر {ar(STAR_RULES.minScore)}+.
       </p>}
     </div>

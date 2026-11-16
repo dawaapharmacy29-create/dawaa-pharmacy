@@ -150,6 +150,9 @@ describe('buildCycleScores v6.9', () => {
     expect(m1.star!.parts.followups).toBeCloseTo(120, 5);
     const d1 = scores.find((p) => p.staffId === 'd1')!;
     expect(d1.star!.parts.followups).toBe(150);
+    // Average invoice against the branch target (390 of 390); the manager sold nothing here, so the part moves to the rest.
+    expect(d1.star!.parts.avgInvoice).toBeCloseTo(100, 5);
+    expect(m1.star!.parts.avgInvoice).toBeNull();
     // The doctors' own follow-up item still shares the target among the doctors only.
     expect(scores.find((p) => p.staffId === 'd2')!.axes.find((a) => a.key === 'followup_requests')?.score).toBe(20);
   });
