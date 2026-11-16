@@ -1,6 +1,8 @@
 // Reads the ePlus «فواتير الشراء» report (Excel export) of one store: a header line per invoice
 // (ملاحظات … مسلسل), its item lines, then a «الإجمالى» line. Sections «آجل» and «نقدى» split credit
 // invoices from the ones paid cash; the report's own «صافى الفواتير» total is kept to check the sum.
+// The same report grouped by supplier (one line per invoice under «<المورد> موردين», no codes) is read
+// too: its invoices carry the supplier's name only, and the page fills the codes in from the names.
 
 export type PurchaseBranch = 'فرع شكري' | 'فرع الشامي';
 
@@ -30,6 +32,8 @@ export interface ParsedReport {
   reportNet: number | null;
   firstDay: string;
   lastDay: string;
+  /** Grouped by supplier: the invoices have names but no supplier codes yet. */
+  needsCodes?: boolean;
 }
 
 type Cell = string | number | null | undefined;
@@ -66,8 +70,11 @@ const SECTIONS: Record<string, 'credit' | 'cash'> = { آجل: 'credit', نقدى
 
 export class ReportError extends Error {}
 
+const isGroupedHeader = (row: Cell[]) => text(row[0]) === 'المستخدم' && text(row[9]) === 'مسلسل';
+
 export function parseEPlusPurchases(rows: Cell[][]): ParsedReport {
   const title = text(rows[0]?.[0]);
+  if (rows.some(isGroupedHeader)) return parseBySupplier(rows, title);
   const store = text(rows[1]?.[0]) || title.match(/المخزن\s+([^,]+)/)?.[1]?.trim() || '';
   if (!/فواتير|الإسترجاع/.test(title) && !rows.some(isInvoiceHeader))
     throw new ReportError('الملف ده مش تقرير فواتير شراء من ePlus');
@@ -130,4 +137,85 @@ export function parseEPlusPurchases(rows: Cell[][]): ParsedReport {
     firstDay: days[0],
     lastDay: days[days.length - 1],
   };
+}
+
+/** «فواتير الشراء» grouped by supplier: «<المورد> | موردين», «<المخزن> | آجل/نقدى», then a line per
+ * invoice (المستخدم, الصافى, ض.إضافة, مصاريف, خصم %, خصم قيمة, ق.المرتجع, ق.الفاتورة, العدد, مسلسل,
+ * التاريخ) and the supplier's totals; the last «الإجمالى النهائى» line has the report's net. */
+function parseBySupplier(rows: Cell[][], title: string): ParsedReport {
+  const store = title.match(/المخزن\s+([^,]+)/)?.[1]?.trim() ?? '';
+  const branch = branchOfStore(store);
+  if (!branch) throw new ReportError(`المخزن «${store || '؟'}» مش معروف تبع أنهي فرع`);
+
+  const invoices: ParsedInvoice[] = [];
+  let supplier = '';
+  let section: 'credit' | 'cash' = 'credit';
+  let reportNet: number | null = null;
+  for (const row of rows.slice(1)) {
+    const filled = row.filter((cell) => text(cell)).length;
+    if (filled === 2 && text(row[1]) === 'موردين') {
+      supplier = text(row[0]);
+      continue;
+    }
+    if (filled === 2 && SECTIONS[text(row[1])]) {
+      section = SECTIONS[text(row[1])];
+      continue;
+    }
+    if (text(row[9]) === 'الإجمالى النهائى') {
+      reportNet = reportNumber(row[8]);
+      continue;
+    }
+    const at = reportDate(row[10]);
+    const serial = text(row[9]);
+    if (!at || !serial || !supplier) continue;
+    invoices.push({
+      serial,
+      payment: section,
+      invoice_at: at,
+      supplier_code: '',
+      supplier_name: supplier,
+      supplier_invoice_no: null,
+      items: reportNumber(row[8]),
+      gross: reportNumber(row[7]),
+      discount: reportNumber(row[5]),
+      expenses: reportNumber(row[3]),
+      tax: reportNumber(row[2]),
+      net: reportNumber(row[1]),
+      entered_by: text(row[0]) || null,
+      note: null,
+    });
+  }
+  if (!invoices.length) throw new ReportError('مفيش فواتير في الملف');
+  const days = invoices.map((inv) => inv.invoice_at.slice(0, 10)).sort();
+  return {
+    store,
+    branch,
+    invoices,
+    reportNet,
+    firstDay: days[0],
+    lastDay: days[days.length - 1],
+    needsCodes: true,
+  };
+}
+
+/** Fills the supplier codes of a report grouped by supplier from the names we know (same name after
+ * normalizing). A name we never saw keeps itself as its code, so it still shows up as a supplier. */
+export function fillSupplierCodes(
+  report: ParsedReport,
+  known: { code: string; name: string }[],
+  normalize: (name: string) => string
+): { report: ParsedReport; unknown: string[] } {
+  if (!report.needsCodes) return { report, unknown: [] };
+  const byName = new Map<string, string | null>();
+  for (const s of known) {
+    const key = normalize(s.name);
+    byName.set(key, byName.has(key) && byName.get(key) !== s.code ? null : s.code);
+  }
+  const unknown = new Set<string>();
+  const invoices = report.invoices.map((inv) => {
+    const code = byName.get(normalize(inv.supplier_name));
+    if (!code) unknown.add(inv.supplier_name);
+    return { ...inv, supplier_code: code ?? inv.supplier_name };
+  });
+  return { report: { ...report, invoices, needsCodes: false }, unknown: [...unknown] };
 }
