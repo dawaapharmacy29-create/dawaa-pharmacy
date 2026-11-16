@@ -9,7 +9,7 @@ import Layout from '@/components/layout/Layout';
 import PWABanner from '@/components/features/PWABanner';
 import { isDoctorRole, isManagerRole } from '@/lib/security/userDataScope';
 import AppRecoveryScreen from '@/components/system/AppRecoveryScreen';
-import { diagnosticsUrl, logRuntimeError, loginRecoveryUrl } from '@/lib/appRecovery';
+import { diagnosticsUrl, logRuntimeError, loginRecoveryUrl, recoverFromStaleChunkOnce } from '@/lib/appRecovery';
 import PageSafetyBoundary from '@/components/system/PageSafetyBoundary';
 import AppHealthBanner from '@/components/system/AppHealthBanner';
 import DeploymentWatcher from '@/components/system/DeploymentWatcher';
@@ -300,23 +300,17 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryS
   componentDidCatch(error: Error, info: unknown) {
     console.error('App error boundary caught error:', error, info);
     logRuntimeError('App error boundary caught error', error);
-    // بعد نشر جديد على Vercel، أي تاب قديم فاتح ممكن يحاول يحمّل ملف JS بمسار
-    // قديم اتشال فعليًا. الحل هو تحديث الصفحة مرة واحدة تلقائيًا وصامت (مش
-    // شاشة خطأ مخيفة) عشان يجيب index.html الجديد اللي بيشاور على الملفات الصح.
+    // بعد نشر جديد على Vercel، الملف ممكن يرجع 404 لحظة التبديل، والـ 404 ده بيتخزن في كاش
+    // المتصفح سنة (هيدر immutable على /assets). recoverFromStaleChunkOnce بيطلب الملفات اللي
+    // فشلت من غير كاش وبعدين يحدّث الصفحة مرة واحدة. لو فشلت تاني في نفس الدقيقة تظهر شاشة
+    // الاسترجاع بدل ما الدايرة تفضل تلف على طول.
     if (isStaleChunkError(error)) {
       this.setState({ recovering: true });
-      const key = 'dawaa_stale_chunk_reload_at';
-      const last = Number(sessionStorage.getItem(key) || 0);
-      if (Date.now() - last > 15000) {
-        sessionStorage.setItem(key, String(Date.now()));
-        window.location.href =
-          window.location.pathname +
-          window.location.search +
-          (window.location.search ? '&' : '?') +
-          '_r=' +
-          Date.now() +
-          window.location.hash;
-      }
+      void recoverFromStaleChunkOnce('app', error)
+        .then((attempted) => {
+          if (!attempted) this.setState({ recovering: false });
+        })
+        .catch(() => this.setState({ recovering: false }));
     }
   }
   render() {

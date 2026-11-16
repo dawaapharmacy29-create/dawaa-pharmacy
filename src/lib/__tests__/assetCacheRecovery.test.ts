@@ -153,3 +153,48 @@ describe('appRecovery: refreshFailedAssetCache', () => {
     expect(storage.has('dawaa_failed_assets')).toBe(false);
   });
 });
+
+describe('the app-wide error boundary after a deploy', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  it('refreshes the cached 404 before reloading, and gives up instead of spinning on a second failure', async () => {
+    const fetches: Array<[string, RequestInit]> = [];
+    const replaced: string[] = [];
+    const storage = new Map<string, string>();
+    vi.stubGlobal('window', {
+      location: { origin: ORIGIN, href: `${ORIGIN}/`, replace: (url: string) => replaced.push(url) },
+      sessionStorage: {
+        getItem: (key: string) => storage.get(key) ?? null,
+        setItem: (key: string, value: string) => storage.set(key, value),
+        removeItem: (key: string) => storage.delete(key),
+      },
+      performance: { getEntriesByType: () => [{ name: `${ORIGIN}/assets/permissionMatrix-X.js`, responseStatus: 404 }] },
+      fetch: async (url: string, init: RequestInit) => {
+        fetches.push([url, init]);
+        return { ok: true };
+      },
+    });
+    vi.stubGlobal('navigator', {});
+    const { recoverFromStaleChunkOnce } = await import('../appRecovery');
+    const error = new TypeError(`Failed to fetch dynamically imported module: ${ORIGIN}/assets/LayoutRuntime-Y.js`);
+
+    expect(await recoverFromStaleChunkOnce('app', error)).toBe(true);
+    expect(fetches.map(([url]) => url).sort()).toEqual([`${ORIGIN}/assets/LayoutRuntime-Y.js`, `${ORIGIN}/assets/permissionMatrix-X.js`]);
+    expect(fetches.every(([, init]) => init.cache === 'reload')).toBe(true);
+    expect(replaced).toHaveLength(1);
+
+    expect(await recoverFromStaleChunkOnce('app', error)).toBe(false);
+    expect(replaced).toHaveLength(1);
+  });
+
+  it('is what App.tsx uses, so a failure there does not plain-reload the cached 404', () => {
+    const source = fs.readFileSync(path.join(process.cwd(), 'src/App.tsx'), 'utf8');
+    const boundary = source.slice(source.indexOf('class AppErrorBoundary'), source.indexOf('render()', source.indexOf('class AppErrorBoundary')));
+    expect(boundary).toContain("recoverFromStaleChunkOnce('app', error)");
+    expect(boundary).toContain('recovering: false');
+    expect(boundary).not.toContain('window.location.href');
+  });
+});
