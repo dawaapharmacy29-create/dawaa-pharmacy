@@ -223,8 +223,8 @@ function Issue({
             <span className="text-[var(--dawaa-status-danger-text)]">
               {money(i.bill.remaining)}
             </span>{' '}
-            ميعادها كان {dayLabel(i.bill.due)} (من {count(i.late)} يوم) ومفيش ولا دفعة ليها في
-            التقارير المجمعة.
+            آخر ميعاد ليها كان {dayLabel(i.bill.last)} (من {count(i.late)} يوم) ومفيش ولا دفعة ليها
+            في التقارير المجمعة.
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
             <button

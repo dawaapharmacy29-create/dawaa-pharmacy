@@ -4,7 +4,8 @@ import type { PurchaseBranch } from './ePlusReport';
 //
 // - A credit (آجل) invoice is owed to its supplier. Each supplier bills a month that starts on its own
 //   day (month_start_day): invoices from that day up to the day before it next month form one bill, due
-//   pay_after_days after the bill closes (0 = the day the next bill starts).
+//   pay_after_days after the bill closes (0 = the day the next bill starts). It can be paid up to
+//   pay_until_days after (a window, e.g. the 10th to the 20th); only after that day is it late.
 // - Payments (and old balances, entered as negative payments) settle a supplier's bills oldest first,
 //   per branch.
 // - Cash (نقدى) invoices were paid from the drawer when bought; excluded suppliers are transfers between
@@ -29,6 +30,8 @@ export interface SupplierTerms {
   name: string;
   month_start_day: number;
   pay_after_days: number;
+  /** Last day to pay, counted like pay_after_days; null = the same day. */
+  pay_until_days?: number | null;
   excluded: boolean;
   note: string | null;
 }
@@ -236,7 +239,10 @@ export interface SupplierBill {
   branch: PurchaseBranch;
   from: string;
   to: string;
+  /** The window to pay it opens… */
   due: string;
+  /** …and closes: after this day it is late. */
+  last: string;
   amount: number;
   paid: number;
   remaining: number;
@@ -300,10 +306,11 @@ export function supplierBalances(data: PurchaseReviewData): SupplierBalance[] {
     const t = terms.get(line.supplier_code);
     const bill = billOf(line.day, t?.month_start_day ?? 1);
     const due = addDays(bill.to, 1 + (t?.pay_after_days ?? 0));
+    const last = addDays(bill.to, 1 + Math.max(t?.pay_after_days ?? 0, t?.pay_until_days ?? 0));
     const a = get(line.supplier_code, line.branch);
-    // Bills due before the tracking day count as settled.
-    if (due < since) {
-      if (!a.lastSettledDue || due > a.lastSettledDue) a.lastSettledDue = due;
+    // Bills whose last day to pay came before the tracking day count as settled.
+    if (last < since) {
+      if (!a.lastSettledDue || last > a.lastSettledDue) a.lastSettledDue = last;
       continue;
     }
     let b = a.bills.get(bill.from);
@@ -314,6 +321,7 @@ export function supplierBalances(data: PurchaseReviewData): SupplierBalance[] {
         from: bill.from,
         to: bill.to,
         due,
+        last,
         amount: 0,
         paid: 0,
         remaining: 0,
@@ -357,7 +365,7 @@ export function supplierBalances(data: PurchaseReviewData): SupplierBalance[] {
       b.state =
         b.remaining <= 0.5
           ? 'paid'
-          : b.due < data.today
+          : b.last < data.today
             ? 'overdue'
             : daysBetween(data.today, b.due) <= DUE_SOON_DAYS
               ? 'due_soon'
@@ -532,7 +540,7 @@ export function cashPlan(balances: SupplierBalance[], today: string): CashPlan {
         name: s.name,
         branch: s.branch,
         amount: b.remaining,
-        overdue: b.due < today,
+        overdue: b.last < today,
         running: today <= b.to,
       });
     }
@@ -556,9 +564,14 @@ export interface PayItem {
   name: string;
   /** Overdue plus what falls due within DUE_SOON_DAYS, both branches together. */
   amount: number;
+  /** The part that must be paid within DUE_SOON_DAYS (late, or its last day comes this week); the rest
+   * can be paid now but may wait. */
+  urgent: number;
   overdue: boolean;
-  /** The earliest due date among those bills. */
+  /** The earliest due date among those bills… */
   due: string;
+  /** …and the earliest last day to pay. */
+  last: string;
   branches: { branch: PurchaseBranch; amount: number }[];
   /** One of the bills is still collecting invoices (closes on `runningTo`). */
   running: boolean;
@@ -581,8 +594,10 @@ export function payList(balances: SupplierBalance[], today: string): PayItem[] {
             code: s.code,
             name: s.name,
             amount: 0,
+            urgent: 0,
             overdue: false,
             due: b.due,
+            last: b.last,
             branches: [],
             running: false,
             runningTo: null,
@@ -592,8 +607,11 @@ export function payList(balances: SupplierBalance[], today: string): PayItem[] {
           })
         );
       i.amount += b.remaining;
+      if (b.state === 'overdue' || daysBetween(today, b.last) <= DUE_SOON_DAYS)
+        i.urgent += b.remaining;
       i.overdue ||= b.state === 'overdue';
       if (b.due < i.due) i.due = b.due;
+      if (b.last < i.last) i.last = b.last;
       if (today <= b.to) {
         i.running = true;
         i.runningTo = b.to;
@@ -606,7 +624,9 @@ export function payList(balances: SupplierBalance[], today: string): PayItem[] {
   return [...out.values()].sort(
     (a, b) =>
       Number(b.overdue) - Number(a.overdue) ||
-      (a.overdue ? b.amount - a.amount : a.due.localeCompare(b.due) || b.amount - a.amount)
+      (a.overdue
+        ? b.amount - a.amount
+        : a.last.localeCompare(b.last) || a.due.localeCompare(b.due) || b.amount - a.amount)
   );
 }
 
@@ -665,7 +685,7 @@ export type ReviewIssue =
       key: string;
       balance: SupplierBalance;
       bill: SupplierBill;
-      /** Days since it fell due. */
+      /** Days since its last day to pay. */
       late: number;
     };
 
@@ -685,7 +705,7 @@ export function reviewIssues(balances: SupplierBalance[], today: string): Review
       });
     }
     for (const bill of b.bills) {
-      const late = daysBetween(bill.due, today);
+      const late = daysBetween(bill.last, today);
       if (bill.state === 'overdue' && bill.paid <= 0.5 && bill.remaining > 1000 && late > 7)
         out.push({
           kind: 'unpaid',

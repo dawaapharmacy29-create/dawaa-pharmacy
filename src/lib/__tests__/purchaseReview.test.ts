@@ -677,3 +677,59 @@ describe('صفحة المراجعة المبسطة', () => {
     expect(credit.otherBranchOwes).toBe(4000);
   });
 });
+
+describe('فترة الدفع (من يوم لحد يوم)', () => {
+  const pharma = (today: string) =>
+    supplierBalances(
+      data({
+        today,
+        suppliers: [
+          {
+            code: '38',
+            name: 'فارما اوفر سيز',
+            month_start_day: 16,
+            pay_after_days: 15,
+            pay_until_days: 68,
+            excluded: false,
+            note: null,
+          },
+        ],
+        lines: [line({ day: '2026-10-20', net: 1000 })],
+      })
+    )[0].bills[0];
+
+  it('opens on the first day and is late only after the last one', () => {
+    expect(pharma('2026-11-20')).toMatchObject({
+      due: '2026-12-01',
+      last: '2027-01-23',
+      state: 'waiting',
+    });
+    expect(pharma('2026-11-25').state).toBe('due_soon');
+    expect(pharma('2027-01-10').state).toBe('due_soon');
+    expect(pharma('2027-01-23').state).toBe('due_soon');
+    expect(pharma('2027-01-24').state).toBe('overdue');
+  });
+
+  it('lists it to pay with its last day, and counts lateness from that day', () => {
+    const b = supplierBalances(
+      data({
+        today: '2026-12-05',
+        suppliers: [
+          {
+            code: '38',
+            name: 'فارما اوفر سيز',
+            month_start_day: 16,
+            pay_after_days: 15,
+            pay_until_days: 68,
+            excluded: false,
+            note: null,
+          },
+        ],
+        lines: [line({ day: '2026-10-20', net: 1000 })],
+      })
+    );
+    const [item] = payList(b, '2026-12-05');
+    expect(item).toMatchObject({ due: '2026-12-01', last: '2027-01-23', overdue: false });
+    expect(reviewIssues(b, '2026-12-05')).toEqual([]);
+  });
+});
