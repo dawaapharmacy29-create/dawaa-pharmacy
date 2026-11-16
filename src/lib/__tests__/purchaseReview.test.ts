@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   branchOfStore,
+  fillSupplierCodes,
   parseEPlusPurchases,
   reportDate,
   reportNumber,
@@ -11,6 +12,7 @@ import {
   cashPlan,
   monthRange,
   monthSummary,
+  normalizeName,
   payList,
   reviewIssues,
   supplierRows,
@@ -766,5 +768,101 @@ describe('مورد بيتدفع حسب الكاش (فترة طويلة)', () => 
     );
     expect(b.balance).toBe(0);
     expect(b.bills.map((x) => [x.from, x.state])).toEqual([['2026-10-01', 'paid']]);
+  });
+});
+
+describe('تقرير الشراء مجمّع بالمورد', () => {
+  const H = [
+    'المستخدم',
+    'الصافى',
+    'ض.إضافة',
+    'مصاريف',
+    'خصم %',
+    'خصم قيمة',
+    'ق.المرتجع',
+    'ق.الفاتورة',
+    'العدد',
+    'مسلسل',
+    'التاريخ',
+  ];
+  const rows = [
+    ['تم الإسترجاع حسب: تاريخ الإنشاء , المخزن الادارة فرع شكري , النوع << الكل >> , موردين'],
+    ['ابن سينا', 'موردين'],
+    ['الادارة فرع شكري', 'آجل'],
+    H,
+    [
+      'د عمر',
+      '109.830',
+      '0.00',
+      '0.00',
+      '0.00',
+      '10.570',
+      '0.000',
+      '120.400',
+      '1',
+      '21488 ',
+      '13/11/2026  22:40: ',
+    ],
+    ['109.830', '0.00', '0.00', '10.570', '0.000', '120.400', 'آجل', 'إجمـــالى:'],
+    ['امتنان', 'موردين'],
+    ['الادارة فرع شكري', 'نقدى'],
+    H,
+    [
+      'د اميرة',
+      '770.080',
+      '0.00',
+      '0.00',
+      '0.00',
+      '9.000',
+      '0.000',
+      '779.080',
+      '3',
+      '21506 ',
+      '14/11/2026  16:01: ',
+    ],
+    [
+      '879.910',
+      '0.00',
+      '0.00',
+      '19.570',
+      '0.000',
+      '899.480',
+      '2',
+      'الإجمالى :',
+      '879.91',
+      'الإجمالى النهائى',
+    ],
+  ];
+
+  it('reads one invoice per line under its supplier and section, then fills codes from the names', () => {
+    const report = parseEPlusPurchases(rows);
+    expect(report).toMatchObject({
+      store: 'الادارة فرع شكري',
+      branch: 'فرع شكري',
+      reportNet: 879.91,
+      needsCodes: true,
+    });
+    expect(
+      report.invoices.map((i) => [
+        i.serial,
+        i.payment,
+        i.invoice_at,
+        i.supplier_name,
+        i.net,
+        i.discount,
+        i.gross,
+        i.items,
+      ])
+    ).toEqual([
+      ['21488', 'credit', '2026-11-13T22:40:00', 'ابن سينا', 109.83, 10.57, 120.4, 1],
+      ['21506', 'cash', '2026-11-14T16:01:00', 'امتنان', 770.08, 9, 779.08, 3],
+    ]);
+    const { report: filled, unknown } = fillSupplierCodes(
+      report,
+      [{ code: '29', name: 'ابن سينا' }],
+      (n) => normalizeName(n, false)
+    );
+    expect(filled.invoices.map((i) => i.supplier_code)).toEqual(['29', 'امتنان']);
+    expect(unknown).toEqual(['امتنان']);
   });
 });

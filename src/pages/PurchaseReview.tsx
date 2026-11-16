@@ -9,9 +9,11 @@ import SupplierLedger from '@/components/purchase-review/SupplierLedger';
 import { count, dayLabel, money, shortBranch } from '@/components/purchase-review/shared';
 import { loadAccountantReport } from '@/lib/accountantReport';
 import { importPurchaseReport, loadPurchaseReview, readEPlusFile } from '@/lib/purchaseReview/api';
+import { fillSupplierCodes } from '@/lib/purchaseReview/ePlusReport';
 import {
   allPayments,
   cashPlan,
+  normalizeName,
   payList,
   reviewIssues,
   supplierBalances,
@@ -96,7 +98,12 @@ export default function PurchaseReview() {
     const log: UploadLine[] = [];
     for (const file of Array.from(files)) {
       try {
-        const report = await readEPlusFile(file);
+        // A report grouped by supplier has names only: take the codes from the suppliers we know.
+        const { report, unknown } = fillSupplierCodes(
+          await readEPlusFile(file),
+          data?.suppliers ?? [],
+          (name) => normalizeName(name, false)
+        );
         const result = await importPurchaseReport(report, file.name);
         const sum = report.invoices.reduce((s, i) => s + i.net, 0);
         const off =
@@ -105,7 +112,7 @@ export default function PurchaseReview() {
         log.push({
           file: file.name,
           ok: true,
-          text: `${report.store} (${shortBranch(report.branch)}): ${count(result.invoices)} فاتورة لحد ${dayLabel(result.last_day)}${off ? ` · ⚠️ إجمالي التقرير ${money(report.reportNet ?? 0)}` : ''}`,
+          text: `${report.store} (${shortBranch(report.branch)}): ${count(result.invoices)} فاتورة لحد ${dayLabel(result.last_day)}${off ? ` · ⚠️ إجمالي التقرير ${money(report.reportNet ?? 0)}` : ''}${unknown.length ? ` · مورد جديد من غير كود: ${unknown.join('، ')}` : ''}`,
         });
       } catch (err) {
         log.push({
