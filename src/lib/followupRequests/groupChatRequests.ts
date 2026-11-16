@@ -9,7 +9,13 @@ export interface GroupChatMessage {
   verdict: RequestVerdict;
 }
 
+// U+061C stays in the text: dropping it would change the fingerprints of requests already saved.
 const INVISIBLE = /[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+/** Phones set to Arabic write the dates, times, codes and phone numbers in \u0660-\u0669 (or \u06f0-\u06f9). */
+const ARABIC_DIGITS = /[\u0660-\u0669\u06f0-\u06f9]/g;
+const toLatinDigit = (digit: string) => String(digit.charCodeAt(0) & 0xf);
+/** Arabic exports put \u00ab\u060c\u00bb after the date: \u00ab\u0668/\u0663/\u0662\u0660\u0662\u0666\u060c \u0661\u0669:\u0660\u0666\u00bb. */
+const DATE_COMMA = /(\d)\u060c/g;
 const SPACES = /[\u00a0\u202f]/g;
 const IOS_HEADER = /^\[(\d{1,4})[/.-](\d{1,2})[/.-](\d{1,4}),?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AaPp][Mm]|ص|م)?\]\s*(.*)$/;
 const ANDROID_HEADER = /^(\d{1,4})[/.-](\d{1,2})[/.-](\d{1,4}),?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AaPp][Mm]|ص|م)?\s+-\s+(.*)$/;
@@ -94,7 +100,7 @@ export function parseGroupChat(content: string): GroupChatMessage[] {
   const raw: RawMessage[] = [];
   let current: RawMessage | null = null;
   for (const original of content.split(/\r?\n/)) {
-    const line = original.replace(INVISIBLE, '').replace(SPACES, ' ');
+    const line = original.replace(INVISIBLE, '').replace(SPACES, ' ').replace(ARABIC_DIGITS, toLatinDigit).replace(DATE_COMMA, '$1,');
     const match = IOS_HEADER.exec(line) || ANDROID_HEADER.exec(line);
     if (match) {
       current = {

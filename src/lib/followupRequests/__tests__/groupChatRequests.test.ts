@@ -32,6 +32,11 @@ describe('parseGroupChat', () => {
   it('reads day-first files when a day is above 12', () => {
     expect(parseGroupChat('[25/10/26, 9:00:00 AM] Dr A: نتابع')[0].sentAtLocal).toBe('2026-10-25T09:00:00');
   });
+  it('reads an export written in Arabic digits', () => {
+    const chat = '٢٦‏/١‏/٢٠٢٦، ١٢:٣٨ - ‏نظام: أنشأ مجموعة\n٢٨‏/١٠‏/٢٠٢٦، ١٩:٠٦ - Dr Donia: <تم حذف الصورة> ١٠٢٤٠ نتطمن عليها';
+    const [message] = parseGroupChat(chat).slice(-1);
+    expect(message).toMatchObject({ sender: 'Dr Donia', sentAtLocal: '2026-10-28T19:06:00', body: '10240 نتطمن عليها', verdict: 'request' });
+  });
   it('reads the Android export format', () => {
     expect(parseGroupChat('11/8/26, 9:05 PM - Dr A: <Media omitted> نتابع')[0]).toMatchObject({ verdict: 'request', sentAtLocal: '2026-11-08T21:05:00' });
   });
