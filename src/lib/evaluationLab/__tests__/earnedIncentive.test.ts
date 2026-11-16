@@ -157,3 +157,29 @@ describe('buildCycleScores v6.9', () => {
     expect(scores.find((p) => p.staffId === 'd2')!.axes.find((a) => a.key === 'followup_requests')?.score).toBe(20);
   });
 });
+
+describe('owner exceptions scored with the doctors', () => {
+  it('an assistant on the exception list is scored as a doctor and races for the star', () => {
+    const huda = 'd40cb3d7-9548-46eb-b001-2754ab692e97';
+    const dates = Array.from({ length: 20 }, (_, i) => `2026-11-${String(i + 1).padStart(2, '0')}`);
+    const evidence: LabEvidence = {
+      staff: [{ id: huda, name: 'د هدي', role: 'مساعد صيدلي', branch: 'فرع الشامي' }, { id: 'a1', name: 'مساعد', role: 'مساعد صيدلي', branch: 'فرع الشامي' }],
+      invoices: dates.flatMap((date) => Array.from({ length: 21 }, () => ({ staffId: huda, net: 285, date, coded: true, branch: 'فرع الشامي', deliveryStaffId: null }))),
+      reviews: [],
+      attendance: dates.map((date) => ({ staffId: huda, date, status: 'on_time', approved: true, hasFirstIn: true, scheduled: true, lateMinutes: 0 })),
+      requests: [],
+      purchases: [],
+      targets: [{ branch: 'فرع الشامي', targetAmount: 20 * 21 * 285 }],
+      dormantSources: [],
+      cycle: { start: '2026-10-26', endExclusive: '2026-11-26' },
+      followupRequests: [{ staffId: huda, requests: 300 }],
+      violations: [],
+    };
+    const scores = buildCycleScores(evidence, 'v7.0');
+    const person = scores.find((p) => p.staffId === huda)!;
+    expect(person.family).toBe('doctor');
+    expect(person.axes.find((a) => a.key === 'avg_invoice_target')?.status).toBe('measured');
+    expect(person.star).toBeDefined();
+    expect(scores.find((p) => p.staffId === 'a1')?.family).toBe('assistant');
+  });
+});

@@ -342,6 +342,15 @@ const V70: Record<LabFamily, LabAxisDefinition[]> = {
 export const LAB_AXES_BY_VERSION: Record<LabVersion, Record<LabFamily, LabAxisDefinition[]>> = { 'v6.0': V60, 'v6.1': V61, 'v6.2': V62, 'v6.3': V63, 'v6.4': V64, 'v6.5': V65, 'v6.6': V66, 'v6.7': V67, 'v6.8': V68, 'v6.9': V69, 'v7.0': V70 };
 export const LAB_AXES = LAB_AXES_BY_VERSION[LAB_CURRENT_VERSION];
 
+/**
+ * Assistants the owner evaluates with the doctors (2026-11-16), keeping their assistant account and menu:
+ * د هدي and محمد عمر (فرع الشامي). The competition's list (get_competition_doctor_accounts_v1) carries the same ids.
+ */
+export const EVALUATED_AS_DOCTOR_IDS: ReadonlySet<string> = new Set([
+  'd40cb3d7-9548-46eb-b001-2754ab692e97', // د هدي
+  '819cd80a-4105-41c6-899f-d4def52c9510', // محمد عمر
+]);
+
 export function labFamilyOf(role: CanonicalStaffRole): LabFamily | null {
   if (role === 'doctor' || role === 'assistant' || role === 'delivery' || role === 'branch_manager' || role === 'branches_manager') return role;
   return null;

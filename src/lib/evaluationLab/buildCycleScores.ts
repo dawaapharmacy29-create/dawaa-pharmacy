@@ -2,7 +2,7 @@ import { normalizeBranchName } from '@/lib/branch';
 import { inventoryAccuracy, type InventoryItemEvidence, type InventorySessionEvidence } from './inventoryAccuracy';
 import {
   ABSENCE_WITH_DEDUCTION, INVALID_REQUEST_STATUS, LAB_CURRENT_VERSION, LAB_VERSION_ORDER, LAB_THRESHOLDS, MISSING_PUNCH, NON_PUNCTUALITY_ATTENDANCE,
-  PENDING_DECISION, PUNCTUALITY_BANDS, UNRESOLVED_ATTENDANCE, labFamilyOf, type LabFamily, type LabVersion,
+  PENDING_DECISION, PUNCTUALITY_BANDS, UNRESOLVED_ATTENDANCE, EVALUATED_AS_DOCTOR_IDS, labFamilyOf, type LabFamily, type LabVersion,
 } from './catalog';
 import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 import { summarizeFulfillment, type FulfillmentResult } from './requestFulfillment';
@@ -616,13 +616,18 @@ function earnedAxesFor(
   return out;
 }
 
+/** The person's family in the lab; the owner's exceptions are scored as doctors whatever their account role. */
+function familyOfPerson(person: { id: string; role: string | null }): LabFamily | null {
+  return EVALUATED_AS_DOCTOR_IDS.has(person.id) ? 'doctor' : labFamilyOf(canonicalStaffRole(person.role));
+}
+
 export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LAB_CURRENT_VERSION): LabPersonScore[] {
   const facts = factsFor(evidence, version);
   const shape = shapeOf(version);
   const minResolved = minResolvedDaysFor(evidence.cycleShare ?? 1);
   const people = evidence.staff
     .filter((person) => person.active !== false)
-    .map((person) => ({ ...person, family: labFamilyOf(canonicalStaffRole(person.role)) }))
+    .map((person) => ({ ...person, family: familyOfPerson(person) }))
     .filter((person): person is typeof person & { family: LabFamily } => person.family !== null);
   const familyMembers = (family: LabFamily) => people.filter((p) => p.family === family).map((p) => ({ id: p.id, branch: p.branch, f: facts.get(p.id)! }));
   const axes = new Map<string, AxisDraft[]>();
@@ -632,7 +637,7 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
 
   // Doctors.
   const doctors = familyMembers('doctor');
-  const doctorPool = evidence.staff.filter((person) => labFamilyOf(canonicalStaffRole(person.role)) === 'doctor');
+  const doctorPool = evidence.staff.filter((person) => familyOfPerson(person) === 'doctor');
   fairShareAxis('sales_per_day', doctors, evidence, (inv) => inv.staffId, (inv) => inv.net,
     (own, expected, days, share) => `باع ${egp(own)} من نصيب متوقع ${egp(expected)} ج في ${days} يوم عمل (×${round(share, 2)})`, doctorPool)
     .forEach((axis, id) => push(id, axis));
