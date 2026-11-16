@@ -288,7 +288,8 @@ export function supplierBalances(data: PurchaseReviewData): SupplierBalance[] {
     bills: Map<string, SupplierBill>;
     paid: number;
     treasury: number;
-    lastSettledDue?: string;
+    /** Pre-tracking payments after this day pay the bills we track (they are advances). */
+    advanceFrom?: string;
   };
   const acc = new Map<string, Acc>();
   const keyOf = (code: string, branch: string) => `${code}|${branch}`;
@@ -310,7 +311,13 @@ export function supplierBalances(data: PurchaseReviewData): SupplierBalance[] {
     const a = get(line.supplier_code, line.branch);
     // Bills whose last day to pay came before the tracking day count as settled.
     if (last < since) {
-      if (!a.lastSettledDue || last > a.lastSettledDue) a.lastSettledDue = last;
+      // A long window (pay when there is cash) ends late; a payment two weeks into it is already the
+      // next bill's money, so count from whichever comes first.
+      const from = addDays(
+        last < addDays(due, ADVANCE_AFTER_DAYS) ? last : due,
+        ADVANCE_AFTER_DAYS
+      );
+      if (!a.advanceFrom || from > a.advanceFrom) a.advanceFrom = from;
       continue;
     }
     let b = a.bills.get(bill.from);
@@ -336,15 +343,11 @@ export function supplierBalances(data: PurchaseReviewData): SupplierBalance[] {
   }
   // Old balances (negative) always count; payments from the tracking day on, and the ones paid in
   // advance: more than ADVANCE_AFTER_DAYS after the last bill settled before the tracking day fell due
-  // (earlier ones are that bill paid late), so they pay the next one.
+  // (or its window opened; earlier ones are that bill paid late), so they pay the next one.
   for (const p of allPayments(data)) {
     if (isExcluded(p.supplier_code, terms)) continue;
     const a = get(p.supplier_code, p.branch);
-    if (
-      p.amount > 0 &&
-      p.paid_on < since &&
-      !(a.lastSettledDue && p.paid_on > addDays(a.lastSettledDue, ADVANCE_AFTER_DAYS))
-    )
+    if (p.amount > 0 && p.paid_on < since && !(a.advanceFrom && p.paid_on > a.advanceFrom))
       continue;
     a.paid += p.amount;
     if (p.source === 'treasury') a.treasury += p.amount;
