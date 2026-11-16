@@ -266,6 +266,7 @@ export default function WhatsAppSmartFolderWatcher() {
   const actorName = String(user?.name || user?.username || user?.id || 'system');
   const handleRef = useRef<any>(null);
   const scanningRef = useRef(false);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
   const [connected, setConnected] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [runs, setRuns] = useState<FileRun[]>([]);
@@ -717,6 +718,54 @@ export default function WhatsAppSmartFolderWatcher() {
     return () => window.clearInterval(timer);
   }, [connected, scanOnce]);
 
+  async function importFiles(files: File[]) {
+    if (!files.length || scanningRef.current) return;
+    if (files.length > 10) {
+      toast.error('اختر حتى 10 ملفات في المرة الواحدة');
+      return;
+    }
+    if (files.some((file) => !/\.(txt|zip)$/i.test(file.name))) {
+      toast.error('اختر ملف تصدير واتساب TXT أو ZIP');
+      return;
+    }
+    scanningRef.current = true;
+    setScanning(true);
+    try {
+      for (const file of files) {
+        let stage: WhatsAppFilePipelineStage = 'parsed';
+        let result: FileRun;
+        try {
+          // Reuse the folder's canonical pipeline and durable hash/correction guards.
+          // A standalone filename supplies no folder/branch provenance.
+          result = await analyzeFile(file, 'ingest', null, (next) => { stage = next; });
+        } catch (error) {
+          result = {
+            fileName: file.name, at: new Date().toLocaleString('ar-EG'),
+            messages: 0, sessions: 0, cases: 0, staffRuns: [],
+            errors: [`${STAGE_LABELS[stage]}: ${describeWhatsAppIngestError(error)}`],
+          };
+        }
+        setRuns((current) => [result, ...current].slice(0, 30));
+        try {
+          await saveLocalWhatsAppAnalysisHistory<FileRun>(
+            `upload:${file.name}:${file.size}:${file.lastModified}`, file.name, result
+          );
+        } catch {
+          toast.warning('تعذر حفظ سجل العرض على الجهاز؛ راجع نتيجة الحفظ في التطبيق أدناه');
+        }
+        if (result.processing && shouldMarkWhatsAppFileProcessed(result.processing)) {
+          toast.success(`اكتمل المسار الرسمي: ${file.name} — ${result.cases} حالة؛ المصادر الموجودة لا تتكرر`);
+          if (result.processing.warnings.length) toast.warning(result.processing.warnings[0]);
+        } else {
+          toast.error(`${file.name}: الاستيراد غير مكتمل — ${result.errors[0] || 'راجع التفاصيل وأعد اختيار الملف للمحاولة'}`);
+        }
+      }
+    } finally {
+      scanningRef.current = false;
+      setScanning(false);
+    }
+  }
+
   async function reanalyzeExisting() {
     // Real reanalysis: the same durable sources are kept (no duplicates), their derived analysis is
     // rebuilt with the current engines (audited as analysis_reanalyzed), then V22 and the single
@@ -853,6 +902,20 @@ export default function WhatsAppSmartFolderWatcher() {
             <h1 className="mt-1 text-xl font-black text-white md:text-2xl">مركز مراجعة محادثات واتساب</h1>
             <p className="mt-1 text-xs text-slate-400">الملفات تتحلل تلقائيًا، وافتح فقط الحالات التي تحتاج قرارًا أو اعتمادًا.</p>
           </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              ref={uploadInputRef} type="file" accept=".txt,.zip" multiple
+              aria-label="ملفات تصدير واتساب" className="hidden" disabled={scanning}
+              onChange={(event) => {
+                const files = Array.from(event.currentTarget.files || []);
+                event.currentTarget.value = '';
+                void importFiles(files);
+              }}
+            />
+            <button type="button" disabled={scanning} onClick={() => uploadInputRef.current?.click()}
+              className="rounded-xl bg-cyan-500 px-4 py-2.5 text-sm font-black text-slate-950 disabled:opacity-50">
+              <span className="inline-flex items-center gap-2">{scanning ? <Loader2 size={16} className="animate-spin" /> : <FileText size={16} />} رفع ملف محادثة</span>
+            </button>
           {!supportsLocalWhatsAppInbox() ? (
             <div className="rounded-xl border border-amber-700/50 bg-amber-950/20 px-3 py-2 text-xs text-amber-100">استخدم Chrome أو Edge لربط فولدر محلي.</div>
           ) : !connected ? (
@@ -869,7 +932,10 @@ export default function WhatsAppSmartFolderWatcher() {
               </button>
             </div>
           )}
+          </div>
         </div>
+
+        <p className="px-4 py-2 text-xs text-slate-400">ارفع حتى 10 ملفات TXT أو ZIP. يُحفظ التحليل والتقييم المقترح في المسار الرسمي مع منع تكرار المصادر؛ الاعتماد البشري منفصل. عند فشل الاستيراد أعد اختيار الملف للمحاولة.</p>
 
         <div className="border-t border-slate-800 p-3"><WhatsAppStoredSourcesRefresh /></div>
         <div className="border-t border-slate-800 p-3"><WhatsAppStaffIdentityReview /></div>

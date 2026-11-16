@@ -37,6 +37,15 @@ Orchestrator: `src/lib/whatsappWatcherCaseGraphSync.ts`
 (`runCanonicalWhatsAppFilePipeline`, `deriveWhatsAppFileProcessingState`). Used by both the
 Smart Folder (`WhatsAppSmartFolderWatcher.tsx`) and automatic ingest (`whatsappAutoIngestPipeline.ts`).
 
+The Smart Folder page also accepts up to ten standalone `.txt` / `.zip` exports through
+«رفع ملف محادثة». The picker calls the same `analyzeFile(..., 'ingest', null)` path,
+shares the folder scan lock, and never invents folder/branch provenance. Durable source
+hashes and the retired-hash correction registry govern deduplication, not the filename
+or the device's display history. A failed file remains visible and can be selected again;
+success is shown only after the canonical processing-state gate passes. Local history
+failure is a separate warning and never masks the database result. Human approvals and
+financial points remain separate. The experimental analyzer is not an import route.
+
 Side projections — never block V22 or Sales Intelligence; failures are visible warnings:
 
 | Projection | Where | Failure behaviour |
