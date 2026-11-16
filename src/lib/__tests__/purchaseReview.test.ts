@@ -733,3 +733,38 @@ describe('فترة الدفع (من يوم لحد يوم)', () => {
     expect(reviewIssues(b, '2026-12-05')).toEqual([]);
   });
 });
+
+describe('مورد بيتدفع حسب الكاش (فترة طويلة)', () => {
+  it('a payment two weeks after the old bill opened pays the next one, even inside its long window', () => {
+    const [b] = supplierBalances(
+      data({
+        today: '2026-11-16',
+        track_from: '2026-11-01',
+        suppliers: [
+          {
+            code: '38',
+            name: 'ايفا',
+            month_start_day: 1,
+            pay_after_days: 0,
+            pay_until_days: 30,
+            excluded: false,
+            note: null,
+          },
+        ],
+        lines: [line({ day: '2026-09-13', net: 300 }), line({ day: '2026-10-04', net: 700 })],
+        payments: [
+          {
+            id: '1',
+            supplier_code: '38',
+            branch: 'فرع شكري',
+            amount: 700,
+            paid_on: '2026-10-21',
+            note: null,
+          },
+        ],
+      })
+    );
+    expect(b.balance).toBe(0);
+    expect(b.bills.map((x) => [x.from, x.state])).toEqual([['2026-10-01', 'paid']]);
+  });
+});
