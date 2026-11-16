@@ -221,18 +221,45 @@ export const MANAGEMENT_GROUPS: NavGroup[] = [
   { title: 'للمراجعة', icon: ClipboardList, items: managerItems('/review-pages') },
 ];
 
+// The other roles open on the few pages their day runs on; whatever else they are allowed to open stays one click
+// away under "كل الصفحات" (hidden, not deleted). Assistants and Team Dawaa Alpha have their own sidebar.
+const ROLE_GROUPS: Record<string, NavGroup[]> = {
+  customer_service: [
+    { title: 'يومي', icon: HeadphonesIcon, items: managerItems('/customer-service', '/customer-requests', '/customer-coding', '/customers') },
+    { title: 'واتساب', icon: MessageCircle, items: managerItems('/reviews', '/quick-replies') },
+    { title: 'حسابي', icon: UserCheck, items: managerItems('/my-attendance', '/points') },
+  ],
+  customer_service_manager: [
+    { title: 'يومي', icon: HeadphonesIcon, items: managerItems('/customer-service', '/customer-requests', '/customers', '/operations-center') },
+    { title: 'واتساب والتقييم', icon: MessageCircle, items: managerItems('/whatsapp-smart-folder-watcher', '/reviews', '/staff-monthly-evaluation') },
+    { title: 'الفريق', icon: Users, items: managerItems('/schedule', '/attendance-report', '/points') },
+  ],
+  procurement_manager: [
+    { title: 'المشتريات', icon: FileSpreadsheet, items: managerItems('/purchases', '/supplier-accounts', '/purchase-order-log', '/purchase-returns') },
+    { title: 'المخزون', icon: Store, items: managerItems('/shortages', '/stagnant-medicines', '/medicine-expiry', '/inventory-counts') },
+  ],
+  inventory_assistant: [
+    { title: 'المخزون', icon: Store, items: managerItems('/shortages', '/inventory-counts', '/medicine-expiry', '/shelf-organization') },
+    { title: 'المشتريات', icon: FileSpreadsheet, items: managerItems('/purchases', '/purchase-returns') },
+    { title: 'حسابي', icon: UserCheck, items: managerItems('/my-attendance') },
+  ],
+  delivery: [{ title: 'يومي', icon: ClipboardList, items: managerItems('/pharmacy-zone-tasks', '/my-attendance', '/operations-center') }],
+  cleaning_supervisor: [{ title: 'يومي', icon: ClipboardList, items: managerItems('/my-daily-checklist', '/my-attendance', '/operations-center') }],
+};
+
 const MANAGEMENT_ROLES = ['general_manager', 'executive_manager', 'branches_manager'];
 
-// The menu a role opens on, and the pages kept behind "كل الصفحات". Only top management has the second list.
+// The menu a role opens on, and the pages kept behind "كل الصفحات".
 export function menuGroupsFor(role: string, pharmacistView: boolean): { main: NavGroup[]; more: NavGroup[]; short: boolean } {
   if (pharmacistView) return { main: PHARMACIST_GROUPS, more: [], short: true };
   if (role === 'branch_manager') return { main: BRANCH_MANAGER_GROUPS, more: [], short: true };
-  if (!MANAGEMENT_ROLES.includes(role)) return { main: GROUPS, more: [], short: false };
-  const inMain = new Set(MANAGEMENT_GROUPS.flatMap((group) => group.items.map((item) => item.path)));
+  const main = MANAGEMENT_ROLES.includes(role) ? MANAGEMENT_GROUPS : ROLE_GROUPS[role];
+  if (!main) return { main: GROUPS, more: [], short: false };
+  const inMain = new Set(main.flatMap((group) => group.items.map((item) => item.path)));
   const more = GROUPS
     .map((group) => ({ ...group, items: group.items.filter((item) => !inMain.has(item.path)) }))
     .filter((group) => group.items.length);
-  return { main: MANAGEMENT_GROUPS, more, short: true };
+  return { main, more, short: true };
 }
 
 function basePath(path: string) { return path.split('?')[0]; }

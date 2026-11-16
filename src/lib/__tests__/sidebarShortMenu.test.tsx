@@ -87,4 +87,21 @@ describe('the sidebar each role really gets', () => {
     expect(menu('team_dawaa_alpha')).toContain('مساحة المساعد التشغيلية');
     vi.unstubAllGlobals();
   });
+  it('opens customer service, purchasing, inventory, delivery and cleaning on short menus too', () => {
+    const cases: [string, string][] = [
+      ['customer_service', 'مركز خدمة العملاء'],
+      ['customer_service_manager', 'تقييم الدكاترة من خدمة العملاء'],
+      ['procurement_manager', 'حسابات الموردين'],
+      ['inventory_assistant', 'النواقص'],
+      ['delivery', 'الرص والجرد اليومي'],
+      ['cleaning_supervisor', 'مهامي اليومية'],
+    ];
+    for (const [role, label] of cases) {
+      const html = menu(role);
+      const main = html.split('كل الصفحات')[0];
+      expect(html, role).toContain('كل الصفحات');
+      expect(main, role).toContain(label);
+      expect(main, role).not.toContain('الرئيسية والإدارة');
+    }
+  });
 });
