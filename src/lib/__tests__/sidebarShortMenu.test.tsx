@@ -54,10 +54,19 @@ describe('the sidebar each role really gets', () => {
 
   it('opens top management on a short menu, with the rest one click away', () => {
     const html = menu('branches_manager');
-    expect(html).toContain('النقاط والأداء');
+    expect(html).toContain('التقييم والمسابقة');
     expect(html).toContain('دليل الموظفين');
     expect(html).toContain('كل الصفحات');
     expect(html).not.toContain('إعدادات الموارد البشرية');
+  });
+
+  it('puts the evaluation, the competition and the invoices import in the management menu', () => {
+    const permissions = Object.fromEntries(['manage_evaluation_rules', 'view_doctor_dashboard', 'view_branch_comparison', 'view_invoices'].map((key) => [key, true]));
+    const html = menu('general_manager', permissions);
+    const main = html.split('كل الصفحات')[0];
+    for (const label of ['التقييم والمسابقة', 'التقييم الشهري (المختبر)', 'أداء ومنافسة الدكاترة', 'مقارنة أداء الفروع', 'استيراد فواتير المبيعات']) {
+      expect(main).toContain(label);
+    }
   });
 
   it('shows the review pages to the general manager and to nobody else', () => {

@@ -77,7 +77,7 @@ export const GROUPS: NavGroup[] = [
 
   { title: 'الأداء والتقييمات', icon: ClipboardCheck, items: [
     { path: '/employee-kpi', icon: BarChart3, label: 'مؤشرات الموظفين', excludeRoles: ['branch_manager'] },
-    { path: '/evaluation-lab', icon: ClipboardCheck, label: 'مختبر التقييم v6 (تجريبي)', permission: 'manage_evaluation_rules' },
+    { path: '/evaluation-lab', icon: ClipboardCheck, label: 'التقييم الشهري (المختبر)', permission: 'manage_evaluation_rules' },
     { path: '/performance-pillars', icon: BarChart3, label: 'مؤشر الأداء الشامل', excludeRoles: ['customer_service_manager', 'branch_manager'] },
     { path: '/doctor-quality-summary', icon: Star, label: 'ملخص أداء الدكاترة', excludeRoles: ['pharmacist', 'customer_service_manager'] },
     { path: '/shift-performance', icon: ClipboardList, label: 'تقييم أداء الشيفتات', permission: 'view_shift_performance', excludeRoles: ['customer_service_manager'] },
@@ -209,10 +209,14 @@ export const BRANCH_MANAGER_GROUPS: NavGroup[] = [
 // away under "كل الصفحات".
 export const MANAGEMENT_GROUPS: NavGroup[] = [
   { title: 'اليوم', icon: LayoutDashboard, items: managerItems('/', DR_WAEL_FINGERPRINTS_PATH, DR_WAEL_SHOKRY_REPORTS_PATH, '/daily-command') },
+  // The monthly evaluation, the doctors' competition (where the follow-ups group file is uploaded) and the branch
+  // comparison are the pages the boards are made from, so they sit together near the top with points and
+  // penalties. Appeals, shift performance and the pillars index are under "كل الصفحات" (hidden, not deleted).
+  { title: 'التقييم والمسابقة', icon: ClipboardCheck, items: managerItems('/evaluation-lab', '/doctor-competition', '/branch-comparison', '/points', '/penalty-incentive') },
   { title: 'الفريق', icon: Users, items: managerItems('/team', '/schedule', '/attendance-report', '/time-off', '/staff-payroll') },
-  { title: 'النقاط والأداء', icon: Star, items: managerItems('/points', '/point-appeals', '/penalty-incentive', '/shift-performance', '/performance-pillars') },
   { title: 'العملاء', icon: HeadphonesIcon, items: managerItems('/customer-service', '/customers', '/reviews', '/customer-requests') },
-  { title: 'المبيعات', icon: BarChart3, items: managerItems('/analytics', '/branch-comparison', '/reports', '/consolidated-reports') },
+  // The sales invoices file is uploaded every day, so its page is one click away.
+  { title: 'المبيعات', icon: BarChart3, items: managerItems('/invoices', '/analytics', '/reports', '/consolidated-reports') },
   { title: 'المشتريات والمخزون', icon: Store, items: managerItems('/purchase-review', '/purchases', '/shortages', '/inventory-counts') },
   { title: 'للمراجعة', icon: ClipboardList, items: managerItems('/review-pages') },
 ];
