@@ -333,7 +333,7 @@ export default function ConsolidatedReports({
           </button>
           <a
             className="treasury-button"
-            href="https://dawaabill.base44.app/accountant"
+            href="https://dawaabill.lovable.app/accountant"
             target="_blank"
             rel="noopener noreferrer"
           >
@@ -981,7 +981,7 @@ export default function ConsolidatedReports({
               <a
                 className="treasury-button"
                 href={
-                  'https://dawaabill.base44.app/accountant/' +
+                  'https://dawaabill.lovable.app/accountant/' +
                   encodeURIComponent(detail.vault_code) +
                   '?movement=' +
                   encodeURIComponent(detail.id)

@@ -4,23 +4,44 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 // مزامنة تشغيل دواء بيلز للمراجعة اليومية: دفتر «تسوية التحصيلات» (CollectionSettlementBatch) كامل،
 // وحركات المناديب (Trip / TripStop) اللي اتغيرت مؤخرًا → bills_*.
 // تعمل كل 15 دقيقة عن طريق pg_cron + pg_net. {"full": true} بيجيب كل الحركات مرة واحدة.
+// دواء بيلز اتنقل من بيز٤٤ لـ Lovable يوم 14/11/2026: بتقرا من صفحة القراءة بس اللي فيه بمفتاح
+// dawaabills_export_key (زي مزامنة الخزن). SOURCE = 'base44' بيرجّع القراءة من بيز٤٤.
+const SOURCE: 'lovable' | 'base44' = 'lovable';
+const LOVABLE_EXPORT_URL = 'https://dawaabill.lovable.app/api/public/accountant-export';
 const BASE44_APP_ID = '6a00735e63f2bcce7f4bb37e';
 const BASE44_API_BASE = 'https://app.base44.com/api/apps';
 const PAGE = 500;
 // More than the stops changed between two runs; a status change moves a stop to the top again.
 const RECENT = 1000;
 
+function pageRequest(key: string, entity: string, sort: string, skip: number): [string, RequestInit] {
+  if (SOURCE === 'lovable')
+    return [
+      `${LOVABLE_EXPORT_URL}?entity=${entity}&sort=${sort}&limit=${PAGE}&skip=${skip}`,
+      { headers: { 'x-export-key': key } },
+    ];
+  return [
+    `${BASE44_API_BASE}/${BASE44_APP_ID}/entities/${entity}?sort=${sort}&limit=${PAGE}&skip=${skip}`,
+    { headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' } },
+  ];
+}
+
+// import_base44_bills_ops_v1 reads updated_date as Base44 sends it: UTC with no zone, and appends Z.
+// Lovable sends "+00:00", so bring it to the same shape.
+function base44Time(value: unknown) {
+  if (typeof value !== 'string' || !/[zZ]|[+-]\d\d:?\d\d$/.test(value)) return value ?? null;
+  const t = new Date(value);
+  return Number.isNaN(t.getTime()) ? value : t.toISOString().slice(0, -1);
+}
+
 async function fetchPages(key: string, entity: string, sort: string, limit: number) {
   const rows: Array<Record<string, unknown>> = [];
   const seen = new Set<string>();
   for (let skip = 0; skip < limit; skip += PAGE) {
-    const res = await fetch(
-      `${BASE44_API_BASE}/${BASE44_APP_ID}/entities/${entity}?sort=${sort}&limit=${PAGE}&skip=${skip}`,
-      { headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' } }
-    );
+    const res = await fetch(...pageRequest(key, entity, sort, skip));
     if (!res.ok) {
       const body = await res.text();
-      throw new Error(`Base44 ${entity} error ${res.status}: ${body.slice(0, 300)}`);
+      throw new Error(`${SOURCE} ${entity} error ${res.status}: ${body.slice(0, 300)}`);
     }
     const page = (await res.json()) as Array<Record<string, unknown>>;
     if (!Array.isArray(page)) throw new Error(`Invalid ${entity} response`);
@@ -28,7 +49,7 @@ async function fetchPages(key: string, entity: string, sort: string, limit: numb
       if (!row.id) throw new Error(`Invalid ${entity} row`);
       if (seen.has(String(row.id))) continue;
       seen.add(String(row.id));
-      rows.push(row);
+      rows.push({ ...row, updated_date: base44Time(row.updated_date) });
     }
     if (page.length < PAGE) return rows;
   }
@@ -43,9 +64,11 @@ Deno.serve(async (req: Request) => {
   const body = (await req.json().catch(() => ({}))) as { full?: boolean };
 
   try {
-    const { data: keyData, error: keyError } = await admin.rpc('get_base44_api_key_v1');
+    const { data: keyData, error: keyError } = await admin.rpc(
+      SOURCE === 'lovable' ? 'get_dawaabills_export_key_v1' : 'get_base44_api_key_v1'
+    );
     if (keyError || !keyData)
-      throw new Error(`تعذر جلب مفتاح بيز٤٤: ${keyError?.message || 'مفيش مفتاح مخزن'}`);
+      throw new Error(`تعذر جلب مفتاح ${SOURCE}: ${keyError?.message || 'مفيش مفتاح مخزن'}`);
     const key = keyData as string;
 
     const batches = await fetchPages(key, 'CollectionSettlementBatch', 'id', 200000);
