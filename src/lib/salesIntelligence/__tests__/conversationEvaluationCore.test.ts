@@ -152,6 +152,12 @@ describe('complaint-only criterion applicability V57', () => {
     expect(analyzeConversationEvaluationCore(v).items.find(i => i.key === 'understanding'))
       .toMatchObject({ status: 'insufficient_evidence', pointsEarned: null });
   });
+  it('does not mistake an explicit statement of not understanding for acknowledgment', () => {
+    const v = complaintView();
+    v.interaction.messages = v.interaction.messages.filter(m => m.id !== 's2').map(m => m.id === 's1' ? { ...m, text: 'مش فاهم الموضوع' } : m);
+    expect(analyzeConversationEvaluationCore(v).items.find(i => i.key === 'understanding'))
+      .toMatchObject({ status: 'insufficient_evidence', pointsEarned: null });
+  });
   it('cannot borrow another doctor acknowledgment or remedy from canonical IDs outside the scoped messages', () => {
     const v = complaintView();
     v.interaction.messages = v.interaction.messages.filter(m => m.role !== 'staff');

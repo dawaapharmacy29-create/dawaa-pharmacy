@@ -13455,7 +13455,7 @@ function assessUnderstanding(view) {
     const complaintMessages = customers.filter((message) => complaint.complaintMessageIds.includes(message.id) && !isUnavailableMediaPlaceholderText(message.text));
     const complaintAt = complaintMessages[0]?.at;
     const responses = staff.filter((message) => complaint.staffResponseMessageIds.includes(message.id) && complaintAt && new Date(message.at) >= new Date(complaintAt));
-    const acknowledgments = responses.filter((message) => /فهما[كق]|فاهم|حق\s*(?:حضرتك|حضرتاك|ك)|الموقف|الموضوع|الشكوى|شكوتك/u.test(message.text));
+    const acknowledgments = responses.filter((message) => /فهما[كق]|فاهم|حق\s*(?:حضرتك|حضرتاك|ك)|الموقف|الموضوع|الشكوى|شكوتك/u.test(message.text) && !/(?:مش|غير|لم)\s*(?:فاهم|فاهما|[أا]فهم|واضح)/u.test(message.text));
     const remedies = responses.filter((message) => complaint.remedyAttemptMessageIds.includes(message.id));
     if (complaintMessages.length && acknowledgments.length) {
       return make(
