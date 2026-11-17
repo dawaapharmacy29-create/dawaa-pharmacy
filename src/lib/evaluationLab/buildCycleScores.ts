@@ -8,7 +8,7 @@ import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 import { summarizeFulfillment, type FulfillmentResult } from './requestFulfillment';
 import { hourlyTargets, cairoHourKey, type HourlyInvoice, type HourlyOutput } from './hourlyTarget';
 import { personCompliance, type ComplianceResult, type ViolationCategory } from './complianceFactor';
-import { EARNED_RULES, attendanceCounts, doctorTargetsFor, earnedDoctorAxes, earnedIncentive, type EarnedIncentive } from './earnedIncentive';
+import { EARNED_RULES, attendanceCounts, credibleAverage, doctorTargetsFor, earnedDoctorAxes, earnedIncentive, hoursFactorFor, type EarnedIncentive } from './earnedIncentive';
 import { completeRequestCounts, type GroupRequest } from './groupRequests';
 import { branchStars, type BranchStar, type StarInput } from './branchStar';
 import {
@@ -184,6 +184,8 @@ export interface LabAttendanceSummary {
 }
 
 type AxisDraft = Omit<AxisResult, 'label' | 'weight'>;
+/** Approved leave days: paid as worked hours in the v7.1 hours factor (weekly days off are not). */
+const APPROVED_LEAVE = /^(approved_time_off|approved_leave|manager_approved_leave|approved_absence_permission)$/;
 const round = (value: number, digits = 1) => Math.round(value * 10 ** digits) / 10 ** digits;
 const branchKey = (value: string | null | undefined) => normalizeBranchName(value || '') || '';
 const egp = (value: number) => Math.round(value).toLocaleString('ar-EG');
@@ -597,14 +599,27 @@ function earnedAxesFor(
     const salesTarget = evidence.targets.filter((t) => branchKey(t.branch) === branchKey(branch)).reduce((sum, t) => sum + t.targetAmount, 0);
     const prevNet = prevBranchNet.get(branchKey(branch)) || 0;
     const growth = prevNet > 0 && salesTarget > 0 ? Math.min(EARNED_RULES.maxMonthlyGrowth, Math.max(1, Math.sqrt(salesTarget / prevNet))) : 1;
-    const avgInvoiceTarget = r && r.prevCount >= 20 ? (r.prevSales / r.prevCount) * growth : null;
+    const avgBase = r && r.prevCount >= 20 ? r.prevSales / r.prevCount : null;
+    const avgInvoiceTarget = avgBase === null ? null : avgBase * growth;
     return {
-      exposure, followupTarget, requestsTarget, avgInvoiceTarget,
+      exposure, followupTarget, requestsTarget, avgInvoiceTarget, avgBase,
       followupNote: exposure === null ? '' : `${round(exposure * 100)}٪ من عملاء الفرع دخلوا في ساعاته · تارجت الفرع ${egp(followupBranch)}`,
       requestsNote: requestsTarget === null ? '' : `${round((exposure || 0) * 100)}٪ من تارجت الفرع ${egp(row?.requests || 0)}`,
       avgNote: avgInvoiceTarget === null ? '' : `متوسط ساعاته الشهر اللي فات ${egp(r!.prevSales / r!.prevCount)} ج × ${round(growth, 3)} زيادة الفرع`,
     };
   };
+  // v7.1: one invoice counts in the average up to the branch's 99th percentile of the cycle.
+  const capOf = new Map<string, number>();
+  if (fair) {
+    const nets = new Map<string, number[]>();
+    for (const inv of evidence.invoices) if (inv.net > 0) nets.set(branchKey(inv.branch), [...(nets.get(branchKey(inv.branch)) || []), inv.net]);
+    for (const [key, list] of nets) {
+      list.sort((a, b) => a - b);
+      capOf.set(key, list[Math.floor(EARNED_RULES.avgInvoiceCapPercentile * (list.length - 1))]);
+    }
+  }
+  const cappedNet = (list: LabEvidence['invoices']) =>
+    list.reduce((sum, inv) => sum + Math.min(inv.net, capOf.get(branchKey(inv.branch)) ?? inv.net), 0);
   const sampleOf = (id: string) => (evidence.reviewScores === undefined ? undefined : evidence.reviewScores === null ? null
     : evidence.reviewScores.find((row) => row.staffId === id) || { staffId: id, invoiceReviews: 0, invoiceAvg: null, conversationReviews: 0, conversationMissing: 0, conversationAvg: null });
   const minSample = Math.max(3, Math.ceil(EARNED_RULES.minSampleReviews * (share || 1)));
@@ -623,8 +638,9 @@ function earnedAxesFor(
     const own = evidence.invoices.filter((inv) => inv.staffId === id && inv.net > 0);
     const minInvoices = Math.max(10, Math.round(LAB_THRESHOLDS.minInvoicesForCoding * Math.min(1, share || 1)));
     const coding = own.length ? own.filter((inv) => inv.coded).length / own.length : 1;
+    const ownAverage = fairStar ? credibleAverage(cappedNet(own), own.length, fairStar.avgBase) : own.reduce((s, inv) => s + inv.net, 0) / (own.length || 1);
     const avgInvoicePct = avgTarget && own.length >= minInvoices
-      ? (own.reduce((s, inv) => s + inv.net, 0) / own.length / avgTarget) * 100 * (coding < EARNED_RULES.codingFloor ? 0.5 : 1)
+      ? (ownAverage / avgTarget) * 100 * (coding < EARNED_RULES.codingFloor ? 0.5 : 1)
       : null;
     starInputs.set(id, {
       staffId: id,
@@ -667,6 +683,7 @@ function earnedAxesFor(
       invoices: {
         count: own.length, net: own.reduce((s, inv) => s + inv.net, 0), coded: own.filter((inv) => inv.coded).length,
         minInvoices: Math.max(10, Math.round(LAB_THRESHOLDS.minInvoicesForCoding * Math.min(1, share || 1))), minDays: LAB_THRESHOLDS.minWorkedDays,
+        ...(fairOwn ? { cappedNet: cappedNet(own), base: fairOwn.avgBase } : {}),
       },
       reviews: facts.get(id)?.reviews || [],
       minReviews,
@@ -1083,7 +1100,11 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
       const net = evidence.invoices.filter((inv) => branchKey(inv.branch) === key).reduce((s, inv) => s + inv.net, 0);
       const absent = attendanceCounts(evidence.attendance.filter((day) => day.staffId === result.staffId)).absent;
       const score = result.readiness === 'insufficient' ? null : result.total;
-      result.earned = earnedIncentive(score, target > 0 ? round((net / target) * 100) : null, absent);
+      // v7.1: paid for the hours really worked (punches, or own invoices when a punch is missing) plus approved leave.
+      const worked = atLeast(version, 'v7.1') ? hourly?.people.get(result.staffId)?.hours : undefined;
+      const leaveDays = evidence.attendance.filter((day) => day.staffId === result.staffId && !day.hasFirstIn && APPROVED_LEAVE.test(String(day.status || ''))).length;
+      const hours = worked === undefined || !hourly?.ready ? null : hoursFactorFor(worked, leaveDays, evidence.cycleShare ?? 1);
+      result.earned = earnedIncentive(score, target > 0 ? round((net / target) * 100) : null, absent, hours);
     }
   }
   if (atLeast(version, 'v7.0')) {

@@ -150,6 +150,7 @@ function EarnedDetails({ earned }: { earned: EarnedIncentive }) {
     earned.score === null ? 'الدرجة ما اتحسبتش (بنود مقاسة قليلة)' : `الدرجة ${Math.round(earned.score)} → ${earned.tierLabel} = ${earned.tierPercent}٪ من ${egp(EARNED_POOL)} ج`,
     earned.branchAchievement === null ? 'مفيش تارجت للفرع → معامل الفرع صفر' : `الفرع حقق ${earned.branchAchievement}٪ من التارجت → معامل ×${earned.branchFactor}`,
     earned.absenceCut ? `غياب ${earned.absenceDays} يوم من غير إذن → خصم ${Math.round(earned.absenceCut * 100)}٪ من الحافز كله` : `غياب من غير إذن: ${earned.absenceDays} يوم (مفيش خصم)`,
+    ...(earned.hours ? [`ساعات شغل حقيقية ${egp(earned.hours.worked)} ساعة${earned.hours.leaveDays ? ` + ${earned.hours.leaveDays} يوم إجازة معتمدة` : ''} من ${egp(earned.hours.needed)} ساعة للحافز الكامل → ×${earned.hours.factor}`] : []),
     `حافز الأداء ${egp(earned.performance)} ج + مكافأة تارجت الفرع ${egp(earned.bonus)} ج${earned.score !== null && earned.score < 60 ? ' (المكافأة لـ ٦٠ نقطة وأكتر)' : ''}`,
   ];
   return (

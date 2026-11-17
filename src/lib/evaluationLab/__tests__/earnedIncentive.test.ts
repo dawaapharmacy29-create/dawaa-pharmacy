@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { LAB_AXES_BY_VERSION, LAB_CURRENT_VERSION, LAB_PUBLISHED_VERSION } from '../catalog';
-import { attendanceCounts, earnedDoctorAxes, earnedIncentive, isCompleteRequest, type EarnedDoctorInput } from '../earnedIncentive';
+import { attendanceCounts, credibleAverage, earnedDoctorAxes, earnedIncentive, hoursFactorFor, isCompleteRequest, type EarnedDoctorInput } from '../earnedIncentive';
 import { buildCycleScores, type LabEvidence } from '../buildCycleScores';
 
 const base: EarnedDoctorInput = {
@@ -214,5 +214,25 @@ describe('owner exceptions scored with the doctors', () => {
     expect(person.axes.find((a) => a.key === 'avg_invoice_target')?.status).toBe('measured');
     expect(person.star).toBeDefined();
     expect(scores.find((p) => p.staffId === 'a1')?.family).toBe('assistant');
+  });
+});
+
+describe('v7.1 hours factor and credible average', () => {
+  it('pays a few days of work only their share', () => {
+    expect(hoursFactorFor(40, 0).factor).toBe(0.21);
+    expect(hoursFactorFor(200, 0).factor).toBe(1);
+    expect(hoursFactorFor(165, 3).factor).toBe(1);
+    const part = earnedIncentive(95, 100, 0, hoursFactorFor(40, 0));
+    const full = earnedIncentive(95, 100, 0, hoursFactorFor(200, 0));
+    expect(full.total).toBe(3100);
+    expect(part.total).toBe(Math.round(2500 * 0.21) + Math.round(600 * 0.21));
+  });
+
+  it('pulls a handful of invoices toward the hours average', () => {
+    // 15 invoices averaging 700 in hours that average 300 → about 380, not 700.
+    expect(Math.round(credibleAverage(15 * 700, 15, 300))).toBe(380);
+    // 600 invoices: his own average stays almost as is.
+    expect(Math.round(credibleAverage(600 * 420, 600, 300))).toBe(409);
+    expect(credibleAverage(1000, 4, null)).toBe(250);
   });
 });

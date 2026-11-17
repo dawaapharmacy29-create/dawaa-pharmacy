@@ -1,5 +1,6 @@
 import { normalizeBranchName } from '@/lib/branch';
 import { LAB_THRESHOLDS } from './catalog';
+import { EARNED_RULES } from './earnedIncentive';
 
 // v6.6 hourly target (owner request 2026-10-31). Pure: no I/O.
 //
@@ -56,7 +57,8 @@ export interface HourlyResult {
   teamTarget: number;
   ownInvoices: number;
   expectedInvoices: number;
-  /** v7.1: last cycle's sales and invoices (positive) in the same weekday-hours, the person's part of them. */
+  /** v7.1: last cycle's sales (each invoice up to that cycle's 99th percentile, like the doctor's own average)
+   *  and invoices (positive) in the same weekday-hours, the person's part of them. */
   prevSales: number;
   prevCount: number;
   /** Own invoices issued with no punch of the seller around them. */
@@ -108,6 +110,13 @@ export function hourlyTargets(input: HourlyInput): HourlyOutput {
     posWd: number[][]; posHour: number[]; cntWd: number[][]; cntHour: number[] }>();
   const grid = () => Array.from({ length: 7 }, () => new Array(24).fill(0));
   const prevDays = new Map<string, Set<string>>();
+  // The average-invoice base caps each invoice at the branch's 99th percentile of that cycle (same rule as this cycle).
+  const prevNets = new Map<string, number[]>();
+  for (const invoice of input.previousInvoices) if (invoice.net > 0) prevNets.set(branchKey(invoice.branch), [...(prevNets.get(branchKey(invoice.branch)) || []), invoice.net]);
+  const prevCap = new Map([...prevNets].map(([b, list]) => {
+    list.sort((x, y) => x - y);
+    return [b, list[Math.floor(EARNED_RULES.avgInvoiceCapPercentile * (list.length - 1))]] as const;
+  }));
   for (const invoice of input.previousInvoices) {
     const wall = invoice.at ? cairoWallMs(invoice.at) : null;
     if (wall === null) continue;
@@ -118,8 +127,9 @@ export function hourlyTargets(input: HourlyInput): HourlyOutput {
     c.wd[date.getUTCDay()][date.getUTCHours()] += invoice.net;
     c.hour[date.getUTCHours()] += invoice.net;
     if (invoice.net > 0) {
-      c.posWd[date.getUTCDay()][date.getUTCHours()] += invoice.net;
-      c.posHour[date.getUTCHours()] += invoice.net;
+      const counted = Math.min(invoice.net, prevCap.get(b) ?? invoice.net);
+      c.posWd[date.getUTCDay()][date.getUTCHours()] += counted;
+      c.posHour[date.getUTCHours()] += counted;
       c.cntWd[date.getUTCDay()][date.getUTCHours()] += 1;
       c.cntHour[date.getUTCHours()] += 1;
     }

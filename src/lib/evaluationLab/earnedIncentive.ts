@@ -80,6 +80,16 @@ export const EARNED_RULES = {
   invoiceReviewFull: 90,
   /** v7.1: the most a doctor's average-invoice target may rise over his hours' average of last cycle. */
   maxMonthlyGrowth: 1.15,
+  /** v7.1: a full month is 26 days × 8 hours (punched hours, plus 8 per approved-leave day); 90% of it earns the whole
+   *  incentive, fewer hours earn their share, so a few days of work never take a full month's money. */
+  fullMonthHours: 208,
+  fullHoursShare: 0.9,
+  leaveDayHours: 8,
+  /** v7.1: the average invoice leans on his hours' average of last cycle as if he had this many more invoices,
+   *  so a handful of invoices cannot make a big average; with hundreds of invoices it is his own average. */
+  avgInvoiceCredibility: 60,
+  /** v7.1: one invoice counts in the average up to the branch's 99th percentile of the cycle. */
+  avgInvoiceCapPercentile: 0.99,
   /** The trial cycle: conversations and uniform are shown, not counted (their weight goes to the rest). */
   trialCycleStarts: ['2026-10-26'] as readonly string[],
 } as const;
@@ -111,19 +121,37 @@ export interface EarnedIncentive {
   total: number;
   /** The next tier and the points still needed to reach it. */
   next: { min: number; percent: number; points: number } | null;
+  /** v7.1: real hours (punches + approved leave) against a full month; null before v7.1 or without punches. */
+  hours: { worked: number; leaveDays: number; needed: number; factor: number } | null;
 }
 
-export function earnedIncentive(score: number | null, branchAchievement: number | null, absenceDays: number): EarnedIncentive {
+/** v7.1 hours factor: worked hours (+ approved leave) ÷ 90% of a full month (scaled to the evidence), at most 1. */
+export function hoursFactorFor(worked: number, leaveDays: number, cycleShare = 1) {
+  const needed = Math.round(EARNED_RULES.fullMonthHours * EARNED_RULES.fullHoursShare * Math.min(1, Math.max(0.01, cycleShare)));
+  const factor = Math.round(Math.min(1, (worked + leaveDays * EARNED_RULES.leaveDayHours) / needed) * 100) / 100;
+  return { worked, leaveDays, needed, factor };
+}
+
+/** v7.1 average invoice: capped net, leaning on the hours' expected average by the credibility weight. */
+export function credibleAverage(cappedNet: number, count: number, base: number | null | undefined) {
+  const k = base && base > 0 ? EARNED_RULES.avgInvoiceCredibility : 0;
+  return count + k > 0 ? (cappedNet + k * (base || 0)) / (count + k) : 0;
+}
+
+export function earnedIncentive(score: number | null, branchAchievement: number | null, absenceDays: number,
+  hours: EarnedIncentive['hours'] = null): EarnedIncentive {
   const tier = score === null ? EARNED_TIERS[EARNED_TIERS.length - 1] : tierFor(score);
   const factor = branchAchievement === null ? 0 : branchFactorFor(branchAchievement);
   const cut = absenceCutFor(absenceDays);
-  const performance = Math.round(EARNED_POOL * (tier.percent / 100) * factor * (1 - cut));
-  const bonus = score !== null && score >= 60 && branchAchievement !== null ? Math.round(salesBonusFor(branchAchievement) * (1 - cut)) : 0;
+  const presence = hours ? hours.factor : 1;
+  const performance = Math.round(EARNED_POOL * (tier.percent / 100) * factor * (1 - cut) * presence);
+  const bonus = score !== null && score >= 60 && branchAchievement !== null ? Math.round(salesBonusFor(branchAchievement) * (1 - cut) * presence) : 0;
   const next = score === null ? null : [...EARNED_TIERS].reverse().find((row) => row.min > score) ?? null;
   return {
     score, tierLabel: tier.label, tierPercent: tier.percent, branchAchievement, branchFactor: factor, absenceDays, absenceCut: cut,
     performance, bonus, total: performance + bonus,
     next: next ? { min: next.min, percent: next.percent, points: round(next.min - (score as number)) } : null,
+    hours,
   };
 }
 
@@ -164,7 +192,8 @@ export interface EarnedDoctorInput {
   branchFollowupTarget: number;
   completeRequests: number;
   attendance: { late: number; early: number; resolvedDays: number; minDays: number };
-  invoices: { count: number; net: number; coded: number; minInvoices: number; minDays: number };
+  /** v7.1: cappedNet (each invoice up to the branch's 99th percentile) and base (his hours' average last cycle). */
+  invoices: { count: number; net: number; coded: number; minInvoices: number; minDays: number; cappedNet?: number; base?: number | null };
   reviews: number[];
   minReviews: number;
   violations: number | null;
@@ -286,11 +315,16 @@ export function earnedDoctorAxes(input: EarnedDoctorInput): AxisDraft[] {
     out.push(notMeasurable('avg_invoice_target', reason));
     out.push(notMeasurable('invoices_per_day', reason));
   } else {
-    const average = input.invoices.net / input.invoices.count;
+    const raw = input.invoices.net / input.invoices.count;
+    const credible = input.invoices.cappedNet !== undefined;
+    const average = credible ? credibleAverage(input.invoices.cappedNet as number, input.invoices.count, input.invoices.base) : raw;
     const ratio = average / avgTarget;
+    const credibleNote = credible && Math.round(average) !== Math.round(raw)
+      ? ` · متوسطه الفعلي ${ar(raw)} ج على ${ar(input.invoices.count)} فاتورة، والمحسوب ${ar(average)} ج (الفاتورة الشاذة ليها سقف، والفواتير القليلة بتتقرّب من متوسط ساعاته)`
+      : '';
     out.push(measured('avg_invoice_target', Math.round(average),
       ((ratio - EARNED_RULES.avgInvoiceFloor) / (1 - EARNED_RULES.avgInvoiceFloor)) * 100 * gate,
-      `متوسط ${ar(average)} ج من تارجت ${ar(avgTarget)} ج (${round(ratio * 100)}٪)${input.avgInvoiceNote ? ` · ${input.avgInvoiceNote}` : ''}${gateNote}`));
+      `متوسط ${ar(average)} ج من تارجت ${ar(avgTarget)} ج (${round(ratio * 100)}٪)${credibleNote}${input.avgInvoiceNote ? ` · ${input.avgInvoiceNote}` : ''}${gateNote}`));
     if (input.workedDays < input.invoices.minDays) {
       out.push(notMeasurable('invoices_per_day', `${input.workedDays} يوم شغل فقط (الحد ${input.invoices.minDays})`));
     } else {
