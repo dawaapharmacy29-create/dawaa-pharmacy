@@ -350,7 +350,7 @@ const V71: Record<LabFamily, LabAxisDefinition[]> = {
   doctor: [
     { key: 'followup_requests', label: 'طلبات المتابعة (نصيبه حسب العملاء في ساعاته)', weight: 30 },
     { key: 'conversation_quality', label: 'المحادثات (العينة الأسبوعية، 90+ = كاملة)', weight: 25 },
-    { key: 'invoice_review', label: 'مراجعة الفواتير بالكاميرا (90+ = كاملة)', weight: 15 },
+    { key: 'invoice_review', label: 'مراجعة جودة البيع (90+ = كاملة)', weight: 15 },
     { key: 'complete_requests', label: 'طلبات العملاء الكاملة (نصيبه حسب العملاء في ساعاته)', weight: 15 },
     { key: 'avg_invoice_target', label: 'متوسط الفاتورة مقابل تارجت ساعاته', weight: 15 },
     { key: 'punctuality', label: 'المواعيد (للمعلومة — التأخير بيتخصم من المحفظة)', weight: 0 },

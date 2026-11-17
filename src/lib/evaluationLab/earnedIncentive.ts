@@ -252,13 +252,13 @@ export function earnedDoctorAxes(input: EarnedDoctorInput): AxisDraft[] {
   if (input.invoiceReview !== undefined) {
     const review = input.invoiceReview;
     if (!review) {
-      out.push(notMeasurable('invoice_review', 'مراجعات الفواتير مش متاحة للقراءة من الجلسة دي'));
+      out.push(notMeasurable('invoice_review', 'مراجعات جودة البيع مش متاحة للقراءة من الجلسة دي'));
     } else if (review.reviewed < minSample || review.average === null) {
-      out.push(notMeasurable('invoice_review', `${review.reviewed} فاتورة اتراجعت بالكاميرا (الحد ${minSample})`));
+      out.push(notMeasurable('invoice_review', `${review.reviewed} بيعة اتراجعت على الكاميرا (الحد ${minSample})`));
     } else {
       out.push(measured('invoice_review', round(review.average),
         clamp100(((review.average - EARNED_RULES.invoiceReviewFloor) / (EARNED_RULES.invoiceReviewFull - EARNED_RULES.invoiceReviewFloor)) * 100),
-        `${review.reviewed} فاتورة اتراجعت بالكاميرا · متوسط ${round(review.average)}/100 · ${EARNED_RULES.invoiceReviewFull} أو أكتر = كاملة`));
+        `${review.reviewed} بيعة اتراجعت على الكاميرا · متوسط ${round(review.average)}/100 · ${EARNED_RULES.invoiceReviewFull} أو أكتر = كاملة`));
     }
   }
 

@@ -221,13 +221,13 @@ export default function WeeklyReviews() {
     </section>
 
     <div className="flex flex-wrap gap-2">
-      {([['invoice', `الفواتير على الكاميرا${pendingInvoices ? ` (${pendingInvoices})` : ''}`, Camera], ['conversation', 'المحادثات', MessageCircle], ['targets', 'التارجت الشهري', Target]] as const).map(([key, label, Icon]) =>
+      {([['invoice', `مراجعة جودة البيع${pendingInvoices ? ` (${pendingInvoices})` : ''}`, Camera], ['conversation', 'المحادثات', MessageCircle], ['targets', 'التارجت الشهري', Target]] as const).map(([key, label, Icon]) =>
         <button key={key} type="button" onClick={() => setTab(key)} className={`rounded-xl border px-3 py-2 text-xs font-black ${tab === key ? 'bg-teal-700 text-white' : ''}`} style={tab === key ? undefined : surface}>
           <Icon className="ml-1 inline h-4 w-4" />{label}</button>)}
     </div>
 
     {tab === 'targets' ? <TargetsTab cycle={cycleStartOf(today)} /> : <>
-      <Summary samples={tab === 'invoice' ? invoices : conversations} title={tab === 'invoice' ? 'كل دكتور: اتراجع/المسحوب · المتوسط (الهدف ١٠ فواتير في الشهر)' : 'كل دكتور: اتقيّم/المسحوب · المتوسط'} />
+      <Summary samples={tab === 'invoice' ? invoices : conversations} title={tab === 'invoice' ? 'جودة البيع لكل دكتور: اتراجع/المسحوب · المتوسط (الهدف ١٠ بيعات في الشهر)' : 'المحادثات لكل دكتور: اتقيّم/المسحوب · المتوسط'} />
       {tab === 'conversation' && conversations.some((s) => s.status === 'awaiting_upload') ? <p className="text-xs font-bold text-slate-600">الدكتور بيشوف المطلوب منه في صفحته الرئيسية، ويرفعها من <Link to="/whatsapp-smart-folder-watcher" className="underline">العقل المدبر</Link>.</p> : null}
       {shown.length ? <div className="grid gap-2 lg:grid-cols-2">
         {shown.map((s) => (s.kind === 'invoice' ? <InvoiceCard key={s.id} sample={s} onSaved={() => void load(false)} /> : <ConversationCard key={s.id} sample={s} />))}
