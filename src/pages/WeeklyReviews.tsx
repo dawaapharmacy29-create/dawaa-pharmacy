@@ -8,7 +8,7 @@ import {
 } from '@/lib/evaluationLab/reviewSamples';
 
 // v7.1 weekly random reviews (owner 2026-11-17): cash invoices checked on the cameras (they keep 5 days) and
-// delivery conversations the doctor uploads to the Master Brain. The database draws the samples; opening the page
+// delivery conversations the capture folder brought into the Master Brain. The database draws the samples; opening the page
 // draws whatever batch is due.
 
 const surface = { background: 'var(--dawaa-theme-surface)', borderColor: 'var(--dawaa-theme-border)' };
@@ -20,9 +20,8 @@ const STATUS: Record<SampleStatus, { label: string; tone: string }> = {
   reviewed: { label: 'اتراجعت', tone: 'dawaa-status-success-text dawaa-status-success-bg' },
   skipped: { label: 'اتشالت (مش باينة)', tone: 'text-slate-500 bg-slate-100' },
   expired: { label: 'الكاميرا مسحتها', tone: 'dawaa-status-danger-text dawaa-status-danger-bg' },
-  awaiting_upload: { label: 'مستني الدكتور يرفعها', tone: 'dawaa-status-warning-text dawaa-status-warning-bg' },
-  uploaded: { label: 'اترفعت · قيّمها', tone: 'dawaa-status-success-text dawaa-status-success-bg' },
-  missing: { label: 'مااترفعتش = صفر', tone: 'dawaa-status-danger-text dawaa-status-danger-bg' },
+  to_review: { label: 'جاهزة · قيّمها', tone: 'dawaa-status-warning-text dawaa-status-warning-bg' },
+  not_captured: { label: 'المحادثة اتشالت من العقل المدبر (مش محسوبة)', tone: 'text-slate-500 bg-slate-100' },
 };
 const STRATUM = { small: 'فاتورة صغيرة', medium: 'فاتورة متوسطة', big: 'فاتورة كبيرة' } as const;
 const RATINGS: Array<{ value: 0 | 1 | 2 | null; label: string }> = [
@@ -100,10 +99,10 @@ function ConversationCard({ sample }: { sample: ReviewSample }) {
       <div className="flex flex-col items-end gap-1">
         <StatusChip status={sample.status} />
         {sample.score != null ? <span className="text-lg font-black text-teal-700">{Math.round(sample.score)}٪</span> : null}
-        {sample.status === 'awaiting_upload' ? <span className="text-[11px] font-bold text-slate-500">آخر يوم للرفع: {dayLabel(sample.deadline)}</span> : null}
+        {sample.status === 'to_review' ? <span className="text-[11px] font-bold text-slate-500">قيّمها قبل: {dayLabel(sample.deadline)}</span> : null}
       </div>
     </div>
-    {sample.status === 'uploaded' ? <Link to="/reviews" className="btn-secondary mt-2 inline-block text-xs">افتح المحادثات وقيّمها</Link> : null}
+    {sample.status === 'to_review' ? <Link to="/reviews" className="btn-secondary mt-2 inline-block text-xs">افتح المحادثات وقيّمها</Link> : null}
   </div>;
 }
 
@@ -198,7 +197,7 @@ export default function WeeklyReviews() {
   const conversations = useMemo(() => samples.filter((s) => s.kind === 'conversation'), [samples]);
   const pendingInvoices = invoices.filter((s) => s.status === 'pending').length;
   const shown = (tab === 'invoice' ? invoices : conversations).slice().sort((a, b) => {
-    const rank = (s: ReviewSample) => (s.status === 'pending' || s.status === 'uploaded' ? 0 : s.status === 'awaiting_upload' ? 1 : 2);
+    const rank = (s: ReviewSample) => (s.status === 'pending' || s.status === 'to_review' ? 0 : 1);
     return rank(a) - rank(b) || a.deadline.localeCompare(b.deadline);
   });
   const prevCycle = cycleStartOf(new Date(Date.parse(`${cycle}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10));
@@ -210,7 +209,7 @@ export default function WeeklyReviews() {
         <button type="button" onClick={() => void load(cycle === cycleStartOf(today))} disabled={loading} className="rounded-full p-2 text-amber-300 disabled:opacity-50" style={{ background: 'rgba(0,0,0,0.2)' }} aria-label="تحديث">
           <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button>
       </div>
-      <p className="mt-2 text-xs font-bold text-slate-300">التطبيق بيختار فواتير كاش عشوائية (صغيرة ومتوسطة وكبيرة) مرتين في الأسبوع: يوم الأربع (من السبت للتلات) ويوم السبت (من الأربع للجمعة)، عشان تلحق تراجعها قبل ما الكاميرا تمسح بعد ٥ أيام. ومحادثات توصيل عشوائية كل سبت، والدكتور لازم يرفعها على العقل المدبر خلال يومين وإلا تتحسب صفر.</p>
+      <p className="mt-2 text-xs font-bold text-slate-300">التطبيق بيختار فواتير كاش عشوائية (صغيرة ومتوسطة وكبيرة) مرتين في الأسبوع: يوم الأربع (من السبت للتلات) ويوم السبت (من الأربع للجمعة)، عشان تلحق تراجعها قبل ما الكاميرا تمسح بعد ٥ أيام. ومحادثات توصيل عشوائية كل سبت من المحادثات اللي فولدر العقل المدبر سحبها تلقائي، فالدكتور مابيختارش إيه اللي يتشاف.</p>
       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-bold text-white">
         <span>الدورة:</span>
         <button type="button" className="rounded-lg px-2 py-1" style={{ background: 'rgba(255,255,255,0.12)' }} onClick={() => setCycle(prevCycle)}>السابقة</button>
@@ -228,7 +227,7 @@ export default function WeeklyReviews() {
 
     {tab === 'targets' ? <TargetsTab cycle={cycleStartOf(today)} /> : <>
       <Summary samples={tab === 'invoice' ? invoices : conversations} title={tab === 'invoice' ? 'جودة البيع لكل دكتور: اتراجع/المسحوب · المتوسط (الهدف ١٠ بيعات في الشهر)' : 'المحادثات لكل دكتور: اتقيّم/المسحوب · المتوسط'} />
-      {tab === 'conversation' && conversations.some((s) => s.status === 'awaiting_upload') ? <p className="text-xs font-bold text-slate-600">الدكتور بيشوف المطلوب منه في صفحته الرئيسية، ويرفعها من <Link to="/whatsapp-smart-folder-watcher" className="underline">العقل المدبر</Link>.</p> : null}
+      {tab === 'conversation' && !conversations.length && !loading ? <p className="text-xs font-bold text-slate-600">المحادثات بتتسحب بس من اللي وصل للعقل المدبر من <Link to="/whatsapp-smart-folder-watcher" className="underline">فولدر الالتقاط</Link>. لو مفيش عينات، اتأكد إن الجهاز شغال وبيصدّر المحادثات.</p> : null}
       {shown.length ? <div className="grid gap-2 lg:grid-cols-2">
         {shown.map((s) => (s.kind === 'invoice' ? <InvoiceCard key={s.id} sample={s} onSaved={() => void load(false)} /> : <ConversationCard key={s.id} sample={s} />))}
       </div> : <div className="rounded-2xl border p-4 text-center text-xs font-bold text-slate-500" style={surface}>{loading ? 'بيحمّل…' : 'مفيش عينات في الدورة دي لسه'}</div>}

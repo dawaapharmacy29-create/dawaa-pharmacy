@@ -4,7 +4,6 @@ import DoctorDashboardStable from '@/pages/DoctorDashboardStable';
 import DoctorReviewDetails from '@/components/doctor/DoctorReviewDetails';
 import DoctorTodayFocus from '@/components/doctor/DoctorTodayFocus';
 import DoctorMonthlyEvaluationCard from '@/components/doctor/DoctorMonthlyEvaluationCard';
-import DoctorConversationUploadRequests from '@/components/doctor/DoctorConversationUploadRequests';
 import DoctorDetailedActivityCard from '@/components/doctor/DoctorDetailedActivityCard';
 import { canAccessFullConversationReviewWorkspace } from '@/lib/reviewWorkspaceAccess';
 import '@/styles/dashboard-theme-scopes.css';
@@ -22,7 +21,6 @@ export default function DoctorDashboardEnhanced() {
   return <div className="doctor-dashboard-theme space-y-5" dir="rtl">
     {(!tab || tab === 'overview') ? <>
       <DoctorMonthlyEvaluationCard compact onOpen={() => setParams({ tab: 'payroll' })} />
-      <DoctorConversationUploadRequests />
       <DoctorDetailedActivityCard staffId={String(user?.staffId || '')} doctorName={String(user?.name || '')} />
       <DoctorTodayFocus
         staffId={String(user?.staffId || '')}

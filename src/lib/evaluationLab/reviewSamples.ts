@@ -4,7 +4,7 @@
 import { supabase } from '@/supabaseClient';
 
 export type ReviewKind = 'invoice' | 'conversation';
-export type SampleStatus = 'pending' | 'reviewed' | 'skipped' | 'expired' | 'awaiting_upload' | 'uploaded' | 'missing';
+export type SampleStatus = 'pending' | 'reviewed' | 'skipped' | 'expired' | 'to_review' | 'not_captured';
 
 /** Six things the owner checks on the camera: 2 excellent, 1 acceptable, 0 weak, null not visible. */
 export const INVOICE_CRITERIA = [
@@ -43,7 +43,7 @@ function lastWindow(today: string, startDow: number, days: number) {
 
 /**
  * Batches due today. Cameras keep 5 days, so invoices come twice a week: Sat–Tue (drawn from Wednesday)
- * and Wed–Fri (drawn from Saturday). Conversations once a week: Sat–Fri (drawn from Saturday).
+ * and Wed–Fri (drawn from Saturday). Conversations once a week: Sat–Fri (drawn from Saturday), only among chats the capture folder already brought in.
  * Drawing is idempotent per batch, so calling this on every page open is safe.
  */
 export function dueBatches(today: string): Array<{ kind: ReviewKind; start: string; end: string }> {
@@ -166,16 +166,4 @@ export async function saveCycleTarget(row: { branch: string; cycleStart: string;
     p_branch: row.branch, p_cycle_start: row.cycleStart, p_followups: row.followups, p_requests: row.requests, p_note: row.note || null,
   });
   if (error) throw new Error(error.message);
-}
-
-export interface UploadRequest { id: string; customerName: string | null; customerPhone: string | null; invoiceAt: string; deadline: string; uploaded: boolean }
-
-/** The signed-in seller's conversation uploads still due (empty for anyone else). */
-export async function listMyUploadRequests(): Promise<UploadRequest[]> {
-  const { data, error } = await supabase.rpc('list_my_conversation_upload_requests_v1');
-  if (error) return [];
-  return ((data || []) as Row[]).map((row) => ({
-    id: text(row.id), customerName: text(row.customer_name) || null, customerPhone: text(row.customer_phone) || null,
-    invoiceAt: text(row.invoice_at), deadline: text(row.deadline), uploaded: row.uploaded === true,
-  }));
 }

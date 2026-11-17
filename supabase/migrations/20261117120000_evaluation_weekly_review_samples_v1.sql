@@ -6,9 +6,10 @@
 -- the cycle, so small invoices are watched too, and a random invoice inside it (stable md5 order).
 -- A sample can be reviewed until the invoice day + 4; after that it expires and counts for nobody.
 --
--- Conversations: once a week (Sat–Fri, drawn on Saturday) up to 3 home-delivery customers per seller.
--- The seller uploads that customer's WhatsApp chat to the Master Brain within 2 days; the owner reviews
--- it with the official conversation review. No upload after the deadline scores 0 in the cycle.
+-- Conversations: once a week (Sat–Fri, drawn on Saturday) up to 3 home-delivery customers per seller,
+-- picked only among chats the capture folder already brought into the Master Brain (a dedicated device
+-- exports every chat, so the doctors do not choose what is seen). The owner reviews them with the official
+-- conversation review within a week. A chat that later disappears is not counted for or against anyone.
 --
 -- Everything goes through security-definer functions: the tables are closed to clients.
 
@@ -38,7 +39,7 @@ create table if not exists public.evaluation_review_samples_v1 (
   customer_code text,
   customer_name text,
   customer_phone text,
-  -- invoice: last day the camera still has it; conversation: last day to upload the chat.
+  -- invoice: last day the camera still has it; conversation: review it within a week.
   deadline date not null,
   created_at timestamptz not null default now(),
   unique (kind, invoice_id)
@@ -172,7 +173,12 @@ begin
               else 'medium' end,
          md5(b.invoice_id || '|' || p_batch_start::text)
   from base b join cuts c on c.branch is not distinct from b.branch
-  where p_kind = 'invoice' or b.customer_phone is not null;
+  where p_kind = 'invoice'
+     or exists (select 1 from public.whatsapp_review_sources w
+                where w.deleted_at is null
+                  and ((b.customer_phone is not null and right(regexp_replace(coalesce(w.customer_phone, ''), 'D', '', 'g'), 10) = b.customer_phone)
+                    or (b.customer_code is not null and btrim(coalesce(w.customer_code, '')) = b.customer_code))
+                  and coalesce(w.conversation_ended_at, w.conversation_started_at, w.created_at) between b.invoice_at - interval '3 days' and b.invoice_at + interval '3 days');
 
   for v_seller in
     select c.staff_id, min(c.branch) as branch, count(distinct (c.invoice_at at time zone 'Africa/Cairo')::date) as days
@@ -209,7 +215,7 @@ begin
       values (p_kind, p_batch_start, v_cycle, v_pick.staff_id, v_pick.branch, v_pick.invoice_id, v_pick.invoice_number,
         v_pick.invoice_at, v_pick.net, v_pick.items, v_pick.stratum, v_pick.customer_code, v_pick.customer_name, v_pick.customer_phone,
         case when p_kind = 'invoice' then (v_pick.invoice_at at time zone 'Africa/Cairo')::date + 4
-             else (now() at time zone 'Africa/Cairo')::date + 2 end)
+             else (now() at time zone 'Africa/Cairo')::date + 7 end)
       on conflict (kind, invoice_id) do nothing;
       if found then v_added := v_added + 1; end if;
     end loop;
@@ -220,8 +226,8 @@ begin
 end;
 $function$;
 
--- A conversation sample's upload: the Master Brain source of that customer for that seller, uploaded
--- after the sample was drawn (or with the conversation inside the batch week).
+-- A conversation sample's chat: the Master Brain source of that customer around the order (±3 days),
+-- preferring the seller's own and an already reviewed one.
 create or replace function public.dawaa_review_sample_source_v1(p_sample_id uuid)
 returns uuid
 language sql
@@ -235,7 +241,7 @@ as $function$
     on w.deleted_at is null
    and ((s.customer_phone is not null and right(regexp_replace(coalesce(w.customer_phone, ''), '\D', '', 'g'), 10) = s.customer_phone)
      or (s.customer_code is not null and btrim(coalesce(w.customer_code, '')) = s.customer_code))
-   and coalesce(w.conversation_ended_at, w.conversation_started_at, w.created_at) >= s.invoice_at - interval '3 days'
+   and coalesce(w.conversation_ended_at, w.conversation_started_at, w.created_at) between s.invoice_at - interval '3 days' and s.invoice_at + interval '3 days'
   where s.id = p_sample_id and s.kind = 'conversation'
   order by (w.staff_id = s.staff_id) desc, w.official_review_id is not null desc, w.created_at
   limit 1;
@@ -268,9 +274,8 @@ begin
       when s.kind = 'invoice' and (now() at time zone 'Africa/Cairo')::date > s.deadline then 'expired'
       when s.kind = 'invoice' then 'pending'
       when o.id is not null then 'reviewed'
-      when src.source_id is not null then 'uploaded'
-      when (now() at time zone 'Africa/Cairo')::date > s.deadline then 'missing'
-      else 'awaiting_upload' end,
+      when src.source_id is not null then 'to_review'
+      else 'not_captured' end,
     case when s.kind = 'invoice' then case when r.skipped then null else r.score end else o.final_score end,
     r.criteria, r.notes, coalesce(r.reviewed_at, o.reviewed_at), src.source_id, o.id
   from public.evaluation_review_samples_v1 s
@@ -338,8 +343,8 @@ begin
 end;
 $function$;
 
--- Per seller in a cycle: reviewed invoices and their average; conversations reviewed, missing uploads
--- (scored 0) and the average including them. Readable by the evaluation (owner session or service role).
+-- Per seller in a cycle: reviewed invoices and their average; reviewed conversations and their average
+-- (conversation_missing stays 0: the chats come from the capture folder, not from the doctor). Readable by the evaluation (owner session or service role).
 create or replace function public.get_evaluation_review_scores_v1(p_cycle_start date)
 returns table (staff_id uuid, invoice_reviews integer, invoice_avg numeric, conversation_reviews integer, conversation_missing integer, conversation_avg numeric)
 language plpgsql
@@ -353,8 +358,7 @@ begin
   end if;
   return query
   with conv as (
-    select s.staff_id, o.final_score,
-      (o.id is null and public.dawaa_review_sample_source_v1(s.id) is null and (now() at time zone 'Africa/Cairo')::date > s.deadline) as missing
+    select s.staff_id, o.final_score, false as missing
     from public.evaluation_review_samples_v1 s
     left join lateral (
       select v.id, v.final_score from public.conversation_sales_reviews_official_v1 v
@@ -379,21 +383,6 @@ begin
       where c.staff_id = p.staff_id and (c.missing or c.final_score is not null))
   from people p;
 end;
-$function$;
-
--- The seller's own conversation uploads still due (shown on the doctor's page).
-create or replace function public.list_my_conversation_upload_requests_v1()
-returns table (id uuid, customer_name text, customer_phone text, invoice_at timestamptz, deadline date, uploaded boolean)
-language sql
-stable
-security definer
-set search_path = 'public', 'pg_catalog'
-as $function$
-  select s.id, s.customer_name, s.customer_phone, s.invoice_at, s.deadline, public.dawaa_review_sample_source_v1(s.id) is not null
-  from public.evaluation_review_samples_v1 s
-  join public.staff_accounts a on a.staff_id = s.staff_id and a.id = public.dawaa_current_staff_account_id_strict()
-  where s.kind = 'conversation' and s.deadline >= (now() at time zone 'Africa/Cairo')::date - 7
-  order by s.deadline, s.invoice_at;
 $function$;
 
 create or replace function public.list_evaluation_branch_cycle_targets_v1()
@@ -437,13 +426,11 @@ revoke all on function public.generate_evaluation_review_batch_v1(text, date, da
 revoke all on function public.list_evaluation_review_samples_v1(date) from public, anon;
 revoke all on function public.save_evaluation_invoice_review_v1(uuid, jsonb, text, boolean) from public, anon;
 revoke all on function public.get_evaluation_review_scores_v1(date) from public, anon;
-revoke all on function public.list_my_conversation_upload_requests_v1() from public, anon;
 revoke all on function public.list_evaluation_branch_cycle_targets_v1() from public, anon;
 revoke all on function public.save_evaluation_branch_cycle_target_v1(text, date, integer, integer, text) from public, anon;
 grant execute on function public.generate_evaluation_review_batch_v1(text, date, date) to authenticated;
 grant execute on function public.list_evaluation_review_samples_v1(date) to authenticated;
 grant execute on function public.save_evaluation_invoice_review_v1(uuid, jsonb, text, boolean) to authenticated;
 grant execute on function public.get_evaluation_review_scores_v1(date) to authenticated, service_role;
-grant execute on function public.list_my_conversation_upload_requests_v1() to authenticated;
 grant execute on function public.list_evaluation_branch_cycle_targets_v1() to authenticated, service_role;
 grant execute on function public.save_evaluation_branch_cycle_target_v1(text, date, integer, integer, text) to authenticated;
