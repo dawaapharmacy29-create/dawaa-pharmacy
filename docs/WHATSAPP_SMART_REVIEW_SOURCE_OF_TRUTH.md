@@ -21,6 +21,14 @@ This rule is an analysis and data-integrity contract. It does not itself authori
 
 ## 1. Pipeline (one orchestrator for every ingestion path)
 
+V58 product-evidence retention: audited Arabic product-family spellings use the existing
+shared catalog resolver and keep its original confidence, ambiguity and strength/form gates.
+A selected candidate which is ineligible for basket identity remains a bounded review candidate
+in the saved case, rather than disappearing. Invoice review may compare an already persisted
+product id/code to the invoice as a **partial** link when strict attribution emitted no proven
+line match. This never copies invoice quantities into messages, resolves omitted media, grants
+SKU approval, proves delivery, or changes the sale/staff/payroll authorization rules.
+
 V57 evaluation applicability: a canonical complaint with no independent requested/offered
 product, substantive basket or countable sale is service-only even if the coarse interaction
 label is `mixed`. Sales closing/cross-sell criteria do not apply. Understanding may be assessed

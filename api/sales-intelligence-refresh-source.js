@@ -2502,7 +2502,17 @@ var CROSS_SCRIPT_SEED = /* @__PURE__ */ new Map([
   ["\u0646\u064A\u0648\u062A\u0631\u0627 \u062F\u0641\u0646\u0633", "nutradefense"],
   ["\u0643\u0648\u0644\u0648\u0646\u0627", "colona"],
   ["\u062C\u0627\u0633\u062A\u0631\u0648 \u0628\u064A\u0648\u062A\u064A\u0643", "gastrobiotic"],
-  ["\u062C\u0627\u0633\u062A\u0631\u0648\u0628\u064A\u0648\u062A\u0643", "gastrobiotic"]
+  ["\u062C\u0627\u0633\u062A\u0631\u0648\u0628\u064A\u0648\u062A\u0643", "gastrobiotic"],
+  // Audited spellings name product families, never a particular strength/pack or a sale.
+  ["\u0641\u064A\u0645\u0648 \u062C\u064A\u0633\u0627\u0644", "femogesal"],
+  ["\u0645\u0627\u0631\u0643\u0627\u0644", "marcal"],
+  ["\u0643\u0631\u0648\u0645\u0627\u0643\u0633", "chromax"],
+  ["\u0633\u0628\u0627\u0632\u0645\u0648\u0628\u064A\u0631\u0627\u0644\u062C\u064A\u0646", "spasmopyralgin"],
+  ["\u062A\u0648\u0633\u064A\u0633\u062A\u0648\u0628", "tussistop"],
+  ["\u0645\u064A\u0644\u0627\u0643\u0631\u064A\u0633\u062A", "melacryst"],
+  ["\u0644\u0628\u0646 \u0644\u0627\u0643\u062A\u0648", "lacto"],
+  ["\u0641\u0648\u0644\u062A\u0627\u0631\u064A\u0646", "voltaren"],
+  ["\u0627\u0644\u062A\u0631\u0645\u0648\u0645\u062A\u0631 \u0627\u0644\u0631\u0642\u0645\u064A", "\u062A\u0631\u0645\u0648\u0645\u062A\u0631 \u062F\u064A\u062C\u064A\u062A\u0627\u0644"]
 ]);
 var CROSS_SCRIPT_VARIANT_WORDS = /* @__PURE__ */ new Map([
   ["\u0641\u0648\u0631\u062A", "forte"],
@@ -8585,7 +8595,7 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
 function unresolvedCatalogCandidates(name, productIndex) {
   if (!productIndex || !name.trim()) return [];
   const resolution = resolveProductMention(name, productIndex);
-  if (resolution.selected || !resolution.candidates.length) return [];
+  if (resolution.selected && isBasketEligibleProductResolution(resolution.selected) || !resolution.candidates.length) return [];
   const top = resolution.candidates[0].confidence;
   return resolution.candidates.filter((candidate) => candidate.confidence === top).slice(0, 10).map((candidate) => ({
     productId: candidate.product.productId,
@@ -9826,7 +9836,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v57-case-scoped-criteria";
+var PIPELINE_VERSION = "sales-intelligence-v58-product-candidate-evidence";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v15-caption-priced-offer-continuity",
   historicalClosure: "historical-closure-v1",

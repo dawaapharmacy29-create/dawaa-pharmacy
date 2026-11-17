@@ -322,6 +322,16 @@ function cardInput(over: Partial<CaseInvoiceCardInput> = {}): CaseInvoiceCardInp
 }
 
 describe('case invoice card', () => {
+  it('retains a persisted weak identity as partial even without a proven attribution line', () => {
+    const input = cardInput();
+    input.view!.products = [product({ productNameRaw: 'فيمو جيسال', productId: 'p-c40', productCode: '81948', requestedQuantity: null, finalQuantity: null })];
+    const card = buildCaseInvoiceCard(input);
+    const matched = card.lines.find(l => l.productCode === '81948')!;
+    expect(matched.match).toBe('partial');
+    expect(matched.evidenceMessageIds).toEqual(['m1']);
+    expect(card.conversationItems[0].conversationQuantity).toBeNull();
+    expect(card.lines.find(l => l.productCode === '16467')!.match).toBe('invoice_only');
+  });
   it("classifies every recorded line against this case's conversation, with its evidence", () => {
     const card = buildCaseInvoiceCard(cardInput());
     const byCode = Object.fromEntries(card.lines.map((l) => [l.productCode, l]));
@@ -333,7 +343,7 @@ describe('case invoice card', () => {
     expect(byCode['78994'].evidence).toMatch(/ذكره الدكتور وأكده العميل، وليس طلبًا بدأه العميل/);
     // «علبتين كولونا»: quantity agrees, strength/pack not settled by the text.
     expect(byCode['81948']).toMatchObject({ match: 'partial', matchLabel: 'تطابق جزئي' });
-    expect(byCode['81948'].evidence).toMatch(/التركيز\/العبوة غير محسومة/);
+    expect(byCode['81948'].evidence).toMatch(/هوية الصنف الدقيقة تحتاج اعتمادًا/);
     expect(byCode['81948'].evidence).toMatch(/الكمية 2 متوافقة/);
     // «تكرر المحلول» names no catalog product: the Ringer line stays invoice-only.
     expect(byCode['16467']).toMatchObject({

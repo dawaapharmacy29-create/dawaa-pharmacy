@@ -163,6 +163,16 @@ export const CROSS_SCRIPT_SEED: ReadonlyMap<string, string> = new Map([
   ['كولونا', 'colona'],
   ['جاسترو بيوتيك', 'gastrobiotic'],
   ['جاستروبيوتك', 'gastrobiotic'],
+  // Audited spellings name product families, never a particular strength/pack or a sale.
+  ['فيمو جيسال', 'femogesal'],
+  ['ماركال', 'marcal'],
+  ['كروماكس', 'chromax'],
+  ['سبازموبيرالجين', 'spasmopyralgin'],
+  ['توسيستوب', 'tussistop'],
+  ['ميلاكريست', 'melacryst'],
+  ['لبن لاكتو', 'lacto'],
+  ['فولتارين', 'voltaren'],
+  ['الترمومتر الرقمي', 'ترمومتر ديجيتال'],
 ]);
 
 /** Spoken product-line variant words (whole words only) that narrow one seeded brand's SKUs. */

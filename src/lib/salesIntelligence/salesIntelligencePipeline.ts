@@ -820,9 +820,9 @@ function analyzeOneCase(
 }
 
 /**
- * The canonical resolver's top-tier tied candidates for a name it could not resolve safely —
- * exactly the reason it stayed ambiguous. Bounded; empty when the resolver selects a product or
- * finds nothing (e.g. «المحلول» names no catalog product).
+ * The canonical resolver's top-tier candidates when basket identity was not settled safely.
+ * A selected weak candidate is still unresolved for basket identity: retain its evidence for
+ * invoice review instead of making a visible customer mention disappear. Never promote it.
  */
 function unresolvedCatalogCandidates(
   name: string,
@@ -830,7 +830,7 @@ function unresolvedCatalogCandidates(
 ): Array<{ productId: string; productCode: string; name: string }> {
   if (!productIndex || !name.trim()) return [];
   const resolution = resolveProductMention(name, productIndex);
-  if (resolution.selected || !resolution.candidates.length) return [];
+  if ((resolution.selected && isBasketEligibleProductResolution(resolution.selected)) || !resolution.candidates.length) return [];
   const top = resolution.candidates[0].confidence;
   return resolution.candidates
     .filter((candidate) => candidate.confidence === top)
