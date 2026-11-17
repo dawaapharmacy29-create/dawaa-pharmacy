@@ -226,7 +226,21 @@ function classifyLine(
       conversationProductKey: product.productKey,
     };
   }
-  // 2. An unresolved case mention whose canonical catalog candidates include this line.
+  // 2. A persisted canonical identity can be a weak/partial catalog resolution, so the strict
+  // attribution engine deliberately emits no proven invoiceLine for it. Preserve that shared
+  // identity as a PARTIAL comparison; do not turn missing proof into "no mention" or borrow the
+  // invoice quantity as a conversation quantity. This projection never resolves a new identity.
+  for (const product of products) {
+    if (!product.productId && !product.productCode) continue;
+    if (!((item.productId && product.productId === item.productId) || sameCode(product.productCode, item.productCode))) continue;
+    return {
+      match: 'partial',
+      evidence: `«${product.productNameRaw}» — ${MENTION_LABEL[product.mentionSource ?? ''] ?? 'مصدر الذكر غير محدد'}؛ الهوية المحفوظة تقابل بند الفاتورة، لكن اكتمال إثبات الهوية والكمية غير محسوم. كمية الفاتورة لا تُنقل إلى المحادثة.`,
+      evidenceMessageIds: product.evidenceMessageIds ?? [],
+      conversationProductKey: product.productKey,
+    };
+  }
+  // 3. An unresolved case mention whose canonical catalog candidates include this line.
   for (const product of products) {
     if (product.productId || !product.catalogCandidates?.length) continue;
     const isCandidate = product.catalogCandidates.some(
@@ -254,7 +268,7 @@ function classifyLine(
           : `الكمية ${qty} في المحادثة مقابل ${item.quantity} بالفاتورة`;
     return {
       match: 'partial',
-      evidence: `«${product.productNameRaw}» يطابق اسم الصنف لكن التركيز/العبوة غير محسومة من النص (المرشحون: ${names})؛ ${qtyText}.`,
+      evidence: `«${product.productNameRaw}» له ترشيح كتالوج محفوظ يقابل هذا البند (المرشحون: ${names})؛ هوية الصنف الدقيقة تحتاج اعتمادًا ولا يحسمها التشابه اللغوي وحده؛ ${qtyText}.`,
       evidenceMessageIds: ids,
       conversationProductKey: product.productKey,
     };
