@@ -127,10 +127,22 @@ export function hasPhoneLikeTrailingDigits(value: unknown): boolean {
   );
 }
 
+/** A clearly labelled courier phone is operational metadata, never the customer's contact.
+ * Only strip it when a distinct short customer code precedes the explicit label and the suffix
+ * is a valid Egyptian mobile. Names, ordinary trailing phones and unlabelled numbers stay intact.
+ */
+export function customerLabelWithoutCourierContact(value: unknown): string {
+  const raw = customerIdentityText(value);
+  const match = raw.match(/^(.+?\s+[٠-٩۰-۹\d]{2,8})[.\s]*رقم\s+للمندوب\s+([+٠-٩۰-۹\d\s()-]+)$/u);
+  if (!match || !isValidEgyptianCustomerMobile(normalizeEgyptianCustomerPhone(match[2]))) return raw;
+  return match[1].trim();
+}
+
 /** Extract a trailing Dawaa customer code from WhatsApp contact labels; phone-like suffixes are rejected. */
 export function extractTrailingCustomerCodeFromDisplayName(value: unknown): string {
-  if (hasPhoneLikeTrailingDigits(value)) return '';
-  const raw = customerIdentityText(value)
+  const label = customerLabelWithoutCourierContact(value);
+  if (hasPhoneLikeTrailingDigits(label)) return '';
+  const raw = customerIdentityText(label)
     .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
     .trim();
   const match = raw.match(/(?:^|[^0-9])(\d{2,9})\s*\)?\s*$/);

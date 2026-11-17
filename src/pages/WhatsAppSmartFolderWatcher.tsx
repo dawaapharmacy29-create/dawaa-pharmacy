@@ -269,6 +269,7 @@ export default function WhatsAppSmartFolderWatcher() {
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [connected, setConnected] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [reanalyzeUploadedFiles, setReanalyzeUploadedFiles] = useState(false);
   const [runs, setRuns] = useState<FileRun[]>([]);
   const [selected, setSelected] = useState<StaffRun | null>(null);
   const [conversationView, setConversationView] = useState<'whatsapp' | 'review'>('whatsapp');
@@ -737,7 +738,7 @@ export default function WhatsAppSmartFolderWatcher() {
         try {
           // Reuse the folder's canonical pipeline and durable hash/correction guards.
           // A standalone filename supplies no folder/branch provenance.
-          result = await analyzeFile(file, 'ingest', null, (next) => { stage = next; });
+          result = await analyzeFile(file, reanalyzeUploadedFiles ? 'reanalyze' : 'ingest', null, (next) => { stage = next; });
         } catch (error) {
           result = {
             fileName: file.name, at: new Date().toLocaleString('ar-EG'),
@@ -903,6 +904,11 @@ export default function WhatsAppSmartFolderWatcher() {
             <p className="mt-1 text-xs text-slate-400">الملفات تتحلل تلقائيًا، وافتح فقط الحالات التي تحتاج قرارًا أو اعتمادًا.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-2 text-xs">
+              <input type="checkbox" checked={reanalyzeUploadedFiles} disabled={scanning}
+                onChange={(event) => setReanalyzeUploadedFiles(event.currentTarget.checked)} />
+              إعادة تحليل الملفات الموجودة واستكمال الربط
+            </label>
             <input
               ref={uploadInputRef} type="file" accept=".txt,.zip" multiple
               aria-label="ملفات تصدير واتساب" className="hidden" disabled={scanning}

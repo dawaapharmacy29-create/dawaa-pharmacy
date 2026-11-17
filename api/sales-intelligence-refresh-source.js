@@ -52,9 +52,16 @@ function hasPhoneLikeTrailingDigits(value) {
   const groups = tail.match(/\d+/g) ?? [];
   return tail.startsWith("+") || groups.length >= 3 || digits.length >= 10 || isValidEgyptianCustomerMobile(digits);
 }
+function customerLabelWithoutCourierContact(value) {
+  const raw = customerIdentityText(value);
+  const match = raw.match(/^(.+?\s+[٠-٩۰-۹\d]{2,8})[.\s]*رقم\s+للمندوب\s+([+٠-٩۰-۹\d\s()-]+)$/u);
+  if (!match || !isValidEgyptianCustomerMobile(normalizeEgyptianCustomerPhone(match[2]))) return raw;
+  return match[1].trim();
+}
 function extractTrailingCustomerCodeFromDisplayName(value) {
-  if (hasPhoneLikeTrailingDigits(value)) return "";
-  const raw = customerIdentityText(value).replace(/[٠-٩]/g, (digit) => String("\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669".indexOf(digit))).trim();
+  const label = customerLabelWithoutCourierContact(value);
+  if (hasPhoneLikeTrailingDigits(label)) return "";
+  const raw = customerIdentityText(label).replace(/[٠-٩]/g, (digit) => String("\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669".indexOf(digit))).trim();
   const match = raw.match(/(?:^|[^0-9])(\d{2,9})\s*\)?\s*$/);
   if (!match) return "";
   const digits = match[1];
@@ -9836,7 +9843,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v58-product-candidate-evidence";
+var PIPELINE_VERSION = "sales-intelligence-v59-courier-contact-identity";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v15-caption-priced-offer-continuity",
   historicalClosure: "historical-closure-v1",
