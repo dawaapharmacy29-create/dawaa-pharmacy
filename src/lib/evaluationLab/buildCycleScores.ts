@@ -6,9 +6,9 @@ import {
 } from './catalog';
 import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 import { summarizeFulfillment, type FulfillmentResult } from './requestFulfillment';
-import { hourlyTargets, cairoHourKey, type HourlyInvoice, type HourlyOutput } from './hourlyTarget';
+import { hourlyTargets, cairoHourKey, type HourlyInvoice, type HourlyOutput, type HourlyShift } from './hourlyTarget';
 import { personCompliance, type ComplianceResult, type ViolationCategory } from './complianceFactor';
-import { EARNED_RULES, attendanceCounts, doctorTargetsFor, earnedDoctorAxes, earnedIncentive, type EarnedIncentive } from './earnedIncentive';
+import { EARNED_RULES, attendanceCounts, credibleAverage, doctorTargetsFor, earnedDoctorAxes, earnedIncentive, hoursFactorFor, type EarnedIncentive } from './earnedIncentive';
 import { completeRequestCounts, type GroupRequest } from './groupRequests';
 import { branchStars, type BranchStar, type StarInput } from './branchStar';
 import {
@@ -46,6 +46,10 @@ export interface LabEvidence {
     staffId: string; date: string; status: string | null; hasFirstIn: boolean; scheduled: boolean; lateMinutes: number;
     /** v6.6 punch window (timestamps). */
     firstInAt?: string | null; lastOutAt?: string | null; scheduledEndAt?: string | null;
+    /** v7.1: the branch of the punch device (the day's branch when no own invoice says otherwise). */
+    branch?: string | null;
+    /** v7.1: the planned start (a day with own sales and no punch is read from the plan). */
+    scheduledStartAt?: string | null;
     /** v6.9: the day's attendance was approved (days under review never cost the incentive). */
     approved?: boolean;
   }>;
@@ -87,6 +91,10 @@ export interface LabEvidence {
   followupTargets?: Array<{ branch: string; target: number }> | null;
   /** Customer requests posted in the branches' WhatsApp groups (null when unreadable). */
   groupRequests?: GroupRequest[] | null;
+  /** v7.1: weekly random review results per seller in this cycle (null when unreadable). */
+  reviewScores?: Array<{ staffId: string; invoiceReviews: number; invoiceAvg: number | null; conversationReviews: number; conversationMissing: number; conversationAvg: number | null }> | null;
+  /** v7.1: the owner-approved monthly branch targets for follow-ups and complete requests. */
+  cycleTargets?: Array<{ branch: string; cycleStart: string; followups: number | null; requests: number | null }> | null;
   /** Sources with no rows in the cycle (followups, assistant_checklist, delivery_ratings): shown as dormant. */
   dormantSources: string[];
 }
@@ -158,6 +166,8 @@ export interface LabPersonScore extends LabScore {
   earned?: EarnedIncentive;
   /** v7.0: the doctor's place in the race for the branch star. */
   star?: BranchStar;
+  /** v7.1: the shifts his targets were read from (punches, plan or own sales), shown line by line. */
+  shifts?: HourlyShift[];
 }
 
 export interface LabAttendanceSummary {
@@ -180,6 +190,8 @@ export interface LabAttendanceSummary {
 }
 
 type AxisDraft = Omit<AxisResult, 'label' | 'weight'>;
+/** Approved leave days: paid as worked hours in the v7.1 hours factor (weekly days off are not). */
+const APPROVED_LEAVE = /^(approved_time_off|approved_leave|manager_approved_leave|approved_absence_permission)$/;
 const round = (value: number, digits = 1) => Math.round(value * 10 ** digits) / 10 ** digits;
 const branchKey = (value: string | null | undefined) => normalizeBranchName(value || '') || '';
 const egp = (value: number) => Math.round(value).toLocaleString('ar-EG');
@@ -464,7 +476,7 @@ function basketAxis(
 }
 
 /** v6.6 hourly target of the doctors; null when the cycle or the previous cycle's curve is missing. */
-function hourlyFor(evidence: LabEvidence, pool: LabEvidence['staff']): HourlyOutput | null {
+function hourlyFor(evidence: LabEvidence, pool: LabEvidence['staff'], version: LabVersion = LAB_CURRENT_VERSION): HourlyOutput | null {
   if (!evidence.cycle || !evidence.previousInvoices) return null;
   const out = hourlyTargets({
     cycle: evidence.cycle,
@@ -473,6 +485,7 @@ function hourlyFor(evidence: LabEvidence, pool: LabEvidence['staff']): HourlyOut
     invoices: evidence.invoices,
     attendance: evidence.attendance,
     pool: pool.map((p) => ({ id: p.id, branch: p.branch, weight: evidence.doctorWeights?.[p.id] ?? 1 })),
+    fairShifts: atLeast(version, 'v7.1'),
   });
   return out.ready ? out : null;
 }
@@ -526,7 +539,10 @@ function earnedAxesFor(
   starInputs: Map<string, Omit<StarInput, 'score' | 'salesPct'>>,
   /** Branch managers: in the star race with the doctors (owner 2026-11-14), but scored on their own card. */
   starOnly: Array<{ id: string; branch: string | null }> = [],
+  hourly: HourlyOutput | null = null,
+  starHourly: HourlyOutput | null = null,
 ): Map<string, AxisDraft[]> {
+  const fair = atLeast(version, 'v7.1');
   // A working day is a punched day or a day with own invoices (a missing punch never erases work).
   const poolIds = new Set([...pool.map((p) => p.id), ...starOnly.map((p) => p.id)]);
   const worked = new Map<string, Set<string>>();
@@ -560,27 +576,96 @@ function earnedAxesFor(
   };
   // App requests plus the WhatsApp groups' requests, the same customer on the same day once.
   const completeOf = completeRequestCounts(evidence.requests, evidence.groupRequests);
+
+  // v7.1 fair targets: shares of the branch by the customers who came in each person's hours.
+  const cycleTargetOf = (branch: string | null) => (evidence.cycleTargets || [])
+    .find((t) => t.cycleStart === evidence.cycle?.start && branchKey(t.branch) === branchKey(branch));
+  // Totals per branch of the customers each person met there (a doctor covering the other branch counts there).
+  const exposureTotals = (h: HourlyOutput | null, people: Array<{ id: string; branch: string | null }>) => {
+    const totals = new Map<string, number>();
+    for (const person of people) {
+      for (const [b, at] of Object.entries(h?.people.get(person.id)?.byBranch || {})) totals.set(b, (totals.get(b) || 0) + at.expectedInvoices);
+    }
+    return totals;
+  };
+  const doctorExposure = exposureTotals(hourly, pool);
+  const starExposure = exposureTotals(starHourly, [...pool, ...starOnly]);
+  const salesTargetOf = (b: string) => evidence.targets.filter((t) => branchKey(t.branch) === b).reduce((sum, t) => sum + t.targetAmount, 0);
+  const branchLabel = (b: string) => b.replace(/^فرعs*/, '');
+  const prevBranchNet = new Map<string, number>();
+  for (const inv of evidence.previousInvoices || []) if (inv.net > 0) prevBranchNet.set(branchKey(inv.branch), (prevBranchNet.get(branchKey(inv.branch)) || 0) + inv.net);
+  const growthOf = (b: string) => {
+    const prevNet = prevBranchNet.get(b) || 0;
+    const salesTarget = salesTargetOf(b);
+    return prevNet > 0 && salesTarget > 0 ? Math.min(EARNED_RULES.maxMonthlyGrowth, Math.max(1, Math.sqrt(salesTarget / prevNet))) : 1;
+  };
+  // v7.1: every target is the sum, over the branches he worked in, of that branch's target × his share of its customers.
+  const fairTargets = (h: HourlyOutput | null, totals: Map<string, number>, id: string, branch: string | null) => {
+    const r = h?.people.get(id);
+    const parts = Object.entries(r?.byBranch || {})
+      .map(([b, at]) => ({ b, at, share: (totals.get(b) || 0) > 0 ? at.expectedInvoices / (totals.get(b) || 1) : 0, row: cycleTargetOf(b) }))
+      .filter((part) => part.at.hours > 0)
+      .sort((x, y) => y.at.hours - x.at.hours);
+    const exposure = h && parts.length ? parts.reduce((s, p) => s + p.share, 0) : null;
+    const followupTarget = exposure === null ? null : parts.reduce((s, p) => s + (p.row?.followups ?? targetOf(p.b)) * p.share, 0);
+    const withRequests = parts.filter((p) => p.row?.requests);
+    const requestsTarget = exposure !== null && withRequests.length ? withRequests.reduce((s, p) => s + (p.row?.requests || 0) * p.share, 0) : null;
+    const prevCount = parts.reduce((s, p) => s + p.at.prevCount, 0);
+    const prevSales = parts.reduce((s, p) => s + p.at.prevSales, 0);
+    const avgBase = prevCount >= 20 ? prevSales / prevCount : null;
+    const avgInvoiceTarget = avgBase === null ? null : parts.reduce((s, p) => s + p.at.prevSales * growthOf(p.b), 0) / prevCount;
+    const where = parts.map((p) => `${round(p.share * 100)}٪ من عملاء ${branchLabel(p.b)}`).join(' + ');
+    return {
+      exposure, followupTarget, requestsTarget, avgInvoiceTarget, avgBase,
+      /** The branch he worked most hours in (his star race and his branch factor lean on it). */
+      mainBranch: parts[0]?.b ?? branchKey(branch),
+      hoursByBranch: parts.map((p) => ({ b: p.b, hours: p.at.hours })),
+      followupNote: exposure === null ? '' : `${where} دخلوا في ساعاته · تارجت ${parts.map((p) => `${branchLabel(p.b)} ${egp(p.row?.followups ?? targetOf(p.b))}`).join(' و')}`,
+      requestsNote: requestsTarget === null ? '' : `${where} · تارجت ${withRequests.map((p) => `${branchLabel(p.b)} ${egp(p.row?.requests || 0)}`).join(' و')}`,
+      avgNote: avgInvoiceTarget === null || avgBase === null ? '' : `متوسط ساعاته الشهر اللي فات ${egp(avgBase)} ج × ${round(avgInvoiceTarget / avgBase, 3)} زيادة الفرع`,
+    };
+  };
+  // v7.1: one invoice counts in the average up to the branch's 99th percentile of the cycle.
+  const capOf = new Map<string, number>();
+  if (fair) {
+    const nets = new Map<string, number[]>();
+    for (const inv of evidence.invoices) if (inv.net > 0) nets.set(branchKey(inv.branch), [...(nets.get(branchKey(inv.branch)) || []), inv.net]);
+    for (const [key, list] of nets) {
+      list.sort((a, b) => a - b);
+      capOf.set(key, list[Math.floor(EARNED_RULES.avgInvoiceCapPercentile * (list.length - 1))]);
+    }
+  }
+  const cappedNet = (list: LabEvidence['invoices']) =>
+    list.reduce((sum, inv) => sum + Math.min(inv.net, capOf.get(branchKey(inv.branch)) ?? inv.net), 0);
+  const sampleOf = (id: string) => (evidence.reviewScores === undefined ? undefined : evidence.reviewScores === null ? null
+    : evidence.reviewScores.find((row) => row.staffId === id) || { staffId: id, invoiceReviews: 0, invoiceAvg: null, conversationReviews: 0, conversationMissing: 0, conversationAvg: null });
+  const minSample = Math.max(3, Math.ceil(EARNED_RULES.minSampleReviews * (share || 1)));
   const violationsOf = (id: string) => (evidence.violations == null ? null : evidence.violations.filter((v) => v.staffId === id).length);
   const addStar = (id: string, branch: string | null) => {
     const workedDays = worked.get(id)?.size || 0;
     const branchDoctorDays = starBranchDays.get(branchKey(branch)) || 0;
     const projectedFollowups = followups ? (followups.get(id) || 0) / (share || 1) : 0;
-    const followupShare = workedDays && branchDoctorDays ? (targetOf(branch) * workedDays) / branchDoctorDays : 0;
+    const fairStar = fair ? fairTargets(starHourly, starExposure, id, branch) : null;
+    const followupShare = fairStar ? fairStar.followupTarget || 0
+      : workedDays && branchDoctorDays ? (targetOf(branch) * workedDays) / branchDoctorDays : 0;
     const completeRequests = completeOf.get(id) || 0;
-    // Average invoice against the branch's fixed target, on the same invoices and coding gate as the monthly item.
-    const avgTarget = doctorTargetsFor(branch)?.avgInvoice;
+    const requestsTarget = fairStar?.requestsTarget ?? EARNED_RULES.completeRequestsTarget;
+    // Average invoice against the branch's fixed target (v7.1: his hours' target), on the same invoices and coding gate as the monthly item.
+    const avgTarget = fairStar?.avgInvoiceTarget ?? doctorTargetsFor(branch)?.avgInvoice;
     const own = evidence.invoices.filter((inv) => inv.staffId === id && inv.net > 0);
     const minInvoices = Math.max(10, Math.round(LAB_THRESHOLDS.minInvoicesForCoding * Math.min(1, share || 1)));
     const coding = own.length ? own.filter((inv) => inv.coded).length / own.length : 1;
+    const ownAverage = fairStar ? credibleAverage(cappedNet(own), own.length, fairStar.avgBase) : own.reduce((s, inv) => s + inv.net, 0) / (own.length || 1);
     const avgInvoicePct = avgTarget && own.length >= minInvoices
-      ? (own.reduce((s, inv) => s + inv.net, 0) / own.length / avgTarget) * 100 * (coding < EARNED_RULES.codingFloor ? 0.5 : 1)
+      ? (ownAverage / avgTarget) * 100 * (coding < EARNED_RULES.codingFloor ? 0.5 : 1)
       : null;
     starInputs.set(id, {
       staffId: id,
       name: evidence.staff.find((p) => p.id === id)?.name || '',
-      branch,
+      // v7.1: a doctor races in the branch he worked most hours in this cycle.
+      branch: fairStar ? fairStar.mainBranch : branch,
       followupPct: followups && followupShare ? (projectedFollowups / followupShare) * 100 : null,
-      requestsPct: ((completeRequests / (share || 1)) / EARNED_RULES.completeRequestsTarget) * 100,
+      requestsPct: requestsTarget > 0 ? ((completeRequests / (share || 1)) / requestsTarget) * 100 : null,
       avgInvoicePct,
       followups: projectedFollowups,
       workedDays,
@@ -594,7 +679,18 @@ function earnedAxesFor(
     const own = evidence.invoices.filter((inv) => inv.staffId === id && inv.net > 0);
     const counts = attendanceCounts(evidence.attendance.filter((day) => day.staffId === id));
     const violations = violationsOf(id);
+    const fairOwn = fair ? fairTargets(hourly, doctorExposure, id, branch) : null;
+    const sample = fair ? sampleOf(id) : undefined;
     out.set(id, earnedDoctorAxes({
+      ...(fairOwn ? {
+        followupTarget: fairOwn.followupTarget, followupTargetNote: fairOwn.followupNote,
+        requestsTarget: fairOwn.requestsTarget, requestsTargetNote: fairOwn.requestsNote,
+        avgInvoiceTarget: fairOwn.avgInvoiceTarget, avgInvoiceNote: fairOwn.avgNote,
+        sampledConversations: sample === undefined ? undefined : sample === null ? null
+          : { reviewed: sample.conversationReviews, missing: sample.conversationMissing, average: sample.conversationAvg },
+        invoiceReview: sample === undefined ? undefined : sample === null ? null : { reviewed: sample.invoiceReviews, average: sample.invoiceAvg },
+        minSampleReviews: minSample,
+      } : {}),
       branch, cycleShare: share, trial,
       workedDays: worked.get(id)?.size || 0,
       branchDoctorDays: branchDays.get(key) || 0,
@@ -605,6 +701,7 @@ function earnedAxesFor(
       invoices: {
         count: own.length, net: own.reduce((s, inv) => s + inv.net, 0), coded: own.filter((inv) => inv.coded).length,
         minInvoices: Math.max(10, Math.round(LAB_THRESHOLDS.minInvoicesForCoding * Math.min(1, share || 1))), minDays: LAB_THRESHOLDS.minWorkedDays,
+        ...(fairOwn ? { cappedNet: cappedNet(own), base: fairOwn.avgBase } : {}),
       },
       reviews: facts.get(id)?.reviews || [],
       minReviews,
@@ -642,7 +739,7 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
     (own, expected, days, share) => `باع ${egp(own)} من نصيب متوقع ${egp(expected)} ج في ${days} يوم عمل (×${round(share, 2)})`, doctorPool)
     .forEach((axis, id) => push(id, axis));
   rateAxis('customer_requests', doctors, (f) => f.requests, 'طلب/يوم', invalidNote).forEach((axis, id) => push(id, axis));
-  const hourly = atLeast(version, 'v6.6') ? hourlyFor(evidence, doctorPool) : null;
+  const hourly = atLeast(version, 'v6.6') ? hourlyFor(evidence, doctorPool, version) : null;
   const attributionOf = () => hourly?.attribution ?? null;
   if (atLeast(version, 'v6.6')) for (const { id } of doctors) for (const axis of hourlyAxes(hourly, id, shape)) push(id, axis);
   if (atLeast(version, 'v6.2')) {
@@ -712,9 +809,9 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
   // hourly curve shared with the doctors of their branch (the doctors' own items keep the doctors' curve).
   const starManagers = atLeast(version, 'v7.0') ? familyMembers('branch_manager').map(({ id, branch }) => ({ id, branch })) : [];
   const starHourly = starManagers.length
-    ? hourlyFor(evidence, [...doctorPool, ...evidence.staff.filter((p) => starManagers.some((m) => m.id === p.id))])
+    ? hourlyFor(evidence, [...doctorPool, ...evidence.staff.filter((p) => starManagers.some((m) => m.id === p.id))], version)
     : hourly;
-  if (atLeast(version, 'v6.9')) earnedAxesFor(evidence, doctors, doctorPool, facts, minResolved, version, starInputs, starManagers).forEach((list, id) => list.forEach((axis) => push(id, axis)));
+  if (atLeast(version, 'v6.9')) earnedAxesFor(evidence, doctors, doctorPool, facts, minResolved, version, starInputs, starManagers, hourly, starHourly).forEach((list, id) => list.forEach((axis) => push(id, axis)));
 
   // Assistants.
   const assistants = familyMembers('assistant');
@@ -1016,12 +1113,28 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
   if (atLeast(version, 'v6.9')) {
     for (const result of results) {
       if (result.family !== 'doctor') continue;
+      const achievementOf = (key: string) => {
+        const t = evidence.targets.filter((row) => branchKey(row.branch) === key).reduce((s, row) => s + row.targetAmount, 0);
+        const n = evidence.invoices.filter((inv) => branchKey(inv.branch) === key).reduce((s, inv) => s + inv.net, 0);
+        return t > 0 ? (n / t) * 100 : null;
+      };
       const key = branchKey(result.branch);
       const target = evidence.targets.filter((t) => branchKey(t.branch) === key).reduce((s, t) => s + t.targetAmount, 0);
       const net = evidence.invoices.filter((inv) => branchKey(inv.branch) === key).reduce((s, inv) => s + inv.net, 0);
+      // v7.1: a doctor who covered the other branch takes each branch's achievement by the hours he worked there.
+      const split = atLeast(version, 'v7.1') ? Object.entries(hourly?.people.get(result.staffId)?.byBranch || {})
+        .map(([b, at]) => ({ hours: at.hours, pct: achievementOf(b) })).filter((x): x is { hours: number; pct: number } => x.pct !== null && x.hours > 0) : [];
+      const splitHours = split.reduce((s, x) => s + x.hours, 0);
+      const achievement = splitHours > 0 ? round(split.reduce((s, x) => s + x.pct * x.hours, 0) / splitHours)
+        : target > 0 ? round((net / target) * 100) : null;
       const absent = attendanceCounts(evidence.attendance.filter((day) => day.staffId === result.staffId)).absent;
       const score = result.readiness === 'insufficient' ? null : result.total;
-      result.earned = earnedIncentive(score, target > 0 ? round((net / target) * 100) : null, absent);
+      // v7.1: paid for the hours really worked (punches, or own invoices when a punch is missing) plus approved leave.
+      const worked = atLeast(version, 'v7.1') ? hourly?.people.get(result.staffId)?.hours : undefined;
+      const leaveDays = evidence.attendance.filter((day) => day.staffId === result.staffId && !day.hasFirstIn && APPROVED_LEAVE.test(String(day.status || ''))).length;
+      const hours = worked === undefined || !hourly?.ready ? null : hoursFactorFor(worked, leaveDays, evidence.cycleShare ?? 1);
+      result.earned = earnedIncentive(score, achievement, absent, hours);
+      if (atLeast(version, 'v7.1')) result.shifts = hourly?.people.get(result.staffId)?.shifts;
     }
   }
   if (atLeast(version, 'v7.0')) {

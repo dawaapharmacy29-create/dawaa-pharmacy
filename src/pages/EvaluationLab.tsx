@@ -9,6 +9,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { canSeeAllBranches } from '@/lib/security/permissionScopes';
 import { BranchCycleLossesPanel } from '@/components/evaluation/BranchCycleLossesPanel';
 import { BranchStarsSummary, StarBadge, StarRace } from '@/components/evaluation/BranchStarView';
+import { ShiftTargetBreakdown } from '@/components/evaluation/ShiftTargetBreakdown';
 import { loadDoctorLevels, saveDoctorLevel } from '@/lib/doctorEvaluation';
 
 const BASELINE_VERSION = LAB_PREVIOUS_VERSION[LAB_CURRENT_VERSION] ?? LAB_CURRENT_VERSION;
@@ -150,6 +151,7 @@ function EarnedDetails({ earned }: { earned: EarnedIncentive }) {
     earned.score === null ? 'الدرجة ما اتحسبتش (بنود مقاسة قليلة)' : `الدرجة ${Math.round(earned.score)} → ${earned.tierLabel} = ${earned.tierPercent}٪ من ${egp(EARNED_POOL)} ج`,
     earned.branchAchievement === null ? 'مفيش تارجت للفرع → معامل الفرع صفر' : `الفرع حقق ${earned.branchAchievement}٪ من التارجت → معامل ×${earned.branchFactor}`,
     earned.absenceCut ? `غياب ${earned.absenceDays} يوم من غير إذن → خصم ${Math.round(earned.absenceCut * 100)}٪ من الحافز كله` : `غياب من غير إذن: ${earned.absenceDays} يوم (مفيش خصم)`,
+    ...(earned.hours ? [`ساعات شغل حقيقية ${egp(earned.hours.worked)} ساعة${earned.hours.leaveDays ? ` + ${earned.hours.leaveDays} يوم إجازة معتمدة` : ''} من ${egp(earned.hours.needed)} ساعة للحافز الكامل → ×${earned.hours.factor}`] : []),
     `حافز الأداء ${egp(earned.performance)} ج + مكافأة تارجت الفرع ${egp(earned.bonus)} ج${earned.score !== null && earned.score < 60 ? ' (المكافأة لـ ٦٠ نقطة وأكتر)' : ''}`,
   ];
   return (
@@ -218,6 +220,7 @@ function PersonCard({ person, rank, baseline, control }: { person: LabPersonScor
           </div>
           {person.earned ? <EarnedDetails earned={person.earned} /> : person.compliance ? <ComplianceDetails compliance={person.compliance} /> : null}
           {person.star ? <StarRace star={person.star} /> : null}
+          {person.shifts ? <ShiftTargetBreakdown shifts={person.shifts} owner /> : null}
           {person.adjustments.length ? (
             <div className="dawaa-status-danger-bg dawaa-status-danger-border mt-3 space-y-1 rounded-xl border p-3">
               {person.adjustments.map((adjustment) => (

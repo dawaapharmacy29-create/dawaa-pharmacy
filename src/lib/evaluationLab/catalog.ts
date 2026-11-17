@@ -6,12 +6,12 @@ export type LabFamily = 'doctor' | 'assistant' | 'delivery' | 'branch_manager' |
 
 /** v6.0 is kept so the lab can show what each change moved; v6.1 is the proposal under review. */
 /** Each version keeps every rule of the one before it; the lab shows the change against the previous one. */
-export type LabVersion = 'v6.0' | 'v6.1' | 'v6.2' | 'v6.3' | 'v6.4' | 'v6.5' | 'v6.6' | 'v6.7' | 'v6.8' | 'v6.9' | 'v7.0';
-export const LAB_CURRENT_VERSION: LabVersion = 'v7.0';
+export type LabVersion = 'v6.0' | 'v6.1' | 'v6.2' | 'v6.3' | 'v6.4' | 'v6.5' | 'v6.6' | 'v6.7' | 'v6.8' | 'v6.9' | 'v7.0' | 'v7.1';
+export const LAB_CURRENT_VERSION: LabVersion = 'v7.1';
 /** The version the doctor dashboard (doctor-evaluation-v6 edge function) is built from; moves only when the owner publishes a lab version. */
 export const LAB_PUBLISHED_VERSION: LabVersion = 'v7.0';
-export const LAB_PREVIOUS_VERSION: Record<LabVersion, LabVersion | null> = { 'v6.0': null, 'v6.1': 'v6.0', 'v6.2': 'v6.1', 'v6.3': 'v6.2', 'v6.4': 'v6.3', 'v6.5': 'v6.4', 'v6.6': 'v6.5', 'v6.7': 'v6.6', 'v6.8': 'v6.7', 'v6.9': 'v6.8', 'v7.0': 'v6.9' };
-export const LAB_VERSION_ORDER: LabVersion[] = ['v6.0', 'v6.1', 'v6.2', 'v6.3', 'v6.4', 'v6.5', 'v6.6', 'v6.7', 'v6.8', 'v6.9', 'v7.0'];
+export const LAB_PREVIOUS_VERSION: Record<LabVersion, LabVersion | null> = { 'v6.0': null, 'v6.1': 'v6.0', 'v6.2': 'v6.1', 'v6.3': 'v6.2', 'v6.4': 'v6.3', 'v6.5': 'v6.4', 'v6.6': 'v6.5', 'v6.7': 'v6.6', 'v6.8': 'v6.7', 'v6.9': 'v6.8', 'v7.0': 'v6.9', 'v7.1': 'v7.0' };
+export const LAB_VERSION_ORDER: LabVersion[] = ['v6.0', 'v6.1', 'v6.2', 'v6.3', 'v6.4', 'v6.5', 'v6.6', 'v6.7', 'v6.8', 'v6.9', 'v7.0', 'v7.1'];
 
 export type LabAxisKey =
   | 'sales_per_day'
@@ -19,6 +19,7 @@ export type LabAxisKey =
   | 'avg_invoice'
   | 'basket_items'
   | 'coding_quality'
+  | 'invoice_review'
   | 'conversation_quality'
   | 'discipline'
   | 'customer_requests'
@@ -339,7 +340,28 @@ const V70: Record<LabFamily, LabAxisDefinition[]> = {
   ],
 };
 
-export const LAB_AXES_BY_VERSION: Record<LabVersion, Record<LabFamily, LabAxisDefinition[]>> = { 'v6.0': V60, 'v6.1': V61, 'v6.2': V62, 'v6.3': V63, 'v6.4': V64, 'v6.5': V65, 'v6.6': V66, 'v6.7': V67, 'v6.8': V68, 'v6.9': V69, 'v7.0': V70 };
+// v7.1 (owner decision 2026-11-17): fair targets by the hours each doctor works, and weekly random reviews.
+// Follow-ups and complete requests: the branch's monthly target (evaluation_branch_cycle_targets_v1) split by
+// the customers who came in the doctor's hours. Average invoice: the previous cycle's average in his hours,
+// raised by the branch's growth (√ of target ÷ last cycle, at most +15%). Conversations: the weekly random
+// sample (a chat not uploaded in 2 days scores 0). Invoice camera review: 2–3 random cash invoices a week.
+const V71: Record<LabFamily, LabAxisDefinition[]> = {
+  ...V70,
+  doctor: [
+    { key: 'followup_requests', label: 'طلبات المتابعة (نصيبه حسب العملاء في ساعاته)', weight: 30 },
+    { key: 'conversation_quality', label: 'المحادثات (العينة الأسبوعية، 90+ = كاملة)', weight: 25 },
+    { key: 'invoice_review', label: 'مراجعة جودة البيع (90+ = كاملة)', weight: 15 },
+    { key: 'complete_requests', label: 'طلبات العملاء الكاملة (نصيبه حسب العملاء في ساعاته)', weight: 15 },
+    { key: 'avg_invoice_target', label: 'متوسط الفاتورة مقابل تارجت ساعاته', weight: 15 },
+    { key: 'punctuality', label: 'المواعيد (للمعلومة — التأخير بيتخصم من المحفظة)', weight: 0 },
+    { key: 'invoices_per_day', label: 'عدد الفواتير في يوم الشغل (للمعلومة)', weight: 0 },
+    { key: 'uniform_compliance', label: 'الزي والأذونات والتعليمات (للمعلومة — بتتخصم من المحفظة)', weight: 0 },
+    { key: 'shift_target', label: 'تحقيق تارجت ساعاته (بيدخل في نجم الفرع)', weight: 0 },
+    { key: 'coding_quality', label: 'تكويد العملاء (أقل من 95٪ يقسم متوسط الفاتورة)', weight: 0 },
+  ],
+};
+
+export const LAB_AXES_BY_VERSION: Record<LabVersion, Record<LabFamily, LabAxisDefinition[]>> = { 'v6.0': V60, 'v6.1': V61, 'v6.2': V62, 'v6.3': V63, 'v6.4': V64, 'v6.5': V65, 'v6.6': V66, 'v6.7': V67, 'v6.8': V68, 'v6.9': V69, 'v7.0': V70, 'v7.1': V71 };
 export const LAB_AXES = LAB_AXES_BY_VERSION[LAB_CURRENT_VERSION];
 
 /**

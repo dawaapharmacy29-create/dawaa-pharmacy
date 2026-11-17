@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { LAB_AXES_BY_VERSION, LAB_CURRENT_VERSION, LAB_PUBLISHED_VERSION } from '../catalog';
-import { attendanceCounts, earnedDoctorAxes, earnedIncentive, isCompleteRequest, type EarnedDoctorInput } from '../earnedIncentive';
+import { attendanceCounts, credibleAverage, earnedDoctorAxes, earnedIncentive, hoursFactorFor, isCompleteRequest, type EarnedDoctorInput } from '../earnedIncentive';
 import { buildCycleScores, type LabEvidence } from '../buildCycleScores';
 
 const base: EarnedDoctorInput = {
@@ -22,13 +22,46 @@ describe('v6.9 catalog', () => {
     expect(doctor.reduce((s, a) => s + a.weight, 0)).toBe(100);
   });
 
-  it('v7.0 doctor weights are follow-ups 35, conversations 35, requests 15, average invoice 15, and it is published', () => {
+  it('v7.0 doctor weights are follow-ups 35, conversations 35, requests 15, average invoice 15, and it stays published', () => {
     const doctor = LAB_AXES_BY_VERSION['v7.0'].doctor;
     expect(doctor.filter((a) => a.weight > 0).map((a) => [a.key, a.weight])).toEqual([
       ['followup_requests', 35], ['conversation_quality', 35], ['complete_requests', 15], ['avg_invoice_target', 15],
     ]);
-    expect(LAB_CURRENT_VERSION).toBe('v7.0');
+    expect(LAB_CURRENT_VERSION).toBe('v7.1');
     expect(LAB_PUBLISHED_VERSION).toBe('v7.0');
+  });
+
+  it('v7.1 doctor weights are follow-ups 30, conversations 25, invoice camera review 15, requests 15, average invoice 15', () => {
+    const doctor = LAB_AXES_BY_VERSION['v7.1'].doctor;
+    expect(doctor.filter((a) => a.weight > 0).map((a) => [a.key, a.weight])).toEqual([
+      ['followup_requests', 30], ['conversation_quality', 25], ['invoice_review', 15], ['complete_requests', 15], ['avg_invoice_target', 15],
+    ]);
+    expect(doctor.reduce((s, a) => s + a.weight, 0)).toBe(100);
+  });
+});
+
+describe('v7.1 fair targets and weekly samples', () => {
+  it('follow-ups and requests are read against the doctor own targets from the customers in his hours', () => {
+    expect(score({ followups: 120, followupTarget: 240 }, 'followup_requests')?.score).toBe(50);
+    expect(score({ followups: 120, followupTarget: 0 }, 'followup_requests')?.status).toBe('not_measurable');
+    expect(score({ completeRequests: 15, requestsTarget: 30 }, 'complete_requests')?.score).toBe(50);
+    // Without a branch target the request target stays 20.
+    expect(score({ completeRequests: 10 }, 'complete_requests')?.score).toBe(50);
+  });
+  it('the average invoice is read against his hours target', () => {
+    // 351 of a 351 target is full; the branch's fixed 390 would have given 50.
+    expect(score({ invoices: { ...base.invoices, net: 380 * 351 }, avgInvoiceTarget: 351 }, 'avg_invoice_target')?.score).toBe(100);
+  });
+  it('conversations come from the weekly sample, a chat never uploaded counts 0', () => {
+    expect(score({ sampledConversations: { reviewed: 6, missing: 0, average: 80 } }, 'conversation_quality')?.score).toBe(50);
+    expect(score({ sampledConversations: { reviewed: 3, missing: 2, average: 90 } }, 'conversation_quality')?.status).toBe('not_measurable');
+    expect(score({ sampledConversations: null }, 'conversation_quality')?.status).toBe('not_measurable');
+  });
+  it('the invoice camera review maps 50 → 0 and 90+ → full, and needs 6 reviews', () => {
+    expect(score({ invoiceReview: { reviewed: 6, average: 70 } }, 'invoice_review')?.score).toBe(50);
+    expect(score({ invoiceReview: { reviewed: 6, average: 95 } }, 'invoice_review')?.score).toBe(100);
+    expect(score({ invoiceReview: { reviewed: 5, average: 95 } }, 'invoice_review')?.status).toBe('not_measurable');
+    expect(earnedDoctorAxes(base).some((a) => a.key === 'invoice_review')).toBe(false);
   });
 });
 
@@ -181,5 +214,25 @@ describe('owner exceptions scored with the doctors', () => {
     expect(person.axes.find((a) => a.key === 'avg_invoice_target')?.status).toBe('measured');
     expect(person.star).toBeDefined();
     expect(scores.find((p) => p.staffId === 'a1')?.family).toBe('assistant');
+  });
+});
+
+describe('v7.1 hours factor and credible average', () => {
+  it('pays a few days of work only their share', () => {
+    expect(hoursFactorFor(40, 0).factor).toBe(0.21);
+    expect(hoursFactorFor(200, 0).factor).toBe(1);
+    expect(hoursFactorFor(165, 3).factor).toBe(1);
+    const part = earnedIncentive(95, 100, 0, hoursFactorFor(40, 0));
+    const full = earnedIncentive(95, 100, 0, hoursFactorFor(200, 0));
+    expect(full.total).toBe(3100);
+    expect(part.total).toBe(Math.round(2500 * 0.21) + Math.round(600 * 0.21));
+  });
+
+  it('pulls a handful of invoices toward the hours average', () => {
+    // 15 invoices averaging 700 in hours that average 300 → about 380, not 700.
+    expect(Math.round(credibleAverage(15 * 700, 15, 300))).toBe(380);
+    // 600 invoices: his own average stays almost as is.
+    expect(Math.round(credibleAverage(600 * 420, 600, 300))).toBe(409);
+    expect(credibleAverage(1000, 4, null)).toBe(250);
   });
 });

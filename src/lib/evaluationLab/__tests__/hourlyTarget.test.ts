@@ -28,6 +28,18 @@ const input = () => ({
   pool: [{ id: 'a', branch: B, weight: 1 }, { id: 'b', branch: B, weight: 0.5 }],
 });
 
+describe('v7.1 previous-cycle average in the doctor hours', () => {
+  it('gives each doctor his part of last cycle sales and invoices on the same weekday-hours', () => {
+    const out = hourlyTargets(input());
+    const a = out.people.get('a')!;
+    const b = out.people.get('b')!;
+    // Last cycle: one 1000 invoice at 18 and 19 on each weekday. a shares day 1 (2/3) and is alone on day 2.
+    expect(a.prevCount).toBeCloseTo(2 * (2 / 3) + 2, 5);
+    expect(a.prevSales / a.prevCount).toBeCloseTo(1000, 5);
+    expect(b.prevCount).toBeCloseTo(2 / 3, 5);
+  });
+});
+
 describe('v6.6 hourly target', () => {
   it('keys invoices by the Cairo hour', () => {
     expect(cairoHourKey('2026-12-01T16:30:00Z')).toBe('2026-12-01|18');
@@ -83,5 +95,32 @@ describe('v6.6 hourly target', () => {
 
   it('no previous-cycle curve: not ready (never a zero target)', () => {
     expect(hourlyTargets({ ...input(), previousInvoices: [] }).ready).toBe(false);
+  });
+});
+
+describe('v7.1 a shift belongs to the branch it was worked in', () => {
+  const S = 'فرع الشامي';
+  const covering = () => {
+    const data = input();
+    // b (home Shokry) works day 2 at Al-Shami: punched there and sold there.
+    data.targets = [...data.targets, { branch: S, targetAmount: 4000 }];
+    data.previousInvoices = [...data.previousInvoices, { staffId: 'x', branch: S, net: 1000, at: '2026-11-25T16:10:00Z' }];
+    data.invoices = [...data.invoices, { staffId: 'b', branch: S, net: 700, at: '2026-12-02T16:20:00Z' }];
+    data.attendance = [...data.attendance, { staffId: 'b', firstInAt: '2026-12-02T16:00:00Z', lastOutAt: '2026-12-02T18:00:00Z', branch: S } as never];
+    return data;
+  };
+
+  it('puts the covering hours in the other branch', () => {
+    const b = hourlyTargets({ ...covering(), fairShifts: true }).people.get('b')!;
+    expect(Object.keys(b.byBranch).sort()).toEqual([S, B].sort());
+    expect(b.byBranch[S].hours).toBe(2);
+    expect(b.byBranch[B].hours).toBe(2);
+  });
+
+  it('keeps every punch in the home branch before v7.1', () => {
+    const b = hourlyTargets(covering()).people.get('b')!;
+    // The Al-Shami shift lands in Shokry: the gap v7.1 closes.
+    expect(b.byBranch[B].hours).toBe(4);
+    expect(b.byBranch[S]).toBeUndefined();
   });
 });

@@ -282,6 +282,29 @@ async function loadFollowupRequests(cycle: LabCycle): Promise<{ counts: LabEvide
   return { counts, targets };
 }
 
+/** v7.1: the weekly random review results of the cycle and the monthly branch targets; null when unreadable. */
+async function loadReviewSamples(cycle: LabCycle): Promise<{ scores: LabEvidence['reviewScores']; targets: LabEvidence['cycleTargets'] }> {
+  const [scores, targets] = await Promise.all([
+    supabase.rpc('get_evaluation_review_scores_v1', { p_cycle_start: cycle.start })
+      .then(({ data, error }) => (error ? null : ((data || []) as Row[]).map((row) => ({
+        staffId: text(row.staff_id),
+        invoiceReviews: num(row.invoice_reviews),
+        invoiceAvg: row.invoice_avg == null ? null : num(row.invoice_avg),
+        conversationReviews: num(row.conversation_reviews),
+        conversationMissing: num(row.conversation_missing),
+        conversationAvg: row.conversation_avg == null ? null : num(row.conversation_avg),
+      }))), () => null),
+    supabase.rpc('list_evaluation_branch_cycle_targets_v1')
+      .then(({ data, error }) => (error ? null : ((data || []) as Row[]).map((row) => ({
+        branch: text(row.branch),
+        cycleStart: text(row.cycle_start),
+        followups: row.followups == null ? null : num(row.followups),
+        requests: row.requests == null ? null : num(row.requests),
+      }))), () => null),
+  ]);
+  return { scores, targets };
+}
+
 /** Customer requests posted in the branches' WhatsApp groups during the cycle; null when unreadable. */
 async function loadGroupRequests(cycle: LabCycle): Promise<LabEvidence['groupRequests']> {
   const last = new Date(`${cycle.endExclusive}T12:00:00Z`);
@@ -425,6 +448,7 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
     loadViolations(cycle),
     loadFollowupRequests(cycle),
     loadGroupRequests(cycle),
+    loadReviewSamples(cycle),
   ]);
   // The invoice items behind fulfilment need only the requests, so they start as soon as those arrive.
   const requestsLoad = pages(() => supabase.from('customer_requests')
@@ -442,7 +466,7 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
       .gte('conversation_date', startAt).lt('conversation_date', endAt) as unknown as PageQuery, 10000, 'reviews'),
     parallelPages((columns, options) => supabase.from('attendance_daily_summary').select(columns, options)
       .gte('attendance_date', cycle.start).lt('attendance_date', cycle.endExclusive),
-      'id,staff_id,attendance_date,status,resolution_status,first_in,last_out,late_minutes,scheduled_start_at,scheduled_end_at,total_hours', 10000, 'attendance', ['staff_id', 'attendance_date']),
+      'id,staff_id,attendance_date,status,resolution_status,first_in,last_out,late_minutes,scheduled_start_at,scheduled_end_at,total_hours,branch', 10000, 'attendance', ['staff_id', 'attendance_date']),
     requestsLoad,
     // Client sessions may not read this table; its axis then reports "not measurable" instead of failing the cycle.
     pages(() => supabase.from('base44_purchase_invoice_sync')
@@ -458,7 +482,7 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
     if (probe.error) throw new Error(`${label}: ${probe.error.message}`);
   }
 
-  const [fulfillment, teamEvaluations, [brainRequests, previous, purchaseInvoices, inventoryCounts, violations, followups, groupRequests]] = await Promise.all([
+  const [fulfillment, teamEvaluations, [brainRequests, previous, purchaseInvoices, inventoryCounts, violations, followups, groupRequests, reviewSamples]] = await Promise.all([
     fulfillmentLoad,
     loadTeamEvaluations(cycle, options.actorId || null, [...new Set(targetRows.map((row) => text(row.branch_name)).filter(Boolean))]),
     independent,
@@ -518,6 +542,8 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
       firstInAt: text(row.first_in) || null,
       lastOutAt: text(row.last_out) || null,
       scheduledEndAt: text(row.scheduled_end_at) || null,
+      branch: text(row.branch) || null,
+      scheduledStartAt: text(row.scheduled_start_at) || null,
       approved: text(row.status) === 'approved',
     })),
     requests: requestRows.map((row) => ({
@@ -549,6 +575,8 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
     followupRequests: followups.counts,
     followupTargets: followups.targets,
     groupRequests,
+    reviewScores: reviewSamples.scores,
+    cycleTargets: reviewSamples.targets,
     purchases: purchaseInvoices
       ? purchaseInvoices.map((row) => ({ enteredByStaffId: row.enteredByStaffId }))
       : purchaseRows ? purchaseRows.map((row) => ({ enteredByStaffId: text(row.entered_by_staff_id) || null })) : null,

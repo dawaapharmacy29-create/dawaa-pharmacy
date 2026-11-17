@@ -5,6 +5,7 @@ import { loadMyEvaluation, type MyEvaluation } from '@/lib/doctorEvaluation';
 import type { LabAttendanceSummary } from '@/lib/evaluationLab/buildCycleScores';
 import type { AxisResult, Readiness } from '@/lib/evaluationLab/scoring';
 import { StarRace } from '@/components/evaluation/BranchStarView';
+import { ShiftTargetBreakdown } from '@/components/evaluation/ShiftTargetBreakdown';
 import { axisImpacts, axisTip, evaluationSignals, familyLabel, type AxisImpact, type CycleDays, type EvaluationSignal } from '@/lib/evaluationInsights';
 
 // The doctor's monthly evaluation, same engine and rules as /evaluation-lab (the published version), with his
@@ -230,6 +231,7 @@ export default function DoctorMonthlyEvaluationCard({ compact = false, onOpen }:
             ) : null}
             <SignalsPanel signals={signals} />
             {me.attendance ? <AttendancePanel a={me.attendance} elapsedDays={data.cycle.elapsedDays} /> : null}
+            {me.shifts ? <ShiftTargetBreakdown shifts={me.shifts} /> : null}
             <h3 className="dawaa-title mt-4 text-sm">البنود اللي بتتحسب</h3>
             <div className="mt-2 space-y-2">{weighted.map((axis) => <AxisRow key={axis.key} axis={axis} impact={impacts[axis.key]} tip={axisTip(axis, cycleDays)} />)}</div>
             {info.length ? (
