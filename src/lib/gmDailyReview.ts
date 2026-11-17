@@ -15,6 +15,7 @@ export type GmReviewKey =
   | 'cleaning'
   | 'inventory'
   | 'purchases_handover'
+  | 'purchases_upload'
   | 'shifts'
   | 'delivery'
   | 'collection_transfers'
@@ -77,6 +78,13 @@ export const GM_REVIEW_LABELS: Record<
     question: 'مين من الموردين مستحق له فلوس، وملفات ePlus محدّثة؟',
     link: '/purchase-review',
     app: { name: 'دواء وائل', url: `${DAWAA_WAEL}/pending-invoices` },
+  },
+  // Built in the app from «مراجعة المشتريات» (not a server item, so it has no «راجعت»): green once the four
+  // stores' ePlus purchase reports reach yesterday.
+  purchases_upload: {
+    title: 'ملفات المشتريات',
+    question: 'ملفات مشتريات ePlus للمخازن الأربعة اترفعت لحد امبارح؟',
+    link: '/purchase-review',
   },
   shifts: {
     title: 'تسليم الشيفتات',

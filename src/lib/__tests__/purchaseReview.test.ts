@@ -24,6 +24,7 @@ import {
   type ReviewLine,
 } from '../purchaseReview/ledger';
 import { purchaseReviewDaily, withPurchaseReview } from '../purchaseReview/dailyItem';
+import { dashboardPurchases } from '../purchaseReview/dashboardSummary';
 import { gmReviewCard } from '../gmReviewCard';
 import type { GmDailyReview } from '../gmDailyReview';
 
@@ -422,6 +423,7 @@ describe('كارت المشتريات في مراجعتي اليومية', () =>
     expect(daily.stale).toHaveLength(4);
     const patched = withPurchaseReview(review, daily);
     expect(patched.items[0]).toMatchObject({ ok: false, done: false });
+    expect(patched.total).toBe(3);
     expect(patched.done).toBe(1);
     const card = gmReviewCard(patched.items[0]);
     expect(card.headline).toContain('متأخر');
@@ -429,7 +431,40 @@ describe('كارت المشتريات في مراجعتي اليومية', () =>
       ['شكري', true],
       ['الشامي', false],
     ]);
-    expect(card.warning).toContain('ملفات ePlus ناقصة');
+    // The reports have their own item, «ملفات المشتريات», right after it.
+    expect(card.warning).toBeUndefined();
+    expect(patched.items[1]).toMatchObject({ key: 'purchases_upload', ok: false, done: false });
+    const files = gmReviewCard(patched.items[1]);
+    expect(files.headline).toContain('مش واصلة لامبارح');
+    expect(files.chips.map((c) => [c.label, c.value, c.bad])).toEqual(
+      EXPECTED_STORES.map((s) => [s.store, 'ما اترفعش', true])
+    );
+  });
+
+  it('turns «ملفات المشتريات» green only when every store reaches yesterday', () => {
+    const uploads = EXPECTED_STORES.map((s, i) => ({
+      ...s,
+      file_name: null,
+      first_day: '2026-09-13',
+      last_day: i === 3 ? '2026-11-11' : '2026-11-12',
+      invoices: 1,
+      net: 1,
+      report_net: null,
+      uploaded_at: '',
+      uploaded_by: null,
+    }));
+    const late = withPurchaseReview(review, purchaseReviewDaily(data({ uploads })));
+    const files = gmReviewCard(late.items[1]);
+    expect(late.items[1].done).toBe(false);
+    expect(files.chips.filter((c) => c.bad).map((c) => c.label)).toEqual(['مخزن د معاذ']);
+    const fresh = withPurchaseReview(
+      review,
+      purchaseReviewDaily(
+        data({ uploads: uploads.map((u) => ({ ...u, last_day: '2026-11-12' })) })
+      )
+    );
+    expect(fresh.items[1]).toMatchObject({ key: 'purchases_upload', ok: true, done: true });
+    expect(gmReviewCard(fresh.items[1]).headline).toContain('واصلة لحد امبارح');
   });
 
   it('is clean when nothing is overdue and all four reports reach yesterday', () => {
@@ -864,5 +899,48 @@ describe('تقرير الشراء مجمّع بالمورد', () => {
     );
     expect(filled.invoices.map((i) => i.supplier_code)).toEqual(['29', 'امتنان']);
     expect(unknown).toEqual(['امتنان']);
+  });
+});
+
+describe('صافي المشتريات في الداشبورد من ملفات ePlus', () => {
+  const shamy = { branch: 'فرع الشامي' as const, store: 'الفرعية الشامي' };
+  const lines = [
+    line({ day: '2026-11-02', net: 1000 }),
+    line({ day: '2026-11-03', net: 50, payment: 'cash' }),
+    line({ day: '2026-11-03', net: 700, supplier_code: '475' }),
+    line({ day: '2026-11-04', net: 80, excluded: true }),
+    line({ ...shamy, day: '2026-11-05', net: 300, supplier_code: '322', invoices: 2 }),
+    line({ day: '2026-10-31', net: 999 }),
+    line({ day: '2026-11-13', net: 5 }),
+  ];
+
+  it('counts credit and cash, less internal codes and excluded invoices, per branch', () => {
+    const s = dashboardPurchases(data({ lines }), { from: '2026-11-01', to: '2026-11-12' });
+    expect(s.branches[0]).toMatchObject({
+      branch: 'فرع شكري',
+      gross: 1830,
+      internal: 700,
+      excluded: 80,
+      credit: 1000,
+      cash: 50,
+      net: 1050,
+      invoices: 2,
+    });
+    expect(s.branches[1]).toMatchObject({ branch: 'فرع الشامي', net: 300, invoices: 2 });
+    expect(s.total).toMatchObject({ gross: 2130, net: 1350 });
+    expect(s.internalSuppliers).toEqual(['دواء الشامي']);
+  });
+
+  it('says which stores do not reach the end of the period (yesterday when it runs to today)', () => {
+    const s = dashboardPurchases(data({ lines }), { from: '2026-11-01', to: '2026-11-13' });
+    // Yesterday is 12/11: «الادارة فرع شكري» reaches 13/11, the others have nothing or stop earlier.
+    expect(s.behind.map((b) => [b.store, b.last_day])).toEqual([
+      ['مخزن د.وائل', null],
+      ['الفرعية الشامي', '2026-11-05'],
+      ['مخزن د معاذ', null],
+    ]);
+    const old = dashboardPurchases(data({ lines }), { from: '2026-11-01', to: '2026-11-04' });
+    // الفرعية الشامي reaches 5/11, past the end of this period.
+    expect(old.behind.map((b) => b.store)).toEqual(['مخزن د.وائل', 'مخزن د معاذ']);
   });
 });
