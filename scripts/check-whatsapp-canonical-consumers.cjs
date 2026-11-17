@@ -65,6 +65,7 @@ const REGISTER = {
   'src/lib/salesIntelligence/persistence/canonicalCustomerRequestProjector.ts': 'writer',
   'src/lib/salesIntelligence/persistence/canonicalFollowupProjector.ts': 'writer',
   // record_view
+  'src/lib/salesIntelligence/qa/caseEvaluationSummary.ts': 'record_view',
   'src/pages/ConversationReviewDetailsFast.tsx': 'record_view',
   'src/pages/ConversationReviewEvidence.tsx': 'record_view',
   'src/pages/ConversationReviewsHistoryAdvanced.tsx': 'record_view',
