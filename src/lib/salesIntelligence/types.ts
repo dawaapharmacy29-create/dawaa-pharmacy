@@ -820,8 +820,8 @@ export interface StaffFinalConfirmationEvent {
  *     customer" in this engine; the raw fact is already exposed via `summaryPresented` and the
  *     FinalBasketSummaryEvent record itself, so a separate state was pure redundancy.
  *   - `staff_confirmed` — structurally, by caseBasketEngine's own invariants, staff confirmation
- *     can only ever be observed together with customer confirmation AND a presented summary for
- *     the same version (isStaffFinalConfirmation only fires once `status === 'confirmed'`), which
+ *     can only ever be observed together with customer confirmation for the same version
+ *     (a formal summary or an immediate acceptance of its current announced total), which
  *     is exactly `commercial_confirmation_complete`'s own condition — never a distinct moment.
  *   - `cancelled` — reserved for a future explicit administrative/staff cancellation event; Phase
  *     C has no source for it (only a customer-initiated whole-basket rejection, `rejected`, exists

@@ -37,7 +37,8 @@ function assessment(
  * Assesses the CURRENT (latest, never-superseded) basket version of a case. A version that was
  * confirmed and later superseded by a customer edit stays historically true on its own row —
  * `modificationAfterConfirmation` records that fact, but the new version must independently earn
- * its own summary/confirmation/staff-confirmation to read `commercial_confirmation_complete`.
+ * its own customer/staff confirmation to read `commercial_confirmation_complete`. A formal
+ * summary is separately measured by protocol compliance, never invented for organic acceptance.
  */
 export function deriveCommercialConfirmationState(
   caseId: string,
@@ -97,9 +98,9 @@ export function deriveCommercialConfirmationState(
     // rejection of the presented basket.
     currentState = 'rejected';
     ruleIds.push('commercial.state.rejected_whole_basket');
-  } else if (staffConfirmed && customerConfirmed && summaryPresented) {
+  } else if (staffConfirmed && customerConfirmed) {
     currentState = 'commercial_confirmation_complete';
-    ruleIds.push('commercial.state.complete');
+    ruleIds.push(summaryPresented ? 'commercial.state.complete' : 'commercial.state.confirmed_without_formal_summary');
   } else if (customerConfirmed && !staffConfirmed) {
     currentState = 'customer_confirmed';
     ruleIds.push('commercial.state.customer_confirmed_awaiting_staff');

@@ -4,6 +4,7 @@
 // never edited in place: any customer modification after a final-basket-summary was presented
 // closes the current version (status -> 'superseded') and opens a new one.
 import type { NormalizedConversationMessageV32 } from '../whatsappConversationUnderstandingV32';
+import { isOrderTotalQuestion } from './orderTotalLanguage';
 import {
   contextWindowV32,
   availabilityStatementClausesV32,
@@ -52,7 +53,8 @@ const NATURAL_FINAL_RECAP_RX =
 // deliberately narrow (no bare "حاضر"/"تمام" alone) since this only ever fires once a customer
 // confirmation already exists (see the `status === 'confirmed'` gate in buildCaseBaskets below).
 const STAFF_FINAL_CONFIRMATION_RX =
-  /تم\s*تأكيد\s*الطلب|تم\s*تسجيل(?:\s*طلبك)?|تسجيل\s*طلبك|جاري\s*(?:التجهيز|الإرسال|الارسال)|الطلب\s*اتأكد/i;
+  /تم\s*تأكيد\s*الطلب|تم\s*تسجيل(?:\s*طلبك)?|تسجيل\s*طلبك|جاري\s*(?:التجهيز|الإرسال|الارسال)|الطلب\s*اتأكد|^\s*(?:تم\s*(?:الإرسال|الارسال)|بعت(?:ه|ها|هم)\s*لحضرتك)/i;
+const COMPACT_TOTAL_ACCEPTANCE_RX = /^(?:حاضر|تمام|ماشي|اوك|اوكي|أوكي|ايوه|ايوا|أيوه)(?:\s+يا\s*(?:دكتور|فندم))?[.!، ]*$/i;
 // Phase C: combo confirmation phrases the shared V32 ACCEPTANCE_RX doesn't cover (each of its
 // alternatives requires an exact whole-string match to ONE fixed token) — "ايوه تمام"/"كده تمام"/
 // "لا كده تمام"/"شكرا كده تمام" are all real ways a customer confirms an exact presented basket.
@@ -85,8 +87,6 @@ const ANNOUNCED_TOTAL_RX =
 // This intentionally does NOT turn every bare "90 جنيه" into an order total.
 const COMPACT_ANNOUNCED_TOTAL_RX =
   /^\s*(\d+(?:\.\d+)?)\s*(?:جنيه|جنيها|ج(?:\.?م\.?)?)\s*(?:بالتوصيل\s*)?(?:ان\s*شاء\s*الله)?[.!، ]*$/i;
-const TOTAL_QUESTION_RX =
-  /(?:الحساب|الإجمالي|الاجمالي|المجموع).{0,16}كام|^(?:ممكن\s*)?(?:اعرف|أعرف)\s*(?:الحساب|الاجمالي|الإجمالي)[؟?!.\s]*$|(?:كدا|كده)\s*كام|(?:كدا|كده)?\s*(?:هيبقا|هيبقى|يبقا|يبقى)\s*كام|بكام\s*(?:الشريطين|العلبتين|دول|كلهم)/i;
 
 const ARABIC_NUMBER_WORDS: Record<string, number> = {
   واحد: 1, واحده: 1, واحدة: 1,
@@ -586,7 +586,7 @@ function contextualCompactTotal(
     .slice(summaryIndex, candidateIndex)
     .filter((m) => m.isMeaningful);
   const totalQuestion = [...prior].reverse().find(
-    (m) => m.role === 'customer' && TOTAL_QUESTION_RX.test(m.text)
+    (m) => m.role === 'customer' && isOrderTotalQuestion(m.text)
   );
   if (!totalQuestion) return null;
 
@@ -637,7 +637,10 @@ function isFinalBasketSummary(message: NormalizedConversationMessageV32): boolea
 }
 
 function isStaffFinalConfirmation(message: NormalizedConversationMessageV32): boolean {
-  return message.role === 'staff' && message.isMeaningful && STAFF_FINAL_CONFIRMATION_RX.test(message.text);
+  if (message.role !== 'staff' || !message.isMeaningful) return false;
+  const match = message.text.match(STAFF_FINAL_CONFIRMATION_RX);
+  if (!match) return false;
+  return !/(?:مش|لم|لن|ما|لسه)\s*$/u.test(message.text.slice(0, match.index).trimEnd());
 }
 
 /** True when a customer message is a modification instruction distinct from a plain confirmation/rejection. */
@@ -1020,6 +1023,46 @@ export function buildCaseBaskets(
     }
 
     if (message.role === 'customer' && message.isMeaningful) {
+      // Organic order acceptance is version-scoped: an immediate customer acknowledgment of
+      // THIS version's announced total is a real confirmation, not a fabricated formal recap.
+      // No summary event is added and no invoice/payment/delivery proof is inferred.
+      if (hasOpenBasket && !lastSummaryMessageId && (status === 'draft' || status === 'confirmed')) {
+        if (WHOLE_BASKET_REJECTION_RX.test(message.text) && /الطلب|كل\s*حاج[هة]|أي\s*حاج[هة]/u.test(message.text)) {
+          status = 'cancelled';
+          confirmedAt = null;
+          confirmedByCustomerAt = null;
+          sourceMessageIds.push(message.id);
+          return;
+        }
+        if (status === 'confirmed') {
+          const edits = extractDraftItemsFromScope(messages, new Set([message.id]));
+          if (edits.some(item => { const prior = items.get(normalizeProductKey(item.productNameRaw)); return !prior || (item.quantity != null && prior.quantity !== item.quantity); })) {
+            flushCurrentBasket('superseded');
+            startNewVersion(new Map(items), 'draft');
+            edits.forEach(item => items.set(normalizeProductKey(item.productNameRaw), item));
+            sourceMessageIds.push(message.id);
+            return;
+          }
+        }
+        const previous = messages[messageIndex - 1];
+        const total = announcedTotal;
+        if (status === 'draft' && items.size > 0 && total && previous?.id === total.messageId &&
+            message.timestamp.getTime() - Date.parse(total.announcedAt) <= 5 * 60_000 &&
+            COMPACT_TOTAL_ACCEPTANCE_RX.test(message.text.trim())) {
+          status = 'confirmed';
+          confirmedByCustomerAt = message.timestamp.toISOString();
+          sourceMessageIds.push(message.id);
+          customerConfirmationEvents.push({
+            eventId: `${currentBasketId()}:customer_confirm:${message.id}`, caseId,
+            basketId: currentBasketId(), basketVersion: version, messageId: message.id,
+            confirmedAt: message.timestamp.toISOString(), relatedSummaryMessageId: null,
+            evidence: [{ ...refFor(message, 'قبول العميل المباشر لإجمالي الطلب الحالي؛ لا يوجد ملخص أصناف رسمي.'), messageIds: [total.messageId, message.id] }],
+            ruleIds: ['commercial.customer_confirmation.linked_to_current_total'],
+            confidence: assessment('strongly_inferred', 0.8, 'commercial.customer_confirmation.linked_to_current_total', []),
+          });
+          return;
+        }
+      }
       const modification = classifyCustomerModification(message.text);
       if (modification && hasOpenBasket && (status === 'awaiting_confirmation' || status === 'confirmed')) {
         flushCurrentBasket('superseded');

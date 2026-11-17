@@ -101,7 +101,7 @@ export function deriveHistoricalCommercialClosureAssessment(
 
   if (commercial.currentState === 'commercial_confirmation_complete') {
     closureLevel = 'explicit';
-    ruleIds.push('historical_closure.explicit_via_formal_protocol');
+    ruleIds.push(commercial.summaryPresented ? 'historical_closure.explicit_via_formal_protocol' : 'historical_closure.explicit_customer_staff_confirmation');
   } else if (!purchaseIntentDetected) {
     closureLevel = 'unknown';
     ruleIds.push('historical_closure.no_purchase_intent');
