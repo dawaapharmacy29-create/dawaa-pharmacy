@@ -38,6 +38,7 @@ import { confirmProductIdentityManagerDecision, loadProductIdentityManagerReview
 import { readCaseIntelligence } from '@/lib/salesIntelligence/qa/caseIntelligencePresentation';
 import { buildCaseInvoiceCard } from '@/lib/salesIntelligence/qa/caseInvoiceCard';
 import { CaseInvoiceCard } from '@/components/salesIntelligence/CaseInvoiceCard';
+import { CaseEvaluationSummaryCard } from '@/components/salesIntelligence/CaseEvaluationSummaryCard';
 import { WhatsAppDeletionDialog } from '@/components/salesIntelligence/WhatsAppDeletionDialog';
 import { canManageWhatsAppDeletions } from '@/lib/core/permissionSystem';
 import type { WhatsAppDeletionScope } from '@/lib/salesIntelligence/operations/whatsappDeletionService';
@@ -524,6 +525,14 @@ export default function SalesIntelligenceQACaseDetail() {
             canApprove: checkPermission('approve_reviews') || checkPermission('manage_conversation_evaluations') || checkPermission('manage_customer_requests'),
             canExecute: checkPermission('add_reviews') || checkPermission('edit_reviews') || checkPermission('manage_conversation_evaluations'),
           }}
+        />
+      ) : null}
+
+      {conversation && sourceSnapshot.isCanonical ? (
+        <CaseEvaluationSummaryCard
+          key={`${caseId}:${persistedAnalysis.analysis_id}`}
+          sourceId={conversation.id}
+          caseId={caseId}
         />
       ) : null}
 
