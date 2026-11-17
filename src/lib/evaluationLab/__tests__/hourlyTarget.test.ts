@@ -97,3 +97,30 @@ describe('v6.6 hourly target', () => {
     expect(hourlyTargets({ ...input(), previousInvoices: [] }).ready).toBe(false);
   });
 });
+
+describe('v7.1 a shift belongs to the branch it was worked in', () => {
+  const S = 'فرع الشامي';
+  const covering = () => {
+    const data = input();
+    // b (home Shokry) works day 2 at Al-Shami: punched there and sold there.
+    data.targets = [...data.targets, { branch: S, targetAmount: 4000 }];
+    data.previousInvoices = [...data.previousInvoices, { staffId: 'x', branch: S, net: 1000, at: '2026-11-25T16:10:00Z' }];
+    data.invoices = [...data.invoices, { staffId: 'b', branch: S, net: 700, at: '2026-12-02T16:20:00Z' }];
+    data.attendance = [...data.attendance, { staffId: 'b', firstInAt: '2026-12-02T16:00:00Z', lastOutAt: '2026-12-02T18:00:00Z', branch: S } as never];
+    return data;
+  };
+
+  it('puts the covering hours in the other branch', () => {
+    const b = hourlyTargets({ ...covering(), dutyBranchByDay: true }).people.get('b')!;
+    expect(Object.keys(b.byBranch).sort()).toEqual([S, B].sort());
+    expect(b.byBranch[S].hours).toBe(2);
+    expect(b.byBranch[B].hours).toBe(2);
+  });
+
+  it('keeps every punch in the home branch before v7.1', () => {
+    const b = hourlyTargets(covering()).people.get('b')!;
+    // The Al-Shami shift lands in Shokry: the gap v7.1 closes.
+    expect(b.byBranch[B].hours).toBe(4);
+    expect(b.byBranch[S]).toBeUndefined();
+  });
+});

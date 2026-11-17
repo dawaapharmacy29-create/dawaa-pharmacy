@@ -34,7 +34,7 @@ const keyOfWall = (wall: number) => { const iso = new Date(wall).toISOString(); 
 export const cairoHourKey = (iso: string) => { const wall = cairoWallMs(iso); return wall === null ? null : keyOfWall(wall); };
 
 export interface HourlyInvoice { staffId: string | null; branch: string | null; net: number; at?: string | null }
-export interface HourlyAttendance { staffId: string; firstInAt?: string | null; lastOutAt?: string | null; scheduledEndAt?: string | null }
+export interface HourlyAttendance { staffId: string; firstInAt?: string | null; lastOutAt?: string | null; scheduledEndAt?: string | null; branch?: string | null }
 
 export interface HourlyInput {
   cycle: { start: string; endExclusive: string };
@@ -45,6 +45,9 @@ export interface HourlyInput {
   attendance: HourlyAttendance[];
   /** Doctors of the cycle, scored or not (someone who left keeps the hours they worked). */
   pool: Array<{ id: string; branch: string | null; weight: number }>;
+  /** v7.1: a punched shift belongs to the branch where the person rang most of its invoices (else the punch
+   *  device's branch when it is a selling branch, else the home branch). Before v7.1 every punch is the home branch. */
+  dutyBranchByDay?: boolean;
 }
 
 export interface HourlyResult {
@@ -66,6 +69,8 @@ export interface HourlyResult {
   cappedInvoices: number;
   /** Share of the home branch's invoices that carry their seller (below the minimum: not measurable). */
   sellerCoverage: number;
+  /** v7.1: the same hours split by the branch they were worked in. */
+  byBranch: Record<string, { hours: number; expectedInvoices: number; prevSales: number; prevCount: number }>;
 }
 
 export interface HourlyOutput {
@@ -193,6 +198,25 @@ export function hourlyTargets(input: HourlyInput): HourlyOutput {
     if (!hours.has(key)) hours.set(key, branch);
     onDuty.set(id, hours);
   };
+  // v7.1: which branch each punched shift was worked in.
+  const sellingBranches = new Set(input.targets.map((t) => branchKey(t.branch)));
+  const ownWalls = new Map<string, Array<{ wall: number; b: string }>>();
+  if (input.dutyBranchByDay) {
+    for (const invoice of input.invoices) {
+      const wall = invoice.staffId && invoice.net > 0 && invoice.at ? cairoWallMs(invoice.at) : null;
+      if (wall === null || !invoice.staffId) continue;
+      ownWalls.set(invoice.staffId, [...(ownWalls.get(invoice.staffId) || []), { wall, b: branchKey(invoice.branch) }]);
+    }
+  }
+  const shiftBranch = (staffId: string, [from, to]: [number, number], home: string, device: string | null | undefined) => {
+    const grace = LAB_THRESHOLDS.punchGraceMinutes * 6e4;
+    const votes = new Map<string, number>();
+    for (const own of ownWalls.get(staffId) || []) if (own.wall >= from - grace && own.wall <= to + grace) votes.set(own.b, (votes.get(own.b) || 0) + 1);
+    const top = [...votes].sort((a, b) => b[1] - a[1])[0];
+    if (top) return top[0];
+    const deviceKey = branchKey(device);
+    return deviceKey && sellingBranches.has(deviceKey) ? deviceKey : home;
+  };
   for (const day of input.attendance) {
     const window = punchWindow(day);
     if (!window) continue;
@@ -201,7 +225,10 @@ export function hourlyTargets(input: HourlyInput): HourlyOutput {
     for (const key of hoursOf([window[0] - grace, window[1] + grace], 0)) set.add(key);
     punched.set(day.staffId, set);
     const home = homeOf.get(day.staffId);
-    if (home !== undefined) for (const key of hoursOf(window, LAB_THRESHOLDS.presenceMinMinutes)) duty(day.staffId, key, home);
+    if (home !== undefined) {
+      const b = input.dutyBranchByDay ? shiftBranch(day.staffId, window, home, day.branch) : home;
+      for (const key of hoursOf(window, LAB_THRESHOLDS.presenceMinMinutes)) duty(day.staffId, key, b);
+    }
   }
   const keyed = input.invoices.map((invoice) => ({ ...invoice, key: invoice.at ? cairoHourKey(invoice.at) : null, b: branchKey(invoice.branch) }));
   // An own invoice proves presence: a missing punch never erases work.
@@ -242,7 +269,7 @@ export function hourlyTargets(input: HourlyInput): HourlyOutput {
   for (const p of input.pool) {
     const weight = weightOf.get(p.id) || 1;
     const r: HourlyResult = { hours: 0, own: 0, target: 0, teamSales: 0, teamTarget: 0, ownInvoices: 0, expectedInvoices: 0, prevSales: 0, prevCount: 0, outsidePunch: outside.get(p.id) || 0, cappedInvoices: cappedCount.get(p.id) || 0,
-      sellerCoverage: sellerCoverage.get(homeOf.get(p.id) || '') ?? 0 };
+      sellerCoverage: sellerCoverage.get(homeOf.get(p.id) || '') ?? 0, byBranch: {} };
     for (const [key, b] of onDuty.get(p.id) || []) {
       const slot = `${b}|${key}`;
       const part = weight / (weightOnDuty.get(slot) || weight);
@@ -253,12 +280,19 @@ export function hourlyTargets(input: HourlyInput): HourlyOutput {
       r.own += ownSales.get(`${p.id}|${key}`) || 0;
       r.ownInvoices += ownCount.get(`${p.id}|${key}`) || 0;
       r.expectedInvoices += (teamCount.get(slot) || 0) * part;
+      const at = r.byBranch[b] || (r.byBranch[b] = { hours: 0, expectedInvoices: 0, prevSales: 0, prevCount: 0 });
+      at.hours += 1;
+      at.expectedInvoices += (teamCount.get(slot) || 0) * part;
       const c = curve.get(b);
       if (c) {
         const [day, hh] = key.split('|');
         const wd = new Date(`${day}T00:00:00Z`).getUTCDay();
-        r.prevSales += blendAt(c, c.posWd, c.posHour, wd, Number(hh)) * part;
-        r.prevCount += blendAt(c, c.cntWd, c.cntHour, wd, Number(hh)) * part;
+        const sales = blendAt(c, c.posWd, c.posHour, wd, Number(hh)) * part;
+        const count = blendAt(c, c.cntWd, c.cntHour, wd, Number(hh)) * part;
+        r.prevSales += sales;
+        r.prevCount += count;
+        at.prevSales += sales;
+        at.prevCount += count;
       }
     }
     people.set(p.id, r);

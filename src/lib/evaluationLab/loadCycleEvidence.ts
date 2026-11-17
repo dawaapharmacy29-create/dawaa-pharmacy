@@ -466,7 +466,7 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
       .gte('conversation_date', startAt).lt('conversation_date', endAt) as unknown as PageQuery, 10000, 'reviews'),
     parallelPages((columns, options) => supabase.from('attendance_daily_summary').select(columns, options)
       .gte('attendance_date', cycle.start).lt('attendance_date', cycle.endExclusive),
-      'id,staff_id,attendance_date,status,resolution_status,first_in,last_out,late_minutes,scheduled_start_at,scheduled_end_at,total_hours', 10000, 'attendance', ['staff_id', 'attendance_date']),
+      'id,staff_id,attendance_date,status,resolution_status,first_in,last_out,late_minutes,scheduled_start_at,scheduled_end_at,total_hours,branch', 10000, 'attendance', ['staff_id', 'attendance_date']),
     requestsLoad,
     // Client sessions may not read this table; its axis then reports "not measurable" instead of failing the cycle.
     pages(() => supabase.from('base44_purchase_invoice_sync')
@@ -542,6 +542,7 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
       firstInAt: text(row.first_in) || null,
       lastOutAt: text(row.last_out) || null,
       scheduledEndAt: text(row.scheduled_end_at) || null,
+      branch: text(row.branch) || null,
       approved: text(row.status) === 'approved',
     })),
     requests: requestRows.map((row) => ({
