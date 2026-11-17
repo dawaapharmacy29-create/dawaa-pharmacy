@@ -28,6 +28,18 @@ const input = () => ({
   pool: [{ id: 'a', branch: B, weight: 1 }, { id: 'b', branch: B, weight: 0.5 }],
 });
 
+describe('v7.1 previous-cycle average in the doctor hours', () => {
+  it('gives each doctor his part of last cycle sales and invoices on the same weekday-hours', () => {
+    const out = hourlyTargets(input());
+    const a = out.people.get('a')!;
+    const b = out.people.get('b')!;
+    // Last cycle: one 1000 invoice at 18 and 19 on each weekday. a shares day 1 (2/3) and is alone on day 2.
+    expect(a.prevCount).toBeCloseTo(2 * (2 / 3) + 2, 5);
+    expect(a.prevSales / a.prevCount).toBeCloseTo(1000, 5);
+    expect(b.prevCount).toBeCloseTo(2 / 3, 5);
+  });
+});
+
 describe('v6.6 hourly target', () => {
   it('keys invoices by the Cairo hour', () => {
     expect(cairoHourKey('2026-12-01T16:30:00Z')).toBe('2026-12-01|18');

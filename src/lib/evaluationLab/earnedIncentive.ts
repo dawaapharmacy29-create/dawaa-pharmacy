@@ -73,6 +73,13 @@ export const EARNED_RULES = {
   violationShare: 3 / 8,
   /** Customer coding below 95% halves the two invoice items. */
   codingFloor: 0.95,
+  /** v7.1: reviewed samples (invoices by camera, conversations) a doctor needs in a full cycle. */
+  minSampleReviews: 6,
+  /** v7.1 invoice camera review: an average of 50 → 0, 90+ → full. */
+  invoiceReviewFloor: 50,
+  invoiceReviewFull: 90,
+  /** v7.1: the most a doctor's average-invoice target may rise over his hours' average of last cycle. */
+  maxMonthlyGrowth: 1.15,
   /** The trial cycle: conversations and uniform are shown, not counted (their weight goes to the rest). */
   trialCycleStarts: ['2026-10-26'] as readonly string[],
 } as const;
@@ -161,6 +168,20 @@ export interface EarnedDoctorInput {
   reviews: number[];
   minReviews: number;
   violations: number | null;
+  /** v7.1: the doctor's own follow-up target for the cycle (his share of the customers in his hours). */
+  followupTarget?: number | null;
+  followupTargetNote?: string;
+  /** v7.1: the doctor's complete-requests target (default 20). */
+  requestsTarget?: number | null;
+  requestsTargetNote?: string;
+  /** v7.1: the doctor's average-invoice target (his hours' average last cycle × growth). */
+  avgInvoiceTarget?: number | null;
+  avgInvoiceNote?: string;
+  /** v7.1: the weekly conversation sample (undefined before v7.1; null when unreadable). */
+  sampledConversations?: { reviewed: number; missing: number; average: number | null } | null;
+  /** v7.1: the weekly invoice camera review (undefined before v7.1; null when unreadable). */
+  invoiceReview?: { reviewed: number; average: number | null } | null;
+  minSampleReviews?: number;
 }
 
 /** The seven v6.9 doctor items, each 0..100 with partial credit. */
@@ -173,6 +194,14 @@ export function earnedDoctorAxes(input: EarnedDoctorInput): AxisDraft[] {
   // Follow-up requests: the doctor's share of the branch target, by working days.
   if (input.followups === null) {
     out.push(notMeasurable('followup_requests', 'سجل طلبات المتابعة غير متاح للقراءة من هذه الجلسة'));
+  } else if (input.followupTarget !== undefined) {
+    // v7.1: his share of the branch target by the customers who came in his hours.
+    const target = input.followupTarget || 0;
+    const projected = project(input.followups);
+    out.push(target <= 0
+      ? notMeasurable('followup_requests', 'مفيش عملاء في ساعات شغله في الدورة')
+      : measured('followup_requests', Math.round(projected), clamp100((projected / target) * 100),
+        `${ar(input.followups)} متابعة · متوقع ${ar(projected)} من نصيبه ${ar(target)}${projectedNote}${input.followupTargetNote ? ` · ${input.followupTargetNote}` : ''}`));
   } else if (!input.workedDays || !input.branchDoctorDays) {
     out.push(notMeasurable('followup_requests', 'مفيش أيام شغل للدكتور في الدورة'));
   } else {
@@ -194,7 +223,20 @@ export function earnedDoctorAxes(input: EarnedDoctorInput): AxisDraft[] {
   }
 
   // Conversations: official reviews, 70 → 0, 90+ → full.
-  if (input.trial) {
+  const minSample = input.minSampleReviews ?? EARNED_RULES.minSampleReviews;
+  if (input.sampledConversations !== undefined) {
+    // v7.1: the weekly random sample; a chat not uploaded by its deadline counts 0.
+    const sample = input.sampledConversations;
+    if (!sample) {
+      out.push(notMeasurable('conversation_quality', 'مراجعات العينة الأسبوعية مش متاحة للقراءة من الجلسة دي'));
+    } else if (sample.reviewed + sample.missing < minSample || sample.average === null) {
+      out.push(notMeasurable('conversation_quality', `${sample.reviewed} محادثة اتراجعت من العينة${sample.missing ? ` و${sample.missing} مترفعتش` : ''} (الحد ${minSample})`));
+    } else {
+      out.push(measured('conversation_quality', round(sample.average),
+        clamp100(((sample.average - EARNED_RULES.conversationFloor) / (EARNED_RULES.conversationFull - EARNED_RULES.conversationFloor)) * 100),
+        `${sample.reviewed} محادثة من العينة العشوائية${sample.missing ? ` + ${sample.missing} مترفعتش في معادها (صفر)` : ''} · متوسط ${round(sample.average)}/100 · ${EARNED_RULES.conversationFull} أو أكتر = كاملة`));
+    }
+  } else if (input.trial) {
     out.push(notMeasurable('conversation_quality', 'شهر تجريبي: المحادثات بتتعرض ومش بتتحسب، ووزنها بيتوزع على باقي البنود',
       input.reviews.length ? `${input.reviews.length} مراجعة · متوسط ${round(input.reviews.reduce((s, v) => s + v, 0) / input.reviews.length)}` : ''));
   } else if (input.reviews.length < input.minReviews) {
@@ -206,17 +248,37 @@ export function earnedDoctorAxes(input: EarnedDoctorInput): AxisDraft[] {
       `${input.reviews.length} مراجعة · متوسط ${round(average)}/100 · ${EARNED_RULES.conversationFull} أو أكتر = كاملة`));
   }
 
+  // v7.1: invoices reviewed on the cameras from the weekly random sample.
+  if (input.invoiceReview !== undefined) {
+    const review = input.invoiceReview;
+    if (!review) {
+      out.push(notMeasurable('invoice_review', 'مراجعات الفواتير مش متاحة للقراءة من الجلسة دي'));
+    } else if (review.reviewed < minSample || review.average === null) {
+      out.push(notMeasurable('invoice_review', `${review.reviewed} فاتورة اتراجعت بالكاميرا (الحد ${minSample})`));
+    } else {
+      out.push(measured('invoice_review', round(review.average),
+        clamp100(((review.average - EARNED_RULES.invoiceReviewFloor) / (EARNED_RULES.invoiceReviewFull - EARNED_RULES.invoiceReviewFloor)) * 100),
+        `${review.reviewed} فاتورة اتراجعت بالكاميرا · متوسط ${round(review.average)}/100 · ${EARNED_RULES.invoiceReviewFull} أو أكتر = كاملة`));
+    }
+  }
+
   // Complete customer requests.
   const projectedRequests = project(input.completeRequests);
-  out.push(measured('complete_requests', Math.round(projectedRequests), (projectedRequests / EARNED_RULES.completeRequestsTarget) * 100,
-    `${ar(input.completeRequests)} طلب كامل (رقم العميل + الصنف ومتلغاش) · متوقع ${ar(projectedRequests)} من ${EARNED_RULES.completeRequestsTarget}${projectedNote}`));
+  const requestsTarget = input.requestsTarget ?? EARNED_RULES.completeRequestsTarget;
+  if (requestsTarget <= 0) {
+    out.push(notMeasurable('complete_requests', 'مفيش عملاء في ساعات شغله في الدورة'));
+  } else {
+    out.push(measured('complete_requests', Math.round(projectedRequests), clamp100((projectedRequests / requestsTarget) * 100),
+      `${ar(input.completeRequests)} طلب كامل (رقم العميل + الصنف ومتلغاش) · متوقع ${ar(projectedRequests)} من ${ar(requestsTarget)}${projectedNote}${input.requestsTargetNote ? ` · ${input.requestsTargetNote}` : ''}`));
+  }
 
   // Average invoice and invoices per working day, against the branch's fixed targets; coding gate halves them.
   const targets = doctorTargetsFor(input.branch);
   const coding = input.invoices.count ? input.invoices.coded / input.invoices.count : 1;
   const gate = coding < EARNED_RULES.codingFloor ? 0.5 : 1;
   const gateNote = gate < 1 ? ` · التكويد ${round(coding * 100)}٪ أقل من ${EARNED_RULES.codingFloor * 100}٪ فالبند اتقسم على ٢` : '';
-  if (!targets) {
+  const avgTarget = input.avgInvoiceTarget ?? targets?.avgInvoice ?? null;
+  if (!targets || !avgTarget) {
     out.push(notMeasurable('avg_invoice_target', 'مفيش تارجت متوسط فاتورة لفرعه'));
     out.push(notMeasurable('invoices_per_day', 'مفيش تارجت فواتير في اليوم لفرعه'));
   } else if (input.invoices.count < input.invoices.minInvoices) {
@@ -225,10 +287,10 @@ export function earnedDoctorAxes(input: EarnedDoctorInput): AxisDraft[] {
     out.push(notMeasurable('invoices_per_day', reason));
   } else {
     const average = input.invoices.net / input.invoices.count;
-    const ratio = average / targets.avgInvoice;
+    const ratio = average / avgTarget;
     out.push(measured('avg_invoice_target', Math.round(average),
       ((ratio - EARNED_RULES.avgInvoiceFloor) / (1 - EARNED_RULES.avgInvoiceFloor)) * 100 * gate,
-      `متوسط ${ar(average)} ج من تارجت ${ar(targets.avgInvoice)} ج (${round(ratio * 100)}٪)${gateNote}`));
+      `متوسط ${ar(average)} ج من تارجت ${ar(avgTarget)} ج (${round(ratio * 100)}٪)${input.avgInvoiceNote ? ` · ${input.avgInvoiceNote}` : ''}${gateNote}`));
     if (input.workedDays < input.invoices.minDays) {
       out.push(notMeasurable('invoices_per_day', `${input.workedDays} يوم شغل فقط (الحد ${input.invoices.minDays})`));
     } else {

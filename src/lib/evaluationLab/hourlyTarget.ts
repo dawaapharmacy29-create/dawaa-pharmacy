@@ -56,6 +56,9 @@ export interface HourlyResult {
   teamTarget: number;
   ownInvoices: number;
   expectedInvoices: number;
+  /** v7.1: last cycle's sales and invoices (positive) in the same weekday-hours, the person's part of them. */
+  prevSales: number;
+  prevCount: number;
   /** Own invoices issued with no punch of the seller around them. */
   outsidePunch: number;
   cappedInvoices: number;
@@ -101,16 +104,25 @@ export function hourlyTargets(input: HourlyInput): HourlyOutput {
   const homeOf = new Map(input.pool.map((p) => [p.id, branchKey(p.branch)]));
 
   // 1) Sales curve of the previous cycle per branch: weekday × hour, and hour only.
-  const curve = new Map<string, { wd: number[][]; hour: number[]; wdDays: number[]; days: number; total: number }>();
+  const curve = new Map<string, { wd: number[][]; hour: number[]; wdDays: number[]; days: number; total: number;
+    posWd: number[][]; posHour: number[]; cntWd: number[][]; cntHour: number[] }>();
+  const grid = () => Array.from({ length: 7 }, () => new Array(24).fill(0));
   const prevDays = new Map<string, Set<string>>();
   for (const invoice of input.previousInvoices) {
     const wall = invoice.at ? cairoWallMs(invoice.at) : null;
     if (wall === null) continue;
     const b = branchKey(invoice.branch);
-    const c = curve.get(b) || { wd: Array.from({ length: 7 }, () => new Array(24).fill(0)), hour: new Array(24).fill(0), wdDays: new Array(7).fill(0), days: 0, total: 0 };
+    const c = curve.get(b) || { wd: grid(), hour: new Array(24).fill(0), wdDays: new Array(7).fill(0), days: 0, total: 0,
+      posWd: grid(), posHour: new Array(24).fill(0), cntWd: grid(), cntHour: new Array(24).fill(0) };
     const date = new Date(wall);
     c.wd[date.getUTCDay()][date.getUTCHours()] += invoice.net;
     c.hour[date.getUTCHours()] += invoice.net;
+    if (invoice.net > 0) {
+      c.posWd[date.getUTCDay()][date.getUTCHours()] += invoice.net;
+      c.posHour[date.getUTCHours()] += invoice.net;
+      c.cntWd[date.getUTCDay()][date.getUTCHours()] += 1;
+      c.cntHour[date.getUTCHours()] += 1;
+    }
     c.total += invoice.net;
     curve.set(b, c);
     const seen = prevDays.get(b) || new Set<string>();
@@ -123,6 +135,10 @@ export function hourlyTargets(input: HourlyInput): HourlyOutput {
   const expectedAt = (c: NonNullable<ReturnType<typeof curve.get>>, wd: number, hour: number) =>
     LAB_THRESHOLDS.curveWeekdayBlend * (c.wdDays[wd] ? c.wd[wd][hour] / c.wdDays[wd] : c.hour[hour] / Math.max(1, c.days))
     + (1 - LAB_THRESHOLDS.curveWeekdayBlend) * (c.hour[hour] / Math.max(1, c.days));
+  // Same blend on any weekday × hour grid of the previous cycle (per calendar day).
+  const blendAt = (c: NonNullable<ReturnType<typeof curve.get>>, byWd: number[][], byHour: number[], wd: number, hour: number) =>
+    LAB_THRESHOLDS.curveWeekdayBlend * (c.wdDays[wd] ? byWd[wd][hour] / c.wdDays[wd] : byHour[hour] / Math.max(1, c.days))
+    + (1 - LAB_THRESHOLDS.curveWeekdayBlend) * (byHour[hour] / Math.max(1, c.days));
 
   // This cycle per branch: total sales, the doctors' capped sales, and invoices that carry a seller.
   const current = new Map<string, { total: number; doctors: number; invoices: number; withSeller: number }>();
@@ -215,7 +231,7 @@ export function hourlyTargets(input: HourlyInput): HourlyOutput {
   const people = new Map<string, HourlyResult>();
   for (const p of input.pool) {
     const weight = weightOf.get(p.id) || 1;
-    const r: HourlyResult = { hours: 0, own: 0, target: 0, teamSales: 0, teamTarget: 0, ownInvoices: 0, expectedInvoices: 0, outsidePunch: outside.get(p.id) || 0, cappedInvoices: cappedCount.get(p.id) || 0,
+    const r: HourlyResult = { hours: 0, own: 0, target: 0, teamSales: 0, teamTarget: 0, ownInvoices: 0, expectedInvoices: 0, prevSales: 0, prevCount: 0, outsidePunch: outside.get(p.id) || 0, cappedInvoices: cappedCount.get(p.id) || 0,
       sellerCoverage: sellerCoverage.get(homeOf.get(p.id) || '') ?? 0 };
     for (const [key, b] of onDuty.get(p.id) || []) {
       const slot = `${b}|${key}`;
@@ -227,6 +243,13 @@ export function hourlyTargets(input: HourlyInput): HourlyOutput {
       r.own += ownSales.get(`${p.id}|${key}`) || 0;
       r.ownInvoices += ownCount.get(`${p.id}|${key}`) || 0;
       r.expectedInvoices += (teamCount.get(slot) || 0) * part;
+      const c = curve.get(b);
+      if (c) {
+        const [day, hh] = key.split('|');
+        const wd = new Date(`${day}T00:00:00Z`).getUTCDay();
+        r.prevSales += blendAt(c, c.posWd, c.posHour, wd, Number(hh)) * part;
+        r.prevCount += blendAt(c, c.cntWd, c.cntHour, wd, Number(hh)) * part;
+      }
     }
     people.set(p.id, r);
   }
