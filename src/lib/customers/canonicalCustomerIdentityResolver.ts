@@ -17,6 +17,7 @@ import type { WhatsAppConversationSession } from '@/lib/whatsappConversationPars
 import { extractCustomerHintFromExportFileName } from '@/lib/whatsappExportCustomerHint';
 import {
   extractTrailingCustomerCodeFromDisplayName,
+  customerLabelWithoutCourierContact,
   isCustomerIdentityUuid,
   isValidEgyptianCustomerMobile,
   normalizeDawaaCustomerCode,
@@ -124,7 +125,7 @@ export function extractCustomerIdentityEvidence(
     normalizeDawaaCustomerCode(fileHint.codeHint),
     ...labels.map((label) => extractTrailingCustomerCodeFromDisplayName(label)),
   ]);
-  const contactPhones = validPhones(labels);
+  const contactPhones = validPhones(labels.map(customerLabelWithoutCourierContact));
   const mentionedPhones = validPhones(
     inbound.flatMap((message) => String(message.text || '').match(PHONE_IN_TEXT_RX) || [])
   ).filter((phone) => !contactPhones.includes(phone));

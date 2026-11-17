@@ -21,6 +21,17 @@ This rule is an analysis and data-integrity contract. It does not itself authori
 
 ## 1. Pipeline (one orchestrator for every ingestion path)
 
+V59 customer evidence: a sender/export label may contain a separate short customer code followed
+by the explicit operational annotation «رقم للمندوب» and a valid Egyptian mobile. The shared
+identity-text boundary strips only that narrowly recognised suffix before extracting customer
+codes/contact phones. The unchanged canonical resolver must still find a unique official code;
+duplicate codes, contradictory evidence and unknown customers fail closed. This never treats
+the courier phone as the customer's phone, matches by display name, or creates a sale.
+The standalone picker exposes an explicit opt-in reanalysis mode, reusing the existing audited
+`analyzeFile(..., 'reanalyze', null)` path. It may fill empty identity groups from resolved
+canonical evidence while preserving populated identities, raw text, retired-hash guards and
+manager/invoice approvals. Normal uploads remain ingest-only and deduplicated by default.
+
 V58 product-evidence retention: audited Arabic product-family spellings use the existing
 shared catalog resolver and keep its original confidence, ambiguity and strength/form gates.
 A selected candidate which is ineligible for basket identity remains a bounded review candidate
