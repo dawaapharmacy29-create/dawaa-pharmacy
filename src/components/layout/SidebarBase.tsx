@@ -213,7 +213,8 @@ export const MANAGEMENT_GROUPS: NavGroup[] = [
   // The monthly evaluation, the doctors' competition (where the follow-ups group file is uploaded) and the branch
   // comparison are the pages the boards are made from, so they sit together near the top with points and
   // penalties. Appeals, shift performance and the pillars index are under "كل الصفحات" (hidden, not deleted).
-  { title: 'التقييم والمسابقة', icon: ClipboardCheck, items: managerItems('/evaluation-lab', '/weekly-reviews', '/doctor-competition', '/branch-comparison', '/points', '/penalty-incentive') },
+  // Owner 2026-11-17: the weekly random reviews took the place of the weekly points (under "كل الصفحات").
+  { title: 'التقييم والمسابقة', icon: ClipboardCheck, items: managerItems('/evaluation-lab', '/weekly-reviews', '/doctor-competition', '/branch-comparison', '/penalty-incentive') },
   { title: 'الفريق', icon: Users, items: managerItems('/team', '/schedule', '/attendance-report', '/time-off', '/staff-payroll') },
   { title: 'العملاء', icon: HeadphonesIcon, items: managerItems('/customer-service', '/customers', '/reviews', '/customer-requests') },
   // The sales invoices file is uploaded every day, so its page is one click away.
