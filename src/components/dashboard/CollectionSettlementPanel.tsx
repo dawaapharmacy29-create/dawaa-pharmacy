@@ -92,7 +92,7 @@ export default function CollectionSettlementPanel() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <SectionTitle title="تسوية التحصيلات — فروع دواء بيلز" icon={<Smartphone size={18} />} />
           <a
-            href="https://dawaabill.base44.app/shift-handover"
+            href="https://dawaabill.lovable.app/shift-handover"
             target="_blank"
             rel="noreferrer"
             className="dawaa-badge dawaa-badge--info inline-flex items-center gap-1 rounded-xl px-3 py-1 text-xs font-black"

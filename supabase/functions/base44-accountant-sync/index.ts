@@ -70,7 +70,7 @@ const TX_FIELDS = [
 // import_base44_accountant_v1 reads created_date/updated_date as Base44 sends them: UTC with no zone
 // ("2026-11-14T17:43:12.017"), and appends Z. Lovable sends "+00:00", so bring it to the same shape.
 function base44Time(value: unknown) {
-  if (typeof value !== 'string' || !/[zZ]|[+-]dd:?dd$/.test(value)) return value ?? null;
+  if (typeof value !== 'string' || !/[zZ]|[+-]\d\d:?\d\d$/.test(value)) return value ?? null;
   const t = new Date(value);
   return Number.isNaN(t.getTime()) ? value : t.toISOString().slice(0, -1);
 }
