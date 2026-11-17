@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { CaseIntelligenceView } from '../types';
 import { analyzeConversationEvaluationCore } from '../conversationEvaluationCore';
+import { deriveCanonicalComplaintAssessment } from '../complaintAssessmentEngine';
+import { analyzeConversationEvaluationSales } from '../conversationEvaluationSales';
 
 function makeView(overrides: Partial<CaseIntelligenceView> = {}): CaseIntelligenceView {
   const base: CaseIntelligenceView = {
@@ -111,6 +113,57 @@ function makeView(overrides: Partial<CaseIntelligenceView> = {}): CaseIntelligen
   };
   return { ...base, ...overrides };
 }
+
+function complaintView(): CaseIntelligenceView {
+  const v = makeView();
+  v.interaction.caseType = 'mixed';
+  v.interaction.messages = [
+    { id: 'c1', role: 'customer', sender: 'Customer', at: '2026-09-28T06:51:56Z', text: 'اي الطريقة السخيفة دي اللي المندوب بيتكلم بيها', meaningful: true },
+    { id: 'image', role: 'customer', sender: 'Customer', at: '2026-09-28T06:51:57Z', text: '<image omitted>', meaningful: false },
+    { id: 's1', role: 'staff', sender: 'You', at: '2026-09-28T06:52:00Z', text: 'حق حضرتك جدا وبعتذر على الموقف دا', meaningful: true },
+    { id: 's2', role: 'staff', sender: 'You', at: '2026-09-28T06:52:05Z', text: 'انا صعدت الموضوع للاداره', meaningful: true },
+  ];
+  v.products = [];
+  v.need = { ...v.need, primaryNeed: v.interaction.messages[0].text, primaryNeedMessageId: 'c1', evidenceMessageIds: ['c1'], products: [], unresolvedNeed: true };
+  v.staff.facts = [];
+  v.complaintAssessment = deriveCanonicalComplaintAssessment({ caseId: v.caseId, messages: v.interaction.messages });
+  return v;
+}
+
+describe('complaint-only criterion applicability V57', () => {
+  it('scores visible complaint understanding despite unavailable image and no SKU', () => {
+    const v = complaintView();
+    v.complaintAssessment = undefined; // Saved case views need not serialize this optional field.
+    const result = analyzeConversationEvaluationCore(v).items.find(i => i.key === 'understanding');
+    expect(result).toMatchObject({ status: 'assessed', pointsEarned: 10 });
+    expect(result?.evidenceMessageIds).toEqual(['c1', 's1', 's2']);
+    expect(result?.evidenceMessageIds).not.toContain('image');
+  });
+  it('does not turn a mixed-label complaint or callback into a sales-closing score', () => {
+    const v = complaintView();
+    v.lostOpportunity = { ...v.lostOpportunity, state: 'open', waitingOn: 'customer' };
+    expect(analyzeConversationEvaluationSales(v).items.find(i => i.key === 'sales_closing'))
+      .toMatchObject({ status: 'not_applicable', pointsEarned: null });
+  });
+  it('does not award understanding for a generic apology alone', () => {
+    const v = complaintView();
+    v.interaction.messages = v.interaction.messages.filter(m => m.id !== 's2').map(m => m.id === 's1' ? { ...m, text: 'بعتذر لحضرتك' } : m);
+    v.complaintAssessment = deriveCanonicalComplaintAssessment({ caseId: v.caseId, messages: v.interaction.messages });
+    expect(analyzeConversationEvaluationCore(v).items.find(i => i.key === 'understanding'))
+      .toMatchObject({ status: 'insufficient_evidence', pointsEarned: null });
+  });
+  it('cannot borrow another doctor acknowledgment or remedy from canonical IDs outside the scoped messages', () => {
+    const v = complaintView();
+    v.interaction.messages = v.interaction.messages.filter(m => m.role !== 'staff');
+    expect(analyzeConversationEvaluationCore(v).items.find(i => i.key === 'understanding'))
+      .toMatchObject({ status: 'insufficient_evidence', pointsEarned: null });
+  });
+  it('keeps a real countable order evaluable when a complaint also exists', () => {
+    const v = complaintView();
+    v.sale = { ...v.sale, outcome: 'sale_proven', isSaleCountable: true };
+    expect(analyzeConversationEvaluationSales(v).items.find(i => i.key === 'sales_closing')?.status).toBe('assessed');
+  });
+});
 
 describe('conversation evaluation core 9C', () => {
   it('scores respectful repeated service language as professional and resolved product handling as strong understanding', () => {

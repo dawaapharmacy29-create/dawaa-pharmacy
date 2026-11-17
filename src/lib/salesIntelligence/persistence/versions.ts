@@ -126,7 +126,9 @@
 // v56: observable greetings/endings, waits and totals are scored from their own
 // messages, independently of sale proof or catalog completeness. Raw named offers
 // stay separate from customer orders; unavailable media never becomes a penalty.
-export const PIPELINE_VERSION = 'sales-intelligence-v56-observable-conversation-evidence';
+// v57: complaint-only service is not a sales-closing test; visible complaint
+// acknowledgments/remedies evidence understanding independently of missing attachments.
+export const PIPELINE_VERSION = 'sales-intelligence-v57-case-scoped-criteria';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v15-caption-priced-offer-continuity',
