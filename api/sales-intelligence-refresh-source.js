@@ -1934,6 +1934,15 @@ function isCustomerPaymentSettlementContinuation(messages, messageId2) {
   return PAYMENT_MEDIA_RX.test(message.text) && PAYMENT_PROOF_REQUEST_RX.test(priorPaymentContext.text);
 }
 
+// src/lib/salesIntelligence/orderTotalLanguage.ts
+var TOTAL_QUESTION_RX2 = /(?:الحساب|الإجمالي|الاجمالي|المجموع).{0,16}كام|^(?:ممكن\s*)?(?:اعرف|أعرف)\s*(?:الحساب|الاجمالي|الإجمالي)[؟?!.\s]*$|(?:كدا|كده)\s*كام|(?:كدا|كده)?\s*(?:هيبقا|هيبقى|يبقا|يبقى)\s*كام|بكام\s*(?:الشريطين|العلبتين|دول|كلهم)/i;
+function isOrderTotalQuestion(text6) {
+  return TOTAL_QUESTION_RX2.test(text6);
+}
+function isOrderTotalQuestionOnly(text6) {
+  return isOrderTotalQuestion(text6) && !/(?:عايز|عاوز|محتاج|ضيف|زود|هات|ابعت|وممكن)/i.test(text6);
+}
+
 // src/lib/salesIntelligence/conversationCaseEngine.ts
 function messagesForInteraction(understanding, interaction) {
   const ids = new Set(interaction.messageIds);
@@ -1949,7 +1958,7 @@ function evidenceRef(messages, description) {
 }
 function hasUnresolvedMultipleRequests(messages, requestMessages) {
   const independentRequests = requestMessages.filter(
-    (message) => !isCustomerPaymentSettlementContinuation(messages, message.id)
+    (message) => !isCustomerPaymentSettlementContinuation(messages, message.id) && !isOrderTotalQuestionOnly(message.text)
   );
   if (independentRequests.length < 2) return false;
   for (let i = 1; i < independentRequests.length; i += 1) {
@@ -2833,7 +2842,8 @@ function confidenceRank(level) {
 // src/lib/salesIntelligence/caseBasketEngine.ts
 var FINAL_BASKET_SUMMARY_MARKER_RX = /تأمر\s*ب|إجمالي\s*الحساب|هل\s*الطلب\s*كده\s*كامل|حضرتك\s*تأمر/i;
 var NATURAL_FINAL_RECAP_RX = /^(?:يعني\s*)?(?:كدا|كده)\s+.*(?:\d+\s*(?:علب|علبة|علبه|شريط|شراب|عبوة|عبوه|كيس|حبة|حبه|نوع)|علبتين|شريطين|عبوتين|كيسين|حبتين)/i;
-var STAFF_FINAL_CONFIRMATION_RX = /تم\s*تأكيد\s*الطلب|تم\s*تسجيل(?:\s*طلبك)?|تسجيل\s*طلبك|جاري\s*(?:التجهيز|الإرسال|الارسال)|الطلب\s*اتأكد/i;
+var STAFF_FINAL_CONFIRMATION_RX = /تم\s*تأكيد\s*الطلب|تم\s*تسجيل(?:\s*طلبك)?|تسجيل\s*طلبك|جاري\s*(?:التجهيز|الإرسال|الارسال)|الطلب\s*اتأكد|^\s*(?:تم\s*(?:الإرسال|الارسال)|بعت(?:ه|ها|هم)\s*لحضرتك)/i;
+var COMPACT_TOTAL_ACCEPTANCE_RX = /^(?:حاضر|تمام|ماشي|اوك|اوكي|أوكي|ايوه|ايوا|أيوه)(?:\s+يا\s*(?:دكتور|فندم))?[.!، ]*$/i;
 var CUSTOMER_BASKET_CONFIRMATION_RX = /^(?:ايوا|ايوه|اه|آه)?\s*كده\s*تمام[!.، ]*$|^لا\s*كده\s*تمام[!.، ]*$|^شكرا?ً?\s*(?:يا\s*فندم\s*)?كده\s*تمام[!.، ]*$|^(?:ايوا|ايوه|اه|آه)\s*تمام[!.، ]*$/i;
 var MODIFICATION_ADD_RX = /زود(?:ي)?|ضيف(?:ي)?\s|كمان\s*عايز|كمان\s*حاجة|نسيت/i;
 var MODIFICATION_REMOVE_RX = /شيل(?:ي)?\s|الغ[يى](?:ي)?\s*(?!.*كل)/i;
@@ -2843,7 +2853,6 @@ var WHOLE_BASKET_REJECTION_RX = /مش\s*عايز\s*(?:ده|حاجه|أي\s*حا�
 var QUANTITY_UNIT_ITEM_RX = /(\d+|واحد[ةه]?|اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?)\s*(علبة|علب|حبة|حبوب|شريط|عبوة|قطعة|كيس)\s+([^\n,،]+)/gi;
 var ANNOUNCED_TOTAL_RX = /(?:كده\s*)?(?:إجمالي\s*الحساب|الحساب\s*كل?ه|الإجمالي|المجموع|الحساب)\s*(?:كده\s*)?(\d+(?:\.\d+)?)\s*(?:جنيه|جنيها|ج\.?م\.?)?/i;
 var COMPACT_ANNOUNCED_TOTAL_RX = /^\s*(\d+(?:\.\d+)?)\s*(?:جنيه|جنيها|ج(?:\.?م\.?)?)\s*(?:بالتوصيل\s*)?(?:ان\s*شاء\s*الله)?[.!، ]*$/i;
-var TOTAL_QUESTION_RX2 = /(?:الحساب|الإجمالي|الاجمالي|المجموع).{0,16}كام|^(?:ممكن\s*)?(?:اعرف|أعرف)\s*(?:الحساب|الاجمالي|الإجمالي)[؟?!.\s]*$|(?:كدا|كده)\s*كام|(?:كدا|كده)?\s*(?:هيبقا|هيبقى|يبقا|يبقى)\s*كام|بكام\s*(?:الشريطين|العلبتين|دول|كلهم)/i;
 var ARABIC_NUMBER_WORDS = {
   \u0648\u0627\u062D\u062F: 1,
   \u0648\u0627\u062D\u062F\u0647: 1,
@@ -3176,7 +3185,7 @@ function contextualCompactTotal(scopedMessages, summaryMessage, candidate) {
   if (summaryIndex < 0 || candidateIndex <= summaryIndex) return null;
   const prior = scopedMessages.slice(summaryIndex, candidateIndex).filter((m) => m.isMeaningful);
   const totalQuestion = [...prior].reverse().find(
-    (m) => m.role === "customer" && TOTAL_QUESTION_RX2.test(m.text)
+    (m) => m.role === "customer" && isOrderTotalQuestion(m.text)
   );
   if (!totalQuestion) return null;
   if (candidate.timestamp.getTime() - totalQuestion.timestamp.getTime() > 10 * 6e4) return null;
@@ -3209,7 +3218,10 @@ function isFinalBasketSummary(message) {
   return message.role === "staff" && message.isMeaningful && (FINAL_BASKET_SUMMARY_MARKER_RX.test(message.text) || NATURAL_FINAL_RECAP_RX.test(message.text));
 }
 function isStaffFinalConfirmation(message) {
-  return message.role === "staff" && message.isMeaningful && STAFF_FINAL_CONFIRMATION_RX.test(message.text);
+  if (message.role !== "staff" || !message.isMeaningful) return false;
+  const match = message.text.match(STAFF_FINAL_CONFIRMATION_RX);
+  if (!match) return false;
+  return !/(?:مش|لم|لن|ما|لسه)\s*$/u.test(message.text.slice(0, match.index).trimEnd());
 }
 function classifyCustomerModification(text6) {
   if (MODIFICATION_QTY_CHANGE_RX.test(text6) || parseQuantityRevision(text6) != null) return "quantity_change";
@@ -3269,6 +3281,8 @@ function clarificationContext(messages, index) {
 }
 function buildCaseBaskets(caseId, scopedMessages, productIndex) {
   const messages = scopedMessages.slice().sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+  const orderRequests = new Set(extractRequestSignals(messages).map((signal) => signal.messageId));
+  const orderIntentMessages = messages.filter((message) => message.role === "customer" && orderRequests.has(message.id) && !isOrderTotalQuestionOnly(message.text));
   const baskets = [];
   const itemsByBasketId = {};
   const summaryEvents = [];
@@ -3529,6 +3543,49 @@ function buildCaseBaskets(caseId, scopedMessages, productIndex) {
       }
     }
     if (message.role === "customer" && message.isMeaningful) {
+      if (hasOpenBasket && !lastSummaryMessageId && (status === "draft" || status === "confirmed")) {
+        if (WHOLE_BASKET_REJECTION_RX.test(message.text) && /الطلب|كل\s*حاج[هة]|أي\s*حاج[هة]/u.test(message.text)) {
+          status = "cancelled";
+          confirmedAt = null;
+          confirmedByCustomerAt = null;
+          sourceMessageIds.push(message.id);
+          return;
+        }
+        if (status === "confirmed") {
+          const edits = extractDraftItemsFromScope(messages, /* @__PURE__ */ new Set([message.id]));
+          if (edits.some((item) => {
+            const prior2 = items.get(normalizeProductKey(item.productNameRaw));
+            return !prior2 || item.quantity != null && prior2.quantity !== item.quantity;
+          })) {
+            flushCurrentBasket("superseded");
+            startNewVersion(new Map(items), "draft");
+            edits.forEach((item) => items.set(normalizeProductKey(item.productNameRaw), item));
+            sourceMessageIds.push(message.id);
+            return;
+          }
+        }
+        const previous = messages[messageIndex - 1];
+        const total = announcedTotal;
+        const orderIntent = items.size > 0 || total && orderIntentMessages.some((request) => request.timestamp.getTime() <= Date.parse(total.announcedAt));
+        if (status === "draft" && orderIntent && total && previous?.id === total.messageId && message.timestamp.getTime() - Date.parse(total.announcedAt) <= 5 * 6e4 && COMPACT_TOTAL_ACCEPTANCE_RX.test(message.text.trim())) {
+          status = "confirmed";
+          confirmedByCustomerAt = message.timestamp.toISOString();
+          sourceMessageIds.push(message.id);
+          customerConfirmationEvents.push({
+            eventId: `${currentBasketId()}:customer_confirm:${message.id}`,
+            caseId,
+            basketId: currentBasketId(),
+            basketVersion: version,
+            messageId: message.id,
+            confirmedAt: message.timestamp.toISOString(),
+            relatedSummaryMessageId: null,
+            evidence: [{ ...refFor(message, "\u0642\u0628\u0648\u0644 \u0627\u0644\u0639\u0645\u064A\u0644 \u0627\u0644\u0645\u0628\u0627\u0634\u0631 \u0644\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0637\u0644\u0628 \u0627\u0644\u062D\u0627\u0644\u064A\u061B \u0644\u0627 \u064A\u0648\u062C\u062F \u0645\u0644\u062E\u0635 \u0623\u0635\u0646\u0627\u0641 \u0631\u0633\u0645\u064A."), messageIds: [total.messageId, message.id] }],
+            ruleIds: ["commercial.customer_confirmation.linked_to_current_total"],
+            confidence: assessment("strongly_inferred", 0.8, "commercial.customer_confirmation.linked_to_current_total", [])
+          });
+          return;
+        }
+      }
       const modification = classifyCustomerModification(message.text);
       if (modification && hasOpenBasket && (status === "awaiting_confirmation" || status === "confirmed")) {
         flushCurrentBasket("superseded");
@@ -3746,9 +3803,9 @@ function deriveCommercialConfirmationState(caseId, baskets, summaryEvents, custo
   if (latest.status === "cancelled") {
     currentState = "rejected";
     ruleIds.push("commercial.state.rejected_whole_basket");
-  } else if (staffConfirmed && customerConfirmed && summaryPresented) {
+  } else if (staffConfirmed && customerConfirmed) {
     currentState = "commercial_confirmation_complete";
-    ruleIds.push("commercial.state.complete");
+    ruleIds.push(summaryPresented ? "commercial.state.complete" : "commercial.state.confirmed_without_formal_summary");
   } else if (customerConfirmed && !staffConfirmed) {
     currentState = "customer_confirmed";
     ruleIds.push("commercial.state.customer_confirmed_awaiting_staff");
@@ -5530,7 +5587,7 @@ function deriveHistoricalCommercialClosureAssessment(caseId, scopedMessages, com
   const ruleIds = [];
   if (commercial.currentState === "commercial_confirmation_complete") {
     closureLevel = "explicit";
-    ruleIds.push("historical_closure.explicit_via_formal_protocol");
+    ruleIds.push(commercial.summaryPresented ? "historical_closure.explicit_via_formal_protocol" : "historical_closure.explicit_customer_staff_confirmation");
   } else if (!purchaseIntentDetected) {
     closureLevel = "unknown";
     ruleIds.push("historical_closure.no_purchase_intent");
@@ -9843,7 +9900,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v59-courier-contact-identity";
+var PIPELINE_VERSION = "sales-intelligence-v60-organic-order-confirmation";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v15-caption-priced-offer-continuity",
   historicalClosure: "historical-closure-v1",

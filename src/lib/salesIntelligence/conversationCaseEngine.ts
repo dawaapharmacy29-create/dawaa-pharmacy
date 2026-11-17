@@ -21,6 +21,7 @@ import {
   OPERATIONAL_SERVICE_REQUEST_RX,
 } from '../whatsappSemanticSignalsV32';
 import { isCustomerPaymentSettlementContinuation } from './paymentSettlementSignals';
+import { isOrderTotalQuestionOnly } from './orderTotalLanguage';
 import type { CaseStatus, CaseType, ConfidenceAssessment, ConfidenceLevel, ConversationCase, EvidenceRef } from './types';
 
 export interface DeriveConversationCasesInput {
@@ -65,7 +66,7 @@ function hasUnresolvedMultipleRequests(
   requestMessages: NormalizedConversationMessageV32[]
 ): boolean {
   const independentRequests = requestMessages.filter(
-    (message) => !isCustomerPaymentSettlementContinuation(messages, message.id)
+    (message) => !isCustomerPaymentSettlementContinuation(messages, message.id) && !isOrderTotalQuestionOnly(message.text)
   );
   if (independentRequests.length < 2) return false;
   for (let i = 1; i < independentRequests.length; i += 1) {

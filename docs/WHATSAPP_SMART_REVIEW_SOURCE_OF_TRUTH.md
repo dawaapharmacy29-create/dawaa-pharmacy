@@ -21,6 +21,13 @@ This rule is an analysis and data-integrity contract. It does not itself authori
 
 ## 1. Pipeline (one orchestrator for every ingestion path)
 
+V60 organic order confirmation: a billing-only question is continuation of the current order,
+not independent product/service demand. The basket owner records a customer's immediate,
+bounded acknowledgment of that version's announced total as acceptance. Later explicit staff
+dispatch completes conversational confirmation, without inventing a formal item recap, payment
+receipt, delivery, catalog identity or invoice proof. Edits/cancellation invalidate acceptance;
+it is never borrowed across basket versions/cases. Formal recap compliance remains separate.
+
 V59 customer evidence: a sender/export label may contain a separate short customer code followed
 by the explicit operational annotation «رقم للمندوب» and a valid Egyptian mobile. The shared
 identity-text boundary strips only that narrowly recognised suffix before extracting customer

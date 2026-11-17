@@ -128,7 +128,7 @@
 // stay separate from customer orders; unavailable media never becomes a penalty.
 // v57: complaint-only service is not a sales-closing test; visible complaint
 // acknowledgments/remedies evidence understanding independently of missing attachments.
-export const PIPELINE_VERSION = 'sales-intelligence-v59-courier-contact-identity';
+export const PIPELINE_VERSION = 'sales-intelligence-v60-organic-order-confirmation';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v15-caption-priced-offer-continuity',
