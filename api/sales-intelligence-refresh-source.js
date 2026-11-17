@@ -3281,6 +3281,8 @@ function clarificationContext(messages, index) {
 }
 function buildCaseBaskets(caseId, scopedMessages, productIndex) {
   const messages = scopedMessages.slice().sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+  const orderRequests = new Set(extractRequestSignals(messages).map((signal) => signal.messageId));
+  const orderIntentMessages = messages.filter((message) => message.role === "customer" && orderRequests.has(message.id) && !isOrderTotalQuestionOnly(message.text));
   const baskets = [];
   const itemsByBasketId = {};
   const summaryEvents = [];
@@ -3564,7 +3566,8 @@ function buildCaseBaskets(caseId, scopedMessages, productIndex) {
         }
         const previous = messages[messageIndex - 1];
         const total = announcedTotal;
-        if (status === "draft" && items.size > 0 && total && previous?.id === total.messageId && message.timestamp.getTime() - Date.parse(total.announcedAt) <= 5 * 6e4 && COMPACT_TOTAL_ACCEPTANCE_RX.test(message.text.trim())) {
+        const orderIntent = items.size > 0 || total && orderIntentMessages.some((request) => request.timestamp.getTime() <= Date.parse(total.announcedAt));
+        if (status === "draft" && orderIntent && total && previous?.id === total.messageId && message.timestamp.getTime() - Date.parse(total.announcedAt) <= 5 * 6e4 && COMPACT_TOTAL_ACCEPTANCE_RX.test(message.text.trim())) {
           status = "confirmed";
           confirmedByCustomerAt = message.timestamp.toISOString();
           sourceMessageIds.push(message.id);

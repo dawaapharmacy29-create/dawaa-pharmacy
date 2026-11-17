@@ -72,4 +72,13 @@ describe('organic order confirmation remains independent of formal recap, invoic
     expect(isOrderTotalQuestionOnly('كدا كام احول لحضرتك انستا باي')).toBe(true);
     expect(isOrderTotalQuestionOnly('عايز شريط تاني والحساب كام')).toBe(false);
   });
+  it('keeps real order consent when the product image is unavailable', () => {
+    const c=analyze(`[11/13/26, 6:00:00 AM] Customer: عايزه الدوا اللي في الصورة\n[11/13/26, 6:00:01 AM] Customer: <image omitted>\n[11/13/26, 6:01:00 AM] Customer: الحساب كام\n[11/13/26, 6:02:00 AM] You: 70ج ان شاء الله\n[11/13/26, 6:02:10 AM] Customer: تمام\n[11/13/26, 6:03:00 AM] You: تم الارسال`)[0];
+    expect(c.commercialConfirmation).toMatchObject({customerConfirmed:true,staffConfirmed:true,summaryPresented:false});
+    expect(c.evidenceCompleteness.fulfillmentEvidenceAvailable).toBe(false);
+  });
+  it('a billing-only exchange without purchase intent does not confirm an order', () => {
+    const c=analyze(`[11/13/26, 6:01:00 AM] Customer: الحساب كام\n[11/13/26, 6:02:00 AM] You: 70ج ان شاء الله\n[11/13/26, 6:02:10 AM] Customer: تمام\n[11/13/26, 6:03:00 AM] You: تم الارسال`)[0];
+    expect(c.commercialConfirmation.customerConfirmed).toBe(false);
+  });
 });

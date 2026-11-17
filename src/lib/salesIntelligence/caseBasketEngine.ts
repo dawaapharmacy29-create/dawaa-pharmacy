@@ -4,7 +4,7 @@
 // never edited in place: any customer modification after a final-basket-summary was presented
 // closes the current version (status -> 'superseded') and opens a new one.
 import type { NormalizedConversationMessageV32 } from '../whatsappConversationUnderstandingV32';
-import { isOrderTotalQuestion } from './orderTotalLanguage';
+import { isOrderTotalQuestion, isOrderTotalQuestionOnly } from './orderTotalLanguage';
 import {
   contextWindowV32,
   availabilityStatementClausesV32,
@@ -15,6 +15,7 @@ import {
   extractProductReferenceSignals,
   extractQuantitySignals,
   extractRejectionSignals,
+  extractRequestSignals,
   isSubstantiveConfirmationSignal,
   resolveReference,
 } from '../whatsappSemanticSignalsV32';
@@ -749,6 +750,9 @@ export function buildCaseBaskets(
   productIndex?: PharmacyProductIndex
 ): BuildCaseBasketsResult {
   const messages = scopedMessages.slice().sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+  const orderRequests = new Set(extractRequestSignals(messages).map(signal => signal.messageId));
+  const orderIntentMessages = messages.filter(message => message.role === 'customer' &&
+    orderRequests.has(message.id) && !isOrderTotalQuestionOnly(message.text));
   const baskets: CaseBasket[] = [];
   const itemsByBasketId: Record<string, CaseBasketItem[]> = {};
   const summaryEvents: FinalBasketSummaryEvent[] = [];
@@ -1046,7 +1050,8 @@ export function buildCaseBaskets(
         }
         const previous = messages[messageIndex - 1];
         const total = announcedTotal;
-        if (status === 'draft' && items.size > 0 && total && previous?.id === total.messageId &&
+        const orderIntent = items.size > 0 || (total && orderIntentMessages.some(request => request.timestamp.getTime() <= Date.parse(total.announcedAt)));
+        if (status === 'draft' && orderIntent && total && previous?.id === total.messageId &&
             message.timestamp.getTime() - Date.parse(total.announcedAt) <= 5 * 60_000 &&
             COMPACT_TOTAL_ACCEPTANCE_RX.test(message.text.trim())) {
           status = 'confirmed';
