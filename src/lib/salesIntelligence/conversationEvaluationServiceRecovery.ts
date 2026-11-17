@@ -1,6 +1,6 @@
 import { isCustomerOrderDelay, isStaffOrderDelayNotice } from './conversationDeliveryDelayEvidence';
 import { REVIEW_CRITERIA } from '@/lib/conversationReviews';
-import { deriveCanonicalComplaintAssessment } from './complaintAssessmentEngine';
+import { conversationComplaintAssessment } from './conversationEvaluationEvidence';
 import type { CaseIntelligenceView } from './types';
 
 type RecoveryCriterionKey = 'angry_customer' | 'order_delay_handling';
@@ -73,15 +73,7 @@ function ordered(view: CaseIntelligenceView) {
 }
 
 function assessComplaint(view: CaseIntelligenceView): RecoveryCriterionAssessment {
-  const complaint = deriveCanonicalComplaintAssessment({
-    caseId: view.caseId,
-    messages: ordered(view).map((message) => ({
-      id: message.id,
-      role: message.role,
-      text: message.text,
-      meaningful: message.meaningful,
-    })),
-  });
+  const complaint = conversationComplaintAssessment(view);
 
   if (complaint.state === 'none') {
     return make(

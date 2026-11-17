@@ -9826,7 +9826,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v56-observable-conversation-evidence";
+var PIPELINE_VERSION = "sales-intelligence-v57-case-scoped-criteria";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v15-caption-priced-offer-continuity",
   historicalClosure: "historical-closure-v1",
@@ -12820,8 +12820,19 @@ function isOrderStatusServiceOnly(view) {
   const customerTurns = view.interaction.messages.filter((message) => message.role === "customer" && message.meaningful);
   return customerTurns.some((message) => ORDER_STATUS_INQUIRY_RX.test(message.text));
 }
+function conversationComplaintAssessment(view) {
+  return deriveCanonicalComplaintAssessment({
+    caseId: view.caseId,
+    messages: view.interaction.messages.slice().sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
+  });
+}
+function isComplaintServiceOnly(view) {
+  const complaint = conversationComplaintAssessment(view);
+  return Boolean(complaint && ["detected", "recovery_attempted", "resolved", "unresolved"].includes(complaint.state)) && !view.sale.isSaleCountable && !hasSubstantiveBasket(view) && !view.products.some((product) => product.roles.includes("requested") || product.roles.includes("offered"));
+}
 function salesCriteriaApplicable(view) {
   if (view.sale.isSaleCountable) return true;
+  if (isComplaintServiceOnly(view)) return false;
   if (view.interaction.caseType === "follow_up" || view.interaction.caseType === "information_only") return false;
   if (isOrderStatusServiceOnly(view)) return false;
   return view.interaction.caseType === "sales_opportunity" || view.interaction.caseType === "mixed" || hasSubstantiveBasket(view);
@@ -13436,6 +13447,24 @@ function assessUnderstanding(view) {
         95,
         "\u0638\u0647\u0631 \u062A\u0635\u062D\u064A\u062D \u0635\u0631\u064A\u062D \u0645\u0646 \u0627\u0644\u0639\u0645\u064A\u0644 \u0628\u0639\u062F \u0631\u062F \u0645\u0648\u0638\u0641 \u063A\u064A\u0631 \u0627\u0633\u062A\u064A\u0636\u0627\u062D\u064A\u060C \u0645\u0627 \u064A\u062F\u0644 \u0639\u0644\u0649 \u0623\u0646 \u0627\u0644\u0637\u0644\u0628 \u0641\u064F\u0647\u0645 \u0628\u0634\u0643\u0644 \u062E\u0627\u0637\u0626 \u0641\u064A \u0647\u0630\u0647 \u0627\u0644\u0646\u0642\u0637\u0629.",
         [preceding.id, correction.id]
+      );
+    }
+  }
+  if (isComplaintServiceOnly(view)) {
+    const complaint = conversationComplaintAssessment(view);
+    const complaintMessages = customers.filter((message) => complaint.complaintMessageIds.includes(message.id) && !isUnavailableMediaPlaceholderText(message.text));
+    const complaintAt = complaintMessages[0]?.at;
+    const responses = staff.filter((message) => complaint.staffResponseMessageIds.includes(message.id) && complaintAt && new Date(message.at) >= new Date(complaintAt));
+    const acknowledgments = responses.filter((message) => /فهما[كق]|فاهم|حق\s*(?:حضرتك|حضرتاك|ك)|الموقف|الموضوع|الشكوى|شكوتك/u.test(message.text) && !/(?:مش|غير|لم)\s*(?:فاهم|فاهما|[أا]فهم|واضح)/u.test(message.text));
+    const remedies = responses.filter((message) => complaint.remedyAttemptMessageIds.includes(message.id));
+    if (complaintMessages.length && acknowledgments.length) {
+      return make(
+        "understanding",
+        remedies.length ? "strong" : "acceptable",
+        "assessed",
+        93,
+        remedies.length ? "\u0627\u0644\u0634\u0643\u0648\u0649 \u0648\u0627\u0636\u062D\u0629 \u0646\u0635\u064A\u064B\u0627\u060C \u0648\u0631\u062F \u0627\u0644\u0645\u0648\u0638\u0641 \u0628\u0627\u0639\u062A\u0631\u0627\u0641 \u0628\u0627\u0644\u0645\u0648\u0642\u0641 \u0648\u0625\u062C\u0631\u0627\u0621 \u0644\u0645\u0639\u0627\u0644\u062C\u062A\u0647. \u0627\u0644\u0635\u0648\u0631 \u0627\u0644\u0645\u0641\u0642\u0648\u062F\u0629 \u0644\u0627 \u062A\u0644\u063A\u064A \u0647\u0630\u0627 \u0627\u0644\u062F\u0644\u064A\u0644 \u0648\u0644\u0627 \u062A\u062B\u0628\u062A \u0625\u063A\u0644\u0627\u0642 \u0627\u0644\u0634\u0643\u0648\u0649." : "\u0627\u0644\u0634\u0643\u0648\u0649 \u0648\u0627\u0636\u062D\u0629 \u0646\u0635\u064A\u064B\u0627\u060C \u0648\u0623\u0642\u0631 \u0627\u0644\u0645\u0648\u0638\u0641 \u0628\u0627\u0644\u0645\u0648\u0642\u0641 \u0641\u064A \u0631\u0633\u0627\u0626\u0644\u0647\u061B \u0647\u0630\u0627 \u062F\u0644\u064A\u0644 \u0641\u0647\u0645\u060C \u0645\u0639 \u0628\u0642\u0627\u0621 \u0627\u0644\u0645\u0639\u0627\u0644\u062C\u0629 \u0648\u0627\u0644\u0625\u063A\u0644\u0627\u0642 \u0645\u0633\u062A\u0642\u0644\u064A\u0646.",
+        [...complaintMessages.map((message) => message.id), ...acknowledgments.map((message) => message.id), ...remedies.map((message) => message.id)]
       );
     }
   }
@@ -14132,15 +14161,7 @@ function ordered2(view) {
   return view.interaction.messages.slice().sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
 }
 function assessComplaint(view) {
-  const complaint = deriveCanonicalComplaintAssessment({
-    caseId: view.caseId,
-    messages: ordered2(view).map((message) => ({
-      id: message.id,
-      role: message.role,
-      text: message.text,
-      meaningful: message.meaningful
-    }))
-  });
+  const complaint = conversationComplaintAssessment(view);
   if (complaint.state === "none") {
     return make5(
       "angry_customer",

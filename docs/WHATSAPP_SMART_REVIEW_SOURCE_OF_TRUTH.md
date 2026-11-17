@@ -21,6 +21,14 @@ This rule is an analysis and data-integrity contract. It does not itself authori
 
 ## 1. Pipeline (one orchestrator for every ingestion path)
 
+V57 evaluation applicability: a canonical complaint with no independent requested/offered
+product, substantive basket or countable sale is service-only even if the coarse interaction
+label is `mixed`. Sales closing/cross-sell criteria do not apply. Understanding may be assessed
+from visible complaint text plus this doctor's explicit acknowledgment/remedy; missing
+attachments alone do not erase that evidence. A generic apology alone is insufficient, and
+understanding is separate from complaint resolution. All three evaluation consumers use the
+same canonical complaint classifier on their current staff-scoped message set.
+
 ```
 WhatsApp export file
   -> parse (whatsappConversationParser)

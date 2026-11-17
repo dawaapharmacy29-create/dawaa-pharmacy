@@ -4,6 +4,7 @@ import type { ReviewCriterionKey } from '@/lib/conversationReviews';
 import { isStaffFollowUpPromiseV32 } from '../whatsappSemanticSignalsV32';
 import { buildConversationClinicalReview, type ConversationClinicalReview } from './conversationClinicalReview';
 import type { CaseIntelligenceView } from './types';
+import { deriveCanonicalComplaintAssessment } from './complaintAssessmentEngine';
 
 export type ConversationEvaluationEvidenceSource =
   | 'interaction_timing'
@@ -243,8 +244,24 @@ function isOrderStatusServiceOnly(view: CaseIntelligenceView): boolean {
   return customerTurns.some((message) => ORDER_STATUS_INQUIRY_RX.test(message.text));
 }
 
+/** Use the canonical complaint verdict; a coarse `mixed` label is not a sales request. */
+export function conversationComplaintAssessment(view: CaseIntelligenceView) {
+  // Re-evaluate the canonical classifier on this staff-scoped view, never on a
+  // broader saved snapshot that may contain another doctor's contributions.
+  return deriveCanonicalComplaintAssessment({ caseId: view.caseId,
+    messages: view.interaction.messages.slice().sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime()) });
+}
+
+export function isComplaintServiceOnly(view: CaseIntelligenceView): boolean {
+  const complaint = conversationComplaintAssessment(view);
+  return Boolean(complaint && ['detected', 'recovery_attempted', 'resolved', 'unresolved'].includes(complaint.state)) &&
+    !view.sale.isSaleCountable && !hasSubstantiveBasket(view) &&
+    !view.products.some(product => product.roles.includes('requested') || product.roles.includes('offered'));
+}
+
 export function salesCriteriaApplicable(view: CaseIntelligenceView): boolean {
   if (view.sale.isSaleCountable) return true;
+  if (isComplaintServiceOnly(view)) return false;
   if (view.interaction.caseType === 'follow_up' || view.interaction.caseType === 'information_only') return false;
   // No product, no basket and the customer only asked about an existing order: never a sales test.
   if (isOrderStatusServiceOnly(view)) return false;

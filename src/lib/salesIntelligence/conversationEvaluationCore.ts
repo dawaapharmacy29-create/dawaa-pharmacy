@@ -1,6 +1,6 @@
 import { REVIEW_CRITERIA } from '@/lib/conversationReviews';
 import type { CaseIntelligenceView } from './types';
-import { buildConversationEvaluationEvidence } from './conversationEvaluationEvidence';
+import { buildConversationEvaluationEvidence, conversationComplaintAssessment, isComplaintServiceOnly } from './conversationEvaluationEvidence';
 import { isUnavailableMediaPlaceholderText } from '../whatsappConversationUnderstandingV32';
 
 export type CoreCriterionKey = 'tone' | 'understanding';
@@ -228,6 +228,27 @@ function assessUnderstanding(view: CaseIntelligenceView): CoreCriterionAssessmen
         'ظهر تصحيح صريح من العميل بعد رد موظف غير استيضاحي، ما يدل على أن الطلب فُهم بشكل خاطئ في هذه النقطة.',
         [preceding.id, correction.id]
       );
+    }
+  }
+
+  // Complaint understanding is demonstrated by the scoped text response, not SKU resolution.
+  // Canonical complaint facts decide existence; never borrow another doctor's response IDs.
+  if (isComplaintServiceOnly(view)) {
+    const complaint = conversationComplaintAssessment(view);
+    const complaintMessages = customers.filter(message => complaint.complaintMessageIds.includes(message.id) &&
+      !isUnavailableMediaPlaceholderText(message.text));
+    const complaintAt = complaintMessages[0]?.at;
+    const responses = staff.filter(message => complaint.staffResponseMessageIds.includes(message.id) &&
+      complaintAt && new Date(message.at) >= new Date(complaintAt));
+    const acknowledgments = responses.filter(message => /فهما[كق]|فاهم|حق\s*(?:حضرتك|حضرتاك|ك)|الموقف|الموضوع|الشكوى|شكوتك/u.test(message.text) &&
+      !/(?:مش|غير|لم)\s*(?:فاهم|فاهما|[أا]فهم|واضح)/u.test(message.text));
+    const remedies = responses.filter(message => complaint.remedyAttemptMessageIds.includes(message.id));
+    if (complaintMessages.length && acknowledgments.length) {
+      return make('understanding', remedies.length ? 'strong' : 'acceptable', 'assessed', 93,
+        remedies.length
+          ? 'الشكوى واضحة نصيًا، ورد الموظف باعتراف بالموقف وإجراء لمعالجته. الصور المفقودة لا تلغي هذا الدليل ولا تثبت إغلاق الشكوى.'
+          : 'الشكوى واضحة نصيًا، وأقر الموظف بالموقف في رسائله؛ هذا دليل فهم، مع بقاء المعالجة والإغلاق مستقلين.',
+        [...complaintMessages.map(message => message.id), ...acknowledgments.map(message => message.id), ...remedies.map(message => message.id)]);
     }
   }
 
