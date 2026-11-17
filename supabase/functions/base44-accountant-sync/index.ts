@@ -3,10 +3,26 @@ import { resolveAccountantSnapshot } from './snapshot.ts';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 
 // مزامنة دفتر الخزن من تطبيق دواء بيلز (AccountantVault + AccountantTransaction) → accountant_*.
-// تعمل كل 15 دقيقة عن طريق pg_cron + pg_net، بنفس مفتاح بيز٤٤ (personal access token لكل التطبيقات).
+// تعمل كل 15 دقيقة عن طريق pg_cron + pg_net. دواء بيلز اتنقل من بيز٤٤ لـ Lovable يوم 14/11/2026، فالمزامنة
+// بتقرا من صفحة القراءة بس اللي في التطبيق الجديد (نفس شكل سجلات بيز٤٤) بمفتاح dawaabills_export_key.
+// SOURCE = 'base44' بيرجّع القراءة من بيز٤٤ زي الأول.
+const SOURCE: 'lovable' | 'base44' = 'lovable';
+const LOVABLE_EXPORT_URL = 'https://dawaabill.lovable.app/api/public/accountant-export';
 const BASE44_APP_ID = '6a00735e63f2bcce7f4bb37e';
 const BASE44_API_BASE = 'https://app.base44.com/api/apps';
 const PAGE = 500;
+
+function pageRequest(key: string, entity: string, skip: number): [string, RequestInit] {
+  if (SOURCE === 'lovable')
+    return [
+      `${LOVABLE_EXPORT_URL}?entity=${entity}&limit=${PAGE}&skip=${skip}`,
+      { headers: { 'x-export-key': key } },
+    ];
+  return [
+    `${BASE44_API_BASE}/${BASE44_APP_ID}/entities/${entity}?sort=id&limit=${PAGE}&skip=${skip}`,
+    { headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' } },
+  ];
+}
 
 const VAULT_FIELDS = [
   'id',
@@ -51,19 +67,22 @@ const TX_FIELDS = [
   'updated_date',
 ] as const;
 
+// import_base44_accountant_v1 reads created_date/updated_date as Base44 sends them: UTC with no zone
+// ("2026-11-14T17:43:12.017"), and appends Z. Lovable sends "+00:00", so bring it to the same shape.
+function base44Time(value: unknown) {
+  if (typeof value !== 'string' || !/[zZ]|[+-]dd:?dd$/.test(value)) return value ?? null;
+  const t = new Date(value);
+  return Number.isNaN(t.getTime()) ? value : t.toISOString().slice(0, -1);
+}
+
 async function fetchAll(key: string, entity: string, fields: readonly string[]) {
   const rows: Array<Record<string, unknown>> = [];
   const seen = new Set<string>();
   for (let skip = 0; skip < 200000; skip += PAGE) {
-    const res = await fetch(
-      `${BASE44_API_BASE}/${BASE44_APP_ID}/entities/${entity}?sort=id&limit=${PAGE}&skip=${skip}`,
-      {
-        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      }
-    );
+    const res = await fetch(...pageRequest(key, entity, skip));
     if (!res.ok) {
       const body = await res.text();
-      throw new Error(`Base44 ${entity} error ${res.status}: ${body.slice(0, 300)}`);
+      throw new Error(`${SOURCE} ${entity} error ${res.status}: ${body.slice(0, 300)}`);
     }
     const page = (await res.json()) as Array<Record<string, unknown>>;
     if (!Array.isArray(page)) throw new Error(`Invalid ${entity} response`);
@@ -72,6 +91,7 @@ async function fetchAll(key: string, entity: string, fields: readonly string[]) 
       seen.add(String(row.id));
       const record: Record<string, unknown> = {};
       for (const field of fields) record[field] = row[field] ?? null;
+      for (const field of ['created_date', 'updated_date']) record[field] = base44Time(record[field]);
       rows.push(record);
     }
     if (page.length < PAGE) return rows;
@@ -85,9 +105,11 @@ Deno.serve(async (_req: Request) => {
   const admin = createClient(supabaseUrl, serviceRoleKey);
 
   try {
-    const { data: keyData, error: keyError } = await admin.rpc('get_base44_api_key_v1');
+    const { data: keyData, error: keyError } = await admin.rpc(
+      SOURCE === 'lovable' ? 'get_dawaabills_export_key_v1' : 'get_base44_api_key_v1'
+    );
     if (keyError || !keyData)
-      throw new Error(`تعذر جلب مفتاح بيز٤٤: ${keyError?.message || 'مفيش مفتاح مخزن'}`);
+      throw new Error(`تعذر جلب مفتاح ${SOURCE}: ${keyError?.message || 'مفيش مفتاح مخزن'}`);
 
     const vaults = await fetchAll(keyData as string, 'AccountantVault', VAULT_FIELDS);
     const transactions = await fetchAll(keyData as string, 'AccountantTransaction', TX_FIELDS);
