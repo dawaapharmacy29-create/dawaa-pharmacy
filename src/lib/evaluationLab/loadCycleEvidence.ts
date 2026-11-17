@@ -543,6 +543,7 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
       lastOutAt: text(row.last_out) || null,
       scheduledEndAt: text(row.scheduled_end_at) || null,
       branch: text(row.branch) || null,
+      scheduledStartAt: text(row.scheduled_start_at) || null,
       approved: text(row.status) === 'approved',
     })),
     requests: requestRows.map((row) => ({

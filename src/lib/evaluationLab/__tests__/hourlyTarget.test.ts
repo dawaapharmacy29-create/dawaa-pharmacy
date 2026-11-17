@@ -111,7 +111,7 @@ describe('v7.1 a shift belongs to the branch it was worked in', () => {
   };
 
   it('puts the covering hours in the other branch', () => {
-    const b = hourlyTargets({ ...covering(), dutyBranchByDay: true }).people.get('b')!;
+    const b = hourlyTargets({ ...covering(), fairShifts: true }).people.get('b')!;
     expect(Object.keys(b.byBranch).sort()).toEqual([S, B].sort());
     expect(b.byBranch[S].hours).toBe(2);
     expect(b.byBranch[B].hours).toBe(2);

@@ -34,7 +34,29 @@ const keyOfWall = (wall: number) => { const iso = new Date(wall).toISOString(); 
 export const cairoHourKey = (iso: string) => { const wall = cairoWallMs(iso); return wall === null ? null : keyOfWall(wall); };
 
 export interface HourlyInvoice { staffId: string | null; branch: string | null; net: number; at?: string | null }
-export interface HourlyAttendance { staffId: string; firstInAt?: string | null; lastOutAt?: string | null; scheduledEndAt?: string | null; branch?: string | null }
+export interface HourlyAttendance {
+  staffId: string; firstInAt?: string | null; lastOutAt?: string | null; scheduledEndAt?: string | null; branch?: string | null;
+  /** v7.1: the attendance day and its planned start (a day with own sales and no punch is read from the plan). */
+  date?: string | null; scheduledStartAt?: string | null;
+}
+
+/** v7.1: one worked shift of a person, as the targets read it (shown to the doctor line by line). */
+export interface HourlyShift {
+  /** The attendance day (an overnight shift stays on the day it started). */
+  date: string;
+  branch: string;
+  /** Cairo wall clock HH:MM of the first hour and the end of the last hour counted. */
+  from: string;
+  to: string;
+  hours: number;
+  /** punch: real punches; schedule: no punch but own sales inside the planned shift; invoices: own sales hours only. */
+  source: 'punch' | 'schedule' | 'invoices';
+  /** His part of the branch's sales target in these hours, his sales, his invoices and his part of the customers. */
+  target: number;
+  own: number;
+  ownInvoices: number;
+  expectedInvoices: number;
+}
 
 export interface HourlyInput {
   cycle: { start: string; endExclusive: string };
@@ -47,7 +69,7 @@ export interface HourlyInput {
   pool: Array<{ id: string; branch: string | null; weight: number }>;
   /** v7.1: a punched shift belongs to the branch where the person rang most of its invoices (else the punch
    *  device's branch when it is a selling branch, else the home branch). Before v7.1 every punch is the home branch. */
-  dutyBranchByDay?: boolean;
+  fairShifts?: boolean;
 }
 
 export interface HourlyResult {
@@ -71,6 +93,8 @@ export interface HourlyResult {
   sellerCoverage: number;
   /** v7.1: the same hours split by the branch they were worked in. */
   byBranch: Record<string, { hours: number; expectedInvoices: number; prevSales: number; prevCount: number }>;
+  /** v7.1: the same hours shift by shift. */
+  shifts: HourlyShift[];
 }
 
 export interface HourlyOutput {
@@ -87,14 +111,30 @@ export interface HourlyOutput {
 
 export const capped = (net: number) => Math.min(net, LAB_THRESHOLDS.bigInvoiceCap);
 
-/** Hours a punch covers: [in, out] (out = last punch, else scheduled end, else in + default shift). */
-function punchWindow(day: HourlyAttendance): [number, number] | null {
+/**
+ * Hours a punch covers: [in, out] (out = last punch, else scheduled end, else in + default shift).
+ * v7.1 (fair): the planned end only closes a shift that started at least 4 hours before it, so a doctor who
+ * came in at 16:00 on a 9–17 day and forgot the out punch gets a full shift, not one hour.
+ */
+function punchWindow(day: HourlyAttendance, fair = false): [number, number] | null {
   const from = day.firstInAt ? cairoWallMs(day.firstInAt) : null;
   if (from === null) return null;
-  const out = (day.lastOutAt && cairoWallMs(day.lastOutAt)) || (day.scheduledEndAt && cairoWallMs(day.scheduledEndAt)) || null;
-  const to = out !== null && out > from ? out : from + LAB_THRESHOLDS.defaultShiftHours * HOUR;
+  const outPunch = day.lastOutAt ? cairoWallMs(day.lastOutAt) : null;
+  const planned = day.scheduledEndAt ? cairoWallMs(day.scheduledEndAt) : null;
+  const plannedOk = planned !== null && planned > from && (!fair || planned - from >= 4 * HOUR);
+  const to = outPunch !== null && outPunch > from ? outPunch : plannedOk ? (planned as number) : from + LAB_THRESHOLDS.defaultShiftHours * HOUR;
   return [from, Math.min(to, from + LAB_THRESHOLDS.maxShiftHours * HOUR)];
 }
+
+/** v7.1: the planned shift of a day with no punch, [start, end] (null without a plan). */
+function plannedWindow(day: HourlyAttendance): [number, number] | null {
+  const from = day.scheduledStartAt ? cairoWallMs(day.scheduledStartAt) : null;
+  const to = day.scheduledEndAt ? cairoWallMs(day.scheduledEndAt) : null;
+  if (from === null || to === null || to <= from) return null;
+  return [from, Math.min(to, from + LAB_THRESHOLDS.maxShiftHours * HOUR)];
+}
+
+const hhmm = (wall: number) => new Date(wall).toISOString().slice(11, 16);
 
 /** Hour keys a window covers by at least `minMinutes` (0: any overlap). */
 function hoursOf([from, to]: [number, number], minMinutes: number): string[] {
@@ -192,16 +232,17 @@ export function hourlyTargets(input: HourlyInput): HourlyOutput {
 
   // 2) Who was on duty in each hour, and every staff member's punched hours (for attribution).
   const punched = new Map<string, Set<string>>();
-  const onDuty = new Map<string, Map<string, string>>();
-  const duty = (id: string, key: string, branch: string) => {
-    const hours = onDuty.get(id) || new Map<string, string>();
-    if (!hours.has(key)) hours.set(key, branch);
+  type DutyHour = { b: string; date: string; source: HourlyShift['source'] };
+  const onDuty = new Map<string, Map<string, DutyHour>>();
+  const duty = (id: string, key: string, branch: string, date: string = key.slice(0, 10), source: HourlyShift['source'] = 'invoices') => {
+    const hours = onDuty.get(id) || new Map<string, DutyHour>();
+    if (!hours.has(key)) hours.set(key, { b: branch, date, source });
     onDuty.set(id, hours);
   };
   // v7.1: which branch each punched shift was worked in.
   const sellingBranches = new Set(input.targets.map((t) => branchKey(t.branch)));
   const ownWalls = new Map<string, Array<{ wall: number; b: string }>>();
-  if (input.dutyBranchByDay) {
+  if (input.fairShifts) {
     for (const invoice of input.invoices) {
       const wall = invoice.staffId && invoice.net > 0 && invoice.at ? cairoWallMs(invoice.at) : null;
       if (wall === null || !invoice.staffId) continue;
@@ -218,16 +259,29 @@ export function hourlyTargets(input: HourlyInput): HourlyOutput {
     return deviceKey && sellingBranches.has(deviceKey) ? deviceKey : home;
   };
   for (const day of input.attendance) {
-    const window = punchWindow(day);
-    if (!window) continue;
+    const window = punchWindow(day, input.fairShifts);
+    if (!window) {
+      // v7.1: no punch, but own sales inside the planned shift prove he worked it: the planned hours count.
+      const plan = input.fairShifts && !day.firstInAt ? plannedWindow(day) : null;
+      const home = homeOf.get(day.staffId);
+      const grace = LAB_THRESHOLDS.punchGraceMinutes * 6e4;
+      // At least 2 own sales inside the plan and most of those around it: a changed shift is not read as the plan.
+      const near = plan ? (ownWalls.get(day.staffId) || []).filter((own) => own.wall >= plan[0] - 2 * HOUR && own.wall <= plan[1] + 2 * HOUR) : [];
+      const inside = plan ? near.filter((own) => own.wall >= plan[0] - grace && own.wall <= plan[1] + grace).length : 0;
+      if (plan && home !== undefined && inside >= 2 && inside / near.length >= 0.6) {
+        const b = shiftBranch(day.staffId, plan, home, day.branch);
+        for (const key of hoursOf(plan, LAB_THRESHOLDS.presenceMinMinutes)) duty(day.staffId, key, b, day.date || keyOfWall(plan[0]).slice(0, 10), 'schedule');
+      }
+      continue;
+    }
     const grace = LAB_THRESHOLDS.punchGraceMinutes * 6e4;
     const set = punched.get(day.staffId) || new Set<string>();
     for (const key of hoursOf([window[0] - grace, window[1] + grace], 0)) set.add(key);
     punched.set(day.staffId, set);
     const home = homeOf.get(day.staffId);
     if (home !== undefined) {
-      const b = input.dutyBranchByDay ? shiftBranch(day.staffId, window, home, day.branch) : home;
-      for (const key of hoursOf(window, LAB_THRESHOLDS.presenceMinMinutes)) duty(day.staffId, key, b);
+      const b = input.fairShifts ? shiftBranch(day.staffId, window, home, day.branch) : home;
+      for (const key of hoursOf(window, LAB_THRESHOLDS.presenceMinMinutes)) duty(day.staffId, key, b, day.date || keyOfWall(window[0]).slice(0, 10), 'punch');
     }
   }
   const keyed = input.invoices.map((invoice) => ({ ...invoice, key: invoice.at ? cairoHourKey(invoice.at) : null, b: branchKey(invoice.branch) }));
@@ -235,7 +289,7 @@ export function hourlyTargets(input: HourlyInput): HourlyOutput {
   for (const invoice of keyed) if (invoice.key && invoice.staffId && homeOf.has(invoice.staffId)) duty(invoice.staffId, invoice.key, invoice.b);
 
   const weightOnDuty = new Map<string, number>();
-  for (const [id, hours] of onDuty) for (const [key, b] of hours) weightOnDuty.set(`${b}|${key}`, (weightOnDuty.get(`${b}|${key}`) || 0) + (weightOf.get(id) || 1));
+  for (const [id, hours] of onDuty) for (const [key, { b }] of hours) weightOnDuty.set(`${b}|${key}`, (weightOnDuty.get(`${b}|${key}`) || 0) + (weightOf.get(id) || 1));
 
   // 3) Sales and invoice counts per hour: own, and all doctors of the branch.
   const ownSales = new Map<string, number>();
@@ -269,10 +323,22 @@ export function hourlyTargets(input: HourlyInput): HourlyOutput {
   for (const p of input.pool) {
     const weight = weightOf.get(p.id) || 1;
     const r: HourlyResult = { hours: 0, own: 0, target: 0, teamSales: 0, teamTarget: 0, ownInvoices: 0, expectedInvoices: 0, prevSales: 0, prevCount: 0, outsidePunch: outside.get(p.id) || 0, cappedInvoices: cappedCount.get(p.id) || 0,
-      sellerCoverage: sellerCoverage.get(homeOf.get(p.id) || '') ?? 0, byBranch: {} };
-    for (const [key, b] of onDuty.get(p.id) || []) {
+      sellerCoverage: sellerCoverage.get(homeOf.get(p.id) || '') ?? 0, byBranch: {}, shifts: [] };
+    const lines = new Map<string, HourlyShift & { first: number; last: number }>();
+    for (const [key, { b, date, source }] of onDuty.get(p.id) || []) {
       const slot = `${b}|${key}`;
       const part = weight / (weightOnDuty.get(slot) || weight);
+      const wall = Date.parse(`${key.slice(0, 10)}T${key.slice(11, 13)}:00:00Z`);
+      const lineKey = `${date}|${source}|${b}`;
+      const line = lines.get(lineKey) || { date, branch: b, from: '', to: '', hours: 0, source, target: 0, own: 0, ownInvoices: 0, expectedInvoices: 0, first: wall, last: wall };
+      line.hours += 1;
+      line.target += (hourTarget.get(slot) || 0) * part;
+      line.own += ownSales.get(`${p.id}|${key}`) || 0;
+      line.ownInvoices += ownCount.get(`${p.id}|${key}`) || 0;
+      line.expectedInvoices += (teamCount.get(slot) || 0) * part;
+      line.first = Math.min(line.first, wall);
+      line.last = Math.max(line.last, wall);
+      lines.set(lineKey, line);
       r.hours += 1;
       r.target += (hourTarget.get(slot) || 0) * part;
       r.teamTarget += hourTarget.get(slot) || 0;
@@ -295,6 +361,9 @@ export function hourlyTargets(input: HourlyInput): HourlyOutput {
         at.prevCount += count;
       }
     }
+    r.shifts = [...lines.values()]
+      .sort((x, y) => x.first - y.first)
+      .map(({ first, last, ...line }) => ({ ...line, from: hhmm(first), to: hhmm(last + HOUR) }));
     people.set(p.id, r);
   }
   return { people, attribution, doctorShare, sellerCoverage, ready: curve.size > 0 };

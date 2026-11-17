@@ -6,7 +6,7 @@ import {
 } from './catalog';
 import { canonicalStaffRole } from '@/lib/staff/staffRoleCapabilities';
 import { summarizeFulfillment, type FulfillmentResult } from './requestFulfillment';
-import { hourlyTargets, cairoHourKey, type HourlyInvoice, type HourlyOutput } from './hourlyTarget';
+import { hourlyTargets, cairoHourKey, type HourlyInvoice, type HourlyOutput, type HourlyShift } from './hourlyTarget';
 import { personCompliance, type ComplianceResult, type ViolationCategory } from './complianceFactor';
 import { EARNED_RULES, attendanceCounts, credibleAverage, doctorTargetsFor, earnedDoctorAxes, earnedIncentive, hoursFactorFor, type EarnedIncentive } from './earnedIncentive';
 import { completeRequestCounts, type GroupRequest } from './groupRequests';
@@ -48,6 +48,8 @@ export interface LabEvidence {
     firstInAt?: string | null; lastOutAt?: string | null; scheduledEndAt?: string | null;
     /** v7.1: the branch of the punch device (the day's branch when no own invoice says otherwise). */
     branch?: string | null;
+    /** v7.1: the planned start (a day with own sales and no punch is read from the plan). */
+    scheduledStartAt?: string | null;
     /** v6.9: the day's attendance was approved (days under review never cost the incentive). */
     approved?: boolean;
   }>;
@@ -164,6 +166,8 @@ export interface LabPersonScore extends LabScore {
   earned?: EarnedIncentive;
   /** v7.0: the doctor's place in the race for the branch star. */
   star?: BranchStar;
+  /** v7.1: the shifts his targets were read from (punches, plan or own sales), shown line by line. */
+  shifts?: HourlyShift[];
 }
 
 export interface LabAttendanceSummary {
@@ -481,7 +485,7 @@ function hourlyFor(evidence: LabEvidence, pool: LabEvidence['staff'], version: L
     invoices: evidence.invoices,
     attendance: evidence.attendance,
     pool: pool.map((p) => ({ id: p.id, branch: p.branch, weight: evidence.doctorWeights?.[p.id] ?? 1 })),
-    dutyBranchByDay: atLeast(version, 'v7.1'),
+    fairShifts: atLeast(version, 'v7.1'),
   });
   return out.ready ? out : null;
 }
@@ -1130,6 +1134,7 @@ export function buildCycleScores(evidence: LabEvidence, version: LabVersion = LA
       const leaveDays = evidence.attendance.filter((day) => day.staffId === result.staffId && !day.hasFirstIn && APPROVED_LEAVE.test(String(day.status || ''))).length;
       const hours = worked === undefined || !hourly?.ready ? null : hoursFactorFor(worked, leaveDays, evidence.cycleShare ?? 1);
       result.earned = earnedIncentive(score, achievement, absent, hours);
+      if (atLeast(version, 'v7.1')) result.shifts = hourly?.people.get(result.staffId)?.shifts;
     }
   }
   if (atLeast(version, 'v7.0')) {

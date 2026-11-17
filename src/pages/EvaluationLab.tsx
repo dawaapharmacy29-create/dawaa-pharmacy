@@ -9,6 +9,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { canSeeAllBranches } from '@/lib/security/permissionScopes';
 import { BranchCycleLossesPanel } from '@/components/evaluation/BranchCycleLossesPanel';
 import { BranchStarsSummary, StarBadge, StarRace } from '@/components/evaluation/BranchStarView';
+import { ShiftTargetBreakdown } from '@/components/evaluation/ShiftTargetBreakdown';
 import { loadDoctorLevels, saveDoctorLevel } from '@/lib/doctorEvaluation';
 
 const BASELINE_VERSION = LAB_PREVIOUS_VERSION[LAB_CURRENT_VERSION] ?? LAB_CURRENT_VERSION;
@@ -219,6 +220,7 @@ function PersonCard({ person, rank, baseline, control }: { person: LabPersonScor
           </div>
           {person.earned ? <EarnedDetails earned={person.earned} /> : person.compliance ? <ComplianceDetails compliance={person.compliance} /> : null}
           {person.star ? <StarRace star={person.star} /> : null}
+          {person.shifts ? <ShiftTargetBreakdown shifts={person.shifts} owner /> : null}
           {person.adjustments.length ? (
             <div className="dawaa-status-danger-bg dawaa-status-danger-border mt-3 space-y-1 rounded-xl border p-3">
               {person.adjustments.map((adjustment) => (
