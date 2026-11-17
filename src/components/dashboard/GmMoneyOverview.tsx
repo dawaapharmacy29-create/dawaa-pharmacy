@@ -1,16 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, Loader2, ShoppingCart, Wallet } from 'lucide-react';
 import { Panel } from '@/components/dashboard/DashboardPrimitives';
 import { loadAccountantReport, type AccountantVault } from '@/lib/accountantReport';
-import {
-  cycleRange,
-  loadGmPurchasesSummary,
-  purchasesTotals,
-  type GmPurchasesSummary,
-} from '@/lib/gmPurchasesSummary';
+import { cycleRange } from '@/lib/gmPurchasesSummary';
+import { loadPurchaseReview } from '@/lib/purchaseReview/api';
+import { dashboardPurchases } from '@/lib/purchaseReview/dashboardSummary';
+import type { PurchaseReviewData } from '@/lib/purchaseReview/ledger';
 
 // Top of the GM / executive dashboard: the treasury total from «التقارير المجمعة» and the net purchases of
-// the «دواء وائل» purchases app for any period, each split per branch.
+// any period from the ePlus reports uploaded to «مراجعة المشتريات», each split per branch.
 
 const money = (value: number) => Math.round(value).toLocaleString('ar-EG');
 
@@ -19,17 +17,6 @@ const cairoToday = () =>
 
 const shortDate = (value: string) =>
   new Date(`${value}T12:00:00`).toLocaleDateString('ar-EG', { day: 'numeric', month: 'numeric' });
-
-const syncLabel = (value: string | null) =>
-  value
-    ? new Date(value).toLocaleString('ar-EG', {
-        timeZone: 'Africa/Cairo',
-        day: 'numeric',
-        month: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-      })
-    : 'غير معروف';
 
 const VAULT_LABEL: Record<string, string> = { shamy: 'الشامي', shokry: 'شكري' };
 const branchShort = (branch: string) => branch.replace(/^فرع\s*/, '');
@@ -108,29 +95,27 @@ function Purchases() {
   const current = useMemo(() => cycleRange(today, 0), [today]);
   const previous = useMemo(() => cycleRange(today, -1), [today]);
   const [range, setRange] = useState(current);
-  const [summary, setSummary] = useState<GmPurchasesSummary | null>(null);
+  const [data, setData] = useState<PurchaseReviewData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
 
-  const load = useCallback(async (from: string, to: string) => {
-    if (!from || !to) return;
-    setLoading(true);
-    try {
-      setSummary(await loadGmPurchasesSummary(from, to));
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'تعذّر تحميل المشتريات');
-    } finally {
-      setLoading(false);
-    }
+  // The whole «مراجعة المشتريات» data is loaded once; any period is summed from it here.
+  useEffect(() => {
+    let alive = true;
+    loadPurchaseReview(null)
+      .then((value) => alive && setData(value))
+      .catch(
+        (err) => alive && setError(err instanceof Error ? err.message : 'تعذّر تحميل المشتريات')
+      );
+    return () => {
+      alive = false;
+    };
   }, []);
 
-  useEffect(() => {
-    void load(range.from, range.to);
-  }, [load, range.from, range.to]);
-
-  const totals = summary ? purchasesTotals(summary.branches) : null;
+  const summary = useMemo(
+    () => (data && range.from && range.to ? dashboardPurchases(data, range) : null),
+    [data, range]
+  );
   const isRange = (other: { from: string; to: string }) =>
     range.from === other.from && range.to === other.to;
   const quick = (label: string, value: { from: string; to: string }) => (
@@ -154,7 +139,7 @@ function Purchases() {
         <div className="flex items-center gap-2">
           <ShoppingCart className="h-4 w-4 text-[var(--dawaa-status-info-text)]" />
           <h3 className="dawaa-theme-heading text-sm font-black">صافي المشتريات</h3>
-          {loading ? <Loader2 className="dawaa-caption h-3.5 w-3.5 animate-spin" /> : null}
+          {!data && !error ? <Loader2 className="dawaa-caption h-3.5 w-3.5 animate-spin" /> : null}
         </div>
         <div className="flex gap-1.5">
           {quick('الشهر ده', current)}
@@ -188,17 +173,24 @@ function Purchases() {
       {error ? (
         <p className="mt-2 text-xs font-bold text-[var(--dawaa-status-danger-text)]">{error}</p>
       ) : null}
-      {summary && totals ? (
+      {summary ? (
         <>
           <p className="dawaa-theme-heading mt-2 text-3xl font-black tabular-nums">
-            {money(totals.net)} <span className="dawaa-caption text-xs font-black">ج</span>
+            {money(summary.total.net)} <span className="dawaa-caption text-xs font-black">ج</span>
           </p>
           <p className="dawaa-caption text-[11px] font-bold">
-            {shortDate(summary.from)} ← {shortDate(summary.to)} · زي تطبيق المشتريات: المتحفظ بس، بعد التحويلات والمرتجعات والمستثنى
+            {shortDate(summary.from)} ← {shortDate(summary.to)} · من ملفات ePlus في مراجعة
+            المشتريات: آجل ونقدي، من غير الأكواد الداخلية والفواتير المستثناة
           </p>
-          {totals.pending_invoices ? (
+          {summary.behind.length ? (
             <p className="mt-0.5 text-[11px] font-bold text-[var(--dawaa-status-warning-text)]">
-              مش محسوب: {totals.pending_invoices.toLocaleString('ar-EG')} فاتورة بـ {money(totals.pending_value)} ج لسه «انتظار المراجعة» في تطبيق المشتريات
+              الرقم ناقص: ملفات{' '}
+              {summary.behind
+                .map(
+                  (s) =>
+                    `${s.store} ${s.last_day ? `واصلة لحد ${shortDate(s.last_day)}` : 'ما اترفعتش'}`
+                )
+                .join('، ')}
             </p>
           ) : null}
           <div className="mt-2 grid grid-cols-2 gap-2">
@@ -230,10 +222,10 @@ function Purchases() {
                   <tr>
                     <th className="px-2 py-1.5 text-start">الفرع</th>
                     <th className="px-2 py-1.5 text-start">الإجمالي</th>
-                    <th className="px-2 py-1.5 text-start">− تحويلات</th>
-                    <th className="px-2 py-1.5 text-start">− مرتجعات</th>
+                    <th className="px-2 py-1.5 text-start">− أكواد داخلية</th>
                     <th className="px-2 py-1.5 text-start">− مستثنى</th>
                     <th className="px-2 py-1.5 text-start">= الصافي</th>
+                    <th className="px-2 py-1.5 text-start">منه نقدي</th>
                   </tr>
                 </thead>
                 <tbody className="tabular-nums">
@@ -241,20 +233,20 @@ function Purchases() {
                     <tr key={row.branch} className="dawaa-theme-border border-t">
                       <td className="px-2 py-1.5">{branchShort(row.branch)}</td>
                       <td className="px-2 py-1.5">{money(row.gross)}</td>
-                      <td className="px-2 py-1.5">{money(row.transfers)}</td>
-                      <td className="px-2 py-1.5">{money(row.returns)}</td>
+                      <td className="px-2 py-1.5">{money(row.internal)}</td>
                       <td className="px-2 py-1.5">{money(row.excluded)}</td>
                       <td className="dawaa-theme-heading px-2 py-1.5 font-black">
                         {money(row.net)}
                       </td>
+                      <td className="px-2 py-1.5">{money(row.cash)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
               <p className="dawaa-caption dawaa-theme-border border-t px-2 py-1.5 text-[10px] font-bold">
-                الموردين المستثنيين:{' '}
-                {summary.excluded_suppliers.length ? summary.excluded_suppliers.join('، ') : 'مفيش'}
-                {' · '}آخر مزامنة مع تطبيق المشتريات {syncLabel(summary.synced_at)}
+                الأكواد الداخلية:{' '}
+                {summary.internalSuppliers.length ? summary.internalSuppliers.join('، ') : 'مفيش'}
+                {' · '}مرتجعات المشتريات مش في ملفات ePlus دي فمش مخصومة
               </p>
             </div>
           ) : null}

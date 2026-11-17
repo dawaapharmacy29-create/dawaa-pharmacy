@@ -39,6 +39,9 @@ export function gmReviewOrder(items: GmReviewItem[]) {
 const gmTone = (item: GmReviewItem): DailyItemTone =>
   item.state === 'issue' ? 'issue' : item.done ? 'done' : 'open';
 
+/** Items the data closes by itself and the server can't mark («ملفات المشتريات»). */
+const DATA_ONLY = new Set<GmReviewItem['key']>(['purchases_upload']);
+
 /** Cards shown before «اعرض كمان», so the list stays short on a phone. */
 const VISIBLE_CARDS = 3;
 
@@ -372,7 +375,7 @@ function ReviewCard({ item, onChanged }: { item: GmReviewItem; onChanged: () => 
         ) : (
           <span className="flex-1" />
         )}
-        {item.state ? (
+        {DATA_ONLY.has(item.key) ? null : item.state ? (
           <button
             type="button"
             disabled={busy}
