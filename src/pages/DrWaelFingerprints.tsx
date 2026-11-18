@@ -18,6 +18,7 @@ import {
   createContext,
   useContext,
 } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Archive,
   Bike,
@@ -60,6 +61,8 @@ import {
   type DrWaelCreditRow,
   type DrWaelShiftSample,
   type ShiftDrift,
+  type StaffAllowances,
+  fetchStaffAllowances,
   type ShiftProfile,
   type PunchReading,
   type DrWaelOpenPunches,
@@ -400,6 +403,9 @@ const ReadingContext = createContext<{
 
 export default function DrWaelFingerprints() {
   const canDecide = useDayReviewAccess();
+  // ?staff=<id> (from «الموجودون الآن» on the dashboard): open on that employee's decisions.
+  const [params, setParams] = useSearchParams();
+  const staffParam = params.get('staff');
   const [tab, setTab] = useState<Tab>(canDecide ? 'quick' : 'dashboard');
   const [cycle, setCycle] = useState<string | null>(null);
   const [data, setData] = useState<Data | null>(null);
@@ -497,6 +503,22 @@ export default function DrWaelFingerprints() {
   }, [cycle, load]);
 
   const names = useMemo(() => new Map((data?.employees || []).map((e) => [e.staff_id, e])), [data]);
+  useEffect(() => {
+    if (!data || !staffParam) return;
+    const employee = data.employees.find((e) => e.staff_id === staffParam);
+    if (employee) {
+      setSearch(employee.name);
+      if (canDecide) setTab('quick');
+    }
+    setParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.delete('staff');
+        return next;
+      },
+      { replace: true }
+    );
+  }, [data, staffParam, canDecide, setParams]);
   // One search box for every tab: «scoped» is the page data of the employees it finds.
   const found = useMemo(() => {
     if (!data || !search.trim()) return null;
@@ -684,7 +706,11 @@ export default function DrWaelFingerprints() {
         )}
         {tab === 'quick' ? (
           <QuickDecisions
-            days={data.days}
+            days={found ? data.days.filter((d) => found.has(d.staff_id)) : data.days}
+            focus={found && found.size === 1 ? names.get([...found][0]) || null : null}
+            cycleStart={data.cycle_start}
+            cycleEnd={data.cycle_end}
+            onClearFocus={() => setSearch('')}
             today={data.today}
             readings={readings}
             profiles={profiles}
@@ -702,6 +728,7 @@ export default function DrWaelFingerprints() {
         ) : null}
         {tab === 'quick' ? (
           <OvertimeQuick
+            only={found}
             days={data.days}
             cycleStart={data.cycle_start}
             cycleEnd={data.cycle_end}
@@ -1742,6 +1769,9 @@ function leaveError(text: string): string {
     return 'فيه طلب أرشفة مفتوح للموظف ده بالفعل';
   if (text.includes('annual_leave_cancel_and_reenter'))
     return 'الإجازة الاعتيادية ماتتقصرش من هنا؛ الغيها من الإجازات واعمل واحدة بالمدة الصح';
+  if (text.includes('annual_leave_monthly_cap'))
+    return 'الإجازة السنوية بحد أقصى 7 أيام في الشهر الواحد';
+  if (text.includes('annual_leave_insufficient_balance')) return 'رصيد الإجازة السنوية مايكفيش';
   if (text.includes('preflight_blocked'))
     return 'سياسة الإجازات رفضت الطلب (غالبًا الرصيد مايكفيش)';
   if (text.includes('out_of_range')) return 'التاريخ بعيد قوي؛ الفترة لحد 3 شهور ومن آخر 40 يوم';
@@ -4359,11 +4389,14 @@ const OVERTIME_ROWS_STEP = 5;
 
 // The pending overtime of this pay cycle. Only what the evidence backs goes with the group; the rest one by one with why.
 function OvertimeQuick({
+  only,
   days,
   cycleStart,
   cycleEnd,
   employees,
 }: {
+  /** The employees the search found; null shows everyone. */
+  only: ReadonlySet<string> | null;
   days: DrWaelDay[];
   cycleStart: string;
   cycleEnd: string;
@@ -4395,8 +4428,14 @@ function OvertimeQuick({
     };
   }, []);
   const plan = useMemo(
-    () => overtimePlan(rows || [], days, cycleStart, cycleEnd).filter((i) => !gone[i.row.id]),
-    [rows, days, cycleStart, cycleEnd, gone]
+    () =>
+      overtimePlan(
+        (rows || []).filter((row) => !only || only.has(row.staff_id)),
+        days,
+        cycleStart,
+        cycleEnd
+      ).filter((i) => !gone[i.row.id]),
+    [rows, only, days, cycleStart, cycleEnd, gone]
   );
   const dayByKey = useMemo(
     () => new Map(days.map((day) => [`${day.staff_id}-${day.date}`, day])),
@@ -4694,6 +4733,73 @@ function OvertimeQuick({
 
 // Change his shift from the decision card: the hours the punches show are filled in, any hours can be typed, and
 // it lands on the day, a period, or from now on (ShiftScopePicker asks who asked for it, like every shift change).
+// The employee picked from the dashboard or the search: what is left of his permissions and leave, so a decision
+// about a missing hour or a day off is taken knowing it.
+function FocusHeader({
+  employee,
+  today,
+  cycleStart,
+  cycleEnd,
+  onClear,
+}: {
+  employee: DrWaelEmployee;
+  today: string;
+  cycleStart: string;
+  cycleEnd: string;
+  onClear: () => void;
+}) {
+  const [allowances, setAllowances] = useState<StaffAllowances | null>(null);
+  useEffect(() => {
+    let alive = true;
+    setAllowances(null);
+    fetchStaffAllowances(employee.staff_id, today, cycleStart, cycleEnd)
+      .then((next) => {
+        if (alive) setAllowances(next);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [employee.staff_id, today, cycleStart, cycleEnd]);
+  const permissions = allowances?.permissions;
+  const leave = allowances?.leave;
+  return (
+    <section className={`${CARD} space-y-2 border-r-4 border-r-indigo-400 p-4`}>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <div className="text-lg font-black text-gray-900 dark:text-slate-100">
+            {employee.name}
+          </div>
+          <div className={`text-xs ${MUTED}`}>
+            {employee.branch} · {roleTag(employee).label} · كل قراراته المعلقة تحت واحد واحد
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onClear}
+          className={`shrink-0 rounded-lg px-3 py-1 text-[11px] font-bold ${IDLE}`}
+        >
+          كل الموظفين
+        </button>
+      </div>
+      <div className="flex flex-wrap gap-2 text-xs">
+        <span className={`${SOFT} px-2 py-1`}>
+          الأذونات:{' '}
+          {permissions
+            ? `${permissions.used} من ${permissions.allowance} · ${minutesLabel(permissions.minutes)} من ${minutesLabel(permissions.minutesLimit)}`
+            : '…'}
+        </span>
+        <span className={`${SOFT} px-2 py-1`}>
+          الإجازة السنوية:{' '}
+          {leave
+            ? `فاضل ${leave.balance ?? '—'}${leave.entitlement ? ` من ${leave.entitlement}` : ''} يوم · الشهر ده ${leave.monthUsed} من ${leave.monthCap}`
+            : '…'}
+        </span>
+      </div>
+    </section>
+  );
+}
+
 function QuickShiftChange({
   staffId,
   date,
@@ -4797,6 +4903,10 @@ function QuickShiftChange({
 
 function QuickDecisions({
   days,
+  focus,
+  cycleStart,
+  cycleEnd,
+  onClearFocus,
   today,
   readings,
   profiles,
@@ -4808,6 +4918,11 @@ function QuickDecisions({
   onReload,
 }: {
   days: DrWaelDay[];
+  /** One employee picked: all his open days, the clear ones too, come one by one. */
+  focus: DrWaelEmployee | null;
+  cycleStart: string;
+  cycleEnd: string;
+  onClearFocus: () => void;
   today: string;
   readings: Map<string, PunchReading>;
   profiles: Map<string, ShiftProfile>;
@@ -4876,8 +4991,12 @@ function QuickDecisions({
       ),
     [days, today, readings, flexible, credit, missingLimit, stopped]
   );
-  const clear = plan.clear.filter((item) => !done[key(item.day)]);
-  const askAll = plan.ask.filter((item) => !done[key(item.day)]);
+  const planClear = focus ? [] : plan.clear;
+  const planAsk = focus
+    ? [...plan.clear, ...plan.ask].sort((a, b) => a.day.date.localeCompare(b.day.date))
+    : plan.ask;
+  const clear = planClear.filter((item) => !done[key(item.day)]);
+  const askAll = planAsk.filter((item) => !done[key(item.day)]);
   const ask = [
     ...askAll.filter((item) => !skipped.includes(key(item.day))),
     ...skipped.flatMap((k) => askAll.filter((item) => key(item.day) === k)),
@@ -4950,7 +5069,7 @@ function QuickDecisions({
   const groups = (Object.keys(QUICK_GROUPS) as QuickGroup[])
     .map((group) => ({ group, count: clear.filter((item) => item.group === group).length }))
     .filter((row) => row.count);
-  const failures = plan.clear.filter((item) => failed[key(item.day)]);
+  const failures = planClear.filter((item) => failed[key(item.day)]);
   // A shift decision never runs in bulk without the answer: it decides له or عليه.
   const clearShifts = clear.filter((item) => item.primary.type === 'shift');
   const unanswered = clearShifts.filter((item) => !origins[key(item.day)]).length;
@@ -4964,6 +5083,15 @@ function QuickDecisions({
 
   return (
     <div className="mx-auto max-w-2xl space-y-3">
+      {focus ? (
+        <FocusHeader
+          employee={focus}
+          today={today}
+          cycleStart={cycleStart}
+          cycleEnd={cycleEnd}
+          onClear={onClearFocus}
+        />
+      ) : null}
       <div className={`${CARD} space-y-2 p-4`}>
         <div className="flex items-baseline justify-between gap-2">
           <div className="flex items-baseline gap-2">
@@ -5083,7 +5211,7 @@ function QuickDecisions({
         <section className={`${CARD} space-y-3 border-r-4 border-r-violet-400 p-4`}>
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-xs font-bold text-violet-700 dark:text-violet-300">
-              محتاج رأيك · {ask.length}
+              {focus ? `قراراته واحد واحد · ${ask.length}` : `محتاج رأيك · ${ask.length}`}
             </h2>
             <span className={`text-xs ${MUTED}`}>{QUICK_ASK_GROUPS[current.group]}</span>
           </div>

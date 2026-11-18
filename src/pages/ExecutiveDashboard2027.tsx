@@ -2158,7 +2158,12 @@ export default function ExecutiveDashboard2027() {
                   {group.rows.length ? group.rows.slice(0, 12).map((member) => (
                     <button
                       key={`${staffId(member)}-${staffName(member)}-${branchName(member.branch)}`}
-                      onClick={() => void navigateToStaff(staffName(member), member.branch)}
+                      onClick={() =>
+                        staffId(member)
+                          ? navigate(`/dr-wael-fingerprints?staff=${encodeURIComponent(staffId(member))}`)
+                          : void navigateToStaff(staffName(member), member.branch)
+                      }
+                      title="افتح بصماته وقراراته المعلقة"
                       className="w-full rounded-xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] px-3 py-2 text-right text-xs hover:bg-[var(--dawaa-theme-accent-soft)]"
                     >
                       <div className="flex items-start justify-between gap-2">
