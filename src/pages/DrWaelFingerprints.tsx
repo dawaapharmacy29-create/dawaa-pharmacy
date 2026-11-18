@@ -59,6 +59,7 @@ import {
   type DrWaelCreditLedger,
   type DrWaelCreditRow,
   type DrWaelShiftSample,
+  type ShiftDrift,
   type ShiftProfile,
   type PunchReading,
   type DrWaelOpenPunches,
@@ -686,6 +687,7 @@ export default function DrWaelFingerprints() {
             days={data.days}
             today={data.today}
             readings={readings}
+            profiles={profiles}
             names={new Map(data.employees.map((e) => [e.staff_id, e]))}
             credit={credit}
             missingLimit={ledger?.missing_limit ?? 2}
@@ -2972,7 +2974,9 @@ function PunchReadingNote({ day }: { day: DrWaelDay }) {
             ? 'الشيفت المقترح ليه'
             : reading.source === 'known'
               ? 'من شيفتاته المعروفة'
-              : 'من البصمة بس، مش من شيفتاته'}
+              : reading.source === 'drift'
+                ? 'شيفته كله اتحرك في آخر 4 أسابيع'
+                : 'من البصمة بس، مش من شيفتاته'}
         </span>
       </div>
       <div>
@@ -3022,7 +3026,8 @@ function ShiftUnderstanding({
   };
   const days = profile.mismatches.filter((m) => !done.includes(m.sample.date));
   const weekly = profile.weekly.filter((p) => !done.includes(p.day));
-  if (!profile.rotating && !days.length && !weekly.length && !message) return null;
+  const drift = profile.drift && !done.includes('drift') ? profile.drift : null;
+  if (!profile.rotating && !drift && !days.length && !weekly.length && !message) return null;
   return (
     <section className={`${CARD} space-y-2 p-3`}>
       <h3 className="flex items-center gap-1 font-bold text-gray-900 dark:text-slate-100">
@@ -3038,6 +3043,34 @@ function ShiftUnderstanding({
           className={`rounded-xl px-3 py-2 text-xs font-bold ${TONES[message.tone]}`}
         >
           {message.text}
+        </div>
+      ) : null}
+      {drift ? (
+        <div className={`${SOFT} space-y-1 px-3 py-2 text-xs`}>
+          <div>
+            آخر 4 أسابيع بيشتغل تقريبًا{' '}
+            <b dir="ltr">
+              {drift.start}–{drift.end}
+            </b>{' '}
+            والجدول {drift.scheduledStart}–{drift.scheduledEnd} ({drift.days} يوم من {drift.of})
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className={MUTED}>
+              {drift.minutes
+                ? `الجدول محمّل الأيام المفتوحة ${minutesLabel(drift.minutes)} تأخير/انصراف`
+                : 'الشيفت كله اتحرك، مش تأخير'}
+            </span>
+            <ShiftScopePicker
+              staffId={employee.staff_id}
+              start={drift.start}
+              end={drift.end}
+              date={drift.latest}
+              firstDate={drift.from}
+              label="غيّر شيفته"
+              note="الشيفت كله اتحرك حسب البصمة"
+              onApplied={(text) => applied('drift', `الشيفت: ${text}`)}
+            />
+          </div>
         </div>
       ) : null}
       {weekly.map((pattern) => (
@@ -3124,12 +3157,14 @@ function ShiftFixesPanel({
       const profile = profiles.get(employee.staff_id);
       const days = profile?.mismatches.length || 0;
       const weekly = profile?.weekly || [];
+      const drift = profile?.drift || null;
       const minutes =
         (profile?.mismatches.reduce((sum, m) => sum + m.minutes, 0) || 0) +
-        weekly.reduce((sum, p) => sum + p.minutes, 0);
-      return { employee, days, weekly, minutes };
+        weekly.reduce((sum, p) => sum + p.minutes, 0) +
+        (drift?.minutes || 0);
+      return { employee, days, weekly, drift, minutes };
     })
-    .filter((row) => row.days || row.weekly.length)
+    .filter((row) => row.days || row.weekly.length || row.drift)
     .sort((a, b) => b.minutes - a.minutes);
   if (!rows.length) return null;
   return (
@@ -3138,7 +3173,7 @@ function ShiftFixesPanel({
       subtitle="آخر 40 يوم · الدقايق دي ممكن تكون محسوبة عليه بسبب جدول مش مظبوط، راجعها قبل ما تأثر على التصنيف"
     >
       <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-        {rows.map(({ employee, days, weekly, minutes }) => (
+        {rows.map(({ employee, days, weekly, drift, minutes }) => (
           <button
             key={employee.staff_id}
             type="button"
@@ -3155,6 +3190,11 @@ function ShiftFixesPanel({
               <span className={`text-[11px] ${MUTED}`}>{employee.branch}</span>
             </div>
             <div className="mt-1.5 flex flex-wrap gap-1">
+              {drift ? (
+                <Pill tone="violet">
+                  كل الأيام {drift.start}–{drift.end} بدل {drift.scheduledStart}–{drift.scheduledEnd}
+                </Pill>
+              ) : null}
               {weekly.map((pattern) => (
                 <Pill key={pattern.day} tone="violet">
                   كل {pattern.day.replace(/^ال/, '')} {pattern.start}–{pattern.end}
@@ -4406,6 +4446,7 @@ function OvertimeQuick({
     const facts = dayFacts(row);
     return [
       facts.shift ? `شيفته ${facts.shift}` : 'من غير شيفت محدد',
+      facts.cameAt ? `دخل ${facts.cameAt}` : 'دخول ناقص',
       facts.leftAt ? `خرج ${facts.leftAt}` : null,
       facts.afterMinutes != null ? `قعد بعده ${minutesLabel(facts.afterMinutes)}` : null,
     ]
@@ -4651,10 +4692,114 @@ function OvertimeQuick({
   );
 }
 
+// Change his shift from the decision card: the hours the punches show are filled in, any hours can be typed, and
+// it lands on the day, a period, or from now on (ShiftScopePicker asks who asked for it, like every shift change).
+function QuickShiftChange({
+  staffId,
+  date,
+  drift,
+  scheduled,
+  onApplied,
+}: {
+  staffId: string;
+  date: string;
+  drift: ShiftDrift | null;
+  scheduled: { start: string; end: string } | null;
+  onApplied: (text: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [start, setStart] = useState(drift?.start || scheduled?.start || '');
+  const [end, setEnd] = useState(drift?.end || scheduled?.end || '');
+  const input = `rounded-lg px-2 py-1 text-xs ${IDLE}`;
+  if (!open)
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className={`flex min-h-[40px] w-full items-center justify-center gap-1 rounded-xl px-3 text-xs font-bold ${IDLE}`}
+      >
+        <Clock size={13} /> غيّر شيفته
+        {drift ? (
+          <span className="font-normal" dir="ltr">
+            · البصمة بتقول {drift.start}–{drift.end}
+          </span>
+        ) : null}
+      </button>
+    );
+  return (
+    <div className={`${SOFT} space-y-2 p-3 text-xs`}>
+      {drift ? (
+        <p>
+          آخر 4 أسابيع: <b>{drift.days} يوم من {drift.of}</b> ماشي على{' '}
+          <b dir="ltr">
+            {drift.start}–{drift.end}
+          </b>{' '}
+          والجدول {drift.scheduledStart}–{drift.scheduledEnd}
+        </p>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-2">
+        {drift || scheduled ? (
+          <>
+            {[drift ? { start: drift.start, end: drift.end } : null, scheduled]
+              .filter((shift): shift is { start: string; end: string } => Boolean(shift))
+              .map((shift) => (
+                <button
+                  key={`${shift.start}-${shift.end}`}
+                  type="button"
+                  dir="ltr"
+                  aria-pressed={start === shift.start && end === shift.end}
+                  onClick={() => {
+                    setStart(shift.start);
+                    setEnd(shift.end);
+                  }}
+                  className={`rounded-lg px-2 py-1 text-[11px] font-bold ${start === shift.start && end === shift.end ? ACTIVE : IDLE}`}
+                >
+                  {shift.start}–{shift.end}
+                </button>
+              ))}
+          </>
+        ) : null}
+        <label className="flex items-center gap-1">
+          من
+          <input
+            type="time"
+            value={start}
+            onChange={(e) => setStart(e.target.value)}
+            className={input}
+          />
+        </label>
+        <label className="flex items-center gap-1">
+          لحد
+          <input type="time" value={end} onChange={(e) => setEnd(e.target.value)} className={input} />
+        </label>
+      </div>
+      {start && end ? (
+        <ShiftScopePicker
+          staffId={staffId}
+          start={start}
+          end={end}
+          date={date}
+          firstDate={drift && drift.start === start && drift.end === end ? drift.from : undefined}
+          label={`كمّل بـ ${start}–${end}`}
+          note="تغيير سريع للشيفت من صندوق القرارات"
+          onApplied={(text) => {
+            setOpen(false);
+            onApplied(text);
+          }}
+        />
+      ) : null}
+      <button type="button" onClick={() => setOpen(false)} className={`text-[11px] underline ${MUTED}`}>
+        قفل
+      </button>
+    </div>
+  );
+}
+
 function QuickDecisions({
   days,
   today,
   readings,
+  profiles,
   names,
   credit,
   missingLimit,
@@ -4665,6 +4810,7 @@ function QuickDecisions({
   days: DrWaelDay[];
   today: string;
   readings: Map<string, PunchReading>;
+  profiles: Map<string, ShiftProfile>;
   names: Map<string, DrWaelEmployee>;
   credit: Map<string, DrWaelCreditRow>;
   missingLimit: number;
@@ -4680,6 +4826,7 @@ function QuickDecisions({
   const [handled, setHandled] = useState(0);
   const [review, setReview] = useState<DayReview | null>(null);
   const [origins, setOrigins] = useState<Record<string, ShiftOrigin>>({});
+  const [shiftChanged, setShiftChanged] = useState<string | null>(null);
   const inFlight = useRef(new Set<string>());
   const refreshTimer = useRef<number | null>(null);
   const key = (day: DrWaelDay) => `${day.staff_id}-${day.date}`;
@@ -4927,6 +5074,11 @@ function QuickDecisions({
         </section>
       ) : null}
 
+      {shiftChanged ? (
+        <div role="status" className={`rounded-xl px-3 py-2 text-xs font-bold ${TONES.green}`}>
+          {shiftChanged}
+        </div>
+      ) : null}
       {current ? (
         <section className={`${CARD} space-y-3 border-r-4 border-r-violet-400 p-4`}>
           <div className="flex items-center justify-between gap-2">
@@ -4985,6 +5137,24 @@ function QuickDecisions({
               </button>
             ) : null}
           </div>
+          <QuickShiftChange
+            key={key(current.day)}
+            staffId={current.day.staff_id}
+            date={current.day.date}
+            drift={profiles.get(current.day.staff_id)?.drift || null}
+            scheduled={
+              current.day.scheduled_start && current.day.scheduled_end
+                ? {
+                    start: cairoTime(current.day.scheduled_start),
+                    end: cairoTime(current.day.scheduled_end),
+                  }
+                : null
+            }
+            onApplied={(text) => {
+              setShiftChanged(`${names.get(current.day.staff_id)?.name || 'الموظف'}: ${text}`);
+              onReload();
+            }}
+          />
           <button
             type="button"
             disabled={ask.length < 2}

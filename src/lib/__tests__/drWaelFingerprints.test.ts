@@ -32,6 +32,7 @@ import {
   deliveryCreditView,
   knownShifts,
   matchesEmployeeSearch,
+  shiftDrift,
   shiftProfiles,
   weekdayPatterns,
   type DrWaelCreditLedger,
@@ -747,6 +748,103 @@ describe('a shift that repeats on one weekday', () => {
   });
 });
 
+describe('shiftDrift', () => {
+  const clock = (text: string) => {
+    const [h, m] = text.split(':').map(Number);
+    return h * 60 + m;
+  };
+  const row = (date: string, inAt: string, outAt: string, plan = ['17:00', '01:00']) => ({
+    staff_id: 's',
+    date,
+    in: clock(inAt),
+    out: clock(outAt),
+    scheduled_in: clock(plan[0]),
+    scheduled_out: clock(plan[1]),
+    late: 0,
+    early: Math.max(0, 60 - ((clock(outAt) - clock('00:00') + 1440) % 1440)),
+    locked: false,
+  });
+  // د/ مغازي's real month: 16:00–00:00 most days on a 17:00–01:00 schedule, a few 18:30–02:30 nights.
+  const month: DrWaelShiftSample[] = [
+    row('2026-10-21', '16:39', '00:13'),
+    row('2026-10-23', '16:52', '00:01'),
+    row('2026-10-24', '16:27', '23:56', ['16:00', '00:00']),
+    row('2026-10-25', '16:49', '00:08'),
+    row('2026-10-26', '17:31', '00:06'),
+    row('2026-10-27', '16:20', '00:04', ['16:00', '00:00']),
+    row('2026-10-28', '16:29', '00:18'),
+    row('2026-10-31', '16:37', '00:06'),
+    row('2026-11-01', '18:30', '02:00'),
+    row('2026-11-04', '16:43', '00:12'),
+    row('2026-11-06', '16:37', '00:06'),
+    row('2026-11-07', '18:22', '02:06'),
+    row('2026-11-08', '16:10', '00:02'),
+    row('2026-11-09', '16:26', '00:17'),
+    row('2026-11-11', '16:41', '00:28'),
+    row('2026-11-14', '16:09', '00:35'),
+    row('2026-11-15', '18:53', '02:38'),
+    row('2026-11-17', '16:27', '00:09'),
+  ];
+
+  it('sees that the whole shift moved an hour earlier', () => {
+    const drift = shiftDrift(month, '2026-11-18');
+    expect(drift).toMatchObject({
+      start: '16:00',
+      end: '00:00',
+      scheduledStart: '17:00',
+      scheduledEnd: '01:00',
+      days: 14,
+      of: 18,
+      from: '2026-10-21',
+      latest: '2026-11-17',
+    });
+  });
+
+  it('does not read someone who is only late, or on his schedule, as a new shift', () => {
+    const late = month.map((r) => ({ ...r, in: r.in + 60, out: clock('01:05') }));
+    expect(shiftDrift(late, '2026-11-18')).toBeNull();
+    const onTime = month.map((r) => ({ ...r, in: clock('16:55'), out: clock('01:03') }));
+    expect(shiftDrift(onTime, '2026-11-18')).toBeNull();
+    // In early and out late is a long day, not a moved shift.
+    const longer = month.map((r) => ({ ...r, in: clock('16:10'), out: clock('01:40') }));
+    expect(shiftDrift(longer, '2026-11-18')).toBeNull();
+    expect(shiftDrift(month.slice(0, 4), '2026-11-18')).toBeNull();
+  });
+
+  it('reads the open day on the moved shift, not on the schedule', () => {
+    const reading = readOpenDay(
+      {
+        staff_id: 's',
+        date: '2026-11-17',
+        resolution: 'early_leave_review',
+        late: 0,
+        early: 51,
+        scheduled_in: '17:00',
+        scheduled_out: '01:00',
+      },
+      ['2026-11-17T16:27', '2026-11-18T00:09'],
+      [{ start: '16:00', end: '00:00', source: 'drift' }]
+    );
+    expect(reading).toMatchObject({ source: 'drift', late: 27, early: 0, nowMinutes: 51 });
+    // A night on his schedule hours stays on the schedule.
+    expect(
+      readOpenDay(
+        {
+          staff_id: 's',
+          date: '2026-11-16',
+          resolution: 'late',
+          late: 5,
+          early: 0,
+          scheduled_in: '17:00',
+          scheduled_out: '01:00',
+        },
+        ['2026-11-16T17:05', '2026-11-17T01:02'],
+        [{ start: '16:00', end: '00:00', source: 'drift' }]
+      )
+    ).toBeNull();
+  });
+});
+
 describe('readOpenDay', () => {
   const day = (over: Partial<DrWaelOpenDay> = {}): DrWaelOpenDay => ({
     staff_id: 's1',
@@ -1394,8 +1492,13 @@ describe('overtime evidence next to the decision', () => {
           last_out: '2026-11-01T17:30:00Z',
         })
       )
-    ).toEqual({ shift: '10:00–18:00', leftAt: '19:30', afterMinutes: 90 });
-    expect(overtimeDayFacts(null)).toEqual({ shift: null, leftAt: null, afterMinutes: null });
+    ).toEqual({ shift: '10:00–18:00', cameAt: '12:00', leftAt: '19:30', afterMinutes: 90 });
+    expect(overtimeDayFacts(null)).toEqual({
+      shift: null,
+      cameAt: null,
+      leftAt: null,
+      afterMinutes: null,
+    });
   });
 
   it('flags overtime longer than the stay after the shift', () => {

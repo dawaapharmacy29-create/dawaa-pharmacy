@@ -1426,11 +1426,89 @@ export function weekdayPatterns(samples: DrWaelShiftSample[], today: string): We
   return result.sort((a, b) => b.minutes - a.minutes);
 }
 
+// The whole schedule moved: most days of the last four weeks he comes AND leaves about the same time earlier (or
+// later) than the schedule, e.g. 16:00–00:00 on a 17:00–01:00 schedule. One hour is under the tolerance of the
+// other readings, which take it for lateness or leaving early, so it is looked for on its own. Both ends must move
+// the same way on most days, so someone who is only late every day is not read as a new shift.
+export interface ShiftDrift {
+  start: string;
+  end: string;
+  scheduledStart: string;
+  scheduledEnd: string;
+  /** Days that follow the new hours, out of all the scheduled days looked at. */
+  days: number;
+  of: number;
+  /** The late + early minutes the open ones carry now. */
+  minutes: number;
+  /** First and last day that show it. */
+  from: string;
+  latest: string;
+}
+
+const DRIFT_WINDOW_DAYS = 28;
+// Each end moved at least 20 minutes, the two together at least 30, and by about the same amount.
+const DRIFT_END_MINUTES = 20;
+const DRIFT_MIN_MINUTES = 30;
+const DRIFT_MIN_DAYS = 5;
+const DRIFT_SPREAD = 45;
+
+export function shiftDrift(samples: DrWaelShiftSample[], today: string): ShiftDrift | null {
+  const oldest = addDays(today, -DRIFT_WINDOW_DAYS);
+  const rows = samples
+    .filter((row) => row.scheduled_in != null && row.scheduled_out != null && row.date >= oldest)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (rows.length < DRIFT_MIN_DAYS) return null;
+  const latest = rows[rows.length - 1];
+  const planIn = latest.scheduled_in as number;
+  const planOut = latest.scheduled_out as number;
+  const offsets = rows.map((row) => ({
+    row,
+    in: clockOffset(row.in, planIn),
+    out: clockOffset(row.out, planOut),
+  }));
+  // The offset most days agree on, arrival and leaving together.
+  let best: typeof offsets = [];
+  for (let k = -240; k <= 240; k += 15) {
+    const near = offsets.filter(
+      (x) => Math.abs(x.in - k) <= DRIFT_SPREAD && Math.abs(x.out - k) <= DRIFT_SPREAD
+    );
+    if (near.length > best.length) best = near;
+  }
+  if (best.length < DRIFT_MIN_DAYS || best.length / rows.length < 0.6) return null;
+  const offIn = median(best.map((x) => x.in));
+  const offOut = median(best.map((x) => x.out));
+  if (Math.abs(offIn) < DRIFT_END_MINUTES || Math.abs(offOut) < DRIFT_END_MINUTES) return null;
+  if (Math.sign(offIn) !== Math.sign(offOut)) return null;
+  if (Math.abs(offIn + offOut) / 2 < DRIFT_MIN_MINUTES || Math.abs(offIn - offOut) > DRIFT_SPREAD)
+    return null;
+  // The shift keeps its length. People come a little after the start and leave a little after the end, so the
+  // start is the earlier of what the two ends say, on the half hour below.
+  const length = (planOut - planIn + 1440) % 1440 || 1440;
+  const fromIn = planIn + offIn;
+  const fromOut = planOut + offOut - length;
+  const start = Math.floor((Math.min(fromIn, fromOut) + 10) / 30) * 30;
+  if (clockDistance(start, planIn) < 30) return null;
+  const open = best.filter((x) => !x.row.locked);
+  const dates = best.map((x) => x.row.date).sort();
+  return {
+    start: clockText(start),
+    end: clockText(start + length),
+    scheduledStart: clockText(planIn),
+    scheduledEnd: clockText(planOut),
+    days: best.length,
+    of: rows.length,
+    minutes: open.reduce((sum, x) => sum + x.row.late + x.row.early, 0),
+    from: dates[0],
+    latest: dates[dates.length - 1],
+  };
+}
+
 export interface ShiftProfile {
   known: KnownShift[];
   mismatches: ShiftMismatch[];
   weekly: WeekdayPattern[];
   rotating: boolean;
+  drift: ShiftDrift | null;
 }
 
 export function shiftProfiles(
@@ -1453,6 +1531,7 @@ export function shiftProfiles(
       mismatches: shiftMismatches(rows, known, today).filter((m) => !covered.has(m.sample.date)),
       weekly,
       rotating: known.length >= 2,
+      drift: shiftDrift(rows, today),
     });
   }
   return profiles;
@@ -1485,7 +1564,7 @@ export async function fetchDrWaelOpenPunches(): Promise<DrWaelOpenPunches> {
   return { days: result.days, punches: result.punches };
 }
 
-export type ReadingSource = 'suggested' | 'known' | 'punches';
+export type ReadingSource = 'suggested' | 'known' | 'punches' | 'drift';
 
 export interface PunchReading {
   staff_id: string;
@@ -1503,6 +1582,8 @@ export interface PunchReading {
   early: number;
   /** What the day carries now on the schedule. */
   nowMinutes: number;
+  /** For a drift reading: how many of the last four weeks' days follow it, and the schedule it replaces. */
+  pattern?: { days: number; of: number; scheduled: string };
 }
 
 // Wall-clock minutes, so a date and a clock add up without a timezone in the way.
@@ -1540,6 +1621,7 @@ interface ShiftCandidate {
   end: string;
   source: ReadingSource;
   trusted?: boolean;
+  pattern?: PunchReading['pattern'];
 }
 
 export function readOpenDay(
@@ -1566,6 +1648,12 @@ export function readOpenDay(
     !planned ||
     (clockDistance((first - dayStart + 1440) % 1440, planned.in) >= END_TOLERANCE &&
       clockDistance((last - dayStart + 2880) % 1440, planned.out) >= END_TOLERANCE);
+  // The drifted shift is under the tolerance on purpose: it only needs to fit the day better than the schedule.
+  const closerThanSchedule = (start: number, end: number) => (first: number, last: number) =>
+    !planned ||
+    Math.abs(first - start) + Math.abs(last - end) <
+      clockDistance((first - dayStart + 1440) % 1440, planned.in) +
+        clockDistance((last - dayStart + 2880) % 1440, planned.out);
   // One punch can only be read on a day with no schedule to read it against.
   const onePunchAllowed = day.resolution === 'worked_on_off' && !planned;
 
@@ -1578,7 +1666,10 @@ export function readOpenDay(
     const last = nearest(points, end, READ_END_TOLERANCE);
     const whole = first != null && last != null;
     if (!whole && !(onePunchAllowed && (first != null || last != null))) continue;
-    if (whole && (last - first < MIN_PAIR_MINUTES || !movedFromSchedule(first, last))) continue;
+    if (!whole && candidate.source === 'drift') continue;
+    const moved =
+      candidate.source === 'drift' ? closerThanSchedule(start, end) : movedFromSchedule;
+    if (whole && (last - first < MIN_PAIR_MINUTES || !moved(first, last))) continue;
     const score =
       (whole ? 1000 : 0) +
       (candidate.source === 'suggested' ? 50 : 0) -
@@ -1597,6 +1688,7 @@ export function readOpenDay(
       late: first != null ? Math.max(0, first - start) : 0,
       early: last != null ? Math.max(0, end - last) : 0,
       nowMinutes,
+      ...(candidate.pattern ? { pattern: candidate.pattern } : {}),
       score,
     };
   }
@@ -1650,7 +1742,22 @@ export function punchReadings(
   }
   for (const day of open.days) {
     const suggested = insights.get(day.staff_id)?.shift;
+    const drift = profiles.get(day.staff_id)?.drift;
     const candidates: ShiftCandidate[] = [
+      ...(drift
+        ? [
+            {
+              start: drift.start,
+              end: drift.end,
+              source: 'drift' as const,
+              pattern: {
+                days: drift.days,
+                of: drift.of,
+                scheduled: `${drift.scheduledStart}–${drift.scheduledEnd}`,
+              },
+            },
+          ]
+        : []),
       ...(suggested
         ? [{ start: suggested.start, end: suggested.end, source: 'suggested' as const }]
         : []),
@@ -1719,6 +1826,11 @@ const fromOption = (option: QuickDayOption): QuickAction => ({ type: 'decide', .
 
 function readingWhy(reading: PunchReading): string {
   const minutes = reading.late + reading.early;
+  if (reading.source === 'drift' && reading.pattern) {
+    const onDrift = minutes ? `عليه ${minutes} د` : 'مظبوط';
+    const now = reading.nowMinutes ? ` بدل ${reading.nowMinutes} د دلوقتي` : '';
+    return `بصمته ${reading.pattern.days} يوم من ${reading.pattern.of} في آخر 4 أسابيع ماشية على ${reading.start}–${reading.end} مش جدوله ${reading.pattern.scheduled}. على الشيفت ده ${onDrift}${now}. لو ده شيفته الجديد غيّره باستمرار من تحت`;
+  }
   const onShift =
     reading.source === 'punches'
       ? 'الشيفت ده من البصمة بس ومش من شيفتاته، اتأكد إنه مش تأخير'
@@ -2277,10 +2389,11 @@ export function overtimePlan<T extends OvertimeQuickRow>(
 /** The shift of the overtime day and how long he stayed after it, from the same day row the page shows. */
 export function overtimeDayFacts(day: DrWaelDay | null | undefined): {
   shift: string | null;
+  cameAt: string | null;
   leftAt: string | null;
   afterMinutes: number | null;
 } {
-  if (!day) return { shift: null, leftAt: null, afterMinutes: null };
+  if (!day) return { shift: null, cameAt: null, leftAt: null, afterMinutes: null };
   const end = day.scheduled_end ? Date.parse(day.scheduled_end) : NaN;
   const out = day.last_out ? Date.parse(day.last_out) : NaN;
   return {
@@ -2288,6 +2401,7 @@ export function overtimeDayFacts(day: DrWaelDay | null | undefined): {
       day.scheduled_start && day.scheduled_end
         ? `${cairoTime(day.scheduled_start)}–${cairoTime(day.scheduled_end)}`
         : null,
+    cameAt: day.first_in ? cairoTime(day.first_in) : null,
     leftAt: day.last_out ? cairoTime(day.last_out) : null,
     afterMinutes:
       Number.isNaN(end) || Number.isNaN(out) ? null : Math.max(Math.round((out - end) / 60000), 0),
