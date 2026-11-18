@@ -12,6 +12,7 @@ export interface RawSalesInvoiceItemV21 {
   sourceBranch?: string;
   invoiceDate: string | null;
   customerCode: string | null;
+  customerId?: string | null;
   lineNo: number | null;
   productCode: string | null;
   productName: string;
@@ -166,7 +167,13 @@ export function parseSalesInvoiceItemsV21(
       const productName = idx.productName >= 0 ? text(row[idx.productName]) : productCode || '';
       const quantity = numberOrNull(row[idx.quantity]);
       if (!row.some((cell) => text(cell))) continue;
-      const saleDay = idx.date >= 0 ? excelSaleDay(row[idx.date]) : null;
+      // Some BConnect item exports have an unlabelled final sale timestamp. Use it
+      // only when it is the sole parseable date after the known columns.
+      const trailingDates = idx.date < 0
+        ? row.slice(Math.max(...Object.values(idx)) + 1).map(excelSaleDay).filter((day): day is string => !!day)
+        : [];
+      const saleDay = idx.date >= 0 ? excelSaleDay(row[idx.date]) :
+        trailingDates.length === 1 ? trailingDates[0] : null;
       const lineNo = idx.lineNo >= 0 ? numberOrNull(row[idx.lineNo]) : null;
       if (
         !invoiceNumber ||
@@ -224,6 +231,9 @@ type InvoiceMatch = {
   invoice_number: string;
   invoice_date: string | null;
   customer_code: string | null;
+  customer_id: string | null;
+  staff_id: string | null;
+  line_items_count: number | null;
 };
 type PreviewStatus =
   | 'ready'
@@ -233,7 +243,10 @@ type PreviewStatus =
   | 'missing'
   | 'ambiguous'
   | 'wrong_branch'
-  | 'customer_mismatch';
+  | 'customer_mismatch'
+  | 'unlinked_customer'
+  | 'unlinked_staff'
+  | 'invalid_quantity';
 
 export type SalesItemPreviewRow = {
   row: RawSalesInvoiceItemV21;
@@ -307,6 +320,19 @@ async function previewBranch(rows: RawSalesInvoiceItemV21[], branch: string) {
           row.customerCode !== matches[0].customer_code
         ) {
           entry.status = 'customer_mismatch';
+          continue;
+        }
+        if (!matches[0].customer_id) {
+          entry.status = 'unlinked_customer';
+          continue;
+        }
+        if (!matches[0].staff_id) {
+          entry.status = 'unlinked_staff';
+          continue;
+        }
+        if (row.quantity == null || !Number.isFinite(row.quantity) || row.quantity <= 0 ||
+            row.unitPrice == null || !Number.isFinite(row.unitPrice) || row.unitPrice < 0) {
+          entry.status = 'invalid_quantity';
           continue;
         }
         const key = itemKey(row.invoiceNumber, row.lineNo, row.productCode);
@@ -388,6 +414,7 @@ export async function saveSalesInvoiceItemsV21(
       branch: row.branch,
       invoice_date: invoice!.invoice_date ?? cairoDateBoundaryIso(row.invoiceDate!),
       customer_code: row.customerCode,
+      customer_id: invoice!.customer_id,
       line_no: row.lineNo,
       product_code: row.productCode,
       product_name: row.productName,
