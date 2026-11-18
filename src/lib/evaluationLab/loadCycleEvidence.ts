@@ -113,6 +113,43 @@ async function dailyInvoiceWindows(cycle: LabCycle, columns: string, maxRows: nu
   return rows;
 }
 
+/** Column order of get_evaluation_lab_invoices_v1 rows (one array per invoice). */
+export const EVALUATION_LAB_INVOICE_COLUMNS = ['id', 'staff_id', 'net_amount', 'total_amount', 'customer_code', 'branch',
+  'delivery_staff', 'sale_date', 'invoice_datetime', 'line_items_count', 'discount_amount'] as const;
+
+/** Rows of get_evaluation_lab_invoices_v1 as objects keyed like the table's columns. */
+export function invoiceRowsFromRpc(data: unknown): Row[] {
+  if (!Array.isArray(data)) throw new Error('sales_invoices: شكل غير متوقع');
+  return data.map((values) => {
+    const list = Array.isArray(values) ? values : [];
+    return Object.fromEntries(EVALUATION_LAB_INVOICE_COLUMNS.map((column, index) => [column, list[index] ?? null]));
+  });
+}
+
+/**
+ * The cycle's invoices in one server call (2026-11-18: ~55 day requests per cycle made the lab take
+ * minutes). Falls back to the day-by-day read when the function is missing or refuses this session.
+ */
+async function cycleInvoices(cycle: LabCycle, columns: string, maxRows: number): Promise<Row[]> {
+  const { data, error } = await supabase.rpc('get_evaluation_lab_invoices_v1', { p_start: cycle.start, p_end_exclusive: cycle.endExclusive });
+  if (error) return dailyInvoiceWindows(cycle, columns, maxRows);
+  const rows = invoiceRowsFromRpc(data);
+  if (rows.length > maxRows) throw new Error('sales_invoices_limit_reached');
+  return rows;
+}
+
+/**
+ * The cycle's canonical conversation reviews in one server call; the paged read of the view is the
+ * fallback (its row policies can hit the statement timeout on a busy database).
+ */
+async function cycleReviews(startAt: string, endAt: string, cycle: LabCycle): Promise<Row[]> {
+  const { data, error } = await supabase.rpc('get_evaluation_lab_reviews_v1', { p_start: cycle.start, p_end_exclusive: cycle.endExclusive });
+  if (!error && Array.isArray(data)) return data as Row[];
+  return pages(() => supabase.from('conversation_sales_reviews_canonical_v2')
+    .select(['id', 'staff_id', 'doctor_id', ...OFFICIAL_REVIEW_COLUMNS].join(','))
+    .gte('conversation_date', startAt).lt('conversation_date', endAt) as unknown as PageQuery, 10000, 'reviews');
+}
+
 /**
  * Customer requests the Master Brain proposed from WhatsApp conversations that started in the
  * cycle. Read-only and bounded; null when this session cannot read the sources (the axis then
@@ -219,7 +256,7 @@ async function loadPreviousCycle(cycle: LabCycle): Promise<{
 } | null> {
   try {
     const shift = (day: string) => { const d = new Date(`${day}T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() - 1); return d.toISOString().slice(0, 10); };
-    const rows = (await dailyInvoiceWindows({ start: shift(cycle.start), endExclusive: cycle.start }, 'id,branch,net_amount,total_amount,staff_id,invoice_datetime,customer_code', 30000))
+    const rows = (await cycleInvoices({ start: shift(cycle.start), endExclusive: cycle.start }, 'id,branch,net_amount,total_amount,staff_id,invoice_datetime,customer_code', 30000))
       .filter((row) => !isInternalCustomerCode(row.customer_code));
     // Growth compares like for like: the same number of days from the previous cycle's start, so a
     // running cycle is not measured against a whole month.
@@ -460,10 +497,8 @@ export async function loadCycleEvidence(cycle: LabCycle, options: { actorId?: st
     pages(() => supabase.from('staff').select('id,name,role,branch,active,is_active') as unknown as PageQuery, 2000, 'staff'),
     pages(() => supabase.from('staff_identity_aliases').select('id,staff_id,normalized_alias,active').eq('active', true) as unknown as PageQuery, 5000, 'aliases'),
     // invoice_date (Cairo boundaries), verified identical to sale_date for this table (0 rows differ).
-    dailyInvoiceWindows(cycle, 'id,staff_id,net_amount,total_amount,customer_code,branch,delivery_staff,sale_date,invoice_datetime,line_items_count,discount_amount', 30000),
-    pages(() => supabase.from('conversation_sales_reviews_canonical_v2')
-      .select(['id', 'staff_id', 'doctor_id', ...OFFICIAL_REVIEW_COLUMNS].join(','))
-      .gte('conversation_date', startAt).lt('conversation_date', endAt) as unknown as PageQuery, 10000, 'reviews'),
+    cycleInvoices(cycle, 'id,staff_id,net_amount,total_amount,customer_code,branch,delivery_staff,sale_date,invoice_datetime,line_items_count,discount_amount', 30000),
+    cycleReviews(startAt, endAt, cycle),
     parallelPages((columns, options) => supabase.from('attendance_daily_summary').select(columns, options)
       .gte('attendance_date', cycle.start).lt('attendance_date', cycle.endExclusive),
       'id,staff_id,attendance_date,status,resolution_status,first_in,last_out,late_minutes,scheduled_start_at,scheduled_end_at,total_hours,branch', 10000, 'attendance', ['staff_id', 'attendance_date']),
