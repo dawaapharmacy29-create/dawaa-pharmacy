@@ -542,7 +542,7 @@ export default function ShiftHandovers() {
         <div className="mb-4 rounded-xl border p-3" style={{ borderColor: 'var(--dawaa-theme-border)' }}>
           <p className="text-sm font-black">مسؤولية التسليم من أول الدورة ({shortDay(cycleFrom)})</p>
           <p className="dawaa-caption mb-2 text-xs font-bold">
-            الشيفت الناقص بيتحسب على الدكاترة اللي كانوا باصمين فيه، ولو مفيش دكتور على المساعد.
+            الشيفت الناقص بيتحسب على الدكتور اللي كان موجود ساعة التسليم: اشتغل ٣ ساعات على الأقل من الشيفت وكان لسه في الفرع (أو مشي قبلها بساعة بالكتير). لو مفيش دكتور بيتحسب على المساعد.
             {punches ? '' : ' البصمات مش ظاهرة لحسابك، فالناقص مش متوزع على حد.'}
           </p>
           <div className="overflow-x-auto">
