@@ -1960,7 +1960,9 @@ function hasUnresolvedMultipleRequests(messages, requestMessages) {
   const independentRequests = requestMessages.filter(
     // Request candidates include symptoms, answers and delivery context. Those are useful
     // need evidence, but their mere adjacency does not establish independent orders.
-    (message) => startsIndependentCommercialNeed(message) && !isCustomerPaymentSettlementContinuation(messages, message.id) && !isOrderTotalQuestionOnly(message.text)
+    (message) => (startsIndependentCommercialNeed(message) || // An additive reference to an omitted image still signals another requested item.
+    // Keep it unresolved; the missing media must never be treated as a known product.
+    /^و\s*(?:دا|ده|دي|هذا|هذه)(?:\s+(?:كمان|أيضا|ايضا))?[.!؟?،\s]*$/u.test(message.text.trim())) && !isCustomerPaymentSettlementContinuation(messages, message.id) && !isOrderTotalQuestionOnly(message.text)
   );
   if (independentRequests.length < 2) return false;
   for (let i = 1; i < independentRequests.length; i += 1) {
