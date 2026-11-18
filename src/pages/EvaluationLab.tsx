@@ -400,6 +400,8 @@ export default function EvaluationLab() {
       return { evidence, baseline };
     },
     staleTime: 5 * 60_000,
+    // A retry reads the whole cycle again (dozens of sources): once is enough.
+    retry: 1,
   });
   // Levels change the shared-hour weights only: scored again without reloading the cycle.
   const scores = useMemo(() => {
