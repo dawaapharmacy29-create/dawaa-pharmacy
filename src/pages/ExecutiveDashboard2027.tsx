@@ -45,9 +45,6 @@ import { GmMoneyOverview } from '@/components/dashboard/GmMoneyOverview';
 import { AgendaCompliancePanel } from '@/components/dashboard/AgendaCompliancePanel';
 import { ManagerLiveIncentiveCard } from '@/components/evaluations/ManagerLiveIncentiveCard';
 import { canSeeAllBranches, effectiveBranchFilter } from '@/lib/security/permissionScopes';
-import { DAYS_AR } from '@/lib/constants';
-import { isCurrentlyOnShift } from '@/lib/utils';
-import { fetchCurrentShiftPresence } from '@/lib/attendance/currentShiftPresenceService';
 import {
   getStaffIncentiveSummaryForCycle,
   type StaffCycleIncentive,
@@ -149,19 +146,19 @@ type StaffDirectoryRow = {
   is_active?: boolean | null;
 };
 
-type ShiftScheduleRow = {
-  staff_id?: string | null;
-  staff_name?: string | null;
-  branch?: string | null;
-  day_name?: string | null;
-  shift_start?: string | null;
-  shift_end?: string | null;
-  is_off?: boolean | null;
-};
-
 type ShiftNowRow = StaffDirectoryRow & {
   shift_start?: string | null;
   shift_end?: string | null;
+  // First punch of the open shift (live punches).
+  since?: string | null;
+};
+
+type PresentNowRow = {
+  staff_id: string;
+  staff_name: string | null;
+  role: string | null;
+  branch: string | null;
+  since: string;
 };
 
 type InvoiceRow = {
@@ -262,6 +259,21 @@ function ShiftTimeRange({ shift, className = '' }: { shift: { start: string | nu
   return (
     <span dir="ltr" className={className}>
       {formatShiftRange(shift)}
+    </span>
+  );
+}
+
+// «بصمة دخول ٨:١٦ ص» — the arrival punch of the open shift; after 12 hours with no departure it is flagged,
+// since a long open shift is usually a forgotten checkout.
+function PresentSince({ since }: { since: string }) {
+  const at = new Date(since);
+  if (Number.isNaN(at.getTime())) return null;
+  const hours = (Date.now() - at.getTime()) / 3_600_000;
+  const time = at.toLocaleTimeString('ar-EG', { hour: 'numeric', minute: '2-digit', timeZone: 'Africa/Cairo' });
+  return (
+    <span className="block text-left">
+      <span className="block">بصمة دخول {time}</span>
+      {hours >= 12 ? <span className="block text-[var(--dawaa-status-warning-text)]">من {Math.floor(hours).toLocaleString('ar-EG')} ساعة بدون خروج</span> : null}
     </span>
   );
 }
@@ -1319,10 +1331,9 @@ export default function ExecutiveDashboard2027() {
       try {
       setStaffAttendanceLoading(true);
       try {
-        // التلات queries دول مستقلين تمامًا عن بعض (جداول/مصادر مختلفة، وميحتاجش
-        // نتيجة أي واحد فيهم عشان نبدأ التاني) — بنشغّلهم بالتوازي بدل التتابع
-        // عشان زمن الانتظار الكلي يبقى أقرب لأبطأ واحد فيهم مش مجموعهم.
-        const [staffResult, scheduleResult, presenceResult] = await Promise.all([
+        // «الموجودون الآن» comes from the live punches only (dashboard_present_now_v1): a person shows
+        // while their last punch, read by the smart attendance reading, is an arrival. No schedule fallback.
+        const [staffResult, presenceResult] = await Promise.all([
           withTimeout<{
             data: StaffDirectoryRow[] | null;
             error: { message?: string } | null;
@@ -1343,89 +1354,34 @@ export default function ExecutiveDashboard2027() {
             'staff-directory'
           ),
           withTimeout<{
-            data: ShiftScheduleRow[] | null;
+            data: PresentNowRow[] | null;
             error: { message?: string } | null;
           }>(
-            supabase
-              .from('shift_schedules')
-              .select('staff_id,staff_name,branch,day_name,shift_start,shift_end,is_off')
-              .is('effective_to', null)
-              .limit(1200) as PromiseLike<{
-                data: ShiftScheduleRow[] | null;
-                error: { message?: string } | null;
-              }>,
+            supabase.rpc('dashboard_present_now_v1') as unknown as PromiseLike<{
+              data: PresentNowRow[] | null;
+              error: { message?: string } | null;
+            }>,
             7000,
-            'shift-schedules'
+            'present-now'
           ),
-          withTimeout<{
-            doctors: Array<{ id: string; name: string; role: string; branch: string; attendance_status?: string; shift_start?: string; shift_end?: string }>;
-            assistants: Array<{ id: string; name: string; role: string; branch: string; attendance_status?: string; shift_start?: string; shift_end?: string }>;
-            delivery: Array<{ id: string; name: string; role: string; branch: string; attendance_status?: string; shift_start?: string; shift_end?: string }>;
-            error?: { message?: string } | null;
-          }>(fetchCurrentShiftPresence() as PromiseLike<{
-            doctors: Array<{ id: string; name: string; role: string; branch: string; attendance_status?: string; shift_start?: string; shift_end?: string }>;
-            assistants: Array<{ id: string; name: string; role: string; branch: string; attendance_status?: string; shift_start?: string; shift_end?: string }>;
-            delivery: Array<{ id: string; name: string; role: string; branch: string; attendance_status?: string; shift_start?: string; shift_end?: string }>;
-            error?: { message?: string } | null;
-          }>, 7000, 'shift-presence'),
         ]);
         if (staffResult.error) errors.push(`staff: ${staffResult.error.message}`);
-        if (scheduleResult.error) errors.push(`shift_schedules: ${scheduleResult.error.message}`);
-        if (presenceResult && 'error' in presenceResult && presenceResult.error) {
-          errors.push(`current presence: ${presenceResult.error.message}`);
-        }
+        if (presenceResult.error) errors.push(`present now: ${presenceResult.error.message}`);
 
         const staffDirectory = ((staffResult.data || []) as StaffDirectoryRow[]).filter(isActiveStaff);
-        const scheduleRows = (scheduleResult.data || []) as ShiftScheduleRow[];
-        const todayName = DAYS_AR[new Date().getDay()];
-        const scheduleByKey = new Map<string, ShiftScheduleRow>();
-        for (const row of scheduleRows) {
-          if (row.is_off) continue;
-          if (String(row.day_name || '') !== todayName) continue;
-          const rBranch = branchName(row.branch);
-          const idKey = `id:${String(row.staff_id || '')}|${rBranch}`;
-          const nameKey = `name:${String(row.staff_name || '').trim()}|${rBranch}`;
-          if (!scheduleByKey.has(idKey)) scheduleByKey.set(idKey, row);
-          if (!scheduleByKey.has(nameKey)) scheduleByKey.set(nameKey, row);
-        }
-        const scheduledToday = staffDirectory
-          .map((member) => {
-            const name = staffName(member);
-            const memberBranch = branchName(member.branch);
-            const idKey = `id:${staffId(member)}|${memberBranch}`;
-            const nameKey = `name:${name}|${memberBranch}`;
-            const schedule = scheduleByKey.get(idKey) || scheduleByKey.get(nameKey);
-            if (!schedule?.shift_start || !schedule?.shift_end) return null;
-            if (scopedBranch !== ALL_BRANCHES && memberBranch !== scopedBranch) return null;
-            return { ...member, shift_start: schedule.shift_start, shift_end: schedule.shift_end };
-          })
-          .filter(Boolean) as ShiftNowRow[];
-        const onShiftNow = scheduledToday.filter((member) =>
-          isCurrentlyOnShift(member.shift_start || '', member.shift_end || '')
-        );
-        const currentPresence = presenceResult && typeof presenceResult === 'object' && 'doctors' in presenceResult
-          ? presenceResult
-          : { doctors: [], assistants: [], delivery: [] };
-        const presenceRows = [
-          ...currentPresence.doctors,
-          ...currentPresence.assistants,
-          ...currentPresence.delivery,
-        ]
+        const effectiveOnShiftNow = (presenceResult.data || [])
           .filter((person) => scopedBranch === ALL_BRANCHES || branchName(person.branch) === scopedBranch)
           .map((person) => ({
-            id: person.id,
-            staff_id: person.id,
-            name: person.name,
-            staff_name: person.name,
+            id: person.staff_id,
+            staff_id: person.staff_id,
+            name: person.staff_name,
+            staff_name: person.staff_name,
             role: person.role,
             branch: person.branch,
-            status: person.attendance_status,
             active: true,
             is_active: true,
-            shift_start: person.shift_start,
-            shift_end: person.shift_end,
+            since: person.since,
           })) as ShiftNowRow[];
-        const effectiveOnShiftNow = presenceRows.length ? presenceRows : onShiftNow.length ? onShiftNow : scheduledToday;
         setState((prev) => ({ ...prev, staffDirectory, onShiftNow: effectiveOnShiftNow }));
         setStaffAttendanceLoadedAt(new Date().toISOString());
       } catch (e) {
@@ -2178,7 +2134,7 @@ export default function ExecutiveDashboard2027() {
         {managerMode ? null : <Panel className="p-5">
           <SectionTitle
             title="الموجودون الآن"
-            subtitle="عرض واحد ذكي للحضور الحالي حسب الدور والفرع — التفاصيل الكاملة في صفحة الحضور"
+            subtitle="من البصمات الحية فقط: اللي آخر بصمة ليه دخول ولسه مبصمش خروج — التفاصيل الكاملة في صفحة الحضور"
             icon={<Clock3 className="h-5 w-5" />}
           />
           <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -2211,7 +2167,7 @@ export default function ExecutiveDashboard2027() {
                           <span className="text-[var(--dawaa-theme-muted)]">{branchName(member.branch)} · {String(member.role || 'فريق')}</span>
                         </div>
                         <span className="text-[var(--dawaa-theme-primary-strong)]">
-                          {member.shifts.map((shift, index) => (
+                          {member.since ? <PresentSince since={member.since} /> : member.shifts.map((shift, index) => (
                             <span key={index}>{index > 0 ? '، ' : ''}<ShiftTimeRange shift={shift} /></span>
                           ))}
                         </span>
