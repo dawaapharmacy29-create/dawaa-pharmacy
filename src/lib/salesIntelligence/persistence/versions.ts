@@ -128,7 +128,9 @@
 // stay separate from customer orders; unavailable media never becomes a penalty.
 // v57: complaint-only service is not a sales-closing test; visible complaint
 // acknowledgments/remedies evidence understanding independently of missing attachments.
-export const PIPELINE_VERSION = 'sales-intelligence-v60-organic-order-confirmation';
+// v61: an unresolved commercial outcome alone cannot prove poor staff closing.
+// Only canonical next-step/fault evidence can justify that judgment; unknown is unscored.
+export const PIPELINE_VERSION = 'sales-intelligence-v61-evidence-bound-closing';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v15-caption-priced-offer-continuity',

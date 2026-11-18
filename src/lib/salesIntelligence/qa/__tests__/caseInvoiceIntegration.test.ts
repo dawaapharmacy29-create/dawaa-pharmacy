@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readInvoiceItemCommercialMeta } from '../../../invoices/invoiceItemCommercialMeta';
+import { readInvoiceItemCommercialMeta, reconciledLegacyBconnectMeta } from '../../../invoices/invoiceItemCommercialMeta';
 import { buildInvoiceItemEvidenceProvider } from '../../invoiceItemEvidenceRepository';
 import { fetchQaCaseDetail } from '../queries';
 import { buildCaseInvoiceCard, type CaseInvoiceCardInput } from '../caseInvoiceCard';
@@ -20,6 +20,43 @@ const COMPACT_RAW = {
 };
 
 describe('invoice line commercial fields — one reader for both stored shapes', () => {
+  const legacy = (quantity: number, amount: number) => ({
+    quantity, unit_price: amount, line_total: quantity * amount,
+    raw_data: { unit: 'علبة', expiry: '.', returned_qty: 0, line_discount: 0 },
+  });
+
+  it('reconciles original legacy line amounts without rewriting source rows', () => {
+    const rows = [legacy(2, 10), legacy(1, 90)];
+    const before = JSON.stringify(rows);
+    const meta = reconciledLegacyBconnectMeta(rows, 100);
+    expect(meta.get(rows[0])).toMatchObject({ netLineAmount: 10, effectiveQuantity: 2 });
+    expect([...meta.values()].reduce((n, m) => n + m.netLineAmount!, 0)).toBe(100);
+    expect(JSON.stringify(rows)).toBe(before);
+  });
+
+  it.each(['missing line', 'header conflict', 'return', 'discount', 'unknown shape', 'invalid stored amount'])
+  ('refuses legacy reinterpretation for %s', (reason) => {
+    const rows = [legacy(2, 10), legacy(1, 90)];
+    if (reason === 'missing line') rows.pop();
+    if (reason === 'return') rows[0].raw_data.returned_qty = 1;
+    if (reason === 'discount') rows[0].raw_data.line_discount = 1;
+    if (reason === 'unknown shape') delete (rows[0].raw_data as any).returned_qty;
+    if (reason === 'invalid stored amount') rows[0].line_total = 19;
+    expect(reconciledLegacyBconnectMeta(rows, reason === 'header conflict' ? 110 : 100).size).toBe(0);
+  });
+
+  it('attribution uses reconciled line value and unit price only for the complete legacy invoice', () => {
+    const rows = [legacy(2, 10), legacy(1, 90)].map((row, i) => ({
+      ...row, invoice_id: 'legacy-invoice', product_code: `P${i}`, product_name: `Product ${i}`,
+    }));
+    const provider = buildInvoiceItemEvidenceProvider([
+      { id: 'legacy-invoice', invoice_number: '123', branch: 'فرع شكري', net_amount: 100 },
+    ] as any, rows);
+    expect(provider.getItemsForInvoice('legacy-invoice', '123')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ quantity: 2, unitPrice: 5, netLineAmount: 10, lineTotal: 10 }),
+    ]));
+  });
+
   it('reads the importer object', () => {
     const meta = readInvoiceItemCommercialMeta({
       __dawaa_commercial: {

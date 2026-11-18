@@ -1958,7 +1958,11 @@ function evidenceRef(messages, description) {
 }
 function hasUnresolvedMultipleRequests(messages, requestMessages) {
   const independentRequests = requestMessages.filter(
-    (message) => !isCustomerPaymentSettlementContinuation(messages, message.id) && !isOrderTotalQuestionOnly(message.text)
+    // Request candidates include symptoms, answers and delivery context. Those are useful
+    // need evidence, but their mere adjacency does not establish independent orders.
+    (message) => (startsIndependentCommercialNeed(message) || // An additive reference to an omitted image still signals another requested item.
+    // Keep it unresolved; the missing media must never be treated as a known product.
+    /^و\s*(?:دا|ده|دي|هذا|هذه)(?:\s+(?:كمان|أيضا|ايضا))?[.!؟?،\s]*$/u.test(message.text.trim())) && !isCustomerPaymentSettlementContinuation(messages, message.id) && !isOrderTotalQuestionOnly(message.text)
   );
   if (independentRequests.length < 2) return false;
   for (let i = 1; i < independentRequests.length; i += 1) {
@@ -9900,7 +9904,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v60-organic-order-confirmation";
+var PIPELINE_VERSION = "sales-intelligence-v61-evidence-bound-closing";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v15-caption-priced-offer-continuity",
   historicalClosure: "historical-closure-v1",
@@ -10202,6 +10206,33 @@ function readInvoiceItemCommercialMeta(rawData) {
     invoiceNetAmount: num(raw.invoice_net)
   };
 }
+function reconciledLegacyBconnectMeta(rows, headerNet) {
+  const result = /* @__PURE__ */ new Map();
+  const total = num(headerNet);
+  if (!rows.length || total == null || total <= 0) return result;
+  let sum = 0;
+  for (const row of rows) {
+    const raw = row.raw_data && typeof row.raw_data === "object" ? row.raw_data : {};
+    const keys = Object.keys(raw).sort().join("|");
+    const qty = num(row.quantity), amount = num(row.unit_price), stored = num(row.line_total);
+    if (keys !== "expiry|line_discount|returned_qty|unit" || num(raw.returned_qty) !== 0 || num(raw.line_discount) !== 0 || qty == null || qty <= 0 || amount == null || amount < 0 || stored == null || Math.abs(stored - qty * amount) > 0.02) return result;
+    sum += amount;
+  }
+  if (Math.abs(sum - total) > 0.02) return result;
+  for (const row of rows) {
+    const raw = row.raw_data;
+    result.set(row, {
+      ...readInvoiceItemCommercialMeta(raw),
+      format: "legacy_reconciled",
+      effectiveQuantity: num(row.quantity),
+      returnedQuantity: 0,
+      grossLineAmount: num(row.unit_price),
+      effectiveGrossAfterReturn: num(row.unit_price),
+      netLineAmount: num(row.unit_price)
+    });
+  }
+  return result;
+}
 
 // src/lib/salesIntelligence/persistence/productIdentityReviewEvidenceRepository.ts
 async function fetchVerifiedProductIdentityReviews(client, sourceIds) {
@@ -10499,6 +10530,20 @@ function buildInvoiceItemEvidenceProvider(invoiceRows, itemRows) {
     candidateIdsByNumberBranch.set(key, ids);
   }
   const itemsByInvoiceId = /* @__PURE__ */ new Map();
+  const legacyMeta = /* @__PURE__ */ new Map();
+  const directRows = /* @__PURE__ */ new Map();
+  for (const row of itemRows) {
+    const id = clean2(row.invoice_id);
+    if (id) {
+      const bucket = directRows.get(id) ?? [];
+      bucket.push(row);
+      directRows.set(id, bucket);
+    }
+  }
+  for (const invoice of invoiceRows) {
+    const rows = directRows.get(invoiceId(invoice)) ?? [];
+    for (const [row, meta] of reconciledLegacyBconnectMeta(rows, getInvoiceAmount(invoice))) legacyMeta.set(row, meta);
+  }
   for (const row of itemRows) {
     const directId = clean2(row.invoice_id);
     let resolvedId = directId && candidateIds.has(directId) ? directId : "";
@@ -10512,7 +10557,7 @@ function buildInvoiceItemEvidenceProvider(invoiceRows, itemRows) {
     const productName = clean2(row.product_name);
     if (!productName) continue;
     const bucket = itemsByInvoiceId.get(resolvedId) ?? [];
-    const meta = readInvoiceItemCommercialMeta(row.raw_data);
+    const meta = legacyMeta.get(row) ?? readInvoiceItemCommercialMeta(row.raw_data);
     bucket.push({
       productNameRaw: productName,
       productId: clean2(row.product_id) || null,
@@ -10525,12 +10570,12 @@ function buildInvoiceItemEvidenceProvider(invoiceRows, itemRows) {
       unitName: meta.unitName,
       expiryRaw: meta.expiryRaw,
       returnedQuantity: meta.returnedQuantity,
-      unitPrice: numberOrNull(row.unit_price),
+      unitPrice: legacyMeta.has(row) ? meta.netLineAmount / Number(row.quantity) : numberOrNull(row.unit_price),
       itemDiscountAmount: meta.itemDiscountAmount,
       itemDiscountPercent: meta.itemDiscountPercent,
       grossLineAmount: meta.grossLineAmount,
       netLineAmount: meta.netLineAmount ?? numberOrNull(row.line_total),
-      lineTotal: numberOrNull(row.line_total)
+      lineTotal: meta.netLineAmount ?? numberOrNull(row.line_total)
     });
     itemsByInvoiceId.set(resolvedId, bucket);
   }
@@ -14105,11 +14150,11 @@ function assessClosing(view) {
   if (view.coachingEvidence.staffReplied && view.need.primaryNeed) {
     return make4(
       "sales_closing",
-      "passive",
-      "assessed",
-      78,
-      "\u064A\u0648\u062C\u062F \u0627\u062D\u062A\u064A\u0627\u062C \u0648\u0641\u0631\u0635\u0629 \u0628\u064A\u0639 \u0648\u0631\u062F \u0645\u0646 \u0627\u0644\u0645\u0648\u0638\u0641\u060C \u0644\u0643\u0646 \u0644\u0627 \u064A\u0648\u062C\u062F \u062F\u0644\u064A\u0644 \u0643\u0627\u0641\u064D \u0639\u0644\u0649 \u0627\u0646\u062A\u0642\u0627\u0644 \u0641\u0639\u0644\u064A \u0646\u062D\u0648 \u0637\u0644\u0628 \u0623\u0648 \u0642\u0631\u0627\u0631 \u0648\u0627\u0636\u062D.",
-      view.need.evidenceMessageIds
+      null,
+      "insufficient_evidence",
+      55,
+      "\u0638\u0647\u0631 \u0631\u062F \u0645\u0646 \u0627\u0644\u0645\u0648\u0638\u0641\u060C \u0644\u0643\u0646 \u0644\u0645 \u062A\u062B\u0628\u062A \u0645\u0633\u0624\u0648\u0644\u064A\u0629 \u062E\u0637\u0648\u0629 \u0627\u0644\u0625\u063A\u0644\u0627\u0642 \u0623\u0648 \u0627\u0644\u062A\u0642\u0635\u064A\u0631 \u0641\u064A\u0647\u0627\u061B \u0639\u062F\u0645 \u0627\u0643\u062A\u0645\u0627\u0644 \u0627\u0644\u0637\u0644\u0628 \u0648\u062D\u062F\u0647 \u0644\u0627 \u064A\u0628\u0631\u0631 \u062E\u0635\u0645\u064B\u0627. \u064A\u0644\u0632\u0645 \u062F\u0644\u064A\u0644 \u0642\u0631\u0627\u0631 \u0627\u0644\u0639\u0645\u064A\u0644 \u0648\u0627\u0644\u062A\u0648\u0641\u0631 \u0648\u0645\u062D\u062A\u0648\u0649 \u0627\u0644\u0648\u0633\u0627\u0626\u0637 \u0639\u0646\u062F \u0627\u0644\u062D\u0627\u062C\u0629.",
+      [...view.need.evidenceMessageIds, ...view.lostOpportunity.evidenceMessageIds]
     );
   }
   return make4(

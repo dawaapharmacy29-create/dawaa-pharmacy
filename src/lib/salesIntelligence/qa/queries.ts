@@ -7,7 +7,7 @@
 // than paginating server-side, deliberately kept small per CLAUDE.md's standing constraint against
 // unbounded high-volume reads.
 import { parseWhatsAppExport, type WhatsAppParsedMessage } from '../../whatsappConversationParser';
-import { readInvoiceItemCommercialMeta } from '../../invoices/invoiceItemCommercialMeta';
+import { readInvoiceItemCommercialMeta, reconciledLegacyBconnectMeta } from '../../invoices/invoiceItemCommercialMeta';
 import {
   REVIEW_SOURCE_BATCH_INPUT_COLUMNS,
 } from '../persistence/reviewSourceBatchAdapter';
@@ -826,8 +826,12 @@ export async function fetchQaCaseDetail(
       });
     }
 
+    const legacyMeta = reconciledLegacyBconnectMeta(itemRows ?? [], invoiceHeader?.net_amount);
     for (const row of itemRows ?? []) {
-      const meta = readInvoiceItemCommercialMeta(row.raw_data);
+      const meta = legacyMeta.get(row) ?? readInvoiceItemCommercialMeta(row.raw_data);
+      const unitPrice = legacyMeta.has(row)
+        ? meta.netLineAmount! / Number(row.quantity)
+        : row.unit_price == null ? null : Number(row.unit_price);
       const product = productsByKey.get(`id:${row.product_id}`) ?? productsByKey.get(`code:${row.product_code}`) ?? null;
       const lineOffers = offers
         .filter((offer: any) => String(offer.item_code ?? '') === String(row.product_code ?? ''))
@@ -848,7 +852,7 @@ export async function fetchQaCaseDetail(
                     : Math.max(0, Number(row.quantity) - Math.max(0, Number(meta.returnedQuantity ?? 0)))
                 )
               : Number(meta.effectiveQuantity),
-          unitPrice: row.unit_price == null ? null : Number(row.unit_price),
+          unitPrice,
           itemDiscountAmount: meta.itemDiscountAmount == null ? null : Number(meta.itemDiscountAmount),
           itemDiscountPercent: meta.itemDiscountPercent == null ? null : Number(meta.itemDiscountPercent),
           grossLineAmount: meta.grossLineAmount == null ? null : Number(meta.grossLineAmount),
@@ -889,7 +893,7 @@ export async function fetchQaCaseDetail(
               )
             : Number(meta.effectiveQuantity),
         unitName: meta.unitName == null ? null : String(meta.unitName),
-        unitPrice: row.unit_price == null ? null : Number(row.unit_price),
+        unitPrice,
         itemDiscountAmount: meta.itemDiscountAmount == null ? null : Number(meta.itemDiscountAmount),
         itemDiscountPercent: meta.itemDiscountPercent == null ? null : Number(meta.itemDiscountPercent),
         allocatedInvoiceDiscountAmount:
