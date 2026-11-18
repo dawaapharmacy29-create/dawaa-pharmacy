@@ -1228,6 +1228,58 @@ export interface DrWaelShiftSample {
   locked: boolean;
 }
 
+// What is left of his permissions this cycle and his annual leave, for the decisions of one employee.
+export interface StaffAllowances {
+  permissions: { used: number; allowance: number; minutes: number; minutesLimit: number } | null;
+  leave: {
+    balance: number | null;
+    entitlement: number | null;
+    monthUsed: number;
+    monthCap: number;
+  } | null;
+}
+
+export async function fetchStaffAllowances(
+  staffId: string,
+  today: string,
+  cycleStart: string,
+  cycleEnd: string
+): Promise<StaffAllowances> {
+  const [permissions, leave] = await Promise.all([
+    supabase.rpc('get_permission_policy_status_v2', {
+      p_staff_id: staffId,
+      p_cycle_start: cycleStart,
+      p_cycle_end: cycleEnd,
+    }),
+    supabase.rpc('attendance_annual_leave_preview_v1', { p_staff_id: staffId, p_date: today }),
+  ]);
+  const p = permissions.error ? null : (permissions.data as Record<string, unknown> | null);
+  const l = leave.error ? null : (leave.data as Record<string, unknown> | null);
+  const num = (value: unknown, fallback: number) =>
+    value == null || value === '' || Number.isNaN(Number(value)) ? fallback : Number(value);
+  return {
+    permissions: p
+      ? {
+          used: num(p.approved_permissions, 0),
+          allowance: num(p.allowance, 2),
+          minutes: num(p.total_minutes, 0),
+          minutesLimit: num(p.total_minutes_limit, 240),
+        }
+      : null,
+    leave: l
+      ? {
+          balance: l.year_balance == null ? null : num(l.year_balance, 0),
+          entitlement:
+            l.entitlement_days == null && l.policy_entitlement_days == null
+              ? null
+              : num(l.entitlement_days ?? l.policy_entitlement_days, 12),
+          monthUsed: num(l.calendar_month_used, 0),
+          monthCap: num(l.monthly_cap_days, 7),
+        }
+      : null,
+  };
+}
+
 export async function fetchDrWaelShiftPatterns(): Promise<DrWaelShiftSample[]> {
   const { data, error } = await supabase.rpc('get_dr_wael_shift_patterns_v1');
   if (error) throw new Error(error.message);
