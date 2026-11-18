@@ -21,6 +21,21 @@ This rule is an analysis and data-integrity contract. It does not itself authori
 
 ## 1. Pipeline (one orchestrator for every ingestion path)
 
+V61 invoice evidence also recognizes the exact legacy B-Connect row shape only when all
+lines have zero returns/discounts, the stored multiplication invariant holds, and the original
+line amounts reconcile to the header net. QA and attribution then read the original line
+amount rather than multiplying it twice. Incomplete/conflicting/unknown shapes retain their
+stored evidence. This is read-only: no ledger, invoice, approval or incentive is rewritten.
+
+V61 evaluation fairness: an unfinished commercial journey plus a staff reply does not prove
+poor closing. When no countable sale, substantive basket or canonical next-step/fault evidence
+supports a judgment, sales closing remains insufficient evidence with no automatic deduction.
+Proven staff nonresponse, an evidenced pending staff step, customer-owned decisions and proven
+sales retain their existing assessments. No sale, delivery, clinical fact or approval is inferred.
+The case ambiguity guard reuses the canonical independent-commercial-need classifier. Adjacent
+symptom narratives, clarification answers and delivery explanations remain need evidence but
+do not alone prove independent orders. Genuine independent commercial requests retain review.
+
 V60 organic order confirmation: a billing-only question is continuation of the current order,
 not independent product/service demand. The basket owner records a customer's immediate,
 bounded acknowledgment of that version's announced total as acceptance. Later explicit staff

@@ -1,6 +1,6 @@
 import { normalizeBranchName } from '../branch';
-import { getInvoiceBranch, type InvoiceLike } from '../invoices/invoiceCore';
-import { readInvoiceItemCommercialMeta } from '../invoices/invoiceItemCommercialMeta';
+import { getInvoiceAmount, getInvoiceBranch, type InvoiceLike } from '../invoices/invoiceCore';
+import { readInvoiceItemCommercialMeta, reconciledLegacyBconnectMeta } from '../invoices/invoiceItemCommercialMeta';
 import type {
   InvoiceItemEvidenceProvider,
   InvoiceItemRecordForAttribution,
@@ -117,6 +117,20 @@ export function buildInvoiceItemEvidenceProvider(
   }
 
   const itemsByInvoiceId = new Map<string, InvoiceItemRecordForAttribution[]>();
+  const legacyMeta = new Map<SalesInvoiceItemRow, ReturnType<typeof readInvoiceItemCommercialMeta>>();
+  const directRows = new Map<string, SalesInvoiceItemRow[]>();
+  for (const row of itemRows) {
+    const id = clean(row.invoice_id);
+    if (id) {
+      const bucket = directRows.get(id) ?? [];
+      bucket.push(row);
+      directRows.set(id, bucket);
+    }
+  }
+  for (const invoice of invoiceRows) {
+    const rows = directRows.get(invoiceId(invoice)) ?? [];
+    for (const [row, meta] of reconciledLegacyBconnectMeta(rows, getInvoiceAmount(invoice))) legacyMeta.set(row, meta);
+  }
 
   for (const row of itemRows) {
     const directId = clean(row.invoice_id);
@@ -136,7 +150,7 @@ export function buildInvoiceItemEvidenceProvider(
 
     const bucket = itemsByInvoiceId.get(resolvedId) ?? [];
     // Both stored raw_data shapes (importer object and compact B-Connect rows) carry returns.
-    const meta = readInvoiceItemCommercialMeta(row.raw_data);
+    const meta = legacyMeta.get(row) ?? readInvoiceItemCommercialMeta(row.raw_data);
     bucket.push({
       productNameRaw: productName,
       productId: clean(row.product_id) || null,
@@ -151,12 +165,13 @@ export function buildInvoiceItemEvidenceProvider(
       unitName: meta.unitName,
       expiryRaw: meta.expiryRaw,
       returnedQuantity: meta.returnedQuantity,
-      unitPrice: numberOrNull(row.unit_price),
+      unitPrice: legacyMeta.has(row)
+        ? meta.netLineAmount! / Number(row.quantity) : numberOrNull(row.unit_price),
       itemDiscountAmount: meta.itemDiscountAmount,
       itemDiscountPercent: meta.itemDiscountPercent,
       grossLineAmount: meta.grossLineAmount,
       netLineAmount: meta.netLineAmount ?? numberOrNull(row.line_total),
-      lineTotal: numberOrNull(row.line_total),
+      lineTotal: meta.netLineAmount ?? numberOrNull(row.line_total),
     });
     itemsByInvoiceId.set(resolvedId, bucket);
   }

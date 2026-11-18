@@ -6,7 +6,7 @@
 // discounts, returns and the B-Connect invoice net for every compact row. Nothing is derived here:
 // a value the stored row does not carry stays null.
 
-export type InvoiceItemCommercialFormat = 'dawaa_commercial' | 'compact_import' | 'none';
+export type InvoiceItemCommercialFormat = 'dawaa_commercial' | 'compact_import' | 'legacy_reconciled' | 'none';
 
 export interface InvoiceItemCommercialMeta {
   format: InvoiceItemCommercialFormat;
@@ -96,4 +96,45 @@ export function readInvoiceItemCommercialMeta(rawData: unknown): InvoiceItemComm
     allocatedInvoiceDiscountAmount: null,
     invoiceNetAmount: num(raw.invoice_net),
   };
+}
+
+interface LegacyCommercialRow {
+  quantity?: unknown;
+  unit_price?: unknown;
+  line_total?: unknown;
+  raw_data?: unknown;
+}
+
+/** Read-only repair of the old B-Connect import contract. Its `unit_price` held the
+ * whole line amount, and `line_total` multiplied it by quantity again. Require the
+ * exact legacy shape, zero returns/discounts, every line and header reconciliation;
+ * otherwise keep the original evidence. Never rewrite financial/history rows. */
+export function reconciledLegacyBconnectMeta<T extends LegacyCommercialRow>(
+  rows: T[], headerNet: unknown
+): Map<T, InvoiceItemCommercialMeta> {
+  const result = new Map<T, InvoiceItemCommercialMeta>();
+  const total = num(headerNet);
+  if (!rows.length || total == null || total <= 0) return result;
+  let sum = 0;
+  for (const row of rows) {
+    const raw = row.raw_data && typeof row.raw_data === 'object'
+      ? row.raw_data as Record<string, unknown> : {};
+    const keys = Object.keys(raw).sort().join('|');
+    const qty = num(row.quantity), amount = num(row.unit_price), stored = num(row.line_total);
+    if (keys !== 'expiry|line_discount|returned_qty|unit' || num(raw.returned_qty) !== 0 ||
+      num(raw.line_discount) !== 0 || qty == null || qty <= 0 || amount == null || amount < 0 ||
+      stored == null || Math.abs(stored - qty * amount) > 0.02) return result;
+    sum += amount;
+  }
+  if (Math.abs(sum - total) > 0.02) return result;
+  for (const row of rows) {
+    const raw = row.raw_data as Record<string, unknown>;
+    result.set(row, {
+      ...readInvoiceItemCommercialMeta(raw), format: 'legacy_reconciled',
+      effectiveQuantity: num(row.quantity), returnedQuantity: 0,
+      grossLineAmount: num(row.unit_price), effectiveGrossAfterReturn: num(row.unit_price),
+      netLineAmount: num(row.unit_price),
+    });
+  }
+  return result;
 }

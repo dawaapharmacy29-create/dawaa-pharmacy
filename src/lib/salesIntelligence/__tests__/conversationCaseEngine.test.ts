@@ -11,6 +11,26 @@ function understandingFor(raw: string) {
 }
 
 describe('ConversationCase Engine (Sales Intelligence Phase B.1) — Golden Cases', () => {
+  it.each([
+    ['symptom continuation', 'ابني عنده برد في المعدة', 'وحاسس بوجع في بطنه'],
+    ['delivery explanation', 'طب هو فين', 'هقف في البلكونة وقوله يرن'],
+    ['clarification answer', 'أقل عادي', 'أهم حاجة نوع حلو'],
+  ])('does not call adjacent %s two independent commercial requests', (_label, first, second) => {
+    const raw = `[9/15/26, 9:00:00 AM] Customer: ${first}\n[9/15/26, 9:00:10 AM] Customer: ${second}\n[9/15/26, 9:00:20 AM] You: حاضر يا فندم`;
+    const cases = deriveConversationCases({ understanding: understandingFor(raw), conversationId: 'continuation' });
+    expect(cases[0].humanReviewReasons).not.toContain('possible_unsegmented_multiple_requests');
+  });
+
+  it('keeps an additional omitted-image item unresolved instead of assuming one order', () => {
+    const raw = `[9/15/26, 9:00:00 AM] Customer: عايزه بيدو كورت فورت شراب للكبار
+[9/15/26, 9:00:10 AM] Customer: <image omitted>
+[9/15/26, 9:00:15 AM] Customer: ودا
+[9/15/26, 9:00:20 AM] You: حاضر يا فندم`;
+    const cases = deriveConversationCases({ understanding: understandingFor(raw), conversationId: 'omitted-addition' });
+    expect(cases[0].humanReviewReasons).toContain('possible_unsegmented_multiple_requests');
+    expect(cases[0].needsHumanReview).toBe(true);
+  });
+
   it('1. a simple single-request case is classified sales_opportunity/basket_building with strong confidence', () => {
     const raw = `[9/15/26, 9:00:00 AM] Customer: عايز فيتامين د 2 علبة
 [9/15/26, 9:01:00 AM] You: متوفر بسعر 90 جنيه`;
