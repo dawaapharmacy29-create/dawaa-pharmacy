@@ -21,12 +21,12 @@ import {
   SHIFT_HANDOVER_BRANCHES,
   SHIFT_TYPES,
   handoverDutyByPerson,
+  handoverMoment,
   missingByBranch,
-  presenceIn,
+  onDutyAt,
   presenceLabel,
   readHandovers,
   shiftCoverage,
-  slotWindow,
   type PunchInterval,
   type ShiftHandoverCorrection,
   type ShiftSlot,
@@ -235,7 +235,7 @@ export default function ShiftHandovers() {
   const slotPeople = useCallback(
     (branch: string, day: string, shift: (typeof SHIFT_TYPES)[number]) =>
       punches && day >= presenceFrom
-        ? presenceLabel(presenceIn(punches, branch, slotWindow(day, shift)))
+        ? presenceLabel(onDutyAt(punches, branch, handoverMoment(day, shift)))
         : '',
     [punches, presenceFrom]
   );

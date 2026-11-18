@@ -308,6 +308,8 @@ export interface PunchInterval {
   first_in: string | null;
   last_out: string | null;
   scheduled_end: string | null;
+  /** Each punch with the device that took it, when the source gives it. */
+  punches?: { at: string; branch: string }[];
 }
 
 export interface ShiftWindow {
@@ -403,6 +405,88 @@ export function presenceIn(
     );
 }
 
+/** When a shift is normally handed over: an hour and a half before it counts as missing. */
+export function handoverMoment(day: string, shift: (typeof SHIFT_TYPES)[number]): Date {
+  return new Date(shiftDeadline(day, shift).getTime() - 1.5 * HOUR);
+}
+
+/**
+ * The branch someone was at, at a moment: the device of their last punch by then (or their first
+ * punch, if the moment is before it). Without per-punch devices, a span seen on one device is that
+ * branch, and one seen on both counts on their own branch.
+ */
+export function branchAt(interval: PunchInterval, at: number): string {
+  const punches = (interval.punches ?? []).filter(
+    (p) => p.branch && !Number.isNaN(Date.parse(p.at))
+  );
+  if (punches.length) {
+    const before = punches.filter((p) => Date.parse(p.at) <= at);
+    return (before.length ? before[before.length - 1] : punches[0]).branch;
+  }
+  if (interval.branches.length === 1) return interval.branches[0];
+  return interval.home_branch;
+}
+
+/**
+ * Worked at least this much of the usual shift before the handover: the night doctor who comes in at
+ * 11:30 pm is there when the evening is handed over at 1:30 am, but did not work the evening.
+ */
+const WORKED_SHIFT_MINUTES = 3 * 60;
+/** …and still there at the handover, or left at most this long before it. */
+const LEFT_BEFORE_MINUTES = 60;
+
+/**
+ * Who answers for a shift's handover (owner, 2026-11-14: a forgotten handover is deducted from whoever
+ * was on duty when it was due): everyone who worked the shift and was still in the branch at its
+ * handover, by real punches only. The morning doctor who stays an hour into the evening is not on it.
+ */
+export function onDutyAt(
+  intervals: PunchInterval[],
+  branch: string,
+  at: Date | string
+): ShiftPresent[] {
+  const moment = typeof at === 'string' ? Date.parse(at) : at.getTime();
+  if (Number.isNaN(moment)) return [];
+  const found = new Map<string, ShiftPresent & { start: number }>();
+  for (const interval of intervals) {
+    if (!interval.kind) continue;
+    const span = spanOf(interval);
+    if (!span) continue;
+    // A lone departure means they were there before it, as long as a usual shift.
+    const start = interval.first_in ? span.start : span.end - USUAL_SHIFT_HOURS * HOUR;
+    const worked = Math.min(span.end, moment) - Math.max(start, moment - USUAL_SHIFT_HOURS * HOUR);
+    if (worked < WORKED_SHIFT_MINUTES * 60000) continue;
+    if (span.end < moment - LEFT_BEFORE_MINUTES * 60000) continue;
+    if (branchAt(interval, moment) !== branch) continue;
+    if (found.has(interval.staff_id)) continue;
+    found.set(interval.staff_id, {
+      staff_id: interval.staff_id,
+      name: interval.name,
+      kind: interval.kind,
+      first_in: interval.first_in,
+      last_out: interval.last_out,
+      start,
+    });
+  }
+  return [...found.values()]
+    .sort(
+      (a, b) =>
+        (KIND_ORDER[a.kind ?? ''] ?? 3) - (KIND_ORDER[b.kind ?? ''] ?? 3) || a.start - b.start
+    )
+    .map(({ start: _start, ...person }) => person);
+}
+
+/** The doctors (the branch manager counts as one) on duty at the handover; the assistants only when no doctor was. */
+export function shiftResponsible(
+  intervals: PunchInterval[],
+  branch: string,
+  at: Date | string
+): ShiftPresent[] {
+  const everyone = onDutyAt(intervals, branch, at);
+  const doctors = everyone.filter((p) => p.kind === 'doctor' || p.kind === 'manager');
+  return doctors.length ? doctors : everyone.filter((p) => p.kind === 'assistant');
+}
+
 const clockOf = (value: string) =>
   new Date(value).toLocaleTimeString('ar-EG', {
     hour: 'numeric',
@@ -489,8 +573,8 @@ export interface HandoverDuty {
 }
 
 /**
- * A missing shift is on the doctors punched in it (the branch manager counts as one); only when no
- * doctor punched does it fall on the assistants. Shifts before `presenceFrom`, or with no punches
+ * A missing shift is on the doctors on duty at its handover (`shiftResponsible`); only when no
+ * doctor was there does it fall on the assistants. Shifts before `presenceFrom`, or with no punches
  * loaded, blame nobody. People are matched by name, so «د/ عمر» and «د عمر» are one row.
  */
 export function handoverDutyByPerson<T extends ShiftHandoverRow & { submitted_by?: string | null }>(
@@ -516,9 +600,8 @@ export function handoverDutyByPerson<T extends ShiftHandoverRow & { submitted_by
     }
     for (const [key, count] of closers) if (count > 1) (people.get(key) as HandoverDuty).doubles += 1;
     if (slot.status !== 'late' || !intervals || slot.day < presenceFrom) continue;
-    const present = presenceIn(intervals, slot.branch, slotWindow(slot.day, slot.shift));
-    const doctors = present.filter((p) => p.kind === 'doctor' || p.kind === 'manager');
-    for (const person of doctors.length ? doctors : present)
+    const at = handoverMoment(slot.day, slot.shift);
+    for (const person of shiftResponsible(intervals, slot.branch, at))
       entry(person.name).missed.push(shiftWithDay(slot.day, slot.shift));
   }
   return [...people.values()].sort(
