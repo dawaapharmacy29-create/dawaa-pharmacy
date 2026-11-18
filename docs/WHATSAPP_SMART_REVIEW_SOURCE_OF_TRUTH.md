@@ -21,6 +21,12 @@ This rule is an analysis and data-integrity contract. It does not itself authori
 
 ## 1. Pipeline (one orchestrator for every ingestion path)
 
+V61 invoice evidence also recognizes the exact legacy B-Connect row shape only when all
+lines have zero returns/discounts, the stored multiplication invariant holds, and the original
+line amounts reconcile to the header net. QA and attribution then read the original line
+amount rather than multiplying it twice. Incomplete/conflicting/unknown shapes retain their
+stored evidence. This is read-only: no ledger, invoice, approval or incentive is rewritten.
+
 V61 evaluation fairness: an unfinished commercial journey plus a staff reply does not prove
 poor closing. When no countable sale, substantive basket or canonical next-step/fault evidence
 supports a judgment, sales closing remains insufficient evidence with no automatic deduction.

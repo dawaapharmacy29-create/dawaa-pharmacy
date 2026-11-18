@@ -10206,6 +10206,33 @@ function readInvoiceItemCommercialMeta(rawData) {
     invoiceNetAmount: num(raw.invoice_net)
   };
 }
+function reconciledLegacyBconnectMeta(rows, headerNet) {
+  const result = /* @__PURE__ */ new Map();
+  const total = num(headerNet);
+  if (!rows.length || total == null || total <= 0) return result;
+  let sum = 0;
+  for (const row of rows) {
+    const raw = row.raw_data && typeof row.raw_data === "object" ? row.raw_data : {};
+    const keys = Object.keys(raw).sort().join("|");
+    const qty = num(row.quantity), amount = num(row.unit_price), stored = num(row.line_total);
+    if (keys !== "expiry|line_discount|returned_qty|unit" || num(raw.returned_qty) !== 0 || num(raw.line_discount) !== 0 || qty == null || qty <= 0 || amount == null || amount < 0 || stored == null || Math.abs(stored - qty * amount) > 0.02) return result;
+    sum += amount;
+  }
+  if (Math.abs(sum - total) > 0.02) return result;
+  for (const row of rows) {
+    const raw = row.raw_data;
+    result.set(row, {
+      ...readInvoiceItemCommercialMeta(raw),
+      format: "legacy_reconciled",
+      effectiveQuantity: num(row.quantity),
+      returnedQuantity: 0,
+      grossLineAmount: num(row.unit_price),
+      effectiveGrossAfterReturn: num(row.unit_price),
+      netLineAmount: num(row.unit_price)
+    });
+  }
+  return result;
+}
 
 // src/lib/salesIntelligence/persistence/productIdentityReviewEvidenceRepository.ts
 async function fetchVerifiedProductIdentityReviews(client, sourceIds) {
@@ -10503,6 +10530,20 @@ function buildInvoiceItemEvidenceProvider(invoiceRows, itemRows) {
     candidateIdsByNumberBranch.set(key, ids);
   }
   const itemsByInvoiceId = /* @__PURE__ */ new Map();
+  const legacyMeta = /* @__PURE__ */ new Map();
+  const directRows = /* @__PURE__ */ new Map();
+  for (const row of itemRows) {
+    const id = clean2(row.invoice_id);
+    if (id) {
+      const bucket = directRows.get(id) ?? [];
+      bucket.push(row);
+      directRows.set(id, bucket);
+    }
+  }
+  for (const invoice of invoiceRows) {
+    const rows = directRows.get(invoiceId(invoice)) ?? [];
+    for (const [row, meta] of reconciledLegacyBconnectMeta(rows, getInvoiceAmount(invoice))) legacyMeta.set(row, meta);
+  }
   for (const row of itemRows) {
     const directId = clean2(row.invoice_id);
     let resolvedId = directId && candidateIds.has(directId) ? directId : "";
@@ -10516,7 +10557,7 @@ function buildInvoiceItemEvidenceProvider(invoiceRows, itemRows) {
     const productName = clean2(row.product_name);
     if (!productName) continue;
     const bucket = itemsByInvoiceId.get(resolvedId) ?? [];
-    const meta = readInvoiceItemCommercialMeta(row.raw_data);
+    const meta = legacyMeta.get(row) ?? readInvoiceItemCommercialMeta(row.raw_data);
     bucket.push({
       productNameRaw: productName,
       productId: clean2(row.product_id) || null,
@@ -10529,12 +10570,12 @@ function buildInvoiceItemEvidenceProvider(invoiceRows, itemRows) {
       unitName: meta.unitName,
       expiryRaw: meta.expiryRaw,
       returnedQuantity: meta.returnedQuantity,
-      unitPrice: numberOrNull(row.unit_price),
+      unitPrice: legacyMeta.has(row) ? meta.netLineAmount / Number(row.quantity) : numberOrNull(row.unit_price),
       itemDiscountAmount: meta.itemDiscountAmount,
       itemDiscountPercent: meta.itemDiscountPercent,
       grossLineAmount: meta.grossLineAmount,
       netLineAmount: meta.netLineAmount ?? numberOrNull(row.line_total),
-      lineTotal: numberOrNull(row.line_total)
+      lineTotal: meta.netLineAmount ?? numberOrNull(row.line_total)
     });
     itemsByInvoiceId.set(resolvedId, bucket);
   }
