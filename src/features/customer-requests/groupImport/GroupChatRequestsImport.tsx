@@ -8,69 +8,75 @@ import { readChatFile } from '@/lib/followupRequests/followupRequestService';
 import type { CustomerRequest } from '@/lib/api/customerRequests';
 import CanonicalCreateRequestDialog from '../workspace/CanonicalCreateRequestDialog';
 import { customerRequestBranchKey, customerRequestBranchLabel } from '../domain/branch';
-import { DOCTOR_REASON_LABELS, extractRequestCandidates, type RequestCandidate } from './groupChatCustomerRequests';
+import {
+  DOCTOR_REASON_LABELS, candidatesInPeriod, cycleOfDay, detectGroupBranch, extractRequestCandidates,
+  type RequestCandidate, type RequestPeriod,
+} from './groupChatCustomerRequests';
 import { loadShiftWindows } from './shiftWindows';
-import { loggableCandidates, saveGroupRequests } from './groupRequestLog';
+import { loggableCandidates, saveGroupRequests, type GroupImportResult } from './groupRequestLog';
 
 type StaffOption = { id: string; name: string; role: string | null; branch: string | null };
 const doctorLike = (item: StaffOption) => [item.name, item.role].filter(Boolean).some((v) => /د\/|دكتور|صيدلي|صيدلاني|doctor|pharmacist|branch_manager|مدير فرع/i.test(String(v)));
 
-/** Requests already recorded or dismissed on this device (the request form also blocks a 24-hour duplicate). */
-const HANDLED_KEY = 'dawaa_group_chat_requests_handled_v1';
-const readHandled = (): Record<string, 'saved' | 'dismissed'> => {
-  try { return JSON.parse(localStorage.getItem(HANDLED_KEY) || '{}'); } catch { return {}; }
+/** Requests marked "not a request" on this device; they are left out of the save. */
+const DISMISSED_KEY = 'dawaa_group_chat_requests_handled_v1';
+const readDismissed = (): Record<string, string> => {
+  try { return JSON.parse(localStorage.getItem(DISMISSED_KEY) || '{}'); } catch { return {}; }
 };
-const writeHandled = (value: Record<string, 'saved' | 'dismissed'>) => {
-  try { localStorage.setItem(HANDLED_KEY, JSON.stringify(value)); } catch { /* kept for this visit only */ }
+const writeDismissed = (value: Record<string, string>) => {
+  try { localStorage.setItem(DISMISSED_KEY, JSON.stringify(value)); } catch { /* kept for this visit only */ }
 };
 
 const BRANCHES = ['فرع شكري', 'فرع الشامي'];
-const branchFromName = (fileName: string) => BRANCHES.find((b) => fileName.includes(b.replace('فرع ', ''))) || '';
+const PERIODS: Array<[RequestPeriod, string]> = [['cycle', 'الدورة الحالية'], ['two_cycles', 'الدورة دي واللي قبلها'], ['all', 'الملف كله']];
 const timeLabel = (local: string) => `${local.slice(8, 10)}/${local.slice(5, 7)} ${local.slice(11, 16)}`;
+const dayLabel = (day: string | null) => (day ? `${day.slice(8, 10)}/${day.slice(5, 7)}` : '—');
 
-/** «طلبات من جروب الواتساب»: upload the group's export, review each request, record it with the canonical form. */
+interface Loaded { fileName: string; content: string; branch: string | null; all: RequestCandidate[] }
+
+/**
+ * «طلبات من جروب الواتساب» (owner decision 2026-11-18): drop the group's export and the app finds the
+ * branch, the period, the doctor, the customer and the items; one click saves them all. A request
+ * from the pharmacy's account with no doctor named is saved for the branch and credited to nobody.
+ */
 export default function GroupChatRequestsImport({ onClose, onCreated }: { onClose: () => void; onCreated: (request: CustomerRequest) => void | Promise<void> }) {
-  const { data: staff } = useSupabaseQuery<StaffOption>({ table: 'staff', filters: isActiveStaffFilter(), realtimeEnabled: false });
-  const [branch, setBranch] = useState('');
-  const [fileName, setFileName] = useState('');
-  const [candidates, setCandidates] = useState<RequestCandidate[]>([]);
+  const { data: staff, loading: staffLoading, error: staffError } = useSupabaseQuery<StaffOption>({ table: 'staff', filters: isActiveStaffFilter(), realtimeEnabled: false });
+  const [loaded, setLoaded] = useState<Loaded | null>(null);
+  const [period, setPeriod] = useState<RequestPeriod>('cycle');
   const [doctorFor, setDoctorFor] = useState<Record<string, string>>({});
-  const [handled, setHandled] = useState(readHandled);
+  const [dismissed, setDismissed] = useState(readDismissed);
   const [loading, setLoading] = useState(false);
-  const [open, setOpen] = useState<RequestCandidate | null>(null);
-  const [showHandled, setShowHandled] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [result, setResult] = useState<GroupImportResult | null>(null);
+  const [open, setOpen] = useState<RequestCandidate | null>(null);
 
-  /** Saves every request of the export to the evaluation's log at once (the doctor chosen on each card). */
-  const saveAll = async () => {
-    setSaving(true);
-    try {
-      const r = await saveGroupRequests(fileName, branch, candidates, doctorFor);
-      toast.success(`اتحفظ ${r.saved} طلب جديد من ${r.sent} في سجل التقييم${r.withoutDoctor ? ` · ${r.withoutDoctor} من غير دكتور بيتحسبوا للفرع بس` : ''}`);
-    } catch (error) {
-      toast.error(String((error as Error)?.message).includes('not_authorized') ? 'الحفظ بالجملة للمدير العام بس' : 'تعذر الحفظ — جرّب تاني');
-    } finally {
-      setSaving(false);
-    }
+  const branch = loaded?.branch || '';
+  const doctorsOf = (forBranch: string) => (staff || []).filter(doctorLike)
+    .filter((d) => !forBranch || customerRequestBranchKey(d.branch) === customerRequestBranchKey(forBranch));
+  const doctors = useMemo(() => doctorsOf(branch), [staff, branch]); // eslint-disable-line react-hooks/exhaustive-deps
+  const nameOf = (id: string | null | undefined) => (staff || []).find((d) => d.id === id)?.name || '';
+
+  const analyse = async (fileName: string, content: string, forBranch: string | null) => {
+    const messages = parseGroupChat(content);
+    if (!messages.length) throw new Error('empty');
+    const branchDoctors = forBranch ? doctorsOf(forBranch) : [];
+    const newest = messages.reduce((max, m) => (m.sentAtLocal > max ? m.sentAtLocal : max), messages[0].sentAtLocal).slice(0, 10);
+    // Who was punched in is shown only (it credits nobody), so the bounded current cycle is enough.
+    const shifts = forBranch ? await loadShiftWindows(branchDoctors.map((d) => d.id), cycleOfDay(newest).start, newest) : [];
+    const all = extractRequestCandidates(messages, branchDoctors.map((d) => ({ staffId: d.id, name: d.name })), shifts);
+    setLoaded({ fileName, content, branch: forBranch, all });
+    setDoctorFor(Object.fromEntries(all.map((c) => [c.fingerprint, c.doctorId || ''])));
+    setResult(null);
   };
 
-  const doctors = useMemo(() => (staff || []).filter(doctorLike)
-    .filter((d) => !branch || customerRequestBranchKey(d.branch) === customerRequestBranchKey(branch)), [staff, branch]);
-  const nameOf = (id: string | null | undefined) => doctors.find((d) => d.id === id)?.name || (staff || []).find((d) => d.id === id)?.name || '';
-
-  const upload = async (file: File, pickedBranch: string) => {
+  const upload = async (file: File) => {
+    // Without the doctors every request would silently land "for the branch only".
+    if (staffError) { toast.error('تعذر تحميل أسماء الدكاترة — اعمل تحديث للصفحة وجرّب تاني'); return; }
+    if (staffLoading || !staff?.length) { toast.error('لسه بنحمّل أسماء الدكاترة — جرّب كمان ثانية'); return; }
     setLoading(true);
     try {
-      const messages = parseGroupChat(await readChatFile(file));
-      if (!messages.length) throw new Error('empty');
-      const branchDoctors = (staff || []).filter(doctorLike)
-        .filter((d) => !pickedBranch || customerRequestBranchKey(d.branch) === customerRequestBranchKey(pickedBranch));
-      const days = messages.map((m) => m.sentAtLocal.slice(0, 10)).sort();
-      const shifts = await loadShiftWindows(branchDoctors.map((d) => d.id), days[0], days[days.length - 1]);
-      const found = extractRequestCandidates(messages, branchDoctors.map((d) => ({ staffId: d.id, name: d.name })), shifts);
-      setCandidates(found);
-      setDoctorFor(Object.fromEntries(found.map((c) => [c.fingerprint, c.doctorId || ''])));
-      toast.success(`لقينا ${found.length} طلب في ${messages.length} رسالة`);
+      const content = await readChatFile(file);
+      await analyse(file.name, content, detectGroupBranch(file.name, content));
     } catch (error) {
       toast.error(String((error as Error)?.message).includes('chat_file_missing') ? 'الملف مفيهوش محادثة واتساب' : 'تعذر قراءة الملف — ارفع ملف التصدير (zip أو txt)');
     } finally {
@@ -78,14 +84,35 @@ export default function GroupChatRequestsImport({ onClose, onCreated }: { onClos
     }
   };
 
-  const mark = (fingerprint: string, state: 'saved' | 'dismissed') => {
-    const next = { ...handled, [fingerprint]: state };
-    setHandled(next);
-    writeHandled(next);
+  const chooseBranch = async (value: string) => {
+    if (!loaded || !value) return;
+    setLoading(true);
+    try { await analyse(loaded.fileName, loaded.content, value); } finally { setLoading(false); }
   };
 
-  const visible = candidates.filter((c) => showHandled || !handled[c.fingerprint]);
-  const pending = candidates.filter((c) => !handled[c.fingerprint]).length;
+  const inPeriod = useMemo(() => (loaded ? candidatesInPeriod(loaded.all, period) : null), [loaded, period]);
+  const toSave = useMemo(() => loggableCandidates(inPeriod?.list || []).filter((c) => !dismissed[c.fingerprint]), [inPeriod, dismissed]);
+  const credited = toSave.filter((c) => doctorFor[c.fingerprint]).length;
+
+  const saveAll = async () => {
+    if (!loaded?.branch || !toSave.length) return;
+    setSaving(true);
+    try {
+      const r = await saveGroupRequests(loaded.fileName, loaded.branch, toSave, doctorFor);
+      setResult(r);
+      toast.success(`اتسجل ${r.added} طلب جديد${r.already ? ` · ${r.already} كانوا متسجلين قبل كده` : ''}`);
+    } catch (error) {
+      toast.error(String((error as Error)?.message).includes('not_authorized') ? 'التسجيل للمدير العام بس' : 'تعذر الحفظ — جرّب تاني');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const dismiss = (fingerprint: string) => {
+    const next = { ...dismissed, [fingerprint]: 'dismissed' };
+    setDismissed(next);
+    writeDismissed(next);
+  };
 
   return (
     <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/35 p-2 backdrop-blur-sm md:p-4" dir="rtl">
@@ -93,79 +120,88 @@ export default function GroupChatRequestsImport({ onClose, onCreated }: { onClos
         <header className="flex shrink-0 items-start justify-between gap-3 border-b border-[var(--dawaa-theme-border)] px-4 py-4 md:px-6">
           <div>
             <div className="flex items-center gap-2 text-xl font-black text-[var(--dawaa-theme-heading)]"><MessageCircle size={20} className="text-[var(--dawaa-theme-primary)]" /> طلبات من جروب الواتساب</div>
-            <p className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">ارفع تصدير جروب طلبات العملاء. كل رسالة فيها كود عميل أو موبايل بتظهر هنا، تراجعها وتسجلها كطلب. الدكتور بيتحدد من موبايله، أو من اسمه في الرسالة، أو من بصمته في الفرع وقتها.</p>
+            <p className="mt-1 text-xs font-bold text-[var(--dawaa-theme-muted)]">ارفع ملف الجروب بس، والباقي علينا: الفرع والفترة والدكتور والعميل والصنف. الطلب اللي من رقم الصيدلية ومن غير اسم دكتور بيتسجل للفرع ومش بيتحسب لحد.</p>
           </div>
           <button type="button" className="rounded-xl border border-[var(--dawaa-theme-border)] p-2 text-[var(--dawaa-theme-muted)]" onClick={onClose} aria-label="إغلاق"><X size={18} /></button>
         </header>
 
-        <div className="flex flex-wrap items-end gap-2 border-b border-[var(--dawaa-theme-border)] px-4 py-3 md:px-6">
-          <label className="text-xs font-black">الفرع
-            <select className="input-dark mt-1" value={branch} onChange={(e) => setBranch(e.target.value)}>
-              <option value="">اختار الفرع</option>
-              {BRANCHES.map((b) => <option key={b} value={b}>{b}</option>)}
-            </select>
-          </label>
-          <label className={`btn-primary flex cursor-pointer items-center gap-2 !py-2 text-xs ${loading ? 'opacity-60' : ''}`}>
-            {loading ? <Loader2 size={14} className="animate-spin" /> : <FileUp size={14} />} ارفع ملف الجروب
+        <div className="overflow-y-auto p-3 md:p-5">
+          <label className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-[var(--dawaa-theme-accent-border)] p-5 text-center ${loading ? 'opacity-60' : ''}`}>
+            {loading ? <Loader2 size={26} className="animate-spin text-[var(--dawaa-theme-primary)]" /> : <FileUp size={26} className="text-[var(--dawaa-theme-primary)]" />}
+            <span className="text-sm font-black text-[var(--dawaa-theme-heading)]">{loaded ? `${loaded.fileName} · ارفع ملف تاني` : 'ارفع ملف الجروب (zip أو txt)'}</span>
+            <span className="text-[11px] font-bold text-[var(--dawaa-theme-muted)]">من الواتساب: الجروب ← النقط التلاتة ← المزيد ← تصدير الدردشة ← بدون وسائط</span>
             <input type="file" accept=".zip,.txt" className="hidden" disabled={loading} onChange={(e) => {
               const file = e.target.files?.[0];
               e.target.value = '';
-              if (!file) return;
-              const picked = branch || branchFromName(file.name);
-              if (!picked) { toast.error('اختار الفرع الأول'); return; }
-              setBranch(picked);
-              setFileName(file.name);
-              void upload(file, picked);
+              if (file) void upload(file);
             }} />
           </label>
-          {candidates.length ? (
-            <div className="text-xs font-bold text-[var(--dawaa-theme-muted)]">
-              {fileName} · {candidates.length} طلب · فاضل {pending}
-              <button type="button" className="ms-2 underline" onClick={() => setShowHandled((v) => !v)}>{showHandled ? 'اخفي المتسجل' : 'اعرض المتسجل'}</button>
+
+          {loaded ? (
+            <div className="mt-3 grid gap-2 rounded-2xl border border-[var(--dawaa-theme-border)] p-3 text-sm font-bold md:grid-cols-4">
+              <div>
+                <div className="text-[11px] text-[var(--dawaa-theme-muted)]">الفرع</div>
+                {loaded.branch ? <div className="font-black">{loaded.branch}</div> : (
+                  <select aria-label="الفرع" className="input-dark mt-1 !py-1 text-xs" value="" onChange={(e) => void chooseBranch(e.target.value)}>
+                    <option value="">مش واضح — اختار</option>
+                    {BRANCHES.map((b) => <option key={b} value={b}>{b}</option>)}
+                  </select>
+                )}
+              </div>
+              <div>
+                <div className="text-[11px] text-[var(--dawaa-theme-muted)]">الفترة</div>
+                <select aria-label="الفترة" className="input-dark mt-1 !py-1 text-xs" value={period} onChange={(e) => setPeriod(e.target.value as RequestPeriod)}>
+                  {PERIODS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+                <div className="mt-1 text-[11px] text-[var(--dawaa-theme-muted)]">من {dayLabel(inPeriod?.from ?? null)} لحد {dayLabel(inPeriod?.to ?? null)}</div>
+              </div>
+              <div>
+                <div className="text-[11px] text-[var(--dawaa-theme-muted)]">الطلبات</div>
+                <div className="font-black">{toSave.length} طلب</div>
+                <div className="text-[11px] text-[var(--dawaa-theme-muted)]">{credited} لدكاترة · {toSave.length - credited} للفرع بس</div>
+              </div>
+              <button type="button" className="btn-primary flex items-center justify-center gap-2 !py-2 text-sm" disabled={saving || !loaded.branch || !toSave.length} onClick={() => void saveAll()}>
+                {saving ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />} سجّل الكل
+              </button>
             </div>
           ) : null}
-          {candidates.length ? (
-            <button type="button" className="btn-primary ms-auto flex items-center gap-2 !py-2 text-xs" disabled={saving} onClick={() => void saveAll()}
-              title="كل طلب فيه كود عميل أو موبايل بيتحفظ مرة واحدة ويتحسب في التقييم للدكتور المختار">
-              {saving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} احفظ الكل في التقييم ({loggableCandidates(candidates).length})
-            </button>
-          ) : null}
-        </div>
 
-        <div className="space-y-2 overflow-y-auto p-3 md:p-5">
-          {!candidates.length && !loading ? <div className="rounded-2xl border border-dashed border-[var(--dawaa-theme-border)] p-6 text-center text-sm font-bold text-[var(--dawaa-theme-muted)]">من الواتساب: افتح الجروب ← النقط التلاتة ← المزيد ← تصدير الدردشة ← بدون وسائط، وارفع الملف هنا.</div> : null}
-          {visible.map((c) => {
-            const state = handled[c.fingerprint];
-            const chosen = doctorFor[c.fingerprint] || '';
-            return (
-              <article key={c.fingerprint} className={`rounded-2xl border border-[var(--dawaa-theme-border)] p-3 ${state ? 'opacity-60' : ''}`}>
-                <div className="flex flex-wrap items-center gap-2 text-[11px] font-black text-[var(--dawaa-theme-muted)]">
-                  <span>{timeLabel(c.sentAtLocal)}</span><span>· {c.sender}</span>
-                  {c.kind === 'confirmation' ? <span className="dawaa-badge dawaa-badge--info rounded-full px-2">رسالة تأكيد للعميل</span> : null}
-                  {c.customerCode ? <span className="dawaa-badge dawaa-badge--success rounded-full px-2">كود {c.customerCode}</span> : null}
-                  {c.customerPhone ? <span className="dawaa-badge dawaa-badge--success rounded-full px-2">موبايل {c.customerPhone}</span> : null}
-                  {state === 'saved' ? <span className="dawaa-badge dawaa-badge--success rounded-full px-2">اتسجل</span> : state === 'dismissed' ? <span className="dawaa-badge rounded-full px-2">مش طلب</span> : null}
-                </div>
-                <p className="mt-2 whitespace-pre-wrap text-sm font-bold leading-6 text-[var(--dawaa-theme-heading)]">{c.body}</p>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <select className="input-dark !w-auto !py-1.5 text-xs" value={chosen} onChange={(e) => setDoctorFor({ ...doctorFor, [c.fingerprint]: e.target.value })}>
-                    <option value="">اختار الدكتور</option>
-                    {doctors.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                  </select>
-                  <span className="text-[11px] font-bold text-[var(--dawaa-theme-muted)]">
-                    {chosen && chosen === c.doctorId ? DOCTOR_REASON_LABELS[c.doctorReason] : !chosen ? DOCTOR_REASON_LABELS[c.doctorReason] : 'اختيار يدوي'}
-                    {c.onShift.length > 1 ? ` · باصمين: ${c.onShift.map(nameOf).filter(Boolean).join('، ')}` : ''}
-                  </span>
-                  {!state ? (
+          {result ? (
+            <div className="mt-3 rounded-2xl border border-[var(--dawaa-theme-success-border,#b9e3cf)] bg-[var(--dawaa-theme-success-soft,#e9f7f1)] p-3 text-sm font-black text-[var(--dawaa-theme-heading)]">
+              ✓ اتسجل {result.added} طلب جديد · {result.credited} منهم لدكاترة · {result.customers} اتربطوا بكارت العميل
+              {result.already ? <span className="ms-2 text-xs font-bold text-[var(--dawaa-theme-muted)]">({result.already} كانوا متسجلين قبل كده ومتغيروش)</span> : null}
+            </div>
+          ) : null}
+
+          <div className="mt-3 space-y-2">
+            {toSave.map((c) => {
+              const chosen = doctorFor[c.fingerprint] || '';
+              return (
+                <article key={c.fingerprint} className="rounded-2xl border border-[var(--dawaa-theme-border)] p-3">
+                  <div className="flex flex-wrap items-center gap-2 text-[11px] font-black text-[var(--dawaa-theme-muted)]">
+                    <span>{timeLabel(c.sentAtLocal)}</span><span>· {c.sender}</span>
+                    {c.customerCode ? <span className="dawaa-badge dawaa-badge--success rounded-full px-2">كود {c.customerCode}</span> : null}
+                    {c.customerPhone ? <span className="dawaa-badge dawaa-badge--success rounded-full px-2">موبايل {c.customerPhone}</span> : null}
+                  </div>
+                  <div className="mt-1 text-sm font-black text-[var(--dawaa-theme-heading)]">{c.customerName || 'عميل'}{c.details ? <span className="font-bold text-[var(--dawaa-theme-muted)]"> · {c.details}</span> : null}</div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <select aria-label={`دكتور طلب ${timeLabel(c.sentAtLocal)}`} className="input-dark !w-auto !py-1.5 text-xs" value={chosen} onChange={(e) => setDoctorFor({ ...doctorFor, [c.fingerprint]: e.target.value })}>
+                      <option value="">للفرع بس (مش لدكتور)</option>
+                      {doctors.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                    </select>
+                    <span className="text-[11px] font-bold text-[var(--dawaa-theme-muted)]">
+                      {chosen && chosen !== c.doctorId ? 'اختيار يدوي' : DOCTOR_REASON_LABELS[c.doctorReason]}
+                      {!chosen && c.onShift.length ? ` · كان باصم: ${c.onShift.map(nameOf).filter(Boolean).join('، ')}` : ''}
+                    </span>
                     <div className="ms-auto flex gap-2">
-                      <button type="button" className="btn-secondary !py-1.5 text-xs" onClick={() => mark(c.fingerprint, 'dismissed')}>مش طلب</button>
-                      <button type="button" className="btn-primary flex items-center gap-1 !py-1.5 text-xs" disabled={!chosen} onClick={() => setOpen(c)}><Check size={14} /> سجّل الطلب</button>
+                      <button type="button" className="btn-secondary !py-1 text-xs" onClick={() => dismiss(c.fingerprint)}>مش طلب</button>
+                      <button type="button" className="btn-secondary !py-1 text-xs" onClick={() => setOpen(c)}>افتح كطلب متابعة</button>
                     </div>
-                  ) : null}
-                </div>
-              </article>
-            );
-          })}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
         </div>
       </section>
 
@@ -175,10 +211,10 @@ export default function GroupChatRequestsImport({ onClose, onCreated }: { onClos
             doctorId: doctorFor[open.fingerprint] || null,
             channel: 'واتساب',
             notes: `من جروب طلبات العملاء (${customerRequestBranchLabel(branch)}) ${timeLabel(open.sentAtLocal)}:\n${open.body}`,
-            hint: `رسالة الجروب: ${open.body}${open.customerCode ? `\nابحث عن العميل بالكود ${open.customerCode}` : ''}${open.customerPhone ? `\nابحث عن العميل بالموبايل ${open.customerPhone}` : ''}${open.confirmedItem ? `\nالصنف في رسالة التأكيد: ${open.confirmedItem}` : ''}`,
+            hint: `رسالة الجروب: ${open.body}${open.customerCode ? `\nابحث عن العميل بالكود ${open.customerCode}` : ''}${open.customerPhone ? `\nابحث عن العميل بالموبايل ${open.customerPhone}` : ''}`,
           }}
           onClose={() => setOpen(null)}
-          onCreated={async (request) => { mark(open.fingerprint, 'saved'); await onCreated(request); }}
+          onCreated={async (request) => { await onCreated(request); }}
         />
       ) : null}
     </div>

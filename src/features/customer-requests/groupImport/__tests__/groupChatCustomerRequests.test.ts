@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { parseGroupChat } from '@/lib/followupRequests/groupChatRequests';
-import { doctorsOnShift, extractCustomerCode, extractPhone, extractRequestCandidates } from '../groupChatCustomerRequests';
+import {
+  candidatesInPeriod, cycleOfDay, describeRequest, detectGroupBranch, doctorsOnShift, extractCustomerCode, extractPhone, extractRequestCandidates,
+} from '../groupChatCustomerRequests';
 
 const doctors = [{ staffId: 'aly', name: 'د/ علياء' }, { staffId: 'ola', name: 'د علا سامي' }, { staffId: 'mg', name: 'د/ مغازي' }];
 const chat = [
@@ -31,11 +33,47 @@ describe('customer requests from the WhatsApp group', () => {
   it('joins a request written over several quick messages', () => {
     expect(found[0].body).toContain('مينا لاكس');
   });
-  it('credits the sender, then the named doctor, then the only doctor punched in', () => {
+  it('credits only the sender or the named doctor; the pharmacy account alone credits nobody', () => {
     expect(found.find((c) => c.customerCode === '10963')).toMatchObject({ doctorId: 'ola', doctorReason: 'sender' });
     expect(found.find((c) => c.customerCode === '11780')).toMatchObject({ doctorId: 'aly', doctorReason: 'named' });
-    expect(found.find((c) => c.customerPhone)).toMatchObject({ doctorId: 'mg', doctorReason: 'on_shift' });
-    expect(found[0]).toMatchObject({ doctorId: null, doctorReason: 'none' });
+    // د/ مغازي was the only doctor punched in, but being on shift no longer credits (owner 2026-11-18).
+    expect(found.find((c) => c.customerPhone)).toMatchObject({ doctorId: null, doctorReason: 'pharmacy_account', onShift: ['mg'] });
+    expect(found[0]).toMatchObject({ doctorId: null, doctorReason: 'pharmacy_account' });
+  });
+  it('reads the customer name and what was asked for', () => {
+    expect(found[0]).toMatchObject({ customerName: 'دنيا', details: 'محتاجه مينا لاكس' });
+    expect(found.find((c) => c.customerPhone)).toMatchObject({ customerName: 'ايمن الششتاوي', details: 'انجكتافير فيال' });
+    expect(describeRequest('ايهاب محمد كود 12781 محتاجه ميرنا لوب')).toEqual({ customerName: 'ايهاب محمد', details: 'محتاجه ميرنا لوب' });
+    expect(describeRequest('01067016533/ خالد محمد/ اوفيوهيبتا')).toEqual({ customerName: 'خالد محمد', details: 'اوفيوهيبتا' });
+    expect(describeRequest('01007482820 ---147---مدام رحاب\nبيسال عن عروض')).toEqual({ customerName: 'مدام رحاب', details: 'بيسال عن عروض' });
+  });
+  it('two customers sent a minute apart are two requests', () => {
+    const two = extractRequestCandidates(parseGroupChat([
+      '[11/17/26, 3:07:00 PM] صيدليات دواء ابو العزم: مجدي الرحماني 1703',
+      'مينالاكس و برجاتون',
+      '[11/17/26, 3:08:00 PM] صيدليات دواء ابو العزم: مصطفي عزت18216',
+      'ابيكوتيل حقن',
+    ].join('\n')), doctors, []);
+    expect(two.map((c) => [c.customerCode, c.customerName, c.details])).toEqual([['1703', 'مجدي الرحماني', 'مينالاكس و برجاتون'], ['18216', 'مصطفي عزت', 'ابيكوتيل حقن']]);
+  });
+  it('finds the branch from the group title, the file name or the pharmacy account', () => {
+    expect(detectGroupBranch('chat.zip', '26/1/2026، 12:38 - Dr Donia أنشأ مجموعة "طلبات العملاء فرع شكري"')).toBe('فرع شكري');
+    expect(detectGroupBranch('طلبات عملاء فرع الشامي (1).zip', '')).toBe('فرع الشامي');
+    expect(detectGroupBranch('chat.zip', '[11/17/26, 9:07:52 PM] صيدليات دواء الشامي: شريف طارق 9487')).toBe('فرع الشامي');
+    expect(detectGroupBranch('chat.zip', '[11/17/26, 9:07:52 PM] Dr Ola: 9487')).toBeNull();
+  });
+  it('records the cycle of the newest message by default', () => {
+    expect(cycleOfDay('2026-11-18')).toEqual({ start: '2026-10-26', end: '2026-11-25' });
+    expect(cycleOfDay('2026-11-26')).toEqual({ start: '2026-11-26', end: '2026-12-25' });
+    expect(cycleOfDay('2026-01-10')).toEqual({ start: '2025-12-26', end: '2026-01-25' });
+    const all = extractRequestCandidates(parseGroupChat([
+      '[10/20/26, 1:00:00 PM] Dr Ola Sami: سمير 9818 محتاج بانادول',
+      '[11/17/26, 1:00:00 PM] Dr Ola Sami: هدير 9819 محتاجة فيتامين',
+    ].join('\n')), doctors, []);
+    expect(candidatesInPeriod(all, 'cycle')).toMatchObject({ from: '2026-10-26', to: '2026-11-17' });
+    expect(candidatesInPeriod(all, 'cycle').list.map((c) => c.customerCode)).toEqual(['9819']);
+    expect(candidatesInPeriod(all, 'two_cycles').list).toHaveLength(2);
+    expect(candidatesInPeriod(all, 'all').list).toHaveLength(2);
   });
   it('reads the confirmed item', () => {
     expect(found.find((c) => c.kind === 'confirmation')?.confirmedItem).toBe('j.b.c cream 100 gram');
