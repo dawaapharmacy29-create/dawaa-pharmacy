@@ -76,12 +76,10 @@ import {
   overtimeDayFacts,
   overtimeDecisionErrorText,
   overtimeOpenColleagues,
-  overtimeStayGap,
   overtimePlan,
-  overtimeVerdict,
-  type OvertimeVerdict,
+  overtimeAutoDecision,
+  type OvertimeAutoDecision,
   type OvertimeVerdictTone,
-  QUICK_OVERTIME_HOURS,
   setDrWaelShiftOrigin,
   sortStaffCredit,
   staffCreditLeaders,
@@ -4409,11 +4407,16 @@ function OvertimeQuick({
   const [evidence, setEvidence] = useState<Record<string, OvertimeDecisionEvidenceV3>>({});
   const [evidenceFailed, setEvidenceFailed] = useState<Record<string, true>>({});
   const [open, setOpen] = useState<Record<string, true>>({});
-  const [checking, setChecking] = useState<{ at: number; total: number } | null>(null);
-  const [confirming, setConfirming] = useState(false);
-  const [bulk, setBulk] = useState<{ at: number; total: number } | null>(null);
+  const [reviewing, setReviewing] = useState<{ at: number; total: number } | null>(null);
+  const [autoDone, setAutoDone] = useState<
+    { row: PendingOvertimeRow; action: 'approve' | 'reject'; why: string }[]
+  >([]);
+  const [showAuto, setShowAuto] = useState(false);
   const [handled, setHandled] = useState(0);
   const [shown, setShown] = useState(OVERTIME_ROWS_STEP);
+  // Rows the app already tried to decide on its own: never twice, even when it failed.
+  const attempted = useRef(new Set<string>());
+  const running = useRef(false);
   useEffect(() => {
     let alive = true;
     listPendingOvertime(null)
@@ -4441,6 +4444,79 @@ function OvertimeQuick({
     () => new Map(days.map((day) => [`${day.staff_id}-${day.date}`, day])),
     [days]
   );
+  const decide = useCallback(
+    async (row: PendingOvertimeRow, decision: 'approved' | 'rejected', note?: string) => {
+      setErrors((current) => {
+        const next = { ...current };
+        delete next[row.id];
+        return next;
+      });
+      try {
+        await decideOvertimeApproval(
+          row.id,
+          decision,
+          note ||
+            (decision === 'rejected' ? 'قرار سريع: مش بطلب مننا' : 'قرار سريع من البصمات')
+        );
+        setGone((current) => ({ ...current, [row.id]: true }));
+        setHandled((n) => n + 1);
+        return true;
+      } catch (e) {
+        setErrors((current) => ({ ...current, [row.id]: overtimeDecisionErrorText(e) }));
+        return false;
+      }
+    },
+    []
+  );
+  // Look at who was there for every request whose day is approved, then decide the clear ones on the spot.
+  const pendingIds = plan
+    .filter((item) => item.bucket !== 'day_first' && !attempted.current.has(item.row.id))
+    .map((item) => item.row.id)
+    .join(',');
+  useEffect(() => {
+    if (!pendingIds || running.current) return;
+    const items = plan.filter(
+      (item) => item.bucket !== 'day_first' && !attempted.current.has(item.row.id)
+    );
+    running.current = true;
+    void (async () => {
+      const seen: Record<string, OvertimeDecisionEvidenceV3> = {};
+      setReviewing({ at: 0, total: items.length });
+      for (let i = 0; i < items.length; i += OVERTIME_CHECK_AT_ONCE) {
+        await Promise.all(
+          items.slice(i, i + OVERTIME_CHECK_AT_ONCE).map(async ({ row }) => {
+            try {
+              seen[row.id] = evidence[row.id] || (await getOvertimeDecisionEvidenceV3(row.id));
+              setEvidence((current) => ({ ...current, [row.id]: seen[row.id] }));
+            } catch {
+              setEvidenceFailed((current) => ({ ...current, [row.id]: true }));
+            }
+          })
+        );
+        setReviewing({ at: Math.min(i + OVERTIME_CHECK_AT_ONCE, items.length), total: items.length });
+      }
+      for (const { row } of items) {
+        attempted.current.add(row.id);
+        if (!seen[row.id]) continue;
+        const choice = overtimeAutoDecision(
+          row,
+          seen[row.id],
+          overtimeOpenColleagues(days, seen[row.id], employees).length
+        );
+        if (choice.action === 'ask') continue;
+        const ok = await decide(
+          row,
+          choice.action === 'approve' ? 'approved' : 'rejected',
+          `قرار تلقائي: ${choice.why}`
+        );
+        if (ok) setAutoDone((current) => [...current, { row, action: choice.action as 'approve' | 'reject', why: choice.why }]);
+      }
+      setReviewing(null);
+      running.current = false;
+    })();
+    // The evidence already loaded is read once; the run is keyed on the rows still to look at.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingIds]);
   if (failedToLoad)
     return (
       <p
@@ -4454,31 +4530,19 @@ function OvertimeQuick({
   const openOf = (id: string) => overtimeOpenColleagues(days, evidence[id], employees);
   const dayFacts = (row: PendingOvertimeRow) =>
     overtimeDayFacts(dayByKey.get(`${row.staff_id}-${String(row.attendance_date).slice(0, 10)}`));
-  const verdictOf = (row: PendingOvertimeRow): OvertimeVerdict | null => {
-    const id = row.id;
-    if (evidenceFailed[id]) return { tone: 'look', text: 'ماقدرناش نجيب مين كان موجود' };
-    if (!evidence[id]) return null;
-    const verdict = overtimeVerdict(evidence[id], openOf(id).length);
-    const gap = overtimeStayGap(row.overtime_hours, dayFacts(row).afterMinutes);
-    return verdict.tone === 'ok' && gap
-      ? { tone: 'look', text: `الأوفر تايم أكتر من اللي قعده بعد الشيفت بـ ${minutesLabel(gap)}` }
-      : verdict;
-  };
-  const candidates = plan.filter((item) => item.bucket === 'clear');
-  const unchecked = candidates.filter((item) => !verdictOf(item.row));
-  const clear = candidates.filter((item) => verdictOf(item.row)?.tone === 'ok');
-  const held = candidates.filter((item) => {
-    const tone = verdictOf(item.row)?.tone;
-    return tone === 'look' || tone === 'doubt';
-  });
-  const ask = [
-    ...held.filter((item) => verdictOf(item.row)?.tone === 'doubt'),
-    ...held.filter((item) => verdictOf(item.row)?.tone === 'look'),
-    ...plan.filter((item) => item.bucket === 'ask'),
-  ];
+  const choiceOf = (row: PendingOvertimeRow) =>
+    evidence[row.id] ? overtimeAutoDecision(row, evidence[row.id], openOf(row.id).length) : null;
+  const ask = plan
+    .filter((item) => item.bucket !== 'day_first')
+    .map((item) => ({ ...item, choice: choiceOf(item.row) }))
+    .sort((a, b) => {
+      const rank = (c: OvertimeAutoDecision | null) =>
+        !c ? 3 : c.action === 'reject' ? 0 : c.action === 'approve' ? 1 : 2;
+      return rank(a.choice) - rank(b.choice);
+    });
   const waiting = plan.filter((item) => item.bucket === 'day_first');
-  const total = clear.reduce((sum, item) => sum + Number(item.row.overtime_amount || 0), 0);
   const older = rows.filter((row) => String(row.attendance_date).slice(0, 10) < cycleStart).length;
+  const approvedAuto = autoDone.filter((d) => d.action === 'approve').length;
   const when = (date: string) =>
     `${weekday(date.slice(0, 10))} ${date.slice(8, 10)}/${date.slice(5, 7)}`;
   const factsLine = (row: PendingOvertimeRow) => {
@@ -4518,53 +4582,11 @@ function OvertimeQuick({
     setOpen((current) => ({ ...current, [id]: true }));
     void loadEvidence(id);
   };
-  const checkCandidates = async () => {
-    const ids = unchecked.map((item) => item.row.id);
-    let at = 0;
-    setChecking({ at, total: ids.length });
-    for (let i = 0; i < ids.length; i += OVERTIME_CHECK_AT_ONCE) {
-      await Promise.all(ids.slice(i, i + OVERTIME_CHECK_AT_ONCE).map(loadEvidence));
-      at = Math.min(i + OVERTIME_CHECK_AT_ONCE, ids.length);
-      setChecking({ at, total: ids.length });
-    }
-    setChecking(null);
-    setConfirming(true);
-  };
-  const decide = async (row: PendingOvertimeRow, decision: 'approved' | 'rejected') => {
-    setErrors((current) => {
-      const next = { ...current };
-      delete next[row.id];
-      return next;
-    });
-    try {
-      await decideOvertimeApproval(
-        row.id,
-        decision,
-        decision === 'rejected' ? 'قرار سريع: مش بطلب مننا' : 'قرار سريع من البصمات'
-      );
-      setGone((current) => ({ ...current, [row.id]: true }));
-      setHandled((n) => n + 1);
-    } catch (e) {
-      setErrors((current) => ({ ...current, [row.id]: overtimeDecisionErrorText(e) }));
-    }
-  };
-  const approveClear = async () => {
-    setConfirming(false);
-    const items = clear;
-    setBulk({ at: 0, total: items.length });
-    let at = 0;
-    for (const item of items) {
-      await decide(item.row, 'approved');
-      at += 1;
-      setBulk({ at, total: items.length });
-    }
-    setBulk(null);
-  };
   return (
     <section className={`${CARD} mx-auto max-w-2xl space-y-3 border-r-4 border-r-amber-400 p-4`}>
       <div className="flex items-baseline justify-between gap-2">
         <h2 className="text-base font-black text-gray-900 dark:text-slate-100">
-          أوفر تايم مستني · {plan.length}
+          أوفر تايم مستني · {ask.length + waiting.length}
         </h2>
         {handled ? (
           <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 dark:text-emerald-400">
@@ -4572,71 +4594,57 @@ function OvertimeQuick({
           </span>
         ) : null}
       </div>
-      {bulk ? (
+      {reviewing ? (
         <p className={`text-xs font-bold ${MUTED}`}>
-          بيعتمد {bulk.at} من {bulk.total}…
+          بيراجع مين كان موجود ويقرر الواضح لوحده · {reviewing.at} من {reviewing.total}…
         </p>
       ) : null}
-      {!bulk && unchecked.length ? (
+      {autoDone.length ? (
         <div className={`${SOFT} space-y-2 p-3 text-xs`}>
-          <b>{unchecked.length} شكلهم واضح</b>
+          <div className="flex items-center justify-between gap-2">
+            <b>
+              اتعمل لوحده · اعتمد {approvedAuto} · رفض {autoDone.length - approvedAuto}
+            </b>
+            <button
+              type="button"
+              aria-expanded={showAuto}
+              onClick={() => setShowAuto((v) => !v)}
+              className="font-bold text-emerald-700 underline underline-offset-2 dark:text-emerald-300"
+            >
+              {showAuto ? 'اخفي' : 'شوف ليه'}
+            </button>
+          </div>
           <p className={MUTED}>
-            اليوم معتمد وعلى الميعاد، و{QUICK_OVERTIME_HOURS} ساعة أو أقل. لسه ماشوفناش مين كان
-            معاهم.
+            الاعتماد بيتحسب على اللي قعده فعلًا بعد الشيفت، مش على الطلب.
           </p>
-          <button
-            type="button"
-            disabled={Boolean(checking)}
-            onClick={() => void checkCandidates()}
-            className={`min-h-[40px] w-full rounded-xl px-3 text-sm font-bold disabled:opacity-60 ${BUTTON_TONE.primary}`}
-          >
-            {checking ? `بيتأكد ${checking.at} من ${checking.total}…` : 'اتأكد وشوف'}
-          </button>
-        </div>
-      ) : null}
-      {!bulk && clear.length ? (
-        <div className={`${SOFT} space-y-2 p-3 text-xs`}>
-          <b>
-            {clear.length} اتأكدنا منهم · {Math.round(total).toLocaleString('ar-EG')} ج
-          </b>
-          <p className={MUTED}>لوحدهم من فئتهم وقت الأوفر تايم، والفرع كان بيبيع.</p>
-          {confirming ? (
+          {showAuto ? (
             <ul className="max-h-72 space-y-1.5 overflow-y-auto">
-              {clear.map(({ row }) => (
+              {autoDone.map(({ row, action, why }) => (
                 <li key={row.id}>
                   <b>{row.staff_name}</b> · {when(row.attendance_date)} ·{' '}
-                  {overtimeHours(row.overtime_hours)} · {row.overtime_amount} ج
-                  <div className={MUTED}>
-                    {factsLine(row)} · الفرع {salesLine(evidence[row.id]?.sales?.branch_overtime)}
-                  </div>
+                  <b
+                    className={
+                      action === 'approve'
+                        ? 'text-emerald-700 dark:text-emerald-300'
+                        : 'text-rose-700 dark:text-rose-300'
+                    }
+                  >
+                    {action === 'approve' ? 'اتعمد' : 'اترفض'}
+                  </b>
+                  <div className={MUTED}>{why}</div>
                 </li>
               ))}
             </ul>
           ) : null}
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => (confirming ? void approveClear() : setConfirming(true))}
-              className={`min-h-[40px] flex-1 rounded-xl px-3 text-sm font-bold ${BUTTON_TONE.primary}`}
-            >
-              {confirming ? `تمام، اعتمد الـ ${clear.length}` : 'شوف واعتمد'}
-            </button>
-            {confirming ? (
-              <button
-                type="button"
-                onClick={() => setConfirming(false)}
-                className={`min-h-[40px] rounded-xl px-3 text-sm font-bold ${BUTTON_TONE.neutral}`}
-              >
-                رجوع
-              </button>
-            ) : null}
-          </div>
         </div>
       ) : null}
-      {ask.slice(0, shown).map(({ row, why }) => {
-        const verdict = verdictOf(row);
-        const doubt = verdict?.tone === 'doubt';
+      {ask.length && !reviewing ? (
+        <p className={`text-xs font-bold ${MUTED}`}>دول محتاجين رأيك · {ask.length}</p>
+      ) : null}
+      {ask.slice(0, shown).map(({ row, why, choice }) => {
+        const suggestReject = choice?.action === 'reject';
         const isOpen = Boolean(open[row.id]);
+        const reason = choice?.why || why;
         return (
           <div key={row.id} className={`${SOFT} space-y-1.5 p-2 text-xs`}>
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -4649,23 +4657,31 @@ function OvertimeQuick({
                 <button
                   type="button"
                   onClick={() => void decide(row, 'approved')}
-                  className={`rounded-lg px-3 py-1 font-bold ${doubt ? BUTTON_TONE.neutral : BUTTON_TONE.primary}`}
+                  className={`rounded-lg px-3 py-1 font-bold ${suggestReject ? BUTTON_TONE.neutral : BUTTON_TONE.primary}`}
                 >
                   اعتمد
                 </button>
                 <button
                   type="button"
                   onClick={() => void decide(row, 'rejected')}
-                  className={`rounded-lg px-3 py-1 font-bold ${doubt ? BUTTON_TONE.primary : BUTTON_TONE.neutral}`}
+                  className={`rounded-lg px-3 py-1 font-bold ${suggestReject ? BUTTON_TONE.primary : BUTTON_TONE.neutral}`}
                 >
                   ارفض
                 </button>
               </span>
             </div>
             <div className={MUTED}>{factsLine(row)}</div>
-            {why ? <div className="font-bold text-amber-700 dark:text-amber-300">{why}</div> : null}
-            {verdict ? (
-              <div className={`font-bold ${VERDICT_TONE[verdict.tone]}`}>{verdict.text}</div>
+            {reason ? (
+              <div
+                className={`font-bold ${suggestReject ? 'text-rose-700 dark:text-rose-300' : 'text-amber-700 dark:text-amber-300'}`}
+              >
+                {reason}
+              </div>
+            ) : null}
+            {errors[row.id] ? (
+              <div role="alert" className="font-bold text-rose-700 dark:text-rose-300">
+                {errors[row.id]}
+              </div>
             ) : null}
             <button
               type="button"
@@ -4706,20 +4722,6 @@ function OvertimeQuick({
         >
           هات اللي بعدهم ({ask.length - shown})
         </button>
-      ) : null}
-      {Object.keys(errors).length ? (
-        <ul
-          role="alert"
-          className="space-y-0.5 text-[11px] font-bold text-rose-700 dark:text-rose-300"
-        >
-          {plan
-            .filter((item) => errors[item.row.id])
-            .map((item) => (
-              <li key={item.row.id}>
-                {item.row.staff_name} · {when(item.row.attendance_date)}: {errors[item.row.id]}
-              </li>
-            ))}
-        </ul>
       ) : null}
       {waiting.length || older ? (
         <p className={`text-xs ${MUTED}`}>

@@ -2533,9 +2533,78 @@ export function overtimeOpenColleagues(
   });
 }
 
+/** The database pays nothing for staying this long or less after the shift. */
+export const OVERTIME_COUNTED_AFTER_MINUTES = 20;
+/** Decided without asking up to this long after the shift; longer ones are asked. */
+export const AUTO_OVERTIME_MAX_MINUTES = 180;
+/** Came later than this and stayed after: the shift probably moved, so it is asked. */
+export const AUTO_OVERTIME_LATE_MINUTES = 20;
+const OVERTIME_DAY_RESOLUTIONS = ['on_time', 'late', 'very_late', 'on_time_with_permission', 'worked_on_off'];
+
+export interface OvertimeAutoDecision {
+  action: 'approve' | 'reject' | 'ask';
+  why: string;
+}
+
+/**
+ * What the app decides on its own once it saw who was there; «ask» stays for the manager.
+ * Approving pays what he really stayed after the shift (the database recalculates it), so a request
+ * for more than that is still approved for the real time.
+ *   reject: stayed 20 minutes or less (nothing to pay); came late and only stayed to make up for it; or others
+ *           of his group covered the whole time and he sold nothing in it.
+ *   approve: alone of his group, the branch sold, came on time, up to 3 hours.
+ *   ask: came late and stayed after (the shift moved?), longer than 3 hours, or anything not sure.
+ */
+export function overtimeAutoDecision(
+  _row: Pick<OvertimeQuickRow, 'overtime_amount'>,
+  evidence: OvertimeDecisionEvidenceV3 | null | undefined,
+  openColleagues = 0
+): OvertimeAutoDecision {
+  const truth = evidence?.attendance_truth;
+  if (!evidence?.evidence_available || !truth)
+    return { action: 'ask', why: 'مفيش بيانات كفاية عن الوقت ده' };
+  const after = Math.max(Math.round(Number(truth.raw_post_shift_minutes || 0)), 0);
+  const late = Math.max(Math.round(Number(truth.late_minutes || 0)), 0);
+  if (after <= OVERTIME_COUNTED_AFTER_MINUTES)
+    return {
+      action: 'reject',
+      why: `قعد بعد الشيفت ${minutesLabel(after)} بس، و${OVERTIME_COUNTED_AFTER_MINUTES} دقيقة أو أقل مابتتحسبش`,
+    };
+  if (!OVERTIME_DAY_RESOLUTIONS.includes(String(truth.resolution_status || '')))
+    return { action: 'ask', why: 'اليوم مش مظبوط على الجدول' };
+  const full = Number(evidence.staffing?.same_role_others_cover_full_window || 0);
+  const own = evidence.sales?.employee_attribution_available
+    ? Number(evidence.sales.employee_overtime?.invoice_count ?? 0)
+    : null;
+  if ((full >= 2 && !(own && own > 0)) || (full === 1 && own === 0))
+    return {
+      action: 'reject',
+      why:
+        full >= 2
+          ? `معاه ${full} من نفس فئته طول الوقت${own === 0 ? ' وماعليهوش فواتير' : ''}`
+          : 'معاه واحد من نفس فئته طول الوقت وماعليهوش فواتير',
+    };
+  if (late > AUTO_OVERTIME_LATE_MINUTES && after - late <= OVERTIME_COUNTED_AFTER_MINUTES)
+    return {
+      action: 'reject',
+      why: `جه متأخر ${minutesLabel(late)} وقعد بعده ${minutesLabel(after)}: ده تعويض للتأخير مش أوفر تايم`,
+    };
+  if (late > AUTO_OVERTIME_LATE_MINUTES)
+    return {
+      action: 'ask',
+      why: `جه متأخر ${minutesLabel(late)} وقعد بعده ${minutesLabel(after)}: غالبًا شيفته اتحرك`,
+    };
+  if (after > AUTO_OVERTIME_MAX_MINUTES)
+    return { action: 'ask', why: `قعد بعد الشيفت ${minutesLabel(after)}، أكتر من 3 ساعات` };
+  const verdict = overtimeVerdict(evidence, openColleagues);
+  if (verdict.tone === 'ok')
+    return { action: 'approve', why: `${verdict.text} · يتحسب ${minutesLabel(after)}` };
+  return { action: 'ask', why: verdict.text };
+}
+
 const OVERTIME_DECISION_ERRORS: [string, string][] = [
   ['overtime_requires_approved_attendance_truth', 'اعتمد اليوم نفسه الأول'],
-  ['overtime_source_resolution', 'اليوم اتغير بعد ما الأوفر تايم اتحسب: حدّث الصفحة'],
+  ['overtime_source_resolution', 'اليوم اتعدّل بعد ما الأوفر تايم اتسجل: حدّث الصفحة وجرّب تاني'],
   ['overtime_compensation_profile_not_eligible', 'الموظف ده مش بياخد أوفر تايم'],
   ['overtime_no_longer_eligible', 'مابقاش فيه أوفر تايم مستحق لليوم ده'],
   ['overtime_not_found_or_already_decided', 'القرار اتاخد قبل كده'],

@@ -9,6 +9,7 @@ import {
   overtimeStayGap,
   overtimePlan,
   overtimeVerdict,
+  overtimeAutoDecision,
   type DrWaelDay,
   type DrWaelEmployee,
   sortStaffCredit,
@@ -1456,6 +1457,63 @@ describe('overtime evidence next to the decision', () => {
     expect(overtimeVerdict(evidence({ branch: 0 })).tone).toBe('look');
     expect(overtimeVerdict(evidence({ branch: null })).tone).toBe('look');
     expect(overtimeVerdict(evidence({ own: 0, group: 'delivery' })).tone).toBe('look');
+  });
+
+  const withDay = (
+    over: Parameters<typeof evidence>[0],
+    truth: { after?: number; late?: number; res?: string } = {}
+  ) =>
+    ({
+      ...evidence(over),
+      attendance_truth: {
+        resolution_id: 'r1',
+        resolution_status: truth.res ?? 'on_time',
+        status: 'approved',
+        scheduled_start_at: '2026-11-01T08:00:00Z',
+        scheduled_end_at: '2026-11-01T16:00:00Z',
+        first_in: '2026-11-01T08:00:00Z',
+        last_out: '2026-11-01T18:00:00Z',
+        raw_post_shift_minutes: truth.after ?? 90,
+        overtime_candidate_hours: 1.5,
+        late_minutes: truth.late ?? 0,
+      },
+    }) as OvertimeDecisionEvidenceV3;
+  const priced = { overtime_amount: 50 };
+
+  it('approves on its own when he was alone of his group, on time, and the branch sold', () => {
+    expect(overtimeAutoDecision(priced, withDay({})).action).toBe('approve');
+    expect(overtimeAutoDecision(priced, withDay({ attributed: false })).action).toBe('approve');
+    expect(overtimeAutoDecision(priced, withDay({}, { late: 15, res: 'late' })).action).toBe(
+      'approve'
+    );
+  });
+
+  it('rejects on its own what pays nothing or was covered by others who sold while he did not', () => {
+    expect(overtimeAutoDecision(priced, withDay({}, { after: 20 })).action).toBe('reject');
+    expect(overtimeAutoDecision(priced, withDay({ full: 2, attributed: false })).action).toBe(
+      'reject'
+    );
+    expect(overtimeAutoDecision(priced, withDay({ full: 1, own: 0 })).action).toBe('reject');
+    expect(overtimeAutoDecision(priced, withDay({}, { late: 49, after: 43, res: 'very_late' }))).toEqual({
+      action: 'reject',
+      why: 'جه متأخر 49د وقعد بعده 43د: ده تعويض للتأخير مش أوفر تايم',
+    });
+  });
+
+  it('leaves to the manager a moved shift, a long stay, a seller among others, and missing facts', () => {
+    expect(overtimeAutoDecision(priced, withDay({}, { late: 60, after: 150, res: 'very_late' }))).toEqual({
+      action: 'ask',
+      why: 'جه متأخر 1س 00د وقعد بعده 2س 30د: غالبًا شيفته اتحرك',
+    });
+    expect(overtimeAutoDecision(priced, withDay({}, { after: 200 })).action).toBe('ask');
+    expect(overtimeAutoDecision(priced, withDay({ full: 2, own: 3 })).action).toBe('ask');
+    expect(overtimeAutoDecision(priced, withDay({ full: 1, own: 4 })).action).toBe('ask');
+    expect(overtimeAutoDecision(priced, withDay({ branch: 0 })).action).toBe('ask');
+    expect(overtimeAutoDecision(priced, withDay({}), 1).action).toBe('ask');
+    expect(overtimeAutoDecision(priced, withDay({}, { res: 'early_leave_review' })).action).toBe(
+      'ask'
+    );
+    expect(overtimeAutoDecision(priced, evidence({})).action).toBe('ask');
   });
 
   it('counts colleagues inside on a day not approved yet, same branch and group only', () => {
