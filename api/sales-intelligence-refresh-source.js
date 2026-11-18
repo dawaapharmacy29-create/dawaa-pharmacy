@@ -1958,7 +1958,9 @@ function evidenceRef(messages, description) {
 }
 function hasUnresolvedMultipleRequests(messages, requestMessages) {
   const independentRequests = requestMessages.filter(
-    (message) => !isCustomerPaymentSettlementContinuation(messages, message.id) && !isOrderTotalQuestionOnly(message.text)
+    // Request candidates include symptoms, answers and delivery context. Those are useful
+    // need evidence, but their mere adjacency does not establish independent orders.
+    (message) => startsIndependentCommercialNeed(message) && !isCustomerPaymentSettlementContinuation(messages, message.id) && !isOrderTotalQuestionOnly(message.text)
   );
   if (independentRequests.length < 2) return false;
   for (let i = 1; i < independentRequests.length; i += 1) {
@@ -9900,7 +9902,7 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v60-organic-order-confirmation";
+var PIPELINE_VERSION = "sales-intelligence-v61-evidence-bound-closing";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v15-caption-priced-offer-continuity",
   historicalClosure: "historical-closure-v1",
@@ -14105,11 +14107,11 @@ function assessClosing(view) {
   if (view.coachingEvidence.staffReplied && view.need.primaryNeed) {
     return make4(
       "sales_closing",
-      "passive",
-      "assessed",
-      78,
-      "\u064A\u0648\u062C\u062F \u0627\u062D\u062A\u064A\u0627\u062C \u0648\u0641\u0631\u0635\u0629 \u0628\u064A\u0639 \u0648\u0631\u062F \u0645\u0646 \u0627\u0644\u0645\u0648\u0638\u0641\u060C \u0644\u0643\u0646 \u0644\u0627 \u064A\u0648\u062C\u062F \u062F\u0644\u064A\u0644 \u0643\u0627\u0641\u064D \u0639\u0644\u0649 \u0627\u0646\u062A\u0642\u0627\u0644 \u0641\u0639\u0644\u064A \u0646\u062D\u0648 \u0637\u0644\u0628 \u0623\u0648 \u0642\u0631\u0627\u0631 \u0648\u0627\u0636\u062D.",
-      view.need.evidenceMessageIds
+      null,
+      "insufficient_evidence",
+      55,
+      "\u0638\u0647\u0631 \u0631\u062F \u0645\u0646 \u0627\u0644\u0645\u0648\u0638\u0641\u060C \u0644\u0643\u0646 \u0644\u0645 \u062A\u062B\u0628\u062A \u0645\u0633\u0624\u0648\u0644\u064A\u0629 \u062E\u0637\u0648\u0629 \u0627\u0644\u0625\u063A\u0644\u0627\u0642 \u0623\u0648 \u0627\u0644\u062A\u0642\u0635\u064A\u0631 \u0641\u064A\u0647\u0627\u061B \u0639\u062F\u0645 \u0627\u0643\u062A\u0645\u0627\u0644 \u0627\u0644\u0637\u0644\u0628 \u0648\u062D\u062F\u0647 \u0644\u0627 \u064A\u0628\u0631\u0631 \u062E\u0635\u0645\u064B\u0627. \u064A\u0644\u0632\u0645 \u062F\u0644\u064A\u0644 \u0642\u0631\u0627\u0631 \u0627\u0644\u0639\u0645\u064A\u0644 \u0648\u0627\u0644\u062A\u0648\u0641\u0631 \u0648\u0645\u062D\u062A\u0648\u0649 \u0627\u0644\u0648\u0633\u0627\u0626\u0637 \u0639\u0646\u062F \u0627\u0644\u062D\u0627\u062C\u0629.",
+      [...view.need.evidenceMessageIds, ...view.lostOpportunity.evidenceMessageIds]
     );
   }
   return make4(

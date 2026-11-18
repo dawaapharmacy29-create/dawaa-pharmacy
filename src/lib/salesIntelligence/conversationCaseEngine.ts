@@ -19,6 +19,7 @@ import {
   extractRequestSignals,
   isSubstantiveConfirmationSignal,
   OPERATIONAL_SERVICE_REQUEST_RX,
+  startsIndependentCommercialNeed,
 } from '../whatsappSemanticSignalsV32';
 import { isCustomerPaymentSettlementContinuation } from './paymentSettlementSignals';
 import { isOrderTotalQuestionOnly } from './orderTotalLanguage';
@@ -66,7 +67,10 @@ function hasUnresolvedMultipleRequests(
   requestMessages: NormalizedConversationMessageV32[]
 ): boolean {
   const independentRequests = requestMessages.filter(
-    (message) => !isCustomerPaymentSettlementContinuation(messages, message.id) && !isOrderTotalQuestionOnly(message.text)
+    // Request candidates include symptoms, answers and delivery context. Those are useful
+    // need evidence, but their mere adjacency does not establish independent orders.
+    (message) => startsIndependentCommercialNeed(message) &&
+      !isCustomerPaymentSettlementContinuation(messages, message.id) && !isOrderTotalQuestionOnly(message.text)
   );
   if (independentRequests.length < 2) return false;
   for (let i = 1; i < independentRequests.length; i += 1) {

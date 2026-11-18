@@ -28,6 +28,21 @@ function base(): CaseIntelligenceView {
 }
 
 describe('conversation evaluation sales 9G', () => {
+  it.each(['استفسار سعر لم يحسمه العميل', '<video omitted>', 'الصنف غير متوفر من الشركة'])(
+    'does not infer poor closing from an unfinished journey alone: %s', (text) => {
+      const v=base();
+      v.lostOpportunity={...v.lostOpportunity,waitingOn:null,responsibility:'unknown'};
+      v.interaction.messages[0].text=text;
+      expect(analyzeConversationEvaluationSales(v).items.find(i=>i.key==='sales_closing'))
+        .toMatchObject({status:'insufficient_evidence',selectedOption:null,pointsEarned:null});
+    }
+  );
+
+  it('retains an evidenced pending staff step as a distinct closing assessment', () => {
+    expect(analyzeConversationEvaluationSales(base()).items.find(i=>i.key==='sales_closing'))
+      .toMatchObject({status:'assessed',selectedOption:'passive',pointsEarned:4});
+  });
+
   it('does not award perfect closing merely because a trusted invoice proved the sale', () => {
     const v=base();
     v.sale={...v.sale,outcome:'sale_proven',proofState:'proven',isSaleCountable:true,selectedInvoiceId:'inv',selectedInvoiceNumber:'74966'};

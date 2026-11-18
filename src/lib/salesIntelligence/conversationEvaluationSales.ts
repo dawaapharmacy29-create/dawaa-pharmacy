@@ -146,13 +146,17 @@ function assessClosing(view: CaseIntelligenceView): SalesCriterionAssessment {
   }
 
   if (view.coachingEvidence.staffReplied && view.need.primaryNeed) {
+    // A visible reply plus an unfinished journey does not establish poor closing.
+    // Fault/next-step ownership and a substantive basket were assessed above. In this
+    // residual path the customer's decision, stock constraints or unread media may
+    // explain the outcome; absence of proof must not become a four-point judgment.
     return make(
       'sales_closing',
-      'passive',
-      'assessed',
-      78,
-      'يوجد احتياج وفرصة بيع ورد من الموظف، لكن لا يوجد دليل كافٍ على انتقال فعلي نحو طلب أو قرار واضح.',
-      view.need.evidenceMessageIds
+      null,
+      'insufficient_evidence',
+      55,
+      'ظهر رد من الموظف، لكن لم تثبت مسؤولية خطوة الإغلاق أو التقصير فيها؛ عدم اكتمال الطلب وحده لا يبرر خصمًا. يلزم دليل قرار العميل والتوفر ومحتوى الوسائط عند الحاجة.',
+      [...view.need.evidenceMessageIds, ...view.lostOpportunity.evidenceMessageIds]
     );
   }
 
