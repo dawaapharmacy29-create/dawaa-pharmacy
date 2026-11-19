@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Camera, CheckCircle2, MessageCircle, RefreshCw, Target } from 'lucide-react';
+import { Camera, CheckCircle2, MessageCircle, RefreshCw, Search, Target } from 'lucide-react';
 import {
-  INVOICE_CRITERIA, cairoToday, cycleStartOf, generateDueBatches, invoiceReviewScore, listCycleTargets, listReviewSamples,
-  nextCycleStart, saveCycleTarget, saveInvoiceReview, suggestCycleTargets,
-  type CycleTargetRow, type InvoiceCriteria, type ReviewSample, type SampleStatus,
+  INVOICE_CRITERIA, addReviewSample, cairoToday, cycleStartOf, excludeReviewSample, generateDueBatches, invoiceReviewScore,
+  listCycleTargets, listReviewSamples, nextCycleStart, saveCycleTarget, saveInvoiceReview, searchReviewCandidates, suggestCycleTargets,
+  type CycleTargetRow, type InvoiceCriteria, type ReviewCandidate, type ReviewKind, type ReviewSample, type SampleOrigin, type SampleStatus,
 } from '@/lib/evaluationLab/reviewSamples';
 
 // v7.1 weekly random reviews (owner 2026-11-17): cash invoices checked on the cameras (they keep 5 days) and
@@ -37,7 +37,94 @@ function StatusChip({ status }: { status: SampleStatus }) {
   return <span className={`rounded-full px-2.5 py-1 text-[11px] font-black ${s.tone}`}>{s.label}</span>;
 }
 
-function InvoiceCard({ sample, onSaved }: { sample: ReviewSample; onSaved: () => void }) {
+const ORIGIN: Record<SampleOrigin, string | null> = { random: null, manual: 'اخترتها بنفسك', replacement: 'بديلة' };
+function OriginChip({ origin }: { origin: SampleOrigin }) {
+  const label = ORIGIN[origin];
+  return label ? <span className="rounded-full border px-2 py-0.5 text-[10px] font-black text-teal-700" style={surfaceSoft}>{label}</span> : null;
+}
+
+/** Drop a sample that has no review yet: the app picks another of the same doctor, or the owner picks one. */
+function ExcludeBox({ sample, onDone, onPickMyself }: { sample: ReviewSample; onDone: (note: string) => void; onPickMyself: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const run = async (autoReplace: boolean) => {
+    setBusy(true); setError('');
+    try {
+      const replacement = await excludeReviewSample(sample.id, autoReplace, reason);
+      if (!autoReplace) onPickMyself();
+      onDone(autoReplace ? (replacement ? `اتشالت واتحطت بدالها عينة تانية لـ ${sample.staffName}` : `اتشالت، ومفيش عينة تانية متاحة لـ ${sample.staffName} في نفس الفترة`) : 'اتشالت، اختار البديلة من البحث');
+    } catch (e) { setError(e instanceof Error ? e.message : 'تعذّر الاستبعاد'); }
+    finally { setBusy(false); }
+  };
+  if (!open) return <button type="button" className="mt-2 text-[11px] font-bold text-slate-500 underline" onClick={() => setOpen(true)}>استبعدها</button>;
+  return <div className="mt-2 space-y-2 rounded-xl border p-2" style={surfaceSoft}>
+    <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="السبب (اختياري)" className="w-full rounded-lg border p-1 text-xs" style={surface} />
+    <div className="flex flex-wrap gap-2">
+      <button type="button" disabled={busy} onClick={() => void run(true)} className="btn-secondary text-xs">استبعد والتطبيق يختار بديلة</button>
+      <button type="button" disabled={busy} onClick={() => void run(false)} className="btn-secondary text-xs">استبعد وأنا هختار</button>
+      <button type="button" disabled={busy} onClick={() => setOpen(false)} className="text-xs font-bold text-slate-500">رجوع</button>
+    </div>
+    {error ? <div className="text-xs font-bold text-red-600">{error}</div> : null}
+  </div>;
+}
+
+/** The owner picks a specific cash invoice (still on the cameras) or a delivery order whose chat reached the Master Brain. */
+function PickPanel({ kind, open, setOpen, onAdded }: { kind: ReviewKind; open: boolean; setOpen: (v: boolean) => void; onAdded: (note: string) => void }) {
+  const [query, setQuery] = useState('');
+  const [rows, setRows] = useState<ReviewCandidate[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [searched, setSearched] = useState(false);
+  const search = useCallback(async (q: string) => {
+    setBusy(true); setError('');
+    try { setRows(await searchReviewCandidates(kind, q)); setSearched(true); }
+    catch (e) { setError(e instanceof Error ? e.message : 'تعذّر البحث'); }
+    finally { setBusy(false); }
+  }, [kind]);
+  useEffect(() => { if (open) void search(''); }, [open, search]);
+  const add = async (row: ReviewCandidate) => {
+    setBusy(true); setError('');
+    try { await addReviewSample(kind, row.invoiceId); setOpen(false); onAdded(`اتضافت ${kind === 'invoice' ? 'فاتورة' : 'محادثة'} ${row.staffName} للمراجعة`); }
+    catch (e) { setError(e instanceof Error ? e.message : 'تعذّر الإضافة'); }
+    finally { setBusy(false); }
+  };
+  const label = kind === 'invoice' ? 'اختار فاتورة بنفسك' : 'اختار محادثة بنفسك';
+  if (!open) return <button type="button" onClick={() => setOpen(true)} className="btn-secondary text-xs"><Search className="ml-1 inline h-4 w-4" />{label}</button>;
+  return <div className="space-y-2 rounded-2xl border p-3" style={surface}>
+    <div className="flex items-center justify-between gap-2">
+      <div className="text-sm font-black">{label}</div>
+      <button type="button" onClick={() => setOpen(false)} className="text-xs font-bold text-slate-500">اقفل</button>
+    </div>
+    <p className="text-[11px] font-bold text-slate-500">{kind === 'invoice'
+      ? 'فواتير الكاش من آخر ٤ أيام (اللي لسه على الكاميرا)، والنهارده كمان. دوّر برقم الفاتورة أو اسم العميل أو تليفونه أو اسم الدكتور.'
+      : 'أوردرات التوصيل من آخر ٣ أسابيع. بتتضاف بس لو المحادثة وصلت للعقل المدبر من فولدر الالتقاط.'}</p>
+    <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); void search(query); }}>
+      <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="رقم الفاتورة / العميل / التليفون / الدكتور" className="flex-1 rounded-lg border p-2 text-xs" style={surfaceSoft} />
+      <button type="submit" disabled={busy} className="btn-primary text-xs disabled:opacity-50">دوّر</button>
+    </form>
+    {error ? <div className="text-xs font-bold text-red-600">{error}</div> : null}
+    {busy && !rows.length ? <div className="text-xs font-bold text-slate-500">بيدوّر…</div> : null}
+    {searched && !rows.length && !busy ? <div className="text-xs font-bold text-slate-500">مفيش نتايج</div> : null}
+    <div className="max-h-96 space-y-1 overflow-y-auto">
+      {rows.map((row) => {
+        const blocked = row.sampled ? 'متضافة' : kind === 'conversation' && !row.hasChat ? 'المحادثة مش في العقل المدبر' : '';
+        return <div key={row.invoiceId} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border p-2" style={surfaceSoft}>
+          <div className="text-xs font-bold">
+            <div className="font-black">{row.staffName} <span className="text-slate-500">· {row.branch}</span></div>
+            <div className="text-slate-600">{when(row.invoiceAt)} · فاتورة {row.invoiceNumber || '—'} · {egp(row.net)} · {row.items ?? '—'} صنف · {STRATUM[row.stratum]}</div>
+            {row.customerName || row.customerPhone ? <div className="text-slate-600">{row.customerName || ''}{row.customerPhone ? ` · ${row.customerPhone}` : ''}</div> : null}
+          </div>
+          {blocked ? <span className="text-[11px] font-bold text-slate-500">{blocked}</span>
+            : <button type="button" disabled={busy} onClick={() => void add(row)} className="btn-primary text-xs disabled:opacity-50">ضيفها للمراجعة</button>}
+        </div>;
+      })}
+    </div>
+  </div>;
+}
+
+function InvoiceCard({ sample, onSaved, onExcluded, onPickMyself }: { sample: ReviewSample; onSaved: () => void; onExcluded: (note: string) => void; onPickMyself: () => void }) {
   const [open, setOpen] = useState(false);
   const [criteria, setCriteria] = useState<InvoiceCriteria>(sample.criteria || {});
   const [notes, setNotes] = useState(sample.notes || '');
@@ -56,7 +143,7 @@ function InvoiceCard({ sample, onSaved }: { sample: ReviewSample; onSaved: () =>
   return <div className="rounded-2xl border p-3" style={surface}>
     <div className="flex flex-wrap items-start justify-between gap-2">
       <div>
-        <div className="text-sm font-black">{sample.staffName} <span className="text-xs font-bold text-slate-500">· {sample.branch}</span></div>
+        <div className="text-sm font-black">{sample.staffName} <span className="text-xs font-bold text-slate-500">· {sample.branch}</span> <OriginChip origin={sample.origin} /></div>
         <div className="mt-1 text-xs font-bold text-slate-600">{when(sample.invoiceAt)} · فاتورة {sample.invoiceNumber || '—'}</div>
         <div className="mt-1 text-xs font-bold text-slate-600">{egp(sample.net)} · {sample.items ?? '—'} صنف · {STRATUM[sample.stratum]}{sample.customerName ? ` · ${sample.customerName}` : ''}</div>
       </div>
@@ -67,6 +154,7 @@ function InvoiceCard({ sample, onSaved }: { sample: ReviewSample; onSaved: () =>
       </div>
     </div>
     {editable ? <button type="button" className="btn-secondary mt-2 text-xs" onClick={() => setOpen(!open)}>{open ? 'اقفل' : sample.status === 'pending' ? 'راجعها على الكاميرا' : 'عدّل التقييم'}</button> : null}
+    {sample.status === 'pending' && !open ? <div><ExcludeBox sample={sample} onDone={onExcluded} onPickMyself={onPickMyself} /></div> : null}
     {open ? <div className="mt-3 space-y-2">
       {INVOICE_CRITERIA.map((c) => <div key={c.key} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border p-2" style={surfaceSoft}>
         <span className="text-xs font-black">{c.label}</span>
@@ -88,11 +176,11 @@ function InvoiceCard({ sample, onSaved }: { sample: ReviewSample; onSaved: () =>
   </div>;
 }
 
-function ConversationCard({ sample }: { sample: ReviewSample }) {
+function ConversationCard({ sample, onExcluded, onPickMyself }: { sample: ReviewSample; onExcluded: (note: string) => void; onPickMyself: () => void }) {
   return <div className="rounded-2xl border p-3" style={surface}>
     <div className="flex flex-wrap items-start justify-between gap-2">
       <div>
-        <div className="text-sm font-black">{sample.staffName} <span className="text-xs font-bold text-slate-500">· {sample.branch}</span></div>
+        <div className="text-sm font-black">{sample.staffName} <span className="text-xs font-bold text-slate-500">· {sample.branch}</span> <OriginChip origin={sample.origin} /></div>
         <div className="mt-1 text-xs font-bold text-slate-600">{sample.customerName || 'عميل'} · {sample.customerPhone || sample.customerCode || '—'}</div>
         <div className="mt-1 text-xs font-bold text-slate-600">أوردر توصيل {when(sample.invoiceAt)} · {egp(sample.net)}</div>
       </div>
@@ -103,6 +191,7 @@ function ConversationCard({ sample }: { sample: ReviewSample }) {
       </div>
     </div>
     {sample.status === 'to_review' ? <Link to="/reviews" className="btn-secondary mt-2 inline-block text-xs">افتح المحادثات وقيّمها</Link> : null}
+    {sample.status === 'to_review' || sample.status === 'not_captured' ? <div><ExcludeBox sample={sample} onDone={onExcluded} onPickMyself={onPickMyself} /></div> : null}
   </div>;
 }
 
@@ -179,6 +268,7 @@ export default function WeeklyReviews() {
   const [samples, setSamples] = useState<ReviewSample[]>([]);
   const [loading, setLoading] = useState(false);
   const [note, setNote] = useState('');
+  const [picking, setPicking] = useState(false);
 
   const load = useCallback(async (draw: boolean) => {
     setLoading(true); setNote('');
@@ -200,6 +290,8 @@ export default function WeeklyReviews() {
     const rank = (s: ReviewSample) => (s.status === 'pending' || s.status === 'to_review' ? 0 : 1);
     return rank(a) - rank(b) || a.deadline.localeCompare(b.deadline);
   });
+  const isCurrent = cycle === cycleStartOf(today);
+  const changed = (message: string) => { void load(false).then(() => setNote(message)); };
   const prevCycle = cycleStartOf(new Date(Date.parse(`${cycle}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10));
 
   return <div className="space-y-4 pb-4" dir="rtl">
@@ -209,7 +301,7 @@ export default function WeeklyReviews() {
         <button type="button" onClick={() => void load(cycle === cycleStartOf(today))} disabled={loading} className="rounded-full p-2 text-amber-300 disabled:opacity-50" style={{ background: 'rgba(0,0,0,0.2)' }} aria-label="تحديث">
           <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button>
       </div>
-      <p className="mt-2 text-xs font-bold text-slate-300">التطبيق بيختار فواتير كاش عشوائية (صغيرة ومتوسطة وكبيرة) مرتين في الأسبوع: يوم الأربع (من السبت للتلات) ويوم السبت (من الأربع للجمعة)، عشان تلحق تراجعها قبل ما الكاميرا تمسح بعد ٥ أيام. ومحادثات توصيل عشوائية كل سبت من المحادثات اللي فولدر العقل المدبر سحبها تلقائي، فالدكتور مابيختارش إيه اللي يتشاف.</p>
+      <p className="mt-2 text-xs font-bold text-slate-300">التطبيق بيختار فواتير كاش عشوائية (صغيرة ومتوسطة وكبيرة) مرتين في الأسبوع: يوم الأربع (من السبت للتلات) ويوم السبت (من الأربع للجمعة)، عشان تلحق تراجعها قبل ما الكاميرا تمسح بعد ٥ أيام. ومحادثات توصيل عشوائية كل سبت من المحادثات اللي فولدر العقل المدبر سحبها تلقائي، فالدكتور مابيختارش إيه اللي يتشاف. وتقدر كمان تختار فاتورة أو محادثة بنفسك، أو تستبعد عينة ويتحط بدالها غيرها.</p>
       <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-bold text-white">
         <span>الدورة:</span>
         <button type="button" className="rounded-lg px-2 py-1" style={{ background: 'rgba(255,255,255,0.12)' }} onClick={() => setCycle(prevCycle)}>السابقة</button>
@@ -221,15 +313,18 @@ export default function WeeklyReviews() {
 
     <div className="flex flex-wrap gap-2">
       {([['invoice', `مراجعة جودة البيع${pendingInvoices ? ` (${pendingInvoices})` : ''}`, Camera], ['conversation', 'المحادثات', MessageCircle], ['targets', 'التارجت الشهري', Target]] as const).map(([key, label, Icon]) =>
-        <button key={key} type="button" onClick={() => setTab(key)} className={`rounded-xl border px-3 py-2 text-xs font-black ${tab === key ? 'bg-teal-700 text-white' : ''}`} style={tab === key ? undefined : surface}>
+        <button key={key} type="button" onClick={() => { setTab(key); setPicking(false); }} className={`rounded-xl border px-3 py-2 text-xs font-black ${tab === key ? 'bg-teal-700 text-white' : ''}`} style={tab === key ? undefined : surface}>
           <Icon className="ml-1 inline h-4 w-4" />{label}</button>)}
     </div>
 
     {tab === 'targets' ? <TargetsTab cycle={cycleStartOf(today)} /> : <>
       <Summary samples={tab === 'invoice' ? invoices : conversations} title={tab === 'invoice' ? 'جودة البيع لكل دكتور: اتراجع/المسحوب · المتوسط (الهدف ١٠ بيعات في الشهر)' : 'المحادثات لكل دكتور: اتقيّم/المسحوب · المتوسط'} />
       {tab === 'conversation' && !conversations.length && !loading ? <p className="text-xs font-bold text-slate-600">المحادثات بتتسحب بس من اللي وصل للعقل المدبر من <Link to="/whatsapp-smart-folder-watcher" className="underline">فولدر الالتقاط</Link>. لو مفيش عينات، اتأكد إن الجهاز شغال وبيصدّر المحادثات.</p> : null}
+      {isCurrent ? <PickPanel key={tab} kind={tab} open={picking} setOpen={setPicking} onAdded={changed} /> : null}
       {shown.length ? <div className="grid gap-2 lg:grid-cols-2">
-        {shown.map((s) => (s.kind === 'invoice' ? <InvoiceCard key={s.id} sample={s} onSaved={() => void load(false)} /> : <ConversationCard key={s.id} sample={s} />))}
+        {shown.map((s) => (s.kind === 'invoice'
+          ? <InvoiceCard key={s.id} sample={s} onSaved={() => void load(false)} onExcluded={changed} onPickMyself={() => setPicking(true)} />
+          : <ConversationCard key={s.id} sample={s} onExcluded={changed} onPickMyself={() => setPicking(true)} />))}
       </div> : <div className="rounded-2xl border p-4 text-center text-xs font-bold text-slate-500" style={surface}>{loading ? 'بيحمّل…' : 'مفيش عينات في الدورة دي لسه'}</div>}
     </>}
   </div>;

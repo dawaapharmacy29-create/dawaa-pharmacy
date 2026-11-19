@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/supabaseClient', () => ({ supabase: { rpc: vi.fn() } }));
 
-import { cycleStartOf, dueBatches, invoiceReviewScore, nextCycleStart, suggestCycleTargets } from '../reviewSamples';
+import { cycleStartOf, dueBatches, invoiceReviewScore, nextCycleStart, reviewErrorMessage, suggestCycleTargets } from '../reviewSamples';
 
 describe('weekly review batches', () => {
   it('draws Sat-Tue invoices from Wednesday and Wed-Fri invoices plus the week of conversations from Saturday', () => {
@@ -46,5 +46,13 @@ describe('invoice review score and target suggestion', () => {
   it('climbs follow-ups by 200 up to 1000 and requests by 15%', () => {
     expect(suggestCycleTargets({ followups: 550, requests: 95 })).toEqual({ followups: 750, requests: 110 });
     expect(suggestCycleTargets({ followups: 900, requests: 225 })).toEqual({ followups: 1000, requests: 260 });
+  });
+});
+
+describe('review sample errors', () => {
+  it('shows the owner a sentence instead of the database code', () => {
+    expect(reviewErrorMessage('review_invoice_already_sampled')).toBe('الفاتورة دي متضافة للمراجعة قبل كده');
+    expect(reviewErrorMessage('ERROR: review_sample_already_reviewed (22023)')).toBe('العينة دي اتقيّمت خلاص، مينفعش تتشال');
+    expect(reviewErrorMessage('network down')).toBe('network down');
   });
 });
