@@ -645,6 +645,38 @@ export async function endDrWaelLeave(
   return data as { cancelled: boolean; days_rebuilt: number; days_kept_manager_approved: number };
 }
 
+// Overtime the manager asked for (migration 20261119100000): approved on its own, the rest with a colleague around
+// is rejected.
+export async function fetchOvertimeRequests(from: string, to: string): Promise<DrWaelOvertimeRequest[]> {
+  const { data, error } = await supabase.rpc('get_dr_wael_overtime_requests_v1', {
+    p_from: from,
+    p_to: to,
+  });
+  if (error) throw new Error(error.message);
+  return (Array.isArray(data) ? data : []) as DrWaelOvertimeRequest[];
+}
+
+export async function setOvertimeRequest(args: {
+  staffId: string;
+  from: string;
+  to: string;
+  note?: string | null;
+}): Promise<string> {
+  const { data, error } = await supabase.rpc('dr_wael_set_overtime_request_v1', {
+    p_staff_id: args.staffId,
+    p_from: args.from,
+    p_to: args.to,
+    p_note: args.note || null,
+  });
+  if (error) throw new Error(error.message);
+  return String((data as { id: string }).id);
+}
+
+export async function cancelOvertimeRequest(id: string): Promise<void> {
+  const { error } = await supabase.rpc('dr_wael_cancel_overtime_request_v1', { p_id: id });
+  if (error) throw new Error(error.message);
+}
+
 /** A leave still running on (or after) a day: approved, a full-day kind, ending on or after it. */
 export function runningLeaves(
   rows: DrWaelTimeOff[],
@@ -973,6 +1005,9 @@ export function quickDayOptions(day: DrWaelDay): QuickDayOption[] {
     case 'off_day':
     case 'approved_time_off':
       return noPunch ? [{ decision: 'as_is', label: 'أوف — اعتمد', tone: 'neutral' }] : [];
+    case 'worked_on_off':
+      // No shift and no punch: nothing happened that day, it closes with 0 hours.
+      return noPunch ? [{ decision: 'as_is', label: 'مفيش شيفت ولا بصمة — أوف', tone: 'neutral' }] : [];
     case 'late':
     case 'early_leave_review':
       return day.first_in && day.last_out
@@ -1838,8 +1873,11 @@ export function datesInPeriod(from: string, to: string, weekDays: string[] | nul
 
 // ---------------------------------------------------------------------------------------------------------
 // Quick decisions: every open day becomes one sentence and one recommended action. The clear ones follow fixed
-// rules and go in one click; only the rest ask for an opinion, one at a time. Nothing runs without that click.
+// rules and run on their own when the page opens (a shift change waits for who asked for it); only the rest ask
+// for an opinion, one at a time.
 export const QUICK_SMALL_MINUTES = 15;
+/** An absence closes on its own as «غياب» once this many days passed, time enough to record a leave first. */
+export const QUICK_ABSENCE_GRACE_DAYS = 2;
 export const QUICK_SHIFT_MINUTES = 30;
 
 export type QuickAction =
@@ -1962,7 +2000,8 @@ export function quickPlan(
       items.push({
         day,
         group: 'forgot',
-        clear: remaining > 0,
+        // Past the allowance it still closes on the shift time; the deduction for it is applied by the database.
+        clear: true,
         why: remaining > 0 ? null : 'خلّص سماح نسيان البصمة، فالقرار ده ممكن يبقى عليه خصم',
         primary: first,
         secondary: DETAILS,
@@ -1970,10 +2009,12 @@ export function quickPlan(
       continue;
     }
     if (day.resolution === 'absence_review' && first) {
+      // No punch and no leave: unpaid like every leave but the annual one. A leave recorded later still replaces it.
+      const settled = day.date <= addDays(today, -QUICK_ABSENCE_GRACE_DAYS);
       items.push({
         day,
         group: 'absence',
-        clear: false,
+        clear: settled && first.type === 'decide' && first.decision === 'absent',
         why: null,
         primary: first,
         secondary: second,
@@ -1984,7 +2025,8 @@ export function quickPlan(
       items.push({
         day,
         group: minutes <= QUICK_SMALL_MINUTES ? 'small' : 'minutes',
-        clear: minutes <= QUICK_SMALL_MINUTES,
+        // Came late or left early: the day pays what he worked, so the missing minutes are deducted.
+        clear: true,
         why: null,
         primary: first,
         secondary: DETAILS,
@@ -2524,11 +2566,18 @@ export function overtimeOpenColleagues(
   const end = Date.parse(window.end_at);
   if (Number.isNaN(start) || Number.isNaN(end)) return [];
   const delivery = evidence.role_group === 'delivery';
+  const warehouse = new Set(evidence.warehouse_staff_ids || []);
+  const inWarehouse = evidence.comparison_group === 'warehouse';
   return days.filter((day) => {
-    if (day.staff_id === evidence.staff_id || day.branch !== evidence.branch) return false;
+    if (day.staff_id === evidence.staff_id) return false;
     if (day.status === 'approved' || !day.first_in || !day.last_out) return false;
-    const employee = employees?.get(day.staff_id);
-    if (employee && Boolean(employee.delivery) !== delivery) return false;
+    // The warehouse staff punch in the branches but work apart: compared only with each other.
+    if (inWarehouse !== warehouse.has(day.staff_id)) return false;
+    if (!inWarehouse) {
+      if (day.branch !== evidence.branch) return false;
+      const employee = employees?.get(day.staff_id);
+      if (employee && Boolean(employee.delivery) !== delivery) return false;
+    }
     return Date.parse(day.first_in) < end && Date.parse(day.last_out) > start;
   });
 }
@@ -2541,30 +2590,142 @@ export const AUTO_OVERTIME_MAX_MINUTES = 180;
 export const AUTO_OVERTIME_LATE_MINUTES = 20;
 const OVERTIME_DAY_RESOLUTIONS = ['on_time', 'late', 'very_late', 'on_time_with_permission', 'worked_on_off'];
 
+/** A day the manager asked the employee to stay: its overtime is approved without the other checks. */
+export interface DrWaelOvertimeRequest {
+  id: string;
+  staff_id: string;
+  from_date: string;
+  to_date: string;
+  note: string | null;
+}
+
+export function overtimeRequested(
+  requests: readonly DrWaelOvertimeRequest[],
+  staffId: string,
+  date: string
+): DrWaelOvertimeRequest | null {
+  const day = date.slice(0, 10);
+  return (
+    requests.find((r) => r.staff_id === staffId && r.from_date <= day && r.to_date >= day) || null
+  );
+}
+
 export interface OvertimeAutoDecision {
   action: 'approve' | 'reject' | 'ask';
   why: string;
+  /** Approve only this many minutes, the fair part; absent when the whole stay is approved. */
+  minutes?: number;
+}
+
+/** Handing the shift over to the one who comes after him: this long with him is part of the job. */
+export const OVERTIME_HANDOVER_MINUTES = 30;
+/** Paid in full when the fair part is short of the whole stay by this much or less. */
+const OVERTIME_FAIR_SLACK_MINUTES = 10;
+
+export interface OvertimeFairTime {
+  /** Minutes after the shift. */
+  after: number;
+  /** Alone of his group until the one after him came, plus the handover with him. */
+  handover: number;
+  /** Alone of his group after that, or the whole time when nobody came after him. */
+  alone: number;
+  /** The colleague who came after him (first to arrive), with the time. */
+  relief: { name: string; at: string } | null;
+  /** Colleagues of his group with him beyond the handover, with the minutes. */
+  others: { name: string; minutes: number }[];
+}
+
+type Presence = { name: string; from: number; to: number };
+
+/**
+ * Who of his group was with him after the shift, minute by minute. A colleague who came for their own shift
+ * (from 30 minutes before his end) counts only after the handover; one who was already there counts from the start.
+ */
+export function overtimeFairTime(
+  evidence: OvertimeDecisionEvidenceV3 | null | undefined,
+  open: readonly Pick<DrWaelDay, 'staff_id' | 'first_in' | 'last_out'>[] | number = []
+): OvertimeFairTime | null {
+  const truth = evidence?.attendance_truth;
+  if (!evidence?.evidence_available || !truth) return null;
+  const after = Math.max(Math.round(Number(truth.raw_post_shift_minutes || 0)), 0);
+  const start = Date.parse(truth.scheduled_end_at);
+  if (Number.isNaN(start)) return null;
+  const end = start + after * 60000;
+  const handoverMs = OVERTIME_HANDOVER_MINUTES * 60000;
+  const people: Presence[] = (evidence.staffing?.people || [])
+    .filter((p) => !p.is_current_employee)
+    .map((p) => ({ name: p.name, from: Date.parse(p.first_in), to: Date.parse(p.last_out) }));
+  // Counts without the people behind them: taken as there the whole time.
+  const counted = Math.max(
+    Number(evidence.staffing?.same_role_others_present_any || 0),
+    Number(evidence.staffing?.same_role_others_cover_full_window || 0)
+  );
+  if (!people.length)
+    for (let i = 0; i < counted; i += 1) people.push({ name: 'زميل', from: start - 86400000, to: end });
+  if (typeof open === 'number')
+    for (let i = 0; i < open; i += 1) people.push({ name: 'زميل', from: start - 86400000, to: end });
+  else
+    for (const day of open)
+      if (day.first_in && day.last_out)
+        people.push({ name: 'زميل', from: Date.parse(day.first_in), to: Date.parse(day.last_out) });
+  const valid = people.filter((p) => !Number.isNaN(p.from) && !Number.isNaN(p.to) && p.to > start && p.from < end);
+  const incoming = valid.filter((p) => p.from >= start - handoverMs).sort((a, b) => a.from - b.from);
+  const relief = incoming[0] || null;
+  const handoverEnd = relief ? Math.max(relief.from, start) + handoverMs : start;
+  const cover = valid.map((p) => ({
+    ...p,
+    coverFrom: Math.max(p.from >= start - handoverMs ? p.from + handoverMs : p.from, start),
+    coverTo: Math.min(p.to, end),
+  }));
+  let handover = 0;
+  let alone = 0;
+  const withMinutes = new Map<string, number>();
+  for (let t = start; t < end; t += 60000) {
+    const here = cover.filter((c) => t >= c.coverFrom && t < c.coverTo);
+    if (here.length) {
+      for (const c of here) withMinutes.set(c.name, (withMinutes.get(c.name) || 0) + 1);
+    } else if (t < handoverEnd) handover += 1;
+    else alone += 1;
+  }
+  return {
+    after,
+    handover,
+    alone,
+    relief: relief ? { name: relief.name, at: cairoTime(new Date(relief.from).toISOString()) } : null,
+    others: [...withMinutes].map(([name, minutes]) => ({ name, minutes })),
+  };
 }
 
 /**
  * What the app decides on its own once it saw who was there; «ask» stays for the manager.
  * Approving pays what he really stayed after the shift (the database recalculates it), so a request
  * for more than that is still approved for the real time.
- *   reject: stayed 20 minutes or less (nothing to pay); came late and only stayed to make up for it; or others
- *           of his group covered the whole time and he sold nothing in it.
- *   approve: alone of his group, the branch sold, came on time, up to 3 hours.
- *   ask: came late and stayed after (the shift moved?), longer than 3 hours, or anything not sure.
+ * The fair part of the stay (overtimeFairTime) is what gets paid:
+ *   - waiting for the one after him and handing over to him (30 minutes) counts, sales or not;
+ *   - alone of his group after that counts when the branch sold and he did too (or his sales are not tracked);
+ *     the warehouse has no sales to judge by, so that part is asked;
+ *   - the time a colleague of his group was with him does not count.
+ *   approve: the manager asked him to stay; or the fair part is more than 20 minutes (only that part when it is
+ *            clearly less than the whole stay), up to 3 hours.
+ *   reject: stayed 20 minutes or less; came late and only stayed to make up for it; the fair part is 20 minutes or less.
+ *   ask: longer than 3 hours, the branch sales are not known, the warehouse alone, or the facts are missing.
  */
 export function overtimeAutoDecision(
   _row: Pick<OvertimeQuickRow, 'overtime_amount'>,
   evidence: OvertimeDecisionEvidenceV3 | null | undefined,
-  openColleagues = 0
+  open: readonly Pick<DrWaelDay, 'staff_id' | 'first_in' | 'last_out'>[] | number = [],
+  requested: DrWaelOvertimeRequest | null = null
 ): OvertimeAutoDecision {
   const truth = evidence?.attendance_truth;
   if (!evidence?.evidence_available || !truth)
     return { action: 'ask', why: 'مفيش بيانات كفاية عن الوقت ده' };
   const after = Math.max(Math.round(Number(truth.raw_post_shift_minutes || 0)), 0);
   const late = Math.max(Math.round(Number(truth.late_minutes || 0)), 0);
+  if (requested && after > OVERTIME_COUNTED_AFTER_MINUTES)
+    return {
+      action: 'approve',
+      why: `انت اللي طالب منه يقعد${requested.note ? ` (${requested.note})` : ''} · يتحسب ${minutesLabel(after)}`,
+    };
   if (after <= OVERTIME_COUNTED_AFTER_MINUTES)
     return {
       action: 'reject',
@@ -2572,34 +2733,63 @@ export function overtimeAutoDecision(
     };
   if (!OVERTIME_DAY_RESOLUTIONS.includes(String(truth.resolution_status || '')))
     return { action: 'ask', why: 'اليوم مش مظبوط على الجدول' };
-  const full = Number(evidence.staffing?.same_role_others_cover_full_window || 0);
-  const own = evidence.sales?.employee_attribution_available
-    ? Number(evidence.sales.employee_overtime?.invoice_count ?? 0)
-    : null;
-  if ((full >= 2 && !(own && own > 0)) || (full === 1 && own === 0))
-    return {
-      action: 'reject',
-      why:
-        full >= 2
-          ? `معاه ${full} من نفس فئته طول الوقت${own === 0 ? ' وماعليهوش فواتير' : ''}`
-          : 'معاه واحد من نفس فئته طول الوقت وماعليهوش فواتير',
-    };
   if (late > AUTO_OVERTIME_LATE_MINUTES && after - late <= OVERTIME_COUNTED_AFTER_MINUTES)
     return {
       action: 'reject',
       why: `جه متأخر ${minutesLabel(late)} وقعد بعده ${minutesLabel(after)}: ده تعويض للتأخير مش أوفر تايم`,
     };
-  if (late > AUTO_OVERTIME_LATE_MINUTES)
-    return {
-      action: 'ask',
-      why: `جه متأخر ${minutesLabel(late)} وقعد بعده ${minutesLabel(after)}: غالبًا شيفته اتحرك`,
-    };
   if (after > AUTO_OVERTIME_MAX_MINUTES)
     return { action: 'ask', why: `قعد بعد الشيفت ${minutesLabel(after)}، أكتر من 3 ساعات` };
-  const verdict = overtimeVerdict(evidence, openColleagues);
-  if (verdict.tone === 'ok')
-    return { action: 'approve', why: `${verdict.text} · يتحسب ${minutesLabel(after)}` };
-  return { action: 'ask', why: verdict.text };
+  const fair = overtimeFairTime(evidence, open);
+  if (!fair) return { action: 'ask', why: 'مفيش بيانات كفاية عن الوقت ده' };
+  const warehouse = evidence.comparison_group === 'warehouse';
+  const group = warehouse ? 'المخزن' : 'فئته';
+  const parts: string[] = [];
+  if (fair.relief)
+    parts.push(
+      fair.handover
+        ? `${fair.relief.name} جه ${fair.relief.at} واستلم منه (${minutesLabel(fair.handover)} انتظار وتسليم)`
+        : `${fair.relief.name} جه ${fair.relief.at} واستلم منه`
+    );
+  const beyond = fair.others.filter((o) => o.minutes > 0);
+  if (beyond.length)
+    parts.push(
+      `كان معاه من ${group} ${beyond.map((o) => `${o.name} ${minutesLabel(o.minutes)}`).join('، ')}`
+    );
+  let paid = fair.handover;
+  if (fair.alone > OVERTIME_FAIR_SLACK_MINUTES) {
+    if (warehouse) {
+      if (paid <= OVERTIME_COUNTED_AFTER_MINUTES)
+        return {
+          action: 'ask',
+          why: [...parts, `فضل في المخزن ${minutesLabel(fair.alone)} لوحده، ومفيش مبيعات نحكم بيها`].join(' · '),
+        };
+      parts.push(`${minutesLabel(fair.alone)} لوحده في المخزن بعد التسليم مش متحسبين (اسأل لو كان شغل)`);
+    } else {
+      const branch = evidence.sales?.branch_overtime?.invoice_count;
+      const own = evidence.sales?.employee_attribution_available
+        ? Number(evidence.sales.employee_overtime?.invoice_count ?? 0)
+        : null;
+      if (branch == null) return { action: 'ask', why: 'مبيعات الفرع في الوقت ده مش متاحة' };
+      if (Number(branch) === 0) parts.push('الفرع مابعش حاجة في الوقت ده');
+      else if (own === 0) parts.push('الفرع باع بس ماعليهوش ولا فاتورة في الوقت ده');
+      else {
+        paid += fair.alone;
+        parts.push(`لوحده من ${group} ${minutesLabel(fair.alone)} والفرع شغال`);
+      }
+    }
+  }
+  if (late > AUTO_OVERTIME_LATE_MINUTES) parts.push(`التأخير ${minutesLabel(late)} بيتخصم لوحده`);
+  const why = parts.join(' · ') || 'مفيش سبب يخليه يقعد';
+  if (paid <= OVERTIME_COUNTED_AFTER_MINUTES)
+    return { action: 'reject', why: `${why}، ومحدش طلب منه يقعد` };
+  if (paid >= after - OVERTIME_FAIR_SLACK_MINUTES)
+    return { action: 'approve', why: `${why} · يتحسب ${minutesLabel(after)}` };
+  return {
+    action: 'approve',
+    why: `${why} · يتحسب ${minutesLabel(paid)} من ${minutesLabel(after)}`,
+    minutes: paid,
+  };
 }
 
 const OVERTIME_DECISION_ERRORS: [string, string][] = [

@@ -132,6 +132,9 @@ export interface OvertimeDecisionEvidenceV3 {
   branch: string;
   role: string | null;
   role_group: OvertimeEvidenceRoleGroupV3;
+  /** «warehouse»: compared only with the warehouse staff wherever they punch (migration 20261119200000). */
+  comparison_group?: 'warehouse' | 'branch';
+  warehouse_staff_ids?: string[];
   reason?: string;
   attendance_truth?: {
     resolution_id: string;
@@ -182,6 +185,16 @@ export async function getOvertimeDecisionEvidenceV3(id: string): Promise<Overtim
 
 export async function decideOvertimeApproval(id: string, decision: 'approved' | 'rejected', note?: string) {
   const { error } = await supabase.rpc('decide_overtime_approval_v3', { p_id: id, p_decision: decision, p_note: note || null });
+  if (error) throw new Error(overtimeErrorMessage(error.message));
+}
+
+/** Approves and pays at most maxMinutes: the fair part of the time he stayed (migration 20261119200000). */
+export async function decideOvertimeApprovalCapped(id: string, maxMinutes: number, note?: string) {
+  const { error } = await supabase.rpc('decide_overtime_approval_capped_v1', {
+    p_id: id,
+    p_max_minutes: Math.round(maxMinutes),
+    p_note: note || null,
+  });
   if (error) throw new Error(overtimeErrorMessage(error.message));
 }
 
