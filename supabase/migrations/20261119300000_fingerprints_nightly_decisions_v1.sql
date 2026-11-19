@@ -134,7 +134,6 @@ begin
   v_warehouse := v_ev->>'comparison_group' = 'warehouse';
   v_group := case when v_warehouse then 'المخزن' else 'فئته' end;
 
-  -- Who of his group was there: approved days from the evidence, plus days not approved yet.
   create temporary table if not exists pg_temp.ot_people (name text, fi timestamptz, lo timestamptz) on commit drop;
   truncate pg_temp.ot_people;
   insert into pg_temp.ot_people
@@ -258,13 +257,11 @@ begin
   if v_auth is null then
     return jsonb_build_object('ran', false, 'why', 'no_active_decider');
   end if;
-  -- The decisions go through the same functions as the page, in the manager's name.
   perform set_config('request.jwt.claim.sub', v_auth::text, true);
   perform set_config('request.jwt.claims', jsonb_build_object('sub', v_auth, 'role', 'authenticated')::text, true);
 
   for v_day in
     with drifting as (
-      -- Punches that keep another shift than the schedule: the page reads those days against that shift.
       select a.staff_id
       from public.attendance_daily_summary a
       where a.attendance_date >= v_today - 28 and a.first_in is not null and a.last_out is not null
