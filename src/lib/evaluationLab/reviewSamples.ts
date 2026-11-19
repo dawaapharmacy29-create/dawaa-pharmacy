@@ -43,15 +43,22 @@ function lastWindow(today: string, startDow: number, days: number) {
 
 /**
  * Batches due today. Cameras keep 5 days, so invoices come twice a week: Sat–Tue (drawn from Wednesday)
- * and Wed–Fri (drawn from Saturday). Conversations once a week: Sat–Fri (drawn from Saturday), only among chats the capture folder already brought in.
+ * and Wed–Fri (drawn from Saturday); a late invoice batch only draws the days the cameras still keep
+ * (generate_evaluation_review_batch_v1). Conversations once a week: Sat–Fri (drawn from Saturday), only among
+ * chats the capture folder already brought in; they have no camera limit, so a missed week is still drawn the next week.
  * Drawing is idempotent per batch, so calling this on every page open is safe.
  */
 export function dueBatches(today: string): Array<{ kind: ReviewKind; start: string; end: string }> {
+  const week = lastWindow(today, 6, 7);
+  const previousWeek = { start: isoDay(dayMs(week.start) - 7 * DAY), end: isoDay(dayMs(week.end) - 7 * DAY) };
   return [
-    { kind: 'invoice' as const, ...lastWindow(today, 6, 4) },
-    { kind: 'invoice' as const, ...lastWindow(today, 3, 3) },
-    { kind: 'conversation' as const, ...lastWindow(today, 6, 7) },
-  ].filter((batch) => dayMs(today) - dayMs(batch.end) <= 4 * DAY);
+    ...[lastWindow(today, 6, 4), lastWindow(today, 3, 3)]
+      .filter((batch) => dayMs(today) - dayMs(batch.end) <= 4 * DAY)
+      .map((batch) => ({ kind: 'invoice' as const, ...batch })),
+    ...[week, previousWeek]
+      .filter((batch) => dayMs(today) - dayMs(batch.end) <= 11 * DAY)
+      .map((batch) => ({ kind: 'conversation' as const, ...batch })),
+  ];
 }
 
 /** The 26th → 25th cycle a Cairo day belongs to. */
