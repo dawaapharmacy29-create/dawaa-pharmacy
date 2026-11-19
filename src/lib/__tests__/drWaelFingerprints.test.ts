@@ -10,6 +10,8 @@ import {
   overtimePlan,
   overtimeVerdict,
   overtimeAutoDecision,
+  overtimeFairTime,
+  overtimeRequested,
   type DrWaelDay,
   type DrWaelEmployee,
   sortStaffCredit,
@@ -1033,29 +1035,39 @@ describe('quickPlan', () => {
     ...over,
   });
 
-  it('runs a forgotten punch while the allowance lasts, then asks, oldest first', () => {
-    const forgot = (date: string) => day({ date, resolution: 'missing_checkout', last_out: null });
-    const result = plan([forgot('2026-11-05'), forgot('2026-11-03'), forgot('2026-11-04')], [], 2);
-    expect(result.clear.map((i) => i.day.date)).toEqual(['2026-11-04', '2026-11-03']);
-    expect(result.ask.map((i) => i.day.date)).toEqual(['2026-11-05']);
-    expect(result.ask[0].why).toContain('سماح');
+  it('closes an empty day off its own: no shift and no punch, even marked worked_on_off', () => {
+    const empty = { first_in: null, last_out: null, punches: 0, scheduled_start: null, scheduled_end: null };
+    const { clear, ask } = plan([day({ ...empty, resolution: 'worked_on_off' })]);
+    expect(ask).toHaveLength(0);
+    expect(clear[0].primary).toMatchObject({ type: 'decide', decision: 'as_is' });
+    expect(plan([day({ resolution: 'worked_on_off' })]).clear).toHaveLength(0);
   });
 
-  it('runs small minutes and asks about real ones', () => {
+  it('runs every forgotten punch, and says which ones are past the allowance, oldest first', () => {
+    const forgot = (date: string) => day({ date, resolution: 'missing_checkout', last_out: null });
+    const result = plan([forgot('2026-11-05'), forgot('2026-11-03'), forgot('2026-11-04')], [], 2);
+    expect(result.clear.map((i) => i.day.date)).toEqual(['2026-11-05', '2026-11-04', '2026-11-03']);
+    expect(result.ask).toEqual([]);
+    expect(result.clear[0].why).toContain('سماح');
+    expect(result.clear[1].why).toBeNull();
+  });
+
+  it('runs lateness and early leave at what he worked, small or not', () => {
     const result = plan([
       day({ date: '2026-11-03', late_minutes: 10 }),
       day({ date: '2026-11-04', resolution: 'early_leave_review', early_leave_minutes: 142 }),
     ]);
-    expect(result.clear.map((i) => i.group)).toEqual(['small']);
-    expect(result.ask.map((i) => i.group)).toEqual(['minutes']);
+    expect(result.clear.map((i) => i.group)).toEqual(['minutes', 'small']);
+    expect(result.ask).toEqual([]);
   });
 
-  it('never decides an absence on its own', () => {
-    const result = plan([
-      day({ resolution: 'absence_review', first_in: null, last_out: null, punches: 0 }),
-    ]);
-    expect(result.clear).toEqual([]);
-    expect(result.ask[0].primary).toMatchObject({ decision: 'absent' });
+  it('closes an absence as «غياب» only after two days, time enough to record a leave', () => {
+    const absent = (date: string) =>
+      day({ date, resolution: 'absence_review', first_in: null, last_out: null, punches: 0 });
+    const result = plan([absent('2026-11-05'), absent('2026-11-06')]);
+    expect(result.clear.map((i) => i.day.date)).toEqual(['2026-11-05']);
+    expect(result.clear[0].primary).toMatchObject({ decision: 'absent' });
+    expect(result.ask.map((i) => i.day.date)).toEqual(['2026-11-06']);
     expect(result.ask[0].secondary).toMatchObject({ decision: 'off' });
   });
 
@@ -1480,36 +1492,113 @@ describe('overtime evidence next to the decision', () => {
     }) as OvertimeDecisionEvidenceV3;
   const priced = { overtime_amount: 50 };
 
-  it('approves on its own when he was alone of his group, on time, and the branch sold', () => {
+  it('approves on its own when he was alone of his group and the branch sold, or when the manager asked', () => {
     expect(overtimeAutoDecision(priced, withDay({})).action).toBe('approve');
     expect(overtimeAutoDecision(priced, withDay({ attributed: false })).action).toBe('approve');
     expect(overtimeAutoDecision(priced, withDay({}, { late: 15, res: 'late' })).action).toBe(
       'approve'
     );
+    expect(
+      overtimeAutoDecision(priced, withDay({}, { late: 60, after: 150, res: 'very_late' })).action
+    ).toBe('approve');
+    const asked = { id: 'r', staff_id: 's1', from_date: '2026-11-01', to_date: '2026-11-01', note: 'جرد' };
+    expect(overtimeAutoDecision(priced, withDay({ full: 2, own: 0 }), 0, asked)).toEqual({
+      action: 'approve',
+      why: 'انت اللي طالب منه يقعد (جرد) · يتحسب 1س 30د',
+    });
+    expect(overtimeRequested([asked], 's1', '2026-11-01T00:00:00')).toBe(asked);
+    expect(overtimeRequested([asked], 's1', '2026-11-02')).toBeNull();
+    expect(overtimeRequested([asked], 's2', '2026-11-01')).toBeNull();
   });
 
-  it('rejects on its own what pays nothing or was covered by others who sold while he did not', () => {
+  it('rejects on its own what pays nothing, a colleague of his group there, or nothing sold', () => {
     expect(overtimeAutoDecision(priced, withDay({}, { after: 20 })).action).toBe('reject');
     expect(overtimeAutoDecision(priced, withDay({ full: 2, attributed: false })).action).toBe(
       'reject'
     );
     expect(overtimeAutoDecision(priced, withDay({ full: 1, own: 0 })).action).toBe('reject');
+    expect(overtimeAutoDecision(priced, withDay({ full: 2, own: 3 })).action).toBe('reject');
+    expect(overtimeAutoDecision(priced, withDay({ any: 1 })).action).toBe('reject');
+    expect(overtimeAutoDecision(priced, withDay({}), 1).action).toBe('reject');
+    expect(overtimeAutoDecision(priced, withDay({ branch: 0 })).action).toBe('reject');
+    expect(overtimeAutoDecision(priced, withDay({ own: 0 })).action).toBe('reject');
     expect(overtimeAutoDecision(priced, withDay({}, { late: 49, after: 43, res: 'very_late' }))).toEqual({
       action: 'reject',
       why: 'جه متأخر 49د وقعد بعده 43د: ده تعويض للتأخير مش أوفر تايم',
     });
   });
 
-  it('leaves to the manager a moved shift, a long stay, a seller among others, and missing facts', () => {
-    expect(overtimeAutoDecision(priced, withDay({}, { late: 60, after: 150, res: 'very_late' }))).toEqual({
-      action: 'ask',
-      why: 'جه متأخر 1س 00د وقعد بعده 2س 30د: غالبًا شيفته اتحرك',
-    });
+  const withPeople = (
+    people: { name: string; in: string; out: string }[],
+    over: Parameters<typeof evidence>[0] = {},
+    extra: Partial<OvertimeDecisionEvidenceV3> = {}
+  ) => {
+    const base = withDay(over);
+    return {
+      ...base,
+      ...extra,
+      staffing: {
+        ...base.staffing!,
+        same_role_others_present_any: people.length,
+        same_role_others_cover_full_window: 0,
+        people: people.map((p, i) => ({
+          staff_id: `p${i}`,
+          name: p.name,
+          role: null,
+          is_current_employee: false,
+          overlap_minutes: 0,
+          covers_full_window: false,
+          first_in: `2026-11-01T${p.in}:00Z`,
+          last_out: `2026-11-01T${p.out}:00Z`,
+        })),
+      },
+    } as OvertimeDecisionEvidenceV3;
+  };
+
+  it('pays waiting for the one after him and the half hour handing over, not the time after', () => {
+    // Shift ends 16:00, stayed 90 minutes; the next one came 16:25: 25 waiting + 30 handover.
+    const relief = withPeople([{ name: 'عمرو', in: '16:25', out: '23:00' }]);
+    expect(overtimeFairTime(relief)).toMatchObject({ after: 90, handover: 55, alone: 0 });
+    expect(overtimeAutoDecision(priced, relief)).toMatchObject({ action: 'approve', minutes: 55 });
+    // Came on time and he left within the handover: all of it.
+    const quick = withPeople([{ name: 'عمرو', in: '16:05', out: '23:00' }], {}, {});
+    quick.attendance_truth!.raw_post_shift_minutes = 30;
+    expect(overtimeAutoDecision(priced, quick)).toMatchObject({ action: 'approve' });
+    expect(overtimeAutoDecision(priced, quick).minutes).toBeUndefined();
+    // The handover counts even when the branch sold nothing in it.
+    expect(
+      overtimeAutoDecision(priced, withPeople([{ name: 'عمرو', in: '16:25', out: '23:00' }], { branch: 0 }))
+    ).toMatchObject({ action: 'approve', minutes: 55 });
+  });
+
+  it('does not pay the time a colleague already on shift was with him', () => {
+    const covered = withPeople([{ name: 'أميرة', in: '08:00', out: '20:00' }]);
+    expect(overtimeFairTime(covered)).toMatchObject({ handover: 0, alone: 0 });
+    expect(overtimeAutoDecision(priced, covered).action).toBe('reject');
+    // The colleague left at 17:00: the 30 minutes alone after are paid while the branch sold.
+    const left = withPeople([{ name: 'أميرة', in: '08:00', out: '17:00' }]);
+    expect(overtimeAutoDecision(priced, left)).toMatchObject({ action: 'approve', minutes: 30 });
+  });
+
+  it('compares the warehouse with the warehouse and asks about the warehouse alone', () => {
+    const ids = { comparison_group: 'warehouse' as const, warehouse_staff_ids: ['s1', 'w2'] };
+    expect(overtimeAutoDecision(priced, withPeople([], {}, ids)).action).toBe('ask');
+    expect(
+      overtimeAutoDecision(priced, withPeople([{ name: 'نور', in: '16:10', out: '23:00' }], {}, ids))
+    ).toMatchObject({ action: 'approve', minutes: 40 });
+    const open = [
+      { staff_id: 'w2', date: '2026-11-01', branch: 'فرع الشامي', first_in: '2026-11-01T08:00:00Z', last_out: '2026-11-01T20:00:00Z', status: 'pending_review' },
+      { staff_id: 's9', date: '2026-11-01', branch: 'المخزن', first_in: '2026-11-01T08:00:00Z', last_out: '2026-11-01T20:00:00Z', status: 'pending_review' },
+    ] as DrWaelDay[];
+    const inWarehouse = withPeople([], {}, { ...ids, branch: 'المخزن' });
+    expect(overtimeOpenColleagues(open, inWarehouse).map((d) => d.staff_id)).toEqual(['w2']);
+    const inBranch = withPeople([], {}, { comparison_group: 'branch', warehouse_staff_ids: ['w2'], branch: 'فرع الشامي' });
+    expect(overtimeOpenColleagues(open, inBranch)).toEqual([]);
+  });
+
+  it('leaves to the manager a long stay, unknown branch sales, and missing facts', () => {
     expect(overtimeAutoDecision(priced, withDay({}, { after: 200 })).action).toBe('ask');
-    expect(overtimeAutoDecision(priced, withDay({ full: 2, own: 3 })).action).toBe('ask');
-    expect(overtimeAutoDecision(priced, withDay({ full: 1, own: 4 })).action).toBe('ask');
-    expect(overtimeAutoDecision(priced, withDay({ branch: 0 })).action).toBe('ask');
-    expect(overtimeAutoDecision(priced, withDay({}), 1).action).toBe('ask');
+    expect(overtimeAutoDecision(priced, withDay({ branch: null })).action).toBe('ask');
     expect(overtimeAutoDecision(priced, withDay({}, { res: 'early_leave_review' })).action).toBe(
       'ask'
     );

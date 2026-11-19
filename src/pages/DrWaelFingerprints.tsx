@@ -1,6 +1,7 @@
 import ManualPunchFromMessage from '@/components/attendance/ManualPunchFromMessage';
 import {
   decideOvertimeApproval,
+  decideOvertimeApprovalCapped,
   getOvertimeDecisionEvidenceV3,
   listPendingOvertime,
   type OvertimeDecisionEvidenceV3,
@@ -78,6 +79,11 @@ import {
   overtimeOpenColleagues,
   overtimePlan,
   overtimeAutoDecision,
+  overtimeRequested,
+  fetchOvertimeRequests,
+  setOvertimeRequest,
+  cancelOvertimeRequest,
+  type DrWaelOvertimeRequest,
   type OvertimeAutoDecision,
   type OvertimeVerdictTone,
   setDrWaelShiftOrigin,
@@ -4414,6 +4420,11 @@ function OvertimeQuick({
   const [showAuto, setShowAuto] = useState(false);
   const [handled, setHandled] = useState(0);
   const [shown, setShown] = useState(OVERTIME_ROWS_STEP);
+  // The days the manager asked someone to stay; null until loaded, nothing runs before.
+  const [requests, setRequests] = useState<DrWaelOvertimeRequest[] | null>(null);
+  const [asking, setAsking] = useState(false);
+  const [askForm, setAskForm] = useState({ staffId: '', from: '', to: '', note: '' });
+  const [askError, setAskError] = useState<string | null>(null);
   // Rows the app already tried to decide on its own: never twice, even when it failed.
   const attempted = useRef(new Set<string>());
   const running = useRef(false);
@@ -4426,10 +4437,18 @@ function OvertimeQuick({
       .catch(() => {
         if (alive) setFailedToLoad(true);
       });
+    fetchOvertimeRequests(addDays(cycleStart, -62), addDays(cycleEnd, 62))
+      .then((next) => {
+        if (alive) setRequests(next);
+      })
+      .catch(() => {
+        // Without the list nothing is decided on its own: a requested day must never be rejected.
+        if (alive) setFailedToLoad(true);
+      });
     return () => {
       alive = false;
     };
-  }, []);
+  }, [cycleStart, cycleEnd]);
   const plan = useMemo(
     () =>
       overtimePlan(
@@ -4445,19 +4464,22 @@ function OvertimeQuick({
     [days]
   );
   const decide = useCallback(
-    async (row: PendingOvertimeRow, decision: 'approved' | 'rejected', note?: string) => {
+    async (
+      row: PendingOvertimeRow,
+      decision: 'approved' | 'rejected',
+      note?: string,
+      minutes?: number
+    ) => {
       setErrors((current) => {
         const next = { ...current };
         delete next[row.id];
         return next;
       });
       try {
-        await decideOvertimeApproval(
-          row.id,
-          decision,
-          note ||
-            (decision === 'rejected' ? 'قرار سريع: مش بطلب مننا' : 'قرار سريع من البصمات')
-        );
+        const text =
+          note || (decision === 'rejected' ? 'قرار سريع: مش بطلب مننا' : 'قرار سريع من البصمات');
+        if (decision === 'approved' && minutes) await decideOvertimeApprovalCapped(row.id, minutes, text);
+        else await decideOvertimeApproval(row.id, decision, text);
         setGone((current) => ({ ...current, [row.id]: true }));
         setHandled((n) => n + 1);
         return true;
@@ -4474,7 +4496,7 @@ function OvertimeQuick({
     .map((item) => item.row.id)
     .join(',');
   useEffect(() => {
-    if (!pendingIds || running.current) return;
+    if (!pendingIds || running.current || !requests) return;
     const items = plan.filter(
       (item) => item.bucket !== 'day_first' && !attempted.current.has(item.row.id)
     );
@@ -4501,13 +4523,15 @@ function OvertimeQuick({
         const choice = overtimeAutoDecision(
           row,
           seen[row.id],
-          overtimeOpenColleagues(days, seen[row.id], employees).length
+          overtimeOpenColleagues(days, seen[row.id], employees),
+          overtimeRequested(requests, row.staff_id, row.attendance_date)
         );
         if (choice.action === 'ask') continue;
         const ok = await decide(
           row,
           choice.action === 'approve' ? 'approved' : 'rejected',
-          `قرار تلقائي: ${choice.why}`
+          `قرار تلقائي: ${choice.why}`,
+          choice.minutes
         );
         if (ok) setAutoDone((current) => [...current, { row, action: choice.action as 'approve' | 'reject', why: choice.why }]);
       }
@@ -4516,7 +4540,7 @@ function OvertimeQuick({
     })();
     // The evidence already loaded is read once; the run is keyed on the rows still to look at.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingIds]);
+  }, [pendingIds, requests]);
   if (failedToLoad)
     return (
       <p
@@ -4531,7 +4555,50 @@ function OvertimeQuick({
   const dayFacts = (row: PendingOvertimeRow) =>
     overtimeDayFacts(dayByKey.get(`${row.staff_id}-${String(row.attendance_date).slice(0, 10)}`));
   const choiceOf = (row: PendingOvertimeRow) =>
-    evidence[row.id] ? overtimeAutoDecision(row, evidence[row.id], openOf(row.id).length) : null;
+    evidence[row.id]
+      ? overtimeAutoDecision(
+          row,
+          evidence[row.id],
+          openOf(row.id),
+          overtimeRequested(requests || [], row.staff_id, row.attendance_date)
+        )
+      : null;
+  const askedFor = async (row: PendingOvertimeRow) => {
+    const date = String(row.attendance_date).slice(0, 10);
+    try {
+      await setOvertimeRequest({ staffId: row.staff_id, from: date, to: date, note: null });
+      await decide(row, 'approved', 'انت اللي طلبت منه يقعد');
+    } catch (e) {
+      setErrors((current) => ({ ...current, [row.id]: overtimeDecisionErrorText(e) }));
+    }
+  };
+  const saveAsk = async () => {
+    setAskError(null);
+    const from = askForm.from || today;
+    const to = askForm.to || from;
+    if (!askForm.staffId) return setAskError('اختار الموظف');
+    try {
+      const id = await setOvertimeRequest({ staffId: askForm.staffId, from, to, note: askForm.note });
+      setRequests((current) => [
+        { id, staff_id: askForm.staffId, from_date: from, to_date: to, note: askForm.note || null },
+        ...(current || []),
+      ]);
+      setAskForm({ staffId: '', from: '', to: '', note: '' });
+      setAsking(false);
+    } catch (e) {
+      setAskError(e instanceof Error ? e.message : 'ما اتحفظش');
+    }
+  };
+  const dropAsk = async (id: string) => {
+    try {
+      await cancelOvertimeRequest(id);
+      setRequests((current) => (current || []).filter((r) => r.id !== id));
+    } catch (e) {
+      setAskError(e instanceof Error ? e.message : 'ما اتلغاش');
+    }
+  };
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Cairo' });
+  const activeAsks = (requests || []).filter((r) => r.to_date >= today);
   const ask = plan
     .filter((item) => item.bucket !== 'day_first')
     .map((item) => ({ ...item, choice: choiceOf(item.row) }))
@@ -4592,6 +4659,99 @@ function OvertimeQuick({
           <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 dark:text-emerald-400">
             <Check size={14} /> خلّصت {handled}
           </span>
+        ) : null}
+      </div>
+      <div className={`${SOFT} space-y-2 p-3 text-xs`}>
+        <div className="flex items-center justify-between gap-2">
+          <b>طالب من حد يقعد بعد شيفته؟</b>
+          <button
+            type="button"
+            onClick={() => setAsking((v) => !v)}
+            className="font-bold text-emerald-700 underline underline-offset-2 dark:text-emerald-300"
+          >
+            {asking ? 'اقفل' : 'سجّل'}
+          </button>
+        </div>
+        <p className={MUTED}>
+          الأوفر تايم بيترفض لوحده لو كان معاه حد من فئته، إلا الأيام اللي انت مسجلها هنا.
+        </p>
+        {asking ? (
+          <div className="grid gap-2 sm:grid-cols-2">
+            <select
+              aria-label="الموظف"
+              value={askForm.staffId}
+              onChange={(e) => setAskForm((f) => ({ ...f, staffId: e.target.value }))}
+              className="min-h-[40px] rounded-lg border border-gray-200 bg-white px-2 dark:border-slate-700 dark:bg-slate-900 sm:col-span-2"
+            >
+              <option value="">اختار الموظف</option>
+              {[...employees.values()]
+                .filter((e) => e.active)
+                .sort((a, b) => a.name.localeCompare(b.name, 'ar'))
+                .map((e) => (
+                  <option key={e.staff_id} value={e.staff_id}>
+                    {e.name}
+                  </option>
+                ))}
+            </select>
+            <label className="flex items-center gap-1">
+              من
+              <input
+                type="date"
+                value={askForm.from || today}
+                onChange={(e) => setAskForm((f) => ({ ...f, from: e.target.value }))}
+                className="min-h-[40px] flex-1 rounded-lg border border-gray-200 bg-white px-2 dark:border-slate-700 dark:bg-slate-900"
+              />
+            </label>
+            <label className="flex items-center gap-1">
+              لحد
+              <input
+                type="date"
+                value={askForm.to || askForm.from || today}
+                onChange={(e) => setAskForm((f) => ({ ...f, to: e.target.value }))}
+                className="min-h-[40px] flex-1 rounded-lg border border-gray-200 bg-white px-2 dark:border-slate-700 dark:bg-slate-900"
+              />
+            </label>
+            <input
+              type="text"
+              placeholder="ليه؟ (اختياري) — جرد، زحمة، غياب حد…"
+              value={askForm.note}
+              onChange={(e) => setAskForm((f) => ({ ...f, note: e.target.value }))}
+              className="min-h-[40px] rounded-lg border border-gray-200 bg-white px-2 dark:border-slate-700 dark:bg-slate-900 sm:col-span-2"
+            />
+            <button
+              type="button"
+              onClick={() => void saveAsk()}
+              className={`min-h-[40px] rounded-xl px-3 text-sm font-bold sm:col-span-2 ${BUTTON_TONE.primary}`}
+            >
+              سجّل إني طالب منه
+            </button>
+          </div>
+        ) : null}
+        {activeAsks.length ? (
+          <ul className="space-y-1">
+            {activeAsks.map((r) => (
+              <li key={r.id} className="flex items-center justify-between gap-2">
+                <span>
+                  <b>{employees.get(r.staff_id)?.name || 'موظف'}</b> ·{' '}
+                  {r.from_date === r.to_date ? when(r.from_date) : `${when(r.from_date)} → ${when(r.to_date)}`}
+                  {r.note ? ` · ${r.note}` : ''}
+                </span>
+                <button
+                  type="button"
+                  aria-label="الغي الطلب"
+                  onClick={() => void dropAsk(r.id)}
+                  className="rounded p-1 text-gray-500 hover:text-rose-600"
+                >
+                  <X size={14} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {askError ? (
+          <p role="alert" className="font-bold text-rose-700 dark:text-rose-300">
+            {askError}
+          </p>
         ) : null}
       </div>
       {reviewing ? (
@@ -4667,6 +4827,13 @@ function OvertimeQuick({
                   className={`rounded-lg px-3 py-1 font-bold ${suggestReject ? BUTTON_TONE.primary : BUTTON_TONE.neutral}`}
                 >
                   ارفض
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void askedFor(row)}
+                  className={`rounded-lg px-3 py-1 font-bold ${BUTTON_TONE.neutral}`}
+                >
+                  أنا اللي طلبت منه
                 </button>
               </span>
             </div>
@@ -4944,6 +5111,11 @@ function QuickDecisions({
   const [review, setReview] = useState<DayReview | null>(null);
   const [origins, setOrigins] = useState<Record<string, ShiftOrigin>>({});
   const [shiftChanged, setShiftChanged] = useState<string | null>(null);
+  const [autoDone, setAutoDone] = useState<{ key: string; item: QuickItem }[]>([]);
+  const [showAuto, setShowAuto] = useState(false);
+  // Days the page already decided on its own: never twice, even when it failed.
+  const autoTried = useRef(new Set<string>());
+  const autoRunning = useRef(false);
   const inFlight = useRef(new Set<string>());
   const refreshTimer = useRef<number | null>(null);
   const key = (day: DrWaelDay) => `${day.staff_id}-${day.date}`;
@@ -4997,7 +5169,12 @@ function QuickDecisions({
   const planAsk = focus
     ? [...plan.clear, ...plan.ask].sort((a, b) => a.day.date.localeCompare(b.day.date))
     : plan.ask;
-  const clear = planClear.filter((item) => !done[key(item.day)]);
+  // What runs on its own is out of the clear card unless it failed; a shift change stays, it needs who asked.
+  const clear = planClear.filter(
+    (item) =>
+      !done[key(item.day)] &&
+      (item.primary.type === 'shift' || Boolean(failed[key(item.day)]) || !autoTried.current.has(key(item.day)))
+  );
   const askAll = planAsk.filter((item) => !done[key(item.day)]);
   const ask = [
     ...askAll.filter((item) => !skipped.includes(key(item.day))),
@@ -5068,6 +5245,26 @@ function QuickDecisions({
     setBulk(null);
   };
 
+  // The clear decisions that are not a shift change run as soon as the page has them.
+  const autoItems = plan.clear.filter(
+    (item) => item.primary.type === 'decide' && !autoTried.current.has(key(item.day))
+  );
+  const autoKey = autoItems.map((item) => key(item.day)).join(',');
+  useEffect(() => {
+    if (!autoKey || autoRunning.current) return;
+    autoRunning.current = true;
+    void (async () => {
+      for (const item of autoItems) {
+        const k = key(item.day);
+        autoTried.current.add(k);
+        if (await run(item, item.primary)) setAutoDone((current) => [...current, { key: k, item }]);
+      }
+      autoRunning.current = false;
+    })();
+    // Keyed on the days still to run; run() reads the latest state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoKey]);
+
   const groups = (Object.keys(QUICK_GROUPS) as QuickGroup[])
     .map((group) => ({ group, count: clear.filter((item) => item.group === group).length }))
     .filter((row) => row.count);
@@ -5116,6 +5313,35 @@ function QuickDecisions({
         ) : null}
       </div>
 
+      {autoDone.length || autoKey ? (
+        <section className={`${CARD} space-y-2 border-r-4 border-r-emerald-400 p-4 text-xs`}>
+          <div className="flex items-center justify-between gap-2">
+            <b className="text-sm text-gray-900 dark:text-slate-100">
+              {autoKey ? `بيخلّص الواضح لوحده… ${autoDone.length}` : `اتعمل لوحده · ${autoDone.length}`}
+            </b>
+            {autoDone.length ? (
+              <button
+                type="button"
+                aria-expanded={showAuto}
+                onClick={() => setShowAuto((v) => !v)}
+                className="font-bold text-emerald-700 underline underline-offset-2 dark:text-emerald-300"
+              >
+                {showAuto ? 'اخفي' : 'شوف ايه اللي اتعمل'}
+              </button>
+            ) : null}
+          </div>
+          {showAuto ? (
+            <ul className="max-h-64 space-y-1 overflow-y-auto">
+              {autoDone.map(({ key: k, item }) => (
+                <li key={k} className={`${SOFT} px-2 py-1.5`}>
+                  <b>{names.get(item.day.staff_id)?.name || '—'}</b> · {when(item.day.date)}:{' '}
+                  {actionText(item.primary)}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </section>
+      ) : null}
       {clear.length || bulk ? (
         <section className={`${CARD} space-y-3 border-r-4 border-r-emerald-400 p-4`}>
           <div>
