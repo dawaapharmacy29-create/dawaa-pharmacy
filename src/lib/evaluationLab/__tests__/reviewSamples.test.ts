@@ -6,21 +6,27 @@ import { cycleStartOf, dueBatches, invoiceReviewScore, nextCycleStart, suggestCy
 
 describe('weekly review batches', () => {
   it('draws Sat-Tue invoices from Wednesday and Wed-Fri invoices plus the week of conversations from Saturday', () => {
-    // 2026-11-18 is a Wednesday (the previous Wed-Fri batch was due Saturday and has aged out).
+    // 2026-11-18 is a Wednesday (the previous Wed-Fri invoices aged out; last week's chats are still drawn).
     expect(dueBatches('2026-11-18')).toEqual([
       { kind: 'invoice', start: '2026-11-14', end: '2026-11-17' },
+      { kind: 'conversation', start: '2026-11-07', end: '2026-11-13' },
     ]);
     // 2026-11-21 is a Saturday.
     expect(dueBatches('2026-11-21')).toEqual([
       { kind: 'invoice', start: '2026-11-14', end: '2026-11-17' },
       { kind: 'invoice', start: '2026-11-18', end: '2026-11-20' },
       { kind: 'conversation', start: '2026-11-14', end: '2026-11-20' },
+      { kind: 'conversation', start: '2026-11-07', end: '2026-11-13' },
     ]);
   });
 
-  it('drops a batch once its cameras have rolled over', () => {
+  it('drops an invoice batch once its cameras have rolled over, and a missed chat week after one more week', () => {
     // Monday 2026-11-23: Sat-Tue ended 6 days ago, too late; Wed-Fri ended 3 days ago.
-    expect(dueBatches('2026-11-23').map((b) => `${b.kind}:${b.start}`)).toEqual(['invoice:2026-11-18', 'conversation:2026-11-14']);
+    expect(dueBatches('2026-11-23').map((b) => `${b.kind}:${b.start}`))
+      .toEqual(['invoice:2026-11-18', 'conversation:2026-11-14', 'conversation:2026-11-07']);
+    // Wednesday 2026-11-25: the 7-13 chat week ended 12 days ago.
+    expect(dueBatches('2026-11-25').map((b) => `${b.kind}:${b.start}`))
+      .toEqual(['invoice:2026-11-21', 'conversation:2026-11-14']);
   });
 
   it('maps days to the 26th cycle', () => {
