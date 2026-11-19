@@ -5,6 +5,8 @@ import { supabase } from '@/supabaseClient';
 
 export type ReviewKind = 'invoice' | 'conversation';
 export type SampleStatus = 'pending' | 'reviewed' | 'skipped' | 'expired' | 'to_review' | 'not_captured';
+/** random: the weekly draw; manual: the owner picked it; replacement: the app's pick after the owner dropped one. */
+export type SampleOrigin = 'random' | 'manual' | 'replacement';
 
 /** Six things the owner checks on the camera: 2 excellent, 1 acceptable, 0 weak, null not visible. */
 export const INVOICE_CRITERIA = [
@@ -105,6 +107,7 @@ export interface ReviewSample {
   criteria: InvoiceCriteria | null;
   notes: string | null;
   reviewedAt: string | null;
+  origin: SampleOrigin;
 }
 
 type Row = Record<string, unknown>;
@@ -144,7 +147,73 @@ export async function listReviewSamples(cycleStart: string): Promise<ReviewSampl
     criteria: (row.criteria as InvoiceCriteria | null) || null,
     notes: text(row.notes) || null,
     reviewedAt: text(row.reviewed_at) || null,
+    origin: (text(row.origin) || 'random') as SampleOrigin,
   }));
+}
+
+/** Database error codes → what the owner sees. */
+const REVIEW_ERRORS: Record<string, string> = {
+  review_invoice_not_available: 'الفاتورة دي مش متاحة: الكاميرا مسحتها، أو مش لدكتور في التقييم، أو كود داخلي',
+  review_invoice_already_sampled: 'الفاتورة دي متضافة للمراجعة قبل كده',
+  review_chat_not_captured: 'المحادثة دي لسه ماوصلتش للعقل المدبر',
+  review_sample_already_reviewed: 'العينة دي اتقيّمت خلاص، مينفعش تتشال',
+  review_sample_not_found: 'العينة مش موجودة أو اتشالت قبل كده',
+  review_samples_not_authorized: 'الصلاحية دي للمالك بس',
+};
+export function reviewErrorMessage(message: string): string {
+  const code = Object.keys(REVIEW_ERRORS).find((key) => message.includes(key));
+  return code ? REVIEW_ERRORS[code] : message;
+}
+const fail = (message: string) => new Error(reviewErrorMessage(message));
+
+export interface ReviewCandidate {
+  invoiceId: string;
+  staffName: string;
+  branch: string | null;
+  invoiceNumber: string | null;
+  invoiceAt: string;
+  net: number;
+  items: number | null;
+  customerName: string | null;
+  customerPhone: string | null;
+  stratum: ReviewSample['stratum'];
+  hasChat: boolean;
+  sampled: boolean;
+}
+
+/** Invoices the owner can pick (cash still on the cameras / delivery orders of the last weeks), newest first. */
+export async function searchReviewCandidates(kind: ReviewKind, query: string): Promise<ReviewCandidate[]> {
+  const { data, error } = await supabase.rpc('search_evaluation_review_candidates_v1', { p_kind: kind, p_query: query.trim() || null });
+  if (error) throw fail(error.message);
+  return ((data || []) as Row[]).map((row) => ({
+    invoiceId: text(row.invoice_id),
+    staffName: text(row.staff_name),
+    branch: text(row.branch) || null,
+    invoiceNumber: text(row.invoice_number) || null,
+    invoiceAt: text(row.invoice_at),
+    net: Number(row.net) || 0,
+    items: row.items == null ? null : Number(row.items),
+    customerName: text(row.customer_name) || null,
+    customerPhone: text(row.customer_phone) || null,
+    stratum: text(row.stratum) as ReviewSample['stratum'],
+    hasChat: row.has_chat === true,
+    sampled: row.sampled === true,
+  }));
+}
+
+export async function addReviewSample(kind: ReviewKind, invoiceId: string): Promise<string> {
+  const { data, error } = await supabase.rpc('add_evaluation_review_sample_v1', { p_kind: kind, p_invoice_id: invoiceId });
+  if (error) throw fail(error.message);
+  return text(data);
+}
+
+/** Drops a sample with no review yet; with autoReplace the app picks another of the same doctor. Returns the replacement id or null. */
+export async function excludeReviewSample(sampleId: string, autoReplace: boolean, note?: string): Promise<string | null> {
+  const { data, error } = await supabase.rpc('exclude_evaluation_review_sample_v1', {
+    p_sample_id: sampleId, p_auto_replace: autoReplace, p_note: note?.trim() || null,
+  });
+  if (error) throw fail(error.message);
+  return data ? text(data) : null;
 }
 
 export async function saveInvoiceReview(sampleId: string, criteria: InvoiceCriteria, notes: string, skip = false) {
