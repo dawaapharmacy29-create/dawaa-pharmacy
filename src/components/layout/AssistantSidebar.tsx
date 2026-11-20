@@ -33,6 +33,8 @@ type AssistantNavItem = {
   permission?: string;
   excludeStaffIds?: readonly string[];
   onlyStaffIds?: readonly string[];
+  // يختفي من القايمة لمن معاه الصلاحية دي (الصفحة نفسها لسه شغالة من جوه صفحتها الأصلية).
+  hiddenWithPermission?: string;
 };
 
 type AssistantNavGroup = {
@@ -61,8 +63,10 @@ export const ASSISTANT_GROUPS: AssistantNavGroup[] = [
   {
     title: 'خدمة العملاء',
     items: [
+      { path: '/customer-service-tasks', label: 'شيت مهام اليوم', icon: FileSpreadsheet, permission: 'customer_service_daily_tasks' },
       { path: '/customer-service', label: 'خدمة العملاء', icon: HeadphonesIcon, permission: 'view_customer_service' },
-      { path: '/customer-service?quickFollowup=1', label: 'المتابعات', icon: ClipboardCheck, permission: 'view_customer_service' },
+      // شيت مهام اليوم بقى هو قايمة المتابعة لمن معاه، فالاختصار ده بيستخبى عنده عشان القايمة تفضل قصيرة.
+      { path: '/customer-service?quickFollowup=1', label: 'المتابعات', icon: ClipboardCheck, permission: 'view_customer_service', hiddenWithPermission: 'customer_service_daily_tasks' },
       { path: '/customer-requests', label: 'طلبات العملاء', icon: PackageSearch, permission: 'view_customer_requests' },
       { path: '/reviews', label: 'تقييم المحادثات', icon: ClipboardCheck, permission: 'view_reviews', onlyStaffIds: TEAM_DAWAA_ALPHA_STAFF_IDS },
       { path: '/customers', label: 'قاعدة العملاء', icon: Users, permission: 'view_customers' },
@@ -104,6 +108,7 @@ export function assistantGroupsFor(checkPermission: (permission: string) => bool
       items: group.items.filter(
         (item) =>
           (!item.permission || checkPermission(item.permission)) &&
+          (!item.hiddenWithPermission || !checkPermission(item.hiddenWithPermission)) &&
           (!item.excludeStaffIds || !item.excludeStaffIds.includes(staffId)) &&
           (!item.onlyStaffIds || item.onlyStaffIds.includes(staffId))
       ),
