@@ -94,6 +94,7 @@ export const GROUPS: NavGroup[] = [
     { path: '/customer-service', icon: HeadphonesIcon, label: 'مركز خدمة العملاء', permission: 'view_customer_service' },
     { path: '/customer-requests', icon: PackageSearch, label: 'طلبات العملاء', permission: 'view_customer_requests' },
     { path: '/customer-coding', icon: UserPlus, label: 'تكويد العملاء', permission: 'view_customer_service' },
+    { path: '/customer-service-tasks', icon: FileSpreadsheet, label: 'مهام خدمة العملاء اليومية', permission: ['customer_service_daily_tasks', 'customer_service_daily_tasks_manage'] },
     { path: '/quick-replies', icon: HeadphonesIcon, label: 'الردود السريعة', permission: 'whatsapp_customer' },
     { path: '/welcome-messages', icon: MessageCircle, label: 'رسائل الترحيب', permission: 'customer_welcome_messages_view' },
   ]},

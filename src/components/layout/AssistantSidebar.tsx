@@ -61,6 +61,7 @@ export const ASSISTANT_GROUPS: AssistantNavGroup[] = [
   {
     title: 'خدمة العملاء',
     items: [
+      { path: '/customer-service-tasks', label: 'شيت مهام اليوم', icon: FileSpreadsheet, permission: 'customer_service_daily_tasks' },
       { path: '/customer-service', label: 'خدمة العملاء', icon: HeadphonesIcon, permission: 'view_customer_service' },
       { path: '/customer-service?quickFollowup=1', label: 'المتابعات', icon: ClipboardCheck, permission: 'view_customer_service' },
       { path: '/customer-requests', label: 'طلبات العملاء', icon: PackageSearch, permission: 'view_customer_requests' },

@@ -131,6 +131,9 @@ const EXPLICIT_OVERRIDABLE_PERMISSIONS = new Set([
   'customer_welcome_messages_view',
   'customer_welcome_messages_create',
   'customer_welcome_messages_update',
+  // شيت مهام خدمة العملاء اليومية: بيتفتح لأي حساب من صلاحيات الحسابات من غير ما نغيّر دوره.
+  'customer_service_daily_tasks',
+  'customer_service_daily_tasks_manage',
   // فريق دواء (هاجر/نور/هبة حماده) — صلاحيات خدمة العملاء/طلبات العملاء/
   // المشتريات المتفق عليها صراحة مع صاحب الصيدلية. من غير الإدراج هنا،
   // capPermissionsToRole كانت بتشيل أي صلاحية مخصصة مش جزء من الحد الأدنى

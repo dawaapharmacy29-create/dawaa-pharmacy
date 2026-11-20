@@ -1,0 +1,694 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { Download, FileSpreadsheet, Loader2, RefreshCw, Save, Upload, Users } from 'lucide-react';
+import { toast } from 'sonner';
+import {
+  EmptyState,
+  MiniBox,
+  Panel,
+  SectionTitle,
+} from '@/components/dashboard/DashboardPrimitives';
+import { cairoToday } from '@/lib/evaluationLab/reviewSamples';
+import {
+  buildTodayTasks,
+  listTasks,
+  loadOverview,
+  loadTaskSettings,
+  saveTaskSettings,
+  submitSheet,
+  type DailyTask,
+  type Overview,
+  type TaskMember,
+  type TaskSettings,
+} from '@/lib/customerServiceTasks/api';
+import {
+  SOURCE_LABELS,
+  sourceLabel,
+  type DoctorCase,
+  type SheetProblem,
+  type TaskUpdate,
+} from '@/lib/customerServiceTasks/tasks';
+import { buildTaskWorkbook, readTaskWorkbook } from '@/lib/customerServiceTasks/sheet';
+
+// شيت مهام خدمة العملاء اليومي: كل واحد في الفريق بيحمّل مهامه الصبح، يشتغل على الإكسيل، ويرفعه آخر اليوم.
+// اللي يفتح الصفحة لأي حد تاني هو مفتاح customer_service_daily_tasks من صلاحيات الحسابات، والإدارة بمفتاح _manage.
+
+function cycleStart(today: string): string {
+  const [y, m, d] = today.split('-').map(Number);
+  const start = d >= 26 ? new Date(Date.UTC(y, m - 1, 26)) : new Date(Date.UTC(y, m - 2, 26));
+  return start.toISOString().slice(0, 10);
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+type Pending = {
+  updates: TaskUpdate[];
+  cases: DoctorCase[];
+  problems: SheetProblem[];
+  fileName: string;
+};
+
+export default function CustomerServiceTasks() {
+  const today = cairoToday();
+  const [settings, setSettings] = useState<TaskSettings | null>(null);
+  const [loadError, setLoadError] = useState('');
+  const [tab, setTab] = useState<'mine' | 'team'>('mine');
+
+  const reloadSettings = useCallback(async () => {
+    try {
+      setLoadError('');
+      setSettings(await loadTaskSettings());
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+  useEffect(() => {
+    void reloadSettings();
+  }, [reloadSettings]);
+
+  if (loadError)
+    return (
+      <div className="p-4">
+        <EmptyState label={loadError} error onRetry={() => void reloadSettings()} />
+      </div>
+    );
+  if (!settings)
+    return (
+      <div className="flex justify-center p-10">
+        <Loader2 className="animate-spin" />
+      </div>
+    );
+
+  return (
+    <div className="space-y-4 p-4" dir="rtl">
+      <div className="flex flex-wrap items-center gap-2">
+        <h1 className="text-xl font-black">مهام خدمة العملاء اليومية</h1>
+        {settings.can_manage ? (
+          <div className="mr-auto flex gap-2">
+            <button
+              className={tab === 'mine' ? 'btn-primary' : 'btn-secondary'}
+              onClick={() => setTab('mine')}
+            >
+              الشيت
+            </button>
+            <button
+              className={tab === 'team' ? 'btn-primary' : 'btn-secondary'}
+              onClick={() => setTab('team')}
+            >
+              الفريق والمتابعة
+            </button>
+          </div>
+        ) : null}
+      </div>
+      {tab === 'mine' || !settings.can_manage ? (
+        <SheetTab today={today} settings={settings} />
+      ) : (
+        <TeamTab today={today} settings={settings} onSaved={reloadSettings} />
+      )}
+    </div>
+  );
+}
+
+function SheetTab({ today, settings }: { today: string; settings: TaskSettings }) {
+  const members = settings.members.filter((m) => m.staff_account_id);
+  const isMember = members.some((m) => m.staff_account_id === settings.me);
+  const [who, setWho] = useState<string>(isMember || !settings.can_manage ? settings.me : 'all');
+  const [tasks, setTasks] = useState<DailyTask[] | null>(null);
+  const [busy, setBusy] = useState('');
+  const [pending, setPending] = useState<Pending | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const all = who === 'all';
+  const whoName = all
+    ? 'الفريق كله'
+    : (members.find((m) => m.staff_account_id === who)?.name ?? 'أنا');
+
+  const refresh = useCallback(async () => {
+    try {
+      setTasks(await listTasks(today, all ? { all: true } : { staffAccountId: who }));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+      setTasks([]);
+    }
+  }, [today, who, all]);
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const counts = useMemo(() => {
+    const out: Record<string, { n: number; done: number }> = {};
+    for (const t of tasks ?? []) {
+      const c = (out[t.source] ??= { n: 0, done: 0 });
+      c.n += 1;
+      if (t.result) c.done += 1;
+    }
+    return out;
+  }, [tasks]);
+  const doneCount = (tasks ?? []).filter((t) => t.result).length;
+
+  async function build() {
+    setBusy('build');
+    try {
+      const r = await buildTodayTasks();
+      const added = Object.values(r.counts ?? {}).reduce((s, n) => s + Number(n || 0), 0);
+      if (!r.yesterday_invoices)
+        toast.warning('فواتير امبارح لسه مترفعتش، اتجهز اللي ينفع بس. جرّب تاني بعد رفع المبيعات.');
+      toast.success(added ? `اتضاف ${added} مهمة لنهارده` : 'مهام النهارده متجهزة خلاص، مفيش جديد');
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function download() {
+    if (!tasks?.length) {
+      toast.error('مفيش مهام للنهارده لسه. دوس «جهّز مهام النهارده» الأول.');
+      return;
+    }
+    setBusy('download');
+    try {
+      const blob = await buildTaskWorkbook(tasks, today, whoName);
+      downloadBlob(blob, `مهام خدمة العملاء - ${whoName} - ${today}.xlsx`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function pickFile(file: File | undefined) {
+    if (!file) return;
+    setBusy('read');
+    try {
+      const parsed = await readTaskWorkbook(await file.arrayBuffer(), today);
+      setPending({ ...parsed, fileName: file.name });
+    } catch (e) {
+      toast.error(`الملف ده مش مقروء: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy('');
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  }
+
+  async function confirmUpload() {
+    if (!pending) return;
+    setBusy('submit');
+    try {
+      const r = await submitSheet(pending.updates, pending.cases);
+      toast.success(`اتسجل ${r.updated} نتيجة و${r.added} حالة دكتور`);
+      if (r.skipped?.length)
+        toast.warning(
+          `${r.skipped.length} صف اتساب: ${r.skipped
+            .slice(0, 3)
+            .map((s) => s.why)
+            .join('، ')}`
+        );
+      setPending(null);
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy('');
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <Panel>
+        <SectionTitle
+          icon={<FileSpreadsheet size={18} />}
+          title={`شيت ${today}`}
+          subtitle="الصبح: جهّز وحمّل · آخر اليوم: ارفع الشيت بعد ما تكتب النتايج"
+        />
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {settings.can_manage ? (
+            <select
+              className="input-field w-auto"
+              value={who}
+              onChange={(e) => setWho(e.target.value)}
+            >
+              {!isMember ? null : <option value={settings.me}>مهامي</option>}
+              {members
+                .filter((m) => m.staff_account_id !== settings.me)
+                .map((m) => (
+                  <option key={m.staff_account_id} value={m.staff_account_id}>
+                    {m.name ?? m.staff_account_id}
+                    {m.on_leave ? ' (إجازة)' : ''}
+                  </option>
+                ))}
+              <option value="all">الفريق كله</option>
+            </select>
+          ) : null}
+          <button
+            className="btn-secondary inline-flex items-center gap-1"
+            disabled={!!busy}
+            onClick={() => void build()}
+          >
+            {busy === 'build' ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <RefreshCw size={16} />
+            )}{' '}
+            جهّز مهام النهارده
+          </button>
+          <button
+            className="btn-primary inline-flex items-center gap-1"
+            disabled={!!busy}
+            onClick={() => void download()}
+          >
+            {busy === 'download' ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <Download size={16} />
+            )}{' '}
+            حمّل الشيت
+          </button>
+          <button
+            className="btn-secondary inline-flex items-center gap-1"
+            disabled={!!busy}
+            onClick={() => fileRef.current?.click()}
+          >
+            {busy === 'read' ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <Upload size={16} />
+            )}{' '}
+            ارفع الشيت بعد الشغل
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".xlsx"
+            className="hidden"
+            onChange={(e) => void pickFile(e.target.files?.[0])}
+          />
+        </div>
+        <p className="mt-2 text-xs opacity-70">
+          الحد الحالي للاطمئنان بعد الفاتورة:{' '}
+          {Number(settings.big_invoice_min).toLocaleString('ar-EG')} ج · أقصى مهام للواحد في اليوم:{' '}
+          {settings.daily_cap}. فواتير امبارح بتترفع حوالي الضهر، فلو دوست «جهّز» بدري ممكن تدوس
+          تاني بعد الرفع ويزوّد الجديد بس.
+        </p>
+      </Panel>
+
+      {pending ? (
+        <Panel>
+          <SectionTitle title={`مراجعة قبل الرفع: ${pending.fileName}`} />
+          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <MiniBox label="نتايج مكالمات" value={String(pending.updates.length)} tone="green" />
+            <MiniBox label="حالات دكاترة" value={String(pending.cases.length)} tone="blue" />
+            <MiniBox
+              label="ملاحظات على الشيت"
+              value={String(pending.problems.length)}
+              tone={pending.problems.length ? 'amber' : 'cyan'}
+            />
+          </div>
+          {pending.problems.length ? (
+            <ul className="mt-2 list-disc space-y-1 pr-5 text-sm">
+              {pending.problems.slice(0, 20).map((p, i) => (
+                <li key={i}>
+                  {p.sheet} · صف {p.row}: {p.problem}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <div className="mt-3 flex gap-2">
+            <button
+              className="btn-primary inline-flex items-center gap-1"
+              disabled={!!busy || (!pending.updates.length && !pending.cases.length)}
+              onClick={() => void confirmUpload()}
+            >
+              {busy === 'submit' ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <Save size={16} />
+              )}{' '}
+              سجّل
+            </button>
+            <button className="btn-secondary" disabled={!!busy} onClick={() => setPending(null)}>
+              إلغاء
+            </button>
+          </div>
+        </Panel>
+      ) : null}
+
+      <Panel>
+        <SectionTitle
+          title={`مهام ${whoName} النهارده`}
+          subtitle={tasks ? `${doneCount} من ${tasks.length} اتعملوا` : undefined}
+        />
+        {tasks == null ? (
+          <div className="flex justify-center p-6">
+            <Loader2 className="animate-spin" />
+          </div>
+        ) : tasks.length === 0 ? (
+          <EmptyState label="مفيش مهام لسه. دوس «جهّز مهام النهارده»." />
+        ) : (
+          <>
+            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {(Object.keys(SOURCE_LABELS) as Array<keyof typeof SOURCE_LABELS>)
+                .filter((s) => counts[s])
+                .map((s) => (
+                  <MiniBox
+                    key={s}
+                    label={SOURCE_LABELS[s]}
+                    value={`${counts[s].done} / ${counts[s].n}`}
+                    tone={counts[s].done === counts[s].n ? 'green' : 'cyan'}
+                  />
+                ))}
+            </div>
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-right opacity-70">
+                    <th className="p-2">النوع</th>
+                    <th className="p-2">الفرع</th>
+                    <th className="p-2">العميل</th>
+                    <th className="p-2">السبب</th>
+                    {all ? <th className="p-2">مع</th> : null}
+                    <th className="p-2">النتيجة</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tasks.slice(0, 200).map((t) => (
+                    <tr key={t.id} className="border-t border-[var(--dawaa-theme-border)]">
+                      <td className="p-2 whitespace-nowrap">{sourceLabel(t.source)}</td>
+                      <td className="p-2 whitespace-nowrap">{t.branch.replace('فرع ', '')}</td>
+                      <td className="p-2">
+                        {t.customer_name}
+                        <span className="block text-xs opacity-60">
+                          {t.customer_code} · {t.customer_phone ?? 'من غير رقم'}
+                        </span>
+                      </td>
+                      <td className="p-2 text-xs">{t.reason}</td>
+                      {all ? (
+                        <td className="p-2 whitespace-nowrap text-xs">{t.assigned_name ?? '—'}</td>
+                      ) : null}
+                      <td className="p-2 whitespace-nowrap text-xs">{t.result_label ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </Panel>
+
+      <Panel>
+        <SectionTitle
+          title="آخر حاجة في اليوم: تصدير المحادثات"
+          subtitle="صدّر محادثات واتساب الفرع وارفعها على العقل المدبر"
+        />
+        <Link to="/reviews" className="btn-secondary mt-2 inline-block">
+          افتح صفحة تقييم المحادثات
+        </Link>
+      </Panel>
+    </div>
+  );
+}
+
+function TeamTab({
+  today,
+  settings,
+  onSaved,
+}: {
+  today: string;
+  settings: TaskSettings;
+  onSaved: () => Promise<void>;
+}) {
+  const [minInvoice, setMinInvoice] = useState(String(settings.big_invoice_min));
+  const [cap, setCap] = useState(String(settings.daily_cap));
+  const [members, setMembers] = useState<TaskMember[]>(settings.members);
+  const [adding, setAdding] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [from, setFrom] = useState(cycleStart(today));
+  const [overview, setOverview] = useState<Overview | null>(null);
+  const [overviewError, setOverviewError] = useState('');
+
+  const loadOv = useCallback(async () => {
+    try {
+      setOverviewError('');
+      setOverview(await loadOverview(from, today));
+    } catch (e) {
+      setOverviewError(e instanceof Error ? e.message : String(e));
+    }
+  }, [from, today]);
+  useEffect(() => {
+    void loadOv();
+  }, [loadOv]);
+
+  const candidates = (settings.candidates ?? []).filter(
+    (c) => !members.some((m) => m.staff_account_id === String(c.staff_account_id))
+  );
+
+  async function save() {
+    const min = Number(minInvoice);
+    const capN = Number(cap);
+    if (!(min >= 100) || !(capN >= 10 && capN <= 150)) {
+      toast.error('الحد لازم ١٠٠ ج أو أكتر، والمهام بين ١٠ و ١٥٠');
+      return;
+    }
+    setSaving(true);
+    try {
+      await saveTaskSettings(min, Math.round(capN), members);
+      toast.success('اتحفظ');
+      await onSaved();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <Panel>
+        <SectionTitle
+          icon={<Users size={18} />}
+          title="الفريق والإعدادات"
+          subtitle="المهام بتتوزع بالدور على اللي مش في إجازة"
+        />
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <label className="text-sm">
+            أقل فاتورة للاطمئنان (ج)
+            <input
+              className="input-field mt-1"
+              type="number"
+              min={100}
+              step={50}
+              value={minInvoice}
+              onChange={(e) => setMinInvoice(e.target.value)}
+            />
+          </label>
+          <label className="text-sm">
+            أقصى مهام للواحد في اليوم
+            <input
+              className="input-field mt-1"
+              type="number"
+              min={10}
+              max={150}
+              value={cap}
+              onChange={(e) => setCap(e.target.value)}
+            />
+          </label>
+        </div>
+        <div className="mt-3 space-y-2">
+          {members.map((m) => (
+            <div
+              key={m.staff_account_id}
+              className="flex flex-wrap items-center gap-3 rounded-lg border border-[var(--dawaa-theme-border)] p-2 text-sm"
+            >
+              <span className="font-bold">{m.name ?? m.staff_account_id}</span>
+              {m.has_permission === false ? (
+                <span className="rounded px-2 text-xs bg-[var(--dawaa-status-warning-bg)] text-[var(--dawaa-status-warning-text)]">
+                  مش معاه صلاحية الصفحة — افتحها من{' '}
+                  <Link to="/roles-permissions" className="underline">
+                    صلاحيات الحسابات
+                  </Link>
+                </span>
+              ) : null}
+              <label className="mr-auto inline-flex items-center gap-1">
+                <input
+                  type="checkbox"
+                  checked={m.on_leave}
+                  onChange={(e) =>
+                    setMembers(
+                      members.map((x) => (x === m ? { ...x, on_leave: e.target.checked } : x))
+                    )
+                  }
+                />{' '}
+                إجازة
+              </label>
+              <button
+                className="text-xs text-[var(--dawaa-status-danger-text)]"
+                onClick={() => setMembers(members.filter((x) => x !== m))}
+              >
+                شيل من الفريق
+              </button>
+            </div>
+          ))}
+          <div className="flex flex-wrap gap-2">
+            <select
+              className="input-field w-auto"
+              value={adding}
+              onChange={(e) => setAdding(e.target.value)}
+            >
+              <option value="">ضيف حد للفريق…</option>
+              {candidates.map((c) => (
+                <option key={c.staff_account_id} value={String(c.staff_account_id)}>
+                  {c.name}
+                  {c.branch ? ` · ${c.branch}` : ''}
+                </option>
+              ))}
+            </select>
+            <button
+              className="btn-secondary"
+              disabled={!adding}
+              onClick={() => {
+                const c = candidates.find((x) => String(x.staff_account_id) === adding);
+                if (c)
+                  setMembers([
+                    ...members,
+                    { staff_account_id: String(c.staff_account_id), name: c.name, on_leave: false },
+                  ]);
+                setAdding('');
+              }}
+            >
+              ضيف
+            </button>
+          </div>
+          <p className="text-xs opacity-70">
+            اللي بتضيفه هنا بياخد مهام. عشان يفتح الصفحة لازم يكون معاه «مهام خدمة العملاء اليومية»
+            من{' '}
+            <Link to="/roles-permissions" className="underline">
+              صلاحيات الحسابات
+            </Link>
+            ، و«إدارة مهام خدمة العملاء» لو هيشوف الفريق كله.
+          </p>
+        </div>
+        <button
+          className="btn-primary mt-3 inline-flex items-center gap-1"
+          disabled={saving}
+          onClick={() => void save()}
+        >
+          {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} احفظ
+        </button>
+      </Panel>
+
+      <Panel>
+        <div className="flex flex-wrap items-center gap-2">
+          <SectionTitle title="الشغل اتعمل إزاي" subtitle={`من ${from} لحد النهارده`} />
+          <input
+            className="input-field mr-auto w-auto"
+            type="date"
+            value={from}
+            max={today}
+            onChange={(e) => setFrom(e.target.value)}
+          />
+        </div>
+        {overviewError ? (
+          <EmptyState label={overviewError} error onRetry={() => void loadOv()} />
+        ) : !overview ? (
+          <div className="flex justify-center p-6">
+            <Loader2 className="animate-spin" />
+          </div>
+        ) : (
+          <div className="mt-3 space-y-4">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-right opacity-70">
+                    <th className="p-2">الاسم</th>
+                    <th className="p-2">مهام</th>
+                    <th className="p-2">اتعملت</th>
+                    <th className="p-2">مردش</th>
+                    <th className="p-2">شكاوى</th>
+                    <th className="p-2">اشترى خلال أسبوع</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {overview.members.map((m) => (
+                    <tr
+                      key={m.staff_account_id ?? m.name}
+                      className="border-t border-[var(--dawaa-theme-border)]"
+                    >
+                      <td className="p-2 font-bold">{m.name}</td>
+                      <td className="p-2">{m.tasks}</td>
+                      <td className="p-2">
+                        {m.done} {m.tasks ? `(${Math.round((m.done / m.tasks) * 100)}%)` : ''}
+                      </td>
+                      <td className="p-2">{m.no_answer}</td>
+                      <td className="p-2">{m.complaints}</td>
+                      <td className="p-2">{m.bought_after}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {overview.by_source.map((s) => (
+                <MiniBox
+                  key={s.source}
+                  label={sourceLabel(s.source)}
+                  value={`${s.done} / ${s.tasks}`}
+                />
+              ))}
+            </div>
+            {overview.complaints.length ? (
+              <div>
+                <div className="mb-1 font-bold">الشكاوى</div>
+                <ul className="space-y-1 text-sm">
+                  {overview.complaints.map((c, i) => (
+                    <li key={i}>
+                      {c.queue_date} · {c.branch.replace('فرع ', '')} · {c.customer_name} (
+                      {c.customer_code}) — {c.result_note ?? 'من غير ملاحظة'} · {c.by_name}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <div className="mb-1 font-bold">المتابعات الجاية (٧ أيام)</div>
+                {overview.upcoming.length ? (
+                  overview.upcoming.map((u) => (
+                    <div key={u.day} className="text-sm">
+                      {u.day}: {u.n}
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-sm opacity-60">مفيش</div>
+                )}
+              </div>
+              <div>
+                <div className="mb-1 font-bold">تصدير المحادثات (آخر ٧ أيام)</div>
+                {overview.chat_exports.length ? (
+                  overview.chat_exports.map((c) => (
+                    <div key={`${c.day}-${c.branch}`} className="text-sm">
+                      {c.day} · {c.branch}: {c.n}
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-sm text-[var(--dawaa-status-warning-text)]">
+                    مفيش أي تصدير اترفع
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </Panel>
+    </div>
+  );
+}
