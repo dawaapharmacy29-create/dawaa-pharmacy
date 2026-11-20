@@ -168,6 +168,15 @@ describe('short menu per role', () => {
     expect(assistantPaths(everyPermission).length).toBeLessThanOrEqual(12);
   });
 
+  it('swaps the follow-ups shortcut for the daily task sheet, not adds to it', () => {
+    const withSheet = assistantPaths(everyPermission);
+    expect(withSheet).toContain('/customer-service-tasks');
+    expect(withSheet).not.toContain('/customer-service?quickFollowup=1');
+    const withoutSheet = assistantPaths(everyPermission.filter((p) => p !== 'customer_service_daily_tasks'));
+    expect(withoutSheet).toContain('/customer-service?quickFollowup=1');
+    expect(withoutSheet).not.toContain('/customer-service-tasks');
+  });
+
   it('builds the manager menu from the main one, with every page found', () => {
     const items = BRANCH_MANAGER_GROUPS.flatMap((group) => group.items);
     const main = GROUPS.flatMap((group) => group.items);
