@@ -57,6 +57,100 @@ export const RESULT_HELP: Record<ResultLabel, string> = {
 
 export const BRANCH_OPTIONS = ['شكري', 'الشامي'] as const;
 
+/**
+ * The sections of the calls sheet, in calling order. Each tells the member what to do and an opening line to say.
+ * A follow-up (priority 1) has its own section whatever its source; a customer with no usable phone goes last.
+ */
+export type SheetSectionKey = TaskSource | 'followup' | 'no_phone';
+export const SHEET_SECTIONS: Array<{ key: SheetSectionKey; title: string; todo: string; say: string }> = [
+  {
+    key: 'followup',
+    title: 'متابعات ميعادها النهارده',
+    todo: 'ناس اتكلمنا معاهم قبل كده. اللي حصل المرة اللي فاتت مكتوب في «المطلوب منك».',
+    say: 'أهلاً يا فندم، معاك خدمة عملاء صيدليات دواء، بنكمّل مع حضرتك على كلامنا اللي فات…',
+  },
+  {
+    key: 'doctor_case',
+    title: 'حالات طلبها الدكتور',
+    todo: 'الدكتور طلب متابعة العميل ده: نفّذ المكتوب في «المطلوب منك».',
+    say: 'دكتور الفرع طلب مني أطمّن على حضرتك بخصوص…',
+  },
+  {
+    key: 'new_customer',
+    title: 'عملاء جداد (أول مرة يشتروا امبارح)',
+    todo: 'سجّل رقمه على تليفون الفرع بالاسم والكود، وابعتله رسالة الترحيب.',
+    say: 'أهلاً بحضرتك في صيدليات دواء، ده رقم الفرع على واتساب للطلبات والتوصيل والاستشارات.',
+  },
+  {
+    key: 'big_invoice',
+    title: 'اطمئنان بعد فاتورة كبيرة امبارح',
+    todo: 'اتأكد إن الطلب وصل كامل وإنه فاهم الجرعات.',
+    say: 'حبينا نطمّن على حضرتك، الأدوية وصلت تمام؟ في أي استفسار عن الجرعات؟',
+  },
+  {
+    key: 'request',
+    title: 'طلبات نواقص',
+    todo: 'لو الصنف اتوفر بلّغ الفرع يكلمه ويعمل الأوردر، ولو لسه طمّنه إننا بندوّر عليه.',
+    say: 'بخصوص الصنف اللي حضرتك طلبته من الفرع…',
+  },
+  {
+    key: 'regular_due',
+    title: 'عملاء منتظمين ميعاد شراهم جه',
+    todo: 'فكّره إن علاجه قرّب يخلص واعرض نجهزله الطلب ونوصله.',
+    say: 'علاج حضرتك قرّب يخلص، تحب نجهزهولك ونبعتهولك؟',
+  },
+  {
+    key: 'declining',
+    title: 'عملاء شراهم قلّ',
+    todo: 'اسأل في إيه: صنف ناقص؟ سعر؟ خدمة؟ واكتب السبب في الملاحظة.',
+    say: 'بنطمّن على حضرتك، في حاجة مش عاجباك أو صنف مالقيتهوش عندنا؟',
+  },
+  {
+    key: 'lost',
+    title: 'عملاء بطّلوا يشتروا',
+    todo: 'اسأل عن السبب واعرض خدمة التوصيل، واكتب السبب في الملاحظة.',
+    say: 'وحشتنا يا فندم، في حاجة ضايقت حضرتك؟ نقدر نجهزلك أي طلب ونوصله لحد البيت.',
+  },
+  {
+    key: 'no_phone',
+    title: 'من غير رقم موبايل',
+    todo: 'اطلب الرقم من الفرع أو دوّر عليه في قاعدة العملاء. لو مالقيتهوش اختار «رقم غلط».',
+    say: '',
+  },
+];
+
+/** An Egyptian mobile as the digits WhatsApp expects (20 + 10 digits), or null when it is not a mobile number. */
+export function whatsappNumber(phone: string | null | undefined): string | null {
+  const digits = String(phone ?? '').replace(/\D/g, '');
+  if (/^01\d{9}$/.test(digits)) return `2${digits}`;
+  if (/^201\d{9}$/.test(digits)) return digits;
+  if (/^1\d{9}$/.test(digits)) return `20${digits}`;
+  return null;
+}
+
+export function sheetSectionOf(task: { priority: string; source: string; customer_phone: string | null }): SheetSectionKey {
+  if (!whatsappNumber(task.customer_phone)) return 'no_phone';
+  if (task.priority === '1') return 'followup';
+  return (SHEET_SECTIONS.some((s) => s.key === task.source) ? task.source : 'lost') as SheetSectionKey;
+}
+
+/**
+ * The customer's name for the person calling: the branch's bookkeeping tags are dropped (points like "(P600)" or
+ * "300P", the customer code repeated in the name, the branch letter «ش», "%" and trailing dots).
+ */
+export function cleanCustomerName(name: string, code?: string | null): string {
+  let n = String(name ?? '');
+  n = n.replace(
+    /\(\s*[pP]\s*\d+\s*\)|\(\s*\d+\s*[pP]\s*\)|[pP]\s*\(\s*\d+\s*\)|\b[pP]\s?\d+\b|\d+\s?[pP]\b(?!\s*\()/g,
+    ' '
+  );
+  const c = String(code ?? '').trim();
+  if (/^\d+$/.test(c)) n = n.replace(new RegExp(`(^|\\D)${c}(?=\\D|$)`, 'g'), '$1 ');
+  n = n.replace(/[()%]/g, ' ').replace(/(^|\s)ش(?=\s|$)/g, '$1');
+  n = n.replace(/\s+/g, ' ').replace(/[.\s]+$/, '').trim();
+  return n || String(name ?? '').trim();
+}
+
 /** A sheet date cell (Date, Excel serial, "25/11", "25/11/2026" or "2026-11-25") as YYYY-MM-DD, or null. */
 export function sheetDateToIso(value: unknown, today: string): string | null {
   if (value == null || value === '') return null;
@@ -115,7 +209,15 @@ export function readTaskSheets(
   const header = (rows: unknown[][]) => (rows[0] ?? []).map(text);
   const problems: SheetProblem[] = [];
   const updates: TaskUpdate[] = [];
-  const th = header(tasks);
+  // The calls sheet opens with a title and a summary; its header is the first row that has «id» and «النتيجة».
+  const headerAt = Math.max(
+    0,
+    tasks.slice(0, 12).findIndex((row) => {
+      const cells = (row ?? []).map(text);
+      return cells.includes('id') && cells.includes('النتيجة');
+    })
+  );
+  const th = (tasks[headerAt] ?? []).map(text);
   const col = (name: string) => th.indexOf(name);
   const [cId, cResult, cNote, cNext] = [
     col('id'),
@@ -130,9 +232,10 @@ export function readTaskSheets(
       problem: 'ده مش شيت المهام اللي اتحمل من الصفحة (عناوين الأعمدة اتغيرت)',
     });
   } else {
-    tasks.slice(1).forEach((row, i) => {
-      const id = text(row[cId]);
-      const result = text(row[cResult]);
+    tasks.slice(headerAt + 1).forEach((row, j) => {
+      const i = j + headerAt;
+      const id = text(row?.[cId]);
+      const result = text(row?.[cResult]);
       if (!id || !result) return;
       if (!(RESULT_LABELS as readonly string[]).includes(result)) {
         problems.push({
