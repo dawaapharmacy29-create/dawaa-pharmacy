@@ -54,8 +54,12 @@ describe('the sidebar each role really gets', () => {
 
   it('opens top management on a short menu, with the rest one click away', () => {
     const html = menu('branches_manager');
+    // only the daily group starts open; the others show their title and open on a click
+    expect(html).toContain('يومي');
     expect(html).toContain('التقييم والمسابقة');
-    expect(html).toContain('دليل الموظفين');
+    expect(html).toContain('>الفريق<');
+    expect(html).not.toContain('دليل الموظفين');
+    expect(html).toContain('دوّر على صفحة');
     expect(html).toContain('كل الصفحات');
     expect(html).not.toContain('إعدادات الموارد البشرية');
   });
@@ -64,16 +68,17 @@ describe('the sidebar each role really gets', () => {
     const permissions = Object.fromEntries(['manage_evaluation_rules', 'view_doctor_dashboard', 'view_branch_comparison', 'view_invoices'].map((key) => [key, true]));
     const html = menu('general_manager', permissions);
     const main = html.split('كل الصفحات')[0];
-    for (const label of ['التقييم والمسابقة', 'التقييم الشهري (المختبر)', 'أداء ومنافسة الدكاترة', 'مقارنة أداء الفروع', 'استيراد فواتير المبيعات']) {
+    for (const label of ['يومي', 'أداء ومنافسة الدكاترة', 'استيراد فواتير المبيعات', 'التقييم والمسابقة']) {
       expect(main).toContain(label);
     }
   });
 
   it('shows the review pages to the general manager and to nobody else', () => {
-    expect(menu('general_manager')).toContain('صفحات للمراجعة');
+    expect(menu('general_manager')).toContain('>للمراجعة<');
     const everything = Object.fromEntries(['view_reviews', 'view_team', 'view_customer_service'].map((key) => [key, true]));
     for (const role of ['executive_manager', 'branches_manager', 'branch_manager', 'pharmacist', 'delivery']) {
       expect(menu(role, everything)).not.toContain('صفحات للمراجعة');
+      expect(menu(role, everything)).not.toContain('>للمراجعة<');
     }
     vi.stubGlobal('window', { location: { pathname: '/', search: '' } });
     expect(menu('assistant', everything)).not.toContain('صفحات للمراجعة');
