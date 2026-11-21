@@ -50,6 +50,19 @@ function downloadBlob(blob: Blob, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
+// EmptyState بيخفي نص الخطأ؛ هنا بنعرض السبب الحقيقي (مثلاً «مهام خدمة العملاء غير مسموحة لهذا الحساب»).
+function LoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-[var(--dawaa-status-danger-border)] p-6 text-center text-[var(--dawaa-status-danger-text)]">
+      <span className="text-sm font-black">تعذر تحميل البيانات</span>
+      <span className="text-xs font-bold">{message}</span>
+      <button type="button" className="btn-secondary mt-1" onClick={onRetry}>
+        إعادة المحاولة
+      </button>
+    </div>
+  );
+}
+
 type Pending = {
   updates: TaskUpdate[];
   cases: DoctorCase[];
@@ -78,7 +91,7 @@ export default function CustomerServiceTasks() {
   if (loadError)
     return (
       <div className="p-4">
-        <EmptyState label={loadError} error onRetry={() => void reloadSettings()} />
+        <LoadError message={loadError} onRetry={() => void reloadSettings()} />
       </div>
     );
   if (!settings)
@@ -598,7 +611,7 @@ function TeamTab({
           />
         </div>
         {overviewError ? (
-          <EmptyState label={overviewError} error onRetry={() => void loadOv()} />
+          <LoadError message={overviewError} onRetry={() => void loadOv()} />
         ) : !overview ? (
           <div className="flex justify-center p-6">
             <Loader2 className="animate-spin" />
