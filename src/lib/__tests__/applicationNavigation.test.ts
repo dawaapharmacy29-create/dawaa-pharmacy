@@ -12,6 +12,7 @@ import {
 } from '@/components/layout/SidebarBase';
 import { ASSISTANT_GROUPS, assistantGroupsFor } from '@/components/layout/AssistantSidebar';
 import { ROLES, hasPermission } from '@/lib/core/permissionSystem';
+import { normalizeArabic, searchNavItems } from '@/lib/navigation/navSearch';
 
 const root = resolve(__dirname, '../../..');
 const read = (rel: string) => readFileSync(resolve(root, rel), 'utf8');
@@ -196,6 +197,18 @@ describe('short menu per role', () => {
     }
   });
 
+  it('puts the daily pages first for top management, the only group open on arrival', () => {
+    for (const role of ['general_manager', 'executive_manager', 'branches_manager']) {
+      const menu = menuGroupsFor(role, false);
+      expect(menu.main[0].title).toBe('يومي');
+      expect(menu.open).toEqual(['يومي']);
+      const daily = menu.main[0].items.map((item) => item.path);
+      for (const path of ['/', '/invoices', '/customer-service-tasks', '/customer-requests', '/doctor-competition']) expect(daily).toContain(path);
+      expect(new Set(daily).size).toBeLessThanOrEqual(10);
+    }
+    expect(menuGroupsFor('pharmacist', false).open).toBeUndefined();
+  });
+
   it('keeps the pages a role has no other way to reach', () => {
     expect(paths('pharmacist')).toContain('/point-appeals');
     expect(paths('pharmacist')).toContain('/monthly-report-360');
@@ -233,5 +246,29 @@ describe('short menu per role', () => {
     expect(assistantPaths(['view_dashboard'])).not.toContain('/purchases');
     expect(assistantPaths(['view_dashboard'])).not.toContain('/points');
     expect(assistantPaths(['view_dashboard'])).toContain('/purchase-invoice-entry');
+  });
+});
+
+describe('sidebar page search', () => {
+  const icon = () => null;
+  const groups = [
+    { title: 'يومي', items: [{ path: '/invoices', label: 'فواتير المبيعات', icon }, { path: '/customer-requests', label: 'طلبات العملاء', icon }] },
+    { title: 'العملاء', items: [{ path: '/customer-requests', label: 'طلبات العملاء', icon }, { path: '/customers', label: 'العملاء', icon }] },
+    { title: 'التقييم والمسابقة', items: [{ path: '/evaluation-lab', label: 'التقييم الشهري', icon }] },
+  ];
+  it('normalizes the way Arabic is typed quickly', () => {
+    expect(normalizeArabic('الإدارة')).toBe('الاداره');
+    expect(normalizeArabic('مُسابقـة ٢٠٢٦')).toBe('مسابقه 2026');
+  });
+  it('finds a page by part of its name, its group, or loose spelling, once', () => {
+    expect(searchNavItems(groups, 'طلبات').map((hit) => hit.item.path)).toEqual(['/customer-requests']);
+    expect(searchNavItems(groups, 'فاتوره').length).toBe(0);
+    expect(searchNavItems(groups, 'فواتير').map((hit) => hit.item.path)).toEqual(['/invoices']);
+    expect(searchNavItems(groups, 'المسابقة').map((hit) => hit.item.path)).toEqual(['/evaluation-lab']);
+    expect(searchNavItems(groups, 'تقييم شهري').map((hit) => hit.item.path)).toEqual(['/evaluation-lab']);
+    expect(searchNavItems(groups, '   ')).toEqual([]);
+  });
+  it('ranks a name that starts with the word above one that only contains it', () => {
+    expect(searchNavItems(groups, 'العملاء').map((hit) => hit.item.path)).toEqual(['/customers', '/customer-requests']);
   });
 });

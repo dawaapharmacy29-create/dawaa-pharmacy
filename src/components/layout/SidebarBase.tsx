@@ -3,7 +3,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   Activity, ActivitySquare, AlertTriangle, BarChart3, BellRing, Calendar, ChevronDown, ChevronLeft,
   ClipboardCheck, ClipboardList, Clock, Crown, FileSpreadsheet, Fingerprint, HeadphonesIcon, Landmark, LayoutDashboard, LogOut,
-  MessageCircle, Package, PackageSearch, PackageX, ShieldCheck, Sparkles, Star, Store, Target, TrendingDown, Truck, UserCheck,
+  MessageCircle, Package, PackageSearch, PackageX, Search, ShieldCheck, Sparkles, Star, Store, Target, TrendingDown, Truck, UserCheck,
   UserPlus, Users, Wallet, WalletCards, X,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
@@ -12,6 +12,7 @@ import { usePendingShiftNotesCount } from '@/hooks/usePendingShiftNotesCount';
 import { LOGO_URL } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 import { getVisibleSectionsForPath } from '@/lib/permissionMatrix';
+import { searchNavItems } from '@/lib/navigation/navSearch';
 import { DR_WAEL_FINGERPRINTS_PATH, DR_WAEL_SHOKRY_REPORTS_PATH, canAccessAccountRoute, canAccessHRRoute, canManageBiometricOperations, getRoutePermissions, normalizeRole } from '@/lib/core/permissionSystem';
 
 export type NavItem = {
@@ -210,17 +211,19 @@ export const BRANCH_MANAGER_GROUPS: NavGroup[] = [
 // Top management works from a short menu too, but runs the whole application: everything else stays one click
 // away under "كل الصفحات".
 export const MANAGEMENT_GROUPS: NavGroup[] = [
-  { title: 'اليوم', icon: LayoutDashboard, items: managerItems('/', DR_WAEL_FINGERPRINTS_PATH, DR_WAEL_SHOKRY_REPORTS_PATH, '/daily-command') },
-  // The monthly evaluation, the doctors' competition (where the follow-ups group file is uploaded) and the branch
-  // comparison are the pages the boards are made from, so they sit together near the top with points and
-  // penalties. Appeals, shift performance and the pillars index are under "كل الصفحات" (hidden, not deleted).
-  // Owner 2026-11-17: the weekly random reviews took the place of the weekly points (under "كل الصفحات").
-  { title: 'التقييم والمسابقة', icon: ClipboardCheck, items: managerItems('/evaluation-lab', '/weekly-reviews', '/doctor-competition', '/branch-comparison', '/penalty-incentive') },
-  { title: 'الفريق', icon: Users, items: managerItems('/team', '/schedule', '/attendance-report', '/time-off', '/staff-payroll') },
-  { title: 'العملاء', icon: HeadphonesIcon, items: managerItems('/customer-service', '/customers', '/reviews', '/customer-requests') },
-  // The sales invoices file is uploaded every day, so its page is one click away.
-  { title: 'المبيعات', icon: BarChart3, items: managerItems('/invoices', '/analytics', '/reports', '/consolidated-reports') },
-  { title: 'المشتريات والمخزون', icon: Store, items: managerItems('/purchase-review', '/purchases', '/shortages', '/inventory-counts') },
+  // Owner 2026-11-21: a short pinned list of the pages the day runs on, open by default; the other groups stay
+  // folded until opened, and the search box above the menu finds any page (including those under "كل الصفحات").
+  // The sales invoices are uploaded every day, the follow-ups group file goes up on the doctors' competition, and
+  // the customer service team works from its daily sheet.
+  { title: 'يومي', icon: LayoutDashboard, items: managerItems('/', '/daily-command', '/invoices', '/customer-service-tasks', '/customer-requests', '/doctor-competition', '/weekly-reviews', '/purchase-review', '/attendance-report') },
+  // The monthly evaluation and the branch comparison are the pages the boards are made from. Appeals, shift
+  // performance and the pillars index are under "كل الصفحات" (hidden, not deleted).
+  { title: 'التقييم والمسابقة', icon: ClipboardCheck, items: managerItems('/evaluation-lab', '/branch-comparison', '/penalty-incentive') },
+  { title: 'الفريق', icon: Users, items: managerItems('/team', '/schedule', '/time-off', '/staff-payroll', DR_WAEL_FINGERPRINTS_PATH) },
+  { title: 'العملاء', icon: HeadphonesIcon, items: managerItems('/customer-service', '/customers', '/reviews') },
+  // /consolidated-reports moved under "كل الصفحات" to keep the menu at 27 pages (hidden, not deleted).
+  { title: 'المبيعات', icon: BarChart3, items: managerItems('/analytics', '/reports', DR_WAEL_SHOKRY_REPORTS_PATH) },
+  { title: 'المشتريات والمخزون', icon: Store, items: managerItems('/purchases', '/shortages', '/inventory-counts') },
   { title: 'للمراجعة', icon: ClipboardList, items: managerItems('/review-pages') },
 ];
 
@@ -253,7 +256,8 @@ const ROLE_GROUPS: Record<string, NavGroup[]> = {
 const MANAGEMENT_ROLES = ['general_manager', 'executive_manager', 'branches_manager'];
 
 // The menu a role opens on, and the pages kept behind "كل الصفحات".
-export function menuGroupsFor(role: string, pharmacistView: boolean): { main: NavGroup[]; more: NavGroup[]; short: boolean } {
+// `open` names the groups that start unfolded (all of the main menu when it is absent).
+export function menuGroupsFor(role: string, pharmacistView: boolean): { main: NavGroup[]; more: NavGroup[]; short: boolean; open?: string[] } {
   if (pharmacistView) return { main: PHARMACIST_GROUPS, more: [], short: true };
   if (role === 'branch_manager') return { main: BRANCH_MANAGER_GROUPS, more: [], short: true };
   const main = MANAGEMENT_ROLES.includes(role) ? MANAGEMENT_GROUPS : ROLE_GROUPS[role];
@@ -262,7 +266,7 @@ export function menuGroupsFor(role: string, pharmacistView: boolean): { main: Na
   const more = GROUPS
     .map((group) => ({ ...group, items: group.items.filter((item) => !inMain.has(item.path)) }))
     .filter((group) => group.items.length);
-  return { main, more, short: true };
+  return { main, more, short: true, open: MANAGEMENT_ROLES.includes(role) ? ['يومي'] : undefined };
 }
 
 function basePath(path: string) { return path.split('?')[0]; }
@@ -319,6 +323,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
   const { user, logout, isAdmin, checkPermission } = useAuth();
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [moreOpen, setMoreOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const navigate = useNavigate();
   const location = useLocation();
   const guard = useOptionalNavigationGuard();
@@ -336,19 +341,20 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
   const canQuickCoding = canAccess(CUSTOMER_CODING_ITEM);
   const quickFollowupPath = pharmacistView ? '/doctor-dashboard?tab=followups' : QUICK_FOLLOWUP_ITEM.path;
 
-  const { mainGroups, moreGroups, shortMenu } = useMemo(() => {
+  const { mainGroups, moreGroups, shortMenu, openGroups } = useMemo(() => {
     const visible = (list: NavGroup[]) => list
       .filter((group) => group.title !== 'التوصيل' || ENABLE_INTERNAL_DELIVERY_MODULE)
       .map((group) => ({ ...group, items: group.items.filter(canAccess) }))
       .filter((group) => group.items.length);
     const menu = menuGroupsFor(role, pharmacistView);
-    return { mainGroups: visible(menu.main), moreGroups: visible(menu.more), shortMenu: menu.short };
+    return { mainGroups: visible(menu.main), moreGroups: visible(menu.more), shortMenu: menu.short, openGroups: menu.open };
   }, [checkPermission, pharmacistView, privileged, role, user?.id]);
   const groups = useMemo(() => [...mainGroups, ...moreGroups], [mainGroups, moreGroups]);
 
   const navPaths = useMemo(() => groups.flatMap((group) => group.items.map((item) => item.path)), [groups]);
   // A short menu opens on its pages directly; the long lists stay folded until asked for.
-  const openByDefault = (title: string) => shortMenu && mainGroups.some((group) => group.title === title);
+  const openByDefault = (title: string) => shortMenu && (openGroups ? openGroups.includes(title) : mainGroups.some((group) => group.title === title));
+  const searchHits = useMemo(() => searchNavItems(groups, searchQuery), [groups, searchQuery]);
   const onMorePage = moreGroups.some((group) => group.items.some((item) => activeItem(item.path, location.pathname, location.search, navPaths)));
   const showMore = moreOpen || onMorePage;
 
@@ -364,12 +370,16 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
   }, [groups, navPaths, location.pathname, location.search]);
 
   const go = (target: string) => { if (guard?.hasActiveDirtyGuard()) guard.requestNavigation(target); else navigate(target); onMobileClose(); };
+  const openHit = (path: string) => { setSearchQuery(''); go(path); };
+  const searchBox = !collapsed ? <div className="px-3 pt-3"><label className="dawaa-sidebar-user-card flex items-center gap-2 rounded-xl px-3 py-2"><Search size={15} className="dawaa-sidebar-muted shrink-0" /><input type="search" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && searchHits[0]) openHit(searchHits[0].item.path); if (event.key === 'Escape') setSearchQuery(''); }} placeholder="دوّر على صفحة…" aria-label="دوّر على صفحة في القايمة" className="dawaa-sidebar-title w-full bg-transparent text-xs font-bold outline-none placeholder:opacity-60" /></label></div> : null;
+  const searchPanel = <nav className="flex-1 space-y-0.5 overflow-y-auto p-3" aria-label="نتايج البحث">{searchHits.length ? searchHits.map(({ item, group }) => <button key={`${item.path}-${item.label}`} type="button" onClick={() => openHit(item.path)} className={cn('nav-item w-full', activeItem(item.path, location.pathname, location.search, navPaths) ? 'nav-item-active' : 'nav-item-inactive')}><item.icon size={18} /><span className="flex-1 text-right">{item.label}</span><span className="dawaa-sidebar-muted text-[10px]">{group}</span></button>) : <div className="dawaa-sidebar-muted px-3 py-6 text-center text-xs font-bold">مفيش صفحة بالاسم ده</div>}</nav>;
   const content = <div className="flex h-full flex-col">
     <div className={cn('dawaa-sidebar-divider flex items-center gap-3 border-b p-4', collapsed && 'justify-center')}><div className="logo-tile flex h-10 w-10 items-center justify-center rounded-xl"><img src={LOGO_URL} alt="Dawaa Pharmacy 2027" className="h-8 w-8 object-contain" /></div>{!collapsed ? <div className="min-w-0"><div className="dawaa-sidebar-title text-sm font-bold">Dawaa Pharmacy 2027</div><div className="dawaa-sidebar-brand truncate text-xs">نظام تشغيل الصيدلية الذكي</div></div> : null}<button onClick={onToggle} className="dawaa-sidebar-muted mr-auto hidden rounded-lg p-1.5 lg:flex"><ChevronLeft className={collapsed ? 'rotate-180' : ''} /></button></div>
     <div className="dawaa-sidebar-divider border-b p-3"><div className="dawaa-sidebar-user-card rounded-xl p-2.5 text-xs"><div className="dawaa-sidebar-title font-semibold">{user?.name}</div>{!collapsed ? <div className="dawaa-sidebar-muted">{user?.role} - {user?.branch}</div> : null}</div></div>
     {!collapsed && (canQuickFollowup || canQuickCoding) ? <div className="px-3 py-2"><div className="flex gap-2">{canQuickFollowup ? <button onClick={() => go(quickFollowupPath)} className="dawaa-sidebar-quick flex-1 rounded-lg px-3 py-2 text-xs font-bold">متابعة سريعة</button> : null}{canQuickCoding ? <button onClick={() => go(CUSTOMER_CODING_ITEM.path)} className="dawaa-sidebar-quick dawaa-sidebar-quick--secondary flex-1 rounded-lg px-3 py-2 text-xs font-bold">تكويد عميل</button> : null}</div></div> : null}
     {canAccess(SHIFT_NOTES_ITEM) ? <button onClick={() => go(SHIFT_NOTES_ITEM.path)} className="nav-item nav-item-inactive mx-3 my-2"><ClipboardList size={18} />{!collapsed ? <span className="flex w-full justify-between">ملاحظات الشيفت{pendingShiftNotes ? <b className="dawaa-sidebar-count rounded-full px-2">{pendingShiftNotes}</b> : null}</span> : null}</button> : null}
-    <nav className="flex-1 space-y-2 overflow-y-auto p-3">{[...mainGroups, ...(showMore ? moreGroups : [])].map((group) => { const active = group.items.some((item) => activeItem(item.path, location.pathname, location.search, navPaths)); const expanded = collapsed || active || (expandedGroups[group.title] ?? openByDefault(group.title)); return <div key={group.title} className="space-y-1">{!collapsed ? <button type="button" onClick={() => setExpandedGroups((value) => ({...value,[group.title]:!(value[group.title] ?? openByDefault(group.title))}))} className={cn('dawaa-sidebar-group flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold', active && 'is-active')}><group.icon size={15} /><span className="flex-1 text-right">{group.title}</span><ChevronDown size={14} className={expanded ? 'rotate-180' : ''} /></button> : null}{expanded ? <div className={cn('space-y-0.5', !collapsed && 'pr-2')}>{group.items.map((item) => { const itemActive = activeItem(item.path, location.pathname, location.search, navPaths); const sections = getVisibleSectionsForPath(basePath(item.path), checkPermission); return <div key={`${item.path}-${item.label}`}><NavLink to={item.path} onClick={(event) => { if (guard?.hasActiveDirtyGuard()) { event.preventDefault(); guard.requestNavigation(item.path); } onMobileClose(); }} className={cn('nav-item', itemActive ? 'nav-item-active' : 'nav-item-inactive', collapsed && 'justify-center px-2')}><item.icon size={18} />{!collapsed ? <span>{item.label}</span> : null}</NavLink>{!collapsed && itemActive && sections.length ? <div className="dawaa-sidebar-section-label mr-8 border-r pr-3">{sections.map((section) => <div key={section.key} className="px-2 py-1 text-[11px]">{section.label}</div>)}</div> : null}</div>;})}</div> : null}</div>;})}{moreGroups.length && !onMorePage ? <button type="button" onClick={() => setMoreOpen((value) => !value)} className={cn('nav-item nav-item-inactive w-full', collapsed && 'justify-center px-2')}><ChevronDown size={18} className={moreOpen ? 'rotate-180' : ''} />{!collapsed ? <span>{moreOpen ? 'إخفاء باقي الصفحات' : 'كل الصفحات'}</span> : null}</button> : null}</nav>
+    {searchBox}
+    {searchQuery.trim() ? searchPanel : <nav className="flex-1 space-y-2 overflow-y-auto p-3">{[...mainGroups, ...(showMore ? moreGroups : [])].map((group) => { const active = group.items.some((item) => activeItem(item.path, location.pathname, location.search, navPaths)); const expanded = collapsed || active || (expandedGroups[group.title] ?? openByDefault(group.title)); return <div key={group.title} className="space-y-1">{!collapsed ? <button type="button" onClick={() => setExpandedGroups((value) => ({...value,[group.title]:!(value[group.title] ?? openByDefault(group.title))}))} className={cn('dawaa-sidebar-group flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold', active && 'is-active')}><group.icon size={15} /><span className="flex-1 text-right">{group.title}</span><ChevronDown size={14} className={expanded ? 'rotate-180' : ''} /></button> : null}{expanded ? <div className={cn('space-y-0.5', !collapsed && 'pr-2')}>{group.items.map((item) => { const itemActive = activeItem(item.path, location.pathname, location.search, navPaths); const sections = getVisibleSectionsForPath(basePath(item.path), checkPermission); return <div key={`${item.path}-${item.label}`}><NavLink to={item.path} onClick={(event) => { if (guard?.hasActiveDirtyGuard()) { event.preventDefault(); guard.requestNavigation(item.path); } onMobileClose(); }} className={cn('nav-item', itemActive ? 'nav-item-active' : 'nav-item-inactive', collapsed && 'justify-center px-2')}><item.icon size={18} />{!collapsed ? <span>{item.label}</span> : null}</NavLink>{!collapsed && itemActive && sections.length ? <div className="dawaa-sidebar-section-label mr-8 border-r pr-3">{sections.map((section) => <div key={section.key} className="px-2 py-1 text-[11px]">{section.label}</div>)}</div> : null}</div>;})}</div> : null}</div>;})}{moreGroups.length && !onMorePage ? <button type="button" onClick={() => setMoreOpen((value) => !value)} className={cn('nav-item nav-item-inactive w-full', collapsed && 'justify-center px-2')}><ChevronDown size={18} className={moreOpen ? 'rotate-180' : ''} />{!collapsed ? <span>{moreOpen ? 'إخفاء باقي الصفحات' : 'كل الصفحات'}</span> : null}</button> : null}</nav>}
     <div className="dawaa-sidebar-divider border-t p-3"><button onClick={() => { logout(); navigate('/login'); }} className="nav-item nav-item-inactive dawaa-sidebar-logout w-full"><LogOut size={18} />{!collapsed ? 'تسجيل الخروج' : null}</button></div>
   </div>;
 
