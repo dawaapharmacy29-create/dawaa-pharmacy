@@ -131,7 +131,7 @@ describe('workbook round trip', () => {
     expect(ws.getCell(7, at('آخر شرا')).value).toBe('20/11 · 600 ج (متوسط 492)');
     expect(ws.getCell(7, at('آخر متابعة')).value).toBe('أول مرة');
     // every answer except the note is a dropdown
-    for (const name of ['اتواصلت إزاي', 'رد؟', 'النتيجة', 'السبب', 'المتابعة الجاية']) {
+    for (const name of ['اتواصلت إزاي', 'رد؟', 'النتيجة', 'السبب', 'المتابعة الجاية', 'العرض']) {
       const v = ws.getCell(7, at(name)).dataValidation;
       expect(v?.type).toBe('list');
       expect(String(v?.formulae?.[0]).length).toBeLessThan(255);
@@ -140,6 +140,7 @@ describe('workbook round trip', () => {
     ws.getCell(7, at('رد؟')).value = 'رد';
     ws.getCell(7, at('النتيجة')).value = 'اتسجل واتبعتله الترحيب';
     ws.getCell(7, at('المتابعة الجاية')).value = 'بعد أسبوع';
+    ws.getCell(7, at('العرض')).value = 'كوبون 100 ج';
     ws.getCell(7, at('اسم الصنف أو ملاحظة')).value = { richText: [{ text: 'تمام ' }, { text: 'جدا' }] };
     const cs = wb.getWorksheet(CASES_SHEET)!;
     cs.getRow(2).values = ['شكري', '777', '', '', 'د. منى', 'محتاج متابعة سكر'];
@@ -153,6 +154,7 @@ describe('workbook round trip', () => {
         outcome: 'registered',
         reason_code: null,
         followup: 'week',
+        offer: 'c100',
         note: 'تمام جدا',
         next_date: null,
       },
@@ -181,6 +183,17 @@ describe('structured answers', () => {
       { id: 'a', channel: 'whatsapp', reach: 'no_answer', outcome: null, reason_code: null, followup: null, note: '', next_date: null },
       { id: 'b', channel: null, reach: 'answered', outcome: 'complaint', reason_code: 'delivery_late', followup: 'tomorrow', note: 'اتأخر ساعتين', next_date: null },
     ]);
+  });
+
+  it('reads the offer when the sheet has the column', () => {
+    const h = [...header.slice(0, 8), 'العرض', header[8]];
+    const r = readTaskSheets(
+      [h, ['a', 1, 'x', 'مكالمة', 'رد', 'تمام وراضي', '', '', 'توصيل مجاني', ''], ['b', 2, 'y', '', 'رد', '', '', '', 'كوبون 500', '']],
+      [],
+      today
+    );
+    expect(r.updates.map((u) => u.offer)).toEqual(['free_delivery']);
+    expect(r.problems[0].problem).toContain('«كوبون 500» مش من القايمة');
   });
 
   it('flags typed words that are not in the lists and outcomes without an answer', () => {

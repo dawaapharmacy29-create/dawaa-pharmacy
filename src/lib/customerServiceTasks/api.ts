@@ -33,6 +33,8 @@ export type DailyTask = {
   invoices_150?: number | null;
   last_followup_date?: string | null;
   last_followup_by?: string | null;
+  /** The coupon offered on this task (see OFFER_CHOICES), from dawaa_cs_daily_tasks_list_v3. */
+  offer?: string | null;
 };
 
 export type TaskMember = {
@@ -63,6 +65,7 @@ export type BuildResult = {
 export type SubmitResult = {
   updated: number;
   added: number;
+  coupons?: number;
   skipped: Array<{ id?: string; code?: string; why: string }>;
 };
 export type Overview = {
@@ -131,7 +134,7 @@ export async function listTasks(
   day: string,
   opts: { staffAccountId?: string | null; all?: boolean } = {}
 ): Promise<DailyTask[]> {
-  const { data, error } = await supabase.rpc('dawaa_cs_daily_tasks_list_v2', {
+  const { data, error } = await supabase.rpc('dawaa_cs_daily_tasks_list_v3', {
     p_date: day,
     p_staff_account_id: opts.staffAccountId ?? null,
     p_all: Boolean(opts.all),
@@ -153,6 +156,7 @@ export async function submitSheet(
       outcome: u.outcome ?? null,
       reason_code: u.reason_code ?? null,
       followup: u.followup ?? null,
+      offer: u.offer ?? null,
       note: u.note,
       next_date: u.next_date,
     })),
@@ -170,4 +174,99 @@ export async function loadOverview(from: string, to: string): Promise<Overview> 
   });
   if (error) throw fail(error.message);
   return data as Overview;
+}
+
+/** One member's standing in the cycle; p_* are the points of each item (see the competition migration). */
+export type CompetitionMember = {
+  staff_account_id: string;
+  name: string | null;
+  branch: string;
+  score: number;
+  eligible: boolean;
+  p_returned: number;
+  p_new: number;
+  p_uplift: number;
+  p_credit: number;
+  p_work: number;
+  t_returned: number;
+  t_new: number;
+  reached_back: number;
+  returned: number;
+  new_n: number;
+  new_back: number;
+  uplift: number;
+  uplift_pending: number;
+  spent_more: number;
+  coupon_cost: number;
+  coupon_extra: number;
+  coupons_issued: number;
+  coupons_used: number;
+  budget_use: number;
+  tasks: number;
+  done: number;
+  answered_n: number;
+  completion: number;
+  work_days: number;
+  upload_rate: number;
+  reason_rate: number;
+};
+export type CompetitionBranch = {
+  branch: string;
+  budget: number;
+  cap: number;
+  days: number;
+  used: number;
+  active: number;
+  remaining: number;
+  issued: number;
+  used_n: number;
+  review_n: number;
+  extra: number;
+};
+export type Coupon = {
+  id: string;
+  branch: string;
+  customer_code: string;
+  customer_name: string | null;
+  kind: 'amount' | 'free_delivery';
+  amount: number;
+  issued_on: string;
+  expires_on: string;
+  issued_by_name: string | null;
+  status: 'active' | 'used' | 'review' | 'expired' | 'cancelled' | 'free_delivery';
+  used_on: string | null;
+  used_discount: number | null;
+  used_net: number | null;
+  extra: number;
+};
+export type Competition = {
+  cycle_start: string;
+  cycle_end: string;
+  as_of: string;
+  can_manage: boolean;
+  targets: { uplift: number; roi: number; completion: number };
+  members: CompetitionMember[];
+  branches: CompetitionBranch[];
+  team: Array<{ branch: string; now: number; start: number }>;
+  coupons: Coupon[] | null;
+};
+
+export async function loadCompetition(cycleStart: string | null): Promise<Competition> {
+  const { data, error } = await supabase.rpc('dawaa_cs_competition_v1', { p_cycle_start: cycleStart });
+  if (error) throw fail(error.message);
+  return data as Competition;
+}
+
+export async function markCoupon(id: string, status: 'used' | 'not_used' | 'cancelled' | null): Promise<void> {
+  const { error } = await supabase.rpc('dawaa_cs_coupon_mark_v1', { p_id: id, p_status: status });
+  if (error) throw fail(error.message);
+}
+
+export async function saveCreditSettings(budget: number, cap: number, days: number): Promise<void> {
+  const { error } = await supabase.rpc('dawaa_cs_credit_settings_save_v1', {
+    p_budget: budget,
+    p_cap: cap,
+    p_days: days,
+  });
+  if (error) throw fail(error.message);
 }

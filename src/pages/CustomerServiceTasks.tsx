@@ -32,6 +32,7 @@ import {
   type TaskUpdate,
 } from '@/lib/customerServiceTasks/tasks';
 import { buildTaskWorkbook, readTaskWorkbook } from '@/lib/customerServiceTasks/sheet';
+import CsCompetitionTab from '@/components/customerService/CsCompetitionTab';
 
 // شيت مهام خدمة العملاء اليومي: كل واحد في الفريق بيحمّل مهامه الصبح، يشتغل على الإكسيل، ويرفعه آخر اليوم.
 // اللي يفتح الصفحة لأي حد تاني هو مفتاح customer_service_daily_tasks من صلاحيات الحسابات، والإدارة بمفتاح _manage.
@@ -77,7 +78,7 @@ export default function CustomerServiceTasks() {
   const today = cairoToday();
   const [settings, setSettings] = useState<TaskSettings | null>(null);
   const [loadError, setLoadError] = useState('');
-  const [tab, setTab] = useState<'mine' | 'team'>('mine');
+  const [tab, setTab] = useState<'mine' | 'team' | 'competition'>('mine');
 
   const reloadSettings = useCallback(async () => {
     try {
@@ -108,27 +109,35 @@ export default function CustomerServiceTasks() {
     <div className="space-y-4 p-4" dir="rtl">
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="text-xl font-black">مهام خدمة العملاء اليومية</h1>
-        {settings.can_manage ? (
-          <div className="mr-auto flex gap-2">
-            <button
-              className={tab === 'mine' ? 'btn-primary' : 'btn-secondary'}
-              onClick={() => setTab('mine')}
-            >
-              الشيت
-            </button>
+        <div className="mr-auto flex gap-2">
+          <button
+            className={tab === 'mine' ? 'btn-primary' : 'btn-secondary'}
+            onClick={() => setTab('mine')}
+          >
+            الشيت
+          </button>
+          {settings.can_manage ? (
             <button
               className={tab === 'team' ? 'btn-primary' : 'btn-secondary'}
               onClick={() => setTab('team')}
             >
               الفريق والمتابعة
             </button>
-          </div>
-        ) : null}
+          ) : null}
+          <button
+            className={tab === 'competition' ? 'btn-primary' : 'btn-secondary'}
+            onClick={() => setTab('competition')}
+          >
+            المسابقة والكريديت
+          </button>
+        </div>
       </div>
-      {tab === 'mine' || !settings.can_manage ? (
-        <SheetTab today={today} settings={settings} />
-      ) : (
+      {tab === 'competition' ? (
+        <CsCompetitionTab />
+      ) : tab === 'team' && settings.can_manage ? (
         <TeamTab today={today} settings={settings} onSaved={reloadSettings} />
+      ) : (
+        <SheetTab today={today} settings={settings} />
       )}
     </div>
   );
@@ -228,7 +237,9 @@ function SheetTab({ today, settings }: { today: string; settings: TaskSettings }
     setBusy('submit');
     try {
       const r = await submitSheet(pending.updates, pending.cases);
-      toast.success(`اتسجل ${r.updated} نتيجة و${r.added} حالة دكتور`);
+      toast.success(
+        `اتسجل ${r.updated} نتيجة و${r.added} حالة دكتور${r.coupons ? ` و${r.coupons} كوبون (اعمله على كود العميل في برنامج البيع)` : ''}`
+      );
       if (r.skipped?.length)
         toast.warning(
           `${r.skipped.length} صف اتساب: ${r.skipped
