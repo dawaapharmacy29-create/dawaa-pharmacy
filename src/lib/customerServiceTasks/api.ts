@@ -27,6 +27,9 @@ export type TaskMember = {
   staff_account_id: string;
   name: string | null;
   on_leave: boolean;
+  /** The branch she works this month (null = helps both); the branches swap every month. */
+  branch?: string | null;
+  next_month_branch?: string | null;
   has_permission?: boolean;
 };
 export type TaskSettings = {
@@ -41,6 +44,8 @@ export type BuildResult = {
   date: string;
   counts: Record<string, number>;
   members: number;
+  pooled?: boolean;
+  branches?: Record<string, { cap: number; members: string[] }>;
   yesterday_invoices: number;
 };
 export type SubmitResult = {
@@ -90,7 +95,11 @@ export async function saveTaskSettings(
   const { error } = await supabase.rpc('dawaa_cs_daily_tasks_settings_save_v1', {
     p_big_invoice_min: bigInvoiceMin,
     p_daily_cap: dailyCap,
-    p_members: members.map((m) => ({ staff_account_id: m.staff_account_id, on_leave: m.on_leave })),
+    p_members: members.map((m) => ({
+      staff_account_id: m.staff_account_id,
+      on_leave: m.on_leave,
+      branch: m.branch ?? null,
+    })),
   });
   if (error) throw fail(error.message);
 }

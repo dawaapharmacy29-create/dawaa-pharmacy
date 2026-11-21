@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readTaskSheets, sheetDateToIso } from '../tasks';
+import { cleanCustomerName, readTaskSheets, sheetDateToIso, sheetSectionOf, whatsappNumber } from '../tasks';
 import { buildTaskWorkbook, readTaskWorkbook, TASKS_SHEET, CASES_SHEET } from '../sheet';
 import type { DailyTask } from '../api';
 
@@ -115,9 +115,17 @@ describe('workbook round trip', () => {
     await wb.xlsx.load(await blob.arrayBuffer());
     const ws = wb.getWorksheet(TASKS_SHEET)!;
     expect(ws.getColumn(1).hidden).toBe(true);
-    ws.getCell(2, 11).value = 'اتسجل واتبعتت الترحيب';
-    ws.getCell(2, 12).value = { richText: [{ text: 'تمام ' }, { text: 'جدا' }] };
-    ws.getCell(2, 13).value = new Date(Date.UTC(2026, 10, 27));
+    // title, count, steps, spacer, header, section row, then the task
+    const headerRow = ws.getRow(5).values as unknown[];
+    const at = (name: string) => headerRow.indexOf(name);
+    expect(String(ws.getCell(1, 2).value)).toContain('شيت مكالمات تجربة — فرع شكري');
+    expect(String(ws.getCell(6, 2).value)).toContain('عملاء جداد');
+    expect(ws.getCell(7, at('الاسم')).value).toBe('عميل تجربة');
+    expect(ws.getCell(7, at('واتساب')).value).toMatchObject({ hyperlink: 'https://wa.me/201000000000' });
+    expect(at('الفرع')).toBe(-1);
+    ws.getCell(7, at('النتيجة')).value = 'اتسجل واتبعتت الترحيب';
+    ws.getCell(7, at('ملاحظة')).value = { richText: [{ text: 'تمام ' }, { text: 'جدا' }] };
+    ws.getCell(7, at('المتابعة الجاية (اختياري)')).value = new Date(Date.UTC(2026, 10, 27));
     const cs = wb.getWorksheet(CASES_SHEET)!;
     cs.getRow(2).values = ['شكري', '777', '', '', 'د. منى', 'محتاج متابعة سكر'];
     const r = await readTaskWorkbook((await wb.xlsx.writeBuffer()) as ArrayBuffer, today);
@@ -131,4 +139,43 @@ describe('workbook round trip', () => {
       reason: 'محتاج متابعة سكر',
     });
   }, 60_000);
+});
+
+describe('sheet helpers', () => {
+  it('drops the branch bookkeeping tags from a customer name', () => {
+    expect(cleanCustomerName('كريم محمد ش 17635 (P200 )', '17635')).toBe('كريم محمد');
+    expect(cleanCustomerName('محمد يحيى ش 17886 P(150)', '17886')).toBe('محمد يحيى');
+    expect(cleanCustomerName('بسنت ابو العزP250', '18671')).toBe('بسنت ابو العز');
+    expect(cleanCustomerName('جودي ايمن300P', '5044')).toBe('جودي ايمن');
+    expect(cleanCustomerName('د امل حسن(500p)', '3821')).toBe('د امل حسن');
+    expect(cleanCustomerName('م علي النظامي %', '144')).toBe('م علي النظامي');
+    expect(cleanCustomerName('المستشار راضي الشافعي شخصي ش 866', '866')).toBe('المستشار راضي الشافعي شخصي');
+    expect(cleanCustomerName('منى محمد.', '19677')).toBe('منى محمد');
+    expect(cleanCustomerName('19676', '19676')).toBe('19676');
+  });
+
+  it('turns an Egyptian mobile into a WhatsApp number and rejects the rest', () => {
+    expect(whatsappNumber('01013559001')).toBe('201013559001');
+    expect(whatsappNumber('+20 101 355 9001')).toBe('201013559001');
+    expect(whatsappNumber('1013559001')).toBe('201013559001');
+    expect(whatsappNumber('0402345678')).toBeNull();
+    expect(whatsappNumber(null)).toBeNull();
+  });
+
+  it('puts follow-ups first and customers without a phone last', () => {
+    expect(sheetSectionOf({ priority: '1', source: 'lost', customer_phone: '01013559001' })).toBe('followup');
+    expect(sheetSectionOf({ priority: '7', source: 'lost', customer_phone: '01013559001' })).toBe('lost');
+    expect(sheetSectionOf({ priority: '2', source: 'new_customer', customer_phone: null })).toBe('no_phone');
+  });
+
+  it('reads a sheet whose header sits under a title block', () => {
+    const header = ['id', '#', 'الاسم', 'النتيجة', 'ملاحظة', 'المتابعة الجاية (اختياري)'];
+    const r = readTaskSheets(
+      [['', 'شيت مكالمات'], ['', 'النهارده 2 مكالمة'], [], header, ['', '1. عملاء جداد (1)'], ['a', 1, 'x', 'مردش', '', ''], ['b', 2, 'y', 'غلط', '', '']],
+      [],
+      today
+    );
+    expect(r.updates.map((u) => u.id)).toEqual(['a']);
+    expect(r.problems).toEqual([{ sheet: 'المكالمات', row: 7, problem: 'النتيجة «غلط» مش من القايمة' }]);
+  });
 });

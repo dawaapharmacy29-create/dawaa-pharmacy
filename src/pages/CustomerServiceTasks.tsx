@@ -131,6 +131,12 @@ export default function CustomerServiceTasks() {
   );
 }
 
+function otherBranch(branch: string | null | undefined): string | null {
+  if (branch === 'فرع شكري') return 'فرع الشامي';
+  if (branch === 'فرع الشامي') return 'فرع شكري';
+  return null;
+}
+
 function SheetTab({ today, settings }: { today: string; settings: TaskSettings }) {
   const members = settings.members.filter((m) => m.staff_account_id);
   const isMember = members.some((m) => m.staff_account_id === settings.me);
@@ -257,6 +263,7 @@ function SheetTab({ today, settings }: { today: string; settings: TaskSettings }
                 .map((m) => (
                   <option key={m.staff_account_id} value={m.staff_account_id}>
                     {m.name ?? m.staff_account_id}
+                    {m.branch ? ` · ${m.branch}` : ''}
                     {m.on_leave ? ' (إجازة)' : ''}
                   </option>
                 ))}
@@ -490,7 +497,7 @@ function TeamTab({
         <SectionTitle
           icon={<Users size={18} />}
           title="الفريق والإعدادات"
-          subtitle="المهام بتتوزع بالدور على اللي مش في إجازة"
+          subtitle="كل واحدة شغالة على فرع الشهر ده، والفروع بتتبدّل أول كل شهر لوحدها"
         />
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <label className="text-sm">
@@ -530,6 +537,27 @@ function TeamTab({
                     صلاحيات الحسابات
                   </Link>
                 </span>
+              ) : null}
+              <label className="inline-flex items-center gap-1">
+                فرع الشهر ده
+                <select
+                  className="input-field w-auto py-1"
+                  value={m.branch ?? ''}
+                  onChange={(e) =>
+                    setMembers(
+                      members.map((x) =>
+                        x === m ? { ...x, branch: e.target.value || null, next_month_branch: otherBranch(e.target.value) } : x
+                      )
+                    )
+                  }
+                >
+                  <option value="">الفرعين (بتساعد)</option>
+                  <option value="فرع شكري">فرع شكري</option>
+                  <option value="فرع الشامي">فرع الشامي</option>
+                </select>
+              </label>
+              {m.branch ? (
+                <span className="text-xs opacity-70">الشهر الجاي: {otherBranch(m.branch)}</span>
               ) : null}
               <label className="mr-auto inline-flex items-center gap-1">
                 <input
@@ -582,7 +610,8 @@ function TeamTab({
             </button>
           </div>
           <p className="text-xs opacity-70">
-            اللي بتضيفه هنا بياخد مهام. عشان يفتح الصفحة لازم يكون معاه «مهام خدمة العملاء اليومية»
+            كل فرع بياخد مهامه للي شغالين عليه. لو فرع مالوش حد النهارده (إجازة)، الموجودين بيتقسم عليهم
+            الفرعين لحد ما ترجع. اللي بتضيفه هنا بياخد مهام. عشان يفتح الصفحة لازم يكون معاه «مهام خدمة العملاء اليومية»
             من{' '}
             <Link to="/roles-permissions" className="underline">
               صلاحيات الحسابات
