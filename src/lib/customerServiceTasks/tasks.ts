@@ -231,6 +231,15 @@ export const FOLLOWUP_CHOICES = choices([
   ['month', 'بعد شهر'],
   ['none', 'مفيش متابعة'],
 ]);
+/** «العرض»: a coupon on the customer's code (the branch's monthly credit) or free delivery. */
+export const OFFER_CHOICES = choices([
+  ['none', 'مفيش'],
+  ['c50', 'كوبون 50 ج'],
+  ['c100', 'كوبون 100 ج'],
+  ['c150', 'كوبون 150 ج'],
+  ['c200', 'كوبون 200 ج'],
+  ['free_delivery', 'توصيل مجاني'],
+]);
 
 export const choiceLabel = (list: Choice[], code: string | null | undefined) =>
   list.find((c) => c.code === code)?.label ?? null;
@@ -243,6 +252,7 @@ export const ANSWER_COLUMNS = {
   outcome: 'النتيجة',
   reason: 'السبب',
   followup: 'المتابعة الجاية',
+  offer: 'العرض',
   note: 'اسم الصنف أو ملاحظة',
 } as const;
 
@@ -255,6 +265,7 @@ export type TaskUpdate = {
   outcome?: string | null;
   reason_code?: string | null;
   followup?: string | null;
+  offer?: string | null;
   note: string;
   next_date: string | null;
 };
@@ -312,6 +323,7 @@ export function readTaskSheets(
       outcome: col(ANSWER_COLUMNS.outcome),
       reason: col(ANSWER_COLUMNS.reason),
       followup: col(ANSWER_COLUMNS.followup),
+      offer: col(ANSWER_COLUMNS.offer),
       note: col(ANSWER_COLUMNS.note),
     };
     const cell = (row: unknown[], at: number) => (at >= 0 ? text(row?.[at]) : '');
@@ -324,6 +336,7 @@ export function readTaskSheets(
         outcome: cell(row, c.outcome),
         reason: cell(row, c.reason),
         followup: cell(row, c.followup),
+        offer: cell(row, c.offer),
       };
       if (!id || (!raw.reach && !raw.outcome)) return;
       const code = {
@@ -332,6 +345,7 @@ export function readTaskSheets(
         outcome: raw.outcome ? choiceCode(OUTCOME_CHOICES, raw.outcome) : null,
         reason: raw.reason ? choiceCode(REASON_CHOICES, raw.reason) : null,
         followup: raw.followup ? choiceCode(FOLLOWUP_CHOICES, raw.followup) : null,
+        offer: raw.offer ? choiceCode(OFFER_CHOICES, raw.offer) : null,
       };
       const unknown = (Object.keys(code) as Array<keyof typeof code>).filter((k) => raw[k] && !code[k]);
       if (unknown.length) {
@@ -348,6 +362,7 @@ export function readTaskSheets(
         outcome: reach === 'answered' ? code.outcome : null,
         reason_code: code.reason,
         followup: code.followup,
+        offer: c.offer >= 0 ? code.offer : undefined,
         note: cell(row, c.note),
         next_date: null,
       });

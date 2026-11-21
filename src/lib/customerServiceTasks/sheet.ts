@@ -4,6 +4,7 @@ import {
   BRANCH_OPTIONS,
   CHANNEL_CHOICES,
   FOLLOWUP_CHOICES,
+  OFFER_CHOICES,
   OUTCOME_CHOICES,
   REACH_CHOICES,
   REASON_CHOICES,
@@ -163,6 +164,7 @@ export async function buildTaskWorkbook(
     { key: 'outcome', header: ANSWER_COLUMNS.outcome, width: 24, answer: true },
     { key: 'reason', header: ANSWER_COLUMNS.reason, width: 19, answer: true },
     { key: 'followup', header: ANSWER_COLUMNS.followup, width: 13, answer: true },
+    { key: 'offer', header: ANSWER_COLUMNS.offer, width: 13, answer: true },
     { key: 'note', header: ANSWER_COLUMNS.note, width: 22, answer: true },
   ];
   const col = (key: string) => columns.findIndex((c) => c.key === key) + 1;
@@ -237,6 +239,7 @@ export async function buildTaskWorkbook(
     outcome: listOf(OUTCOME_CHOICES.map((c) => c.label)),
     reason: listOf(REASON_CHOICES.map((c) => c.label)),
     followup: listOf(FOLLOWUP_CHOICES.map((c) => c.label)),
+    offer: listOf(OFFER_CHOICES.map((c) => c.label)),
   };
 
   let r = HEADER_ROW;
@@ -270,6 +273,7 @@ export async function buildTaskWorkbook(
         outcome: choiceLabel(OUTCOME_CHOICES, t.outcome) ?? '',
         reason: choiceLabel(REASON_CHOICES, t.reason_code) ?? '',
         followup: choiceLabel(FOLLOWUP_CHOICES, t.followup_choice) ?? '',
+        offer: choiceLabel(OFFER_CHOICES, t.offer) ?? '',
         note: t.result_note ?? '',
       };
       columns.forEach((c, i) => {
@@ -350,6 +354,10 @@ export async function buildTaskWorkbook(
     [ANSWER_COLUMNS.outcome, 'بس لو رد: إيه اللي حصل في المكالمة.'],
     [ANSWER_COLUMNS.reason, 'لو قلّل أو بطّل أو عنده شكوى أو مش محتاج: ليه. ولو مفيش مشكلة اختار «مفيش مشكلة».'],
     [ANSWER_COLUMNS.followup, 'سيبها فاضية أو «السيستم يحدد»، إلا لو العميل طلب ميعاد معين.'],
+    [
+      ANSWER_COLUMNS.offer,
+      'لو هتدي العميل كوبون أو توصيل مجاني. الكوبون بيتعمل على كود العميل في برنامج البيع، وصلاحيته 10 أيام، وأقصى 200 ج للعميل في الدورة. ادّيه للي محتاج سبب يرجع: بطّل، قلّل، جديد، أو عنده شكوى. المنتظم مش محتاج كوبون.',
+    ],
     [ANSWER_COLUMNS.note, 'الخانة الوحيدة اللي بتكتب فيها: اسم الصنف اللي طلبه أو حاجة مهمة في سطر.'],
     ['', ''],
     ['تبدأ الكلام إزاي', '', true],
