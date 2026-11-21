@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { cleanCustomerName, readTaskSheets, sheetDateToIso, sheetSectionOf, whatsappNumber } from '../tasks';
-import { buildTaskWorkbook, readTaskWorkbook, TASKS_SHEET, CASES_SHEET } from '../sheet';
+import { buildTaskWorkbook, readTaskWorkbook, shortReason, TASKS_SHEET, CASES_SHEET } from '../sheet';
 import type { DailyTask } from '../api';
 
 const today = '2026-11-20';
@@ -108,6 +108,10 @@ describe('workbook round trip', () => {
       result_note: null,
       next_followup_date: null,
       last_contact: null,
+      last_purchase_date: '2026-11-20',
+      last_purchase_amount: 600,
+      avg_invoice: 492.4,
+      invoices_150: 8,
     };
     const blob = await buildTaskWorkbook([task], today, 'تجربة');
     const ExcelJS = await import('exceljs');
@@ -123,15 +127,35 @@ describe('workbook round trip', () => {
     expect(ws.getCell(7, at('الاسم')).value).toBe('عميل تجربة');
     expect(ws.getCell(7, at('واتساب')).value).toMatchObject({ hyperlink: 'https://wa.me/201000000000' });
     expect(at('الفرع')).toBe(-1);
-    ws.getCell(7, at('النتيجة')).value = 'اتسجل واتبعتت الترحيب';
-    ws.getCell(7, at('ملاحظة')).value = { richText: [{ text: 'تمام ' }, { text: 'جدا' }] };
-    ws.getCell(7, at('المتابعة الجاية (اختياري)')).value = new Date(Date.UTC(2026, 10, 27));
+    expect(ws.getCell(7, at('ليه بنكلّمه')).value).toBe('أول فاتورة');
+    expect(ws.getCell(7, at('آخر شرا')).value).toBe('20/11 · 600 ج (متوسط 492)');
+    expect(ws.getCell(7, at('آخر متابعة')).value).toBe('أول مرة');
+    // every answer except the note is a dropdown
+    for (const name of ['اتواصلت إزاي', 'رد؟', 'النتيجة', 'السبب', 'المتابعة الجاية']) {
+      const v = ws.getCell(7, at(name)).dataValidation;
+      expect(v?.type).toBe('list');
+      expect(String(v?.formulae?.[0]).length).toBeLessThan(255);
+    }
+    ws.getCell(7, at('اتواصلت إزاي')).value = 'مكالمة';
+    ws.getCell(7, at('رد؟')).value = 'رد';
+    ws.getCell(7, at('النتيجة')).value = 'اتسجل واتبعتله الترحيب';
+    ws.getCell(7, at('المتابعة الجاية')).value = 'بعد أسبوع';
+    ws.getCell(7, at('اسم الصنف أو ملاحظة')).value = { richText: [{ text: 'تمام ' }, { text: 'جدا' }] };
     const cs = wb.getWorksheet(CASES_SHEET)!;
     cs.getRow(2).values = ['شكري', '777', '', '', 'د. منى', 'محتاج متابعة سكر'];
     const r = await readTaskWorkbook((await wb.xlsx.writeBuffer()) as ArrayBuffer, today);
     expect(r.problems).toEqual([]);
     expect(r.updates).toEqual([
-      { id: task.id, result: 'اتسجل واتبعتت الترحيب', note: 'تمام جدا', next_date: '2026-11-27' },
+      {
+        id: task.id,
+        channel: 'call',
+        reach: 'answered',
+        outcome: 'registered',
+        reason_code: null,
+        followup: 'week',
+        note: 'تمام جدا',
+        next_date: null,
+      },
     ]);
     expect(r.cases[0]).toMatchObject({
       branch: 'شكري',
@@ -141,7 +165,47 @@ describe('workbook round trip', () => {
   }, 60_000);
 });
 
+describe('structured answers', () => {
+  const header = ['id', '#', 'الاسم', 'اتواصلت إزاي', 'رد؟', 'النتيجة', 'السبب', 'المتابعة الجاية', 'اسم الصنف أو ملاحظة'];
+  const read = (...rows: unknown[][]) => readTaskSheets([['', 'شيت'], header, ...rows], [], today);
+
+  it('turns the chosen labels into codes', () => {
+    const r = read(
+      ['a', 1, 'x', 'واتساب', 'مردش', '', '', '', ''],
+      ['b', 2, 'y', '', '', 'عنده شكوى', 'التوصيل اتأخر', 'بكرة', 'اتأخر ساعتين'],
+      ['c', 3, 'z', 'مكالمة', '', '', '', '', 'ملاحظة من غير رد'],
+      ['', '', '2. عملاء بطّلوا (1)']
+    );
+    expect(r.problems).toEqual([]);
+    expect(r.updates).toEqual([
+      { id: 'a', channel: 'whatsapp', reach: 'no_answer', outcome: null, reason_code: null, followup: null, note: '', next_date: null },
+      { id: 'b', channel: null, reach: 'answered', outcome: 'complaint', reason_code: 'delivery_late', followup: 'tomorrow', note: 'اتأخر ساعتين', next_date: null },
+    ]);
+  });
+
+  it('flags typed words that are not in the lists and outcomes without an answer', () => {
+    const r = read(
+      ['a', 1, 'x', '', 'رد كويس', '', '', '', ''],
+      ['b', 2, 'y', '', 'مردش', 'تمام وراضي', '', '', ''],
+      ['c', 3, 'z', '', 'رد', 'عنده شكوى', '', '', '']
+    );
+    expect(r.updates.map((u) => [u.id, u.outcome])).toEqual([
+      ['b', null],
+      ['c', 'complaint'],
+    ]);
+    expect(r.problems.map((p) => p.row)).toEqual([3, 4, 5]);
+    expect(r.problems[0].problem).toContain('«رد كويس» مش من القايمة');
+  });
+});
+
 describe('sheet helpers', () => {
+  it('shortens the reasons the database writes', () => {
+    expect(shortReason('بيرجع كل 14 يوم وآخر شرا من 18 يوم')).toBe('بيشتري كل 14 يوم · فاتله 18');
+    expect(shortReason('مااشتراش من 106 يوم')).toBe('مااشتراش من 106 يوم');
+    expect(shortReason('حاجة تانية')).toBe('حاجة تانية');
+    expect(shortReason(null)).toBe('');
+  });
+
   it('drops the branch bookkeeping tags from a customer name', () => {
     expect(cleanCustomerName('كريم محمد ش 17635 (P200 )', '17635')).toBe('كريم محمد');
     expect(cleanCustomerName('محمد يحيى ش 17886 P(150)', '17886')).toBe('محمد يحيى');
@@ -151,6 +215,7 @@ describe('sheet helpers', () => {
     expect(cleanCustomerName('م علي النظامي %', '144')).toBe('م علي النظامي');
     expect(cleanCustomerName('المستشار راضي الشافعي شخصي ش 866', '866')).toBe('المستشار راضي الشافعي شخصي');
     expect(cleanCustomerName('منى محمد.', '19677')).toBe('منى محمد');
+    expect(cleanCustomerName('احمد راغب ش.P(100)', '1200')).toBe('احمد راغب');
     expect(cleanCustomerName('19676', '19676')).toBe('19676');
   });
 
