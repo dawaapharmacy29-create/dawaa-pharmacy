@@ -22,7 +22,10 @@ import {
   type TaskSettings,
 } from '@/lib/customerServiceTasks/api';
 import {
+  OUTCOME_CHOICES,
+  REASON_CHOICES,
   SOURCE_LABELS,
+  choiceLabel,
   sourceLabel,
   type DoctorCase,
   type SheetProblem,
@@ -654,7 +657,9 @@ function TeamTab({
                     <th className="p-2">الاسم</th>
                     <th className="p-2">مهام</th>
                     <th className="p-2">اتعملت</th>
+                    <th className="p-2">رد</th>
                     <th className="p-2">مردش</th>
+                    <th className="p-2">هيشتري / أوردر</th>
                     <th className="p-2">شكاوى</th>
                     <th className="p-2">اشترى خلال أسبوع</th>
                   </tr>
@@ -670,7 +675,12 @@ function TeamTab({
                       <td className="p-2">
                         {m.done} {m.tasks ? `(${Math.round((m.done / m.tasks) * 100)}%)` : ''}
                       </td>
+                      <td className="p-2">
+                        {m.reached ?? 0}{' '}
+                        {m.done ? `(${Math.round(((m.reached ?? 0) / m.done) * 100)}%)` : ''}
+                      </td>
                       <td className="p-2">{m.no_answer}</td>
+                      <td className="p-2">{m.will_buy ?? 0}</td>
                       <td className="p-2">{m.complaints}</td>
                       <td className="p-2">{m.bought_after}</td>
                     </tr>
@@ -683,10 +693,35 @@ function TeamTab({
                 <MiniBox
                   key={s.source}
                   label={sourceLabel(s.source)}
-                  value={`${s.done} / ${s.tasks}`}
+                  value={`${s.done} / ${s.tasks}${s.reached != null ? ` · رد ${s.reached}` : ''}`}
                 />
               ))}
             </div>
+            {overview.outcomes?.length || overview.reasons?.length ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <div className="mb-1 font-bold">العملا قالوا إيه</div>
+                  {(overview.outcomes ?? []).map((o) => (
+                    <div key={o.outcome} className="flex justify-between text-sm">
+                      <span>{choiceLabel(OUTCOME_CHOICES, o.outcome) ?? o.outcome}</span>
+                      <b>{o.n}</b>
+                    </div>
+                  ))}
+                </div>
+                <div>
+                  <div className="mb-1 font-bold">الأسباب (حسب نوع المكالمة)</div>
+                  {(overview.reasons ?? []).map((x) => (
+                    <div key={`${x.reason_code}-${x.source}`} className="flex justify-between text-sm">
+                      <span>
+                        {choiceLabel(REASON_CHOICES, x.reason_code) ?? x.reason_code} ·{' '}
+                        <span className="opacity-70">{sourceLabel(x.source)}</span>
+                      </span>
+                      <b>{x.n}</b>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             {overview.complaints.length ? (
               <div>
                 <div className="mb-1 font-bold">الشكاوى</div>
@@ -694,7 +729,8 @@ function TeamTab({
                   {overview.complaints.map((c, i) => (
                     <li key={i}>
                       {c.queue_date} · {c.branch.replace('فرع ', '')} · {c.customer_name} (
-                      {c.customer_code}) — {c.result_note ?? 'من غير ملاحظة'} · {c.by_name}
+                      {c.customer_code}) — {choiceLabel(REASON_CHOICES, c.reason_code) ?? ''}{' '}
+                      {c.result_note ?? (c.reason_code ? '' : 'من غير ملاحظة')} · {c.by_name}
                     </li>
                   ))}
                 </ul>

@@ -146,7 +146,7 @@ export function cleanCustomerName(name: string, code?: string | null): string {
   );
   const c = String(code ?? '').trim();
   if (/^\d+$/.test(c)) n = n.replace(new RegExp(`(^|\\D)${c}(?=\\D|$)`, 'g'), '$1 ');
-  n = n.replace(/[()%]/g, ' ').replace(/(^|\s)ش(?=\s|$)/g, '$1');
+  n = n.replace(/[()%]/g, ' ').replace(/(^|\s)ش(?=[\s.]|$)/g, '$1');
   n = n.replace(/\s+/g, ' ').replace(/[.\s]+$/, '').trim();
   return n || String(name ?? '').trim();
 }
@@ -181,7 +181,83 @@ function valid(y: number, mo: number, d: number): string | null {
   return date.toISOString().slice(0, 10);
 }
 
-export type TaskUpdate = { id: string; result: string; note: string; next_date: string | null };
+/**
+ * The sheet's answers. Every cell the member fills is a dropdown, so each answer is a code the database can count:
+ * how she reached the customer, whether the customer answered, what came of it, why (when it matters) and when to
+ * follow up. The single «result» the follow-up dates use is derived from them in the database.
+ */
+type Choice = { code: string; label: string };
+const choices = (pairs: Array<[string, string]>): Choice[] => pairs.map(([code, label]) => ({ code, label }));
+
+export const CHANNEL_CHOICES = choices([
+  ['call', 'مكالمة'],
+  ['whatsapp', 'واتساب'],
+  ['both', 'الاتنين'],
+]);
+export const REACH_CHOICES = choices([
+  ['answered', 'رد'],
+  ['no_answer', 'مردش'],
+  ['busy', 'مشغول - كلمني بعدين'],
+  ['phone_off', 'التليفون مقفول'],
+  ['wrong_number', 'الرقم غلط'],
+]);
+export const OUTCOME_CHOICES = choices([
+  ['satisfied', 'تمام وراضي'],
+  ['will_buy', 'هيشتري أو هيعدّي على الفرع'],
+  ['ordered', 'عمل أوردر واتحوّل للفرع'],
+  ['wants_item', 'عاوز صنف مش موجود'],
+  ['complaint', 'عنده شكوى'],
+  ['not_needed', 'مش محتاج دلوقتي'],
+  ['registered', 'اتسجل واتبعتله الترحيب'],
+]);
+export const REASON_CHOICES = choices([
+  ['no_problem', 'مفيش مشكلة'],
+  ['price', 'الأسعار'],
+  ['item_missing', 'صنف كان ناقص'],
+  ['other_pharmacy', 'بيشتري من صيدلية تانية'],
+  ['delivery_late', 'التوصيل اتأخر'],
+  ['service', 'المعاملة أو الخدمة'],
+  ['order_error', 'غلط في الطلب'],
+  ['treatment_done', 'العلاج خلص أو اتوقف'],
+  ['moved_away', 'سافر أو عزّل'],
+  ['personal', 'ظروف شخصية'],
+]);
+export const FOLLOWUP_CHOICES = choices([
+  ['auto', 'السيستم يحدد'],
+  ['tomorrow', 'بكرة'],
+  ['two_days', 'بعد يومين'],
+  ['week', 'بعد أسبوع'],
+  ['two_weeks', 'بعد أسبوعين'],
+  ['month', 'بعد شهر'],
+  ['none', 'مفيش متابعة'],
+]);
+
+export const choiceLabel = (list: Choice[], code: string | null | undefined) =>
+  list.find((c) => c.code === code)?.label ?? null;
+const choiceCode = (list: Choice[], label: string) => list.find((c) => c.label === label)?.code ?? null;
+
+/** The column titles of the structured sheet; the upload finds each answer by its title. */
+export const ANSWER_COLUMNS = {
+  channel: 'اتواصلت إزاي',
+  reach: 'رد؟',
+  outcome: 'النتيجة',
+  reason: 'السبب',
+  followup: 'المتابعة الجاية',
+  note: 'اسم الصنف أو ملاحظة',
+} as const;
+
+export type TaskUpdate = {
+  id: string;
+  /** Old sheets only: one of RESULT_LABELS. */
+  result?: string;
+  channel?: string | null;
+  reach?: string | null;
+  outcome?: string | null;
+  reason_code?: string | null;
+  followup?: string | null;
+  note: string;
+  next_date: string | null;
+};
 export type DoctorCase = {
   branch: string;
   customer_code: string;
@@ -209,50 +285,87 @@ export function readTaskSheets(
   const header = (rows: unknown[][]) => (rows[0] ?? []).map(text);
   const problems: SheetProblem[] = [];
   const updates: TaskUpdate[] = [];
-  // The calls sheet opens with a title and a summary; its header is the first row that has «id» and «النتيجة».
+  // The calls sheet opens with a title and a summary; its header is the first row with «id» and an answer column.
   const headerAt = Math.max(
     0,
     tasks.slice(0, 12).findIndex((row) => {
       const cells = (row ?? []).map(text);
-      return cells.includes('id') && cells.includes('النتيجة');
+      return cells.includes('id') && (cells.includes(ANSWER_COLUMNS.reach) || cells.includes('النتيجة'));
     })
   );
   const th = (tasks[headerAt] ?? []).map(text);
   const col = (name: string) => th.indexOf(name);
-  const [cId, cResult, cNote, cNext] = [
-    col('id'),
-    col('النتيجة'),
-    col('ملاحظة'),
-    col('المتابعة الجاية (اختياري)'),
-  ];
-  if (cId < 0 || cResult < 0) {
+  const cId = col('id');
+  const structured = col(ANSWER_COLUMNS.reach) >= 0;
+  const flag = (i: number, problem: string) => problems.push({ sheet: 'المكالمات', row: i + 1, problem });
+
+  if (cId < 0 || (!structured && col('النتيجة') < 0)) {
     problems.push({
       sheet: 'المكالمات',
       row: 1,
       problem: 'ده مش شيت المهام اللي اتحمل من الصفحة (عناوين الأعمدة اتغيرت)',
     });
+  } else if (structured) {
+    const c = {
+      channel: col(ANSWER_COLUMNS.channel),
+      reach: col(ANSWER_COLUMNS.reach),
+      outcome: col(ANSWER_COLUMNS.outcome),
+      reason: col(ANSWER_COLUMNS.reason),
+      followup: col(ANSWER_COLUMNS.followup),
+      note: col(ANSWER_COLUMNS.note),
+    };
+    const cell = (row: unknown[], at: number) => (at >= 0 ? text(row?.[at]) : '');
+    tasks.forEach((row, i) => {
+      if (i <= headerAt) return;
+      const id = cell(row, cId);
+      const raw = {
+        channel: cell(row, c.channel),
+        reach: cell(row, c.reach),
+        outcome: cell(row, c.outcome),
+        reason: cell(row, c.reason),
+        followup: cell(row, c.followup),
+      };
+      if (!id || (!raw.reach && !raw.outcome)) return;
+      const code = {
+        channel: raw.channel ? choiceCode(CHANNEL_CHOICES, raw.channel) : null,
+        reach: raw.reach ? choiceCode(REACH_CHOICES, raw.reach) : null,
+        outcome: raw.outcome ? choiceCode(OUTCOME_CHOICES, raw.outcome) : null,
+        reason: raw.reason ? choiceCode(REASON_CHOICES, raw.reason) : null,
+        followup: raw.followup ? choiceCode(FOLLOWUP_CHOICES, raw.followup) : null,
+      };
+      const unknown = (Object.keys(code) as Array<keyof typeof code>).filter((k) => raw[k] && !code[k]);
+      if (unknown.length) {
+        flag(i, unknown.map((k) => `«${raw[k]}» مش من القايمة`).join('، '));
+        return;
+      }
+      const reach = code.reach ?? 'answered';
+      if (reach !== 'answered' && code.outcome) flag(i, 'النتيجة بتتسجل بس لو العميل رد؛ اتسجل «' + raw.reach + '»');
+      if (code.outcome === 'complaint' && !code.reason) flag(i, 'الشكوى اتسجلت من غير سبب؛ اختار السبب المرة الجاية');
+      updates.push({
+        id,
+        channel: code.channel,
+        reach,
+        outcome: reach === 'answered' ? code.outcome : null,
+        reason_code: code.reason,
+        followup: code.followup,
+        note: cell(row, c.note),
+        next_date: null,
+      });
+    });
   } else {
-    tasks.slice(headerAt + 1).forEach((row, j) => {
-      const i = j + headerAt;
+    const [cResult, cNote, cNext] = [col('النتيجة'), col('ملاحظة'), col('المتابعة الجاية (اختياري)')];
+    tasks.forEach((row, i) => {
+      if (i <= headerAt) return;
       const id = text(row?.[cId]);
       const result = text(row?.[cResult]);
       if (!id || !result) return;
       if (!(RESULT_LABELS as readonly string[]).includes(result)) {
-        problems.push({
-          sheet: 'المكالمات',
-          row: i + 2,
-          problem: `النتيجة «${result}» مش من القايمة`,
-        });
+        flag(i, `النتيجة «${result}» مش من القايمة`);
         return;
       }
       const rawNext = cNext >= 0 ? row[cNext] : null;
       const next = sheetDateToIso(rawNext, today);
-      if (text(rawNext) && !next)
-        problems.push({
-          sheet: 'المكالمات',
-          row: i + 2,
-          problem: 'تاريخ المتابعة مش مفهوم، اتساب للسيستم يحدده',
-        });
+      if (text(rawNext) && !next) flag(i, 'تاريخ المتابعة مش مفهوم، اتساب للسيستم يحدده');
       updates.push({ id, result, note: cNote >= 0 ? text(row[cNote]) : '', next_date: next });
     });
   }

@@ -21,6 +21,18 @@ export type DailyTask = {
   result_note: string | null;
   next_followup_date: string | null;
   last_contact: string | null;
+  /** The sheet's answers (codes; see tasks.ts) and the customer's context, from dawaa_cs_daily_tasks_list_v2. */
+  contact_channel?: string | null;
+  reach?: string | null;
+  outcome?: string | null;
+  reason_code?: string | null;
+  followup_choice?: string | null;
+  last_purchase_date?: string | null;
+  last_purchase_amount?: number | null;
+  avg_invoice?: number | null;
+  invoices_150?: number | null;
+  last_followup_date?: string | null;
+  last_followup_by?: string | null;
 };
 
 export type TaskMember = {
@@ -59,11 +71,15 @@ export type Overview = {
     staff_account_id: string | null;
     tasks: number;
     done: number;
+    reached?: number;
+    will_buy?: number;
     no_answer: number;
     complaints: number;
     bought_after: number;
   }>;
-  by_source: Array<{ source: string; tasks: number; done: number }>;
+  by_source: Array<{ source: string; tasks: number; done: number; reached?: number }>;
+  outcomes?: Array<{ outcome: string; n: number }>;
+  reasons?: Array<{ reason_code: string; source: string; n: number }>;
   complaints: Array<{
     queue_date: string;
     branch: string;
@@ -71,6 +87,7 @@ export type Overview = {
     customer_name: string;
     customer_phone: string | null;
     result_note: string | null;
+    reason_code?: string | null;
     by_name: string | null;
   }>;
   upcoming: Array<{ day: string; n: number }>;
@@ -114,7 +131,7 @@ export async function listTasks(
   day: string,
   opts: { staffAccountId?: string | null; all?: boolean } = {}
 ): Promise<DailyTask[]> {
-  const { data, error } = await supabase.rpc('dawaa_cs_daily_tasks_list_v1', {
+  const { data, error } = await supabase.rpc('dawaa_cs_daily_tasks_list_v2', {
     p_date: day,
     p_staff_account_id: opts.staffAccountId ?? null,
     p_all: Boolean(opts.all),
@@ -128,7 +145,17 @@ export async function submitSheet(
   cases: DoctorCase[]
 ): Promise<SubmitResult> {
   const rows = [
-    ...updates.map((u) => ({ id: u.id, result: u.result, note: u.note, next_date: u.next_date })),
+    ...updates.map((u) => ({
+      id: u.id,
+      result: u.result ?? null,
+      channel: u.channel ?? null,
+      reach: u.reach ?? null,
+      outcome: u.outcome ?? null,
+      reason_code: u.reason_code ?? null,
+      followup: u.followup ?? null,
+      note: u.note,
+      next_date: u.next_date,
+    })),
     ...cases.map((c) => ({ ...c, id: null })),
   ];
   const { data, error } = await supabase.rpc('dawaa_cs_daily_tasks_submit_v1', { p_rows: rows });
