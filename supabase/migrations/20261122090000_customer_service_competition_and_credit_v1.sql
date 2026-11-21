@@ -268,7 +268,7 @@ begin
       values (q.id, 'daily_task_result', v_result, a.id::text, coalesce(a.name, a.username),
               nullif(btrim(coalesce(r->>'note', '')), ''),
               jsonb_strip_nulls(jsonb_build_object('source', q.source, 'via', 'sheet', 'channel', v_channel, 'reach', v_reach,
-                                                   'outcome', v_outcome, 'reason', v_reason, 'followup', v_follow)));
+                                                   'outcome', v_outcome, 'reason', v_reason, 'followup', v_follow, 'offer', r->>'offer')));
       -- «العرض»: a coupon for this customer, within the customer's cap and the branch's credit for the cycle.
       v_offer := case when r->>'offer' in ('none', 'c50', 'c100', 'c150', 'c200', 'free_delivery') then r->>'offer' end;
       if v_offer is not null then
