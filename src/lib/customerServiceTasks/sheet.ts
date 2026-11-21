@@ -73,6 +73,12 @@ const SECTION_TODO: Record<SheetSectionKey, string> = {
 };
 
 const TEAL = 'FF0F766E';
+const TEAL_DARK = 'FF115E59';
+const TEAL_SOFT = 'FFE6F4F1';
+const GOLD = 'FFE0B437';
+const GOLD_SOFT = 'FFF7DC80';
+const GOLD_INK = 'FF5B4500';
+const INK = 'FF1F2937';
 const EDIT_FILL = 'FFFFF8DC';
 const DONE_FILL = 'FFE3F5E8';
 const GRID = { style: 'thin' as const, color: { argb: 'FFD0D7DE' } };
@@ -123,18 +129,24 @@ export function shortReason(reason: string | null | undefined): string {
   return r;
 }
 
+// Dates and amounts sit after the words, one fact per line, so Excel's right-to-left layout keeps them in order.
 function lastPurchase(t: DailyTask): string {
   if (!t.last_purchase_date) return '';
   const amount = Math.round(Number(t.last_purchase_amount ?? 0));
   const avg = Math.round(Number(t.avg_invoice ?? 0));
-  const avgText = (t.invoices_150 ?? 0) > 1 && avg ? ` (متوسط ${avg})` : '';
-  return `${ddmm(t.last_purchase_date)} · ${amount} ج${avgText}`;
+  const avgLine = (t.invoices_150 ?? 0) > 1 && avg ? `\nمتوسط فاتورته ${avg} ج` : '';
+  return `يوم ${ddmm(t.last_purchase_date)} بـ ${amount} ج${avgLine}`;
 }
 
 function lastFollowup(t: DailyTask): string {
-  if (!t.last_followup_date) return 'أول مرة';
-  return [ddmm(t.last_followup_date), t.last_contact, t.last_followup_by].filter(Boolean).join(' · ');
+  if (!t.last_followup_date) return 'أول مرة نكلّمه';
+  const what = t.last_contact ? `: ${t.last_contact}` : '';
+  const by = t.last_followup_by ? `\nمع ${t.last_followup_by}` : '';
+  return `يوم ${ddmm(t.last_followup_date)}${what}${by}`;
 }
+
+const fill = (argb: string) => ({ type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb } });
+const RTL = { readingOrder: 'rtl' as const, vertical: 'middle' as const };
 
 export async function buildTaskWorkbook(
   tasks: DailyTask[],
@@ -150,30 +162,41 @@ export async function buildTaskWorkbook(
   const mixed = branches.length > 1;
   const columns: Column[] = [
     { key: 'id', header: 'id', width: 6 },
-    { key: 'n', header: '#', width: 4 },
-    { key: 'name', header: 'الاسم', width: 22 },
-    { key: 'code', header: 'الكود', width: 8 },
-    ...(mixed ? [{ key: 'branch', header: 'الفرع', width: 8 }] : []),
-    { key: 'phone', header: 'الموبايل', width: 13 },
-    { key: 'wa', header: 'واتساب', width: 8 },
-    { key: 'why', header: 'ليه بنكلّمه', width: 26 },
-    { key: 'bought', header: 'آخر شرا', width: 20 },
-    { key: 'last', header: 'آخر متابعة', width: 22 },
-    { key: 'channel', header: ANSWER_COLUMNS.channel, width: 11, answer: true },
-    { key: 'reach', header: ANSWER_COLUMNS.reach, width: 15, answer: true },
-    { key: 'outcome', header: ANSWER_COLUMNS.outcome, width: 24, answer: true },
-    { key: 'reason', header: ANSWER_COLUMNS.reason, width: 19, answer: true },
-    { key: 'followup', header: ANSWER_COLUMNS.followup, width: 13, answer: true },
-    { key: 'offer', header: ANSWER_COLUMNS.offer, width: 13, answer: true },
-    { key: 'note', header: ANSWER_COLUMNS.note, width: 22, answer: true },
+    { key: 'n', header: '#', width: 5 },
+    { key: 'name', header: 'الاسم', width: 24 },
+    { key: 'code', header: 'الكود', width: 9 },
+    ...(mixed ? [{ key: 'branch', header: 'الفرع', width: 9 }] : []),
+    { key: 'phone', header: 'الموبايل', width: 14 },
+    { key: 'wa', header: 'واتساب', width: 10 },
+    { key: 'why', header: 'ليه بنكلّمه', width: 28 },
+    { key: 'bought', header: 'آخر شرا', width: 19 },
+    { key: 'last', header: 'آخر متابعة', width: 21 },
+    { key: 'channel', header: ANSWER_COLUMNS.channel, width: 13, answer: true },
+    { key: 'reach', header: ANSWER_COLUMNS.reach, width: 16, answer: true },
+    { key: 'outcome', header: ANSWER_COLUMNS.outcome, width: 26, answer: true },
+    { key: 'reason', header: ANSWER_COLUMNS.reason, width: 20, answer: true },
+    { key: 'followup', header: ANSWER_COLUMNS.followup, width: 15, answer: true },
+    { key: 'offer', header: ANSWER_COLUMNS.offer, width: 15, answer: true },
+    { key: 'note', header: ANSWER_COLUMNS.note, width: 26, answer: true },
   ];
   const col = (key: string) => columns.findIndex((c) => c.key === key) + 1;
   const last = columns.length;
+  const firstAnswer = columns.findIndex((c) => c.answer) + 1;
   const letter = (n: number) => ws.getColumn(n).letter;
 
   const ws = wb.addWorksheet(TASKS_SHEET, {
-    views: [{ rightToLeft: true, state: 'frozen', ySplit: HEADER_ROW, xSplit: col('name') }],
-    pageSetup: { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 },
+    views: [{ rightToLeft: true, state: 'frozen', ySplit: HEADER_ROW, xSplit: col('name'), zoomScale: 100 }],
+    pageSetup: {
+      orientation: 'landscape',
+      fitToPage: true,
+      fitToWidth: 1,
+      fitToHeight: 0,
+      paperSize: 9,
+      horizontalCentered: true,
+      printTitlesRow: `4:${HEADER_ROW}`,
+      margins: { left: 0.3, right: 0.3, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 },
+    },
+    headerFooter: { oddFooter: '&C&8صفحة &P من &N' },
   });
   columns.forEach((c, i) => {
     ws.getColumn(i + 1).width = c.width;
@@ -187,51 +210,70 @@ export async function buildTaskWorkbook(
   }
   const sections = SHEET_SECTIONS.filter((s) => bySection.get(s.key)?.length);
 
-  const banner = (
+  const band = (
     row: number,
+    from: number,
+    to: number,
     text: string,
-    opts: { size?: number; bold?: boolean; fill?: string; color?: string; height?: number }
+    opts: { size?: number; bold?: boolean; fill?: string; color?: string; align?: 'right' | 'center' }
   ) => {
-    ws.mergeCells(row, 2, row, last);
-    const cell = ws.getCell(row, 2);
+    if (to > from) ws.mergeCells(row, from, row, to);
+    const cell = ws.getCell(row, from);
     cell.value = text;
-    cell.font = { bold: opts.bold ?? false, size: opts.size ?? 11, color: { argb: opts.color ?? 'FF1F2937' } };
-    cell.alignment = { vertical: 'middle', horizontal: 'right', wrapText: true, readingOrder: 'rtl' };
-    if (opts.fill) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: opts.fill } };
-    ws.getRow(row).height = opts.height ?? 20;
+    cell.font = { bold: opts.bold ?? false, size: opts.size ?? 11, color: { argb: opts.color ?? INK } };
+    cell.alignment = { ...RTL, horizontal: opts.align ?? 'right', wrapText: true, indent: opts.align ? 0 : 1 };
+    if (opts.fill) cell.fill = fill(opts.fill);
   };
 
+  // 1–3: title, the day in one line, four short steps. 4: which side to read and which to fill. 5: the column titles.
   const branchText = mixed ? 'الفرعين' : (branches[0] ?? '');
-  banner(1, `شيت مكالمات ${owner} — ${branchText} — ${dayTitle(day)}`, {
-    size: 15,
+  band(1, 2, last, `مكالمات خدمة العملاء  ·  ${owner}  ·  ${branchText}`, {
+    size: 16,
     bold: true,
     fill: TEAL,
     color: 'FFFFFFFF',
-    height: 28,
   });
-  banner(
-    2,
-    `النهارده ${tasks.length} مكالمة: ` +
-      sections.map((s) => `${s.title.split(' (')[0]} ${bySection.get(s.key)!.length}`).join(' · '),
-    { bold: true }
-  );
-  banner(
+  ws.getRow(1).height = 32;
+  band(2, 2, last, `${dayTitle(day)}  ·  ${tasks.length} مكالمة النهارده، ابدأ من أول قسم وانزل بالترتيب`, {
+    size: 12,
+    bold: true,
+    fill: TEAL_SOFT,
+    color: TEAL_DARK,
+  });
+  ws.getRow(2).height = 24;
+  band(
     3,
-    'املا الخانات الصفرا من السهم ▾ بس: اتواصلت إزاي ← رد؟ ← النتيجة (لو رد) ← السبب. الصف بيخضر لما تختار «رد؟». آخر اليوم احفظ وارفع الشيت.',
-    { color: 'FF374151' }
+    2,
+    last,
+    'الخطوات:   ① كلّم العميل أو ابعتله واتساب    ② اختار «رد؟»    ③ لو رد: اختار النتيجة والسبب    ④ آخر اليوم احفظ الملف وارفعه',
+    { size: 11, color: 'FF374151', fill: 'FFF8FAFC' }
   );
-  ws.getRow(4).height = 6;
+  ws.getRow(3).height = 22;
+
+  band(4, 2, firstAnswer - 1, 'بيانات العميل — للقراية بس', {
+    bold: true,
+    fill: TEAL_DARK,
+    color: 'FFFFFFFF',
+    align: 'center',
+  });
+  band(4, firstAnswer, last, '✍  اكتب هنا — دوس على الخانة واختار من السهم ▾', {
+    bold: true,
+    fill: GOLD,
+    color: GOLD_INK,
+    align: 'center',
+  });
+  ws.getRow(4).height = 22;
 
   const header = ws.getRow(HEADER_ROW);
   columns.forEach((c, i) => {
     const cell = header.getCell(i + 1);
     cell.value = c.header;
-    cell.font = { bold: true, color: { argb: c.answer ? 'FF5B4500' : 'FFFFFFFF' } };
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: c.answer ? 'FFF5D76E' : TEAL } };
-    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+    cell.font = { bold: true, size: 11, color: { argb: c.answer ? GOLD_INK : 'FFFFFFFF' } };
+    cell.fill = fill(c.answer ? GOLD_SOFT : TEAL);
+    cell.alignment = { ...RTL, horizontal: 'center', wrapText: true };
     cell.border = BORDER;
   });
-  header.height = 26;
+  header.height = 30;
 
   const lists: Record<string, string> = {
     channel: listOf(CHANNEL_CHOICES.map((c) => c.label)),
@@ -241,6 +283,15 @@ export async function buildTaskWorkbook(
     followup: listOf(FOLLOWUP_CHOICES.map((c) => c.label)),
     offer: listOf(OFFER_CHOICES.map((c) => c.label)),
   };
+  const prompts: Record<string, string> = {
+    channel: 'مكالمة ولا واتساب؟',
+    reach: 'رد ولا لأ؟ لو مردش هيرجعلك بكرة لوحده',
+    outcome: 'بس لو رد: إيه اللي حصل؟',
+    reason: 'لو قلّل أو بطّل أو عنده شكوى: ليه؟',
+    followup: 'سيبها فاضية إلا لو العميل طلب ميعاد',
+    offer: 'كوبون أو توصيل مجاني لو العميل محتاج سبب يرجع',
+    note: 'اكتب اسم الصنف أو أي حاجة مهمة',
+  };
 
   let r = HEADER_ROW;
   let n = 0;
@@ -248,10 +299,13 @@ export async function buildTaskWorkbook(
   sections.forEach((section, si) => {
     const rows = bySection.get(section.key)!;
     r += 1;
-    banner(r, `${si + 1}. ${section.title.split(' (')[0]} (${rows.length}) — ${SECTION_TODO[section.key]}`, {
+    const title = section.title.split(' (')[0];
+    band(r, 2, last, `${si + 1}.  ${title}  (${rows.length})     ←  ${SECTION_TODO[section.key]}`, {
       bold: true,
+      size: 12,
       fill: SECTION_FILL[section.key],
     });
+    ws.getRow(r).height = 24;
     for (const t of rows) {
       r += 1;
       n += 1;
@@ -264,8 +318,8 @@ export async function buildTaskWorkbook(
         code: t.customer_code ?? '',
         branch: t.branch.replace('فرع ', ''),
         phone: localPhone(t.customer_phone),
-        wa: wa ? { text: 'افتح', hyperlink: `https://wa.me/${wa}` } : '',
-        why: shortReason(t.reason) + (t.attempt_no > 1 ? ` (محاولة ${t.attempt_no})` : ''),
+        wa: wa ? { text: 'افتح واتساب', hyperlink: `https://wa.me/${wa}` } : '',
+        why: shortReason(t.reason) + (t.attempt_no > 1 ? `\nمحاولة رقم ${t.attempt_no}` : ''),
         bought: lastPurchase(t),
         last: lastFollowup(t),
         channel: choiceLabel(CHANNEL_CHOICES, t.contact_channel) ?? '',
@@ -280,23 +334,40 @@ export async function buildTaskWorkbook(
         const cell = row.getCell(i + 1);
         cell.value = values[c.key] as never;
         cell.border = BORDER;
-        cell.alignment = { vertical: 'middle', horizontal: 'right', wrapText: ['why', 'last', 'note'].includes(c.key) };
-        if (c.answer) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: EDIT_FILL } };
-        if (lists[c.key])
+        cell.font = { size: 11, color: { argb: c.answer ? INK : 'FF374151' } };
+        cell.alignment = { ...RTL, horizontal: c.answer ? 'center' : 'right', wrapText: true };
+        cell.fill = fill(c.answer ? EDIT_FILL : n % 2 ? 'FFFFFFFF' : 'FFF7F9FA');
+        if (lists[c.key] || c.key === 'note')
           cell.dataValidation = {
-            type: 'list',
-            allowBlank: true,
-            formulae: [lists[c.key]],
-            showErrorMessage: true,
-            errorStyle: 'stop',
-            errorTitle: 'اختار من القايمة',
-            error: 'دوس على السهم ▾ واختار من القايمة',
-          };
+            ...(lists[c.key]
+              ? {
+                  type: 'list' as const,
+                  allowBlank: true,
+                  formulae: [lists[c.key]],
+                  showErrorMessage: true,
+                  errorStyle: 'stop' as const,
+                  errorTitle: 'اختار من القايمة',
+                  error: 'دوس على السهم ▾ واختار من القايمة',
+                }
+              : { type: 'any' as const, allowBlank: true }),
+            showInputMessage: true,
+            promptTitle: c.header,
+            prompt: prompts[c.key],
+          } as never;
       });
-      row.getCell(col('n')).alignment = { vertical: 'middle', horizontal: 'center' };
-      row.getCell(col('name')).font = { bold: true };
-      if (wa) row.getCell(col('wa')).font = { color: { argb: 'FF0B7A3B' }, underline: true, bold: true };
-      row.height = 30;
+      row.getCell(col('n')).alignment = { ...RTL, horizontal: 'center' };
+      row.getCell(col('n')).font = { size: 10, color: { argb: 'FF6B7280' } };
+      row.getCell(col('name')).font = { bold: true, size: 12, color: { argb: INK } };
+      row.getCell(col('code')).alignment = { ...RTL, horizontal: 'center' };
+      row.getCell(col('phone')).alignment = { vertical: 'middle', horizontal: 'center' };
+      row.getCell(col('wa')).alignment = { ...RTL, horizontal: 'center' };
+      if (wa) row.getCell(col('wa')).font = { color: { argb: 'FF0B7A3B' }, underline: true, bold: true, size: 11 };
+      row.getCell(firstAnswer).border = { ...BORDER, right: { style: 'medium', color: { argb: GOLD } } };
+      const lines = Math.max(
+        ...['why', 'bought', 'last'].map((k) => String(values[k] ?? '').split('\n').length),
+        cleanCustomerName(t.customer_name, t.customer_code).length > 22 ? 2 : 1
+      );
+      row.height = Math.max(32, 16 * lines + 6);
     }
   });
   const lastData = r;
@@ -315,9 +386,16 @@ export async function buildTaskWorkbook(
     });
   }
   r += 2;
-  banner(r, 'آخر اليوم: احفظ الملف، وافتح صفحة «شيت مهام اليوم» ودوس «ارفع الشيت بعد الشغل». الصف اللي من غير «رد؟» بيفضل مفتوح لبكرة.', {
+  band(r, 2, last, '✔  خلصت؟ احفظ الملف، وافتح صفحة «شيت مهام اليوم» ودوس «ارفع الشيت بعد الشغل». أي صف من غير «رد؟» بيرجعلك بكرة.', {
     bold: true,
-    color: TEAL,
+    size: 12,
+    fill: TEAL_SOFT,
+    color: TEAL_DARK,
+  });
+  ws.getRow(r).height = 26;
+  band(r + 1, 2, last, 'الصف بيخضر لوحده لما تختار «رد؟». متغيرش عناوين الأعمدة. الكلام اللي تبدأ بيه كل مكالمة في شيت «اقرأني».', {
+    size: 10,
+    color: 'FF6B7280',
   });
 
   const cs = wb.addWorksheet(CASES_SHEET, {
@@ -325,18 +403,21 @@ export async function buildTaskWorkbook(
   });
   cs.columns = CASE_COLUMNS.map((c) => ({ header: c.header, width: c.width }));
   const csHeader = cs.getRow(1);
-  csHeader.height = 22;
+  csHeader.height = 30;
   csHeader.eachCell((cell) => {
     cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TEAL } };
-    cell.alignment = { vertical: 'middle', horizontal: 'center' };
+    cell.alignment = { ...RTL, horizontal: 'center', wrapText: true };
+    cell.border = BORDER;
   });
   for (let row = 2; row <= DOCTOR_CASE_ROWS + 1; row += 1) {
     for (let c = 1; c <= CASE_COLUMNS.length; c += 1) {
       const cell = cs.getCell(row, c);
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: EDIT_FILL } };
       cell.border = BORDER;
+      cell.alignment = { ...RTL, horizontal: 'right', wrapText: true };
     }
+    cs.getRow(row).height = 24;
     cs.getCell(row, 1).dataValidation = { type: 'list', allowBlank: true, formulae: [listOf(BRANCH_OPTIONS)] };
     cs.getCell(row, 7).dataValidation = { type: 'list', allowBlank: true, formulae: [resultsList] };
     cs.getCell(row, 9).numFmt = 'dd/mm/yyyy';
@@ -371,8 +452,14 @@ export async function buildTaskWorkbook(
   ];
   lines.forEach(([a, b, title]) => {
     const row = help.addRow([a, b]);
-    row.getCell(1).font = { bold: true, size: title ? 13 : 11 };
-    row.getCell(2).alignment = { wrapText: true, vertical: 'top' };
+    row.getCell(1).font = { bold: true, size: title ? 13 : 11, color: { argb: title ? TEAL_DARK : INK } };
+    row.getCell(1).alignment = { ...RTL, horizontal: 'right', wrapText: true };
+    row.getCell(2).alignment = { ...RTL, horizontal: 'right', wrapText: true };
+    if (title) {
+      row.getCell(1).fill = fill(TEAL_SOFT);
+      row.getCell(2).fill = fill(TEAL_SOFT);
+      row.height = 24;
+    }
   });
 
   const buffer = await wb.xlsx.writeBuffer();

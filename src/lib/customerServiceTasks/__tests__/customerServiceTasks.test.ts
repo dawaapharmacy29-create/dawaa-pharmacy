@@ -119,17 +119,17 @@ describe('workbook round trip', () => {
     await wb.xlsx.load(await blob.arrayBuffer());
     const ws = wb.getWorksheet(TASKS_SHEET)!;
     expect(ws.getColumn(1).hidden).toBe(true);
-    // title, count, steps, spacer, header, section row, then the task
+    // title, the day, steps, read/fill band, header, section row, then the task
     const headerRow = ws.getRow(5).values as unknown[];
     const at = (name: string) => headerRow.indexOf(name);
-    expect(String(ws.getCell(1, 2).value)).toContain('شيت مكالمات تجربة — فرع شكري');
+    expect(String(ws.getCell(1, 2).value)).toContain('مكالمات خدمة العملاء  ·  تجربة  ·  فرع شكري');
     expect(String(ws.getCell(6, 2).value)).toContain('عملاء جداد');
     expect(ws.getCell(7, at('الاسم')).value).toBe('عميل تجربة');
     expect(ws.getCell(7, at('واتساب')).value).toMatchObject({ hyperlink: 'https://wa.me/201000000000' });
     expect(at('الفرع')).toBe(-1);
     expect(ws.getCell(7, at('ليه بنكلّمه')).value).toBe('أول فاتورة');
-    expect(ws.getCell(7, at('آخر شرا')).value).toBe('20/11 · 600 ج (متوسط 492)');
-    expect(ws.getCell(7, at('آخر متابعة')).value).toBe('أول مرة');
+    expect(ws.getCell(7, at('آخر شرا')).value).toBe('يوم 20/11 بـ 600 ج\nمتوسط فاتورته 492 ج');
+    expect(ws.getCell(7, at('آخر متابعة')).value).toBe('أول مرة نكلّمه');
     // every answer except the note is a dropdown
     for (const name of ['اتواصلت إزاي', 'رد؟', 'النتيجة', 'السبب', 'المتابعة الجاية', 'العرض']) {
       const v = ws.getCell(7, at(name)).dataValidation;
