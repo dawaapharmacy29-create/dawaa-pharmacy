@@ -375,6 +375,19 @@ export async function verifySessionAgainstInvoices(session: WhatsAppConversation
   const candidates = result.rows.map((row) => invoiceCandidate(row, session, lookup, result.matchedStrategies)).filter((x) => x.score > 0).sort((a, b) => b.score - a.score).slice(0, 8);
   const best = candidates[0] || null;
   if (!best) return { status: 'not_found', bestCandidate: null, candidates, verificationConfidence: .75, revenue: null, reason: 'لم توجد فاتورة مرتبطة بقوة كافية.', warnings: result.warnings };
+  const expectedBranch = normalizeBranch(lookup.branch || '');
+  const candidateBranch = normalizeBranch(best.branch || '');
+  if (expectedBranch && candidateBranch && expectedBranch !== candidateBranch) {
+    return {
+      status: 'needs_review',
+      bestCandidate: best,
+      candidates,
+      verificationConfidence: best.confidence,
+      revenue: null,
+      reason: 'فرع الفاتورة المرشحة مختلف عن الفرع المسجل للمحادثة. يلزم مراجعة دليل الفرع وربط الفاتورة.',
+      warnings: result.warnings,
+    };
+  }
   if (best.confidence >= .82) return { status: 'verified', bestCandidate: best, candidates, verificationConfidence: best.confidence, revenue: best.amount, reason: 'تطابق قوي بين هوية العميل وتوقيت/سياق المحادثة والفاتورة.', warnings: result.warnings };
   if (best.confidence >= .62) return { status: 'probable', bestCandidate: best, candidates, verificationConfidence: best.confidence, revenue: best.amount, reason: 'تطابق مرجح يحتاج مراجعة بشرية.', warnings: result.warnings };
   return { status: 'needs_review', bestCandidate: best, candidates, verificationConfidence: best.confidence, revenue: best.amount, reason: 'يوجد مرشح فاتورة لكن قوة التطابق غير كافية.', warnings: result.warnings };
