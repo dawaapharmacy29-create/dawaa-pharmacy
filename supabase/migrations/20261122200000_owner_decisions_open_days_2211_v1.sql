@@ -86,3 +86,19 @@ set occurrence_no = r.n,
     updated_at = now()
 from renum r
 where r.id = i.id and i.deduction_transaction_id is null;
+
+-- 4) محمود القطري 6/11 was approved with 13.55 hours: the check-out the next morning (07/11 08:33) was taken as the
+--    end of the shift. The shift was 19:00 (manual check-in) → 23:58 = 4.97 hours.
+update public.attendance_daily_summary a
+set payroll_eligible_hours = 4.97,
+    approved_by = 'owner_decision:2026-11-22',
+    approved_by_name = 'قرار المالك',
+    approved_at = now(),
+    approval_note = coalesce(a.approval_note || ' — ', '') || 'قرار المالك 22/11: الشيفت 19:00 → 23:58 = 4.97 ساعة. بصمة 08:33 الصبح مش آخر الشيفت (كانت محسوبة 13.55)',
+    resolution_snapshot = coalesce(a.resolution_snapshot, '{}'::jsonb)
+      || jsonb_build_object('manager_approved_payroll_eligible_hours', 4.97, 'owner_decision_at', '2026-11-22',
+                            'hours_evidence', 'manual in 19:00 → out 23:58; 07/11 08:33 stray', 'previous_hours', 13.55),
+    updated_at = now()
+from public.staff st
+where st.id = a.staff_id and btrim(st.name) = 'محمود القطري'
+  and a.attendance_date = date '2026-11-06' and a.status = 'approved' and a.payroll_eligible_hours = 13.55;
