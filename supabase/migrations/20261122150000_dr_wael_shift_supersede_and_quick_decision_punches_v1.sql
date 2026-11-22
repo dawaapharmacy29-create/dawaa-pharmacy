@@ -101,7 +101,8 @@ begin
         raise exception 'quick_decision_needs_details' using errcode = '55000';
       end if;
       v_hours := round((extract(epoch from (v_own.last_at - v_own.first_at)) / 3600.0)::numeric, 2);
-      if v_hours <= 0 or v_hours > 18 then
+      -- Over 12 hours is two shifts' punches (e.g. 04:00 → 20:20), not one day's work.
+      if v_hours <= 0 or v_hours > 12 then
         raise exception 'quick_decision_needs_details' using errcode = '55000';
       end if;
       v_note := v_note || ' (' || to_char(v_own.first_at at time zone 'Africa/Cairo', 'HH24:MI') || ' → '
