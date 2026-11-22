@@ -1340,8 +1340,8 @@ export default function WhatsAppSmartFolderWatcher() {
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
                           <div className="text-[10px] font-black text-cyan-300">CONVERSATION OUTCOME V2</div>
-                          <div className="mt-1 text-base font-black text-white">{selected.snapshot.smartIntelligence.evaluationV2.sale.label}</div>
-                          <div className="mt-1 text-xs leading-6 text-slate-400">{selected.snapshot.smartIntelligence.evaluationV2.sale.reason}</div>
+                          <div className="mt-1 text-base font-black text-white">{selected.snapshot.smartIntelligence.evaluationV2.sale.outcome === 'invoice_verified_sale' ? 'فاتورة مرشحة من التحليل الأولي' : selected.snapshot.smartIntelligence.evaluationV2.sale.label}</div>
+                          <div className="mt-1 text-xs leading-6 text-slate-400">{selected.snapshot.smartIntelligence.evaluationV2.sale.outcome === 'invoice_verified_sale' ? 'راجع إثبات البيع وربط الأصناف في مراجعة حالات ذكاء المبيعات.' : selected.snapshot.smartIntelligence.evaluationV2.sale.reason}</div>
                         </div>
                         <div className="grid grid-cols-3 gap-2 text-center text-[10px]">
                           <div className="rounded-xl bg-black/15 px-3 py-2"><div className="text-slate-500">جودة</div><b className="text-white">{selected.snapshot.smartIntelligence.evaluationV2.qualityScore ?? '-'}</b></div>
@@ -1543,8 +1543,8 @@ export default function WhatsAppSmartFolderWatcher() {
                                             <section className="grid gap-3 lg:grid-cols-2">
                         <div className="rounded-2xl border border-emerald-800/30 bg-emerald-950/10 p-4">
                           <div className="text-xs font-black text-emerald-200">نتيجة البيع</div>
-                          <div className="mt-1 text-base font-black text-white">{selected.snapshot.smartIntelligence.evaluationV2.sale.label}</div>
-                          <div className="mt-1 text-xs leading-6 text-slate-400">{selected.snapshot.smartIntelligence.evaluationV2.sale.reason}</div>
+                          <div className="mt-1 text-base font-black text-white">{selected.snapshot.smartIntelligence.evaluationV2.sale.outcome === 'invoice_verified_sale' ? 'فاتورة مرشحة من التحليل الأولي' : selected.snapshot.smartIntelligence.evaluationV2.sale.label}</div>
+                          <div className="mt-1 text-xs leading-6 text-slate-400">{selected.snapshot.smartIntelligence.evaluationV2.sale.outcome === 'invoice_verified_sale' ? 'راجع إثبات البيع وربط الأصناف في مراجعة حالات ذكاء المبيعات.' : selected.snapshot.smartIntelligence.evaluationV2.sale.reason}</div>
                           {selected.snapshot.smartIntelligence.evaluationV2.sale.invoiceNumber ? <div className="mt-2 text-xs text-emerald-300">فاتورة {selected.snapshot.smartIntelligence.evaluationV2.sale.invoiceNumber}{selected.snapshot.smartIntelligence.evaluationV2.sale.revenue != null ? ` · ${selected.snapshot.smartIntelligence.evaluationV2.sale.revenue} ج` : ''}</div> : null}
                         </div>
                         <div className="rounded-2xl border border-sky-800/30 bg-sky-950/10 p-4">
