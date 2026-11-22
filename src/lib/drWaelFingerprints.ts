@@ -1026,6 +1026,8 @@ export function quickDayOptions(day: DrWaelDay): QuickDayOption[] {
 
 const QUICK_ERRORS: Array<[string, string]> = [
   ['quick_decision_needs_details', 'اليوم ده محتاج المراجعة التفصيلية'],
+  ['quick_decision_staff_inactive', 'الموظف ده مش شغال دلوقتي — راجع اليوم من التفاصيل'],
+  ['attendance_inline_requires_explicit_manager_approval', 'اليوم ده محتاج المراجعة التفصيلية'],
   ['not_authorized', 'مالكش صلاحية تعتمد اليوم ده'],
   ['invalid_or_expired_staff_session', 'الجلسة خلصت، ادخل تاني'],
   ['cycle_locked', 'الدورة دي اتقفلت في المرتبات'],
@@ -1047,7 +1049,10 @@ export async function decideQuickDay(staffId: string, date: string, decision: Qu
       QUICK_ERRORS.find(([code]) => message.includes(code))?.[1] ?? 'تعذّر حفظ القرار'
     );
   }
-  return (data || {}) as { approved?: boolean; already?: boolean };
+  const result = (data || {}) as { approved?: boolean; already?: boolean; reread?: boolean };
+  // The punch was already there: the day was read again, so it comes back with what really happened.
+  if (result.reread) throw new Error('البصمة كانت موجودة — اليوم اتقرا من جديد، حدّث الصفحة وراجعه');
+  return result;
 }
 
 // ---------------------------------------------------------------------------------------------------------
@@ -1989,6 +1994,22 @@ export function quickPlan(
         why: readingWhy(reading),
         primary: shiftAction(reading),
         secondary: first || DETAILS,
+      });
+      continue;
+    }
+    if (
+      (day.resolution === 'missing_checkin' || day.resolution === 'missing_checkout') &&
+      first &&
+      stopped.has(day.staff_id)
+    ) {
+      // A forgotten punch can't be recorded for someone no longer working; the day needs a look.
+      items.push({
+        day,
+        group: 'stopped',
+        clear: false,
+        why: 'الموظف مش شغال دلوقتي، فنسيان البصمة مايتسجلش — راجع اليوم',
+        primary: DETAILS,
+        secondary: null,
       });
       continue;
     }
