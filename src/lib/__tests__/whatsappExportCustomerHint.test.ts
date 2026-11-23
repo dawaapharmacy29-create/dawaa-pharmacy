@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { extractTrailingCustomerCodeFromDisplayName } from '@/lib/customers/customerIdentity';
 import { extractCustomerHintFromExportFileName } from '@/lib/whatsappExportCustomerHint';
 
 describe('extractCustomerHintFromExportFileName', () => {
@@ -13,6 +14,13 @@ describe('extractCustomerHintFromExportFileName', () => {
     const result = extractCustomerHintFromExportFileName('WhatsApp Chat with محمد طارق 1200.txt');
     expect(result.nameHint).toBe('محمد طارق');
     expect(result.codeHint).toBe('1200');
+  });
+
+  it('ignores explicit price notes both before and after the customer code', () => {
+    expect(extractCustomerHintFromExportFileName('عميل تجريبي 54321 p.150.zip').codeHint).toBe('54321');
+    expect(extractCustomerHintFromExportFileName('عميل اختبار p.٥٥٠ 87654.zip').codeHint).toBe('87654');
+    expect(extractTrailingCustomerCodeFromDisplayName('عميل تجريبي 54321 p.150')).toBe('54321');
+    expect(extractTrailingCustomerCodeFromDisplayName('عميل تجريبي p.150')).toBe('');
   });
 
   it('does not invent a customer from a generic technical filename', () => {

@@ -1,4 +1,4 @@
-import { customerLabelWithoutCourierContact, hasPhoneLikeTrailingDigits } from '@/lib/customers/customerIdentity';
+import { customerLabelWithoutCourierContact, customerLabelWithoutPriceNotes, hasPhoneLikeTrailingDigits } from '@/lib/customers/customerIdentity';
 
 export interface WhatsAppExportCustomerHint {
   nameHint: string | null;
@@ -31,7 +31,7 @@ export function extractCustomerHintFromExportFileName(fileName: string): WhatsAp
     .replace(/^(محادث[هة]\s+واتساب\s+مع|واتساب\s+مع)\s+/i, '')
     .trim();
 
-  value = customerLabelWithoutCourierContact(value);
+  value = customerLabelWithoutPriceNotes(customerLabelWithoutCourierContact(value));
   const normalizedDigits = toLatinDigits(value);
   // An unsaved contact's file is named after its phone number; that number is never a customer code.
   const codeMatch = hasPhoneLikeTrailingDigits(normalizedDigits)
