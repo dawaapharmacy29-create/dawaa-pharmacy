@@ -355,14 +355,15 @@ export async function buildEmployeePayrollStatementPdf(
     );
 
     const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')]);
-    const pdf = new jsPDF('p', 'mm', 'a4');
+    // JPEG + compression: PNG pages at 2x were ~10 MB each (an 8-page statement came out at 85 MB).
+    const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4', compress: true });
     const elements = Array.from(host.querySelectorAll('.statement-page')) as HTMLElement[];
 
     for (let index = 0; index < elements.length; index += 1) {
       const canvas = await html2canvas(elements[index], { scale: 2, backgroundColor: '#fff', logging: false, useCORS: true });
-      const png = canvas.toDataURL('image/png');
+      const jpeg = canvas.toDataURL('image/jpeg', 0.9);
       if (index > 0) pdf.addPage();
-      pdf.addImage(png, 'PNG', 0, 0, 210, 297);
+      pdf.addImage(jpeg, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
     }
 
     return {
