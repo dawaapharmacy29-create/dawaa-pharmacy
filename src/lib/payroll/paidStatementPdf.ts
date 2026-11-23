@@ -47,10 +47,10 @@ export async function buildPaidStatementPdf(staffId: string, monthCycle: string)
   try {
     const [{default:html2canvas},{jsPDF}] = await Promise.all([import('html2canvas'),import('jspdf')]);
     const canvas=await html2canvas(host.firstElementChild as HTMLElement,{scale:2,backgroundColor:'#fff',logging:false});
-    const pdf=new jsPDF('p','mm','a4');
+    const pdf=new jsPDF({orientation:'p',unit:'mm',format:'a4',compress:true});
     const width=190, height=canvas.height*width/canvas.width, page=277;
-    const png=canvas.toDataURL('image/png');
-    for(let offset=0;offset<height;offset+=page){if(offset)pdf.addPage();pdf.addImage(png,'PNG',10,10-offset,width,height);}
+    const jpeg=canvas.toDataURL('image/jpeg',0.9);
+    for(let offset=0;offset<height;offset+=page){if(offset)pdf.addPage();pdf.addImage(jpeg,'JPEG',10,10-offset,width,height,'paid-statement','FAST');}
     return {pdf,fileName:`كشف-راتب-مدفوع-${data.month_cycle}-${data.staff_id}.pdf`};
   } finally {host.remove();}
 }

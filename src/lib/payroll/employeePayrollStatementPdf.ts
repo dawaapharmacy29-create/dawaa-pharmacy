@@ -103,7 +103,7 @@ export async function buildEmployeePayrollStatementPdf(
     if (element) {
       const canvas = await html2canvas(element, { scale: 2, backgroundColor: '#fff', logging: false, useCORS: true });
       result.pdf.addPage();
-      result.pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, 210, 297);
+      result.pdf.addImage(canvas.toDataURL('image/jpeg', 0.9), 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
     }
     return result;
   } finally {
