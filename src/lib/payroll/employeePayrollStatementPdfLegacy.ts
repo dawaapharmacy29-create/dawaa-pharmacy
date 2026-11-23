@@ -9,7 +9,11 @@ const durationHours = (value: unknown) => {
   const h = Math.floor(total / 60);
   const m = total % 60;
   if (!h) return m.toLocaleString('ar-EG') + ' دقيقة';
-  return m ? h.toLocaleString('ar-EG') + ':' + String(m).padStart(2, '0') + ' ساعة' : h.toLocaleString('ar-EG') + ' ساعة';
+  // Minutes in the same Arabic digits as the hours: mixing Latin minutes with Arabic hours made the RTL text
+  // read «52:135» instead of «135:52».
+  return m
+    ? h.toLocaleString('ar-EG') + ':' + m.toLocaleString('ar-EG', { minimumIntegerDigits: 2 }) + ' ساعة'
+    : h.toLocaleString('ar-EG') + ' ساعة';
 };
 const weekday = (value: string) => {
   const d = new Date(value + 'T12:00:00Z');

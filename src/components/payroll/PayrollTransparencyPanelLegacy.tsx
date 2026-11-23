@@ -23,7 +23,7 @@ function duration(value: unknown) {
   const rest = Math.abs(minutes % 60);
   if (!hours) return rest.toLocaleString('ar-EG') + ' دقيقة';
   return rest
-    ? hours.toLocaleString('ar-EG') + ':' + String(rest).padStart(2, '0') + ' ساعة'
+    ? hours.toLocaleString('ar-EG') + ':' + rest.toLocaleString('ar-EG', { minimumIntegerDigits: 2 }) + ' ساعة'
     : hours.toLocaleString('ar-EG') + ' ساعة';
 }
 
