@@ -58,8 +58,11 @@ function customerLabelWithoutCourierContact(value) {
   if (!match || !isValidEgyptianCustomerMobile(normalizeEgyptianCustomerPhone(match[2]))) return raw;
   return match[1].trim();
 }
+function customerLabelWithoutPriceNotes(value) {
+  return customerIdentityText(value).replace(/(^|\s)p\.\s*[0-9٠-٩۰-۹]+(?=\s|$)/gi, "$1").replace(/\s+/g, " ").trim();
+}
 function extractTrailingCustomerCodeFromDisplayName(value) {
-  const label = customerLabelWithoutCourierContact(value);
+  const label = customerLabelWithoutPriceNotes(customerLabelWithoutCourierContact(value));
   if (hasPhoneLikeTrailingDigits(label)) return "";
   const raw = customerIdentityText(label).replace(/[٠-٩]/g, (digit) => String("\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669".indexOf(digit))).trim();
   const match = raw.match(/(?:^|[^0-9])(\d{2,9})\s*\)?\s*$/);

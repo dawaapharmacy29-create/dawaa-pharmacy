@@ -138,9 +138,14 @@ export function customerLabelWithoutCourierContact(value: unknown): string {
   return match[1].trim();
 }
 
+/** Remove explicit price notes from contact labels before extracting identity. */
+export function customerLabelWithoutPriceNotes(value: unknown): string {
+  return customerIdentityText(value).replace(/(^|\s)p\.\s*[0-9٠-٩۰-۹]+(?=\s|$)/gi, '$1').replace(/\s+/g, ' ').trim();
+}
+
 /** Extract a trailing Dawaa customer code from WhatsApp contact labels; phone-like suffixes are rejected. */
 export function extractTrailingCustomerCodeFromDisplayName(value: unknown): string {
-  const label = customerLabelWithoutCourierContact(value);
+  const label = customerLabelWithoutPriceNotes(customerLabelWithoutCourierContact(value));
   if (hasPhoneLikeTrailingDigits(label)) return '';
   const raw = customerIdentityText(label)
     .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
