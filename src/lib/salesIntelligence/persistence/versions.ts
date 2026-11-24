@@ -130,7 +130,11 @@
 // acknowledgments/remedies evidence understanding independently of missing attachments.
 // v61: an unresolved commercial outcome alone cannot prove poor staff closing.
 // Only canonical next-step/fault evidence can justify that judgment; unknown is unscored.
-export const PIPELINE_VERSION = 'sales-intelligence-v61-evidence-bound-closing';
+// v62: basket lines must name something buyable (no contact/payment/money/unit-count/filler
+// sentences; a resolved reference takes the antecedent's product name, not its sentence), and a
+// transliterated mention may link to one line of the selected invoice for display only
+// (matchedBy name_phonetic; never product proof). Sale proof, staff credit and payroll unchanged.
+export const PIPELINE_VERSION = 'sales-intelligence-v62-buyable-basket-lines';
 
 export const ENGINE_VERSIONS = {
   caseSegmentation: 'case-segmentation-v15-caption-priced-offer-continuity',
@@ -138,7 +142,7 @@ export const ENGINE_VERSIONS = {
   commercialConfirmation: 'commercial-confirmation-v7-independent-announced-total',
   protocolApplicability: 'protocol-applicability-v1',
   attribution: 'attribution-v13-scoped-name-annotations',
-  matching: 'matching-v3-unresolved-product-evidence-safe',
+  matching: 'matching-v4-phonetic-invoice-line-display',
   policyEvaluation: 'policy-evaluation-v1',
 } as const;
 
