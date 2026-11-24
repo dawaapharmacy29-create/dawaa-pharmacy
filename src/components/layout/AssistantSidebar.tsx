@@ -11,6 +11,8 @@ import {
   PackageSearch,
   Star,
   Trophy,
+  Receipt,
+  ArrowLeftRight,
   UserPlus,
   Users,
   X,
@@ -59,6 +61,8 @@ export const ASSISTANT_GROUPS: AssistantNavGroup[] = [
     title: 'خدمة العملاء',
     items: [
       { path: '/customer-service-tasks', label: 'شيت مهام اليوم', icon: FileSpreadsheet, permission: 'customer_service_daily_tasks' },
+      { path: '/customer-service-tasks?tab=purchases', label: 'فواتير مشتريات امبارح', icon: Receipt, permission: 'customer_service_daily_tasks', onlyStaffIds: TEAM_DAWAA_ALPHA_STAFF_IDS },
+      { path: '/customer-service-tasks?tab=transfers', label: 'التحويلات بين الفرعين', icon: ArrowLeftRight, permission: 'customer_service_daily_tasks', onlyStaffIds: TEAM_DAWAA_ALPHA_STAFF_IDS },
       { path: '/customer-service-tasks?tab=competition', label: 'المسابقة والكريديت', icon: Trophy, permission: 'customer_service_daily_tasks', onlyStaffIds: TEAM_DAWAA_ALPHA_STAFF_IDS },
       { path: '/customer-service', label: 'خدمة العملاء', icon: HeadphonesIcon, permission: 'view_customer_service', excludeStaffIds: TEAM_DAWAA_ALPHA_STAFF_IDS },
       // شيت مهام اليوم بقى هو قايمة المتابعة لمن معاه، فالاختصار ده بيستخبى عنده عشان القايمة تفضل قصيرة.
@@ -73,7 +77,8 @@ export const ASSISTANT_GROUPS: AssistantNavGroup[] = [
     title: 'مساحة العمل',
     items: [
       { path: '/assistant-operational-log', label: 'تسجيل المشتريات وخدمة العملاء', icon: LayoutDashboard, permission: 'view_dashboard', excludeStaffIds: TEAM_DAWAA_ALPHA_STAFF_IDS },
-      { path: '/my-daily-checklist', label: 'التشيك ليست اليومي', icon: ClipboardCheck, permission: 'view_dashboard' },
+      // فريق خدمة العملاء: التشيك ليست بتاعتهم بقت أول صفحة الشيت (MorningChecklist).
+      { path: '/my-daily-checklist', label: 'التشيك ليست اليومي', icon: ClipboardCheck, permission: 'view_dashboard', excludeStaffIds: TEAM_DAWAA_ALPHA_STAFF_IDS },
       { path: '/pharmacy-zone-tasks', label: 'الرص والجرد اليومي', icon: ClipboardList, permission: 'view_dashboard', excludeStaffIds: TEAM_DAWAA_ALPHA_STAFF_IDS },
       { path: '/schedule', label: 'جدولي والشيفتات', icon: Calendar, permission: 'view_schedule' },
     ],
@@ -83,7 +88,7 @@ export const ASSISTANT_GROUPS: AssistantNavGroup[] = [
     items: [
       { path: '/purchases', label: 'المشتريات', icon: FileSpreadsheet, permission: 'view_purchases', excludeStaffIds: TEAM_DAWAA_ALPHA_STAFF_IDS },
       { path: '/purchase-invoice-entry', label: 'تسجيل فاتورة مشتريات', icon: FileSpreadsheet, permission: 'view_dashboard' },
-      { path: '/purchase-invoice-accuracy', label: 'دقة إدخال فواتير المشتريات', icon: FileSpreadsheet, permission: 'view_dashboard', onlyStaffIds: TEAM_DAWAA_ALPHA_STAFF_IDS },
+      // «دقة إدخال الفواتير» اتشالت من قايمة الفريق: أخطاء التسجيل بقت بتتسجل في مراجعة الصبح وتروح للمدير العام بس.
     ],
   },
   {

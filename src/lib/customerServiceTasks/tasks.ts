@@ -9,7 +9,8 @@ export type TaskSource =
   | 'request'
   | 'regular_due'
   | 'declining'
-  | 'lost';
+  | 'lost'
+  | 'uncoded_note';
 
 export const SOURCE_LABELS: Record<TaskSource, string> = {
   doctor_case: 'حالة من الدكتور',
@@ -19,6 +20,7 @@ export const SOURCE_LABELS: Record<TaskSource, string> = {
   regular_due: 'منتظم ميعاده جه',
   declining: 'نشط وقلّل',
   lost: 'اختفى',
+  uncoded_note: 'عميل مش متكود',
 };
 
 export function sourceLabel(source: string): string {
@@ -80,6 +82,12 @@ export const SHEET_SECTIONS: Array<{ key: SheetSectionKey; title: string; todo: 
     title: 'عملاء جداد (أول مرة يشتروا امبارح)',
     todo: 'سجّل رقمه على تليفون الفرع بالاسم والكود، وابعتله رسالة الترحيب.',
     say: 'أهلاً بحضرتك في صيدليات دواء، ده رقم الفرع على واتساب للطلبات والتوصيل والاستشارات.',
+  },
+  {
+    key: 'uncoded_note',
+    title: 'عملاء مش متكودين (اسمهم ورقمهم في ملاحظة الفاتورة)',
+    todo: 'كوّده على بي كونكت بالاسم والرقم، سجّله على تليفون الفرع، وابعتله رسالة الترحيب.',
+    say: 'أهلاً بحضرتك في صيدليات دواء، سجّلنا رقم حضرتك عشان تطلب على واتساب الفرع وتوصلك العروض.',
   },
   {
     key: 'big_invoice',
