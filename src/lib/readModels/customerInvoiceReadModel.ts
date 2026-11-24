@@ -32,6 +32,7 @@ const SELECT = [
   'invoice_no',
   'invoice_number',
   'invoice_date',
+  'invoice_datetime',
   'sale_date',
   'net_total',
   'net_amount',

@@ -5,6 +5,7 @@ import {
 import type { CaseIntelligenceView } from './types';
 import { buildConversationEvaluationEvidence } from './conversationEvaluationEvidence';
 import { isUnavailableMediaPlaceholderText } from '../whatsappConversationUnderstandingV32';
+import { cleanIntroducedStaffName } from '../whatsappConversationParser';
 
 export type FoundationCriterionKey =
   | 'first_response_speed'
@@ -268,7 +269,7 @@ function assessGreeting(view: CaseIntelligenceView): ConversationCriterionAssess
 
 function introducedStaffName(text: string): string | null {
   const match = text.match(STAFF_INTRO_RX);
-  return match?.[1]?.trim().replace(/\s+/g, ' ') || null;
+  return cleanIntroducedStaffName(match?.[1]);
 }
 
 function assessDoctorName(view: CaseIntelligenceView): ConversationCriterionAssessment {

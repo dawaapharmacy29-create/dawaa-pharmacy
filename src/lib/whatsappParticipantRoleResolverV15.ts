@@ -1,5 +1,6 @@
 import { readStaffDirectory } from '@/lib/readModels/staffDirectoryReadModel';
 import { normalizeDoctorName, resolveStaffDirectoryName } from '@/lib/staff/staffIdentityResolver';
+import { cleanIntroducedStaffName } from './whatsappConversationParser';
 import type { WhatsAppConversationSession, WhatsAppParsedMessage } from './whatsappConversationParser';
 
 export type WhatsAppParticipantRoleV15 = 'customer' | 'pharmacist' | 'customer_service' | 'delivery' | 'management' | 'pharmacy_unknown' | 'system';
@@ -66,7 +67,7 @@ function introName(text: string) {
   ];
   for (const rx of patterns) {
     const match = text.match(rx);
-    const cleaned = cleanCandidateName(match?.[1]);
+    const cleaned = cleanIntroducedStaffName(cleanCandidateName(match?.[1]));
     if (cleaned && isPlausibleName(cleaned)) return cleaned;
   }
   return null;

@@ -394,19 +394,39 @@ export async function attachInvoiceVerificationToQueue(
   client: any = supabase,
 ) {
   const best = verification.bestCandidate;
-  const next = {
-    invoice_match_status: verification.status,
-    matched_invoice_id: best?.invoiceId || null,
-    matched_invoice_number: best?.invoiceNumber || null,
-    matched_invoice_date: best?.invoiceDate || null,
-    matched_invoice_value: verification.revenue,
-    invoice_match_confidence: verification.verificationConfidence,
-    invoice_match_reason: verification.reason,
-  };
   const { data: before } = await client.from('whatsapp_review_sources').select('*').eq('id', sourceId).maybeSingle();
   // A human-confirmed invoice link is the stronger truth: a re-import's machine match never
   // overwrites matched_invoice_* under it (the trusted bridge would otherwise drop the proof).
   if (before?.invoice_link_confirmed === true) return;
+  let status = verification.status;
+  let revenue = verification.revenue;
+  let reason = verification.reason;
+  // One invoice is the result of one conversation. When another live conversation already holds
+  // it, this one goes to review instead of counting the same sale twice.
+  if (best?.invoiceId && (status === 'verified' || status === 'probable')) {
+    const { data: holders } = await client
+      .from('whatsapp_review_sources')
+      .select('id')
+      .eq('matched_invoice_id', best.invoiceId)
+      .in('invoice_match_status', ['verified', 'probable'])
+      .is('deleted_at', null)
+      .neq('id', sourceId)
+      .limit(1);
+    if (holders?.length) {
+      status = 'needs_review';
+      revenue = null;
+      reason = 'الفاتورة دي مربوطة بالفعل بمحادثة تانية؛ راجع أنهي محادثة هي اللي جابت البيع.';
+    }
+  }
+  const next = {
+    invoice_match_status: status,
+    matched_invoice_id: best?.invoiceId || null,
+    matched_invoice_number: best?.invoiceNumber || null,
+    matched_invoice_date: best?.invoiceDate || null,
+    matched_invoice_value: revenue,
+    invoice_match_confidence: verification.verificationConfidence,
+    invoice_match_reason: reason,
+  };
   // Idempotent: a re-scan or reanalysis that reaches the same machine verification must not write
   // a new audit row. Manual invoice confirmation lives in invoice_link_confirmed* and is never touched.
   if (

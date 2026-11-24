@@ -59,7 +59,7 @@ function customerLabelWithoutCourierContact(value) {
   return match[1].trim();
 }
 function customerLabelWithoutPriceNotes(value) {
-  return customerIdentityText(value).replace(/(^|\s)p\.\s*[0-9٠-٩۰-۹]+(?=\s|$)/gi, "$1").replace(/\s+/g, " ").trim();
+  return customerIdentityText(value).replace(/\(\s*p\s*\.?\s*[0-9٠-٩۰-۹]+\s*\)/gi, " ").replace(/(^|[\s_(])p\s*\.?\s*[0-9٠-٩۰-۹]+(?=[\s_)]|$)/gi, "$1").replace(/\s+/g, " ").trim();
 }
 function extractTrailingCustomerCodeFromDisplayName(value) {
   const label = customerLabelWithoutPriceNotes(customerLabelWithoutCourierContact(value));
@@ -475,6 +475,8 @@ function cairoCalendarParts(date) {
 var STAFF_INTRO_PATTERNS = [
   /(?:مع\s+حضرتك|معاك(?:ي)?)\s+(?:(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*)?([^\n،,.]+?)\s+من\s+فرع\s+(?:شكري|الشامي)(?=[\s،,.!?؟]|$)/i,
   /مع\s+حضرتك\s+(?:(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*)?([^\n،,.]+?)\s+من\s+(?:خدمة\s*(?:ال)?عملاء(?:\s+(?:صيدليات\s+)?دواء)?|صيدليات\s+دواء)/i,
+  // Branch template: "مع حضرتك د علا اقدر اساعد حضرتك ازاي" — the doctor may also omit the title.
+  /(?:مع\s+حضرتك|معاك(?:ي)?)\s+(?:(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*)?([^\n،,.]+?)\s+(?:[اأإ]?قدر|[اأ]ساعد|نقدر|نساعد)(?=[\s،,.!?؟]|$)/i,
   /مع حضرتك\s+(?:دكتور(?:ة)?\s+|دكتوره\s+|د(?:[./-]\s*|\s+))([^\n،,.]+)/i,
   /معاك(?:ي)?\s+(?:دكتور(?:ة)?\s+|دكتوره\s+|د(?:[./-]\s*|\s+))([^\n،,.]+)/i,
   /(?:د\.?|دكتور(?:ة)?|دكتوره)\s+([^\n،,.]+)\s+من\s+(?:خدمة (?:ال)?عملاء|صيدليات)\s+دواء/i
@@ -831,11 +833,20 @@ function parseWhatsAppExport(text6, options = {}) {
 function isCustomerServiceIntroduction(message) {
   return Boolean(extractIntroducedStaffName(message)) && /من\s+خدمة\s*(?:ال)?عملاء/u.test(message.text);
 }
+var STAFF_INTRO_TAIL_RX = /(?:^|\s)(?:[اأإ]?قدر|[اأ]ساعد|نقدر|نساعد|[اإ]زا[يى]|تحت\s+[اأ]مر|(?:في|فى|ف)\s+خدم[ةه]|يسعدن[يى]|من\s+(?:فرع|خدم[ةه]|صيدليات))(?=\s|[؟?!.،,]|$)[\s\S]*$/u;
+function cleanIntroducedStaffName(raw) {
+  const name = String(raw ?? "").replace(STAFF_INTRO_TAIL_RX, "").replace(/[^\p{L}\p{M}\s/.]/gu, " ").replace(/\s+/g, " ").trim();
+  if (!name || !new RegExp("\\p{L}", "u").test(name)) return null;
+  const words = name.replace(/^(?:دكتور[ةه]?|د)\s*[./]?\s*/u, "").split(" ").filter(Boolean);
+  if (!words.length || words.length > 3) return null;
+  return name;
+}
 function extractIntroducedStaffName(message) {
   if (message.direction !== "outbound") return null;
   for (const pattern of STAFF_INTRO_PATTERNS) {
     const match = message.text.match(pattern);
-    if (match?.[1]) return match[1].trim().replace(/\s+/g, " ");
+    const name = cleanIntroducedStaffName(match?.[1]);
+    if (name) return name;
   }
   return null;
 }
@@ -13290,7 +13301,7 @@ function assessGreeting(view) {
 }
 function introducedStaffName(text6) {
   const match = text6.match(STAFF_INTRO_RX);
-  return match?.[1]?.trim().replace(/\s+/g, " ") || null;
+  return cleanIntroducedStaffName(match?.[1]);
 }
 function assessDoctorName(view) {
   const { messages, firstStaff, openingStaff } = firstCustomerAndReply(view);
