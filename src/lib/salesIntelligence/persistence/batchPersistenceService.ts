@@ -79,6 +79,8 @@ export interface BatchConversationInput {
   branchIdHint?: string | null;
   branchNameRawHint?: string | null;
   knownStaffIds?: string[];
+  /** staff_id only when a manager confirmed it as the conversation's doctor (staff_link_confirmed). */
+  managerConfirmedStaffId?: string | null;
   legacyMatchedInvoiceId?: string | null;
   legacyMatchedInvoiceNumber?: string | null;
   trustedInvoiceId?: string | null;

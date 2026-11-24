@@ -9673,19 +9673,47 @@ function buildSalesIntelligenceRuntimeContext(input) {
   const staffLikeNames = new Set(
     rows.filter((row) => activeIds.has(String(row.staff_id || row.id || ""))).map((row) => normalizeDoctorName(row.name || row.staff_name || "")).filter(Boolean)
   );
-  const staffProfilesById = {};
-  for (const row of input.staffDirectory.filter((r) => r.source !== "alias" && r.active && r.id)) {
-    if (staffProfilesById[row.id] && row.source !== "staff") continue;
+  const profileOf = (row) => {
     const role = canonicalStaffRole(row.role);
     const service = isCustomerServiceTeamLabel(row.type) || isCustomerServiceTeamLabel(row.role) || role === "customer_service_manager";
-    staffProfilesById[row.id] = {
+    return {
       staffId: row.id,
       name: row.name || "",
       homeBranch: row.branch,
       function: service ? "customer_service" : role === "doctor" ? "pharmacist" : "other"
     };
+  };
+  const staffProfilesById = {};
+  for (const row of input.staffDirectory.filter((r) => r.source !== "alias" && r.active && r.id)) {
+    if (staffProfilesById[row.id] && row.source !== "staff") continue;
+    staffProfilesById[row.id] = profileOf(row);
   }
-  return { staffIdentityMap, staffLikeNames, staffProfilesById, productIndex: input.productIndex };
+  const staffNamesById = {};
+  const confirmableStaffProfilesById = {};
+  for (const row of input.staffDirectory) {
+    if (row.source !== "staff" || !row.id || !row.name) continue;
+    staffNamesById[row.id] = row.name;
+    confirmableStaffProfilesById[row.id] = profileOf(row);
+  }
+  return {
+    staffIdentityMap,
+    staffLikeNames,
+    staffProfilesById,
+    staffNamesById,
+    confirmableStaffProfilesById,
+    productIndex: input.productIndex
+  };
+}
+function greetingNameTokens(value) {
+  return String(value || "").trim().replace(/[أإآ]/g, "\u0627").replace(/ة/g, "\u0647").replace(/ى/g, "\u064A").replace(/^(?:الدكتور(?=\s)|دكتوره?(?=\s)|د\s*[/.]|د(?=\s))\s*/u, "").split(/\s+/).filter(Boolean);
+}
+function managerConfirmedIntroStaffId(introducedName, managerConfirmedStaffId, staffNamesById) {
+  if (!managerConfirmedStaffId || !staffNamesById) return null;
+  const directoryName = staffNamesById[managerConfirmedStaffId];
+  if (!directoryName) return null;
+  const greeting = greetingNameTokens(introducedName);
+  const owner = new Set(greetingNameTokens(directoryName));
+  return greeting.length > 0 && greeting.every((token2) => owner.has(token2)) ? managerConfirmedStaffId : null;
 }
 function resolveCanonicalStaffIdByName(name, staffIdentityMap) {
   const normalized = normalizeDoctorName(name);
@@ -9710,7 +9738,7 @@ function resolveConversationStaffIdentity(conversation, context) {
   for (const message of messages) {
     const introducedName = extractIntroducedStaffName(message);
     if (!introducedName) continue;
-    const staffId = resolveCanonicalStaffIdByName(introducedName, staffIdentityMap);
+    const staffId = resolveCanonicalStaffIdByName(introducedName, staffIdentityMap) ?? managerConfirmedIntroStaffId(introducedName, conversation.managerConfirmedStaffId, context.staffNamesById);
     if (staffId) staffIdByIntroductionMessageId[message.id] = staffId;
   }
   const customerName = normalizeDoctorName(conversation.customerNameHint ?? "");
@@ -9770,6 +9798,13 @@ async function prepareSalesIntelligenceConversations(client, conversations, cont
     };
   });
 }
+function profilesWithConfirmedDoctor(conversation, context) {
+  const confirmed = conversation.managerConfirmedStaffId;
+  if (!confirmed || context.staffProfilesById?.[confirmed]) return context.staffProfilesById;
+  if (!Object.values(conversation.staffIdByIntroductionMessageId).includes(confirmed)) return context.staffProfilesById;
+  const profile = context.confirmableStaffProfilesById?.[confirmed];
+  return profile ? { ...context.staffProfilesById || {}, [confirmed]: profile } : context.staffProfilesById;
+}
 function pipelineBaseInputFor(conversation, context) {
   return {
     conversationId: conversation.conversationId,
@@ -9786,7 +9821,7 @@ function pipelineBaseInputFor(conversation, context) {
     knownStaffIds: conversation.knownStaffIds,
     staffIdBySender: conversation.staffIdBySender,
     staffIdByIntroductionMessageId: conversation.staffIdByIntroductionMessageId,
-    staffProfilesById: context.staffProfilesById,
+    staffProfilesById: profilesWithConfirmedDoctor(conversation, context),
     resolveInvoiceStaffIdByName: (name) => resolveCanonicalStaffIdByName(name, context.staffIdentityMap),
     legacyMatchedInvoiceId: conversation.legacyMatchedInvoiceId,
     legacyMatchedInvoiceNumber: conversation.legacyMatchedInvoiceNumber,
@@ -11802,6 +11837,7 @@ var REVIEW_SOURCE_BATCH_INPUT_COLUMNS = [
   "customer_code",
   "branch",
   "staff_id",
+  "staff_link_confirmed",
   "matched_invoice_id",
   "matched_invoice_number",
   "invoice_match_status",
@@ -11839,6 +11875,7 @@ function reviewSourceRowToBatchConversation(row) {
     customerCodeHint: normalizeDawaaCustomerCode(row.customer_code) || extractTrailingCustomerCodeFromDisplayName(row.customer_name) || null,
     branchNameRawHint: row.branch ?? null,
     knownStaffIds: row.staff_id ? [String(row.staff_id)] : [],
+    managerConfirmedStaffId: row.staff_link_confirmed === true && row.staff_id ? String(row.staff_id) : null,
     legacyMatchedInvoiceId: row.matched_invoice_id ?? null,
     legacyMatchedInvoiceNumber: row.matched_invoice_number ?? null,
     trustedInvoiceId: trustedEvidence.trustedInvoiceId,

@@ -50,6 +50,13 @@ export interface SalesIntelligenceRuntimeContext {
    */
   staffLikeNames: Set<string>;
   staffProfilesById?: Record<string, CaseStaffProfile>;
+  /**
+   * Directory name of EVERY base staff row, active or not. Used only to check that a greeting name
+   * belongs to the doctor a manager confirmed for the source (see managerConfirmedIntroStaffId).
+   */
+  staffNamesById?: Record<string, string>;
+  /** Profiles of every base staff row, active or not; lent only to a manager-confirmed source. */
+  confirmableStaffProfilesById?: Record<string, CaseStaffProfile>;
   productIndex: PharmacyProductIndex;
 }
 
@@ -79,19 +86,65 @@ export function buildSalesIntelligenceRuntimeContext(input: {
       .map((row) => normalizeDoctorName(row.name || row.staff_name || ''))
       .filter(Boolean)
   );
+  const profileOf = (row: StaffDirectoryIdentity): CaseStaffProfile => {
+    const role = canonicalStaffRole(row.role);
+    const service = isCustomerServiceTeamLabel(row.type) || isCustomerServiceTeamLabel(row.role) || role === 'customer_service_manager';
+    return {
+      staffId: row.id!, name: row.name || '', homeBranch: row.branch,
+      function: service ? 'customer_service' : role === 'doctor' ? 'pharmacist' : 'other',
+    };
+  };
   const staffProfilesById: Record<string, CaseStaffProfile> = {};
   // Base canonical staff rows outrank aliases and login metadata. Department is
   // independent of home branch; Dawaa Alpha is the customer-service team.
   for (const row of input.staffDirectory.filter((r) => r.source !== 'alias' && r.active && r.id)) {
     if (staffProfilesById[row.id!] && row.source !== 'staff') continue;
-    const role = canonicalStaffRole(row.role);
-    const service = isCustomerServiceTeamLabel(row.type) || isCustomerServiceTeamLabel(row.role) || role === 'customer_service_manager';
-    staffProfilesById[row.id!] = {
-      staffId: row.id!, name: row.name || '', homeBranch: row.branch,
-      function: service ? 'customer_service' : role === 'doctor' ? 'pharmacist' : 'other',
-    };
+    staffProfilesById[row.id!] = profileOf(row);
   }
-  return { staffIdentityMap, staffLikeNames, staffProfilesById, productIndex: input.productIndex };
+  // Every base staff row, active or not. Never part of the shared profiles: only a
+  // manager-confirmed source may borrow its own doctor's entry (pipelineBaseInputFor).
+  const staffNamesById: Record<string, string> = {};
+  const confirmableStaffProfilesById: Record<string, CaseStaffProfile> = {};
+  for (const row of input.staffDirectory) {
+    if (row.source !== 'staff' || !row.id || !row.name) continue;
+    staffNamesById[row.id] = row.name;
+    confirmableStaffProfilesById[row.id] = profileOf(row);
+  }
+  return {
+    staffIdentityMap, staffLikeNames, staffProfilesById, staffNamesById, confirmableStaffProfilesById,
+    productIndex: input.productIndex,
+  };
+}
+
+function greetingNameTokens(value: string): string[] {
+  return String(value || '')
+    .trim()
+    .replace(/[أإآ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .replace(/^(?:الدكتور(?=\s)|دكتوره?(?=\s)|د\s*[/.]|د(?=\s))\s*/u, '')
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+/**
+ * A greeting name the directory cannot resolve (inactive account, archived namesake, first name
+ * only) belongs to the source's doctor ONLY when a manager confirmed that doctor for this source
+ * (whatsapp_review_sources.staff_link_confirmed) and every word of the greeting name appears in
+ * that doctor's directory name. A staff_id that came from an invoice seller or a legacy matcher is
+ * never confirmed, so it never promotes a greeting. No fuzzy matching, never a different doctor.
+ */
+export function managerConfirmedIntroStaffId(
+  introducedName: string,
+  managerConfirmedStaffId: string | null | undefined,
+  staffNamesById: Record<string, string> | undefined
+): string | null {
+  if (!managerConfirmedStaffId || !staffNamesById) return null;
+  const directoryName = staffNamesById[managerConfirmedStaffId];
+  if (!directoryName) return null;
+  const greeting = greetingNameTokens(introducedName);
+  const owner = new Set(greetingNameTokens(directoryName));
+  return greeting.length > 0 && greeting.every((token) => owner.has(token)) ? managerConfirmedStaffId : null;
 }
 
 export function resolveCanonicalStaffIdByName(
@@ -133,8 +186,9 @@ function resolveConversationStaffIdentity(
   conversation: Pick<
     BatchConversationInput,
     'rawWhatsAppExportText' | 'trustedConversationStartedAt' | 'customerNameHint'
-  >,
-  context: Pick<SalesIntelligenceRuntimeContext, 'staffIdentityMap' | 'staffLikeNames'>
+  > & Partial<Pick<BatchConversationInput, 'managerConfirmedStaffId'>>,
+  context: Pick<SalesIntelligenceRuntimeContext, 'staffIdentityMap' | 'staffLikeNames'> &
+    Partial<Pick<SalesIntelligenceRuntimeContext, 'staffNamesById'>>
 ): {
   staffIdBySender: Record<string, string>;
   staffIdByIntroductionMessageId: Record<string, string>;
@@ -151,7 +205,9 @@ function resolveConversationStaffIdentity(
   for (const message of messages) {
     const introducedName = extractIntroducedStaffName(message);
     if (!introducedName) continue;
-    const staffId = resolveCanonicalStaffIdByName(introducedName, staffIdentityMap);
+    const staffId =
+      resolveCanonicalStaffIdByName(introducedName, staffIdentityMap) ??
+      managerConfirmedIntroStaffId(introducedName, conversation.managerConfirmedStaffId, context.staffNamesById);
     if (staffId) staffIdByIntroductionMessageId[message.id] = staffId;
   }
 
@@ -245,6 +301,22 @@ export async function prepareSalesIntelligenceConversations(
  * derives its cases from segmentationInputFromPipelineInput(thisValue) and every real run spreads
  * this value, so case ids are structurally identical.
  */
+/**
+ * The shared profiles, plus the manager-confirmed doctor's own profile when a greeting in THIS
+ * conversation was credited to them and the shared map has none (an inactive account). Other
+ * conversations never see that profile.
+ */
+function profilesWithConfirmedDoctor(
+  conversation: PreparedSalesIntelligenceConversation,
+  context: SalesIntelligenceRuntimeContext
+): Record<string, CaseStaffProfile> | undefined {
+  const confirmed = conversation.managerConfirmedStaffId;
+  if (!confirmed || context.staffProfilesById?.[confirmed]) return context.staffProfilesById;
+  if (!Object.values(conversation.staffIdByIntroductionMessageId).includes(confirmed)) return context.staffProfilesById;
+  const profile = context.confirmableStaffProfilesById?.[confirmed];
+  return profile ? { ...(context.staffProfilesById || {}), [confirmed]: profile } : context.staffProfilesById;
+}
+
 export function pipelineBaseInputFor(
   conversation: PreparedSalesIntelligenceConversation,
   context: SalesIntelligenceRuntimeContext
@@ -264,7 +336,7 @@ export function pipelineBaseInputFor(
     knownStaffIds: conversation.knownStaffIds,
     staffIdBySender: conversation.staffIdBySender,
     staffIdByIntroductionMessageId: conversation.staffIdByIntroductionMessageId,
-    staffProfilesById: context.staffProfilesById,
+    staffProfilesById: profilesWithConfirmedDoctor(conversation, context),
     resolveInvoiceStaffIdByName: (name) =>
       resolveCanonicalStaffIdByName(name, context.staffIdentityMap),
     legacyMatchedInvoiceId: conversation.legacyMatchedInvoiceId,
