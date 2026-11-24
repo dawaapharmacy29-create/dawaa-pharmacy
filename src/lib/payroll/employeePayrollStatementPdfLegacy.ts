@@ -74,7 +74,9 @@ function dayLook(d: Day) {
   if (/time_off|annual_leave|unpaid_leave/.test(r)) return { tone: 'blue', tag: /unpaid/.test(r) ? 'إجازة بدون أجر' : 'إجازة / إذن' };
   if (r === 'off_day') return { tone: 'grey', tag: 'راحة' };
   if (r === 'employment_ended' || r === 'no_schedule' || r === 'flexible_no_activity') return { tone: 'grey', tag: r === 'employment_ended' ? '—' : 'بدون شيفت' };
-  if (d.missing_punch || /missing/.test(r)) return { tone: 'amber', tag: 'بصمة ناقصة' };
+  // missing_punch is also set on many early-leave review days that have both punches, so only a day with one punch
+  // and not the other (or a missing-checkout resolution) is a missing punch.
+  if (Boolean(d.first_in) !== Boolean(d.last_out) || /missing_check/.test(r)) return { tone: 'amber', tag: 'بصمة ناقصة' };
   if (pending || /needs_event_review|invalid/.test(r)) return { tone: 'amber', tag: 'تحت المراجعة' };
   if (late > 0) return { tone: 'amber', tag: 'تأخير ' + ar(late) + 'د' };
   if (early > 0) return { tone: 'amber', tag: 'خروج بدري ' + ar(early) + 'د' };
