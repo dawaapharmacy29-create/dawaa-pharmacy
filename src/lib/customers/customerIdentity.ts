@@ -140,7 +140,12 @@ export function customerLabelWithoutCourierContact(value: unknown): string {
 
 /** Remove explicit price notes from contact labels before extracting identity. */
 export function customerLabelWithoutPriceNotes(value: unknown): string {
-  return customerIdentityText(value).replace(/(^|\s)p\.\s*[0-9٠-٩۰-۹]+(?=\s|$)/gi, '$1').replace(/\s+/g, ' ').trim();
+  // "p.150", "P.250", "p550" and "(P 450)" are the agreed price limit, never the customer code.
+  return customerIdentityText(value)
+    .replace(/\(\s*p\s*\.?\s*[0-9٠-٩۰-۹]+\s*\)/gi, ' ')
+    .replace(/(^|[\s_(])p\s*\.?\s*[0-9٠-٩۰-۹]+(?=[\s_)]|$)/gi, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /** Extract a trailing Dawaa customer code from WhatsApp contact labels; phone-like suffixes are rejected. */

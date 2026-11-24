@@ -84,6 +84,8 @@ type ParsedPrefix = {
 const STAFF_INTRO_PATTERNS = [
   /(?:مع\s+حضرتك|معاك(?:ي)?)\s+(?:(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*)?([^\n،,.]+?)\s+من\s+فرع\s+(?:شكري|الشامي)(?=[\s،,.!?؟]|$)/i,
   /مع\s+حضرتك\s+(?:(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*)?([^\n،,.]+?)\s+من\s+(?:خدمة\s*(?:ال)?عملاء(?:\s+(?:صيدليات\s+)?دواء)?|صيدليات\s+دواء)/i,
+  // Branch template: "مع حضرتك د علا اقدر اساعد حضرتك ازاي" — the doctor may also omit the title.
+  /(?:مع\s+حضرتك|معاك(?:ي)?)\s+(?:(?:دكتور(?:ة)?|دكتوره|د\.?\s*\/?)\s*)?([^\n،,.]+?)\s+(?:[اأإ]?قدر|[اأ]ساعد|نقدر|نساعد)(?=[\s،,.!?؟]|$)/i,
   /مع حضرتك\s+(?:دكتور(?:ة)?\s+|دكتوره\s+|د(?:[./-]\s*|\s+))([^\n،,.]+)/i,
   /معاك(?:ي)?\s+(?:دكتور(?:ة)?\s+|دكتوره\s+|د(?:[./-]\s*|\s+))([^\n،,.]+)/i,
   /(?:د\.?|دكتور(?:ة)?|دكتوره)\s+([^\n،,.]+)\s+من\s+(?:خدمة (?:ال)?عملاء|صيدليات)\s+دواء/i,
@@ -514,11 +516,32 @@ export function isCustomerServiceIntroduction(message: Pick<WhatsAppParsedMessag
   return Boolean(extractIntroducedStaffName(message)) && /من\s+خدمة\s*(?:ال)?عملاء/u.test(message.text);
 }
 
+/** The greeting phrase that follows the doctor's name ("اقدر اساعد حضرتك ازاي 💊🥼؟"). */
+const STAFF_INTRO_TAIL_RX =
+  /(?:^|\s)(?:[اأإ]?قدر|[اأ]ساعد|نقدر|نساعد|[اإ]زا[يى]|تحت\s+[اأ]مر|(?:في|فى|ف)\s+خدم[ةه]|يسعدن[يى]|من\s+(?:فرع|خدم[ةه]|صيدليات))(?=\s|[؟?!.،,]|$)[\s\S]*$/u;
+
+/**
+ * Cuts an introduced name down to the name itself: drops the greeting tail, emoji and
+ * punctuation, and refuses anything longer than a short personal name.
+ */
+export function cleanIntroducedStaffName(raw: unknown): string | null {
+  const name = String(raw ?? '')
+    .replace(STAFF_INTRO_TAIL_RX, '')
+    .replace(/[^\p{L}\p{M}\s/.]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!name || !/\p{L}/u.test(name)) return null;
+  const words = name.replace(/^(?:دكتور[ةه]?|د)\s*[./]?\s*/u, '').split(' ').filter(Boolean);
+  if (!words.length || words.length > 3) return null;
+  return name;
+}
+
 export function extractIntroducedStaffName(message: Pick<WhatsAppParsedMessage, 'direction' | 'text'>): string | null {
   if (message.direction !== 'outbound') return null;
   for (const pattern of STAFF_INTRO_PATTERNS) {
     const match = message.text.match(pattern);
-    if (match?.[1]) return match[1].trim().replace(/\s+/g, ' ');
+    const name = cleanIntroducedStaffName(match?.[1]);
+    if (name) return name;
   }
   return null;
 }

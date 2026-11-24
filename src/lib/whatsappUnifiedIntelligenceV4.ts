@@ -307,11 +307,47 @@ function amountOf(row: CustomerInvoiceReadRow) {
   return null;
 }
 
-const rowDate = (row: CustomerInvoiceReadRow) => String(row.invoice_date || row.sale_date || '').trim() || null;
+const rowDate = (row: CustomerInvoiceReadRow) => String(row.invoice_datetime || row.invoice_date || row.sale_date || '').trim() || null;
 const rowBranch = (row: CustomerInvoiceReadRow) => String(row.branch_name || row.branch || '').trim() || null;
 const rowInvoiceNumber = (row: CustomerInvoiceReadRow) => String(row.invoice_number || row.invoice_no || '').trim() || null;
 const normalizeBranch = (v?: string | null) => normalizeArabic(v).replace(/^فرع\s+/i, '');
 const DAY_MS = 86_400_000;
+
+const HOUR_MS = 3_600_000;
+const cairoParts = (ms: number) =>
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  }).format(new Date(ms));
+const cairoDay = (ms: number) => cairoParts(ms).slice(0, 10);
+
+export type InvoiceTimingVerdict = 'ok' | 'before_chat' | 'too_late' | 'unknown';
+
+/**
+ * A conversation can only produce an invoice issued after it started (two hours of slack for
+ * clock drift) and no later than three days after it ended. Invoices stored as a bare day are
+ * compared by Cairo calendar day, never as midnight.
+ */
+export function invoiceTimingVerdict(
+  row: CustomerInvoiceReadRow,
+  session: Pick<WhatsAppConversationSession, 'startedAt' | 'endedAt'>
+): InvoiceTimingVerdict {
+  const raw = String(row.invoice_datetime || row.invoice_date || row.sale_date || '').trim();
+  const ts = raw ? new Date(raw).getTime() : NaN;
+  const start = session.startedAt?.getTime?.();
+  const end = session.endedAt?.getTime?.();
+  if (!Number.isFinite(ts) || !Number.isFinite(start) || !Number.isFinite(end)) return 'unknown';
+  const bareDay = /^\d{4}-\d{2}-\d{2}$/.test(raw) || cairoParts(ts).endsWith('00:00:00');
+  if (bareDay) {
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : cairoDay(ts);
+    if (day < cairoDay(start)) return 'before_chat';
+    if (day > cairoDay(end + 3 * DAY_MS)) return 'too_late';
+    return 'ok';
+  }
+  if (ts < start - 2 * HOUR_MS) return 'before_chat';
+  if (ts > end + 3 * DAY_MS) return 'too_late';
+  return 'ok';
+}
 
 function extractInvoiceHints(session: WhatsAppConversationSession) {
   const text = allText(session);
@@ -372,9 +408,19 @@ export async function verifySessionAgainstInvoices(session: WhatsAppConversation
     return { status: 'needs_review', bestCandidate: null, candidates: [], verificationConfidence: 0, revenue: null, reason: 'هوية العميل غير كافية لمطابقة الفاتورة.', warnings: ['أدخل كود/هاتف/اسم العميل قبل الاعتماد.'] };
   }
   const result = await readCustomerInvoices({ customerId: lookup.customerId, customerCode: lookup.customerCode, customerPhone: lookup.customerPhone, customerName: lookup.customerName });
-  const candidates = result.rows.map((row) => invoiceCandidate(row, session, lookup, result.matchedStrategies)).filter((x) => x.score > 0).sort((a, b) => b.score - a.score).slice(0, 8);
+  const timed = result.rows.map((row) => ({ row, timing: invoiceTimingVerdict(row, session) }));
+  const outOfWindow = timed.filter((x) => x.timing === 'before_chat' || x.timing === 'too_late').length;
+  const candidates = timed
+    .filter((x) => x.timing === 'ok' || x.timing === 'unknown')
+    .map((x) => invoiceCandidate(x.row, session, lookup, result.matchedStrategies))
+    .filter((x) => x.score > 0).sort((a, b) => b.score - a.score).slice(0, 8);
   const best = candidates[0] || null;
-  if (!best) return { status: 'not_found', bestCandidate: null, candidates, verificationConfidence: .75, revenue: null, reason: 'لم توجد فاتورة مرتبطة بقوة كافية.', warnings: result.warnings };
+  if (!best) {
+    const reason = outOfWindow
+      ? 'فواتير العميل كلها قبل بداية المحادثة أو بعد نهايتها بأكتر من 3 أيام، فمش نتيجة المحادثة دي.'
+      : 'لم توجد فاتورة مرتبطة بقوة كافية.';
+    return { status: 'not_found', bestCandidate: null, candidates, verificationConfidence: .75, revenue: null, reason, warnings: result.warnings };
+  }
   const expectedBranch = normalizeBranch(lookup.branch || '');
   const candidateBranch = normalizeBranch(best.branch || '');
   if (expectedBranch && candidateBranch && expectedBranch !== candidateBranch) {

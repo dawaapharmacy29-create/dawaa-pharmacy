@@ -37,7 +37,13 @@ export function extractCustomerHintFromExportFileName(fileName: string): WhatsAp
   const codeMatch = hasPhoneLikeTrailingDigits(normalizedDigits)
     ? null
     : normalizedDigits.match(/(?:^|\s|[-–—])(\d{2,8})\s*$/);
-  const codeHint = codeMatch?.[1] || null;
+  // Branch labels often put the code mid-name ("9334 دعاء عودة", "نانسي الامام1397",
+  // "هاجر 11393 (مفيش خصم)"). Without a trailing code, one unambiguous 3–6 digit number is the code;
+  // longer runs are phones and two different numbers are left for review.
+  const innerCodes = codeMatch
+    ? []
+    : [...new Set([...normalizedDigits.matchAll(/(?<!\d)(\d{3,6})(?!\d)/g)].map((m) => m[1]))];
+  const codeHint = codeMatch?.[1] || (innerCodes.length === 1 ? innerCodes[0] : null);
 
   if (codeMatch) {
     const rawTail = value.match(/(?:^|\s|[-–—])([٠-٩۰-۹\d]{2,8})\s*$/);
