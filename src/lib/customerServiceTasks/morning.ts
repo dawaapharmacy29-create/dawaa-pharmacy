@@ -226,10 +226,14 @@ export async function saveTransferCheck(input: {
   if (error) fail(error, 'تعذّر الحفظ');
 }
 
-export async function buildUncodedNoteTasks(): Promise<number> {
+export type UncodedBuild = { added: number; carried: number; dropped: number };
+
+/** Adds the uncoded customers from yesterday's notes, carries unfinished new customers over, drops ones already welcomed. */
+export async function buildUncodedNoteTasks(): Promise<UncodedBuild> {
   const { data, error } = await supabase.rpc('dawaa_cs_uncoded_note_tasks_build_v1');
   if (error) fail(error, 'تعذّر تجهيز العملاء اللي مش متكودين');
-  return num((data as { added?: number } | null)?.added);
+  const d = (data ?? {}) as Partial<UncodedBuild>;
+  return { added: num(d.added), carried: num(d.carried), dropped: num(d.dropped) };
 }
 
 // ---- الربط التلقائي ----

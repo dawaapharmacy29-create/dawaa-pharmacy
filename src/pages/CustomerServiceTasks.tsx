@@ -34,7 +34,13 @@ import {
 import { buildTaskWorkbook, readTaskWorkbook } from '@/lib/customerServiceTasks/sheet';
 import CsCompetitionTab from '@/components/customerService/CsCompetitionTab';
 import MorningChecklist from '@/components/customerService/MorningChecklist';
+import MorningFilesTab from '@/components/customerService/MorningFilesTab';
 import MorningPurchasesTab from '@/components/customerService/MorningPurchasesTab';
+import {
+  loadOnboarding,
+  submitOnboarding,
+  type OnboardingUpdate,
+} from '@/lib/customerServiceTasks/onboarding';
 import MorningTransfersTab from '@/components/customerService/MorningTransfersTab';
 import DoctorEntryErrorsTab from '@/components/customerService/DoctorEntryErrorsTab';
 import { buildUncodedNoteTasks } from '@/lib/customerServiceTasks/morning';
@@ -44,8 +50,16 @@ import { normalizeRole } from '@/lib/core/permissionSystem';
 // شيت مهام خدمة العملاء اليومي: كل واحد في الفريق بيحمّل مهامه الصبح، يشتغل على الإكسيل، ويرفعه آخر اليوم.
 // اللي يفتح الصفحة لأي حد تاني هو مفتاح customer_service_daily_tasks من صلاحيات الحسابات، والإدارة بمفتاح _manage.
 
-type PageTab = 'mine' | 'purchases' | 'transfers' | 'team' | 'competition' | 'errors';
-const PAGE_TABS: PageTab[] = ['mine', 'purchases', 'transfers', 'team', 'competition', 'errors'];
+type PageTab = 'mine' | 'files' | 'purchases' | 'transfers' | 'team' | 'competition' | 'errors';
+const PAGE_TABS: PageTab[] = [
+  'mine',
+  'files',
+  'purchases',
+  'transfers',
+  'team',
+  'competition',
+  'errors',
+];
 
 function cycleStart(today: string): string {
   const [y, m, d] = today.split('-').map(Number);
@@ -79,6 +93,7 @@ function LoadError({ message, onRetry }: { message: string; onRetry: () => void 
 
 type Pending = {
   updates: TaskUpdate[];
+  onboarding: OnboardingUpdate[];
   cases: DoctorCase[];
   problems: SheetProblem[];
   fileName: string;
@@ -130,6 +145,12 @@ export default function CustomerServiceTasks() {
         <h1 className="text-xl font-black">مهام خدمة العملاء اليومية</h1>
         <div className="mr-auto flex flex-wrap gap-2">
           <button
+            className={tab === 'files' ? 'btn-primary' : 'btn-secondary'}
+            onClick={() => setTab('files')}
+          >
+            ملفات الصبح
+          </button>
+          <button
             className={tab === 'mine' ? 'btn-primary' : 'btn-secondary'}
             onClick={() => setTab('mine')}
           >
@@ -173,6 +194,8 @@ export default function CustomerServiceTasks() {
       </div>
       {tab === 'competition' ? (
         <CsCompetitionTab />
+      ) : tab === 'files' ? (
+        <MorningFilesTab today={today} />
       ) : tab === 'purchases' ? (
         <MorningPurchasesTab />
       ) : tab === 'transfers' ? (
@@ -238,9 +261,16 @@ function SheetTab({ today, settings }: { today: string; settings: TaskSettings }
       // العملاء اللي اتكتبوا في ملاحظات فواتير امبارح من غير كود (أغلبهم الشامي) بيدخلوا الشيت بعد البناء.
       const uncoded = await buildUncodedNoteTasks().catch((e) => {
         toast.warning(e instanceof Error ? e.message : String(e));
-        return 0;
+        return null;
       });
-      if (uncoded) toast.success(`${uncoded} عميل مش متكود من ملاحظات الفواتير`);
+      if (uncoded) {
+        const parts = [
+          uncoded.added ? `${uncoded.added} عميل مش متكود من ملاحظات الفواتير` : '',
+          uncoded.carried ? `${uncoded.carried} عميل جديد لسه ناقصه خطوة من امبارح` : '',
+          uncoded.dropped ? `${uncoded.dropped} اتشالوا عشان اترحب بيهم قبل كده` : '',
+        ].filter(Boolean);
+        if (parts.length) toast.success(parts.join(' · '));
+      }
       const added = Object.values(r.counts ?? {}).reduce((s, n) => s + Number(n || 0), 0);
       if (!r.yesterday_invoices)
         toast.warning('فواتير امبارح لسه مترفعتش، اتجهز اللي ينفع بس. جرّب تاني بعد رفع المبيعات.');
@@ -260,7 +290,14 @@ function SheetTab({ today, settings }: { today: string; settings: TaskSettings }
     }
     setBusy('download');
     try {
-      const blob = await buildTaskWorkbook(tasks, today, whoName);
+      const onboarding = await loadOnboarding(
+        today,
+        all ? { all: true } : { staffAccountId: who }
+      ).catch((e) => {
+        toast.warning(`شيت العملاء الجداد ماتحملش: ${e instanceof Error ? e.message : String(e)}`);
+        return [];
+      });
+      const blob = await buildTaskWorkbook(tasks, today, whoName, onboarding);
       downloadBlob(blob, `مهام خدمة العملاء - ${whoName} - ${today}.xlsx`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
@@ -287,17 +324,35 @@ function SheetTab({ today, settings }: { today: string; settings: TaskSettings }
     if (!pending) return;
     setBusy('submit');
     try {
-      const r = await submitSheet(pending.updates, pending.cases);
-      toast.success(
-        `اتسجل ${r.updated} نتيجة و${r.added} حالة دكتور${r.coupons ? ` و${r.coupons} كوبون (اعمله على كود العميل في برنامج البيع)` : ''}`
-      );
-      if (r.skipped?.length)
-        toast.warning(
-          `${r.skipped.length} صف اتساب: ${r.skipped
-            .slice(0, 3)
-            .map((s) => s.why)
-            .join('، ')}`
+      if (pending.onboarding.length) {
+        const o = await submitOnboarding(pending.onboarding);
+        toast.success(
+          `العملاء الجداد: ${o.done} خلصوا${o.partial ? ` و${o.partial} ناقصهم خطوة وهيرجعوا بكرة` : ''}`
         );
+        // تنبيه الكود اللي طلع لعميل تاني بيفضل ظاهر لحد ما تقفله، عشان يتصلح على بي كونكت.
+        for (const w of o.warnings ?? [])
+          toast.warning(`${w.name ? `${w.name}: ` : ''}${w.why}`, { duration: Infinity });
+        if (o.skipped?.length)
+          toast.warning(
+            `${o.skipped.length} عميل جديد اتساب: ${o.skipped
+              .slice(0, 3)
+              .map((s) => `${s.name ? `${s.name} ` : ''}(${s.why})`)
+              .join('، ')}`
+          );
+      }
+      if (pending.updates.length || pending.cases.length) {
+        const r = await submitSheet(pending.updates, pending.cases);
+        toast.success(
+          `اتسجل ${r.updated} نتيجة و${r.added} حالة دكتور${r.coupons ? ` و${r.coupons} كوبون (اعمله على كود العميل في برنامج البيع)` : ''}`
+        );
+        if (r.skipped?.length)
+          toast.warning(
+            `${r.skipped.length} صف اتساب: ${r.skipped
+              .slice(0, 3)
+              .map((s) => s.why)
+              .join('، ')}`
+          );
+      }
       setPending(null);
       await refresh();
     } catch (e) {
@@ -391,7 +446,12 @@ function SheetTab({ today, settings }: { today: string; settings: TaskSettings }
       {pending ? (
         <Panel>
           <SectionTitle title={`مراجعة قبل الرفع: ${pending.fileName}`} />
-          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <MiniBox
+              label="عملاء جداد اتشغل عليهم"
+              value={String(pending.onboarding.length)}
+              tone="green"
+            />
             <MiniBox label="نتايج مكالمات" value={String(pending.updates.length)} tone="green" />
             <MiniBox label="حالات دكاترة" value={String(pending.cases.length)} tone="blue" />
             <MiniBox
@@ -412,7 +472,10 @@ function SheetTab({ today, settings }: { today: string; settings: TaskSettings }
           <div className="mt-3 flex gap-2">
             <button
               className="btn-primary inline-flex items-center gap-1"
-              disabled={!!busy || (!pending.updates.length && !pending.cases.length)}
+              disabled={
+                !!busy ||
+                (!pending.updates.length && !pending.cases.length && !pending.onboarding.length)
+              }
               onClick={() => void confirmUpload()}
             >
               {busy === 'submit' ? (

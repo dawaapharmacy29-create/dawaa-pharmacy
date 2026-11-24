@@ -18,6 +18,19 @@ import {
   whatsappNumber,
   type SheetSectionKey,
 } from './tasks';
+import {
+  ONBOARDING_SHEET,
+  ONBOARD_COLUMNS,
+  ONBOARD_ORIGINAL_CODE,
+  PROBLEM_CHOICES,
+  SAVED_CHOICES,
+  WELCOME_CHOICES,
+  onboardingLeft,
+  readOnboardingSheet,
+  welcomeLabel,
+  welcomeLink,
+  type OnboardingTask,
+} from './onboarding';
 
 // The daily Excel sheet: built from the day's tasks, filled in Excel, and read back on upload.
 //
@@ -150,15 +163,378 @@ function lastFollowup(t: DailyTask): string {
 const fill = (argb: string) => ({ type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb } });
 const RTL = { readingOrder: 'rtl' as const, vertical: 'middle' as const };
 
-export async function buildTaskWorkbook(
-  tasks: DailyTask[],
+// ─── «العملاء الجداد»: الشيت الأول ─────────────────────────────────────────────────────────────────────────────
+// كل صف عميل واحد بكل اللي البنت محتاجاه عشان تكوّده وتسجّله وترحّب بيه من غير ما تفتح حاجة تانية: الفاتورة والدكتور
+// واشترى إيه والملاحظة زي ما اتكتبت، ولينك واتساب برسالة الترحيب جاهزة. الخطوات التلاتة اختيارات، وعمود «الحالة» بيقول
+// اللي ناقص، والصف بيخضر لما يخلص. اللي ماخلصش بيرجع بكرة باللي اتعمل فيه.
+
+const ONB_HEADER_ROW = 5;
+const ONB_UNCODED_FILL = 'FFD9F2F7';
+const ONB_NEW_FILL = 'FFDFF3E4';
+const LOCKED_FILL = 'FFEFF3F6';
+
+function hhmm(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return new Intl.DateTimeFormat('ar-EG', {
+    timeZone: 'Africa/Cairo',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(d);
+}
+
+function itemsText(items: OnboardingTask['items']): string {
+  if (!items?.length) return '';
+  return items
+    .slice(0, 4)
+    .map((i) => `${i.name}${i.qty && Number(i.qty) !== 1 ? ` ×${Number(i.qty)}` : ''}`)
+    .join('\n');
+}
+
+/** What was done on earlier days, what is left, and whether the customers file confirmed the code. */
+export function previousSteps(t: OnboardingTask): string {
+  const o = t.onboard;
+  if (!t.carried_from_date && !o) return '';
+  const done: string[] = [];
+  if (o?.code) done.push(`اتكود ${o.code}`);
+  if (o?.saved) done.push('اتسجل على التليفون');
+  if (o?.welcome === 'sent') done.push('الترحيب اتبعت');
+  const left = onboardingLeft(t.source, {
+    code: o?.code ?? (t.source === 'new_customer' ? t.customer_code : null),
+    saved: o?.saved,
+    welcome: o?.welcome,
+  });
+  const check =
+    t.code_check?.status === 'match'
+      ? '\n✔ الكود اتأكد من ملف العملاء'
+      : t.code_check?.status === 'other_phone'
+        ? `\n⚠ الكود في ملف العملاء باسم ${t.code_check.name ?? '—'} برقم تاني`
+        : o?.code
+          ? '\nالكود لسه مش في ملف العملاء'
+          : '';
+  const since = t.carried_from_date
+    ? `من يوم ${ddmm(t.carried_from_date)} · اليوم ${t.attempt_no}\n`
+    : '';
+  return `${since}${done.length ? `✔ ${done.join(' · ')}` : 'مااتعملش حاجة'}${left.length ? `\nناقص: ${left.join(' · ')}` : ''}${check}`;
+}
+
+function addOnboardingSheet(
+  wb: import('exceljs').Workbook,
+  rows: OnboardingTask[],
   day: string,
   owner: string
+) {
+  const branches = [...new Set(rows.map((t) => t.branch))];
+  const mixed = branches.length > 1;
+  const columns: Column[] = [
+    { key: 'id', header: 'id', width: 6 },
+    { key: 'orig', header: ONBOARD_ORIGINAL_CODE, width: 6 },
+    { key: 'n', header: '#', width: 5 },
+    ...(mixed ? [{ key: 'branch', header: 'الفرع', width: 9 }] : []),
+    { key: 'name', header: 'الاسم', width: 22 },
+    { key: 'phone', header: 'الموبايل', width: 14 },
+    { key: 'wa', header: 'واتساب بالترحيب', width: 14 },
+    { key: 'invoice', header: 'الفاتورة', width: 15 },
+    { key: 'seller', header: 'الدكتور', width: 13 },
+    { key: 'items', header: 'اشترى إيه', width: 30 },
+    { key: 'note', header: 'الملاحظة زي ما اتكتبت', width: 30 },
+    { key: 'before', header: 'اللي اتعمل قبل كده', width: 24 },
+    { key: 'code', header: ONBOARD_COLUMNS.code, width: 14, answer: true },
+    { key: 'contact', header: 'يتسجل على التليفون باسم', width: 22 },
+    { key: 'saved', header: ONBOARD_COLUMNS.saved, width: 14, answer: true },
+    { key: 'welcome', header: ONBOARD_COLUMNS.welcome, width: 15, answer: true },
+    { key: 'problem', header: ONBOARD_COLUMNS.problem, width: 22, answer: true },
+    { key: 'remark', header: ONBOARD_COLUMNS.note, width: 22, answer: true },
+    { key: 'state', header: 'الحالة', width: 22 },
+  ];
+  const col = (key: string) => columns.findIndex((c) => c.key === key) + 1;
+  const last = columns.length;
+  const ws = wb.addWorksheet(ONBOARDING_SHEET, {
+    views: [{ rightToLeft: true, state: 'frozen', ySplit: ONB_HEADER_ROW, xSplit: col('name') }],
+    pageSetup: {
+      orientation: 'landscape',
+      fitToPage: true,
+      fitToWidth: 1,
+      fitToHeight: 0,
+      paperSize: 9,
+      printTitlesRow: `4:${ONB_HEADER_ROW}`,
+      margins: { left: 0.3, right: 0.3, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 },
+    },
+  });
+  columns.forEach((c, i) => {
+    ws.getColumn(i + 1).width = c.width;
+  });
+  ws.getColumn(1).hidden = true;
+  ws.getColumn(col('orig')).hidden = true;
+  const letter = (key: string) => ws.getColumn(col(key)).letter;
+  const firstAnswer = col('code');
+
+  const band = (
+    r: number,
+    from: number,
+    to: number,
+    value: string,
+    o: { size?: number; bold?: boolean; fill?: string; color?: string; align?: 'right' | 'center' }
+  ) => {
+    if (to > from) ws.mergeCells(r, from, r, to);
+    const cell = ws.getCell(r, from);
+    cell.value = value;
+    cell.font = { bold: o.bold ?? false, size: o.size ?? 11, color: { argb: o.color ?? INK } };
+    cell.alignment = { ...RTL, horizontal: o.align ?? 'right', wrapText: true, indent: o.align ? 0 : 1 };
+    if (o.fill) cell.fill = fill(o.fill);
+  };
+
+  const uncoded = rows.filter((t) => t.source === 'uncoded_note');
+  const coded = rows.filter((t) => t.source !== 'uncoded_note');
+  const branchText = mixed ? 'الفرعين' : (branches[0] ?? '');
+  band(1, 2, last, `العملاء الجداد  ·  ${owner}  ·  ${branchText}`, {
+    size: 16,
+    bold: true,
+    fill: TEAL,
+    color: 'FFFFFFFF',
+  });
+  ws.getRow(1).height = 32;
+  band(
+    2,
+    2,
+    last,
+    `${dayTitle(day)}  ·  ${rows.length} عميل: ${uncoded.length} مش متكود و${coded.length} متكود  ·  ابدأ بدول قبل المكالمات`,
+    { size: 12, bold: true, fill: TEAL_SOFT, color: TEAL_DARK }
+  );
+  ws.getRow(2).height = 24;
+  band(
+    3,
+    2,
+    last,
+    'الخطوات:   ① كوّده على بي كونكت واكتب الكود    ② سجّله على تليفون الفرع بالاسم اللي في العمود    ③ دوس «افتح واتساب» وابعت الرسالة    ④ اختار من السهم ▾ في كل خطوة',
+    { color: 'FF374151', fill: 'FFF8FAFC' }
+  );
+  ws.getRow(3).height = 22;
+  band(4, 2, firstAnswer - 1, 'بيانات العميل والفاتورة — للقراية بس', {
+    bold: true,
+    fill: TEAL_DARK,
+    color: 'FFFFFFFF',
+    align: 'center',
+  });
+  band(4, firstAnswer, last, '✍  الخطوات — اختار من السهم ▾', {
+    bold: true,
+    fill: GOLD,
+    color: GOLD_INK,
+    align: 'center',
+  });
+  ws.getRow(4).height = 22;
+  const header = ws.getRow(ONB_HEADER_ROW);
+  columns.forEach((c, i) => {
+    const cell = header.getCell(i + 1);
+    cell.value = c.header;
+    cell.font = { bold: true, size: 11, color: { argb: c.answer ? GOLD_INK : 'FFFFFFFF' } };
+    cell.fill = fill(c.answer ? GOLD_SOFT : TEAL);
+    cell.alignment = { ...RTL, horizontal: 'center', wrapText: true };
+    cell.border = BORDER;
+  });
+  header.height = 34;
+
+  const lists: Record<string, string> = {
+    saved: listOf(SAVED_CHOICES.map((c) => c.label)),
+    welcome: listOf(WELCOME_CHOICES.map((c) => c.label)),
+    problem: listOf(PROBLEM_CHOICES.map((c) => c.label)),
+  };
+  const prompts: Record<string, string> = {
+    code: 'بعد ما تكوّده على بي كونكت اكتب الكود هنا (أرقام بس)',
+    saved: 'سجّلته على تليفون الفرع؟',
+    welcome: 'بعت رسالة الترحيب؟ لو الرقم مالوش واتساب اختار «مالوش واتساب»',
+    problem: 'سيبها فاضية لو كله تمام. لو متكود قبل كده اكتب كوده القديم في ①',
+    remark: 'أي حاجة مهمة في سطر',
+  };
+
+  let r = ONB_HEADER_ROW;
+  let n = 0;
+  const dataRows: number[] = [];
+  const blocks: Array<{ title: string; todo: string; fill: string; list: OnboardingTask[] }> = [
+    {
+      title: 'مش متكودين — اسمهم ورقمهم في ملاحظة الفاتورة',
+      todo: 'كوّده على بي كونكت الأول، وبعدين التليفون والترحيب',
+      fill: ONB_UNCODED_FILL,
+      list: uncoded,
+    },
+    {
+      title: 'عملاء جداد متكودين — أول مرة يشتروا امبارح',
+      todo: 'الكود موجود: سجّله على التليفون وابعت الترحيب',
+      fill: ONB_NEW_FILL,
+      list: coded,
+    },
+  ];
+  blocks
+    .filter((b) => b.list.length)
+    .forEach((b, bi) => {
+      r += 1;
+      band(r, 2, last, `${bi + 1}.  ${b.title}  (${b.list.length})     ←  ${b.todo}`, {
+        bold: true,
+        size: 12,
+        fill: b.fill,
+      });
+      ws.getRow(r).height = 24;
+      for (const t of b.list) {
+        r += 1;
+        n += 1;
+        dataRows.push(r);
+        const row = ws.getRow(r);
+        const o = t.onboard ?? {};
+        const name = cleanCustomerName(t.customer_name, t.customer_code);
+        const link = welcomeLink(t.customer_phone, t.welcome);
+        const isNew = t.source !== 'uncoded_note';
+        const codeValue = o.code ?? (isNew ? (t.customer_code ?? '') : '');
+        const tag = t.branch.includes('الشامي') ? 'ش' : 'ك';
+        const invoiceText = [
+          t.invoice ? `رقم ${t.invoice}` : '',
+          [hhmm(t.invoice_at), t.value != null ? `${Math.round(Number(t.value))} ج` : '']
+            .filter(Boolean)
+            .join(' · '),
+        ]
+          .filter(Boolean)
+          .join('\n');
+        const left = onboardingLeft(t.source, { code: codeValue, saved: o.saved, welcome: o.welcome });
+        const R = (k: string) => `${letter(k)}${r}`;
+        const welcomeOk = `OR(${R('welcome')}="اتبعتت",${R('welcome')}="مالوش واتساب")`;
+        const values: Record<string, unknown> = {
+          id: t.id,
+          orig: codeValue,
+          n,
+          branch: t.branch.replace('فرع ', ''),
+          name,
+          phone: t.customer_phone ? localPhone(t.customer_phone) : 'مفيش رقم',
+          wa: link ? { text: 'افتح واتساب ✉', hyperlink: link } : 'مفيش واتساب',
+          invoice: invoiceText,
+          seller: t.seller ?? '',
+          items: itemsText(t.items),
+          note: t.note ?? '',
+          before: previousSteps(t),
+          code: codeValue,
+          contact: {
+            formula: `TRIM(${R('name')}&" "&${R('code')}&" ${tag}")`,
+            result: `${name} ${codeValue} ${tag}`.replace(/\s+/g, ' ').trim(),
+          },
+          saved: o.saved ? 'اتسجل' : '',
+          welcome: o.welcome ? welcomeLabel(o.welcome) : '',
+          problem: '',
+          remark: '',
+          state: {
+            formula: `IF(${R('problem')}<>"","✔ اتقفل: "&${R('problem')},IF(AND(${R('code')}<>"",${R('saved')}="اتسجل",${welcomeOk}),"✔ خلص","ناقص: "&IF(${R('code')}="","الكود · ","")&IF(${R('saved')}<>"اتسجل","التليفون · ","")&IF(${welcomeOk},"","الترحيب")))`,
+            result: left.length ? `ناقص: ${left.join(' · ')}` : '✔ خلص',
+          },
+        };
+        columns.forEach((c, i) => {
+          const cell = row.getCell(i + 1);
+          cell.value = values[c.key] as never;
+          cell.border = BORDER;
+          cell.font = { size: 11, color: { argb: c.answer ? INK : 'FF374151' } };
+          cell.alignment = {
+            ...RTL,
+            horizontal: c.answer || c.key === 'state' ? 'center' : 'right',
+            wrapText: true,
+          };
+          cell.fill = fill(c.answer ? EDIT_FILL : n % 2 ? 'FFFFFFFF' : 'FFF7F9FA');
+          if (lists[c.key] || c.key === 'code' || c.key === 'remark')
+            cell.dataValidation = {
+              ...(lists[c.key]
+                ? {
+                    type: 'list' as const,
+                    allowBlank: true,
+                    formulae: [lists[c.key]],
+                    showErrorMessage: true,
+                    errorStyle: 'stop' as const,
+                    errorTitle: 'اختار من القايمة',
+                    error: 'دوس على السهم ▾ واختار من القايمة',
+                  }
+                : { type: 'any' as const, allowBlank: true }),
+              showInputMessage: true,
+              promptTitle: c.header,
+              prompt: prompts[c.key],
+            } as never;
+        });
+        row.getCell(col('n')).alignment = { ...RTL, horizontal: 'center' };
+        row.getCell(col('n')).font = { size: 10, color: { argb: 'FF6B7280' } };
+        row.getCell(col('name')).font = { bold: true, size: 12, color: { argb: INK } };
+        row.getCell(col('phone')).alignment = { vertical: 'middle', horizontal: 'center' };
+        row.getCell(col('wa')).alignment = { ...RTL, horizontal: 'center' };
+        if (link)
+          row.getCell(col('wa')).font = {
+            color: { argb: 'FF0B7A3B' },
+            underline: true,
+            bold: true,
+            size: 11,
+          };
+        row.getCell(col('code')).numFmt = '@';
+        if (isNew && t.customer_code && !o.code) {
+          row.getCell(col('code')).fill = fill(LOCKED_FILL);
+          row.getCell(col('code')).font = { size: 11, bold: true, color: { argb: 'FF6B7280' } };
+        }
+        row.getCell(col('contact')).font = { size: 11, bold: true, color: { argb: TEAL_DARK } };
+        row.getCell(col('state')).font = { size: 11, bold: true, color: { argb: 'FF9A3412' } };
+        row.getCell(firstAnswer).border = {
+          ...BORDER,
+          right: { style: 'medium', color: { argb: GOLD } },
+        };
+        const lines = Math.max(
+          ...['items', 'note', 'before', 'invoice'].map((k) => {
+            const v = String(values[k] ?? '');
+            return v.split('\n').length + Math.floor(v.length / 34);
+          }),
+          1
+        );
+        row.height = Math.min(110, Math.max(34, 15 * lines + 6));
+      }
+    });
+
+  if (dataRows.length) {
+    const from = dataRows[0];
+    const to = dataRows[dataRows.length - 1];
+    const st = letter('state');
+    ws.addConditionalFormatting({
+      ref: `${ws.getColumn(2).letter}${from}:${ws.getColumn(last).letter}${to}`,
+      rules: [
+        {
+          type: 'expression',
+          priority: 1,
+          formulae: [`LEFT(${st}${from},1)="✔"`],
+          style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: DONE_FILL } } },
+        },
+      ],
+    });
+  }
+  r += 2;
+  band(
+    r,
+    2,
+    last,
+    '✔  الصف بيخضر لما الخطوات التلاتة تخلص. اللي ناقصه خطوة بيرجعلك بكرة باللي اتعمل فيه (لحد ٣ أيام)، واللي خلص مش هيرجع تاني.',
+    { bold: true, fill: TEAL_SOFT, color: TEAL_DARK }
+  );
+  ws.getRow(r).height = 26;
+  band(
+    r + 1,
+    2,
+    last,
+    'بكرة الصبح بعد رفع ملف العملاء: الكود اللي كتبته بيتأكد من الملف، ولو طلع لعميل تاني هيظهرلك تنبيه.',
+    { size: 10, color: 'FF6B7280' }
+  );
+}
+
+export async function buildTaskWorkbook(
+  allTasks: DailyTask[],
+  day: string,
+  owner: string,
+  onboarding: OnboardingTask[] = []
 ): Promise<Blob> {
   const ExcelJS = await import('exceljs');
   const wb = new ExcelJS.Workbook();
   wb.creator = 'صيدليات دواء';
   wb.created = new Date();
+  // العملاء الجداد ليهم الشيت الأول بخطواتهم؛ المكالمات فيها الباقي.
+  if (onboarding.length) addOnboardingSheet(wb, onboarding, day, owner);
+  const onboardIds = new Set(onboarding.map((t) => t.id));
+  const tasks = allTasks.filter((t) => !onboardIds.has(t.id));
 
   const branches = [...new Set(tasks.map((t) => t.branch))];
   const mixed = branches.length > 1;
@@ -431,6 +807,30 @@ export async function buildTaskWorkbook(
   const lines: Array<[string, string, boolean?]> = [
     ['شيت مهام اليوم', `${owner} · ${branchText} · ${dayTitle(day)} · ${tasks.length} مكالمة`, true],
     ['', ''],
+    ...(onboarding.length
+      ? ([
+          ['العملاء الجداد (الشيت الأول)', `${onboarding.length} عميل · ابدأ بيهم قبل المكالمات`, true],
+          [
+            'مش متكود (الشامي غالبًا)',
+            'الدكتور كتب اسمه ورقمه في ملاحظة الفاتورة. افتح بي كونكت ← عميل جديد بالاسم والرقم ← احفظ، واكتب الكود في ①.',
+          ],
+          ['متكود (شكري غالبًا)', 'الكود مكتوب لوحده في ①، متغيرهوش.'],
+          [
+            ONBOARD_COLUMNS.saved,
+            'سجّل الرقم على تليفون الفرع بالاسم اللي في «يتسجل على التليفون باسم» (الاسم والكود وحرف الفرع).',
+          ],
+          [
+            ONBOARD_COLUMNS.welcome,
+            'دوس «افتح واتساب ✉»: الرسالة بتفتح مكتوبة باسم العميل، ابعتها واختار «اتبعتت».',
+          ],
+          [
+            ONBOARD_COLUMNS.problem,
+            'متكود قبل كده: اكتب كوده القديم في ①. الرقم غلط أو مش عميل أو مش عاوز: الصف بيتقفل ومش هيرجع.',
+          ],
+          ['الحالة', 'بتقولك الناقص. اللي ناقصه خطوة بيرجعلك بكرة باللي اتعمل، لحد ٣ أيام.'],
+          ['', ''],
+        ] as Array<[string, string, boolean?]>)
+      : []),
     ['إزاي تملا الصف', 'اختار من السهم ▾ في الخانات الصفرا بس، بالترتيب:', true],
     [ANSWER_COLUMNS.channel, 'كلمته مكالمة ولا واتساب ولا الاتنين.'],
     [ANSWER_COLUMNS.reach, 'رد ولا لأ. لو مردش أو مشغول أو مقفول السيستم يرجّعه بكرة لوحده (لحد ٣ مرات).'],
@@ -501,9 +901,18 @@ export async function readTaskWorkbook(file: ArrayBuffer, today: string) {
   const ExcelJS = await import('exceljs');
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(file);
-  return readTaskSheets(
-    matrix(wb.getWorksheet(TASKS_SHEET)),
-    matrix(wb.getWorksheet(CASES_SHEET)),
-    today
-  );
+  const onboardingSheet = wb.getWorksheet(ONBOARDING_SHEET);
+  const tasksSheet = wb.getWorksheet(TASKS_SHEET);
+  const calls = readTaskSheets(matrix(tasksSheet), matrix(wb.getWorksheet(CASES_SHEET)), today);
+  const onboarding = readOnboardingSheet(matrix(onboardingSheet));
+  // شيت فيه العملاء الجداد بس (من غير مكالمات) مش غلط.
+  const problems =
+    onboardingSheet && !tasksSheet
+      ? calls.problems.filter((p) => p.sheet !== 'المكالمات')
+      : calls.problems;
+  return {
+    ...calls,
+    problems: [...onboarding.problems, ...problems],
+    onboarding: onboarding.updates,
+  };
 }
