@@ -1,4 +1,6 @@
 import { getEmployeePayrollStatementV1, type EmployeePayrollStatementV1 } from './payrollStatementService';
+import { getEvaluationApproval } from '@/lib/evaluationLab/cycleApproval';
+import { EARNED_POOL } from '@/lib/evaluationLab/earnedIncentive';
 
 const esc = (value: unknown) => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 const num = (value: unknown) => { const n = Number(value ?? 0); return Number.isFinite(n) ? n : 0; };
@@ -59,13 +61,13 @@ function pageShell(title: string, subtitle: string, body: string, preview: boole
   const watermark = preview
     ? '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;opacity:.045;font-size:62px;font-weight:900;transform:rotate(-28deg);color:#102235">معاينة - غير نهائي</div>'
     : '';
-  return '<section class="statement-page" style="position:relative;width:794px;min-height:1123px;box-sizing:border-box;padding:30px 34px 46px;background:#fff;color:#102235;font-family:Tahoma,Arial,sans-serif;direction:rtl;overflow:hidden">' +
+  return '<section class="statement-page" style="position:relative;width:794px;height:1123px;box-sizing:border-box;padding:30px 34px 46px;background:#fff;color:#102235;font-family:Tahoma,Arial,sans-serif;direction:rtl;overflow:hidden">' +
     watermark +
     '<header style="display:flex;align-items:center;justify-content:space-between;gap:18px;border-bottom:3px solid #0b8c86;padding-bottom:10px;margin-bottom:15px">' +
       '<div><div style="font-size:20px;font-weight:900">' + esc(title) + '</div><div style="margin-top:3px;font-size:9px;color:#687983">' + esc(subtitle) + '</div></div>' +
       '<div style="display:flex;align-items:center;gap:8px"><div style="text-align:left;font-size:8px;color:#677983"><b style="display:block;font-size:10px;color:#102235">صيدليات دواء</b>كل اللي تحتاجه وأكثر</div><div style="width:68px;height:58px;overflow:hidden;border-radius:10px;background:#fff"><img src="/dawaa-logo-full.jpeg" alt="صيدليات دواء" style="width:68px;height:92px;object-fit:contain;transform:translateY(-8px)"/></div></div>' +
     '</header>' +
-    body +
+    '<div class="statement-fit">' + body + '</div>' +
     '<footer style="position:absolute;bottom:18px;right:34px;left:34px;border-top:1px solid #dce6e7;padding-top:7px;font-size:8px;color:#72818a;display:flex;justify-content:space-between;gap:10px"><span>صيدليات دواء - Payroll Statement V1</span><span>' + esc(pageCode) + '</span></footer>' +
   '</section>';
 }
@@ -89,267 +91,249 @@ function table(rows: string, headers: string[]) {
     '</tr></thead><tbody>' + rows + '</tbody></table>';
 }
 
-function buildPages(data: EmployeePayrollStatementV1) {
+type EvaluationApproval = Awaited<ReturnType<typeof getEvaluationApproval>> | null;
+
+const pct = (value: unknown) => Math.round(num(value) * 100).toLocaleString('ar-EG') + '٪';
+const ar = (value: unknown) => Math.round(num(value)).toLocaleString('ar-EG');
+
+function section(title: string, body: string, color = '#087f7a') {
+  return '<div style="border:1px solid #d9e4e5;border-radius:12px;padding:10px 11px;margin-bottom:9px"><div style="font-size:11px;font-weight:900;color:' + color + ';margin-bottom:5px">' + esc(title) + '</div>' + body + '</div>';
+}
+
+function tiles(items: Array<[string, string, string?]>, columns: number) {
+  return '<div style="display:grid;grid-template-columns:repeat(' + columns + ',1fr);gap:6px;margin-bottom:9px">' +
+    items.map(([label, value, hint]) => '<div style="border:1px solid #d9e4e5;background:#f9fbfb;border-radius:10px;padding:7px 8px"><div style="font-size:8px;color:#6b7b84">' + esc(label) + '</div><div style="font-size:13px;font-weight:900;margin-top:2px">' + esc(value) + '</div>' + (hint ? '<div style="font-size:7px;color:#6b7b84;margin-top:1px">' + esc(hint) + '</div>' : '') + '</div>').join('') +
+  '</div>';
+}
+
+/** Owner decision 2026-11-24: the statement is two pages — 1) days, attendance and salary; 2) rank, incentives and advice. */
+function buildPages(data: EmployeePayrollStatementV1, evaluation: EvaluationApproval, page2Extra = '') {
   const financial = data.financial;
   const engine = data.payroll_engine;
   const overtime = data.overtime.summary;
   const attendance = data.attendance.summary;
   const preview = !financial.frozen;
-  const actualWorkedHours = num(engine.actual_worked_hours);
-  const basePayableHours = num(engine.base_payable_hours);
-  const hoursOutsideBase = Math.max(0, actualWorkedHours - basePayableHours);
-  const statementStatus = financial.frozen
-    ? 'نهائي مجمد'
-    : data.finalization.ready
-      ? 'جاهز للمراجعة النهائية'
-      : 'معاينة قيد المراجعة';
-  const pages: string[] = [];
+  const statementStatus = financial.frozen ? 'نهائي مجمد' : data.finalization.ready ? 'جاهز للمراجعة النهائية' : 'معاينة قيد المراجعة';
+  const earningsTotal = num(financial.earnings.base_salary) + num(financial.earnings.automated_incentives_total) +
+    num(financial.earnings.list_incentive) + num(financial.earnings.approved_overtime) + num(financial.earnings.manual_other_incentives);
+  const days = data.attendance.days;
+  const statusOf = (d: (typeof days)[number]) => String(d.resolution_status || d.status || '');
+  const worked = days.filter((d) => d.first_in).length;
+  const absent = days.filter((d) => /absence/.test(statusOf(d))).length;
+  const leave = days.filter((d) => /time_off/.test(statusOf(d))).length;
+  const missing = days.filter((d) => d.missing_punch).length;
 
-  const earningsTotal =
-    num(financial.earnings.base_salary) +
-    num(financial.earnings.automated_incentives_total) +
-    num(financial.earnings.list_incentive) +
-    num(financial.earnings.approved_overtime) +
-    num(financial.earnings.manual_other_incentives);
-
-  const auditRef = financial.frozen
-    ? '<div style="margin-top:8px;border:1px solid #d9e4e5;background:#f9fbfb;border-radius:10px;padding:8px;font-size:8px;color:#5f7079;line-height:1.7">' +
-        '<b style="color:#102235">مرجع الاعتماد:</b> Snapshot ' + esc(data.finalization.snapshot_id || '-') +
-        ' · Fingerprint ' + esc(shortFingerprint(data.finalization.snapshot_fingerprint || financial.snapshot_fingerprint)) +
-        ' · أُقفل في ' + esc(cairoDateTime(data.finalization.finalized_at || financial.finalized_at)) +
-      '</div>'
-    : '';
-
+  // ---------- Page 1: identity, salary, attendance ----------
   const identity =
-    '<div style="display:flex;justify-content:space-between;gap:16px;margin-bottom:8px;font-size:10px;line-height:1.8">' +
-      '<div><b>الموظف:</b> ' + esc(data.staff.name) + '<br/><b>الفرع:</b> ' + esc(data.staff.branch || '-') + '</div>' +
-      '<div><b>الدورة:</b> ' + esc(data.cycle.start) + ' - ' + esc(data.cycle.end) + '<br/><b>حالة الكشف:</b> ' + esc(statementStatus) + '</div>' +
-    '</div>' + auditRef;
+    '<div style="display:flex;justify-content:space-between;gap:16px;margin-bottom:8px;font-size:10px;line-height:1.7">' +
+      '<div><b>الموظف:</b> ' + esc(data.staff.name) + ' · <b>الفرع:</b> ' + esc(data.staff.branch || '-') + '</div>' +
+      '<div><b>الدورة:</b> ' + esc(data.cycle.start) + ' ← ' + esc(data.cycle.end) + ' · <b>الحالة:</b> ' + esc(statementStatus) + '</div>' +
+    '</div>' +
+    (financial.frozen ? '<div style="margin-bottom:8px;font-size:7.5px;color:#5f7079">مرجع الاعتماد: ' + esc(data.finalization.snapshot_id || '-') + ' · Fingerprint ' + esc(shortFingerprint(data.finalization.snapshot_fingerprint || financial.snapshot_fingerprint)) + ' · ' + esc(cairoDateTime(data.finalization.finalized_at || financial.finalized_at)) + '</div>' : '');
 
-  const netHero =
-    '<div style="display:grid;grid-template-columns:1.3fr .7fr;gap:10px;margin-bottom:14px">' +
-      '<div style="border:1px solid #b8ded9;background:#eff9f7;border-radius:16px;padding:16px"><div style="font-size:9px;color:#52706f">صافي الراتب الحالي</div><div style="font-size:28px;font-weight:900;color:#087f7a;margin-top:4px">' + esc(money(financial.display_net_salary)) + '</div><div style="font-size:8px;color:#607577;margin-top:4px">المستحقات ' + esc(money(earningsTotal)) + ' - الخصومات ' + esc(money(financial.adjustments.deductions_total)) + ' + تسوية ' + esc(money(financial.adjustments.manual_adjustment)) + '</div></div>' +
-      '<div style="border:1px solid #d9e4e5;border-radius:16px;padding:13px;background:#fff"><div style="font-size:9px;color:#6c7a83">المعادلة الأساسية</div><div style="font-size:13px;font-weight:900;margin-top:7px">' + esc(durationHours(engine.base_payable_hours)) + '</div><div style="font-size:9px;color:#6c7a83;margin-top:3px">× ' + esc(money(engine.true_hourly_rate)) + '</div><div style="border-top:1px solid #e8eeee;margin-top:8px;padding-top:7px;font-size:11px;font-weight:900;color:#087f7a">' + esc(money(financial.earnings.base_salary)) + '</div></div>' +
+  const net =
+    '<div style="display:grid;grid-template-columns:1.25fr .75fr;gap:9px;margin-bottom:9px">' +
+      '<div style="border:1px solid #b8ded9;background:#eff9f7;border-radius:14px;padding:12px"><div style="font-size:9px;color:#52706f">صافي الراتب</div><div style="font-size:26px;font-weight:900;color:#087f7a;margin-top:2px">' + esc(money(financial.display_net_salary)) + '</div><div style="font-size:8px;color:#607577;margin-top:3px">المستحقات ' + esc(money(earningsTotal)) + ' − الخصومات ' + esc(money(financial.adjustments.deductions_total)) + ' ± تسوية ' + esc(money(financial.adjustments.manual_adjustment)) + '</div></div>' +
+      '<div style="border:1px solid #d9e4e5;border-radius:14px;padding:11px"><div style="font-size:9px;color:#6c7a83">الأساسي</div><div style="font-size:12px;font-weight:900;margin-top:4px">' + esc(durationHours(engine.base_payable_hours)) + ' × ' + esc(money(engine.true_hourly_rate)) + '</div><div style="border-top:1px solid #e8eeee;margin-top:6px;padding-top:5px;font-size:12px;font-weight:900;color:#087f7a">' + esc(money(financial.earnings.base_salary)) + '</div></div>' +
     '</div>';
 
-  const overviewCards =
-    '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px">' +
-      card('ساعات أساسي', durationHours(engine.base_payable_hours), 'Attendance Truth المعتمد') +
-      card('Overtime معتمد', durationHours(overtime.approved_hours), money(financial.earnings.approved_overtime), 'success') +
-      card('الحوافز الآلية', money(financial.earnings.automated_incentives_total), 'الأداء + التارجت + البنود الآلية') +
-      card('البصمات المفقودة', num(data.missing_punch.summary.incidents).toLocaleString('ar-EG'), 'خصم فعلي ' + money(data.missing_punch.summary.deduction_amount), num(data.missing_punch.summary.deduction_amount) > 0 ? 'danger' : 'normal') +
-    '</div>';
-
-  const earnings =
-    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">' +
-      '<div style="border:1px solid #d9e4e5;border-radius:12px;padding:12px"><div style="font-size:12px;font-weight:900;color:#087f7a;margin-bottom:5px">المستحقات</div>' +
+  const salaryLines =
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:9px">' +
+      '<div style="border:1px solid #d9e4e5;border-radius:12px;padding:8px 11px"><div style="font-size:11px;font-weight:900;color:#087f7a">المستحقات</div>' +
         line('الراتب الأساسي', money(financial.earnings.base_salary)) +
-        line('الحوافز الآلية', money(financial.earnings.automated_incentives_total)) +
+        line('حافز الأداء والتقييم (تفصيله ص ٢)', money(financial.earnings.automated_incentives_total)) +
         line('حافز اللستة', money(financial.earnings.list_incentive)) +
-        line('Overtime معتمد', money(financial.earnings.approved_overtime)) +
-        line('حوافز يدوية أخرى', money(financial.earnings.manual_other_incentives)) +
-        line('إجمالي المستحقات', money(earningsTotal), true) +
+        line('أوفر تايم معتمد', money(financial.earnings.approved_overtime)) +
+        line('حوافز يدوية', money(financial.earnings.manual_other_incentives)) +
+        line('الإجمالي', money(earningsTotal), true) +
       '</div>' +
-      '<div style="border:1px solid #d9e4e5;border-radius:12px;padding:12px"><div style="font-size:12px;font-weight:900;color:#a04449;margin-bottom:5px">الخصومات والتسويات</div>' +
+      '<div style="border:1px solid #d9e4e5;border-radius:12px;padding:8px 11px"><div style="font-size:11px;font-weight:900;color:#a04449">الخصومات والتسويات</div>' +
         line('عجز / إكسبير', money(financial.adjustments.expiry_shortage_deduction)) +
         line('خصم عام فرع', money(financial.adjustments.branch_general_deduction)) +
         line('خصم فردي', money(financial.adjustments.individual_deduction)) +
         line('خصومات أخرى', money(financial.adjustments.other_deduction)) +
-        line('تسوية يدوية (+/-)', money(financial.adjustments.manual_adjustment)) +
+        line('تسوية يدوية (±)', money(financial.adjustments.manual_adjustment)) +
         line('إجمالي الخصومات', money(financial.adjustments.deductions_total), true) +
       '</div>' +
     '</div>';
 
-  const attentionItems = [
-    num(engine.pending_review_days) > 0 ? num(engine.pending_review_days).toLocaleString('ar-EG') + ' يوم حضور يحتاج مراجعة' : '',
-    num(overtime.pending_cases) > 0 ? num(overtime.pending_cases).toLocaleString('ar-EG') + ' حالة Overtime معلقة (' + durationHours(overtime.pending_hours) + ')' : '',
-    num(data.transactions.summary.pending_rows) > 0 ? num(data.transactions.summary.pending_rows).toLocaleString('ar-EG') + ' حركة معلقة' : '',
-    data.finalization.blockers.length ? data.finalization.blockers.length.toLocaleString('ar-EG') + ' مانع إقفال' : '',
+  const attendanceTiles = tiles([
+    ['أيام حضور', ar(worked), 'من ' + ar(days.length) + ' يوم'],
+    ['الساعات الفعلية', durationHours(engine.actual_worked_hours)],
+    ['ساعات الأساسي المحتسبة', durationHours(engine.base_payable_hours)],
+    ['إجازات / أذونات', ar(Math.max(leave, num(attendance.approved_time_off_days)))],
+    ['غياب', ar(absent)],
+    ['تأخير', ar(attendance.late_minutes) + ' د', 'خروج بدري ' + ar(attendance.early_leave_minutes) + ' د'],
+    ['بصمة ناقصة', ar(Math.max(missing, num(data.missing_punch.summary.incidents))), num(data.missing_punch.summary.deduction_amount) ? 'خصم ' + money(data.missing_punch.summary.deduction_amount) : 'بدون خصم'],
+    ['أوفر تايم', durationHours(overtime.approved_hours), num(overtime.pending_cases) ? 'معلق ' + ar(overtime.pending_cases) + ' حالة' : 'معتمد'],
+  ], 4);
+
+  const shortHours = (value: unknown) => durationHours(value).replace(' ساعة', 'س').replace(' دقيقة', 'د');
+  const dayRow = (d: (typeof days)[number]) => {
+    const status = statusOf(d);
+    const notes = [
+      statusLabel(status),
+      d.late_minutes ? 'تأخير ' + ar(d.late_minutes) + 'د' : '',
+      d.early_leave_minutes ? 'بدري ' + ar(d.early_leave_minutes) + 'د' : '',
+      d.missing_punch ? 'بصمة ناقصة' : '',
+    ].filter(Boolean).join(' · ');
+    const tone = /absence/.test(status) ? 'background:#fff3f3' : d.late_minutes || d.missing_punch ? 'background:#fffaf0' : /off_day|time_off/.test(status) ? 'background:#f5f8f9' : '';
+    return '<tr style="' + tone + '"><td style="white-space:nowrap">' + esc(weekday(d.date)) + ' ' + esc(d.date.slice(8, 10) + '/' + d.date.slice(5, 7)) + '</td><td style="white-space:nowrap">' + esc(cairoTime(d.first_in)) + ' - ' + esc(cairoTime(d.last_out)) + '</td><td><b>' + esc(shortHours(d.payroll_eligible_hours ?? d.candidate_hours)) + '</b></td><td>' + esc(notes || '-') + '</td></tr>';
+  };
+  const half = Math.ceil(days.length / 2);
+  const dayTable = (list: typeof days) => '<table class="days" style="width:100%;border-collapse:collapse;font-size:7.5px"><thead><tr style="background:#eef8f7;color:#26494b"><th>اليوم</th><th>الدخول / الخروج</th><th>المحتسب</th><th>الحالة</th></tr></thead><tbody>' + list.map(dayRow).join('') + '</tbody></table>';
+  const daysBlock = section('أيام الدورة يوم بيوم', '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' + dayTable(days.slice(0, half)) + dayTable(days.slice(half)) + '</div>');
+
+  const timeOff = data.time_off.requests.map((r) => esc(r.label || r.kind) + ' ' + esc(r.start_date.slice(8, 10) + '/' + r.start_date.slice(5, 7)) +
+    (r.end_date && r.end_date !== r.start_date ? '←' + esc(r.end_date.slice(8, 10) + '/' + r.end_date.slice(5, 7)) : '') +
+    ' (' + esc(r.duration_minutes ? ar(r.duration_minutes) + ' د' : 'يوم كامل') + ' · ' + esc(statusLabel(r.status)) + ')');
+  const timeOffBlock = section('الإجازات والأذونات خلال الدورة', '<div style="font-size:8.5px;line-height:1.7">' + (timeOff.length ? timeOff.join(' · ') : 'لا توجد طلبات إجازة أو إذن.') + '</div>');
+
+  const attention = [
+    num(engine.pending_review_days) > 0 ? ar(engine.pending_review_days) + ' يوم حضور تحت المراجعة' : '',
+    num(overtime.pending_cases) > 0 ? ar(overtime.pending_cases) + ' حالة أوفر تايم معلقة (' + durationHours(overtime.pending_hours) + ')' : '',
+    num(data.transactions.summary.pending_rows) > 0 ? ar(data.transactions.summary.pending_rows) + ' حركة معلقة' : '',
+    data.finalization.blockers.length ? ar(data.finalization.blockers.length) + ' مانع إقفال' : '',
   ].filter(Boolean);
+  const attentionBlock = attention.length
+    ? '<div style="border:1px solid #efca78;background:#fff9ec;border-radius:10px;padding:7px 10px;font-size:8.5px"><b style="color:#8b5d00">قبل الإقفال:</b> ' + esc(attention.join(' · ')) + '</div>'
+    : '';
 
-  const attention = attentionItems.length
-    ? '<div style="margin-top:14px;border:1px solid #efca78;background:#fff9ec;border-radius:11px;padding:10px;font-size:9px;line-height:1.7"><b style="color:#8b5d00">قبل الإقفال النهائي:</b> ' + esc(attentionItems.join(' · ')) + '</div>'
-    : '<div style="margin-top:14px;border:1px solid #b8ded9;background:#eff9f7;border-radius:11px;padding:10px;font-size:9px"><b style="color:#087f7a">لا توجد عناصر معلقة حرجة في البيانات الحالية.</b></div>';
+  const page1 = pageShell('كشف الراتب — الأيام والحضور والمرتب', 'كل يوم في الدورة وإزاي اتحسب منه المرتب', identity + net + salaryLines + attendanceTiles + daysBlock + timeOffBlock + attentionBlock, preview, 'صفحة ١ من ٢');
 
-  const rules =
-    '<div style="margin-top:10px;font-size:8px;color:#6b7a82;line-height:1.6">الأساسي = ساعات الحضور المعتمدة بحد أقصى ساعات الجدول × سعر الساعة. الـOvertime المعتمد منفصل. الحافز الشهري لا يُجمع مرتين؛ هو داخل إجمالي الحوافز الآلية. البنود Pending أو Rejected تظهر للشفافية ولا تدخل الصافي.</div>';
+  // ---------- Page 2: rank, incentives, advice ----------
+  const approval = evaluation?.approved ? evaluation.approval : null;
+  const listItems = evaluation?.list_items || [];
+  const kpi = data.kpi;
+  let evaluationBody = '';
+  const advice: Array<{ kind: string; text: string }> = [];
 
-  pages.push(pageShell('كشف الراتب والشفافية الشهرية', 'ملخص تنفيذي يوضح كيف تم تكوين صافي الراتب', identity + netHero + overviewCards + earnings + attention + rules, preview, 'ملخص مالي'));
-
-  const attendanceRows = data.attendance.days;
-  const attendanceChunks: typeof attendanceRows[] = [];
-  for (let i = 0; i < attendanceRows.length; i += 11) attendanceChunks.push(attendanceRows.slice(i, i + 11));
-
-  attendanceChunks.forEach((chunk, pageIndex) => {
-    const rows = chunk.map((d) => {
-      const shift = d.scheduled_start_at && d.scheduled_end_at ? cairoTime(d.scheduled_start_at) + ' - ' + cairoTime(d.scheduled_end_at) : '-';
-      const actual = cairoTime(d.first_in) + ' / ' + cairoTime(d.last_out);
-      const notes = [
-        statusLabel(d.resolution_status || d.status),
-        d.late_minutes ? 'تأخير ' + mins(d.late_minutes).toLocaleString('ar-EG') + 'د' : '',
-        d.early_leave_minutes ? 'خروج مبكر ' + mins(d.early_leave_minutes).toLocaleString('ar-EG') + 'د' : '',
-        d.missing_punch ? 'بصمة مفقودة' : '',
-      ].filter(Boolean).join(' · ');
-      return '<tr><td>' + esc(weekday(d.date)) + '<br/><span style="font-size:7.5px;color:#72818a">' + esc(d.date) + '</span></td><td>' + esc(shift) + '</td><td>' + esc(actual) + '</td><td><b>' + esc(durationHours(d.payroll_eligible_hours ?? d.candidate_hours)) + '</b></td><td>' + esc(notes || '-') + '</td></tr>';
+  if (approval) {
+    const axes = (approval.axes || []).filter((axis) => num(axis.weight) > 0);
+    const bars = axes.map((axis) => {
+      const score = axis.score === null || axis.score === undefined ? null : Math.max(0, Math.min(100, num(axis.score)));
+      const color = score === null ? '#c5d0d3' : score >= 85 ? '#0b8c86' : score >= 60 ? '#d39a1c' : '#c4525a';
+      return '<div style="display:grid;grid-template-columns:170px 1fr 58px;gap:8px;align-items:center;font-size:9px;margin:5px 0"><span>' + esc(axis.label) + ' <span style="color:#7b8a91">(' + ar(axis.weight) + '٪)</span></span>' +
+        '<div style="height:9px;border-radius:9px;background:#edf2f3;overflow:hidden"><div style="height:100%;width:' + (score ?? 0) + '%;background:' + color + '"></div></div>' +
+        '<b style="text-align:left">' + (score === null ? 'لم يُقس' : ar(score) + ' / ١٠٠') + '</b></div>';
     }).join('');
-
-    const summary =
-      '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:8px">' +
-        card('الساعات الفعلية', durationHours(actualWorkedHours), 'إجمالي الحضور الفعلي خلال الدورة') +
-        card('ساعات الأساسي المحتسبة', durationHours(basePayableHours), 'بعد تطبيق الجدول وAttendance Truth') +
-        card('سعر الساعة الفعلي', money(engine.true_hourly_rate), 'السعر المستخدم في حساب الأساسي') +
+    const rankText = approval.rank_in_branch ? ar(approval.rank_in_branch) + ' من ' + ar(approval.rank_in_branch_of) : '—';
+    const overallText = approval.rank_overall ? ar(approval.rank_overall) + ' من ' + ar(approval.rank_overall_of) : '—';
+    const star = approval.star as { points?: number; rank?: number | null; gap?: number | null } | null;
+    const box = (label: string, value: string, hint: string, style = 'border-color:#d9e4e5') =>
+      '<div style="border:1px solid;' + style + ';border-radius:12px;padding:10px;text-align:center"><div style="font-size:8.5px;color:#6b7b84">' + esc(label) + '</div><div style="font-size:21px;font-weight:900;margin-top:2px">' + esc(value) + '</div><div style="font-size:8px">' + esc(hint) + '</div></div>';
+    evaluationBody =
+      '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:9px">' +
+        box('درجة التقييم', ar(approval.score) + ' / ١٠٠', approval.tier_label || '', 'border-color:#b8ded9;background:#eff9f7;color:#087f7a') +
+        box('ترتيبك في الفرع', rankText, approval.branch || '') +
+        box('ترتيبك على الصيدليات', overallText, 'كل الدكاترة') +
+        box('نجم الفرع', num(approval.star_egp) > 0 ? 'فائز ' + ar(approval.star_egp) + ' ج' : star?.rank ? 'المركز ' + ar(star.rank) : '—',
+          star?.points !== undefined ? ar(star.points) + ' نقطة' + (star.gap ? ' · ناقص ' + ar(star.gap) : '') : '', 'border-color:#f0d58a;background:#fffaf0') +
       '</div>' +
-      '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:12px">' +
-        card('فرق عن ساعات الأساسي', durationHours(hoursOutsideBase), 'قد يشمل OT؛ راجع صفحة الأوفر تايم') +
-        card('إجازات/أذونات', num(attendance.approved_time_off_days).toLocaleString('ar-EG')) +
-        card('إجمالي التأخير', mins(attendance.late_minutes).toLocaleString('ar-EG') + ' دقيقة') +
-        card('الخروج المبكر', mins(attendance.early_leave_minutes).toLocaleString('ar-EG') + ' دقيقة') +
-      '</div>';
-
-    pages.push(pageShell('تفاصيل الحضور', 'الشيفت الأصلي مقابل الدخول والخروج والساعات المحتسبة', summary + table(rows, ['اليوم', 'الشيفت', 'الدخول / الخروج', 'المحتسب', 'الحالة / الملاحظة']), preview, 'الحضور ' + (pageIndex + 1).toLocaleString('ar-EG') + '/' + attendanceChunks.length.toLocaleString('ar-EG')));
-  });
-
-  const annualLeave = data.annual_leave.balances.map((b) =>
-    '<div style="border:1px solid #d9e4e5;border-radius:11px;padding:10px;background:#f9fbfb"><b>' + esc(b.year) + '</b>' +
-    (b.configured
-      ? '<div style="font-size:9px;margin-top:5px">المتبقي <b>' + esc(num(b.balance).toLocaleString('ar-EG')) + '</b> يوم · المستخدم <b>' + esc(num(b.used).toLocaleString('ar-EG')) + '</b> · المحجوز <b>' + esc(num(b.reserved).toLocaleString('ar-EG')) + '</b></div>'
-      : '<div style="font-size:9px;margin-top:5px;color:#956800">الرصيد غير مهيأ</div>') +
-    '</div>'
-  ).join('');
-
-  const timeOffRows = data.time_off.requests.map((r) =>
-    '<tr><td>' + esc(r.label || r.kind) + '</td><td>' + esc(r.start_date + (r.end_date !== r.start_date ? ' - ' + r.end_date : '')) + '</td><td>' + esc(r.duration_minutes ? mins(r.duration_minutes).toLocaleString('ar-EG') + ' دقيقة' : 'يوم كامل') + '</td><td>' + esc(statusLabel(r.status)) + '</td><td>' + esc(r.decision_note || r.reason || '-') + '</td></tr>'
-  ).join('');
-
-  const missingRows = data.missing_punch.incidents.map((m) =>
-    '<tr><td>' + esc(m.date) + '</td><td>' + esc(m.missing_type) + '</td><td>' + esc(m.occurrence_no) + ' / سماح ' + esc(m.allowance_limit) + '</td><td>' + esc(m.deduction_applied ? money(m.penalty_amount) : 'لا يوجد خصم مالي') + '</td><td>' + esc(m.reason || '-') + '</td></tr>'
-  ).join('');
-
-  const leaveBody =
-    '<h2 style="font-size:12px;color:#087f7a;margin:0 0 8px">رصيد الإجازة السنوية</h2><div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px">' + annualLeave + '</div>' +
-    '<h2 style="font-size:12px;color:#087f7a;margin:0 0 8px">الإجازات والأذونات خلال الدورة</h2>' +
-    (timeOffRows ? table(timeOffRows, ['النوع', 'التاريخ', 'المدة', 'الحالة', 'الملاحظة']) : '<div style="font-size:9px;color:#6b7a82">لا توجد طلبات إجازة أو إذن خلال هذه الدورة.</div>') +
-    '<h2 style="font-size:12px;color:#087f7a;margin:15px 0 8px">البصمات المفقودة</h2>' +
-    (missingRows ? table(missingRows, ['التاريخ', 'النوع', 'الواقعة', 'الأثر المالي', 'السبب']) : '<div style="font-size:9px;color:#6b7a82">لا توجد بصمات مفقودة مسجلة.</div>');
-
-  pages.push(pageShell('الإجازات والأذونات والبصمات', 'الرصيد والقرارات والأثر المالي الفعلي', leaveBody, preview, 'الإجازات والبصمات'));
-
-  const overtimeRows = data.overtime.cases.map((o) =>
-    '<tr><td>' + esc(weekday(o.date)) + '<br/><span style="font-size:7.5px;color:#72818a">' + esc(o.date) + '</span></td><td>' + esc(o.branch || '-') + '</td><td>' + esc(durationHours(o.overtime_hours)) + '</td><td>' + esc(statusLabel(o.status)) + '</td><td>' + esc(o.status === 'approved' ? money(o.overtime_amount) : '-') + '</td><td>' + esc(o.decision_note || '-') + '</td></tr>'
-  ).join('');
-
-  const overtimeBody =
-    '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:12px">' +
-      card('إجمالي المرشح', durationHours(overtime.detected_hours)) +
-      card('معتمد', durationHours(overtime.approved_hours), money(overtime.approved_amount), 'success') +
-      card('معلق', durationHours(overtime.pending_hours), 'لا يدخل الراتب قبل الاعتماد') +
-      card('مرفوض', durationHours(overtime.rejected_hours), 'للمعلومة فقط') +
-    '</div>' +
-    (overtimeRows ? table(overtimeRows, ['اليوم', 'الفرع', 'المدة', 'الحالة', 'القيمة', 'سبب القرار']) : '<div style="font-size:9px;color:#6b7a82">لا توجد حالات Overtime في هذه الدورة.</div>');
-
-  pages.push(pageShell('تفاصيل الأوفر تايم', 'ما تم اعتماده وما بقي معلقًا أو تم رفضه', overtimeBody, preview, 'Overtime'));
-
-  const manualLedgerEntries = data.financial.manual_ledger?.entries || [];
-  if (manualLedgerEntries.length) {
-    const manualRows = manualLedgerEntries.map((raw) => {
-      const e = raw as Record<string, unknown>;
-      const signed = num(e.signed_amount);
-      return '<tr><td>' + esc(e.created_at ? new Date(String(e.created_at)).toLocaleDateString('ar-EG') : '-') + '</td><td>' +
-        esc(String(e.entry_kind || '-')) + '</td><td>' + esc(String(e.category || '-')) + '</td><td><b>' +
-        esc((signed > 0 ? '+' : '') + money(signed)) + '</b></td><td>' + esc(String(e.reason || '-')) +
-        '</td><td>' + esc(String(e.created_by_name || '-')) + '</td></tr>';
-    }).join('');
-
-    const manualBody =
-      '<div style="font-size:9px;color:#6b7a82;margin-bottom:10px">كل حركة يدوية محفوظة كسطر immutable؛ التصحيح يتم بعكس الحركة وليس بتعديل التاريخ.</div>' +
-      table(manualRows, ['التاريخ', 'النوع', 'الفئة', 'القيمة', 'السبب', 'سجلها']);
-
-    pages.push(pageShell('التسويات المالية اليدوية', 'سجل Manual Ledger داخل نفس دورة الراتب', manualBody, preview, 'Manual Ledger'));
+      section('بنود التقييم (' + approval.model_version + ')', bars || '<div style="font-size:9px">لا توجد بنود مقاسة.</div>');
+    const hoursFactor = approval.hours_factor === null ? 1 : num(approval.hours_factor);
+    const calc =
+      line('وعاء الحافز', money(EARNED_POOL)) +
+      line('× شريحة الدرجة (' + (approval.tier_label || '') + ')', ar(approval.tier_percent) + '٪') +
+      line('× معامل تارجت الفرع (تحقيق ' + ar(approval.branch_achievement) + '٪)', pct(approval.branch_factor)) +
+      line('× معامل الساعات', pct(hoursFactor)) +
+      (num(approval.absence_cut) > 0 ? line('− خصم الغياب (' + ar(approval.absence_days) + ' يوم)', pct(approval.absence_cut)) : '') +
+      line('= حافز الأداء', money(approval.performance_egp), true) +
+      line('+ بونص تارجت الفرع', money(approval.bonus_egp)) +
+      line('+ نجم الفرع', money(approval.star_egp)) +
+      line('+ حافز اللستة', money(financial.earnings.list_incentive)) +
+      line('إجمالي الحوافز', money(num(approval.performance_egp) + num(approval.bonus_egp) + num(approval.star_egp) + num(financial.earnings.list_incentive)), true);
+    const listTable = listItems.length
+      ? table(listItems.slice(0, 12).map((item) => '<tr><td>' + esc(item.product_name) + '</td><td>' + ar(item.quantity) + '</td><td>' + esc(money(item.incentive_total)) + '</td></tr>').join(''), ['صنف اللستة', 'الكمية', 'الحافز']) +
+        (listItems.length > 12 ? '<div style="font-size:7.5px;color:#6b7a82;margin-top:3px">+ ' + ar(listItems.length - 12) + ' صنف تاني</div>' : '')
+      : '<div style="font-size:9px;color:#6b7a82">مفيش أصناف لستة اتباعت باسمك في الدورة.</div>';
+    evaluationBody += '<div style="display:grid;grid-template-columns:1.05fr .95fr;gap:9px">' + section('حساب الحافز', calc) + section('أصناف اللستة', listTable) + '</div>';
+    advice.push(...((approval.recommendations || []) as Array<{ kind: string; text: string }>));
+  } else {
+    const perf = kpi.staff_performance;
+    const sales = kpi.employee_sales_kpi;
+    evaluationBody =
+      '<div style="border:1px solid #efca78;background:#fff9ec;border-radius:10px;padding:8px 10px;font-size:9px;margin-bottom:9px">مفيش تقييم شهري معتمد للدورة دي؛ الحافز محسوب بالنقاط والبنود الآلية.</div>' +
+      tiles([
+        ['صافي النقاط', ar(perf.final_points), 'مكافآت ' + ar(perf.reward_points) + ' · خصم ' + ar(perf.deduction_points)],
+        ['مبيعاتك', money(sales.sales_total)],
+        ['فواتيرك', ar(sales.invoices_count), 'متوسط ' + money(sales.avg_invoice)],
+        ['تارجت الفرع', ar(kpi.branch_target.achievement_percent) + '٪', money(kpi.branch_target.sales_total)],
+      ], 4) +
+      section('حساب الحافز',
+        line('حافز الأداء', money(financial.earnings.performance_incentive_included_in_automated_total)) +
+        line('حافز التارجت', money(financial.earnings.target_bonus_included_in_automated_total)) +
+        line('متابعات وطلبات العملاء', money(num(financial.earnings.followup_bonus_included_in_automated_total) + num(financial.earnings.customer_request_bonus_included_in_automated_total))) +
+        line('نجم الفرع', money(financial.earnings.branch_star_bonus_included_in_automated_total)) +
+        line('حافز اللستة', money(financial.earnings.list_incentive)) +
+        line('إجمالي الحوافز', money(num(financial.earnings.automated_incentives_total) + num(financial.earnings.list_incentive)), true));
   }
 
-  const visibleTransactions = data.transactions.items.filter((t) => t.employee_visible !== false);
-  const transactionChunks: typeof visibleTransactions[] = [];
-  for (let i = 0; i < visibleTransactions.length; i += 14) transactionChunks.push(visibleTransactions.slice(i, i + 14));
-  if (!transactionChunks.length) transactionChunks.push([]);
+  const visible = data.transactions.items.filter((t) => t.employee_visible !== false && (num(t.amount) || num(t.points)));
+  const txRows = visible.slice(0, 10).map((t) => '<tr><td>' + esc(t.date || '-') + '</td><td>' + esc(t.title || t.type || t.source || 'حركة') + '</td><td>' + esc(statusLabel(t.status)) + '</td><td>' + esc(num(t.amount) ? money(t.amount) : '-') + '</td><td>' + esc(num(t.points) ? ar(t.points) : '-') + '</td></tr>').join('');
+  const txBlock = section('الحوافز والخصومات والنقاط', (txRows ? table(txRows, ['التاريخ', 'البند', 'الحالة', 'المبلغ', 'النقاط']) : '<div style="font-size:9px;color:#6b7a82">لا توجد حركات ظاهرة في الدورة.</div>') +
+    (visible.length > 10 ? '<div style="font-size:7.5px;color:#6b7a82;margin-top:3px">+ ' + ar(visible.length - 10) + ' حركة تانية في صفحة المرتبات</div>' : '') +
+    '<div style="font-size:7.5px;color:#6b7a82;margin-top:3px">المعلق والمرفوض للمعلومة بس ومش داخل الصافي.</div>');
+  const ledger = (financial.manual_ledger?.entries || []).map((raw) => { const e = raw as Record<string, unknown>; return '<tr><td>' + esc(String(e.category || e.entry_kind || '-')) + '</td><td><b>' + esc(money(e.signed_amount)) + '</b></td><td>' + esc(String(e.reason || '-')) + '</td></tr>'; }).join('');
+  const ledgerBlock = ledger ? section('التسويات المالية اليدوية', table(ledger, ['البند', 'القيمة', 'السبب'])) : '';
 
-  transactionChunks.forEach((chunk, index) => {
-    const rows = chunk.map((t) =>
-      '<tr><td>' + esc(t.date || '-') + '</td><td><b>' + esc(t.title || t.type || t.source || 'حركة') + '</b><br/><span style="font-size:7.5px;color:#72818a">' + esc(t.reason || '-') + '</span></td><td>' + esc(statusLabel(t.status)) + '</td><td>' + esc(num(t.amount) ? money(t.amount) : '-') + '</td><td>' + esc(num(t.points) ? num(t.points).toLocaleString('ar-EG') : '-') + '</td></tr>'
-    ).join('');
+  // Attendance advice applies to everyone.
+  if (num(attendance.late_minutes) >= 30) advice.push({ kind: 'note', text: 'التأخير الشهر ده ' + ar(attendance.late_minutes) + ' دقيقة؛ الالتزام بالميعاد بيحمي الحافز والمرتب.' });
+  if (missing > 0) advice.push({ kind: 'note', text: 'عندك ' + ar(missing) + ' يوم ببصمة ناقصة؛ بصّم دخول وخروج كل يوم.' });
+  if (absent > 0) advice.push({ kind: 'note', text: 'الغياب ' + ar(absent) + ' يوم؛ أي غياب من غير إذن معتمد بيخصم من الحافز.' });
+  if (!advice.length) advice.push({ kind: 'strength', text: 'شغل منضبط الشهر ده، كمّل على نفس المستوى.' });
+  const color = (kind: string) => kind === 'strength' ? '#087f7a' : kind === 'improve' ? '#b06a00' : '#5f7079';
+  const mark = (kind: string) => kind === 'strength' ? '✔' : kind === 'improve' ? '▲' : '•';
+  const adviceBlock = section('توصيات الشهر الجاي', advice.slice(0, 8).map((item) =>
+    '<div style="font-size:9.5px;line-height:1.7;padding:3px 0;border-bottom:1px solid #f0f3f3"><b style="color:' + color(item.kind) + '">' + mark(item.kind) + '</b> ' + esc(item.text) + '</div>').join(''));
 
-    const totals =
-      '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:12px">' +
-        card('حركات معتمدة/فعالة', num(data.transactions.summary.active_or_approved_rows).toLocaleString('ar-EG')) +
-        card('حركات معلقة', num(data.transactions.summary.pending_rows).toLocaleString('ar-EG')) +
-        card('مبالغ معتمدة/فعالة', money(data.transactions.summary.active_or_approved_amount)) +
-        card('نقاط معتمدة/فعالة', num(data.transactions.summary.active_or_approved_points).toLocaleString('ar-EG')) +
-      '</div>';
-
-    const body = totals +
-      (rows ? table(rows, ['التاريخ', 'البند والسبب', 'الحالة', 'المبلغ', 'النقاط']) : '<div style="font-size:9px;color:#6b7a82">لا توجد حركات ظاهرة للموظف في هذه الدورة.</div>') +
-      '<div style="margin-top:10px;font-size:8px;color:#6b7a82;line-height:1.6">النقاط لا تُعامل كخصم أو إضافة مالية إلا إذا نتج عنها مبلغ مالي معتمد. الحركات المعلقة تظهر للشفافية لكنها لا تدخل الصافي.</div>';
-
-    pages.push(pageShell('الحوافز والخصومات والنقاط', 'سجل البنود الظاهرة للموظف وموقفها المالي', body, preview, 'الحركات ' + (index + 1).toLocaleString('ar-EG') + '/' + transactionChunks.length.toLocaleString('ar-EG')));
-  });
-
-  const kpi = data.kpi;
-  const employeeSales = kpi.employee_sales_kpi;
-  const branchBreakdown = employeeSales.branch_breakdown?.map((b) =>
-    '<tr><td>' + esc(b.branch) + '</td><td>' + esc(money(b.sales_total)) + '</td><td>' + esc(num(b.invoices_count).toLocaleString('ar-EG')) + '</td><td>' + esc(money(b.avg_invoice)) + '</td></tr>'
-  ).join('') || '';
-
-  const kpiBody =
-    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">' +
-      '<div style="border:1px solid #d9e4e5;border-radius:12px;padding:12px"><div style="font-size:12px;font-weight:900;color:#087f7a;margin-bottom:6px">أداء الموظف</div>' +
-        line('نقاط المكافآت', num(kpi.staff_performance.reward_points).toLocaleString('ar-EG')) +
-        line('نقاط الخصم', num(kpi.staff_performance.deduction_points).toLocaleString('ar-EG')) +
-        line('صافي النقاط', num(kpi.staff_performance.final_points).toLocaleString('ar-EG')) +
-        line('نسبة التقدم', num(kpi.staff_performance.progress_pct).toLocaleString('ar-EG') + '%') +
-        line('مبيعات الموظف', money(employeeSales.sales_total)) +
-        line('عدد الفواتير', num(employeeSales.invoices_count).toLocaleString('ar-EG')) +
-        line('متوسط الفاتورة', money(employeeSales.avg_invoice)) +
-        line('الحافز النهائي', money(kpi.staff_performance.final_incentive_egp), true) +
-      '</div>' +
-      '<div style="border:1px solid #d9e4e5;border-radius:12px;padding:12px"><div style="font-size:12px;font-weight:900;color:#087f7a;margin-bottom:6px">أداء الفرع</div>' +
-        line('التارجت', money(kpi.branch_target.target_amount)) +
-        line('المبيعات', money(kpi.branch_target.sales_total)) +
-        line('تحقيق التارجت', num(kpi.branch_target.achievement_percent).toLocaleString('ar-EG') + '%') +
-        line('عدد الفواتير', num(kpi.branch_target.invoices_count).toLocaleString('ar-EG')) +
-        line('متوسط الفاتورة', money(kpi.branch_kpis.avg_invoice)) +
-        line('عدد العملاء', num(kpi.branch_kpis.unique_customers).toLocaleString('ar-EG')) +
-      '</div>' +
-    '</div>' +
-    (branchBreakdown ? '<h2 style="font-size:12px;color:#087f7a;margin:15px 0 8px">مبيعات الموظف حسب الفرع</h2>' + table(branchBreakdown, ['الفرع', 'المبيعات', 'الفواتير', 'متوسط الفاتورة']) : '') +
-    '<div style="margin-top:13px;border:1px solid #b8ded9;background:#eff9f7;border-radius:11px;padding:10px;font-size:8.5px;line-height:1.6"><b style="color:#087f7a">قاعدة الشفافية:</b> مؤشرات الأداء سياق للموظف والإدارة. لا تغير الراتب مباشرة؛ التأثير المالي يدخل فقط من Incentive Truth أو بند مالي معتمد.</div>';
-
-  pages.push(pageShell('الأداء وKPIs', 'أداء الموظف والفرع خلال نفس دورة الراتب', kpiBody, preview, 'KPIs'));
-
-  return pages;
+  const approvedBy = approval ? '<div style="font-size:7.5px;color:#6b7a82;margin-top:4px">اعتمد التقييم: ' + esc(approval.approved_by_name || '-') + ' · ' + esc(cairoDateTime(approval.approved_at)) + '</div>' : '';
+  const page2 = pageShell('الترتيب والحوافز والتوصيات', 'تقييمك الشهري وإزاي اتحسب حافزك', evaluationBody + page2Extra + txBlock + ledgerBlock + adviceBlock + approvedBy, preview, 'صفحة ٢ من ٢');
+  return [page1, page2];
 }
 
 export async function buildEmployeePayrollStatementPdf(
   staffId: string,
   monthCycle: string,
-  options: { requireFinalized?: boolean } = {}
+  options: { requireFinalized?: boolean; page2Extra?: (statement: EmployeePayrollStatementV1) => string } = {}
 ) {
-  const data = await getEmployeePayrollStatementV1(staffId, monthCycle);
+  const [data, evaluation] = await Promise.all([
+    getEmployeePayrollStatementV1(staffId, monthCycle),
+    // The statement still prints without the evaluation (none approved yet, or not allowed to read it).
+    getEvaluationApproval(staffId, monthCycle).catch(() => null),
+  ]);
   if (options.requireFinalized && (data.statement_mode !== 'finalized_snapshot_v2' || data.financial.frozen !== true)) {
     throw new Error('finalized_payroll_statement_not_frozen');
   }
   const host = document.createElement('div');
   host.style.cssText = 'position:fixed;left:-12000px;top:0;width:794px;background:#fff';
   host.dir = 'rtl';
-  host.innerHTML = buildPages(data).join('');
+  host.innerHTML = buildPages(data, evaluation, options.page2Extra ? options.page2Extra(data) : '').join('');
   host.querySelectorAll('table').forEach((tableElement) => {
     (tableElement as HTMLElement).style.borderCollapse = 'collapse';
     tableElement.querySelectorAll('td').forEach((cell) => {
-      (cell as HTMLElement).style.padding = '7px';
+      (cell as HTMLElement).style.padding = tableElement.classList.contains('days') ? '2.5px 4px' : '5px 6px';
       (cell as HTMLElement).style.borderBottom = '1px solid #e5ecec';
       (cell as HTMLElement).style.textAlign = 'right';
       (cell as HTMLElement).style.verticalAlign = 'top';
     });
   });
+  host.querySelectorAll('table.days th').forEach((cell) => { (cell as HTMLElement).style.padding = '3px 4px'; (cell as HTMLElement).style.textAlign = 'right'; });
   document.body.appendChild(host);
+
+  // Two pages, always: a long month shrinks its page instead of spilling onto a third one.
+  host.querySelectorAll('.statement-page').forEach((page) => {
+    const fit = page.querySelector('.statement-fit') as HTMLElement | null;
+    if (!fit) return;
+    const room = 1123 - 46 - fit.offsetTop;
+    const needed = fit.scrollHeight;
+    if (needed > room) {
+      const k = Math.max(0.6, room / needed);
+      fit.style.transform = 'scale(' + k + ')';
+      fit.style.transformOrigin = 'top right';
+      fit.style.width = (100 / k) + '%';
+    }
+  });
 
   try {
     await Promise.all(

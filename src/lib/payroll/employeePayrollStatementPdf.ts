@@ -45,9 +45,9 @@ function deliveryPageHtml(statement: Awaited<ReturnType<typeof buildLegacyEmploy
     return '<div style="padding:5px 0;border-bottom:1px solid #f0e1b8">• ' + esc(row.label || row.code || 'مراجعة مطلوبة') + '</div>';
   }).join('');
 
-  return '<section class="delivery-statement-page" style="width:794px;min-height:1123px;box-sizing:border-box;padding:30px 34px 46px;background:#fff;color:#102235;font-family:Tahoma,Arial,sans-serif;direction:rtl">' +
-    '<header style="display:flex;justify-content:space-between;gap:18px;border-bottom:3px solid #0b8c86;padding-bottom:10px;margin-bottom:16px">' +
-      '<div><div style="font-size:20px;font-weight:900">تفاصيل راتب الدليفري</div><div style="font-size:9px;color:#687983;margin-top:3px">' + esc(statement.staff.name) + ' · ' + esc(statement.cycle.start) + ' → ' + esc(statement.cycle.end) + '</div></div>' +
+  return '<div class="delivery-statement-block" style="margin-bottom:9px">' +
+    '<header style="display:flex;justify-content:space-between;gap:18px;border-bottom:2px solid #0b8c86;padding-bottom:6px;margin-bottom:9px">' +
+      '<div><div style="font-size:13px;font-weight:900">تفاصيل راتب الدليفري</div><div style="font-size:9px;color:#687983;margin-top:3px">' + esc(statement.staff.name) + ' · ' + esc(statement.cycle.start) + ' → ' + esc(statement.cycle.end) + '</div></div>' +
       '<div style="font-size:9px;color:#687983;text-align:left"><b style="font-size:11px;color:#102235">صيدليات دواء</b><br/>Delivery Payroll V3</div>' +
     '</header>' +
     '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">' +
@@ -80,33 +80,17 @@ function deliveryPageHtml(statement: Awaited<ReturnType<typeof buildLegacyEmploy
     '</div>' +
     (blockerRows ? '<div style="border:1px solid #efca78;background:#fff9ec;border-radius:12px;padding:11px;font-size:9px;line-height:1.7"><b style="color:#8b5d00">موانع الإقفال الحالية:</b>' + blockerRows + '</div>' : '<div style="border:1px solid #b8ded9;background:#eff9f7;border-radius:12px;padding:11px;font-size:9px"><b style="color:#087f7a">لا توجد موانع إقفال حالية.</b></div>') +
     '<div style="margin-top:14px;font-size:8px;color:#687983;line-height:1.6">قاعدة المصدر: Payroll attendance هو المصدر المالي للحضور. تطبيق الدليفري يرسل النشاط المعتمد وAttendance Evidence فقط، ولا يحدد أسعار الراتب.</div>' +
-  '</section>';
+  '</div>';
 }
 
+// Delivery staff get their delivery breakdown inside page 2: the statement is two pages for everyone.
 export async function buildEmployeePayrollStatementPdf(
   staffId: string,
   monthCycle: string,
   options: { requireFinalized?: boolean } = {}
 ) {
-  const result = await buildLegacyEmployeePayrollStatementPdf(staffId, monthCycle, options);
-  if (!result.statement.delivery_mode) return result;
-
-  const host = document.createElement('div');
-  host.style.cssText = 'position:fixed;left:-12000px;top:0;width:794px;background:#fff';
-  host.dir = 'rtl';
-  host.innerHTML = deliveryPageHtml(result.statement);
-  document.body.appendChild(host);
-
-  try {
-    const [{ default: html2canvas }] = await Promise.all([import('html2canvas')]);
-    const element = host.querySelector('.delivery-statement-page') as HTMLElement | null;
-    if (element) {
-      const canvas = await html2canvas(element, { scale: 2, backgroundColor: '#fff', logging: false, useCORS: true });
-      result.pdf.addPage();
-      result.pdf.addImage(canvas.toDataURL('image/jpeg', 0.9), 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
-    }
-    return result;
-  } finally {
-    host.remove();
-  }
+  return buildLegacyEmployeePayrollStatementPdf(staffId, monthCycle, {
+    ...options,
+    page2Extra: (statement) => (statement.delivery_mode ? deliveryPageHtml(statement) : ''),
+  });
 }
