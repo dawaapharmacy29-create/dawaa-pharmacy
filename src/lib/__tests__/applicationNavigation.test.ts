@@ -302,3 +302,33 @@ describe('sidebar page search', () => {
     expect(searchNavItems(groups, 'العملاء').map((hit) => hit.item.path)).toEqual(['/customers', '/customer-requests']);
   });
 });
+
+describe('customer service team data scope', () => {
+  // فريق خدمة العملاء شغله على الفرعين (canViewAllBranches = true)، بس ده للعملاء مش لبيانات زمايلهم.
+  it('shows an assistant their own points only, without the all-staff exports', () => {
+    const points = read('src/pages/Points.tsx');
+    const choices = points.slice(points.indexOf('const staffChoices = useMemo('));
+    expect(choices.indexOf("normalizeRole(user?.role) === 'assistant'")).toBeLessThan(choices.indexOf('if (canViewAllBranches(user)) return choices;'));
+    expect(points).toMatch(/seesOwnPointsOnly \? null : \(/);
+  });
+
+  it('keeps the whole customer base off the team, by menu and by link', () => {
+    const layout = read('src/components/layout/LayoutRuntime.tsx');
+    const allowedBlock = layout.slice(layout.indexOf('TEAM_DAWAA_ASSISTANT_ALLOWED_PATHS = new Set(['));
+    expect(allowedBlock.slice(0, allowedBlock.indexOf(']);'))).not.toContain("'/customers'");
+  });
+
+  it('leaves the doctors report and branch analysis to management on the reviews page', () => {
+    const layout = read('src/components/layout/LayoutRuntime.tsx');
+    const hub = layout.slice(layout.indexOf('const showReviewsHub ='), layout.indexOf('const isScopedAssistant'));
+    expect(hub).toContain("normalizeRole(user?.role) !== 'assistant'");
+  });
+
+  it('shows an assistant their own schedule and none of the management tools', () => {
+    const schedule = read('src/pages/Schedule.tsx');
+    expect(schedule).toContain("const ownScheduleOnly = normalizeRole(user?.role) === 'assistant';");
+    expect(schedule).toContain('const managerView = canViewAllBranches(user) && !ownScheduleOnly;');
+    expect(schedule).toContain('(!ownScheduleOnly || String(e.id) === ownStaffId)');
+    expect(schedule).toMatch(/ownScheduleOnly \? null : \(\s*<>\s*<WorkforceScheduleCoverage/);
+  });
+});

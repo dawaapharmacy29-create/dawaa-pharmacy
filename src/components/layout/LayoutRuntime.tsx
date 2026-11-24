@@ -69,7 +69,6 @@ const TEAM_DAWAA_ASSISTANT_ALLOWED_PATHS = new Set([
   '/customer-service',
   '/customer-requests',
   '/reviews',
-  '/customers',
   '/customer-coding',
   '/quick-replies',
   '/welcome-messages',
@@ -104,8 +103,10 @@ export default function LayoutRuntime({ children }: { children: React.ReactNode 
   const reviewsPageMode = reviewParams.get('mode');
   const reviewsPageSection = reviewParams.get('section');
   const reviewsPageId = reviewParams.get('id');
+  // تحليلات التقييمات (تقرير أداء الدكاترة، تحليل الفرعين، التصدير) للإدارة؛ المساعد بيضيف تقييمات بس.
   const showReviewsHub =
     location.pathname === '/reviews' &&
+    normalizeRole(user?.role) !== 'assistant' &&
     reviewsPageMode !== 'new' &&
     reviewsPageSection !== 'history' &&
     !reviewsPageId;

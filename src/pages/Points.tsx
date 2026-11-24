@@ -213,7 +213,8 @@ export default function Points() {
   );
   const staffChoices = useMemo(() => {
     const choices = mergeStaffChoices(staffList);
-    if (canViewAllBranches(user)) return choices;
+    // الدكتور والمساعد بيشوفوا نقاطهم هما بس، حتى فريق خدمة العملاء اللي شغله على الفرعين
+    // (canViewAllBranches بيرجع true ليهم عشان العملاء، مش عشان نقاط وحوافز زمايلهم).
     if (isDoctorRole(user) || normalizeRole(user?.role) === 'assistant') {
       return choices.filter(
         (staff) =>
@@ -222,8 +223,10 @@ export default function Points() {
           rowMatchesCurrentDoctor(user, staff as unknown as Record<string, unknown>)
       );
     }
+    if (canViewAllBranches(user)) return choices;
     return choices.filter((staff) => rowMatchesCurrentUserScope(user, staff as unknown as Record<string, unknown>));
   }, [staffList, user]);
+  const seesOwnPointsOnly = isDoctorRole(user) || normalizeRole(user?.role) === 'assistant';
   const validStaffIds = useMemo(
     () => new Set(staffChoices.map((staff) => staff.id)),
     [staffChoices]
@@ -571,6 +574,8 @@ export default function Points() {
           <StatChip label="عمليات الدورة" value={approvedCycleRecords.length} tone="white" />
         </div>
         <div className="flex gap-2 flex-wrap">
+          {seesOwnPointsOnly ? null : (
+          <>
           <button
             type="button"
             onClick={() => void exportAllIncentivePdfs()}
@@ -598,6 +603,8 @@ export default function Points() {
           >
             تصدير PDF لكل الموظفين
           </button>
+          </>
+          )}
           {(canManage ||
             user?.permissions?.create_reward === true ||
             user?.permissions?.create_deduction === true ||
