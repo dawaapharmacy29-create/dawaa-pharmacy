@@ -129,7 +129,7 @@ function pageShell(data: EmployeePayrollStatementV1, title: string, body: string
         '<div style="font-size:10px;opacity:.9;margin-top:2px">' + esc(data.staff.branch || '') + ' · كشف مرتب ' + esc(monthTitle(data.cycle.month_cycle)) + ' · من ' + esc(longDate(data.cycle.start)) + ' لـ ' + esc(longDate(data.cycle.end, true)) + '</div>' +
       '</div>' +
       '<div style="display:flex;align-items:center;gap:10px">' +
-        '<div style="text-align:left"><div style="font-size:12px;font-weight:800">صيدليات دواء</div><div style="margin-top:4px">' + chip(status, C.tealDark, '#ffffff') + '</div></div>' +
+        '<div style="text-align:left"><div style="font-size:12px;font-weight:800">صيدليات دواء</div><div style="margin-top:5px;display:inline-block;padding:3px 12px;border-radius:999px;border:1px solid rgba(255,255,255,.55);font-size:9.5px;font-weight:700;line-height:1.6">' + esc(status) + '</div></div>' +
         '<div style="width:56px;height:56px;border-radius:14px;background:#fff;overflow:hidden;display:flex;align-items:center;justify-content:center"><img src="/dawaa-logo-full.jpeg" alt="صيدليات دواء" style="width:56px;height:76px;object-fit:contain;transform:translateY(-6px)"/></div>' +
       '</div>' +
     '</header>' +
@@ -286,7 +286,7 @@ function incentivePage(data: EmployeePayrollStatementV1, evaluation: EvaluationA
         '</div>' +
         rankCard('ترتيبك في الفرع', approval.rank_in_branch ? ar(approval.rank_in_branch) + ' <span style="font-size:11px;color:' + C.muted + '">من ' + ar(approval.rank_in_branch_of) + '</span>' : '—', approval.branch || '') +
         rankCard('ترتيبك في الصيدليات', approval.rank_overall ? ar(approval.rank_overall) + ' <span style="font-size:11px;color:' + C.muted + '">من ' + ar(approval.rank_overall_of) + '</span>' : '—', 'كل الدكاترة') +
-        rankCard('نجم الفرع', num(approval.star_egp) > 0 ? '<span style="color:' + C.amber + '">★ فائز</span>' : star?.rank ? 'المركز ' + ar(star.rank) : '—',
+        rankCard('نجم الفرع', num(approval.star_egp) > 0 ? '<span style="color:' + C.amber + '">فائز بالنجم</span>' : star?.rank ? 'المركز ' + ar(star.rank) : '—',
           star?.points !== undefined ? ar(star.points) + ' نقطة' + (star.gap ? ' · ناقص ' + ar(star.gap) : '') : 'خارج السباق') +
       '</div>';
 
@@ -363,16 +363,16 @@ function incentivePage(data: EmployeePayrollStatementV1, evaluation: EvaluationA
   if (absent > 0) advice.push({ kind: 'note', text: 'غبت ' + ar(absent) + ' يوم. أي غياب من غير إذن معتمد بيخصم من الحافز.' });
   if (!advice.length) advice.push({ kind: 'strength', text: 'شهر منضبط، كمّل على نفس المستوى.' });
   const KIND: Record<string, { color: string; bg: string; mark: string }> = {
-    strength: { color: C.teal, bg: C.tealSoft, mark: '✓' },
-    improve: { color: C.amber, bg: C.amberSoft, mark: '↑' },
-    note: { color: C.blue, bg: C.blueSoft, mark: 'i' },
+    strength: { color: C.teal, bg: C.tealSoft, mark: 'ممتاز' },
+    improve: { color: C.amber, bg: C.amberSoft, mark: 'حسّن' },
+    note: { color: C.blue, bg: C.blueSoft, mark: 'خلي بالك' },
   };
   const adviceBox = box(h2('توصيات الشهر الجاي') +
     '<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:7px">' +
     advice.slice(0, 6).map((item) => {
       const k = KIND[item.kind] || KIND.note;
       return '<div style="display:flex;gap:8px;align-items:flex-start;background:' + k.bg + ';border-radius:10px;padding:8px 10px">' +
-        '<div style="flex:0 0 18px;height:18px;border-radius:50%;background:' + k.color + ';color:#fff;font-size:10px;font-weight:900;text-align:center;line-height:18px">' + k.mark + '</div>' +
+        '<div style="flex:0 0 auto;padding:0 7px;border-radius:999px;background:' + k.color + ';color:#fff;font-size:8.5px;font-weight:800;line-height:17px;white-space:nowrap">' + k.mark + '</div>' +
         '<div style="font-size:9.5px;line-height:1.65;color:' + C.ink + '">' + esc(item.text) + '</div></div>';
     }).join('') + '</div>');
 
