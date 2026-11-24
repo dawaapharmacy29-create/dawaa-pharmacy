@@ -10140,14 +10140,14 @@ async function computeMatchingInputHash(input) {
 }
 
 // src/lib/salesIntelligence/persistence/versions.ts
-var PIPELINE_VERSION = "sales-intelligence-v61-evidence-bound-closing";
+var PIPELINE_VERSION = "sales-intelligence-v62-buyable-basket-lines";
 var ENGINE_VERSIONS = {
   caseSegmentation: "case-segmentation-v15-caption-priced-offer-continuity",
   historicalClosure: "historical-closure-v1",
   commercialConfirmation: "commercial-confirmation-v7-independent-announced-total",
   protocolApplicability: "protocol-applicability-v1",
   attribution: "attribution-v13-scoped-name-annotations",
-  matching: "matching-v3-unresolved-product-evidence-safe",
+  matching: "matching-v4-phonetic-invoice-line-display",
   policyEvaluation: "policy-evaluation-v1"
 };
 var BRANCH_IDENTITY_MAPPING_VERSION = "branch-identity-mapping-v2";
