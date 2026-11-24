@@ -54,6 +54,18 @@ const STATUS_LABELS: Record<string, string> = {
   approved_time_off: 'إجازة/إذن معتمد',
   absence_review: 'غياب',
   worked_on_off: 'عمل يوم راحة',
+  on_time: 'في الميعاد',
+  late: 'متأخر',
+  very_late: 'تأخير كبير',
+  half_day: 'نص يوم',
+  early_leave_review: 'خروج بدري',
+  late_review: 'تأخير للمراجعة',
+  missing_punch_review: 'بصمة ناقصة',
+  absent: 'غياب',
+  absence_deduction: 'غياب بخصم',
+  reward: 'مكافأة',
+  deduction: 'خصم',
+  penalty: 'جزاء',
 };
 const statusLabel = (value?: string | null) => STATUS_LABELS[String(value || '')] || String(value || '-');
 
@@ -172,17 +184,17 @@ function buildPages(data: EmployeePayrollStatementV1, evaluation: EvaluationAppr
   const dayRow = (d: (typeof days)[number]) => {
     const status = statusOf(d);
     const notes = [
-      statusLabel(status),
+      /^(late|very_late|early_leave_review|missing_punch_review)$/.test(status) ? '' : statusLabel(status),
       d.late_minutes ? 'تأخير ' + ar(d.late_minutes) + 'د' : '',
       d.early_leave_minutes ? 'بدري ' + ar(d.early_leave_minutes) + 'د' : '',
       d.missing_punch ? 'بصمة ناقصة' : '',
     ].filter(Boolean).join(' · ');
     const tone = /absence/.test(status) ? 'background:#fff3f3' : d.late_minutes || d.missing_punch ? 'background:#fffaf0' : /off_day|time_off/.test(status) ? 'background:#f5f8f9' : '';
-    return '<tr style="' + tone + '"><td style="white-space:nowrap">' + esc(weekday(d.date)) + ' ' + esc(d.date.slice(8, 10) + '/' + d.date.slice(5, 7)) + '</td><td style="white-space:nowrap">' + esc(cairoTime(d.first_in)) + ' - ' + esc(cairoTime(d.last_out)) + '</td><td><b>' + esc(shortHours(d.payroll_eligible_hours ?? d.candidate_hours)) + '</b></td><td>' + esc(notes || '-') + '</td></tr>';
+    return '<tr style="' + tone + '"><td style="white-space:nowrap;overflow:hidden">' + esc(weekday(d.date).replace(/^ال/, '')) + ' ' + esc(d.date.slice(8, 10) + '/' + d.date.slice(5, 7)) + '</td><td style="white-space:nowrap;overflow:hidden">' + esc(cairoTime(d.first_in)) + ' - ' + esc(cairoTime(d.last_out)) + '</td><td><b>' + esc(shortHours(d.payroll_eligible_hours ?? d.candidate_hours)) + '</b></td><td>' + esc(notes || '-') + '</td></tr>';
   };
   const half = Math.ceil(days.length / 2);
-  const dayTable = (list: typeof days) => '<table class="days" style="width:100%;border-collapse:collapse;font-size:7.5px"><thead><tr style="background:#eef8f7;color:#26494b"><th>اليوم</th><th>الدخول / الخروج</th><th>المحتسب</th><th>الحالة</th></tr></thead><tbody>' + list.map(dayRow).join('') + '</tbody></table>';
-  const daysBlock = section('أيام الدورة يوم بيوم', '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' + dayTable(days.slice(0, half)) + dayTable(days.slice(half)) + '</div>');
+  const dayTable = (list: typeof days) => '<table class="days" style="width:100%;table-layout:fixed;border-collapse:collapse;font-size:7.5px"><colgroup><col style="width:21%"/><col style="width:27%"/><col style="width:13%"/><col style="width:39%"/></colgroup><thead><tr style="background:#eef8f7;color:#26494b"><th>اليوم</th><th>الدخول / الخروج</th><th>المحتسب</th><th>الحالة</th></tr></thead><tbody>' + list.map(dayRow).join('') + '</tbody></table>';
+  const daysBlock = section('أيام الدورة يوم بيوم', '<div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px">' + dayTable(days.slice(0, half)) + dayTable(days.slice(half)) + '</div>');
 
   const timeOff = data.time_off.requests.map((r) => esc(r.label || r.kind) + ' ' + esc(r.start_date.slice(8, 10) + '/' + r.start_date.slice(5, 7)) +
     (r.end_date && r.end_date !== r.start_date ? '←' + esc(r.end_date.slice(8, 10) + '/' + r.end_date.slice(5, 7)) : '') +
@@ -270,7 +282,7 @@ function buildPages(data: EmployeePayrollStatementV1, evaluation: EvaluationAppr
   }
 
   const visible = data.transactions.items.filter((t) => t.employee_visible !== false && (num(t.amount) || num(t.points)));
-  const txRows = visible.slice(0, 10).map((t) => '<tr><td>' + esc(t.date || '-') + '</td><td>' + esc(t.title || t.type || t.source || 'حركة') + '</td><td>' + esc(statusLabel(t.status)) + '</td><td>' + esc(num(t.amount) ? money(t.amount) : '-') + '</td><td>' + esc(num(t.points) ? ar(t.points) : '-') + '</td></tr>').join('');
+  const txRows = visible.slice(0, 10).map((t) => '<tr><td>' + esc(t.date || '-') + '</td><td>' + esc(t.title || statusLabel(t.type || t.source) || 'حركة') + '</td><td>' + esc(statusLabel(t.status)) + '</td><td>' + esc(num(t.amount) ? money(t.amount) : '-') + '</td><td>' + esc(num(t.points) ? ar(t.points) : '-') + '</td></tr>').join('');
   const txBlock = section('الحوافز والخصومات والنقاط', (txRows ? table(txRows, ['التاريخ', 'البند', 'الحالة', 'المبلغ', 'النقاط']) : '<div style="font-size:9px;color:#6b7a82">لا توجد حركات ظاهرة في الدورة.</div>') +
     (visible.length > 10 ? '<div style="font-size:7.5px;color:#6b7a82;margin-top:3px">+ ' + ar(visible.length - 10) + ' حركة تانية في صفحة المرتبات</div>' : '') +
     '<div style="font-size:7.5px;color:#6b7a82;margin-top:3px">المعلق والمرفوض للمعلومة بس ومش داخل الصافي.</div>');
