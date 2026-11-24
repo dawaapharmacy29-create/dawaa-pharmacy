@@ -60,27 +60,27 @@ const PAGE_TITLES: Record<string, string> = {
 const TEAM_DAWAA_ASSISTANT_NAMES = new Set(['هاجر', 'نور', 'هبه محمد', 'هبة محمد']);
 // صفحات فريق خدمة العملاء (هاجر/نور/هبه). أي صفحة برّه القايمة دي بترجعهم لصفحة البداية،
 // فأي صفحة جديدة ليهم لازم تتضاف هنا كمان مش في القايمة الجانبية بس.
+// (صاحب الصيدلية 2026-11-24: شغلهم المسابقة وتسجيل الفواتير وخدمة العملاء؛ مركز خدمة العملاء القديم،
+// قاعدة العملاء، قايمة المشتريات وصفحات الإدارة برّه القايمة دي.)
 const TEAM_DAWAA_ASSISTANT_ALLOWED_PATHS = new Set([
+  // خدمة العملاء والمسابقة
   '/customer-service-tasks',
-  '/assistant-operational-log',
-  '/my-daily-checklist',
-  '/pharmacy-zone-tasks',
-  '/schedule',
-  '/customer-service',
   '/customer-requests',
   '/reviews',
-  '/customers',
   '/customer-coding',
   '/quick-replies',
   '/welcome-messages',
-  '/purchases',
+  '/customer-points-ledger',
+  // تسجيل الفواتير
   '/purchase-invoice-entry',
   '/purchase-invoice-accuracy',
-  '/customer-monthly-performance',
-  '/customer-cashback',
-  '/customer-points-ledger',
+  // يومهم وحسابهم
+  '/my-daily-checklist',
+  '/assistant-operational-log',
+  '/schedule',
   '/points',
 ]);
+const TEAM_DAWAA_ALPHA_ROLE = 'team_dawaa_alpha';
 
 function normalizeAssistantName(value: unknown) {
   return String(value ?? '')
@@ -104,15 +104,19 @@ export default function LayoutRuntime({ children }: { children: React.ReactNode 
   const reviewsPageMode = reviewParams.get('mode');
   const reviewsPageSection = reviewParams.get('section');
   const reviewsPageId = reviewParams.get('id');
+  // تحليلات التقييمات (تقرير أداء الدكاترة، تحليل الفرعين، التصدير) للإدارة؛ المساعد بيضيف تقييمات بس.
   const showReviewsHub =
     location.pathname === '/reviews' &&
+    normalizeRole(user?.role) !== 'assistant' &&
     reviewsPageMode !== 'new' &&
     reviewsPageSection !== 'history' &&
     !reviewsPageId;
 
+  // الفريق بيتعرف من دور الحساب (team_dawaa_alpha)، والاسم احتياطي بس: تغيير اسم العرض مايفتحش الحصر.
   const isScopedAssistant =
     normalizeRole(user?.role) === 'assistant' &&
-    TEAM_DAWAA_ASSISTANT_NAMES.has(normalizeAssistantName(user?.name));
+    (String(user?.rawRole || '').trim().toLowerCase() === TEAM_DAWAA_ALPHA_ROLE ||
+      TEAM_DAWAA_ASSISTANT_NAMES.has(normalizeAssistantName(user?.name)));
   const assistantPathAllowed = TEAM_DAWAA_ASSISTANT_ALLOWED_PATHS.has(location.pathname);
 
   useEffect(() => {

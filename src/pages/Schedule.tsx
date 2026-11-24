@@ -6,6 +6,7 @@ import { useSupabaseQuery } from '@/hooks/useSupabaseQuery';
 import { BRANCHES } from '@/lib/constants';
 import { useAuth } from '@/hooks/useAuth';
 import { canViewAllBranches } from '@/lib/security/userDataScope';
+import { normalizeRole } from '@/lib/core/permissionSystem';
 import {
   isActiveStaffFilter,
   staffRowIsActive,
@@ -66,8 +67,14 @@ function sundayOf(date: string) {
 
 export default function Schedule() {
   const { user } = useAuth();
-  const managerView = canViewAllBranches(user);
-  const [branchFilter, setBranchFilter] = useState(managerView ? 'الكل' : normalizeBranch(user?.branch || ''));
+  // المساعد بيشوف جدوله هو بس. فريق خدمة العملاء بياخد canViewAllBranches عشان شغل العملاء على الفرعين،
+  // مش عشان يشوف جداول باقي الفريق، وفرعه «المخزن» مالوش جدول فرع، فبنقرا الفرعين ونفلتر عليه.
+  const ownScheduleOnly = normalizeRole(user?.role) === 'assistant';
+  const ownStaffId = String(user?.staffId || user?.id || '');
+  const managerView = canViewAllBranches(user) && !ownScheduleOnly;
+  const [branchFilter, setBranchFilter] = useState(
+    managerView || ownScheduleOnly ? 'الكل' : normalizeBranch(user?.branch || '')
+  );
   const [roleFilter, setRoleFilter] = useState('الكل');
   const [preview, setPreview] = useState<ParsedScheduleImport | null>(null);
   const [parsing, setParsing] = useState(false);
@@ -143,6 +150,7 @@ export default function Schedule() {
     (e) =>
       staffRowIsActive(e) &&
       staffRowVisibleInSchedule(e) &&
+      (!ownScheduleOnly || String(e.id) === ownStaffId) &&
       (branchFilter === 'الكل' || normalizeBranch(e.branch) === branchFilter) &&
       (roleFilter === 'الكل' || e.role === roleFilter)
   );
@@ -319,6 +327,9 @@ export default function Schedule() {
         onNextWeek={() => setWeekOffset((value) => value + 1)}
         canGoNext={weekOffset < 1}
       />
+      {/* التغطية والنشر والحوكمة واستيراد الإكسيل أدوات إدارة، مش لحد بيشوف جدوله هو بس. */}
+      {ownScheduleOnly ? null : (
+      <>
       <WorkforceScheduleCoverage branch={branchFilter} />
       <SchedulePublishingCenter
         branch={branchFilter}
@@ -481,6 +492,8 @@ export default function Schedule() {
         )}
       </div>
 
+      </>
+      )}
       {managerView && <ScheduleIdentityGovernance />}
     </div>
   );
