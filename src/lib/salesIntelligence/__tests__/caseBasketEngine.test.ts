@@ -62,7 +62,8 @@ describe('Case Basket Engine (Sales Intelligence Phase B.2) — Golden Cases', (
       expect(theCase.confidence.level).toBe('strongly_inferred');
       const items = itemsOf(itemsByBasketId, baskets[0].basketId);
       expect(items.length).toBe(1);
-      expect(items[0].productNameRaw).toBe('عندنا سيروم فيتامين سي');
+      // The line names the offered product, not the staff sentence that offered it.
+      expect(items[0].productNameRaw).toBe('سيروم فيتامين سي');
       expect(items[0].resolutionStatus).toBe('partially_proven');
       expect(items[0].confidence.level).toBe('strongly_inferred');
     });

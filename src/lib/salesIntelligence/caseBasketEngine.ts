@@ -132,7 +132,7 @@ export function stripRequestPrefix(text: string): string {
     .replace(GREETING_LEAD_RX, '')
     .replace(LEAD_DISCOURSE_RX, '')
     .replace(ADDITIVE_CONNECTOR_RX, '')
-    .replace(/^\s*و?(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|ممكن|هات[ي]?|ابعت(?:لي|يلي)?)\s*/i, '')
+    .replace(/^\s*(?:(?:معلش|طب|انا|أنا|كنت)\s+)*و?(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|ممكن|هات[ي]?|ابعت(?:لي|يلي)?)\s*/i, '')
     .replace(ADDITIVE_CONNECTOR_RX, '')
     .replace(TRAILING_ADDITIVE_RX, '')
     .trim()
@@ -390,6 +390,69 @@ function parseSummaryItems(message: NormalizedConversationMessageV32): DraftItem
  * given, limits which messages' signals are turned into output items without narrowing the
  * context `resolveReference` searches.
  */
+// ---- Non-product basket names -------------------------------------------------------------
+// A basket line must name something the customer can buy. Contact/payment/prescription words,
+// money, a bare count of units, a dosing schedule, staff apologies/availability replies and
+// sentences made only of pointers/fillers ("من ده", "زيها بالظبط", "اول نوع") never do.
+const MEDIA_MARKER_RX = /<[^<>]*(?:omitted|message)>/giu;
+const NON_PRODUCT_TOPIC_RX =
+  /(?:^|\s)(?:ب|و)?(?:ال)?(?:رقم|حساب|احاسب|أحاسب|فودافون|انستا|انستاباي|اوردر|أوردر|روشت[ةه]|رشت[ةه]|عنوان|دليفري|مندوب)(?=\s|$)|(?:^|\s)سعر(?:ه|ها|هم)?(?=\s|$)|بعتذر|معذر[ةه]|غير\s*متوفر|مش\s+فاكر[ةه]?\s+(?:ال)?اسم/u;
+const MONEY_ONLY_RX = /^[0-9٠-٩]+(?:[.,][0-9٠-٩]+)?\s*(?:ج|جنيه|جنية|ج\.م|egp|le)?\.?$/iu;
+const SCHEDULE_ONLY_RX = /^(?:بعد|قبل)\s+(?:ال)?(?:فطار|اكل|أكل|غدا|غداء|عشا|عشاء|نوم)(?:\s|$)/u;
+const NON_PURCHASE_VERB_RX = /^(?:مش\s+(?:عايز|عاوز|محتاج)[هة]?|اغير|أغير|ابدل|أبدل|ارجع|أرجع|استرجع|اعرف|أعرف|اسال|اسأل|احجز|استفسر|أستفسر)(?=\s|$)/u;
+const FILLER_TOKENS = new Set(
+  ('من ده دا دي دول هو هي هم و ولا او كام بكام موجود موجوده متوفر متوفره زي زيه زيها زيهم بالظبط بالضبط بس فقط كمان برضه برضو ' +
+   'انا احنا عايز عايزه عاوز عاوزه محتاج محتاجه كنت هات هاتي ابعت ابعتلي ممكن لو سمحت بعد اذن اذنك حضرتك يا فندم يفندم ' +
+   'دكتور دكتوره ان شاء الله دلوقت دلوقتي النهارده بكره بكرا كده كدا تمام ماشي طيب طب اه ايوه ايوا لا مش نوع النوع الاول اول ' +
+   'التاني تاني الاولاني الثاني كل حاجه الحاجه العلبه علبه علب علبتين الصغيره صغيره الكبيره كبيره الصنف صنف المنتج واحده واحد ' +
+   'اتنين تلاته قطعه قطع شريط شرايط الشريط شريطين الباكت باكت الحقنه حقنه البخاخه بخاخه المرهم العلاج الدوا الدواء معاه معاها ' +
+   'منه منها منهم معلش لي ليا عشان اللي الي اتنسي هبعت حالا عليه عليها معلمه شكل شكله شكلها بالشكل الجديد متغير صورته صورتها الصوره حجم يبقي').split(' ')
+);
+const normalizeNameToken = (token: string) =>
+  token.replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/[؟?!.،,]+/g, '');
+
+/** Drops chat markers, a trailing price question and connectors from a candidate line name. */
+function tidyBasketItemName(name: string): string {
+  return name
+    .replace(MEDIA_MARKER_RX, ' ')
+    .replace(POLITENESS_RX, ' ')
+    .replace(/\s+(?:و|او|أو)\s*$/u, '')
+    .replace(/\s*(?:بكام|عامل\s*كام)\s*[؟?!.]*\s*$/u, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** True when a candidate basket-line name cannot identify anything the customer could buy. */
+export function isNonProductBasketName(rawName: string): boolean {
+  const name = tidyBasketItemName(stripRequestPrefix(tidyBasketItemName(String(rawName ?? ''))));
+  if (!name || name.length < 2) return true;
+  if (NON_PRODUCT_TOPIC_RX.test(name) || MONEY_ONLY_RX.test(name) || SCHEDULE_ONLY_RX.test(name) || NON_PURCHASE_VERB_RX.test(name)) return true;
+  if (/(?:^|\s)01[0125][0-9]{8}(?:\s|$)/u.test(name)) return true;
+  const content = name.replace(/([0-9٠-٩])(?=\p{L})/gu, '$1 ').split(/\s+/u).map(normalizeNameToken)
+    .filter((token) => token && !FILLER_TOKENS.has(token) && !/^[0-9٠-٩]+$/u.test(token));
+  return content.every((token) => token.length < 3);
+}
+
+/**
+ * The product a resolved reference points at, taken from the antecedent message: the staff
+ * message's explicitly offered name, or the customer's own short product wording. Null when the
+ * antecedent names nothing (a photo, "موجود ان شاء الله", an apology) — the reference then stays
+ * unresolved instead of copying that whole sentence into the basket.
+ */
+function antecedentProductName(antecedent: NormalizedConversationMessageV32): string | null {
+  if (antecedent.role === 'staff') {
+    const offered = explicitStaffOfferProductNames(antecedent.text);
+    if (offered.length === 1 && !isNonProductBasketName(offered[0])) return offered[0];
+    // "عندنا سيروم فيتامين سي" — a short statement of what the pharmacy has.
+    const stated = tidyBasketItemName(antecedent.text).match(/^(?:عندنا|عندي|متوفر(?:\s*عندنا)?|موجود(?:\s*عندنا)?)\s+([^؟?\n]+)$/u)?.[1]
+      ?.replace(/\s+ان\s*شاء\s*الله.*$/u, '').trim();
+    return stated && stated.split(/\s+/u).length <= 4 && !isNonProductBasketName(stated) && !isGenericDeicticProductPhrase(stated) ? stated : null;
+  }
+  const own = tidyBasketItemName(stripRequestPrefix(tidyBasketItemName(antecedent.text))).replace(/[؟?!.]+$/u, '').trim();
+  if (!own || own.split(/\s+/u).length > 4 || isNonProductBasketName(own) || isGenericDeicticProductPhrase(own)) return null;
+  return own;
+}
+
 function extractDraftItemsFromScope(
   allMessages: NormalizedConversationMessageV32[],
   restrictToIds?: Set<string>
@@ -445,7 +508,9 @@ function extractDraftItemsFromScope(
     // nearest prior staff offer for the product name; quantity is proven, product identity is
     // only as strong as the reference resolution.
     const index = allMessages.indexOf(message);
-    const resolved = resolveReference(allMessages, index);
+    const antecedent = resolveReference(allMessages, index);
+    const antecedentName = antecedent ? antecedentProductName(antecedent) : null;
+    const resolved = antecedent && antecedentName ? { ...antecedent, text: antecedentName } : null;
     const numberMatch = (signal.extractedValue || '').match(/\d+|واحد[ةه]?|اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?/);
     const quantity = numberMatch ? parseNumberToken(numberMatch[0]) : null;
     items.push({
@@ -479,7 +544,9 @@ function extractDraftItemsFromScope(
     // discussion; it never adds a basket line, and must never turn the staff sentence into one.
     if (message.role === 'staff') return;
     const index = allMessages.indexOf(message);
-    const resolved = resolveReference(allMessages, index);
+    const antecedent = resolveReference(allMessages, index);
+    const antecedentName = antecedent ? antecedentProductName(antecedent) : null;
+    const resolved = antecedent && antecedentName ? { ...antecedent, text: antecedentName } : null;
     // An unresolved "ده/دي/دول/منه..." is evidence that product context is missing, NOT a product
     // identity. Keeping the whole customer sentence as a basket line poisoned downstream demand,
     // availability and invoice-item matching. Unknown stays unknown until a real antecedent,
@@ -519,7 +586,9 @@ function extractDraftItemsFromScope(
     }
   });
 
-  return items;
+  return items
+    .map((item) => item.resolutionStatus === 'unknown' ? item : { ...item, productNameRaw: tidyBasketItemName(item.productNameRaw) || item.productNameRaw })
+    .filter((item) => item.resolutionStatus === 'unknown' || !isNonProductBasketName(item.productNameRaw));
 }
 
 /**
@@ -1088,7 +1157,7 @@ export function buildCaseBaskets(
             // No quantity/unit signal and no resolvable pronoun reference — fall back to the
             // customer's own wording directly, mirroring the 'substitute' branch's pattern.
             const productNameRaw = extractAddedProductName(message.text);
-            items.set(normalizeProductKey(productNameRaw), {
+            if (!isNonProductBasketName(productNameRaw)) items.set(normalizeProductKey(productNameRaw), {
               productNameRaw,
               productId: null,
               quantity: null,

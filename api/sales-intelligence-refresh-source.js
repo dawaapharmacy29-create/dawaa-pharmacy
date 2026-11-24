@@ -2895,7 +2895,7 @@ var LEAD_DISCOURSE_RX = /^\s*(?:(?:تمام|ماشي|اوك|ok|خلاص|طيب|�
 var TRAILING_ADDITIVE_RX = /\s+(?:كمان|برضه|برضو|أيضا|ايضا)\s*$/i;
 var CONTACT_DETAIL_TAIL_RX = /[،,]\s*(?:رقم\s*(?:تليفوني|موبايلي|الهاتف|التليفون)|(?:تليفوني|موبايلي))\s*[:：-]?\s*[+0-9٠-٩()\s-]{7,}$/u;
 function stripRequestPrefix(text6) {
-  return text6.replace(GREETING_LEAD_RX, "").replace(LEAD_DISCOURSE_RX, "").replace(ADDITIVE_CONNECTOR_RX, "").replace(/^\s*و?(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|ممكن|هات[ي]?|ابعت(?:لي|يلي)?)\s*/i, "").replace(ADDITIVE_CONNECTOR_RX, "").replace(TRAILING_ADDITIVE_RX, "").trim().replace(/^[,،]+|[,،]+$/g, "").trim();
+  return text6.replace(GREETING_LEAD_RX, "").replace(LEAD_DISCOURSE_RX, "").replace(ADDITIVE_CONNECTOR_RX, "").replace(/^\s*(?:(?:معلش|طب|انا|أنا|كنت)\s+)*و?(?:عايز[هة]?|عاوز[هة]?|محتاج[هة]?|ممكن|هات[ي]?|ابعت(?:لي|يلي)?)\s*/i, "").replace(ADDITIVE_CONNECTOR_RX, "").replace(TRAILING_ADDITIVE_RX, "").trim().replace(/^[,،]+|[,،]+$/g, "").trim();
 }
 var NON_PRODUCT_PHRASE_RX = /^(?:مش|لا|لأ|اه|آه|تمام|حاجة|حاجه|ده|دي|دا|دول|منه|منها|بس)?$/;
 var GENERIC_DEICTIC_PRODUCT_PHRASE_RX = /^(?:(?:العلب[هة]|العبو[هة]|الشريط|الصنف)\s*(?:دي|ده|دا)|(?:الحاجات|الحاجه|الحاجة|الأشياء|الاشياء)\s*(?:دي|دول|ده|دا)?|(?:دول|دي|ده|دا)(?:\s*كلهم)?|اللي\s*(?:في|ف)\s*(?:الصوره|الصورة|الصور|الفويس|الصوت)|اللي\s*(?:بعت(?:ه|ها|هم)|مبعت(?:ه|ها|هم)))$/i;
@@ -3056,6 +3056,37 @@ function parseSummaryItems(message) {
   }
   return items;
 }
+var MEDIA_MARKER_RX = /<[^<>]*(?:omitted|message)>/giu;
+var NON_PRODUCT_TOPIC_RX = /(?:^|\s)(?:ب|و)?(?:ال)?(?:رقم|حساب|احاسب|أحاسب|فودافون|انستا|انستاباي|اوردر|أوردر|روشت[ةه]|رشت[ةه]|عنوان|دليفري|مندوب)(?=\s|$)|(?:^|\s)سعر(?:ه|ها|هم)?(?=\s|$)|بعتذر|معذر[ةه]|غير\s*متوفر|مش\s+فاكر[ةه]?\s+(?:ال)?اسم/u;
+var MONEY_ONLY_RX = /^[0-9٠-٩]+(?:[.,][0-9٠-٩]+)?\s*(?:ج|جنيه|جنية|ج\.م|egp|le)?\.?$/iu;
+var SCHEDULE_ONLY_RX = /^(?:بعد|قبل)\s+(?:ال)?(?:فطار|اكل|أكل|غدا|غداء|عشا|عشاء|نوم)(?:\s|$)/u;
+var NON_PURCHASE_VERB_RX = /^(?:مش\s+(?:عايز|عاوز|محتاج)[هة]?|اغير|أغير|ابدل|أبدل|ارجع|أرجع|استرجع|اعرف|أعرف|اسال|اسأل|احجز|استفسر|أستفسر)(?=\s|$)/u;
+var FILLER_TOKENS = new Set(
+  "\u0645\u0646 \u062F\u0647 \u062F\u0627 \u062F\u064A \u062F\u0648\u0644 \u0647\u0648 \u0647\u064A \u0647\u0645 \u0648 \u0648\u0644\u0627 \u0627\u0648 \u0643\u0627\u0645 \u0628\u0643\u0627\u0645 \u0645\u0648\u062C\u0648\u062F \u0645\u0648\u062C\u0648\u062F\u0647 \u0645\u062A\u0648\u0641\u0631 \u0645\u062A\u0648\u0641\u0631\u0647 \u0632\u064A \u0632\u064A\u0647 \u0632\u064A\u0647\u0627 \u0632\u064A\u0647\u0645 \u0628\u0627\u0644\u0638\u0628\u0637 \u0628\u0627\u0644\u0636\u0628\u0637 \u0628\u0633 \u0641\u0642\u0637 \u0643\u0645\u0627\u0646 \u0628\u0631\u0636\u0647 \u0628\u0631\u0636\u0648 \u0627\u0646\u0627 \u0627\u062D\u0646\u0627 \u0639\u0627\u064A\u0632 \u0639\u0627\u064A\u0632\u0647 \u0639\u0627\u0648\u0632 \u0639\u0627\u0648\u0632\u0647 \u0645\u062D\u062A\u0627\u062C \u0645\u062D\u062A\u0627\u062C\u0647 \u0643\u0646\u062A \u0647\u0627\u062A \u0647\u0627\u062A\u064A \u0627\u0628\u0639\u062A \u0627\u0628\u0639\u062A\u0644\u064A \u0645\u0645\u0643\u0646 \u0644\u0648 \u0633\u0645\u062D\u062A \u0628\u0639\u062F \u0627\u0630\u0646 \u0627\u0630\u0646\u0643 \u062D\u0636\u0631\u062A\u0643 \u064A\u0627 \u0641\u0646\u062F\u0645 \u064A\u0641\u0646\u062F\u0645 \u062F\u0643\u062A\u0648\u0631 \u062F\u0643\u062A\u0648\u0631\u0647 \u0627\u0646 \u0634\u0627\u0621 \u0627\u0644\u0644\u0647 \u062F\u0644\u0648\u0642\u062A \u062F\u0644\u0648\u0642\u062A\u064A \u0627\u0644\u0646\u0647\u0627\u0631\u062F\u0647 \u0628\u0643\u0631\u0647 \u0628\u0643\u0631\u0627 \u0643\u062F\u0647 \u0643\u062F\u0627 \u062A\u0645\u0627\u0645 \u0645\u0627\u0634\u064A \u0637\u064A\u0628 \u0637\u0628 \u0627\u0647 \u0627\u064A\u0648\u0647 \u0627\u064A\u0648\u0627 \u0644\u0627 \u0645\u0634 \u0646\u0648\u0639 \u0627\u0644\u0646\u0648\u0639 \u0627\u0644\u0627\u0648\u0644 \u0627\u0648\u0644 \u0627\u0644\u062A\u0627\u0646\u064A \u062A\u0627\u0646\u064A \u0627\u0644\u0627\u0648\u0644\u0627\u0646\u064A \u0627\u0644\u062B\u0627\u0646\u064A \u0643\u0644 \u062D\u0627\u062C\u0647 \u0627\u0644\u062D\u0627\u062C\u0647 \u0627\u0644\u0639\u0644\u0628\u0647 \u0639\u0644\u0628\u0647 \u0639\u0644\u0628 \u0639\u0644\u0628\u062A\u064A\u0646 \u0627\u0644\u0635\u063A\u064A\u0631\u0647 \u0635\u063A\u064A\u0631\u0647 \u0627\u0644\u0643\u0628\u064A\u0631\u0647 \u0643\u0628\u064A\u0631\u0647 \u0627\u0644\u0635\u0646\u0641 \u0635\u0646\u0641 \u0627\u0644\u0645\u0646\u062A\u062C \u0648\u0627\u062D\u062F\u0647 \u0648\u0627\u062D\u062F \u0627\u062A\u0646\u064A\u0646 \u062A\u0644\u0627\u062A\u0647 \u0642\u0637\u0639\u0647 \u0642\u0637\u0639 \u0634\u0631\u064A\u0637 \u0634\u0631\u0627\u064A\u0637 \u0627\u0644\u0634\u0631\u064A\u0637 \u0634\u0631\u064A\u0637\u064A\u0646 \u0627\u0644\u0628\u0627\u0643\u062A \u0628\u0627\u0643\u062A \u0627\u0644\u062D\u0642\u0646\u0647 \u062D\u0642\u0646\u0647 \u0627\u0644\u0628\u062E\u0627\u062E\u0647 \u0628\u062E\u0627\u062E\u0647 \u0627\u0644\u0645\u0631\u0647\u0645 \u0627\u0644\u0639\u0644\u0627\u062C \u0627\u0644\u062F\u0648\u0627 \u0627\u0644\u062F\u0648\u0627\u0621 \u0645\u0639\u0627\u0647 \u0645\u0639\u0627\u0647\u0627 \u0645\u0646\u0647 \u0645\u0646\u0647\u0627 \u0645\u0646\u0647\u0645 \u0645\u0639\u0644\u0634 \u0644\u064A \u0644\u064A\u0627 \u0639\u0634\u0627\u0646 \u0627\u0644\u0644\u064A \u0627\u0644\u064A \u0627\u062A\u0646\u0633\u064A \u0647\u0628\u0639\u062A \u062D\u0627\u0644\u0627 \u0639\u0644\u064A\u0647 \u0639\u0644\u064A\u0647\u0627 \u0645\u0639\u0644\u0645\u0647 \u0634\u0643\u0644 \u0634\u0643\u0644\u0647 \u0634\u0643\u0644\u0647\u0627 \u0628\u0627\u0644\u0634\u0643\u0644 \u0627\u0644\u062C\u062F\u064A\u062F \u0645\u062A\u063A\u064A\u0631 \u0635\u0648\u0631\u062A\u0647 \u0635\u0648\u0631\u062A\u0647\u0627 \u0627\u0644\u0635\u0648\u0631\u0647 \u062D\u062C\u0645 \u064A\u0628\u0642\u064A".split(" ")
+);
+var normalizeNameToken = (token2) => token2.replace(/[أإآ]/g, "\u0627").replace(/ة/g, "\u0647").replace(/ى/g, "\u064A").replace(/[؟?!.،,]+/g, "");
+function tidyBasketItemName(name) {
+  return name.replace(MEDIA_MARKER_RX, " ").replace(POLITENESS_RX, " ").replace(/\s+(?:و|او|أو)\s*$/u, "").replace(/\s*(?:بكام|عامل\s*كام)\s*[؟?!.]*\s*$/u, "").replace(/\s+/g, " ").trim();
+}
+function isNonProductBasketName(rawName) {
+  const name = tidyBasketItemName(stripRequestPrefix(tidyBasketItemName(String(rawName ?? ""))));
+  if (!name || name.length < 2) return true;
+  if (NON_PRODUCT_TOPIC_RX.test(name) || MONEY_ONLY_RX.test(name) || SCHEDULE_ONLY_RX.test(name) || NON_PURCHASE_VERB_RX.test(name)) return true;
+  if (/(?:^|\s)01[0125][0-9]{8}(?:\s|$)/u.test(name)) return true;
+  const content = name.replace(new RegExp("([0-9\u0660-\u0669])(?=\\p{L})", "gu"), "$1 ").split(/\s+/u).map(normalizeNameToken).filter((token2) => token2 && !FILLER_TOKENS.has(token2) && !/^[0-9٠-٩]+$/u.test(token2));
+  return content.every((token2) => token2.length < 3);
+}
+function antecedentProductName(antecedent) {
+  if (antecedent.role === "staff") {
+    const offered = explicitStaffOfferProductNames(antecedent.text);
+    if (offered.length === 1 && !isNonProductBasketName(offered[0])) return offered[0];
+    const stated = tidyBasketItemName(antecedent.text).match(/^(?:عندنا|عندي|متوفر(?:\s*عندنا)?|موجود(?:\s*عندنا)?)\s+([^؟?\n]+)$/u)?.[1]?.replace(/\s+ان\s*شاء\s*الله.*$/u, "").trim();
+    return stated && stated.split(/\s+/u).length <= 4 && !isNonProductBasketName(stated) && !isGenericDeicticProductPhrase(stated) ? stated : null;
+  }
+  const own = tidyBasketItemName(stripRequestPrefix(tidyBasketItemName(antecedent.text))).replace(/[؟?!.]+$/u, "").trim();
+  if (!own || own.split(/\s+/u).length > 4 || isNonProductBasketName(own) || isGenericDeicticProductPhrase(own)) return null;
+  return own;
+}
 function extractDraftItemsFromScope(allMessages, restrictToIds) {
   const items = [];
   const scopedMessages = restrictToIds ? allMessages.filter((message) => restrictToIds.has(message.id)) : allMessages;
@@ -3102,7 +3133,9 @@ function extractDraftItemsFromScope(allMessages, restrictToIds) {
       return;
     }
     const index = allMessages.indexOf(message);
-    const resolved = resolveReference(allMessages, index);
+    const antecedent = resolveReference(allMessages, index);
+    const antecedentName = antecedent ? antecedentProductName(antecedent) : null;
+    const resolved = antecedent && antecedentName ? { ...antecedent, text: antecedentName } : null;
     const numberMatch = (signal.extractedValue || "").match(/\d+|واحد[ةه]?|اتنين|تلات[ةه]?|أربع[ةه]?|خمس[ةه]?/);
     const quantity = numberMatch ? parseNumberToken(numberMatch[0]) : null;
     items.push({
@@ -3129,7 +3162,9 @@ function extractDraftItemsFromScope(allMessages, restrictToIds) {
     if (!message) return;
     if (message.role === "staff") return;
     const index = allMessages.indexOf(message);
-    const resolved = resolveReference(allMessages, index);
+    const antecedent = resolveReference(allMessages, index);
+    const antecedentName = antecedent ? antecedentProductName(antecedent) : null;
+    const resolved = antecedent && antecedentName ? { ...antecedent, text: antecedentName } : null;
     if (!resolved) return;
     items.push({
       productNameRaw: resolved.text.trim(),
@@ -3160,7 +3195,7 @@ function extractDraftItemsFromScope(allMessages, restrictToIds) {
       });
     }
   });
-  return items;
+  return items.map((item) => item.resolutionStatus === "unknown" ? item : { ...item, productNameRaw: tidyBasketItemName(item.productNameRaw) || item.productNameRaw }).filter((item) => item.resolutionStatus === "unknown" || !isNonProductBasketName(item.productNameRaw));
 }
 function directCatalogMentionItem(message, productIndex) {
   if (!message.isMeaningful || message.role !== "customer") return null;
@@ -3622,7 +3657,7 @@ function buildCaseBaskets(caseId, scopedMessages, productIndex) {
             extra.forEach((item) => items.set(normalizeProductKey(item.productNameRaw), item));
           } else {
             const productNameRaw = extractAddedProductName(message.text);
-            items.set(normalizeProductKey(productNameRaw), {
+            if (!isNonProductBasketName(productNameRaw)) items.set(normalizeProductKey(productNameRaw), {
               productNameRaw,
               productId: null,
               quantity: null,
