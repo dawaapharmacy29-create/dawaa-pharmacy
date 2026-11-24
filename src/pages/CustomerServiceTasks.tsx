@@ -33,12 +33,19 @@ import {
 } from '@/lib/customerServiceTasks/tasks';
 import { buildTaskWorkbook, readTaskWorkbook } from '@/lib/customerServiceTasks/sheet';
 import CsCompetitionTab from '@/components/customerService/CsCompetitionTab';
+import MorningChecklist from '@/components/customerService/MorningChecklist';
+import MorningPurchasesTab from '@/components/customerService/MorningPurchasesTab';
+import MorningTransfersTab from '@/components/customerService/MorningTransfersTab';
+import DoctorEntryErrorsTab from '@/components/customerService/DoctorEntryErrorsTab';
+import { buildUncodedNoteTasks } from '@/lib/customerServiceTasks/morning';
+import { useAuth } from '@/hooks/useAuth';
+import { normalizeRole } from '@/lib/core/permissionSystem';
 
 // شيت مهام خدمة العملاء اليومي: كل واحد في الفريق بيحمّل مهامه الصبح، يشتغل على الإكسيل، ويرفعه آخر اليوم.
 // اللي يفتح الصفحة لأي حد تاني هو مفتاح customer_service_daily_tasks من صلاحيات الحسابات، والإدارة بمفتاح _manage.
 
-type PageTab = 'mine' | 'team' | 'competition';
-const PAGE_TABS: PageTab[] = ['mine', 'team', 'competition'];
+type PageTab = 'mine' | 'purchases' | 'transfers' | 'team' | 'competition' | 'errors';
+const PAGE_TABS: PageTab[] = ['mine', 'purchases', 'transfers', 'team', 'competition', 'errors'];
 
 function cycleStart(today: string): string {
   const [y, m, d] = today.split('-').map(Number);
@@ -79,6 +86,9 @@ type Pending = {
 
 export default function CustomerServiceTasks() {
   const today = cairoToday();
+  const { user } = useAuth();
+  // تقرير أخطاء التسجيل للمدير العام والتنفيذي بس؛ الداتابيز بترفض أي حد تاني كمان.
+  const isTopManager = ['general_manager', 'executive_manager'].includes(normalizeRole(user?.role));
   const [settings, setSettings] = useState<TaskSettings | null>(null);
   const [loadError, setLoadError] = useState('');
   // التبويب في الرابط (?tab=competition) عشان «المسابقة» في القايمة الجانبية تفتح عليه على طول.
@@ -118,13 +128,33 @@ export default function CustomerServiceTasks() {
     <div className="space-y-4 p-4" dir="rtl">
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="text-xl font-black">مهام خدمة العملاء اليومية</h1>
-        <div className="mr-auto flex gap-2">
+        <div className="mr-auto flex flex-wrap gap-2">
           <button
             className={tab === 'mine' ? 'btn-primary' : 'btn-secondary'}
             onClick={() => setTab('mine')}
           >
             الشيت
           </button>
+          <button
+            className={tab === 'purchases' ? 'btn-primary' : 'btn-secondary'}
+            onClick={() => setTab('purchases')}
+          >
+            فواتير امبارح
+          </button>
+          <button
+            className={tab === 'transfers' ? 'btn-primary' : 'btn-secondary'}
+            onClick={() => setTab('transfers')}
+          >
+            التحويلات
+          </button>
+          {isTopManager ? (
+            <button
+              className={tab === 'errors' ? 'btn-primary' : 'btn-secondary'}
+              onClick={() => setTab('errors')}
+            >
+              أخطاء التسجيل
+            </button>
+          ) : null}
           {settings.can_manage ? (
             <button
               className={tab === 'team' ? 'btn-primary' : 'btn-secondary'}
@@ -143,6 +173,12 @@ export default function CustomerServiceTasks() {
       </div>
       {tab === 'competition' ? (
         <CsCompetitionTab />
+      ) : tab === 'purchases' ? (
+        <MorningPurchasesTab />
+      ) : tab === 'transfers' ? (
+        <MorningTransfersTab />
+      ) : tab === 'errors' && isTopManager ? (
+        <DoctorEntryErrorsTab today={today} />
       ) : tab === 'team' && settings.can_manage ? (
         <TeamTab today={today} settings={settings} onSaved={reloadSettings} />
       ) : (
@@ -199,6 +235,12 @@ function SheetTab({ today, settings }: { today: string; settings: TaskSettings }
     setBusy('build');
     try {
       const r = await buildTodayTasks();
+      // العملاء اللي اتكتبوا في ملاحظات فواتير امبارح من غير كود (أغلبهم الشامي) بيدخلوا الشيت بعد البناء.
+      const uncoded = await buildUncodedNoteTasks().catch((e) => {
+        toast.warning(e instanceof Error ? e.message : String(e));
+        return 0;
+      });
+      if (uncoded) toast.success(`${uncoded} عميل مش متكود من ملاحظات الفواتير`);
       const added = Object.values(r.counts ?? {}).reduce((s, n) => s + Number(n || 0), 0);
       if (!r.yesterday_invoices)
         toast.warning('فواتير امبارح لسه مترفعتش، اتجهز اللي ينفع بس. جرّب تاني بعد رفع المبيعات.');
@@ -267,6 +309,7 @@ function SheetTab({ today, settings }: { today: string; settings: TaskSettings }
 
   return (
     <div className="space-y-4">
+      {who === settings.me ? <MorningChecklist tasks={tasks} /> : null}
       <Panel>
         <SectionTitle
           icon={<FileSpreadsheet size={18} />}

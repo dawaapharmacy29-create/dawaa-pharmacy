@@ -228,7 +228,9 @@ describe('short menu per role', () => {
     expect(assistantPaths(everyPermission)).not.toContain('/reviews');
     expect(assistantPaths(everyPermission)).not.toContain('/purchase-invoice-accuracy');
     expect(assistantPaths(everyPermission, ALPHA)).toContain('/reviews');
-    expect(assistantPaths(everyPermission, ALPHA)).toContain('/purchase-invoice-accuracy');
+    // أخطاء تسجيل الفواتير بقت في مراجعة الصبح وتروح للمدير العام، فالصفحة دي برّه قايمتهم كمان.
+    expect(assistantPaths(everyPermission, ALPHA)).not.toContain('/purchase-invoice-accuracy');
+    expect(routeExists('/purchase-invoice-accuracy')).toBe(true);
     expect(assistantPaths(everyPermission, ALPHA)).not.toContain('/pharmacy-zone-tasks');
   });
 
@@ -240,7 +242,14 @@ describe('short menu per role', () => {
       expect(assistantPaths(everyPermission)).toContain(path);
       expect(routeExists(path)).toBe(true);
     }
-    expect(alpha[1]).toBe('/customer-service-tasks?tab=competition');
+    expect(alpha.slice(1, 4)).toEqual([
+      '/customer-service-tasks?tab=purchases',
+      '/customer-service-tasks?tab=transfers',
+      '/customer-service-tasks?tab=competition',
+    ]);
+    // التشيك ليست بتاعتهم في أول الشيت نفسه.
+    expect(alpha).not.toContain('/my-daily-checklist');
+    expect(read('src/pages/CustomerServiceTasks.tsx')).toMatch(/<MorningChecklist/);
     expect(assistantPaths(everyPermission)).not.toContain('/customer-service-tasks?tab=competition');
     expect(read('src/pages/CustomerServiceTasks.tsx')).toMatch(/searchParams\.get\('tab'\)/);
     expect(alpha.length).toBeLessThanOrEqual(10);
