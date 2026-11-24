@@ -332,3 +332,29 @@ describe('customer service team data scope', () => {
     expect(schedule).toMatch(/ownScheduleOnly \? null : \(\s*<>\s*<WorkforceScheduleCoverage/);
   });
 });
+
+describe('customer service team allowed pages', () => {
+  const layout = read('src/components/layout/LayoutRuntime.tsx');
+  const block = layout.slice(layout.indexOf('TEAM_DAWAA_ASSISTANT_ALLOWED_PATHS = new Set(['));
+  const allowed = [...block.slice(0, block.indexOf(']);')).matchAll(/'([^']+)'/g)].map((m) => m[1]);
+
+  it('opens only the competition, invoice entry and customer service pages, plus their own day', () => {
+    for (const path of ['/customers', '/customer-service', '/purchases', '/pharmacy-zone-tasks', '/customer-monthly-performance', '/customer-cashback']) {
+      expect(allowed).not.toContain(path);
+    }
+    for (const path of ['/customer-service-tasks', '/purchase-invoice-entry', '/customer-requests', '/points', '/schedule']) {
+      expect(allowed).toContain(path);
+    }
+  });
+
+  it('recognises the team by account role, not only by display name', () => {
+    const scoped = layout.slice(layout.indexOf('const isScopedAssistant ='), layout.indexOf('const assistantPathAllowed'));
+    expect(scoped).toContain('TEAM_DAWAA_ALPHA_ROLE');
+    expect(scoped).toContain('user?.rawRole');
+  });
+
+  it('hides the requests page shortcuts an account cannot open', () => {
+    const requests = read('src/pages/CustomerRequestsV2.tsx');
+    expect(requests).toContain("checkPermission('view_customers') ? <Link to=\"/customers\"");
+  });
+});

@@ -20,7 +20,7 @@ function tabFromParams(params: URLSearchParams): Tab {
 }
 
 export default function CustomerRequestsV2() {
-  const { user } = useAuth();
+  const { user, checkPermission } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [tab, setTab] = useState<Tab>(() => tabFromParams(searchParams));
@@ -73,9 +73,10 @@ export default function CustomerRequestsV2() {
 
         <div className="flex flex-wrap gap-1 text-[11px] font-black">
           <a href="https://dawaawael.base44.app/customer-orders" target="_blank" rel="noreferrer" className="dawaa-tab inline-flex items-center gap-1.5 !py-1"><ExternalLink size={13} /> دواء وائل</a>
-          <Link to="/customers" className="dawaa-tab inline-flex items-center gap-1.5 !py-1"><UsersRound size={13} /> العملاء</Link>
-          <Link to="/shortages" className="dawaa-tab inline-flex items-center gap-1.5 !py-1"><Boxes size={13} /> النواقص</Link>
-          <Link to="/points" className="dawaa-tab inline-flex items-center gap-1.5 !py-1"><DatabaseZap size={13} /> النقاط</Link>
+          {/* اختصارات لصفحات تانية: بتظهر بس لو الحساب يقدر يفتحها، بدل ما الضغطة ترجّعه لصفحة البداية. */}
+          {checkPermission('view_customers') ? <Link to="/customers" className="dawaa-tab inline-flex items-center gap-1.5 !py-1"><UsersRound size={13} /> العملاء</Link> : null}
+          {checkPermission('view_shortages') ? <Link to="/shortages" className="dawaa-tab inline-flex items-center gap-1.5 !py-1"><Boxes size={13} /> النواقص</Link> : null}
+          {checkPermission('view_points') ? <Link to="/points" className="dawaa-tab inline-flex items-center gap-1.5 !py-1"><DatabaseZap size={13} /> النقاط</Link> : null}
         </div>
       </section>
 
