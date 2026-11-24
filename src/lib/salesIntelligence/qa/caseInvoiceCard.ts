@@ -214,6 +214,8 @@ function classifyLine(
       ? `${same}، لكن لا يوجد تصريح من العميل بهذا الصنف`
       : packUnresolved
         ? 'التركيز/العبوة غير محسومة من النص'
+        : line.matchedBy === 'name_phonetic'
+          ? 'الاسم في المحادثة يشبه نطق اسم بند الفاتورة فقط، وليس تطابق كود'
         : line.matchedBy === 'name'
           ? 'التطابق بالاسم فقط وليس بكود الصنف'
           : line.quantityAgrees === false

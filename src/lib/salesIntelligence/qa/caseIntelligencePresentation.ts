@@ -420,4 +420,5 @@ export const quantitySourceLabel = (value: string | null | undefined) =>
 export const lineMatchedByLabel = (value: string | null | undefined) =>
   value === 'product_id' ? 'نفس المنتج في الكتالوج'
     : value === 'product_code' ? 'نفس كود الصنف'
-      : value === 'name' ? 'نفس الاسم بعد التطبيع' : 'غير محسوم';
+      : value === 'name' ? 'نفس الاسم بعد التطبيع'
+        : value === 'name_phonetic' ? 'تشابه نطق الاسم مع بند الفاتورة' : 'غير محسوم';
