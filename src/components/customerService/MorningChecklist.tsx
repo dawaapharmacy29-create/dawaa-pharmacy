@@ -9,6 +9,8 @@ import {
   pairTransfers,
   transferProgress,
 } from '@/lib/customerServiceTasks/morning';
+import { freshness, loadMorningUploads } from '@/lib/customerServiceTasks/morningFiles';
+import { cairoToday } from '@/lib/evaluationLab/reviewSamples';
 
 // التشيك ليست بتاعة فريق خدمة العملاء أول ما يوصلوا، بالترتيب (صاحب الصيدلية 2026-11-24). كل بند بيتعلّم تلقائي من الشغل نفسه،
 // مفيش علامة بالإيد: الفواتير اتراجعت، التحويلات اتأكدت، العملاء الجدد اتكلموا، والشيت خلص.
@@ -59,9 +61,17 @@ function Item({
 export default function MorningChecklist({ tasks }: { tasks: DailyTask[] | null }) {
   const [purchases, setPurchases] = useState<Count>(null);
   const [transfers, setTransfers] = useState<Count>(null);
+  const [files, setFiles] = useState<Count>(null);
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
+    // ملفات الصبح لوحدها، عشان لو فشلت ماتوقفش باقي البنود.
+    loadMorningUploads()
+      .then((u) => {
+        const f = freshness(u, cairoToday());
+        setFiles({ done: Object.values(f).filter(Boolean).length, total: 4 });
+      })
+      .catch(() => setFiles({ done: 0, total: 4 }));
     try {
       const [p, t] = await Promise.all([loadPurchaseDay(null), loadTransferDay(null)]);
       setPurchases({ done: p.invoices.filter((i) => i.check).length, total: p.invoices.length });
@@ -90,6 +100,13 @@ export default function MorningChecklist({ tasks }: { tasks: DailyTask[] | null 
       />
       <div className="mt-3 grid gap-2 lg:grid-cols-2">
         <Item
+          n={0}
+          title="ارفعي ملفات الصبح الأول"
+          hint="المبيعات وأصنافها والعملاء والمشتريات. بعدها دوسي «جهّز مهام النهارده» عشان كل حاجة تظهر صح"
+          count={files}
+          to="/customer-service-tasks?tab=files"
+        />
+        <Item
           n={1}
           title="راجعي فواتير مشتريات امبارح"
           hint="من ٩ الصبح امبارح لـ ٩ الصبح النهارده لفرعك: اعتماد أو تعديل أو فيها مشكلة"
@@ -106,7 +123,7 @@ export default function MorningChecklist({ tasks }: { tasks: DailyTask[] | null 
         <Item
           n={3}
           title="كوّدي العملاء الجدد وابعتيلهم الترحيب"
-          hint="عملاء امبارح الجدد واللي اتكتبوا في الملاحظات من غير كود: بي كونكت، التليفون، رسالة الترحيب"
+          hint="في الشيت الأول «العملاء الجداد»: كود بي كونكت ← التليفون ← رسالة الترحيب. اللي ناقصه خطوة بيرجع بكرة"
           count={count(newOnes)}
         />
         <Item
