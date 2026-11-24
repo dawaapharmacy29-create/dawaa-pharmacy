@@ -2,6 +2,7 @@ import { Component, useEffect, useState, type ComponentType, type ReactNode } fr
 import { Navigate } from 'react-router-dom';
 import ExecutiveDashboardSafe from '@/pages/ExecutiveDashboardSafe';
 import { useAuth } from '@/hooks/useAuth';
+import { assistantHomePath } from '@/lib/navigation/assistantHome';
 import { normalizeRole } from '@/lib/core/permissionSystem';
 import {
   clearStaleChunkRecoveryMarker,
@@ -89,7 +90,7 @@ class DashboardRuntimeErrorBoundary extends Component<{ children: ReactNode }, {
 }
 
 export default function ExecutiveDashboardRoute() {
-  const { user } = useAuth();
+  const { user, checkPermission } = useAuth();
   const role = normalizeRole(user?.role);
   const isAssistant = role === 'assistant';
   const [state, setState] = useState<DashboardState>(() => {
@@ -141,7 +142,7 @@ export default function ExecutiveDashboardRoute() {
   }, [isAssistant, state.status]);
 
   if (isAssistant) {
-    return <Navigate to="/assistant-operational-log" replace />;
+    return <Navigate to={assistantHomePath(checkPermission)} replace />;
   }
 
   if (state.status === 'ready-advanced') {

@@ -10,7 +10,7 @@ import {
   menuGroupsFor,
   type NavGroup,
 } from '@/components/layout/SidebarBase';
-import { ASSISTANT_GROUPS, assistantGroupsFor } from '@/components/layout/AssistantSidebar';
+import { ASSISTANT_GROUPS, assistantGroupsFor, pathIsActive } from '@/components/layout/AssistantSidebar';
 import { ROLES, hasPermission } from '@/lib/core/permissionSystem';
 import { normalizeArabic, searchNavItems } from '@/lib/navigation/navSearch';
 
@@ -230,6 +230,36 @@ describe('short menu per role', () => {
     expect(assistantPaths(everyPermission, ALPHA)).toContain('/reviews');
     expect(assistantPaths(everyPermission, ALPHA)).toContain('/purchase-invoice-accuracy');
     expect(assistantPaths(everyPermission, ALPHA)).not.toContain('/pharmacy-zone-tasks');
+  });
+
+  it('opens the customer service team on the daily sheet, with the old big pages off their menu', () => {
+    const alpha = assistantPaths(everyPermission, ALPHA);
+    expect(alpha[0]).toBe('/customer-service-tasks');
+    for (const path of ['/assistant-operational-log', '/customer-service', '/customers', '/purchases']) {
+      expect(alpha).not.toContain(path);
+      expect(assistantPaths(everyPermission)).toContain(path);
+      expect(routeExists(path)).toBe(true);
+    }
+    expect(alpha[1]).toBe('/customer-service-tasks?tab=competition');
+    expect(assistantPaths(everyPermission)).not.toContain('/customer-service-tasks?tab=competition');
+    expect(read('src/pages/CustomerServiceTasks.tsx')).toMatch(/searchParams\.get\('tab'\)/);
+    expect(alpha.length).toBeLessThanOrEqual(10);
+  });
+
+  it('lights up only the matching link when two links open the same page', () => {
+    const siblings = ['/customer-service-tasks', '/customer-service-tasks?tab=competition'];
+    expect(pathIsActive(siblings[0], '/customer-service-tasks', '', siblings)).toBe(true);
+    expect(pathIsActive(siblings[1], '/customer-service-tasks', '', siblings)).toBe(false);
+    expect(pathIsActive(siblings[0], '/customer-service-tasks', '?tab=competition', siblings)).toBe(false);
+    expect(pathIsActive(siblings[1], '/customer-service-tasks', '?tab=competition', siblings)).toBe(true);
+    expect(pathIsActive('/customers', '/customers/42', '', ['/customers'])).toBe(true);
+  });
+
+  it('lets the customer service team actually open every page on their menu', () => {
+    const layout = read('src/components/layout/LayoutRuntime.tsx');
+    const allowedBlock = layout.slice(layout.indexOf('TEAM_DAWAA_ASSISTANT_ALLOWED_PATHS = new Set(['));
+    const allowed = [...new Set([...allowedBlock.slice(0, allowedBlock.indexOf(']);')).matchAll(/'([^']+)'/g)].map((m) => m[1]))];
+    for (const path of assistantPaths(everyPermission, ALPHA)) expect(allowed).toContain(basePath(path));
   });
 
   it('gives every assistant their own schedule and points', () => {

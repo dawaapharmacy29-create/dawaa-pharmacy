@@ -7,6 +7,7 @@ import { NavigationGuardProvider } from '@/contexts/NavigationGuardContext';
 import BranchTargetEditor from '@/components/dashboard/BranchTargetEditor';
 import { useAuth } from '@/hooks/useAuth';
 import { normalizeRole } from '@/lib/core/permissionSystem';
+import { assistantHomePath } from '@/lib/navigation/assistantHome';
 
 const ReviewsInsightsHub = lazy(() => import('@/components/reviews/ReviewsInsightsHub'));
 
@@ -48,6 +49,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/medicine-expiry': 'متابعة صلاحية الأدوية',
   '/attendance-report': 'مركز الحضور',
   '/loyalty-tiers': 'مستويات ولاء العملاء',
+  '/customer-service-tasks': 'شيت مهام اليوم',
   '/assistant-operational-log': 'تسجيل المشتريات وخدمة العملاء',
   '/my-daily-checklist': 'التشيك ليست اليومي',
   '/pharmacy-zone-tasks': 'الرص والجرد اليومي',
@@ -56,7 +58,10 @@ const PAGE_TITLES: Record<string, string> = {
 };
 
 const TEAM_DAWAA_ASSISTANT_NAMES = new Set(['هاجر', 'نور', 'هبه محمد', 'هبة محمد']);
+// صفحات فريق خدمة العملاء (هاجر/نور/هبه). أي صفحة برّه القايمة دي بترجعهم لصفحة البداية،
+// فأي صفحة جديدة ليهم لازم تتضاف هنا كمان مش في القايمة الجانبية بس.
 const TEAM_DAWAA_ASSISTANT_ALLOWED_PATHS = new Set([
+  '/customer-service-tasks',
   '/assistant-operational-log',
   '/my-daily-checklist',
   '/pharmacy-zone-tasks',
@@ -87,7 +92,7 @@ function normalizeAssistantName(value: unknown) {
 }
 
 export default function LayoutRuntime({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
+  const { user, checkPermission } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
@@ -142,7 +147,7 @@ export default function LayoutRuntime({ children }: { children: React.ReactNode 
   }, [location.pathname, location.search]);
 
   if (isScopedAssistant && !assistantPathAllowed) {
-    return <Navigate to="/assistant-operational-log" replace />;
+    return <Navigate to={assistantHomePath(checkPermission)} replace />;
   }
 
   return (

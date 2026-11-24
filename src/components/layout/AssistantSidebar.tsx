@@ -1,5 +1,5 @@
 import type { ElementType } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   Calendar,
   ClipboardCheck,
@@ -10,6 +10,7 @@ import {
   LogOut,
   PackageSearch,
   Star,
+  Trophy,
   UserPlus,
   Users,
   X,
@@ -50,33 +51,37 @@ const TEAM_DAWAA_ALPHA_STAFF_IDS = [
   'dea91886-1ae8-4766-a166-9952866a5024', // هبه حماده
 ] as const;
 
+// فريق خدمة العملاء (صاحب الصيدلية 2026-11-24): القايمة بتبدأ بشيت مهام اليوم، والصفحات القديمة الكبيرة
+// (سجل المشتريات وخدمة العملاء، مركز خدمة العملاء، قاعدة العملاء، قايمة المشتريات) مستخبية عنهم من القايمة بس؛
+// الصفحات نفسها لسه شغالة ومفتوحة لهم من الروابط.
 export const ASSISTANT_GROUPS: AssistantNavGroup[] = [
+  {
+    title: 'خدمة العملاء',
+    items: [
+      { path: '/customer-service-tasks', label: 'شيت مهام اليوم', icon: FileSpreadsheet, permission: 'customer_service_daily_tasks' },
+      { path: '/customer-service-tasks?tab=competition', label: 'المسابقة والكريديت', icon: Trophy, permission: 'customer_service_daily_tasks', onlyStaffIds: TEAM_DAWAA_ALPHA_STAFF_IDS },
+      { path: '/customer-service', label: 'خدمة العملاء', icon: HeadphonesIcon, permission: 'view_customer_service', excludeStaffIds: TEAM_DAWAA_ALPHA_STAFF_IDS },
+      // شيت مهام اليوم بقى هو قايمة المتابعة لمن معاه، فالاختصار ده بيستخبى عنده عشان القايمة تفضل قصيرة.
+      { path: '/customer-service?quickFollowup=1', label: 'المتابعات', icon: ClipboardCheck, permission: 'view_customer_service', hiddenWithPermission: 'customer_service_daily_tasks' },
+      { path: '/customer-requests', label: 'طلبات العملاء', icon: PackageSearch, permission: 'view_customer_requests' },
+      { path: '/reviews', label: 'تقييم المحادثات', icon: ClipboardCheck, permission: 'view_reviews', onlyStaffIds: TEAM_DAWAA_ALPHA_STAFF_IDS },
+      { path: '/customers', label: 'قاعدة العملاء', icon: Users, permission: 'view_customers', excludeStaffIds: TEAM_DAWAA_ALPHA_STAFF_IDS },
+      { path: '/customer-coding', label: 'تكويد عميل', icon: UserPlus, permission: 'view_customer_service' },
+    ],
+  },
   {
     title: 'مساحة العمل',
     items: [
-      { path: '/assistant-operational-log', label: 'تسجيل المشتريات وخدمة العملاء', icon: LayoutDashboard, permission: 'view_dashboard' },
+      { path: '/assistant-operational-log', label: 'تسجيل المشتريات وخدمة العملاء', icon: LayoutDashboard, permission: 'view_dashboard', excludeStaffIds: TEAM_DAWAA_ALPHA_STAFF_IDS },
       { path: '/my-daily-checklist', label: 'التشيك ليست اليومي', icon: ClipboardCheck, permission: 'view_dashboard' },
       { path: '/pharmacy-zone-tasks', label: 'الرص والجرد اليومي', icon: ClipboardList, permission: 'view_dashboard', excludeStaffIds: TEAM_DAWAA_ALPHA_STAFF_IDS },
       { path: '/schedule', label: 'جدولي والشيفتات', icon: Calendar, permission: 'view_schedule' },
     ],
   },
   {
-    title: 'خدمة العملاء',
-    items: [
-      { path: '/customer-service-tasks', label: 'شيت مهام اليوم', icon: FileSpreadsheet, permission: 'customer_service_daily_tasks' },
-      { path: '/customer-service', label: 'خدمة العملاء', icon: HeadphonesIcon, permission: 'view_customer_service' },
-      // شيت مهام اليوم بقى هو قايمة المتابعة لمن معاه، فالاختصار ده بيستخبى عنده عشان القايمة تفضل قصيرة.
-      { path: '/customer-service?quickFollowup=1', label: 'المتابعات', icon: ClipboardCheck, permission: 'view_customer_service', hiddenWithPermission: 'customer_service_daily_tasks' },
-      { path: '/customer-requests', label: 'طلبات العملاء', icon: PackageSearch, permission: 'view_customer_requests' },
-      { path: '/reviews', label: 'تقييم المحادثات', icon: ClipboardCheck, permission: 'view_reviews', onlyStaffIds: TEAM_DAWAA_ALPHA_STAFF_IDS },
-      { path: '/customers', label: 'قاعدة العملاء', icon: Users, permission: 'view_customers' },
-      { path: '/customer-coding', label: 'تكويد عميل', icon: UserPlus, permission: 'view_customer_service' },
-    ],
-  },
-  {
     title: 'المشتريات',
     items: [
-      { path: '/purchases', label: 'المشتريات', icon: FileSpreadsheet, permission: 'view_purchases' },
+      { path: '/purchases', label: 'المشتريات', icon: FileSpreadsheet, permission: 'view_purchases', excludeStaffIds: TEAM_DAWAA_ALPHA_STAFF_IDS },
       { path: '/purchase-invoice-entry', label: 'تسجيل فاتورة مشتريات', icon: FileSpreadsheet, permission: 'view_dashboard' },
       { path: '/purchase-invoice-accuracy', label: 'دقة إدخال فواتير المشتريات', icon: FileSpreadsheet, permission: 'view_dashboard', onlyStaffIds: TEAM_DAWAA_ALPHA_STAFF_IDS },
     ],
@@ -89,10 +94,12 @@ export const ASSISTANT_GROUPS: AssistantNavGroup[] = [
   },
 ];
 
-function pathIsActive(itemPath: string, pathname: string, search: string) {
+// رابطين لنفس الصفحة (الشيت والمسابقة، أو خدمة العملاء والمتابعات): اللي من غير query بينوّر بس لما
+// مفيش رابط تاني في القايمة ماسك الـ query الحالية، عشان مايبقوش الاتنين منوّرين مع بعض.
+export function pathIsActive(itemPath: string, pathname: string, search: string, siblings: readonly string[] = []) {
   const [base, query] = itemPath.split('?');
-  if (pathname !== base) return false;
-  if (!query) return true;
+  if (pathname !== base && !pathname.startsWith(`${base}/`)) return false;
+  if (!query) return !siblings.some((other) => other !== itemPath && other.includes('?') && pathIsActive(other, pathname, search));
   const expected = new URLSearchParams(query);
   const actual = new URLSearchParams(search);
   for (const [key, value] of expected.entries()) {
@@ -121,7 +128,9 @@ export default function AssistantSidebar({ collapsed, onToggle, mobileOpen, onMo
   const navigate = useNavigate();
   const currentStaffId = user?.staffId || user?.id || '';
 
+  const location = useLocation();
   const groups = assistantGroupsFor(checkPermission, currentStaffId);
+  const allPaths = groups.flatMap((group) => group.items.map((item) => item.path));
 
   const content = (
     <div className="flex h-full flex-col">
@@ -156,10 +165,10 @@ export default function AssistantSidebar({ collapsed, onToggle, mobileOpen, onMo
                 key={`${item.path}-${item.label}`}
                 to={item.path}
                 onClick={onMobileClose}
-                className={({ isActive }) =>
+                className={() =>
                   cn(
                     'nav-item',
-                    isActive || pathIsActive(item.path, window.location.pathname, window.location.search)
+                    pathIsActive(item.path, location.pathname, location.search, allPaths)
                       ? 'nav-item-active'
                       : 'nav-item-inactive',
                     collapsed && 'justify-center px-2'

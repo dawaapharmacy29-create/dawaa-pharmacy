@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Download, FileSpreadsheet, Loader2, RefreshCw, Save, Upload, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -36,6 +36,9 @@ import CsCompetitionTab from '@/components/customerService/CsCompetitionTab';
 
 // شيت مهام خدمة العملاء اليومي: كل واحد في الفريق بيحمّل مهامه الصبح، يشتغل على الإكسيل، ويرفعه آخر اليوم.
 // اللي يفتح الصفحة لأي حد تاني هو مفتاح customer_service_daily_tasks من صلاحيات الحسابات، والإدارة بمفتاح _manage.
+
+type PageTab = 'mine' | 'team' | 'competition';
+const PAGE_TABS: PageTab[] = ['mine', 'team', 'competition'];
 
 function cycleStart(today: string): string {
   const [y, m, d] = today.split('-').map(Number);
@@ -78,7 +81,13 @@ export default function CustomerServiceTasks() {
   const today = cairoToday();
   const [settings, setSettings] = useState<TaskSettings | null>(null);
   const [loadError, setLoadError] = useState('');
-  const [tab, setTab] = useState<'mine' | 'team' | 'competition'>('mine');
+  // التبويب في الرابط (?tab=competition) عشان «المسابقة» في القايمة الجانبية تفتح عليه على طول.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab: PageTab = PAGE_TABS.includes(searchParams.get('tab') as PageTab)
+    ? (searchParams.get('tab') as PageTab)
+    : 'mine';
+  const setTab = (next: PageTab) =>
+    setSearchParams(next === 'mine' ? {} : { tab: next }, { replace: true });
 
   const reloadSettings = useCallback(async () => {
     try {
