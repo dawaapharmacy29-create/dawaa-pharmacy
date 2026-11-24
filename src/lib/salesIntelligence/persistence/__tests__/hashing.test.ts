@@ -58,6 +58,16 @@ describe('Sales Intelligence Persistence — hashing determinism (instruction #2
     expect(a).not.toBe(b);
   });
 
+  it('4c. a corrected customer changes the semantic hash; no customer keeps the old hash', async () => {
+    const common = { rawWhatsAppExportText: '[9/15/26, 9:46:45 AM] Customer: hello', branchIdentityMappingVersion: 'v1' };
+    const none = await computeSemanticSourceHash(common);
+    expect(await computeSemanticSourceHash({ ...common, resolvedCustomerId: null })).toBe(none);
+    const a = await computeSemanticSourceHash({ ...common, resolvedCustomerId: 'cust-old' });
+    const b = await computeSemanticSourceHash({ ...common, resolvedCustomerId: 'cust-new' });
+    expect(a).not.toBe(none);
+    expect(a).not.toBe(b);
+  });
+
   it('5. a conversation content change changes the semantic hash', async () => {
     const a = await computeSemanticSourceHash({ rawWhatsAppExportText: 'version A', branchIdentityMappingVersion: 'v1' });
     const b = await computeSemanticSourceHash({ rawWhatsAppExportText: 'version B', branchIdentityMappingVersion: 'v1' });

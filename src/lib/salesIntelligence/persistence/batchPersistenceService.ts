@@ -553,6 +553,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
       trustedConversationStartedAt: conversationInput?.trustedConversationStartedAt ?? null,
       branchIdentityMappingVersion: BRANCH_IDENTITY_MAPPING_VERSION,
       caseOwnership: conversationCase.ownership,
+      resolvedCustomerId: conversationCase.customerId ?? null,
       saleProofFingerprint: saleProofFingerprint(analysis),
       managerProductIdentityReviewIds: analysis.managerProductIdentityReviewIds ?? [],
     });
@@ -726,7 +727,11 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
           conversationInput?.trustedConversationStartedAt ?? null,
           saleProofFingerprint(analysis),
           input.deferPublication === true,
-          { caseOwnership: conversationCase.ownership, managerProductIdentityReviewIds: analysis.managerProductIdentityReviewIds ?? [] }
+          {
+            caseOwnership: conversationCase.ownership,
+            resolvedCustomerId: conversationCase.customerId ?? null,
+            managerProductIdentityReviewIds: analysis.managerProductIdentityReviewIds ?? [],
+          }
         );
         outcome.attribution = await persistAttribution(
           supabaseClient,

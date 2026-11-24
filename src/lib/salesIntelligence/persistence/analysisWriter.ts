@@ -31,7 +31,7 @@ export async function persistCaseAnalysis(
   trustedConversationStartedAt?: string | null,
   saleProofFingerprint?: string | null,
   deferPublication = false,
-  semanticContext?: Pick<SemanticSourceHashInput, 'caseOwnership' | 'managerProductIdentityReviewIds'>
+  semanticContext?: Pick<SemanticSourceHashInput, 'caseOwnership' | 'resolvedCustomerId' | 'managerProductIdentityReviewIds'>
 ): Promise<PersistCaseAnalysisResult> {
   const semanticSourceHash = await computeSemanticSourceHash({
     rawWhatsAppExportText,
@@ -39,6 +39,7 @@ export async function persistCaseAnalysis(
     branchIdentityMappingVersion: BRANCH_IDENTITY_MAPPING_VERSION,
     saleProofFingerprint: saleProofFingerprint ?? null,
     caseOwnership: semanticContext?.caseOwnership,
+    resolvedCustomerId: semanticContext?.resolvedCustomerId ?? null,
     managerProductIdentityReviewIds: semanticContext?.managerProductIdentityReviewIds,
   });
 

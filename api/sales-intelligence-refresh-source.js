@@ -9884,6 +9884,7 @@ async function computeSemanticSourceHash(input) {
     trustedConversationStartedAt: input.trustedConversationStartedAt ?? null,
     branchIdentityMappingVersion: input.branchIdentityMappingVersion,
     ...input.caseOwnership ? { caseOwnership: input.caseOwnership } : {},
+    ...input.resolvedCustomerId ? { resolvedCustomerId: input.resolvedCustomerId } : {},
     ...input.saleProofFingerprint ? { saleProofFingerprint: input.saleProofFingerprint } : {},
     ...input.managerProductIdentityReviewIds?.length ? { managerProductIdentityReviewIds: [...input.managerProductIdentityReviewIds].sort() } : {}
   });
@@ -9940,6 +9941,7 @@ async function persistCaseAnalysis(supabaseClient, caseId, rawWhatsAppExportText
     branchIdentityMappingVersion: BRANCH_IDENTITY_MAPPING_VERSION,
     saleProofFingerprint: saleProofFingerprint2 ?? null,
     caseOwnership: semanticContext?.caseOwnership,
+    resolvedCustomerId: semanticContext?.resolvedCustomerId ?? null,
     managerProductIdentityReviewIds: semanticContext?.managerProductIdentityReviewIds
   });
   const { data, error } = await supabaseClient.rpc(deferPublication ? "sales_intelligence_stage_case_analysis_v1" : "sales_intelligence_write_case_analysis", {
@@ -10880,6 +10882,7 @@ async function runBatchPersistence(supabaseClient, input) {
       trustedConversationStartedAt: conversationInput?.trustedConversationStartedAt ?? null,
       branchIdentityMappingVersion: BRANCH_IDENTITY_MAPPING_VERSION,
       caseOwnership: conversationCase.ownership,
+      resolvedCustomerId: conversationCase.customerId ?? null,
       saleProofFingerprint: saleProofFingerprint(analysis),
       managerProductIdentityReviewIds: analysis.managerProductIdentityReviewIds ?? []
     });
@@ -11022,7 +11025,11 @@ async function runBatchPersistence(supabaseClient, input) {
           conversationInput?.trustedConversationStartedAt ?? null,
           saleProofFingerprint(analysis),
           input.deferPublication === true,
-          { caseOwnership: conversationCase.ownership, managerProductIdentityReviewIds: analysis.managerProductIdentityReviewIds ?? [] }
+          {
+            caseOwnership: conversationCase.ownership,
+            resolvedCustomerId: conversationCase.customerId ?? null,
+            managerProductIdentityReviewIds: analysis.managerProductIdentityReviewIds ?? []
+          }
         );
         outcome.attribution = await persistAttribution(
           supabaseClient,
