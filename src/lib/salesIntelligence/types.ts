@@ -1116,7 +1116,8 @@ export interface InvoiceLineMatch {
   basketProductNameRaw: string;
   invoiceProductNameRaw: string;
   invoiceProductCode: string | null;
-  matchedBy: 'product_id' | 'product_code' | 'name';
+  /** name_phonetic: the mention sounds like this line's brand word; display link only, never proof. */
+  matchedBy: 'product_id' | 'product_code' | 'name' | 'name_phonetic';
   caseQuantity: number | null;
   invoiceQuantity: number | null;
   quantityAgrees: boolean | null;

@@ -23,6 +23,7 @@ import {
 import { normalizeBranchName } from '../branch';
 import { isValidEgyptianCustomerMobile, normalizeDawaaCustomerCode, normalizeEgyptianCustomerPhone } from '../customers/customerIdentity';
 import type { InvoiceCandidateRecommendation, InvoiceLineMatch } from './types';
+import { findPhoneticInvoiceLine } from './phoneticInvoiceLineMatch';
 import type {
   AmountMatchKind,
   AnnouncedTotal,
@@ -172,6 +173,8 @@ export interface CaseAttributionContext {
     canonicalName?: string | null;
     quantity: number | null;
     resolutionStatus?: ItemResolutionStatus;
+    /** Tied catalog candidates of an unresolved mention (pack/strength ambiguity); 0 when none. */
+    catalogCandidateCount?: number;
   }>;
   /** Known contributing staff ids for this case (Phase B StaffContribution.staffId) — conservative, may be empty. */
   knownStaffIds: string[];
@@ -504,8 +507,30 @@ function classifyProductEvidence(
       matchedBy: InvoiceLineMatch['matchedBy'];
     }>;
 
+  // A mention that only SOUNDS like one line of this same invoice ("لاكسيول" ↔ "LAXEOL-PI 20 TAB")
+  // links the item to that line for display, but never counts as product proof or as coverage.
+  // It only stops a transliterated brand from being read as a product mismatch.
+  const usedLines = new Set(matchedPairs.map(({ invoiceItem }) => invoiceItem));
+  const phoneticPairs = resolvableBasketItems
+    // Only a mention with no catalog identity at all: a carried product id/code that is absent from
+    // the invoice is a real mismatch, and tied catalog candidates (e.g. «كولونا» 30 vs 40 tab) keep
+    // the pack unresolved by policy.
+    .filter((basketItem) =>
+      !basketItem.productId && !cleanText(basketItem.productCode) && !(basketItem.catalogCandidateCount ?? 0) &&
+      !matchedPairs.some((pair) => pair.basketItem === basketItem))
+    .map((basketItem) => {
+      const invoiceItem = findPhoneticInvoiceLine(
+        basketItem.productNameRaw,
+        sellableItems.filter((line) => !usedLines.has(line))
+      );
+      if (!invoiceItem) return null;
+      usedLines.add(invoiceItem);
+      return { basketItem, invoiceItem, matchedBy: 'name_phonetic' as const };
+    })
+    .filter(Boolean) as typeof matchedPairs;
+
   const productMatch: ProductEvidenceAvailability =
-    matchedPairs.length > 0 ? 'available_match' : 'available_mismatch';
+    matchedPairs.length > 0 ? 'available_match' : phoneticPairs.length > 0 ? 'unavailable' : 'available_mismatch';
 
   let quantityMatch: ProductEvidenceAvailability = 'unavailable';
   if (matchedPairs.length > 0) {
@@ -520,12 +545,12 @@ function classifyProductEvidence(
   const unresolvedBasketItems = ctx.activeBasketItems.length - resolvableBasketItems.length;
   const productCoverage: ProductCoverage =
     matchedPairs.length === 0
-      ? 'none'
+      ? phoneticPairs.length > 0 ? 'unavailable' : 'none'
       : matchedPairs.length === resolvableBasketItems.length && unresolvedBasketItems === 0
         ? 'full'
         : 'partial';
 
-  const lineMatches: InvoiceLineMatch[] = matchedPairs.map(({ basketItem, invoiceItem, matchedBy }) => ({
+  const lineMatches: InvoiceLineMatch[] = [...matchedPairs, ...phoneticPairs].map(({ basketItem, invoiceItem, matchedBy }) => ({
     basketProductNameRaw: basketItem.productNameRaw,
     invoiceProductNameRaw: invoiceItem.productNameRaw,
     invoiceProductCode: cleanText(invoiceItem.productCode) || null,

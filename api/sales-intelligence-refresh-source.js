@@ -3921,6 +3921,144 @@ function deriveOrderConfirmationProtocolApplicability(params) {
   }
 }
 
+// src/lib/salesIntelligence/phoneticInvoiceLineMatch.ts
+var ARABIC_CLASS = {
+  \u0628: "b",
+  \u067E: "b",
+  \u062A: "t",
+  \u0637: "t",
+  \u062B: "s",
+  \u0633: "s",
+  \u0635: "s",
+  \u0632: "s",
+  \u0630: "s",
+  \u0638: "s",
+  \u0634: "s",
+  \u062C: "g",
+  \u063A: "g",
+  \u06AF: "g",
+  \u062E: "k",
+  \u0642: "k",
+  \u0643: "k",
+  \u062F: "d",
+  \u0636: "d",
+  \u0631: "r",
+  \u0641: "f",
+  \u06A4: "f",
+  \u0644: "l",
+  \u0645: "m",
+  \u0646: "n"
+};
+var ARABIC_STOP_WORDS = /* @__PURE__ */ new Set([
+  "\u062D\u0642\u0646\u0647",
+  "\u062D\u0642\u0646",
+  "\u062D\u0642\u0646\u0629",
+  "\u0634\u0631\u064A\u0637",
+  "\u0634\u0631\u0627\u064A\u0637",
+  "\u0639\u0644\u0628\u0647",
+  "\u0639\u0644\u0628\u0629",
+  "\u0639\u0644\u0628",
+  "\u0643\u0631\u064A\u0645",
+  "\u0646\u0642\u0637",
+  "\u0646\u0642\u0637\u0647",
+  "\u0634\u0631\u0627\u0628",
+  "\u0627\u0642\u0631\u0627\u0635",
+  "\u0628\u0631\u0634\u0627\u0645",
+  "\u0644\u0628\u0648\u0633",
+  "\u0627\u0645\u0628\u0648\u0644",
+  "\u0641\u0648\u0627\u0631",
+  "\u0627\u0643\u064A\u0627\u0633",
+  "\u0643\u064A\u0633",
+  "\u062C\u0644",
+  "\u062F\u0647\u0627\u0646",
+  "\u0628\u062E\u0627\u062E",
+  "\u0642\u0637\u0631\u0647",
+  "\u0642\u0637\u0631\u0629",
+  "\u0643\u0628\u0633\u0648\u0644",
+  "\u0627\u0637\u0641\u0627\u0644",
+  "\u0643\u0628\u0627\u0631",
+  "\u0639\u0627\u064A\u0632",
+  "\u0639\u0627\u064A\u0632\u0647",
+  "\u0639\u0627\u0648\u0632",
+  "\u0639\u0627\u0648\u0632\u0647",
+  "\u0645\u062D\u062A\u0627\u062C",
+  "\u0645\u062D\u062A\u0627\u062C\u0647",
+  "\u0645\u062D\u062A\u0627\u062C\u0629",
+  "\u0643\u0646\u062A",
+  "\u0648\u0627\u062D\u062F\u0647",
+  "\u0648\u0627\u062D\u062F",
+  "\u0627\u062A\u0646\u064A\u0646",
+  "\u0628\u062A\u0627\u0639",
+  "\u0628\u062A\u0627\u0639\u062A",
+  "\u0627\u0644\u0635\u0646\u0641",
+  "\u0627\u0644\u0639\u0644\u0627\u062C",
+  "\u0627\u0644\u062F\u0648\u0627",
+  "\u0627\u0644\u062F\u0648\u0627\u0621",
+  "\u0628\u0643\u0627\u0645",
+  "\u0633\u0639\u0631\u0647",
+  "\u0633\u0639\u0631\u0647\u0627",
+  "\u0645\u0645\u0643\u0646",
+  "\u0644\u0648",
+  "\u0633\u0645\u062D\u062A"
+]);
+function latinSkeleton(word) {
+  const w = word.toLowerCase().replace(/ph/g, "f").replace(/th/g, "t").replace(/sh/g, "s").replace(/ch/g, "k").replace(/c(?=[eiy])/g, "s").replace(/x/g, "ks");
+  let out = "";
+  for (const ch of w) {
+    if ("bp".includes(ch)) out += "b";
+    else if (ch === "t") out += "t";
+    else if (ch === "d") out += "d";
+    else if ("gj".includes(ch)) out += "g";
+    else if ("kqc".includes(ch)) out += "k";
+    else if ("sz".includes(ch)) out += "s";
+    else if ("fv".includes(ch)) out += "f";
+    else if ("lmnr".includes(ch)) out += ch;
+  }
+  return out.replace(/(.)\1+/g, "$1");
+}
+function arabicSkeleton(word) {
+  const w = word.replace(/^(?:وال|بال|فال|ال)(?=.{3,})/u, "");
+  let out = "";
+  for (const ch of w) out += ARABIC_CLASS[ch] ?? "";
+  return out.replace(/(.)\1+/g, "$1");
+}
+function productNameSkeletons(name) {
+  const words = String(name ?? "").replace(/[أإآ]/g, "\u0627").replace(/ى/g, "\u064A").replace(/ة/g, "\u0647").split(/[^\p{L}]+/u).filter(Boolean);
+  const skeletons = [];
+  for (const word of words) {
+    if (ARABIC_STOP_WORDS.has(word)) continue;
+    const skeleton = /[؀-ۿ]/.test(word) ? arabicSkeleton(word) : latinSkeleton(word);
+    if (skeleton.length >= 3) skeletons.push(skeleton);
+  }
+  return skeletons;
+}
+function editDistance(a, b) {
+  const row = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i += 1) {
+    let prev = row[0];
+    row[0] = i;
+    for (let j = 1; j <= b.length; j += 1) {
+      const tmp = row[j];
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = tmp;
+    }
+  }
+  return row[b.length];
+}
+function skeletonsAgree(a, b) {
+  if (a === b) return true;
+  return Math.min(a.length, b.length) >= 5 && editDistance(a, b) <= 1;
+}
+function findPhoneticInvoiceLine(basketProductNameRaw, invoiceLines) {
+  const basket = productNameSkeletons(basketProductNameRaw);
+  if (basket.length === 0) return null;
+  const hits = invoiceLines.filter((line) => {
+    const brand = productNameSkeletons(line.productNameRaw)[0];
+    return Boolean(brand) && basket.some((skeleton) => skeletonsAgree(skeleton, brand));
+  });
+  return hits.length === 1 ? hits[0] : null;
+}
+
 // src/lib/salesIntelligence/saleAttributionEngine.ts
 var TIME_MATCH_BANDS = {
   veryStrongMaxMinutes: 30,
@@ -4151,7 +4289,17 @@ function classifyProductEvidence(ctx, row, provider) {
     const matchedBy = canonical ? "product_id" : byCode ? "product_code" : "name";
     return byName ? { basketItem, invoiceItem: byName, matchedBy } : null;
   }).filter(Boolean);
-  const productMatch = matchedPairs.length > 0 ? "available_match" : "available_mismatch";
+  const usedLines = new Set(matchedPairs.map(({ invoiceItem }) => invoiceItem));
+  const phoneticPairs = resolvableBasketItems.filter((basketItem) => !basketItem.productId && !cleanText2(basketItem.productCode) && !(basketItem.catalogCandidateCount ?? 0) && !matchedPairs.some((pair) => pair.basketItem === basketItem)).map((basketItem) => {
+    const invoiceItem = findPhoneticInvoiceLine(
+      basketItem.productNameRaw,
+      sellableItems.filter((line) => !usedLines.has(line))
+    );
+    if (!invoiceItem) return null;
+    usedLines.add(invoiceItem);
+    return { basketItem, invoiceItem, matchedBy: "name_phonetic" };
+  }).filter(Boolean);
+  const productMatch = matchedPairs.length > 0 ? "available_match" : phoneticPairs.length > 0 ? "unavailable" : "available_mismatch";
   let quantityMatch = "unavailable";
   if (matchedPairs.length > 0) {
     const allQuantitiesAgree = matchedPairs.every(
@@ -4160,8 +4308,8 @@ function classifyProductEvidence(ctx, row, provider) {
     quantityMatch = allQuantitiesAgree ? "available_match" : "available_mismatch";
   }
   const unresolvedBasketItems = ctx.activeBasketItems.length - resolvableBasketItems.length;
-  const productCoverage = matchedPairs.length === 0 ? "none" : matchedPairs.length === resolvableBasketItems.length && unresolvedBasketItems === 0 ? "full" : "partial";
-  const lineMatches = matchedPairs.map(({ basketItem, invoiceItem, matchedBy }) => ({
+  const productCoverage = matchedPairs.length === 0 ? phoneticPairs.length > 0 ? "unavailable" : "none" : matchedPairs.length === resolvableBasketItems.length && unresolvedBasketItems === 0 ? "full" : "partial";
+  const lineMatches = [...matchedPairs, ...phoneticPairs].map(({ basketItem, invoiceItem, matchedBy }) => ({
     basketProductNameRaw: basketItem.productNameRaw,
     invoiceProductNameRaw: invoiceItem.productNameRaw,
     invoiceProductCode: cleanText2(invoiceItem.productCode) || null,
@@ -8372,7 +8520,8 @@ function analyzeOneCase(conversationCase, scopedMessages, input, interaction = n
       productId: item.productId,
       productCode: item.productCode ?? null,
       quantity: item.quantity,
-      resolutionStatus: item.resolutionStatus
+      resolutionStatus: item.resolutionStatus,
+      catalogCandidateCount: item.productId ? 0 : unresolvedCatalogCandidates(item.productNameRaw, input.productIndex).length
     })),
     knownStaffIds: caseKnownStaffIds,
     resolveInvoiceStaffIdByName: input.resolveInvoiceStaffIdByName,

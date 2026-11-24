@@ -431,6 +431,7 @@ function analyzeOneCase(
       productCode: item.productCode ?? null,
       quantity: item.quantity,
       resolutionStatus: item.resolutionStatus,
+      catalogCandidateCount: item.productId ? 0 : unresolvedCatalogCandidates(item.productNameRaw, input.productIndex).length,
     })),
     knownStaffIds: caseKnownStaffIds,
     resolveInvoiceStaffIdByName: input.resolveInvoiceStaffIdByName,
