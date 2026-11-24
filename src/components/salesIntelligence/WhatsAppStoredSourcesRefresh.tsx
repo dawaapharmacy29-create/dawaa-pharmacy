@@ -24,7 +24,11 @@ type RefreshOutcome = {
  * No file re-import, no local ledger reset, no direct case/review/action/points writes.
  * The server's canonical source gate, staff permission check and V50 versioning own all changes.
  */
+/** Enough for a full month of both branches; the server still checks scope per source. */
+const MAX_SOURCES = 500;
+
 export default function WhatsAppStoredSourcesRefresh() {
+  const [confirming, setConfirming] = useState(false);
   const [sources, setSources] = useState<StoredSource[]>([]);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
@@ -37,7 +41,7 @@ export default function WhatsAppStoredSourcesRefresh() {
       .select('id,source_filename,conversation_started_at')
       .is('deleted_at', null)
       .order('conversation_started_at', { ascending: false })
-      .limit(50);
+      .limit(MAX_SOURCES);
     setLoading(false);
     if (error) {
       toast.error('تعذر قراءة مصادر الواتساب المحفوظة: ' + error.message);
@@ -55,10 +59,7 @@ export default function WhatsAppStoredSourcesRefresh() {
       toast.error('لا توجد جلسة موظف موثقة. سجّل الدخول بحساب المدير ثم أعد المحاولة.');
       return;
     }
-    if (!window.confirm(
-      `إعادة تحليل ${sources.length} مصدر واتساب محفوظ باستخدام العقل التحليلي الحالي؟ لن تتم إعادة استيراد الملفات أو اعتماد النقاط تلقائيًا.`
-    )) return;
-
+    setConfirming(false);
     setRunning(true);
     setOutcomes([]);
     try {
@@ -102,7 +103,7 @@ export default function WhatsAppStoredSourcesRefresh() {
         <div>
           <h2 className="text-sm font-black text-white">إعادة تحليل المحادثات المحفوظة في التطبيق</h2>
           <p className="mt-1 max-w-2xl text-xs leading-6 text-slate-400">
-            يجلب آخر 50 مصدرًا ظاهرًا لحسابك ويعيد تحليلها في المحرك الرسمي بإثبات هوية العميل والفرع
+            يجلب آخر {MAX_SOURCES} مصدر ظاهر لحسابك ويعيد تحليلها في المحرك الرسمي بإثبات هوية العميل والفرع
             والأصناف والفواتير وفرص المتابعة وتقييم المحادثة. لا ينشئ نسخًا جديدة من الملفات
             ولا يعتمد نقاط الدكاترة أو الحوافز المالية تلقائيًا.
           </p>
@@ -112,11 +113,18 @@ export default function WhatsAppStoredSourcesRefresh() {
             className="rounded-lg border border-slate-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">
             تحديث القائمة
           </button>
-          <button type="button" onClick={() => void refreshStored()} disabled={loading || running || sources.length === 0}
+          {confirming && (
+            <button type="button" onClick={() => setConfirming(false)}
+              className="rounded-lg border border-slate-600 px-3 py-2 text-xs font-bold text-white">
+              إلغاء
+            </button>
+          )}
+          <button type="button" onClick={() => (confirming ? void refreshStored() : setConfirming(true))}
+            disabled={loading || running || sources.length === 0}
             className="rounded-lg bg-cyan-500 px-3 py-2 text-xs font-black text-slate-950 disabled:opacity-50">
             <span className="inline-flex items-center gap-2">
               {running ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
-              {running ? 'جاري التحليل...' : `إعادة تحليل ${sources.length} مصدر محفوظ`}
+              {running ? 'جاري التحليل...' : confirming ? `تأكيد إعادة تحليل ${sources.length} مصدر` : `إعادة تحليل ${sources.length} مصدر محفوظ`}
             </span>
           </button>
         </div>
