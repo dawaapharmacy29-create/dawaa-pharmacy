@@ -11,6 +11,8 @@ import { BranchCycleLossesPanel } from '@/components/evaluation/BranchCycleLosse
 import { BranchStarsSummary, StarBadge, StarRace } from '@/components/evaluation/BranchStarView';
 import { ShiftTargetBreakdown } from '@/components/evaluation/ShiftTargetBreakdown';
 import { loadDoctorLevels, saveDoctorLevel } from '@/lib/doctorEvaluation';
+import { EvaluationApprovalPanel } from '@/components/evaluation/EvaluationApprovalPanel';
+import { hasPermission } from '@/lib/core/permissionSystem';
 
 const BASELINE_VERSION = LAB_PREVIOUS_VERSION[LAB_CURRENT_VERSION] ?? LAB_CURRENT_VERSION;
 import { buildCycleScores, type LabEvidence, type LabPersonScore } from '@/lib/evaluationLab/buildCycleScores';
@@ -444,7 +446,7 @@ export default function EvaluationLab() {
           {LAB_CURRENT_VERSION === LAB_PUBLISHED_VERSION
             ? 'نفس الحسبة دي بتظهر لكل دكتور في لوحته (تقييمه هو بس).'
             : `النسخة ${LAB_CURRENT_VERSION} تجريبية في المختبر بس؛ لوحة الدكتور لسه على ${LAB_PUBLISHED_VERSION} لحد ما تعتمدها.`}
-          {' '}المختبر مش بيغيّر النقاط أو الحوافز أو المرتبات، والحاجة الوحيدة اللي بتتحفظ هي مستوى الصيدلي في الشيفت.
+          {' '}المختبر مش بيغيّر المرتبات غير لما مدير المرتبات يضغط «اعتماد تقييم الدكاترة»؛ ساعتها الحافز المعتمد بيدخل كشف المرتب.
         </div>
         {query.data && <div className="mt-4"><SourceStrip evidence={query.data.evidence} /></div>}
         <TrackCoverage />
@@ -453,6 +455,9 @@ export default function EvaluationLab() {
       {scores.some((person) => person.star) ? <BranchStarsSummary people={scores.filter((person) => person.star)} /> : null}
 
       {canSeeAllBranches(user?.role) ? <BranchCycleLossesPanel /> : null}
+
+      {query.data && (user?.role === 'general_manager' || user?.role === 'executive_manager' || hasPermission(user, 'manage_payroll'))
+        ? <EvaluationApprovalPanel cycleStart={cycle.start} running={cycle.share !== undefined} scores={scores} /> : null}
 
       <div className="flex gap-2 overflow-x-auto pb-1" role="tablist">
         {FAMILIES.map((key) => (
