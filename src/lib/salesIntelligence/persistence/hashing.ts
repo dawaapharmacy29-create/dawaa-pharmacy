@@ -85,6 +85,13 @@ export function normalizeRawExportTextForHashing(rawWhatsAppExportText: string):
 }
 
 export interface SemanticSourceHashInput {
+  /**
+   * The case's resolved customer. The analysis stores it (identity_customer_id and every follow-up
+   * opportunity's customerId), so a corrected customer must publish a new analysis; otherwise the
+   * follow-up projection rejects the stale opportunities. Left out when there is no resolved
+   * customer, so cases without one keep their hash.
+   */
+  resolvedCustomerId?: string | null;
   /** Only this case's canonical ownership evidence; never the whole staff directory. */
   caseOwnership?: unknown;
   rawWhatsAppExportText: string;
@@ -138,6 +145,7 @@ export async function computeSemanticSourceHash(input: SemanticSourceHashInput):
     trustedConversationStartedAt: input.trustedConversationStartedAt ?? null,
     branchIdentityMappingVersion: input.branchIdentityMappingVersion,
     ...(input.caseOwnership ? { caseOwnership: input.caseOwnership } : {}),
+    ...(input.resolvedCustomerId ? { resolvedCustomerId: input.resolvedCustomerId } : {}),
     ...(input.saleProofFingerprint ? { saleProofFingerprint: input.saleProofFingerprint } : {}),
     ...(input.managerProductIdentityReviewIds?.length
       ? { managerProductIdentityReviewIds: [...input.managerProductIdentityReviewIds].sort() }
