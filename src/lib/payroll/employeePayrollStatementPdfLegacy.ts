@@ -129,7 +129,7 @@ function buildPages(data: EmployeePayrollStatementV1, evaluation: EvaluationAppr
       '<div><b>الموظف:</b> ' + esc(data.staff.name) + ' · <b>الفرع:</b> ' + esc(data.staff.branch || '-') + '</div>' +
       '<div><b>الدورة:</b> ' + esc(data.cycle.start) + ' ← ' + esc(data.cycle.end) + ' · <b>الحالة:</b> ' + esc(statementStatus) + '</div>' +
     '</div>' +
-    (financial.frozen ? '<div style="margin-bottom:8px;font-size:7.5px;color:#5f7079">مرجع الاعتماد: ' + esc(data.finalization.snapshot_id || '-') + ' · ' + esc(shortFingerprint(data.finalization.snapshot_fingerprint || financial.snapshot_fingerprint)) + ' · ' + esc(cairoDateTime(data.finalization.finalized_at || financial.finalized_at)) + '</div>' : '');
+    (financial.frozen ? '<div style="margin-bottom:8px;font-size:7.5px;color:#5f7079">مرجع الاعتماد: ' + esc(data.finalization.snapshot_id || '-') + ' · Fingerprint ' + esc(shortFingerprint(data.finalization.snapshot_fingerprint || financial.snapshot_fingerprint)) + ' · ' + esc(cairoDateTime(data.finalization.finalized_at || financial.finalized_at)) + '</div>' : '');
 
   const net =
     '<div style="display:grid;grid-template-columns:1.25fr .75fr;gap:9px;margin-bottom:9px">' +
@@ -159,8 +159,8 @@ function buildPages(data: EmployeePayrollStatementV1, evaluation: EvaluationAppr
 
   const attendanceTiles = tiles([
     ['أيام حضور', ar(worked), 'من ' + ar(days.length) + ' يوم'],
-    ['ساعات فعلية', durationHours(engine.actual_worked_hours)],
-    ['ساعات الأساسي', durationHours(engine.base_payable_hours)],
+    ['الساعات الفعلية', durationHours(engine.actual_worked_hours)],
+    ['ساعات الأساسي المحتسبة', durationHours(engine.base_payable_hours)],
     ['إجازات / أذونات', ar(Math.max(leave, num(attendance.approved_time_off_days)))],
     ['غياب', ar(absent)],
     ['تأخير', ar(attendance.late_minutes) + ' د', 'خروج بدري ' + ar(attendance.early_leave_minutes) + ' د'],
@@ -181,8 +181,13 @@ function buildPages(data: EmployeePayrollStatementV1, evaluation: EvaluationAppr
     return '<tr style="' + tone + '"><td style="white-space:nowrap">' + esc(weekday(d.date)) + ' ' + esc(d.date.slice(8, 10) + '/' + d.date.slice(5, 7)) + '</td><td style="white-space:nowrap">' + esc(cairoTime(d.first_in)) + ' - ' + esc(cairoTime(d.last_out)) + '</td><td><b>' + esc(shortHours(d.payroll_eligible_hours ?? d.candidate_hours)) + '</b></td><td>' + esc(notes || '-') + '</td></tr>';
   };
   const half = Math.ceil(days.length / 2);
-  const dayTable = (list: typeof days) => '<table class="days" style="width:100%;border-collapse:collapse;font-size:7.5px"><thead><tr style="background:#eef8f7;color:#26494b"><th>اليوم</th><th>دخول - خروج</th><th>المحتسب</th><th>الحالة</th></tr></thead><tbody>' + list.map(dayRow).join('') + '</tbody></table>';
+  const dayTable = (list: typeof days) => '<table class="days" style="width:100%;border-collapse:collapse;font-size:7.5px"><thead><tr style="background:#eef8f7;color:#26494b"><th>اليوم</th><th>الدخول / الخروج</th><th>المحتسب</th><th>الحالة</th></tr></thead><tbody>' + list.map(dayRow).join('') + '</tbody></table>';
   const daysBlock = section('أيام الدورة يوم بيوم', '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' + dayTable(days.slice(0, half)) + dayTable(days.slice(half)) + '</div>');
+
+  const timeOff = data.time_off.requests.map((r) => esc(r.label || r.kind) + ' ' + esc(r.start_date.slice(8, 10) + '/' + r.start_date.slice(5, 7)) +
+    (r.end_date && r.end_date !== r.start_date ? '←' + esc(r.end_date.slice(8, 10) + '/' + r.end_date.slice(5, 7)) : '') +
+    ' (' + esc(r.duration_minutes ? ar(r.duration_minutes) + ' د' : 'يوم كامل') + ' · ' + esc(statusLabel(r.status)) + ')');
+  const timeOffBlock = section('الإجازات والأذونات خلال الدورة', '<div style="font-size:8.5px;line-height:1.7">' + (timeOff.length ? timeOff.join(' · ') : 'لا توجد طلبات إجازة أو إذن.') + '</div>');
 
   const attention = [
     num(engine.pending_review_days) > 0 ? ar(engine.pending_review_days) + ' يوم حضور تحت المراجعة' : '',
@@ -194,7 +199,7 @@ function buildPages(data: EmployeePayrollStatementV1, evaluation: EvaluationAppr
     ? '<div style="border:1px solid #efca78;background:#fff9ec;border-radius:10px;padding:7px 10px;font-size:8.5px"><b style="color:#8b5d00">قبل الإقفال:</b> ' + esc(attention.join(' · ')) + '</div>'
     : '';
 
-  const page1 = pageShell('كشف الراتب — الأيام والحضور والمرتب', 'كل يوم في الدورة وإزاي اتحسب منه المرتب', identity + net + salaryLines + attendanceTiles + daysBlock + attentionBlock, preview, 'صفحة ١ من ٢');
+  const page1 = pageShell('كشف الراتب — الأيام والحضور والمرتب', 'كل يوم في الدورة وإزاي اتحسب منه المرتب', identity + net + salaryLines + attendanceTiles + daysBlock + timeOffBlock + attentionBlock, preview, 'صفحة ١ من ٢');
 
   // ---------- Page 2: rank, incentives, advice ----------
   const approval = evaluation?.approved ? evaluation.approval : null;
@@ -264,6 +269,14 @@ function buildPages(data: EmployeePayrollStatementV1, evaluation: EvaluationAppr
         line('إجمالي الحوافز', money(num(financial.earnings.automated_incentives_total) + num(financial.earnings.list_incentive)), true));
   }
 
+  const visible = data.transactions.items.filter((t) => t.employee_visible !== false && (num(t.amount) || num(t.points)));
+  const txRows = visible.slice(0, 10).map((t) => '<tr><td>' + esc(t.date || '-') + '</td><td>' + esc(t.title || t.type || t.source || 'حركة') + '</td><td>' + esc(statusLabel(t.status)) + '</td><td>' + esc(num(t.amount) ? money(t.amount) : '-') + '</td><td>' + esc(num(t.points) ? ar(t.points) : '-') + '</td></tr>').join('');
+  const txBlock = section('الحوافز والخصومات والنقاط', (txRows ? table(txRows, ['التاريخ', 'البند', 'الحالة', 'المبلغ', 'النقاط']) : '<div style="font-size:9px;color:#6b7a82">لا توجد حركات ظاهرة في الدورة.</div>') +
+    (visible.length > 10 ? '<div style="font-size:7.5px;color:#6b7a82;margin-top:3px">+ ' + ar(visible.length - 10) + ' حركة تانية في صفحة المرتبات</div>' : '') +
+    '<div style="font-size:7.5px;color:#6b7a82;margin-top:3px">المعلق والمرفوض للمعلومة بس ومش داخل الصافي.</div>');
+  const ledger = (financial.manual_ledger?.entries || []).map((raw) => { const e = raw as Record<string, unknown>; return '<tr><td>' + esc(String(e.category || e.entry_kind || '-')) + '</td><td><b>' + esc(money(e.signed_amount)) + '</b></td><td>' + esc(String(e.reason || '-')) + '</td></tr>'; }).join('');
+  const ledgerBlock = ledger ? section('التسويات المالية اليدوية', table(ledger, ['البند', 'القيمة', 'السبب'])) : '';
+
   // Attendance advice applies to everyone.
   if (num(attendance.late_minutes) >= 30) advice.push({ kind: 'note', text: 'التأخير الشهر ده ' + ar(attendance.late_minutes) + ' دقيقة؛ الالتزام بالميعاد بيحمي الحافز والمرتب.' });
   if (missing > 0) advice.push({ kind: 'note', text: 'عندك ' + ar(missing) + ' يوم ببصمة ناقصة؛ بصّم دخول وخروج كل يوم.' });
@@ -275,7 +288,7 @@ function buildPages(data: EmployeePayrollStatementV1, evaluation: EvaluationAppr
     '<div style="font-size:9.5px;line-height:1.7;padding:3px 0;border-bottom:1px solid #f0f3f3"><b style="color:' + color(item.kind) + '">' + mark(item.kind) + '</b> ' + esc(item.text) + '</div>').join(''));
 
   const approvedBy = approval ? '<div style="font-size:7.5px;color:#6b7a82;margin-top:4px">اعتمد التقييم: ' + esc(approval.approved_by_name || '-') + ' · ' + esc(cairoDateTime(approval.approved_at)) + '</div>' : '';
-  const page2 = pageShell('الترتيب والحوافز والتوصيات', 'تقييمك الشهري وإزاي اتحسب حافزك', evaluationBody + page2Extra + adviceBlock + approvedBy, preview, 'صفحة ٢ من ٢');
+  const page2 = pageShell('الترتيب والحوافز والتوصيات', 'تقييمك الشهري وإزاي اتحسب حافزك', evaluationBody + page2Extra + txBlock + ledgerBlock + adviceBlock + approvedBy, preview, 'صفحة ٢ من ٢');
   return [page1, page2];
 }
 
