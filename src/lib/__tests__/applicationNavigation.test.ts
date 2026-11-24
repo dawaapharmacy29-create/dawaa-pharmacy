@@ -232,6 +232,24 @@ describe('short menu per role', () => {
     expect(assistantPaths(everyPermission, ALPHA)).not.toContain('/pharmacy-zone-tasks');
   });
 
+  it('opens the customer service team on the daily sheet, with the old big pages off their menu', () => {
+    const alpha = assistantPaths(everyPermission, ALPHA);
+    expect(alpha[0]).toBe('/customer-service-tasks');
+    for (const path of ['/assistant-operational-log', '/customer-service', '/customers', '/purchases']) {
+      expect(alpha).not.toContain(path);
+      expect(assistantPaths(everyPermission)).toContain(path);
+      expect(routeExists(path)).toBe(true);
+    }
+    expect(alpha.length).toBeLessThanOrEqual(9);
+  });
+
+  it('lets the customer service team actually open every page on their menu', () => {
+    const layout = read('src/components/layout/LayoutRuntime.tsx');
+    const allowedBlock = layout.slice(layout.indexOf('TEAM_DAWAA_ASSISTANT_ALLOWED_PATHS = new Set(['));
+    const allowed = [...new Set([...allowedBlock.slice(0, allowedBlock.indexOf(']);')).matchAll(/'([^']+)'/g)].map((m) => m[1]))];
+    for (const path of assistantPaths(everyPermission, ALPHA)) expect(allowed).toContain(basePath(path));
+  });
+
   it('gives every assistant their own schedule and points', () => {
     const own = assistantGroupsFor((permission) => hasPermission('assistant', permission), 'someone').flatMap((group) =>
       group.items.map((item) => item.path)
