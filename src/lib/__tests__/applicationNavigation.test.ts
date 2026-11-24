@@ -10,7 +10,7 @@ import {
   menuGroupsFor,
   type NavGroup,
 } from '@/components/layout/SidebarBase';
-import { ASSISTANT_GROUPS, assistantGroupsFor } from '@/components/layout/AssistantSidebar';
+import { ASSISTANT_GROUPS, assistantGroupsFor, pathIsActive } from '@/components/layout/AssistantSidebar';
 import { ROLES, hasPermission } from '@/lib/core/permissionSystem';
 import { normalizeArabic, searchNavItems } from '@/lib/navigation/navSearch';
 
@@ -240,7 +240,19 @@ describe('short menu per role', () => {
       expect(assistantPaths(everyPermission)).toContain(path);
       expect(routeExists(path)).toBe(true);
     }
-    expect(alpha.length).toBeLessThanOrEqual(9);
+    expect(alpha[1]).toBe('/customer-service-tasks?tab=competition');
+    expect(assistantPaths(everyPermission)).not.toContain('/customer-service-tasks?tab=competition');
+    expect(read('src/pages/CustomerServiceTasks.tsx')).toMatch(/searchParams\.get\('tab'\)/);
+    expect(alpha.length).toBeLessThanOrEqual(10);
+  });
+
+  it('lights up only the matching link when two links open the same page', () => {
+    const siblings = ['/customer-service-tasks', '/customer-service-tasks?tab=competition'];
+    expect(pathIsActive(siblings[0], '/customer-service-tasks', '', siblings)).toBe(true);
+    expect(pathIsActive(siblings[1], '/customer-service-tasks', '', siblings)).toBe(false);
+    expect(pathIsActive(siblings[0], '/customer-service-tasks', '?tab=competition', siblings)).toBe(false);
+    expect(pathIsActive(siblings[1], '/customer-service-tasks', '?tab=competition', siblings)).toBe(true);
+    expect(pathIsActive('/customers', '/customers/42', '', ['/customers'])).toBe(true);
   });
 
   it('lets the customer service team actually open every page on their menu', () => {
