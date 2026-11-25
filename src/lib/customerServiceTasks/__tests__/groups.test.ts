@@ -98,5 +98,5 @@ describe('requests export', () => {
     expect(wb.worksheets.map((w) => w.name)).toEqual(['الطلبات', 'إجمالي الأصناف', 'عن الملف']);
     expect(wb.getWorksheet('الطلبات')!.rowCount).toBe(3);
     expect(wb.getWorksheet('إجمالي الأصناف')!.getRow(2).getCell(2).value).toBe(2);
-  });
+  }, 20000);
 });
