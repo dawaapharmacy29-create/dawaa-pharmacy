@@ -33,6 +33,29 @@ const num = (value: unknown) => {
   return Number.isFinite(n) ? n : 0;
 };
 
+// The dashboard shows two cards built from the whole «مراجعة المشتريات» read (the money overview and the
+// daily review). They share one read instead of asking the server twice, and reuse it for a few minutes.
+const SHARED_TTL_MS = 3 * 60 * 1000;
+let shared: { at: number; promise: Promise<PurchaseReviewData> } | null = null;
+
+/** Drops the shared read after anything that changes the purchase review. */
+function invalidateSharedPurchaseReview() {
+  shared = null;
+}
+
+/** The whole purchase review (from = null), shared by the dashboard cards and kept for a few minutes. */
+export function loadPurchaseReviewShared(): Promise<PurchaseReviewData> {
+  if (shared && Date.now() - shared.at < SHARED_TTL_MS) return shared.promise;
+  const promise = loadPurchaseReview(null);
+  const entry = { at: Date.now(), promise };
+  shared = entry;
+  // A failed read is not kept, so the next card or refresh asks again.
+  promise.catch(() => {
+    if (shared === entry) shared = null;
+  });
+  return promise;
+}
+
 export async function loadPurchaseReview(from: string | null = null): Promise<PurchaseReviewData> {
   const { data, error } = await supabase.rpc('get_purchase_review_v1', { p_from: from });
   if (error) fail(error, 'تعذّر تحميل المشتريات');
@@ -105,6 +128,7 @@ export async function importPurchaseReport(
     p_report_net: report.reportNet,
     p_invoices: report.invoices,
   });
+  invalidateSharedPurchaseReview();
   if (error) fail(error, 'تعذّر رفع الملف');
   return data as ImportResult;
 }
@@ -125,6 +149,7 @@ export async function saveSupplierTerms(terms: {
     p_excluded: terms.excluded,
     p_note: terms.note,
   });
+  invalidateSharedPurchaseReview();
   if (error) fail(error, 'تعذّر الحفظ');
 }
 
@@ -142,11 +167,13 @@ export async function addSupplierPayment(payment: {
     p_paid_on: payment.paid_on,
     p_note: payment.note,
   });
+  invalidateSharedPurchaseReview();
   if (error) fail(error, 'تعذّر تسجيل الدفعة');
 }
 
 export async function deleteSupplierPayment(id: string) {
   const { error } = await supabase.rpc('delete_purchase_review_payment_v1', { p_id: id });
+  invalidateSharedPurchaseReview();
   if (error) fail(error, 'تعذّر المسح');
 }
 
@@ -198,6 +225,7 @@ export async function setInvoiceExcluded(
     p_excluded: excluded,
     p_note: note,
   });
+  invalidateSharedPurchaseReview();
   if (error) fail(error, 'تعذّر الحفظ');
 }
 
@@ -205,6 +233,7 @@ export async function saveTrackFrom(day: string) {
   const { error } = await supabase.rpc('save_purchase_review_track_from_v1', {
     p_track_from: day,
   });
+  invalidateSharedPurchaseReview();
   if (error) fail(error, 'تعذّر الحفظ');
 }
 
@@ -219,6 +248,7 @@ export async function linkTreasuryItem(
     p_supplier_code: supplierCode,
     p_ignored: ignored,
   });
+  invalidateSharedPurchaseReview();
   if (error) fail(error, 'تعذّر الربط');
 }
 
