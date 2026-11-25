@@ -65,7 +65,14 @@ export type PurchaseInvoice = {
   entered_by: string | null;
   note: string | null;
   check: PurchaseCheck | null;
+  invoice_day?: string;
+  branch?: string;
+  /** Did whoever entered it write the BeeConnect serial by hand on the paper invoice? null = not answered yet. */
+  paper_serial?: PaperSerial | null;
+  returns_note?: string | null;
 };
+
+export type PaperSerial = 'yes' | 'no';
 
 export type PurchaseDay = {
   day: string;
@@ -135,6 +142,7 @@ const ERRORS: Record<string, string> = {
   already_decided: 'اتاخد فيها قرار قبل كده',
   invalid_outcome: 'اختار نوع الخصم',
   unknown_staff: 'اختار الموظف اللي سجّل الفاتورة',
+  invalid_paper_serial: 'اختاري «مكتوب» أو «مش مكتوب»',
 };
 
 function fail(error: { message?: string } | null, fallback: string): never {
@@ -150,19 +158,155 @@ const num = (v: unknown) => {
   return Number.isFinite(n) ? n : 0;
 };
 
-export async function loadPurchaseDay(branch: string | null): Promise<PurchaseDay> {
+const cleanInvoice = (i: PurchaseInvoice): PurchaseInvoice => ({
+  ...i,
+  net: num(i.net),
+  items: num(i.items),
+});
+
+/** The purchase invoices of the 9am-to-9am window that ends on `day` (today when omitted). */
+export async function loadPurchaseDay(
+  branch: string | null,
+  day: string | null = null
+): Promise<PurchaseDay> {
   const { data, error } = await supabase.rpc('dawaa_cs_purchase_day_v1', {
-    p_day: null,
+    p_day: day,
     p_branch: branch,
   });
   if (error) fail(error, 'تعذّر تحميل فواتير امبارح');
   const d = data as PurchaseDay;
   return {
     ...d,
-    invoices: (d.invoices ?? []).map((i) => ({ ...i, net: num(i.net), items: num(i.items) })),
+    invoices: (d.invoices ?? []).map(cleanInvoice),
     uploads: d.uploads ?? [],
     suppliers: d.suppliers ?? [],
   };
+}
+
+/** Serial, supplier invoice number, whoever entered it, or supplier, in her branch over the last 90 days. */
+export async function searchPurchases(q: string, branch: string | null): Promise<PurchaseInvoice[]> {
+  const { data, error } = await supabase.rpc('dawaa_cs_purchase_search_v1', {
+    p_q: q,
+    p_branch: branch,
+  });
+  if (error) fail(error, 'تعذّر البحث');
+  return ((data ?? []) as PurchaseInvoice[]).map(cleanInvoice);
+}
+
+export type PurchaseMark = {
+  store: string;
+  serial: string;
+  paper_serial?: PaperSerial | null;
+  returns_note?: string | null;
+};
+
+export async function savePurchaseMarks(rows: PurchaseMark[]): Promise<number> {
+  const { data, error } = await supabase.rpc('dawaa_cs_purchase_marks_save_v1', { p_rows: rows });
+  if (error) fail(error, 'تعذّر الحفظ');
+  return num((data as { saved?: number } | null)?.saved);
+}
+
+export type BulkApproveResult = {
+  approved: number;
+  kept: number;
+  skipped: Array<{ serial: string; why: string }>;
+};
+
+/** Approves the picked invoices that were not reviewed yet (corrected or flagged ones are kept as they are). */
+export async function bulkApprovePurchases(
+  rows: Array<{ store: string; serial: string }>,
+  paperSerial: PaperSerial | null
+): Promise<BulkApproveResult> {
+  const { data, error } = await supabase.rpc('dawaa_cs_purchase_bulk_approve_v1', {
+    p_rows: rows.map((r) => ({ store: r.store, serial: r.serial })),
+    p_paper_serial: paperSerial,
+  });
+  if (error) fail(error, 'تعذّر الاعتماد');
+  const d = (data ?? {}) as Partial<BulkApproveResult>;
+  return { approved: num(d.approved), kept: num(d.kept), skipped: d.skipped ?? [] };
+}
+
+const arabicDigits = (v: string) =>
+  v.replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
+
+/** Filters the loaded invoices by a number (serial or supplier invoice) or a name (who entered it, or supplier). */
+export function matchesPurchase(i: PurchaseInvoice, q: string): boolean {
+  const query = arabicDigits(q.trim());
+  if (!query) return true;
+  if (/^\d+$/.test(query))
+    return (
+      i.serial.includes(query) ||
+      (i.supplier_invoice_no ?? '').includes(query) ||
+      (i.check?.fix?.serial ?? '').includes(query) ||
+      (i.check?.fix?.supplier_invoice_no ?? '').includes(query)
+    );
+  const norm = (s: string | null | undefined) =>
+    (s ?? '').replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/\s+/g, ' ');
+  const n = norm(query);
+  return norm(i.entered_by).includes(n) || norm(i.supplier_name).includes(n);
+}
+
+export type PaperSerialPerson = {
+  name: string;
+  branches: string;
+  invoices: number;
+  checked: number;
+  wrote: number;
+  forgot: number;
+};
+
+export type PaperSerialReport = {
+  from: string;
+  to: string;
+  people: PaperSerialPerson[];
+  forgotten: Array<{
+    store: string;
+    serial: string;
+    branch: string;
+    day: string;
+    supplier: string;
+    net: number;
+    who: string;
+    by: string | null;
+  }>;
+  returns: Array<{
+    store: string;
+    serial: string;
+    branch: string;
+    day: string;
+    supplier: string;
+    net: number;
+    who: string;
+    note: string;
+    by: string | null;
+  }>;
+};
+
+/** For the general manager: per person who entered purchase invoices, how many had the serial written by hand. */
+export async function loadPaperSerialReport(from: string, to: string): Promise<PaperSerialReport> {
+  const { data, error } = await supabase.rpc('dawaa_cs_paper_serial_report_v1', {
+    p_from: from,
+    p_to: to,
+  });
+  if (error) fail(error, 'تعذّر تحميل تقرير المسلسل');
+  const d = data as PaperSerialReport;
+  return {
+    ...d,
+    people: (d.people ?? []).map((p) => ({
+      ...p,
+      invoices: num(p.invoices),
+      checked: num(p.checked),
+      wrote: num(p.wrote),
+      forgot: num(p.forgot),
+    })),
+    forgotten: (d.forgotten ?? []).map((f) => ({ ...f, net: num(f.net) })),
+    returns: (d.returns ?? []).map((f) => ({ ...f, net: num(f.net) })),
+  };
+}
+
+/** Share of the answered invoices where the serial was written, as a whole percent; null before any answer. */
+export function paperSerialRate(p: { checked: number; wrote: number }): number | null {
+  return p.checked ? Math.round((p.wrote / p.checked) * 100) : null;
 }
 
 export async function savePurchaseCheck(input: {

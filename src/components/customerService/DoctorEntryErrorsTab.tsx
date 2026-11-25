@@ -17,6 +17,7 @@ import {
   type DoctorError,
   type DoctorErrorsReport,
 } from '@/lib/customerServiceTasks/morning';
+import PaperSerialReport from './PaperSerialReport';
 
 // أخطاء تسجيل فواتير المشتريات والتحويلات اللي فريق خدمة العملاء لقاها في مراجعة الصبح. للمدير العام والتنفيذي بس
 // (الداتابيز بترفض أي حد تاني). الخصم بيتعمل لما المدير يختار نوعه، بنقاط «دقة إدخال الفواتير».
@@ -162,6 +163,8 @@ export default function DoctorEntryErrorsTab({ today }: { today: string }) {
           </div>
         )}
       </Panel>
+
+      <PaperSerialReport from={from} to={today} />
     </div>
   );
 }
