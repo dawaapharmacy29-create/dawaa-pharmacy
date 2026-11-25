@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type MouseEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Check, ExternalLink, ListChecks, Loader2, TriangleAlert } from 'lucide-react';
 import { Panel } from '@/components/dashboard/DashboardPrimitives';
@@ -13,14 +13,12 @@ import {
   GM_REVIEW_LABELS,
   gmReviewErrorMessage,
   loadGmDailyReview,
-  loadGmPendingPurchases,
   markGmReviewItem,
-  type GmPendingPurchase,
   type GmDailyReview,
   type GmReviewItem,
 } from '@/lib/gmDailyReview';
 import { gmReviewCard } from '@/lib/gmReviewCard';
-import { loadPurchaseReview } from '@/lib/purchaseReview/api';
+import { loadPurchaseReviewShared } from '@/lib/purchaseReview/api';
 import { purchaseReviewDaily, withPurchaseReview } from '@/lib/purchaseReview/dailyItem';
 
 const dayLabel = (value: string) =>
@@ -45,6 +43,22 @@ const DATA_ONLY = new Set<GmReviewItem['key']>(['purchases_upload']);
 /** Cards shown before «اعرض كمان», so the list stays short on a phone. */
 const VISIBLE_CARDS = 3;
 
+/** How often the open page refreshes the review (data in the other apps syncs every 15 minutes). */
+const REFRESH_MS = 10 * 60 * 1000;
+
+/** Opens the place an item is worked: a page here, a section of this dashboard (#id), or the other app. */
+export function openReviewPlace(
+  label: { link?: string; app?: { url: string } },
+  navigate: (to: string) => void
+) {
+  if (label.link?.startsWith('#')) {
+    document
+      .getElementById(label.link.slice(1))
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } else if (label.link) navigate(label.link);
+  else if (label.app) window.open(label.app.url, '_blank', 'noopener,noreferrer');
+}
+
 /**
  * «مراجعتي اليومية»: the general manager's daily pass over the pharmacy.
  * A bar with «فاضل N من M», two tabs (needs attention / done), and one short card per open item:
@@ -61,13 +75,10 @@ export function GmDailyReviewPanel() {
       // «مراجعة المشتريات» feeds the purchases card; until its data is there the old card stays.
       const [base, purchases] = await Promise.all([
         loadGmDailyReview(),
-        loadPurchaseReview(null).catch(() => null),
+        loadPurchaseReviewShared().catch(() => null),
       ]);
       setReview(
-        withPurchaseReview(
-          base,
-          purchases?.lines.length ? purchaseReviewDaily(purchases) : null
-        )
+        withPurchaseReview(base, purchases?.lines.length ? purchaseReviewDaily(purchases) : null)
       );
       setError(null);
     } catch (err) {
@@ -77,9 +88,20 @@ export function GmDailyReviewPanel() {
 
   useEffect(() => {
     void reload();
-    // Data in the other apps keeps moving (sync every 15 minutes): refresh while the page is open.
-    const timer = window.setInterval(() => void reload(), 5 * 60 * 1000);
-    return () => window.clearInterval(timer);
+    // Data in the other apps keeps moving (sync every 15 minutes): refresh while the page is open and seen.
+    // A hidden tab asks nothing; coming back to it after the interval refreshes once.
+    let last = Date.now();
+    const refresh = () => {
+      if (document.hidden || Date.now() - last < REFRESH_MS) return;
+      last = Date.now();
+      void reload();
+    };
+    const timer = window.setInterval(refresh, 60 * 1000);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', refresh);
+    };
   }, [reload]);
 
   const ordered = review ? gmReviewOrder(review.items) : [];
@@ -256,17 +278,20 @@ function ReviewCard({ item, onChanged }: { item: GmReviewItem; onChanged: () => 
   };
 
   // Inside this app first; the other app only when there is no page here.
-  const openPlace = () => {
-    if (label.link) navigate(label.link);
-    else if (label.app) window.open(label.app.url, '_blank', 'noopener,noreferrer');
+  const canOpen = Boolean(label.link || label.app);
+  const openPlace = () => openReviewPlace(label, navigate);
+  // A tap anywhere on the card opens its page; the buttons and the note field keep their own action.
+  const openFromCard = (event: MouseEvent<HTMLDivElement>) => {
+    if (!canOpen || (event.target as HTMLElement).closest('button, input, a, textarea, select'))
+      return;
+    openPlace();
   };
-  const inlinePurchases =
-    item.key === 'purchases_handover' && !(item.detail as { review?: unknown } | null)?.review;
-  const [showList, setShowList] = useState(false);
 
   return (
     <div
-      className={`dawaa-theme-surface dawaa-theme-border min-w-0 rounded-2xl border p-3 ${TONE_ACCENT[gmTone(item)]}`}
+      role={canOpen ? 'link' : undefined}
+      onClick={openFromCard}
+      className={`dawaa-theme-surface dawaa-theme-border min-w-0 rounded-2xl border p-3 ${canOpen ? 'cursor-pointer transition hover:shadow-md' : ''} ${TONE_ACCENT[gmTone(item)]}`}
     >
       <div className="flex items-center gap-2">
         <ToneIcon tone={gmTone(item)} className="h-4 w-4" />
@@ -354,16 +379,7 @@ function ReviewCard({ item, onChanged }: { item: GmReviewItem; onChanged: () => 
       ) : null}
 
       <div className="mt-2 flex items-center gap-1.5">
-        {inlinePurchases ? (
-          <button
-            type="button"
-            onClick={() => setShowList((value) => !value)}
-            aria-expanded={showList}
-            className="dawaa-badge dawaa-badge--info inline-flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-xl px-3 text-xs font-black"
-          >
-            {showList ? 'اخفي الفواتير' : 'اعرض الفواتير المستنية'}
-          </button>
-        ) : label.app || label.link ? (
+        {canOpen ? (
           <button
             type="button"
             onClick={openPlace}
@@ -416,7 +432,6 @@ function ReviewCard({ item, onChanged }: { item: GmReviewItem; onChanged: () => 
         )}
       </div>
 
-      {inlinePurchases && showList ? <PendingPurchasesList /> : null}
       {noteFor ? (
         <div className="mt-2 flex gap-2">
           <input
@@ -440,57 +455,5 @@ function ReviewCard({ item, onChanged }: { item: GmReviewItem; onChanged: () => 
         <p className="mt-1 text-xs font-bold text-[var(--dawaa-status-danger-text)]">{error}</p>
       ) : null}
     </div>
-  );
-}
-
-const purchaseDay = (value: string) =>
-  new Date(`${value}T12:00:00`).toLocaleDateString('ar-EG', { day: 'numeric', month: 'numeric' });
-
-/** The invoices still «انتظار المراجعة» in دواء وائل, read here so the manager doesn't open the other app. */
-function PendingPurchasesList() {
-  const [rows, setRows] = useState<GmPendingPurchase[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    let alive = true;
-    loadGmPendingPurchases(200)
-      .then((data) => alive && setRows(data))
-      .catch(() => alive && setError('تعذّر تحميل الفواتير'));
-    return () => {
-      alive = false;
-    };
-  }, []);
-  if (error)
-    return <p className="mt-2 text-xs font-bold text-[var(--dawaa-status-danger-text)]">{error}</p>;
-  if (!rows) return <Loader2 className="dawaa-caption mt-2 h-4 w-4 animate-spin" />;
-  if (!rows.length)
-    return <p className="dawaa-caption mt-2 text-xs font-bold">مفيش فواتير مستنية</p>;
-  return (
-    <ul className="dawaa-theme-border mt-2 max-h-72 divide-y divide-[var(--dawaa-theme-border,rgba(148,163,184,0.25))] overflow-y-auto rounded-xl border text-[11px] font-bold">
-      {rows.map((row, index) => (
-        <li
-          key={`${row.system_invoice_number}-${index}`}
-          className="flex items-start gap-2 px-2.5 py-1.5"
-        >
-          <div className="min-w-0 flex-1">
-            <p className="truncate font-black">{row.supplier}</p>
-            <p className="dawaa-caption truncate text-[10px]">
-              {row.branch.replace(/^فرعs*/, '')} · {purchaseDay(row.invoice_date)}
-              {row.supplier_invoice_number ? ` · فاتورة ${row.supplier_invoice_number}` : ''}
-              {row.entered_by ? ` · ${row.entered_by}` : ''}
-            </p>
-          </div>
-          <div className="shrink-0 text-end">
-            <p className="tabular-nums font-black">
-              {Math.round(row.total_value).toLocaleString('ar-EG')} ج
-            </p>
-            <p
-              className={`text-[10px] ${row.days_waiting > 3 ? 'text-[var(--dawaa-status-danger-text)]' : 'dawaa-caption'}`}
-            >
-              من {row.days_waiting.toLocaleString('ar-EG')} يوم
-            </p>
-          </div>
-        </li>
-      ))}
-    </ul>
   );
 }

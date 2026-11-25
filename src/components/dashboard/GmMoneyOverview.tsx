@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, Loader2, ShoppingCart, Wallet } from 'lucide-react';
+import { ChevronDown, ChevronLeft, Loader2, ShoppingCart, Wallet } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { Panel } from '@/components/dashboard/DashboardPrimitives';
 import { loadAccountantReport, type AccountantVault } from '@/lib/accountantReport';
 import { cycleRange } from '@/lib/gmPurchasesSummary';
-import { loadPurchaseReview } from '@/lib/purchaseReview/api';
+import { loadPurchaseReviewShared } from '@/lib/purchaseReview/api';
 import { dashboardPurchases } from '@/lib/purchaseReview/dashboardSummary';
 import type { PurchaseReviewData } from '@/lib/purchaseReview/ledger';
 
@@ -33,7 +34,26 @@ function BranchChip({ label, value, note }: { label: string; value: number; note
   );
 }
 
+/** The section's title, and the figures under it, open the page the numbers come from. */
+function OpenPage({ to, label }: { to: string; label: string }) {
+  const navigate = useNavigate();
+  return (
+    <button
+      type="button"
+      onClick={() => navigate(to)}
+      className="dawaa-badge dawaa-badge--info inline-flex items-center gap-0.5 rounded-full px-2.5 py-1 text-[11px] font-black"
+    >
+      {label}
+      <ChevronLeft className="h-3.5 w-3.5" />
+    </button>
+  );
+}
+
+const TREASURY_PAGE = '/consolidated-reports';
+const PURCHASES_PAGE = '/purchase-review';
+
 function Treasury() {
+  const navigate = useNavigate();
   const [vaults, setVaults] = useState<AccountantVault[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -58,16 +78,23 @@ function Treasury() {
 
   return (
     <section className="min-w-0">
-      <div className="flex items-center gap-2">
-        <Wallet className="h-4 w-4 text-[var(--dawaa-status-info-text)]" />
-        <h3 className="dawaa-theme-heading text-sm font-black">إجمالي الخزينة</h3>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Wallet className="h-4 w-4 text-[var(--dawaa-status-info-text)]" />
+          <h3 className="dawaa-theme-heading text-sm font-black">إجمالي الخزينة</h3>
+        </div>
+        <OpenPage to={TREASURY_PAGE} label="التقارير المجمعة" />
       </div>
       {error ? (
         <p className="mt-2 text-xs font-bold text-[var(--dawaa-status-danger-text)]">{error}</p>
       ) : !vaults ? (
         <Loader2 className="dawaa-caption mt-3 h-4 w-4 animate-spin" />
       ) : (
-        <>
+        <button
+          type="button"
+          onClick={() => navigate(TREASURY_PAGE)}
+          className="block w-full text-start"
+        >
           <p className="dawaa-theme-heading mt-1 text-3xl font-black tabular-nums">
             {money(total)} <span className="dawaa-caption text-xs font-black">ج</span>
           </p>
@@ -84,13 +111,14 @@ function Treasury() {
               />
             ))}
           </div>
-        </>
+        </button>
       )}
     </section>
   );
 }
 
 function Purchases() {
+  const navigate = useNavigate();
   const today = cairoToday();
   const current = useMemo(() => cycleRange(today, 0), [today]);
   const previous = useMemo(() => cycleRange(today, -1), [today]);
@@ -102,7 +130,7 @@ function Purchases() {
   // The whole «مراجعة المشتريات» data is loaded once; any period is summed from it here.
   useEffect(() => {
     let alive = true;
-    loadPurchaseReview(null)
+    loadPurchaseReviewShared()
       .then((value) => alive && setData(value))
       .catch(
         (err) => alive && setError(err instanceof Error ? err.message : 'تعذّر تحميل المشتريات')
@@ -141,9 +169,10 @@ function Purchases() {
           <h3 className="dawaa-theme-heading text-sm font-black">صافي المشتريات</h3>
           {!data && !error ? <Loader2 className="dawaa-caption h-3.5 w-3.5 animate-spin" /> : null}
         </div>
-        <div className="flex gap-1.5">
+        <div className="flex flex-wrap gap-1.5">
           {quick('الشهر ده', current)}
           {quick('الشهر اللي فات', previous)}
+          <OpenPage to={PURCHASES_PAGE} label="مراجعة المشتريات" />
         </div>
       </div>
 
@@ -175,34 +204,40 @@ function Purchases() {
       ) : null}
       {summary ? (
         <>
-          <p className="dawaa-theme-heading mt-2 text-3xl font-black tabular-nums">
-            {money(summary.total.net)} <span className="dawaa-caption text-xs font-black">ج</span>
-          </p>
-          <p className="dawaa-caption text-[11px] font-bold">
-            {shortDate(summary.from)} ← {shortDate(summary.to)} · من ملفات ePlus في مراجعة
-            المشتريات: آجل ونقدي، من غير الأكواد الداخلية والفواتير المستثناة
-          </p>
-          {summary.behind.length ? (
-            <p className="mt-0.5 text-[11px] font-bold text-[var(--dawaa-status-warning-text)]">
-              الرقم ناقص: ملفات{' '}
-              {summary.behind
-                .map(
-                  (s) =>
-                    `${s.store} ${s.last_day ? `واصلة لحد ${shortDate(s.last_day)}` : 'ما اترفعتش'}`
-                )
-                .join('، ')}
+          <button
+            type="button"
+            onClick={() => navigate(PURCHASES_PAGE)}
+            className="block w-full text-start"
+          >
+            <p className="dawaa-theme-heading mt-2 text-3xl font-black tabular-nums">
+              {money(summary.total.net)} <span className="dawaa-caption text-xs font-black">ج</span>
             </p>
-          ) : null}
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            {summary.branches.map((row) => (
-              <BranchChip
-                key={row.branch}
-                label={branchShort(row.branch)}
-                value={row.net}
-                note={`${row.invoices.toLocaleString('ar-EG')} فاتورة`}
-              />
-            ))}
-          </div>
+            <p className="dawaa-caption text-[11px] font-bold">
+              {shortDate(summary.from)} ← {shortDate(summary.to)} · من ملفات ePlus في مراجعة
+              المشتريات: آجل ونقدي، من غير الأكواد الداخلية والفواتير المستثناة
+            </p>
+            {summary.behind.length ? (
+              <p className="mt-0.5 text-[11px] font-bold text-[var(--dawaa-status-warning-text)]">
+                الرقم ناقص: ملفات{' '}
+                {summary.behind
+                  .map(
+                    (s) =>
+                      `${s.store} ${s.last_day ? `واصلة لحد ${shortDate(s.last_day)}` : 'ما اترفعتش'}`
+                  )
+                  .join('، ')}
+              </p>
+            ) : null}
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              {summary.branches.map((row) => (
+                <BranchChip
+                  key={row.branch}
+                  label={branchShort(row.branch)}
+                  value={row.net}
+                  note={`${row.invoices.toLocaleString('ar-EG')} فاتورة`}
+                />
+              ))}
+            </div>
+          </button>
 
           <button
             type="button"

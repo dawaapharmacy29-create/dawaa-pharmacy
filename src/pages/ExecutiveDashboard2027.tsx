@@ -58,14 +58,8 @@ import {
 } from '@/lib/dashboard/dashboardTruthService';
 import { resolveStaffLink, getStaffNavigationTarget, staffProfilePath } from '@/lib/staff/staffIdentityResolver';
 import { canonicalActiveStaff, readStaffDirectory } from '@/lib/readModels/staffDirectoryReadModel';
-import {
-  avgReview,
-  getDoctorCompetitionMetrics,
-  normalizeDoctorName,
-  MIN_AVG_INVOICE_THRESHOLD,
-  type DoctorCompetitionMetrics,
-  type DoctorCompetitionScore,
-} from '@/lib/doctorCompetitionMetrics';
+import { normalizeDoctorName } from '@/lib/doctorCompetitionMetrics';
+import { DashboardCompetitionStars } from '@/components/dashboard/DashboardCompetitionStars';
 import { loadAppDataHealthSummary, summarizeDataHealth, type DataHealthIssue } from '@/lib/dataHealth/appDataHealthService';
 import { summarizeTeamTasks, type EmployeeTaskSummary } from '@/lib/employeeDailyTasks';
 import DoctorMonthlyEvaluationCard from '@/components/doctor/DoctorMonthlyEvaluationCard';
@@ -968,14 +962,6 @@ export default function ExecutiveDashboard2027() {
   const [inventoryOperationsError, setInventoryOperationsError] = useState<string | null>(null);
   const [inventoryOperationsLoadedAt, setInventoryOperationsLoadedAt] = useState<string | null>(null);
   const [inventoryOperationsTimedOut, setInventoryOperationsTimedOut] = useState(false);
-  const [doctorCompetition, setDoctorCompetition] = useState<DoctorCompetitionMetrics | null>(null);
-  const [doctorCompetitionLoading, setDoctorCompetitionLoading] = useState(false);
-  const [competitionsLoading, setCompetitionsLoading] = useState(false);
-  const [doctorCompetitionError, setDoctorCompetitionError] = useState<string | null>(null);
-  const [doctorCompetitionLoadedAt, setDoctorCompetitionLoadedAt] = useState<string | null>(null);
-  // زيادة الرقم ده بس تعيد تشغيل query مسابقة الدكاترة لوحدها، من غير أي تأثير
-  // على باقي أقسام لوحة القيادة ومن غير إعادة تحميل الصفحة.
-  const [doctorCompetitionRetryToken, setDoctorCompetitionRetryToken] = useState(0);
   const [dataHealthIssues, setDataHealthIssues] = useState<DataHealthIssue[]>([]);
   const [dataHealthLoading, setDataHealthLoading] = useState(false);
   const [dataHealthTimedOut, setDataHealthTimedOut] = useState(false);
@@ -985,7 +971,6 @@ export default function ExecutiveDashboard2027() {
   const [teamTaskSummary, setTeamTaskSummary] = useState<EmployeeTaskSummary | null>(null);
   const [teamTaskIssue, setTeamTaskIssue] = useState<string | null>(null);
   const loadIdRef = useRef(0);
-  const lastGoodDoctorCompetitionRef = useRef<DoctorCompetitionMetrics | null>(null);
   const noCacheRef = useRef(false);
   const [state, setState] = useState<DashboardState>({
     summary: null,
@@ -1095,53 +1080,6 @@ export default function ExecutiveDashboard2027() {
     if (!canAllBranches && next && branch !== next) setBranch(next);
   }, [branch, canAllBranches, lockedBranch, user]);
 
-  useEffect(() => {
-    let mounted = true;
-    setDoctorCompetitionLoading(true);
-    const doctorCompetitionParams =
-      startDate === formatCycleDate(currentCycle.start) && endDate === formatCycleDate(currentCycle.end)
-        ? { period: 'cycle' as const }
-        : { period: 'custom' as const, customStart: startDate, customEnd: endDate };
-
-    withSingleRetry(() =>
-      withTimeout(
-        getDoctorCompetitionMetrics({
-          ...doctorCompetitionParams,
-          branch: scopedBranch === ALL_BRANCHES ? null : scopedBranch,
-          userBranch: homeBranch,
-          canSeeAllBranches: canAllBranches,
-        }),
-        20000,
-        'doctor-competition'
-      )
-    )
-      .then((metrics) => {
-        if (!mounted) return;
-        if (metrics.rows.length) {
-          lastGoodDoctorCompetitionRef.current = metrics;
-          setDoctorCompetition(metrics);
-        } else if (lastGoodDoctorCompetitionRef.current) {
-          setDoctorCompetition(lastGoodDoctorCompetitionRef.current);
-        } else {
-          setDoctorCompetition(metrics);
-        }
-        setDoctorCompetitionError(null);
-        setDoctorCompetitionLoadedAt(new Date().toISOString());
-      })
-      .catch((error) => {
-        if (import.meta.env.DEV) console.warn('[ExecutiveDashboard2027] doctor competition metrics failed', error);
-        if (mounted && lastGoodDoctorCompetitionRef.current) {
-          setDoctorCompetition(lastGoodDoctorCompetitionRef.current);
-        }
-        setDoctorCompetitionError(error instanceof Error ? error.message : String(error));
-      })
-      .finally(() => {
-        if (mounted) setDoctorCompetitionLoading(false);
-      });
-    return () => {
-      mounted = false;
-    };
-  }, [canAllBranches, scopedBranch, startDate, endDate, homeBranch, doctorCompetitionRetryToken]);
 
   useEffect(() => {
     let mounted = true;
@@ -1713,7 +1651,7 @@ export default function ExecutiveDashboard2027() {
     {
       id: 'doctor-competitions',
       title: 'مسابقة الدكاترة',
-      value: doctorCompetitionLoading ? 'تحميل' : doctorCompetitionError ? 'مراجعة' : 'Top 5',
+      value: 'الدورة',
       tone: 'amber' as const,
     },
   ];
@@ -1928,7 +1866,10 @@ export default function ExecutiveDashboard2027() {
         )}
 
         {['branches_manager', 'general_manager', 'executive_manager'].includes(role) && (
-          <AgendaCompliancePanel branch={scopedBranch === ALL_BRANCHES ? null : scopedBranch} />
+          // «مراجعتي اليومية» scrolls here for the managers' and stories' items.
+          <div id="agenda-compliance" className="scroll-mt-20">
+            <AgendaCompliancePanel branch={scopedBranch === ALL_BRANCHES ? null : scopedBranch} />
+          </div>
         )}
 
         {/* The branch manager's exceptions repeat the daily list, and the weekly points card belongs to the old
@@ -2284,13 +2225,7 @@ export default function ExecutiveDashboard2027() {
         {managerMode ? null : salesKpiSection}
 
         <ManagerAnalysisFold folded={managerMode}>
-        <DashboardDoctorCompetitionPanel
-          metrics={doctorCompetition}
-          loading={doctorCompetitionLoading}
-          error={doctorCompetitionError}
-          onNavigate={(focus) => navigate(`/doctor-competition?period=cycle&focus=${focus}`)}
-          onRetry={() => setDoctorCompetitionRetryToken((token) => token + 1)}
-        />
+        <DashboardCompetitionStars branch={scopedBranch === ALL_BRANCHES ? null : scopedBranch} />
 
         {managerMode ? null : <Panel className="p-4">
           <button
@@ -2325,7 +2260,6 @@ export default function ExecutiveDashboard2027() {
                     { key: 'sales', label: 'sales', state: salesKPILoading ? 'loading' : salesKPIError || salesKPITimedOut ? 'error' : salesKPILoadedAt ? 'loaded' : 'loading' },
                     { key: 'staff', label: 'staff', state: staffAttendanceLoading ? 'loading' : staffAttendanceError || staffAttendanceTimedOut ? 'error' : staffAttendanceLoadedAt ? 'loaded' : 'loading' },
                     { key: 'dailyTasks', label: 'dailyTasks', state: dailyTasksLoading ? 'loading' : dailyTasksError || dailyTasksTimedOut ? 'error' : dailyTasksLoadedAt ? 'loaded' : 'loading' },
-                    { key: 'competition', label: 'competition', state: doctorCompetitionLoading ? 'loading' : doctorCompetitionError ? 'error' : doctorCompetitionLoadedAt ? 'loaded' : 'loading' },
                     { key: 'health', label: 'health', state: dataHealthLoading ? 'loading' : dataHealthError ? 'error' : 'loaded' },
                   ].map((item) => (
                     <div key={item.key} className="rounded-2xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] p-4">
@@ -2822,219 +2756,6 @@ function ManagerAnalysisFold({ folded, children }: { folded: boolean; children: 
       </summary>
       <div className="mt-4 space-y-4">{children}</div>
     </details>
-  );
-}
-
-function DashboardDoctorCompetitionPanel({
-  metrics,
-  loading,
-  error,
-  onNavigate,
-  onRetry,
-}: {
-  metrics: DoctorCompetitionMetrics | null;
-  loading: boolean;
-  error?: string | null;
-  onNavigate: (focus: 'sales' | 'average_invoice' | 'incentive' | 'reviews' | 'overall') => void;
-  onRetry: () => void;
-}) {
-  const [showFullRanking, setShowFullRanking] = useState(false);
-  const winners = metrics?.winners;
-  const topRows = metrics?.eligibleRows.length ? metrics.eligibleRows.slice(0, 5) : metrics?.rows.slice(0, 5) || [];
-  const hasRows = topRows.length > 0;
-  const stagnantDisabled = metrics ? !metrics.metadata.stagnantEnabled : false;
-  // فشل فعلي (query/timeout) لكن معانا بيانات قديمة صالحة نعرضها — نظهر شريط تنبيه
-  // مضغوط فوق البيانات المعروضة بدل ما نمسح القسم بالكامل ونجبر المستخدم يعمل Refresh.
-  const showStaleWarning = Boolean(error) && hasRows;
-  return (
-    <Panel id="doctor-competitions" className="p-5">
-      <SectionTitle
-        title="مسابقات الدكاترة"
-        subtitle={metrics ? `الفترة: من ${metrics.range.start} إلى ${metrics.range.end}` : 'ملخص مباشر من sales_invoices والتقييمات والمتابعات'}
-        icon={<Trophy className="h-5 w-5" />}
-      />
-      {showStaleWarning ? (
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-3 py-2 text-xs font-bold text-[var(--dawaa-status-warning-text)]">
-          <span>البيانات المعروضة من آخر تحميل ناجح — تعذر تحديثها الآن.</span>
-          <button type="button" onClick={onRetry} className="rounded-lg border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] px-3 py-1 font-black text-[var(--dawaa-status-warning-text)] hover:bg-[var(--dawaa-status-warning-bg)]">
-            إعادة المحاولة
-          </button>
-        </div>
-      ) : null}
-      {loading && !metrics ? (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5" aria-busy="true">
-          {Array.from({ length: 5 }).map((_, index) => (
-            <div key={index} className="h-28 animate-pulse rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-2)]" />
-          ))}
-        </div>
-      ) : !hasRows && error ? (
-        <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-[var(--dawaa-status-danger-border)] bg-red-950/20 px-4 py-6 text-center">
-          <AlertTriangle className="h-6 w-6 text-[var(--dawaa-status-danger-text)]" />
-          <p className="text-sm font-bold text-[var(--dawaa-status-danger-text)]">تعذر تحميل مسابقة الدكاترة الآن.</p>
-          <p className="max-w-md text-xs text-[var(--dawaa-status-danger-text)]/70">{error.slice(0, 160)}</p>
-          <button type="button" onClick={onRetry} className="rounded-xl border border-[var(--dawaa-status-danger-border)] bg-[var(--dawaa-status-danger-bg)] px-4 py-2 text-xs font-black text-[var(--dawaa-status-danger-text)] hover:bg-[var(--dawaa-status-danger-bg)]">
-            إعادة محاولة تحميل القسم
-          </button>
-        </div>
-      ) : !hasRows ? (
-        <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] px-4 py-6 text-center text-sm font-black text-[var(--dawaa-theme-muted)]">
-          <Trophy className="h-6 w-6 text-[var(--dawaa-theme-muted)]" />
-          لا توجد بيانات كافية للمسابقة في الفترة الحالية
-        </div>
-      ) : hasRows ? (
-        <>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-            <DoctorWinnerCard
-              title="بطل المبيعات"
-              row={winners?.sales}
-              value={
-                winners?.sales && winners.sales.totalSales > 0
-                  ? `${money(winners.sales.totalSales)} جنيه`
-                  : metrics?.rows.length
-                    ? 'لا يوجد بطل مبيعات مؤهل'
-                    : 'لا توجد بيانات كافية'
-              }
-              detail={
-                winners?.sales
-                  ? `${count(winners.sales.invoices)} فاتورة · متوسط ${money(winners.sales.avgInvoice)} جنيه`
-                  : metrics?.rows.length
-                    ? metrics?.metadata.noWinnersReasons.join(' · ') || 'لا يوجد بطل مبيعات مؤهل'
-                    : 'لا توجد بيانات كافية'
-              }
-              onClick={() => onNavigate('sales')}
-            />
-            <DoctorWinnerCard
-              title="بطل متوسط الفاتورة"
-              row={winners?.avgInvoice || winners?.averageInvoice}
-              value={winners?.avgInvoice || winners?.averageInvoice ? `${money((winners.avgInvoice || winners.averageInvoice)!.avgInvoice)} جنيه` : `يتطلب ${MIN_AVG_INVOICE_THRESHOLD} فاتورة`}
-              detail={winners?.averageInvoice ? `${count(winners.averageInvoice.invoices)} فاتورة مؤهلة` : 'لا توجد بيانات كافية للحد الأدنى'}
-              onClick={() => onNavigate('average_invoice')}
-            />
-            <DoctorWinnerCard
-              title="بطل الرواكد واللستة"
-              row={stagnantDisabled ? null : winners?.stagnant || winners?.incentive}
-              value={stagnantDisabled ? 'الرواكد غير مفعلة' : winners?.stagnant || winners?.incentive ? `${money((winners.stagnant || winners.incentive)!.incentiveValue)} جنيه` : 'لا توجد بيانات رواكد كافية'}
-              detail={stagnantDisabled ? 'لا تدخل الرواكد في التقييم الشامل حاليًا' : winners?.stagnant || winners?.incentive ? `${count((winners.stagnant || winners.incentive)!.stagnantItems)} رواكد · ${count((winners.stagnant || winners.incentive)!.listItems)} لستة` : 'لا توجد بيانات رواكد كافية'}
-              onClick={() => onNavigate('incentive')}
-              trophy={stagnantDisabled ? false : Boolean(winners?.stagnant || winners?.incentive)}
-            />
-            <DoctorWinnerCard
-              title="بطل تقييم المحادثات"
-              row={winners?.conversation || winners?.reviews}
-              value={winners?.conversation || winners?.reviews ? `${avgReview((winners.conversation || winners.reviews)!).toFixed(1)}/100` : 'لا توجد تقييمات كافية'}
-              detail={winners?.conversation || winners?.reviews ? `${count((winners.conversation || winners.reviews)!.reviewCount)} تقييم · ${count((winners.conversation || winners.reviews)!.excellentReviews)} ممتاز` : 'لا توجد بيانات تقييم كافية'}
-              onClick={() => onNavigate('reviews')}
-            />
-            <DoctorWinnerCard
-              title="البطل الشامل"
-              row={winners?.overall}
-              value={winners?.overall ? `${winners.overall.overallScore.toFixed(1)} نقطة` : 'لا توجد بيانات كافية'}
-              detail={stagnantDisabled ? 'المبيعات · المتوسط · التقييم · الخدمة، والرواكد غير مفعلة' : 'المبيعات 30% · المتوسط 20% · الرواكد 20% · التقييم 20% · الخدمة 10%'}
-              onClick={() => onNavigate('overall')}
-            />
-          </div>
-          <div className="mt-4 space-y-2">
-            {topRows.map((row, index) => (
-              <button
-                type="button"
-                key={`${row.staffId || row.name}-${row.branch}-${index}`}
-                onClick={() => onNavigate('overall')}
-                className="grid w-full grid-cols-[auto_1fr_auto] items-center gap-3 rounded-xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] px-3 py-2.5 text-right hover:bg-[var(--dawaa-theme-accent-soft)]"
-              >
-                <span className="grid h-7 w-7 place-items-center rounded-full bg-[var(--dawaa-theme-accent-soft)] text-xs font-black text-[var(--dawaa-theme-primary-strong)]">{index + 1}</span>
-                <span className="min-w-0">
-                  <span className="block truncate font-black text-[var(--dawaa-theme-heading)]">{row.name}</span>
-                  <span className="block text-[11px] font-bold text-[var(--dawaa-theme-muted)]">{row.branch} · {count(row.invoices)} فاتورة · متوسط {row.avgInvoiceEligible ? `${money(row.avgInvoice)} ج` : 'غير كافٍ'}{row.reviewCount ? ` · تقييم ${avgReview(row).toFixed(1)}/100` : ''}</span>
-                </span>
-                <span className="text-left">
-                  <span className="block text-sm font-black text-[var(--dawaa-status-success-text)]">{money(row.totalSales)} ج</span>
-                  <span className="block text-[10px] font-bold text-[var(--dawaa-status-warning-text)]">{row.overallScore.toFixed(1)} نقطة</span>
-                </span>
-              </button>
-            ))}
-          </div>
-          {(metrics?.eligibleRows.length || metrics?.rows.length || 0) > topRows.length ? (
-            <button
-              type="button"
-              onClick={() => setShowFullRanking((value) => !value)}
-              className="mt-3 w-full rounded-xl border border-[var(--dawaa-theme-accent-border)] bg-[var(--dawaa-theme-surface)] py-2 text-xs font-black text-[var(--dawaa-theme-primary-strong)] hover:bg-[var(--dawaa-theme-accent-soft)]"
-            >
-              {showFullRanking ? 'إخفاء الترتيب الكامل' : 'عرض الترتيب الكامل'}
-            </button>
-          ) : null}
-          {showFullRanking ? (
-            <div className="mt-3 overflow-x-auto rounded-2xl border border-[var(--dawaa-theme-accent-border)]">
-              <table className="w-full min-w-[860px] text-right text-sm">
-                <thead className="bg-gradient-to-l from-slate-950 via-slate-900 text-[var(--dawaa-theme-text)] shadow-[inset_0_-1px_0_rgba(103,232,249,0.22)]">
-                  <tr className="border-b border-[var(--dawaa-theme-accent-border)]">
-                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-[var(--dawaa-theme-text)]">الترتيب</th>
-                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-[var(--dawaa-theme-text)]">الدكتور</th>
-                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-[var(--dawaa-theme-text)]">الفرع</th>
-                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-[var(--dawaa-theme-text)]">المبيعات</th>
-                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-[var(--dawaa-theme-text)]">الفواتير</th>
-                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-[var(--dawaa-theme-text)]">متوسط الفاتورة</th>
-                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-[var(--dawaa-theme-text)]">تقييم المحادثات</th>
-                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-[var(--dawaa-theme-text)]">المتابعات المكتملة</th>
-                    <th className="px-4 py-3 text-right text-xs font-black tracking-wide text-[var(--dawaa-theme-text)]">النقاط الشاملة</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(metrics?.eligibleRows.length ? metrics.eligibleRows : metrics?.rows || []).map((row, index) => (
-                    <tr
-                      key={`${row.staffId || row.name}-${row.branch}-${index}`}
-                      onClick={() => onNavigate('overall')}
-                      className="cursor-pointer border-t border-[var(--dawaa-theme-accent-border)] hover:bg-[var(--dawaa-theme-accent-soft)]"
-                    >
-                      <td className="p-3 font-black text-[var(--dawaa-theme-primary-strong)]">{index + 1}</td>
-                      <td className="p-3 font-black text-[var(--dawaa-theme-heading)]">{row.name}</td>
-                      <td className="p-3 text-[var(--dawaa-theme-text)]">{row.branch}</td>
-                      <td className="p-3 text-[var(--dawaa-status-success-text)]">{money(row.totalSales)} جنيه</td>
-                      <td className="p-3">{count(row.invoices)}</td>
-                      <td className="p-3">{row.avgInvoiceEligible ? `${money(row.avgInvoice)} جنيه` : 'عدد فواتير غير كافٍ'}</td>
-                      <td className="p-3">{row.reviewCount ? `${avgReview(row).toFixed(1)}/100` : 'غير متاح'}</td>
-                      <td className="p-3">{count(row.completedFollowups)}</td>
-                      <td className="p-3 font-black text-[var(--dawaa-status-warning-text)]">{row.overallScore.toFixed(1)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
-        </>
-      ) : null}
-    </Panel>
-  );
-}
-
-function DoctorWinnerCard({
-  title,
-  row,
-  value,
-  detail,
-  onClick,
-  trophy = true,
-}: {
-  title: string;
-  row?: DoctorCompetitionScore | null;
-  value: string;
-  detail: string;
-  onClick: () => void;
-  trophy?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="rounded-2xl border border-[var(--dawaa-status-warning-border)] bg-[var(--dawaa-status-warning-bg)] p-4 text-right transition hover:-translate-y-0.5 hover:border-[var(--dawaa-status-warning-border)]"
-    >
-      <div className="flex items-center gap-2 text-xs font-black text-[var(--dawaa-status-warning-text)]">
-        {trophy ? <Trophy className="h-4 w-4" /> : <PackageSearch className="h-4 w-4" />} {title}
-      </div>
-      <div className="mt-3 text-xl font-black text-[var(--dawaa-theme-heading)]">{row?.name || 'لا يوجد'}</div>
-      <div className="dawaa-caption mt-1 text-xs font-bold">{row?.branch || 'بيانات غير كافية'}</div>
-      <div className="mt-3 rounded-xl bg-[var(--dawaa-theme-surface)] px-3 py-2 text-sm font-black text-[var(--dawaa-status-warning-text)]">{value}</div>
-      <p className="mt-2 min-h-10 text-xs leading-5 text-[var(--dawaa-theme-text)]">{detail}</p>
-    </button>
   );
 }
 
