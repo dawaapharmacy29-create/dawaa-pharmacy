@@ -1,0 +1,26 @@
+const fs=require('fs');
+const rows=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+const pick=k=>rows.filter(r=>r.kind===k);
+const out=[];
+out.push(`-- Isolated Production-schema SUBSET clone (catalog DDL only, no rows). Source: jkjqeqkshllustwlzzbf read-only introspection 2026-10-16.
+set check_function_bodies = off;
+create schema if not exists extensions;
+create extension if not exists pgcrypto with schema extensions;
+create extension if not exists "uuid-ossp" with schema extensions;
+create extension if not exists pg_trgm with schema public;
+create schema if not exists auth;
+create or replace function auth.uid() returns uuid language sql stable as $$ select nullif(coalesce(current_setting('request.jwt.claim.sub', true), (nullif(current_setting('request.jwt.claims', true),'')::jsonb ->> 'sub')),'')::uuid $$;
+create or replace function auth.role() returns text language sql stable as $$ select coalesce(nullif(current_setting('request.jwt.claim.role', true),''), (nullif(current_setting('request.jwt.claims', true),'')::jsonb ->> 'role'))::text $$;
+create or replace function auth.jwt() returns jsonb language sql stable as $$ select coalesce(nullif(current_setting('request.jwt.claims', true),''),'{}')::jsonb $$;
+grant usage on schema public, extensions, auth to anon, authenticated, service_role;
+grant execute on all functions in schema auth to anon, authenticated, service_role;
+grant execute on all functions in schema extensions to anon, authenticated, service_role;
+`);
+out.push('-- TABLES'); for(const r of pick('a_table')) out.push(r.ddl);
+out.push('-- FUNCTIONS'); for(const r of pick('d_function')) out.push(r.ddl);
+out.push('-- GRANTS'); for(const r of pick('b_grant')) out.push(r.ddl);
+fs.writeFileSync(process.argv[3]+'/10_clone_schema.sql', out.join('\n\n')+'\n');
+fs.writeFileSync(process.argv[3]+'/20_clone_policies.sql', '-- POLICIES (one statement per line; applied individually)\n'+pick('c_policy').map(r=>r.ddl.replace(/\n/g,' ')).join('\n')+'\n');
+const manifest=pick('d_function').map(r=>({sig:r.nm, md5:(r.ddl.match(/md5\(prosrc\)=([0-9a-f]{32})/)||[])[1]}));
+fs.writeFileSync(process.argv[3]+'/prod_function_md5.json', JSON.stringify(manifest,null,1));
+console.log('functions',manifest.length,'policies',pick('c_policy').length);

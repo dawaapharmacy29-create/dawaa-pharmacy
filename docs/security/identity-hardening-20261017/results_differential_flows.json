@@ -1,0 +1,1052 @@
+[
+ {
+  "who": "gm",
+  "name": "identity: current staff id",
+  "baseline": "51000000-0000-4000-8000-000000000001",
+  "rehearsal": "51000000-0000-4000-8000-000000000001",
+  "equal": true
+ },
+ {
+  "who": "gm",
+  "name": "identity: notification account",
+  "baseline": "a1000000-0000-4000-8000-000000000001",
+  "rehearsal": "a1000000-0000-4000-8000-000000000001",
+  "equal": true
+ },
+ {
+  "who": "gm",
+  "name": "identity: active app session",
+  "baseline": "t",
+  "rehearsal": "t",
+  "equal": true
+ },
+ {
+  "who": "gm",
+  "name": "identity: strict account",
+  "baseline": "a1000000-0000-4000-8000-000000000001",
+  "rehearsal": "a1000000-0000-4000-8000-000000000001",
+  "equal": true
+ },
+ {
+  "who": "gm",
+  "name": "HR: monthly statements visible",
+  "baseline": "5",
+  "rehearsal": "5",
+  "equal": true
+ },
+ {
+  "who": "gm",
+  "name": "payroll: compensation visible",
+  "baseline": "5",
+  "rehearsal": "5",
+  "equal": true
+ },
+ {
+  "who": "gm",
+  "name": "HR: employee events visible",
+  "baseline": "5",
+  "rehearsal": "5",
+  "equal": true
+ },
+ {
+  "who": "gm",
+  "name": "HR: weekly evaluations visible",
+  "baseline": "2",
+  "rehearsal": "2",
+  "equal": true
+ },
+ {
+  "who": "gm",
+  "name": "HR: daily checklist visible",
+  "baseline": "5",
+  "rehearsal": "5",
+  "equal": true
+ },
+ {
+  "who": "gm",
+  "name": "HR: staff directory visible",
+  "baseline": "5",
+  "rehearsal": "5",
+  "equal": true
+ },
+ {
+  "who": "gm",
+  "name": "payroll: deduction rules visible",
+  "baseline": "1",
+  "rehearsal": "1",
+  "equal": true
+ },
+ {
+  "who": "gm",
+  "name": "payroll: reward rules visible",
+  "baseline": "0",
+  "rehearsal": "0",
+  "equal": true
+ },
+ {
+  "who": "gm",
+  "name": "notifications visible",
+  "baseline": "0",
+  "rehearsal": "0",
+  "equal": true
+ },
+ {
+  "who": "gm",
+  "name": "tasks visible",
+  "baseline": "0",
+  "rehearsal": "0",
+  "equal": true
+ },
+ {
+  "who": "gm",
+  "name": "warehouse dispatches visible",
+  "baseline": "0",
+  "rehearsal": "0",
+  "equal": true
+ },
+ {
+  "who": "gm",
+  "name": "HR weekly: subjects list",
+  "baseline": "0",
+  "rehearsal": "0",
+  "equal": true
+ },
+ {
+  "who": "gm",
+  "name": "HR weekly: cached metrics",
+  "baseline": "1",
+  "rehearsal": "1",
+  "equal": true
+ },
+ {
+  "who": "gm",
+  "name": "HR monthly: staff list v5",
+  "baseline": "5",
+  "rehearsal": "5",
+  "equal": true
+ },
+ {
+  "who": "gm",
+  "name": "sales target: can manage",
+  "baseline": "t",
+  "rehearsal": "t",
+  "equal": true
+ },
+ {
+  "who": "gm",
+  "name": "sales target: set via editor",
+  "baseline": "111111",
+  "rehearsal": "111111",
+  "equal": true
+ },
+ {
+  "who": "gm",
+  "name": "CS: queue scope",
+  "baseline": "ALL",
+  "rehearsal": "ALL",
+  "equal": true
+ },
+ {
+  "who": "gm",
+  "name": "CS: daily20 queue",
+  "baseline": "0",
+  "rehearsal": "0",
+  "equal": true
+ },
+ {
+  "who": "gm",
+  "name": "CS: intelligence manage",
+  "baseline": "t",
+  "rehearsal": "t",
+  "equal": true
+ },
+ {
+  "who": "gm",
+  "name": "CS: followup performance",
+  "baseline": "t",
+  "rehearsal": "t",
+  "equal": true
+ },
+ {
+  "who": "gm",
+  "name": "CS: followup records",
+  "baseline": "t",
+  "rehearsal": "t",
+  "equal": true
+ },
+ {
+  "who": "gm",
+  "name": "roles: app_staff_role(self)",
+  "baseline": "general_manager",
+  "rehearsal": "general_manager",
+  "equal": true
+ },
+ {
+  "who": "gm",
+  "name": "roles: app_role_allowed(self, managers)",
+  "baseline": "t",
+  "rehearsal": "t",
+  "equal": true
+ },
+ {
+  "who": "gm",
+  "name": "reviews: can read own-branch row",
+  "baseline": "t",
+  "rehearsal": "t",
+  "equal": true
+ },
+ {
+  "who": "gm",
+  "name": "points wrapper: ledger insert permission path",
+  "baseline": "f",
+  "rehearsal": "f",
+  "equal": true
+ },
+ {
+  "who": "gm",
+  "name": "loyalty wrapper reaches internal",
+  "baseline": "ERROR: إعداد نقاط العميل غير موجود أو غير مفعل.",
+  "rehearsal": "ERROR: إعداد نقاط العميل غير موجود أو غير مفعل.",
+  "equal": true
+ },
+ {
+  "who": "bm",
+  "name": "identity: current staff id",
+  "baseline": "51000000-0000-4000-8000-000000000002",
+  "rehearsal": "51000000-0000-4000-8000-000000000002",
+  "equal": true
+ },
+ {
+  "who": "bm",
+  "name": "identity: notification account",
+  "baseline": "a1000000-0000-4000-8000-000000000002",
+  "rehearsal": "a1000000-0000-4000-8000-000000000002",
+  "equal": true
+ },
+ {
+  "who": "bm",
+  "name": "identity: active app session",
+  "baseline": "t",
+  "rehearsal": "t",
+  "equal": true
+ },
+ {
+  "who": "bm",
+  "name": "identity: strict account",
+  "baseline": "a1000000-0000-4000-8000-000000000002",
+  "rehearsal": "a1000000-0000-4000-8000-000000000002",
+  "equal": true
+ },
+ {
+  "who": "bm",
+  "name": "HR: monthly statements visible",
+  "baseline": "1",
+  "rehearsal": "1",
+  "equal": true
+ },
+ {
+  "who": "bm",
+  "name": "payroll: compensation visible",
+  "baseline": "1",
+  "rehearsal": "1",
+  "equal": true
+ },
+ {
+  "who": "bm",
+  "name": "HR: employee events visible",
+  "baseline": "1",
+  "rehearsal": "1",
+  "equal": true
+ },
+ {
+  "who": "bm",
+  "name": "HR: weekly evaluations visible",
+  "baseline": "1",
+  "rehearsal": "1",
+  "equal": true
+ },
+ {
+  "who": "bm",
+  "name": "HR: daily checklist visible",
+  "baseline": "1",
+  "rehearsal": "1",
+  "equal": true
+ },
+ {
+  "who": "bm",
+  "name": "HR: staff directory visible",
+  "baseline": "5",
+  "rehearsal": "5",
+  "equal": true
+ },
+ {
+  "who": "bm",
+  "name": "payroll: deduction rules visible",
+  "baseline": "1",
+  "rehearsal": "1",
+  "equal": true
+ },
+ {
+  "who": "bm",
+  "name": "payroll: reward rules visible",
+  "baseline": "0",
+  "rehearsal": "0",
+  "equal": true
+ },
+ {
+  "who": "bm",
+  "name": "notifications visible",
+  "baseline": "0",
+  "rehearsal": "0",
+  "equal": true
+ },
+ {
+  "who": "bm",
+  "name": "tasks visible",
+  "baseline": "0",
+  "rehearsal": "0",
+  "equal": true
+ },
+ {
+  "who": "bm",
+  "name": "warehouse dispatches visible",
+  "baseline": "0",
+  "rehearsal": "0",
+  "equal": true
+ },
+ {
+  "who": "bm",
+  "name": "HR weekly: subjects list",
+  "baseline": "0",
+  "rehearsal": "0",
+  "equal": true
+ },
+ {
+  "who": "bm",
+  "name": "HR weekly: cached metrics",
+  "baseline": "1",
+  "rehearsal": "1",
+  "equal": true
+ },
+ {
+  "who": "bm",
+  "name": "HR monthly: staff list v5",
+  "baseline": "2",
+  "rehearsal": "2",
+  "equal": true
+ },
+ {
+  "who": "bm",
+  "name": "sales target: can manage",
+  "baseline": "t",
+  "rehearsal": "t",
+  "equal": true
+ },
+ {
+  "who": "bm",
+  "name": "sales target: set via editor",
+  "baseline": "111111",
+  "rehearsal": "111111",
+  "equal": true
+ },
+ {
+  "who": "bm",
+  "name": "CS: queue scope",
+  "baseline": "فرع شكري",
+  "rehearsal": "فرع شكري",
+  "equal": true
+ },
+ {
+  "who": "bm",
+  "name": "CS: daily20 queue",
+  "baseline": "0",
+  "rehearsal": "0",
+  "equal": true
+ },
+ {
+  "who": "bm",
+  "name": "CS: intelligence manage",
+  "baseline": "f",
+  "rehearsal": "f",
+  "equal": true
+ },
+ {
+  "who": "bm",
+  "name": "CS: followup performance",
+  "baseline": "t",
+  "rehearsal": "t",
+  "equal": true
+ },
+ {
+  "who": "bm",
+  "name": "CS: followup records",
+  "baseline": "t",
+  "rehearsal": "t",
+  "equal": true
+ },
+ {
+  "who": "bm",
+  "name": "roles: app_staff_role(self)",
+  "baseline": "branch_manager",
+  "rehearsal": "branch_manager",
+  "equal": true
+ },
+ {
+  "who": "bm",
+  "name": "roles: app_role_allowed(self, managers)",
+  "baseline": "t",
+  "rehearsal": "t",
+  "equal": true
+ },
+ {
+  "who": "bm",
+  "name": "reviews: can read own-branch row",
+  "baseline": "t",
+  "rehearsal": "t",
+  "equal": true
+ },
+ {
+  "who": "bm",
+  "name": "points wrapper: ledger insert permission path",
+  "baseline": "f",
+  "rehearsal": "f",
+  "equal": true
+ },
+ {
+  "who": "bm",
+  "name": "loyalty wrapper reaches internal",
+  "baseline": "ERROR: إعداد نقاط العميل غير موجود أو غير مفعل.",
+  "rehearsal": "ERROR: إعداد نقاط العميل غير موجود أو غير مفعل.",
+  "equal": true
+ },
+ {
+  "who": "ph1",
+  "name": "identity: current staff id",
+  "baseline": "51000000-0000-4000-8000-000000000003",
+  "rehearsal": "51000000-0000-4000-8000-000000000003",
+  "equal": true
+ },
+ {
+  "who": "ph1",
+  "name": "identity: notification account",
+  "baseline": "a1000000-0000-4000-8000-000000000003",
+  "rehearsal": "a1000000-0000-4000-8000-000000000003",
+  "equal": true
+ },
+ {
+  "who": "ph1",
+  "name": "identity: active app session",
+  "baseline": "t",
+  "rehearsal": "t",
+  "equal": true
+ },
+ {
+  "who": "ph1",
+  "name": "identity: strict account",
+  "baseline": "a1000000-0000-4000-8000-000000000003",
+  "rehearsal": "a1000000-0000-4000-8000-000000000003",
+  "equal": true
+ },
+ {
+  "who": "ph1",
+  "name": "HR: monthly statements visible",
+  "baseline": "1",
+  "rehearsal": "1",
+  "equal": true
+ },
+ {
+  "who": "ph1",
+  "name": "payroll: compensation visible",
+  "baseline": "1",
+  "rehearsal": "1",
+  "equal": true
+ },
+ {
+  "who": "ph1",
+  "name": "HR: employee events visible",
+  "baseline": "1",
+  "rehearsal": "1",
+  "equal": true
+ },
+ {
+  "who": "ph1",
+  "name": "HR: weekly evaluations visible",
+  "baseline": "1",
+  "rehearsal": "1",
+  "equal": true
+ },
+ {
+  "who": "ph1",
+  "name": "HR: daily checklist visible",
+  "baseline": "1",
+  "rehearsal": "1",
+  "equal": true
+ },
+ {
+  "who": "ph1",
+  "name": "HR: staff directory visible",
+  "baseline": "5",
+  "rehearsal": "5",
+  "equal": true
+ },
+ {
+  "who": "ph1",
+  "name": "payroll: deduction rules visible",
+  "baseline": "1",
+  "rehearsal": "1",
+  "equal": true
+ },
+ {
+  "who": "ph1",
+  "name": "payroll: reward rules visible",
+  "baseline": "0",
+  "rehearsal": "0",
+  "equal": true
+ },
+ {
+  "who": "ph1",
+  "name": "notifications visible",
+  "baseline": "0",
+  "rehearsal": "0",
+  "equal": true
+ },
+ {
+  "who": "ph1",
+  "name": "tasks visible",
+  "baseline": "0",
+  "rehearsal": "0",
+  "equal": true
+ },
+ {
+  "who": "ph1",
+  "name": "warehouse dispatches visible",
+  "baseline": "0",
+  "rehearsal": "0",
+  "equal": true
+ },
+ {
+  "who": "ph1",
+  "name": "HR weekly: subjects list",
+  "baseline": "0",
+  "rehearsal": "0",
+  "equal": true
+ },
+ {
+  "who": "ph1",
+  "name": "HR weekly: cached metrics",
+  "baseline": "1",
+  "rehearsal": "1",
+  "equal": true
+ },
+ {
+  "who": "ph1",
+  "name": "HR monthly: staff list v5",
+  "baseline": "1",
+  "rehearsal": "1",
+  "equal": true
+ },
+ {
+  "who": "ph1",
+  "name": "sales target: can manage",
+  "baseline": "f",
+  "rehearsal": "f",
+  "equal": true
+ },
+ {
+  "who": "ph1",
+  "name": "sales target: set via editor",
+  "baseline": "ERROR: ليس لديك صلاحية تعديل تارجت الفروع",
+  "rehearsal": "ERROR: ليس لديك صلاحية تعديل تارجت الفروع",
+  "equal": true
+ },
+ {
+  "who": "ph1",
+  "name": "CS: queue scope",
+  "baseline": "فرع شكري",
+  "rehearsal": "فرع شكري",
+  "equal": true
+ },
+ {
+  "who": "ph1",
+  "name": "CS: daily20 queue",
+  "baseline": "0",
+  "rehearsal": "0",
+  "equal": true
+ },
+ {
+  "who": "ph1",
+  "name": "CS: intelligence manage",
+  "baseline": "f",
+  "rehearsal": "f",
+  "equal": true
+ },
+ {
+  "who": "ph1",
+  "name": "CS: followup performance",
+  "baseline": "t",
+  "rehearsal": "t",
+  "equal": true
+ },
+ {
+  "who": "ph1",
+  "name": "CS: followup records",
+  "baseline": "t",
+  "rehearsal": "t",
+  "equal": true
+ },
+ {
+  "who": "ph1",
+  "name": "roles: app_staff_role(self)",
+  "baseline": "pharmacist",
+  "rehearsal": "pharmacist",
+  "equal": true
+ },
+ {
+  "who": "ph1",
+  "name": "roles: app_role_allowed(self, managers)",
+  "baseline": "f",
+  "rehearsal": "f",
+  "equal": true
+ },
+ {
+  "who": "ph1",
+  "name": "reviews: can read own-branch row",
+  "baseline": "f",
+  "rehearsal": "f",
+  "equal": true
+ },
+ {
+  "who": "ph1",
+  "name": "points wrapper: ledger insert permission path",
+  "baseline": "ERROR: ليس لديك صلاحية إضافة نقاط لهذا الفرع.",
+  "rehearsal": "ERROR: ليس لديك صلاحية إضافة نقاط لهذا الفرع.",
+  "equal": true
+ },
+ {
+  "who": "ph1",
+  "name": "loyalty wrapper reaches internal",
+  "baseline": "ERROR: ليس لديك صلاحية احتساب نقاط هذا الفرع.",
+  "rehearsal": "ERROR: ليس لديك صلاحية احتساب نقاط هذا الفرع.",
+  "equal": true
+ },
+ {
+  "who": "ph2",
+  "name": "identity: current staff id",
+  "baseline": "51000000-0000-4000-8000-000000000004",
+  "rehearsal": "51000000-0000-4000-8000-000000000004",
+  "equal": true
+ },
+ {
+  "who": "ph2",
+  "name": "identity: notification account",
+  "baseline": "a1000000-0000-4000-8000-000000000004",
+  "rehearsal": "a1000000-0000-4000-8000-000000000004",
+  "equal": true
+ },
+ {
+  "who": "ph2",
+  "name": "identity: active app session",
+  "baseline": "t",
+  "rehearsal": "t",
+  "equal": true
+ },
+ {
+  "who": "ph2",
+  "name": "identity: strict account",
+  "baseline": "a1000000-0000-4000-8000-000000000004",
+  "rehearsal": "a1000000-0000-4000-8000-000000000004",
+  "equal": true
+ },
+ {
+  "who": "ph2",
+  "name": "HR: monthly statements visible",
+  "baseline": "1",
+  "rehearsal": "1",
+  "equal": true
+ },
+ {
+  "who": "ph2",
+  "name": "payroll: compensation visible",
+  "baseline": "1",
+  "rehearsal": "1",
+  "equal": true
+ },
+ {
+  "who": "ph2",
+  "name": "HR: employee events visible",
+  "baseline": "1",
+  "rehearsal": "1",
+  "equal": true
+ },
+ {
+  "who": "ph2",
+  "name": "HR: weekly evaluations visible",
+  "baseline": "1",
+  "rehearsal": "1",
+  "equal": true
+ },
+ {
+  "who": "ph2",
+  "name": "HR: daily checklist visible",
+  "baseline": "1",
+  "rehearsal": "1",
+  "equal": true
+ },
+ {
+  "who": "ph2",
+  "name": "HR: staff directory visible",
+  "baseline": "5",
+  "rehearsal": "5",
+  "equal": true
+ },
+ {
+  "who": "ph2",
+  "name": "payroll: deduction rules visible",
+  "baseline": "1",
+  "rehearsal": "1",
+  "equal": true
+ },
+ {
+  "who": "ph2",
+  "name": "payroll: reward rules visible",
+  "baseline": "0",
+  "rehearsal": "0",
+  "equal": true
+ },
+ {
+  "who": "ph2",
+  "name": "notifications visible",
+  "baseline": "0",
+  "rehearsal": "0",
+  "equal": true
+ },
+ {
+  "who": "ph2",
+  "name": "tasks visible",
+  "baseline": "0",
+  "rehearsal": "0",
+  "equal": true
+ },
+ {
+  "who": "ph2",
+  "name": "warehouse dispatches visible",
+  "baseline": "0",
+  "rehearsal": "0",
+  "equal": true
+ },
+ {
+  "who": "ph2",
+  "name": "HR weekly: subjects list",
+  "baseline": "0",
+  "rehearsal": "0",
+  "equal": true
+ },
+ {
+  "who": "ph2",
+  "name": "HR weekly: cached metrics",
+  "baseline": "1",
+  "rehearsal": "1",
+  "equal": true
+ },
+ {
+  "who": "ph2",
+  "name": "HR monthly: staff list v5",
+  "baseline": "1",
+  "rehearsal": "1",
+  "equal": true
+ },
+ {
+  "who": "ph2",
+  "name": "sales target: can manage",
+  "baseline": "f",
+  "rehearsal": "f",
+  "equal": true
+ },
+ {
+  "who": "ph2",
+  "name": "sales target: set via editor",
+  "baseline": "ERROR: ليس لديك صلاحية تعديل تارجت الفروع",
+  "rehearsal": "ERROR: ليس لديك صلاحية تعديل تارجت الفروع",
+  "equal": true
+ },
+ {
+  "who": "ph2",
+  "name": "CS: queue scope",
+  "baseline": "فرع الشامي",
+  "rehearsal": "فرع الشامي",
+  "equal": true
+ },
+ {
+  "who": "ph2",
+  "name": "CS: daily20 queue",
+  "baseline": "0",
+  "rehearsal": "0",
+  "equal": true
+ },
+ {
+  "who": "ph2",
+  "name": "CS: intelligence manage",
+  "baseline": "f",
+  "rehearsal": "f",
+  "equal": true
+ },
+ {
+  "who": "ph2",
+  "name": "CS: followup performance",
+  "baseline": "t",
+  "rehearsal": "t",
+  "equal": true
+ },
+ {
+  "who": "ph2",
+  "name": "CS: followup records",
+  "baseline": "t",
+  "rehearsal": "t",
+  "equal": true
+ },
+ {
+  "who": "ph2",
+  "name": "roles: app_staff_role(self)",
+  "baseline": "pharmacist",
+  "rehearsal": "pharmacist",
+  "equal": true
+ },
+ {
+  "who": "ph2",
+  "name": "roles: app_role_allowed(self, managers)",
+  "baseline": "f",
+  "rehearsal": "f",
+  "equal": true
+ },
+ {
+  "who": "ph2",
+  "name": "reviews: can read own-branch row",
+  "baseline": "f",
+  "rehearsal": "f",
+  "equal": true
+ },
+ {
+  "who": "ph2",
+  "name": "points wrapper: ledger insert permission path",
+  "baseline": "ERROR: ليس لديك صلاحية إضافة نقاط لهذا الفرع.",
+  "rehearsal": "ERROR: ليس لديك صلاحية إضافة نقاط لهذا الفرع.",
+  "equal": true
+ },
+ {
+  "who": "ph2",
+  "name": "loyalty wrapper reaches internal",
+  "baseline": "ERROR: ليس لديك صلاحية احتساب نقاط هذا الفرع.",
+  "rehearsal": "ERROR: ليس لديك صلاحية احتساب نقاط هذا الفرع.",
+  "equal": true
+ },
+ {
+  "who": "csm",
+  "name": "identity: current staff id",
+  "baseline": "51000000-0000-4000-8000-000000000005",
+  "rehearsal": "51000000-0000-4000-8000-000000000005",
+  "equal": true
+ },
+ {
+  "who": "csm",
+  "name": "identity: notification account",
+  "baseline": "a1000000-0000-4000-8000-000000000005",
+  "rehearsal": "a1000000-0000-4000-8000-000000000005",
+  "equal": true
+ },
+ {
+  "who": "csm",
+  "name": "identity: active app session",
+  "baseline": "t",
+  "rehearsal": "t",
+  "equal": true
+ },
+ {
+  "who": "csm",
+  "name": "identity: strict account",
+  "baseline": "a1000000-0000-4000-8000-000000000005",
+  "rehearsal": "a1000000-0000-4000-8000-000000000005",
+  "equal": true
+ },
+ {
+  "who": "csm",
+  "name": "HR: monthly statements visible",
+  "baseline": "1",
+  "rehearsal": "1",
+  "equal": true
+ },
+ {
+  "who": "csm",
+  "name": "payroll: compensation visible",
+  "baseline": "1",
+  "rehearsal": "1",
+  "equal": true
+ },
+ {
+  "who": "csm",
+  "name": "HR: employee events visible",
+  "baseline": "1",
+  "rehearsal": "1",
+  "equal": true
+ },
+ {
+  "who": "csm",
+  "name": "HR: weekly evaluations visible",
+  "baseline": "0",
+  "rehearsal": "0",
+  "equal": true
+ },
+ {
+  "who": "csm",
+  "name": "HR: daily checklist visible",
+  "baseline": "1",
+  "rehearsal": "1",
+  "equal": true
+ },
+ {
+  "who": "csm",
+  "name": "HR: staff directory visible",
+  "baseline": "5",
+  "rehearsal": "5",
+  "equal": true
+ },
+ {
+  "who": "csm",
+  "name": "payroll: deduction rules visible",
+  "baseline": "1",
+  "rehearsal": "1",
+  "equal": true
+ },
+ {
+  "who": "csm",
+  "name": "payroll: reward rules visible",
+  "baseline": "0",
+  "rehearsal": "0",
+  "equal": true
+ },
+ {
+  "who": "csm",
+  "name": "notifications visible",
+  "baseline": "0",
+  "rehearsal": "0",
+  "equal": true
+ },
+ {
+  "who": "csm",
+  "name": "tasks visible",
+  "baseline": "0",
+  "rehearsal": "0",
+  "equal": true
+ },
+ {
+  "who": "csm",
+  "name": "warehouse dispatches visible",
+  "baseline": "0",
+  "rehearsal": "0",
+  "equal": true
+ },
+ {
+  "who": "csm",
+  "name": "HR weekly: subjects list",
+  "baseline": "0",
+  "rehearsal": "0",
+  "equal": true
+ },
+ {
+  "who": "csm",
+  "name": "HR weekly: cached metrics",
+  "baseline": "1",
+  "rehearsal": "1",
+  "equal": true
+ },
+ {
+  "who": "csm",
+  "name": "HR monthly: staff list v5",
+  "baseline": "1",
+  "rehearsal": "1",
+  "equal": true
+ },
+ {
+  "who": "csm",
+  "name": "sales target: can manage",
+  "baseline": "f",
+  "rehearsal": "f",
+  "equal": true
+ },
+ {
+  "who": "csm",
+  "name": "sales target: set via editor",
+  "baseline": "ERROR: ليس لديك صلاحية تعديل تارجت الفروع",
+  "rehearsal": "ERROR: ليس لديك صلاحية تعديل تارجت الفروع",
+  "equal": true
+ },
+ {
+  "who": "csm",
+  "name": "CS: queue scope",
+  "baseline": "فرع شكري",
+  "rehearsal": "فرع شكري",
+  "equal": true
+ },
+ {
+  "who": "csm",
+  "name": "CS: daily20 queue",
+  "baseline": "0",
+  "rehearsal": "0",
+  "equal": true
+ },
+ {
+  "who": "csm",
+  "name": "CS: intelligence manage",
+  "baseline": "t",
+  "rehearsal": "t",
+  "equal": true
+ },
+ {
+  "who": "csm",
+  "name": "CS: followup performance",
+  "baseline": "t",
+  "rehearsal": "t",
+  "equal": true
+ },
+ {
+  "who": "csm",
+  "name": "CS: followup records",
+  "baseline": "t",
+  "rehearsal": "t",
+  "equal": true
+ },
+ {
+  "who": "csm",
+  "name": "roles: app_staff_role(self)",
+  "baseline": "customer_service_manager",
+  "rehearsal": "customer_service_manager",
+  "equal": true
+ },
+ {
+  "who": "csm",
+  "name": "roles: app_role_allowed(self, managers)",
+  "baseline": "t",
+  "rehearsal": "t",
+  "equal": true
+ },
+ {
+  "who": "csm",
+  "name": "reviews: can read own-branch row",
+  "baseline": "t",
+  "rehearsal": "t",
+  "equal": true
+ },
+ {
+  "who": "csm",
+  "name": "points wrapper: ledger insert permission path",
+  "baseline": "ERROR: ليس لديك صلاحية إضافة نقاط لهذا الفرع.",
+  "rehearsal": "ERROR: ليس لديك صلاحية إضافة نقاط لهذا الفرع.",
+  "equal": true
+ },
+ {
+  "who": "csm",
+  "name": "loyalty wrapper reaches internal",
+  "baseline": "ERROR: ليس لديك صلاحية احتساب نقاط هذا الفرع.",
+  "rehearsal": "ERROR: ليس لديك صلاحية احتساب نقاط هذا الفرع.",
+  "equal": true
+ }
+]
