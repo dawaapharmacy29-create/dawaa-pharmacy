@@ -413,6 +413,20 @@ export async function saveTransferCheck(input: {
   if (error) fail(error, 'تعذّر الحفظ');
 }
 
+/** «مطابق» for one sale received as several purchases: each purchase is saved against the same sale. */
+export async function saveTransferSplit(input: {
+  purchases: Array<{ store: string; serial: string }>;
+  saleInvoice: string;
+  note?: string;
+}) {
+  const { error } = await supabase.rpc('dawaa_cs_transfer_split_save_v1', {
+    p_purchases: input.purchases.map((p) => ({ store: p.store, serial: p.serial })),
+    p_sale_invoice: input.saleInvoice,
+    p_note: input.note || null,
+  });
+  if (error) fail(error, 'تعذّر الحفظ');
+}
+
 export type UncodedBuild = { added: number; carried: number; dropped: number };
 
 /** Adds the uncoded customers from yesterday's notes, carries unfinished new customers over, drops ones already welcomed. */
@@ -425,8 +439,16 @@ export async function buildUncodedNoteTasks(): Promise<UncodedBuild> {
 
 // ---- الربط التلقائي ----
 
-export type PairHow = 'saved' | 'number' | 'codes' | 'value_items' | 'value';
-export type TransferPair = { purchase: TransferPurchase; sale: TransferSale; how: PairHow };
+export type PairHow = 'saved' | 'number' | 'codes' | 'value_items' | 'split' | 'value';
+/** One sale against one purchase, or (`rest`) against several purchases that add up to it. */
+export type TransferPair = {
+  purchase: TransferPurchase;
+  rest: TransferPurchase[];
+  sale: TransferSale;
+  how: PairHow;
+};
+/** Every purchase of a pair: the first, then the others when the sale was received as several purchases. */
+export const pairPurchases = (p: TransferPair) => [p.purchase, ...p.rest];
 export type TransferPairing = {
   pairs: TransferPair[];
   purchasesOnly: TransferPurchase[];
@@ -445,9 +467,39 @@ export function sharedCodes(p: TransferPurchase, s: TransferSale): number {
 const minutes = (a: string, b: string) =>
   Math.abs(new Date(a).getTime() - new Date(b).getTime()) / 60000;
 
+const SPLIT_MINUTES = 180;
+
+/** The two or three purchases (of up to eight nearby ones) that add up to the sale, closest in time first. */
+function splitFor(s: TransferSale, near: TransferPurchase[]): TransferPurchase[] | null {
+  const list = near.slice(0, 8);
+  let best: TransferPurchase[] | null = null;
+  let bestFar = Infinity;
+  const consider = (set: TransferPurchase[]) => {
+    if (
+      !same(
+        set.reduce((t, p) => t + p.net, 0),
+        s.net
+      )
+    )
+      return;
+    const far = Math.max(...set.map((p) => minutes(s.at, p.invoice_at)));
+    if (far < bestFar) {
+      best = [...set].sort((a, b) => a.invoice_at.localeCompare(b.invoice_at));
+      bestFar = far;
+    }
+  };
+  for (let i = 0; i < list.length; i++)
+    for (let j = i + 1; j < list.length; j++) {
+      consider([list[i], list[j]]);
+      for (let k = j + 1; k < list.length; k++) consider([list[i], list[j], list[k]]);
+    }
+  return best;
+}
+
 /**
  * Pairs each transfer purchase with the other branch's sale: what she saved first, then the sale number written as the
- * supplier invoice number, then the same value with the same number of lines, then the same value, nearest in time.
+ * supplier invoice number, then the same value with the same number of lines, then a sale that two or three purchases add up to
+ * (within three hours), then the same value, nearest in time.
  * Each sale is used once.
  */
 export function pairTransfers(
@@ -459,10 +511,15 @@ export function pairTransfers(
   const open: TransferPurchase[] = [];
   const byInvoice = new Map(sales.map((s) => [s.invoice, s]));
 
+  const savedPairs = new Map<string, TransferPair>();
   for (const p of purchases) {
     const saved = p.check?.sale_invoice ? byInvoice.get(p.check.sale_invoice) : undefined;
-    if (saved && !used.has(saved.invoice)) {
-      pairs.push({ purchase: p, sale: saved, how: 'saved' });
+    const pair = saved ? savedPairs.get(saved.invoice) : undefined;
+    if (pair) pair.rest.push(p);
+    else if (saved && !used.has(saved.invoice)) {
+      const next: TransferPair = { purchase: p, rest: [], sale: saved, how: 'saved' };
+      pairs.push(next);
+      savedPairs.set(saved.invoice, next);
       used.add(saved.invoice);
     } else open.push(p);
   }
@@ -482,18 +539,32 @@ export function pairTransfers(
         how: 'value_items',
         match: (p, s) => same(p.net, s.net) && p.items > 0 && p.items === s.lines,
       },
+      { how: 'split', match: () => false },
       { how: 'value', match: (p, s) => same(p.net, s.net) },
     ];
   let remaining = stillOpen;
+  const free = (s: TransferSale) => !used.has(s.invoice) && !s.check?.purchase_serial;
   for (const round of rounds) {
+    if (round.how === 'split') {
+      // بيع واحد اتسجل شراء على فاتورتين أو تلاتة: مجموعهم قد البيع، وكلهم في حدود ٣ ساعات من البيع.
+      for (const s of sales.filter(free)) {
+        const near = remaining.filter((p) => minutes(s.at, p.invoice_at) <= SPLIT_MINUTES);
+        const best = splitFor(s, near);
+        if (!best) continue;
+        pairs.push({ purchase: best[0], rest: best.slice(1), sale: s, how: 'split' });
+        used.add(s.invoice);
+        remaining = remaining.filter((p) => !best.includes(p));
+      }
+      continue;
+    }
     const next: TransferPurchase[] = [];
     for (const p of remaining) {
       const candidates = sales
-        .filter((s) => !used.has(s.invoice) && !s.check?.purchase_serial && round.match(p, s))
+        .filter((s) => free(s) && round.match(p, s))
         .sort((a, b) => minutes(a.at, p.invoice_at) - minutes(b.at, p.invoice_at));
       const s = candidates[0];
       if (s) {
-        pairs.push({ purchase: p, sale: s, how: round.how });
+        pairs.push({ purchase: p, rest: [], sale: s, how: round.how });
         used.add(s.invoice);
       } else next.push(p);
     }
@@ -506,13 +577,15 @@ export function pairTransfers(
   };
 }
 
+/** Every purchase of the pair is saved against its sale. */
+export const pairSaved = (x: TransferPair) =>
+  pairPurchases(x).every((p) => p.check && p.check.sale_invoice === x.sale.invoice);
+
 /** A transfer row is done when it has a saved check: a confirmed pair or a recorded problem. */
 export function transferProgress(pairing: TransferPairing) {
   const total = pairing.pairs.length + pairing.purchasesOnly.length + pairing.salesOnly.length;
   const done =
-    pairing.pairs.filter(
-      (x) => x.purchase.check && x.purchase.check.sale_invoice === x.sale.invoice
-    ).length +
+    pairing.pairs.filter((x) => pairSaved(x)).length +
     pairing.purchasesOnly.filter((p) => p.check).length +
     pairing.salesOnly.filter((s) => s.check).length;
   return { total, done };

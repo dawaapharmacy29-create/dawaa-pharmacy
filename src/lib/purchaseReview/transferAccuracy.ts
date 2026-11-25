@@ -1,4 +1,5 @@
 import {
+  pairPurchases,
   pairTransfers,
   type TransferDay,
   type TransferPurchase,
@@ -92,27 +93,32 @@ export function transferAccuracy(days: TransferDay[]): TransferAccuracy {
     const pairing = pairTransfers(d.purchases, d.sales);
     unpairedPurchases += pairing.purchasesOnly.length;
     unpairedSales += pairing.salesOnly.length;
-    for (const { purchase, sale } of pairing.pairs) {
+    for (const pair of pairing.pairs) {
+      const { purchase, sale } = pair;
+      const all = pairPurchases(pair);
       transfers += 1;
-      if (!purchase.lines.length || !sale.items.length) {
+      if (all.some((p) => !p.lines.length) || !sale.items.length) {
         noLines += 1;
         continue;
       }
       compared += 1;
       const rows = compareTransferLines(
         sale.items.map((i) => ({ code: i.code, name: i.name, qty: i.qty, price: i.price })),
-        purchase.lines.map((l) => ({ code: l.code, name: l.name, qty: l.qty, price: l.price }))
+        all.flatMap((p) =>
+          p.lines.map((l) => ({ code: l.code, name: l.name, qty: l.qty, price: l.price }))
+        )
       ).filter((r) => r.check !== 'ok');
       const seller = who(sale.seller);
-      const receiver = who(purchase.entered_by);
+      const receivers = [...new Set(all.map((p) => who(p.entered_by)))];
+      const receiver = receivers.join(' + ');
       doc(seller).sold += 1;
-      doc(receiver).received += 1;
+      for (const name of receivers) doc(name).received += 1;
       if (!rows.length) continue;
       withIssues += 1;
       doc(seller).soldWithIssues += 1;
-      doc(receiver).receivedWithIssues += 1;
+      for (const name of receivers) doc(name).receivedWithIssues += 1;
       for (const r of rows) {
-        for (const name of new Set([seller, receiver])) {
+        for (const name of new Set([seller, ...receivers])) {
           const e = doc(name);
           e.issues[r.check] = (e.issues[r.check] ?? 0) + 1;
         }
@@ -123,7 +129,7 @@ export function transferAccuracy(days: TransferDay[]): TransferAccuracy {
           purchaseBranch: d.branch,
           day: dayOf(purchase, sale),
           saleInvoice: sale.invoice,
-          purchaseSerial: purchase.serial,
+          purchaseSerial: all.map((p) => p.serial).join(' + '),
           seller,
           receiver,
         });

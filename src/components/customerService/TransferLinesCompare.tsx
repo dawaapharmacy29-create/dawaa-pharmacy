@@ -17,27 +17,30 @@ const TONE: Record<LineCheck, string> = {
 };
 const qty = (v: number) => v.toLocaleString('ar-EG', { maximumFractionDigits: 2 });
 
-export function compareTransfer(purchase: TransferPurchase, sale: TransferSale): LineCompare[] {
+/** The sale's items against the items of every purchase it was received as. */
+export function compareTransfer(purchases: TransferPurchase[], sale: TransferSale): LineCompare[] {
   return compareTransferLines(
     sale.items.map((i) => ({ code: i.code, name: i.name, qty: i.qty, price: i.price })),
-    purchase.lines.map((l) => ({ code: l.code, name: l.name, qty: l.qty, price: l.price }))
+    purchases.flatMap((p) =>
+      p.lines.map((l) => ({ code: l.code, name: l.name, qty: l.qty, price: l.price }))
+    )
   );
 }
 
 export default function TransferLinesCompare({
-  purchase,
+  purchases,
   sale,
 }: {
-  purchase: TransferPurchase;
+  purchases: TransferPurchase[];
   sale: TransferSale;
 }) {
-  if (!purchase.lines.length)
+  if (purchases.some((p) => !p.lines.length))
     return (
       <p className="mt-2 text-xs opacity-70">
         أصناف فاتورة الشراء مش مرفوعة، فالمقارنة صنف صنف مش متاحة. ارفعي تقرير المشتريات بالأصناف.
       </p>
     );
-  const rows = compareTransfer(purchase, sale);
+  const rows = compareTransfer(purchases, sale);
   const issues = rows.filter((r) => r.check !== 'ok').length;
   return (
     <div className="mt-2 rounded-xl bg-[var(--dawaa-theme-soft)] p-2">
@@ -59,7 +62,9 @@ export default function TransferLinesCompare({
               <th className="p-1">الحالة</th>
               <th className="p-1">اتباع من {sale.seller ?? 'الفرع التاني'}</th>
               <th className="p-1">الكمية</th>
-              <th className="p-1">اتشرى من {purchase.entered_by ?? 'الفرع'}</th>
+              <th className="p-1">
+                اتشرى من {[...new Set(purchases.map((p) => p.entered_by ?? 'الفرع'))].join(' و')}
+              </th>
               <th className="p-1">الكمية</th>
             </tr>
           </thead>
