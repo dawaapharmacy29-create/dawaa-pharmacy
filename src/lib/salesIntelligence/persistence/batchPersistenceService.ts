@@ -42,7 +42,7 @@ import { fetchCurrentPolicyConfig, persistPolicyEvaluation, type PersistPolicyEv
 import { fetchVerifiedProductIdentityReviews } from './productIdentityReviewEvidenceRepository';
 import { persistAttribution, type PersistAttributionResult } from './attributionWriter';
 import { persistBasketInvoiceMatch, type PersistBasketInvoiceMatchResult } from './basketInvoiceMatchWriter';
-import { computeAttributionInputHash, computeMatchingInputHash, computePolicyInputHash, computeSemanticSourceHash, saleProofFingerprint } from './hashing';
+import { canonicalJsonStringify, computeAttributionInputHash, computeMatchingInputHash, computePolicyInputHash, computeSemanticSourceHash, saleProofFingerprint } from './hashing';
 import {
   invoiceRowLookupId,
   mapAttributionRowContent,
@@ -568,6 +568,18 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
 
     const caseContent = mapCaseRowContent(analysis, conversationRowId);
     const caseAnalysisContent = mapCaseAnalysisRowContent(analysis);
+    // Refresh the immutable semantic projection only when its evidence decisions change.
+    // Raw invoice candidates remain in the narrower attribution/matching hashes.
+    const evidenceDecisionFingerprint = canonicalJsonStringify({
+      identity: caseAnalysisContent.identityAtAnalysis,
+      branch: caseAnalysisContent.evidenceSnapshot.caseBranch,
+      attributionLevel: caseAnalysisContent.attributionLevel,
+      evidenceLevel: caseAnalysisContent.overallEvidenceLevel,
+      evidenceCompleteness: caseAnalysisContent.evidenceSnapshot.evidenceCompleteness,
+      match: mapBasketInvoiceMatchRowContent(analysis),
+      needsHumanReview: caseAnalysisContent.needsHumanReview,
+      humanReviewReasons: [...caseAnalysisContent.humanReviewReasons].sort(),
+    });
     const semanticSourceHash = await computeSemanticSourceHash({
       rawWhatsAppExportText: conversationInput?.rawWhatsAppExportText ?? '',
       trustedConversationStartedAt: conversationInput?.trustedConversationStartedAt ?? null,
@@ -575,6 +587,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
       caseOwnership: conversationCase.ownership,
       resolvedCustomerId: conversationCase.customerId ?? null,
       saleProofFingerprint: saleProofFingerprint(analysis),
+      evidenceDecisionFingerprint,
       managerProductIdentityReviewIds: analysis.managerProductIdentityReviewIds ?? [],
     });
 
@@ -602,7 +615,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
     // itself doesn't exist yet (a first-ever run for this case), there is no analysis_id to plan
     // against; those entries are reported with analysisId: null and always classified "to insert"
     // (a brand-new case can never have an existing dependent row).
-    const effectiveAnalysisId = analysisPlan.currentAnalysisId;
+    const effectiveAnalysisId = analysisPlan.isNoOp ? analysisPlan.currentAnalysisId : null;
 
     const activeItems = analysis.activeBasket ? (analysis.itemsByBasketId[analysis.activeBasket.basketId] ?? []) : [];
     const attributionItemSnapshot = snapshotInvoiceEvidence(analysis.invoiceCandidateIds);
@@ -664,11 +677,11 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
     if (effectiveAnalysisId) {
       const { data } = await supabaseClient
         .from('sales_intelligence_basket_invoice_matches')
-        .select('id, matching_input_hash, matching_engine_version')
+        .select('id, attribution_row_id, matching_input_hash, matching_engine_version')
         .eq('analysis_id', effectiveAnalysisId)
         .eq('is_current_evaluation', true)
         .maybeSingle();
-      if (data && data.matching_input_hash === matchingInputHash && data.matching_engine_version === ENGINE_VERSIONS.matching) {
+      if (data && currentAttributionRowId && data.attribution_row_id === currentAttributionRowId && data.matching_input_hash === matchingInputHash && data.matching_engine_version === ENGINE_VERSIONS.matching) {
         currentMatchRowId = data.id;
       }
     }
@@ -745,6 +758,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
           saleProofFingerprint(analysis),
           input.deferPublication === true,
           {
+            evidenceDecisionFingerprint,
             caseOwnership: conversationCase.ownership,
             resolvedCustomerId: conversationCase.customerId ?? null,
             managerProductIdentityReviewIds: analysis.managerProductIdentityReviewIds ?? [],
