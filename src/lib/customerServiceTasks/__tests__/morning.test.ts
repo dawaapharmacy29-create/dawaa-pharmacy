@@ -119,6 +119,55 @@ describe('pairTransfers', () => {
     // الاتنين اتراجعوا، والبيع اللي فاضل لسه.
     expect(transferProgress(r)).toEqual({ done: 2, total: 3 });
   });
+  it('pairs one sale with the two purchases it was received as, before a lone same-value sale far away', () => {
+    // بيع 84254 بـ 5,088 اتسجل شراء على 13128 (4,000) و 13130 (1,088)، وفيه بيع تاني بـ 1,088 من ٢٢ ساعة.
+    const r = pairTransfers(
+      [
+        purchase('13128', 4000, '2026-11-24 22:43'),
+        purchase('13130', 1088, '2026-11-24 22:57'),
+        purchase('13112', 450, '2026-11-24 19:26'),
+      ],
+      [
+        sale('84133', 1088, '2026-11-24 00:18', { lines: 2 }),
+        sale('84254', 5088, '2026-11-24 22:55', { lines: 2 }),
+      ]
+    );
+    expect(
+      r.pairs.map((p) => [p.sale.invoice, p.how, p.purchase.serial, ...p.rest.map((x) => x.serial)])
+    ).toEqual([['84254', 'split', '13128', '13130']]);
+    expect(r.purchasesOnly.map((p) => p.serial)).toEqual(['13112']);
+    expect(r.salesOnly.map((s) => s.invoice)).toEqual(['84133']);
+  });
+
+  it('does not split across purchases more than three hours from the sale', () => {
+    const r = pairTransfers(
+      [purchase('a', 4000, '2026-11-24 10:00'), purchase('b', 1088, '2026-11-24 22:57')],
+      [sale('s', 5088, '2026-11-24 22:55')]
+    );
+    expect(r.pairs).toHaveLength(0);
+  });
+
+  it('keeps a saved split together and counts it done only when every purchase is saved', () => {
+    const ok = (sale_invoice: string) => ({
+      status: 'ok' as const,
+      problems: [],
+      note: null,
+      by: 'نور',
+      at: '',
+      sale_invoice,
+    });
+    const both = pairTransfers(
+      [
+        purchase('1', 4000, '2026-11-24 22:43', { check: ok('s') }),
+        purchase('2', 1088, '2026-11-24 22:57', { check: ok('s') }),
+      ],
+      [sale('s', 5088, '2026-11-24 22:55', { check: { ...ok('s'), purchase_serial: '1' } })]
+    );
+    expect(both.pairs.map((p) => [p.how, p.purchase.serial, p.rest.map((x) => x.serial)])).toEqual([
+      ['saved', '1', ['2']],
+    ]);
+    expect(transferProgress(both)).toEqual({ done: 1, total: 1 });
+  });
 });
 
 describe('summarizeByDoctor', () => {

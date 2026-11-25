@@ -10,9 +10,12 @@ import {
 import {
   TRANSFER_PROBLEMS,
   loadTransferDay,
+  pairPurchases,
+  pairSaved,
   pairTransfers,
   problemLabel,
   saveTransferCheck,
+  saveTransferSplit,
   transferProgress,
   type TransferDay,
   type TransferPair,
@@ -39,6 +42,7 @@ const HOW: Record<TransferPair['how'], string> = {
   number: 'بالرقم',
   codes: 'نفس الأصناف',
   value_items: 'نفس القيمة والأصناف',
+  split: 'بيع واحد على أكتر من شراء',
   value: 'نفس القيمة',
 };
 
@@ -73,15 +77,18 @@ export default function MorningTransfersTab() {
   async function confirm(p: TransferPair) {
     setBusy(p.purchase.serial);
     try {
-      await saveTransferCheck({
-        purchaseStore: p.purchase.store,
-        purchaseSerial: p.purchase.serial,
-        saleInvoice: p.sale.invoice,
-        status: 'ok',
-        problems: [],
-        note: '',
-        branch: day!.branch,
-      });
+      if (p.rest.length)
+        await saveTransferSplit({ purchases: pairPurchases(p), saleInvoice: p.sale.invoice });
+      else
+        await saveTransferCheck({
+          purchaseStore: p.purchase.store,
+          purchaseSerial: p.purchase.serial,
+          saleInvoice: p.sale.invoice,
+          status: 'ok',
+          problems: [],
+          note: '',
+          branch: day!.branch,
+        });
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
@@ -182,18 +189,30 @@ export default function MorningTransfersTab() {
         ) : (
           <div className="mt-2 space-y-2">
             {pairing.pairs.map((p) => {
-              const saved = p.purchase.check && p.purchase.check.sale_invoice === p.sale.invoice;
-              const diff = p.purchase.net - p.sale.net;
+              const all = pairPurchases(p);
+              const saved = pairSaved(p);
+              const diff = all.reduce((t, x) => t + x.net, 0) - p.sale.net;
+              const items = all.reduce((t, x) => t + x.items, 0);
               return (
                 <div
                   key={p.purchase.serial}
                   className="rounded-2xl border border-[var(--dawaa-theme-border)] p-3"
                 >
                   <div className="grid gap-3 md:grid-cols-2">
-                    <PurchaseCard p={p.purchase} />
-                    <SaleCard s={p.sale} compact={p.purchase.lines.length > 0} />
+                    <div className="space-y-2">
+                      {all.map((x) => (
+                        <PurchaseCard key={x.serial} p={x} />
+                      ))}
+                      {p.rest.length ? (
+                        <div className="text-xs font-black">
+                          مجموع الشراء {money(all.reduce((t, x) => t + x.net, 0))} ج على{' '}
+                          {all.length} فواتير
+                        </div>
+                      ) : null}
+                    </div>
+                    <SaleCard s={p.sale} compact={all.every((x) => x.lines.length > 0)} />
                   </div>
-                  <TransferLinesCompare purchase={p.purchase} sale={p.sale} />
+                  <TransferLinesCompare purchases={all} sale={p.sale} />
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                     <span className="rounded-full bg-[var(--dawaa-theme-soft)] px-2 py-0.5 font-bold">
                       {HOW[p.how]}
@@ -203,9 +222,9 @@ export default function MorningTransfersTab() {
                         فرق {money(diff)} ج
                       </span>
                     ) : null}
-                    {p.purchase.items && p.sale.lines && p.purchase.items !== p.sale.lines ? (
+                    {items && p.sale.lines && items !== p.sale.lines ? (
                       <span className="font-black text-[var(--dawaa-status-danger-text)]">
-                        أصناف الشراء {p.purchase.items} والبيع {p.sale.lines}
+                        أصناف الشراء {items} والبيع {p.sale.lines}
                       </span>
                     ) : null}
                     {saved ? (
