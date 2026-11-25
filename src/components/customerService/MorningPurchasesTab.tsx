@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import {
   Check,
   CheckCheck,
+  ListTree,
   Loader2,
   Pencil,
   Plus,
@@ -33,6 +34,7 @@ import {
   type PurchaseInvoice,
   type PurchaseProblem,
 } from '@/lib/customerServiceTasks/morning';
+import InvoiceLinesTable from '@/components/purchase-review/InvoiceLinesTable';
 
 // الخطوة الأولى في الصبح: كل فاتورة مشتريات دخلت فرعها من ٩ الصبح امبارح لـ ٩ الصبح النهارده (التحويلات في تبويبها).
 // المسلسل على الورق (الدكتور كتبه بإيده ولا لأ)، وبعدين اعتماد، أو تعديل (المورد/المسلسل/رقم فاتورة المورد/المخزن/الإجمالي)، أو «فيها مشكلة». الخصم مش هنا: ده للمدير العام.
@@ -618,6 +620,7 @@ function InvoiceRows({
   onSaved: () => Promise<void>;
 }) {
   const fix = i.check?.fix ?? {};
+  const [details, setDetails] = useState(false);
   return (
     <>
       <tr
@@ -656,7 +659,17 @@ function InvoiceRows({
             </span>
           ) : null}
         </td>
-        <td className="p-2">{i.items}</td>
+        <td className="p-2">
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 font-black underline decoration-dotted"
+            onClick={() => setDetails(!details)}
+            title="تفاصيل الفاتورة صنف صنف"
+          >
+            {i.items}
+            <ListTree size={14} />
+          </button>
+        </td>
         <td className="p-2 whitespace-nowrap">
           {money(i.net)}
           {fix.net != null ? (
@@ -714,6 +727,13 @@ function InvoiceRows({
           </div>
         </td>
       </tr>
+      {details ? (
+        <tr>
+          <td colSpan={11} className="bg-[var(--dawaa-theme-soft)] p-2">
+            <InvoiceLinesTable store={i.store} serial={i.serial} />
+          </td>
+        </tr>
+      ) : null}
       {open ? (
         <tr>
           <td colSpan={11} className="bg-[var(--dawaa-theme-soft)] p-3">
