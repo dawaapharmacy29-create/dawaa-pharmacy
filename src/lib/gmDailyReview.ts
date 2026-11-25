@@ -62,7 +62,7 @@ export const GM_REVIEW_LABELS: Record<
     question: 'مين غاب أو اتأخر أو ما بصمش امبارح؟',
     link: DR_WAEL_FINGERPRINTS_PATH,
   },
-  managers: { title: 'مديرين الفروع', question: 'كل مدير قفل لفة الفرع امبارح؟', link: '/' },
+  managers: { title: 'مديرين الفروع', question: 'كل مدير قفل لفة الفرع امبارح؟', link: '#agenda-compliance' },
   cleaning: {
     title: 'النظافة',
     question: 'النظافة اتقيمت امبارح في الفرعين؟',
@@ -112,7 +112,7 @@ export const GM_REVIEW_LABELS: Record<
   stories: {
     title: 'الاستوريز',
     question: 'الفرعين نزّلوا استوريز النهارده؟',
-    link: '/',
+    link: '#agenda-compliance',
   },
 };
 
