@@ -434,6 +434,24 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
   const candidateInvoicesEvaluated = Array.from(candidatesByGroupKey.values()).reduce((sum, rows) => sum + rows.length, 0);
   const allCandidateInvoices = Array.from(candidatesByGroupKey.values()).flat();
   const itemEvidenceProvider = await fetchInvoiceItemEvidenceProvider(supabaseClient, allCandidateInvoices);
+  // Only business evidence, never import timestamps or batch metadata. Keep header changes
+  // visible even when the invoice ID and its line items have not changed.
+  const invoiceHeadersById = new Map(allCandidateInvoices.map(row => [invoiceRowLookupId(row), row]));
+  const snapshotInvoiceEvidence = (ids: string[]) =>
+    snapshotInvoiceItemEvidence(itemEvidenceProvider, ids).map(entry => {
+      const row = invoiceHeadersById.get(entry.invoiceId);
+      return {
+        ...entry,
+        header: row ? Object.fromEntries([
+          'invoice_number', 'invoice_no', 'invoice_date', 'invoice_datetime', 'sale_date',
+          'branch', 'branch_name', 'customer_id', 'customer_code', 'customer_phone',
+          'phone', 'whatsapp_phone', 'customer_name', 'net_amount', 'net_total',
+          'total_amount', 'amount', 'gross_amount', 'discounted_amount', 'discount_amount',
+          'invoice_type', 'save_status', 'status', 'staff_id', 'seller_name',
+          'normalized_seller_name', 'staff_name', 'delivery_staff', 'line_items_count',
+        ].map(key => [key, row[key] ?? null])) : null,
+      };
+    });
 
   // Step 3: PASS 1 — run the pure pipeline per conversation against its group's shared candidate
   // pool with no competing-selection input, to learn each case's own selectedInvoiceId.
@@ -587,10 +605,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
     const effectiveAnalysisId = analysisPlan.currentAnalysisId;
 
     const activeItems = analysis.activeBasket ? (analysis.itemsByBasketId[analysis.activeBasket.basketId] ?? []) : [];
-    const attributionItemSnapshot = snapshotInvoiceItemEvidence(
-      itemEvidenceProvider,
-      analysis.invoiceCandidateIds
-    );
+    const attributionItemSnapshot = snapshotInvoiceEvidence(analysis.invoiceCandidateIds);
     const attributionInputHash = await computeAttributionInputHash({
       customerId: conversationCase.customerId,
       customerPhone: conversationCase.customerPhone,
@@ -629,7 +644,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
     else plan.attributionsToInsert.push(planAttributionEntry);
 
     const selectedInvoiceItemSnapshot = analysis.basketInvoiceMatch.invoiceId
-      ? snapshotInvoiceItemEvidence(itemEvidenceProvider, [analysis.basketInvoiceMatch.invoiceId])
+      ? snapshotInvoiceEvidence([analysis.basketInvoiceMatch.invoiceId])
       : [];
     const matchingInputHash = await computeMatchingInputHash({
       basketId: analysis.basketInvoiceMatch.basketId,
@@ -742,6 +757,8 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
           {
             customerId: conversationCase.customerId,
             customerPhone: conversationCase.customerPhone,
+            customerCode: conversationInput?.customerCodeHint ?? null,
+            customerName: conversationInput?.customerNameHint ?? null,
             candidateInvoiceIds: analysis.invoiceCandidateIds,
             branchNameRaw: conversationCase.branchNameRaw,
             activeBasketItems: activeItems.map((item) => ({
