@@ -98,18 +98,96 @@ function Card({ winner, place }: { winner: PodiumWinner; place: number }) {
   );
 }
 
+/** A tall card for the podium layout: the place, the name, the number, then what they did, top to bottom. */
+function TallCard({ winner, place }: { winner: PodiumWinner; place: number }) {
+  const style = PLACES[place];
+  const first = place === 0;
+  return (
+    <article
+      className={`relative flex min-w-0 flex-col items-center overflow-hidden rounded-3xl p-3 text-center shadow-lg sm:p-4 ${first ? 'min-h-[22rem]' : 'mt-10 min-h-[19rem]'}`}
+      style={{
+        background: style.background,
+        color: style.text,
+        boxShadow: `0 0 0 2px ${style.ring}`,
+      }}
+    >
+      <div
+        className="pointer-events-none absolute -top-12 h-32 w-32 rounded-full"
+        style={{ background: 'rgba(255,255,255,0.22)' }}
+      />
+      <span
+        className={`relative flex items-center justify-center rounded-full ${first ? 'h-14 w-14' : 'h-11 w-11'}`}
+        style={{ background: style.soft }}
+      >
+        {first ? <Crown size={28} /> : <Medal size={22} />}
+      </span>
+      <div className="relative mt-1 text-[11px] font-black opacity-80">{style.title}</div>
+      <div
+        className={`relative w-full truncate font-black ${first ? 'text-xl sm:text-2xl' : 'text-base sm:text-lg'}`}
+      >
+        {winner.name}
+      </div>
+      <div className="relative text-[11px] font-bold opacity-80">
+        {winner.branch}
+        {winner.mine ? ' · أنت هنا' : ''}
+      </div>
+      <div className={`relative mt-2 font-black ${first ? 'text-4xl' : 'text-3xl'}`}>
+        {winner.headline.value}
+      </div>
+      <div className="relative text-[11px] font-bold opacity-80">{winner.headline.label}</div>
+      {winner.stats.length ? (
+        <dl className="relative mt-3 w-full space-y-1.5">
+          {winner.stats.map((s) => (
+            <div
+              key={s.label}
+              className="min-w-0 rounded-xl px-2 py-1"
+              style={{ background: style.soft }}
+            >
+              <dt className="text-[10px] font-bold opacity-80">{s.label}</dt>
+              <dd className="text-xs font-black sm:text-sm">{s.value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+    </article>
+  );
+}
+
 export default function CompetitionPodium({
   winners,
   title,
+  layout = 'stack',
+  titleClassName = 'text-lg font-black text-white',
 }: {
   winners: PodiumWinner[];
   title: string;
+  /** stack: a wide gold card with the second and third under it. podium: three tall cards, the first raised in the middle. */
+  layout?: 'stack' | 'podium';
+  titleClassName?: string;
 }) {
   if (!winners.length) return null;
   const [first, ...rest] = winners.slice(0, 3);
+  if (layout === 'podium') {
+    // في الصفحة العربي أول عمود على اليمين: التاني يمين، الأول في النص، التالت شمال.
+    const order = [
+      rest[0] ? { w: rest[0], place: 1 } : null,
+      { w: first, place: 0 },
+      rest[1] ? { w: rest[1], place: 2 } : null,
+    ];
+    return (
+      <section className="space-y-3" aria-label="منصة الفايزين">
+        <h2 className={titleClassName}>{title}</h2>
+        <div className="grid grid-cols-3 items-start gap-2 sm:gap-4">
+          {order.map((o, i) =>
+            o ? <TallCard key={o.w.key} winner={o.w} place={o.place} /> : <div key={`empty-${i}`} />
+          )}
+        </div>
+      </section>
+    );
+  }
   return (
     <section className="space-y-3" aria-label="منصة الفايزين">
-      <h2 className="text-lg font-black text-white">{title}</h2>
+      <h2 className={titleClassName}>{title}</h2>
       <Card winner={first} place={0} />
       {rest.length ? (
         <div className="grid grid-cols-2 gap-3">

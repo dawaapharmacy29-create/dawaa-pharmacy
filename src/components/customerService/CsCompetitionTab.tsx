@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Loader2, RefreshCw, Save, Trophy } from 'lucide-react';
 import { toast } from 'sonner';
 import { MiniBox, Panel } from '@/components/dashboard/DashboardPrimitives';
+import CompetitionPodium, { type PodiumWinner } from '@/components/competition/CompetitionPodium';
 import {
   loadCompetition,
   markCoupon,
@@ -47,6 +48,26 @@ function Item({ title, points, weight, detail }: { title: string; points: number
       <div className="text-xs opacity-70">{detail}</div>
     </div>
   );
+}
+
+/** The top three of the team, for the podium: the score, then what each of them did. */
+function podiumOf(comp: Competition): PodiumWinner[] {
+  return comp.members
+    .filter((m) => m.score > 0)
+    .slice(0, 3)
+    .map((m) => ({
+      key: m.staff_account_id,
+      name: m.name ?? '—',
+      branch: m.branch,
+      headline: { value: String(Math.round(m.score)), label: 'نقطة من ١٠٠' },
+      stats: [
+        { label: 'رجّعت عملاء', value: `${m.returned} من ${m.reached_back}` },
+        { label: 'عملاء جداد ثبتوا', value: `${m.new_back} من ${m.new_n}` },
+        { label: 'زيادة الصرف', value: egp(m.uplift) },
+        { label: 'كوبونات اتستخدمت', value: `${m.coupons_used} من ${m.coupons_issued}` },
+        { label: 'خلّصت من الشيت', value: pct(m.completion) },
+      ],
+    }));
 }
 
 function MemberCard({ m, first, comp }: { m: CompetitionMember; first: boolean; comp: Competition }) {
@@ -197,6 +218,16 @@ export default function CsCompetitionTab() {
         <p className="mt-1 text-sm opacity-70">
           النقط بتقيس الزيادة اللي جت من التواصل بس: العميل اللي رجع أو صرف أكتر من عادته بعد ما اتكلّم. لحد {comp.as_of}.
         </p>
+        {podiumOf(comp).length ? (
+          <div className="mt-4">
+            <CompetitionPodium
+              layout="podium"
+              title={current ? 'الأوائل لحد النهارده' : 'أوائل الدورة دي'}
+              titleClassName="text-base font-black"
+              winners={podiumOf(comp)}
+            />
+          </div>
+        ) : null}
         <div className="mt-3 grid gap-3 md:grid-cols-2">
           {comp.members.length ? (
             comp.members.map((m, i) => (
