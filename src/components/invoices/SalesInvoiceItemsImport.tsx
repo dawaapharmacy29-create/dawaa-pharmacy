@@ -15,6 +15,9 @@ const statusLabels = {
   ambiguous: 'أكثر من فاتورة مطابقة',
   wrong_branch: 'الفرع مختلف',
   customer_mismatch: 'كود العميل مختلف عن الفاتورة',
+  unlinked_customer: 'العميل غير مربوط',
+  unlinked_staff: 'مدخل الفاتورة غير مربوط',
+  invalid_quantity: 'كمية أو سعر غير صالح',
 };
 
 const statusExplanations: Record<keyof typeof statusLabels, string> = {
@@ -26,6 +29,9 @@ const statusExplanations: Record<keyof typeof statusLabels, string> = {
   ambiguous: 'توجد أكثر من فاتورة محتملة؛ يلزم مراجعة يدوية',
   wrong_branch: 'الفرع المكتوب في الملف لا يطابق الفرع المختار',
   customer_mismatch: 'كود العميل في ملف الأصناف مختلف عن فاتورة الملخص',
+  unlinked_customer: 'يلزم اعتماد هوية العميل في الفاتورة أولًا قبل تسجيل أصنافها',
+  unlinked_staff: 'يلزم ربط الفاتورة بموظف مؤكد قبل تسجيل أصنافها',
+  invalid_quantity: 'يلزم وجود كمية موجبة وسعر وحدة غير سالب',
 };
 
 function downloadReviewCsv(rows: readonly SalesItemPreviewRow[]) {
