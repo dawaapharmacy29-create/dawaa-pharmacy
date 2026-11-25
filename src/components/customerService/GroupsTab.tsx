@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Download, FileUp, Loader2, MessageCircle, RefreshCw, Search } from 'lucide-react';
+import { Download, FileUp, Loader2, MessageCircle, Plus, RefreshCw, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   EmptyState,
@@ -15,6 +15,7 @@ import {
 } from '@/features/customer-requests/groupImport/groupChatCustomerRequests';
 import {
   REQUEST_STATUSES,
+  createGroupRequest,
   exportRequestsWorkbook,
   followupCandidates,
   importFollowups,
@@ -34,6 +35,7 @@ import {
   type RequestStatus,
 } from '@/lib/customerServiceTasks/groups';
 import { whatsappNumber } from '@/lib/customerServiceTasks/tasks';
+import RequestItemsPicker from '@/components/customerService/RequestItemsPicker';
 
 // «الجروبات»: البنت ترفع تصدير جروب المتابعات وجروب الطلبات من الواتساب.
 // المتابعات بتبقى مهام في شيت النهارده، والطلبات بتتسجل بأصنافها وكمياتها وتتتابع لحد ما تتسلم وتتصدر إكسيل.
@@ -131,6 +133,22 @@ export default function GroupsTab({ onTasksAdded }: { onTasksAdded?: () => void 
   );
 }
 
+/** Only the upload of one group, for the morning files page. */
+export function GroupUpload({
+  kind,
+  onDone,
+}: {
+  kind: 'followups' | 'requests';
+  onDone?: () => void;
+}) {
+  const doctors = useDoctors();
+  return kind === 'followups' ? (
+    <FollowupsSection doctors={doctors} uploadOnly onUploaded={onDone} />
+  ) : (
+    <RequestsSection doctors={doctors} uploadOnly onUploaded={onDone} />
+  );
+}
+
 // ---------------- جروب المتابعات ----------------
 
 type Loaded<T> = { fileName: string; branch: string; rows: T[] };
@@ -138,9 +156,13 @@ type Loaded<T> = { fileName: string; branch: string; rows: T[] };
 function FollowupsSection({
   doctors,
   onTasksAdded,
+  uploadOnly,
+  onUploaded,
 }: {
   doctors: GroupDoctor[] | null;
   onTasksAdded?: () => void;
+  uploadOnly?: boolean;
+  onUploaded?: () => void;
 }) {
   const today = cairoToday();
   const [loaded, setLoaded] = useState<Loaded<FollowupCandidate> | null>(null);
@@ -152,13 +174,14 @@ function FollowupsSection({
   const [branchView, setBranchView] = useState('');
 
   const loadSaved = useCallback(async () => {
+    if (uploadOnly) return;
     try {
       setSaved(await loadGroupFollowups(branchView || null, addDays(today, -3)));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
       setSaved([]);
     }
-  }, [branchView, today]);
+  }, [branchView, today, uploadOnly]);
   useEffect(() => {
     void loadSaved();
   }, [loadSaved]);
@@ -214,6 +237,7 @@ function FollowupsSection({
       if (r.old) parts.push(`${r.old} أقدم من ٣ أيام ماتعملهاش مهمة`);
       toast.success(parts.join(' · '), { duration: 10000 });
       if (r.tasks) onTasksAdded?.();
+      onUploaded?.();
       setLoaded(null);
       await loadSaved();
     } catch (e) {
@@ -348,85 +372,87 @@ function FollowupsSection({
         ) : null}
       </Panel>
 
-      <Panel>
-        <SectionTitle
-          title="اللي اترفع آخر ٣ أيام"
-          subtitle="كل حالة: بقت مهمة على مين، ونتيجتها لو اتعملت"
-        />
-        <div className="mt-2 flex gap-2">
-          <select
-            className="input-field w-auto"
-            value={branchView}
-            onChange={(e) => setBranchView(e.target.value)}
-          >
-            <option value="">الفرعين</option>
-            {BRANCHES.map((b) => (
-              <option key={b}>{b}</option>
-            ))}
-          </select>
-          <button
-            className="btn-secondary inline-flex items-center gap-1"
-            onClick={() => void loadSaved()}
-          >
-            <RefreshCw size={16} /> تحديث
-          </button>
-        </div>
-        {!saved ? (
-          <div className="flex justify-center p-6">
-            <Loader2 className="animate-spin" />
+      {uploadOnly ? null : (
+        <Panel>
+          <SectionTitle
+            title="اللي اترفع آخر ٣ أيام"
+            subtitle="كل حالة: بقت مهمة على مين، ونتيجتها لو اتعملت"
+          />
+          <div className="mt-2 flex gap-2">
+            <select
+              className="input-field w-auto"
+              value={branchView}
+              onChange={(e) => setBranchView(e.target.value)}
+            >
+              <option value="">الفرعين</option>
+              {BRANCHES.map((b) => (
+                <option key={b}>{b}</option>
+              ))}
+            </select>
+            <button
+              className="btn-secondary inline-flex items-center gap-1"
+              onClick={() => void loadSaved()}
+            >
+              <RefreshCw size={16} /> تحديث
+            </button>
           </div>
-        ) : saved.length === 0 ? (
-          <EmptyState label="مفيش حالات اترفعت آخر ٣ أيام" />
-        ) : (
-          <div className="mt-2 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-right opacity-70">
-                  <th className="p-2">الوقت</th>
-                  <th className="p-2">الفرع</th>
-                  <th className="p-2">الدكتور</th>
-                  <th className="p-2">العميل</th>
-                  <th className="p-2">الرسالة</th>
-                  <th className="p-2">المهمة</th>
-                </tr>
-              </thead>
-              <tbody>
-                {saved.map((f) => (
-                  <tr
-                    key={f.fingerprint}
-                    className="border-t border-[var(--dawaa-theme-border)] align-top"
-                  >
-                    <td className="p-2 text-xs whitespace-nowrap">{isoLabel(f.sent_at)}</td>
-                    <td className="p-2 text-xs">{f.branch.replace('فرع ', '')}</td>
-                    <td className="p-2 text-xs">{f.doctor}</td>
-                    <td className="p-2 text-xs">
-                      {f.customer_name ?? ''} {f.customer_code ? `(${f.customer_code})` : ''}
-                      {f.customer_phone ? (
-                        <span className="block opacity-70">{f.customer_phone}</span>
-                      ) : null}
-                    </td>
-                    <td className="p-2 text-xs">{short(f.body, 140)}</td>
-                    <td className="p-2 text-xs">
-                      {f.task_date ? (
-                        <>
-                          <span className="font-bold">{f.result ? 'اتعملت' : 'في الشيت'}</span>
-                          {f.assigned_name ? (
-                            <span className="block opacity-70">على {f.assigned_name}</span>
-                          ) : null}
-                        </>
-                      ) : f.customer_code || f.customer_phone ? (
-                        <span className="opacity-60">أقدم من ٣ أيام</span>
-                      ) : (
-                        <span className="text-[var(--dawaa-status-danger-text)]">محتاجة كود</span>
-                      )}
-                    </td>
+          {!saved ? (
+            <div className="flex justify-center p-6">
+              <Loader2 className="animate-spin" />
+            </div>
+          ) : saved.length === 0 ? (
+            <EmptyState label="مفيش حالات اترفعت آخر ٣ أيام" />
+          ) : (
+            <div className="mt-2 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-right opacity-70">
+                    <th className="p-2">الوقت</th>
+                    <th className="p-2">الفرع</th>
+                    <th className="p-2">الدكتور</th>
+                    <th className="p-2">العميل</th>
+                    <th className="p-2">الرسالة</th>
+                    <th className="p-2">المهمة</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Panel>
+                </thead>
+                <tbody>
+                  {saved.map((f) => (
+                    <tr
+                      key={f.fingerprint}
+                      className="border-t border-[var(--dawaa-theme-border)] align-top"
+                    >
+                      <td className="p-2 text-xs whitespace-nowrap">{isoLabel(f.sent_at)}</td>
+                      <td className="p-2 text-xs">{f.branch.replace('فرع ', '')}</td>
+                      <td className="p-2 text-xs">{f.doctor}</td>
+                      <td className="p-2 text-xs">
+                        {f.customer_name ?? ''} {f.customer_code ? `(${f.customer_code})` : ''}
+                        {f.customer_phone ? (
+                          <span className="block opacity-70">{f.customer_phone}</span>
+                        ) : null}
+                      </td>
+                      <td className="p-2 text-xs">{short(f.body, 140)}</td>
+                      <td className="p-2 text-xs">
+                        {f.task_date ? (
+                          <>
+                            <span className="font-bold">{f.result ? 'اتعملت' : 'في الشيت'}</span>
+                            {f.assigned_name ? (
+                              <span className="block opacity-70">على {f.assigned_name}</span>
+                            ) : null}
+                          </>
+                        ) : f.customer_code || f.customer_phone ? (
+                          <span className="opacity-60">أقدم من ٣ أيام</span>
+                        ) : (
+                          <span className="text-[var(--dawaa-status-danger-text)]">محتاجة كود</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Panel>
+      )}
     </>
   );
 }
@@ -436,9 +462,13 @@ function FollowupsSection({
 function RequestsSection({
   doctors,
   onTasksAdded,
+  uploadOnly,
+  onUploaded,
 }: {
   doctors: GroupDoctor[] | null;
   onTasksAdded?: () => void;
+  uploadOnly?: boolean;
+  onUploaded?: () => void;
 }) {
   const today = cairoToday();
   const [loaded, setLoaded] = useState<Loaded<RequestCandidate> | null>(null);
@@ -454,8 +484,10 @@ function RequestsSection({
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<string | null>(null);
   const [saving, setSaving] = useState('');
+  const [adding, setAdding] = useState(false);
 
   const load = useCallback(async () => {
+    if (uploadOnly) return;
     try {
       setRows(
         await loadGroupRequests({
@@ -470,7 +502,7 @@ function RequestsSection({
       toast.error(e instanceof Error ? e.message : String(e));
       setRows([]);
     }
-  }, [from, to, branch, status, query]);
+  }, [from, to, branch, status, query, uploadOnly]);
   useEffect(() => {
     const t = setTimeout(() => void load(), query ? 350 : 0);
     return () => clearTimeout(t);
@@ -515,6 +547,7 @@ function RequestsSection({
         `اتسجل ${r.added} طلب جديد${r.already ? ` · ${r.already} كانوا متسجلين قبل كده` : ''}`
       );
       setLoaded(null);
+      onUploaded?.();
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
@@ -658,172 +691,306 @@ function RequestsSection({
         ) : null}
       </Panel>
 
-      <Panel>
-        <SectionTitle
-          title="متابعة الطلبات"
-          subtitle="جديد ← بنوفره ← اتوفر (بيعمل مهمة تبليغ في الشيت) ← العميل اتبلغ ← اتسلم"
-        />
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <div className="relative min-w-[15rem] flex-1">
-            <Search size={16} className="absolute top-1/2 right-3 -translate-y-1/2 opacity-50" />
-            <input
-              className="input-field !pr-9"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="دوّري باسم العميل أو كوده أو رقمه، أو الصنف، أو الدكتور"
-            />
-          </div>
-          <select
-            className="input-field w-auto"
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
-          >
-            <option value="open">المفتوحة (جديد وبنوفره واتوفر)</option>
-            <option value="">كل الحالات</option>
-            {(Object.keys(REQUEST_STATUSES) as RequestStatus[]).map((s) => (
-              <option key={s} value={s}>
-                {REQUEST_STATUSES[s]}
-              </option>
-            ))}
-          </select>
-          <select
-            className="input-field w-auto"
-            value={branch}
-            onChange={(e) => setBranch(e.target.value)}
-          >
-            <option value="">الفرعين</option>
-            {BRANCHES.map((b) => (
-              <option key={b}>{b}</option>
-            ))}
-          </select>
-          <label className="inline-flex items-center gap-1 text-xs font-bold">
-            من
-            <input
-              type="date"
-              className="input-field w-auto"
-              value={from}
-              onChange={(e) => setFrom(e.target.value)}
-            />
-          </label>
-          <label className="inline-flex items-center gap-1 text-xs font-bold">
-            لحد
-            <input
-              type="date"
-              className="input-field w-auto"
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-            />
-          </label>
+      {uploadOnly ? null : (
+        <Panel>
+          <SectionTitle
+            title="متابعة الطلبات"
+            subtitle="جديد ← بنوفره ← اتوفر (بيعمل مهمة تبليغ في الشيت) ← العميل اتبلغ ← اتسلم"
+          />
           <button
-            className="btn-secondary inline-flex items-center gap-1"
-            onClick={() => void exportExcel()}
+            className={`${adding ? 'btn-secondary' : 'btn-primary'} inline-flex items-center gap-1`}
+            onClick={() => setAdding(!adding)}
           >
-            <Download size={16} /> إكسيل{picked.size ? ` (${picked.size})` : ''}
+            <Plus size={16} /> {adding ? 'قفل الطلب الجديد' : 'سجّلي طلب جديد'}
           </button>
-        </div>
-
-        <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-6">
-          {(Object.keys(REQUEST_STATUSES) as RequestStatus[]).map((s) => (
-            <MiniBox
-              key={s}
-              label={REQUEST_STATUSES[s]}
-              value={String(counts[s] ?? 0)}
-              tone={s === 'available' ? 'green' : s === 'new' ? 'blue' : 'cyan'}
+          {adding ? (
+            <NewRequestForm
+              doctors={doctors}
+              defaultBranch={branch}
+              onSaved={() => {
+                setAdding(false);
+                setStatus('open');
+                void load();
+              }}
             />
-          ))}
-        </div>
-        {totals.length ? (
-          <p className="mt-2 text-xs">
-            <span className="font-black">أكتر أصناف مطلوبة: </span>
-            {totals
-              .map((t) => `${t.name}${t.qty ? ` (${t.qty})` : ''} لـ ${t.customers}`)
-              .join(' · ')}
-          </p>
-        ) : null}
-
-        {picked.size ? (
-          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-[var(--dawaa-theme-soft)] p-2 text-sm">
-            <span className="font-black">اخترتي {picked.size}</span>
-            {(Object.keys(REQUEST_STATUSES) as RequestStatus[]).map((s) => (
-              <button
-                key={s}
-                className="btn-secondary !px-2 !py-1 text-xs"
-                disabled={saving === 'bulk'}
-                onClick={() =>
-                  void update(
-                    [...picked].map((fingerprint) => ({ fingerprint, status: s })),
-                    'bulk'
-                  )
-                }
-              >
-                {REQUEST_STATUSES[s]}
-              </button>
-            ))}
-            <button
-              className="btn-secondary !px-2 !py-1 text-xs"
-              onClick={() => setPicked(new Set())}
+          ) : null}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <div className="relative min-w-[15rem] flex-1">
+              <Search size={16} className="absolute top-1/2 right-3 -translate-y-1/2 opacity-50" />
+              <input
+                className="input-field !pr-9"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="دوّري باسم العميل أو كوده أو رقمه، أو الصنف، أو الدكتور"
+              />
+            </div>
+            <select
+              className="input-field w-auto"
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
             >
-              إلغاء الاختيار
+              <option value="open">المفتوحة (جديد وبنوفره واتوفر)</option>
+              <option value="">كل الحالات</option>
+              {(Object.keys(REQUEST_STATUSES) as RequestStatus[]).map((s) => (
+                <option key={s} value={s}>
+                  {REQUEST_STATUSES[s]}
+                </option>
+              ))}
+            </select>
+            <select
+              className="input-field w-auto"
+              value={branch}
+              onChange={(e) => setBranch(e.target.value)}
+            >
+              <option value="">الفرعين</option>
+              {BRANCHES.map((b) => (
+                <option key={b}>{b}</option>
+              ))}
+            </select>
+            <label className="inline-flex items-center gap-1 text-xs font-bold">
+              من
+              <input
+                type="date"
+                className="input-field w-auto"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+              />
+            </label>
+            <label className="inline-flex items-center gap-1 text-xs font-bold">
+              لحد
+              <input
+                type="date"
+                className="input-field w-auto"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+              />
+            </label>
+            <button
+              className="btn-secondary inline-flex items-center gap-1"
+              onClick={() => void exportExcel()}
+            >
+              <Download size={16} /> إكسيل{picked.size ? ` (${picked.size})` : ''}
             </button>
           </div>
-        ) : null}
 
-        {!rows ? (
-          <div className="flex justify-center p-6">
-            <Loader2 className="animate-spin" />
+          <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-6">
+            {(Object.keys(REQUEST_STATUSES) as RequestStatus[]).map((s) => (
+              <MiniBox
+                key={s}
+                label={REQUEST_STATUSES[s]}
+                value={String(counts[s] ?? 0)}
+                tone={s === 'available' ? 'green' : s === 'new' ? 'blue' : 'cyan'}
+              />
+            ))}
           </div>
-        ) : rows.length === 0 ? (
-          <EmptyState label={query ? 'مفيش طلبات بالبحث ده' : 'مفيش طلبات في الفترة دي'} />
-        ) : (
-          <div className="mt-3 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-right opacity-70">
-                  <th className="p-2">
-                    <input
-                      type="checkbox"
-                      aria-label="اختاري الكل"
-                      checked={allPicked}
-                      onChange={() =>
-                        setPicked(allPicked ? new Set() : new Set(rows.map((r) => r.fingerprint)))
+          {totals.length ? (
+            <p className="mt-2 text-xs">
+              <span className="font-black">أكتر أصناف مطلوبة: </span>
+              {totals
+                .map((t) => `${t.name}${t.qty ? ` (${t.qty})` : ''} لـ ${t.customers}`)
+                .join(' · ')}
+            </p>
+          ) : null}
+
+          {picked.size ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-[var(--dawaa-theme-soft)] p-2 text-sm">
+              <span className="font-black">اخترتي {picked.size}</span>
+              {(Object.keys(REQUEST_STATUSES) as RequestStatus[]).map((s) => (
+                <button
+                  key={s}
+                  className="btn-secondary !px-2 !py-1 text-xs"
+                  disabled={saving === 'bulk'}
+                  onClick={() =>
+                    void update(
+                      [...picked].map((fingerprint) => ({ fingerprint, status: s })),
+                      'bulk'
+                    )
+                  }
+                >
+                  {REQUEST_STATUSES[s]}
+                </button>
+              ))}
+              <button
+                className="btn-secondary !px-2 !py-1 text-xs"
+                onClick={() => setPicked(new Set())}
+              >
+                إلغاء الاختيار
+              </button>
+            </div>
+          ) : null}
+
+          {!rows ? (
+            <div className="flex justify-center p-6">
+              <Loader2 className="animate-spin" />
+            </div>
+          ) : rows.length === 0 ? (
+            <EmptyState label={query ? 'مفيش طلبات بالبحث ده' : 'مفيش طلبات في الفترة دي'} />
+          ) : (
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-right opacity-70">
+                    <th className="p-2">
+                      <input
+                        type="checkbox"
+                        aria-label="اختاري الكل"
+                        checked={allPicked}
+                        onChange={() =>
+                          setPicked(allPicked ? new Set() : new Set(rows.map((r) => r.fingerprint)))
+                        }
+                      />
+                    </th>
+                    <th className="p-2">اليوم</th>
+                    <th className="p-2">العميل</th>
+                    <th className="p-2">الأصناف والكمية</th>
+                    <th className="p-2">الدكتور</th>
+                    <th className="p-2">الحالة</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <RequestRow
+                      key={r.fingerprint}
+                      row={r}
+                      picked={picked.has(r.fingerprint)}
+                      onPick={() =>
+                        setPicked((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(r.fingerprint)) next.delete(r.fingerprint);
+                          else next.add(r.fingerprint);
+                          return next;
+                        })
+                      }
+                      editing={editing === r.fingerprint}
+                      onEdit={() => setEditing(editing === r.fingerprint ? null : r.fingerprint)}
+                      saving={saving === r.fingerprint}
+                      onSave={(u) =>
+                        void update([{ fingerprint: r.fingerprint, ...u }], r.fingerprint)
                       }
                     />
-                  </th>
-                  <th className="p-2">اليوم</th>
-                  <th className="p-2">العميل</th>
-                  <th className="p-2">الأصناف والكمية</th>
-                  <th className="p-2">الدكتور</th>
-                  <th className="p-2">الحالة</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <RequestRow
-                    key={r.fingerprint}
-                    row={r}
-                    picked={picked.has(r.fingerprint)}
-                    onPick={() =>
-                      setPicked((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(r.fingerprint)) next.delete(r.fingerprint);
-                        else next.add(r.fingerprint);
-                        return next;
-                      })
-                    }
-                    editing={editing === r.fingerprint}
-                    onEdit={() => setEditing(editing === r.fingerprint ? null : r.fingerprint)}
-                    saving={saving === r.fingerprint}
-                    onSave={(u) =>
-                      void update([{ fingerprint: r.fingerprint, ...u }], r.fingerprint)
-                    }
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Panel>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Panel>
+      )}
     </>
+  );
+}
+
+/** A request typed in here (a customer at the counter or on the phone), not from the group. */
+function NewRequestForm({
+  doctors,
+  defaultBranch,
+  onSaved,
+}: {
+  doctors: GroupDoctor[] | null;
+  defaultBranch: string;
+  onSaved: () => void;
+}) {
+  const [branch, setBranch] = useState(defaultBranch);
+  const [code, setCode] = useState('');
+  const [phone, setPhone] = useState('');
+  const [name, setName] = useState('');
+  const [items, setItems] = useState<RequestItem[]>([]);
+  const [note, setNote] = useState('');
+  const [staffId, setStaffId] = useState('');
+  const [busy, setBusy] = useState(false);
+  const missingQty = items.filter((i) => !i.qty).length;
+
+  async function save() {
+    if (!branch) return toast.error('اختاري الفرع');
+    if (!code.trim() && !phone.trim()) return toast.error('اكتبي كود العميل أو رقم موبايله');
+    if (!items.length) return toast.error('ضيفي صنف واحد على الأقل');
+    setBusy(true);
+    try {
+      await createGroupRequest({
+        branch,
+        customerCode: code,
+        customerPhone: phone,
+        customerName: name,
+        items,
+        note,
+        staffId: staffId || null,
+      });
+      toast.success('الطلب اتسجل «جديد» وظاهر في المتابعة');
+      onSaved();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-3 space-y-3 rounded-2xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-soft)] p-3">
+      <div className="grid gap-2 sm:grid-cols-4">
+        <select className="input-field" value={branch} onChange={(e) => setBranch(e.target.value)}>
+          <option value="">الفرع؟</option>
+          {BRANCHES.map((b) => (
+            <option key={b}>{b}</option>
+          ))}
+        </select>
+        <input
+          className="input-field"
+          inputMode="numeric"
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          placeholder="كود العميل"
+        />
+        <input
+          className="input-field"
+          inputMode="tel"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          placeholder="أو رقم الموبايل"
+        />
+        <input
+          className="input-field"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="اسم العميل (اختياري)"
+        />
+      </div>
+      <RequestItemsPicker items={items} onChange={setItems} />
+      <div className="grid gap-2 sm:grid-cols-2">
+        <select
+          className="input-field"
+          value={staffId}
+          onChange={(e) => setStaffId(e.target.value)}
+        >
+          <option value="">الدكتور اللي جاب الطلب (اختياري)</option>
+          {(doctors ?? [])
+            .filter((d) => !branch || !d.branch || d.branch === branch)
+            .map((d) => (
+              <option key={d.staffId} value={d.staffId}>
+                {d.name}
+              </option>
+            ))}
+        </select>
+        <input
+          className="input-field"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="ملاحظة (اختياري)"
+        />
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          className="btn-primary inline-flex items-center gap-1"
+          disabled={busy}
+          onClick={() => void save()}
+        >
+          {busy ? <Loader2 size={16} className="animate-spin" /> : null} سجّلي الطلب
+        </button>
+        {missingQty ? (
+          <span className="text-xs text-[var(--dawaa-status-danger-text)]">
+            {missingQty} صنف من غير كمية
+          </span>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -879,11 +1046,18 @@ function RequestRow({
           {r.items.length ? (
             <ul className="space-y-0.5">
               {r.items.map((i, n) => (
-                <li key={n}>
-                  {i.name}{' '}
+                <li key={n} className="flex items-center gap-1.5">
+                  {i.image ? (
+                    <a href={i.image} target="_blank" rel="noreferrer">
+                      <img src={i.image} alt="" className="h-7 w-7 rounded object-cover" />
+                    </a>
+                  ) : null}
+                  <span dir="auto">{i.name}</span>
                   <span className={i.qty ? 'font-black' : 'text-[var(--dawaa-status-danger-text)]'}>
                     × {i.qty ?? 'كمية؟'}
                   </span>
+                  {i.code ? <span className="opacity-60">({i.code})</span> : null}
+                  {i.new ? <span className="opacity-60">(جديد)</span> : null}
                 </li>
               ))}
             </ul>
@@ -943,47 +1117,18 @@ function ItemsEditor({
   saving: boolean;
   onSave: (items: RequestItem[], note: string | null) => void;
 }) {
-  const [items, setItems] = useState<Array<{ name: string; qty: string }>>(() =>
-    (row.items.length ? row.items : parseItems(row.details)).map((i) => ({
-      name: i.name,
-      qty: i.qty ? String(i.qty) : '',
-    }))
+  const [items, setItems] = useState<RequestItem[]>(() =>
+    row.items.length ? row.items : parseItems(row.details)
   );
   const [note, setNote] = useState(row.status_note ?? '');
-  const set = (n: number, patch: Partial<{ name: string; qty: string }>) =>
-    setItems(items.map((it, i) => (i === n ? { ...it, ...patch } : it)));
   return (
     <div className="space-y-2">
-      <p className="text-xs opacity-70 whitespace-pre-wrap">الرسالة: {row.body}</p>
-      {items.map((it, n) => (
-        <div key={n} className="flex gap-2">
-          <input
-            className="input-field flex-1"
-            value={it.name}
-            placeholder="الصنف"
-            onChange={(e) => set(n, { name: e.target.value })}
-          />
-          <input
-            className="input-field w-24"
-            inputMode="numeric"
-            value={it.qty}
-            placeholder="الكمية"
-            onChange={(e) => set(n, { qty: e.target.value })}
-          />
-          <button
-            className="btn-secondary !px-2 text-xs"
-            onClick={() => setItems(items.filter((_, i) => i !== n))}
-          >
-            شيل
-          </button>
-        </div>
-      ))}
-      <button
-        className="btn-secondary !px-2 !py-1 text-xs"
-        onClick={() => setItems([...items, { name: '', qty: '' }])}
-      >
-        + صنف
-      </button>
+      <p className="text-xs whitespace-pre-wrap opacity-70">الرسالة: {row.body}</p>
+      <p className="text-[11px] opacity-70">
+        الأصناف اللي «من الرسالة» اتقرت من الكلام؛ لو عايزة تربطيها بالكتالوج شيليها ودوّري عليها
+        تحت.
+      </p>
+      <RequestItemsPicker items={items} onChange={setItems} />
       <input
         className="input-field"
         value={note}
@@ -995,12 +1140,7 @@ function ItemsEditor({
         disabled={saving}
         onClick={() =>
           onSave(
-            items
-              .filter((i) => i.name.trim())
-              .map((i) => {
-                const q = Number(i.qty.replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))));
-                return { name: i.name.trim(), qty: Number.isFinite(q) && q > 0 ? q : null };
-              }),
+            items.filter((i) => i.name.trim()),
             note
           )
         }

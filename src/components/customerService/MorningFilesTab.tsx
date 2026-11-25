@@ -16,8 +16,11 @@ import {
 import { importPurchaseReport, readEPlusFile } from '@/lib/purchaseReview/api';
 import { fillSupplierCodes } from '@/lib/purchaseReview/ePlusReport';
 import { normalizeName } from '@/lib/purchaseReview/ledger';
+import { GroupUpload } from '@/components/customerService/GroupsTab';
+import { loadGroupUploads, type GroupUploads } from '@/lib/customerServiceTasks/groups';
 import {
   PURCHASE_STORES,
+  cairoDay,
   dayOnlyLabel,
   freshness,
   loadMorningUploads,
@@ -110,11 +113,17 @@ export default function MorningFilesTab({ today }: { today: string }) {
   const { user } = useAuth();
   const [uploads, setUploads] = useState<MorningUploads | null>(null);
   const [error, setError] = useState('');
+  const [groups, setGroups] = useState<GroupUploads | null>(null);
 
   const load = useCallback(async () => {
     try {
       setError('');
-      setUploads(await loadMorningUploads());
+      const [u, g] = await Promise.all([
+        loadMorningUploads(),
+        loadGroupUploads().catch(() => null),
+      ]);
+      setUploads(u);
+      setGroups(g);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -124,7 +133,17 @@ export default function MorningFilesTab({ today }: { today: string }) {
   }, [load]);
 
   const fresh: Record<FileKind, boolean> | null = uploads ? freshness(uploads, today) : null;
-  const done = fresh ? Object.values(fresh).filter(Boolean).length : 0;
+  const groupFresh = {
+    followups: !!groups && cairoDay(groups.followups.at) === today,
+    requests: !!groups && cairoDay(groups.requests.at) === today,
+  };
+  const done = fresh
+    ? Object.values(fresh).filter(Boolean).length + Object.values(groupFresh).filter(Boolean).length
+    : 0;
+  const groupLine = (g: GroupUploads['followups'] | undefined) =>
+    g
+      ? `آخر رفع ${timeLabel(g.at, today)} · آخر رسالة فيه ${timeLabel(g.last_message, today)}`
+      : '…';
   const branchLine = (rows: MorningUploads['sales']) =>
     BRANCHES.map((b) => {
       const r = rows.find((x) => x.branch === b);
@@ -137,11 +156,11 @@ export default function MorningFilesTab({ today }: { today: string }) {
         <SectionTitle
           icon={<FolderUp size={18} />}
           title="ملفات الصبح"
-          subtitle="أول ما توصلي ارفعي الأربع ملفات بالترتيب، وبعدين ارجعي للشيت ودوسي «جهّز مهام النهارده»"
+          subtitle="أول ما توصلي ارفعي الملفات بالترتيب، وبعدين ارجعي للشيت ودوسي «جهّز مهام النهارده»"
         />
         <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
           <span className="font-black">
-            {fresh ? `${done} من 4 جاهزين` : <Loader2 size={16} className="animate-spin" />}
+            {fresh ? `${done} من 6 جاهزين` : <Loader2 size={16} className="animate-spin" />}
           </span>
           <button
             className="btn-secondary inline-flex items-center gap-1"
@@ -209,6 +228,26 @@ export default function MorningFilesTab({ today }: { today: string }) {
         }
       >
         <PurchasesUpload onDone={load} />
+      </Step>
+
+      <Step
+        n={5}
+        title="جروب المتابعات (واتساب)"
+        hint="صدّري جروب المتابعات من غير وسائط: كل حالة فيها كود أو رقم عميل بتبقى مهمة في شيت النهارده وبتتحسب للدكتور."
+        fresh={groups ? groupFresh.followups : null}
+        status={groupLine(groups?.followups)}
+      >
+        <GroupUpload kind="followups" onDone={() => void load()} />
+      </Step>
+
+      <Step
+        n={6}
+        title="جروب طلبات العملاء (واتساب)"
+        hint="صدّري جروب الطلبات: كل طلب بيتسجل بأصنافه وكمياته وتتابعيه من «الجروبات»."
+        fresh={groups ? groupFresh.requests : null}
+        status={groupLine(groups?.requests)}
+      >
+        <GroupUpload kind="requests" onDone={() => void load()} />
       </Step>
     </div>
   );

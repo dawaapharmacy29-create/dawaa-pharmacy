@@ -20,6 +20,9 @@ const ERRORS: Record<string, string> = {
   group_invalid_rows: 'الملف كبير أوي أو فاضي',
   group_requests_invalid_branch: 'اختاري الفرع',
   group_invalid_status: 'الحالة دي مش من القايمة',
+  request_needs_customer: 'اكتبي كود العميل أو رقم موبايله',
+  request_needs_items: 'ضيفي صنف واحد على الأقل',
+  unknown_staff: 'الدكتور ده مش في القايمة',
 };
 
 function fail(error: { message?: string } | null, fallback: string): never {
@@ -49,7 +52,15 @@ export async function loadGroupDoctors(): Promise<GroupDoctor[]> {
 
 // ---------- الأصناف والكميات ----------
 
-export type RequestItem = { name: string; qty: number | null };
+/** A requested item. code/price when it was picked from the catalog, new when it is not in it, image when one was added. */
+export type RequestItem = {
+  name: string;
+  qty: number | null;
+  code?: string | null;
+  price?: number | null;
+  image?: string | null;
+  new?: boolean;
+};
 
 const UNIT =
   '(?:علب[هة]?|علب|عبو[هة]|عبوات|شريط|شرايط|كيس|اكياس|أكياس|زجاج[هة]|ازاز[هة]|إزاز[هة]|امبول|أمبول|حقن[هة]?|قطع[هة]|كرتون[هة]|باكو|باكت|قلم|اقلام|أقلام)';
@@ -312,6 +323,10 @@ export async function loadGroupRequests(filter: {
         ? r.items.map((i) => ({
             name: String(i?.name ?? ''),
             qty: i?.qty == null || i.qty === ('' as unknown) ? null : num(i.qty),
+            ...(i?.code ? { code: String(i.code) } : {}),
+            ...(i?.price != null && i.price !== ('' as unknown) ? { price: num(i.price) } : {}),
+            ...(i?.image ? { image: String(i.image) } : {}),
+            ...(i?.new ? { new: true } : {}),
           }))
         : parseItems(r.details),
   }));
@@ -386,15 +401,18 @@ export async function exportRequestsWorkbook(rows: GroupRequest[], title: string
     { header: 'العميل', key: 'name', width: 22 },
     { header: 'الكود', key: 'code', width: 9 },
     { header: 'الموبايل', key: 'phone', width: 14 },
+    { header: 'كود الصنف', key: 'icode', width: 10 },
     { header: 'الصنف', key: 'item', width: 32 },
     { header: 'الكمية', key: 'qty', width: 8 },
+    { header: 'السعر', key: 'price', width: 9 },
+    { header: 'صورة', key: 'image', width: 14 },
     { header: 'الحالة', key: 'status', width: 12 },
     { header: 'الدكتور', key: 'doctor', width: 16 },
     { header: 'ملاحظة', key: 'note', width: 26 },
     { header: 'الرسالة', key: 'body', width: 50 },
   ];
   for (const r of rows) {
-    const items = r.items.length ? r.items : [{ name: r.details ?? '', qty: null }];
+    const items: RequestItem[] = r.items.length ? r.items : [{ name: r.details ?? '', qty: null }];
     items.forEach((it, i) =>
       ws.addRow({
         day: r.day.split('-').reverse().join('/'),
@@ -402,8 +420,11 @@ export async function exportRequestsWorkbook(rows: GroupRequest[], title: string
         name: r.customer_name ?? '',
         code: r.customer_code ?? '',
         phone: r.customer_phone ?? '',
+        icode: it.code ?? (it.new ? 'جديد' : ''),
         item: it.name,
         qty: it.qty ?? '',
+        price: it.price ?? '',
+        image: it.image ? { text: 'الصورة', hyperlink: it.image } : '',
         status: REQUEST_STATUSES[r.status] ?? r.status,
         doctor: r.doctor ?? r.sender ?? '',
         note: r.status_note ?? '',
@@ -440,4 +461,46 @@ export async function exportRequestsWorkbook(rows: GroupRequest[], title: string
   return new Blob([buf], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });
+}
+
+// ---------- طلب من الصفحة ----------
+
+export type NewRequest = {
+  branch: string;
+  customerCode: string;
+  customerPhone: string;
+  customerName: string;
+  items: RequestItem[];
+  note: string;
+  staffId: string | null;
+};
+
+export async function createGroupRequest(r: NewRequest): Promise<string> {
+  const { data, error } = await supabase.rpc('dawaa_cs_group_request_create_v1', {
+    p_branch: r.branch,
+    p_customer_code: r.customerCode.trim() || null,
+    p_customer_phone: r.customerPhone.trim() || null,
+    p_customer_name: r.customerName.trim() || null,
+    p_items: r.items.filter((i) => i.name.trim()),
+    p_note: r.note.trim() || null,
+    p_staff_id: r.staffId,
+  });
+  if (error) fail(error, 'تعذّر تسجيل الطلب');
+  return String((data as { fingerprint?: string } | null)?.fingerprint ?? '');
+}
+
+export type GroupUploads = {
+  followups: { at: string | null; last_message: string | null };
+  requests: { at: string | null; last_message: string | null };
+};
+
+/** When each group was last uploaded (for the morning files page). */
+export async function loadGroupUploads(): Promise<GroupUploads> {
+  const { data, error } = await supabase.rpc('dawaa_cs_group_uploads_v1');
+  if (error) fail(error, 'تعذّر تحميل آخر رفع للجروبات');
+  const d = (data ?? {}) as Partial<GroupUploads>;
+  return {
+    followups: { at: d.followups?.at ?? null, last_message: d.followups?.last_message ?? null },
+    requests: { at: d.requests?.at ?? null, last_message: d.requests?.last_message ?? null },
+  };
 }
