@@ -16,6 +16,7 @@ import {
 import {
   REQUEST_STATUSES,
   createGroupRequest,
+  exportFollowupsWorkbook,
   exportRequestsWorkbook,
   followupCandidates,
   importFollowups,
@@ -35,6 +36,15 @@ import {
   type RequestStatus,
 } from '@/lib/customerServiceTasks/groups';
 import { whatsappNumber } from '@/lib/customerServiceTasks/tasks';
+import { loadCatalog } from '@/lib/customerServiceTasks/productSearch';
+import {
+  FOLLOWUP_KINDS,
+  followupBrief,
+  understandFollowup,
+  withKind,
+  type FollowupKind,
+  type FollowupUnderstanding,
+} from '@/lib/customerServiceTasks/followupUnderstanding';
 import RequestItemsPicker from '@/components/customerService/RequestItemsPicker';
 
 // «الجروبات»: البنت ترفع تصدير جروب المتابعات وجروب الطلبات من الواتساب.
@@ -169,6 +179,8 @@ function FollowupsSection({
   const [days, setDays] = useState(3);
   const [picked, setPicked] = useState<Record<string, boolean>>({});
   const [codes, setCodes] = useState<Record<string, string>>({});
+  // اللي السيستم فهمه من كل رسالة، والبنت بتعدّله قبل الحفظ.
+  const [reads, setReads] = useState<Record<string, FollowupUnderstanding>>({});
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState<GroupFollowup[] | null>(null);
   const [branchView, setBranchView] = useState('');
@@ -197,6 +209,15 @@ function FollowupsSection({
       const rows = followupCandidates(content, doctors);
       if (!rows.length) throw new Error('empty');
       const branch = detectGroupBranch(file.name, content) ?? '';
+      const catalog = await loadCatalog().catch(() => null);
+      setReads(
+        Object.fromEntries(
+          rows.map((r) => [
+            r.fingerprint,
+            understandFollowup(r.body, r.sentAtLocal.slice(0, 10), catalog),
+          ])
+        )
+      );
       setLoaded({ fileName: file.name, branch, rows });
       setPicked(Object.fromEntries(rows.map((r) => [r.fingerprint, r.likely])));
       setCodes({});
@@ -217,8 +238,25 @@ function FollowupsSection({
   };
   const chosen = shown.filter((r) => picked[r.fingerprint]);
   const willTask = chosen.filter(
-    (r) => (codeOf(r) || r.customerPhone) && r.sentAtLocal.slice(0, 10) >= addDays(today, -3)
+    (r) =>
+      (codeOf(r) || r.customerPhone) &&
+      (r.sentAtLocal.slice(0, 10) >= addDays(today, -3) ||
+        (reads[r.fingerprint]?.dueDate ?? '') >= today)
   ).length;
+  const setRead = (fp: string, u: FollowupUnderstanding) => setReads({ ...reads, [fp]: u });
+
+  async function exportSaved() {
+    if (!saved?.length) return;
+    const blob = await exportFollowupsWorkbook(
+      saved,
+      `متابعات الجروب ${branchView || 'الفرعين'} — من ${addDays(today, -3)}`
+    );
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `متابعات-الجروب-${today}.xlsx`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }
 
   async function save() {
     if (!loaded?.branch) {
@@ -230,9 +268,19 @@ function FollowupsSection({
       const r = await importFollowups(
         loaded.fileName,
         loaded.branch,
-        chosen.map((c) => ({ ...c, customerCode: codeOf(c) }))
+        chosen.map((c) => {
+          const u = reads[c.fingerprint];
+          return {
+            ...c,
+            customerCode: codeOf(c),
+            understanding: u ? { ...u, brief: followupBrief(u, c.doctorName ?? c.sender) } : null,
+          };
+        })
       );
-      const parts = [`اتسجل ${r.saved} حالة`, `${r.tasks} مهمة جديدة في شيت النهارده`];
+      const parts = [
+        `اتسجل ${r.saved} حالة`,
+        `${r.tasks} مهمة جديدة (في شيت النهارده أو يوم ميعادها)`,
+      ];
       if (r.no_customer) parts.push(`${r.no_customer} من غير كود ولا رقم`);
       if (r.old) parts.push(`${r.old} أقدم من ٣ أيام ماتعملهاش مهمة`);
       toast.success(parts.join(' · '), { duration: 10000 });
@@ -295,8 +343,10 @@ function FollowupsSection({
             </div>
             <p className="mt-2 text-xs opacity-70">
               اللي متعلم عليه السيستم شايفه حالة متابعة. شيلي العلامة من أي رسالة مش حالة، ولو
-              الحالة صورة فاتورة من غير كود اكتبي كود العميل في خانته. الرسالة اللي اترفعت قبل كده
-              مابتتكررش.
+              الحالة صورة فاتورة من غير كود اكتبي كود العميل في خانته. في خانة «المتابعة» السيستم
+              فهم نوعها والمطلوب والأصناف والميعاد من كلام الدكتور: راجعيهم وعدّلي لو محتاج، وده
+              اللي هيتكتب للبنت في الشيت. لو في ميعاد المهمة بتنزل في يومه. الرسالة اللي اترفعت قبل
+              كده مابتتكررش.
             </p>
             <div className="mt-3 max-h-[60vh] overflow-auto">
               <table className="w-full text-sm">
@@ -306,6 +356,7 @@ function FollowupsSection({
                     <th className="p-2">الوقت</th>
                     <th className="p-2">الدكتور</th>
                     <th className="p-2">الرسالة</th>
+                    <th className="p-2">المتابعة</th>
                     <th className="p-2">كود العميل</th>
                     <th className="p-2">الرقم</th>
                   </tr>
@@ -335,6 +386,15 @@ function FollowupsSection({
                       <td className="p-2 text-xs whitespace-pre-wrap">
                         {r.hasImage ? '📷 ' : ''}
                         {short(r.body, 220)}
+                      </td>
+                      <td className="p-2 min-w-[15rem]">
+                        {reads[r.fingerprint] ? (
+                          <FollowupReadEditor
+                            u={reads[r.fingerprint]}
+                            today={today}
+                            onChange={(u) => setRead(r.fingerprint, u)}
+                          />
+                        ) : null}
                       </td>
                       <td className="p-2">
                         <input
@@ -395,6 +455,13 @@ function FollowupsSection({
             >
               <RefreshCw size={16} /> تحديث
             </button>
+            <button
+              className="btn-secondary inline-flex items-center gap-1"
+              disabled={!saved?.length}
+              onClick={() => void exportSaved()}
+            >
+              <Download size={16} /> ملف إكسيل للفريق
+            </button>
           </div>
           {!saved ? (
             <div className="flex justify-center p-6">
@@ -411,7 +478,7 @@ function FollowupsSection({
                     <th className="p-2">الفرع</th>
                     <th className="p-2">الدكتور</th>
                     <th className="p-2">العميل</th>
-                    <th className="p-2">الرسالة</th>
+                    <th className="p-2">المطلوب</th>
                     <th className="p-2">المهمة</th>
                   </tr>
                 </thead>
@@ -430,11 +497,42 @@ function FollowupsSection({
                           <span className="block opacity-70">{f.customer_phone}</span>
                         ) : null}
                       </td>
-                      <td className="p-2 text-xs">{short(f.body, 140)}</td>
+                      <td className="p-2 text-xs">
+                        {f.kind ? (
+                          <span
+                            className={`font-bold ${f.urgent ? 'text-[var(--dawaa-status-danger-text)]' : ''}`}
+                          >
+                            {FOLLOWUP_KINDS[f.kind]}
+                            {f.urgent ? ' · ضروري' : ''}
+                          </span>
+                        ) : null}
+                        <span className="block whitespace-pre-wrap">
+                          {f.brief
+                            ? short(f.brief.split('\n')[0].replace(/^[^:]+:\s*/, ''), 160)
+                            : short(f.body, 140)}
+                        </span>
+                        {f.items?.length ? (
+                          <span className="block opacity-70">الأصناف: {f.items.join('، ')}</span>
+                        ) : null}
+                        {f.due_date ? (
+                          <span className="block opacity-70">
+                            الميعاد: {f.due_date.slice(8, 10)}/{f.due_date.slice(5, 7)}
+                          </span>
+                        ) : null}
+                      </td>
                       <td className="p-2 text-xs">
                         {f.task_date ? (
                           <>
-                            <span className="font-bold">{f.result ? 'اتعملت' : 'في الشيت'}</span>
+                            <span className="font-bold">
+                              {f.result
+                                ? 'اتعملت'
+                                : f.task_date > today
+                                  ? 'في شيت يوم'
+                                  : 'في الشيت'}
+                              {!f.result && f.task_date > today
+                                ? ` ${f.task_date.slice(8, 10)}/${f.task_date.slice(5, 7)}`
+                                : ''}
+                            </span>
                             {f.assigned_name ? (
                               <span className="block opacity-70">على {f.assigned_name}</span>
                             ) : null}
@@ -454,6 +552,74 @@ function FollowupsSection({
         </Panel>
       )}
     </>
+  );
+}
+
+/** What the system understood from one message, for the team to check and correct before saving. */
+function FollowupReadEditor({
+  u,
+  today,
+  onChange,
+}: {
+  u: FollowupUnderstanding;
+  today: string;
+  onChange: (u: FollowupUnderstanding) => void;
+}) {
+  return (
+    <div className="space-y-1 text-xs">
+      <div className="flex items-center gap-1">
+        <select
+          className="input-field w-auto !py-1 text-xs font-bold"
+          value={u.kind}
+          onChange={(e) => onChange(withKind(u, e.target.value as FollowupKind))}
+        >
+          {(Object.keys(FOLLOWUP_KINDS) as FollowupKind[]).map((k) => (
+            <option key={k} value={k}>
+              {FOLLOWUP_KINDS[k]}
+            </option>
+          ))}
+        </select>
+        <label className="inline-flex items-center gap-1 whitespace-nowrap">
+          <input
+            type="checkbox"
+            checked={u.urgent}
+            onChange={(e) => onChange({ ...u, urgent: e.target.checked })}
+          />
+          ضروري
+        </label>
+      </div>
+      <textarea
+        className="input-field !py-1 text-xs"
+        rows={2}
+        value={u.action}
+        onChange={(e) => onChange({ ...u, action: e.target.value })}
+      />
+      {u.items.length || u.patient ? (
+        <div className="opacity-70">
+          {u.patient ? <span>المريض: {u.patient} </span> : null}
+          {u.items.length ? <span>الأصناف: {u.items.join('، ')}</span> : null}
+        </div>
+      ) : null}
+      <label className="flex items-center gap-1">
+        <span className="opacity-70 whitespace-nowrap">الميعاد</span>
+        <input
+          type="date"
+          className="input-field w-auto !py-0.5 text-xs"
+          min={today}
+          value={u.dueDate ?? ''}
+          onChange={(e) => {
+            const d = e.target.value || null;
+            onChange({
+              ...u,
+              dueDate: d,
+              dueLabel: d ? `يوم ${d.slice(8, 10)}/${d.slice(5, 7)}` : null,
+            });
+          }}
+        />
+        {u.dueLabel && u.dueDate ? <span className="opacity-60">({u.dueLabel})</span> : null}
+        {!u.dueDate ? <span className="opacity-60">في أقرب وقت</span> : null}
+      </label>
+    </div>
   );
 }
 

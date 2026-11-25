@@ -1,5 +1,10 @@
 import { supabase } from '@/supabaseClient';
 import { parseGroupChat } from '@/lib/followupRequests/groupChatRequests';
+import {
+  FOLLOWUP_KINDS,
+  type FollowupKind,
+  type FollowupUnderstanding,
+} from './followupUnderstanding';
 import { findNamedDoctor } from '@/lib/followupRequests/namedDoctor';
 import {
   describeRequest,
@@ -179,7 +184,12 @@ export type FollowupImport = {
 export async function importFollowups(
   fileName: string,
   branch: string,
-  rows: Array<FollowupCandidate & { customerCode: string | null }>
+  rows: Array<
+    FollowupCandidate & {
+      customerCode: string | null;
+      understanding?: (FollowupUnderstanding & { brief: string }) | null;
+    }
+  >
 ): Promise<FollowupImport> {
   const { data, error } = await supabase.rpc('dawaa_cs_group_followups_import_v1', {
     p_file_name: fileName,
@@ -193,6 +203,12 @@ export async function importFollowups(
       customer_code: c.customerCode,
       customer_phone: c.customerPhone,
       customer_name: c.customerName,
+      kind: c.understanding?.kind ?? null,
+      brief: c.understanding?.brief ?? null,
+      due_date: c.understanding?.dueDate ?? null,
+      items: c.understanding?.items ?? [],
+      patient: c.understanding?.patient ?? null,
+      urgent: c.understanding?.urgent ?? false,
     })),
   });
   if (error) fail(error, 'تعذّر الحفظ');
@@ -218,6 +234,12 @@ export type GroupFollowup = {
   task_date: string | null;
   result: string | null;
   assigned_name: string | null;
+  kind: FollowupKind | null;
+  brief: string | null;
+  due_date: string | null;
+  items: string[] | null;
+  patient: string | null;
+  urgent: boolean | null;
 };
 
 export async function loadGroupFollowups(
@@ -503,4 +525,89 @@ export async function loadGroupUploads(): Promise<GroupUploads> {
     followups: { at: d.followups?.at ?? null, last_message: d.followups?.last_message ?? null },
     requests: { at: d.requests?.at ?? null, last_message: d.requests?.last_message ?? null },
   };
+}
+
+/** The follow-up cases as the team works them: who, what kind, what to do, when, and the doctor's words. */
+export async function exportFollowupsWorkbook(rows: GroupFollowup[], title: string): Promise<Blob> {
+  const ExcelJS = (await import('exceljs')).default;
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('المتابعات', {
+    views: [{ rightToLeft: true, state: 'frozen', ySplit: 1 }],
+  });
+  ws.columns = [
+    { header: 'اليوم', key: 'day', width: 11 },
+    { header: 'الفرع', key: 'branch', width: 9 },
+    { header: 'العميل', key: 'name', width: 20 },
+    { header: 'الكود', key: 'code', width: 9 },
+    { header: 'الموبايل', key: 'phone', width: 14 },
+    { header: 'نوع المتابعة', key: 'kind', width: 18 },
+    { header: 'المطلوب', key: 'todo', width: 48 },
+    { header: 'الأصناف', key: 'items', width: 22 },
+    { header: 'المريض', key: 'patient', width: 10 },
+    { header: 'الميعاد', key: 'due', width: 11 },
+    { header: 'الدكتور', key: 'doctor', width: 14 },
+    { header: 'كلام الدكتور', key: 'body', width: 44 },
+    { header: 'المهمة', key: 'task', width: 20 },
+  ];
+  const day = (iso: string | null) => (iso ? iso.slice(0, 10).split('-').reverse().join('/') : '');
+  for (const r of rows) {
+    const todo = (r.brief ?? '').split('\n')[0].replace(/^[^:]+:\s*/, '');
+    const row = ws.addRow({
+      day: new Date(r.sent_at).toLocaleDateString('en-GB', { timeZone: 'Africa/Cairo' }),
+      branch: r.branch.replace('فرع ', ''),
+      name: r.customer_name ?? '',
+      code: r.customer_code ?? '',
+      phone: r.customer_phone ?? '',
+      kind: (r.kind ? FOLLOWUP_KINDS[r.kind] : 'متابعة') + (r.urgent ? ' (ضروري)' : ''),
+      todo,
+      items: (r.items ?? []).join('، '),
+      patient: r.patient ?? '',
+      due: day(r.due_date) || 'في أقرب وقت',
+      doctor: r.doctor,
+      body: r.body,
+      task: r.task_date
+        ? `${r.result ? 'اتعملت' : 'في شيت'} ${day(r.task_date)}${r.assigned_name ? ` على ${r.assigned_name}` : ''}`
+        : r.customer_code || r.customer_phone
+          ? 'أقدم من ٣ أيام'
+          : 'محتاجة كود',
+    });
+    row.alignment = { vertical: 'top', wrapText: true, readingOrder: 'rtl' };
+    if (r.urgent) row.getCell('kind').font = { bold: true, color: { argb: 'FFB91C1C' } };
+  }
+  const head = ws.getRow(1);
+  head.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+  head.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0F766E' } };
+  head.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+  head.height = 24;
+  ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: ws.columnCount } };
+
+  const sum = wb.addWorksheet('حسب النوع', { views: [{ rightToLeft: true }] });
+  sum.columns = [
+    { header: 'نوع المتابعة', key: 'kind', width: 24 },
+    { header: 'عدد الحالات', key: 'n', width: 12 },
+    { header: 'اتعملت', key: 'done', width: 10 },
+  ];
+  const by = new Map<string, { n: number; done: number }>();
+  for (const r of rows) {
+    const k = r.kind ? FOLLOWUP_KINDS[r.kind] : 'متابعة';
+    const e = by.get(k) ?? { n: 0, done: 0 };
+    e.n += 1;
+    if (r.result) e.done += 1;
+    by.set(k, e);
+  }
+  [...by.entries()]
+    .sort((a, b) => b[1].n - a[1].n)
+    .forEach(([kind, e]) => sum.addRow({ kind, ...e }));
+  sum.getRow(1).font = { bold: true };
+
+  const info = wb.addWorksheet('عن الملف', { views: [{ rightToLeft: true }] });
+  info.getColumn(1).width = 90;
+  info.addRow([title]).font = { bold: true, size: 13 };
+  info.addRow([
+    '«المطلوب» و«نوع المتابعة» و«الميعاد» السيستم فهمهم من كلام الدكتور والبنت راجعتهم وقت الرفع.',
+  ]);
+  const buf = await wb.xlsx.writeBuffer();
+  return new Blob([buf], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
 }

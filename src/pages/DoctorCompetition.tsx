@@ -27,6 +27,7 @@ import { hasPermission } from '@/lib/core/permissionSystem';
 import { loadDesignPack, type DesignPack, type PackDoctor } from '@/lib/doctorCompetitionDesignPack';
 import { competitionStanding } from '@/lib/competitionStanding';
 import CompetitionStandingCard from '@/components/competition/CompetitionStandingCard';
+import CompetitionPodium, { type PodiumWinner } from '@/components/competition/CompetitionPodium';
 
 const ALL_BRANCHES = 'كل الفروع';
 type PackEntry = { doctor: PackDoctor; branch: string; doctors: PackDoctor[] };
@@ -549,6 +550,33 @@ export default function DoctorCompetition() {
     return sorted.sort((a, b) => b.totalSales - a.totalSales);
   }, [mode, pointsAvailable, pointsOf, requestsFor, rows]);
 
+  // The top three of the ranking shown, with what each of them did.
+  const podium = useMemo<PodiumWinner[]>(() => visibleRows.slice(0, 3).map((row) => {
+    const entry = entryFor(row);
+    const points = pointsOf(row);
+    const review = reviewAverage(row);
+    const requests = entry?.doctor.followup_requests ?? (requestCounts === null ? null : requestsFor(row));
+    const headline = mode === 'points' && points !== null ? { value: points.toFixed(1), label: 'نقطة من ١٠٠' }
+      : mode === 'invoices' ? { value: row.invoices.toLocaleString('ar-EG'), label: 'فاتورة' }
+      : mode === 'average' ? { value: money(row.avgInvoice), label: 'متوسط الفاتورة' }
+      : mode === 'requests' ? { value: requestsFor(row).toLocaleString('ar-EG'), label: 'طلب متابعة' }
+      : { value: money(row.totalSales), label: 'مبيعات' };
+    const stats: PodiumWinner['stats'] = [
+      { label: 'المبيعات', value: money(row.totalSales) },
+      { label: 'الفواتير', value: row.invoices.toLocaleString('ar-EG') },
+      { label: 'متوسط الفاتورة', value: money(row.avgInvoice) },
+      ...(entry?.doctor.customer_requests != null ? [{ label: 'طلبات العملاء', value: entry.doctor.customer_requests.toLocaleString('ar-EG') }] : []),
+      ...(requests != null ? [{ label: 'طلبات المتابعة', value: requests.toLocaleString('ar-EG') }] : []),
+      ...(review !== null ? [{ label: 'تقييم المحادثات', value: `${review.toFixed(1)}/100` }] : []),
+      ...(entry ? [{ label: 'متوسط الشيفت', value: money(entry.doctor.daily_average) }] : []),
+      ...(entry?.doctor.commitment_percent != null ? [{ label: 'الالتزام', value: `${entry.doctor.commitment_percent.toLocaleString('ar-EG')}%` }] : []),
+    ];
+    return { key: scoreKey(row), name: row.name, branch: entry && mergeAllBranches ? entry.branch : row.branch, headline, stats, mine: currentDoctor(user, row) };
+  }), [entryFor, mergeAllBranches, mode, pointsOf, requestCounts, requestsFor, user, visibleRows]);
+  const podiumTitle = mode === 'points' && pointsAvailable ? 'الأوائل بالنقط لحد امبارح'
+    : mode === 'sales' ? 'الأوائل بالمبيعات' : mode === 'invoices' ? 'الأوائل بعدد الفواتير'
+    : mode === 'average' ? 'الأوائل بمتوسط الفاتورة' : mode === 'requests' ? 'الأوائل بطلبات المتابعة' : 'الأوائل';
+
   const pointsText = (row: DoctorCompetitionScore) => {
     const points = pointsOf(row);
     return points === null ? 'غير متاح' : points.toFixed(1);
@@ -646,6 +674,8 @@ export default function DoctorCompetition() {
 
     {warning ? <div className="rounded-2xl border border-amber-300/25 bg-amber-400/10 p-4 text-sm font-bold text-amber-100">{warning}</div> : null}
     {error ? <div className="rounded-2xl border border-red-300/25 bg-red-500/10 p-4 text-sm font-bold text-red-100">{error}</div> : null}
+
+    {!loading && !error ? <CompetitionPodium winners={podium} title={podiumTitle} /> : null}
 
     <section className="rounded-3xl border p-4" style={surface}>
       <div className="mb-3 flex items-center justify-between">
