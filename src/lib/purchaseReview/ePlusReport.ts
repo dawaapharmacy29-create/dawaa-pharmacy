@@ -6,6 +6,25 @@
 
 export type PurchaseBranch = 'فرع شكري' | 'فرع الشامي';
 
+/** One item line of an invoice in the detailed report (the columns ن.الربح … الكود under the header). */
+export interface ParsedLine {
+  line_no: number;
+  code: string;
+  name: string;
+  qty: number;
+  bonus: number;
+  return_qty: number;
+  /** Purchase price of one unit, and the line's purchase total. */
+  buy_price: number;
+  buy_total: number;
+  sell_price: number;
+  sell_total: number;
+  profit: number;
+  profit_pct: number;
+  /** «MM/YYYY» as written. */
+  expiry: string | null;
+}
+
 export interface ParsedInvoice {
   serial: string;
   payment: 'credit' | 'cash';
@@ -22,6 +41,8 @@ export interface ParsedInvoice {
   net: number;
   entered_by: string | null;
   note: string | null;
+  /** The item lines, when the report was exported with them. */
+  lines?: ParsedLine[];
 }
 
 export interface ParsedReport {
@@ -65,6 +86,28 @@ export function branchOfStore(store: string): PurchaseBranch | null {
 
 const isInvoiceHeader = (row: Cell[]) =>
   text(row[0]) === 'ملاحظات' && text(row[2]) === 'صافى الفاتورة';
+/** An item line: a code and a name in their columns and a number in «كمية». */
+function itemLine(row: Cell[], lineNo: number): ParsedLine | null {
+  const code = text(row[15]);
+  const name = text(row[14]).replace(/\s+/g, ' ');
+  if (!code || !name || text(row[6]) === 'الإجمالى' || !/\d/.test(text(row[11]))) return null;
+  return {
+    line_no: lineNo,
+    code,
+    name,
+    qty: reportNumber(row[11]),
+    bonus: reportNumber(row[10]),
+    return_qty: reportNumber(row[9]),
+    buy_price: reportNumber(row[5]),
+    buy_total: reportNumber(row[4]),
+    sell_price: reportNumber(row[3]),
+    sell_total: reportNumber(row[18]),
+    profit: reportNumber(row[1]),
+    profit_pct: reportNumber(row[0]),
+    expiry: text(row[13]) || null,
+  };
+}
+
 const isTotalLine = (row: Cell[]) => text(row[6]) === 'الإجمالى' && text(row[8]) === 'عدد الأصناف';
 const SECTIONS: Record<string, 'credit' | 'cash'> = { آجل: 'credit', نقدى: 'cash', نقدي: 'cash' };
 
@@ -114,6 +157,13 @@ export function parseEPlusPurchases(rows: Cell[][]): ParsedReport {
       };
       invoices.push(current);
       continue;
+    }
+    if (current && !isTotalLine(row)) {
+      const line = itemLine(row, (current.lines?.length ?? 0) + 1);
+      if (line) {
+        current.lines = [...(current.lines ?? []), line];
+        continue;
+      }
     }
     if (current && isTotalLine(row)) {
       current.items = reportNumber(row[7]);

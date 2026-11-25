@@ -20,6 +20,8 @@ import {
   type TransferSale,
 } from '@/lib/customerServiceTasks/morning';
 import { BranchPicker, ProblemPicker } from './MorningPurchasesTab';
+import TransferLinesCompare from './TransferLinesCompare';
+import TransferAccuracyReport from './TransferAccuracyReport';
 
 // الخطوة التانية: التحويلات اللي دخلت فرعها. التحويل عندنا فاتورة بيع في الفرع اللي بعت (لعميل الفرع ده)
 // وفاتورة شراء في الفرع ده من مورد الفرع التاني. الصفحة بتربطهم تلقائي، والبنت تأكد أو تربط بإيدها أو تسجل المشكلة.
@@ -35,6 +37,7 @@ const money = (v: number) => v.toLocaleString('ar-EG', { maximumFractionDigits: 
 const HOW: Record<TransferPair['how'], string> = {
   saved: 'متأكد',
   number: 'بالرقم',
+  codes: 'نفس الأصناف',
   value_items: 'نفس القيمة والأصناف',
   value: 'نفس القيمة',
 };
@@ -142,8 +145,9 @@ export default function MorningTransfersTab() {
         </div>
         <p className="mt-2 text-xs opacity-70">
           الربط التلقائي بالرقم الأول (لو رقم فاتورة البيع مكتوب كرقم فاتورة المورد)، وبعدين بنفس
-          القيمة وعدد الأصناف. قارني أصناف البيع اللي ظاهرة بفاتورة الشراء على بي كونكت قبل ما
-          تأكدي. أصناف فاتورة الشراء نفسها مش في ملف المشتريات.
+          الأصناف، وبعدين بنفس القيمة وعدد الأصناف. تحت كل تحويل مقارنة صنف صنف: الكود والكمية في
+          البيع قصاد الشراء، ولو نفس الصنف اتسجل بكودين بتظهر. ده بيشتغل لما تقرير المشتريات يترفع
+          بالأصناف.
         </p>
         {day.purchases.length > 0 && day.sales.length === 0 ? (
           <p className="mt-2 text-sm font-black text-[var(--dawaa-status-danger-text)]">
@@ -187,8 +191,9 @@ export default function MorningTransfersTab() {
                 >
                   <div className="grid gap-3 md:grid-cols-2">
                     <PurchaseCard p={p.purchase} />
-                    <SaleCard s={p.sale} />
+                    <SaleCard s={p.sale} compact={p.purchase.lines.length > 0} />
                   </div>
+                  <TransferLinesCompare purchase={p.purchase} sale={p.sale} />
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                     <span className="rounded-full bg-[var(--dawaa-theme-soft)] px-2 py-0.5 font-bold">
                       {HOW[p.how]}
@@ -268,6 +273,7 @@ export default function MorningTransfersTab() {
                 className="rounded-2xl border border-[var(--dawaa-status-warning-border,var(--dawaa-theme-border))] p-3"
               >
                 <PurchaseCard p={p} />
+                {p.lines.length ? <ItemList items={p.lines} /> : null}
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                   {p.check ? (
                     <span className="font-black text-[var(--dawaa-status-danger-text)]">
@@ -331,6 +337,8 @@ export default function MorningTransfersTab() {
           </div>
         )}
       </Panel>
+
+      <TransferAccuracyReport />
     </div>
   );
 }
@@ -350,7 +358,20 @@ function PurchaseCard({ p }: { p: TransferPurchase }) {
   );
 }
 
-function SaleCard({ s }: { s: TransferSale }) {
+function ItemList({ items }: { items: Array<{ code: string; name: string; qty: number }> }) {
+  return (
+    <ul className="mt-1 list-disc pr-5 text-xs" dir="auto">
+      {items.slice(0, 8).map((it, n) => (
+        <li key={n}>
+          <span className="font-mono opacity-60">{it.code}</span> {it.name} × {it.qty}
+        </li>
+      ))}
+      {items.length > 8 ? <li>و{items.length - 8} صنف كمان</li> : null}
+    </ul>
+  );
+}
+
+function SaleCard({ s, compact }: { s: TransferSale; compact?: boolean }) {
   return (
     <div className="text-sm">
       <div className="text-xs font-bold opacity-70">بيع · فاتورة {s.invoice}</div>
@@ -360,16 +381,7 @@ function SaleCard({ s }: { s: TransferSale }) {
       <div className="text-xs opacity-70">
         {fmtTime(s.at)} · {s.seller ?? '—'}
       </div>
-      {s.items.length ? (
-        <ul className="mt-1 list-disc pr-5 text-xs">
-          {s.items.slice(0, 8).map((it, n) => (
-            <li key={n}>
-              {it.name} × {it.qty}
-            </li>
-          ))}
-          {s.items.length > 8 ? <li>و{s.items.length - 8} صنف كمان</li> : null}
-        </ul>
-      ) : null}
+      {s.items.length && !compact ? <ItemList items={s.items} /> : null}
     </div>
   );
 }

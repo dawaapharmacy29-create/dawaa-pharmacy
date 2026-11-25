@@ -105,7 +105,17 @@ export type TransferPurchase = {
   net: number;
   entered_by: string | null;
   note: string | null;
+  /** The invoice's items, when its purchases report was uploaded with them. */
+  lines: TransferLine[];
   check: TransferCheck | null;
+};
+
+export type TransferLine = {
+  code: string;
+  name: string;
+  qty: number;
+  price: number;
+  total: number;
 };
 
 export type TransferSale = {
@@ -115,7 +125,7 @@ export type TransferSale = {
   seller: string | null;
   lines: number;
   note: string | null;
-  items: Array<{ name: string; qty: number; total: number }>;
+  items: TransferLine[];
   check: TransferCheck | null;
 };
 
@@ -184,7 +194,10 @@ export async function loadPurchaseDay(
 }
 
 /** Serial, supplier invoice number, whoever entered it, or supplier, in her branch over the last 90 days. */
-export async function searchPurchases(q: string, branch: string | null): Promise<PurchaseInvoice[]> {
+export async function searchPurchases(
+  q: string,
+  branch: string | null
+): Promise<PurchaseInvoice[]> {
   const { data, error } = await supabase.rpc('dawaa_cs_purchase_search_v1', {
     p_q: q,
     p_branch: branch,
@@ -226,8 +239,7 @@ export async function bulkApprovePurchases(
   return { approved: num(d.approved), kept: num(d.kept), skipped: d.skipped ?? [] };
 }
 
-const arabicDigits = (v: string) =>
-  v.replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
+const arabicDigits = (v: string) => v.replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
 
 /** Filters the loaded invoices by a number (serial or supplier invoice) or a name (who entered it, or supplier). */
 export function matchesPurchase(i: PurchaseInvoice, q: string): boolean {
@@ -335,17 +347,48 @@ export async function loadTransferDay(branch: string | null): Promise<TransferDa
     p_branch: branch,
   });
   if (error) fail(error, 'تعذّر تحميل التحويلات');
-  const d = data as TransferDay;
+  return transferData(data as TransferDay);
+}
+
+const transferLine = (l: Partial<TransferLine>): TransferLine => ({
+  code: String(l.code ?? ''),
+  name: String(l.name ?? ''),
+  qty: num(l.qty),
+  price: num(l.price),
+  total: num(l.total),
+});
+
+function transferData(d: TransferDay): TransferDay {
   return {
     ...d,
-    purchases: (d.purchases ?? []).map((p) => ({ ...p, net: num(p.net), items: num(p.items) })),
+    purchases: (d.purchases ?? []).map((p) => ({
+      ...p,
+      net: num(p.net),
+      items: num(p.items),
+      lines: (p.lines ?? []).map(transferLine),
+    })),
     sales: (d.sales ?? []).map((s) => ({
       ...s,
       net: num(s.net),
       lines: num(s.lines),
-      items: (s.items ?? []).map((it) => ({ ...it, qty: num(it.qty), total: num(it.total) })),
+      items: (s.items ?? []).map(transferLine),
     })),
   };
+}
+
+/** The transfers into a branch over a period (at most two months), for the accuracy report. */
+export async function loadTransferPeriod(
+  from: string,
+  to: string,
+  branch: string | null
+): Promise<TransferDay> {
+  const { data, error } = await supabase.rpc('dawaa_cs_transfer_period_v1', {
+    p_from: from,
+    p_to: to,
+    p_branch: branch,
+  });
+  if (error) fail(error, 'تعذّر تحميل التحويلات');
+  return transferData(data as TransferDay);
 }
 
 export async function saveTransferCheck(input: {
@@ -382,7 +425,7 @@ export async function buildUncodedNoteTasks(): Promise<UncodedBuild> {
 
 // ---- الربط التلقائي ----
 
-export type PairHow = 'saved' | 'number' | 'value_items' | 'value';
+export type PairHow = 'saved' | 'number' | 'codes' | 'value_items' | 'value';
 export type TransferPair = { purchase: TransferPurchase; sale: TransferSale; how: PairHow };
 export type TransferPairing = {
   pairs: TransferPair[];
@@ -391,6 +434,14 @@ export type TransferPairing = {
 };
 
 const same = (a: number, b: number) => Math.abs(a - b) <= 0.5;
+/** Share of the item codes the purchase and the sale have in common (0 when the purchase has no items). */
+export function sharedCodes(p: TransferPurchase, s: TransferSale): number {
+  if (!p.lines.length || !s.items.length) return 0;
+  const a = new Set(p.lines.map((l) => l.code));
+  const b = new Set(s.items.map((l) => l.code));
+  const both = [...a].filter((c) => b.has(c)).length;
+  return both / Math.max(a.size, b.size);
+}
 const minutes = (a: string, b: string) =>
   Math.abs(new Date(a).getTime() - new Date(b).getTime()) / 60000;
 
@@ -425,6 +476,8 @@ export function pairTransfers(
         how: 'number',
         match: (p, s) => !!p.supplier_invoice_no && p.supplier_invoice_no.trim() === s.invoice,
       },
+      // أصناف الفاتورتين (لما تقرير المشتريات يترفع بالأصناف): أغلب الأكواد واحدة.
+      { how: 'codes', match: (p, s) => sharedCodes(p, s) >= 0.6 },
       {
         how: 'value_items',
         match: (p, s) => same(p.net, s.net) && p.items > 0 && p.items === s.lines,

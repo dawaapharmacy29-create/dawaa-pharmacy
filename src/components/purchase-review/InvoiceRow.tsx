@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { setInvoiceExcluded, type ReviewInvoice } from '@/lib/purchaseReview/api';
 import { dayLabel, money, shortBranch } from './shared';
+import InvoiceLinesTable from './InvoiceLinesTable';
 
 // One invoice with its «في المديونية / مستثناة» switch.
 
@@ -16,6 +17,7 @@ export default function InvoiceRow({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const excluded = Boolean(i.excluded);
+  const [details, setDetails] = useState(false);
 
   const toggle = async () => {
     let note: string | null = null;
@@ -60,6 +62,14 @@ export default function InvoiceRow({
         <span className={`tabular-nums ${excluded ? 'line-through' : ''}`}>{money(i.net)}</span>
         <button
           type="button"
+          onClick={() => setDetails(!details)}
+          className="dawaa-badge dawaa-badge--neutral rounded-md px-2 py-0.5 font-black"
+          title="تفاصيل الفاتورة صنف صنف"
+        >
+          {details ? 'اقفل الأصناف' : 'الأصناف'}
+        </button>
+        <button
+          type="button"
           disabled={busy}
           onClick={() => void toggle()}
           className={`dawaa-badge rounded-md px-2 py-0.5 font-black ${excluded ? 'dawaa-badge--warning' : 'dawaa-badge--neutral'}`}
@@ -68,6 +78,11 @@ export default function InvoiceRow({
           {excluded ? 'مستثناة · رجّعها' : 'استثنيها'}
         </button>
       </span>
+      {details ? (
+        <div className="w-full basis-full font-normal">
+          <InvoiceLinesTable store={i.store} serial={i.serial} />
+        </div>
+      ) : null}
     </li>
   );
 }
