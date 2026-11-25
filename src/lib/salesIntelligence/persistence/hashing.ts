@@ -106,6 +106,8 @@ export interface SemanticSourceHashInput {
    * out of the hash when there is no proof signal, so unchanged no-invoice cases keep their hash.
    */
   saleProofFingerprint?: string | null;
+  /** Stable semantic decisions derived from invoice evidence, not raw candidate rows. */
+  evidenceDecisionFingerprint?: string | null;
   /** Manager product identity decisions are external, durable evidence; a new decision must
    * invalidate an otherwise identical cached analysis. Sorted stable IDs preserve retries. */
   managerProductIdentityReviewIds?: string[];
@@ -147,6 +149,7 @@ export async function computeSemanticSourceHash(input: SemanticSourceHashInput):
     ...(input.caseOwnership ? { caseOwnership: input.caseOwnership } : {}),
     ...(input.resolvedCustomerId ? { resolvedCustomerId: input.resolvedCustomerId } : {}),
     ...(input.saleProofFingerprint ? { saleProofFingerprint: input.saleProofFingerprint } : {}),
+    ...(input.evidenceDecisionFingerprint ? { evidenceDecisionFingerprint: input.evidenceDecisionFingerprint } : {}),
     ...(input.managerProductIdentityReviewIds?.length
       ? { managerProductIdentityReviewIds: [...input.managerProductIdentityReviewIds].sort() }
       : {}),
