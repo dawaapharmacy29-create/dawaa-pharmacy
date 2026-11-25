@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, Loader2, Pencil, Plus, RefreshCw, TriangleAlert } from 'lucide-react';
+import {
+  Check,
+  CheckCheck,
+  Loader2,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Search,
+  TriangleAlert,
+  Undo2,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import {
   EmptyState,
@@ -10,6 +20,11 @@ import {
 } from '@/components/dashboard/DashboardPrimitives';
 import {
   PURCHASE_PROBLEMS,
+  bulkApprovePurchases,
+  matchesPurchase,
+  savePurchaseMarks,
+  searchPurchases,
+  type PaperSerial,
   loadPurchaseDay,
   problemLabel,
   savePurchaseCheck,
@@ -20,7 +35,7 @@ import {
 } from '@/lib/customerServiceTasks/morning';
 
 // الخطوة الأولى في الصبح: كل فاتورة مشتريات دخلت فرعها من ٩ الصبح امبارح لـ ٩ الصبح النهارده (التحويلات في تبويبها).
-// اعتماد، أو تعديل (المورد/المسلسل/رقم فاتورة المورد/المخزن/الإجمالي)، أو «فيها مشكلة». الخصم مش هنا: ده للمدير العام.
+// المسلسل على الورق (الدكتور كتبه بإيده ولا لأ)، وبعدين اعتماد، أو تعديل (المورد/المسلسل/رقم فاتورة المورد/المخزن/الإجمالي)، أو «فيها مشكلة». الخصم مش هنا: ده للمدير العام.
 
 const fmtTime = (v: string) =>
   new Date(v.replace(' ', 'T')).toLocaleString('ar-EG', {
@@ -99,7 +114,9 @@ export function ProblemPicker<K extends string>({
   );
 }
 
-type Mode = { serial: string; store: string; kind: 'fix' | 'problem' } | null;
+type Mode = { serial: string; store: string; kind: 'fix' | 'problem' | 'returns' } | null;
+
+const keyOf = (i: { store: string; serial: string }) => `${i.store}|${i.serial}`;
 
 export default function MorningPurchasesTab({
   onProgress,
@@ -107,29 +124,49 @@ export default function MorningPurchasesTab({
   onProgress?: (done: number, total: number) => void;
 }) {
   const [branch, setBranch] = useState<string | null>(null);
+  // اليوم اللي الفترة بتخلص فيه (٩ الصبح). فاضي = النهارده، يعني فواتير امبارح.
+  const [pickedDay, setPickedDay] = useState<string>('');
   const [day, setDay] = useState<PurchaseDay | null>(null);
   const [error, setError] = useState('');
   const [onlyOpen, setOnlyOpen] = useState(true);
   const [mode, setMode] = useState<Mode>(null);
   const [busy, setBusy] = useState('');
+  const [query, setQuery] = useState('');
+  const [who, setWho] = useState('');
+  const [found, setFound] = useState<PurchaseInvoice[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [bulkPaper, setBulkPaper] = useState<'' | PaperSerial>('');
 
   const load = useCallback(async () => {
     try {
       setError('');
-      setDay(await loadPurchaseDay(branch));
+      setDay(await loadPurchaseDay(branch, pickedDay || null));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, [branch]);
+  }, [branch, pickedDay]);
   useEffect(() => {
     void load();
   }, [load]);
 
+  const reloadAll = useCallback(async () => {
+    await load();
+    if (found && query.trim()) {
+      try {
+        setFound(await searchPurchases(query, day?.branch ?? branch));
+      } catch {
+        /* القايمة الأساسية اتحدثت؛ البحث يتعاد بإيدها */
+      }
+    }
+  }, [load, found, query, day, branch]);
+
   const done = (day?.invoices ?? []).filter((i) => i.check).length;
   const total = day?.invoices.length ?? 0;
   useEffect(() => {
-    if (day) onProgress?.(done, total);
-  }, [day, done, total, onProgress]);
+    // الشيك ليست بتعد فواتير امبارح بس، مش يوم تاني اتفتح من التاريخ.
+    if (day && !pickedDay) onProgress?.(done, total);
+  }, [day, done, total, onProgress, pickedDay]);
 
   const stores = useMemo(
     () => [
@@ -139,26 +176,94 @@ export default function MorningPurchasesTab({
     ],
     [day]
   );
-  const shown = (day?.invoices ?? []).filter(
-    (i) => !onlyOpen || !i.check || (mode && mode.serial === i.serial && mode.store === i.store)
+  const base = found ?? day?.invoices ?? [];
+  const people = useMemo(
+    () => [...new Set(base.map((i) => i.entered_by ?? '').filter(Boolean))].sort(),
+    [base]
   );
+  const isOpen = (i: PurchaseInvoice) => mode && mode.serial === i.serial && mode.store === i.store;
+  const shown = base.filter(
+    (i) =>
+      (found || !onlyOpen || !i.check || i.paper_serial == null || isOpen(i)) &&
+      (!who || i.entered_by === who) &&
+      (found || matchesPurchase(i, query))
+  );
+  const pickedRows = shown.filter((i) => picked.has(keyOf(i)));
+  const allPicked = shown.length > 0 && pickedRows.length === shown.length;
 
-  async function approve(i: PurchaseInvoice) {
-    setBusy(`${i.store}|${i.serial}`);
+  function togglePick(i: PurchaseInvoice) {
+    setPicked((prev) => {
+      const next = new Set(prev);
+      const k = keyOf(i);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+  }
+
+  async function run(key: string, work: () => Promise<void>) {
+    setBusy(key);
     try {
-      await savePurchaseCheck({
+      await work();
+      await reloadAll();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy('');
+    }
+  }
+
+  const approve = (i: PurchaseInvoice) =>
+    run(keyOf(i), () =>
+      savePurchaseCheck({
         store: i.store,
         serial: i.serial,
         status: 'ok',
         problems: [],
         fix: {},
         note: '',
-      });
-      await load();
+      })
+    );
+
+  const markPaper = (i: PurchaseInvoice, v: PaperSerial) =>
+    run(`${keyOf(i)}|paper`, async () => {
+      await savePurchaseMarks([
+        { store: i.store, serial: i.serial, paper_serial: i.paper_serial === v ? null : v },
+      ]);
+    });
+
+  const bulkApprove = () =>
+    run('bulk', async () => {
+      const r = await bulkApprovePurchases(pickedRows, bulkPaper || null);
+      const parts = [`اتعتمد ${r.approved}`];
+      if (r.kept) parts.push(`${r.kept} متعدلة أو فيها مشكلة فضلت زي ما هي`);
+      if (r.skipped.length) parts.push(`${r.skipped.length} ماتعتمدتش`);
+      (r.skipped.length ? toast.warning : toast.success)(parts.join(' · '));
+      setPicked(new Set());
+    });
+
+  const bulkPaperOnly = (v: PaperSerial) =>
+    run('bulk', async () => {
+      const n = await savePurchaseMarks(
+        pickedRows.map((i) => ({ store: i.store, serial: i.serial, paper_serial: v }))
+      );
+      toast.success(`اتسجل لـ ${n} فاتورة: المسلسل ${v === 'yes' ? 'مكتوب' : 'مش مكتوب'}`);
+      setPicked(new Set());
+    });
+
+  async function searchAll() {
+    if (query.trim().length < 2) {
+      toast.error('اكتبي رقم أو اسم الأول');
+      return;
+    }
+    setSearching(true);
+    try {
+      setFound(await searchPurchases(query, day?.branch ?? branch));
+      setPicked(new Set());
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy('');
+      setSearching(false);
     }
   }
 
@@ -180,19 +285,35 @@ export default function MorningPurchasesTab({
 
   const problems = day.invoices.filter((i) => i.check && i.check.status !== 'ok').length;
   const sum = day.invoices.reduce((s, i) => s + i.net, 0);
+  const paperAnswered = day.invoices.filter((i) => i.paper_serial).length;
+  const paperForgot = day.invoices.filter((i) => i.paper_serial === 'no').length;
 
   return (
     <div className="space-y-4">
       <Panel>
         <SectionTitle
-          title="١) فواتير مشتريات امبارح"
-          subtitle={`من ${fmtTime(day.from)} لـ ${fmtTime(day.to)} · كل فاتورة: اعتماد أو تعديل أو فيها مشكلة`}
+          title={pickedDay ? 'فواتير مشتريات' : '١) فواتير مشتريات امبارح'}
+          subtitle={`من ${fmtTime(day.from)} لـ ${fmtTime(day.to)} · كل فاتورة: المسلسل على الورق، وبعدين اعتماد أو تعديل أو فيها مشكلة`}
         />
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <BranchPicker branch={day.branch} canPick={day.can_pick} onChange={setBranch} />
+          <label className="inline-flex items-center gap-1 text-xs font-bold">
+            لحد يوم
+            <input
+              type="date"
+              className="input-field w-auto"
+              value={pickedDay || day.day}
+              onChange={(e) => setPickedDay(e.target.value)}
+            />
+          </label>
+          {pickedDay ? (
+            <button className="btn-secondary !px-2 !py-1 text-xs" onClick={() => setPickedDay('')}>
+              رجوع لامبارح
+            </button>
+          ) : null}
           <button
             className="btn-secondary inline-flex items-center gap-1"
-            onClick={() => void load()}
+            onClick={() => void reloadAll()}
           >
             <RefreshCw size={16} /> تحديث
           </button>
@@ -211,7 +332,7 @@ export default function MorningPurchasesTab({
             <Plus size={16} /> فاتورة مش موجودة؟ سجّليها
           </Link>
         </div>
-        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
           <MiniBox label="الفواتير" value={String(total)} tone="blue" />
           <MiniBox
             label="اتراجعت"
@@ -219,14 +340,23 @@ export default function MorningPurchasesTab({
             tone={done === total && total ? 'green' : 'cyan'}
           />
           <MiniBox
+            label="المسلسل على الورق اتحدد"
+            value={`${paperAnswered} / ${total}`}
+            tone={paperAnswered === total && total ? 'green' : 'cyan'}
+          />
+          <MiniBox
+            label="المسلسل مش مكتوب"
+            value={String(paperForgot)}
+            tone={paperForgot ? 'amber' : 'cyan'}
+          />
+          <MiniBox
             label="اتعدلت أو فيها مشكلة"
             value={String(problems)}
             tone={problems ? 'amber' : 'cyan'}
           />
-          <MiniBox label="الإجمالي" value={`${money(sum)} ج`} tone="cyan" />
         </div>
         <p className="mt-2 text-xs opacity-70">
-          آخر رفع لملفات المشتريات:{' '}
+          الإجمالي {money(sum)} ج · آخر رفع لملفات المشتريات:{' '}
           {day.uploads.length
             ? day.uploads.map((u) => `${u.store} ${fmtTime(u.uploaded_at)}`).join(' · ')
             : 'مفيش ملفات اترفعت للفرع ده'}
@@ -235,15 +365,139 @@ export default function MorningPurchasesTab({
       </Panel>
 
       <Panel>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[16rem] flex-1">
+            <Search size={16} className="absolute top-1/2 right-3 -translate-y-1/2 opacity-50" />
+            <input
+              className="input-field !pr-9"
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                if (found) setFound(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void searchAll();
+              }}
+              placeholder="دوّري برقم المسلسل أو رقم فاتورة المورد أو اسم الدكتور أو المورد"
+            />
+          </div>
+          <button
+            className="btn-secondary inline-flex items-center gap-1"
+            disabled={searching}
+            onClick={() => void searchAll()}
+            title="يدوّر في فواتير فرعك في آخر ٩٠ يوم"
+          >
+            {searching ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />} في
+            آخر ٩٠ يوم
+          </button>
+          <select
+            className="input-field w-auto"
+            value={who}
+            onChange={(e) => setWho(e.target.value)}
+          >
+            <option value="">كل اللي سجّلوا</option>
+            {people.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </select>
+        </div>
+        {found ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+            <span className="font-black">
+              نتايج البحث في آخر ٩٠ يوم: {found.length}
+              {found.length === 100 ? ' (أحدث ١٠٠ بس)' : ''}
+            </span>
+            <button
+              className="btn-secondary !px-2 !py-1 text-xs"
+              onClick={() => {
+                setFound(null);
+                setQuery('');
+              }}
+            >
+              رجوع للقايمة
+            </button>
+          </div>
+        ) : null}
+
+        {pickedRows.length ? (
+          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-[var(--dawaa-theme-soft)] p-2 text-sm">
+            <span className="font-black">اخترتي {pickedRows.length}</span>
+            <select
+              className="input-field w-auto"
+              value={bulkPaper}
+              onChange={(e) => setBulkPaper(e.target.value as '' | PaperSerial)}
+            >
+              <option value="">المسلسل على الورق: من غير ما أحدد</option>
+              <option value="yes">والمسلسل مكتوب على الورق</option>
+              <option value="no">والمسلسل مش مكتوب على الورق</option>
+            </select>
+            <button
+              className="btn-primary inline-flex items-center gap-1"
+              disabled={busy === 'bulk'}
+              onClick={() => void bulkApprove()}
+            >
+              {busy === 'bulk' ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <CheckCheck size={16} />
+              )}{' '}
+              اعتماد المختار
+            </button>
+            <button
+              className="btn-secondary !px-2 !py-1 text-xs"
+              disabled={busy === 'bulk'}
+              onClick={() => void bulkPaperOnly('yes')}
+            >
+              المسلسل مكتوب للكل
+            </button>
+            <button
+              className="btn-secondary !px-2 !py-1 text-xs"
+              disabled={busy === 'bulk'}
+              onClick={() => void bulkPaperOnly('no')}
+            >
+              مش مكتوب للكل
+            </button>
+            <button
+              className="btn-secondary !px-2 !py-1 text-xs"
+              onClick={() => setPicked(new Set())}
+            >
+              إلغاء الاختيار
+            </button>
+            <span className="text-xs opacity-70">
+              الاعتماد الجماعي مابيلمسش الفواتير اللي اتعدلت أو اتقال فيها مشكلة.
+            </span>
+          </div>
+        ) : null}
+
         {shown.length === 0 ? (
           <EmptyState
-            label={total ? 'كل الفواتير اتراجعت 👌' : 'مفيش فواتير مشتريات في الفترة دي'}
+            label={
+              found
+                ? 'مفيش فواتير بالبحث ده'
+                : query || who
+                  ? 'مفيش فواتير بالبحث ده هنا، جرّبي «في آخر ٩٠ يوم»'
+                  : total
+                    ? 'كل الفواتير اتراجعت 👌'
+                    : 'مفيش فواتير مشتريات في الفترة دي'
+            }
           />
         ) : (
-          <div className="overflow-x-auto">
+          <div className="mt-3 overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-right opacity-70">
+                  <th className="p-2">
+                    <input
+                      type="checkbox"
+                      aria-label="اختاري الكل"
+                      checked={allPicked}
+                      onChange={() =>
+                        setPicked(allPicked ? new Set() : new Set(shown.map((i) => keyOf(i))))
+                      }
+                    />
+                  </th>
                   <th className="p-2">الوقت</th>
                   <th className="p-2">المخزن · المسلسل</th>
                   <th className="p-2">المورد</th>
@@ -251,28 +505,34 @@ export default function MorningPurchasesTab({
                   <th className="p-2">أصناف</th>
                   <th className="p-2">القيمة</th>
                   <th className="p-2">سجّلها</th>
+                  <th className="p-2">المسلسل على الورق؟</th>
                   <th className="p-2">الحالة</th>
                   <th className="p-2"></th>
                 </tr>
               </thead>
               <tbody>
                 {shown.map((i) => {
-                  const key = `${i.store}|${i.serial}`;
-                  const open = mode && mode.serial === i.serial && mode.store === i.store;
+                  const key = keyOf(i);
+                  const open = isOpen(i);
                   return (
                     <InvoiceRows
                       key={key}
                       invoice={i}
+                      showDay={!!found}
+                      picked={picked.has(key)}
+                      onPick={() => togglePick(i)}
                       open={open ? mode!.kind : null}
                       busy={busy === key}
+                      paperBusy={busy === `${key}|paper`}
                       stores={stores}
                       suppliers={day.suppliers}
                       onApprove={() => void approve(i)}
+                      onPaper={(v) => void markPaper(i, v)}
                       onOpen={(kind) => setMode({ serial: i.serial, store: i.store, kind })}
                       onClose={() => setMode(null)}
                       onSaved={async () => {
                         setMode(null);
-                        await load();
+                        await reloadAll();
                       }}
                     />
                   );
@@ -286,32 +546,94 @@ export default function MorningPurchasesTab({
   );
 }
 
+function PaperButtons({
+  value,
+  busy,
+  onPick,
+}: {
+  value: PaperSerial | null | undefined;
+  busy: boolean;
+  onPick: (v: PaperSerial) => void;
+}) {
+  if (busy) return <Loader2 size={14} className="animate-spin" />;
+  return (
+    <div className="flex gap-1">
+      <button
+        type="button"
+        className={
+          value === 'yes'
+            ? 'btn-primary !px-2 !py-1 text-xs'
+            : 'btn-secondary !px-2 !py-1 text-xs opacity-80'
+        }
+        onClick={() => onPick('yes')}
+        title="الدكتور كتب المسلسل بإيده على الفاتورة الورق"
+      >
+        ✓ مكتوب
+      </button>
+      <button
+        type="button"
+        className={
+          value === 'no'
+            ? '!px-2 !py-1 text-xs rounded-lg font-black bg-[var(--dawaa-status-danger-bg,#fee2e2)] text-[var(--dawaa-status-danger-text)]'
+            : 'btn-secondary !px-2 !py-1 text-xs opacity-80'
+        }
+        onClick={() => onPick('no')}
+        title="الدكتور نسي يكتب المسلسل على الفاتورة الورق"
+      >
+        ✗ مش مكتوب
+      </button>
+    </div>
+  );
+}
+
 function InvoiceRows({
   invoice: i,
+  showDay,
+  picked,
+  onPick,
   open,
   busy,
+  paperBusy,
   stores,
   suppliers,
   onApprove,
+  onPaper,
   onOpen,
   onClose,
   onSaved,
 }: {
   invoice: PurchaseInvoice;
-  open: 'fix' | 'problem' | null;
+  showDay: boolean;
+  picked: boolean;
+  onPick: () => void;
+  open: 'fix' | 'problem' | 'returns' | null;
   busy: boolean;
+  paperBusy: boolean;
   stores: string[];
   suppliers: Array<{ code: string; name: string }>;
   onApprove: () => void;
-  onOpen: (kind: 'fix' | 'problem') => void;
+  onPaper: (v: PaperSerial) => void;
+  onOpen: (kind: 'fix' | 'problem' | 'returns') => void;
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
   const fix = i.check?.fix ?? {};
   return (
     <>
-      <tr className="border-t border-[var(--dawaa-theme-border)] align-top">
-        <td className="p-2 whitespace-nowrap text-xs">{fmtTime(i.invoice_at)}</td>
+      <tr
+        className={`border-t border-[var(--dawaa-theme-border)] align-top ${picked ? 'bg-[var(--dawaa-theme-soft)]' : ''}`}
+      >
+        <td className="p-2">
+          <input type="checkbox" checked={picked} onChange={onPick} aria-label="اختيار" />
+        </td>
+        <td className="p-2 whitespace-nowrap text-xs">
+          {showDay && i.invoice_day ? (
+            <span className="block font-bold">
+              {i.invoice_day.split('-').reverse().slice(0, 2).join('/')}
+            </span>
+          ) : null}
+          {fmtTime(i.invoice_at)}
+        </td>
         <td className="p-2 whitespace-nowrap">
           <span className="text-xs opacity-70">{i.store}</span>
           <span className="block font-black">{i.serial}</span>
@@ -345,10 +667,18 @@ function InvoiceRows({
         </td>
         <td className="p-2 whitespace-nowrap text-xs">{i.entered_by ?? '—'}</td>
         <td className="p-2">
+          <PaperButtons value={i.paper_serial} busy={paperBusy} onPick={onPaper} />
+        </td>
+        <td className="p-2">
           {statusBadge(i.check?.status)}
           {i.check?.problems?.length ? (
             <span className="block text-xs opacity-70">
               {i.check.problems.map(problemLabel).join('، ')}
+            </span>
+          ) : null}
+          {i.returns_note ? (
+            <span className="block text-xs font-bold text-[var(--dawaa-status-warning-text,#b45309)]">
+              مرتجعات: {i.returns_note}
             </span>
           ) : null}
         </td>
@@ -374,24 +704,91 @@ function InvoiceRows({
             >
               <TriangleAlert size={14} /> مشكلة
             </button>
+            <button
+              className="btn-secondary !px-2 !py-1 text-xs inline-flex items-center gap-1"
+              onClick={() => onOpen('returns')}
+              title="ملحوظة مرتجعات على الفاتورة"
+            >
+              <Undo2 size={14} /> مرتجعات
+            </button>
           </div>
         </td>
       </tr>
       {open ? (
         <tr>
-          <td colSpan={9} className="bg-[var(--dawaa-theme-soft)] p-3">
-            <CheckForm
-              invoice={i}
-              kind={open}
-              stores={stores}
-              suppliers={suppliers}
-              onClose={onClose}
-              onSaved={onSaved}
-            />
+          <td colSpan={11} className="bg-[var(--dawaa-theme-soft)] p-3">
+            {open === 'returns' ? (
+              <ReturnsForm invoice={i} onClose={onClose} onSaved={onSaved} />
+            ) : (
+              <CheckForm
+                invoice={i}
+                kind={open}
+                stores={stores}
+                suppliers={suppliers}
+                onClose={onClose}
+                onSaved={onSaved}
+              />
+            )}
           </td>
         </tr>
       ) : null}
     </>
+  );
+}
+
+function ReturnsForm({
+  invoice: i,
+  onClose,
+  onSaved,
+}: {
+  invoice: PurchaseInvoice;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const [note, setNote] = useState(i.returns_note ?? '');
+  const [saving, setSaving] = useState(false);
+  async function save() {
+    setSaving(true);
+    try {
+      await savePurchaseMarks([
+        { store: i.store, serial: i.serial, returns_note: note.trim() || null },
+      ]);
+      toast.success(note.trim() ? 'ملحوظة المرتجعات اتحفظت' : 'ملحوظة المرتجعات اتشالت');
+      await onSaved();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+  return (
+    <div className="space-y-2">
+      <label className="block text-xs font-bold">
+        ملحوظة المرتجعات على الفاتورة دي
+        <textarea
+          className="input-field mt-1"
+          rows={2}
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="مثلاً: مرتجع علبتين كونكور ٥ للمورد، لسه ماتعملش إشعار"
+        />
+      </label>
+      <div className="flex gap-2">
+        <button
+          className="btn-primary inline-flex items-center gap-1"
+          disabled={saving}
+          onClick={() => void save()}
+        >
+          {saving ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />} حفظ
+        </button>
+        <button className="btn-secondary" disabled={saving} onClick={onClose}>
+          إلغاء
+        </button>
+      </div>
+      <p className="text-xs opacity-70">
+        الملحوظة بتتسجل باسمك، وبتظهر للمدير العام في تقرير المسلسل والمرتجعات. لو فاضية بتتشال.
+      </p>
+    </div>
   );
 }
 
