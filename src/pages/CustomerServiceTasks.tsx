@@ -36,6 +36,7 @@ import CsCompetitionTab from '@/components/customerService/CsCompetitionTab';
 import MorningChecklist from '@/components/customerService/MorningChecklist';
 import MorningFilesTab from '@/components/customerService/MorningFilesTab';
 import MorningPurchasesTab from '@/components/customerService/MorningPurchasesTab';
+import GroupsTab from '@/components/customerService/GroupsTab';
 import {
   loadOnboarding,
   submitOnboarding,
@@ -50,12 +51,13 @@ import { normalizeRole } from '@/lib/core/permissionSystem';
 // شيت مهام خدمة العملاء اليومي: كل واحد في الفريق بيحمّل مهامه الصبح، يشتغل على الإكسيل، ويرفعه آخر اليوم.
 // اللي يفتح الصفحة لأي حد تاني هو مفتاح customer_service_daily_tasks من صلاحيات الحسابات، والإدارة بمفتاح _manage.
 
-type PageTab = 'mine' | 'files' | 'purchases' | 'transfers' | 'team' | 'competition' | 'errors';
+type PageTab = 'mine' | 'files' | 'purchases' | 'transfers' | 'groups' | 'team' | 'competition' | 'errors';
 const PAGE_TABS: PageTab[] = [
   'mine',
   'files',
   'purchases',
   'transfers',
+  'groups',
   'team',
   'competition',
   'errors',
@@ -168,6 +170,12 @@ export default function CustomerServiceTasks() {
           >
             التحويلات
           </button>
+          <button
+            className={tab === 'groups' ? 'btn-primary' : 'btn-secondary'}
+            onClick={() => setTab('groups')}
+          >
+            الجروبات
+          </button>
           {isTopManager ? (
             <button
               className={tab === 'errors' ? 'btn-primary' : 'btn-secondary'}
@@ -200,6 +208,8 @@ export default function CustomerServiceTasks() {
         <MorningPurchasesTab />
       ) : tab === 'transfers' ? (
         <MorningTransfersTab />
+      ) : tab === 'groups' ? (
+        <GroupsTab />
       ) : tab === 'errors' && isTopManager ? (
         <DoctorEntryErrorsTab today={today} />
       ) : tab === 'team' && settings.can_manage ? (
