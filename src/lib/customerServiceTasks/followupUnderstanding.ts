@@ -338,7 +338,7 @@ export function mentionedItems(text: string, catalog?: CatalogIndex | null): str
   };
   const latin =
     text.match(
-      /[A-Za-z][A-Za-z0-9.+\-]*(?:\s+(?:\d+(?:\.\d+)?\s*(?:mg|ml|gm|g|mcg)?|[A-Za-z][A-Za-z0-9.+\-]*))*/g
+      /[A-Za-z][A-Za-z0-9.+-]*(?:\s+(?:\d+(?:\.\d+)?\s*(?:mg|ml|gm|g|mcg)?|[A-Za-z][A-Za-z0-9.+-]*))*/g
     ) ?? [];
   for (const phrase of latin) {
     const words = phrase.split(/\s+/).filter((w) => !LATIN_STOP.test(w));
