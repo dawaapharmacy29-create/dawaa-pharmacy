@@ -72,6 +72,34 @@
 }
 
 @layer components {
+  /* The fields of the customer-service task pages (owner 2026-11-26: «the items look black»). The class had no rule,
+     so they fell back to the browser's grey box with no padding. In this layer, utilities like w-auto still win. */
+  .input-field {
+    width: 100%;
+    min-height: 2.25rem;
+    padding: 0.4rem 0.75rem;
+    border: 1px solid var(--dawaa-theme-border);
+    border-radius: 0.625rem;
+    background: var(--dawaa-theme-input);
+    color: var(--dawaa-theme-heading);
+    font-size: 0.875rem;
+    outline: none;
+    transition:
+      border-color 0.15s ease,
+      box-shadow 0.15s ease;
+  }
+  .input-field:hover {
+    border-color: var(--dawaa-theme-border-strong);
+  }
+  .input-field:focus {
+    border-color: var(--dawaa-theme-primary);
+    box-shadow: 0 0 0 3px var(--dawaa-theme-focus);
+  }
+  .input-field::placeholder {
+    color: var(--dawaa-theme-muted);
+    opacity: 1;
+  }
+
   /* Legacy navigation geometry. Color comes from the canonical shell. */
   .nav-item {
     @apply flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-right text-sm font-medium transition-all duration-200;
@@ -257,16 +285,30 @@
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes slideIn {
-  from { opacity: 0; transform: translateX(-16px); }
-  to { opacity: 1; transform: translateX(0); }
+  from {
+    opacity: 0;
+    transform: translateX(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
-.toaster-rtl [data-sonner-toast] { direction: rtl; }
+.toaster-rtl [data-sonner-toast] {
+  direction: rtl;
+}
 
 .glass {
   background: color-mix(in srgb, var(--dawaa-theme-surface-raised) 78%, transparent);
@@ -327,7 +369,9 @@
   padding: 16px;
 }
 
-.card:hover { border-color: var(--dawaa-theme-border-strong); }
+.card:hover {
+  border-color: var(--dawaa-theme-border-strong);
+}
 
 .dash-input {
   height: 40px;
@@ -360,12 +404,21 @@
   color: var(--dawaa-theme-text);
   background: var(--dawaa-theme-surface-2);
   font-weight: 900;
-  transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+  transition:
+    background-color 0.2s,
+    border-color 0.2s,
+    color 0.2s;
 }
 
-.top-icon { position: relative; width: 40px; }
+.top-icon {
+  position: relative;
+  width: 40px;
+}
 .top-action,
-.subtle-button { padding: 0 12px; font-size: 0.875rem; }
+.subtle-button {
+  padding: 0 12px;
+  font-size: 0.875rem;
+}
 
 .top-icon:hover,
 .top-action:hover,
@@ -452,12 +505,22 @@
   color: var(--dawaa-status-warning-text);
 }
 
-.dawaa-error-details summary { cursor: pointer; font-weight: 900; }
+.dawaa-error-details summary {
+  cursor: pointer;
+  font-weight: 900;
+}
 
 @media (max-width: 900px) {
-  .dawaa-hero { align-items: stretch; flex-direction: column; }
-  .dawaa-controls { justify-content: stretch; }
-  .dawaa-controls > * { flex: 1 1 150px; }
+  .dawaa-hero {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .dawaa-controls {
+    justify-content: stretch;
+  }
+  .dawaa-controls > * {
+    flex: 1 1 150px;
+  }
 }
 
 .dawaa-confetti-piece {
@@ -472,9 +535,17 @@
 }
 
 @keyframes dawaaConfettiFall {
-  0% { transform: translateY(-20px) rotate(0deg); opacity: 1; }
-  80% { opacity: 1; }
-  100% { transform: translateY(110vh) rotate(720deg); opacity: 0; }
+  0% {
+    transform: translateY(-20px) rotate(0deg);
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(110vh) rotate(720deg);
+    opacity: 0;
+  }
 }
 
 /* Viewport and responsive data-card geometry. */
@@ -507,7 +578,10 @@ body,
 
 .customer-responsive-card {
   cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .customer-responsive-card:hover {
@@ -546,25 +620,44 @@ body,
 }
 
 @media (min-width: 1024px) {
-  .customer-service-page { padding-inline-end: 0.5rem; }
+  .customer-service-page {
+    padding-inline-end: 0.5rem;
+  }
 }
 
 @media (min-width: 1560px) {
   .cashback-mobile-list,
-  .customers-mobile-list { display: none; }
+  .customers-mobile-list {
+    display: none;
+  }
   .cashback-desktop-table,
-  .customers-desktop-table { display: block; }
+  .customers-desktop-table {
+    display: block;
+  }
 }
 
 @media (max-width: 1559px) {
   .customer-service-page,
-  .customer-service-page .dawaa-panel { overflow-x: hidden; }
-  .customers-mobile-list { padding: 0.75rem; }
-  .customers-mobile-list .customer-responsive-card { max-width: 100%; }
+  .customer-service-page .dawaa-panel {
+    overflow-x: hidden;
+  }
+  .customers-mobile-list {
+    padding: 0.75rem;
+  }
+  .customers-mobile-list .customer-responsive-card {
+    max-width: 100%;
+  }
 }
 
 @media (max-width: 900px) {
-  .cashback-action-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .customers-mobile-list { padding: 0.5rem; }
-  .customer-responsive-card { padding: 0.75rem; border-radius: 1rem; }
+  .cashback-action-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .customers-mobile-list {
+    padding: 0.5rem;
+  }
+  .customer-responsive-card {
+    padding: 0.75rem;
+    border-radius: 1rem;
+  }
 }

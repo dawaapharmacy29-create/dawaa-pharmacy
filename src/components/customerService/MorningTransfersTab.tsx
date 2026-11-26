@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, CheckCheck, Link2, Loader2, RefreshCw, TriangleAlert } from 'lucide-react';
+import { Check, Link2, Loader2, RefreshCw, TriangleAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   EmptyState,
@@ -60,7 +60,7 @@ const HOW: Record<TransferPair['how'], string> = {
 type View = 'review' | 'done' | 'all';
 const VIEWS: Array<{ key: View; label: string }> = [
   { key: 'review', label: 'المشاكل بس' },
-  { key: 'done', label: 'اتراجع' },
+  { key: 'done', label: 'خلص' },
   { key: 'all', label: 'الكل' },
 ];
 
@@ -175,22 +175,6 @@ export default function MorningTransfersTab() {
     }
   }
 
-  async function confirmClean(list: TransferPair[]) {
-    setBusy('bulk');
-    let ok = 0;
-    try {
-      for (let i = 0; i < list.length; i += 4) {
-        const part = list.slice(i, i + 4);
-        const res = await Promise.allSettled(part.map((p) => confirmPair(p)));
-        ok += res.filter((r) => r.status === 'fulfilled').length;
-      }
-      if (ok === list.length) toast.success(`اتعتمد ${ok} تحويل مطابق`);
-      else toast.warning(`اتعتمد ${ok} من ${list.length}، جرّبي الباقي تاني`);
-    } finally {
-      setBusy('');
-    }
-  }
-
   if (error)
     return (
       <Panel>
@@ -209,7 +193,8 @@ export default function MorningTransfersTab() {
 
   const clean = rows.filter((r) => !r.saved && !r.issues.length);
   const needPairs = rows.filter((r) => !r.saved && r.issues.length);
-  const donePairs = rows.filter((r) => r.saved);
+  // المطابق بيتحسب خلصان لوحده ومش بيظهر غير في «الكل».
+  const donePairs = rows.filter((r) => r.saved || !r.issues.length);
   const openPurchases = pairing.purchasesOnly.filter((p) => !p.check);
   const openSales = pairing.salesOnly.filter((s) => !s.check);
   const need = needPairs.length + openPurchases.length + openSales.length;
@@ -269,8 +254,8 @@ export default function MorningTransfersTab() {
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
           <MiniBox label="محتاج مراجعة" value={String(need)} tone={need ? 'amber' : 'green'} />
-          <MiniBox label="مطابق تلقائي" value={String(clean.length)} tone="blue" />
-          <MiniBox label="اتراجع" value={String(doneCount)} tone="green" />
+          <MiniBox label="مطابق لوحده" value={String(clean.length)} tone="blue" />
+          <MiniBox label="خلص" value={String(doneCount)} tone="green" />
           <MiniBox
             label="من غير ربط"
             value={String(pairing.purchasesOnly.length + pairing.salesOnly.length)}
@@ -278,24 +263,10 @@ export default function MorningTransfersTab() {
           />
         </div>
         {clean.length ? (
-          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-[var(--dawaa-theme-soft)] p-2 text-sm">
-            <span className="font-bold">
-              {clean.length} تحويل مطابق: نفس الأصناف والكميات والفرق أقل من{' '}
-              {TRANSFER_MONEY_TOLERANCE} ج.
-            </span>
-            <button
-              className="btn-primary !px-3 !py-1 mr-auto inline-flex items-center gap-1"
-              disabled={busy === 'bulk'}
-              onClick={() => void confirmClean(clean.map((r) => r.p))}
-            >
-              {busy === 'bulk' ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : (
-                <CheckCheck size={14} />
-              )}{' '}
-              اعتمدي المطابق كله
-            </button>
-          </div>
+          <p className="mt-2 text-xs font-bold opacity-70">
+            {clean.length} تحويل مطابق (نفس الأصناف والكميات والفرق أقل من{' '}
+            {TRANSFER_MONEY_TOLERANCE} ج) اتحسبوا خلصانين ومش محتاجين مراجعة. تلاقيهم في «الكل».
+          </p>
         ) : null}
         {day.purchases.length > 0 && day.sales.length === 0 ? (
           <p className="mt-2 text-sm font-black text-[var(--dawaa-status-danger-text)]">
@@ -327,7 +298,7 @@ export default function MorningTransfersTab() {
           <EmptyState
             label={
               clean.length
-                ? 'مفيش مشاكل. اعتمدي المطابق من فوق وخلصتي 👌'
+                ? `مفيش مشاكل، والـ ${clean.length} تحويل المطابقين اتحسبوا لوحدهم 👌`
                 : 'مفيش حاجة محتاجة مراجعة 👌'
             }
           />
@@ -577,13 +548,22 @@ function PurchaseCard({ p }: { p: TransferPurchase }) {
 
 function ItemList({ items }: { items: Array<{ code: string; name: string; qty: number }> }) {
   return (
-    <ul className="mt-1 list-disc pr-5 text-xs" dir="auto">
+    <ul className="mt-1.5 space-y-1 text-xs">
       {items.slice(0, 8).map((it, n) => (
-        <li key={n}>
-          <span className="font-mono opacity-60">{it.code}</span> {it.name} × {it.qty}
+        <li
+          key={n}
+          className="flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-lg bg-[var(--dawaa-theme-soft)] px-2 py-1"
+        >
+          <span className="min-w-0 flex-1 text-sm font-black break-words" dir="auto">
+            {it.name}
+          </span>
+          <span className="rounded-md bg-[var(--dawaa-theme-surface)] px-1.5 text-sm font-black">
+            × {it.qty.toLocaleString('ar-EG', { maximumFractionDigits: 2 })}
+          </span>
+          <span className="font-mono text-[11px] opacity-70">كود {it.code}</span>
         </li>
       ))}
-      {items.length > 8 ? <li>و{items.length - 8} صنف كمان</li> : null}
+      {items.length > 8 ? <li className="opacity-70">و{items.length - 8} صنف كمان</li> : null}
     </ul>
   );
 }

@@ -65,3 +65,14 @@ describe('matching a hand-typed item to the catalog', () => {
     expect(bestMatch(index, '55')).toBeNull();
   });
 });
+
+describe('matching keeps the strength', () => {
+  const index = buildIndex([
+    { code: '101', name: 'PLENDIL 5MG 30 TAB', price: 90, sold: 40 },
+    { code: '102', name: 'PLENDIL 10MG 30 TAB', price: 120, sold: 10 },
+  ]);
+  it('does not guess a different strength', () => {
+    expect(bestMatch(index, 'بلنديل 10')?.code).toBe('102');
+    expect(bestMatch(index, 'بلنديل 20')).toBeNull();
+  });
+});

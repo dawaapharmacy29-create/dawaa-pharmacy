@@ -294,3 +294,63 @@ describe('one purchase on several sales', () => {
     expect(r.pairs).toEqual([]);
   });
 });
+
+describe('exact quantities across invoices', () => {
+  const cat = (qty: number) => ({
+    code: '5050',
+    name: 'CATAFLAM 50MG',
+    qty,
+    price: 30,
+    total: 30 * qty,
+  });
+  const other = (qty: number) => ({
+    code: '7070',
+    name: 'PANADOL',
+    qty,
+    price: 10,
+    total: 10 * qty,
+  });
+
+  it('pairs one purchase of two boxes with two sales of one box an hour apart', () => {
+    // شكري طلب علبتين كتافلام، الشامي باع علبة وبعد ساعة علبة، وشكري اشترى الاتنين مرة واحدة.
+    const p = purchase('500', 60, '2026-11-25 15:00', { lines: [cat(2)] });
+    const s1 = sale('9001', 30, '2026-11-25 13:00', { items: [cat(1)] });
+    const s2 = sale('9002', 30, '2026-11-25 14:00', { items: [cat(1)] });
+    const r = pairTransfers([p], [s1, s2]);
+    expect(r.pairs).toHaveLength(1);
+    expect(r.pairs[0].how).toBe('multi_sale');
+    expect(transferIssues(r.pairs[0])).toEqual([]);
+    expect(r.salesOnly).toEqual([]);
+    // المطابق بيتحسب خلصان من غير ما حد يعتمده.
+    expect(transferProgress(r).done).toBe(transferProgress(r).total);
+  });
+
+  it('pairs one sale of two boxes with two purchases of one box', () => {
+    const p1 = purchase('501', 30, '2026-11-25 15:00', { lines: [cat(1)] });
+    const p2 = purchase('502', 30, '2026-11-25 16:00', { lines: [cat(1)] });
+    const s = sale('9003', 60, '2026-11-25 14:00', { items: [cat(2)] });
+    const r = pairTransfers([p1, p2], [s]);
+    expect(r.pairs).toHaveLength(1);
+    expect(r.pairs[0].how).toBe('split');
+    expect(r.purchasesOnly).toEqual([]);
+    expect(transferIssues(r.pairs[0])).toEqual([]);
+  });
+
+  it('prefers the sale with the exact quantity over a nearer one with part of it', () => {
+    const p = purchase('503', 60, '2026-11-25 15:00', { lines: [cat(2), other(1)] });
+    const near = sale('9004', 30, '2026-11-25 14:50', { items: [cat(1)] });
+    const exact = sale('9005', 70, '2026-11-25 13:00', { items: [cat(2), other(1)] });
+    const r = pairTransfers([p], [near, exact]);
+    expect(r.pairs[0].sale.invoice).toBe('9005');
+    expect(r.salesOnly.map((x) => x.invoice)).toEqual(['9004']);
+  });
+
+  it('still shows a real quantity difference', () => {
+    const p = purchase('504', 60, '2026-11-25 15:00', { lines: [cat(2)] });
+    const s = sale('9006', 30, '2026-11-25 14:00', { items: [cat(1)] });
+    const r = pairTransfers([p], [s]);
+    expect(r.pairs).toHaveLength(1);
+    expect(transferIssues(r.pairs[0]).map((x) => x.kind)).toContain('qty');
+    expect(transferProgress(r).done).toBe(0);
+  });
+});

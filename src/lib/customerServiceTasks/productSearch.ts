@@ -229,9 +229,15 @@ export function bestMatch(index: CatalogIndex, raw: string, min = 450): CatalogI
   const q = latinDigits(raw).replace(/\*/g, ' ').replace(/\s+/g, ' ').trim();
   if (q.replace(/\s/g, '').length < 3 || /^\d+$/.test(q)) return null;
   memo.clear();
+  // التركيز لازم يبقى هو هو: «بلنديل 5» مش PLENDIL 10 MG.
+  const strengths: string[] = q.match(/\d+(?:\.\d+)?/g) ?? [];
   let best: Entry | null = null;
   let top = 0;
   for (const e of index) {
+    if (strengths.length) {
+      const has: string[] = e.lower.match(/\d+(?:\.\d+)?/g) ?? [];
+      if (!strengths.every((d) => has.includes(d))) continue;
+    }
     const s = scoreEntry(e, q);
     if (s < min) continue;
     const ranked = s + Math.log1p(e.sold) * 12;
