@@ -132,6 +132,7 @@ export const GROUPS: NavGroup[] = [
     { path: '/internal-codes', icon: BarChart3, label: 'الأكواد الداخلية', permission: 'view_sales_reports' },
     { path: '/purchases', icon: FileSpreadsheet, label: 'المشتريات', permission: 'view_purchases' },
     { path: '/purchase-review', icon: WalletCards, label: 'مراجعة المشتريات', allowedRoles: ['general_manager', 'executive_manager', 'admin'] },
+    { path: '/uncoded-invoices', icon: FileSpreadsheet, label: 'الفواتير اللي مش متكودة', allowedRoles: ['general_manager', 'executive_manager', 'admin'] },
     { path: '/purchase-invoice-entry', icon: FileSpreadsheet, label: 'إدخال فاتورة مشتريات', allowedRoles: ['assistant'] },
     { path: '/purchase-invoice-review', icon: ClipboardCheck, label: 'مراجعة فواتير المشتريات', excludeRoles: ['pharmacist', 'assistant', 'customer_service_manager'] },
     { path: '/purchase-invoice-accuracy', icon: FileSpreadsheet, label: 'دقة إدخال فواتير المشتريات', allowedRoles: ['assistant', 'customer_service_manager', 'general_manager', 'branches_manager'] },
@@ -221,7 +222,7 @@ export const MANAGEMENT_GROUPS: NavGroup[] = [
   { title: 'التقييم والمسابقة', icon: ClipboardCheck, items: managerItems('/evaluation-lab', '/branch-comparison', '/penalty-incentive') },
   { title: 'الفريق', icon: Users, items: managerItems('/team', '/schedule', '/time-off', '/staff-payroll', DR_WAEL_FINGERPRINTS_PATH) },
   { title: 'العملاء', icon: HeadphonesIcon, items: managerItems('/customer-service', '/customers', '/reviews') },
-  // /consolidated-reports moved under "كل الصفحات" to keep the menu at 27 pages (hidden, not deleted).
+  // /consolidated-reports and /uncoded-invoices are under "كل الصفحات" to keep the menu at 27 pages (hidden, not deleted).
   { title: 'المبيعات', icon: BarChart3, items: managerItems('/analytics', '/reports', DR_WAEL_SHOKRY_REPORTS_PATH) },
   { title: 'المشتريات والمخزون', icon: Store, items: managerItems('/purchases', '/shortages', '/inventory-counts') },
   { title: 'للمراجعة', icon: ClipboardList, items: managerItems('/review-pages') },

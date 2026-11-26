@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, Link2, Loader2, RefreshCw, TriangleAlert } from 'lucide-react';
+import { Check, CheckCheck, Link2, Loader2, RefreshCw, TriangleAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   EmptyState,
@@ -7,7 +7,9 @@ import {
   Panel,
   SectionTitle,
 } from '@/components/dashboard/DashboardPrimitives';
+import { useAuth } from '@/hooks/useAuth';
 import {
+  TRANSFER_MONEY_TOLERANCE,
   TRANSFER_PROBLEMS,
   loadTransferDay,
   pairPurchases,
@@ -16,8 +18,11 @@ import {
   problemLabel,
   saveTransferCheck,
   saveTransferSplit,
-  transferProgress,
+  transferIssues,
+  withTransferCheck,
+  type TransferCheck,
   type TransferDay,
+  type TransferIssue,
   type TransferPair,
   type TransferPurchase,
   type TransferSale,
@@ -28,6 +33,8 @@ import TransferAccuracyReport from './TransferAccuracyReport';
 
 // الخطوة التانية: التحويلات اللي دخلت فرعها. التحويل عندنا فاتورة بيع في الفرع اللي بعت (لعميل الفرع ده)
 // وفاتورة شراء في الفرع ده من مورد الفرع التاني. الصفحة بتربطهم تلقائي، والبنت تأكد أو تربط بإيدها أو تسجل المشكلة.
+// (2026-11-26) بيظهر اللي فيه مشكلة بس: كمية أو كود مختلف أو صنف مش موجود أو فرق فلوس فوق ٥٠ ج. المطابق بيتعتمد
+// مرة واحدة، واللي اتراجع بيتشال من القايمة على طول من غير ما الصفحة كلها تتحمل تاني.
 
 const fmtTime = (v: string) =>
   new Date(v.replace(' ', 'T')).toLocaleString('ar-EG', {
@@ -46,18 +53,37 @@ const HOW: Record<TransferPair['how'], string> = {
   value: 'نفس القيمة',
 };
 
+type View = 'review' | 'done' | 'all';
+const VIEWS: Array<{ key: View; label: string }> = [
+  { key: 'review', label: 'المشاكل بس' },
+  { key: 'done', label: 'اتراجع' },
+  { key: 'all', label: 'الكل' },
+];
+
 type Editing =
   | { kind: 'pair'; purchase: TransferPurchase; sale: TransferSale }
   | { kind: 'purchase'; purchase: TransferPurchase }
   | { kind: 'sale'; sale: TransferSale }
   | null;
 
+/** What a form saved, so the page can update itself without reloading. */
+export type TransferSaved = {
+  purchases: Array<{ store: string; serial: string }>;
+  saleInvoice: string | null;
+  status: 'ok' | 'problem';
+  problems: string[];
+  note: string;
+};
+
 export default function MorningTransfersTab() {
+  const { user } = useAuth();
   const [branch, setBranch] = useState<string | null>(null);
   const [day, setDay] = useState<TransferDay | null>(null);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState<Editing>(null);
   const [busy, setBusy] = useState('');
+  const [view, setView] = useState<View>('review');
+  const [showReport, setShowReport] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -71,27 +97,74 @@ export default function MorningTransfersTab() {
     void load();
   }, [load]);
 
+  const me = user?.name || user?.username || 'أنا';
+  const patch = useCallback(
+    (s: TransferSaved) => {
+      const check: TransferCheck = {
+        status: s.status,
+        problems: s.problems,
+        note: s.note || null,
+        by: me,
+        at: new Date().toISOString(),
+      };
+      setDay((d) =>
+        d ? withTransferCheck(d, { purchases: s.purchases, saleInvoice: s.saleInvoice }, check) : d
+      );
+    },
+    [me]
+  );
+
   const pairing = useMemo(() => (day ? pairTransfers(day.purchases, day.sales) : null), [day]);
-  const progress = pairing ? transferProgress(pairing) : { done: 0, total: 0 };
+  const rows = useMemo(
+    () =>
+      (pairing?.pairs ?? []).map((p) => ({ p, issues: transferIssues(p), saved: pairSaved(p) })),
+    [pairing]
+  );
+
+  async function confirmPair(p: TransferPair) {
+    if (p.rest.length)
+      await saveTransferSplit({ purchases: pairPurchases(p), saleInvoice: p.sale.invoice });
+    else
+      await saveTransferCheck({
+        purchaseStore: p.purchase.store,
+        purchaseSerial: p.purchase.serial,
+        saleInvoice: p.sale.invoice,
+        status: 'ok',
+        problems: [],
+        note: '',
+        branch: day!.branch,
+      });
+    patch({
+      purchases: pairPurchases(p),
+      saleInvoice: p.sale.invoice,
+      status: 'ok',
+      problems: [],
+      note: '',
+    });
+  }
 
   async function confirm(p: TransferPair) {
     setBusy(p.purchase.serial);
     try {
-      if (p.rest.length)
-        await saveTransferSplit({ purchases: pairPurchases(p), saleInvoice: p.sale.invoice });
-      else
-        await saveTransferCheck({
-          purchaseStore: p.purchase.store,
-          purchaseSerial: p.purchase.serial,
-          saleInvoice: p.sale.invoice,
-          status: 'ok',
-          problems: [],
-          note: '',
-          branch: day!.branch,
-        });
-      await load();
+      await confirmPair(p);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function confirmClean(list: TransferPair[]) {
+    setBusy('bulk');
+    let ok = 0;
+    try {
+      for (let i = 0; i < list.length; i += 4) {
+        const part = list.slice(i, i + 4);
+        const res = await Promise.allSettled(part.map((p) => confirmPair(p)));
+        ok += res.filter((r) => r.status === 'fulfilled').length;
+      }
+      if (ok === list.length) toast.success(`اتعتمد ${ok} تحويل مطابق`);
+      else toast.warning(`اتعتمد ${ok} من ${list.length}، جرّبي الباقي تاني`);
     } finally {
       setBusy('');
     }
@@ -113,6 +186,31 @@ export default function MorningTransfersTab() {
       </div>
     );
 
+  const clean = rows.filter((r) => !r.saved && !r.issues.length);
+  const needPairs = rows.filter((r) => !r.saved && r.issues.length);
+  const donePairs = rows.filter((r) => r.saved);
+  const openPurchases = pairing.purchasesOnly.filter((p) => !p.check);
+  const openSales = pairing.salesOnly.filter((s) => !s.check);
+  const need = needPairs.length + openPurchases.length + openSales.length;
+  const doneCount =
+    donePairs.length +
+    (pairing.purchasesOnly.length - openPurchases.length) +
+    (pairing.salesOnly.length - openSales.length);
+
+  const shownPairs = view === 'review' ? needPairs : view === 'done' ? donePairs : rows;
+  const shownPurchases =
+    view === 'review'
+      ? openPurchases
+      : view === 'done'
+        ? pairing.purchasesOnly.filter((p) => p.check)
+        : pairing.purchasesOnly;
+  const shownSales =
+    view === 'review'
+      ? openSales
+      : view === 'done'
+        ? pairing.salesOnly.filter((s) => s.check)
+        : pairing.salesOnly;
+
   const supplierName = day.branch === 'فرع شكري' ? 'دواء الشامي' : 'دواء ابو العزم';
   const customerName = day.branch === 'فرع شكري' ? 'فرع ابو العزم (170)' : 'دواء الشامي (10)';
 
@@ -131,31 +229,53 @@ export default function MorningTransfersTab() {
           >
             <RefreshCw size={16} /> تحديث
           </button>
+          <div className="mr-auto inline-flex rounded-xl border border-[var(--dawaa-theme-border)] p-0.5">
+            {VIEWS.map((v) => (
+              <button
+                key={v.key}
+                type="button"
+                className={`rounded-lg px-3 py-1 text-xs font-black ${
+                  view === v.key
+                    ? 'bg-[var(--dawaa-theme-primary,#0f766e)] text-white'
+                    : 'opacity-70'
+                }`}
+                onClick={() => setView(v.key)}
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <MiniBox label="محتاج مراجعة" value={String(need)} tone={need ? 'amber' : 'green'} />
+          <MiniBox label="مطابق تلقائي" value={String(clean.length)} tone="blue" />
+          <MiniBox label="اتراجع" value={String(doneCount)} tone="green" />
           <MiniBox
-            label="اتراجع"
-            value={`${progress.done} / ${progress.total}`}
-            tone={progress.done === progress.total && progress.total ? 'green' : 'cyan'}
-          />
-          <MiniBox label="مربوطين" value={String(pairing.pairs.length)} tone="blue" />
-          <MiniBox
-            label="شراء من غير بيع"
-            value={String(pairing.purchasesOnly.length)}
-            tone={pairing.purchasesOnly.length ? 'amber' : 'cyan'}
-          />
-          <MiniBox
-            label="بيع من غير شراء"
-            value={String(pairing.salesOnly.length)}
-            tone={pairing.salesOnly.length ? 'amber' : 'cyan'}
+            label="من غير ربط"
+            value={String(pairing.purchasesOnly.length + pairing.salesOnly.length)}
+            tone={pairing.purchasesOnly.length + pairing.salesOnly.length ? 'amber' : 'cyan'}
           />
         </div>
-        <p className="mt-2 text-xs opacity-70">
-          الربط التلقائي بالرقم الأول (لو رقم فاتورة البيع مكتوب كرقم فاتورة المورد)، وبعدين بنفس
-          الأصناف، وبعدين بنفس القيمة وعدد الأصناف. تحت كل تحويل مقارنة صنف صنف: الكود والكمية في
-          البيع قصاد الشراء، ولو نفس الصنف اتسجل بكودين بتظهر. ده بيشتغل لما تقرير المشتريات يترفع
-          بالأصناف.
-        </p>
+        {clean.length ? (
+          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-[var(--dawaa-theme-soft)] p-2 text-sm">
+            <span className="font-bold">
+              {clean.length} تحويل مطابق: نفس الأصناف والكميات والفرق أقل من{' '}
+              {TRANSFER_MONEY_TOLERANCE} ج.
+            </span>
+            <button
+              className="btn-primary !px-3 !py-1 mr-auto inline-flex items-center gap-1"
+              disabled={busy === 'bulk'}
+              onClick={() => void confirmClean(clean.map((r) => r.p))}
+            >
+              {busy === 'bulk' ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <CheckCheck size={14} />
+              )}{' '}
+              اعتمدي المطابق كله
+            </button>
+          </div>
+        ) : null}
         {day.purchases.length > 0 && day.sales.length === 0 ? (
           <p className="mt-2 text-sm font-black text-[var(--dawaa-status-danger-text)]">
             مفيش ولا فاتورة بيع من {day.sale_branch} لسه. غالباً فواتير البيع لسه مترفعتش (بتترفع
@@ -171,125 +291,62 @@ export default function MorningTransfersTab() {
             branch={day.branch}
             salesOnly={pairing.salesOnly}
             onClose={() => setEditing(null)}
-            onSaved={async () => {
+            onSaved={(s) => {
               setEditing(null);
-              await load();
+              patch(s);
+              // الربط بإيدها بيغيّر الربط التلقائي: نحدّث في الخلفية من غير ما الصفحة تقف.
+              void load();
             }}
           />
         </Panel>
       ) : null}
 
-      <Panel>
-        <SectionTitle
-          title="مربوطين"
-          subtitle="أكدي «مطابق» لو الأصناف والكميات زي بعض، أو سجّلي المشكلة"
-        />
-        {pairing.pairs.length === 0 ? (
-          <EmptyState label="مفيش تحويلات اتربطت" />
-        ) : (
-          <div className="mt-2 space-y-2">
-            {pairing.pairs.map((p) => {
-              const all = pairPurchases(p);
-              const saved = pairSaved(p);
-              const diff = all.reduce((t, x) => t + x.net, 0) - p.sale.net;
-              const items = all.reduce((t, x) => t + x.items, 0);
-              return (
-                <div
-                  key={p.purchase.serial}
-                  className="rounded-2xl border border-[var(--dawaa-theme-border)] p-3"
-                >
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <div className="space-y-2">
-                      {all.map((x) => (
-                        <PurchaseCard key={x.serial} p={x} />
-                      ))}
-                      {p.rest.length ? (
-                        <div className="text-xs font-black">
-                          مجموع الشراء {money(all.reduce((t, x) => t + x.net, 0))} ج على{' '}
-                          {all.length} فواتير
-                        </div>
-                      ) : null}
-                    </div>
-                    <SaleCard s={p.sale} compact={all.every((x) => x.lines.length > 0)} />
-                  </div>
-                  <TransferLinesCompare purchases={all} sale={p.sale} />
-                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                    <span className="rounded-full bg-[var(--dawaa-theme-soft)] px-2 py-0.5 font-bold">
-                      {HOW[p.how]}
-                    </span>
-                    {Math.abs(diff) > 0.5 ? (
-                      <span className="font-black text-[var(--dawaa-status-danger-text)]">
-                        فرق {money(diff)} ج
-                      </span>
-                    ) : null}
-                    {items && p.sale.lines && items !== p.sale.lines ? (
-                      <span className="font-black text-[var(--dawaa-status-danger-text)]">
-                        أصناف الشراء {items} والبيع {p.sale.lines}
-                      </span>
-                    ) : null}
-                    {saved ? (
-                      <span
-                        className={
-                          p.purchase.check!.status === 'ok'
-                            ? 'font-black text-[var(--dawaa-status-success-text)]'
-                            : 'font-black text-[var(--dawaa-status-danger-text)]'
-                        }
-                      >
-                        {p.purchase.check!.status === 'ok'
-                          ? 'اتأكد'
-                          : `مشكلة: ${p.purchase.check!.problems.map(problemLabel).join('، ')}`}{' '}
-                        · {p.purchase.check!.by}
-                      </span>
-                    ) : null}
-                    <div className="mr-auto flex gap-1">
-                      <button
-                        className="btn-primary !px-2 !py-1 inline-flex items-center gap-1"
-                        disabled={busy === p.purchase.serial}
-                        onClick={() => void confirm(p)}
-                      >
-                        {busy === p.purchase.serial ? (
-                          <Loader2 size={14} className="animate-spin" />
-                        ) : (
-                          <Check size={14} />
-                        )}{' '}
-                        مطابق
-                      </button>
-                      <button
-                        className="btn-secondary !px-2 !py-1 inline-flex items-center gap-1"
-                        onClick={() =>
-                          setEditing({ kind: 'pair', purchase: p.purchase, sale: p.sale })
-                        }
-                      >
-                        <TriangleAlert size={14} /> مشكلة
-                      </button>
-                      <button
-                        className="btn-secondary !px-2 !py-1 inline-flex items-center gap-1"
-                        onClick={() => setEditing({ kind: 'purchase', purchase: p.purchase })}
-                      >
-                        <Link2 size={14} /> مش دي
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </Panel>
+      {view === 'review' && need === 0 ? (
+        <Panel>
+          <EmptyState
+            label={
+              clean.length
+                ? 'مفيش مشاكل. اعتمدي المطابق من فوق وخلصتي 👌'
+                : 'مفيش حاجة محتاجة مراجعة 👌'
+            }
+          />
+        </Panel>
+      ) : null}
 
-      <Panel>
-        <SectionTitle
-          title={`شراء في ${day.branch} ملهوش بيع`}
-          subtitle="اربطيه برقم فاتورة البيع، أو سجّلي إنه مش متسجل بيع"
-        />
-        {pairing.purchasesOnly.length === 0 ? (
-          <EmptyState label="مفيش" />
-        ) : (
+      {shownPairs.length ? (
+        <Panel>
+          <SectionTitle
+            title={view === 'done' ? 'اتراجعت' : view === 'review' ? 'فيها اختلاف' : 'مربوطين'}
+            subtitle="الكمية والكود والصنف الناقص الأول. فرق الفلوس بيظهر بس لو أكتر من ٥٠ ج"
+          />
           <div className="mt-2 space-y-2">
-            {pairing.purchasesOnly.map((p) => (
+            {shownPairs.map(({ p, issues, saved }) => (
+              <PairCard
+                key={p.purchase.serial}
+                p={p}
+                issues={issues}
+                saved={saved}
+                busy={busy === p.purchase.serial}
+                onConfirm={() => void confirm(p)}
+                onProblem={() => setEditing({ kind: 'pair', purchase: p.purchase, sale: p.sale })}
+                onUnlink={() => setEditing({ kind: 'purchase', purchase: p.purchase })}
+              />
+            ))}
+          </div>
+        </Panel>
+      ) : null}
+
+      {shownPurchases.length ? (
+        <Panel>
+          <SectionTitle
+            title={`شراء في ${day.branch} ملهوش بيع`}
+            subtitle="اربطيه برقم فاتورة البيع، أو سجّلي إنه مش متسجل بيع"
+          />
+          <div className="mt-2 space-y-2">
+            {shownPurchases.map((p) => (
               <div
                 key={p.serial}
-                className="rounded-2xl border border-[var(--dawaa-status-warning-border,var(--dawaa-theme-border))] p-3"
+                className="rounded-2xl border-r-4 border border-[var(--dawaa-theme-border)] border-r-[var(--dawaa-status-warning-text,#b45309)] p-3"
               >
                 <PurchaseCard p={p} />
                 {p.lines.length ? <ItemList items={p.lines} /> : null}
@@ -309,22 +366,20 @@ export default function MorningTransfersTab() {
               </div>
             ))}
           </div>
-        )}
-      </Panel>
+        </Panel>
+      ) : null}
 
-      <Panel>
-        <SectionTitle
-          title={`بيع في ${day.sale_branch} ملهوش شراء عندنا`}
-          subtitle="لو الصنف وصل ومتسجلش شراء، سجّلي المشكلة"
-        />
-        {pairing.salesOnly.length === 0 ? (
-          <EmptyState label="مفيش" />
-        ) : (
+      {shownSales.length ? (
+        <Panel>
+          <SectionTitle
+            title={`بيع في ${day.sale_branch} ملهوش شراء عندنا`}
+            subtitle="لو الصنف وصل ومتسجلش شراء، سجّلي المشكلة"
+          />
           <div className="mt-2 space-y-2">
-            {pairing.salesOnly.map((s) => (
+            {shownSales.map((s) => (
               <div
                 key={s.invoice}
-                className="rounded-2xl border border-[var(--dawaa-theme-border)] p-3"
+                className="rounded-2xl border-r-4 border border-[var(--dawaa-theme-border)] border-r-[var(--dawaa-status-warning-text,#b45309)] p-3"
               >
                 <SaleCard s={s} />
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
@@ -354,10 +409,124 @@ export default function MorningTransfersTab() {
               </div>
             ))}
           </div>
-        )}
-      </Panel>
+        </Panel>
+      ) : null}
 
-      <TransferAccuracyReport />
+      {showReport ? (
+        <TransferAccuracyReport />
+      ) : (
+        <button className="btn-secondary w-full" onClick={() => setShowReport(true)}>
+          تقرير دقة التحويلات (فترة)
+        </button>
+      )}
+    </div>
+  );
+}
+
+const ISSUE_TONE: Record<TransferIssue['kind'], string> = {
+  qty: 'bg-[var(--dawaa-status-danger-bg,#fee2e2)] text-[var(--dawaa-status-danger-text)]',
+  missing: 'bg-[var(--dawaa-status-danger-bg,#fee2e2)] text-[var(--dawaa-status-danger-text)]',
+  code: 'bg-[var(--dawaa-status-warning-bg,#fef3c7)] text-[var(--dawaa-status-warning-text,#b45309)]',
+  count:
+    'bg-[var(--dawaa-status-warning-bg,#fef3c7)] text-[var(--dawaa-status-warning-text,#b45309)]',
+  money:
+    'bg-[var(--dawaa-status-warning-bg,#fef3c7)] text-[var(--dawaa-status-warning-text,#b45309)]',
+};
+
+function PairCard({
+  p,
+  issues,
+  saved,
+  busy,
+  onConfirm,
+  onProblem,
+  onUnlink,
+}: {
+  p: TransferPair;
+  issues: TransferIssue[];
+  saved: boolean;
+  busy: boolean;
+  onConfirm: () => void;
+  onProblem: () => void;
+  onUnlink: () => void;
+}) {
+  const all = pairPurchases(p);
+  const edge = saved
+    ? p.purchase.check?.status === 'ok'
+      ? 'border-r-[var(--dawaa-status-success-text)]'
+      : 'border-r-[var(--dawaa-status-danger-text)]'
+    : issues.length
+      ? 'border-r-[var(--dawaa-status-danger-text)]'
+      : 'border-r-[var(--dawaa-status-success-text)]';
+  return (
+    <div className={`rounded-2xl border border-r-4 border-[var(--dawaa-theme-border)] p-3 ${edge}`}>
+      <div className="flex flex-wrap items-center gap-1.5 text-xs">
+        {issues.map((x) => (
+          <span
+            key={x.kind}
+            className={`rounded-full px-2 py-0.5 font-black ${ISSUE_TONE[x.kind]}`}
+          >
+            {x.label}
+          </span>
+        ))}
+        {!issues.length ? (
+          <span className="rounded-full bg-[var(--dawaa-theme-soft)] px-2 py-0.5 font-black text-[var(--dawaa-status-success-text)]">
+            مطابق
+          </span>
+        ) : null}
+        <span className="rounded-full bg-[var(--dawaa-theme-soft)] px-2 py-0.5 font-bold opacity-70">
+          اتربط {HOW[p.how]}
+        </span>
+        {saved ? (
+          <span
+            className={
+              p.purchase.check!.status === 'ok'
+                ? 'font-black text-[var(--dawaa-status-success-text)]'
+                : 'font-black text-[var(--dawaa-status-danger-text)]'
+            }
+          >
+            {p.purchase.check!.status === 'ok'
+              ? 'اتأكد'
+              : `مشكلة: ${p.purchase.check!.problems.map(problemLabel).join('، ')}`}{' '}
+            · {p.purchase.check!.by}
+          </span>
+        ) : null}
+      </div>
+      <div className="mt-2 grid gap-3 md:grid-cols-2">
+        <div className="space-y-2">
+          {all.map((x) => (
+            <PurchaseCard key={x.serial} p={x} />
+          ))}
+          {p.rest.length ? (
+            <div className="text-xs font-black">
+              مجموع الشراء {money(all.reduce((t, x) => t + x.net, 0))} ج على {all.length} فواتير
+            </div>
+          ) : null}
+        </div>
+        <SaleCard s={p.sale} compact={all.every((x) => x.lines.length > 0)} />
+      </div>
+      <TransferLinesCompare purchases={all} sale={p.sale} onlyIssues={issues.length > 0} />
+      <div className="mt-2 flex flex-wrap justify-end gap-1 text-xs">
+        <button
+          className="btn-primary !px-3 !py-1 inline-flex items-center gap-1"
+          disabled={busy}
+          onClick={onConfirm}
+        >
+          {busy ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} مطابق
+        </button>
+        <button
+          className="btn-secondary !px-2 !py-1 inline-flex items-center gap-1"
+          onClick={onProblem}
+        >
+          <TriangleAlert size={14} /> مشكلة
+        </button>
+        <button
+          className="btn-secondary !px-2 !py-1 inline-flex items-center gap-1"
+          onClick={onUnlink}
+        >
+          <Link2 size={14} /> مش دي
+        </button>
+      </div>
     </div>
   );
 }
@@ -416,7 +585,7 @@ function TransferForm({
   branch: string;
   salesOnly: TransferSale[];
   onClose: () => void;
-  onSaved: () => Promise<void>;
+  onSaved: (saved: TransferSaved) => void;
 }) {
   const purchase = editing.kind === 'sale' ? null : editing.purchase;
   const initialSale =
@@ -440,17 +609,25 @@ function TransferForm({
     }
     setSaving(true);
     try {
-      await saveTransferCheck({
-        purchaseStore: purchase?.store ?? null,
-        purchaseSerial: purchase?.serial ?? null,
-        saleInvoice: editing.kind === 'sale' ? editing.sale.invoice : sale.trim() || null,
+      const saleInvoice = editing.kind === 'sale' ? editing.sale.invoice : sale.trim() || null;
+      const saved = {
         status,
         problems: status === 'ok' ? [] : problems,
         note,
+      };
+      await saveTransferCheck({
+        purchaseStore: purchase?.store ?? null,
+        purchaseSerial: purchase?.serial ?? null,
+        saleInvoice,
+        ...saved,
         branch,
       });
       toast.success('اتحفظ');
-      await onSaved();
+      onSaved({
+        ...saved,
+        purchases: purchase ? [{ store: purchase.store, serial: purchase.serial }] : [],
+        saleInvoice,
+      });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   LINE_CHECKS,
   compareTransferLines,
@@ -30,10 +31,14 @@ export function compareTransfer(purchases: TransferPurchase[], sale: TransferSal
 export default function TransferLinesCompare({
   purchases,
   sale,
+  onlyIssues = false,
 }: {
   purchases: TransferPurchase[];
   sale: TransferSale;
+  /** Show only the lines that differ, with a button for the rest. */
+  onlyIssues?: boolean;
 }) {
+  const [showAll, setShowAll] = useState(false);
   if (purchases.some((p) => !p.lines.length))
     return (
       <p className="mt-2 text-xs opacity-70">
@@ -42,6 +47,7 @@ export default function TransferLinesCompare({
     );
   const rows = compareTransfer(purchases, sale);
   const issues = rows.filter((r) => r.check !== 'ok').length;
+  const visible = onlyIssues && issues && !showAll ? rows.filter((r) => r.check !== 'ok') : rows;
   return (
     <div className="mt-2 rounded-xl bg-[var(--dawaa-theme-soft)] p-2">
       <div className="mb-1 text-xs font-black">
@@ -54,6 +60,15 @@ export default function TransferLinesCompare({
             كل الأصناف مطابقة ({rows.length} صنف)
           </span>
         )}
+        {visible.length < rows.length ? (
+          <button
+            type="button"
+            className="mr-2 underline decoration-dotted opacity-70"
+            onClick={() => setShowAll(true)}
+          >
+            عرض الـ {rows.length - visible.length} صنف المطابقين
+          </button>
+        ) : null}
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
@@ -69,7 +84,7 @@ export default function TransferLinesCompare({
             </tr>
           </thead>
           <tbody>
-            {rows.map((r, n) => (
+            {visible.map((r, n) => (
               <tr key={n} className="border-t border-[var(--dawaa-theme-border)] align-top">
                 <td className={`p-1 font-black whitespace-nowrap ${TONE[r.check]}`}>
                   {LINE_CHECKS[r.check]}

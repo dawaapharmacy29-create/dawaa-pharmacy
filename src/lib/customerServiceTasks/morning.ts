@@ -1,4 +1,5 @@
 import { supabase } from '@/supabaseClient';
+import { compareTransferLines } from '@/lib/purchaseReview/invoiceLines';
 
 // مراجعة الصبح لفريق خدمة العملاء (migration 20261125090000): فواتير مشتريات امبارح من ٩ لـ ٩، التحويلات بين الفرعين،
 // وتقرير أخطاء التسجيل للمدير العام بس. الربط التلقائي بين الشراء والبيع في التحويلات هنا (pairTransfers) عشان يتختبر.
@@ -245,8 +246,10 @@ const arabicDigits = (v: string) => v.replace(/[٠-٩]/g, (d) => String('٠١٢�
 export function matchesPurchase(i: PurchaseInvoice, q: string): boolean {
   const query = arabicDigits(q.trim());
   if (!query) return true;
-  if (/^\d+$/.test(query))
+  if (/^\d+(\.\d+)?$/.test(query))
     return (
+      // القيمة كمان: «٤٥٠» بتلاقي فاتورة بـ ٤٥٠ أو ٤٥٠.٧٥.
+      String(Math.trunc(i.net)) === query.split('.')[0] ||
       i.serial.includes(query) ||
       (i.supplier_invoice_no ?? '').includes(query) ||
       (i.check?.fix?.serial ?? '').includes(query) ||
@@ -574,6 +577,73 @@ export function pairTransfers(
     pairs,
     purchasesOnly: [...remaining, ...keptAside],
     salesOnly: sales.filter((s) => !used.has(s.invoice)),
+  };
+}
+
+// ---- اللي محتاج مراجعة (صاحب الصيدلية 2026-11-26) ----
+// المهم في التحويل: كمية مختلفة، كود مختلف، صنف مش موجود. فرق الفلوس بيظهر بس لو أكتر من ٥٠ ج.
+
+export const TRANSFER_MONEY_TOLERANCE = 50;
+
+export type TransferIssue = { kind: 'qty' | 'code' | 'missing' | 'money' | 'count'; label: string };
+
+/** What is wrong with a pair; empty when it is a clean match that needs no review. */
+export function transferIssues(p: TransferPair): TransferIssue[] {
+  const all = pairPurchases(p);
+  const out: TransferIssue[] = [];
+  const hasLines = all.every((x) => x.lines.length > 0) && p.sale.items.length > 0;
+  if (hasLines) {
+    const rows = compareTransferLines(
+      p.sale.items.map((i) => ({ code: i.code, name: i.name, qty: i.qty, price: i.price })),
+      all.flatMap((x) =>
+        x.lines.map((l) => ({ code: l.code, name: l.name, qty: l.qty, price: l.price }))
+      )
+    );
+    const qty = rows.filter(
+      (r) => r.check === 'qty' || (r.check === 'code' && r.qtyDiffers)
+    ).length;
+    const code = rows.filter((r) => r.check === 'code').length;
+    const missing = rows.filter(
+      (r) => r.check === 'only_sale' || r.check === 'only_purchase'
+    ).length;
+    if (qty) out.push({ kind: 'qty', label: `كمية مختلفة في ${qty} صنف` });
+    if (code) out.push({ kind: 'code', label: `${code} صنف بكود مختلف` });
+    if (missing) out.push({ kind: 'missing', label: `${missing} صنف مش موجود في الناحية التانية` });
+  } else {
+    const items = all.reduce((t, x) => t + x.items, 0);
+    if (items && p.sale.lines && items !== p.sale.lines)
+      out.push({ kind: 'count', label: `أصناف الشراء ${items} والبيع ${p.sale.lines}` });
+  }
+  const diff = all.reduce((t, x) => t + x.net, 0) - p.sale.net;
+  if (Math.abs(diff) > TRANSFER_MONEY_TOLERANCE)
+    out.push({
+      kind: 'money',
+      label: `فرق ${diff.toLocaleString('ar-EG', { maximumFractionDigits: 2 })} ج`,
+    });
+  return out;
+}
+
+/** The day with the given purchases (or sale) marked as checked, so the page updates without reloading. */
+export function withTransferCheck(
+  d: TransferDay,
+  target: { purchases: Array<{ store: string; serial: string }>; saleInvoice: string | null },
+  check: TransferCheck
+): TransferDay {
+  const hit = (p: TransferPurchase) =>
+    target.purchases.some((x) => x.store === p.store && x.serial === p.serial);
+  return {
+    ...d,
+    purchases: d.purchases.map((p) =>
+      hit(p) ? { ...p, check: { ...check, sale_invoice: target.saleInvoice } } : p
+    ),
+    sales:
+      target.purchases.length === 0 && target.saleInvoice
+        ? d.sales.map((s) =>
+            s.invoice === target.saleInvoice
+              ? { ...s, check: { ...check, purchase_serial: null } }
+              : s
+          )
+        : d.sales,
   };
 }
 

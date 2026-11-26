@@ -13,12 +13,7 @@ import {
   Undo2,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import {
-  EmptyState,
-  MiniBox,
-  Panel,
-  SectionTitle,
-} from '@/components/dashboard/DashboardPrimitives';
+import { EmptyState, Panel } from '@/components/dashboard/DashboardPrimitives';
 import {
   PURCHASE_PROBLEMS,
   bulkApprovePurchases,
@@ -29,12 +24,14 @@ import {
   loadPurchaseDay,
   problemLabel,
   savePurchaseCheck,
+  type PurchaseCheck,
   type PurchaseDay,
   type PurchaseFix,
   type PurchaseInvoice,
   type PurchaseProblem,
 } from '@/lib/customerServiceTasks/morning';
 import InvoiceLinesTable from '@/components/purchase-review/InvoiceLinesTable';
+import { useAuth } from '@/hooks/useAuth';
 
 // الخطوة الأولى في الصبح: كل فاتورة مشتريات دخلت فرعها من ٩ الصبح امبارح لـ ٩ الصبح النهارده (التحويلات في تبويبها).
 // المسلسل على الورق (الدكتور كتبه بإيده ولا لأ)، وبعدين اعتماد، أو تعديل (المورد/المسلسل/رقم فاتورة المورد/المخزن/الإجمالي)، أو «فيها مشكلة». الخصم مش هنا: ده للمدير العام.
@@ -120,17 +117,39 @@ type Mode = { serial: string; store: string; kind: 'fix' | 'problem' | 'returns'
 
 const keyOf = (i: { store: string; serial: string }) => `${i.store}|${i.serial}`;
 
+/** What a form or button changed on one invoice; the row updates in place instead of reloading the page. */
+export type InvoicePatch = Partial<
+  Pick<PurchaseInvoice, 'check' | 'paper_serial' | 'returns_note'>
+>;
+
+type StatusFilter = 'open' | 'issues' | 'ok' | 'all';
+const STATUS_FILTERS: Array<{ key: StatusFilter; label: string }> = [
+  { key: 'open', label: 'لسه' },
+  { key: 'issues', label: 'اتعدلت أو فيها مشكلة' },
+  { key: 'ok', label: 'اتعتمدت' },
+  { key: 'all', label: 'الكل' },
+];
+const needsWork = (i: PurchaseInvoice) => !i.check || i.paper_serial == null;
+const matchesStatus = (i: PurchaseInvoice, f: StatusFilter) =>
+  f === 'all' ||
+  (f === 'open' && needsWork(i)) ||
+  (f === 'issues' && !!i.check && i.check.status !== 'ok') ||
+  (f === 'ok' && i.check?.status === 'ok');
+
 export default function MorningPurchasesTab({
   onProgress,
 }: {
   onProgress?: (done: number, total: number) => void;
 }) {
+  const { user } = useAuth();
+  const me = user?.name || user?.username || 'أنا';
   const [branch, setBranch] = useState<string | null>(null);
   // اليوم اللي الفترة بتخلص فيه (٩ الصبح). فاضي = النهارده، يعني فواتير امبارح.
   const [pickedDay, setPickedDay] = useState<string>('');
   const [day, setDay] = useState<PurchaseDay | null>(null);
   const [error, setError] = useState('');
-  const [onlyOpen, setOnlyOpen] = useState(true);
+  const [status, setStatus] = useState<StatusFilter>('open');
+  const [store, setStore] = useState('');
   const [mode, setMode] = useState<Mode>(null);
   const [busy, setBusy] = useState('');
   const [query, setQuery] = useState('');
@@ -163,6 +182,27 @@ export default function MorningPurchasesTab({
     }
   }, [load, found, query, day, branch]);
 
+  /** Updates the given invoices in the loaded day and in the search results, without asking the server again. */
+  const patch = useCallback((keys: string[], change: (i: PurchaseInvoice) => InvoicePatch) => {
+    const set = new Set(keys);
+    const apply = (list: PurchaseInvoice[]) =>
+      list.map((i) => (set.has(keyOf(i)) ? { ...i, ...change(i) } : i));
+    setDay((d) => (d ? { ...d, invoices: apply(d.invoices) } : d));
+    setFound((f) => (f ? apply(f) : f));
+  }, []);
+  const checkOf = (
+    s: PurchaseCheck['status'],
+    extra: Partial<PurchaseCheck> = {}
+  ): PurchaseCheck => ({
+    status: s,
+    problems: [],
+    fix: {},
+    note: null,
+    by: me,
+    at: new Date().toISOString(),
+    ...extra,
+  });
+
   const done = (day?.invoices ?? []).filter((i) => i.check).length;
   const total = day?.invoices.length ?? 0;
   useEffect(() => {
@@ -178,16 +218,23 @@ export default function MorningPurchasesTab({
     ],
     [day]
   );
-  const base = found ?? day?.invoices ?? [];
+  const base = useMemo(() => found ?? day?.invoices ?? [], [found, day]);
   const people = useMemo(
     () => [...new Set(base.map((i) => i.entered_by ?? '').filter(Boolean))].sort(),
     [base]
   );
   const isOpen = (i: PurchaseInvoice) => mode && mode.serial === i.serial && mode.store === i.store;
+  const counts = useMemo(() => {
+    const out: Record<StatusFilter, number> = { open: 0, issues: 0, ok: 0, all: 0 };
+    for (const i of day?.invoices ?? [])
+      for (const f of STATUS_FILTERS) if (matchesStatus(i, f.key)) out[f.key] += 1;
+    return out;
+  }, [day]);
   const shown = base.filter(
     (i) =>
-      (found || !onlyOpen || !i.check || i.paper_serial == null || isOpen(i)) &&
+      (found || matchesStatus(i, status) || isOpen(i)) &&
       (!who || i.entered_by === who) &&
+      (!store || i.store === store) &&
       (found || matchesPurchase(i, query))
   );
   const pickedRows = shown.filter((i) => picked.has(keyOf(i)));
@@ -207,7 +254,6 @@ export default function MorningPurchasesTab({
     setBusy(key);
     try {
       await work();
-      await reloadAll();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {
@@ -216,40 +262,50 @@ export default function MorningPurchasesTab({
   }
 
   const approve = (i: PurchaseInvoice) =>
-    run(keyOf(i), () =>
-      savePurchaseCheck({
+    run(keyOf(i), async () => {
+      await savePurchaseCheck({
         store: i.store,
         serial: i.serial,
         status: 'ok',
         problems: [],
         fix: {},
         note: '',
-      })
-    );
+      });
+      patch([keyOf(i)], () => ({ check: checkOf('ok') }));
+    });
 
   const markPaper = (i: PurchaseInvoice, v: PaperSerial) =>
     run(`${keyOf(i)}|paper`, async () => {
-      await savePurchaseMarks([
-        { store: i.store, serial: i.serial, paper_serial: i.paper_serial === v ? null : v },
-      ]);
+      const next = i.paper_serial === v ? null : v;
+      await savePurchaseMarks([{ store: i.store, serial: i.serial, paper_serial: next }]);
+      patch([keyOf(i)], () => ({ paper_serial: next }));
     });
 
   const bulkApprove = () =>
     run('bulk', async () => {
-      const r = await bulkApprovePurchases(pickedRows, bulkPaper || null);
+      const rows = pickedRows;
+      const r = await bulkApprovePurchases(rows, bulkPaper || null);
       const parts = [`اتعتمد ${r.approved}`];
       if (r.kept) parts.push(`${r.kept} متعدلة أو فيها مشكلة فضلت زي ما هي`);
       if (r.skipped.length) parts.push(`${r.skipped.length} ماتعتمدتش`);
       (r.skipped.length ? toast.warning : toast.success)(parts.join(' · '));
+      const skipped = new Set(r.skipped.map((s) => s.serial));
+      patch(rows.filter((i) => !skipped.has(i.serial)).map(keyOf), (i) => ({
+        // المتعدلة أو اللي فيها مشكلة بتفضل زي ما هي؛ الباقي اتعتمد.
+        check: i.check && i.check.status !== 'ok' ? i.check : (i.check ?? checkOf('ok')),
+        paper_serial: bulkPaper || i.paper_serial,
+      }));
       setPicked(new Set());
     });
 
   const bulkPaperOnly = (v: PaperSerial) =>
     run('bulk', async () => {
+      const rows = pickedRows;
       const n = await savePurchaseMarks(
-        pickedRows.map((i) => ({ store: i.store, serial: i.serial, paper_serial: v }))
+        rows.map((i) => ({ store: i.store, serial: i.serial, paper_serial: v }))
       );
       toast.success(`اتسجل لـ ${n} فاتورة: المسلسل ${v === 'yes' ? 'مكتوب' : 'مش مكتوب'}`);
+      patch(rows.map(keyOf), () => ({ paper_serial: v }));
       setPicked(new Set());
     });
 
@@ -285,90 +341,107 @@ export default function MorningPurchasesTab({
       </div>
     );
 
-  const problems = day.invoices.filter((i) => i.check && i.check.status !== 'ok').length;
   const sum = day.invoices.reduce((s, i) => s + i.net, 0);
   const paperAnswered = day.invoices.filter((i) => i.paper_serial).length;
   const paperForgot = day.invoices.filter((i) => i.paper_serial === 'no').length;
+  const stats: Array<{ label: string; value: string; tone?: 'good' | 'warn' }> = [
+    { label: 'الفواتير', value: `${total} · ${money(sum)} ج` },
+    {
+      label: 'اتراجعت',
+      value: `${done} / ${total}`,
+      tone: done === total && total ? 'good' : undefined,
+    },
+    {
+      label: 'المسلسل على الورق اتحدد',
+      value: `${paperAnswered} / ${total}`,
+      tone: paperAnswered === total && total ? 'good' : undefined,
+    },
+    {
+      label: 'المسلسل مش مكتوب',
+      value: String(paperForgot),
+      tone: paperForgot ? 'warn' : undefined,
+    },
+    {
+      label: 'اتعدلت أو فيها مشكلة',
+      value: String(counts.issues),
+      tone: counts.issues ? 'warn' : undefined,
+    },
+  ];
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <Panel>
-        <SectionTitle
-          title={pickedDay ? 'فواتير مشتريات' : '١) فواتير مشتريات امبارح'}
-          subtitle={`من ${fmtTime(day.from)} لـ ${fmtTime(day.to)} · كل فاتورة: المسلسل على الورق، وبعدين اعتماد أو تعديل أو فيها مشكلة`}
-        />
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <BranchPicker branch={day.branch} canPick={day.can_pick} onChange={setBranch} />
-          <label className="inline-flex items-center gap-1 text-xs font-bold">
-            لحد يوم
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-black">
+              {pickedDay ? 'فواتير مشتريات' : '١) فواتير مشتريات امبارح'}
+            </h2>
+            <p className="text-xs opacity-70">
+              من {fmtTime(day.from)} لـ {fmtTime(day.to)} · المسلسل على الورق، وبعدين اعتماد أو
+              تعديل أو مشكلة
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <BranchPicker branch={day.branch} canPick={day.can_pick} onChange={setBranch} />
             <input
               type="date"
-              className="input-field w-auto"
+              className="input-field !w-auto !py-1 text-sm"
+              aria-label="لحد يوم"
               value={pickedDay || day.day}
               onChange={(e) => setPickedDay(e.target.value)}
             />
-          </label>
-          {pickedDay ? (
-            <button className="btn-secondary !px-2 !py-1 text-xs" onClick={() => setPickedDay('')}>
-              رجوع لامبارح
+            {pickedDay ? (
+              <button
+                className="btn-secondary !px-2 !py-1 text-xs"
+                onClick={() => setPickedDay('')}
+              >
+                رجوع لامبارح
+              </button>
+            ) : null}
+            <button
+              className="btn-secondary !px-2 !py-1 inline-flex items-center gap-1 text-sm"
+              onClick={() => void reloadAll()}
+              title="تحديث"
+            >
+              <RefreshCw size={15} />
             </button>
-          ) : null}
-          <button
-            className="btn-secondary inline-flex items-center gap-1"
-            onClick={() => void reloadAll()}
-          >
-            <RefreshCw size={16} /> تحديث
-          </button>
-          <label className="inline-flex items-center gap-1 text-sm">
-            <input
-              type="checkbox"
-              checked={onlyOpen}
-              onChange={(e) => setOnlyOpen(e.target.checked)}
-            />{' '}
-            اللي لسه بس
-          </label>
-          <Link
-            to="/purchase-invoice-entry"
-            className="btn-secondary mr-auto inline-flex items-center gap-1"
-          >
-            <Plus size={16} /> فاتورة مش موجودة؟ سجّليها
-          </Link>
+            <Link
+              to="/purchase-invoice-entry"
+              className="btn-secondary !px-2 !py-1 inline-flex items-center gap-1 text-sm"
+            >
+              <Plus size={15} /> فاتورة مش موجودة؟
+            </Link>
+          </div>
         </div>
-        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-          <MiniBox label="الفواتير" value={String(total)} tone="blue" />
-          <MiniBox
-            label="اتراجعت"
-            value={`${done} / ${total}`}
-            tone={done === total && total ? 'green' : 'cyan'}
-          />
-          <MiniBox
-            label="المسلسل على الورق اتحدد"
-            value={`${paperAnswered} / ${total}`}
-            tone={paperAnswered === total && total ? 'green' : 'cyan'}
-          />
-          <MiniBox
-            label="المسلسل مش مكتوب"
-            value={String(paperForgot)}
-            tone={paperForgot ? 'amber' : 'cyan'}
-          />
-          <MiniBox
-            label="اتعدلت أو فيها مشكلة"
-            value={String(problems)}
-            tone={problems ? 'amber' : 'cyan'}
-          />
+        <div className="mt-3 flex flex-wrap gap-2">
+          {stats.map((s) => (
+            <div
+              key={s.label}
+              className={`rounded-xl border px-3 py-1.5 ${
+                s.tone === 'good'
+                  ? 'border-[var(--dawaa-status-success-text)] text-[var(--dawaa-status-success-text)]'
+                  : s.tone === 'warn'
+                    ? 'border-[var(--dawaa-status-warning-text,#b45309)] text-[var(--dawaa-status-warning-text,#b45309)]'
+                    : 'border-[var(--dawaa-theme-border)]'
+              }`}
+            >
+              <span className="text-[11px] font-bold opacity-80">{s.label}</span>
+              <span className="mr-2 text-sm font-black">{s.value}</span>
+            </div>
+          ))}
         </div>
-        <p className="mt-2 text-xs opacity-70">
-          الإجمالي {money(sum)} ج · آخر رفع لملفات المشتريات:{' '}
+        <p className="mt-2 text-[11px] opacity-60">
+          آخر رفع لملفات المشتريات:{' '}
           {day.uploads.length
             ? day.uploads.map((u) => `${u.store} ${fmtTime(u.uploaded_at)}`).join(' · ')
             : 'مفيش ملفات اترفعت للفرع ده'}
-          . لو الملف لسه مترفعش النهارده، الفواتير بعد آخر رفع مش هتظهر.
+          . الفواتير بعد آخر رفع مش هتظهر.
         </p>
       </Panel>
 
       <Panel>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-[16rem] flex-1">
+          <div className="relative min-w-[15rem] flex-1">
             <Search size={16} className="absolute top-1/2 right-3 -translate-y-1/2 opacity-50" />
             <input
               className="input-field !pr-9"
@@ -380,20 +453,32 @@ export default function MorningPurchasesTab({
               onKeyDown={(e) => {
                 if (e.key === 'Enter') void searchAll();
               }}
-              placeholder="دوّري برقم المسلسل أو رقم فاتورة المورد أو اسم الدكتور أو المورد"
+              placeholder="مسلسل، رقم فاتورة المورد، القيمة، اسم الدكتور أو المورد"
             />
           </div>
           <button
             className="btn-secondary inline-flex items-center gap-1"
             disabled={searching}
             onClick={() => void searchAll()}
-            title="يدوّر في فواتير فرعك في آخر ٩٠ يوم"
+            title="يدوّر في فواتير فرعك في آخر ٩٠ يوم (أو دوسي Enter)"
           >
-            {searching ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />} في
-            آخر ٩٠ يوم
+            {searching ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />} آخر
+            ٩٠ يوم
           </button>
           <select
-            className="input-field w-auto"
+            className="input-field !w-auto"
+            value={store}
+            onChange={(e) => setStore(e.target.value)}
+          >
+            <option value="">كل المخازن</option>
+            {stores.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+          <select
+            className="input-field !w-auto"
             value={who}
             onChange={(e) => setWho(e.target.value)}
           >
@@ -405,7 +490,24 @@ export default function MorningPurchasesTab({
             ))}
           </select>
         </div>
-        {found ? (
+        {!found ? (
+          <div className="mt-2 inline-flex flex-wrap rounded-xl border border-[var(--dawaa-theme-border)] p-0.5">
+            {STATUS_FILTERS.map((f) => (
+              <button
+                key={f.key}
+                type="button"
+                className={`rounded-lg px-3 py-1 text-xs font-black ${
+                  status === f.key
+                    ? 'bg-[var(--dawaa-theme-primary,#0f766e)] text-white'
+                    : 'opacity-70'
+                }`}
+                onClick={() => setStatus(f.key)}
+              >
+                {f.label} ({counts[f.key]})
+              </button>
+            ))}
+          </div>
+        ) : (
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
             <span className="font-black">
               نتايج البحث في آخر ٩٠ يوم: {found.length}
@@ -421,13 +523,13 @@ export default function MorningPurchasesTab({
               رجوع للقايمة
             </button>
           </div>
-        ) : null}
+        )}
 
         {pickedRows.length ? (
-          <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-[var(--dawaa-theme-soft)] p-2 text-sm">
+          <div className="sticky top-0 z-10 mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface,#fff)] p-2 text-sm shadow-sm">
             <span className="font-black">اخترتي {pickedRows.length}</span>
             <select
-              className="input-field w-auto"
+              className="input-field !w-auto !py-1"
               value={bulkPaper}
               onChange={(e) => setBulkPaper(e.target.value as '' | PaperSerial)}
             >
@@ -436,7 +538,7 @@ export default function MorningPurchasesTab({
               <option value="no">والمسلسل مش مكتوب على الورق</option>
             </select>
             <button
-              className="btn-primary inline-flex items-center gap-1"
+              className="btn-primary !py-1 inline-flex items-center gap-1"
               disabled={busy === 'bulk'}
               onClick={() => void bulkApprove()}
             >
@@ -465,11 +567,8 @@ export default function MorningPurchasesTab({
               className="btn-secondary !px-2 !py-1 text-xs"
               onClick={() => setPicked(new Set())}
             >
-              إلغاء الاختيار
+              إلغاء
             </button>
-            <span className="text-xs opacity-70">
-              الاعتماد الجماعي مابيلمسش الفواتير اللي اتعدلت أو اتقال فيها مشكلة.
-            </span>
           </div>
         ) : null}
 
@@ -478,18 +577,18 @@ export default function MorningPurchasesTab({
             label={
               found
                 ? 'مفيش فواتير بالبحث ده'
-                : query || who
-                  ? 'مفيش فواتير بالبحث ده هنا، جرّبي «في آخر ٩٠ يوم»'
-                  : total
+                : query || who || store
+                  ? 'مفيش فواتير بالبحث ده هنا، جرّبي «آخر ٩٠ يوم»'
+                  : status === 'open' && total
                     ? 'كل الفواتير اتراجعت 👌'
-                    : 'مفيش فواتير مشتريات في الفترة دي'
+                    : 'مفيش فواتير هنا'
             }
           />
         ) : (
-          <div className="mt-3 overflow-x-auto">
+          <div className="mt-3 overflow-x-auto rounded-xl border border-[var(--dawaa-theme-border)]">
             <table className="w-full text-sm">
-              <thead>
-                <tr className="text-right opacity-70">
+              <thead className="bg-[var(--dawaa-theme-soft)]">
+                <tr className="text-right text-xs">
                   <th className="p-2">
                     <input
                       type="checkbox"
@@ -500,11 +599,8 @@ export default function MorningPurchasesTab({
                       }
                     />
                   </th>
-                  <th className="p-2">الوقت</th>
-                  <th className="p-2">المخزن · المسلسل</th>
+                  <th className="p-2">الفاتورة</th>
                   <th className="p-2">المورد</th>
-                  <th className="p-2">رقم فاتورة المورد</th>
-                  <th className="p-2">أصناف</th>
                   <th className="p-2">القيمة</th>
                   <th className="p-2">سجّلها</th>
                   <th className="p-2">المسلسل على الورق؟</th>
@@ -532,10 +628,11 @@ export default function MorningPurchasesTab({
                       onPaper={(v) => void markPaper(i, v)}
                       onOpen={(kind) => setMode({ serial: i.serial, store: i.store, kind })}
                       onClose={() => setMode(null)}
-                      onSaved={async () => {
+                      onSaved={(change) => {
                         setMode(null);
-                        await reloadAll();
+                        patch([key], () => change);
                       }}
+                      me={me}
                     />
                   );
                 })}
@@ -588,6 +685,13 @@ function PaperButtons({
   );
 }
 
+const ROW_EDGE: Record<string, string> = {
+  ok: 'border-r-[var(--dawaa-status-success-text)]',
+  fixed: 'border-r-[var(--dawaa-status-info-text,#2563eb)]',
+  problem: 'border-r-[var(--dawaa-status-danger-text)]',
+  none: 'border-r-transparent',
+};
+
 function InvoiceRows({
   invoice: i,
   showDay,
@@ -603,6 +707,7 @@ function InvoiceRows({
   onOpen,
   onClose,
   onSaved,
+  me,
 }: {
   invoice: PurchaseInvoice;
   showDay: boolean;
@@ -617,61 +722,77 @@ function InvoiceRows({
   onPaper: (v: PaperSerial) => void;
   onOpen: (kind: 'fix' | 'problem' | 'returns') => void;
   onClose: () => void;
-  onSaved: () => Promise<void>;
+  onSaved: (change: InvoicePatch) => void;
+  me: string;
 }) {
   const fix = i.check?.fix ?? {};
   const [details, setDetails] = useState(false);
   return (
     <>
       <tr
-        className={`border-t border-[var(--dawaa-theme-border)] align-top ${picked ? 'bg-[var(--dawaa-theme-soft)]' : ''}`}
+        className={`border-t border-r-4 border-[var(--dawaa-theme-border)] align-top ${
+          ROW_EDGE[i.check?.status ?? 'none']
+        } ${picked ? 'bg-[var(--dawaa-theme-soft)]' : ''}`}
       >
         <td className="p-2">
           <input type="checkbox" checked={picked} onChange={onPick} aria-label="اختيار" />
         </td>
-        <td className="p-2 whitespace-nowrap text-xs">
-          {showDay && i.invoice_day ? (
-            <span className="block font-bold">
-              {i.invoice_day.split('-').reverse().slice(0, 2).join('/')}
+        <td className="p-2 whitespace-nowrap">
+          <button
+            type="button"
+            className="text-right"
+            onClick={() => setDetails(!details)}
+            title="تفاصيل الفاتورة صنف صنف"
+          >
+            <span className="block text-base font-black leading-tight">
+              {i.serial}
+              <ListTree size={13} className="mr-1 inline opacity-60" />
+            </span>
+            <span className="block text-[11px] opacity-70">
+              {i.store} ·{' '}
+              {showDay && i.invoice_day
+                ? `${i.invoice_day.split('-').reverse().slice(0, 2).join('/')} `
+                : ''}
+              {fmtTime(i.invoice_at)}
+            </span>
+          </button>
+          {fix.serial ? (
+            <span className="block text-xs text-[var(--dawaa-status-info-text)]">
+              ← {fix.serial}
             </span>
           ) : null}
-          {fmtTime(i.invoice_at)}
-        </td>
-        <td className="p-2 whitespace-nowrap">
-          <span className="text-xs opacity-70">{i.store}</span>
-          <span className="block font-black">{i.serial}</span>
         </td>
         <td className="p-2">
-          {i.supplier_name}
+          <span className="font-bold">{i.supplier_name}</span>
           {fix.supplier_name ? (
             <span className="block text-xs text-[var(--dawaa-status-info-text)]">
               ← {fix.supplier_name}
             </span>
           ) : null}
-        </td>
-        <td className="p-2 whitespace-nowrap">
-          {i.supplier_invoice_no || (
-            <span className="text-xs text-[var(--dawaa-status-danger-text)]">مش مكتوب</span>
-          )}
-          {fix.supplier_invoice_no ? (
-            <span className="block text-xs text-[var(--dawaa-status-info-text)]">
-              ← {fix.supplier_invoice_no}
+          <span className="block text-[11px]">
+            {i.supplier_invoice_no ? (
+              <span className="opacity-70">فاتورة المورد {i.supplier_invoice_no}</span>
+            ) : (
+              <span className="font-bold text-[var(--dawaa-status-danger-text)]">
+                رقم فاتورة المورد مش مكتوب
+              </span>
+            )}
+            {fix.supplier_invoice_no ? (
+              <span className="text-[var(--dawaa-status-info-text)]">
+                {' '}
+                ← {fix.supplier_invoice_no}
+              </span>
+            ) : null}
+          </span>
+          {i.payment || i.note ? (
+            <span className="block text-[11px] opacity-70">
+              {[i.payment, i.note].filter(Boolean).join(' · ')}
             </span>
           ) : null}
         </td>
-        <td className="p-2">
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 font-black underline decoration-dotted"
-            onClick={() => setDetails(!details)}
-            title="تفاصيل الفاتورة صنف صنف"
-          >
-            {i.items}
-            <ListTree size={14} />
-          </button>
-        </td>
         <td className="p-2 whitespace-nowrap">
-          {money(i.net)}
+          <span className="font-black">{money(i.net)}</span>
+          <span className="block text-[11px] opacity-70">{i.items} صنف</span>
           {fix.net != null ? (
             <span className="block text-xs text-[var(--dawaa-status-info-text)]">
               ← {money(fix.net)}
@@ -682,23 +803,24 @@ function InvoiceRows({
         <td className="p-2">
           <PaperButtons value={i.paper_serial} busy={paperBusy} onPick={onPaper} />
         </td>
-        <td className="p-2">
+        <td className="p-2 text-xs">
           {statusBadge(i.check?.status)}
           {i.check?.problems?.length ? (
-            <span className="block text-xs opacity-70">
+            <span className="block opacity-70">
               {i.check.problems.map(problemLabel).join('، ')}
             </span>
           ) : null}
+          {i.check?.by ? <span className="block opacity-50">{i.check.by}</span> : null}
           {i.returns_note ? (
-            <span className="block text-xs font-bold text-[var(--dawaa-status-warning-text,#b45309)]">
+            <span className="block font-bold text-[var(--dawaa-status-warning-text,#b45309)]">
               مرتجعات: {i.returns_note}
             </span>
           ) : null}
         </td>
         <td className="p-2 whitespace-nowrap">
-          <div className="flex gap-1">
+          <div className="flex items-center gap-1">
             <button
-              className="btn-primary !px-2 !py-1 text-xs inline-flex items-center gap-1"
+              className="btn-primary !px-2.5 !py-1 text-xs inline-flex items-center gap-1"
               disabled={busy}
               onClick={onApprove}
               title="الفاتورة مظبوطة"
@@ -706,37 +828,42 @@ function InvoiceRows({
               {busy ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} اعتماد
             </button>
             <button
-              className="btn-secondary !px-2 !py-1 text-xs inline-flex items-center gap-1"
+              className="btn-secondary !p-1.5"
               onClick={() => onOpen('fix')}
+              title="تعديل"
+              aria-label="تعديل"
             >
-              <Pencil size={14} /> تعديل
+              <Pencil size={14} />
             </button>
             <button
-              className="btn-secondary !px-2 !py-1 text-xs inline-flex items-center gap-1"
+              className="btn-secondary !p-1.5"
               onClick={() => onOpen('problem')}
+              title="فيها مشكلة"
+              aria-label="فيها مشكلة"
             >
-              <TriangleAlert size={14} /> مشكلة
+              <TriangleAlert size={14} />
             </button>
             <button
-              className="btn-secondary !px-2 !py-1 text-xs inline-flex items-center gap-1"
+              className="btn-secondary !p-1.5"
               onClick={() => onOpen('returns')}
               title="ملحوظة مرتجعات على الفاتورة"
+              aria-label="مرتجعات"
             >
-              <Undo2 size={14} /> مرتجعات
+              <Undo2 size={14} />
             </button>
           </div>
         </td>
       </tr>
       {details ? (
         <tr>
-          <td colSpan={11} className="bg-[var(--dawaa-theme-soft)] p-2">
+          <td colSpan={8} className="bg-[var(--dawaa-theme-soft)] p-2">
             <InvoiceLinesTable store={i.store} serial={i.serial} />
           </td>
         </tr>
       ) : null}
       {open ? (
         <tr>
-          <td colSpan={11} className="bg-[var(--dawaa-theme-soft)] p-3">
+          <td colSpan={8} className="bg-[var(--dawaa-theme-soft)] p-3">
             {open === 'returns' ? (
               <ReturnsForm invoice={i} onClose={onClose} onSaved={onSaved} />
             ) : (
@@ -747,6 +874,7 @@ function InvoiceRows({
                 suppliers={suppliers}
                 onClose={onClose}
                 onSaved={onSaved}
+                me={me}
               />
             )}
           </td>
@@ -763,7 +891,7 @@ function ReturnsForm({
 }: {
   invoice: PurchaseInvoice;
   onClose: () => void;
-  onSaved: () => Promise<void>;
+  onSaved: (change: InvoicePatch) => void;
 }) {
   const [note, setNote] = useState(i.returns_note ?? '');
   const [saving, setSaving] = useState(false);
@@ -774,7 +902,7 @@ function ReturnsForm({
         { store: i.store, serial: i.serial, returns_note: note.trim() || null },
       ]);
       toast.success(note.trim() ? 'ملحوظة المرتجعات اتحفظت' : 'ملحوظة المرتجعات اتشالت');
-      await onSaved();
+      onSaved({ returns_note: note.trim() || null });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {
@@ -819,13 +947,15 @@ function CheckForm({
   suppliers,
   onClose,
   onSaved,
+  me,
 }: {
   invoice: PurchaseInvoice;
   kind: 'fix' | 'problem';
   stores: string[];
   suppliers: Array<{ code: string; name: string }>;
   onClose: () => void;
-  onSaved: () => Promise<void>;
+  onSaved: (change: InvoicePatch) => void;
+  me: string;
 }) {
   const prev = i.check?.fix ?? {};
   const [supplier, setSupplier] = useState(prev.supplier_code ?? i.supplier_code);
@@ -866,16 +996,17 @@ function CheckForm({
     }
     setSaving(true);
     try {
-      await savePurchaseCheck({
-        store: i.store,
-        serial: i.serial,
-        status: kind === 'fix' ? 'fixed' : 'problem',
+      const saved = {
+        status: (kind === 'fix' ? 'fixed' : 'problem') as PurchaseCheck['status'],
         problems: allProblems,
         fix: kind === 'fix' ? fix : {},
         note,
-      });
+      };
+      await savePurchaseCheck({ store: i.store, serial: i.serial, ...saved });
       toast.success('اتحفظ');
-      await onSaved();
+      onSaved({
+        check: { ...saved, note: note || null, by: me, at: new Date().toISOString() },
+      });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {

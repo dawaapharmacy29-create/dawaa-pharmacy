@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   pairTransfers,
   summarizeByDoctor,
+  transferIssues,
   transferProgress,
   type DoctorError,
   type TransferPurchase,
@@ -212,5 +213,37 @@ describe('summarizeByDoctor', () => {
       problems: { price: 2, qty: 1 },
     });
     expect(s[1].name).toBe('د عمر');
+  });
+});
+
+describe('transferIssues', () => {
+  const line = (code: string, qty: number) => ({
+    code,
+    name: `صنف ${code}`,
+    qty,
+    price: 10,
+    total: qty * 10,
+  });
+  const pair = (
+    pl: ReturnType<typeof line>[],
+    sl: ReturnType<typeof line>[],
+    pNet: number,
+    sNet: number
+  ) => ({
+    purchase: purchase('1', pNet, '2026-11-25T10:00:00', { lines: pl, items: pl.length }),
+    rest: [],
+    sale: sale('9', sNet, '2026-11-25T10:00:00', { items: sl, lines: sl.length }),
+    how: 'number' as const,
+  });
+
+  it('is clean when items and quantities match and the money differs by 50 or less', () => {
+    expect(transferIssues(pair([line('a', 2)], [line('a', 2)], 120, 75))).toEqual([]);
+  });
+
+  it('flags a different quantity, a missing item and a money gap over 50', () => {
+    const kinds = transferIssues(pair([line('a', 1), line('b', 1)], [line('a', 2)], 200, 100)).map(
+      (x) => x.kind
+    );
+    expect(kinds).toEqual(['qty', 'missing', 'money']);
   });
 });
