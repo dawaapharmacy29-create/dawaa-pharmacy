@@ -1037,6 +1037,8 @@ export const ROUTE_PERMISSION_MAP: Record<string, string | string[]> = {
   '/purchase-returns': 'view_purchases',
   '/purchase-cycle-report': 'view_purchases',
   '/purchase-review': 'view_purchases',
+  '/uncoded-invoices': 'view_sales_reports',
+  '/inventory-stock': 'view_purchases',
   '/supplier-accounts': 'view_purchases',
   '/purchase-order-log': 'view_purchases',
   '/shift-handovers': ['view_purchases', 'manage_schedule'],
