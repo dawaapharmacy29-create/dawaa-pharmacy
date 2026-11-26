@@ -223,9 +223,9 @@ export const MANAGEMENT_GROUPS: NavGroup[] = [
   { title: 'التقييم والمسابقة', icon: ClipboardCheck, items: managerItems('/evaluation-lab', '/branch-comparison', '/penalty-incentive') },
   { title: 'الفريق', icon: Users, items: managerItems('/team', '/schedule', '/time-off', '/staff-payroll', DR_WAEL_FINGERPRINTS_PATH) },
   { title: 'العملاء', icon: HeadphonesIcon, items: managerItems('/customer-service', '/customers', '/reviews') },
-  // /consolidated-reports and /uncoded-invoices are under "كل الصفحات" to keep the menu at 27 pages (hidden, not deleted).
+  // /consolidated-reports, /uncoded-invoices and /inventory-counts are under "كل الصفحات" to keep the menu at 27 pages (hidden, not deleted).
   { title: 'المبيعات', icon: BarChart3, items: managerItems('/analytics', '/reports', DR_WAEL_SHOKRY_REPORTS_PATH) },
-  { title: 'المشتريات والمخزون', icon: Store, items: managerItems('/inventory-stock', '/purchases', '/shortages', '/inventory-counts') },
+  { title: 'المشتريات والمخزون', icon: Store, items: managerItems('/inventory-stock', '/purchases', '/shortages') },
   { title: 'للمراجعة', icon: ClipboardList, items: managerItems('/review-pages') },
 ];
 
