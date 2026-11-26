@@ -38,7 +38,7 @@ import {
   type RequestStatus,
 } from '@/lib/customerServiceTasks/groups';
 import { whatsappNumber } from '@/lib/customerServiceTasks/tasks';
-import { loadCatalog } from '@/lib/customerServiceTasks/productSearch';
+import { bestMatch, loadCatalog, type CatalogItem } from '@/lib/customerServiceTasks/productSearch';
 import {
   FOLLOWUP_KINDS,
   followupBrief,
@@ -678,6 +678,9 @@ function FollowupReadEditor({
 
 // ---------------- جروب الطلبات ----------------
 
+/** The catalog match of each hand-typed item name, kept for the visit. */
+const GUESS_CACHE = new Map<string, CatalogItem | null>();
+
 function RequestsSection({
   doctors,
   onTasksAdded,
@@ -730,13 +733,49 @@ function RequestsSection({
     return () => clearTimeout(t);
   }, [load, query]);
 
+  // الأصناف اللي اتكتبت بإيد من غير كود: أقرب صنف في الكتالوج لو المطابقة قوية، عشان نعرف رصيده بس.
+  const [guesses, setGuesses] = useState<Map<string, CatalogItem>>(new Map());
+  useEffect(() => {
+    const names = [
+      ...new Set((rows ?? []).flatMap((r) => r.items.filter((i) => !i.code).map((i) => i.name))),
+    ];
+    if (!names.length) return;
+    let live = true;
+    // الكتالوج ١١ ألف صنف: بنقارن على دفعات عشان الصفحة ماتقفش، واللي اتحسب بيتحفظ للمرة الجاية.
+    void (async () => {
+      const index = await loadCatalog().catch(() => null);
+      if (!index) return;
+      let i = 0;
+      for (const n of names) {
+        if (!GUESS_CACHE.has(n)) {
+          GUESS_CACHE.set(n, bestMatch(index, n));
+          if (++i % 10 === 0) await new Promise((r) => setTimeout(r, 0));
+          if (!live) return;
+        }
+      }
+      const next = new Map<string, CatalogItem>();
+      for (const n of names) {
+        const m = GUESS_CACHE.get(n);
+        if (m?.code) next.set(n, m);
+      }
+      setGuesses(next);
+    })();
+    return () => {
+      live = false;
+    };
+  }, [rows]);
+  const codeOf = useCallback(
+    (i: RequestItem) => i.code || guesses.get(i.name)?.code || null,
+    [guesses]
+  );
+
   // رصيد أصناف الطلبات من آخر ملف «رصيد المخازن»: الصنف اتوفر في الفرع ولا في الفرع التاني.
   const codesKey = useMemo(
     () =>
-      [...new Set((rows ?? []).flatMap((r) => r.items.map((i) => i.code ?? '').filter(Boolean)))]
+      [...new Set((rows ?? []).flatMap((r) => r.items.map((i) => codeOf(i) ?? '').filter(Boolean)))]
         .sort()
         .join(','),
-    [rows]
+    [rows, codeOf]
   );
   useEffect(() => {
     if (!codesKey) {
@@ -757,8 +796,11 @@ function RequestsSection({
   }, [codesKey]);
   const inStock = useCallback(
     (r: GroupRequest) =>
-      r.items.some((i) => !!i.code && (stock?.stock.get(i.code)?.[r.branch] ?? 0) > 0),
-    [stock]
+      r.items.some((i) => {
+        const c = codeOf(i);
+        return !!c && (stock?.stock.get(c)?.[r.branch] ?? 0) > 0;
+      }),
+    [stock, codeOf]
   );
   const visible = useMemo(
     () => (rows && onlyInStock ? rows.filter(inStock) : rows),
@@ -901,7 +943,8 @@ function RequestsSection({
     const blob = await exportRequestsWorkbook(
       list,
       `طلبات العملاء من الجروب · ${from.split('-').reverse().join('/')} لـ ${to.split('-').reverse().join('/')}${branch ? ` · ${branch}` : ''}`,
-      stock?.stock
+      stock?.stock,
+      (name) => guesses.get(name)?.code ?? null
     );
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -1203,6 +1246,7 @@ function RequestsSection({
                       key={r.fingerprint}
                       row={r}
                       stock={stock?.stock ?? null}
+                      guesses={guesses}
                       picked={picked.has(r.fingerprint)}
                       onPick={() =>
                         setPicked((prev) => {
@@ -1348,6 +1392,7 @@ function NewRequestForm({
 function RequestRow({
   row: r,
   stock,
+  guesses,
   picked,
   onPick,
   editing,
@@ -1357,6 +1402,7 @@ function RequestRow({
 }: {
   row: GroupRequest;
   stock: Map<string, Record<string, number>> | null;
+  guesses: Map<string, CatalogItem>;
   picked: boolean;
   onPick: () => void;
   editing: boolean;
@@ -1412,6 +1458,12 @@ function RequestRow({
                   {i.code ? <span className="opacity-60">({i.code})</span> : null}
                   {i.code && stock ? (
                     <StockBadge stock={stock.get(i.code)} branch={r.branch} />
+                  ) : !i.code && stock && guesses.get(i.name) ? (
+                    <StockBadge
+                      stock={stock.get(guesses.get(i.name)!.code)}
+                      branch={r.branch}
+                      guess={guesses.get(i.name)!.name}
+                    />
                   ) : null}
                   {i.new ? <span className="opacity-60">(جديد)</span> : null}
                 </li>
@@ -1465,7 +1517,16 @@ function RequestRow({
 }
 
 /** The item's stock here and in the other branch, from the last stock file. */
-function StockBadge({ stock, branch }: { stock?: Record<string, number>; branch: string }) {
+function StockBadge({
+  stock,
+  branch,
+  guess,
+}: {
+  stock?: Record<string, number>;
+  branch: string;
+  /** The catalog name the hand-typed item was matched to: shown so she checks it is the same item. */
+  guess?: string;
+}) {
   const here = stock?.[branch] ?? 0;
   const other = Object.entries(stock ?? {})
     .filter(([b]) => b !== branch)
@@ -1475,15 +1536,21 @@ function StockBadge({ stock, branch }: { stock?: Record<string, number>; branch:
     return (
       <span className="rounded bg-[var(--dawaa-status-success-bg)] px-1 text-[10px] font-black text-[var(--dawaa-status-success-text)]">
         موجود {fmt(here)}
+        {guess ? <span className="font-bold opacity-70"> · غالبًا {guess}</span> : null}
       </span>
     );
   if (other > 0)
     return (
       <span className="rounded bg-[var(--dawaa-status-info-bg)] px-1 text-[10px] font-black text-[var(--dawaa-status-info-text)]">
         في الفرع التاني {fmt(other)}
+        {guess ? <span className="font-bold opacity-70"> · غالبًا {guess}</span> : null}
       </span>
     );
-  return <span className="text-[10px] font-bold opacity-50">مش موجود</span>;
+  return (
+    <span className="text-[10px] font-bold opacity-50">
+      مش موجود{guess ? ` · غالبًا ${guess}` : ''}
+    </span>
+  );
 }
 
 function ItemsEditor({

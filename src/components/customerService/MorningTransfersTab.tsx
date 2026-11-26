@@ -18,6 +18,8 @@ import {
   problemLabel,
   saveTransferCheck,
   saveTransferSplit,
+  saveTransferMultiSale,
+  pairSales,
   transferIssues,
   withTransferCheck,
   type TransferCheck,
@@ -51,6 +53,7 @@ const HOW: Record<TransferPair['how'], string> = {
   codes: 'نفس الأصناف',
   value_items: 'نفس القيمة والأصناف',
   split: 'بيع واحد على أكتر من شراء',
+  multi_sale: 'شراء واحد على أكتر من بيع',
   value: 'نفس القيمة',
 };
 
@@ -74,6 +77,8 @@ export type TransferSaved = {
   status: 'ok' | 'problem';
   problems: string[];
   note: string;
+  /** The other sales of a purchase saved against several sales. */
+  extraSales?: string[];
 };
 
 export default function MorningTransfersTab() {
@@ -108,6 +113,7 @@ export default function MorningTransfersTab() {
         note: s.note || null,
         by: me,
         at: new Date().toISOString(),
+        extra_sales: s.extraSales ?? [],
       };
       setDay((d) =>
         d ? withTransferCheck(d, { purchases: s.purchases, saleInvoice: s.saleInvoice }, check) : d
@@ -124,6 +130,19 @@ export default function MorningTransfersTab() {
   );
 
   async function confirmPair(p: TransferPair) {
+    if (p.sale.parts) {
+      const sales = pairSales(p.sale).map((s) => s.invoice);
+      await saveTransferMultiSale({ purchase: p.purchase, sales });
+      patch({
+        purchases: pairPurchases(p),
+        saleInvoice: sales[0],
+        extraSales: sales.slice(1),
+        status: 'ok',
+        problems: [],
+        note: '',
+      });
+      return;
+    }
     if (p.rest.length)
       await saveTransferSplit({ purchases: pairPurchases(p), saleInvoice: p.sale.invoice });
     else
@@ -598,9 +617,11 @@ function TransferForm({
   onSaved: (saved: TransferSaved) => void;
 }) {
   const purchase = editing.kind === 'sale' ? null : editing.purchase;
+  // شراء على كذا فاتورة بيع: المشكلة بتتسجل على الفواتير كلها، والخانة فيها أولهم.
+  const parts = editing.kind === 'pair' && editing.sale.parts ? pairSales(editing.sale) : null;
   const initialSale =
     editing.kind === 'pair'
-      ? editing.sale.invoice
+      ? (parts?.[0].invoice ?? editing.sale.invoice)
       : editing.kind === 'sale'
         ? editing.sale.invoice
         : '';
@@ -625,18 +646,30 @@ function TransferForm({
         problems: status === 'ok' ? [] : problems,
         note,
       };
-      await saveTransferCheck({
-        purchaseStore: purchase?.store ?? null,
-        purchaseSerial: purchase?.serial ?? null,
-        saleInvoice,
-        ...saved,
-        branch,
-      });
+      const extraSales =
+        purchase && parts && saleInvoice === parts[0].invoice
+          ? parts.slice(1).map((x) => x.invoice)
+          : [];
+      if (purchase && extraSales.length)
+        await saveTransferMultiSale({
+          purchase,
+          sales: [saleInvoice!, ...extraSales],
+          ...saved,
+        });
+      else
+        await saveTransferCheck({
+          purchaseStore: purchase?.store ?? null,
+          purchaseSerial: purchase?.serial ?? null,
+          saleInvoice,
+          ...saved,
+          branch,
+        });
       toast.success('اتحفظ');
       onSaved({
         ...saved,
         purchases: purchase ? [{ store: purchase.store, serial: purchase.serial }] : [],
         saleInvoice,
+        extraSales,
       });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));

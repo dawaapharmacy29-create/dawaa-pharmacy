@@ -93,6 +93,8 @@ export type TransferCheck = {
   by: string | null;
   at: string;
   sale_invoice?: string | null;
+  /** The other sales this purchase was saved against (one purchase on several sales). */
+  extra_sales?: string[];
   purchase_serial?: string | null;
 };
 
@@ -128,6 +130,8 @@ export type TransferSale = {
   note: string | null;
   items: TransferLine[];
   check: TransferCheck | null;
+  /** When the other branch sold the transfer as several invoices: each of them (this one is their sum). */
+  parts?: TransferSale[];
 };
 
 export type TransferDay = {
@@ -416,6 +420,25 @@ export async function saveTransferCheck(input: {
   if (error) fail(error, 'تعذّر الحفظ');
 }
 
+/** One purchase received for several sales: saved against the first sale, the others kept with it. */
+export async function saveTransferMultiSale(input: {
+  purchase: { store: string; serial: string };
+  sales: string[];
+  status?: 'ok' | 'problem';
+  problems?: string[];
+  note?: string;
+}) {
+  const { error } = await supabase.rpc('dawaa_cs_transfer_multi_sale_save_v1', {
+    p_purchase_store: input.purchase.store,
+    p_purchase_serial: input.purchase.serial,
+    p_sales: input.sales,
+    p_status: input.status ?? 'ok',
+    p_problems: input.problems ?? [],
+    p_note: input.note || null,
+  });
+  if (error) fail(error, 'تعذّر الحفظ');
+}
+
 /** «مطابق» for one sale received as several purchases: each purchase is saved against the same sale. */
 export async function saveTransferSplit(input: {
   purchases: Array<{ store: string; serial: string }>;
@@ -442,7 +465,14 @@ export async function buildUncodedNoteTasks(): Promise<UncodedBuild> {
 
 // ---- الربط التلقائي ----
 
-export type PairHow = 'saved' | 'number' | 'codes' | 'value_items' | 'split' | 'value';
+export type PairHow =
+  | 'saved'
+  | 'number'
+  | 'codes'
+  | 'value_items'
+  | 'split'
+  | 'multi_sale'
+  | 'value';
 /** One sale against one purchase, or (`rest`) against several purchases that add up to it. */
 export type TransferPair = {
   purchase: TransferPurchase;
@@ -471,6 +501,66 @@ const minutes = (a: string, b: string) =>
   Math.abs(new Date(a).getTime() - new Date(b).getTime()) / 60000;
 
 const SPLIT_MINUTES = 180;
+/** Sales of the same transfer can be hours apart («بيع 5:26 م و10 م، شراء 10:06 م»), matched by their items. */
+const MULTI_SALE_MINUTES = 12 * 60;
+
+/** The sale invoices of a pair: one, or the several invoices one purchase was received for. */
+export const pairSales = (s: TransferSale) => s.parts ?? [s];
+
+/** Several sales as one: the sum, all the items, the earliest time. */
+export function combineSales(list: TransferSale[]): TransferSale {
+  const sorted = [...list].sort((a, b) => a.at.localeCompare(b.at));
+  return {
+    invoice: sorted.map((s) => s.invoice).join(' + '),
+    at: sorted[0].at,
+    net: sorted.reduce((t, s) => t + s.net, 0),
+    seller: [...new Set(sorted.map((s) => s.seller).filter(Boolean))].join('، ') || null,
+    lines: sorted.reduce((t, s) => t + s.lines, 0),
+    note:
+      sorted
+        .map((s) => s.note)
+        .filter(Boolean)
+        .join(' · ') || null,
+    items: sorted.flatMap((s) => s.items),
+    check: sorted[0].check,
+    parts: sorted,
+  };
+}
+
+/** The two or three sales (of up to eight nearby ones) one purchase was received for: the same items, or the same total. */
+function multiSaleFor(p: TransferPurchase, near: TransferSale[]): TransferSale[] | null {
+  const list = near.slice(0, 8);
+  const want = new Set(p.lines.map((l) => l.code));
+  let best: TransferSale[] | null = null;
+  let bestFar = Infinity;
+  const consider = (set: TransferSale[]) => {
+    const far = Math.max(...set.map((s) => minutes(s.at, p.invoice_at)));
+    let fits = false;
+    if (want.size && set.every((s) => s.items.length)) {
+      const got = new Set(set.flatMap((s) => s.items.map((i) => i.code)));
+      // كل فاتورة بيع ليها صنف على الأقل من الشراء، ومجموع أصنافهم هو أصناف الشراء.
+      fits =
+        got.size === want.size &&
+        [...got].every((c) => want.has(c)) &&
+        set.every((s) => s.items.some((i) => want.has(i.code)));
+    }
+    if (!fits && far <= SPLIT_MINUTES)
+      fits = same(
+        set.reduce((t, s) => t + s.net, 0),
+        p.net
+      );
+    if (fits && far < bestFar) {
+      best = set;
+      bestFar = far;
+    }
+  };
+  for (let i = 0; i < list.length; i++)
+    for (let j = i + 1; j < list.length; j++) {
+      consider([list[i], list[j]]);
+      for (let k = j + 1; k < list.length; k++) consider([list[i], list[j], list[k]]);
+    }
+  return best;
+}
 
 /** The two or three purchases (of up to eight nearby ones) that add up to the sale, closest in time first. */
 function splitFor(s: TransferSale, near: TransferPurchase[]): TransferPurchase[] | null {
@@ -516,6 +606,16 @@ export function pairTransfers(
 
   const savedPairs = new Map<string, TransferPair>();
   for (const p of purchases) {
+    // شراء متسجل على كذا فاتورة بيع.
+    const extra = p.check?.extra_sales ?? [];
+    if (p.check?.sale_invoice && extra.length) {
+      const list = [p.check.sale_invoice, ...extra].map((i) => byInvoice.get(i));
+      if (list.every((s): s is TransferSale => !!s && !used.has(s.invoice))) {
+        pairs.push({ purchase: p, rest: [], sale: combineSales(list), how: 'saved' });
+        list.forEach((s) => used.add(s.invoice));
+        continue;
+      }
+    }
     const saved = p.check?.sale_invoice ? byInvoice.get(p.check.sale_invoice) : undefined;
     const pair = saved ? savedPairs.get(saved.invoice) : undefined;
     if (pair) pair.rest.push(p);
@@ -543,6 +643,7 @@ export function pairTransfers(
         match: (p, s) => same(p.net, s.net) && p.items > 0 && p.items === s.lines,
       },
       { how: 'split', match: () => false },
+      { how: 'multi_sale', match: () => false },
       { how: 'value', match: (p, s) => same(p.net, s.net) },
     ];
   let remaining = stillOpen;
@@ -558,6 +659,24 @@ export function pairTransfers(
         used.add(s.invoice);
         remaining = remaining.filter((p) => !best.includes(p));
       }
+      continue;
+    }
+    if (round.how === 'multi_sale') {
+      // شراء واحد اتسجل على فاتورتين أو تلاتة بيع: نفس الأصناف (في حدود ١٢ ساعة) أو نفس المجموع (في حدود ٣ ساعات).
+      const next: TransferPurchase[] = [];
+      for (const p of remaining) {
+        const near = sales
+          .filter((s) => free(s) && minutes(s.at, p.invoice_at) <= MULTI_SALE_MINUTES)
+          .sort((a, b) => minutes(a.at, p.invoice_at) - minutes(b.at, p.invoice_at));
+        const best = near.length >= 2 ? multiSaleFor(p, near) : null;
+        if (!best) {
+          next.push(p);
+          continue;
+        }
+        pairs.push({ purchase: p, rest: [], sale: combineSales(best), how: 'multi_sale' });
+        best.forEach((s) => used.add(s.invoice));
+      }
+      remaining = next;
       continue;
     }
     const next: TransferPurchase[] = [];
@@ -648,8 +767,15 @@ export function withTransferCheck(
 }
 
 /** Every purchase of the pair is saved against its sale. */
-export const pairSaved = (x: TransferPair) =>
-  pairPurchases(x).every((p) => p.check && p.check.sale_invoice === x.sale.invoice);
+export const pairSaved = (x: TransferPair) => {
+  const [first, ...more] = pairSales(x.sale).map((s) => s.invoice);
+  return pairPurchases(x).every(
+    (p) =>
+      p.check &&
+      p.check.sale_invoice === first &&
+      (p.check.extra_sales ?? []).join('|') === more.join('|')
+  );
+};
 
 /** A transfer row is done when it has a saved check: a confirmed pair or a recorded problem. */
 export function transferProgress(pairing: TransferPairing) {
