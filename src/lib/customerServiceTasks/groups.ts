@@ -637,3 +637,20 @@ export async function exportFollowupsWorkbook(rows: GroupFollowup[], title: stri
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });
 }
+
+/** The messages of a file that were saved before, so only the new ones are shown and sent. */
+export async function knownFingerprints(
+  kind: 'followups' | 'requests',
+  fingerprints: string[]
+): Promise<Set<string>> {
+  const known = new Set<string>();
+  for (let i = 0; i < fingerprints.length; i += 2000) {
+    const { data, error } = await supabase.rpc('dawaa_cs_group_known_v1', {
+      p_kind: kind,
+      p_fingerprints: fingerprints.slice(i, i + 2000),
+    });
+    if (error) fail(error, 'تعذّر مقارنة الرسايل باللي اتسجل');
+    for (const fp of (data ?? []) as string[]) known.add(fp);
+  }
+  return known;
+}
