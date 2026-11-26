@@ -132,6 +132,7 @@ export const GROUPS: NavGroup[] = [
     { path: '/internal-codes', icon: BarChart3, label: 'الأكواد الداخلية', permission: 'view_sales_reports' },
     { path: '/purchases', icon: FileSpreadsheet, label: 'المشتريات', permission: 'view_purchases' },
     { path: '/purchase-review', icon: WalletCards, label: 'مراجعة المشتريات', allowedRoles: ['general_manager', 'executive_manager', 'admin'] },
+    { path: '/uncoded-invoices', icon: FileSpreadsheet, label: 'الفواتير اللي مش متكودة', allowedRoles: ['general_manager', 'executive_manager', 'admin'] },
     { path: '/purchase-invoice-entry', icon: FileSpreadsheet, label: 'إدخال فاتورة مشتريات', allowedRoles: ['assistant'] },
     { path: '/purchase-invoice-review', icon: ClipboardCheck, label: 'مراجعة فواتير المشتريات', excludeRoles: ['pharmacist', 'assistant', 'customer_service_manager'] },
     { path: '/purchase-invoice-accuracy', icon: FileSpreadsheet, label: 'دقة إدخال فواتير المشتريات', allowedRoles: ['assistant', 'customer_service_manager', 'general_manager', 'branches_manager'] },
@@ -218,7 +219,7 @@ export const MANAGEMENT_GROUPS: NavGroup[] = [
   { title: 'يومي', icon: LayoutDashboard, items: managerItems('/', '/daily-command', '/invoices', '/customer-service-tasks', '/customer-requests', '/doctor-competition', '/weekly-reviews', '/purchase-review', '/attendance-report') },
   // The monthly evaluation and the branch comparison are the pages the boards are made from. Appeals, shift
   // performance and the pillars index are under "كل الصفحات" (hidden, not deleted).
-  { title: 'التقييم والمسابقة', icon: ClipboardCheck, items: managerItems('/evaluation-lab', '/branch-comparison', '/penalty-incentive') },
+  { title: 'التقييم والمسابقة', icon: ClipboardCheck, items: managerItems('/evaluation-lab', '/branch-comparison', '/penalty-incentive', '/uncoded-invoices') },
   { title: 'الفريق', icon: Users, items: managerItems('/team', '/schedule', '/time-off', '/staff-payroll', DR_WAEL_FINGERPRINTS_PATH) },
   { title: 'العملاء', icon: HeadphonesIcon, items: managerItems('/customer-service', '/customers', '/reviews') },
   // /consolidated-reports moved under "كل الصفحات" to keep the menu at 27 pages (hidden, not deleted).
