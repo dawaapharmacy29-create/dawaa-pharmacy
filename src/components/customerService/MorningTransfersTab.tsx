@@ -30,6 +30,7 @@ import {
 import { BranchPicker, ProblemPicker } from './MorningPurchasesTab';
 import TransferLinesCompare from './TransferLinesCompare';
 import TransferAccuracyReport from './TransferAccuracyReport';
+import TransferReturns from './TransferReturns';
 
 // الخطوة التانية: التحويلات اللي دخلت فرعها. التحويل عندنا فاتورة بيع في الفرع اللي بعت (لعميل الفرع ده)
 // وفاتورة شراء في الفرع ده من مورد الفرع التاني. الصفحة بتربطهم تلقائي، والبنت تأكد أو تربط بإيدها أو تسجل المشكلة.
@@ -84,6 +85,7 @@ export default function MorningTransfersTab() {
   const [busy, setBusy] = useState('');
   const [view, setView] = useState<View>('review');
   const [showReport, setShowReport] = useState(false);
+  const [showReturns, setShowReturns] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -411,6 +413,14 @@ export default function MorningTransfersTab() {
           </div>
         </Panel>
       ) : null}
+
+      {showReturns ? (
+        <TransferReturns branch={day?.branch ?? branch} />
+      ) : (
+        <button className="btn-secondary w-full" onClick={() => setShowReturns(true)}>
+          مرتجعات التحويلات
+        </button>
+      )}
 
       {showReport ? (
         <TransferAccuracyReport />

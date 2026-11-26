@@ -370,6 +370,18 @@ export async function updateGroupRequests(
   return { saved: num(d.saved), tasks: num(d.tasks) };
 }
 
+/** «حوّلي للنواقص»: every item of the requests becomes a shortage line with the customer; a new request becomes «بنوفره». */
+export async function moveRequestsToShortages(
+  fingerprints: string[]
+): Promise<{ requests: number; items: number; skipped: number }> {
+  const { data, error } = await supabase.rpc('dawaa_cs_group_requests_to_shortages_v1', {
+    p_fingerprints: fingerprints,
+  });
+  if (error) fail(error, 'تعذّر التحويل للنواقص');
+  const d = (data ?? {}) as { requests?: number; items?: number; skipped?: number };
+  return { requests: num(d.requests), items: num(d.items), skipped: num(d.skipped) };
+}
+
 // ---------- التصدير ----------
 
 const norm = (s: string) =>
@@ -403,7 +415,12 @@ export function itemTotals(rows: GroupRequest[]) {
     .sort((a, b) => b.customers - a.customers || b.qty - a.qty);
 }
 
-export async function exportRequestsWorkbook(rows: GroupRequest[], title: string): Promise<Blob> {
+export async function exportRequestsWorkbook(
+  rows: GroupRequest[],
+  title: string,
+  /** Stock by item code and branch, from the last stock file (رصيد المخازن). */
+  stock?: Map<string, Record<string, number>> | null
+): Promise<Blob> {
   const ExcelJS = (await import('exceljs')).default;
   const wb = new ExcelJS.Workbook();
   const head = (ws: import('exceljs').Worksheet) => {
@@ -426,6 +443,8 @@ export async function exportRequestsWorkbook(rows: GroupRequest[], title: string
     { header: 'كود الصنف', key: 'icode', width: 10 },
     { header: 'الصنف', key: 'item', width: 32 },
     { header: 'الكمية', key: 'qty', width: 8 },
+    { header: 'رصيد الفرع', key: 'here', width: 9 },
+    { header: 'رصيد الفرع التاني', key: 'other', width: 11 },
     { header: 'السعر', key: 'price', width: 9 },
     { header: 'صورة', key: 'image', width: 14 },
     { header: 'الحالة', key: 'status', width: 12 },
@@ -445,6 +464,13 @@ export async function exportRequestsWorkbook(rows: GroupRequest[], title: string
         icode: it.code ?? (it.new ? 'جديد' : ''),
         item: it.name,
         qty: it.qty ?? '',
+        here: it.code && stock ? (stock.get(it.code)?.[r.branch] ?? 0) : '',
+        other:
+          it.code && stock
+            ? Object.entries(stock.get(it.code) ?? {})
+                .filter(([b]) => b !== r.branch)
+                .reduce((t, [, q]) => t + q, 0)
+            : '',
         price: it.price ?? '',
         image: it.image ? { text: 'الصورة', hyperlink: it.image } : '',
         status: REQUEST_STATUSES[r.status] ?? r.status,

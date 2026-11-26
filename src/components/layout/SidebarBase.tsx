@@ -133,6 +133,7 @@ export const GROUPS: NavGroup[] = [
     { path: '/purchases', icon: FileSpreadsheet, label: 'المشتريات', permission: 'view_purchases' },
     { path: '/purchase-review', icon: WalletCards, label: 'مراجعة المشتريات', allowedRoles: ['general_manager', 'executive_manager', 'admin'] },
     { path: '/uncoded-invoices', icon: FileSpreadsheet, label: 'الفواتير اللي مش متكودة', allowedRoles: ['general_manager', 'executive_manager', 'admin'] },
+    { path: '/inventory-stock', icon: Package, label: 'رصيد المخازن', allowedRoles: ['general_manager', 'executive_manager', 'admin'] },
     { path: '/purchase-invoice-entry', icon: FileSpreadsheet, label: 'إدخال فاتورة مشتريات', allowedRoles: ['assistant'] },
     { path: '/purchase-invoice-review', icon: ClipboardCheck, label: 'مراجعة فواتير المشتريات', excludeRoles: ['pharmacist', 'assistant', 'customer_service_manager'] },
     { path: '/purchase-invoice-accuracy', icon: FileSpreadsheet, label: 'دقة إدخال فواتير المشتريات', allowedRoles: ['assistant', 'customer_service_manager', 'general_manager', 'branches_manager'] },
@@ -224,7 +225,7 @@ export const MANAGEMENT_GROUPS: NavGroup[] = [
   { title: 'العملاء', icon: HeadphonesIcon, items: managerItems('/customer-service', '/customers', '/reviews') },
   // /consolidated-reports moved under "كل الصفحات" to keep the menu at 27 pages (hidden, not deleted).
   { title: 'المبيعات', icon: BarChart3, items: managerItems('/analytics', '/reports', DR_WAEL_SHOKRY_REPORTS_PATH) },
-  { title: 'المشتريات والمخزون', icon: Store, items: managerItems('/purchases', '/shortages', '/inventory-counts') },
+  { title: 'المشتريات والمخزون', icon: Store, items: managerItems('/inventory-stock', '/purchases', '/shortages', '/inventory-counts') },
   { title: 'للمراجعة', icon: ClipboardList, items: managerItems('/review-pages') },
 ];
 
