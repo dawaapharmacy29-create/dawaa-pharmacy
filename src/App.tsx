@@ -64,6 +64,7 @@ const PurchaseCycleReport = lazy(() => import('@/pages/PurchaseCycleReport'));
 const PurchaseReview = lazy(() => import('@/pages/PurchaseReview'));
 const UncodedInvoicesAnalysis = lazy(() => import('@/pages/UncodedInvoicesAnalysis'));
 const InventoryStock = lazy(() => import('@/pages/InventoryStock'));
+const StockLiberation = lazy(() => import('@/pages/StockLiberation'));
 const SupplierAccounts = lazy(() => import('@/pages/SupplierAccounts'));
 const PurchaseOrderLog = lazy(() => import('@/pages/PurchaseOrderLog'));
 const BranchChecklistReview = lazy(() => import('@/pages/BranchChecklistReview'));
@@ -642,6 +643,10 @@ function AppRoutes() {
       <Route
         path="/inventory-stock"
         element={<ProtectedRoute>{routeSuspense(<InventoryStock />, 'رصيد المخازن')}</ProtectedRoute>}
+      />
+      <Route
+        path="/stock-liberation"
+        element={<ProtectedRoute>{routeSuspense(<StockLiberation />, 'تحرير المخزون')}</ProtectedRoute>}
       />
       <Route
         path="/uncoded-invoices"

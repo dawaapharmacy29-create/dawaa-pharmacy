@@ -16,6 +16,7 @@ export type GmReviewKey =
   | 'inventory'
   | 'purchases_handover'
   | 'purchases_upload'
+  | 'purchases_invoices'
   | 'shifts'
   | 'delivery'
   | 'collection_transfers'
@@ -62,7 +63,11 @@ export const GM_REVIEW_LABELS: Record<
     question: 'مين غاب أو اتأخر أو ما بصمش امبارح؟',
     link: DR_WAEL_FINGERPRINTS_PATH,
   },
-  managers: { title: 'مديرين الفروع', question: 'كل مدير قفل لفة الفرع امبارح؟', link: '#agenda-compliance' },
+  managers: {
+    title: 'مديرين الفروع',
+    question: 'كل مدير قفل لفة الفرع امبارح؟',
+    link: '#agenda-compliance',
+  },
   cleaning: {
     title: 'النظافة',
     question: 'النظافة اتقيمت امبارح في الفرعين؟',
@@ -73,11 +78,16 @@ export const GM_REVIEW_LABELS: Record<
     question: 'جرد الأسبوع متخطط وماشي في ميعاده؟',
     link: '/inventory-counts',
   },
+  // Built in the app from the customer service team's review of yesterday's purchase invoices.
+  purchases_invoices: {
+    title: 'فواتير مشتريات امبارح',
+    question: 'فريق خدمة العملاء راجع كل فواتير مشتريات امبارح؟ وفيه مشاكل؟',
+    link: '/customer-service-tasks',
+  },
   purchases_handover: {
     title: 'مراجعة المشتريات',
     question: 'مين من الموردين مستحق له فلوس، وملفات ePlus محدّثة؟',
     link: '/purchase-review',
-    app: { name: 'دواء وائل', url: `${DAWAA_WAEL}/pending-invoices` },
   },
   // Built in the app from «مراجعة المشتريات» (not a server item, so it has no «راجعت»): green once the four
   // stores' ePlus purchase reports reach yesterday.
@@ -189,7 +199,9 @@ export function gmReviewSummary(
     case 'purchases_handover':
       if (d?.review) {
         const r = d.review as { overdue: number; dueSoon: number; owed: number };
-        return [`متأخر ${money(r.overdue)} · مستحق الأسبوع ده ${money(r.dueSoon)} · علينا ${money(r.owed)}`];
+        return [
+          `متأخر ${money(r.overdue)} · مستحق الأسبوع ده ${money(r.dueSoon)} · علينا ${money(r.owed)}`,
+        ];
       }
       return [
         ...rows(d?.branches).map(

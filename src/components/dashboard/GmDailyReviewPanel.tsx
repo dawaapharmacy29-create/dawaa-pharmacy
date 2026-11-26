@@ -18,8 +18,12 @@ import {
   type GmReviewItem,
 } from '@/lib/gmDailyReview';
 import { gmReviewCard } from '@/lib/gmReviewCard';
-import { loadPurchaseReviewShared } from '@/lib/purchaseReview/api';
-import { purchaseReviewDaily, withPurchaseReview } from '@/lib/purchaseReview/dailyItem';
+import { loadGmPurchaseDay, loadPurchaseReviewShared } from '@/lib/purchaseReview/api';
+import {
+  purchaseReviewDaily,
+  withPurchaseDay,
+  withPurchaseReview,
+} from '@/lib/purchaseReview/dailyItem';
 
 const dayLabel = (value: string) =>
   new Date(`${value}T12:00:00`).toLocaleDateString('ar-EG', {
@@ -38,7 +42,7 @@ const gmTone = (item: GmReviewItem): DailyItemTone =>
   item.state === 'issue' ? 'issue' : item.done ? 'done' : 'open';
 
 /** Items the data closes by itself and the server can't mark («ملفات المشتريات»). */
-const DATA_ONLY = new Set<GmReviewItem['key']>(['purchases_upload']);
+const DATA_ONLY = new Set<GmReviewItem['key']>(['purchases_upload', 'purchases_invoices']);
 
 /** Cards shown before «اعرض كمان», so the list stays short on a phone. */
 const VISIBLE_CARDS = 3;
@@ -73,12 +77,17 @@ export function GmDailyReviewPanel() {
   const reload = useCallback(async () => {
     try {
       // «مراجعة المشتريات» feeds the purchases card; until its data is there the old card stays.
-      const [base, purchases] = await Promise.all([
+      // «فواتير مشتريات امبارح» comes from the customer service team's review of yesterday's invoices.
+      const [base, purchases, day] = await Promise.all([
         loadGmDailyReview(),
         loadPurchaseReviewShared().catch(() => null),
+        loadGmPurchaseDay().catch(() => null),
       ]);
       setReview(
-        withPurchaseReview(base, purchases?.lines.length ? purchaseReviewDaily(purchases) : null)
+        withPurchaseDay(
+          withPurchaseReview(base, purchases?.lines.length ? purchaseReviewDaily(purchases) : null),
+          day
+        )
       );
       setError(null);
     } catch (err) {
