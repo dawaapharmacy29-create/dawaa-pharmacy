@@ -7,6 +7,7 @@ import {
   Panel,
   SectionTitle,
 } from '@/components/dashboard/DashboardPrimitives';
+import LiberationTrend from '@/components/inventory/LiberationTrend';
 import { download, exportSheets, type Col } from '@/lib/inventory/stock';
 import {
   ACTIONS,
@@ -258,6 +259,16 @@ export default function StockLiberation() {
             tone="amber"
           />
           <MiniBox label="مخزن الإكسبير" value={money(t.expiryStore)} tone="cyan" />
+        </div>
+      </Panel>
+
+      <Panel>
+        <SectionTitle
+          title="رأس المال والرواكد يوم بيوم"
+          subtitle="من كل ملف رصيد اترفع: لو الخط البرتقاني نازل يبقى التحرير ماشي"
+        />
+        <div className="mt-2">
+          <LiberationTrend trend={data.trend} />
         </div>
       </Panel>
 

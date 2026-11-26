@@ -138,7 +138,16 @@ export type Liberation = {
     batches_day: string | null;
   };
   capital: LibCapital[];
-  trend: Array<{ day: string; branch: string; value: number; expiry: number }>;
+  /** Every stock upload: capital (main + doctors' stores); dead / slow once the page was opened on that file. */
+  trend: Array<{
+    day: string;
+    branch: string;
+    value: number;
+    expiry: number;
+    dead?: number | null;
+    slow?: number | null;
+    active?: number | null;
+  }>;
   activity: LibActivity[];
   dead: LibDead[];
   near_expiry: LibNear[];
