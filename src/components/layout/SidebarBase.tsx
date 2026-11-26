@@ -220,10 +220,10 @@ export const MANAGEMENT_GROUPS: NavGroup[] = [
   { title: 'يومي', icon: LayoutDashboard, items: managerItems('/', '/daily-command', '/invoices', '/customer-service-tasks', '/customer-requests', '/doctor-competition', '/weekly-reviews', '/purchase-review', '/attendance-report') },
   // The monthly evaluation and the branch comparison are the pages the boards are made from. Appeals, shift
   // performance and the pillars index are under "كل الصفحات" (hidden, not deleted).
-  { title: 'التقييم والمسابقة', icon: ClipboardCheck, items: managerItems('/evaluation-lab', '/branch-comparison', '/penalty-incentive', '/uncoded-invoices') },
+  { title: 'التقييم والمسابقة', icon: ClipboardCheck, items: managerItems('/evaluation-lab', '/branch-comparison', '/penalty-incentive') },
   { title: 'الفريق', icon: Users, items: managerItems('/team', '/schedule', '/time-off', '/staff-payroll', DR_WAEL_FINGERPRINTS_PATH) },
   { title: 'العملاء', icon: HeadphonesIcon, items: managerItems('/customer-service', '/customers', '/reviews') },
-  // /consolidated-reports moved under "كل الصفحات" to keep the menu at 27 pages (hidden, not deleted).
+  // /consolidated-reports and /uncoded-invoices are under "كل الصفحات" to keep the menu at 27 pages (hidden, not deleted).
   { title: 'المبيعات', icon: BarChart3, items: managerItems('/analytics', '/reports', DR_WAEL_SHOKRY_REPORTS_PATH) },
   { title: 'المشتريات والمخزون', icon: Store, items: managerItems('/inventory-stock', '/purchases', '/shortages', '/inventory-counts') },
   { title: 'للمراجعة', icon: ClipboardList, items: managerItems('/review-pages') },
