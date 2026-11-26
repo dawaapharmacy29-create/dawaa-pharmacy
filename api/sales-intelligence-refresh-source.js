@@ -10105,6 +10105,7 @@ async function computeSemanticSourceHash(input) {
     ...input.caseOwnership ? { caseOwnership: input.caseOwnership } : {},
     ...input.resolvedCustomerId ? { resolvedCustomerId: input.resolvedCustomerId } : {},
     ...input.saleProofFingerprint ? { saleProofFingerprint: input.saleProofFingerprint } : {},
+    ...input.evidenceDecisionFingerprint ? { evidenceDecisionFingerprint: input.evidenceDecisionFingerprint } : {},
     ...input.managerProductIdentityReviewIds?.length ? { managerProductIdentityReviewIds: [...input.managerProductIdentityReviewIds].sort() } : {}
   });
 }
@@ -10159,6 +10160,7 @@ async function persistCaseAnalysis(supabaseClient, caseId, rawWhatsAppExportText
     trustedConversationStartedAt: trustedConversationStartedAt ?? null,
     branchIdentityMappingVersion: BRANCH_IDENTITY_MAPPING_VERSION,
     saleProofFingerprint: saleProofFingerprint2 ?? null,
+    evidenceDecisionFingerprint: semanticContext?.evidenceDecisionFingerprint,
     caseOwnership: semanticContext?.caseOwnership,
     resolvedCustomerId: semanticContext?.resolvedCustomerId ?? null,
     managerProductIdentityReviewIds: semanticContext?.managerProductIdentityReviewIds
@@ -10704,8 +10706,22 @@ function invoiceId(row) {
 function invoiceNumber(row) {
   return clean2(row.invoice_number ?? row.invoice_no);
 }
-function candidateKey(number, branch) {
-  return `${number}|${normalizeBranchName(branch || "")}`;
+function cairoInvoiceDay(value) {
+  const iso = parseInvoiceDateTime(value);
+  if (!iso) return null;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Cairo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(new Date(iso));
+  const part = (type) => parts.find((p) => p.type === type)?.value;
+  return [part("year"), part("month"), part("day")].join("-");
+}
+function candidateKey(number, branch, date) {
+  const day = cairoInvoiceDay(date);
+  if (!number || !day || !["\u0641\u0631\u0639 \u0634\u0643\u0631\u064A", "\u0641\u0631\u0639 \u0627\u0644\u0634\u0627\u0645\u064A"].includes(branch)) return null;
+  return JSON.stringify([number, branch, day]);
 }
 function sameOrNull(values) {
   const present = values.filter((value) => value != null);
@@ -10761,7 +10777,8 @@ function buildInvoiceItemEvidenceProvider(invoiceRows, itemRows) {
     const id = invoiceId(invoice);
     const number = invoiceNumber(invoice);
     if (!id || !number) continue;
-    const key = candidateKey(number, getInvoiceBranch(invoice));
+    const key = candidateKey(number, getInvoiceBranch(invoice), invoice.invoice_date);
+    if (!key) continue;
     const ids = candidateIdsByNumberBranch.get(key) ?? [];
     if (!ids.includes(id)) ids.push(id);
     candidateIdsByNumberBranch.set(key, ids);
@@ -10786,8 +10803,10 @@ function buildInvoiceItemEvidenceProvider(invoiceRows, itemRows) {
     let resolvedId = directId && candidateIds.has(directId) ? directId : "";
     if (!resolvedId) {
       const number = clean2(row.invoice_number);
-      if (!number) continue;
-      const ids = candidateIdsByNumberBranch.get(candidateKey(number, row.branch)) ?? [];
+      if (directId) continue;
+      const key = candidateKey(number, getInvoiceBranch({ branch: row.branch }), row.invoice_date);
+      if (!key) continue;
+      const ids = candidateIdsByNumberBranch.get(key) ?? [];
       if (ids.length !== 1) continue;
       resolvedId = ids[0];
     }
@@ -10834,16 +10853,24 @@ async function fetchInvoiceItemEvidenceProvider(supabaseClient, invoiceRows) {
   const ids = Array.from(new Set(candidates.map(invoiceId).filter(Boolean)));
   const numbers = Array.from(new Set(candidates.map(invoiceNumber).filter(Boolean)));
   const itemMap = /* @__PURE__ */ new Map();
-  for (const group of chunks2(ids, 100)) {
-    const { data, error } = await supabaseClient.from("sales_invoice_items_v21").select("id,invoice_id,invoice_number,branch,product_id,product_code,product_name,quantity,unit_price,line_total,raw_data").in("invoice_id", group).limit(5e3);
-    if (error) throw error;
-    for (const row of data ?? []) itemMap.set(String(row.id), row);
+  const pageSize = 500;
+  const maxPagesPerGroup = 100;
+  async function loadGroup(column, group) {
+    let offset = 0;
+    for (let page = 0; page < maxPagesPerGroup; page += 1) {
+      let query = supabaseClient.from("sales_invoice_items_v21").select("id,invoice_id,invoice_number,invoice_date,branch,product_id,product_code,product_name,quantity,unit_price,line_total,raw_data").in(column, group);
+      if (column === "invoice_number") query = query.is("invoice_id", null);
+      const { data, error } = await query.order("id", { ascending: true }).range(offset, offset + pageSize - 1);
+      if (error) throw error;
+      const rows = data ?? [];
+      if (!rows.length) return;
+      for (const row of rows) itemMap.set(String(row.id), row);
+      offset += rows.length;
+    }
+    throw new Error("invoice_item_evidence_page_budget_exceeded");
   }
-  for (const group of chunks2(numbers, 100)) {
-    const { data, error } = await supabaseClient.from("sales_invoice_items_v21").select("id,invoice_id,invoice_number,branch,product_id,product_code,product_name,quantity,unit_price,line_total,raw_data").in("invoice_number", group).limit(5e3);
-    if (error) throw error;
-    for (const row of data ?? []) itemMap.set(String(row.id), row);
-  }
+  for (const group of chunks2(ids, 100)) await loadGroup("invoice_id", group);
+  for (const group of chunks2(numbers, 100)) await loadGroup("invoice_number", group);
   return buildInvoiceItemEvidenceProvider(candidates, Array.from(itemMap.values()));
 }
 function snapshotInvoiceItemEvidence(provider, invoiceIds) {
@@ -11004,6 +11031,44 @@ async function runBatchPersistence(supabaseClient, input) {
   const candidateInvoicesEvaluated = Array.from(candidatesByGroupKey.values()).reduce((sum, rows) => sum + rows.length, 0);
   const allCandidateInvoices = Array.from(candidatesByGroupKey.values()).flat();
   const itemEvidenceProvider = await fetchInvoiceItemEvidenceProvider(supabaseClient, allCandidateInvoices);
+  const invoiceHeadersById = new Map(allCandidateInvoices.map((row) => [invoiceRowLookupId2(row), row]));
+  const snapshotInvoiceEvidence = (ids) => snapshotInvoiceItemEvidence(itemEvidenceProvider, ids).map((entry) => {
+    const row = invoiceHeadersById.get(entry.invoiceId);
+    return {
+      ...entry,
+      header: row ? Object.fromEntries([
+        "invoice_number",
+        "invoice_no",
+        "invoice_date",
+        "invoice_datetime",
+        "sale_date",
+        "branch",
+        "branch_name",
+        "customer_id",
+        "customer_code",
+        "customer_phone",
+        "phone",
+        "whatsapp_phone",
+        "customer_name",
+        "net_amount",
+        "net_total",
+        "total_amount",
+        "amount",
+        "gross_amount",
+        "discounted_amount",
+        "discount_amount",
+        "invoice_type",
+        "save_status",
+        "status",
+        "staff_id",
+        "seller_name",
+        "normalized_seller_name",
+        "staff_name",
+        "delivery_staff",
+        "line_items_count"
+      ].map((key) => [key, row[key] ?? null])) : null
+    };
+  });
   const pass1ByConversation = /* @__PURE__ */ new Map();
   const groupKeyByCaseId = /* @__PURE__ */ new Map();
   for (const group of groups) {
@@ -11096,6 +11161,16 @@ async function runBatchPersistence(supabaseClient, input) {
     const conversationRowId = conversationInput?.conversationId ?? analysis.conversationId;
     const caseContent = mapCaseRowContent(analysis, conversationRowId);
     const caseAnalysisContent = mapCaseAnalysisRowContent(analysis);
+    const evidenceDecisionFingerprint = canonicalJsonStringify({
+      identity: caseAnalysisContent.identityAtAnalysis,
+      branch: caseAnalysisContent.evidenceSnapshot.caseBranch,
+      attributionLevel: caseAnalysisContent.attributionLevel,
+      evidenceLevel: caseAnalysisContent.overallEvidenceLevel,
+      evidenceCompleteness: caseAnalysisContent.evidenceSnapshot.evidenceCompleteness,
+      match: mapBasketInvoiceMatchRowContent(analysis),
+      needsHumanReview: caseAnalysisContent.needsHumanReview,
+      humanReviewReasons: [...caseAnalysisContent.humanReviewReasons].sort()
+    });
     const semanticSourceHash = await computeSemanticSourceHash({
       rawWhatsAppExportText: conversationInput?.rawWhatsAppExportText ?? "",
       trustedConversationStartedAt: conversationInput?.trustedConversationStartedAt ?? null,
@@ -11103,6 +11178,7 @@ async function runBatchPersistence(supabaseClient, input) {
       caseOwnership: conversationCase.ownership,
       resolvedCustomerId: conversationCase.customerId ?? null,
       saleProofFingerprint: saleProofFingerprint(analysis),
+      evidenceDecisionFingerprint,
       managerProductIdentityReviewIds: analysis.managerProductIdentityReviewIds ?? []
     });
     const casePlan = await planCase(supabaseClient, analysis.caseId);
@@ -11123,12 +11199,9 @@ async function runBatchPersistence(supabaseClient, input) {
       plan.analysesToInsert.push(planAnalysisEntry);
       if (analysisPlan.currentAnalysisId) plan.analysesToSupersede.push(planAnalysisEntry);
     }
-    const effectiveAnalysisId = analysisPlan.currentAnalysisId;
+    const effectiveAnalysisId = analysisPlan.isNoOp ? analysisPlan.currentAnalysisId : null;
     const activeItems = analysis.activeBasket ? analysis.itemsByBasketId[analysis.activeBasket.basketId] ?? [] : [];
-    const attributionItemSnapshot = snapshotInvoiceItemEvidence(
-      itemEvidenceProvider,
-      analysis.invoiceCandidateIds
-    );
+    const attributionItemSnapshot = snapshotInvoiceEvidence(analysis.invoiceCandidateIds);
     const attributionInputHash = await computeAttributionInputHash({
       customerId: conversationCase.customerId,
       customerPhone: conversationCase.customerPhone,
@@ -11160,7 +11233,7 @@ async function runBatchPersistence(supabaseClient, input) {
     };
     if (currentAttributionRowId) plan.attributionsNoOp.push(planAttributionEntry);
     else plan.attributionsToInsert.push(planAttributionEntry);
-    const selectedInvoiceItemSnapshot = analysis.basketInvoiceMatch.invoiceId ? snapshotInvoiceItemEvidence(itemEvidenceProvider, [analysis.basketInvoiceMatch.invoiceId]) : [];
+    const selectedInvoiceItemSnapshot = analysis.basketInvoiceMatch.invoiceId ? snapshotInvoiceEvidence([analysis.basketInvoiceMatch.invoiceId]) : [];
     const matchingInputHash = await computeMatchingInputHash({
       basketId: analysis.basketInvoiceMatch.basketId,
       basketVersion: analysis.basketInvoiceMatch.basketVersion,
@@ -11177,8 +11250,8 @@ async function runBatchPersistence(supabaseClient, input) {
     });
     let currentMatchRowId = null;
     if (effectiveAnalysisId) {
-      const { data } = await supabaseClient.from("sales_intelligence_basket_invoice_matches").select("id, matching_input_hash, matching_engine_version").eq("analysis_id", effectiveAnalysisId).eq("is_current_evaluation", true).maybeSingle();
-      if (data && data.matching_input_hash === matchingInputHash && data.matching_engine_version === ENGINE_VERSIONS.matching) {
+      const { data } = await supabaseClient.from("sales_intelligence_basket_invoice_matches").select("id, attribution_row_id, matching_input_hash, matching_engine_version").eq("analysis_id", effectiveAnalysisId).eq("is_current_evaluation", true).maybeSingle();
+      if (data && currentAttributionRowId && data.attribution_row_id === currentAttributionRowId && data.matching_input_hash === matchingInputHash && data.matching_engine_version === ENGINE_VERSIONS.matching) {
         currentMatchRowId = data.id;
       }
     }
@@ -11245,6 +11318,7 @@ async function runBatchPersistence(supabaseClient, input) {
           saleProofFingerprint(analysis),
           input.deferPublication === true,
           {
+            evidenceDecisionFingerprint,
             caseOwnership: conversationCase.ownership,
             resolvedCustomerId: conversationCase.customerId ?? null,
             managerProductIdentityReviewIds: analysis.managerProductIdentityReviewIds ?? []
@@ -11257,6 +11331,8 @@ async function runBatchPersistence(supabaseClient, input) {
           {
             customerId: conversationCase.customerId,
             customerPhone: conversationCase.customerPhone,
+            customerCode: conversationInput?.customerCodeHint ?? null,
+            customerName: conversationInput?.customerNameHint ?? null,
             candidateInvoiceIds: analysis.invoiceCandidateIds,
             branchNameRaw: conversationCase.branchNameRaw,
             activeBasketItems: activeItems.map((item) => ({
