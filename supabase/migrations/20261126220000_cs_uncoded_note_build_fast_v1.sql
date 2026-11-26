@@ -1,6 +1,6 @@
 -- عملاء الشامي اللي في ملاحظات الفواتير ماكانوش بيظهروا (2026-11-26): dawaa_cs_uncoded_note_tasks_build_v1 كانت بتبني
 -- قايمة بكل أرقام الفواتير المتكودة (لف على الجدول كله بـ regexp) فبتقع بالـ statement timeout أول ما ملف مبيعات الشامي
--- يترفع ويبقى فيه أرقام في الملاحظات. دلوقتي بتسأل عن كل رقم بالفهرس.
+-- يترفع ويبقى فيه أرقام في الملاحظات. دلوقتي بتسأل عن كل رقم بالفهرس، وبتقبل الرقم المكتوب من غير الصفر الأولاني.
 
 create or replace function public.dawaa_cs_uncoded_note_tasks_build_v1()
 returns jsonb language plpgsql security definer
@@ -72,7 +72,9 @@ begin
     select distinct on (o.branch, p.ph) o.branch, p.ph, o.invoice_number, coalesce(o.net_amount, o.total_amount, 0) as net,
            coalesce(o.normalized_seller_name, o.seller_name) as seller, o.notes, o.invoice_date, o.invoice_datetime
     from public.sales_invoices o
-    cross join lateral (select (regexp_match(regexp_replace(coalesce(o.notes, ''), '[\s\-]', '', 'g'), '(01[0125][0-9]{8})'))[1] as ph) p
+    -- الرقم ساعات بيتكتب من غير الصفر الأولاني (1093520870): بنقبله ونرجّع الصفر.
+    cross join lateral (select '0' || (regexp_match(regexp_replace(coalesce(o.notes, ''), '[\s\-]', '', 'g'),
+                                                    '(?:^|[^0-9])0?(1[0125][0-9]{8})(?:$|[^0-9])'))[1] as ph) p
     where o.branch in ('فرع شكري', 'فرع الشامي')
       and o.invoice_date >= v_y_from and o.invoice_date < v_y_to
       and coalesce(nullif(btrim(o.customer_code), ''), '7') = '7'
