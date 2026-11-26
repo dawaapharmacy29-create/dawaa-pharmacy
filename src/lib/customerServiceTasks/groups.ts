@@ -74,6 +74,17 @@ const DUAL: Array<[RegExp, number]> = [
 ];
 /** Not an item: the doctor signing the request ("د دنيا", "د/ علياء"), or the group's own labels. */
 const NOT_ITEM = /^(?:(?:د|دكتور[هة]?|dr)\s*\/?\s*[؀-ۿ]+(?:\s+[؀-ۿ]+)?|د|طلبات? عملاء|طلب عميل)$/i;
+/**
+ * A line of the request that is a note, not an item (owner 2026-11-26): an address, a call or delivery note, nursing,
+ * what a supplier said, a mention (@all), or words to the team.
+ */
+export const NOTE_LINE =
+  /@\S+|شارع|امتداد|عمار[هة]|(?:^|\s)الدور\s|(?:^|\s)شق[هة]\s|عنوان|تمريض|توصيل|نتواصل|هنتواصل|نكلم|كلم[يو]?ها|كلموه|اتصل|بكر[هة]|الساع[هة]|اجاز[هة]|إجاز[هة]|(?:^|\s)قال(?:ت|وا)?\s|مش متوفر|مش موجود|متوفرش|مش لاقي|نبعت|يا دكاتر|يا جماع[هة]|نرشح|اعتقد|[اإ]ن شاء الله|لو سمحت|منتظر|مستني/;
+/** The doctor's name written before the item ("د تسنيم بيبرونه ..."). */
+const DOCTOR_PREFIX = /^(?:د|دكتور[هة]?|dr)\s*[./]?\s*[؀-ۿ]{2,}\s+(?=\S)/i;
+/** A message to the whole team (an offer, a reminder), not a customer's request. */
+export const TEAM_ANNOUNCEMENT = /@all|يا دكاتر|يا جماع[هة]|يا شباب|للعلم|تنبيه/i;
+
 const FILLER =
   /^(?:محتاج[هة]?|محتاجين|عايز[هة]?|عاوز[هة]?|عايزين|طالب[هة]?|طلب|المطلوب|نوفر|نوفرله|نوفرلها|توفير|ل[هه]?)\s+/;
 
@@ -90,7 +101,8 @@ export function parseItems(details: string | null | undefined): RequestItem[] {
       .replace(/\[[^\]]*\]/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
-    if (!seg || NOT_ITEM.test(seg)) continue;
+    if (!seg || NOT_ITEM.test(seg) || NOTE_LINE.test(seg)) continue;
+    seg = seg.replace(DOCTOR_PREFIX, '');
     const found: { qty: number | null } = { qty: null };
     const take = (re: RegExp, pick: (m: RegExpMatchArray) => number) => {
       const m = seg.match(re);
@@ -258,7 +270,10 @@ export async function loadGroupFollowups(
 
 export function requestCandidates(content: string, doctors: GroupDoctor[]): RequestCandidate[] {
   return extractRequestCandidates(parseGroupChat(content), doctors, []).filter(
-    (c) => c.kind === 'request' && (c.customerCode || c.customerPhone)
+    (c) =>
+      c.kind === 'request' &&
+      (c.customerCode || c.customerPhone) &&
+      !TEAM_ANNOUNCEMENT.test(`${c.body ?? ''} ${c.details ?? ''}`)
   );
 }
 
@@ -341,15 +356,18 @@ export async function loadGroupRequests(filter: {
     ...r,
     // الطلبات اللي اتسجلت قبل الأصناف بتتقري من التفاصيل لحد ما حد يعدّلها.
     items:
-      Array.isArray(r.items) && r.items.length
-        ? r.items.map((i) => ({
-            name: String(i?.name ?? ''),
-            qty: i?.qty == null || i.qty === ('' as unknown) ? null : num(i.qty),
-            ...(i?.code ? { code: String(i.code) } : {}),
-            ...(i?.price != null && i.price !== ('' as unknown) ? { price: num(i.price) } : {}),
-            ...(i?.image ? { image: String(i.image) } : {}),
-            ...(i?.new ? { new: true } : {}),
-          }))
+      Array.isArray(r.items) &&
+      r.items.some((i) => i?.code || !NOTE_LINE.test(String(i?.name ?? '')))
+        ? r.items
+            .filter((i) => i?.code || !NOTE_LINE.test(String(i?.name ?? '')))
+            .map((i) => ({
+              name: String(i?.name ?? ''),
+              qty: i?.qty == null || i.qty === ('' as unknown) ? null : num(i.qty),
+              ...(i?.code ? { code: String(i.code) } : {}),
+              ...(i?.price != null && i.price !== ('' as unknown) ? { price: num(i.price) } : {}),
+              ...(i?.image ? { image: String(i.image) } : {}),
+              ...(i?.new ? { new: true } : {}),
+            }))
         : parseItems(r.details),
   }));
 }
@@ -419,8 +437,11 @@ export async function exportRequestsWorkbook(
   rows: GroupRequest[],
   title: string,
   /** Stock by item code and branch, from the last stock file (رصيد المخازن). */
-  stock?: Map<string, Record<string, number>> | null
+  stock?: Map<string, Record<string, number>> | null,
+  /** The catalog code a hand-typed item most likely is, for its stock. */
+  guessCode?: (name: string) => string | null
 ): Promise<Blob> {
+  const stockCode = (it: RequestItem) => it.code || guessCode?.(it.name) || null;
   const ExcelJS = (await import('exceljs')).default;
   const wb = new ExcelJS.Workbook();
   const head = (ws: import('exceljs').Worksheet) => {
@@ -464,10 +485,10 @@ export async function exportRequestsWorkbook(
         icode: it.code ?? (it.new ? 'جديد' : ''),
         item: it.name,
         qty: it.qty ?? '',
-        here: it.code && stock ? (stock.get(it.code)?.[r.branch] ?? 0) : '',
+        here: stockCode(it) && stock ? (stock.get(stockCode(it)!)?.[r.branch] ?? 0) : '',
         other:
-          it.code && stock
-            ? Object.entries(stock.get(it.code) ?? {})
+          stockCode(it) && stock
+            ? Object.entries(stock.get(stockCode(it)!) ?? {})
                 .filter(([b]) => b !== r.branch)
                 .reduce((t, [, q]) => t + q, 0)
             : '',

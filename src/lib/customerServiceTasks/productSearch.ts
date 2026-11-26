@@ -221,6 +221,28 @@ export function searchCatalog(index: CatalogIndex, raw: string, limit = 12): Cat
     .map(({ e }) => ({ code: e.code, name: e.name, price: e.price, sold: e.sold }));
 }
 
+/**
+ * The catalog item a request item typed by hand most likely is ("بلنديل 5" = PLENDIL 5MG), only when the match is
+ * strong: used to show whether it is in stock, never saved as the item's code.
+ */
+export function bestMatch(index: CatalogIndex, raw: string, min = 450): CatalogItem | null {
+  const q = latinDigits(raw).replace(/\*/g, ' ').replace(/\s+/g, ' ').trim();
+  if (q.replace(/\s/g, '').length < 3 || /^\d+$/.test(q)) return null;
+  memo.clear();
+  let best: Entry | null = null;
+  let top = 0;
+  for (const e of index) {
+    const s = scoreEntry(e, q);
+    if (s < min) continue;
+    const ranked = s + Math.log1p(e.sold) * 12;
+    if (ranked > top) {
+      top = ranked;
+      best = e;
+    }
+  }
+  return best ? { code: best.code, name: best.name, price: best.price, sold: best.sold } : null;
+}
+
 /** «بانادول x2» / «بانادول ×٢»: the quantity written after the name. */
 export function splitQuantity(raw: string): { query: string; qty: number | null } {
   const m = latinDigits(raw).match(/^(.*?)\s*[x×]\s*(\d{1,3})\s*$/i);

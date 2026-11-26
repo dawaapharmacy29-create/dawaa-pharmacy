@@ -247,3 +247,50 @@ describe('transferIssues', () => {
     expect(kinds).toEqual(['qty', 'missing', 'money']);
   });
 });
+
+describe('one purchase on several sales', () => {
+  const line = (code: string, name: string) => ({ code, name, qty: 1, price: 20, total: 20 });
+  // الشامي مسلسل 13148 (KERELLA + OCTOZAC) = بيع شكري 84335 (OCTOZAC 5:26 م) + 84386 (KERELLA 10 م).
+  const p = purchase('13148', 45.52, '2026-11-25 22:06', {
+    items: 2,
+    lines: [line('29319', 'KERELLA LOTION'), line('8857', 'OCTOZAC CAP')],
+  });
+  const s1 = sale('84335', 21.6, '2026-11-25 17:26', { items: [line('8857', 'OCTOZAC CAP')] });
+  const s2 = sale('84386', 31, '2026-11-25 22:00', { items: [line('29319', 'KERELLA LOTION')] });
+
+  it('pairs the purchase with the sales that together have its items', () => {
+    const r = pairTransfers([p], [s1, s2]);
+    expect(r.pairs).toHaveLength(1);
+    expect(r.pairs[0].how).toBe('multi_sale');
+    expect(r.pairs[0].sale.parts?.map((s) => s.invoice)).toEqual(['84335', '84386']);
+    expect(r.pairs[0].sale.net).toBeCloseTo(52.6);
+    expect(r.salesOnly).toEqual([]);
+    expect(r.purchasesOnly).toEqual([]);
+    expect(transferIssues(r.pairs[0])).toEqual([]);
+  });
+
+  it('keeps the pair once it was saved against both sales', () => {
+    const saved = {
+      ...p,
+      check: {
+        status: 'ok' as const,
+        problems: [],
+        note: null,
+        by: 'نور',
+        at: '2026-11-26',
+        sale_invoice: '84335',
+        extra_sales: ['84386'],
+      },
+    };
+    const r = pairTransfers([saved], [s1, s2]);
+    expect(r.pairs[0].how).toBe('saved');
+    expect(r.pairs[0].sale.parts).toHaveLength(2);
+    expect(transferProgress(r).done).toBe(1);
+  });
+
+  it('does not join sales whose items are not the purchase', () => {
+    const other = sale('84390', 31, '2026-11-25 21:00', { items: [line('1111', 'PANADOL')] });
+    const r = pairTransfers([p], [s1, other]);
+    expect(r.pairs).toEqual([]);
+  });
+});
