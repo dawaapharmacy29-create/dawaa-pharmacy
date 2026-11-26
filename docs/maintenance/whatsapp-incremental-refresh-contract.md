@@ -45,3 +45,9 @@ Rollback after staging activation: disable the six `whatsapp_invoice*_capture_*`
 triggers on their source tables and stop calling the claim function. Retain
 pending events for diagnosis. No financial rows, evaluations or payroll are
 written by the capture or lease functions.
+
+The read-only `rehearseInvoiceChanges` entry point groups impacted sources and
+their transitive invoice competitors, then calls the canonical refresh in
+dry-run mode. Its caller must supply a complete active case and candidate
+snapshot. It rejects an oversized competing group or missing source data as a
+unit and leaves all queue leases and events untouched.
