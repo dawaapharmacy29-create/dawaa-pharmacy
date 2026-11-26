@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { ImagePlus, Loader2, Minus, Plus, Search, X } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -53,10 +53,13 @@ export default function RequestItemsPicker({
   const focusQty = useRef<number | null>(null);
 
   const { query, qty: typedQty } = splitQuantity(q);
+  // الكتابة بتظهر على طول، والبحث في الـ ١١ ألف صنف بيلحقها من غير ما يوقفها.
+  const searchFor = useDeferredValue(query);
   const results = useMemo(
-    () => (index && query.trim() ? searchCatalog(index, query, 10) : []),
-    [index, query]
+    () => (index && searchFor.trim() ? searchCatalog(index, searchFor, 10) : []),
+    [index, searchFor]
   );
+  const searching = searchFor !== query;
   const options = query.trim().length >= 2 ? results.length + 1 : 0; // + «صنف جديد»
 
   useEffect(() => setActive(0), [query]);
@@ -139,7 +142,7 @@ export default function RequestItemsPicker({
           {items.map((it, n) => (
             <li
               key={n}
-              className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface,white)] p-2"
+              className="flex flex-wrap items-center gap-2 rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface-raised,var(--dawaa-theme-surface))] p-2 text-[var(--dawaa-theme-heading)]"
             >
               {it.image ? (
                 <a href={it.image} target="_blank" rel="noreferrer" className="shrink-0">
@@ -269,7 +272,7 @@ export default function RequestItemsPicker({
               : 'ضيفي صنف: الاسم عربي أو إنجليزي أو الكود، و* للحروف اللي مش متأكدة منها (الف*ن*رن)، و x2 للكمية'
           }
         />
-        {!index && !failed ? (
+        {(!index && !failed) || searching ? (
           <Loader2
             size={14}
             className="absolute top-1/2 left-3 -translate-y-1/2 animate-spin opacity-60"
@@ -278,25 +281,29 @@ export default function RequestItemsPicker({
         {open && options ? (
           <ul
             role="listbox"
-            className="absolute z-30 mt-1 max-h-80 w-full overflow-auto rounded-xl border border-[var(--dawaa-theme-border)] bg-[var(--dawaa-theme-surface,white)] shadow-lg"
+            className="absolute z-30 mt-1 max-h-80 w-full overflow-auto rounded-xl border border-[var(--dawaa-theme-border-strong)] bg-[var(--dawaa-theme-surface-raised,var(--dawaa-theme-surface))] text-[var(--dawaa-theme-heading)] shadow-xl"
           >
             {results.map((c, n) => (
               <li
                 key={`${c.code}-${n}`}
                 role="option"
                 aria-selected={active === n}
-                className={`flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm ${active === n ? 'bg-[var(--dawaa-theme-soft)]' : ''}`}
+                className={`flex cursor-pointer items-center gap-2 border-b border-[var(--dawaa-theme-divider,var(--dawaa-theme-border))] px-3 py-2 text-sm last:border-b-0 ${active === n ? 'bg-[var(--dawaa-theme-highlight,var(--dawaa-theme-soft))]' : ''}`}
                 onMouseEnter={() => setActive(n)}
                 onMouseDown={(e) => {
                   e.preventDefault();
                   pickCatalog(c);
                 }}
               >
-                <span className="flex-1 font-bold" dir="auto">
+                <span className="min-w-0 flex-1 break-words font-bold" dir="auto">
                   {c.name}
                 </span>
-                <span className="text-[11px] opacity-70">{c.code}</span>
-                <span className="w-16 text-left text-[11px] font-bold">{money(c.price)}</span>
+                <span className="rounded bg-[var(--dawaa-theme-soft)] px-1.5 font-mono text-[11px] text-[var(--dawaa-theme-muted)]">
+                  {c.code}
+                </span>
+                <span className="w-16 text-left text-xs font-black text-[var(--dawaa-theme-primary)]">
+                  {money(c.price)}
+                </span>
               </li>
             ))}
             <li

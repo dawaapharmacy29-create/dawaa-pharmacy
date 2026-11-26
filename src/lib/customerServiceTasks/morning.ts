@@ -504,6 +504,41 @@ const SPLIT_MINUTES = 180;
 /** Sales of the same transfer can be hours apart («بيع 5:26 م و10 م، شراء 10:06 م»), matched by their items. */
 const MULTI_SALE_MINUTES = 12 * 60;
 
+/** Quantity per item code. */
+function qtyByCode(lines: Array<{ code: string; qty: number }>) {
+  const m = new Map<string, number>();
+  for (const l of lines) m.set(l.code, (m.get(l.code) ?? 0) + (Number(l.qty) || 0));
+  return m;
+}
+const sameQtys = (a: Map<string, number>, b: Map<string, number>) =>
+  a.size === b.size && [...a].every(([k, v]) => b.has(k) && Math.abs(b.get(k)! - v) < 0.01);
+
+/**
+ * The fewest invoices (up to three of the eight nearest) whose items add up exactly to `want`, item by item:
+ * «شكري طلب علبتين كتافلام، الشامي باع علبة وبعد ساعة علبة، وشكري اشترى الاتنين مرة واحدة».
+ */
+export function exactSet<T>(
+  want: Map<string, number>,
+  near: T[],
+  linesOf: (x: T) => TransferLine[],
+  minSize = 1
+): T[] | null {
+  if (!want.size) return null;
+  const pool = near
+    .filter((x) => linesOf(x).length && linesOf(x).every((l) => want.has(l.code)))
+    .slice(0, 8);
+  const fits = (set: T[]) => sameQtys(qtyByCode(set.flatMap(linesOf)), want);
+  if (minSize <= 1) for (const a of pool) if (fits([a])) return [a];
+  for (let i = 0; i < pool.length; i++)
+    for (let j = i + 1; j < pool.length; j++)
+      if (fits([pool[i], pool[j]])) return [pool[i], pool[j]];
+  for (let i = 0; i < pool.length; i++)
+    for (let j = i + 1; j < pool.length; j++)
+      for (let k = j + 1; k < pool.length; k++)
+        if (fits([pool[i], pool[j], pool[k]])) return [pool[i], pool[j], pool[k]];
+  return null;
+}
+
 /** The sale invoices of a pair: one, or the several invoices one purchase was received for. */
 export const pairSales = (s: TransferSale) => s.parts ?? [s];
 
@@ -630,25 +665,74 @@ export function pairTransfers(
   const stillOpen = open.filter((p) => !(p.check?.status === 'problem' && !p.check.sale_invoice));
   const keptAside = open.filter((p) => !stillOpen.includes(p));
 
-  const rounds: Array<{ how: PairHow; match: (p: TransferPurchase, s: TransferSale) => boolean }> =
-    [
-      {
-        how: 'number',
-        match: (p, s) => !!p.supplier_invoice_no && p.supplier_invoice_no.trim() === s.invoice,
-      },
-      // أصناف الفاتورتين (لما تقرير المشتريات يترفع بالأصناف): أغلب الأكواد واحدة.
-      { how: 'codes', match: (p, s) => sharedCodes(p, s) >= 0.6 },
-      {
-        how: 'value_items',
-        match: (p, s) => same(p.net, s.net) && p.items > 0 && p.items === s.lines,
-      },
-      { how: 'split', match: () => false },
-      { how: 'multi_sale', match: () => false },
-      { how: 'value', match: (p, s) => same(p.net, s.net) },
-    ];
+  const rounds: Array<{
+    how: PairHow;
+    match: (p: TransferPurchase, s: TransferSale) => boolean;
+    exact?: boolean;
+  }> = [
+    {
+      how: 'number',
+      match: (p, s) => !!p.supplier_invoice_no && p.supplier_invoice_no.trim() === s.invoice,
+    },
+    // نفس الأصناف بنفس الكميات بالظبط، حتى لو على كذا فاتورة في الناحيتين (في حدود ١٢ ساعة).
+    { how: 'codes', match: () => false, exact: true },
+    // أصناف الفاتورتين (لما تقرير المشتريات يترفع بالأصناف): أغلب الأكواد واحدة.
+    { how: 'codes', match: (p, s) => sharedCodes(p, s) >= 0.6 },
+    {
+      how: 'value_items',
+      match: (p, s) => same(p.net, s.net) && p.items > 0 && p.items === s.lines,
+    },
+    { how: 'split', match: () => false },
+    { how: 'multi_sale', match: () => false },
+    { how: 'value', match: (p, s) => same(p.net, s.net) },
+  ];
   let remaining = stillOpen;
   const free = (s: TransferSale) => !used.has(s.invoice) && !s.check?.purchase_serial;
   for (const round of rounds) {
+    if (round.exact) {
+      const byTime = <T>(list: T[], at: (x: T) => string, from: string) =>
+        list
+          .filter((x) => minutes(at(x), from) <= MULTI_SALE_MINUTES)
+          .sort((a, b) => minutes(at(a), from) - minutes(at(b), from));
+      const next: TransferPurchase[] = [];
+      for (const p of remaining) {
+        const set = p.lines.length
+          ? exactSet(
+              qtyByCode(p.lines),
+              byTime(sales.filter(free), (x) => x.at, p.invoice_at),
+              (x) => x.items
+            )
+          : null;
+        if (!set) {
+          next.push(p);
+          continue;
+        }
+        pairs.push({
+          purchase: p,
+          rest: [],
+          sale: set.length > 1 ? combineSales(set) : set[0],
+          how: set.length > 1 ? 'multi_sale' : 'codes',
+        });
+        set.forEach((x) => used.add(x.invoice));
+      }
+      remaining = next;
+      // بيع واحد اتسجل شراء على كذا فاتورة بنفس الكميات.
+      for (const sale of sales.filter(free)) {
+        if (!sale.items.length) continue;
+        const set = exactSet(
+          qtyByCode(sale.items),
+          byTime(remaining, (x) => x.invoice_at, sale.at),
+          (x) => x.lines,
+          2
+        );
+        if (!set) continue;
+        const ordered = [...set].sort((a, b) => a.invoice_at.localeCompare(b.invoice_at));
+        pairs.push({ purchase: ordered[0], rest: ordered.slice(1), sale, how: 'split' });
+        used.add(sale.invoice);
+        remaining = remaining.filter((x) => !set.includes(x));
+      }
+      continue;
+    }
     if (round.how === 'split') {
       // بيع واحد اتسجل شراء على فاتورتين أو تلاتة: مجموعهم قد البيع، وكلهم في حدود ٣ ساعات من البيع.
       for (const s of sales.filter(free)) {
@@ -780,8 +864,9 @@ export const pairSaved = (x: TransferPair) => {
 /** A transfer row is done when it has a saved check: a confirmed pair or a recorded problem. */
 export function transferProgress(pairing: TransferPairing) {
   const total = pairing.pairs.length + pairing.purchasesOnly.length + pairing.salesOnly.length;
+  // التحويل المطابق (نفس الأصناف والكميات والفرق أقل من ٥٠ ج) مش محتاج حد يراجعه: بيتحسب خلصان لوحده.
   const done =
-    pairing.pairs.filter((x) => pairSaved(x)).length +
+    pairing.pairs.filter((x) => pairSaved(x) || transferIssues(x).length === 0).length +
     pairing.purchasesOnly.filter((p) => p.check).length +
     pairing.salesOnly.filter((s) => s.check).length;
   return { total, done };

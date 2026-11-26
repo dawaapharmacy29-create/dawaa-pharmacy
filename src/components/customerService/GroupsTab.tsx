@@ -678,8 +678,40 @@ function FollowupReadEditor({
 
 // ---------------- جروب الطلبات ----------------
 
-/** The catalog match of each hand-typed item name, kept for the visit. */
-const GUESS_CACHE = new Map<string, CatalogItem | null>();
+/** The catalog match of each hand-typed item name, kept in the browser so it is worked out once. */
+const GUESS_KEY = 'dawaa.cs.itemGuess.v2';
+const GUESS_CACHE: Map<string, CatalogItem | null> = (() => {
+  try {
+    const raw = JSON.parse(localStorage.getItem(GUESS_KEY) || '{}') as Record<
+      string,
+      CatalogItem | 0
+    >;
+    return new Map(Object.entries(raw).map(([k, v]) => [k, v || null]));
+  } catch {
+    return new Map();
+  }
+})();
+function saveGuesses() {
+  try {
+    const entries = [...GUESS_CACHE.entries()].slice(-2000);
+    localStorage.setItem(
+      GUESS_KEY,
+      JSON.stringify(Object.fromEntries(entries.map(([k, v]) => [k, v ?? 0])))
+    );
+  } catch {
+    /* المتصفح مليان: تتحسب تاني المرة الجاية */
+  }
+}
+/** Waits for the browser to be idle; returns how many ms it can work before the user notices. */
+const idle = () =>
+  new Promise<number>((resolve) => {
+    const w = window as unknown as {
+      requestIdleCallback?: (cb: (d: { timeRemaining: () => number }) => void, o?: object) => void;
+    };
+    if (w.requestIdleCallback)
+      w.requestIdleCallback((d) => resolve(d.timeRemaining()), { timeout: 800 });
+    else setTimeout(() => resolve(8), 30);
+  });
 
 function RequestsSection({
   doctors,
@@ -745,14 +777,20 @@ function RequestsSection({
     void (async () => {
       const index = await loadCatalog().catch(() => null);
       if (!index) return;
-      let i = 0;
-      for (const n of names) {
-        if (!GUESS_CACHE.has(n)) {
-          GUESS_CACHE.set(n, bestMatch(index, n));
-          if (++i % 10 === 0) await new Promise((r) => setTimeout(r, 0));
+      // بنشتغل بس لما المتصفح فاضي، عشان الكتابة والبحث مايعلقوش.
+      const todo = names.filter((n) => !GUESS_CACHE.has(n));
+      let budget = todo.length ? await idle() : 0;
+      let start = performance.now();
+      for (const n of todo) {
+        if (!live) return;
+        if (performance.now() - start > Math.max(4, budget - 2)) {
+          budget = await idle();
+          start = performance.now();
           if (!live) return;
         }
+        GUESS_CACHE.set(n, bestMatch(index, n));
       }
+      if (todo.length) saveGuesses();
       const next = new Map<string, CatalogItem>();
       for (const n of names) {
         const m = GUESS_CACHE.get(n);
@@ -1443,19 +1481,26 @@ function RequestRow({
         </td>
         <td className="p-2 text-xs">
           {r.items.length ? (
-            <ul className="space-y-0.5">
+            <ul className="min-w-[14rem] space-y-1">
               {r.items.map((i, n) => (
-                <li key={n} className="flex items-center gap-1.5">
+                <li
+                  key={n}
+                  className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-lg bg-[var(--dawaa-theme-soft)] px-2 py-1"
+                >
                   {i.image ? (
                     <a href={i.image} target="_blank" rel="noreferrer">
                       <img src={i.image} alt="" className="h-7 w-7 rounded object-cover" />
                     </a>
                   ) : null}
-                  <span dir="auto">{i.name}</span>
-                  <span className={i.qty ? 'font-black' : 'text-[var(--dawaa-status-danger-text)]'}>
+                  <span dir="auto" className="min-w-0 break-words text-[13px] font-bold">
+                    {i.name}
+                  </span>
+                  <span
+                    className={`rounded px-1 ${i.qty ? 'bg-[var(--dawaa-theme-surface)] font-black' : 'font-bold text-[var(--dawaa-status-danger-text)]'}`}
+                  >
                     × {i.qty ?? 'كمية؟'}
                   </span>
-                  {i.code ? <span className="opacity-60">({i.code})</span> : null}
+                  {i.code ? <span className="font-mono opacity-60">{i.code}</span> : null}
                   {i.code && stock ? (
                     <StockBadge stock={stock.get(i.code)} branch={r.branch} />
                   ) : !i.code && stock && guesses.get(i.name) ? (
