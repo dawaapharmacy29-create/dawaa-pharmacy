@@ -23,3 +23,31 @@ Deduplicate per source and generation; use atomic lease claim with bounded batch
 7. Monitor failure rate, age, retries, import latency, duplicate current analyses and proof revocations. Rollback disables capture and consumer without deleting pending work.
 
 Existing maintenance changes are not yet tested or deployed. This contract is not an implemented queue.
+
+## Capture rehearsal
+
+Migration `20261127200000_whatsapp_invoice_change_capture_v1.sql` installs the six
+statement-level capture triggers disabled. The migration can be rehearsed with
+`node scripts/verification/test-whatsapp-invoice-change-capture-pglite.mjs`.
+The test explicitly enables only these triggers on synthetic tables. It covers
+transaction rollback, import metadata-only updates, quantity/discount/return
+events, retained old identities, restricted access, leases and retries.
+
+Capture groups changes to the same invoice identity within a statement. Each
+committed event has its own lease and acknowledgement, so a later correction
+survives acknowledgement of older work. After repeated expired leases or a
+permanent failure, the event is retained with a review timestamp and an error
+code. This migration does not call the analytical engine. The consumer still
+needs source-level deduplication, exclusive-claim closure, canonical publication,
+manager review access and completed-event retention before activation.
+
+Rollback after staging activation: disable the six `whatsapp_invoice*_capture_*`
+triggers on their source tables and stop calling the claim function. Retain
+pending events for diagnosis. No financial rows, evaluations or payroll are
+written by the capture or lease functions.
+
+The read-only `rehearseInvoiceChanges` entry point groups impacted sources and
+their transitive invoice competitors, then calls the canonical refresh in
+dry-run mode. Its caller must supply a complete active case and candidate
+snapshot. It rejects an oversized competing group or missing source data as a
+unit and leaves all queue leases and events untouched.
