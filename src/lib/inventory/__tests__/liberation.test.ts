@@ -145,6 +145,24 @@ describe('stock liberation', () => {
     expect(t.stuck).toBe(20_000 + 15_000 + 3000 + 3500 + 300 + 2000);
   });
 
+  it('uses the server totals over every batch, not the capped lists', () => {
+    const t = libTotals({
+      ...base,
+      totals: {
+        near_rows: 1070,
+        near_value: 224_982,
+        near_risk: 190_497,
+        near60_rows: 188,
+        near60_risk: 42_919,
+        expired_shelf_rows: 25,
+        expired_shelf: 2075,
+      },
+    });
+    expect(t.nearValue).toBe(224_982);
+    expect(t.nearRisk).toBe(190_497);
+    expect(t.expiredShelf).toBe(2075);
+  });
+
   it('orders the plan: expired on the shelf, then soonest expiry, then dead; skips what sells in time', () => {
     const plan = liberationPlan(base);
     expect(plan.map((r) => r.code)).toEqual(['44', '22', '11']);

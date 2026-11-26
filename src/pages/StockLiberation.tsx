@@ -403,23 +403,31 @@ export default function StockLiberation() {
         ) : null}
 
         {tab === 'near' ? (
-          <Table
-            rows={data.near_expiry}
-            empty="مفيش حاجة بتنتهي خلال ٦ شهور"
-            cols={[
-              ['الصنف', (r) => <Name name={r.name} code={r.code} />],
-              ['الفرع / المخزن', (r) => `${short(r.branch)} · ${r.store}`],
-              ['ينتهي', (r) => `${dm(r.expiry)} (${n(r.days)} يوم)`],
-              ['الكمية', (r) => n(r.qty, 1)],
-              ['بيبيع في الشهر', (r) => `${n(r.rate30, 1)} هنا · ${n(r.other_rate30, 1)} هناك`],
-              [
-                'في خطر',
-                (r) => (r.risk_value ? `${n(r.risk_qty, 1)} · ${money(r.risk_value)}` : '—'),
-              ],
-              ['المطلوب', (r) => <ActionChip a={r.action} />],
-              ['المورد', (r) => r.supplier ?? '—'],
-            ]}
-          />
+          <>
+            <p className="mt-3 text-xs opacity-75">
+              الصلاحية في بي كونكت بالشهر، فبنحسبها لآخر يوم في الشهر.{' '}
+              {data.totals && data.totals.near_rows > data.near_expiry.length
+                ? `ظاهر أقرب ${n(Math.min(data.near_expiry.length, 300))} تشغيلة من ${n(data.totals.near_rows)}.`
+                : ''}
+            </p>
+            <Table
+              rows={data.near_expiry}
+              empty="مفيش حاجة بتنتهي خلال ٦ شهور"
+              cols={[
+                ['الصنف', (r) => <Name name={r.name} code={r.code} />],
+                ['الفرع / المخزن', (r) => `${short(r.branch)} · ${r.store}`],
+                ['ينتهي', (r) => `${dm(r.expiry)} (${n(r.days)} يوم)`],
+                ['الكمية', (r) => n(r.qty, 1)],
+                ['بيبيع في الشهر', (r) => `${n(r.rate30, 1)} هنا · ${n(r.other_rate30, 1)} هناك`],
+                [
+                  'في خطر',
+                  (r) => (r.risk_value ? `${n(r.risk_qty, 1)} · ${money(r.risk_value)}` : '—'),
+                ],
+                ['المطلوب', (r) => <ActionChip a={r.action} />],
+                ['المورد', (r) => r.supplier ?? 'مش معروف'],
+              ]}
+            />
+          </>
         ) : null}
 
         {tab === 'expired' ? (
@@ -433,7 +441,7 @@ export default function StockLiberation() {
               ['الكمية', (r) => n(r.qty, 1)],
               ['القيمة', (r) => money(r.value)],
               ['المطلوب', (r) => <ActionChip a={r.action} />],
-              ['المورد', (r) => r.supplier ?? '—'],
+              ['المورد', (r) => r.supplier ?? 'مش معروف'],
             ]}
           />
         ) : null}
