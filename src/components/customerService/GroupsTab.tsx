@@ -22,6 +22,7 @@ import {
   importFollowups,
   importRequests,
   itemTotals,
+  knownFingerprints,
   loadGroupDoctors,
   loadGroupFollowups,
   loadGroupRequests,
@@ -48,6 +49,8 @@ import {
 } from '@/lib/customerServiceTasks/followupUnderstanding';
 import RequestItemsPicker from '@/components/customerService/RequestItemsPicker';
 import { loadStockForCodes, type StockByCode } from '@/lib/inventory/stock';
+import GroupFolder from '@/components/customerService/GroupFolder';
+import { markExportsDone, type GroupExport } from '@/lib/customerServiceTasks/groupFolder';
 
 // «الجروبات»: البنت ترفع تصدير جروب المتابعات وجروب الطلبات من الواتساب.
 // المتابعات بتبقى مهام في شيت النهارده، والطلبات بتتسجل بأصنافها وكمياتها وتتتابع لحد ما تتسلم وتتصدر إكسيل.
@@ -163,7 +166,28 @@ export function GroupUpload({
 
 // ---------------- جروب المتابعات ----------------
 
-type Loaded<T> = { fileName: string; branch: string; rows: T[] };
+type Loaded<T> = {
+  fileName: string;
+  branch: string;
+  rows: T[];
+  /** Messages of the file that were saved before and left out. */
+  already: number;
+  /** Folder files to mark done once saved. */
+  keys: string[];
+};
+
+/** Drops the messages saved before; when the check fails, the server still skips them on save. */
+async function onlyNew<T extends { fingerprint: string }>(
+  kind: 'followups' | 'requests',
+  rows: T[]
+): Promise<{ rows: T[]; already: number }> {
+  const known = await knownFingerprints(
+    kind,
+    rows.map((r) => r.fingerprint)
+  ).catch(() => new Set<string>());
+  const fresh = rows.filter((r) => !known.has(r.fingerprint));
+  return { rows: fresh, already: rows.length - fresh.length };
+}
 
 function FollowupsSection({
   doctors,
@@ -186,6 +210,7 @@ function FollowupsSection({
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState<GroupFollowup[] | null>(null);
   const [branchView, setBranchView] = useState('');
+  const [folderVersion, setFolderVersion] = useState(0);
 
   const loadSaved = useCallback(async () => {
     if (uploadOnly) return;
@@ -200,7 +225,7 @@ function FollowupsSection({
     void loadSaved();
   }, [loadSaved]);
 
-  async function open(file: File) {
+  async function open(file: File, keys: string[] = []) {
     if (!doctors) {
       toast.error('لسه بنحمّل أسماء الدكاترة، جرّبي كمان ثانية');
       return;
@@ -208,8 +233,20 @@ function FollowupsSection({
     setBusy(true);
     try {
       const content = await readChatFile(file);
-      const rows = followupCandidates(content, doctors);
-      if (!rows.length) throw new Error('empty');
+      const all = followupCandidates(content, doctors);
+      if (!all.length) throw new Error('empty');
+      // التصدير فيه الجروب من أوله: بناخد آخر أسبوع بس (أقصى فترة للمراجعة) ومن غير اللي اتسجل قبل كده.
+      const week = addDays(today, -6);
+      const { rows, already } = await onlyNew(
+        'followups',
+        all.filter((r) => r.sentAtLocal.slice(0, 10) >= week)
+      );
+      if (!rows.length) {
+        if (keys.length) markExportsDone(keys);
+        setFolderVersion((v) => v + 1);
+        toast.success('مفيش رسايل جديدة في الملف ده، كله اتسجل قبل كده');
+        return;
+      }
       const branch = detectGroupBranch(file.name, content) ?? '';
       const catalog = await loadCatalog().catch(() => null);
       setReads(
@@ -220,7 +257,7 @@ function FollowupsSection({
           ])
         )
       );
-      setLoaded({ fileName: file.name, branch, rows });
+      setLoaded({ fileName: file.name, branch, rows, already, keys });
       setPicked(Object.fromEntries(rows.map((r) => [r.fingerprint, r.likely])));
       setCodes({});
     } catch {
@@ -288,6 +325,8 @@ function FollowupsSection({
       toast.success(parts.join(' · '), { duration: 10000 });
       if (r.tasks) onTasksAdded?.();
       onUploaded?.();
+      if (loaded.keys.length) markExportsDone(loaded.keys);
+      setFolderVersion((v) => v + 1);
       setLoaded(null);
       await loadSaved();
     } catch (e) {
@@ -306,6 +345,12 @@ function FollowupsSection({
         />
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <FilePick label="ارفعي تصدير جروب المتابعات" busy={busy} onFile={(f) => void open(f)} />
+          <GroupFolder
+            kind="followups"
+            busy={busy}
+            version={folderVersion}
+            onOpen={(e: GroupExport) => void open(e.file, e.keys)}
+          />
           {loaded ? (
             <>
               <select
@@ -334,7 +379,13 @@ function FollowupsSection({
         {loaded ? (
           <>
             <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <MiniBox label="رسايل في الفترة" value={String(shown.length)} tone="blue" />
+              <MiniBox
+                label={
+                  loaded.already ? `رسايل جديدة (${loaded.already} اتسجلت قبل كده)` : 'رسايل جديدة'
+                }
+                value={String(shown.length)}
+                tone="blue"
+              />
               <MiniBox label="مختارة" value={String(chosen.length)} tone="cyan" />
               <MiniBox label="هتبقى مهام" value={String(willTask)} tone="green" />
               <MiniBox
@@ -655,6 +706,7 @@ function RequestsSection({
   const [adding, setAdding] = useState(false);
   const [stock, setStock] = useState<StockByCode | null>(null);
   const [onlyInStock, setOnlyInStock] = useState(false);
+  const [folderVersion, setFolderVersion] = useState(0);
 
   const load = useCallback(async () => {
     if (uploadOnly) return;
@@ -713,7 +765,7 @@ function RequestsSection({
     [rows, onlyInStock, inStock]
   );
 
-  async function open(file: File) {
+  async function open(file: File, keys: string[] = []) {
     if (!doctors) {
       toast.error('لسه بنحمّل أسماء الدكاترة، جرّبي كمان ثانية');
       return;
@@ -723,10 +775,19 @@ function RequestsSection({
       const content = await readChatFile(file);
       const all = requestCandidates(content, doctors);
       if (!all.length) throw new Error('empty');
+      const { rows, already } = await onlyNew('requests', all);
+      if (!rows.length) {
+        if (keys.length) markExportsDone(keys);
+        setFolderVersion((v) => v + 1);
+        toast.success('مفيش طلبات جديدة في الملف ده، كله اتسجل قبل كده');
+        return;
+      }
       setLoaded({
         fileName: file.name,
         branch: detectGroupBranch(file.name, content) ?? '',
-        rows: all,
+        rows,
+        already,
+        keys,
       });
     } catch {
       toast.error('الملف مفيهوش طلبات أو مش محادثة واتساب. ارفعي ملف التصدير (zip أو txt)');
@@ -751,6 +812,8 @@ function RequestsSection({
       toast.success(
         `اتسجل ${r.added} طلب جديد${r.already ? ` · ${r.already} كانوا متسجلين قبل كده` : ''}`
       );
+      if (loaded.keys.length) markExportsDone(loaded.keys);
+      setFolderVersion((v) => v + 1);
       setLoaded(null);
       onUploaded?.();
       await load();
@@ -865,6 +928,12 @@ function RequestsSection({
         />
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <FilePick label="ارفعي تصدير جروب الطلبات" busy={busy} onFile={(f) => void open(f)} />
+          <GroupFolder
+            kind="requests"
+            busy={busy}
+            version={folderVersion}
+            onOpen={(e: GroupExport) => void open(e.file, e.keys)}
+          />
           {loaded && inPeriod ? (
             <>
               <select
@@ -886,7 +955,14 @@ function RequestsSection({
                 <option value="two_cycles">الدورة دي واللي قبلها</option>
                 <option value="all">الملف كله</option>
               </select>
-              <span className="text-sm font-bold">{inPeriod.list.length} طلب</span>
+              <span className="text-sm font-bold">
+                {inPeriod.list.length} طلب جديد
+                {loaded.already ? (
+                  <span className="mr-1 text-xs font-normal opacity-60">
+                    ({loaded.already} اتسجلوا قبل كده)
+                  </span>
+                ) : null}
+              </span>
               <button
                 className="btn-primary"
                 disabled={busy || !loaded.branch || !inPeriod.list.length}
