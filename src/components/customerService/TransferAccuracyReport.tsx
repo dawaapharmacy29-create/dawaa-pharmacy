@@ -130,11 +130,20 @@ export default function TransferAccuracyReport() {
               tone={report.unpairedPurchases + report.unpairedSales ? 'amber' : 'green'}
             />
           </div>
-          {report.noLines ? (
-            <p className="mt-2 text-xs opacity-70">
-              {report.noLines} تحويل ماتقارنش لأن أصناف فاتورة الشراء مش مرفوعة (ارفعوا تقرير
-              المشتريات بالأصناف).
-            </p>
+          {report.missingLines ? (
+            <div className="mt-2 rounded-xl border border-[var(--dawaa-status-warning-text,#b45309)] bg-[var(--dawaa-status-warning-bg,#fef3c7)] p-2 text-xs text-[var(--dawaa-status-warning-text,#b45309)]">
+              <div className="font-black">
+                {report.noLines} تحويل ماتقارنش صنف صنف: أصناف فواتير الشراء مش مرفوعة من{' '}
+                {dm(report.missingLines.from)} لحد {dm(report.missingLines.to)}.
+              </div>
+              <div className="mt-0.5">
+                ده اللي مخلّي «فيها أخطاء» صفر و«من غير ربط» كبير: من غير الأصناف الربط بيبقى
+                بالقيمة بس. الحل: من «مراجعة المشتريات» ارفعوا تقرير «فواتير الشراء» من ePlus متصدّر
+                بالأصناف، من {dm(report.missingLines.from)} لحد {dm(report.missingLines.to)} مرة
+                واحدة لكل مخزن ({report.missingLines.stores.join('، ')}). الأيام دي بتتبدّل بس ومفيش
+                حاجة بتتكرر.
+              </div>
+            </div>
           ) : null}
 
           <div className="mt-3 flex flex-wrap gap-2">

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { buildIndex } from '../productSearch';
-import { cleanNote, followupBrief, followupDue, understandFollowup } from '../followupUnderstanding';
+import {
+  cleanNote,
+  followupBrief,
+  followupDue,
+  understandFollowup,
+} from '../followupUnderstanding';
 
 const day = '2026-11-24'; // الاتنين
 const catalog = buildIndex([
@@ -28,7 +33,9 @@ describe('reading a follow-up message', () => {
   });
 
   it('reads chronic treatment running out, shortages and complaints', () => {
-    expect(understandFollowup('علاج الضغط الشهري هيخلص الاسبوع ده Concor 5', day).kind).toBe('refill');
+    expect(understandFollowup('علاج الضغط الشهري هيخلص الاسبوع ده Concor 5', day).kind).toBe(
+      'refill'
+    );
     expect(understandFollowup('Concor 5', day).items).toEqual(['Concor 5']);
     expect(understandFollowup('الصنف كان ناقص نبلغه لما يتوفر', day).kind).toBe('shortage');
     expect(understandFollowup('العميل زعلان عشان الطلب اتاخر ضروري', day)).toMatchObject({
@@ -59,5 +66,61 @@ describe('reading a follow-up message', () => {
       'الميعاد: بعد يومين',
       'كلام د دنيا: كانت طلبت تسعير اوجمنتين نكلمها بعد يومين',
     ]);
+  });
+});
+
+describe('what the doctor really means', () => {
+  const cat = buildIndex([
+    { code: '1', name: 'GINIPIN 10 MG 20 TAB', price: 50, sold: 20 },
+    { code: '2', name: 'PENTASA 500MG 50 TAB', price: 300, sold: 20 },
+    { code: '3', name: 'DOZOVA ASHWAGANDA 30 CAP', price: 400, sold: 20 },
+    { code: '4', name: 'LIMITLESS ALLZYME 30 CAP', price: 400, sold: 20 },
+  ]);
+  it('reads an alternative she accepted, an important customer and the points system', () => {
+    const u = understandFollowup(
+      'عميله مهتمه بالكوزمو صاحبه مريم بتاع البيوتي سنتر اللي جنبنا كانت عايزه ليمتليس ومان وكلمتها على دوزوفا مكانه واقتنعت بيه شرحتلها نظام البوينتس عايزين نبقى نتابع معاها',
+      day,
+      cat
+    );
+    expect(u.kind).toBe('alternative');
+    // «جنبنا» و«البوينتس» مش أصناف.
+    expect(u.items).toEqual(['LIMITLESS ALLZYME', 'DOZOVA ASHWAGANDA']);
+    expect(u.action).toContain('DOZOVA ASHWAGANDA اللي أخدته بدل LIMITLESS ALLZYME');
+    expect(u.action).toContain('عميلة مهمة');
+    expect(u.action).toContain('البوينتس');
+  });
+  it('reads a problem in a lab result as her health, not a complaint about us', () => {
+    const u = understandFollowup('نسبة الهيموجلوبين عندها فيها مشكلة نطمن عليها بعد اسبوع', day);
+    expect(u.kind).toBe('health');
+    expect(u.action).toContain('نتيجة التحليل');
+    expect(understandFollowup('العميله عندها مشكلة في الطلب اتاخر', day).kind).toBe('complaint');
+  });
+});
+
+describe('an alternative without other words', () => {
+  it('reads «مكانه» and «بدله» alone', () => {
+    expect(understandFollowup('اخدت دوزوفا مكانه نتابع معاها', day).kind).toBe('alternative');
+    expect(understandFollowup('خد بدله نشوف رأيه', day).kind).toBe('alternative');
+  });
+});
+
+describe('interests and feelings', () => {
+  it('reads what the customer cares about', () => {
+    const u = understandFollowup('عميله مهتمه بالبشره نعرض عليها الجديد', day);
+    expect(u.kind).toBe('interest');
+    expect(u.action).toContain('العناية بالبشرة والتجميل');
+  });
+  it('adds the interest and the feeling to another kind', () => {
+    const u = understandFollowup('عميله مهتمه بالكوزمو اخدت دوزوفا مكانه وكانت مبسوطة', day);
+    expect(u.kind).toBe('alternative');
+    expect(u.action).toContain('العناية بالبشرة');
+    expect(u.action).toContain('مبسوطة');
+  });
+});
+
+describe('words with spaces between them', () => {
+  it('reads «فقر دم» as health and «صاحبة صالون» as important', () => {
+    expect(understandFollowup('عندها فقر دم ومشكلة نطمن عليها', day).kind).toBe('health');
+    expect(understandFollowup('صاحبة صالون جنبنا نتابع معاها', day).action).toContain('عميلة مهمة');
   });
 });

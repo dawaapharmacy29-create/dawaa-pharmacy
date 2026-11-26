@@ -57,6 +57,8 @@ export type TransferAccuracy = {
   compared: number;
   withIssues: number;
   noLines: number;
+  /** The days whose purchases have no item lines uploaded, and the stores they are in. */
+  missingLines: { from: string; to: string; stores: string[] } | null;
   unpairedPurchases: number;
   unpairedSales: number;
   issues: TransferIssue[];
@@ -86,10 +88,17 @@ export function transferAccuracy(days: TransferDay[]): TransferAccuracy {
   let compared = 0;
   let withIssues = 0;
   let noLines = 0;
+  const missingDays: string[] = [];
+  const missingStores = new Set<string>();
   let unpairedPurchases = 0;
   let unpairedSales = 0;
 
   for (const d of days) {
+    for (const p of d.purchases)
+      if (!p.lines.length) {
+        missingDays.push(p.invoice_at.slice(0, 10));
+        missingStores.add(p.store);
+      }
     const pairing = pairTransfers(d.purchases, d.sales);
     unpairedPurchases += pairing.purchasesOnly.length;
     unpairedSales += pairing.salesOnly.length;
@@ -142,6 +151,13 @@ export function transferAccuracy(days: TransferDay[]): TransferAccuracy {
     compared,
     withIssues,
     noLines,
+    missingLines: missingDays.length
+      ? {
+          from: missingDays.reduce((a, b) => (a < b ? a : b)),
+          to: missingDays.reduce((a, b) => (a > b ? a : b)),
+          stores: [...missingStores].sort(),
+        }
+      : null,
     unpairedPurchases,
     unpairedSales,
     issues: issues.sort((a, b) => b.day.localeCompare(a.day)),
