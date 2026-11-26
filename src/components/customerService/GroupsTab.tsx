@@ -25,6 +25,7 @@ import {
   loadGroupDoctors,
   loadGroupFollowups,
   loadGroupRequests,
+  moveRequestsToShortages,
   parseItems,
   requestCandidates,
   updateGroupRequests,
@@ -46,6 +47,7 @@ import {
   type FollowupUnderstanding,
 } from '@/lib/customerServiceTasks/followupUnderstanding';
 import RequestItemsPicker from '@/components/customerService/RequestItemsPicker';
+import { loadStockForCodes, type StockByCode } from '@/lib/inventory/stock';
 
 // «الجروبات»: البنت ترفع تصدير جروب المتابعات وجروب الطلبات من الواتساب.
 // المتابعات بتبقى مهام في شيت النهارده، والطلبات بتتسجل بأصنافها وكمياتها وتتتابع لحد ما تتسلم وتتصدر إكسيل.
@@ -651,6 +653,8 @@ function RequestsSection({
   const [editing, setEditing] = useState<string | null>(null);
   const [saving, setSaving] = useState('');
   const [adding, setAdding] = useState(false);
+  const [stock, setStock] = useState<StockByCode | null>(null);
+  const [onlyInStock, setOnlyInStock] = useState(false);
 
   const load = useCallback(async () => {
     if (uploadOnly) return;
@@ -673,6 +677,41 @@ function RequestsSection({
     const t = setTimeout(() => void load(), query ? 350 : 0);
     return () => clearTimeout(t);
   }, [load, query]);
+
+  // رصيد أصناف الطلبات من آخر ملف «رصيد المخازن»: الصنف اتوفر في الفرع ولا في الفرع التاني.
+  const codesKey = useMemo(
+    () =>
+      [...new Set((rows ?? []).flatMap((r) => r.items.map((i) => i.code ?? '').filter(Boolean)))]
+        .sort()
+        .join(','),
+    [rows]
+  );
+  useEffect(() => {
+    if (!codesKey) {
+      setStock(null);
+      return;
+    }
+    let live = true;
+    loadStockForCodes(codesKey.split(','))
+      .then((s) => {
+        if (live) setStock(s);
+      })
+      .catch(() => {
+        if (live) setStock(null);
+      });
+    return () => {
+      live = false;
+    };
+  }, [codesKey]);
+  const inStock = useCallback(
+    (r: GroupRequest) =>
+      r.items.some((i) => !!i.code && (stock?.stock.get(i.code)?.[r.branch] ?? 0) > 0),
+    [stock]
+  );
+  const visible = useMemo(
+    () => (rows && onlyInStock ? rows.filter(inStock) : rows),
+    [rows, onlyInStock, inStock]
+  );
 
   async function open(file: File) {
     if (!doctors) {
@@ -740,7 +779,49 @@ function RequestsSection({
       if (r.tasks) onTasksAdded?.();
       setPicked(new Set());
       setEditing(null);
-      await load();
+      // بنعدّل الصفوف في مكانها من غير ما نحمّل القايمة تاني.
+      const by = new Map(list.map((u) => [u.fingerprint, u]));
+      setRows((prev) =>
+        (prev ?? []).map((row) => {
+          const u = by.get(row.fingerprint);
+          if (!u) return row;
+          return {
+            ...row,
+            ...(u.status ? { status: u.status } : {}),
+            ...(u.items ? { items: u.items } : {}),
+            ...(u.note !== undefined ? { status_note: u.note } : {}),
+            notify_task: row.notify_task || u.status === 'available',
+          };
+        })
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving('');
+    }
+  }
+
+  async function toShortages() {
+    setSaving('bulk');
+    try {
+      const list = [...picked];
+      const r = await moveRequestsToShortages(list);
+      toast.success(
+        `اتحول ${r.requests} طلب للنواقص (${r.items} صنف)${r.skipped ? ` · ${r.skipped} كانوا متحولين قبل كده` : ''}`
+      );
+      const set = new Set(list);
+      setRows((prev) =>
+        (prev ?? []).map((row) =>
+          set.has(row.fingerprint) && row.status === 'new'
+            ? {
+                ...row,
+                status: 'sourcing' as RequestStatus,
+                status_note: [row.status_note, 'اتحول للنواقص'].filter(Boolean).join(' · '),
+              }
+            : row
+        )
+      );
+      setPicked(new Set());
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {
@@ -753,10 +834,11 @@ function RequestsSection({
       toast.error('مفيش طلبات تتصدر');
       return;
     }
-    const list = picked.size ? rows.filter((r) => picked.has(r.fingerprint)) : rows;
+    const list = picked.size ? rows.filter((r) => picked.has(r.fingerprint)) : (visible ?? rows);
     const blob = await exportRequestsWorkbook(
       list,
-      `طلبات العملاء من الجروب · ${from.split('-').reverse().join('/')} لـ ${to.split('-').reverse().join('/')}${branch ? ` · ${branch}` : ''}`
+      `طلبات العملاء من الجروب · ${from.split('-').reverse().join('/')} لـ ${to.split('-').reverse().join('/')}${branch ? ` · ${branch}` : ''}`,
+      stock?.stock
     );
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -771,7 +853,8 @@ function RequestsSection({
     return c;
   }, [rows]);
   const totals = useMemo(() => itemTotals(rows ?? []).slice(0, 8), [rows]);
-  const allPicked = !!rows?.length && rows.every((r) => picked.has(r.fingerprint));
+  const allPicked = !!visible?.length && visible.every((r) => picked.has(r.fingerprint));
+  const inStockCount = useMemo(() => (rows ?? []).filter(inStock).length, [rows, inStock]);
 
   return (
     <>
@@ -937,7 +1020,23 @@ function RequestsSection({
             >
               <Download size={16} /> إكسيل{picked.size ? ` (${picked.size})` : ''}
             </button>
+            {stock?.day ? (
+              <label className="inline-flex items-center gap-1 text-xs font-bold">
+                <input
+                  type="checkbox"
+                  checked={onlyInStock}
+                  onChange={(e) => setOnlyInStock(e.target.checked)}
+                />
+                صنفها اتوفر في الفرع ({inStockCount})
+              </label>
+            ) : null}
           </div>
+          {stock?.day ? (
+            <p className="mt-1 text-[11px] opacity-60">
+              الرصيد من ملف رصيد المخازن يوم {stock.day.split('-').reverse().join('/')} (للأصناف
+              اللي ليها كود بس).
+            </p>
+          ) : null}
 
           <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-6">
             {(Object.keys(REQUEST_STATUSES) as RequestStatus[]).map((s) => (
@@ -977,6 +1076,13 @@ function RequestsSection({
                 </button>
               ))}
               <button
+                className="btn-secondary !px-2 !py-1 text-xs font-black"
+                disabled={saving === 'bulk'}
+                onClick={() => void toShortages()}
+              >
+                حوّلي للنواقص
+              </button>
+              <button
                 className="btn-secondary !px-2 !py-1 text-xs"
                 onClick={() => setPicked(new Set())}
               >
@@ -985,11 +1091,11 @@ function RequestsSection({
             </div>
           ) : null}
 
-          {!rows ? (
+          {!visible ? (
             <div className="flex justify-center p-6">
               <Loader2 className="animate-spin" />
             </div>
-          ) : rows.length === 0 ? (
+          ) : visible.length === 0 ? (
             <EmptyState label={query ? 'مفيش طلبات بالبحث ده' : 'مفيش طلبات في الفترة دي'} />
           ) : (
             <div className="mt-3 overflow-x-auto">
@@ -1002,7 +1108,9 @@ function RequestsSection({
                         aria-label="اختاري الكل"
                         checked={allPicked}
                         onChange={() =>
-                          setPicked(allPicked ? new Set() : new Set(rows.map((r) => r.fingerprint)))
+                          setPicked(
+                            allPicked ? new Set() : new Set(visible.map((r) => r.fingerprint))
+                          )
                         }
                       />
                     </th>
@@ -1014,10 +1122,11 @@ function RequestsSection({
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r) => (
+                  {visible.map((r) => (
                     <RequestRow
                       key={r.fingerprint}
                       row={r}
+                      stock={stock?.stock ?? null}
                       picked={picked.has(r.fingerprint)}
                       onPick={() =>
                         setPicked((prev) => {
@@ -1162,6 +1271,7 @@ function NewRequestForm({
 
 function RequestRow({
   row: r,
+  stock,
   picked,
   onPick,
   editing,
@@ -1170,6 +1280,7 @@ function RequestRow({
   onSave,
 }: {
   row: GroupRequest;
+  stock: Map<string, Record<string, number>> | null;
   picked: boolean;
   onPick: () => void;
   editing: boolean;
@@ -1223,6 +1334,9 @@ function RequestRow({
                     × {i.qty ?? 'كمية؟'}
                   </span>
                   {i.code ? <span className="opacity-60">({i.code})</span> : null}
+                  {i.code && stock ? (
+                    <StockBadge stock={stock.get(i.code)} branch={r.branch} />
+                  ) : null}
                   {i.new ? <span className="opacity-60">(جديد)</span> : null}
                 </li>
               ))}
@@ -1272,6 +1386,28 @@ function RequestRow({
       ) : null}
     </>
   );
+}
+
+/** The item's stock here and in the other branch, from the last stock file. */
+function StockBadge({ stock, branch }: { stock?: Record<string, number>; branch: string }) {
+  const here = stock?.[branch] ?? 0;
+  const other = Object.entries(stock ?? {})
+    .filter(([b]) => b !== branch)
+    .reduce((t, [, q]) => t + q, 0);
+  const fmt = (v: number) => v.toLocaleString('ar-EG', { maximumFractionDigits: 1 });
+  if (here > 0)
+    return (
+      <span className="rounded bg-[var(--dawaa-status-success-bg)] px-1 text-[10px] font-black text-[var(--dawaa-status-success-text)]">
+        موجود {fmt(here)}
+      </span>
+    );
+  if (other > 0)
+    return (
+      <span className="rounded bg-[var(--dawaa-status-info-bg)] px-1 text-[10px] font-black text-[var(--dawaa-status-info-text)]">
+        في الفرع التاني {fmt(other)}
+      </span>
+    );
+  return <span className="text-[10px] font-bold opacity-50">مش موجود</span>;
 }
 
 function ItemsEditor({
