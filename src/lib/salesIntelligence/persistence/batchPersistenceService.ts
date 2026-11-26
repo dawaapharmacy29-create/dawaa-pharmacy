@@ -443,11 +443,11 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
       return {
         ...entry,
         header: row ? Object.fromEntries([
-          'invoice_number', 'invoice_no', 'invoice_date', 'invoice_datetime', 'sale_date',
+          'invoice_number', 'invoice_no', 'invoice_date', 'invoice_datetime', 'close_datetime', 'sale_date',
           'branch', 'branch_name', 'customer_id', 'customer_code', 'customer_phone',
           'phone', 'whatsapp_phone', 'customer_name', 'net_amount', 'net_total',
           'total_amount', 'amount', 'gross_amount', 'discounted_amount', 'discount_amount',
-          'invoice_type', 'save_status', 'status', 'staff_id', 'seller_name',
+          'invoice_type', 'save_status', 'staff_id', 'seller_name',
           'normalized_seller_name', 'staff_name', 'delivery_staff', 'line_items_count',
         ].map(key => [key, row[key] ?? null])) : null,
       };
