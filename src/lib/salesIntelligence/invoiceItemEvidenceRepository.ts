@@ -1,5 +1,4 @@
-import { normalizeBranchName } from '../branch';
-import { getInvoiceAmount, getInvoiceBranch, type InvoiceLike } from '../invoices/invoiceCore';
+import { getInvoiceAmount, getInvoiceBranch, parseInvoiceDateTime, type InvoiceLike } from '../invoices/invoiceCore';
 import { readInvoiceItemCommercialMeta, reconciledLegacyBconnectMeta } from '../invoices/invoiceItemCommercialMeta';
 import type {
   InvoiceItemEvidenceProvider,
@@ -9,6 +8,7 @@ import type {
 interface SalesInvoiceItemRow {
   invoice_id?: string | null;
   invoice_number?: string | null;
+  invoice_date?: string | null;
   branch?: string | null;
   product_id?: string | null;
   product_code?: string | null;
@@ -37,8 +37,21 @@ function invoiceNumber(row: InvoiceLike): string {
   return clean(row.invoice_number ?? row.invoice_no);
 }
 
-function candidateKey(number: string, branch: string | null | undefined): string {
-  return `${number}|${normalizeBranchName(branch || '')}`;
+// Match the database's Cairo-local invoice identity, not the browser's timezone.
+function cairoInvoiceDay(value: unknown): string | null {
+  const iso = parseInvoiceDateTime(value);
+  if (!iso) return null;
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date(iso));
+  const part = (type: string) => parts.find((p) => p.type === type)?.value;
+  return [part('year'), part('month'), part('day')].join('-');
+}
+
+function candidateKey(number: string, branch: string, date: unknown): string | null {
+  const day = cairoInvoiceDay(date);
+  if (!number || !day || !['فرع شكري', 'فرع الشامي'].includes(branch)) return null;
+  return JSON.stringify([number, branch, day]);
 }
 
 function sameOrNull<T>(values: Array<T | null | undefined>): T | null {
@@ -110,7 +123,8 @@ export function buildInvoiceItemEvidenceProvider(
     const id = invoiceId(invoice);
     const number = invoiceNumber(invoice);
     if (!id || !number) continue;
-    const key = candidateKey(number, getInvoiceBranch(invoice));
+    const key = candidateKey(number, getInvoiceBranch(invoice), invoice.invoice_date);
+    if (!key) continue;
     const ids = candidateIdsByNumberBranch.get(key) ?? [];
     if (!ids.includes(id)) ids.push(id);
     candidateIdsByNumberBranch.set(key, ids);
@@ -138,9 +152,12 @@ export function buildInvoiceItemEvidenceProvider(
 
     if (!resolvedId) {
       const number = clean(row.invoice_number);
-      if (!number) continue;
-      const ids = candidateIdsByNumberBranch.get(candidateKey(number, row.branch)) ?? [];
-      // If invoice number+branch is still ambiguous, do not guess which invoice owns this item.
+      // A conflicting explicit ID must never be reassigned by a weaker fallback.
+      if (directId) continue;
+      const key = candidateKey(number, getInvoiceBranch({ branch: row.branch }), row.invoice_date);
+      if (!key) continue;
+      const ids = candidateIdsByNumberBranch.get(key) ?? [];
+      // Require the complete Cairo-day identity and a unique candidate.
       if (ids.length !== 1) continue;
       resolvedId = ids[0];
     }
@@ -200,28 +217,31 @@ export async function fetchInvoiceItemEvidenceProvider(
   const numbers = Array.from(new Set(candidates.map(invoiceNumber).filter(Boolean)));
   const itemMap = new Map<string, SalesInvoiceItemRow>();
 
-  // Prefer exact invoice_id when populated.
-  for (const group of chunks(ids, 100)) {
-    const { data, error } = await supabaseClient
-      .from('sales_invoice_items_v21')
-      .select('id,invoice_id,invoice_number,branch,product_id,product_code,product_name,quantity,unit_price,line_total,raw_data')
-      .in('invoice_id', group)
-      .limit(5000);
-    if (error) throw error;
-    for (const row of data ?? []) itemMap.set(String(row.id), row);
+  // Stable, bounded pagination: a short page is not proof of exhaustion when the
+  // REST API enforces its own row cap. Read until an empty page, and fail closed
+  // rather than compare a truncated basket if the safety budget is exceeded.
+  const pageSize = 500;
+  const maxPagesPerGroup = 100;
+  async function loadGroup(column: 'invoice_id' | 'invoice_number', group: string[]) {
+    let offset = 0;
+    for (let page = 0; page < maxPagesPerGroup; page += 1) {
+      let query = supabaseClient
+        .from('sales_invoice_items_v21')
+        .select('id,invoice_id,invoice_number,invoice_date,branch,product_id,product_code,product_name,quantity,unit_price,line_total,raw_data')
+        .in(column, group);
+      // Number fallback is only legal for legacy lines without an explicit ID.
+      if (column === 'invoice_number') query = query.is('invoice_id', null);
+      const { data, error } = await query.order('id', { ascending: true }).range(offset, offset + pageSize - 1);
+      if (error) throw error;
+      const rows = data ?? [];
+      if (!rows.length) return;
+      for (const row of rows) itemMap.set(String(row.id), row);
+      offset += rows.length;
+    }
+    throw new Error('invoice_item_evidence_page_budget_exceeded');
   }
-
-  // Legacy/current imports may not have invoice_id populated yet. Pull by number too, then the
-  // pure provider resolves only an unambiguous invoice_number + normalized branch combination.
-  for (const group of chunks(numbers, 100)) {
-    const { data, error } = await supabaseClient
-      .from('sales_invoice_items_v21')
-      .select('id,invoice_id,invoice_number,branch,product_id,product_code,product_name,quantity,unit_price,line_total,raw_data')
-      .in('invoice_number', group)
-      .limit(5000);
-    if (error) throw error;
-    for (const row of data ?? []) itemMap.set(String(row.id), row);
-  }
+  for (const group of chunks(ids, 100)) await loadGroup('invoice_id', group);
+  for (const group of chunks(numbers, 100)) await loadGroup('invoice_number', group);
 
   return buildInvoiceItemEvidenceProvider(candidates, Array.from(itemMap.values()));
 }

@@ -42,7 +42,7 @@ import { fetchCurrentPolicyConfig, persistPolicyEvaluation, type PersistPolicyEv
 import { fetchVerifiedProductIdentityReviews } from './productIdentityReviewEvidenceRepository';
 import { persistAttribution, type PersistAttributionResult } from './attributionWriter';
 import { persistBasketInvoiceMatch, type PersistBasketInvoiceMatchResult } from './basketInvoiceMatchWriter';
-import { computeAttributionInputHash, computeMatchingInputHash, computePolicyInputHash, computeSemanticSourceHash, saleProofFingerprint } from './hashing';
+import { canonicalJsonStringify, computeAttributionInputHash, computeMatchingInputHash, computePolicyInputHash, computeSemanticSourceHash, saleProofFingerprint } from './hashing';
 import {
   invoiceRowLookupId,
   mapAttributionRowContent,
@@ -434,6 +434,24 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
   const candidateInvoicesEvaluated = Array.from(candidatesByGroupKey.values()).reduce((sum, rows) => sum + rows.length, 0);
   const allCandidateInvoices = Array.from(candidatesByGroupKey.values()).flat();
   const itemEvidenceProvider = await fetchInvoiceItemEvidenceProvider(supabaseClient, allCandidateInvoices);
+  // Only business evidence, never import timestamps or batch metadata. Keep header changes
+  // visible even when the invoice ID and its line items have not changed.
+  const invoiceHeadersById = new Map(allCandidateInvoices.map(row => [invoiceRowLookupId(row), row]));
+  const snapshotInvoiceEvidence = (ids: string[]) =>
+    snapshotInvoiceItemEvidence(itemEvidenceProvider, ids).map(entry => {
+      const row = invoiceHeadersById.get(entry.invoiceId);
+      return {
+        ...entry,
+        header: row ? Object.fromEntries([
+          'invoice_number', 'invoice_no', 'invoice_date', 'invoice_datetime', 'close_datetime', 'sale_date',
+          'branch', 'branch_name', 'customer_id', 'customer_code', 'customer_phone',
+          'phone', 'whatsapp_phone', 'customer_name', 'net_amount', 'net_total',
+          'total_amount', 'amount', 'gross_amount', 'discounted_amount', 'discount_amount',
+          'invoice_type', 'save_status', 'staff_id', 'seller_name',
+          'normalized_seller_name', 'staff_name', 'delivery_staff', 'line_items_count',
+        ].map(key => [key, row[key] ?? null])) : null,
+      };
+    });
 
   // Step 3: PASS 1 — run the pure pipeline per conversation against its group's shared candidate
   // pool with no competing-selection input, to learn each case's own selectedInvoiceId.
@@ -550,6 +568,18 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
 
     const caseContent = mapCaseRowContent(analysis, conversationRowId);
     const caseAnalysisContent = mapCaseAnalysisRowContent(analysis);
+    // Refresh the immutable semantic projection only when its evidence decisions change.
+    // Raw invoice candidates remain in the narrower attribution/matching hashes.
+    const evidenceDecisionFingerprint = canonicalJsonStringify({
+      identity: caseAnalysisContent.identityAtAnalysis,
+      branch: caseAnalysisContent.evidenceSnapshot.caseBranch,
+      attributionLevel: caseAnalysisContent.attributionLevel,
+      evidenceLevel: caseAnalysisContent.overallEvidenceLevel,
+      evidenceCompleteness: caseAnalysisContent.evidenceSnapshot.evidenceCompleteness,
+      match: mapBasketInvoiceMatchRowContent(analysis),
+      needsHumanReview: caseAnalysisContent.needsHumanReview,
+      humanReviewReasons: [...caseAnalysisContent.humanReviewReasons].sort(),
+    });
     const semanticSourceHash = await computeSemanticSourceHash({
       rawWhatsAppExportText: conversationInput?.rawWhatsAppExportText ?? '',
       trustedConversationStartedAt: conversationInput?.trustedConversationStartedAt ?? null,
@@ -557,6 +587,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
       caseOwnership: conversationCase.ownership,
       resolvedCustomerId: conversationCase.customerId ?? null,
       saleProofFingerprint: saleProofFingerprint(analysis),
+      evidenceDecisionFingerprint,
       managerProductIdentityReviewIds: analysis.managerProductIdentityReviewIds ?? [],
     });
 
@@ -584,13 +615,10 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
     // itself doesn't exist yet (a first-ever run for this case), there is no analysis_id to plan
     // against; those entries are reported with analysisId: null and always classified "to insert"
     // (a brand-new case can never have an existing dependent row).
-    const effectiveAnalysisId = analysisPlan.currentAnalysisId;
+    const effectiveAnalysisId = analysisPlan.isNoOp ? analysisPlan.currentAnalysisId : null;
 
     const activeItems = analysis.activeBasket ? (analysis.itemsByBasketId[analysis.activeBasket.basketId] ?? []) : [];
-    const attributionItemSnapshot = snapshotInvoiceItemEvidence(
-      itemEvidenceProvider,
-      analysis.invoiceCandidateIds
-    );
+    const attributionItemSnapshot = snapshotInvoiceEvidence(analysis.invoiceCandidateIds);
     const attributionInputHash = await computeAttributionInputHash({
       customerId: conversationCase.customerId,
       customerPhone: conversationCase.customerPhone,
@@ -629,7 +657,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
     else plan.attributionsToInsert.push(planAttributionEntry);
 
     const selectedInvoiceItemSnapshot = analysis.basketInvoiceMatch.invoiceId
-      ? snapshotInvoiceItemEvidence(itemEvidenceProvider, [analysis.basketInvoiceMatch.invoiceId])
+      ? snapshotInvoiceEvidence([analysis.basketInvoiceMatch.invoiceId])
       : [];
     const matchingInputHash = await computeMatchingInputHash({
       basketId: analysis.basketInvoiceMatch.basketId,
@@ -649,11 +677,11 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
     if (effectiveAnalysisId) {
       const { data } = await supabaseClient
         .from('sales_intelligence_basket_invoice_matches')
-        .select('id, matching_input_hash, matching_engine_version')
+        .select('id, attribution_row_id, matching_input_hash, matching_engine_version')
         .eq('analysis_id', effectiveAnalysisId)
         .eq('is_current_evaluation', true)
         .maybeSingle();
-      if (data && data.matching_input_hash === matchingInputHash && data.matching_engine_version === ENGINE_VERSIONS.matching) {
+      if (data && currentAttributionRowId && data.attribution_row_id === currentAttributionRowId && data.matching_input_hash === matchingInputHash && data.matching_engine_version === ENGINE_VERSIONS.matching) {
         currentMatchRowId = data.id;
       }
     }
@@ -730,6 +758,7 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
           saleProofFingerprint(analysis),
           input.deferPublication === true,
           {
+            evidenceDecisionFingerprint,
             caseOwnership: conversationCase.ownership,
             resolvedCustomerId: conversationCase.customerId ?? null,
             managerProductIdentityReviewIds: analysis.managerProductIdentityReviewIds ?? [],
@@ -742,6 +771,8 @@ export async function runBatchPersistence(supabaseClient: any, input: RunBatchPe
           {
             customerId: conversationCase.customerId,
             customerPhone: conversationCase.customerPhone,
+            customerCode: conversationInput?.customerCodeHint ?? null,
+            customerName: conversationInput?.customerNameHint ?? null,
             candidateInvoiceIds: analysis.invoiceCandidateIds,
             branchNameRaw: conversationCase.branchNameRaw,
             activeBasketItems: activeItems.map((item) => ({

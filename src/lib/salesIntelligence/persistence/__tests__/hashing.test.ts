@@ -68,6 +68,26 @@ describe('Sales Intelligence Persistence — hashing determinism (instruction #2
     expect(a).not.toBe(b);
   });
 
+  it('renews the analysis when evidence decisions change without changing conversation text', async () => {
+    const client = createFakeSupabaseClient();
+    await client.from('sales_intelligence_cases').insert({ case_id: 'evidence-renewal', conversation_id: 'synthetic-source', case_started_at: new Date().toISOString() });
+    const content = analysisContentFixture();
+    const first = await persistCaseAnalysis(client, 'evidence-renewal', 'same text', content, null, null, false, {
+      evidenceDecisionFingerprint: 'items-unavailable',
+    });
+    const corrected = await persistCaseAnalysis(client, 'evidence-renewal', 'same text', content, null, null, false, {
+      evidenceDecisionFingerprint: 'items-partially-matched',
+    });
+    const repeat = await persistCaseAnalysis(client, 'evidence-renewal', 'same text', content, null, null, false, {
+      evidenceDecisionFingerprint: 'items-partially-matched',
+    });
+    expect(corrected.analysisId).not.toBe(first.analysisId);
+    expect(corrected.isNew).toBe(true);
+    expect(repeat.analysisId).toBe(corrected.analysisId);
+    expect(repeat.isNew).toBe(false);
+    expect(client.__tables.sales_intelligence_case_analyses.filter((r: any) => r.is_current)).toHaveLength(1);
+  });
+
   it('5. a conversation content change changes the semantic hash', async () => {
     const a = await computeSemanticSourceHash({ rawWhatsAppExportText: 'version A', branchIdentityMappingVersion: 'v1' });
     const b = await computeSemanticSourceHash({ rawWhatsAppExportText: 'version B', branchIdentityMappingVersion: 'v1' });

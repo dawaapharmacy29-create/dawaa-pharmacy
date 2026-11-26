@@ -31,15 +31,16 @@ describe('Invoice item evidence repository', () => {
     });
   });
 
-  it('falls back to invoice_number + normalized branch only when that pair is unique', () => {
+  it('falls back only to a unique number, normalized branch and Cairo day', () => {
     const provider = buildInvoiceItemEvidenceProvider(
       [
-        { id: 'shokry-100', invoice_number: '100', branch: 'فرع شكري' },
-        { id: 'shami-100', invoice_number: '100', branch: 'فرع الشامي' },
+        { id: 'shokry-100', invoice_number: '100', invoice_date: '2026-11-24T10:00:00Z', branch: 'فرع شكري' },
+        { id: 'shami-100', invoice_number: '100', invoice_date: '2026-11-24T10:00:00Z', branch: 'فرع الشامي' },
       ] as any[],
       [{
         invoice_id: null,
         invoice_number: '100',
+        invoice_date: '2026-11-24T10:00:00Z',
         branch: 'شكري',
         product_name: 'Vitamin D',
         quantity: 1,
@@ -50,15 +51,16 @@ describe('Invoice item evidence repository', () => {
     expect(provider.getItemsForInvoice('shami-100', '100')).toBe('unavailable');
   });
 
-  it('never guesses when invoice_number + branch still points to more than one candidate', () => {
+  it('never guesses when the full identity points to more than one candidate', () => {
     const provider = buildInvoiceItemEvidenceProvider(
       [
-        { id: 'inv-a', invoice_number: '100', branch: 'فرع شكري' },
-        { id: 'inv-b', invoice_number: '100', branch: 'فرع شكري' },
+        { id: 'inv-a', invoice_number: '100', invoice_date: '2026-11-24T10:00:00Z', branch: 'فرع شكري' },
+        { id: 'inv-b', invoice_number: '100', invoice_date: '2026-11-24T10:00:00Z', branch: 'فرع شكري' },
       ] as any[],
       [{
         invoice_id: null,
         invoice_number: '100',
+        invoice_date: '2026-11-24T10:00:00Z',
         branch: 'فرع شكري',
         product_name: 'Vitamin D',
         quantity: 1,
@@ -67,6 +69,33 @@ describe('Invoice item evidence repository', () => {
     );
     expect(provider.getItemsForInvoice('inv-a', '100')).toBe('unavailable');
     expect(provider.getItemsForInvoice('inv-b', '100')).toBe('unavailable');
+  });
+
+  it('does not attach the same invoice number from a different Cairo day', () => {
+    const provider = buildInvoiceItemEvidenceProvider(
+      [{ id: 'inv-today', invoice_number: '100', branch: 'فرع شكري', invoice_date: '2026-11-24T22:30:00Z' }],
+      [{ invoice_id: null, invoice_number: '100', branch: 'شكري', invoice_date: '2026-11-24T20:30:00Z', product_name: 'A', quantity: 1 }]
+    );
+    expect(provider.getItemsForInvoice('inv-today', '100')).toBe('unavailable');
+  });
+
+  it('uses Cairo day rather than UTC day for legacy evidence', () => {
+    const provider = buildInvoiceItemEvidenceProvider(
+      [{ id: 'inv-today', invoice_number: '100', branch: 'فرع شكري', invoice_date: '2026-11-24T22:30:00Z' }],
+      [{ invoice_id: null, invoice_number: '100', branch: 'شكري', invoice_date: '2026-11-25T01:30:00Z', product_name: 'A', quantity: 1 }]
+    );
+    expect(provider.getItemsForInvoice('inv-today', '100')).not.toBe('unavailable');
+  });
+
+  it('rejects undated legacy evidence and conflicting explicit invoice IDs', () => {
+    const provider = buildInvoiceItemEvidenceProvider(
+      [{ id: 'inv-today', invoice_number: '100', branch: 'فرع شكري', invoice_date: '2026-11-25T10:00:00Z' }],
+      [
+        { invoice_id: null, invoice_number: '100', branch: 'شكري', product_name: 'A', quantity: 1 },
+        { invoice_id: 'different-invoice', invoice_number: '100', branch: 'شكري', invoice_date: '2026-11-25T10:00:00Z', product_name: 'B', quantity: 1 },
+      ]
+    );
+    expect(provider.getItemsForInvoice('inv-today', '100')).toBe('unavailable');
   });
 
   it('aggregates duplicate invoice lines with the same exact product code before matching', () => {

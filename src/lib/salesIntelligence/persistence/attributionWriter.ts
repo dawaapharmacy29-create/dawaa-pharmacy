@@ -18,6 +18,8 @@ export interface PersistAttributionResult {
 export interface AttributionInputContext {
   customerId: string | null;
   customerPhone: string | null;
+  customerCode?: string | null;
+  customerName?: string | null;
   /** The candidate invoice id set actually offered to the attribution engine for this case — see computeAttributionInputHash's own doc comment on why order doesn't matter. */
   candidateInvoiceIds: string[];
   branchNameRaw: string | null;
