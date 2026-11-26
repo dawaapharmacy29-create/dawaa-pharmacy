@@ -1,10 +1,12 @@
 import type { GmReviewItem } from '@/lib/gmDailyReview';
 import { shiftWithDay } from '@/lib/shiftHandoverCoverage';
 import {
+  purchaseDayCard,
   purchaseReviewCard,
   purchaseUploadCard,
   type PurchaseReviewDaily,
 } from '@/lib/purchaseReview/dailyItem';
+import type { GmPurchaseDay } from '@/lib/purchaseReview/api';
 
 // The compact mobile card of one «مراجعتي اليومية» item: one status sentence, one chip per branch with a
 // big number, and an optional warning line (e.g. a stopped sync). Built from the same `detail` the server
@@ -163,6 +165,8 @@ export function gmReviewCard(
         })),
       };
     }
+    case 'purchases_invoices':
+      return d.day ? purchaseDayCard(d.day as GmPurchaseDay) : { headline: '', chips: [] };
     case 'purchases_upload':
       return d.review
         ? purchaseUploadCard(d.review as PurchaseReviewDaily)
@@ -232,7 +236,9 @@ export function gmReviewCard(
           value: `${num(n(r.yesterday_done))}/٣`,
           // The chip counts yesterday; a missing shift may be older, so it is named with its day.
           note: rows(r.missing).length
-            ? `ناقص: ${rows(r.missing).map((m) => shiftWithDay(String(m.day), String(m.shift))).join('، ')}`
+            ? `ناقص: ${rows(r.missing)
+                .map((m) => shiftWithDay(String(m.day), String(m.shift)))
+                .join('، ')}`
             : undefined,
           bad: rows(r.missing).length > 0,
         })),

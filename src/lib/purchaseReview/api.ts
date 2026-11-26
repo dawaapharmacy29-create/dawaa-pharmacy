@@ -267,3 +267,55 @@ export async function listReviewInvoices(params: {
   if (error) fail(error, 'تعذّر تحميل الفواتير');
   return invoiceRows(data);
 }
+
+/** One branch of yesterday's purchase invoices as the customer service team reviewed them. */
+export interface GmPurchaseDayBranch {
+  branch: string;
+  invoices: number;
+  net: number;
+  ok: number;
+  fixed: number;
+  problem: number;
+  pending: number;
+  paper_no: number;
+  paper_unset: number;
+  problems: {
+    serial: string;
+    supplier: string;
+    net: number;
+    problems: string[];
+    by: string | null;
+  }[];
+  transfers: number;
+  transfer_problems: number;
+  last_upload: string | null;
+}
+export interface GmPurchaseDay {
+  day: string;
+  branches: GmPurchaseDayBranch[];
+}
+
+/** Yesterday's purchase invoices (9 am to 9 am) per branch: reviewed, fixed, with problems, paper serial. */
+export async function loadGmPurchaseDay(): Promise<GmPurchaseDay> {
+  const { data, error } = await supabase.rpc('dawaa_gm_purchase_day_v1', {});
+  if (error) fail(error, 'تعذّر تحميل فواتير امبارح');
+  const d = (data ?? {}) as { day?: string; branches?: Array<Record<string, unknown>> };
+  return {
+    day: String(d.day ?? ''),
+    branches: (d.branches ?? []).map((b) => ({
+      branch: String(b.branch ?? ''),
+      invoices: num(b.invoices),
+      net: num(b.net),
+      ok: num(b.ok),
+      fixed: num(b.fixed),
+      problem: num(b.problem),
+      pending: num(b.pending),
+      paper_no: num(b.paper_no),
+      paper_unset: num(b.paper_unset),
+      problems: Array.isArray(b.problems) ? (b.problems as GmPurchaseDayBranch['problems']) : [],
+      transfers: num(b.transfers),
+      transfer_problems: num(b.transfer_problems),
+      last_upload: b.last_upload ? String(b.last_upload) : null,
+    })),
+  };
+}

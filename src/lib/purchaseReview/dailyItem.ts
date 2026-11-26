@@ -1,4 +1,5 @@
 import type { GmDailyReview, GmReviewItem } from '@/lib/gmDailyReview';
+import type { GmPurchaseDay } from './api';
 import type { GmReviewCard } from '@/lib/gmReviewCard';
 import {
   DUE_SOON_DAYS,
@@ -142,5 +143,71 @@ export function purchaseUploadCard(d: PurchaseReviewDaily): GmReviewCard {
       note: s.branch.replace(/^فرعs*/, ''),
       bad: s.behind,
     })),
+  };
+}
+
+/** «فواتير مشتريات امبارح»: done once every invoice of yesterday in both branches has been reviewed. */
+export function withPurchaseDay(review: GmDailyReview, day: GmPurchaseDay | null): GmDailyReview {
+  if (!day) return review;
+  const invoices = day.branches.reduce((t, b) => t + b.invoices, 0);
+  const pending = day.branches.reduce((t, b) => t + b.pending, 0);
+  const ok = invoices > 0 && pending === 0;
+  const item: GmReviewItem = {
+    key: 'purchases_invoices',
+    kind: 'auto',
+    ok,
+    done: ok,
+    detail: { day },
+    data_day: day.day || null,
+    state: null,
+    note: null,
+    marked_by: null,
+    marked_at: null,
+  };
+  const rest = review.items.filter((i) => i.key !== 'purchases_invoices');
+  const at = rest.findIndex((i) => i.key === 'purchases_handover');
+  const items = at < 0 ? [...rest, item] : [...rest.slice(0, at), item, ...rest.slice(at)];
+  return { ...review, items, total: items.length, done: items.filter((i) => i.done).length };
+}
+
+const shortBranch = (b: string) => b.replace(/^فرع\s*/, '');
+
+export function purchaseDayCard(day: GmPurchaseDay): GmReviewCard {
+  const invoices = day.branches.reduce((t, b) => t + b.invoices, 0);
+  const pending = day.branches.reduce((t, b) => t + b.pending, 0);
+  const problem = day.branches.reduce((t, b) => t + b.problem, 0);
+  const paper = day.branches.reduce((t, b) => t + b.paper_no, 0);
+  const n = (v: number) => v.toLocaleString('ar-EG');
+  const lines: string[] = [];
+  for (const b of day.branches)
+    for (const p of b.problems.slice(0, 2))
+      lines.push(
+        `${shortBranch(b.branch)}: مسلسل ${p.serial} · ${p.supplier} · ${money(p.net)}${p.by ? ` · ${p.by}` : ''}`
+      );
+  if (paper) lines.push(`${n(paper)} فاتورة المسلسل مش مكتوب على ورقها`);
+  return {
+    headline: !invoices
+      ? 'فواتير مشتريات امبارح لسه مااترفعتش'
+      : pending
+        ? `فاضل ${n(pending)} من ${n(invoices)} فاتورة مشتريات امبارح مااتراجعتش`
+        : problem
+          ? `كل فواتير امبارح اتراجعت (${n(invoices)}) · ${n(problem)} فيها مشكلة`
+          : `كل فواتير مشتريات امبارح اتراجعت (${n(invoices)}) ✓`,
+    chips: day.branches.map((b) => ({
+      label: shortBranch(b.branch),
+      value: b.invoices ? `${n(b.invoices - b.pending)} / ${n(b.invoices)}` : '—',
+      note:
+        [
+          b.fixed ? `${n(b.fixed)} اتعدلت` : '',
+          b.problem ? `${n(b.problem)} مشكلة` : '',
+          b.transfers
+            ? `${n(b.transfers)} تحويل${b.transfer_problems ? ` (${n(b.transfer_problems)} مشكلة)` : ''}`
+            : '',
+        ]
+          .filter(Boolean)
+          .join(' · ') || money(b.net),
+      bad: b.pending > 0 || b.problem > 0 || b.invoices === 0,
+    })),
+    lines: lines.length ? lines.slice(0, 5) : undefined,
   };
 }
