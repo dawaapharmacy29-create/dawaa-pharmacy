@@ -150,11 +150,23 @@ export type FollowupCandidate = {
   /** The app thinks this is a case to follow (the words or an invoice photo with a description). */
   likely: boolean;
   customerCode: string | null;
+  /** The sales invoice number the doctor wrote («فاتورة 84380» / «#84380»); the server finds the customer from it. */
+  invoiceNo: string | null;
   customerPhone: string | null;
   customerName: string | null;
   doctorId: string | null;
   doctorName: string | null;
 };
+
+/** A sales invoice number written in the message: «فاتورة 84380»، «ف 84380»، «#84380»، «inv 84380». */
+export function extractInvoiceNo(body: string): string | null {
+  const m = body
+    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+    .match(
+      /(?:فاتور[هة]|(?:^|\s)ف\.?|#|\binv(?:oice)?\b)\s*(?:رقم|no\.?)?\s*:?\s*(\d{4,7})(?!\d)/i
+    );
+  return m ? m[1] : null;
+}
 
 function fingerprintOf(sender: string, at: string, body: string) {
   const text = `fu|${sender}|${at}|${body.replace(/\s+/g, '')}`;
@@ -182,6 +194,7 @@ export function followupCandidates(content: string, doctors: GroupDoctor[]): Fol
       likely:
         m.verdict === 'request' || (m.verdict === 'review' && !!(customerCode || customerPhone)),
       customerCode,
+      invoiceNo: extractInvoiceNo(m.body),
       customerPhone,
       customerName: customerCode || customerPhone ? describeRequest(m.body).customerName : null,
       doctorId: named?.staffId ?? null,
@@ -219,6 +232,7 @@ export async function importFollowups(
       body: c.body,
       staff_id: c.doctorId,
       customer_code: c.customerCode,
+      invoice: c.invoiceNo,
       customer_phone: c.customerPhone,
       customer_name: c.customerName,
       kind: c.understanding?.kind ?? null,

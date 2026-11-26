@@ -103,3 +103,24 @@ describe('an alternative without other words', () => {
     expect(understandFollowup('خد بدله نشوف رأيه', day).kind).toBe('alternative');
   });
 });
+
+describe('interests and feelings', () => {
+  it('reads what the customer cares about', () => {
+    const u = understandFollowup('عميله مهتمه بالبشره نعرض عليها الجديد', day);
+    expect(u.kind).toBe('interest');
+    expect(u.action).toContain('العناية بالبشرة والتجميل');
+  });
+  it('adds the interest and the feeling to another kind', () => {
+    const u = understandFollowup('عميله مهتمه بالكوزمو اخدت دوزوفا مكانه وكانت مبسوطة', day);
+    expect(u.kind).toBe('alternative');
+    expect(u.action).toContain('العناية بالبشرة');
+    expect(u.action).toContain('مبسوطة');
+  });
+});
+
+describe('words with spaces between them', () => {
+  it('reads «فقر دم» as health and «صاحبة صالون» as important', () => {
+    expect(understandFollowup('عندها فقر دم ومشكلة نطمن عليها', day).kind).toBe('health');
+    expect(understandFollowup('صاحبة صالون جنبنا نتابع معاها', day).action).toContain('عميلة مهمة');
+  });
+});

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { TEAM_ANNOUNCEMENT, cleanItemName, parseItems } from '@/lib/customerServiceTasks/groups';
+import {
+  TEAM_ANNOUNCEMENT,
+  cleanItemName,
+  extractInvoiceNo,
+  parseItems,
+} from '@/lib/customerServiceTasks/groups';
 import { bestMatch, buildIndex } from '@/lib/customerServiceTasks/productSearch';
 
 const names = (details: string) => parseItems(details).map((i) => i.name);
@@ -74,5 +79,14 @@ describe('matching keeps the strength', () => {
   it('does not guess a different strength', () => {
     expect(bestMatch(index, 'بلنديل 10')?.code).toBe('102');
     expect(bestMatch(index, 'بلنديل 20')).toBeNull();
+  });
+});
+
+describe('the invoice number in a follow-up', () => {
+  it('reads it however the doctor wrote it', () => {
+    expect(extractInvoiceNo('عميله نتابع معاها فاتورة 84380')).toBe('84380');
+    expect(extractInvoiceNo('#84380 نطمن عليها')).toBe('84380');
+    expect(extractInvoiceNo('ف ٨٤٣٨٠ نطمن')).toBe('84380');
+    expect(extractInvoiceNo('كود 19772 نطمن عليها')).toBeNull();
   });
 });

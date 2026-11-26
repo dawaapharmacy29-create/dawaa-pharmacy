@@ -205,6 +205,7 @@ function FollowupsSection({
   const [days, setDays] = useState(3);
   const [picked, setPicked] = useState<Record<string, boolean>>({});
   const [codes, setCodes] = useState<Record<string, string>>({});
+  const [invoices, setInvoices] = useState<Record<string, string>>({});
   // اللي السيستم فهمه من كل رسالة، والبنت بتعدّله قبل الحفظ.
   const [reads, setReads] = useState<Record<string, FollowupUnderstanding>>({});
   const [busy, setBusy] = useState(false);
@@ -260,6 +261,7 @@ function FollowupsSection({
       setLoaded({ fileName: file.name, branch, rows, already, keys });
       setPicked(Object.fromEntries(rows.map((r) => [r.fingerprint, r.likely])));
       setCodes({});
+      setInvoices({});
     } catch {
       toast.error('الملف مفيهوش محادثة واتساب. ارفعي ملف التصدير (zip أو txt)');
     } finally {
@@ -275,10 +277,16 @@ function FollowupsSection({
       .replace(/\D/g, '');
     return typed || r.customerCode;
   };
+  // رقم الفاتورة: السيرفر بيجيب منه كود العميل لو الكود مش مكتوب.
+  const invoiceOf = (r: FollowupCandidate) =>
+    (invoices[r.fingerprint] ?? '')
+      .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+      .replace(/\D/g, '') || r.invoiceNo;
+  const hasCustomer = (r: FollowupCandidate) => !!(codeOf(r) || invoiceOf(r) || r.customerPhone);
   const chosen = shown.filter((r) => picked[r.fingerprint]);
   const willTask = chosen.filter(
     (r) =>
-      (codeOf(r) || r.customerPhone) &&
+      hasCustomer(r) &&
       (r.sentAtLocal.slice(0, 10) >= addDays(today, -3) ||
         (reads[r.fingerprint]?.dueDate ?? '') >= today)
   ).length;
@@ -312,6 +320,7 @@ function FollowupsSection({
           return {
             ...c,
             customerCode: codeOf(c),
+            invoiceNo: invoiceOf(c),
             understanding: u ? { ...u, brief: followupBrief(u, c.doctorName ?? c.sender) } : null,
           };
         })
@@ -389,17 +398,17 @@ function FollowupsSection({
               <MiniBox label="مختارة" value={String(chosen.length)} tone="cyan" />
               <MiniBox label="هتبقى مهام" value={String(willTask)} tone="green" />
               <MiniBox
-                label="مختارة من غير كود ولا رقم"
-                value={String(chosen.filter((r) => !codeOf(r) && !r.customerPhone).length)}
+                label="مختارة من غير كود ولا فاتورة ولا رقم"
+                value={String(chosen.filter((r) => !hasCustomer(r)).length)}
                 tone="amber"
               />
             </div>
             <p className="mt-2 text-xs opacity-70">
               اللي متعلم عليه السيستم شايفه حالة متابعة. شيلي العلامة من أي رسالة مش حالة، ولو
-              الحالة صورة فاتورة من غير كود اكتبي كود العميل في خانته. في خانة «المتابعة» السيستم
-              فهم نوعها والمطلوب والأصناف والميعاد من كلام الدكتور: راجعيهم وعدّلي لو محتاج، وده
-              اللي هيتكتب للبنت في الشيت. لو في ميعاد المهمة بتنزل في يومه. الرسالة اللي اترفعت قبل
-              كده مابتتكررش.
+              الحالة من غير كود اكتبي كود العميل أو رقم الفاتورة (السيستم بيجيب العميل من الفاتورة).
+              في خانة «المتابعة» السيستم فهم نوعها والمطلوب والأصناف والميعاد من كلام الدكتور:
+              راجعيهم وعدّلي لو محتاج، وده اللي هيتكتب للبنت في الشيت. لو في ميعاد المهمة بتنزل في
+              يومه. الرسالة اللي اترفعت قبل كده مابتتكررش.
             </p>
             <div className="mt-3 max-h-[60vh] overflow-auto">
               <table className="w-full text-sm">
@@ -410,7 +419,7 @@ function FollowupsSection({
                     <th className="p-2">الدكتور</th>
                     <th className="p-2">الرسالة</th>
                     <th className="p-2">المتابعة</th>
-                    <th className="p-2">كود العميل</th>
+                    <th className="p-2">كود العميل / الفاتورة</th>
                     <th className="p-2">الرقم</th>
                   </tr>
                 </thead>
@@ -456,6 +465,15 @@ function FollowupsSection({
                           placeholder={r.customerCode ?? 'الكود'}
                           value={codes[r.fingerprint] ?? ''}
                           onChange={(e) => setCodes({ ...codes, [r.fingerprint]: e.target.value })}
+                        />
+                        <input
+                          className="input-field mt-1 w-24 !py-1 text-xs"
+                          inputMode="numeric"
+                          placeholder={r.invoiceNo ? `فاتورة ${r.invoiceNo}` : 'رقم الفاتورة'}
+                          value={invoices[r.fingerprint] ?? ''}
+                          onChange={(e) =>
+                            setInvoices({ ...invoices, [r.fingerprint]: e.target.value })
+                          }
                         />
                       </td>
                       <td className="p-2 text-xs whitespace-nowrap">{r.customerPhone ?? '—'}</td>
