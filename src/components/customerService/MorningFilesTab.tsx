@@ -383,7 +383,17 @@ function CustomersUpload({ onDone }: { onDone: () => Promise<void> }) {
     setSummary('');
     try {
       const result = parseCustomerFile(await file.arrayBuffer(), file.name);
-      if (!result.rows.length) toast.error('الملف ده مفيهوش عملاء');
+      // لما الملف مايتقريش لازم يبان السبب (عمود ناقص، والأعمدة اللي لقاها) مش «مفيهوش عملاء» وبس.
+      if (!result.rows.length) {
+        const why = result.errors.map((e) => e.message).join('، ');
+        const cols = result.headers.filter((h) => !/^Column \d+$/.test(h)).slice(0, 12);
+        toast.error(
+          `الملف ده ماطلعش منه عملاء${why ? `: ${why}` : ''}${
+            cols.length ? ` · الأعمدة اللي لقيتها: ${cols.join('، ')}` : ''
+          }`,
+          { duration: 20000 }
+        );
+      }
       setParsed({ file: file.name, result });
     } catch (e) {
       toast.error(`الملف ده مش مقروء: ${e instanceof Error ? e.message : String(e)}`);
@@ -398,12 +408,14 @@ function CustomersUpload({ onDone }: { onDone: () => Promise<void> }) {
     try {
       const batch = `import-customers-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}`;
       const s = await importCustomersToDB(parsed.result.rows, batch);
+      const failed = s.errors?.[0]?.message;
       setSummary(
         `اتضاف ${s.newCustomers} عميل جديد واتحدث ${s.updatedCustomers}${
           s.needsReviewRows ? `، و${s.needsReviewRows} محتاجين مراجعة` : ''
-        }.`
+        }.${failed ? ` حصلت مشكلة في ${s.errors.length} جزء: ${failed}` : ''}`
       );
-      toast.success('ملف العملاء اترفع');
+      if (failed && !s.newCustomers && !s.updatedCustomers) toast.error(failed, { duration: 15000 });
+      else toast.success('ملف العملاء اترفع');
       setParsed(null);
       await onDone();
     } catch (e) {
