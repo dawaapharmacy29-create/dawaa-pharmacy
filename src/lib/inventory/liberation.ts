@@ -118,6 +118,15 @@ export type LibDoctor = {
   share: number;
   top: Array<{ code: string; name: string | null; qty: number; value: number }>;
 };
+export type LibTotalsServer = {
+  near_rows: number;
+  near_value: number;
+  near_risk: number;
+  near60_rows: number;
+  near60_risk: number;
+  expired_shelf_rows: number;
+  expired_shelf: number;
+};
 export type Liberation = {
   empty?: boolean;
   today: string;
@@ -135,6 +144,8 @@ export type Liberation = {
   near_expiry: LibNear[];
   expired: LibExpired[];
   doctors: LibDoctor[];
+  /** Over every batch (the lists stop at 600 near expiry / 400 expired). */
+  totals?: LibTotalsServer | null;
 };
 
 export async function loadLiberation(branch: string | null): Promise<Liberation> {
@@ -156,6 +167,7 @@ export async function loadLiberation(branch: string | null): Promise<Liberation>
     near_expiry: d.near_expiry ?? [],
     expired: d.expired ?? [],
     doctors: d.doctors ?? [],
+    totals: d.totals ?? null,
   };
 }
 
@@ -175,10 +187,10 @@ export function libTotals(d: Liberation) {
   const over = sum(d.activity, (a) => a.over_value);
   const items = sum(d.activity, (a) => a.items);
   const activeItems = sum(d.activity, (a) => a.active_items);
-  const nearValue = sum(d.near_expiry, (x) => x.value);
-  const nearRisk = sum(d.near_expiry, (x) => x.risk_value);
+  const nearValue = d.totals?.near_value ?? sum(d.near_expiry, (x) => x.value);
+  const nearRisk = d.totals?.near_risk ?? sum(d.near_expiry, (x) => x.risk_value);
   const onShelf = d.expired.filter((x) => x.kind !== 'expiry');
-  const expiredShelf = sum(onShelf, (x) => x.value);
+  const expiredShelf = d.totals?.expired_shelf ?? sum(onShelf, (x) => x.value);
   const expiryStore = sum(
     d.capital.filter((c) => c.kind === 'expiry'),
     (c) => c.value
@@ -268,9 +280,11 @@ export function liberationTicker(d: Liberation): string[] {
   if (t.expiredShelf > 0)
     out.push(`⛔ منتهي لسه على الرف بقيمة ${money(t.expiredShelf)}: يتسحب النهارده`);
   const soon = d.near_expiry.filter((x) => x.days <= 60 && x.risk_value > 0);
-  if (soon.length)
+  const soonRows = d.totals?.near60_rows ?? soon.length;
+  const soonRisk = d.totals?.near60_risk ?? sum(soon, (x) => x.risk_value);
+  if (soonRows)
     out.push(
-      `⏳ ${soon.length.toLocaleString('ar-EG')} تشغيلة بتنتهي خلال شهرين ومش هتتباع في ميعادها: ${money(sum(soon, (x) => x.risk_value))}`
+      `⏳ ${soonRows.toLocaleString('ar-EG')} تشغيلة بتنتهي خلال شهرين ومش هتتباع في ميعادها: ${money(soonRisk)}`
     );
   for (const x of [...d.near_expiry].sort((a, b) => b.risk_value - a.risk_value).slice(0, 3))
     if (x.risk_value > 0)
