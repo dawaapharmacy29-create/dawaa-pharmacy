@@ -322,7 +322,7 @@ const AMOUNT_KEYS = [
   'total',
 ];
 const DATE_KEYS = ['التاريخ', 'تاريخ الفاتورة', 'تاريخ', 'date', 'invoice_date', 'purchase_date'];
-const CODE_KEYS = ['الكود', 'الكود ', 'كود العميل', 'customer_code', 'code'];
+const CODE_KEYS = ['الكود', 'الكود ', 'كود', 'كود العميل', 'customer_code', 'code'];
 const INVOICE_NUMBER_KEYS = ['الرقم', 'رقم الفاتورة', 'invoice_number', 'invoice no'];
 const BRANCH_KEYS = ['المخزن', 'الفرع', 'branch'];
 const SELLER_KEYS = ['المستخدم', 'الدكتور', 'الصيدلي', 'doctor', 'seller', 'user'];
@@ -350,7 +350,10 @@ const SAVE_STATUS_KEYS = ['النوع__2', 'حالة الحفظ', 'save_status']
 const DEVICE_KEYS = ['إسم الجهاز', 'اسم الجهاز', 'device_name'];
 
 function normalise(value: unknown): string {
+  // بي كونكت بيكتب بعض العناوين بالمدّة والهمزة («كـود»، «إسـم العميــل»): بنشيلهم عشان العنوان يتلاقي.
   return String(value ?? '')
+    .replace(/ـ|\p{Mn}/gu, '')
+    .replace(/[أإآ]/g, 'ا')
     .trim()
     .toLowerCase()
     .replace(/\s+/g, ' ');
@@ -1322,41 +1325,133 @@ export function parseCustomerFile(buffer: ArrayBuffer, _fileName: string): Custo
   const telIdx = findColumn(headers, ['تليفون', 'telephone', 'phone']);
   const addressIdx = findColumn(headers, ['العنوان', 'address']);
 
-  if (codeIdx === -1) errors.push({ row: 0, field: 'الكود', message: 'عمود الكود غير موجود' });
-  if (nameIdx === -1)
-    errors.push({
-      row: 0,
-      field: 'اسم العميل',
-      message: 'عمود اسم العميل غير موجود',
+  const seen = new Set<string>();
+  if (codeIdx !== -1 && nameIdx !== -1) {
+    parsed.rows.forEach(({ rowIndex, record }) => {
+      const code = cleanText(record[headers[codeIdx]]);
+      const name = cleanText(record[headers[nameIdx]]).replace(/^\*/, '').trim();
+      const mobile = mobileIdx === -1 ? '' : cleanText(record[headers[mobileIdx]]);
+      const telephone = telIdx === -1 ? '' : cleanText(record[headers[telIdx]]);
+      const address = addressIdx === -1 ? '' : cleanText(record[headers[addressIdx]]);
+      // الرقم ممكن يبقى في عمود تاني غير اللي عنوانه «موبايل» (تقرير بي كونكت عناوينه مزحزحة عن بياناته).
+      const phone =
+        [telephone, mobile].map(normalisePhone).find(isValidPhone) ||
+        phonesInCells(Object.values(record))[0] ||
+        '';
+
+      if (!code || !name || name === '.' || name === '*') return;
+      if (seen.has(code)) return;
+      seen.add(code);
+
+      rows.push({ rowIndex, code, name, phone, mobile, telephone, address, raw: record });
     });
-  if (codeIdx === -1 || nameIdx === -1) return { rows, errors, headers };
+  }
+
+  // تقرير العملاء من بي كونكت: العناوين في أعمدة والبيانات في أعمدة تانية (الكود تحت عمود فاضي)، وتحت كل عميل
+  // سطر «إنشاء» باسم اللي كوّده. لو العناوين ماطلعتش عملاء كفاية بنتعرف على الأعمدة من البيانات نفسها.
+  const byContent = customerRowsByContent(buffer);
+  if (byContent.length > rows.length) {
+    return { rows: byContent, errors: [], headers };
+  }
+
+  if (!rows.length) {
+    if (codeIdx === -1) errors.push({ row: 0, field: 'الكود', message: 'عمود الكود غير موجود' });
+    if (nameIdx === -1)
+      errors.push({ row: 0, field: 'اسم العميل', message: 'عمود اسم العميل غير موجود' });
+  }
+  return { rows, errors, headers };
+}
+
+const PHONE_IN_TEXT = /(?:\+?20)?0?1[0125]\d{8}/g;
+
+/** Every valid Egyptian mobile in the cells, in order, without repeats. */
+function phonesInCells(cells: unknown[]): string[] {
+  const out: string[] = [];
+  for (const cell of cells) {
+    const text = String(cell ?? '')
+      .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+      .replace(/[\s-]/g, '');
+    for (const m of text.match(PHONE_IN_TEXT) ?? []) {
+      const p = normalisePhone(m);
+      if (isValidPhone(p) && !out.includes(p)) out.push(p);
+    }
+  }
+  return out;
+}
+
+const ARABIC = /[ء-ي]/;
+const asCode = (v: unknown): string => {
+  const s = typeof v === 'number' && Number.isInteger(v) ? String(v) : cleanText(v);
+  return /^\d{1,7}$/.test(s) && Number(s) > 0 ? s : '';
+};
+
+/**
+ * Finds the code and name columns from the values: the code column holds distinct whole numbers (not phones, not
+ * one repeated date), the name column the most distinct Arabic texts on those rows. Phones are taken from any cell.
+ */
+function customerRowsByContent(buffer: ArrayBuffer): RawCustomerRow[] {
+  let aoa: unknown[][];
+  try {
+    const wb = XLSX.read(buffer, { type: 'array', cellDates: false, raw: true });
+    aoa = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[wb.SheetNames[0]], {
+      header: 1,
+      defval: '',
+      raw: true,
+      blankrows: false,
+    });
+  } catch {
+    return [];
+  }
+  const width = aoa.reduce((m, r) => Math.max(m, r.length), 0);
+  let codeCol = -1;
+  let codeScore = 0;
+  for (let j = 0; j < width; j++) {
+    const vals = aoa.map((r) => asCode(r[j])).filter(Boolean);
+    const distinct = new Set(vals).size;
+    // الأولوية للعمود الأبعد لما يتساووا: الكود آخر عمود في تقرير بي كونكت.
+    if (vals.length >= 2 && distinct >= vals.length * 0.9 && vals.length >= codeScore) {
+      codeCol = j;
+      codeScore = vals.length;
+    }
+  }
+  if (codeCol < 0) return [];
+  const coded = aoa
+    .map((r, i) => ({ r, i }))
+    .filter(({ r }) => asCode(r[codeCol]));
+  let nameCol = -1;
+  let nameScore = 0;
+  for (let j = 0; j < width; j++) {
+    if (j === codeCol) continue;
+    const vals = coded.map(({ r }) => cleanText(r[j])).filter((v) => ARABIC.test(v));
+    const distinct = new Set(vals).size;
+    const score = distinct - Math.abs(j - codeCol) * 0.01;
+    if (distinct >= vals.length * 0.7 && score > nameScore) {
+      nameCol = j;
+      nameScore = score;
+    }
+  }
+  if (nameCol < 0) return [];
 
   const seen = new Set<string>();
-  parsed.rows.forEach(({ rowIndex, record }) => {
-    const code = cleanText(record[headers[codeIdx]]);
-    const name = cleanText(record[headers[nameIdx]]).replace(/^\*/, '').trim();
-    const mobile = mobileIdx === -1 ? '' : cleanText(record[headers[mobileIdx]]);
-    const telephone = telIdx === -1 ? '' : cleanText(record[headers[telIdx]]);
-    const address = addressIdx === -1 ? '' : cleanText(record[headers[addressIdx]]);
-    const phone = [telephone, mobile].map(normalisePhone).find(isValidPhone) || '';
-
-    if (!code || !name || name === '.' || name === '*') return;
-    if (seen.has(code)) return;
+  const out: RawCustomerRow[] = [];
+  for (const { r, i } of coded) {
+    const code = asCode(r[codeCol]);
+    const name = cleanText(r[nameCol]).replace(/^\*/, '').trim();
+    if (!name || name === '.' || name === '*' || seen.has(code)) continue;
     seen.add(code);
-
-    rows.push({
-      rowIndex,
+    const phones = phonesInCells(r.filter((_, j) => j !== codeCol));
+    out.push({
+      rowIndex: i + 1,
       code,
       name,
-      phone,
-      mobile,
-      telephone,
-      address,
-      raw: record,
+      phone: phones[0] ?? '',
+      mobile: phones[0] ?? '',
+      telephone: phones[0] ?? '',
+      address: '',
+      raw: Object.fromEntries(r.map((v, j) => [`Column ${j + 1}`, v])),
     });
-  });
-
-  return { rows, errors, headers };
+  }
+  return out;
 }
 
 export async function importCustomersToDB(
