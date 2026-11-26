@@ -82,6 +82,12 @@ export const NOTE_LINE =
   /@\S+|شارع|امتداد|عمار[هة]|(?:^|\s)الدور\s|(?:^|\s)شق[هة]\s|عنوان|تمريض|توصيل|نتواصل|هنتواصل|نكلم|كلم[يو]?ها|كلموه|اتصل|بكر[هة]|الساع[هة]|اجاز[هة]|إجاز[هة]|(?:^|\s)قال(?:ت|وا)?\s|مش متوفر|مش موجود|متوفرش|مش لاقي|نبعت|يا دكاتر|يا جماع[هة]|نرشح|اعتقد|[اإ]ن شاء الله|لو سمحت|منتظر|مستني/;
 /** The doctor's name written before the item ("د تسنيم بيبرونه ..."). */
 const DOCTOR_PREFIX = /^(?:د|دكتور[هة]?|dr)\s*[./]?\s*[؀-ۿ]{2,}\s+(?=\S)/i;
+/** A note in brackets next to the item («Systane UD 30 vial ( مش موجود صيدليات )»): dropped, the item stays. */
+const dropBracketNotes = (v: string) =>
+  v.replace(/\(([^)]*)\)/g, (all, inner: string) => (NOTE_LINE.test(inner) ? ' ' : all));
+/** An item name without the doctor who wrote it or a note in brackets. */
+export const cleanItemName = (v: string) =>
+  dropBracketNotes(v).replace(/\s+/g, ' ').trim().replace(DOCTOR_PREFIX, '').trim();
 /** A message to the whole team (an offer, a reminder), not a customer's request. */
 export const TEAM_ANNOUNCEMENT = /@all|يا دكاتر|يا جماع[هة]|يا شباب|للعلم|تنبيه/i;
 
@@ -97,7 +103,7 @@ export function parseItems(details: string | null | undefined): RequestItem[] {
   if (!details) return [];
   const out: RequestItem[] = [];
   for (const raw of latin(details).split(/\s*(?:·|،|,|\+|\n|\s-\s)\s*|\s+و\s+(?=\S)/)) {
-    let seg = raw
+    let seg = dropBracketNotes(raw)
       .replace(/\[[^\]]*\]/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
@@ -361,7 +367,7 @@ export async function loadGroupRequests(filter: {
         ? r.items
             .filter((i) => i?.code || !NOTE_LINE.test(String(i?.name ?? '')))
             .map((i) => ({
-              name: String(i?.name ?? ''),
+              name: i?.code ? String(i.name ?? '') : cleanItemName(String(i?.name ?? '')),
               qty: i?.qty == null || i.qty === ('' as unknown) ? null : num(i.qty),
               ...(i?.code ? { code: String(i.code) } : {}),
               ...(i?.price != null && i.price !== ('' as unknown) ? { price: num(i.price) } : {}),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TEAM_ANNOUNCEMENT, parseItems } from '@/lib/customerServiceTasks/groups';
+import { TEAM_ANNOUNCEMENT, cleanItemName, parseItems } from '@/lib/customerServiceTasks/groups';
 import { bestMatch, buildIndex } from '@/lib/customerServiceTasks/productSearch';
 
 const names = (details: string) => parseItems(details).map((i) => i.name);
@@ -22,6 +22,23 @@ describe('request lines that are not items', () => {
       'بيبرونه بابلز ناتشورال لون بينك'
     );
     expect(names('بلنديل 5')).toEqual(['بلنديل 5']);
+  });
+
+  it('keeps the item when a note is written next to it in brackets', () => {
+    expect(
+      names(
+        'د. شيماء Systane hydration UD 30 vial ( مش موجود صيدليات ) · الطرشوبي قال مش متوفر دلوقتي'
+      )
+    ).toEqual(['Systane hydration UD 30 vial']);
+    // قوس من غير ملاحظة بيفضل جزء من الاسم.
+    expect(names('بيرفينادون الشريط ب 550 (3)')[0]).toContain('(3)');
+  });
+
+  it('cleans the names of items saved before the fix', () => {
+    expect(cleanItemName('د تسنيم بيبرونه بابلز ناتشورال لون بينك')).toBe(
+      'بيبرونه بابلز ناتشورال لون بينك'
+    );
+    expect(cleanItemName('Disynone اقراص')).toBe('Disynone اقراص');
   });
 
   it('tells a message to the team from a request', () => {
