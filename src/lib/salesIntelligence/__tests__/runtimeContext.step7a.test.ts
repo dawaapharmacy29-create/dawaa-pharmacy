@@ -17,9 +17,7 @@ import {
 } from '@/lib/readModels/staffDirectoryReadModel';
 import { buildPharmacyProductIndex } from '@/lib/salesIntelligence/pharmacyProducts/pharmacyProductResolverV2';
 import { runBatchPersistence } from '@/lib/salesIntelligence/persistence/batchPersistenceService';
-import { computeSemanticSourceHash } from '@/lib/salesIntelligence/persistence/hashing';
 import {
-  BRANCH_IDENTITY_MAPPING_VERSION,
   ENGINE_VERSIONS,
   PIPELINE_VERSION,
 } from '@/lib/salesIntelligence/persistence/versions';
@@ -480,13 +478,12 @@ describe('batch planning — a pipeline-version bump is never a no-op (mirrors t
   const RAW = `[9/15/26, 9:00:00 AM] Customer: عايز 1 علبة بانادول
 [9/15/26, 9:01:00 AM] You: موجود يا فندم`;
 
-  async function planWith(pipelineVersion: string) {
-    const semanticSourceHash = await computeSemanticSourceHash({
-      caseOwnership: deriveCasesOnly({ conversationId: 'c3', rawWhatsAppExportText: RAW }).cases[0].ownership,
-      rawWhatsAppExportText: RAW,
-      trustedConversationStartedAt: null,
-      branchIdentityMappingVersion: BRANCH_IDENTITY_MAPPING_VERSION,
-    });
+  const input = {
+    dryRun: true,
+    conversations: [{ conversationId: 'c3', rawWhatsAppExportText: RAW }],
+  };
+
+  async function planWith(pipelineVersion: string, semanticSourceHash: string) {
     const client = clientReturning(
       {},
       {
@@ -502,19 +499,20 @@ describe('batch planning — a pipeline-version bump is never a no-op (mirrors t
         },
       }
     );
-    const result = await runBatchPersistence(client, {
-      dryRun: true,
-      conversations: [{ conversationId: 'c3', rawWhatsAppExportText: RAW }],
-    });
+    const result = await runBatchPersistence(client, input);
     return result.plan;
   }
 
   it('same hash + same versions -> no-op; older pipeline_version -> new analysis', async () => {
-    const current = await planWith(PIPELINE_VERSION);
+    const initial = await runBatchPersistence(clientReturning({}), input);
+    expect(initial.plan.analysesToInsert).toHaveLength(1);
+    const { semanticSourceHash } = initial.plan.analysesToInsert[0];
+
+    const current = await planWith(PIPELINE_VERSION, semanticSourceHash);
     expect(current.analysesNoOp.length).toBeGreaterThan(0);
     expect(current.analysesToInsert).toHaveLength(0);
 
-    const stale = await planWith('sales-intelligence-v0');
+    const stale = await planWith('sales-intelligence-v0', semanticSourceHash);
     expect(stale.analysesNoOp).toHaveLength(0);
     expect(stale.analysesToInsert.length).toBeGreaterThan(0);
     expect(stale.analysesToInsert[0].nextAnalysisVersion).toBe(4);
