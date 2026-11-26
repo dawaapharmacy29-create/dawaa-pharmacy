@@ -46,6 +46,13 @@ describe('invoice change rehearsal', () => {
     expect(service.rpc).not.toHaveBeenCalled();
   });
 
+  it('includes a known candidate when a line change has only the invoice ID', async () => {
+    const service = client();
+    expect((await rehearseInvoiceChanges(service, changes, [row('candidate', ['changed'])])).sourceIds)
+      .toEqual(['candidate']);
+    expect(service.rpc).not.toHaveBeenCalled();
+  });
+
   it('does not split a competing group or run a partial source set', async () => {
     const service = client('b');
     await expect(rehearseInvoiceChanges(service, changes, [

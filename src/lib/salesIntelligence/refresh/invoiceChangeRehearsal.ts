@@ -27,8 +27,9 @@ export async function rehearseInvoiceChanges(
 ) {
   if (changes.length > MAX_REHEARSAL_BATCH) throw new Error('invoice_rehearsal_event_limit');
   const sourceIds = new Set(selectInvoiceChangeImpact(changes, cases));
-  if (!sourceIds.size) return { sourceIds: [], refresh: null };
-
+  const changedInvoiceIds = new Set(changes.flatMap(({ before, after }) =>
+    [before?.invoiceId, after?.invoiceId].filter(Boolean)
+  ));
   const invoicesBySource = new Map<string, Set<string>>();
   const sourcesByInvoice = new Map<string, Set<string>>();
   for (const row of cases) {
@@ -38,11 +39,14 @@ export async function rehearseInvoiceChanges(
     for (const id of [...row.candidateInvoiceIds, row.selectedInvoiceId]) {
       if (!id) continue;
       invoices.add(id);
+      if (changedInvoiceIds.has(id)) sourceIds.add(row.sourceId);
       const sources = sourcesByInvoice.get(id) ?? new Set<string>();
       sources.add(row.sourceId);
       sourcesByInvoice.set(id, sources);
     }
   }
+
+  if (!sourceIds.size) return { sourceIds: [], refresh: null };
 
   // A Set iterator also visits newly added sources. Visit each invoice once.
   const visitedInvoices = new Set<string>();
