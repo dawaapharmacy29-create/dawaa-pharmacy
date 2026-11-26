@@ -10,6 +10,7 @@ export type FollowupKind =
   | 'treatment'
   | 'refill'
   | 'price'
+  | 'alternative'
   | 'shortage'
   | 'complaint'
   | 'win_back'
@@ -22,6 +23,7 @@ export const FOLLOWUP_KINDS: Record<FollowupKind, string> = {
   treatment: 'متابعة علاج',
   refill: 'تجديد علاج شهري',
   price: 'سأل على سعر وماشتراش',
+  alternative: 'أخد بديل',
   shortage: 'صنف ناقص',
   complaint: 'شكوى أو مشكلة',
   win_back: 'نرجّعه',
@@ -46,6 +48,8 @@ export type FollowupUnderstanding = {
   /** The doctor's words without the customer's code, number or the signature. */
   note: string;
   urgent: boolean;
+  /** What else the doctor wants the team to know: an important customer, the points system, a lab result. */
+  extras: string[];
 };
 
 const norm = (s: string) =>
@@ -75,6 +79,20 @@ const KIND_WORDS: Array<[FollowupKind, RegExp]> = [
       'مرتجع',
       'يرجع الصنف',
       'خناق'
+    ),
+  ],
+  [
+    'alternative',
+    words(
+      'بديل',
+      'البديل',
+      'بدل[هة]?(?=\\s|$)',
+      'مكان[هة](?=\\s|$)',
+      'مكانها',
+      'اقتنع',
+      'اقتنعت',
+      'جربت',
+      'جرب(?=\\s|$)'
     ),
   ],
   [
@@ -175,7 +193,22 @@ const KIND_WORDS: Array<[FollowupKind, RegExp]> = [
       'نطمئن',
       'اطمن',
       'اتحسن',
-      'صحت'
+      'صحت',
+      'هيموجلوبين',
+      'هيموجلبين',
+      'هيموجلوب',
+      'تحليل',
+      'تحاليل',
+      'انيميا',
+      'انيمي[هة]',
+      'فقر الدم',
+      'فقر دم',
+      'ضعف الدم',
+      'حديد',
+      'فيتامين د',
+      'الغد[هة]',
+      'سكر[هة]? عالي',
+      'ضغط[هة]? عالي'
     ),
   ],
   ['congrats', words('نبارك', 'مبروك', 'عيد ميلاد', 'مولود', 'خطوب[هة]', 'فرح(?!ان)', 'نجح')],
@@ -218,6 +251,15 @@ const RELATIVES =
   /(?:^|\s)((?:بنت|ابن|جوز|زوج|مرات|ام|اب|مام|باب|والد|والدة|والده|اخت|اخو|ست|جد|جدة|جده|حما|حمات|طفل|طفله|بيبي|البيبي)(?:ها|ه|هم|تها|ته|تو)?)(?=\s|$)/;
 const FEMALE =
   /(?:^|\s)(?:عليها|معاها|ليها|لها|بنتها|ابنها|جوزها|مامتها|باباها|اختها|اخوها|هي|كانت|طلبت|اشترت|بتاخد|تعبانه|زعلانه|مدام|الست|العميله|عميله|حامل|ولادتها|خدت|جت|سألت)(?=\s|$)/;
+// «مشكلة» في التحليل أو الجسم مش شكوى مننا: «نسبة الهيموجلوبين عندها فيها مشكلة».
+const MEDICAL =
+  /هيموجلو?ب|تحليل|تحاليل|انيمي|فقرs*(?:ال)?دم|ضعفs*(?:ال)?دم|حديد|نسب[هة]s|الغد[هة]|السكر|الضغط|الكلي|الكبد|القلب|الجلد|البشر[هة]|الشعر|المعد[هة]|القولون|الحمل|الدور[هة]|عندها مشكل[هة] في|عنده مشكل[هة] في/;
+// شكوى مننا فعلاً: كلام عن الصيدلية أو الطلب أو التعامل.
+const STRONG_COMPLAINT = /زعلان|شكو[يى]|اشتك|اتضايق|متضايق|اتاخر|مرتجع|يرجع الصنف|خناق|غلط/;
+// عميل مهم: ليه نشاط أو مكان قريب منا، أو بيجيب ناس.
+const IMPORTANT =
+  /بيوتي|سنتر|صالون|كوافير|جيم|عياد[هة]|مستشفي|صاحب(?:[هة]|ت)?s|بتاع[هة]?s+(?:ال)?(?:بيوتي|سنتر|محل|صالون|جيم)|اللي جنبنا|جيرانا|جارتنا|جارنا|بتجيب ناس|هتجيب ناس|vip/i;
+const POINTS = /بوينتس|بوينت|points|النقط|النقاط|نظام النقط|الكريديت|كاش باك/i;
 const URGENT = /ضروري|حالا|دلوقتي|فورا|مستعجل|بسرعه|بسرعة|مهم جدا|النهارده ضروري|urgent/;
 
 const DAYS: Record<string, number> = {
@@ -320,7 +362,7 @@ export function cleanNote(body: string): string {
 const LATIN_STOP =
   /^(?:dr|the|and|for|tab|tabs|cap|caps|mg|ml|gm|syp|amp|vial|cream|gel|plus|extra|ok|follow|up)$/i;
 const AR_STOP = new Set(
-  'نتابع متابعه متابعة نتطمن نطمن عليها عليه معاها معاه العميل العميله عميل عميله الدكتور كانت كان طلبت طلب عايز عايزه محتاج محتاجه بعد بكره بكرة يوم النهارده امبارح علشان عشان ازاي هيا هيه ممكن لازم نكلم نكلمها نكلمه كلموها كلموه تعبانه تعبان بنتها ابنها جوزها الصنف الدوا العلاج'.split(
+  'نتابع متابعه متابعة نتطمن نطمن عليها عليه معاها معاه العميل العميله عميل عميله الدكتور كانت كان طلبت طلب عايز عايزه محتاج محتاجه بعد بكره بكرة يوم النهارده امبارح علشان عشان ازاي هيا هيه ممكن لازم نكلم نكلمها نكلمه كلموها كلموه تعبانه تعبان بنتها ابنها جوزها الصنف الدوا العلاج جنبنا جنبها جنبه جيرانا بوينتس البوينتس بوينت النقط النقاط سنتر بيوتي البيوتي كوزمو الكوزمو صاحبه صاحبها صاحبته مكانه مكانها شرحتلها شرحتله اقتنعت اقتنع نظام مهتمه مهتم عايزين نبقي'.split(
     ' '
   )
 );
@@ -421,7 +463,8 @@ function actionFor(
   kind: FollowupKind,
   f: boolean,
   patient: string | null,
-  items: string[]
+  items: string[],
+  lab = false
 ): string {
   const him = f ? 'ها' : 'ه';
   const to = f ? 'لها' : 'له';
@@ -429,7 +472,14 @@ function actionFor(
   const what = items.length ? ` (${items.join('، ')})` : '';
   switch (kind) {
     case 'health':
-      return `اطمّني ${who} واسألي عن الأخبار ولو محتاجين أي حاجة`;
+      return lab
+        ? `اطمّني ${who} واسألي عن نتيجة التحليل وإن${patient ? '' : him} ماشي${f ? 'ة' : ''} على العلاج، ولو محتاج${f ? 'ة' : ''} نعيد التحليل أو نكمّل الحديد/الفيتامينات`
+        : `اطمّني ${who} واسألي عن الأخبار ولو محتاجين أي حاجة`;
+    case 'alternative':
+      // الصنف اللي اتكتب الأول هو اللي كان عايزه، والأخير هو البديل اللي أخده.
+      return items.length >= 2
+        ? `اسألي${him} عن رأي${him} في ${items[items.length - 1]} اللي ${f ? 'أخدته' : 'أخده'} بدل ${items.slice(0, -1).join(' و')} وهل ريّح${him}، ولو لسه عايز${f ? 'ة' : ''} الأصلي بلّغي${him} أول ما يتوفر`
+        : `اسألي${him} عن رأي${him} في البديل${what} وهل ريّح${him}، ولو لسه عايز${f ? 'ة' : ''} الأصلي بلّغي${him} أول ما يتوفر`;
     case 'treatment':
       return `اتأكدي إن${him} ماشي${f ? 'ة' : ''} على العلاج${what} صح و${f ? 'بتاخده' : 'بياخده'} في مواعيده، واسألي لو محتاج${f ? 'ة' : ''} يكمّل الكورس`;
     case 'refill':
@@ -459,9 +509,10 @@ export function understandFollowup(
 ): FollowupUnderstanding {
   const note = cleanNote(body);
   const t = ` ${norm(note)} `;
+  const medical = MEDICAL.test(t) && !STRONG_COMPLAINT.test(t);
   const hits = KIND_WORDS.map(([kind, re]) => ({
     kind,
-    n: (t.match(new RegExp(re.source, 'g')) ?? []).length,
+    n: kind === 'complaint' && medical ? 0 : (t.match(new RegExp(re.source, 'g')) ?? []).length,
   })).filter((h) => h.n > 0);
   // «نتطمن» بتيجي مع أي متابعة، فكلمات الصحة بنص وزن، والتعادل بيكسبه الأخص (ترتيب القايمة).
   const ranked = [...hits].sort((a, b) => {
@@ -474,10 +525,20 @@ export function understandFollowup(
   const female = FEMALE.test(t);
   const items = mentionedItems(note, catalog);
   const due = followupDue(note, sentDay);
+  const lab = /هيموجلو?ب|تحليل|تحاليل|انيمي|فقرs*(?:ال)?دم|ضعفs*(?:ال)?دم|حديد/.test(t);
+  const extras: string[] = [];
+  if (IMPORTANT.test(t))
+    extras.push(
+      `${female ? 'عميلة مهمة' : 'عميل مهم'}: ${female ? 'ليها' : 'ليه'} نشاط أو معارف قريبين مننا، اهتمي بي${female ? 'ها' : 'ه'} وكلّمي${female ? 'ها' : 'ه'} بنفسك`
+    );
+  if (POINTS.test(t))
+    extras.push(
+      `الدكتور شرح${female ? 'لها' : 'له'} نظام البوينتس: فكّري${female ? 'ها' : 'ه'} برصيد${female ? 'ها' : 'ه'}`
+    );
   return {
     kind,
     also: ranked.slice(1).map((h) => h.kind),
-    action: actionFor(kind, female, patient, items),
+    action: [actionFor(kind, female, patient, items, lab), ...extras].join('. '),
     patient,
     female,
     items,
@@ -485,6 +546,7 @@ export function understandFollowup(
     dueLabel: due?.label ?? null,
     note,
     urgent: URGENT.test(t),
+    extras,
   };
 }
 
@@ -499,5 +561,10 @@ export function followupBrief(u: FollowupUnderstanding, doctor: string | null): 
 
 /** The same understanding with another kind chosen by the team: the action follows the kind. */
 export function withKind(u: FollowupUnderstanding, kind: FollowupKind): FollowupUnderstanding {
-  return { ...u, kind, action: actionFor(kind, u.female, u.patient, u.items) };
+  const lab = /هيموجلو?ب|تحليل|تحاليل|انيمي|حديد/.test(norm(u.note));
+  return {
+    ...u,
+    kind,
+    action: [actionFor(kind, u.female, u.patient, u.items, lab), ...(u.extras ?? [])].join('. '),
+  };
 }
