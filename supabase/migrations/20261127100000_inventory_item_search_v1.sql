@@ -64,4 +64,4 @@ end;
 $$;
 
 revoke all on function public.dawaa_inventory_item_search_v1(text[]) from public, anon, authenticated;
-grant execute on function public.dawaa_inventory_item_search_v1(text[]) to authenticated;
+grant execute on function public.dawaa_inventory_item_search_v1(text[]) to anon, authenticated;
