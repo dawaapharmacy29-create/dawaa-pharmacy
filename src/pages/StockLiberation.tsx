@@ -210,7 +210,7 @@ export default function StockLiberation() {
       <Panel>
         <SectionTitle
           title="تحرير المخزون: الرواكد وقرب الانتهاء"
-          subtitle={`من ملف ${dm(data.upload.day)}${data.upload.batches_day && data.upload.batches_day !== data.upload.day ? ` (الصلاحيات من ملف ${dm(data.upload.batches_day)})` : ''} · قرب الانتهاء = من النهارده لحد ٦ شهور`}
+          subtitle={`من ملف ${dm(data.upload.day)}${data.upload.day < new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo' }).format(new Date()) ? ' (معتمد لحد ما يترفع ملف جديد)' : ''}${data.upload.batches_day && data.upload.batches_day !== data.upload.day ? ` (الصلاحيات من ملف ${dm(data.upload.batches_day)})` : ''} · قرب الانتهاء = من النهارده لحد ٦ شهور`}
         />
         <div className="mt-3 flex flex-wrap items-center gap-2">
           {['', 'فرع شكري', 'فرع الشامي'].map((b) => (
