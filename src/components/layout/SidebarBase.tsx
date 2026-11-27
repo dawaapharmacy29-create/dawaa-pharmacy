@@ -218,7 +218,9 @@ export const MANAGEMENT_GROUPS: NavGroup[] = [
   // folded until opened, and the search box above the menu finds any page (including those under "كل الصفحات").
   // The sales invoices are uploaded every day, the follow-ups group file goes up on the doctors' competition, and
   // the customer service team works from its daily sheet.
-  { title: 'يومي', icon: LayoutDashboard, items: managerItems('/', '/daily-command', '/invoices', '/customer-service-tasks', '/customer-requests', '/doctor-competition', '/weekly-reviews', '/purchase-review', '/attendance-report') },
+  // Owner 2026-11-27: every page of the daily round in one group, in the order of the day: the dashboard and the
+  // daily list, the uploads (sales invoices, stock file), the stock and purchases, the customer service team, the doctors.
+  { title: 'يومي', icon: LayoutDashboard, items: managerItems('/', '/daily-command', '/invoices', '/inventory-stock', '/stock-liberation', '/purchase-review', '/customer-service-tasks', '/customer-requests', '/doctor-competition', '/weekly-reviews', '/attendance-report') },
   // The monthly evaluation and the branch comparison are the pages the boards are made from. Appeals, shift
   // performance and the pillars index are under "كل الصفحات" (hidden, not deleted).
   { title: 'التقييم والمسابقة', icon: ClipboardCheck, items: managerItems('/evaluation-lab', '/branch-comparison', '/penalty-incentive') },
@@ -227,7 +229,7 @@ export const MANAGEMENT_GROUPS: NavGroup[] = [
   // /consolidated-reports, /uncoded-invoices and /inventory-counts are under "كل الصفحات" to keep the menu at 27 pages (hidden, not deleted).
   { title: 'المبيعات', icon: BarChart3, items: managerItems('/analytics', '/reports', DR_WAEL_SHOKRY_REPORTS_PATH) },
   // Owner 2026-11-26: «تحرير المخزون» took the place of /purchases, which is under "كل الصفحات" (27 pages max).
-  { title: 'المشتريات والمخزون', icon: Store, items: managerItems('/stock-liberation', '/inventory-stock', '/shortages') },
+  { title: 'المشتريات والمخزون', icon: Store, items: managerItems('/shortages') },
   { title: 'للمراجعة', icon: ClipboardList, items: managerItems('/review-pages') },
 ];
 
