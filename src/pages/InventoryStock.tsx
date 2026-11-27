@@ -8,6 +8,7 @@ import {
   download,
   exportSheets,
   loadInventoryOverview,
+  searchInventoryItems,
   uploadStockFile,
   type Col,
   type CountReason,
@@ -17,6 +18,8 @@ import {
   type InvCount,
   type InvDead,
   type InvExpiryStore,
+  type InvItem,
+  type InvItemSearch,
   type InvMover,
   type InvNearExpiry,
   type InvOrder,
@@ -37,6 +40,7 @@ const dm = (iso: string | null | undefined) =>
 const short = (b: string) => b.replace('فرع ', '');
 
 const TABS = {
+  items: 'بحث صنف: رصيد أي صنف',
   orders: 'الطلبية المقترحة',
   requests: 'طلبات العملاء اللي اتوفرت',
   expiry: 'قرب الانتهاء (٦ شهور)',
@@ -187,18 +191,29 @@ export default function InventoryStock() {
                 </button>
               ))}
             </div>
-            <div className="relative mt-3">
-              <Search size={16} className="absolute top-1/2 right-3 -translate-y-1/2 opacity-50" />
-              <input
-                className="input-field !pr-9"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="دوّري بالكود أو اسم الصنف أو الشركة أو المورد أو العميل"
-              />
-            </div>
-            <div className="mt-3">
-              <TabBody data={data} tab={tab} q={q} />
-            </div>
+            {tab === 'items' ? (
+              <div className="mt-3">
+                <ItemSearch />
+              </div>
+            ) : (
+              <>
+                <div className="relative mt-3">
+                  <Search
+                    size={16}
+                    className="absolute top-1/2 right-3 -translate-y-1/2 opacity-50"
+                  />
+                  <input
+                    className="input-field !pr-9"
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                    placeholder="دوّري بالكود أو اسم الصنف أو الشركة أو المورد أو العميل"
+                  />
+                </div>
+                <div className="mt-3">
+                  <TabBody data={data} tab={tab} q={q} />
+                </div>
+              </>
+            )}
           </Panel>
         </>
       )}
@@ -208,6 +223,7 @@ export default function InventoryStock() {
 
 function tabCount(d: InventoryOverview, t: Tab) {
   const len = {
+    items: 0,
     orders: d.orders.filter((o) => o.buy_qty > 0 || o.transfer_qty > 0).length,
     requests: d.requests_in_stock.length,
     expiry: d.near_expiry.length,
@@ -217,7 +233,7 @@ function tabCount(d: InventoryOverview, t: Tab) {
     count: d.count.length,
     moves: d.movers_up.length + d.movers_down.length,
   }[t];
-  return n(len);
+  return t === 'items' ? '' : n(len);
 }
 
 // ---------- الرفع ----------
@@ -1043,6 +1059,106 @@ function TabBody({ data, tab, q }: { data: InventoryOverview; tab: Tab; q: strin
           ]}
         />
       </div>
+    </div>
+  );
+}
+
+// ---------- بحث صنف ----------
+
+function ItemSearch() {
+  const [text, setText] = useState('');
+  const [res, setRes] = useState<InvItemSearch | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  async function run(all: boolean) {
+    setBusy(true);
+    setError('');
+    try {
+      setRes(await searchInventoryItems(all ? [] : text.split(/\n|،|,/)));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const fmtQty = (v: number) => n(v, 2);
+  return (
+    <div className="space-y-3">
+      <textarea
+        className="input-field min-h-24 text-sm"
+        dir="auto"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder={
+          'صنف في كل سطر: الكود أو اسم الصنف بالإنجليزي زي ما هو على السيستم\nمثلاً:\npanadol extra\n57376'
+        }
+      />
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <button
+          className="btn-primary inline-flex items-center gap-1"
+          disabled={busy || !text.trim()}
+          onClick={() => void run(false)}
+        >
+          {busy ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />} هاتي الرصيد
+        </button>
+        <button className="btn-secondary" disabled={busy} onClick={() => void run(true)}>
+          كل الأصناف
+        </button>
+        <span className="opacity-70">
+          أسماء الأصناف على السيستم بالإنجليزي، فابحثي بالإنجليزي أو بالكود. كل كلمات البحث لازم
+          تبقى في الاسم.
+        </span>
+      </div>
+      {error ? <EmptyState label={error} /> : null}
+      {res && res.unmatched.length ? (
+        <p className="rounded-xl bg-[var(--dawaa-status-warning-bg,#fef3c7)] p-2 text-xs font-bold">
+          مالقيناش: {res.unmatched.join('، ')}. جربي جزء من الاسم أو الكود.
+        </p>
+      ) : null}
+      {res ? (
+        <DataTable<InvItem>
+          rows={res.rows}
+          q=""
+          exportName="رصيد الأصناف"
+          text={(r) => `${r.code} ${r.name ?? ''}`}
+          note={`رصيد ملف ${dm(res.day)} · الفرع = المخزن الرئيسي + مخزن الدكتور · البيع آخر ٣٠ يوم من غير التحويلات`}
+          rowTone={(r) =>
+            r.shokry + r.shami <= 0 ? 'bg-[var(--dawaa-status-danger-bg,#fee2e2)]' : ''
+          }
+          cols={[
+            {
+              header: 'الصنف',
+              cell: (r) => item(r.code, r.name ?? '—', r.company),
+              excel: (r) => r.name,
+              width: 34,
+            },
+            { header: 'الكود', cell: (r) => r.code, excel: (r) => r.code, width: 10 },
+            { header: 'شكري', cell: (r) => fmtQty(r.shokry), excel: (r) => r.shokry, width: 9 },
+            { header: 'الشامي', cell: (r) => fmtQty(r.shami), excel: (r) => r.shami, width: 9 },
+            {
+              header: 'الإكسبير',
+              cell: (r) => (r.expiry_store ? fmtQty(r.expiry_store) : '—'),
+              excel: (r) => r.expiry_store,
+              width: 9,
+            },
+            {
+              header: 'أقرب صلاحية',
+              cell: (r) => dm(r.nearest_expiry),
+              excel: (r) => r.nearest_expiry,
+              width: 12,
+            },
+            {
+              header: 'اتباع ٣٠ يوم (شكري/الشامي)',
+              cell: (r) => `${fmtQty(r.sold30_shokry)} / ${fmtQty(r.sold30_shami)}`,
+              excel: (r) => `${r.sold30_shokry} / ${r.sold30_shami}`,
+              width: 16,
+            },
+            { header: 'السعر', cell: (r) => money(r.price), excel: (r) => r.price, width: 9 },
+          ]}
+        />
+      ) : null}
     </div>
   );
 }
