@@ -351,6 +351,7 @@ function Summary({ data }: { data: InventoryOverview }) {
     <>
       <p className="px-1 text-xs opacity-70">
         رصيد يوم {dm(data.upload.day)}
+        {data.upload.day < cairoToday() ? ' · معتمد لحد النهارده لحد ما يترفع ملف جديد' : ''}
         {data.upload.by ? ` · رفعه ${data.upload.by}` : ''}
         {data.upload.kind === 'summary' && data.upload.batches_day
           ? ` · الصلاحية من ملف ${dm(data.upload.batches_day)}`
