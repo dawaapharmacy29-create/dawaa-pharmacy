@@ -204,7 +204,9 @@ describe('short menu per role', () => {
       expect(menu.open).toEqual(['يومي']);
       const daily = menu.main[0].items.map((item) => item.path);
       for (const path of ['/', '/invoices', '/customer-service-tasks', '/customer-requests', '/doctor-competition']) expect(daily).toContain(path);
-      expect(new Set(daily).size).toBeLessThanOrEqual(10);
+      for (const path of ['/inventory-stock', '/stock-liberation', '/purchase-review']) expect(daily).toContain(path);
+      // Owner 2026-11-27: the whole daily round in one group (stock file, stock liberation, purchases included).
+      expect(new Set(daily).size).toBeLessThanOrEqual(12);
     }
     expect(menuGroupsFor('pharmacist', false).open).toBeUndefined();
   });
