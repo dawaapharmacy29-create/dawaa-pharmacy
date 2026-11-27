@@ -14,6 +14,7 @@ const ERRORS: Record<string, string> = {
   inventory_upload_closed: 'الرفع ده اتقفل، ارفعي الملف تاني',
   inventory_upload_empty: 'الملف مفيهوش أصناف',
   inventory_invalid_kind: 'نوع الملف مش معروف',
+  inventory_search_too_many: 'ابحثي عن ٣٠٠ صنف بالكتير مرة واحدة',
 };
 
 function fail(error: { message?: string } | null, fallback: string): never {
@@ -274,6 +275,37 @@ export async function loadInventoryOverview(opts: {
     movers_down: arr(d.movers_down),
     companies: arr(d.companies),
   };
+}
+
+// ---------- بحث صنف: رصيد أي صنف من آخر ملف (migration 20261127100000_inventory_item_search_v1) ----------
+
+export type InvItem = {
+  code: string;
+  name: string | null;
+  company: string | null;
+  /** The search term (normalized) that matched this item; null when listing all items. */
+  term: string | null;
+  shokry: number;
+  shami: number;
+  expiry_store: number;
+  nearest_expiry: string | null;
+  cost: number | null;
+  price: number | null;
+  sold30_shokry: number;
+  sold30_shami: number;
+};
+
+export type InvItemSearch = { day: string | null; rows: InvItem[]; unmatched: string[] };
+
+/** Terms: one item per entry (code, or name words that must all appear). Empty = every item. */
+export async function searchInventoryItems(terms: string[]): Promise<InvItemSearch> {
+  const list = [...new Set(terms.map((t) => t.trim()).filter(Boolean))];
+  const { data, error } = await supabase.rpc('dawaa_inventory_item_search_v1', {
+    p_terms: list.length ? list : null,
+  });
+  if (error) fail(error, 'تعذّر البحث في الرصيد');
+  const d = (data ?? {}) as Partial<InvItemSearch> & { empty?: boolean };
+  return { day: d.day ?? null, rows: d.rows ?? [], unmatched: d.unmatched ?? [] };
 }
 
 // ---------- رصيد أصناف طلبات العملاء (لفريق خدمة العملاء) ----------
