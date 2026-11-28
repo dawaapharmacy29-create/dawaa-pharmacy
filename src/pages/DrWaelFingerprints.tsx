@@ -988,6 +988,7 @@ function ManualPunchEmployee({
     return at ? cairoTime(at) : '';
   });
   const [flipNextDay, setFlipNextDay] = useState(false);
+  const [workOrder, setWorkOrder] = useState(false);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1019,16 +1020,20 @@ function ManualPunchEmployee({
         time,
         nextDay,
         note,
+        workOrder: type === 'check_out' && workOrder,
       });
       setSaved(
         `اتسجلت ${type === 'check_in' ? 'حضور' : 'انصراف'} ${time} · ${
-          result.over_allowance
-            ? `فوق السماح (رقم ${result.occurrence_no})`
-            : `في السماح (${result.occurrence_no}/${result.allowance_limit})`
+          result.reason_kind === 'work_errand'
+            ? 'خروج بسبب أوردر · من غير خصم من رصيد البصمات'
+            : result.over_allowance
+              ? `فوق السماح (رقم ${result.occurrence_no})`
+              : `في السماح (${result.occurrence_no}/${result.allowance_limit})`
         }${result.day_status && result.day_status !== 'approved' ? ' · اليوم لسه محتاج قرار' : ''}`
       );
       setTime('');
       setNote('');
+      setWorkOrder(false);
       setFlipNextDay(false);
       onSaved();
     } catch (e) {
@@ -1086,6 +1091,7 @@ function ManualPunchEmployee({
           if (draft.date) setDate(draft.date);
           setTime(draft.time || '');
           setNote(draft.note);
+          setWorkOrder(false);
           setFlipNextDay(false);
           setError(null);
           setSaved(null);
@@ -1098,7 +1104,10 @@ function ManualPunchEmployee({
         <Chips<ManualPunchType>
           label="نوع البصمة"
           value={type}
-          onChange={setType}
+          onChange={(nextType) => {
+            setType(nextType);
+            setWorkOrder(false);
+          }}
           options={[
             ['check_in', 'حضور'],
             ['check_out', 'انصراف'],
@@ -1148,6 +1157,16 @@ function ManualPunchEmployee({
           </button>
         ) : null}
       </div>
+      {type === 'check_out' ? (
+        <label className="flex items-center gap-2 text-xs">
+          <input
+            type="checkbox"
+            checked={workOrder}
+            onChange={(event) => setWorkOrder(event.target.checked)}
+          />
+          خروج بسبب أوردر (من غير خصم من رصيد البصمات)
+        </label>
+      ) : null}
       {time ? (
         <label className="flex items-center gap-2 text-[11px]">
           <input
@@ -1194,6 +1213,9 @@ function ManualPunchEmployee({
               <Pill tone={row.counted ? 'green' : 'amber'}>
                 {row.counted ? 'محتسب' : 'لسه مش محتسب'}
               </Pill>
+              {row.reason_kind === 'work_errand' ? (
+                <Pill>أوردر · بدون خصم من الرصيد</Pill>
+              ) : null}
               {row.occurrence_no == null ? null : row.occurrence_no <=
                 (row.allowance_limit ?? 2) ? (
                 <Pill>في السماح</Pill>
