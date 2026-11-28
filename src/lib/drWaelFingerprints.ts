@@ -2085,6 +2085,7 @@ export interface DrWaelManualPunch {
   type: ManualPunchType;
   at: string;
   reason: string | null;
+  work_order?: boolean;
   by: string | null;
   /** Its number in the cycle's missing-punch allowance; null when it never went through that count. */
   occurrence_no: number | null;
@@ -2116,8 +2117,9 @@ export async function fetchDrWaelManualPunches(
 }
 
 export interface RecordedManualPunch {
-  occurrence_no: number;
-  allowance_limit: number;
+  occurrence_no: number | null;
+  allowance_limit: number | null;
+  work_order?: boolean;
   over_allowance: boolean;
   day_status: string | null;
 }
@@ -2129,14 +2131,16 @@ export async function recordDrWaelManualPunch(args: {
   time: string;
   nextDay: boolean;
   note?: string | null;
+  workOrder?: boolean;
 }): Promise<RecordedManualPunch> {
-  const { data, error } = await supabase.rpc('dr_wael_record_manual_punch_v1', {
+  const { data, error } = await supabase.rpc(args.workOrder ? 'dr_wael_record_manual_punch_v2' : 'dr_wael_record_manual_punch_v1', {
     p_staff_id: args.staffId,
     p_date: args.date,
     p_type: args.type,
     p_time: args.time,
     p_next_day: args.nextDay,
     p_note: args.note || null,
+    ...(args.workOrder ? { p_work_order: true } : {}),
   });
   if (error) throw new Error(error.message);
   return data as RecordedManualPunch;
@@ -2149,6 +2153,8 @@ const MANUAL_PUNCH_ERRORS: ReadonlyArray<readonly [string, string]> = [
   ['manual_punch_staff_not_active', 'الموظف مش نشط'],
   ['manual_punch_cycle_locked', 'مرتب الفترة دي اتقفل، مينفعش تسجل فيها'],
   ['manual_punch_day_approved', 'اليوم ده اتعتمد بقرار مدير، افتحه الأول من مراجعة اليوم'],
+  ['manual_punch_work_order_checkout_only', 'استثناء الأوردر متاح لبصمة الانصراف فقط'],
+  ['manual_punch_work_order_incident_exists', 'البصمة دي سبق تسجيلها على الرصيد. راجع القرار المسجل قبل إعادة التصحيح'],
   ['manual_punch_already_exists', 'فيه بصمة من النوع ده في اليوم ده بالفعل'],
 ];
 
