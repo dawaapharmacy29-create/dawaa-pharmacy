@@ -380,13 +380,17 @@ export default function MorningPurchasesTab({
               من {fmtTime(day.from)} لـ {fmtTime(day.to)} · المسلسل على الورق، وبعدين اعتماد أو
               تعديل أو مشكلة
             </p>
+            <p className="mt-1 text-xs opacity-75">
+              فترة المراجعة بتنتهي الساعة ٩ صباحًا في التاريخ المختار.
+              للبحث عن فاتورة بعينها من أي مخزن تابع للفرع، استخدمي البحث بالمسلسل.
+            </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <BranchPicker branch={day.branch} canPick={day.can_pick} onChange={setBranch} />
             <input
               type="date"
               className="input-field !w-auto !py-1 text-sm"
-              aria-label="لحد يوم"
+              aria-label="تاريخ نهاية فترة المراجعة الساعة ٩ صباحًا"
               value={pickedDay || day.day}
               onChange={(e) => setPickedDay(e.target.value)}
             />

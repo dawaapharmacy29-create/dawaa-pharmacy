@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Link2, Loader2, RefreshCw, TriangleAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -36,8 +36,7 @@ import TransferReturns from './TransferReturns';
 
 // الخطوة التانية: التحويلات اللي دخلت فرعها. التحويل عندنا فاتورة بيع في الفرع اللي بعت (لعميل الفرع ده)
 // وفاتورة شراء في الفرع ده من مورد الفرع التاني. الصفحة بتربطهم تلقائي، والبنت تأكد أو تربط بإيدها أو تسجل المشكلة.
-// (2026-11-26) بيظهر اللي فيه مشكلة بس: كمية أو كود مختلف أو صنف مش موجود أو فرق فلوس فوق ٥٠ ج. المطابق بيتعتمد
-// مرة واحدة، واللي اتراجع بيتشال من القايمة على طول من غير ما الصفحة كلها تتحمل تاني.
+// تسجيل المشكلة يبقيها في قائمة المراجعة. التأكيد المحفوظ ينقل التحويل للمعتمدة.
 
 const fmtTime = (v: string) =>
   new Date(v.replace(' ', 'T')).toLocaleString('ar-EG', {
@@ -59,8 +58,8 @@ const HOW: Record<TransferPair['how'], string> = {
 
 type View = 'review' | 'done' | 'all';
 const VIEWS: Array<{ key: View; label: string }> = [
-  { key: 'review', label: 'المشاكل بس' },
-  { key: 'done', label: 'خلص' },
+  { key: 'review', label: 'محتاج مراجعة' },
+  { key: 'done', label: 'المعتمدة' },
   { key: 'all', label: 'الكل' },
 ];
 
@@ -84,22 +83,31 @@ export type TransferSaved = {
 export default function MorningTransfersTab() {
   const { user } = useAuth();
   const [branch, setBranch] = useState<string | null>(null);
+  const [pickedDay, setPickedDay] = useState('');
   const [day, setDay] = useState<TransferDay | null>(null);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState<Editing>(null);
   const [busy, setBusy] = useState('');
   const [view, setView] = useState<View>('review');
+  const [search, setSearch] = useState('');
+  const formRef = useRef<HTMLDivElement>(null);
+  const request = useRef(0);
+  useEffect(() => {
+    if (editing) formRef.current?.focus();
+  }, [editing]);
   const [showReport, setShowReport] = useState(false);
   const [showReturns, setShowReturns] = useState(false);
 
   const load = useCallback(async () => {
+    const id = ++request.current;
     try {
       setError('');
-      setDay(await loadTransferDay(branch));
+      const result = await loadTransferDay(branch, pickedDay || null);
+      if (id === request.current) setDay(result);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (id === request.current) setError(e instanceof Error ? e.message : String(e));
     }
-  }, [branch]);
+  }, [branch, pickedDay]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -125,7 +133,9 @@ export default function MorningTransfersTab() {
   const pairing = useMemo(() => (day ? pairTransfers(day.purchases, day.sales) : null), [day]);
   const rows = useMemo(
     () =>
-      (pairing?.pairs ?? []).map((p) => ({ p, issues: transferIssues(p), saved: pairSaved(p) })),
+      (pairing?.pairs ?? []).map((p) => ({ p, issues: transferIssues(p), saved: pairSaved(p),
+        hasDetails: pairPurchases(p).every((purchase) => purchase.lines.length > 0) && p.sale.items.length > 0,
+      })),
     [pairing]
   );
 
@@ -154,6 +164,7 @@ export default function MorningTransfersTab() {
         problems: [],
         note: '',
         branch: day!.branch,
+        day: day!.day,
       });
     patch({
       purchases: pairPurchases(p),
@@ -168,6 +179,7 @@ export default function MorningTransfersTab() {
     setBusy(p.purchase.serial);
     try {
       await confirmPair(p);
+      toast.success('التحويل اتعمد واتنقل لتبويب المعتمدة');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {
@@ -191,31 +203,44 @@ export default function MorningTransfersTab() {
       </div>
     );
 
-  const clean = rows.filter((r) => !r.saved && !r.issues.length);
-  const needPairs = rows.filter((r) => !r.saved && r.issues.length);
-  // المطابق بيتحسب خلصان لوحده ومش بيظهر غير في «الكل».
-  const donePairs = rows.filter((r) => r.saved || !r.issues.length);
-  const openPurchases = pairing.purchasesOnly.filter((p) => !p.check);
-  const openSales = pairing.salesOnly.filter((s) => !s.check);
+  const donePairs = rows.filter(({ p, saved }) =>
+    saved && pairPurchases(p).every((purchase) => purchase.check?.status === 'ok')
+  );
+  const approvedPairs = new Set(donePairs);
+  const needPairs = rows.filter((row) => !approvedPairs.has(row));
+  const clean = needPairs.filter(({ p, hasDetails, issues }) =>
+    hasDetails && !issues.length && pairPurchases(p).every((purchase) => !purchase.check)
+  );
+  const openPurchases = pairing.purchasesOnly.filter((p) => p.check?.status !== 'ok');
+  const openSales = pairing.salesOnly.filter((s) => s.check?.status !== 'ok');
   const need = needPairs.length + openPurchases.length + openSales.length;
   const doneCount =
     donePairs.length +
     (pairing.purchasesOnly.length - openPurchases.length) +
     (pairing.salesOnly.length - openSales.length);
 
-  const shownPairs = view === 'review' ? needPairs : view === 'done' ? donePairs : rows;
+  const invoiceQuery = search.trim().replace(/[٠-٩۰-۹]/g, (digit) => String(digit.charCodeAt(0) & 15));
+  const matches = (...values: Array<string | null | undefined>) =>
+    !invoiceQuery || values.some((value) => value?.includes(invoiceQuery));
+  const reviewPairs = [...needPairs].sort((a, b) =>
+    Number(clean.includes(a)) - Number(clean.includes(b))
+  );
+  const shownPairs = (view === 'review' ? reviewPairs : view === 'done' ? donePairs : rows).filter(
+    ({ p }) => matches(...pairPurchases(p).flatMap((item) => [item.serial, item.supplier_invoice_no]),
+      ...pairSales(p.sale).map((sale) => sale.invoice))
+  );
   const shownPurchases =
-    view === 'review'
+    (view === 'review'
       ? openPurchases
       : view === 'done'
-        ? pairing.purchasesOnly.filter((p) => p.check)
-        : pairing.purchasesOnly;
+        ? pairing.purchasesOnly.filter((p) => p.check?.status === 'ok')
+        : pairing.purchasesOnly).filter((p) => matches(p.serial, p.supplier_invoice_no));
   const shownSales =
-    view === 'review'
+    (view === 'review'
       ? openSales
       : view === 'done'
-        ? pairing.salesOnly.filter((s) => s.check)
-        : pairing.salesOnly;
+        ? pairing.salesOnly.filter((s) => s.check?.status === 'ok')
+        : pairing.salesOnly).filter((s) => matches(s.invoice));
 
   const supplierName = day.branch === 'فرع شكري' ? 'دواء الشامي' : 'دواء ابو العزم';
   const customerName = day.branch === 'فرع شكري' ? 'فرع ابو العزم (170)' : 'دواء الشامي (10)';
@@ -228,7 +253,27 @@ export default function MorningTransfersTab() {
           subtitle={`شراء ${day.branch} من «${supplierName}» قصاد بيع ${day.sale_branch} للعميل «${customerName}»`}
         />
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <BranchPicker branch={day.branch} canPick={day.can_pick} onChange={setBranch} />
+          <BranchPicker branch={day.branch} canPick={day.can_pick} onChange={(next) => {
+            if (next === day.branch) return;
+            setEditing(null);
+            setDay(null);
+            setBranch(next);
+          }} />
+          <label className="text-xs font-bold">
+            الفترة تنتهي الساعة ٩ صباحًا يوم
+            <input type="date" className="input-field mt-1 !w-auto" value={pickedDay || day.day}
+              onChange={(event) => {
+                if (!event.target.value || event.target.value === (pickedDay || day.day)) return;
+                setEditing(null);
+                setDay(null);
+                setPickedDay(event.target.value);
+              }} />
+          </label>
+          {pickedDay ? <button type="button" className="btn-secondary" onClick={() => {
+            setEditing(null);
+            setDay(null);
+            setPickedDay('');
+          }}>الفترة الحالية</button> : null}
           <button
             className="btn-secondary inline-flex items-center gap-1"
             onClick={() => void load()}
@@ -252,20 +297,29 @@ export default function MorningTransfersTab() {
             ))}
           </div>
         </div>
+        <p className="mt-2 text-xs opacity-75">
+          من {day.from.slice(0, 10)} الساعة ٩ ص لحد {day.to.slice(0, 10)} الساعة ٩ ص.
+          مشتريات الموردين الخارجيين تظهر في مراجعة المشتريات.
+        </p>
+        <label className="mt-3 block text-xs font-bold">
+          ابحث برقم فاتورة البيع أو مسلسل الشراء
+          <input className="input-field mt-1" inputMode="numeric" value={search}
+            onChange={(event) => setSearch(event.target.value)} />
+        </label>
         <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
           <MiniBox label="محتاج مراجعة" value={String(need)} tone={need ? 'amber' : 'green'} />
-          <MiniBox label="مطابق لوحده" value={String(clean.length)} tone="blue" />
-          <MiniBox label="خلص" value={String(doneCount)} tone="green" />
+          <MiniBox label="مقترح للاعتماد" value={String(clean.length)} tone="blue" />
+          <MiniBox label="معتمدة" value={String(doneCount)} tone="green" />
           <MiniBox
             label="من غير ربط"
-            value={String(pairing.purchasesOnly.length + pairing.salesOnly.length)}
-            tone={pairing.purchasesOnly.length + pairing.salesOnly.length ? 'amber' : 'cyan'}
+            value={String(openPurchases.length + openSales.length)}
+            tone={openPurchases.length + openSales.length ? 'amber' : 'cyan'}
           />
         </div>
         {clean.length ? (
           <p className="mt-2 text-xs font-bold opacity-70">
             {clean.length} تحويل مطابق (نفس الأصناف والكميات والفرق أقل من{' '}
-            {TRANSFER_MONEY_TOLERANCE} ج) اتحسبوا خلصانين ومش محتاجين مراجعة. تلاقيهم في «الكل».
+            {TRANSFER_MONEY_TOLERANCE} ج) جاهزين للتأكيد بعد مراجعة الربط.
           </p>
         ) : null}
         {day.purchases.length > 0 && day.sales.length === 0 ? (
@@ -277,10 +331,13 @@ export default function MorningTransfersTab() {
       </Panel>
 
       {editing ? (
+        <div ref={formRef} tabIndex={-1}>
         <Panel>
           <TransferForm
+            key={editing.kind === 'sale' ? `sale:${editing.sale.invoice}` : `${editing.kind}:${editing.purchase.store}:${editing.purchase.serial}`}
             editing={editing}
             branch={day.branch}
+            day={day.day}
             salesOnly={pairing.salesOnly}
             onClose={() => setEditing(null)}
             onSaved={(s) => {
@@ -291,16 +348,17 @@ export default function MorningTransfersTab() {
             }}
           />
         </Panel>
+        </div>
       ) : null}
 
-      {view === 'review' && need === 0 ? (
+      {invoiceQuery && !shownPairs.length && !shownPurchases.length && !shownSales.length ? (
+        <Panel><EmptyState label="رقم الفاتورة مش موجود في العرض الحالي" /></Panel>
+      ) : null}
+
+      {!invoiceQuery && view === 'review' && need === 0 ? (
         <Panel>
           <EmptyState
-            label={
-              clean.length
-                ? `مفيش مشاكل، والـ ${clean.length} تحويل المطابقين اتحسبوا لوحدهم 👌`
-                : 'مفيش حاجة محتاجة مراجعة 👌'
-            }
+            label="مفيش تحويلات مفتوحة للمراجعة"
           />
         </Panel>
       ) : null}
@@ -308,20 +366,21 @@ export default function MorningTransfersTab() {
       {shownPairs.length ? (
         <Panel>
           <SectionTitle
-            title={view === 'done' ? 'اتراجعت' : view === 'review' ? 'فيها اختلاف' : 'مربوطين'}
+            title={view === 'done' ? 'تحويلات معتمدة' : 'تحويلات مربوطة'}
             subtitle="الكمية والكود والصنف الناقص الأول. فرق الفلوس بيظهر بس لو أكتر من ٥٠ ج"
           />
           <div className="mt-2 space-y-2">
-            {shownPairs.map(({ p, issues, saved }) => (
+            {shownPairs.map(({ p, issues, saved, hasDetails }) => (
               <PairCard
-                key={p.purchase.serial}
+                key={`${p.purchase.store}:${p.purchase.serial}`}
                 p={p}
                 issues={issues}
                 saved={saved}
+                hasDetails={hasDetails}
                 busy={busy === p.purchase.serial}
                 onConfirm={() => void confirm(p)}
-                onProblem={() => setEditing({ kind: 'pair', purchase: p.purchase, sale: p.sale })}
-                onUnlink={() => setEditing({ kind: 'purchase', purchase: p.purchase })}
+                onProblem={p.rest.length ? undefined : () => setEditing({ kind: 'pair', purchase: p.purchase, sale: p.sale })}
+                onUnlink={p.rest.length || p.sale.parts ? undefined : () => setEditing({ kind: 'purchase', purchase: p.purchase })}
               />
             ))}
           </div>
@@ -337,7 +396,7 @@ export default function MorningTransfersTab() {
           <div className="mt-2 space-y-2">
             {shownPurchases.map((p) => (
               <div
-                key={p.serial}
+                key={`${p.store}:${p.serial}`}
                 className="rounded-2xl border-r-4 border border-[var(--dawaa-theme-border)] border-r-[var(--dawaa-status-warning-text,#b45309)] p-3"
               >
                 <PurchaseCard p={p} />
@@ -352,7 +411,7 @@ export default function MorningTransfersTab() {
                     className="btn-secondary !px-2 !py-1 mr-auto inline-flex items-center gap-1"
                     onClick={() => setEditing({ kind: 'purchase', purchase: p })}
                   >
-                    <Link2 size={14} /> اربط أو سجّل المشكلة
+                    <Link2 size={14} /> {p.check ? 'عدّل المراجعة أو الربط' : 'اربط أو سجّل المشكلة'}
                   </button>
                 </div>
               </div>
@@ -394,7 +453,7 @@ export default function MorningTransfersTab() {
                       className="btn-secondary !px-2 !py-1 mr-auto inline-flex items-center gap-1"
                       onClick={() => setEditing({ kind: 'sale', sale: s })}
                     >
-                      <TriangleAlert size={14} /> سجّل المشكلة
+                      <TriangleAlert size={14} /> {s.check ? 'عدّل المراجعة' : 'سجّل المشكلة'}
                     </button>
                   ) : null}
                 </div>
@@ -437,6 +496,7 @@ function PairCard({
   p,
   issues,
   saved,
+  hasDetails,
   busy,
   onConfirm,
   onProblem,
@@ -445,10 +505,11 @@ function PairCard({
   p: TransferPair;
   issues: TransferIssue[];
   saved: boolean;
+  hasDetails: boolean;
   busy: boolean;
   onConfirm: () => void;
-  onProblem: () => void;
-  onUnlink: () => void;
+  onProblem?: () => void;
+  onUnlink?: () => void;
 }) {
   const all = pairPurchases(p);
   const edge = saved
@@ -469,7 +530,7 @@ function PairCard({
             {x.label}
           </span>
         ))}
-        {!issues.length ? (
+        {!issues.length && hasDetails ? (
           <span className="rounded-full bg-[var(--dawaa-theme-soft)] px-2 py-0.5 font-black text-[var(--dawaa-status-success-text)]">
             مطابق
           </span>
@@ -477,6 +538,7 @@ function PairCard({
         <span className="rounded-full bg-[var(--dawaa-theme-soft)] px-2 py-0.5 font-bold opacity-70">
           اتربط {HOW[p.how]}
         </span>
+        {!hasDetails ? <span className="font-bold">تفاصيل الأصناف ناقصة</span> : null}
         {saved ? (
           <span
             className={
@@ -486,8 +548,8 @@ function PairCard({
             }
           >
             {p.purchase.check!.status === 'ok'
-              ? 'اتأكد'
-              : `مشكلة: ${p.purchase.check!.problems.map(problemLabel).join('، ')}`}{' '}
+              ? 'معتمد'
+              : `مشكلة مفتوحة: ${p.purchase.check!.problems.map(problemLabel).join('، ')}`}{' '}
             · {p.purchase.check!.by}
           </span>
         ) : null}
@@ -506,26 +568,29 @@ function PairCard({
         <SaleCard s={p.sale} compact={all.every((x) => x.lines.length > 0)} />
       </div>
       <TransferLinesCompare purchases={all} sale={p.sale} onlyIssues={issues.length > 0} />
+      {!hasDetails || issues.length ? (
+        <p className="mt-2 text-xs opacity-75">الاعتماد متاح بعد اكتمال تفاصيل الفاتورتين وتصحيح الاختلاف.</p>
+      ) : null}
       <div className="mt-2 flex flex-wrap justify-end gap-1 text-xs">
         <button
           className="btn-primary !px-3 !py-1 inline-flex items-center gap-1"
-          disabled={busy}
+          disabled={busy || !hasDetails || issues.length > 0 || (saved && all.every((purchase) => purchase.check?.status === 'ok'))}
           onClick={onConfirm}
         >
-          {busy ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} مطابق
+          {busy ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} {saved && p.purchase.check?.status === 'problem' ? 'اتصلحت واعتمد' : 'اعتمد التحويل'}
         </button>
-        <button
+        {onProblem ? <button
           className="btn-secondary !px-2 !py-1 inline-flex items-center gap-1"
           onClick={onProblem}
         >
-          <TriangleAlert size={14} /> مشكلة
-        </button>
-        <button
+          <TriangleAlert size={14} /> {saved ? 'عدّل القرار' : 'مشكلة'}
+        </button> : null}
+        {onUnlink ? <button
           className="btn-secondary !px-2 !py-1 inline-flex items-center gap-1"
           onClick={onUnlink}
         >
-          <Link2 size={14} /> مش دي
-        </button>
+          <Link2 size={14} /> تصحيح الربط
+        </button> : null}
       </div>
     </div>
   );
@@ -586,12 +651,14 @@ function SaleCard({ s, compact }: { s: TransferSale; compact?: boolean }) {
 function TransferForm({
   editing,
   branch,
+  day,
   salesOnly,
   onClose,
   onSaved,
 }: {
   editing: NonNullable<Editing>;
   branch: string;
+  day: string;
   salesOnly: TransferSale[];
   onClose: () => void;
   onSaved: (saved: TransferSaved) => void;
@@ -605,19 +672,27 @@ function TransferForm({
       : editing.kind === 'sale'
         ? editing.sale.invoice
         : '';
+  const existing = purchase?.check ?? (editing.kind === 'sale' ? editing.sale.check : null);
   const [sale, setSale] = useState(initialSale);
   const [problems, setProblems] = useState<string[]>(
-    editing.kind === 'sale' ? ['no_purchase'] : editing.kind === 'purchase' ? [] : []
+    existing?.problems ?? (editing.kind === 'sale' ? ['no_purchase'] : [])
   );
-  const [note, setNote] = useState('');
+  const [note, setNote] = useState(existing?.note ?? '');
   const [saving, setSaving] = useState(false);
   const linking = editing.kind === 'purchase';
+  const candidate = linking ? salesOnly.find((item) => item.invoice === sale.trim()) : undefined;
+  const canCompare = Boolean(purchase?.lines.length && candidate?.items.length);
+  const differences = purchase && candidate && canCompare
+    ? transferIssues({ purchase, sale: candidate, rest: [], how: 'number' })
+    : [];
+  const canApproveLink = canCompare && differences.length === 0;
 
   async function save(status: 'ok' | 'problem') {
     if (status === 'problem' && problems.length === 0) {
       toast.error('اختاري نوع المشكلة');
       return;
     }
+    if (status === 'ok' && !canApproveLink) return;
     setSaving(true);
     try {
       const saleInvoice = editing.kind === 'sale' ? editing.sale.invoice : sale.trim() || null;
@@ -643,6 +718,7 @@ function TransferForm({
           saleInvoice,
           ...saved,
           branch,
+          day,
         });
       toast.success('اتحفظ');
       onSaved({
@@ -669,7 +745,7 @@ function TransferForm({
               : `مشكلة في تحويل مسلسل ${purchase!.serial}`
         }
       />
-      {editing.kind !== 'sale' ? (
+      {editing.kind !== 'sale' && !parts ? (
         <label className="block text-xs font-bold">
           رقم فاتورة البيع في الفرع التاني (سيبيه فاضي لو مفيش بيع خالص)
           <input
@@ -686,6 +762,14 @@ function TransferForm({
             ))}
           </datalist>
         </label>
+      ) : null}
+      {linking && sale.trim() ? (
+        <p className="text-xs font-bold" role="status">
+          {!candidate ? 'فاتورة البيع مش ظاهرة ضمن الفواتير المتاحة للربط.'
+            : !canCompare ? 'تفاصيل الأصناف ناقصة، والمطابقة لسه محتاجة مراجعة.'
+            : differences.length ? differences.map((issue) => issue.label).join('، ')
+            : 'الأصناف والكميات متطابقة، والفرق في القيمة داخل الحد المسموح.'}
+        </p>
       ) : null}
       <div>
         <span className="text-xs font-bold">المشكلة</span>
@@ -706,7 +790,7 @@ function TransferForm({
         {linking ? (
           <button
             className="btn-primary inline-flex items-center gap-1"
-            disabled={saving || !sale.trim()}
+            disabled={saving || !canApproveLink}
             onClick={() => void save('ok')}
           >
             <Check size={16} /> اربط ومطابق
@@ -722,7 +806,7 @@ function TransferForm({
           onClick={() => void save('problem')}
         >
           {saving ? <Loader2 size={16} className="animate-spin" /> : <TriangleAlert size={16} />}{' '}
-          سجّل المشكلة
+          {existing ? 'احفظ المشكلة مفتوحة' : 'سجّل المشكلة'}
         </button>
         <button className="btn-secondary" disabled={saving} onClick={onClose}>
           إلغاء
