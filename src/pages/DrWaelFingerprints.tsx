@@ -99,12 +99,14 @@ import {
   branchLabel,
   fetchDrWaelManualPunches,
   isOutsideEngine,
+  manualPunchAllowanceText,
   manualPunchErrorText,
   manualPunchFallsNextDay,
   recordDrWaelManualPunch,
   summarizeManualPunches,
   type DrWaelManualPunch,
   type DrWaelManualPunches,
+  type ManualPunchReasonKind,
   type ManualPunchType,
   cairoTime,
   cycleLabel,
@@ -989,6 +991,7 @@ function ManualPunchEmployee({
   });
   const [flipNextDay, setFlipNextDay] = useState(false);
   const [note, setNote] = useState('');
+  const [reasonKind, setReasonKind] = useState<ManualPunchReasonKind>('forgot');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
@@ -1019,16 +1022,16 @@ function ManualPunchEmployee({
         time,
         nextDay,
         note,
+        reasonKind,
       });
       setSaved(
-        `اتسجلت ${type === 'check_in' ? 'حضور' : 'انصراف'} ${time} · ${
-          result.over_allowance
-            ? `فوق السماح (رقم ${result.occurrence_no})`
-            : `في السماح (${result.occurrence_no}/${result.allowance_limit})`
-        }${result.day_status && result.day_status !== 'approved' ? ' · اليوم لسه محتاج قرار' : ''}`
+        `اتسجلت ${type === 'check_in' ? 'حضور' : 'انصراف'} ${time} · ${manualPunchAllowanceText(result)}${
+          result.day_status && result.day_status !== 'approved' ? ' · اليوم لسه محتاج قرار' : ''
+        }`
       );
       setTime('');
       setNote('');
+      setReasonKind('forgot');
       setFlipNextDay(false);
       onSaved();
     } catch (e) {
@@ -1060,6 +1063,7 @@ function ManualPunchEmployee({
           <Pill tone={summary.overAllowance ? 'red' : 'gray'}>
             فوق السماح {summary.overAllowance}
           </Pill>
+          {summary.errands ? <Pill tone="green">مأمورية {summary.errands}</Pill> : null}
           {summary.outsideCount ? <Pill>من غير عداد سماح {summary.outsideCount}</Pill> : null}
           {summary.penalized ? <Pill tone="red">اتخصم {summary.penalized}</Pill> : null}
         </div>
@@ -1159,6 +1163,22 @@ function ManualPunchEmployee({
         </label>
       ) : null}
       <div className="flex flex-wrap items-center gap-2">
+        <Chips<ManualPunchReasonKind>
+          label="سبب البصمة اليدوية"
+          value={reasonKind}
+          onChange={setReasonKind}
+          options={[
+            ['forgot', 'نسيان بصمة'],
+            ['work_errand', 'مأمورية شغل / أوردر'],
+          ]}
+        />
+        <span className={`text-[11px] ${MUTED}`}>
+          {reasonKind === 'work_errand'
+            ? 'مش هتتحسب من الكريديت، وساعاتها محسوبة عادي'
+            : 'هتتحسب من الكريديت (أول مرتين سماح)'}
+        </span>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
         <input
           value={note}
           onChange={(e) => setNote(e.target.value)}
@@ -1194,7 +1214,9 @@ function ManualPunchEmployee({
               <Pill tone={row.counted ? 'green' : 'amber'}>
                 {row.counted ? 'محتسب' : 'لسه مش محتسب'}
               </Pill>
-              {row.occurrence_no == null ? null : row.occurrence_no <=
+              {row.reason_kind === 'work_errand' ? (
+                <Pill tone="green">مأمورية · مش من الكريديت</Pill>
+              ) : row.occurrence_no == null ? null : row.occurrence_no <=
                 (row.allowance_limit ?? 2) ? (
                 <Pill>في السماح</Pill>
               ) : (
