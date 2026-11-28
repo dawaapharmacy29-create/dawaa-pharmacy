@@ -1024,7 +1024,7 @@ function ManualPunchEmployee({
       });
       setSaved(
         `اتسجلت ${type === 'check_in' ? 'حضور' : 'انصراف'} ${time} · ${
-          result.work_order
+          result.reason_kind === 'work_errand'
             ? 'خروج بسبب أوردر · من غير خصم من رصيد البصمات'
             : result.over_allowance
               ? `فوق السماح (رقم ${result.occurrence_no})`
@@ -1213,7 +1213,7 @@ function ManualPunchEmployee({
               <Pill tone={row.counted ? 'green' : 'amber'}>
                 {row.counted ? 'محتسب' : 'لسه مش محتسب'}
               </Pill>
-              {row.work_order ? (
+              {row.reason_kind === 'work_errand' ? (
                 <Pill>أوردر · بدون خصم من الرصيد</Pill>
               ) : null}
               {row.occurrence_no == null ? null : row.occurrence_no <=
