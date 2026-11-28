@@ -32,6 +32,7 @@ const BranchInspection = lazy(() => import('@/pages/BranchInspection'));
 const EvaluationRules2027 = lazy(() => import('@/pages/EvaluationRules2027'));
 const EvaluationLab = lazy(() => import('@/pages/EvaluationLab'));
 const WeeklyReviews = lazy(() => import('@/pages/WeeklyReviews'));
+const CustomerServiceReport = lazy(() => import('@/pages/CustomerServiceReport'));
 const CustomerServiceTasks = lazy(() => import('@/pages/CustomerServiceTasks'));
 const QuarterlyIncentives2027 = lazy(() => import('@/pages/QuarterlyIncentives2027'));
 const OperationsCenter2027 = lazy(() => import('@/pages/OperationsCenter2027'));
@@ -382,6 +383,10 @@ function AppRoutes() {
       <Route
         path="/weekly-reviews"
         element={<ProtectedRoute>{routeSuspense(<WeeklyReviews />, 'المراجعات الأسبوعية')}</ProtectedRoute>}
+      />
+      <Route
+        path="/customer-service-report"
+        element={<ProtectedRoute>{routeSuspense(<CustomerServiceReport />, 'تقرير خدمة العملاء')}</ProtectedRoute>}
       />
       <Route
         path="/customer-service-tasks"
