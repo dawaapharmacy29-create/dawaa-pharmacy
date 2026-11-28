@@ -68,13 +68,43 @@ export function reportNumber(value: Cell): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-/** «13/09/2026  00:05: » → «2026-09-13T00:05:00». */
-export function reportDate(value: Cell): string | null {
-  const match = text(value).match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/);
-  if (!match) return null;
-  const [, d, m, y, hh = '0', mm = '00'] = match;
-  const pad = (s: string) => s.padStart(2, '0');
-  return `${y}-${pad(m)}-${pad(d)}T${pad(hh)}:${mm}:00`;
+/** Read the local Cairo time without applying the browser's timezone. */
+export function reportDate(value: Cell, date1904 = false): string | null {
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value) || value < (date1904 ? 0 : 1) || value >= 2958466) return null;
+    const day = Math.floor(value);
+    if (!date1904 && day === 60) return null; // Excel's fictitious 29 February 1900
+    const epoch = date1904 ? Date.UTC(1904, 0, 1) : Date.UTC(1899, 11, day < 60 ? 31 : 30);
+    const date = new Date(epoch + Math.round(value * 86400) * 1000);
+    return date.getUTCFullYear() <= 9999 ? date.toISOString().slice(0, 19) : null;
+  }
+
+  const normalized = text(value)
+    .replace(/[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')
+    .replace(/[٠-٩۰-۹]/g, (digit) => String(digit.charCodeAt(0) & 15))
+    .trim();
+  const iso = normalized.match(/^(\d{4})([-/])(\d{1,2})\2(\d{1,2})(.*)$/);
+  const local = normalized.match(/^(\d{1,2})([./-])(\d{1,2})\2(\d{4})(.*)$/);
+  if (!iso && !local) return null;
+  const [, first, , middle, last, suffix] = (iso ?? local)!;
+  const time = suffix.match(/^(?:[T\s]+(\d{1,2}):(\d{2})(?::(\d{2})?)?\s*(AM|PM|ص|م)?)?$/i);
+  if (!time) return null;
+
+  const year = Number(iso ? first : last);
+  const month = Number(middle);
+  const day = Number(iso ? last : first);
+  let hour = Number(time[1] ?? 0);
+  const minute = Number(time[2] ?? 0);
+  const second = Number(time[3] ?? 0);
+  const period = time[4]?.toUpperCase();
+  if (period) {
+    if (hour < 1 || hour > 12) return null;
+    hour = hour % 12 + (period === 'PM' || period === 'م' ? 12 : 0);
+  }
+  if (year < 1900 || hour > 23 || minute > 59 || second > 59) return null;
+  const date = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+  if (date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+  return date.toISOString().slice(0, 19);
 }
 
 /** فرع شكري = «الادارة فرع شكري» + «مخزن د.وائل»; فرع الشامي = «الفرعية الشامي» + «مخزن د معاذ». */
@@ -115,9 +145,9 @@ export class ReportError extends Error {}
 
 const isGroupedHeader = (row: Cell[]) => text(row[0]) === 'المستخدم' && text(row[9]) === 'مسلسل';
 
-export function parseEPlusPurchases(rows: Cell[][]): ParsedReport {
+export function parseEPlusPurchases(rows: Cell[][], date1904 = false): ParsedReport {
   const title = text(rows[0]?.[0]);
-  if (rows.some(isGroupedHeader)) return parseBySupplier(rows, title);
+  if (rows.some(isGroupedHeader)) return parseBySupplier(rows, title, date1904);
   const store = text(rows[1]?.[0]) || title.match(/المخزن\s+([^,]+)/)?.[1]?.trim() || '';
   if (!/فواتير|الإسترجاع/.test(title) && !rows.some(isInvoiceHeader))
     throw new ReportError('الملف ده مش تقرير فواتير شراء من ePlus');
@@ -137,8 +167,8 @@ export function parseEPlusPurchases(rows: Cell[][]): ParsedReport {
       continue;
     }
     if (isInvoiceHeader(row)) {
-      const at = reportDate(row[22]);
-      if (!at) throw new ReportError(`تاريخ مش مفهوم في الفاتورة ${text(row[23])}`);
+      const at = reportDate(row[22], date1904);
+      if (!at) throw new ReportError(`تاريخ الفاتورة ${text(row[23])} في ${store}: ${text(row[22]) ? `القيمة «${text(row[22])}» غير صالحة` : 'خانة التاريخ فاضية'}`);
       current = {
         serial: text(row[23]),
         payment: section,
@@ -192,7 +222,7 @@ export function parseEPlusPurchases(rows: Cell[][]): ParsedReport {
 /** «فواتير الشراء» grouped by supplier: «<المورد> | موردين», «<المخزن> | آجل/نقدى», then a line per
  * invoice (المستخدم, الصافى, ض.إضافة, مصاريف, خصم %, خصم قيمة, ق.المرتجع, ق.الفاتورة, العدد, مسلسل,
  * التاريخ) and the supplier's totals; the last «الإجمالى النهائى» line has the report's net. */
-function parseBySupplier(rows: Cell[][], title: string): ParsedReport {
+function parseBySupplier(rows: Cell[][], title: string, date1904: boolean): ParsedReport {
   const store = title.match(/المخزن\s+([^,]+)/)?.[1]?.trim() ?? '';
   const branch = branchOfStore(store);
   if (!branch) throw new ReportError(`المخزن «${store || '؟'}» مش معروف تبع أنهي فرع`);
@@ -215,9 +245,11 @@ function parseBySupplier(rows: Cell[][], title: string): ParsedReport {
       reportNet = reportNumber(row[8]);
       continue;
     }
-    const at = reportDate(row[10]);
     const serial = text(row[9]);
-    if (!at || !serial || !supplier) continue;
+    if (!serial || !supplier) continue;
+    const at = reportDate(row[10], date1904);
+    if (!at && !/^[0-9٠-٩۰-۹]+$/.test(serial)) continue;
+    if (!at) throw new ReportError(`تاريخ الفاتورة ${serial} في ${store}: ${text(row[10]) ? `القيمة «${text(row[10])}» غير صالحة` : 'خانة التاريخ فاضية'}`);
     invoices.push({
       serial,
       payment: section,

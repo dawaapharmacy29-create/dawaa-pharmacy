@@ -106,7 +106,21 @@ export async function readEPlusFile(file: File): Promise<ParsedReport> {
     raw: false,
     defval: '',
   });
-  return parseEPlusPurchases(rows);
+  const rawRows = XLSX.utils.sheet_to_json<(string | number)[]>(sheet, {
+    header: 1,
+    raw: true,
+    defval: '',
+  });
+  const grouped = rows.some((row) =>
+    String(row[0]).trim() === 'المستخدم' && String(row[9]).trim() === 'مسلسل'
+  );
+  rows.forEach((row, index) => {
+    // Keep formatting for IDs and amounts. Only dates need Excel's underlying number.
+    const column = grouped ? 10 : 22;
+    const rawDate = rawRows[index]?.[column];
+    if (typeof rawDate === 'number') row[column] = rawDate;
+  });
+  return parseEPlusPurchases(rows, !!workbook.Workbook?.WBProps?.date1904);
 }
 
 export interface ImportResult {
