@@ -83,6 +83,7 @@ export type TransferSaved = {
 export default function MorningTransfersTab() {
   const { user } = useAuth();
   const [branch, setBranch] = useState<string | null>(null);
+  const [pickedDay, setPickedDay] = useState('');
   const [day, setDay] = useState<TransferDay | null>(null);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState<Editing>(null);
@@ -101,12 +102,12 @@ export default function MorningTransfersTab() {
     const id = ++request.current;
     try {
       setError('');
-      const result = await loadTransferDay(branch);
+      const result = await loadTransferDay(branch, pickedDay || null);
       if (id === request.current) setDay(result);
     } catch (e) {
       if (id === request.current) setError(e instanceof Error ? e.message : String(e));
     }
-  }, [branch]);
+  }, [branch, pickedDay]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -163,6 +164,7 @@ export default function MorningTransfersTab() {
         problems: [],
         note: '',
         branch: day!.branch,
+        day: day!.day,
       });
     patch({
       purchases: pairPurchases(p),
@@ -257,6 +259,21 @@ export default function MorningTransfersTab() {
             setDay(null);
             setBranch(next);
           }} />
+          <label className="text-xs font-bold">
+            الفترة تنتهي الساعة ٩ صباحًا يوم
+            <input type="date" className="input-field mt-1 !w-auto" value={pickedDay || day.day}
+              onChange={(event) => {
+                if (!event.target.value || event.target.value === (pickedDay || day.day)) return;
+                setEditing(null);
+                setDay(null);
+                setPickedDay(event.target.value);
+              }} />
+          </label>
+          {pickedDay ? <button type="button" className="btn-secondary" onClick={() => {
+            setEditing(null);
+            setDay(null);
+            setPickedDay('');
+          }}>الفترة الحالية</button> : null}
           <button
             className="btn-secondary inline-flex items-center gap-1"
             onClick={() => void load()}
@@ -280,6 +297,10 @@ export default function MorningTransfersTab() {
             ))}
           </div>
         </div>
+        <p className="mt-2 text-xs opacity-75">
+          من {day.from.slice(0, 10)} الساعة ٩ ص لحد {day.to.slice(0, 10)} الساعة ٩ ص.
+          مشتريات الموردين الخارجيين تظهر في مراجعة المشتريات.
+        </p>
         <label className="mt-3 block text-xs font-bold">
           ابحث برقم فاتورة البيع أو مسلسل الشراء
           <input className="input-field mt-1" inputMode="numeric" value={search}
@@ -316,6 +337,7 @@ export default function MorningTransfersTab() {
             key={editing.kind === 'sale' ? `sale:${editing.sale.invoice}` : `${editing.kind}:${editing.purchase.store}:${editing.purchase.serial}`}
             editing={editing}
             branch={day.branch}
+            day={day.day}
             salesOnly={pairing.salesOnly}
             onClose={() => setEditing(null)}
             onSaved={(s) => {
@@ -629,12 +651,14 @@ function SaleCard({ s, compact }: { s: TransferSale; compact?: boolean }) {
 function TransferForm({
   editing,
   branch,
+  day,
   salesOnly,
   onClose,
   onSaved,
 }: {
   editing: NonNullable<Editing>;
   branch: string;
+  day: string;
   salesOnly: TransferSale[];
   onClose: () => void;
   onSaved: (saved: TransferSaved) => void;
@@ -694,6 +718,7 @@ function TransferForm({
           saleInvoice,
           ...saved,
           branch,
+          day,
         });
       toast.success('اتحفظ');
       onSaved({
