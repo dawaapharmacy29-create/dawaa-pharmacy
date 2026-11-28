@@ -189,6 +189,9 @@ export default function CustomerServiceTasks() {
             </button>
           ) : null}
           {settings.can_manage ? (
+            <Link className="btn-secondary" to="/customer-service-report">تقرير خدمة العملاء</Link>
+          ) : null}
+          {settings.can_manage ? (
             <button
               className={tab === 'team' ? 'btn-primary' : 'btn-secondary'}
               onClick={() => setTab('team')}
