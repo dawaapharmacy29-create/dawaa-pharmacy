@@ -36,8 +36,7 @@ import TransferReturns from './TransferReturns';
 
 // الخطوة التانية: التحويلات اللي دخلت فرعها. التحويل عندنا فاتورة بيع في الفرع اللي بعت (لعميل الفرع ده)
 // وفاتورة شراء في الفرع ده من مورد الفرع التاني. الصفحة بتربطهم تلقائي، والبنت تأكد أو تربط بإيدها أو تسجل المشكلة.
-// (2026-11-26) بيظهر اللي فيه مشكلة بس: كمية أو كود مختلف أو صنف مش موجود أو فرق فلوس فوق ٥٠ ج. المطابق بيتعتمد
-// مرة واحدة، واللي اتراجع بيتشال من القايمة على طول من غير ما الصفحة كلها تتحمل تاني.
+// تسجيل المشكلة يبقيها في قائمة المراجعة. التأكيد المحفوظ ينقل التحويل للمعتمدة.
 
 const fmtTime = (v: string) =>
   new Date(v.replace(' ', 'T')).toLocaleString('ar-EG', {
@@ -60,7 +59,7 @@ const HOW: Record<TransferPair['how'], string> = {
 type View = 'review' | 'done' | 'all';
 const VIEWS: Array<{ key: View; label: string }> = [
   { key: 'review', label: 'محتاج مراجعة' },
-  { key: 'done', label: 'نتائج المراجعة' },
+  { key: 'done', label: 'المعتمدة' },
   { key: 'all', label: 'الكل' },
 ];
 
@@ -178,6 +177,7 @@ export default function MorningTransfersTab() {
     setBusy(p.purchase.serial);
     try {
       await confirmPair(p);
+      toast.success('التحويل اتعمد واتنقل لتبويب المعتمدة');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {
@@ -201,12 +201,16 @@ export default function MorningTransfersTab() {
       </div>
     );
 
-  const clean = rows.filter((r) => !r.saved && r.hasDetails && !r.issues.length);
-  const needPairs = rows.filter((r) => !r.saved && (!r.hasDetails || r.issues.length > 0));
-  // المطابق بيتحسب خلصان لوحده ومش بيظهر غير في «الكل».
-  const donePairs = rows.filter((r) => r.saved || (r.hasDetails && !r.issues.length));
-  const openPurchases = pairing.purchasesOnly.filter((p) => !p.check);
-  const openSales = pairing.salesOnly.filter((s) => !s.check);
+  const donePairs = rows.filter(({ p, saved }) =>
+    saved && pairPurchases(p).every((purchase) => purchase.check?.status === 'ok')
+  );
+  const approvedPairs = new Set(donePairs);
+  const needPairs = rows.filter((row) => !approvedPairs.has(row));
+  const clean = needPairs.filter(({ p, hasDetails, issues }) =>
+    hasDetails && !issues.length && pairPurchases(p).every((purchase) => !purchase.check)
+  );
+  const openPurchases = pairing.purchasesOnly.filter((p) => p.check?.status !== 'ok');
+  const openSales = pairing.salesOnly.filter((s) => s.check?.status !== 'ok');
   const need = needPairs.length + openPurchases.length + openSales.length;
   const doneCount =
     donePairs.length +
@@ -216,7 +220,10 @@ export default function MorningTransfersTab() {
   const invoiceQuery = search.trim().replace(/[٠-٩۰-۹]/g, (digit) => String(digit.charCodeAt(0) & 15));
   const matches = (...values: Array<string | null | undefined>) =>
     !invoiceQuery || values.some((value) => value?.includes(invoiceQuery));
-  const shownPairs = (view === 'review' ? needPairs : view === 'done' ? donePairs : rows).filter(
+  const reviewPairs = [...needPairs].sort((a, b) =>
+    Number(clean.includes(a)) - Number(clean.includes(b))
+  );
+  const shownPairs = (view === 'review' ? reviewPairs : view === 'done' ? donePairs : rows).filter(
     ({ p }) => matches(...pairPurchases(p).flatMap((item) => [item.serial, item.supplier_invoice_no]),
       ...pairSales(p.sale).map((sale) => sale.invoice))
   );
@@ -224,13 +231,13 @@ export default function MorningTransfersTab() {
     (view === 'review'
       ? openPurchases
       : view === 'done'
-        ? pairing.purchasesOnly.filter((p) => p.check)
+        ? pairing.purchasesOnly.filter((p) => p.check?.status === 'ok')
         : pairing.purchasesOnly).filter((p) => matches(p.serial, p.supplier_invoice_no));
   const shownSales =
     (view === 'review'
       ? openSales
       : view === 'done'
-        ? pairing.salesOnly.filter((s) => s.check)
+        ? pairing.salesOnly.filter((s) => s.check?.status === 'ok')
         : pairing.salesOnly).filter((s) => matches(s.invoice));
 
   const supplierName = day.branch === 'فرع شكري' ? 'دواء الشامي' : 'دواء ابو العزم';
@@ -280,8 +287,8 @@ export default function MorningTransfersTab() {
         </label>
         <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
           <MiniBox label="محتاج مراجعة" value={String(need)} tone={need ? 'amber' : 'green'} />
-          <MiniBox label="مطابق لوحده" value={String(clean.length)} tone="blue" />
-          <MiniBox label="لها نتيجة" value={String(doneCount)} tone="green" />
+          <MiniBox label="مقترح للاعتماد" value={String(clean.length)} tone="blue" />
+          <MiniBox label="معتمدة" value={String(doneCount)} tone="green" />
           <MiniBox
             label="من غير ربط"
             value={String(openPurchases.length + openSales.length)}
@@ -291,7 +298,7 @@ export default function MorningTransfersTab() {
         {clean.length ? (
           <p className="mt-2 text-xs font-bold opacity-70">
             {clean.length} تحويل مطابق (نفس الأصناف والكميات والفرق أقل من{' '}
-            {TRANSFER_MONEY_TOLERANCE} ج) اتحسبوا خلصانين ومش محتاجين مراجعة. تلاقيهم في «نتائج المراجعة».
+            {TRANSFER_MONEY_TOLERANCE} ج) جاهزين للتأكيد بعد مراجعة الربط.
           </p>
         ) : null}
         {day.purchases.length > 0 && day.sales.length === 0 ? (
@@ -329,11 +336,7 @@ export default function MorningTransfersTab() {
       {!invoiceQuery && view === 'review' && need === 0 ? (
         <Panel>
           <EmptyState
-            label={
-              clean.length
-                ? `مفيش مشاكل، والـ ${clean.length} تحويل المطابقين اتحسبوا لوحدهم 👌`
-                : 'مفيش حاجة محتاجة مراجعة 👌'
-            }
+            label="مفيش تحويلات مفتوحة للمراجعة"
           />
         </Panel>
       ) : null}
@@ -341,7 +344,7 @@ export default function MorningTransfersTab() {
       {shownPairs.length ? (
         <Panel>
           <SectionTitle
-            title={view === 'done' ? 'اتراجعت' : view === 'review' ? 'فيها اختلاف' : 'مربوطين'}
+            title={view === 'done' ? 'تحويلات معتمدة' : 'تحويلات مربوطة'}
             subtitle="الكمية والكود والصنف الناقص الأول. فرق الفلوس بيظهر بس لو أكتر من ٥٠ ج"
           />
           <div className="mt-2 space-y-2">
@@ -523,8 +526,8 @@ function PairCard({
             }
           >
             {p.purchase.check!.status === 'ok'
-              ? 'اتأكد'
-              : `مشكلة: ${p.purchase.check!.problems.map(problemLabel).join('، ')}`}{' '}
+              ? 'معتمد'
+              : `مشكلة مفتوحة: ${p.purchase.check!.problems.map(problemLabel).join('، ')}`}{' '}
             · {p.purchase.check!.by}
           </span>
         ) : null}
@@ -543,13 +546,16 @@ function PairCard({
         <SaleCard s={p.sale} compact={all.every((x) => x.lines.length > 0)} />
       </div>
       <TransferLinesCompare purchases={all} sale={p.sale} onlyIssues={issues.length > 0} />
+      {!hasDetails || issues.length ? (
+        <p className="mt-2 text-xs opacity-75">الاعتماد متاح بعد اكتمال تفاصيل الفاتورتين وتصحيح الاختلاف.</p>
+      ) : null}
       <div className="mt-2 flex flex-wrap justify-end gap-1 text-xs">
         <button
           className="btn-primary !px-3 !py-1 inline-flex items-center gap-1"
-          disabled={busy}
+          disabled={busy || !hasDetails || issues.length > 0 || (saved && all.every((purchase) => purchase.check?.status === 'ok'))}
           onClick={onConfirm}
         >
-          {busy ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} {saved ? 'تأكيد بعد المراجعة' : 'تأكيد المطابقة'}
+          {busy ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} {saved && p.purchase.check?.status === 'problem' ? 'اتصلحت واعتمد' : 'اعتمد التحويل'}
         </button>
         {onProblem ? <button
           className="btn-secondary !px-2 !py-1 inline-flex items-center gap-1"
@@ -650,12 +656,19 @@ function TransferForm({
   const [note, setNote] = useState(existing?.note ?? '');
   const [saving, setSaving] = useState(false);
   const linking = editing.kind === 'purchase';
+  const candidate = linking ? salesOnly.find((item) => item.invoice === sale.trim()) : undefined;
+  const canCompare = Boolean(purchase?.lines.length && candidate?.items.length);
+  const differences = purchase && candidate && canCompare
+    ? transferIssues({ purchase, sale: candidate, rest: [], how: 'number' })
+    : [];
+  const canApproveLink = canCompare && differences.length === 0;
 
   async function save(status: 'ok' | 'problem') {
     if (status === 'problem' && problems.length === 0) {
       toast.error('اختاري نوع المشكلة');
       return;
     }
+    if (status === 'ok' && !canApproveLink) return;
     setSaving(true);
     try {
       const saleInvoice = editing.kind === 'sale' ? editing.sale.invoice : sale.trim() || null;
@@ -725,6 +738,14 @@ function TransferForm({
           </datalist>
         </label>
       ) : null}
+      {linking && sale.trim() ? (
+        <p className="text-xs font-bold" role="status">
+          {!candidate ? 'فاتورة البيع مش ظاهرة ضمن الفواتير المتاحة للربط.'
+            : !canCompare ? 'تفاصيل الأصناف ناقصة، والمطابقة لسه محتاجة مراجعة.'
+            : differences.length ? differences.map((issue) => issue.label).join('، ')
+            : 'الأصناف والكميات متطابقة، والفرق في القيمة داخل الحد المسموح.'}
+        </p>
+      ) : null}
       <div>
         <span className="text-xs font-bold">المشكلة</span>
         <div className="mt-1">
@@ -744,7 +765,7 @@ function TransferForm({
         {linking ? (
           <button
             className="btn-primary inline-flex items-center gap-1"
-            disabled={saving || !sale.trim()}
+            disabled={saving || !canApproveLink}
             onClick={() => void save('ok')}
           >
             <Check size={16} /> اربط ومطابق
@@ -760,7 +781,7 @@ function TransferForm({
           onClick={() => void save('problem')}
         >
           {saving ? <Loader2 size={16} className="animate-spin" /> : <TriangleAlert size={16} />}{' '}
-          {existing ? 'احفظ التعديل' : 'سجّل المشكلة'}
+          {existing ? 'احفظ المشكلة مفتوحة' : 'سجّل المشكلة'}
         </button>
         <button className="btn-secondary" disabled={saving} onClick={onClose}>
           إلغاء
