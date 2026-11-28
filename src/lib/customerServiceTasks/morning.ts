@@ -348,9 +348,12 @@ export async function savePurchaseCheck(input: {
   if (error) fail(error, 'تعذّر الحفظ');
 }
 
-export async function loadTransferDay(branch: string | null): Promise<TransferDay> {
+export async function loadTransferDay(
+  branch: string | null,
+  day: string | null = null
+): Promise<TransferDay> {
   const { data, error } = await supabase.rpc('dawaa_cs_transfer_day_v1', {
-    p_day: null,
+    p_day: day,
     p_branch: branch,
   });
   if (error) fail(error, 'تعذّر تحميل التحويلات');
@@ -406,6 +409,7 @@ export async function saveTransferCheck(input: {
   problems: string[];
   note: string;
   branch: string;
+  day?: string;
 }) {
   const { error } = await supabase.rpc('dawaa_cs_transfer_check_save_v1', {
     p_purchase_store: input.purchaseStore,
@@ -415,7 +419,7 @@ export async function saveTransferCheck(input: {
     p_problems: input.problems,
     p_note: input.note || null,
     p_branch: input.branch,
-    p_day: null,
+    p_day: input.day ?? null,
   });
   if (error) fail(error, 'تعذّر الحفظ');
 }
