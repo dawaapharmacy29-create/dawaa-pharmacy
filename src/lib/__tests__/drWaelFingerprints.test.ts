@@ -21,6 +21,7 @@ import {
   manualPunchErrorText,
   manualPunchFallsNextDay,
   summarizeManualPunches,
+  manualPunchAllowanceText,
   type DrWaelManualPunch,
   addDays,
   clockDistance,
@@ -1134,8 +1135,53 @@ describe('manual punches', () => {
       insideAllowance: 2,
       overAllowance: 1,
       outsideCount: 1,
+      errands: 0,
       penalized: 1,
     });
+  });
+
+  it('keeps work errands apart from the allowance count', () => {
+    const summary = summarizeManualPunches([
+      punch({}),
+      punch({ reason_kind: 'work_errand', occurrence_no: null, allowance_limit: null }),
+      punch({ reason_kind: 'work_errand', occurrence_no: null, allowance_limit: null }),
+    ]);
+    expect(summary).toMatchObject({
+      total: 3,
+      insideAllowance: 1,
+      overAllowance: 0,
+      errands: 2,
+      outsideCount: 0,
+    });
+  });
+
+  it('says an errand is not taken from the allowance', () => {
+    expect(
+      manualPunchAllowanceText({
+        occurrence_no: null,
+        allowance_limit: 2,
+        over_allowance: false,
+        day_status: 'approved',
+        reason_kind: 'work_errand',
+        counts_toward_allowance: false,
+      })
+    ).toBe('مأمورية شغل · مش محسوبة من الكريديت');
+    expect(
+      manualPunchAllowanceText({
+        occurrence_no: 3,
+        allowance_limit: 2,
+        over_allowance: true,
+        day_status: null,
+      })
+    ).toBe('فوق السماح (رقم 3)');
+    expect(
+      manualPunchAllowanceText({
+        occurrence_no: 1,
+        allowance_limit: 2,
+        over_allowance: false,
+        day_status: null,
+      })
+    ).toBe('في السماح (1/2)');
   });
 
   const fall = (over: Partial<Parameters<typeof manualPunchFallsNextDay>[0]>) =>

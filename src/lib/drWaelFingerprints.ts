@@ -2078,6 +2078,9 @@ export function quickPlan(
 // Manual punches (migration 20261107170000): one row per punch typed by hand in the cycle.
 export type ManualPunchType = 'check_in' | 'check_out';
 
+/** Why a manager typed the punch. A work errand (out on a delivery order or a work task) never uses the allowance. */
+export type ManualPunchReasonKind = 'forgot' | 'work_errand';
+
 export interface DrWaelManualPunch {
   id: string;
   staff_id: string;
@@ -2086,6 +2089,8 @@ export interface DrWaelManualPunch {
   at: string;
   reason: string | null;
   by: string | null;
+  /** Missing on rows from before the errand option existed; those were all forgotten punches. */
+  reason_kind?: ManualPunchReasonKind;
   /** Its number in the cycle's missing-punch allowance; null when it never went through that count. */
   occurrence_no: number | null;
   allowance_limit: number | null;
@@ -2116,10 +2121,22 @@ export async function fetchDrWaelManualPunches(
 }
 
 export interface RecordedManualPunch {
-  occurrence_no: number;
+  /** Null for a work errand: it takes no number in the allowance. */
+  occurrence_no: number | null;
   allowance_limit: number;
   over_allowance: boolean;
   day_status: string | null;
+  reason_kind?: ManualPunchReasonKind;
+  counts_toward_allowance?: boolean;
+}
+
+/** What the save message says about the allowance. */
+export function manualPunchAllowanceText(result: RecordedManualPunch): string {
+  if (result.reason_kind === 'work_errand' || result.occurrence_no == null)
+    return 'مأمورية شغل · مش محسوبة من الكريديت';
+  return result.over_allowance
+    ? `فوق السماح (رقم ${result.occurrence_no})`
+    : `في السماح (${result.occurrence_no}/${result.allowance_limit})`;
 }
 
 export async function recordDrWaelManualPunch(args: {
@@ -2129,6 +2146,7 @@ export async function recordDrWaelManualPunch(args: {
   time: string;
   nextDay: boolean;
   note?: string | null;
+  reasonKind?: ManualPunchReasonKind;
 }): Promise<RecordedManualPunch> {
   const { data, error } = await supabase.rpc('dr_wael_record_manual_punch_v1', {
     p_staff_id: args.staffId,
@@ -2137,6 +2155,7 @@ export async function recordDrWaelManualPunch(args: {
     p_time: args.time,
     p_next_day: args.nextDay,
     p_note: args.note || null,
+    p_reason_kind: args.reasonKind || 'forgot',
   });
   if (error) throw new Error(error.message);
   return data as RecordedManualPunch;
@@ -2150,6 +2169,10 @@ const MANUAL_PUNCH_ERRORS: ReadonlyArray<readonly [string, string]> = [
   ['manual_punch_cycle_locked', 'مرتب الفترة دي اتقفل، مينفعش تسجل فيها'],
   ['manual_punch_day_approved', 'اليوم ده اتعتمد بقرار مدير، افتحه الأول من مراجعة اليوم'],
   ['manual_punch_already_exists', 'فيه بصمة من النوع ده في اليوم ده بالفعل'],
+  [
+    'manual_punch_already_counted_as_forgot',
+    'اليوم ده اتسجل قبل كده نسيان بصمة من مراجعة الحضور، فمينفعش يتحول لمأمورية من هنا',
+  ],
 ];
 
 export function manualPunchErrorText(error: unknown): string {
@@ -2164,6 +2187,7 @@ export interface ManualPunchSummary {
   insideAllowance: number;
   overAllowance: number;
   outsideCount: number;
+  errands: number;
   penalized: number;
 }
 
@@ -2175,12 +2199,14 @@ export function summarizeManualPunches(rows: DrWaelManualPunch[]): ManualPunchSu
     insideAllowance: 0,
     overAllowance: 0,
     outsideCount: 0,
+    errands: 0,
     penalized: 0,
   };
   for (const row of rows) {
     if (row.counted) summary.counted += 1;
     else summary.notCounted += 1;
-    if (row.occurrence_no == null) summary.outsideCount += 1;
+    if (row.reason_kind === 'work_errand') summary.errands += 1;
+    else if (row.occurrence_no == null) summary.outsideCount += 1;
     else if (row.occurrence_no <= (row.allowance_limit ?? 2)) summary.insideAllowance += 1;
     else summary.overAllowance += 1;
     if (row.penalized) summary.penalized += 1;
