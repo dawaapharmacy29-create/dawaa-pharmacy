@@ -110,6 +110,10 @@ export default function CustomerServiceTasks() {
   const [loadError, setLoadError] = useState('');
   // التبويب في الرابط (?tab=competition) عشان «المسابقة» في القايمة الجانبية تفتح عليه على طول.
   const [searchParams, setSearchParams] = useSearchParams();
+  const branchParam = searchParams.get('reviewBranch');
+  const reviewBranch = branchParam === 'فرع شكري' || branchParam === 'فرع الشامي' ? branchParam : null;
+  const dayParam = searchParams.get('reviewDay') ?? '';
+  const reviewDay = /^\d{4}-\d{2}-\d{2}$/.test(dayParam) ? dayParam : '';
   const tab: PageTab = PAGE_TABS.includes(searchParams.get('tab') as PageTab)
     ? (searchParams.get('tab') as PageTab)
     : 'mine';
@@ -205,9 +209,9 @@ export default function CustomerServiceTasks() {
       ) : tab === 'files' ? (
         <MorningFilesTab today={today} />
       ) : tab === 'purchases' ? (
-        <MorningPurchasesTab />
+        <MorningPurchasesTab key={`${reviewBranch}:${reviewDay}`} initialBranch={reviewBranch} initialDay={reviewDay} />
       ) : tab === 'transfers' ? (
-        <MorningTransfersTab />
+        <MorningTransfersTab key={`${reviewBranch}:${reviewDay}`} initialBranch={reviewBranch} initialDay={reviewDay} />
       ) : tab === 'groups' ? (
         <GroupsTab />
       ) : tab === 'errors' && isTopManager ? (

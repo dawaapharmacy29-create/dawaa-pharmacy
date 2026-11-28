@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle2, Circle, FolderUp, Loader2, RefreshCw, Upload } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Panel, SectionTitle } from '@/components/dashboard/DashboardPrimitives';
 import { SalesInvoiceItemsImport } from '@/components/invoices/SalesInvoiceItemsImport';
@@ -458,13 +459,41 @@ function CustomersUpload({ onDone }: { onDone: () => Promise<void> }) {
   );
 }
 
+// Keep in step with the morning review RPCs' Cairo 09:00 cutoff and transfer supplier rules.
+function purchaseReviewLinks(report: Awaited<ReturnType<typeof readEPlusFile>>) {
+  const windows = new Map<string, { tab: string; day: string; count: number }>();
+  for (const invoice of report.invoices) {
+    const [date, time] = invoice.invoice_at.split('T');
+    const end = new Date(`${date}T00:00:00Z`);
+    if (time >= '09:00:00') end.setUTCDate(end.getUTCDate() + 1);
+    const day = end.toISOString().slice(0, 10);
+    const shokry = report.branch === 'فرع شكري';
+    const internal = invoice.supplier_code === (shokry ? '475' : '300') ||
+      invoice.supplier_name.trim() === (shokry ? 'دواء الشامي' : 'دواء ابو العزم');
+    const tab = internal ? 'transfers' : 'purchases';
+    const key = `${tab}:${day}`;
+    const count = (windows.get(key)?.count ?? 0) + 1;
+    windows.set(key, { tab, day, count });
+  }
+  return Array.from(windows.values()).map(({ tab, day, count }) => ({
+    href: `?${new URLSearchParams({ tab, reviewDay: day, reviewBranch: report.branch })}`,
+    label: `${tab === 'transfers' ? 'التحويلات' : 'المشتريات'} · ${day} حتى ٩ ص · ${count} فاتورة`,
+  }));
+}
+
+type PurchaseUploadMessage = {
+  ok: boolean;
+  text: string;
+  links?: ReturnType<typeof purchaseReviewLinks>;
+};
+
 function PurchasesUpload({ onDone }: { onDone: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
-  const [log, setLog] = useState<Array<{ ok: boolean; text: string }>>([]);
+  const [log, setLog] = useState<PurchaseUploadMessage[]>([]);
 
   async function upload(files: File[]) {
     setBusy(true);
-    const out: Array<{ ok: boolean; text: string }> = [];
+    const out: PurchaseUploadMessage[] = [];
     let suppliers: Array<{ code: string; name: string }> = [];
     try {
       suppliers = await loadPurchaseSuppliers();
@@ -481,6 +510,7 @@ function PurchasesUpload({ onDone }: { onDone: () => Promise<void> }) {
         const r = await importPurchaseReport(report, file.name);
         out.push({
           ok: true,
+          links: purchaseReviewLinks(report),
           text: `${report.store}: ${r.invoices} فاتورة لحد ${r.last_day}${
             unknown.length ? ` · مورد جديد من غير كود: ${unknown.join('، ')}` : ''
           }`,
@@ -511,6 +541,11 @@ function PurchasesUpload({ onDone }: { onDone: () => Promise<void> }) {
           {log.map((l, i) => (
             <li key={i} className={l.ok ? '' : 'font-bold text-[var(--dawaa-status-danger-text)]'}>
               {l.ok ? '✔' : '✖'} {l.text}
+              {l.links?.length ? (
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {l.links.map((link) => <Link key={link.href} className="btn-secondary text-xs" to={link.href}>{link.label}</Link>)}
+                </div>
+              ) : null}
             </li>
           ))}
         </ul>

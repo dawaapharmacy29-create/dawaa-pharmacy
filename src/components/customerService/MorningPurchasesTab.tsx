@@ -138,14 +138,18 @@ const matchesStatus = (i: PurchaseInvoice, f: StatusFilter) =>
 
 export default function MorningPurchasesTab({
   onProgress,
+  initialBranch = null,
+  initialDay = '',
 }: {
+  initialBranch?: string | null;
+  initialDay?: string;
   onProgress?: (done: number, total: number) => void;
 }) {
   const { user } = useAuth();
   const me = user?.name || user?.username || 'أنا';
-  const [branch, setBranch] = useState<string | null>(null);
+  const [branch, setBranch] = useState<string | null>(initialBranch);
   // اليوم اللي الفترة بتخلص فيه (٩ الصبح). فاضي = النهارده، يعني فواتير امبارح.
-  const [pickedDay, setPickedDay] = useState<string>('');
+  const [pickedDay, setPickedDay] = useState<string>(initialDay);
   const [day, setDay] = useState<PurchaseDay | null>(null);
   const [error, setError] = useState('');
   const [status, setStatus] = useState<StatusFilter>('open');

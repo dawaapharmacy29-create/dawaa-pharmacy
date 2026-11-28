@@ -80,10 +80,13 @@ export type TransferSaved = {
   extraSales?: string[];
 };
 
-export default function MorningTransfersTab() {
+export default function MorningTransfersTab({ initialBranch = null, initialDay = '' }: {
+  initialBranch?: string | null;
+  initialDay?: string;
+} = {}) {
   const { user } = useAuth();
-  const [branch, setBranch] = useState<string | null>(null);
-  const [pickedDay, setPickedDay] = useState('');
+  const [branch, setBranch] = useState<string | null>(initialBranch);
+  const [pickedDay, setPickedDay] = useState(initialDay);
   const [day, setDay] = useState<TransferDay | null>(null);
   const [error, setError] = useState('');
   const [editing, setEditing] = useState<Editing>(null);
